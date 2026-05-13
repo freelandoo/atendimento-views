@@ -59,6 +59,11 @@ app.use('/api/operador', dashboardAuth.requireDashboardAuth)
 
 // Rotas JWT SaaS (sem autenticação de sessão — usam Bearer token)
 app.use('/api/auth', apiAuthRouter)
+app.use('/api/empresas', require('./src/routes/api-empresas'))
+app.use('/api/empresas/:empresaId/contextos', require('./src/routes/api-contextos'))
+app.use('/api/empresas/:empresaId/whatsapp', require('./src/routes/api-whatsapp'))
+app.use('/api/empresas/:empresaId/conversas', require('./src/routes/api-conversas'))
+app.use('/api/empresas/:empresaId/relatorios', require('./src/routes/api-relatorios'))
 
 // Resolve empresa a partir da evolution_instance em todos os webhooks
 app.use('/webhook', resolveEmpresaFromWebhook)
