@@ -264,6 +264,44 @@ async function processarRespostaWebhookDebounced(numero) {
     const visao = st.visaoLote
     st.visaoLote = null
 
+    // ─── Contexto 2 Playbook (se empresa tem versão ativa, usa esse fluxo) ──
+    try {
+      const empresaId = conversa.empresa_id
+      if (empresaId) {
+        const { buscarContexto2Ativo } = require('./services/contexto-empresa')
+        const playbookAtivo = await buscarContexto2Ativo(pool, empresaId)
+        if (playbookAtivo) {
+          const { processarMensagemComPlaybook } = require('./services/contexto2-runtime')
+          const ultimaMsgLead = [...historico].reverse().find((m) => m.role === 'user')?.content || ''
+          const resultado = await processarMensagemComPlaybook({
+            pool, log: logger,
+            empresaId, conversaId: String(conversa.id || numero),
+            leadPhone: numero,
+            mensagem: ultimaMsgLead,
+            historico,
+          })
+          if (resultado?.decisao?.mensagem_pro_lead) {
+            const texto = String(resultado.decisao.mensagem_pro_lead).trim()
+            if (texto) {
+              await whatsapp.enviarMensagem(numero, texto)
+              historico.push({ role: 'assistant', content: texto })
+              await salvarConversa(numero, historico,
+                resultado.decisao.etapa_proxima || estagio,
+                conversa.status || 'ativo', undefined, empresaId)
+              if (resultado.decisao.precisa_handoff) {
+                logger.info({ numero, motivo: resultado.decisao.motivo_handoff }, '[playbook] handoff requisitado')
+              }
+            }
+            return
+          }
+          logger.warn({ numero, empresaId }, '[playbook] decisão sem mensagem; caindo no fluxo legado')
+        }
+      }
+    } catch (errPB) {
+      logger.warn({ err: serializeError(errPB), numero }, '[playbook] erro — caindo no fluxo legado')
+    }
+    // ─── fim playbook ───────────────────────────────────────────────────────
+
     const ret = await gerarEEnviarRespostaWhatsapp(numero, historico, estagio, conversa, visao)
     if (ret && ret.stale) {
       st.pendenteAposGeracao = false

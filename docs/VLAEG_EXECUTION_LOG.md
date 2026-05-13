@@ -206,3 +206,94 @@ VLAEG reaberto autonomamente após relatos do usuário de bugs em produção. To
 - Frontend Vercel: `https://atendimento-views.vercel.app` (projeto `atendimento-views`)
 - Evolution API: `https://evolution-api-production-fae5f.up.railway.app`
 
+
+## [2026-05-13] Slice 24 — Contexto 2 como Playbook Comercial Operacional
+
+Transformação do Contexto 2 de "texto institucional" em playbook operacional usado pelo agente em runtime.
+
+### Banco
+**Migration 002_contexto2_playbook.sql** (idempotente):
+- `app.empresa_contextos`: + `contexto_form_json JSONB`, + `schema_version TEXT`
+- `app.empresa_contexto_versoes`: + `playbook_schema_version`, + `aprovado_por UUID`, + `aprovado_em`, + `conteudo_markdown TEXT`
+- Nova tabela `app.empresa_contexto_sugestoes` (id, empresa_id, contexto_versao_id, conversa_id, lead_phone, tipo, evidencia, impacto_comercial, sugestao_json, sugestao_markdown, confianca, status, reviewed_by, reviewed_at)
+- `app.lead_insights`: + dados_extraidos, campos_coletados_json, campos_faltantes_json, ultima_intencao, ultima_etapa, proxima_melhor_acao, temperatura, score, objecoes, dores, servicos_interesse, orcamento_status, reuniao_status, confianca_json, lead_phone, conversa_id, updated_at
+- Índice `idx_sugestoes_empresa_status`, `uq_lead_insights_empresa_numero` (parcial WHERE tipo='playbook_runtime'), `idx_lead_insights_empresa_phone`
+
+### Serviço src/services/contexto-empresa.js (extendido)
+Funções novas (sem quebrar legado):
+- `normalizarContexto1(input)` — form com 18 campos canônicos + bruto texto
+- `validarContexto2Playbook(json)` — merge sobre esqueleto seguro
+- `gerarPromptContexto2({empresa, contexto1})` — system + user prompt da geração
+- `gerarContexto2Playbook({pool, empresaId, contextoId, userId, aiProvider})` — chama IA, valida, salva versão rascunho com markdown + JSON
+- `ativarContexto2({pool, empresaId, versaoId, userId})` — arquiva atuais + ativa + grava aprovado_por
+- `buscarContexto2Ativo(pool, empresaId)` — retorna `{versao_id, json, markdown, ativado_em}`
+- `registrarSugestaoAprendizadoContexto(...)` — salva sugestão em status='pendente' (NUNCA altera versão ativa)
+- `formatarContexto2ParaPrompt(json)` — mantido para compat
+
+### Serviço novo src/services/contexto2-runtime.js
+- `carregarPlaybookAtivo(pool, empresaId)`
+- `extrairDadosDaMensagem(...)` — IA extrai intenção + dados + campos faltantes + próxima pergunta (não responde ao lead aqui)
+- `atualizarLeadInsights(...)` — UPSERT com merge seguro: não apaga dados anteriores; objeções/dores/serviços viram set
+- `decidirRespostaComPlaybook(...)` — IA gera mensagem final + handoff + sugestão de aprendizado opcional
+- `talvezGerarSugestaoAprendizado(...)` — grava sugestão pendente quando a IA detectar padrão
+- `processarMensagemComPlaybook(...)` — pipeline completa: extrai → atualiza insights → decide → registra sugestão
+
+### Integração no agente
+`src/agent.js:processarRespostaWebhookDebounced`:
+- Antes do fluxo legado `gerarEEnviarRespostaWhatsapp`, busca Contexto 2 ativo da empresa
+- Se ativo: roda `processarMensagemComPlaybook`, envia `mensagem_pro_lead` via `whatsapp.enviarMensagem`, salva no histórico, retorna
+- Se não ativo OU se playbook falhar: cai no fluxo legado (PJ Codeworks continua funcionando)
+
+### Rotas src/routes/api-contextos.js
+- `GET /api/empresas/:id/contextos` (lista)
+- `POST /api/empresas/:id/contextos` (aceita `contexto_form_json` ou `conteudo`)
+- `PUT /api/empresas/:id/contextos/:contextoId`
+- `POST /api/empresas/:id/contextos/:contextoId/gerar-playbook` (NOVO — gera markdown + JSON)
+- `POST /api/empresas/:id/contextos/:contextoId/gerar-plano` (legado — mantido)
+- `GET /api/empresas/:id/contextos/:contextoId/versoes`
+- `GET /api/empresas/:id/contextos/versoes/:versaoId`
+- `PUT /api/empresas/:id/contextos/versoes/:versaoId` (edita markdown/JSON)
+- `POST /api/empresas/:id/contextos/versoes/:versaoId/ativar`
+- `POST /api/empresas/:id/contextos/versoes/:versaoId/testar` (NOVO — simula extração + decisão)
+- `GET /api/empresas/:id/contextos/sugestoes?status=pendente`
+- `POST /api/empresas/:id/contextos/sugestoes/:id/aprovar` (marca apenas, não aplica)
+- `POST /api/empresas/:id/contextos/sugestoes/:id/rejeitar`
+- `GET /api/empresas/:id/contextos/ativo`
+
+Todas com `requireAuth + requireEmpresaAccess`.
+
+### Frontend apps/web/app/dashboard/contextos/page.tsx
+- **Form Contexto 1**: 18 campos (text/textarea) — nome, tipo de negócio, nicho, cidade, serviços, preços, público, cliente ideal, diferenciais, problemas, tom, horário, formas de pagamento, objeções, FAQ, quando chamar humano, links, info extra
+- Botão "Gerar Playbook com IA" por contexto
+- Cada Contexto 1 expande lista de versões com badge (rascunho/ativo/arquivado)
+- Cada versão tem **abas Markdown / JSON / Testar**:
+  - JSON com 14 sub-seções clicáveis (resumo_empresa, tom_de_voz, servicos, dados_para_coletar, fluxo_atendimento, respostas_base, regras_orcamento, regras_reuniao, objecoes, lead_scoring, runtime_policy, aprendizado_continuo, limites_da_ia, handoff)
+  - Testar: textarea + botão "Simular atendimento" → mostra extração + decisão como JSON
+- Botão "Ativar" arquiva atual + ativa nova
+- Bloco de sugestões pendentes com Aprovar/Rejeitar (não aplica nada — só revisa)
+
+### Testes test/contexto2-playbook.test.js (7/7 passando)
+- normalizarContexto1
+- validarContexto2Playbook preenche faltas
+- gerarContexto2Playbook com mock de IA
+- extrairDadosDaMensagem aproveita resposta parcial
+- decidirRespostaComPlaybook gera mensagem
+- sugestao_aprendizado fica pendente — NÃO altera versão ativa
+- atualizarLeadInsights faz merge seguro
+- multitenant.test.js continua 9/9
+
+### Variáveis novas (.env.example)
+- `CONTEXT_PLAYBOOK_MODEL` (opcional — usa modelo ativo do LLM se vazio)
+- `CONTEXT_PLAYBOOK_MAX_TOKENS=6000`
+- `CONTEXT_PLAYBOOK_TIMEOUT_MS=60000`
+
+### Critério de empresa com playbook vs sem
+- Empresa **sem versão ativa de Contexto 2** → usa fluxo legado (prompts PJ Codeworks)
+- Empresa **com versão ativa** → roda playbook runtime (extração + decisão)
+- PJ Codeworks segue funcionando porque nenhuma versão dela é ativada automaticamente
+
+### Decisões arquiteturais
+- Aprendizado contínuo NÃO altera contexto ativo — vira sugestão pendente para revisão humana
+- Merge de lead_insights é defensivo: nunca apaga dado anterior com vazio/null
+- Schema do playbook validado por `_esqueletoPlaybook()` — se a IA esquece seção, default seguro entra
+- Frontend mantém retrocompat: contextos que só têm `conteudo` continuam funcionando
