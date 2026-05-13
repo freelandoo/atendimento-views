@@ -2554,6 +2554,7 @@ test('gerarDiagnosticos gera fallback sem ANTHROPIC_KEY', async () => {
   const originalQuery = pool.query
   const prev = process.env.ANTHROPIC_KEY
   delete process.env.ANTHROPIC_KEY
+  require('../src/ai-provider').invalidateCache()
   let step = 0
   pool.query = async () => {
     step += 1
@@ -2583,7 +2584,12 @@ test('gerarDiagnosticos gera fallback sem ANTHROPIC_KEY', async () => {
         ],
       }
     }
-    if (step === 2) {
+    // step 2: getAISettings — empty, falls back to env defaults
+    if (step === 2) return { rows: [] }
+    // step 3: ai_logs INSERT (logs the failed/fallback AI call)
+    if (step === 3) return { rows: [] }
+    // step 4: salvarDiagnosticoProspect INSERT RETURNING
+    if (step === 4) {
       return {
         rows: [
           {

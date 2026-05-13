@@ -624,6 +624,7 @@ async function gerarDiagnosticos(input = {}) {
     if (!prospect) continue
     const diag = await gerarDiagnosticoComClaude(prospect)
     const salvo = await salvarDiagnosticoProspect(id, diag)
+    if (!salvo) continue
     await registrarProspectEvent(id, 'diagnosticado', { provider: salvo.metadata_json?.provider || 'heuristico' })
     saida.push(salvo)
   }
