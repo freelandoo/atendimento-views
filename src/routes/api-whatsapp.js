@@ -8,6 +8,32 @@ const router = Router({ mergeParams: true })
 
 const EVOLUTION_URL = process.env.EVOLUTION_URL || 'http://evolution-api:8080'
 const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY
+const PUBLIC_BACKEND_URL = process.env.PUBLIC_BACKEND_URL || process.env.BACKEND_URL || ''
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || ''
+
+function webhookConfigForInstance() {
+  if (!PUBLIC_BACKEND_URL) return null
+  return {
+    enabled: true,
+    url: `${PUBLIC_BACKEND_URL.replace(/\/+$/, '')}/webhook`,
+    byEvents: false,
+    base64: false,
+    headers: WEBHOOK_SECRET ? { 'x-webhook-secret': WEBHOOK_SECRET } : undefined,
+    events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE', 'QRCODE_UPDATED'],
+  }
+}
+
+async function aplicarWebhookEvolution(instanceName) {
+  const wh = webhookConfigForInstance()
+  if (!wh) return
+  try {
+    await axios.post(
+      `${EVOLUTION_URL}/webhook/set/${encodeURIComponent(instanceName)}`,
+      { webhook: wh },
+      { headers: { apikey: EVOLUTION_KEY }, timeout: 10000 }
+    )
+  } catch (_) {}
+}
 
 // GET /api/empresas/:empresaId/whatsapp
 router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
@@ -28,10 +54,17 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'evolution_instance só aceita letras, números, _ e -.' } })
   }
 
+  const webhookCfg = webhookConfigForInstance()
+  const createPayload = {
+    instanceName: evolution_instance,
+    integration: 'WHATSAPP-BAILEYS',
+    qrcode: true,
+    ...(webhookCfg ? { webhook: webhookCfg } : {}),
+  }
   try {
     await axios.post(
       `${EVOLUTION_URL}/instance/create`,
-      { instanceName: evolution_instance, integration: 'WHATSAPP-BAILEYS', qrcode: true },
+      createPayload,
       { headers: { apikey: EVOLUTION_KEY }, timeout: 15000 }
     )
   } catch (err) {
@@ -43,6 +76,9 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
       return res.status(502).json({ ok: false, error: { code: 'EVOLUTION_CREATE_FAILED', message: Array.isArray(msg) ? msg.join('; ') : String(msg || 'Falha ao criar instância no Evolution.') } })
     }
   }
+
+  // Garante webhook configurado (idempotente — funciona mesmo se a instância já existia)
+  await aplicarWebhookEvolution(evolution_instance)
 
   try {
     const { rows: [inst] } = await pool.query(
