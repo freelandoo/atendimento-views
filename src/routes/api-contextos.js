@@ -2,6 +2,8 @@
 const { Router } = require('express')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
+const { generateContextPlan } = require('../ai-provider')
+const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
 
@@ -69,6 +71,42 @@ router.post('/:contextoId/versoes', requireAuth, requireEmpresaAccess, async (re
     `INSERT INTO app.empresa_contexto_versoes (contexto_id, empresa_id, versao, conteudo_json, gerado_por)
      VALUES ($1, $2, $3, $4, $5) RETURNING *`,
     [req.params.contextoId, req.empresa.id, versao, JSON.stringify(conteudo_json), gerado_por]
+  )
+  return res.status(201).json({ ok: true, data: v })
+})
+
+// POST /api/empresas/:empresaId/contextos/:contextoId/gerar-plano
+// Lê o conteudo do contexto, chama IA, salva versão rascunho e retorna
+router.post('/:contextoId/gerar-plano', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const { rows: [ctx] } = await pool.query(
+    'SELECT * FROM app.empresa_contextos WHERE id = $1 AND empresa_id = $2',
+    [req.params.contextoId, req.empresa.id]
+  )
+  if (!ctx) {
+    return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Contexto não encontrado.' } })
+  }
+  if (!ctx.conteudo || ctx.conteudo.trim().length < 20) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Contexto 1 muito curto para gerar plano.' } })
+  }
+
+  let planoJson
+  try {
+    const result = await generateContextPlan({ contexto1: ctx.conteudo, pool, log: logger })
+    planoJson = result.json || result.text
+  } catch (err) {
+    logger.error({ err: err.message }, 'Erro ao gerar plano de contexto')
+    return res.status(502).json({ ok: false, error: { code: 'AI_ERROR', message: 'Falha ao chamar IA: ' + err.message } })
+  }
+
+  const { rows: [last] } = await pool.query(
+    'SELECT COALESCE(MAX(versao), 0) AS max_versao FROM app.empresa_contexto_versoes WHERE contexto_id = $1',
+    [ctx.id]
+  )
+  const versao = last.max_versao + 1
+  const { rows: [v] } = await pool.query(
+    `INSERT INTO app.empresa_contexto_versoes (contexto_id, empresa_id, versao, conteudo_json, gerado_por, status)
+     VALUES ($1, $2, $3, $4, 'ia', 'rascunho') RETURNING *`,
+    [ctx.id, req.empresa.id, versao, JSON.stringify(planoJson)]
   )
   return res.status(201).json({ ok: true, data: v })
 })
