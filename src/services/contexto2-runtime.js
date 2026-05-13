@@ -330,9 +330,100 @@ async function talvezGerarSugestaoAprendizado({ pool, log, empresaId, contextoVe
   }
 }
 
+// ─── Pipeline em uma chamada (extração + decisão juntos) ─────────────────────
+const BUNDLE_SYSTEM = `Você é o agente comercial da empresa em WhatsApp.
+
+Em UMA passada, você faz duas coisas:
+1) Extrai dados úteis da última mensagem do lead (mesmo respostas parciais).
+2) Decide a próxima mensagem do agente — natural, curta, com no máximo UMA pergunta principal.
+
+Use o Contexto 2 (playbook) para decidir tom, perguntas, regras de orçamento, regras de reunião e gatilhos de handoff.
+
+Regras:
+- Não invente dados/preço/prazo/garantia.
+- Não apague dados conhecidos com vazio/null.
+- Não repita perguntas já respondidas no histórico.
+- Faça UMA pergunta principal por mensagem (salvo combinações naturais).
+- Se lead pedir preço sem escopo: peça O dado mais importante para faixa.
+- Se faltar dado: peça o próximo mais importante (consulte dados_para_coletar).
+- Se houver risco/pedido fora do contexto: precisa_handoff = true.
+- sugestao_aprendizado só quando padrão claro (objeção nova, pergunta frequente, resposta que funcionou).
+
+Retorne APENAS JSON neste schema:
+{
+  "extracao": {
+    "intencao": "orcamento|reuniao|duvida|objecao|diagnostico|fechamento|vaga|outro",
+    "dados_extraidos": {},
+    "campos_coletados": [],
+    "campos_faltantes": [],
+    "inferencias": [{"campo":"","valor":"","confianca":"baixa|media|alta","precisa_confirmar":true}],
+    "objecoes_detectadas": [],
+    "dores_detectadas": [],
+    "servicos_interesse": [],
+    "temperatura": "quente|morno|frio",
+    "score": 0,
+    "orcamento_status": "nao_solicitado|solicitado_sem_escopo|pronto_para_faixa|precisa_reuniao|enviado",
+    "reuniao_status": "nao_oferecida|deve_oferecer|oferecida|aceita|recusada",
+    "proxima_melhor_acao": "",
+    "proxima_pergunta_sugerida": "",
+    "precisa_handoff": false,
+    "motivo_handoff": ""
+  },
+  "decisao": {
+    "mensagem_pro_lead": "",
+    "etapa_proxima": "",
+    "atualizar_perfil": {},
+    "precisa_handoff": false,
+    "motivo_handoff": "",
+    "sugestao_aprendizado": null
+  }
+}`
+
+async function extrairEDecidirBundle({ pool, log, playbook, historico, mensagem, leadInsights, empresaId, conversaId, leadPhone, aiProvider }) {
+  const provider = aiProvider || require('../ai-provider')
+  const userPrompt = `PLAYBOOK ATIVO:
+${_truncatePlaybook(playbook?.json || playbook)}
+
+DADOS JÁ CONHECIDOS DO LEAD:
+${JSON.stringify(leadInsights || {}, null, 2)}
+
+HISTÓRICO RECENTE:
+${_formatHistorico(historico)}
+
+ÚLTIMA MENSAGEM DO LEAD:
+${mensagem || ''}
+
+Extraia + decida em um único JSON.`
+
+  const result = await provider.generateAIResponse(
+    {
+      systemPrompt: BUNDLE_SYSTEM,
+      userPrompt,
+      task: 'extractAndReply',
+      maxTokens: 2000,
+      timeoutMs: 30000,
+      empresaId, refType: 'reply', clientNumero: leadPhone,
+    },
+    pool, log
+  )
+  const p = _safeJson(result.text)
+  const extracao = _normalizeExtracao(p.extracao || {})
+  const decisao = {
+    mensagem_pro_lead: typeof p.decisao?.mensagem_pro_lead === 'string' ? p.decisao.mensagem_pro_lead : '',
+    etapa_proxima: typeof p.decisao?.etapa_proxima === 'string' ? p.decisao.etapa_proxima : '',
+    atualizar_perfil: p.decisao?.atualizar_perfil && typeof p.decisao.atualizar_perfil === 'object' ? p.decisao.atualizar_perfil : {},
+    precisa_handoff: !!p.decisao?.precisa_handoff,
+    motivo_handoff: typeof p.decisao?.motivo_handoff === 'string' ? p.decisao.motivo_handoff : '',
+    sugestao_aprendizado: p.decisao?.sugestao_aprendizado && typeof p.decisao.sugestao_aprendizado === 'object' ? p.decisao.sugestao_aprendizado : null,
+  }
+  return { extracao, decisao }
+}
+
 /**
- * Pipeline completa: extrai → atualiza insights → decide → registra sugestão.
- * Usado pelo agente quando empresa tem Contexto 2 ativo.
+ * Pipeline completa: bundle (1 IA call) → atualiza insights → registra sugestão.
+ * Bundle reduz custo pela metade vs duas chamadas separadas.
+ *
+ * Variável de ambiente CONTEXT_PLAYBOOK_BUNDLE=false força duas chamadas (debug).
  */
 async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, leadPhone, mensagem, historico, aiProvider }) {
   const playbook = await carregarPlaybookAtivo(pool, empresaId)
@@ -345,17 +436,28 @@ async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, 
   )
   const leadInsights = insightsRow || {}
 
-  const extracao = await extrairDadosDaMensagem({
-    pool, log, playbook, historico, mensagem, leadInsights,
-    empresaId, conversaId, leadPhone, aiProvider,
-  })
+  const usarBundle = String(process.env.CONTEXT_PLAYBOOK_BUNDLE || 'true').toLowerCase() !== 'false'
+
+  let extracao, decisao
+  if (usarBundle) {
+    const b = await extrairEDecidirBundle({
+      pool, log, playbook, historico, mensagem, leadInsights,
+      empresaId, conversaId, leadPhone, aiProvider,
+    })
+    extracao = b.extracao
+    decisao = b.decisao
+  } else {
+    extracao = await extrairDadosDaMensagem({
+      pool, log, playbook, historico, mensagem, leadInsights,
+      empresaId, conversaId, leadPhone, aiProvider,
+    })
+    decisao = await decidirRespostaComPlaybook({
+      pool, log, playbook, historico, mensagem, leadInsights, extracao,
+      empresaId, conversaId, leadPhone, aiProvider,
+    })
+  }
 
   await atualizarLeadInsights({ pool, empresaId, conversaId, leadPhone, extracao })
-
-  const decisao = await decidirRespostaComPlaybook({
-    pool, log, playbook, historico, mensagem, leadInsights, extracao,
-    empresaId, conversaId, leadPhone, aiProvider,
-  })
 
   await talvezGerarSugestaoAprendizado({
     pool, log, empresaId, contextoVersaoId: playbook.versao_id,
@@ -370,6 +472,7 @@ module.exports = {
   extrairDadosDaMensagem,
   atualizarLeadInsights,
   decidirRespostaComPlaybook,
+  extrairEDecidirBundle,
   talvezGerarSugestaoAprendizado,
   processarMensagemComPlaybook,
 }

@@ -156,6 +156,21 @@ export default function ContextosPage() {
     } catch {}
   }
 
+  async function aplicarSugestao(id: string) {
+    if (!empresaId) return
+    setMsg(null)
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/contextos/sugestoes/${id}/aplicar`, { method: 'POST' })
+      setSugestoes((prev) => prev.filter((s) => s.id !== id))
+      setMsg({ tone: 'ok', text: 'Novo rascunho gerado a partir da sugestão. Revise e ative quando quiser.' })
+      // recarrega contextos+versões
+      await carregar()
+      for (const k of Object.keys(aberto)) if (aberto[k]) await carregarVersoes(k)
+    } catch (err: unknown) {
+      setMsg({ tone: 'err', text: err instanceof Error ? err.message : 'Erro ao aplicar sugestão.' })
+    }
+  }
+
   return (
     <div className="space-y-8 max-w-5xl">
       <h1 className="text-2xl font-bold">Contextos</h1>
@@ -254,6 +269,7 @@ export default function ContextosPage() {
                   {s.sugestao_markdown && <pre className="mt-2 text-xs bg-gray-50 p-2 rounded whitespace-pre-wrap">{s.sugestao_markdown}</pre>}
                 </div>
                 <div className="flex gap-2 shrink-0">
+                  <button onClick={() => aplicarSugestao(s.id)} className="text-xs px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-dark" title="Gera um novo rascunho com a sugestão aplicada">Aplicar como rascunho</button>
                   <button onClick={() => reviewSugestao(s.id, 'aprovar')} className="text-xs px-3 py-1.5 rounded-lg bg-green-600 text-white">Aprovar</button>
                   <button onClick={() => reviewSugestao(s.id, 'rejeitar')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-300">Rejeitar</button>
                 </div>
@@ -274,6 +290,28 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
   const [testResult, setTestResult] = useState<unknown>(null)
   const [testando, setTestando] = useState(false)
   const [testErr, setTestErr] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [draftMd, setDraftMd] = useState<string>(versao.conteudo_markdown || '')
+  const [savingMd, setSavingMd] = useState(false)
+  const [mdMsg, setMdMsg] = useState<string | null>(null)
+
+  async function salvarMarkdown() {
+    if (!empresaId) return
+    setSavingMd(true)
+    setMdMsg(null)
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/contextos/versoes/${versao.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ conteudo_markdown: draftMd }),
+      })
+      setMdMsg('Markdown salvo.')
+      setEditing(false)
+    } catch (e: unknown) {
+      setMdMsg(e instanceof Error ? e.message : 'Erro ao salvar.')
+    } finally {
+      setSavingMd(false)
+    }
+  }
 
   const badgeClass = versao.status === 'ativo'
     ? 'bg-green-100 text-green-700'
@@ -331,9 +369,36 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
           </div>
 
           {tab === 'markdown' && (
-            <pre className="text-xs bg-gray-900 text-gray-100 p-3 rounded-lg overflow-x-auto max-h-96 whitespace-pre-wrap break-words">
-              {versao.conteudo_markdown || '(sem markdown)'}
-            </pre>
+            <div className="space-y-2">
+              {editing ? (
+                <>
+                  <textarea
+                    value={draftMd}
+                    onChange={(e) => setDraftMd(e.target.value)}
+                    rows={20}
+                    className="w-full text-xs font-mono border rounded-lg p-3"
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={salvarMarkdown} disabled={savingMd} className="text-xs px-3 py-1.5 rounded-lg bg-brand text-white disabled:opacity-50">
+                      {savingMd ? 'Salvando…' : 'Salvar markdown'}
+                    </button>
+                    <button onClick={() => { setEditing(false); setDraftMd(versao.conteudo_markdown || '') }} className="text-xs px-3 py-1.5 rounded-lg border">
+                      Cancelar
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <pre className="text-xs bg-gray-900 text-gray-100 p-3 rounded-lg overflow-x-auto max-h-96 whitespace-pre-wrap break-words">
+                    {versao.conteudo_markdown || '(sem markdown)'}
+                  </pre>
+                  <button onClick={() => { setDraftMd(versao.conteudo_markdown || ''); setEditing(true) }} className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-100">
+                    Editar markdown
+                  </button>
+                </>
+              )}
+              {mdMsg && <p className="text-xs text-brand">{mdMsg}</p>}
+            </div>
           )}
 
           {tab === 'json' && (

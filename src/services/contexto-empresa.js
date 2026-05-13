@@ -328,6 +328,95 @@ async function getContextoAtivoEmpresa(pool, empresaId) {
 }
 
 /**
+ * Aplica uma sugestão criando um NOVO draft a partir da versão ativa.
+ * NÃO altera nada que esteja ativo — usuário precisa revisar e ativar.
+ * Retorna { versao_novo_draft, sugestao_atualizada }.
+ */
+async function aplicarSugestaoComoDraft({ pool, log, empresaId, sugestaoId, userId, aiProvider }) {
+  if (!pool || !empresaId || !sugestaoId) throw new Error('aplicarSugestaoComoDraft: parâmetros obrigatórios')
+
+  const { rows: [sug] } = await pool.query(
+    `SELECT * FROM app.empresa_contexto_sugestoes WHERE id = $1 AND empresa_id = $2`,
+    [sugestaoId, empresaId]
+  )
+  if (!sug) throw new Error('Sugestão não encontrada')
+  if (sug.status === 'aplicada') throw new Error('Sugestão já foi aplicada')
+
+  const ativo = await buscarContexto2Ativo(pool, empresaId)
+  if (!ativo) throw new Error('Nenhum Contexto 2 ativo para receber a sugestão. Ative um primeiro.')
+
+  // Descobre contexto_id da versão ativa
+  const { rows: [versaoAtiva] } = await pool.query(
+    'SELECT contexto_id FROM app.empresa_contexto_versoes WHERE id = $1',
+    [ativo.versao_id]
+  )
+  if (!versaoAtiva) throw new Error('Versão ativa órfã')
+
+  // Pede para a IA mesclar a sugestão no playbook ativo
+  const systemPrompt = `Você recebe um Contexto 2 (playbook comercial) e uma sugestão de aprendizado vinda de uma conversa real.
+Sua tarefa: criar uma NOVA VERSÃO do playbook incorporando a sugestão de forma mínima e cirúrgica.
+Não reescreva tudo. Só ajuste/adicione o que a sugestão indica.
+Não invente regras que não estão na sugestão.
+Mantenha schema_version e estrutura idênticos.
+
+Retorne APENAS JSON: { "markdown": "...", "json": { ...playbook_completo... } }`
+
+  const userPrompt = `PLAYBOOK ATUAL (JSON):
+${JSON.stringify(ativo.json, null, 2)}
+
+PLAYBOOK ATUAL (Markdown):
+${ativo.markdown || '(sem markdown)'}
+
+SUGESTÃO (tipo: ${sug.tipo}, confiança: ${sug.confianca}):
+Evidência: ${sug.evidencia}
+${sug.sugestao_markdown ? `Sugestão (markdown):\n${sug.sugestao_markdown}\n` : ''}
+${sug.sugestao_json && Object.keys(sug.sugestao_json).length ? `Sugestão (json):\n${JSON.stringify(sug.sugestao_json, null, 2)}` : ''}
+
+Incorpore a sugestão. Retorne o playbook completo (não só o delta).`
+
+  const provider = aiProvider || require('../ai-provider')
+  const result = await provider.generateAIResponse(
+    {
+      systemPrompt, userPrompt,
+      task: 'applyLearningSuggestion',
+      maxTokens: Number(process.env.CONTEXT_PLAYBOOK_MAX_TOKENS) || 6000,
+      timeoutMs: Number(process.env.CONTEXT_PLAYBOOK_TIMEOUT_MS) || 60000,
+      empresaId, refType: 'contexto', refId: versaoAtiva.contexto_id,
+    },
+    pool, log
+  )
+  const parsed = parsearRespostaJsonClaude(result.text) || {}
+  const markdown = typeof parsed.markdown === 'string' ? parsed.markdown : (ativo.markdown || '')
+  const jsonValidado = validarContexto2Playbook(parsed.json || ativo.json || {})
+
+  // Cria novo draft
+  const { rows: [last] } = await pool.query(
+    'SELECT COALESCE(MAX(versao), 0)::int AS max_versao FROM app.empresa_contexto_versoes WHERE contexto_id = $1',
+    [versaoAtiva.contexto_id]
+  )
+  const versao = (last?.max_versao || 0) + 1
+  const { rows: [v] } = await pool.query(
+    `INSERT INTO app.empresa_contexto_versoes
+      (contexto_id, empresa_id, versao, conteudo_json, conteudo_markdown,
+       gerado_por, status, playbook_schema_version)
+     VALUES ($1, $2, $3, $4, $5, 'sugestao', 'rascunho', $6)
+     RETURNING *`,
+    [versaoAtiva.contexto_id, empresaId, versao, JSON.stringify(jsonValidado), markdown, PLAYBOOK_SCHEMA_VERSION]
+  )
+
+  // Marca sugestão como aplicada
+  await pool.query(
+    `UPDATE app.empresa_contexto_sugestoes
+       SET status = 'aplicada', reviewed_at = NOW(), reviewed_by = $2, contexto_versao_id = $3
+     WHERE id = $1`,
+    [sugestaoId, userId || null, v.id]
+  )
+
+  invalidarCacheEmpresa(empresaId)
+  return { versao_novo_draft: v, sugestao_id: sugestaoId }
+}
+
+/**
  * Registra uma sugestão de aprendizado pendente.
  * NUNCA altera o contexto ativo automaticamente.
  */
@@ -396,6 +485,7 @@ module.exports = {
   buscarContexto2Ativo,
   getContextoAtivoEmpresa,
   registrarSugestaoAprendizadoContexto,
+  aplicarSugestaoComoDraft,
   formatarContexto2ParaPrompt,
   invalidarCacheEmpresa,
 }

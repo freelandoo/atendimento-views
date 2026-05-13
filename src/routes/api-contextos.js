@@ -11,6 +11,7 @@ const {
   registrarSugestaoAprendizadoContexto,
   validarContexto2Playbook,
   invalidarCacheEmpresa,
+  aplicarSugestaoComoDraft,
 } = require('../services/contexto-empresa')
 const {
   processarMensagemComPlaybook,
@@ -244,6 +245,22 @@ router.post('/sugestoes/:sugestaoId/aprovar', requireAuth, requireEmpresaAccess,
   )
   if (!s) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Sugestão não encontrada.' } })
   return res.json({ ok: true, data: s })
+})
+
+// POST /api/empresas/:empresaId/contextos/sugestoes/:sugestaoId/aplicar
+// Gera novo DRAFT a partir do playbook ativo + sugestão. NÃO ativa.
+router.post('/sugestoes/:sugestaoId/aplicar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const r = await aplicarSugestaoComoDraft({
+      pool, log: logger,
+      empresaId: req.empresa.id,
+      sugestaoId: req.params.sugestaoId,
+      userId: req.user?.id,
+    })
+    return res.status(201).json({ ok: true, data: r })
+  } catch (err) {
+    return res.status(400).json({ ok: false, error: { code: 'APPLY_FAILED', message: err.message } })
+  }
 })
 
 // POST /api/empresas/:empresaId/contextos/sugestoes/:sugestaoId/rejeitar
