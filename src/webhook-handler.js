@@ -1,4 +1,6 @@
 'use strict'
+const { pool } = require('./db')
+const { resolverEmpresaPorInstance } = require('./db/whatsapp-instances')
 
 function registerWebhookRoute(app, deps = {}) {
   const {
@@ -57,7 +59,10 @@ function registerWebhookRoute(app, deps = {}) {
 
         const numero = canonicoRemoteJidParaConversa(msg.key) || remoteJidOriginal
         if (!numero) return
-        webhookLog = webhookLog.child({ numero })
+
+        const evolutionInstance = String(req.body?.instance || '')
+        const empresaId = await resolverEmpresaPorInstance(pool, evolutionInstance, logger)
+        webhookLog = webhookLog.child({ numero, empresa_id: empresaId, evolution_instance: evolutionInstance || undefined })
         if (/@lid$/i.test(numero) && !msg.key?.remoteJidAlt) {
           webhookLog.warn(
             '⚠️ Webhook: conversa só com @lid e sem remoteJidAlt — atualize a Evolution API ou aguarde evento com JID de telefone; comandos/DB podem falhar.'
@@ -150,7 +155,7 @@ function registerWebhookRoute(app, deps = {}) {
           historico.push({ role: 'user', content: textoHistorico })
         }
     
-        await salvarConversa(numero, historico, estagio, conversa?.status || 'ativo')
+        await salvarConversa(numero, historico, estagio, conversa?.status || 'ativo', undefined, empresaId)
         let respostaLembrete = null
         if (typeof registrarRespostaLembreteReuniao === 'function') {
           respostaLembrete = await registrarRespostaLembreteReuniao(numero, textoHistorico).catch((err) =>

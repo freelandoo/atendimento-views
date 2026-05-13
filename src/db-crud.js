@@ -105,7 +105,7 @@ function createDbCrud({ pool, logger, serializeError }) {
     return rows[0] || null
   }
 
-  async function salvarConversa(numero, historico, estagio, status = 'ativo', agentePausado = undefined) {
+  async function salvarConversa(numero, historico, estagio, status = 'ativo', agentePausado = undefined, empresaId = null) {
     const arr = Array.isArray(historico) ? historico : []
     let jsonText
     try {
@@ -116,29 +116,31 @@ function createDbCrud({ pool, logger, serializeError }) {
     if (agentePausado === undefined) {
       await pool.query(
         `
-        INSERT INTO vendas.conversas (numero, historico, estagio, status)
-        VALUES ($1, $2::jsonb, $3, $4)
-        ON CONFLICT (numero) DO UPDATE
-        SET historico = EXCLUDED.historico,
-            estagio = EXCLUDED.estagio,
-            status = EXCLUDED.status,
-            atualizado_em = NOW()
-        `,
-        [numero, jsonText, estagio, status]
-      )
-    } else {
-      await pool.query(
-        `
-        INSERT INTO vendas.conversas (numero, historico, estagio, status, agente_pausado)
+        INSERT INTO vendas.conversas (numero, historico, estagio, status, empresa_id)
         VALUES ($1, $2::jsonb, $3, $4, $5)
         ON CONFLICT (numero) DO UPDATE
         SET historico = EXCLUDED.historico,
             estagio = EXCLUDED.estagio,
             status = EXCLUDED.status,
-            agente_pausado = EXCLUDED.agente_pausado,
+            empresa_id = COALESCE(EXCLUDED.empresa_id, vendas.conversas.empresa_id),
             atualizado_em = NOW()
         `,
-        [numero, jsonText, estagio, status, agentePausado]
+        [numero, jsonText, estagio, status, empresaId]
+      )
+    } else {
+      await pool.query(
+        `
+        INSERT INTO vendas.conversas (numero, historico, estagio, status, agente_pausado, empresa_id)
+        VALUES ($1, $2::jsonb, $3, $4, $5, $6)
+        ON CONFLICT (numero) DO UPDATE
+        SET historico = EXCLUDED.historico,
+            estagio = EXCLUDED.estagio,
+            status = EXCLUDED.status,
+            agente_pausado = EXCLUDED.agente_pausado,
+            empresa_id = COALESCE(EXCLUDED.empresa_id, vendas.conversas.empresa_id),
+            atualizado_em = NOW()
+        `,
+        [numero, jsonText, estagio, status, agentePausado, empresaId]
       )
     }
   }
