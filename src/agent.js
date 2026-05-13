@@ -57,6 +57,7 @@ const { createFollowupAuto } = require('./followup-auto')
 const { createOperatorCommands } = require('./operator-commands')
 const { registerWebhookRoute } = require('./webhook-handler')
 const aiProvider = require('./ai-provider')
+const { getContextoAtivoEmpresa, formatarContexto2ParaPrompt } = require('./services/contexto-empresa')
 const {
   criarEventoAgenda,
   buscarSlotsDisponiveis,
@@ -1469,7 +1470,7 @@ function montarSystemPromptDinamico(estagio, perfil, aprendizado, flags = {}, hi
     prompts.SYSTEM_CORE_BASE.trim() ||
     prompts.SYSTEM_PROMPT_BASE.trim() ||
     `Voce e o assistente de vendas da PJ Codeworks. Responda APENAS com um objeto JSON valido com mensagem_pro_lead, atualizar_perfil, etapa_proxima, solicitar_calculo_preco, solicitar_classificacao_nicho, handoff, motivo_handoff.`
-  const empresa = prompts.EMPRESA_KNOWLEDGE_BASE.trim()
+  const empresa = (flags.empresaKnowledge ?? prompts.EMPRESA_KNOWLEDGE_BASE).trim()
   const blocoEmpresa = empresa ? `\n\n---\n\n${empresa}\n` : ''
   const ctxHorario = textoContextoHorarioVictorParaPrompt()
   const blocoEstatico = `${base}${blocoEmpresa}`
@@ -1998,7 +1999,7 @@ async function chamarClaude(historico, estagio, perfil, visaoUltimaMensagem = nu
     throw new Error('A última mensagem precisa ser do usuário (verifique duplicatas no histórico)')
   }
 
-  const [aprendizado, aprendizadosAtivos, contextosInternos, jaRecebeuPreviewRes] = await Promise.all([
+  const [aprendizado, aprendizadosAtivos, contextosInternos, jaRecebeuPreviewRes, contexto2Json] = await Promise.all([
     buscarUltimoAprendizado(),
     buscarAprendizadosAtivos(),
     perfil?.numero ? buscarLeadContextos(perfil.numero, LEAD_CONTEXTO_PROMPT_LIMIT) : [],
@@ -2008,7 +2009,9 @@ async function chamarClaude(historico, estagio, perfil, visaoUltimaMensagem = nu
         [perfil.numero, 'recebeu_preview']
       )
       : { rows: [] },
+    perfil?.empresa_id ? getContextoAtivoEmpresa(pool, perfil.empresa_id) : Promise.resolve(null),
   ])
+  const empresaKnowledge = contexto2Json ? (formatarContexto2ParaPrompt(contexto2Json) ?? null) : null
   const flags = {
     pedidosPreco: contarPedidosPrecoDoLead(historico),
     temPrecoCalculado: !!(perfil && perfil.precificacao_json),
@@ -2017,6 +2020,7 @@ async function chamarClaude(historico, estagio, perfil, visaoUltimaMensagem = nu
     jaRecebeuPreview: jaRecebeuPreviewRes.rows.length > 0,
     respostaProvavelmenteAutoReply: detectarAutoReplyEmContextoProspeccao(perfil, historico),
     aprendizadosAtivos,
+    empresaKnowledge,
   }
   const systemPrompt = montarSystemPromptDinamico(estagio, perfil, aprendizado, flags, historico)
   const requestId = opcoes?.request_id || gerarRequestIdAnthropic()
