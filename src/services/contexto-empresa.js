@@ -30,7 +30,7 @@ const CONTEXTO1_CAMPOS = [
   'nome_empresa', 'tipo_negocio', 'nicho', 'cidade_regiao',
   'servicos_produtos', 'precos_planos', 'publico_alvo', 'cliente_ideal',
   'diferenciais', 'problemas_que_resolve', 'tom_de_voz', 'horario_atendimento',
-  'formas_pagamento', 'objeções_comuns', 'perguntas_frequentes',
+  'formas_pagamento', 'objecoes_comuns', 'perguntas_frequentes',
   'quando_chamar_humano', 'links_uteis', 'informacoes_extras',
 ]
 

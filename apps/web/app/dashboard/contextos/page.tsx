@@ -29,6 +29,24 @@ type Sugestao = {
   status: string
   created_at: string
 }
+type Fonte = {
+  id: string
+  tipo: 'site' | 'pdf' | 'documento' | 'texto_manual'
+  url: string | null
+  filename: string | null
+  titulo: string | null
+  status: 'pendente' | 'analisando' | 'analisado' | 'erro'
+  erro: string | null
+  tem_conteudo: boolean
+  conteudo_chars: number
+  resumo_json: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+type SugestaoCtx1 = {
+  sugestao: Record<string, unknown>
+  contexto_atual: Record<string, string>
+}
 
 const CONTEXTO1_FIELDS: { name: string; label: string; type?: 'text' | 'textarea' }[] = [
   { name: 'nome_empresa', label: 'Nome da empresa' },
@@ -44,7 +62,7 @@ const CONTEXTO1_FIELDS: { name: string; label: string; type?: 'text' | 'textarea
   { name: 'tom_de_voz', label: 'Tom de voz' },
   { name: 'horario_atendimento', label: 'Horário de atendimento' },
   { name: 'formas_pagamento', label: 'Formas de pagamento' },
-  { name: 'objeções_comuns', label: 'Objeções comuns', type: 'textarea' },
+  { name: 'objecoes_comuns', label: 'Objeções comuns', type: 'textarea' },
   { name: 'perguntas_frequentes', label: 'Perguntas frequentes', type: 'textarea' },
   { name: 'quando_chamar_humano', label: 'Quando chamar humano', type: 'textarea' },
   { name: 'links_uteis', label: 'Links úteis' },
@@ -62,7 +80,6 @@ export default function ContextosPage() {
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
 
   const [lista, setLista] = useState<Contexto[]>([])
-  const [novoForm, setNovoForm] = useState<Record<string, string>>({})
   const [nomeNovo, setNomeNovo] = useState('')
   const [criando, setCriando] = useState(false)
   const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
@@ -97,23 +114,19 @@ export default function ContextosPage() {
     if (novo && !versoes[id]) await carregarVersoes(id)
   }
 
-  async function criar(e: React.FormEvent) {
-    e.preventDefault()
+  async function criarVazio() {
     if (!empresaId) return
     setCriando(true)
     setMsg(null)
     try {
       const r = await apiFetch<Contexto>(`/api/empresas/${empresaId}/contextos`, {
         method: 'POST',
-        body: JSON.stringify({
-          nome: nomeNovo || (novoForm.nome_empresa || 'Contexto'),
-          contexto_form_json: novoForm,
-        }),
+        body: JSON.stringify({ nome: nomeNovo || 'Contexto', contexto_form_json: {} }),
       })
       setLista((prev) => [r.data, ...prev])
-      setNovoForm({})
       setNomeNovo('')
-      setMsg({ tone: 'ok', text: 'Contexto 1 criado.' })
+      setAberto((p) => ({ ...p, [r.data.id]: true }))
+      setMsg({ tone: 'ok', text: 'Contexto criado. Adicione fontes ou edite o Contexto 1 abaixo.' })
     } catch (err: unknown) {
       setMsg({ tone: 'err', text: err instanceof Error ? err.message : 'Erro.' })
     } finally {
@@ -127,9 +140,8 @@ export default function ContextosPage() {
     setMsg(null)
     try {
       await apiFetch(`/api/empresas/${empresaId}/contextos/${ctxId}/gerar-playbook`, { method: 'POST' })
-      setMsg({ tone: 'ok', text: 'Playbook gerado como rascunho. Expanda para revisar e ativar.' })
-      setAberto((p) => ({ ...p, [ctxId]: true }))
       await carregarVersoes(ctxId)
+      setMsg({ tone: 'ok', text: 'Playbook gerado como rascunho. Revise no card "Playbook" e ative.' })
     } catch (err: unknown) {
       setMsg({ tone: 'err', text: err instanceof Error ? err.message : 'Erro ao gerar.' })
     } finally {
@@ -141,7 +153,7 @@ export default function ContextosPage() {
     if (!empresaId) return
     const versoesCount = (versoes[c.id] || []).length
     const aviso = versoesCount > 0
-      ? `Remover "${c.nome}"?\n\nIsso também apaga ${versoesCount} versão(ões) de Contexto 2 deste contexto. Ação irreversível.`
+      ? `Remover "${c.nome}"?\n\nIsso também apaga ${versoesCount} versão(ões) e todas as fontes deste contexto. Ação irreversível.`
       : `Remover "${c.nome}"? Ação irreversível.`
     if (!confirm(aviso)) return
     try {
@@ -181,7 +193,6 @@ export default function ContextosPage() {
       await apiFetch(`/api/empresas/${empresaId}/contextos/sugestoes/${id}/aplicar`, { method: 'POST' })
       setSugestoes((prev) => prev.filter((s) => s.id !== id))
       setMsg({ tone: 'ok', text: 'Novo rascunho gerado a partir da sugestão. Revise e ative quando quiser.' })
-      // recarrega contextos+versões
       await carregar()
       for (const k of Object.keys(aberto)) if (aberto[k]) await carregarVersoes(k)
     } catch (err: unknown) {
@@ -190,44 +201,27 @@ export default function ContextosPage() {
   }
 
   return (
-    <div className="space-y-8 max-w-5xl">
+    <div className="space-y-6 max-w-6xl">
       <h1 className="text-2xl font-bold">Contextos</h1>
 
-      <form onSubmit={criar} className="bg-white border rounded-2xl p-6 shadow-sm space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold">Novo Contexto 1 — formulário comercial</h2>
+      <div className="bg-white border rounded-2xl p-5 shadow-sm flex items-end gap-3">
+        <div className="flex-1">
+          <label className="block text-xs text-gray-500 mb-1">Nome do novo contexto (rótulo)</label>
           <input
             value={nomeNovo}
             onChange={(e) => setNomeNovo(e.target.value)}
-            placeholder="Nome do contexto (rótulo)"
-            className="border rounded-lg px-3 py-1.5 text-sm w-64"
+            placeholder="Ex: Contexto Principal"
+            className="w-full border rounded-lg px-3 py-2 text-sm"
           />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {CONTEXTO1_FIELDS.map((f) => (
-            <div key={f.name} className={f.type === 'textarea' ? 'md:col-span-2' : ''}>
-              <label className="block text-xs text-gray-500 mb-1">{f.label}</label>
-              {f.type === 'textarea' ? (
-                <textarea
-                  rows={3}
-                  value={novoForm[f.name] || ''}
-                  onChange={(e) => setNovoForm((p) => ({ ...p, [f.name]: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                />
-              ) : (
-                <input
-                  value={novoForm[f.name] || ''}
-                  onChange={(e) => setNovoForm((p) => ({ ...p, [f.name]: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                />
-              )}
-            </div>
-          ))}
-        </div>
-        <button disabled={criando} className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50">
-          {criando ? 'Salvando…' : 'Criar Contexto 1'}
+        <button
+          onClick={criarVazio}
+          disabled={criando}
+          className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
+        >
+          {criando ? 'Criando…' : 'Criar Contexto 1'}
         </button>
-      </form>
+      </div>
 
       {msg && (
         <p className={`text-sm ${msg.tone === 'ok' ? 'text-brand' : 'text-red-600'}`}>{msg.text}</p>
@@ -244,21 +238,14 @@ export default function ContextosPage() {
                   <span className={`mt-1 inline-block transition-transform text-gray-400 ${isOpen ? 'rotate-90' : ''}`}>▶</span>
                   <span className="flex-1">
                     <span className="block font-medium">{c.nome}</span>
-                    <span className="block text-xs text-gray-500 mt-1 line-clamp-2">{c.conteudo}</span>
+                    <span className="block text-xs text-gray-500 mt-1 line-clamp-2">{c.conteudo || '(sem dados — adicione fontes ou edite o Contexto 1)'}</span>
                   </span>
                 </button>
                 <div className="shrink-0 flex items-center gap-2">
                   <button
-                    onClick={() => gerarPlaybook(c.id)}
-                    disabled={gerando === c.id}
-                    className="bg-gray-100 hover:bg-brand hover:text-white text-xs px-3 py-1.5 rounded-lg font-medium transition-colors disabled:opacity-50"
-                  >
-                    {gerando === c.id ? 'Gerando playbook…' : 'Gerar Playbook com IA'}
-                  </button>
-                  <button
                     onClick={() => removerContexto(c)}
                     className="text-xs text-red-600 hover:underline"
-                    title="Remover contexto e todas as suas versões"
+                    title="Remover contexto e todas as suas versões e fontes"
                   >
                     Remover
                   </button>
@@ -266,14 +253,28 @@ export default function ContextosPage() {
               </div>
 
               {isOpen && (
-                <div className="border-t bg-gray-50 px-5 py-4 space-y-3">
-                  {vs.length === 0 ? (
-                    <p className="text-xs text-gray-500">Nenhuma versão ainda. Clique em "Gerar Playbook com IA".</p>
-                  ) : (
-                    vs.map((v) => (
-                      <VersaoCard key={v.id} empresaId={empresaId} versao={v} onAtivar={() => ativar(c.id, v.id)} />
-                    ))
-                  )}
+                <div className="border-t bg-gray-50 px-5 py-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <CardFontes empresaId={empresaId} contextoId={c.id} onAplicarSugestao={async (novoForm) => {
+                      // salva contexto1 e recarrega lista
+                      await apiFetch(`/api/empresas/${empresaId}/contextos/${c.id}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ contexto_form_json: novoForm }),
+                      })
+                      await carregar()
+                      setMsg({ tone: 'ok', text: 'Contexto 1 atualizado pela sugestão das fontes.' })
+                    }} />
+                    <CardContexto1 empresaId={empresaId} contexto={c} onSalvo={async () => { await carregar() }} />
+                    <CardPlaybook
+                      contextoId={c.id}
+                      versoes={vs}
+                      gerando={gerando === c.id}
+                      onGerar={() => gerarPlaybook(c.id)}
+                      onAtivar={(vid) => ativar(c.id, vid)}
+                      empresaId={empresaId}
+                    />
+                    <CardTeste empresaId={empresaId} contextoForm={c.contexto_form_json || {}} versaoAtiva={vs.find((v) => v.status === 'ativo') || null} />
+                  </div>
                 </div>
               )}
             </div>
@@ -285,7 +286,7 @@ export default function ContextosPage() {
         <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b">
             <h2 className="font-semibold text-sm">Sugestões de aprendizado pendentes</h2>
-            <p className="text-xs text-gray-500 mt-0.5">A IA detectou padrões. Nada vai ser aplicado sem você aprovar.</p>
+            <p className="text-xs text-gray-500 mt-0.5">A IA detectou padrões em conversas reais. Nada vai ser aplicado sem você aprovar.</p>
           </div>
           <div className="divide-y">
             {sugestoes.map((s) => (
@@ -296,7 +297,7 @@ export default function ContextosPage() {
                   {s.sugestao_markdown && <pre className="mt-2 text-xs bg-gray-50 p-2 rounded whitespace-pre-wrap">{s.sugestao_markdown}</pre>}
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  <button onClick={() => aplicarSugestao(s.id)} className="text-xs px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-dark" title="Gera um novo rascunho com a sugestão aplicada">Aplicar como rascunho</button>
+                  <button onClick={() => aplicarSugestao(s.id)} className="text-xs px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-dark">Aplicar como rascunho</button>
                   <button onClick={() => reviewSugestao(s.id, 'aprovar')} className="text-xs px-3 py-1.5 rounded-lg bg-green-600 text-white">Aprovar</button>
                   <button onClick={() => reviewSugestao(s.id, 'rejeitar')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-300">Rejeitar</button>
                 </div>
@@ -309,36 +310,432 @@ export default function ContextosPage() {
   )
 }
 
+// ─── Card 1 — Fontes ─────────────────────────────────────────────────────────
+function CardFontes({ empresaId, contextoId, onAplicarSugestao }: {
+  empresaId: string
+  contextoId: string
+  onAplicarSugestao: (novoForm: Record<string, string>) => Promise<void>
+}) {
+  const [fontes, setFontes] = useState<Fonte[]>([])
+  const [tipo, setTipo] = useState<'link' | 'pdf' | 'texto'>('link')
+  const [url, setUrl] = useState('')
+  const [texto, setTexto] = useState('')
+  const [arquivo, setArquivo] = useState<File | null>(null)
+  const [carregando, setCarregando] = useState(false)
+  const [analisando, setAnalisando] = useState<string | null>(null)
+  const [erro, setErro] = useState('')
+  const [sugestao, setSugestao] = useState<SugestaoCtx1 | null>(null)
+  const [sugerindo, setSugerindo] = useState(false)
+
+  const carregar = useCallback(async () => {
+    if (!empresaId) return
+    try {
+      const r = await apiFetch<Fonte[]>(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes`)
+      setFontes(r.data || [])
+    } catch {}
+  }, [empresaId, contextoId])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  async function adicionar() {
+    setErro('')
+    setCarregando(true)
+    try {
+      if (tipo === 'link') {
+        if (!/^https?:\/\//i.test(url)) throw new Error('URL precisa começar com http:// ou https://')
+        await apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/link`, {
+          method: 'POST', body: JSON.stringify({ url }),
+        })
+        setUrl('')
+      } else if (tipo === 'texto') {
+        if (texto.trim().length < 10) throw new Error('Cole pelo menos 10 caracteres.')
+        await apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/texto`, {
+          method: 'POST', body: JSON.stringify({ texto }),
+        })
+        setTexto('')
+      } else if (tipo === 'pdf') {
+        if (!arquivo) throw new Error('Selecione um arquivo PDF.')
+        const fd = new FormData()
+        fd.append('arquivo', arquivo)
+        await apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/documento`, {
+          method: 'POST', body: fd,
+        })
+        setArquivo(null)
+      }
+      await carregar()
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : 'Erro ao adicionar fonte.')
+    } finally {
+      setCarregando(false)
+    }
+  }
+
+  async function analisar(fonteId: string) {
+    setAnalisando(fonteId)
+    setErro('')
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/${fonteId}/analisar`, { method: 'POST' })
+      await carregar()
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : 'Erro ao analisar.')
+      await carregar()
+    } finally {
+      setAnalisando(null)
+    }
+  }
+
+  async function remover(fonteId: string) {
+    if (!confirm('Remover esta fonte?')) return
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/${fonteId}`, { method: 'DELETE' })
+      await carregar()
+    } catch {}
+  }
+
+  async function sugerir() {
+    setSugerindo(true)
+    setErro('')
+    try {
+      const r = await apiFetch<SugestaoCtx1>(`/api/empresas/${empresaId}/contextos/${contextoId}/sugerir-contexto1`, { method: 'POST' })
+      setSugestao(r.data)
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : 'Erro ao gerar sugestão.')
+    } finally {
+      setSugerindo(false)
+    }
+  }
+
+  async function aplicarSugestao() {
+    if (!sugestao) return
+    const novoForm: Record<string, string> = { ...(sugestao.contexto_atual || {}) }
+    for (const f of CONTEXTO1_FIELDS) {
+      const atual = (novoForm[f.name] || '').trim()
+      const novo = String((sugestao.sugestao as Record<string, unknown>)?.[f.name] || '').trim()
+      if (!atual && novo) novoForm[f.name] = novo
+    }
+    await onAplicarSugestao(novoForm)
+    setSugestao(null)
+  }
+
+  const analisadas = fontes.filter((f) => f.status === 'analisado').length
+
+  return (
+    <div className="bg-white border rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-sm">Fontes de informação</h3>
+        <span className="text-xs text-gray-500">{analisadas}/{fontes.length} analisadas</span>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <select value={tipo} onChange={(e) => setTipo(e.target.value as 'link' | 'pdf' | 'texto')} className="border rounded-lg px-2 py-1.5 text-xs">
+            <option value="link">Link do site</option>
+            <option value="pdf">PDF / Documento</option>
+            <option value="texto">Texto manual</option>
+          </select>
+          {tipo === 'link' && (
+            <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." className="flex-1 border rounded-lg px-2 py-1.5 text-xs" />
+          )}
+          {tipo === 'pdf' && (
+            <input type="file" accept=".pdf,.txt" onChange={(e) => setArquivo(e.target.files?.[0] || null)} className="flex-1 text-xs" />
+          )}
+          <button onClick={adicionar} disabled={carregando} className="bg-brand text-white px-3 py-1.5 rounded-lg text-xs disabled:opacity-50">
+            {carregando ? '…' : 'Inserir'}
+          </button>
+        </div>
+        {tipo === 'texto' && (
+          <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={4} placeholder="Cole o texto…" className="w-full border rounded-lg px-2 py-1.5 text-xs" />
+        )}
+      </div>
+
+      {erro && <p className="text-xs text-red-600">{erro}</p>}
+
+      <div className="space-y-1.5">
+        {fontes.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-3">Nenhuma fonte ainda.</p>
+        ) : (
+          fontes.map((f) => (
+            <div key={f.id} className="border rounded-lg p-2 text-xs flex items-center gap-2">
+              <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                f.status === 'analisado' ? 'bg-green-100 text-green-700'
+                  : f.status === 'analisando' ? 'bg-amber-100 text-amber-700'
+                  : f.status === 'erro' ? 'bg-red-100 text-red-700'
+                  : 'bg-gray-100 text-gray-600'
+              }`}>{f.status}</span>
+              <span className="flex-1 truncate" title={f.url || f.filename || f.titulo || ''}>
+                <span className="text-gray-500 mr-1">[{f.tipo}]</span>
+                {f.titulo || f.url || f.filename || '(sem título)'}
+              </span>
+              {f.status === 'pendente' && f.tem_conteudo && (
+                <button onClick={() => analisar(f.id)} disabled={analisando === f.id} className="text-brand hover:underline disabled:opacity-50">
+                  {analisando === f.id ? 'Analisando…' : 'Analisar'}
+                </button>
+              )}
+              {f.status === 'erro' && (
+                <button onClick={() => analisar(f.id)} className="text-amber-600 hover:underline" title={f.erro || ''}>
+                  Tentar de novo
+                </button>
+              )}
+              <button onClick={() => remover(f.id)} className="text-gray-400 hover:text-red-600" title="Remover">×</button>
+            </div>
+          ))
+        )}
+      </div>
+
+      {analisadas > 0 && !sugestao && (
+        <button onClick={sugerir} disabled={sugerindo} className="w-full text-xs bg-gray-100 hover:bg-brand hover:text-white px-3 py-2 rounded-lg disabled:opacity-50">
+          {sugerindo ? 'Consolidando com IA…' : `Sugerir Contexto 1 a partir de ${analisadas} fonte(s)`}
+        </button>
+      )}
+
+      {sugestao && (
+        <div className="border-2 border-brand rounded-lg p-3 space-y-2 bg-blue-50">
+          <p className="text-xs font-semibold">Sugestão consolidada (preserva seus dados manuais)</p>
+          <div className="max-h-48 overflow-y-auto space-y-1">
+            {CONTEXTO1_FIELDS.map((f) => {
+              const novo = String((sugestao.sugestao as Record<string, unknown>)?.[f.name] || '').trim()
+              const atual = (sugestao.contexto_atual?.[f.name] || '').trim()
+              if (!novo) return null
+              const conflito = atual && atual !== novo
+              return (
+                <div key={f.name} className="text-[11px]">
+                  <span className="font-medium text-gray-700">{f.label}:</span>{' '}
+                  <span className={conflito ? 'text-amber-700' : 'text-gray-600'}>
+                    {novo.slice(0, 200)}{novo.length > 200 ? '…' : ''}
+                  </span>
+                  {conflito && <span className="ml-1 text-amber-700">(⚠ atual: {atual.slice(0, 80)})</span>}
+                </div>
+              )
+            })}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={aplicarSugestao} className="flex-1 text-xs bg-brand text-white px-3 py-1.5 rounded-lg">
+              Aplicar (preserva dados manuais existentes)
+            </button>
+            <button onClick={() => setSugestao(null)} className="text-xs px-3 py-1.5 rounded-lg border">
+              Descartar
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Card 2 — Contexto 1 editável ────────────────────────────────────────────
+function CardContexto1({ empresaId, contexto, onSalvo }: {
+  empresaId: string
+  contexto: Contexto
+  onSalvo: () => Promise<void>
+}) {
+  const [form, setForm] = useState<Record<string, string>>(contexto.contexto_form_json || {})
+  const [salvando, setSalvando] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  useEffect(() => { setForm(contexto.contexto_form_json || {}) }, [contexto.id, contexto.contexto_form_json])
+
+  async function salvar() {
+    setSalvando(true)
+    setMsg('')
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/contextos/${contexto.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ contexto_form_json: form }),
+      })
+      await onSalvo()
+      setMsg('Salvo.')
+    } catch (e: unknown) {
+      setMsg(e instanceof Error ? e.message : 'Erro.')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  const preenchidos = CONTEXTO1_FIELDS.filter((f) => (form[f.name] || '').trim()).length
+
+  return (
+    <div className="bg-white border rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-sm">Contexto 1 — Dados editáveis</h3>
+        <span className="text-xs text-gray-500">{preenchidos}/{CONTEXTO1_FIELDS.length} campos</span>
+      </div>
+      <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+        {CONTEXTO1_FIELDS.map((f) => (
+          <div key={f.name}>
+            <label className="block text-[10px] uppercase text-gray-500 mb-0.5">{f.label}</label>
+            {f.type === 'textarea' ? (
+              <textarea
+                rows={2}
+                value={form[f.name] || ''}
+                onChange={(e) => setForm((p) => ({ ...p, [f.name]: e.target.value }))}
+                className="w-full border rounded-lg px-2 py-1 text-xs"
+              />
+            ) : (
+              <input
+                value={form[f.name] || ''}
+                onChange={(e) => setForm((p) => ({ ...p, [f.name]: e.target.value }))}
+                className="w-full border rounded-lg px-2 py-1 text-xs"
+              />
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        <button onClick={salvar} disabled={salvando} className="text-xs bg-brand text-white px-3 py-1.5 rounded-lg disabled:opacity-50">
+          {salvando ? 'Salvando…' : 'Salvar Contexto 1'}
+        </button>
+        {msg && <span className="text-xs text-gray-500">{msg}</span>}
+      </div>
+    </div>
+  )
+}
+
+// ─── Card 3 — Playbook ───────────────────────────────────────────────────────
+function CardPlaybook({ contextoId: _contextoId, empresaId, versoes, gerando, onGerar, onAtivar }: {
+  contextoId: string
+  empresaId: string
+  versoes: Versao[]
+  gerando: boolean
+  onGerar: () => void
+  onAtivar: (versaoId: string) => void
+}) {
+  const ativa = versoes.find((v) => v.status === 'ativo')
+  const labelBotao = ativa ? 'Atualizar Playbook (nova versão)' : 'Gerar Playbook com IA'
+
+  return (
+    <div className="bg-white border rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-sm">Contexto 2 — Playbook Comercial</h3>
+        {ativa && <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700">Ativo: v{ativa.versao}</span>}
+      </div>
+      <button onClick={onGerar} disabled={gerando} className="w-full text-xs bg-brand text-white px-3 py-2 rounded-lg disabled:opacity-50">
+        {gerando ? 'Gerando…' : labelBotao}
+      </button>
+      <div className="space-y-2 max-h-96 overflow-y-auto">
+        {versoes.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-3">Nenhuma versão ainda.</p>
+        ) : (
+          versoes.map((v) => (
+            <VersaoCard key={v.id} empresaId={empresaId} versao={v} onAtivar={() => onAtivar(v.id)} />
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Card 4 — Teste de atendimento ───────────────────────────────────────────
+type TestResp = {
+  extracao?: { intencao?: string; temperatura?: string }
+  decisao?: { mensagem_pro_lead?: string; etapa_proxima?: string }
+}
+
+function CardTeste({ empresaId, contextoForm, versaoAtiva }: {
+  empresaId: string
+  contextoForm: Record<string, string>
+  versaoAtiva: Versao | null
+}) {
+  const [mensagem, setMensagem] = useState('')
+  const [resultado, setResultado] = useState<TestResp | null>(null)
+  const [testando, setTestando] = useState(false)
+  const [erro, setErro] = useState('')
+
+  async function testar() {
+    if (!versaoAtiva) {
+      setErro('Ative uma versão do Playbook primeiro.')
+      return
+    }
+    if (!mensagem.trim()) return
+    setTestando(true)
+    setErro('')
+    setResultado(null)
+    try {
+      const r = await apiFetch<TestResp>(`/api/empresas/${empresaId}/contextos/versoes/${versaoAtiva.id}/testar`, {
+        method: 'POST', body: JSON.stringify({ mensagem, historico: [] }),
+      })
+      setResultado(r.data)
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : 'Erro.')
+    } finally {
+      setTestando(false)
+    }
+  }
+
+  const resposta = resultado?.decisao?.mensagem_pro_lead || ''
+  const generico = avaliarGenerico(resposta, contextoForm)
+
+  return (
+    <div className="bg-white border rounded-xl p-4 space-y-3">
+      <h3 className="font-semibold text-sm">Teste de atendimento</h3>
+      {!versaoAtiva && <p className="text-xs text-amber-700">⚠ Sem playbook ativo. Gere e ative um pra testar.</p>}
+      <textarea
+        rows={2}
+        value={mensagem}
+        onChange={(e) => setMensagem(e.target.value)}
+        placeholder="Mensagem simulada do lead"
+        className="w-full border rounded-lg px-2 py-1.5 text-xs"
+      />
+      <button onClick={testar} disabled={testando || !versaoAtiva || !mensagem.trim()} className="w-full text-xs bg-brand text-white px-3 py-1.5 rounded-lg disabled:opacity-50">
+        {testando ? 'Testando…' : 'Simular atendimento'}
+      </button>
+      {erro && <p className="text-xs text-red-600">{erro}</p>}
+      {resultado && (
+        <div className="border rounded-lg overflow-hidden bg-gray-50">
+          <div className="px-3 py-2 border-b bg-white text-[10px] text-gray-500">
+            Intenção: <b>{resultado.extracao?.intencao || '?'}</b> · Temperatura: <b>{resultado.extracao?.temperatura || '?'}</b>
+          </div>
+          <div className="px-3 py-3 space-y-1.5">
+            <div className="max-w-[85%] rounded-2xl px-3 py-1.5 text-xs bg-white border border-gray-200 mr-auto">
+              <div className="text-[9px] uppercase text-gray-500 mb-0.5">Lead</div>
+              <div className="whitespace-pre-wrap break-words">{mensagem}</div>
+            </div>
+            {resposta ? (
+              <div className="max-w-[85%] rounded-2xl px-3 py-1.5 text-xs bg-brand text-white ml-auto">
+                <div className="text-[9px] uppercase text-white/70 mb-0.5">Agente</div>
+                <div className="whitespace-pre-wrap break-words">{resposta}</div>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 text-center py-2">(agente não respondeu)</p>
+            )}
+          </div>
+          {generico && (
+            <div className="px-3 py-2 bg-amber-50 border-t border-amber-200 text-[11px] text-amber-800">
+              ⚠ Resposta pode estar genérica — não menciona termos específicos da empresa ({generico.termos_esperados.slice(0, 3).join(', ')}…). Verifique se o playbook tem dados detalhados.
+            </div>
+          )}
+          <details className="border-t bg-white">
+            <summary className="px-3 py-1.5 text-[10px] text-gray-500 cursor-pointer hover:bg-gray-50">Ver JSON completo</summary>
+            <pre className="text-[10px] bg-gray-50 p-2 overflow-x-auto max-h-48 whitespace-pre-wrap break-words border-t">
+              {JSON.stringify(resultado, null, 2)}
+            </pre>
+          </details>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function avaliarGenerico(resposta: string, ctx: Record<string, string>): { termos_esperados: string[] } | null {
+  const r = (resposta || '').toLowerCase()
+  if (!r) return null
+  const termos = [
+    ctx.nome_empresa, ctx.nicho, ctx.tipo_negocio,
+    ...(ctx.servicos_produtos || '').split(/[,;.\n]/).slice(0, 5),
+  ].map((s) => (s || '').trim().toLowerCase()).filter((s) => s.length >= 4)
+  if (termos.length === 0) return null
+  const matched = termos.some((t) => r.includes(t))
+  if (matched) return null
+  return { termos_esperados: termos }
+}
+
 function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao: Versao; onAtivar: () => void }) {
-  const [tab, setTab] = useState<'markdown' | 'json' | 'testar'>('markdown')
+  const [tab, setTab] = useState<'markdown' | 'json'>('markdown')
   const [secao, setSecao] = useState<string>('resumo_empresa')
   const [aberto, setAberto] = useState(false)
-  const [mensagem, setMensagem] = useState('')
-  const [testResult, setTestResult] = useState<unknown>(null)
-  const [testando, setTestando] = useState(false)
-  const [testErr, setTestErr] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [draftMd, setDraftMd] = useState<string>(versao.conteudo_markdown || '')
   const [savingMd, setSavingMd] = useState(false)
-  const [mdMsg, setMdMsg] = useState<string | null>(null)
-
-  async function salvarMarkdown() {
-    if (!empresaId) return
-    setSavingMd(true)
-    setMdMsg(null)
-    try {
-      await apiFetch(`/api/empresas/${empresaId}/contextos/versoes/${versao.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ conteudo_markdown: draftMd }),
-      })
-      setMdMsg('Markdown salvo.')
-      setEditing(false)
-    } catch (e: unknown) {
-      setMdMsg(e instanceof Error ? e.message : 'Erro ao salvar.')
-    } finally {
-      setSavingMd(false)
-    }
-  }
+  const [mdMsg, setMdMsg] = useState('')
 
   const badgeClass = versao.status === 'ativo'
     ? 'bg-green-100 text-green-700'
@@ -346,171 +743,77 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
       ? 'bg-amber-100 text-amber-700'
       : 'bg-gray-100 text-gray-600'
 
-  async function testar() {
-    if (!mensagem || !empresaId) return
-    setTestando(true)
-    setTestErr(null)
-    setTestResult(null)
+  async function salvarMarkdown() {
+    setSavingMd(true)
+    setMdMsg('')
     try {
-      const r = await apiFetch<unknown>(`/api/empresas/${empresaId}/contextos/versoes/${versao.id}/testar`, {
-        method: 'POST',
-        body: JSON.stringify({ mensagem, historico: [] }),
+      await apiFetch(`/api/empresas/${empresaId}/contextos/versoes/${versao.id}`, {
+        method: 'PUT', body: JSON.stringify({ conteudo_markdown: draftMd }),
       })
-      setTestResult(r.data)
+      versao.conteudo_markdown = draftMd
+      setEditing(false)
+      setMdMsg('Salvo.')
     } catch (e: unknown) {
-      setTestErr(e instanceof Error ? e.message : 'Erro')
+      setMdMsg(e instanceof Error ? e.message : 'Erro ao salvar.')
     } finally {
-      setTestando(false)
+      setSavingMd(false)
     }
   }
 
   return (
-    <div className="bg-white border rounded-xl p-4">
-      <div className="flex justify-between items-start gap-3 flex-wrap">
-        <div>
-          <p className="text-sm font-medium">
-            Versão {versao.versao}
-            <span className={`ml-2 text-xs px-2 py-0.5 rounded-full font-medium ${badgeClass}`}>{versao.status}</span>
-          </p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Gerado em {new Date(versao.criado_em).toLocaleString('pt-BR')} · por {versao.gerado_por}
-            {versao.playbook_schema_version && <> · {versao.playbook_schema_version}</>}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => setAberto((p) => !p)} className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-100">
-            {aberto ? 'Ocultar' : 'Ver conteúdo'}
-          </button>
-          {versao.status !== 'ativo' && (
-            <button onClick={onAtivar} className="text-xs px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-dark">Ativar</button>
-          )}
-        </div>
+    <div className="border rounded-lg overflow-hidden bg-gray-50 text-xs">
+      <div className="px-3 py-2 flex items-center justify-between bg-white border-b">
+        <button onClick={() => setAberto(!aberto)} className="flex items-center gap-2 text-left flex-1">
+          <span className={`transition-transform ${aberto ? 'rotate-90' : ''} text-gray-400`}>▶</span>
+          <span className="font-medium">v{versao.versao}</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${badgeClass}`}>{versao.status}</span>
+          <span className="text-gray-500 ml-2">{new Date(versao.criado_em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+        </button>
+        {versao.status !== 'ativo' && (
+          <button onClick={onAtivar} className="text-brand hover:underline">Ativar</button>
+        )}
       </div>
-
       {aberto && (
-        <div className="mt-4 space-y-3">
-          <div className="flex gap-2 border-b pb-2">
-            <Tab name="markdown" current={tab} set={setTab}>Markdown</Tab>
-            <Tab name="json" current={tab} set={setTab}>JSON</Tab>
-            <Tab name="testar" current={tab} set={setTab}>Testar</Tab>
+        <div className="p-3 space-y-2">
+          <div className="flex gap-1">
+            <button onClick={() => setTab('markdown')} className={`px-2 py-0.5 rounded ${tab === 'markdown' ? 'bg-brand text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Markdown</button>
+            <button onClick={() => setTab('json')} className={`px-2 py-0.5 rounded ${tab === 'json' ? 'bg-brand text-white' : 'text-gray-600 hover:bg-gray-100'}`}>JSON</button>
           </div>
-
           {tab === 'markdown' && (
             <div className="space-y-2">
               {editing ? (
                 <>
-                  <textarea
-                    value={draftMd}
-                    onChange={(e) => setDraftMd(e.target.value)}
-                    rows={20}
-                    className="w-full text-xs font-mono border rounded-lg p-3"
-                  />
+                  <textarea value={draftMd} onChange={(e) => setDraftMd(e.target.value)} rows={10} className="w-full text-[11px] font-mono border rounded p-2" />
                   <div className="flex gap-2">
-                    <button onClick={salvarMarkdown} disabled={savingMd} className="text-xs px-3 py-1.5 rounded-lg bg-brand text-white disabled:opacity-50">
-                      {savingMd ? 'Salvando…' : 'Salvar markdown'}
-                    </button>
-                    <button onClick={() => { setEditing(false); setDraftMd(versao.conteudo_markdown || '') }} className="text-xs px-3 py-1.5 rounded-lg border">
-                      Cancelar
-                    </button>
+                    <button onClick={salvarMarkdown} disabled={savingMd} className="px-2 py-1 rounded bg-brand text-white disabled:opacity-50">{savingMd ? '…' : 'Salvar markdown'}</button>
+                    <button onClick={() => { setEditing(false); setDraftMd(versao.conteudo_markdown || '') }} className="px-2 py-1 rounded border">Cancelar</button>
                   </div>
                 </>
               ) : (
                 <>
-                  <pre className="text-xs bg-gray-900 text-gray-100 p-3 rounded-lg overflow-x-auto max-h-96 whitespace-pre-wrap break-words">
-                    {versao.conteudo_markdown || '(sem markdown)'}
-                  </pre>
-                  <button onClick={() => { setDraftMd(versao.conteudo_markdown || ''); setEditing(true) }} className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-100">
-                    Editar markdown
-                  </button>
+                  <pre className="text-[11px] bg-gray-900 text-gray-100 p-2 rounded max-h-64 overflow-y-auto whitespace-pre-wrap break-words">{versao.conteudo_markdown || '(sem markdown)'}</pre>
+                  <button onClick={() => { setDraftMd(versao.conteudo_markdown || ''); setEditing(true) }} className="px-2 py-1 rounded border">Editar markdown</button>
                 </>
               )}
-              {mdMsg && <p className="text-xs text-brand">{mdMsg}</p>}
+              {mdMsg && <p className="text-[10px] text-brand">{mdMsg}</p>}
             </div>
           )}
-
           {tab === 'json' && (
             <div className="space-y-2">
               <div className="flex gap-1 flex-wrap">
                 {PLAYBOOK_TABS.map((t) => (
-                  <button key={t} onClick={() => setSecao(t)} className={`text-xs px-2 py-1 rounded ${secao === t ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                  <button key={t} onClick={() => setSecao(t)} className={`text-[10px] px-1.5 py-0.5 rounded ${secao === t ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700'}`}>
                     {t.replace(/_/g, ' ')}
                   </button>
                 ))}
               </div>
-              <pre className="text-xs bg-gray-900 text-gray-100 p-3 rounded-lg overflow-x-auto max-h-96 whitespace-pre-wrap break-words">
+              <pre className="text-[11px] bg-gray-900 text-gray-100 p-2 rounded max-h-64 overflow-y-auto whitespace-pre-wrap break-words">
                 {JSON.stringify((versao.conteudo_json as Record<string, unknown>)?.[secao] ?? {}, null, 2)}
               </pre>
-            </div>
-          )}
-
-          {tab === 'testar' && (
-            <div className="space-y-3">
-              <textarea
-                rows={3}
-                value={mensagem}
-                onChange={(e) => setMensagem(e.target.value)}
-                placeholder="Mensagem simulada do lead (ex: 'Tenho uma barbearia no Rudge, quanto custa um site?')"
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              />
-              <button onClick={testar} disabled={testando || !mensagem} className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50">
-                {testando ? 'Testando…' : 'Simular atendimento'}
-              </button>
-              {testErr && <pre className="text-xs bg-red-50 text-red-800 p-3 rounded-lg whitespace-pre-wrap">{testErr}</pre>}
-              {testResult != null && (() => {
-                const tr = testResult as { decisao?: { mensagem_pro_lead?: string; etapa_proxima?: string }, extracao?: { intencao?: string, temperatura?: string } }
-                const resposta = tr?.decisao?.mensagem_pro_lead || ''
-                const intencao = tr?.extracao?.intencao
-                const etapa = tr?.decisao?.etapa_proxima
-                const temperatura = tr?.extracao?.temperatura
-                return (
-                  <div className="border rounded-2xl overflow-hidden bg-white">
-                    <div className="px-4 py-3 border-b bg-white">
-                      <h4 className="font-semibold text-sm">Simulação</h4>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {intencao && <>Intenção: <span className="font-medium">{intencao}</span> · </>}
-                        {etapa && <>Etapa próxima: <span className="font-medium">{etapa}</span> · </>}
-                        {temperatura && <>Temperatura: <span className="font-medium">{temperatura}</span> · </>}
-                        2 msgs
-                      </p>
-                    </div>
-                    <div className="bg-gray-50 px-4 py-4 space-y-2 max-h-96 overflow-y-auto">
-                      <div className="max-w-[80%] rounded-2xl px-3 py-2 text-sm bg-white border border-gray-200 mr-auto">
-                        <div className="text-[10px] uppercase mb-0.5 text-gray-500">Lead</div>
-                        <div className="whitespace-pre-wrap break-words">{mensagem}</div>
-                      </div>
-                      {resposta ? (
-                        <div className="max-w-[80%] rounded-2xl px-3 py-2 text-sm bg-brand text-white ml-auto">
-                          <div className="text-[10px] uppercase mb-0.5 text-white/70">Agente</div>
-                          <div className="whitespace-pre-wrap break-words">{resposta}</div>
-                        </div>
-                      ) : (
-                        <div className="max-w-[80%] rounded-2xl px-3 py-2 text-sm bg-gray-200 text-gray-700 mx-auto">
-                          <div className="whitespace-pre-wrap break-words">(agente não respondeu)</div>
-                        </div>
-                      )}
-                    </div>
-                    <details className="border-t bg-white">
-                      <summary className="px-4 py-2 text-xs text-gray-500 cursor-pointer hover:bg-gray-50">Ver JSON completo (extração + decisão)</summary>
-                      <pre className="text-xs bg-gray-50 p-3 overflow-x-auto max-h-96 whitespace-pre-wrap break-words border-t">
-                        {JSON.stringify(testResult, null, 2)}
-                      </pre>
-                    </details>
-                  </div>
-                )
-              })()}
             </div>
           )}
         </div>
       )}
     </div>
-  )
-}
-
-function Tab({ name, current, set, children }: { name: 'markdown' | 'json' | 'testar'; current: string; set: (v: 'markdown' | 'json' | 'testar') => void; children: React.ReactNode }) {
-  const active = current === name
-  return (
-    <button onClick={() => set(name)} className={`text-sm px-3 py-1 rounded ${active ? 'bg-brand text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
-      {children}
-    </button>
   )
 }
