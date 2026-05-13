@@ -38,10 +38,50 @@ async function aplicarWebhookEvolution(instanceName) {
 // GET /api/empresas/:empresaId/whatsapp
 router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   const { rows } = await pool.query(
-    'SELECT * FROM app.empresa_whatsapp_instances WHERE empresa_id = $1 ORDER BY criado_em DESC',
+    `SELECT ewi.*, c.nome AS contexto_nome
+       FROM app.empresa_whatsapp_instances ewi
+       LEFT JOIN app.empresa_contextos c ON c.id = ewi.contexto_id
+      WHERE ewi.empresa_id = $1
+      ORDER BY ewi.criado_em DESC`,
     [req.empresa.id]
   )
   return res.json({ ok: true, data: rows })
+})
+
+// PATCH /api/empresas/:empresaId/whatsapp/:instanceId — atualiza link de contexto (e nome opcional)
+router.patch('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const { contexto_id, nome } = req.body || {}
+  const sets = []
+  const vals = []
+  if (contexto_id !== undefined) {
+    if (contexto_id === null || contexto_id === '') {
+      sets.push(`contexto_id = NULL`)
+    } else {
+      // Garante que o contexto pertence à empresa
+      const { rows } = await pool.query(
+        'SELECT id FROM app.empresa_contextos WHERE id = $1 AND empresa_id = $2',
+        [contexto_id, req.empresa.id]
+      )
+      if (!rows.length) {
+        return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Contexto inválido.' } })
+      }
+      sets.push(`contexto_id = $${vals.push(contexto_id)}`)
+    }
+  }
+  if (nome !== undefined) sets.push(`nome = $${vals.push(nome)}`)
+  if (!sets.length) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Nada para atualizar.' } })
+  }
+  sets.push(`atualizado_em = NOW()`)
+  vals.push(req.params.instanceId, req.empresa.id)
+  const { rows: [inst] } = await pool.query(
+    `UPDATE app.empresa_whatsapp_instances SET ${sets.join(', ')}
+     WHERE id = $${vals.length - 1} AND empresa_id = $${vals.length}
+     RETURNING *`,
+    vals
+  )
+  if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instância não encontrada.' } })
+  return res.json({ ok: true, data: inst })
 })
 
 // POST /api/empresas/:empresaId/whatsapp

@@ -14,7 +14,15 @@ function slugifyInstance(s: string): string {
 }
 
 type Empresa = { id: string; nome: string; slug: string; plano: string; ativo: boolean }
-type WhatsAppInstance = { id: string; evolution_instance: string; nome?: string; ativo: boolean }
+type WhatsAppInstance = {
+  id: string
+  evolution_instance: string
+  nome?: string
+  ativo: boolean
+  contexto_id?: string | null
+  contexto_nome?: string | null
+}
+type Contexto = { id: string; nome: string }
 type QRState = {
   open: boolean
   instanceId: string | null
@@ -38,6 +46,7 @@ export default function EmpresaPage() {
     open: false, instanceId: null, instanceLabel: '', loading: false,
     base64: null, pairingCode: null, connected: false, error: null,
   })
+  const [contextos, setContextos] = useState<Contexto[]>([])
 
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
 
@@ -46,11 +55,29 @@ export default function EmpresaPage() {
     Promise.all([
       apiFetch<Empresa>(`/api/empresas/${empresaId}`),
       apiFetch<WhatsAppInstance[]>(`/api/empresas/${empresaId}/whatsapp`),
-    ]).then(([e, w]) => {
+      apiFetch<Contexto[]>(`/api/empresas/${empresaId}/contextos`),
+    ]).then(([e, w, c]) => {
       setEmpresa(e.data)
       setInstancias(w.data)
+      setContextos((c.data || []).map((x) => ({ id: x.id, nome: x.nome })))
     }).catch(() => {})
   }, [empresaId])
+
+  async function vincularContexto(inst: WhatsAppInstance, contextoId: string | null) {
+    if (!empresaId) return
+    try {
+      const r = await apiFetch<WhatsAppInstance>(`/api/empresas/${empresaId}/whatsapp/${inst.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ contexto_id: contextoId }),
+      })
+      setInstancias((prev) => prev.map((x) =>
+        x.id === inst.id ? { ...x, contexto_id: r.data.contexto_id, contexto_nome: contextos.find((c) => c.id === contextoId)?.nome || null } : x
+      ))
+      setMsg(contextoId ? 'Instância vinculada ao contexto.' : 'Vínculo removido (usará o contexto ativo da empresa).')
+    } catch (err: unknown) {
+      setErroForm(err instanceof Error ? err.message : 'Erro ao vincular.')
+    }
+  }
 
   async function adicionarInstancia(e: React.FormEvent) {
     e.preventDefault()
@@ -167,10 +194,24 @@ export default function EmpresaPage() {
         {erroForm && <p className="text-sm text-red-600">{erroForm}</p>}
         <div className="space-y-2">
           {instancias.map((i) => (
-            <div key={i.id} className="bg-white border rounded-xl px-4 py-3 flex justify-between items-center">
-              <div>
-                <p className="font-medium text-sm">{i.nome || i.evolution_instance}</p>
-                <p className="text-xs text-gray-500 font-mono">{i.evolution_instance}</p>
+            <div key={i.id} className="bg-white border rounded-xl px-4 py-3 flex justify-between items-center gap-3 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-sm truncate">{i.nome || i.evolution_instance}</p>
+                <p className="text-xs text-gray-500 font-mono truncate">{i.evolution_instance}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500">Contexto:</label>
+                <select
+                  value={i.contexto_id || ''}
+                  onChange={(e) => vincularContexto(i, e.target.value || null)}
+                  className="text-xs border rounded-lg px-2 py-1.5 bg-white min-w-[180px]"
+                  title="Vincule um Contexto 1 a esta instância — o agente usará o playbook ativo desse contexto"
+                >
+                  <option value="">— sem vínculo (usa contexto ativo da empresa) —</option>
+                  {contextos.map((c) => (
+                    <option key={c.id} value={c.id}>{c.nome}</option>
+                  ))}
+                </select>
               </div>
               <div className="flex items-center gap-3">
                 <button

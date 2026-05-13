@@ -23,9 +23,9 @@ function _formatHistorico(historico) {
     .join('\n')
 }
 
-// ─── Carrega playbook ativo ───────────────────────────────────────────────────
-async function carregarPlaybookAtivo(pool, empresaId) {
-  return buscarContexto2Ativo(pool, empresaId)
+// ─── Carrega playbook ativo (opcionalmente linkado à Evolution instance) ────
+async function carregarPlaybookAtivo(pool, empresaId, evolutionInstance = null) {
+  return buscarContexto2Ativo(pool, empresaId, evolutionInstance)
 }
 
 // ─── Extrator de dados (prompt + chamada) ────────────────────────────────────
@@ -425,8 +425,8 @@ Extraia + decida em um único JSON.`
  *
  * Variável de ambiente CONTEXT_PLAYBOOK_BUNDLE=false força duas chamadas (debug).
  */
-async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, leadPhone, mensagem, historico, aiProvider }) {
-  const playbook = await carregarPlaybookAtivo(pool, empresaId)
+async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, leadPhone, mensagem, historico, evolutionInstance, aiProvider }) {
+  const playbook = await carregarPlaybookAtivo(pool, empresaId, evolutionInstance)
   if (!playbook) return null
 
   const { rows: [insightsRow] } = await pool.query(

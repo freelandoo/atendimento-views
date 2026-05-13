@@ -155,7 +155,7 @@ function registerWebhookRoute(app, deps = {}) {
           historico.push({ role: 'user', content: textoHistorico })
         }
     
-        await salvarConversa(numero, historico, estagio, conversa?.status || 'ativo', undefined, empresaId)
+        await salvarConversa(numero, historico, estagio, conversa?.status || 'ativo', undefined, empresaId, evolutionInstance || null)
         let respostaLembrete = null
         if (typeof registrarRespostaLembreteReuniao === 'function') {
           respostaLembrete = await registrarRespostaLembreteReuniao(numero, textoHistorico).catch((err) =>

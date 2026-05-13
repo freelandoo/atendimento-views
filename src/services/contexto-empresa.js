@@ -292,12 +292,42 @@ async function ativarContexto2({ pool, empresaId, versaoId, userId }) {
 
 /**
  * Busca a versão ativa do Contexto 2 para uma empresa.
- * Retorna { json, markdown, versao_id, ativado_em } ou null.
+ * Se evolutionInstance for fornecido e a instance estiver linkada a um
+ * contexto específico, prioriza a versão ativa daquele contexto. Senão,
+ * cai pra qualquer versão ativa da empresa.
+ *
+ * Retorna { json, markdown, versao_id, ativado_em, contexto_id } ou null.
  */
-async function buscarContexto2Ativo(pool, empresaId) {
+async function buscarContexto2Ativo(pool, empresaId, evolutionInstance = null) {
   if (!empresaId) return null
+
+  if (evolutionInstance) {
+    const { rows } = await pool.query(
+      `SELECT ecv.id, ecv.conteudo_json, ecv.conteudo_markdown, ecv.ativado_em, ecv.contexto_id
+         FROM app.empresa_whatsapp_instances ewi
+         JOIN app.empresa_contexto_versoes ecv
+           ON ecv.contexto_id = ewi.contexto_id
+        WHERE ewi.empresa_id = $1
+          AND ewi.evolution_instance = $2
+          AND ewi.contexto_id IS NOT NULL
+          AND ecv.status = 'ativo'
+        ORDER BY ecv.ativado_em DESC NULLS LAST
+        LIMIT 1`,
+      [empresaId, evolutionInstance]
+    )
+    if (rows.length) {
+      return {
+        versao_id: rows[0].id,
+        json: rows[0].conteudo_json,
+        markdown: rows[0].conteudo_markdown || '',
+        ativado_em: rows[0].ativado_em,
+        contexto_id: rows[0].contexto_id,
+      }
+    }
+  }
+
   const { rows } = await pool.query(
-    `SELECT id, conteudo_json, conteudo_markdown, ativado_em
+    `SELECT id, conteudo_json, conteudo_markdown, ativado_em, contexto_id
        FROM app.empresa_contexto_versoes
       WHERE empresa_id = $1 AND status = 'ativo'
       ORDER BY ativado_em DESC NULLS LAST
@@ -310,6 +340,7 @@ async function buscarContexto2Ativo(pool, empresaId) {
     json: rows[0].conteudo_json,
     markdown: rows[0].conteudo_markdown || '',
     ativado_em: rows[0].ativado_em,
+    contexto_id: rows[0].contexto_id,
   }
 }
 

@@ -268,8 +268,9 @@ async function processarRespostaWebhookDebounced(numero) {
     try {
       const empresaId = conversa.empresa_id
       if (empresaId) {
+        const evolutionInstance = conversa.evolution_instance || null
         const { buscarContexto2Ativo } = require('./services/contexto-empresa')
-        const playbookAtivo = await buscarContexto2Ativo(pool, empresaId)
+        const playbookAtivo = await buscarContexto2Ativo(pool, empresaId, evolutionInstance)
         if (playbookAtivo) {
           const { processarMensagemComPlaybook } = require('./services/contexto2-runtime')
           const ultimaMsgLead = [...historico].reverse().find((m) => m.role === 'user')?.content || ''
@@ -279,6 +280,7 @@ async function processarRespostaWebhookDebounced(numero) {
             leadPhone: numero,
             mensagem: ultimaMsgLead,
             historico,
+            evolutionInstance,
           })
           if (resultado?.decisao?.mensagem_pro_lead) {
             const texto = String(resultado.decisao.mensagem_pro_lead).trim()
@@ -287,7 +289,7 @@ async function processarRespostaWebhookDebounced(numero) {
               historico.push({ role: 'assistant', content: texto })
               await salvarConversa(numero, historico,
                 resultado.decisao.etapa_proxima || estagio,
-                conversa.status || 'ativo', undefined, empresaId)
+                conversa.status || 'ativo', undefined, empresaId, conversa.evolution_instance || null)
               if (resultado.decisao.precisa_handoff) {
                 logger.info({ numero, motivo: resultado.decisao.motivo_handoff }, '[playbook] handoff requisitado')
               }
