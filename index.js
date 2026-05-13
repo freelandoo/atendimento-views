@@ -29,8 +29,20 @@ process.env.APP_TIMEZONE = process.env.APP_TIMEZONE || 'America/Sao_Paulo'
 const { logger } = require('./src/logger')
 const dashboardAuth = require('./src/dashboardAuth')
 
+const cors = require('cors')
+
 const app = express()
+
+const allowedOrigins = process.env.FRONTEND_URL
+  ? [process.env.FRONTEND_URL, 'http://localhost:3001']
+  : true
+app.use(cors({ origin: allowedOrigins, credentials: true }))
+
 app.use(express.json({ limit: '20mb' }))
+
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+})
 
 app.use(express.static(path.join(__dirname, 'public')))
 
