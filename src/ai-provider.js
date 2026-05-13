@@ -52,8 +52,8 @@ function invalidateCache() {
   _cacheAt = 0
 }
 
-async function _callAnthropic({ model, systemPrompt, userPrompt, temperature, maxTokens, timeoutMs }) {
-  const apiKey = String(process.env.ANTHROPIC_KEY || '').trim()
+async function _callAnthropic({ model, systemPrompt, userPrompt, temperature, maxTokens, timeoutMs, apiKey: keyOverride }) {
+  const apiKey = String(keyOverride || process.env.ANTHROPIC_KEY || '').trim()
   if (!apiKey) throw Object.assign(new Error('ANTHROPIC_KEY não configurada'), { code: 'sem_chave' })
   const resp = await axios.post(
     ANTHROPIC_URL,
@@ -83,8 +83,8 @@ async function _callAnthropic({ model, systemPrompt, userPrompt, temperature, ma
   }
 }
 
-async function _callOpenAI({ model, systemPrompt, userPrompt, temperature, maxTokens, timeoutMs }) {
-  const apiKey = String(process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || '').trim()
+async function _callOpenAI({ model, systemPrompt, userPrompt, temperature, maxTokens, timeoutMs, apiKey: keyOverride }) {
+  const apiKey = String(keyOverride || process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || '').trim()
   if (!apiKey) throw Object.assign(new Error('OPENAI_KEY não configurada'), { code: 'sem_chave' })
   const resp = await axios.post(
     OPENAI_URL,
@@ -115,9 +115,12 @@ async function _callOpenAI({ model, systemPrompt, userPrompt, temperature, maxTo
   }
 }
 
-async function _doCall(provider, model, opts) {
-  if (provider === 'openai') return _callOpenAI({ model, ...opts })
-  return _callAnthropic({ model, ...opts })
+async function _doCall(provider, model, opts, settings) {
+  const apiKey = provider === 'openai'
+    ? (settings?.openai_api_key || null)
+    : (settings?.anthropic_api_key || null)
+  if (provider === 'openai') return _callOpenAI({ model, apiKey, ...opts })
+  return _callAnthropic({ model, apiKey, ...opts })
 }
 
 async function _logAI(pool, { provider, model, task, success, errorMessage, latency }) {
@@ -168,7 +171,7 @@ async function generateAIResponse(input, pool, log) {
   const inicio = Date.now()
 
   try {
-    const result = await _doCall(provider, model, callOpts)
+    const result = await _doCall(provider, model, callOpts, settings)
     await _logAI(pool, { provider: result.provider, model: result.model, task, success: true, latency: Date.now() - inicio })
     return result
   } catch (primaryErr) {
@@ -183,7 +186,7 @@ async function generateAIResponse(input, pool, log) {
       log.warn(`[ai-provider] ${provider}/${model} falhou: ${primaryErr.message} → fallback ${fbProvider}/${fbModel}`)
     }
     try {
-      const result = await _doCall(fbProvider, fbModel, callOpts)
+      const result = await _doCall(fbProvider, fbModel, callOpts, settings)
       await _logAI(pool, { provider: result.provider, model: result.model, task, success: true, latency: Date.now() - inicio })
       return result
     } catch (fallbackErr) {

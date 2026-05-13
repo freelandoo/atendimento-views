@@ -774,6 +774,14 @@ async function initDB() {
     )
   `)
   await pool.query(`
+    ALTER TABLE vendas.ai_settings
+      ADD COLUMN IF NOT EXISTS openai_api_key    TEXT,
+      ADD COLUMN IF NOT EXISTS anthropic_api_key TEXT,
+      ADD COLUMN IF NOT EXISTS status            TEXT NOT NULL DEFAULT 'pendente',
+      ADD COLUMN IF NOT EXISTS last_error        TEXT,
+      ADD COLUMN IF NOT EXISTS tested_at         TIMESTAMPTZ
+  `)
+  await pool.query(`
     INSERT INTO vendas.ai_settings (provider, model)
     SELECT 'anthropic', 'claude-sonnet-4-6'
     WHERE NOT EXISTS (SELECT 1 FROM vendas.ai_settings)
