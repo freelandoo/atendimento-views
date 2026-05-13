@@ -1,6 +1,17 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
+
+function slugifyInstance(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+}
 
 type Empresa = { id: string; nome: string; slug: string; plano: string; ativo: boolean }
 type WhatsAppInstance = { id: string; evolution_instance: string; nome?: string; ativo: boolean }
@@ -18,8 +29,8 @@ type QRState = {
 export default function EmpresaPage() {
   const [empresa, setEmpresa] = useState<Empresa | null>(null)
   const [instancias, setInstancias] = useState<WhatsAppInstance[]>([])
-  const [novaInstance, setNovaInstance] = useState('')
   const [nomeInstance, setNomeInstance] = useState('')
+  const novaInstance = useMemo(() => slugifyInstance(nomeInstance), [nomeInstance])
   const [msg, setMsg] = useState('')
   const [erroForm, setErroForm] = useState('')
   const [adicionando, setAdicionando] = useState(false)
@@ -46,6 +57,10 @@ export default function EmpresaPage() {
     if (!empresaId) return
     setErroForm('')
     setMsg('')
+    if (!novaInstance) {
+      setErroForm('Digite um nome amigável válido (letras/números).')
+      return
+    }
     setAdicionando(true)
     try {
       const r = await apiFetch<WhatsAppInstance>(`/api/empresas/${empresaId}/whatsapp`, {
@@ -53,7 +68,6 @@ export default function EmpresaPage() {
         body: JSON.stringify({ evolution_instance: novaInstance, nome: nomeInstance }),
       })
       setInstancias((prev) => [r.data, ...prev])
-      setNovaInstance('')
       setNomeInstance('')
       setMsg('Instância criada e sincronizada no Evolution. Clique em "Gerar QR Code" para parear.')
     } catch (err: unknown) {
@@ -126,27 +140,28 @@ export default function EmpresaPage() {
         <p className="text-xs text-gray-500">
           Ao adicionar, a instância é criada automaticamente no Evolution. Depois clique em "Gerar QR Code" para parear o WhatsApp.
         </p>
-        <form onSubmit={adicionarInstancia} className="flex gap-3">
-          <input
-            value={nomeInstance}
-            onChange={(e) => setNomeInstance(e.target.value)}
-            placeholder="Nome amigável (ex: Vendas BR)"
-            className="border rounded-lg px-3 py-2 text-sm flex-1"
-          />
-          <input
-            value={novaInstance}
-            onChange={(e) => setNovaInstance(e.target.value)}
-            placeholder="ID técnico (letras, números, _ e -)"
-            pattern="[a-zA-Z0-9_\-]+"
-            required
-            className="border rounded-lg px-3 py-2 text-sm flex-1"
-          />
-          <button
-            disabled={adicionando}
-            className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
-          >
-            {adicionando ? 'Criando…' : 'Adicionar'}
-          </button>
+        <form onSubmit={adicionarInstancia} className="space-y-2">
+          <div className="flex gap-3">
+            <input
+              value={nomeInstance}
+              onChange={(e) => setNomeInstance(e.target.value)}
+              placeholder="Nome amigável (ex: Vendas BR)"
+              required
+              className="border rounded-lg px-3 py-2 text-sm flex-1"
+            />
+            <button
+              disabled={adicionando || !novaInstance}
+              className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
+            >
+              {adicionando ? 'Criando…' : 'Adicionar'}
+            </button>
+          </div>
+          {nomeInstance && (
+            <p className="text-xs text-gray-500">
+              ID técnico: <span className="font-mono text-gray-800">{novaInstance || '—'}</span>
+              {!novaInstance && ' (use letras ou números)'}
+            </p>
+          )}
         </form>
         {msg && <p className="text-sm text-brand">{msg}</p>}
         {erroForm && <p className="text-sm text-red-600">{erroForm}</p>}
