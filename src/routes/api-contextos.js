@@ -52,6 +52,19 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   return res.status(201).json({ ok: true, data: ctx })
 })
 
+// DELETE /api/empresas/:empresaId/contextos/:contextoId — remove Contexto 1 + todas as versões (CASCADE)
+router.delete('/:contextoId', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const { rowCount } = await pool.query(
+    'DELETE FROM app.empresa_contextos WHERE id = $1 AND empresa_id = $2',
+    [req.params.contextoId, req.empresa.id]
+  )
+  if (rowCount === 0) {
+    return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Contexto não encontrado.' } })
+  }
+  invalidarCacheEmpresa(req.empresa.id)
+  return res.json({ ok: true, data: { id: req.params.contextoId, deleted: true } })
+})
+
 // PUT /api/empresas/:empresaId/contextos/:contextoId — edita Contexto 1
 router.put('/:contextoId', requireAuth, requireEmpresaAccess, async (req, res) => {
   const { nome, conteudo, contexto_form_json } = req.body || {}

@@ -137,6 +137,24 @@ export default function ContextosPage() {
     }
   }
 
+  async function removerContexto(c: Contexto) {
+    if (!empresaId) return
+    const versoesCount = (versoes[c.id] || []).length
+    const aviso = versoesCount > 0
+      ? `Remover "${c.nome}"?\n\nIsso também apaga ${versoesCount} versão(ões) de Contexto 2 deste contexto. Ação irreversível.`
+      : `Remover "${c.nome}"? Ação irreversível.`
+    if (!confirm(aviso)) return
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/contextos/${c.id}`, { method: 'DELETE' })
+      setLista((prev) => prev.filter((x) => x.id !== c.id))
+      setVersoes((p) => { const n = { ...p }; delete n[c.id]; return n })
+      setAberto((p) => { const n = { ...p }; delete n[c.id]; return n })
+      setMsg({ tone: 'ok', text: 'Contexto removido.' })
+    } catch (err: unknown) {
+      setMsg({ tone: 'err', text: err instanceof Error ? err.message : 'Erro ao remover.' })
+    }
+  }
+
   async function ativar(ctxId: string, versaoId: string) {
     if (!empresaId) return
     try {
@@ -229,13 +247,22 @@ export default function ContextosPage() {
                     <span className="block text-xs text-gray-500 mt-1 line-clamp-2">{c.conteudo}</span>
                   </span>
                 </button>
-                <button
-                  onClick={() => gerarPlaybook(c.id)}
-                  disabled={gerando === c.id}
-                  className="shrink-0 bg-gray-100 hover:bg-brand hover:text-white text-xs px-3 py-1.5 rounded-lg font-medium transition-colors disabled:opacity-50"
-                >
-                  {gerando === c.id ? 'Gerando playbook…' : 'Gerar Playbook com IA'}
-                </button>
+                <div className="shrink-0 flex items-center gap-2">
+                  <button
+                    onClick={() => gerarPlaybook(c.id)}
+                    disabled={gerando === c.id}
+                    className="bg-gray-100 hover:bg-brand hover:text-white text-xs px-3 py-1.5 rounded-lg font-medium transition-colors disabled:opacity-50"
+                  >
+                    {gerando === c.id ? 'Gerando playbook…' : 'Gerar Playbook com IA'}
+                  </button>
+                  <button
+                    onClick={() => removerContexto(c)}
+                    className="text-xs text-red-600 hover:underline"
+                    title="Remover contexto e todas as suas versões"
+                  >
+                    Remover
+                  </button>
+                </div>
               </div>
 
               {isOpen && (
