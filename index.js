@@ -49,9 +49,20 @@ app.use(express.static(path.join(__dirname, 'public')))
 const prompts = require('./src/prompts')
 const { pool, initDB } = require('./src/db')
 const agent = require('./src/agent')
+const { seedAdminUser } = require('./src/auth')
+const { resolveEmpresaFromWebhook } = require('./src/middleware/tenant')
+const apiAuthRouter = require('./src/routes/api-auth')
+
 dashboardAuth.registerDashboardAuthRoutes(app)
 app.use('/dashboard', dashboardAuth.requireDashboardAuth)
 app.use('/api/operador', dashboardAuth.requireDashboardAuth)
+
+// Rotas JWT SaaS (sem autenticação de sessão — usam Bearer token)
+app.use('/api/auth', apiAuthRouter)
+
+// Resolve empresa a partir da evolution_instance em todos os webhooks
+app.use('/webhook', resolveEmpresaFromWebhook)
+
 require('./src/routes')(app)
 
 if (process.argv.includes('--smoke-precificacao')) {
@@ -103,6 +114,7 @@ function iniciarServidor() {
   initDB()
     .then(async () => {
       await dashboardAuth.ensureDashboardAuthReady()
+      await seedAdminUser()
       try {
         await prompts.loadOverlaysFromDb(pool)
       } catch (e) {
