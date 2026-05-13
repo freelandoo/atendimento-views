@@ -11,15 +11,43 @@ const { CONTEXTO1_CAMPOS } = require('./contexto-empresa')
 const MAX_TEXT_CHARS = 60000
 const JINA_TIMEOUT_MS = 25000
 const HTTP_TIMEOUT_MS = 15000
-const MAX_PAGINAS_CRAWL = 6  // raiz + até 5 internas
-const PAGINAS_PRIORIDADE = [
-  /(quem[-\s]somos|sobre|about)/i,
-  /(planos?|pre[çc]os?|pricing)/i,
-  /(como[-\s]funciona|funcionalidades|features|servi[cç]os)/i,
-  /(faq|d[uú]vidas|ajuda|help|suporte|support)/i,
-  /(cadastr|sign[-\s]?up|registr|criar[-\s]?conta)/i,
-  /(termos|privacidade|terms|privacy)/i,
-  /(contato|contact|fale[-\s]?conosco)/i,
+const MAX_PAGINAS_CRAWL = 25  // limite total
+const MAX_DEPTH = 2
+
+// Padrões → priority (alto > 0). Maior = mais comercial = entra primeiro.
+const PRIORIDADE_PADROES = [
+  { rx: /(planos?|pre[çc]os?|pricing|assinatur)/i, score: 100 },
+  { rx: /(servi[cç]os?|produtos?|catalog)/i, score: 90 },
+  { rx: /(como[-\s]funciona|funcionalidades?|features?)/i, score: 85 },
+  { rx: /(cadastr|sign[-\s]?up|registr|criar[-\s]?conta|contratar|assinar)/i, score: 80 },
+  { rx: /(quem[-\s]somos|sobre|about|empresa)/i, score: 70 },
+  { rx: /(faq|d[uú]vidas|ajuda|help|suporte|support|perguntas)/i, score: 65 },
+  { rx: /(contato|contact|fale[-\s]?conosco)/i, score: 60 },
+  { rx: /(diferenciais?|por[-\s]que|vantagens)/i, score: 55 },
+  { rx: /(maquinas?|m[oó]dulos?|freelancers?|cursos?|marketplace|profissionais)/i, score: 50 },
+  { rx: /(termos|privacidade|terms|privacy|politica)/i, score: 25 },
+  { rx: /(blog|noticias?)/i, score: 10 },
+]
+
+// Padrões que NUNCA entram no crawl (admin, login, mídia, etc.)
+const IGNORAR_PADROES = [
+  /\.(jpg|jpeg|png|gif|webp|svg|ico|pdf|zip|rar|tar|gz|mp4|mp3|wav|css|js|json|xml|woff2?|ttf|eot)(\?|#|$)/i,
+  /\/(wp-admin|admin|wp-login|login|logout|signin|signout|signup\?|carrinho|cart|checkout|conta|account|dashboard|painel)(\/|$|\?)/i,
+  /\/feed\/?$/i,
+  /^mailto:|^tel:|^javascript:|^#/i,
+]
+
+// Domínios externos relevantes (registrar como link, NÃO crawlar)
+const REDES_SOCIAIS = [
+  /(?:^|\.)instagram\.com\//i,
+  /(?:^|\.)facebook\.com\//i,
+  /(?:^|\.)linkedin\.com\//i,
+  /(?:^|\.)twitter\.com\//i,
+  /(?:^|\.)x\.com\//i,
+  /(?:^|\.)youtube\.com\//i,
+  /(?:^|\.)tiktok\.com\//i,
+  /(?:^|\.)wa\.me\//i,
+  /api\.whatsapp\.com\//i,
 ]
 
 // ─── Extração de texto bruto ─────────────────────────────────────────────────
@@ -46,112 +74,313 @@ function truncar(texto) {
 
 // ─── Busca conteúdo de site (Jina Reader → fallback axios+cheerio) ──────────
 
+// Busca uma URL específica. Sempre tenta HTML cru (pra extrair links/estrutura).
+// Texto vem do HTML; se HTML falhar, usa Jina Reader como fallback.
 async function _buscarPaginaUnica(url, log) {
-  // 1. Jina Reader: renderiza JS e devolve markdown limpo. Sem auth.
+  let html = null
+  let texto = ''
+  let titulo = null
+  let fonte_render = 'cheerio'
+
+  // 1. HTML cru via axios (mais barato e nos dá <a href> reais)
   try {
-    const r = await axios.get(`https://r.jina.ai/${url}`, {
-      timeout: JINA_TIMEOUT_MS,
-      headers: { 'X-Return-Format': 'markdown' },
+    const r = await axios.get(url, {
+      timeout: HTTP_TIMEOUT_MS,
       maxContentLength: 5 * 1024 * 1024,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PJCodeworksBot/1.0)' },
       responseType: 'text',
+      validateStatus: (s) => s < 500,
     })
-    const md = String(r.data || '').trim()
-    if (md.length > 200) {
-      return { texto: md, fonte_render: 'jina', titulo: extrairTituloDeMarkdown(md), html: null }
+    if (r.status >= 200 && r.status < 400) {
+      html = String(r.data || '')
+      texto = extrairTextoDeHtml(html)
+      const $ = cheerio.load(html)
+      titulo = $('title').first().text().trim() || null
     }
   } catch (err) {
-    if (log) log.warn({ url, err: err.message }, 'Jina falhou, tentando fallback HTML')
+    if (log) log.warn({ url, err: err.message }, '[crawl] HTML fallback')
   }
 
-  // 2. Fallback: GET cru via cheerio.
-  const r = await axios.get(url, {
-    timeout: HTTP_TIMEOUT_MS,
-    maxContentLength: 5 * 1024 * 1024,
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PJCodeworksBot/1.0)' },
-    responseType: 'text',
-  })
-  const texto = extrairTextoDeHtml(r.data)
-  if (!texto || texto.length < 100) throw new Error('Página sem conteúdo útil.')
-  const $ = cheerio.load(r.data)
-  return { texto, fonte_render: 'cheerio', titulo: $('title').first().text().trim() || null, html: r.data }
-}
-
-// Extrai links internos de uma página (HTML ou markdown), prioriza páginas comerciais.
-function _extrairLinksInternos({ html, markdown, baseUrl }) {
-  const base = new URL(baseUrl)
-  const set = new Set()
-
-  if (html) {
-    const $ = cheerio.load(html)
-    $('a[href]').each((_, el) => {
-      const href = $(el).attr('href') || ''
-      try {
-        const abs = new URL(href, baseUrl)
-        if (abs.host !== base.host) return
-        if (abs.hash) abs.hash = ''
-        if (abs.href !== baseUrl) set.add(abs.href.replace(/\/$/, ''))
-      } catch (_) { /* skip */ }
-    })
-  }
-  if (markdown) {
-    const re = /\]\((https?:\/\/[^)]+)\)/g
-    let m
-    while ((m = re.exec(markdown))) {
-      try {
-        const abs = new URL(m[1])
-        if (abs.host !== base.host) continue
-        if (abs.hash) abs.hash = ''
-        if (abs.href !== baseUrl) set.add(abs.href.replace(/\/$/, ''))
-      } catch (_) { /* skip */ }
+  // 2. Se HTML retornou pouco texto (SPA, Cloudflare), tenta Jina Reader pra ver o conteúdo renderizado
+  if (!texto || texto.length < 200) {
+    try {
+      const r = await axios.get(`https://r.jina.ai/${url}`, {
+        timeout: JINA_TIMEOUT_MS,
+        headers: { 'X-Return-Format': 'markdown' },
+        maxContentLength: 5 * 1024 * 1024,
+        responseType: 'text',
+      })
+      const md = String(r.data || '').trim()
+      if (md.length > 200) {
+        texto = md
+        if (!titulo) titulo = extrairTituloDeMarkdown(md)
+        fonte_render = 'jina'
+      }
+    } catch (err) {
+      if (log) log.warn({ url, err: err.message }, '[crawl] Jina fallback')
     }
   }
 
-  const todos = [...set]
-  const prioritarios = []
-  const restantes = []
-  for (const u of todos) {
-    if (PAGINAS_PRIORIDADE.some((rx) => rx.test(u))) prioritarios.push(u)
-    else restantes.push(u)
-  }
-  return [...prioritarios, ...restantes]
+  if (!texto || texto.length < 80) throw new Error('Página sem conteúdo útil.')
+  return { texto, html, fonte_render, titulo }
 }
 
-async function buscarConteudoSite(url, log) {
-  const safeUrl = String(url || '').trim().replace(/\/$/, '')
-  if (!/^https?:\/\//i.test(safeUrl)) throw new Error('URL inválida (precisa começar com http:// ou https://)')
+// Decide se uma URL deve ser ignorada (mídia, admin, login, etc.)
+function _ehUrlIgnoravel(url) {
+  return IGNORAR_PADROES.some((rx) => rx.test(url))
+}
 
-  // 1. Raiz
-  const principal = await _buscarPaginaUnica(safeUrl, log)
-  const partes = [`# ${principal.titulo || safeUrl}\n\n${principal.texto}`]
-  const visitadas = new Set([safeUrl])
+function _normalizarUrl(href, baseUrl) {
+  try {
+    const abs = new URL(href, baseUrl)
+    abs.hash = ''
+    let s = abs.toString().replace(/\/+$/, '')
+    return s
+  } catch (_) {
+    return null
+  }
+}
 
-  // 2. Coleta links internos prioritários (rodapé, sobre, planos, faq, etc.)
-  const candidatos = _extrairLinksInternos({
-    html: principal.html,
-    markdown: principal.fonte_render === 'jina' ? principal.texto : null,
-    baseUrl: safeUrl,
+function _ehRedeSocial(url) {
+  return REDES_SOCIAIS.some((rx) => rx.test(url))
+}
+
+function _scoreUrl(url, anchorText, source) {
+  let score = 0
+  const txt = (anchorText || '').toLowerCase()
+  for (const { rx, score: s } of PRIORIDADE_PADROES) {
+    if (rx.test(url) || rx.test(txt)) {
+      score = Math.max(score, s)
+    }
+  }
+  // Boost por origem (footer/header geralmente têm sobre/contato/planos)
+  if (source === 'footer' || source === 'header' || source === 'nav') score += 5
+  if (source === 'button' || source === 'cta') score += 10
+  return score
+}
+
+/**
+ * Descobre links internos relevantes de uma página, classifica por origem
+ * (header/footer/nav/button/body) e atribui priority score.
+ *
+ * Retorna { internos: [...], externos_uteis: [...] } ordenados por priority desc.
+ */
+function descobrirLinksInternosRelevantes(html, baseUrl) {
+  if (!html) return { internos: [], externos_uteis: [] }
+  const base = new URL(baseUrl)
+  const $ = cheerio.load(html)
+
+  const seenInternos = new Map()  // url → { url, anchorText, source, priority }
+  const seenExternos = new Map()  // mesmo formato
+
+  // Para detectar a origem do link, marcamos os elementos pai
+  function detectarSource($el) {
+    const cls = ($el.attr('class') || '').toLowerCase()
+    let parents = $el.parents('header, nav, footer, button, [role="button"], .btn, .button, .cta, .header, .footer, .menu, .nav, .navbar')
+    if (parents.length > 0) {
+      const tags = parents.map((_, p) => p.tagName?.toLowerCase()).get().reverse()
+      for (const t of ['button', 'footer', 'header', 'nav']) if (tags.includes(t)) return t
+      if (parents.toArray().some((p) => /btn|button|cta/.test(($(p).attr('class') || '').toLowerCase()))) return 'button'
+      if (parents.toArray().some((p) => /menu|navbar|nav/.test(($(p).attr('class') || '').toLowerCase()))) return 'nav'
+    }
+    if (/btn|button|cta/.test(cls)) return 'button'
+    return 'body'
+  }
+
+  $('a[href]').each((_, el) => {
+    const $el = $(el)
+    const hrefRaw = $el.attr('href') || ''
+    if (!hrefRaw || _ehUrlIgnoravel(hrefRaw)) return
+    const abs = _normalizarUrl(hrefRaw, baseUrl)
+    if (!abs || _ehUrlIgnoravel(abs)) return
+    let urlObj
+    try { urlObj = new URL(abs) } catch (_) { return }
+    if (abs === baseUrl.replace(/\/+$/, '')) return
+
+    const anchor = ($el.text() || '').trim().replace(/\s+/g, ' ').slice(0, 200)
+    const source = detectarSource($el)
+    const isMesmoHost = urlObj.host === base.host || urlObj.host.endsWith('.' + base.host) || base.host.endsWith('.' + urlObj.host)
+
+    if (isMesmoHost) {
+      const prev = seenInternos.get(abs)
+      const priority = _scoreUrl(abs, anchor, source)
+      if (!prev || prev.priority < priority) {
+        seenInternos.set(abs, { url: abs, anchorText: anchor, source, priority })
+      }
+    } else if (_ehRedeSocial(abs)) {
+      if (!seenExternos.has(abs)) {
+        seenExternos.set(abs, { url: abs, anchorText: anchor, source, priority: 50, tipo: 'rede_social' })
+      }
+    }
   })
-    .filter((u) => !visitadas.has(u))
-    .slice(0, MAX_PAGINAS_CRAWL - 1)
 
-  if (log) log.info({ url: safeUrl, candidatos: candidatos.length, prioritarios: candidatos.slice(0, 3) }, 'Crawl de páginas internas')
+  const internos = [...seenInternos.values()].sort((a, b) => b.priority - a.priority)
+  const externos_uteis = [...seenExternos.values()]
+  return { internos, externos_uteis }
+}
 
-  // 3. Crawl em paralelo (com limite). Falhas individuais são silenciosas.
-  const resultados = await Promise.allSettled(
-    candidatos.map((u) => _buscarPaginaUnica(u, log).then((r) => ({ url: u, ...r })))
-  )
-  for (const r of resultados) {
-    if (r.status === 'fulfilled' && r.value?.texto && r.value.texto.length > 200) {
-      partes.push(`\n\n---\n\n## ${r.value.titulo || r.value.url}\n[${r.value.url}]\n\n${r.value.texto}`)
-      visitadas.add(r.value.url)
+/**
+ * Extrai conteúdo estruturado de uma página HTML para análise da LLM.
+ * Retorna title, meta description, headings, buttons (CTAs), contatos, sections.
+ */
+function extrairConteudoEstruturadoHtml({ html, url }) {
+  if (!html) return null
+  const $ = cheerio.load(html)
+
+  const title = ($('title').first().text() || '').trim() || null
+  const description = $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content') || null
+
+  const headings = []
+  $('h1, h2, h3').each((_, el) => {
+    const t = $(el).text().trim().replace(/\s+/g, ' ')
+    if (t && t.length < 300) headings.push(t)
+  })
+
+  // Botões / CTAs (texto curto, geralmente comerciais)
+  const buttons = []
+  $('button, a.btn, a.button, [role="button"], .cta a, .cta button').each((_, el) => {
+    const t = $(el).text().trim().replace(/\s+/g, ' ')
+    if (t && t.length > 1 && t.length < 80 && !buttons.includes(t)) buttons.push(t)
+  })
+
+  // Contatos
+  const contacts = {}
+  const tels = new Set()
+  const emails = new Set()
+  const whatsapps = new Set()
+  const instagrams = new Set()
+
+  $('a[href^="tel:"]').each((_, el) => tels.add($(el).attr('href').replace('tel:', '').trim()))
+  $('a[href^="mailto:"]').each((_, el) => emails.add($(el).attr('href').replace('mailto:', '').replace(/\?.*$/, '').trim()))
+  $('a[href]').each((_, el) => {
+    const h = $(el).attr('href') || ''
+    if (/wa\.me\/|api\.whatsapp\.com\//i.test(h)) {
+      const m = h.match(/(?:wa\.me\/|phone=)(\+?\d{8,})/i)
+      if (m) whatsapps.add(m[1])
+      else whatsapps.add(h)
+    }
+    if (/instagram\.com\/[^/?#]+/i.test(h)) {
+      const m = h.match(/instagram\.com\/([^/?#]+)/i)
+      if (m && m[1] && !/^(p|reel|stories|tv|explore)$/i.test(m[1])) instagrams.add('@' + m[1])
+    }
+  })
+
+  // Fallback: regex no texto para tels/emails que não estão como links
+  const textoCompleto = $('body').text() || ''
+  const emailRx = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi
+  const telRx = /(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4,5}[-.\s]?\d{4}/g
+  for (const m of textoCompleto.match(emailRx) || []) emails.add(m.toLowerCase())
+  for (const m of textoCompleto.match(telRx) || []) {
+    const limpo = m.replace(/\s+/g, ' ').trim()
+    if (limpo.length <= 20) tels.add(limpo)
+  }
+
+  if (tels.size) contacts.telefones = [...tels].slice(0, 5)
+  if (emails.size) contacts.emails = [...emails].slice(0, 5)
+  if (whatsapps.size) contacts.whatsapps = [...whatsapps].slice(0, 3)
+  if (instagrams.size) contacts.instagrams = [...instagrams].slice(0, 3)
+
+  // Texto limpo
+  const $clone = cheerio.load(html)
+  $clone('script, style, noscript, iframe, svg').remove()
+  const rawText = ($clone('main').text() || $clone('body').text() || '').replace(/\s+/g, ' ').trim()
+
+  return {
+    url,
+    title,
+    description,
+    headings,
+    buttons,
+    contacts,
+    rawText: rawText.slice(0, 15000),
+  }
+}
+
+/**
+ * Crawler BFS com depth máx 2 e até 25 páginas, priorizando rotas comerciais.
+ * Retorna { paginas: [...], stats: {...} }.
+ */
+async function crawlSite({ url, log, maxPaginas = MAX_PAGINAS_CRAWL, maxDepth = MAX_DEPTH }) {
+  const inicio = String(url || '').trim().replace(/\/+$/, '')
+  if (!/^https?:\/\//i.test(inicio)) throw new Error('URL inválida.')
+
+  const visitadas = new Set()
+  const paginas = []
+  const linksExternosUteis = []
+  let totalLinksDescobertos = 0
+
+  // Fila ordenada por priority desc (recalculada a cada batch)
+  let fila = [{ url: inicio, anchorText: '', source: 'root', priority: 1000, depth: 0 }]
+
+  while (fila.length && visitadas.size < maxPaginas) {
+    fila.sort((a, b) => b.priority - a.priority)
+    const batch = fila.splice(0, Math.min(5, maxPaginas - visitadas.size))  // 5 paralelas
+    const novasPagsResult = await Promise.allSettled(
+      batch.map(async (item) => {
+        if (visitadas.has(item.url)) return null
+        visitadas.add(item.url)
+        try {
+          const r = await _buscarPaginaUnica(item.url, log)
+          const estrut = r.html ? extrairConteudoEstruturadoHtml({ html: r.html, url: item.url }) : null
+          return { ...item, ...r, estrut }
+        } catch (err) {
+          if (log) log.warn({ url: item.url, err: err.message }, '[crawl] página falhou')
+          return null
+        }
+      })
+    )
+
+    for (const r of novasPagsResult) {
+      if (r.status !== 'fulfilled' || !r.value) continue
+      const p = r.value
+      paginas.push(p)
+
+      // Descobre links nesta página (só se ainda há orçamento de profundidade)
+      if (p.html && p.depth < maxDepth) {
+        const { internos, externos_uteis } = descobrirLinksInternosRelevantes(p.html, p.url)
+        totalLinksDescobertos += internos.length + externos_uteis.length
+        for (const ext of externos_uteis) {
+          if (!linksExternosUteis.some((x) => x.url === ext.url)) linksExternosUteis.push(ext)
+        }
+        for (const link of internos) {
+          if (visitadas.has(link.url)) continue
+          if (fila.some((x) => x.url === link.url)) continue
+          fila.push({ ...link, depth: p.depth + 1 })
+        }
+      }
     }
   }
 
   return {
+    paginas,
+    stats: {
+      paginas_lidas: paginas.length,
+      links_internos_descobertos: totalLinksDescobertos,
+      links_externos_uteis: linksExternosUteis.length,
+      profundidade_max: maxDepth,
+      teto_paginas: maxPaginas,
+    },
+    linksExternosUteis,
+  }
+}
+
+async function buscarConteudoSite(url, log) {
+  const { paginas, stats, linksExternosUteis } = await crawlSite({ url, log })
+  if (!paginas.length) throw new Error('Não consegui ler nenhuma página do site.')
+
+  const partes = paginas.map((p, i) => {
+    const header = i === 0 ? `# ${p.titulo || p.url}` : `\n\n---\n\n## ${p.titulo || p.url}\n[${p.url}]`
+    return `${header}\n\n${p.texto}`
+  })
+
+  return {
     texto: partes.join(''),
-    fonte_render: principal.fonte_render,
-    titulo: principal.titulo,
-    paginas_crawladas: visitadas.size,
+    fonte_render: paginas[0]?.fonte_render || 'cheerio',
+    titulo: paginas[0]?.titulo || null,
+    paginas_crawladas: paginas.length,
+    stats,
+    paginas_estruturadas: paginas.map((p) => p.estrut).filter(Boolean),
+    links_externos_uteis: linksExternosUteis,
   }
 }
 
@@ -194,12 +423,34 @@ async function atualizarFonteConteudo(pool, fonteId, { conteudo_extraido, titulo
 async function importarLinkEmpresa(pool, log, { empresaId, contextoId, url }) {
   const fonte = await criarFonteConhecimento(pool, { empresaId, contextoId, tipo: 'site', url })
   try {
-    const { texto, titulo, paginas_crawladas } = await buscarConteudoSite(url, log)
+    const r = await buscarConteudoSite(url, log)
+    const { texto, titulo, paginas_crawladas, stats, paginas_estruturadas, links_externos_uteis } = r
     const { texto: textoCap, truncado } = truncar(texto)
-    if (log) log.info({ fonte_id: fonte.id, len: texto.length, truncado, paginas_crawladas }, 'Site importado')
+    if (log) log.info({ fonte_id: fonte.id, len: texto.length, truncado, stats }, 'Site importado')
     const tituloFinal = titulo
       ? `${titulo}${paginas_crawladas > 1 ? ` (+${paginas_crawladas - 1} páginas internas)` : ''}`
       : fonte.titulo
+
+    // Guarda metadados de crawl no resumo_json (mesmo antes da análise IA)
+    const meta = {
+      crawl_stats: stats,
+      paginas_estruturadas: (paginas_estruturadas || []).map((p) => ({
+        url: p.url, title: p.title, description: p.description,
+        headings: p.headings, buttons: p.buttons, contacts: p.contacts,
+      })),
+      links_externos_uteis: links_externos_uteis || [],
+      url_original: url,
+      crawl_truncado: truncado,
+      texto_chars: texto.length,
+    }
+
+    await pool.query(
+      `UPDATE app.empresa_fontes_conhecimento
+          SET resumo_json = resumo_json || $2::jsonb, updated_at = NOW()
+        WHERE id = $1`,
+      [fonte.id, JSON.stringify({ meta })]
+    )
+
     return await atualizarFonteConteudo(pool, fonte.id, {
       conteudo_extraido: textoCap,
       titulo: tituloFinal,
@@ -245,24 +496,30 @@ async function importarTextoManual(pool, _log, { empresaId, contextoId, texto, t
 
 const RESUMO_FONTE_SYSTEM = `Você extrai informações comerciais de uma fonte de conhecimento (site, documento ou texto bruto) de uma empresa para alimentar um agente de atendimento por WhatsApp.
 
-Regras:
-- NÃO invente dados. Se a fonte não disser, deixe vazio.
-- Não consolide ainda; só extraia o que está nesta fonte.
-- Para preço, use o que estiver escrito (ex: "R$ 60/mês", "a partir de R$ 300/ano").
-- Para serviços, liste cada um com nome e descrição curta.
-- Identifique conflitos óbvios (ex: dois preços diferentes para o mesmo serviço).
-- Retorne APENAS JSON válido neste schema:
+REGRAS DURAS:
+- NÃO invente dados. Se a fonte não disser, deixe vazio ou "não encontrado".
+- URLs: use APENAS URLs que aparecem literalmente no conteúdo. NUNCA emita example.com, localhost, teste.com, site.com, yoursite.com, sample.com, fake.com, dominio.com. Se não encontrou, deixe vazio.
+- Preço: copie como apareceu (ex: "R$ 60/mês", "a partir de R$ 300/ano").
+- Serviços: liste cada um com nome e descrição curta.
+- Conflitos óbvios (dois preços diferentes pro mesmo serviço): listar em conflitos_ou_duvidas.
+- Não consolide com Contexto 1 ainda; só extraia desta fonte.
+
+Retorne APENAS JSON válido neste schema:
 
 {
   "nome_empresa": "",
   "tipo_negocio": "",
   "nicho": "",
   "cidade_regiao": "",
+  "como_funciona": "",
   "servicos_produtos": "",
   "precos_planos": "",
+  "plano_gratuito": "",
   "publico_alvo": "",
   "cliente_ideal": "",
   "diferenciais": "",
+  "diferenciais_competitivos": "",
+  "proposta_de_valor": "",
   "problemas_que_resolve": "",
   "tom_de_voz": "",
   "horario_atendimento": "",
@@ -270,10 +527,28 @@ Regras:
   "objecoes_comuns": "",
   "perguntas_frequentes": "",
   "quando_chamar_humano": "",
-  "links_uteis": "",
   "informacoes_extras": "",
+  "contatos": {
+    "telefone": "",
+    "whatsapp": "",
+    "email": "",
+    "instagram": "",
+    "endereco": ""
+  },
+  "link_principal": "",
+  "link_cadastro": "",
+  "link_login": "",
+  "links_uteis": [
+    { "label": "", "url": "", "tipo": "site|cadastro|login|planos|contato|faq|suporte|outro" }
+  ],
+  "ctas_principais": [],
+  "maquinas_modulos_funcionalidades": [],
   "catalogo_de_ofertas": [
-    { "nome": "", "descricao": "", "preco": "", "beneficios": [], "publico": [], "quando_oferecer": [] }
+    {
+      "nome": "", "descricao": "", "preco": "", "periodicidade": "",
+      "beneficios": [], "publico": [], "quando_oferecer": [],
+      "link_relacionado": ""
+    }
   ],
   "conflitos_ou_duvidas": []
 }`
@@ -292,8 +567,31 @@ async function analisarFonteComIA(pool, log, { empresaId, fonteId }) {
   await atualizarFonteConteudo(pool, fonteId, { status: 'analisando', erro: null })
 
   try {
-    const userPrompt = `FONTE (${fonte.tipo}${fonte.url ? ` — ${fonte.url}` : ''}${fonte.filename ? ` — ${fonte.filename}` : ''}):
+    // Estrutura pra ajudar a IA: passa metadados extraídos do crawl (headings, buttons, contacts, links)
+    const meta = fonte.resumo_json?.meta || {}
+    const paginasEstrut = Array.isArray(meta.paginas_estruturadas) ? meta.paginas_estruturadas : []
+    const linksExternos = Array.isArray(meta.links_externos_uteis) ? meta.links_externos_uteis : []
 
+    const estruturaResumo = paginasEstrut.length
+      ? paginasEstrut.slice(0, 25).map((p) => {
+          const parts = [`URL: ${p.url}`]
+          if (p.title) parts.push(`TITLE: ${p.title}`)
+          if (p.description) parts.push(`META_DESC: ${p.description}`)
+          if (p.headings?.length) parts.push(`HEADINGS: ${p.headings.slice(0, 12).join(' | ')}`)
+          if (p.buttons?.length) parts.push(`BUTTONS/CTAS: ${p.buttons.slice(0, 15).join(' | ')}`)
+          if (p.contacts && Object.keys(p.contacts).length) parts.push(`CONTACTS: ${JSON.stringify(p.contacts)}`)
+          return parts.join('\n')
+        }).join('\n\n---\n\n')
+      : ''
+
+    const linksExternosStr = linksExternos.length
+      ? `\n\nLINKS EXTERNOS ÚTEIS (redes sociais, contato):\n${linksExternos.map((l) => `- ${l.tipo || 'externo'}: ${l.url} ${l.anchorText ? '("' + l.anchorText + '")' : ''}`).join('\n')}`
+      : ''
+
+    const userPrompt = `FONTE (${fonte.tipo}${fonte.url ? ` — ${fonte.url}` : ''}${fonte.filename ? ` — ${fonte.filename}` : ''}):
+${estruturaResumo ? `\nDADOS ESTRUTURADOS POR PÁGINA:\n${estruturaResumo}\n` : ''}${linksExternosStr}
+
+TEXTO BRUTO CONSOLIDADO:
 ${fonte.conteudo_extraido}
 
 Extraia.`
@@ -313,6 +611,9 @@ Extraia.`
     const json = _safeJson(result.text)
     const resumo = _normalizeResumo(json, fonte)
 
+    // Preserva o `meta` (crawl_stats etc.) e injeta o resumo IA por baixo
+    const resumoComMeta = { ...resumo, meta }
+
     const { rows: [updated] } = await pool.query(
       `UPDATE app.empresa_fontes_conhecimento
           SET resumo_json = $2::jsonb,
@@ -321,7 +622,7 @@ Extraia.`
               updated_at = NOW()
         WHERE id = $1
         RETURNING *`,
-      [fonteId, JSON.stringify(resumo)]
+      [fonteId, JSON.stringify(resumoComMeta)]
     )
     return updated
   } catch (err) {
@@ -335,19 +636,91 @@ function _safeJson(text) {
 }
 
 function _normalizeResumo(j, fonte) {
+  const { sanitizarUrl, sanitizarListaLinks, ehUrlFalsa } = require('./url-sanitize')
   const out = {}
+  // Campos legados (string)
   for (const c of CONTEXTO1_CAMPOS) out[c] = String((j && j[c]) || '').trim()
-  out.catalogo_de_ofertas = Array.isArray(j?.catalogo_de_ofertas)
-    ? j.catalogo_de_ofertas.filter((x) => x && (x.nome || x.descricao || x.preco))
+
+  // Campos novos string
+  for (const k of ['como_funciona', 'plano_gratuito', 'diferenciais_competitivos', 'proposta_de_valor']) {
+    out[k] = String((j && j[k]) || '').trim()
+  }
+
+  // URLs — sanitiza e usa URL real da fonte como fallback
+  const fonteUrl = fonte && fonte.url ? sanitizarUrl(fonte.url, '') : ''
+  out.link_principal = sanitizarUrl(j?.link_principal, fonteUrl)
+  out.link_cadastro = sanitizarUrl(j?.link_cadastro, '')
+  out.link_login = sanitizarUrl(j?.link_login, '')
+
+  // Contatos: salva object E flatten pra campos top-level (formulário edita strings)
+  const contatos = j?.contatos && typeof j.contatos === 'object' ? j.contatos : {}
+  out.contatos = {
+    telefone: String(contatos.telefone || '').trim(),
+    whatsapp: String(contatos.whatsapp || '').trim(),
+    email: String(contatos.email || '').trim(),
+    instagram: String(contatos.instagram || '').trim(),
+    endereco: String(contatos.endereco || '').trim(),
+  }
+  out.telefone = out.contatos.telefone
+  out.whatsapp = out.contatos.whatsapp
+  out.email = out.contatos.email
+  out.instagram = out.contatos.instagram
+  out.endereco = out.contatos.endereco
+
+  // Links úteis estruturados
+  out.links_uteis_estruturados = sanitizarListaLinks(j?.links_uteis, '')
+
+  // CTAs
+  out.ctas_principais = Array.isArray(j?.ctas_principais)
+    ? j.ctas_principais.map((c) => String(c || '').trim()).filter(Boolean).slice(0, 12)
     : []
-  out.conflitos_ou_duvidas = Array.isArray(j?.conflitos_ou_duvidas) ? j.conflitos_ou_duvidas.filter(Boolean) : []
+
+  // Máquinas/módulos
+  out.maquinas_modulos_funcionalidades = Array.isArray(j?.maquinas_modulos_funcionalidades)
+    ? j.maquinas_modulos_funcionalidades.map((m) => {
+        if (typeof m === 'string') return { nome: m, descricao: '' }
+        if (m && typeof m === 'object') return {
+          nome: String(m.nome || m.name || '').trim(),
+          descricao: String(m.descricao || m.description || '').trim(),
+        }
+        return null
+      }).filter((m) => m && m.nome)
+    : []
+
+  // Catálogo de ofertas com link_relacionado sanitizado
+  out.catalogo_de_ofertas = Array.isArray(j?.catalogo_de_ofertas)
+    ? j.catalogo_de_ofertas
+        .filter((x) => x && (x.nome || x.descricao || x.preco))
+        .map((x) => ({
+          nome: String(x.nome || '').trim(),
+          descricao: String(x.descricao || '').trim(),
+          preco: String(x.preco || '').trim(),
+          periodicidade: String(x.periodicidade || '').trim(),
+          beneficios: Array.isArray(x.beneficios) ? x.beneficios.filter(Boolean) : [],
+          publico: Array.isArray(x.publico) ? x.publico.filter(Boolean) : [],
+          quando_oferecer: Array.isArray(x.quando_oferecer) ? x.quando_oferecer.filter(Boolean) : [],
+          link_relacionado: sanitizarUrl(x.link_relacionado, ''),
+        }))
+    : []
+
+  // Conflitos
+  out.conflitos_ou_duvidas = Array.isArray(j?.conflitos_ou_duvidas)
+    ? j.conflitos_ou_duvidas.filter(Boolean)
+    : []
+
   out.fontes_utilizadas = [{
     fonte_id: fonte.id,
     tipo: fonte.tipo,
-    url: fonte.url || null,
+    url: fonteUrl || null,
     filename: fonte.filename || null,
     titulo: fonte.titulo || null,
   }]
+
+  // Se IA esqueceu link_principal mas a fonte é site com URL válida, usar URL da fonte
+  if (!out.link_principal && fonteUrl && !ehUrlFalsa(fonteUrl)) {
+    out.link_principal = fonteUrl
+  }
+
   return out
 }
 
@@ -355,14 +728,15 @@ function _normalizeResumo(j, fonte) {
 
 const SUGESTAO_CTX1_SYSTEM = `Você consolida múltiplas fontes de conhecimento (resumos de site, PDF, texto manual) em um único Contexto 1 (cadastro oficial da empresa).
 
-Regras:
+Regras duras:
 - DADOS MANUAIS DO USUÁRIO TÊM PRIORIDADE. Se o Contexto 1 atual já tem valor preenchido num campo, mantenha-o; só preencha campos vazios ou complemente sem sobrescrever.
 - Não invente. Se nenhuma fonte tem o dado, deixe vazio.
+- URLs: use APENAS URLs presentes nas fontes. NUNCA emita example.com, localhost, teste.com, site.com, yoursite.com, sample.com, fake.com, dominio.com.
 - Junte serviços de várias fontes em catalogo_de_ofertas sem duplicar.
 - Se houver conflito (ex: dois preços diferentes pro mesmo serviço), NÃO escolha: registre em conflitos_ou_duvidas.
 - Diferenciais e tom_de_voz: combine em texto único, sem repetição.
 - Liste em fontes_utilizadas todas as fontes consideradas.
-- Retorne APENAS JSON válido com o mesmo schema do extrator de fonte.`
+- Retorne APENAS JSON válido com o mesmo schema do extrator de fonte (incluindo contatos object, link_principal, link_cadastro, link_login, links_uteis array, ctas_principais, maquinas_modulos_funcionalidades, catalogo_de_ofertas com link_relacionado).`
 
 async function sugerirContexto1APartirDasFontes(pool, log, { empresaId, contextoId }) {
   const { rows: [ctx] } = await pool.query(
@@ -438,6 +812,10 @@ module.exports = {
   importarDocumentoEmpresa,
   importarTextoManual,
   analisarFonteComIA,
+  descobrirLinksInternosRelevantes,
+  extrairConteudoEstruturadoHtml,
+  _ehUrlIgnoravel,
+  _scoreUrl,
   // context 1 merge
   sugerirContexto1APartirDasFontes,
   mesclarSugestaoNoContexto1,

@@ -26,13 +26,31 @@ function invalidarCacheEmpresa(empresaId) {
 }
 
 // ─── Schema do Contexto 1 (form) ──────────────────────────────────────────────
-const CONTEXTO1_CAMPOS = [
+// Mantém compatibilidade com campos antigos. Novos campos são aditivos.
+const CONTEXTO1_CAMPOS_LEGADO = [
   'nome_empresa', 'tipo_negocio', 'nicho', 'cidade_regiao',
   'servicos_produtos', 'precos_planos', 'publico_alvo', 'cliente_ideal',
   'diferenciais', 'problemas_que_resolve', 'tom_de_voz', 'horario_atendimento',
   'formas_pagamento', 'objecoes_comuns', 'perguntas_frequentes',
   'quando_chamar_humano', 'links_uteis', 'informacoes_extras',
 ]
+const CONTEXTO1_CAMPOS_NOVOS = [
+  'como_funciona',
+  'proposta_de_valor',
+  'diferenciais_competitivos',
+  'plano_gratuito',
+  'link_principal',
+  'link_cadastro',
+  'link_login',
+  'whatsapp',
+  'email',
+  'instagram',
+  'telefone',
+  'endereco',
+  'ctas_principais',
+  'maquinas_modulos_funcionalidades',
+]
+const CONTEXTO1_CAMPOS = [...CONTEXTO1_CAMPOS_LEGADO, ...CONTEXTO1_CAMPOS_NOVOS]
 
 function normalizarContexto1(input) {
   const form = {}
@@ -166,7 +184,16 @@ function validarContexto2Playbook(json) {
     }
   }
   merged.schema_version = PLAYBOOK_SCHEMA_VERSION
+
+  // Sanitiza fake URLs (example.com, localhost, etc.) substituindo pelo link real
+  // se foi passado em validarContexto2Playbook(json, { linkPrincipal }).
   return merged
+}
+
+function validarContexto2PlaybookComUrls(json, { linkPrincipal = '' } = {}) {
+  const merged = validarContexto2Playbook(json)
+  const { sanitizarPlaybookUrls } = require('./url-sanitize')
+  return sanitizarPlaybookUrls(merged, linkPrincipal)
 }
 
 // ─── Prompt para gerar Contexto 2 Playbook ────────────────────────────────────
@@ -187,6 +214,9 @@ O Contexto 2 é o manual de venda da IA.
 
 REGRA COMERCIAL CENTRAL — RESPONDER PRIMEIRO, QUALIFICAR DEPOIS.
 Quando o lead faz uma pergunta direta (cadastro, preço, link, como funciona, plano gratuito, quais serviços), o agente DEVE responder diretamente usando os dados do Contexto 1, e SÓ DEPOIS fazer uma pergunta de qualificação ligada à venda. Nunca pedir nome no início. Nunca responder "depende da sua necessidade", "preciso entender melhor" ou "qual é o seu nome?" quando o contexto tem dados suficientes.
+
+REGRA DE URL — PROIBIDO INVENTAR LINK.
+Nunca emita example.com, localhost, teste.com, site.com, yoursite.com, dominio.com, sample.com, demo.com, fake.com, empresa.com ou qualquer URL placeholder. Se o Contexto 1 não tem link, deixe o campo vazio. NUNCA invente URL.
 
 Regras de geração:
 - Não invente dados específicos que não estejam no Contexto 1.
@@ -300,7 +330,13 @@ async function gerarContexto2Playbook({ pool, log, empresaId, contextoId, userId
   const markdown = typeof parsed.markdown === 'string' && parsed.markdown.trim()
     ? parsed.markdown
     : ''
-  const jsonValidado = validarContexto2Playbook(parsed.json || {})
+
+  // Determina link principal real do contexto pra usar como fallback de fake URLs
+  const c1 = ctx.contexto_form_json || {}
+  const linkPrincipalReal = pickPrimeiroLinkValido([
+    c1.link_principal, c1.link_cadastro, c1.links_uteis,
+  ])
+  const jsonValidado = validarContexto2PlaybookComUrls(parsed.json || {}, { linkPrincipal: linkPrincipalReal })
 
   const { rows: [last] } = await pool.query(
     'SELECT COALESCE(MAX(versao), 0)::int AS max_versao FROM app.empresa_contexto_versoes WHERE contexto_id = $1',
@@ -568,11 +604,29 @@ function formatarContexto2ParaPrompt(json) {
   return `===== CONTEXTO DA EMPRESA (Contexto 2 — playbook operacional) =====\n\n${corpo.trim()}\n`
 }
 
+// Helper: pega o primeiro link válido (não fake) de uma lista de strings
+function pickPrimeiroLinkValido(arr) {
+  const { ehUrlFalsa } = require('./url-sanitize')
+  for (const v of arr || []) {
+    if (!v) continue
+    const matches = String(v).match(/https?:\/\/[^\s)>\]]+/gi) || []
+    for (const u of matches) {
+      const limpo = u.replace(/[.,;:!?)>\]]+$/, '').trim()
+      if (limpo && !ehUrlFalsa(limpo)) return limpo
+    }
+  }
+  return ''
+}
+
 module.exports = {
   CONTEXTO1_CAMPOS,
+  CONTEXTO1_CAMPOS_LEGADO,
+  CONTEXTO1_CAMPOS_NOVOS,
   PLAYBOOK_SCHEMA_VERSION,
   normalizarContexto1,
   validarContexto2Playbook,
+  validarContexto2PlaybookComUrls,
+  pickPrimeiroLinkValido,
   gerarPromptContexto2,
   gerarContexto2Playbook,
   ativarContexto2,

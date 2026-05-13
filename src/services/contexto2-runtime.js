@@ -441,7 +441,10 @@ Retorne APENAS JSON neste schema:
   }
 }
 
-Mantenha "intencao" (singular) preenchido com intencao_principal para compatibilidade.`
+Mantenha "intencao" (singular) preenchido com intencao_principal para compatibilidade.
+
+REGRA DE URL — PROIBIDO INVENTAR LINK.
+Nunca emita example.com, localhost, teste.com, site.com, yoursite.com, dominio.com, sample.com, fake.com ou qualquer URL placeholder. Use APENAS URLs presentes em playbook.links_uteis_estruturados, playbook.cadastro_e_onboarding.link_cadastro, playbook.resumo_empresa.site ou nos dados do lead. Se não houver URL real, NÃO inclua link na resposta.`
 
 async function extrairEDecidirBundle({ pool, log, playbook, historico, mensagem, leadInsights, empresaId, conversaId, leadPhone, aiProvider }) {
   const provider = aiProvider || require('../ai-provider')
@@ -489,7 +492,25 @@ Extraia + decida em um único JSON.`
     motivo_handoff: typeof p.decisao?.motivo_handoff === 'string' ? p.decisao.motivo_handoff : '',
     sugestao_aprendizado: p.decisao?.sugestao_aprendizado && typeof p.decisao.sugestao_aprendizado === 'object' ? p.decisao.sugestao_aprendizado : null,
   }
+  // Sanitiza URLs fake na resposta — substitui por link real do playbook se existir
+  const { sanitizarDecisaoUrls } = require('./url-sanitize')
+  const linkReal = _extrairLinkPrincipalDoPlaybook(playbook?.json || playbook)
+  sanitizarDecisaoUrls(decisao, linkReal)
   return { extracao, decisao }
+}
+
+function _extrairLinkPrincipalDoPlaybook(pb) {
+  if (!pb || typeof pb !== 'object') return ''
+  const cands = []
+  if (Array.isArray(pb.links_uteis_estruturados)) {
+    for (const l of pb.links_uteis_estruturados) {
+      if (l && typeof l.url === 'string') cands.push(l.url)
+    }
+  }
+  if (pb.cadastro_e_onboarding?.link_cadastro) cands.push(pb.cadastro_e_onboarding.link_cadastro)
+  if (pb.resumo_empresa?.site) cands.push(pb.resumo_empresa.site)
+  const { ehUrlFalsa } = require('./url-sanitize')
+  return cands.find((u) => u && !ehUrlFalsa(u)) || ''
 }
 
 /**

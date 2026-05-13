@@ -53,11 +53,16 @@ const CONTEXTO1_FIELDS: { name: string; label: string; type?: 'text' | 'textarea
   { name: 'tipo_negocio', label: 'Tipo de negócio' },
   { name: 'nicho', label: 'Nicho' },
   { name: 'cidade_regiao', label: 'Cidade / Região' },
+  { name: 'proposta_de_valor', label: 'Proposta de valor', type: 'textarea' },
+  { name: 'como_funciona', label: 'Como funciona', type: 'textarea' },
   { name: 'servicos_produtos', label: 'Serviços / Produtos', type: 'textarea' },
+  { name: 'maquinas_modulos_funcionalidades', label: 'Máquinas / Módulos / Funcionalidades', type: 'textarea' },
   { name: 'precos_planos', label: 'Preços / Planos', type: 'textarea' },
+  { name: 'plano_gratuito', label: 'Plano gratuito (existe? quais limites?)' },
   { name: 'publico_alvo', label: 'Público-alvo' },
   { name: 'cliente_ideal', label: 'Cliente ideal' },
   { name: 'diferenciais', label: 'Diferenciais', type: 'textarea' },
+  { name: 'diferenciais_competitivos', label: 'Diferenciais competitivos', type: 'textarea' },
   { name: 'problemas_que_resolve', label: 'Problemas que resolve', type: 'textarea' },
   { name: 'tom_de_voz', label: 'Tom de voz' },
   { name: 'horario_atendimento', label: 'Horário de atendimento' },
@@ -65,7 +70,16 @@ const CONTEXTO1_FIELDS: { name: string; label: string; type?: 'text' | 'textarea
   { name: 'objecoes_comuns', label: 'Objeções comuns', type: 'textarea' },
   { name: 'perguntas_frequentes', label: 'Perguntas frequentes', type: 'textarea' },
   { name: 'quando_chamar_humano', label: 'Quando chamar humano', type: 'textarea' },
-  { name: 'links_uteis', label: 'Links úteis' },
+  { name: 'ctas_principais', label: 'CTAs principais (botões)', type: 'textarea' },
+  { name: 'link_principal', label: 'Link principal (site)' },
+  { name: 'link_cadastro', label: 'Link de cadastro' },
+  { name: 'link_login', label: 'Link de login' },
+  { name: 'whatsapp', label: 'WhatsApp' },
+  { name: 'telefone', label: 'Telefone' },
+  { name: 'email', label: 'E-mail' },
+  { name: 'instagram', label: 'Instagram' },
+  { name: 'endereco', label: 'Endereço', type: 'textarea' },
+  { name: 'links_uteis', label: 'Outros links úteis', type: 'textarea' },
   { name: 'informacoes_extras', label: 'Informações extras', type: 'textarea' },
 ]
 
@@ -255,7 +269,7 @@ export default function ContextosPage() {
               {isOpen && (
                 <div className="border-t bg-gray-50 px-5 py-4">
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <CardFontes empresaId={empresaId} contextoId={c.id} onAplicarSugestao={async (novoForm) => {
+                    <CardFontes empresaId={empresaId} contextoId={c.id} contextoAtual={c.contexto_form_json || {}} onAplicarSugestao={async (novoForm) => {
                       // salva contexto1 e recarrega lista
                       await apiFetch(`/api/empresas/${empresaId}/contextos/${c.id}`, {
                         method: 'PUT',
@@ -311,9 +325,10 @@ export default function ContextosPage() {
 }
 
 // ─── Card 1 — Fontes ─────────────────────────────────────────────────────────
-function CardFontes({ empresaId, contextoId, onAplicarSugestao }: {
+function CardFontes({ empresaId, contextoId, contextoAtual, onAplicarSugestao }: {
   empresaId: string
   contextoId: string
+  contextoAtual: Record<string, unknown>
   onAplicarSugestao: (novoForm: Record<string, string>) => Promise<void>
 }) {
   const [fontes, setFontes] = useState<Fonte[]>([])
@@ -418,6 +433,26 @@ function CardFontes({ empresaId, contextoId, onAplicarSugestao }: {
   }
 
   const analisadas = fontes.filter((f) => f.status === 'analisado').length
+  const statsFontes = fontes
+    .filter((f) => f.status === 'analisado')
+    .reduce((acc, fonte) => {
+      const resumo = (fonte.resumo_json || {}) as Record<string, unknown>
+      const meta = (resumo.meta || {}) as Record<string, unknown>
+      const crawlStats = (meta.crawl_stats || {}) as Record<string, unknown>
+      const paginasLidas = Number(crawlStats.paginas_lidas || meta.paginas_crawladas || 0)
+      const linksInternos = Number(crawlStats.links_internos_descobertos || 0)
+      const linksExternos = Number(crawlStats.links_externos_uteis || 0)
+      return {
+        sites: acc.sites + (fonte.tipo === 'site' ? 1 : 0),
+        paginas: acc.paginas + (Number.isFinite(paginasLidas) ? paginasLidas : 0),
+        links: acc.links + (Number.isFinite(linksInternos) ? linksInternos : 0) + (Number.isFinite(linksExternos) ? linksExternos : 0),
+      }
+    }, { sites: 0, paginas: 0, links: 0 })
+  const contextoBaseStats = normalizarFormContexto(sugestao?.contexto_atual || contextoAtual)
+  const camposPreenchidosStats = CONTEXTO1_FIELDS.filter((f) => (contextoBaseStats[f.name] || '').trim()).length
+  const labelFontesStats = statsFontes.sites > 0
+    ? `${statsFontes.sites} site${statsFontes.sites === 1 ? '' : 's'} analisado${statsFontes.sites === 1 ? '' : 's'}`
+    : `${analisadas} fonte${analisadas === 1 ? '' : 's'} analisada${analisadas === 1 ? '' : 's'}`
 
   return (
     <div className="bg-white border rounded-xl p-4 space-y-3">
@@ -425,6 +460,12 @@ function CardFontes({ empresaId, contextoId, onAplicarSugestao }: {
         <h3 className="font-semibold text-sm">Fontes de informação</h3>
         <span className="text-xs text-gray-500">{analisadas}/{fontes.length} analisadas</span>
       </div>
+
+      {analisadas > 0 && (
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+          {labelFontesStats} · {statsFontes.paginas} página{statsFontes.paginas === 1 ? '' : 's'} lida{statsFontes.paginas === 1 ? '' : 's'} · {statsFontes.links} link{statsFontes.links === 1 ? '' : 's'} encontrado{statsFontes.links === 1 ? '' : 's'} · {camposPreenchidosStats}/{CONTEXTO1_FIELDS.length} campos preenchidos
+        </div>
+      )}
 
       <div className="space-y-2">
         <div className="flex gap-2">
