@@ -40,6 +40,17 @@ export default function ConversasPage() {
 
   useEffect(() => { carregar() }, [empresaId])
 
+  async function removerConversa(c: Conversa) {
+    if (!empresaId) return
+    if (!confirm(`Remover ${fmtNumero(c.numero)} do banco?\n\nIsso apaga a conversa, perfil do lead e insights. Ação irreversível.`)) return
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(c.numero)}`, { method: 'DELETE' })
+      setLista((prev) => prev.filter((x) => x.numero !== c.numero))
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : 'Erro ao remover.')
+    }
+  }
+
   async function abrirHistorico(c: Conversa) {
     if (!empresaId) return
     setCarregando(true)
@@ -101,12 +112,28 @@ export default function ConversasPage() {
                 {fmtData(c.atualizado_em)}
               </td>
               <td className="px-4 py-2 text-right">
-                <button
-                  onClick={() => abrirHistorico(c)}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-brand text-brand hover:bg-brand hover:text-white transition-colors"
-                >
-                  Histórico
-                </button>
+                <div className="inline-flex items-center gap-2">
+                  <button
+                    onClick={() => abrirHistorico(c)}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-brand text-brand hover:bg-brand hover:text-white transition-colors"
+                  >
+                    Histórico
+                  </button>
+                  <button
+                    onClick={() => removerConversa(c)}
+                    title="Remover contato e dados deste número"
+                    aria-label="Remover"
+                    className="text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg p-1.5 transition-colors"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 6h18"/>
+                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                      <path d="M10 11v6"/>
+                      <path d="M14 11v6"/>
+                    </svg>
+                  </button>
+                </div>
               </td>
             </tr>
           ))}

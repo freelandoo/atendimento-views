@@ -58,6 +58,37 @@ router.get('/:numero', requireAuth, requireEmpresaAccess, async (req, res) => {
   return res.json({ ok: true, data: conversa })
 })
 
+// DELETE /api/empresas/:empresaId/conversas/:numero
+// Remove o contato inteiro (conversa + lead_profile + lead_insights).
+router.delete('/:numero', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await client.query(
+      `DELETE FROM app.lead_insights WHERE empresa_id = $1 AND numero = $2`,
+      [req.empresa.id, req.params.numero]
+    )
+    await client.query(
+      `DELETE FROM vendas.lead_profiles WHERE numero = $1`,
+      [req.params.numero]
+    )
+    const { rowCount } = await client.query(
+      `DELETE FROM vendas.conversas WHERE empresa_id = $1 AND numero = $2`,
+      [req.empresa.id, req.params.numero]
+    )
+    await client.query('COMMIT')
+    if (rowCount === 0) {
+      return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Conversa não encontrada.' } })
+    }
+    return res.json({ ok: true, data: { numero: req.params.numero, deleted: true } })
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    return res.status(500).json({ ok: false, error: { code: 'DELETE_FAILED', message: err.message } })
+  } finally {
+    client.release()
+  }
+})
+
 // DELETE /api/empresas/:empresaId/conversas/:numero/historico
 // Limpa o histórico de mensagens da conversa (mantém a linha — reset agente_pausado e estagio).
 router.delete('/:numero/historico', requireAuth, requireEmpresaAccess, async (req, res) => {
