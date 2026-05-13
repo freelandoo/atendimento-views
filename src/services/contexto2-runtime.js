@@ -137,6 +137,8 @@ function _normalizeExtracao(p) {
 
 // Heurística determinística (não-IA) para garantir multi-intent quando IA falha em emitir.
 // Pode ser chamada em testes ou pra reforçar a extração da IA.
+const PRECO_INTENT_RX = /(quanto\s+custa|quanto\s+(?:fica|sai|paga|[ée]|ta)|qual\s+(o\s+)?(valor|pre[çc]o|custo|investimento)|pre[çc]o|valor|custo|investimento|cobra(m)?\s+quanto|me\s+passa\s+(o\s+)?(valor|pre[çc]o|custo))/i
+
 const INTENT_PATTERNS = [
   { intent: 'cadastro',           rx: /(cadastr[oar]+|como\s+(eu\s+)?(fa[çc]o|crio|crio?\s+conta)|como\s+entr[oa]r?(\s+na\s+plataforma)?|como\s+come[cç]o|criar\s+conta|abrir\s+conta)/i },
   { intent: 'preco',              rx: /(quanto\s+custa|qual\s+(o\s+)?valor|qual\s+(o\s+)?pre[çc]o|quanto\s+(?:fica|sai|paga)|cobra(m)?\s+quanto|me\s+passa\s+(o\s+)?valor)/i },
@@ -152,6 +154,7 @@ function detectarIntencoesHeuristicas(mensagem) {
   const t = String(mensagem || '').toLowerCase()
   const out = []
   for (const { intent, rx } of INTENT_PATTERNS) if (rx.test(t)) out.push(intent)
+  if (PRECO_INTENT_RX.test(t)) out.push('preco')
   return [...new Set(out)]
 }
 
@@ -326,7 +329,7 @@ Decida a melhor resposta.`
     pool, log
   )
   const p = _safeJson(result.text)
-  return {
+  const decisao = {
     mensagem_pro_lead: typeof p.mensagem_pro_lead === 'string' ? p.mensagem_pro_lead : '',
     etapa_proxima: typeof p.etapa_proxima === 'string' ? p.etapa_proxima : '',
     atualizar_perfil: p.atualizar_perfil && typeof p.atualizar_perfil === 'object' ? p.atualizar_perfil : {},
@@ -334,6 +337,7 @@ Decida a melhor resposta.`
     motivo_handoff: typeof p.motivo_handoff === 'string' ? p.motivo_handoff : '',
     sugestao_aprendizado: p.sugestao_aprendizado && typeof p.sugestao_aprendizado === 'object' ? p.sugestao_aprendizado : null,
   }
+  return _corrigirRespostaPrecoQuandoTemContexto({ decisao, playbook, mensagem, extracao })
 }
 
 /**
@@ -359,6 +363,92 @@ async function talvezGerarSugestaoAprendizado({ pool, log, empresaId, contextoVe
 }
 
 // ─── Pipeline em uma chamada (extração + decisão juntos) ─────────────────────
+function _leadPediuPreco(mensagem, extracao) {
+  const intents = Array.isArray(extracao?.intencoes) ? extracao.intencoes : []
+  return intents.includes('preco') || PRECO_INTENT_RX.test(String(mensagem || ''))
+}
+
+function _textoTemPreco(texto) {
+  return /(r\$\s?\d|\d+\s*(reais|por\s+m[êe]s|por\s+ano|\/m[êe]s|\/ano|ao\s+ano|mensais|anual|ano))/i.test(String(texto || ''))
+}
+
+function _temFraseGenericaDePreco(texto) {
+  return /(preciso\s+entender\s+melhor|depende\s+da\s+sua\s+necessidade|nossos\s+servi[cç]os\s+variam|pra\s+te\s+ajudar\s+melhor|qual\s+(é\s+)?(o\s+)?seu\s+nome)/i.test(String(texto || ''))
+}
+
+function _stringsDoObjeto(obj, out = []) {
+  if (!obj || out.length > 120) return out
+  if (typeof obj === 'string') {
+    out.push(obj)
+    return out
+  }
+  if (Array.isArray(obj)) {
+    for (const item of obj) _stringsDoObjeto(item, out)
+    return out
+  }
+  if (typeof obj === 'object') {
+    for (const val of Object.values(obj)) _stringsDoObjeto(val, out)
+  }
+  return out
+}
+
+function _extrairPrecoDoPlaybook(playbook) {
+  const pb = playbook?.json || playbook || {}
+  const candidatos = []
+  if (pb.precos_planos) candidatos.push(pb.precos_planos)
+  if (pb.regras_orcamento?.respostas_para_pergunta_de_preco) candidatos.push(pb.regras_orcamento.respostas_para_pergunta_de_preco)
+  if (pb.servicos) candidatos.push(pb.servicos)
+  if (pb.respostas_base) candidatos.push(pb.respostas_base)
+  if (playbook?.markdown) candidatos.push(playbook.markdown)
+
+  for (const s of _stringsDoObjeto(candidatos)) {
+    const texto = String(s || '').replace(/\s+/g, ' ').trim()
+    if (_textoTemPreco(texto)) return texto.slice(0, 280)
+  }
+  return ''
+}
+
+function _primeiroTexto(arr) {
+  return Array.isArray(arr) ? arr.find((x) => typeof x === 'string' && x.trim()) || '' : ''
+}
+
+function _montarRespostaPrecoDireta({ playbook, preco, extracao }) {
+  const pb = playbook?.json || playbook || {}
+  const intencoes = Array.isArray(extracao?.intencoes) ? extracao.intencoes : []
+  const partes = [`Sobre o preço: ${preco}.`]
+
+  if (intencoes.includes('cadastro')) {
+    const link = _extrairLinkPrincipalDoPlaybook(pb)
+    const passos = Array.isArray(pb.cadastro_e_onboarding?.passos)
+      ? pb.cadastro_e_onboarding.passos.filter((x) => typeof x === 'string' && x.trim()).slice(0, 3).join(', ')
+      : ''
+    if (link) partes.push(`Para se cadastrar, acesse ${link}.`)
+    else if (passos) partes.push(`Para se cadastrar: ${passos}.`)
+  }
+
+  const pergunta = _primeiroTexto(pb.cadastro_e_onboarding?.perguntas_para_direcionar)
+    || 'Você quer usar para vender serviços, criar cursos ou captar clientes?'
+  partes.push(pergunta)
+  return partes.join(' ')
+}
+
+function _corrigirRespostaPrecoQuandoTemContexto({ decisao, playbook, mensagem, extracao }) {
+  if (!decisao || !_leadPediuPreco(mensagem, extracao)) return decisao
+  const preco = _extrairPrecoDoPlaybook(playbook)
+  if (!preco) return decisao
+  if (_textoTemPreco(decisao.mensagem_pro_lead) && !_temFraseGenericaDePreco(decisao.mensagem_pro_lead)) return decisao
+  decisao.mensagem_pro_lead = _montarRespostaPrecoDireta({ playbook, preco, extracao })
+  decisao.etapa_proxima = decisao.etapa_proxima || 'preco_respondido'
+  decisao.atualizar_perfil = {
+    ...(decisao.atualizar_perfil || {}),
+    eventos_conversa: {
+      ...(decisao.atualizar_perfil?.eventos_conversa || {}),
+      perguntou_preco: true,
+    },
+  }
+  return decisao
+}
+
 const BUNDLE_SYSTEM = `Você é o agente comercial da empresa em WhatsApp.
 
 Em UMA passada, você faz duas coisas:
@@ -496,6 +586,7 @@ Extraia + decida em um único JSON.`
   const { sanitizarDecisaoUrls } = require('./url-sanitize')
   const linkReal = _extrairLinkPrincipalDoPlaybook(playbook?.json || playbook)
   sanitizarDecisaoUrls(decisao, linkReal)
+  _corrigirRespostaPrecoQuandoTemContexto({ decisao, playbook, mensagem, extracao })
   return { extracao, decisao }
 }
 

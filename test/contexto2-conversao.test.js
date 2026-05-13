@@ -18,6 +18,12 @@ test('detectarIntencoesHeuristicas: cadastro+preço numa frase só', () => {
   assert.ok(r.includes('preco'), `esperado "preco" em ${JSON.stringify(r)}`)
 })
 
+test('detectarIntencoesHeuristicas: custo/valor/investimento tambem sao preco', () => {
+  assert.ok(detectarIntencoesHeuristicas('qual o custo?').includes('preco'))
+  assert.ok(detectarIntencoesHeuristicas('me passa o investimento').includes('preco'))
+  assert.ok(detectarIntencoesHeuristicas('quanto e?').includes('preco'))
+})
+
 test('detectarIntencoesHeuristicas: como funciona', () => {
   assert.deepEqual(detectarIntencoesHeuristicas('Como funciona?'), ['como_funciona'])
 })

@@ -79,6 +79,7 @@ function _esqueletoPlaybook() {
       palavras_recomendadas: [], palavras_evitar: [], regras_de_linguagem: [],
     },
     servicos: [],
+    precos_planos: '',
     dados_para_coletar: [],
     fluxo_atendimento: [],
     respostas_base: [],
@@ -337,6 +338,9 @@ async function gerarContexto2Playbook({ pool, log, empresaId, contextoId, userId
     c1.link_principal, c1.link_cadastro, c1.links_uteis,
   ])
   const jsonValidado = validarContexto2PlaybookComUrls(parsed.json || {}, { linkPrincipal: linkPrincipalReal })
+  if (c1.precos_planos && !jsonValidado.precos_planos) {
+    jsonValidado.precos_planos = String(c1.precos_planos).trim()
+  }
 
   const { rows: [last] } = await pool.query(
     'SELECT COALESCE(MAX(versao), 0)::int AS max_versao FROM app.empresa_contexto_versoes WHERE contexto_id = $1',
