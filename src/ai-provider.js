@@ -55,24 +55,32 @@ function invalidateCache() {
 async function _callAnthropic({ model, systemPrompt, userPrompt, temperature, maxTokens, timeoutMs, apiKey: keyOverride }) {
   const apiKey = String(keyOverride || process.env.ANTHROPIC_KEY || '').trim()
   if (!apiKey) throw Object.assign(new Error('ANTHROPIC_KEY não configurada'), { code: 'sem_chave' })
-  const resp = await axios.post(
-    ANTHROPIC_URL,
-    {
-      model,
-      max_tokens: maxTokens,
-      temperature,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    },
-    {
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
+  let resp
+  try {
+    resp = await axios.post(
+      ANTHROPIC_URL,
+      {
+        model,
+        max_tokens: maxTokens,
+        temperature,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
       },
-      timeout: timeoutMs,
-    }
-  )
+      {
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        },
+        timeout: timeoutMs,
+      }
+    )
+  } catch (err) {
+    const status = err.response?.status
+    const body = err.response?.data
+    const detail = body?.error?.message || body?.message || JSON.stringify(body || {}).slice(0, 500)
+    throw Object.assign(new Error(`Anthropic ${status || ''} ${detail}`.trim()), { code: 'anthropic_http_error', status, body })
+  }
   return {
     text: String(resp.data?.content?.[0]?.text || ''),
     provider: 'anthropic',
@@ -86,25 +94,33 @@ async function _callAnthropic({ model, systemPrompt, userPrompt, temperature, ma
 async function _callOpenAI({ model, systemPrompt, userPrompt, temperature, maxTokens, timeoutMs, apiKey: keyOverride }) {
   const apiKey = String(keyOverride || process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || '').trim()
   if (!apiKey) throw Object.assign(new Error('OPENAI_KEY não configurada'), { code: 'sem_chave' })
-  const resp = await axios.post(
-    OPENAI_URL,
-    {
-      model,
-      max_tokens: maxTokens,
-      temperature,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
+  let resp
+  try {
+    resp = await axios.post(
+      OPENAI_URL,
+      {
+        model,
+        max_tokens: maxTokens,
+        temperature,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
       },
-      timeout: timeoutMs,
-    }
-  )
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: timeoutMs,
+      }
+    )
+  } catch (err) {
+    const status = err.response?.status
+    const body = err.response?.data
+    const detail = body?.error?.message || body?.message || JSON.stringify(body || {}).slice(0, 500)
+    throw Object.assign(new Error(`OpenAI ${status || ''} ${detail}`.trim()), { code: 'openai_http_error', status, body })
+  }
   return {
     text: String(resp.data?.choices?.[0]?.message?.content || ''),
     provider: 'openai',
