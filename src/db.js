@@ -798,8 +798,21 @@ async function initDB() {
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
+  await pool.query(`
+    ALTER TABLE vendas.ai_logs
+      ADD COLUMN IF NOT EXISTS empresa_id     UUID,
+      ADD COLUMN IF NOT EXISTS ref_type       TEXT,
+      ADD COLUMN IF NOT EXISTS ref_id         TEXT,
+      ADD COLUMN IF NOT EXISTS client_numero  TEXT,
+      ADD COLUMN IF NOT EXISTS input_tokens   INTEGER,
+      ADD COLUMN IF NOT EXISTS output_tokens  INTEGER,
+      ADD COLUMN IF NOT EXISTS cost_usd       NUMERIC(12,6)
+  `)
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_ai_logs_created ON vendas.ai_logs (created_at DESC)`
+  )
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_ai_logs_empresa_created ON vendas.ai_logs (empresa_id, created_at DESC)`
   )
   await initProspectadorDB()
   await runMigrations(pool)

@@ -91,7 +91,10 @@ router.post('/:contextoId/gerar-plano', requireAuth, requireEmpresaAccess, async
 
   let planoJson
   try {
-    const result = await generateContextPlan({ contexto1: ctx.conteudo, pool, log: logger })
+    const result = await generateContextPlan({
+      contexto1: ctx.conteudo, pool, log: logger,
+      empresaId: req.empresa.id, refId: ctx.id,
+    })
     planoJson = result.json || result.text
   } catch (err) {
     logger.error({ err: err.message }, 'Erro ao gerar plano de contexto')
