@@ -190,6 +190,15 @@ Ver `docs/VLAEG_DECISIONS.md` para histórico completo.
 
 ---
 
-## Próximos Passos (VLAEG)
+## URLs de Produção
 
-Ver `docs/VLAEG_TODO.md` para status atualizado dos slices.
+| Serviço | URL |
+|---------|-----|
+| Backend Railway | `https://atendimento-views-production.up.railway.app` |
+| Frontend Vercel | `https://web-psi-two-24.vercel.app` |
+
+## PROTOCOLO VLAEG — ENCERRADO ✅
+
+Todos os 15 slices concluídos e no branch `master`.
+Ver `docs/VLAEG_EXECUTION_LOG.md` para histórico completo.
+Ver `docs/VLAEG_DEPLOY_LOG.md` para detalhes de deploy e variáveis.

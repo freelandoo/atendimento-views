@@ -20,17 +20,15 @@ docker compose up -d
 
 ---
 
-## Deploy Railway (Backend) — Configurado em Slice 12
+## Deploy Railway — Backend ✅
 
-**Arquivo:** `railway.toml` na raiz do projeto.
+**Projeto:** `grateful-nourishment` (Railway)
 
-**Passos para ativar:**
-```bash
-$env:RAILWAY_TOKEN = "<seu-token>"
-railway login --token $env:RAILWAY_TOKEN
-railway link <project-id>
-railway up
-```
+**URL pública:** `https://atendimento-views-production.up.railway.app`
+
+**Healthcheck:** `GET /health` → 200 `{ ok: true }`
+
+**Arquivo de config:** `railway.toml`
 
 **Variáveis obrigatórias no Railway:**
 - `DATABASE_URL` — PostgreSQL provisionado pelo Railway
@@ -42,73 +40,46 @@ railway up
 - `REPROCESS_SECRET` — string ≥ 8 chars
 - `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` — admin inicial SaaS
 - `DASHBOARD_ADMIN_EMAIL`, `DASHBOARD_ADMIN_PASSWORD`
-- `FRONTEND_URL` — URL Vercel do frontend (para CORS)
+- `FRONTEND_URL` — URL Vercel (para CORS): `https://web-psi-two-24.vercel.app`
 
 **Migrations:** executam automaticamente no boot via `src/db/migrations.js`.
 
-**Healthcheck:** `GET /health` → 200 `{ ok: true }`.
+**Status:** ✅ Ativo (deploy anterior ao Protocolo VLAEG)
 
 ---
 
-## Deploy Vercel (Frontend) — Configurado em Slice 12
+## Deploy Vercel — Frontend ✅
 
-**Arquivo:** `apps/web/vercel.json`
+**Projeto:** `web` (freelandoos-projects / Vercel)
 
-**Passos:**
-1. Conectar repositório no dashboard Vercel
-2. Definir **Root Directory** como `apps/web`
-3. Adicionar variável de ambiente: `NEXT_PUBLIC_API_URL = <URL Railway backend>`
-4. Deploy automático no push para master
+**URL pública:** `https://web-psi-two-24.vercel.app`
 
----
+**Framework:** Next.js 14 App Router + TypeScript + Tailwind
 
-## Deploy Railway — Backend
+**Arquivo de config:** `apps/web/vercel.json`
 
-**Projeto:** ⏳ A criar (Slice 2)
+**Root Directory:** `apps/web`
 
-**Serviços a configurar:**
-- [ ] PostgreSQL (Railway plugin)
-- [ ] Redis (Railway plugin)
-- [ ] Evolution API (custom service)
-- [ ] Backend Node.js (deploy do repo)
+**Variáveis de ambiente (Vercel):**
+- `NEXT_PUBLIC_API_URL` = `https://atendimento-views-production.up.railway.app`
 
-**Variáveis configuradas:** Ver `VLAEG_SECRETS_CHECKLIST.md`
+**Estrutura de rotas:**
+- `/` → redirect para `/login`
+- `/login` → autenticação JWT
+- `/dashboard` → visão geral (KPIs)
+- `/dashboard/conversas` → listagem de leads
+- `/dashboard/contextos` → gestão de contextos 1 + geração de Contexto 2
+- `/dashboard/empresa` → config da empresa + instâncias WhatsApp
+- `/dashboard/relatorios` → relatórios gerados por IA
 
-**URL pública:** ⏳ Pendente
-
-**Comandos:**
-```bash
-$env:RAILWAY_TOKEN = "<token>"
-railway login --token $env:RAILWAY_TOKEN
-railway init              # cria projeto
-railway add --plugin postgresql
-railway add --plugin redis
-railway up                # deploy backend
-```
-
-**Healthcheck:** `GET /health` → `{"status":"ok","timestamp":"..."}`
-
-**Status:** 🔄 Em andamento (Slice 2)
-
----
-
-## Deploy Vercel — Frontend
-
-**Projeto:** ⏳ A criar (Slice 13)
-
-**Framework:** Next.js App Router
-
-**Variáveis configuradas:** Ver `VLAEG_SECRETS_CHECKLIST.md`
-
-**URL pública:** ⏳ Pendente
-
-**Comandos:**
-```bash
+**Como redesployar:**
+```powershell
 $env:VERCEL_TOKEN = "<token>"
-vercel --token $env:VERCEL_TOKEN deploy --prod
+Set-Location apps/web
+vercel deploy --prod --token $env:VERCEL_TOKEN --yes --scope freelandoos-projects
 ```
 
-**Status:** ⬜ Pendente (Slice 13)
+**Status:** ✅ Ativo — deploy realizado em 2026-05-13 (Slice 13)
 
 ---
 
@@ -117,3 +88,5 @@ vercel --token $env:VERCEL_TOKEN deploy --prod
 | Data | Ambiente | Serviço | Resultado | Observação |
 |------|----------|---------|-----------|-----------|
 | 2026-05-13 | GitHub | Repositório | ✅ Push inicial (121 arquivos) | branch master |
+| 2026-05-13 | Railway | Backend | ✅ Online | projeto grateful-nourishment |
+| 2026-05-13 | Vercel | Frontend | ✅ Online | fix route groups + TypeScript |
