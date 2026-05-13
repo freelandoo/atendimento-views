@@ -15,13 +15,18 @@ export default function LoginPage() {
     setErro('')
     setLoading(true)
     try {
-      const { data } = await apiFetch<{ token: string; empresa_id?: string }>('/api/auth/login', {
+      const { data } = await apiFetch<{
+        token: string
+        usuario?: { id: string; email: string; nome: string; role: string }
+        empresas?: Array<{ id: string; nome: string; slug: string }>
+      }>('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email, senha }),
+        body: JSON.stringify({ email, password: senha }),
       })
       if (data?.token) {
         localStorage.setItem('token', data.token)
-        if (data.empresa_id) localStorage.setItem('empresa_id', data.empresa_id)
+        const empresaId = data.empresas?.[0]?.id
+        if (empresaId) localStorage.setItem('empresa_id', empresaId)
         router.push('/dashboard')
       }
     } catch (err: unknown) {
