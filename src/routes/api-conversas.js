@@ -2,6 +2,8 @@
 const { Router } = require('express')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
+const { gerarESalvarResumo, buscarUltimoResumo } = require('../services/resumo-conversa')
+const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
 
@@ -54,6 +56,32 @@ router.get('/:numero', requireAuth, requireEmpresaAccess, async (req, res) => {
   )
   if (!conversa) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Conversa não encontrada.' } })
   return res.json({ ok: true, data: conversa })
+})
+
+// GET /api/empresas/:empresaId/conversas/:numero/resumo
+router.get('/:numero/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const resumo = await buscarUltimoResumo(pool, {
+    empresaId: req.empresa.id,
+    numero: req.params.numero,
+  })
+  if (!resumo) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Nenhum resumo encontrado.' } })
+  return res.json({ ok: true, data: { resumo } })
+})
+
+// POST /api/empresas/:empresaId/conversas/:numero/resumo
+// Body: { historico: [...] }
+router.post('/:numero/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const { historico } = req.body || {}
+  if (!Array.isArray(historico) || historico.length === 0) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'historico obrigatório.' } })
+  }
+  const resumo = await gerarESalvarResumo(pool, {
+    empresaId: req.empresa.id,
+    numero: req.params.numero,
+    historico,
+    log: logger,
+  })
+  return res.status(201).json({ ok: true, data: { resumo } })
 })
 
 module.exports = router
