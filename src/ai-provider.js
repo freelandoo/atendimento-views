@@ -212,8 +212,8 @@ async function generateAIResponse(input, pool, log) {
   const provider = input.provider || settings.provider || 'anthropic'
   const model =
     input.model || settings.model || (provider === 'openai' ? 'gpt-4o-mini' : 'claude-sonnet-4-6')
-  const temperature = input.temperature ?? settings.temperature ?? 0.4
-  const maxTokens = input.maxTokens || settings.max_tokens || 1200
+  const temperature = Number(input.temperature ?? settings.temperature ?? 0.4)
+  const maxTokens = Number(input.maxTokens || settings.max_tokens || 1200)
   const timeoutMs = input.timeoutMs || 30000
   const task = input.task || 'geral'
   const ctx = {
