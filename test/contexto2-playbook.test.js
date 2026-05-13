@@ -89,7 +89,7 @@ test('validarContexto2Playbook preenche seções faltantes', () => {
     servicos: [{ nome: 'site', descricao: 'd' }],
     // intencionalmente sem regras_orcamento, regras_reuniao, etc.
   })
-  assert.strictEqual(j.schema_version, 'contexto2.playbook.v1')
+  assert.strictEqual(j.schema_version, 'contexto2.playbook.v2')
   assert.strictEqual(j.resumo_empresa.nome, 'X')
   assert.ok(Array.isArray(j.servicos))
   assert.ok(j.regras_orcamento)
@@ -111,7 +111,7 @@ test('gerarContexto2Playbook chama IA mockada e salva versão rascunho', async (
     pool, log: console, empresaId: 'emp-1', contextoId: 'ctx-1', userId: 'u-1', aiProvider: ai,
   })
   assert.ok(r.json)
-  assert.strictEqual(r.json.schema_version, 'contexto2.playbook.v1')
+  assert.strictEqual(r.json.schema_version, 'contexto2.playbook.v2')
   assert.ok(r.markdown.startsWith('# Playbook'))
   assert.strictEqual(pool.inserts.versoes.length, 1)
 })
@@ -134,7 +134,7 @@ test('extrairDadosDaMensagem aproveita resposta parcial', async () => {
   }))
   const { extrairDadosDaMensagem } = require('../src/services/contexto2-runtime')
   const r = await extrairDadosDaMensagem({
-    pool, log: console, playbook: { json: { schema_version: 'contexto2.playbook.v1' } },
+    pool, log: console, playbook: { json: { schema_version: 'contexto2.playbook.v2' } },
     historico: [], mensagem: 'Tenho uma barbearia no Rudge.',
     leadInsights: {}, empresaId: 'e', conversaId: 'c', leadPhone: '+55', aiProvider: ai,
   })

@@ -407,10 +407,10 @@ function CardFontes({ empresaId, contextoId, onAplicarSugestao }: {
 
   async function aplicarSugestao() {
     if (!sugestao) return
-    const novoForm: Record<string, string> = { ...(sugestao.contexto_atual || {}) }
+    const novoForm: Record<string, string> = normalizarFormContexto(sugestao.contexto_atual || {})
     for (const f of CONTEXTO1_FIELDS) {
       const atual = (novoForm[f.name] || '').trim()
-      const novo = String((sugestao.sugestao as Record<string, unknown>)?.[f.name] || '').trim()
+      const novo = normalizarValorContexto((sugestao.sugestao as Record<string, unknown>)?.[f.name]).trim()
       if (!atual && novo) novoForm[f.name] = novo
     }
     await onAplicarSugestao(novoForm)
@@ -493,8 +493,8 @@ function CardFontes({ empresaId, contextoId, onAplicarSugestao }: {
           <p className="text-xs font-semibold">Sugestão consolidada (preserva seus dados manuais)</p>
           <div className="max-h-48 overflow-y-auto space-y-1">
             {CONTEXTO1_FIELDS.map((f) => {
-              const novo = String((sugestao.sugestao as Record<string, unknown>)?.[f.name] || '').trim()
-              const atual = (sugestao.contexto_atual?.[f.name] || '').trim()
+              const novo = normalizarValorContexto((sugestao.sugestao as Record<string, unknown>)?.[f.name]).trim()
+              const atual = normalizarValorContexto(sugestao.contexto_atual?.[f.name]).trim()
               if (!novo) return null
               const conflito = atual && atual !== novo
               return (
@@ -522,17 +522,43 @@ function CardFontes({ empresaId, contextoId, onAplicarSugestao }: {
   )
 }
 
+// Normaliza qualquer valor (string/array/object) em string amigável pra exibir no form.
+// Resolve [object Object] quando IA devolve links como { label, url } ou arrays.
+function normalizarValorContexto(v: unknown): string {
+  if (v == null) return ''
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  if (Array.isArray(v)) {
+    return v.map((x) => normalizarValorContexto(x)).filter(Boolean).join('\n')
+  }
+  if (typeof v === 'object') {
+    const o = v as Record<string, unknown>
+    if (typeof o.label === 'string' && typeof o.url === 'string') return `${o.label}: ${o.url}`
+    if (typeof o.url === 'string') return String(o.url)
+    if (typeof o.nome === 'string' && typeof o.descricao === 'string') return `${o.nome}: ${o.descricao}`
+    return Object.entries(o).map(([k, val]) => `${k}: ${normalizarValorContexto(val)}`).join(' · ')
+  }
+  return String(v)
+}
+
+function normalizarFormContexto(form: Record<string, unknown> | null | undefined): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!form) return out
+  for (const [k, v] of Object.entries(form)) out[k] = normalizarValorContexto(v)
+  return out
+}
+
 // ─── Card 2 — Contexto 1 editável ────────────────────────────────────────────
 function CardContexto1({ empresaId, contexto, onSalvo }: {
   empresaId: string
   contexto: Contexto
   onSalvo: () => Promise<void>
 }) {
-  const [form, setForm] = useState<Record<string, string>>(contexto.contexto_form_json || {})
+  const [form, setForm] = useState<Record<string, string>>(() => normalizarFormContexto(contexto.contexto_form_json))
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState('')
 
-  useEffect(() => { setForm(contexto.contexto_form_json || {}) }, [contexto.id, contexto.contexto_form_json])
+  useEffect(() => { setForm(normalizarFormContexto(contexto.contexto_form_json)) }, [contexto.id, contexto.contexto_form_json])
 
   async function salvar() {
     setSalvando(true)
@@ -626,7 +652,13 @@ function CardPlaybook({ contextoId: _contextoId, empresaId, versoes, gerando, on
 
 // ─── Card 4 — Teste de atendimento ───────────────────────────────────────────
 type TestResp = {
-  extracao?: { intencao?: string; temperatura?: string }
+  extracao?: {
+    intencao?: string
+    intencoes?: string[]
+    intencao_principal?: string
+    temperatura?: string
+    proxima_melhor_acao?: string
+  }
   decisao?: { mensagem_pro_lead?: string; etapa_proxima?: string }
 }
 
@@ -662,7 +694,7 @@ function CardTeste({ empresaId, contextoForm, versaoAtiva }: {
   }
 
   const resposta = resultado?.decisao?.mensagem_pro_lead || ''
-  const generico = avaliarGenerico(resposta, contextoForm)
+  const generico = avaliarGenerico(resposta, contextoForm, mensagem)
 
   return (
     <div className="bg-white border rounded-xl p-4 space-y-3">
@@ -682,7 +714,9 @@ function CardTeste({ empresaId, contextoForm, versaoAtiva }: {
       {resultado && (
         <div className="border rounded-lg overflow-hidden bg-gray-50">
           <div className="px-3 py-2 border-b bg-white text-[10px] text-gray-500">
-            Intenção: <b>{resultado.extracao?.intencao || '?'}</b> · Temperatura: <b>{resultado.extracao?.temperatura || '?'}</b>
+            Intenções: <b>{(resultado.extracao?.intencoes || [resultado.extracao?.intencao || '?']).join(', ')}</b>
+            {' · '}Temperatura: <b>{resultado.extracao?.temperatura || '?'}</b>
+            {resultado.extracao?.proxima_melhor_acao && <> · Próxima ação: <b>{resultado.extracao.proxima_melhor_acao}</b></>}
           </div>
           <div className="px-3 py-3 space-y-1.5">
             <div className="max-w-[85%] rounded-2xl px-3 py-1.5 text-xs bg-white border border-gray-200 mr-auto">
@@ -699,8 +733,11 @@ function CardTeste({ empresaId, contextoForm, versaoAtiva }: {
             )}
           </div>
           {generico && (
-            <div className="px-3 py-2 bg-amber-50 border-t border-amber-200 text-[11px] text-amber-800">
-              ⚠ Resposta pode estar genérica — não menciona termos específicos da empresa ({generico.termos_esperados.slice(0, 3).join(', ')}…). Verifique se o playbook tem dados detalhados.
+            <div className="px-3 py-2 bg-amber-50 border-t border-amber-200 text-[11px] text-amber-800 space-y-0.5">
+              <div>⚠ A resposta pode estar genérica — não usou dados de cadastro, preço, link ou ofertas do contexto:</div>
+              <ul className="list-disc list-inside">
+                {generico.falhas.map((f, i) => (<li key={i}>{f}</li>))}
+              </ul>
             </div>
           )}
           <details className="border-t bg-white">
@@ -715,17 +752,58 @@ function CardTeste({ empresaId, contextoForm, versaoAtiva }: {
   )
 }
 
-function avaliarGenerico(resposta: string, ctx: Record<string, string>): { termos_esperados: string[] } | null {
+// Avaliação multi-critério: detecta resposta genérica considerando intenções do lead.
+// Retorna null se passou; objeto com warnings se falhou.
+function avaliarGenerico(
+  resposta: string,
+  ctx: Record<string, string>,
+  mensagemLead: string,
+): { termos_esperados: string[]; falhas: string[] } | null {
   const r = (resposta || '').toLowerCase()
+  const lead = (mensagemLead || '').toLowerCase()
   if (!r) return null
+
+  const falhas: string[] = []
+
+  // Frases que sinalizam resposta genérica (lista preta)
+  const fraseGenerica = [
+    'depende da sua necessidade',
+    'preciso entender melhor',
+    'nossos serviços variam',
+    'pra te ajudar melhor',
+    'qual é o seu nome',
+    'qual seu nome',
+  ]
+  if (fraseGenerica.some((f) => r.includes(f))) falhas.push('contém frase genérica de fuga')
+
+  // Pediu nome cedo (e o lead não pediu cadastro real)?
+  const pediuNome = /(qual\s+(é\s+)?(o\s+)?seu\s+nome|me\s+(diz|fala)\s+seu\s+nome|seu\s+nome\?)/i.test(resposta)
+  if (pediuNome) falhas.push('pediu nome no início (regra: responder antes de qualificar)')
+
+  // Lead pediu link e a resposta não tem URL?
+  const pediuLink = /(tem\s+link|qual\s+(o\s+)?site|me\s+manda)/i.test(lead)
+  const respostaTemUrl = /https?:\/\//i.test(resposta)
+  if (pediuLink && !respostaTemUrl && /https?:\/\//i.test((ctx.links_uteis || ''))) {
+    falhas.push('lead pediu link mas resposta não tem URL (e o contexto tem)')
+  }
+
+  // Lead pediu preço e a resposta não menciona valor (R$/número)?
+  const pediuPreco = /(quanto\s+custa|qual\s+(o\s+)?valor|qual\s+(o\s+)?pre[çc]o|preço)/i.test(lead)
+  const respostaTemPreco = /(r\$\s?\d|\d+\s*(reais|por\s+m[êe]s|por\s+ano|\/m[êe]s|\/ano))/i.test(resposta)
+  if (pediuPreco && !respostaTemPreco && (ctx.precos_planos || '').trim()) {
+    falhas.push('lead pediu preço mas resposta não cita valor (e o contexto tem)')
+  }
+
+  // Mencionou termos específicos da empresa?
   const termos = [
     ctx.nome_empresa, ctx.nicho, ctx.tipo_negocio,
     ...(ctx.servicos_produtos || '').split(/[,;.\n]/).slice(0, 5),
   ].map((s) => (s || '').trim().toLowerCase()).filter((s) => s.length >= 4)
-  if (termos.length === 0) return null
-  const matched = termos.some((t) => r.includes(t))
-  if (matched) return null
-  return { termos_esperados: termos }
+  const matched = termos.length === 0 || termos.some((t) => r.includes(t))
+  if (!matched) falhas.push('não menciona nome/nicho/serviços da empresa')
+
+  if (falhas.length === 0) return null
+  return { termos_esperados: termos, falhas }
 }
 
 function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao: Versao; onAtivar: () => void }) {

@@ -21,7 +21,7 @@
   },
   "scripts": {
     "start": "node index.js",
-    "test": "node test/core.test.js",
+    "test": "node --test \"test/**/*.test.js\"",
     "smoke:preco": "node index.js --smoke-precificacao",
     "typecheck": "tsc --noEmit"
   },

@@ -107,8 +107,16 @@ Extraia.`
 
 function _normalizeExtracao(p) {
   const e = p && typeof p === 'object' ? p : {}
+  const intencoesRaw = Array.isArray(e.intencoes) ? e.intencoes.filter((x) => typeof x === 'string' && x.trim()) : []
+  const intencao = typeof e.intencao === 'string' && e.intencao ? e.intencao : (intencoesRaw[0] || 'outro')
+  const intencoes = intencoesRaw.length ? intencoesRaw : [intencao]
+  const intencaoPrincipal = typeof e.intencao_principal === 'string' && e.intencao_principal
+    ? e.intencao_principal
+    : intencoes[0]
   return {
-    intencao: typeof e.intencao === 'string' ? e.intencao : 'outro',
+    intencoes,
+    intencao_principal: intencaoPrincipal,
+    intencao,
     dados_extraidos: e.dados_extraidos && typeof e.dados_extraidos === 'object' ? e.dados_extraidos : {},
     campos_coletados: Array.isArray(e.campos_coletados) ? e.campos_coletados : [],
     campos_faltantes: Array.isArray(e.campos_faltantes) ? e.campos_faltantes : [],
@@ -125,6 +133,26 @@ function _normalizeExtracao(p) {
     precisa_handoff: !!e.precisa_handoff,
     motivo_handoff: typeof e.motivo_handoff === 'string' ? e.motivo_handoff : '',
   }
+}
+
+// Heurística determinística (não-IA) para garantir multi-intent quando IA falha em emitir.
+// Pode ser chamada em testes ou pra reforçar a extração da IA.
+const INTENT_PATTERNS = [
+  { intent: 'cadastro',           rx: /(cadastr[oar]+|como\s+(eu\s+)?(fa[çc]o|crio|crio?\s+conta)|como\s+entr[oa]r?(\s+na\s+plataforma)?|como\s+come[cç]o|criar\s+conta|abrir\s+conta)/i },
+  { intent: 'preco',              rx: /(quanto\s+custa|qual\s+(o\s+)?valor|qual\s+(o\s+)?pre[çc]o|quanto\s+(?:fica|sai|paga)|cobra(m)?\s+quanto|me\s+passa\s+(o\s+)?valor)/i },
+  { intent: 'plano_gratuito',     rx: /(plano\s+gratuito|tem\s+gr[áa]tis|gr[áa]tis|gratuito|free)/i },
+  { intent: 'como_funciona',      rx: /como\s+funciona/i },
+  { intent: 'link',               rx: /(tem\s+link|qual\s+(o\s+)?site|me\s+manda\s+(o\s+)?link)/i },
+  { intent: 'interesse_maquina_curso',     rx: /(vender|criar)\s+curso/i },
+  { intent: 'interesse_maquina_servicos',  rx: /(divulgar|vender|oferecer)\s+(meus\s+)?servi[cç]os/i },
+  { intent: 'captacao_clientes',  rx: /(captar|achar|atrair|conseguir)\s+clientes?/i },
+]
+
+function detectarIntencoesHeuristicas(mensagem) {
+  const t = String(mensagem || '').toLowerCase()
+  const out = []
+  for (const { intent, rx } of INTENT_PATTERNS) if (rx.test(t)) out.push(intent)
+  return [...new Set(out)]
 }
 
 // ─── Merge seguro de lead insights ────────────────────────────────────────────
@@ -334,25 +362,59 @@ async function talvezGerarSugestaoAprendizado({ pool, log, empresaId, contextoVe
 const BUNDLE_SYSTEM = `Você é o agente comercial da empresa em WhatsApp.
 
 Em UMA passada, você faz duas coisas:
-1) Extrai dados úteis da última mensagem do lead (mesmo respostas parciais).
-2) Decide a próxima mensagem do agente — natural, curta, com no máximo UMA pergunta principal.
+1) Extrai dados úteis da última mensagem do lead (mesmo respostas parciais), incluindo MÚLTIPLAS intenções.
+2) Decide a próxima mensagem do agente seguindo a REGRA COMERCIAL CENTRAL.
 
-Use o Contexto 2 (playbook) para decidir tom, perguntas, regras de orçamento, regras de reunião e gatilhos de handoff.
+────────────────────────────────────────────────────────────────────
+REGRA COMERCIAL CENTRAL — RESPONDER PRIMEIRO, QUALIFICAR DEPOIS
+────────────────────────────────────────────────────────────────────
+Quando o lead faz uma pergunta direta sobre cadastro, preço, planos, link, como funciona, plano gratuito, quais serviços, quais máquinas/módulos:
+- RESPONDA DIRETAMENTE usando dados do playbook.cadastro_e_onboarding, .links_uteis_estruturados, .maquinas_ou_modulos, .servicos.
+- NÃO peça nome no início. Peça nome só se for cadastro real ou handoff.
+- NÃO responda "depende da sua necessidade", "preciso entender melhor", "qual é o seu nome?", "nossos serviços variam" se o playbook tem dados suficientes.
+- TERMINE com UMA pergunta de qualificação ligada à venda (não pergunta vazia).
 
-Regras:
+ESTRUTURA OBRIGATÓRIA da resposta para perguntas diretas:
+1. Abertura curta ("Claro.", "Show.", "Beleza.") — opcional.
+2. Resposta direta à pergunta.
+3. Benefício principal vinculado.
+4. Citar produto/plano/máquina relacionado (do playbook.maquinas_ou_modulos / .servicos).
+5. Citar preço se existir em precos_planos.
+6. Enviar link se existir em links_uteis_estruturados ou cadastro_e_onboarding.link_cadastro.
+7. UMA pergunta de qualificação comercial (ex: "Você quer X, Y ou Z?").
+
+Use os dados de playbook.regras_de_conversao, .cadastro_e_onboarding, .maquinas_ou_modulos, .links_uteis_estruturados, .intencoes_de_conversao.
+
+────────────────────────────────────────────────────────────────────
+EXTRAÇÃO DE INTENÇÕES MÚLTIPLAS
+────────────────────────────────────────────────────────────────────
+Mapeie frases para intenções (pode ter mais de uma simultaneamente):
+- "como faço cadastro" / "como me cadastro" / "como entro" / "como começo" → cadastro
+- "quanto custa" / "qual valor" / "quanto é" / "preço" → preco
+- "tem gratuito" / "plano gratuito" / "free" → plano_gratuito
+- "como funciona" → como_funciona
+- "tem link" / "qual o site" → link
+- "quero vender curso" → interesse_maquina_curso
+- "quero divulgar serviço" / "quero anunciar" → interesse_maquina_servicos
+- "quero captar clientes" / "quero achar cliente" → captacao_clientes
+
+Outras intenções gerais: orcamento, reuniao, duvida, objecao, diagnostico, fechamento, vaga, outro.
+
+Quando lead combina cadastro+preco em uma frase, retorne intencoes=["cadastro","preco"] e proxima_melhor_acao="responder_cadastro_preco_e_direcionar".
+
+Regras gerais:
 - Não invente dados/preço/prazo/garantia.
 - Não apague dados conhecidos com vazio/null.
 - Não repita perguntas já respondidas no histórico.
-- Faça UMA pergunta principal por mensagem (salvo combinações naturais).
-- Se lead pedir preço sem escopo: peça O dado mais importante para faixa.
-- Se faltar dado: peça o próximo mais importante (consulte dados_para_coletar).
 - Se houver risco/pedido fora do contexto: precisa_handoff = true.
 - sugestao_aprendizado só quando padrão claro (objeção nova, pergunta frequente, resposta que funcionou).
 
 Retorne APENAS JSON neste schema:
 {
   "extracao": {
-    "intencao": "orcamento|reuniao|duvida|objecao|diagnostico|fechamento|vaga|outro",
+    "intencoes": ["cadastro", "preco"],
+    "intencao_principal": "cadastro",
+    "intencao": "duvida",
     "dados_extraidos": {},
     "campos_coletados": [],
     "campos_faltantes": [],
@@ -377,7 +439,9 @@ Retorne APENAS JSON neste schema:
     "motivo_handoff": "",
     "sugestao_aprendizado": null
   }
-}`
+}
+
+Mantenha "intencao" (singular) preenchido com intencao_principal para compatibilidade.`
 
 async function extrairEDecidirBundle({ pool, log, playbook, historico, mensagem, leadInsights, empresaId, conversaId, leadPhone, aiProvider }) {
   const provider = aiProvider || require('../ai-provider')
@@ -408,6 +472,15 @@ Extraia + decida em um único JSON.`
   )
   const p = _safeJson(result.text)
   const extracao = _normalizeExtracao(p.extracao || {})
+  // Reforço heurístico: garante que multi-intent não passe batido se a IA emitir só um
+  const heur = detectarIntencoesHeuristicas(mensagem)
+  if (heur.length) {
+    const merged = [...new Set([...heur, ...extracao.intencoes])]
+    extracao.intencoes = merged
+    if (!extracao.intencao_principal || extracao.intencao_principal === 'outro') {
+      extracao.intencao_principal = merged[0]
+    }
+  }
   const decisao = {
     mensagem_pro_lead: typeof p.decisao?.mensagem_pro_lead === 'string' ? p.decisao.mensagem_pro_lead : '',
     etapa_proxima: typeof p.decisao?.etapa_proxima === 'string' ? p.decisao.etapa_proxima : '',
@@ -475,4 +548,5 @@ module.exports = {
   extrairEDecidirBundle,
   talvezGerarSugestaoAprendizado,
   processarMensagemComPlaybook,
+  detectarIntencoesHeuristicas,
 }

@@ -47,7 +47,7 @@ function normalizarContexto1(input) {
 }
 
 // ─── Schema do Contexto 2 Playbook ────────────────────────────────────────────
-const PLAYBOOK_SCHEMA_VERSION = 'contexto2.playbook.v1'
+const PLAYBOOK_SCHEMA_VERSION = 'contexto2.playbook.v2'
 
 function _esqueletoPlaybook() {
   return {
@@ -97,6 +97,53 @@ function _esqueletoPlaybook() {
       nao_prometer: [], nao_inventar: [], nao_fazer: [], chamar_humano_quando: [],
     },
     handoff: { gatilhos: [], mensagem_para_lead: '', mensagem_para_operador: '' },
+    regras_de_conversao: {
+      regra_principal: 'Quando o lead perguntar algo direto sobre cadastro, preço, planos, como funciona, link, produto ou serviço, responda diretamente antes de fazer pergunta.',
+      nao_pedir_nome_no_inicio: true,
+      sempre_entregar_valor_antes_de_qualificar: true,
+      sempre_incluir_cta_quando_houver_link: true,
+      sempre_conectar_resposta_com_produto: true,
+      evitar_resposta_generica: true,
+      estrutura_de_resposta: [
+        'responder diretamente a pergunta do lead',
+        'explicar o benefício principal',
+        'citar produto/serviço/plano/máquina relacionado',
+        'citar preço se existir no contexto',
+        'enviar link se existir',
+        'fazer uma pergunta de qualificação ligada à venda',
+      ],
+      perguntas_que_exigem_resposta_direta: [
+        'como funciona', 'como faço cadastro', 'quanto custa', 'qual valor',
+        'tem link', 'tem plano gratuito', 'quais planos', 'quais serviços',
+        'quais produtos', 'como começo', 'como entro',
+      ],
+    },
+    cadastro_e_onboarding: {
+      link_cadastro: '',
+      tem_plano_gratuito: null,
+      passos: [],
+      resposta_base_cadastro: '',
+      perguntas_para_direcionar: [],
+    },
+    maquinas_ou_modulos: [],
+    links_uteis_estruturados: [],
+    intencoes_de_conversao: {
+      cadastro: {
+        deve_responder_com: ['passos', 'link', 'beneficio', 'pergunta_de_direcionamento'],
+      },
+      preco: {
+        deve_responder_com: ['preco_se_existir', 'beneficio', 'plano', 'pergunta_de_direcionamento'],
+      },
+      como_funciona: {
+        deve_responder_com: ['explicacao_empresa', 'ofertas', 'beneficios', 'cta'],
+      },
+      plano_gratuito: {
+        deve_responder_com: ['se_existe_gratuito', 'limites', 'beneficio_do_plano_pago', 'cta'],
+      },
+      link: {
+        deve_responder_com: ['link', 'beneficio', 'cta'],
+      },
+    },
   }
 }
 
@@ -138,25 +185,36 @@ Sua tarefa é transformar o CONTEXTO 1 de uma empresa em um CONTEXTO 2, que ser�
 O Contexto 2 não é um texto institucional.
 O Contexto 2 é o manual de venda da IA.
 
-Ele deve ensinar o agente a abrir conversa, entender o que o lead quer, coletar dados, interpretar respostas incompletas, não repetir perguntas, responder dúvidas, lidar com orçamento, saber quando falar preço, saber quando não falar preço, oferecer reunião, responder objeções, classificar lead como quente/morno/frio, chamar humano quando necessário, registrar aprendizados como sugestões pendentes.
+REGRA COMERCIAL CENTRAL — RESPONDER PRIMEIRO, QUALIFICAR DEPOIS.
+Quando o lead faz uma pergunta direta (cadastro, preço, link, como funciona, plano gratuito, quais serviços), o agente DEVE responder diretamente usando os dados do Contexto 1, e SÓ DEPOIS fazer uma pergunta de qualificação ligada à venda. Nunca pedir nome no início. Nunca responder "depende da sua necessidade", "preciso entender melhor" ou "qual é o seu nome?" quando o contexto tem dados suficientes.
 
 Regras de geração:
 - Não invente dados específicos que não estejam no Contexto 1.
-- Se preço não foi informado, crie regra segura dizendo que preço depende do escopo.
+- Se preço não foi informado, crie regra dizendo que preço depende do escopo.
 - Crie perguntas curtas, naturais e boas para WhatsApp.
-- Crie respostas-base como referência, não frases obrigatórias.
-- O agente faz uma pergunta por vez (salvo quando duas informações simples são naturalmente ligadas).
+- Crie respostas-base que sigam a estrutura: abertura → resposta direta → benefício → produto/plano → preço/link se houver → pergunta de direcionamento.
 - O agente sempre aproveita respostas parciais.
 - O agente nunca repete pergunta que o lead já respondeu.
 - Aprendizados viram sugestões pendentes, nunca alteração automática do contexto ativo.
 
-Crie pelo menos: 8 dados_para_coletar, 8 fluxo_atendimento etapas, 15 respostas_base, 8 objecoes, 5 itens em cada lista de regras_orcamento, 5 em regras_reuniao, 5 handoff.gatilhos.
+EXTRAÇÃO ESPECÍFICA OBRIGATÓRIA do Contexto 1:
+- cadastro_e_onboarding.link_cadastro: pegue de links_uteis se for o site da empresa.
+- cadastro_e_onboarding.tem_plano_gratuito: true/false/null com base em precos_planos.
+- cadastro_e_onboarding.passos: lista curta de passos práticos (ex: ["acesse o site", "crie sua conta", "escolha o módulo", "complete o perfil"]).
+- cadastro_e_onboarding.resposta_base_cadastro: 2-3 frases de exemplo seguindo a estrutura de resposta.
+- cadastro_e_onboarding.perguntas_para_direcionar: 2-4 perguntas curtas (ex: "Você quer vender serviços, criar curso ou captar clientes?").
+- maquinas_ou_modulos: se Contexto 1 menciona módulos, áreas, máquinas ou funções da plataforma (ex: "divulgar serviços", "vender cursos", "agenda", "feed", "perfil"), transforme cada um em item com nome/descricao/indicado_para/beneficios/quando_recomendar/perguntas_de_qualificacao.
+- links_uteis_estruturados: array de { label, url, quando_enviar } extraído de links_uteis.
+- intencoes_de_conversao: mantenha o default (cadastro/preco/como_funciona/plano_gratuito/link), customize deve_responder_com se necessário.
+- regras_de_conversao: mantenha defaults; ajuste perguntas_que_exigem_resposta_direta com termos do nicho da empresa.
+
+Crie pelo menos: 8 dados_para_coletar, 8 fluxo_atendimento etapas, 15 respostas_base (variadas, seguindo a estrutura comercial), 8 objecoes, 5 itens em cada lista de regras_orcamento, 5 em regras_reuniao, 5 handoff.gatilhos.
 
 Retorne APENAS JSON válido (sem markdown, sem texto extra) com o formato:
 {
   "markdown": "texto completo em markdown para o usuário editar",
   "json": {
-    "schema_version": "contexto2.playbook.v1",
+    "schema_version": "contexto2.playbook.v2",
     "resumo_empresa": {...},
     "tom_de_voz": {...},
     "servicos": [...],
@@ -170,7 +228,12 @@ Retorne APENAS JSON válido (sem markdown, sem texto extra) com o formato:
     "runtime_policy": {...},
     "aprendizado_continuo": {...},
     "limites_da_ia": {...},
-    "handoff": {...}
+    "handoff": {...},
+    "regras_de_conversao": {...},
+    "cadastro_e_onboarding": {...},
+    "maquinas_ou_modulos": [...],
+    "links_uteis_estruturados": [...],
+    "intencoes_de_conversao": {...}
   }
 }`
 
