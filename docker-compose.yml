@@ -1,0 +1,93 @@
+services:
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: evolution_api
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: evolution
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evolution -d evolution_api"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+
+  evolution-api:
+    image: evoapicloud/evolution-api:v2.3.7
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - evolution_instances:/evolution/instances
+    environment:
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: "postgresql"
+      DATABASE_CONNECTION_URI: "postgresql://evolution:evolution@postgres:5432/evolution_api?schema=public"
+      DATABASE_CONNECTION_CLIENT_NAME: "evolution"
+      AUTHENTICATION_API_KEY: "${EVOLUTION_API_KEY}"
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: "redis://redis:6379"
+
+  whisper-service:
+    build: ./whisper-service
+    restart: unless-stopped
+
+  webhook:
+    build: .
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      whisper-service:
+        condition: service_started
+    volumes:
+      - ./sql:/app/sql:ro
+      - ./logs:/app/logs
+    environment:
+      ANTHROPIC_KEY: "${ANTHROPIC_KEY}"
+      OPENAI_KEY: "${OPENAI_KEY:-}"
+      # Opcional: URL do serviço Whisper local (padrão: http://whisper-service:9000).
+      # WHISPER_SERVICE_URL: "http://whisper-service:9000"
+      DATABASE_URL: "postgresql://evolution:evolution@postgres:5432/evolution_api"
+      TZ: "America/Sao_Paulo"
+      APP_TIMEZONE: "America/Sao_Paulo"
+      EVOLUTION_URL: "http://evolution-api:8080"
+      EVOLUTION_API_KEY: "${EVOLUTION_API_KEY}"
+      EVOLUTION_INSTANCE: "PJ"
+      # Operadores autorizados: comandos PAUSAR/RETOMAR/INSTRUÇÃO e menu de ações (sem alerta automático por áudio).
+      # Formato: "número" ou "número:Nome" — múltiplos separados por vírgula:
+      #   OPERATOR_WHATSAPP: "5511987309724:Victor,5511888888888:Joãozinho"
+      OPERATOR_WHATSAPP: "5511987309724:Victor"
+      # Opcional: atraso (ms) após a última mensagem do lead antes de gerar resposta; agrupa vários envios seguidos (padrão 2500).
+      # WEBHOOK_REPLY_DEBOUNCE_MS: "2500"
+      # OBRIGATÓRIO (mínimo 8 caracteres). Protege rotas administrativas legadas e /webhook.
+      # O dashboard usa login com cookie httpOnly + CSRF.
+      REPROCESS_SECRET: "${REPROCESS_SECRET}"
+      DASHBOARD_ADMIN_EMAIL: "${DASHBOARD_ADMIN_EMAIL}"
+      DASHBOARD_ADMIN_PASSWORD: "${DASHBOARD_ADMIN_PASSWORD}"
+      # Telegram — preencha para ativar alertas de handoff
+      TELEGRAM_BOT_TOKEN: ""
+      TELEGRAM_CHAT_ID: ""
+      # Google Custom Search (opcional) — usado pra buscar concorrentes reais do lead
+      # ao invés de deixar o modelo inventar nomes. Crie a chave em console.cloud.google.com
+      # (API "Custom Search API") e o CSE ID em programmablesearchengine.google.com.
+      # Sem esses valores a feature é ignorada (o agente volta ao fluxo anterior).
+      GOOGLE_CSE_KEY: "${GOOGLE_CSE_KEY:-}"
+      GOOGLE_CSE_ID: "${GOOGLE_CSE_ID:-}"
+      # Google Places API (New) — usado no agente de prospecção.
+      # Adicione GOOGLE_PLACES_API_KEY=... no .env local.
+      GOOGLE_PLACES_API_KEY: "${GOOGLE_PLACES_API_KEY:-}"
+
+volumes:
+  postgres_data:
+  evolution_instances:

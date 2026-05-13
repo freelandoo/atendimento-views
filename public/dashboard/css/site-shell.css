@@ -1,0 +1,276 @@
+/**
+ * PJ Codeworks — camada de layout / tokens reutilizáveis (site-shell).
+ * Carregar depois de dashboard.css. Mantém paridade visual entre páginas estáticas.
+ */
+:root {
+  --site-container-max: 80rem; /* ~max-w-7xl */
+  --site-pad-x: 1.25rem;
+  --site-pad-x-sm: 1.5rem;
+  --site-pad-x-lg: 2rem;
+  --site-section-y: 4rem;
+  --site-section-y-md: 6rem;
+  --site-hero-title: clamp(1.45rem, 2.6vw, 2.35rem);
+  --site-body-lg: 0.92rem;
+  --site-card-radius: 0.75rem;
+  --site-action: var(--azul);
+  --site-bg-page: var(--fundo);
+}
+
+/* Shell de página (alias semântico + tokens) */
+.dash-shell.page-shell {
+  max-width: min(var(--site-container-max), 100%);
+  padding-left: max(var(--site-pad-x), env(safe-area-inset-left));
+  padding-right: max(var(--site-pad-x), env(safe-area-inset-right));
+}
+
+@media (min-width: 640px) {
+  .dash-shell.page-shell {
+    padding-left: max(var(--site-pad-x-sm), env(safe-area-inset-left));
+    padding-right: max(var(--site-pad-x-sm), env(safe-area-inset-right));
+  }
+}
+
+@media (min-width: 1024px) {
+  .dash-shell.page-shell {
+    padding-left: max(var(--site-pad-x-lg), env(safe-area-inset-left));
+    padding-right: max(var(--site-pad-x-lg), env(safe-area-inset-right));
+  }
+}
+
+/* Header estável (altura mínima quando falta status) */
+.dash-header {
+  min-height: 5.5rem;
+}
+
+/* Tipografia semântica (alias) */
+.page-hero h1,
+.site-hero-title {
+  font-size: var(--site-hero-title);
+  letter-spacing: -0.02em;
+}
+
+.site-section {
+  padding-top: var(--site-section-y);
+  padding-bottom: var(--site-section-y);
+}
+
+@media (min-width: 768px) {
+  .site-section {
+    padding-top: var(--site-section-y-md);
+    padding-bottom: var(--site-section-y-md);
+  }
+}
+
+.site-section-head {
+  margin-bottom: 1rem;
+}
+
+.site-section-head h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  line-height: 1.2;
+  color: var(--texto);
+}
+
+.site-section-head p {
+  margin: 0.35rem 0 0;
+  max-width: 46rem;
+  font-size: var(--site-body-lg);
+  color: var(--texto2);
+  line-height: 1.45;
+}
+
+/* Botão / CTA principal de marca */
+.site-cta,
+.site-header-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.58rem 0.95rem;
+  border-radius: 6px;
+  border: 1px solid rgba(1, 104, 255, 0.35);
+  background: #ffffff;
+  color: var(--site-action);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.site-header-cta:hover,
+.site-header-cta:focus-visible {
+  background: var(--azul-claro);
+  border-color: var(--site-action);
+  color: var(--azul-escuro);
+  outline: none;
+}
+
+.site-cta--primary {
+  background: var(--site-action);
+  border-color: var(--site-action);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(1, 104, 255, 0.22);
+}
+
+.site-cta--primary:hover,
+.site-cta--primary:focus-visible {
+  filter: brightness(1.05);
+  color: #ffffff;
+}
+
+/* Card de serviço / destaque (uso opcional em grids de marketing) */
+.site-service-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1.25rem 1.35rem;
+  border-radius: var(--site-card-radius);
+  border: 1px solid var(--linha);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(15, 35, 72, 0.07);
+}
+
+.site-service-card h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--texto);
+}
+
+.site-service-card p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--texto2);
+  line-height: 1.45;
+}
+
+/* CTA final */
+.site-final-cta {
+  margin-top: 2rem;
+  padding: 1.35rem 1.5rem;
+  border-radius: var(--site-card-radius);
+  border: 1px solid var(--linha);
+  background: linear-gradient(135deg, #ffffff 0%, #eef5ff 100%);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.site-final-cta h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--texto);
+}
+
+.site-final-cta p {
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
+  color: var(--texto2);
+  max-width: 36rem;
+  line-height: 1.45;
+}
+
+/* Rodapé único */
+.site-footer {
+  margin-top: 2.5rem;
+  padding: 1.25rem 0 0;
+  border-top: 1px solid var(--linha);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--texto2);
+}
+
+.site-footer--login {
+  margin-top: 1.5rem;
+  padding: 1rem max(var(--site-pad-x), env(safe-area-inset-left)) 2rem;
+  max-width: min(var(--site-container-max), 100%);
+  margin-left: auto;
+  margin-right: auto;
+  border-top: none;
+}
+
+.site-footer a {
+  color: var(--site-action);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.site-footer a:hover,
+.site-footer a:focus-visible {
+  text-decoration: underline;
+}
+
+/* Navegação — barra auxiliar + menu mobile */
+.dash-nav-toggle.only-mobile {
+  display: none;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--linha);
+  background: #ffffff;
+  color: var(--texto);
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.dash-nav-toggle.only-mobile::before {
+  content: '';
+  width: 1rem;
+  height: 2px;
+  background: currentColor;
+  box-shadow: 0 -5px 0 currentColor, 0 5px 0 currentColor;
+}
+
+@media (max-width: 720px) {
+  .dash-nav-toggle.only-mobile {
+    display: inline-flex;
+  }
+
+  .dash-nav {
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .dash-nav-links {
+    display: none;
+    flex-direction: column;
+    width: 100%;
+    flex-basis: 100%;
+    gap: 0.45rem;
+    padding-top: 0.35rem;
+  }
+
+  .dash-nav-links.is-open {
+    display: flex;
+  }
+
+  .site-header-cta {
+    margin-left: auto;
+  }
+}
+
+@media (min-width: 721px) {
+  .dash-nav-links {
+    display: contents;
+  }
+
+  .site-header-cta {
+    margin-left: auto;
+  }
+}

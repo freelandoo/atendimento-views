@@ -1,0 +1,73 @@
+{
+  "versao": 1,
+  "casos": [
+    {
+      "id": "hokage-barber",
+      "titulo": "Hokage Barber",
+      "segmento": "Barbearia",
+      "cidade": "São Bernardo do Campo - SP",
+      "url": "https://plataforma-hokage-barber.vercel.app/",
+      "tags": ["barbearia", "agendamento", "saas", "abc"],
+      "notas_internas": "Cliente pediu tres entregas; divulgar por ora so este URL."
+    },
+    {
+      "id": "link-line",
+      "titulo": "Link Line",
+      "segmento": "Segurança / telecom / rede",
+      "cidade": "Case ABC; site com footer PJ",
+      "url": "https://linkeline.vercel.app/",
+      "tags": ["seguranca", "b2b", "abc", "corporativo"]
+    },
+    {
+      "id": "mirelly-fotografias",
+      "titulo": "Mirelly Fotografias",
+      "segmento": "Fotografia",
+      "cidade": "São Bernardo do Campo - SP",
+      "url": "https://v0-photography-website-fp.vercel.app/",
+      "tags": ["fotografia", "portfolio", "primeiro-projeto-pj", "abc"],
+      "notas_internas": "Primeiro site do time; historia forte; nao criticar ao lead."
+    },
+    {
+      "id": "mv-laura-cruz",
+      "titulo": "MV Laura Cruz",
+      "segmento": "Clínica veterinária",
+      "cidade": "São Bernardo do Campo - SP",
+      "url": "https://mvlauracruz.vercel.app/",
+      "tags": ["veterinaria", "institucional", "portfolio-inicial", "abc"],
+      "notas_internas": "Entre primeiros portfolios; usar evolucao do time sem depreciar cliente."
+    },
+    {
+      "id": "gurgel-clean",
+      "titulo": "Gurgel Clean",
+      "segmento": "Higienização de estofados",
+      "cidade": "Belo Horizonte e região",
+      "url": "https://www.gurgelclean.com.br/",
+      "tags": ["limpeza", "seo-local", "whatsapp", "referencia"],
+      "opcional": true
+    },
+    {
+      "id": "874-vidros",
+      "titulo": "874 Vidros e Esquadrias",
+      "segmento": "Vidraçaria e esquadrias",
+      "cidade": "Petrolina - PE / Vale do São Francisco",
+      "url": "https://www.874vidroseesquadrias.com.br/",
+      "tags": ["esquadrias", "vidros", "seo-local", "nordeste", "prova-social-principal"],
+      "resultado_ga": {
+        "usuarios_ativos_30d": 31,
+        "eventos_30d": 206,
+        "crescimento_percentual": "+93,8%",
+        "periodo": "últimos 30 dias"
+      },
+      "print_local": "knowledge/prints/874-analytics-30d.png",
+      "notas_internas": "Case referência para prova social. Usar quando lead pedir garantia ou questionar retorno. Script autorizado: 'site que não aparecia em nada → 31 usuários ativos, 206 eventos, +93,8% de crescimento em 30 dias'."
+    },
+    {
+      "id": "geral-1914",
+      "titulo": "Geral 1914",
+      "segmento": "Eletrodomésticos / institucional",
+      "cidade": "Brasil",
+      "url": "https://www.geral1914.com.br/",
+      "tags": ["marca-historica", "institucional", "ecommerce"]
+    }
+  ]
+}

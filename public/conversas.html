@@ -1,0 +1,226 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Conversas e follow-up — PJ Codeworks</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="dashboard/css/dashboard.css" />
+  <link rel="stylesheet" href="dashboard/css/site-shell.css" />
+  <link rel="stylesheet" href="dashboard/css/dashboard-shell.css" />
+</head>
+<body class="dashboard-app">
+  <div class="dash-shell page-shell">
+    <header class="dash-header">
+      <div>
+        <div class="logo"><img src="dashboard/assets/pj-codeworks-logo.png" alt="PJ Codeworks" /><span>Conversas</span></div>
+        <p class="page-title">Centralize os atendimentos, acompanhe mensagens e veja o histórico dos leads.</p>
+      </div>
+      <div class="status-live">
+        <div class="dot" aria-hidden="true"></div>
+        <span id="conversas-refresh-status">Atualização…</span>
+      </div>
+    </header>
+
+    <nav class="dash-nav" aria-label="Navegação principal do painel">
+      <button type="button" class="dash-nav-toggle only-mobile" aria-expanded="false" aria-controls="dash-nav-links">Menu</button>
+      <div id="dash-nav-links" class="dash-nav-links">
+      <a href="dashboard.html" class="dash-nav-link">Dashboard</a>
+      <a href="prospeccao.html" class="dash-nav-link">Prospecção</a>
+      <a href="visao-geral.html" class="dash-nav-link">Vendas</a>
+      <a href="conversas.html" class="dash-nav-link active">Conversas</a>
+            <a href="agenda.html" class="dash-nav-link">Agenda</a>
+      <a href="analytics.html" class="dash-nav-link">Métricas</a>
+      <a href="configuracao.html" class="dash-nav-link">Configurações</a>
+      </div>
+      <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
+    </nav>
+
+    <section class="ops-page-intro">
+      <div>
+        <span class="section-kicker">Caixa de atendimento</span>
+        <h1>Conversas</h1>
+        <p>Centralize os atendimentos, acompanhe mensagens e veja o histórico dos leads.</p>
+      </div>
+      <div class="ops-hero-actions">
+        <a class="btn-followup btn-link" href="visao-geral.html">Voltar a Vendas</a>
+        <a class="btn-followup btn-link" href="configuracao.html">Configuração</a>
+      </div>
+    </section>
+
+    <div class="card">
+      <div class="card-titulo">
+        <span>Conversas recentes</span>
+        <span class="card-titulo-right">
+          <label class="followup-selecionar-label">
+            <input type="checkbox" id="followup-selecionar-visiveis" />
+            Selecionar visíveis
+          </label>
+          <span class="badge" id="badge-total" title="Total de conversas no filtro atual">0</span>
+        </span>
+      </div>
+
+      <div class="conversas-toolbar">
+        <div class="conversas-filtros conversas-filtros-expanded">
+          <label class="conversas-filtro-label" for="conversas-busca">Buscar lead
+            <input type="text" id="conversas-busca" class="conversas-select conversas-input-text" placeholder="Número, negócio…" autocomplete="off" />
+          </label>
+          <label class="conversas-filtro-label" for="conversas-estagio">Etapa
+            <select id="conversas-estagio" class="conversas-select" aria-describedby="conversas-range-text">
+              <option value="">Todas</option>
+            </select>
+          </label>
+          <label class="conversas-filtro-label" for="conversas-motivo">Motivo / Prioridade
+            <select id="conversas-motivo" class="conversas-select">
+              <option value="">Todos</option>
+              <option value="falha_resposta">Falha na resposta</option>
+              <option value="handoff">Handoff / aprovação</option>
+              <option value="precisa_responder">Precisa responder</option>
+              <option value="fila_preco">Fila de preço</option>
+              <option value="preco_divergente">Preço IA ≠ motor</option>
+              <option value="agente_pausado">Agente pausado</option>
+              <option value="acompanhamento">Acompanhamento</option>
+            </select>
+          </label>
+          <label class="conversas-filtro-label" for="conversas-temperatura">Temperatura
+            <select id="conversas-temperatura" class="conversas-select">
+              <option value="">Todas</option>
+              <option value="quente">🔥 Quente</option>
+              <option value="morno">🌤️ Morno</option>
+              <option value="frio">❄️ Frio</option>
+            </select>
+          </label>
+          <label class="conversas-filtro-label" for="conversas-desde">Desde
+            <input type="date" id="conversas-desde" class="conversas-select conversas-input-date" />
+          </label>
+          <label class="conversas-filtro-label" for="conversas-ate">Até
+            <input type="date" id="conversas-ate" class="conversas-select conversas-input-date" />
+          </label>
+          <label class="conversas-filtro-label" for="conversas-ordenar">Ordenar por
+            <select id="conversas-ordenar" class="conversas-select">
+              <option value="atualizado">Última atividade</option>
+              <option value="criado">Data de criação</option>
+            </select>
+          </label>
+          <label class="conversas-filtro-label" for="conversas-direcao">Direção
+            <select id="conversas-direcao" class="conversas-select">
+              <option value="desc">Mais recentes</option>
+              <option value="asc">Mais antigos</option>
+            </select>
+          </label>
+          <label class="conversas-filtro-label" for="conversas-limit">Por página
+            <select id="conversas-limit" class="conversas-select">
+              <option value="20">20</option>
+              <option value="50">50</option>
+              <option value="100" selected>100</option>
+              <option value="200">200</option>
+              <option value="500">500</option>
+            </select>
+          </label>
+          <label class="conversas-filtro-label conversas-filtro-check" title="Última mensagem do lead pede preço/valor e o motor ainda não gravou precificação">
+            <input type="checkbox" id="conversas-fila-preco" />
+            Fila preço
+          </label>
+          <label class="conversas-filtro-label conversas-filtro-check" title="Última resposta da IA citou total de projeto diferente do preco_calculado">
+            <input type="checkbox" id="conversas-preco-divergente" />
+            Preço IA ≠ motor
+          </label>
+          <label class="conversas-filtro-label conversas-filtro-check" title="Mostra as conversas arquivadas manualmente">
+            <input type="checkbox" id="conversas-arquivados" />
+            Ver arquivados
+          </label>
+        </div>
+        <div class="conversas-filtros-actions">
+          <button type="button" class="btn-reproc btn-limpar-filtros" id="btn-limpar-filtros" title="Limpar todos os filtros">Limpar filtros</button>
+          <span class="conversas-filtros-count" id="filtros-ativos-count"></span>
+        </div>
+        <div class="conversas-paginacao" role="group" aria-label="Paginação da lista">
+          <button type="button" class="btn-reproc conversas-pag-btn" id="conversas-pagina-prev" disabled>Anterior</button>
+          <span class="conversas-pagina-info" id="conversas-range-text">—</span>
+          <button type="button" class="btn-reproc conversas-pag-btn" id="conversas-pagina-next" disabled>Próxima</button>
+        </div>
+        <span class="conversas-toolbar-hint">Use os filtros acima para encontrar conversas específicas. Combine filtros livremente — todos se aplicam juntos.</span>
+      </div>
+
+      <div id="lista-conversas"><div class="vazio">carregando…</div></div>
+
+      <div class="conversas-actions-bar">
+        <button type="button" class="btn-followup" id="btn-followup-lote">Follow-up nos selecionados</button>
+        <span id="followup-lote-status" class="followup-lote-status" aria-live="polite"></span>
+        <button type="button" class="btn-reproc" id="btn-atualizar-conversas">Atualizar agora</button>
+      </div>
+    </div>
+
+    <p class="atualizado" id="atualizado-conversas"></p>
+
+    <footer class="site-footer" role="contentinfo">
+      <span>© PJ Codeworks — operação comercial</span>
+      <span>
+        <a href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site institucional</a>
+        ·
+        <a href="dashboard.html">Central de agentes</a>
+      </span>
+    </footer>
+  </div>
+
+  <div id="followup-modal" class="dash-modal" hidden aria-modal="true" role="dialog" aria-labelledby="followup-modal-title">
+    <div class="dash-modal-backdrop" data-modal-close tabindex="-1"></div>
+    <div class="dash-modal-panel">
+      <h2 id="followup-modal-title" class="dash-modal-title">Follow-up neste contato</h2>
+      <p class="dash-modal-desc">Opcional: direcionamento só para este envio (não é copiado ao lead; o modelo integra no tom do histórico). Se deixar vazio, o envio vai <strong>sem</strong> direcionamento — ignora o padrão salvo em Configuração.</p>
+      <label for="followup-modal-instrucao" class="dash-modal-label">Direcionamento para este envio</label>
+      <textarea id="followup-modal-instrucao" class="dash-modal-textarea" rows="4" placeholder="Ex.: perguntar se alinhou o orçamento internamente."></textarea>
+      <div class="dash-modal-actions">
+        <button type="button" class="btn-followup" id="followup-modal-cancel">Cancelar</button>
+        <button type="button" class="btn-reproc" id="followup-modal-confirm">Enviar follow-up</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="apelido-modal" class="dash-modal" hidden aria-modal="true" role="dialog" aria-labelledby="apelido-modal-title">
+    <div class="dash-modal-backdrop" data-apelido-modal-close tabindex="-1"></div>
+    <div class="dash-modal-panel apelido-modal-panel">
+      <h2 id="apelido-modal-title" class="dash-modal-title">Apelido do lead</h2>
+      <p class="dash-modal-desc">Defina um nome curto para reconhecer este contato nas filas e no dashboard.</p>
+      <label for="apelido-modal-input" class="dash-modal-label">Apelido</label>
+      <div class="apelido-input-wrap">
+        <span class="apelido-input-prefix" aria-hidden="true">#</span>
+        <input id="apelido-modal-input" class="dash-modal-input apelido-modal-input" type="text" maxlength="80" autocomplete="off" placeholder="Ex.: Mariana - clínica estética" />
+      </div>
+      <p id="apelido-modal-hint" class="dash-modal-hint"></p>
+      <p id="apelido-modal-status" class="perfil-meta-save-status" aria-live="polite"></p>
+      <div class="dash-modal-actions">
+        <button type="button" class="btn-followup" data-apelido-modal-close>Cancelar</button>
+        <button type="button" class="btn-reproc" id="apelido-modal-confirm">Salvar apelido</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="arquivar-modal" class="dash-modal" hidden aria-modal="true" role="dialog" aria-labelledby="arquivar-modal-title">
+    <div class="dash-modal-backdrop" data-arquivar-modal-close tabindex="-1"></div>
+    <div class="dash-modal-panel">
+      <h2 id="arquivar-modal-title" class="dash-modal-title">Arquivar lead</h2>
+      <p class="dash-modal-desc">O lead sai da lista principal, mas o histórico fica salvo e pode ser visto marcando "Ver arquivados".</p>
+      <label for="arquivar-modal-motivo" class="dash-modal-label">Motivo</label>
+      <select id="arquivar-modal-motivo" class="dash-modal-input">
+        <option value="fechou_com_outro">Já encontrou e fechou com outro</option>
+        <option value="nao_responde">Não responde</option>
+        <option value="sem_prioridade">Sem prioridade agora</option>
+        <option value="arquivado_manual">Arquivado manualmente</option>
+      </select>
+      <p id="arquivar-modal-status" class="perfil-meta-save-status" aria-live="polite"></p>
+      <div class="dash-modal-actions">
+        <button type="button" class="btn-followup" data-arquivar-modal-close>Cancelar</button>
+        <button type="button" class="btn-reproc" id="arquivar-modal-confirm">Arquivar lead</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="dashboard/js/site-nav.js" defer></script>
+  <script src="dashboard/js/core.js?v=2.1"></script>
+  <script src="dashboard/js/conversas.js?v=2.4"></script>
+</body>
+</html>
+
+
+

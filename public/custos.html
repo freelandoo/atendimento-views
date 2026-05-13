@@ -1,0 +1,118 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Custos LLM — PJ Codeworks</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="dashboard/css/dashboard.css" />
+  <link rel="stylesheet" href="dashboard/css/site-shell.css" />
+  <link rel="stylesheet" href="dashboard/css/dashboard-shell.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body class="dashboard-app">
+  <div class="dash-shell page-shell painel-avancado-page">
+    <header class="dash-header">
+      <div>
+        <div class="logo"><img src="dashboard/assets/pj-codeworks-logo.png" alt="PJ Codeworks" /><span>Custos LLM</span></div>
+        <p class="page-title">Acompanhe uso de tokens, chamadas ao modelo e estimativas de custo da operação.</p>
+      </div>
+      <div class="status-live">
+        <div class="dot" aria-hidden="true"></div>
+        <span>atualização ao mudar o período</span>
+      </div>
+    </header>
+
+    <nav class="dash-nav" aria-label="Navegação principal do painel">
+      <button type="button" class="dash-nav-toggle only-mobile" aria-expanded="false" aria-controls="dash-nav-links">Menu</button>
+      <div id="dash-nav-links" class="dash-nav-links">
+      <a href="dashboard.html" class="dash-nav-link">Dashboard</a>
+      <a href="prospeccao.html" class="dash-nav-link">Prospecção</a>
+      <a href="visao-geral.html" class="dash-nav-link">Vendas</a>
+      <a href="conversas.html" class="dash-nav-link">Conversas</a>
+            <a href="agenda.html" class="dash-nav-link">Agenda</a>
+      <a href="analytics.html" class="dash-nav-link active">Métricas</a>
+      <a href="configuracao.html" class="dash-nav-link">Configurações</a>
+      </div>
+      <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
+    </nav>
+
+    <section class="dashboard-page-head" aria-labelledby="custos-title">
+      <div>
+        <span class="section-kicker">Controle financeiro</span>
+        <h1 id="custos-title">Custos LLM</h1>
+        <p>Acompanhe uso de tokens, chamadas ao modelo e estimativas de custo da operação.</p>
+      </div>
+      <div class="ops-hero-actions">
+        <a class="btn-followup btn-link" href="analytics.html">Voltar a métricas</a>
+      </div>
+    </section>
+
+    <section class="metrics-subnav" aria-label="Dashboards de métricas disponíveis">
+      <span class="metrics-subnav-label">Dashboards disponíveis</span>
+      <a href="analytics.html#painel-avancado" class="metrics-subnav-link">Painel Avançado</a>
+      <a href="analytics.html#follow-up" class="metrics-subnav-link">Follow Up</a>
+      <a href="custos.html" class="metrics-subnav-link active">Custos</a>
+      <a href="analises-etapas.html" class="metrics-subnav-link">Principais problemas por etapas</a>
+    </section>
+
+    <div class="card">
+      <div class="card-titulo">
+        Resumo e série diária
+        <span class="badge">vendas.llm_chamadas</span>
+      </div>
+      <div class="painel-toolbar">
+        <div class="painel-field">
+          <label for="custos-dias">Período</label>
+          <select id="custos-dias" aria-label="Período em dias">
+            <option value="7">7 dias</option>
+            <option value="14">14 dias</option>
+            <option value="30" selected>30 dias</option>
+            <option value="90">90 dias</option>
+          </select>
+        </div>
+      </div>
+      <p class="painel-nota" id="custos-nota"></p>
+      <div class="followup-stats-grid" id="custos-kpis">
+        <div class="vazio" style="padding: 1rem">carregando…</div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chart-custos-diario" aria-label="Tokens de entrada e saída por dia"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-titulo">
+        Por tipo de chamada
+        <span class="badge">top 80</span>
+      </div>
+      <div id="custos-tabela-tipo" class="painel-tabela"><div class="vazio" style="padding: 1rem">carregando…</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-titulo">
+        Por modelo
+        <span class="badge">top 80</span>
+      </div>
+      <div id="custos-tabela-model" class="painel-tabela"><div class="vazio" style="padding: 1rem">carregando…</div></div>
+    </div>
+
+    <p class="atualizado" id="atualizado-custos"></p>
+
+    <footer class="site-footer" role="contentinfo">
+      <span>© PJ Codeworks — operação comercial</span>
+      <span>
+        <a href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site institucional</a>
+        ·
+        <a href="dashboard.html">Central de agentes</a>
+      </span>
+    </footer>
+  </div>
+  <script src="dashboard/js/site-nav.js" defer></script>
+  <script src="dashboard/js/core.js"></script>
+  <script src="dashboard/js/custos.js?v=3"></script>
+</body>
+</html>
+
+
+

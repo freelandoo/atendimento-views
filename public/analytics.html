@@ -1,0 +1,141 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Métricas e exportação — PJ Codeworks</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="dashboard/css/dashboard.css" />
+  <link rel="stylesheet" href="dashboard/css/site-shell.css" />
+  <link rel="stylesheet" href="dashboard/css/dashboard-shell.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body class="dashboard-app">
+  <div class="dash-shell page-shell painel-avancado-page">
+    <header class="dash-header">
+      <div>
+        <div class="logo"><img src="dashboard/assets/pj-codeworks-logo.png" alt="PJ Codeworks" /><span>Métricas</span></div>
+        <p class="page-title">Analise desempenho, conversões, respostas, propostas e oportunidades geradas.</p>
+      </div>
+      <div class="status-live">
+        <div class="dot" aria-hidden="true"></div>
+        <span>atualização a cada 30s</span>
+      </div>
+    </header>
+
+    <nav class="dash-nav" aria-label="Navegação principal do painel">
+      <button type="button" class="dash-nav-toggle only-mobile" aria-expanded="false" aria-controls="dash-nav-links">Menu</button>
+      <div id="dash-nav-links" class="dash-nav-links">
+      <a href="dashboard.html" class="dash-nav-link">Dashboard</a>
+      <a href="prospeccao.html" class="dash-nav-link">Prospecção</a>
+      <a href="visao-geral.html" class="dash-nav-link">Vendas</a>
+      <a href="conversas.html" class="dash-nav-link">Conversas</a>
+            <a href="agenda.html" class="dash-nav-link">Agenda</a>
+      <a href="analytics.html" class="dash-nav-link active">Métricas</a>
+      <a href="configuracao.html" class="dash-nav-link">Configurações</a>
+      </div>
+      <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
+    </nav>
+
+    <section class="dashboard-page-head" aria-labelledby="analytics-title">
+      <div>
+        <span class="section-kicker">Inteligência comercial</span>
+        <h1 id="analytics-title">Métricas</h1>
+        <p>Analise desempenho, conversões, respostas, propostas e oportunidades geradas.</p>
+      </div>
+      <div class="ops-hero-actions">
+        <a class="btn-followup btn-link" href="custos.html">Ver custos</a>
+        <a class="btn-followup btn-link" href="analises-etapas.html">Diagnóstico IA</a>
+      </div>
+    </section>
+
+    <section class="metrics-subnav" aria-label="Dashboards de métricas disponíveis">
+      <span class="metrics-subnav-label">Dashboards disponíveis</span>
+      <a href="#painel-avancado" class="metrics-subnav-link active" data-analytics-tab="painel-avancado">Painel Avançado</a>
+      <a href="#follow-up" class="metrics-subnav-link" data-analytics-tab="follow-up">Follow Up</a>
+      <a href="custos.html" class="metrics-subnav-link">Custos</a>
+      <a href="analises-etapas.html" class="metrics-subnav-link">Principais problemas por etapas</a>
+    </section>
+
+    <div class="card" id="painel-avancado">
+      <div class="card-titulo">
+        Painel avançado
+        <span class="card-titulo-right">
+          <a href="analises-etapas.html" class="section-link">Diagnóstico IA</a>
+          <span class="badge">gráfico + filtros + CSV</span>
+        </span>
+      </div>
+      <div class="painel-toolbar">
+        <div class="painel-field">
+          <label for="painel-dias">Período do gráfico</label>
+          <select id="painel-dias" aria-label="Período em dias para o gráfico">
+            <option value="7">7 dias</option>
+            <option value="14">14 dias</option>
+            <option value="30" selected>30 dias</option>
+            <option value="90">90 dias</option>
+          </select>
+        </div>
+        <div class="painel-field">
+          <label for="painel-estagio">Estágio (lista e CSV)</label>
+          <select id="painel-estagio" aria-label="Filtrar por estágio">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div class="painel-field">
+          <label for="painel-desde">Atualizado desde</label>
+          <input type="date" id="painel-desde" />
+        </div>
+        <div class="painel-field">
+          <label for="painel-ate">Até</label>
+          <input type="date" id="painel-ate" />
+        </div>
+        <div class="painel-field">
+          <label>&nbsp;</label>
+          <button type="button" class="btn-export" id="btn-export-csv">Exportar CSV</button>
+        </div>
+      </div>
+      <p class="painel-nota" id="painel-nota-fechadas"></p>
+      <div class="chart-wrap">
+        <canvas id="chart-diario" aria-label="Gráfico de conversas por dia"></canvas>
+      </div>
+      <div class="painel-tabela-meta">
+        Amostra filtrada: <span id="painel-total-filtrado">—</span> conversas no total · até 80 linhas
+      </div>
+      <div id="painel-tabela" class="painel-tabela"><div class="vazio" style="padding: 1rem">carregando…</div></div>
+    </div>
+
+    <div class="card followup-stats-card" id="follow-up">
+      <div class="card-titulo">
+        Follow-up manual
+        <span class="badge">envios e respostas do lead</span>
+      </div>
+      <p class="painel-nota" id="followup-stats-nota"></p>
+      <div class="followup-stats-grid" id="followup-stats-grid">
+        <div class="vazio" style="padding: 1rem">carregando…</div>
+      </div>
+      <div class="chart-wrap chart-wrap-followup">
+        <canvas id="chart-followup-diario" aria-label="Follow-ups enviados e respostas por dia"></canvas>
+      </div>
+      <div class="followup-recentes-meta">Últimos envios (amostra)</div>
+      <div id="followup-recentes-tabela" class="painel-tabela"><div class="vazio" style="padding: 1rem">carregando…</div></div>
+    </div>
+
+    <p class="atualizado" id="atualizado-analytics"></p>
+
+    <footer class="site-footer" role="contentinfo">
+      <span>© PJ Codeworks — operação comercial</span>
+      <span>
+        <a href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site institucional</a>
+        ·
+        <a href="dashboard.html">Central de agentes</a>
+      </span>
+    </footer>
+  </div>
+  <script src="dashboard/js/site-nav.js" defer></script>
+  <script src="dashboard/js/core.js"></script>
+  <script src="dashboard/js/analytics.js"></script>
+</body>
+</html>
+
+
+

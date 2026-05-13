@@ -1,0 +1,514 @@
+/*
+ * PJ Codeworks dashboard shell
+ * Camada reutilizavel para padronizar as paginas internas sem mudar contratos JS.
+ */
+:root {
+  --dash-primary: #0168ff;
+  --dash-primary-dark: #0746b8;
+  --dash-page-bg: #f6f8fc;
+  --dash-sidebar: #07111f;
+  --dash-sidebar-deep: #030712;
+  --dash-card: #ffffff;
+  --dash-soft: #f8fafc;
+  --dash-line: #dce5f2;
+  --dash-text: #0b1220;
+  --dash-muted: #667085;
+  --dash-radius: 12px;
+  --dash-shadow: 0 14px 34px rgba(15, 35, 72, 0.07);
+}
+
+/* Component aliases for future HTML blocks. Existing legacy classes below map to these styles. */
+.DashboardShell,
+.dashboard-app .dash-shell.page-shell {
+  min-height: 100vh;
+}
+
+.DashboardSidebar,
+.dashboard-app .dash-nav {
+  background: linear-gradient(180deg, var(--dash-sidebar) 0%, var(--dash-sidebar-deep) 100%);
+}
+
+.DashboardTopbar,
+.dashboard-app .dash-header {
+  background: rgba(246, 248, 252, 0.92);
+  backdrop-filter: blur(14px);
+}
+
+.DashboardPageHeader,
+.dashboard-app .ops-hero,
+.dashboard-app .ops-page-intro,
+.dashboard-app .agent-home-head,
+.dashboard-page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.35rem 0 0.85rem;
+}
+
+.DashboardCard,
+.dashboard-app .card,
+.dashboard-app .ops-summary-card,
+.dashboard-app .ops-management-card,
+.dashboard-app .agent-choice-card {
+  border: 1px solid var(--dash-line);
+  border-radius: var(--dash-radius);
+  background: var(--dash-card);
+  box-shadow: var(--dash-shadow);
+}
+
+.DashboardMetricCard,
+.dashboard-app .ops-summary-card,
+.dashboard-app .ops-management-card,
+.dashboard-app .followup-stats-grid > div,
+.dashboard-app #custos-kpis > div {
+  position: relative;
+  overflow: hidden;
+}
+
+.DashboardSection {
+  display: grid;
+  gap: 1rem;
+}
+
+.DashboardTable,
+.dashboard-app .painel-tabela,
+.dashboard-app #lista-conversas {
+  border: 1px solid var(--dash-line);
+  border-radius: var(--dash-radius);
+  background: #ffffff;
+  overflow: auto;
+}
+
+.DashboardFilters,
+.dashboard-app .painel-toolbar,
+.dashboard-app .conversas-toolbar,
+.dashboard-app .config-tabs,
+.dashboard-app .metrics-subnav,
+.dashboard-app .ops-filter-tabs {
+  border: 1px solid var(--dash-line);
+  border-radius: var(--dash-radius);
+  background: var(--dash-soft);
+}
+
+.DashboardEmptyState,
+.dashboard-app .empty-state,
+.dashboard-app .vazio {
+  border-radius: 10px;
+  background: var(--dash-soft);
+  color: var(--dash-muted);
+}
+
+.DashboardActionBar,
+.dashboard-app .conversas-actions-bar,
+.dashboard-app .config-operadores-actions,
+.dashboard-app .config-prompts-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.DashboardStatusBadge,
+.dashboard-app .badge,
+.dashboard-app .estagio-badge {
+  border-radius: 999px;
+  border: 1px solid rgba(1, 104, 255, 0.18);
+  background: #eaf2ff;
+  color: var(--dash-primary-dark);
+}
+
+.DashboardButton,
+.dashboard-app .btn-reproc,
+.dashboard-app .btn-followup,
+.dashboard-app .btn-danger,
+.dashboard-app .btn-export {
+  border-radius: 8px;
+}
+
+.dashboard-app {
+  min-height: 100vh;
+  background: var(--dash-page-bg);
+}
+
+.dashboard-app::before {
+  display: none;
+}
+
+.dashboard-app .dash-shell.page-shell {
+  max-width: none;
+  margin: 0;
+  padding: 0 1.25rem 2.5rem 296px;
+}
+
+.dashboard-app .dash-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  min-height: 4rem;
+  margin: 0 -1.25rem 1.25rem;
+  padding: 0.75rem 1.25rem;
+  border: 0;
+  border-bottom: 1px solid var(--dash-line);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.dashboard-app .dash-header .logo img {
+  display: none;
+}
+
+.dashboard-app .dash-header .logo span {
+  min-height: 0;
+  padding-left: 0;
+  border-left: 0;
+  color: var(--dash-text);
+  font-size: 0.78rem;
+}
+
+.dashboard-app .page-title {
+  margin-top: 0.25rem;
+  max-width: 58rem;
+  color: var(--dash-muted);
+}
+
+.dashboard-app .status-live {
+  border-color: var(--dash-line);
+  border-radius: 999px;
+  background: #ffffff;
+}
+
+.dashboard-app .dash-nav {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 40;
+  width: 272px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 0;
+  padding: 1.25rem;
+  border: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.dashboard-app .dash-nav::before {
+  content: 'PJ Codeworks\A Growth Ops';
+  white-space: pre-line;
+  display: block;
+  padding: 0 0 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.dashboard-app .dash-nav::after {
+  content: 'Operacao comercial integrada';
+  margin-top: auto;
+  padding: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #aebbd0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.dashboard-app .dash-nav-links {
+  display: grid;
+  gap: 0.25rem;
+  width: 100%;
+}
+
+.dashboard-app .dash-nav-link {
+  display: flex;
+  align-items: center;
+  min-height: 2.45rem;
+  padding: 0 0.8rem;
+  border-radius: 8px;
+  color: #aebbd0;
+  font-size: 0.78rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.dashboard-app .dash-nav-link:hover,
+.dashboard-app .dash-nav-link.active {
+  color: #ffffff;
+  border-color: rgba(1, 104, 255, 0.4);
+  background: rgba(1, 104, 255, 0.16);
+  box-shadow: none;
+}
+
+.dashboard-app .site-header-cta {
+  display: none;
+}
+
+.dashboard-app .ops-layout,
+.dashboard-app .agent-home,
+.dashboard-app .painel-avancado-page > main,
+.dashboard-page-main {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.dashboard-app .dash-shell.page-shell > .card,
+.dashboard-app .dash-shell.page-shell > .metrics-subnav,
+.dashboard-app .dash-shell.page-shell > .config-tabs,
+.dashboard-app .dash-shell.page-shell > .config-grid,
+.dashboard-app .dash-shell.page-shell > .dashboard-page-head,
+.dashboard-app .dash-shell.page-shell > .ops-page-intro,
+.dashboard-app .dash-shell.page-shell > .atualizado,
+.dashboard-app .dash-shell.page-shell > .perfil-erro,
+.dashboard-app .dash-shell.page-shell > .perfil-conteudo {
+  max-width: 1180px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.dashboard-app .dash-shell.page-shell > .metrics-subnav,
+.dashboard-app .dash-shell.page-shell > .config-tabs {
+  margin-bottom: 1rem;
+}
+
+.dashboard-app .ops-hero h1,
+.dashboard-app .ops-page-intro h1,
+.dashboard-app .agent-home-head h1,
+.dashboard-page-head h1 {
+  margin: 0.25rem 0 0;
+  color: var(--dash-text);
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.dashboard-app .ops-hero p,
+.dashboard-app .ops-page-intro p,
+.dashboard-app .agent-home-head p,
+.dashboard-page-head p {
+  max-width: 680px;
+  color: var(--dash-muted);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.dashboard-app .card {
+  padding: 1.2rem;
+}
+
+.dashboard-app .card + .card,
+.dashboard-app .followup-stats-card {
+  margin-top: 1rem;
+}
+
+.dashboard-app .card-titulo,
+.dashboard-app .section-head h2 {
+  color: var(--dash-text);
+}
+
+.dashboard-app .card-titulo {
+  margin-bottom: 1rem;
+  font-size: 0.78rem;
+}
+
+.dashboard-app .ops-summary-grid,
+.dashboard-app .ops-management-grid,
+.dashboard-overview-grid {
+  gap: 0.9rem;
+}
+
+.dashboard-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dashboard-overview-card {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.dashboard-overview-card strong {
+  color: var(--dash-text);
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.dashboard-overview-card p {
+  margin: 0;
+  color: var(--dash-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.dashboard-app .ops-summary-card,
+.dashboard-app .ops-management-card {
+  padding: 1rem;
+}
+
+.dashboard-app .ops-summary-card strong,
+.dashboard-app .ops-management-card strong {
+  color: var(--dash-text);
+  font-size: 2rem;
+}
+
+.dashboard-app .ops-summary-card span:last-child,
+.dashboard-app .ops-management-card span:last-child {
+  color: var(--dash-muted);
+}
+
+.dashboard-app .ops-summary-label {
+  color: var(--dash-muted);
+}
+
+.dashboard-app .conversas-toolbar,
+.dashboard-app .painel-toolbar {
+  padding: 0.85rem;
+}
+
+.dashboard-app .conversas-filtros-expanded,
+.dashboard-app .painel-toolbar {
+  gap: 0.65rem;
+}
+
+.dashboard-app .conversas-select,
+.dashboard-app .painel-field select,
+.dashboard-app .painel-field input[type='date'],
+.dashboard-app .config-prompt-select,
+.dashboard-app .followup-personalizado-textarea,
+.dashboard-app .dash-modal-input {
+  min-height: 2.65rem;
+  border-color: #d0d8e6;
+  background: #ffffff;
+}
+
+.dashboard-app .metrics-subnav,
+.dashboard-app .config-tabs,
+.dashboard-app .ops-filter-tabs {
+  padding: 0.55rem;
+  box-shadow: none;
+}
+
+.dashboard-app .metrics-subnav-link,
+.dashboard-app .config-tab-btn,
+.dashboard-app .ops-filter-tab {
+  border-radius: 8px;
+}
+
+.dashboard-app .metrics-subnav-link.active,
+.dashboard-app .config-tab-btn.is-active,
+.dashboard-app .ops-filter-tab.active {
+  border-color: rgba(1, 104, 255, 0.24);
+  background: #eaf2ff;
+  color: var(--dash-primary);
+}
+
+.dashboard-app .site-footer {
+  max-width: 1180px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@media (max-width: 1120px) {
+  .dashboard-app .dash-shell.page-shell {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .dashboard-app .dash-header {
+    margin-left: -1rem;
+    margin-right: -1rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .dashboard-app .dash-nav {
+    position: sticky;
+    top: 0;
+    width: auto;
+    min-height: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 0 -1rem 1rem;
+    padding: 0.75rem 1rem;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .dashboard-app .dash-nav::before,
+  .dashboard-app .dash-nav::after {
+    display: none;
+  }
+
+  .dashboard-app .dash-nav-toggle.only-mobile {
+    display: inline-flex;
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .dashboard-app .dash-nav-links {
+    display: none;
+    flex-basis: 100%;
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-app .dash-nav-links.is-open {
+    display: grid;
+  }
+
+  .dashboard-app .site-header-cta {
+    display: inline-flex;
+    margin-left: auto;
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+@media (max-width: 900px) {
+  .DashboardPageHeader,
+  .dashboard-app .ops-hero,
+  .dashboard-app .ops-page-intro,
+  .dashboard-app .agent-home-head,
+  .dashboard-page-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dashboard-app .conversas-filtros-expanded,
+  .dashboard-app .config-grid,
+  .dashboard-app .config-prompts-layout,
+  .dashboard-overview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .dashboard-app .dash-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dashboard-app .ops-hero-actions,
+  .dashboard-app .conversas-actions-bar,
+  .dashboard-app .config-operadores-actions,
+  .dashboard-app .config-prompts-actions {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .dashboard-app .ops-hero-actions a,
+  .dashboard-app .ops-hero-actions button,
+  .dashboard-app .conversas-actions-bar button,
+  .dashboard-app .config-operadores-actions button,
+  .dashboard-app .config-prompts-actions button {
+    justify-content: center;
+    width: 100%;
+  }
+}

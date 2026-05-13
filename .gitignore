@@ -1,0 +1,21 @@
+# Variáveis de ambiente — NUNCA commitar (contém chaves de API)
+.env
+.env.*
+!.env.example
+
+# Dependências Node.js
+node_modules/
+
+# Arquivo temporário de skill (binário sem extensão)
+ziynJbF2
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
+
+# Artefatos gerados localmente (briefings internos)
+generated/
+
+# Logs
+*.log
+npm-debug.log*

@@ -1,0 +1,355 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agenda — PJ Codeworks</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="dashboard/css/dashboard.css" />
+  <link rel="stylesheet" href="dashboard/css/site-shell.css" />
+  <link rel="stylesheet" href="dashboard/css/dashboard-shell.css" />
+  <link rel="stylesheet" href="dashboard/css/agenda.css" />
+</head>
+<body class="dashboard-app agenda-page">
+  <div class="dash-shell page-shell">
+    <header class="dash-header">
+      <div>
+        <div class="logo"><img src="dashboard/assets/pj-codeworks-logo.png" alt="PJ Codeworks" /><span>Agenda</span></div>
+        <p class="page-title">Organize compromissos, reuniões e follow-ups do time comercial.</p>
+      </div>
+      <div class="status-live">
+        <div class="dot" aria-hidden="true"></div>
+        <span>America/Sao_Paulo</span>
+      </div>
+    </header>
+
+    <nav class="dash-nav" aria-label="Navegação principal do painel">
+      <button type="button" class="dash-nav-toggle only-mobile" aria-expanded="false" aria-controls="dash-nav-links">Menu</button>
+      <div id="dash-nav-links" class="dash-nav-links">
+        <a href="dashboard.html" class="dash-nav-link">Dashboard</a>
+        <a href="prospeccao.html" class="dash-nav-link">Prospecção</a>
+        <a href="visao-geral.html" class="dash-nav-link">Vendas</a>
+        <a href="conversas.html" class="dash-nav-link">Conversas</a>
+        <a href="agenda.html" class="dash-nav-link active">Agenda</a>
+        <a href="analytics.html" class="dash-nav-link">Métricas</a>
+        <a href="configuracao.html" class="dash-nav-link">Configurações</a>
+      </div>
+      <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
+    </nav>
+
+    <main class="agenda-layout" aria-labelledby="agenda-title">
+      <section class="agenda-page-head">
+        <div>
+          <span class="section-kicker">Operação comercial</span>
+          <h1 id="agenda-title">Agenda diária</h1>
+          <p>Organize seu dia, acompanhe compromissos e não perca nenhuma oportunidade.</p>
+        </div>
+        <div class="agenda-head-actions">
+          <div class="agenda-date-nav" aria-label="Navegar por data">
+            <button type="button" class="btn-followup agenda-icon-btn" id="agenda-dia-anterior" aria-label="Dia anterior">‹</button>
+            <input type="date" class="conversas-select agenda-date-input" id="agenda-data" />
+            <button type="button" class="btn-followup agenda-icon-btn" id="agenda-dia-proximo" aria-label="Dia seguinte">›</button>
+          </div>
+          <button type="button" class="btn-followup" id="agenda-hoje">Hoje</button>
+          <button type="button" class="btn-followup" id="agenda-bloquear">Bloquear horário</button>
+          <button type="button" class="btn-reproc" id="agenda-novo">Novo compromisso</button>
+        </div>
+      </section>
+
+      <section class="agenda-summary-grid" aria-label="Resumo do dia">
+        <article class="card agenda-summary-card agenda-summary-late">
+          <span class="agenda-summary-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v6"></path><path d="M12 17h.01"></path></svg>
+          </span>
+          <div class="agenda-summary-copy"><strong id="agenda-resumo-atrasados">0</strong><span>Atrasados</span><small>Pendências do dia</small></div>
+        </article>
+        <article class="card agenda-summary-card">
+          <span class="agenda-summary-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18"></path></svg>
+          </span>
+          <div class="agenda-summary-copy"><strong id="agenda-resumo-hoje">0</strong><span>Hoje</span><small>Compromissos de hoje</small></div>
+        </article>
+        <article class="card agenda-summary-card agenda-summary-done">
+          <span class="agenda-summary-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="9"></circle><path d="m8 12 2.5 2.5L16 9"></path></svg>
+          </span>
+          <div class="agenda-summary-copy"><strong id="agenda-resumo-concluidos">0</strong><span>Concluídos</span><small>Já finalizados</small></div>
+        </article>
+        <article class="card agenda-summary-card agenda-summary-next">
+          <span class="agenda-summary-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false"><path d="m13 5 7 7-7 7"></path><path d="m5 5 7 7-7 7"></path></svg>
+          </span>
+          <div class="agenda-summary-copy"><strong id="agenda-resumo-proximos">0</strong><span>Próximos</span><small>Ainda por vir</small></div>
+        </article>
+      </section>
+
+      <section class="agenda-toolbar card" aria-label="Filtros da agenda">
+        <label class="conversas-filtro-label" for="agenda-filtro-tipo">Tipo
+          <select id="agenda-filtro-tipo" class="conversas-select">
+            <option value="">Todos</option>
+            <option value="reuniao">Reunião</option>
+            <option value="follow_up">Follow-up</option>
+            <option value="retorno">Retorno</option>
+            <option value="tarefa">Tarefa</option>
+            <option value="prospeccao">Prospecção</option>
+            <option value="disparo">Disparo</option>
+            <option value="pessoal">Pessoal</option>
+            <option value="bloqueio">Bloqueio</option>
+            <option value="outro">Outro</option>
+          </select>
+        </label>
+        <label class="conversas-filtro-label" for="agenda-filtro-status">Status
+          <select id="agenda-filtro-status" class="conversas-select">
+            <option value="">Todos</option>
+            <option value="pendente">Pendente</option>
+            <option value="concluido">Concluído</option>
+            <option value="atrasado">Atrasado</option>
+            <option value="bloqueado">Bloqueado</option>
+            <option value="nao_compareceu">Não compareceu</option>
+            <option value="cancelado">Cancelado</option>
+          </select>
+        </label>
+        <button type="button" class="btn-followup" id="agenda-limpar-filtros">Limpar filtros</button>
+        <span id="agenda-feedback" class="agenda-feedback" aria-live="polite"></span>
+      </section>
+
+      <div class="agenda-main-grid">
+        <section class="card agenda-day-card" aria-labelledby="agenda-dia-titulo">
+          <div class="section-head">
+            <div>
+              <span class="section-kicker">Linha do tempo</span>
+              <h2 id="agenda-dia-titulo">Compromissos do dia</h2>
+            </div>
+          </div>
+          <div id="agenda-lista" class="agenda-list">
+            <div class="empty-state"><strong>Carregando agenda...</strong></div>
+          </div>
+          <button type="button" class="btn-followup agenda-next-day" id="agenda-ver-dia-seguinte">Ver dia seguinte</button>
+        </section>
+
+        <aside class="agenda-side">
+          <section class="card agenda-calendar-card" aria-labelledby="agenda-calendario-titulo">
+            <div class="agenda-side-head">
+              <h2 id="agenda-calendario-titulo">Calendário</h2>
+              <div>
+                <button type="button" class="agenda-mini-btn" id="agenda-mes-anterior" aria-label="Mês anterior">‹</button>
+                <button type="button" class="agenda-mini-btn" id="agenda-mes-proximo" aria-label="Próximo mês">›</button>
+              </div>
+            </div>
+            <strong id="agenda-mes-label" class="agenda-month-label">—</strong>
+            <div id="agenda-calendario" class="agenda-calendar"></div>
+          </section>
+
+          <section class="card agenda-side-card">
+            <div class="agenda-side-head">
+              <h2>Tipos de evento</h2>
+            </div>
+            <div id="agenda-tipos" class="agenda-type-list"></div>
+          </section>
+
+          <section class="card agenda-side-card">
+            <div class="agenda-side-head">
+              <h2>Próximos eventos</h2>
+            </div>
+            <div id="agenda-proximos" class="agenda-next-list"></div>
+          </section>
+
+          <section class="card agenda-tip-card">
+            <span class="agenda-summary-icon">⚡</span>
+            <div>
+              <strong>Dica de produtividade</strong>
+              <p id="agenda-dica">Resolva os compromissos atrasados antes de abrir novas tarefas.</p>
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <p class="agenda-timezone">Horário oficial: America/Sao_Paulo</p>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+      <span>© PJ Codeworks — operação comercial</span>
+      <span>
+        <a href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site institucional</a>
+        ·
+        <a href="dashboard.html">Central de agentes</a>
+      </span>
+    </footer>
+  </div>
+
+  <div class="dash-modal" id="agenda-modal" hidden aria-modal="true" role="dialog" aria-labelledby="agenda-modal-title">
+    <button type="button" class="dash-modal-backdrop" data-agenda-fechar aria-label="Fechar"></button>
+    <form class="dash-modal-panel agenda-modal-panel" id="agenda-form">
+      <h2 class="dash-modal-title" id="agenda-modal-title">Novo compromisso</h2>
+      <p class="dash-modal-desc">Registre reuniões, follow-ups, retornos e tarefas importantes.</p>
+      <input type="hidden" id="agenda-evento-id" />
+      <label class="dash-modal-label" for="agenda-titulo">Título</label>
+      <input class="dash-modal-input" id="agenda-titulo" maxlength="160" required placeholder="Ex.: Reunião: Clínica Sorriso" />
+      <label class="dash-modal-label" for="agenda-descricao">Descrição</label>
+      <textarea class="dash-modal-textarea" id="agenda-descricao" rows="3" placeholder="Contexto, pauta ou próximos passos"></textarea>
+      <div class="agenda-modal-grid">
+        <label class="dash-modal-label" for="agenda-tipo">Tipo
+          <select class="dash-modal-input" id="agenda-tipo" required>
+            <option value="reuniao">Reunião</option>
+            <option value="follow_up">Follow-up</option>
+            <option value="retorno">Retorno</option>
+            <option value="tarefa">Tarefa</option>
+            <option value="prospeccao">Prospecção</option>
+            <option value="disparo">Disparo</option>
+            <option value="pessoal">Pessoal</option>
+            <option value="bloqueio">Bloqueio</option>
+            <option value="outro">Outro</option>
+          </select>
+        </label>
+        <label class="dash-modal-label" for="agenda-prioridade">Prioridade
+          <select class="dash-modal-input" id="agenda-prioridade">
+            <option value="baixa">Baixa</option>
+            <option value="normal">Normal</option>
+            <option value="media" selected>Média</option>
+            <option value="alta">Alta</option>
+            <option value="urgente">Urgente</option>
+          </select>
+        </label>
+        <label class="dash-modal-label" for="agenda-status">Status
+          <select class="dash-modal-input" id="agenda-status">
+            <option value="pendente">Pendente</option>
+            <option value="bloqueado">Bloqueado</option>
+            <option value="nao_compareceu">Não compareceu</option>
+            <option value="concluido">Concluído</option>
+            <option value="cancelado">Cancelado</option>
+          </select>
+        </label>
+        <label class="dash-modal-label" for="agenda-form-data">Data
+          <input class="dash-modal-input" id="agenda-form-data" type="date" required />
+        </label>
+        <label class="dash-modal-label" for="agenda-hora-inicio">Hora início
+          <input class="dash-modal-input" id="agenda-hora-inicio" type="time" required />
+        </label>
+        <label class="dash-modal-label" for="agenda-hora-fim">Hora fim
+          <input class="dash-modal-input" id="agenda-hora-fim" type="time" required />
+        </label>
+        <label class="dash-modal-label" for="agenda-lead-id">Lead ID
+          <input class="dash-modal-input" id="agenda-lead-id" type="number" min="1" placeholder="Opcional" />
+        </label>
+        <label class="dash-modal-label" for="agenda-conversa-id">Conversa ID
+          <input class="dash-modal-input" id="agenda-conversa-id" type="number" min="1" placeholder="Opcional" />
+        </label>
+        <label class="dash-modal-label" for="agenda-recorrencia">Recorrência
+          <select class="dash-modal-input" id="agenda-recorrencia">
+            <option value="nenhuma">Nenhuma</option>
+            <option value="diaria">Diária</option>
+            <option value="semanal">Semanal</option>
+            <option value="mensal">Mensal</option>
+          </select>
+        </label>
+        <label class="dash-modal-label" for="agenda-recorrencia-ate">Repetir até
+          <input class="dash-modal-input" id="agenda-recorrencia-ate" type="date" />
+        </label>
+      </div>
+      <p id="agenda-form-status" class="dash-modal-hint" aria-live="polite"></p>
+      <div class="dash-modal-actions agenda-modal-actions">
+        <button type="button" class="btn-danger" id="agenda-excluir" hidden>Excluir</button>
+        <button type="button" class="btn-followup" id="agenda-concluir-modal" hidden>Marcar como concluído</button>
+        <span class="agenda-modal-spacer"></span>
+        <button type="button" class="btn-followup" data-agenda-fechar>Cancelar</button>
+        <button type="submit" class="btn-reproc" id="agenda-salvar">Salvar compromisso</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="dash-modal" id="agenda-bloqueio-modal" hidden aria-modal="true" role="dialog" aria-labelledby="agenda-bloqueio-title">
+    <button type="button" class="dash-modal-backdrop" data-agenda-bloqueio-fechar aria-label="Fechar bloqueio"></button>
+    <form class="dash-modal-panel agenda-modal-panel" id="agenda-bloqueio-form">
+      <h2 class="dash-modal-title" id="agenda-bloqueio-title">Bloquear horário</h2>
+      <p class="dash-modal-desc">Marque um intervalo indisponível para o agente de vendas e para agendamentos manuais.</p>
+      <input type="hidden" id="agenda-bloqueio-id" />
+      <div class="agenda-modal-grid">
+        <label class="dash-modal-label" for="agenda-bloqueio-data">Data
+          <input class="dash-modal-input" id="agenda-bloqueio-data" type="date" required />
+        </label>
+        <label class="dash-modal-label" for="agenda-bloqueio-inicio">Hora início
+          <input class="dash-modal-input" id="agenda-bloqueio-inicio" type="time" required />
+        </label>
+        <label class="dash-modal-label" for="agenda-bloqueio-fim">Hora fim
+          <input class="dash-modal-input" id="agenda-bloqueio-fim" type="time" required />
+        </label>
+        <label class="dash-modal-label" for="agenda-bloqueio-recorrencia">Recorrência
+          <select class="dash-modal-input" id="agenda-bloqueio-recorrencia">
+            <option value="nenhuma">Nenhuma</option>
+            <option value="diaria">Diária</option>
+            <option value="semanal">Semanal</option>
+            <option value="mensal">Mensal</option>
+          </select>
+        </label>
+        <label class="dash-modal-label" for="agenda-bloqueio-ate">Repetir até
+          <input class="dash-modal-input" id="agenda-bloqueio-ate" type="date" />
+        </label>
+      </div>
+      <label class="dash-modal-label" for="agenda-bloqueio-motivo">Motivo do bloqueio</label>
+      <input class="dash-modal-input" id="agenda-bloqueio-motivo" maxlength="300" required placeholder="Ex.: Compromisso pessoal" />
+      <label class="dash-modal-label" for="agenda-bloqueio-observacao">Observação opcional</label>
+      <textarea class="dash-modal-textarea" id="agenda-bloqueio-observacao" rows="3" placeholder="Detalhes internos, se necessário"></textarea>
+      <p id="agenda-bloqueio-status" class="dash-modal-hint" aria-live="polite"></p>
+      <div class="dash-modal-actions agenda-modal-actions">
+        <button type="button" class="btn-danger" id="agenda-bloqueio-remover" hidden>Remover bloqueio</button>
+        <span class="agenda-modal-spacer"></span>
+        <button type="button" class="btn-followup" data-agenda-bloqueio-fechar>Cancelar</button>
+        <button type="submit" class="btn-reproc" id="agenda-bloqueio-salvar">Salvar bloqueio</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="dash-modal" id="agenda-no-show-modal" hidden aria-modal="true" role="dialog" aria-labelledby="agenda-no-show-title">
+    <button type="button" class="dash-modal-backdrop" data-agenda-no-show-fechar aria-label="Fechar não comparecimento"></button>
+    <form class="dash-modal-panel agenda-modal-panel" id="agenda-no-show-form">
+      <h2 class="dash-modal-title" id="agenda-no-show-title">Lead não compareceu</h2>
+      <p class="dash-modal-desc" id="agenda-no-show-desc">Marque a reunião como não comparecida ou escolha um novo horário disponível.</p>
+      <input type="hidden" id="agenda-no-show-id" />
+      <label class="dash-modal-label" for="agenda-no-show-observacao">Observação interna</label>
+      <textarea class="dash-modal-textarea" id="agenda-no-show-observacao" rows="3" placeholder="Ex.: Lead não entrou na chamada. Reagendar novo horário."></textarea>
+      <div class="agenda-modal-grid">
+        <label class="dash-modal-label" for="agenda-no-show-data">Nova data
+          <input class="dash-modal-input" id="agenda-no-show-data" type="date" />
+        </label>
+        <label class="dash-modal-label" for="agenda-no-show-hora">Novo horário
+          <input class="dash-modal-input" id="agenda-no-show-hora" type="time" step="900" />
+        </label>
+      </div>
+      <button type="button" class="btn-followup" id="agenda-no-show-slots">Buscar horários disponíveis</button>
+      <div class="agenda-slot-list" id="agenda-no-show-slot-list"></div>
+      <p id="agenda-no-show-status" class="dash-modal-hint" aria-live="polite"></p>
+      <div class="dash-modal-actions agenda-modal-actions">
+        <button type="button" class="btn-followup" data-agenda-no-show-fechar>Cancelar</button>
+        <button type="button" class="btn-followup" id="agenda-no-show-marcar">Marcar como não compareceu</button>
+        <button type="submit" class="btn-reproc" id="agenda-no-show-reagendar">Reagendar agora</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="dash-modal" id="agenda-detalhes-modal" hidden aria-modal="true" role="dialog" aria-labelledby="agenda-detalhes-title">
+    <button type="button" class="dash-modal-backdrop" data-agenda-detalhes-fechar aria-label="Fechar detalhes"></button>
+    <article class="dash-modal-panel agenda-details-panel">
+      <header class="agenda-details-header">
+        <div>
+          <span class="section-kicker">Detalhes do compromisso</span>
+          <h2 class="dash-modal-title" id="agenda-detalhes-title">Compromisso</h2>
+          <p class="dash-modal-desc" id="agenda-detalhes-subtitle"></p>
+        </div>
+        <button type="button" class="agenda-details-close" data-agenda-detalhes-fechar aria-label="Fechar">×</button>
+      </header>
+      <div class="agenda-details-body" id="agenda-detalhes-body"></div>
+      <footer class="agenda-details-actions">
+        <a class="btn-followup btn-link" id="agenda-detalhes-conversa" href="conversas.html" hidden>Abrir conversa</a>
+        <button type="button" class="btn-followup" id="agenda-detalhes-editar">Editar</button>
+        <button type="button" class="btn-followup" id="agenda-detalhes-concluir">Concluir</button>
+        <button type="button" class="btn-reproc" data-agenda-detalhes-fechar>Fechar</button>
+      </footer>
+    </article>
+  </div>
+
+  <script src="dashboard/js/site-nav.js" defer></script>
+  <script src="dashboard/js/core.js"></script>
+  <script src="dashboard/js/agenda.js"></script>
+</body>
+</html>
+

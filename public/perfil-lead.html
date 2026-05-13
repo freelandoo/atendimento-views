@@ -1,0 +1,70 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Análise de Lead — PJ Codeworks</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="dashboard/css/dashboard.css?v=2.4" />
+  <link rel="stylesheet" href="dashboard/css/site-shell.css" />
+  <link rel="stylesheet" href="dashboard/css/dashboard-shell.css" />
+</head>
+<body class="dashboard-app">
+  <div class="dash-shell page-shell">
+    <header class="dash-header">
+      <div>
+        <div class="logo"><img src="dashboard/assets/pj-codeworks-logo.png" alt="PJ Codeworks" /><span>Perfil do lead</span></div>
+        <p class="page-title">Contexto da conversa, perfil, lacunas e análise interna para decisão comercial.</p>
+      </div>
+      <div class="status-live">
+        <div class="dot" aria-hidden="true"></div>
+        <span>uso interno</span>
+      </div>
+    </header>
+
+    <nav class="dash-nav" aria-label="Navegação principal do painel">
+      <button type="button" class="dash-nav-toggle only-mobile" aria-expanded="false" aria-controls="dash-nav-links">Menu</button>
+      <div id="dash-nav-links" class="dash-nav-links">
+      <a href="dashboard.html" class="dash-nav-link">Dashboard</a>
+      <a href="prospeccao.html" class="dash-nav-link">Prospecção</a>
+      <a href="visao-geral.html" class="dash-nav-link">Vendas</a>
+      <a href="conversas.html" class="dash-nav-link active">Conversas</a>
+            <a href="agenda.html" class="dash-nav-link">Agenda</a>
+      <a href="analytics.html" class="dash-nav-link">Métricas</a>
+      <a href="configuracao.html" class="dash-nav-link">Configurações</a>
+      </div>
+      <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
+    </nav>
+
+    <section class="ops-page-intro lead-page-head">
+      <div>
+        <span class="section-kicker">Análise comercial</span>
+        <h1>Análise de Lead</h1>
+        <p>Revise o perfil, histórico e próximos passos antes de agir na conversa.</p>
+      </div>
+      <div class="ops-hero-actions">
+        <a href="conversas.html" class="btn-followup btn-link">Voltar para conversas</a>
+        <a href="configuracao.html" class="btn-followup btn-link">Configuração</a>
+      </div>
+    </section>
+
+    <div id="perfil-erro" class="perfil-erro" hidden></div>
+    <div id="perfil-conteudo" class="perfil-conteudo" hidden></div>
+
+    <footer class="site-footer" role="contentinfo">
+      <span>© PJ Codeworks — operação comercial</span>
+      <span>
+        <a href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site institucional</a>
+        ·
+        <a href="dashboard.html">Central de agentes</a>
+      </span>
+    </footer>
+  </div>
+  <script src="dashboard/js/site-nav.js" defer></script>
+  <script src="dashboard/js/core.js?v=2.1"></script>
+  <script src="dashboard/js/perfil-lead.js?v=2.4"></script>
+</body>
+</html>
+
+
+

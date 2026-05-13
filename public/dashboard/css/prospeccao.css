@@ -1,0 +1,792 @@
+.prospect-page {
+  background: #f6f8fc;
+}
+
+.prospect-page::before {
+  display: none;
+}
+
+.prospect-shell {
+  display: grid;
+  grid-template-columns: 272px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.prospect-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  background: linear-gradient(180deg, #07111f 0%, #030712 100%);
+  color: #ffffff;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.prospect-brand {
+  display: grid;
+  gap: 0.65rem;
+  padding-bottom: 1rem;
+  color: #ffffff;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.prospect-brand img {
+  width: 190px;
+  height: auto;
+  filter: brightness(0) invert(1);
+}
+
+.prospect-brand span {
+  justify-self: start;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid rgba(1, 104, 255, 0.55);
+  border-radius: 999px;
+  background: rgba(1, 104, 255, 0.16);
+  color: #cfe0ff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.prospect-side-nav {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.prospect-side-nav a {
+  display: flex;
+  align-items: center;
+  min-height: 2.45rem;
+  padding: 0 0.8rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #aebbd0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.prospect-side-nav a:hover,
+.prospect-side-nav a.is-active {
+  color: #ffffff;
+  border-color: rgba(1, 104, 255, 0.4);
+  background: rgba(1, 104, 255, 0.16);
+}
+
+.prospect-sidebar-note {
+  margin-top: auto;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.prospect-sidebar-note strong {
+  font-size: 0.82rem;
+}
+
+.prospect-sidebar-note span {
+  color: #aebbd0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.prospect-main-shell {
+  min-width: 0;
+  padding: 1rem min(2vw, 1.5rem) 2.5rem;
+}
+
+.prospect-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 4rem;
+  margin: -1rem calc(min(2vw, 1.5rem) * -1) 1.25rem;
+  padding: 0.75rem min(2vw, 1.5rem);
+  border-bottom: 1px solid #dce5f2;
+  background: rgba(246, 248, 252, 0.9);
+  backdrop-filter: blur(14px);
+}
+
+.prospect-top-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.prospect-top-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #556070;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.prospect-top-links a:hover,
+.prospect-top-links a.is-active {
+  color: #0168ff;
+  border-color: rgba(1, 104, 255, 0.2);
+  background: #eaf2ff;
+}
+
+.prospect-top-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid #dce5f2;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #556070;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.prospecting-layout {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.prospect-page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+  padding: 0.35rem 0 0.75rem;
+}
+
+.prospect-page-head h1 {
+  margin: 0.25rem 0 0;
+  color: #0b1220;
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.prospect-page-head p,
+.section-head p {
+  margin: 0.5rem 0 0;
+  max-width: 640px;
+  color: #667085;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.prospect-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.prospect-page .card {
+  border: 1px solid #dce5f2;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(15, 35, 72, 0.07);
+}
+
+.prospecting-mode-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.prospecting-mode-card {
+  position: relative;
+  min-height: 158px;
+  padding: 1rem;
+  border: 1px solid #dce5f2;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #0b1220;
+  cursor: pointer;
+  box-shadow: 0 10px 28px rgba(15, 35, 72, 0.05);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s, background 0.2s;
+}
+
+.prospecting-mode-card:hover {
+  border-color: rgba(1, 104, 255, 0.34);
+  transform: translateY(-1px);
+}
+
+.prospecting-mode-card.is-active {
+  border-color: #0168ff;
+  background: linear-gradient(180deg, #eef6ff 0%, #ffffff 100%);
+  box-shadow: 0 16px 36px rgba(1, 104, 255, 0.14);
+}
+
+.prospecting-mode-card .mode-icon {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  margin-bottom: 0.7rem;
+  border-radius: 8px;
+  color: #0168ff;
+  background: #eaf2ff;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.prospecting-mode-card strong,
+.prospecting-mode-card em,
+.prospecting-mode-card small {
+  display: block;
+  font-style: normal;
+}
+
+.prospecting-mode-card strong {
+  font-size: 1rem;
+}
+
+.prospecting-mode-card em {
+  margin-top: 0.28rem;
+  color: #344054;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.prospecting-mode-card small {
+  margin-top: 0.4rem;
+  color: #667085;
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.prospecting-mode-context {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #cfe0ff;
+  border-radius: 12px;
+  background: #f2f7ff;
+}
+
+.prospecting-mode-context strong {
+  color: #0b1220;
+  font-size: 0.9rem;
+}
+
+.prospecting-mode-context span {
+  color: #536174;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.prospect-ops-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.prospecting-search-card,
+.prospecting-status-card,
+.prospecting-results-card,
+.prospecting-auto-config {
+  display: grid;
+  gap: 1rem;
+}
+
+.section-head {
+  align-items: start;
+}
+
+.section-head h2 {
+  color: #0b1220;
+}
+
+.prospecting-form {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 160px auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.prospecting-form label:first-child {
+  grid-column: auto;
+}
+
+.prospecting-form-hint {
+  grid-column: 1 / -1;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #dce5f2;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #667085;
+}
+
+.prospect-page .conversas-select {
+  min-height: 2.65rem;
+  border-color: #d0d8e6;
+  background: #ffffff;
+}
+
+.auto-card-copy {
+  display: grid;
+  gap: 0.25rem;
+  margin-bottom: 0.9rem;
+}
+
+.auto-card-copy strong {
+  color: #0b1220;
+}
+
+.auto-card-copy p {
+  margin: 0;
+  color: #667085;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.prospecting-status-metricas {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.prospecting-metricas div {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.2rem 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.prospecting-metricas i {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 8px;
+  color: #0168ff;
+  background: #eaf2ff;
+  font-style: normal;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.prospecting-metricas strong {
+  color: #0b1220;
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.prospecting-metricas span {
+  color: #667085;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.prospecting-job-queue-panel {
+  border-color: #dce5f2;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.prospecting-auto-config {
+  border-color: #cfe0ff;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.prospecting-auto-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.prospecting-auto-grid label:first-child,
+.prospecting-auto-grid label:nth-child(2),
+.prospecting-auto-grid label:last-child {
+  grid-column: span 2;
+}
+
+.prospect-auto-resumo,
+.prospect-auto-planejamento {
+  border-radius: 10px;
+  border-color: #dce5f2;
+  background: #f8fafc;
+}
+
+.prospect-auto-planejamento {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.45fr) minmax(0, 1fr);
+  gap: 0.85rem;
+  border-style: solid;
+}
+
+.prospect-auto-planejamento-lista {
+  max-height: 150px;
+  overflow: auto;
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prospect-auto-planejamento-lista li {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #dce5f2;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #344054;
+}
+
+.prospecting-toolbar {
+  display: grid;
+  grid-template-columns: 150px repeat(2, minmax(140px, 1fr)) minmax(220px, 1.4fr) auto;
+  gap: 0.65rem;
+  align-items: end;
+  padding: 0.85rem;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.prospecting-lote-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.followup-lote-status {
+  min-height: 2.2rem;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.65rem;
+  border: 1px solid #dce5f2;
+  border-radius: 999px;
+  color: #556070;
+  background: #f8fafc;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.prospect-send-note {
+  margin: -0.25rem 0 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #b8d4ff;
+  border-radius: 8px;
+  background: #eef6ff;
+  color: #0746b8;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.prospect-pagination {
+  border-color: #dce5f2;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.prospecting-results {
+  gap: 0.85rem;
+}
+
+.prospecting-result-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(190px, auto);
+  gap: 0.9rem;
+  align-items: start;
+  padding: 1rem;
+  border: 1px solid #dce5f2;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(15, 35, 72, 0.045);
+}
+
+.prospecting-select {
+  grid-column: auto;
+  align-self: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  justify-content: center;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  background: #f8fafc;
+  font-size: 0;
+}
+
+.prospecting-select input {
+  width: 1rem;
+  height: 1rem;
+}
+
+.prospect-avatar {
+  display: grid;
+  place-items: center;
+  width: 2.7rem;
+  height: 2.7rem;
+  border-radius: 999px;
+  color: #0168ff;
+  background: #eaf2ff;
+  font-weight: 800;
+}
+
+.prospecting-result-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.8rem;
+}
+
+.prospect-main-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.prospecting-result-title-row strong {
+  color: #0b1220;
+  font-size: 1rem;
+}
+
+.prospecting-origem-auto,
+.prospecting-origem-manual,
+.prospecting-origem-semi {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.prospecting-origem-auto {
+  border: 1px solid rgba(1, 104, 255, 0.3);
+  background: #eaf2ff;
+  color: #0746b8;
+}
+
+.prospecting-origem-manual,
+.prospecting-origem-semi {
+  border: 1px solid #dce5f2;
+  background: #f8fafc;
+  color: #556070;
+}
+
+.prospecting-result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.prospecting-result-meta span {
+  min-height: 1.7rem;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.5rem;
+  border: 1px solid #dce5f2;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #556070;
+  font-family: 'DM Mono', monospace;
+}
+
+.prospecting-status {
+  font-family: 'Syne', sans-serif !important;
+  font-weight: 800;
+}
+
+.prospecting-agendado {
+  border-color: #f4c76b !important;
+  background: #fff8e8 !important;
+  color: #8a5a00 !important;
+}
+
+.prospecting-result-actions {
+  grid-column: 2 / -1;
+  padding-top: 0.85rem;
+  border-top: 1px solid #edf1f7;
+}
+
+.prospecting-result-actions button {
+  min-height: 2.25rem;
+}
+
+.prospecting-result-reason {
+  grid-column: 2 / -1;
+  max-height: 7rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.85rem;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #536174;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.prospecting-result-item.is-expanded .prospecting-result-reason {
+  max-height: none;
+}
+
+.prospecting-result-reason b {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: #0b1220;
+}
+
+.empty-state {
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.prospect-menu-toggle {
+  display: none;
+}
+
+.prospect-is-busy .prospecting-search-card,
+.prospect-is-busy .prospecting-auto-config {
+  cursor: progress;
+}
+
+@media (max-width: 1120px) {
+  .prospect-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .prospect-sidebar {
+    display: none;
+  }
+
+  .prospect-main-shell {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .prospect-topbar {
+    margin-left: -1rem;
+    margin-right: -1rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .prospect-menu-toggle {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 960px) {
+  .prospect-page-head,
+  .prospect-topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .prospect-top-links {
+    width: 100%;
+  }
+
+  .prospecting-mode-cards,
+  .prospect-ops-grid,
+  .prospecting-toolbar,
+  .prospecting-auto-grid,
+  .prospect-auto-planejamento {
+    grid-template-columns: 1fr;
+  }
+
+  .prospecting-auto-grid label:first-child,
+  .prospecting-auto-grid label:nth-child(2),
+  .prospecting-auto-grid label:last-child {
+    grid-column: auto;
+  }
+
+  .prospecting-form {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .prospect-top-links {
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .prospect-top-links.is-open {
+    display: flex;
+  }
+
+  .prospect-top-links a {
+    justify-content: center;
+  }
+
+  .prospecting-status-metricas {
+    grid-template-columns: 1fr;
+  }
+
+  .prospecting-lote-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .prospecting-lote-bar button,
+  .prospecting-lote-bar .followup-lote-status {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .prospecting-result-item,
+  .prospecting-result-main {
+    grid-template-columns: 1fr;
+  }
+
+  .prospecting-select {
+    width: 100%;
+    justify-content: flex-start;
+    padding: 0 0.8rem;
+    font-size: 0.72rem;
+  }
+
+  .prospecting-result-meta {
+    justify-content: flex-start;
+  }
+
+  .prospecting-result-actions,
+  .prospecting-result-reason {
+    grid-column: 1 / -1;
+  }
+
+  .prospecting-result-actions button {
+    flex: 1 1 11rem;
+  }
+}

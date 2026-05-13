@@ -1,0 +1,153 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Principais problemas por etapas - PJ Codeworks</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="dashboard/css/dashboard.css" />
+  <link rel="stylesheet" href="dashboard/css/site-shell.css" />
+  <link rel="stylesheet" href="dashboard/css/dashboard-shell.css" />
+</head>
+<body class="dashboard-app">
+  <div class="dash-shell page-shell painel-avancado-page">
+    <header class="dash-header">
+      <div>
+        <div class="logo"><img src="dashboard/assets/pj-codeworks-logo.png" alt="PJ Codeworks" /><span>Problemas por etapa</span></div>
+        <p class="page-title">Diagnóstico das conversas por etapa, com prompt versionado e melhoria assistida por IA.</p>
+      </div>
+      <div class="status-live">
+        <div class="dot" aria-hidden="true"></div>
+        <span>analise sob demanda</span>
+      </div>
+    </header>
+
+    <nav class="dash-nav" aria-label="Navegação principal do painel">
+      <button type="button" class="dash-nav-toggle only-mobile" aria-expanded="false" aria-controls="dash-nav-links">Menu</button>
+      <div id="dash-nav-links" class="dash-nav-links">
+      <a href="dashboard.html" class="dash-nav-link">Dashboard</a>
+      <a href="prospeccao.html" class="dash-nav-link">Prospecção</a>
+      <a href="visao-geral.html" class="dash-nav-link">Vendas</a>
+      <a href="conversas.html" class="dash-nav-link">Conversas</a>
+            <a href="agenda.html" class="dash-nav-link">Agenda</a>
+      <a href="analytics.html" class="dash-nav-link active">Métricas</a>
+      <a href="configuracao.html" class="dash-nav-link">Configurações</a>
+      </div>
+      <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
+    </nav>
+
+    <section class="dashboard-page-head" aria-labelledby="analises-title">
+      <div>
+        <span class="section-kicker">Diagnóstico IA</span>
+        <h1 id="analises-title">Problemas por etapa</h1>
+        <p>Investigue gargalos do funil, aprove aprendizados e evolua prompts com controle.</p>
+      </div>
+      <div class="ops-hero-actions">
+        <a class="btn-followup btn-link" href="analytics.html">Voltar a métricas</a>
+      </div>
+    </section>
+
+    <section class="metrics-subnav" aria-label="Dashboards de métricas disponíveis">
+      <span class="metrics-subnav-label">Dashboards disponíveis</span>
+      <a href="analytics.html#painel-avancado" class="metrics-subnav-link">Painel Avançado</a>
+      <a href="analytics.html#follow-up" class="metrics-subnav-link">Follow Up</a>
+      <a href="custos.html" class="metrics-subnav-link">Custos</a>
+      <a href="analises-etapas.html" class="metrics-subnav-link active">Principais problemas por etapas</a>
+    </section>
+
+    <div class="card funil-diagnostico-card">
+      <div class="card-titulo">
+        <span>Principais problemas por etapas</span>
+        <span class="badge" id="funil-prompt-version">prompt v--</span>
+      </div>
+      <div class="painel-toolbar funil-diagnostico-toolbar">
+        <div class="painel-field">
+          <label for="funil-etapa">Etapa</label>
+          <select id="funil-etapa">
+            <option value="primeiro_contato">Primeiro Contato</option>
+            <option value="primeiro_contato_prospeccao">Primeiro Contato (Prospecção)</option>
+          </select>
+        </div>
+        <div class="painel-field">
+          <label for="funil-fonte">Fonte</label>
+          <select id="funil-fonte">
+            <option value="banco_colar">Banco + conversa colada</option>
+            <option value="banco">Banco</option>
+            <option value="colar">Colar conversa</option>
+          </select>
+        </div>
+        <div class="painel-field">
+          <label for="funil-limit">Conversas do banco</label>
+          <select id="funil-limit">
+            <option value="10">10 melhores</option>
+            <option value="20" selected>20 melhores</option>
+            <option value="50">50 melhores</option>
+          </select>
+        </div>
+        <div class="painel-field">
+          <label>&nbsp;</label>
+          <button type="button" class="btn-reproc" id="btn-funil-analisar">Analisar etapa</button>
+        </div>
+      </div>
+      <label class="funil-colar-label" for="funil-conversa-colada">Conversa colada (opcional)</label>
+      <textarea id="funil-conversa-colada" class="funil-conversa-textarea" rows="7" placeholder="[Agente]: Oi, tudo certo?&#10;[Lead]: Sim, queria entender melhor..."></textarea>
+      <p class="painel-nota" id="funil-diagnostico-status">A IA analisa as conversas reais da etapa, gera diagnostico e avalia silenciosamente se o prompt ativo precisa evoluir.</p>
+      <section class="funil-diagnostico-result" id="funil-diagnostico-result" aria-live="polite">
+        <div class="vazio">Selecione a etapa e clique em Analisar etapa.</div>
+      </section>
+      <section class="funil-melhoria-banner" id="funil-melhoria-banner" hidden></section>
+    </div>
+
+    <div class="card funil-history-card">
+      <div class="card-titulo">
+        <span>Historico e prompt ativo</span>
+        <span class="badge" id="funil-history-total">0</span>
+      </div>
+      <div class="funil-history-grid">
+        <div class="painel-field">
+          <label>Prompt ativo</label>
+          <pre class="funil-prompt-preview" id="funil-prompt-preview">carregando...</pre>
+        </div>
+        <div id="funil-history-list" class="funil-history-list"><div class="vazio">carregando...</div></div>
+      </div>
+    </div>
+
+    <div class="card funil-aprendizados-card">
+      <div class="card-titulo">
+        <span>Auto-melhoria do prompt</span>
+        <span class="badge" id="aprendizados-pendentes-badge">0 pendentes</span>
+      </div>
+      <p class="painel-nota">Regras corretivas geradas automaticamente a partir das analises de conversas. Aprovacao obrigatoria antes de injetar no prompt.</p>
+      <div class="painel-toolbar" style="margin-bottom:.75rem">
+        <div class="painel-field">
+          <label>&nbsp;</label>
+          <button type="button" class="btn-reproc" id="btn-consolidar-aprendizados">Consolidar aprendizados</button>
+        </div>
+        <div class="painel-field">
+          <label>&nbsp;</label>
+          <span class="painel-nota" id="aprendizados-analises-pendentes"></span>
+        </div>
+      </div>
+      <div id="aprendizados-status" class="painel-nota" style="margin-bottom:.5rem"></div>
+      <div id="aprendizados-lista"></div>
+    </div>
+
+    <p class="atualizado" id="atualizado-analises-etapas"></p>
+
+    <footer class="site-footer" role="contentinfo">
+      <span>© PJ Codeworks — operação comercial</span>
+      <span>
+        <a href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site institucional</a>
+        ·
+        <a href="dashboard.html">Central de agentes</a>
+      </span>
+    </footer>
+  </div>
+  <script src="dashboard/js/site-nav.js" defer></script>
+  <script src="dashboard/js/core.js"></script>
+  <script src="dashboard/js/analises-etapas.js"></script>
+</body>
+</html>
+
+
+

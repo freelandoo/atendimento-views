@@ -1,0 +1,99 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard - PJ Codeworks</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="dashboard/css/dashboard.css" />
+  <link rel="stylesheet" href="dashboard/css/site-shell.css" />
+  <link rel="stylesheet" href="dashboard/css/dashboard-shell.css" />
+</head>
+<body class="dashboard-app">
+  <div class="dash-shell page-shell">
+    <header class="dash-header">
+      <div>
+        <div class="logo"><img src="dashboard/assets/pj-codeworks-logo.png" alt="PJ Codeworks" /><span>Dashboard</span></div>
+        <p class="page-title">Acompanhe a operação comercial, agentes ativos e principais indicadores da PJ Codeworks.</p>
+      </div>
+      <div class="status-live">
+        <div class="dot" aria-hidden="true"></div>
+        <span>ambiente operacional</span>
+      </div>
+    </header>
+
+    <nav class="dash-nav" aria-label="Navegação principal do painel">
+      <button type="button" class="dash-nav-toggle only-mobile" aria-expanded="false" aria-controls="dash-nav-links">Menu</button>
+      <div id="dash-nav-links" class="dash-nav-links">
+      <a href="dashboard.html" class="dash-nav-link active">Dashboard</a>
+      <a href="prospeccao.html" class="dash-nav-link">Prospecção</a>
+      <a href="visao-geral.html" class="dash-nav-link">Vendas</a>
+      <a href="conversas.html" class="dash-nav-link">Conversas</a>
+            <a href="agenda.html" class="dash-nav-link">Agenda</a>
+      <a href="analytics.html" class="dash-nav-link">Métricas</a>
+      <a href="configuracao.html" class="dash-nav-link">Configurações</a>
+      </div>
+      <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
+    </nav>
+
+    <main class="agent-home" aria-labelledby="agent-home-title">
+      <section class="agent-home-head">
+        <div>
+          <span class="section-kicker">Visão geral</span>
+          <h1 id="agent-home-title">Dashboard</h1>
+          <p>Acompanhe a operação comercial, agentes ativos e principais indicadores da PJ Codeworks.</p>
+        </div>
+      </section>
+
+      <section class="dashboard-overview-grid" aria-label="Resumo geral">
+        <article class="card dashboard-overview-card">
+          <span class="ops-summary-label">Agentes ativos</span>
+          <strong>2</strong>
+          <p>Prospecção e vendas operando no mesmo fluxo comercial.</p>
+        </article>
+        <article class="card dashboard-overview-card">
+          <span class="ops-summary-label">Atalhos rápidos</span>
+          <strong>4</strong>
+          <p>Prospecção, Vendas, Conversas e Métricas com navegação direta.</p>
+        </article>
+        <article class="card dashboard-overview-card">
+          <span class="ops-summary-label">Alertas operacionais</span>
+          <strong>Vendas</strong>
+          <p>Prioridades, follow-ups e handoffs ficam concentrados no Painel de vendas.</p>
+        </article>
+      </section>
+
+      <section class="agent-choice-grid" aria-label="Agentes disponiveis">
+        <a class="agent-choice-card agent-choice-card-primary" href="prospeccao.html">
+          <span class="agent-choice-label">Atalho rápido</span>
+          <strong>Prospecção</strong>
+          <p>Base inicial para buscar empresas, qualificar oportunidades e preparar abordagens antes de entrar no funil de vendas.</p>
+          <span class="agent-choice-status agent-choice-status-live">Ativo</span>
+          <span class="agent-choice-action">Abrir painel</span>
+        </a>
+
+        <a class="agent-choice-card" href="visao-geral.html">
+          <span class="agent-choice-label">Atalho rápido</span>
+          <strong>Vendas</strong>
+          <p>Painel atual com conversas, prioridades, follow-ups, métricas comerciais e acompanhamento dos leads em andamento.</p>
+          <span class="agent-choice-status agent-choice-status-live">Ativo</span>
+          <span class="agent-choice-action">Abrir vendas</span>
+        </a>
+      </section>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+      <span>© PJ Codeworks — operação comercial</span>
+      <span>
+        <a href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site institucional</a>
+        ·
+        <a href="dashboard.html">Central de agentes</a>
+      </span>
+    </footer>
+  </div>
+  <script src="dashboard/js/site-nav.js" defer></script>
+</body>
+</html>
+
+
+

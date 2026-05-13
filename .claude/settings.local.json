@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /c/pjcodeworks-agent status)"
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+---
+description: Contexto operacional e padrões para alta performance no projeto
+alwaysApply: true
+---
+
+# Cursor + Claude: execução com máximo desempenho
+
+## Prioridades
+- Entregar com diff mínimo e foco no pedido atual.
+- Preservar comportamento existente de rotas e payloads.
+- Rodar validação objetiva (`npm test`) após mudança de regra de negócio.
+
+## Ordem de leitura ao iniciar tarefa
+1. `README.md`
+2. `AGENTS.md`
+3. Arquivo-alvo e dependências imediatas em `src/`
+4. `test/core.test.js` quando tocar lógica
+
+## Regras de implementação
+- Reutilizar funções e padrões existentes antes de criar novos.
+- Manter estilo do arquivo editado (imports, aspas, nomes e organização).
+- Evitar mudanças cosméticas não solicitadas.
+- Em alterações sensíveis, preferir passos pequenos e verificáveis.
+
+## Checklist de conclusão
+- Pedido atendido no menor número de arquivos possível.
+- Sem mudanças fora de escopo.
+- Testes executados quando aplicável.
+- Explicação final curta: o que mudou, por que, e como validar.

@@ -1,0 +1,224 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Central Operacional — PJ Codeworks</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="dashboard/css/dashboard.css" />
+  <link rel="stylesheet" href="dashboard/css/site-shell.css" />
+  <link rel="stylesheet" href="dashboard/css/dashboard-shell.css" />
+</head>
+<body class="dashboard-app">
+  <div class="dash-shell page-shell">
+    <header class="dash-header">
+      <div>
+        <div class="logo"><img src="dashboard/assets/pj-codeworks-logo.png" alt="PJ Codeworks" /><span>Painel de vendas</span></div>
+        <p class="page-title">Acompanhe leads, propostas, reuniões e handoffs gerados pelo agente comercial.</p>
+      </div>
+      <div class="status-live">
+        <div class="dot" aria-hidden="true"></div>
+        <span>atualização a cada 10s</span>
+      </div>
+    </header>
+
+    <nav class="dash-nav" aria-label="Navegação principal do painel">
+      <button type="button" class="dash-nav-toggle only-mobile" aria-expanded="false" aria-controls="dash-nav-links">Menu</button>
+      <div id="dash-nav-links" class="dash-nav-links">
+      <a href="dashboard.html" class="dash-nav-link">Dashboard</a>
+      <a href="prospeccao.html" class="dash-nav-link">Prospecção</a>
+      <a href="visao-geral.html" class="dash-nav-link active">Vendas</a>
+      <a href="conversas.html" class="dash-nav-link">Conversas</a>
+            <a href="agenda.html" class="dash-nav-link">Agenda</a>
+      <a href="analytics.html" class="dash-nav-link">Métricas</a>
+      <a href="configuracao.html" class="dash-nav-link">Configurações</a>
+      </div>
+      <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
+    </nav>
+
+    <main class="ops-layout">
+      <section class="ops-hero" aria-labelledby="ops-hero-title">
+        <div>
+          <span class="section-kicker">Central comercial</span>
+          <h1 id="ops-hero-title">Painel de vendas</h1>
+          <p>Acompanhe leads, propostas, reuniões e handoffs gerados pelo agente comercial.</p>
+        </div>
+        <div class="ops-hero-actions">
+          <a class="btn-reproc btn-link" href="conversas.html">Abrir lista completa</a>
+          <a class="btn-followup btn-link" href="analytics.html">Ver métricas</a>
+          <a class="btn-followup btn-link" href="configuracao.html">Configuração</a>
+        </div>
+      </section>
+
+      <section class="ops-summary-grid" aria-label="Resumo operacional">
+        <div class="ops-summary-card ops-summary-critical">
+          <span class="ops-summary-label">Ação urgente</span>
+          <strong id="ops-total-urgente">—</strong>
+          <span id="ops-total-urgente-sub">carregando</span>
+        </div>
+        <div class="ops-summary-card">
+          <span class="ops-summary-label">Precisa responder</span>
+          <strong id="ops-total-responder">—</strong>
+          <span>última mensagem do lead</span>
+        </div>
+        <div class="ops-summary-card">
+          <span class="ops-summary-label">Fila de preço</span>
+          <strong id="ops-total-preco">—</strong>
+          <span>valor sem cálculo gravado</span>
+        </div>
+        <div class="ops-summary-card">
+          <span class="ops-summary-label">Handoff</span>
+          <strong id="ops-total-handoff">—</strong>
+          <span>aguardando operador</span>
+        </div>
+      </section>
+
+      <section class="ops-management-grid" aria-label="Indicadores de gestão">
+        <div class="ops-management-card">
+          <span class="ops-summary-label">Leads quentes</span>
+          <strong id="ops-total-quentes">—</strong>
+          <span>temperatura marcada como quente</span>
+        </div>
+        <div class="ops-management-card">
+          <span class="ops-summary-label">Parados 24h+</span>
+          <strong id="ops-total-parados">—</strong>
+          <span>sem atualização recente</span>
+        </div>
+        <div class="ops-management-card">
+          <span class="ops-summary-label">Agente pausado</span>
+          <strong id="ops-total-pausados">—</strong>
+          <span>precisam decisão manual</span>
+        </div>
+        <div class="ops-management-card">
+          <span class="ops-summary-label">Conversão geral</span>
+          <strong id="ops-taxa-conversao">—</strong>
+          <span id="ops-total-fechadas">vendas fechadas</span>
+        </div>
+      </section>
+
+      <section class="ops-strategy-grid" aria-label="Painel estratégico">
+        <div class="card ops-strategy-card">
+          <div class="section-head section-head-compact">
+            <div>
+              <span class="section-kicker">Estratégia</span>
+              <h2>Saúde comercial</h2>
+            </div>
+          </div>
+          <div class="ops-strategy-metrics">
+            <div>
+              <span>Pipeline aberto</span>
+              <strong id="ops-pipeline-aberto">—</strong>
+            </div>
+            <div>
+              <span>Forecast ponderado</span>
+              <strong id="ops-forecast-ponderado">—</strong>
+            </div>
+            <div>
+              <span>Gargalo principal</span>
+              <strong id="ops-gargalo-principal">—</strong>
+            </div>
+            <div>
+              <span>Follow-ups futuros</span>
+              <strong id="ops-followups-futuros">—</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="card ops-strategy-card">
+          <div class="section-head section-head-compact">
+            <div>
+              <span class="section-kicker">Prioridade estratégica</span>
+              <h2>Top oportunidades</h2>
+            </div>
+            <a href="conversas.html?ordenar=atualizado&direcao=desc" class="section-link">Abrir lista</a>
+          </div>
+          <div id="ops-top-oportunidades" class="ops-strategy-list">
+            <div class="empty-state empty-state-loading"><strong>Carregando oportunidades</strong></div>
+          </div>
+        </div>
+
+        <div class="card ops-strategy-card">
+          <div class="section-head section-head-compact">
+            <div>
+              <span class="section-kicker">Riscos</span>
+              <h2>Alertas de gestão</h2>
+            </div>
+          </div>
+          <div id="ops-alertas-gestao" class="ops-strategy-list">
+            <div class="empty-state empty-state-loading"><strong>Carregando alertas</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="ops-main-grid">
+        <div class="card ops-queue-card">
+          <div class="section-head">
+            <div>
+              <span class="section-kicker">Fila de trabalho</span>
+              <h2>Prioridades agora</h2>
+            </div>
+            <a href="conversas.html" class="section-link">Ver todas</a>
+          </div>
+          <div class="ops-filter-tabs" role="tablist" aria-label="Filtrar prioridade">
+            <button type="button" class="ops-filter-tab active" data-priority-filter="urgente">Urgentes</button>
+            <button type="button" class="ops-filter-tab" data-priority-filter="precisa_responder">Responder</button>
+            <button type="button" class="ops-filter-tab" data-priority-filter="fila_preco">Preço</button>
+            <button type="button" class="ops-filter-tab" data-priority-filter="handoff">Handoff</button>
+            <button type="button" class="ops-filter-tab" data-priority-filter="quentes">Quentes</button>
+            <button type="button" class="ops-filter-tab" data-priority-filter="parados">Parados 24h+</button>
+            <button type="button" class="ops-filter-tab" data-priority-filter="pausados">Pausados</button>
+            <button type="button" class="ops-filter-tab" data-priority-filter="todos">Todos</button>
+          </div>
+          <div id="ops-fila" class="ops-queue-list">
+            <div class="empty-state empty-state-loading"><strong>Carregando fila</strong></div>
+          </div>
+        </div>
+
+        <aside class="ops-side-stack">
+          <div class="card">
+            <div class="section-head section-head-compact">
+              <div>
+                <span class="section-kicker">Resumo rápido</span>
+                <h2>Funil</h2>
+              </div>
+            </div>
+            <div id="ops-funil" class="ops-stage-list">
+              <div class="empty-state empty-state-loading"><strong>Carregando funil</strong></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-head section-head-compact">
+              <div>
+                <span class="section-kicker">Conhecimento</span>
+                <h2>Lacunas abertas</h2>
+              </div>
+              <a href="analises-etapas.html" class="section-link">Investigar</a>
+            </div>
+            <div id="ops-lacunas" class="ops-mini-list">
+              <div class="empty-state empty-state-loading"><strong>Carregando lacunas</strong></div>
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <p class="atualizado" id="atualizado-central"></p>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+      <span>© PJ Codeworks — operação comercial</span>
+      <span>
+        <a href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site institucional</a>
+        ·
+        <a href="dashboard.html">Central de agentes</a>
+      </span>
+    </footer>
+  </div>
+  <script src="dashboard/js/site-nav.js" defer></script>
+  <script src="dashboard/js/core.js"></script>
+  <script src="dashboard/js/central.js"></script>
+</body>
+</html>
+
+
+

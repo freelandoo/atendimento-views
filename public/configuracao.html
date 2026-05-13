@@ -1,0 +1,238 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Configuração — PJ Codeworks</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="dashboard/css/dashboard.css" />
+  <link rel="stylesheet" href="dashboard/css/site-shell.css" />
+  <link rel="stylesheet" href="dashboard/css/dashboard-shell.css" />
+</head>
+<body class="dashboard-app">
+  <div class="dash-shell page-shell">
+    <header class="dash-header">
+      <div>
+        <div class="logo"><img src="dashboard/assets/pj-codeworks-logo.png" alt="PJ Codeworks" /><span>Configurações</span></div>
+        <p class="page-title">Gerencie integrações, agentes, mensagens padrão e preferências operacionais.</p>
+      </div>
+      <div class="status-live">
+        <div class="dot" aria-hidden="true"></div>
+        <span>área interna</span>
+      </div>
+    </header>
+
+    <nav class="dash-nav" aria-label="Navegação principal do painel">
+      <button type="button" class="dash-nav-toggle only-mobile" aria-expanded="false" aria-controls="dash-nav-links">Menu</button>
+      <div id="dash-nav-links" class="dash-nav-links">
+      <a href="dashboard.html" class="dash-nav-link">Dashboard</a>
+      <a href="prospeccao.html" class="dash-nav-link">Prospecção</a>
+      <a href="visao-geral.html" class="dash-nav-link">Vendas</a>
+      <a href="conversas.html" class="dash-nav-link">Conversas</a>
+            <a href="agenda.html" class="dash-nav-link">Agenda</a>
+      <a href="analytics.html" class="dash-nav-link">Métricas</a>
+      <a href="configuracao.html" class="dash-nav-link active">Configurações</a>
+      </div>
+      <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
+    </nav>
+
+    <section class="dashboard-page-head" aria-labelledby="config-title">
+      <div>
+        <span class="section-kicker">Administração</span>
+        <h1 id="config-title">Configurações</h1>
+        <p>Gerencie integrações, agentes, mensagens padrão e preferências operacionais.</p>
+      </div>
+      <div class="ops-hero-actions">
+        <button type="button" class="btn-reproc" data-dashboard-logout>Sair</button>
+      </div>
+    </section>
+
+    <nav class="config-tabs" role="tablist" aria-label="Áreas de configuração">
+      <button type="button" class="config-tab-btn is-active" role="tab" data-tab="geral" id="tab-geral" aria-controls="panel-config" aria-selected="true">Geral</button>
+      <button type="button" class="config-tab-btn" role="tab" data-tab="whatsapp" id="tab-whatsapp" aria-controls="panel-config" aria-selected="false">WhatsApp</button>
+      <button type="button" class="config-tab-btn" role="tab" data-tab="prompts" id="tab-prompts" aria-controls="panel-config" aria-selected="false">Prompts</button>
+      <button type="button" class="config-tab-btn" role="tab" data-tab="ia" id="tab-ia" aria-controls="panel-config" aria-selected="false">Motor de IA</button>
+    </nav>
+
+    <main class="config-grid" id="panel-config">
+      <section class="card config-section" data-tab="geral">
+        <div class="card-titulo"><span>Segurança</span></div>
+        <p class="config-intro">Chave usada nas ações internas do dashboard.</p>
+        <div class="reprocess-secret-bar">
+          <p class="painel-nota-agente">Acesso protegido por cookie httpOnly, expiracao de sessao e CSRF nas acoes internas.</p>
+        </div>
+      </section>
+
+      <section class="card config-section" data-tab="geral">
+        <div class="card-titulo"><span>Atualização</span></div>
+        <p class="config-intro">Ritmo de recarga automática na lista de conversas.</p>
+        <fieldset class="config-refresh-fieldset">
+          <legend class="config-legend-sr">Intervalo</legend>
+          <label class="config-radio-row"><input type="radio" name="conversas-refresh" value="5000" /><span class="config-radio-stack"><span class="config-radio-label">5 segundos</span><span class="config-radio-porque">Campanhas ou operação em tempo real.</span></span></label>
+          <label class="config-radio-row"><input type="radio" name="conversas-refresh" value="10000" /><span class="config-radio-stack"><span class="config-radio-label">10 segundos (padrão)</span><span class="config-radio-porque">Equilíbrio entre novidade e carga.</span></span></label>
+          <label class="config-radio-row"><input type="radio" name="conversas-refresh" value="30000" /><span class="config-radio-stack"><span class="config-radio-label">30 segundos</span><span class="config-radio-porque">Menos tráfego, ainda acompanhando mudanças.</span></span></label>
+          <label class="config-radio-row"><input type="radio" name="conversas-refresh" value="60000" /><span class="config-radio-stack"><span class="config-radio-label">60 segundos</span><span class="config-radio-porque">Carga mínima.</span></span></label>
+          <label class="config-radio-row"><input type="radio" name="conversas-refresh" value="manual" /><span class="config-radio-stack"><span class="config-radio-label">Somente manual</span><span class="config-radio-porque">Você atualiza quando quiser.</span></span></label>
+        </fieldset>
+      </section>
+
+      <section class="card config-section config-wide" data-tab="whatsapp">
+        <div class="card-titulo"><span>Operadores</span></div>
+        <p class="config-intro">WhatsApps autorizados a usar o menu interno e receber alertas operacionais.</p>
+        <div id="config-operadores-lista" class="config-operadores-lista"></div>
+        <div class="config-operadores-actions">
+          <button type="button" class="btn-followup" id="btn-operador-add">Adicionar operador</button>
+          <button type="button" class="btn-reproc" id="btn-operadores-salvar">Salvar operadores</button>
+        </div>
+        <p class="painel-nota-agente" id="config-operadores-status">Carregando operadores...</p>
+      </section>
+
+      <section class="card config-section config-wide" data-tab="geral">
+        <div class="card-titulo"><span>Follow-up</span></div>
+        <p class="config-intro">Direcionamento padrão e envio avulso sem precisar localizar o contato na lista.</p>
+        <label for="config-followup-instrucao-textarea" class="config-textarea-label">Direcionamento opcional padrão</label>
+        <textarea id="config-followup-instrucao-textarea" class="followup-personalizado-textarea" rows="4" placeholder="Ex.: perguntar se recebeu a proposta; lembrar do prazo até sexta."></textarea>
+        <div class="followup-por-numero">
+          <label for="followup-numero-input">Follow-up só com número ou JID</label>
+          <div class="row">
+            <input type="text" id="followup-numero-input" placeholder="ex.: 5511999999999 ou …@s.whatsapp.net" autocomplete="tel" />
+            <button type="button" class="btn-followup" id="btn-followup-numero">Enviar follow-up</button>
+          </div>
+        </div>
+        <p class="painel-nota-agente">Pausar agente desliga só as respostas automáticas daquele contato; o histórico continua sendo registrado.</p>
+      </section>
+
+      <section class="card config-section config-wide ai-settings-section" data-tab="ia">
+        <div class="card-titulo"><span>Motor de IA</span></div>
+        <p class="config-intro">Escolha qual provedor e modelo serão usados pelos agentes, análises e automações da PJ Codeworks.</p>
+
+        <div class="ai-cfg-grid">
+          <!-- Provedor principal -->
+          <div class="ai-cfg-panel">
+            <h3 class="ai-cfg-panel-title">Provedor principal</h3>
+
+            <div class="ai-cfg-field">
+              <label class="config-textarea-label" for="ai-provider">Provedor de IA</label>
+              <select id="ai-provider" class="config-prompt-select ai-cfg-select">
+                <option value="anthropic">Anthropic Claude</option>
+                <option value="openai">OpenAI GPT</option>
+              </select>
+            </div>
+
+            <div class="ai-cfg-field">
+              <label class="config-textarea-label" for="ai-model">Modelo</label>
+              <select id="ai-model" class="config-prompt-select ai-cfg-select"></select>
+            </div>
+
+            <div class="ai-cfg-row">
+              <div class="ai-cfg-field">
+                <label class="config-textarea-label" for="ai-temperature">Criatividade (0–2)</label>
+                <input type="number" id="ai-temperature" class="ai-cfg-input" min="0" max="2" step="0.1" value="0.4" />
+                <span class="ai-cfg-hint">0 = preciso · 1 = criativo · 2 = experimental</span>
+              </div>
+              <div class="ai-cfg-field">
+                <label class="config-textarea-label" for="ai-max-tokens">Máx. tokens</label>
+                <input type="number" id="ai-max-tokens" class="ai-cfg-input" min="100" max="16000" step="100" value="1200" />
+                <span class="ai-cfg-hint">Tamanho máximo da resposta</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Fallback -->
+          <div class="ai-cfg-panel ai-cfg-panel--fallback">
+            <h3 class="ai-cfg-panel-title">Fallback automático</h3>
+            <p class="config-intro" style="margin-bottom:1rem;">Se o provedor principal falhar, o sistema tenta automaticamente o secundário.</p>
+
+            <label class="ai-cfg-toggle">
+              <input type="checkbox" id="ai-fallback-enabled" checked />
+              <span>Ativar fallback automático</span>
+            </label>
+
+            <div class="ai-cfg-field" id="ai-fallback-fields">
+              <label class="config-textarea-label" for="ai-fallback-provider">Provedor fallback</label>
+              <select id="ai-fallback-provider" class="config-prompt-select ai-cfg-select">
+                <option value="openai">OpenAI GPT</option>
+                <option value="anthropic">Anthropic Claude</option>
+              </select>
+            </div>
+
+            <div class="ai-cfg-field" id="ai-fallback-model-field">
+              <label class="config-textarea-label" for="ai-fallback-model">Modelo fallback</label>
+              <select id="ai-fallback-model" class="config-prompt-select ai-cfg-select"></select>
+            </div>
+          </div>
+        </div>
+
+        <div class="ai-cfg-actions">
+          <button type="button" class="btn-reproc" id="btn-ai-salvar">Salvar configurações</button>
+          <p class="painel-nota-agente" id="ai-settings-status" aria-live="polite"></p>
+        </div>
+
+        <!-- Logs recentes -->
+        <div class="ai-cfg-logs">
+          <div class="card-titulo" style="margin-top:1.5rem;"><span>Últimas chamadas</span></div>
+          <p class="config-intro">Histórico das últimas 50 chamadas ao motor de IA.</p>
+          <div id="ai-logs-container" class="ai-logs-container">
+            <p class="painel-nota-agente">Carregando...</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card config-section config-wide" data-tab="prompts">
+        <div class="card-titulo"><span>Prompts do agente</span></div>
+        <p class="config-intro">Conteúdo em uso pelo servidor (arquivo no disco ou versão ativa no banco). Salvar cria uma nova versão no histórico; restaurar reativa uma versão anterior sem alterar os arquivos do repositório.</p>
+        <div class="config-prompts-layout">
+          <div class="config-prompts-editor">
+            <label for="config-prompt-select" class="config-textarea-label">Prompt</label>
+            <select id="config-prompt-select" class="config-prompt-select">
+              <optgroup label="Agente principal">
+                <option value="system">system.md — legado (referência; não carregado)</option>
+                <option value="system-core">system-core.md — núcleo sempre ativo</option>
+                <option value="system-primeiro-contato">system-primeiro-contato.md — etapa 1</option>
+                <option value="system-diagnostico">system-diagnostico.md — etapa 2</option>
+                <option value="system-proposta">system-proposta.md — etapa 3</option>
+                <option value="system-objecao">system-objecao.md — etapa 4</option>
+                <option value="system-fechamento">system-fechamento.md — etapa 5</option>
+              </optgroup>
+              <optgroup label="Outros prompts">
+                <option value="empresa">empresa.md — conhecimento autorizado</option>
+                <option value="followup">followup.md — follow-up manual (dashboard)</option>
+                <option value="followup_timing">followup_timing.md — timing automático</option>
+                <option value="lead-coach">lead-coach.md — coach / perfil do lead</option>
+              </optgroup>
+            </select>
+            <div id="config-prompt-meta" class="config-prompt-meta" aria-live="polite"></div>
+            <label for="config-prompt-textarea" class="config-legend-sr">Conteúdo do prompt</label>
+            <textarea id="config-prompt-textarea" class="followup-personalizado-textarea" rows="24" spellcheck="false"></textarea>
+            <div class="config-prompts-actions">
+              <input type="text" id="config-prompt-autor" placeholder="Autor (opcional)" maxlength="120" autocomplete="name" />
+              <button type="button" class="btn-reproc" id="btn-prompt-salvar">Salvar nova versão</button>
+            </div>
+            <p class="painel-nota-agente" id="config-prompt-status"></p>
+          </div>
+          <div class="config-prompts-historico">
+            <div class="card-titulo"><span>Histórico</span></div>
+            <p class="config-intro" style="margin-bottom: 0.5rem;">Versões salvas no banco; a marcada como ativa é a que o processo usa após o boot ou após salvar/restaurar.</p>
+            <div id="config-prompt-historico-lista" class="config-prompt-historico-lista"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+      <span>© PJ Codeworks — operação comercial</span>
+      <span>
+        <a href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site institucional</a>
+        ·
+        <a href="dashboard.html">Central de agentes</a>
+      </span>
+    </footer>
+  </div>
+  <script src="dashboard/js/site-nav.js" defer></script>
+  <script src="dashboard/js/core.js"></script>
+  <script src="dashboard/js/configuracao.js"></script>
+</body>
+</html>
+
+
+
