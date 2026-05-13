@@ -3,6 +3,7 @@ const fs = require('fs')
 const path = require('path')
 const { Pool } = require('pg')
 const { logger } = require('./logger')
+const { runMigrations } = require('./db/migrations')
 const ROOT = path.join(__dirname, '..')
 const JOB_MAX_ATTEMPTS = Math.min(
   Math.max(parseInt(process.env.JOB_MAX_ATTEMPTS, 10) || 5, 1),
@@ -793,6 +794,7 @@ async function initDB() {
     `CREATE INDEX IF NOT EXISTS idx_ai_logs_created ON vendas.ai_logs (created_at DESC)`
   )
   await initProspectadorDB()
+  await runMigrations(pool)
 }
 
 module.exports = { pool, initDB, initProspectadorDB }
