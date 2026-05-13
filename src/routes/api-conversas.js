@@ -58,6 +58,29 @@ router.get('/:numero', requireAuth, requireEmpresaAccess, async (req, res) => {
   return res.json({ ok: true, data: conversa })
 })
 
+// DELETE /api/empresas/:empresaId/conversas/:numero/historico
+// Limpa o histórico de mensagens da conversa (mantém a linha — reset agente_pausado e estagio).
+router.delete('/:numero/historico', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const { rows: [c] } = await pool.query(
+    `UPDATE vendas.conversas
+        SET historico = '[]'::jsonb,
+            estagio = 'primeiro_contato',
+            agente_pausado = false,
+            atualizado_em = NOW()
+      WHERE empresa_id = $1 AND numero = $2
+      RETURNING numero, estagio, status, agente_pausado`,
+    [req.empresa.id, req.params.numero]
+  )
+  if (!c) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Conversa não encontrada.' } })
+  // Limpa também lead_insights desta conversa (mensagens analíticas do playbook runtime)
+  await pool.query(
+    `DELETE FROM app.lead_insights
+      WHERE empresa_id = $1 AND numero = $2 AND tipo = 'playbook_runtime'`,
+    [req.empresa.id, req.params.numero]
+  ).catch(() => {})
+  return res.json({ ok: true, data: c })
+})
+
 // GET /api/empresas/:empresaId/conversas/:numero/resumo
 router.get('/:numero/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
   const resumo = await buscarUltimoResumo(pool, {
