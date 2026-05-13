@@ -19,6 +19,7 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   const to = parseDate(req.query.to, now)
 
   const baseWhere = `WHERE empresa_id = $1 AND created_at >= $2 AND created_at < $3`
+  const baseWhereL = `WHERE l.empresa_id = $1 AND l.created_at >= $2 AND l.created_at < $3`
   const args = [req.empresa.id, from, to]
 
   const [totaisR, porTipoR, porClienteR, porContextoR, porModeloR, recentesR] = await Promise.all([
@@ -67,7 +68,7 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
               MAX(l.created_at) AS ultima_em
        FROM vendas.ai_logs l
        LEFT JOIN app.empresa_contextos c ON c.id::text = l.ref_id
-       ${baseWhere} AND l.ref_type = 'contexto'
+       ${baseWhereL} AND l.ref_type = 'contexto'
        GROUP BY l.ref_id, c.nome
        ORDER BY cost_usd DESC NULLS LAST
        LIMIT 100`,
