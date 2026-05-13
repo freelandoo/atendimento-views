@@ -137,6 +137,9 @@ router.put('/versoes/:versaoId', requireAuth, requireEmpresaAccess, async (req, 
 
 // POST /api/empresas/:empresaId/contextos/:contextoId/gerar-playbook (novo)
 router.post('/:contextoId/gerar-playbook', requireAuth, requireEmpresaAccess, async (req, res) => {
+  // Timeout de resposta no servidor maior pra não cortar a chamada da IA
+  req.setTimeout(180000)
+  res.setTimeout(180000)
   try {
     const r = await gerarContexto2Playbook({
       pool, log: logger,
@@ -146,8 +149,8 @@ router.post('/:contextoId/gerar-playbook', requireAuth, requireEmpresaAccess, as
     })
     return res.status(201).json({ ok: true, data: r })
   } catch (err) {
-    logger.error({ err: err.message }, 'gerar-playbook falhou')
-    return res.status(502).json({ ok: false, error: { code: 'AI_ERROR', message: err.message } })
+    logger.error({ err: err.message, stack: err.stack, code: err.code, status: err.status, body: err.body }, 'gerar-playbook falhou')
+    return res.status(502).json({ ok: false, error: { code: 'AI_ERROR', message: err.message || 'Falha desconhecida na IA. Cheque os logs do Railway.' } })
   }
 })
 

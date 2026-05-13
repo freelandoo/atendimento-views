@@ -284,8 +284,8 @@ async function gerarContexto2Playbook({ pool, log, empresaId, contextoId, userId
     {
       systemPrompt, userPrompt,
       task: 'generateContextPlaybook',
-      maxTokens: Number(process.env.CONTEXT_PLAYBOOK_MAX_TOKENS) || 6000,
-      timeoutMs: Number(process.env.CONTEXT_PLAYBOOK_TIMEOUT_MS) || 60000,
+      maxTokens: Number(process.env.CONTEXT_PLAYBOOK_MAX_TOKENS) || 8000,
+      timeoutMs: Number(process.env.CONTEXT_PLAYBOOK_TIMEOUT_MS) || 120000,
       empresaId, refType: 'contexto', refId: contextoId,
       ...(process.env.CONTEXT_PLAYBOOK_MODEL ? { model: process.env.CONTEXT_PLAYBOOK_MODEL } : {}),
     },
@@ -473,8 +473,8 @@ Incorpore a sugestão. Retorne o playbook completo (não só o delta).`
     {
       systemPrompt, userPrompt,
       task: 'applyLearningSuggestion',
-      maxTokens: Number(process.env.CONTEXT_PLAYBOOK_MAX_TOKENS) || 6000,
-      timeoutMs: Number(process.env.CONTEXT_PLAYBOOK_TIMEOUT_MS) || 60000,
+      maxTokens: Number(process.env.CONTEXT_PLAYBOOK_MAX_TOKENS) || 8000,
+      timeoutMs: Number(process.env.CONTEXT_PLAYBOOK_TIMEOUT_MS) || 120000,
       empresaId, refType: 'contexto', refId: versaoAtiva.contexto_id,
     },
     pool, log

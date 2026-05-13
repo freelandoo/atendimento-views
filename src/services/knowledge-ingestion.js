@@ -8,9 +8,19 @@ const aiProvider = require('../ai-provider')
 const { parsearRespostaJsonClaude } = require('../string-utils')
 const { CONTEXTO1_CAMPOS } = require('./contexto-empresa')
 
-const MAX_TEXT_CHARS = 30000
+const MAX_TEXT_CHARS = 60000
 const JINA_TIMEOUT_MS = 25000
 const HTTP_TIMEOUT_MS = 15000
+const MAX_PAGINAS_CRAWL = 6  // raiz + até 5 internas
+const PAGINAS_PRIORIDADE = [
+  /(quem[-\s]somos|sobre|about)/i,
+  /(planos?|pre[çc]os?|pricing)/i,
+  /(como[-\s]funciona|funcionalidades|features|servi[cç]os)/i,
+  /(faq|d[uú]vidas|ajuda|help|suporte|support)/i,
+  /(cadastr|sign[-\s]?up|registr|criar[-\s]?conta)/i,
+  /(termos|privacidade|terms|privacy)/i,
+  /(contato|contact|fale[-\s]?conosco)/i,
+]
 
 // ─── Extração de texto bruto ─────────────────────────────────────────────────
 
@@ -36,14 +46,10 @@ function truncar(texto) {
 
 // ─── Busca conteúdo de site (Jina Reader → fallback axios+cheerio) ──────────
 
-async function buscarConteudoSite(url, log) {
-  const safeUrl = String(url || '').trim()
-  if (!/^https?:\/\//i.test(safeUrl)) throw new Error('URL inválida (precisa começar com http:// ou https://)')
-
+async function _buscarPaginaUnica(url, log) {
   // 1. Jina Reader: renderiza JS e devolve markdown limpo. Sem auth.
   try {
-    const jinaUrl = `https://r.jina.ai/${safeUrl}`
-    const r = await axios.get(jinaUrl, {
+    const r = await axios.get(`https://r.jina.ai/${url}`, {
       timeout: JINA_TIMEOUT_MS,
       headers: { 'X-Return-Format': 'markdown' },
       maxContentLength: 5 * 1024 * 1024,
@@ -51,25 +57,102 @@ async function buscarConteudoSite(url, log) {
     })
     const md = String(r.data || '').trim()
     if (md.length > 200) {
-      return { texto: md, fonte_render: 'jina', titulo: extrairTituloDeMarkdown(md) }
+      return { texto: md, fonte_render: 'jina', titulo: extrairTituloDeMarkdown(md), html: null }
     }
-    if (log) log.warn({ url: safeUrl, len: md.length }, 'Jina retornou conteúdo curto, tentando fallback HTML')
   } catch (err) {
-    if (log) log.warn({ url: safeUrl, err: err.message }, 'Jina Reader falhou, tentando fallback HTML')
+    if (log) log.warn({ url, err: err.message }, 'Jina falhou, tentando fallback HTML')
   }
 
-  // 2. Fallback: GET cru e extrai texto via cheerio.
-  const r = await axios.get(safeUrl, {
+  // 2. Fallback: GET cru via cheerio.
+  const r = await axios.get(url, {
     timeout: HTTP_TIMEOUT_MS,
     maxContentLength: 5 * 1024 * 1024,
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PJCodeworksBot/1.0)' },
     responseType: 'text',
-    transitional: { clarifyTimeoutError: true },
   })
   const texto = extrairTextoDeHtml(r.data)
-  if (!texto || texto.length < 100) throw new Error('Não foi possível extrair conteúdo útil da página.')
+  if (!texto || texto.length < 100) throw new Error('Página sem conteúdo útil.')
   const $ = cheerio.load(r.data)
-  return { texto, fonte_render: 'cheerio', titulo: $('title').first().text().trim() || null }
+  return { texto, fonte_render: 'cheerio', titulo: $('title').first().text().trim() || null, html: r.data }
+}
+
+// Extrai links internos de uma página (HTML ou markdown), prioriza páginas comerciais.
+function _extrairLinksInternos({ html, markdown, baseUrl }) {
+  const base = new URL(baseUrl)
+  const set = new Set()
+
+  if (html) {
+    const $ = cheerio.load(html)
+    $('a[href]').each((_, el) => {
+      const href = $(el).attr('href') || ''
+      try {
+        const abs = new URL(href, baseUrl)
+        if (abs.host !== base.host) return
+        if (abs.hash) abs.hash = ''
+        if (abs.href !== baseUrl) set.add(abs.href.replace(/\/$/, ''))
+      } catch (_) { /* skip */ }
+    })
+  }
+  if (markdown) {
+    const re = /\]\((https?:\/\/[^)]+)\)/g
+    let m
+    while ((m = re.exec(markdown))) {
+      try {
+        const abs = new URL(m[1])
+        if (abs.host !== base.host) continue
+        if (abs.hash) abs.hash = ''
+        if (abs.href !== baseUrl) set.add(abs.href.replace(/\/$/, ''))
+      } catch (_) { /* skip */ }
+    }
+  }
+
+  const todos = [...set]
+  const prioritarios = []
+  const restantes = []
+  for (const u of todos) {
+    if (PAGINAS_PRIORIDADE.some((rx) => rx.test(u))) prioritarios.push(u)
+    else restantes.push(u)
+  }
+  return [...prioritarios, ...restantes]
+}
+
+async function buscarConteudoSite(url, log) {
+  const safeUrl = String(url || '').trim().replace(/\/$/, '')
+  if (!/^https?:\/\//i.test(safeUrl)) throw new Error('URL inválida (precisa começar com http:// ou https://)')
+
+  // 1. Raiz
+  const principal = await _buscarPaginaUnica(safeUrl, log)
+  const partes = [`# ${principal.titulo || safeUrl}\n\n${principal.texto}`]
+  const visitadas = new Set([safeUrl])
+
+  // 2. Coleta links internos prioritários (rodapé, sobre, planos, faq, etc.)
+  const candidatos = _extrairLinksInternos({
+    html: principal.html,
+    markdown: principal.fonte_render === 'jina' ? principal.texto : null,
+    baseUrl: safeUrl,
+  })
+    .filter((u) => !visitadas.has(u))
+    .slice(0, MAX_PAGINAS_CRAWL - 1)
+
+  if (log) log.info({ url: safeUrl, candidatos: candidatos.length, prioritarios: candidatos.slice(0, 3) }, 'Crawl de páginas internas')
+
+  // 3. Crawl em paralelo (com limite). Falhas individuais são silenciosas.
+  const resultados = await Promise.allSettled(
+    candidatos.map((u) => _buscarPaginaUnica(u, log).then((r) => ({ url: u, ...r })))
+  )
+  for (const r of resultados) {
+    if (r.status === 'fulfilled' && r.value?.texto && r.value.texto.length > 200) {
+      partes.push(`\n\n---\n\n## ${r.value.titulo || r.value.url}\n[${r.value.url}]\n\n${r.value.texto}`)
+      visitadas.add(r.value.url)
+    }
+  }
+
+  return {
+    texto: partes.join(''),
+    fonte_render: principal.fonte_render,
+    titulo: principal.titulo,
+    paginas_crawladas: visitadas.size,
+  }
 }
 
 function extrairTituloDeMarkdown(md) {
@@ -111,12 +194,15 @@ async function atualizarFonteConteudo(pool, fonteId, { conteudo_extraido, titulo
 async function importarLinkEmpresa(pool, log, { empresaId, contextoId, url }) {
   const fonte = await criarFonteConhecimento(pool, { empresaId, contextoId, tipo: 'site', url })
   try {
-    const { texto, titulo } = await buscarConteudoSite(url, log)
+    const { texto, titulo, paginas_crawladas } = await buscarConteudoSite(url, log)
     const { texto: textoCap, truncado } = truncar(texto)
-    if (truncado && log) log.info({ fonte_id: fonte.id, len: texto.length }, 'Conteúdo de site truncado em 30k chars')
+    if (log) log.info({ fonte_id: fonte.id, len: texto.length, truncado, paginas_crawladas }, 'Site importado')
+    const tituloFinal = titulo
+      ? `${titulo}${paginas_crawladas > 1 ? ` (+${paginas_crawladas - 1} páginas internas)` : ''}`
+      : fonte.titulo
     return await atualizarFonteConteudo(pool, fonte.id, {
       conteudo_extraido: textoCap,
-      titulo: titulo || fonte.titulo,
+      titulo: tituloFinal,
       status: 'pendente',
     })
   } catch (err) {
@@ -217,8 +303,8 @@ Extraia.`
         systemPrompt: RESUMO_FONTE_SYSTEM,
         userPrompt,
         task: 'extractKnowledgeSource',
-        maxTokens: 2500,
-        timeoutMs: 45000,
+        maxTokens: 4000,
+        timeoutMs: 90000,
         empresaId, refType: 'knowledge_source', refId: fonteId,
       },
       pool, log

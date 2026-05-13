@@ -49,6 +49,8 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
 
 // ─── POST link ───────────────────────────────────────────────────────────────
 router.post('/link', requireAuth, requireEmpresaAccess, async (req, res) => {
+  req.setTimeout(180000)
+  res.setTimeout(180000)
   const { url } = req.body || {}
   if (!url || typeof url !== 'string') {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'url obrigatória.' } })
@@ -91,6 +93,8 @@ router.post('/texto', requireAuth, requireEmpresaAccess, async (req, res) => {
 
 // ─── POST analisar fonte ─────────────────────────────────────────────────────
 router.post('/:fonteId/analisar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  req.setTimeout(150000)
+  res.setTimeout(150000)
   try {
     const fonte = await analisarFonteComIA(pool, logger, {
       empresaId: req.empresa.id,
@@ -120,10 +124,13 @@ module.exports = router
 const sugerirRouter = Router({ mergeParams: true })
 
 sugerirRouter.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
+  req.setTimeout(180000)
+  res.setTimeout(180000)
   try {
     const r = await sugerirContexto1APartirDasFontes(pool, logger, paramsCtx(req))
     return res.json({ ok: true, data: r })
   } catch (err) {
+    logger.error({ err: err.message, stack: err.stack }, 'sugerir-contexto1 falhou')
     return res.status(502).json({ ok: false, error: { code: 'AI_ERROR', message: err.message } })
   }
 })
