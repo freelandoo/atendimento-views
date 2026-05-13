@@ -80,8 +80,10 @@ function validarSecretsBoot() {
   if (!process.env.REPROCESS_SECRET || String(process.env.REPROCESS_SECRET).trim().length < 8) {
     faltando.push('REPROCESS_SECRET (mínimo 8 caracteres — protege /dashboard/*)')
   }
-  if (!process.env.ANTHROPIC_KEY) {
-    faltando.push('ANTHROPIC_KEY (obrigatória para o agente responder)')
+  const temAnthropicKey = !!process.env.ANTHROPIC_KEY
+  const temOpenaiKey = !!(process.env.OPENAI_API_KEY || process.env.OPENAI_KEY)
+  if (!temAnthropicKey && !temOpenaiKey) {
+    faltando.push('ANTHROPIC_KEY ou OPENAI_API_KEY (pelo menos uma chave de IA é obrigatória)')
   }
   if (!process.env.EVOLUTION_API_KEY) {
     faltando.push('EVOLUTION_API_KEY (obrigatoria para integrar com Evolution API)')

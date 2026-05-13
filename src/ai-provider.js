@@ -84,7 +84,7 @@ async function _callAnthropic({ model, systemPrompt, userPrompt, temperature, ma
 }
 
 async function _callOpenAI({ model, systemPrompt, userPrompt, temperature, maxTokens, timeoutMs }) {
-  const apiKey = String(process.env.OPENAI_KEY || '').trim()
+  const apiKey = String(process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || '').trim()
   if (!apiKey) throw Object.assign(new Error('OPENAI_KEY não configurada'), { code: 'sem_chave' })
   const resp = await axios.post(
     OPENAI_URL,
@@ -194,4 +194,79 @@ async function generateAIResponse(input, pool, log) {
   }
 }
 
-module.exports = { generateAIResponse, getAISettings, invalidateCache }
+// ─── Funções de domínio ───────────────────────────────────────────────────────
+
+const { parsearRespostaJsonClaude } = require('./string-utils')
+
+async function generateContextPlan({ contexto1, pool, log }) {
+  const systemPrompt = `Você é um especialista em vendas consultivas e automação de WhatsApp.
+Dado o Contexto 1 (briefing textual de uma empresa), gere um Contexto 2 em JSON estruturado.
+Responda APENAS com o JSON válido, sem markdown, sem explicação extra.`
+
+  const userPrompt = `CONTEXTO 1:\n${contexto1}\n\nGere o Contexto 2 JSON conforme o schema da documentação.`
+
+  const result = await generateAIResponse(
+    { systemPrompt, userPrompt, task: 'generateContextPlan', maxTokens: 4000 },
+    pool,
+    log
+  )
+  return { ...result, json: parsearRespostaJsonClaude(result.text) }
+}
+
+async function extractLeadData({ conversa, pool, log }) {
+  const systemPrompt = `Extraia dados estruturados do lead a partir do texto da conversa.
+Responda APENAS com JSON válido. Inclua campos que você conseguir inferir, mesmo que incompletos.
+Campos possíveis: negocio, cidade, ticket_cliente_final, ja_aparece_google, complexidade, dor_principal, intencao_principal, temperatura_lead.`
+
+  const userPrompt = `CONVERSA:\n${conversa}`
+
+  const result = await generateAIResponse(
+    { systemPrompt, userPrompt, task: 'extractLeadData', maxTokens: 800 },
+    pool,
+    log
+  )
+  return { ...result, json: parsearRespostaJsonClaude(result.text) }
+}
+
+async function generateAgentReply({ systemPrompt, userPrompt, pool, log, temperature, maxTokens, timeoutMs }) {
+  return generateAIResponse(
+    { systemPrompt, userPrompt, task: 'agentReply', temperature, maxTokens, timeoutMs },
+    pool,
+    log
+  )
+}
+
+async function summarizeConversation({ historico, pool, log }) {
+  const systemPrompt = `Resuma a conversa de vendas em 3-5 frases, destacando: estágio atual, principais dores, objeções, próximos passos.`
+  const userPrompt = Array.isArray(historico)
+    ? historico.map(m => `${m.role}: ${m.content || ''}`).join('\n')
+    : String(historico || '')
+
+  return generateAIResponse(
+    { systemPrompt, userPrompt, task: 'summarizeConversation', maxTokens: 400 },
+    pool,
+    log
+  )
+}
+
+async function generateReport({ dados, tipo = 'geral', pool, log }) {
+  const systemPrompt = `Você é um analista de vendas. Gere um relatório objetivo em português brasileiro, em formato de bullet points, com insights acionáveis.`
+  const userPrompt = `TIPO: ${tipo}\nDADOS:\n${typeof dados === 'string' ? dados : JSON.stringify(dados, null, 2)}`
+
+  return generateAIResponse(
+    { systemPrompt, userPrompt, task: 'generateReport', maxTokens: 1000 },
+    pool,
+    log
+  )
+}
+
+module.exports = {
+  generateAIResponse,
+  getAISettings,
+  invalidateCache,
+  generateContextPlan,
+  extractLeadData,
+  generateAgentReply,
+  summarizeConversation,
+  generateReport,
+}
