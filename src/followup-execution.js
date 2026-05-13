@@ -346,7 +346,7 @@ function createFollowupExecution(deps = {}) {
       const contextoTempo = contextoTempoFollowup(conversa.atualizado_em, historicoBruto)
       const opcoesFollow = { contextoTempo, ...(instrTrim ? { instrucao: instrTrim } : {}) }
       const textoFollowup = await chamarClaudeFollowup(historicoBruto, estagio, perfil, opcoesFollow)
-      await enviarMensagem(numero, textoFollowup)
+      await enviarMensagem(numero, textoFollowup, conversa?.evolution_instance || null)
   
       let historicoNovo = [...historicoBruto, { role: 'assistant', content: textoFollowup }]
       if (historicoNovo.length > 40) historicoNovo = historicoNovo.slice(-40)

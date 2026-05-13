@@ -299,7 +299,7 @@ async function processarRespostaWebhookDebounced(numero) {
           if (resultado?.decisao?.mensagem_pro_lead) {
             const texto = String(resultado.decisao.mensagem_pro_lead).trim()
             if (texto) {
-              await whatsapp.enviarMensagem(numero, texto)
+              await whatsapp.enviarMensagem(numero, texto, conversa.evolution_instance)
               historico.push({ role: 'assistant', content: texto })
               await salvarConversa(numero, historico,
                 resultado.decisao.etapa_proxima || estagio,
@@ -4340,7 +4340,8 @@ app.post('/dashboard/audio-reprocessar', async (req, res) => {
     }
     const msg = row.web_message_info
     const audioPart = localizarAudioPartMensagem(msg)
-    const rAudio = await baixarETranscreverAudioMensagem(msg, audioPart)
+    const conversaAudio = await buscarConversa(row.numero).catch(() => null)
+    const rAudio = await baixarETranscreverAudioMensagem(msg, audioPart, conversaAudio?.evolution_instance || null)
     const contexto = await salvarLeadContexto(row.numero, {
       tipo: 'audio_reprocessado',
       origem: 'audio_reprocessado',

@@ -255,6 +255,7 @@ function createCoreFunnel(deps = {}) {
     const historico = normalizarHistoricoMensagens(conversaLive?.historico ?? historicoBruto)
     const estagioLive = conversaLive?.estagio || estagio || 'primeiro_contato'
     const conversaUsada = conversaLive || conversa
+    const evolutionInstance = conversaUsada?.evolution_instance || null
     let respostaEnviadaAoLead = false
   
     if (typeof podeGerarRespostaAutomatica === 'function' && !podeGerarRespostaAutomatica({ ...conversaUsada, historico })) {
@@ -454,7 +455,7 @@ function createCoreFunnel(deps = {}) {
       const captionPrint = typeof resultado.caption_print === 'string' && resultado.caption_print.trim()
         ? resultado.caption_print.trim()
         : ''
-      await enviarPrintLocal(numero, resultado.enviar_print.trim(), captionPrint).catch(
+      await enviarPrintLocal(numero, resultado.enviar_print.trim(), captionPrint, evolutionInstance).catch(
         (e) => logger.error('❌ enviar_print falhou:', e.message)
       )
     }
@@ -481,24 +482,24 @@ function createCoreFunnel(deps = {}) {
       const bolhasModelo = bolhasSanitizadas && bolhasSanitizadas.length > 0
   
       if (botoes) {
-        await enviarComBotoes(numero, textoResposta, botoes)
+        await enviarComBotoes(numero, textoResposta, botoes, evolutionInstance)
         if (linksExtra.length > 0) {
-          await enviarMensagem(numero, linksExtra.join('\n'))
+          await enviarMensagem(numero, linksExtra.join('\n'), evolutionInstance)
         }
       } else if (bolhasModelo) {
-        await enviarSequenciaMensagens(numero, bolhasSanitizadas)
+        await enviarSequenciaMensagens(numero, bolhasSanitizadas, evolutionInstance)
         if (linksExtra.length > 0) {
-          await enviarMensagem(numero, linksExtra.join('\n'))
+          await enviarMensagem(numero, linksExtra.join('\n'), evolutionInstance)
         }
       } else {
         const partesHeur = dividirTextoPorQuebrasHeuristico(textoResposta)
         if (partesHeur.length > 1) {
-          await enviarSequenciaMensagens(numero, partesHeur)
+          await enviarSequenciaMensagens(numero, partesHeur, evolutionInstance)
           if (linksExtra.length > 0) {
-            await enviarMensagem(numero, linksExtra.join('\n'))
+            await enviarMensagem(numero, linksExtra.join('\n'), evolutionInstance)
           }
         } else {
-          await enviarMensagem(numero, textoHistoricoAssist)
+          await enviarMensagem(numero, textoHistoricoAssist, evolutionInstance)
         }
       }
       respostaEnviadaAoLead = true
@@ -528,12 +529,14 @@ function createCoreFunnel(deps = {}) {
             await gerarEEnviarPreviewSite(numero, perfil, historico, {
               modelo: resultado.preview_site_modelo || perfil?.plano_sugerido || null,
               imagens: imagensPreview,
+              evolutionInstance,
             })
           } catch (e) {
             logger.error('Preview de site falhou:', e.response?.data || e.message)
             await enviarMensagem(
               numero,
-              'Tentei montar a previa visual agora, mas nao consegui gerar a imagem nesse momento. Vamos continuar a conversa normalmente.'
+              'Tentei montar a previa visual agora, mas nao consegui gerar a imagem nesse momento. Vamos continuar a conversa normalmente.',
+              evolutionInstance
             ).catch(() => {})
           }
         }

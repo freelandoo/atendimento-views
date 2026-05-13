@@ -9,6 +9,11 @@ const EVOLUTION_URL = process.env.EVOLUTION_URL || 'http://evolution-api:8080'
 const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY
 const INSTANCE_NAME = process.env.EVOLUTION_INSTANCE || 'PJ'
 
+function resolveInstance(instance) {
+  const v = typeof instance === 'string' ? instance.trim() : ''
+  return v || INSTANCE_NAME
+}
+
 const BOLHAS_ENVIO_DELAY_MS = 450
 
 function sleep(ms) {
@@ -23,8 +28,8 @@ function extrairBase64DaRespostaEvolution(data) {
   return null
 }
 
-async function evolutionObterBase64Midia(webMessageInfo) {
-  const url = `${EVOLUTION_URL}/chat/getBase64FromMediaMessage/${INSTANCE_NAME}`
+async function evolutionObterBase64Midia(webMessageInfo, instance) {
+  const url = `${EVOLUTION_URL}/chat/getBase64FromMediaMessage/${resolveInstance(instance)}`
   const { data } = await axios.post(
     url,
     { message: webMessageInfo, convertToMp4: false },
@@ -38,11 +43,11 @@ async function evolutionObterBase64Midia(webMessageInfo) {
   return b64
 }
 
-async function enviarImagemBase64(numero, b64, mimetype, legenda, rotulo = 'imagem') {
+async function enviarImagemBase64(numero, b64, mimetype, legenda, rotulo = 'imagem', instance) {
   const phone = numeroEnvioWhatsapp(numero)
   if (!phone || !b64) throw new Error(`Imagem invalida para envio (${rotulo})`)
   const { data } = await axios.post(
-    `${EVOLUTION_URL}/message/sendMedia/${INSTANCE_NAME}`,
+    `${EVOLUTION_URL}/message/sendMedia/${resolveInstance(instance)}`,
     {
       number: phone,
       mediatype: 'image',
@@ -105,14 +110,14 @@ function numeroEnvioWhatsapp(numero) {
   return raw.replace(/@s\.whatsapp\.net$/i, '').replace(/\D/g, '')
 }
 
-async function enviarMensagem(numero, texto) {
+async function enviarMensagem(numero, texto, instance) {
   const t = (texto || '').trim()
   if (!t) throw new Error('Texto vazio para envio ao WhatsApp')
   const phone = numeroEnvioWhatsapp(numero)
   if (!phone) throw new Error('Número/JID inválido para envio')
   try {
     const r = await axios.post(
-      `${EVOLUTION_URL}/message/sendText/${INSTANCE_NAME}`,
+      `${EVOLUTION_URL}/message/sendText/${resolveInstance(instance)}`,
       { number: phone, text: t },
       { headers: { apikey: EVOLUTION_KEY } }
     )
@@ -140,7 +145,7 @@ const PRINTS_AUTORIZADOS = {
  * Envia uma imagem local ao lead via Evolution API (sendMedia base64).
  * Retorna true se enviou, false se o arquivo não existir (sem lançar erro).
  */
-async function enviarPrintLocal(numero, chave, legenda) {
+async function enviarPrintLocal(numero, chave, legenda, instance) {
   const caminho = PRINTS_AUTORIZADOS[chave]
   if (!caminho) {
     logger.warn({ chave }, 'enviar_print chave nao reconhecida')
@@ -160,7 +165,7 @@ async function enviarPrintLocal(numero, chave, legenda) {
   }
   try {
     const { data } = await axios.post(
-      `${EVOLUTION_URL}/message/sendMedia/${INSTANCE_NAME}`,
+      `${EVOLUTION_URL}/message/sendMedia/${resolveInstance(instance)}`,
       {
         number: phone,
         mediatype: 'image',
@@ -179,19 +184,20 @@ async function enviarPrintLocal(numero, chave, legenda) {
   }
 }
 
-async function enviarComBotoes(numero, texto, botoes) {
+async function enviarComBotoes(numero, texto, botoes, instance) {
   const numLimpo = numeroEnvioWhatsapp(numero)
   const t = (texto || '').trim()
   if (!numLimpo || !t) throw new Error('Número ou texto inválido para envio com botões')
+  const inst = resolveInstance(instance)
   const r0 = await axios.post(
-    `${EVOLUTION_URL}/message/sendText/${INSTANCE_NAME}`,
+    `${EVOLUTION_URL}/message/sendText/${inst}`,
     { number: numLimpo, text: t },
     { headers: { apikey: EVOLUTION_KEY } }
   )
   assertEvolutionEnvioOk(r0.data, 'sendText(botoes)')
   try {
     const r1 = await axios.post(
-      `${EVOLUTION_URL}/message/sendButtons/${INSTANCE_NAME}`,
+      `${EVOLUTION_URL}/message/sendButtons/${inst}`,
       {
         number: numLimpo,
         title: 'Escolha uma opção',
@@ -208,9 +214,9 @@ async function enviarComBotoes(numero, texto, botoes) {
   }
 }
 
-async function enviarSequenciaMensagens(numero, partes) {
+async function enviarSequenciaMensagens(numero, partes, instance) {
   for (let i = 0; i < partes.length; i++) {
-    await enviarMensagem(numero, partes[i])
+    await enviarMensagem(numero, partes[i], instance)
     if (i < partes.length - 1) await sleep(BOLHAS_ENVIO_DELAY_MS)
   }
 }

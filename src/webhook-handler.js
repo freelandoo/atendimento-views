@@ -92,7 +92,7 @@ function registerWebhookRoute(app, deps = {}) {
           return
         }
     
-        const { texto, visao } = await extrairTextoEMidiaDoWebhook(msg)
+        const { texto, visao } = await extrairTextoEMidiaDoWebhook(msg, { instance: evolutionInstance || null })
         if (!texto && !visao) return
     
         const chaveEvt = construirChaveIdempotenciaWebhookMensagem(msg)

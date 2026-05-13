@@ -634,7 +634,9 @@ async function enviarLembreteReuniao(lembreteId, { manual = false, enviarMensage
   const { rows } = await pool.query(
     `SELECT l.*, l.status AS lembrete_status, l.tipo AS lembrete_tipo,
             e.*, e.status AS evento_status, e.tipo AS evento_tipo,
-            c.numero AS conversa_numero, c.venda_fechada AS conversa_venda_fechada, lp.numero AS lead_numero,
+            c.numero AS conversa_numero, c.venda_fechada AS conversa_venda_fechada,
+            c.evolution_instance AS conversa_evolution_instance,
+            lp.numero AS lead_numero,
             lp.apelido, lp.negocio, NULL::text AS nome, lp.contexto_prospeccao
      FROM vendas.agenda_lembretes l
      JOIN vendas.agenda_eventos e ON e.id = l.evento_id
@@ -662,7 +664,7 @@ async function enviarLembreteReuniao(lembreteId, { manual = false, enviarMensage
   }
   const mensagem = gerarMensagemLembreteReuniao(row, row)
   try {
-    await enviarMensagemFn(numero, mensagem)
+    await enviarMensagemFn(numero, mensagem, row.conversa_evolution_instance || null)
     await registrarHistoricoLembrete(row, mensagem)
     await pool.query(
       `UPDATE vendas.agenda_lembretes
@@ -741,7 +743,7 @@ async function registrarSugestaoReagendamentoLembrete(row, enviarMensagemFn = en
   const dataLabel = slots.data_label || 'em outro horario'
   const opcoes = horarios.length === 1 ? horarios[0] : `${horarios[0]} ou ${horarios[1]}`
   const mensagem = `Sem problema, a gente remarca. Tenho ${dataLabel} às ${opcoes} com a equipe da PJ Codeworks. Qual desses horários fica melhor pra você?`
-  await enviarMensagemFn(numero, mensagem)
+  await enviarMensagemFn(numero, mensagem, row?.conversa_evolution_instance || null)
   await pool.query(
     `UPDATE vendas.conversas
      SET historico = (

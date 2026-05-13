@@ -455,7 +455,8 @@ function createPreviewSite(deps = {}) {
   async function gerarEEnviarPreviewSite(numero, perfil, historico, opcoes = {}) {  
     const preview = await gerarPreviewSite(numero, perfil, historico, opcoes)  
     const captionPreview = await gerarCaptionPreview(perfil, preview?.dados, numero)  
-    await enviarImagemBase64(numero, preview.b64, preview.mimetype, captionPreview, 'preview-site')  
+    const evolutionInstance = opcoes?.evolutionInstance || null
+    await enviarImagemBase64(numero, preview.b64, preview.mimetype, captionPreview, 'preview-site', evolutionInstance)  
     await registrarEventoComercial(numero, 'recebeu_preview', {  
       modelo: preview.dados.modelo,  
       renderer: preview.renderer,  
@@ -465,7 +466,7 @@ function createPreviewSite(deps = {}) {
     if (msgPosPreview) {  
       try {  
         await new Promise((resolve) => setTimeout(resolve, 1500))  
-        await enviarMensagem(numero, msgPosPreview)  
+        await enviarMensagem(numero, msgPosPreview, evolutionInstance)  
       } catch (err) {  
         logger.error('Falha ao enviar mensagem pos-preview:', err?.message || err)  
       }  

@@ -456,11 +456,48 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
                 {testando ? 'Testando…' : 'Simular atendimento'}
               </button>
               {testErr && <pre className="text-xs bg-red-50 text-red-800 p-3 rounded-lg whitespace-pre-wrap">{testErr}</pre>}
-              {testResult != null && (
-                <pre className="text-xs bg-gray-50 border p-3 rounded-lg overflow-x-auto max-h-96 whitespace-pre-wrap break-words">
-                  {JSON.stringify(testResult, null, 2)}
-                </pre>
-              )}
+              {testResult != null && (() => {
+                const tr = testResult as { decisao?: { mensagem_pro_lead?: string; etapa_proxima?: string }, extracao?: { intencao?: string, temperatura?: string } }
+                const resposta = tr?.decisao?.mensagem_pro_lead || ''
+                const intencao = tr?.extracao?.intencao
+                const etapa = tr?.decisao?.etapa_proxima
+                const temperatura = tr?.extracao?.temperatura
+                return (
+                  <div className="border rounded-2xl overflow-hidden bg-white">
+                    <div className="px-4 py-3 border-b bg-white">
+                      <h4 className="font-semibold text-sm">Simulação</h4>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {intencao && <>Intenção: <span className="font-medium">{intencao}</span> · </>}
+                        {etapa && <>Etapa próxima: <span className="font-medium">{etapa}</span> · </>}
+                        {temperatura && <>Temperatura: <span className="font-medium">{temperatura}</span> · </>}
+                        2 msgs
+                      </p>
+                    </div>
+                    <div className="bg-gray-50 px-4 py-4 space-y-2 max-h-96 overflow-y-auto">
+                      <div className="max-w-[80%] rounded-2xl px-3 py-2 text-sm bg-white border border-gray-200 mr-auto">
+                        <div className="text-[10px] uppercase mb-0.5 text-gray-500">Lead</div>
+                        <div className="whitespace-pre-wrap break-words">{mensagem}</div>
+                      </div>
+                      {resposta ? (
+                        <div className="max-w-[80%] rounded-2xl px-3 py-2 text-sm bg-brand text-white ml-auto">
+                          <div className="text-[10px] uppercase mb-0.5 text-white/70">Agente</div>
+                          <div className="whitespace-pre-wrap break-words">{resposta}</div>
+                        </div>
+                      ) : (
+                        <div className="max-w-[80%] rounded-2xl px-3 py-2 text-sm bg-gray-200 text-gray-700 mx-auto">
+                          <div className="whitespace-pre-wrap break-words">(agente não respondeu)</div>
+                        </div>
+                      )}
+                    </div>
+                    <details className="border-t bg-white">
+                      <summary className="px-4 py-2 text-xs text-gray-500 cursor-pointer hover:bg-gray-50">Ver JSON completo (extração + decisão)</summary>
+                      <pre className="text-xs bg-gray-50 p-3 overflow-x-auto max-h-96 whitespace-pre-wrap break-words border-t">
+                        {JSON.stringify(testResult, null, 2)}
+                      </pre>
+                    </details>
+                  </div>
+                )
+              })()}
             </div>
           )}
         </div>
