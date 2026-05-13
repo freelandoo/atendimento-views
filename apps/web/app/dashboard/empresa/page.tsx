@@ -21,6 +21,8 @@ export default function EmpresaPage() {
   const [novaInstance, setNovaInstance] = useState('')
   const [nomeInstance, setNomeInstance] = useState('')
   const [msg, setMsg] = useState('')
+  const [erroForm, setErroForm] = useState('')
+  const [adicionando, setAdicionando] = useState(false)
   const [qr, setQr] = useState<QRState>({
     open: false, instanceId: null, instanceLabel: '', loading: false,
     base64: null, pairingCode: null, connected: false, error: null,
@@ -42,14 +44,35 @@ export default function EmpresaPage() {
   async function adicionarInstancia(e: React.FormEvent) {
     e.preventDefault()
     if (!empresaId) return
-    const r = await apiFetch<WhatsAppInstance>(`/api/empresas/${empresaId}/whatsapp`, {
-      method: 'POST',
-      body: JSON.stringify({ evolution_instance: novaInstance, nome: nomeInstance }),
-    })
-    setInstancias((prev) => [...prev, r.data])
-    setNovaInstance('')
-    setNomeInstance('')
-    setMsg('Instância adicionada com sucesso.')
+    setErroForm('')
+    setMsg('')
+    setAdicionando(true)
+    try {
+      const r = await apiFetch<WhatsAppInstance>(`/api/empresas/${empresaId}/whatsapp`, {
+        method: 'POST',
+        body: JSON.stringify({ evolution_instance: novaInstance, nome: nomeInstance }),
+      })
+      setInstancias((prev) => [r.data, ...prev])
+      setNovaInstance('')
+      setNomeInstance('')
+      setMsg('Instância criada e sincronizada no Evolution. Clique em "Gerar QR Code" para parear.')
+    } catch (err: unknown) {
+      setErroForm(err instanceof Error ? err.message : 'Falha ao criar instância.')
+    } finally {
+      setAdicionando(false)
+    }
+  }
+
+  async function removerInstancia(inst: WhatsAppInstance) {
+    if (!empresaId) return
+    if (!confirm(`Remover "${inst.nome || inst.evolution_instance}"? Isso apaga também no Evolution e desconecta o WhatsApp.`)) return
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/whatsapp/${inst.id}`, { method: 'DELETE' })
+      setInstancias((prev) => prev.filter((i) => i.id !== inst.id))
+      setMsg('Instância removida.')
+    } catch (err: unknown) {
+      setErroForm(err instanceof Error ? err.message : 'Falha ao remover.')
+    }
   }
 
   async function abrirQrCode(inst: WhatsAppInstance) {
@@ -100,25 +123,33 @@ export default function EmpresaPage() {
 
       <div className="space-y-4">
         <h2 className="font-semibold">Instâncias WhatsApp</h2>
+        <p className="text-xs text-gray-500">
+          Ao adicionar, a instância é criada automaticamente no Evolution. Depois clique em "Gerar QR Code" para parear o WhatsApp.
+        </p>
         <form onSubmit={adicionarInstancia} className="flex gap-3">
           <input
             value={nomeInstance}
             onChange={(e) => setNomeInstance(e.target.value)}
-            placeholder="Nome amigável"
+            placeholder="Nome amigável (ex: Vendas BR)"
             className="border rounded-lg px-3 py-2 text-sm flex-1"
           />
           <input
             value={novaInstance}
             onChange={(e) => setNovaInstance(e.target.value)}
-            placeholder="evolution_instance (ex: MinhaEmpresa)"
+            placeholder="ID técnico (letras, números, _ e -)"
+            pattern="[a-zA-Z0-9_\-]+"
             required
             className="border rounded-lg px-3 py-2 text-sm flex-1"
           />
-          <button className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark">
-            Adicionar
+          <button
+            disabled={adicionando}
+            className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
+          >
+            {adicionando ? 'Criando…' : 'Adicionar'}
           </button>
         </form>
         {msg && <p className="text-sm text-brand">{msg}</p>}
+        {erroForm && <p className="text-sm text-red-600">{erroForm}</p>}
         <div className="space-y-2">
           {instancias.map((i) => (
             <div key={i.id} className="bg-white border rounded-xl px-4 py-3 flex justify-between items-center">
@@ -137,6 +168,14 @@ export default function EmpresaPage() {
                 <span className={`text-xs px-2 py-0.5 rounded-full ${i.ativo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                   {i.ativo ? 'ativo' : 'inativo'}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => removerInstancia(i)}
+                  className="text-xs text-red-600 hover:underline"
+                  aria-label="Remover instância"
+                >
+                  Remover
+                </button>
               </div>
             </div>
           ))}
