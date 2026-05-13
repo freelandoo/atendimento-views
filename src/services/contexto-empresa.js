@@ -401,15 +401,25 @@ async function ativarContexto2({ pool, empresaId, versaoId, userId }) {
  *
  * Retorna { json, markdown, versao_id, ativado_em, contexto_id } ou null.
  */
+function _enriquecerPlaybookComContexto1(playbookJson, contextoFormJson) {
+  const out = playbookJson && typeof playbookJson === 'object' ? { ...playbookJson } : {}
+  const c1 = contextoFormJson && typeof contextoFormJson === 'object' ? contextoFormJson : {}
+  if (!out.precos_planos && c1.precos_planos) out.precos_planos = String(c1.precos_planos).trim()
+  return out
+}
+
 async function buscarContexto2Ativo(pool, empresaId, evolutionInstance = null) {
   if (!empresaId) return null
 
   if (evolutionInstance) {
     const { rows } = await pool.query(
-      `SELECT ecv.id, ecv.conteudo_json, ecv.conteudo_markdown, ecv.ativado_em, ecv.contexto_id
+      `SELECT ecv.id, ecv.conteudo_json, ecv.conteudo_markdown, ecv.ativado_em, ecv.contexto_id,
+              ec.contexto_form_json
          FROM app.empresa_whatsapp_instances ewi
          JOIN app.empresa_contexto_versoes ecv
            ON ecv.contexto_id = ewi.contexto_id
+         LEFT JOIN app.empresa_contextos ec
+           ON ec.id = ecv.contexto_id
         WHERE ewi.empresa_id = $1
           AND ewi.evolution_instance = $2
           AND ewi.contexto_id IS NOT NULL
@@ -421,7 +431,7 @@ async function buscarContexto2Ativo(pool, empresaId, evolutionInstance = null) {
     if (rows.length) {
       return {
         versao_id: rows[0].id,
-        json: rows[0].conteudo_json,
+        json: _enriquecerPlaybookComContexto1(rows[0].conteudo_json, rows[0].contexto_form_json),
         markdown: rows[0].conteudo_markdown || '',
         ativado_em: rows[0].ativado_em,
         contexto_id: rows[0].contexto_id,
@@ -430,9 +440,12 @@ async function buscarContexto2Ativo(pool, empresaId, evolutionInstance = null) {
   }
 
   const { rows } = await pool.query(
-    `SELECT id, conteudo_json, conteudo_markdown, ativado_em, contexto_id
-       FROM app.empresa_contexto_versoes
-      WHERE empresa_id = $1 AND status = 'ativo'
+    `SELECT ecv.id, ecv.conteudo_json, ecv.conteudo_markdown, ecv.ativado_em, ecv.contexto_id,
+            ec.contexto_form_json
+       FROM app.empresa_contexto_versoes ecv
+       LEFT JOIN app.empresa_contextos ec
+         ON ec.id = ecv.contexto_id
+      WHERE ecv.empresa_id = $1 AND ecv.status = 'ativo'
       ORDER BY ativado_em DESC NULLS LAST
       LIMIT 1`,
     [empresaId]
@@ -440,7 +453,7 @@ async function buscarContexto2Ativo(pool, empresaId, evolutionInstance = null) {
   if (!rows.length) return null
   return {
     versao_id: rows[0].id,
-    json: rows[0].conteudo_json,
+    json: _enriquecerPlaybookComContexto1(rows[0].conteudo_json, rows[0].contexto_form_json),
     markdown: rows[0].conteudo_markdown || '',
     ativado_em: rows[0].ativado_em,
     contexto_id: rows[0].contexto_id,
