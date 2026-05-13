@@ -20,6 +20,48 @@ docker compose up -d
 
 ---
 
+## Deploy Railway (Backend) — Configurado em Slice 12
+
+**Arquivo:** `railway.toml` na raiz do projeto.
+
+**Passos para ativar:**
+```bash
+$env:RAILWAY_TOKEN = "<seu-token>"
+railway login --token $env:RAILWAY_TOKEN
+railway link <project-id>
+railway up
+```
+
+**Variáveis obrigatórias no Railway:**
+- `DATABASE_URL` — PostgreSQL provisionado pelo Railway
+- `ANTHROPIC_KEY` — Claude API
+- `OPENAI_API_KEY` — OpenAI API
+- `EVOLUTION_URL` — URL pública da Evolution API
+- `EVOLUTION_API_KEY`
+- `JWT_SECRET` — string aleatória ≥ 32 chars
+- `REPROCESS_SECRET` — string ≥ 8 chars
+- `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` — admin inicial SaaS
+- `DASHBOARD_ADMIN_EMAIL`, `DASHBOARD_ADMIN_PASSWORD`
+- `FRONTEND_URL` — URL Vercel do frontend (para CORS)
+
+**Migrations:** executam automaticamente no boot via `src/db/migrations.js`.
+
+**Healthcheck:** `GET /health` → 200 `{ ok: true }`.
+
+---
+
+## Deploy Vercel (Frontend) — Configurado em Slice 12
+
+**Arquivo:** `apps/web/vercel.json`
+
+**Passos:**
+1. Conectar repositório no dashboard Vercel
+2. Definir **Root Directory** como `apps/web`
+3. Adicionar variável de ambiente: `NEXT_PUBLIC_API_URL = <URL Railway backend>`
+4. Deploy automático no push para master
+
+---
+
 ## Deploy Railway — Backend
 
 **Projeto:** ⏳ A criar (Slice 2)
