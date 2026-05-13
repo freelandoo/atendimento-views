@@ -264,6 +264,20 @@ async function processarRespostaWebhookDebounced(numero) {
     const visao = st.visaoLote
     st.visaoLote = null
 
+    // ─── Pausa global do agente (flag empresa.config.agente_pausado) ───────
+    try {
+      if (conversa.empresa_id) {
+        const { rows: [emp] } = await pool.query(
+          `SELECT config FROM app.empresas WHERE id = $1`,
+          [conversa.empresa_id]
+        )
+        if (emp?.config?.agente_pausado) {
+          logger.info({ numero, empresa_id: conversa.empresa_id }, '[empresa] agente pausado globalmente — sem resposta automática')
+          return
+        }
+      }
+    } catch (_) {}
+
     // ─── Contexto 2 Playbook (se empresa tem versão ativa, usa esse fluxo) ──
     try {
       const empresaId = conversa.empresa_id

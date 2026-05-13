@@ -65,6 +65,26 @@ router.get('/:empresaId', requireAuth, requireEmpresaAccess, (req, res) => {
   return res.json({ ok: true, data: req.empresa })
 })
 
+// GET /api/empresas/:empresaId/agente — retorna estado global do agente
+router.get('/:empresaId/agente', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const pausado = !!(req.empresa?.config?.agente_pausado)
+  return res.json({ ok: true, data: { pausado } })
+})
+
+// PATCH /api/empresas/:empresaId/agente { pausado: true/false }
+router.patch('/:empresaId/agente', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const pausado = !!(req.body?.pausado)
+  const { rows: [empresa] } = await pool.query(
+    `UPDATE app.empresas
+        SET config = COALESCE(config, '{}'::jsonb) || jsonb_build_object('agente_pausado', $2::boolean),
+            atualizado_em = NOW()
+      WHERE id = $1
+      RETURNING id, nome, config`,
+    [req.empresa.id, pausado]
+  )
+  return res.json({ ok: true, data: { pausado: !!(empresa.config?.agente_pausado) } })
+})
+
 // PUT /api/empresas/:empresaId
 router.put('/:empresaId', requireAuth, requireEmpresaAccess, async (req, res) => {
   const { nome, config } = req.body || {}
