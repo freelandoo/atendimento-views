@@ -15,7 +15,7 @@ export default function LoginPage() {
     setErro('')
     setLoading(true)
     try {
-      const { data } = await apiFetch('/api/auth/login', {
+      const { data } = await apiFetch<{ token: string; empresa_id?: string }>('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email, senha }),
       })
