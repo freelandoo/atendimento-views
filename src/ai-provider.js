@@ -19,7 +19,13 @@ const MODEL_PRICES = {
 function priceFor(model) {
   if (!model) return null
   if (MODEL_PRICES[model]) return MODEL_PRICES[model]
-  const base = String(model).split(/[-:@]/).slice(0, 4).join('-')
+  const m = String(model)
+  const dated = Object.keys(MODEL_PRICES)
+    .filter((key) => key.includes('-'))
+    .sort((a, b) => b.length - a.length)
+    .find((key) => m === key || m.startsWith(`${key}-`))
+  if (dated) return MODEL_PRICES[dated]
+  const base = m.split(/[-:@]/).slice(0, 4).join('-')
   return MODEL_PRICES[base] || null
 }
 
@@ -344,6 +350,8 @@ module.exports = {
   generateAIResponse,
   getAISettings,
   invalidateCache,
+  priceFor,
+  computeCost,
   generateContextPlan,
   extractLeadData,
   generateAgentReply,

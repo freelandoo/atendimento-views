@@ -1859,6 +1859,12 @@ test('estimativaCustoLlm calcula USD e BRL a partir de tokens', () => {
   assert.equal(r.brl, 105)
 })
 
+test('computeCost reconhece modelos versionados retornados pela API', () => {
+  const { computeCost } = require('../src/ai-provider')
+  const usd = computeCost('gpt-4o-mini-2024-07-18', 298786, 66156)
+  assert.ok(usd > 0.08 && usd < 0.09)
+})
+
 test('parseLlmPricingEnv le LLM_ESTIMATE_* e LLM_USD_BRL', () => {
   const { parseLlmPricingEnv } = require('../src/agent')
   const oldI = process.env.LLM_ESTIMATE_INPUT_PER_MTOK_USD
