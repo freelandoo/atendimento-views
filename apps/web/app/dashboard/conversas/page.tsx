@@ -7,8 +7,20 @@ type Conversa = {
   estagio: string
   status: string
   negocio?: string
-  temperatura_lead?: number
+  temperatura_lead?: string | null
+  score_dor?: number | null
   atualizado_em: string
+}
+
+const TEMP_STYLE: Record<string, { label: string; cls: string }> = {
+  quente: { label: '🔥 Quente', cls: 'bg-orange-100 text-orange-700' },
+  morno: { label: '🌤️ Morno', cls: 'bg-amber-100 text-amber-700' },
+  frio: { label: '❄️ Frio', cls: 'bg-sky-100 text-sky-700' },
+}
+
+function TempBadge({ t }: { t?: string | null }) {
+  if (!t || !TEMP_STYLE[t]) return <span className="text-gray-400 text-xs">—</span>
+  return <span className={`px-2 py-0.5 rounded-full text-xs ${TEMP_STYLE[t].cls}`}>{TEMP_STYLE[t].label}</span>
 }
 type Mensagem = { role?: string; content?: string; text?: string; timestamp?: string }
 type ConversaDetail = Conversa & { historico?: Mensagem[] }
@@ -91,6 +103,7 @@ export default function ConversasPage() {
           <tr>
             <th className="text-left px-4 py-2">Número</th>
             <th className="text-left px-4 py-2">Negócio</th>
+            <th className="text-left px-4 py-2">Temperatura</th>
             <th className="text-left px-4 py-2">Estágio</th>
             <th className="text-left px-4 py-2">Status</th>
             <th className="text-right px-4 py-2">Atualizado</th>
@@ -102,6 +115,7 @@ export default function ConversasPage() {
             <tr key={c.numero} className="border-t hover:bg-gray-50">
               <td className="px-4 py-2 font-mono text-xs">{fmtNumero(c.numero)}</td>
               <td className="px-4 py-2">{c.negocio || '—'}</td>
+              <td className="px-4 py-2"><TempBadge t={c.temperatura_lead} /></td>
               <td className="px-4 py-2">{c.estagio}</td>
               <td className="px-4 py-2">
                 <span className={`px-2 py-0.5 rounded-full text-xs ${c.status === 'ativo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
@@ -138,7 +152,7 @@ export default function ConversasPage() {
             </tr>
           ))}
           {lista.length === 0 && (
-            <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-400">Nenhuma conversa encontrada.</td></tr>
+            <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400">Nenhuma conversa encontrada.</td></tr>
           )}
         </tbody>
       </table>

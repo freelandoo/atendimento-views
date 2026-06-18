@@ -15,9 +15,13 @@ const { pool } = require('./db')
 const { logger } = require('./logger')
 const { QUALIFIED_LEAD_MIN } = require('./services/meta-attribution')
 
-async function listarLeadsQuentesParaTrabalhar(poolRef, { limite = 150, diasAtivo = 45 } = {}) {
+async function listarLeadsQuentesParaTrabalhar(poolRef, { limite = 150, diasAtivo = 45, empresaId = null } = {}) {
   const lim = Math.min(500, Math.max(1, parseInt(limite, 10) || 150))
   const dias = Math.min(180, Math.max(1, parseInt(diasAtivo, 10) || 45))
+  const params = [QUALIFIED_LEAD_MIN, lim, dias]
+  // Escopo multiempresa opcional: quando empresaId é informado (rota /api JWT),
+  // filtra a carteira por aquela empresa; sem ele, mantém o comportamento global.
+  const empresaCond = empresaId ? `AND c.empresa_id = $${params.push(empresaId)}` : ''
   const { rows } = await poolRef.query(
     `
     WITH base AS (
@@ -36,6 +40,7 @@ async function listarLeadsQuentesParaTrabalhar(poolRef, { limite = 150, diasAtiv
       WHERE c.atualizado_em > NOW() - ($3::int * INTERVAL '1 day')
         AND c.venda_fechada IS NOT TRUE
         AND c.arquivado IS NOT TRUE
+        ${empresaCond}
         AND (p.score_lead >= $1 OR COALESCE(p.reuniao_proposta,'{}'::jsonb) <> '{}'::jsonb)
         AND NOT EXISTS (
           SELECT 1 FROM vendas.agenda_eventos e
@@ -47,7 +52,7 @@ async function listarLeadsQuentesParaTrabalhar(poolRef, { limite = 150, diasAtiv
     ORDER BY aguardando_resposta DESC, ofereceu_reuniao DESC, score_lead DESC NULLS LAST, atualizado_em DESC
     LIMIT $2
     `,
-    [QUALIFIED_LEAD_MIN, lim, dias]
+    params
   )
   const iso = (d) => (d ? new Date(d).toISOString() : null)
   return rows.map((r) => ({
