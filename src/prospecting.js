@@ -1055,7 +1055,11 @@ function normalizarProspectParaPersistencia(prospect, contexto = {}) {
   const placeId = normalizarTexto(pIn.place_id, 240)
   const nome = normalizarTexto(pIn.nome, 240)
   if (!placeId || !nome || !nicho || !cidade) return null
+  // empresa_id vem do contexto CRU (não passa pelo schema, que o descartaria);
+  // fallback para a empresa padrão PJ Codeworks quando não informado.
+  const empresaId = (contexto && (contexto.empresaId || contexto.empresa_id)) || '00000000-0000-0000-0000-000000000001'
   return {
+    empresa_id: empresaId,
     nome,
     telefone: normalizarTexto(pIn.telefone, 80) || null,
     nicho,
@@ -1081,13 +1085,13 @@ async function salvarProspect(prospect, contexto = {}) {
     `
     INSERT INTO prospectador.prospects (
       nome, telefone, nicho, cidade, endereco, avaliacoes, rating, tem_site,
-      site, maps_url, place_id, origem, score, motivo_score, raw_json
+      site, maps_url, place_id, origem, score, motivo_score, raw_json, empresa_id
     )
     VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8,
-      $9, $10, $11, $12, $13, $14, $15::jsonb
+      $9, $10, $11, $12, $13, $14, $15::jsonb, $16
     )
-    ON CONFLICT (place_id) DO UPDATE
+    ON CONFLICT (empresa_id, place_id) DO UPDATE
     SET nome = EXCLUDED.nome,
         telefone = COALESCE(EXCLUDED.telefone, prospectador.prospects.telefone),
         nicho = EXCLUDED.nicho,
@@ -1124,6 +1128,7 @@ async function salvarProspect(prospect, contexto = {}) {
       Number.isFinite(p.score) ? p.score : null,
       p.motivo_score,
       JSON.stringify(p.raw_json),
+      p.empresa_id,
     ]
   )
   return prospectPersistido(rows[0])
@@ -1145,6 +1150,11 @@ async function salvarProspects(prospects, contexto = {}) {
 async function listarProspects(filtros = {}) {
   const where = []
   const params = []
+  // Escopo multiempresa: quando informado, lista só os prospects da empresa.
+  if (filtros.empresaId) {
+    params.push(filtros.empresaId)
+    where.push(`p.empresa_id = $${params.length}`)
+  }
   const status = normalizarStatusProspect(filtros.status)
   const nicho = normalizarTexto(filtros.nicho, 160)
   const cidade = normalizarTexto(filtros.cidade || filtros.local, 160)
@@ -3369,7 +3379,7 @@ async function alterarOfertaProspect(id, payload = {}) {
   return { ok: true, prospect_id: safeId, oferta_anterior: ofertaAnterior, oferta_recomendada: ofertaNova }
 }
 
-async function pesquisarPlaces({ nicho, local, quantidade, origem = 'manual' }) {
+async function pesquisarPlaces({ nicho, local, quantidade, origem = 'manual', empresaId = null }) {
   const apiKey = String(process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '').trim()
   if (!apiKey) {
     const err = new Error('GOOGLE_PLACES_API_KEY ausente no ambiente do servidor.')
@@ -3425,6 +3435,7 @@ async function pesquisarPlaces({ nicho, local, quantidade, origem = 'manual' }) 
     nicho: queryNicho,
     cidade: queryLocal,
     origem,
+    empresaId,
   })
 
   return {

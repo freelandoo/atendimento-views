@@ -3978,8 +3978,10 @@ test('salvarProspect usa upsert por place_id e retorna registro persistido', asy
       { nicho: 'barbearias', cidade: 'SBC', origem: 'manual' }
     )
     assert.equal(chamadas.length, 1)
-    assert.match(chamadas[0].sql, /ON CONFLICT \(place_id\) DO UPDATE/)
+    assert.match(chamadas[0].sql, /ON CONFLICT \(empresa_id, place_id\) DO UPDATE/)
     assert.equal(chamadas[0].params[10], 'places/abc123')
+    // empresa_id ($16) cai na empresa padrão PJ quando o contexto não informa
+    assert.equal(chamadas[0].params[15], '00000000-0000-0000-0000-000000000001')
     assert.equal(salvo.id, '11111111-1111-1111-1111-111111111111')
     assert.equal(salvo.status, 'aguardando')
     assert.equal(salvo.tem_site, false)

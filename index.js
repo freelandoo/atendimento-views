@@ -64,6 +64,7 @@ app.use('/api/empresas/:empresaId/contextos/:contextoId/sugerir-contexto1', font
 app.use('/api/empresas/:empresaId/whatsapp', require('./src/routes/api-whatsapp'))
 app.use('/api/empresas/:empresaId/conversas', require('./src/routes/api-conversas'))
 app.use('/api/empresas/:empresaId/leads-quentes', require('./src/routes/api-leads-quentes'))
+app.use('/api/empresas/:empresaId/prospeccao', require('./src/routes/api-prospeccao'))
 app.use('/api/empresas/:empresaId/relatorios', require('./src/routes/api-relatorios'))
 app.use('/api/llm', require('./src/routes/api-llm'))
 app.use('/api/empresas/:empresaId/llm/uso', require('./src/routes/api-llm-uso'))
