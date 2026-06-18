@@ -10,10 +10,37 @@ const JOB_MAX_ATTEMPTS = Math.min(
   20
 )
 
+// Railway free tier limit: ~8 concurrent connections per user.
+// max=2 mantido como default conservador (suporta multi-replica sem estourar).
+// Timeouts ajustados em 2026-05-28: o anterior 1s causava falha fast sob
+// contencao breve (webhook + worker + dashboard competem por 2 conexoes).
+// Todos os valores sao env-overridable para tuning em producao.
+const POOL_CONFIG = {
+  max: process.env.POOL_MAX ? parseInt(process.env.POOL_MAX, 10) : 2,
+  idleTimeoutMillis: process.env.POOL_IDLE_TIMEOUT_MS
+    ? parseInt(process.env.POOL_IDLE_TIMEOUT_MS, 10)
+    : 10000, // Close idle connections after 10s
+  connectionTimeoutMillis: process.env.POOL_CONNECTION_TIMEOUT_MS
+    ? parseInt(process.env.POOL_CONNECTION_TIMEOUT_MS, 10)
+    : 3000, // Wait up to 3s for available connection
+  statement_timeout: 15000, // Cancel queries after 15s
+  min: 0 // Don't pre-create connections
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://evolution:evolution@localhost:5432/evolution_api',
   options: `-c timezone=${process.env.APP_TIMEZONE || process.env.TZ || 'America/Sao_Paulo'}`,
-  searchPath: ['vendas']
+  searchPath: ['vendas'],
+  ...POOL_CONFIG
+})
+
+// Log pool events for debugging connection issues
+pool.on('error', (err) => {
+  logger.error({ err: serializeError(err) }, '❌ Unexpected error in pool')
+})
+
+pool.on('connect', () => {
+  logger.debug(`📊 Pool: ${pool.totalCount}/${POOL_CONFIG.max} connections`)
 })
 
 async function initProspectadorDB() {
@@ -81,6 +108,20 @@ async function initProspectadorDB() {
   `)
   await pool.query(`ALTER TABLE prospectador.diagnosticos ADD COLUMN IF NOT EXISTS dor_principal TEXT`)
   await pool.query(`ALTER TABLE prospectador.diagnosticos ADD COLUMN IF NOT EXISTS metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb`)
+
+  // ── Fase 1: esteira inteligente de prospecção ─────────────────────────────
+  // Colunas novas em prospects (score por dimensão, oferta, controle de imagem, log de decisão)
+  await pool.query(`ALTER TABLE prospectador.prospects ADD COLUMN IF NOT EXISTS score_v2 INT`)
+  await pool.query(`ALTER TABLE prospectador.prospects ADD COLUMN IF NOT EXISTS score_dimensoes JSONB`)
+  await pool.query(`ALTER TABLE prospectador.prospects ADD COLUMN IF NOT EXISTS oferta_recomendada TEXT`)
+  await pool.query(`ALTER TABLE prospectador.prospects ADD COLUMN IF NOT EXISTS imagem_gerada BOOLEAN NOT NULL DEFAULT false`)
+  await pool.query(`ALTER TABLE prospectador.prospects ADD COLUMN IF NOT EXISTS aprovacao_imagem_em TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE prospectador.prospects ADD COLUMN IF NOT EXISTS decision_log JSONB NOT NULL DEFAULT '[]'::jsonb`)
+
+  // Colunas novas em diagnosticos (diagnóstico estruturado e versionamento de prompt)
+  await pool.query(`ALTER TABLE prospectador.diagnosticos ADD COLUMN IF NOT EXISTS diagnostico_json JSONB`)
+  await pool.query(`ALTER TABLE prospectador.diagnosticos ADD COLUMN IF NOT EXISTS prompt_version TEXT`)
+  // ─────────────────────────────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS prospectador.prospect_events (
       id BIGSERIAL PRIMARY KEY,
@@ -105,16 +146,61 @@ async function initProspectadorDB() {
       idempotency_key TEXT NOT NULL UNIQUE,
       mensagem_hash TEXT NOT NULL,
       status TEXT NOT NULL,
+      tipo_mensagem TEXT NOT NULL DEFAULT 'abordagem_inicial',
+      canal TEXT NOT NULL DEFAULT 'whatsapp',
+      numero_normalizado TEXT,
+      job_id BIGINT,
+      tentativas INT NOT NULL DEFAULT 0,
+      enviado_em TIMESTAMPTZ,
       erro TEXT,
       evolution_resposta JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CONSTRAINT send_attempts_status_chk CHECK (status IN ('sent', 'failed'))
+      CONSTRAINT send_attempts_status_chk CHECK (status IN ('scheduled', 'processing', 'sent', 'failed'))
     )
+  `)
+  await pool.query(`ALTER TABLE prospectador.send_attempts ADD COLUMN IF NOT EXISTS tipo_mensagem TEXT NOT NULL DEFAULT 'abordagem_inicial'`)
+  await pool.query(`ALTER TABLE prospectador.send_attempts ADD COLUMN IF NOT EXISTS canal TEXT NOT NULL DEFAULT 'whatsapp'`)
+  await pool.query(`ALTER TABLE prospectador.send_attempts ADD COLUMN IF NOT EXISTS numero_normalizado TEXT`)
+  await pool.query(`ALTER TABLE prospectador.send_attempts ADD COLUMN IF NOT EXISTS job_id BIGINT`)
+  await pool.query(`ALTER TABLE prospectador.send_attempts ADD COLUMN IF NOT EXISTS tentativas INT NOT NULL DEFAULT 0`)
+  await pool.query(`ALTER TABLE prospectador.send_attempts ADD COLUMN IF NOT EXISTS enviado_em TIMESTAMPTZ`)
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint co
+        JOIN pg_class cl ON cl.oid = co.conrelid
+        JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+        WHERE co.conname = 'send_attempts_status_chk'
+          AND ns.nspname = 'prospectador'
+          AND cl.relname = 'send_attempts'
+      ) THEN
+        ALTER TABLE prospectador.send_attempts DROP CONSTRAINT send_attempts_status_chk;
+      END IF;
+      ALTER TABLE prospectador.send_attempts ADD CONSTRAINT send_attempts_status_chk
+        CHECK (status IN ('scheduled', 'processing', 'sent', 'failed')) NOT VALID;
+    END $$;
   `)
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_send_attempts_prospect_created
     ON prospectador.send_attempts (prospect_id, created_at DESC)
+  `)
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_send_attempts_abordagem_prospect
+    ON prospectador.send_attempts (prospect_id, tipo_mensagem, canal)
+    WHERE tipo_mensagem = 'abordagem_inicial'
+      AND canal = 'whatsapp'
+      AND status IN ('scheduled', 'processing', 'sent')
+  `)
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_send_attempts_abordagem_numero
+    ON prospectador.send_attempts (numero_normalizado, tipo_mensagem, canal)
+    WHERE numero_normalizado IS NOT NULL
+      AND tipo_mensagem = 'abordagem_inicial'
+      AND canal = 'whatsapp'
+      AND status IN ('scheduled', 'processing', 'sent')
   `)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS prospectador.contato_politicas (
@@ -144,65 +230,22 @@ async function initProspectadorDB() {
       CONSTRAINT nichos_performantes_pk UNIQUE (nicho, cidade)
     )
   `)
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS prospectador.auto_prospeccao_config (
-      singleton_id BOOLEAN PRIMARY KEY DEFAULT true CHECK (singleton_id = true),
-      enabled BOOLEAN NOT NULL DEFAULT false,
-      modo VARCHAR(20) NOT NULL DEFAULT 'manual',
-      weekday SMALLINT NOT NULL DEFAULT 1,
-      hour SMALLINT NOT NULL DEFAULT 9,
-      minute SMALLINT NOT NULL DEFAULT 0,
-      weekly_limit INT NOT NULL DEFAULT 40,
-      categoria TEXT,
-      last_enqueued_window_start TIMESTAMPTZ,
-      last_enqueued_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CONSTRAINT auto_prospeccao_modo_chk CHECK (modo IN ('manual', 'semi_automatico', 'automatico')),
-      CONSTRAINT auto_prospeccao_weekday_chk CHECK (weekday >= 0 AND weekday <= 6),
-      CONSTRAINT auto_prospeccao_hour_chk CHECK (hour >= 0 AND hour <= 23),
-      CONSTRAINT auto_prospeccao_minute_chk CHECK (minute >= 0 AND minute <= 59),
-      CONSTRAINT auto_prospeccao_limit_chk CHECK (weekly_limit >= 1 AND weekly_limit <= 200)
-    )
-  `)
-  await pool.query(`ALTER TABLE prospectador.auto_prospeccao_config ADD COLUMN IF NOT EXISTS weekly_limit INT NOT NULL DEFAULT 40`)
-  await pool.query(`
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1
-        FROM pg_constraint co
-        JOIN pg_class cl ON cl.oid = co.conrelid
-        JOIN pg_namespace ns ON ns.oid = cl.relnamespace
-        WHERE co.conname = 'auto_prospeccao_limit_chk'
-          AND ns.nspname = 'prospectador'
-          AND cl.relname = 'auto_prospeccao_config'
-      ) THEN
-        ALTER TABLE prospectador.auto_prospeccao_config DROP CONSTRAINT auto_prospeccao_limit_chk;
-      END IF;
-      ALTER TABLE prospectador.auto_prospeccao_config ADD CONSTRAINT auto_prospeccao_limit_chk
-        CHECK (weekly_limit >= 1 AND weekly_limit <= 200);
-    END $$;
-  `)
-  await pool.query(`
-    ALTER TABLE prospectador.auto_prospeccao_config
-      ADD COLUMN IF NOT EXISTS modo VARCHAR(20) DEFAULT 'manual'
-        CHECK (modo IN ('manual', 'semi_automatico', 'automatico'))
-  `)
-  await pool.query(`
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = 'prospectador'
-          AND table_name = 'auto_prospeccao_config'
-          AND column_name = 'limit'
-      ) THEN
-        EXECUTE 'UPDATE prospectador.auto_prospeccao_config SET weekly_limit = COALESCE(weekly_limit, "limit")';
-      END IF;
-    END $$;
-  `)
+  // [LEGADO REMOVIDO 2026-06-09] prospectador.auto_prospeccao_config era a config do
+  // sistema SEMANAL antigo (enabled=false, weekly_sent=70/70 — a "cota fantasma"). O
+  // sistema atual usa prospectador.prospeccao_configuracoes; nada lê auto_prospeccao_config.
+  // Paramos de criar/migrar a tabela aqui. A tabela existente em produção é inofensiva
+  // (pode ser dropada manualmente: DROP TABLE prospectador.auto_prospeccao_config;).
+}
+
+async function initProspeccaoOrquestracaoDB() {
+  const sqlPath = path.join(ROOT, 'sql', 'prospeccao_orquestracao.sql')
+  if (!fs.existsSync(sqlPath)) {
+    logger.warn('⚠️ sql/prospeccao_orquestracao.sql não encontrado; pulando migração da prospecção diária')
+    return
+  }
+  const sql = fs.readFileSync(sqlPath, 'utf8')
+  await pool.query(sql)
+  logger.info('✅ Banco inicializado via sql/prospeccao_orquestracao.sql')
 }
 
 // ─── BANCO: INIT ──────────────────────────────────────────────────────────────
@@ -429,9 +472,15 @@ async function initDB() {
     await pool.query(`ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS origem TEXT NOT NULL DEFAULT 'inbound'`)
     await pool.query(`ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS contexto_prospeccao JSONB`)
     await pool.query(`ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS apelido TEXT`)
+    // Score do lead (0-100) medido pela IA ao longo da conversa + atualizado na análise.
+    await pool.query(`ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS score_lead INTEGER`)
+    // Sinais qualitativos capturados pela IA (origem clientes, urgência, orçamento,
+    // decisor, concorrentes, sinais de compra, objeções, observação) — acumulador.
+    await pool.query(`ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS insights_lead JSONB`)
     await pool.query(`ALTER TABLE vendas.conversas ADD COLUMN IF NOT EXISTS arquivado BOOLEAN NOT NULL DEFAULT false`)
     await pool.query(`ALTER TABLE vendas.conversas ADD COLUMN IF NOT EXISTS motivo_arquivamento TEXT`)
     await pool.query(`ALTER TABLE vendas.conversas ADD COLUMN IF NOT EXISTS arquivado_em TIMESTAMPTZ`)
+    await pool.query(`ALTER TABLE vendas.conversas ADD COLUMN IF NOT EXISTS operador_assumiu_em TIMESTAMPTZ`)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS vendas.lead_contextos (
         id BIGSERIAL PRIMARY KEY,
@@ -661,7 +710,7 @@ async function initDB() {
         ALTER TABLE vendas.job_queue DROP CONSTRAINT job_queue_tipo_chk;
       END IF;
       ALTER TABLE vendas.job_queue ADD CONSTRAINT job_queue_tipo_chk
-        CHECK (tipo IN ('webhook_resposta', 'followup_auto', 'agenda_lembrete_reuniao', 'prospeccao_nichos_sync', 'prospeccao_places_auto', 'prospeccao_completo', 'prospeccao_envio_agendado')) NOT VALID;
+        CHECK (tipo IN ('webhook_resposta', 'followup_auto', 'agenda_lembrete_reuniao', 'prospeccao_nichos_sync', 'prospeccao_places_auto', 'prospeccao_completo', 'prospeccao_envio_agendado', 'resumo_agenda_operador')) NOT VALID;
     END $$
   `)
   await pool.query(
@@ -682,7 +731,7 @@ async function initDB() {
       erro TEXT,
       criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CONSTRAINT agenda_lembretes_tipo_chk CHECK (tipo IN ('15min', '1h', 'manual')),
+      CONSTRAINT agenda_lembretes_tipo_chk CHECK (tipo IN ('15min', '1h', 'dia', 'agora', 'manual')),
       CONSTRAINT agenda_lembretes_status_chk CHECK (status IN ('pendente', 'enviado', 'falhou', 'cancelado'))
     )
   `)
@@ -762,28 +811,20 @@ async function initDB() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS vendas.ai_settings (
       id              SERIAL PRIMARY KEY,
-      provider        TEXT    NOT NULL DEFAULT 'anthropic',
-      model           TEXT    NOT NULL DEFAULT 'claude-sonnet-4-6',
+      provider        TEXT    NOT NULL DEFAULT 'openai',
+      model           TEXT    NOT NULL DEFAULT 'gpt-4o-mini',
       temperature     NUMERIC NOT NULL DEFAULT 0.4,
       max_tokens      INTEGER NOT NULL DEFAULT 1200,
-      fallback_provider TEXT  NOT NULL DEFAULT 'openai',
-      fallback_model  TEXT    NOT NULL DEFAULT 'gpt-4o-mini',
+      fallback_provider TEXT  NOT NULL DEFAULT 'anthropic',
+      fallback_model  TEXT    NOT NULL DEFAULT 'claude-sonnet-4-6',
       fallback_enabled BOOLEAN NOT NULL DEFAULT true,
       created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
   await pool.query(`
-    ALTER TABLE vendas.ai_settings
-      ADD COLUMN IF NOT EXISTS openai_api_key    TEXT,
-      ADD COLUMN IF NOT EXISTS anthropic_api_key TEXT,
-      ADD COLUMN IF NOT EXISTS status            TEXT NOT NULL DEFAULT 'pendente',
-      ADD COLUMN IF NOT EXISTS last_error        TEXT,
-      ADD COLUMN IF NOT EXISTS tested_at         TIMESTAMPTZ
-  `)
-  await pool.query(`
-    INSERT INTO vendas.ai_settings (provider, model)
-    SELECT 'anthropic', 'claude-sonnet-4-6'
+    INSERT INTO vendas.ai_settings (provider, model, fallback_provider, fallback_model)
+    SELECT 'openai', 'gpt-4o-mini', 'anthropic', 'claude-sonnet-4-6'
     WHERE NOT EXISTS (SELECT 1 FROM vendas.ai_settings)
   `)
   await pool.query(`
@@ -798,24 +839,37 @@ async function initDB() {
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
-  await pool.query(`
-    ALTER TABLE vendas.ai_logs
-      ADD COLUMN IF NOT EXISTS empresa_id     UUID,
-      ADD COLUMN IF NOT EXISTS ref_type       TEXT,
-      ADD COLUMN IF NOT EXISTS ref_id         TEXT,
-      ADD COLUMN IF NOT EXISTS client_numero  TEXT,
-      ADD COLUMN IF NOT EXISTS input_tokens   INTEGER,
-      ADD COLUMN IF NOT EXISTS output_tokens  INTEGER,
-      ADD COLUMN IF NOT EXISTS cost_usd       NUMERIC(12,6)
-  `)
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_ai_logs_created ON vendas.ai_logs (created_at DESC)`
   )
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_ai_logs_empresa_created ON vendas.ai_logs (empresa_id, created_at DESC)`
-  )
   await initProspectadorDB()
+  await initProspeccaoOrquestracaoDB()
+  // Migrações versionadas do schema `app` (multiempresa SaaS): empresas,
+  // usuários, instâncias WhatsApp, contexto2/playbook e fontes de conhecimento.
   await runMigrations(pool)
 }
 
-module.exports = { pool, initDB, initProspectadorDB }
+// ─── Helper para operações com timeout ───────────────────────────────────────
+
+async function withClientTimeout(fn, timeoutMs = 5000) {
+  const client = await pool.connect()
+  const timeoutId = setTimeout(() => {
+    client.release()
+  }, timeoutMs + 1000) // Release após timeout + buffer
+
+  try {
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Client operation timeout after ${timeoutMs}ms`)), timeoutMs)
+    )
+    return await Promise.race([fn(client), timeoutPromise])
+  } finally {
+    clearTimeout(timeoutId)
+    try {
+      client.release()
+    } catch (_) {
+      // Already released on timeout
+    }
+  }
+}
+
+module.exports = { pool, initDB, initProspectadorDB, initProspeccaoOrquestracaoDB, withClientTimeout }

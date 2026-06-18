@@ -4,7 +4,7 @@ const axios = require('axios')
 const FormData = require('form-data')
 
 const {
-  WHISPER_SERVICE_URL,
+  OPENAI_KEY,
   MAX_IMAGEM_BYTES_CLAUDE,
 } = require('./config')
 const { stripCitacaoWhatsappTexto } = require('./string-utils')
@@ -38,9 +38,12 @@ function createMediaProcessing({
   async function transcreverAudioLocal(buffer, filename, mimetype) {
     const form = new FormData()
     form.append('file', buffer, { filename, contentType: mimetype || 'application/octet-stream' })
-    const { data } = await axios.post(`${WHISPER_SERVICE_URL}/transcribe`, form, {
-      headers: form.getHeaders(),
-      timeout: 120000,
+    form.append('model', 'whisper-1')
+    form.append('language', 'pt')
+    form.append('prompt', 'Transcrição de áudio em português brasileiro. Contexto: conversa informal sobre vendas, planos, mensalidades, clientes e serviços.')
+    const { data } = await axios.post('https://api.openai.com/v1/audio/transcriptions', form, {
+      headers: { ...form.getHeaders(), Authorization: `Bearer ${OPENAI_KEY}` },
+      timeout: 60000,
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
     })
@@ -51,9 +54,9 @@ function createMediaProcessing({
     return msg?.message?.audioMessage || null
   }
 
-  async function baixarETranscreverAudioMensagem(msg, audioPart, instance) {
+  async function baixarETranscreverAudioMensagem(msg, audioPart) {
     if (!audioPart) throw new Error('Mensagem sem audioMessage')
-    const b64 = await evolutionObterBase64Midia(msg, instance)
+    const b64 = await evolutionObterBase64Midia(msg)
     const rawB64 = limparBase64String(b64)
     if (!rawB64) throw new Error('Audio sem base64 retornado pela Evolution')
     const buf = Buffer.from(rawB64, 'base64')
@@ -65,7 +68,7 @@ function createMediaProcessing({
     return { transcricao: transcricao.trim(), mimetype: mimeFull, bytes: buf.length }
   }
 
-  async function processarImagemWebhook(msg, part, textoBase, isSticker, remetenteCliente = true, instance) {
+  async function processarImagemWebhook(msg, part, textoBase, isSticker, remetenteCliente = true) {
     const caption = (part.caption || '').trim()
     const partes = [textoBase, caption].filter((s) => s && s.length)
     const fallbackSticker = remetenteCliente ? 'O cliente enviou uma figurinha.' : 'O operador enviou uma figurinha.'
@@ -79,7 +82,7 @@ function createMediaProcessing({
     }
     let rawB64 = ''
     try {
-      const b64 = await evolutionObterBase64Midia(msg, instance)
+      const b64 = await evolutionObterBase64Midia(msg)
       rawB64 = limparBase64String(b64)
     } catch (e) {
       log.error('Imagem Evolution:', e.message)
@@ -101,7 +104,7 @@ function createMediaProcessing({
     return { texto: texto.trim(), visao: { media_type: mime, data: rawB64 } }
   }
 
-  async function processarAudioWebhook(msg, audioPart, textoBase, remetenteCliente = true, instance) {
+  async function processarAudioWebhook(msg, audioPart, textoBase, remetenteCliente = true) {
     const numeroAudio = canonicoRemoteJidParaConversa(msg?.key) || msg?.key?.remoteJid || null
     const messageKeyAudio = construirChaveIdempotenciaWebhookMensagem(msg)
     const fallbackAudio =
@@ -109,7 +112,7 @@ function createMediaProcessing({
         ? '[Audio recebido - nao foi possivel baixar/transcrever. Peca ao cliente para repetir ou enviar em texto.]'
         : '[Audio recebido - nao foi possivel baixar/transcrever. Peca ao operador para repetir ou enviar em texto.]'
     try {
-      const rAudio = await baixarETranscreverAudioMensagem(msg, audioPart, instance)
+      const rAudio = await baixarETranscreverAudioMensagem(msg, audioPart)
       if (numeroAudio) {
         await registrarAudioProcessamento(numeroAudio, messageKeyAudio, msg, audioPart, {
           status: 'processed',
@@ -150,7 +153,6 @@ function createMediaProcessing({
 
   async function extrairTextoEMidiaDoWebhook(msg, opts = {}) {
     const remetenteCliente = opts.remetenteCliente !== false
-    const instance = opts.instance || null
     const m = msg?.message
     if (!m) {
       return { texto: null, visao: null }
@@ -164,16 +166,16 @@ function createMediaProcessing({
     )
 
     if (m.imageMessage) {
-      return processarImagemWebhook(msg, m.imageMessage, textoBase, false, remetenteCliente, instance)
+      return processarImagemWebhook(msg, m.imageMessage, textoBase, false, remetenteCliente)
     }
     if (m.stickerMessage) {
-      return processarImagemWebhook(msg, m.stickerMessage, textoBase, true, remetenteCliente, instance)
+      return processarImagemWebhook(msg, m.stickerMessage, textoBase, true, remetenteCliente)
     }
     if (m.documentMessage?.mimetype?.startsWith('image/')) {
-      return processarImagemWebhook(msg, m.documentMessage, textoBase, false, remetenteCliente, instance)
+      return processarImagemWebhook(msg, m.documentMessage, textoBase, false, remetenteCliente)
     }
     if (m.audioMessage) {
-      return processarAudioWebhook(msg, m.audioMessage, textoBase, remetenteCliente, instance)
+      return processarAudioWebhook(msg, m.audioMessage, textoBase, remetenteCliente)
     }
 
     if (textoBase) return { texto: textoBase, visao: null }

@@ -453,7 +453,7 @@ CREATE TABLE IF NOT EXISTS vendas.job_queue (
   CONSTRAINT job_queue_tipo_chk CHECK (tipo IN (
     'webhook_resposta', 'followup_auto', 'agenda_lembrete_reuniao',
     'prospeccao_nichos_sync', 'prospeccao_places_auto',
-    'prospeccao_completo', 'prospeccao_envio_agendado'
+    'prospeccao_completo', 'prospeccao_envio_agendado', 'resumo_agenda_operador'
   ))
 );
 
@@ -479,7 +479,7 @@ BEGIN
     CHECK (tipo IN (
       'webhook_resposta', 'followup_auto', 'agenda_lembrete_reuniao',
       'prospeccao_nichos_sync', 'prospeccao_places_auto',
-      'prospeccao_completo', 'prospeccao_envio_agendado'
+      'prospeccao_completo', 'prospeccao_envio_agendado', 'resumo_agenda_operador'
     )) NOT VALID;
 END $$;
 
@@ -517,8 +517,36 @@ ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS precisa_sistema BOOLEA
 ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS origem TEXT NOT NULL DEFAULT 'inbound';
 ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS contexto_prospeccao JSONB;
 ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS maturidade_digital JSONB NOT NULL DEFAULT '{}'::jsonb;
+-- Score do lead (0-100) medido pela IA ao longo da conversa + atualizado na análise.
+ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS score_lead INTEGER;
+-- Sinais qualitativos capturados pela IA (origem clientes, urgência, orçamento, decisor,
+-- concorrentes, sinais de compra, objeções, observação) — acumulador (merge no código).
+ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS insights_lead JSONB;
 ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS origem_anuncio JSONB;
 ALTER TABLE vendas.lead_profiles ALTER COLUMN origem_anuncio DROP DEFAULT;
+
+-- Ledger de eventos de conversão enviados à Meta (Conversions API / CTWA). Dedupe por
+-- event_id (numero:event_name); auditoria do que foi enviado e a resposta da Meta.
+CREATE TABLE IF NOT EXISTS vendas.meta_eventos_conversao (
+  id            BIGSERIAL PRIMARY KEY,
+  numero        TEXT NOT NULL,
+  ad_id         TEXT,
+  ctwa_clid     TEXT,
+  event_name    TEXT NOT NULL,
+  event_id      TEXT NOT NULL UNIQUE,
+  value         NUMERIC,
+  currency      TEXT,
+  status        TEXT NOT NULL DEFAULT 'enviado',
+  resposta      JSONB,
+  criado_em     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_meta_eventos_numero ON vendas.meta_eventos_conversao (numero);
+-- Valor da venda fechada (operador marca "vendido" na agenda); alimenta o Purchase da Meta.
+ALTER TABLE vendas.conversas ADD COLUMN IF NOT EXISTS venda_valor NUMERIC;
+-- Medição: quando o operador humano ASSUMIU a conversa (1ª intervenção). Sem isso, o
+-- fechamento manual do operador era invisível e o funil parecia "morrer" no bot.
+ALTER TABLE vendas.conversas ADD COLUMN IF NOT EXISTS operador_assumiu_em TIMESTAMPTZ;
 ALTER TABLE vendas.lead_profiles ALTER COLUMN origem_anuncio DROP NOT NULL;
 ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS intencao_principal TEXT;
 ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS produto_sugerido TEXT;
@@ -618,9 +646,30 @@ CREATE TABLE IF NOT EXISTS vendas.agenda_lembretes (
   erro        TEXT,
   criado_em   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT agenda_lembretes_tipo_chk CHECK (tipo IN ('15min', '1h', 'manual')),
+  CONSTRAINT agenda_lembretes_tipo_chk CHECK (tipo IN ('15min', '1h', 'dia', 'agora', 'manual')),
   CONSTRAINT agenda_lembretes_status_chk CHECK (status IN ('pendente', 'enviado', 'falhou', 'cancelado'))
 );
+
+-- Migração: amplia os tipos de lembrete p/ incluir 'dia' (lembrete da manhã) e 'agora'
+-- (na hora). O CREATE TABLE acima NÃO altera tabela já existente; sem este bloco, bancos
+-- em produção seguem com a constraint antiga ('15min','1h','manual') e os INSERTs de
+-- 'dia'/'agora' falham — 2 dos 3 lembretes ao lead nunca eram criados.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint co
+    JOIN pg_class cl ON cl.oid = co.conrelid
+    JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+    WHERE co.conname = 'agenda_lembretes_tipo_chk'
+      AND ns.nspname = 'vendas'
+      AND cl.relname = 'agenda_lembretes'
+  ) THEN
+    ALTER TABLE vendas.agenda_lembretes DROP CONSTRAINT agenda_lembretes_tipo_chk;
+  END IF;
+  ALTER TABLE vendas.agenda_lembretes ADD CONSTRAINT agenda_lembretes_tipo_chk
+    CHECK (tipo IN ('15min', '1h', 'dia', 'agora', 'manual'));
+END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agenda_lembretes_evento_tipo
   ON vendas.agenda_lembretes (evento_id, tipo)
@@ -706,15 +755,58 @@ CREATE TABLE IF NOT EXISTS prospectador.send_attempts (
   idempotency_key   TEXT NOT NULL UNIQUE,
   mensagem_hash     TEXT NOT NULL,
   status            TEXT NOT NULL,
+  tipo_mensagem     TEXT NOT NULL DEFAULT 'abordagem_inicial',
+  canal             TEXT NOT NULL DEFAULT 'whatsapp',
+  numero_normalizado TEXT,
+  job_id            BIGINT,
+  tentativas        INT NOT NULL DEFAULT 0,
+  enviado_em        TIMESTAMPTZ,
   erro              TEXT,
   evolution_resposta JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT send_attempts_status_chk CHECK (status IN ('sent', 'failed'))
+  CONSTRAINT send_attempts_status_chk CHECK (status IN ('scheduled', 'processing', 'sent', 'failed'))
 );
+
+ALTER TABLE prospectador.send_attempts ADD COLUMN IF NOT EXISTS tipo_mensagem TEXT NOT NULL DEFAULT 'abordagem_inicial';
+ALTER TABLE prospectador.send_attempts ADD COLUMN IF NOT EXISTS canal TEXT NOT NULL DEFAULT 'whatsapp';
+ALTER TABLE prospectador.send_attempts ADD COLUMN IF NOT EXISTS numero_normalizado TEXT;
+ALTER TABLE prospectador.send_attempts ADD COLUMN IF NOT EXISTS job_id BIGINT;
+ALTER TABLE prospectador.send_attempts ADD COLUMN IF NOT EXISTS tentativas INT NOT NULL DEFAULT 0;
+ALTER TABLE prospectador.send_attempts ADD COLUMN IF NOT EXISTS enviado_em TIMESTAMPTZ;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint co
+    JOIN pg_class cl ON cl.oid = co.conrelid
+    JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+    WHERE co.conname = 'send_attempts_status_chk'
+      AND ns.nspname = 'prospectador'
+      AND cl.relname = 'send_attempts'
+  ) THEN
+    ALTER TABLE prospectador.send_attempts DROP CONSTRAINT send_attempts_status_chk;
+  END IF;
+  ALTER TABLE prospectador.send_attempts ADD CONSTRAINT send_attempts_status_chk
+    CHECK (status IN ('scheduled', 'processing', 'sent', 'failed')) NOT VALID;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_send_attempts_prospect_created
   ON prospectador.send_attempts (prospect_id, created_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_send_attempts_abordagem_prospect
+  ON prospectador.send_attempts (prospect_id, tipo_mensagem, canal)
+  WHERE tipo_mensagem = 'abordagem_inicial'
+    AND canal = 'whatsapp'
+    AND status IN ('scheduled', 'processing', 'sent');
+
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_send_attempts_abordagem_numero
+  ON prospectador.send_attempts (numero_normalizado, tipo_mensagem, canal)
+  WHERE numero_normalizado IS NOT NULL
+    AND tipo_mensagem = 'abordagem_inicial'
+    AND canal = 'whatsapp'
+    AND status IN ('scheduled', 'processing', 'sent');
 
 CREATE TABLE IF NOT EXISTS prospectador.contato_politicas (
   telefone           TEXT PRIMARY KEY,
@@ -748,7 +840,7 @@ BEGIN
     CHECK (tipo IN (
       'webhook_resposta', 'followup_auto', 'agenda_lembrete_reuniao',
       'prospeccao_nichos_sync', 'prospeccao_places_auto',
-      'prospeccao_completo', 'prospeccao_envio_agendado'
+      'prospeccao_completo', 'prospeccao_envio_agendado', 'resumo_agenda_operador'
     )) NOT VALID;
 END $$;
 
@@ -769,7 +861,7 @@ CREATE TABLE IF NOT EXISTS prospectador.auto_prospeccao_config (
   weekday SMALLINT NOT NULL DEFAULT 1,
   hour SMALLINT NOT NULL DEFAULT 9,
   minute SMALLINT NOT NULL DEFAULT 0,
-  weekly_limit INT NOT NULL DEFAULT 40,
+  weekly_limit INT NOT NULL DEFAULT 80,
   intervalo_envio_minutos SMALLINT NOT NULL DEFAULT 30,
   categoria TEXT,
   last_enqueued_window_start TIMESTAMPTZ,
@@ -784,7 +876,7 @@ CREATE TABLE IF NOT EXISTS prospectador.auto_prospeccao_config (
   CONSTRAINT auto_prospeccao_intervalo_envio_chk CHECK (intervalo_envio_minutos BETWEEN 5 AND 1440)
 );
 
-ALTER TABLE prospectador.auto_prospeccao_config ADD COLUMN IF NOT EXISTS weekly_limit INT NOT NULL DEFAULT 40;
+ALTER TABLE prospectador.auto_prospeccao_config ADD COLUMN IF NOT EXISTS weekly_limit INT NOT NULL DEFAULT 80;
 DO $$
 BEGIN
   IF EXISTS (
@@ -820,20 +912,20 @@ ALTER TABLE prospectador.auto_prospeccao_config
 
 CREATE TABLE IF NOT EXISTS vendas.ai_settings (
   id              SERIAL PRIMARY KEY,
-  provider        TEXT    NOT NULL DEFAULT 'anthropic',
-  model           TEXT    NOT NULL DEFAULT 'claude-sonnet-4-6',
+  provider        TEXT    NOT NULL DEFAULT 'openai',
+  model           TEXT    NOT NULL DEFAULT 'gpt-4o-mini',
   temperature     NUMERIC NOT NULL DEFAULT 0.4,
   max_tokens      INTEGER NOT NULL DEFAULT 1200,
-  fallback_provider TEXT  NOT NULL DEFAULT 'openai',
-  fallback_model  TEXT    NOT NULL DEFAULT 'gpt-4o-mini',
+  fallback_provider TEXT  NOT NULL DEFAULT 'anthropic',
+  fallback_model  TEXT    NOT NULL DEFAULT 'claude-sonnet-4-6',
   fallback_enabled BOOLEAN NOT NULL DEFAULT true,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Seed da linha singleton se ainda não existir
-INSERT INTO vendas.ai_settings (provider, model)
-SELECT 'anthropic', 'claude-sonnet-4-6'
+INSERT INTO vendas.ai_settings (provider, model, fallback_provider, fallback_model)
+SELECT 'openai', 'gpt-4o-mini', 'anthropic', 'claude-sonnet-4-6'
 WHERE NOT EXISTS (SELECT 1 FROM vendas.ai_settings);
 
 CREATE TABLE IF NOT EXISTS vendas.ai_logs (
@@ -859,3 +951,64 @@ WHERE NOT EXISTS (
   SELECT 1 FROM vendas.prompt_aprendizados
   WHERE etapa = 'primeiro_contato' AND regras LIKE '%CORRECOES PRIMEIRO CONTATO%'
 );
+
+CREATE TABLE IF NOT EXISTS vendas.whatsapp_connections (
+  id              BIGSERIAL PRIMARY KEY,
+  user_id         BIGINT NOT NULL REFERENCES vendas.dashboard_users(id),
+  instance_name   TEXT NOT NULL UNIQUE,
+  phone_number    TEXT,
+  profile_name    TEXT,
+  status          TEXT NOT NULL DEFAULT 'disconnected',
+  qr_code         TEXT,
+  qr_expires_at   TIMESTAMPTZ,
+  connected_at    TIMESTAMPTZ,
+  disconnected_at TIMESTAMPTZ,
+  last_sync_at    TIMESTAMPTZ,
+  metadata        JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at      TIMESTAMPTZ,
+  CONSTRAINT whatsapp_connections_status_chk
+    CHECK (status IN ('disconnected', 'connecting', 'qr_pending', 'connected', 'error'))
+);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_connections_user_id
+  ON vendas.whatsapp_connections (user_id) WHERE deleted_at IS NULL;
+
+-- ─── Distributed watcher locking para evitar duplicação em múltiplas réplicas ───────
+
+CREATE TABLE IF NOT EXISTS vendas.watcher_locks (
+  chave               TEXT PRIMARY KEY,
+  replica_id          TEXT NOT NULL,
+  locked_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at          TIMESTAMPTZ NOT NULL,
+  acquired_attempts   INT NOT NULL DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS idx_watcher_locks_expires
+  ON vendas.watcher_locks (expires_at DESC);
+
+-- ─── Resync de sequências (auto-correção pós-restore de backup) ──────────────────
+-- Restores que inserem ids explícitos não avançam as sequências, causando
+-- "duplicate key value violates unique constraint" no próximo INSERT. Este bloco
+-- realinha toda sequência ao MAX(id) atual da coluna que ela alimenta. É idempotente
+-- (no-op quando já sincronizada) e roda a cada boot via initDB().
+DO $$
+DECLARE
+  r RECORD;
+  max_id BIGINT;
+BEGIN
+  FOR r IN
+    SELECT n.nspname AS sch, s.relname AS seq, t.relname AS tbl, a.attname AS col
+    FROM pg_class s
+    JOIN pg_namespace n ON n.oid = s.relnamespace
+    JOIN pg_depend d ON d.objid = s.oid AND d.classid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')
+    JOIN pg_class t ON t.oid = d.refobjid
+    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
+    WHERE s.relkind = 'S' AND n.nspname IN ('prospectador', 'vendas')
+  LOOP
+    EXECUTE format('SELECT COALESCE(MAX(%I), 0) FROM %I.%I', r.col, r.sch, r.tbl) INTO max_id;
+    IF max_id > 0 THEN
+      EXECUTE format('SELECT setval(%L, %s, true)', r.sch || '.' || r.seq, max_id);
+    END IF;
+  END LOOP;
+END $$;

@@ -55,11 +55,36 @@
     return `Auto em ${h}h ${m}min`
   }
 
-  function followupAutoTitle(raw) {
-    if (!raw) return 'Follow-up automatico agendado'
-    const dt = new Date(raw)
-    if (Number.isNaN(dt.getTime())) return 'Follow-up automatico agendado'
-    return 'Follow-up automatico em ' + dt.toLocaleString('pt-BR')
+  function origemLead(c) {
+    if (c.origem === 'meta_ads' || (c.origem_anuncio && typeof c.origem_anuncio === 'object')) {
+      return { key: 'meta_ads', label: 'Meta' }
+    }
+    if (c.origem === 'prospeccao') return { key: 'prospeccao', label: 'Prospectado' }
+    return { key: 'organico', label: 'Orgânico' }
+  }
+
+  function urgenciaLead(c) {
+    const raw = String(c.urgencia_lead || '').toLowerCase()
+    if (raw === 'alta') return 'alta'
+    if (raw === 'media' || raw === 'média') return 'media'
+    return raw === 'baixa' ?'baixa' : ''
+  }
+
+  function scoreLeadHtml(raw) {
+    const score = Math.max(0, Math.min(100, parseInt(raw, 10) || 0))
+    const faixa = score >= 70 ?'alto' : score >= 40 ?'medio' : 'baixo'
+    return '<span class="conversa-score conversa-score--' + faixa + '" title="Score do lead">' + score + '</span>'
+  }
+
+  function followupOperacionalHtml(c) {
+    if (!c.followup_auto_em) return '<span class="conversa-muted">Sem follow-up agendado</span>'
+    const dt = new Date(c.followup_auto_em)
+    if (Number.isNaN(dt.getTime())) return '<span class="conversa-muted">Follow-up agendado</span>'
+    const vencido = dt.getTime() <= Date.now()
+    const data = dt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    return '<div class="conversa-followup ' + (vencido ?'conversa-followup--vencido' : '') + '"><strong>' +
+      (vencido ?'Vencido' : escHtml(followupAutoLabel(c.followup_auto_minutos))) +
+      '</strong><span>' + escHtml(data) + '</span></div>'
   }
 
   /** @param {HTMLElement | null} el */
@@ -172,6 +197,10 @@
   const STORAGE_CONVERSAS_ORDENAR = 'dashboard_conversas_ordenar'
   const STORAGE_CONVERSAS_DIRECAO = 'dashboard_conversas_direcao'
   const STORAGE_CONVERSAS_ARQUIVADOS = 'dashboard_conversas_arquivados'
+  const STORAGE_CONVERSAS_ORIGEM = 'dashboard_conversas_origem'
+  const STORAGE_CONVERSAS_URGENCIA = 'dashboard_conversas_urgencia'
+  const STORAGE_CONVERSAS_SCORE_MIN = 'dashboard_conversas_score_min'
+  const STORAGE_CONVERSAS_FOLLOWUP = 'dashboard_conversas_followup'
 
   /** Offset da página atual na lista (sincronizado com a API após cada resposta). */
   let conversasListOffset = 0
@@ -180,6 +209,7 @@
   let pendingApelidoNumero = ''
   let pendingArchiveNumero = ''
   let pendingArchiveButton = null
+  let quickAcaoAgora = false
 
   function persistConversasFilters() {
     try {
@@ -200,6 +230,10 @@
       sessionStorage.setItem(STORAGE_CONVERSAS_ATE, (document.getElementById('conversas-ate')?.value || '').trim())
       sessionStorage.setItem(STORAGE_CONVERSAS_ORDENAR, (document.getElementById('conversas-ordenar')?.value || '').trim())
       sessionStorage.setItem(STORAGE_CONVERSAS_DIRECAO, (document.getElementById('conversas-direcao')?.value || '').trim())
+      sessionStorage.setItem(STORAGE_CONVERSAS_ORIGEM, (document.getElementById('conversas-origem')?.value || '').trim())
+      sessionStorage.setItem(STORAGE_CONVERSAS_URGENCIA, (document.getElementById('conversas-urgencia')?.value || '').trim())
+      sessionStorage.setItem(STORAGE_CONVERSAS_SCORE_MIN, (document.getElementById('conversas-score-min')?.value || '').trim())
+      sessionStorage.setItem(STORAGE_CONVERSAS_FOLLOWUP, (document.getElementById('conversas-followup')?.value || '').trim())
     } catch (_) {}
     atualizarContadorFiltros()
   }
@@ -223,6 +257,10 @@
         ['conversas-ate', STORAGE_CONVERSAS_ATE],
         ['conversas-ordenar', STORAGE_CONVERSAS_ORDENAR],
         ['conversas-direcao', STORAGE_CONVERSAS_DIRECAO],
+        ['conversas-origem', STORAGE_CONVERSAS_ORIGEM],
+        ['conversas-urgencia', STORAGE_CONVERSAS_URGENCIA],
+        ['conversas-score-min', STORAGE_CONVERSAS_SCORE_MIN],
+        ['conversas-followup', STORAGE_CONVERSAS_FOLLOWUP],
       ]
       for (const [id, key] of fields) {
         const saved = sessionStorage.getItem(key) || ''
@@ -261,6 +299,10 @@
       ['ordenar', 'conversas-ordenar', STORAGE_CONVERSAS_ORDENAR],
       ['direcao', 'conversas-direcao', STORAGE_CONVERSAS_DIRECAO],
       ['limit', 'conversas-limit', STORAGE_CONVERSAS_LIMIT],
+      ['origem', 'conversas-origem', STORAGE_CONVERSAS_ORIGEM],
+      ['urgencia', 'conversas-urgencia', STORAGE_CONVERSAS_URGENCIA],
+      ['score_min', 'conversas-score-min', STORAGE_CONVERSAS_SCORE_MIN],
+      ['followup', 'conversas-followup', STORAGE_CONVERSAS_FOLLOWUP],
     ]
     try {
       for (const [param, id, storageKey] of map) {
@@ -300,6 +342,11 @@
     if ((document.getElementById('conversas-temperatura')?.value || '').trim()) n++
     if ((document.getElementById('conversas-desde')?.value || '').trim()) n++
     if ((document.getElementById('conversas-ate')?.value || '').trim()) n++
+    if ((document.getElementById('conversas-origem')?.value || '').trim()) n++
+    if ((document.getElementById('conversas-urgencia')?.value || '').trim()) n++
+    if ((document.getElementById('conversas-score-min')?.value || '').trim()) n++
+    if ((document.getElementById('conversas-followup')?.value || '').trim()) n++
+    if (quickAcaoAgora) n++
     if (document.getElementById('conversas-fila-preco')?.checked) n++
     if (document.getElementById('conversas-preco-divergente')?.checked) n++
     const ord = document.getElementById('conversas-ordenar')?.value || 'atualizado'
@@ -317,7 +364,11 @@
   }
 
   function limparTodosFiltros() {
-    const ids = ['conversas-busca', 'conversas-estagio', 'conversas-motivo', 'conversas-temperatura', 'conversas-desde', 'conversas-ate']
+    const ids = [
+      'conversas-busca', 'conversas-estagio', 'conversas-motivo', 'conversas-temperatura',
+      'conversas-desde', 'conversas-ate', 'conversas-origem', 'conversas-urgencia',
+      'conversas-score-min', 'conversas-followup',
+    ]
     for (const id of ids) {
       const el = document.getElementById(id)
       if (el) el.value = ''
@@ -332,6 +383,8 @@
     if (fp) fp.checked = false
     if (pd) pd.checked = false
     if (arq) arq.checked = false
+    quickAcaoAgora = false
+    atualizarQuickFiltersAtivos()
     conversasListOffset = 0
     persistConversasFilters()
     carregarConversas()
@@ -371,6 +424,15 @@
     if (motivo) q.set('motivo', motivo)
     const temperatura = (document.getElementById('conversas-temperatura')?.value || '').trim()
     if (temperatura) q.set('temperatura', temperatura)
+    const origem = (document.getElementById('conversas-origem')?.value || '').trim()
+    const urgencia = (document.getElementById('conversas-urgencia')?.value || '').trim()
+    const scoreMin = (document.getElementById('conversas-score-min')?.value || '').trim()
+    const followup = (document.getElementById('conversas-followup')?.value || '').trim()
+    if (origem) q.set('origem', origem)
+    if (urgencia) q.set('urgencia', urgencia)
+    if (scoreMin) q.set('score_min', scoreMin)
+    if (followup) q.set('followup', followup)
+    if (quickAcaoAgora) q.set('acao_agora', '1')
 
     return q
   }
@@ -396,6 +458,73 @@
     }
     if (prev) prev.disabled = offset <= 0
     if (next) next.disabled = total === 0 || offset + rows >= total
+  }
+
+  function setFiltroValor(id, value) {
+    const el = document.getElementById(id)
+    if (el) el.value = value || ''
+  }
+
+  function atualizarQuickFiltersAtivos() {
+    const origem = document.getElementById('conversas-origem')?.value || ''
+    const followup = document.getElementById('conversas-followup')?.value || ''
+    const scoreMin = document.getElementById('conversas-score-min')?.value || ''
+    const motivo = document.getElementById('conversas-motivo')?.value || ''
+    const temperatura = document.getElementById('conversas-temperatura')?.value || ''
+    document.querySelectorAll('[data-quick-filter]').forEach((el) => {
+      const key = el.dataset.quickFilter
+      const ativo =
+        (key === 'acao_agora' && quickAcaoAgora) ||
+        (['prospeccao', 'meta_ads', 'organico'].includes(key) && origem === key) ||
+        (key === 'followup_hoje' && followup === 'hoje') ||
+        (key === 'followup_vencido' && followup === 'vencido') ||
+        (key === 'score_70' && scoreMin === '70') ||
+        (key === 'precisa_responder' && motivo === 'precisa_responder') ||
+        (key === 'quente' && temperatura === 'quente')
+      el.classList.toggle('is-active', ativo)
+    })
+  }
+
+  function aplicarQuickFilter(key) {
+    if (key === 'acao_agora') quickAcaoAgora = !quickAcaoAgora
+    else if (['prospeccao', 'meta_ads', 'organico'].includes(key)) {
+      setFiltroValor('conversas-origem', document.getElementById('conversas-origem')?.value === key ?'' : key)
+    } else if (key === 'followup_hoje' || key === 'followup_vencido') {
+      const value = key === 'followup_hoje' ?'hoje' : 'vencido'
+      setFiltroValor('conversas-followup', document.getElementById('conversas-followup')?.value === value ?'' : value)
+    } else if (key === 'score_70') {
+      setFiltroValor('conversas-score-min', document.getElementById('conversas-score-min')?.value === '70' ?'' : '70')
+    } else if (key === 'precisa_responder') {
+      setFiltroValor('conversas-motivo', document.getElementById('conversas-motivo')?.value === 'precisa_responder' ?'' : 'precisa_responder')
+    } else if (key === 'quente') {
+      setFiltroValor('conversas-temperatura', document.getElementById('conversas-temperatura')?.value === 'quente' ?'' : 'quente')
+    }
+    conversasListOffset = 0
+    atualizarQuickFiltersAtivos()
+    persistConversasFilters()
+    carregarConversas()
+  }
+
+  function renderResumoOperacional(resumo) {
+    const r = resumo || {}
+    const valores = {
+      'resumo-acao-agora': r.acao_agora,
+      'resumo-followups-vencidos': r.followups_vencidos,
+      'resumo-leads-quentes': r.leads_quentes,
+      'resumo-meta-ads': r.meta_ads,
+      'resumo-score-medio': r.score_medio,
+      'quick-acao-agora': r.acao_agora,
+      'quick-prospectados': r.prospectados,
+      'quick-meta-ads': r.meta_ads,
+      'quick-organicos': r.organicos,
+      'quick-followups-hoje': r.followups_hoje,
+      'quick-score-70': r.score_70,
+      'quick-sem-resposta': r.sem_resposta,
+    }
+    Object.entries(valores).forEach(([id, value]) => {
+      const el = document.getElementById(id)
+      if (el) el.textContent = value == null ?'0' : String(value)
+    })
   }
 
   function setModalOpen(open) {
@@ -540,6 +669,10 @@
       'conversas-estagio',
       'conversas-motivo',
       'conversas-temperatura',
+      'conversas-origem',
+      'conversas-urgencia',
+      'conversas-score-min',
+      'conversas-followup',
       'conversas-desde',
       'conversas-ate',
       'conversas-ordenar',
@@ -653,6 +786,8 @@
       const totalFiltrado = parseInt(filtro.total_filtrado, 10) || 0
       const badge = document.getElementById('badge-total')
       if (badge) badge.textContent = String(totalFiltrado)
+      renderResumoOperacional(d.resumo_operacional)
+      atualizarQuickFiltersAtivos()
 
       atualizarControlesPaginacao(d)
 
@@ -696,15 +831,15 @@
                   : tempRaw === 'frio'
                     ?'<span class="estagio-badge temp-frio" title="Temperatura do lead">frio</span>'
                     : ''
-            const origemAnuncio =
-              c.origem_anuncio && typeof c.origem_anuncio === 'object'
-                ?(c.origem_anuncio.canal || c.origem_anuncio.campanha || c.origem_anuncio.criativo || '')
-                : ''
-            const origemBadge = origemAnuncio
-              ?'<span class="estagio-badge" title="' + escAttr(origemAnuncio) + '">anuncio</span>'
-              : c.origem && c.origem !== 'inbound'
-                ?'<span class="estagio-badge" title="Origem do lead">' + escHtml(c.origem) + '</span>'
-                : ''
+            const origem = origemLead(c)
+            const origemBadge =
+              '<span class="estagio-badge conversa-origem conversa-origem--' + origem.key + '" title="Origem do lead">' +
+              escHtml(origem.label) + '</span>'
+            const urgencia = urgenciaLead(c)
+            const urgenciaBadge = urgencia
+              ?'<span class="estagio-badge conversa-urgencia conversa-urgencia--' + urgencia + '">' +
+                escHtml(urgencia === 'media' ?'média' : urgencia) + '</span>'
+              : '<span class="conversa-muted">Sem sinal</span>'
             const produtoBadge = c.produto_sugerido
               ?'<span class="estagio-badge" title="Produto sugerido">' + escHtml(c.produto_sugerido) + '</span>'
               : ''
@@ -716,20 +851,6 @@
               c.preco_ia_divergente_motor === true
                 ?'<span class="estagio-badge preco-div" title="Total de projeto na última resposta da IA ≠ preco_calculado">preço IA ≠ motor</span>'
                 : ''
-            const followupAutoBadge =
-              c.followup_auto_em
-                ?'<span class="estagio-badge followup-auto" title="' +
-                  escAttr(followupAutoTitle(c.followup_auto_em)) +
-                  '">⏰ ' +
-                  escHtml(followupAutoLabel(c.followup_auto_minutos)) +
-                  '</span>'
-                : ''
-            const motivos = Array.isArray(c.motivos_prioridade) ?c.motivos_prioridade : []
-            const motivosBadges = motivos
-              .filter(Boolean)
-              .slice(0, 4)
-              .map((m) => '<span class="estagio-badge">' + escHtml(m) + '</span>')
-              .join('')
             const preview = (c.ultima_preview || '').trim()
             const apelido = (c.apelido || '').trim()
             const negocio = (c.negocio || '').trim()
@@ -785,26 +906,8 @@
               escHtml(c.mensagens) +
               ' msgs · ' +
               escHtml(data) +
-              '</span>' +
-              '</td>' +
-              '<td><div class="conversa-badges">' +
-              tempBadge +
-              origemBadge +
-              produtoBadge +
-              filaPrecoBadge +
-              divPrecoBadge +
-              followupAutoBadge +
-              motivosBadges +
-              (erroResposta
-                ?'<span class="estagio-badge erro-resposta" title="' +
-                  escAttr(erroTitle) +
-                  '">falha na resposta</span>'
-                : '') +
-              (pendente ?'<span class="estagio-badge pendente">sem resposta ao cliente</span>' : '') +
-              (agentePausado
-                ?'<span class="estagio-badge agente-pausado" title="Respostas automáticas desligadas para este número">agente pausado</span>'
-                : '') +
-              '</div></td>' +
+              '</span><div class="conversa-badges conversa-lead-signals">' +
+              origemBadge + tempBadge + produtoBadge + '</div></td>' +
               '<td>' +
               '<span class="estagio-badge ' +
               (fechado ?'fechado' : '') +
@@ -819,6 +922,14 @@
               escHtml(idade) +
               '</div>' +
               '</td>' +
+              '<td><div class="conversa-badges">' +
+              urgenciaBadge + filaPrecoBadge + divPrecoBadge +
+              (erroResposta ?'<span class="estagio-badge erro-resposta" title="' + escAttr(erroTitle) + '">falha</span>' : '') +
+              (pendente ?'<span class="estagio-badge pendente">responder</span>' : '') +
+              (agentePausado ?'<span class="estagio-badge agente-pausado">pausado</span>' : '') +
+              '</div></td>' +
+              '<td>' + scoreLeadHtml(c.score_lead) + '</td>' +
+              '<td>' + followupOperacionalHtml(c) + '</td>' +
               '<td><div class="conversa-preview">' +
               escHtml(preview || 'Sem prévia disponível.') +
               '</div></td>' +
@@ -899,7 +1010,7 @@
           .join('')
         lista.innerHTML =
           '<div class="conversas-table-wrap"><table class="conversas-table">' +
-          '<thead><tr><th></th><th>Lead</th><th>Motivo</th><th>Etapa</th><th>Última mensagem</th><th>Ações</th></tr></thead>' +
+          '<thead><tr><th></th><th>Lead / origem</th><th>Etapa</th><th>Urgência</th><th>Score</th><th>Próximo follow-up</th><th>Última mensagem</th><th>Ações</th></tr></thead>' +
           '<tbody>' +
           rowsHtml +
           '</tbody></table></div>'
@@ -950,6 +1061,7 @@
 
     const triggerRefresh = () => {
       conversasListOffset = 0
+      atualizarQuickFiltersAtivos()
       persistConversasFilters()
       carregarConversas()
     }
@@ -958,6 +1070,10 @@
     document.getElementById('conversas-estagio')?.addEventListener('change', triggerRefresh)
     document.getElementById('conversas-motivo')?.addEventListener('change', triggerRefresh)
     document.getElementById('conversas-temperatura')?.addEventListener('change', triggerRefresh)
+    document.getElementById('conversas-origem')?.addEventListener('change', triggerRefresh)
+    document.getElementById('conversas-urgencia')?.addEventListener('change', triggerRefresh)
+    document.getElementById('conversas-score-min')?.addEventListener('change', triggerRefresh)
+    document.getElementById('conversas-followup')?.addEventListener('change', triggerRefresh)
     document.getElementById('conversas-desde')?.addEventListener('change', triggerRefresh)
     document.getElementById('conversas-ate')?.addEventListener('change', triggerRefresh)
     document.getElementById('conversas-ordenar')?.addEventListener('change', triggerRefresh)
@@ -967,6 +1083,15 @@
     document.getElementById('conversas-preco-divergente')?.addEventListener('change', triggerRefresh)
     document.getElementById('conversas-arquivados')?.addEventListener('change', triggerRefresh)
     document.getElementById('btn-limpar-filtros')?.addEventListener('click', limparTodosFiltros)
+    document.querySelectorAll('[data-quick-filter]').forEach((el) => {
+      el.addEventListener('click', () => aplicarQuickFilter(el.dataset.quickFilter))
+    })
+    document.getElementById('conversas-advanced-toggle')?.addEventListener('click', (e) => {
+      const panel = document.getElementById('conversas-advanced-filters')
+      if (!panel) return
+      panel.hidden = !panel.hidden
+      e.currentTarget.setAttribute('aria-expanded', panel.hidden ?'false' : 'true')
+    })
 
     document.getElementById('conversas-pagina-prev')?.addEventListener('click', () => {
       const limRaw = parseInt(document.getElementById('conversas-limit')?.value, 10) || 100

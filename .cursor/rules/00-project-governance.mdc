@@ -1,0 +1,40 @@
+---
+description: Regras obrigatórias de governança, arquitetura, análise de impacto e validação antes de qualquer alteração no projeto.
+globs:
+alwaysApply: true
+---
+
+# Governança obrigatória do projeto
+
+Antes de alterar qualquer código, siga o `AGENTS.md` na raiz do projeto.
+
+Nunca implemente diretamente sem:
+- ler os arquivos relevantes;
+- mapear impacto (quem importa/depende);
+- verificar código duplicado ou legado;
+- explicar riscos;
+- validar a mudança.
+
+Para qualquer alteração:
+1. consulte `AGENTS.md`;
+2. consulte `docs/project-map.md`;
+3. consulte `docs/architecture-rules.md`;
+4. faça análise de impacto;
+5. altere o menor número possível de arquivos;
+6. valide com os comandos reais: `npm test` e, quando aplicável,
+   `npm run typecheck` e `npm run smoke:preco`.
+
+> Este repositório é JavaScript (Node.js/Express). **Não há** `npm run lint`
+> nem `npm run build`. Não invente esses comandos.
+
+É proibido:
+- criar duplicação;
+- ignorar testes falhando ou erro de typecheck onde `.ts`/`tsconfig` se aplica;
+- misturar refatoração grande com feature;
+- criar endpoint sem validação de entrada;
+- alterar banco/schema (`sql/`, `src/db*.js`) sem explicar impacto;
+- alterar prompts de produção (`prompts/*.md`) sem justificar impacto;
+- remover proteções de segurança das rotas admin;
+- remover arquivo sem verificar dependências;
+- criar função/rota/módulo novo sem verificar se já existe equivalente reutilizável;
+- colocar lógica crítica ou segredos no dashboard estático (`public/`).

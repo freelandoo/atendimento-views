@@ -37,10 +37,6 @@ services:
       CACHE_REDIS_ENABLED: "true"
       CACHE_REDIS_URI: "redis://redis:6379"
 
-  whisper-service:
-    build: ./whisper-service
-    restart: unless-stopped
-
   webhook:
     build: .
     ports:
@@ -48,16 +44,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      whisper-service:
-        condition: service_started
     volumes:
       - ./sql:/app/sql:ro
       - ./logs:/app/logs
     environment:
       ANTHROPIC_KEY: "${ANTHROPIC_KEY}"
       OPENAI_KEY: "${OPENAI_KEY:-}"
-      # Opcional: URL do serviço Whisper local (padrão: http://whisper-service:9000).
-      # WHISPER_SERVICE_URL: "http://whisper-service:9000"
       DATABASE_URL: "postgresql://evolution:evolution@postgres:5432/evolution_api"
       TZ: "America/Sao_Paulo"
       APP_TIMEZONE: "America/Sao_Paulo"

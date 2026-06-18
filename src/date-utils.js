@@ -11,6 +11,29 @@ const REUNIAO_PROPOSTA_HORARIOS_PADRAO = [
   '21:15',
 ]
 
+// Sábado tem janela de DIA (08:00–21:00); grade de 30 min, último início 20:30 (a
+// reunião de 15 min termina dentro da janela). Dias úteis mantêm a janela da noite
+// (REUNIAO_PROPOSTA_HORARIOS_PADRAO). Domingo não atende.
+const REUNIAO_HORARIOS_SABADO = (() => {
+  const out = []
+  for (let min = 8 * 60; min <= 20 * 60 + 30; min += 30) {
+    out.push(`${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`)
+  }
+  return out
+})()
+
+// Horários-padrão de reunião conforme o dia da semana (0=domingo … 6=sábado).
+function horariosPadraoParaWeekday(weekday) {
+  if (weekday === 6) return REUNIAO_HORARIOS_SABADO.slice()
+  if (weekday >= 1 && weekday <= 5) return REUNIAO_PROPOSTA_HORARIOS_PADRAO.slice()
+  return []
+}
+
+// A PJ atende reunião de segunda a sábado (domingo não).
+function diaAtendeReuniao(weekday) {
+  return weekday >= 1 && weekday <= 6
+}
+
 const TIMEZONE = 'America/Sao_Paulo'
 
 function timezoneOperacional() {
@@ -216,7 +239,12 @@ function parsearHorarioReuniao(texto) {
   if (hora < 12 && hora + 12 >= 19 && hora + 12 <= 21) {
     hora += 12
   }
-  return { hora, min }
+  const out = { hora, min }
+  Object.defineProperty(out, 'normalizado', {
+    value: `${String(hora).padStart(2, '0')}:${String(min).padStart(2, '0')}`,
+    enumerable: false,
+  })
+  return out
 }
 
 /**
@@ -246,6 +274,9 @@ function dataInicioReuniao(dataSugerida, hora, min) {
 module.exports = {
   TIMEZONE,
   REUNIAO_PROPOSTA_HORARIOS_PADRAO,
+  REUNIAO_HORARIOS_SABADO,
+  horariosPadraoParaWeekday,
+  diaAtendeReuniao,
   timezoneOperacional,
   partesDataEmTimezone,
   utcParaDataLocalEmTimezone,

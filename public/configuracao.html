@@ -32,6 +32,7 @@
             <a href="agenda.html" class="dash-nav-link">Agenda</a>
       <a href="analytics.html" class="dash-nav-link">Métricas</a>
       <a href="configuracao.html" class="dash-nav-link active">Configurações</a>
+      <a href="whatsapp.html" class="dash-nav-link">WhatsApp</a>
       </div>
       <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
     </nav>
@@ -52,6 +53,7 @@
       <button type="button" class="config-tab-btn" role="tab" data-tab="whatsapp" id="tab-whatsapp" aria-controls="panel-config" aria-selected="false">WhatsApp</button>
       <button type="button" class="config-tab-btn" role="tab" data-tab="prompts" id="tab-prompts" aria-controls="panel-config" aria-selected="false">Prompts</button>
       <button type="button" class="config-tab-btn" role="tab" data-tab="ia" id="tab-ia" aria-controls="panel-config" aria-selected="false">Motor de IA</button>
+      <button type="button" class="config-tab-btn" role="tab" data-tab="teste-ia" id="tab-teste-ia" aria-controls="panel-config" aria-selected="false">Teste de IA</button>
     </nav>
 
     <main class="config-grid" id="panel-config">
@@ -105,6 +107,17 @@
       <section class="card config-section config-wide ai-settings-section" data-tab="ia">
         <div class="card-titulo"><span>Motor de IA</span></div>
         <p class="config-intro">Escolha qual provedor e modelo serão usados pelos agentes, análises e automações da PJ Codeworks.</p>
+
+        <div id="ai-active-banner" class="ai-active-banner" aria-live="polite">
+          <span class="ai-active-label">LLM ativo no sistema:</span>
+          <span id="ai-active-provider" class="ai-active-value">—</span>
+          <span class="ai-active-sep">·</span>
+          <span class="ai-active-label">Modelo:</span>
+          <span id="ai-active-model" class="ai-active-value">—</span>
+          <span class="ai-active-sep">·</span>
+          <span class="ai-active-label">Fallback:</span>
+          <span id="ai-active-fallback" class="ai-active-value">—</span>
+        </div>
 
         <div class="ai-cfg-grid">
           <!-- Provedor principal -->
@@ -165,8 +178,11 @@
 
         <div class="ai-cfg-actions">
           <button type="button" class="btn-reproc" id="btn-ai-salvar">Salvar configurações</button>
+          <button type="button" class="btn-followup" id="btn-ai-testar-principal">Testar provedor principal</button>
+          <button type="button" class="btn-followup" id="btn-ai-testar-fallback">Testar fallback</button>
           <p class="painel-nota-agente" id="ai-settings-status" aria-live="polite"></p>
         </div>
+        <div id="ai-test-result" class="ai-test-result" style="display:none;"></div>
 
         <!-- Logs recentes -->
         <div class="ai-cfg-logs">
@@ -186,7 +202,6 @@
             <label for="config-prompt-select" class="config-textarea-label">Prompt</label>
             <select id="config-prompt-select" class="config-prompt-select">
               <optgroup label="Agente principal">
-                <option value="system">system.md — legado (referência; não carregado)</option>
                 <option value="system-core">system-core.md — núcleo sempre ativo</option>
                 <option value="system-primeiro-contato">system-primeiro-contato.md — etapa 1</option>
                 <option value="system-diagnostico">system-diagnostico.md — etapa 2</option>
@@ -217,6 +232,213 @@
           </div>
         </div>
       </section>
+
+      <!-- Seção: Teste de IA -->
+      <section class="card config-section config-wide" data-tab="teste-ia">
+        <div class="card-titulo"><span>Teste de IA</span></div>
+        <div style="display:flex;align-items:center;gap:0.5rem;background:var(--fundo2,#f0f4ff);border:1px solid var(--azul,#3b6fd4);border-radius:6px;padding:0.5rem 0.85rem;margin-bottom:0.75rem;font-size:0.82rem;color:var(--azul,#3b6fd4);font-weight:600;" aria-live="polite">
+          <span aria-hidden="true">🔒</span>
+          <span>Modo sandbox ativo — nenhuma mensagem real será enviada, nenhum dado de produção será alterado.</span>
+        </div>
+        <p class="config-intro">Simule uma conversa real de WhatsApp com o agente da PJ Codeworks. O histórico fica em memória e persiste ao recarregar.</p>
+
+        <div class="teste-ia-container">
+
+          <!-- Coluna Esquerda: Configuração -->
+          <div class="teste-ia-painel-config">
+
+            <!-- Card: Contexto do lead -->
+            <div class="card teste-ia-card">
+              <h3 class="teste-ia-card-title">Contexto do lead</h3>
+              <div class="teste-ia-form-grid">
+                <div class="teste-ia-form-group">
+                  <label for="teste-ia-nome">Nome</label>
+                  <input type="text" id="teste-ia-nome" placeholder="Alex Silva" />
+                </div>
+                <div class="teste-ia-form-group">
+                  <label for="teste-ia-telefone">Telefone</label>
+                  <input type="tel" id="teste-ia-telefone" placeholder="5511999999999" />
+                </div>
+                <div class="teste-ia-form-group">
+                  <label for="teste-ia-negocio">Negócio/nicho</label>
+                  <input type="text" id="teste-ia-negocio" placeholder="Tráfego pago" />
+                </div>
+                <div class="teste-ia-form-group">
+                  <label for="teste-ia-cidade">Cidade/região</label>
+                  <input type="text" id="teste-ia-cidade" placeholder="São Bernardo do Campo" />
+                </div>
+                <div class="teste-ia-form-group">
+                  <label for="teste-ia-necessidade">Necessidade</label>
+                  <input type="text" id="teste-ia-necessidade" placeholder="site, sistema, IA" />
+                </div>
+                <div class="teste-ia-form-group">
+                  <label for="teste-ia-estagio">Estágio inicial</label>
+                  <select id="teste-ia-estagio">
+                    <option value="primeiro_contato">Primeiro contato</option>
+                    <option value="coleta_basica">Coleta básica</option>
+                    <option value="diagnostico">Diagnóstico</option>
+                    <option value="proposta_enviada">Proposta enviada</option>
+                    <option value="negociacao">Negociação</option>
+                    <option value="fechamento">Fechamento</option>
+                  </select>
+                </div>
+                <div class="teste-ia-form-group">
+                  <label for="teste-ia-temperatura">Temperatura</label>
+                  <select id="teste-ia-temperatura">
+                    <option value="frio">Frio</option>
+                    <option value="morno" selected>Morno</option>
+                    <option value="quente">Quente</option>
+                  </select>
+                </div>
+                <div class="teste-ia-form-group">
+                  <label for="teste-ia-projeto-medida">Projeto sob medida?</label>
+                  <select id="teste-ia-projeto-medida">
+                    <option value="false">Não</option>
+                    <option value="true">Sim</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Card: Cenários rápidos -->
+            <div class="card teste-ia-card teste-ia-cenarios">
+              <h3 class="teste-ia-card-title">Cenários rápidos</h3>
+              <p style="font-size:0.78rem;color:#6b7280;margin:0 0 0.75rem;">Clique para preencher a mensagem e o contexto automaticamente.</p>
+              <div class="teste-ia-cenarios-grid">
+                <button type="button" class="btn-cenario" data-cenario="novo">Lead novo</button>
+                <button type="button" class="btn-cenario" data-cenario="site">Quer site</button>
+                <button type="button" class="btn-cenario" data-cenario="preco">Pergunta preço</button>
+                <button type="button" class="btn-cenario" data-cenario="sistema">Projeto sob medida</button>
+                <button type="button" class="btn-cenario" data-cenario="nao-entendi">Não entendi</button>
+                <button type="button" class="btn-cenario" data-cenario="horario">Escolheu horário</button>
+                <button type="button" class="btn-cenario" data-cenario="dados-parciais">Dados parciais</button>
+                <button type="button" class="btn-cenario" data-cenario="dados-completos">Dados completos</button>
+                <button type="button" class="btn-cenario" data-cenario="reagendamento">Reagendamento</button>
+                <button type="button" class="btn-cenario" data-cenario="humano">Quer falar com humano</button>
+              </div>
+            </div>
+
+            <!-- Configurações avançadas (debug) -->
+            <details class="teste-ia-avancado">
+              <summary>Histórico inicial de contexto (debug)</summary>
+              <div>
+                <p style="font-size:0.78rem;color:#6b7280;margin:0 0 0.6rem;line-height:1.5;">
+                  Injete contexto inicial na conversa. Use prefixos <code>Lead:</code> e <code>IA:</code>.<br>
+                  Esse histórico é enviado junto com a conversa atual.
+                </p>
+                <textarea id="teste-ia-historico" class="teste-ia-textarea" placeholder="Lead: Olá&#10;IA: Olá! Eu sou o assistente virtual...&#10;Lead: Quero um site" rows="5"></textarea>
+              </div>
+            </details>
+
+          </div>
+
+          <!-- Coluna Direita: Chat -->
+          <div class="teste-ia-painel-chat">
+
+            <!-- Session header -->
+            <div class="teste-ia-session-header">
+              <span class="teste-ia-session-id-label">Sessão: <code id="teste-ia-session-id">—</code></span>
+              <div class="teste-ia-session-btns">
+                <button type="button" id="btn-nova-sessao" class="btn-reproc btn-sm">Nova sessão</button>
+                <button type="button" id="btn-resetar-conversa" class="btn-reproc btn-sm">Resetar</button>
+                <button type="button" id="btn-exportar-conversa" class="btn-reproc btn-sm">Exportar</button>
+              </div>
+            </div>
+
+            <!-- Área de mensagens -->
+            <div id="teste-ia-chat-mensagens" class="teste-ia-chat-mensagens" aria-live="polite" aria-label="Conversa de teste"></div>
+
+            <!-- IA digitando... -->
+            <div id="teste-ia-digitando" class="teste-ia-digitando" style="display:none;" aria-live="polite">
+              <div class="teste-ia-digitando-dots"><span></span><span></span><span></span></div>
+              <span>IA digitando...</span>
+            </div>
+
+            <!-- Input de mensagem -->
+            <div class="teste-ia-input-area">
+              <textarea
+                id="teste-ia-input-msg"
+                class="teste-ia-input-textarea"
+                placeholder="Digite a mensagem do lead... (Enter envia, Shift+Enter quebra linha)"
+                rows="2"
+                aria-label="Mensagem do lead"
+              ></textarea>
+              <button type="button" id="btn-enviar-msg" class="btn-followup">Enviar</button>
+            </div>
+
+            <!-- Diagnóstico da última resposta -->
+            <details class="teste-ia-diag-wrapper" open>
+              <summary>Diagnóstico da última resposta</summary>
+              <div class="teste-ia-diagnostico-card">
+                <div id="teste-ia-ultimo-diagnostico" class="teste-ia-motor"></div>
+                <div id="teste-ia-ultimo-avisos" class="teste-ia-avisos" style="display:none;margin-top:0.75rem;"></div>
+              </div>
+            </details>
+
+            <!-- Debug da IA -->
+            <details class="dbg-wrapper">
+              <summary>Debug da IA</summary>
+              <div class="dbg-card">
+
+                <!-- System prompt -->
+                <div class="dbg-section">
+                  <div class="dbg-section-hd">
+                    <span class="dbg-section-title">System prompt</span>
+                    <span id="dbg-prompt-meta" class="dbg-meta"></span>
+                    <button type="button" id="btn-copiar-prompt" class="btn-reproc btn-sm dbg-btn">Copiar prompt</button>
+                  </div>
+                  <pre id="dbg-prompt-preview" class="dbg-pre dbg-pre--short"></pre>
+                  <details class="dbg-full-toggle">
+                    <summary>Ver prompt completo</summary>
+                    <pre id="dbg-prompt-full" class="dbg-pre dbg-pre--tall"></pre>
+                  </details>
+                </div>
+
+                <!-- Contexto enviado -->
+                <div class="dbg-section">
+                  <div class="dbg-section-hd">
+                    <span class="dbg-section-title">Contexto enviado</span>
+                  </div>
+                  <pre id="dbg-context-json" class="dbg-pre"></pre>
+                </div>
+
+                <!-- Histórico enviado -->
+                <div class="dbg-section">
+                  <div class="dbg-section-hd">
+                    <span class="dbg-section-title">Histórico enviado à IA</span>
+                    <span id="dbg-history-meta" class="dbg-meta"></span>
+                  </div>
+                  <pre id="dbg-history-json" class="dbg-pre"></pre>
+                </div>
+
+                <!-- Resposta bruta / parseada -->
+                <div class="dbg-section">
+                  <div class="dbg-section-hd">
+                    <span class="dbg-section-title">Resposta bruta / parseada</span>
+                    <span id="dbg-output-meta" class="dbg-meta"></span>
+                  </div>
+                  <pre id="dbg-output-preview" class="dbg-pre dbg-pre--short"></pre>
+                  <details class="dbg-full-toggle">
+                    <summary>Ver resposta completa e parseada</summary>
+                    <pre id="dbg-output-full" class="dbg-pre dbg-pre--tall"></pre>
+                  </details>
+                </div>
+
+                <!-- Diagnóstico completo JSON -->
+                <div class="dbg-section">
+                  <div class="dbg-section-hd">
+                    <span class="dbg-section-title">Diagnóstico completo</span>
+                    <button type="button" id="btn-copiar-diagnostics" class="btn-reproc btn-sm dbg-btn">Copiar diagnóstico</button>
+                  </div>
+                  <pre id="dbg-full-json" class="dbg-pre dbg-pre--tall"></pre>
+                </div>
+
+              </div>
+            </details>
+
+          </div>
+        </div>
+      </section>
     </main>
 
     <footer class="site-footer" role="contentinfo">
@@ -230,7 +452,9 @@
   </div>
   <script src="dashboard/js/site-nav.js" defer></script>
   <script src="dashboard/js/core.js"></script>
+  <script src="dashboard/js/sistema-alertas.js"></script>
   <script src="dashboard/js/configuracao.js"></script>
+  <script src="dashboard/js/teste-ia.js"></script>
 </body>
 </html>
 

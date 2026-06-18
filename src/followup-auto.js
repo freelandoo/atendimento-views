@@ -1,8 +1,6 @@
 'use strict'
 
 const {
-  ANTHROPIC_KEY,
-  ANTHROPIC_MESSAGES_URL,
   CLAUDE_TIMEOUT_MS,
   FOLLOWUP_INSTRUCAO_MAX_CHARS,
   JOB_MAX_ATTEMPTS,
@@ -27,6 +25,7 @@ function createFollowupAuto(deps = {}) {
     pool,
     logger,
     axios,
+    aiProvider,
     prompts,
     partesDataEmTimezone,
     utcParaDataLocalEmTimezone,
@@ -43,6 +42,34 @@ function createFollowupAuto(deps = {}) {
     normalizarHistoricoMensagens,
     executarFollowupUmNumero,
   } = deps
+
+  // Apenas DESINTERESSE real encerra o follow-up. ADIAMENTO ("falo amanhã", "te ligo",
+  // "agora não") NÃO encerra — vira agendamento normal de retomada. A separação
+  // adiamento×desinteresse é feita PRIMARIAMENTE pela IA (resultado.sinal_conversa);
+  // esta regex é só o fallback de segurança para o caso de desinteresse explícito.
+  const REGEX_DESINTERESSE =
+    /(n[aã]o\s+tenho\s+interesse|sem\s+interesse|n[aã]o\s+me\s+interessa|n[aã]o\s+(quero|preciso)\s+mais|n[aã]o\s+quero\s+contratar|pode\s+(cancelar|parar)|para\s+de\s+(mandar|enviar))/i
+
+  function extrairUltimoTextoUsuario(historico) {
+    const arr = normalizarHistoricoMensagens(historico)
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const m = arr[i]
+      if (m.role === 'user' && typeof m.content === 'string' && m.content.trim()) {
+        return m.content.trim()
+      }
+    }
+    return null
+  }
+
+  function contarMensagensConsecutivasAssistente(historico) {
+    const arr = normalizarHistoricoMensagens(historico)
+    let count = 0
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if (arr[i].role !== 'assistant') break
+      count++
+    }
+    return count
+  }
 
   function sequenciasComerciaisFollowupPorEstagio(estagio) {
     const key = String(estagio || '').trim().toLowerCase()
@@ -239,8 +266,6 @@ function createFollowupAuto(deps = {}) {
       motivoFollowup: 'sem_motivo_claro',
       origem: 'regra',
     }
-    if (!ANTHROPIC_KEY) return fallback
-  
     let prompt = prompts.FOLLOWUP_TIMING_PROMPT_BASE.trim() ||
       'Decida timing e instrucao de follow-up automatico. Responda apenas JSON valido.'
     const aprendTiming = await buscarAprendizadosAtivos('followup_timing')
@@ -268,37 +293,37 @@ function createFollowupAuto(deps = {}) {
       })(),
     }
   
-    const model = 'claude-haiku-4-5-20251001'
     const requestId = gerarRequestIdAnthropic()
     const inicio = Date.now()
     try {
-      const resp = await axios.post(
-        ANTHROPIC_MESSAGES_URL,
+      const result = await aiProvider.generateAIResponse(
         {
-          model,
-          max_tokens: 700,
-          system: prompt,
-          messages: [{ role: 'user', content: JSON.stringify(payload, null, 2) }],
+          systemPrompt: prompt,
+          userPrompt: JSON.stringify(payload, null, 2),
+          task: 'followup_timing',
+          maxTokens: 700,
+          timeoutMs: Math.min(CLAUDE_TIMEOUT_MS, 30000),
+          responseFormatJson: true,
         },
-        {
-          headers: { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-          timeout: Math.min(CLAUDE_TIMEOUT_MS, 30000),
-        }
+        pool,
+        logger
       )
-      await registrarChamadaAnthropic({
-        request_id: requestId,
-        tipo: 'followup_timing',
-        numero: conversa?.numero || null,
-        model,
-        estagio: conversa?.estagio || 'primeiro_contato',
-        duration_ms: Date.now() - inicio,
-        http_ok: true,
-        http_status: resp.status,
-        stop_reason: resp.data?.stop_reason || null,
-        usage: resp.data?.usage,
-        metadata: { sequencia, silencio_min: silencioMin, encerramento_gentil: encerramentoGentil },
-      })
-      const bruto = resp.data?.content?.[0]?.text || ''
+      if (result?.provider === 'anthropic') {
+        await registrarChamadaAnthropic({
+          request_id: requestId,
+          tipo: 'followup_timing',
+          numero: conversa?.numero || null,
+          model: result.model,
+          estagio: conversa?.estagio || 'primeiro_contato',
+          duration_ms: Date.now() - inicio,
+          http_ok: true,
+          http_status: result.httpStatus || 200,
+          stop_reason: result.stopReason || null,
+          usage: result.usage,
+          metadata: { sequencia, silencio_min: silencioMin, encerramento_gentil: encerramentoGentil, fallback_used: result.fallback_used === true },
+        })
+      }
+      const bruto = String(result?.text || '')
       const parsed = parsearRespostaJsonClaude(bruto)
       if (!parsed || typeof parsed !== 'object') return fallback
       const manter = parsed.manter_timing_padrao !== false
@@ -331,7 +356,7 @@ function createFollowupAuto(deps = {}) {
         request_id: requestId,
         tipo: 'followup_timing',
         numero: conversa?.numero || null,
-        model,
+        model: 'desconhecido',
         estagio: conversa?.estagio || 'primeiro_contato',
         duration_ms: Date.now() - inicio,
         http_ok: false,
@@ -345,8 +370,52 @@ function createFollowupAuto(deps = {}) {
     }
   }
   
+  // Persiste a decisão terminal de NÃO seguir follow-up para o ESTADO ATUAL da
+  // conversa. Sem isso o watcher reselecionava e re-cancelava a mesma conversa a
+  // cada tick (spam de log + reprocessamento infinito). O marcador é auto-curável:
+  // a seleção só volta a considerar a conversa quando ela tiver nova atividade
+  // (c.atualizado_em passa a ser >= criado_em deste marcador — ver guard no SELECT).
+  async function marcarFollowupCanceladoTerminal(row, motivoDecisao) {
+    const silencio = Math.max(0, parseInt(row.silencio_min, 10) || SILENCE_TRIGGER_MINUTES)
+    const seq = Math.max(1, parseInt(row.sequencia, 10) || 1)
+    try {
+      await pool.query(
+        `
+        INSERT INTO vendas.followup_auto_agendamentos
+          (numero, sequencia, silencio_min, agendado_para, motivo_decisao, timing_origem, status, cancelado_em)
+        VALUES ($1::text, $2::int, $3::int, NOW(), $4::text, 'regra', 'cancelado', NOW())
+        `,
+        [row.numero, seq, silencio, motivoDecisao]
+      )
+    } catch (e) {
+      logger.error('Erro ao registrar follow-up cancelado terminal:', e.message)
+    }
+  }
+
   async function agendarFollowupAutoParaConversa(row) {
     const numero = row.numero
+
+    const totalExistente = parseInt(row.total_auto, 10) || 0
+    if (row.temperatura_lead === 'frio' && totalExistente >= 2) {
+      logger.info({ numero }, 'Follow-up cancelado: lead frio com 2+ tentativas anteriores')
+      await marcarFollowupCanceladoTerminal(row, 'lead_frio_2_tentativas')
+      return null
+    }
+
+    const consec = contarMensagensConsecutivasAssistente(row.historico)
+    if (consec >= 3) {
+      logger.info({ numero, consec }, 'Follow-up cancelado: 3+ mensagens consecutivas do bot sem resposta do lead')
+      await marcarFollowupCanceladoTerminal(row, 'tres_mensagens_consecutivas_sem_resposta')
+      return null
+    }
+
+    const ultimaUser = extrairUltimoTextoUsuario(row.historico)
+    if (ultimaUser && REGEX_DESINTERESSE.test(ultimaUser)) {
+      logger.info({ numero, trecho: ultimaUser.slice(0, 80) }, 'Follow-up cancelado: lead sinalizou desinteresse')
+      await marcarFollowupCanceladoTerminal(row, 'desinteresse')
+      return null
+    }
+
     const maxSequencia = maxSequenciaFollowupAutoPorEstagio(row.estagio)
     const sequencia = Math.min(maxSequencia, Math.max(1, parseInt(row.sequencia, 10) || 1))
     const silencioMin = Math.max(0, parseInt(row.silencio_min, 10) || SILENCE_TRIGGER_MINUTES)
@@ -410,10 +479,19 @@ function createFollowupAuto(deps = {}) {
    * Grava follow-up automático em data/hora explícita (campo `agendar_followup_auto` do modelo).
    * @returns {Promise<number|null>} id do agendamento ou null
    */
-  async function persistirAgendamentoFollowupExplicito(numero, agendarNorm, estagio) {
+  async function persistirAgendamentoFollowupExplicito(numero, agendarNorm, estagio, historicoConversa = null) {
     if (!agendarNorm || !numero) return null
     const jid = typeof numero === 'string' ? numero.trim() : ''
     if (!jid) return null
+
+    if (historicoConversa) {
+      const ultimaUser = extrairUltimoTextoUsuario(historicoConversa)
+      if (ultimaUser && REGEX_DESINTERESSE.test(ultimaUser)) {
+        logger.info({ numero, trecho: ultimaUser.slice(0, 80) }, 'Follow-up explícito cancelado: lead sinalizou desinteresse')
+        return null
+      }
+    }
+
     await cancelarFollowupsAutoPendentes(jid, 'substituido_agendamento_explicito')
     const agendadoPara = new Date(agendarNorm.agendar_para)
     if (Number.isNaN(agendadoPara.getTime())) return null
@@ -450,11 +528,51 @@ function createFollowupAuto(deps = {}) {
   
   let silenceWatcherRodando = false
   let silenceWatcherTimer = null
-  
+  let watcherConsecutiveErrors = 0
+
+  async function tentarAcquirirLiderancaWatcher() {
+    try {
+      const replicaId = process.env.REPLICA_ID || 'replica-1'
+      const { rows } = await pool.query(
+        `
+        INSERT INTO vendas.watcher_locks (chave, replica_id, locked_at, expires_at)
+        VALUES ('silence-watcher', $1, NOW(), NOW() + INTERVAL '30 seconds')
+        ON CONFLICT (chave) DO UPDATE
+        SET replica_id = $1, locked_at = NOW(), expires_at = NOW() + INTERVAL '30 seconds'
+        WHERE vendas.watcher_locks.expires_at < NOW()
+        RETURNING replica_id
+        `,
+        [replicaId]
+      )
+      const acquired = rows[0]?.replica_id === replicaId
+      if (acquired) {
+        logger.debug({ replica_id: replicaId }, '✓ Replica adquiriu liderança do watcher')
+      } else {
+        logger.debug({ replica_id: replicaId }, '✗ Outra replica tem liderança do watcher')
+      }
+      return acquired
+    } catch (e) {
+      logger.warn({ err: e.message }, 'Erro ao adquirir liderança do watcher')
+      return false
+    }
+  }
+
   async function silenceWatcherTick() {
     if (silenceWatcherRodando) return
     silenceWatcherRodando = true
     try {
+      const ehLider = await tentarAcquirirLiderancaWatcher()
+      if (!ehLider) {
+        logger.debug('Replica não é líder, pulando silenceWatcherTick')
+        return
+      }
+
+      // Etapa 1 — encerramento: marcar como aguardando_handoff as conversas
+      // que JA atingiram o numero maximo de follow-ups automaticos para o estagio.
+      // Esta query e independente da elegibilidade (efeito colateral). Em CTE
+      // unica, o SELECT subsequente nao "veria" a atualizacao por causa do
+      // snapshot isolation do postgres, e nos arriscariamos a re-listar a
+      // mesma conversa como elegivel. Por isso ela roda primeiro, em separado.
       await pool.query(
         `
         UPDATE vendas.conversas c
@@ -462,6 +580,7 @@ function createFollowupAuto(deps = {}) {
             atualizado_em = NOW()
         WHERE c.status = 'ativo'
           AND COALESCE(c.agente_pausado, false) = false
+          AND COALESCE(c.arquivado, false) = false
           AND COALESCE(c.venda_fechada, false) = false
           AND COALESCE(jsonb_array_length(c.historico), 0) > 0
           AND (c.historico->-1->>'role') = 'assistant'
@@ -490,61 +609,92 @@ function createFollowupAuto(deps = {}) {
           maxSequenciaFollowupAutoPorEstagio('default'),
         ]
       )
+
+      // Etapa 2 — elegibilidade: buscar diretamente em vendas.conversas as
+      // conversas que AINDA NAO atingiram o maximo (total_auto < max) e que
+      // estao silenciosas ha mais que SILENCE_TRIGGER_MINUTES. A separacao em
+      // duas queries e proposital: o SELECT precisa "ver" o resultado do
+      // UPDATE acima (conversas que viraram aguardando_handoff sao filtradas
+      // por status='ativo'). Em CTE unica isso nao funcionaria.
       const { rows } = await pool.query(
         `
-        WITH elegiveis AS (
-          SELECT c.numero,
-                 c.historico,
-                 c.estagio,
-                 c.status,
-                 c.atualizado_em,
-                 p.negocio,
-                 p.cidade,
-                 p.temperatura_lead,
-                 p.termometro_dor,
-                 p.score_dor,
-                 p.plano_sugerido,
-                 p.preco_calculado,
-                 p.precificacao_json,
-                 LEFT(COALESCE(c.historico->-1->>'content', ''), 1200) AS ultima_mensagem_ia,
-                 GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - c.atualizado_em)) / 60))::int AS silencio_min,
-                 (
-                   SELECT COUNT(*)::int
-                   FROM vendas.followup_auto_agendamentos fa
-                   WHERE fa.numero = c.numero
-                     AND fa.status IN ('agendado', 'executado')
-                 ) AS total_auto
-          FROM vendas.conversas c
-          LEFT JOIN vendas.lead_profiles p ON p.numero = c.numero
-          WHERE c.status = 'ativo'
-            AND COALESCE(c.agente_pausado, false) = false
-            AND COALESCE(c.venda_fechada, false) = false
-            AND COALESCE(jsonb_array_length(c.historico), 0) > 0
-            AND (c.historico->-1->>'role') = 'assistant'
-            AND c.atualizado_em <= NOW() - ($1::int * INTERVAL '1 minute')
-            AND NOT EXISTS (
-              SELECT 1
+        SELECT c.numero,
+               c.historico,
+               c.estagio,
+               c.status,
+               c.atualizado_em,
+               p.negocio,
+               p.cidade,
+               p.temperatura_lead,
+               p.termometro_dor,
+               p.score_dor,
+               p.plano_sugerido,
+               p.preco_calculado,
+               p.precificacao_json,
+               LEFT(COALESCE(c.historico->-1->>'content', ''), 1200) AS ultima_mensagem_ia,
+               GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - c.atualizado_em)) / 60))::int AS silencio_min,
+               (
+                 SELECT COUNT(*)::int
+                 FROM vendas.followup_auto_agendamentos fa
+                 WHERE fa.numero = c.numero
+                   AND fa.status IN ('agendado', 'executado')
+               ) AS total_auto,
+               (
+                 SELECT COUNT(*)::int
+                 FROM vendas.followup_auto_agendamentos fa
+                 WHERE fa.numero = c.numero
+                   AND fa.status IN ('agendado', 'executado')
+               ) + 1 AS sequencia
+        FROM vendas.conversas c
+        LEFT JOIN vendas.lead_profiles p ON p.numero = c.numero
+        WHERE c.status = 'ativo'
+          AND COALESCE(c.agente_pausado, false) = false
+          AND COALESCE(c.arquivado, false) = false
+          AND COALESCE(c.venda_fechada, false) = false
+          AND COALESCE(jsonb_array_length(c.historico), 0) > 0
+          AND (c.historico->-1->>'role') = 'assistant'
+          AND c.atualizado_em <= NOW() - ($1::int * INTERVAL '1 minute')
+          AND NOT EXISTS (
+            SELECT 1
+            FROM vendas.followup_auto_agendamentos fa
+            WHERE fa.numero = c.numero
+              AND fa.status = 'agendado'
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM vendas.job_queue q
+            WHERE q.tipo = 'followup_auto'
+              AND q.status IN ('pending', 'processing')
+              AND q.payload->>'numero' = c.numero
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM vendas.followup_auto_agendamentos fa
+            WHERE fa.numero = c.numero
+              AND fa.status = 'cancelado'
+              AND fa.criado_em >= c.atualizado_em
+          )
+          AND (
+            SELECT COUNT(*)::int
+            FROM vendas.followup_auto_agendamentos fa
+            WHERE fa.numero = c.numero
+              AND fa.status IN ('agendado', 'executado')
+          ) < CASE
+            WHEN c.estagio = 'primeiro_contato' THEN $2::int
+            WHEN c.estagio IN ('proposta_enviada', 'negociacao') THEN $3::int
+            ELSE $4::int
+          END
+          AND (
+            p.temperatura_lead IS DISTINCT FROM 'frio'
+            OR (
+              SELECT COUNT(*)::int
               FROM vendas.followup_auto_agendamentos fa
               WHERE fa.numero = c.numero
-                AND fa.status = 'agendado'
-            )
-            AND NOT EXISTS (
-              SELECT 1
-              FROM vendas.job_queue q
-              WHERE q.tipo = 'followup_auto'
-                AND q.status IN ('pending', 'processing')
-                AND q.payload->>'numero' = c.numero
-            )
-          ORDER BY c.atualizado_em ASC
-          LIMIT 20
-        )
-        SELECT *, total_auto + 1 AS sequencia
-        FROM elegiveis
-        WHERE total_auto < CASE
-          WHEN estagio = 'primeiro_contato' THEN $2::int
-          WHEN estagio IN ('proposta_enviada', 'negociacao') THEN $3::int
-          ELSE $4::int
-        END
+                AND fa.status IN ('agendado', 'executado')
+            ) < 2
+          )
+        ORDER BY c.atualizado_em ASC
+        LIMIT 20
         `,
         [
           SILENCE_TRIGGER_MINUTES,
@@ -553,6 +703,7 @@ function createFollowupAuto(deps = {}) {
           maxSequenciaFollowupAutoPorEstagio('default'),
         ]
       )
+      watcherConsecutiveErrors = 0
       for (const row of rows) {
         try {
           await agendarFollowupAutoParaConversa(row)
@@ -561,7 +712,21 @@ function createFollowupAuto(deps = {}) {
         }
       }
     } catch (err) {
-      logger.error('Erro no watcher de silencio:', err.message)
+      watcherConsecutiveErrors++
+      logger.error({ error: err.message, consecutive_errors: watcherConsecutiveErrors }, 'Erro no watcher de silencio')
+
+      if (watcherConsecutiveErrors >= 5) {
+        logger.error('Watcher falhou 5x consecutivas, pausando por 1 minuto')
+        if (silenceWatcherTimer) {
+          clearInterval(silenceWatcherTimer)
+          silenceWatcherTimer = null
+        }
+
+        setTimeout(() => {
+          logger.info('Tentando reiniciar watcher após pausa de 1 minuto')
+          iniciarSilenceWatcher()
+        }, 60000)
+      }
     } finally {
       silenceWatcherRodando = false
     }
@@ -583,9 +748,12 @@ function createFollowupAuto(deps = {}) {
   
     const { rows } = await pool.query(
       `
-      SELECT fa.*, c.historico, c.status AS conversa_status, c.venda_fechada, c.agente_pausado
+      SELECT fa.*, c.historico, c.status AS conversa_status, c.venda_fechada, c.agente_pausado,
+             c.arquivado,
+             p.temperatura_lead
       FROM vendas.followup_auto_agendamentos fa
       JOIN vendas.conversas c ON c.numero = fa.numero
+      LEFT JOIN vendas.lead_profiles p ON p.numero = fa.numero
       WHERE fa.id = $1
       `,
       [agendamentoId]
@@ -594,23 +762,52 @@ function createFollowupAuto(deps = {}) {
     if (!ag || ag.status !== 'agendado') return
     const historico = normalizarHistoricoMensagens(ag.historico)
     const ultima = historico[historico.length - 1]
+
+    const consec = contarMensagensConsecutivasAssistente(historico)
+    const ultimaUser = extrairUltimoTextoUsuario(historico)
+    const sinalizouDesinteresse = !!(ultimaUser && REGEX_DESINTERESSE.test(ultimaUser))
+    const leadFrioEsgotado = ag.temperatura_lead === 'frio' && (parseInt(ag.sequencia, 10) || 1) >= 2
+
     const deveCancelar =
       ag.conversa_status !== 'ativo' ||
+      ag.arquivado === true ||
       ag.venda_fechada === true ||
       ag.agente_pausado === true ||
       !ultima ||
-      ultima.role !== 'assistant'
-  
+      ultima.role !== 'assistant' ||
+      consec >= 3 ||
+      sinalizouDesinteresse ||
+      leadFrioEsgotado
+
     if (deveCancelar) {
+      let motivoCancelamento = 'cancelado antes da execucao: conversa mudou'
+      if (ag.conversa_status !== 'ativo') motivoCancelamento = 'conversa nao esta ativa'
+      else if (ag.arquivado) motivoCancelamento = 'conversa arquivada (opt-out)'
+      else if (ag.venda_fechada) motivoCancelamento = 'venda fechada'
+      else if (ag.agente_pausado) motivoCancelamento = 'agente pausado'
+      else if (!ultima || ultima.role !== 'assistant') motivoCancelamento = 'ultima mensagem nao e do bot'
+      else if (consec >= 3) motivoCancelamento = `${consec} msgs consecutivas do bot sem resposta — limite atingido`
+      else if (sinalizouDesinteresse) motivoCancelamento = 'lead sinalizou desinteresse'
+      else if (leadFrioEsgotado) motivoCancelamento = 'lead frio com 2+ tentativas — agente sera pausado'
+
+      if (leadFrioEsgotado) {
+        await pool.query(
+          `UPDATE vendas.conversas SET agente_pausado = true, atualizado_em = NOW()
+           WHERE numero = $1 AND COALESCE(agente_pausado, false) = false`,
+          [numero]
+        )
+        logger.info({ numero, sequencia: ag.sequencia }, 'Agente pausado: lead frio com 2+ tentativas de follow-up')
+      }
+
       await pool.query(
         `
         UPDATE vendas.followup_auto_agendamentos
         SET status = 'cancelado',
             cancelado_em = NOW(),
-            motivo_decisao = LEFT(CONCAT(COALESCE(motivo_decisao, ''), CASE WHEN motivo_decisao IS NULL OR motivo_decisao = '' THEN '' ELSE ' | ' END, 'cancelado antes da execucao: conversa mudou'), 1000)
+            motivo_decisao = LEFT(CONCAT(COALESCE(motivo_decisao, ''), CASE WHEN motivo_decisao IS NULL OR motivo_decisao = '' THEN '' ELSE ' | ' END, $2::text), 1000)
         WHERE id = $1
         `,
-        [agendamentoId]
+        [agendamentoId, motivoCancelamento]
       )
       return
     }

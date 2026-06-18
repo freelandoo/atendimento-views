@@ -6,8 +6,9 @@
 # Dependências Node.js
 node_modules/
 
-# Arquivo temporário de skill (binário sem extensão)
+# Skills empacotadas (binarios ZIP, locais por ambiente)
 ziynJbF2
+*.skill
 
 # Arquivos de sistema
 .DS_Store
@@ -16,6 +17,30 @@ Thumbs.db
 # Artefatos gerados localmente (briefings internos)
 generated/
 
-# Logs
+# Logs (inclui dumps de prompt gerados por scripts/push-overlay.js e dump-prompts.js)
+logs/
 *.log
 npm-debug.log*
+
+# Config de MCP (contém credencial de banco — não versionar)
+.mcp.json
+
+# Dumps / backups de banco — PODEM CONTER PII (conversas, telefones). NUNCA versionar.
+# Schema vivo fica em sql/ (init.sql, migracoes); esses padrões não o atingem.
+backup*.sql
+*-restore.sql
+restore-*.sql
+dump-*.sql
+fix-fk.sql
+parsed-tables.json
+
+# Artefato gerado do monolito (regenerável via tools/build-split.cjs)
+index.monolith.js
+
+# Scripts operacionais de restore/upload com credenciais — NUNCA versionar.
+# Use sempre DATABASE_URL do ambiente; nunca hardcode a senha em script.
+restore-db.js
+restore-*.bat
+restore-*.sh
+sync-railway.sh
+upload*.ps1

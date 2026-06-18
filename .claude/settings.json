@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__postgres-pjcodeworks__query",
+      "Bash(node --test test/ai-test-routes-validator.test.js)",
+      "Bash(grep -q 'id=\"__TRACKED_VAR__\"' public/prospeccao.html)",
+      "Bash(node --check public/dashboard/js/prospeccao.js)",
+      "Bash(node --check public/dashboard/js/prospeccao-fila.js)",
+      "Bash(node --test test/next-action-orchestrator.test.js)",
+      "Bash(node --test test/loop-origem-clientes.test.js)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(git add *)",
+      "mcp__railway__whoami",
+      "mcp__railway__environment_status",
+      "mcp__railway__get_logs",
+      "Bash(DATABASE_URL='postgresql://postgres:xkRLoJwvqnfqjKOgLrxpaDXxeqCSYoUF@yamabiko.proxy.rlwy.net:14878/railway' node scripts/agendar-reuniao.js 5547933888204 2026-06-08 19:45 Souzacasasfabiano18@gmail.com)",
+      "Bash(DATABASE_URL='postgresql://postgres:xkRLoJwvqnfqjKOgLrxpaDXxeqCSYoUF@yamabiko.proxy.rlwy.net:14878/railway' node scripts/push-overlay.js system-core)",
+      "mcp__railway__list_deployments",
+      "Bash(node --check src/agenda.js)"
+    ]
+  }
+}

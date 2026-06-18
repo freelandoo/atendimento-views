@@ -403,6 +403,47 @@
   opacity: 0.55;
 }
 
+/* Ação primária: marcar reunião concluída (verde) */
+.agenda-action-success {
+  border-color: #bfe8cd;
+  background: #eaf8ef;
+  color: #138a43;
+}
+.agenda-action-success:hover {
+  border-color: #138a43;
+  color: #0f7a3a;
+  background: #ddf3e5;
+}
+
+/* Ação de fechamento: marcar vendido (dourado) */
+.agenda-action-vendido {
+  border-color: #f6d488;
+  background: #fff8e8;
+  color: #a36a00;
+}
+.agenda-action-vendido:hover {
+  border-color: #d99a00;
+  color: #8a5a00;
+  background: #fef1d2;
+}
+
+/* Chip "Vendido" */
+.agenda-chip-vendido {
+  border-color: #f6d488;
+  background: #fff6e0;
+  color: #a36a00;
+  font-weight: 800;
+}
+
+/* Polimento sutil do card de evento */
+.agenda-event {
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.agenda-event:hover {
+  box-shadow: 0 6px 18px rgba(16, 24, 40, 0.08);
+  transform: translateY(-1px);
+}
+
 .agenda-next-day {
   justify-self: center;
   min-width: 12rem;

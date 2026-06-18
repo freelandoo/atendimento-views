@@ -1,6 +1,6 @@
 'use strict'
 
-const { validarAtualizarPerfilLead } = require('./domainSchemas')
+const { normalizarEstagio, validarAtualizarPerfilLead } = require('./domainSchemas')
 const {
   LEAD_CONTEXTO_MAX_CHARS,
   LEAD_CONTEXTO_PROMPT_LIMIT,
@@ -39,6 +39,8 @@ const LEAD_PROFILE_CAMPOS_PERMITIDOS = new Set([
   'explicacao_teste_gratis_enviada',
   'expectativa_google_alinhada',
   'personalizacao_nicho_cidade_enviada',
+  'score_lead',
+  'insights_lead',
 ])
 
 const LEAD_PROFILE_CAMPOS_JSON = new Set([
@@ -48,6 +50,17 @@ const LEAD_PROFILE_CAMPOS_JSON = new Set([
   'origem_anuncio',
   'eventos_conversa',
   'reuniao_proposta',
+  // insights_lead é JSON, mas REPLACE (não || merge): o merge com union de arrays é
+  // feito no core-funnel antes de gravar o objeto completo.
+  'insights_lead',
+])
+
+// Colunas JSONB "acumuladoras": cada gravador escreve um patch parcial.
+// Precisam de MERGE (||), não replace, senão writers concorrentes se
+// sobrescrevem (objetivo_site/origem_clientes/rota_comercial eram perdidos).
+const LEAD_PROFILE_CAMPOS_JSON_MERGE = new Set([
+  'eventos_conversa',
+  'maturidade_digital',
 ])
 
 const LEAD_PROFILE_FLAGS_BOOLEAN = new Set([
@@ -105,7 +118,8 @@ function createDbCrud({ pool, logger, serializeError }) {
     return rows[0] || null
   }
 
-  async function salvarConversa(numero, historico, estagio, status = 'ativo', agentePausado = undefined, empresaId = null, evolutionInstance = null) {
+  async function salvarConversa(numero, historico, estagio, status = 'ativo', agentePausado = undefined) {
+    const estagioNorm = normalizarEstagio(estagio, 'diagnostico')
     const arr = Array.isArray(historico) ? historico : []
     let jsonText
     try {
@@ -116,33 +130,29 @@ function createDbCrud({ pool, logger, serializeError }) {
     if (agentePausado === undefined) {
       await pool.query(
         `
-        INSERT INTO vendas.conversas (numero, historico, estagio, status, empresa_id, evolution_instance)
-        VALUES ($1, $2::jsonb, $3, $4, $5, $6)
+        INSERT INTO vendas.conversas (numero, historico, estagio, status)
+        VALUES ($1, $2::jsonb, $3, $4)
         ON CONFLICT (numero) DO UPDATE
         SET historico = EXCLUDED.historico,
             estagio = EXCLUDED.estagio,
             status = EXCLUDED.status,
-            empresa_id = COALESCE(EXCLUDED.empresa_id, vendas.conversas.empresa_id),
-            evolution_instance = COALESCE(EXCLUDED.evolution_instance, vendas.conversas.evolution_instance),
             atualizado_em = NOW()
         `,
-        [numero, jsonText, estagio, status, empresaId, evolutionInstance]
+        [numero, jsonText, estagioNorm, status]
       )
     } else {
       await pool.query(
         `
-        INSERT INTO vendas.conversas (numero, historico, estagio, status, agente_pausado, empresa_id, evolution_instance)
-        VALUES ($1, $2::jsonb, $3, $4, $5, $6, $7)
+        INSERT INTO vendas.conversas (numero, historico, estagio, status, agente_pausado)
+        VALUES ($1, $2::jsonb, $3, $4, $5)
         ON CONFLICT (numero) DO UPDATE
         SET historico = EXCLUDED.historico,
             estagio = EXCLUDED.estagio,
             status = EXCLUDED.status,
             agente_pausado = EXCLUDED.agente_pausado,
-            empresa_id = COALESCE(EXCLUDED.empresa_id, vendas.conversas.empresa_id),
-            evolution_instance = COALESCE(EXCLUDED.evolution_instance, vendas.conversas.evolution_instance),
             atualizado_em = NOW()
         `,
-        [numero, jsonText, estagio, status, agentePausado, empresaId, evolutionInstance]
+        [numero, jsonText, estagioNorm, status, agentePausado]
       )
     }
   }
@@ -272,7 +282,16 @@ function createDbCrud({ pool, logger, serializeError }) {
   }
 
   function filtrarCamposLeadProfile(dados) {
-    const schema = validarAtualizarPerfilLead(dados, LEAD_PROFILE_CAMPOS_PERMITIDOS)
+    // O servico do lead e usado em memoria pela IA/agent como servico_principal/
+    // servico_foco/necessidade, mas NAO existe coluna com esses nomes — a coluna
+    // real e produto_sugerido. Sem traduzir, a whitelist descartava o servico e
+    // ele nunca persistia. Traduz aqui quando produto_sugerido ainda nao veio.
+    const entrada = dados && typeof dados === 'object' && !Array.isArray(dados) ? dados : {}
+    const servicoLogico = entrada.servico_principal || entrada.servico_foco || entrada.necessidade
+    const dadosNorm = servicoLogico && entrada.produto_sugerido == null
+      ? { ...entrada, produto_sugerido: servicoLogico }
+      : entrada
+    const schema = validarAtualizarPerfilLead(dadosNorm, LEAD_PROFILE_CAMPOS_PERMITIDOS)
     if (!schema.value || typeof schema.value !== 'object') return {}
     const out = {}
     for (const [k, v] of Object.entries(schema.value)) {
@@ -292,6 +311,11 @@ function createDbCrud({ pool, logger, serializeError }) {
         if (typeof v === 'boolean') out[k] = v
         continue
       }
+      // null/undefined/'' em atualizar_perfil = "sem alteração" → NÃO grava. Evita
+      // clobber: com Structured Outputs a IA emite TODOS os escalares a cada turno
+      // (null quando não tem novidade); gravar esses nulls zerava negocio/cidade/etc.
+      // já capturados. Para limpar um campo de propósito use uma rotina dedicada.
+      if (v == null || v === '') continue
       out[k] = v
     }
     return out
@@ -317,8 +341,16 @@ function createDbCrud({ pool, logger, serializeError }) {
       patchColetados[k] = agora
     }
 
-    const sets = campos.map((k, i) => `${k} = $${i + 2}`).join(', ')
-    const valores = campos.map((k) => d[k])
+    const sets = campos.map((k, i) => {
+      if (LEAD_PROFILE_CAMPOS_JSON_MERGE.has(k)) {
+        // merge aditivo: preserva chaves já gravadas por outros writers no mesmo lead
+        return `${k} = COALESCE(vendas.lead_profiles.${k}, '{}'::jsonb) || $${i + 2}::jsonb`
+      }
+      return `${k} = $${i + 2}`
+    }).join(', ')
+    const valores = campos.map((k) =>
+      LEAD_PROFILE_CAMPOS_JSON_MERGE.has(k) ? JSON.stringify(d[k]) : d[k]
+    )
 
     await pool.query(
       `
@@ -383,7 +415,7 @@ function createDbCrud({ pool, logger, serializeError }) {
   }
 
   async function registrarEventoComercial(numero, tipo, detalhe = {}, origem = 'sistema') {
-    const tipos = new Set(['pediu_preco', 'recebeu_proposta', 'respondeu_followup', 'recebeu_preview'])
+    const tipos = new Set(['pediu_preco', 'recebeu_proposta', 'respondeu_followup', 'recebeu_preview', 'auto_reply_detectado'])
     if (!tipos.has(tipo)) return false
     const org = origem === 'operador' ? 'operador' : 'sistema'
     let json = '{}'

@@ -6,6 +6,8 @@ const { logger } = require('./logger')
 const { enviarMensagem } = require('./whatsapp')
 const {
   REUNIAO_PROPOSTA_HORARIOS_PADRAO,
+  horariosPadraoParaWeekday,
+  diaAtendeReuniao,
   TIMEZONE,
   adicionarMinutos,
   formatarHoraSaoPaulo,
@@ -21,6 +23,23 @@ const STATUS_OCUPA_HORARIO = new Set(['pendente', 'confirmado', 'bloqueado'])
 const PRIORIDADES = new Set(['baixa', 'normal', 'media', 'alta', 'urgente'])
 const RECORRENCIAS = new Set(['nenhuma', 'diaria', 'semanal', 'mensal'])
 const LEMBRETE_15_MIN_MS = 15 * 60 * 1000
+
+// Buffer (minutos) exigido ENTRE reuniões: se uma estender, não atropela a próxima.
+// Configurável por REUNIAO_BUFFER_MIN (default 30). Aplicado expandindo a janela do
+// horário candidato ao checar conflito — a reunião gravada continua com a duração real.
+const REUNIAO_BUFFER_MINUTOS = (() => {
+  const n = parseInt(process.env.REUNIAO_BUFFER_MIN, 10)
+  return Number.isFinite(n) && n >= 0 ? n : 30
+})()
+
+// Expande [inicio, fim] pelo buffer dos dois lados (garante folga antes E depois).
+function janelaComBufferReuniao(inicio, fim, bufferMin = REUNIAO_BUFFER_MINUTOS) {
+  const ms = Math.max(0, bufferMin) * 60 * 1000
+  return {
+    inicio: new Date(new Date(inicio).getTime() - ms),
+    fim: new Date(new Date(fim).getTime() + ms),
+  }
+}
 
 function jsonErro(res, status, erro, detalhe) {
   const body = { ok: false, erro }
@@ -192,6 +211,8 @@ function mapEvento(row, agora = new Date()) {
     criado_em: row.criado_em instanceof Date ? row.criado_em.toISOString() : row.criado_em,
     atualizado_em: row.atualizado_em instanceof Date ? row.atualizado_em.toISOString() : row.atualizado_em,
     concluido_em: row.concluido_em instanceof Date ? row.concluido_em.toISOString() : row.concluido_em,
+    venda_fechada: row.conversa_venda_fechada === true,
+    venda_valor: row.conversa_venda_valor != null ? Number(row.conversa_venda_valor) : null,
   }
 }
 
@@ -417,7 +438,11 @@ async function criarEventoAgenda({
   const duplicado = await buscarEventoAgendaDuplicado(values, uid, origem)
   if (duplicado) return duplicado
   if (values.tipo !== 'bloqueio') {
-    const ocupado = await existeConflitoAgenda(values.data_inicio, values.data_fim, uid)
+    // Reunião respeita o buffer (folga p/ não atropelar a próxima); outros tipos, exato.
+    const janela = values.tipo === 'reuniao'
+      ? janelaComBufferReuniao(values.data_inicio, values.data_fim)
+      : { inicio: values.data_inicio, fim: values.data_fim }
+    const ocupado = await existeConflitoAgenda(janela.inicio, janela.fim, uid)
     if (ocupado) return null
   }
   const row = await inserirEvento(values, uid, null, origem)
@@ -452,7 +477,7 @@ async function buscarEventoComVinculos(id, usuarioId, role = 'admin') {
     scope = ` AND e.usuario_id = $2`
   }
   const { rows } = await pool.query(
-    `SELECT e.*, c.numero AS conversa_numero, c.venda_fechada AS conversa_venda_fechada, lp.numero AS lead_numero
+    `SELECT e.*, c.numero AS conversa_numero, c.venda_fechada AS conversa_venda_fechada, c.venda_valor AS conversa_venda_valor, lp.numero AS lead_numero
      FROM vendas.agenda_eventos e
      LEFT JOIN vendas.conversas c ON c.id = e.conversa_id
      LEFT JOIN vendas.lead_profiles lp ON lp.id = e.lead_id
@@ -513,10 +538,18 @@ function horarioReuniaoLabel(row) {
   return formatarHoraSaoPaulo(row?.data_inicio) || '--:--'
 }
 
-function gerarMensagemLembreteReuniao(evento, lead = {}) {
+function gerarMensagemLembreteReuniao(evento, lead = {}, tipo = '15min') {
   const nome = normalizarTexto(lead.apelido || lead.nome || lead.negocio || lead.empresa, 80)
-  const saudacao = nome ? `Oi, ${nome}, tudo bem?` : 'Oi, tudo bem?'
   const hora = horarioReuniaoLabel(evento)
+  if (tipo === 'dia') {
+    const saudacao = nome ? `Oi, ${nome}, bom dia! 😊` : 'Bom dia! 😊'
+    return `${saudacao} Hoje às ${hora} temos nossa conversa rápida com a equipe da PJ Codeworks. Posso confirmar seu horário? Responde *sim* que já garanto. 🙌`
+  }
+  if (tipo === 'agora') {
+    const saudacao = nome ? `${nome}, chegou a hora! 🙌` : 'Chegou a hora! 🙌'
+    return `${saudacao} Nossa conversa rápida com a equipe da PJ Codeworks é agora (${hora}). Já estou te aguardando por aqui!`
+  }
+  const saudacao = nome ? `Oi, ${nome}, tudo bem?` : 'Oi, tudo bem?'
   return `${saudacao} Lembrete rápido: nossa reunião com a equipe da PJ Codeworks está marcada para hoje às ${hora}.\n\nA ideia é te mostrar a estrutura recomendada, prazo e investimento em até 15 minutos. Continua disponível nesse horário?`
 }
 
@@ -569,21 +602,15 @@ async function cancelarLembretesEvento(eventoId, motivo = 'evento_alterado') {
   return rows.length
 }
 
-async function agendarLembretesReuniao(eventoId) {
-  const row = await buscarEventoComVinculos(eventoId, null, 'admin')
-  if (!row || row.tipo !== 'reuniao' || row.excluido_em) return null
-  if (!['pendente', 'confirmado'].includes(row.status)) return null
-  if (row.conversa_venda_fechada === true) return null
-  if (row.reagendado_para_evento_id) return null
-  const numero = numeroDoEvento(row)
-  if (!numero) return null
-  const inicio = row.data_inicio instanceof Date ? row.data_inicio : new Date(row.data_inicio)
-  const enviarEm = adicionarMinutos(inicio, -15)
-  if (Number.isNaN(enviarEm.getTime()) || enviarEm <= new Date()) return null
+// Insere/atualiza um lembrete de UM tipo da reunião e enfileira o job de envio.
+// Idempotente por (evento_id, tipo); preserva o que já foi 'enviado' (não re-envia).
+async function inserirLembreteReuniao(row, tipo, enviarEm) {
+  const quando = enviarEm instanceof Date ? enviarEm : new Date(enviarEm)
+  if (Number.isNaN(quando.getTime())) return null
   const { rows } = await pool.query(
     `INSERT INTO vendas.agenda_lembretes
        (evento_id, lead_id, conversa_id, tipo, enviar_em, status, canal)
-     VALUES ($1,$2,$3,'15min',$4,'pendente','whatsapp')
+     VALUES ($1,$2,$3,$4,$5,'pendente','whatsapp')
      ON CONFLICT (evento_id, tipo) WHERE tipo <> 'manual'
      DO UPDATE SET
        lead_id = EXCLUDED.lead_id,
@@ -593,11 +620,85 @@ async function agendarLembretesReuniao(eventoId) {
        erro = NULL,
        atualizado_em = NOW()
      RETURNING *`,
-    [row.id, row.lead_id || null, row.conversa_id || null, enviarEm]
+    [row.id, row.lead_id || null, row.conversa_id || null, tipo, quando]
   )
   const lembrete = rows[0]
   if (lembrete?.status === 'pendente') await enfileirarJobLembreteReuniao(lembrete.id, lembrete.enviar_em)
   return lembrete || null
+}
+
+function reuniaoElegivelLembrete(row) {
+  if (!row || row.tipo !== 'reuniao' || row.excluido_em) return false
+  if (!['pendente', 'confirmado'].includes(row.status)) return false
+  if (row.conversa_venda_fechada === true) return false
+  if (row.reagendado_para_evento_id) return false
+  return Boolean(numeroDoEvento(row))
+}
+
+// Lembretes de tempo criados ao agendar a reunião: 15 min antes + na hora.
+async function agendarLembretesReuniao(eventoId) {
+  const row = await buscarEventoComVinculos(eventoId, null, 'admin')
+  if (!reuniaoElegivelLembrete(row)) return null
+  const inicio = row.data_inicio instanceof Date ? row.data_inicio : new Date(row.data_inicio)
+  if (Number.isNaN(inicio.getTime())) return null
+  const agora = new Date()
+  let principal = null
+  const em15 = adicionarMinutos(inicio, -15)
+  if (em15 > agora) principal = await inserirLembreteReuniao(row, '15min', em15)
+  if (inicio > agora) {
+    const lAgora = await inserirLembreteReuniao(row, 'agora', inicio)
+    principal = principal || lAgora
+  }
+  return principal
+}
+
+// Lembrete da MANHÃ do dia (tipo 'dia'): "hoje temos nossa reunião às X".
+// Coexiste com o de 15 min (constraint unique por evento+tipo). Idempotente.
+async function criarLembreteManhaReuniao(eventoId) {
+  const row = await buscarEventoComVinculos(eventoId, null, 'admin')
+  if (!reuniaoElegivelLembrete(row)) return null
+  const inicio = row.data_inicio instanceof Date ? row.data_inicio : new Date(row.data_inicio)
+  const agora = new Date()
+  // Lembrete da manhã (envia agora). Garante também os de tempo (15 min/na hora) —
+  // backfill p/ reuniões criadas antes desses lembretes existirem (idempotente).
+  const dia = await inserirLembreteReuniao(row, 'dia', agora)
+  if (!Number.isNaN(inicio.getTime())) {
+    const em15 = adicionarMinutos(inicio, -15)
+    if (em15 > agora) await inserirLembreteReuniao(row, '15min', em15)
+    if (inicio > agora) await inserirLembreteReuniao(row, 'agora', inicio)
+  }
+  return dia
+}
+
+// Enfileira os lembretes da manhã (a partir das 08:00 BRT, com catch-up até 12:00 —
+// sobrevive a reinício/queda do worker no início da manhã) para as reuniões de HOJE
+// ainda no futuro, que ainda nao tem lembrete 'dia'. Chamado pelo tick do worker.
+async function verificarLembretesManhaReuniao(now = new Date()) {
+  try {
+    const p = partesDataBrasil(now)
+    const minutos = p.hour * 60 + p.minute
+    if (minutos < 8 * 60 || minutos > 12 * 60) return { enfileirados: 0 }
+    const dataIso = isoDateBrasil(now)
+    const { rows } = await pool.query(
+      `SELECT e.id
+       FROM vendas.agenda_eventos e
+       WHERE e.tipo = 'reuniao' AND e.excluido_em IS NULL
+         AND e.status IN ('pendente', 'confirmado')
+         AND (e.data_inicio AT TIME ZONE $2)::date = $1::date
+         AND e.data_inicio > NOW()
+         AND NOT EXISTS (SELECT 1 FROM vendas.agenda_lembretes l WHERE l.evento_id = e.id AND l.tipo = 'dia')`,
+      [dataIso, TIMEZONE]
+    )
+    let n = 0
+    for (const r of rows) {
+      const lembrete = await criarLembreteManhaReuniao(r.id)
+      if (lembrete) n += 1
+    }
+    return { enfileirados: n }
+  } catch (e) {
+    logger.warn('verificarLembretesManhaReuniao:', e.message)
+    return { enfileirados: 0 }
+  }
 }
 
 async function registrarHistoricoLembrete(row, mensagem) {
@@ -634,9 +735,7 @@ async function enviarLembreteReuniao(lembreteId, { manual = false, enviarMensage
   const { rows } = await pool.query(
     `SELECT l.*, l.status AS lembrete_status, l.tipo AS lembrete_tipo,
             e.*, e.status AS evento_status, e.tipo AS evento_tipo,
-            c.numero AS conversa_numero, c.venda_fechada AS conversa_venda_fechada,
-            c.evolution_instance AS conversa_evolution_instance,
-            lp.numero AS lead_numero,
+            c.numero AS conversa_numero, c.venda_fechada AS conversa_venda_fechada, lp.numero AS lead_numero,
             lp.apelido, lp.negocio, NULL::text AS nome, lp.contexto_prospeccao
      FROM vendas.agenda_lembretes l
      JOIN vendas.agenda_eventos e ON e.id = l.evento_id
@@ -662,9 +761,9 @@ async function enviarLembreteReuniao(lembreteId, { manual = false, enviarMensage
     await pool.query(`UPDATE vendas.agenda_lembretes SET status = 'falhou', erro = 'sem_numero', atualizado_em = NOW() WHERE id = $1`, [lembreteId])
     throw erroLembrete('lead_sem_telefone', 'Nao foi possivel enviar lembrete: lead sem telefone valido.')
   }
-  const mensagem = gerarMensagemLembreteReuniao(row, row)
+  const mensagem = gerarMensagemLembreteReuniao(row, row, row.lembrete_tipo)
   try {
-    await enviarMensagemFn(numero, mensagem, row.conversa_evolution_instance || null)
+    await enviarMensagemFn(numero, mensagem)
     await registrarHistoricoLembrete(row, mensagem)
     await pool.query(
       `UPDATE vendas.agenda_lembretes
@@ -692,17 +791,50 @@ async function processarLembreteReuniaoJob(job) {
   return enviarLembreteReuniao(id)
 }
 
-function classificarRespostaLembrete(texto) {
+// Classifica, via IA, a resposta do lead a um LEMBRETE de reuni\u00e3o j\u00e1 agendada: confirma
+// presen\u00e7a, pede para remarcar, ou outro. Substitui o antigo match por palavra-chave, que
+// dava falso positivo (ex.: "amanh\u00e3 te mando a foto" virava pedido de remarca\u00e7\u00e3o). Em
+// QUALQUER falha/timeout/JSON inv\u00e1lido retorna null (nenhuma a\u00e7\u00e3o) \u2014 nunca arrisca uma
+// remarca\u00e7\u00e3o ou confirma\u00e7\u00e3o erradas. Injet\u00e1vel via deps.aiProvider para teste.
+async function classificarRespostaLembreteIA(texto, deps = {}) {
   const raw = String(texto || '').trim()
   if (!raw) return null
-  const normalizado = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  if (/(nao posso|nao vou conseguir|remarcar|remarca|outro horario|outro dia|preciso reagendar|preciso remarcar|mais tarde|amanha)/i.test(normalizado)) {
-    return 'reagendamento_pendente'
+  const ai = deps.aiProvider || require('./ai-provider')
+  if (!ai || typeof ai.generateAIResponse !== 'function') return null
+  const systemPrompt =
+    'Voce classifica a resposta de um lead a um LEMBRETE de uma reuniao JA agendada. ' +
+    'Considere apenas a intencao sobre comparecer a essa reuniao. Responda SOMENTE um JSON ' +
+    '{"intencao":"confirma|remarcar|outro"}. ' +
+    'confirma = o lead diz que vai comparecer / esta disponivel / confirma o horario. ' +
+    'remarcar = o lead nao consegue nesse horario e quer outro dia/horario, ou pede para adiar. ' +
+    'outro = qualquer outra coisa (duvida, comentario solto, assunto nao relacionado). ' +
+    'Na duvida, responda outro.'
+  const userPrompt = `Resposta do lead: "${raw.slice(0, 400)}"`
+  try {
+    const r = await ai.generateAIResponse(
+      {
+        systemPrompt,
+        userPrompt,
+        task: 'classificar_resposta_lembrete',
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        temperature: 0,
+        maxTokens: 30,
+        timeoutMs: 12000,
+        responseFormatJson: true,
+      },
+      pool,
+      null
+    )
+    const txt = String(r?.text || '').trim().replace(/^```json\s*/i, '').replace(/^```/i, '').replace(/```$/i, '').trim()
+    const intent = String(JSON.parse(txt)?.intencao || '').toLowerCase()
+    if (intent === 'confirma') return 'reuniao_confirmada'
+    if (intent === 'remarcar') return 'reagendamento_pendente'
+    return null
+  } catch (e) {
+    logger.warn('classificarRespostaLembreteIA falhou (sem acao):', e.message)
+    return null
   }
-  if (/\b(sim|confirmado|confirmo|ok|combinado|estarei)\b|estou disponivel|posso sim|vou participar|pode ser/i.test(normalizado)) {
-    return 'reuniao_confirmada'
-  }
-  return null
 }
 
 async function registrarHistoricoRespostaLembrete(numero, eventoId, tipo, texto) {
@@ -743,7 +875,7 @@ async function registrarSugestaoReagendamentoLembrete(row, enviarMensagemFn = en
   const dataLabel = slots.data_label || 'em outro horario'
   const opcoes = horarios.length === 1 ? horarios[0] : `${horarios[0]} ou ${horarios[1]}`
   const mensagem = `Sem problema, a gente remarca. Tenho ${dataLabel} às ${opcoes} com a equipe da PJ Codeworks. Qual desses horários fica melhor pra você?`
-  await enviarMensagemFn(numero, mensagem, row?.conversa_evolution_instance || null)
+  await enviarMensagemFn(numero, mensagem)
   await pool.query(
     `UPDATE vendas.conversas
      SET historico = (
@@ -766,7 +898,9 @@ async function registrarSugestaoReagendamentoLembrete(row, enviarMensagemFn = en
 }
 
 async function registrarRespostaLembreteReuniao(numero, texto, opts = {}) {
-  const tipoResposta = classificarRespostaLembrete(texto)
+  // Classificação por IA (default); injetável via opts.classificar para teste determinístico.
+  const classificar = typeof opts.classificar === 'function' ? opts.classificar : classificarRespostaLembreteIA
+  const tipoResposta = await classificar(texto, opts)
   const jid = String(numero || '').trim()
   if (!tipoResposta || !jid) return null
   const { rows } = await pool.query(
@@ -1167,6 +1301,32 @@ function registerAgendaRoutes(app) {
     }
   })
 
+  // Marca a venda do lead da reunião (venda_fechada + valor) — alimenta o evento Purchase
+  // da Meta (quando ligado) e a métrica de fechamento.
+  app.patch('/dashboard/agenda/:id/vendido', async (req, res) => {
+    try {
+      const id = normalizarIdOpcional(req.params.id)
+      if (!id) return jsonErro(res, 400, 'ID invalido')
+      const atual = await buscarEventoDoUsuario(id, req.dashboardUser.id, req.dashboardUser.role)
+      if (!atual) return jsonErro(res, 404, 'Evento nao encontrado')
+      const valor = Number(req.body?.valor)
+      if (!Number.isFinite(valor) || valor <= 0) return jsonErro(res, 400, 'Informe um valor de venda valido (> 0)')
+      const numero = numeroDoEvento(atual)
+      if (!numero) return jsonErro(res, 422, 'Reuniao sem lead vinculado')
+      const { rowCount } = await pool.query(
+        `UPDATE vendas.conversas
+         SET venda_fechada = true, venda_valor = $2, atualizado_em = NOW()
+         WHERE regexp_replace(numero, '\\D', '', 'g') = regexp_replace($1, '\\D', '', 'g')`,
+        [numero, valor]
+      )
+      if (!rowCount) return jsonErro(res, 404, 'Conversa do lead nao encontrada')
+      res.json({ ok: true, venda_valor: valor })
+    } catch (err) {
+      logger.error('PATCH /dashboard/agenda/:id/vendido:', err.message)
+      jsonErro(res, 500, 'Falha ao registrar venda')
+    }
+  })
+
   app.patch('/dashboard/agenda/:id/reagendar', async (req, res) => {
     try {
       const id = normalizarIdOpcional(req.params.id)
@@ -1410,96 +1570,360 @@ async function slotEstaOcupado(dataInicio, dataFim, usuarioId = null) {
   }
 }
 
+// Consulta os eventos que ocupam horario num dia (iso AAAA-MM-DD), com RETRY.
+// Um blip transitorio de conexao fazia o bot dizer "agenda indisponivel" mesmo
+// com a agenda vazia; 1 retry curto elimina esse falso negativo.
+async function eventosDoDia(iso, uid, tentativas = 2) {
+  const params = [iso, TIMEZONE, Array.from(STATUS_OCUPA_HORARIO)]
+  if (uid) params.push(uid)
+  const sql =
+    `SELECT data_inicio, data_fim FROM vendas.agenda_eventos
+     WHERE excluido_em IS NULL
+       AND status = ANY($3::text[])
+       AND data_inicio < (($1::date::timestamp + INTERVAL '1 day') AT TIME ZONE $2)
+       AND data_fim > ($1::date::timestamp AT TIME ZONE $2)
+       ${uid ? 'AND usuario_id = $4' : ''}`
+  let ultimoErro = null
+  for (let i = 0; i < Math.max(1, tentativas); i += 1) {
+    try {
+      const { rows } = await pool.query(sql, params)
+      return { rows }
+    } catch (e) {
+      ultimoErro = e
+      if (i < tentativas - 1) await new Promise((r) => setTimeout(r, 150))
+    }
+  }
+  logger.error('[AGENDA] falha ao consultar disponibilidade real (apos retry); nenhum horario sera oferecido', {
+    erro: ultimoErro && ultimoErro.message ? ultimoErro.message : String(ultimoErro),
+  })
+  return { erro: true }
+}
+
+// Dado os eventos de um dia, retorna os labels de horario padrao que estao livres.
+function slotsLivresDoDia(iso, candidatos, eventos, duracaoMinutos = 15) {
+  const [year, month, day] = String(iso).split('-').map(Number)
+  return candidatos.filter((slotLabel) => {
+    const [hh, mm] = slotLabel.split(':').map(Number)
+    const slotInicio = utcParaDataLocalEmTimezone({ year, month, day, hour: hh, minute: mm }, TIMEZONE)
+    const slotFim = new Date(slotInicio.getTime() + duracaoMinutos * 60 * 1000)
+    // Buffer entre reuniões: o candidato precisa de folga antes E depois de eventos.
+    const { inicio: ci, fim: cf } = janelaComBufferReuniao(slotInicio, slotFim)
+    return !eventos.some((ev) => temConflito(ci, cf, new Date(ev.data_inicio), new Date(ev.data_fim)))
+  })
+}
+
+// Antecedencia minima para uma reuniao no MESMO dia (minutos). Antes havia um
+// portao de 18:30 que escondia os horarios de hoje a tarde inteira — o bot
+// pulava para "amanha" mesmo com 19:30-21:15 livres hoje. Agora hoje e ofertado
+// sempre que houver slot com pelo menos esta antecedencia.
+const ANTECEDENCIA_MESMO_DIA_MIN = 60
+
+// Monta a lista de dias candidatos (hoje, se util e ainda houver slot com
+// antecedencia, + proximos dias uteis) ate atingir `quantidadeDias`.
+// Compartilhado por buscarSlotsDisponiveis e buscarDisponibilidadeSemana.
+function montarDiasCandidatos(agora, quantidadeDias, incluirHoje = true) {
+  const DIAS_PT = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']
+  const p = partesDataBrasil(agora)
+  const minAtual = p.hour * 60 + p.minute
+  const dias = []
+  if (incluirHoje && diaAtendeReuniao(p.weekday)) {
+    const hojeSlots = horariosPadraoParaWeekday(p.weekday).filter((h) => {
+      const [hh, mm] = h.split(':').map(Number)
+      return hh * 60 + mm >= minAtual + ANTECEDENCIA_MESMO_DIA_MIN
+    })
+    if (hojeSlots.length > 0) dias.push({ iso: isoDateBrasil(agora), label: 'hoje', candidatos: hojeSlots })
+  }
+  let cursor = new Date(agora)
+  let primeiroDia = true
+  while (dias.length < quantidadeDias) {
+    cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000)
+    const pd = partesDataBrasil(cursor)
+    if (diaAtendeReuniao(pd.weekday)) {
+      const iso = isoDateBrasil(cursor)
+      const label = primeiroDia && dias.length === 0 ? 'amanha' : DIAS_PT[pd.weekday]
+      primeiroDia = false
+      dias.push({ iso, label, candidatos: horariosPadraoParaWeekday(pd.weekday) })
+    }
+  }
+  return dias
+}
+
+/**
+ * Disponibilidade da semana: horarios livres POR DIA nos proximos `dias` dias
+ * uteis, dentro da janela 19:30–21:15 (America/Sao_Paulo). A IA usa isso para
+ * oferecer qualquer dia/horario com flexibilidade; o codigo valida a escolha
+ * ao vivo antes de agendar (validarSlotReuniao).
+ * @returns {Promise<{ janela:{inicio:string,fim:string}, dias: Array<{data:string,data_br:string,label:string,horarios:string[]}> }>}
+ */
+async function buscarDisponibilidadeSemana({ dataInicial = new Date(), duracaoMinutos = 15, dias = 7, usuarioId = null, maxPorDia = 8 } = {}) {
+  const agora = dataInicial instanceof Date ? dataInicial : new Date(dataInicial)
+  const uid = Number(usuarioId) > 0 ? Number(usuarioId) : null
+  const candidatos = montarDiasCandidatos(agora, dias, true)
+  const out = []
+  for (const dia of candidatos) {
+    const ev = await eventosDoDia(dia.iso, uid)
+    if (ev.erro) continue
+    const livres = slotsLivresDoDia(dia.iso, dia.candidatos, ev.rows, duracaoMinutos).slice(0, maxPorDia)
+    if (livres.length > 0) {
+      // data_br (DD/MM) pronto para a IA mostrar o dia concreto ao cliente,
+      // alem do label (hoje/amanha/<dia da semana>) e da data ISO p/ booking.
+      const data_br = `${dia.iso.slice(8, 10)}/${dia.iso.slice(5, 7)}`
+      out.push({ data: dia.iso, data_br, label: dia.label, horarios: livres })
+    }
+  }
+  const padr = REUNIAO_PROPOSTA_HORARIOS_PADRAO
+  return { janela: { inicio: padr[0], fim: padr[padr.length - 1] }, dias: out }
+}
+
+/**
+ * Valida AO VIVO uma escolha de reuniao { data:'AAAA-MM-DD', horario:'HH:MM' }:
+ * precisa ser um slot da janela padrao, em dia util, e estar livre na agenda.
+ * Usado no booking antes de criar o evento (guardrail: a IA pode oferecer
+ * qualquer dia, mas o codigo so agenda horario real e disponivel).
+ */
+async function validarSlotReuniao({ data, horario, duracaoMinutos = 15, usuarioId = null } = {}) {
+  const d = String(data || '').trim()
+  let h = String(horario || '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !/^\d{1,2}:\d{2}$/.test(h)) return false
+  if (h.length === 4) h = `0${h}`
+  const [year, month, day] = d.split('-').map(Number)
+  const wd = partesDataBrasil(utcParaDataLocalEmTimezone({ year, month, day, hour: 12, minute: 0 }, TIMEZONE)).weekday
+  if (!diaAtendeReuniao(wd)) return false
+  // O horário precisa ser um slot válido DAQUELE dia (noite nos úteis, dia no sábado).
+  if (!horariosPadraoParaWeekday(wd).includes(h)) return false
+  const [hh, mm] = h.split(':').map(Number)
+  const slotInicio = utcParaDataLocalEmTimezone({ year, month, day, hour: hh, minute: mm }, TIMEZONE)
+  const slotFim = new Date(slotInicio.getTime() + duracaoMinutos * 60 * 1000)
+  // Buffer entre reuniões: valida com folga antes/depois (não só sobreposição exata).
+  const { inicio: ci, fim: cf } = janelaComBufferReuniao(slotInicio, slotFim)
+  const ocupado = await slotEstaOcupado(ci, cf, usuarioId)
+  return !ocupado
+}
+
 /**
  * Consulta a agenda e retorna os próximos slots livres para reunião de proposta.
  * Respeita a janela comercial (19:30–21:15) em dias úteis, timezone America/Sao_Paulo.
  * Retorna objeto no mesmo formato de sugestaoReuniaoProposta:
  *   { data_sugerida, data_label, horarios_sugeridos }
  */
-async function buscarSlotsDisponiveis({ dataInicial = new Date(), duracaoMinutos = 15, quantidade = 2, usuarioId = null } = {}) {
-  const DIAS_PT = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']
+async function buscarSlotsDisponiveis({ dataInicial = new Date(), duracaoMinutos = 15, quantidade = 2, usuarioId = null, incluirHoje = true } = {}) {
   const agora = dataInicial instanceof Date ? dataInicial : new Date(dataInicial)
-  const p = partesDataBrasil(agora)
-  const minAtual = p.hour * 60 + p.minute
-  const diaUtil = p.weekday >= 1 && p.weekday <= 5
-  const minMesmoDia = 18 * 60 + 30 // 18:30 — a partir daqui pode oferecer hoje
-
   const uid = Number(usuarioId) > 0 ? Number(usuarioId) : null
-
-  // Monta lista de dias candidatos (até 7 dias úteis à frente)
-  const diasParaVerificar = []
-
-  if (diaUtil && minAtual >= minMesmoDia) {
-    const hojeSlots = REUNIAO_PROPOSTA_HORARIOS_PADRAO.filter((h) => {
-      const [hh, mm] = h.split(':').map(Number)
-      return hh * 60 + mm >= minAtual + 15
-    })
-    if (hojeSlots.length > 0) {
-      diasParaVerificar.push({ iso: isoDateBrasil(agora), label: 'hoje', candidatos: hojeSlots })
-    }
-  }
-
-  let cursor = new Date(agora)
-  let primeiroDiaUtil = true
-  while (diasParaVerificar.length < 7) {
-    cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000)
-    const pd = partesDataBrasil(cursor)
-    if (pd.weekday >= 1 && pd.weekday <= 5) {
-      const iso = isoDateBrasil(cursor)
-      const label = primeiroDiaUtil && diasParaVerificar.length === 0 ? 'amanha' : DIAS_PT[pd.weekday]
-      primeiroDiaUtil = false
-      diasParaVerificar.push({ iso, label, candidatos: REUNIAO_PROPOSTA_HORARIOS_PADRAO.slice() })
-    }
-  }
+  // incluirHoje=false: o lead pediu OUTRO dia (ex.: "so amanha"); pula o bloco de
+  // hoje. Monta ate 7 dias uteis a frente (compartilhado com a disponibilidade).
+  const diasParaVerificar = montarDiasCandidatos(agora, 7, incluirHoje)
 
   for (const dia of diasParaVerificar) {
-    const [year, month, day] = dia.iso.split('-').map(Number)
-    let eventos = []
-    try {
-      const params = [dia.iso, TIMEZONE, Array.from(STATUS_OCUPA_HORARIO)]
-      if (uid) params.push(uid)
-      const { rows } = await pool.query(
-        `SELECT data_inicio, data_fim FROM vendas.agenda_eventos
-         WHERE excluido_em IS NULL
-           AND status = ANY($3::text[])
-           AND data_inicio < (($1::date::timestamp + INTERVAL '1 day') AT TIME ZONE $2)
-           AND data_fim > ($1::date::timestamp AT TIME ZONE $2)
-           ${uid ? 'AND usuario_id = $4' : ''}`,
-        params
-      )
-      eventos = rows
-    } catch {
-      // Em falha de BD, retorna candidatos sem filtrar (melhor do que travar o fluxo)
-      return { data_sugerida: dia.iso, data_label: dia.label, horarios_sugeridos: dia.candidatos.slice(0, quantidade) }
+    const ev = await eventosDoDia(dia.iso, uid)
+    if (ev.erro) {
+      // Em falha de BD (apos retry), nao oferece horarios sem validar a agenda real.
+      return {
+        data_sugerida: null,
+        data_label: null,
+        horarios_sugeridos: [],
+        erro: 'agenda_indisponivel',
+      }
     }
-
-    const livres = dia.candidatos.filter((slotLabel) => {
-      const [hh, mm] = slotLabel.split(':').map(Number)
-      const slotInicio = utcParaDataLocalEmTimezone({ year, month, day, hour: hh, minute: mm }, TIMEZONE)
-      const slotFim = new Date(slotInicio.getTime() + duracaoMinutos * 60 * 1000)
-      return !eventos.some((ev) => temConflito(slotInicio, slotFim, new Date(ev.data_inicio), new Date(ev.data_fim)))
-    })
-
+    const livres = slotsLivresDoDia(dia.iso, dia.candidatos, ev.rows, duracaoMinutos)
     if (livres.length > 0) {
       return { data_sugerida: dia.iso, data_label: dia.label, horarios_sugeridos: livres.slice(0, quantidade) }
     }
   }
 
-  // Fallback absoluto (não deve ocorrer em condições normais)
-  const fb = diasParaVerificar[0] || { iso: isoDateBrasil(agora), label: 'amanha' }
-  return { data_sugerida: fb.iso, data_label: fb.label, horarios_sugeridos: REUNIAO_PROPOSTA_HORARIOS_PADRAO.slice(0, quantidade) }
+  // Sem vagas livres: nao inventa horarios.
+  return {
+    data_sugerida: null,
+    data_label: null,
+    horarios_sugeridos: [],
+    erro: 'sem_slots_disponiveis',
+  }
+}
+
+// ─── RESUMO DIÁRIO DA AGENDA (operador) ───────────────────────────────────────
+// Texto com as reuniões do dia para o operador. Sem inventar — lê a agenda real.
+async function montarTextoResumoDiarioAgenda(dataIso) {
+  const iso = parseDateOnly(dataIso) || dataLocal()
+  const { rows } = await pool.query(
+    `SELECT e.data_inicio, e.status, e.titulo,
+            COALESCE(c.numero, lp.numero, e.metadata->>'lead_numero') AS lead
+     FROM vendas.agenda_eventos e
+     LEFT JOIN vendas.conversas c ON c.id = e.conversa_id
+     LEFT JOIN vendas.lead_profiles lp ON lp.id = e.lead_id
+     WHERE e.tipo = 'reuniao' AND e.excluido_em IS NULL
+       AND e.status IN ('pendente', 'confirmado')
+       AND (e.data_inicio AT TIME ZONE $2)::date = $1::date
+     ORDER BY e.data_inicio ASC`,
+    [iso, TIMEZONE]
+  )
+  const dataBr = `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
+  if (!rows.length) {
+    return `📅 Agenda de hoje (${dataBr}) — PJ Codeworks\nNenhuma reunião agendada para hoje.`
+  }
+  const linhas = rows.map((r) => {
+    const hora = formatarHoraSaoPaulo(r.data_inicio) || '--:--'
+    const nome = String(r.titulo || '').replace(/^Reuni[ãa]o[^—-]*[—-]\s*/i, '').trim().slice(0, 48) || (r.lead || '?')
+    const st = r.status === 'confirmado' ? '✅' : '🕒'
+    return `${st} ${hora} — ${nome}`
+  })
+  return `📅 Agenda de hoje (${dataBr}) — ${rows.length} reunião(ões):\n` + linhas.join('\n')
+}
+
+// Move reuniões cuja hora já passou (e seguem 'pendente'/'confirmado' sem desfecho) para
+// 'atrasado'. Sem isso, uma reunião de ontem fica "pendente" pra sempre: a métrica de
+// reunião mistura futuras, realizadas e furadas, e o evento de conclusão (Meta/fechamento)
+// depende de clique manual. 'atrasado' = "passou da hora, aguardando desfecho" — sai do
+// balde de "próximas" e o operador marca concluída/não-compareceu com 1 clique (as rotas
+// de concluir/nao-compareceu não têm trava de status, então seguem funcionando).
+const REUNIAO_GRACE_DESFECHO_MS = 2 * 60 * 60 * 1000 // folga de 2h após o fim
+async function verificarReunioesAtrasadas(now = new Date()) {
+  try {
+    const base = now instanceof Date ? now : new Date(now)
+    const limite = new Date(base.getTime() - REUNIAO_GRACE_DESFECHO_MS)
+    const { rowCount } = await pool.query(
+      `UPDATE vendas.agenda_eventos
+       SET status = 'atrasado', atualizado_em = NOW()
+       WHERE tipo = 'reuniao'
+         AND excluido_em IS NULL
+         AND status IN ('pendente', 'confirmado')
+         AND data_fim < $1`,
+      [limite]
+    )
+    if (rowCount) logger.info('[agenda] reunioes passadas movidas para atrasado (aguardando desfecho):', rowCount)
+    return { atualizadas: rowCount || 0 }
+  } catch (e) {
+    logger.warn('verificarReunioesAtrasadas:', e.message)
+    return { atualizadas: 0 }
+  }
+}
+
+// Texto do ping ao operador quando o lead nao confirmou a reuniao a tempo. Puro
+// (sem IO) para ser testavel sem banco. So o operador recebe — nunca o lead.
+function montarPingNaoConfirmou({ nome, hora, numero } = {}) {
+  const nm = normalizarTexto(nome, 80) || 'O lead'
+  const h = String(hora || '--:--')
+  const phone = String(numero || '').replace(/@s\.whatsapp\.net$/i, '').replace(/\D/g, '')
+  return (
+    `⚠️ ${nm} ainda não confirmou a reunião de hoje às ${h}.\n` +
+    (phone ? `Lead: ${phone}\n` : '') +
+    `Vale dar um toque pra garantir presença.`
+  )
+}
+
+// Faltando até 2h pra reunião e o lead ainda não confirmou nem pediu remarcação
+// (status segue 'pendente') apesar do lembrete já enviado: avisa o operador 1x via
+// WhatsApp pra ele dar um toque manual. Idempotente por metadata.confirmacao_escalada_em
+// (só marca o flag após o ping sair, então retenta no próximo tick se o envio falhar).
+// O notificador é injetado (deps.notificarOperador) — sem ele, no-op.
+const REUNIAO_CONFIRMA_JANELA_MS = 2 * 60 * 60 * 1000 // avisa faltando <= 2h
+async function verificarReunioesNaoConfirmadas(now = new Date(), deps = {}) {
+  const notificar = typeof deps.notificarOperador === 'function' ? deps.notificarOperador : null
+  if (!notificar) return { avisadas: 0 }
+  try {
+    const base = now instanceof Date ? now : new Date(now)
+    const limite = new Date(base.getTime() + REUNIAO_CONFIRMA_JANELA_MS)
+    const { rows } = await pool.query(
+      `SELECT e.id, e.data_inicio,
+              COALESCE(c.numero, lp.numero, e.metadata->>'lead_numero') AS numero,
+              COALESCE(NULLIF(lp.apelido, ''), NULLIF(lp.negocio, '')) AS nome
+       FROM vendas.agenda_eventos e
+       LEFT JOIN vendas.conversas c ON c.id = e.conversa_id
+       LEFT JOIN vendas.lead_profiles lp ON lp.id = e.lead_id
+       WHERE e.tipo = 'reuniao'
+         AND e.excluido_em IS NULL
+         AND e.status = 'pendente'
+         AND e.data_inicio > $1
+         AND e.data_inicio <= $2
+         AND (e.metadata->>'confirmacao_escalada_em') IS NULL
+         AND EXISTS (
+           SELECT 1 FROM vendas.agenda_lembretes l
+           WHERE l.evento_id = e.id AND l.status = 'enviado'
+         )
+       ORDER BY e.data_inicio ASC
+       LIMIT 20`,
+      [base, limite]
+    )
+    let avisadas = 0
+    for (const ev of rows) {
+      const texto = montarPingNaoConfirmou({
+        nome: ev.nome,
+        hora: formatarHoraSaoPaulo(ev.data_inicio) || '--:--',
+        numero: ev.numero,
+      })
+      try {
+        const enviou = await notificar(texto)
+        if (!enviou) continue
+        await pool.query(
+          `UPDATE vendas.agenda_eventos
+           SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('confirmacao_escalada_em', $2::text),
+               atualizado_em = NOW()
+           WHERE id = $1 AND excluido_em IS NULL`,
+          [ev.id, base.toISOString()]
+        )
+        avisadas++
+      } catch (e) {
+        logger.warn('verificarReunioesNaoConfirmadas envio:', e.message)
+      }
+    }
+    if (avisadas) logger.info('[agenda] reunioes nao confirmadas escaladas ao operador:', avisadas)
+    return { avisadas }
+  } catch (e) {
+    logger.warn('verificarReunioesNaoConfirmadas:', e.message)
+    return { avisadas: 0 }
+  }
+}
+
+// Enfileira o resumo diário quando bater 08:00 ou 19:15 (America/Sao_Paulo).
+// Dedupe por dia+slot via job_queue.dedupe_key (idempotente entre ticks/instâncias).
+async function verificarResumoDiarioAgenda(now = new Date()) {
+  try {
+    const p = partesDataBrasil(now)
+    const minutos = p.hour * 60 + p.minute
+    // Catch-up de 120 min por slot (sobrevive a reinício/queda do worker na virada
+    // do horário). Dedupe por dia+slot garante 1 envio. (Antes: janela de 30 min —
+    // perdida quando o worker não ticava exatamente no intervalo.)
+    const SLOTS = [{ key: 'manha', min: 8 * 60 }, { key: 'noite', min: 19 * 60 + 15 }]
+    const CATCHUP_MIN = 120
+    const dataIso = isoDateBrasil(now)
+    for (const s of SLOTS) {
+      if (minutos < s.min || minutos > s.min + CATCHUP_MIN) continue
+      const dedupe = `resumo_agenda_operador:${dataIso}:${s.key}`
+      const { rowCount } = await pool.query(
+        `INSERT INTO vendas.job_queue (tipo, dedupe_key, payload, status, attempts, max_attempts, available_at)
+         VALUES ('resumo_agenda_operador', $1, $2::jsonb, 'pending', 0, 2, NOW())
+         ON CONFLICT (dedupe_key) DO NOTHING`,
+        [dedupe, JSON.stringify({ data: dataIso, slot: s.key })]
+      )
+      if (rowCount > 0) return { enfileirado: true, slot: s.key, data: dataIso }
+    }
+  } catch (e) {
+    logger.warn('verificarResumoDiarioAgenda:', e.message)
+  }
+  return { enfileirado: false }
 }
 
 module.exports = {
   TIMEZONE,
+  REUNIAO_BUFFER_MINUTOS,
+  janelaComBufferReuniao,
+  slotsLivresDoDia,
   criarEventoAgenda,
+  montarTextoResumoDiarioAgenda,
+  verificarResumoDiarioAgenda,
+  verificarReunioesAtrasadas,
+  verificarReunioesNaoConfirmadas,
+  montarPingNaoConfirmou,
+  verificarLembretesManhaReuniao,
   buscarSlotsDisponiveis,
+  buscarDisponibilidadeSemana,
+  validarSlotReuniao,
+  montarDiasCandidatos,
   existeConflitoAgenda,
   agendarLembretesReuniao,
   cancelarLembretesEvento,
   enviarLembreteReuniao,
   gerarMensagemLembreteReuniao,
   processarLembreteReuniaoJob,
+  classificarRespostaLembreteIA,
   registrarRespostaLembreteReuniao,
   slotEstaOcupado,
   temConflito,

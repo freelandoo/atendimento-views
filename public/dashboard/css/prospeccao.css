@@ -167,15 +167,17 @@
   margin: 0 auto;
 }
 
-.prospect-page-head {
+.prospect-page-head,
+.prospect-hero {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
   gap: 1rem;
-  padding: 0.35rem 0 0.75rem;
+  padding: 0.45rem 0 0.95rem;
 }
 
-.prospect-page-head h1 {
+.prospect-page-head h1,
+.prospect-hero h1 {
   margin: 0.25rem 0 0;
   color: #0b1220;
   font-size: clamp(2rem, 4vw, 3.25rem);
@@ -184,6 +186,7 @@
 }
 
 .prospect-page-head p,
+.prospect-hero p,
 .section-head p {
   margin: 0.5rem 0 0;
   max-width: 640px;
@@ -199,6 +202,162 @@
   gap: 0.55rem;
 }
 
+.prospect-hero-copy {
+  min-width: 0;
+}
+
+.prospect-sales-link {
+  display: inline-flex;
+  margin-top: 0.65rem;
+  color: #0168ff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.prospect-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.prospect-status-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.35rem;
+  padding: 0 0.8rem;
+  border: 1px solid #dce5f2;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #667085;
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.prospect-status-chip::before {
+  content: '';
+  width: 0.48rem;
+  height: 0.48rem;
+  margin-right: 0.45rem;
+  border-radius: 999px;
+  background: #9aa4b2;
+}
+
+.prospect-status-chip.is-active {
+  border-color: #bce8cf;
+  background: #effaf3;
+  color: #157347;
+}
+
+.prospect-status-chip.is-active::before {
+  background: #17a35b;
+}
+
+.prospect-status-chip.is-paused {
+  background: #f8fafc;
+}
+
+.prospect-day-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.prospect-day-summary div {
+  min-width: 0;
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 35, 72, 0.045);
+}
+
+.prospect-day-summary span,
+.prospect-routine-line {
+  color: #667085;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.prospect-day-summary strong {
+  color: #0b1220;
+  font-size: 1.28rem;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.prospect-routine-line {
+  margin: 0 0 1rem;
+}
+
+.prospect-operation-head {
+  border-bottom: 1px solid #edf1f7;
+  padding-bottom: 0.25rem;
+}
+
+.prospect-routine-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.95fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.prospect-routine-card h3 {
+  margin: 0.2rem 0 0;
+  color: #0b1220;
+  font-size: 1.1rem;
+}
+
+.prospect-routine-card p {
+  margin: 0.4rem 0 0;
+  color: #667085;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.prospect-routine-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.prospect-routine-meta div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0.65rem;
+  border: 1px solid #dce5f2;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.prospect-routine-meta span {
+  color: #667085;
+  font-size: 0.68rem;
+}
+
+.prospect-routine-meta strong {
+  color: #0b1220;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.prospect-routine-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
 .prospect-page .card {
   border: 1px solid #dce5f2;
   border-radius: 12px;
@@ -206,93 +365,282 @@
   box-shadow: 0 14px 34px rgba(15, 35, 72, 0.07);
 }
 
-.prospecting-mode-cards {
+.prospecting-daily-panel {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.9rem;
+  gap: 1rem;
 }
 
-.prospecting-mode-card {
-  position: relative;
-  min-height: 158px;
+.prospecting-doc-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.45rem;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.prospecting-doc-tabs button {
+  min-height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #556070;
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.prospecting-doc-tabs button:hover,
+.prospecting-doc-tabs button.is-active {
+  border-color: rgba(1, 104, 255, 0.24);
+  background: #eaf2ff;
+  color: #0168ff;
+}
+
+.prospecting-daily-summary,
+.prospecting-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.prospecting-daily-summary div,
+.prospecting-detail-grid div {
+  min-width: 0;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.8rem;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.prospecting-daily-summary span,
+.prospecting-detail-grid span,
+.prospecting-muted {
+  color: #667085;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.prospecting-daily-summary strong,
+.prospecting-detail-grid strong {
+  min-width: 0;
+  color: #0b1220;
+  font-size: 0.92rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.prospecting-doc-tab-panel {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.prospecting-daily-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.prospecting-daily-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.65rem;
+  padding: 0.85rem;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.prospecting-daily-item > div:first-child {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.prospecting-daily-item strong {
+  color: #0b1220;
+}
+
+.prospecting-daily-item span,
+.prospecting-daily-item small {
+  color: #667085;
+  line-height: 1.4;
+}
+
+.prospecting-daily-item p {
+  margin: 0;
+  padding: 0.65rem;
+  border: 1px solid #edf1f7;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #536174;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.prospecting-daily-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.prospecting-report-text {
+  min-height: 12rem;
+  max-height: 24rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.9rem;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  background: #0b1220;
+  color: #eaf2ff;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.74rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* Relatório visual diário — leitura rápida dos resultados */
+.prospecting-report-visual {
+  display: grid;
+  gap: 0.85rem;
   padding: 1rem;
   border: 1px solid #dce5f2;
   border-radius: 12px;
   background: #ffffff;
-  color: #0b1220;
-  cursor: pointer;
-  box-shadow: 0 10px 28px rgba(15, 35, 72, 0.05);
-  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s, background 0.2s;
 }
 
-.prospecting-mode-card:hover {
-  border-color: rgba(1, 104, 255, 0.34);
-  transform: translateY(-1px);
+.prospecting-report-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
-.prospecting-mode-card.is-active {
-  border-color: #0168ff;
-  background: linear-gradient(180deg, #eef6ff 0%, #ffffff 100%);
-  box-shadow: 0 16px 36px rgba(1, 104, 255, 0.14);
+.prospecting-report-badge {
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: #eef2f8;
+  color: #556070;
+  font-size: 0.75rem;
+  font-weight: 600;
 }
 
-.prospecting-mode-card .mode-icon {
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  margin-bottom: 0.7rem;
-  border-radius: 8px;
-  color: #0168ff;
+.prospecting-report-badge-accent {
   background: #eaf2ff;
-  font-family: 'DM Mono', monospace;
-  font-size: 0.76rem;
-  font-weight: 800;
+  color: #0168ff;
 }
 
-.prospecting-mode-card strong,
-.prospecting-mode-card em,
-.prospecting-mode-card small {
-  display: block;
-  font-style: normal;
+.prospecting-report-funnel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.4rem;
 }
 
-.prospecting-mode-card strong {
-  font-size: 1rem;
-}
-
-.prospecting-mode-card em {
-  margin-top: 0.28rem;
-  color: #344054;
-  font-size: 0.8rem;
-  font-weight: 800;
-}
-
-.prospecting-mode-card small {
-  margin-top: 0.4rem;
-  color: #667085;
-  font-size: 0.74rem;
-  line-height: 1.45;
-}
-
-.prospecting-mode-context {
+.prospecting-report-stage {
+  flex: 1 1 0;
+  min-width: 84px;
   display: grid;
-  gap: 0.25rem;
-  padding: 0.85rem 1rem;
-  border: 1px solid #cfe0ff;
-  border-radius: 12px;
-  background: #f2f7ff;
+  gap: 0.15rem;
+  padding: 0.7rem 0.5rem;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  background: #f8fafc;
+  text-align: center;
 }
 
-.prospecting-mode-context strong {
+.prospecting-report-stage strong {
+  font-size: 1.5rem;
+  line-height: 1;
+  color: #0b1220;
+}
+
+.prospecting-report-stage span {
+  font-size: 0.72rem;
+  color: #667085;
+}
+
+.prospecting-report-arrow {
+  align-self: center;
+  color: #9aa4b2;
+  font-style: normal;
+  font-size: 1.2rem;
+}
+
+.prospecting-report-learnings {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.3rem;
+  color: #344054;
+  font-size: 0.85rem;
+}
+
+.prospecting-report-suggestion {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border-left: 3px solid #0168ff;
+  border-radius: 6px;
+  background: #f3f8ff;
+  color: #0b1220;
+  font-size: 0.85rem;
+}
+
+.prospecting-report-raw {
+  margin-top: 0.25rem;
+}
+
+.prospecting-report-raw summary {
+  cursor: pointer;
+  color: #0168ff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.35rem 0;
+}
+
+@media (max-width: 640px) {
+  .prospecting-report-arrow {
+    display: none;
+  }
+  .prospecting-report-stage {
+    flex-basis: 30%;
+  }
+}
+
+.prospecting-strategy-toolbar {
+  grid-template-columns: repeat(4, minmax(130px, 1fr)) auto;
+}
+
+.prospecting-strategy-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.prospecting-ranking-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.prospecting-ranking-card {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid #dce5f2;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.prospecting-ranking-card h3 {
+  margin: 0;
   color: #0b1220;
   font-size: 0.9rem;
 }
 
-.prospecting-mode-context span {
-  color: #536174;
-  font-size: 0.78rem;
-  line-height: 1.45;
+.prospecting-ranking-card .prospecting-daily-item {
+  padding: 0.7rem;
 }
 
 .prospect-ops-grid {
@@ -305,9 +653,34 @@
 .prospecting-search-card,
 .prospecting-status-card,
 .prospecting-results-card,
-.prospecting-auto-config {
+.prospecting-daily-config {
   display: grid;
   gap: 1rem;
+}
+
+/* Blocos reaproveitados dentro das abas da operação diária — viram sub-cards leves */
+.prospecting-doc-tab-panel .prospecting-search-card,
+.prospecting-doc-tab-panel .prospecting-results-card {
+  padding: 1rem;
+  border: 1px solid #dce5f2;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.prospecting-doc-tab-panel .prospecting-daily-config {
+  padding: 1rem;
+  border: 1px solid #cfe0ff;
+  border-radius: 12px;
+}
+
+.prospecting-doc-tab-panel .prospecting-job-queue-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1rem;
+  border: 1px solid #dce5f2;
 }
 
 .section-head {
@@ -414,20 +787,46 @@
   background: #f8fafc;
 }
 
-.prospecting-auto-config {
+.prospecting-daily-config {
   border-color: #cfe0ff;
   background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
 }
 
 .prospecting-auto-grid {
+  display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.75rem;
 }
 
-.prospecting-auto-grid label:first-child,
-.prospecting-auto-grid label:nth-child(2),
-.prospecting-auto-grid label:last-child {
+.prospecting-auto-grid label[for="prospect-auto-categoria"] { order: 1; }
+.prospecting-auto-grid label[for="prospect-auto-cidade"] { order: 2; }
+.prospecting-auto-grid label[for="prospect-auto-estado"] { order: 3; }
+.prospecting-auto-grid label[for="prospect-auto-weekday"] { order: 4; }
+.prospecting-auto-grid label[for="prospect-auto-start"] { order: 5; }
+.prospecting-auto-grid label[for="prospect-auto-end"] { order: 6; }
+.prospecting-auto-grid label[for="prospect-auto-limit"] { order: 7; }
+.prospecting-auto-grid label[for="prospect-auto-intervalo"] { order: 8; }
+.prospecting-auto-grid label[for="prospect-modo"] { order: 21; }
+.prospecting-auto-grid label[for="prospect-auto-enabled"] { order: 22; }
+.prospecting-auto-grid label[for="prospect-auto-gerar-ia"] { order: 23; }
+.prospecting-auto-grid label[for="prospect-auto-envio-real"] { order: 24; }
+.prospecting-auto-grid label[for="prospect-auto-regiao"] { order: 25; }
+
+.prospecting-auto-grid label[for="prospect-auto-categoria"],
+.prospecting-auto-grid label[for="prospect-auto-cidade"] {
   grid-column: span 2;
+}
+
+.prospect-field-advanced {
+  padding: 0.65rem;
+  border: 1px solid #edf1f7;
+  border-radius: 8px;
+  background: #fbfcff;
+}
+
+.prospect-real-send-field {
+  border-color: #ffd8c7;
+  background: #fff7f2;
 }
 
 .prospect-auto-resumo,
@@ -435,6 +834,73 @@
   border-radius: 10px;
   border-color: #dce5f2;
   background: #f8fafc;
+}
+
+.prospect-auto-resumo {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  padding: 0.75rem;
+}
+
+.prospect-auto-resumo[hidden],
+.prospect-auto-planejamento[hidden] {
+  display: none !important;
+}
+
+.prospect-auto-resumo div {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid #dce5f2;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.prospect-auto-resumo span,
+.prospect-auto-resumo small {
+  color: #667085;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.prospect-auto-resumo strong {
+  color: #0b1220;
+  font-size: 1.08rem;
+  line-height: 1.15;
+}
+
+.prospect-auto-capacity-alert {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid #f2dca7;
+  border-radius: 10px;
+  background: #fffaf0;
+  color: #70480f;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.prospect-auto-capacity-alert p {
+  margin: 0;
+  font-weight: 750;
+}
+
+.prospect-auto-capacity-actions,
+.prospect-search-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.prospect-auto-capacity-alert[hidden] {
+  display: none !important;
 }
 
 .prospect-auto-planejamento {
@@ -445,7 +911,7 @@
 }
 
 .prospect-auto-planejamento-lista {
-  max-height: 150px;
+  max-height: 260px;
   overflow: auto;
   display: grid;
   gap: 0.45rem;
@@ -455,11 +921,25 @@
 }
 
 .prospect-auto-planejamento-lista li {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(120px, 1fr) 86px auto;
+  gap: 0.5rem;
+  align-items: center;
   padding: 0.55rem 0.65rem;
   border: 1px solid #dce5f2;
   border-radius: 8px;
   background: #ffffff;
   color: #344054;
+}
+
+.prospect-auto-planejamento-lista li strong {
+  color: #0b1220;
+}
+
+.prospect-auto-planejamento-lista li span,
+.prospect-auto-planejamento-lista li small {
+  color: #667085;
+  font-size: 0.72rem;
 }
 
 .prospecting-toolbar {
@@ -675,7 +1155,7 @@
 }
 
 .prospect-is-busy .prospecting-search-card,
-.prospect-is-busy .prospecting-auto-config {
+.prospect-is-busy .prospecting-daily-config {
   cursor: progress;
 }
 
@@ -707,27 +1187,45 @@
 
 @media (max-width: 960px) {
   .prospect-page-head,
+  .prospect-hero,
   .prospect-topbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .prospect-hero-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .prospect-top-links {
     width: 100%;
   }
 
-  .prospecting-mode-cards,
+  .prospect-day-summary,
+  .prospect-routine-card,
+  .prospect-routine-meta,
   .prospect-ops-grid,
+  .prospecting-daily-summary,
+  .prospecting-detail-grid,
   .prospecting-toolbar,
+  .prospecting-ranking-grid,
   .prospecting-auto-grid,
+  .prospect-auto-resumo,
   .prospect-auto-planejamento {
     grid-template-columns: 1fr;
   }
 
   .prospecting-auto-grid label:first-child,
   .prospecting-auto-grid label:nth-child(2),
-  .prospecting-auto-grid label:last-child {
+  .prospecting-auto-grid label:last-child,
+  .prospecting-auto-grid label[for="prospect-auto-categoria"],
+  .prospecting-auto-grid label[for="prospect-auto-cidade"] {
     grid-column: auto;
+  }
+
+  .prospect-auto-planejamento-lista li {
+    grid-template-columns: 1fr;
   }
 
   .prospecting-form {
@@ -788,5 +1286,108 @@
 
   .prospecting-result-actions button {
     flex: 1 1 11rem;
+  }
+
+  .prospect-day-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .prospect-hero-actions > * {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ── Banner de aviso de instância WhatsApp desconectada ──────────────────── */
+.whatsapp-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1.25rem;
+  margin-bottom: 1.25rem;
+  background: #fff7ed;
+  border: 1.5px solid #f59e0b;
+  border-radius: 10px;
+  color: #7c4a00;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  animation: banner-in 0.2s ease;
+}
+
+@keyframes banner-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.whatsapp-status-banner-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+  line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(180, 100, 0, 0.2));
+}
+
+.whatsapp-status-banner-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.whatsapp-status-banner-body strong {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #92400e;
+}
+
+.whatsapp-status-banner-body code {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.82rem;
+  background: rgba(245, 158, 11, 0.15);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+.whatsapp-status-banner-btn {
+  flex-shrink: 0;
+  padding: 0.5rem 1.1rem;
+  background: #f59e0b;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  border-radius: 7px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.whatsapp-status-banner-btn:hover {
+  background: #d97706;
+}
+
+.whatsapp-status-banner-dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #b45309;
+  font-size: 1rem;
+  padding: 0.25rem;
+  border-radius: 4px;
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.whatsapp-status-banner-dismiss:hover {
+  opacity: 1;
+}
+
+@media (max-width: 600px) {
+  .whatsapp-status-banner {
+    flex-wrap: wrap;
+  }
+  .whatsapp-status-banner-btn {
+    width: 100%;
+    text-align: center;
   }
 }

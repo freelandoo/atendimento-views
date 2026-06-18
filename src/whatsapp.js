@@ -9,12 +9,28 @@ const EVOLUTION_URL = process.env.EVOLUTION_URL || 'http://evolution-api:8080'
 const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY
 const INSTANCE_NAME = process.env.EVOLUTION_INSTANCE || 'PJ'
 
-function resolveInstance(instance) {
-  const v = typeof instance === 'string' ? instance.trim() : ''
-  return v || INSTANCE_NAME
-}
-
 const BOLHAS_ENVIO_DELAY_MS = 450
+// Timeout default para chamadas Evolution. Antes ausente -> axios default = 0
+// = infinito, podia pendurar worker indefinidamente quando Evolution travasse.
+const EVOLUTION_DEFAULT_TIMEOUT_MS = Math.max(
+  parseInt(process.env.EVOLUTION_TIMEOUT_MS, 10) || 15000,
+  3000
+)
+
+async function getInstanceNameForUser(userId) {
+  if (!userId) return INSTANCE_NAME
+  try {
+    const { pool } = require('./db')
+    const { rows } = await pool.query(
+      `SELECT instance_name FROM vendas.whatsapp_connections
+       WHERE user_id = $1 AND status = 'connected' AND deleted_at IS NULL
+       ORDER BY updated_at DESC LIMIT 1`, [userId]
+    )
+    return rows[0]?.instance_name || INSTANCE_NAME
+  } catch (_) {
+    return INSTANCE_NAME
+  }
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -28,8 +44,8 @@ function extrairBase64DaRespostaEvolution(data) {
   return null
 }
 
-async function evolutionObterBase64Midia(webMessageInfo, instance) {
-  const url = `${EVOLUTION_URL}/chat/getBase64FromMediaMessage/${resolveInstance(instance)}`
+async function evolutionObterBase64Midia(webMessageInfo) {
+  const url = `${EVOLUTION_URL}/chat/getBase64FromMediaMessage/${INSTANCE_NAME}`
   const { data } = await axios.post(
     url,
     { message: webMessageInfo, convertToMp4: false },
@@ -43,11 +59,11 @@ async function evolutionObterBase64Midia(webMessageInfo, instance) {
   return b64
 }
 
-async function enviarImagemBase64(numero, b64, mimetype, legenda, rotulo = 'imagem', instance) {
+async function enviarImagemBase64(numero, b64, mimetype, legenda, rotulo = 'imagem') {
   const phone = numeroEnvioWhatsapp(numero)
   if (!phone || !b64) throw new Error(`Imagem invalida para envio (${rotulo})`)
   const { data } = await axios.post(
-    `${EVOLUTION_URL}/message/sendMedia/${resolveInstance(instance)}`,
+    `${EVOLUTION_URL}/message/sendMedia/${INSTANCE_NAME}`,
     {
       number: phone,
       mediatype: 'image',
@@ -55,7 +71,7 @@ async function enviarImagemBase64(numero, b64, mimetype, legenda, rotulo = 'imag
       media: b64,
       caption: legenda || '',
     },
-    { headers: { apikey: EVOLUTION_KEY } }
+    { headers: { apikey: EVOLUTION_KEY }, timeout: EVOLUTION_DEFAULT_TIMEOUT_MS }
   )
   assertEvolutionEnvioOk(data, `sendMedia(${rotulo})`)
   return true
@@ -102,6 +118,84 @@ function evolutionErrorContext(e, operation, numero) {
   }
 }
 
+/**
+ * Classifica erros da Evolution API em tipos com flag retryable.
+ * Retorna { tipo, retryable, motivo }.
+ */
+function classificarErroEvolution(err) {
+  const status = err.response?.status
+  const msgRaw = err.response?.data?.response?.message || err.response?.data?.message || err.message || ''
+  const msg = String(Array.isArray(msgRaw) ? msgRaw.join(' ') : msgRaw).toLowerCase()
+  const code = String(err.code || '')
+
+  if (msg.includes('connection closed') || msg.includes('conexão fechada')) {
+    return { tipo: 'instance_disconnected', retryable: true, motivo: 'Evolution instance connection closed' }
+  }
+  if (code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ECONNABORTED') {
+    return { tipo: 'transient', retryable: true, motivo: `Network error: ${code}` }
+  }
+  if (status === 502 || status === 503 || status === 504) {
+    return { tipo: 'transient', retryable: true, motivo: `HTTP ${status} gateway error` }
+  }
+  if (status === 400 || status === 422) {
+    // Antes de classificar como invalid_payload generico, checa se o WhatsApp
+    // respondeu exists:false (numero nao tem conta WhatsApp). Visto em producao
+    // como ~95% das falhas: numeros fixos sem WhatsApp Business.
+    const detalheNumeroInexistente = evolutionDetalheNumeroInexistente(err.response?.data)
+    if (detalheNumeroInexistente) {
+      return {
+        tipo: 'numero_inexistente',
+        retryable: false,
+        motivo: 'Numero nao tem conta WhatsApp (Evolution exists:false)',
+        jid: detalheNumeroInexistente.jid || null,
+        number: detalheNumeroInexistente.number || null,
+      }
+    }
+    return { tipo: 'invalid_payload', retryable: false, motivo: `HTTP ${status} invalid payload` }
+  }
+  if (status === 401 || status === 403) {
+    return { tipo: 'auth_error', retryable: false, motivo: `HTTP ${status} authentication error` }
+  }
+  if (status === 500) {
+    return { tipo: 'transient', retryable: true, motivo: 'HTTP 500 internal server error' }
+  }
+  return { tipo: 'unknown', retryable: false, motivo: `Unexpected error: ${String(err.message || 'unknown').slice(0, 200)}` }
+}
+
+/**
+ * Verifica se a instância pj-dashboard-1 está conectada na Evolution API.
+ * Retorna { ok, instance, connected, state } ou erro estruturado.
+ * Nunca lança — falha silenciosa se o endpoint não existir.
+ */
+async function verificarStatusInstanciaEvolution() {
+  if (!EVOLUTION_URL || !EVOLUTION_KEY) {
+    return { ok: true, instance: INSTANCE_NAME, connected: null, state: 'unknown', motivo: 'Evolution não configurada' }
+  }
+  try {
+    const r = await axios.get(
+      `${EVOLUTION_URL}/instance/connectionState/${INSTANCE_NAME}`,
+      { headers: { apikey: EVOLUTION_KEY }, timeout: 5000 }
+    )
+    const state = r.data?.instance?.state || r.data?.state || 'unknown'
+    const connected = state === 'open'
+    return {
+      ok: connected,
+      instance: INSTANCE_NAME,
+      connected,
+      state,
+      last_checked_at: new Date().toISOString(),
+      ...(connected ? {} : {
+        tipo: 'instance_disconnected',
+        retryable: true,
+        motivo: `Instância WhatsApp não conectada (state: ${state})`,
+      }),
+    }
+  } catch (e) {
+    logger.warn({ err: serializeError(e), instance: INSTANCE_NAME }, 'verificarStatusInstanciaEvolution falhou')
+    return { ok: true, instance: INSTANCE_NAME, connected: null, state: 'unknown', last_checked_at: new Date().toISOString() }
+  }
+}
+
 function numeroEnvioWhatsapp(numero) {
   const raw = String(numero || '').trim()
   if (!raw) return ''
@@ -110,21 +204,49 @@ function numeroEnvioWhatsapp(numero) {
   return raw.replace(/@s\.whatsapp\.net$/i, '').replace(/\D/g, '')
 }
 
-async function enviarMensagem(numero, texto, instance) {
+async function enviarMensagem(numero, texto) {
   const t = (texto || '').trim()
   if (!t) throw new Error('Texto vazio para envio ao WhatsApp')
   const phone = numeroEnvioWhatsapp(numero)
   if (!phone) throw new Error('Número/JID inválido para envio')
+
+  // Evolution API v2.3.7: /message/sendText requires property "text"
+  // Simple format: number (digits only) + text (message content)
+  const payload = {
+    number: phone,  // ← Apenas dígitos, sem @s.whatsapp.net
+    text: t         // ← Campo text (requerido pela API Evolution)
+  }
+
   try {
     const r = await axios.post(
-      `${EVOLUTION_URL}/message/sendText/${resolveInstance(instance)}`,
-      { number: phone, text: t },
-      { headers: { apikey: EVOLUTION_KEY } }
+      `${EVOLUTION_URL}/message/sendText/${INSTANCE_NAME}`,
+      payload,
+      { headers: { apikey: EVOLUTION_KEY }, timeout: EVOLUTION_DEFAULT_TIMEOUT_MS }
     )
     assertEvolutionEnvioOk(r.data, 'sendText')
     return r.data
   } catch (e) {
-    logger.error(evolutionErrorContext(e, 'sendText', phone), 'Evolution sendText failed')
+    const classificacao = classificarErroEvolution(e)
+    const errCtx = {
+      ...evolutionErrorContext(e, 'sendText', phone),
+      endpoint: `/message/sendText/${INSTANCE_NAME}`,
+      payload_keys: Object.keys(payload),
+      text_length: t.length,
+      instance: INSTANCE_NAME,
+      http_status: e.response?.status,
+      response_data: e.response?.data,
+      response_message: e.response?.data?.response?.message,
+      axios_code: e.code,
+      tipo_erro: classificacao.tipo,
+      retryable: classificacao.retryable,
+      motivo: classificacao.motivo,
+    }
+    if (classificacao.retryable) {
+      logger.warn(errCtx, 'Evolution sendText failed (retryable)')
+    } else {
+      logger.error(errCtx, 'Evolution sendText failed')
+    }
+    e.evolutionClassificacao = classificacao
     throw e
   }
 }
@@ -145,7 +267,7 @@ const PRINTS_AUTORIZADOS = {
  * Envia uma imagem local ao lead via Evolution API (sendMedia base64).
  * Retorna true se enviou, false se o arquivo não existir (sem lançar erro).
  */
-async function enviarPrintLocal(numero, chave, legenda, instance) {
+async function enviarPrintLocal(numero, chave, legenda) {
   const caminho = PRINTS_AUTORIZADOS[chave]
   if (!caminho) {
     logger.warn({ chave }, 'enviar_print chave nao reconhecida')
@@ -165,7 +287,7 @@ async function enviarPrintLocal(numero, chave, legenda, instance) {
   }
   try {
     const { data } = await axios.post(
-      `${EVOLUTION_URL}/message/sendMedia/${resolveInstance(instance)}`,
+      `${EVOLUTION_URL}/message/sendMedia/${INSTANCE_NAME}`,
       {
         number: phone,
         mediatype: 'image',
@@ -173,7 +295,7 @@ async function enviarPrintLocal(numero, chave, legenda, instance) {
         media: b64,
         caption: legenda || '',
       },
-      { headers: { apikey: EVOLUTION_KEY } }
+      { headers: { apikey: EVOLUTION_KEY }, timeout: EVOLUTION_DEFAULT_TIMEOUT_MS }
     )
     assertEvolutionEnvioOk(data, 'sendMedia(print)')
     logger.info({ chave, numero: redactPhone(phone) }, 'Print enviado ao lead')
@@ -184,28 +306,33 @@ async function enviarPrintLocal(numero, chave, legenda, instance) {
   }
 }
 
-async function enviarComBotoes(numero, texto, botoes, instance) {
+async function enviarComBotoes(numero, texto, botoes) {
   const numLimpo = numeroEnvioWhatsapp(numero)
   const t = (texto || '').trim()
   if (!numLimpo || !t) throw new Error('Número ou texto inválido para envio com botões')
-  const inst = resolveInstance(instance)
-  const r0 = await axios.post(
-    `${EVOLUTION_URL}/message/sendText/${inst}`,
-    { number: numLimpo, text: t },
-    { headers: { apikey: EVOLUTION_KEY } }
-  )
-  assertEvolutionEnvioOk(r0.data, 'sendText(botoes)')
+
   try {
-    const r1 = await axios.post(
-      `${EVOLUTION_URL}/message/sendButtons/${inst}`,
+    // Evolution API v2.3.7: sendText requires { number, text }
+    const r0 = await axios.post(
+      `${EVOLUTION_URL}/message/sendText/${INSTANCE_NAME}`,
       {
-        number: numLimpo,
+        number: numLimpo,  // ← Apenas dígitos
+        text: t            // ← Campo requerido pela API
+      },
+      { headers: { apikey: EVOLUTION_KEY }, timeout: EVOLUTION_DEFAULT_TIMEOUT_MS }
+    )
+    assertEvolutionEnvioOk(r0.data, 'sendText(botoes)')
+
+    const r1 = await axios.post(
+      `${EVOLUTION_URL}/message/sendButtons/${INSTANCE_NAME}`,
+      {
+        number: numLimpo,  // ← Apenas dígitos
         title: 'Escolha uma opção',
         description: 'Toque para responder',
         footer: 'PJ Codeworks',
         buttons: botoes.map((b, i) => ({ type: 'reply', displayText: b, id: `opt_${i + 1}` }))
       },
-      { headers: { apikey: EVOLUTION_KEY } }
+      { headers: { apikey: EVOLUTION_KEY }, timeout: EVOLUTION_DEFAULT_TIMEOUT_MS }
     )
     assertEvolutionEnvioOk(r1.data, 'sendButtons')
     logger.info({ botoes }, 'Botoes enviados')
@@ -214,9 +341,9 @@ async function enviarComBotoes(numero, texto, botoes, instance) {
   }
 }
 
-async function enviarSequenciaMensagens(numero, partes, instance) {
+async function enviarSequenciaMensagens(numero, partes) {
   for (let i = 0; i < partes.length; i++) {
-    await enviarMensagem(numero, partes[i], instance)
+    await enviarMensagem(numero, partes[i])
     if (i < partes.length - 1) await sleep(BOLHAS_ENVIO_DELAY_MS)
   }
 }
@@ -234,9 +361,12 @@ module.exports = {
   evolutionCorpoIndicaFalha,
   evolutionMensagemErroDoCorpo,
   assertEvolutionEnvioOk,
+  classificarErroEvolution,
+  verificarStatusInstanciaEvolution,
   numeroEnvioWhatsapp,
   enviarMensagem,
   enviarPrintLocal,
   enviarComBotoes,
   enviarSequenciaMensagens,
+  getInstanceNameForUser,
 }

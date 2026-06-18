@@ -28,7 +28,6 @@ process.env.APP_TIMEZONE = process.env.APP_TIMEZONE || 'America/Sao_Paulo'
 
 const { logger } = require('./src/logger')
 const dashboardAuth = require('./src/dashboardAuth')
-
 const cors = require('cors')
 
 const app = express()
@@ -40,9 +39,7 @@ app.use(cors({ origin: allowedOrigins, credentials: true }))
 
 app.use(express.json({ limit: '20mb' }))
 
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() })
-})
+app.get('/health', (_req, res) => res.json({ status: 'ok' }))
 
 app.use(express.static(path.join(__dirname, 'public')))
 
@@ -57,7 +54,7 @@ dashboardAuth.registerDashboardAuthRoutes(app)
 app.use('/dashboard', dashboardAuth.requireDashboardAuth)
 app.use('/api/operador', dashboardAuth.requireDashboardAuth)
 
-// Rotas JWT SaaS (sem autenticação de sessão — usam Bearer token)
+// Rotas JWT SaaS multiempresa (Bearer token — consumidas pelo frontend Next.js)
 app.use('/api/auth', apiAuthRouter)
 app.use('/api/empresas', require('./src/routes/api-empresas'))
 app.use('/api/empresas/:empresaId/contextos', require('./src/routes/api-contextos'))
@@ -70,7 +67,7 @@ app.use('/api/empresas/:empresaId/relatorios', require('./src/routes/api-relator
 app.use('/api/llm', require('./src/routes/api-llm'))
 app.use('/api/empresas/:empresaId/llm/uso', require('./src/routes/api-llm-uso'))
 
-// Resolve empresa a partir da evolution_instance em todos os webhooks
+// Resolve empresa a partir da evolution_instance em todos os webhooks (fallback PJ).
 app.use('/webhook', resolveEmpresaFromWebhook)
 
 require('./src/routes')(app)
@@ -85,10 +82,8 @@ function validarSecretsBoot() {
   if (!process.env.REPROCESS_SECRET || String(process.env.REPROCESS_SECRET).trim().length < 8) {
     faltando.push('REPROCESS_SECRET (mínimo 8 caracteres — protege /dashboard/*)')
   }
-  const temAnthropicKey = !!process.env.ANTHROPIC_KEY
-  const temOpenaiKey = !!(process.env.OPENAI_API_KEY || process.env.OPENAI_KEY)
-  if (!temAnthropicKey && !temOpenaiKey) {
-    faltando.push('ANTHROPIC_KEY ou OPENAI_API_KEY (pelo menos uma chave de IA é obrigatória)')
+  if (!(process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_KEY)) {
+    faltando.push('OPENAI_API_KEY/OPENAI_KEY ou ANTHROPIC_API_KEY/ANTHROPIC_KEY (ao menos um provider de IA)')
   }
   if (!process.env.EVOLUTION_API_KEY) {
     faltando.push('EVOLUTION_API_KEY (obrigatoria para integrar com Evolution API)')
@@ -122,8 +117,26 @@ function iniciarServidor() {
   prompts.loadLeadCoachPrompt()
   prompts.loadEmpresaKnowledge()
   prompts.loadCasesCatalog()
+  prompts.loadClassificadorIntencao()
+  prompts.loadTomReferenciaPrompt()
 
-  initDB()
+  async function initDBWithRetry() {
+    const maxRetries = 5
+    const baseDelayMs = 1000
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await initDB()
+        return
+      } catch (err) {
+        if (attempt === maxRetries) throw err
+        const delayMs = baseDelayMs * Math.pow(2, attempt - 1)
+        logger.warn(`initDB attempt ${attempt}/${maxRetries} failed: ${err.message}. Retrying in ${delayMs}ms...`)
+        await new Promise(r => setTimeout(r, delayMs))
+      }
+    }
+  }
+
+  initDBWithRetry()
     .then(async () => {
       await dashboardAuth.ensureDashboardAuthReady()
       await seedAdminUser()
@@ -166,6 +179,7 @@ module.exports = {
   textoPedePreco: agent.textoPedePreco,
   interpretarIntencaoMensagem: agent.interpretarIntencaoMensagem,
   montarEstadoComercialLead: agent.montarEstadoComercialLead,
+  decidirProximaAcao: agent.decidirProximaAcao,
   decidirProximaResposta: agent.decidirProximaResposta,
   aplicarAntiLoopResposta: agent.aplicarAntiLoopResposta,
   podeGerarRespostaAutomatica: agent.podeGerarRespostaAutomatica,

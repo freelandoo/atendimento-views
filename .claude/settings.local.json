@@ -1,7 +1,20 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git -C /c/pjcodeworks-agent status)"
+      "Bash(git -C /c/pjcodeworks-agent status)",
+      "Bash(node --test test/core.test.js test/ai-structured-analysis.test.js)",
+      "Bash(node -e ' *)",
+      "Bash(node --test test/core.test.js test/bubble-limits.test.js test/next-action-orchestrator.test.js)",
+      "Bash(node test/whatsapp-evolution.test.js)",
+      "Bash(Remove-Item \"c:\\\\pjcodeworks-agent\\\\prompts\\\\system.md\" -Force)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(npm test *)",
+      "Read(//tmp/**)",
+      "mcp__railway__list_variables",
+      "mcp__railway__set_variables"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
     ]
   }
 }

@@ -1,9 +1,7 @@
 'use strict'
 
-const {
-  ANTHROPIC_KEY,
-  ANTHROPIC_MESSAGES_URL,
-} = require('./config')
+// Constantes do motor central. Antes este modulo chamava Anthropic diretamente;
+// agora usa aiProvider.generateAIResponse para respeitar a configuracao do Motor de IA.
 
 const LEAD_COACH_MAX_TRANSCRIPT_CHARS = 14000
 
@@ -13,6 +11,7 @@ function createLearning(deps = {}) {
     logger,
     axios,
     prompts,
+    aiProvider,
     normalizarHistoricoMensagens,
     textoDeContent,
     parsearRespostaJsonClaude,
@@ -50,6 +49,46 @@ function createLearning(deps = {}) {
     return out
   }
   
+  function normalizarScoreCoach(v) {
+    const n = Number(v)
+    if (!Number.isFinite(n)) return null
+    return Math.max(0, Math.min(100, Math.round(n)))
+  }
+
+  function normalizarPreviaValorCoach(v) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return null
+    const clamp = (x) => {
+      const n = Number(x)
+      if (!Number.isFinite(n) || n <= 0) return null
+      return Math.min(2000, Math.max(200, Math.round(n)))
+    }
+    const plano = ['iniciante', 'padrao', 'premium', 'sob_medida'].includes(v.plano) ? v.plano : null
+    const out = {
+      faixa_min: clamp(v.faixa_min),
+      faixa_max: clamp(v.faixa_max),
+      valor_alvo: clamp(v.valor_alvo),
+      plano,
+      justificativa: v.justificativa != null ? String(v.justificativa).trim().slice(0, 240) : '',
+    }
+    if (out.faixa_min && out.faixa_max && out.faixa_min > out.faixa_max) {
+      const t = out.faixa_min; out.faixa_min = out.faixa_max; out.faixa_max = t
+    }
+    if (!out.faixa_min && !out.valor_alvo && plano !== 'sob_medida') return null
+    return out
+  }
+
+  function normalizarAnaliseDetalhadaCoach(v) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return null
+    const out = {
+      valor_percebido: normalizarListaCoachAnalise(v.valor_percebido),
+      dores: normalizarListaCoachAnalise(v.dores),
+      razoes_compra: normalizarListaCoachAnalise(v.razoes_compra),
+      objecoes: normalizarListaCoachAnalise(v.objecoes),
+    }
+    if (!out.valor_percebido.length && !out.dores.length && !out.razoes_compra.length && !out.objecoes.length) return null
+    return out
+  }
+
   function normalizarLeadCoachPayload(payload) {
     const base = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
     const confianca = base.confianca != null ? String(base.confianca).trim() : ''
@@ -74,6 +113,11 @@ function createLearning(deps = {}) {
       acoes_de_preparo: normalizarListaCoachAnalise(base.acoes_de_preparo),
       confianca_analise: confiancaAnalise || confianca || null,
       prompt_gamma_apresentacao: base.prompt_gamma_apresentacao != null ? String(base.prompt_gamma_apresentacao).trim() : '',
+      // Campos novos (IA analisa, código captura): score 0-100, prévia de valor e
+      // análise detalhada. Ficam null quando o modelo não os fornece — sem inventar.
+      score: normalizarScoreCoach(base.score),
+      previa_valor: normalizarPreviaValorCoach(base.previa_valor),
+      analise_detalhada: normalizarAnaliseDetalhadaCoach(base.analise_detalhada),
     }
   }
   
@@ -377,7 +421,7 @@ function createLearning(deps = {}) {
       estagio: etapaDominante,
       system: systemConsolidacao,
       userMessage,
-      model: 'claude-haiku-4-5-20251001',
+      // sem model hardcoded — usa o provider/modelo configurado no Motor de IA
       max_tokens: 800,
       temperature: 0.3,
       metadata: { total_analises: analises.length, sinais_top: sinaisRecorrentes.slice(0, 5).map(([s]) => s) },
@@ -541,37 +585,40 @@ function createLearning(deps = {}) {
       .join('\n\n---\n\n')
       .slice(0, 8000)
   
-    const model = 'claude-haiku-4-5-20251001'
+    // Roteado via motor central: respeita provider/model configurado no Motor de IA.
     const requestId = gerarRequestIdAnthropic()
     const inicio = Date.now()
-    let resp
+    let aprendizadoTexto
     try {
-      resp = await axios.post(
-        ANTHROPIC_MESSAGES_URL,
+      const result = await aiProvider.generateAIResponse(
         {
-        model,
-        max_tokens: 500,
-        system: 'Analise conversas de vendas fechadas e extraia padrões de sucesso em até 200 palavras.',
-        messages: [{ role: 'user', content: `Analise ${vendas.length} vendas fechadas:\n\n${historicos}` }],
-      },
-        { headers: { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' } }
+          systemPrompt: 'Analise conversas de vendas fechadas e extraia padrões de sucesso em até 200 palavras.',
+          userPrompt: `Analise ${vendas.length} vendas fechadas:\n\n${historicos}`,
+          task: 'aprendizado',
+          maxTokens: 500,
+        },
+        pool,
+        logger
       )
-      await registrarChamadaAnthropic({
-        request_id: requestId,
-        tipo: 'aprendizado',
-        model,
-        duration_ms: Date.now() - inicio,
-        http_ok: true,
-        http_status: resp.status,
-        stop_reason: resp.data?.stop_reason || null,
-        usage: resp.data?.usage,
-        metadata: { vendas_analisadas: vendas.length },
-      })
+      aprendizadoTexto = String(result?.text || '')
+      if (result?.provider === 'anthropic') {
+        await registrarChamadaAnthropic({
+          request_id: requestId,
+          tipo: 'aprendizado',
+          model: result.model,
+          duration_ms: Date.now() - inicio,
+          http_ok: true,
+          http_status: result.httpStatus || 200,
+          stop_reason: result.stopReason || null,
+          usage: result.usage,
+          metadata: { vendas_analisadas: vendas.length, fallback_used: result.fallback_used === true },
+        })
+      }
     } catch (e) {
       await registrarChamadaAnthropic({
         request_id: requestId,
         tipo: 'aprendizado',
-        model,
+        model: 'desconhecido',
         duration_ms: Date.now() - inicio,
         http_ok: false,
         http_status: statusHttpDeErroAnthropic(e),
@@ -581,8 +628,8 @@ function createLearning(deps = {}) {
       })
       throw e
     }
-  
-    await salvarAprendizado(resp.data.content[0].text)
+
+    await salvarAprendizado(aprendizadoTexto)
     logger.info('✅ Aprendizado gerado.')
   }
   
@@ -770,9 +817,6 @@ function createLearning(deps = {}) {
   }
 
   async function chamarClaudeLeadCoach({ numero, conversa, perfil }) {
-    if (!ANTHROPIC_KEY) {
-      throw new Error('ANTHROPIC_KEY não configurada')
-    }
     const aprendizado = await buscarUltimoAprendizado()
     const historicoTexto = historicoParaTextoCoach(conversa.historico)
     const coachBase =
@@ -787,11 +831,7 @@ function createLearning(deps = {}) {
   melhorias_para_ia (array de strings), sinais_melhoria_ia (array de strings), acoes_de_preparo (array de strings),
   confianca_analise (string: baixa|media|alta),
   prompt_gamma_apresentacao (string longa em portugues, pronta para colar no Gamma para gerar slides da proposta; estrutura de slides; sem inventar precos ou promessas que nao estejam no contexto; use placeholders se faltar dado).`
-  
-    const system = [
-      { type: 'text', text: coachBase, cache_control: { type: 'ephemeral' } },
-    ]
-  
+
     const userPayload = {
       numero_lead: numero,
       estagio: conversa.estagio,
@@ -802,48 +842,48 @@ function createLearning(deps = {}) {
       aprendizado_vendas_fechadas: aprendizado || null,
       historico_conversa: historicoTexto || '(historico vazio apos sanitizacao)',
     }
-  
-    const model = 'claude-sonnet-4-6'
+
+    // Roteado via motor central: respeita provider/model configurado no Motor de IA.
     const requestId = gerarRequestIdAnthropic()
     const inicio = Date.now()
-    let resp
+    let result
     try {
-      resp = await axios.post(
-        ANTHROPIC_MESSAGES_URL,
+      result = await aiProvider.generateAIResponse(
         {
-          model,
-          max_tokens: 4096,
-          system,
-          messages: [
-            {
-              role: 'user',
-              content:
-                'Analise o contexto JSON abaixo e responda APENAS com o objeto JSON solicitado no system. ' +
-                'O objeto deve comecar com { e terminar com }; sem markdown, sem texto antes ou depois.\n\n' +
-                JSON.stringify(userPayload),
-            },
-          ],
+          systemPrompt: coachBase,
+          userPrompt:
+            'Analise o contexto JSON abaixo e responda APENAS com o objeto JSON solicitado no system. ' +
+            'O objeto deve comecar com { e terminar com }; sem markdown, sem texto antes ou depois.\n\n' +
+            JSON.stringify(userPayload),
+          task: 'lead_coach',
+          maxTokens: 4096,
+          extraHeaders: { 'anthropic-beta': 'prompt-caching-2024-07-31' },
+          responseFormatJson: true,
         },
-        { headers: { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'prompt-caching-2024-07-31', 'content-type': 'application/json' } }
+        pool,
+        logger
       )
-      await registrarChamadaAnthropic({
-        request_id: requestId,
-        tipo: 'lead_coach',
-        numero,
-        model,
-        estagio: conversa.estagio,
-        duration_ms: Date.now() - inicio,
-        http_ok: true,
-        http_status: resp.status,
-        stop_reason: resp.data?.stop_reason || null,
-        usage: resp.data?.usage,
-      })
+      if (result?.provider === 'anthropic') {
+        await registrarChamadaAnthropic({
+          request_id: requestId,
+          tipo: 'lead_coach',
+          numero,
+          model: result.model,
+          estagio: conversa.estagio,
+          duration_ms: Date.now() - inicio,
+          http_ok: true,
+          http_status: result.httpStatus || 200,
+          stop_reason: result.stopReason || null,
+          usage: result.usage,
+          metadata: { fallback_used: result.fallback_used === true },
+        })
+      }
     } catch (e) {
       await registrarChamadaAnthropic({
         request_id: requestId,
         tipo: 'lead_coach',
         numero,
-        model,
+        model: 'desconhecido',
         estagio: conversa.estagio,
         duration_ms: Date.now() - inicio,
         http_ok: false,
@@ -853,22 +893,16 @@ function createLearning(deps = {}) {
       })
       throw e
     }
-  
-    const content = resp.data?.content
-    if (!Array.isArray(content) || !content[0] || typeof content[0].text !== 'string') {
-      throw new Error(
-        `Resposta inesperada da API Anthropic: ${JSON.stringify(resp.data).slice(0, 300)}`
-      )
-    }
-  
-    const stopReason = resp.data.stop_reason
-    if (stopReason === 'max_tokens') {
+
+    if (result.stopReason === 'max_tokens') {
       throw new Error(
         'Resposta do modelo foi cortada (max_tokens atingido) — JSON incompleto; tente reduzir o histórico da conversa'
       )
     }
-  
-    const bruto = String(content[0].text).trim()
+    const bruto = String(result.text || '').trim()
+    if (!bruto) {
+      throw new Error('Resposta vazia do motor de IA no coach')
+    }
     const parsed = parsearRespostaJsonClaude(bruto)
     if (!parsed || typeof parsed !== 'object') {
       logger.error('❌ coach — texto bruto não parseável (primeiros 600 chars):', bruto.slice(0, 600))

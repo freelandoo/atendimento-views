@@ -1,7 +1,6 @@
 'use strict'
 
 const { ALERTA_FALHA_RESPOSTA_DEDUPE_MS } = require('./config')
-const { buildProjectHandoff, formatarMensagemHandoffEnriquecida } = require('./project-handoff-build')
 const { parsearHorarioReuniao, calcularFimReuniao, dataInicioReuniao } = require('./date-utils')
 
 function createHandoffAlerts(deps = {}) {
@@ -88,26 +87,100 @@ function createHandoffAlerts(deps = {}) {
   
   // ─── ALERTAS AO VICTOR (WhatsApp + Telegram opcional) ─────────────────────────
   
-  function montarAnexoPrecificacaoMotor(perfil, preco) {
-    const pj = perfil.precificacao_json
-    const temPreco = preco.total > 0
-    let linhaPrecificacao = ''
-    if (pj && typeof pj === 'object') {
-      linhaPrecificacao =
-        `\n📊 Precificação (motor) — plano: ${pj.plano_recomendado ?? '?'} | ROI: ${pj.roi_score ?? '?'}\n` +
-        `Valor personalizado: R$ ${pj.valor_personalizado ?? '?'} (faixa R$${pj.range_min ?? '?'}–R$${pj.range_max ?? '?'})\n` +
-        `Iniciante R$ ${pj.iniciante_valor ?? '?'} · Padrão R$ ${pj.padrao_valor ?? '?'} · Premium R$ ${pj.premium_valor ?? '?'}\n` +
-        `Upgrades: Inic→Pad R$ ${pj.upgrade_iniciante_para_padrao ?? '?'} · Pad→Prem R$ ${pj.upgrade_padrao_para_premium ?? '?'}\n`
+  // Rótulo humano do motivo do handoff (cabeçalho do ping compacto).
+  const MOTIVO_LABEL = {
+    agendou_reuniao_proposta: 'Reunião agendada',
+    aceitou_proposta: 'Proposta aceita',
+    lead_pediu_humano: 'Lead pediu humano',
+    conversa_longa_sem_avanco: 'Conversa longa sem avanço',
+    mencionou_pagamento: 'Mencionou pagamento',
+    mencao_juridica: 'Menção jurídica',
+    ja_tem_site: 'Já tem site',
+    coleta_incompleta: 'Coleta incompleta',
+    reagendou_reuniao: 'Reagendamento (lead)',
+  }
+
+  function formatarReuniaoCurta(perfil = {}) {
+    const rp = (perfil && typeof perfil.reuniao_proposta === 'object' && perfil.reuniao_proposta) || {}
+    const dataIso = String(rp.data_confirmada || rp.data_sugerida || '').trim()
+    const hora = String(rp.horario_confirmado || '').trim()
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dataIso)
+    const dataBr = m ? `${m[3]}/${m[2]}` : dataIso
+    if (dataBr && hora) return `${dataBr} ${hora}`
+    return hora || dataBr || ''
+  }
+
+  // URL pública conhecida do painel (produção Railway). Serve de padrão quando
+  // nenhuma env aponta a base — assim o link funciona sem config manual. Pode ser
+  // sobreposta por DASHBOARD_URL (ex.: domínio próprio) ou RAILWAY_PUBLIC_DOMAIN.
+  const DASHBOARD_URL_PADRAO = 'https://pjcodeworks-agent-production.up.railway.app'
+
+  // Link para o perfil do lead no painel. Ordem: DASHBOARD_URL → RAILWAY_PUBLIC_DOMAIN
+  // → padrão de produção. Lê process.env em tempo de chamada (testável/override em runtime).
+  function linkPainelLead(numero) {
+    const raw = process.env.DASHBOARD_URL
+      || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : '')
+      || DASHBOARD_URL_PADRAO
+    const base = String(raw || '').trim().replace(/\/+$/, '')
+    if (!base) return ''
+    return `${base}/perfil-lead.html?numero=${encodeURIComponent(numero)}`
+  }
+
+  function formatarPreviaValor(previa) {
+    if (!previa || typeof previa !== 'object') return ''
+    if (previa.plano === 'sob_medida') {
+      const just = previa.justificativa ? `\n"${previa.justificativa}"` : ''
+      return `💡 Prévia de valor (IA): sob medida — alinhar escopo na reunião${just}`
     }
-    const linhaPreco = temPreco
-      ? `💰 Preço calculado: R$ ${preco.total} (entrada R$ ${preco.entrada} + 3x R$ ${preco.parcela})\n`
-      : ''
-    const linhaExtra =
-      (perfil.plano_sugerido ? `📋 Plano sugerido (perfil): ${perfil.plano_sugerido}\n` : '') +
-      (perfil.complexidade ? `🔧 Complexidade: ${perfil.complexidade}\n` : '') +
-      `🌡️ Termômetro/dor (perfil): ${perfil.termometro_dor ?? perfil.score_dor ?? '?'}/10\n`
-    if (!linhaPrecificacao && !linhaPreco && !linhaExtra.trim()) return ''
-    return `\n---\n${linhaPreco}${linhaExtra}${linhaPrecificacao}`
+    let valorTxt = ''
+    if (previa.faixa_min && previa.faixa_max) {
+      valorTxt = previa.faixa_min === previa.faixa_max
+        ? `R$ ${previa.faixa_min}`
+        : `R$ ${previa.faixa_min}–${previa.faixa_max}`
+      if (previa.valor_alvo) valorTxt += ` (alvo ~R$ ${previa.valor_alvo})`
+    } else if (previa.valor_alvo) {
+      valorTxt = `~R$ ${previa.valor_alvo}`
+    }
+    if (!valorTxt) return ''
+    const planoTxt = previa.plano ? ` · plano ${previa.plano}` : ''
+    const just = previa.justificativa ? `\n"${previa.justificativa}"` : ''
+    return `💡 Prévia de valor (IA): ${valorTxt}${planoTxt}${just}`
+  }
+
+  /**
+   * Ping COMPACTO ao operador. Só o que decide a ação em segundos; o briefing rico
+   * fica no dashboard (link). Funde o antigo "preview de valor" como prévia informativa
+   * (sem aprovação) no handoff de reunião agendada.
+   */
+  function montarPingOperador({ numero, perfil = {}, preco = {}, motivo, resumoHandoff, previaValor } = {}) {
+    const phone = numeroDisplayDoJid(numero)
+    const nome = String(perfil.apelido || perfil.nome || '').trim()
+    const leadLinha = nome ? `${nome} · ${phone}` : String(phone || numero || '?')
+    const nicho = String(perfil.negocio || '').trim() || '?'
+    const cidade = String(perfil.cidade || perfil.regiao_atendimento || '').trim()
+    const negCidade = [nicho, cidade].filter(Boolean).join(' · ')
+    const term = perfil.termometro_dor ?? perfil.score_dor
+    const termLinha = (term != null && term !== '') ? ` · 🌡️${term}/10` : ''
+    const titulo = MOTIVO_LABEL[String(motivo || '')] || 'Lead encaminhado'
+
+    const linhas = [`🔔 ${titulo} — PJ Codeworks`, leadLinha, `${negCidade}${termLinha}`]
+
+    const reuniao = formatarReuniaoCurta(perfil)
+    if (reuniao) linhas.push(`📅 ${reuniao}`)
+
+    const dor = String(perfil.dor_principal || '').trim()
+    if (dor) linhas.push(`Dor: ${resumirTextoOperacional(dor, 120)}`)
+
+    const previaTxt = formatarPreviaValor(previaValor)
+    if (previaTxt) linhas.push('', previaTxt)
+
+    const resumo = String(resumoHandoff || '').trim()
+    if (resumo) linhas.push(`📝 ${resumirTextoOperacional(resumo, 160)}`)
+
+    const link = linkPainelLead(numero)
+    if (link) linhas.push(`▶ ${link}`)
+
+    return linhas.join('\n')
   }
 
   /** Handoff: WhatsApp sempre que houver número; Telegram só no horário de redirecionamento imediato (reserva). */
@@ -115,62 +188,16 @@ function createHandoffAlerts(deps = {}) {
     const phone = String(numero).replace(/@s\.whatsapp\.net$/i, '').replace(/\D/g, '')
     const motivoStr = String(motivo ?? '')
 
-    const { resultado } = extras || {}
+    const { previaValor } = extras || {}
 
-    const temPreco = preco.total > 0
-    const montarTextoLegado = () => {
-      const linhaPreco = temPreco
-        ? `💰 Preço: R$ ${preco.total} (entrada R$ ${preco.entrada} + 3x R$ ${preco.parcela})\n`
-        : ''
-      const linhaPlano = perfil.plano_sugerido ? `📋 Plano: ${perfil.plano_sugerido}\n` : ''
-      const linhaTemp = perfil.temperatura_lead ? `🌡️ Temperatura: ${perfil.temperatura_lead}\n` : ''
-      const linhaComplexidade = perfil.complexidade ? `🔧 Complexidade: ${perfil.complexidade}\n` : ''
-      const linhaDor = perfil.score_dor != null ? `😟 Score dor: ${perfil.score_dor}/10\n` : ''
-      const linhaResumo = resumoHandoff ? `\n📝 Resumo:\n${resumoHandoff}\n` : ''
-      let linhaPrecificacao = ''
-      const pj = perfil.precificacao_json
-      if (pj && typeof pj === 'object') {
-        linhaPrecificacao =
-          `\n📊 Precificação — plano: ${pj.plano_recomendado ?? '?'} | ROI: ${pj.roi_score ?? '?'}\n` +
-          `Valor personalizado: R$ ${pj.valor_personalizado ?? '?'} (faixa R$${pj.range_min ?? '?'}–R$${pj.range_max ?? '?'})\n` +
-          `Iniciante R$ ${pj.iniciante_valor ?? '?'} · Padrão R$ ${pj.padrao_valor ?? '?'} · Premium R$ ${pj.premium_valor ?? '?'}\n` +
-          `Upgrades: Inic→Pad R$ ${pj.upgrade_iniciante_para_padrao ?? '?'} · Pad→Prem R$ ${pj.upgrade_padrao_para_premium ?? '?'}\n`
-      }
-      return (
-        `🔔 HANDOFF — PJ Codeworks\n` +
-        `Lead: ${phone}\n` +
-        `Nicho: ${perfil.negocio || '?'} | ${perfil.cidade || '?'}\n` +
-        `Motivo: ${motivoStr}\n` +
-        linhaPreco +
-        linhaPlano +
-        linhaTemp +
-        linhaComplexidade +
-        linhaDor +
-        linhaPrecificacao +
-        `🌡️ Termômetro: ${perfil.termometro_dor ?? perfil.score_dor ?? '?'}/10` +
-        linhaResumo
-      )
-    }
-
-    let textoWa
-    try {
-      const built = buildProjectHandoff({
-        numero,
-        perfil,
-        preco,
-        motivo: motivoStr,
-        resumoHandoff,
-        resultado: resultado && typeof resultado === 'object' ? resultado : {},
-      })
-      const { handoff } = built
-
-      textoWa =
-        formatarMensagemHandoffEnriquecida(handoff, { motivo: motivoStr }) +
-        montarAnexoPrecificacaoMotor(perfil, preco)
-    } catch (e) {
-      logger.error('❌ Handoff enriquecido falhou, usando formato legado:', e.message)
-      textoWa = montarTextoLegado()
-    }
+    const textoWa = montarPingOperador({
+      numero,
+      perfil,
+      preco,
+      motivo: motivoStr,
+      resumoHandoff,
+      previaValor: previaValor || null,
+    })
 
     const enviouWa = await notificarVictorWhatsapp(textoWa)
     if (enviouWa) {
@@ -374,10 +401,28 @@ function createHandoffAlerts(deps = {}) {
     return enviou
   }
 
+  // Avisa o operador que o LEAD pediu para remarcar — reaproveita o ping de handoff,
+  // só sinalizando que a alteração partiu do lead.
+  async function alertarReagendamentoReuniao(numero, perfil = {}, detalhe = {}) {
+    const texto = montarPingOperador({
+      numero,
+      perfil,
+      preco: {},
+      motivo: 'reagendou_reuniao',
+      resumoHandoff: detalhe.nota || 'O lead pediu para remarcar a reunião.',
+      previaValor: null,
+    })
+    const enviou = await notificarVictorWhatsapp(texto)
+    if (enviou) logger.info('📲 Reagendamento (lead) notificado ao operador:', numeroDisplayDoJid(numero))
+    return enviou
+  }
+
   return {
     obterHoraLocalBrasil,
     estaNoHorarioRedirecionamentoImediatoVictor,
     textoContextoHorarioVictorParaPrompt,
+    montarPingOperador,
+    alertarReagendamentoReuniao,
     alertarHandoff,
     alertarLacunaConhecimento,
     notificarVictorWhatsapp,

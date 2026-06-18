@@ -142,12 +142,6 @@
     )
   }
 
-  function renderCampoPerfil(p, key, label) {
-    const value = leadVal(p, key, '')
-    if (!value) return ''
-    return renderInfoItem('briefcase', label, value)
-  }
-
   function jsonResumo(v) {
     if (!v || typeof v !== 'object' || Array.isArray(v)) return ''
     const parts = Object.entries(v)
@@ -182,60 +176,137 @@
     return '<div class="lead-profile-grid lead-profile-flow-grid">' + itens + '</div>'
   }
 
-  function renderPrecificacaoJson(pj) {
-    if (!pj || typeof pj !== 'object') return ''
-    const lines = [
-      `V (valor base): R$ ${pj.valor_base || '—'}`,
-      `Ancora modelos de site (= Premium, 100%): R$ ${pj.valor_ancora_plataforma || '—'}`,
-      `Entrega do projeto sobre V — 20% / 50% / 100%: R$ ${pj.modelo_basico_20_pct || '—'} / R$ ${pj.modelo_completo_50_pct || '—'} / R$ ${pj.modelo_premium_100_pct || '—'}`,
-      `Modelos de site sobre a âncora — P / Prof / Prem: R$ ${pj.plataforma_padrao || '—'} / R$ ${pj.plataforma_profissional || '—'} / R$ ${pj.plataforma_premium || '—'}`,
-      `Upgrade P→Prof: R$ ${pj.upgrade_padrao_para_profissional || '—'} · Prof→Prem: R$ ${pj.upgrade_profissional_para_premium || '—'} · P→Prem direto: R$ ${pj.upgrade_padrao_para_premium_direto || '—'}`,
-    ]
-    return (
-      '<div class="perfil-kv perfil-precificacao-json"><span class="perfil-k">Precificação (motor)</span>' +
-      '<span class="perfil-k perfil-precificacao-hint">Gravado após cálculo no funil; o follow-up de reengajamento usa o mesmo JSON.</span>' +
-      `<pre class="perfil-pre">${esc(lines.join('\n'))}</pre></div>`
-    )
-  }
-
-  function scoreLead(p) {
-    const raw = Number(leadVal(p, ['score_dor', 'score', 'lead_score'], '56').replace(/\D/g, '') || 56)
-    return Math.max(0, Math.min(100, raw || 56))
-  }
-
   function interesseLabel(score) {
     if (score >= 75) return 'Interesse alto'
     if (score >= 45) return 'Interesse médio'
     return 'Interesse inicial'
   }
 
-  function renderPerfil(p) {
-    const score = scoreLead(p || {})
+  // Campos REALMENTE coletados na conversa (campos_coletados JSONB). Sem inventar.
+  const CAMPOS_COLETADOS_LABEL = {
+    nome: 'Nome', nome_completo: 'Nome', email: 'E-mail', telefone: 'Telefone',
+    instagram: 'Instagram', site: 'Site', website: 'Site',
+    google_meu_negocio: 'Google Meu Negócio', gmb: 'Google Meu Negócio',
+  }
+  // Não duplicar o que já aparece no grid principal nem no card de Contato.
+  const CAMPOS_COLETADOS_OCULTAR = new Set([
+    'negocio', 'cidade', 'necessidade', 'produto_sugerido',
+    'nome', 'nome_completo', 'email', 'telefone', 'instagram',
+    'site', 'website', 'google_meu_negocio', 'gmb',
+  ])
+
+  function labelCampoColetado(k) {
+    const key = String(k || '').trim()
+    if (CAMPOS_COLETADOS_LABEL[key]) return CAMPOS_COLETADOS_LABEL[key]
+    return key.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
+  }
+
+  // Bloco de Contato: dados reais (campos_coletados + telefone do JID). Sem inventar;
+  // só renderiza o que existe, com rótulos amigáveis e links úteis (WhatsApp/e-mail).
+  function renderContatoItemLink(icon, label, value, href) {
+    return (
+      `<div class="lead-info-item">` +
+      `<span class="lead-info-icon">${heroIcoSpan(icon)}</span>` +
+      `<span><small>${esc(label)}</small>` +
+      (href ? `<strong><a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(value)}</a></strong>` : `<strong>${esc(value)}</strong>`) +
+      `</span></div>`
+    )
+  }
+
+  function renderContato(d) {
+    const p = d.perfil || {}
+    const cc = p.campos_coletados && typeof p.campos_coletados === 'object' && !Array.isArray(p.campos_coletados) ? p.campos_coletados : {}
+    const phone = digitsWaMe(d.numero)
+    const nome = String(cc.nome || cc.nome_completo || p.apelido || '').trim()
+    const email = String(cc.email || '').trim()
+    const instagram = String(cc.instagram || '').trim()
+    const site = String(cc.site || cc.website || '').trim()
+    const itens = [
+      nome ? renderInfoItem('users', 'Nome', nome) : '',
+      phone ? renderContatoItemLink('phone', 'Telefone', formatarNumeroDisplay(d.numero), `https://wa.me/${phone}`) : '',
+      email ? renderContatoItemLink('mail', 'E-mail', email, `mailto:${email}`) : '',
+      instagram ? renderInfoItem('search', 'Instagram', instagram) : '',
+      site ? renderContatoItemLink('search', 'Site', site, /^https?:/i.test(site) ? site : `https://${site}`) : '',
+    ].filter(Boolean).join('')
+    return (
+      `<div class="card lead-col-4 lead-contato-card">` +
+      `<div class="card-titulo"><span>Contato</span></div>` +
+      (itens ? `<div class="lead-profile-grid">${itens}</div>` : '<p class="perfil-sem-dados">Só o telefone por enquanto — nome/e-mail ainda não coletados.</p>') +
+      `</div>`
+    )
+  }
+
+  function renderCamposColetados(p) {
+    const cc = p && p.campos_coletados
+    const obj = cc && typeof cc === 'object' && !Array.isArray(cc) ? cc : null
+    if (!obj) return ''
+    return Object.entries(obj)
+      .filter(([k, v]) => !CAMPOS_COLETADOS_OCULTAR.has(String(k)) && v != null && v !== '' && !(Array.isArray(v) && !v.length))
+      .slice(0, 10)
+      .map(([k, v]) => {
+        const val = Array.isArray(v) ? v.join(', ') : typeof v === 'object' ? jsonResumo(v) : String(v)
+        return val ? renderInfoItem('check', labelCampoColetado(k), val) : ''
+      })
+      .join('')
+  }
+
+  // Sinais do lead capturados pela IA a cada turno (insights_lead). Só o que existe.
+  function renderSinaisLead(insights) {
+    const o = insights && typeof insights === 'object' && !Array.isArray(insights) ? insights : null
+    const arr = (v) => (Array.isArray(v) && v.length ? v.join(', ') : '')
+    const linha = (icon, label, val) => (val ? renderInfoItem(icon, label, val) : '')
+    const urg = o && o.urgencia ? (o.prazo ? `${o.urgencia} (${o.prazo})` : o.urgencia) : ''
+    const itens = o
+      ? [
+          linha('users', 'Como capta clientes hoje', o.origem_clientes),
+          linha('clock', 'Urgência', urg),
+          linha('money', 'Orçamento citado', o.orcamento_mencionado),
+          linha('check', 'É o decisor?', o.eh_decisor),
+          linha('search', 'Concorrentes citados', arr(o.concorrentes_mencionados)),
+          linha('spark', 'Sinais de compra', arr(o.sinais_compra)),
+          linha('alert', 'Objeções', arr(o.objecoes)),
+        ].filter(Boolean).join('')
+      : ''
+    const obs = o && o.observacao_curta ? `<p class="lead-sinais-obs">“${esc(o.observacao_curta)}”</p>` : ''
+    return (
+      `<div class="card lead-col-8 lead-sinais-card">` +
+      `<div class="card-titulo"><span>Sinais do lead (IA)</span></div>` +
+      (itens
+        ? `<div class="lead-profile-grid">${itens}</div>${obs}`
+        : '<p class="perfil-sem-dados">A IA ainda não captou sinais específicos deste lead.</p>') +
+      `</div>`
+    )
+  }
+
+  // score vem da análise da IA (coach.score). Nunca inventamos um valor.
+  function renderPerfil(p, iaScore) {
+    const temScore = iaScore != null && Number.isFinite(Number(iaScore))
+    const score = temScore ? Math.max(0, Math.min(100, Math.round(Number(iaScore)))) : null
     const itens =
-      renderInfoItem('briefcase', 'Negócio', leadVal(p, 'negocio', 'Barbeiro autônomo / a domicílio')) +
-      renderInfoItem('map', 'Cidade', leadVal(p, 'cidade', 'Luziânia - GO')) +
-      renderInfoItem('money', 'Ticket médio', leadVal(p, ['ticket_medio', 'ticket_cliente_final'], 'R$ 120')) +
-      renderInfoItem('chart', 'Faturamento mensal', leadVal(p, ['faturamento_mensal', 'faturamento'], 'R$ 6.000')) +
-      renderInfoItem('users', 'Equipe', leadVal(p, ['equipe', 'tamanho_equipe'], '1 pessoa')) +
-      renderInfoItem('money', 'Ticket cliente/mês', leadVal(p, 'ticket_cliente_final', 'Baixo')) +
-      renderInfoItem('briefcase', 'Complexidade', leadVal(p, 'complexidade', 'Simples')) +
-      renderInfoItem('search', 'Aparece no Google', leadVal(p, 'ja_aparece_google', 'Não')) +
-      renderInfoItem('clock', 'Tempo de operação', leadVal(p, ['tempo_operacao', 'tempo_de_operacao'], '2 anos')) +
-      renderInfoItem('chart', 'Número de serviços', leadVal(p, ['numero_servicos', 'servicos_qtd'], '7'))
+      renderInfoItem('briefcase', 'Negócio', leadVal(p, 'negocio', '—')) +
+      renderInfoItem('map', 'Cidade', leadVal(p, ['cidade', 'regiao_atendimento'], '—')) +
+      renderInfoItem('money', 'Ticket cliente/mês', leadVal(p, 'ticket_cliente_final', '—')) +
+      renderInfoItem('briefcase', 'Complexidade', leadVal(p, 'complexidade', '—')) +
+      renderInfoItem('search', 'Aparece no Google', leadVal(p, 'ja_aparece_google', '—')) +
+      renderInfoItem('briefcase', 'Produto sugerido', leadVal(p, 'produto_sugerido', '—')) +
+      renderCamposColetados(p)
+    const resumo = leadVal(p, ['resumo_necessidade', 'resumo_memoria_vendas'], '')
+    const resumoHtml =
+      resumo && resumo !== '—'
+        ? `<p>${esc(resumo).replace(/\n/g, '<br />')}</p>`
+        : `<p class="perfil-sem-dados">Sem resumo ainda — gere a análise interna (IA).</p>`
+    const scoreHtml = temScore
+      ? `<div class="lead-score"><span>Score (IA)</span><strong>${score}</strong><small>/ 100</small></div>` +
+        `<span class="lead-interest-badge">${esc(interesseLabel(score))}</span>`
+      : `<div class="lead-score lead-score--vazio"><span>Score (IA)</span><strong>—</strong></div>` +
+        `<span class="lead-interest-badge">Sem análise</span>`
     return (
       `<div class="lead-profile-layout">` +
       `<div class="lead-profile-grid">${itens}</div>` +
       `<aside class="lead-need-summary">` +
       `<strong>Resumo da necessidade</strong>` +
-      `<p>${esc(
-        leadVal(
-          p,
-          ['resumo_necessidade', 'resumo_memoria_vendas'],
-          'O lead precisa de um site simples e objetivo para apresentar seus serviços, facilitar o contato com clientes e transmitir credibilidade no digital.'
-        )
-      )}</p>` +
-      `<div class="lead-score"><span>Score</span><strong>${score}</strong><small>/ 100</small></div>` +
-      `<span class="lead-interest-badge">${esc(interesseLabel(score))}</span>` +
+      resumoHtml +
+      scoreHtml +
       `</aside>` +
       `</div>` +
       `<div class="lead-section-mini"><h3>Fluxo comercial</h3>${renderFluxoComercial(p || {})}</div>`
@@ -243,7 +314,6 @@
   }
 
   function renderLacunas(rows) {
-    const fallback = ['Faixa etária do público', 'Principais serviços', 'Concorrentes diretos', 'Orçamento disponível', 'Prazo desejado']
     const renderChecklist = (items) =>
       '<div class="lead-gap-checklist">' +
       items
@@ -254,16 +324,15 @@
         )
         .join('') +
       '</div>'
-    if (!rows || !rows.length) {
-      return (
-        '<p class="perfil-sem-dados">Informações que ainda não temos sobre este lead.</p>' +
-        renderChecklist(fallback)
-      )
+    const aberto = Array.isArray(rows)
+      ? rows.filter((l) => l.resolvido_em == null).map((l) => l.tema_lacuna || l.detalhe_lacuna || 'Lacuna aberta')
+      : []
+    if (!aberto.length) {
+      return '<p class="perfil-sem-dados">Nenhuma lacuna registrada para este lead.</p>'
     }
-    const aberto = rows.filter((l) => l.resolvido_em == null).map((l) => l.tema_lacuna || l.detalhe_lacuna || 'Lacuna aberta')
     return (
       '<p class="perfil-sem-dados">Informações que ainda não temos sobre este lead.</p>' +
-      renderChecklist(aberto.length ?aberto : fallback)
+      renderChecklist(aberto)
     )
   }
 
@@ -276,7 +345,7 @@
           m.role === 'user' ?'Cliente' : m.role === 'assistant' ?'Agente' : m.role === 'operator' ?'Operador' : m.role
         const body = esc(m.content || '').replace(/\n/g, '<br />')
         const hora =
-          m.hora || m.time || (m.created_at ?String(m.created_at).slice(11, 16) : '') || `14:${String(12 + idx).padStart(2, '0')}`
+          m.hora || m.time || (m.created_at ?String(m.created_at).slice(11, 16) : '') || ''
         return (
           `<div class="perfil-msg perfil-msg-${esc(m.role)}">` +
           `<span class="perfil-msg-dot" aria-hidden="true"></span>` +
@@ -359,8 +428,7 @@
     return (
       `<div class="card perfil-coach-card lead-col-6">` +
       `<div class="card-titulo"><span>Análise interna (IA)</span></div>` +
-      `<p class="perfil-coach-intro">Diagnóstico automático sobre potencial, próximos passos e recomendação comercial.</p>` +
-      `<div class="lead-ai-insight">${heroIcoSpan('spark')}<span>Lead com necessidade clara de presença digital. Bom potencial de fechamento com proposta simples e direta. Recomendo enviar proposta e agendar retorno em até 2 dias.</span></div>` +
+      `<p class="perfil-coach-intro">Diagnóstico automático sobre potencial, próximos passos e recomendação comercial. Clique para gerar (ou veja a última análise salva abaixo).</p>` +
       `<button type="button" class="btn-reproc" id="btn-gerar-coach">Gerar nova análise</button>` +
       `<p class="perfil-coach-status" id="perfil-coach-status" aria-live="polite"></p>` +
       `<div id="perfil-coach-bloco" class="perfil-coach-bloco" hidden></div>` +
@@ -381,7 +449,7 @@
     const negocio = perfil.negocio || 'Negócio ainda não identificado'
     const temp = perfil.temperatura_lead || 'sem temperatura'
     const pendente = ultimaMsgInfo(d.historico)
-    const dataConversa = d.atualizado_em ?String(d.atualizado_em).slice(0, 16).replace('T', ' ') : '07/06/2024 14:17'
+    const dataConversa = d.atualizado_em ?String(d.atualizado_em).slice(0, 16).replace('T', ' ') : '—'
     const badges = [
       d.historico && d.historico.length && d.historico[d.historico.length - 1].role === 'user' ?'Precisa responder' : '',
       d.status === 'aguardando_handoff' ?'Handoff' : 'Ativo',
@@ -436,37 +504,36 @@
     )
   }
 
-  function renderAnaliseDetalhada(d) {
-    const p = d.perfil || {}
-    const valor = Array.isArray(p.valor_percebido)
-      ?p.valor_percebido
-      : ['Aumentar visibilidade e presença digital', 'Facilitar contato e agendamentos', 'Passar mais credibilidade profissional']
-    const dores = Array.isArray(p.dores_identificadas)
-      ?p.dores_identificadas
-      : ['Dependência de indicações', 'Falta de presença online', 'Perda de oportunidades por falta de site']
-    const compra = Array.isArray(p.razoes_compra)
-      ?p.razoes_compra
-      : ['Profissionalizar marca', 'Atrair mais clientes', 'Competir com outros barbeiros']
-    const objecoes = Array.isArray(p.objecoes)
-      ?p.objecoes
-      : ['Investimento inicial', 'Retorno não imediato', 'Não entende de tecnologia']
+  function formatarDataHoraBr(iso) {
+    if (!iso) return ''
+    const dt = new Date(iso)
+    if (isNaN(dt.getTime())) return String(iso)
+    return dt.toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    })
+  }
+
+  // Reunião agendada — objetivo do funil. Dado REAL da agenda (sem inventar).
+  function renderReuniaoAgendada(r) {
+    if (!r || !r.data_inicio) {
+      return (
+        `<div class="card lead-col-12 lead-reuniao-card lead-reuniao-vazia">` +
+        `<div class="card-titulo"><span>Reunião</span></div>` +
+        `<p class="perfil-sem-dados">Nenhuma reunião agendada para este lead.</p>` +
+        `</div>`
+      )
+    }
+    const quando = formatarDataHoraBr(r.data_inicio)
+    const statusLabel = r.status === 'confirmado' ? 'Confirmada' : 'Pendente'
     return (
-      `<div class="card lead-analysis-card lead-col-12">` +
-      `<div class="card-titulo"><span>Análise detalhada</span></div>` +
-      `<div class="lead-analysis-layout">` +
-      `<div class="lead-analysis-grid">` +
-      renderAnalysisList('Valor percebido', 'check', 'positive', valor) +
-      renderAnalysisList('Dores identificadas', 'x', 'negative', dores) +
-      renderAnalysisList('Razões de compra', 'check', 'neutral', compra) +
-      renderAnalysisList('Possíveis objeções', 'alert', 'warning', objecoes) +
-      `</div>` +
-      `<aside class="lead-plan-card">` +
-      `<span>Plano sugerido</span>` +
-      `<strong>${esc(leadVal(p, 'plano_sugerido', 'Site institucional'))}</strong>` +
-      `<b>${esc(leadVal(p, ['preco_calculado', 'valor_proposta'], 'R$ 1.290'))}</b>` +
-      `<p>Site OnePage com apresentação de serviços, galeria, depoimentos e botão de contato via WhatsApp.</p>` +
-      `<div class="lead-plan-tags"><span>OnePage</span><span>Responsivo</span><span>WhatsApp</span><span>SEO Básico</span><span>Hospedagem 1 ano</span></div>` +
-      `</aside>` +
+      `<div class="card lead-col-12 lead-reuniao-card lead-reuniao-ok">` +
+      `<div class="card-titulo"><span>Reunião agendada</span></div>` +
+      `<div class="lead-reuniao-info">` +
+      `<span class="lead-reuniao-ico">${heroIcoSpan('clock')}</span>` +
+      `<div class="lead-reuniao-text"><strong>${esc(quando)}</strong>` +
+      `<small>${esc(statusLabel)} · origem: ${esc(r.origem || 'agenda')} · 15 min</small></div>` +
+      `<a href="agenda.html" class="btn-followup btn-link lead-reuniao-link">Ver na agenda</a>` +
       `</div>` +
       `</div>`
     )
@@ -559,7 +626,6 @@
       '<button type="button" class="btn-reproc" id="btn-salvar-contexto">Salvar contexto</button>' +
       '<span id="lead-contexto-status" class="perfil-meta-save-status" aria-live="polite"></span>' +
       '</div>' +
-      '<div class="lead-attachments"><strong>Anexos</strong><div><span>Brief_cliente.pdf<small>2.4 MB</small></span><button type="button" aria-label="Visualizar anexo">○</button></div><div><span>orcamento_proposta.pdf<small>1.1 MB</small></span><button type="button" aria-label="Visualizar anexo">○</button></div></div>' +
       '<div class="perfil-contexto-upload lead-audio-upload">' +
       '<label class="perfil-meta-field"><span class="perfil-meta-field-k">Audio antigo sem payload</span>' +
       '<input type="file" id="lead-audio-upload" class="perfil-contexto-file" accept="audio/*" />' +
@@ -606,6 +672,22 @@
       : 'O modelo não preencheu prompt_gamma_apresentacao; tente gerar de novo ou revise prompts/lead-coach.md no servidor.'
   }
 
+  function formatarPreviaValorTexto(previa) {
+    if (!previa || typeof previa !== 'object') return ''
+    if (previa.plano === 'sob_medida') {
+      return 'Prévia de valor (IA): sob medida — alinhar escopo na reunião' + (previa.justificativa ? ` — ${previa.justificativa}` : '')
+    }
+    let v = ''
+    if (previa.faixa_min && previa.faixa_max) {
+      v = previa.faixa_min === previa.faixa_max ? `R$ ${previa.faixa_min}` : `R$ ${previa.faixa_min}–${previa.faixa_max}`
+      if (previa.valor_alvo) v += ` (alvo ~R$ ${previa.valor_alvo})`
+    } else if (previa.valor_alvo) {
+      v = `~R$ ${previa.valor_alvo}`
+    }
+    if (!v) return ''
+    return `Prévia de valor (IA): ${v}${previa.plano ? ` · plano ${previa.plano}` : ''}${previa.justificativa ? ` — ${previa.justificativa}` : ''}`
+  }
+
   function renderCoachResult(coach, analise) {
     if (!coach || typeof coach !== 'object') return ''
     const steps = Array.isArray(coach.proximos_passos) ?coach.proximos_passos : []
@@ -627,7 +709,31 @@
         .map(([k]) => `<span class="estagio-badge pendente">${esc(k)}</span>`)
       if (tags.length) sinaisHtml = `<div class="perfil-coach-sinais">${tags.join(' ')}</div>`
     }
+    const score = coach.score != null && Number.isFinite(Number(coach.score))
+      ? Math.max(0, Math.min(100, Math.round(Number(coach.score))))
+      : null
+    const previa = coach.previa_valor && typeof coach.previa_valor === 'object' ? coach.previa_valor : null
+    const det = coach.analise_detalhada && typeof coach.analise_detalhada === 'object' ? coach.analise_detalhada : null
+    const previaTxt = formatarPreviaValorTexto(previa)
+    const headerHtml =
+      score != null || previaTxt
+        ? `<div class="perfil-coach-head">` +
+          (score != null
+            ? `<div class="lead-score"><span>Score (IA)</span><strong>${score}</strong><small>/ 100</small></div>`
+            : '') +
+          (previaTxt ? `<div class="perfil-coach-previa">💡 ${esc(previaTxt)}</div>` : '') +
+          `</div>`
+        : ''
+    const detHtml = det
+      ? `<div class="lead-analysis-grid perfil-coach-analise">` +
+        (det.valor_percebido && det.valor_percebido.length ? renderAnalysisList('Valor percebido', 'check', 'positive', det.valor_percebido) : '') +
+        (det.dores && det.dores.length ? renderAnalysisList('Dores identificadas', 'x', 'negative', det.dores) : '') +
+        (det.razoes_compra && det.razoes_compra.length ? renderAnalysisList('Razões de compra', 'check', 'neutral', det.razoes_compra) : '') +
+        (det.objecoes && det.objecoes.length ? renderAnalysisList('Possíveis objeções', 'alert', 'warning', det.objecoes) : '') +
+        `</div>`
+      : ''
     return (
+      headerHtml +
       (analise && analise.criado_em
         ?`<div class="perfil-kv"><span class="perfil-k">Última análise salva</span><span class="perfil-v">${esc(String(analise.criado_em))}</span></div>`
         : '') +
@@ -651,6 +757,7 @@
         ?`<div class="perfil-racioc"><strong>Resumo do problema</strong><p>${esc(coach.resumo_problema).replace(/\n/g, '<br />')}</p></div>`
         : '') +
       `<div class="perfil-racioc"><strong>Raciocínio</strong><p>${esc(coach.raciocinio || '—').replace(/\n/g, '<br />')}</p></div>` +
+      detHtml +
       renderListaCoach('Próximos passos', steps, true) +
       renderListaCoach('O que faltou para vender', faltou, false) +
       renderListaCoach('Melhorias para a IA', melhoriasIa, false) +
@@ -666,16 +773,26 @@
     const wame = digitsWaMe(jid)
     const waHref = wame ?`https://wa.me/${wame}` : '#'
     const conteudo = document.getElementById('perfil-conteudo')
+    // Score sempre registrado: prioriza score_lead (atualizado a cada turno pela IA),
+    // cai para o score da última análise (coach) se ainda não houver.
+    const iaScore =
+      d.perfil && d.perfil.score_lead != null
+        ? d.perfil.score_lead
+        : d.analise_conversa && d.analise_conversa.coach && d.analise_conversa.coach.score != null
+          ? d.analise_conversa.coach.score
+          : null
     conteudo.innerHTML =
       `<div class="perfil-stack">` +
       renderTopoLead(d, jid, waHref, wame) +
       `<div class="lead-grid">` +
+      renderReuniaoAgendada(d.reuniao_agendada) +
+      renderContato(d) +
       renderFunilCard(d) +
       `<div class="card lead-profile-card lead-col-8">` +
       `<div class="card-titulo"><span>Perfil comercial</span></div>` +
-      `${renderPerfil(d.perfil)}` +
+      `${renderPerfil(d.perfil, iaScore)}` +
       `</div>` +
-      renderAnaliseDetalhada(d) +
+      renderSinaisLead(d.perfil && d.perfil.insights_lead) +
       `<div class="card perfil-historico-card lead-col-8">` +
       `<div class="card-titulo"><span>Histórico da conversa</span></div>` +
       `<div class="perfil-historico-scroll">${renderHistorico(d.historico)}</div>` +

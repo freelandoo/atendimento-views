@@ -245,7 +245,8 @@
               ${conversa}
               <button type="button" class="agenda-action-btn" data-action="editar" data-id="${esc(ev.id)}">Editar</button>
               ${podeLembrete ?`<button type="button" class="agenda-action-btn" data-action="lembrete-agora" data-id="${esc(ev.id)}">Enviar lembrete</button>` : ''}
-              <button type="button" class="agenda-action-btn" data-action="concluir" data-id="${esc(ev.id)}"${status === 'concluido' ?' disabled' : ''}>Concluir</button>
+              <button type="button" class="agenda-action-btn agenda-action-success" data-action="concluir" data-id="${esc(ev.id)}"${status === 'concluido' ?' disabled' : ''}>${ev.tipo === 'reuniao' ?'Reunião concluída' : 'Concluir'}</button>
+              ${ev.tipo === 'reuniao' && !ev.venda_fechada ?`<button type="button" class="agenda-action-btn agenda-action-vendido" data-action="vendido" data-id="${esc(ev.id)}">Marcar vendido</button>` : ''}
               ${podeNoShow ?`<button type="button" class="agenda-action-btn" data-action="nao-compareceu" data-id="${esc(ev.id)}">Não compareceu</button>` : ''}
               <button type="button" class="agenda-action-btn agenda-action-details" data-action="detalhes" data-id="${esc(ev.id)}">Ver detalhes</button>
               <button type="button" class="agenda-action-btn" data-action="excluir" data-id="${esc(ev.id)}">Excluir</button>
@@ -266,6 +267,7 @@
                 ${ev.lembrete_status ?`<span class="agenda-chip agenda-chip-lembrete-${esc(ev.lembrete_status)}">${esc(labelLembrete(ev.lembrete_status))}</span>` : ''}
                 <span class="agenda-chip">${esc(prioridades[ev.prioridade] || ev.prioridade)}</span>
                 ${ev.recorrencia_id ?'<span class="agenda-chip">Recorrente</span>' : ''}
+                ${ev.venda_fechada ?`<span class="agenda-chip agenda-chip-vendido">✓ Vendido${ev.venda_valor ?` · R$ ${esc(formatBRL(ev.venda_valor))}` : ''}</span>` : ''}
               </div>
             </div>
             <div class="agenda-event-actions">
@@ -646,6 +648,32 @@
     await carregarAgenda()
   }
 
+  function formatBRL(v) {
+    const n = Number(v)
+    return Number.isFinite(n) ? n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v)
+  }
+
+  async function marcarVendido(id) {
+    const entrada = window.prompt('Valor da venda (R$):', '')
+    if (entrada == null) return
+    const valor = Number(String(entrada).replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, ''))
+    if (!Number.isFinite(valor) || valor <= 0) {
+      Core.toast?.('Valor inválido.', 'erro')
+      return
+    }
+    const r = await api(`/dashboard/agenda/${encodeURIComponent(id)}/vendido`, {
+      method: 'PATCH',
+      headers: headersJson(),
+      body: JSON.stringify({ valor }),
+    })
+    if (!r.ok) {
+      Core.toast?.(r.erro || 'Erro ao registrar venda.', 'erro')
+      return
+    }
+    Core.toast?.(`Venda registrada: R$ ${formatBRL(valor)}.`, 'sucesso')
+    await carregarAgenda()
+  }
+
   async function excluirEvento(id) {
     const ok = window.confirm('Excluir este compromisso?')
     if (!ok) return
@@ -831,6 +859,7 @@
       if (action === 'editar') abrirModal(encontrarEvento(id))
       if (action === 'editar-bloqueio') abrirModalBloqueio(encontrarEvento(id))
       if (action === 'concluir') concluirEvento(id)
+      if (action === 'vendido') marcarVendido(id)
       if (action === 'lembrete-agora') enviarLembreteAgora(id)
       if (action === 'nao-compareceu') abrirModalNoShow(encontrarEvento(id))
       if (action === 'excluir') excluirEvento(id)

@@ -1,6 +1,4 @@
 'use strict'
-const { pool } = require('./db')
-const { resolverEmpresaPorInstance } = require('./db/whatsapp-instances')
 
 function registerWebhookRoute(app, deps = {}) {
   const {
@@ -14,6 +12,7 @@ function registerWebhookRoute(app, deps = {}) {
     processarComandosOperadorChat,
     isConversaLeadUmAUm,
     processarIntervencaoOperadorNoLead,
+    tratarPossivelReuniaoOperador,
     construirChaveIdempotenciaWebhookMensagem,
     webhookMensagemDeveSerProcessada,
     extrairTextoEMidiaDoWebhook,
@@ -30,6 +29,7 @@ function registerWebhookRoute(app, deps = {}) {
     marcarRespostaFollowupSeAplicavel,
     serializeError,
     obterEstadoDebounceResposta,
+    textoJaProcessadoRecentemente,
     enfileirarJobRespostaWebhook,
     registrarRespostaLembreteReuniao,
     podeGerarRespostaAutomatica,
@@ -59,10 +59,7 @@ function registerWebhookRoute(app, deps = {}) {
 
         const numero = canonicoRemoteJidParaConversa(msg.key) || remoteJidOriginal
         if (!numero) return
-
-        const evolutionInstance = String(req.body?.instance || '')
-        const empresaId = await resolverEmpresaPorInstance(pool, evolutionInstance, logger)
-        webhookLog = webhookLog.child({ numero, empresa_id: empresaId, evolution_instance: evolutionInstance || undefined })
+        webhookLog = webhookLog.child({ numero })
         if (/@lid$/i.test(numero) && !msg.key?.remoteJidAlt) {
           webhookLog.warn(
             '⚠️ Webhook: conversa só com @lid e sem remoteJidAlt — atualize a Evolution API ou aguarde evento com JID de telefone; comandos/DB podem falhar.'
@@ -82,25 +79,41 @@ function registerWebhookRoute(app, deps = {}) {
         if (fromMe) {
           if (isConversaLeadUmAUm(numero)) {
             await processarIntervencaoOperadorNoLead(msg, numero)
+            // #4: o operador pode ter fechado uma reuniao nesta mensagem.
+            if (typeof tratarPossivelReuniaoOperador === 'function') {
+              await tratarPossivelReuniaoOperador(numero).catch((err) =>
+                webhookLog.warn({ err: serializeError(err) }, '#4 tratarPossivelReuniaoOperador falhou (operador)')
+              )
+            }
           }
           return
         }
     
-        const chaveEvtPreMedia = construirChaveIdempotenciaWebhookMensagem(msg)
-        if (!(await webhookMensagemDeveSerProcessada(chaveEvtPreMedia, numero))) {
+        const chaveEvt = construirChaveIdempotenciaWebhookMensagem(msg)
+        if (!(await webhookMensagemDeveSerProcessada(chaveEvt, numero))) {
           webhookLog.info({ dedupe_key: chaveEvt }, 'Webhook ignorado por duplicata')
           return
         }
-    
-        const { texto, visao } = await extrairTextoEMidiaDoWebhook(msg, { instance: evolutionInstance || null })
+
+        const { texto, visao } = await extrairTextoEMidiaDoWebhook(msg)
         if (!texto && !visao) return
-    
-        const chaveEvt = construirChaveIdempotenciaWebhookMensagem(msg)
-        if (false && !(await webhookMensagemDeveSerProcessada(chaveEvt, numero))) {
-          webhookLog.info({ dedupe_key: chaveEvtPreMedia }, 'Webhook ignorado por duplicata')
+
+        // ── TRAVA 1: auto-reply do WhatsApp Business (vale para qualquer lead) ──────────
+        // Detectado antes de salvar histórico, cancelar follow-ups ou criar job.
+        // Follow-ups pendentes permanecem ativos: auto-reply não é resposta real do lead.
+        if (texto && textoEhAutoReplyWhatsApp(texto)) {
+          webhookLog.info({ trecho: texto.slice(0, 120) }, 'Auto-reply WhatsApp Business detectado — mensagem ignorada, sem job')
+          await registrarEventoComercial(numero, 'auto_reply_detectado', { trecho: texto.slice(0, 200) }).catch(() => {})
           return
         }
-    
+
+        // ── TRAVA 2: dedupe por conteúdo normalizado + janela de 5 min ───────────────────
+        // Captura loops onde diferentes message_ids chegam com o mesmo texto em sequência.
+        if (texto && typeof textoJaProcessadoRecentemente === 'function' && textoJaProcessadoRecentemente(numero, texto)) {
+          webhookLog.info({ trecho: texto.slice(0, 120) }, 'Conteúdo já processado recentemente — mensagem deduplicada')
+          return
+        }
+
         const textoHistorico = texto || '(Cliente enviou conteúdo de mídia.)'
         const logLinha = textoHistorico.length > 200 ? `${textoHistorico.slice(0, 200)}…` : textoHistorico
         webhookLog.info({ tem_imagem: !!visao, trecho: logLinha }, 'Mensagem recebida no webhook')
@@ -108,43 +121,65 @@ function registerWebhookRoute(app, deps = {}) {
         let conversa = await buscarConversa(numero)
         let historico = normalizarHistoricoMensagens(conversa?.historico)
         let estagio = conversa?.estagio || 'primeiro_contato'
+        let perfilProspeccaoPatch = null
     
-        const prospectRespondido = await marcarProspectComoRespondeuPorNumero(numero).catch(() => null)
-        const contextoProspeccao = prospectRespondido
-          ? await buscarContextoProspeccao(numero).catch(() => null)
-          : null
-        if (!conversa && contextoProspeccao?.prospect) {
+        // Best-effort: marca o prospect como 'respondeu' (efeito colateral). NÃO
+        // gateia a identificação — antes, se isto falhasse/não casasse, o lead
+        // prospectado nunca era reconhecido. A identificação roda independente.
+        await marcarProspectComoRespondeuPorNumero(numero).catch((e) => {
+          webhookLog.warn({ err: serializeError ? serializeError(e) : String(e) }, 'marcarProspectComoRespondeuPorNumero falhou')
+        })
+        // Identificação: se o número casa um prospect enviado/respondeu, é lead prospectado.
+        const contextoProspeccao = await buscarContextoProspeccao(numero).catch((e) => {
+          webhookLog.warn({ err: serializeError ? serializeError(e) : String(e) }, 'buscarContextoProspeccao falhou')
+          return null
+        })
+        if (contextoProspeccao?.prospect) {
           const p = contextoProspeccao.prospect
           const d = contextoProspeccao.diagnostico || {}
+          const fila = contextoProspeccao.fila || {}
+          const contextoVendas = contextoProspeccao.contexto_vendas || {}
+          const mensagemEnviadaProspeccao = contextoVendas.mensagem_enviada || contextoProspeccao.mensagem_enviada || d.mensagem_editada || d.mensagem_gerada || fila.mensagem_editada || fila.mensagem_gerada || ''
           const autoReplyDetectado = textoEhAutoReplyWhatsApp(textoHistorico)
-          await atualizarPerfil(numero, {
-            negocio: p.nicho || undefined,
-            cidade: p.cidade || undefined,
+          const contextoPerfilProspeccao = {
+            prospect_id: p.id || contextoVendas.prospect_id || null,
+            nome: contextoVendas.nome || p.nome || '',
+            nicho: contextoVendas.nicho || p.nicho || '',
+            categoria: contextoVendas.categoria || contextoVendas.nicho || p.nicho || '',
+            cidade: contextoVendas.cidade || p.cidade || '',
+            estado: contextoVendas.estado || '',
+            endereco: contextoVendas.endereco || p.endereco || '',
+            regiao_atendimento: contextoVendas.regiao_atendimento || '',
+            telefone: contextoVendas.telefone || p.telefone || '',
+            tem_site: !!(contextoVendas.tem_site || p.tem_site),
+            site: contextoVendas.site || p.site || '',
+            maps_url: contextoVendas.maps_url || p.maps_url || '',
+            place_id: contextoVendas.place_id || p.place_id || '',
+            rating: contextoVendas.rating ?? p.rating ?? null,
+            avaliacoes: contextoVendas.avaliacoes ?? p.avaliacoes ?? null,
+            score: contextoVendas.score ?? p.score ?? null,
+            motivo_score: contextoVendas.motivo_score || p.motivo_score || '',
+            fila_id: fila.id || contextoVendas.fila_id || null,
+            slot_envio: fila.slot_envio || contextoVendas.slot_envio || null,
+            dor_principal: contextoVendas.dor_principal || d.dor_principal || '',
+            perda_estimada: contextoVendas.perda_estimada ?? d.perda_estimada ?? null,
+            mensagem_enviada: mensagemEnviadaProspeccao,
+            auto_reply_detectado: autoReplyDetectado,
+          }
+          perfilProspeccaoPatch = {
+            negocio: contextoPerfilProspeccao.nicho || undefined,
+            cidade: contextoPerfilProspeccao.cidade || undefined,
             origem: 'prospeccao',
-            contexto_prospeccao: {
-              prospect_id: p.id || null,
-              nome: p.nome || '',
-              nicho: p.nicho || '',
-              cidade: p.cidade || '',
-              telefone: p.telefone || '',
-              tem_site: !!p.tem_site,
-              site: p.site || '',
-              rating: p.rating ?? null,
-              avaliacoes: p.avaliacoes ?? null,
-              score: p.score ?? null,
-              dor_principal: d.dor_principal || '',
-              perda_estimada: d.perda_estimada ?? null,
-              mensagem_enviada: d.mensagem_editada || d.mensagem_gerada || '',
-              auto_reply_detectado: autoReplyDetectado,
-            },
-          })
+            produto_sugerido: 'site',
+            dor_principal: contextoPerfilProspeccao.dor_principal || undefined,
+            contexto_prospeccao: contextoPerfilProspeccao,
+          }
           if (autoReplyDetectado) {
             webhookLog.info('Auto-reply do WhatsApp Business detectada; agente vai usar regra P-PROSP-3')
           }
-          const primeiraMensagemProspeccao = d.mensagem_editada || d.mensagem_gerada || ''
-          if (primeiraMensagemProspeccao) {
+          if (!conversa && mensagemEnviadaProspeccao) {
             historico = [
-              { role: 'assistant', content: primeiraMensagemProspeccao },
+              { role: 'assistant', content: mensagemEnviadaProspeccao },
               { role: 'user', content: textoHistorico },
             ]
             estagio = 'diagnostico'
@@ -155,7 +190,10 @@ function registerWebhookRoute(app, deps = {}) {
           historico.push({ role: 'user', content: textoHistorico })
         }
     
-        await salvarConversa(numero, historico, estagio, conversa?.status || 'ativo', undefined, empresaId, evolutionInstance || null)
+        await salvarConversa(numero, historico, estagio, conversa?.status || 'ativo')
+        if (perfilProspeccaoPatch) {
+          await atualizarPerfil(numero, perfilProspeccaoPatch)
+        }
         let respostaLembrete = null
         if (typeof registrarRespostaLembreteReuniao === 'function') {
           respostaLembrete = await registrarRespostaLembreteReuniao(numero, textoHistorico).catch((err) =>
@@ -176,6 +214,13 @@ function registerWebhookRoute(app, deps = {}) {
     
         if (conversa?.agente_pausado) {
           webhookLog.info('Agente pausado; mensagem registrada sem resposta automatica')
+          // #4: com o agente pausado (operador no comando), o lead pode estar
+          // confirmando um horario que o operador propos. Detecta o fechamento.
+          if (typeof tratarPossivelReuniaoOperador === 'function') {
+            await tratarPossivelReuniaoOperador(numero).catch((err) =>
+              webhookLog.warn({ err: serializeError(err) }, '#4 tratarPossivelReuniaoOperador falhou (lead pausado)')
+            )
+          }
           return
         }
 

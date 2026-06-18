@@ -32,6 +32,7 @@
             <a href="agenda.html" class="dash-nav-link">Agenda</a>
       <a href="analytics.html" class="dash-nav-link">Métricas</a>
       <a href="configuracao.html" class="dash-nav-link">Configurações</a>
+      <a href="whatsapp.html" class="dash-nav-link">WhatsApp</a>
       </div>
       <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
     </nav>
@@ -70,6 +71,21 @@
           <span class="ops-summary-label">Handoff</span>
           <strong id="ops-total-handoff">—</strong>
           <span>aguardando operador</span>
+        </div>
+      </section>
+
+      <section aria-label="Carteira quente para trabalhar">
+        <div class="card" id="carteira-quente">
+          <div class="section-head">
+            <div>
+              <span class="section-kicker">Colher agora</span>
+              <h2>Carteira quente — leads para trabalhar hoje <span id="cq-total" class="badge">—</span></h2>
+            </div>
+            <span class="ops-summary-label">já pagos · sem reunião marcada · do mais quente pro mais frio</span>
+          </div>
+          <div id="carteira-quente-lista" class="painel-tabela">
+            <div class="empty-state empty-state-loading"><strong>Carregando carteira</strong></div>
+          </div>
         </div>
       </section>
 
@@ -216,7 +232,9 @@
   </div>
   <script src="dashboard/js/site-nav.js" defer></script>
   <script src="dashboard/js/core.js"></script>
+  <script src="dashboard/js/sistema-alertas.js"></script>
   <script src="dashboard/js/central.js"></script>
+  <script src="dashboard/js/leads-quentes.js"></script>
 </body>
 </html>
 

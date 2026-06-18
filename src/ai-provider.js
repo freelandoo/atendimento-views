@@ -5,6 +5,7 @@ const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 
 // Preços em USD por TOKEN (não por 1k). Atualize quando houver mudança de tabela.
+// Usado pela camada SaaS (api-llm-uso) para estimar custo a partir do usage logado.
 const MODEL_PRICES = {
   'gpt-4o-mini':        { input: 0.150 / 1e6, output: 0.600 / 1e6 },
   'gpt-4o':             { input: 2.500 / 1e6, output: 10.000 / 1e6 },
@@ -39,23 +40,118 @@ let _cache = null
 let _cacheAt = 0
 const CACHE_TTL = 30_000
 
+/**
+ * Presets por provedor — usado para defaults na UI e validacao no backend.
+ * Estrutura central para evitar divergencia entre frontend e backend.
+ */
+const AI_MODEL_PRESETS = {
+  anthropic: {
+    label: 'Anthropic Claude',
+    defaultModel: 'claude-sonnet-4-6',
+    defaultTemperature: 0.4,
+    defaultMaxTokens: 1200,
+    modelPrefixes: ['claude-'],
+    models: [
+      { value: 'claude-opus-4-7', label: 'Claude Opus 4.7 (mais capaz)' },
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (recomendado)' },
+      { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (mais rápido)' },
+      { value: 'claude-opus-4-5', label: 'Claude Opus 4.5' },
+    ],
+  },
+  openai: {
+    label: 'OpenAI GPT',
+    defaultModel: 'gpt-4o-mini',
+    defaultTemperature: 0.4,
+    defaultMaxTokens: 1200,
+    modelPrefixes: ['gpt-', 'o1-', 'o3-', 'o4-'],
+    models: [
+      { value: 'gpt-4o', label: 'GPT-4o (mais capaz)' },
+      { value: 'gpt-4o-mini', label: 'GPT-4o Mini (recomendado)' },
+      { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+      { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo (econômico)' },
+    ],
+  },
+}
+
+/**
+ * Verifica se um par provider/model e valido. Se for, retorna `{ ok: true }`.
+ * Caso contrario retorna `{ ok: false, erro: '...' }`.
+ *
+ * Evita estado inconsistente como provider=openai/model=claude-sonnet ou
+ * provider=anthropic/model=gpt-4o.
+ */
+function validarProviderModel(provider, model) {
+  const preset = AI_MODEL_PRESETS[provider]
+  if (!preset) {
+    return { ok: false, erro: `Provedor inválido: ${provider}.` }
+  }
+  const m = String(model || '').trim().toLowerCase()
+  if (!m) {
+    return { ok: false, erro: 'Modelo é obrigatório.' }
+  }
+  const ok = preset.modelPrefixes.some((p) => m.startsWith(p))
+  if (!ok) {
+    return {
+      ok: false,
+      erro: `Modelo "${model}" não é compatível com provedor "${preset.label}". Modelos esperados começam com: ${preset.modelPrefixes.join(', ')}.`,
+    }
+  }
+  return { ok: true }
+}
+
+/**
+ * Infere o provider a partir do nome do modelo (via modelPrefixes dos presets).
+ * Usado quando o caller passa `model` mas nao `provider`: sem isto, um modelo
+ * Claude ia para a OpenAI (provider configurado) e vice-versa, tomando 404 +
+ * fallback a cada chamada. Retorna null se nao reconhecer o modelo.
+ */
+function inferProviderFromModel(model) {
+  const m = String(model || '').trim().toLowerCase()
+  if (!m) return null
+  for (const [prov, preset] of Object.entries(AI_MODEL_PRESETS)) {
+    if ((preset.modelPrefixes || []).some((p) => m.startsWith(p))) return prov
+  }
+  return null
+}
+
 function _envDefaults() {
-  const primary = process.env.DEFAULT_AI_PROVIDER || 'anthropic'
+  const primaryRaw = process.env.AI_PROVIDER || process.env.DEFAULT_AI_PROVIDER || 'openai'
+  const primary = AI_MODEL_PRESETS[primaryRaw] ? primaryRaw : 'openai'
+  const presetP = AI_MODEL_PRESETS[primary] || AI_MODEL_PRESETS.openai
+  const fallback = primary === 'openai' ? 'anthropic' : 'openai'
+  const presetF = AI_MODEL_PRESETS[fallback] || AI_MODEL_PRESETS.openai
   return {
     provider: primary,
     model:
       primary === 'openai'
-        ? process.env.DEFAULT_OPENAI_MODEL || 'gpt-4o-mini'
-        : process.env.DEFAULT_ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-    temperature: 0.4,
-    max_tokens: 1200,
-    fallback_provider: primary === 'openai' ? 'anthropic' : 'openai',
+        ? process.env.AI_MODEL || process.env.DEFAULT_AI_MODEL || process.env.DEFAULT_OPENAI_MODEL || presetP.defaultModel
+        : process.env.AI_MODEL || process.env.DEFAULT_AI_MODEL || process.env.DEFAULT_ANTHROPIC_MODEL || presetP.defaultModel,
+    temperature: presetP.defaultTemperature,
+    max_tokens: presetP.defaultMaxTokens,
+    fallback_provider: fallback,
     fallback_model:
-      primary === 'openai'
-        ? process.env.DEFAULT_ANTHROPIC_MODEL || 'claude-sonnet-4-6'
-        : process.env.DEFAULT_OPENAI_MODEL || 'gpt-4o-mini',
+      fallback === 'openai'
+        ? process.env.DEFAULT_OPENAI_MODEL || presetF.defaultModel
+        : process.env.DEFAULT_ANTHROPIC_MODEL || presetF.defaultModel,
     fallback_enabled: true,
   }
+}
+
+function _systemPromptToText(systemPrompt) {
+  if (systemPrompt == null) return ''
+  if (typeof systemPrompt === 'string') return systemPrompt
+  if (Array.isArray(systemPrompt)) {
+    return systemPrompt
+      .map((block) => {
+        if (typeof block === 'string') return block
+        if (block && typeof block === 'object' && typeof block.text === 'string') return block.text
+        return ''
+      })
+      .filter(Boolean)
+      .join('\n\n')
+  }
+  if (typeof systemPrompt === 'object' && typeof systemPrompt.text === 'string') return systemPrompt.text
+  return String(systemPrompt)
 }
 
 async function getAISettings(pool) {
@@ -68,6 +164,9 @@ async function getAISettings(pool) {
       )
       if (rows.length) {
         _cache = rows[0]
+        // Ensure numeric fields are actually numbers (not strings from DB)
+        if (_cache.temperature != null) _cache.temperature = Number(_cache.temperature)
+        if (_cache.max_tokens != null) _cache.max_tokens = Number(_cache.max_tokens)
         _cacheAt = now
         return _cache
       }
@@ -83,37 +182,96 @@ function invalidateCache() {
   _cacheAt = 0
 }
 
-async function _callAnthropic({ model, systemPrompt, userPrompt, temperature, maxTokens, timeoutMs, apiKey: keyOverride }) {
-  const apiKey = String(keyOverride || process.env.ANTHROPIC_KEY || '').trim()
+/**
+ * Converte um historico no formato Anthropic (messages: [{role, content}]) — que e o formato
+ * usado internamente pelo agente — em payload OpenAI Chat Completions.
+ */
+/**
+ * Converte o `content` de uma mensagem (formato interno Anthropic) para o formato
+ * aceito pela OpenAI Chat Completions. Mantem compatibilidade total: quando NAO ha
+ * imagem, retorna string simples (comportamento legado). Quando ha bloco de imagem
+ * (`{ type:'image', source:{ type:'base64', media_type, data } }`), converte para o
+ * formato multimodal da OpenAI (`{ type:'image_url', image_url:{ url:'data:...' } }`),
+ * para que modelos com visao (ex.: gpt-4o) realmente enxerguem a imagem — antes o
+ * bloco era descartado e a imagem nunca chegava ao modelo.
+ */
+function _anthropicContentToOpenAI(content) {
+  if (!Array.isArray(content)) {
+    if (content == null) return ''
+    return typeof content === 'string' ? content : String(content)
+  }
+  const parts = []
+  let temImagem = false
+  for (const b of content) {
+    if (!b || typeof b !== 'object') continue
+    if (typeof b.text === 'string') {
+      parts.push({ type: 'text', text: b.text })
+    } else if (b.type === 'image' && b.source && b.source.data && b.source.media_type) {
+      temImagem = true
+      parts.push({
+        type: 'image_url',
+        image_url: { url: `data:${b.source.media_type};base64,${b.source.data}` },
+      })
+    }
+  }
+  if (!temImagem) {
+    return parts.map((p) => (p.type === 'text' ? p.text : '')).join('')
+  }
+  return parts
+}
+
+function _anthropicMessagesToOpenAI(systemPrompt, messages) {
+  const out = []
+  const systemText = _systemPromptToText(systemPrompt).trim()
+  if (systemText) out.push({ role: 'system', content: systemText })
+  for (const m of messages || []) {
+    if (!m || !m.role) continue
+    // OpenAI Chat aceita roles user, assistant, system, tool. Mapeia operator -> user.
+    const role = m.role === 'operator' ? 'user' : m.role
+    out.push({ role, content: _anthropicContentToOpenAI(m.content) })
+  }
+  return out
+}
+
+async function _callAnthropic({ model, systemPrompt, userPrompt, messages, temperature, maxTokens, timeoutMs, extraHeaders }) {
+  const apiKey = String(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_KEY || '').trim()
   if (!apiKey) throw Object.assign(new Error('ANTHROPIC_KEY não configurada'), { code: 'sem_chave' })
-  let resp
-  try {
-    resp = await axios.post(
-      ANTHROPIC_URL,
-      {
-        model,
-        max_tokens: maxTokens,
-        temperature,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
+  const finalMessages = Array.isArray(messages) && messages.length > 0
+    ? messages.map((m) => ({ role: m.role === 'operator' ? 'user' : m.role, content: m.content }))
+    : [{ role: 'user', content: String(userPrompt || '') }]
+  const resp = await axios.post(
+    ANTHROPIC_URL,
+    {
+      model,
+      max_tokens: maxTokens,
+      temperature,
+      system: systemPrompt,
+      messages: finalMessages,
+    },
+    {
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+        ...(extraHeaders || {}),
       },
-      {
-        headers: {
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        timeout: timeoutMs,
-      }
-    )
-  } catch (err) {
-    const status = err.response?.status
-    const body = err.response?.data
-    const detail = body?.error?.message || body?.message || JSON.stringify(body || {}).slice(0, 500)
-    throw Object.assign(new Error(`Anthropic ${status || ''} ${detail}`.trim()), { code: 'anthropic_http_error', status, body })
+      timeout: timeoutMs,
+    }
+  )
+  // Junta blocos `type: text` na Messages API (para o caso de respostas com tools/citations).
+  let text = ''
+  const content = resp.data?.content
+  if (Array.isArray(content)) {
+    text = content
+      .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text)
+      .join('')
+  } else if (typeof content === 'string') {
+    text = content
   }
   return {
-    text: String(resp.data?.content?.[0]?.text || ''),
+    text,
+    raw_content: content,
     provider: 'anthropic',
     model: resp.data?.model || model,
     httpStatus: resp.status,
@@ -122,38 +280,54 @@ async function _callAnthropic({ model, systemPrompt, userPrompt, temperature, ma
   }
 }
 
-async function _callOpenAI({ model, systemPrompt, userPrompt, temperature, maxTokens, timeoutMs, apiKey: keyOverride }) {
-  const apiKey = String(keyOverride || process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || '').trim()
+async function _callOpenAI({ model, systemPrompt, userPrompt, messages, temperature, maxTokens, timeoutMs, responseFormatJson, responseSchema, log }) {
+  const apiKey = String(process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || '').trim()
+  const systemText = _systemPromptToText(systemPrompt).trim()
   if (!apiKey) throw Object.assign(new Error('OPENAI_KEY não configurada'), { code: 'sem_chave' })
+  const finalMessages = Array.isArray(messages) && messages.length > 0
+    ? _anthropicMessagesToOpenAI(systemPrompt, messages)
+    : [
+        { role: 'system', content: systemText },
+        { role: 'user', content: String(userPrompt || '') },
+      ]
+  // Ensure temperature is always a number
+  const finalTemperature = Number.isFinite(temperature) ? temperature : 0.4
+
+  // Structured Outputs (json_schema strict): quando o caller passa responseSchema,
+  // a API OBRIGA o modelo a devolver todos os campos do contrato (fim do "campo
+  // obrigatorio ausente"). Kill-switch: AI_STRUCTURED_OUTPUTS=off desliga. Se a API
+  // recusar o schema (4xx), degrada para json_object automaticamente — nunca quebra.
+  // responseFormatJson é o modo legado (só "JSON válido", sem garantir campos).
+  const usarSchema = responseSchema && typeof responseSchema === 'object' && process.env.AI_STRUCTURED_OUTPUTS !== 'off'
+  const montarBody = (comSchema) => {
+    const b = { model, max_tokens: maxTokens, temperature: finalTemperature, messages: finalMessages }
+    if (comSchema) {
+      b.response_format = { type: 'json_schema', json_schema: { name: 'resposta_agente', strict: true, schema: responseSchema } }
+    } else if (responseFormatJson === true) {
+      b.response_format = { type: 'json_object' }
+    }
+    return b
+  }
+  const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+
   let resp
   try {
-    resp = await axios.post(
-      OPENAI_URL,
-      {
-        model,
-        max_tokens: maxTokens,
-        temperature,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: timeoutMs,
-      }
-    )
+    resp = await axios.post(OPENAI_URL, montarBody(usarSchema), { headers, timeout: timeoutMs })
   } catch (err) {
-    const status = err.response?.status
-    const body = err.response?.data
-    const detail = body?.error?.message || body?.message || JSON.stringify(body || {}).slice(0, 500)
-    throw Object.assign(new Error(`OpenAI ${status || ''} ${detail}`.trim()), { code: 'openai_http_error', status, body })
+    const st = err.response && err.response.status
+    if (usarSchema && st >= 400 && st < 500) {
+      if (log && typeof log.warn === 'function') {
+        log.warn(`[ai-provider] structured outputs recusado (${st}) → fallback json_object`)
+      }
+      resp = await axios.post(OPENAI_URL, montarBody(false), { headers, timeout: timeoutMs })
+    } else {
+      throw err
+    }
   }
+  const text = String(resp.data?.choices?.[0]?.message?.content || '')
   return {
-    text: String(resp.data?.choices?.[0]?.message?.content || ''),
+    text,
+    raw_content: text,
     provider: 'openai',
     model: resp.data?.model || model,
     httpStatus: resp.status,
@@ -162,114 +336,123 @@ async function _callOpenAI({ model, systemPrompt, userPrompt, temperature, maxTo
   }
 }
 
-async function _doCall(provider, model, opts, settings) {
-  const apiKey = provider === 'openai'
-    ? (settings?.openai_api_key || null)
-    : (settings?.anthropic_api_key || null)
-  if (provider === 'openai') return _callOpenAI({ model, apiKey, ...opts })
-  return _callAnthropic({ model, apiKey, ...opts })
+async function _doCall(provider, model, opts) {
+  if (provider === 'openai') return _callOpenAI({ model, ...opts })
+  return _callAnthropic({ model, ...opts })
 }
 
-async function _logAI(pool, { provider, model, task, success, errorMessage, latency, empresaId, refType, refId, clientNumero, inputTokens, outputTokens }) {
+async function _logAI(pool, { provider, model, task, success, errorMessage, latency, fallback_used }) {
   if (!pool) return
-  const cost = success ? computeCost(model, inputTokens, outputTokens) : null
   try {
     await pool.query(
-      `INSERT INTO vendas.ai_logs
-       (provider, model, task, success, error_message, latency_ms,
-        empresa_id, ref_type, ref_id, client_numero, input_tokens, output_tokens, cost_usd)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      'INSERT INTO vendas.ai_logs (provider, model, task, success, error_message, latency_ms) VALUES ($1,$2,$3,$4,$5,$6)',
       [
-        provider, model, task || 'geral', success, errorMessage || null, Math.round(latency || 0),
-        empresaId || null, refType || null, refId || null, clientNumero || null,
-        inputTokens || null, outputTokens || null, cost,
+        provider,
+        model,
+        (task || 'geral') + (fallback_used ? ' (fallback)' : ''),
+        success,
+        errorMessage || null,
+        Math.round(latency),
       ]
     )
   } catch (_) {}
 }
 
 /**
- * Central AI dispatch function. Reads provider/model from ai_settings table (cached),
- * handles fallback automatically, and logs to ai_logs.
+ * Central AI dispatch. Le ai_settings do banco (com cache), chama o provedor configurado,
+ * faz fallback automatico (se habilitado e nao explicitamente desativado), e registra em ai_logs.
  *
  * @param {object} input
- * @param {string} input.systemPrompt
- * @param {string} input.userPrompt
- * @param {string} [input.task] - label for logging
- * @param {string} [input.provider] - override settings provider
- * @param {string} [input.model] - override settings model
+ * @param {string} [input.systemPrompt]
+ * @param {string} [input.userPrompt] - usado quando nao ha `messages`
+ * @param {Array<{role:string, content:string}>} [input.messages] - conversa multi-turn (preferido para agente)
+ * @param {string} [input.task] - label de logging (ex.: 'agent_response', 'learning_diagnostico')
+ * @param {string} [input.provider] - sobrescreve provider da config
+ * @param {string} [input.model] - sobrescreve model da config
  * @param {number} [input.temperature]
  * @param {number} [input.maxTokens]
- * @param {number} [input.timeoutMs]
+ * @param {number} [input.timeoutMs] - timeout do provider primario (default env AI_TIMEOUT_MS ou 30000)
+ * @param {number} [input.fallbackTimeoutMs] - timeout do provider de fallback (default env AI_FALLBACK_TIMEOUT_MS ou herda do primario)
+ * @param {boolean} [input.disableFallback] - se true, nao tenta fallback mesmo se habilitado
+ * @param {boolean} [input.responseFormatJson] - OPT-IN explicito para forcar response_format=json_object na OpenAI; sem isso o provider retorna texto livre
+ * @param {object} [input.extraHeaders] - headers extras para Anthropic (ex.: anthropic-beta)
  * @param {object} pool - pg Pool
- * @param {object} [log] - logger with .warn/.error methods
- * @returns {{ text, provider, model, httpStatus, stopReason, usage }}
+ * @param {object} [log] - logger com .warn/.error
+ * @returns {{ text, raw_content, provider, model, httpStatus, stopReason, usage, fallback_used }}
  */
-function _usageOf(result) {
-  const u = result?.usage || {}
-  return {
-    inputTokens: u.input_tokens ?? u.prompt_tokens ?? null,
-    outputTokens: u.output_tokens ?? u.completion_tokens ?? null,
-  }
-}
-
 async function generateAIResponse(input, pool, log) {
   const settings = await getAISettings(pool)
-  const provider = input.provider || settings.provider || 'anthropic'
+  // Quando o caller fixa um modelo sem provider, o provider e inferido do modelo
+  // (Claude->anthropic, GPT->openai). Sem isto, model+provider divergiam e toda
+  // chamada tomava 404 no provider configurado antes de cair no fallback.
+  const providerInferido = !input.provider && input.model ? inferProviderFromModel(input.model) : null
+  const provider = input.provider || providerInferido || settings.provider || 'openai'
   const model =
-    input.model || settings.model || (provider === 'openai' ? 'gpt-4o-mini' : 'claude-sonnet-4-6')
-  const temperature = Number(input.temperature ?? settings.temperature ?? 0.4)
-  const maxTokens = Number(input.maxTokens || settings.max_tokens || 1200)
-  const timeoutMs = input.timeoutMs || 30000
+    input.model || settings.model || (AI_MODEL_PRESETS[provider] || AI_MODEL_PRESETS.openai).defaultModel
+  // Ensure temperature is always a number (not string from DB)
+  const temperature = Number.isFinite(input.temperature) ? input.temperature : (Number.isFinite(settings.temperature) ? settings.temperature : 0.4)
+  const maxTokens = input.maxTokens || settings.max_tokens || 1200
+  // Primario respeita o caller; env AI_TIMEOUT_MS so atua se ninguem passou timeoutMs.
+  const primaryTimeoutMs = input.timeoutMs || parseInt(process.env.AI_TIMEOUT_MS, 10) || 30000
+  // Fallback tem budget proprio (controla pior caso primary+fallback); herda do primario se nao configurado.
+  const fallbackTimeoutMs = input.fallbackTimeoutMs || parseInt(process.env.AI_FALLBACK_TIMEOUT_MS, 10) || primaryTimeoutMs
   const task = input.task || 'geral'
-  const ctx = {
-    empresaId: input.empresaId,
-    refType: input.refType,
-    refId: input.refId,
-    clientNumero: input.clientNumero,
-  }
+  const disableFallback = input.disableFallback === true
 
   const callOpts = {
     systemPrompt: input.systemPrompt,
     userPrompt: input.userPrompt,
+    messages: input.messages,
     temperature,
     maxTokens,
-    timeoutMs,
+    extraHeaders: input.extraHeaders,
+    responseFormatJson: input.responseFormatJson === true,
+    // Structured Outputs (só usado no caminho OpenAI; Anthropic ignora).
+    responseSchema: input.responseSchema || null,
+    log,
   }
 
   const inicio = Date.now()
+  const systemPromptChars = _systemPromptToText(input.systemPrompt).trim().length
+  if (log && typeof log.info === 'function') {
+    log.info(`[AI_ENGINE] provider selected: ${provider}`)
+    log.info(`[AI_ENGINE] model selected: ${model}`)
+    log.info(`[AI_ENGINE] system prompt loaded: ${systemPromptChars > 0}`)
+    log.info('[AI_ENGINE] system prompt source: runtime')
+    log.info(`[AI_ENGINE] system prompt chars: ${systemPromptChars}`)
+    log.info(`[AI_ENGINE] conversation messages loaded: ${Array.isArray(input.messages) ? input.messages.length : 0}`)
+  }
 
   try {
-    const result = await _doCall(provider, model, callOpts, settings)
-    const u = _usageOf(result)
-    await _logAI(pool, { provider: result.provider, model: result.model, task, success: true, latency: Date.now() - inicio, ...ctx, ...u })
-    return result
+    const result = await _doCall(provider, model, { ...callOpts, timeoutMs: primaryTimeoutMs })
+    if (log && typeof log.info === 'function') log.info('[AI_ENGINE] fallback used: false')
+    await _logAI(pool, { provider: result.provider, model: result.model, task, success: true, latency: Date.now() - inicio })
+    return { ...result, fallback_used: false }
   } catch (primaryErr) {
-    if (!settings.fallback_enabled || !settings.fallback_provider) {
-      await _logAI(pool, { provider, model, task, success: false, errorMessage: primaryErr.message, latency: Date.now() - inicio, ...ctx })
+    if (disableFallback || !settings.fallback_enabled || !settings.fallback_provider) {
+      await _logAI(pool, { provider, model, task, success: false, errorMessage: primaryErr.message, latency: Date.now() - inicio })
       throw primaryErr
     }
     const fbProvider = settings.fallback_provider
     const fbModel =
-      settings.fallback_model || (fbProvider === 'openai' ? 'gpt-4o-mini' : 'claude-sonnet-4-6')
+      settings.fallback_model || (AI_MODEL_PRESETS[fbProvider] || AI_MODEL_PRESETS.openai).defaultModel
     if (log && typeof log.warn === 'function') {
       log.warn(`[ai-provider] ${provider}/${model} falhou: ${primaryErr.message} → fallback ${fbProvider}/${fbModel}`)
     }
     try {
-      const result = await _doCall(fbProvider, fbModel, callOpts, settings)
-      const u = _usageOf(result)
-      await _logAI(pool, { provider: result.provider, model: result.model, task, success: true, latency: Date.now() - inicio, ...ctx, ...u })
-      return result
+      const result = await _doCall(fbProvider, fbModel, { ...callOpts, timeoutMs: fallbackTimeoutMs })
+      if (log && typeof log.info === 'function') log.info('[AI_ENGINE] fallback used: true')
+      await _logAI(pool, { provider: result.provider, model: result.model, task, success: true, latency: Date.now() - inicio, fallback_used: true })
+      return { ...result, fallback_used: true, primary_error: primaryErr.message }
     } catch (fallbackErr) {
       const errMsg = `primary: ${primaryErr.message}; fallback: ${fallbackErr.message}`
-      await _logAI(pool, { provider: fbProvider, model: fbModel, task, success: false, errorMessage: errMsg, latency: Date.now() - inicio, ...ctx })
+      await _logAI(pool, { provider: fbProvider, model: fbModel, task, success: false, errorMessage: errMsg, latency: Date.now() - inicio, fallback_used: true })
       throw fallbackErr
     }
   }
 }
 
-// ─── Funções de domínio ───────────────────────────────────────────────────────
-
+// Wrappers usados pela camada SaaS (resumo-conversa.js, relatorio.js, api-contextos.js).
 const { parsearRespostaJsonClaude } = require('./string-utils')
 
 async function generateContextPlan({ contexto1, pool, log, empresaId, refId }) {
@@ -288,32 +471,6 @@ Responda APENAS com o JSON válido, sem markdown, sem explicação extra.`
     log
   )
   return { ...result, json: parsearRespostaJsonClaude(result.text) }
-}
-
-async function extractLeadData({ conversa, pool, log }) {
-  const systemPrompt = `Extraia dados estruturados do lead a partir do texto da conversa.
-Responda APENAS com JSON válido. Inclua campos que você conseguir inferir, mesmo que incompletos.
-Campos possíveis: negocio, cidade, ticket_cliente_final, ja_aparece_google, complexidade, dor_principal, intencao_principal, temperatura_lead.`
-
-  const userPrompt = `CONVERSA:\n${conversa}`
-
-  const result = await generateAIResponse(
-    { systemPrompt, userPrompt, task: 'extractLeadData', maxTokens: 800 },
-    pool,
-    log
-  )
-  return { ...result, json: parsearRespostaJsonClaude(result.text) }
-}
-
-async function generateAgentReply({ systemPrompt, userPrompt, pool, log, temperature, maxTokens, timeoutMs, empresaId, clientNumero }) {
-  return generateAIResponse(
-    {
-      systemPrompt, userPrompt, task: 'agentReply', temperature, maxTokens, timeoutMs,
-      empresaId, refType: 'reply', clientNumero,
-    },
-    pool,
-    log
-  )
 }
 
 async function summarizeConversation({ historico, pool, log, empresaId, clientNumero }) {
@@ -350,11 +507,12 @@ module.exports = {
   generateAIResponse,
   getAISettings,
   invalidateCache,
+  validarProviderModel,
+  AI_MODEL_PRESETS,
+  _systemPromptToText,
   priceFor,
   computeCost,
   generateContextPlan,
-  extractLeadData,
-  generateAgentReply,
   summarizeConversation,
   generateReport,
 }

@@ -19,15 +19,7 @@ Regras do resumo:
 
 NUNCA peca PIX, cartao ou pagamento (P1).
 
-EXCECAO — PLANO INICIANTE POR ASSINATURA (plano_sugerido: "iniciante_assinatura"):
-Quando lead confirmar interesse, NAO faca handoff aceitou_proposta. A Stripe cuida do processo inteiro. Acao obrigatoria:
-- mensagens_bolhas com 3 bolhas (ver formato em empresa.md — MENSAGEM DE FECHAMENTO)
-- links_sugeridos: ["https://buy.stripe.com/bJebJ01G24AFfuLfTW6J200"]
-- handoff: false
-- etapa_proxima: "fechamento"
-Nunca encurtar, alterar ou inventar o link da Stripe.
-
-DEMAIS PLANOS: quando lead confirmar, handoff aceitou_proposta. Confirme conforme HORARIO E REDIRECIONAMENTO AO VICTOR no CONTEXTO DINAMICO.
+QUANDO lead confirmar, handoff aceitou_proposta. Confirme conforme HORARIO E REDIRECIONAMENTO AO VICTOR no CONTEXTO DINAMICO.
 
 Garantia e contrato (obrigatorio antes de handoff de fechamento ou sugestao de reuniao):
 "E so pra voce ficar tranquilo: tudo isso vai estar formalizado num contrato simples — prazo de entrega, o que ta incluido, plano de suporte e condicoes de pagamento. Tudo por escrito antes de qualquer valor ser cobrado."

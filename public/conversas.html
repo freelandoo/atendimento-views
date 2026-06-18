@@ -32,6 +32,7 @@
             <a href="agenda.html" class="dash-nav-link">Agenda</a>
       <a href="analytics.html" class="dash-nav-link">Métricas</a>
       <a href="configuracao.html" class="dash-nav-link">Configurações</a>
+      <a href="whatsapp.html" class="dash-nav-link">WhatsApp</a>
       </div>
       <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
     </nav>
@@ -61,10 +62,39 @@
       </div>
 
       <div class="conversas-toolbar">
-        <div class="conversas-filtros conversas-filtros-expanded">
-          <label class="conversas-filtro-label" for="conversas-busca">Buscar lead
-            <input type="text" id="conversas-busca" class="conversas-select conversas-input-text" placeholder="Número, negócio…" autocomplete="off" />
+        <div class="conversas-resumo" aria-label="Resumo operacional">
+          <button type="button" class="conversas-resumo-card conversas-resumo-card--alerta" data-quick-filter="acao_agora">
+            <span>Precisam de ação agora</span><strong id="resumo-acao-agora">—</strong>
+          </button>
+          <button type="button" class="conversas-resumo-card" data-quick-filter="followup_vencido">
+            <span>Follow-ups vencidos</span><strong id="resumo-followups-vencidos">—</strong>
+          </button>
+          <button type="button" class="conversas-resumo-card" data-quick-filter="quente">
+            <span>Leads quentes</span><strong id="resumo-leads-quentes">—</strong>
+          </button>
+          <button type="button" class="conversas-resumo-card" data-quick-filter="meta_ads">
+            <span>Meta Ads</span><strong id="resumo-meta-ads">—</strong>
+          </button>
+          <div class="conversas-resumo-card">
+            <span>Score médio</span><strong id="resumo-score-medio">—</strong>
+          </div>
+        </div>
+        <div class="conversas-busca-row">
+          <label class="conversas-filtro-label conversas-busca-principal" for="conversas-busca">Buscar conversa
+            <input type="text" id="conversas-busca" class="conversas-select conversas-input-text" placeholder="Nome, número, negócio ou última mensagem…" autocomplete="off" />
           </label>
+          <button type="button" class="btn-reproc conversas-advanced-toggle" id="conversas-advanced-toggle" aria-expanded="false">Filtros avançados</button>
+        </div>
+        <div class="conversas-quick-filters" aria-label="Filtros rápidos">
+          <button type="button" class="conversas-quick-chip" data-quick-filter="acao_agora">Ação agora <b id="quick-acao-agora">—</b></button>
+          <button type="button" class="conversas-quick-chip" data-quick-filter="prospeccao">Prospectado <b id="quick-prospectados">—</b></button>
+          <button type="button" class="conversas-quick-chip" data-quick-filter="meta_ads">Meta <b id="quick-meta-ads">—</b></button>
+          <button type="button" class="conversas-quick-chip" data-quick-filter="organico">Orgânico <b id="quick-organicos">—</b></button>
+          <button type="button" class="conversas-quick-chip" data-quick-filter="followup_hoje">Follow-up hoje <b id="quick-followups-hoje">—</b></button>
+          <button type="button" class="conversas-quick-chip" data-quick-filter="score_70">Score 70+ <b id="quick-score-70">—</b></button>
+          <button type="button" class="conversas-quick-chip" data-quick-filter="precisa_responder">Sem resposta <b id="quick-sem-resposta">—</b></button>
+        </div>
+        <div class="conversas-filtros conversas-filtros-expanded" id="conversas-advanced-filters" hidden>
           <label class="conversas-filtro-label" for="conversas-estagio">Etapa
             <select id="conversas-estagio" class="conversas-select" aria-describedby="conversas-range-text">
               <option value="">Todas</option>
@@ -88,6 +118,38 @@
               <option value="quente">🔥 Quente</option>
               <option value="morno">🌤️ Morno</option>
               <option value="frio">❄️ Frio</option>
+            </select>
+          </label>
+          <label class="conversas-filtro-label" for="conversas-origem">Origem
+            <select id="conversas-origem" class="conversas-select">
+              <option value="">Todas</option>
+              <option value="prospeccao">Prospectado</option>
+              <option value="meta_ads">Meta Ads</option>
+              <option value="organico">Orgânico</option>
+            </select>
+          </label>
+          <label class="conversas-filtro-label" for="conversas-urgencia">Urgência
+            <select id="conversas-urgencia" class="conversas-select">
+              <option value="">Todas</option>
+              <option value="alta">Alta</option>
+              <option value="media">Média</option>
+              <option value="baixa">Baixa</option>
+            </select>
+          </label>
+          <label class="conversas-filtro-label" for="conversas-score-min">Score mínimo
+            <select id="conversas-score-min" class="conversas-select">
+              <option value="">Qualquer</option>
+              <option value="40">40+</option>
+              <option value="60">60+</option>
+              <option value="70">70+</option>
+              <option value="80">80+</option>
+            </select>
+          </label>
+          <label class="conversas-filtro-label" for="conversas-followup">Próximo follow-up
+            <select id="conversas-followup" class="conversas-select">
+              <option value="">Qualquer</option>
+              <option value="hoje">Hoje</option>
+              <option value="vencido">Vencido</option>
             </select>
           </label>
           <label class="conversas-filtro-label" for="conversas-desde">Desde
@@ -218,9 +280,8 @@
 
   <script src="dashboard/js/site-nav.js" defer></script>
   <script src="dashboard/js/core.js?v=2.1"></script>
-  <script src="dashboard/js/conversas.js?v=2.4"></script>
+  <script src="dashboard/js/sistema-alertas.js"></script>
+  <script src="dashboard/js/conversas.js?v=2.5"></script>
 </body>
 </html>
-
-
 

@@ -6,6 +6,9 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "axios": "^1.15.0",
     "cheerio": "^1.2.0",
@@ -16,12 +19,12 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
     "pdf-parse": "^2.4.5",
-    "pg": "^8.13.1",
+    "pg": "^8.20.0",
     "pino": "^10.3.1"
   },
   "scripts": {
     "start": "node index.js",
-    "test": "node --test \"test/**/*.test.js\"",
+    "test": "node --test test/contextual-flexible-funnel.test.js test/core.test.js test/bubble-limits.test.js test/next-action-orchestrator.test.js test/negocio-extracao-runon.test.js test/agenda-ia-escolha.test.js test/rollout-qa-fixes.test.js test/followup-auto-watcher.test.js test/tom-humano.test.js test/deterministic-prompt-tone.test.js test/sessao-feira-santana-fixes.test.js test/ai-provider-json-mode.test.js test/ai-settings-schema.test.js test/guardrail-critical-blocks.test.js test/prompts-fonte-tom.test.js test/ai-test-routes-validator.test.js test/sessao-5xgfeh-fixes.test.js test/loop-origem-clientes.test.js test/agendamento-confirmacao.test.js test/prospecting-scheduler.test.js test/prospecting-settings.test.js test/prospecting-eligibility.test.js test/prospecting-daily-queue.test.js test/prospecting-daily-panel.test.js test/prospecting-daily-report.test.js test/prospecting-performance-analytics.test.js test/prospecting-places-queue.test.js test/prospecting-market-rotation.test.js test/prospecting-message-generation.test.js test/prospecting-send-worker.test.js test/prospecting-response.test.js test/prospecting-daily-orchestrator.test.js test/meta-attribution.test.js test/leads-quentes.test.js test/contexto2-conversao.test.js test/contexto2-playbook.test.js test/contexto2-preco-runtime.test.js test/knowledge-crawler.test.js test/multitenant.test.js test/url-sanitize.test.js",
     "smoke:preco": "node index.js --smoke-precificacao",
     "typecheck": "tsc --noEmit"
   },

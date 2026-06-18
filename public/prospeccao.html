@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
@@ -33,239 +33,355 @@
               <a href="agenda.html" class="dash-nav-link">Agenda</a>
       <a href="analytics.html" class="dash-nav-link">Métricas</a>
         <a href="configuracao.html" class="dash-nav-link">Configurações</a>
+        <a href="whatsapp.html" class="dash-nav-link">WhatsApp</a>
       </div>
       <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
     </nav>
 
       <main class="prospecting-layout" aria-labelledby="prospecting-title">
-        <section class="prospect-page-head">
-          <div>
-            <span class="section-kicker">PJ Codeworks · Prospecção</span>
-            <h1 id="prospecting-title">Painel de prospecção</h1>
-            <p>Encontre empresas, gere mensagens personalizadas e inicie conversas que viram clientes.</p>
-          </div>
-          <div class="prospect-page-actions">
-            <a class="btn-followup btn-link" href="#prospect-modo-manual">Trocar de modo</a>
-            <a class="btn-reproc btn-link" href="visao-geral.html">Abrir vendas</a>
-          </div>
-        </section>
 
-        <section class="prospecting-mode-cards" role="tablist" aria-label="Modo de prospecção">
-          <button type="button" class="prospecting-mode-card is-active" id="prospect-modo-manual">
-            <span class="mode-icon" aria-hidden="true">M</span>
-            <strong>Manual</strong>
-            <em>Você controla cada etapa</em>
-            <small>Busque empresas, gere o diagnóstico, aprove e envie quando quiser.</small>
-          </button>
-          <button type="button" class="prospecting-mode-card" id="prospect-modo-semi">
-            <span class="mode-icon" aria-hidden="true">S</span>
-            <strong>Semi-automático</strong>
-            <em>Busque, o resto é automático</em>
-            <small>O sistema busca, gera diagnósticos, aprova e agenda os envios para você.</small>
-          </button>
-          <button type="button" class="prospecting-mode-card" id="prospect-modo-auto">
-            <span class="mode-icon" aria-hidden="true">A</span>
-            <strong>Automático</strong>
-            <em>Agenda semanal sem intervenção</em>
-            <small>Configure sua rotina e o agente trabalha todos os dias para você.</small>
-          </button>
-        </section>
-
-        <div class="prospecting-mode-context" aria-live="polite">
-          <strong id="prospect-mode-title">Modo manual</strong>
-          <span id="prospect-mode-desc">Busque empresas agora e decida manualmente quais prospects avançam para diagnóstico, aprovação e envio.</span>
+        <div id="whatsapp-status-banner" class="whatsapp-status-banner" hidden role="alert" aria-live="assertive">
+          <div class="whatsapp-status-banner-icon" aria-hidden="true">⚠</div>
+          <div class="whatsapp-status-banner-body">
+            <strong>WhatsApp desconectado</strong>
+            <span id="whatsapp-status-banner-msg">A instância <code id="whatsapp-status-banner-instance">pj-dashboard-1</code> não está conectada. Os disparos estão pausados até a reconexão.</span>
+          </div>
+          <a href="whatsapp.html" class="whatsapp-status-banner-btn">Reconectar agora</a>
+          <button type="button" class="whatsapp-status-banner-dismiss" aria-label="Fechar aviso" id="whatsapp-status-banner-close">✕</button>
         </div>
 
-        <section class="prospect-ops-grid">
-          <article class="card prospecting-search-card">
-            <div class="section-head">
-              <div>
-                <span class="section-kicker">Passo 1</span>
-                <h2>Encontrar empresas</h2>
-                <p>Informe o nicho e a localidade para buscar no Google Places.</p>
-              </div>
+        <section class="prospect-hero" aria-labelledby="prospecting-title">
+          <div class="prospect-hero-copy">
+            <h1 id="prospecting-title">Prospecção diária</h1>
+            <p>Busque empresas, gere mensagens com IA e agende envios pelo WhatsApp.</p>
+            <a class="prospect-sales-link" href="visao-geral.html">Ver vendas →</a>
+          </div>
+          <div class="prospect-hero-actions">
+            <span class="prospect-status-chip is-paused" id="prospect-auto-status-chip">Rotina carregando</span>
+            <button type="button" class="btn-followup" id="daily-pausar-top">Pausar rotina</button>
+          </div>
+        </section>
+
+        <section class="prospect-day-summary" aria-label="Resumo operacional da prospecção">
+          <div><span>Leads encontrados</span><strong id="daily-encontrados">0</strong></div>
+          <div><span>Mensagens agendadas</span><strong id="daily-agendadas">0</strong></div>
+          <div><span>Capacidade de hoje</span><strong id="daily-capacidade">0 / 80</strong></div>
+          <div><span>Próximo envio</span><strong id="daily-proximo">-</strong></div>
+        </section>
+
+        <p class="prospect-routine-line" id="daily-routine-line">Carregando rotina de prospecção...</p>
+
+        <section class="card prospecting-daily-panel" aria-labelledby="prospect-daily-title">
+          <div class="section-head prospect-operation-head">
+            <div>
+              <span class="section-kicker">Operação atual</span>
+              <h2 id="prospect-daily-title">Rotina e fila do dia</h2>
+              <p>Veja o que será buscado, quem receberá mensagem e como a rotina está configurada.</p>
             </div>
+            <button type="button" class="btn-followup" id="prospect-daily-refresh">Atualizar dados da rotina</button>
+          </div>
 
-            <form class="prospecting-form" id="prospect-manual-form">
-              <label class="conversas-filtro-label" for="prospect-nicho">Nicho
-                <input type="text" id="prospect-nicho" class="conversas-select conversas-input-text" placeholder="Ex.: clínicas odontológicas" autocomplete="off" />
-              </label>
-              <label class="conversas-filtro-label" for="prospect-local">Cidade / Região
-                <input type="text" id="prospect-local" class="conversas-select conversas-input-text" placeholder="Ex.: Campinas, SP" autocomplete="off" />
-              </label>
-              <label class="conversas-filtro-label" for="prospect-quantidade">Quantidade
-                <select id="prospect-quantidade" class="conversas-select">
-                  <option value="10">10 prospects</option>
-                  <option value="15">15 prospects</option>
-                  <option value="20">20 prospects</option>
-                </select>
-              </label>
-              <button type="submit" class="btn-reproc" id="prospect-btn-buscar">Buscar prospects</button>
-              <p class="prospecting-form-hint">Quanto mais específico o nicho, melhores serão os resultados. Ex.: clínicas odontológicas em vez de dentista.</p>
-            </form>
+          <nav class="prospecting-doc-tabs" aria-label="Abas da operação de prospecção">
+            <button type="button" class="is-active" data-prospect-doc-tab="operacao">Operação</button>
+            <button type="button" data-prospect-doc-tab="fila">Fila de envios</button>
+            <button type="button" data-prospect-doc-tab="dashboard">Resultados</button>
+            <button type="button" data-prospect-doc-tab="configuracao">Configurações</button>
+          </nav>
 
-            <section class="prospecting-auto-card" id="prospect-semi-card" hidden>
-              <div class="auto-card-copy">
-                <strong>Modo semi-automático</strong>
-                <p>Preencha os dados e execute o fluxo completo: buscar, diagnosticar, aprovar e agendar envios.</p>
+          <!-- ABA: OPERAÇÃO -->
+          <div class="prospecting-doc-tab-panel is-active" data-prospect-doc-panel="operacao">
+            <article class="prospect-routine-card">
+              <div>
+                <span class="section-kicker">Rotina automática</span>
+                <h3>Agendamento automático</h3>
+                <p id="prospect-routine-copy">Segunda a sexta · 05:00 às 19:00 · 15 minutos entre envios.</p>
               </div>
-              <form class="prospecting-form" id="prospect-semi-form">
-                <label class="conversas-filtro-label" for="prospect-semi-nicho">Nicho
-                  <input type="text" id="prospect-semi-nicho" class="conversas-select conversas-input-text" placeholder="Ex.: clínica dentista" autocomplete="off" />
-                </label>
-                <label class="conversas-filtro-label" for="prospect-semi-local">Cidade
-                  <input type="text" id="prospect-semi-local" class="conversas-select conversas-input-text" placeholder="Ex.: Campinas, SP" autocomplete="off" />
-                </label>
-                <label class="conversas-filtro-label" for="prospect-semi-quantidade">Quantidade
-                  <select id="prospect-semi-quantidade" class="conversas-select">
-                    <option value="10">10 prospects</option>
-                    <option value="15">15 prospects</option>
-                    <option value="20">20 prospects</option>
+              <div class="prospect-routine-meta">
+                <div><span>Operação atual</span><strong id="daily-modo">-</strong></div>
+                <div><span>Nicho de hoje</span><strong id="daily-categoria">-</strong></div>
+                <div><span>Região</span><strong id="daily-local">-</strong></div>
+              </div>
+              <div class="prospect-routine-actions">
+                <button type="button" class="btn-reproc" data-prospect-shortcut="configuracao">Editar rotina</button>
+                <button type="button" class="btn-followup" data-prospect-shortcut="fila">Ver fila de hoje</button>
+              </div>
+            </article>
+          </div>
+
+          <!-- ABA: CONFIGURAÇÕES -->
+          <div class="prospecting-doc-tab-panel" data-prospect-doc-panel="configuracao" hidden>
+            <div class="prospecting-daily-config" id="prospect-daily-config-card">
+              <div class="section-head">
+                <div>
+                  <span class="section-kicker">Editar rotina</span>
+                  <h3>Configuração rápida</h3>
+                  <p>Ajuste nicho, cidade, janela e limite. As opções técnicas ficam destacadas abaixo para evitar alteração acidental.</p>
+                </div>
+              </div>
+              <div id="prospect-auto-resumo" class="prospect-auto-resumo" hidden>
+                <div>
+                  <span>Status da rotina</span>
+                  <strong id="prospect-auto-resumo-status">-</strong>
+                  <small id="prospect-auto-resumo-agenda">-</small>
+                </div>
+                <div>
+                  <span>Capacidade do dia</span>
+                  <strong id="prospect-auto-resumo-capacidade">-</strong>
+                  <small id="prospect-auto-resumo-janela">-</small>
+                </div>
+                <div>
+                  <span>Envio real</span>
+                  <strong id="prospect-auto-resumo-envio">-</strong>
+                  <small id="prospect-auto-resumo-ultimo">-</small>
+                </div>
+              </div>
+              <div id="prospect-auto-capacity-alert" class="prospect-auto-capacity-alert" hidden>
+                <p id="prospect-auto-capacity-alert-text"></p>
+                <div class="prospect-auto-capacity-actions">
+                  <button type="button" class="btn-followup" id="prospect-suggest-interval-10">Reduzir para 10 min</button>
+                  <button type="button" class="btn-followup" id="prospect-suggest-end-21">Aumentar até 21:00</button>
+                  <button type="button" class="btn-followup" id="prospect-suggest-keep">Manter assim</button>
+                </div>
+              </div>
+              <div class="prospecting-auto-grid">
+                <label class="conversas-filtro-label prospect-field-advanced" for="prospect-modo">Modo de operação
+                  <select id="prospect-modo" class="conversas-select">
+                    <option value="manual">Manual — você controla cada etapa</option>
+                    <option value="semi_automatico">Semi-automático — busca e processa</option>
+                    <option value="automatico">Automático — agenda sem intervenção</option>
                   </select>
                 </label>
-                <button type="submit" class="btn-reproc" id="prospect-semi-btn">Buscar e processar automaticamente</button>
+                <label class="conversas-filtro-label prospect-field-advanced" for="prospect-auto-enabled">Agendamento automático
+                  <select id="prospect-auto-enabled" class="conversas-select">
+                    <option value="true">Ativada</option>
+                    <option value="false">Desativada</option>
+                  </select>
+                </label>
+                <label class="conversas-filtro-label prospect-field-quick" for="prospect-auto-weekday">Dias de operação
+                  <select id="prospect-auto-weekday" class="conversas-select">
+                    <option value="7" selected>Segunda a sexta</option>
+                    <option value="1">Só Segunda</option>
+                    <option value="2">Só Terça</option>
+                    <option value="3">Só Quarta</option>
+                    <option value="4">Só Quinta</option>
+                    <option value="5">Só Sexta</option>
+                    <option value="6">Só Sábado</option>
+                    <option value="0">Só Domingo</option>
+                  </select>
+                </label>
+                <label class="conversas-filtro-label prospect-field-quick" for="prospect-auto-start">Janela de envio
+                  <input type="time" id="prospect-auto-start" class="conversas-select conversas-input-text" value="09:00" />
+                </label>
+                <input type="hidden" id="prospect-auto-hour" value="9" />
+                <input type="hidden" id="prospect-auto-minute" value="0" />
+                <label class="conversas-filtro-label prospect-field-quick" for="prospect-auto-end">Até
+                  <input type="time" id="prospect-auto-end" class="conversas-select conversas-input-text" value="17:00" />
+                </label>
+                <label class="conversas-filtro-label prospect-field-quick" for="prospect-auto-limit">Limite de envios por dia
+                  <input type="number" id="prospect-auto-limit" class="conversas-select conversas-input-text" min="1" max="200" step="1" placeholder="80" />
+                </label>
+                <label class="conversas-filtro-label prospect-field-quick" for="prospect-auto-intervalo">Tempo entre envios
+                  <select id="prospect-auto-intervalo" class="conversas-select">
+                    <option value="5">5 minutos</option>
+                    <option value="10">10 minutos</option>
+                    <option value="15">15 minutos</option>
+                    <option value="30" selected>30 minutos</option>
+                    <option value="45">45 minutos</option>
+                    <option value="60">1 hora</option>
+                    <option value="120">2 horas</option>
+                  </select>
+                </label>
+                <label class="conversas-filtro-label prospect-field-advanced" for="prospect-auto-gerar-ia">Mensagens com IA
+                  <select id="prospect-auto-gerar-ia" class="conversas-select">
+                    <option value="false">Desativada - so simula fila</option>
+                    <option value="true">Ativada - gera mensagem</option>
+                  </select>
+                </label>
+                <label class="conversas-filtro-label prospect-field-advanced prospect-real-send-field" for="prospect-auto-envio-real">Envio via WhatsApp
+                  <select id="prospect-auto-envio-real" class="conversas-select">
+                    <option value="false">Desativado - seguro</option>
+                    <option value="true">Ativado - envia WhatsApp</option>
+                  </select>
+                </label>
+                <label class="conversas-filtro-label prospect-field-quick" for="prospect-auto-categoria">Nicho alvo
+                  <input type="text" id="prospect-auto-categoria" class="conversas-select conversas-input-text" placeholder="Ex.: clínicas veterinárias" autocomplete="off" />
+                </label>
+                <label class="conversas-filtro-label prospect-field-quick" for="prospect-auto-cidade">Cidade base
+                  <input type="text" id="prospect-auto-cidade" class="conversas-select conversas-input-text" placeholder="Ex.: Salvador" autocomplete="off" />
+                </label>
+                <label class="conversas-filtro-label prospect-field-quick" for="prospect-auto-estado">Estado
+                  <input type="text" id="prospect-auto-estado" class="conversas-select conversas-input-text" placeholder="BA" maxlength="2" autocomplete="off" />
+                </label>
+                <label class="conversas-filtro-label prospect-field-advanced" for="prospect-auto-regiao">Região
+                  <input type="text" id="prospect-auto-regiao" class="conversas-select conversas-input-text" placeholder="Ex.: Região Metropolitana" autocomplete="off" />
+                </label>
+              </div>
+              <div id="prospect-auto-planejamento" class="prospect-auto-planejamento" hidden>
+                <div>
+                  <p class="prospect-auto-planejamento-titulo"><strong>Próximas buscas sugeridas</strong></p>
+                  <p id="prospect-auto-planejamento-nota" class="prospect-auto-resumo-line prospecting-muted"></p>
+                </div>
+                <ul id="prospect-auto-planejamento-lista" class="prospect-auto-planejamento-lista"></ul>
+              </div>
+              <div class="prospecting-job-actions">
+                <button type="button" class="btn-reproc" id="prospect-auto-salvar">Salvar alterações</button>
+                <button type="button" class="btn-followup" id="prospect-auto-atualizar">Atualizar dados da rotina</button>
+              </div>
+              <p id="prospect-auto-feedback" class="prospect-auto-feedback" aria-live="polite"></p>
+            </div>
+          </div>
+
+          <!-- ABA: FILA DO DIA -->
+          <div class="prospecting-doc-tab-panel" data-prospect-doc-panel="fila" hidden>
+            <div class="prospecting-search-card">
+              <div class="section-head">
+                <div>
+                  <span class="section-kicker">Buscar e adicionar</span>
+                  <h3>Encontrar empresas e jogar na fila</h3>
+                  <p>Busca no Google Places e adiciona os resultados direto na fila do dia. Depois é só gerar a mensagem e agendar o envio aqui embaixo.</p>
+                </div>
+              </div>
+              <form class="prospecting-form" id="daily-busca-form">
+                <label class="conversas-filtro-label" for="daily-busca-nicho">Nicho
+                  <input type="text" id="daily-busca-nicho" class="conversas-select conversas-input-text" placeholder="Ex.: clínicas odontológicas" autocomplete="off" />
+                </label>
+                <label class="conversas-filtro-label" for="daily-busca-cidade">Cidade
+                  <input type="text" id="daily-busca-cidade" class="conversas-select conversas-input-text" placeholder="Ex.: Campinas, SP" autocomplete="off" />
+                </label>
+                <label class="conversas-filtro-label" for="daily-busca-qtd">Quantidade
+                  <select id="daily-busca-qtd" class="conversas-select">
+                    <option value="10">10 empresas</option>
+                    <option value="20" selected>20 empresas</option>
+                    <option value="30">30 empresas</option>
+                  </select>
+                </label>
+                <button type="submit" class="btn-reproc" id="daily-busca-btn">Buscar e adicionar à fila</button>
+                <p class="prospecting-form-hint">Nichos específicos trazem melhores resultados. Ex.: "clínicas odontológicas" em vez de "dentista".</p>
               </form>
-              <p id="prospect-semi-progresso" class="prospect-auto-feedback"></p>
-            </section>
-          </article>
+            </div>
 
-          <aside class="card prospecting-status-card" aria-label="Resumo da operação">
-            <div class="section-head">
-              <div>
-                <span class="section-kicker">Resumo</span>
-                <h2>Resumo da operação</h2>
+            <div class="prospecting-results-card">
+              <div class="section-head">
+                <div>
+                  <span class="section-kicker">Fila do dia</span>
+                  <h3>Envios de hoje</h3>
+                  <p>É aqui que o WhatsApp dispara. Gere a mensagem, agende o envio ou exclua itens. A rotina automática também alimenta esta fila.</p>
+                </div>
               </div>
-            </div>
-            <div class="prospecting-metricas prospecting-status-metricas">
-              <div><i aria-hidden="true">A</i><strong id="prospect-metrica-aprovados">0</strong><span>Aprovados para envio</span></div>
-              <div><i aria-hidden="true">E</i><strong id="prospect-metrica-enviados">0</strong><span>Mensagens enviadas</span></div>
-              <div><i aria-hidden="true">R</i><strong id="prospect-metrica-respondeu">0</strong><span>Responderam</span></div>
-              <div><i aria-hidden="true">%</i><strong id="prospect-metrica-taxa">0%</strong><span>Taxa de resposta</span></div>
-            </div>
-            <div class="prospecting-job-queue-panel" id="prospect-jobs-bar">
-              <div>
-                <strong>Fila de processamento</strong>
-                <span id="prospect-jobs-bar-text">Jobs: 0 em fila • 0 processando • falhas: 0</span>
+              <div class="prospecting-job-actions">
+                <button type="button" class="btn-followup" id="prospect-daily-refresh-fila">Atualizar fila</button>
+                <button type="button" class="btn-danger" id="daily-pausar">Pausar prospecção do dia</button>
               </div>
-              <button type="button" class="btn-followup" id="prospect-jobs-bar-run">Processar fila agora</button>
-            </div>
-          </aside>
-        </section>
-
-        <section class="card prospecting-auto-card prospecting-auto-config" id="prospect-auto-card" hidden>
-          <div class="section-head">
-            <div>
-              <span class="section-kicker">Rotina automática</span>
-              <h2>Modo automático</h2>
-              <p>Configure horário e intervalo de envios. A IA escolhe o nicho, agenda mensagens na grade comercial e você acompanha na lista quem receberá e quando.</p>
+              <p id="daily-fila-status" class="painel-nota-agente">Carregando fila diária...</p>
+              <div id="daily-fila-list" class="prospecting-daily-list"></div>
             </div>
           </div>
-          <div id="prospect-auto-resumo" class="prospect-auto-resumo" hidden>
-            <p id="prospect-auto-resumo-agenda" class="prospect-auto-resumo-line"></p>
-            <p id="prospect-auto-resumo-janela" class="prospect-auto-resumo-line prospecting-muted"></p>
-            <p id="prospect-auto-resumo-ultimo" class="prospect-auto-resumo-line prospecting-muted"></p>
+
+          <!-- BLOCO: MENSAGENS DENTRO DA FILA -->
+          <div class="prospecting-doc-tab-panel" data-prospect-doc-panel="fila" hidden>
+            <p class="prospecting-muted">Mensagens em preparação: gere ou ajuste apenas itens que já estão na fila com slot definido.</p>
+            <div id="daily-messages-list" class="prospecting-daily-list"></div>
           </div>
-          <div class="prospecting-auto-grid">
-            <label class="conversas-filtro-label" for="prospect-auto-enabled">Rotina ativa
-              <select id="prospect-auto-enabled" class="conversas-select">
-                <option value="true">Ativada</option>
-                <option value="false">Desativada</option>
-              </select>
-            </label>
-            <label class="conversas-filtro-label" for="prospect-auto-weekday">Frequência
-              <select id="prospect-auto-weekday" class="conversas-select">
-                <option value="7" selected>Todos os dias</option>
-                <option value="1">Só Segunda</option>
-                <option value="2">Só Terça</option>
-                <option value="3">Só Quarta</option>
-                <option value="4">Só Quinta</option>
-                <option value="5">Só Sexta</option>
-                <option value="6">Só Sábado</option>
-                <option value="0">Só Domingo</option>
-              </select>
-            </label>
-            <label class="conversas-filtro-label" for="prospect-auto-hour">Hora
-              <input type="number" id="prospect-auto-hour" class="conversas-select conversas-input-text" min="0" max="23" step="1" placeholder="09" />
-            </label>
-            <label class="conversas-filtro-label" for="prospect-auto-minute">Minuto
-              <input type="number" id="prospect-auto-minute" class="conversas-select conversas-input-text" min="0" max="59" step="1" placeholder="00" />
-            </label>
-            <label class="conversas-filtro-label" for="prospect-auto-limit">Prospects por semana
-              <input type="number" id="prospect-auto-limit" class="conversas-select conversas-input-text" min="1" max="200" step="1" placeholder="40" />
-            </label>
-            <label class="conversas-filtro-label" for="prospect-auto-intervalo">Intervalo entre envios
-              <select id="prospect-auto-intervalo" class="conversas-select">
-                <option value="15">15 minutos</option>
-                <option value="30" selected>30 minutos</option>
-                <option value="45">45 minutos</option>
-                <option value="60">1 hora</option>
-                <option value="120">2 horas</option>
-              </select>
-            </label>
-            <label class="conversas-filtro-label" for="prospect-auto-categoria">Categoria opcional
-              <input type="text" id="prospect-auto-categoria" class="conversas-select conversas-input-text" placeholder="Ex.: clínicas veterinárias" autocomplete="off" />
-            </label>
-          </div>
-          <div id="prospect-auto-planejamento" class="prospect-auto-planejamento" hidden>
-            <div>
-              <p class="prospect-auto-planejamento-titulo"><strong>Próxima busca</strong></p>
-              <p id="prospect-auto-planejamento-nota" class="prospect-auto-resumo-line prospecting-muted"></p>
+
+          <!-- ABA: RESULTADOS (dashboard estratégico) -->
+          <div class="prospecting-doc-tab-panel" data-prospect-doc-panel="dashboard" hidden>
+            <div class="prospecting-job-actions">
+              <button type="button" class="btn-reproc" id="daily-report-generate">Gerar relatório diário</button>
+              <button type="button" class="btn-followup" id="daily-report-send">Enviar aos operadores</button>
             </div>
-            <ul id="prospect-auto-planejamento-lista" class="prospect-auto-planejamento-lista"></ul>
-          </div>
-          <div class="prospecting-job-actions">
-            <button type="button" class="btn-reproc" id="prospect-auto-salvar">Salvar configuração</button>
-            <button type="button" class="btn-followup" id="prospect-auto-rodar">Rodar agora</button>
-            <button type="button" class="btn-followup" id="prospect-auto-atualizar">Recarregar configuração</button>
-          </div>
-          <p id="prospect-auto-feedback" class="prospect-auto-feedback" aria-live="polite"></p>
-        </section>
-
-        <section class="card prospecting-results-card">
-          <div class="section-head">
-            <div>
-              <span class="section-kicker">Prospects</span>
-              <h2>Prospects encontrados</h2>
-              <p>Gerencie, aprove e envie mensagens para seus prospects.</p>
+            <div class="prospecting-toolbar prospecting-strategy-toolbar" aria-label="Filtros do dashboard estratégico">
+              <label class="conversas-filtro-label" for="strategy-start">Início
+                <input type="date" id="strategy-start" class="conversas-select conversas-input-text" />
+              </label>
+              <label class="conversas-filtro-label" for="strategy-end">Fim
+                <input type="date" id="strategy-end" class="conversas-select conversas-input-text" />
+              </label>
+              <label class="conversas-filtro-label" for="strategy-category">Categoria/tag
+                <input type="text" id="strategy-category" class="conversas-select conversas-input-text" placeholder="Ex.: restaurante" autocomplete="off" />
+              </label>
+              <label class="conversas-filtro-label" for="strategy-city">Cidade
+                <input type="text" id="strategy-city" class="conversas-select conversas-input-text" placeholder="Ex.: Salvador" autocomplete="off" />
+              </label>
+              <label class="conversas-filtro-label" for="strategy-state">UF
+                <input type="text" id="strategy-state" class="conversas-select conversas-input-text" maxlength="2" placeholder="BA" autocomplete="off" />
+              </label>
+              <label class="conversas-filtro-label" for="strategy-mode">Modo
+                <select id="strategy-mode" class="conversas-select">
+                  <option value="">Todos</option>
+                  <option value="manual">Manual</option>
+                  <option value="semi_automatico">Semiautomático</option>
+                  <option value="automatico">Automático</option>
+                </select>
+              </label>
+              <label class="conversas-filtro-label" for="strategy-status">Status/funil
+                <select id="strategy-status" class="conversas-select">
+                  <option value="">Todos</option>
+                  <option value="simulado">Simulado</option>
+                  <option value="agendado">Agendado</option>
+                  <option value="enviado">Enviado</option>
+                  <option value="respondido">Respondido</option>
+                  <option value="falhou">Falhou</option>
+                  <option value="diagnostico">Diagnóstico</option>
+                  <option value="proposta">Proposta</option>
+                  <option value="reuniao_agendada">Reunião</option>
+                </select>
+              </label>
+              <label class="conversas-filtro-label" for="strategy-cost">Custo do período
+                <input type="number" id="strategy-cost" class="conversas-select conversas-input-text" min="0" step="0.01" placeholder="0,00" />
+              </label>
+              <button type="button" class="btn-reproc" id="strategy-apply">Aplicar filtros</button>
             </div>
-            <span class="badge" id="prospect-total">0</span>
+            <!-- Hero KPIs do período -->
+            <div class="prospecting-metricas prospecting-strategy-hero">
+              <div><strong id="strategy-k-enviadas">0</strong><span>Mensagens enviadas</span></div>
+              <div><strong id="strategy-k-taxa">0%</strong><span>Taxa de resposta</span></div>
+              <div><strong id="strategy-k-reunioes">0</strong><span>Reuniões geradas</span></div>
+              <div><strong id="strategy-k-fechados">0</strong><span>Clientes fechados</span></div>
+            </div>
+
+            <!-- Gráfico de crescimento -->
+            <article class="prospecting-ranking-card">
+              <h3>Crescimento no período — enviados x respostas por dia</h3>
+              <div id="strategy-chart" class="prospecting-chart"></div>
+            </article>
+
+            <!-- Funil de conversão -->
+            <article class="prospecting-ranking-card">
+              <h3>Funil de conversão</h3>
+              <div id="strategy-funnel" class="prospecting-funnel"></div>
+            </article>
+
+            <!-- Top nichos e cidades -->
+            <div class="prospecting-ranking-grid">
+              <article class="prospecting-ranking-card">
+                <h3>Top nichos</h3>
+                <div id="strategy-rank-category" class="prospecting-daily-list"></div>
+              </article>
+              <article class="prospecting-ranking-card">
+                <h3>Top cidades</h3>
+                <div id="strategy-rank-city" class="prospecting-daily-list"></div>
+              </article>
+            </div>
+
+            <!-- Execuções recentes -->
+            <article class="prospecting-ranking-card">
+              <h3>Execuções recentes</h3>
+              <div id="daily-history-list" class="prospecting-daily-list"></div>
+            </article>
+
+            <details class="prospecting-report-raw">
+              <summary>Ver texto do relatório (para WhatsApp)</summary>
+              <pre id="daily-report-text" class="prospecting-report-text">Nenhum relatório gerado para o dia.</pre>
+            </details>
+            <div id="daily-report-visual" class="prospecting-report-visual" hidden></div>
           </div>
 
-          <div class="prospecting-toolbar">
-            <label class="conversas-filtro-label" for="prospect-filtro-status">Status
-              <select id="prospect-filtro-status" class="conversas-select">
-                <option value="">Todos</option>
-                <option value="aguardando">Aguardando</option>
-                <option value="aprovado">Aprovado</option>
-                <option value="rejeitado">Rejeitado</option>
-                <option value="enviado">Enviado</option>
-                <option value="respondeu">Respondeu</option>
-              </select>
-            </label>
-            <label class="conversas-filtro-label" for="prospect-filtro-nicho">Nicho
-              <input type="text" id="prospect-filtro-nicho" class="conversas-select conversas-input-text" placeholder="Filtrar por nicho" />
-            </label>
-            <label class="conversas-filtro-label" for="prospect-filtro-cidade">Cidade
-              <input type="text" id="prospect-filtro-cidade" class="conversas-select conversas-input-text" placeholder="Filtrar por cidade" />
-            </label>
-            <label class="conversas-filtro-label" for="prospect-filtro-busca">Busca
-              <input type="text" id="prospect-filtro-busca" class="conversas-select conversas-input-text" placeholder="Nome, telefone ou texto" />
-            </label>
-            <button type="button" class="btn-followup" id="prospect-btn-filtrar">Filtrar</button>
+          <!-- BLOCO: CONFIGURAÇÕES TÉCNICAS -->
+          <div class="prospecting-doc-tab-panel" data-prospect-doc-panel="configuracao" hidden>
+            <p class="prospecting-muted">Configurações salvas, histórico técnico de segurança e bloqueios de prospecção.</p>
+            <div id="daily-config-details" class="prospecting-detail-grid"></div>
+            <div id="daily-blocks-list" class="prospecting-daily-list"></div>
           </div>
-
-          <div class="prospecting-lote-bar">
-            <button type="button" class="btn-followup" id="prospect-lote-selecionar-todos">Selecionar todos</button>
-            <span id="prospect-lote-status" class="followup-lote-status">0 selecionado(s)</span>
-            <button type="button" class="btn-followup" id="prospect-lote-diagnosticar">Diagnóstico lote</button>
-            <button type="button" class="btn-followup" id="prospect-lote-aprovar">Aprovar lote</button>
-            <button type="button" class="btn-danger" id="prospect-lote-rejeitar">Rejeitar lote</button>
-            <button type="button" class="btn-reproc" id="prospect-lote-enviar">Enviar aprovados</button>
-          </div>
-          <p class="prospect-send-note">Aprovar sozinho não envia. Para disparar, selecione os prospects e clique em Enviar aprovados.</p>
-          <div id="prospect-status" class="painel-nota-agente">Escolha o modo de prospecção acima para buscar ou configurar a rotina.</div>
-          <nav id="prospect-pagination" class="prospect-pagination" aria-label="Paginar resultados da lista" hidden></nav>
-          <div id="prospect-results" class="prospecting-results"></div>
         </section>
       </main>
 
@@ -281,21 +397,7 @@
 
   <script src="dashboard/js/site-nav.js" defer></script>
   <script src="dashboard/js/core.js"></script>
+  <script src="dashboard/js/sistema-alertas.js"></script>
   <script src="dashboard/js/prospeccao.js"></script>
-  <div class="dash-modal" id="prospect-edit-modal" hidden>
-    <button type="button" class="dash-modal-backdrop" data-prospect-modal-close aria-label="Fechar"></button>
-    <div class="dash-modal-panel">
-      <h2 class="dash-modal-title">Editar mensagem</h2>
-      <p class="dash-modal-desc">Ajuste a mensagem final antes do envio (máximo 480 caracteres).</p>
-      <textarea id="prospect-edit-text" class="dash-modal-textarea" maxlength="480"></textarea>
-      <p class="dash-modal-hint"><span id="prospect-edit-count">0</span>/480</p>
-      <div class="dash-modal-actions">
-        <button type="button" class="btn-followup" data-prospect-modal-close>Cancelar</button>
-        <button type="button" class="btn-reproc" id="prospect-edit-save">Salvar mensagem</button>
-      </div>
-    </div>
-  </div>
 </body>
 </html>
-
-

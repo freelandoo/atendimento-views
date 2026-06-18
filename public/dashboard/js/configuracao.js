@@ -132,7 +132,7 @@
   }
 
   const TAB_STORAGE_KEY = 'pj-config-tab'
-  const VALID_TABS = ['geral', 'whatsapp', 'prompts', 'ia']
+  const VALID_TABS = ['geral', 'whatsapp', 'prompts', 'ia', 'teste-ia']
 
   function setupTabs() {
     const tabs = Array.from(document.querySelectorAll('.config-tab-btn[data-tab]'))
@@ -374,49 +374,77 @@
   }
 
   async function carregarAILogs() {
+    const container = document.getElementById('ai-logs-container')
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null
+    const timer = ctl ? setTimeout(() => ctl.abort(), 12000) : null
     try {
-      const r = await fetch('/dashboard/ai/logs', {
+      const r = await fetch('/dashboard/ai/logs?limit=50', {
+        signal: ctl?.signal,
         headers: Core.headersComReprocessSecret ? Core.headersComReprocessSecret(false) : {},
       })
       const j = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(j.erro || r.statusText)
       renderAILogs(j.logs || [])
     } catch (e) {
-      const container = document.getElementById('ai-logs-container')
-      if (container) container.innerHTML = `<p class="painel-nota-agente" style="color:var(--perigo)">Falha ao carregar logs: ${e.message}</p>`
+      const msg = e?.name === 'AbortError' ? 'Tempo esgotado ao buscar histórico.' : `Falha ao carregar logs: ${e.message}`
+      if (container) container.innerHTML = `<p class="painel-nota-agente" style="color:var(--perigo)">${msg}</p>`
+    } finally {
+      if (timer) clearTimeout(timer)
     }
   }
 
   async function carregarAISettings() {
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null
+    const timer = ctl ? setTimeout(() => ctl.abort(), 10000) : null
     try {
       const r = await fetch('/dashboard/ai/settings', {
+        signal: ctl?.signal,
         headers: Core.headersComReprocessSecret ? Core.headersComReprocessSecret(false) : {},
       })
       const j = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(j.erro || r.statusText)
-      const s = j.settings || {}
-      const providerEl = document.getElementById('ai-provider')
-      const modelEl = document.getElementById('ai-model')
-      const tempEl = document.getElementById('ai-temperature')
-      const tokensEl = document.getElementById('ai-max-tokens')
-      const fbEnabledEl = document.getElementById('ai-fallback-enabled')
-      const fbProviderEl = document.getElementById('ai-fallback-provider')
-      const fbModelEl = document.getElementById('ai-fallback-model')
-
-      const provider = s.provider || 'anthropic'
-      const fbProvider = s.fallback_provider || 'openai'
-
-      if (providerEl) providerEl.value = provider
-      populateModelSelect(modelEl, provider, s.model)
-      if (tempEl) tempEl.value = s.temperature ?? 0.4
-      if (tokensEl) tokensEl.value = s.max_tokens ?? 1200
-      if (fbEnabledEl) fbEnabledEl.checked = s.fallback_enabled !== false
-      if (fbProviderEl) fbProviderEl.value = fbProvider
-      populateModelSelect(fbModelEl, fbProvider, s.fallback_model)
+      aplicarAISettingsNaUI(j.settings || {})
       setAIStatus('', false)
     } catch (e) {
-      setAIStatus('Falha ao carregar configurações: ' + e.message, true)
+      const msg = e?.name === 'AbortError' ? 'Tempo esgotado ao buscar configurações.' : e.message
+      setAIStatus('Falha ao carregar configurações: ' + msg, true)
+    } finally {
+      if (timer) clearTimeout(timer)
     }
+  }
+
+  function aplicarAISettingsNaUI(s) {
+    const providerEl = document.getElementById('ai-provider')
+    const modelEl = document.getElementById('ai-model')
+    const tempEl = document.getElementById('ai-temperature')
+    const tokensEl = document.getElementById('ai-max-tokens')
+    const fbEnabledEl = document.getElementById('ai-fallback-enabled')
+    const fbProviderEl = document.getElementById('ai-fallback-provider')
+    const fbModelEl = document.getElementById('ai-fallback-model')
+    const fbFieldsEl = document.getElementById('ai-fallback-fields')
+    const fbModelFieldEl = document.getElementById('ai-fallback-model-field')
+
+    const provider = s.provider || 'anthropic'
+    const fbProvider = s.fallback_provider || 'openai'
+    const fbOn = s.fallback_enabled !== false
+
+    if (providerEl) providerEl.value = provider
+    populateModelSelect(modelEl, provider, s.model)
+    if (tempEl) tempEl.value = s.temperature != null ? s.temperature : 0.4
+    if (tokensEl) tokensEl.value = s.max_tokens != null ? s.max_tokens : 1200
+    if (fbEnabledEl) fbEnabledEl.checked = fbOn
+    if (fbProviderEl) fbProviderEl.value = fbProvider
+    populateModelSelect(fbModelEl, fbProvider, s.fallback_model)
+    if (fbFieldsEl) fbFieldsEl.style.opacity = fbOn ? '1' : '0.4'
+    if (fbModelFieldEl) fbModelFieldEl.style.opacity = fbOn ? '1' : '0.4'
+
+    atualizarBannerLLMAtivo({
+      provider,
+      model: s.model,
+      fallback_enabled: fbOn,
+      fallback_provider: fbProvider,
+      fallback_model: s.fallback_model,
+    })
   }
 
   function setupAISettings() {
@@ -467,8 +495,9 @@
         })
         const j = await r.json().catch(() => ({}))
         if (!r.ok) throw new Error(j.erro || r.statusText)
-        Core.toast ? Core.toast('Configurações de IA salvas.', 'sucesso') : null
-        setAIStatus('Salvo com sucesso.', false)
+        if (j.settings) aplicarAISettingsNaUI(j.settings)
+        Core.toast ? Core.toast(j.mensagem || 'Configurações de IA salvas.', 'sucesso') : null
+        setAIStatus(j.mensagem || 'Salvo com sucesso.', false)
         await carregarAILogs()
       } catch (e) {
         setAIStatus(e.message || 'Falha ao salvar.', true)
@@ -479,8 +508,88 @@
       }
     })
 
+    async function testarProvedor(useProvider, useModel, btnEl, opts = {}) {
+      const scope = opts.scope || 'principal'
+      const testDiv = document.getElementById('ai-test-result')
+      const prev = btnEl.textContent
+      btnEl.disabled = true
+      btnEl.textContent = 'Testando…'
+      if (testDiv) { testDiv.style.display = 'none'; testDiv.innerHTML = '' }
+      try {
+        const r = await fetch('/dashboard/ai/test', {
+          method: 'POST',
+          headers: headersComReprocessSecret(),
+          body: JSON.stringify({ provider: useProvider, model: useModel, scope }),
+        })
+        const j = await r.json().catch(() => ({}))
+        if (testDiv) {
+          testDiv.style.display = 'block'
+          const ok = j.ok !== false && r.ok
+          const providerLabel = j.provider_label || j.provider || '?'
+          const fallbackInfo = j.fallback_used
+            ? ` <span class="ai-log-err">· fallback usado</span>`
+            : ''
+          testDiv.className = 'ai-test-result ' + (ok ? 'ai-test-result--ok' : 'ai-test-result--erro')
+          testDiv.innerHTML =
+            `<strong>${ok ? `✔ Teste concluído com ${providerLabel}` : '✖ Falha'}</strong> ` +
+            `<span class="ai-log-badge ai-log-badge--${j.provider || 'unknown'}">${j.provider || '?'}</span> ` +
+            `<span class="ai-log-model">${Core.escHtml ? Core.escHtml(j.model || '') : (j.model || '')}</span>` +
+            fallbackInfo +
+            (j.text ? ` — <em>${Core.escHtml ? Core.escHtml(j.text) : j.text}</em>` : '') +
+            (j.latency_ms ? ` <span style="color:var(--texto3)">(${j.latency_ms}ms)</span>` : '') +
+            (j.erro ? ` <span style="color:var(--perigo)">${Core.escHtml ? Core.escHtml(j.erro) : j.erro}</span>` : '')
+        }
+        // Atualiza historico depois do teste
+        carregarAILogs()
+      } catch (e) {
+        if (testDiv) {
+          testDiv.style.display = 'block'
+          testDiv.className = 'ai-test-result ai-test-result--erro'
+          testDiv.textContent = 'Erro de rede: ' + e.message
+        }
+      } finally {
+        btnEl.disabled = false
+        btnEl.textContent = prev
+      }
+    }
+
+    document.getElementById('btn-ai-testar-principal')?.addEventListener('click', function () {
+      testarProvedor(
+        providerEl ? providerEl.value : undefined,
+        modelEl ? modelEl.value : undefined,
+        this,
+        { scope: 'principal' }
+      )
+    })
+
+    document.getElementById('btn-ai-testar-fallback')?.addEventListener('click', function () {
+      testarProvedor(
+        fbProviderEl ? fbProviderEl.value : undefined,
+        fbModelEl ? fbModelEl.value : undefined,
+        this,
+        { scope: 'fallback' }
+      )
+    })
+
     carregarAISettings()
     carregarAILogs()
+  }
+
+  function atualizarBannerLLMAtivo(s) {
+    const PROVIDERS = { anthropic: 'Anthropic Claude', openai: 'OpenAI GPT' }
+    const elP = document.getElementById('ai-active-provider')
+    const elM = document.getElementById('ai-active-model')
+    const elF = document.getElementById('ai-active-fallback')
+    if (elP) elP.textContent = PROVIDERS[s.provider] || s.provider || '—'
+    if (elM) elM.textContent = s.model || '—'
+    if (elF) {
+      if (s.fallback_enabled) {
+        const fbProv = PROVIDERS[s.fallback_provider] || s.fallback_provider || '—'
+        elF.textContent = `ativo (${fbProv} · ${s.fallback_model || '—'})`
+      } else {
+        elF.textContent = 'desativado'
+      }
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

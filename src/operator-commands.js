@@ -1,15 +1,14 @@
 'use strict'
 
-const {
-  ANTHROPIC_KEY,
-  ANTHROPIC_MESSAGES_URL,
-} = require('./config')
+// As chamadas a LLM neste modulo passam por aiProvider.generateAIResponse,
+// que respeita o provedor/modelo configurado no Motor de IA.
 
 function createOperatorCommands(deps = {}) {
   const {
     pool,
     logger,
     axios,
+    aiProvider,
     normalizarNumeroParaJid,
     normalizarHistoricoMensagens,
     extrairTextoEMidiaDoWebhook,
@@ -127,6 +126,12 @@ function createOperatorCommands(deps = {}) {
     if (historico.length > 40) historico = historico.slice(-40)
   
     await salvarConversa(numero, historico, estagio, conversa?.status || 'ativo', true)
+    // Medição: registra a 1ª vez que o operador assumiu esta conversa (idempotente via
+    // COALESCE). Torna mensurável quantos leads o humano fecha fora do bot.
+    await pool.query(
+      `UPDATE vendas.conversas SET operador_assumiu_em = COALESCE(operador_assumiu_em, NOW()) WHERE numero = $1`,
+      [numero]
+    ).catch((e) => logger.warn(`operador_assumiu_em falhou em ${numero}: ${e.message}`))
     await cancelarFollowupsAutoPendentes(numero, 'operador_interveio')
     limparDebounceResposta(numero)
     logger.info(`⏸️ Agente pausado automaticamente após intervenção em ${numero}`)
@@ -336,52 +341,48 @@ function createOperatorCommands(deps = {}) {
    * Modo de simulação: Claude joga o papel de um lead baseado na descrição do operador.
    */
   async function executarSimulacaoLead(descricao, jidOperador, nomeOperador) {
-    if (!ANTHROPIC_KEY) {
-      await enviarMensagem(jidOperador, '❌ ANTHROPIC_KEY não configurada.')
-      return
-    }
     const system = [
       `Você é um lead (cliente em potencial) de pequeno negócio no Brasil.`,
       `Responda APENAS como o lead responderia — curto, direto, natural, como em WhatsApp.`,
       `Perfil descrito pelo operador: ${descricao}`,
       `Não quebre o personagem. Não explique que é uma simulação. Se o operador enviar uma abordagem de vendas, responda como o lead reagiria.`,
     ].join(' ')
-    const model = 'claude-haiku-4-5-20251001'
     const requestId = gerarRequestIdAnthropic()
     const inicio = Date.now()
     try {
-      const resp = await axios.post(
-        ANTHROPIC_MESSAGES_URL,
+      const result = await aiProvider.generateAIResponse(
         {
-          model,
-          max_tokens: 200,
-          system,
-          messages: [{ role: 'user', content: `[Início da simulação. O operador vai te abordar agora. Primeiro, apresente-se brevemente como o lead.]` }],
+          systemPrompt: system,
+          userPrompt: `[Início da simulação. O operador vai te abordar agora. Primeiro, apresente-se brevemente como o lead.]`,
+          task: 'simulacao',
+          maxTokens: 200,
+          timeoutMs: 15000,
         },
-        {
-          headers: { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-          timeout: 15000,
-        }
+        pool,
+        logger
       )
-      await registrarChamadaAnthropic({
-        request_id: requestId,
-        tipo: 'simulacao',
-        numero: jidOperador,
-        model,
-        duration_ms: Date.now() - inicio,
-        http_ok: true,
-        http_status: resp.status,
-        stop_reason: resp.data?.stop_reason || null,
-        usage: resp.data?.usage,
-      })
-      const fala = resp.data?.content?.[0]?.text?.trim() || ''
+      if (result?.provider === 'anthropic') {
+        await registrarChamadaAnthropic({
+          request_id: requestId,
+          tipo: 'simulacao',
+          numero: jidOperador,
+          model: result.model,
+          duration_ms: Date.now() - inicio,
+          http_ok: true,
+          http_status: result.httpStatus || 200,
+          stop_reason: result.stopReason || null,
+          usage: result.usage,
+          metadata: { fallback_used: result.fallback_used === true },
+        })
+      }
+      const fala = String(result?.text || '').trim()
       await enviarMensagem(jidOperador, `🎯 *Simulação iniciada!*\n\nPerfil: ${descricao}\n\n_Lead diz:_\n${fala}\n\n_(Responda normalmente para continuar o roleplay)_`)
     } catch (e) {
       await registrarChamadaAnthropic({
         request_id: requestId,
         tipo: 'simulacao',
         numero: jidOperador,
-        model,
+        model: 'desconhecido',
         duration_ms: Date.now() - inicio,
         http_ok: false,
         http_status: statusHttpDeErroAnthropic(e),
@@ -397,7 +398,6 @@ function createOperatorCommands(deps = {}) {
    * Chama Claude Haiku com prompt leve para responder perguntas conversacionais do operador.
    */
   async function chamarClaudeAssistenteOperador(pergunta, nomeOperador) {
-    if (!ANTHROPIC_KEY) return null
     const system = [
       `Assistente interno da PJ Codeworks respondendo ao operador ${nomeOperador}.`,
       `Funcionalidades disponíveis no chat:`,
@@ -409,39 +409,39 @@ function createOperatorCommands(deps = {}) {
       `6 - Ajustar configuração: contato com a equipe da PJ Codeworks`,
       `Responda em português, direto, máximo 3 frases. Não invente funcionalidades.`,
     ].join(' ')
-    const model = 'claude-haiku-4-5-20251001'
     const requestId = gerarRequestIdAnthropic()
     const inicio = Date.now()
     try {
-      const resp = await axios.post(
-        ANTHROPIC_MESSAGES_URL,
+      const result = await aiProvider.generateAIResponse(
         {
-          model,
-          max_tokens: 256,
-          system,
-          messages: [{ role: 'user', content: pergunta }],
+          systemPrompt: system,
+          userPrompt: pergunta,
+          task: 'operador_assistente',
+          maxTokens: 256,
+          timeoutMs: 15000,
         },
-        {
-          headers: { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-          timeout: 15000,
-        }
+        pool,
+        logger
       )
-      await registrarChamadaAnthropic({
-        request_id: requestId,
-        tipo: 'operador_assistente',
-        model,
-        duration_ms: Date.now() - inicio,
-        http_ok: true,
-        http_status: resp.status,
-        stop_reason: resp.data?.stop_reason || null,
-        usage: resp.data?.usage,
-      })
-      return resp.data?.content?.[0]?.text?.trim() || null
+      if (result?.provider === 'anthropic') {
+        await registrarChamadaAnthropic({
+          request_id: requestId,
+          tipo: 'operador_assistente',
+          model: result.model,
+          duration_ms: Date.now() - inicio,
+          http_ok: true,
+          http_status: result.httpStatus || 200,
+          stop_reason: result.stopReason || null,
+          usage: result.usage,
+          metadata: { fallback_used: result.fallback_used === true },
+        })
+      }
+      return String(result?.text || '').trim() || null
     } catch (e) {
       await registrarChamadaAnthropic({
         request_id: requestId,
         tipo: 'operador_assistente',
-        model,
+        model: 'desconhecido',
         duration_ms: Date.now() - inicio,
         http_ok: false,
         http_status: statusHttpDeErroAnthropic(e),

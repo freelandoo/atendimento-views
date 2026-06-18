@@ -21,6 +21,15 @@ let LEAD_COACH_PROMPT_BASE = ''
 let EMPRESA_KNOWLEDGE_BASE = ''
 /** Catálogo estruturado de cases (knowledge/cases.json) — uso futuro / consistência. */
 let CASES_CATALOG = null
+/** Classificador de intenção via IA (prompts/classificador-intencao.md). */
+let CLASSIFICADOR_INTENCAO_BASE = ''
+/**
+ * Tom de referência compartilhado por TODOS os prompts de etapa.
+ * Bloco curto com 1-2 exemplos validados pela equipe — anexado em runtime
+ * via `withTomReferencia()`. Mantemos UM unico arquivo pra evitar inflar
+ * cada system prompt individualmente.
+ */
+let TOM_REFERENCIA_BASE = ''
 
 function loadSystemPrompt() {
   const p = path.join(ROOT, 'prompts', 'system.md')
@@ -113,6 +122,35 @@ function loadSystemFechamentoPrompt() {
   else { SYSTEM_FECHAMENTO_BASE = ''; logger.warn('⚠️ prompts/system-fechamento.md não encontrado') }
 }
 
+function loadClassificadorIntencao() {
+  const p = path.join(ROOT, 'prompts', 'classificador-intencao.md')
+  if (fs.existsSync(p)) { CLASSIFICADOR_INTENCAO_BASE = fs.readFileSync(p, 'utf8'); logger.info('✅ prompts/classificador-intencao.md carregado') }
+  else { CLASSIFICADOR_INTENCAO_BASE = ''; logger.warn('⚠️ prompts/classificador-intencao.md não encontrado') }
+}
+
+function loadTomReferenciaPrompt() {
+  const p = path.join(ROOT, 'prompts', 'tom-referencia.md')
+  if (fs.existsSync(p)) {
+    TOM_REFERENCIA_BASE = fs.readFileSync(p, 'utf8')
+    logger.info('✅ prompts/tom-referencia.md carregado (few-shot compartilhado)')
+  } else {
+    TOM_REFERENCIA_BASE = ''
+    logger.warn('⚠️ prompts/tom-referencia.md não encontrado — bot sem few-shot de tom')
+  }
+}
+
+/**
+ * Anexa o bloco de tom-referencia ao final de qualquer prompt de etapa.
+ * Mantemos um separador visual claro para o modelo entender que sao
+ * exemplos de tom, nao regras adicionais. Idempotente.
+ */
+function withTomReferencia(base) {
+  const conteudo = String(base || '')
+  if (!TOM_REFERENCIA_BASE) return conteudo
+  if (conteudo.includes('# Tom de referência — PJ Codeworks')) return conteudo
+  return `${conteudo}\n\n---\n\n${TOM_REFERENCIA_BASE}`
+}
+
 function loadCasesCatalog() {
   const p = path.join(ROOT, 'knowledge', 'cases.json')
   if (fs.existsSync(p)) {
@@ -144,7 +182,6 @@ function urlAutorizadaConhecimento(raw) {
     if (h === 'gurgelclean.com.br' || h === 'www.gurgelclean.com.br') return true
     if (h === '874vidroseesquadrias.com.br' || h === 'www.874vidroseesquadrias.com.br') return true
     if (h === 'geral1914.com.br' || h === 'www.geral1914.com.br') return true
-    if (h === 'buy.stripe.com') return true
     return false
   } catch {
     return false
@@ -458,6 +495,9 @@ async function reverterOverlay(pool, chaveRaw, versionId) {
 module.exports = {
   loadSystemPrompt,
   loadSystemCorePrompt,
+  loadClassificadorIntencao,
+  loadTomReferenciaPrompt,
+  withTomReferencia,
   loadSystemPrimeiroContatoPrompt,
   loadSystemDiagnosticoPrompt,
   loadSystemPropostaPrompt,
@@ -505,6 +545,12 @@ module.exports = {
   },
   get CASES_CATALOG() {
     return CASES_CATALOG
+  },
+  get CLASSIFICADOR_INTENCAO_BASE() {
+    return CLASSIFICADOR_INTENCAO_BASE
+  },
+  get TOM_REFERENCIA_BASE() {
+    return TOM_REFERENCIA_BASE
   },
   CHAVES_PERMITIDAS,
   PROMPT_OVERLAY_MAX_BYTES,

@@ -26,10 +26,8 @@ O prompt principal (`prompts/system.md`) é carregado junto com **`prompts/empre
 - `PATCH /dashboard/prospeccao/diagnosticos/:prospect_id` — salva `mensagem_editada`.
 - `POST /dashboard/prospeccao/prospects/lote/aprovar` e `POST /dashboard/prospeccao/prospects/lote/rejeitar` — transição de status em lote.
 - `POST /dashboard/prospeccao/disparos/enviar` — envia somente prospects aprovados, com idempotência por janela/hashing de mensagem e retry seguro.
-- `POST /dashboard/prospeccao/jobs/sync-nichos` — enfileira sincronização de nichos performantes.
-- `POST /dashboard/prospeccao/jobs/buscar-automatico` — enfileira busca automática para os melhores nichos/cidades.
-- `POST /dashboard/prospeccao/jobs/consumir` — executa jobs pendentes de prospecção.
 - `GET /dashboard/prospeccao/metricas` — retorna métricas operacionais (status, enviados, taxa de resposta).
+- Disparo automático: orquestrado pelo sistema diário (`GET /dashboard/prospeccao/fila-diaria`, `POST /dashboard/prospeccao/fila-diaria/simular`, `GET /dashboard/prospeccao/execucoes`, `GET /dashboard/prospeccao/relatorio-diario`). O fluxo antigo via `job_queue` (`/jobs/*`) foi removido em 2026-05-28.
 
 ## Follow-up manual (dashboard)
 

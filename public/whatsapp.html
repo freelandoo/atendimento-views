@@ -1,0 +1,142 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhatsApp — PJ Codeworks</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="dashboard/css/dashboard.css" />
+  <link rel="stylesheet" href="dashboard/css/site-shell.css" />
+  <link rel="stylesheet" href="dashboard/css/dashboard-shell.css" />
+</head>
+<body class="dashboard-app">
+  <div class="dash-shell page-shell">
+    <header class="dash-header">
+      <div>
+        <div class="logo"><img src="dashboard/assets/pj-codeworks-logo.png" alt="PJ Codeworks" /><span>WhatsApp</span></div>
+        <p class="page-title">Conecte seu WhatsApp e gerencie a integração de mensagens direto do painel.</p>
+      </div>
+      <div class="status-live">
+        <div class="dot" id="wa-status-dot" aria-hidden="true"></div>
+        <span id="wa-status-label">desconectado</span>
+      </div>
+    </header>
+
+    <nav class="dash-nav" aria-label="Navegação principal do painel">
+      <button type="button" class="dash-nav-toggle only-mobile" aria-expanded="false" aria-controls="dash-nav-links">Menu</button>
+      <div id="dash-nav-links" class="dash-nav-links">
+        <a href="dashboard.html" class="dash-nav-link">Dashboard</a>
+        <a href="prospeccao.html" class="dash-nav-link">Prospecção</a>
+        <a href="visao-geral.html" class="dash-nav-link">Vendas</a>
+        <a href="conversas.html" class="dash-nav-link">Conversas</a>
+        <a href="agenda.html" class="dash-nav-link">Agenda</a>
+        <a href="analytics.html" class="dash-nav-link">Métricas</a>
+        <a href="configuracao.html" class="dash-nav-link">Configurações</a>
+        <a href="whatsapp.html" class="dash-nav-link active">WhatsApp</a>
+      </div>
+      <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
+    </nav>
+
+    <section class="dashboard-page-head" aria-labelledby="whatsapp-title">
+      <div>
+        <span class="section-kicker">Integração</span>
+        <h1 id="whatsapp-title">WhatsApp</h1>
+        <p>Conecte seu WhatsApp e gerencie a integração de mensagens direto do painel.</p>
+      </div>
+    </section>
+
+    <main class="wa-layout" aria-labelledby="whatsapp-title">
+      <article class="card wa-container">
+        <!-- Painel: Desconectado -->
+        <section id="wa-panel-disconnected" class="wa-panel wa-panel-show" aria-label="Estado desconectado">
+          <div class="wa-panel-content">
+            <h2 class="wa-panel-title">WhatsApp desconectado</h2>
+            <p class="wa-panel-description">Clique no botão abaixo para conectar seu WhatsApp através de um código QR.</p>
+            <div class="wa-actions">
+              <button type="button" class="btn-followup" id="btn-wa-connect">Conectar WhatsApp</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Painel: QR Code pendente -->
+        <section id="wa-panel-qr" class="wa-panel" aria-label="Pendente de escaneamento do QR Code">
+          <div class="wa-panel-content">
+            <h2 class="wa-panel-title">Escaneie o código QR</h2>
+            <p class="wa-panel-description">Abra o WhatsApp no seu celular, vá para Configurações > Dispositivos conectados > Conectar um dispositivo e aponte a câmera para o código abaixo.</p>
+            <div class="wa-qr-wrapper">
+              <img id="wa-qr-image" class="wa-qr-img" src="" alt="QR Code para conexão WhatsApp" />
+              <div class="wa-qr-timer">
+                <span id="wa-qr-countdown">90</span>s
+              </div>
+            </div>
+            <div class="wa-actions">
+              <button type="button" class="btn-followup" id="btn-wa-refresh-qr">Gerar novo código</button>
+              <button type="button" class="btn-reproc" id="btn-wa-cancel">Cancelar</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Painel: Conectando -->
+        <section id="wa-panel-connecting" class="wa-panel" aria-label="Conectando">
+          <div class="wa-panel-content">
+            <h2 class="wa-panel-title">Conectando...</h2>
+            <p class="wa-panel-description">Aguarde enquanto detectamos o escaneamento do QR Code.</p>
+            <div class="wa-spinner-wrapper">
+              <div class="wa-spinner"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Painel: Conectado -->
+        <section id="wa-panel-connected" class="wa-panel" aria-label="Estado conectado">
+          <div class="wa-panel-content">
+            <h2 class="wa-panel-title">WhatsApp conectado</h2>
+            <div class="wa-connected-info">
+              <div class="wa-info-row">
+                <span class="wa-info-label">Número:</span>
+                <span class="wa-info-value" id="wa-phone-number">—</span>
+              </div>
+              <div class="wa-info-row">
+                <span class="wa-info-label">Perfil:</span>
+                <span class="wa-info-value" id="wa-profile-name">—</span>
+              </div>
+              <div class="wa-info-row">
+                <span class="wa-info-label">Conectado em:</span>
+                <span class="wa-info-value" id="wa-connected-at">—</span>
+              </div>
+            </div>
+            <div class="wa-actions">
+              <button type="button" class="btn-followup" id="btn-wa-check">Verificar status</button>
+              <button type="button" class="btn-reproc" id="btn-wa-disconnect">Desconectar</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Painel: Erro -->
+        <section id="wa-panel-error" class="wa-panel" aria-label="Estado de erro">
+          <div class="wa-panel-content">
+            <h2 class="wa-panel-title">Erro na conexão</h2>
+            <p class="wa-panel-description" id="wa-error-message">Ocorreu um erro ao conectar o WhatsApp. Tente novamente.</p>
+            <div class="wa-actions">
+              <button type="button" class="btn-followup" id="btn-wa-retry">Tentar novamente</button>
+            </div>
+          </div>
+        </section>
+      </article>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+      <span>© PJ Codeworks — operação comercial</span>
+      <span>
+        <a href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site institucional</a>
+        ·
+        <a href="dashboard.html">Central de agentes</a>
+      </span>
+    </footer>
+  </div>
+  <script src="dashboard/js/site-nav.js" defer></script>
+  <script src="dashboard/js/core.js"></script>
+  <script src="dashboard/js/sistema-alertas.js"></script>
+  <script src="dashboard/js/whatsapp.js"></script>
+</body>
+</html>

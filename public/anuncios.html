@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aquisição e Anúncios — PJ Codeworks</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="dashboard/css/dashboard.css" />
+  <link rel="stylesheet" href="dashboard/css/site-shell.css" />
+  <link rel="stylesheet" href="dashboard/css/dashboard-shell.css" />
+</head>
+<body class="dashboard-app acquisition-page">
+  <div class="dash-shell page-shell painel-avancado-page">
+    <header class="dash-header">
+      <div>
+        <div class="logo"><img src="dashboard/assets/pj-codeworks-logo.png" alt="PJ Codeworks" /><span>Aquisição / Anúncios</span></div>
+        <p class="page-title">Acompanhe a mídia paga até a geração de oportunidades comerciais.</p>
+      </div>
+      <div class="status-live">
+        <div class="dot" aria-hidden="true"></div>
+        <span>atribuição CTWA</span>
+      </div>
+    </header>
+
+    <nav class="dash-nav" aria-label="Navegação principal do painel">
+      <button type="button" class="dash-nav-toggle only-mobile" aria-expanded="false" aria-controls="dash-nav-links">Menu</button>
+      <div id="dash-nav-links" class="dash-nav-links">
+        <a href="dashboard.html" class="dash-nav-link">Dashboard</a>
+        <a href="prospeccao.html" class="dash-nav-link">Prospecção</a>
+        <a href="visao-geral.html" class="dash-nav-link">Vendas</a>
+        <a href="conversas.html" class="dash-nav-link">Conversas</a>
+        <a href="agenda.html" class="dash-nav-link">Agenda</a>
+        <a href="analytics.html" class="dash-nav-link active">Métricas</a>
+        <a href="configuracao.html" class="dash-nav-link">Configurações</a>
+        <a href="whatsapp.html" class="dash-nav-link">WhatsApp</a>
+      </div>
+      <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
+    </nav>
+
+    <section class="dashboard-page-head" aria-labelledby="anuncios-title">
+      <div>
+        <span class="section-kicker acquisition-kicker">Meta Ads · Click-to-WhatsApp</span>
+        <h1 id="anuncios-title">Aquisição e anúncios</h1>
+        <p>Compare campanhas pela qualidade dos leads e pelas reuniões geradas.</p>
+      </div>
+      <div class="ops-hero-actions">
+        <a class="btn-followup btn-link" href="analytics.html">Voltar a métricas comerciais</a>
+      </div>
+    </section>
+
+    <section class="metrics-subnav" aria-label="Dashboards de métricas disponíveis">
+      <span class="metrics-subnav-label">Dashboards disponíveis</span>
+      <a href="analytics.html#painel-avancado" class="metrics-subnav-link">Painel Avançado</a>
+      <a href="analytics.html#follow-up" class="metrics-subnav-link">Follow Up</a>
+      <a href="custos.html" class="metrics-subnav-link">Custos</a>
+      <a href="analises-etapas.html" class="metrics-subnav-link">Principais problemas por etapas</a>
+      <a href="anuncios.html" class="metrics-subnav-link metrics-subnav-link-acquisition active">Aquisição / Anúncios</a>
+    </section>
+
+    <p class="acquisition-data-notice">
+      <span>Os resultados comerciais vêm do backend por atribuição CTWA.</span>
+      <strong>Os gastos ainda são preenchidos manualmente e salvos somente neste navegador.</strong>
+    </p>
+
+    <section class="acquisition-kpis" aria-label="Resumo de aquisição">
+      <article class="card"><span>Leads atribuídos</span><strong id="ads-total-leads">—</strong><small>origem Meta Ads</small></article>
+      <article class="card"><span>Qualificados</span><strong id="ads-total-qualificados">—</strong><small id="ads-taxa-qualificados">— dos leads</small></article>
+      <article class="card acquisition-highlight"><span>Reuniões geradas</span><strong id="ads-total-reunioes">—</strong><small id="ads-taxa-reunioes">— dos leads</small></article>
+      <article class="card"><span>Reuniões concluídas</span><strong id="ads-total-concluidas">—</strong><small id="ads-taxa-concluidas">— das reuniões</small></article>
+      <article class="card"><span>Custo por reunião</span><strong id="ads-custo-reuniao">—</strong><small>gastos informados neste navegador</small></article>
+    </section>
+
+    <section class="acquisition-overview-grid">
+      <article class="card">
+        <div class="section-head section-head-compact">
+          <div><span class="section-kicker acquisition-kicker">Conversão</span><h2>Funil de aquisição paga</h2></div>
+          <a class="section-link" href="conversas.html?origem=meta_ads">Ver leads</a>
+        </div>
+        <div id="ads-funil" class="acquisition-funnel">
+          <div class="empty-state empty-state-loading"><strong>Carregando funil</strong></div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="section-head section-head-compact">
+          <div><span class="section-kicker acquisition-kicker">Otimização</span><h2>Sinais das campanhas</h2></div>
+        </div>
+        <div id="ads-sinais" class="acquisition-signals">
+          <div class="empty-state empty-state-loading"><strong>Carregando sinais</strong></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="card acquisition-table-card">
+      <div class="card-titulo">
+        Campanhas e anúncios
+        <span class="badge acquisition-badge">qualidade · reuniões · custos</span>
+      </div>
+      <p class="painel-nota">
+        A reunião é o resultado comercial mais confiável neste painel. Informe o gasto de cada anúncio
+        para calcular custo por lead e por reunião. Os dados representam o histórico acumulado disponível.
+      </p>
+      <div id="anuncios-meta-tabela" class="painel-tabela"><div class="vazio" style="padding: 1rem">carregando…</div></div>
+    </section>
+
+    <p class="atualizado" id="atualizado-anuncios"></p>
+
+    <footer class="site-footer" role="contentinfo">
+      <span>© PJ Codeworks — operação comercial</span>
+      <span>
+        <a href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site institucional</a>
+        ·
+        <a href="dashboard.html">Central de agentes</a>
+      </span>
+    </footer>
+  </div>
+  <script src="dashboard/js/site-nav.js" defer></script>
+  <script src="dashboard/js/core.js"></script>
+  <script src="dashboard/js/sistema-alertas.js"></script>
+  <script src="dashboard/js/analytics-anuncios.js"></script>
+</body>
+</html>

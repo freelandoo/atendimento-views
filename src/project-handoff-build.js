@@ -90,7 +90,6 @@ function inferirPlanoComercial(perfil) {
   if (['iniciante', 'padrao', 'premium'].includes(pr)) return pr
   const ps = String(perfil?.plano_sugerido ?? '').toLowerCase()
   if (['iniciante', 'padrao', 'premium'].includes(ps)) return ps
-  if (ps === 'iniciante_assinatura') return 'iniciante'
   return 'personalizado'
 }
 

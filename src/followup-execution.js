@@ -1,8 +1,6 @@
 'use strict'
 
 const {
-  ANTHROPIC_KEY,
-  ANTHROPIC_MESSAGES_URL,
   FOLLOWUP_INSTRUCAO_MAX_CHARS,
   FOLLOWUP_SNIPPET_MAX_CHARS,
   LEAD_CONTEXTO_PROMPT_LIMIT,
@@ -14,6 +12,9 @@ const FOLLOWUP_HORAS_DISTANCIADO = 24
 function createFollowupExecution(deps = {}) {
   const {
     axios,
+    pool,
+    aiProvider,
+    logger,
     prompts,
     normalizarHistoricoMensagens,
     buscarLeadContextos,
@@ -156,9 +157,6 @@ function createFollowupExecution(deps = {}) {
   }
   
   async function chamarClaudeFollowup(historico, estagio, perfil, opcoes = {}) {
-    if (!ANTHROPIC_KEY) {
-      throw new Error('ANTHROPIC_KEY não configurada')
-    }
     const instrucao =
       opcoes &&
       typeof opcoes.instrucao === 'string' &&
@@ -216,43 +214,58 @@ function createFollowupExecution(deps = {}) {
       `${blocoPrecificacao}${blocoContextoInternoFollowup}${blocoDirecionamento}`
     )
   
-    const systemFollowup = [{ type: 'text', text: baseFollow, cache_control: { type: 'ephemeral' } }]
-    if (blocoAprendFollow) systemFollowup.push({ type: 'text', text: blocoAprendFollow.trim() })
-  
-    const model = 'claude-sonnet-4-6'
+    // Regra de BREVIDADE imposta em codigo (sobrepoe o prompt-base): follow-up que vira
+    // recapitulacao longa e ignorado pelo lead. Forca um cutuque curto e direto.
+    const REGRA_BREVIDADE_FOLLOWUP =
+      'REGRA OBRIGATORIA DE FORMATO (sobrepoe qualquer outra instrucao de tamanho): o follow-up e um ' +
+      'CUTUQUE curto, nao uma recapitulacao. No MAXIMO 1 bolha, 1-2 frases curtas. NAO resuma a conversa ' +
+      'anterior nem repita o que o lead ja disse. Foque em UM unico ponto: uma pergunta leve OU um proximo ' +
+      'passo concreto. Se fizer sentido chamar para a conversa rapida, proponha 1-2 horarios concretos e ' +
+      'peca para escolher. Tom humano e leve, sem pressao.'
+
+    // Concatena prompt + aprendizados num unico system string (compativel com qualquer provedor).
+    const systemFollowupStr = (blocoAprendFollow
+      ? `${baseFollow}\n\n${blocoAprendFollow.trim()}`
+      : baseFollow) + `\n\n${REGRA_BREVIDADE_FOLLOWUP}`
+
     const requestId = opcoes?.request_id || gerarRequestIdAnthropic()
     const inicio = Date.now()
-    let resp
+    let result
     try {
-      resp = await axios.post(
-        ANTHROPIC_MESSAGES_URL,
+      result = await aiProvider.generateAIResponse(
         {
-          model,
-          max_tokens: 2048,
-          system: systemFollowup,
-          messages: [{ role: 'user', content: userContentFinal }],
+          systemPrompt: systemFollowupStr,
+          userPrompt: userContentFinal,
+          task: 'followup',
+          // Teto baixo reforca a brevidade (mensagem curta + wrapper JSON cabem folgados).
+          maxTokens: 512,
+          extraHeaders: { 'anthropic-beta': 'prompt-caching-2024-07-31' },
+          responseFormatJson: true,
         },
-        { headers: { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'prompt-caching-2024-07-31', 'content-type': 'application/json' } }
+        pool,
+        logger
       )
-      await registrarChamadaAnthropic({
-        request_id: requestId,
-        tipo: 'followup',
-        numero: perfil?.numero || null,
-        model,
-        estagio,
-        duration_ms: Date.now() - inicio,
-        http_ok: true,
-        http_status: resp.status,
-        stop_reason: resp.data?.stop_reason || null,
-        usage: resp.data?.usage,
-        metadata: { tem_instrucao: !!instrucao },
-      })
+      if (result?.provider === 'anthropic') {
+        await registrarChamadaAnthropic({
+          request_id: requestId,
+          tipo: 'followup',
+          numero: perfil?.numero || null,
+          model: result.model,
+          estagio,
+          duration_ms: Date.now() - inicio,
+          http_ok: true,
+          http_status: result.httpStatus || 200,
+          stop_reason: result.stopReason || null,
+          usage: result.usage,
+          metadata: { tem_instrucao: !!instrucao, fallback_used: result.fallback_used === true },
+        })
+      }
     } catch (e) {
       await registrarChamadaAnthropic({
         request_id: requestId,
         tipo: 'followup',
         numero: perfil?.numero || null,
-        model,
+        model: 'desconhecido',
         estagio,
         duration_ms: Date.now() - inicio,
         http_ok: false,
@@ -263,8 +276,8 @@ function createFollowupExecution(deps = {}) {
       })
       throw e
     }
-  
-    const bruto = resp.data.content[0].text
+
+    const bruto = String(result?.text || '')
     const parsed = parsearRespostaJsonClaude(bruto)
     let texto = parsed && typeof parsed.mensagem === 'string' ? parsed.mensagem.trim() : ''
     if (!texto) {
@@ -346,7 +359,7 @@ function createFollowupExecution(deps = {}) {
       const contextoTempo = contextoTempoFollowup(conversa.atualizado_em, historicoBruto)
       const opcoesFollow = { contextoTempo, ...(instrTrim ? { instrucao: instrTrim } : {}) }
       const textoFollowup = await chamarClaudeFollowup(historicoBruto, estagio, perfil, opcoesFollow)
-      await enviarMensagem(numero, textoFollowup, conversa?.evolution_instance || null)
+      await enviarMensagem(numero, textoFollowup)
   
       let historicoNovo = [...historicoBruto, { role: 'assistant', content: textoFollowup }]
       if (historicoNovo.length > 40) historicoNovo = historicoNovo.slice(-40)

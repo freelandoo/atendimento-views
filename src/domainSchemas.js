@@ -70,6 +70,52 @@
  * @property {unknown} updated_at
  */
 
+const ESTAGIOS_VALIDOS = new Set([
+  'primeiro_contato',
+  'diagnostico',
+  'proposta',
+  'objecao',
+  'fechamento',
+])
+
+const ESTAGIO_ALIASES = {
+  // → primeiro_contato
+  novo: 'primeiro_contato',
+  // → diagnostico
+  coleta_basica: 'diagnostico',
+  qualificacao_caminho: 'diagnostico',
+  conexao_valor: 'diagnostico',
+  sob_medida_contexto: 'diagnostico',
+  interesse_inicial: 'diagnostico',
+  'Agendar follow-up': 'diagnostico',
+  // → proposta
+  interesse_claro: 'proposta',
+  preco_apresentado: 'proposta',
+  sob_medida_agenda_oferecida: 'proposta',
+  // → fechamento
+  agendamento_pendente: 'fechamento',
+  reuniao_agendada: 'fechamento',
+  handoff: 'fechamento',
+  handoff_humano: 'fechamento',
+  encerrado: 'fechamento',
+  // → objecao (terminais negativos; evita reabrir como diagnostico)
+  opt_out: 'objecao',
+  desqualificado: 'objecao',
+}
+
+/**
+ * Mapeia estágios alias/inválidos para o conjunto canônico.
+ * @param {unknown} estagio
+ * @param {string} [fallback='diagnostico']
+ * @returns {string}
+ */
+function normalizarEstagio(estagio, fallback = 'diagnostico') {
+  if (!estagio || typeof estagio !== 'string') return fallback
+  const limpo = estagio.trim()
+  if (ESTAGIOS_VALIDOS.has(limpo)) return limpo
+  return ESTAGIO_ALIASES[limpo] ?? fallback
+}
+
 const RESPOSTA_VENDAS_CAMPOS_OBRIGATORIOS = [
   'etapa_proxima',
   'solicitar_calculo_preco',
@@ -162,6 +208,13 @@ function validarRespostaVendasIA(raw) {
   if (value.atualizar_perfil != null && !isPlainObject(value.atualizar_perfil)) {
     issues.push(issue('atualizar_perfil', 'deve ser objeto quando informado'))
   }
+  if (value.etapa_proxima != null) {
+    const estagioBruto = value.etapa_proxima
+    value.etapa_proxima = normalizarEstagio(estagioBruto)
+    if (estagioBruto !== value.etapa_proxima) {
+      issues.push(issue('etapa_proxima', `alias normalizado: "${estagioBruto}" → "${value.etapa_proxima}"`))
+    }
+  }
   return schemaResult(value, issues)
 }
 
@@ -207,8 +260,8 @@ function validarJobQueuePayload(tipo, payload) {
   if ('prospect_ids' in value && !Array.isArray(value.prospect_ids)) {
     issues.push(issue('payload.prospect_ids', 'deve ser array quando informado'))
   }
-  if (tipo === 'prospeccao_envio_agendado' && typeof value.prospect_id !== 'string') {
-    issues.push(issue('payload.prospect_id', 'job de envio agendado deve informar prospect_id string'))
+  if (tipo === 'prospeccao_envio_agendado' && typeof value.prospect_id !== 'string' && typeof value.fila_id !== 'string') {
+    issues.push(issue('payload.prospect_id', 'job de envio agendado deve informar prospect_id ou fila_id string'))
   }
   if ('limit' in value && !Number.isFinite(Number(value.limit))) {
     issues.push(issue('payload.limit', 'limit deve ser numerico quando informado'))
@@ -264,6 +317,10 @@ function normalizarProspectPersistido(row) {
     motivo_score: row.motivo_score || '',
     categoria,
     diagnostico: row.diagnostico || null,
+    score_v2: row.score_v2 == null ? null : Number(row.score_v2),
+    score_dimensoes: row.score_dimensoes || null,
+    oferta_recomendada: row.oferta_recomendada || null,
+    decision_log: Array.isArray(row.decision_log) ? row.decision_log : [],
     created_at: row.created_at,
     updated_at: row.updated_at,
   }
@@ -295,6 +352,7 @@ module.exports = {
   LEAD_PROFILE_CAMPOS_PERMITIDOS_PADRAO,
   RESPOSTA_VENDAS_CAMPOS_OBRIGATORIOS,
   normalizarDiagnosticoPersistido,
+  normalizarEstagio,
   normalizarProspectPersistido,
   validarAtualizarPerfilLead,
   validarJobQueuePayload,

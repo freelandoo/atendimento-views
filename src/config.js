@@ -1,8 +1,7 @@
 'use strict'
 
-const ANTHROPIC_KEY = process.env.ANTHROPIC_KEY
-const OPENAI_KEY = process.env.OPENAI_KEY || ''
-const WHISPER_SERVICE_URL = process.env.WHISPER_SERVICE_URL || 'http://whisper-service:9000'
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_KEY
+const OPENAI_KEY = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || ''
 const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
 const MAX_IMAGEM_BYTES_CLAUDE = 4 * 1024 * 1024
 const WEBHOOK_REPLY_DEBOUNCE_MS = Math.min(
@@ -15,6 +14,16 @@ function sanitizarCpfRespostaHabilitado() {
     .trim()
     .toLowerCase()
   return v === '1' || v === 'true' || v === 'yes' || v === 'on'
+}
+
+// Fase 1 da esteira inteligente de prospecção.
+// Quando desligada (padrão), o sistema segue exatamente o fluxo atual.
+// Ligar: PROSPECTING_INTELLIGENCE_ENABLED=1 (ou "true").
+function prospectingIntelligenceEnabled() {
+  const v = String(process.env.PROSPECTING_INTELLIGENCE_ENABLED ?? '0')
+    .trim()
+    .toLowerCase()
+  return v === '1' || v === 'true'
 }
 
 const CLAUDE_TIMEOUT_CAP_MS = 180000
@@ -82,7 +91,7 @@ const SILENCE_WATCHER_INTERVAL_MS = Math.min(
   30 * 60 * 1000
 )
 const SILENCE_TRIGGER_MINUTES = Math.min(
-  Math.max(parseInt(process.env.SILENCE_TRIGGER_MINUTES, 10) || 5, 1),
+  Math.max(parseInt(process.env.SILENCE_TRIGGER_MINUTES, 10) || 60, 1),
   24 * 60
 )
 const FOLLOWUP_AUTO_SEQUENCIAS_COMERCIAIS_PADRAO = Math.min(
@@ -120,7 +129,6 @@ const FOLLOWUP_AUTO_DELAY_HORAS = {
 module.exports = {
   ANTHROPIC_KEY,
   OPENAI_KEY,
-  WHISPER_SERVICE_URL,
   ANTHROPIC_MESSAGES_URL,
   MAX_IMAGEM_BYTES_CLAUDE,
   WEBHOOK_REPLY_DEBOUNCE_MS,
@@ -157,4 +165,5 @@ module.exports = {
   FOLLOWUP_AUTO_BUSINESS_START_HOUR,
   FOLLOWUP_AUTO_BUSINESS_END_HOUR,
   FOLLOWUP_AUTO_DELAY_HORAS,
+  prospectingIntelligenceEnabled,
 }

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Proposta - Conversas</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #070b12; color: #edf3ff; font-family: Inter, Arial, sans-serif; }
+    .shell { width: 1536px; min-height: 1024px; padding: 24px 34px 38px; background: radial-gradient(circle at 86% 0%, #16294a 0, #070b12 34%); }
+    header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .logo { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; background: #16d99a; color: #06120e; font-weight: 900; }
+    .brand strong { font-size: 20px; }
+    .brand span, .muted { color: #8fa0b8; font-size: 12px; }
+    .live { padding: 9px 13px; border: 1px solid #214569; border-radius: 999px; color: #9cc6ef; font-size: 12px; }
+    nav { display: flex; gap: 7px; padding: 8px; margin-bottom: 26px; border: 1px solid #172336; border-radius: 13px; background: #0b111c; }
+    nav span { padding: 9px 14px; border-radius: 9px; color: #8596ac; font-size: 12px; }
+    nav .active { background: #14263e; color: #dff2ff; }
+    .hero { display: flex; justify-content: space-between; align-items: end; margin-bottom: 18px; }
+    .kicker { color: #23d7a3; font-size: 11px; letter-spacing: 1.5px; font-weight: 800; text-transform: uppercase; }
+    h1 { margin: 8px 0 4px; font-size: 30px; }
+    .hero p { margin: 0; color: #91a1b6; font-size: 13px; }
+    .summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 14px; }
+    .stat { padding: 13px 15px; border: 1px solid #1a2a40; border-radius: 13px; background: #0d1522; }
+    .stat b { display: block; margin-top: 7px; font-size: 22px; }
+    .stat small { color: #8495aa; }
+    .stat.alert { border-color: #6d392d; background: #1b1213; }
+    .stat.alert b { color: #ff947d; }
+    .panel { padding: 15px; border: 1px solid #1b2a3e; border-radius: 16px; background: rgba(10, 16, 26, .96); box-shadow: 0 18px 55px #0007; }
+    .topbar { display: grid; grid-template-columns: 1.5fr auto auto; gap: 10px; margin-bottom: 14px; }
+    .search, .button { height: 39px; border: 1px solid #243550; border-radius: 10px; background: #0b121d; color: #93a3b7; padding: 0 13px; display: flex; align-items: center; font-size: 12px; }
+    .button { color: #d8e9fc; }
+    .button.primary { background: #16d99a; border-color: #16d99a; color: #052017; font-weight: 800; }
+    .label { margin: 5px 0 8px; color: #8496ad; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; font-weight: 800; }
+    .quick { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .chip { display: flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid #25364e; border-radius: 999px; background: #101a29; color: #b8c7da; font-size: 11px; }
+    .chip b { padding: 2px 6px; border-radius: 999px; background: #1b2a40; color: #ecf5ff; font-size: 10px; }
+    .chip.active { border-color: #20d6a0; color: #dffff5; background: #0c2822; }
+    .chip.red { border-color: #753d35; color: #ffb1a1; background: #251516; }
+    .advanced { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; padding: 11px; margin-bottom: 14px; border: 1px solid #17263a; border-radius: 12px; background: #090f18; }
+    .select { padding: 10px; border: 1px solid #22334a; border-radius: 8px; color: #93a4b9; font-size: 10px; }
+    .active-filters { display: flex; gap: 7px; align-items: center; margin-bottom: 12px; color: #8495a9; font-size: 10px; }
+    .active-filters span { padding: 5px 8px; background: #14283b; border-radius: 999px; color: #bcd8ee; }
+    table { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 12px; }
+    th { padding: 10px 9px; background: #0b131f; color: #71849b; text-align: left; font-size: 9px; letter-spacing: .7px; text-transform: uppercase; }
+    td { padding: 11px 9px; border-top: 1px solid #182639; vertical-align: middle; font-size: 11px; }
+    tr.hot { background: #171315; }
+    .lead strong { display: block; margin-bottom: 4px; color: #edf6ff; font-size: 12px; }
+    .tag { display: inline-block; margin: 2px 3px 2px 0; padding: 4px 6px; border-radius: 6px; background: #18283b; color: #aac2d9; font-size: 9px; }
+    .tag.meta { background: #172b50; color: #8fb5ff; }
+    .tag.prospect { background: #332b15; color: #f0cf72; }
+    .tag.organic { background: #123125; color: #82e0ae; }
+    .tag.urgent { background: #4a211d; color: #ff9d8d; }
+    .score { width: 45px; height: 45px; display: grid; place-items: center; border: 4px solid #27d89f; border-radius: 50%; font-weight: 900; }
+    .score.mid { border-color: #e5b84e; }
+    .score.low { border-color: #59728f; }
+    .follow { line-height: 1.45; }
+    .follow strong { display: block; color: #f2c667; }
+    .follow.late strong { color: #ff8f7d; }
+    .message { max-width: 270px; color: #b0bfd1; line-height: 1.35; }
+    .actions { display: flex; gap: 5px; }
+    .action { width: 29px; height: 29px; display: grid; place-items: center; border: 1px solid #2a3b52; border-radius: 7px; color: #b6c9dc; }
+    .action.main { border-color: #25c991; color: #6fe5bb; }
+    .footer { display: flex; justify-content: space-between; padding-top: 12px; color: #76889f; font-size: 10px; }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div class="brand"><div class="logo">PJ</div><div><strong>Conversas</strong><br><span>Central operacional de leads</span></div></div>
+      <div class="live">● Atualizado agora</div>
+    </header>
+    <nav><span>Dashboard</span><span>Prospecção</span><span>Vendas</span><span class="active">Conversas</span><span>Agenda</span><span>Métricas</span><span>Configurações</span></nav>
+    <section class="hero"><div><div class="kicker">Caixa de atendimento</div><h1>Priorize quem precisa de ação</h1><p>Origem, etapa, urgência e próximo follow-up visíveis sem abrir a conversa.</p></div><div class="button primary">+ Nova ação em lote</div></section>
+    <section class="summary">
+      <div class="stat alert"><small>Precisam de ação agora</small><b>12</b></div>
+      <div class="stat"><small>Follow-ups vencidos</small><b>7</b></div>
+      <div class="stat"><small>Leads quentes</small><b>18</b></div>
+      <div class="stat"><small>Meta Ads</small><b>24</b></div>
+      <div class="stat"><small>Score médio</small><b>68</b></div>
+    </section>
+    <section class="panel">
+      <div class="topbar"><div class="search">⌕ Buscar nome, número, negócio ou última mensagem...</div><div class="button">Filtros avançados ▾</div><div class="button">Ordenar: prioridade ▾</div></div>
+      <div class="label">Filtros rápidos</div>
+      <div class="quick">
+        <div class="chip active">Todos <b>86</b></div><div class="chip red">Ação agora <b>12</b></div><div class="chip">Prospectado <b>31</b></div><div class="chip">Meta <b>24</b></div><div class="chip">Orgânico <b>19</b></div><div class="chip">Follow-up hoje <b>9</b></div><div class="chip">Score 70+ <b>27</b></div><div class="chip">Sem resposta <b>6</b></div>
+      </div>
+      <div class="advanced"><div class="select">Etapa: Todas ▾</div><div class="select">Origem: Todas ▾</div><div class="select">Urgência: Todas ▾</div><div class="select">Score: Qualquer ▾</div><div class="select">Próximo follow-up ▾</div><div class="select">Período: 30 dias ▾</div></div>
+      <div class="active-filters">Filtros ativos: <span>Não arquivados ×</span><span>Prioridade primeiro ×</span> <u>Limpar todos</u></div>
+      <table>
+        <thead><tr><th>Lead / origem</th><th>Etapa</th><th>Urgência</th><th>Score</th><th>Próximo follow-up</th><th>Última mensagem</th><th>Ações</th></tr></thead>
+        <tbody>
+          <tr class="hot"><td class="lead"><strong>Marina • Studio Belle</strong><span class="tag meta">META</span><span class="muted">há 8 min</span></td><td><span class="tag">Proposta</span></td><td><span class="tag urgent">ALTA</span><br><span class="muted">pediu valor</span></td><td><div class="score">92</div></td><td class="follow late"><strong>Vencido há 20 min</strong>Hoje, 14:00</td><td class="message">“Gostei da proposta. Conseguimos ajustar a entrada?”</td><td><div class="actions"><span class="action main">↗</span><span class="action">✉</span><span class="action">Ⅱ</span><span class="action">•••</span></div></td></tr>
+          <tr><td class="lead"><strong>Rafael • Oficina Prime</strong><span class="tag prospect">PROSPECTADO</span><span class="muted">há 34 min</span></td><td><span class="tag">Diagnóstico</span></td><td><span class="tag">MÉDIA</span><br><span class="muted">respondeu agora</span></td><td><div class="score">81</div></td><td class="follow"><strong>Hoje, 16:30</strong>em 1h 42min</td><td class="message">“Hoje os clientes chegam mais por indicação.”</td><td><div class="actions"><span class="action main">↗</span><span class="action">✉</span><span class="action">Ⅱ</span><span class="action">•••</span></div></td></tr>
+          <tr><td class="lead"><strong>Camila • Odonto Vida</strong><span class="tag organic">ORGÂNICO</span><span class="muted">há 2h</span></td><td><span class="tag">Qualificação</span></td><td><span class="tag">BAIXA</span><br><span class="muted">aguardando lead</span></td><td><div class="score mid">64</div></td><td class="follow"><strong>Amanhã, 09:00</strong>automático</td><td class="message">“Pode me explicar melhor como funciona?”</td><td><div class="actions"><span class="action main">↗</span><span class="action">✉</span><span class="action">Ⅱ</span><span class="action">•••</span></div></td></tr>
+          <tr><td class="lead"><strong>Bruno • Burger House</strong><span class="tag meta">META</span><span class="muted">ontem</span></td><td><span class="tag">Primeiro contato</span></td><td><span class="tag">BAIXA</span><br><span class="muted">sem interação</span></td><td><div class="score low">38</div></td><td class="follow"><strong>Em 2 dias</strong>sequência 2/3</td><td class="message">“Recebi o anúncio e queria saber mais.”</td><td><div class="actions"><span class="action main">↗</span><span class="action">✉</span><span class="action">Ⅱ</span><span class="action">•••</span></div></td></tr>
+        </tbody>
+      </table>
+      <div class="footer"><span>Mostrando 1–20 de 86 conversas</span><span>Anterior &nbsp; 1 &nbsp; 2 &nbsp; 3 &nbsp; Próxima</span></div>
+    </section>
+  </main>
+</body>
+</html>

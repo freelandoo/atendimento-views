@@ -32,54 +32,126 @@
             <a href="agenda.html" class="dash-nav-link">Agenda</a>
       <a href="analytics.html" class="dash-nav-link">Métricas</a>
       <a href="configuracao.html" class="dash-nav-link">Configurações</a>
+      <a href="whatsapp.html" class="dash-nav-link">WhatsApp</a>
       </div>
       <a class="site-header-cta" href="https://www.pjcodeworks.com.br" target="_blank" rel="noopener noreferrer">Site PJ</a>
     </nav>
 
-    <main class="agent-home" aria-labelledby="agent-home-title">
+    <main class="agent-home dashboard-hub" aria-labelledby="agent-home-title">
       <section class="agent-home-head">
         <div>
           <span class="section-kicker">Visão geral</span>
-          <h1 id="agent-home-title">Dashboard</h1>
-          <p>Acompanhe a operação comercial, agentes ativos e principais indicadores da PJ Codeworks.</p>
+          <h1 id="agent-home-title">Resumo da operação</h1>
+          <p>Entenda a situação, veja o que merece atenção e abra a área responsável.</p>
         </div>
+        <button type="button" class="btn-reproc" id="dashboard-hub-atualizar">Atualizar agora</button>
       </section>
 
-      <section class="dashboard-overview-grid" aria-label="Resumo geral">
-        <article class="card dashboard-overview-card">
-          <span class="ops-summary-label">Agentes ativos</span>
-          <strong>2</strong>
-          <p>Prospecção e vendas operando no mesmo fluxo comercial.</p>
-        </article>
-        <article class="card dashboard-overview-card">
-          <span class="ops-summary-label">Atalhos rápidos</span>
-          <strong>4</strong>
-          <p>Prospecção, Vendas, Conversas e Métricas com navegação direta.</p>
-        </article>
-        <article class="card dashboard-overview-card">
-          <span class="ops-summary-label">Alertas operacionais</span>
-          <strong>Vendas</strong>
-          <p>Prioridades, follow-ups e handoffs ficam concentrados no Painel de vendas.</p>
-        </article>
-      </section>
+      <p class="dashboard-hub-note">
+        Este Dashboard mostra sinais resumidos. As ações e análises completas continuam nas telas responsáveis.
+      </p>
 
-      <section class="agent-choice-grid" aria-label="Agentes disponiveis">
-        <a class="agent-choice-card agent-choice-card-primary" href="prospeccao.html">
-          <span class="agent-choice-label">Atalho rápido</span>
-          <strong>Prospecção</strong>
-          <p>Base inicial para buscar empresas, qualificar oportunidades e preparar abordagens antes de entrar no funil de vendas.</p>
-          <span class="agent-choice-status agent-choice-status-live">Ativo</span>
-          <span class="agent-choice-action">Abrir painel</span>
+      <section class="dashboard-hub-attention" aria-label="Pontos de atenção">
+        <a class="card dashboard-hub-attention-card is-critical" href="visao-geral.html">
+          <span class="dashboard-hub-icon">!</span>
+          <span><strong id="hub-acoes-agora">—</strong><small>Ações comerciais agora · abrir Vendas</small></span>
         </a>
-
-        <a class="agent-choice-card" href="visao-geral.html">
-          <span class="agent-choice-label">Atalho rápido</span>
-          <strong>Vendas</strong>
-          <p>Painel atual com conversas, prioridades, follow-ups, métricas comerciais e acompanhamento dos leads em andamento.</p>
-          <span class="agent-choice-status agent-choice-status-live">Ativo</span>
-          <span class="agent-choice-action">Abrir vendas</span>
+        <a class="card dashboard-hub-attention-card is-critical" href="agenda.html">
+          <span class="dashboard-hub-icon">H</span>
+          <span><strong id="hub-agenda-atrasados">—</strong><small>Compromissos atrasados · abrir Agenda</small></span>
+        </a>
+        <a class="card dashboard-hub-attention-card" href="analytics.html#follow-up">
+          <span class="dashboard-hub-icon">↗</span>
+          <span><strong id="hub-taxa-followup">—</strong><small>Resposta de follow-up · abrir Métricas</small></span>
+        </a>
+        <a class="card dashboard-hub-attention-card" href="conversas.html?score_min=70">
+          <span class="dashboard-hub-icon">★</span>
+          <span><strong id="hub-score-70">—</strong><small>Leads com score 70+ · abrir Conversas</small></span>
         </a>
       </section>
+
+      <div class="dashboard-hub-section-head">
+        <h2>Saúde por área</h2>
+        <span>Resumos, não painéis completos</span>
+      </div>
+      <section class="dashboard-hub-areas" aria-label="Saúde por área">
+        <article class="card dashboard-hub-area">
+          <div class="dashboard-hub-area-head">
+            <div><h3>Vendas</h3><p>Execução comercial e oportunidades</p></div>
+            <a class="section-link" href="visao-geral.html">Abrir Vendas →</a>
+          </div>
+          <div class="dashboard-hub-stats">
+            <div><strong id="hub-leads-quentes">—</strong><span>leads quentes</span></div>
+            <div><strong id="hub-sem-resposta">—</strong><span>aguardam resposta</span></div>
+            <div><strong id="hub-handoffs">—</strong><span>handoffs</span></div>
+          </div>
+          <a class="dashboard-hub-signal is-critical" id="hub-vendas-sinal" href="visao-geral.html">Carregando atenção comercial...</a>
+        </article>
+
+        <article class="card dashboard-hub-area">
+          <div class="dashboard-hub-area-head">
+            <div><h3>Agenda</h3><p>Compromissos e reuniões do dia</p></div>
+            <a class="section-link" href="agenda.html">Abrir Agenda →</a>
+          </div>
+          <div class="dashboard-hub-stats">
+            <div><strong id="hub-agenda-area-atrasados">—</strong><span>atrasados</span></div>
+            <div><strong id="hub-agenda-hoje">—</strong><span>hoje</span></div>
+            <div><strong id="hub-agenda-concluidos">—</strong><span>concluídos</span></div>
+          </div>
+          <a class="dashboard-hub-signal is-critical" id="hub-agenda-sinal" href="agenda.html">Carregando agenda...</a>
+        </article>
+
+        <article class="card dashboard-hub-area">
+          <div class="dashboard-hub-area-head">
+            <div><h3>Métricas</h3><p>Desempenho e eficiência</p></div>
+            <a class="section-link" href="analytics.html">Abrir Métricas →</a>
+          </div>
+          <div class="dashboard-hub-stats">
+            <div><strong id="hub-metricas-taxa">—</strong><span>taxa resposta</span></div>
+            <div><strong id="hub-meta-reunioes">—</strong><span>reuniões Meta</span></div>
+            <div><strong id="hub-followup-falhas">—</strong><span>falhas follow-up</span></div>
+          </div>
+          <a class="dashboard-hub-signal" id="hub-metricas-sinal" href="analytics.html#follow-up">Carregando desempenho...</a>
+        </article>
+
+        <article class="card dashboard-hub-area">
+          <div class="dashboard-hub-area-head">
+            <div><h3>Origem dos leads</h3><p>Distribuição atual da aquisição</p></div>
+            <a class="section-link" href="conversas.html">Abrir Conversas →</a>
+          </div>
+          <div class="dashboard-hub-stats">
+            <div><strong id="hub-prospectados">—</strong><span>prospectados</span></div>
+            <div><strong id="hub-meta-ads">—</strong><span>Meta Ads</span></div>
+            <div><strong id="hub-organicos">—</strong><span>orgânicos</span></div>
+          </div>
+          <a class="dashboard-hub-signal" href="prospeccao.html">Abrir operação de prospecção →</a>
+        </article>
+      </section>
+
+      <div class="dashboard-hub-section-head">
+        <h2>Hoje e acessos rápidos</h2>
+        <span>Detalhes ficam nas telas responsáveis</span>
+      </div>
+      <section class="dashboard-hub-today">
+        <article class="card dashboard-hub-events-card">
+          <div class="dashboard-hub-area-head">
+            <div><h3>Próximos compromissos</h3><p>Somente os próximos eventos para orientar o dia</p></div>
+            <a class="section-link" href="agenda.html">Agenda completa →</a>
+          </div>
+          <div class="dashboard-hub-events" id="hub-proximos-eventos">
+            <div class="empty-state empty-state-loading"><strong>Carregando agenda</strong></div>
+          </div>
+        </article>
+
+        <article class="card dashboard-hub-links-card">
+          <h3>Investigar ou executar</h3>
+          <a href="visao-geral.html"><span><strong>Resolver prioridades</strong><small>Fila operacional</small></span><b>Vendas →</b></a>
+          <a href="analytics.html"><span><strong>Ver desempenho por período</strong><small>Gráficos e filtros</small></span><b>Métricas →</b></a>
+          <a href="conversas.html"><span><strong>Encontrar uma conversa</strong><small>Busca e filtros</small></span><b>Conversas →</b></a>
+        </article>
+      </section>
+
+      <p class="atualizado" id="atualizado-dashboard-hub"></p>
     </main>
 
     <footer class="site-footer" role="contentinfo">
@@ -92,8 +164,9 @@
     </footer>
   </div>
   <script src="dashboard/js/site-nav.js" defer></script>
+  <script src="dashboard/js/core.js"></script>
+  <script src="dashboard/js/sistema-alertas.js"></script>
+  <script src="dashboard/js/dashboard-hub.js"></script>
 </body>
 </html>
-
-
 
