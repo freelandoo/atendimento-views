@@ -11,7 +11,7 @@ const router = Router({ mergeParams: true })
 router.get('/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
   const id = req.empresa.id
 
-  const [conversas, estagios, followups, llm] = await Promise.all([
+  const [conversas, estagios, followups, llm, temperatura] = await Promise.all([
     pool.query(
       `SELECT
          COUNT(*) FILTER (WHERE status = 'ativo') AS ativas,
@@ -45,6 +45,17 @@ router.get('/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
          AND criado_em >= NOW() - INTERVAL '30 days'`,
       [id]
     ),
+    pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE lp.temperatura_lead = 'quente') AS quente,
+         COUNT(*) FILTER (WHERE lp.temperatura_lead = 'morno')  AS morno,
+         COUNT(*) FILTER (WHERE lp.temperatura_lead = 'frio')   AS frio,
+         COUNT(*) FILTER (WHERE lp.pronto_handoff = true)       AS prontos_handoff
+       FROM vendas.lead_profiles lp
+       JOIN vendas.conversas c ON c.numero = lp.numero
+       WHERE c.empresa_id = $1`,
+      [id]
+    ),
   ])
 
   return res.json({
@@ -54,6 +65,7 @@ router.get('/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
       por_estagio: estagios.rows,
       followups: followups.rows[0],
       llm_30d: llm.rows[0],
+      temperatura: temperatura.rows[0],
     },
   })
 })
