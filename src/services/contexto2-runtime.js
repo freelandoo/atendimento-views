@@ -652,6 +652,52 @@ async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, 
   return { playbook, extracao, decisao }
 }
 
+// ─── Follow-up (reengajamento) com o playbook da empresa ──────────────────────
+const FOLLOWUP_PLAYBOOK_SYSTEM = `Você é o agente comercial da empresa no WhatsApp, escrevendo um FOLLOW-UP (cutucão) para um lead que ficou em silêncio.
+
+Use o playbook (Contexto 2) da empresa: tom de voz, serviços, links e regras.
+
+REGRA OBRIGATÓRIA DE FORMATO: é um cutuque CURTO — no máximo 1 bolha, 1-2 frases curtas. NÃO resuma a conversa nem repita o que o lead já disse. Foque em UM ponto: uma pergunta leve OU um próximo passo concreto. Tom humano, leve, sem pressão.
+Não invente preço, link ou dados que não estejam no playbook.
+
+Retorne APENAS JSON válido: {"mensagem":"..."}`
+
+/**
+ * Gera o texto de um follow-up de reengajamento usando o playbook da empresa
+ * (não os prompts da PJ). Usado quando a conversa pertence a uma empresa com
+ * Contexto 2 ativo. Retorna a string da mensagem (lança se vier vazia).
+ */
+async function gerarFollowupComPlaybook({ pool, log, empresaId, leadPhone, historico, playbook, contextoTempo, aiProvider }) {
+  const provider = aiProvider || require('../ai-provider')
+  const userPrompt = `PLAYBOOK ATIVO:
+${_truncatePlaybook(playbook?.json || playbook)}
+
+HISTÓRICO RECENTE:
+${_formatHistorico(historico)}
+
+CONTEXTO DE TEMPO (uso interno; não copie labels ao lead):
+${JSON.stringify(contextoTempo || {}, null, 2)}
+
+Escreva o follow-up curto seguindo as regras.`
+
+  const result = await provider.generateAIResponse(
+    {
+      systemPrompt: FOLLOWUP_PLAYBOOK_SYSTEM,
+      userPrompt,
+      task: 'followupPlaybook',
+      maxTokens: 400,
+      timeoutMs: 20000,
+      empresaId, refType: 'followup', clientNumero: leadPhone,
+    },
+    pool, log
+  )
+  const p = _safeJson(result.text)
+  let texto = typeof p.mensagem === 'string' ? p.mensagem.trim() : ''
+  if (!texto) texto = String(result?.text || '').trim()
+  if (!texto) throw new Error('Follow-up via playbook retornou vazio')
+  return texto
+}
+
 module.exports = {
   carregarPlaybookAtivo,
   extrairDadosDaMensagem,
@@ -660,5 +706,6 @@ module.exports = {
   extrairEDecidirBundle,
   talvezGerarSugestaoAprendizado,
   processarMensagemComPlaybook,
+  gerarFollowupComPlaybook,
   detectarIntencoesHeuristicas,
 }

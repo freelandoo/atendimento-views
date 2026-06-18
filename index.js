@@ -66,6 +66,7 @@ app.use('/api/empresas/:empresaId/conversas', require('./src/routes/api-conversa
 app.use('/api/empresas/:empresaId/leads-quentes', require('./src/routes/api-leads-quentes'))
 app.use('/api/empresas/:empresaId/prospeccao', require('./src/routes/api-prospeccao'))
 app.use('/api/empresas/:empresaId/relatorios', require('./src/routes/api-relatorios'))
+app.use('/api/empresas/:empresaId/agente-pj', require('./src/routes/api-agente-pj'))
 app.use('/api/llm', require('./src/routes/api-llm'))
 app.use('/api/empresas/:empresaId/llm/uso', require('./src/routes/api-llm-uso'))
 

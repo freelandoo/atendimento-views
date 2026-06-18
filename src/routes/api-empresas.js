@@ -3,6 +3,7 @@ const { Router } = require('express')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { listEmpresasDoUsuario } = require('../db/usuarios')
+const { invalidarCachePauseEmpresa } = require('../db/empresas')
 
 const router = Router()
 
@@ -82,6 +83,7 @@ router.patch('/:empresaId/agente', requireAuth, requireEmpresaAccess, async (req
       RETURNING id, nome, config`,
     [req.empresa.id, pausado]
   )
+  invalidarCachePauseEmpresa(req.empresa.id)
   return res.json({ ok: true, data: { pausado: !!(empresa.config?.agente_pausado) } })
 })
 
@@ -101,6 +103,7 @@ router.put('/:empresaId', requireAuth, requireEmpresaAccess, async (req, res) =>
     `UPDATE app.empresas SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING *`,
     vals
   )
+  if (config) invalidarCachePauseEmpresa(req.empresa.id)
   return res.json({ ok: true, data: empresa })
 })
 

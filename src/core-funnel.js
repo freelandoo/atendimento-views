@@ -137,6 +137,12 @@ function createCoreFunnel(deps = {}) {
     parsearHorarioReuniao,
     calcularFimReuniao,
     dataInicioReuniao,
+    // Roteamento multiempresa (Contexto 2 / playbook). Opcionais: se ausentes,
+    // o funil roda 100% no agente legado (PJ Codeworks), comportamento atual.
+    getContextoAtivoEmpresa,
+    processarMensagemComPlaybook,
+    // Pause global do agente por empresa (config.agente_pausado). Opcional.
+    empresaAgentePausada,
   } = deps
 
   const MOTIVOS_HANDOFF = [
@@ -918,7 +924,110 @@ function createCoreFunnel(deps = {}) {
     }
     return null
   }
-  
+
+  /**
+   * Resposta para empresas com Contexto 2 (playbook) ATIVO — NÃO usa o agente
+   * legado (prompts PJ Codeworks). Cada empresa responde com o próprio contexto.
+   * Caminho aditivo: só é chamado quando getContextoAtivoEmpresa retorna playbook.
+   * Limite v1: sem agenda/reunião automática nem follow-up rico (isso vive no
+   * fluxo legado). Atende empresas novas/simples; handoff pausa a conversa.
+   * @returns {Promise<{ ok: true, via: 'playbook' }|{ skipped: true, reason: string }>}
+   */
+  async function responderComPlaybookEmpresa({ numero, empresaId, conversaUsada, historico, estagioLive }) {
+    const ultima = historico[historico.length - 1]
+    const mensagem = typeof ultima?.content === 'string' ? ultima.content : String(ultima?.content || '')
+    const status = conversaUsada?.status || 'ativo'
+
+    let res
+    try {
+      res = await processarMensagemComPlaybook({
+        pool,
+        log: logger,
+        empresaId,
+        conversaId: conversaUsada?.id || null,
+        leadPhone: numero,
+        mensagem,
+        historico,
+      })
+    } catch (e) {
+      logger.error({ err: e.message, empresa_id: empresaId, numero }, 'Playbook multiempresa falhou — sem resposta automática neste turno')
+      return { skipped: true, reason: 'playbook_erro' }
+    }
+
+    const extracao = res?.extracao || {}
+    const decisao = res?.decisao || {}
+    let texto = typeof decisao.mensagem_pro_lead === 'string' ? decisao.mensagem_pro_lead.trim() : ''
+    const precisaHandoff = !!decisao.precisa_handoff
+
+    // ── Agenda (reunião) v1 — reusa os helpers/booking do funil legado ────────
+    // Mesma agenda/operador da PJ (decisão do produto). Aditivo: se o playbook
+    // não sinalizar reunião, nada muda. Falha aqui não derruba a resposta.
+    let reuniaoConfirmada = false
+    try {
+      const perfilPb = await buscarPerfil(numero).catch(() => ({}))
+      const reuniaoProp = perfilPb?.reuniao_proposta && typeof perfilPb.reuniao_proposta === 'object' ? perfilPb.reuniao_proposta : {}
+      const temOfertaPendente = Array.isArray(reuniaoProp.horarios_sugeridos) && reuniaoProp.horarios_sugeridos.length > 0 && !!reuniaoProp.data_sugerida
+
+      // CONFIRMAR: já ofertamos horários e o lead escolheu um deles
+      if (temOfertaPendente) {
+        const escolhido = horariosNoTexto(mensagem).find((h) => horarioFoiOferecido(h, reuniaoProp))
+        if (escolhido) {
+          const valido = await validarSlotReuniao({ data: reuniaoProp.data_sugerida, horario: escolhido }).catch(() => false)
+          if (valido) {
+            const rpConfirm = { ...reuniaoProp, horario_confirmado: escolhido }
+            await atualizarPerfil(numero, { reuniao_proposta: { ...rpConfirm, horarios_sugeridos: [] } }).catch(() => {})
+            await alertarHandoff(
+              numero,
+              { ...perfilPb, reuniao_proposta: rpConfirm },
+              null,
+              'agendou_reuniao_proposta',
+              `Reunião agendada via playbook (empresa ${empresaId})`,
+              { resultado: { atualizar_perfil: { reuniao_proposta: rpConfirm } } }
+            ).catch((e) => logger.warn({ err: e.message, numero }, 'Playbook: alertarHandoff (agenda) falhou'))
+            reuniaoConfirmada = true
+            if (!texto) texto = `Fechado! Marquei para ${formatarDataReuniao(reuniaoProp.data_sugerida)} às ${escolhido}. Qualquer coisa, é só me chamar.`
+          }
+        }
+      }
+
+      // OFERTAR: playbook sinaliza reunião e ainda não há oferta pendente
+      if (!reuniaoConfirmada && !temOfertaPendente && ['deve_oferecer', 'aceita'].includes(extracao.reuniao_status)) {
+        const slots = await buscarSlotsDisponiveis({ quantidade: 2 }).catch(() => null)
+        if (agendaTemSlots(slots)) {
+          const intro = texto || 'Posso marcar uma conversa rápida com a equipe.'
+          texto = montarMensagemOfertaAgenda(slots, intro)
+          await atualizarPerfil(numero, {
+            reuniao_proposta: {
+              data_sugerida: slots.data_sugerida,
+              data_label: slots.data_label,
+              horarios_sugeridos: horariosValidosAgenda(slots),
+            },
+          }).catch(() => {})
+        }
+      }
+    } catch (e) {
+      logger.warn({ err: e.message, empresa_id: empresaId, numero }, 'Playbook: bloco de agenda falhou — seguindo com a mensagem do playbook')
+    }
+
+    if (!texto) {
+      logger.warn({ empresa_id: empresaId, numero }, 'Playbook não produziu mensagem — nada enviado neste turno')
+      return { skipped: true, reason: 'playbook_sem_mensagem' }
+    }
+
+    await enviarMensagem(numero, texto)
+    const historicoNovo = [...historico, { role: 'assistant', content: texto }]
+    // Mantém o estágio atual (a progressão do playbook vive em lead_insights;
+    // etapa_proxima é texto livre que normalizarEstagio coagiria). Em handoff,
+    // pausa a conversa para um humano assumir.
+    await salvarConversa(numero, historicoNovo, estagioLive, status, precisaHandoff ? true : undefined, empresaId)
+    await limparFalhaResposta(numero).catch(() => {})
+    logger.info(
+      { empresa_id: empresaId, numero, etapa: res?.decisao?.etapa_proxima || estagioLive, handoff: precisaHandoff, via: 'playbook' },
+      'Resposta multiempresa (Contexto 2) enviada'
+    )
+    return { ok: true, via: 'playbook' }
+  }
+
   /**
    * Histórico já deve estar persistido terminando em mensagem do user.
    * Só grava a resposta do assistente no BD depois do envio ao WhatsApp (permite reprocessar se falhar antes).
@@ -947,6 +1056,53 @@ function createCoreFunnel(deps = {}) {
     if (!ultima || ultima.role !== 'user') {
       throw new Error('Última mensagem do histórico deve ser do usuário')
     }
+
+    const empresaIdConversa = conversaUsada?.empresa_id || null
+
+    // ── Pause global do agente por empresa (config.agente_pausado) ────────────
+    // Vale para PJ e para qualquer empresa: se a empresa está pausada, o agente
+    // não responde automaticamente (a mensagem do lead já foi salva no webhook).
+    // Fail-open: erro de leitura nunca bloqueia.
+    if (empresaIdConversa && typeof empresaAgentePausada === 'function') {
+      let pausado = false
+      try {
+        pausado = await empresaAgentePausada(empresaIdConversa)
+      } catch (_) { pausado = false }
+      if (pausado) {
+        logger.info({ empresa_id: empresaIdConversa, numero }, 'Agente da empresa pausado — sem resposta automática')
+        return { skipped: true, reason: 'empresa_agente_pausado' }
+      }
+    }
+
+    // ── Roteamento multiempresa ───────────────────────────────────────────────
+    // Empresas com Contexto 2 ATIVO respondem pelo próprio playbook, não pelo
+    // agente legado (PJ Codeworks). A PJ não tem Contexto 2 → cai no fluxo legado
+    // abaixo, inalterado. Gate com cache de 60s (getContextoAtivoEmpresa).
+    if (
+      empresaIdConversa &&
+      typeof getContextoAtivoEmpresa === 'function' &&
+      typeof processarMensagemComPlaybook === 'function'
+    ) {
+      let playbookAtivo = null
+      try {
+        playbookAtivo = await getContextoAtivoEmpresa(pool, empresaIdConversa)
+      } catch (e) {
+        logger.warn(
+          { err: e.message, empresa_id: empresaIdConversa },
+          'Falha ao checar Contexto 2 ativo — seguindo no agente legado'
+        )
+      }
+      if (playbookAtivo) {
+        return await responderComPlaybookEmpresa({
+          numero,
+          empresaId: empresaIdConversa,
+          conversaUsada,
+          historico,
+          estagioLive,
+        })
+      }
+    }
+
     let perfil = await buscarPerfil(numero)
     if (!perfil.numero) perfil = { ...perfil, numero }
     const perfilAntesTurno = resumirPerfilAuditoria(perfil)

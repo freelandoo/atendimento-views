@@ -90,6 +90,34 @@ const PLAYBOOK_TABS = [
   'limites_da_ia', 'handoff',
 ]
 
+// Empresa-semente single-tenant. Só ela tem a aba "PJ Codeworks" (prompts .md).
+const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
+
+type PromptItemPJ = {
+  chave: string
+  label: string
+  grupo: 'contexto' | 'estagio'
+  origem: string
+  version: number | null
+  criado_em: string | null
+}
+type PromptAtualPJ = {
+  chave: string
+  conteudo: string
+  origem: string
+  version: number | null
+  autor: string | null
+  criado_em: string | null
+}
+type PromptHistPJ = {
+  id: number
+  version: number
+  autor: string | null
+  criado_em: string
+  ativo: boolean
+  snippet: string
+}
+
 export default function ContextosPage() {
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
 
@@ -101,6 +129,7 @@ export default function ContextosPage() {
   const [aberto, setAberto] = useState<Record<string, boolean>>({})
   const [gerando, setGerando] = useState<string | null>(null)
   const [sugestoes, setSugestoes] = useState<Sugestao[]>([])
+  const [aba, setAba] = useState<'contextos' | 'pj'>('contextos')
 
   const carregar = useCallback(async () => {
     if (!empresaId) return
@@ -214,9 +243,35 @@ export default function ContextosPage() {
     }
   }
 
+  const ehPJ = empresaId === PJ_EMPRESA_ID
+  const abas = ehPJ ? (
+    <div className="flex gap-1 border-b border-gray-200">
+      {(['contextos', 'pj'] as const).map((t) => (
+        <button
+          key={t}
+          onClick={() => setAba(t)}
+          className={`px-4 py-2 text-sm font-medium -mb-px border-b-2 ${aba === t ? 'border-brand text-brand' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          {t === 'contextos' ? 'Contextos' : 'PJ Codeworks'}
+        </button>
+      ))}
+    </div>
+  ) : null
+
+  if (ehPJ && aba === 'pj') {
+    return (
+      <div className="space-y-6 max-w-6xl">
+        <h1 className="text-2xl font-bold">Contextos</h1>
+        {abas}
+        <AgentePJTab empresaId={empresaId} />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6 max-w-6xl">
       <h1 className="text-2xl font-bold">Contextos</h1>
+      {abas}
 
       <div className="bg-white border rounded-2xl p-5 shadow-sm flex items-end gap-3">
         <div className="flex-1">
@@ -930,6 +985,249 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
                 {JSON.stringify((versao.conteudo_json as Record<string, unknown>)?.[secao] ?? {}, null, 2)}
               </pre>
             </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Aba PJ Codeworks — agente single-tenant (prompts .md) ───────────────────
+function AgentePJTab({ empresaId }: { empresaId: string }) {
+  const [nome, setNome] = useState('')
+  const [nomeSalvo, setNomeSalvo] = useState('')
+  const [pausado, setPausado] = useState(false)
+  const [prompts, setPrompts] = useState<PromptItemPJ[]>([])
+  const [carregando, setCarregando] = useState(true)
+  const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
+  const [salvandoNome, setSalvandoNome] = useState(false)
+  const [togglando, setTogglando] = useState(false)
+
+  const carregar = useCallback(async () => {
+    setCarregando(true)
+    try {
+      const emp = await apiFetch<{ nome: string }>(`/api/empresas/${empresaId}`)
+      setNome(emp.data.nome || '')
+      setNomeSalvo(emp.data.nome || '')
+      const ag = await apiFetch<{ pausado: boolean }>(`/api/empresas/${empresaId}/agente`)
+      setPausado(!!ag.data.pausado)
+      const pr = await apiFetch<PromptItemPJ[]>(`/api/empresas/${empresaId}/agente-pj/prompts`)
+      setPrompts(pr.data || [])
+    } catch (e: unknown) {
+      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Erro ao carregar.' })
+    } finally {
+      setCarregando(false)
+    }
+  }, [empresaId])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  async function salvarNome() {
+    setSalvandoNome(true)
+    setMsg(null)
+    try {
+      await apiFetch(`/api/empresas/${empresaId}`, { method: 'PUT', body: JSON.stringify({ nome }) })
+      setNomeSalvo(nome)
+      setMsg({ tone: 'ok', text: 'Nome salvo.' })
+    } catch (e: unknown) {
+      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Erro.' })
+    } finally {
+      setSalvandoNome(false)
+    }
+  }
+
+  async function toggle() {
+    setTogglando(true)
+    setMsg(null)
+    const novo = !pausado
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/agente`, { method: 'PATCH', body: JSON.stringify({ pausado: novo }) })
+      setPausado(novo)
+      setMsg({ tone: 'ok', text: novo ? 'Agente desativado (pausado).' : 'Agente ativado.' })
+    } catch (e: unknown) {
+      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Erro.' })
+    } finally {
+      setTogglando(false)
+    }
+  }
+
+  const contexto = prompts.filter((p) => p.grupo === 'contexto')
+  const estagios = prompts.filter((p) => p.grupo === 'estagio')
+
+  return (
+    <div className="space-y-5">
+      {msg && <p className={`text-sm ${msg.tone === 'ok' ? 'text-brand' : 'text-red-600'}`}>{msg.text}</p>}
+
+      <div className="bg-white border rounded-2xl p-5 shadow-sm space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="font-semibold">Agente PJ Codeworks</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Este agente usa os prompts abaixo (não o Contexto 2). Edições afetam o atendimento real.</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className={`text-xs px-2 py-1 rounded-full ${pausado ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>{pausado ? 'Desativado' : 'Ativo'}</span>
+            <button
+              onClick={toggle}
+              disabled={togglando}
+              className={`text-sm px-3 py-1.5 rounded-lg text-white disabled:opacity-50 ${pausado ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-600 hover:bg-amber-700'}`}
+            >
+              {togglando ? '…' : pausado ? 'Ativar agente' : 'Desativar agente'}
+            </button>
+          </div>
+        </div>
+        <div className="flex items-end gap-3">
+          <div className="flex-1">
+            <label className="block text-xs text-gray-500 mb-1">Nome do agente / empresa</label>
+            <input value={nome} onChange={(e) => setNome(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <button
+            onClick={salvarNome}
+            disabled={salvandoNome || nome.trim().length < 2 || nome === nomeSalvo}
+            className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
+          >
+            {salvandoNome ? 'Salvando…' : 'Salvar nome'}
+          </button>
+        </div>
+      </div>
+
+      {carregando ? (
+        <p className="text-sm text-gray-400">Carregando…</p>
+      ) : (
+        <>
+          <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b"><h3 className="font-semibold text-sm">Contexto</h3></div>
+            <div className="divide-y">
+              {contexto.map((p) => <PromptEditorPJ key={p.chave} empresaId={empresaId} item={p} />)}
+            </div>
+          </div>
+          <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b">
+              <h3 className="font-semibold text-sm">Estágios de resposta</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Regras do agente por etapa do funil.</p>
+            </div>
+            <div className="divide-y">
+              {estagios.map((p) => <PromptEditorPJ key={p.chave} empresaId={empresaId} item={p} />)}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function PromptEditorPJ({ empresaId, item }: { empresaId: string; item: PromptItemPJ }) {
+  const [aberto, setAberto] = useState(false)
+  const [conteudo, setConteudo] = useState('')
+  const [draft, setDraft] = useState('')
+  const [hist, setHist] = useState<PromptHistPJ[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [carregando, setCarregando] = useState(false)
+  const [salvando, setSalvando] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [origem, setOrigem] = useState(item.origem)
+  const [version, setVersion] = useState<number | null>(item.version)
+
+  async function carregar() {
+    setCarregando(true)
+    setMsg('')
+    try {
+      const r = await apiFetch<{ atual: PromptAtualPJ; historico: PromptHistPJ[] }>(`/api/empresas/${empresaId}/agente-pj/prompts/${item.chave}`)
+      setConteudo(r.data.atual.conteudo || '')
+      setDraft(r.data.atual.conteudo || '')
+      setHist(r.data.historico || [])
+      setOrigem(r.data.atual.origem)
+      setVersion(r.data.atual.version)
+      setLoaded(true)
+    } catch (e: unknown) {
+      setMsg(e instanceof Error ? e.message : 'Erro ao carregar.')
+    } finally {
+      setCarregando(false)
+    }
+  }
+
+  async function abrir() {
+    const novo = !aberto
+    setAberto(novo)
+    if (novo && !loaded) await carregar()
+  }
+
+  async function salvar() {
+    setSalvando(true)
+    setMsg('')
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/agente-pj/prompts/${item.chave}`, { method: 'PUT', body: JSON.stringify({ conteudo: draft }) })
+      setConteudo(draft)
+      setMsg('Nova versão salva.')
+      await carregar()
+    } catch (e: unknown) {
+      setMsg(e instanceof Error ? e.message : 'Erro ao salvar.')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  async function reverter(versionId: number) {
+    if (!confirm('Reverter para esta versão?')) return
+    setMsg('')
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/agente-pj/prompts/${item.chave}/reverter`, { method: 'POST', body: JSON.stringify({ versionId }) })
+      await carregar()
+      setMsg('Revertido.')
+    } catch (e: unknown) {
+      setMsg(e instanceof Error ? e.message : 'Erro ao reverter.')
+    }
+  }
+
+  const alterado = draft !== conteudo
+
+  return (
+    <div className="px-5 py-3">
+      <button onClick={abrir} className="w-full flex items-center justify-between text-left">
+        <span className="flex items-center gap-2">
+          <span className={`text-gray-400 transition-transform ${aberto ? 'rotate-90' : ''}`}>▶</span>
+          <span className="text-sm font-medium">{item.label}</span>
+        </span>
+        <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+          {origem === 'banco' ? `editado v${version ?? ''}` : 'padrão (arquivo)'}
+        </span>
+      </button>
+      {aberto && (
+        <div className="mt-3 space-y-2">
+          {carregando ? (
+            <p className="text-xs text-gray-400">Carregando…</p>
+          ) : (
+            <>
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={14}
+                spellCheck={false}
+                className="w-full border rounded-lg px-3 py-2 text-[11px] font-mono"
+              />
+              <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={salvar} disabled={salvando || !alterado || !draft.trim()} className="text-xs bg-brand text-white px-3 py-1.5 rounded-lg disabled:opacity-50">
+                  {salvando ? 'Salvando…' : 'Salvar nova versão'}
+                </button>
+                {alterado && <button onClick={() => setDraft(conteudo)} className="text-xs px-3 py-1.5 rounded-lg border">Descartar</button>}
+                {msg && <span className="text-xs text-gray-500">{msg}</span>}
+              </div>
+              {hist.length > 0 && (
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-gray-500 py-1">Histórico ({hist.length})</summary>
+                  <div className="space-y-1 mt-1">
+                    {hist.map((h) => (
+                      <div key={h.id} className="flex items-center justify-between gap-2 border rounded px-2 py-1">
+                        <span className="truncate">
+                          v{h.version} · {new Date(h.criado_em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                          {h.ativo && <b className="text-green-600"> (ativa)</b>} · {h.autor || '—'}
+                        </span>
+                        {!h.ativo && <button onClick={() => reverter(h.id)} className="text-brand hover:underline shrink-0">Reverter</button>}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </>
           )}
         </div>
       )}

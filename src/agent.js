@@ -74,6 +74,9 @@ const {
   verificarLembretesManhaReuniao,
 } = require('./agenda')
 const { sincronizarAtribuicaoMetaAds } = require('./services/meta-attribution')
+const { processarMensagemComPlaybook, gerarFollowupComPlaybook } = require('./services/contexto2-runtime')
+const { getContextoAtivoEmpresa } = require('./services/contexto-empresa')
+const { empresaAgentePausada } = require('./db/empresas')
 const { createCoreFunnel } = require('./core-funnel')
 const {
   calcularPreco,
@@ -3985,6 +3988,8 @@ const followupExecution = createFollowupExecution({
   enviarMensagem,
   salvarConversa,
   registrarFollowupEnvio,
+  getContextoAtivoEmpresa,
+  gerarFollowupComPlaybook,
 })
 const {
   perfilResumidoParaFollowup,
@@ -4220,6 +4225,9 @@ const coreFunnel = createCoreFunnel({
   parsearHorarioReuniao,
   calcularFimReuniao,
   dataInicioReuniao,
+  getContextoAtivoEmpresa,
+  processarMensagemComPlaybook,
+  empresaAgentePausada,
 })
 ;({ gerarEEnviarRespostaWhatsapp } = coreFunnel)
 

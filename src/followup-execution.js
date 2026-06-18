@@ -33,6 +33,9 @@ function createFollowupExecution(deps = {}) {
     enviarMensagem,
     salvarConversa,
     registrarFollowupEnvio,
+    // Reengajamento multiempresa (Contexto 2). Opcionais: se ausentes, usa só PJ.
+    getContextoAtivoEmpresa,
+    gerarFollowupComPlaybook,
   } = deps
 
   function perfilResumidoParaFollowup(perfil) {
@@ -358,13 +361,29 @@ function createFollowupExecution(deps = {}) {
       if (!perfil.numero) perfil.numero = numero
       const contextoTempo = contextoTempoFollowup(conversa.atualizado_em, historicoBruto)
       const opcoesFollow = { contextoTempo, ...(instrTrim ? { instrucao: instrTrim } : {}) }
-      const textoFollowup = await chamarClaudeFollowup(historicoBruto, estagio, perfil, opcoesFollow)
+
+      // Bifurcação multiempresa: empresa com Contexto 2 ativo gera o follow-up com
+      // o PRÓPRIO playbook (não com os prompts da PJ). PJ usa chamarClaudeFollowup.
+      const empresaIdFollow = conversa.empresa_id || null
+      let textoFollowup
+      let playbookFollow = null
+      if (empresaIdFollow && typeof getContextoAtivoEmpresa === 'function' && typeof gerarFollowupComPlaybook === 'function') {
+        playbookFollow = await getContextoAtivoEmpresa(pool, empresaIdFollow).catch(() => null)
+      }
+      if (playbookFollow) {
+        textoFollowup = await gerarFollowupComPlaybook({
+          pool, log: logger, empresaId: empresaIdFollow, leadPhone: numero,
+          historico: historicoBruto, playbook: playbookFollow, contextoTempo,
+        })
+      } else {
+        textoFollowup = await chamarClaudeFollowup(historicoBruto, estagio, perfil, opcoesFollow)
+      }
       await enviarMensagem(numero, textoFollowup)
   
       let historicoNovo = [...historicoBruto, { role: 'assistant', content: textoFollowup }]
       if (historicoNovo.length > 40) historicoNovo = historicoNovo.slice(-40)
   
-      await salvarConversa(numero, historicoNovo, estagio, conversa.status || 'ativo')
+      await salvarConversa(numero, historicoNovo, estagio, conversa.status || 'ativo', undefined, empresaIdFollow)
   
       await registrarFollowupEnvio(numero, {
         modo: 'reengajamento',
