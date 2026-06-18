@@ -118,9 +118,14 @@ function createDbCrud({ pool, logger, serializeError }) {
     return rows[0] || null
   }
 
-  async function salvarConversa(numero, historico, estagio, status = 'ativo', agentePausado = undefined) {
+  // empresaId é opcional e ADITIVO: quando ausente, COALESCE cai na empresa padrão
+  // PJ (mesmo resultado do DEFAULT da coluna), preservando 100% o comportamento
+  // single-tenant atual. ON CONFLICT NÃO altera empresa_id — a empresa é fixada na
+  // criação da conversa (1ª mensagem) e nunca migra de dono.
+  async function salvarConversa(numero, historico, estagio, status = 'ativo', agentePausado = undefined, empresaId = null) {
     const estagioNorm = normalizarEstagio(estagio, 'diagnostico')
     const arr = Array.isArray(historico) ? historico : []
+    const PJ = '00000000-0000-0000-0000-000000000001'
     let jsonText
     try {
       jsonText = JSON.stringify(arr)
@@ -130,21 +135,21 @@ function createDbCrud({ pool, logger, serializeError }) {
     if (agentePausado === undefined) {
       await pool.query(
         `
-        INSERT INTO vendas.conversas (numero, historico, estagio, status)
-        VALUES ($1, $2::jsonb, $3, $4)
+        INSERT INTO vendas.conversas (numero, historico, estagio, status, empresa_id)
+        VALUES ($1, $2::jsonb, $3, $4, COALESCE($5::uuid, $6::uuid))
         ON CONFLICT (numero) DO UPDATE
         SET historico = EXCLUDED.historico,
             estagio = EXCLUDED.estagio,
             status = EXCLUDED.status,
             atualizado_em = NOW()
         `,
-        [numero, jsonText, estagioNorm, status]
+        [numero, jsonText, estagioNorm, status, empresaId, PJ]
       )
     } else {
       await pool.query(
         `
-        INSERT INTO vendas.conversas (numero, historico, estagio, status, agente_pausado)
-        VALUES ($1, $2::jsonb, $3, $4, $5)
+        INSERT INTO vendas.conversas (numero, historico, estagio, status, agente_pausado, empresa_id)
+        VALUES ($1, $2::jsonb, $3, $4, $5, COALESCE($6::uuid, $7::uuid))
         ON CONFLICT (numero) DO UPDATE
         SET historico = EXCLUDED.historico,
             estagio = EXCLUDED.estagio,
@@ -152,7 +157,7 @@ function createDbCrud({ pool, logger, serializeError }) {
             agente_pausado = EXCLUDED.agente_pausado,
             atualizado_em = NOW()
         `,
-        [numero, jsonText, estagioNorm, status, agentePausado]
+        [numero, jsonText, estagioNorm, status, agentePausado, empresaId, PJ]
       )
     }
   }
