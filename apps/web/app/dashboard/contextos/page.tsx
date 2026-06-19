@@ -8,7 +8,7 @@ type Contexto = {
   conteudo: string
   contexto_form_json: Record<string, string>
   criado_em: string
-  ativo?: boolean
+  runtime_ativo?: boolean
   thumbnail_url?: string | null
 }
 type Versao = {
@@ -329,13 +329,13 @@ export default function ContextosPage() {
                   <span className="flex-1">
                     <span className="flex items-center gap-2">
                       <span className="font-medium">{c.nome}</span>
-                      {c.ativo && <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700">Ativo</span>}
+                      {c.runtime_ativo && <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700">Ativo</span>}
                     </span>
                     <span className="block text-xs text-gray-500 mt-1 line-clamp-2">{c.conteudo || '(sem dados — adicione fontes ou edite o Contexto 1)'}</span>
                   </span>
                 </button>
                 <div className="shrink-0 flex items-center gap-2">
-                  {c.ativo ? (
+                  {c.runtime_ativo ? (
                     <button onClick={() => ativarContexto(c, false)} className="text-xs px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50">
                       Desativar
                     </button>

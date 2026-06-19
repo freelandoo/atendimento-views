@@ -36,7 +36,7 @@ router.get('/estagios', carregarContexto, async (req, res) => {
       etapas: estagiosSvc.ETAPAS.map((e) => ({ chave: e.chave, label: e.label })),
       estagios,
       vazio: estagiosSvc.estagiosVazios(estagios),
-      ativo: !!req.contexto.ativo,
+      ativo: !!req.contexto.runtime_ativo,
       thumbnail_url: req.contexto.thumbnail_url || null,
       tem_conhecimento: !!estagiosSvc.montarConhecimentoDoContexto(req.contexto),
     },

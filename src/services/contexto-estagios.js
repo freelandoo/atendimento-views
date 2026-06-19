@@ -155,7 +155,7 @@ function montarConhecimentoDoContexto(ctxRow) {
 // ─── Persistência / ativação ──────────────────────────────────────────────────
 async function getContextoComEstagios(pool, empresaId, contextoId) {
   const { rows: [ctx] } = await pool.query(
-    `SELECT id, empresa_id, nome, conteudo, contexto_form_json, estagios_json, ativo, thumbnail_url
+    `SELECT id, empresa_id, nome, conteudo, contexto_form_json, estagios_json, runtime_ativo, thumbnail_url
        FROM app.empresa_contextos WHERE id = $1 AND empresa_id = $2`,
     [contextoId, empresaId]
   )
@@ -168,7 +168,7 @@ async function salvarEstagiosNoContexto(pool, empresaId, contextoId, estagios) {
     `UPDATE app.empresa_contextos
         SET estagios_json = $3::jsonb, atualizado_em = NOW()
       WHERE id = $1 AND empresa_id = $2
-      RETURNING id, estagios_json, ativo`,
+      RETURNING id, estagios_json, runtime_ativo`,
     [contextoId, empresaId, JSON.stringify(norm)]
   )
   return ctx || null
@@ -179,14 +179,14 @@ async function ativarContexto(pool, empresaId, contextoId) {
   try {
     await client.query('BEGIN')
     await client.query(
-      `UPDATE app.empresa_contextos SET ativo = false, atualizado_em = NOW()
-        WHERE empresa_id = $1 AND ativo = true AND id <> $2`,
+      `UPDATE app.empresa_contextos SET runtime_ativo = false, atualizado_em = NOW()
+        WHERE empresa_id = $1 AND runtime_ativo = true AND id <> $2`,
       [empresaId, contextoId]
     )
     const { rows: [ctx] } = await client.query(
-      `UPDATE app.empresa_contextos SET ativo = true, atualizado_em = NOW()
+      `UPDATE app.empresa_contextos SET runtime_ativo = true, atualizado_em = NOW()
         WHERE id = $1 AND empresa_id = $2
-        RETURNING id, ativo`,
+        RETURNING id, runtime_ativo`,
       [contextoId, empresaId]
     )
     await client.query('COMMIT')
@@ -201,21 +201,21 @@ async function ativarContexto(pool, empresaId, contextoId) {
 
 async function desativarContexto(pool, empresaId, contextoId) {
   const { rows: [ctx] } = await pool.query(
-    `UPDATE app.empresa_contextos SET ativo = false, atualizado_em = NOW()
+    `UPDATE app.empresa_contextos SET runtime_ativo = false, atualizado_em = NOW()
       WHERE id = $1 AND empresa_id = $2
-      RETURNING id, ativo`,
+      RETURNING id, runtime_ativo`,
     [contextoId, empresaId]
   )
   return ctx || null
 }
 
-/** Runtime (fase seguinte): contexto ativo da empresa com seus estágios + conhecimento. */
+/** Runtime: contexto runtime-ativo da empresa com seus estágios + conhecimento. */
 async function getContextoAtivoComEstagios(pool, empresaId) {
   if (!empresaId) return null
   const { rows: [ctx] } = await pool.query(
     `SELECT id, nome, conteudo, contexto_form_json, estagios_json, thumbnail_url
        FROM app.empresa_contextos
-      WHERE empresa_id = $1 AND ativo = true
+      WHERE empresa_id = $1 AND runtime_ativo = true
       LIMIT 1`,
     [empresaId]
   )
