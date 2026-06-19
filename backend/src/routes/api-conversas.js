@@ -149,7 +149,7 @@ router.delete('/:numero/historico', requireAuth, requireEmpresaAccess, async (re
 // Reenvia a ultima resposta do agente quando ela ja esta no historico, mas nao chegou no WhatsApp.
 router.post('/:numero/reprocessar', requireAuth, requireEmpresaAccess, async (req, res) => {
   const { rows: [conversa] } = await pool.query(
-    `SELECT numero, historico
+    `SELECT numero, historico, evolution_instance
        FROM vendas.conversas
       WHERE empresa_id = $1 AND numero = $2`,
     [req.empresa.id, req.params.numero]
@@ -167,7 +167,11 @@ router.post('/:numero/reprocessar', requireAuth, requireEmpresaAccess, async (re
   }
 
   try {
-    await enviarMensagem(conversa.numero, texto)
+    await enviarMensagem(
+      conversa.numero,
+      texto,
+      conversa.evolution_instance ? { instanceName: conversa.evolution_instance } : {}
+    )
     await pool.query(
       `UPDATE vendas.conversas
           SET ultima_falha_resposta_codigo = NULL,

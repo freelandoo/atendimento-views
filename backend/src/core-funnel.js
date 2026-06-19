@@ -1016,12 +1016,14 @@ function createCoreFunnel(deps = {}) {
       return { skipped: true, reason: 'playbook_sem_mensagem' }
     }
 
-    await enviarMensagem(numero, texto)
+    const evolutionInstance = conversaUsada?.evolution_instance || null
+    const whatsappOpts = evolutionInstance ? { instanceName: evolutionInstance } : {}
+    await enviarMensagem(numero, texto, whatsappOpts)
     const historicoNovo = [...historico, { role: 'assistant', content: texto }]
     // Mantém o estágio atual (a progressão do playbook vive em lead_insights;
     // etapa_proxima é texto livre que normalizarEstagio coagiria). Em handoff,
     // pausa a conversa para um humano assumir.
-    await salvarConversa(numero, historicoNovo, estagioLive, status, precisaHandoff ? true : undefined, empresaId)
+    await salvarConversa(numero, historicoNovo, estagioLive, status, precisaHandoff ? true : undefined, empresaId, evolutionInstance)
     await limparFalhaResposta(numero).catch(() => {})
     logger.info(
       { empresa_id: empresaId, numero, etapa: res?.decisao?.etapa_proxima || estagioLive, handoff: precisaHandoff, via: 'playbook' },
@@ -1060,6 +1062,8 @@ function createCoreFunnel(deps = {}) {
     }
 
     const empresaIdConversa = conversaUsada?.empresa_id || null
+    const evolutionInstanceConversa = conversaUsada?.evolution_instance || null
+    const whatsappOpts = evolutionInstanceConversa ? { instanceName: evolutionInstanceConversa } : {}
 
     // ── Pause global do agente por empresa (config.agente_pausado) ────────────
     // Vale para PJ e para qualquer empresa: se a empresa está pausada, o agente
@@ -1865,7 +1869,7 @@ function createCoreFunnel(deps = {}) {
       const captionPrint = typeof resultado.caption_print === 'string' && resultado.caption_print.trim()
         ? resultado.caption_print.trim()
         : ''
-      await enviarPrintLocal(numero, resultado.enviar_print.trim(), captionPrint).catch(
+      await enviarPrintLocal(numero, resultado.enviar_print.trim(), captionPrint, whatsappOpts).catch(
         (e) => logger.error('❌ enviar_print falhou:', e.message)
       )
     }
@@ -1891,30 +1895,30 @@ function createCoreFunnel(deps = {}) {
       const bolhasModelo = bolhasSanitizadas && bolhasSanitizadas.length > 0
   
       if (botoes) {
-        await enviarComBotoes(numero, textoResposta, botoes)
+        await enviarComBotoes(numero, textoResposta, botoes, whatsappOpts)
         mensagensEnviadasAuditoria.push(textoResposta)
         if (linksExtra.length > 0) {
-          await enviarMensagem(numero, linksExtra.join('\n'))
+          await enviarMensagem(numero, linksExtra.join('\n'), whatsappOpts)
           mensagensEnviadasAuditoria.push(linksExtra.join('\n'))
         }
       } else if (bolhasModelo) {
-        await enviarSequenciaMensagens(numero, bolhasSanitizadas)
+        await enviarSequenciaMensagens(numero, bolhasSanitizadas, whatsappOpts)
         mensagensEnviadasAuditoria.push(...bolhasSanitizadas)
         if (linksExtra.length > 0) {
-          await enviarMensagem(numero, linksExtra.join('\n'))
+          await enviarMensagem(numero, linksExtra.join('\n'), whatsappOpts)
           mensagensEnviadasAuditoria.push(linksExtra.join('\n'))
         }
       } else {
         const partesHeur = dividirTextoPorQuebrasHeuristico(textoResposta, etapaEnvio)
         if (partesHeur.length > 1) {
-          await enviarSequenciaMensagens(numero, partesHeur)
+          await enviarSequenciaMensagens(numero, partesHeur, whatsappOpts)
           mensagensEnviadasAuditoria.push(...partesHeur)
           if (linksExtra.length > 0) {
-            await enviarMensagem(numero, linksExtra.join('\n'))
+            await enviarMensagem(numero, linksExtra.join('\n'), whatsappOpts)
             mensagensEnviadasAuditoria.push(linksExtra.join('\n'))
           }
         } else {
-          await enviarMensagem(numero, textoHistoricoAssist)
+          await enviarMensagem(numero, textoHistoricoAssist, whatsappOpts)
           mensagensEnviadasAuditoria.push(textoHistoricoAssist)
         }
       }
@@ -1945,6 +1949,7 @@ function createCoreFunnel(deps = {}) {
             await gerarEEnviarPreviewSite(numero, perfil, historico, {
               modelo: resultado.preview_site_modelo || perfil?.plano_sugerido || null,
               imagens: imagensPreview,
+              instanceName: evolutionInstanceConversa,
             })
           } catch (e) {
             logger.error('Preview de site falhou:', e.response?.data || e.message)
@@ -1952,7 +1957,8 @@ function createCoreFunnel(deps = {}) {
               'Tentei montar a previa visual agora, mas nao consegui gerar a imagem nesse momento. Vamos continuar a conversa normalmente.'
             await enviarMensagem(
               numero,
-              fallbackPreview
+              fallbackPreview,
+              whatsappOpts
             ).catch(() => {})
             mensagensEnviadasAuditoria.push(fallbackPreview)
           }
@@ -1969,7 +1975,15 @@ function createCoreFunnel(deps = {}) {
       auditoriaTurno.perfilDepois = resumirPerfilAuditoria(perfil)
       registrarLogDecisaoTurno(auditoriaTurno)
       registrarMetricasTurno(auditoriaTurno)
-      await salvarConversa(numero, historicoNovo, resultado.etapa_proxima || estagioLive, novoStatus)
+      await salvarConversa(
+        numero,
+        historicoNovo,
+        resultado.etapa_proxima || estagioLive,
+        novoStatus,
+        undefined,
+        empresaIdConversa,
+        evolutionInstanceConversa
+      )
       await limparFalhaResposta(numero)
 
       // Opt-out: arquiva a conversa para retirá-la do follow-up automático

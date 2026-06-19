@@ -23,6 +23,7 @@ type Conversa = {
   score_interesse_resumo?: string | null
   score_interesse_criterios?: ScoreCriterio[]
   score_interesse_mensagens_lead?: number | null
+  evolution_instance?: string | null
   atualizado_em: string
 }
 
@@ -277,7 +278,17 @@ export default function ConversasPage() {
                     </span>
                   )}
                   <TempBadge t={aberta.temperatura_lead} />
+                  {aberta.evolution_instance && (
+                    <span className="inline-flex items-center rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                      WhatsApp: <strong className="ml-1">{aberta.evolution_instance}</strong>
+                    </span>
+                  )}
                 </div>
+                {aberta.ultima_falha_resposta_em && (
+                  <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    Falha no envio: {aberta.ultima_falha_resposta_msg || aberta.ultima_falha_resposta_codigo || 'erro desconhecido'}
+                  </div>
+                )}
               </div>
               <button
                 onClick={() => setAberta(null)}

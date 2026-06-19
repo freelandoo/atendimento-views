@@ -7183,7 +7183,11 @@ app.post('/dashboard/reprocessar', async (req, res) => {
       if (!texto) {
         return res.status(400).json({ ok: false, erro: 'Ultima resposta do agente esta vazia.' })
       }
-      await enviarMensagem(numero, texto)
+      await enviarMensagem(
+        numero,
+        texto,
+        conversa.evolution_instance ? { instanceName: conversa.evolution_instance } : {}
+      )
       await limparFalhaResposta(numero)
       return res.json({ ok: true, trecho: texto.slice(0, 200), reenviado: true })
     }

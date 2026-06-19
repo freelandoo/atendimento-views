@@ -857,10 +857,11 @@ function createPreviewSite(deps = {}) {
   async function gerarEEnviarPreviewSite(numero, perfil, historico, opcoes = {}) {
   
     const preview = await gerarPreviewSite(numero, perfil, historico, opcoes)
+    const whatsappOpts = opcoes.instanceName ? { instanceName: opcoes.instanceName } : {}
   
     const captionPreview = await gerarCaptionPreview(perfil, preview?.dados, numero)
   
-    await enviarImagemBase64(numero, preview.b64, preview.mimetype, captionPreview, 'preview-site')
+    await enviarImagemBase64(numero, preview.b64, preview.mimetype, captionPreview, 'preview-site', whatsappOpts)
   
     await registrarEventoComercial(numero, 'recebeu_preview', {
   
@@ -880,7 +881,7 @@ function createPreviewSite(deps = {}) {
   
         await new Promise((resolve) => setTimeout(resolve, 1500))
   
-        await enviarMensagem(numero, msgPosPreview)
+        await enviarMensagem(numero, msgPosPreview, whatsappOpts)
   
       } catch (err) {
   

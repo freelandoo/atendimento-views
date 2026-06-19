@@ -62,7 +62,8 @@ async function getInstanceNameForConversation(numero) {
       [jid]
     )
     return normalizarEvolutionInstanceName(rows[0]?.evolution_instance || '')
-  } catch (_) {
+  } catch (err) {
+    logger.warn({ err: serializeError(err), numero: redactPhone(jid) }, 'Falha ao resolver Evolution instance da conversa')
     return ''
   }
 }
@@ -215,10 +216,10 @@ function classificarErroEvolution(err) {
  * Retorna { ok, instance, connected, state } ou erro estruturado.
  * Nunca lança — falha silenciosa se o endpoint não existir.
  */
-async function verificarStatusInstanciaEvolution() {
-  const instanceName = normalizarEvolutionInstanceName(INSTANCE_NAME)
+async function verificarStatusInstanciaEvolution(instanceNameOverride = '') {
+  const instanceName = normalizarEvolutionInstanceName(instanceNameOverride) || normalizarEvolutionInstanceName(INSTANCE_NAME)
   if (!EVOLUTION_URL || !EVOLUTION_KEY) {
-    return { ok: true, instance: INSTANCE_NAME, connected: null, state: 'unknown', motivo: 'Evolution não configurada' }
+    return { ok: true, instance: instanceName, connected: null, state: 'unknown', motivo: 'Evolution não configurada' }
   }
   try {
     const r = await axios.get(
@@ -226,7 +227,8 @@ async function verificarStatusInstanciaEvolution() {
       { headers: { apikey: EVOLUTION_KEY }, timeout: 5000 }
     )
     const state = r.data?.instance?.state || r.data?.state || 'unknown'
-    const connected = state === 'open'
+    const stateNorm = String(state || '').toLowerCase()
+    const connected = ['open', 'connected', 'connection_open'].includes(stateNorm)
     return {
       ok: connected,
       instance: instanceName,
@@ -269,15 +271,37 @@ async function enviarMensagem(numero, texto, opts = {}) {
   const instanceName = await instanceNameParaEnvio(numero, opts)
 
   try {
+    if (String(process.env.EVOLUTION_ASSERT_CONNECTED || 'on').toLowerCase() !== 'off') {
+      const status = await verificarStatusInstanciaEvolution(instanceName)
+      if (status.connected === false) {
+        const err = new Error(status.motivo || `Instancia WhatsApp nao conectada: ${instanceName}`)
+        err.evolutionClassificacao = {
+          tipo: 'instance_disconnected',
+          retryable: true,
+          motivo: status.motivo || `Instancia WhatsApp nao conectada: ${instanceName}`,
+        }
+        throw err
+      }
+    }
     const r = await axios.post(
       `${EVOLUTION_URL}/message/sendText/${encodeURIComponent(instanceName)}`,
       payload,
       { headers: { apikey: EVOLUTION_KEY }, timeout: EVOLUTION_DEFAULT_TIMEOUT_MS }
     )
     assertEvolutionEnvioOk(r.data, 'sendText')
+    logger.info(
+      {
+        operation: 'sendText',
+        instance: instanceName,
+        numero: redactPhone(phone),
+        response_key_id: r.data?.key?.id || r.data?.message?.key?.id || r.data?.data?.key?.id || null,
+        status: r.data?.status || r.data?.message?.status || null,
+      },
+      'Evolution sendText ok'
+    )
     return r.data
   } catch (e) {
-    const classificacao = classificarErroEvolution(e)
+    const classificacao = e.evolutionClassificacao || classificarErroEvolution(e)
     const errCtx = {
       ...evolutionErrorContext(e, 'sendText', phone),
       endpoint: `/message/sendText/${instanceName}`,
@@ -364,6 +388,7 @@ async function enviarComBotoes(numero, texto, botoes, opts = {}) {
   if (!numLimpo || !t) throw new Error('Número ou texto inválido para envio com botões')
 
   const instanceName = await instanceNameParaEnvio(numero, opts)
+  let textoPrincipalEnviado = false
 
   try {
     // Evolution API v2.3.7: sendText requires { number, text }
@@ -376,6 +401,7 @@ async function enviarComBotoes(numero, texto, botoes, opts = {}) {
       { headers: { apikey: EVOLUTION_KEY }, timeout: EVOLUTION_DEFAULT_TIMEOUT_MS }
     )
     assertEvolutionEnvioOk(r0.data, 'sendText(botoes)')
+    textoPrincipalEnviado = true
 
     const r1 = await axios.post(
       `${EVOLUTION_URL}/message/sendButtons/${encodeURIComponent(instanceName)}`,
@@ -390,7 +416,8 @@ async function enviarComBotoes(numero, texto, botoes, opts = {}) {
     )
     assertEvolutionEnvioOk(r1.data, 'sendButtons')
     logger.info({ botoes }, 'Botoes enviados')
-  } catch (_) {
+  } catch (err) {
+    if (!textoPrincipalEnviado) throw err
     logger.info('Botoes nao suportados; texto ja enviado')
   }
 }
