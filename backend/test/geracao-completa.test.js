@@ -17,7 +17,7 @@ prompts.loadSystemFechamentoPrompt()
 
 const estagiosSvc = require('../src/services/contexto-estagios')
 const frameworks = require('../src/services/geracao-frameworks')
-const { gerarTudo, refinarEstagiosComFrameworks } = require('../src/services/geracao-completa')
+const { gerarTudo, refinarEstagiosComFrameworks, rederivarOuLimpar } = require('../src/services/geracao-completa')
 
 // ─── Provider de geração fake: responde por task ──────────────────────────────
 function fakeGenProvider({ respostas = {} } = {}) {
@@ -135,4 +135,20 @@ test('gerarTudo: encadeia Contexto 1 → estágios refinados → playbook (com g
   const tasks = genProvider.calls.map((c) => c.task)
   assert.ok(tasks.includes('refinarEstagioVendas'))
   assert.ok(tasks.includes('generateContextPlaybook'))
+})
+
+// ─── 4) rederivarOuLimpar: sem fontes restantes → limpa Contexto 1/estágios + arquiva playbook
+test('rederivarOuLimpar: sem fontes, limpa derivados e arquiva o playbook ativo', async () => {
+  const sqls = []
+  const pool = {
+    async query(sql, params) {
+      sqls.push(sql)
+      if (sql.includes('COUNT(*)')) return { rows: [{ n: 0 }] }
+      return { rows: [], params }
+    },
+  }
+  const out = await rederivarOuLimpar({ pool, log: null, empresaId: 'e1', contextoId: 'c1' })
+  assert.deepEqual(out, { limpo: true })
+  assert.ok(sqls.some((s) => /UPDATE app\.empresa_contextos[\s\S]*contexto_form_json = '\{\}'/.test(s)))
+  assert.ok(sqls.some((s) => /UPDATE app\.empresa_contexto_versoes[\s\S]*'arquivado'/.test(s)))
 })

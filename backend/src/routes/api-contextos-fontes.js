@@ -12,6 +12,7 @@ const {
   analisarFonteComIA,
   sugerirContexto1APartirDasFontes,
 } = require('../services/knowledge-ingestion')
+const { rederivarOuLimpar } = require('../services/geracao-completa')
 
 const router = Router({ mergeParams: true })
 
@@ -106,15 +107,28 @@ router.post('/:fonteId/analisar', requireAuth, requireEmpresaAccess, async (req,
   }
 })
 
-// ─── DELETE fonte ────────────────────────────────────────────────────────────
+// ─── DELETE fonte (com re-derivação em cascata) ──────────────────────────────
+// Apaga a fonte e RE-GERA Contexto 1 + estágios + playbook a partir das fontes
+// restantes; se não sobrar nenhuma fonte, limpa o Contexto 1/estágios e arquiva o
+// playbook ativo. Por isso o timeout estendido.
 router.delete('/:fonteId', requireAuth, requireEmpresaAccess, async (req, res) => {
+  req.setTimeout(600000)
+  res.setTimeout(600000)
   const { rowCount } = await pool.query(
     `DELETE FROM app.empresa_fontes_conhecimento
       WHERE id = $1 AND empresa_id = $2 AND contexto_id = $3`,
     [req.params.fonteId, req.empresa.id, req.params.contextoId]
   )
   if (!rowCount) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Fonte não encontrada.' } })
-  return res.json({ ok: true, data: { id: req.params.fonteId, deleted: true } })
+  let rederivacao = null
+  try {
+    rederivacao = await rederivarOuLimpar({
+      pool, log: logger, empresaId: req.empresa.id, contextoId: req.params.contextoId,
+    })
+  } catch (err) {
+    logger.error({ err: err.message }, 'rederivar após remover fonte')
+  }
+  return res.json({ ok: true, data: { id: req.params.fonteId, deleted: true, rederivacao } })
 })
 
 module.exports = router

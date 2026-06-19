@@ -104,6 +104,9 @@ export default function ContextosPage() {
   const [aberto, setAberto] = useState<Record<string, boolean>>({})
   const [gerando, setGerando] = useState<string | null>(null)
   const [sugestoes, setSugestoes] = useState<Sugestao[]>([])
+  // Incrementado após o pipeline (gerar/analisar/remover fonte) pra forçar os
+  // sub-cards (Fontes, Estágios) a recarregarem seus próprios dados.
+  const [pipelineNonce, setPipelineNonce] = useState(0)
 
   const carregar = useCallback(async () => {
     if (!empresaId) return
@@ -161,6 +164,31 @@ export default function ContextosPage() {
       setMsg({ tone: 'ok', text: 'Playbook gerado como rascunho. Revise no card "Playbook" e ative.' })
     } catch (err: unknown) {
       setMsg({ tone: 'err', text: err instanceof Error ? err.message : 'Erro ao gerar.' })
+    } finally {
+      setGerando(null)
+    }
+  }
+
+  // Recarrega tudo que deriva das fontes (lista/Contexto 1 + versões de playbook) e
+  // sinaliza os sub-cards (Fontes/Estágios) pra recarregarem via pipelineNonce.
+  async function recarregarDerivados(ctxId: string) {
+    await carregar()
+    await carregarVersoes(ctxId)
+    setPipelineNonce((n) => n + 1)
+  }
+
+  // "Analisar" = pipeline completo: analisa as fontes, preenche o Contexto 1, gera
+  // os estágios e o playbook — tudo numa chamada — e recarrega os painéis.
+  async function rodarPipeline(ctxId: string) {
+    if (!empresaId) return
+    setGerando(ctxId)
+    setMsg(null)
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/contextos/${ctxId}/gerar-tudo`, { method: 'POST', timeoutMs: 600000 })
+      await recarregarDerivados(ctxId)
+      setMsg({ tone: 'ok', text: 'Fontes analisadas: Contexto 1, estágios e playbook gerados. Revise e ative.' })
+    } catch (err: unknown) {
+      setMsg({ tone: 'err', text: err instanceof Error ? err.message : 'Erro ao processar as fontes.' })
     } finally {
       setGerando(null)
     }
@@ -316,15 +344,23 @@ export default function ContextosPage() {
               {isOpen && (
                 <div className="border-t bg-gray-50 px-5 py-4">
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <CardFontes empresaId={empresaId} contextoId={c.id} contextoAtual={c.contexto_form_json || {}} onAplicarSugestao={async (novoForm) => {
-                      // salva contexto1 e recarrega lista
-                      await apiFetch(`/api/empresas/${empresaId}/contextos/${c.id}`, {
-                        method: 'PUT',
-                        body: JSON.stringify({ contexto_form_json: novoForm }),
-                      })
-                      await carregar()
-                      setMsg({ tone: 'ok', text: 'Contexto 1 atualizado pela sugestão das fontes.' })
-                    }} />
+                    <CardFontes
+                      empresaId={empresaId}
+                      contextoId={c.id}
+                      contextoAtual={c.contexto_form_json || {}}
+                      reloadKey={pipelineNonce}
+                      onAnalisarTudo={() => rodarPipeline(c.id)}
+                      onAposRemover={() => recarregarDerivados(c.id)}
+                      onAplicarSugestao={async (novoForm) => {
+                        // salva contexto1 e recarrega lista
+                        await apiFetch(`/api/empresas/${empresaId}/contextos/${c.id}`, {
+                          method: 'PUT',
+                          body: JSON.stringify({ contexto_form_json: novoForm }),
+                        })
+                        await carregar()
+                        setMsg({ tone: 'ok', text: 'Contexto 1 atualizado pela sugestão das fontes.' })
+                      }}
+                    />
                     <CardContexto1 empresaId={empresaId} contexto={c} onSalvo={async () => { await carregar() }} />
                     <CardPlaybook
                       contextoId={c.id}
@@ -337,7 +373,7 @@ export default function ContextosPage() {
                     <CardTeste empresaId={empresaId} contextoForm={c.contexto_form_json || {}} versaoAtiva={vs.find((v) => v.status === 'ativo') || null} />
                   </div>
                   <div className="mt-4">
-                    <CardEstagios empresaId={empresaId} contextoId={c.id} contextoNome={c.nome} onAtivacao={carregar} />
+                    <CardEstagios empresaId={empresaId} contextoId={c.id} contextoNome={c.nome} reloadKey={pipelineNonce} onAtivacao={carregar} />
                   </div>
                 </div>
               )}
@@ -375,10 +411,13 @@ export default function ContextosPage() {
 }
 
 // ─── Card 1 — Fontes ─────────────────────────────────────────────────────────
-function CardFontes({ empresaId, contextoId, contextoAtual, onAplicarSugestao }: {
+function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisarTudo, onAposRemover, onAplicarSugestao }: {
   empresaId: string
   contextoId: string
   contextoAtual: Record<string, unknown>
+  reloadKey?: number
+  onAnalisarTudo: () => Promise<void> | void
+  onAposRemover: () => Promise<void> | void
   onAplicarSugestao: (novoForm: Record<string, string>) => Promise<void>
 }) {
   const [fontes, setFontes] = useState<Fonte[]>([])
@@ -400,7 +439,9 @@ function CardFontes({ empresaId, contextoId, contextoAtual, onAplicarSugestao }:
     } catch {}
   }, [empresaId, contextoId])
 
-  useEffect(() => { carregar() }, [carregar])
+  // reloadKey força recarregar as fontes após o pipeline (analisar/remover).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { carregar() }, [carregar, reloadKey])
 
   async function adicionar() {
     setErro('')
@@ -435,26 +476,33 @@ function CardFontes({ empresaId, contextoId, contextoAtual, onAplicarSugestao }:
     }
   }
 
+  // Analisar = pipeline completo (analisa as fontes pendentes, preenche Contexto 1,
+  // gera estágios e playbook). O pai recarrega os painéis via pipelineNonce.
   async function analisar(fonteId: string) {
     setAnalisando(fonteId)
     setErro('')
     try {
-      await apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/${fonteId}/analisar`, { method: 'POST' })
-      await carregar()
+      await onAnalisarTudo()
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Erro ao analisar.')
-      await carregar()
     } finally {
       setAnalisando(null)
     }
   }
 
+  // Remover fonte = apaga + re-gera tudo das fontes restantes (ou limpa, se zerar).
   async function remover(fonteId: string) {
-    if (!confirm('Remover esta fonte?')) return
+    if (!confirm('Remover esta fonte?\n\nO Contexto 1, os estágios e o playbook serão regerados a partir das fontes restantes (ou limpos, se não sobrar nenhuma). Pode levar 1-2 min.')) return
+    setAnalisando(fonteId)
+    setErro('')
     try {
-      await apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/${fonteId}`, { method: 'DELETE' })
-      await carregar()
-    } catch {}
+      await apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/${fonteId}`, { method: 'DELETE', timeoutMs: 600000 })
+      await onAposRemover()
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : 'Erro ao remover.')
+    } finally {
+      setAnalisando(null)
+    }
   }
 
   async function sugerir() {
@@ -558,16 +606,16 @@ function CardFontes({ empresaId, contextoId, contextoAtual, onAplicarSugestao }:
                 {f.titulo || f.url || f.filename || '(sem título)'}
               </span>
               {f.status === 'pendente' && f.tem_conteudo && (
-                <button onClick={() => analisar(f.id)} disabled={analisando === f.id} className="text-brand hover:underline disabled:opacity-50">
-                  {analisando === f.id ? 'Analisando…' : 'Analisar'}
+                <button onClick={() => analisar(f.id)} disabled={analisando !== null} title="Analisa e já gera Contexto 1 + estágios + playbook" className="text-brand hover:underline disabled:opacity-50">
+                  {analisando !== null ? 'Processando…' : 'Analisar'}
                 </button>
               )}
               {f.status === 'erro' && (
-                <button onClick={() => analisar(f.id)} className="text-amber-600 hover:underline" title={f.erro || ''}>
+                <button onClick={() => analisar(f.id)} disabled={analisando !== null} className="text-amber-600 hover:underline disabled:opacity-50" title={f.erro || ''}>
                   Tentar de novo
                 </button>
               )}
-              <button onClick={() => remover(f.id)} className="text-gray-400 hover:text-red-600" title="Remover">×</button>
+              <button onClick={() => remover(f.id)} disabled={analisando !== null} className="text-gray-400 hover:text-red-600 disabled:opacity-50" title="Remover (regenera o resto)">×</button>
             </div>
           ))
         )}
@@ -1095,10 +1143,11 @@ type SimItem = {
   erro?: string
 }
 
-function CardEstagios({ empresaId, contextoId, contextoNome, onAtivacao }: {
+function CardEstagios({ empresaId, contextoId, contextoNome, reloadKey, onAtivacao }: {
   empresaId: string
   contextoId: string
   contextoNome: string
+  reloadKey?: number
   onAtivacao: () => Promise<void> | void
 }) {
   const [etapas, setEtapas] = useState<{ chave: string; label: string }[]>([])
@@ -1128,7 +1177,9 @@ function CardEstagios({ empresaId, contextoId, contextoNome, onAtivacao }: {
       setCarregando(false)
     }
   }, [empresaId, contextoId])
-  useEffect(() => { carregar() }, [carregar])
+  // reloadKey força recarregar os estágios após o pipeline (analisar/remover/gerar).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { carregar() }, [carregar, reloadKey])
 
   function setEtapa(chave: string, v: string) {
     setEstagios((p) => ({ ...p, [chave]: v }))

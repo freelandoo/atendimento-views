@@ -5,7 +5,7 @@
 
 const { makeGenerationProvider } = require('../ai-provider')
 const estagiosSvc = require('./contexto-estagios')
-const { gerarContexto2Playbook } = require('./contexto-empresa')
+const { gerarContexto2Playbook, invalidarCacheEmpresa } = require('./contexto-empresa')
 const {
   analisarFonteComIA,
   sugerirContexto1APartirDasFontes,
@@ -144,4 +144,36 @@ async function gerarTudo({ pool, log, empresaId, contextoId, userId, aiProvider 
   return { contexto1: contexto1Aplicado, estagios: estagiosSalvos, playbook, passos }
 }
 
-module.exports = { gerarTudo, refinarEstagiosComFrameworks }
+/**
+ * Pós-remoção de fonte: se ainda há fontes no contexto, re-deriva tudo (gerarTudo);
+ * se não sobrou nenhuma, limpa Contexto 1 + estágios e arquiva a versão ativa do playbook.
+ */
+async function rederivarOuLimpar({ pool, log, empresaId, contextoId, userId } = {}) {
+  if (!pool || !empresaId || !contextoId) {
+    throw new Error('rederivarOuLimpar: pool, empresaId, contextoId obrigatórios')
+  }
+  const { rows: [c] } = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM app.empresa_fontes_conhecimento WHERE empresa_id = $1 AND contexto_id = $2`,
+    [empresaId, contextoId]
+  )
+  if ((c && c.n) > 0) {
+    const r = await gerarTudo({ pool, log, empresaId, contextoId, userId })
+    return { rederivado: true, ...r }
+  }
+  // Sem fontes: limpa derivados e arquiva o playbook ativo (mantém o histórico de versões).
+  await pool.query(
+    `UPDATE app.empresa_contextos
+        SET contexto_form_json = '{}'::jsonb, estagios_json = '{}'::jsonb, atualizado_em = NOW()
+      WHERE id = $1 AND empresa_id = $2`,
+    [contextoId, empresaId]
+  )
+  await pool.query(
+    `UPDATE app.empresa_contexto_versoes SET status = 'arquivado'
+      WHERE contexto_id = $1 AND empresa_id = $2 AND status = 'ativo'`,
+    [contextoId, empresaId]
+  )
+  invalidarCacheEmpresa(empresaId)
+  return { limpo: true }
+}
+
+module.exports = { gerarTudo, refinarEstagiosComFrameworks, rederivarOuLimpar }
