@@ -1,6 +1,8 @@
 'use strict'
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
 
 // ─── Unit tests: sem DB real ──────────────────────────────────────────────────
 
@@ -88,4 +90,17 @@ test('tenant middleware — isolamento: requireEmpresaAccess exige usuario no re
     // passa pela checagem de banco (não bypassa auth)
   }
   assert.ok(true, 'middleware chama DB para validar acesso (sem bypass)')
+})
+
+test('conversas API — PJ enxerga conversas legadas sem empresa_id e salvarConversa faz backfill', () => {
+  const apiConversas = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'api-conversas.js'), 'utf8')
+  const dbCrud = fs.readFileSync(path.join(__dirname, '..', 'src', 'db-crud.js'), 'utf8')
+
+  assert.match(apiConversas, /empresa_id IS NULL/, 'rota deve aceitar legado empresa_id nulo no escopo PJ')
+  assert.match(apiConversas, /PJ_EMPRESA_ID/, 'rota deve limitar o legado nulo a PJ Codeworks')
+  assert.match(
+    dbCrud,
+    /empresa_id = COALESCE\(vendas\.conversas\.empresa_id, EXCLUDED\.empresa_id\)/,
+    'salvarConversa deve preencher empresa_id quando a conversa antiga estiver nula'
+  )
 })

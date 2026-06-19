@@ -1230,7 +1230,7 @@ async function listarProspects(filtros = {}) {
   return rows.map(prospectPersistido)
 }
 
-async function atualizarStatusProspect(id, status) {
+async function atualizarStatusProspect(id, status, empresaId = null) {
   const safeId = normalizarId(id)
   const safeStatus = normalizarStatusProspect(status)
   if (!safeId || !['aprovado', 'rejeitado'].includes(safeStatus)) {
@@ -1238,15 +1238,18 @@ async function atualizarStatusProspect(id, status) {
     err.statusCode = 400
     throw err
   }
+  // Isolamento por tenant: quando empresaId é passado, só altera prospect DESTA empresa.
+  const filtroEmpresa = empresaId ? ' AND empresa_id = $3' : ''
+  const params = empresaId ? [safeId, safeStatus, empresaId] : [safeId, safeStatus]
   const { rows } = await pool.query(
     `
     UPDATE prospectador.prospects
     SET status = $2,
         updated_at = NOW()
-    WHERE id = $1
+    WHERE id = $1${filtroEmpresa}
     RETURNING *
     `,
-    [safeId, safeStatus]
+    params
   )
   if (!rows[0]) {
     const err = new Error('Prospect nao encontrado.')
@@ -1256,7 +1259,7 @@ async function atualizarStatusProspect(id, status) {
   return prospectPersistido(rows[0])
 }
 
-async function atualizarStatusProspectsLote(ids, status) {
+async function atualizarStatusProspectsLote(ids, status, empresaId = null) {
   const safeStatus = normalizarStatusProspect(status)
   const safeIds = normalizarArrayIds(ids)
   if (!safeIds.length || !['aprovado', 'rejeitado'].includes(safeStatus)) {
@@ -1264,15 +1267,18 @@ async function atualizarStatusProspectsLote(ids, status) {
     err.statusCode = 400
     throw err
   }
+  // Isolamento por tenant: quando empresaId é passado, só altera prospects DESTA empresa.
+  const filtroEmpresa = empresaId ? ' AND empresa_id = $3' : ''
+  const params = empresaId ? [safeIds, safeStatus, empresaId] : [safeIds, safeStatus]
   const { rows } = await pool.query(
     `
     UPDATE prospectador.prospects
     SET status = $2,
         updated_at = NOW()
-    WHERE id = ANY($1::uuid[])
+    WHERE id = ANY($1::uuid[])${filtroEmpresa}
     RETURNING *
     `,
-    [safeIds, safeStatus]
+    params
   )
   return rows.map(prospectPersistido)
 }
@@ -2494,18 +2500,24 @@ const PROSPEC_SEED_NICHOS = [
 
 // Raio-x dos mercados já prospectados (nicho×cidade): volume + última busca. É o que dá
 // à IA a consciência de "onde já fui / onde esgotou" para escolher um lugar fresco.
-async function resumoMercadosProspeccao(poolRef, limite = 60) {
+async function resumoMercadosProspeccao(poolRef, limite = 60, empresaId = null) {
   try {
+    const params = [limite]
+    let filtroEmpresa = ''
+    if (empresaId) {
+      params.push(empresaId)
+      filtroEmpresa = ` AND empresa_id = $${params.length}`
+    }
     const { rows } = await poolRef.query(
       `
       SELECT nicho, cidade, COUNT(*)::int AS total, MAX(created_at) AS ultimo
       FROM prospectador.prospects
-      WHERE COALESCE(nicho, '') <> '' AND COALESCE(cidade, '') <> ''
+      WHERE COALESCE(nicho, '') <> '' AND COALESCE(cidade, '') <> ''${filtroEmpresa}
       GROUP BY nicho, cidade
       ORDER BY MAX(created_at) DESC
       LIMIT $1
       `,
-      [limite]
+      params
     )
     return rows.map((r) => ({
       nicho: r.nicho,
@@ -2532,7 +2544,7 @@ async function selecionarMercadoDiarioIA(poolRef, config = {}, deps = {}) {
     1,
     Number(deps.maxTentativas) || parseInt(process.env.PROSPEC_MERCADO_IA_RETRIES, 10) || 3
   )
-  const mercados = await resumoMercadosProspeccao(poolRef)
+  const mercados = await resumoMercadosProspeccao(poolRef, 60, deps.empresaId || null)
   const jaTocados = mercados.length
     ? mercados.map((m) => `- ${m.nicho} / ${m.cidade} (${m.total} contatos, último ${m.ultimo || '?'})`).join('\n')
     : '(nenhum ainda)'
@@ -2658,10 +2670,14 @@ async function expirarItensFilaPresos(poolRef) {
   }
 }
 
-async function verificarAgendaDiariaProspeccao(now = new Date()) {
+const PJ_EMPRESA_ID_PROSPEC = '00000000-0000-0000-0000-000000000001'
+
+// Rodada diária de prospecção para UMA empresa (núcleo). O loop multiempresa fica
+// em verificarAgendaDiariaProspeccao. empresaId default = PJ (compatibilidade).
+async function _rodadaDiariaProspeccaoEmpresa(empresaId = PJ_EMPRESA_ID_PROSPEC, now = new Date()) {
   let cfg
   try {
-    cfg = await obterConfiguracaoProspeccao(pool)
+    cfg = await obterConfiguracaoProspeccao(pool, empresaId)
   } catch (e) {
     return { ok: false, enfileirado: false, motivo: 'config_indisponivel', erro: e.message }
   }
@@ -2682,10 +2698,10 @@ async function verificarAgendaDiariaProspeccao(now = new Date()) {
     return { ok: true, enfileirado: false, motivo: 'antes_do_horario', proximo: inicio.toISOString() }
   }
 
-  // Idempotência: uma execução por dia. Se já há execução não-cancelada hoje, sai.
+  // Idempotência: uma execução por dia POR EMPRESA. Se já há execução não-cancelada hoje, sai.
   const existente = await pool.query(
-    `SELECT id, status FROM prospectador.prospeccao_execucoes_diarias WHERE data_execucao = $1::date LIMIT 1`,
-    [dataStr]
+    `SELECT id, status FROM prospectador.prospeccao_execucoes_diarias WHERE data_execucao = $1::date AND empresa_id = $2 LIMIT 1`,
+    [dataStr, empresaId]
   )
   if (existente.rows[0] && existente.rows[0].status !== 'cancelada') {
     return { ok: true, enfileirado: false, motivo: 'ja_processado_hoje', data: dataStr, execucao_id: existente.rows[0].id }
@@ -2698,14 +2714,14 @@ async function verificarAgendaDiariaProspeccao(now = new Date()) {
   // Seletor autônomo por IA (com retry interno). SEM fallback para a rotação antiga: se a
   // IA falhar de vez, o erro já foi logado (logger.error) e a rodada do dia é ABORTADA —
   // marca a execução como 'falhou' para não re-tentar a cada tick (re-tenta amanhã).
-  const mercado = await selecionarMercadoDiarioIA(pool, cfg)
+  const mercado = await selecionarMercadoDiarioIA(pool, cfg, { empresaId })
   if (!mercado || !mercado.nicho || !mercado.cidade) {
     logger.error({ operation: 'prospeccao_diaria', etapa: 'abortada_sem_mercado', data: dataStr })
     await pool.query(
-      `INSERT INTO prospectador.prospeccao_execucoes_diarias (data_execucao, modo, status)
-       VALUES ($1::date, 'automatico', 'falhou')
-       ON CONFLICT (data_execucao) DO UPDATE SET status = 'falhou', atualizado_em = NOW()`,
-      [dataStr]
+      `INSERT INTO prospectador.prospeccao_execucoes_diarias (data_execucao, empresa_id, modo, status)
+       VALUES ($1::date, $2, 'automatico', 'falhou')
+       ON CONFLICT (data_execucao, empresa_id) DO UPDATE SET status = 'falhou', atualizado_em = NOW()`,
+      [dataStr, empresaId]
     ).catch(() => {})
     return { ok: false, enfileirado: false, motivo: 'mercado_ia_falhou', data: dataStr }
   }
@@ -2716,6 +2732,7 @@ async function verificarAgendaDiariaProspeccao(now = new Date()) {
       pool,
       {
         data_execucao: dataStr,
+        empresaId,
         config: cfg,
         origem: 'automatico',
         nicho: mercado.nicho,
@@ -2774,7 +2791,7 @@ async function verificarAgendaDiariaProspeccao(now = new Date()) {
   // Observabilidade: gera e persiste o relatório do dia (não-fatal). Sem isso a
   // tabela prospeccao_relatorios_diarios fica vazia e o painel não mostra resultado.
   try {
-    await gerarRelatorioDiarioProspeccao(pool, { data: dataStr })
+    await gerarRelatorioDiarioProspeccao(pool, { data: dataStr, empresaId })
   } catch (e) {
     logger.warn({ operation: 'prospeccao_diaria', etapa: 'gerar_relatorio_erro', data: dataStr, erro: e.message })
   }
@@ -2790,6 +2807,33 @@ async function verificarAgendaDiariaProspeccao(now = new Date()) {
     agendados: okCount,
     envio_real: !!cfg.envio_real_habilitado,
   }
+}
+
+// Tick diário multiempresa: roda a rodada para CADA empresa com config ativa.
+// Mantém o comportamento da PJ (que entra no loop se sua config estiver ativa) e
+// degrada por empresa — uma falha numa empresa não derruba as outras.
+async function verificarAgendaDiariaProspeccao(now = new Date()) {
+  let empresas
+  try {
+    const { rows } = await pool.query(
+      `SELECT empresa_id FROM prospectador.prospeccao_configuracoes WHERE ativo = true`
+    )
+    empresas = rows.map((r) => r.empresa_id).filter(Boolean)
+  } catch (e) {
+    return { ok: false, enfileirado: false, motivo: 'config_indisponivel', erro: e.message }
+  }
+  if (!empresas.length) return { ok: true, enfileirado: false, motivo: 'desabilitado', empresas: 0 }
+
+  const resultados = []
+  for (const empresaId of empresas) {
+    try {
+      resultados.push({ empresa_id: empresaId, ...(await _rodadaDiariaProspeccaoEmpresa(empresaId, now)) })
+    } catch (e) {
+      logger.error({ operation: 'prospeccao_diaria', etapa: 'empresa_erro', empresa_id: empresaId, erro: e.message })
+      resultados.push({ empresa_id: empresaId, ok: false, motivo: 'erro', erro: e.message })
+    }
+  }
+  return { ok: true, empresas: empresas.length, resultados }
 }
 
 async function enfileirarJobProspeccao(tipo, payload = {}, dedupeKey = null, availableAt = null) {

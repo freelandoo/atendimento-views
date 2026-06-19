@@ -18,10 +18,11 @@ function criarPoolFake() {
     queries,
     async query(sql, params = []) {
       queries.push({ sql, params })
-      if (/INSERT INTO prospectador\.prospeccao_configuracoes\s*\(singleton_id\)/i.test(sql)) {
+      // garantirLinhaConfiguracao: INSERT (empresa_id) VALUES ($1)
+      if (/INSERT INTO prospectador\.prospeccao_configuracoes\s*\(empresa_id\)\s*VALUES/i.test(sql)) {
         if (!row) {
           row = {
-            singleton_id: true,
+            empresa_id: params[0],
             ativo: false,
             modo: 'manual',
             horario_inicio: '08:00',
@@ -41,22 +42,23 @@ function criarPoolFake() {
         }
         return { rows: [] }
       }
-      if (/INSERT INTO prospectador\.prospeccao_configuracoes\s*\(/i.test(sql)) {
+      // salvarConfiguracaoProspeccao: INSERT (empresa_id, ativo, ...) — empresa_id é o $1.
+      if (/INSERT INTO prospectador\.prospeccao_configuracoes\s*\(\s*empresa_id,/i.test(sql)) {
         row = {
-          singleton_id: true,
-          ativo: params[0],
-          modo: params[1],
-          horario_inicio: params[2],
-          horario_fim: params[3],
-          intervalo_envio_minutos: params[4],
-          limite_diario: params[5],
-          dias_semana_ativos: params[6],
-          categoria_padrao: params[7],
-          cidade_padrao: params[8],
-          estado_padrao: params[9],
-          regiao_padrao: params[10],
-          gerar_mensagem_ia: params[11],
-          envio_real_habilitado: params[12],
+          empresa_id: params[0],
+          ativo: params[1],
+          modo: params[2],
+          horario_inicio: params[3],
+          horario_fim: params[4],
+          intervalo_envio_minutos: params[5],
+          limite_diario: params[6],
+          dias_semana_ativos: params[7],
+          categoria_padrao: params[8],
+          cidade_padrao: params[9],
+          estado_padrao: params[10],
+          regiao_padrao: params[11],
+          gerar_mensagem_ia: params[12],
+          envio_real_habilitado: params[13],
           criado_em: '2026-05-24T00:00:00.000Z',
           atualizado_em: '2026-05-24T01:00:00.000Z',
         }
@@ -145,6 +147,26 @@ test('prospecting settings: salvar e recarregar preserva configuracao no pool', 
   assert.equal(recarregado.cidade_padrao, 'Salvador')
   assert.equal(recarregado.estado_padrao, 'BA')
   assert.deepEqual(recarregado.dias_semana_ativos, [1, 2, 3, 4, 5])
+})
+
+test('prospecting settings: configuração é escopada por empresa (empresa_id no WHERE/params)', async () => {
+  const pool = criarPoolFake()
+  await salvarConfiguracaoProspeccao(pool, { ativo: true, categoria_padrao: 'dentista' }, 'empresa-xyz')
+  const insert = pool.queries.find((q) => /INSERT INTO prospectador\.prospeccao_configuracoes\s*\(\s*empresa_id,/i.test(q.sql))
+  assert.ok(insert, 'deve usar o INSERT com empresa_id')
+  assert.equal(insert.params[0], 'empresa-xyz', 'empresa_id é o primeiro parâmetro')
+
+  await obterConfiguracaoProspeccao(pool, 'empresa-xyz')
+  const select = pool.queries.find((q) => /FROM prospectador\.prospeccao_configuracoes/i.test(q.sql))
+  assert.match(select.sql, /WHERE empresa_id = \$1/)
+  assert.equal(select.params[0], 'empresa-xyz')
+})
+
+test('prospecting settings: sem empresaId cai na empresa padrão PJ (compatibilidade)', async () => {
+  const pool = criarPoolFake()
+  await obterConfiguracaoProspeccao(pool)
+  const garantir = pool.queries.find((q) => /INSERT INTO prospectador\.prospeccao_configuracoes\s*\(empresa_id\)\s*VALUES/i.test(q.sql))
+  assert.equal(garantir.params[0], '00000000-0000-0000-0000-000000000001')
 })
 
 test('prospecting settings: agenda painel mostra preview sem habilitar envio real', () => {

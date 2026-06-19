@@ -41,12 +41,14 @@ function fakeGenProvider({ respostas = {} } = {}) {
 }
 
 // ─── 1) Frameworks: estrutura esperada ────────────────────────────────────────
-test('frameworks: mapa cobre as 6 etapas e há guardrail ético', () => {
-  for (const chave of estagiosSvc.CHAVES_ETAPA) {
+test('frameworks: mapa cobre as 6 etapas de funil e há diretriz de persuasão', () => {
+  for (const chave of estagiosSvc.CHAVES_FUNIL) {
     assert.ok(frameworks.MAPA_POR_ETAPA[chave], `falta técnica para a etapa ${chave}`)
   }
-  assert.match(frameworks.REFINO_SYSTEM, /HONESTA|honesto|ÉTICO/i)
-  assert.match(frameworks.GUARDRAIL_ETICO, /NUNCA invente/i)
+  // O bloco de informações não é um estágio de funil — não tem técnica de venda.
+  assert.ok(!estagiosSvc.CHAVES_FUNIL.includes(estagiosSvc.CHAVE_INFO))
+  assert.match(frameworks.REFINO_SYSTEM, /persuasiv|agressiv/i)
+  assert.match(frameworks.DIRETRIZ_PERSUASAO, /escass|urg[êe]ncia/i)
   assert.match(frameworks.FRAMEWORKS_VENDA, /SPIN/)
 })
 
@@ -61,7 +63,7 @@ test('refinarEstagiosComFrameworks: refina as 6 e mantém original quando IA vol
     genProvider, pool: {}, log: null, empresaId: 'e1', contextoId: 'c1',
     estagios: base, conhecimento: 'empresa de sites',
   })
-  for (const chave of estagiosSvc.CHAVES_ETAPA) assert.equal(out[chave], 'REFINADO')
+  for (const chave of estagiosSvc.CHAVES_FUNIL) assert.equal(out[chave], 'REFINADO')
 
   // IA devolvendo vazio → mantém o texto original (não apaga o estágio).
   const genVazio = fakeGenProvider({ respostas: { refinarEstagioVendas: '   ' } })
@@ -115,8 +117,11 @@ test('gerarTudo: encadeia Contexto 1 → estágios refinados → playbook (com g
     pool, log: null, empresaId: 'e1', contextoId: 'c1', userId: 'u1', aiProvider: genProvider,
   })
 
-  // estágios salvos = refinados nas 6 etapas
-  for (const chave of estagiosSvc.CHAVES_ETAPA) assert.equal(out.estagios[chave], 'REFINADO')
+  // estágios de FUNIL salvos = refinados nas 6 etapas
+  for (const chave of estagiosSvc.CHAVES_FUNIL) assert.equal(out.estagios[chave], 'REFINADO')
+  // bloco de informações = FATOS do formulário (não passa pela IA, não é "REFINADO")
+  assert.notEqual(out.estagios[estagiosSvc.CHAVE_INFO], 'REFINADO')
+  assert.match(out.estagios[estagiosSvc.CHAVE_INFO], /:/)
 
   // playbook (rascunho) criado
   assert.equal(out.playbook.versao, 1)
@@ -151,4 +156,22 @@ test('rederivarOuLimpar: sem fontes, limpa derivados e arquiva o playbook ativo'
   assert.deepEqual(out, { limpo: true })
   assert.ok(sqls.some((s) => /UPDATE app\.empresa_contextos[\s\S]*contexto_form_json = '\{\}'/.test(s)))
   assert.ok(sqls.some((s) => /UPDATE app\.empresa_contexto_versoes[\s\S]*'arquivado'/.test(s)))
+})
+
+// ─── 5) Estágio de informações: bloco de fatos auto-preenchido, fora da IA ─────
+test('estágio informações: auto-preenche do formulário e não conta como estágio vazio', () => {
+  const ctxRow = { contexto_form_json: { nome_empresa: 'Acme', precos_planos: 'R$ 200', link_cadastro: 'https://acme.com/cad' } }
+  // só o bloco de informações preenchido → funil ainda está "vazio" (não habilita ativar)
+  const comInfo = estagiosSvc.preencherInformacoesEstagio({}, ctxRow, { sobrescrever: true })
+  assert.match(comInfo[estagiosSvc.CHAVE_INFO], /NOME EMPRESA: Acme/)
+  assert.match(comInfo[estagiosSvc.CHAVE_INFO], /LINK CADASTRO: https:\/\/acme\.com\/cad/)
+  assert.equal(estagiosSvc.estagiosVazios(comInfo), true)
+
+  // com um estágio de funil preenchido → não está mais vazio
+  assert.equal(estagiosSvc.estagiosVazios({ ...comInfo, nucleo: 'regras' }), false)
+})
+
+test('estágio informações: não está entre os estágios de funil (não é reescrito pela IA)', () => {
+  assert.ok(estagiosSvc.CHAVES_ETAPA.includes(estagiosSvc.CHAVE_INFO))
+  assert.ok(!estagiosSvc.CHAVES_FUNIL.includes(estagiosSvc.CHAVE_INFO))
 })

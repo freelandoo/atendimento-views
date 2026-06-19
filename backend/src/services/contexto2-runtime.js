@@ -273,6 +273,7 @@ Você usa:
 - extração já feita (intenção, campos faltantes, próxima ação sugerida)
 
 Regras:
+- ANTES de responder qualquer pergunta, consulte playbook.informacoes_empresa (fatos oficiais da empresa). Se a resposta está lá, entregue o fato direto — nunca diga que não sabe nem qualifique antes quando o dado existe no bloco.
 - Responda natural, curto, útil. Sem cara de formulário.
 - Faça no máximo uma pergunta principal por mensagem (salvo combinações naturais).
 - Aproveite dados já respondidos. Não repita pergunta que já foi respondida.
@@ -337,7 +338,8 @@ Decida a melhor resposta.`
     motivo_handoff: typeof p.motivo_handoff === 'string' ? p.motivo_handoff : '',
     sugestao_aprendizado: p.sugestao_aprendizado && typeof p.sugestao_aprendizado === 'object' ? p.sugestao_aprendizado : null,
   }
-  return _corrigirRespostaPrecoQuandoTemContexto({ decisao, playbook, mensagem, extracao })
+  _corrigirRespostaPrecoQuandoTemContexto({ decisao, playbook, mensagem, extracao })
+  return _corrigirRespostaCadastroQuandoTemLink({ decisao, playbook, mensagem, extracao })
 }
 
 /**
@@ -449,6 +451,63 @@ function _corrigirRespostaPrecoQuandoTemContexto({ decisao, playbook, mensagem, 
   return decisao
 }
 
+// ─── Correção determinística: cadastro / "como acesso/uso" ──────────────────────
+// Espelha a lógica de preço: quando o lead pergunta como se cadastrar/acessar/usar
+// e o playbook tem link de cadastro, GARANTE que a resposta traga o link + passos —
+// sem depender do LLM (que costumava responder "visite o site" sem a URL).
+const CADASTRO_INTENT_RX = /(como\s+(eu\s+)?(fa[çc]o|me\s+)?(cadastr|inscre|registr|acess|entr|come[çc]|us[ao])|como\s+funciona|quero\s+(me\s+)?cadastr|criar\s+(conta|perfil)|abrir\s+conta|qual\s+(o\s+)?site|tem\s+link|me\s+manda\s+o\s+link|onde\s+(eu\s+)?(acesso|cadastr|me\s+inscrevo|come[çc]o))/i
+
+function _leadPediuCadastro(mensagem, extracao) {
+  const intents = Array.isArray(extracao?.intencoes) ? extracao.intencoes : []
+  if (intents.some((i) => ['cadastro', 'como_funciona', 'link'].includes(i))) return true
+  return CADASTRO_INTENT_RX.test(String(mensagem || ''))
+}
+
+function _textoContemUrl(texto, url) {
+  if (!texto || !url) return false
+  const host = String(url).replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+  return texto.includes(url) || (!!host && texto.includes(host))
+}
+
+function _extrairCadastroDoPlaybook(playbook) {
+  const pb = playbook?.json || playbook || {}
+  const co = pb.cadastro_e_onboarding || {}
+  const { ehUrlFalsa } = require('./url-sanitize')
+  let link = typeof co.link_cadastro === 'string' ? co.link_cadastro.trim() : ''
+  if (link && ehUrlFalsa(link)) link = ''
+  if (!link) link = _extrairLinkPrincipalDoPlaybook(pb)
+  const passos = Array.isArray(co.passos) ? co.passos.filter((x) => typeof x === 'string' && x.trim()) : []
+  const respostaBase = typeof co.resposta_base_cadastro === 'string' ? co.resposta_base_cadastro.trim() : ''
+  const pergunta = _primeiroTexto(co.perguntas_para_direcionar)
+  return { link, passos, respostaBase, pergunta }
+}
+
+function _montarRespostaCadastroDireta({ link, passos, respostaBase, pergunta }) {
+  if (respostaBase && _textoContemUrl(respostaBase, link)) return respostaBase
+  const partes = []
+  if (passos.length) partes.push(`É rápido: ${passos.slice(0, 4).join(', ')}.`)
+  partes.push(`Acesse ${link} pra criar seu perfil e começar.`)
+  if (pergunta) partes.push(pergunta)
+  return partes.join(' ')
+}
+
+function _corrigirRespostaCadastroQuandoTemLink({ decisao, playbook, mensagem, extracao }) {
+  if (!decisao || !_leadPediuCadastro(mensagem, extracao)) return decisao
+  const dados = _extrairCadastroDoPlaybook(playbook)
+  if (!dados.link) return decisao
+  if (_textoContemUrl(decisao.mensagem_pro_lead, dados.link)) return decisao
+  decisao.mensagem_pro_lead = _montarRespostaCadastroDireta(dados)
+  decisao.etapa_proxima = decisao.etapa_proxima || 'cadastro_orientado'
+  decisao.atualizar_perfil = {
+    ...(decisao.atualizar_perfil || {}),
+    eventos_conversa: {
+      ...(decisao.atualizar_perfil?.eventos_conversa || {}),
+      enviou_link_cadastro: true,
+    },
+  }
+  return decisao
+}
+
 const BUNDLE_SYSTEM = `Você é o agente comercial da empresa em WhatsApp.
 
 Em UMA passada, você faz duas coisas:
@@ -458,8 +517,15 @@ Em UMA passada, você faz duas coisas:
 ────────────────────────────────────────────────────────────────────
 REGRA COMERCIAL CENTRAL — RESPONDER PRIMEIRO, QUALIFICAR DEPOIS
 ────────────────────────────────────────────────────────────────────
+GATILHO DE INFORMAÇÕES (vale para QUALQUER pergunta do lead):
+- ANTES de qualquer coisa, verifique se a resposta está em playbook.informacoes_empresa
+  (bloco de FATOS oficiais da empresa: serviços, preços, links, horário, formas de pagamento, FAQ, etc.).
+- Se a informação existe ali, RESPONDA O FATO direto, com as palavras certas — NUNCA diga "não sei",
+  "não tenho essa informação" ou peça pra qualificar antes quando o dado está no bloco.
+- Só depois de entregar o fato é que você conduz/qualifica.
+
 Quando o lead faz uma pergunta direta sobre cadastro, preço, planos, link, como funciona, plano gratuito, quais serviços, quais máquinas/módulos:
-- RESPONDA DIRETAMENTE usando dados do playbook.cadastro_e_onboarding, .links_uteis_estruturados, .maquinas_ou_modulos, .servicos.
+- RESPONDA DIRETAMENTE usando dados de playbook.informacoes_empresa, .cadastro_e_onboarding, .links_uteis_estruturados, .maquinas_ou_modulos, .servicos.
 - NÃO peça nome no início. Peça nome só se for cadastro real ou handoff.
 - NÃO responda "depende da sua necessidade", "preciso entender melhor", "qual é o seu nome?", "nossos serviços variam" se o playbook tem dados suficientes.
 - TERMINE com UMA pergunta de qualificação ligada à venda (não pergunta vazia).
@@ -587,6 +653,7 @@ Extraia + decida em um único JSON.`
   const linkReal = _extrairLinkPrincipalDoPlaybook(playbook?.json || playbook)
   sanitizarDecisaoUrls(decisao, linkReal)
   _corrigirRespostaPrecoQuandoTemContexto({ decisao, playbook, mensagem, extracao })
+  _corrigirRespostaCadastroQuandoTemLink({ decisao, playbook, mensagem, extracao })
   return { extracao, decisao }
 }
 

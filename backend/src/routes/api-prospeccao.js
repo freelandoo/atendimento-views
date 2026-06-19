@@ -2,7 +2,17 @@
 const { Router } = require('express')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
-const { listarProspects, pesquisarPlaces } = require('../prospecting')
+const {
+  listarProspects,
+  pesquisarPlaces,
+  atualizarStatusProspect,
+  atualizarStatusProspectsLote,
+} = require('../prospecting')
+const {
+  obterConfiguracaoProspeccao,
+  salvarConfiguracaoProspeccao,
+  montarAgendaPainelProspeccao,
+} = require('../services/prospecting-settings')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -69,6 +79,106 @@ router.post('/buscar', requireAuth, requireEmpresaAccess, async (req, res) => {
     const status = err.statusCode || 500
     logger.error('POST prospeccao/buscar:', err.message)
     return res.status(status).json({ ok: false, error: { code: 'BUSCA_FAILED', message: err.message } })
+  }
+})
+
+// GET /api/empresas/:empresaId/prospeccao/resultados
+// Analytics da carteira DESTA empresa: desempenho por mercado (nicho/cidade) e
+// quem respondeu recentemente. Tudo read-only e escopado por empresa_id.
+router.get('/resultados', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const { rows: porMercado } = await pool.query(
+      `SELECT nicho, cidade,
+              COUNT(*)                                          AS total,
+              COUNT(*) FILTER (WHERE status IN ('enviado','respondeu')) AS enviados,
+              COUNT(*) FILTER (WHERE status='respondeu')        AS responderam
+         FROM prospectador.prospects
+        WHERE empresa_id = $1
+        GROUP BY nicho, cidade
+        ORDER BY responderam DESC, total DESC
+        LIMIT 12`,
+      [req.empresa.id]
+    )
+    const { rows: recentes } = await pool.query(
+      `SELECT nome, telefone, nicho, cidade, score, updated_at
+         FROM prospectador.prospects
+        WHERE empresa_id = $1 AND status = 'respondeu'
+        ORDER BY updated_at DESC
+        LIMIT 10`,
+      [req.empresa.id]
+    )
+    return res.json({ ok: true, data: { por_mercado: porMercado, recentes } })
+  } catch (err) {
+    logger.error('GET prospeccao/resultados:', err.message)
+    return res.status(500).json({ ok: false, error: { code: 'RESULTADOS_FAILED', message: err.message } })
+  }
+})
+
+// GET /api/empresas/:empresaId/prospeccao/configuracao
+// Rotina + agenda do dia DESTA empresa (nicho/região/capacidade/próximos envios).
+router.get('/configuracao', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const config = await obterConfiguracaoProspeccao(pool, req.empresa.id)
+    const agenda = montarAgendaPainelProspeccao(config)
+    return res.json({ ok: true, data: { config, agenda, escopo: 'empresa' } })
+  } catch (err) {
+    logger.error('GET prospeccao/configuracao:', err.message)
+    return res.status(500).json({ ok: false, error: { code: 'CONFIG_FAILED', message: err.message } })
+  }
+})
+
+// PUT /api/empresas/:empresaId/prospeccao/configuracao
+// Salva a rotina DESTA empresa (nicho/cidade/região/capacidade/intervalo/janela/modo/ativo).
+router.put('/configuracao', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const config = await salvarConfiguracaoProspeccao(pool, req.body || {}, req.empresa.id)
+    const agenda = montarAgendaPainelProspeccao(config)
+    return res.json({ ok: true, data: { config, agenda, escopo: 'empresa' } })
+  } catch (err) {
+    const status = err.statusCode || 500
+    logger.error('PUT prospeccao/configuracao:', err.message)
+    return res.status(status).json({ ok: false, error: { code: 'CONFIG_SAVE_FAILED', message: err.message } })
+  }
+})
+
+// POST /api/empresas/:empresaId/prospeccao/prospects/:id/aprovar
+router.post('/prospects/:id/aprovar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const prospect = await atualizarStatusProspect(req.params.id, 'aprovado', req.empresa.id)
+    return res.json({ ok: true, data: prospect })
+  } catch (err) {
+    const status = err.statusCode || 500
+    logger.error('POST prospeccao/aprovar:', err.message)
+    return res.status(status).json({ ok: false, error: { code: 'APROVAR_FAILED', message: err.message } })
+  }
+})
+
+// POST /api/empresas/:empresaId/prospeccao/prospects/:id/rejeitar
+router.post('/prospects/:id/rejeitar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const prospect = await atualizarStatusProspect(req.params.id, 'rejeitado', req.empresa.id)
+    return res.json({ ok: true, data: prospect })
+  } catch (err) {
+    const status = err.statusCode || 500
+    logger.error('POST prospeccao/rejeitar:', err.message)
+    return res.status(status).json({ ok: false, error: { code: 'REJEITAR_FAILED', message: err.message } })
+  }
+})
+
+// POST /api/empresas/:empresaId/prospeccao/prospects/lote  { ids: [], acao: 'aprovar'|'rejeitar' }
+router.post('/prospects/lote', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const { ids, acao } = req.body || {}
+  const status = acao === 'rejeitar' ? 'rejeitado' : acao === 'aprovar' ? 'aprovado' : null
+  if (!Array.isArray(ids) || !ids.length || !status) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe ids[] e acao (aprovar|rejeitar).' } })
+  }
+  try {
+    const prospects = await atualizarStatusProspectsLote(ids, status, req.empresa.id)
+    return res.json({ ok: true, data: prospects, meta: { atualizados: prospects.length } })
+  } catch (err) {
+    const code = err.statusCode || 500
+    logger.error('POST prospeccao/lote:', err.message)
+    return res.status(code).json({ ok: false, error: { code: 'LOTE_FAILED', message: err.message } })
   }
 })
 

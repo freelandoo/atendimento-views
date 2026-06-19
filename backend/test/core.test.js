@@ -6981,3 +6981,42 @@ test('fase3: todas as novas funcoes da fila de aprovacao estao exportadas', () =
   assert.ok(typeof prospecting.rejeitarProspectComMotivo === 'function', 'rejeitarProspectComMotivo deve existir')
   assert.ok(typeof prospecting.alterarOfertaProspect === 'function', 'alterarOfertaProspect deve existir')
 })
+
+test('atualizarStatusProspect: empresaId restringe o UPDATE ao tenant (isolamento multiempresa)', async () => {
+  const originalQuery = pool.query
+  let capturado = null
+  pool.query = async (sql, params) => {
+    capturado = { sql: String(sql), params }
+    return { rows: [{ id: params[0], status: params[1], empresa_id: params[2] }] }
+  }
+  try {
+    await atualizarStatusProspect('11111111-1111-1111-1111-111111111111', 'aprovado', 'e-123')
+    assert.match(capturado.sql, /empresa_id = \$3/)
+    assert.equal(capturado.params[2], 'e-123')
+
+    // Sem empresaId (caller legado): não adiciona filtro de empresa.
+    await atualizarStatusProspect('11111111-1111-1111-1111-111111111111', 'aprovado')
+    assert.doesNotMatch(capturado.sql, /empresa_id = \$3/)
+    assert.equal(capturado.params.length, 2)
+  } finally {
+    pool.query = originalQuery
+  }
+})
+
+test('atualizarStatusProspectsLote: empresaId restringe o UPDATE em lote ao tenant', async () => {
+  const originalQuery = pool.query
+  let capturado = null
+  pool.query = async (sql, params) => {
+    capturado = { sql: String(sql), params }
+    return { rows: [] }
+  }
+  try {
+    await atualizarStatusProspectsLote(
+      ['11111111-1111-1111-1111-111111111111'], 'rejeitado', 'e-123'
+    )
+    assert.match(capturado.sql, /empresa_id = \$3/)
+    assert.equal(capturado.params[2], 'e-123')
+  } finally {
+    pool.query = originalQuery
+  }
+})

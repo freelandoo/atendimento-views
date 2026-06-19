@@ -52,7 +52,7 @@ Reescreva aplicando as técnicas, honesto e denso.`
 async function refinarEstagiosComFrameworks({ genProvider, pool, log, empresaId, contextoId, estagios, conhecimento }) {
   const base = estagiosSvc.normalizarEstagios(estagios)
   const entradas = await Promise.all(
-    estagiosSvc.CHAVES_ETAPA.map(async (etapa) => {
+    estagiosSvc.CHAVES_FUNIL.map(async (etapa) => {
       try {
         const texto = await _refinarUmaEtapa({ genProvider, pool, log, empresaId, contextoId, etapa, texto: base[etapa], conhecimento })
         return [etapa, texto]
@@ -61,7 +61,8 @@ async function refinarEstagiosComFrameworks({ genProvider, pool, log, empresaId,
       }
     })
   )
-  const out = {}
+  // Preserva o bloco de informações (não é refinado pela IA).
+  const out = { [estagiosSvc.CHAVE_INFO]: base[estagiosSvc.CHAVE_INFO] }
   for (const [k, v] of entradas) out[k] = v
   return estagiosSvc.normalizarEstagios(out)
 }
@@ -125,6 +126,9 @@ async function gerarTudo({ pool, log, empresaId, contextoId, userId, aiProvider 
   // 4) Auto-crítica/refino aplicando os frameworks de venda.
   estagios = await refinarEstagiosComFrameworks({ genProvider, pool, log, empresaId, contextoId, estagios, conhecimento })
   marcar('estagios_refinados', {})
+
+  // 4b) Bloco de informações (fatos): auto-preenchido do formulário, fora da IA.
+  estagios = estagiosSvc.preencherInformacoesEstagio(estagios, ctxRow, { sobrescrever: true })
 
   // 5) Salvar estágios no contexto.
   const saved = await estagiosSvc.salvarEstagiosNoContexto(pool, empresaId, contextoId, estagios)

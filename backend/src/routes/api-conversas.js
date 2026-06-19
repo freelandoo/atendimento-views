@@ -8,6 +8,12 @@ const { enviarMensagem } = require('../whatsapp')
 const { calcularScoreInteresseLead } = require('../services/lead-interest-score')
 
 const router = Router({ mergeParams: true })
+const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
+
+function conversaEmpresaScope(alias = 'c') {
+  const prefix = alias ? `${alias}.` : ''
+  return `(${prefix}empresa_id = $1 OR ($1::uuid = $2::uuid AND ${prefix}empresa_id IS NULL))`
+}
 
 const LEAD_PROFILE_JOIN = `
        LEFT JOIN LATERAL (
@@ -44,14 +50,16 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   const offset = (page - 1) * limit
   const { status, estagio } = req.query
 
-  const conds = ['c.empresa_id = $1']
-  const vals = [req.empresa.id]
+  const conds = [conversaEmpresaScope('c')]
+  const vals = [req.empresa.id, PJ_EMPRESA_ID]
 
   if (status) { conds.push(`c.status = $${vals.push(status)}`); }
   if (estagio) { conds.push(`c.estagio = $${vals.push(estagio)}`); }
 
   const where = conds.join(' AND ')
 
+  const limitParam = vals.length + 1
+  const offsetParam = vals.length + 2
   const [{ rows }, { rows: [cnt] }] = await Promise.all([
     pool.query(
       `SELECT c.*, lp.negocio, lp.cidade, lp.temperatura_lead, lp.score_dor, lp.score_lead,
@@ -62,12 +70,12 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
        ${LEAD_PROFILE_JOIN}
        WHERE ${where}
        ORDER BY c.atualizado_em DESC
-       LIMIT $${vals.push(limit)} OFFSET $${vals.push(offset)}`,
-      vals
+       LIMIT $${limitParam} OFFSET $${offsetParam}`,
+      [...vals, limit, offset]
     ),
     pool.query(
       `SELECT COUNT(*) AS total FROM vendas.conversas c WHERE ${where}`,
-      vals.slice(0, vals.length - 2)
+      vals
     ),
   ])
 
@@ -84,8 +92,8 @@ router.get('/:numero', requireAuth, requireEmpresaAccess, async (req, res) => {
     `SELECT c.*, lp.*, c.numero AS numero, c.empresa_id AS empresa_id, c.atualizado_em AS atualizado_em
      FROM vendas.conversas c
      ${LEAD_PROFILE_JOIN}
-     WHERE c.empresa_id = $1 AND c.numero = $2`,
-    [req.empresa.id, req.params.numero]
+     WHERE ${conversaEmpresaScope('c')} AND c.numero = $3`,
+    [req.empresa.id, PJ_EMPRESA_ID, req.params.numero]
   )
   if (!conversa) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Conversa não encontrada.' } })
   return res.json({ ok: true, data: anexarScoreInteresse(conversa) })
@@ -106,8 +114,8 @@ router.delete('/:numero', requireAuth, requireEmpresaAccess, async (req, res) =>
       [req.params.numero]
     )
     const { rowCount } = await client.query(
-      `DELETE FROM vendas.conversas WHERE empresa_id = $1 AND numero = $2`,
-      [req.empresa.id, req.params.numero]
+      `DELETE FROM vendas.conversas WHERE ${conversaEmpresaScope('')} AND numero = $3`,
+      [req.empresa.id, PJ_EMPRESA_ID, req.params.numero]
     )
     await client.query('COMMIT')
     if (rowCount === 0) {
@@ -130,10 +138,11 @@ router.delete('/:numero/historico', requireAuth, requireEmpresaAccess, async (re
         SET historico = '[]'::jsonb,
             estagio = 'primeiro_contato',
             agente_pausado = false,
+            empresa_id = COALESCE(empresa_id, $1::uuid),
             atualizado_em = NOW()
-      WHERE empresa_id = $1 AND numero = $2
+      WHERE ${conversaEmpresaScope('')} AND numero = $3
       RETURNING numero, estagio, status, agente_pausado`,
-    [req.empresa.id, req.params.numero]
+    [req.empresa.id, PJ_EMPRESA_ID, req.params.numero]
   )
   if (!c) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Conversa não encontrada.' } })
   // Limpa também lead_insights desta conversa (mensagens analíticas do playbook runtime)
@@ -151,8 +160,8 @@ router.post('/:numero/reprocessar', requireAuth, requireEmpresaAccess, async (re
   const { rows: [conversa] } = await pool.query(
     `SELECT numero, historico, evolution_instance
        FROM vendas.conversas
-      WHERE empresa_id = $1 AND numero = $2`,
-    [req.empresa.id, req.params.numero]
+      WHERE ${conversaEmpresaScope('')} AND numero = $3`,
+    [req.empresa.id, PJ_EMPRESA_ID, req.params.numero]
   )
   if (!conversa) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Conversa nao encontrada.' } })
 
@@ -177,9 +186,10 @@ router.post('/:numero/reprocessar', requireAuth, requireEmpresaAccess, async (re
           SET ultima_falha_resposta_codigo = NULL,
               ultima_falha_resposta_msg = NULL,
               ultima_falha_resposta_em = NULL,
+              empresa_id = COALESCE(empresa_id, $1::uuid),
               atualizado_em = NOW()
-        WHERE empresa_id = $1 AND numero = $2`,
-      [req.empresa.id, conversa.numero]
+        WHERE ${conversaEmpresaScope('')} AND numero = $3`,
+      [req.empresa.id, PJ_EMPRESA_ID, conversa.numero]
     )
     return res.json({ ok: true, data: { numero: conversa.numero, reenviado: true, trecho: texto.slice(0, 200) } })
   } catch (err) {

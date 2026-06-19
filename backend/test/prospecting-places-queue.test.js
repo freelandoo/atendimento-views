@@ -164,6 +164,7 @@ test('places queue: chama Places, salva prospects via funcao reaproveitada e pre
     local: 'Salvador',
     quantidade: 60,
     origem: 'automatico',
+    empresaId: '00000000-0000-0000-0000-000000000001',
   })
   assert.equal(r.total_places_salvos, 2)
   assert.equal(r.total_candidatos, 2)

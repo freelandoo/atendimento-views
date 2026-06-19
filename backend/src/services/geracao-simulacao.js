@@ -9,7 +9,7 @@ const aiProviderModulo = require('../ai-provider')
 const { makeGenerationProvider } = require('../ai-provider')
 const estagiosSvc = require('./contexto-estagios')
 const { parsearRespostaJsonClaude } = require('../string-utils')
-const { FRAMEWORKS_VENDA, GUARDRAIL_ETICO, MAPA_POR_ETAPA } = require('./geracao-frameworks')
+const { FRAMEWORKS_VENDA, DIRETRIZ_PERSUASAO, MAPA_POR_ETAPA } = require('./geracao-frameworks')
 
 // Etapas onde "lidar com lead difícil" mais importa (default da simulação).
 const ETAPAS_PADRAO_SIMULACAO = ['diagnostico', 'objecao', 'fechamento']
@@ -52,7 +52,7 @@ async function _responderComoAgente({ runtimeProvider, estagio, conhecimento, me
 
 function _criticaSystem(etapa) {
   const tecnica = MAPA_POR_ETAPA[etapa] || ''
-  return `Você é um especialista sênior em vendas consultivas, copywriting e neuromarketing ÉTICO.
+  return `Você é um especialista sênior em vendas consultivas, copywriting e neuromarketing agressivo.
 Recebe: o PROMPT de uma etapa do funil, uma mensagem DIFÍCIL de um lead e a RESPOSTA que o modelo de atendimento deu usando esse prompt.
 
 Sua tarefa: avaliar criticamente a resposta e REESCREVER o prompt da etapa para que o modelo de atendimento
@@ -62,9 +62,9 @@ TÉCNICA PRIORIZADA DESTA ETAPA: ${tecnica}
 
 ${FRAMEWORKS_VENDA}
 
-${GUARDRAIL_ETICO}
+${DIRETRIZ_PERSUASAO}
 
-Responda APENAS com JSON válido: {"critica": "<o que falhou e por quê, 1-3 frases>", "estagio": "<o prompt da etapa reescrito, denso e honesto>"}`
+Responda APENAS com JSON válido: {"critica": "<o que falhou e por quê, 1-3 frases>", "estagio": "<o prompt da etapa reescrito, denso e persuasivo>"}`
 }
 
 async function _criticarERefinar({ genProvider, etapa, estagio, mensagemCliente, respostaAgente, conhecimento, pool, log, empresaId, contextoId }) {
@@ -109,7 +109,7 @@ async function simularERefinar({ pool, log, empresaId, contextoId, genProvider, 
   const runtime = runtimeProvider || aiProviderModulo
   const base = estagiosSvc.normalizarEstagios(estagios)
   const alvo = (Array.isArray(etapas) && etapas.length ? etapas : ETAPAS_PADRAO_SIMULACAO)
-    .filter((e) => estagiosSvc.CHAVES_ETAPA.includes(e) && _str(base[e]).trim())
+    .filter((e) => estagiosSvc.CHAVES_FUNIL.includes(e) && _str(base[e]).trim())
 
   const simulacoes = []
   const out = { ...base }

@@ -401,10 +401,24 @@ async function ativarContexto2({ pool, empresaId, versaoId, userId }) {
  *
  * Retorna { json, markdown, versao_id, ativado_em, contexto_id } ou null.
  */
+// Bloco de FATOS da empresa (verbatim do formulário/Contexto 1). É a fonte que o
+// runtime consulta ANTES de responder qualquer pergunta do lead.
+function _blocoInformacoesDoForm(c1) {
+  if (!c1 || typeof c1 !== 'object') return ''
+  return Object.entries(c1)
+    .filter(([, v]) => String(v ?? '').trim())
+    .map(([k, v]) => `${k.replace(/_/g, ' ').toUpperCase()}: ${String(v).trim()}`)
+    .join('\n')
+}
+
 function _enriquecerPlaybookComContexto1(playbookJson, contextoFormJson) {
   const out = playbookJson && typeof playbookJson === 'object' ? { ...playbookJson } : {}
   const c1 = contextoFormJson && typeof contextoFormJson === 'object' ? contextoFormJson : {}
   if (!out.precos_planos && c1.precos_planos) out.precos_planos = String(c1.precos_planos).trim()
+  // Sempre (re)injeta o bloco de informações da empresa — funciona inclusive para
+  // playbooks antigos que foram gerados antes deste campo existir.
+  const bloco = _blocoInformacoesDoForm(c1)
+  if (bloco) out.informacoes_empresa = bloco
   return out
 }
 

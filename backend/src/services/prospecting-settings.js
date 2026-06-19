@@ -67,41 +67,49 @@ function configProspeccaoPersistida(row) {
   }
 }
 
-async function garantirLinhaConfiguracao(pool) {
-  await pool.query(`
-    INSERT INTO prospectador.prospeccao_configuracoes (singleton_id)
-    VALUES (true)
-    ON CONFLICT (singleton_id) DO NOTHING
-  `)
+// Empresa padrão (PJ Codeworks): default para callers single-tenant legados
+// (scheduler, daily-queue, places-queue) — preserva o comportamento atual.
+const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
+
+async function garantirLinhaConfiguracao(pool, empresaId = PJ_EMPRESA_ID) {
+  await pool.query(
+    `INSERT INTO prospectador.prospeccao_configuracoes (empresa_id)
+     VALUES ($1)
+     ON CONFLICT (empresa_id) DO NOTHING`,
+    [empresaId]
+  )
 }
 
-async function obterConfiguracaoProspeccao(pool) {
-  await garantirLinhaConfiguracao(pool)
-  const { rows } = await pool.query(`
+async function obterConfiguracaoProspeccao(pool, empresaId = PJ_EMPRESA_ID) {
+  await garantirLinhaConfiguracao(pool, empresaId)
+  const { rows } = await pool.query(
+    `
     SELECT
-      singleton_id, ativo, modo, horario_inicio, horario_fim,
+      empresa_id, ativo, modo, horario_inicio, horario_fim,
       intervalo_envio_minutos, limite_diario, dias_semana_ativos,
       categoria_padrao, cidade_padrao, estado_padrao, regiao_padrao,
       gerar_mensagem_ia, envio_real_habilitado, criado_em, atualizado_em
     FROM prospectador.prospeccao_configuracoes
-    WHERE singleton_id = true
+    WHERE empresa_id = $1
     LIMIT 1
-  `)
+    `,
+    [empresaId]
+  )
   return configProspeccaoPersistida(rows[0] || null)
 }
 
-async function salvarConfiguracaoProspeccao(pool, payload = {}) {
+async function salvarConfiguracaoProspeccao(pool, payload = {}, empresaId = PJ_EMPRESA_ID) {
   const cfg = normalizarConfiguracaoProspeccao(payload)
   const { rows } = await pool.query(
     `
     INSERT INTO prospectador.prospeccao_configuracoes (
-      singleton_id, ativo, modo, horario_inicio, horario_fim,
+      empresa_id, ativo, modo, horario_inicio, horario_fim,
       intervalo_envio_minutos, limite_diario, dias_semana_ativos,
       categoria_padrao, cidade_padrao, estado_padrao, regiao_padrao,
       gerar_mensagem_ia, envio_real_habilitado
     )
-    VALUES (true, $1, $2, $3::time, $4::time, $5, $6, $7::smallint[], $8, $9, $10, $11, $12, $13)
-    ON CONFLICT (singleton_id) DO UPDATE
+    VALUES ($1, $2, $3, $4::time, $5::time, $6, $7, $8::smallint[], $9, $10, $11, $12, $13, $14)
+    ON CONFLICT (empresa_id) DO UPDATE
     SET ativo = EXCLUDED.ativo,
         modo = EXCLUDED.modo,
         horario_inicio = EXCLUDED.horario_inicio,
@@ -119,6 +127,7 @@ async function salvarConfiguracaoProspeccao(pool, payload = {}) {
     RETURNING *
     `,
     [
+      empresaId,
       cfg.ativo,
       cfg.modo,
       cfg.horario_inicio,

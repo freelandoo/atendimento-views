@@ -144,6 +144,7 @@ function createDbCrud({ pool, logger, serializeError }) {
         SET historico = EXCLUDED.historico,
             estagio = EXCLUDED.estagio,
             status = EXCLUDED.status,
+            empresa_id = COALESCE(vendas.conversas.empresa_id, EXCLUDED.empresa_id),
             evolution_instance = COALESCE(EXCLUDED.evolution_instance, vendas.conversas.evolution_instance),
             atualizado_em = NOW()
         `,
@@ -159,6 +160,7 @@ function createDbCrud({ pool, logger, serializeError }) {
             estagio = EXCLUDED.estagio,
             status = EXCLUDED.status,
             agente_pausado = EXCLUDED.agente_pausado,
+            empresa_id = COALESCE(vendas.conversas.empresa_id, EXCLUDED.empresa_id),
             evolution_instance = COALESCE(EXCLUDED.evolution_instance, vendas.conversas.evolution_instance),
             atualizado_em = NOW()
         `,

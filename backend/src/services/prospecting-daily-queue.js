@@ -4,6 +4,9 @@ const { obterConfiguracaoProspeccao } = require('./prospecting-settings')
 const { gerarSlotsEnvio } = require('./prospecting-scheduler')
 const { canProspectLead, normalizarNumeroProspeccao } = require('./prospecting-eligibility')
 
+// Empresa padrão (PJ): default p/ callers single-tenant — preserva o comportamento atual.
+const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
+
 function normalizarData(data) {
   if (data instanceof Date && !Number.isNaN(data.valueOf())) return data.toISOString().slice(0, 10)
   const texto = String(data || '').trim()
@@ -51,6 +54,10 @@ async function buscarCandidatosProspeccao(pool, filtros = {}) {
     "p.telefone IS NOT NULL",
     "p.status IN ('aguardando', 'aprovado')",
   ]
+  if (filtros.empresaId) {
+    params.push(filtros.empresaId)
+    where.push(`p.empresa_id = $${params.length}`)
+  }
   if (filtros.categoria) {
     params.push(`%${String(filtros.categoria).trim()}%`)
     where.push(`p.nicho ILIKE $${params.length}`)
@@ -323,14 +330,14 @@ async function listarBloqueiosProspeccao(pool, filtros = {}) {
   return { ok: true, total, items: rows.map(({ total_count, ...row }) => row) }
 }
 
-async function criarOuAtualizarExecucaoDiaria(pool, { dataExecucao, config, origem = 'simulacao', mercado = null }) {
+async function criarOuAtualizarExecucaoDiaria(pool, { dataExecucao, config, origem = 'simulacao', mercado = null, empresaId = PJ_EMPRESA_ID }) {
   const { rows } = await pool.query(
     `
     INSERT INTO prospectador.prospeccao_execucoes_diarias (
-      data_execucao, modo, status, config_snapshot, iniciado_em
+      data_execucao, empresa_id, modo, status, config_snapshot, iniciado_em
     )
-    VALUES ($1::date, $2, 'montando_fila', $3::jsonb, NOW())
-    ON CONFLICT (data_execucao) DO UPDATE
+    VALUES ($1::date, $4, $2, 'montando_fila', $3::jsonb, NOW())
+    ON CONFLICT (data_execucao, empresa_id) DO UPDATE
     SET modo = EXCLUDED.modo,
         status = 'montando_fila',
         config_snapshot = EXCLUDED.config_snapshot,
@@ -346,7 +353,7 @@ async function criarOuAtualizarExecucaoDiaria(pool, { dataExecucao, config, orig
         atualizado_em = NOW()
     RETURNING *
     `,
-    [dataExecucao, config?.modo || 'manual', JSON.stringify({ ...(config || {}), origem, mercado })]
+    [dataExecucao, config?.modo || 'manual', JSON.stringify({ ...(config || {}), origem, mercado }), empresaId]
   )
   return rows[0]
 }
@@ -369,11 +376,11 @@ async function inserirItemFila(pool, item) {
   const { rows } = await pool.query(
     `
     INSERT INTO prospectador.prospeccao_fila_diaria (
-      execucao_id, prospect_id, telefone_normalizado, nome_lead, categoria,
+      execucao_id, empresa_id, prospect_id, telefone_normalizado, nome_lead, categoria,
       cidade, estado, status, ordem, slot_envio, metadata_json
     )
     VALUES (
-      $1::uuid, $2::uuid, $3, $4, $5,
+      $1::uuid, $12, $2::uuid, $3, $4, $5,
       $6, $7, $8, $9, $10::timestamptz, $11::jsonb
     )
     ON CONFLICT DO NOTHING
@@ -391,6 +398,7 @@ async function inserirItemFila(pool, item) {
       item.ordem,
       item.slot_envio || null,
       JSON.stringify(item.metadata_json || {}),
+      item.empresa_id || PJ_EMPRESA_ID,
     ]
   )
   return rows[0] || null
@@ -424,12 +432,14 @@ async function atualizarTotaisExecucao(pool, execucaoId, totais) {
 }
 
 async function criarFilaDiariaSimulada(pool, input = {}) {
+  const empresaId = input.empresaId || PJ_EMPRESA_ID
   const dataExecucao = normalizarData(input.data_execucao || input.data || new Date())
-  const config = input.config || await obterConfiguracaoProspeccao(pool)
+  const config = input.config || await obterConfiguracaoProspeccao(pool, empresaId)
   const slots = gerarSlotsEnvio({ ...(config || {}), data: dataExecucao })
   const candidatos = Array.isArray(input.candidatos) && input.candidatos.length
     ? input.candidatos.map(normalizarCandidato)
     : await buscarCandidatosProspeccao(pool, {
+      empresaId,
       limit: input.limit || input.limite || Math.max((config?.limite_diario || 80) * 2, 80),
       categoria: input.categoria || config?.categoria_padrao || config?.categoria || null,
       cidade: input.cidade || config?.cidade_padrao || null,
@@ -438,6 +448,7 @@ async function criarFilaDiariaSimulada(pool, input = {}) {
   const execucao = await criarOuAtualizarExecucaoDiaria(pool, {
     dataExecucao,
     config,
+    empresaId,
     origem: Array.isArray(input.candidatos) && input.candidatos.length ? 'manual' : 'prospects',
     // Mercado escolhido (nicho/cidade) gravado p/ aparecer no log de execuções.
     mercado: {
@@ -472,6 +483,7 @@ async function criarFilaDiariaSimulada(pool, input = {}) {
 
     const item = await inserirItemFila(pool, {
       execucao_id: execucao.id,
+      empresa_id: empresaId,
       prospect_id: candidato.prospect_id || elegibilidade.existingProspectId || null,
       telefone_normalizado: elegibilidade.normalizedPhone,
       nome_lead: candidato.nome_lead,

@@ -31,7 +31,8 @@ async function carregarContexto(req, res, next) {
 
 // GET .../estagios — estágios atuais + meta do card
 router.get('/estagios', carregarContexto, async (req, res) => {
-  const estagios = estagiosSvc.normalizarEstagios(req.contexto.estagios_json)
+  // Bloco de informações: sempre reflete o formulário (mesma fonte que o runtime usa).
+  const estagios = estagiosSvc.preencherInformacoesEstagio(req.contexto.estagios_json, req.contexto, { sobrescrever: true })
   return res.json({
     ok: true,
     data: {
@@ -94,8 +95,8 @@ router.post('/estagios/gerar', carregarContexto, async (req, res) => {
   try {
     const etapa = req.body?.etapa
     if (etapa != null) {
-      if (!estagiosSvc.CHAVES_ETAPA.includes(etapa)) {
-        return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'etapa inválida.' } })
+      if (!estagiosSvc.CHAVES_FUNIL.includes(etapa)) {
+        return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'etapa inválida (o bloco de informações não é gerado por IA).' } })
       }
       const texto = await estagiosSvc.gerarUmaEtapaGenerica({ pool, log: logger, etapa })
       const estagios = estagiosSvc.normalizarEstagios({ ...estagiosSvc.normalizarEstagios(req.contexto.estagios_json), [etapa]: texto })
@@ -121,8 +122,8 @@ router.post('/estagios/importar-pj', carregarContexto, async (_req, res) => {
 router.post('/estagios/adaptar', carregarContexto, async (req, res) => {
   try {
     const etapa = req.body?.etapa
-    if (etapa != null && !estagiosSvc.CHAVES_ETAPA.includes(etapa)) {
-      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'etapa inválida.' } })
+    if (etapa != null && !estagiosSvc.CHAVES_FUNIL.includes(etapa)) {
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'etapa inválida (o bloco de informações não é adaptado por IA).' } })
     }
     let base = estagiosSvc.normalizarEstagios(req.body?.estagios)
     if (estagiosSvc.estagiosVazios(base)) {

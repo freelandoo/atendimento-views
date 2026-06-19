@@ -4,6 +4,8 @@ const { obterConfiguracaoProspeccao } = require('./prospecting-settings')
 const { criarFilaDiariaSimulada, buscarCandidatosProspeccao } = require('./prospecting-daily-queue')
 const { normalizarNumeroProspeccao } = require('./prospecting-eligibility')
 
+const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
+
 function textoOuNull(valor, max = 180) {
   const texto = String(valor == null ? '' : valor).trim()
   return texto ? texto.slice(0, max) : null
@@ -41,7 +43,8 @@ async function simularFilaDiariaComPlaces(pool, input = {}, deps = {}) {
     throw new Error('pesquisarPlacesFn e obrigatorio para simular fila com Places')
   }
 
-  const config = input.config || await obterConfiguracaoProspeccao(pool)
+  const empresaId = input.empresaId || PJ_EMPRESA_ID
+  const config = input.config || await obterConfiguracaoProspeccao(pool, empresaId)
   const busca = resolverBuscaPlaces(input, config)
   if (!busca.nicho || !busca.local) {
     const err = new Error('Informe categoria/nicho e cidade/regiao para buscar no Google Places.')
@@ -59,6 +62,7 @@ async function simularFilaDiariaComPlaces(pool, input = {}, deps = {}) {
       local: busca.local,
       quantidade: busca.quantidade,
       origem,
+      empresaId,
     })
   } catch (e) {
     if (!input.incluirBacklog) throw e
@@ -78,7 +82,7 @@ async function simularFilaDiariaComPlaces(pool, input = {}, deps = {}) {
   let totalBacklogAdicionado = 0
   if (input.incluirBacklog) {
     const limiteBacklog = Math.max((Number(config?.limite_diario) || 80) * 2, 80)
-    const backlog = await buscarCandidatosProspeccao(pool, { limit: limiteBacklog })
+    const backlog = await buscarCandidatosProspeccao(pool, { empresaId, limit: limiteBacklog })
     const vistos = new Set(candidatos.map((c) => normalizarNumeroProspeccao(c.telefone)).filter(Boolean))
     const extras = backlog.filter((b) => {
       const n = b.telefone_normalizado || normalizarNumeroProspeccao(b.telefone)
@@ -92,6 +96,7 @@ async function simularFilaDiariaComPlaces(pool, input = {}, deps = {}) {
 
   const fila = await criarFilaDiariaSimulada(pool, {
     ...input,
+    empresaId,
     config,
     candidatos: candidatosFinais,
     categoria: busca.nicho,

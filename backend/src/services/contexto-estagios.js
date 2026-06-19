@@ -9,7 +9,10 @@
 const prompts = require('../prompts')
 
 // Etapas e a referência (prompt da PJ) usada como ESTRUTURA para genericizar.
+// `informacoes_empresa` é especial: NÃO é reescrita por IA — é um bloco de FATOS
+// auto-preenchido a partir do formulário (Contexto 1). Marcado com `info: true`.
 const ETAPAS = [
+  { chave: 'informacoes_empresa', label: 'Informações da empresa (fatos — não é reescrito pela IA)', info: true },
   { chave: 'nucleo', label: 'Núcleo — regras gerais do agente', ref: 'SYSTEM_CORE_BASE' },
   { chave: 'primeiro_contato', label: 'Estágio: Primeiro contato', ref: 'SYSTEM_PRIMEIRO_CONTATO_BASE' },
   { chave: 'diagnostico', label: 'Estágio: Diagnóstico', ref: 'SYSTEM_DIAGNOSTICO_BASE' },
@@ -18,17 +21,22 @@ const ETAPAS = [
   { chave: 'fechamento', label: 'Estágio: Fechamento', ref: 'SYSTEM_FECHAMENTO_BASE' },
 ]
 const CHAVES_ETAPA = ETAPAS.map((e) => e.chave)
+// Estágios do FUNIL (reescritos/refinados por IA). Excluem o bloco de informações.
+const ETAPAS_FUNIL = ETAPAS.filter((e) => !e.info)
+const CHAVES_FUNIL = ETAPAS_FUNIL.map((e) => e.chave)
+const CHAVE_INFO = 'informacoes_empresa'
 
 function _str(v) { return typeof v === 'string' ? v : (v == null ? '' : String(v)) }
 
 // Lê os prompts atuais da PJ (system-core.md + system-*.md) como referência estrutural.
 function estagiosPjReferencia() {
   const out = {}
-  for (const e of ETAPAS) out[e.chave] = _str(prompts[e.ref]).trim()
+  for (const e of ETAPAS_FUNIL) out[e.chave] = _str(prompts[e.ref]).trim()
   return out
 }
 
-// Garante objeto com as 6 chaves (strings). Descarta chaves desconhecidas.
+// Garante objeto com TODAS as chaves (strings), inclusive o bloco de informações.
+// Descarta chaves desconhecidas.
 function normalizarEstagios(input) {
   const out = {}
   const src = input && typeof input === 'object' ? input : {}
@@ -36,8 +44,21 @@ function normalizarEstagios(input) {
   return out
 }
 
+// "Vazio" considera só os estágios do FUNIL — o bloco de informações é auto-preenchido
+// e não deve, sozinho, habilitar a ativação do contexto.
 function estagiosVazios(estagios) {
-  return CHAVES_ETAPA.every((c) => !_str(estagios?.[c]).trim())
+  return CHAVES_FUNIL.every((c) => !_str(estagios?.[c]).trim())
+}
+
+// Preenche o estágio `informacoes_empresa` com os FATOS do formulário (Contexto 1).
+// Por padrão só preenche se estiver vazio; `sobrescrever` força a atualização.
+function preencherInformacoesEstagio(estagios, ctxRow, { sobrescrever = false } = {}) {
+  const out = normalizarEstagios(estagios)
+  if (sobrescrever || !out[CHAVE_INFO]) {
+    const fatos = montarConhecimentoDoContexto(ctxRow)
+    if (fatos) out[CHAVE_INFO] = fatos
+  }
+  return out
 }
 
 // ─── Geração GENÉRICA (IA) — cacheada em memória (independe do contexto) ──────
@@ -81,7 +102,7 @@ async function gerarEstagiosGenericos({ pool, log, aiProvider, force = false } =
   if (_genericoCache && !force) return _genericoCache
   const ref = estagiosPjReferencia()
   const resultados = await Promise.all(
-    ETAPAS.map(async (e) => [e.chave, await _genericoDeUmaEtapa({ etapa: e.chave, refTexto: ref[e.chave], aiProvider, pool, log })])
+    ETAPAS_FUNIL.map(async (e) => [e.chave, await _genericoDeUmaEtapa({ etapa: e.chave, refTexto: ref[e.chave], aiProvider, pool, log })])
   )
   const out = {}
   for (const [chave, texto] of resultados) out[chave] = texto
@@ -124,7 +145,7 @@ async function _adaptarUmaEtapa({ etapa, generico, conhecimento, aiProvider, poo
 async function adaptarEstagios({ pool, log, aiProvider, empresaId, contextoId, estagios, conhecimento }) {
   const base = normalizarEstagios(estagios)
   const resultados = await Promise.all(
-    ETAPAS.map(async (e) => {
+    ETAPAS_FUNIL.map(async (e) => {
       const generico = base[e.chave]
       const adaptado = await _adaptarUmaEtapa({
         etapa: e.chave, generico, conhecimento, aiProvider, pool, log, empresaId, contextoId,
@@ -132,14 +153,15 @@ async function adaptarEstagios({ pool, log, aiProvider, empresaId, contextoId, e
       return [e.chave, adaptado || generico]
     })
   )
-  const out = {}
+  // Preserva o bloco de informações (não passa pela IA) ao remontar o conjunto.
+  const out = { [CHAVE_INFO]: base[CHAVE_INFO] }
   for (const [chave, texto] of resultados) out[chave] = texto
   return normalizarEstagios(out)
 }
 
 /** Adapta UMA etapa ao conhecimento do contexto (reusa _adaptarUmaEtapa). */
 async function adaptarUmaEtapa({ pool, log, aiProvider, empresaId, contextoId, etapa, generico, conhecimento }) {
-  if (!CHAVES_ETAPA.includes(etapa)) throw new Error(`etapa inválida: ${etapa}`)
+  if (!CHAVES_FUNIL.includes(etapa)) throw new Error(`etapa inválida: ${etapa}`)
   const texto = await _adaptarUmaEtapa({
     etapa, generico: _str(generico), conhecimento, aiProvider, pool, log, empresaId, contextoId,
   })
@@ -148,7 +170,7 @@ async function adaptarUmaEtapa({ pool, log, aiProvider, empresaId, contextoId, e
 
 /** Gera UMA etapa genérica (reusa _genericoDeUmaEtapa). Não usa cache. */
 async function gerarUmaEtapaGenerica({ pool, log, aiProvider, etapa }) {
-  if (!CHAVES_ETAPA.includes(etapa)) throw new Error(`etapa inválida: ${etapa}`)
+  if (!CHAVES_FUNIL.includes(etapa)) throw new Error(`etapa inválida: ${etapa}`)
   const ref = estagiosPjReferencia()
   return await _genericoDeUmaEtapa({ etapa, refTexto: ref[etapa], aiProvider, pool, log })
 }
@@ -241,7 +263,7 @@ async function getContextoAtivoComEstagios(pool, empresaId) {
   return {
     contexto_id: ctx.id,
     nome: ctx.nome,
-    estagios,
+    estagios: preencherInformacoesEstagio(estagios, ctx),
     conhecimento: montarConhecimentoDoContexto(ctx),
   }
 }
@@ -249,9 +271,13 @@ async function getContextoAtivoComEstagios(pool, empresaId) {
 module.exports = {
   ETAPAS,
   CHAVES_ETAPA,
+  ETAPAS_FUNIL,
+  CHAVES_FUNIL,
+  CHAVE_INFO,
   estagiosPjReferencia,
   normalizarEstagios,
   estagiosVazios,
+  preencherInformacoesEstagio,
   gerarEstagiosGenericos,
   invalidarGenericoCache,
   adaptarEstagios,
