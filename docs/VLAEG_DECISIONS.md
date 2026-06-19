@@ -114,7 +114,7 @@
 
 **Decisão estrutural pendente:** split físico `backend/` + `frontend/`. Aprovado pelo usuário, MAS como slice isolado com checkpoint — exige reconfigurar **Railway** (root/Dockerfile) e **Vercel** (root dir) nos painéis (ação do usuário), senão o deploy quebra.
 
-**Status:** Auditoria/correções ✅ · Split físico ⬜ (checkpoint)
+**Status:** Auditoria/correções ✅ · Split físico ✅ (executado 2026-06-19 — `backend/` + `frontend/`; pendente só a reconfig de Root Directory em Railway/Vercel pelo usuário)
 
 ---
 

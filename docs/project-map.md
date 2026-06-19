@@ -4,7 +4,12 @@ Mapa de pastas e responsabilidades. Consulte antes de qualquer alteração estru
 Stack: **Node.js + Express (JavaScript)**, PostgreSQL (`pg`), integração Anthropic,
 dashboard estático e jobs de prospecção.
 
-## Raiz
+> **Layout físico (split 2026-06-19):** o backend vive em **`backend/`** e o frontend
+> Next.js em **`frontend/`** (antigo `apps/web/`). Os caminhos abaixo (`index.js`, `src/…`,
+> `prompts/…`, `sql/…`) são relativos a `backend/`. Deploy: Railway com Root Directory
+> `backend/`, Vercel com Root Directory `frontend`.
+
+## Raiz de `backend/`
 - `index.js` — bootstrap: valida env obrigatórias, registra rotas, inicia servidor.
 - `index.monolith.js` — versão monolítica histórica (gerada/consolidada via `tools/build-split.cjs`).
 - `package.json` — scripts: `start`, `test`, `typecheck`, `smoke:preco`.

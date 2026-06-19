@@ -97,7 +97,7 @@ test('validarContexto2Playbook: preserva customização do usuário', () => {
 })
 
 // ─── Validador de "resposta genérica" usado no simulador frontend ────────────
-// Replica a lógica do avaliarGenerico (em apps/web) para garantir contrato.
+// Replica a lógica do avaliarGenerico (em frontend/) para garantir contrato.
 function avaliarGenerico(resposta, ctx, mensagemLead) {
   const r = (resposta || '').toLowerCase()
   const lead = (mensagemLead || '').toLowerCase()

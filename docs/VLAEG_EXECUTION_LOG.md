@@ -318,3 +318,30 @@ Todas com `requireAuth + requireEmpresaAccess`.
 **Validação:** `npm test` 693/693 ✅ · `npm run typecheck` ✅ · `apps/web` `tsc --noEmit` ✅.
 
 **Próximo:** Slice C — split físico `backend/` + `frontend/` (CHECKPOINT antes; exige reconfig Railway/Vercel pelo usuário).
+
+---
+
+## [2026-06-19] Slice C — Split físico `backend/` + `frontend/` ✅
+
+**O quê:** reorganização estrutural do monorepo. Tudo via `git mv` (265 arquivos detectados como rename — histórico preservado).
+
+### Movimentações
+- **`backend/`** ← `index.js`, `src/`, `prompts/`, `knowledge/`, `sql/`, `scripts/`, `tools/`, `test/`, `public/`, `whisper-service/`, `package.json`, `package-lock.json`, `Dockerfile`, `tsconfig.json`, `.env.example`.
+- **`frontend/`** ← antigo `apps/web/` (achatado; wrapper `apps/` removido).
+- **Raiz** mantém só governança/orquestração: `AGENTS.md`, `CLAUDE.md`, `README.md`, `docs/`, `docker-compose.yml`, `.gitignore`.
+
+### Ajustes de config (mínimos)
+- `docker-compose.yml`: `webhook` → `build: ./backend`; volumes `./backend/sql`, `./backend/logs`.
+- `Dockerfile`: **inalterado** (contexto de build passa a ser `backend/`, então os `COPY` relativos continuam corretos).
+- `backend/tsconfig.json` e `backend/package.json` (scripts `test`/`start`): **inalterados** (paths relativos resolvem dentro de `backend/`).
+- `.gitignore`: ignora `.next/` e `next-env.d.ts` (artefatos de build do Next, antes não cobertos); comentário `apps/web` → `frontend`.
+- `AGENTS.md`: nova seção "Estrutura física do repositório"; ref de frontend `apps/web` → `frontend/`.
+- `test/contexto2-conversao.test.js`: comentário `apps/web` → `frontend/`.
+
+### Validação
+- `backend/`: `npm test` 693/693 ✅ · `npm run typecheck` ✅.
+- `frontend/`: `tsc --noEmit` ✅ · `next build` ✅ (12 rotas).
+
+### ⚠️ Ação manual do usuário (senão o deploy quebra)
+- **Railway** (projeto `grateful-nourishment`, serviço `atendimento-views`): definir **Root Directory = `backend/`** (Dockerfile interno inalterado).
+- **Vercel** (projeto `atendimento-views`): mudar **Root Directory** de `apps/web` → `frontend`.

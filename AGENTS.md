@@ -17,6 +17,18 @@
 - Integra com PostgreSQL (`vendas` e `prospectador`) e Anthropic.
 - Possui dashboard estático para operação comercial e prospecção.
 
+## Estrutura física do repositório (split backend/frontend)
+- `backend/` — API Node/Express. Contém `index.js`, `src/`, `prompts/`, `knowledge/`,
+  `sql/`, `scripts/`, `tools/`, `test/`, `public/` (dashboard estático), `whisper-service/`,
+  `package.json`, `Dockerfile`, `tsconfig.json`. **Todos os caminhos `src/…`, `prompts/…`,
+  `sql/…` etc. citados neste guia são relativos a `backend/`.** Rode `npm test`/`npm start`
+  de dentro de `backend/`.
+- `frontend/` — app Next.js (App Router). Deploy Vercel com **Root Directory = `frontend`**.
+- Raiz — só governança e orquestração: `AGENTS.md`, `CLAUDE.md`, `README.md`, `docs/`,
+  `docker-compose.yml`, `.gitignore`.
+- **Deploy:** Railway (serviço `atendimento-views`) com **Root Directory = `backend/`**
+  (Dockerfile interno inalterado); Vercel com **Root Directory = `frontend`**.
+
 ## Fluxo técnico principal
 1. `index.js` inicia servidor, valida variáveis obrigatórias e registra rotas.
 2. `src/routes.js` conecta os módulos HTTP.
@@ -143,7 +155,7 @@ padrão/seed (`empresa_id` `00000000-…-0001`).
   conhecimento (contexto por link), criação de instâncias WhatsApp, conversas, relatórios, LLM.
 - **Serviços**: `src/services/contexto-empresa.js`, `contexto2-runtime.js`,
   `knowledge-ingestion.js` (ingestão de URL/arquivo), `url-sanitize.js`, `relatorio.js`, `resumo-conversa.js`.
-- **Frontend**: `apps/web` (Next.js App Router) — consome `/api/*`. Deploy Vercel.
+- **Frontend**: `frontend/` (Next.js App Router) — consome `/api/*`. Deploy Vercel.
 - **Envs novas**: `JWT_SECRET` (defina em produção), `JWT_EXPIRES_IN`, `ADMIN_EMAIL/ADMIN_PASSWORD/ADMIN_NOME`
   (caem para `DASHBOARD_ADMIN_*`), `FRONTEND_URL` (CORS). Ver `.env.example`.
 

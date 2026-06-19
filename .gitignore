@@ -45,5 +45,9 @@ restore-*.sh
 sync-railway.sh
 upload*.ps1
 
-# Artefatos de build do TypeScript (regeneráveis; ex.: apps/web/tsconfig.tsbuildinfo)
+# Artefatos de build do TypeScript (regeneráveis; ex.: frontend/tsconfig.tsbuildinfo)
 *.tsbuildinfo
+
+# Next.js (frontend/) — artefatos de build regeneráveis e tipos gerados
+.next/
+next-env.d.ts

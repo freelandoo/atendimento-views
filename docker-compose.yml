@@ -38,15 +38,15 @@ services:
       CACHE_REDIS_URI: "redis://redis:6379"
 
   webhook:
-    build: .
+    build: ./backend
     ports:
       - "3000:3000"
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      - ./sql:/app/sql:ro
-      - ./logs:/app/logs
+      - ./backend/sql:/app/sql:ro
+      - ./backend/logs:/app/logs
     environment:
       ANTHROPIC_KEY: "${ANTHROPIC_KEY}"
       OPENAI_KEY: "${OPENAI_KEY:-}"
