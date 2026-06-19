@@ -23,6 +23,7 @@ ALTER TABLE vendas.conversas ADD COLUMN IF NOT EXISTS ultima_falha_resposta_em T
 ALTER TABLE vendas.conversas ADD COLUMN IF NOT EXISTS arquivado BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE vendas.conversas ADD COLUMN IF NOT EXISTS motivo_arquivamento TEXT;
 ALTER TABLE vendas.conversas ADD COLUMN IF NOT EXISTS arquivado_em TIMESTAMPTZ;
+ALTER TABLE vendas.conversas ADD COLUMN IF NOT EXISTS evolution_instance TEXT;
 
 -- Perfil detalhado do lead (separado para não poluir histórico)
 CREATE TABLE IF NOT EXISTS vendas.lead_profiles (

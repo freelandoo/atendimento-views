@@ -192,7 +192,7 @@ function registerWebhookRoute(app, deps = {}) {
     
         // empresa resolvida pela instância Evolution (resolveEmpresaFromWebhook),
         // com fallback PJ; fixa o dono da conversa na criação. Roteamento multiempresa.
-        await salvarConversa(numero, historico, estagio, conversa?.status || 'ativo', undefined, req.empresaId)
+        await salvarConversa(numero, historico, estagio, conversa?.status || 'ativo', undefined, req.empresaId, req.evolutionInstance)
         if (perfilProspeccaoPatch) {
           await atualizarPerfil(numero, perfilProspeccaoPatch)
         }

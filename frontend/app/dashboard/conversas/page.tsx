@@ -23,7 +23,12 @@ function TempBadge({ t }: { t?: string | null }) {
   return <span className={`px-2 py-0.5 rounded-full text-xs ${TEMP_STYLE[t].cls}`}>{TEMP_STYLE[t].label}</span>
 }
 type Mensagem = { role?: string; content?: string; text?: string; timestamp?: string }
-type ConversaDetail = Conversa & { historico?: Mensagem[] }
+type ConversaDetail = Conversa & {
+  historico?: Mensagem[]
+  ultima_falha_resposta_codigo?: string | null
+  ultima_falha_resposta_msg?: string | null
+  ultima_falha_resposta_em?: string | null
+}
 
 function fmtNumero(n: string): string {
   return String(n || '').replace('@s.whatsapp.net', '').replace(/^(\d{2})(\d{2})(\d)(\d{4})(\d{4})$/, '+$1 ($2) $3$4-$5')
@@ -40,6 +45,7 @@ export default function ConversasPage() {
   const [aberta, setAberta] = useState<ConversaDetail | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [apagando, setApagando] = useState(false)
+  const [reenviando, setReenviando] = useState(false)
 
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
 
@@ -92,6 +98,29 @@ export default function ConversasPage() {
       setApagando(false)
     }
   }
+
+  async function reenviarUltimaResposta() {
+    if (!aberta || !empresaId) return
+    setReenviando(true)
+    setErro('')
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(aberta.numero)}/reprocessar`, { method: 'POST' })
+      setAberta((p) => p ? {
+        ...p,
+        ultima_falha_resposta_codigo: null,
+        ultima_falha_resposta_msg: null,
+        ultima_falha_resposta_em: null,
+      } : p)
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : 'Erro ao reenviar.')
+    } finally {
+      setReenviando(false)
+    }
+  }
+
+  const historicoAberto = aberta?.historico || []
+  const ultimaMensagemAberta = historicoAberto[historicoAberto.length - 1]
+  const podeReenviarUltimaResposta = ultimaMensagemAberta?.role === 'assistant'
 
   return (
     <div className="space-y-6">
@@ -212,13 +241,20 @@ export default function ConversasPage() {
               )}
             </div>
 
-            <div className="px-5 py-3 border-t flex justify-between items-center gap-3">
+            <div className="px-5 py-3 border-t flex flex-wrap justify-between items-center gap-3">
               <button
                 onClick={deletarHistorico}
                 disabled={apagando || !aberta.historico?.length}
                 className="text-xs px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {apagando ? 'Apagando…' : 'Deletar histórico'}
+              </button>
+              <button
+                onClick={reenviarUltimaResposta}
+                disabled={reenviando || !podeReenviarUltimaResposta}
+                className="text-xs px-3 py-2 rounded-lg bg-brand text-white hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {reenviando ? 'Reenviando...' : 'Reenviar WhatsApp'}
               </button>
               <button
                 onClick={() => setAberta(null)}

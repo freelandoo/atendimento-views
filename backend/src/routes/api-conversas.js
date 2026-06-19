@@ -4,6 +4,7 @@ const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { gerarESalvarResumo, buscarUltimoResumo } = require('../services/resumo-conversa')
 const { logger } = require('../logger')
+const { enviarMensagem } = require('../whatsapp')
 
 const router = Router({ mergeParams: true })
 
@@ -110,6 +111,45 @@ router.delete('/:numero/historico', requireAuth, requireEmpresaAccess, async (re
     [req.empresa.id, req.params.numero]
   ).catch(() => {})
   return res.json({ ok: true, data: c })
+})
+
+// POST /api/empresas/:empresaId/conversas/:numero/reprocessar
+// Reenvia a ultima resposta do agente quando ela ja esta no historico, mas nao chegou no WhatsApp.
+router.post('/:numero/reprocessar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const { rows: [conversa] } = await pool.query(
+    `SELECT numero, historico
+       FROM vendas.conversas
+      WHERE empresa_id = $1 AND numero = $2`,
+    [req.empresa.id, req.params.numero]
+  )
+  if (!conversa) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Conversa nao encontrada.' } })
+
+  const historico = Array.isArray(conversa.historico) ? conversa.historico : []
+  const ultimaResposta = historico[historico.length - 1]
+  if (!ultimaResposta || ultimaResposta.role !== 'assistant') {
+    return res.status(400).json({ ok: false, error: { code: 'LAST_MESSAGE_NOT_ASSISTANT', message: 'A ultima mensagem do historico nao e uma resposta do agente.' } })
+  }
+  const texto = String(ultimaResposta?.content || ultimaResposta?.text || '').trim()
+  if (!texto) {
+    return res.status(400).json({ ok: false, error: { code: 'NO_ASSISTANT_MESSAGE', message: 'Nenhuma resposta do agente para reenviar.' } })
+  }
+
+  try {
+    await enviarMensagem(conversa.numero, texto)
+    await pool.query(
+      `UPDATE vendas.conversas
+          SET ultima_falha_resposta_codigo = NULL,
+              ultima_falha_resposta_msg = NULL,
+              ultima_falha_resposta_em = NULL,
+              atualizado_em = NOW()
+        WHERE empresa_id = $1 AND numero = $2`,
+      [req.empresa.id, conversa.numero]
+    )
+    return res.json({ ok: true, data: { numero: conversa.numero, reenviado: true, trecho: texto.slice(0, 200) } })
+  } catch (err) {
+    logger.error({ err: err.message, numero: conversa.numero }, 'Reprocessar conversa falhou')
+    return res.status(502).json({ ok: false, error: { code: 'WHATSAPP_SEND_FAILED', message: err.message || 'Falha ao reenviar WhatsApp.' } })
+  }
 })
 
 // GET /api/empresas/:empresaId/conversas/:numero/resumo

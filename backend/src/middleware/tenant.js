@@ -64,6 +64,7 @@ async function resolveEmpresaFromWebhook(req, _res, next) {
     req.body?.sender ||
     req.headers['x-evolution-instance'] ||
     null
+  req.evolutionInstance = instanceName || null
 
   if (!instanceName) {
     req.empresaId = PJ_EMPRESA_ID

@@ -122,10 +122,13 @@ function createDbCrud({ pool, logger, serializeError }) {
   // PJ (mesmo resultado do DEFAULT da coluna), preservando 100% o comportamento
   // single-tenant atual. ON CONFLICT NÃO altera empresa_id — a empresa é fixada na
   // criação da conversa (1ª mensagem) e nunca migra de dono.
-  async function salvarConversa(numero, historico, estagio, status = 'ativo', agentePausado = undefined, empresaId = null) {
+  async function salvarConversa(numero, historico, estagio, status = 'ativo', agentePausado = undefined, empresaId = null, evolutionInstance = null) {
     const estagioNorm = normalizarEstagio(estagio, 'diagnostico')
     const arr = Array.isArray(historico) ? historico : []
     const PJ = '00000000-0000-0000-0000-000000000001'
+    const instance = typeof evolutionInstance === 'string' && evolutionInstance.trim()
+      ? evolutionInstance.trim()
+      : null
     let jsonText
     try {
       jsonText = JSON.stringify(arr)
@@ -135,29 +138,31 @@ function createDbCrud({ pool, logger, serializeError }) {
     if (agentePausado === undefined) {
       await pool.query(
         `
-        INSERT INTO vendas.conversas (numero, historico, estagio, status, empresa_id)
-        VALUES ($1, $2::jsonb, $3, $4, COALESCE($5::uuid, $6::uuid))
+        INSERT INTO vendas.conversas (numero, historico, estagio, status, empresa_id, evolution_instance)
+        VALUES ($1, $2::jsonb, $3, $4, COALESCE($5::uuid, $6::uuid), $7)
         ON CONFLICT (numero) DO UPDATE
         SET historico = EXCLUDED.historico,
             estagio = EXCLUDED.estagio,
             status = EXCLUDED.status,
+            evolution_instance = COALESCE(EXCLUDED.evolution_instance, vendas.conversas.evolution_instance),
             atualizado_em = NOW()
         `,
-        [numero, jsonText, estagioNorm, status, empresaId, PJ]
+        [numero, jsonText, estagioNorm, status, empresaId, PJ, instance]
       )
     } else {
       await pool.query(
         `
-        INSERT INTO vendas.conversas (numero, historico, estagio, status, agente_pausado, empresa_id)
-        VALUES ($1, $2::jsonb, $3, $4, $5, COALESCE($6::uuid, $7::uuid))
+        INSERT INTO vendas.conversas (numero, historico, estagio, status, agente_pausado, empresa_id, evolution_instance)
+        VALUES ($1, $2::jsonb, $3, $4, $5, COALESCE($6::uuid, $7::uuid), $8)
         ON CONFLICT (numero) DO UPDATE
         SET historico = EXCLUDED.historico,
             estagio = EXCLUDED.estagio,
             status = EXCLUDED.status,
             agente_pausado = EXCLUDED.agente_pausado,
+            evolution_instance = COALESCE(EXCLUDED.evolution_instance, vendas.conversas.evolution_instance),
             atualizado_em = NOW()
         `,
-        [numero, jsonText, estagioNorm, status, agentePausado, empresaId, PJ]
+        [numero, jsonText, estagioNorm, status, agentePausado, empresaId, PJ, instance]
       )
     }
   }

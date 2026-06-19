@@ -7177,6 +7177,16 @@ app.post('/dashboard/reprocessar', async (req, res) => {
     }
     const historicoBruto = normalizarHistoricoMensagens(conversa.historico)
     const estagio = conversa.estagio || 'primeiro_contato'
+    const ultima = historicoBruto[historicoBruto.length - 1]
+    if (ultima?.role === 'assistant') {
+      const texto = String(ultima.content || ultima.text || '').trim()
+      if (!texto) {
+        return res.status(400).json({ ok: false, erro: 'Ultima resposta do agente esta vazia.' })
+      }
+      await enviarMensagem(numero, texto)
+      await limparFalhaResposta(numero)
+      return res.json({ ok: true, trecho: texto.slice(0, 200), reenviado: true })
+    }
     const info = await gerarEEnviarRespostaWhatsapp(
       numero,
       historicoBruto,

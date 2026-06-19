@@ -466,6 +466,9 @@ async function initDB() {
     await pool.query(
       `ALTER TABLE vendas.conversas ADD COLUMN IF NOT EXISTS ultima_falha_resposta_em TIMESTAMP`
     )
+    await pool.query(
+      `ALTER TABLE vendas.conversas ADD COLUMN IF NOT EXISTS evolution_instance TEXT`
+    )
     await pool.query(`ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS temperatura_lead TEXT`)
     await pool.query(`ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS precificacao_json JSONB`)
     await pool.query(`ALTER TABLE vendas.lead_profiles ADD COLUMN IF NOT EXISTS precisa_sistema BOOLEAN`)
