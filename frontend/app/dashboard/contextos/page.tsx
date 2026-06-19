@@ -1076,7 +1076,7 @@ function AgentePanel({ empresaId }: { empresaId: string }) {
   )
 }
 
-// ─── Estágios POR contexto (Gerar / Importar PJ / Adaptar / Salvar + thumbnail) ──
+// ─── Estágios POR contexto: "Gerar tudo" (fluxo único) + edição manual + thumbnail ──
 type EstagiosResp = {
   etapas: { chave: string; label: string }[]
   estagios: Record<string, string>
@@ -1125,46 +1125,32 @@ function CardEstagios({ empresaId, contextoId, contextoNome, onAtivacao }: {
     setDirty(true)
   }
 
-  async function acao(nome: 'gerar' | 'adaptar' | 'importar') {
-    setBusy(nome)
+  // Fluxo ÚNICO: lê link/PDF (fontes já adicionadas acima) → preenche Contexto 1 →
+  // gera Núcleo + 5 estágios (com técnicas de venda + auto-crítica) → cria o playbook.
+  // O backend já SALVA os estágios e cria a versão do playbook.
+  async function gerarTudo() {
+    setBusy('gerar-tudo')
     setMsg(null)
     try {
-      const path = nome === 'gerar' ? 'estagios/gerar' : nome === 'adaptar' ? 'estagios/adaptar' : 'estagios/importar-pj'
-      const opts: RequestInit = { method: 'POST' }
-      if (nome === 'adaptar') opts.body = JSON.stringify({ estagios })
-      const r = await apiFetch<{ estagios: Record<string, string> }>(`/api/empresas/${empresaId}/contextos/${contextoId}/${path}`, opts)
-      setEstagios(r.data.estagios || {})
-      setDirty(true)
-      setMsg({
-        tone: 'ok',
-        text: nome === 'gerar'
-          ? 'Estágios genéricos gerados — revise e salve.'
-          : nome === 'adaptar'
-            ? 'Estágios adaptados ao contexto — revise e salve.'
-            : 'Estágios da PJ importados — revise e salve.',
+      const r = await apiFetch<{
+        estagios: Record<string, string>
+        playbook: { versao?: number } | null
+        passos: { etapa: string; erro?: string }[]
+      }>(`/api/empresas/${empresaId}/contextos/${contextoId}/gerar-tudo`, {
+        method: 'POST',
+        timeoutMs: 600000, // pode levar 1-2 min (várias chamadas de IA encadeadas)
       })
+      if (r.data.estagios) setEstagios(r.data.estagios)
+      setDirty(false) // o backend já salvou os estágios
+      const erros = (r.data.passos || []).filter((p) => p.erro)
+      setMsg(
+        erros.length
+          ? { tone: 'err', text: `Gerado com avisos em: ${erros.map((e) => e.etapa).join(', ')}. Revise os campos.` }
+          : { tone: 'ok', text: 'Tudo gerado: Contexto 1, estágios e playbook comercial. Revise, edite se quiser e ative.' }
+      )
+      await onAtivacao()
     } catch (e: unknown) {
-      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Falha na operação.' })
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  // Gera/adapta UMA etapa por vez (botão dentro de cada estágio). Mescla a etapa devolvida.
-  async function acaoEtapa(nome: 'gerar' | 'adaptar', chave: string) {
-    setBusy(`${nome}:${chave}`)
-    setMsg(null)
-    try {
-      const path = nome === 'gerar' ? 'estagios/gerar' : 'estagios/adaptar'
-      const body = nome === 'adaptar' ? { etapa: chave, estagios } : { etapa: chave }
-      const r = await apiFetch<{ estagios: Record<string, string> }>(`/api/empresas/${empresaId}/contextos/${contextoId}/${path}`, {
-        method: 'POST', body: JSON.stringify(body),
-      })
-      setEstagios((p) => ({ ...p, [chave]: (r.data.estagios || {})[chave] ?? p[chave] }))
-      setDirty(true)
-      setMsg({ tone: 'ok', text: nome === 'gerar' ? 'Etapa gerada (genérica) — revise e salve.' : 'Etapa adaptada ao contexto — revise e salve.' })
-    } catch (e: unknown) {
-      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Falha na operação.' })
+      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Falha ao gerar.' })
     } finally {
       setBusy(null)
     }
@@ -1241,20 +1227,23 @@ function CardEstagios({ empresaId, contextoId, contextoNome, onAtivacao }: {
         <button onClick={() => enviarThumb(thumbUrl.trim() || null)} disabled={busy === 'thumb' || !thumbUrl.trim()} className="text-xs px-2 py-1 rounded-lg border disabled:opacity-50">Usar URL</button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <button onClick={() => acao('gerar')} disabled={!!busy} className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 disabled:opacity-50">
-          {busy === 'gerar' ? 'Gerando…' : 'Gerar estágios (genéricos)'}
-        </button>
-        <button onClick={() => acao('importar')} disabled={!!busy} className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 disabled:opacity-50">
-          {busy === 'importar' ? 'Importando…' : 'Importar da PJ'}
-        </button>
-        <button onClick={() => acao('adaptar')} disabled={!!busy || !temConhecimento} title={temConhecimento ? '' : 'Preencha o Contexto 1 / fontes antes'} className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
-          {busy === 'adaptar' ? 'Adaptando…' : 'Adaptar estágios ao contexto'}
+      <div className="flex flex-wrap gap-2 items-center">
+        <button
+          onClick={gerarTudo}
+          disabled={!!busy}
+          className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {busy === 'gerar-tudo' ? 'Gerando tudo… (pode levar 1-2 min)' : '✨ Gerar tudo (Contexto 1 + estágios + playbook)'}
         </button>
         <button onClick={salvar} disabled={!!busy || !dirty} className="text-xs px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-dark disabled:opacity-50">
-          {busy === 'salvar' ? 'Salvando…' : 'Salvar estágios no contexto'}
+          {busy === 'salvar' ? 'Salvando…' : 'Salvar edições'}
         </button>
       </div>
+      {!temConhecimento && (
+        <p className="text-[11px] text-amber-600">
+          Dica: adicione o link do site e/ou um PDF nas <strong>fontes</strong> acima antes de gerar — a IA usa isso pra preencher tudo.
+        </p>
+      )}
 
       {msg && <p className={`text-xs ${msg.tone === 'ok' ? 'text-brand' : 'text-red-600'}`}>{msg.text}</p>}
 
@@ -1283,23 +1272,6 @@ function CardEstagios({ empresaId, contextoId, contextoNome, onAtivacao }: {
                       spellCheck={false}
                       className="w-full border rounded-lg px-3 py-2 text-[11px] font-mono"
                     />
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => acaoEtapa('gerar', et.chave)}
-                        disabled={!!busy}
-                        className="text-[11px] px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
-                      >
-                        {busy === `gerar:${et.chave}` ? 'Gerando…' : 'Gerar genérico'}
-                      </button>
-                      <button
-                        onClick={() => acaoEtapa('adaptar', et.chave)}
-                        disabled={!!busy || !temConhecimento}
-                        title={temConhecimento ? '' : 'Preencha o Contexto 1 / fontes antes'}
-                        className="text-[11px] px-2.5 py-1 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
-                      >
-                        {busy === `adaptar:${et.chave}` ? 'Adaptando…' : 'Adaptar conforme o contexto'}
-                      </button>
-                    </div>
                   </div>
                 )}
               </div>
