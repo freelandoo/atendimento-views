@@ -141,6 +141,8 @@ function createCoreFunnel(deps = {}) {
     // o funil roda 100% no agente legado (PJ Codeworks), comportamento atual.
     getContextoAtivoEmpresa,
     processarMensagemComPlaybook,
+    // Modelo unificado: contexto ativo com estágios próprios (Núcleo + 5). Opcional.
+    getContextoAtivoComEstagios,
     // Pause global do agente por empresa (config.agente_pausado). Opcional.
     empresaAgentePausada,
   } = deps
@@ -1074,11 +1076,25 @@ function createCoreFunnel(deps = {}) {
       }
     }
 
-    // ── Roteamento multiempresa ───────────────────────────────────────────────
-    // Empresas com Contexto 2 ATIVO respondem pelo próprio playbook, não pelo
-    // agente legado (PJ Codeworks). A PJ não tem Contexto 2 → cai no fluxo legado
-    // abaixo, inalterado. Gate com cache de 60s (getContextoAtivoEmpresa).
+    // ── Modelo unificado: contexto ATIVO com estágios próprios ────────────────
+    // Se a empresa tem um contexto ativo COM estágios salvos, o agente roda pelo
+    // MESMO fluxo legado (agenda, follow-up, etc.), porém com Núcleo + estágio +
+    // conhecimento DAQUELE contexto injetados no system prompt (via chamarClaudeTurno).
+    let ctxEstagiosTurno = null
+    if (empresaIdConversa && typeof getContextoAtivoComEstagios === 'function') {
+      try {
+        ctxEstagiosTurno = await getContextoAtivoComEstagios(pool, empresaIdConversa)
+      } catch (e) {
+        logger.warn({ err: e.message, empresa_id: empresaIdConversa }, 'Falha ao carregar contexto ativo com estágios — seguindo sem injeção')
+        ctxEstagiosTurno = null
+      }
+    }
+
+    // ── Roteamento de playbook (TRANSITÓRIO) ──────────────────────────────────
+    // Só quando NÃO há contexto com estágios. Empresa com Contexto 2 ativo (sem
+    // estágios) ainda responde pelo playbook. PJ sem nada cai no fluxo legado.
     if (
+      !ctxEstagiosTurno &&
       empresaIdConversa &&
       typeof getContextoAtivoEmpresa === 'function' &&
       typeof processarMensagemComPlaybook === 'function'
@@ -1102,6 +1118,16 @@ function createCoreFunnel(deps = {}) {
         })
       }
     }
+
+    // Toda chamada ao Claude deste turno injeta os estágios+conhecimento do
+    // contexto ativo (quando houver). Sem contexto ativo, é o chamarClaude normal.
+    const chamarClaudeTurno = (h, e, p, v, opc = {}) =>
+      ctxEstagiosTurno
+        ? chamarClaude(h, e, p, v, {
+          ...opc,
+          _flags_extras: { ...(opc && opc._flags_extras ? opc._flags_extras : {}), contextoEstagios: ctxEstagiosTurno },
+        })
+        : chamarClaude(h, e, p, v, opc)
 
     let perfil = await buscarPerfil(numero)
     if (!perfil.numero) perfil = { ...perfil, numero }
@@ -1333,7 +1359,7 @@ function createCoreFunnel(deps = {}) {
           disponibilidade: disponibilidadeSemana,
         })
         : null
-      resultado = await chamarClaude(historicoParaClaude, estagioLive, perfil, visaoUltimaMensagem, {
+      resultado = await chamarClaudeTurno(historicoParaClaude, estagioLive, perfil, visaoUltimaMensagem, {
         stale_retry: opcoes?.stale_retry === true,
         ...(nextActionContext ? { nextActionContext } : {}),
       })
@@ -1352,7 +1378,7 @@ function createCoreFunnel(deps = {}) {
             disponibilidade: disponibilidadeSemana,
           })
           : null
-        resultado = await chamarClaude(historicoParaClaude, estagioLive, perfil, visaoUltimaMensagem, {
+        resultado = await chamarClaudeTurno(historicoParaClaude, estagioLive, perfil, visaoUltimaMensagem, {
           stale_retry: opcoes?.stale_retry === true,
           max_tokens_override: 4000,
           parse_retry: true,
@@ -1403,7 +1429,7 @@ function createCoreFunnel(deps = {}) {
           disponibilidade: disponibilidadeSemana,
           observacaoAgenda: `O lead parece ter escolhido um horario, mas voce NAO devolveu reuniao_escolha. Se ele escolheu um dos horarios ofertados (${slotsPersistidos.join(', ')}), devolva reuniao_escolha {data, horario} com esse horario. Se NAO escolheu, conduza normalmente (sem inventar horario).`,
         })
-        const repRes = await chamarClaude(historicoParaClaude, estagioLive, perfil, visaoUltimaMensagem, {
+        const repRes = await chamarClaudeTurno(historicoParaClaude, estagioLive, perfil, visaoUltimaMensagem, {
           stale_retry: opcoes?.stale_retry === true,
           nextActionContext: ctxRep,
         })
@@ -1524,7 +1550,7 @@ function createCoreFunnel(deps = {}) {
             disponibilidade: dispFresca,
             observacaoAgenda,
           })
-          resultado = await chamarClaude(historicoParaClaude, estagioLive, perfil, visaoUltimaMensagem, {
+          resultado = await chamarClaudeTurno(historicoParaClaude, estagioLive, perfil, visaoUltimaMensagem, {
             stale_retry: opcoes?.stale_retry === true,
             nextActionContext: ctxReoferta,
           })
@@ -1627,7 +1653,7 @@ function createCoreFunnel(deps = {}) {
         try {
           logger.warn('[validador] tentando regenerar resposta bloqueada', { numero: numeroMascarado, estagio: estagioLive })
           const histCorrecao = historicoComInstrucaoOperadorParaClaude(historicoParaClaude, instrucaoCorrecao)
-          const resultadoCorrigido = await chamarClaude(histCorrecao, estagioLive, perfil, visaoUltimaMensagem, {
+          const resultadoCorrigido = await chamarClaudeTurno(histCorrecao, estagioLive, perfil, visaoUltimaMensagem, {
             stale_retry: false,
             correction_retry: true,
             max_tokens_override: 800,

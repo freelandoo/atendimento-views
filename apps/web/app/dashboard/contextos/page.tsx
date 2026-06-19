@@ -8,6 +8,8 @@ type Contexto = {
   conteudo: string
   contexto_form_json: Record<string, string>
   criado_em: string
+  ativo?: boolean
+  thumbnail_url?: string | null
 }
 type Versao = {
   id: string
@@ -221,6 +223,17 @@ export default function ContextosPage() {
     }
   }
 
+  async function ativarContexto(c: Contexto, ativar: boolean) {
+    if (!empresaId) return
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/contextos/${c.id}/${ativar ? 'ativar' : 'desativar'}`, { method: 'POST' })
+      await carregar()
+      setMsg({ tone: 'ok', text: ativar ? `"${c.nome}" ativado — o agente passa a usar este contexto.` : `"${c.nome}" desativado.` })
+    } catch (err: unknown) {
+      setMsg({ tone: 'err', text: err instanceof Error ? err.message : 'Erro ao ativar/desativar.' })
+    }
+  }
+
   async function reviewSugestao(id: string, acao: 'aprovar' | 'rejeitar') {
     if (!empresaId) return
     try {
@@ -305,12 +318,32 @@ export default function ContextosPage() {
               <div className="p-5 flex justify-between items-start gap-4">
                 <button type="button" onClick={() => toggleCtx(c.id)} className="flex items-start gap-3 text-left flex-1 hover:opacity-80">
                   <span className={`mt-1 inline-block transition-transform text-gray-400 ${isOpen ? 'rotate-90' : ''}`}>▶</span>
+                  {c.thumbnail_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={c.thumbnail_url} alt="" className="h-10 w-10 rounded-lg object-cover border shrink-0" />
+                  ) : (
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-100 text-xs font-bold text-slate-500">
+                      {(c.nome || '?').slice(0, 2).toUpperCase()}
+                    </span>
+                  )}
                   <span className="flex-1">
-                    <span className="block font-medium">{c.nome}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="font-medium">{c.nome}</span>
+                      {c.ativo && <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700">Ativo</span>}
+                    </span>
                     <span className="block text-xs text-gray-500 mt-1 line-clamp-2">{c.conteudo || '(sem dados — adicione fontes ou edite o Contexto 1)'}</span>
                   </span>
                 </button>
                 <div className="shrink-0 flex items-center gap-2">
+                  {c.ativo ? (
+                    <button onClick={() => ativarContexto(c, false)} className="text-xs px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50">
+                      Desativar
+                    </button>
+                  ) : (
+                    <button onClick={() => ativarContexto(c, true)} className="text-xs px-3 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700">
+                      Ativar
+                    </button>
+                  )}
                   <button
                     onClick={() => removerContexto(c)}
                     className="text-xs text-red-600 hover:underline"
@@ -343,6 +376,9 @@ export default function ContextosPage() {
                       empresaId={empresaId}
                     />
                     <CardTeste empresaId={empresaId} contextoForm={c.contexto_form_json || {}} versaoAtiva={vs.find((v) => v.status === 'ativo') || null} />
+                  </div>
+                  <div className="mt-4">
+                    <CardEstagios empresaId={empresaId} contextoId={c.id} contextoNome={c.nome} onAtivacao={carregar} />
                   </div>
                 </div>
               )}
@@ -1229,6 +1265,204 @@ function PromptEditorPJ({ empresaId, item }: { empresaId: string; item: PromptIt
               )}
             </>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Estágios POR contexto (Gerar / Importar PJ / Adaptar / Salvar + thumbnail) ──
+type EstagiosResp = {
+  etapas: { chave: string; label: string }[]
+  estagios: Record<string, string>
+  vazio: boolean
+  ativo: boolean
+  thumbnail_url: string | null
+  tem_conhecimento: boolean
+}
+
+function CardEstagios({ empresaId, contextoId, contextoNome, onAtivacao }: {
+  empresaId: string
+  contextoId: string
+  contextoNome: string
+  onAtivacao: () => Promise<void> | void
+}) {
+  const [etapas, setEtapas] = useState<{ chave: string; label: string }[]>([])
+  const [estagios, setEstagios] = useState<Record<string, string>>({})
+  const [temConhecimento, setTemConhecimento] = useState(false)
+  const [thumb, setThumb] = useState<string | null>(null)
+  const [thumbUrl, setThumbUrl] = useState('')
+  const [aberto, setAberto] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [carregando, setCarregando] = useState(true)
+  const [dirty, setDirty] = useState(false)
+  const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
+
+  const carregar = useCallback(async () => {
+    setCarregando(true)
+    try {
+      const r = await apiFetch<EstagiosResp>(`/api/empresas/${empresaId}/contextos/${contextoId}/estagios`)
+      setEtapas(r.data.etapas || [])
+      setEstagios(r.data.estagios || {})
+      setTemConhecimento(!!r.data.tem_conhecimento)
+      setThumb(r.data.thumbnail_url || null)
+      setDirty(false)
+    } catch (e: unknown) {
+      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Erro ao carregar estágios.' })
+    } finally {
+      setCarregando(false)
+    }
+  }, [empresaId, contextoId])
+  useEffect(() => { carregar() }, [carregar])
+
+  function setEtapa(chave: string, v: string) {
+    setEstagios((p) => ({ ...p, [chave]: v }))
+    setDirty(true)
+  }
+
+  async function acao(nome: 'gerar' | 'adaptar' | 'importar') {
+    setBusy(nome)
+    setMsg(null)
+    try {
+      const path = nome === 'gerar' ? 'estagios/gerar' : nome === 'adaptar' ? 'estagios/adaptar' : 'estagios/importar-pj'
+      const opts: RequestInit = { method: 'POST' }
+      if (nome === 'adaptar') opts.body = JSON.stringify({ estagios })
+      const r = await apiFetch<{ estagios: Record<string, string> }>(`/api/empresas/${empresaId}/contextos/${contextoId}/${path}`, opts)
+      setEstagios(r.data.estagios || {})
+      setDirty(true)
+      setMsg({
+        tone: 'ok',
+        text: nome === 'gerar'
+          ? 'Estágios genéricos gerados — revise e salve.'
+          : nome === 'adaptar'
+            ? 'Estágios adaptados ao contexto — revise e salve.'
+            : 'Estágios da PJ importados — revise e salve.',
+      })
+    } catch (e: unknown) {
+      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Falha na operação.' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function salvar() {
+    setBusy('salvar')
+    setMsg(null)
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/estagios`, { method: 'PUT', body: JSON.stringify({ estagios }) })
+      setDirty(false)
+      setMsg({ tone: 'ok', text: 'Estágios salvos no contexto.' })
+      await onAtivacao()
+    } catch (e: unknown) {
+      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Erro ao salvar.' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function enviarThumb(thumbnail_url: string | null) {
+    setBusy('thumb')
+    setMsg(null)
+    try {
+      const r = await apiFetch<{ thumbnail_url: string | null }>(`/api/empresas/${empresaId}/contextos/${contextoId}/thumbnail`, {
+        method: 'PUT', body: JSON.stringify({ thumbnail_url }),
+      })
+      setThumb(r.data.thumbnail_url)
+      setThumbUrl('')
+      setMsg({ tone: 'ok', text: 'Thumbnail salva.' })
+      await onAtivacao()
+    } catch (e: unknown) {
+      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Erro ao salvar thumbnail.' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    if (!f) return
+    if (f.size > 480_000) { setMsg({ tone: 'err', text: 'Imagem muito grande (máx ~450KB).' }); return }
+    const reader = new FileReader()
+    reader.onload = () => { enviarThumb(String(reader.result || '')) }
+    reader.readAsDataURL(f)
+  }
+
+  const lista = etapas.length ? etapas : Object.keys(estagios).map((chave) => ({ chave, label: chave }))
+
+  return (
+    <div className="bg-white border rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div>
+          <h3 className="font-semibold text-sm">Estágios do contexto</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Cada contexto tem seus próprios estágios. Ative o contexto pra o agente usá-los.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {thumb ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={thumb} alt="" className="h-9 w-9 rounded-lg object-cover border" />
+          ) : null}
+          <label className="text-xs px-2 py-1 rounded-lg border cursor-pointer hover:bg-gray-50">
+            Thumbnail
+            <input type="file" accept="image/*" onChange={onFile} className="hidden" />
+          </label>
+          {thumb && (
+            <button onClick={() => enviarThumb(null)} disabled={busy === 'thumb'} className="text-xs text-gray-400 hover:text-red-600">remover</button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <input value={thumbUrl} onChange={(e) => setThumbUrl(e.target.value)} placeholder="ou cole uma URL de imagem" className="flex-1 border rounded-lg px-2 py-1 text-xs" />
+        <button onClick={() => enviarThumb(thumbUrl.trim() || null)} disabled={busy === 'thumb' || !thumbUrl.trim()} className="text-xs px-2 py-1 rounded-lg border disabled:opacity-50">Usar URL</button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button onClick={() => acao('gerar')} disabled={!!busy} className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 disabled:opacity-50">
+          {busy === 'gerar' ? 'Gerando…' : 'Gerar estágios (genéricos)'}
+        </button>
+        <button onClick={() => acao('importar')} disabled={!!busy} className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 disabled:opacity-50">
+          {busy === 'importar' ? 'Importando…' : 'Importar da PJ'}
+        </button>
+        <button onClick={() => acao('adaptar')} disabled={!!busy || !temConhecimento} title={temConhecimento ? '' : 'Preencha o Contexto 1 / fontes antes'} className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">
+          {busy === 'adaptar' ? 'Adaptando…' : 'Adaptar estágios ao contexto'}
+        </button>
+        <button onClick={salvar} disabled={!!busy || !dirty} className="text-xs px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-dark disabled:opacity-50">
+          {busy === 'salvar' ? 'Salvando…' : 'Salvar estágios no contexto'}
+        </button>
+      </div>
+
+      {msg && <p className={`text-xs ${msg.tone === 'ok' ? 'text-brand' : 'text-red-600'}`}>{msg.text}</p>}
+
+      {carregando ? (
+        <p className="text-xs text-gray-400">Carregando…</p>
+      ) : (
+        <div className="space-y-1.5">
+          {lista.map((et) => {
+            const open = aberto === et.chave
+            const val = estagios[et.chave] || ''
+            return (
+              <div key={et.chave} className="border rounded-lg">
+                <button onClick={() => setAberto(open ? null : et.chave)} className="w-full flex items-center justify-between px-3 py-2 text-left">
+                  <span className="flex items-center gap-2">
+                    <span className={`text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+                    <span className="text-xs font-medium">{et.label}</span>
+                  </span>
+                  <span className="text-[10px] text-gray-400">{val.trim() ? `${val.trim().length} chars` : 'vazio'}</span>
+                </button>
+                {open && (
+                  <div className="px-3 pb-3">
+                    <textarea
+                      value={val}
+                      onChange={(e) => setEtapa(et.chave, e.target.value)}
+                      rows={12}
+                      spellCheck={false}
+                      className="w-full border rounded-lg px-3 py-2 text-[11px] font-mono"
+                    />
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

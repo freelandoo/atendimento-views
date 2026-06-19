@@ -76,6 +76,7 @@ const {
 const { sincronizarAtribuicaoMetaAds } = require('./services/meta-attribution')
 const { processarMensagemComPlaybook, gerarFollowupComPlaybook } = require('./services/contexto2-runtime')
 const { getContextoAtivoEmpresa } = require('./services/contexto-empresa')
+const { getContextoAtivoComEstagios } = require('./services/contexto-estagios')
 const { empresaAgentePausada } = require('./db/empresas')
 const { createCoreFunnel } = require('./core-funnel')
 const {
@@ -2607,11 +2608,27 @@ function _blocoEtapaAtual(estagio) {
     : ''
 }
 
+// Igual ao _blocoEtapaAtual, mas com um texto já pronto (estágio de um CONTEXTO
+// ativo). Não anexa o tom-referencia da PJ — o estágio do contexto já é próprio.
+function _blocoEtapaComTexto(estagio, texto) {
+  const conteudo = String(texto || '').trim()
+  return conteudo
+    ? `\n\n--- REGRAS DA ETAPA "${String(estagio).toUpperCase()}" (aplique agora) ---\n${conteudo}\n--- FIM REGRAS DA ETAPA ---`
+    : ''
+}
+
 function montarSystemPromptDinamico(estagio, perfil, aprendizado, flags = {}, historico = []) {
+  // Modelo unificado: se a empresa tem um CONTEXTO ATIVO com estágios próprios,
+  // usa Núcleo + estágio + conhecimento DAQUELE contexto. Sem isso, cai nos
+  // prompts globais da PJ (system-*.md + empresa.md) — comportamento atual.
+  const ce = flags.contextoEstagios && typeof flags.contextoEstagios === 'object' ? flags.contextoEstagios : null
+  const nucleoCtx = ce && ce.estagios && typeof ce.estagios.nucleo === 'string' ? ce.estagios.nucleo.trim() : ''
+  const conhecimentoCtx = ce && typeof ce.conhecimento === 'string' ? ce.conhecimento.trim() : ''
   const base =
+    nucleoCtx ||
     prompts.SYSTEM_CORE_BASE.trim() ||
     `Voce e o assistente de vendas da PJ Codeworks. Responda APENAS com um objeto JSON valido com mensagem_pro_lead, atualizar_perfil, etapa_proxima, solicitar_calculo_preco, solicitar_classificacao_nicho, handoff, motivo_handoff.`
-  const empresa = prompts.EMPRESA_KNOWLEDGE_BASE.trim()
+  const empresa = conhecimentoCtx || prompts.EMPRESA_KNOWLEDGE_BASE.trim()
   const blocoEmpresa = empresa ? `\n\n---\n\n${empresa}\n` : ''
   const ctxHorario = textoContextoHorarioVictorParaPrompt()
   const blocoEstatico = `${base}${blocoEmpresa}`
@@ -2690,7 +2707,8 @@ function montarSystemPromptDinamico(estagio, perfil, aprendizado, flags = {}, hi
   const blocoCorrecoes = montarBlocoCorrecoesAprendizados(aprendizadosAtivos)
 
   const perfilJson = JSON.stringify(perfilJsonParaPromptSemDuplicarMemoria(perfil), null, 2)
-  const blocoEtapa = _blocoEtapaAtual(estagio)
+  const etapaCtx = ce && ce.estagios && typeof ce.estagios[estagio] === 'string' ? ce.estagios[estagio].trim() : ''
+  const blocoEtapa = etapaCtx ? _blocoEtapaComTexto(estagio, etapaCtx) : _blocoEtapaAtual(estagio)
   const blocoTurnContext = flags.turnContextBlock
     ? `\n\n${flags.turnContextBlock}`
     : ''
@@ -4227,6 +4245,7 @@ const coreFunnel = createCoreFunnel({
   dataInicioReuniao,
   getContextoAtivoEmpresa,
   processarMensagemComPlaybook,
+  getContextoAtivoComEstagios,
   empresaAgentePausada,
 })
 ;({ gerarEEnviarRespostaWhatsapp } = coreFunnel)
