@@ -13,6 +13,8 @@
  * 4. Armazena análise para aprendizado
  */
 
+const { logger } = require('./logger')
+
 // ─── SCHEMA JSON ───────────────────────────────────────────────────────────
 
 const SCHEMA_ANALISE_ESTRUTURADA = {
@@ -243,7 +245,7 @@ async function armazenarAnaliseEstruturada(pool, numero, mensagem_lead, analise,
     ])
   } catch (err) {
     // Log mas não bloqueia o fluxo
-    console.warn('[armazenar-analise]', err.message)
+    logger.warn({ err: err.message }, '[armazenar-analise]')
   }
 }
 

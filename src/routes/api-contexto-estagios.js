@@ -44,8 +44,18 @@ router.get('/estagios', carregarContexto, async (req, res) => {
 })
 
 // POST .../estagios/gerar — gera os 6 estágios GENÉRICOS (estrutura PJ, dados neutros). Não persiste.
+// Com { etapa } no body, gera só aquela etapa e devolve os estágios atuais com ela mesclada.
 router.post('/estagios/gerar', carregarContexto, async (req, res) => {
   try {
+    const etapa = req.body?.etapa
+    if (etapa != null) {
+      if (!estagiosSvc.CHAVES_ETAPA.includes(etapa)) {
+        return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'etapa inválida.' } })
+      }
+      const texto = await estagiosSvc.gerarUmaEtapaGenerica({ pool, log: logger, etapa })
+      const estagios = estagiosSvc.normalizarEstagios({ ...estagiosSvc.normalizarEstagios(req.contexto.estagios_json), [etapa]: texto })
+      return res.json({ ok: true, data: { estagios } })
+    }
     const force = req.body?.force === true
     const estagios = await estagiosSvc.gerarEstagiosGenericos({ pool, log: logger, force })
     return res.json({ ok: true, data: { estagios } })
@@ -62,8 +72,13 @@ router.post('/estagios/importar-pj', carregarContexto, async (_req, res) => {
 })
 
 // POST .../estagios/adaptar — adapta os estágios (do body ou genéricos) ao conhecimento do contexto. Não persiste.
+// Com { etapa } no body, adapta só aquela etapa e devolve os estágios com ela mesclada.
 router.post('/estagios/adaptar', carregarContexto, async (req, res) => {
   try {
+    const etapa = req.body?.etapa
+    if (etapa != null && !estagiosSvc.CHAVES_ETAPA.includes(etapa)) {
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'etapa inválida.' } })
+    }
     let base = estagiosSvc.normalizarEstagios(req.body?.estagios)
     if (estagiosSvc.estagiosVazios(base)) {
       base = estagiosSvc.normalizarEstagios(req.contexto.estagios_json)
@@ -74,6 +89,15 @@ router.post('/estagios/adaptar', carregarContexto, async (req, res) => {
     const conhecimento = estagiosSvc.montarConhecimentoDoContexto(req.contexto)
     if (!conhecimento.trim()) {
       return res.status(400).json({ ok: false, error: { code: 'SEM_CONHECIMENTO', message: 'Este contexto não tem conhecimento ainda. Preencha o Contexto 1 / fontes antes de adaptar.' } })
+    }
+    if (etapa != null) {
+      let generico = base[etapa]
+      if (!generico.trim()) generico = await estagiosSvc.gerarUmaEtapaGenerica({ pool, log: logger, etapa })
+      const texto = await estagiosSvc.adaptarUmaEtapa({
+        pool, log: logger, empresaId: req.empresa.id, contextoId: req.contexto.id, etapa, generico, conhecimento,
+      })
+      const estagios = estagiosSvc.normalizarEstagios({ ...base, [etapa]: texto })
+      return res.json({ ok: true, data: { estagios } })
     }
     const estagios = await estagiosSvc.adaptarEstagios({
       pool, log: logger, empresaId: req.empresa.id, contextoId: req.contexto.id, estagios: base, conhecimento,

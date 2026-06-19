@@ -1,5 +1,6 @@
 const axios = require('axios')
 const { pool } = require('./db')
+const { logger } = require('./logger')
 
 const EVOLUTION_URL = process.env.EVOLUTION_URL || 'http://evolution-api:8080'
 const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY
@@ -37,7 +38,7 @@ async function registerWhatsappRoutes(app) {
   const { requireDashboardAuth } = require('./dashboardAuth')
 
   if (!EVOLUTION_KEY) {
-    console.warn('⚠️  WhatsApp routes registered but EVOLUTION_API_KEY is not configured')
+    logger.warn('⚠️  WhatsApp routes registered but EVOLUTION_API_KEY is not configured')
   }
 
   // GET /dashboard/whatsapp/status
@@ -47,7 +48,7 @@ async function registerWhatsappRoutes(app) {
       const status = await getWhatsappStatus(userId)
       res.json(status)
     } catch (err) {
-      console.error('[whatsapp/status]', err.message)
+      logger.error({ err: err.message }, '[whatsapp/status]')
       res.status(500).json({ error: 'Failed to fetch status' })
     }
   })
@@ -71,11 +72,11 @@ async function registerWhatsappRoutes(app) {
           { headers: { 'apikey': EVOLUTION_KEY } }
         )
       } catch (err) {
-        console.error('[whatsapp/connect] instance/connect error:', {
+        logger.error({
           status: err.response?.status,
           messages: err.response?.data?.response?.message,
-          data: err.response?.data
-        })
+          data: err.response?.data,
+        }, '[whatsapp/connect] instance/connect error')
         throw err
       }
 
@@ -129,12 +130,12 @@ async function registerWhatsappRoutes(app) {
         await client.query('ROLLBACK').catch(() => {})
       }
       const messages = err.response?.data?.response?.message
-      console.error('[whatsapp/connect] Error:', {
+      logger.error({
         message: err.message,
         status: err.response?.status,
         validationMessages: Array.isArray(messages) ? messages : [messages],
-        errorResponse: err.response?.data?.error
-      })
+        errorResponse: err.response?.data?.error,
+      }, '[whatsapp/connect] Error')
       res.status(500).json({ error: err.response?.data?.error || err.message || 'Failed to connect WhatsApp' })
     } finally {
       client.release()
@@ -185,7 +186,7 @@ async function registerWhatsappRoutes(app) {
         qr_expires_at: qrExpiresAt
       })
     } catch (err) {
-      console.error('[whatsapp/refresh-qr]', err.message)
+      logger.error({ err: err.message }, '[whatsapp/refresh-qr]')
       res.status(500).json({ error: 'Failed to refresh QR code' })
     }
   })
@@ -233,7 +234,7 @@ async function registerWhatsappRoutes(app) {
           profileName = instance.profileName || instance.ownerJid
         }
       } catch (err) {
-        console.warn('[whatsapp/check-status] Could not fetch instances:', err.message)
+        logger.warn({ err: err.message }, '[whatsapp/check-status] Could not fetch instances')
       }
 
       // Extract phone number from ownerJid (format: 5511999999999@s.whatsapp.net)
@@ -258,7 +259,7 @@ async function registerWhatsappRoutes(app) {
         connected_at: new Date().toISOString()
       })
     } catch (err) {
-      console.error('[whatsapp/check-status]', err.message)
+      logger.error({ err: err.message }, '[whatsapp/check-status]')
 
       if (err.response?.status === 404) {
         // Instance not found in Evolution, mark as disconnected
@@ -295,7 +296,7 @@ async function registerWhatsappRoutes(app) {
       } catch (err) {
         const status = err.response?.status
         if (status !== 404 && status !== 500) {
-          console.warn('[whatsapp/disconnect] Evolution logout failed:', err.message)
+          logger.warn({ err: err.message }, '[whatsapp/disconnect] Evolution logout failed')
         }
       }
 
@@ -309,7 +310,7 @@ async function registerWhatsappRoutes(app) {
 
       res.json({ status: 'disconnected' })
     } catch (err) {
-      console.error('[whatsapp/disconnect]', err.message)
+      logger.error({ err: err.message }, '[whatsapp/disconnect]')
       res.status(500).json({ error: 'Failed to disconnect WhatsApp' })
     }
   })

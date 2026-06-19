@@ -137,6 +137,22 @@ async function adaptarEstagios({ pool, log, aiProvider, empresaId, contextoId, e
   return normalizarEstagios(out)
 }
 
+/** Adapta UMA etapa ao conhecimento do contexto (reusa _adaptarUmaEtapa). */
+async function adaptarUmaEtapa({ pool, log, aiProvider, empresaId, contextoId, etapa, generico, conhecimento }) {
+  if (!CHAVES_ETAPA.includes(etapa)) throw new Error(`etapa inválida: ${etapa}`)
+  const texto = await _adaptarUmaEtapa({
+    etapa, generico: _str(generico), conhecimento, aiProvider, pool, log, empresaId, contextoId,
+  })
+  return texto || _str(generico).trim()
+}
+
+/** Gera UMA etapa genérica (reusa _genericoDeUmaEtapa). Não usa cache. */
+async function gerarUmaEtapaGenerica({ pool, log, aiProvider, etapa }) {
+  if (!CHAVES_ETAPA.includes(etapa)) throw new Error(`etapa inválida: ${etapa}`)
+  const ref = estagiosPjReferencia()
+  return await _genericoDeUmaEtapa({ etapa, refTexto: ref[etapa], aiProvider, pool, log })
+}
+
 // ─── Conhecimento do contexto (texto p/ alimentar a adaptação e, depois, o runtime) ─
 function montarConhecimentoDoContexto(ctxRow) {
   if (!ctxRow) return ''
@@ -239,6 +255,8 @@ module.exports = {
   gerarEstagiosGenericos,
   invalidarGenericoCache,
   adaptarEstagios,
+  adaptarUmaEtapa,
+  gerarUmaEtapaGenerica,
   montarConhecimentoDoContexto,
   getContextoComEstagios,
   salvarEstagiosNoContexto,

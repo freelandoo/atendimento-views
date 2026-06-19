@@ -101,3 +101,29 @@
 **Impacto:** Novo módulo `src/auth.js`. Endpoints `/api/auth/login`, `/api/auth/logout`, `/api/auth/refresh`.
 
 **Status:** Decidido ✅
+
+---
+
+## [2026-06-19] Auditoria "corrigir o seguro" + split físico planejado
+
+**Decisão:** No ciclo de auditoria, aplicar SÓ correções sem mudança de comportamento (logger, código morto, duplicação), validando com `npm test`. Não fazer hardening agressivo nem refactor grande no mesmo ciclo.
+
+**Motivo:** Reduzir risco em sistema de produção (AGENTS.md: estabilidade > velocidade; diff mínimo; não misturar refactor grande com mudança).
+
+**Impacto:** `whatsapp-routes.js` e `ai-structured-analysis.js` passam a usar `logger.js`; `next.config.ts` morto removido.
+
+**Decisão estrutural pendente:** split físico `backend/` + `frontend/`. Aprovado pelo usuário, MAS como slice isolado com checkpoint — exige reconfigurar **Railway** (root/Dockerfile) e **Vercel** (root dir) nos painéis (ação do usuário), senão o deploy quebra.
+
+**Status:** Auditoria/correções ✅ · Split físico ⬜ (checkpoint)
+
+---
+
+## [2026-06-18→19] Fusão Empresa + Contextos → página "Empresas"
+
+**Decisão:** Unificar `/dashboard/empresa` e `/dashboard/contextos` numa página "Empresas" (Hero = Agente + Instâncias WhatsApp; abaixo = Contextos em cards com estágios por contexto). Remover abas "Contextos/PJ Codeworks"; prompts da PJ viram base genérica + "Importar da PJ".
+
+**Motivo:** Pedido do usuário; backend de estágios por contexto já existia (gerar/adaptar/importar/ativar).
+
+**Impacto:** `apps/web` (Sidebar, contextos/page, empresa→redirect, novo `InstanciasWhatsApp.tsx`); backend aditivo (`estagios/gerar` e `/adaptar` aceitam `{ etapa }`).
+
+**Status:** Implementado ✅ (693 testes + typechecks)

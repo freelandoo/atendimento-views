@@ -297,3 +297,24 @@ Todas com `requireAuth + requireEmpresaAccess`.
 - Merge de lead_insights é defensivo: nunca apaga dado anterior com vazio/null
 - Schema do playbook validado por `_esqueletoPlaybook()` — se a IA esquece seção, default seguro entra
 - Frontend mantém retrocompat: contextos que só têm `conteudo` continuam funcionando
+
+---
+
+## [2026-06-19] Ciclo de Auditoria — Slice A (Auditoria) + Slice B (Correções seguras)
+
+**Protocolo:** VLAEG retomado a pedido do usuário. Skill âncora: `production-code-audit` (escopo limitado a "corrigir o seguro", sem hardening agressivo).
+
+### Slice A — Auditoria (read-only)
+- Varredura direcionada por classe de bug em `src/` (47 arquivos com SQL) + `apps/web`.
+- **Segurança:** SQL 100% parametrizado (placeholders `$N` + array `params`), inclusive SQL dinâmico (`WHERE ${where}` monta fragmentos com `$N`). Sem injection, sem secrets hardcoded.
+- **Qualidade:** sem TODO/FIXME reais; `==`/`!=` são todos o idioma `== null` (corretos); frontend sem `console.log`.
+- **Falso-positivo evitado:** `src/follow-up.js` parecia morto mas é coberto por `test/follow-up.test.js` — mantido.
+
+### Slice B — Correções seguras (sem mudança de comportamento)
+1. Removido `apps/web/next.config.ts` (morto — Next 14.2 ignora `.ts`; válido é `next.config.mjs` com `output:'standalone'` condicionado a `!VERCEL`). Evita quebra latente na Vercel se migrarem p/ Next 15.
+2. `src/whatsapp-routes.js`: 9× `console.warn/error` → `logger` (Pino, assinatura objeto-primeiro). Add `require('./logger')`.
+3. `src/ai-structured-analysis.js`: 1× `console.warn` → `logger.warn` + `require('./logger')`.
+
+**Validação:** `npm test` 693/693 ✅ · `npm run typecheck` ✅ · `apps/web` `tsc --noEmit` ✅.
+
+**Próximo:** Slice C — split físico `backend/` + `frontend/` (CHECKPOINT antes; exige reconfig Railway/Vercel pelo usuário).
