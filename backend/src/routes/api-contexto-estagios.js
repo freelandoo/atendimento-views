@@ -7,6 +7,7 @@ const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { logger } = require('../logger')
 const estagiosSvc = require('../services/contexto-estagios')
 const geracaoCompleta = require('../services/geracao-completa')
+const geracaoSimulacao = require('../services/geracao-simulacao')
 
 const router = Router({ mergeParams: true })
 
@@ -62,6 +63,28 @@ router.post('/gerar-tudo', carregarContexto, async (req, res) => {
   } catch (err) {
     logger.error({ err: err.message }, 'gerar-tudo')
     return res.status(502).json({ ok: false, error: { code: 'IA_FALHOU', message: err.message || 'Falha ao gerar. Tente de novo.' } })
+  }
+})
+
+// POST .../simular-refinar — loop "simula lead difícil → modelo de atendimento responde →
+// modelo de geração critica e reescreve o estágio". Opcional, roda depois de "Gerar tudo".
+// body opcional { etapas: [...] }; default = etapas mais difíceis (diagnostico/objecao/fechamento).
+router.post('/simular-refinar', carregarContexto, async (req, res) => {
+  req.setTimeout(600000)
+  res.setTimeout(600000)
+  try {
+    const etapas = Array.isArray(req.body && req.body.etapas) ? req.body.etapas : undefined
+    const data = await geracaoSimulacao.simularERefinarContexto({
+      pool,
+      log: logger,
+      empresaId: req.empresa.id,
+      contextoId: req.contexto.id,
+      etapas,
+    })
+    return res.json({ ok: true, data })
+  } catch (err) {
+    logger.error({ err: err.message }, 'simular-refinar')
+    return res.status(502).json({ ok: false, error: { code: 'IA_FALHOU', message: err.message || 'Falha ao simular. Tente de novo.' } })
   }
 })
 

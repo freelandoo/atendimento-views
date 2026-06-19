@@ -1086,6 +1086,15 @@ type EstagiosResp = {
   tem_conhecimento: boolean
 }
 
+type SimItem = {
+  etapa: string
+  mensagem_lead?: string
+  resposta_agente?: string
+  critica?: string
+  mudou?: boolean
+  erro?: string
+}
+
 function CardEstagios({ empresaId, contextoId, contextoNome, onAtivacao }: {
   empresaId: string
   contextoId: string
@@ -1102,6 +1111,7 @@ function CardEstagios({ empresaId, contextoId, contextoNome, onAtivacao }: {
   const [carregando, setCarregando] = useState(true)
   const [dirty, setDirty] = useState(false)
   const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
+  const [simul, setSimul] = useState<SimItem[] | null>(null)
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -1151,6 +1161,29 @@ function CardEstagios({ empresaId, contextoId, contextoNome, onAtivacao }: {
       await onAtivacao()
     } catch (e: unknown) {
       setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Falha ao gerar.' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // Loop "gera→simula→corrige" (opt-in): simula lead difícil, o modelo de atendimento
+  // responde, e o modelo de geração critica e reescreve os estágios. Salva no backend.
+  async function simularRefinar() {
+    setBusy('simular')
+    setMsg(null)
+    try {
+      const r = await apiFetch<{ estagios: Record<string, string>; simulacoes: SimItem[] }>(
+        `/api/empresas/${empresaId}/contextos/${contextoId}/simular-refinar`,
+        { method: 'POST', timeoutMs: 600000 }
+      )
+      if (r.data.estagios) setEstagios(r.data.estagios)
+      setSimul(r.data.simulacoes || [])
+      setDirty(false)
+      const mudaram = (r.data.simulacoes || []).filter((s) => s.mudou).length
+      setMsg({ tone: 'ok', text: `Simulação concluída — ${mudaram} estágio(s) melhorado(s). Veja o que mudou abaixo.` })
+      await onAtivacao()
+    } catch (e: unknown) {
+      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Falha ao simular.' })
     } finally {
       setBusy(null)
     }
@@ -1235,6 +1268,14 @@ function CardEstagios({ empresaId, contextoId, contextoNome, onAtivacao }: {
         >
           {busy === 'gerar-tudo' ? 'Gerando tudo… (pode levar 1-2 min)' : '✨ Gerar tudo (Contexto 1 + estágios + playbook)'}
         </button>
+        <button
+          onClick={simularRefinar}
+          disabled={!!busy}
+          title="Simula um lead difícil, deixa o modelo de atendimento responder e o modelo de geração reescreve os estágios pra ficarem melhores."
+          className="text-xs px-3 py-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+        >
+          {busy === 'simular' ? 'Simulando…' : '🧪 Simular e melhorar'}
+        </button>
         <button onClick={salvar} disabled={!!busy || !dirty} className="text-xs px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-dark disabled:opacity-50">
           {busy === 'salvar' ? 'Salvando…' : 'Salvar edições'}
         </button>
@@ -1246,6 +1287,31 @@ function CardEstagios({ empresaId, contextoId, contextoNome, onAtivacao }: {
       )}
 
       {msg && <p className={`text-xs ${msg.tone === 'ok' ? 'text-brand' : 'text-red-600'}`}>{msg.text}</p>}
+
+      {simul && simul.length > 0 && (
+        <div className="space-y-2 border rounded-lg p-3 bg-purple-50/50">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold">Simulação — lead difícil → resposta do agente → crítica</p>
+            <button onClick={() => setSimul(null)} className="text-[10px] text-gray-400 hover:text-gray-600">fechar</button>
+          </div>
+          {simul.map((s, i) => (
+            <div key={i} className="text-[11px] border-l-2 border-purple-300 pl-2 space-y-0.5">
+              <p className="font-medium">
+                {s.etapa} {s.mudou ? '— melhorado ✓' : s.erro ? '— erro' : '— sem mudança'}
+              </p>
+              {s.erro ? (
+                <p className="text-red-600">{s.erro}</p>
+              ) : (
+                <>
+                  <p><span className="text-gray-500">Lead:</span> {s.mensagem_lead}</p>
+                  <p><span className="text-gray-500">Agente:</span> {s.resposta_agente}</p>
+                  {s.critica && <p><span className="text-gray-500">Crítica:</span> {s.critica}</p>}
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {carregando ? (
         <p className="text-xs text-gray-400">Carregando…</p>
