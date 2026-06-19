@@ -6,6 +6,7 @@ const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { logger } = require('../logger')
 const estagiosSvc = require('../services/contexto-estagios')
+const geracaoCompleta = require('../services/geracao-completa')
 
 const router = Router({ mergeParams: true })
 
@@ -41,6 +42,27 @@ router.get('/estagios', carregarContexto, async (req, res) => {
       tem_conhecimento: !!estagiosSvc.montarConhecimentoDoContexto(req.contexto),
     },
   })
+})
+
+// POST .../gerar-tudo — fluxo ÚNICO com a LLM de geração: fontes → Contexto 1 →
+// estágios (genérico → adaptar → refino com frameworks de venda + auto-crítica) →
+// Contexto 2 playbook. Salva estágios e cria versão de playbook (rascunho).
+router.post('/gerar-tudo', carregarContexto, async (req, res) => {
+  req.setTimeout(600000)
+  res.setTimeout(600000)
+  try {
+    const data = await geracaoCompleta.gerarTudo({
+      pool,
+      log: logger,
+      empresaId: req.empresa.id,
+      contextoId: req.contexto.id,
+      userId: req.user && req.user.id,
+    })
+    return res.json({ ok: true, data })
+  } catch (err) {
+    logger.error({ err: err.message }, 'gerar-tudo')
+    return res.status(502).json({ ok: false, error: { code: 'IA_FALHOU', message: err.message || 'Falha ao gerar. Tente de novo.' } })
+  }
 })
 
 // POST .../estagios/gerar — gera os 6 estágios GENÉRICOS (estrutura PJ, dados neutros). Não persiste.

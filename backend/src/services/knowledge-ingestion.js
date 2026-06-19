@@ -738,7 +738,8 @@ Regras duras:
 - Liste em fontes_utilizadas todas as fontes consideradas.
 - Retorne APENAS JSON válido com o mesmo schema do extrator de fonte (incluindo contatos object, link_principal, link_cadastro, link_login, links_uteis array, ctas_principais, maquinas_modulos_funcionalidades, catalogo_de_ofertas com link_relacionado).`
 
-async function sugerirContexto1APartirDasFontes(pool, log, { empresaId, contextoId }) {
+async function sugerirContexto1APartirDasFontes(pool, log, { empresaId, contextoId, aiProvider: aiProviderArg } = {}) {
+  const ai = aiProviderArg || aiProvider
   const { rows: [ctx] } = await pool.query(
     `SELECT id, contexto_form_json FROM app.empresa_contextos WHERE id = $1 AND empresa_id = $2`,
     [contextoId, empresaId]
@@ -763,7 +764,7 @@ ${JSON.stringify(f.resumo_json || {}, null, 2)}`).join('\n\n')}
 
 Consolide.`
 
-  const result = await aiProvider.generateAIResponse(
+  const result = await ai.generateAIResponse(
     {
       systemPrompt: SUGESTAO_CTX1_SYSTEM,
       userPrompt,
