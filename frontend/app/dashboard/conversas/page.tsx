@@ -2,6 +2,13 @@
 import { useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 
+type ScoreCriterio = {
+  delta: number
+  titulo: string
+  detalhe?: string
+  tipo?: 'positivo' | 'negativo' | 'neutro'
+}
+
 type Conversa = {
   numero: string
   estagio: string
@@ -9,6 +16,13 @@ type Conversa = {
   negocio?: string
   temperatura_lead?: string | null
   score_dor?: number | null
+  score_lead?: number | null
+  score_interesse?: number | null
+  score_interesse_faixa?: 'alto' | 'medio' | 'baixo' | string | null
+  score_interesse_label?: string | null
+  score_interesse_resumo?: string | null
+  score_interesse_criterios?: ScoreCriterio[]
+  score_interesse_mensagens_lead?: number | null
   atualizado_em: string
 }
 
@@ -22,6 +36,55 @@ function TempBadge({ t }: { t?: string | null }) {
   if (!t || !TEMP_STYLE[t]) return <span className="text-gray-400 text-xs">—</span>
   return <span className={`px-2 py-0.5 rounded-full text-xs ${TEMP_STYLE[t].cls}`}>{TEMP_STYLE[t].label}</span>
 }
+const INTERESSE_STYLE: Record<string, { cls: string; text: string }> = {
+  alto: { cls: 'border-emerald-500 bg-emerald-50 text-emerald-700', text: 'Alto' },
+  medio: { cls: 'border-amber-500 bg-amber-50 text-amber-700', text: 'Medio' },
+  baixo: { cls: 'border-slate-400 bg-slate-50 text-slate-600', text: 'Baixo' },
+}
+
+function scoreValue(score?: number | null) {
+  return typeof score === 'number' && Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : null
+}
+
+function InteresseBadge({ c, compact = false }: { c: Pick<Conversa, 'score_interesse' | 'score_interesse_faixa' | 'score_interesse_label' | 'score_interesse_resumo'>; compact?: boolean }) {
+  const score = scoreValue(c.score_interesse)
+  const faixa = c.score_interesse_faixa && INTERESSE_STYLE[c.score_interesse_faixa] ? c.score_interesse_faixa : 'baixo'
+  const st = INTERESSE_STYLE[faixa]
+  const label = c.score_interesse_label || `Interesse ${st.text.toLowerCase()}`
+  if (compact) {
+    return (
+      <span
+        title={`${label}${c.score_interesse_resumo ? ` - ${c.score_interesse_resumo}` : ''}`}
+        className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold ${st.cls}`}
+      >
+        {score ?? '--'}
+      </span>
+    )
+  }
+  return (
+    <div className="inline-flex min-w-0 items-center gap-2">
+      <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 text-sm font-bold ${st.cls}`}>
+        {score ?? '--'}
+      </span>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-gray-900">{label}</div>
+        <div className="text-xs text-gray-500">{c.score_interesse_resumo || 'Sem resumo disponivel'}</div>
+      </div>
+    </div>
+  )
+}
+
+function criterioDelta(c: ScoreCriterio) {
+  if (!c.delta) return '0'
+  return c.delta > 0 ? `+${c.delta}` : String(c.delta)
+}
+
+function criterioClasse(c: ScoreCriterio) {
+  if (c.delta > 0) return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  if (c.delta < 0) return 'bg-red-50 text-red-700 border-red-200'
+  return 'bg-gray-50 text-gray-500 border-gray-200'
+}
+
 type Mensagem = { role?: string; content?: string; text?: string; timestamp?: string }
 type ConversaDetail = Conversa & {
   historico?: Mensagem[]
@@ -121,6 +184,7 @@ export default function ConversasPage() {
   const historicoAberto = aberta?.historico || []
   const ultimaMensagemAberta = historicoAberto[historicoAberto.length - 1]
   const podeReenviarUltimaResposta = ultimaMensagemAberta?.role === 'assistant'
+  const criteriosInteresse = aberta?.score_interesse_criterios || []
 
   return (
     <div className="space-y-6">
@@ -133,6 +197,7 @@ export default function ConversasPage() {
             <th className="text-left px-4 py-2">Número</th>
             <th className="text-left px-4 py-2">Negócio</th>
             <th className="text-left px-4 py-2">Temperatura</th>
+            <th className="text-left px-4 py-2">Interesse</th>
             <th className="text-left px-4 py-2">Estágio</th>
             <th className="text-left px-4 py-2">Status</th>
             <th className="text-right px-4 py-2">Atualizado</th>
@@ -145,6 +210,7 @@ export default function ConversasPage() {
               <td className="px-4 py-2 font-mono text-xs">{fmtNumero(c.numero)}</td>
               <td className="px-4 py-2">{c.negocio || '—'}</td>
               <td className="px-4 py-2"><TempBadge t={c.temperatura_lead} /></td>
+              <td className="px-4 py-2"><InteresseBadge c={c} compact /></td>
               <td className="px-4 py-2">{c.estagio}</td>
               <td className="px-4 py-2">
                 <span className={`px-2 py-0.5 rounded-full text-xs ${c.status === 'ativo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
@@ -181,7 +247,7 @@ export default function ConversasPage() {
             </tr>
           ))}
           {lista.length === 0 && (
-            <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400">Nenhuma conversa encontrada.</td></tr>
+            <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">Nenhuma conversa encontrada.</td></tr>
           )}
         </tbody>
       </table>
@@ -192,7 +258,7 @@ export default function ConversasPage() {
           onClick={() => setAberta(null)}
         >
           <div
-            className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden"
+            className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 py-4 border-b flex justify-between items-start gap-3">
@@ -203,6 +269,15 @@ export default function ConversasPage() {
                   Status: <span className="font-medium">{aberta.status}</span> ·
                   {aberta.historico?.length || 0} msgs
                 </p>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <InteresseBadge c={aberta} />
+                  {scoreValue(aberta.score_lead) != null && (
+                    <span className="inline-flex items-center rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                      Fit do lead: <strong className="ml-1 text-gray-900">{scoreValue(aberta.score_lead)}</strong>
+                    </span>
+                  )}
+                  <TempBadge t={aberta.temperatura_lead} />
+                </div>
               </div>
               <button
                 onClick={() => setAberta(null)}
@@ -212,6 +287,28 @@ export default function ConversasPage() {
                 ×
               </button>
             </div>
+
+            {criteriosInteresse.length > 0 && (
+              <div className="border-b bg-white px-5 py-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Criterios do interesse</div>
+                  <div className="text-xs text-gray-500">{aberta.score_interesse_mensagens_lead ?? 0} mensagens do lead analisadas</div>
+                </div>
+                <div className="grid max-h-40 gap-2 overflow-y-auto sm:grid-cols-2">
+                  {criteriosInteresse.map((c, i) => (
+                    <div key={`${c.titulo}-${i}`} className="flex min-w-0 gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
+                      <span className={`inline-flex h-6 min-w-10 shrink-0 items-center justify-center rounded-full border px-2 text-xs font-semibold ${criterioClasse(c)}`}>
+                        {criterioDelta(c)}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-gray-800">{c.titulo}</div>
+                        {c.detalhe && <div className="mt-0.5 text-xs text-gray-500 line-clamp-2">{c.detalhe}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex-1 overflow-y-auto bg-gray-50 px-5 py-4 space-y-2">
               {carregando ? (

@@ -5,8 +5,37 @@ const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { gerarESalvarResumo, buscarUltimoResumo } = require('../services/resumo-conversa')
 const { logger } = require('../logger')
 const { enviarMensagem } = require('../whatsapp')
+const { calcularScoreInteresseLead } = require('../services/lead-interest-score')
 
 const router = Router({ mergeParams: true })
+
+const LEAD_PROFILE_JOIN = `
+       LEFT JOIN LATERAL (
+         SELECT lp.*
+           FROM vendas.lead_profiles lp
+          WHERE lp.numero = c.numero
+            AND (lp.empresa_id = c.empresa_id OR lp.empresa_id IS NULL)
+          ORDER BY CASE WHEN lp.empresa_id = c.empresa_id THEN 0 ELSE 1 END,
+                   lp.atualizado_em DESC NULLS LAST
+          LIMIT 1
+       ) lp ON true`
+
+function anexarScoreInteresse(conversa) {
+  const interesse = calcularScoreInteresseLead(conversa, {
+    historico: conversa?.historico,
+    estagio: conversa?.estagio,
+    atualizadoEm: conversa?.atualizado_em,
+  })
+  return {
+    ...conversa,
+    score_interesse: interesse.score,
+    score_interesse_faixa: interesse.faixa,
+    score_interesse_label: interesse.label,
+    score_interesse_resumo: interesse.resumo,
+    score_interesse_criterios: interesse.criterios,
+    score_interesse_mensagens_lead: interesse.mensagens_lead,
+  }
+}
 
 // GET /api/empresas/:empresaId/conversas?page=1&limit=50&status=ativo
 router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
@@ -25,9 +54,12 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
 
   const [{ rows }, { rows: [cnt] }] = await Promise.all([
     pool.query(
-      `SELECT c.*, lp.negocio, lp.temperatura_lead, lp.score_dor
+      `SELECT c.*, lp.negocio, lp.cidade, lp.temperatura_lead, lp.score_dor, lp.score_lead,
+              lp.dor_principal, lp.ja_aparece_google, lp.precisa_sistema,
+              lp.produto_sugerido, lp.intencao_principal, lp.insights_lead,
+              lp.reuniao_proposta
        FROM vendas.conversas c
-       LEFT JOIN vendas.lead_profiles lp ON lp.numero = c.numero
+       ${LEAD_PROFILE_JOIN}
        WHERE ${where}
        ORDER BY c.atualizado_em DESC
        LIMIT $${vals.push(limit)} OFFSET $${vals.push(offset)}`,
@@ -41,7 +73,7 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
 
   return res.json({
     ok: true,
-    data: rows,
+    data: rows.map(anexarScoreInteresse),
     meta: { total: parseInt(cnt.total, 10), page, limit },
   })
 })
@@ -49,14 +81,14 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
 // GET /api/empresas/:empresaId/conversas/:numero
 router.get('/:numero', requireAuth, requireEmpresaAccess, async (req, res) => {
   const { rows: [conversa] } = await pool.query(
-    `SELECT c.*, lp.*
+    `SELECT c.*, lp.*, c.numero AS numero, c.empresa_id AS empresa_id, c.atualizado_em AS atualizado_em
      FROM vendas.conversas c
-     LEFT JOIN vendas.lead_profiles lp ON lp.numero = c.numero
+     ${LEAD_PROFILE_JOIN}
      WHERE c.empresa_id = $1 AND c.numero = $2`,
     [req.empresa.id, req.params.numero]
   )
   if (!conversa) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Conversa não encontrada.' } })
-  return res.json({ ok: true, data: conversa })
+  return res.json({ ok: true, data: anexarScoreInteresse(conversa) })
 })
 
 // DELETE /api/empresas/:empresaId/conversas/:numero
