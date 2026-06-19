@@ -44,3 +44,6 @@ restore-*.bat
 restore-*.sh
 sync-railway.sh
 upload*.ps1
+
+# Artefatos de build do TypeScript (regeneráveis; ex.: apps/web/tsconfig.tsbuildinfo)
+*.tsbuildinfo
