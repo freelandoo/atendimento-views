@@ -452,6 +452,42 @@ async function generateAIResponse(input, pool, log) {
   }
 }
 
+/**
+ * Lê a config do "LLM de geração" (gen_provider/gen_model) de ai_settings.
+ * Retorna { provider, model } — campos null quando não configurados (= usar o
+ * modelo de atendimento). Reusa o cache de getAISettings.
+ */
+async function getGenerationSettings(pool) {
+  const s = await getAISettings(pool)
+  return {
+    provider: s && s.gen_provider ? s.gen_provider : null,
+    model: s && s.gen_model ? s.gen_model : null,
+  }
+}
+
+/**
+ * Cria um "provider de geração" com a MESMA interface usada pelos serviços que
+ * aceitam `aiProvider` injetável (contexto-estagios, contexto-empresa, etc.):
+ * expõe `generateAIResponse(input, pool, log)`. Ele força provider/model de
+ * geração (lidos de ai_settings a cada chamada, via cache) quando configurados;
+ * sem config, comporta-se igual ao provider de atendimento. A CHAVE continua a
+ * do ambiente (decisão "mesma conta").
+ *
+ * Uso (Slice 2): passar o objeto retornado como `aiProvider` para os serviços.
+ */
+function makeGenerationProvider() {
+  return {
+    async generateAIResponse(input, pool, log) {
+      const gen = await getGenerationSettings(pool)
+      const override = {}
+      // Só sobrescreve quando o caller NÃO fixou explicitamente provider/model.
+      if (!input.model && gen.model) override.model = gen.model
+      if (!input.provider && gen.provider) override.provider = gen.provider
+      return generateAIResponse({ ...input, ...override }, pool, log)
+    },
+  }
+}
+
 // Wrappers usados pela camada SaaS (resumo-conversa.js, relatorio.js, api-contextos.js).
 const { parsearRespostaJsonClaude } = require('./string-utils')
 
@@ -506,6 +542,8 @@ async function generateReport({ dados, tipo = 'geral', pool, log, empresaId }) {
 module.exports = {
   generateAIResponse,
   getAISettings,
+  getGenerationSettings,
+  makeGenerationProvider,
   invalidateCache,
   validarProviderModel,
   AI_MODEL_PRESETS,

@@ -3,7 +3,7 @@ const { Router } = require('express')
 const axios = require('axios')
 const { pool } = require('../db')
 const { requireAuth } = require('../middleware/tenant')
-const { invalidateCache } = require('../ai-provider')
+const { invalidateCache, validarProviderModel, AI_MODEL_PRESETS } = require('../ai-provider')
 
 const router = Router()
 
@@ -33,7 +33,9 @@ router.get('/', requireAuth, async (_req, res) => {
   const { rows: [s] } = await pool.query(
     'SELECT * FROM vendas.ai_settings ORDER BY updated_at DESC LIMIT 1'
   )
-  if (!s) return res.json({ ok: true, data: null })
+  // presets sempre vão (a UI usa pra montar o dropdown do "modelo de geração",
+  // que não re-insere chave). Se não houver config, devolve só os presets.
+  if (!s) return res.json({ ok: true, data: { presets: AI_MODEL_PRESETS } })
   return res.json({
     ok: true,
     data: {
@@ -46,8 +48,42 @@ router.get('/', requireAuth, async (_req, res) => {
       anthropic_key_masked: maskKey(s.anthropic_api_key),
       has_openai_key: !!s.openai_api_key,
       has_anthropic_key: !!s.anthropic_api_key,
+      // "LLM de geração" (one-shot): null = usa o mesmo modelo do atendimento.
+      gen_provider: s.gen_provider || null,
+      gen_model: s.gen_model || null,
+      presets: AI_MODEL_PRESETS,
     },
   })
+})
+
+// PUT /api/llm/geracao — { provider, model } define o modelo de GERAÇÃO (one-shot);
+// body vazio / { provider:null } limpa (volta a usar o modelo de atendimento).
+// Reusa a chave do ambiente (mesma conta) — não recebe api_key aqui.
+router.put('/geracao', requireAuth, async (req, res) => {
+  const { provider, model } = req.body || {}
+  const limpar = !provider && !model
+  if (!limpar) {
+    const v = validarProviderModel(provider, model)
+    if (!v.ok) {
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: v.erro } })
+    }
+  }
+  const genProvider = limpar ? null : provider
+  const genModel = limpar ? null : model
+  const { rowCount } = await pool.query(
+    `UPDATE vendas.ai_settings SET gen_provider = $1, gen_model = $2, updated_at = NOW()
+      WHERE id = (SELECT id FROM vendas.ai_settings ORDER BY updated_at DESC LIMIT 1)`,
+    [genProvider, genModel]
+  )
+  if (rowCount === 0) {
+    await pool.query(
+      `INSERT INTO vendas.ai_settings (provider, model, gen_provider, gen_model)
+       VALUES ('openai', 'gpt-4o-mini', $1, $2)`,
+      [genProvider, genModel]
+    )
+  }
+  invalidateCache()
+  return res.json({ ok: true, data: { gen_provider: genProvider, gen_model: genModel } })
 })
 
 // POST /api/llm/test — { provider, api_key } → lista modelos disponíveis

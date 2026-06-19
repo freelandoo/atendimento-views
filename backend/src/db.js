@@ -827,6 +827,17 @@ async function initDB() {
     SELECT 'openai', 'gpt-4o-mini', 'anthropic', 'claude-sonnet-4-6'
     WHERE NOT EXISTS (SELECT 1 FROM vendas.ai_settings)
   `)
+  // Colunas operacionais usadas pela página LLM (api-llm.js). Idempotentes —
+  // faltavam no schema base; em produção podem já existir (ADD COLUMN IF NOT EXISTS é no-op).
+  await pool.query(`ALTER TABLE vendas.ai_settings ADD COLUMN IF NOT EXISTS openai_api_key TEXT`)
+  await pool.query(`ALTER TABLE vendas.ai_settings ADD COLUMN IF NOT EXISTS anthropic_api_key TEXT`)
+  await pool.query(`ALTER TABLE vendas.ai_settings ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pendente'`)
+  await pool.query(`ALTER TABLE vendas.ai_settings ADD COLUMN IF NOT EXISTS last_error TEXT`)
+  await pool.query(`ALTER TABLE vendas.ai_settings ADD COLUMN IF NOT EXISTS tested_at TIMESTAMPTZ`)
+  // "LLM de geração" (one-shot): provider/model usados SÓ na geração de contexto/estágios/playbook.
+  // NULL = usa o mesmo modelo do atendimento. A CHAVE é reaproveitada do ambiente (mesma conta).
+  await pool.query(`ALTER TABLE vendas.ai_settings ADD COLUMN IF NOT EXISTS gen_provider TEXT`)
+  await pool.query(`ALTER TABLE vendas.ai_settings ADD COLUMN IF NOT EXISTS gen_model TEXT`)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS vendas.ai_logs (
       id            BIGSERIAL PRIMARY KEY,

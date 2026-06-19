@@ -4,6 +4,10 @@ import { apiFetch, getEmpresaId } from '@/lib/api'
 
 type Provider = 'openai' | 'anthropic'
 
+type PresetModel = { value: string; label: string }
+type Preset = { label: string; defaultModel: string; models: PresetModel[] }
+type Presets = Record<Provider, Preset>
+
 type LLMStatus = {
   provider: Provider
   model: string
@@ -14,6 +18,13 @@ type LLMStatus = {
   anthropic_key_masked: string | null
   has_openai_key: boolean
   has_anthropic_key: boolean
+}
+
+// Payload completo do GET /api/llm (config + presets + modelo de geração).
+type LLMConfig = Partial<LLMStatus> & {
+  gen_provider?: Provider | null
+  gen_model?: string | null
+  presets?: Presets
 }
 
 type ModelInfo = { id: string; owned_by?: string; display_name?: string }
@@ -35,13 +46,27 @@ export default function LLMPage() {
   const [ok, setOk] = useState<string | null>(null)
   const [agentePausado, setAgentePausado] = useState<boolean | null>(null)
   const [togglingAgente, setTogglingAgente] = useState(false)
+  // "LLM de geração" (one-shot): provider/model usados só na geração; reusa a chave do atendimento.
+  const [presets, setPresets] = useState<Presets | null>(null)
+  const [genProvider, setGenProvider] = useState<Provider>('openai')
+  const [genModel, setGenModel] = useState('')
+  const [genAtual, setGenAtual] = useState<{ provider: Provider | null; model: string | null }>({ provider: null, model: null })
+  const [savingGen, setSavingGen] = useState(false)
+  const [genMsg, setGenMsg] = useState<string | null>(null)
 
   async function carregarStatus() {
     try {
-      const r = await apiFetch<LLMStatus | null>('/api/llm')
+      const r = await apiFetch<LLMConfig | null>('/api/llm')
       if (r.data) {
-        setStatus(r.data)
-        setProvider(r.data.provider)
+        if (r.data.presets) setPresets(r.data.presets)
+        if (r.data.provider) {
+          setStatus(r.data as LLMStatus)
+          setProvider(r.data.provider)
+        }
+        const gp = (r.data.gen_provider || r.data.provider || 'openai') as Provider
+        setGenProvider(gp)
+        setGenModel(r.data.gen_model || '')
+        setGenAtual({ provider: r.data.gen_provider || null, model: r.data.gen_model || null })
       }
     } catch {}
     const eid = getEmpresaId()
@@ -142,6 +167,33 @@ export default function LLMPage() {
       setErro(e instanceof Error ? e.message : 'Falha na requisição.')
     } finally {
       setConectando(false)
+    }
+  }
+
+  async function salvarGeracao(limpar = false) {
+    setGenMsg(null)
+    setErro(null)
+    if (!limpar && !genModel) {
+      setGenMsg('Escolha um modelo de geração.')
+      return
+    }
+    setSavingGen(true)
+    try {
+      const body = limpar ? {} : { provider: genProvider, model: genModel }
+      const r = await apiFetch<{ gen_provider: Provider | null; gen_model: string | null }>(
+        '/api/llm/geracao',
+        { method: 'PUT', body: JSON.stringify(body) }
+      )
+      setGenAtual({ provider: r.data.gen_provider, model: r.data.gen_model })
+      setGenMsg(
+        r.data.gen_model
+          ? `Modelo de geração: ${r.data.gen_provider}/${r.data.gen_model}`
+          : 'Geração voltou a usar o modelo de atendimento.'
+      )
+    } catch (e: unknown) {
+      setGenMsg(e instanceof Error ? e.message : 'Erro ao salvar modelo de geração.')
+    } finally {
+      setSavingGen(false)
     }
   }
 
@@ -295,6 +347,79 @@ export default function LLMPage() {
             {erro}
           </pre>
         )}
+      </div>
+
+      <div className="bg-white border rounded-2xl p-6 shadow-sm space-y-4">
+        <div>
+          <h2 className="font-semibold">Modelo de geração</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Usado só na hora de <strong>gerar</strong> contexto, estágios e playbook (não fica atendendo).
+            Reusa a chave do provider de atendimento — você só escolhe um modelo (ex.: um mais
+            capaz pra geração). Sem nada definido, a geração usa o mesmo modelo do atendimento.
+          </p>
+        </div>
+
+        <div className="text-sm">
+          <span className="text-gray-500">Atual: </span>
+          {genAtual.model ? (
+            <span className="font-mono text-xs">{genAtual.provider}/{genAtual.model}</span>
+          ) : (
+            <span className="text-gray-600">usando o modelo de atendimento</span>
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          {PROVIDERS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => { setGenProvider(p.id); setGenModel(''); setGenMsg(null) }}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                genProvider === p.id ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm font-medium">Modelo</label>
+          <select
+            value={genModel}
+            onChange={(e) => setGenModel(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="">— escolha um modelo —</option>
+            {(presets?.[genProvider]?.models || []).map((m) => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+            {genModel && !(presets?.[genProvider]?.models || []).some((m) => m.value === genModel) && (
+              <option value={genModel}>{genModel}</option>
+            )}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => salvarGeracao(false)}
+            disabled={savingGen || !genModel}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+          >
+            {savingGen ? 'Salvando…' : 'Salvar modelo de geração'}
+          </button>
+          <button
+            type="button"
+            onClick={() => salvarGeracao(true)}
+            disabled={savingGen || (!genAtual.model && !genAtual.provider)}
+            className="text-sm px-4 py-2 rounded-lg font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Usar o mesmo do atendimento
+          </button>
+        </div>
+
+        {genMsg && <p className="text-sm text-gray-700">{genMsg}</p>}
       </div>
     </div>
   )
