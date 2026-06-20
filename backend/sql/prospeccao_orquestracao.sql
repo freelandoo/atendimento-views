@@ -37,9 +37,24 @@ CREATE TABLE IF NOT EXISTS prospectador.prospeccao_configuracoes (
   )
 );
 
-INSERT INTO prospectador.prospeccao_configuracoes (singleton_id)
-VALUES (true)
-ON CONFLICT (singleton_id) DO NOTHING;
+-- Seed da linha singleton APENAS enquanto a tabela está no formato singleton
+-- (banco novo, antes da migration 009). Depois da 009 a config passa a ser POR
+-- EMPRESA: a constraint única de singleton_id deixa de existir e a linha é semeada
+-- por empresa via garantirLinhaConfiguracao. Sem este guard, o INSERT ON CONFLICT
+-- (singleton_id) — que roda a CADA boot — quebra com 42P10 e derruba o initDB.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'prospectador.prospeccao_configuracoes'::regclass
+       AND contype IN ('p', 'u')
+       AND pg_get_constraintdef(oid) ILIKE '%singleton_id%'
+  ) THEN
+    INSERT INTO prospectador.prospeccao_configuracoes (singleton_id)
+    VALUES (true)
+    ON CONFLICT (singleton_id) DO NOTHING;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS prospectador.prospeccao_tags (
   id BIGSERIAL PRIMARY KEY,
