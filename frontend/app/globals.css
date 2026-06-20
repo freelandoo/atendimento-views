@@ -1,3 +1,115 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ── Neon Command Deck — design tokens ───────────────────────────────────── */
+:root {
+  --bg-void: #060912;
+  --bg-panel: #0d1322;
+  --bg-panel-2: #111a2e;
+  --bg-glass: rgba(20, 28, 48, 0.55);
+
+  --neon-cyan: #22e3ff;
+  --neon-magenta: #ff3df0;
+  --neon-lime: #7cff6b;
+  --neon-amber: #ffb020;
+  --neon-red: #ff4d6d;
+  --neon-violet: #9d7bff;
+
+  --text-hi: #eaf2ff;
+  --text-mid: #a7b4d0;
+  --text-lo: #6b7a9e;
+
+  --border-soft: rgba(120, 140, 190, 0.14);
+  --grid-line: rgba(34, 227, 255, 0.06);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    background-color: var(--bg-void);
+    color: var(--text-hi);
+    /* Glow radial ambiente atrás de todo o conteúdo (profundidade sem WebGL). */
+    background-image:
+      radial-gradient(55rem 38rem at 110% -10%, rgba(34, 227, 255, 0.10), transparent 60%),
+      radial-gradient(48rem 38rem at -10% 110%, rgba(255, 61, 240, 0.07), transparent 60%);
+    background-attachment: fixed;
+  }
+  ::selection {
+    background: rgba(34, 227, 255, 0.3);
+    color: #fff;
+  }
+  :focus-visible {
+    outline: 2px solid var(--neon-cyan);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(34, 227, 255, 0.35) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: linear-gradient(var(--neon-cyan), var(--neon-violet));
+    border-radius: 8px;
+    border: 2px solid var(--bg-void);
+  }
+}
+
+@layer components {
+  /* Vidro fosco com borda neon translúcida — superfície base dos cards. */
+  .glass {
+    background: var(--bg-glass);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--border-soft);
+  }
+  /* Grid técnico (HUD) para fundos de seção/hero. */
+  .bg-grid {
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  .neon-text {
+    color: var(--neon-cyan);
+    text-shadow: 0 0 18px rgba(34, 227, 255, 0.55);
+  }
+  /* Faixa de varredura usada nas barras de carregamento. */
+  .neon-sweep::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.55),
+      transparent
+    );
+    transform: translateX(-100%);
+    animation: neon-sweep 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes neon-sweep {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Respeita usuários que pedem menos movimento (desliga GSAP/CSS pesados). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

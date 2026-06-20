@@ -90,17 +90,17 @@ export default function Sidebar() {
 
   return (
     <aside
-      className={`sticky top-0 min-h-[100dvh] shrink-0 border-r border-slate-200/80 bg-white/95 shadow-[8px_0_30px_-26px_rgba(15,23,42,0.35)] transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+      className={`sticky top-0 z-30 min-h-[100dvh] shrink-0 border-r border-[var(--border-soft)] bg-panel/80 backdrop-blur-xl transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
         retraido ? 'w-[76px]' : 'w-64'
       }`}
     >
       <div className="flex min-h-[100dvh] flex-col">
-        <div className={`border-b border-slate-200/80 px-3 py-3 ${retraido ? 'space-y-3' : 'space-y-4'}`}>
+        <div className={`border-b border-[var(--border-soft)] px-3 py-3 ${retraido ? 'space-y-3' : 'space-y-4'}`}>
           <div className={`flex items-center ${retraido ? 'justify-center' : 'justify-between gap-3'}`}>
             {!retraido && (
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold tracking-tight text-slate-950">{atual?.nome || 'PJ Codeworks'}</p>
-                <p className="truncate text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400">Workspace</p>
+                <p className="truncate font-display text-sm font-semibold tracking-tight text-hi">{atual?.nome || 'PJ Codeworks'}</p>
+                <p className="truncate text-[11px] font-medium uppercase tracking-[0.18em] text-neon-cyan/70">Command Deck</p>
               </div>
             )}
             <button
@@ -108,7 +108,7 @@ export default function Sidebar() {
               onClick={alternarToolbar}
               aria-label={retraido ? 'Expandir toolbar' : 'Retrair toolbar'}
               title={retraido ? 'Expandir toolbar' : 'Retrair toolbar'}
-              className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 active:scale-[0.98]"
+              className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/5 text-mid transition hover:border-neon-cyan/40 hover:text-neon-cyan active:scale-[0.98]"
             >
               <ChevronIcon className={`h-4 w-4 transition-transform duration-300 ${retraido ? 'rotate-180' : ''}`} />
             </button>
@@ -126,43 +126,43 @@ export default function Sidebar() {
             }}
             aria-label="Selecionar empresa"
             title={atual?.nome || 'PJ Codeworks'}
-            className={`flex w-full items-center rounded-xl border border-slate-200 bg-slate-50/70 text-left transition hover:bg-slate-100 active:scale-[0.98] ${
+            className={`flex w-full items-center rounded-xl border border-white/10 bg-white/5 text-left transition hover:border-neon-cyan/30 hover:bg-white/[0.08] active:scale-[0.98] ${
               retraido ? 'h-11 justify-center px-0' : 'justify-between gap-3 px-3 py-2'
             }`}
           >
-            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand text-xs font-bold text-white">
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-neon-cyan/40 bg-neon-cyan/15 text-xs font-bold text-neon-cyan shadow-glow-cyan">
               {(atual?.nome || 'PJ').slice(0, 2).toUpperCase()}
             </span>
             {!retraido && (
               <>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-slate-800">{atual?.nome || 'PJ Codeworks'}</span>
-                  <span className="block truncate text-xs text-slate-400">{atual?.slug || 'painel'}</span>
+                  <span className="block truncate text-sm font-semibold text-hi">{atual?.nome || 'PJ Codeworks'}</span>
+                  <span className="block truncate text-xs text-lo">{atual?.slug || 'painel'}</span>
                 </span>
-                <ChevronDownIcon className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${aberto ? 'rotate-180' : ''}`} />
+                <ChevronDownIcon className={`h-4 w-4 shrink-0 text-lo transition-transform ${aberto ? 'rotate-180' : ''}`} />
               </>
             )}
           </button>
         </div>
 
         {aberto && (
-          <div className="absolute left-3 top-[118px] z-20 w-56 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.45)]">
+          <div className="glass absolute left-3 top-[118px] z-20 w-56 overflow-hidden rounded-2xl py-1 shadow-glow-soft">
             {empresas.map((e) => (
               <button
                 key={e.id}
                 onClick={() => trocar(e.id)}
-                className={`w-full text-left px-3 py-2.5 text-sm transition hover:bg-slate-50 ${
-                  e.id === empresaIdAtual ? 'font-semibold text-brand' : 'text-slate-700'
+                className={`w-full text-left px-3 py-2.5 text-sm transition hover:bg-white/5 ${
+                  e.id === empresaIdAtual ? 'font-semibold text-neon-cyan' : 'text-mid'
                 }`}
               >
                 {e.nome}
-                <span className="block text-xs text-slate-400">{e.slug}</span>
+                <span className="block text-xs text-lo">{e.slug}</span>
               </button>
             ))}
-            <div className="mt-1 border-t border-slate-100 pt-1">
+            <div className="mt-1 border-t border-white/10 pt-1">
               <button
                 onClick={() => { setAberto(false); setCriandoOpen(true) }}
-                className="w-full text-left px-3 py-2.5 text-sm font-medium text-brand transition hover:bg-slate-50"
+                className="w-full text-left px-3 py-2.5 text-sm font-medium text-neon-cyan transition hover:bg-white/5"
               >
                 + Nova empresa
               </button>
@@ -170,7 +170,7 @@ export default function Sidebar() {
           </div>
         )}
 
-        <nav className="flex-1 space-y-2 px-3 py-4" aria-label="Navegação principal">
+        <nav className="flex-1 space-y-1.5 px-3 py-4" aria-label="Navegação principal">
           {NAV.map(({ href, label, icon }) => {
             const active = href === '/dashboard' ? pathname === href : pathname.startsWith(href)
             return (
@@ -183,14 +183,15 @@ export default function Sidebar() {
                   retraido ? 'justify-center px-0' : 'gap-3 px-3'
                 } ${
                   active
-                    ? 'bg-brand text-white shadow-[0_10px_22px_-16px_rgba(37,99,235,0.9)]'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
+                    ? 'border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan shadow-glow-cyan'
+                    : 'border border-transparent text-mid hover:bg-white/5 hover:text-hi'
                 }`}
               >
+                {active && <span className="absolute left-0 top-1/2 h-6 -translate-y-1/2 rounded-r bg-neon-cyan" style={{ width: 3, boxShadow: '0 0 10px var(--neon-cyan)' }} />}
                 <NavGlyph name={icon} className="h-5 w-5 shrink-0" />
                 {!retraido && <span className="truncate">{label}</span>}
                 {retraido && (
-                  <span className="pointer-events-none absolute left-[58px] top-1/2 z-30 -translate-y-1/2 translate-x-1 rounded-lg bg-slate-950 px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-xl transition group-hover:translate-x-0 group-hover:opacity-100">
+                  <span className="glass pointer-events-none absolute left-[58px] top-1/2 z-30 -translate-y-1/2 translate-x-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-hi opacity-0 shadow-glow-soft transition group-hover:translate-x-0 group-hover:opacity-100">
                     {label}
                   </span>
                 )}
@@ -199,13 +200,13 @@ export default function Sidebar() {
           })}
         </nav>
 
-        <div className="border-t border-slate-200/80 px-3 py-3">
-          <div className={`rounded-xl bg-slate-50 text-slate-500 ${retraido ? 'grid h-11 place-items-center' : 'px-3 py-2'}`}>
+        <div className="border-t border-[var(--border-soft)] px-3 py-3">
+          <div className={`rounded-xl border border-white/10 bg-white/5 text-mid ${retraido ? 'grid h-11 place-items-center' : 'px-3 py-2'}`}>
             {retraido ? (
-              <span className="h-2 w-2 rounded-full bg-emerald-500" aria-label="Online" title="Online" />
+              <span className="h-2 w-2 rounded-full bg-neon-lime shadow-glow-lime animate-pulse-glow" aria-label="Online" title="Online" />
             ) : (
               <div className="flex items-center gap-2 text-xs font-medium">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span className="h-2 w-2 rounded-full bg-neon-lime shadow-glow-lime animate-pulse-glow" />
                 <span>Online</span>
               </div>
             )}
@@ -214,25 +215,25 @@ export default function Sidebar() {
       </div>
 
       {criandoOpen && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 p-4" onClick={() => setCriandoOpen(false)}>
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-void/70 p-4 backdrop-blur-sm" onClick={() => setCriandoOpen(false)}>
           <form
             onSubmit={criarEmpresa}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm space-y-4 rounded-2xl bg-white p-6 shadow-[0_28px_80px_-30px_rgba(15,23,42,0.55)]"
+            className="glass w-full max-w-sm space-y-4 rounded-2xl p-6 shadow-glow-soft"
           >
-            <h3 className="text-lg font-semibold">Nova empresa</h3>
+            <h3 className="font-display text-lg font-semibold text-hi">Nova empresa</h3>
             <div className="space-y-1">
-              <label className="block text-xs text-slate-500">Nome</label>
-              <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} required minLength={2} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-brand" />
+              <label className="block text-xs text-lo">Nome</label>
+              <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} required minLength={2} className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-hi outline-none transition focus:border-neon-cyan" />
             </div>
             <div className="space-y-1">
-              <label className="block text-xs text-slate-500">Slug opcional</label>
-              <input value={novoSlug} onChange={(e) => setNovoSlug(e.target.value)} placeholder="ex: minha-empresa" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-brand" />
+              <label className="block text-xs text-lo">Slug opcional</label>
+              <input value={novoSlug} onChange={(e) => setNovoSlug(e.target.value)} placeholder="ex: minha-empresa" className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-hi outline-none transition focus:border-neon-cyan" />
             </div>
-            {erro && <p className="text-sm text-red-600">{erro}</p>}
+            {erro && <p className="text-sm text-neon-red">{erro}</p>}
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setCriandoOpen(false)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm transition hover:bg-slate-50 active:scale-[0.98]">Cancelar</button>
-              <button type="submit" disabled={criando || !novoNome} className="rounded-lg bg-brand px-3 py-2 text-sm text-white transition hover:bg-brand-dark active:scale-[0.98] disabled:opacity-50">
+              <button type="button" onClick={() => setCriandoOpen(false)} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-mid transition hover:bg-white/10 active:scale-[0.98]">Cancelar</button>
+              <button type="submit" disabled={criando || !novoNome} className="rounded-lg border border-neon-cyan/40 bg-neon-cyan/15 px-3 py-2 text-sm font-medium text-neon-cyan transition hover:bg-neon-cyan/25 hover:shadow-glow-cyan active:scale-[0.98] disabled:opacity-50">
                 {criando ? 'Criando...' : 'Criar e entrar'}
               </button>
             </div>

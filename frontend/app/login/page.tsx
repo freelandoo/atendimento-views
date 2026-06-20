@@ -2,6 +2,7 @@
 import { useState, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiFetch } from '@/lib/api'
+import NeonProgress from '@/components/ui/NeonProgress'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -37,44 +38,55 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+    <div className="bg-grid relative flex min-h-screen items-center justify-center overflow-hidden p-4">
+      {/* halos de profundidade */}
+      <div className="pointer-events-none absolute -left-32 top-1/4 h-80 w-80 rounded-full bg-neon-cyan/20 blur-[110px]" />
+      <div className="pointer-events-none absolute -right-24 bottom-1/4 h-80 w-80 rounded-full bg-neon-magenta/15 blur-[110px]" />
+
       <form
         onSubmit={handleSubmit}
-        className="bg-white rounded-2xl shadow-md p-8 w-full max-w-sm space-y-5"
+        className="glass relative z-10 w-full max-w-sm space-y-5 rounded-2xl p-8 shadow-glow-soft"
       >
-        <h1 className="text-2xl font-bold text-brand">PJ Codeworks</h1>
-        <p className="text-sm text-gray-500">Acesse o painel multiempresa</p>
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-neon-cyan/70">Command Deck</p>
+          <h1 className="neon-text font-display text-3xl font-bold">PJ Codeworks</h1>
+          <p className="mt-1 text-sm text-lo">Acesse o painel multiempresa</p>
+        </div>
 
-        {erro && <p className="text-red-600 text-sm">{erro}</p>}
+        {erro && (
+          <p className="rounded-lg border border-neon-red/30 bg-neon-red/10 px-3 py-2 text-sm text-neon-red">{erro}</p>
+        )}
 
-        <div className="space-y-1">
-          <label className="text-sm font-medium">E-mail</label>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-mid">E-mail</label>
           <input
             type="email"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-hi outline-none transition focus:border-neon-cyan focus:shadow-glow-cyan"
           />
         </div>
 
-        <div className="space-y-1">
-          <label className="text-sm font-medium">Senha</label>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-mid">Senha</label>
           <input
             type="password"
             required
             value={senha}
             onChange={(e) => setSenha(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-hi outline-none transition focus:border-neon-cyan focus:shadow-glow-cyan"
           />
         </div>
+
+        {loading && <NeonProgress />}
 
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-brand text-white py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50 transition-colors"
+          className="w-full rounded-lg border border-neon-cyan/40 bg-neon-cyan/15 py-2.5 text-sm font-semibold text-neon-cyan transition-all hover:bg-neon-cyan/25 hover:shadow-glow-cyan active:scale-[0.98] disabled:opacity-50"
         >
-          {loading ? 'Entrando…' : 'Entrar'}
+          {loading ? 'Entrando…' : 'Entrar →'}
         </button>
       </form>
     </div>
