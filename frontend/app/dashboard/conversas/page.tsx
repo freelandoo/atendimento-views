@@ -28,19 +28,19 @@ type Conversa = {
 }
 
 const TEMP_STYLE: Record<string, { label: string; cls: string }> = {
-  quente: { label: '🔥 Quente', cls: 'bg-orange-100 text-orange-700' },
-  morno: { label: '🌤️ Morno', cls: 'bg-amber-100 text-amber-700' },
+  quente: { label: '🔥 Quente', cls: 'bg-neon-amber/10 text-orange-700' },
+  morno: { label: '🌤️ Morno', cls: 'bg-neon-amber/10 text-neon-amber' },
   frio: { label: '❄️ Frio', cls: 'bg-sky-100 text-sky-700' },
 }
 
 function TempBadge({ t }: { t?: string | null }) {
-  if (!t || !TEMP_STYLE[t]) return <span className="text-gray-400 text-xs">—</span>
+  if (!t || !TEMP_STYLE[t]) return <span className="text-lo text-xs">—</span>
   return <span className={`px-2 py-0.5 rounded-full text-xs ${TEMP_STYLE[t].cls}`}>{TEMP_STYLE[t].label}</span>
 }
 const INTERESSE_STYLE: Record<string, { cls: string; text: string }> = {
-  alto: { cls: 'border-emerald-500 bg-emerald-50 text-emerald-700', text: 'Alto' },
-  medio: { cls: 'border-amber-500 bg-amber-50 text-amber-700', text: 'Medio' },
-  baixo: { cls: 'border-slate-400 bg-slate-50 text-slate-600', text: 'Baixo' },
+  alto: { cls: 'border-emerald-500 bg-neon-lime/10 text-neon-lime', text: 'Alto' },
+  medio: { cls: 'border-amber-500 bg-neon-amber/10 text-neon-amber', text: 'Medio' },
+  baixo: { cls: 'border-slate-400 bg-white/5 text-mid', text: 'Baixo' },
 }
 
 function scoreValue(score?: number | null) {
@@ -68,8 +68,8 @@ function InteresseBadge({ c, compact = false }: { c: Pick<Conversa, 'score_inter
         {score ?? '--'}
       </span>
       <div className="min-w-0">
-        <div className="text-sm font-semibold text-gray-900">{label}</div>
-        <div className="text-xs text-gray-500">{c.score_interesse_resumo || 'Sem resumo disponivel'}</div>
+        <div className="text-sm font-semibold text-hi">{label}</div>
+        <div className="text-xs text-lo">{c.score_interesse_resumo || 'Sem resumo disponivel'}</div>
       </div>
     </div>
   )
@@ -81,9 +81,9 @@ function criterioDelta(c: ScoreCriterio) {
 }
 
 function criterioClasse(c: ScoreCriterio) {
-  if (c.delta > 0) return 'bg-emerald-50 text-emerald-700 border-emerald-200'
-  if (c.delta < 0) return 'bg-red-50 text-red-700 border-red-200'
-  return 'bg-gray-50 text-gray-500 border-gray-200'
+  if (c.delta > 0) return 'bg-neon-lime/10 text-neon-lime border-emerald-200'
+  if (c.delta < 0) return 'bg-neon-red/10 text-neon-red border-red-200'
+  return 'bg-white/5 text-lo border-white/10'
 }
 
 type Mensagem = { role?: string; content?: string; text?: string; timestamp?: string }
@@ -190,10 +190,10 @@ export default function ConversasPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Conversas</h1>
-      {erro && <p className="text-red-600 text-sm">{erro}</p>}
+      {erro && <p className="text-neon-red text-sm">{erro}</p>}
 
-      <table className="w-full text-sm border rounded-xl overflow-hidden bg-white shadow-sm">
-        <thead className="bg-gray-100">
+      <table className="w-full text-sm border rounded-xl overflow-hidden bg-panel shadow-sm">
+        <thead className="bg-white/5">
           <tr>
             <th className="text-left px-4 py-2">Número</th>
             <th className="text-left px-4 py-2">Negócio</th>
@@ -207,18 +207,18 @@ export default function ConversasPage() {
         </thead>
         <tbody>
           {lista.map((c) => (
-            <tr key={c.numero} className="border-t hover:bg-gray-50">
+            <tr key={c.numero} className="border-t hover:bg-white/5">
               <td className="px-4 py-2 font-mono text-xs">{fmtNumero(c.numero)}</td>
               <td className="px-4 py-2">{c.negocio || '—'}</td>
               <td className="px-4 py-2"><TempBadge t={c.temperatura_lead} /></td>
               <td className="px-4 py-2"><InteresseBadge c={c} compact /></td>
               <td className="px-4 py-2">{c.estagio}</td>
               <td className="px-4 py-2">
-                <span className={`px-2 py-0.5 rounded-full text-xs ${c.status === 'ativo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                <span className={`px-2 py-0.5 rounded-full text-xs ${c.status === 'ativo' ? 'bg-green-100 text-green-700' : 'bg-white/5 text-lo'}`}>
                   {c.status}
                 </span>
               </td>
-              <td className="px-4 py-2 text-right text-gray-500">
+              <td className="px-4 py-2 text-right text-lo">
                 {fmtData(c.atualizado_em)}
               </td>
               <td className="px-4 py-2 text-right">
@@ -233,7 +233,7 @@ export default function ConversasPage() {
                     onClick={() => removerConversa(c)}
                     title="Remover contato e dados deste número"
                     aria-label="Remover"
-                    className="text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg p-1.5 transition-colors"
+                    className="text-lo hover:text-neon-red hover:bg-neon-red/10 rounded-lg p-1.5 transition-colors"
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M3 6h18"/>
@@ -248,7 +248,7 @@ export default function ConversasPage() {
             </tr>
           ))}
           {lista.length === 0 && (
-            <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">Nenhuma conversa encontrada.</td></tr>
+            <tr><td colSpan={8} className="px-4 py-6 text-center text-lo">Nenhuma conversa encontrada.</td></tr>
           )}
         </tbody>
       </table>
@@ -259,13 +259,13 @@ export default function ConversasPage() {
           onClick={() => setAberta(null)}
         >
           <div
-            className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden"
+            className="bg-panel rounded-2xl shadow-xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 py-4 border-b flex justify-between items-start gap-3">
               <div>
                 <h3 className="font-semibold">{fmtNumero(aberta.numero)}</h3>
-                <p className="text-xs text-gray-500 mt-0.5">
+                <p className="text-xs text-lo mt-0.5">
                   Estágio: <span className="font-medium">{aberta.estagio}</span> ·
                   Status: <span className="font-medium">{aberta.status}</span> ·
                   {aberta.historico?.length || 0} msgs
@@ -273,26 +273,26 @@ export default function ConversasPage() {
                 <div className="mt-3 flex flex-wrap items-center gap-3">
                   <InteresseBadge c={aberta} />
                   {scoreValue(aberta.score_lead) != null && (
-                    <span className="inline-flex items-center rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                      Fit do lead: <strong className="ml-1 text-gray-900">{scoreValue(aberta.score_lead)}</strong>
+                    <span className="inline-flex items-center rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-mid">
+                      Fit do lead: <strong className="ml-1 text-hi">{scoreValue(aberta.score_lead)}</strong>
                     </span>
                   )}
                   <TempBadge t={aberta.temperatura_lead} />
                   {aberta.evolution_instance && (
-                    <span className="inline-flex items-center rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                    <span className="inline-flex items-center rounded-lg border border-blue-100 bg-neon-cyan/10 px-3 py-2 text-xs text-neon-cyan">
                       WhatsApp: <strong className="ml-1">{aberta.evolution_instance}</strong>
                     </span>
                   )}
                 </div>
                 {aberta.ultima_falha_resposta_em && (
-                  <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  <div className="mt-3 rounded-lg border border-red-200 bg-neon-red/10 px-3 py-2 text-xs text-neon-red">
                     Falha no envio: {aberta.ultima_falha_resposta_msg || aberta.ultima_falha_resposta_codigo || 'erro desconhecido'}
                   </div>
                 )}
               </div>
               <button
                 onClick={() => setAberta(null)}
-                className="text-gray-400 hover:text-gray-700 text-xl leading-none px-2"
+                className="text-lo hover:text-mid text-xl leading-none px-2"
                 aria-label="Fechar"
               >
                 ×
@@ -300,20 +300,20 @@ export default function ConversasPage() {
             </div>
 
             {criteriosInteresse.length > 0 && (
-              <div className="border-b bg-white px-5 py-3">
+              <div className="border-b bg-panel px-5 py-3">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Criterios do interesse</div>
-                  <div className="text-xs text-gray-500">{aberta.score_interesse_mensagens_lead ?? 0} mensagens do lead analisadas</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-lo">Criterios do interesse</div>
+                  <div className="text-xs text-lo">{aberta.score_interesse_mensagens_lead ?? 0} mensagens do lead analisadas</div>
                 </div>
                 <div className="grid max-h-40 gap-2 overflow-y-auto sm:grid-cols-2">
                   {criteriosInteresse.map((c, i) => (
-                    <div key={`${c.titulo}-${i}`} className="flex min-w-0 gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
+                    <div key={`${c.titulo}-${i}`} className="flex min-w-0 gap-2 rounded-lg border border-white/10 bg-white/5 p-2">
                       <span className={`inline-flex h-6 min-w-10 shrink-0 items-center justify-center rounded-full border px-2 text-xs font-semibold ${criterioClasse(c)}`}>
                         {criterioDelta(c)}
                       </span>
                       <div className="min-w-0">
-                        <div className="text-xs font-semibold text-gray-800">{c.titulo}</div>
-                        {c.detalhe && <div className="mt-0.5 text-xs text-gray-500 line-clamp-2">{c.detalhe}</div>}
+                        <div className="text-xs font-semibold text-hi">{c.titulo}</div>
+                        {c.detalhe && <div className="mt-0.5 text-xs text-lo line-clamp-2">{c.detalhe}</div>}
                       </div>
                     </div>
                   ))}
@@ -321,27 +321,27 @@ export default function ConversasPage() {
               </div>
             )}
 
-            <div className="flex-1 overflow-y-auto bg-gray-50 px-5 py-4 space-y-2">
+            <div className="flex-1 overflow-y-auto bg-white/5 px-5 py-4 space-y-2">
               {carregando ? (
-                <p className="text-sm text-center text-gray-500 py-8">Carregando…</p>
+                <p className="text-sm text-center text-lo py-8">Carregando…</p>
               ) : !aberta.historico || aberta.historico.length === 0 ? (
-                <p className="text-sm text-center text-gray-400 py-8">Sem mensagens no histórico.</p>
+                <p className="text-sm text-center text-lo py-8">Sem mensagens no histórico.</p>
               ) : (
                 aberta.historico.map((m, i) => {
                   const isUser = m.role === 'user'
                   const isAssistant = m.role === 'assistant'
                   const isOperator = m.role === 'operator'
                   const bubble = isUser
-                    ? 'bg-white border border-gray-200 mr-auto'
+                    ? 'bg-panel border border-white/10 mr-auto'
                     : isAssistant
                       ? 'bg-brand text-white ml-auto'
                       : isOperator
-                        ? 'bg-amber-100 text-amber-900 ml-auto'
-                        : 'bg-gray-200 text-gray-700 mx-auto'
+                        ? 'bg-neon-amber/10 text-amber-900 ml-auto'
+                        : 'bg-gray-200 text-mid mx-auto'
                   const label = isUser ? 'Lead' : isAssistant ? 'Agente' : isOperator ? 'Operador' : (m.role || '?')
                   return (
                     <div key={i} className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${bubble}`}>
-                      <div className={`text-[10px] uppercase mb-0.5 ${isAssistant ? 'text-white/70' : 'text-gray-500'}`}>{label}</div>
+                      <div className={`text-[10px] uppercase mb-0.5 ${isAssistant ? 'text-white/70' : 'text-lo'}`}>{label}</div>
                       <div className="whitespace-pre-wrap break-words">{m.content || m.text || '(vazio)'}</div>
                     </div>
                   )

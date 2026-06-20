@@ -52,11 +52,11 @@ export default function RelatoriosPage() {
         </button>
       </div>
 
-      {erro && <p className="text-red-600 text-sm">{erro}</p>}
+      {erro && <p className="text-neon-red text-sm">{erro}</p>}
 
       {resultado && (
-        <div className="bg-white border rounded-2xl p-6 shadow-sm">
-          <p className="text-xs text-gray-400 mb-3">
+        <div className="bg-panel border rounded-2xl p-6 shadow-sm">
+          <p className="text-xs text-lo mb-3">
             Gerado por {resultado.provider} / {resultado.model}
           </p>
           <pre className="whitespace-pre-wrap text-sm leading-relaxed">{resultado.texto}</pre>

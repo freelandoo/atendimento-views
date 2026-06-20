@@ -200,8 +200,8 @@ export default function LLMPage() {
   const badge = status?.status === 'ativo'
     ? <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">ativo</span>
     : status?.status === 'erro'
-      ? <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">erro</span>
-      : <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">pendente</span>
+      ? <span className="text-xs px-2 py-0.5 rounded-full bg-neon-red/10 text-neon-red font-medium">erro</span>
+      : <span className="text-xs px-2 py-0.5 rounded-full bg-white/5 text-mid font-medium">pendente</span>
 
   return (
     <div className="space-y-8 max-w-3xl">
@@ -211,10 +211,10 @@ export default function LLMPage() {
       </div>
 
       {agentePausado !== null && (
-        <div className="bg-white border rounded-2xl p-6 shadow-sm flex items-center justify-between gap-4 flex-wrap">
+        <div className="bg-panel border rounded-2xl p-6 shadow-sm flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h2 className="font-semibold">Agente da empresa</h2>
-            <p className="text-xs text-gray-500 mt-0.5">
+            <p className="text-xs text-lo mt-0.5">
               Quando pausado, o agente não responde mensagens recebidas no WhatsApp.
               Use pra atender manualmente sem o bot interromper.
             </p>
@@ -227,7 +227,7 @@ export default function LLMPage() {
               className={`text-sm px-4 py-2 rounded-lg font-medium transition-colors ${
                 !agentePausado
                   ? 'bg-green-600 text-white cursor-default'
-                  : 'border border-green-600 text-green-600 hover:bg-green-50 disabled:opacity-50'
+                  : 'border border-green-600 text-neon-lime hover:bg-green-50 disabled:opacity-50'
               }`}
             >
               Ativar
@@ -239,13 +239,13 @@ export default function LLMPage() {
               className={`text-sm px-4 py-2 rounded-lg font-medium transition-colors ${
                 agentePausado
                   ? 'bg-red-600 text-white cursor-default'
-                  : 'border border-red-600 text-red-600 hover:bg-red-50 disabled:opacity-50'
+                  : 'border border-red-600 text-neon-red hover:bg-neon-red/10 disabled:opacity-50'
               }`}
             >
               Pausar
             </button>
             <span className={`text-xs px-3 py-1 rounded-full font-semibold ${
-              agentePausado ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+              agentePausado ? 'bg-neon-red/10 text-neon-red' : 'bg-green-100 text-green-700'
             }`}>
               {agentePausado ? 'pausado' : 'ativo'}
             </span>
@@ -254,29 +254,29 @@ export default function LLMPage() {
       )}
 
       {status && (
-        <div className="bg-white border rounded-2xl p-6 shadow-sm space-y-2">
+        <div className="bg-panel border rounded-2xl p-6 shadow-sm space-y-2">
           <h2 className="font-semibold">Configuração ativa</h2>
           <div className="grid grid-cols-2 gap-y-1 text-sm">
-            <span className="text-gray-500">Provider:</span>
+            <span className="text-lo">Provider:</span>
             <span className="font-medium">{status.provider}</span>
-            <span className="text-gray-500">Modelo:</span>
+            <span className="text-lo">Modelo:</span>
             <span className="font-mono text-xs">{status.model}</span>
-            <span className="text-gray-500">OpenAI key:</span>
+            <span className="text-lo">OpenAI key:</span>
             <span className="font-mono text-xs">{status.openai_key_masked || '—'}</span>
-            <span className="text-gray-500">Anthropic key:</span>
+            <span className="text-lo">Anthropic key:</span>
             <span className="font-mono text-xs">{status.anthropic_key_masked || '—'}</span>
-            <span className="text-gray-500">Último teste:</span>
+            <span className="text-lo">Último teste:</span>
             <span className="text-xs">{status.tested_at ? new Date(status.tested_at).toLocaleString('pt-BR') : '—'}</span>
           </div>
           {status.status === 'erro' && status.last_error && (
-            <pre className="mt-3 text-xs bg-red-50 text-red-800 p-3 rounded-lg whitespace-pre-wrap break-all">
+            <pre className="mt-3 text-xs bg-neon-red/10 text-red-800 p-3 rounded-lg whitespace-pre-wrap break-all">
               {status.last_error}
             </pre>
           )}
         </div>
       )}
 
-      <div className="bg-white border rounded-2xl p-6 shadow-sm space-y-4">
+      <div className="bg-panel border rounded-2xl p-6 shadow-sm space-y-4">
         <h2 className="font-semibold">Conectar novo provider</h2>
 
         <div className="flex gap-2">
@@ -286,7 +286,7 @@ export default function LLMPage() {
               type="button"
               onClick={() => { setProvider(p.id); setModels([]); setModelSelecionado(''); setErro(null) }}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                provider === p.id ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                provider === p.id ? 'bg-brand text-white' : 'bg-white/5 text-mid hover:bg-gray-200'
               }`}
             >
               {p.label}
@@ -343,16 +343,16 @@ export default function LLMPage() {
 
         {ok && <p className="text-sm text-green-700">{ok}</p>}
         {erro && (
-          <pre className="text-xs bg-red-50 text-red-800 p-3 rounded-lg whitespace-pre-wrap break-all">
+          <pre className="text-xs bg-neon-red/10 text-red-800 p-3 rounded-lg whitespace-pre-wrap break-all">
             {erro}
           </pre>
         )}
       </div>
 
-      <div className="bg-white border rounded-2xl p-6 shadow-sm space-y-4">
+      <div className="bg-panel border rounded-2xl p-6 shadow-sm space-y-4">
         <div>
           <h2 className="font-semibold">Modelo de geração</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-xs text-lo mt-0.5">
             Usado só na hora de <strong>gerar</strong> contexto, estágios e playbook (não fica atendendo).
             Reusa a chave do provider de atendimento — você só escolhe um modelo (ex.: um mais
             capaz pra geração). Sem nada definido, a geração usa o mesmo modelo do atendimento.
@@ -360,11 +360,11 @@ export default function LLMPage() {
         </div>
 
         <div className="text-sm">
-          <span className="text-gray-500">Atual: </span>
+          <span className="text-lo">Atual: </span>
           {genAtual.model ? (
             <span className="font-mono text-xs">{genAtual.provider}/{genAtual.model}</span>
           ) : (
-            <span className="text-gray-600">usando o modelo de atendimento</span>
+            <span className="text-mid">usando o modelo de atendimento</span>
           )}
         </div>
 
@@ -375,7 +375,7 @@ export default function LLMPage() {
               type="button"
               onClick={() => { setGenProvider(p.id); setGenModel(''); setGenMsg(null) }}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                genProvider === p.id ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                genProvider === p.id ? 'bg-brand text-white' : 'bg-white/5 text-mid hover:bg-gray-200'
               }`}
             >
               {p.label}
@@ -413,13 +413,13 @@ export default function LLMPage() {
             type="button"
             onClick={() => salvarGeracao(true)}
             disabled={savingGen || (!genAtual.model && !genAtual.provider)}
-            className="text-sm px-4 py-2 rounded-lg font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            className="text-sm px-4 py-2 rounded-lg font-medium border border-white/15 text-mid hover:bg-white/5 disabled:opacity-50"
           >
             Usar o mesmo do atendimento
           </button>
         </div>
 
-        {genMsg && <p className="text-sm text-gray-700">{genMsg}</p>}
+        {genMsg && <p className="text-sm text-mid">{genMsg}</p>}
       </div>
     </div>
   )

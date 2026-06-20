@@ -82,19 +82,19 @@ export default function UsoPage() {
     <div className="space-y-8">
       <h1 className="text-2xl font-bold">Uso & Custo</h1>
 
-      <div className="bg-white border rounded-2xl p-4 shadow-sm flex flex-wrap items-end gap-3">
+      <div className="bg-panel border rounded-2xl p-4 shadow-sm flex flex-wrap items-end gap-3">
         <div>
-          <label className="block text-xs text-gray-500 mb-1">De</label>
+          <label className="block text-xs text-lo mb-1">De</label>
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Até</label>
+          <label className="block text-xs text-lo mb-1">Até</label>
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" />
         </div>
         <button onClick={carregar} disabled={loading} className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50">
           {loading ? 'Atualizando…' : 'Atualizar'}
         </button>
-        {erro && <span className="text-sm text-red-600 ml-2">{erro}</span>}
+        {erro && <span className="text-sm text-neon-red ml-2">{erro}</span>}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -155,10 +155,10 @@ export default function UsoPage() {
 
 function Card({ label, value, sub, highlight }: { label: string; value: string; sub?: string; highlight?: boolean }) {
   return (
-    <div className={`border rounded-2xl p-4 shadow-sm ${highlight ? 'bg-brand text-white' : 'bg-white'}`}>
-      <p className={`text-xs ${highlight ? 'text-white/80' : 'text-gray-500'}`}>{label}</p>
+    <div className={`border rounded-2xl p-4 shadow-sm ${highlight ? 'bg-brand text-white' : 'bg-panel'}`}>
+      <p className={`text-xs ${highlight ? 'text-white/80' : 'text-lo'}`}>{label}</p>
       <p className="text-2xl font-bold mt-1">{value}</p>
-      {sub && <p className={`text-xs mt-1 ${highlight ? 'text-white/80' : 'text-gray-400'}`}>{sub}</p>}
+      {sub && <p className={`text-xs mt-1 ${highlight ? 'text-white/80' : 'text-lo'}`}>{sub}</p>}
     </div>
   )
 }
@@ -170,13 +170,13 @@ function Tabela({ titulo, colunas, linhas, vazio }: {
   vazio?: string
 }) {
   return (
-    <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
+    <div className="bg-panel border rounded-2xl shadow-sm overflow-hidden">
       <div className="px-5 py-3 border-b">
         <h2 className="font-semibold text-sm">{titulo}</h2>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-gray-600 text-xs uppercase">
+          <thead className="bg-white/5 text-mid text-xs uppercase">
             <tr>
               {colunas.map((c) => (
                 <th key={c} className="px-4 py-2 text-left font-medium">{c}</th>
@@ -185,7 +185,7 @@ function Tabela({ titulo, colunas, linhas, vazio }: {
           </thead>
           <tbody>
             {linhas.length === 0 ? (
-              <tr><td colSpan={colunas.length} className="px-4 py-6 text-center text-gray-400">{vazio || 'Sem dados no período.'}</td></tr>
+              <tr><td colSpan={colunas.length} className="px-4 py-6 text-center text-lo">{vazio || 'Sem dados no período.'}</td></tr>
             ) : (
               linhas.map((linha, i) => (
                 <tr key={i} className="border-t">

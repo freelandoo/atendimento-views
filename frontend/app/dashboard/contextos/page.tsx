@@ -261,7 +261,7 @@ export default function ContextosPage() {
       <h1 className="text-2xl font-bold">Empresas</h1>
 
       {/* Hero — Agente + Instâncias WhatsApp */}
-      <div className="bg-white border rounded-2xl p-5 shadow-sm space-y-5">
+      <div className="bg-panel border rounded-2xl p-5 shadow-sm space-y-5">
         <AgentePanel empresaId={empresaId} />
         <div className="border-t pt-5">
           <InstanciasWhatsApp empresaId={empresaId} contextos={lista.map((c) => ({ id: c.id, nome: c.nome }))} />
@@ -270,12 +270,12 @@ export default function ContextosPage() {
 
       <div className="pt-1">
         <h2 className="text-lg font-semibold">Contextos</h2>
-        <p className="text-xs text-gray-500 mt-0.5">Crie um contexto por marca/negócio. Cada contexto tem seus próprios estágios de resposta.</p>
+        <p className="text-xs text-lo mt-0.5">Crie um contexto por marca/negócio. Cada contexto tem seus próprios estágios de resposta.</p>
       </div>
 
-      <div className="bg-white border rounded-2xl p-5 shadow-sm flex items-end gap-3">
+      <div className="bg-panel border rounded-2xl p-5 shadow-sm flex items-end gap-3">
         <div className="flex-1">
-          <label className="block text-xs text-gray-500 mb-1">Nome do novo contexto (rótulo)</label>
+          <label className="block text-xs text-lo mb-1">Nome do novo contexto (rótulo)</label>
           <input
             value={nomeNovo}
             onChange={(e) => setNomeNovo(e.target.value)}
@@ -293,7 +293,7 @@ export default function ContextosPage() {
       </div>
 
       {msg && (
-        <p className={`text-sm ${msg.tone === 'ok' ? 'text-brand' : 'text-red-600'}`}>{msg.text}</p>
+        <p className={`text-sm ${msg.tone === 'ok' ? 'text-brand' : 'text-neon-red'}`}>{msg.text}</p>
       )}
 
       <div className="space-y-3">
@@ -301,15 +301,15 @@ export default function ContextosPage() {
           const isOpen = !!aberto[c.id]
           const vs = versoes[c.id] || []
           return (
-            <div key={c.id} className="bg-white border rounded-2xl shadow-sm overflow-hidden">
+            <div key={c.id} className="bg-panel border rounded-2xl shadow-sm overflow-hidden">
               <div className="p-5 flex justify-between items-start gap-4">
                 <button type="button" onClick={() => toggleCtx(c.id)} className="flex items-start gap-3 text-left flex-1 hover:opacity-80">
-                  <span className={`mt-1 inline-block transition-transform text-gray-400 ${isOpen ? 'rotate-90' : ''}`}>▶</span>
+                  <span className={`mt-1 inline-block transition-transform text-lo ${isOpen ? 'rotate-90' : ''}`}>▶</span>
                   {c.thumbnail_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={c.thumbnail_url} alt="" className="h-10 w-10 rounded-lg object-cover border shrink-0" />
                   ) : (
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-100 text-xs font-bold text-slate-500">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-white/5 text-xs font-bold text-lo">
                       {(c.nome || '?').slice(0, 2).toUpperCase()}
                     </span>
                   )}
@@ -318,12 +318,12 @@ export default function ContextosPage() {
                       <span className="font-medium">{c.nome}</span>
                       {c.runtime_ativo && <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700">Ativo</span>}
                     </span>
-                    <span className="block text-xs text-gray-500 mt-1 line-clamp-2">{c.conteudo || '(sem dados — adicione fontes ou edite o Contexto 1)'}</span>
+                    <span className="block text-xs text-lo mt-1 line-clamp-2">{c.conteudo || '(sem dados — adicione fontes ou edite o Contexto 1)'}</span>
                   </span>
                 </button>
                 <div className="shrink-0 flex items-center gap-2">
                   {c.runtime_ativo ? (
-                    <button onClick={() => ativarContexto(c, false)} className="text-xs px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50">
+                    <button onClick={() => ativarContexto(c, false)} className="text-xs px-3 py-1.5 rounded-lg border border-amber-300 text-neon-amber hover:bg-neon-amber/10">
                       Desativar
                     </button>
                   ) : (
@@ -333,7 +333,7 @@ export default function ContextosPage() {
                   )}
                   <button
                     onClick={() => removerContexto(c)}
-                    className="text-xs text-red-600 hover:underline"
+                    className="text-xs text-neon-red hover:underline"
                     title="Remover contexto e todas as suas versões e fontes"
                   >
                     Remover
@@ -342,7 +342,7 @@ export default function ContextosPage() {
               </div>
 
               {isOpen && (
-                <div className="border-t bg-gray-50 px-5 py-4">
+                <div className="border-t bg-white/5 px-5 py-4">
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <CardFontes
                       empresaId={empresaId}
@@ -383,23 +383,23 @@ export default function ContextosPage() {
       </div>
 
       {sugestoes.length > 0 && (
-        <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
+        <div className="bg-panel border rounded-2xl shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b">
             <h2 className="font-semibold text-sm">Sugestões de aprendizado pendentes</h2>
-            <p className="text-xs text-gray-500 mt-0.5">A IA detectou padrões em conversas reais. Nada vai ser aplicado sem você aprovar.</p>
+            <p className="text-xs text-lo mt-0.5">A IA detectou padrões em conversas reais. Nada vai ser aplicado sem você aprovar.</p>
           </div>
           <div className="divide-y">
             {sugestoes.map((s) => (
               <div key={s.id} className="px-5 py-4 flex justify-between items-start gap-4">
                 <div className="flex-1">
-                  <p className="text-xs uppercase text-gray-500">{s.tipo} · confiança {s.confianca}</p>
+                  <p className="text-xs uppercase text-lo">{s.tipo} · confiança {s.confianca}</p>
                   <p className="text-sm mt-1">{s.evidencia}</p>
-                  {s.sugestao_markdown && <pre className="mt-2 text-xs bg-gray-50 p-2 rounded whitespace-pre-wrap">{s.sugestao_markdown}</pre>}
+                  {s.sugestao_markdown && <pre className="mt-2 text-xs bg-white/5 p-2 rounded whitespace-pre-wrap">{s.sugestao_markdown}</pre>}
                 </div>
                 <div className="flex gap-2 shrink-0">
                   <button onClick={() => aplicarSugestao(s.id)} className="text-xs px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-dark">Aplicar como rascunho</button>
                   <button onClick={() => reviewSugestao(s.id, 'aprovar')} className="text-xs px-3 py-1.5 rounded-lg bg-green-600 text-white">Aprovar</button>
-                  <button onClick={() => reviewSugestao(s.id, 'rejeitar')} className="text-xs px-3 py-1.5 rounded-lg border border-gray-300">Rejeitar</button>
+                  <button onClick={() => reviewSugestao(s.id, 'rejeitar')} className="text-xs px-3 py-1.5 rounded-lg border border-white/15">Rejeitar</button>
                 </div>
               </div>
             ))}
@@ -553,14 +553,14 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisa
     : `${analisadas} fonte${analisadas === 1 ? '' : 's'} analisada${analisadas === 1 ? '' : 's'}`
 
   return (
-    <div className="bg-white border rounded-xl p-4 space-y-3">
+    <div className="bg-panel border rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-sm">Fontes de informação</h3>
-        <span className="text-xs text-gray-500">{analisadas}/{fontes.length} analisadas</span>
+        <span className="text-xs text-lo">{analisadas}/{fontes.length} analisadas</span>
       </div>
 
       {analisadas > 0 && (
-        <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+        <div className="rounded-lg border border-blue-100 bg-neon-cyan/10 px-3 py-2 text-xs text-blue-900">
           {labelFontesStats} · {statsFontes.paginas} página{statsFontes.paginas === 1 ? '' : 's'} lida{statsFontes.paginas === 1 ? '' : 's'} · {statsFontes.links} link{statsFontes.links === 1 ? '' : 's'} encontrado{statsFontes.links === 1 ? '' : 's'} · {camposPreenchidosStats}/{CONTEXTO1_FIELDS.length} campos preenchidos
         </div>
       )}
@@ -587,22 +587,22 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisa
         )}
       </div>
 
-      {erro && <p className="text-xs text-red-600">{erro}</p>}
+      {erro && <p className="text-xs text-neon-red">{erro}</p>}
 
       <div className="space-y-1.5">
         {fontes.length === 0 ? (
-          <p className="text-xs text-gray-400 text-center py-3">Nenhuma fonte ainda.</p>
+          <p className="text-xs text-lo text-center py-3">Nenhuma fonte ainda.</p>
         ) : (
           fontes.map((f) => (
             <div key={f.id} className="border rounded-lg p-2 text-xs flex items-center gap-2">
               <span className={`px-1.5 py-0.5 rounded text-[10px] ${
                 f.status === 'analisado' ? 'bg-green-100 text-green-700'
-                  : f.status === 'analisando' ? 'bg-amber-100 text-amber-700'
-                  : f.status === 'erro' ? 'bg-red-100 text-red-700'
-                  : 'bg-gray-100 text-gray-600'
+                  : f.status === 'analisando' ? 'bg-neon-amber/10 text-neon-amber'
+                  : f.status === 'erro' ? 'bg-neon-red/10 text-neon-red'
+                  : 'bg-white/5 text-mid'
               }`}>{f.status}</span>
               <span className="flex-1 truncate" title={f.url || f.filename || f.titulo || ''}>
-                <span className="text-gray-500 mr-1">[{f.tipo}]</span>
+                <span className="text-lo mr-1">[{f.tipo}]</span>
                 {f.titulo || f.url || f.filename || '(sem título)'}
               </span>
               {f.status === 'pendente' && f.tem_conteudo && (
@@ -611,24 +611,24 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisa
                 </button>
               )}
               {f.status === 'erro' && (
-                <button onClick={() => analisar(f.id)} disabled={analisando !== null} className="text-amber-600 hover:underline disabled:opacity-50" title={f.erro || ''}>
+                <button onClick={() => analisar(f.id)} disabled={analisando !== null} className="text-neon-amber hover:underline disabled:opacity-50" title={f.erro || ''}>
                   Tentar de novo
                 </button>
               )}
-              <button onClick={() => remover(f.id)} disabled={analisando !== null} className="text-gray-400 hover:text-red-600 disabled:opacity-50" title="Remover (regenera o resto)">×</button>
+              <button onClick={() => remover(f.id)} disabled={analisando !== null} className="text-lo hover:text-neon-red disabled:opacity-50" title="Remover (regenera o resto)">×</button>
             </div>
           ))
         )}
       </div>
 
       {analisadas > 0 && !sugestao && (
-        <button onClick={sugerir} disabled={sugerindo} className="w-full text-xs bg-gray-100 hover:bg-brand hover:text-white px-3 py-2 rounded-lg disabled:opacity-50">
+        <button onClick={sugerir} disabled={sugerindo} className="w-full text-xs bg-white/5 hover:bg-brand hover:text-white px-3 py-2 rounded-lg disabled:opacity-50">
           {sugerindo ? 'Consolidando com IA…' : `Sugerir Contexto 1 a partir de ${analisadas} fonte(s)`}
         </button>
       )}
 
       {sugestao && (
-        <div className="border-2 border-brand rounded-lg p-3 space-y-2 bg-blue-50">
+        <div className="border-2 border-brand rounded-lg p-3 space-y-2 bg-neon-cyan/10">
           <p className="text-xs font-semibold">Sugestão consolidada (preserva seus dados manuais)</p>
           <div className="max-h-48 overflow-y-auto space-y-1">
             {CONTEXTO1_FIELDS.map((f) => {
@@ -638,11 +638,11 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisa
               const conflito = atual && atual !== novo
               return (
                 <div key={f.name} className="text-[11px]">
-                  <span className="font-medium text-gray-700">{f.label}:</span>{' '}
-                  <span className={conflito ? 'text-amber-700' : 'text-gray-600'}>
+                  <span className="font-medium text-mid">{f.label}:</span>{' '}
+                  <span className={conflito ? 'text-neon-amber' : 'text-mid'}>
                     {novo.slice(0, 200)}{novo.length > 200 ? '…' : ''}
                   </span>
-                  {conflito && <span className="ml-1 text-amber-700">(⚠ atual: {atual.slice(0, 80)})</span>}
+                  {conflito && <span className="ml-1 text-neon-amber">(⚠ atual: {atual.slice(0, 80)})</span>}
                 </div>
               )
             })}
@@ -719,15 +719,15 @@ function CardContexto1({ empresaId, contexto, onSalvo }: {
   const preenchidos = CONTEXTO1_FIELDS.filter((f) => (form[f.name] || '').trim()).length
 
   return (
-    <div className="bg-white border rounded-xl p-4 space-y-3">
+    <div className="bg-panel border rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-sm">Contexto 1 — Dados editáveis</h3>
-        <span className="text-xs text-gray-500">{preenchidos}/{CONTEXTO1_FIELDS.length} campos</span>
+        <span className="text-xs text-lo">{preenchidos}/{CONTEXTO1_FIELDS.length} campos</span>
       </div>
       <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
         {CONTEXTO1_FIELDS.map((f) => (
           <div key={f.name}>
-            <label className="block text-[10px] uppercase text-gray-500 mb-0.5">{f.label}</label>
+            <label className="block text-[10px] uppercase text-lo mb-0.5">{f.label}</label>
             {f.type === 'textarea' ? (
               <textarea
                 rows={2}
@@ -749,7 +749,7 @@ function CardContexto1({ empresaId, contexto, onSalvo }: {
         <button onClick={salvar} disabled={salvando} className="text-xs bg-brand text-white px-3 py-1.5 rounded-lg disabled:opacity-50">
           {salvando ? 'Salvando…' : 'Salvar Contexto 1'}
         </button>
-        {msg && <span className="text-xs text-gray-500">{msg}</span>}
+        {msg && <span className="text-xs text-lo">{msg}</span>}
       </div>
     </div>
   )
@@ -768,7 +768,7 @@ function CardPlaybook({ contextoId: _contextoId, empresaId, versoes, gerando, on
   const labelBotao = ativa ? 'Atualizar Playbook (nova versão)' : 'Gerar Playbook com IA'
 
   return (
-    <div className="bg-white border rounded-xl p-4 space-y-3">
+    <div className="bg-panel border rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-sm">Contexto 2 — Playbook Comercial</h3>
         {ativa && <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700">Ativo: v{ativa.versao}</span>}
@@ -778,7 +778,7 @@ function CardPlaybook({ contextoId: _contextoId, empresaId, versoes, gerando, on
       </button>
       <div className="space-y-2 max-h-96 overflow-y-auto">
         {versoes.length === 0 ? (
-          <p className="text-xs text-gray-400 text-center py-3">Nenhuma versão ainda.</p>
+          <p className="text-xs text-lo text-center py-3">Nenhuma versão ainda.</p>
         ) : (
           versoes.map((v) => (
             <VersaoCard key={v.id} empresaId={empresaId} versao={v} onAtivar={() => onAtivar(v.id)} />
@@ -836,9 +836,9 @@ function CardTeste({ empresaId, contextoForm, versaoAtiva }: {
   const generico = avaliarGenerico(resposta, contextoForm, mensagem)
 
   return (
-    <div className="bg-white border rounded-xl p-4 space-y-3">
+    <div className="bg-panel border rounded-xl p-4 space-y-3">
       <h3 className="font-semibold text-sm">Teste de atendimento</h3>
-      {!versaoAtiva && <p className="text-xs text-amber-700">⚠ Sem playbook ativo. Gere e ative um pra testar.</p>}
+      {!versaoAtiva && <p className="text-xs text-neon-amber">⚠ Sem playbook ativo. Gere e ative um pra testar.</p>}
       <textarea
         rows={2}
         value={mensagem}
@@ -849,17 +849,17 @@ function CardTeste({ empresaId, contextoForm, versaoAtiva }: {
       <button onClick={testar} disabled={testando || !versaoAtiva || !mensagem.trim()} className="w-full text-xs bg-brand text-white px-3 py-1.5 rounded-lg disabled:opacity-50">
         {testando ? 'Testando…' : 'Simular atendimento'}
       </button>
-      {erro && <p className="text-xs text-red-600">{erro}</p>}
+      {erro && <p className="text-xs text-neon-red">{erro}</p>}
       {resultado && (
-        <div className="border rounded-lg overflow-hidden bg-gray-50">
-          <div className="px-3 py-2 border-b bg-white text-[10px] text-gray-500">
+        <div className="border rounded-lg overflow-hidden bg-white/5">
+          <div className="px-3 py-2 border-b bg-panel text-[10px] text-lo">
             Intenções: <b>{(resultado.extracao?.intencoes || [resultado.extracao?.intencao || '?']).join(', ')}</b>
             {' · '}Temperatura: <b>{resultado.extracao?.temperatura || '?'}</b>
             {resultado.extracao?.proxima_melhor_acao && <> · Próxima ação: <b>{resultado.extracao.proxima_melhor_acao}</b></>}
           </div>
           <div className="px-3 py-3 space-y-1.5">
-            <div className="max-w-[85%] rounded-2xl px-3 py-1.5 text-xs bg-white border border-gray-200 mr-auto">
-              <div className="text-[9px] uppercase text-gray-500 mb-0.5">Lead</div>
+            <div className="max-w-[85%] rounded-2xl px-3 py-1.5 text-xs bg-panel border border-white/10 mr-auto">
+              <div className="text-[9px] uppercase text-lo mb-0.5">Lead</div>
               <div className="whitespace-pre-wrap break-words">{mensagem}</div>
             </div>
             {resposta ? (
@@ -868,20 +868,20 @@ function CardTeste({ empresaId, contextoForm, versaoAtiva }: {
                 <div className="whitespace-pre-wrap break-words">{resposta}</div>
               </div>
             ) : (
-              <p className="text-xs text-gray-400 text-center py-2">(agente não respondeu)</p>
+              <p className="text-xs text-lo text-center py-2">(agente não respondeu)</p>
             )}
           </div>
           {generico && (
-            <div className="px-3 py-2 bg-amber-50 border-t border-amber-200 text-[11px] text-amber-800 space-y-0.5">
+            <div className="px-3 py-2 bg-neon-amber/10 border-t border-amber-200 text-[11px] text-neon-amber space-y-0.5">
               <div>⚠ A resposta pode estar genérica — não usou dados de cadastro, preço, link ou ofertas do contexto:</div>
               <ul className="list-disc list-inside">
                 {generico.falhas.map((f, i) => (<li key={i}>{f}</li>))}
               </ul>
             </div>
           )}
-          <details className="border-t bg-white">
-            <summary className="px-3 py-1.5 text-[10px] text-gray-500 cursor-pointer hover:bg-gray-50">Ver JSON completo</summary>
-            <pre className="text-[10px] bg-gray-50 p-2 overflow-x-auto max-h-48 whitespace-pre-wrap break-words border-t">
+          <details className="border-t bg-panel">
+            <summary className="px-3 py-1.5 text-[10px] text-lo cursor-pointer hover:bg-white/5">Ver JSON completo</summary>
+            <pre className="text-[10px] bg-white/5 p-2 overflow-x-auto max-h-48 whitespace-pre-wrap break-words border-t">
               {JSON.stringify(resultado, null, 2)}
             </pre>
           </details>
@@ -957,8 +957,8 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
   const badgeClass = versao.status === 'ativo'
     ? 'bg-green-100 text-green-700'
     : versao.status === 'rascunho'
-      ? 'bg-amber-100 text-amber-700'
-      : 'bg-gray-100 text-gray-600'
+      ? 'bg-neon-amber/10 text-neon-amber'
+      : 'bg-white/5 text-mid'
 
   async function salvarMarkdown() {
     setSavingMd(true)
@@ -978,13 +978,13 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
   }
 
   return (
-    <div className="border rounded-lg overflow-hidden bg-gray-50 text-xs">
-      <div className="px-3 py-2 flex items-center justify-between bg-white border-b">
+    <div className="border rounded-lg overflow-hidden bg-white/5 text-xs">
+      <div className="px-3 py-2 flex items-center justify-between bg-panel border-b">
         <button onClick={() => setAberto(!aberto)} className="flex items-center gap-2 text-left flex-1">
-          <span className={`transition-transform ${aberto ? 'rotate-90' : ''} text-gray-400`}>▶</span>
+          <span className={`transition-transform ${aberto ? 'rotate-90' : ''} text-lo`}>▶</span>
           <span className="font-medium">v{versao.versao}</span>
           <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${badgeClass}`}>{versao.status}</span>
-          <span className="text-gray-500 ml-2">{new Date(versao.criado_em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+          <span className="text-lo ml-2">{new Date(versao.criado_em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>
         </button>
         {versao.status !== 'ativo' && (
           <button onClick={onAtivar} className="text-brand hover:underline">Ativar</button>
@@ -993,8 +993,8 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
       {aberto && (
         <div className="p-3 space-y-2">
           <div className="flex gap-1">
-            <button onClick={() => setTab('markdown')} className={`px-2 py-0.5 rounded ${tab === 'markdown' ? 'bg-brand text-white' : 'text-gray-600 hover:bg-gray-100'}`}>Markdown</button>
-            <button onClick={() => setTab('json')} className={`px-2 py-0.5 rounded ${tab === 'json' ? 'bg-brand text-white' : 'text-gray-600 hover:bg-gray-100'}`}>JSON</button>
+            <button onClick={() => setTab('markdown')} className={`px-2 py-0.5 rounded ${tab === 'markdown' ? 'bg-brand text-white' : 'text-mid hover:bg-white/5'}`}>Markdown</button>
+            <button onClick={() => setTab('json')} className={`px-2 py-0.5 rounded ${tab === 'json' ? 'bg-brand text-white' : 'text-mid hover:bg-white/5'}`}>JSON</button>
           </div>
           {tab === 'markdown' && (
             <div className="space-y-2">
@@ -1008,7 +1008,7 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
                 </>
               ) : (
                 <>
-                  <pre className="text-[11px] bg-gray-900 text-gray-100 p-2 rounded max-h-64 overflow-y-auto whitespace-pre-wrap break-words">{versao.conteudo_markdown || '(sem markdown)'}</pre>
+                  <pre className="text-[11px] bg-panel text-gray-100 p-2 rounded max-h-64 overflow-y-auto whitespace-pre-wrap break-words">{versao.conteudo_markdown || '(sem markdown)'}</pre>
                   <button onClick={() => { setDraftMd(versao.conteudo_markdown || ''); setEditing(true) }} className="px-2 py-1 rounded border">Editar markdown</button>
                 </>
               )}
@@ -1019,12 +1019,12 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
             <div className="space-y-2">
               <div className="flex gap-1 flex-wrap">
                 {PLAYBOOK_TABS.map((t) => (
-                  <button key={t} onClick={() => setSecao(t)} className={`text-[10px] px-1.5 py-0.5 rounded ${secao === t ? 'bg-brand text-white' : 'bg-gray-100 text-gray-700'}`}>
+                  <button key={t} onClick={() => setSecao(t)} className={`text-[10px] px-1.5 py-0.5 rounded ${secao === t ? 'bg-brand text-white' : 'bg-white/5 text-mid'}`}>
                     {t.replace(/_/g, ' ')}
                   </button>
                 ))}
               </div>
-              <pre className="text-[11px] bg-gray-900 text-gray-100 p-2 rounded max-h-64 overflow-y-auto whitespace-pre-wrap break-words">
+              <pre className="text-[11px] bg-panel text-gray-100 p-2 rounded max-h-64 overflow-y-auto whitespace-pre-wrap break-words">
                 {JSON.stringify((versao.conteudo_json as Record<string, unknown>)?.[secao] ?? {}, null, 2)}
               </pre>
             </div>
@@ -1093,10 +1093,10 @@ function AgentePanel({ empresaId }: { empresaId: string }) {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="font-semibold">Agente</h2>
-          <p className="text-xs text-gray-500 mt-0.5">Nome do agente e liga/desliga do atendimento desta empresa.</p>
+          <p className="text-xs text-lo mt-0.5">Nome do agente e liga/desliga do atendimento desta empresa.</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className={`text-xs px-2 py-1 rounded-full ${pausado ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>{pausado ? 'Desativado' : 'Ativo'}</span>
+          <span className={`text-xs px-2 py-1 rounded-full ${pausado ? 'bg-neon-amber/10 text-neon-amber' : 'bg-green-100 text-green-700'}`}>{pausado ? 'Desativado' : 'Ativo'}</span>
           <button
             onClick={toggle}
             disabled={togglando}
@@ -1108,7 +1108,7 @@ function AgentePanel({ empresaId }: { empresaId: string }) {
       </div>
       <div className="flex items-end gap-3">
         <div className="flex-1">
-          <label className="block text-xs text-gray-500 mb-1">Nome do agente / empresa</label>
+          <label className="block text-xs text-lo mb-1">Nome do agente / empresa</label>
           <input value={nome} onChange={(e) => setNome(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" />
         </div>
         <button
@@ -1119,7 +1119,7 @@ function AgentePanel({ empresaId }: { empresaId: string }) {
           {salvandoNome ? 'Salvando…' : 'Salvar nome'}
         </button>
       </div>
-      {msg && <p className={`text-sm ${msg.tone === 'ok' ? 'text-brand' : 'text-red-600'}`}>{msg.text}</p>}
+      {msg && <p className={`text-sm ${msg.tone === 'ok' ? 'text-brand' : 'text-neon-red'}`}>{msg.text}</p>}
     </div>
   )
 }
@@ -1285,23 +1285,23 @@ function CardEstagios({ empresaId, contextoId, contextoNome, reloadKey, onAtivac
   const lista = etapas.length ? etapas : Object.keys(estagios).map((chave) => ({ chave, label: chave }))
 
   return (
-    <div className="bg-white border rounded-xl p-4 space-y-3">
+    <div className="bg-panel border rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h3 className="font-semibold text-sm">Estágios do contexto</h3>
-          <p className="text-xs text-gray-500 mt-0.5">Cada contexto tem seus próprios estágios. Ative o contexto pra o agente usá-los.</p>
+          <p className="text-xs text-lo mt-0.5">Cada contexto tem seus próprios estágios. Ative o contexto pra o agente usá-los.</p>
         </div>
         <div className="flex items-center gap-2">
           {thumb ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={thumb} alt="" className="h-9 w-9 rounded-lg object-cover border" />
           ) : null}
-          <label className="text-xs px-2 py-1 rounded-lg border cursor-pointer hover:bg-gray-50">
+          <label className="text-xs px-2 py-1 rounded-lg border cursor-pointer hover:bg-white/5">
             Thumbnail
             <input type="file" accept="image/*" onChange={onFile} className="hidden" />
           </label>
           {thumb && (
-            <button onClick={() => enviarThumb(null)} disabled={busy === 'thumb'} className="text-xs text-gray-400 hover:text-red-600">remover</button>
+            <button onClick={() => enviarThumb(null)} disabled={busy === 'thumb'} className="text-xs text-lo hover:text-neon-red">remover</button>
           )}
         </div>
       </div>
@@ -1332,18 +1332,18 @@ function CardEstagios({ empresaId, contextoId, contextoNome, reloadKey, onAtivac
         </button>
       </div>
       {!temConhecimento && (
-        <p className="text-[11px] text-amber-600">
+        <p className="text-[11px] text-neon-amber">
           Dica: adicione o link do site e/ou um PDF nas <strong>fontes</strong> acima antes de gerar — a IA usa isso pra preencher tudo.
         </p>
       )}
 
-      {msg && <p className={`text-xs ${msg.tone === 'ok' ? 'text-brand' : 'text-red-600'}`}>{msg.text}</p>}
+      {msg && <p className={`text-xs ${msg.tone === 'ok' ? 'text-brand' : 'text-neon-red'}`}>{msg.text}</p>}
 
       {simul && simul.length > 0 && (
         <div className="space-y-2 border rounded-lg p-3 bg-purple-50/50">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold">Simulação — lead difícil → resposta do agente → crítica</p>
-            <button onClick={() => setSimul(null)} className="text-[10px] text-gray-400 hover:text-gray-600">fechar</button>
+            <button onClick={() => setSimul(null)} className="text-[10px] text-lo hover:text-mid">fechar</button>
           </div>
           {simul.map((s, i) => (
             <div key={i} className="text-[11px] border-l-2 border-purple-300 pl-2 space-y-0.5">
@@ -1351,12 +1351,12 @@ function CardEstagios({ empresaId, contextoId, contextoNome, reloadKey, onAtivac
                 {s.etapa} {s.mudou ? '— melhorado ✓' : s.erro ? '— erro' : '— sem mudança'}
               </p>
               {s.erro ? (
-                <p className="text-red-600">{s.erro}</p>
+                <p className="text-neon-red">{s.erro}</p>
               ) : (
                 <>
-                  <p><span className="text-gray-500">Lead:</span> {s.mensagem_lead}</p>
-                  <p><span className="text-gray-500">Agente:</span> {s.resposta_agente}</p>
-                  {s.critica && <p><span className="text-gray-500">Crítica:</span> {s.critica}</p>}
+                  <p><span className="text-lo">Lead:</span> {s.mensagem_lead}</p>
+                  <p><span className="text-lo">Agente:</span> {s.resposta_agente}</p>
+                  {s.critica && <p><span className="text-lo">Crítica:</span> {s.critica}</p>}
                 </>
               )}
             </div>
@@ -1365,7 +1365,7 @@ function CardEstagios({ empresaId, contextoId, contextoNome, reloadKey, onAtivac
       )}
 
       {carregando ? (
-        <p className="text-xs text-gray-400">Carregando…</p>
+        <p className="text-xs text-lo">Carregando…</p>
       ) : (
         <div className="space-y-1.5">
           {lista.map((et) => {
@@ -1375,10 +1375,10 @@ function CardEstagios({ empresaId, contextoId, contextoNome, reloadKey, onAtivac
               <div key={et.chave} className="border rounded-lg">
                 <button onClick={() => setAberto(open ? null : et.chave)} className="w-full flex items-center justify-between px-3 py-2 text-left">
                   <span className="flex items-center gap-2">
-                    <span className={`text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+                    <span className={`text-lo transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
                     <span className="text-xs font-medium">{et.label}</span>
                   </span>
-                  <span className="text-[10px] text-gray-400">{val.trim() ? `${val.trim().length} chars` : 'vazio'}</span>
+                  <span className="text-[10px] text-lo">{val.trim() ? `${val.trim().length} chars` : 'vazio'}</span>
                 </button>
                 {open && (
                   <div className="px-3 pb-3 space-y-2">
