@@ -457,32 +457,44 @@ let jobWorkerTimer = null
 let _ultimaAtribuicaoMetaMs = 0
 const ATRIBUICAO_META_INTERVALO_MS = 10 * 60 * 1000
 
+// As verificações abaixo são checagens periódicas (agenda diária, lembretes,
+// reuniões atrasadas/não confirmadas) que operam em granularidade de minutos. Não
+// precisam rodar a cada poll do worker — rodá-las a cada tick (1,5–3s) gera ~5
+// queries inúteis por tick no app E no Postgres, o maior custo ocioso do serviço.
+// Gate de 60s: o claim de job continua a cada poll (resposta rápida do WhatsApp),
+// só as verificações é que passam a rodar 1×/min. Mesmo padrão da atribuição Meta.
+let _ultimaVerificacaoPeriodicaMs = 0
+const VERIFICACOES_PERIODICAS_INTERVALO_MS = 60 * 1000
+
 async function jobWorkerTick() {
   if (jobWorkerRodando) return
   jobWorkerRodando = true
   try {
-    await verificarAgendaDiariaProspeccao().catch((e) =>
-      logger.warn({ operation: 'prospeccao_diaria', etapa: 'tick_erro', erro: e.message })
-    )
-    // Atribuição Meta (CTWA) + score determinístico — a cada ~10 min (não a cada poll).
-    if (Date.now() - _ultimaAtribuicaoMetaMs > ATRIBUICAO_META_INTERVALO_MS) {
-      _ultimaAtribuicaoMetaMs = Date.now()
-      await sincronizarAtribuicaoMetaAds(pool, { logger }).catch((e) =>
-        logger.warn({ operation: 'meta_attribution', etapa: 'tick_erro', erro: e.message })
+    if (Date.now() - _ultimaVerificacaoPeriodicaMs > VERIFICACOES_PERIODICAS_INTERVALO_MS) {
+      _ultimaVerificacaoPeriodicaMs = Date.now()
+      await verificarAgendaDiariaProspeccao().catch((e) =>
+        logger.warn({ operation: 'prospeccao_diaria', etapa: 'tick_erro', erro: e.message })
+      )
+      // Atribuição Meta (CTWA) + score determinístico — a cada ~10 min (gate próprio).
+      if (Date.now() - _ultimaAtribuicaoMetaMs > ATRIBUICAO_META_INTERVALO_MS) {
+        _ultimaAtribuicaoMetaMs = Date.now()
+        await sincronizarAtribuicaoMetaAds(pool, { logger }).catch((e) =>
+          logger.warn({ operation: 'meta_attribution', etapa: 'tick_erro', erro: e.message })
+        )
+      }
+      await verificarResumoDiarioAgenda().catch((e) =>
+        logger.warn('resumo_agenda_diaria tick:', e.message)
+      )
+      await verificarLembretesManhaReuniao().catch((e) =>
+        logger.warn('lembrete_manha tick:', e.message)
+      )
+      await verificarReunioesAtrasadas().catch((e) =>
+        logger.warn('reunioes_atrasadas tick:', e.message)
+      )
+      await verificarReunioesNaoConfirmadas(new Date(), { notificarOperador: notificarVictorWhatsapp }).catch((e) =>
+        logger.warn('reunioes_nao_confirmadas tick:', e.message)
       )
     }
-    await verificarResumoDiarioAgenda().catch((e) =>
-      logger.warn('resumo_agenda_diaria tick:', e.message)
-    )
-    await verificarLembretesManhaReuniao().catch((e) =>
-      logger.warn('lembrete_manha tick:', e.message)
-    )
-    await verificarReunioesAtrasadas().catch((e) =>
-      logger.warn('reunioes_atrasadas tick:', e.message)
-    )
-    await verificarReunioesNaoConfirmadas(new Date(), { notificarOperador: notificarVictorWhatsapp }).catch((e) =>
-      logger.warn('reunioes_nao_confirmadas tick:', e.message)
-    )
     const job = await reivindicarProximoJob()
     if (!job) return
     const jobLog = loggerForJob(job, { request_id: job.payload?.request_id || null })

@@ -75,7 +75,7 @@ const HISTORICO_CLAUDE_MAX_MSGS = Math.min(
 const AUDIO_UPLOAD_MAX_BYTES = 18 * 1024 * 1024
 const FOLLOWUP_ATRIBUICAO_RESPOSTA_DIAS = 30
 const JOB_WORKER_POLL_MS = Math.min(
-  Math.max(parseInt(process.env.JOB_WORKER_POLL_MS, 10) || 1500, 250),
+  Math.max(parseInt(process.env.JOB_WORKER_POLL_MS, 10) || 3000, 250),
   30000
 )
 const JOB_WORKER_LOCK_MS = Math.min(

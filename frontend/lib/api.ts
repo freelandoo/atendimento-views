@@ -58,3 +58,22 @@ export async function apiFetch<T = unknown>(
   }
   return json
 }
+
+// Baixa um arquivo autenticado (ex.: export CSV) e dispara o download no browser.
+// Diferente de apiFetch, não tenta parsear JSON — lê o corpo como blob.
+export async function apiDownload(path: string, nomePadrao = 'export.csv'): Promise<void> {
+  const token = getToken()
+  const res = await fetch(`${BASE_URL}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new Error(`Erro ${res.status} ao gerar o arquivo.`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nomePadrao
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
