@@ -79,6 +79,20 @@
 - `META_DATASET_ID` / `META_CAPI_TOKEN`: conjunto de dados + token da Conversions API do Meta (envio de eventos CTWA). Secretos, só no Railway; sem eles o envio fica desligado.
 - `META_PAGE_ID` (ou `META_WABA_ID`): ID da Página do Facebook dos anúncios CTWA (ou da conta WhatsApp Business). **Obrigatório p/ a CAPI funcionar** — `action_source=business_messaging` exige `page_id` OU `whatsapp_business_account_id` no `user_data` (senão a Meta rejeita com subcode 2804116). Atenção: CTWA só aceita os eventos `LeadSubmitted` (lead qualificado/com reunião) e `Purchase` (venda) — nomes de pixel (Lead/QualifiedLead/Schedule/MeetingCompleted) são rejeitados (subcode 2804066).
 
+### Captação social (Bright Data — Instagram agora, LinkedIn no mesmo motor)
+- `BRIGHTDATA_API_TOKEN`: token da Bright Data Web Scraper / Dataset API. **Sem ele o canal de captação fica desligado** (worker não roda). Mesmo token serve Instagram e LinkedIn.
+- `BRIGHTDATA_DATASET_IG_DESCOBERTA` / `BRIGHTDATA_DATASET_IG_PERFIS` / `BRIGHTDATA_DATASET_LI_DESCOBERTA` / `BRIGHTDATA_DATASET_LI_PERFIS`: `dataset_id` de cada coleta (descoberta por hashtag/keyword e perfis por URL). Confirmar no painel Bright Data da conta — o formato de input depende do dataset.
+- `BRIGHTDATA_CAPTACAO_TETO_DIARIO`: teto diário de registros consumidos na conta (free tier 5000/mês ≈ 166/dia; default 166).
+- `BRIGHTDATA_SEGUIR_LINK_BIO`: `on` faz o extrator seguir o link da bio atrás de email/WhatsApp (gasta mais; default `off`).
+- `BRIGHTDATA_TIMEOUT_MS` / `LINK_BIO_TIMEOUT_MS` / `CAPTACAO_WORKER_POLL_MS`: timeouts e intervalo do worker.
+- `EMAIL_PROVIDER_API_URL` / `EMAIL_PROVIDER_API_KEY` / `EMAIL_FROM`: canal de e-mail para leads sociais (Fase futura). Sem os três, o e-mail fica desativado (registra, não envia). `EMAIL_TIMEOUT_MS` opcional.
+
+> Módulo de captação: rotas em `src/routes/api-captacao.js`; motor em `src/services/social-capture.js`
+> (+ `brightdata-client.js`, `social-contact-extract.js`, `email-outreach.js`); schema na
+> migration `sql/migrations/012_captacao_social.sql` (generaliza `prospectador.prospects` por
+> `origem+external_ref`, sem job_queue — usa `captacao_snapshots` como fila assíncrona). Frontend:
+> `frontend/app/dashboard/captacao`. Reusa a pipeline de disparo/elegibilidade/temperatura do Places.
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

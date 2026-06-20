@@ -11,6 +11,7 @@ const NAV = [
   { href: '/dashboard/conversas', label: 'Conversas', icon: 'chat' },
   { href: '/dashboard/leads-quentes', label: 'Leads Quentes', icon: 'leads' },
   { href: '/dashboard/prospeccao', label: 'Prospecção', icon: 'prospect' },
+  { href: '/dashboard/captacao', label: 'Captação', icon: 'leads' },
   { href: '/dashboard/agenda', label: 'Agenda', icon: 'agenda' },
   { href: '/dashboard/contextos', label: 'Empresas', icon: 'company' },
   { href: '/dashboard/llm', label: 'Modelo LLM', icon: 'model' },

@@ -310,5 +310,7 @@ async function canProspectLead(pool, phone, options = {}) {
 module.exports = {
   PERIODO_REPROSPECCAO_DIAS,
   normalizarNumeroProspeccao,
+  telefonePareceValido,
+  telefoneEhCelular,
   canProspectLead,
 }

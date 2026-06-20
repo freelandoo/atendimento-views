@@ -66,6 +66,7 @@ app.use('/api/empresas/:empresaId/whatsapp', require('./src/routes/api-whatsapp'
 app.use('/api/empresas/:empresaId/conversas', require('./src/routes/api-conversas'))
 app.use('/api/empresas/:empresaId/leads-quentes', require('./src/routes/api-leads-quentes'))
 app.use('/api/empresas/:empresaId/prospeccao', require('./src/routes/api-prospeccao'))
+app.use('/api/empresas/:empresaId/captacao', require('./src/routes/api-captacao'))
 app.use('/api/empresas/:empresaId/agenda', require('./src/routes/api-agenda'))
 app.use('/api/empresas/:empresaId/relatorios', require('./src/routes/api-relatorios'))
 app.use('/api/empresas/:empresaId/agente-pj', require('./src/routes/api-agente-pj'))
@@ -152,6 +153,11 @@ function iniciarServidor() {
       }
       agent.iniciarJobWorker()
       agent.iniciarSilenceWatcher()
+      try {
+        require('./src/services/social-capture').iniciarCaptureWorker()
+      } catch (e) {
+        logger.warn('iniciarCaptureWorker:', e.message)
+      }
       const PORT = process.env.PORT || 3000
       app.listen(PORT, '0.0.0.0', () => {
         logger.info(`PJ Codeworks Agent rodando na porta ${PORT}`)
