@@ -1,6 +1,11 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
+import NeonCard from '@/components/ui/NeonCard'
+import NeonButton from '@/components/ui/NeonButton'
+import NeonProgress from '@/components/ui/NeonProgress'
+import StatusPill from '@/components/ui/StatusPill'
+import KpiCounter from '@/components/ui/KpiCounter'
 
 type CampanhaMeta = {
   perfis_semente?: string[]
@@ -34,16 +39,6 @@ const ABAS: { valor: string; label: string }[] = [
   { valor: 'em_andamento', label: 'Em andamento' },
   { valor: 'descartados', label: 'Descartados' },
 ]
-const STATUS_STYLE: Record<string, string> = {
-  coletado: 'bg-slate-100 text-slate-600',
-  contato_encontrado: 'bg-amber-100 text-amber-700',
-  aguardando: 'bg-slate-100 text-slate-600',
-  aprovado: 'bg-emerald-100 text-emerald-700',
-  enviado: 'bg-blue-100 text-blue-700',
-  respondeu: 'bg-orange-100 text-orange-700',
-  rejeitado: 'bg-red-100 text-red-600',
-  nao_contatar: 'bg-red-100 text-red-600',
-}
 
 // Estado dos toggles + limite usado pelo painel ad-hoc e pelo form de campanha.
 type Opcoes = { usar_cse: boolean; usar_snowball: boolean; seguir_link_bio: boolean }
@@ -246,145 +241,143 @@ export default function CaptacaoPage() {
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao atualizar status.') }
   }
 
+  const inputCls = 'w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-hi outline-none transition focus:border-neon-cyan'
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Captação (Instagram)</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Descubra perfis por nicho/cidade (Google CSE) ou por @perfis semente → contato → mesma pipeline de disparo da prospecção.
+          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-neon-cyan/70">Command Deck</p>
+          <h1 className="font-display text-3xl font-bold tracking-tight text-hi">Captação · Instagram</h1>
+          <p className="mt-1 text-sm text-lo">
+            Descubra perfis por nicho/cidade (Google CSE) ou por @perfis semente → contato → mesma pipeline de disparo.
           </p>
         </div>
-        <button onClick={processar} disabled={carregando}
-          className="shrink-0 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+        <NeonButton variant="ghost" onClick={processar} disabled={carregando} className="shrink-0">
           {carregando ? 'Atualizando…' : '↻ Atualizar coletas'}
-        </button>
+        </NeonButton>
       </div>
 
-      {erro && <p className="text-red-600 text-sm">{erro}</p>}
-      {msg && <p className="text-emerald-600 text-sm">{msg}</p>}
+      {erro && <p className="rounded-lg border border-neon-red/30 bg-neon-red/10 px-3 py-2 text-sm text-neon-red">{erro}</p>}
+      {msg && <p className="rounded-lg border border-neon-lime/30 bg-neon-lime/10 px-3 py-2 text-sm text-neon-lime">{msg}</p>}
 
       {orcamento && !orcamento.brightdata_configurado && (
-        <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-          Bright Data ainda não configurado (defina <code>BRIGHTDATA_API_TOKEN</code> e os datasets). A coleta fica indisponível até lá.
+        <div className="rounded-xl border border-neon-amber/30 bg-neon-amber/10 px-4 py-3 text-sm text-neon-amber">
+          Bright Data ainda não configurado (defina <code className="font-mono">BRIGHTDATA_API_TOKEN</code> e os datasets). A coleta fica indisponível até lá.
         </div>
       )}
 
       {/* Orçamento */}
       {orcamento && (
         <div className="grid grid-cols-3 gap-3">
-          <Mini title="Teto diário" value={orcamento.teto_diario_global} />
-          <Mini title="Consumido hoje" value={orcamento.consumido_hoje} />
-          <Mini title="Restante hoje" value={orcamento.restante_hoje} />
+          <Mini title="Teto diário" value={orcamento.teto_diario_global} tone="text-neon-cyan" />
+          <Mini title="Consumido hoje" value={orcamento.consumido_hoje} tone="text-neon-amber" />
+          <Mini title="Restante hoje" value={orcamento.restante_hoje} tone="text-neon-lime" />
         </div>
       )}
 
       {/* Coletar agora (ad-hoc) */}
-      <form onSubmit={coletarAdHoc} className="bg-white rounded-2xl shadow-sm border p-4 space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Coletar agora</p>
-        <div className="flex flex-wrap items-end gap-3">
-          <Field label="Nicho" value={adNicho} onChange={setAdNicho} placeholder="ex: arquitetura de interiores" />
-          <Field label="Cidade" value={adCidade} onChange={setAdCidade} placeholder="ex: São Paulo" />
-          <div className="w-28">
-            <label className="block text-xs text-slate-500 mb-1">Limite</label>
-            <input type="number" min={1} value={adLimite} onChange={(e) => setAdLimite(e.target.value)}
-              placeholder="auto" className="w-full border rounded-lg px-3 py-2 text-sm" />
+      <form onSubmit={coletarAdHoc}>
+        <NeonCard tone="cyan" className="space-y-3 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-lo">Coletar agora</p>
+          <div className="flex flex-wrap items-end gap-3">
+            <Field label="Nicho" value={adNicho} onChange={setAdNicho} placeholder="ex: arquitetura de interiores" />
+            <Field label="Cidade" value={adCidade} onChange={setAdCidade} placeholder="ex: São Paulo" />
+            <div className="w-28">
+              <label className="mb-1 block text-xs text-lo">Limite</label>
+              <input type="number" min={1} value={adLimite} onChange={(e) => setAdLimite(e.target.value)} placeholder="auto" className={inputCls} />
+            </div>
           </div>
-        </div>
-        <div>
-          <label className="block text-xs text-slate-500 mb-1">@perfis semente (um por linha ou separados por vírgula)</label>
-          <textarea value={adPerfis} onChange={(e) => setAdPerfis(e.target.value)} rows={3}
-            placeholder={'@studioabc, @casadecor\nperfilxyz'}
-            className="w-full border rounded-lg px-3 py-2 text-sm font-mono" />
-        </div>
-        <Toggles value={adOpcoes} onChange={setAdOpcoes} />
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs text-slate-400">Informe um nicho (com CSE) ou ao menos 1 perfil.</p>
-          <button type="submit" disabled={carregando || !podeColetar}
-            className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium disabled:opacity-50">
-            {carregando ? 'Coletando…' : '⚡ Coletar'}
-          </button>
-        </div>
+          <div>
+            <label className="mb-1 block text-xs text-lo">@perfis semente (um por linha ou separados por vírgula)</label>
+            <textarea value={adPerfis} onChange={(e) => setAdPerfis(e.target.value)} rows={3}
+              placeholder={'@studioabc, @casadecor\nperfilxyz'} className={`${inputCls} font-mono`} />
+          </div>
+          <Toggles value={adOpcoes} onChange={setAdOpcoes} />
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-lo">Informe um nicho (com CSE) ou ao menos 1 perfil.</p>
+            <NeonButton type="submit" disabled={carregando || !podeColetar}>
+              {carregando ? 'Coletando…' : '⚡ Coletar'}
+            </NeonButton>
+          </div>
+        </NeonCard>
       </form>
 
       {/* Campanhas salvas */}
-      <div className="bg-white rounded-2xl shadow-sm border p-4 space-y-3">
+      <NeonCard className="space-y-3 p-4">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Campanhas salvas</p>
-          <button onClick={() => setNovaAberta((v) => !v)} className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-slate-50">
+          <p className="text-xs font-semibold uppercase tracking-wide text-lo">Campanhas salvas</p>
+          <NeonButton variant="ghost" onClick={() => setNovaAberta((v) => !v)} className="px-3 py-1.5 text-xs">
             {novaAberta ? 'Cancelar' : '+ Nova campanha'}
-          </button>
+          </NeonButton>
         </div>
 
         {novaAberta && (
-          <form onSubmit={criarCampanha} className="rounded-xl border bg-slate-50/60 p-3 space-y-3">
+          <form onSubmit={criarCampanha} className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
             <div className="flex flex-wrap items-end gap-3">
               <Field label="Nicho" value={cNicho} onChange={setCNicho} placeholder="ex: arquitetura de interiores" />
               <Field label="Cidade" value={cCidade} onChange={setCCidade} placeholder="ex: São Paulo" />
               <div className="w-28">
-                <label className="block text-xs text-slate-500 mb-1">Teto/dia</label>
-                <input type="number" min={1} value={cTeto} onChange={(e) => setCTeto(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <label className="mb-1 block text-xs text-lo">Teto/dia</label>
+                <input type="number" min={1} value={cTeto} onChange={(e) => setCTeto(e.target.value)} className={inputCls} />
               </div>
-              <label className="flex items-center gap-2 text-sm py-2">
-                <input type="checkbox" checked={cAtivo} onChange={(e) => setCAtivo(e.target.checked)} /> Ativa
+              <label className="flex items-center gap-2 py-2 text-sm text-mid">
+                <input type="checkbox" checked={cAtivo} onChange={(e) => setCAtivo(e.target.checked)} className="accent-[var(--neon-cyan)]" /> Ativa
               </label>
             </div>
             <div>
-              <label className="block text-xs text-slate-500 mb-1">@perfis semente (um por linha ou separados por vírgula)</label>
+              <label className="mb-1 block text-xs text-lo">@perfis semente (um por linha ou separados por vírgula)</label>
               <textarea value={cPerfis} onChange={(e) => setCPerfis(e.target.value)} rows={2}
-                placeholder={'@studioabc, @casadecor'} className="w-full border rounded-lg px-3 py-2 text-sm font-mono" />
+                placeholder={'@studioabc, @casadecor'} className={`${inputCls} font-mono`} />
             </div>
             <Toggles value={cOpcoes} onChange={setCOpcoes} />
             <div className="flex justify-end">
-              <button type="submit" className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium">Salvar campanha</button>
+              <NeonButton type="submit">Salvar campanha</NeonButton>
             </div>
           </form>
         )}
 
         {campanhas.length === 0 ? (
-          <p className="text-sm text-slate-400">Nenhuma campanha salva ainda.</p>
+          <p className="text-sm text-lo">Nenhuma campanha salva ainda.</p>
         ) : (
           <div className="space-y-2">
             {campanhas.map((c) => (
-              <div key={c.id} className="rounded-xl border p-3">
+              <div key={c.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                 {editId === c.id ? (
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-end gap-3">
                       <Field label="Nicho" value={editForm.nicho} onChange={(v) => setEditForm((p) => ({ ...p, nicho: v }))} />
                       <Field label="Cidade" value={editForm.cidade} onChange={(v) => setEditForm((p) => ({ ...p, cidade: v }))} />
                       <div className="w-28">
-                        <label className="block text-xs text-slate-500 mb-1">Teto/dia</label>
+                        <label className="mb-1 block text-xs text-lo">Teto/dia</label>
                         <input type="number" min={1} value={editForm.teto}
-                          onChange={(e) => setEditForm((p) => ({ ...p, teto: e.target.value }))}
-                          className="w-full border rounded-lg px-3 py-2 text-sm" />
+                          onChange={(e) => setEditForm((p) => ({ ...p, teto: e.target.value }))} className={inputCls} />
                       </div>
-                      <label className="flex items-center gap-2 text-sm py-2">
+                      <label className="flex items-center gap-2 py-2 text-sm text-mid">
                         <input type="checkbox" checked={editForm.ativo}
-                          onChange={(e) => setEditForm((p) => ({ ...p, ativo: e.target.checked }))} /> Ativa
+                          onChange={(e) => setEditForm((p) => ({ ...p, ativo: e.target.checked }))} className="accent-[var(--neon-cyan)]" /> Ativa
                       </label>
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-500 mb-1">@perfis semente</label>
-                      <textarea value={editForm.perfis} onChange={(e) => setEditForm((p) => ({ ...p, perfis: e.target.value }))} rows={2}
-                        className="w-full border rounded-lg px-3 py-2 text-sm font-mono" />
+                      <label className="mb-1 block text-xs text-lo">@perfis semente</label>
+                      <textarea value={editForm.perfis} onChange={(e) => setEditForm((p) => ({ ...p, perfis: e.target.value }))} rows={2} className={`${inputCls} font-mono`} />
                     </div>
                     <Toggles value={editForm.opcoes} onChange={(o) => setEditForm((p) => ({ ...p, opcoes: o }))} />
                     <div className="flex justify-end gap-2">
-                      <button onClick={() => setEditId(null)} className="px-3 py-1.5 rounded-lg border text-xs">Cancelar</button>
-                      <button onClick={() => salvarEdicao(c.id)} className="px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-medium">Salvar</button>
+                      <NeonButton variant="ghost" onClick={() => setEditId(null)} className="px-3 py-1.5 text-xs">Cancelar</NeonButton>
+                      <NeonButton onClick={() => salvarEdicao(c.id)} className="px-3 py-1.5 text-xs">Salvar</NeonButton>
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-slate-900">{c.nicho || c.termo}</span>
-                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${c.ativo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                        <span className="font-medium text-hi">{c.nicho || c.termo}</span>
+                        <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${c.ativo ? 'border-neon-lime/40 bg-neon-lime/10 text-neon-lime' : 'border-white/15 bg-white/5 text-lo'}`}>
                           {c.ativo ? 'Ativa' : 'Pausada'}
                         </span>
                       </div>
-                      <div className="text-xs text-slate-500 mt-0.5">
+                      <div className="mt-0.5 text-xs text-lo">
                         {[c.cidade || '—', `teto ${c.teto_diario}/dia`,
                           (c.metadata_json?.perfis_semente?.length ? `${c.metadata_json.perfis_semente.length} sementes` : null),
                           c.metadata_json?.usar_cse ? 'CSE' : null,
@@ -393,16 +386,15 @@ export default function CaptacaoPage() {
                         ].filter(Boolean).join(' · ')}
                       </div>
                       {c.ultima_coleta_em && (
-                        <div className="text-[11px] text-slate-400 mt-0.5">última coleta: {new Date(c.ultima_coleta_em).toLocaleString('pt-BR')}</div>
+                        <div className="mt-0.5 text-[11px] text-lo">última coleta: {new Date(c.ultima_coleta_em).toLocaleString('pt-BR')}</div>
                       )}
                     </div>
                     <div className="flex shrink-0 gap-1.5">
-                      <button onClick={() => coletarCampanha(c.id)} disabled={carregando || !podeColetar}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50">
+                      <NeonButton variant="success" onClick={() => coletarCampanha(c.id)} disabled={carregando || !podeColetar} className="px-3 py-1.5 text-xs">
                         Coletar agora
-                      </button>
-                      <button onClick={() => abrirEdicao(c)} className="px-3 py-1.5 rounded-lg border text-xs hover:bg-slate-50">Editar</button>
-                      <button onClick={() => excluirCampanha(c.id)} className="px-3 py-1.5 rounded-lg border border-red-200 text-xs text-red-600 hover:bg-red-50">Excluir</button>
+                      </NeonButton>
+                      <NeonButton variant="ghost" onClick={() => abrirEdicao(c)} className="px-3 py-1.5 text-xs">Editar</NeonButton>
+                      <NeonButton variant="danger" onClick={() => excluirCampanha(c.id)} className="px-3 py-1.5 text-xs">Excluir</NeonButton>
                     </div>
                   </div>
                 )}
@@ -410,45 +402,44 @@ export default function CaptacaoPage() {
             ))}
           </div>
         )}
-      </div>
+      </NeonCard>
 
       {/* Funil em abas */}
-      <div className="bg-white rounded-2xl shadow-sm border">
-        <div className="flex gap-1 border-b px-3 pt-3 flex-wrap">
+      <NeonCard className="overflow-hidden">
+        <div className="flex flex-wrap gap-1 border-b border-white/10 px-3 pt-3">
           {ABAS.map((a) => (
             <button key={a.valor} onClick={() => setAba(a.valor)}
-              className={`rounded-t-lg px-3 py-2 text-sm font-medium ${aba === a.valor ? 'bg-brand text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
+              className={`rounded-t-lg px-3 py-2 text-sm font-medium transition ${aba === a.valor ? 'border border-b-0 border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan' : 'text-mid hover:bg-white/5'}`}>
               {a.label}{funil ? ` (${funil.abas[a.valor] ?? 0})` : ''}
             </button>
           ))}
         </div>
-        <div className="divide-y">
-          {leads.length === 0 && <p className="px-5 py-8 text-center text-sm text-slate-400">Nenhum lead nesta aba.</p>}
+        <div className="divide-y divide-white/5">
+          {leads.length === 0 && <p className="px-5 py-8 text-center text-sm text-lo">Nenhum lead nesta aba.</p>}
           {leads.map((l) => (
             <div key={l.id} className="flex items-start justify-between gap-4 px-5 py-3">
               <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-slate-900">{l.nome}</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-hi">{l.nome}</span>
                   {l.instagram_handle && (
                     <a href={`https://instagram.com/${l.instagram_handle}`} target="_blank" rel="noreferrer"
-                      className="text-xs text-slate-400 hover:underline">@{l.instagram_handle}</a>
+                      className="text-xs text-lo hover:text-neon-cyan hover:underline">@{l.instagram_handle}</a>
                   )}
-                  <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${STATUS_STYLE[l.status] || 'bg-gray-100 text-gray-600'}`}>{l.status}</span>
+                  <StatusPill status={l.status} />
                 </div>
-                <div className="mt-0.5 truncate text-xs text-slate-500">
+                <div className="mt-0.5 truncate text-xs text-lo">
                   {[l.nicho, l.cidade, l.categoria_perfil, l.seguidores != null ? `${l.seguidores} seguidores` : null].filter(Boolean).join(' · ') || '—'}
                 </div>
                 <div className="mt-1 flex flex-wrap gap-3 text-xs">
-                  {l.telefone && <span className="text-emerald-700">📱 {l.telefone}</span>}
-                  {l.email && <span className="text-blue-700">✉ {l.email}</span>}
-                  {l.link_bio && <a href={l.link_bio} target="_blank" rel="noreferrer" className="text-slate-500 underline">link da bio</a>}
-                  {!l.telefone && !l.email && <span className="text-slate-400">sem contato</span>}
+                  {l.telefone && <span className="font-mono text-neon-lime">📱 {l.telefone}</span>}
+                  {l.email && <span className="text-neon-cyan">✉ {l.email}</span>}
+                  {l.link_bio && <a href={l.link_bio} target="_blank" rel="noreferrer" className="text-lo underline hover:text-neon-cyan">link da bio</a>}
+                  {!l.telefone && !l.email && <span className="text-lo">sem contato</span>}
                 </div>
               </div>
               <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
                 {l.status !== 'aprovado' && l.telefone && (
-                  <button onClick={() => mudarStatus(l.id, 'aprovado')}
-                    className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700">Aprovar p/ WhatsApp</button>
+                  <NeonButton variant="success" onClick={() => mudarStatus(l.id, 'aprovado')} className="px-2.5 py-1 text-xs">Aprovar p/ WhatsApp</NeonButton>
                 )}
                 {emailConfigurado && l.email && (
                   <EmailBotao onEnviar={(assunto, corpo) =>
@@ -457,47 +448,45 @@ export default function CaptacaoPage() {
                       .catch((e) => setErro(e instanceof Error ? e.message : 'Erro ao enviar e-mail.'))} />
                 )}
                 {l.status !== 'rejeitado' && (
-                  <button onClick={() => mudarStatus(l.id, 'rejeitado')}
-                    className="rounded-md border px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50">Descartar</button>
+                  <NeonButton variant="ghost" onClick={() => mudarStatus(l.id, 'rejeitado')} className="px-2.5 py-1 text-xs">Descartar</NeonButton>
                 )}
                 {l.status !== 'nao_contatar' && (
-                  <button onClick={() => mudarStatus(l.id, 'nao_contatar')}
-                    className="rounded-md border border-red-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50">Não contatar</button>
+                  <NeonButton variant="danger" onClick={() => mudarStatus(l.id, 'nao_contatar')} className="px-2.5 py-1 text-xs">Não contatar</NeonButton>
                 )}
               </div>
             </div>
           ))}
         </div>
-      </div>
+      </NeonCard>
 
       {/* Coletas recentes */}
       {snapshots.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-sm border p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Coletas recentes</p>
+        <NeonCard className="p-4">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-lo">Coletas recentes</p>
           <div className="space-y-1 text-xs">
             {snapshots.slice(0, 12).map((s) => (
-              <div key={s.id} className="flex items-center justify-between gap-3 text-slate-600 border-t pt-1.5 first:border-0 first:pt-0">
+              <div key={s.id} className="flex items-center justify-between gap-3 border-t border-white/5 pt-1.5 text-mid first:border-0 first:pt-0">
                 <span className="truncate">{s.fonte} · {s.etapa} · {s.termo || '—'}</span>
-                <span className="flex shrink-0 gap-3">
+                <span className="flex shrink-0 gap-3 font-mono">
                   <span>{s.custo_registros} regs</span>
                   <span>{s.total_prospects} leads</span>
-                  <span className={s.status === 'falhou' ? 'text-red-600' : s.status === 'concluido' ? 'text-emerald-600' : 'text-slate-500'}>{s.status}</span>
+                  <span className={s.status === 'falhou' ? 'text-neon-red' : s.status === 'concluido' ? 'text-neon-lime' : 'text-lo'}>{s.status}</span>
                 </span>
               </div>
             ))}
           </div>
-        </div>
+        </NeonCard>
       )}
     </div>
   )
 }
 
-function Mini({ title, value }: { title: string; value: string | number }) {
+function Mini({ title, value, tone = 'text-hi' }: { title: string; value: number; tone?: string }) {
   return (
-    <div className="bg-white rounded-xl shadow-sm border p-3">
-      <p className="text-[10px] text-slate-500 uppercase tracking-wide">{title}</p>
-      <p className="text-xl font-bold mt-0.5">{value}</p>
-    </div>
+    <NeonCard className="p-3">
+      <p className="text-[10px] uppercase tracking-wide text-lo">{title}</p>
+      <p className={`mt-0.5 font-display text-xl font-bold ${tone}`}><KpiCounter value={value} /></p>
+    </NeonCard>
   )
 }
 
@@ -505,10 +494,10 @@ function Field({ label, value, onChange, placeholder }: {
   label: string; value: string; onChange: (v: string) => void; placeholder?: string
 }) {
   return (
-    <div className="flex-1 min-w-[160px]">
-      <label className="block text-xs text-slate-500 mb-1">{label}</label>
+    <div className="min-w-[160px] flex-1">
+      <label className="mb-1 block text-xs text-lo">{label}</label>
       <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-        className="w-full border rounded-lg px-3 py-2 text-sm" />
+        className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-hi outline-none transition focus:border-neon-cyan" />
     </div>
   )
 }
@@ -522,8 +511,8 @@ function Toggles({ value, onChange }: { value: Opcoes; onChange: (o: Opcoes) => 
   return (
     <div className="flex flex-wrap gap-4">
       {itens.map(({ k, label }) => (
-        <label key={k} className="flex items-center gap-2 text-sm text-slate-600">
-          <input type="checkbox" checked={value[k]} onChange={(e) => onChange({ ...value, [k]: e.target.checked })} />
+        <label key={k} className="flex items-center gap-2 text-sm text-mid">
+          <input type="checkbox" checked={value[k]} onChange={(e) => onChange({ ...value, [k]: e.target.checked })} className="accent-[var(--neon-cyan)]" />
           {label}
         </label>
       ))}
@@ -536,23 +525,17 @@ function EmailBotao({ onEnviar }: { onEnviar: (assunto: string, corpo: string) =
   const [assunto, setAssunto] = useState('')
   const [corpo, setCorpo] = useState('')
   if (!aberto) {
-    return (
-      <button onClick={() => setAberto(true)}
-        className="rounded-md border px-2.5 py-1 text-xs text-blue-700 hover:bg-blue-50">✉ E-mail</button>
-    )
+    return <NeonButton variant="ghost" onClick={() => setAberto(true)} className="px-2.5 py-1 text-xs text-neon-cyan">✉ E-mail</NeonButton>
   }
+  const cls = 'w-full rounded border border-white/10 bg-white/5 px-2 py-1 text-xs text-hi outline-none focus:border-neon-cyan'
   return (
-    <div className="w-64 rounded-lg border bg-slate-50 p-2 space-y-1.5">
-      <input value={assunto} onChange={(e) => setAssunto(e.target.value)} placeholder="Assunto"
-        className="w-full border rounded px-2 py-1 text-xs" />
-      <textarea value={corpo} onChange={(e) => setCorpo(e.target.value)} placeholder="Mensagem" rows={3}
-        className="w-full border rounded px-2 py-1 text-xs" />
+    <div className="w-64 space-y-1.5 rounded-lg border border-white/10 bg-white/5 p-2">
+      <input value={assunto} onChange={(e) => setAssunto(e.target.value)} placeholder="Assunto" className={cls} />
+      <textarea value={corpo} onChange={(e) => setCorpo(e.target.value)} placeholder="Mensagem" rows={3} className={cls} />
       <div className="flex justify-end gap-1.5">
-        <button onClick={() => setAberto(false)} className="px-2 py-1 rounded border text-xs">Cancelar</button>
-        <button
-          onClick={() => { onEnviar(assunto, corpo); setAberto(false); setAssunto(''); setCorpo('') }}
-          disabled={!assunto || !corpo}
-          className="px-2 py-1 rounded bg-brand text-white text-xs font-medium disabled:opacity-50">Enviar</button>
+        <NeonButton variant="ghost" onClick={() => setAberto(false)} className="px-2 py-1 text-xs">Cancelar</NeonButton>
+        <NeonButton onClick={() => { onEnviar(assunto, corpo); setAberto(false); setAssunto(''); setCorpo('') }}
+          disabled={!assunto || !corpo} className="px-2 py-1 text-xs">Enviar</NeonButton>
       </div>
     </div>
   )
