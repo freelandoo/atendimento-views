@@ -4,6 +4,7 @@ import { apiFetch, getEmpresaId } from '@/lib/api'
 import NeonCard from '@/components/ui/NeonCard'
 import NeonProgress from '@/components/ui/NeonProgress'
 import KpiCounter from '@/components/ui/KpiCounter'
+import Chart3D, { type Bar } from '@/components/charts/Chart3D'
 
 type Resumo = {
   conversas: { ativas: string; fechadas: string; arquivadas: string; total: string }
@@ -45,6 +46,14 @@ export default function DashboardPage() {
   const maxEstagio = Math.max(1, ...dados.por_estagio.map((r) => Number(r.total || 0)))
   const tokens = Number(dados.llm_30d?.input_tokens || 0) + Number(dados.llm_30d?.output_tokens || 0)
 
+  const barras3d: Bar[] = dados.por_estagio.length
+    ? dados.por_estagio.map((r) => ({ label: ESTAGIO_LABEL[r.estagio] || r.estagio, value: Number(r.total || 0) }))
+    : [
+        { label: 'Quente', value: nQuente, tone: 'magenta' },
+        { label: 'Morno', value: nMorno, tone: 'amber' },
+        { label: 'Frio', value: nFrio, tone: 'cyan' },
+      ]
+
   return (
     <div className="space-y-8">
       <header>
@@ -58,6 +67,14 @@ export default function DashboardPage() {
         <Kpi title="Prontos p/ handoff" value={Number(t.prontos_handoff ?? 0)} tone="lime" />
         <Kpi title="Vendas fechadas" value={Number(dados.conversas?.fechadas ?? 0)} tone="magenta" />
       </div>
+
+      <NeonCard tone="cyan" className="overflow-hidden p-1.5">
+        <div className="flex items-center justify-between px-4 py-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-lo">Funil comercial · 3D</h2>
+          <span className="text-[10px] uppercase tracking-wide text-neon-cyan/70">arraste para girar</span>
+        </div>
+        <Chart3D data={barras3d} height={300} />
+      </NeonCard>
 
       <section className="grid gap-6 md:grid-cols-2">
         <NeonCard tone="cyan" className="p-5">
