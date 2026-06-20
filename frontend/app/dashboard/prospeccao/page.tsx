@@ -24,12 +24,24 @@ type Config = {
   estado_padrao: string | null; regiao_padrao: string | null
   limite_diario: number; intervalo_envio_minutos: number
   horario_inicio: string; horario_fim: string
+  gerar_mensagem_ia: boolean; envio_real_habilitado: boolean
 }
-type Agenda = { total_slots: number; primeiro_slot: string | null; ultimo_slot: string | null }
+type Agenda = {
+  total_slots: number; primeiro_slot: string | null; ultimo_slot: string | null
+  envio_real_habilitado?: boolean; observacao?: string
+}
 type ConfigResp = { config: Config; agenda: Agenda; escopo: string }
 type Mercado = { nicho: string; cidade: string; total: string; enviados: string; responderam: string }
 type Recente = { nome: string; telefone: string | null; nicho: string; cidade: string; score: number | null; updated_at: string }
 type ResultadosResp = { por_mercado: Mercado[]; recentes: Recente[] }
+type Rank = { chave: string; mensagens_enviadas: number; respostas: number; taxa_resposta: number; reunioes: number }
+type Analytics = {
+  metricas: {
+    mensagens_enviadas: number; respostas: number; taxa_resposta: number
+    diagnostico: number; proposta: number; reunioes: number; fechados: number
+  }
+  melhores: { categoria: Rank | null; cidade: Rank | null; horario: Rank | null }
+}
 
 const STATUS_STYLE: Record<string, string> = {
   aguardando: 'bg-slate-100 text-slate-600',
@@ -61,6 +73,7 @@ export default function ProspeccaoPage() {
   const [metricas, setMetricas] = useState<Metricas | null>(null)
   const [rotina, setRotina] = useState<ConfigResp | null>(null)
   const [resultados, setResultados] = useState<ResultadosResp | null>(null)
+  const [analytics, setAnalytics] = useState<Analytics | null>(null)
   const [nicho, setNicho] = useState('')
   const [cidade, setCidade] = useState('')
   const [buscando, setBuscando] = useState(false)
@@ -83,6 +96,8 @@ export default function ProspeccaoPage() {
       .then((r) => setRotina(r.data)).catch(() => {})
     apiFetch<ResultadosResp>(`/api/empresas/${empresaId}/prospeccao/resultados`)
       .then((r) => setResultados(r.data)).catch(() => {})
+    apiFetch<Analytics>(`/api/empresas/${empresaId}/prospeccao/analytics`)
+      .then((r) => setAnalytics(r.data)).catch(() => {})
   }
   useEffect(() => { carregar() }, [empresaId, filtro])
 
@@ -105,11 +120,26 @@ export default function ProspeccaoPage() {
   }
   async function salvarRotina() {
     if (!empresaId) return
+    // Regra de negócio: disparo real só liga junto com a geração de mensagem por IA.
+    let payload = { ...rotinaForm }
+    if (payload.envio_real_habilitado) {
+      if (!payload.gerar_mensagem_ia) {
+        setErro('Para ligar o disparo real é preciso também ligar a geração de mensagem por IA.')
+        return
+      }
+      const jaEstava = rotina?.config.envio_real_habilitado
+      if (!jaEstava) {
+        const ok = window.confirm(
+          '⚠️ Ligar o DISPARO REAL fará a rotina enviar mensagens de WhatsApp automaticamente aos leads aprovados, dentro da janela configurada.\n\nConfirma a ativação do envio real para esta empresa?'
+        )
+        if (!ok) return
+      }
+    }
     setSalvandoRotina(true); setErro('')
     try {
       const r = await apiFetch<ConfigResp>(`/api/empresas/${empresaId}/prospeccao/configuracao`, {
         method: 'PUT',
-        body: JSON.stringify(rotinaForm),
+        body: JSON.stringify(payload),
       })
       setRotina(r.data)
       setEditRotina(false)
@@ -174,6 +204,9 @@ export default function ProspeccaoPage() {
               <p className="text-sm text-slate-600 mt-0.5">
                 {rotina.config.ativo ? 'Ativa' : 'Pausada'} · {rotina.config.modo} · janela {rotina.config.horario_inicio}–{rotina.config.horario_fim}, a cada {rotina.config.intervalo_envio_minutos} min
               </p>
+              <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${rotina.config.envio_real_habilitado ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
+                {rotina.config.envio_real_habilitado ? '🚀 Disparo real ATIVO' : '🛡️ Disparo real desligado'}
+              </span>
             </div>
             {!editRotina ? (
               <button onClick={abrirEdicaoRotina} className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-slate-50">Editar rotina</button>
@@ -213,7 +246,32 @@ export default function ProspeccaoPage() {
                   <input type="checkbox" checked={!!rotinaForm.ativo} onChange={(e) => setRF('ativo', e.target.checked)} /> Ativa
                 </label>
               </Campo>
+              <Campo label="Gerar mensagem por IA">
+                <label className="flex items-center gap-2 text-sm py-1.5">
+                  <input
+                    type="checkbox"
+                    checked={!!rotinaForm.gerar_mensagem_ia}
+                    onChange={(e) => {
+                      const v = e.target.checked
+                      setRotinaForm((p) => ({ ...p, gerar_mensagem_ia: v, ...(v ? {} : { envio_real_habilitado: false }) }))
+                    }}
+                  /> Gerar com IA
+                </label>
+              </Campo>
+              <Campo label="Disparo real (envia WhatsApp)">
+                <label className={`flex items-center gap-2 text-sm py-1.5 ${rotinaForm.gerar_mensagem_ia ? '' : 'opacity-50'}`} title={rotinaForm.gerar_mensagem_ia ? '' : 'Ligue a geração por IA primeiro'}>
+                  <input
+                    type="checkbox"
+                    disabled={!rotinaForm.gerar_mensagem_ia}
+                    checked={!!rotinaForm.envio_real_habilitado}
+                    onChange={(e) => setRF('envio_real_habilitado', e.target.checked)}
+                  /> 🚀 Enviar de verdade
+                </label>
+              </Campo>
             </div>
+          )}
+          {rotina.agenda?.observacao && (
+            <p className={`text-xs mt-3 ${rotina.config.envio_real_habilitado ? 'text-red-600' : 'text-slate-400'}`}>{rotina.agenda.observacao}</p>
           )}
         </div>
       )}
@@ -285,6 +343,25 @@ export default function ProspeccaoPage() {
         </tbody>
       </table>
 
+      {analytics && analytics.metricas.mensagens_enviadas > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border p-4 space-y-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Analytics da prospecção · esta empresa</p>
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+            <Mini title="Enviados" value={analytics.metricas.mensagens_enviadas} />
+            <Mini title="Respostas" value={analytics.metricas.respostas} />
+            <Mini title="Taxa resp." value={`${analytics.metricas.taxa_resposta}%`} />
+            <Mini title="Diagnóstico" value={analytics.metricas.diagnostico} />
+            <Mini title="Reuniões" value={analytics.metricas.reunioes} />
+            <Mini title="Fechados" value={analytics.metricas.fechados} />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <Destaque title="Melhor nicho" rank={analytics.melhores.categoria} />
+            <Destaque title="Melhor cidade" rank={analytics.melhores.cidade} />
+            <Destaque title="Melhor horário" rank={analytics.melhores.horario} />
+          </div>
+        </div>
+      )}
+
       {resultados && (resultados.por_mercado.length > 0 || resultados.recentes.length > 0) && (
         <div className="grid md:grid-cols-2 gap-4">
           <div className="bg-white rounded-2xl shadow-sm border p-4">
@@ -335,6 +412,22 @@ function Mini({ title, value }: { title: string; value: string | number }) {
     <div className="bg-white rounded-xl shadow-sm border p-3">
       <p className="text-[10px] text-slate-500 uppercase tracking-wide">{title}</p>
       <p className="text-xl font-bold mt-0.5">{value}</p>
+    </div>
+  )
+}
+
+function Destaque({ title, rank }: { title: string; rank: Rank | null }) {
+  return (
+    <div className="rounded-xl border bg-slate-50/60 p-3">
+      <p className="text-[10px] text-slate-500 uppercase tracking-wide">{title}</p>
+      {rank ? (
+        <>
+          <p className="text-sm font-semibold mt-0.5 truncate" title={rank.chave}>{rank.chave}</p>
+          <p className="text-xs text-slate-500 mt-0.5">{rank.respostas} resp. · {rank.taxa_resposta}% · {rank.reunioes} reun.</p>
+        </>
+      ) : (
+        <p className="text-sm text-slate-400 mt-0.5">Sem dados</p>
+      )}
     </div>
   )
 }

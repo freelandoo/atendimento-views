@@ -4,13 +4,14 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 
-type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'context' | 'company' | 'model' | 'usage' | 'report'
+type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report'
 
 const NAV = [
   { href: '/dashboard', label: 'Visão Geral', icon: 'overview' },
   { href: '/dashboard/conversas', label: 'Conversas', icon: 'chat' },
   { href: '/dashboard/leads-quentes', label: 'Leads Quentes', icon: 'leads' },
   { href: '/dashboard/prospeccao', label: 'Prospecção', icon: 'prospect' },
+  { href: '/dashboard/agenda', label: 'Agenda', icon: 'agenda' },
   { href: '/dashboard/contextos', label: 'Empresas', icon: 'company' },
   { href: '/dashboard/llm', label: 'Modelo LLM', icon: 'model' },
   { href: '/dashboard/uso', label: 'Uso & Custo', icon: 'usage' },
@@ -282,6 +283,13 @@ function NavGlyph({ name, className }: { name: NavIcon; className?: string }) {
         <>
           <circle {...common} cx="11" cy="11" r="6" />
           <path {...common} d="M20 20l-3.5-3.5" />
+        </>
+      )}
+      {name === 'agenda' && (
+        <>
+          <path {...common} d="M5 6h14v14H5z" />
+          <path {...common} d="M5 10h14M8 3v4M16 3v4" />
+          <path {...common} d="M9 14h2M13 14h2" />
         </>
       )}
       {name === 'context' && (

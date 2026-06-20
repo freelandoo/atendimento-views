@@ -13,6 +13,7 @@ const {
   salvarConfiguracaoProspeccao,
   montarAgendaPainelProspeccao,
 } = require('../services/prospecting-settings')
+const { obterDashboardEstrategicoProspeccao } = require('../services/prospecting-performance-analytics')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -111,6 +112,21 @@ router.get('/resultados', requireAuth, requireEmpresaAccess, async (req, res) =>
   } catch (err) {
     logger.error('GET prospeccao/resultados:', err.message)
     return res.status(500).json({ ok: false, error: { code: 'RESULTADOS_FAILED', message: err.message } })
+  }
+})
+
+// GET /api/empresas/:empresaId/prospeccao/analytics?inicio=&fim=&categoria=&cidade=&modo=&status=
+// Dashboard estratégico (funil, rankings, série diária) escopado nesta empresa.
+router.get('/analytics', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const dashboard = await obterDashboardEstrategicoProspeccao(pool, {
+      ...req.query,
+      empresaId: req.empresa.id,
+    })
+    return res.json({ ok: true, data: dashboard })
+  } catch (err) {
+    logger.error('GET prospeccao/analytics:', err.message)
+    return res.status(500).json({ ok: false, error: { code: 'ANALYTICS_FAILED', message: err.message } })
   }
 })
 
