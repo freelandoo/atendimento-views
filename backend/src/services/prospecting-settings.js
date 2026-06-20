@@ -149,14 +149,24 @@ async function salvarConfiguracaoProspeccao(pool, payload = {}, empresaId = PJ_E
 function montarAgendaPainelProspeccao(config, data = new Date()) {
   if (!config) return null
   const slots = gerarSlotsEnvio({ ...config, data })
+  // Reflete o estado REAL da config (não mais cravado em "modo seguro"): quando o
+  // disparo real está ligado, a rodada diária agenda jobs e envia WhatsApp de verdade.
+  const envioReal = config.envio_real_habilitado === true
+  const geraIA = config.gerar_mensagem_ia === true
+  const observacao = envioReal
+    ? 'Disparo real ATIVO: a rotina gera a mensagem com IA, agenda os jobs e envia WhatsApp aos leads aprovados dentro da janela.'
+    : geraIA
+      ? 'IA ligada para gerar mensagens, mas o disparo real está desligado: nada é enviado nesta etapa (apenas simulação/aprovação).'
+      : 'Modo seguro: não gera IA, não agenda jobs e não envia WhatsApp nesta etapa.'
   return {
     data: data instanceof Date ? data.toISOString().slice(0, 10) : String(data).slice(0, 10),
     total_slots: slots.length,
     primeiro_slot: slots[0]?.slot_local || null,
     ultimo_slot: slots[slots.length - 1]?.slot_local || null,
     slots_preview: slots.slice(0, 8),
-    envio_real_habilitado: false,
-    observacao: 'Configuração salva em modo seguro: não gera IA, não agenda jobs e não envia WhatsApp nesta etapa.',
+    envio_real_habilitado: envioReal,
+    gerar_mensagem_ia: geraIA,
+    observacao,
   }
 }
 
