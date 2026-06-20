@@ -35,13 +35,6 @@ function montarFiltrosWhere(filtros = {}) {
     `COALESCE(f.slot_envio::date, f.criado_em::date) <= $2::date`,
   ]
 
-  // Isolamento por tenant: quando informado, restringe a análise à fila DESTA empresa.
-  const empresaId = filtros.empresaId || filtros.empresa_id
-  if (empresaId) {
-    params.push(empresaId)
-    where.push(`f.empresa_id = $${params.length}`)
-  }
-
   const categoria = normalizarTexto(filtros.categoria || filtros.tag)
   if (categoria) {
     params.push(`%${categoria}%`)
@@ -192,7 +185,6 @@ async function obterDashboardEstrategicoProspeccao(pool, filtros = {}) {
     ok: true,
     filtros: {
       periodo: filtrosBase.periodo,
-      empresa_id: filtros.empresaId || filtros.empresa_id || null,
       categoria: normalizarTexto(filtros.categoria || filtros.tag) || null,
       cidade: normalizarTexto(filtros.cidade) || null,
       estado: normalizarTexto(filtros.estado || filtros.uf, 2).toUpperCase() || null,

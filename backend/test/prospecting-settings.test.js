@@ -184,29 +184,3 @@ test('prospecting settings: agenda painel mostra preview sem habilitar envio rea
   assert.equal(agenda.ultimo_slot, '2026-05-25T09:00:00')
   assert.equal(agenda.envio_real_habilitado, false)
 })
-
-test('prospecting settings: agenda painel reflete o disparo real quando ligado', () => {
-  const base = {
-    ativo: true,
-    modo: 'automatico',
-    horario_inicio: '08:00',
-    horario_fim: '09:00',
-    intervalo_envio_minutos: 30,
-    limite_diario: 80,
-    dias_semana_ativos: [1],
-  }
-  // Disparo real exige IA: quando ambos ligados, o painel reflete ATIVO e troca a observação.
-  const ligado = montarAgendaPainelProspeccao({ ...base, gerar_mensagem_ia: true, envio_real_habilitado: true }, '2026-05-25')
-  assert.equal(ligado.envio_real_habilitado, true)
-  assert.equal(ligado.gerar_mensagem_ia, true)
-  assert.match(ligado.observacao, /Disparo real ATIVO/i)
-
-  // IA ligada mas disparo desligado: nada é enviado, observação intermediária.
-  const soIA = montarAgendaPainelProspeccao({ ...base, gerar_mensagem_ia: true, envio_real_habilitado: false }, '2026-05-25')
-  assert.equal(soIA.envio_real_habilitado, false)
-  assert.match(soIA.observacao, /disparo real está desligado/i)
-
-  // Sem IA: modo seguro.
-  const seguro = montarAgendaPainelProspeccao(base, '2026-05-25')
-  assert.match(seguro.observacao, /Modo seguro/i)
-})

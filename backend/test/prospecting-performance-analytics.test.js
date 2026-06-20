@@ -79,30 +79,6 @@ test('montarFiltrosWhere monta periodo e filtros estrategicos', () => {
   assert.match(f.whereSql, /f\.status = \$7 OR c\.estagio = \$7/)
 })
 
-test('montarFiltrosWhere escopa por empresa quando empresaId vem', () => {
-  const f = montarFiltrosWhere({ inicio: '2026-05-01', fim: '2026-05-24', empresaId: 'empresa-xyz' })
-  // empresa_id entra como $3 (após inicio/fim), antes de quaisquer outros filtros.
-  assert.equal(f.params[2], 'empresa-xyz')
-  assert.match(f.whereSql, /f\.empresa_id = \$3/)
-})
-
-test('montarFiltrosWhere sem empresaId nao adiciona filtro de empresa', () => {
-  const f = montarFiltrosWhere({ inicio: '2026-05-01', fim: '2026-05-24' })
-  assert.equal(f.params.length, 2)
-  assert.doesNotMatch(f.whereSql, /empresa_id/)
-})
-
-test('dashboard estrategico propaga empresa_id para o WHERE e nos filtros retornados', async () => {
-  const pool = fakePoolAnalytics()
-  const r = await obterDashboardEstrategicoProspeccao(pool, { inicio: '2026-05-01', fim: '2026-05-24', empresaId: 'empresa-xyz' })
-  assert.equal(r.filtros.empresa_id, 'empresa-xyz')
-  // toda query deve carregar o empresa_id como parâmetro e filtrar por f.empresa_id.
-  for (const c of pool.calls) {
-    assert.ok(c.params.includes('empresa-xyz'), 'empresa_id presente nos params da query')
-    assert.match(c.sql, /f\.empresa_id = \$3/)
-  }
-})
-
 test('dashboard estrategico retorna metricas, rankings e custo por oportunidade', async () => {
   const pool = fakePoolAnalytics()
   const r = await obterDashboardEstrategicoProspeccao(pool, {
