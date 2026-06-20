@@ -2837,8 +2837,11 @@ async function detectarReuniaoFechadaIA(historico = []) {
       .join('\n')
       .slice(0, 4000)
     if (!transcript) return null
-    const hojeIso = dataStrSaoPaulo(0)
-    const amanhaIso = dataStrSaoPaulo(1)
+    // isoDateBrasil é importada no escopo de módulo (≠ dataStrSaoPaulo, que é
+    // escopada dentro de registerHttpRoutes e gerava ReferenceError aqui, zerando
+    // a detecção de reunião fechada pelo operador).
+    const hojeIso = isoDateBrasil(new Date())
+    const amanhaIso = isoDateBrasil(new Date(Date.now() + 86400000))
     const systemPrompt =
       'Voce analisa uma conversa de WhatsApp de vendas. Decida se uma REUNIAO foi efetivamente FECHADA/CONFIRMADA — pelo OPERADOR humano OU pela IA com aceite claro do LEAD. So marque fechada=true quando ha acordo real de um encontro com horario definido.\n' +
       `Hoje e ${hojeIso} (amanha = ${amanhaIso}). Resolva expressoes relativas ("hoje", "amanha", "segunda") para data absoluta ISO (AAAA-MM-DD).\n` +

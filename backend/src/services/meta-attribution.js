@@ -54,6 +54,21 @@ function leadQualificado(score) {
 }
 
 /**
+ * A tabela do Evolution (public."Message") — fonte dos cliques CTWA — pode NÃO existir
+ * neste banco (em alguns ambientes o Evolution roda em DB próprio). Checa via to_regclass
+ * para pular a atribuição sem erro (evitava log "relation public.Message does not exist"
+ * a cada tick do worker). Retorna false em qualquer falha.
+ */
+async function messageEvolutionExiste(pool) {
+  try {
+    const { rows } = await pool.query(`SELECT to_regclass('public."Message"') AS t`)
+    return !!(rows[0] && rows[0].t)
+  } catch {
+    return false
+  }
+}
+
+/**
  * Sincroniza atribuição (Message → origem_anuncio) e recalcula score_lead dos leads
  * ativos recentemente. Idempotente. Chamado periodicamente pelo worker.
  */
@@ -63,7 +78,9 @@ async function sincronizarAtribuicaoMetaAds(pool, deps = {}) {
   let pontuados = 0
 
   // 1) Atribuição CTWA: primeira mensagem de anúncio de cada telefone → grava no lead.
+  // Só roda se a tabela do Evolution existir aqui (senão, no-op silencioso por tick).
   try {
+    if (await messageEvolutionExiste(pool)) {
     const { rows: ads } = await pool.query(
       `
       SELECT DISTINCT ON (telefone) telefone, ad_id, ctwa_clid, title, source_url
@@ -102,6 +119,7 @@ async function sincronizarAtribuicaoMetaAds(pool, deps = {}) {
         [a.telefone, payload, a.ad_id]
       )
       atribuidos += r.rowCount || 0
+    }
     }
   } catch (e) {
     logger.warn?.({ operation: 'meta_attribution', etapa: 'atribuicao_erro', erro: e.message })
@@ -237,17 +255,22 @@ async function dispararEventosMetaPendentes(pool, deps = {}) {
  * Evolution (public."Message"), única fonte de quando o lead clicou no anúncio.
  */
 async function obterResultadosAnunciosMeta(pool) {
+  // Datação do 1º/último contato vem da tabela do Evolution; se ela não existir neste
+  // banco, neutraliza o CTE (datas nulas) em vez de quebrar a consulta do painel.
+  const fcSql = (await messageEvolutionExiste(pool))
+    ? `SELECT m.key->>'remoteJidAlt' AS telefone,
+              to_timestamp(MIN((m."messageTimestamp")::bigint)) AS primeiro,
+              to_timestamp(MAX((m."messageTimestamp")::bigint)) AS ultimo
+       FROM public."Message" m
+       WHERE m."contextInfo"->'externalAdReply'->>'sourceId' IS NOT NULL
+         AND m.key->>'fromMe' = 'false'
+         AND m.key->>'remoteJidAlt' LIKE '%@s.whatsapp.net'
+       GROUP BY 1`
+    : `SELECT NULL::text AS telefone, NULL::timestamptz AS primeiro, NULL::timestamptz AS ultimo WHERE false`
   const { rows } = await pool.query(
     `
     WITH fc AS (
-      SELECT m.key->>'remoteJidAlt' AS telefone,
-             to_timestamp(MIN((m."messageTimestamp")::bigint)) AS primeiro,
-             to_timestamp(MAX((m."messageTimestamp")::bigint)) AS ultimo
-      FROM public."Message" m
-      WHERE m."contextInfo"->'externalAdReply'->>'sourceId' IS NOT NULL
-        AND m.key->>'fromMe' = 'false'
-        AND m.key->>'remoteJidAlt' LIKE '%@s.whatsapp.net'
-      GROUP BY 1
+      ${fcSql}
     )
     SELECT
       p.origem_anuncio->>'ad_id' AS ad_id,
