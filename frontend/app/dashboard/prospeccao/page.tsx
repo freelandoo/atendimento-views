@@ -44,11 +44,11 @@ type Analytics = {
 }
 
 const STATUS_STYLE: Record<string, string> = {
-  aguardando: 'border border-white/15 bg-white/5 text-mid',
-  aprovado: 'border border-neon-lime/40 bg-neon-lime/10 text-neon-lime',
-  rejeitado: 'border border-neon-red/40 bg-neon-red/10 text-neon-red',
-  enviado: 'border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan',
-  respondeu: 'border border-neon-amber/40 bg-neon-amber/10 text-neon-amber',
+  aguardando: 'bg-slate-100 text-slate-600',
+  aprovado: 'bg-emerald-100 text-emerald-700',
+  rejeitado: 'bg-red-100 text-red-600',
+  enviado: 'bg-blue-100 text-blue-700',
+  respondeu: 'bg-orange-100 text-orange-700',
 }
 
 const FILTROS: { valor: string; label: string }[] = [
@@ -176,45 +176,44 @@ export default function ProspeccaoPage() {
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-neon-cyan/70">Command Deck</p>
-        <h1 className="font-display text-3xl font-bold tracking-tight text-hi">Prospecção</h1>
-        <p className="text-sm text-lo mt-1">Busque leads no Google e gerencie a carteira de prospecção desta empresa.</p>
+        <h1 className="text-2xl font-bold">Prospecção</h1>
+        <p className="text-sm text-slate-500 mt-1">Busque leads no Google e gerencie a carteira de prospecção desta empresa.</p>
       </div>
 
-      <form onSubmit={buscar} className="glass rounded-2xl p-4 flex flex-wrap items-end gap-3">
+      <form onSubmit={buscar} className="bg-white rounded-2xl shadow-sm border p-4 flex flex-wrap items-end gap-3">
         <div className="flex-1 min-w-[160px]">
-          <label className="block text-xs text-lo mb-1">Nicho</label>
-          <input value={nicho} onChange={(e) => setNicho(e.target.value)} placeholder="ex: dentista" className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-hi" />
+          <label className="block text-xs text-slate-500 mb-1">Nicho</label>
+          <input value={nicho} onChange={(e) => setNicho(e.target.value)} placeholder="ex: dentista" className="w-full border rounded-lg px-3 py-2 text-sm" />
         </div>
         <div className="flex-1 min-w-[160px]">
-          <label className="block text-xs text-lo mb-1">Cidade</label>
-          <input value={cidade} onChange={(e) => setCidade(e.target.value)} placeholder="ex: Santana, SP" className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-hi" />
+          <label className="block text-xs text-slate-500 mb-1">Cidade</label>
+          <input value={cidade} onChange={(e) => setCidade(e.target.value)} placeholder="ex: Santana, SP" className="w-full border rounded-lg px-3 py-2 text-sm" />
         </div>
-        <button type="submit" disabled={buscando || !nicho || !cidade} className="px-4 py-2 rounded-lg border border-neon-cyan/40 bg-neon-cyan/15 text-neon-cyan text-sm font-medium disabled:opacity-50">
+        <button type="submit" disabled={buscando || !nicho || !cidade} className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium disabled:opacity-50">
           {buscando ? 'Buscando…' : '🔎 Buscar no Google'}
         </button>
       </form>
 
-      {erro && <p className="text-neon-red text-sm">{erro}</p>}
+      {erro && <p className="text-red-600 text-sm">{erro}</p>}
 
       {rotina && (
-        <div className="glass rounded-2xl p-4">
+        <div className="bg-white rounded-2xl shadow-sm border p-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-lo">Rotina automática · esta empresa</p>
-              <p className="text-sm text-mid mt-0.5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rotina automática · esta empresa</p>
+              <p className="text-sm text-slate-600 mt-0.5">
                 {rotina.config.ativo ? 'Ativa' : 'Pausada'} · {rotina.config.modo} · janela {rotina.config.horario_inicio}–{rotina.config.horario_fim}, a cada {rotina.config.intervalo_envio_minutos} min
               </p>
-              <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${rotina.config.envio_real_habilitado ? 'border border-neon-red/40 bg-neon-red/10 text-neon-red' : 'border border-white/15 bg-white/5 text-lo'}`}>
+              <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${rotina.config.envio_real_habilitado ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
                 {rotina.config.envio_real_habilitado ? '🚀 Disparo real ATIVO' : '🛡️ Disparo real desligado'}
               </span>
             </div>
             {!editRotina ? (
-              <button onClick={abrirEdicaoRotina} className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-white/5">Editar rotina</button>
+              <button onClick={abrirEdicaoRotina} className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-slate-50">Editar rotina</button>
             ) : (
               <div className="flex gap-2">
                 <button onClick={() => setEditRotina(false)} className="px-3 py-1.5 rounded-lg border text-xs">Cancelar</button>
-                <button onClick={salvarRotina} disabled={salvandoRotina} className="px-3 py-1.5 rounded-lg border border-neon-cyan/40 bg-neon-cyan/15 text-neon-cyan text-xs font-medium disabled:opacity-50">{salvandoRotina ? 'Salvando…' : 'Salvar'}</button>
+                <button onClick={salvarRotina} disabled={salvandoRotina} className="px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-medium disabled:opacity-50">{salvandoRotina ? 'Salvando…' : 'Salvar'}</button>
               </div>
             )}
           </div>
@@ -228,15 +227,15 @@ export default function ProspeccaoPage() {
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
-              <Campo label="Nicho padrão"><input value={rotinaForm.categoria_padrao || ''} onChange={(e) => setRF('categoria_padrao', e.target.value)} placeholder="ex: dentista" className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-sm text-hi" /></Campo>
-              <Campo label="Cidade padrão"><input value={rotinaForm.cidade_padrao || ''} onChange={(e) => setRF('cidade_padrao', e.target.value)} placeholder="ex: Santana" className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-sm text-hi" /></Campo>
-              <Campo label="Estado (UF)"><input value={rotinaForm.estado_padrao || ''} maxLength={2} onChange={(e) => setRF('estado_padrao', e.target.value.toUpperCase())} placeholder="SP" className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-sm text-hi uppercase" /></Campo>
-              <Campo label="Capacidade/dia"><input type="number" min={1} max={200} value={rotinaForm.limite_diario ?? 80} onChange={(e) => setRF('limite_diario', Number(e.target.value))} className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-sm text-hi" /></Campo>
-              <Campo label="Intervalo (min)"><input type="number" min={5} max={1440} value={rotinaForm.intervalo_envio_minutos ?? 15} onChange={(e) => setRF('intervalo_envio_minutos', Number(e.target.value))} className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-sm text-hi" /></Campo>
-              <Campo label="Início"><input type="time" value={rotinaForm.horario_inicio || '08:00'} onChange={(e) => setRF('horario_inicio', e.target.value)} className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-sm text-hi" /></Campo>
-              <Campo label="Fim"><input type="time" value={rotinaForm.horario_fim || '17:00'} onChange={(e) => setRF('horario_fim', e.target.value)} className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-sm text-hi" /></Campo>
+              <Campo label="Nicho padrão"><input value={rotinaForm.categoria_padrao || ''} onChange={(e) => setRF('categoria_padrao', e.target.value)} placeholder="ex: dentista" className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
+              <Campo label="Cidade padrão"><input value={rotinaForm.cidade_padrao || ''} onChange={(e) => setRF('cidade_padrao', e.target.value)} placeholder="ex: Santana" className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
+              <Campo label="Estado (UF)"><input value={rotinaForm.estado_padrao || ''} maxLength={2} onChange={(e) => setRF('estado_padrao', e.target.value.toUpperCase())} placeholder="SP" className="w-full border rounded-lg px-2 py-1.5 text-sm uppercase" /></Campo>
+              <Campo label="Capacidade/dia"><input type="number" min={1} max={200} value={rotinaForm.limite_diario ?? 80} onChange={(e) => setRF('limite_diario', Number(e.target.value))} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
+              <Campo label="Intervalo (min)"><input type="number" min={5} max={1440} value={rotinaForm.intervalo_envio_minutos ?? 15} onChange={(e) => setRF('intervalo_envio_minutos', Number(e.target.value))} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
+              <Campo label="Início"><input type="time" value={rotinaForm.horario_inicio || '08:00'} onChange={(e) => setRF('horario_inicio', e.target.value)} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
+              <Campo label="Fim"><input type="time" value={rotinaForm.horario_fim || '17:00'} onChange={(e) => setRF('horario_fim', e.target.value)} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
               <Campo label="Modo">
-                <select value={rotinaForm.modo || 'manual'} onChange={(e) => setRF('modo', e.target.value)} className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-sm text-hi">
+                <select value={rotinaForm.modo || 'manual'} onChange={(e) => setRF('modo', e.target.value)} className="w-full border rounded-lg px-2 py-1.5 text-sm">
                   <option value="manual">Manual</option>
                   <option value="semi_automatico">Semiautomático</option>
                   <option value="automatico">Automático</option>
@@ -272,7 +271,7 @@ export default function ProspeccaoPage() {
             </div>
           )}
           {rotina.agenda?.observacao && (
-            <p className={`text-xs mt-3 ${rotina.config.envio_real_habilitado ? 'text-neon-red' : 'text-lo'}`}>{rotina.agenda.observacao}</p>
+            <p className={`text-xs mt-3 ${rotina.config.envio_real_habilitado ? 'text-red-600' : 'text-slate-400'}`}>{rotina.agenda.observacao}</p>
           )}
         </div>
       )}
@@ -282,7 +281,7 @@ export default function ProspeccaoPage() {
           <button
             key={f.valor || 'todos'}
             onClick={() => setFiltro(f.valor)}
-            className={`px-3 py-1 rounded-full text-xs font-medium border ${filtro === f.valor ? 'border border-neon-cyan/40 bg-neon-cyan/15 text-neon-cyan border-brand' : 'bg-white/5 text-mid hover:bg-white/10'}`}
+            className={`px-3 py-1 rounded-full text-xs font-medium border ${filtro === f.valor ? 'bg-brand text-white border-brand' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
           >
             {f.label}
           </button>
@@ -300,8 +299,8 @@ export default function ProspeccaoPage() {
         </div>
       )}
 
-      <table className="w-full text-sm rounded-xl overflow-hidden glass">
-        <thead className="bg-white/5">
+      <table className="w-full text-sm border rounded-xl overflow-hidden bg-white shadow-sm">
+        <thead className="bg-gray-100">
           <tr>
             <th className="text-left px-4 py-2">Temp.</th>
             <th className="text-left px-4 py-2">Nome</th>
@@ -317,36 +316,36 @@ export default function ProspeccaoPage() {
           {ordenados.map((p) => {
             const t = temperatura(p.score)
             return (
-            <tr key={p.id} className="border-t border-white/5 hover:bg-white/5">
-              <td className="px-4 py-2 whitespace-nowrap" title={t.label}>{t.emoji} <span className="text-xs text-lo">{t.label}</span></td>
+            <tr key={p.id} className="border-t hover:bg-gray-50">
+              <td className="px-4 py-2 whitespace-nowrap" title={t.label}>{t.emoji} <span className="text-xs text-slate-500">{t.label}</span></td>
               <td className="px-4 py-2 font-medium">{p.nome}</td>
               <td className="px-4 py-2 font-mono text-xs">{p.telefone || '—'}</td>
-              <td className="px-4 py-2 text-mid">{p.nicho} · {p.cidade}</td>
+              <td className="px-4 py-2 text-slate-600">{p.nicho} · {p.cidade}</td>
               <td className="px-4 py-2 text-right font-semibold">{p.score ?? '—'}</td>
               <td className="px-4 py-2">{p.tem_site ? '✅' : '❌'}</td>
               <td className="px-4 py-2">
-                <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLE[p.status] || 'bg-white/5 text-lo'}`}>{p.status}</span>
+                <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLE[p.status] || 'bg-gray-100 text-gray-500'}`}>{p.status}</span>
               </td>
               <td className="px-4 py-2 text-right whitespace-nowrap">
                 {(p.status === 'aguardando' || p.status === 'rejeitado') && (
-                  <button disabled={agindo === p.id} onClick={() => acao(p.id, 'aprovar')} className="text-neon-lime hover:underline disabled:opacity-40 mr-3">Aprovar</button>
+                  <button disabled={agindo === p.id} onClick={() => acao(p.id, 'aprovar')} className="text-emerald-600 hover:underline disabled:opacity-40 mr-3">Aprovar</button>
                 )}
                 {(p.status === 'aguardando' || p.status === 'aprovado') && (
-                  <button disabled={agindo === p.id} onClick={() => acao(p.id, 'rejeitar')} className="text-neon-red hover:underline disabled:opacity-40">Rejeitar</button>
+                  <button disabled={agindo === p.id} onClick={() => acao(p.id, 'rejeitar')} className="text-red-600 hover:underline disabled:opacity-40">Rejeitar</button>
                 )}
               </td>
             </tr>
             )
           })}
           {ordenados.length === 0 && (
-            <tr><td colSpan={8} className="px-4 py-6 text-center text-lo">Nenhum prospect ainda. Faça uma busca acima.</td></tr>
+            <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Faça uma busca acima.</td></tr>
           )}
         </tbody>
       </table>
 
       {analytics && analytics.metricas.mensagens_enviadas > 0 && (
-        <div className="glass rounded-2xl p-4 space-y-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-lo">Analytics da prospecção · esta empresa</p>
+        <div className="bg-white rounded-2xl shadow-sm border p-4 space-y-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Analytics da prospecção · esta empresa</p>
           <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
             <Mini title="Enviados" value={analytics.metricas.mensagens_enviadas} />
             <Mini title="Respostas" value={analytics.metricas.respostas} />
@@ -365,13 +364,13 @@ export default function ProspeccaoPage() {
 
       {resultados && (resultados.por_mercado.length > 0 || resultados.recentes.length > 0) && (
         <div className="grid md:grid-cols-2 gap-4">
-          <div className="glass rounded-2xl p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-lo mb-2">Desempenho por mercado</p>
+          <div className="bg-white rounded-2xl shadow-sm border p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Desempenho por mercado</p>
             {resultados.por_mercado.length === 0 ? (
-              <p className="text-sm text-lo">Sem dados ainda.</p>
+              <p className="text-sm text-gray-400">Sem dados ainda.</p>
             ) : (
               <table className="w-full text-sm">
-                <thead><tr className="text-left text-lo">
+                <thead><tr className="text-left text-slate-500">
                   <th className="py-1">Nicho / Cidade</th><th className="py-1 text-right">Total</th><th className="py-1 text-right">Enviados</th><th className="py-1 text-right">Resp.</th>
                 </tr></thead>
                 <tbody>
@@ -380,23 +379,23 @@ export default function ProspeccaoPage() {
                       <td className="py-1.5">{m.nicho} · {m.cidade}</td>
                       <td className="py-1.5 text-right">{m.total}</td>
                       <td className="py-1.5 text-right">{m.enviados}</td>
-                      <td className="py-1.5 text-right font-semibold text-neon-amber">{m.responderam}</td>
+                      <td className="py-1.5 text-right font-semibold text-orange-600">{m.responderam}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
           </div>
-          <div className="glass rounded-2xl p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-lo mb-2">Responderam recentemente</p>
+          <div className="bg-white rounded-2xl shadow-sm border p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Responderam recentemente</p>
             {resultados.recentes.length === 0 ? (
-              <p className="text-sm text-lo">Ninguém respondeu ainda.</p>
+              <p className="text-sm text-gray-400">Ninguém respondeu ainda.</p>
             ) : (
               <ul className="space-y-1.5">
                 {resultados.recentes.map((r, i) => (
                   <li key={i} className="flex items-center justify-between text-sm border-t pt-1.5 first:border-0 first:pt-0">
-                    <span><span className="font-medium">{r.nome}</span> <span className="text-lo">· {r.nicho} / {r.cidade}</span></span>
-                    <span className="font-mono text-xs text-lo">{r.telefone || '—'}</span>
+                    <span><span className="font-medium">{r.nome}</span> <span className="text-slate-500">· {r.nicho} / {r.cidade}</span></span>
+                    <span className="font-mono text-xs text-slate-500">{r.telefone || '—'}</span>
                   </li>
                 ))}
               </ul>
@@ -410,8 +409,8 @@ export default function ProspeccaoPage() {
 
 function Mini({ title, value }: { title: string; value: string | number }) {
   return (
-    <div className="glass rounded-xl p-3">
-      <p className="text-[10px] text-lo uppercase tracking-wide">{title}</p>
+    <div className="bg-white rounded-xl shadow-sm border p-3">
+      <p className="text-[10px] text-slate-500 uppercase tracking-wide">{title}</p>
       <p className="text-xl font-bold mt-0.5">{value}</p>
     </div>
   )
@@ -419,15 +418,15 @@ function Mini({ title, value }: { title: string; value: string | number }) {
 
 function Destaque({ title, rank }: { title: string; rank: Rank | null }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-      <p className="text-[10px] text-lo uppercase tracking-wide">{title}</p>
+    <div className="rounded-xl border bg-slate-50/60 p-3">
+      <p className="text-[10px] text-slate-500 uppercase tracking-wide">{title}</p>
       {rank ? (
         <>
           <p className="text-sm font-semibold mt-0.5 truncate" title={rank.chave}>{rank.chave}</p>
-          <p className="text-xs text-lo mt-0.5">{rank.respostas} resp. · {rank.taxa_resposta}% · {rank.reunioes} reun.</p>
+          <p className="text-xs text-slate-500 mt-0.5">{rank.respostas} resp. · {rank.taxa_resposta}% · {rank.reunioes} reun.</p>
         </>
       ) : (
-        <p className="text-sm text-lo mt-0.5">Sem dados</p>
+        <p className="text-sm text-slate-400 mt-0.5">Sem dados</p>
       )}
     </div>
   )
@@ -436,7 +435,7 @@ function Destaque({ title, rank }: { title: string; rank: Rank | null }) {
 function Campo({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-[10px] uppercase text-lo mb-0.5">{label}</label>
+      <label className="block text-[10px] uppercase text-slate-500 mb-0.5">{label}</label>
       {children}
     </div>
   )

@@ -1,10 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
-import NeonCard from '@/components/ui/NeonCard'
-import NeonProgress from '@/components/ui/NeonProgress'
-import KpiCounter from '@/components/ui/KpiCounter'
-import Chart3D, { type Bar } from '@/components/charts/Chart3D'
 
 type Resumo = {
   conversas: { ativas: string; fechadas: string; arquivadas: string; total: string }
@@ -34,8 +30,8 @@ export default function DashboardPage() {
       .catch((e) => setErro(e.message))
   }, [])
 
-  if (erro) return <p className="text-neon-red text-sm">{erro}</p>
-  if (!dados) return <LoadingDeck />
+  if (erro) return <p className="text-red-600 text-sm">{erro}</p>
+  if (!dados) return <p className="text-slate-500 text-sm">Carregando…</p>
 
   const t = dados.temperatura || { quente: '0', morno: '0', frio: '0', prontos_handoff: '0' }
   const nQuente = Number(t.quente || 0)
@@ -43,123 +39,79 @@ export default function DashboardPage() {
   const nFrio = Number(t.frio || 0)
   const totalTemp = nQuente + nMorno + nFrio
   const pct = (n: number) => (totalTemp > 0 ? Math.round((n / totalTemp) * 100) : 0)
-  const maxEstagio = Math.max(1, ...dados.por_estagio.map((r) => Number(r.total || 0)))
+
   const tokens = Number(dados.llm_30d?.input_tokens || 0) + Number(dados.llm_30d?.output_tokens || 0)
 
-  const barras3d: Bar[] = dados.por_estagio.length
-    ? dados.por_estagio.map((r) => ({ label: ESTAGIO_LABEL[r.estagio] || r.estagio, value: Number(r.total || 0) }))
-    : [
-        { label: 'Quente', value: nQuente, tone: 'magenta' },
-        { label: 'Morno', value: nMorno, tone: 'amber' },
-        { label: 'Frio', value: nFrio, tone: 'cyan' },
-      ]
-
   return (
     <div className="space-y-8">
-      <header>
-        <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-neon-cyan/70">Command Deck</p>
-        <h1 className="font-display text-3xl font-bold tracking-tight text-hi">Visão Geral</h1>
-      </header>
+      <h1 className="text-2xl font-bold">Visão Geral</h1>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Kpi title="Conversas ativas" value={Number(dados.conversas?.ativas ?? 0)} tone="cyan" />
-        <Kpi title="Leads quentes" value={nQuente} tone="amber" />
-        <Kpi title="Prontos p/ handoff" value={Number(t.prontos_handoff ?? 0)} tone="lime" />
-        <Kpi title="Vendas fechadas" value={Number(dados.conversas?.fechadas ?? 0)} tone="magenta" />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card title="Conversas ativas" value={dados.conversas?.ativas ?? '—'} />
+        <Card title="Leads quentes" value={t.quente ?? '0'} accent="text-orange-600" />
+        <Card title="Prontos p/ handoff" value={t.prontos_handoff ?? '0'} accent="text-emerald-600" />
+        <Card title="Vendas fechadas" value={dados.conversas?.fechadas ?? '0'} />
       </div>
 
-      <NeonCard tone="cyan" className="overflow-hidden p-1.5">
-        <div className="flex items-center justify-between px-4 py-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-lo">Funil comercial · 3D</h2>
-          <span className="text-[10px] uppercase tracking-wide text-neon-cyan/70">arraste para girar</span>
-        </div>
-        <Chart3D data={barras3d} height={300} />
-      </NeonCard>
-
-      <section className="grid gap-6 md:grid-cols-2">
-        <NeonCard tone="cyan" className="p-5">
-          <h2 className="mb-4 text-xs font-semibold uppercase tracking-wide text-lo">Temperatura dos leads</h2>
+      <section className="grid md:grid-cols-2 gap-6">
+        <div className="bg-white rounded-2xl shadow-sm border p-5">
+          <h2 className="text-sm font-semibold text-slate-600 uppercase tracking-wide mb-4">Temperatura dos leads</h2>
           {totalTemp === 0 ? (
-            <p className="text-sm text-lo">Sem leads classificados ainda.</p>
+            <p className="text-slate-400 text-sm">Sem leads classificados ainda.</p>
           ) : (
-            <div className="space-y-4">
-              <TempBar label="🔥 Quente" n={nQuente} pct={pct(nQuente)} tone="magenta" />
-              <TempBar label="🌤️ Morno" n={nMorno} pct={pct(nMorno)} tone="amber" />
-              <TempBar label="❄️ Frio" n={nFrio} pct={pct(nFrio)} tone="cyan" />
+            <div className="space-y-3">
+              <TempBar label="🔥 Quente" n={nQuente} pct={pct(nQuente)} color="bg-orange-500" />
+              <TempBar label="🌤️ Morno" n={nMorno} pct={pct(nMorno)} color="bg-amber-400" />
+              <TempBar label="❄️ Frio" n={nFrio} pct={pct(nFrio)} color="bg-sky-400" />
             </div>
           )}
-        </NeonCard>
+        </div>
 
-        <NeonCard tone="violet" className="p-5">
-          <h2 className="mb-4 text-xs font-semibold uppercase tracking-wide text-lo">Funil comercial</h2>
+        <div className="bg-white rounded-2xl shadow-sm border p-5">
+          <h2 className="text-sm font-semibold text-slate-600 uppercase tracking-wide mb-4">Funil comercial</h2>
           {dados.por_estagio.length === 0 ? (
-            <p className="text-sm text-lo">Sem conversas ativas.</p>
+            <p className="text-slate-400 text-sm">Sem conversas ativas.</p>
           ) : (
-            <ul className="space-y-3">
-              {dados.por_estagio.map((row) => {
-                const n = Number(row.total || 0)
-                return (
-                  <li key={row.estagio}>
-                    <div className="mb-1 flex items-center justify-between text-sm">
-                      <span className="text-mid">{ESTAGIO_LABEL[row.estagio] || row.estagio}</span>
-                      <span className="font-mono font-semibold text-hi">{row.total}</span>
-                    </div>
-                    <NeonProgress value={Math.round((n / maxEstagio) * 100)} tone="cyan" />
-                  </li>
-                )
-              })}
+            <ul className="space-y-2">
+              {dados.por_estagio.map((row) => (
+                <li key={row.estagio} className="flex items-center justify-between text-sm">
+                  <span className="text-slate-700">{ESTAGIO_LABEL[row.estagio] || row.estagio}</span>
+                  <span className="font-semibold">{row.total}</span>
+                </li>
+              ))}
             </ul>
           )}
-        </NeonCard>
+        </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Kpi title="Follow-ups enviados" value={Number(dados.followups?.enviados ?? 0)} small />
-        <Kpi title="Follow-ups respondidos" value={Number(dados.followups?.respondidos ?? 0)} small />
-        <Kpi title="Chamadas IA (30d)" value={Number(dados.llm_30d?.chamadas ?? 0)} small />
-        <Kpi title="Tokens IA (30d)" value={tokens} small />
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card title="Follow-ups enviados" value={dados.followups?.enviados ?? '0'} small />
+        <Card title="Follow-ups respondidos" value={dados.followups?.respondidos ?? '0'} small />
+        <Card title="Chamadas IA (30d)" value={dados.llm_30d?.chamadas ?? '0'} small />
+        <Card title="Tokens IA (30d)" value={tokens.toLocaleString('pt-BR')} small />
       </section>
     </div>
   )
 }
 
-const ACCENT: Record<string, string> = {
-  cyan: 'text-neon-cyan', amber: 'text-neon-amber', lime: 'text-neon-lime',
-  magenta: 'text-neon-magenta', violet: 'text-neon-violet',
-}
-
-function Kpi({ title, value, tone = 'cyan', small }: { title: string; value: number; tone?: string; small?: boolean }) {
+function Card({ title, value, accent, small }: { title: string; value: string | number; accent?: string; small?: boolean }) {
   return (
-    <NeonCard tone={tone as 'cyan'} className="p-5">
-      <p className="text-xs uppercase tracking-wide text-lo">{title}</p>
-      <p className={`mt-1 font-display font-bold ${small ? 'text-2xl' : 'text-3xl'} ${ACCENT[tone] || 'text-hi'}`}>
-        <KpiCounter value={value} />
-      </p>
-    </NeonCard>
+    <div className="bg-white rounded-2xl shadow-sm border p-5">
+      <p className="text-xs text-slate-500 uppercase tracking-wide">{title}</p>
+      <p className={`${small ? 'text-2xl' : 'text-3xl'} font-bold mt-1 ${accent || 'text-slate-900'}`}>{value}</p>
+    </div>
   )
 }
 
-function TempBar({ label, n, pct, tone }: { label: string; n: number; pct: number; tone: 'cyan' | 'magenta' | 'amber' }) {
+function TempBar({ label, n, pct, color }: { label: string; n: number; pct: number; color: string }) {
   return (
     <div>
-      <div className="mb-1 flex justify-between text-xs text-mid">
+      <div className="flex justify-between text-xs text-slate-600 mb-1">
         <span>{label}</span>
-        <span className="font-mono">{n} ({pct}%)</span>
+        <span>{n} ({pct}%)</span>
       </div>
-      <NeonProgress value={pct} tone={tone} />
-    </div>
-  )
-}
-
-function LoadingDeck() {
-  return (
-    <div className="space-y-8">
-      <div className="h-9 w-48 animate-pulse rounded-lg bg-white/5" />
-      <NeonProgress className="max-w-md" />
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="glass h-24 animate-pulse rounded-2xl" />
-        ))}
+      <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+        <div className={`h-full ${color}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   )

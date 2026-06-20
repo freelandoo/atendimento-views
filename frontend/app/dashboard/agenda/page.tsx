@@ -28,12 +28,12 @@ const TIPOS: { v: string; label: string }[] = [
 const TIPO_LABEL: Record<string, string> = Object.fromEntries(TIPOS.map((t) => [t.v, t.label]))
 
 const STATUS_STYLE: Record<string, string> = {
-  pendente: 'bg-white/5 text-mid',
-  confirmado: 'bg-neon-lime/10 text-neon-lime',
-  concluido: 'bg-neon-cyan/10 text-neon-cyan',
-  cancelado: 'bg-neon-red/10 text-neon-red',
-  bloqueado: 'bg-neon-amber/10 text-neon-amber',
-  nao_compareceu: 'bg-neon-amber/10 text-orange-700',
+  pendente: 'bg-slate-100 text-slate-600',
+  confirmado: 'bg-emerald-100 text-emerald-700',
+  concluido: 'bg-blue-100 text-blue-700',
+  cancelado: 'bg-red-100 text-red-600',
+  bloqueado: 'bg-amber-100 text-amber-700',
+  nao_compareceu: 'bg-orange-100 text-orange-700',
 }
 const STATUS_LABEL: Record<string, string> = {
   pendente: 'Pendente', confirmado: 'Confirmado', concluido: 'Concluído',
@@ -159,19 +159,19 @@ export default function AgendaPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Agenda</h1>
-          <p className="text-sm text-lo mt-1 capitalize">{diaLabel}</p>
+          <p className="text-sm text-slate-500 mt-1 capitalize">{diaLabel}</p>
         </div>
         <div className="flex items-end gap-2">
           <div>
-            <label className="block text-xs text-lo mb-1">Dia</label>
+            <label className="block text-xs text-slate-500 mb-1">Dia</label>
             <input type="date" value={dia} onChange={(e) => setDia(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" />
           </div>
-          <button onClick={() => setDia(hojeIso())} className="px-3 py-2 rounded-lg border text-sm hover:bg-white/5">Hoje</button>
+          <button onClick={() => setDia(hojeIso())} className="px-3 py-2 rounded-lg border text-sm hover:bg-slate-50">Hoje</button>
           <button onClick={abrirNovo} className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium">+ Novo evento</button>
         </div>
       </div>
 
-      {erro && <p className="text-neon-red text-sm">{erro}</p>}
+      {erro && <p className="text-red-600 text-sm">{erro}</p>}
 
       {resumo && (
         <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
@@ -183,32 +183,32 @@ export default function AgendaPage() {
         </div>
       )}
 
-      <div className="bg-panel rounded-2xl shadow-sm border divide-y">
-        {carregando && <p className="px-4 py-6 text-center text-lo text-sm">Carregando…</p>}
+      <div className="bg-white rounded-2xl shadow-sm border divide-y">
+        {carregando && <p className="px-4 py-6 text-center text-slate-400 text-sm">Carregando…</p>}
         {!carregando && eventos.length === 0 && (
-          <p className="px-4 py-10 text-center text-lo text-sm">Nenhum compromisso nesse dia. Clique em “Novo evento”.</p>
+          <p className="px-4 py-10 text-center text-slate-400 text-sm">Nenhum compromisso nesse dia. Clique em “Novo evento”.</p>
         )}
         {eventos.map((ev) => (
-          <div key={ev.id} className="flex items-start gap-4 px-4 py-3 hover:bg-white/5">
-            <div className="w-20 shrink-0 text-sm font-mono text-mid pt-0.5">
-              {horaLocal(ev.data_inicio)}<span className="text-lo"> – </span>{horaLocal(ev.data_fim)}
+          <div key={ev.id} className="flex items-start gap-4 px-4 py-3 hover:bg-slate-50">
+            <div className="w-20 shrink-0 text-sm font-mono text-slate-600 pt-0.5">
+              {horaLocal(ev.data_inicio)}<span className="text-slate-300"> – </span>{horaLocal(ev.data_fim)}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-medium truncate">{ev.titulo}</span>
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/5 text-lo">{TIPO_LABEL[ev.tipo] || ev.tipo}</span>
-                <span className={`px-2 py-0.5 rounded-full text-[11px] ${STATUS_STYLE[ev.status] || 'bg-white/5 text-lo'}`}>{STATUS_LABEL[ev.status] || ev.status}</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500">{TIPO_LABEL[ev.tipo] || ev.tipo}</span>
+                <span className={`px-2 py-0.5 rounded-full text-[11px] ${STATUS_STYLE[ev.status] || 'bg-slate-100 text-slate-500'}`}>{STATUS_LABEL[ev.status] || ev.status}</span>
               </div>
               {(ev.lead_nome || ev.lead_telefone) && (
-                <p className="text-xs text-lo mt-0.5">{ev.lead_nome || ''}{ev.lead_telefone ? ` · ${ev.lead_telefone}` : ''}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{ev.lead_nome || ''}{ev.lead_telefone ? ` · ${ev.lead_telefone}` : ''}</p>
               )}
-              {ev.descricao && <p className="text-xs text-lo mt-0.5 line-clamp-2">{ev.descricao}</p>}
+              {ev.descricao && <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">{ev.descricao}</p>}
             </div>
             <div className="flex items-center gap-2 shrink-0 text-xs">
-              {ev.status === 'pendente' && <button onClick={() => mudarStatus(ev, 'confirmado')} className="text-neon-lime hover:underline">Confirmar</button>}
-              {['pendente', 'confirmado'].includes(ev.status) && <button onClick={() => mudarStatus(ev, 'concluido')} className="text-neon-cyan hover:underline">Concluir</button>}
-              <button onClick={() => abrirEdicao(ev)} className="text-mid hover:underline">Editar</button>
-              <button onClick={() => excluir(ev)} className="text-neon-red hover:underline">Excluir</button>
+              {ev.status === 'pendente' && <button onClick={() => mudarStatus(ev, 'confirmado')} className="text-emerald-600 hover:underline">Confirmar</button>}
+              {['pendente', 'confirmado'].includes(ev.status) && <button onClick={() => mudarStatus(ev, 'concluido')} className="text-blue-600 hover:underline">Concluir</button>}
+              <button onClick={() => abrirEdicao(ev)} className="text-slate-600 hover:underline">Editar</button>
+              <button onClick={() => excluir(ev)} className="text-red-600 hover:underline">Excluir</button>
             </div>
           </div>
         ))}
@@ -216,7 +216,7 @@ export default function AgendaPage() {
 
       {modal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 p-4" onClick={() => setModal(false)}>
-          <form onSubmit={salvar} onClick={(e) => e.stopPropagation()} className="w-full max-w-lg space-y-3 rounded-2xl bg-panel p-6 shadow-xl">
+          <form onSubmit={salvar} onClick={(e) => e.stopPropagation()} className="w-full max-w-lg space-y-3 rounded-2xl bg-white p-6 shadow-xl">
             <h3 className="text-lg font-semibold">{form.id ? 'Editar evento' : 'Novo evento'}</h3>
             <Campo label="Título">
               <input value={form.titulo} onChange={(e) => setF('titulo', e.target.value)} required className="w-full border rounded-lg px-3 py-2 text-sm" />
@@ -249,9 +249,9 @@ export default function AgendaPage() {
             <Campo label="Descrição">
               <textarea value={form.descricao} onChange={(e) => setF('descricao', e.target.value)} rows={2} className="w-full border rounded-lg px-3 py-2 text-sm" />
             </Campo>
-            {erro && <p className="text-sm text-neon-red">{erro}</p>}
+            {erro && <p className="text-sm text-red-600">{erro}</p>}
             <div className="flex justify-end gap-2 pt-1">
-              <button type="button" onClick={() => setModal(false)} className="rounded-lg border px-3 py-2 text-sm hover:bg-white/5">Cancelar</button>
+              <button type="button" onClick={() => setModal(false)} className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50">Cancelar</button>
               <button type="submit" disabled={salvando} className="rounded-lg bg-brand px-4 py-2 text-sm text-white font-medium disabled:opacity-50">{salvando ? 'Salvando…' : 'Salvar'}</button>
             </div>
           </form>
@@ -263,8 +263,8 @@ export default function AgendaPage() {
 
 function Mini({ title, value }: { title: string; value: string | number }) {
   return (
-    <div className="bg-panel rounded-xl shadow-sm border p-3">
-      <p className="text-[10px] text-lo uppercase tracking-wide">{title}</p>
+    <div className="bg-white rounded-xl shadow-sm border p-3">
+      <p className="text-[10px] text-slate-500 uppercase tracking-wide">{title}</p>
       <p className="text-xl font-bold mt-0.5">{value}</p>
     </div>
   )
@@ -272,7 +272,7 @@ function Mini({ title, value }: { title: string; value: string | number }) {
 function Campo({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-[10px] uppercase text-lo mb-0.5">{label}</label>
+      <label className="block text-[10px] uppercase text-slate-500 mb-0.5">{label}</label>
       {children}
     </div>
   )

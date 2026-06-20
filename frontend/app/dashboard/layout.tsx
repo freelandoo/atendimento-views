@@ -2,9 +2,12 @@ import Sidebar from '@/components/Sidebar'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-[100dvh] bg-void text-hi">
+    <div className="flex min-h-[100dvh] bg-void">
       <Sidebar />
-      <main className="bg-grid min-w-0 flex-1 overflow-auto p-5 sm:p-8">{children}</main>
+      {/* Conteúdo em tema claro; a coluna (Sidebar) permanece dark. */}
+      <main className="min-w-0 flex-1 overflow-auto bg-gray-50 p-5 text-slate-900 [color-scheme:light] sm:p-8">
+        {children}
+      </main>
     </div>
   )
 }

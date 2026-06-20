@@ -9,8 +9,8 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // brand repontado para o ciano neon — preserva usos antigos de `bg-brand`.
-        brand: { DEFAULT: '#22e3ff', dark: '#15a6c0' },
+        // brand azul original — usado pelas páginas claras (a coluna/login usam tokens neon diretamente).
+        brand: { DEFAULT: '#2563eb', dark: '#1d4ed8' },
         void: '#060912',
         panel: { DEFAULT: '#0d1322', 2: '#111a2e' },
         neon: {
