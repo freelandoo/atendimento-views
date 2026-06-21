@@ -10,7 +10,6 @@ type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context'
 const NAV = [
   { href: '/dashboard', label: 'Visão Geral', icon: 'overview' },
   { href: '/dashboard/conversas', label: 'Conversas', icon: 'chat' },
-  { href: '/dashboard/leads-quentes', label: 'Leads Quentes', icon: 'leads' },
   { href: '/dashboard/aquisicao', label: 'Aquisição', icon: 'prospect', minRole: 'admin' },
   { href: '/dashboard/banco-leads', label: 'Banco de Leads', icon: 'leads', minRole: 'admin' },
   { href: '/dashboard/agenda', label: 'Agenda', icon: 'agenda' },
