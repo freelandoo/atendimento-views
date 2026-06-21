@@ -51,3 +51,6 @@ upload*.ps1
 # Next.js (frontend/) — artefatos de build regeneráveis e tipos gerados
 .next/
 next-env.d.ts
+
+# arquivos temporários com segredos (nunca commitar)
+*.tmp

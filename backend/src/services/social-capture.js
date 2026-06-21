@@ -365,6 +365,22 @@ async function processarUmSnapshot(snap) {
   const registros = await brightdata.snapshot(snap.snapshot_id)
   const custo = registros.length
 
+  // Consistência eventual da Bright Data: às vezes o progress reporta 'ready' ANTES de
+  // os dados materializarem, e o download volta vazio. Se o progress diz que há registros
+  // mas baixamos 0, NÃO finaliza com 0 (senão o snapshot fica preso, nunca reprocessa):
+  // mantém 'processando' p/ tentar de novo no próximo tick. Guarda de idade evita loop
+  // infinito se os dados de fato nunca vierem.
+  const registrosEsperados = Number(estado.raw && estado.raw.records)
+  const idadeMin = (Date.now() - new Date(snap.created_at).getTime()) / 60000
+  if (custo === 0 && Number.isFinite(registrosEsperados) && registrosEsperados > 0 && idadeMin < 30) {
+    if (snap.status !== 'processando') await marcarSnapshot(snap.id, { status: 'processando' })
+    logger.warn(
+      { snapshot: snap.snapshot_id, esperados: registrosEsperados, idadeMin: Math.round(idadeMin) },
+      '[captacao] ready mas download vazio — re-tenta no próximo tick (consistência eventual)'
+    )
+    return
+  }
+
   if (snap.etapa === 'descoberta') {
     // Extrai usernames/URLs e dispara a etapa de perfis, respeitando orçamento.
     const usernames = Array.from(new Set(a.extrairUsernames(registros))).filter(Boolean)
