@@ -31,6 +31,7 @@ const {
 const {
   canProspectLead,
 } = require('./services/prospecting-eligibility')
+const { extrairEmailDeUrl } = require('./services/social-contact-extract')
 const {
   criarFilaDiariaSimulada,
   listarExecucoesDiarias,
@@ -1144,7 +1145,56 @@ async function salvarProspects(prospects, contexto = {}) {
       await persistirScoreV2Prospect(salvo.id, prospect).catch(() => {})
     }
   }
+  // Best-effort: tenta achar o e-mail no site do lead (não bloqueia a coleta se falhar).
+  await enriquecerEmailPorSite(salvos).catch(() => {})
   return salvos
+}
+
+// Liga/desliga a extração automática de e-mail a partir do site do lead (default ON).
+function extrairEmailSiteAtivo() {
+  return String(process.env.PROSPEC_EXTRAIR_EMAIL_SITE || 'on').toLowerCase() !== 'off'
+}
+
+// Para cada lead salvo que tem site mas não tem e-mail, raspa o site atrás de um e-mail
+// e grava (só se ainda estiver vazio). Concorrência limitada para proteger tempo/recursos.
+async function enriquecerEmailPorSite(prospectsSalvos) {
+  if (!extrairEmailSiteAtivo()) return
+  const alvos = (Array.isArray(prospectsSalvos) ? prospectsSalvos : [])
+    .filter((p) => p && p.id && p.site && !p.email)
+  const CONCORRENCIA = 4
+  for (let i = 0; i < alvos.length; i += CONCORRENCIA) {
+    const lote = alvos.slice(i, i + CONCORRENCIA)
+    await Promise.all(lote.map(async (p) => {
+      try {
+        const email = await extrairEmailDeUrl(p.site)
+        if (!email) return
+        await pool.query(
+          `UPDATE prospectador.prospects SET email = $2, updated_at = NOW()
+            WHERE id = $1::uuid AND email IS NULL`,
+          [p.id, email]
+        )
+        p.email = email
+      } catch { /* best-effort: ignora falha de fetch/parse */ }
+    }))
+  }
+}
+
+const RX_EMAIL_VALIDO = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i
+
+// Atualiza (ou limpa, com string vazia) o e-mail de um lead. Escopo por empresa.
+async function atualizarEmailProspect(empresaId, id, emailBruto) {
+  const email = String(emailBruto == null ? '' : emailBruto).trim().toLowerCase()
+  if (email && !RX_EMAIL_VALIDO.test(email)) {
+    const e = new Error('E-mail inválido.'); e.statusCode = 400; throw e
+  }
+  const { rows } = await pool.query(
+    `UPDATE prospectador.prospects SET email = $3, updated_at = NOW()
+      WHERE empresa_id = $1 AND id = $2::uuid
+      RETURNING id, email`,
+    [empresaId, id, email || null]
+  )
+  if (!rows[0]) { const e = new Error('Lead não encontrado.'); e.statusCode = 404; throw e }
+  return rows[0]
 }
 
 async function listarProspects(filtros = {}) {
@@ -3918,6 +3968,7 @@ function registerProspectingRoutes(app) {
 module.exports = {
   DEFAULT_FIELD_MASK,
   atualizarMensagemEditada,
+  atualizarEmailProspect,
   atualizarStatusProspect,
   atualizarStatusProspectsLote,
   calcularScoreProspect,

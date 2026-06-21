@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
+import { EmailEditavel } from '@/components/EmailEditavel'
 
 type CampanhaMeta = {
   perfis_semente?: string[]
@@ -246,6 +247,11 @@ export default function CaptacaoPage() {
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao atualizar status.') }
   }
 
+  async function salvarEmail(id: string, email: string) {
+    await apiFetch(`${base}/leads/${id}/email`, { method: 'PATCH', body: JSON.stringify({ email }) })
+    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, email: email || null } : l)))
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -440,9 +446,8 @@ export default function CaptacaoPage() {
                 </div>
                 <div className="mt-1 flex flex-wrap gap-3 text-xs">
                   {l.telefone && <span className="text-emerald-700">📱 {l.telefone}</span>}
-                  {l.email && <span className="text-blue-700">✉ {l.email}</span>}
+                  <EmailEditavel value={l.email} onSave={(email) => salvarEmail(l.id, email)} />
                   {l.link_bio && <a href={l.link_bio} target="_blank" rel="noreferrer" className="text-slate-500 underline">link da bio</a>}
-                  {!l.telefone && !l.email && <span className="text-slate-400">sem contato</span>}
                 </div>
               </div>
               <div className="flex shrink-0 flex-wrap justify-end gap-1.5">

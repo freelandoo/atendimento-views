@@ -7,6 +7,7 @@ const {
   pesquisarPlaces,
   atualizarStatusProspect,
   atualizarStatusProspectsLote,
+  atualizarEmailProspect,
 } = require('../prospecting')
 const {
   obterConfiguracaoProspeccao,
@@ -178,6 +179,18 @@ router.post('/prospects/:id/rejeitar', requireAuth, requireEmpresaAccess, async 
     const status = err.statusCode || 500
     logger.error('POST prospeccao/rejeitar:', err.message)
     return res.status(status).json({ ok: false, error: { code: 'REJEITAR_FAILED', message: err.message } })
+  }
+})
+
+// PATCH /api/empresas/:empresaId/prospeccao/prospects/:id/email  { email }
+router.patch('/prospects/:id/email', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const data = await atualizarEmailProspect(req.empresa.id, req.params.id, (req.body || {}).email)
+    return res.json({ ok: true, data })
+  } catch (err) {
+    const status = err.statusCode || 500
+    logger.error('PATCH prospeccao/email:', err.message)
+    return res.status(status).json({ ok: false, error: { code: 'EMAIL_UPDATE_FAILED', message: err.message } })
   }
 })
 

@@ -1,11 +1,13 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
+import { EmailEditavel } from '@/components/EmailEditavel'
 
 type Prospect = {
   id: string
   nome: string
   telefone: string | null
+  email: string | null
   nicho: string
   cidade: string
   rating: number | null
@@ -112,6 +114,11 @@ export default function ProspeccaoPage() {
     } finally {
       setAgindo(null)
     }
+  }
+
+  async function salvarEmail(id: string, email: string) {
+    await apiFetch(`/api/empresas/${empresaId}/prospeccao/prospects/${id}/email`, { method: 'PATCH', body: JSON.stringify({ email }) })
+    setProspects((prev) => prev.map((p) => (p.id === id ? { ...p, email: email || null } : p)))
   }
 
   function abrirEdicaoRotina() {
@@ -305,6 +312,7 @@ export default function ProspeccaoPage() {
             <th className="text-left px-4 py-2">Temp.</th>
             <th className="text-left px-4 py-2">Nome</th>
             <th className="text-left px-4 py-2">Telefone</th>
+            <th className="text-left px-4 py-2">E-mail</th>
             <th className="text-left px-4 py-2">Nicho / Cidade</th>
             <th className="text-right px-4 py-2">Score</th>
             <th className="text-left px-4 py-2">Site</th>
@@ -320,6 +328,7 @@ export default function ProspeccaoPage() {
               <td className="px-4 py-2 whitespace-nowrap" title={t.label}>{t.emoji} <span className="text-xs text-slate-500">{t.label}</span></td>
               <td className="px-4 py-2 font-medium">{p.nome}</td>
               <td className="px-4 py-2 font-mono text-xs">{p.telefone || '—'}</td>
+              <td className="px-4 py-2 text-xs"><EmailEditavel value={p.email} onSave={(email) => salvarEmail(p.id, email)} /></td>
               <td className="px-4 py-2 text-slate-600">{p.nicho} · {p.cidade}</td>
               <td className="px-4 py-2 text-right font-semibold">{p.score ?? '—'}</td>
               <td className="px-4 py-2">{p.tem_site ? '✅' : '❌'}</td>
@@ -338,7 +347,7 @@ export default function ProspeccaoPage() {
             )
           })}
           {ordenados.length === 0 && (
-            <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Faça uma busca acima.</td></tr>
+            <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Faça uma busca acima.</td></tr>
           )}
         </tbody>
       </table>

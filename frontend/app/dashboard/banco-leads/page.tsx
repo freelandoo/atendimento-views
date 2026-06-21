@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, apiDownload, getEmpresaId } from '@/lib/api'
+import { EmailEditavel } from '@/components/EmailEditavel'
 
 // Banco de Leads — visão unificada das duas origens (Google Places + Instagram),
 // agrupada nos 3 estágios do funil. Consome /api/empresas/:id/banco-leads.
@@ -101,6 +102,11 @@ export default function BancoLeadsPage() {
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao reabrir lead.') }
   }
 
+  async function salvarEmail(id: string, email: string) {
+    await apiFetch(`${base}/leads/${id}/email`, { method: 'PATCH', body: JSON.stringify({ email }) })
+    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, email: email || null } : l)))
+  }
+
   async function exportar() {
     setErro(null); setExportando(true)
     try {
@@ -181,7 +187,10 @@ export default function BancoLeadsPage() {
                   </td>
                   <td className="px-4 py-3 text-slate-500">{ORIGEM_LABEL[l.origem] || l.origem}</td>
                   <td className="px-4 py-3 text-slate-600">
-                    {l.telefone || l.email || '—'}
+                    <div className="flex flex-col gap-0.5 text-xs">
+                      {l.telefone && <span className="text-emerald-700">📱 {l.telefone}</span>}
+                      <EmailEditavel value={l.email} onSave={(email) => salvarEmail(l.id, email)} />
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-slate-500">
                     {[l.nicho, l.cidade].filter(Boolean).join(' · ') || '—'}

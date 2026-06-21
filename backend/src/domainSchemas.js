@@ -302,6 +302,7 @@ function normalizarProspectPersistido(row) {
     id: row.id,
     nome: row.nome,
     telefone: row.telefone || '',
+    email: row.email || '',
     nicho: row.nicho,
     cidade: row.cidade,
     endereco: row.endereco || '',

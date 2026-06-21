@@ -4,6 +4,7 @@ const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { logger } = require('../logger')
 const captacao = require('../services/social-capture')
+const { atualizarEmailProspect } = require('../prospecting')
 const { enviarEmailProspect, emailConfigurado } = require('../services/email-outreach')
 
 const router = Router({ mergeParams: true })
@@ -161,6 +162,14 @@ router.post('/leads/:id/status', requireAuth, requireEmpresaAccess, async (req, 
     if (!rows[0]) return res.status(404).json({ ok: false, error: { code: 'LEAD_NAO_ENCONTRADO', message: 'Lead não encontrado.' } })
     return res.json({ ok: true, data: rows[0] })
   } catch (err) { return envelopeErro(res, err, 'STATUS_UPDATE_FAILED') }
+})
+
+// PATCH /leads/:id/email  { email } — define/edita/limpa o e-mail do lead social.
+router.patch('/leads/:id/email', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const data = await atualizarEmailProspect(req.empresa.id, req.params.id, (req.body || {}).email)
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'EMAIL_UPDATE_FAILED') }
 })
 
 // ── E-mail (Fase futura — já operável quando provider configurado) ────────────

@@ -157,8 +157,23 @@ async function extrairContato(perfil = {}, opcoes = {}) {
   return { email: email || null, telefone: telefone || null, link_bio: linkBio, bio: bio || null, sinais }
 }
 
+// Busca um e-mail no HTML de uma URL (ex.: site de um lead do Google Places).
+// Best-effort: força o fetch (independente do BRIGHTDATA_SEGUIR_LINK_BIO), com timeout.
+// Retorna o primeiro e-mail válido encontrado, ou null.
+async function extrairEmailDeUrl(url) {
+  let alvo = txt(url).trim()
+  if (!alvo) return null
+  if (!/^https?:\/\//i.test(alvo)) {
+    if (/^[\w.-]+\.[a-z]{2,}/i.test(alvo)) alvo = 'https://' + alvo
+    else return null
+  }
+  const html = await tentarSeguirLink(alvo, true)
+  return html ? primeiroEmailValido(html) : null
+}
+
 module.exports = {
   extrairContato,
+  extrairEmailDeUrl,
   primeiroEmailValido,
   primeiroWhatsapp,
   seguirLinkBioAtivo,
