@@ -2,6 +2,7 @@
 const { Router } = require('express')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
+const { marcarOnboardingCompleto } = require('../db/usuarios')
 const { logger } = require('../logger')
 const {
   normalizarContexto1,
@@ -49,6 +50,7 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
      VALUES ($1, $2, $3, $4) RETURNING *`,
     [req.empresa.id, nome, conteudoTexto, JSON.stringify(formJson || {})]
   )
+  marcarOnboardingCompleto(req.usuario.id, req.empresa.id).catch(() => {})
   return res.status(201).json({ ok: true, data: ctx })
 })
 
@@ -89,6 +91,7 @@ router.put('/:contextoId', requireAuth, requireEmpresaAccess, async (req, res) =
     vals
   )
   if (!ctx) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Contexto não encontrado.' } })
+  marcarOnboardingCompleto(req.usuario.id, req.empresa.id).catch(() => {})
   return res.json({ ok: true, data: ctx })
 })
 

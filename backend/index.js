@@ -47,7 +47,7 @@ const prompts = require('./src/prompts')
 const { pool, initDB } = require('./src/db')
 const agent = require('./src/agent')
 const { seedAdminUser } = require('./src/auth')
-const { resolveEmpresaFromWebhook } = require('./src/middleware/tenant')
+const { resolveEmpresaFromWebhook, requireAuth, requireRole } = require('./src/middleware/tenant')
 const apiAuthRouter = require('./src/routes/api-auth')
 
 dashboardAuth.registerDashboardAuthRoutes(app)
@@ -56,6 +56,7 @@ app.use('/api/operador', dashboardAuth.requireDashboardAuth)
 
 // Rotas JWT SaaS multiempresa (Bearer token — consumidas pelo frontend Next.js)
 app.use('/api/auth', apiAuthRouter)
+app.use('/api/admin', require('./src/routes/api-admin-usuarios').router)
 app.use('/api/empresas', require('./src/routes/api-empresas'))
 app.use('/api/empresas/:empresaId/contextos', require('./src/routes/api-contextos'))
 app.use('/api/empresas/:empresaId/contextos/:contextoId', require('./src/routes/api-contexto-estagios'))
@@ -65,14 +66,15 @@ app.use('/api/empresas/:empresaId/contextos/:contextoId/sugerir-contexto1', font
 app.use('/api/empresas/:empresaId/whatsapp', require('./src/routes/api-whatsapp'))
 app.use('/api/empresas/:empresaId/conversas', require('./src/routes/api-conversas'))
 app.use('/api/empresas/:empresaId/leads-quentes', require('./src/routes/api-leads-quentes'))
-app.use('/api/empresas/:empresaId/prospeccao', require('./src/routes/api-prospeccao'))
-app.use('/api/empresas/:empresaId/captacao', require('./src/routes/api-captacao'))
-app.use('/api/empresas/:empresaId/banco-leads', require('./src/routes/api-banco-leads'))
+// Aquisição / banco de leads / relatórios / LLM são admin-only (gating de backend SaaS)
+app.use('/api/empresas/:empresaId/prospeccao', requireAuth, requireRole('admin'), require('./src/routes/api-prospeccao'))
+app.use('/api/empresas/:empresaId/captacao', requireAuth, requireRole('admin'), require('./src/routes/api-captacao'))
+app.use('/api/empresas/:empresaId/banco-leads', requireAuth, requireRole('admin'), require('./src/routes/api-banco-leads'))
 app.use('/api/empresas/:empresaId/agenda', require('./src/routes/api-agenda'))
-app.use('/api/empresas/:empresaId/relatorios', require('./src/routes/api-relatorios'))
+app.use('/api/empresas/:empresaId/relatorios', requireAuth, requireRole('admin'), require('./src/routes/api-relatorios'))
 app.use('/api/empresas/:empresaId/agente-pj', require('./src/routes/api-agente-pj'))
-app.use('/api/llm', require('./src/routes/api-llm'))
-app.use('/api/empresas/:empresaId/llm/uso', require('./src/routes/api-llm-uso'))
+app.use('/api/llm', requireAuth, requireRole('admin'), require('./src/routes/api-llm'))
+app.use('/api/empresas/:empresaId/llm/uso', requireAuth, requireRole('admin'), require('./src/routes/api-llm-uso'))
 
 // Resolve empresa a partir da evolution_instance em todos os webhooks (fallback PJ).
 app.use('/webhook', resolveEmpresaFromWebhook)
@@ -86,6 +88,9 @@ if (process.argv.includes('--smoke-precificacao')) {
 
 function validarSecretsBoot() {
   const faltando = []
+  if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'CHANGE_ME_IN_PRODUCTION')) {
+    faltando.push('JWT_SECRET (obrigatório em produção — assina os tokens de login do SaaS)')
+  }
   if (!process.env.REPROCESS_SECRET || String(process.env.REPROCESS_SECRET).trim().length < 8) {
     faltando.push('REPROCESS_SECRET (mínimo 8 caracteres — protege /dashboard/*)')
   }

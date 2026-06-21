@@ -87,4 +87,18 @@ async function resolveEmpresaFromWebhook(req, _res, next) {
   next()
 }
 
-module.exports = { requireAuth, requireEmpresaAccess, resolveEmpresaFromWebhook }
+// Exige que req.usuario.role esteja entre os papéis permitidos.
+// superadmin sempre passa. Deve rodar após requireAuth.
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!req.usuario || !req.usuario.role) {
+      return res.status(401).json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Autenticação necessária.' } })
+    }
+    if (req.usuario.role === 'superadmin' || roles.includes(req.usuario.role)) {
+      return next()
+    }
+    return res.status(403).json({ ok: false, error: { code: 'FORBIDDEN', message: 'Acesso restrito.' } })
+  }
+}
+
+module.exports = { requireAuth, requireEmpresaAccess, resolveEmpresaFromWebhook, requireRole }

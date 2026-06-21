@@ -3,27 +3,30 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { apiFetch, getEmpresaId } from '@/lib/api'
+import { useSession, podePapel, type Role } from '@/lib/useSession'
 
-type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report'
+type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report' | 'accounts'
 
 const NAV = [
   { href: '/dashboard', label: 'Visão Geral', icon: 'overview' },
   { href: '/dashboard/conversas', label: 'Conversas', icon: 'chat' },
   { href: '/dashboard/leads-quentes', label: 'Leads Quentes', icon: 'leads' },
-  { href: '/dashboard/aquisicao', label: 'Aquisição', icon: 'prospect' },
-  { href: '/dashboard/banco-leads', label: 'Banco de Leads', icon: 'leads' },
+  { href: '/dashboard/aquisicao', label: 'Aquisição', icon: 'prospect', minRole: 'admin' },
+  { href: '/dashboard/banco-leads', label: 'Banco de Leads', icon: 'leads', minRole: 'admin' },
   { href: '/dashboard/agenda', label: 'Agenda', icon: 'agenda' },
   { href: '/dashboard/contextos', label: 'Empresas', icon: 'company' },
-  { href: '/dashboard/llm', label: 'Modelo LLM', icon: 'model' },
-  { href: '/dashboard/uso', label: 'Uso & Custo', icon: 'usage' },
-  { href: '/dashboard/relatorios', label: 'Relatórios', icon: 'report' },
-] satisfies { href: string; label: string; icon: NavIcon }[]
+  { href: '/dashboard/llm', label: 'Modelo LLM', icon: 'model', minRole: 'admin' },
+  { href: '/dashboard/uso', label: 'Uso & Custo', icon: 'usage', minRole: 'admin' },
+  { href: '/dashboard/relatorios', label: 'Relatórios', icon: 'report', minRole: 'admin' },
+  { href: '/dashboard/contas', label: 'Contas', icon: 'accounts', minRole: 'superadmin' },
+] satisfies { href: string; label: string; icon: NavIcon; minRole?: Role }[]
 
 type Empresa = { id: string; nome: string; slug: string; plano?: string }
 
 export default function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
+  const { role } = useSession()
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [empresaIdAtual, setEmpresaIdAtual] = useState<string>('')
   const [retraido, setRetraido] = useState(true)
@@ -171,7 +174,7 @@ export default function Sidebar() {
         )}
 
         <nav className="flex-1 space-y-1.5 px-3 py-4" aria-label="Navegação principal">
-          {NAV.map(({ href, label, icon }) => {
+          {NAV.filter((item) => !item.minRole || podePapel(role, item.minRole)).map(({ href, label, icon }) => {
             const active = href === '/dashboard' ? pathname === href : pathname.startsWith(href)
             return (
               <Link
@@ -323,6 +326,13 @@ function NavGlyph({ name, className }: { name: NavIcon; className?: string }) {
         <>
           <path {...common} d="M7 4h7l4 4v12H7z" />
           <path {...common} d="M14 4v4h4M9 13h6M9 16h4" />
+        </>
+      )}
+      {name === 'accounts' && (
+        <>
+          <path {...common} d="M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+          <path {...common} d="M3 20v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1" />
+          <path {...common} d="M16 5.5a3 3 0 0 1 0 5.5M18 14.5a4 4 0 0 1 3 3.5v1" />
         </>
       )}
     </svg>

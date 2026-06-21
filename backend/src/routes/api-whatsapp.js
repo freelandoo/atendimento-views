@@ -3,6 +3,7 @@ const { Router } = require('express')
 const axios = require('axios')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
+const { marcarOnboardingCompleto } = require('../db/usuarios')
 
 const router = Router({ mergeParams: true })
 
@@ -126,6 +127,7 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
        VALUES ($1, $2, $3, $4) RETURNING *`,
       [req.empresa.id, evolution_instance, nome || null, JSON.stringify(config_json)]
     )
+    marcarOnboardingCompleto(req.usuario.id, req.empresa.id).catch(() => {})
     return res.status(201).json({ ok: true, data: inst })
   } catch (err) {
     if (err.code === '23505') {

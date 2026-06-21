@@ -197,6 +197,22 @@ function normalizarHistoricoMensagens(raw) {
   return stripEcoAssistenteNoHistorico(normalizado)
 }
 
+function slugify(texto) {
+  if (!texto) return ''
+  return String(texto)
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function gerarSlugEmpresa(nome) {
+  const base = slugify(nome) || 'empresa'
+  const sufixo = Math.random().toString(36).slice(2, 8).padEnd(6, '0')
+  return `${base}-${sufixo}`
+}
+
 module.exports = {
   limparSaidaTextoClaude,
   extrairPrimeiroObjetoJsonBalanceado,
@@ -208,4 +224,6 @@ module.exports = {
   textoDeContent,
   stripEcoAssistenteNoHistorico,
   normalizarHistoricoMensagens,
+  slugify,
+  gerarSlugEmpresa,
 }
