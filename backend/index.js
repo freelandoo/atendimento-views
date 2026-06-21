@@ -164,6 +164,11 @@ function iniciarServidor() {
       } catch (e) {
         logger.warn('iniciarCaptureWorker:', e.message)
       }
+      try {
+        require('./src/services/lead-lock').iniciarLeadLockWorker(pool)
+      } catch (e) {
+        logger.warn('iniciarLeadLockWorker:', e.message)
+      }
       const PORT = process.env.PORT || 3000
       app.listen(PORT, '0.0.0.0', () => {
         logger.info(`PJ Codeworks Agent rodando na porta ${PORT}`)

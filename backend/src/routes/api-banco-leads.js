@@ -12,6 +12,7 @@ const { Router } = require('express')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { atualizarEmailProspect } = require('../prospecting')
+const { rodarLeads } = require('../services/rodar-leads')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -65,21 +66,51 @@ function montarFiltro(empresaId, query) {
 }
 
 const COLUNAS = `id, origem, status, nome, telefone, email, instagram_handle,
-  nicho, cidade, site, seguidores, categoria_perfil, created_at, updated_at`
+  nicho, cidade, site, seguidores, categoria_perfil, created_at, updated_at,
+  bloqueado_ate, bloqueio_motivo`
 
 // GET /leads?aba=sem_contato|conversou|fecharam&origem=&busca=
+// Inclui o último disparo (quem rodou / quando) e o estado da trava (bloqueado_ate).
 router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const { where, params } = montarFiltro(req.empresa.id, req.query)
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 300, 1), 1000)
     params.push(limit)
     const { rows } = await pool.query(
-      `SELECT ${COLUNAS} FROM prospectador.prospects
+      `SELECT ${COLUNAS},
+         (SELECT d.criado_em FROM prospectador.lead_disparos d
+            WHERE d.prospect_id = prospects.id ORDER BY d.criado_em DESC LIMIT 1) AS rodado_em,
+         (SELECT COALESCE(u.nome, u.email) FROM prospectador.lead_disparos d
+            LEFT JOIN app.usuarios u ON u.id = d.usuario_id
+            WHERE d.prospect_id = prospects.id ORDER BY d.criado_em DESC LIMIT 1) AS rodado_por
+        FROM prospectador.prospects
         WHERE ${where} ORDER BY updated_at DESC LIMIT $${params.length}`,
       params
     )
     return res.json({ ok: true, data: rows, meta: { total: rows.length } })
   } catch (err) { return envelopeErro(res, err, 'LEADS_FAILED') }
+})
+
+// POST /rodar  { instancia_id, prospect_ids: [..] } — dispara a saudação (1ª mensagem)
+// pelos números selecionados via a instância escolhida. Throttle no serviço.
+router.post('/rodar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const { instancia_id, prospect_ids } = req.body || {}
+    if (!instancia_id) {
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Escolha uma instância.' } })
+    }
+    const resumo = await rodarLeads(pool, {
+      empresaId: req.empresa.id,
+      usuarioId: req.usuario?.id || null,
+      instanciaId: instancia_id,
+      prospectIds: Array.isArray(prospect_ids) ? prospect_ids : [],
+    })
+    return res.json({ ok: true, data: resumo })
+  } catch (err) {
+    const status = err.statusCode || 500
+    if (status >= 500) logger.error('[api-banco-leads] RODAR_FAILED:', err.message)
+    return res.status(status).json({ ok: false, error: { code: 'RODAR_FAILED', message: err.message } })
+  }
 })
 
 // GET /resumo — contagem por aba (para os badges das abas).

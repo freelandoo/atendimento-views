@@ -5,6 +5,8 @@ const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { marcarOnboardingCompleto } = require('../db/usuarios')
 const { invalidarCacheEmpresa } = require('../services/contexto-empresa')
+const { enviarMensagem } = require('../whatsapp')
+const { renderSaudacao, saudacaoDaInstancia } = require('../services/rodar-leads')
 
 const router = Router({ mergeParams: true })
 
@@ -118,6 +120,10 @@ router.patch('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res)
   if (nome !== undefined) sets.push(`nome = $${vals.push(nome)}`)
   // Liga/desliga o número: instância inativa não resolve a empresa no webhook (db/empresas.js).
   if (typeof req.body?.ativo === 'boolean') sets.push(`ativo = $${vals.push(req.body.ativo)}`)
+  // Saudação (1ª mensagem do "Rodar leads") fica em config_json.saudacao.
+  if (req.body?.saudacao !== undefined) {
+    sets.push(`config_json = COALESCE(config_json, '{}'::jsonb) || jsonb_build_object('saudacao', $${vals.push(String(req.body.saudacao || ''))}::text)`)
+  }
   if (!sets.length) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Nada para atualizar.' } })
   }
@@ -251,6 +257,35 @@ router.delete('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res
     invalidarCacheEmpresa(req.empresa.id)
   }
   return res.json({ ok: true, data: { id: inst.id, deleted: true } })
+})
+
+// POST /api/empresas/:empresaId/whatsapp/:instanceId/saudacao/testar { numero_teste }
+// Envia a saudação (renderizada com um lead de exemplo) pro número de teste do operador.
+router.post('/:instanceId/saudacao/testar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const numeroTeste = String(req.body?.numero_teste || '').replace(/\D/g, '')
+  if (numeroTeste.length < 10) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe um número de teste válido (com DDD).' } })
+  }
+  const { rows: [inst] } = await pool.query(
+    `SELECT evolution_instance, ativo, config_json FROM app.empresa_whatsapp_instances WHERE id = $1 AND empresa_id = $2`,
+    [req.params.instanceId, req.empresa.id]
+  )
+  if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instância não encontrada.' } })
+  if (!inst.ativo) return res.status(409).json({ ok: false, error: { code: 'INSTANCIA_INATIVA', message: 'Instância desativada. Ative o número antes de testar.' } })
+
+  // Usa a saudação enviada no corpo (pré-visualização do que está editando) ou a salva.
+  const template = req.body?.saudacao !== undefined ? String(req.body.saudacao || '') : saudacaoDaInstancia(inst)
+  const exemplo = { nome: 'Padaria Exemplo', cidade: 'São Paulo', nicho: 'padaria' }
+  const mensagem = renderSaudacao(template, exemplo)
+  if (!mensagem) return res.status(400).json({ ok: false, error: { code: 'SAUDACAO_VAZIA', message: 'A saudação está vazia.' } })
+
+  try {
+    await enviarMensagem(numeroTeste, mensagem, { instanceName: inst.evolution_instance })
+    return res.json({ ok: true, data: { enviado: true, preview: mensagem } })
+  } catch (err) {
+    const msg = err.response?.data?.message || err.message || 'Falha ao enviar teste.'
+    return res.status(502).json({ ok: false, error: { code: 'ENVIO_TESTE_FALHOU', message: String(msg) } })
+  }
 })
 
 module.exports = router

@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch, apiDownload, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
@@ -12,8 +12,24 @@ type Lead = {
   nicho: string | null; cidade: string | null; site: string | null
   seguidores: number | null; categoria_perfil: string | null
   created_at: string; updated_at: string
+  bloqueado_ate: string | null; bloqueio_motivo: string | null
+  rodado_em: string | null; rodado_por: string | null
 }
 type Resumo = { abas: Record<string, number>; por_status: Record<string, number> }
+type Instancia = {
+  id: string; evolution_instance: string; nome?: string | null
+  ativo: boolean; config_json?: { saudacao?: string } | null
+}
+type RodarResumo = {
+  rodada: boolean
+  aceitos: { id: string; nome: string }[]
+  pulados: { id: string; motivo: string }[]
+  teto_restante: number
+  total_dia: number
+}
+
+const MAX_LOTE = 15
+const STATUS_RODAVEL = new Set(['coletado', 'contato_encontrado', 'aguardando', 'aprovado'])
 
 const ABAS: { valor: string; label: string }[] = [
   { valor: 'sem_contato', label: 'Sem contato ainda' },
@@ -37,6 +53,20 @@ const STATUS_STYLE: Record<string, string> = {
 const ORIGEM_LABEL: Record<string, string> = {
   manual: 'Places', automatico: 'Places', instagram: 'Instagram', linkedin: 'LinkedIn',
 }
+const MOTIVO_LABEL: Record<string, string> = {
+  rejeicao: 'rejeição', sem_resposta: 'sem resposta',
+}
+
+function isLocked(l: Lead): boolean {
+  return !!(l.bloqueado_ate && new Date(l.bloqueado_ate).getTime() > Date.now())
+}
+function isRodavel(l: Lead): boolean {
+  return STATUS_RODAVEL.has(l.status) && !isLocked(l) && !!String(l.telefone || '').trim()
+}
+function fmtData(s: string | null): string {
+  if (!s) return ''
+  try { return new Date(s).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) } catch { return '' }
+}
 
 export default function BancoLeadsPage() {
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
@@ -51,6 +81,12 @@ export default function BancoLeadsPage() {
   const [msg, setMsg] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [exportando, setExportando] = useState(false)
+  // Rodar leads
+  const [instancias, setInstancias] = useState<Instancia[]>([])
+  const [instanciaId, setInstanciaId] = useState('')
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
+  const [rodando, setRodando] = useState(false)
+  const [saudacaoOpen, setSaudacaoOpen] = useState(false)
   const fb = useFeedback()
 
   function query() {
@@ -81,8 +117,62 @@ export default function BancoLeadsPage() {
     finally { setCarregando(false) }
   }, [base, empresaId, aba, origem, busca])
 
+  const carregarInstancias = useCallback(async () => {
+    if (!empresaId) return
+    try {
+      const r = await apiFetch<Instancia[]>(`/api/empresas/${empresaId}/whatsapp`)
+      const ativas = (r.data || []).filter((i) => i.ativo)
+      setInstancias(ativas)
+      setInstanciaId((cur) => cur || (ativas[0]?.id ?? ''))
+    } catch { /* silencioso */ }
+  }, [empresaId])
+
   useEffect(() => { carregarResumo() }, [carregarResumo])
   useEffect(() => { carregarLeads() }, [carregarLeads])
+  useEffect(() => { carregarInstancias() }, [carregarInstancias])
+  // Limpa a seleção ao trocar de aba/filtro (os ids podem sair da lista).
+  useEffect(() => { setSelecionados(new Set()) }, [aba, origem, busca])
+
+  const instanciaSel = useMemo(() => instancias.find((i) => i.id === instanciaId) || null, [instancias, instanciaId])
+  const rodaveis = useMemo(() => leads.filter(isRodavel), [leads])
+
+  function toggleSel(id: string) {
+    setSelecionados((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) { next.delete(id); return next }
+      if (next.size >= MAX_LOTE) { fb.toast(`Máximo de ${MAX_LOTE} leads por rodada.`, 'info'); return prev }
+      next.add(id)
+      return next
+    })
+  }
+  function selecionarLote() {
+    const ids = rodaveis.slice(0, MAX_LOTE).map((l) => l.id)
+    setSelecionados(new Set(ids))
+  }
+
+  async function rodar() {
+    if (!instanciaId) { fb.toast('Escolha uma instância para rodar.', 'error'); return }
+    const ids = [...selecionados]
+    if (!ids.length) { fb.toast('Selecione ao menos um lead.', 'error'); return }
+    setRodando(true)
+    try {
+      const r = await apiFetch<RodarResumo>(`${base}/rodar`, {
+        method: 'POST',
+        body: JSON.stringify({ instancia_id: instanciaId, prospect_ids: ids }),
+      })
+      const d = r.data
+      const puladosTxt = d.pulados.length ? ` · ${d.pulados.length} pulado(s)` : ''
+      fb.sucessoModal(
+        'Rodada iniciada',
+        `${d.aceitos.length} lead(s) entrando na fila de envio${puladosTxt}. Restam ${d.teto_restante} disparos hoje nesta instância.`
+      )
+      setSelecionados(new Set())
+      // Os envios saem em background com espaçamento — recarrega depois de um tempo.
+      setTimeout(() => { carregarLeads(); carregarResumo() }, 3000)
+    } catch (e) {
+      fb.toast(e instanceof Error ? e.message : 'Falha ao rodar leads.', 'error')
+    } finally { setRodando(false) }
+  }
 
   async function fechar(id: string) {
     try {
@@ -117,6 +207,8 @@ export default function BancoLeadsPage() {
     finally { setExportando(false) }
   }
 
+  const mostrarRodar = aba === 'sem_contato'
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -124,7 +216,7 @@ export default function BancoLeadsPage() {
           <h1 className="text-2xl font-bold">Banco de Leads</h1>
           <p className="text-sm text-slate-500 mt-1">
             Todos os leads das duas origens em um só lugar: quem ainda não foi abordado,
-            quem já conversou e quem fechou. Marque os fechados e exporte para Excel.
+            quem já conversou e quem fechou. Selecione e rode a saudação pela instância escolhida.
           </p>
         </div>
         <button onClick={exportar} disabled={exportando || !leads.length}
@@ -150,6 +242,36 @@ export default function BancoLeadsPage() {
         ))}
       </div>
 
+      {/* Barra "Rodar leads" — só na aba Sem contato */}
+      {mostrarRodar && (
+        <div className="bg-white border rounded-2xl shadow-sm p-4 flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Rodar leads com</label>
+            <select value={instanciaId} onChange={(e) => setInstanciaId(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm min-w-[200px]">
+              {!instancias.length && <option value="">Nenhuma instância ativa</option>}
+              {instancias.map((i) => (
+                <option key={i.id} value={i.id}>{i.nome || i.evolution_instance}</option>
+              ))}
+            </select>
+          </div>
+          <button onClick={() => setSaudacaoOpen(true)} disabled={!instanciaId}
+            className="px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+            ✏️ Saudação — teste e edição
+          </button>
+          <button onClick={selecionarLote} disabled={!rodaveis.length}
+            className="px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+            Selecionar {Math.min(MAX_LOTE, rodaveis.length)}
+          </button>
+          <div className="flex-1" />
+          <button onClick={rodar} disabled={rodando || !selecionados.size || !instanciaId}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-semibold hover:bg-brand-dark disabled:opacity-50">
+            {rodando && <Spinner />}
+            {rodando ? 'Rodando…' : `▶ Rodar (${selecionados.size})`}
+          </button>
+        </div>
+      )}
+
       {/* Filtros */}
       <div className="flex flex-wrap items-end gap-3">
         <div>
@@ -172,6 +294,14 @@ export default function BancoLeadsPage() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
               <tr>
+                {mostrarRodar && (
+                  <th className="px-4 py-3 w-10">
+                    <input type="checkbox"
+                      checked={!!selecionados.size && rodaveis.length > 0 && rodaveis.slice(0, MAX_LOTE).every((l) => selecionados.has(l.id))}
+                      onChange={(e) => (e.target.checked ? selecionarLote() : setSelecionados(new Set()))}
+                      aria-label="Selecionar lote" />
+                  </th>
+                )}
                 <th className="text-left font-medium px-4 py-3">Nome</th>
                 <th className="text-left font-medium px-4 py-3">Origem</th>
                 <th className="text-left font-medium px-4 py-3">Contato</th>
@@ -181,51 +311,174 @@ export default function BancoLeadsPage() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {leads.map((l) => (
-                <tr key={l.id} className="hover:bg-slate-50/60">
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-slate-800">{l.nome || '—'}</div>
-                    {l.instagram_handle && <div className="text-xs text-slate-400">@{l.instagram_handle.replace(/^@/, '')}</div>}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500">{ORIGEM_LABEL[l.origem] || l.origem}</td>
-                  <td className="px-4 py-3 text-slate-600">
-                    <div className="flex flex-col gap-0.5 text-xs">
-                      {l.telefone && <span className="text-emerald-700">📱 {l.telefone}</span>}
-                      <EmailEditavel value={l.email} onSave={(email) => salvarEmail(l.id, email)} />
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-slate-500">
-                    {[l.nicho, l.cidade].filter(Boolean).join(' · ') || '—'}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLE[l.status] || 'bg-slate-100 text-slate-600'}`}>
-                      {l.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {l.status === 'fechado' ? (
-                      <button onClick={() => reabrir(l.id)}
-                        className="px-2.5 py-1 rounded-lg border text-xs font-medium hover:bg-slate-50">
-                        Reabrir
-                      </button>
-                    ) : (
-                      <button onClick={() => fechar(l.id)}
-                        className="px-2.5 py-1 rounded-lg border border-violet-300 text-violet-700 text-xs font-medium hover:bg-violet-50">
-                        ✓ Fechou
-                      </button>
+              {leads.map((l) => {
+                const locked = isLocked(l)
+                const rodavel = isRodavel(l)
+                return (
+                  <tr key={l.id} className="hover:bg-slate-50/60">
+                    {mostrarRodar && (
+                      <td className="px-4 py-3">
+                        <input type="checkbox" checked={selecionados.has(l.id)} disabled={!rodavel}
+                          onChange={() => toggleSel(l.id)} aria-label={`Selecionar ${l.nome}`} />
+                      </td>
                     )}
-                  </td>
-                </tr>
-              ))}
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-slate-800">{l.nome || '—'}</div>
+                      {l.instagram_handle && <div className="text-xs text-slate-400">@{l.instagram_handle.replace(/^@/, '')}</div>}
+                    </td>
+                    <td className="px-4 py-3 text-slate-500">{ORIGEM_LABEL[l.origem] || l.origem}</td>
+                    <td className="px-4 py-3 text-slate-600">
+                      <div className="flex flex-col gap-0.5 text-xs">
+                        {l.telefone && <span className="text-emerald-700">📱 {l.telefone}</span>}
+                        <EmailEditavel value={l.email} onSave={(email) => salvarEmail(l.id, email)} />
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500">
+                      {[l.nicho, l.cidade].filter(Boolean).join(' · ') || '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLE[l.status] || 'bg-slate-100 text-slate-600'}`}>
+                        {l.status}
+                      </span>
+                      {locked && (
+                        <div className="text-[11px] text-red-600 mt-1">
+                          🔒 travado até {fmtData(l.bloqueado_ate)}{l.bloqueio_motivo ? ` (${MOTIVO_LABEL[l.bloqueio_motivo] || l.bloqueio_motivo})` : ''}
+                        </div>
+                      )}
+                      {l.rodado_em && (
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          rodado{l.rodado_por ? ` por ${l.rodado_por}` : ''} em {fmtData(l.rodado_em)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {l.status === 'fechado' ? (
+                        <button onClick={() => reabrir(l.id)}
+                          className="px-2.5 py-1 rounded-lg border text-xs font-medium hover:bg-slate-50">
+                          Reabrir
+                        </button>
+                      ) : (
+                        <button onClick={() => fechar(l.id)}
+                          className="px-2.5 py-1 rounded-lg border border-violet-300 text-violet-700 text-xs font-medium hover:bg-violet-50">
+                          ✓ Fechou
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
               {!leads.length && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
+                  <td colSpan={mostrarRodar ? 7 : 6} className="px-4 py-10 text-center text-slate-400">
                     {carregando ? 'Carregando…' : 'Nenhum lead nesta aba.'}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {saudacaoOpen && instanciaSel && (
+        <SaudacaoModal
+          empresaId={empresaId}
+          instancia={instanciaSel}
+          onClose={() => setSaudacaoOpen(false)}
+          onSaved={(texto) => {
+            setInstancias((prev) => prev.map((i) => (i.id === instanciaSel.id ? { ...i, config_json: { ...(i.config_json || {}), saudacao: texto } } : i)))
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Modal Saudação — editar template da instância + testar no seu número ──────
+function SaudacaoModal({ empresaId, instancia, onClose, onSaved }: {
+  empresaId: string
+  instancia: Instancia
+  onClose: () => void
+  onSaved: (texto: string) => void
+}) {
+  const [texto, setTexto] = useState(instancia.config_json?.saudacao || '')
+  const [numeroTeste, setNumeroTeste] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [testando, setTestando] = useState(false)
+  const fb = useFeedback()
+  const baseInst = `/api/empresas/${empresaId}/whatsapp/${instancia.id}`
+
+  async function salvar() {
+    setSalvando(true)
+    try {
+      await fb.runTask(() => apiFetch(baseInst, { method: 'PATCH', body: JSON.stringify({ saudacao: texto }) }),
+        { sucesso: 'Saudação salva.' })
+      onSaved(texto)
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setSalvando(false) }
+  }
+
+  async function testar() {
+    if (numeroTeste.replace(/\D/g, '').length < 10) { fb.toast('Informe um número de teste com DDD.', 'error'); return }
+    setTestando(true)
+    try {
+      await fb.runTask(() => apiFetch(`${baseInst}/saudacao/testar`, {
+        method: 'POST', body: JSON.stringify({ numero_teste: numeroTeste, saudacao: texto }),
+      }), { sucesso: 'Mensagem de teste enviada pro seu WhatsApp.' })
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setTestando(false) }
+  }
+
+  const preview = texto
+    .replace(/\{nome\}/gi, 'Padaria Exemplo').replace(/\{empresa\}/gi, 'Padaria Exemplo')
+    .replace(/\{cidade\}/gi, 'São Paulo').replace(/\{nicho\}/gi, 'padaria').trim()
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="font-semibold text-lg">Saudação — {instancia.nome || instancia.evolution_instance}</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Primeira mensagem enviada ao rodar os leads por esta instância.</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none" aria-label="Fechar">×</button>
+        </div>
+
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">Texto da saudação</label>
+          <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={5}
+            placeholder="Oi {nome}, tudo bem? Vi a {empresa} aqui em {cidade}…"
+            className="w-full border rounded-lg px-3 py-2 text-sm" />
+          <p className="text-[11px] text-slate-400 mt-1">
+            Variáveis: <code>{'{nome}'}</code> <code>{'{empresa}'}</code> <code>{'{cidade}'}</code> <code>{'{nicho}'}</code>
+          </p>
+        </div>
+
+        {preview && (
+          <div className="rounded-lg bg-slate-50 border px-3 py-2 text-xs text-slate-600">
+            <span className="text-slate-400">Preview: </span>{preview}
+          </div>
+        )}
+
+        <div className="flex items-end gap-2 border-t pt-3">
+          <div className="flex-1">
+            <label className="block text-xs text-slate-500 mb-1">Seu número (teste)</label>
+            <input value={numeroTeste} onChange={(e) => setNumeroTeste(e.target.value)}
+              placeholder="ex: 5511999998888" className="w-full border rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <button onClick={testar} disabled={testando}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+            {testando && <Spinner size={13} />}
+            {testando ? 'Enviando…' : 'Testar'}
+          </button>
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-2 rounded-lg border text-sm">Fechar</button>
+          <button onClick={salvar} disabled={salvando}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-semibold hover:bg-brand-dark disabled:opacity-50">
+            {salvando && <Spinner size={13} />}
+            {salvando ? 'Salvando…' : 'Salvar saudação'}
+          </button>
         </div>
       </div>
     </div>

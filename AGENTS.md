@@ -93,6 +93,17 @@
 > `origem+external_ref`, sem job_queue — usa `captacao_snapshots` como fila assíncrona). Frontend:
 > `frontend/app/dashboard/captacao`. Reusa a pipeline de disparo/elegibilidade/temperatura do Places.
 
+### "Rodar leads" — disparo manual da saudação no Banco de Leads
+- Feature de disparo manual da saudação (1ª mensagem) por instância WhatsApp escolhida, a partir do Banco de Leads (`frontend/app/dashboard/banco-leads`). Motor em `src/services/rodar-leads.js` (rota `POST /api/empresas/:id/banco-leads/rodar`); saudação por instância vive em `app.empresa_whatsapp_instances.config_json->>'saudacao'` (editada/testada via `PATCH .../whatsapp/:id` + `POST .../whatsapp/:id/saudacao/testar`). Schema: migration `016_rodar_leads.sql` (colunas `bloqueado_ate`/`bloqueio_motivo` em `prospectador.prospects` + tabela `prospectador.lead_disparos`).
+- `RODAR_LEADS_MAX_LOTE` (default `15`): máx de leads por rodada.
+- `RODAR_LEADS_COOLDOWN_MIN` (default `5`): minutos exigidos entre rodadas por instância.
+- `RODAR_LEADS_TETO_DIARIO` (default `40`): teto diário de disparos por instância (`0` desliga o teto).
+- `RODAR_LEADS_DELAY_MIN_MS` / `RODAR_LEADS_DELAY_MAX_MS` (default `12000`/`20000`): janela de delay aleatório entre envios da mesma rodada (envios saem em background, espaçados).
+- Trava automática de 15 dias (`src/services/lead-lock.js`, worker iniciado em `index.js`): lead rodado que vira `rejeitado` ou fica sem resposta há `LEAD_MORTA_DIAS` dias é bloqueado por `LEAD_LOCK_DIAS` dias (reabre sozinho quando a data passa; só afeta leads com `lead_disparos`, não o pipeline automático).
+- `LEAD_LOCK_DIAS` (default `15`): dias de bloqueio após morte/rejeição.
+- `LEAD_MORTA_DIAS` (default `5`): dias sem resposta para considerar a conversa morta.
+- `LEAD_LOCK_WORKER_MS` (default `3600000`): intervalo do worker de auto-lock.
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.
