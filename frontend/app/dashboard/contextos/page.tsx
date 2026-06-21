@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
-import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
+import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import InstanciasWhatsApp from '@/components/InstanciasWhatsApp'
 
 type Sugestao = {
@@ -55,12 +55,10 @@ export default function ContextosPage() {
     <div className="space-y-6 max-w-6xl">
       <h1 className="text-2xl font-bold">Empresas</h1>
 
-      {/* Hero — Agente + Instâncias WhatsApp (cada instância é dona do seu contexto) */}
-      <div className="bg-white border rounded-2xl p-5 shadow-sm space-y-5">
-        <AgentePanel empresaId={empresaId} />
-        <div className="border-t pt-5">
-          <InstanciasWhatsApp empresaId={empresaId} />
-        </div>
+      {/* Instâncias WhatsApp — cada instância é o próprio agente (o nome do agente é o
+          nome da instância) e dona do seu contexto. */}
+      <div className="bg-white border rounded-2xl p-5 shadow-sm">
+        <InstanciasWhatsApp empresaId={empresaId} />
       </div>
 
       {sugestoes.length > 0 && (
@@ -91,60 +89,3 @@ export default function ContextosPage() {
   )
 }
 
-// ─── Painel do Agente (nome da empresa) — no Hero, para qualquer empresa ───────
-// O liga/desliga global do agente saiu daqui: o controle agora é por número, na
-// linha de cada instância WhatsApp (botão Ativar/Desativar).
-function AgentePanel({ empresaId }: { empresaId: string }) {
-  const [nome, setNome] = useState('')
-  const [nomeSalvo, setNomeSalvo] = useState('')
-  const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
-  const [salvandoNome, setSalvandoNome] = useState(false)
-  const fb = useFeedback()
-
-  const carregar = useCallback(async () => {
-    if (!empresaId) return
-    try {
-      const emp = await apiFetch<{ nome: string }>(`/api/empresas/${empresaId}`)
-      setNome(emp.data.nome || '')
-      setNomeSalvo(emp.data.nome || '')
-    } catch (e: unknown) {
-      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Erro ao carregar.' })
-    }
-  }, [empresaId])
-
-  useEffect(() => { carregar() }, [carregar])
-
-  async function salvarNome() {
-    setSalvandoNome(true)
-    try {
-      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}`, { method: 'PUT', body: JSON.stringify({ nome }) }),
-        { sucesso: 'Nome salvo.' })
-      setNomeSalvo(nome)
-    } catch { /* erro já exibido pelo feedback */ }
-    finally { setSalvandoNome(false) }
-  }
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="font-semibold">Agente</h2>
-        <p className="text-xs text-gray-500 mt-0.5">Nome do agente/empresa. O liga/desliga é por número, na linha de cada instância abaixo.</p>
-      </div>
-      <div className="flex items-end gap-3">
-        <div className="flex-1">
-          <label className="block text-xs text-gray-500 mb-1">Nome do agente / empresa</label>
-          <input value={nome} onChange={(e) => setNome(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" />
-        </div>
-        <button
-          onClick={salvarNome}
-          disabled={salvandoNome || nome.trim().length < 2 || nome === nomeSalvo}
-          className="inline-flex items-center gap-2 bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
-        >
-          {salvandoNome && <Spinner />}
-          {salvandoNome ? 'Salvando…' : 'Salvar nome'}
-        </button>
-      </div>
-      {msg && <p className={`text-sm ${msg.tone === 'ok' ? 'text-brand' : 'text-red-600'}`}>{msg.text}</p>}
-    </div>
-  )
-}

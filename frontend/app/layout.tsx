@@ -8,7 +8,7 @@ const sans = Sora({ subsets: ['latin'], variable: '--font-sans', display: 'swap'
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', display: 'swap' })
 
 export const metadata: Metadata = {
-  title: 'PJ Codeworks — Command Deck',
+  title: 'atendimento-views — Command Deck',
   description: 'Agente de vendas WhatsApp multiempresa',
 }
 

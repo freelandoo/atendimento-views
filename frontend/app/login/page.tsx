@@ -50,7 +50,7 @@ export default function LoginPage() {
       >
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-neon-cyan/70">Command Deck</p>
-          <h1 className="neon-text font-display text-3xl font-bold">PJ Codeworks</h1>
+          <h1 className="font-display text-3xl font-bold bg-gradient-to-r from-neon-magenta to-neon-cyan bg-clip-text text-transparent">atendimento-views</h1>
           <p className="mt-1 text-sm text-lo">Acesse o painel multiempresa</p>
         </div>
 
