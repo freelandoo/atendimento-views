@@ -102,7 +102,7 @@ export default function Sidebar() {
           <div className={`flex items-center ${retraido ? 'justify-center' : 'justify-between gap-3'}`}>
             {!retraido && (
               <div className="min-w-0">
-                <p className="truncate font-display text-sm font-semibold tracking-tight text-hi">{atual?.nome || 'PJ Codeworks'}</p>
+                <p className="truncate font-display text-sm font-semibold tracking-tight text-hi">{atual?.nome || 'Atendimento-Views'}</p>
                 <p className="truncate text-[11px] font-medium uppercase tracking-[0.18em] text-neon-cyan/70">Command Deck</p>
               </div>
             )}
@@ -128,7 +128,7 @@ export default function Sidebar() {
               }
             }}
             aria-label="Selecionar empresa"
-            title={atual?.nome || 'PJ Codeworks'}
+            title={atual?.nome || 'Atendimento-Views'}
             className={`flex w-full items-center rounded-xl border border-white/10 bg-white/5 text-left transition hover:border-neon-cyan/30 hover:bg-white/[0.08] active:scale-[0.98] ${
               retraido ? 'h-11 justify-center px-0' : 'justify-between gap-3 px-3 py-2'
             }`}
@@ -139,7 +139,7 @@ export default function Sidebar() {
             {!retraido && (
               <>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-hi">{atual?.nome || 'PJ Codeworks'}</span>
+                  <span className="block truncate text-sm font-semibold text-hi">{atual?.nome || 'Atendimento-Views'}</span>
                   <span className="block truncate text-xs text-lo">{atual?.slug || 'painel'}</span>
                 </span>
                 <ChevronDownIcon className={`h-4 w-4 shrink-0 text-lo transition-transform ${aberto ? 'rotate-180' : ''}`} />
