@@ -174,50 +174,63 @@ export default function InstanciasWhatsApp({ empresaId }: {
       </form>
       {msg && <p className="text-sm text-brand">{msg}</p>}
       {erroForm && <p className="text-sm text-red-600">{erroForm}</p>}
-      <div className="space-y-2">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {instancias.map((i) => (
-          <div key={i.id} className="bg-white border rounded-xl px-4 py-3 flex justify-between items-center gap-3 flex-wrap">
-            <div className="min-w-0 flex-1">
-              <p className="font-medium text-sm truncate">{i.nome || i.evolution_instance}</p>
-              <p className="text-xs text-gray-500 font-mono truncate">{i.evolution_instance}</p>
+          <div key={i.id} className="overflow-hidden rounded-2xl border border-white/10 bg-panel shadow-sm">
+            {/* Cabeçalho preto com o nome da instância na fonte e cores da marca */}
+            <div className="bg-black px-4 py-5 text-center">
+              <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-neon-cyan/70">Instância</p>
+              <h3 className="truncate font-display text-xl font-bold bg-gradient-to-r from-neon-magenta to-neon-cyan bg-clip-text text-transparent">
+                {i.nome || i.evolution_instance}
+              </h3>
+              <p className="mt-0.5 truncate font-mono text-[11px] text-white/40">{i.evolution_instance}</p>
             </div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <Link
-                href={`/dashboard/instancias/${i.id}/contexto`}
-                className="text-xs px-3 py-1.5 rounded-lg border border-indigo-300 text-indigo-700 hover:bg-indigo-600 hover:text-white transition-colors font-medium"
-                title="Abrir o contexto desta instância (fontes, Contexto 1, playbook, estágios)"
-              >
-                Contexto
-              </Link>
-              <button
-                type="button"
-                onClick={() => abrirQrCode(i)}
-                className="text-xs px-3 py-1.5 rounded-lg border border-brand text-brand hover:bg-brand hover:text-white transition-colors font-medium"
-              >
-                Gerar QR Code
-              </button>
-              <button
-                type="button"
-                onClick={() => toggleAtivo(i)}
-                className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors text-white ${i.ativo ? 'bg-amber-600 hover:bg-amber-700' : 'bg-green-600 hover:bg-green-700'}`}
-                title={i.ativo ? 'Desativar este número (o agente para de responder por ele)' : 'Ativar este número (o agente volta a responder por ele)'}
-              >
-                {i.ativo ? 'Desativar' : 'Ativar'}
-              </button>
-              <span className={`text-xs px-2 py-0.5 rounded-full ${i.ativo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                {i.ativo ? 'ativo' : 'inativo'}
-              </span>
-              <button
-                type="button"
-                onClick={() => removerInstancia(i)}
-                className="text-xs text-red-600 hover:underline"
-                aria-label="Remover instância"
-              >
-                Remover
-              </button>
+
+            {/* Corpo do card: status + botões sobre o fundo do card */}
+            <div className="space-y-3 p-4">
+              <div className="flex justify-center">
+                <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${i.ativo ? 'border-neon-lime/30 bg-neon-lime/15 text-neon-lime' : 'border-white/10 bg-white/5 text-mid'}`}>
+                  {i.ativo ? '● ativo' : '○ inativo'}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Link
+                  href={`/dashboard/instancias/${i.id}/contexto`}
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-neon-violet/40 px-3 py-2 text-xs font-medium text-neon-violet transition-colors hover:bg-neon-violet/15"
+                  title="Abrir o contexto desta instância (fontes, Contexto 1, playbook, estágios)"
+                >
+                  Contexto
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => abrirQrCode(i)}
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-neon-cyan/40 px-3 py-2 text-xs font-medium text-neon-cyan transition-colors hover:bg-neon-cyan/15"
+                >
+                  Gerar QR Code
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleAtivo(i)}
+                  className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${i.ativo ? 'border-neon-amber/40 text-neon-amber hover:bg-neon-amber/15' : 'border-neon-lime/40 text-neon-lime hover:bg-neon-lime/15'}`}
+                  title={i.ativo ? 'Desativar este número (o agente para de responder por ele)' : 'Ativar este número (o agente volta a responder por ele)'}
+                >
+                  {i.ativo ? 'Desativar' : 'Ativar'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removerInstancia(i)}
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-neon-red/40 px-3 py-2 text-xs font-medium text-neon-red transition-colors hover:bg-neon-red/15"
+                  aria-label="Remover instância"
+                >
+                  Remover
+                </button>
+              </div>
             </div>
           </div>
         ))}
+        {instancias.length === 0 && (
+          <p className="col-span-full text-sm text-gray-400">Nenhuma instância ainda. Adicione uma acima.</p>
+        )}
       </div>
 
       {qr.open && (
