@@ -6,15 +6,22 @@ const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 
 // Preços em USD por TOKEN (não por 1k). Atualize quando houver mudança de tabela.
 // Usado pela camada SaaS (api-llm-uso) para estimar custo a partir do usage logado.
+// Preços por 1M tokens (input/output) — fonte: catálogo oficial Anthropic/OpenAI.
+// IMPORTANTE: a partir do Opus 4.5 o tier Opus é $5/$25 (não o antigo $15/$75).
+// Sem o modelo aqui, computeCost() retorna null e o custo aparece como 0 no painel.
 const MODEL_PRICES = {
   'gpt-4o-mini':        { input: 0.150 / 1e6, output: 0.600 / 1e6 },
   'gpt-4o':             { input: 2.500 / 1e6, output: 10.000 / 1e6 },
   'gpt-4-turbo':        { input: 10.000 / 1e6, output: 30.000 / 1e6 },
   'gpt-3.5-turbo':      { input: 0.500 / 1e6, output: 1.500 / 1e6 },
+  'claude-fable-5':     { input: 10.000 / 1e6, output: 50.000 / 1e6 },
+  'claude-opus-4-8':    { input: 5.000 / 1e6, output: 25.000 / 1e6 },
+  'claude-opus-4-7':    { input: 5.000 / 1e6, output: 25.000 / 1e6 },
+  'claude-opus-4-6':    { input: 5.000 / 1e6, output: 25.000 / 1e6 },
+  'claude-opus-4-5':    { input: 5.000 / 1e6, output: 25.000 / 1e6 },
   'claude-sonnet-4-6':  { input: 3.000 / 1e6, output: 15.000 / 1e6 },
   'claude-sonnet-4-5':  { input: 3.000 / 1e6, output: 15.000 / 1e6 },
   'claude-haiku-4-5':   { input: 1.000 / 1e6, output: 5.000 / 1e6 },
-  'claude-opus-4-7':    { input: 15.000 / 1e6, output: 75.000 / 1e6 },
 }
 
 function priceFor(model) {
