@@ -104,6 +104,41 @@ function fmtData(s?: string): string {
   return new Date(s).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 }
 
+type Faixa = 'quente' | 'morno' | 'frio'
+
+const FILTRO_META: Record<Faixa, { label: string; chip: string }> = {
+  quente: { label: '🔥 Quentes', chip: 'border-orange-500 bg-orange-50 text-orange-700' },
+  morno: { label: '🌤️ Mornos', chip: 'border-amber-500 bg-amber-50 text-amber-700' },
+  frio: { label: '❄️ Frios', chip: 'border-sky-400 bg-sky-50 text-sky-700' },
+}
+
+// Classifica a conversa em quente/morno/frio combinando a temperatura comercial do
+// perfil com o score de interesse (fallback quando a temperatura ainda não foi definida).
+function classificar(c: Conversa): Faixa {
+  const t = c.temperatura_lead
+  if (t === 'quente' || t === 'morno' || t === 'frio') return t
+  const f = c.score_interesse_faixa
+  if (f === 'alto') return 'quente'
+  if (f === 'medio') return 'morno'
+  return 'frio'
+}
+
+function normTitulo(s?: string): string {
+  return String(s || '').toLowerCase()
+}
+
+// "Esfriando": o lead demonstrou calor (temperatura quente, etapa avançada ou sinais
+// de compra) mas surgiram sinais de resfriamento (silêncio, adiamento ou recusa).
+function esfriando(c: Conversa): boolean {
+  const crit = c.score_interesse_criterios || []
+  const teveCalor =
+    c.temperatura_lead === 'quente' ||
+    ['proposta', 'fechamento', 'handoff', 'reuniao_agendada'].includes(c.estagio) ||
+    crit.some((x) => x.delta > 0 && /(preco|proximo passo|reuniao|urgencia|etapa comercial avancada)/.test(normTitulo(x.titulo)))
+  const esfriou = crit.some((x) => x.delta < 0 && /(sem resposta|postergou|recusou)/.test(normTitulo(x.titulo)))
+  return teveCalor && esfriou
+}
+
 export default function ConversasPage() {
   const [lista, setLista] = useState<Conversa[]>([])
   const [erro, setErro] = useState('')
@@ -111,6 +146,7 @@ export default function ConversasPage() {
   const [carregando, setCarregando] = useState(false)
   const [apagando, setApagando] = useState(false)
   const [reenviando, setReenviando] = useState(false)
+  const [filtro, setFiltro] = useState<'todos' | Faixa | 'esfriando'>('todos')
   const fb = useFeedback()
 
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
@@ -183,10 +219,65 @@ export default function ConversasPage() {
   const podeReenviarUltimaResposta = ultimaMensagemAberta?.role === 'assistant'
   const criteriosInteresse = aberta?.score_interesse_criterios || []
 
+  // Classifica cada conversa (faixa quente/morno/frio) e marca as que estão esfriando.
+  const enriquecidas = lista.map((c) => ({ c, faixa: classificar(c), alerta: esfriando(c) }))
+  const cont = {
+    todos: enriquecidas.length,
+    quente: enriquecidas.filter((x) => x.faixa === 'quente').length,
+    morno: enriquecidas.filter((x) => x.faixa === 'morno').length,
+    frio: enriquecidas.filter((x) => x.faixa === 'frio').length,
+    esfriando: enriquecidas.filter((x) => x.alerta).length,
+  }
+  const visiveis = enriquecidas
+    .filter((x) => (filtro === 'todos' ? true : filtro === 'esfriando' ? x.alerta : x.faixa === filtro))
+    // Mais quente primeiro: maior score de interesse no topo.
+    .sort((a, b) => (scoreValue(b.c.score_interesse) ?? -1) - (scoreValue(a.c.score_interesse) ?? -1))
+
+  const FILTROS: { valor: 'todos' | Faixa | 'esfriando'; label: string; n: number }[] = [
+    { valor: 'todos', label: 'Todos', n: cont.todos },
+    { valor: 'quente', label: FILTRO_META.quente.label, n: cont.quente },
+    { valor: 'morno', label: FILTRO_META.morno.label, n: cont.morno },
+    { valor: 'frio', label: FILTRO_META.frio.label, n: cont.frio },
+    { valor: 'esfriando', label: '⚠️ Esfriando', n: cont.esfriando },
+  ]
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Conversas</h1>
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
+
+      {cont.esfriando > 0 && (
+        <button
+          onClick={() => setFiltro('esfriando')}
+          className="flex w-full items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-left transition hover:bg-red-100"
+        >
+          <span className="text-xl">⚠️</span>
+          <span className="text-sm text-red-800">
+            <strong>{cont.esfriando} lead{cont.esfriando > 1 ? 's' : ''} esfriando</strong> — mostrou interesse mas começou a
+            perder calor (silêncio, adiamento ou recusa). Clique para ver e intervir.
+          </span>
+        </button>
+      )}
+
+      <div className="flex flex-wrap gap-1.5">
+        {FILTROS.map((f) => {
+          const ativo = filtro === f.valor
+          const isAlerta = f.valor === 'esfriando'
+          return (
+            <button
+              key={f.valor}
+              onClick={() => setFiltro(f.valor)}
+              className={`px-3 py-1 rounded-full text-xs font-medium border transition ${
+                ativo
+                  ? isAlerta ? 'bg-red-600 text-white border-red-600' : 'bg-brand text-white border-brand'
+                  : isAlerta ? 'bg-white text-red-600 border-red-200 hover:bg-red-50' : 'bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {f.label} <span className={ativo ? 'opacity-80' : 'text-slate-400'}>({f.n})</span>
+            </button>
+          )
+        })}
+      </div>
 
       <table className="w-full text-sm border rounded-xl overflow-hidden bg-white shadow-sm">
         <thead className="bg-gray-100">
@@ -202,11 +293,16 @@ export default function ConversasPage() {
           </tr>
         </thead>
         <tbody>
-          {lista.map((c) => (
-            <tr key={c.numero} className="border-t hover:bg-gray-50">
+          {visiveis.map(({ c, alerta }) => (
+            <tr key={c.numero} className={`border-t hover:bg-gray-50 ${alerta ? 'bg-red-50/60' : ''}`}>
               <td className="px-4 py-2 font-mono text-xs">{fmtNumero(c.numero)}</td>
               <td className="px-4 py-2">{c.negocio || '—'}</td>
-              <td className="px-4 py-2"><TempBadge t={c.temperatura_lead} /></td>
+              <td className="px-4 py-2">
+                <div className="inline-flex items-center gap-1.5">
+                  <TempBadge t={c.temperatura_lead} />
+                  {alerta && <span title="Era quente e está esfriando — intervir" className="text-sm">⚠️</span>}
+                </div>
+              </td>
               <td className="px-4 py-2"><InteresseBadge c={c} compact /></td>
               <td className="px-4 py-2">{c.estagio}</td>
               <td className="px-4 py-2">
@@ -243,8 +339,10 @@ export default function ConversasPage() {
               </td>
             </tr>
           ))}
-          {lista.length === 0 && (
-            <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">Nenhuma conversa encontrada.</td></tr>
+          {visiveis.length === 0 && (
+            <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">
+              {lista.length === 0 ? 'Nenhuma conversa encontrada.' : 'Nenhuma conversa neste filtro.'}
+            </td></tr>
           )}
         </tbody>
       </table>
