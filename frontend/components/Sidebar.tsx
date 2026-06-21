@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useSession, podePapel, type Role } from '@/lib/useSession'
 
-type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report' | 'accounts'
+type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report' | 'accounts' | 'profile'
 
 const NAV = [
   { href: '/dashboard', label: 'Visão Geral', icon: 'overview' },
@@ -19,6 +19,7 @@ const NAV = [
   { href: '/dashboard/uso', label: 'Uso & Custo', icon: 'usage', minRole: 'admin' },
   { href: '/dashboard/relatorios', label: 'Relatórios', icon: 'report', minRole: 'admin' },
   { href: '/dashboard/contas', label: 'Contas', icon: 'accounts', minRole: 'superadmin' },
+  { href: '/dashboard/perfil', label: 'Perfil', icon: 'profile' },
 ] satisfies { href: string; label: string; icon: NavIcon; minRole?: Role }[]
 
 type Empresa = { id: string; nome: string; slug: string; plano?: string }
@@ -333,6 +334,12 @@ function NavGlyph({ name, className }: { name: NavIcon; className?: string }) {
           <path {...common} d="M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
           <path {...common} d="M3 20v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1" />
           <path {...common} d="M16 5.5a3 3 0 0 1 0 5.5M18 14.5a4 4 0 0 1 3 3.5v1" />
+        </>
+      )}
+      {name === 'profile' && (
+        <>
+          <circle {...common} cx="12" cy="8" r="3.5" />
+          <path {...common} d="M5 20v-1a6 6 0 0 1 6-6h2a6 6 0 0 1 6 6v1" />
         </>
       )}
     </svg>

@@ -91,6 +91,46 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
   } catch (err) { return envelopeErro(res, err, 'LEADS_FAILED') }
 })
 
+// GET /meus-disparos — histórico de "quanto rodou" do usuário logado nesta empresa.
+// Resumo (total/hoje/semana/enviados/falhou) + contagem por dia (14d) + últimos disparos.
+router.get('/meus-disparos', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const usuarioId = req.usuario?.id
+    if (!usuarioId) return res.json({ ok: true, data: { resumo: {}, por_dia: [], recentes: [] } })
+    const args = [req.empresa.id, usuarioId]
+
+    const resumoQ = pool.query(
+      `SELECT
+         COUNT(*)::int AS total,
+         COUNT(*) FILTER (WHERE criado_em::date = NOW()::date)::int AS hoje,
+         COUNT(*) FILTER (WHERE criado_em >= NOW() - INTERVAL '7 days')::int AS semana,
+         COUNT(*) FILTER (WHERE status = 'enviado')::int AS enviados,
+         COUNT(*) FILTER (WHERE status = 'falhou')::int AS falhou
+         FROM prospectador.lead_disparos
+        WHERE empresa_id = $1 AND usuario_id = $2`, args)
+
+    const porDiaQ = pool.query(
+      `SELECT to_char(criado_em::date, 'YYYY-MM-DD') AS dia, COUNT(*)::int AS total
+         FROM prospectador.lead_disparos
+        WHERE empresa_id = $1 AND usuario_id = $2 AND criado_em >= NOW() - INTERVAL '14 days'
+        GROUP BY criado_em::date ORDER BY criado_em::date DESC`, args)
+
+    const recentesQ = pool.query(
+      `SELECT d.id, d.status, d.evolution_instance, d.criado_em, p.nome AS prospect_nome
+         FROM prospectador.lead_disparos d
+         LEFT JOIN prospectador.prospects p ON p.id = d.prospect_id
+        WHERE d.empresa_id = $1 AND d.usuario_id = $2
+        ORDER BY d.criado_em DESC LIMIT 50`, args)
+
+    const [resumo, porDia, recentes] = await Promise.all([resumoQ, porDiaQ, recentesQ])
+    return res.json({ ok: true, data: {
+      resumo: resumo.rows[0] || { total: 0, hoje: 0, semana: 0, enviados: 0, falhou: 0 },
+      por_dia: porDia.rows,
+      recentes: recentes.rows,
+    } })
+  } catch (err) { return envelopeErro(res, err, 'MEUS_DISPAROS_FAILED') }
+})
+
 // POST /rodar  { instancia_id, prospect_ids: [..] } — dispara a saudação (1ª mensagem)
 // pelos números selecionados via a instância escolhida. Throttle no serviço.
 router.post('/rodar', requireAuth, requireEmpresaAccess, async (req, res) => {
