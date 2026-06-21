@@ -2,6 +2,7 @@
 import { useEffect, useState, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiFetch } from '@/lib/api'
+import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { useSession, podePapel, type Role } from '@/lib/useSession'
 
 type Conta = {
@@ -26,6 +27,7 @@ export default function ContasPage() {
   const [senha, setSenha] = useState('')
   const [novoRole, setNovoRole] = useState<'user' | 'admin'>('user')
   const [criando, setCriando] = useState(false)
+  const fb = useFeedback()
 
   useEffect(() => {
     if (loadingSessao) return
@@ -52,37 +54,31 @@ export default function ContasPage() {
   async function criarConta(e: FormEvent) {
     e.preventDefault()
     setCriando(true)
-    setErro('')
     try {
-      await apiFetch('/api/admin/usuarios', {
+      await fb.runTask(() => apiFetch('/api/admin/usuarios', {
         method: 'POST',
         body: JSON.stringify({ nome, email, password: senha, role: novoRole }),
-      })
+      }), { sucesso: 'Conta criada.' })
       setNome(''); setEmail(''); setSenha(''); setNovoRole('user')
       await carregar()
-    } catch (err: unknown) {
-      setErro(err instanceof Error ? err.message : 'Falha ao criar conta.')
-    } finally {
-      setCriando(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setCriando(false) }
   }
 
   async function alterarRole(id: string, novo: Role) {
     try {
-      await apiFetch(`/api/admin/usuarios/${id}`, { method: 'PATCH', body: JSON.stringify({ role: novo }) })
+      await fb.runTask(() => apiFetch(`/api/admin/usuarios/${id}`, { method: 'PATCH', body: JSON.stringify({ role: novo }) }),
+        { sucesso: 'Papel atualizado.' })
       await carregar()
-    } catch (err: unknown) {
-      setErro(err instanceof Error ? err.message : 'Falha ao alterar papel.')
-    }
+    } catch { /* erro já exibido pelo feedback */ }
   }
 
   async function alterarAtivo(id: string, ativo: boolean) {
     try {
-      await apiFetch(`/api/admin/usuarios/${id}`, { method: 'PATCH', body: JSON.stringify({ ativo }) })
+      await fb.runTask(() => apiFetch(`/api/admin/usuarios/${id}`, { method: 'PATCH', body: JSON.stringify({ ativo }) }),
+        { sucesso: ativo ? 'Conta ativada.' : 'Conta desativada.' })
       await carregar()
-    } catch (err: unknown) {
-      setErro(err instanceof Error ? err.message : 'Falha ao alterar status.')
-    }
+    } catch { /* erro já exibido pelo feedback */ }
   }
 
   if (loadingSessao || !podePapel(role, 'superadmin')) {
@@ -109,7 +105,8 @@ export default function ContasPage() {
           <option value="admin">Admin</option>
         </select>
         <button type="submit" disabled={criando}
-          className="rounded-lg border border-neon-cyan/40 bg-neon-cyan/15 px-3 py-2 text-sm font-semibold text-neon-cyan transition hover:bg-neon-cyan/25 hover:shadow-glow-cyan disabled:opacity-50">
+          className="inline-flex items-center gap-2 rounded-lg border border-neon-cyan/40 bg-neon-cyan/15 px-3 py-2 text-sm font-semibold text-neon-cyan transition hover:bg-neon-cyan/25 hover:shadow-glow-cyan disabled:opacity-50">
+          {criando && <Spinner />}
           {criando ? 'Criando…' : 'Criar conta'}
         </button>
       </form>

@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
+import { Spinner } from '@/components/feedback/FeedbackProvider'
 
 type Totais = {
   chamadas: number
@@ -91,7 +92,8 @@ export default function UsoPage() {
           <label className="block text-xs text-gray-500 mb-1">Até</label>
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" />
         </div>
-        <button onClick={carregar} disabled={loading} className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50">
+        <button onClick={carregar} disabled={loading} className="inline-flex items-center gap-2 bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50">
+          {loading && <Spinner />}
           {loading ? 'Atualizando…' : 'Atualizar'}
         </button>
         {erro && <span className="text-sm text-red-600 ml-2">{erro}</span>}

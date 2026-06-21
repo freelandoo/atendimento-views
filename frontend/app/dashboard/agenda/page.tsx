@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
+import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 
 type Evento = {
   id: string
@@ -75,6 +76,7 @@ export default function AgendaPage() {
   const [modal, setModal] = useState(false)
   const [form, setForm] = useState<Form>(formVazio(hojeIso()))
   const [salvando, setSalvando] = useState(false)
+  const fb = useFeedback()
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
 
   function carregar() {
@@ -104,7 +106,8 @@ export default function AgendaPage() {
   async function salvar(e: React.FormEvent) {
     e.preventDefault()
     if (!empresaId) return
-    setSalvando(true); setErro('')
+    setSalvando(true)
+    const editando = !!form.id
     const payload = {
       titulo: form.titulo, descricao: form.descricao, tipo: form.tipo, status: form.status,
       prioridade: form.prioridade,
@@ -113,38 +116,32 @@ export default function AgendaPage() {
       lead_nome: form.lead_nome || null, lead_telefone: form.lead_telefone || null,
     }
     try {
-      if (form.id) {
-        await apiFetch(`/api/empresas/${empresaId}/agenda/${form.id}`, { method: 'PATCH', body: JSON.stringify(payload) })
-      } else {
-        await apiFetch(`/api/empresas/${empresaId}/agenda`, { method: 'POST', body: JSON.stringify(payload) })
-      }
+      await fb.runTask(() => editando
+        ? apiFetch(`/api/empresas/${empresaId}/agenda/${form.id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+        : apiFetch(`/api/empresas/${empresaId}/agenda`, { method: 'POST', body: JSON.stringify(payload) }),
+        { sucesso: editando ? 'Evento atualizado.' : 'Evento criado.' })
       setModal(false)
       carregar()
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Erro ao salvar evento.')
-    } finally {
-      setSalvando(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setSalvando(false) }
   }
 
   async function mudarStatus(ev: Evento, status: string) {
     if (!empresaId) return
     try {
-      await apiFetch(`/api/empresas/${empresaId}/agenda/${ev.id}`, { method: 'PATCH', body: JSON.stringify({ status }) })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/agenda/${ev.id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+        { sucesso: 'Status atualizado.' })
       carregar()
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Erro ao atualizar status.')
-    }
+    } catch { /* erro já exibido pelo feedback */ }
   }
   async function excluir(ev: Evento) {
     if (!empresaId) return
     if (!window.confirm(`Excluir "${ev.titulo}"?`)) return
     try {
-      await apiFetch(`/api/empresas/${empresaId}/agenda/${ev.id}`, { method: 'DELETE' })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/agenda/${ev.id}`, { method: 'DELETE' }),
+        { sucesso: 'Evento excluído.' })
       carregar()
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Erro ao excluir evento.')
-    }
+    } catch { /* erro já exibido pelo feedback */ }
   }
 
   const eventos = resp?.eventos || []
@@ -252,7 +249,7 @@ export default function AgendaPage() {
             {erro && <p className="text-sm text-red-600">{erro}</p>}
             <div className="flex justify-end gap-2 pt-1">
               <button type="button" onClick={() => setModal(false)} className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50">Cancelar</button>
-              <button type="submit" disabled={salvando} className="rounded-lg bg-brand px-4 py-2 text-sm text-white font-medium disabled:opacity-50">{salvando ? 'Salvando…' : 'Salvar'}</button>
+              <button type="submit" disabled={salvando} className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm text-white font-medium disabled:opacity-50">{salvando && <Spinner />}{salvando ? 'Salvando…' : 'Salvar'}</button>
             </div>
           </form>
         </div>

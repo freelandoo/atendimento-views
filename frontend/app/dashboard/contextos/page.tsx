@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
+import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import InstanciasWhatsApp from '@/components/InstanciasWhatsApp'
 
 type Contexto = {
@@ -107,6 +108,7 @@ export default function ContextosPage() {
   // Incrementado após o pipeline (gerar/analisar/remover fonte) pra forçar os
   // sub-cards (Fontes, Estágios) a recarregarem seus próprios dados.
   const [pipelineNonce, setPipelineNonce] = useState(0)
+  const fb = useFeedback()
 
   const carregar = useCallback(async () => {
     if (!empresaId) return
@@ -137,36 +139,30 @@ export default function ContextosPage() {
   async function criarVazio() {
     if (!empresaId) return
     setCriando(true)
-    setMsg(null)
     try {
-      const r = await apiFetch<Contexto>(`/api/empresas/${empresaId}/contextos`, {
+      const r = await fb.runTask(() => apiFetch<Contexto>(`/api/empresas/${empresaId}/contextos`, {
         method: 'POST',
         body: JSON.stringify({ nome: nomeNovo || 'Contexto', contexto_form_json: {} }),
-      })
+      }), { sucesso: 'Contexto criado.' })
       setLista((prev) => [r.data, ...prev])
       setNomeNovo('')
       setAberto((p) => ({ ...p, [r.data.id]: true }))
-      setMsg({ tone: 'ok', text: 'Contexto criado. Adicione fontes ou edite o Contexto 1 abaixo.' })
-    } catch (err: unknown) {
-      setMsg({ tone: 'err', text: err instanceof Error ? err.message : 'Erro.' })
-    } finally {
-      setCriando(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setCriando(false) }
   }
 
   async function gerarPlaybook(ctxId: string) {
     if (!empresaId) return
     setGerando(ctxId)
-    setMsg(null)
     try {
-      await apiFetch(`/api/empresas/${empresaId}/contextos/${ctxId}/gerar-playbook`, { method: 'POST' })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/contextos/${ctxId}/gerar-playbook`, { method: 'POST' }), {
+        pesada: true,
+        sucesso: 'Playbook gerado',
+        detalhe: 'Criado como rascunho. Revise no card "Playbook" e ative.',
+      })
       await carregarVersoes(ctxId)
-      setMsg({ tone: 'ok', text: 'Playbook gerado como rascunho. Revise no card "Playbook" e ative.' })
-    } catch (err: unknown) {
-      setMsg({ tone: 'err', text: err instanceof Error ? err.message : 'Erro ao gerar.' })
-    } finally {
-      setGerando(null)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setGerando(null) }
   }
 
   // Recarrega tudo que deriva das fontes (lista/Contexto 1 + versões de playbook) e
@@ -182,16 +178,15 @@ export default function ContextosPage() {
   async function rodarPipeline(ctxId: string) {
     if (!empresaId) return
     setGerando(ctxId)
-    setMsg(null)
     try {
-      await apiFetch(`/api/empresas/${empresaId}/contextos/${ctxId}/gerar-tudo`, { method: 'POST', timeoutMs: 600000 })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/contextos/${ctxId}/gerar-tudo`, { method: 'POST', timeoutMs: 600000 }), {
+        pesada: true,
+        sucesso: 'Fontes analisadas',
+        detalhe: 'Contexto 1, estágios e playbook gerados. Revise e ative.',
+      })
       await recarregarDerivados(ctxId)
-      setMsg({ tone: 'ok', text: 'Fontes analisadas: Contexto 1, estágios e playbook gerados. Revise e ative.' })
-    } catch (err: unknown) {
-      setMsg({ tone: 'err', text: err instanceof Error ? err.message : 'Erro ao processar as fontes.' })
-    } finally {
-      setGerando(null)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setGerando(null) }
   }
 
   async function removerContexto(c: Contexto) {
@@ -202,58 +197,53 @@ export default function ContextosPage() {
       : `Remover "${c.nome}"? Ação irreversível.`
     if (!confirm(aviso)) return
     try {
-      await apiFetch(`/api/empresas/${empresaId}/contextos/${c.id}`, { method: 'DELETE' })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/contextos/${c.id}`, { method: 'DELETE' }),
+        { sucesso: 'Contexto removido.' })
       setLista((prev) => prev.filter((x) => x.id !== c.id))
       setVersoes((p) => { const n = { ...p }; delete n[c.id]; return n })
       setAberto((p) => { const n = { ...p }; delete n[c.id]; return n })
-      setMsg({ tone: 'ok', text: 'Contexto removido.' })
-    } catch (err: unknown) {
-      setMsg({ tone: 'err', text: err instanceof Error ? err.message : 'Erro ao remover.' })
-    }
+    } catch { /* erro já exibido pelo feedback */ }
   }
 
   async function ativar(ctxId: string, versaoId: string) {
     if (!empresaId) return
     try {
-      await apiFetch(`/api/empresas/${empresaId}/contextos/versoes/${versaoId}/ativar`, { method: 'POST' })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/contextos/versoes/${versaoId}/ativar`, { method: 'POST' }),
+        { sucesso: 'Versão ativada — o agente passa a usar esse playbook.' })
       await carregarVersoes(ctxId)
-      setMsg({ tone: 'ok', text: 'Versão ativada — o agente vai usar esse playbook a partir de agora.' })
-    } catch (err: unknown) {
-      setMsg({ tone: 'err', text: err instanceof Error ? err.message : 'Erro ao ativar.' })
-    }
+    } catch { /* erro já exibido pelo feedback */ }
   }
 
   async function ativarContexto(c: Contexto, ativar: boolean) {
     if (!empresaId) return
     try {
-      await apiFetch(`/api/empresas/${empresaId}/contextos/${c.id}/${ativar ? 'ativar' : 'desativar'}`, { method: 'POST' })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/contextos/${c.id}/${ativar ? 'ativar' : 'desativar'}`, { method: 'POST' }),
+        { sucesso: ativar ? `"${c.nome}" ativado.` : `"${c.nome}" desativado.` })
       await carregar()
-      setMsg({ tone: 'ok', text: ativar ? `"${c.nome}" ativado — o agente passa a usar este contexto.` : `"${c.nome}" desativado.` })
-    } catch (err: unknown) {
-      setMsg({ tone: 'err', text: err instanceof Error ? err.message : 'Erro ao ativar/desativar.' })
-    }
+    } catch { /* erro já exibido pelo feedback */ }
   }
 
   async function reviewSugestao(id: string, acao: 'aprovar' | 'rejeitar') {
     if (!empresaId) return
     try {
-      await apiFetch(`/api/empresas/${empresaId}/contextos/sugestoes/${id}/${acao}`, { method: 'POST' })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/contextos/sugestoes/${id}/${acao}`, { method: 'POST' }),
+        { sucesso: acao === 'aprovar' ? 'Sugestão aprovada.' : 'Sugestão rejeitada.' })
       setSugestoes((prev) => prev.filter((s) => s.id !== id))
-    } catch {}
+    } catch { /* erro já exibido pelo feedback */ }
   }
 
   async function aplicarSugestao(id: string) {
     if (!empresaId) return
-    setMsg(null)
     try {
-      await apiFetch(`/api/empresas/${empresaId}/contextos/sugestoes/${id}/aplicar`, { method: 'POST' })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/contextos/sugestoes/${id}/aplicar`, { method: 'POST' }), {
+        pesada: true,
+        sucesso: 'Rascunho gerado',
+        detalhe: 'Novo rascunho criado a partir da sugestão. Revise e ative quando quiser.',
+      })
       setSugestoes((prev) => prev.filter((s) => s.id !== id))
-      setMsg({ tone: 'ok', text: 'Novo rascunho gerado a partir da sugestão. Revise e ative quando quiser.' })
       await carregar()
       for (const k of Object.keys(aberto)) if (aberto[k]) await carregarVersoes(k)
-    } catch (err: unknown) {
-      setMsg({ tone: 'err', text: err instanceof Error ? err.message : 'Erro ao aplicar sugestão.' })
-    }
+    } catch { /* erro já exibido pelo feedback */ }
   }
 
   return (
@@ -358,7 +348,7 @@ export default function ContextosPage() {
                           body: JSON.stringify({ contexto_form_json: novoForm }),
                         })
                         await carregar()
-                        setMsg({ tone: 'ok', text: 'Contexto 1 atualizado pela sugestão das fontes.' })
+                        fb.toast('Contexto 1 atualizado pela sugestão das fontes.')
                       }}
                     />
                     <CardContexto1 empresaId={empresaId} contexto={c} onSalvo={async () => { await carregar() }} />
@@ -430,6 +420,7 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisa
   const [erro, setErro] = useState('')
   const [sugestao, setSugestao] = useState<SugestaoCtx1 | null>(null)
   const [sugerindo, setSugerindo] = useState(false)
+  const fb = useFeedback()
 
   const carregar = useCallback(async () => {
     if (!empresaId) return
@@ -444,36 +435,31 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisa
   useEffect(() => { carregar() }, [carregar, reloadKey])
 
   async function adicionar() {
-    setErro('')
+    // Validação client-side antes de disparar (erros vão pro toast).
+    let req: () => Promise<unknown>
+    let limpar: () => void
+    if (tipo === 'link') {
+      if (!/^https?:\/\//i.test(url)) { fb.toast('URL precisa começar com http:// ou https://', 'error'); return }
+      req = () => apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/link`, { method: 'POST', body: JSON.stringify({ url }) })
+      limpar = () => setUrl('')
+    } else if (tipo === 'texto') {
+      if (texto.trim().length < 10) { fb.toast('Cole pelo menos 10 caracteres.', 'error'); return }
+      req = () => apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/texto`, { method: 'POST', body: JSON.stringify({ texto }) })
+      limpar = () => setTexto('')
+    } else {
+      if (!arquivo) { fb.toast('Selecione um arquivo PDF.', 'error'); return }
+      const fd = new FormData()
+      fd.append('arquivo', arquivo)
+      req = () => apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/documento`, { method: 'POST', body: fd })
+      limpar = () => setArquivo(null)
+    }
     setCarregando(true)
     try {
-      if (tipo === 'link') {
-        if (!/^https?:\/\//i.test(url)) throw new Error('URL precisa começar com http:// ou https://')
-        await apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/link`, {
-          method: 'POST', body: JSON.stringify({ url }),
-        })
-        setUrl('')
-      } else if (tipo === 'texto') {
-        if (texto.trim().length < 10) throw new Error('Cole pelo menos 10 caracteres.')
-        await apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/texto`, {
-          method: 'POST', body: JSON.stringify({ texto }),
-        })
-        setTexto('')
-      } else if (tipo === 'pdf') {
-        if (!arquivo) throw new Error('Selecione um arquivo PDF.')
-        const fd = new FormData()
-        fd.append('arquivo', arquivo)
-        await apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/documento`, {
-          method: 'POST', body: fd,
-        })
-        setArquivo(null)
-      }
+      await fb.runTask(req, { sucesso: 'Fonte adicionada.' })
+      limpar()
       await carregar()
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Erro ao adicionar fonte.')
-    } finally {
-      setCarregando(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setCarregando(false) }
   }
 
   // Analisar = pipeline completo (analisa as fontes pendentes, preenche Contexto 1,
@@ -494,28 +480,25 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisa
   async function remover(fonteId: string) {
     if (!confirm('Remover esta fonte?\n\nO Contexto 1, os estágios e o playbook serão regerados a partir das fontes restantes (ou limpos, se não sobrar nenhuma). Pode levar 1-2 min.')) return
     setAnalisando(fonteId)
-    setErro('')
     try {
-      await apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/${fonteId}`, { method: 'DELETE', timeoutMs: 600000 })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/${fonteId}`, { method: 'DELETE', timeoutMs: 600000 }), {
+        pesada: true,
+        sucesso: 'Fonte removida',
+        detalhe: 'Contexto 1, estágios e playbook regerados a partir das fontes restantes.',
+      })
       await onAposRemover()
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Erro ao remover.')
-    } finally {
-      setAnalisando(null)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setAnalisando(null) }
   }
 
   async function sugerir() {
     setSugerindo(true)
-    setErro('')
     try {
-      const r = await apiFetch<SugestaoCtx1>(`/api/empresas/${empresaId}/contextos/${contextoId}/sugerir-contexto1`, { method: 'POST' })
+      const r = await fb.runTask(() => apiFetch<SugestaoCtx1>(`/api/empresas/${empresaId}/contextos/${contextoId}/sugerir-contexto1`, { method: 'POST' }),
+        { sucesso: 'Sugestão gerada.' })
       setSugestao(r.data)
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Erro ao gerar sugestão.')
-    } finally {
-      setSugerindo(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setSugerindo(false) }
   }
 
   async function aplicarSugestao() {
@@ -695,25 +678,20 @@ function CardContexto1({ empresaId, contexto, onSalvo }: {
 }) {
   const [form, setForm] = useState<Record<string, string>>(() => normalizarFormContexto(contexto.contexto_form_json))
   const [salvando, setSalvando] = useState(false)
-  const [msg, setMsg] = useState('')
+  const fb = useFeedback()
 
   useEffect(() => { setForm(normalizarFormContexto(contexto.contexto_form_json)) }, [contexto.id, contexto.contexto_form_json])
 
   async function salvar() {
     setSalvando(true)
-    setMsg('')
     try {
-      await apiFetch(`/api/empresas/${empresaId}/contextos/${contexto.id}`, {
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/contextos/${contexto.id}`, {
         method: 'PUT',
         body: JSON.stringify({ contexto_form_json: form }),
-      })
+      }), { sucesso: 'Contexto 1 salvo.' })
       await onSalvo()
-      setMsg('Salvo.')
-    } catch (e: unknown) {
-      setMsg(e instanceof Error ? e.message : 'Erro.')
-    } finally {
-      setSalvando(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setSalvando(false) }
   }
 
   const preenchidos = CONTEXTO1_FIELDS.filter((f) => (form[f.name] || '').trim()).length
@@ -746,10 +724,10 @@ function CardContexto1({ empresaId, contexto, onSalvo }: {
         ))}
       </div>
       <div className="flex items-center gap-2">
-        <button onClick={salvar} disabled={salvando} className="text-xs bg-brand text-white px-3 py-1.5 rounded-lg disabled:opacity-50">
+        <button onClick={salvar} disabled={salvando} className="inline-flex items-center gap-2 text-xs bg-brand text-white px-3 py-1.5 rounded-lg disabled:opacity-50">
+          {salvando && <Spinner size={13} />}
           {salvando ? 'Salvando…' : 'Salvar Contexto 1'}
         </button>
-        {msg && <span className="text-xs text-gray-500">{msg}</span>}
       </div>
     </div>
   )
@@ -809,27 +787,20 @@ function CardTeste({ empresaId, contextoForm, versaoAtiva }: {
   const [mensagem, setMensagem] = useState('')
   const [resultado, setResultado] = useState<TestResp | null>(null)
   const [testando, setTestando] = useState(false)
-  const [erro, setErro] = useState('')
+  const fb = useFeedback()
 
   async function testar() {
-    if (!versaoAtiva) {
-      setErro('Ative uma versão do Playbook primeiro.')
-      return
-    }
+    if (!versaoAtiva) { fb.toast('Ative uma versão do Playbook primeiro.', 'error'); return }
     if (!mensagem.trim()) return
     setTestando(true)
-    setErro('')
     setResultado(null)
     try {
-      const r = await apiFetch<TestResp>(`/api/empresas/${empresaId}/contextos/versoes/${versaoAtiva.id}/testar`, {
+      const r = await fb.runTask(() => apiFetch<TestResp>(`/api/empresas/${empresaId}/contextos/versoes/${versaoAtiva.id}/testar`, {
         method: 'POST', body: JSON.stringify({ mensagem, historico: [] }),
-      })
+      }), { sucesso: null })
       setResultado(r.data)
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Erro.')
-    } finally {
-      setTestando(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setTestando(false) }
   }
 
   const resposta = resultado?.decisao?.mensagem_pro_lead || ''
@@ -846,10 +817,10 @@ function CardTeste({ empresaId, contextoForm, versaoAtiva }: {
         placeholder="Mensagem simulada do lead"
         className="w-full border rounded-lg px-2 py-1.5 text-xs"
       />
-      <button onClick={testar} disabled={testando || !versaoAtiva || !mensagem.trim()} className="w-full text-xs bg-brand text-white px-3 py-1.5 rounded-lg disabled:opacity-50">
+      <button onClick={testar} disabled={testando || !versaoAtiva || !mensagem.trim()} className="inline-flex w-full items-center justify-center gap-2 text-xs bg-brand text-white px-3 py-1.5 rounded-lg disabled:opacity-50">
+        {testando && <Spinner size={13} />}
         {testando ? 'Testando…' : 'Simular atendimento'}
       </button>
-      {erro && <p className="text-xs text-red-600">{erro}</p>}
       {resultado && (
         <div className="border rounded-lg overflow-hidden bg-gray-50">
           <div className="px-3 py-2 border-b bg-white text-[10px] text-gray-500">
@@ -952,7 +923,7 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
   const [editing, setEditing] = useState(false)
   const [draftMd, setDraftMd] = useState<string>(versao.conteudo_markdown || '')
   const [savingMd, setSavingMd] = useState(false)
-  const [mdMsg, setMdMsg] = useState('')
+  const fb = useFeedback()
 
   const badgeClass = versao.status === 'ativo'
     ? 'bg-green-100 text-green-700'
@@ -962,19 +933,14 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
 
   async function salvarMarkdown() {
     setSavingMd(true)
-    setMdMsg('')
     try {
-      await apiFetch(`/api/empresas/${empresaId}/contextos/versoes/${versao.id}`, {
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/contextos/versoes/${versao.id}`, {
         method: 'PUT', body: JSON.stringify({ conteudo_markdown: draftMd }),
-      })
+      }), { sucesso: 'Markdown salvo.' })
       versao.conteudo_markdown = draftMd
       setEditing(false)
-      setMdMsg('Salvo.')
-    } catch (e: unknown) {
-      setMdMsg(e instanceof Error ? e.message : 'Erro ao salvar.')
-    } finally {
-      setSavingMd(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setSavingMd(false) }
   }
 
   return (
@@ -1002,7 +968,7 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
                 <>
                   <textarea value={draftMd} onChange={(e) => setDraftMd(e.target.value)} rows={10} className="w-full text-[11px] font-mono border rounded p-2" />
                   <div className="flex gap-2">
-                    <button onClick={salvarMarkdown} disabled={savingMd} className="px-2 py-1 rounded bg-brand text-white disabled:opacity-50">{savingMd ? '…' : 'Salvar markdown'}</button>
+                    <button onClick={salvarMarkdown} disabled={savingMd} className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-brand text-white disabled:opacity-50">{savingMd && <Spinner size={12} />}{savingMd ? 'Salvando…' : 'Salvar markdown'}</button>
                     <button onClick={() => { setEditing(false); setDraftMd(versao.conteudo_markdown || '') }} className="px-2 py-1 rounded border">Cancelar</button>
                   </div>
                 </>
@@ -1012,7 +978,6 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
                   <button onClick={() => { setDraftMd(versao.conteudo_markdown || ''); setEditing(true) }} className="px-2 py-1 rounded border">Editar markdown</button>
                 </>
               )}
-              {mdMsg && <p className="text-[10px] text-brand">{mdMsg}</p>}
             </div>
           )}
           {tab === 'json' && (
@@ -1043,6 +1008,7 @@ function AgentePanel({ empresaId }: { empresaId: string }) {
   const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [salvandoNome, setSalvandoNome] = useState(false)
   const [togglando, setTogglando] = useState(false)
+  const fb = useFeedback()
 
   const carregar = useCallback(async () => {
     if (!empresaId) return
@@ -1061,31 +1027,23 @@ function AgentePanel({ empresaId }: { empresaId: string }) {
 
   async function salvarNome() {
     setSalvandoNome(true)
-    setMsg(null)
     try {
-      await apiFetch(`/api/empresas/${empresaId}`, { method: 'PUT', body: JSON.stringify({ nome }) })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}`, { method: 'PUT', body: JSON.stringify({ nome }) }),
+        { sucesso: 'Nome salvo.' })
       setNomeSalvo(nome)
-      setMsg({ tone: 'ok', text: 'Nome salvo.' })
-    } catch (e: unknown) {
-      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Erro.' })
-    } finally {
-      setSalvandoNome(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setSalvandoNome(false) }
   }
 
   async function toggle() {
     setTogglando(true)
-    setMsg(null)
     const novo = !pausado
     try {
-      await apiFetch(`/api/empresas/${empresaId}/agente`, { method: 'PATCH', body: JSON.stringify({ pausado: novo }) })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/agente`, { method: 'PATCH', body: JSON.stringify({ pausado: novo }) }),
+        { sucesso: novo ? 'Agente desativado (pausado).' : 'Agente ativado.' })
       setPausado(novo)
-      setMsg({ tone: 'ok', text: novo ? 'Agente desativado (pausado).' : 'Agente ativado.' })
-    } catch (e: unknown) {
-      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Erro.' })
-    } finally {
-      setTogglando(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setTogglando(false) }
   }
 
   return (
@@ -1100,9 +1058,10 @@ function AgentePanel({ empresaId }: { empresaId: string }) {
           <button
             onClick={toggle}
             disabled={togglando}
-            className={`text-sm px-3 py-1.5 rounded-lg text-white disabled:opacity-50 ${pausado ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-600 hover:bg-amber-700'}`}
+            className={`inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg text-white disabled:opacity-50 ${pausado ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-600 hover:bg-amber-700'}`}
           >
-            {togglando ? '…' : pausado ? 'Ativar agente' : 'Desativar agente'}
+            {togglando && <Spinner size={14} />}
+            {togglando ? 'Aguarde…' : pausado ? 'Ativar agente' : 'Desativar agente'}
           </button>
         </div>
       </div>
@@ -1114,8 +1073,9 @@ function AgentePanel({ empresaId }: { empresaId: string }) {
         <button
           onClick={salvarNome}
           disabled={salvandoNome || nome.trim().length < 2 || nome === nomeSalvo}
-          className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
+          className="inline-flex items-center gap-2 bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
         >
+          {salvandoNome && <Spinner />}
           {salvandoNome ? 'Salvando…' : 'Salvar nome'}
         </button>
       </div>
@@ -1161,6 +1121,7 @@ function CardEstagios({ empresaId, contextoId, contextoNome, reloadKey, onAtivac
   const [dirty, setDirty] = useState(false)
   const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [simul, setSimul] = useState<SimItem[] | null>(null)
+  const fb = useFeedback()
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -1191,86 +1152,66 @@ function CardEstagios({ empresaId, contextoId, contextoNome, reloadKey, onAtivac
   // O backend já SALVA os estágios e cria a versão do playbook.
   async function gerarTudo() {
     setBusy('gerar-tudo')
-    setMsg(null)
     try {
-      const r = await apiFetch<{
+      const r = await fb.runTask(() => apiFetch<{
         estagios: Record<string, string>
         playbook: { versao?: number } | null
         passos: { etapa: string; erro?: string }[]
       }>(`/api/empresas/${empresaId}/contextos/${contextoId}/gerar-tudo`, {
         method: 'POST',
         timeoutMs: 600000, // pode levar 1-2 min (várias chamadas de IA encadeadas)
-      })
+      }), { sucesso: null })
       if (r.data.estagios) setEstagios(r.data.estagios)
       setDirty(false) // o backend já salvou os estágios
       const erros = (r.data.passos || []).filter((p) => p.erro)
-      setMsg(
-        erros.length
-          ? { tone: 'err', text: `Gerado com avisos em: ${erros.map((e) => e.etapa).join(', ')}. Revise os campos.` }
-          : { tone: 'ok', text: 'Tudo gerado: Contexto 1, estágios e playbook comercial. Revise, edite se quiser e ative.' }
-      )
+      if (erros.length) fb.toast(`Gerado com avisos em: ${erros.map((e) => e.etapa).join(', ')}. Revise os campos.`, 'info')
+      else fb.sucessoModal('Tudo gerado', 'Contexto 1, estágios e playbook comercial. Revise, edite se quiser e ative.')
       await onAtivacao()
-    } catch (e: unknown) {
-      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Falha ao gerar.' })
-    } finally {
-      setBusy(null)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setBusy(null) }
   }
 
   // Loop "gera→simula→corrige" (opt-in): simula lead difícil, o modelo de atendimento
   // responde, e o modelo de geração critica e reescreve os estágios. Salva no backend.
   async function simularRefinar() {
     setBusy('simular')
-    setMsg(null)
     try {
-      const r = await apiFetch<{ estagios: Record<string, string>; simulacoes: SimItem[] }>(
+      const r = await fb.runTask(() => apiFetch<{ estagios: Record<string, string>; simulacoes: SimItem[] }>(
         `/api/empresas/${empresaId}/contextos/${contextoId}/simular-refinar`,
         { method: 'POST', timeoutMs: 600000 }
-      )
+      ), { sucesso: null })
       if (r.data.estagios) setEstagios(r.data.estagios)
       setSimul(r.data.simulacoes || [])
       setDirty(false)
       const mudaram = (r.data.simulacoes || []).filter((s) => s.mudou).length
-      setMsg({ tone: 'ok', text: `Simulação concluída — ${mudaram} estágio(s) melhorado(s). Veja o que mudou abaixo.` })
+      fb.sucessoModal('Simulação concluída', `${mudaram} estágio(s) melhorado(s). Veja o que mudou abaixo.`)
       await onAtivacao()
-    } catch (e: unknown) {
-      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Falha ao simular.' })
-    } finally {
-      setBusy(null)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setBusy(null) }
   }
 
   async function salvar() {
     setBusy('salvar')
-    setMsg(null)
     try {
-      await apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/estagios`, { method: 'PUT', body: JSON.stringify({ estagios }) })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/estagios`, { method: 'PUT', body: JSON.stringify({ estagios }) }),
+        { sucesso: 'Estágios salvos no contexto.' })
       setDirty(false)
-      setMsg({ tone: 'ok', text: 'Estágios salvos no contexto.' })
       await onAtivacao()
-    } catch (e: unknown) {
-      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Erro ao salvar.' })
-    } finally {
-      setBusy(null)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setBusy(null) }
   }
 
   async function enviarThumb(thumbnail_url: string | null) {
     setBusy('thumb')
-    setMsg(null)
     try {
-      const r = await apiFetch<{ thumbnail_url: string | null }>(`/api/empresas/${empresaId}/contextos/${contextoId}/thumbnail`, {
+      const r = await fb.runTask(() => apiFetch<{ thumbnail_url: string | null }>(`/api/empresas/${empresaId}/contextos/${contextoId}/thumbnail`, {
         method: 'PUT', body: JSON.stringify({ thumbnail_url }),
-      })
+      }), { sucesso: 'Thumbnail salva.' })
       setThumb(r.data.thumbnail_url)
       setThumbUrl('')
-      setMsg({ tone: 'ok', text: 'Thumbnail salva.' })
       await onAtivacao()
-    } catch (e: unknown) {
-      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Erro ao salvar thumbnail.' })
-    } finally {
-      setBusy(null)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setBusy(null) }
   }
 
   function onFile(e: React.ChangeEvent<HTMLInputElement>) {

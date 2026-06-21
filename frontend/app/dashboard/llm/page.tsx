@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
+import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 
 type Provider = 'openai' | 'anthropic'
 
@@ -53,6 +54,7 @@ export default function LLMPage() {
   const [genAtual, setGenAtual] = useState<{ provider: Provider | null; model: string | null }>({ provider: null, model: null })
   const [savingGen, setSavingGen] = useState(false)
   const [genMsg, setGenMsg] = useState<string | null>(null)
+  const fb = useFeedback()
 
   async function carregarStatus() {
     try {
@@ -83,16 +85,13 @@ export default function LLMPage() {
     if (!eid) return
     setTogglingAgente(true)
     try {
-      const r = await apiFetch<{ pausado: boolean }>(`/api/empresas/${eid}/agente`, {
+      const r = await fb.runTask(() => apiFetch<{ pausado: boolean }>(`/api/empresas/${eid}/agente`, {
         method: 'PATCH',
         body: JSON.stringify({ pausado }),
-      })
+      }), { sucesso: pausado ? 'Agente pausado.' : 'Agente ativado.' })
       setAgentePausado(!!r.data.pausado)
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Erro ao atualizar agente.')
-    } finally {
-      setTogglingAgente(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setTogglingAgente(false) }
   }
 
   useEffect(() => {
@@ -100,101 +99,79 @@ export default function LLMPage() {
   }, [])
 
   async function rodar() {
-    setErro(null)
     setOk(null)
     setModels([])
     setModelSelecionado('')
-    if (!apiKey) {
-      setErro('Cole a API key antes de rodar.')
-      return
-    }
+    if (!apiKey) { fb.toast('Cole a API key antes de rodar.', 'error'); return }
     setRodando(true)
     try {
-      const r = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/llm/test`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
-          },
-          body: JSON.stringify({ provider, api_key: apiKey }),
-        }
-      )
-      const json = await r.json()
-      if (!json.ok) {
-        setErro(json.error?.message || 'Erro desconhecido.')
-        return
-      }
+      const json = await fb.runTask(async () => {
+        const r = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/llm/test`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+            },
+            body: JSON.stringify({ provider, api_key: apiKey }),
+          }
+        )
+        const j = await r.json()
+        if (!j.ok) throw new Error(j.error?.message || 'Erro desconhecido.')
+        return j
+      }, { sucesso: 'Chave validada.' })
       setModels(json.data.models || [])
       if (json.data.models?.length === 1) setModelSelecionado(json.data.models[0].id)
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Falha na requisição.')
-    } finally {
-      setRodando(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setRodando(false) }
   }
 
   async function conectar() {
-    setErro(null)
     setOk(null)
-    if (!apiKey || !modelSelecionado) {
-      setErro('Selecione um modelo antes de conectar.')
-      return
-    }
+    if (!apiKey || !modelSelecionado) { fb.toast('Selecione um modelo antes de conectar.', 'error'); return }
     setConectando(true)
     try {
-      const r = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/llm/activate`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
-          },
-          body: JSON.stringify({ provider, api_key: apiKey, model: modelSelecionado }),
-        }
-      )
-      const json = await r.json()
-      if (!json.ok) {
-        setErro(json.error?.message || 'Erro ao ativar.')
-        return
-      }
+      const json = await fb.runTask(async () => {
+        const r = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/llm/activate`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+            },
+            body: JSON.stringify({ provider, api_key: apiKey, model: modelSelecionado }),
+          }
+        )
+        const j = await r.json()
+        if (!j.ok) throw new Error(j.error?.message || 'Erro ao ativar.')
+        return j
+      }, { pesada: true, sucesso: (j) => `Conectado: ${j.data.provider}/${j.data.model}` })
       setOk(`Conectado: ${json.data.provider}/${json.data.model}`)
       setApiKey('')
       await carregarStatus()
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Falha na requisição.')
-    } finally {
-      setConectando(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setConectando(false) }
   }
 
   async function salvarGeracao(limpar = false) {
     setGenMsg(null)
-    setErro(null)
-    if (!limpar && !genModel) {
-      setGenMsg('Escolha um modelo de geração.')
-      return
-    }
+    if (!limpar && !genModel) { fb.toast('Escolha um modelo de geração.', 'error'); return }
     setSavingGen(true)
     try {
       const body = limpar ? {} : { provider: genProvider, model: genModel }
-      const r = await apiFetch<{ gen_provider: Provider | null; gen_model: string | null }>(
+      const r = await fb.runTask(() => apiFetch<{ gen_provider: Provider | null; gen_model: string | null }>(
         '/api/llm/geracao',
         { method: 'PUT', body: JSON.stringify(body) }
-      )
+      ), {
+        sucesso: (resp) => resp.data.gen_model
+          ? `Geração: ${resp.data.gen_provider}/${resp.data.gen_model}`
+          : 'Geração voltou ao modelo de atendimento.',
+      })
       setGenAtual({ provider: r.data.gen_provider, model: r.data.gen_model })
-      setGenMsg(
-        r.data.gen_model
-          ? `Modelo de geração: ${r.data.gen_provider}/${r.data.gen_model}`
-          : 'Geração voltou a usar o modelo de atendimento.'
-      )
-    } catch (e: unknown) {
-      setGenMsg(e instanceof Error ? e.message : 'Erro ao salvar modelo de geração.')
-    } finally {
-      setSavingGen(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setSavingGen(false) }
   }
 
   const badge = status?.status === 'ativo'
@@ -310,8 +287,9 @@ export default function LLMPage() {
           type="button"
           onClick={rodar}
           disabled={rodando || !apiKey}
-          className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
+          className="inline-flex items-center gap-2 bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
         >
+          {rodando && <Spinner />}
           {rodando ? 'Buscando modelos…' : 'Rodar'}
         </button>
 
@@ -334,8 +312,9 @@ export default function LLMPage() {
               type="button"
               onClick={conectar}
               disabled={conectando || !modelSelecionado}
-              className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+              className="inline-flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
             >
+              {conectando && <Spinner />}
               {conectando ? 'Conectando…' : 'Conectar'}
             </button>
           </div>
@@ -405,8 +384,9 @@ export default function LLMPage() {
             type="button"
             onClick={() => salvarGeracao(false)}
             disabled={savingGen || !genModel}
-            className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
           >
+            {savingGen && <Spinner />}
             {savingGen ? 'Salvando…' : 'Salvar modelo de geração'}
           </button>
           <button

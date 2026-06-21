@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
+import { useFeedback } from '@/components/feedback/FeedbackProvider'
 
 type ScoreCriterio = {
   delta: number
@@ -110,6 +111,7 @@ export default function ConversasPage() {
   const [carregando, setCarregando] = useState(false)
   const [apagando, setApagando] = useState(false)
   const [reenviando, setReenviando] = useState(false)
+  const fb = useFeedback()
 
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
 
@@ -126,11 +128,10 @@ export default function ConversasPage() {
     if (!empresaId) return
     if (!confirm(`Remover ${fmtNumero(c.numero)} do banco?\n\nIsso apaga a conversa, perfil do lead e insights. Ação irreversível.`)) return
     try {
-      await apiFetch(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(c.numero)}`, { method: 'DELETE' })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(c.numero)}`, { method: 'DELETE' }),
+        { sucesso: 'Conversa removida.' })
       setLista((prev) => prev.filter((x) => x.numero !== c.numero))
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Erro ao remover.')
-    }
+    } catch { /* erro já exibido pelo feedback */ }
   }
 
   async function abrirHistorico(c: Conversa) {
@@ -152,34 +153,29 @@ export default function ConversasPage() {
     if (!confirm(`Apagar TODO o histórico de ${fmtNumero(aberta.numero)}?\n\nIsso limpa as mensagens, reseta o estágio e despausa o agente. A próxima mensagem do contato vai começar do zero.\n\nAção irreversível.`)) return
     setApagando(true)
     try {
-      await apiFetch(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(aberta.numero)}/historico`, { method: 'DELETE' })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(aberta.numero)}/historico`, { method: 'DELETE' }),
+        { sucesso: 'Histórico apagado.' })
       setAberta((p) => p ? { ...p, historico: [], estagio: 'primeiro_contato' } : p)
       await new Promise((r) => setTimeout(r, 200))
       carregar()
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Erro ao apagar.')
-    } finally {
-      setApagando(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setApagando(false) }
   }
 
   async function reenviarUltimaResposta() {
     if (!aberta || !empresaId) return
     setReenviando(true)
-    setErro('')
     try {
-      await apiFetch(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(aberta.numero)}/reprocessar`, { method: 'POST' })
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(aberta.numero)}/reprocessar`, { method: 'POST' }),
+        { sucesso: 'Resposta reenviada.' })
       setAberta((p) => p ? {
         ...p,
         ultima_falha_resposta_codigo: null,
         ultima_falha_resposta_msg: null,
         ultima_falha_resposta_em: null,
       } : p)
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Erro ao reenviar.')
-    } finally {
-      setReenviando(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setReenviando(false) }
   }
 
   const historicoAberto = aberta?.historico || []

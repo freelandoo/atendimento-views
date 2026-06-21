@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
+import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 
 type RelatorioIA = { texto: string; provider: string; model: string }
 
@@ -11,6 +12,7 @@ export default function RelatoriosPage() {
   const [resultado, setResultado] = useState<RelatorioIA | null>(null)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
+  const fb = useFeedback()
 
   async function gerar() {
     const empresaId = getEmpresaId()
@@ -19,16 +21,13 @@ export default function RelatoriosPage() {
     setErro('')
     setResultado(null)
     try {
-      const r = await apiFetch<RelatorioIA>(`/api/empresas/${empresaId}/relatorios/ia`, {
+      const r = await fb.runTask(() => apiFetch<RelatorioIA>(`/api/empresas/${empresaId}/relatorios/ia`, {
         method: 'POST',
         body: JSON.stringify({ tipo }),
-      })
+      }), { sucesso: 'Relatório gerado.' })
       setResultado(r.data)
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Erro ao gerar relatório.')
-    } finally {
-      setLoading(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setLoading(false) }
   }
 
   return (
@@ -46,8 +45,9 @@ export default function RelatoriosPage() {
         <button
           onClick={gerar}
           disabled={loading}
-          className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
+          className="inline-flex items-center gap-2 bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
         >
+          {loading && <Spinner />}
           {loading ? 'Gerando…' : 'Gerar via IA'}
         </button>
       </div>
