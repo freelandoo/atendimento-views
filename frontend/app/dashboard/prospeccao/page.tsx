@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
+import NeonProgress from '@/components/ui/NeonProgress'
 
 type Prospect = {
   id: string
@@ -14,6 +15,8 @@ type Prospect = {
   rating: number | null
   avaliacoes: number | null
   tem_site: boolean
+  site: string | null
+  maps_url: string | null
   status: string
   score: number | null
 }
@@ -80,6 +83,7 @@ export default function ProspeccaoPage() {
   const [nicho, setNicho] = useState('')
   const [cidade, setCidade] = useState('')
   const [buscando, setBuscando] = useState(false)
+  const [progresso, setProgresso] = useState<number | null>(null)
   const [erro, setErro] = useState('')
   const [filtro, setFiltro] = useState('')
   const [agindo, setAgindo] = useState<string | null>(null)
@@ -170,6 +174,12 @@ export default function ProspeccaoPage() {
     e.preventDefault()
     if (!empresaId || !nicho || !cidade) return
     setBuscando(true)
+    // Progresso simulado: sobe rápido no começo e desacelera perto de 90% enquanto
+    // a busca roda; ao terminar completa em 100% e some. (Mesma barra neon do login.)
+    setProgresso(8)
+    const timer = setInterval(() => {
+      setProgresso((p) => (p == null || p >= 90 ? p : p + Math.max(1, Math.round((90 - p) * 0.12))))
+    }, 400)
     try {
       await fb.runTask(
         () => apiFetch(`/api/empresas/${empresaId}/prospeccao/buscar`, {
@@ -180,7 +190,12 @@ export default function ProspeccaoPage() {
       )
       carregar()
     } catch { /* erro já exibido pelo feedback */ }
-    finally { setBuscando(false) }
+    finally {
+      clearInterval(timer)
+      setProgresso(100)
+      setBuscando(false)
+      setTimeout(() => setProgresso(null), 700)
+    }
   }
 
   return (
@@ -310,6 +325,15 @@ export default function ProspeccaoPage() {
         </div>
       )}
 
+      {progresso != null && (
+        <div className="space-y-1">
+          <NeonProgress value={progresso} tone="cyan" />
+          <p className="text-xs text-slate-500">
+            {progresso >= 100 ? 'Busca concluída.' : 'Buscando no Google…'}
+          </p>
+        </div>
+      )}
+
       <table className="w-full text-sm border rounded-xl overflow-hidden bg-white shadow-sm">
         <thead className="bg-gray-100">
           <tr>
@@ -330,12 +354,24 @@ export default function ProspeccaoPage() {
             return (
             <tr key={p.id} className="border-t hover:bg-gray-50">
               <td className="px-4 py-2 whitespace-nowrap" title={t.label}>{t.emoji} <span className="text-xs text-slate-500">{t.label}</span></td>
-              <td className="px-4 py-2 font-medium">{p.nome}</td>
+              <td className="px-4 py-2 font-medium">
+                {p.maps_url ? (
+                  <a href={p.maps_url} target="_blank" rel="noreferrer"
+                    className="text-brand hover:underline inline-flex items-center gap-1"
+                    title="Ver ficha no Google Maps">
+                    {p.nome} <span className="text-xs text-slate-400">↗</span>
+                  </a>
+                ) : p.nome}
+              </td>
               <td className="px-4 py-2 font-mono text-xs">{p.telefone || '—'}</td>
               <td className="px-4 py-2 text-xs"><EmailEditavel value={p.email} onSave={(email) => salvarEmail(p.id, email)} /></td>
               <td className="px-4 py-2 text-slate-600">{p.nicho} · {p.cidade}</td>
               <td className="px-4 py-2 text-right font-semibold">{p.score ?? '—'}</td>
-              <td className="px-4 py-2">{p.tem_site ? '✅' : '❌'}</td>
+              <td className="px-4 py-2">
+                {p.site ? (
+                  <a href={p.site} target="_blank" rel="noreferrer" className="hover:underline" title={p.site}>✅ <span className="text-xs text-brand">site</span></a>
+                ) : p.tem_site ? '✅' : '❌'}
+              </td>
               <td className="px-4 py-2">
                 <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLE[p.status] || 'bg-gray-100 text-gray-500'}`}>{p.status}</span>
               </td>

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
+import NeonProgress from '@/components/ui/NeonProgress'
 
 type CampanhaMeta = {
   perfis_semente?: string[]
@@ -64,7 +65,23 @@ export default function CaptacaoPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
+  const [progresso, setProgresso] = useState<number | null>(null)
   const [emailConfigurado, setEmailConfigurado] = useState(false)
+
+  // Barra neon (mesma do login/Places): sobe enquanto qualquer coleta/processamento
+  // roda (carregando) e completa em 100% ao terminar.
+  useEffect(() => {
+    if (!carregando) return
+    setProgresso(8)
+    const timer = setInterval(() => {
+      setProgresso((p) => (p == null || p >= 90 ? p : p + Math.max(1, Math.round((90 - p) * 0.12))))
+    }, 400)
+    return () => {
+      clearInterval(timer)
+      setProgresso(100)
+      setTimeout(() => setProgresso((p) => (p === 100 ? null : p)), 700)
+    }
+  }, [carregando])
 
   // Painel "Coletar agora" (ad-hoc)
   const [adNicho, setAdNicho] = useState('')
@@ -424,6 +441,15 @@ export default function CaptacaoPage() {
           </div>
         )}
       </div>
+
+      {progresso != null && (
+        <div className="space-y-1">
+          <NeonProgress value={progresso} tone="magenta" />
+          <p className="text-xs text-slate-500">
+            {progresso >= 100 ? 'Coleta atualizada.' : 'Coletando perfis…'}
+          </p>
+        </div>
+      )}
 
       {/* Funil em abas */}
       <div className="bg-white rounded-2xl shadow-sm border">
