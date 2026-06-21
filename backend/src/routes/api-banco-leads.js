@@ -153,6 +153,37 @@ router.post('/rodar', requireAuth, requireEmpresaAccess, async (req, res) => {
   }
 })
 
+// POST /limpar — apaga os leads SEM contato (sem email E sem telefone).
+// Protege negócios fechados (status 'fechado' nunca é removido). Irreversível.
+router.post('/limpar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const cond = `empresa_id = $1
+      AND NULLIF(BTRIM(COALESCE(email, '')), '') IS NULL
+      AND NULLIF(BTRIM(COALESCE(telefone, '')), '') IS NULL
+      AND status <> 'fechado'`
+    // Limpa disparos órfãos desses leads (caso existam) antes de removê-los.
+    await client.query(
+      `DELETE FROM prospectador.lead_disparos
+        WHERE empresa_id = $1 AND prospect_id IN (
+          SELECT id FROM prospectador.prospects WHERE ${cond})`,
+      [req.empresa.id]
+    )
+    const del = await client.query(
+      `DELETE FROM prospectador.prospects WHERE ${cond} RETURNING id`,
+      [req.empresa.id]
+    )
+    await client.query('COMMIT')
+    return res.json({ ok: true, data: { removidos: del.rowCount } })
+  } catch (err) {
+    await client.query('ROLLBACK')
+    return envelopeErro(res, err, 'LIMPAR_FAILED')
+  } finally {
+    client.release()
+  }
+})
+
 // GET /resumo — contagem por aba (para os badges das abas).
 router.get('/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {

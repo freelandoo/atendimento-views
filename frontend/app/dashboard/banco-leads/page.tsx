@@ -81,6 +81,7 @@ export default function BancoLeadsPage() {
   const [msg, setMsg] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [exportando, setExportando] = useState(false)
+  const [limpando, setLimpando] = useState(false)
   // Rodar leads
   const [instancias, setInstancias] = useState<Instancia[]>([])
   const [instanciaId, setInstanciaId] = useState('')
@@ -198,6 +199,19 @@ export default function BancoLeadsPage() {
     fb.toast(email ? 'E-mail salvo.' : 'E-mail removido.')
   }
 
+  async function limpar() {
+    if (!confirm('Apagar TODOS os leads sem e-mail E sem telefone?\n\nIsso remove os leads sem nenhuma forma de contato (negócios fechados são preservados). Ação irreversível.')) return
+    setLimpando(true)
+    try {
+      const r = await apiFetch<{ removidos: number }>(`${base}/limpar`, { method: 'POST' })
+      fb.sucessoModal('Limpeza concluída', `${r.data.removidos} lead(s) sem contato removido(s).`)
+      await carregarLeads()
+      await carregarResumo()
+    } catch (e) {
+      fb.toast(e instanceof Error ? e.message : 'Falha na limpeza.', 'error')
+    } finally { setLimpando(false) }
+  }
+
   async function exportar() {
     setExportando(true)
     try {
@@ -219,11 +233,19 @@ export default function BancoLeadsPage() {
             quem já conversou e quem fechou. Selecione e rode a saudação pela instância escolhida.
           </p>
         </div>
-        <button onClick={exportar} disabled={exportando || !leads.length}
-          className="inline-flex shrink-0 items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
-          {exportando && <Spinner />}
-          {exportando ? 'Gerando…' : '⬇ Exportar CSV'}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button onClick={limpar} disabled={limpando}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50 disabled:opacity-50"
+            title="Apaga todos os leads sem e-mail e sem telefone (negócios fechados são preservados)">
+            {limpando && <Spinner />}
+            {limpando ? 'Limpando…' : '🧹 Limpeza'}
+          </button>
+          <button onClick={exportar} disabled={exportando || !leads.length}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+            {exportando && <Spinner />}
+            {exportando ? 'Gerando…' : '⬇ Exportar CSV'}
+          </button>
+        </div>
       </div>
 
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
