@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
+import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 
 type CampanhaMeta = {
   perfis_semente?: string[]
@@ -87,6 +88,7 @@ export default function CaptacaoPage() {
     nicho: string; cidade: string; perfis: string; teto: string; ativo: boolean; opcoes: Opcoes
   }>({ nicho: '', cidade: '', perfis: '', teto: '50', ativo: true, opcoes: OPCOES_PADRAO })
 
+  const fb = useFeedback()
   const podeColetar = !!orcamento?.brightdata_configurado
 
   const carregarMeta = useCallback(async () => {
@@ -123,9 +125,9 @@ export default function CaptacaoPage() {
 
   async function coletarAdHoc(e: React.FormEvent) {
     e.preventDefault()
-    setErro(null); setMsg(null); setCarregando(true)
+    setCarregando(true)
     try {
-      await apiFetch(`${base}/coletar`, {
+      await fb.runTask(() => apiFetch(`${base}/coletar`, {
         method: 'POST',
         body: JSON.stringify({
           fonte: 'instagram',
@@ -137,18 +139,20 @@ export default function CaptacaoPage() {
           seguir_link_bio: adOpcoes.seguir_link_bio,
           limite: adLimite ? Number(adLimite) : undefined,
         }),
+      }), {
+        pesada: true,
+        sucesso: 'Coleta iniciada',
+        detalhe: 'Os perfis aparecem nas abas conforme o scraper responde.',
       })
-      setMsg('Coleta iniciada — os perfis aparecem nas abas conforme o scraper responde.')
       carregarMeta()
-    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao coletar.') }
+    } catch { /* erro já exibido pelo feedback */ }
     finally { setCarregando(false) }
   }
 
   async function criarCampanha(e: React.FormEvent) {
     e.preventDefault()
-    setErro(null); setMsg(null)
     try {
-      await apiFetch(`${base}/campanhas`, {
+      await fb.runTask(() => apiFetch(`${base}/campanhas`, {
         method: 'POST',
         body: JSON.stringify({
           fonte: 'instagram',
@@ -161,12 +165,11 @@ export default function CaptacaoPage() {
           usar_snowball: cOpcoes.usar_snowball,
           seguir_link_bio: cOpcoes.seguir_link_bio,
         }),
-      })
+      }), { sucesso: 'Campanha salva.' })
       setCNicho(''); setCCidade(''); setCPerfis(''); setCTeto('50'); setCAtivo(true); setCOpcoes(OPCOES_PADRAO)
       setNovaAberta(false)
-      setMsg('Campanha salva.')
       carregarMeta()
-    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao salvar campanha.') }
+    } catch { /* erro já exibido pelo feedback */ }
   }
 
   function abrirEdicao(c: Campanha) {
@@ -187,9 +190,8 @@ export default function CaptacaoPage() {
   }
 
   async function salvarEdicao(id: string) {
-    setErro(null); setMsg(null)
     try {
-      await apiFetch(`${base}/campanhas/${id}`, {
+      await fb.runTask(() => apiFetch(`${base}/campanhas/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({
           nicho: editForm.nicho || undefined,
@@ -201,55 +203,58 @@ export default function CaptacaoPage() {
           usar_snowball: editForm.opcoes.usar_snowball,
           seguir_link_bio: editForm.opcoes.seguir_link_bio,
         }),
-      })
+      }), { sucesso: 'Campanha atualizada.' })
       setEditId(null)
-      setMsg('Campanha atualizada.')
       carregarMeta()
-    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao atualizar campanha.') }
+    } catch { /* erro já exibido pelo feedback */ }
   }
 
   async function excluirCampanha(id: string) {
     if (!window.confirm('Excluir esta campanha? Os leads já coletados permanecem no funil.')) return
-    setErro(null); setMsg(null)
     try {
-      await apiFetch(`${base}/campanhas/${id}`, { method: 'DELETE' })
+      await fb.runTask(() => apiFetch(`${base}/campanhas/${id}`, { method: 'DELETE' }), { sucesso: 'Campanha excluída.' })
       if (editId === id) setEditId(null)
       carregarMeta()
-    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao excluir campanha.') }
+    } catch { /* erro já exibido pelo feedback */ }
   }
 
   async function coletarCampanha(id: string) {
-    setErro(null); setMsg(null); setCarregando(true)
+    setCarregando(true)
     try {
-      await apiFetch(`${base}/coletar`, { method: 'POST', body: JSON.stringify({ campanha_id: id }) })
-      setMsg('Coleta iniciada — os perfis aparecem nas abas conforme o scraper responde.')
+      await fb.runTask(() => apiFetch(`${base}/coletar`, { method: 'POST', body: JSON.stringify({ campanha_id: id }) }), {
+        pesada: true,
+        sucesso: 'Coleta iniciada',
+        detalhe: 'Os perfis aparecem nas abas conforme o scraper responde.',
+      })
       carregarMeta()
-    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao coletar.') }
+    } catch { /* erro já exibido pelo feedback */ }
     finally { setCarregando(false) }
   }
 
   async function processar() {
-    setErro(null); setMsg(null); setCarregando(true)
+    setCarregando(true)
     try {
-      await apiFetch(`${base}/processar`, { method: 'POST' })
-      await carregarMeta(); await carregarLeads()
-      setMsg('Coletas atualizadas.')
-    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao processar.') }
+      await fb.runTask(async () => {
+        await apiFetch(`${base}/processar`, { method: 'POST' })
+        await carregarMeta(); await carregarLeads()
+      }, { sucesso: 'Coletas atualizadas.' })
+    } catch { /* erro já exibido pelo feedback */ }
     finally { setCarregando(false) }
   }
 
   async function mudarStatus(id: string, status: string) {
-    setErro(null)
     try {
-      await apiFetch(`${base}/leads/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) })
+      await fb.runTask(() => apiFetch(`${base}/leads/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) }),
+        { sucesso: 'Status atualizado.' })
       setLeads((prev) => prev.filter((l) => l.id !== id))
       carregarMeta()
-    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao atualizar status.') }
+    } catch { /* erro já exibido pelo feedback */ }
   }
 
   async function salvarEmail(id: string, email: string) {
     await apiFetch(`${base}/leads/${id}/email`, { method: 'PATCH', body: JSON.stringify({ email }) })
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, email: email || null } : l)))
+    fb.toast(email ? 'E-mail salvo.' : 'E-mail removido.')
   }
 
   return (
@@ -262,7 +267,8 @@ export default function CaptacaoPage() {
           </p>
         </div>
         <button onClick={processar} disabled={carregando}
-          className="shrink-0 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+          className="inline-flex shrink-0 items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+          {carregando && <Spinner />}
           {carregando ? 'Atualizando…' : '↻ Atualizar coletas'}
         </button>
       </div>
@@ -307,7 +313,8 @@ export default function CaptacaoPage() {
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs text-slate-400">Informe um nicho (com CSE) ou ao menos 1 perfil.</p>
           <button type="submit" disabled={carregando || !podeColetar}
-            className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium disabled:opacity-50">
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium disabled:opacity-50">
+            {carregando && <Spinner />}
             {carregando ? 'Coletando…' : '⚡ Coletar'}
           </button>
         </div>

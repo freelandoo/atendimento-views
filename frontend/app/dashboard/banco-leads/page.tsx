@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, apiDownload, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
+import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 
 // Banco de Leads — visão unificada das duas origens (Google Places + Instagram),
 // agrupada nos 3 estágios do funil. Consome /api/empresas/:id/banco-leads.
@@ -50,6 +51,7 @@ export default function BancoLeadsPage() {
   const [msg, setMsg] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [exportando, setExportando] = useState(false)
+  const fb = useFeedback()
 
   function query() {
     const p = new URLSearchParams({ aba })
@@ -83,36 +85,35 @@ export default function BancoLeadsPage() {
   useEffect(() => { carregarLeads() }, [carregarLeads])
 
   async function fechar(id: string) {
-    setErro(null); setMsg(null)
     try {
-      await apiFetch(`${base}/leads/${id}/fechar`, { method: 'POST' })
+      await fb.runTask(() => apiFetch(`${base}/leads/${id}/fechar`, { method: 'POST' }),
+        { sucesso: 'Lead marcado como fechado. 🎉' })
       setLeads((prev) => prev.filter((l) => l.id !== id))
-      setMsg('Lead marcado como fechado. 🎉')
       carregarResumo()
-    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao fechar lead.') }
+    } catch { /* erro já exibido pelo feedback */ }
   }
 
   async function reabrir(id: string) {
-    setErro(null); setMsg(null)
     try {
-      await apiFetch(`${base}/leads/${id}/reabrir`, { method: 'POST' })
+      await fb.runTask(() => apiFetch(`${base}/leads/${id}/reabrir`, { method: 'POST' }),
+        { sucesso: 'Lead reaberto.' })
       setLeads((prev) => prev.filter((l) => l.id !== id))
-      setMsg('Lead reaberto.')
       carregarResumo()
-    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao reabrir lead.') }
+    } catch { /* erro já exibido pelo feedback */ }
   }
 
   async function salvarEmail(id: string, email: string) {
     await apiFetch(`${base}/leads/${id}/email`, { method: 'PATCH', body: JSON.stringify({ email }) })
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, email: email || null } : l)))
+    fb.toast(email ? 'E-mail salvo.' : 'E-mail removido.')
   }
 
   async function exportar() {
-    setErro(null); setExportando(true)
+    setExportando(true)
     try {
       const nome = `banco-leads-${aba}-${new Date().toISOString().slice(0, 10)}.csv`
-      await apiDownload(`${base}/export.csv?${query()}`, nome)
-    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao exportar.') }
+      await fb.runTask(() => apiDownload(`${base}/export.csv?${query()}`, nome), { sucesso: 'CSV exportado.' })
+    } catch { /* erro já exibido pelo feedback */ }
     finally { setExportando(false) }
   }
 
@@ -127,7 +128,8 @@ export default function BancoLeadsPage() {
           </p>
         </div>
         <button onClick={exportar} disabled={exportando || !leads.length}
-          className="shrink-0 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+          className="inline-flex shrink-0 items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+          {exportando && <Spinner />}
           {exportando ? 'Gerando…' : '⬇ Exportar CSV'}
         </button>
       </div>

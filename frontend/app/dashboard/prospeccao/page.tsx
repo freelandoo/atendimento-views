@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
+import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 
 type Prospect = {
   id: string
@@ -85,6 +86,7 @@ export default function ProspeccaoPage() {
   const [editRotina, setEditRotina] = useState(false)
   const [rotinaForm, setRotinaForm] = useState<Partial<Config>>({})
   const [salvandoRotina, setSalvandoRotina] = useState(false)
+  const fb = useFeedback()
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
 
   function carregar() {
@@ -105,20 +107,21 @@ export default function ProspeccaoPage() {
 
   async function acao(id: string, acaoTipo: 'aprovar' | 'rejeitar') {
     if (!empresaId) return
-    setAgindo(id); setErro('')
+    setAgindo(id)
     try {
-      await apiFetch(`/api/empresas/${empresaId}/prospeccao/prospects/${id}/${acaoTipo}`, { method: 'POST' })
+      await fb.runTask(
+        () => apiFetch(`/api/empresas/${empresaId}/prospeccao/prospects/${id}/${acaoTipo}`, { method: 'POST' }),
+        { sucesso: acaoTipo === 'aprovar' ? 'Lead aprovado.' : 'Lead rejeitado.' }
+      )
       carregar()
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Erro na ação.')
-    } finally {
-      setAgindo(null)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setAgindo(null) }
   }
 
   async function salvarEmail(id: string, email: string) {
     await apiFetch(`/api/empresas/${empresaId}/prospeccao/prospects/${id}/email`, { method: 'PATCH', body: JSON.stringify({ email }) })
     setProspects((prev) => prev.map((p) => (p.id === id ? { ...p, email: email || null } : p)))
+    fb.toast(email ? 'E-mail salvo.' : 'E-mail removido.')
   }
 
   function abrirEdicaoRotina() {
@@ -142,19 +145,19 @@ export default function ProspeccaoPage() {
         if (!ok) return
       }
     }
-    setSalvandoRotina(true); setErro('')
+    setSalvandoRotina(true)
     try {
-      const r = await apiFetch<ConfigResp>(`/api/empresas/${empresaId}/prospeccao/configuracao`, {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      })
+      const r = await fb.runTask(
+        () => apiFetch<ConfigResp>(`/api/empresas/${empresaId}/prospeccao/configuracao`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        }),
+        { sucesso: 'Rotina salva.' }
+      )
       setRotina(r.data)
       setEditRotina(false)
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Erro ao salvar rotina.')
-    } finally {
-      setSalvandoRotina(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setSalvandoRotina(false) }
   }
   function setRF<K extends keyof Config>(k: K, v: Config[K]) {
     setRotinaForm((p) => ({ ...p, [k]: v }))
@@ -166,18 +169,18 @@ export default function ProspeccaoPage() {
   async function buscar(e: React.FormEvent) {
     e.preventDefault()
     if (!empresaId || !nicho || !cidade) return
-    setBuscando(true); setErro('')
+    setBuscando(true)
     try {
-      await apiFetch(`/api/empresas/${empresaId}/prospeccao/buscar`, {
-        method: 'POST',
-        body: JSON.stringify({ nicho, cidade, quantidade: 20 }),
-      })
+      await fb.runTask(
+        () => apiFetch(`/api/empresas/${empresaId}/prospeccao/buscar`, {
+          method: 'POST',
+          body: JSON.stringify({ nicho, cidade, quantidade: 20 }),
+        }),
+        { pesada: true, sucesso: 'Busca concluída', detalhe: 'Os prospects aparecem na lista abaixo.' }
+      )
       carregar()
-    } catch (e: unknown) {
-      setErro(e instanceof Error ? e.message : 'Erro na busca.')
-    } finally {
-      setBuscando(false)
-    }
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setBuscando(false) }
   }
 
   return (
@@ -196,7 +199,8 @@ export default function ProspeccaoPage() {
           <label className="block text-xs text-slate-500 mb-1">Cidade</label>
           <input value={cidade} onChange={(e) => setCidade(e.target.value)} placeholder="ex: Santana, SP" className="w-full border rounded-lg px-3 py-2 text-sm" />
         </div>
-        <button type="submit" disabled={buscando || !nicho || !cidade} className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium disabled:opacity-50">
+        <button type="submit" disabled={buscando || !nicho || !cidade} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium disabled:opacity-50">
+          {buscando && <Spinner />}
           {buscando ? 'Buscando…' : '🔎 Buscar no Google'}
         </button>
       </form>
