@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { apiFetch } from '@/lib/api'
 
 function slugifyInstance(s: string): string {
@@ -32,9 +33,8 @@ type QRState = {
   error: string | null
 }
 
-export default function InstanciasWhatsApp({ empresaId, contextos }: {
+export default function InstanciasWhatsApp({ empresaId }: {
   empresaId: string
-  contextos: { id: string; nome: string }[]
 }) {
   const [instancias, setInstancias] = useState<WhatsAppInstance[]>([])
   const [nomeInstance, setNomeInstance] = useState('')
@@ -54,19 +54,19 @@ export default function InstanciasWhatsApp({ empresaId, contextos }: {
       .catch(() => {})
   }, [empresaId])
 
-  async function vincularContexto(inst: WhatsAppInstance, contextoId: string | null) {
+  async function toggleAtivo(inst: WhatsAppInstance) {
     if (!empresaId) return
+    setErroForm('')
+    const novo = !inst.ativo
     try {
       const r = await apiFetch<WhatsAppInstance>(`/api/empresas/${empresaId}/whatsapp/${inst.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ contexto_id: contextoId }),
+        body: JSON.stringify({ ativo: novo }),
       })
-      setInstancias((prev) => prev.map((x) =>
-        x.id === inst.id ? { ...x, contexto_id: r.data.contexto_id, contexto_nome: contextos.find((c) => c.id === contextoId)?.nome || null } : x
-      ))
-      setMsg(contextoId ? 'Instância vinculada ao contexto.' : 'Vínculo removido (usará o contexto ativo da empresa).')
+      setInstancias((prev) => prev.map((x) => (x.id === inst.id ? { ...x, ativo: r.data.ativo } : x)))
+      setMsg(novo ? 'Número ativado — o agente volta a responder por ele.' : 'Número desativado — o agente para de responder por ele.')
     } catch (err: unknown) {
-      setErroForm(err instanceof Error ? err.message : 'Erro ao vincular.')
+      setErroForm(err instanceof Error ? err.message : 'Erro ao alterar o status do número.')
     }
   }
 
@@ -181,27 +181,28 @@ export default function InstanciasWhatsApp({ empresaId, contextos }: {
               <p className="font-medium text-sm truncate">{i.nome || i.evolution_instance}</p>
               <p className="text-xs text-gray-500 font-mono truncate">{i.evolution_instance}</p>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-500">Contexto:</label>
-              <select
-                value={i.contexto_id || ''}
-                onChange={(e) => vincularContexto(i, e.target.value || null)}
-                className="text-xs border rounded-lg px-2 py-1.5 bg-white min-w-[180px]"
-                title="Vincule um Contexto a esta instância — o agente usará o playbook ativo desse contexto"
+            <div className="flex items-center gap-3 flex-wrap">
+              <Link
+                href={`/dashboard/instancias/${i.id}/contexto`}
+                className="text-xs px-3 py-1.5 rounded-lg border border-indigo-300 text-indigo-700 hover:bg-indigo-600 hover:text-white transition-colors font-medium"
+                title="Abrir o contexto desta instância (fontes, Contexto 1, playbook, estágios)"
               >
-                <option value="">— sem vínculo (usa contexto ativo da empresa) —</option>
-                {contextos.map((c) => (
-                  <option key={c.id} value={c.id}>{c.nome}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-3">
+                Contexto
+              </Link>
               <button
                 type="button"
                 onClick={() => abrirQrCode(i)}
                 className="text-xs px-3 py-1.5 rounded-lg border border-brand text-brand hover:bg-brand hover:text-white transition-colors font-medium"
               >
                 Gerar QR Code
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleAtivo(i)}
+                className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors text-white ${i.ativo ? 'bg-amber-600 hover:bg-amber-700' : 'bg-green-600 hover:bg-green-700'}`}
+                title={i.ativo ? 'Desativar este número (o agente para de responder por ele)' : 'Ativar este número (o agente volta a responder por ele)'}
+              >
+                {i.ativo ? 'Desativar' : 'Ativar'}
               </button>
               <span className={`text-xs px-2 py-0.5 rounded-full ${i.ativo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                 {i.ativo ? 'ativo' : 'inativo'}

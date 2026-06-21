@@ -4,6 +4,7 @@ const axios = require('axios')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { marcarOnboardingCompleto } = require('../db/usuarios')
+const { invalidarCacheEmpresa } = require('../services/contexto-empresa')
 
 const router = Router({ mergeParams: true })
 
@@ -36,6 +37,17 @@ async function aplicarWebhookEvolution(instanceName) {
   } catch (_) {}
 }
 
+// Cada instância é dona de um Contexto 1:1. Cria um contexto vazio e devolve {id, nome}.
+// Recebe um client (pode estar dentro de transação) para garantir atomicidade com a instância.
+async function criarContextoParaInstancia(client, empresaId, nome) {
+  const { rows: [ctx] } = await client.query(
+    `INSERT INTO app.empresa_contextos (empresa_id, nome, conteudo, contexto_form_json)
+     VALUES ($1, $2, '', '{}'::jsonb) RETURNING id, nome`,
+    [empresaId, nome]
+  )
+  return ctx
+}
+
 // GET /api/empresas/:empresaId/whatsapp
 router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   const { rows } = await pool.query(
@@ -47,6 +59,40 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
     [req.empresa.id]
   )
   return res.json({ ok: true, data: rows })
+})
+
+// GET /api/empresas/:empresaId/whatsapp/:instanceId — instância única (com contexto vinculado).
+// Garante o invariante 1:1: se a instância (legado) ainda não tem contexto, cria um na hora.
+router.get('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const { rows: [inst] } = await pool.query(
+    `SELECT ewi.*, c.nome AS contexto_nome
+       FROM app.empresa_whatsapp_instances ewi
+       LEFT JOIN app.empresa_contextos c ON c.id = ewi.contexto_id
+      WHERE ewi.id = $1 AND ewi.empresa_id = $2`,
+    [req.params.instanceId, req.empresa.id]
+  )
+  if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instância não encontrada.' } })
+
+  if (!inst.contexto_id) {
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      const ctx = await criarContextoParaInstancia(client, req.empresa.id, inst.nome || inst.evolution_instance)
+      await client.query(
+        `UPDATE app.empresa_whatsapp_instances SET contexto_id = $1, atualizado_em = NOW() WHERE id = $2`,
+        [ctx.id, inst.id]
+      )
+      await client.query('COMMIT')
+      inst.contexto_id = ctx.id
+      inst.contexto_nome = ctx.nome
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+  }
+  return res.json({ ok: true, data: inst })
 })
 
 // PATCH /api/empresas/:empresaId/whatsapp/:instanceId — atualiza link de contexto (e nome opcional)
@@ -70,6 +116,8 @@ router.patch('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res)
     }
   }
   if (nome !== undefined) sets.push(`nome = $${vals.push(nome)}`)
+  // Liga/desliga o número: instância inativa não resolve a empresa no webhook (db/empresas.js).
+  if (typeof req.body?.ativo === 'boolean') sets.push(`ativo = $${vals.push(req.body.ativo)}`)
   if (!sets.length) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Nada para atualizar.' } })
   }
@@ -121,19 +169,28 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   // Garante webhook configurado (idempotente — funciona mesmo se a instância já existia)
   await aplicarWebhookEvolution(evolution_instance)
 
+  // Cria a instância + o contexto dela (1:1) na mesma transação — sem contexto órfão se algo falhar.
+  const client = await pool.connect()
   try {
-    const { rows: [inst] } = await pool.query(
-      `INSERT INTO app.empresa_whatsapp_instances (empresa_id, evolution_instance, nome, config_json)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [req.empresa.id, evolution_instance, nome || null, JSON.stringify(config_json)]
+    await client.query('BEGIN')
+    const ctx = await criarContextoParaInstancia(client, req.empresa.id, nome || evolution_instance)
+    const { rows: [inst] } = await client.query(
+      `INSERT INTO app.empresa_whatsapp_instances (empresa_id, evolution_instance, nome, config_json, contexto_id)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [req.empresa.id, evolution_instance, nome || null, JSON.stringify(config_json), ctx.id]
     )
+    await client.query('COMMIT')
+    inst.contexto_nome = ctx.nome
     marcarOnboardingCompleto(req.usuario.id, req.empresa.id).catch(() => {})
     return res.status(201).json({ ok: true, data: inst })
   } catch (err) {
+    await client.query('ROLLBACK')
     if (err.code === '23505') {
       return res.status(409).json({ ok: false, error: { code: 'CONFLICT', message: 'Já existe uma instância com esse nome técnico.' } })
     }
     throw err
+  } finally {
+    client.release()
   }
 })
 
@@ -170,7 +227,7 @@ router.get('/:instanceId/qrcode', requireAuth, requireEmpresaAccess, async (req,
 // Remove do Evolution e apaga do banco (hard delete — sincronia)
 router.delete('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res) => {
   const { rows: [inst] } = await pool.query(
-    'SELECT id, evolution_instance FROM app.empresa_whatsapp_instances WHERE id = $1 AND empresa_id = $2',
+    'SELECT id, evolution_instance, contexto_id FROM app.empresa_whatsapp_instances WHERE id = $1 AND empresa_id = $2',
     [req.params.instanceId, req.empresa.id]
   )
   if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instância não encontrada.' } })
@@ -188,6 +245,11 @@ router.delete('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res
   }
 
   await pool.query('DELETE FROM app.empresa_whatsapp_instances WHERE id = $1', [inst.id])
+  // Contexto é 1:1 com a instância — apaga o contexto dela (CASCADE leva versões/fontes junto).
+  if (inst.contexto_id) {
+    await pool.query('DELETE FROM app.empresa_contextos WHERE id = $1 AND empresa_id = $2', [inst.contexto_id, req.empresa.id])
+    invalidarCacheEmpresa(req.empresa.id)
+  }
   return res.json({ ok: true, data: { id: inst.id, deleted: true } })
 })
 
