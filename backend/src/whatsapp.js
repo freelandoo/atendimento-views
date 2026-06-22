@@ -3,6 +3,7 @@ const axios = require('axios')
 const fs = require('fs')
 const path = require('path')
 const { logger, redactPhone, serializeError } = require('./logger')
+const { aplicarNomeEmpresa } = require('./institutional-language')
 const ROOT = path.join(__dirname, '..')
 
 const EVOLUTION_URL = process.env.EVOLUTION_URL || 'http://evolution-api:8080'
@@ -256,7 +257,12 @@ function numeroEnvioWhatsapp(numero) {
 }
 
 async function enviarMensagem(numero, texto, opts = {}) {
-  const t = (texto || '').trim()
+  // Rede de segurança FINAL: qualquer {{empresa}} ou "PJ Codeworks" legado que tenha
+  // escapado dos boundaries (alertas de operador, footer, prospecção, agenda) é
+  // resolvido aqui pelo padrão neutro/marca (EMPRESA_NOME_PADRAO). Nada de marca
+  // fixa nem placeholder cru sai pro WhatsApp. O nome específico por conversa já
+  // foi aplicado antes (chokepoint); aqui é só o último resort.
+  const t = aplicarNomeEmpresa((texto || '').trim(), process.env.EMPRESA_NOME_PADRAO || 'nossa empresa')
   if (!t) throw new Error('Texto vazio para envio ao WhatsApp')
   const phone = numeroEnvioWhatsapp(numero)
   if (!phone) throw new Error('Número/JID inválido para envio')
@@ -409,7 +415,7 @@ async function enviarComBotoes(numero, texto, botoes, opts = {}) {
         number: numLimpo,  // ← Apenas dígitos
         title: 'Escolha uma opção',
         description: 'Toque para responder',
-        footer: 'PJ Codeworks',
+        footer: process.env.EMPRESA_NOME_PADRAO || 'nossa empresa',
         buttons: botoes.map((b, i) => ({ type: 'reply', displayText: b, id: `opt_${i + 1}` }))
       },
       { headers: { apikey: EVOLUTION_KEY }, timeout: EVOLUTION_DEFAULT_TIMEOUT_MS }

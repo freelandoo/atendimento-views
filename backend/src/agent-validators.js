@@ -118,7 +118,7 @@ function validarSemMencaoVictor(texto) {
   if (REGEX_VICTOR.test(texto)) {
     return {
       ok: false,
-      erro: 'Mensagem menciona "Victor" — sempre direcionar para a equipe da PJ Codeworks',
+      erro: 'Mensagem menciona "Victor" — sempre direcionar para a equipe da {{empresa}}',
       severidade: 'avisar',
     }
   }
@@ -501,7 +501,7 @@ function mensagemFallbackSegura(perfil = {}, estagio = null) {
   const temNegocio = Boolean(perfil?.negocio)
   const temCidade = Boolean(perfil?.cidade || perfil?.regiao_atendimento)
   if (temNegocio && temCidade) {
-    return 'Deixa eu chamar a equipe da PJ Codeworks pra falar com você diretamente. Já tenho as informações principais do seu negócio aqui.'
+    return 'Deixa eu chamar a equipe da {{empresa}} pra falar com você diretamente. Já tenho as informações principais do seu negócio aqui.'
   }
   return 'Perfeito. Para eu te orientar do jeito certo, me confirma só uma coisa: você procura site, sistema, automação ou uma solução sob medida?'
 }

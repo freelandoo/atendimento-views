@@ -22,7 +22,7 @@ const INTERNAL_SCHEMA_FIELDS = Object.freeze([
 ])
 
 const FALLBACK_PUBLIC_MESSAGES = Object.freeze([
-  'Oi! Sou da PJ Codeworks.',
+  'Oi! Tudo bem? Como posso te ajudar?',
   'Você busca site, sistema, automação ou presença no Google?',
 ])
 

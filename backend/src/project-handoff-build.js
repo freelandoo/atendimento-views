@@ -12,7 +12,7 @@ const CHECKLIST_POS_FECHAMENTO_PADRAO = [
 ]
 
 const PADRAO_VENDER_REUNIAO = [
-  'PJ Codeworks como soluções em código, tecnologia, sites, sistemas, automações e agentes de IA.',
+  '{{empresa}} como soluções em código, tecnologia, sites, sistemas, automações e agentes de IA.',
   'Site como produto completo: experiência do usuário, performance e estrutura para SEO local como parte da entrega — não só “aparecer no Google”.',
   'Fluxo claro de conversão: visitante entende o serviço e chama no WhatsApp com poucos cliques.',
   'Suporte pós-entrega e evolução (mensalidade / melhorias) quando fizer sentido ao escopo.',
@@ -236,10 +236,10 @@ Estrutura da página visível:
 Direção visual:
 Fundo branco/off-white, detalhes em azul vibrante #0168FF, preto/azul escuro para autoridade, cards arredondados, sombras suaves, espaçamento premium e aparência de site real.
 O design deve transmitir confiança, organização, profissionalismo e conversão.
-A linguagem visual deve soar compatível com produto digital tech premium (referência interna: PJ Codeworks), sem exibir o nome ou logo da PJ Codeworks como marca do cliente — apenas site do negócio fictício.
+A linguagem visual deve soar compatível com produto digital tech premium (referência interna: {{empresa}}), sem exibir o nome ou logo da {{empresa}} como marca do cliente — apenas site do negócio fictício.
 
 Não usar textos pequenos ilegíveis.
-Não usar marca PJ Codeworks como marca do cliente.
+Não usar marca {{empresa}} como marca do cliente.
 Não gerar apenas wireframe.
 Não gerar layout rabiscado ou blueprint técnico.
 Não gerar imagem genérica sem estrutura clara de página de site.
@@ -329,7 +329,7 @@ function buildProjectHandoff({
           : 15,
       goal: 'Alinhar escopo do site/projeto, investimento e próximos passos com clareza.',
       suggestedOpening:
-        'Agradecer o horário, contextualizar que a PJ Codeworks trabalha com sites, sistemas e automações, e perguntar qual resultado ele espera ver online nos próximos meses.',
+        'Agradecer o horário, contextualizar que a {{empresa}} trabalha com sites, sistemas e automações, e perguntar qual resultado ele espera ver online nos próximos meses.',
       recommendedTone: 'Consultivo, direto e seguro — técnico o suficiente sem jargon desnecessário.',
       reinforce: [...PADRAO_VENDER_REUNIAO],
       avoid: [...PADRAO_EVITAR_REUNIAO],
@@ -399,7 +399,7 @@ function buildProjectHandoff({
       subtitle:
         'Solução em site profissional com foco em conversão, organização do conteúdo e performance.',
       apresentacao:
-        'A PJ Codeworks desenvolve sites, sistemas, automações e agentes de IA. Neste projeto, o foco é criar uma vitrine digital que comunica serviços com clareza e leva o visitante ao próximo passo (WhatsApp).',
+        'A {{empresa}} desenvolve sites, sistemas, automações e agentes de IA. Neste projeto, o foco é criar uma vitrine digital que comunica serviços com clareza e leva o visitante ao próximo passo (WhatsApp).',
       servicos: inferirServicosPorNicho(niche),
       ctas: ['Chamar no WhatsApp', 'Pedir orçamento'],
       faq: [
@@ -416,7 +416,7 @@ function buildProjectHandoff({
         'Landing desktop premium: fundo off-white, ação #0168FF, autoridade em azul escuro/preto, cards arredondados, sombras suaves — aparência de site real (não wireframe).',
       aspectRatio: '16:9',
       brandingNotes:
-        'Prévia interna alinhada ao posicionamento PJ Codeworks (tech, código, produto digital); sem usar PJ Codeworks como marca do cliente na arte.',
+        'Prévia interna alinhada ao posicionamento {{empresa}} (tech, código, produto digital); sem usar {{empresa}} como marca do cliente na arte.',
       status: 'pending',
     },
     generatedFiles: {},
@@ -529,7 +529,7 @@ function formatarMensagemHandoffEnriquecida(handoff, ctx = {}) {
   const promptImagem = valorOuNi(ai.sitePreviewPrompt || ai.heroPrompt)
 
   return (
-    `🔔 HANDOFF — PJ Codeworks\n\n` +
+    `🔔 HANDOFF — {{empresa}}\n\n` +
     `Lead: ${leadRotulo}\n` +
     `Nicho: ${valorOuNi(l.niche)}\n` +
     `Cidade: ${cidadeLinha}\n` +

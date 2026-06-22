@@ -39,7 +39,7 @@ async function resolverEmpresaPorInstance(pool, instanceName, log) {
     )
     const empresaId = rows.length ? rows[0].empresa_id : PJ_CODEWORKS_ID
     if (!rows.length && log) {
-      log.warn({ evolution_instance: instanceName }, 'Evolution instance sem empresa registrada — usando fallback PJ Codeworks')
+      log.warn({ evolution_instance: instanceName }, 'Evolution instance sem empresa registrada — usando empresa padrão do sistema')
     }
     _cacheSet(instanceName, empresaId)
     return empresaId

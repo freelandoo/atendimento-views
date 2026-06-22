@@ -23,7 +23,7 @@ test('prompt deterministico herda o tom de referencia validado', () => {
     resumo_historico: '',
   })
   const texto = blocos.map((b) => b && b.text ? b.text : '').join('\n')
-  assert.match(texto, /Tom de refer.ncia.*PJ Codeworks/,
+  assert.match(texto, /Tom de refer.ncia.*\{\{empresa\}\}/,
     'o caminho novo do orquestrador deve herdar o tom validado')
   assert.match(texto, /Camada relacional do padrao antigo/,
     'o prompt deterministico deve preservar espelhamento e acolhimento do tom antigo')

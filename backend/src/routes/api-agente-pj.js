@@ -32,7 +32,7 @@ function somentePJ(req, res, next) {
       ok: false,
       error: {
         code: 'NOT_FOUND',
-        message: 'Edição de prompts disponível apenas para a PJ Codeworks. Outras empresas usam Contexto 2.',
+        message: 'Edição de prompts disponível apenas para a empresa principal. Outras empresas usam Contexto 2.',
       },
     })
   }

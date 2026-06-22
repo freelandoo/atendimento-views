@@ -105,7 +105,7 @@ function sanitizarCpfNaSaidaTexto(texto, habilitado = false) {
 /** Troca placeholders de empresa por marca real antes do envio ao lead. */
 function sanitizarPlaceholderEmpresaNaSaidaTexto(texto) {
   if (!texto || typeof texto !== 'string') return texto
-  return texto.replace(/\[(empresa)\]/gi, 'PJ Codeworks')
+  return texto.replace(/\[(empresa)\]/gi, '{{empresa}}')
 }
 
 /**

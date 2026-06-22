@@ -252,7 +252,7 @@ module.exports = function registerAITestRoutes(app, deps = {}) {
         // Montar system prompt dinâmico real (igual ao agente em produção)
         systemPromptBuilt = montarSystemPromptDinamico
           ? montarSystemPromptDinamico(estagio, perfil, null, {}, historicoNormalizado)
-          : 'Você é o assistente de vendas da PJ Codeworks.'
+          : 'Você é o assistente de vendas da {{empresa}}.'
 
         // Montar messages array com o histórico + mensagem atual
         messagesForAI = historicoNormalizado.map((m) => ({

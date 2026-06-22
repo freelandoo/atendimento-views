@@ -821,7 +821,7 @@ function createLearning(deps = {}) {
     const historicoTexto = historicoParaTextoCoach(conversa.historico)
     const coachBase =
       prompts.LEAD_COACH_PROMPT_BASE.trim() ||
-      `Voce e coach interno da PJ Codeworks (uso exclusivo do operador). Responda APENAS com JSON valido, sem markdown, com as chaves:
+      `Voce e coach interno da {{empresa}} (uso exclusivo do operador). Responda APENAS com JSON valido, sem markdown, com as chaves:
   etapa (string), status_conversa (string),
   decisao_recomendada (string), confianca (string: baixa|media|alta), raciocinio (string),
   proximos_passos (array de strings), riscos (array de strings),

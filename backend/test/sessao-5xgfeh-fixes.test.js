@@ -112,7 +112,7 @@ test('Bug 2: fallback por necessidade faltante apresenta site, sistema ou IA (se
 
 test('Bug 3: fallback para primeiro_contato e abertura curta', () => {
   const fb = fallbackSeguroPorAcao({ decisao: { acao_decidida: 'primeiro_contato' } })
-  assert.match(fb, /Oi! Tudo bem\? Aqui e o assistente da PJ Codeworks/)
+  assert.match(fb, /Oi! Tudo bem\? Aqui e o assistente da {{empresa}}/)
   assert.doesNotMatch(fb, /procura site,?\s*sistema,?\s*automacao/i)
 })
 

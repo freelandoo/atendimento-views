@@ -114,7 +114,7 @@ test('mensagem fila: fallback usa lead, cidade, categoria e nao envia nada', () 
     rating: 4.6,
     avaliacoes: 45,
   })
-  assert.match(msg, /Sou da PJ Codeworks/)
+  assert.match(msg, /Sou da nossa empresa/)
   assert.match(msg, /Restaurante A/)
   assert.match(msg, /Salvador/)
   assert.match(msg, /restaurantes/)

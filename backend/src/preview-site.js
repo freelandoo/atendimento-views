@@ -101,7 +101,7 @@ function createPreviewSite(deps = {}) {
     }
 
     const system =
-      `Voce e o assistente de vendas da PJ Codeworks. Acabou de enviar a IMAGEM de uma previa estrategica do site para o WhatsApp do lead. Escreva a CAPTION da imagem.\n` +
+      `Voce e o assistente de vendas da {{empresa}}. Acabou de enviar a IMAGEM de uma previa estrategica do site para o WhatsApp do lead. Escreva a CAPTION da imagem.\n` +
   
       `OBJETIVO: enquadrar a previa como amostra de direcao (nao site final), reforcar profissionalismo da entrega real e fechar com pergunta natural.\n` +
   
@@ -539,7 +539,7 @@ function createPreviewSite(deps = {}) {
   
     <div class="demo-stamp">MODELO DE DEMONSTRACAO</div>
   
-    <div class="foot"><span class="brand-foot">PJ Codeworks</span><span>Este e um modelo. O site real fica com o mesmo nivel de acabamento.</span><span class="whats">${escapeHtml(d.phone ? `WhatsApp ${d.phone}` : 'Botao WhatsApp')}</span></div>
+    <div class="foot"><span class="brand-foot">${escapeHtml(process.env.EMPRESA_NOME_PADRAO || 'nossa empresa')}</span><span>Este e um modelo. O site real fica com o mesmo nivel de acabamento.</span><span class="whats">${escapeHtml(d.phone ? `WhatsApp ${d.phone}` : 'Botao WhatsApp')}</span></div>
   
   </main>
   
@@ -705,7 +705,7 @@ function createPreviewSite(deps = {}) {
   
     <rect x="0" y="1272" width="1080" height="78" fill="#101820"/>
   
-    <text x="76" y="1322" font-family="Inter, Arial, Helvetica, sans-serif" font-size="22" font-weight="900" fill="#ffffff">PJ Codeworks</text>
+    <text x="76" y="1322" font-family="Inter, Arial, Helvetica, sans-serif" font-size="22" font-weight="900" fill="#ffffff">${escapeXml(process.env.EMPRESA_NOME_PADRAO || 'nossa empresa')}</text>
   
     <text x="252" y="1322" font-family="Inter, Arial, Helvetica, sans-serif" font-size="22" fill="#e5e7eb">Este e um modelo. O site real fica com o mesmo nivel de acabamento.</text>
   
@@ -939,7 +939,7 @@ function createPreviewSite(deps = {}) {
     }
     const system =
   
-      `Voce e o assistente de vendas da PJ Codeworks. Acabou de enviar uma previa visual do site ao lead.\n` +
+      `Voce e o assistente de vendas da {{empresa}}. Acabou de enviar uma previa visual do site ao lead.\n` +
   
       `Escreva UMA mensagem curta (1 frase, no maximo 160 caracteres) para o WhatsApp do lead pedindo o que ele achou da previa.\n` +
   

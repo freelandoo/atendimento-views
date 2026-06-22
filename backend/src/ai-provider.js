@@ -1,5 +1,6 @@
 'use strict'
 const axios = require('axios')
+const { aplicarNomeEmpresaProfundo } = require('./institutional-language')
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
@@ -406,10 +407,17 @@ async function generateAIResponse(input, pool, log) {
   const task = input.task || 'geral'
   const disableFallback = input.disableFallback === true
 
+  // Boundary de marca (entrada-IA): substitui {{empresa}} e "PJ Codeworks" legado
+  // pelos textos que vão à IA, pelo nome da empresa do caller. {{empresa}} NUNCA
+  // vaza literal (fallback neutro). Ponto único que despersonaliza todos os prompts.
+  let _nomeEmpIA = ''
+  try { _nomeEmpIA = await require('./db/empresas').nomeEmpresa(input.empresaId) } catch { _nomeEmpIA = '' }
+  const _sub = (v) => aplicarNomeEmpresaProfundo(v, _nomeEmpIA)
+
   const callOpts = {
-    systemPrompt: input.systemPrompt,
-    userPrompt: input.userPrompt,
-    messages: input.messages,
+    systemPrompt: _sub(input.systemPrompt),
+    userPrompt: _sub(input.userPrompt),
+    messages: _sub(input.messages),
     temperature,
     maxTokens,
     extraHeaders: input.extraHeaders,

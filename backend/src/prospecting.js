@@ -379,7 +379,7 @@ function calcularScoreV2(prospect) {
   ]
   if (SOLUCOES_CONHECIDAS.some((s) => nichoLocal.includes(s) || categoriaPrimaria.includes(s))) {
     fit_solucao = 10
-    motivos.push('nicho com solucao mapeada pela PJ Codeworks')
+    motivos.push('nicho com solucao mapeada pela {{empresa}}')
   } else if (categoriaPrimaria && categoriaPrimaria !== 'establishment' && categoriaPrimaria !== 'point_of_interest') {
     fit_solucao = 5
     motivos.push('categoria primaria identificada')
@@ -671,7 +671,7 @@ async function gerarDiagnosticoEstruturado(prospect) {
 
   const temSite = !!(prospect.websiteUri || prospect.site || prospect.tem_site)
   const systemPrompt =
-    'Voce e um analista de negocios digitais da PJ Codeworks. ' +
+    'Voce e um analista de negocios digitais da {{empresa}}. ' +
     'Avalie o perfil digital do negocio local abaixo e retorne APENAS JSON valido sem markdown.'
 
   const userPrompt =
@@ -685,7 +685,7 @@ async function gerarDiagnosticoEstruturado(prospect) {
     `- rating_google: ${prospect.rating ?? 'sem dados'}\n` +
     `- total_avaliacoes: ${prospect.avaliacoes ?? prospect.userRatingCount ?? 'sem dados'}\n` +
     `- endereco: ${prospect.endereco || ''}\n\n` +
-    `CONTEXTO: A PJ Codeworks oferece sites profissionais, SEO local, sistemas de agendamento, automacoes e agentes de IA para PMEs locais no Brasil.\n\n` +
+    `CONTEXTO: A {{empresa}} oferece sites profissionais, SEO local, sistemas de agendamento, automacoes e agentes de IA para PMEs locais no Brasil.\n\n` +
     `RETORNE SOMENTE este JSON (sem texto fora do JSON):\n` +
     `{"segmento":"categoria em 1-3 palavras","perfil_digital":"ausente|basico|intermediario|avancado","dores_identificadas":["dor1","dor2"],"sinais_positivos":["sinal1"],"oportunidade_principal":"1 frase","oferta_sugerida":"site_profissional|redesign|seo_local|site_sistema|automacao_agente|plano_inicial","motivo_oferta":"1 frase","nivel_urgencia":"alta|media|baixa","confianca":0.0}\n\n` +
     `REGRAS:\n` +
@@ -729,7 +729,7 @@ async function gerarDiagnosticoEstruturado(prospect) {
 }
 
 /**
- * Roteia a oferta da PJ Codeworks com lógica determinística.
+ * Roteia a oferta da {{empresa}} com lógica determinística.
  * A sugestão da IA é usada apenas quando nenhuma regra determinística se aplica.
  */
 function rotearOferta(prospect, diagnosticoJson, scoreV2) {
@@ -799,8 +799,8 @@ function montarMensagemComercialV2Fallback(prospect, diagnosticoJson, ofertaReco
   }
 
   const intro = sinal
-    ? `Opa, tudo bem? Sou da PJ Codeworks. Vi a ${nome} no Google e notei ${sinal.toLowerCase()}.`
-    : `Opa, tudo bem? Sou da PJ Codeworks. Vi a ${nome} no Google — ${nicho}.`
+    ? `Opa, tudo bem? Sou da {{empresa}}. Vi a ${nome} no Google e notei ${sinal.toLowerCase()}.`
+    : `Opa, tudo bem? Sou da {{empresa}}. Vi a ${nome} no Google — ${nicho}.`
 
   return (
     `${intro} ` +
@@ -813,7 +813,7 @@ function montarMensagemComercialV2Fallback(prospect, diagnosticoJson, ofertaReco
 /**
  * Gera a mensagem comercial de WhatsApp (Fase 2).
  * Função separada do diagnóstico técnico.
- * Posiciona a PJ Codeworks como empresa de soluções digitais completas.
+ * Posiciona a {{empresa}} como empresa de soluções digitais completas.
  */
 async function gerarMensagemComercialV2(prospect, diagnosticoJson, ofertaRecomendada) {
   const fallbackMsg = montarMensagemComercialV2Fallback(prospect, diagnosticoJson, ofertaRecomendada)
@@ -839,7 +839,7 @@ async function gerarMensagemComercialV2(prospect, diagnosticoJson, ofertaRecomen
   }
 
   const systemPrompt =
-    'Voce escreve mensagens de WhatsApp em nome da PJ Codeworks, empresa de solucoes digitais ' +
+    'Voce escreve mensagens de WhatsApp em nome da {{empresa}}, empresa de solucoes digitais ' +
     '(sites, SEO local, automacoes, sistemas e agentes de IA) para PMEs locais no Brasil. ' +
     'Tom: humano, consultivo, nao-invasivo. Nunca prometa resultados. Nunca mencione valores.'
 
@@ -853,7 +853,7 @@ async function gerarMensagemComercialV2(prospect, diagnosticoJson, ofertaRecomen
     (sinal ? `- sinal positivo: ${sinal}\n` : '') +
     `- solucao recomendada: ${OFERTA_LABEL[ofertaRecomendada] || ofertaRecomendada}\n\n` +
     `REGRAS ABSOLUTAS:\n` +
-    `1. Diga "Sou da PJ Codeworks" na abertura.\n` +
+    `1. Diga "Sou da {{empresa}}" na abertura.\n` +
     `2. Maximo 500 caracteres. Prefira 350-480.\n` +
     `3. Sem bullets, sem listas, texto corrido.\n` +
     `4. Estrutura: saudacao + referencia real ao prospect + dor do nicho + mencao a analise preparada + pedido de permissao.\n` +
@@ -1057,7 +1057,7 @@ function normalizarProspectParaPersistencia(prospect, contexto = {}) {
   const nome = normalizarTexto(pIn.nome, 240)
   if (!placeId || !nome || !nicho || !cidade) return null
   // empresa_id vem do contexto CRU (não passa pelo schema, que o descartaria);
-  // fallback para a empresa padrão PJ Codeworks quando não informado.
+  // fallback para a empresa padrão {{empresa}} quando não informado.
   const empresaId = (contexto && (contexto.empresaId || contexto.empresa_id)) || '00000000-0000-0000-0000-000000000001'
   return {
     empresa_id: empresaId,
@@ -1353,7 +1353,7 @@ function montarMensagemDiagnosticoFallback(prospect, perdaEstimada) {
   return {
     dor_principal: dor,
     mensagem_gerada:
-      `Opa, tudo bem? Sou da PJ Codeworks. Vi a ${nome} no Google e gostei bastante da reputacao de voces em ${cidade}. ` +
+      `Opa, tudo bem? Sou da {{empresa}}. Vi a ${nome} no Google e gostei bastante da reputacao de voces em ${cidade}. ` +
       `Costumo notar que negocios de ${nicho} recebem boa procura online, mas perdem contato porque falta uma estrutura simples para virar agendamento no WhatsApp. ` +
       `Hoje voces recebem mais cliente por indicacao, Instagram ou ja tem algum canal direto pelo WhatsApp?`,
     metadata_json: {
@@ -1369,10 +1369,10 @@ async function gerarDiagnosticoComClaude(prospect) {
     return { ...montarMensagemDiagnosticoFallback(prospect, perdaEstimada), perda_estimada: perdaEstimada }
   }
   const systemPrompt =
-    'Você é um especialista em diagnóstico de negócios locais para a PJ Codeworks. ' +
+    'Você é um especialista em diagnóstico de negócios locais para a {{empresa}}. ' +
     'Retorne APENAS JSON válido com as chaves solicitadas. Sem markdown, sem texto fora do JSON.'
   const userPrompt =
-    `Voce escreve em nome da PJ Codeworks (empresa de sites e presenca no Google para pequenos negocios) numa primeira mensagem fria de WhatsApp para um prospect captado no Google Maps.\n` +
+    `Voce escreve em nome da {{empresa}} (empresa de sites e presenca no Google para pequenos negocios) numa primeira mensagem fria de WhatsApp para um prospect captado no Google Maps.\n` +
     `Retorne APENAS JSON valido com chaves: dor_principal, perda_estimada, mensagem_gerada. Sem markdown, sem texto fora do JSON.\n\n` +
     `Dados do prospect:\n` +
     `- nome: ${prospect.nome}\n` +
@@ -1384,11 +1384,11 @@ async function gerarDiagnosticoComClaude(prospect) {
     `- tem_site: ${prospect.tem_site ? 'sim' : 'nao'}\n` +
     `- site: ${prospect.site || ''}\n\n` +
     `REGRAS OBRIGATORIAS para mensagem_gerada (1a mensagem ao lead):\n` +
-    `1. Identidade: assine como "PJ Codeworks" no corpo da mensagem ("Sou da PJ Codeworks"). NUNCA escreva placeholders entre colchetes — proibido [Empresa], [Sua Empresa], [Nome da Empresa], [Nome], [Cidade], [Nicho] ou qualquer texto entre [ ]. Use diretamente os dados do prospect.\n` +
+    `1. Identidade: assine como "{{empresa}}" no corpo da mensagem ("Sou da {{empresa}}"). NUNCA escreva placeholders entre colchetes — proibido [Empresa], [Sua Empresa], [Nome da Empresa], [Nome], [Cidade], [Nicho] ou qualquer texto entre [ ]. Use diretamente os dados do prospect.\n` +
     `2. Tom consultivo, profissional, com cara de WhatsApp humano (NAO vendedor agressivo).\n` +
     `3. Comprimento: ate 4 linhas, no maximo 480 caracteres no total. Sem listas, sem bullets.\n` +
     `4. Estrutura obrigatoria em sequencia, sem misturar ideias:\n` +
-    `   (a) saudacao curta + apresentacao "Sou da PJ Codeworks";\n` +
+    `   (a) saudacao curta + apresentacao "Sou da {{empresa}}";\n` +
     `   (b) referencia REAL ao prospect: cite o nome da empresa, a cidade e — se rating e avaliacoes existirem — elogie a reputacao de forma natural (ex.: "vi a ${prospect.nome || 'sua empresa'} no Google e achei forte a reputacao de voces, principalmente pelas avaliacoes");\n` +
     `   (c) observacao consultiva sobre o problema GENERICO do nicho/${prospect.nicho || 'segmento'} (ex.: muita procura online sem estrutura para converter em WhatsApp);\n` +
     `   (d) UMA pergunta leve sobre canal de aquisicao/agendamento (Instagram, WhatsApp, sistema, indicacao).\n` +
@@ -1593,7 +1593,7 @@ const PLACEHOLDER_RESIDUAL_REGEX = /\[[^\[\]\n]{1,80}\]/
 
 function substituirPlaceholderEmpresa(texto) {
   if (!texto || typeof texto !== 'string') return ''
-  return texto.replace(PLACEHOLDER_EMPRESA_REGEX, 'PJ Codeworks')
+  return texto.replace(PLACEHOLDER_EMPRESA_REGEX, '{{empresa}}')
 }
 
 function temPlaceholderResidual(texto) {
@@ -2599,7 +2599,7 @@ async function selecionarMercadoDiarioIA(poolRef, config = {}, deps = {}) {
     ? mercados.map((m) => `- ${m.nicho} / ${m.cidade} (${m.total} contatos, último ${m.ultimo || '?'})`).join('\n')
     : '(nenhum ainda)'
   const systemPrompt =
-    'Voce e o estrategista de prospeccao da PJ Codeworks, que vende SITES para pequenos ' +
+    'Voce e o estrategista de prospeccao da {{empresa}}, que vende SITES para pequenos ' +
     'negocios locais no Brasil inteiro. Tarefa: escolher UM mercado (um nicho + uma cidade ' +
     'brasileira) para prospectar HOJE.\n' +
     'Regras:\n' +

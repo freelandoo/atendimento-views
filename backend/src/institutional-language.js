@@ -1,19 +1,48 @@
 function sanitizarMencoesPessoaParaEquipe(texto) {
   if (typeof texto !== 'string' || !texto) return texto
   return texto
-    .replace(/\breuni[aã]o\s+com\s+o\s+Victor\b/gi, 'reunião com a equipe da PJ Codeworks')
-    .replace(/\bconversa\s+com\s+o\s+Victor\b/gi, 'conversa com a equipe da PJ Codeworks')
+    .replace(/\breuni[aã]o\s+com\s+o\s+Victor\b/gi, 'reunião com a equipe da {{empresa}}')
+    .replace(/\bconversa\s+com\s+o\s+Victor\b/gi, 'conversa com a equipe da {{empresa}}')
     .replace(/\bo\s+Victor\s+te\s+mostra\b/gi, 'nossa equipe te mostra')
-    .replace(/\bo\s+Victor\s+te\s+apresenta\b/gi, 'a equipe da PJ Codeworks te apresenta')
-    .replace(/\bo\s+Victor\s+apresenta\b/gi, 'a equipe da PJ Codeworks apresenta')
-    .replace(/\bo\s+Victor\s+confirma\b/gi, 'a equipe comercial da PJ Codeworks confirma')
-    .replace(/\bo\s+Victor\s+calcula\b/gi, 'a equipe da PJ Codeworks confirma')
-    .replace(/\bo\s+Victor\s+ajusta\b/gi, 'a equipe da PJ Codeworks ajusta')
-    .replace(/\bo\s+Victor\s+manda\b/gi, 'a equipe da PJ Codeworks envia')
-    .replace(/\bcom\s+o\s+Victor\b/gi, 'com a equipe da PJ Codeworks')
-    .replace(/\bao\s+Victor\b/gi, 'à equipe da PJ Codeworks')
-    .replace(/\bdo\s+Victor\b/gi, 'da equipe da PJ Codeworks')
-    .replace(/\bVictor\b/g, 'equipe da PJ Codeworks')
+    .replace(/\bo\s+Victor\s+te\s+apresenta\b/gi, 'a equipe da {{empresa}} te apresenta')
+    .replace(/\bo\s+Victor\s+apresenta\b/gi, 'a equipe da {{empresa}} apresenta')
+    .replace(/\bo\s+Victor\s+confirma\b/gi, 'a equipe comercial da {{empresa}} confirma')
+    .replace(/\bo\s+Victor\s+calcula\b/gi, 'a equipe da {{empresa}} confirma')
+    .replace(/\bo\s+Victor\s+ajusta\b/gi, 'a equipe da {{empresa}} ajusta')
+    .replace(/\bo\s+Victor\s+manda\b/gi, 'a equipe da {{empresa}} envia')
+    .replace(/\bcom\s+o\s+Victor\b/gi, 'com a equipe da {{empresa}}')
+    .replace(/\bao\s+Victor\b/gi, 'à equipe da {{empresa}}')
+    .replace(/\bdo\s+Victor\b/gi, 'da equipe da {{empresa}}')
+    .replace(/\bVictor\b/g, 'equipe da {{empresa}}')
+}
+
+// Substitui o nome institucional legado ("PJ Codeworks") pelo nome real da empresa
+// dona da conversa. Ponto ÚNICO aplicado na saída ao lead: cobre de uma vez todos os
+// literais hardcoded do funil legado (mensagem_pro_lead, bolhas, e a saída de
+// sanitizarMencoesPessoaParaEquipe que troca "Victor" por "equipe da PJ Codeworks").
+// No-op quando a empresa é a própria PJ (ou desconhecida) — additivo e seguro.
+function aplicarNomeEmpresa(texto, nomeEmp) {
+  if (typeof texto !== 'string' || !texto) return texto
+  const nome = (typeof nomeEmp === 'string' ? nomeEmp.trim() : '')
+  const fill = nome || (process.env.EMPRESA_NOME_PADRAO || 'a empresa')
+  // {{empresa}} / {{EMPRESA}}: SEMPRE preenchido — nunca pode vazar o placeholder literal.
+  let out = texto.replace(/\{\{\s*empresa\s*\}\}/gi, fill)
+  // "PJ Codeworks" legado remanescente: só troca quando há nome real e diferente de PJ.
+  if (nome && !/^pj\s*codeworks$/i.test(nome)) out = out.replace(/PJ\s*Codeworks/gi, nome)
+  return out
+}
+
+// Versão profunda (string | array | {text}) para substituir marca em prompts/mensagens
+// estruturados antes de ir à IA. Mantém a estrutura, só toca em strings.
+function aplicarNomeEmpresaProfundo(valor, nomeEmp) {
+  if (typeof valor === 'string') return aplicarNomeEmpresa(valor, nomeEmp)
+  if (Array.isArray(valor)) return valor.map((v) => aplicarNomeEmpresaProfundo(v, nomeEmp))
+  if (valor && typeof valor === 'object') {
+    if (typeof valor.text === 'string') return { ...valor, text: aplicarNomeEmpresa(valor.text, nomeEmp) }
+    if (typeof valor.content === 'string') return { ...valor, content: aplicarNomeEmpresa(valor.content, nomeEmp) }
+    if (Array.isArray(valor.content)) return { ...valor, content: aplicarNomeEmpresaProfundo(valor.content, nomeEmp) }
+  }
+  return valor
 }
 
 function textoContemPrecoParaLead(texto) {
@@ -126,6 +155,8 @@ module.exports = {
   sanitizarMencoesPessoaParaEquipe,
   sanitizarTermosInternosParaLead,
   sanitizarFrasesProibidasDaResposta,
+  aplicarNomeEmpresa,
+  aplicarNomeEmpresaProfundo,
   textoContemFraseAgressivaConcorrente,
   textoContemPrecoParaLead,
 }

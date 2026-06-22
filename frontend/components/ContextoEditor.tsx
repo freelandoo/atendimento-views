@@ -215,6 +215,7 @@ export default function ContextoEditor({ empresaId, contextoId }: { empresaId: s
         <CardTeste empresaId={empresaId} contextoForm={contexto.contexto_form_json || {}} versaoAtiva={versoes.find((v) => v.status === 'ativo') || null} />
       </div>
       <CardEstagios empresaId={empresaId} contextoId={contexto.id} contextoNome={contexto.nome} reloadKey={pipelineNonce} onAtivacao={carregar} />
+      <CardMensagens empresaId={empresaId} contextoId={contexto.id} reloadKey={pipelineNonce} />
     </div>
   )
 }
@@ -1071,6 +1072,176 @@ function CardEstagios({ empresaId, contextoId, contextoNome: _contextoNome, relo
             )
           })}
         </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Mensagens automáticas POR contexto: saudações + gatilhos da agenda ────────
+type GrupoMsg = {
+  grupo: string
+  chaves: { chave: string; label: string }[]
+  mensagens: Record<string, string>
+  vazio: boolean
+}
+type MensagensResp = {
+  grupos: GrupoMsg[]
+  placeholders: string[]
+  tem_conhecimento: boolean
+}
+
+const GRUPO_LABEL: Record<string, { titulo: string; desc: string }> = {
+  saudacoes: { titulo: 'Saudações automáticas', desc: 'Aberturas e respostas fixas do agente (primeiro contato, handoff, agenda indisponível).' },
+  gatilhos_agenda: { titulo: 'Gatilhos da agenda', desc: 'Lembretes e remarcação de reunião enviados automaticamente.' },
+}
+
+function CardMensagens({ empresaId, contextoId, reloadKey }: {
+  empresaId: string
+  contextoId: string
+  reloadKey?: number
+}) {
+  const [grupos, setGrupos] = useState<GrupoMsg[]>([])
+  const [placeholders, setPlaceholders] = useState<string[]>([])
+  const [temConhecimento, setTemConhecimento] = useState(false)
+  const [dirty, setDirty] = useState<Record<string, boolean>>({})
+  const [aberto, setAberto] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [carregando, setCarregando] = useState(true)
+  const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
+  const fb = useFeedback()
+
+  const carregar = useCallback(async () => {
+    setCarregando(true)
+    try {
+      const r = await apiFetch<MensagensResp>(`/api/empresas/${empresaId}/contextos/${contextoId}/mensagens`)
+      setGrupos(r.data.grupos || [])
+      setPlaceholders(r.data.placeholders || [])
+      setTemConhecimento(!!r.data.tem_conhecimento)
+      setDirty({})
+    } catch (e: unknown) {
+      setMsg({ tone: 'err', text: e instanceof Error ? e.message : 'Erro ao carregar mensagens.' })
+    } finally {
+      setCarregando(false)
+    }
+  }, [empresaId, contextoId])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { carregar() }, [carregar, reloadKey])
+
+  function setTexto(grupo: string, chave: string, v: string) {
+    setGrupos((prev) => prev.map((g) => g.grupo === grupo ? { ...g, mensagens: { ...g.mensagens, [chave]: v } } : g))
+    setDirty((d) => ({ ...d, [grupo]: true }))
+  }
+
+  async function gerar(grupo: string) {
+    setBusy(`gerar-${grupo}`)
+    try {
+      const atual = grupos.find((g) => g.grupo === grupo)?.mensagens || {}
+      const r = await fb.runTask(() => apiFetch<{ grupo: string; mensagens: Record<string, string> }>(
+        `/api/empresas/${empresaId}/contextos/${contextoId}/mensagens/gerar`,
+        { method: 'POST', body: JSON.stringify({ grupo, mensagens: atual }), timeoutMs: 120000 }
+      ), { sucesso: null })
+      setGrupos((prev) => prev.map((g) => g.grupo === grupo ? { ...g, mensagens: r.data.mensagens } : g))
+      setDirty((d) => ({ ...d, [grupo]: true }))
+      fb.toast('Mensagens geradas. Revise e salve.', 'info')
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setBusy(null) }
+  }
+
+  async function salvar(grupo: string) {
+    setBusy(`salvar-${grupo}`)
+    try {
+      const mensagens = grupos.find((g) => g.grupo === grupo)?.mensagens || {}
+      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/mensagens`, {
+        method: 'PUT', body: JSON.stringify({ grupo, mensagens }),
+      }), { sucesso: 'Mensagens salvas no contexto.' })
+      setDirty((d) => ({ ...d, [grupo]: false }))
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setBusy(null) }
+  }
+
+  return (
+    <div className="bg-white border rounded-xl p-4 space-y-4">
+      <div>
+        <h3 className="font-semibold text-sm">Mensagens automáticas</h3>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Textos fixos enviados pelo agente, por empresa. Use <strong>Gerar</strong> pra adaptar ao seu negócio (com a IA) e edite o que quiser.
+        </p>
+        {placeholders.length > 0 && (
+          <p className="text-[11px] text-gray-400 mt-1">
+            Placeholders: {placeholders.map((p) => `{${p}}`).join(' ')} — mantenha-os no texto; são preenchidos no envio.
+          </p>
+        )}
+      </div>
+
+      {!temConhecimento && (
+        <p className="text-[11px] text-amber-600">
+          Dica: adicione fontes (link/PDF) acima antes de <strong>Gerar</strong> — a IA usa o conhecimento do contexto pra adaptar o tom.
+        </p>
+      )}
+      {msg && <p className={`text-xs ${msg.tone === 'ok' ? 'text-brand' : 'text-red-600'}`}>{msg.text}</p>}
+
+      {carregando ? (
+        <p className="text-xs text-gray-400">Carregando…</p>
+      ) : (
+        grupos.map((g) => {
+          const meta = GRUPO_LABEL[g.grupo] || { titulo: g.grupo, desc: '' }
+          return (
+            <div key={g.grupo} className="border rounded-lg p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <h4 className="text-xs font-semibold">{meta.titulo}</h4>
+                  {meta.desc && <p className="text-[11px] text-gray-500">{meta.desc}</p>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => gerar(g.grupo)}
+                    disabled={!!busy}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {busy === `gerar-${g.grupo}` ? 'Gerando…' : '✨ Gerar'}
+                  </button>
+                  <button
+                    onClick={() => salvar(g.grupo)}
+                    disabled={!!busy || !dirty[g.grupo]}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-dark disabled:opacity-50"
+                  >
+                    {busy === `salvar-${g.grupo}` ? 'Salvando…' : 'Salvar'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                {g.chaves.map((c) => {
+                  const id = `${g.grupo}:${c.chave}`
+                  const open = aberto === id
+                  const val = g.mensagens[c.chave] || ''
+                  return (
+                    <div key={c.chave} className="border rounded-lg">
+                      <button onClick={() => setAberto(open ? null : id)} className="w-full flex items-center justify-between px-3 py-2 text-left">
+                        <span className="flex items-center gap-2">
+                          <span className={`text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
+                          <span className="text-xs font-medium">{c.label}</span>
+                        </span>
+                        <span className="text-[10px] text-gray-400 truncate max-w-[45%]">{val.trim() ? val.trim() : 'vazio'}</span>
+                      </button>
+                      {open && (
+                        <div className="px-3 pb-3">
+                          <textarea
+                            value={val}
+                            onChange={(e) => setTexto(g.grupo, c.chave, e.target.value)}
+                            rows={4}
+                            spellCheck={false}
+                            className="w-full border rounded-lg px-3 py-2 text-[11px] font-mono"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })
       )}
     </div>
   )

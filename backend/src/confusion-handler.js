@@ -3,7 +3,7 @@
 /**
  * Resolvedor de confusão entre site, anúncio e Google.
  *
- * Muitos leads chegam confusos sobre o que a PJ Codeworks oferece.
+ * Muitos leads chegam confusos sobre o que a {{empresa}} oferece.
  * Eles podem ter clicado num anúncio e achar que vendemos:
  *   - Google Ads / tráfego pago
  *   - Impulsionamento de post
@@ -132,7 +132,7 @@ const CLARIFICATION_AI_CHATBOT = [
  */
 const CLARIFICATION_GENERIC = [
   'Deixa eu explicar melhor o que fazemos antes de continuar.',
-  'A PJ Codeworks cria soluções digitais em código: sites profissionais, sistemas de agendamento, automações de atendimento e agentes de IA — tudo para organizar a presença digital, atendimento e vendas da sua empresa.',
+  'A {{empresa}} cria soluções digitais em código: sites profissionais, sistemas de agendamento, automações de atendimento e agentes de IA — tudo para organizar a presença digital, atendimento e vendas da sua empresa.',
   'Não fazemos anúncios pagos, não somos agência de tráfego. Criamos estrutura permanente.',
   'Qual é o principal problema que você quer resolver hoje?',
 ].join('\n\n')

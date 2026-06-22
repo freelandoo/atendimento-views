@@ -201,7 +201,7 @@ function registerAIRoutes(app) {
     try {
       const result = await generateAIResponse(
         {
-          systemPrompt: 'Você é o motor de IA da PJ Codeworks em modo de verificação de conectividade.',
+          systemPrompt: 'Você é o motor de IA da {{empresa}} em modo de verificação de conectividade.',
           userPrompt: 'Responda apenas: "Motor de IA ativo."',
           task: scope === 'fallback' ? 'teste_fallback' : 'teste_principal',
           provider: provider || undefined,

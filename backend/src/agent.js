@@ -845,7 +845,7 @@ function gerarApresentacaoOperadorFallback(perfil = {}) {
     captionModelos:
       'Esses sao os modelos que a gente trabalha — cada um pensado pra um perfil de negocio. ' +
       'Tem desde o mais enxuto pra quem ta comecando ate o mais completo pra quem quer posicionar forte. ' +
-      'A ideia e mostrar a direcao; o ajuste fino acontece com a equipe da PJ Codeworks depois.',
+      'A ideia e mostrar a direcao; o ajuste fino acontece com a equipe da {{empresa}} depois.',
     captionPlanos:
       'E pra manter tudo funcionando depois que o site tiver no ar, a gente tem planos a partir de R$ 150/mes — ' +
       'desde a infra basica pra deixar seguro e atualizado ate o crescimento, com acompanhamento mais ativo no Google. ' +
@@ -878,7 +878,7 @@ function normalizarApresentacaoIa(parsed, perfil) {
 }
 
 /**
- * Gera os 4 textos da apresentacao manual via IA. Centraliza tom da PJ Codeworks
+ * Gera os 4 textos da apresentacao manual via IA. Centraliza tom da {{empresa}}
  * e usa nicho/cidade/dor coletados do perfil para contextualizar.
  *
  * Retorna sempre o objeto completo (apos fallback campo a campo se necessario).
@@ -902,7 +902,7 @@ async function gerarApresentacaoOperador(perfil = {}, historico = [], numero = n
   })()
 
   const system =
-    `Voce e o assistente de vendas da PJ Codeworks. Um operador disparou o comando APRESENTACAO para enviar 4 mensagens ao WhatsApp do lead em sequencia:\n` +
+    `Voce e o assistente de vendas da {{empresa}}. Um operador disparou o comando APRESENTACAO para enviar 4 mensagens ao WhatsApp do lead em sequencia:\n` +
     `1) intro (texto curto antes das imagens)\n` +
     `2) captionModelos (legenda do print "modelos-site" — 3 tiers de site)\n` +
     `3) captionPlanos (legenda do print "planos-mensais" — manutencao mensal)\n` +
@@ -912,10 +912,10 @@ async function gerarApresentacaoOperador(perfil = {}, historico = [], numero = n
     `- Voz alinhada ao prompts/system.md: WhatsApp humano, anti-textao, fala em cliente/dinheiro/status — nao em tecnologia.\n` +
     `- Personalize com o nicho e cidade do lead quando disponiveis. Se nao tiver, escreva de forma natural sem placeholder.\n` +
     `- intro: ate 280 chars, 1-2 frases. Nao prometa primeira posicao no Google nem percentual de crescimento.\n` +
-    `- captionModelos: ate 540 chars. Explique que sao 3 modelos (do enxuto ao completo) sem listar valores. Mostre que a equipe da PJ Codeworks ajusta o ideal pelo perfil dele.\n` +
+    `- captionModelos: ate 540 chars. Explique que sao 3 modelos (do enxuto ao completo) sem listar valores. Mostre que a equipe da {{empresa}} ajusta o ideal pelo perfil dele.\n` +
     `- captionPlanos: ate 540 chars. Explique que mensalidade e separada do projeto, ancore no menor valor (R$ 150/mes) e cite a opcao de crescimento mais ativo. Nao prometa resultado garantido.\n` +
     `- fechamento: ate 280 chars, 1-2 frases. Pergunta natural pra abrir proximo turno (qual modelo chamou atencao, ou se faz sentido detalhar algum). Nao agende reuniao automaticamente.\n` +
-    `- PROIBIDO: placeholders entre colchetes ([Empresa], [Cidade], etc.), promessa de %, pedido de PIX/cartao/CPF, reapresentacao "Sou da PJ Codeworks" (a apresentacao em si ja e a mensagem).\n` +
+    `- PROIBIDO: placeholders entre colchetes ([Empresa], [Cidade], etc.), promessa de %, pedido de PIX/cartao/CPF, reapresentacao "Sou da {{empresa}}" (a apresentacao em si ja e a mensagem).\n` +
     `- Use emojis com moderacao (no maximo 1 por campo).`
   const user =
     `Contexto do lead:\n` +
@@ -1182,7 +1182,7 @@ function textoConexaoValor(perfil = {}) {
   if (necessidade === 'agente_ia') {
     return `Perfeito. Para ${contexto}, um agente de IA pode ajudar a responder e organizar demandas com mais consistência. Ele seria para atendimento ou operação interna?`
   }
-  return `Perfeito. Para ${contexto}, a PJ Codeworks pode desenhar uma solução em código alinhada ao seu objetivo. Qual resultado você quer melhorar primeiro?`
+  return `Perfeito. Para ${contexto}, a {{empresa}} pode desenhar uma solução em código alinhada ao seu objetivo. Qual resultado você quer melhorar primeiro?`
 }
 
 function textoEnviaDadosNegocio(texto) {
@@ -1644,7 +1644,7 @@ function montarPerguntaFaltante(perfil = {}) {
     const servico = necessidade ? `procurando ${necessidade}` : null
     const partes = [ramo, localizacao, servico].filter(Boolean)
     const resumo = partes.length ? `Perfeito. Entendi que ${partes.join(', ')}. ` : 'Perfeito. '
-    return `${resumo}A PJ Codeworks pode te ajudar a estruturar uma presença digital alinhada a isso. Posso verificar os próximos horários disponíveis para uma conversa rápida de até 15 minutos com a equipe?`
+    return `${resumo}A {{empresa}} pode te ajudar a estruturar uma presença digital alinhada a isso. Posso verificar os próximos horários disponíveis para uma conversa rápida de até 15 minutos com a equipe?`
   }
 
   const reconhecidos = []
@@ -1969,7 +1969,7 @@ function textoFaixaPrecoInicial() {
   return [
     'Os valores dependem do tipo de estrutura.',
     'Sites mais simples costumam ter um investimento inicial menor, enquanto projetos com sistema, automação ou estrutura personalizada variam conforme o escopo.',
-    'Na reunião, a equipe da PJ Codeworks te passa o valor certo, já com prazo e formato de pagamento.',
+    'Na reunião, a equipe da {{empresa}} te passa o valor certo, já com prazo e formato de pagamento.',
     'Pra eu te orientar sem chute: qual é o seu negócio e em qual cidade você atende?',
   ].join('\n\n')
 }
@@ -1983,7 +1983,7 @@ function textoPrecoProjetoSobMedidaBase() {
 
   return [
     'Boa pergunta. Como é um projeto sob medida, eu não consigo te passar um valor certo sem entender a estrutura necessária.',
-    'A equipe da PJ Codeworks avalia o escopo e te mostra o melhor formato, prazo e investimento na reunião.',
+    'A equipe da {{empresa}} avalia o escopo e te mostra o melhor formato, prazo e investimento na reunião.',
     'Posso marcar uma conversa rápida de até 15 minutos com a equipe?',
   ].join('\n\n')
 }
@@ -1994,7 +1994,7 @@ function textoPrecoCalculado(perfil = {}) {
   const parcela = Number(perfil.parcela || 0)
   if (total > 0) {
     const parcelamento = entrada > 0 && parcela > 0 ? `, com entrada de R$ ${entrada} + 3x de R$ ${parcela}` : ''
-    return `Com base no que você me passou, a estimativa inicial fica em torno de R$ ${total}${parcelamento}.\n\nIsso inclui a estrutura do site, organização dos serviços, chamada para WhatsApp e base para presença no Google. Na reunião, a equipe da PJ Codeworks confirma o valor final conforme o escopo.`
+    return `Com base no que você me passou, a estimativa inicial fica em torno de R$ ${total}${parcelamento}.\n\nIsso inclui a estrutura do site, organização dos serviços, chamada para WhatsApp e base para presença no Google. Na reunião, a equipe da {{empresa}} confirma o valor final conforme o escopo.`
   }
   return textoFaixaPrecoInicial()
 }
@@ -2009,8 +2009,8 @@ function textoComoFunciona(perfil = {}) {
     ? `Para ${negocio} em ${cidade}, `
     : negocio ? `Para ${negocio}, ` : ''
   const foco = necessidade === 'site'
-    ? `${contexto}a PJ Codeworks entende o objetivo, monta a estrutura do site e alinha com a equipe prazo e investimento.`
-    : `${contexto}a PJ Codeworks entende o que sua empresa precisa e indica se faz mais sentido site, sistema, automacao, IA ou uma solucao sob medida.`
+    ? `${contexto}a {{empresa}} entende o objetivo, monta a estrutura do site e alinha com a equipe prazo e investimento.`
+    : `${contexto}a {{empresa}} entende o que sua empresa precisa e indica se faz mais sentido site, sistema, automacao, IA ou uma solucao sob medida.`
 
   if (pergunta) return `${foco}\n\n${pergunta}`
   return `${foco}\n\nPosso verificar um horario rapido com a equipe para alinhar o melhor caminho?`
@@ -2023,11 +2023,11 @@ function textoInteresseClaro(perfil = {}) {
 
 
 function textoInteresseClaroSimples(perfil = {}) {
-  const abertura = 'Oi! Tudo bem? Aqui é o assistente da PJ Codeworks 👋'
+  const abertura = 'Oi! Tudo bem? Aqui é o assistente da {{empresa}} 👋'
   return `${abertura}\n\n${montarPerguntaFaltante(perfil)}`
 
   const contexto = perfil.negocio ? ` para ${perfil.negocio}` : ''
-  return `Perfeito, vou te explicar de forma simples o próximo passo.\n\nA PJ Codeworks cria soluções em código${contexto}: sites, sistemas, automações, agentes de IA e integrações para organizar presença digital, atendimento, vendas e operação.\n\nPra eu direcionar certo: qual é sua cidade ou região e você procura site, sistema, automação, agente de IA ou uma solução sob medida?`
+  return `Perfeito, vou te explicar de forma simples o próximo passo.\n\nA {{empresa}} cria soluções em código${contexto}: sites, sistemas, automações, agentes de IA e integrações para organizar presença digital, atendimento, vendas e operação.\n\nPra eu direcionar certo: qual é sua cidade ou região e você procura site, sistema, automação, agente de IA ou uma solução sob medida?`
 }
 
 function temAssistenteNoHistorico(historico = []) {
@@ -2049,7 +2049,7 @@ function textoExplicacaoUltimaPergunta(perfil = {}, historico = []) {
     : 'Sem problema, deixa eu explicar de forma mais simples.'
 
   if (!proxima) {
-    return `${introExplicacao}\n\nMas não precisa responder isso agora. A PJ Codeworks pode te ajudar com uma estrutura digital para apresentar seus serviços e organizar o contato com os clientes. Posso verificar os próximos horários disponíveis para uma conversa rápida de até 15 minutos com a equipe?`
+    return `${introExplicacao}\n\nMas não precisa responder isso agora. A {{empresa}} pode te ajudar com uma estrutura digital para apresentar seus serviços e organizar o contato com os clientes. Posso verificar os próximos horários disponíveis para uma conversa rápida de até 15 minutos com a equipe?`
   }
   return `${introExplicacao}\n\nMas podemos seguir de forma simples — ${proxima.charAt(0).toLowerCase() + proxima.slice(1)}`
 }
@@ -2164,7 +2164,7 @@ async function decidirProximaResposta(contexto = {}) {
   const saudacaoInicial = /^(oi|ola|olá|bom\s+dia|boa\s+tarde|boa\s+noite|opa)[!?.\s]*$/i.test(String(texto || '').trim())
   if (saudacaoInicial && !temAssistenteNoHistorico(historico)) {
     const bolhasAbertura = [
-      'Oi! Sou o assistente virtual da PJ Codeworks. Pra te direcionar certo, qual é o seu negócio e em qual cidade você atende?',
+      'Oi! Sou o assistente virtual da {{empresa}}. Pra te direcionar certo, qual é o seu negócio e em qual cidade você atende?',
     ]
     return mk(
       'coletar_tipo_negocio',
@@ -2178,7 +2178,7 @@ async function decidirProximaResposta(contexto = {}) {
   }
   // PRIORIDADE: pedido humano (seguranca)
   if (interpretacao.intencao_principal === 'pedido_humano') {
-    return mk('encaminhar_humano', 'Claro. Vou chamar a equipe da PJ Codeworks pra te ajudar diretamente por aqui.', {
+    return mk('encaminhar_humano', 'Claro. Vou chamar a equipe da {{empresa}} pra te ajudar diretamente por aqui.', {
       prioridade: 'seguranca_pedido_humano',
       handoff: true,
       motivo_handoff: 'lead_pediu_humano',
@@ -2267,7 +2267,7 @@ async function decidirProximaResposta(contexto = {}) {
     }
   }
   if (interpretacao.intencao_principal === 'compra_site') {
-    return mk('qualificar_compra_site', 'Perfeito, a PJ Codeworks pode te ajudar com um site profissional.\n\nQual é o tipo do seu negócio e em qual cidade você atende?', {
+    return mk('qualificar_compra_site', 'Perfeito, a {{empresa}} pode te ajudar com um site profissional.\n\nQual é o tipo do seu negócio e em qual cidade você atende?', {
       prioridade: 'compra_site',
       etapa_proxima: 'diagnostico',
       atualizar_perfil: {
@@ -2390,7 +2390,7 @@ async function decidirProximaResposta(contexto = {}) {
     })
   }
   if (interpretacao.intencao_principal === 'compra_site') {
-    return mk('qualificar_compra_site', 'Perfeito, a PJ Codeworks pode te ajudar com um site profissional.\n\nQual é o tipo do seu negócio e em qual cidade você atende?', {
+    return mk('qualificar_compra_site', 'Perfeito, a {{empresa}} pode te ajudar com um site profissional.\n\nQual é o tipo do seu negócio e em qual cidade você atende?', {
       prioridade: 'compra_site',
       etapa_proxima: 'diagnostico',
       atualizar_perfil: {
@@ -2639,7 +2639,7 @@ function montarSystemPromptDinamico(estagio, perfil, aprendizado, flags = {}, hi
   const base =
     nucleoCtx ||
     prompts.SYSTEM_CORE_BASE.trim() ||
-    `Voce e o assistente de vendas da PJ Codeworks. Responda APENAS com um objeto JSON valido com mensagem_pro_lead, atualizar_perfil, etapa_proxima, solicitar_calculo_preco, solicitar_classificacao_nicho, handoff, motivo_handoff.`
+    `Voce e o assistente de vendas da {{empresa}}. Responda APENAS com um objeto JSON valido com mensagem_pro_lead, atualizar_perfil, etapa_proxima, solicitar_calculo_preco, solicitar_classificacao_nicho, handoff, motivo_handoff.`
   const empresa = conhecimentoCtx || prompts.EMPRESA_KNOWLEDGE_BASE.trim()
   const blocoEmpresa = empresa ? `\n\n---\n\n${empresa}\n` : ''
   const ctxHorario = textoContextoHorarioVictorParaPrompt()
@@ -2704,13 +2704,13 @@ function montarSystemPromptDinamico(estagio, perfil, aprendizado, flags = {}, hi
   const veioDeProspeccao = perfil?.origem === 'prospeccao' && contextoProspeccao && typeof contextoProspeccao === 'object'
   const blocoProspeccao = veioDeProspeccao
     ? `\n\n--- CONTEXTO DE PROSPECCAO (lead FRIO — abordagem ativa) ---\n` +
-      `Este contato foi PROSPECTADO ativamente (Google Maps). Ele NAO viu anuncio e NAO pediu contato: recebeu UMA mensagem nossa citando empresa, cidade, nicho e reputacao. Portanto provavelmente NAO conhece a PJ Codeworks nem sabe o que oferecemos.\n` +
+      `Este contato foi PROSPECTADO ativamente (Google Maps). Ele NAO viu anuncio e NAO pediu contato: recebeu UMA mensagem nossa citando empresa, cidade, nicho e reputacao. Portanto provavelmente NAO conhece a {{empresa}} nem sabe o que oferecemos.\n` +
       `Mensagem inicial enviada: ${contextoProspeccao.mensagem_enviada || '(nao registrada)'}\n` +
       `Estudo do lead (use como se ja tivesse pesquisado o negocio dele): nicho ${contextoProspeccao.nicho || perfil?.negocio || '?'} | cidade ${contextoProspeccao.cidade || perfil?.cidade || '?'} | empresa ${contextoProspeccao.nome || '?'} | tem site: ${contextoProspeccao.tem_site ? 'sim' : 'nao'} | dor provavel: ${contextoProspeccao.dor_principal || '(nao mapeada)'}\n` +
       `POSTURA (lead prospectado != lead de anuncio):\n` +
       `- Seja CONSULTIVO e sem pressao. Primeiro gere contexto e mostre que entende o negocio dele (use nicho/cidade/dor acima) ANTES de qualquer oferta, plano ou preco.\n` +
       `- NAO assuma interesse de compra: ele nao pediu isso. Conduza com no maximo 1 pergunta leve de diagnostico por vez.\n` +
-      `- PROIBIDO se reapresentar ("Sou da PJ Codeworks") e PROIBIDO perguntar nicho, cidade ou nome do negocio — ele acabou de ler isso na mensagem inicial.\n` +
+      `- PROIBIDO se reapresentar ("Sou da {{empresa}}") e PROIBIDO perguntar nicho, cidade ou nome do negocio — ele acabou de ler isso na mensagem inicial.\n` +
       `- Ancore no que ja sabemos ("Vi que voces atuam com [nicho] em [cidade]...").\n` +
       `- Proxima pergunta: como captam clientes hoje / como esta a presenca digital — nunca dados que ja temos.\n`
     : ''
@@ -2780,7 +2780,7 @@ async function gerarPreviaValorIA(perfil = {}) {
         : null,
     }
     const systemPrompt =
-      'Voce e analista de precificacao da PJ Codeworks (criacao de sites). Sugira, SO PARA USO INTERNO do operador (NUNCA vai ao cliente), um valor ou faixa para o projeto deste lead, com base no contexto.\n' +
+      'Voce e analista de precificacao da {{empresa}} (criacao de sites). Sugira, SO PARA USO INTERNO do operador (NUNCA vai ao cliente), um valor ou faixa para o projeto deste lead, com base no contexto.\n' +
       'Faixas reais — ancore-se nelas e NUNCA extrapole: iniciante R$200-600, padrao R$600-1000, premium R$1000-2000.\n' +
       'Para sistema, automacao, agente de IA ou projeto sob medida, NAO crave numero: use plano "sob_medida" e faixas nulas.\n' +
       'Se faltar diagnostico para um numero firme, estime uma FAIXA realista pelo contexto (nicho, cidade, dor, origem dos clientes).\n' +
@@ -3287,10 +3287,10 @@ async function aplicarGuardrailReuniaoProposta(resultado, perfil = {}, dataRef =
     const [h1, h2] = sugestao.horarios_sugeridos
     const labelDia = LABEL_DIAS_GUARDRAIL[sugestao.data_label] || 'Amanha'
     bolhaMensagem = h2
-      ? `Posso marcar uma conversa rápida com a equipe da PJ Codeworks para alinhar estrutura, prazo e investimento. ${labelDia} tenho ${h1} ou ${h2} disponíveis. Qual fica melhor?`
-      : `Posso marcar uma conversa rápida com a equipe da PJ Codeworks para alinhar estrutura, prazo e investimento. ${labelDia} ainda tenho ${h1} disponível. Fica bom pra você?`
+      ? `Posso marcar uma conversa rápida com a equipe da {{empresa}} para alinhar estrutura, prazo e investimento. ${labelDia} tenho ${h1} ou ${h2} disponíveis. Qual fica melhor?`
+      : `Posso marcar uma conversa rápida com a equipe da {{empresa}} para alinhar estrutura, prazo e investimento. ${labelDia} ainda tenho ${h1} disponível. Fica bom pra você?`
   } else {
-    bolhaMensagem = `Posso marcar uma conversa rápida de até 15 minutos com a equipe da PJ Codeworks para alinhar estrutura, prazo e investimento. Posso verificar os próximos horários disponíveis?`
+    bolhaMensagem = `Posso marcar uma conversa rápida de até 15 minutos com a equipe da {{empresa}} para alinhar estrutura, prazo e investimento. Posso verificar os próximos horários disponíveis?`
   }
   // Removida a bolha "No seu caso, isso entra como proposta personalizada para X" —
   // ela vazava como frase para o lead e abria espaco para argumentacao de venda
@@ -3440,10 +3440,10 @@ async function montarFallbackSeguroRespostaIA(historico = [], estagio = 'diagnos
   // recorremos mais a arvore de templates legada (decidirProximaResposta +
   // textoConexaoValor + montarPerguntaFaltante) — que reintroduzia perguntas
   // repetidas e textos roboticos. Enviamos UMA mensagem curta e segura e
-  // acionamos handoff para a equipe da PJ Codeworks assumir.
+  // acionamos handoff para a equipe da {{empresa}} assumir.
   return resultadoParseadoParaObjeto(
     {
-      mensagem_pro_lead: 'Deixa eu confirmar isso direitinho com a equipe da PJ Codeworks e já te respondo por aqui. 🙂',
+      mensagem_pro_lead: 'Deixa eu confirmar isso direitinho com a equipe da {{empresa}} e já te respondo por aqui. 🙂',
       mensagens_bolhas: null,
       atualizar_perfil: {},
       etapa_proxima: normalizarEstagio(estagio, 'diagnostico'),
@@ -4680,7 +4680,7 @@ const FUNIL_PROMPT_AVALIACAO = `Voce e engenheiro de prompts especializado em ve
 
 Voce recebe o prompt ativo de uma etapa do funil e a analise JSON gerada para conversas reais.
 
-Avalie se o prompt produziu uma analise util e acionavel para o operador comercial da PJ Codeworks.
+Avalie se o prompt produziu uma analise util e acionavel para o operador comercial da {{empresa}}.
 
 Classifique como:
 - boa: diagnostico especifico, causa raiz clara, proximos passos concretos e mensagens naturais.
@@ -4693,7 +4693,7 @@ Responda APENAS em JSON valido:
 const FUNIL_PROMPTS_SEED = {
   primeiro_contato: `Voce e especialista em vendas consultivas de sites, SEO e presenca Google para pequenas empresas locais no Brasil.
 
-Analise conversas de PRIMEIRO CONTATO da PJ Codeworks no WhatsApp.
+Analise conversas de PRIMEIRO CONTATO da {{empresa}} no WhatsApp.
 
 Contexto: clientes sao motivados por status, confianca, aparecer profissional e nao perder espaco para concorrentes no Google. Nao reduza tudo a ROI financeiro.
 
@@ -4709,7 +4709,7 @@ Responda APENAS em JSON valido com:
 {"pontuacao_geral":0,"resumo_geral":"","problemas_por_gravidade":{"alta":[],"media":[],"baixa":[]},"diagnostico_dos_leads":[],"padroes_identificados":[],"proximo_passo_recomendado":"","mensagens_prontas":[]}`,
   primeiro_contato_prospeccao: `Voce e especialista em prospeccao ativa via WhatsApp para PMEs locais no Brasil.
 
-Analise APENAS mensagens de PRIMEIRO CONTATO da prospeccao da PJ Codeworks.
+Analise APENAS mensagens de PRIMEIRO CONTATO da prospeccao da {{empresa}}.
 
 Regra central desta etapa:
 - cada item analisado e a primeira mensagem realmente enviada ao prospect (sem follow-up, sem reenvio, sem segunda abordagem).
@@ -4726,7 +4726,7 @@ Responda APENAS em JSON valido com:
 {"pontuacao_geral":0,"resumo_geral":"","problemas_por_gravidade":{"alta":[],"media":[],"baixa":[]},"diagnostico_dos_leads":[],"padroes_identificados":[],"proximo_passo_recomendado":"","mensagens_prontas":[]}`,
   qualificacao: `Voce e especialista em vendas consultivas de servicos digitais para PMEs locais.
 
-Analise conversas de QUALIFICACAO da PJ Codeworks.
+Analise conversas de QUALIFICACAO da {{empresa}}.
 
 Avalie se a conversa identificou negocio, cidade, presenca atual no Google, site atual, decisor, urgencia, orcamento e sinais de fit.
 
@@ -4734,7 +4734,7 @@ Responda APENAS em JSON valido com:
 {"pontuacao_geral":0,"resumo_geral":"","problemas_por_gravidade":{"alta":[],"media":[],"baixa":[]},"diagnostico_dos_leads":[],"padroes_identificados":[],"proximo_passo_recomendado":"","mensagens_prontas":[]}`,
   diagnostico: `Voce e especialista em diagnostico comercial para sites, SEO local e presenca digital.
 
-Analise conversas de DIAGNOSTICO da PJ Codeworks.
+Analise conversas de DIAGNOSTICO da {{empresa}}.
 
 Avalie se a dor foi conectada a perda de clientes, status profissional, concorrencia, confianca e proxima acao concreta.
 
@@ -4742,7 +4742,7 @@ Responda APENAS em JSON valido com:
 {"pontuacao_geral":0,"resumo_geral":"","problemas_por_gravidade":{"alta":[],"media":[],"baixa":[]},"diagnostico_dos_leads":[],"padroes_identificados":[],"proximo_passo_recomendado":"","mensagens_prontas":[]}`,
   proposta: `Voce e especialista em apresentacao de proposta para servicos digitais no Brasil.
 
-Analise conversas em que uma PROPOSTA foi apresentada pela PJ Codeworks.
+Analise conversas em que uma PROPOSTA foi apresentada pela {{empresa}}.
 
 Avalie se a proposta veio depois da dor, se o preco foi ancorado em valor/status, se houve seguranca, prova social e proximo passo claro.
 
@@ -4758,7 +4758,7 @@ Responda APENAS em JSON valido com:
 {"pontuacao_geral":0,"resumo_geral":"","problemas_por_gravidade":{"alta":[],"media":[],"baixa":[]},"diagnostico_dos_leads":[],"padroes_identificados":[],"proximo_passo_recomendado":"","mensagens_prontas":[]}`,
   fechamento: `Voce e especialista em fechamento de vendas consultivas via WhatsApp.
 
-Analise conversas de FECHAMENTO da PJ Codeworks.
+Analise conversas de FECHAMENTO da {{empresa}}.
 
 Avalie se o vendedor conduziu pro fechamento, usou escolha dupla/proximo passo, manteve autoridade e reduziu atrito para contrato ou pagamento.
 
@@ -5245,7 +5245,7 @@ function detectarTipoMensagemExporto(content) {
 }
 
 function formatarMensagemParaContexto(m, idx) {
-  const role = m.role === 'user' ? 'Lead' : m.role === 'assistant' ? 'PJ Codeworks' : 'Operador'
+  const role = m.role === 'user' ? 'Lead' : m.role === 'assistant' ? '{{empresa}}' : 'Operador'
   let content = m.content
   if (Array.isArray(content)) {
     content = content
@@ -5279,7 +5279,7 @@ function gerarTextoConversaCompleta(conversa, perfil, agendaEventos) {
   const sep = '═'.repeat(50)
   const dash = '─'.repeat(50)
 
-  linhas.push('CONVERSA COMPLETA — PJ CODEWORKS')
+  linhas.push('CONVERSA COMPLETA — {{empresa}}')
   linhas.push(sep)
 
   const telefone = String(conversa.numero || '').replace('@s.whatsapp.net', '').replace(/^55/, '+55 ')
@@ -5744,7 +5744,7 @@ async function tratarPossivelReuniaoOperador(numero) {
     const dataAmigavel = dataStr ? `${dataStr.slice(8, 10)}/${dataStr.slice(5, 7)}` : (det.dataRelativa || null)
     const quando = [dataAmigavel, det.horario ? `às ${det.horario}` : null].filter(Boolean).join(' ')
     const texto =
-      `✅ Reunião fechada por operador — PJ Codeworks\n` +
+      `✅ Reunião fechada por operador — {{empresa}}\n` +
       `Lead: ${phone}\n` +
       `Negócio: ${perfil.negocio || '?'} | ${perfil.cidade || '?'}\n` +
       (quando ? `Quando: ${quando}\n` : 'Quando: confirmar horário com o lead\n') +

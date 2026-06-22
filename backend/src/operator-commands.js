@@ -269,7 +269,7 @@ function createOperatorCommands(deps = {}) {
         }
         case 6:
           await enviarMensagem(jidOperador,
-            '⚙️ *Ajustar configuração*\n\nPara ajustar scripts, preços ou regras do agente, acesse o painel ou fale diretamente com a equipe da PJ Codeworks.\n\nPara comandos rápidos:\n`5511999999999 INSTRUÇÃO: novo contexto para o agente`'
+            '⚙️ *Ajustar configuração*\n\nPara ajustar scripts, preços ou regras do agente, acesse o painel ou fale diretamente com a equipe da {{empresa}}.\n\nPara comandos rápidos:\n`5511999999999 INSTRUÇÃO: novo contexto para o agente`'
           )
           break
         default:
@@ -399,14 +399,14 @@ function createOperatorCommands(deps = {}) {
    */
   async function chamarClaudeAssistenteOperador(pergunta, nomeOperador) {
     const system = [
-      `Assistente interno da PJ Codeworks respondendo ao operador ${nomeOperador}.`,
+      `Assistente interno da {{empresa}} respondendo ao operador ${nomeOperador}.`,
       `Funcionalidades disponíveis no chat:`,
       `1 - Responder lead: [número] INSTRUÇÃO: texto`,
       `2 - Enviar apresentação: [número] APRESENTAÇÃO`,
       `3 - Agendamentos: responder "3" no menu`,
       `4 - Simular abordagem: "Simula lead: [descrição]"`,
       `5 - Relatório do dia: responder "5" no menu`,
-      `6 - Ajustar configuração: contato com a equipe da PJ Codeworks`,
+      `6 - Ajustar configuração: contato com a equipe da {{empresa}}`,
       `Responda em português, direto, máximo 3 frases. Não invente funcionalidades.`,
     ].join(' ')
     const requestId = gerarRequestIdAnthropic()

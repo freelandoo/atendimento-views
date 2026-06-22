@@ -63,6 +63,35 @@ function invalidarCachePauseEmpresa(empresaId) {
   else _pauseCache.clear()
 }
 
+// ─── Nome de exibição da empresa (para mensagens automáticas/lembretes) ─────────
+// Resolve app.empresas.nome com cache curto. Fallback (empresa nula/desconhecida)
+// = EMPRESA_NOME_PADRAO. EM PRODUÇÃO defina EMPRESA_NOME_PADRAO com a marca real:
+// aí {{empresa}} e qualquer "PJ Codeworks" legado viram essa marca em TODA saída e
+// em todo prompt, sem depender de cada empresa. O default de código 'PJ Codeworks'
+// é só o último recurso (nunca aparece quando a empresa resolve ou a env está setada).
+const NOME_PADRAO = process.env.EMPRESA_NOME_PADRAO || 'nossa empresa'
+const _nomeCache = new Map() // empresaId -> { nome, at }
+const NOME_TTL_MS = 60_000
+
+async function nomeEmpresa(empresaId) {
+  if (!empresaId) return NOME_PADRAO
+  const c = _nomeCache.get(empresaId)
+  if (c && Date.now() - c.at < NOME_TTL_MS) return c.nome
+  try {
+    const { rows } = await pool.query('SELECT nome FROM app.empresas WHERE id = $1', [empresaId])
+    const nome = (rows[0]?.nome || '').trim() || NOME_PADRAO
+    _nomeCache.set(empresaId, { nome, at: Date.now() })
+    return nome
+  } catch {
+    return NOME_PADRAO
+  }
+}
+
+function invalidarCacheNomeEmpresa(empresaId) {
+  if (empresaId) _nomeCache.delete(empresaId)
+  else _nomeCache.clear()
+}
+
 module.exports = {
   findEmpresaById,
   findEmpresaBySlug,
@@ -70,4 +99,7 @@ module.exports = {
   usuarioPertenceAEmpresa,
   empresaAgentePausada,
   invalidarCachePauseEmpresa,
+  nomeEmpresa,
+  NOME_PADRAO,
+  invalidarCacheNomeEmpresa,
 }

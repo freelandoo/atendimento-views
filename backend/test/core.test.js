@@ -142,7 +142,7 @@ test('triagem curta: "Ola" identifica assistente da PJ Codeworks e pergunta nego
   })
   const msg = textoRespostaDecisao(decisao)
   assert.equal(decisao.deve_sobrescrever_modelo, true)
-  assert.match(msg, /assistente.*da PJ Codeworks/i)
+  assert.match(msg, /assistente.*da {{empresa}}/i)
   assert.match(msg, /neg.cio/i)
   assert.match(msg, /cidade/i)
   assert.doesNotMatch(msg, /pre.o|valor|investimento|reuni.o|hor.rio/i)
@@ -159,7 +159,7 @@ test('aceite fluxo: primeiro contato se apresenta, pergunta negocio/cidade e nao
   })
   const msg = textoRespostaDecisao(decisao)
 
-  assert.match(msg, /assistente.*da PJ Codeworks/i)
+  assert.match(msg, /assistente.*da {{empresa}}/i)
   assert.match(msg, /neg.cio/i)
   assert.match(msg, /cidade/i)
   assert.doesNotMatch(msg, /R\$|pre.o|valor|investimento/i)
@@ -613,7 +613,7 @@ test('agenda gera mensagem de lembrete de reuniao com horario de Sao Paulo', () 
   )
   assert.match(msg, /Oi, Ana/)
   assert.match(msg, /20:15/)
-  assert.match(msg, /equipe da PJ Codeworks/)
+  assert.match(msg, /equipe da nossa empresa/)
   assert.doesNotMatch(msg, /Victor/)
   assert.match(msg, /15 minutos/)
 })
@@ -669,7 +669,7 @@ test('agenda envia lembrete manual, atualiza status e registra historico sem col
     assert.equal(out.ok, true)
     assert.equal(out.enviado, true)
     assert.equal(enviados[0].numero, '5511999999999@s.whatsapp.net')
-    assert.match(enviados[0].texto, /equipe da PJ Codeworks/)
+    assert.match(enviados[0].texto, /equipe da nossa empresa/)
     assert.doesNotMatch(enviados[0].texto, /Victor/)
     assert.ok(calls.some((c) => /UPDATE vendas\.conversas/.test(c.sql)))
   } finally {
@@ -1671,7 +1671,7 @@ test('core funnel: preco em projeto sob medida oferece slots reais sem valores a
   // entao pularDeterministicoConversa=true e o LLM compoe livremente.
   // O criterio real e: zero valores em R$ + menciona reuniao/equipe + sem slots ficticios.
   assert.match(msg, /conversa rapida|reuniao|projeto sob medida|alinhar|marcar/i)
-  assert.match(msg, /equipe da PJ Codeworks/)
+  assert.match(msg, /equipe da nossa empresa/)
   assert.doesNotMatch(msg, /R\$|entrada|parcelas|3x|faixa|estimativa/i)
   assert.doesNotMatch(msg, /19:30|20:15/)
   assert.doesNotMatch(msg, /R\$|entrada|parcelas|3x|faixa|estimativa/i)
@@ -2484,7 +2484,7 @@ test('intencao: primeira resposta abre triagem curta e coleta contexto', async (
   })
   const msg = decisao.resultado.mensagem_pro_lead
   assert.equal(decisao.proxima_acao, 'explicar_solucao')
-  assert.match(msg, /assistente.*da PJ Codeworks/i)
+  assert.match(msg, /assistente.*da {{empresa}}/i)
   assert.match(msg, /tipo do seu neg.cio/i)
   assert.doesNotMatch(msg, /site, sistema, automa/i)
   assert.doesNotMatch(msg, /aparece no Google|Victor|aprofundando dor|funil|score|lead quente/i)
@@ -2635,7 +2635,7 @@ test('slot-filling: textos do bot saem com acentuacao portuguesa correta', async
   // Verifica que a resposta nao sai com mojibake e mantem portugues legivel.
   assert.match(msg, /informa[cç][oõ]es|neg.cio|regi.o/i)
   assert.doesNotMatch(msg, /Ã|â/)
-  assert.match(msg, /PJ Codeworks/i)
+  assert.match(msg, /{{empresa}}/i)
 })
 
 test('slot-filling: extrator parseia mensagem multilinha do lead', () => {
@@ -2751,7 +2751,7 @@ test('linguagem institucional: sanitizer troca Victor por equipe da PJ Codeworks
   const msg = sanitizarMencoesPessoaParaEquipe(
     'O Victor te mostra estrutura, prazo e investimento. Reunião com o Victor confirmada.'
   )
-  assert.match(msg, /equipe da PJ Codeworks/)
+  assert.match(msg, /equipe da {{empresa}}/)
   assert.match(msg, /estrutura, prazo e investimento/)
   assert.doesNotMatch(msg, /Victor/)
 })
@@ -2771,7 +2771,7 @@ test('linguagem institucional: prompts de atendimento nao direcionam para pessoa
     assert.doesNotMatch(text, /\bo equipe\b/i, `${file} tem concordancia quebrada`)
   }
   const primeiroContato = fs.readFileSync(path.join(__dirname, '..', 'prompts', 'system-primeiro-contato.md'), 'utf8')
-  assert.match(primeiroContato, /Apresente-se.*como PJ Codeworks|Sou da PJ Codeworks/)
+  assert.match(primeiroContato, /Apresente-se.*como \{\{empresa\}\}|Sou da \{\{empresa\}\}/)
   assert.match(primeiroContato, /no maximo 2 bolhas curtas/)
 })
 
@@ -2809,7 +2809,7 @@ test('renderPublicReplyFromAiResponse usa fallback quando modelo retorna texto p
   assert.equal(rendered.ok, false)
   assert.equal(rendered.error, 'json_parse_failed')
   assert.deepEqual(rendered.publicMessages, [
-    'Oi! Sou da PJ Codeworks.',
+    'Oi! Tudo bem? Como posso te ajudar.',
     'Você busca site, sistema, automação ou presença no Google?',
   ])
   assert.doesNotMatch(rendered.reply, /Segue uma lista/)
@@ -2823,7 +2823,7 @@ test('aceite fluxo: JSON malformado usa fallback seguro sem vazar bruto', () => 
 
   assert.equal(rendered.ok, false)
   assert.equal(rendered.error, 'json_parse_failed')
-  assert.match(rendered.reply, /PJ Codeworks/)
+  assert.match(rendered.reply, /Tudo bem|ajudar/i)
   assert.doesNotMatch(rendered.reply, /```|mensagens_bolhas|{|}/)
   assert.equal(rendered.publicMessagesGenerated, true)
 })
@@ -2833,7 +2833,7 @@ test('renderPublicReplyFromAiResponse usa fallback quando JSON nao tem bolhas pu
 
   assert.equal(rendered.ok, false)
   assert.equal(rendered.error, 'schema_public_messages_missing')
-  assert.match(rendered.reply, /PJ Codeworks/)
+  assert.match(rendered.reply, /Tudo bem|ajudar/i)
 })
 
 test('guard final bloqueia bolha que contem JSON bruto ou schema interno', () => {
@@ -2842,7 +2842,7 @@ test('guard final bloqueia bolha que contem JSON bruto ou schema interno', () =>
   const guarded = guardPublicMessages(['{"mensagens_bolhas":["Oi"]}'])
   assert.equal(guarded.blocked, true)
   assert.equal(guarded.reason, 'raw_json_or_schema_leak')
-  assert.match(guarded.messages.join(' '), /PJ Codeworks/)
+  assert.match(guarded.messages.join(' '), /Tudo bem|ajudar/i)
 })
 
 test('validarRespostaAntesDeEnviar impede envio de JSON bruto ao lead', () => {
@@ -3015,7 +3015,7 @@ test('guardrail bloqueia venda direta de projeto personalizado e oferece reuniao
   assert.equal(r.atualizar_perfil.produto_sugerido, 'reuniao_proposta_personalizada')
   assert.equal(r.atualizar_perfil.reuniao_proposta.necessaria, true)
   assert.deepEqual(r.atualizar_perfil.reuniao_proposta.horarios_sugeridos, ['19:30', '19:45'])
-  assert.match(r.mensagem_pro_lead, /equipe da PJ Codeworks/)
+  assert.match(r.mensagem_pro_lead, /equipe da {{empresa}}/)
   assert.match(r.mensagem_pro_lead, /estrutura, prazo e investimento/)
   assert.doesNotMatch(r.mensagem_pro_lead, /Victor/)
   // Nao deve mais conter a frase bloqueada "No seu caso, isso entra como proposta personalizada"
@@ -4160,11 +4160,11 @@ test('gerarDiagnosticos gera fallback sem ANTHROPIC_KEY', async () => {
 })
 
 test('substituirPlaceholderEmpresa cobre variantes comuns sem trocar texto valido', () => {
-  assert.equal(substituirPlaceholderEmpresa('Sou da [Empresa] e gostaria...'), 'Sou da PJ Codeworks e gostaria...')
-  assert.equal(substituirPlaceholderEmpresa('Aqui é da [empresa].'), 'Aqui é da PJ Codeworks.')
-  assert.equal(substituirPlaceholderEmpresa('Sou da [Sua Empresa].'), 'Sou da PJ Codeworks.')
-  assert.equal(substituirPlaceholderEmpresa('Sou da [ Nome da Empresa ].'), 'Sou da PJ Codeworks.')
-  assert.equal(substituirPlaceholderEmpresa('Sou da [MINHA EMPRESA] no setor X'), 'Sou da PJ Codeworks no setor X')
+  assert.equal(substituirPlaceholderEmpresa('Sou da [Empresa] e gostaria...'), 'Sou da {{empresa}} e gostaria...')
+  assert.equal(substituirPlaceholderEmpresa('Aqui é da [empresa].'), 'Aqui é da {{empresa}}.')
+  assert.equal(substituirPlaceholderEmpresa('Sou da [Sua Empresa].'), 'Sou da {{empresa}}.')
+  assert.equal(substituirPlaceholderEmpresa('Sou da [ Nome da Empresa ].'), 'Sou da {{empresa}}.')
+  assert.equal(substituirPlaceholderEmpresa('Sou da [MINHA EMPRESA] no setor X'), 'Sou da {{empresa}} no setor X')
   assert.equal(substituirPlaceholderEmpresa('Texto sem placeholder.'), 'Texto sem placeholder.')
   assert.equal(substituirPlaceholderEmpresa(''), '')
 })
@@ -4713,7 +4713,7 @@ test('formatarMensagemHandoffEnriquecida inclui blocos principais e não inclui 
     resultado: {},
   })
   const txt = formatarMensagemHandoffEnriquecida(handoff, { motivo: 'lead_pediu_humano' })
-  assert.match(txt, /HANDOFF — PJ Codeworks/)
+  assert.match(txt, /HANDOFF — {{empresa}}/)
   assert.match(txt, /Estrutura sugerida da página/)
   assert.match(txt, /Prompt para gerar imagem/)
   assert.match(txt, /Como falar na ligação/)
@@ -5124,7 +5124,7 @@ test('formatarMensagemParaContexto mensagem de texto normal', () => {
 test('formatarMensagemParaContexto mensagem da IA assistente', () => {
   const m = { role: 'assistant', content: 'Perfeito! Me conta mais sobre seu negócio.' }
   const out = formatarMensagemParaContexto(m, 1)
-  assert.ok(out.startsWith('[#2] PJ Codeworks:'))
+  assert.ok(out.startsWith('[#2] {{empresa}}:'))
   assert.ok(out.includes('Perfeito!'))
 })
 
@@ -5179,7 +5179,7 @@ test('gerarTextoConversaCompleta inclui cabeçalho e dados do lead', () => {
   }
   const perfil = { negocio: 'Limpeza de coifas', cidade: 'São Paulo/SP', temperatura_lead: 'quente' }
   const texto = gerarTextoConversaCompleta(conversa, perfil, [])
-  assert.ok(texto.includes('CONVERSA COMPLETA — PJ CODEWORKS'))
+  assert.ok(texto.includes('CONVERSA COMPLETA — {{empresa}}'))
   assert.ok(texto.includes('+55 11990001234') || texto.includes('11990001234'))
   assert.ok(texto.includes('Limpeza de coifas'))
   assert.ok(texto.includes('São Paulo/SP'))
@@ -6485,7 +6485,7 @@ test('fase2: montarMensagemComercialV2Fallback menciona PJ Codeworks', () => {
     { dores_identificadas: ['sem site'], sinais_positivos: ['nota 4.8'] },
     'site_profissional'
   )
-  assert.match(msg, /PJ Codeworks/i)
+  assert.match(msg, /{{empresa}}/i)
 })
 
 test('fase2: montarMensagemComercialV2Fallback nao ultrapassa 600 caracteres', () => {
@@ -6509,7 +6509,7 @@ test('fase2: gerarMensagemComercialV2 retorna fallback quando sem ANTHROPIC_KEY'
   assert.ok(typeof resultado.mensagem === 'string')
   assert.ok(resultado.mensagem.length > 10)
   assert.equal(resultado.prompt_version, 'prospecting_message_v2_2026_05')
-  assert.match(resultado.mensagem, /PJ Codeworks/i)
+  assert.match(resultado.mensagem, /{{empresa}}/i)
 
   if (original !== undefined) process.env.ANTHROPIC_KEY = original
 })

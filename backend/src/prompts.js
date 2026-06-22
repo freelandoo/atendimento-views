@@ -147,7 +147,7 @@ function loadTomReferenciaPrompt() {
 function withTomReferencia(base) {
   const conteudo = String(base || '')
   if (!TOM_REFERENCIA_BASE) return conteudo
-  if (conteudo.includes('# Tom de referência — PJ Codeworks')) return conteudo
+  if (conteudo.includes('# Tom de referência —')) return conteudo
   return `${conteudo}\n\n---\n\n${TOM_REFERENCIA_BASE}`
 }
 

@@ -249,7 +249,7 @@ function parsearHorarioReuniao(texto) {
 
 /**
  * Retorna nova Date representando o fim da reunião.
- * Padrão comercial PJ Codeworks: 15 minutos.
+ * Padrão comercial {{empresa}}: 15 minutos.
  */
 function calcularFimReuniao(dataInicio, duracaoMinutos = 15) {
   return new Date(dataInicio.getTime() + duracaoMinutos * 60 * 1000)

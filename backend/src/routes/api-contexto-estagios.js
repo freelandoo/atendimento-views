@@ -6,6 +6,7 @@ const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { logger } = require('../logger')
 const estagiosSvc = require('../services/contexto-estagios')
+const mensagensSvc = require('../services/mensagens-automaticas')
 const geracaoCompleta = require('../services/geracao-completa')
 const geracaoSimulacao = require('../services/geracao-simulacao')
 
@@ -215,6 +216,87 @@ router.put('/thumbnail', carregarContexto, async (req, res) => {
   } catch (err) {
     logger.error({ err: err.message }, 'salvar thumbnail')
     return res.status(500).json({ ok: false, error: { code: 'INTERNAL', message: 'Erro ao salvar thumbnail.' } })
+  }
+})
+
+// ─── Mensagens automáticas (saudações + gatilhos da agenda) ───────────────────
+// Mesmo molde dos estágios: viver no contexto, gerar por IA, editar e salvar.
+
+function _montarGrupos(ctx) {
+  return Object.keys(mensagensSvc.GRUPOS).map((grupo) => ({
+    grupo,
+    chaves: mensagensSvc.GRUPOS[grupo].etapas.map((e) => ({ chave: e.chave, label: e.label })),
+    mensagens: mensagensSvc.mesclarComDefaults(
+      grupo,
+      grupo === 'saudacoes' ? ctx.saudacoes_json : ctx.gatilhos_agenda_json
+    ),
+    vazio: mensagensSvc.grupoVazio(
+      grupo,
+      grupo === 'saudacoes' ? ctx.saudacoes_json : ctx.gatilhos_agenda_json
+    ),
+  }))
+}
+
+// GET .../mensagens — catálogo + textos atuais (salvos mesclados com defaults)
+router.get('/mensagens', async (req, res) => {
+  try {
+    const ctx = await mensagensSvc.getContextoMensagens(pool, req.empresa.id, req.params.contextoId)
+    if (!ctx) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Contexto não encontrado.' } })
+    return res.json({
+      ok: true,
+      data: {
+        grupos: _montarGrupos(ctx),
+        placeholders: ['empresa', 'nome', 'hora', 'data', 'opcoes', 'saudacao'],
+        tem_conhecimento: !!estagiosSvc.montarConhecimentoDoContexto(ctx),
+      },
+    })
+  } catch (err) {
+    logger.error({ err: err.message }, 'mensagens: GET')
+    return res.status(500).json({ ok: false, error: { code: 'INTERNAL', message: 'Erro interno.' } })
+  }
+})
+
+// POST .../mensagens/gerar — gera UM grupo adaptado ao conhecimento. Não persiste.
+// body: { grupo: 'saudacoes'|'gatilhos_agenda', mensagens? }
+router.post('/mensagens/gerar', async (req, res) => {
+  const grupo = req.body?.grupo
+  if (!mensagensSvc.grupoValido(grupo)) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'grupo inválido.' } })
+  }
+  try {
+    const ctx = await mensagensSvc.getContextoMensagens(pool, req.empresa.id, req.params.contextoId)
+    if (!ctx) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Contexto não encontrado.' } })
+    const conhecimento = estagiosSvc.montarConhecimentoDoContexto(ctx)
+    const base = req.body?.mensagens || (grupo === 'saudacoes' ? ctx.saudacoes_json : ctx.gatilhos_agenda_json)
+    const mensagens = await mensagensSvc.gerarGrupo({
+      pool, log: logger, empresaId: req.empresa.id, contextoId: req.contexto?.id || ctx.id,
+      grupo, conhecimento, base,
+    })
+    return res.json({ ok: true, data: { grupo, mensagens } })
+  } catch (err) {
+    logger.error({ err: err.message }, 'mensagens: gerar')
+    return res.status(502).json({ ok: false, error: { code: 'IA_FALHOU', message: err.message || 'Falha ao gerar. Tente de novo.' } })
+  }
+})
+
+// PUT .../mensagens — salva UM grupo. body: { grupo, mensagens }
+router.put('/mensagens', async (req, res) => {
+  const grupo = req.body?.grupo
+  const mensagens = req.body?.mensagens
+  if (!mensagensSvc.grupoValido(grupo)) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'grupo inválido.' } })
+  }
+  if (!mensagens || typeof mensagens !== 'object') {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'mensagens obrigatório.' } })
+  }
+  try {
+    const saved = await mensagensSvc.salvarGrupo(pool, req.empresa.id, req.params.contextoId, grupo, mensagens)
+    if (!saved) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Contexto não encontrado.' } })
+    mensagensSvc.invalidarCacheAtivo(req.empresa.id)
+    return res.json({ ok: true, data: { grupo, mensagens: mensagensSvc.mesclarComDefaults(grupo, saved) } })
+  } catch (err) {
+    logger.error({ err: err.message }, 'mensagens: salvar')
+    return res.status(500).json({ ok: false, error: { code: 'INTERNAL', message: 'Erro ao salvar.' } })
   }
 })
 

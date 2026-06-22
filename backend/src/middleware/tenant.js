@@ -76,7 +76,7 @@ async function resolveEmpresaFromWebhook(req, _res, next) {
     if (empresa) {
       req.empresaId = empresa.id
     } else {
-      logger.warn({ instance: instanceName }, 'Webhook: instance sem empresa mapeada — usando PJ Codeworks.')
+      logger.warn({ instance: instanceName }, 'Webhook: instance sem empresa mapeada — usando empresa padrão do sistema.')
       req.empresaId = PJ_EMPRESA_ID
     }
   } catch (err) {

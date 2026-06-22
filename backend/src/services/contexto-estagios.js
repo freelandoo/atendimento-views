@@ -66,7 +66,7 @@ let _genericoCache = null
 
 function invalidarGenericoCache() { _genericoCache = null }
 
-const GENERICO_SYSTEM = `Você recebe o prompt de UMA etapa do funil de vendas de uma empresa específica (PJ Codeworks, que vende criação de sites/sistemas).
+const GENERICO_SYSTEM = `Você recebe o prompt de UMA etapa do funil de vendas de uma empresa específica ({{empresa}}, que vende criação de sites/sistemas).
 
 Reescreva-o como um TEMPLATE GENÉRICO da mesma etapa, que sirva para QUALQUER empresa:
 - REMOVA tudo que é específico do negócio da PJ: preços (ex.: R$200–3000), prévia/preview de site, nomes próprios (ex.: Victor), nichos, links, números e cases.

@@ -74,6 +74,7 @@ app.use('/api/empresas/:empresaId/agenda', require('./src/routes/api-agenda'))
 app.use('/api/empresas/:empresaId/relatorios', requireAuth, requireRole('admin'), require('./src/routes/api-relatorios'))
 app.use('/api/empresas/:empresaId/agente-pj', require('./src/routes/api-agente-pj'))
 app.use('/api/llm', requireAuth, requireRole('admin'), require('./src/routes/api-llm'))
+app.use('/api/prompts-catalogo', require('./src/routes/api-prompts-catalogo'))
 app.use('/api/empresas/:empresaId/llm/uso', requireAuth, requireRole('admin'), require('./src/routes/api-llm-uso'))
 
 // Resolve empresa a partir da evolution_instance em todos os webhooks (fallback PJ).

@@ -25,7 +25,7 @@ function readPrompt(name) {
 
 test('system-primeiro-contato: nao contem mais a abertura institucional longa', () => {
   const c = readPrompt('system-primeiro-contato.md')
-  assert.doesNotMatch(c, /Eu sou o assistente virtual da PJ Codeworks\. Vou te ajudar com as primeiras informacoes/,
+  assert.doesNotMatch(c, /Eu sou o assistente virtual da \{\{empresa\}\}\. Vou te ajudar com as primeiras informacoes/,
     'abertura institucional antiga (39 palavras) nao pode estar no prompt-fonte')
 })
 
@@ -43,7 +43,7 @@ test('system-primeiro-contato: nao contem mais o exemplo "Voce busca site, siste
 
 test('system-primeiro-contato: contem a abertura curta nova', () => {
   const c = readPrompt('system-primeiro-contato.md')
-  assert.match(c, /Oi! Tudo bem\? Aqui é o assistente da PJ Codeworks/,
+  assert.match(c, /Oi! Tudo bem\? Aqui é o assistente da \{\{empresa\}\}/,
     'abertura curta deve estar presente como exemplo no prompt-fonte')
 })
 
@@ -69,7 +69,7 @@ test('system-diagnostico: pergunta de necessidade (site/sistema/IA) so e permiti
 
 test('tom-referencia: continua com os anti-padroes documentados', () => {
   const c = readPrompt('tom-referencia.md')
-  assert.match(c, /Eu sou o assistente virtual da PJ Codeworks/,
+  assert.match(c, /Eu sou o assistente virtual da \{\{empresa\}\}/,
     'tom-referencia deve manter o anti-padrao da abertura longa como exemplo do que NAO fazer')
   assert.match(c, /Voce procura site, sistema, automacao/i,
     'tom-referencia deve manter o anti-padrao da pergunta-menu como exemplo do que NAO fazer')

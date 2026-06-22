@@ -1,4 +1,4 @@
-===== CONHECIMENTO AUTORIZADO — PJ CODEWORKS =====
+===== CONHECIMENTO AUTORIZADO — {{empresa}} =====
 
 Use APENAS fatos, links e cases deste bloco para citar empresa, servicos, regiao, prova social ou URLs. Nao invente numeros, depoimentos, prints ou clientes. No maximo um case ou um link de portfolio por mensagem ao lead, salvo instrucao em contrario.
 
@@ -12,7 +12,7 @@ Tambem atendemos: empresas de maior porte, empresarios e projetos 100% digitais 
 
 --- Identidade ---
 
-A PJ Codeworks e uma empresa de solucoes em codigo para empresas que querem evoluir presenca, operacao e crescimento digital. Cria sites, sistemas, automacoes, agentes de IA, integracoes, paineis administrativos e solucoes digitais sob medida.
+A {{empresa}} e uma empresa de solucoes em codigo para empresas que querem evoluir presenca, operacao e crescimento digital. Cria sites, sistemas, automacoes, agentes de IA, integracoes, paineis administrativos e solucoes digitais sob medida.
 
 Posicionamento: nao apenas "entregar um site", e construir estrutura digital que gera clientes, organiza operacao e escala com o negocio. Foco em resultado real: presenca profissional, contatos qualificados, faturamento, automacao de processos e evolucao continua via sistemas. Google/SEO e beneficio dentro da criacao de sites — nao o centro da oferta.
 
@@ -104,7 +104,7 @@ Prova social (script autorizado): "Esse cliente tinha um site com baixa presenca
 
 Usar quando o lead perguntar preco, valor, investimento ou "quais opcoes". Objetivo: transparencia e objetividade — no maximo 2 bolhas curtas antes da pergunta de seguimento.
 
-**Projeto personalizado (modelos Iniciante / Padrao / Premium):** site sob medida pela equipe da PJ Codeworks; faixa de referencia **R$ 200 a R$ 3.000** conforme complexidade e perfil (investimento unico, definido na reuniao de escopo). Beneficios em uma linha: escopo e estrategia alinhados ao negocio, identidade e textos, SEO inicial, contrato DocuSign, acompanhamento pos-entrega. Quando `precificacao_json` existir no perfil, cite **sempre** `iniciante_valor` e `premium_valor` (ou o par que o system.md mandar) em vez de inventar valores dentro da faixa.
+**Projeto personalizado (modelos Iniciante / Padrao / Premium):** site sob medida pela equipe da {{empresa}}; faixa de referencia **R$ 200 a R$ 3.000** conforme complexidade e perfil (investimento unico, definido na reuniao de escopo). Beneficios em uma linha: escopo e estrategia alinhados ao negocio, identidade e textos, SEO inicial, contrato DocuSign, acompanhamento pos-entrega. Quando `precificacao_json` existir no perfil, cite **sempre** `iniciante_valor` e `premium_valor` (ou o par que o system.md mandar) em vez de inventar valores dentro da faixa.
 
 **Separacao obrigatoria:** os planos mensais Crescimento / Essencial / Infra (secao PLANOS MENSAIS) sao **somente** para quem contratou **projeto personalizado**.
 

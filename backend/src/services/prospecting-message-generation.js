@@ -1,6 +1,7 @@
 'use strict'
 
 const aiProviderDefault = require('../ai-provider')
+const { nomeEmpresa, NOME_PADRAO } = require('../db/empresas')
 
 const PROMPT_VERSION = 'prospeccao_fila_mensagem_v1_2026_05'
 const STATUS_COM_MENSAGEM_GERAVEL = new Set(['simulado', 'agendado'])
@@ -24,13 +25,13 @@ function extrairSinal(row = {}) {
   return 'perfil encontrado no Google Maps'
 }
 
-function montarMensagemFallback(row = {}) {
+function montarMensagemFallback(row = {}, nomeEmp = NOME_PADRAO) {
   const nome = row.nome_lead || row.prospect_nome || 'sua empresa'
   const categoria = row.categoria || row.prospect_nicho || 'seu segmento'
   const cidade = row.cidade || row.prospect_cidade || 'sua cidade'
   const sinal = extrairSinal(row)
   return (
-    `Opa, tudo bem? Sou da PJ Codeworks. Vi ${nome} no Google Maps em ${cidade} e notei ${sinal}. ` +
+    `Opa, tudo bem? Sou da ${nomeEmp}. Vi ${nome} no Google Maps em ${cidade} e notei ${sinal}. ` +
     `A gente ajuda negocios de ${categoria} a ter uma presenca digital mais clara e receber contatos pelo WhatsApp. Posso te mandar uma analise rapida?`
   ).slice(0, 600)
 }
@@ -67,6 +68,7 @@ async function buscarItemFilaParaMensagem(pool, filaId) {
       p.place_id,
       p.score,
       p.raw_json,
+      p.empresa_id,
       e.data_execucao,
       e.modo AS modo_execucao
     FROM prospectador.prospeccao_fila_diaria f
@@ -101,7 +103,8 @@ function validarItemGeravel(row) {
 
 async function gerarMensagemProspeccaoIA(row, deps = {}) {
   const aiProvider = deps.aiProvider || aiProviderDefault
-  const fallback = montarMensagemFallback(row)
+  const nomeEmp = await nomeEmpresa(row.empresa_id)
+  const fallback = montarMensagemFallback(row, nomeEmp)
   const categoria = row.categoria || row.prospect_nicho || 'negocio local'
   const cidade = row.cidade || row.prospect_cidade || 'cidade informada'
   const nome = row.nome_lead || row.prospect_nome || 'empresa'
@@ -109,7 +112,7 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
   const sinal = extrairSinal(row)
 
   const systemPrompt =
-    'Voce escreve mensagens frias de WhatsApp em nome da PJ Codeworks para prospeccao local. ' +
+    `Voce escreve mensagens frias de WhatsApp em nome da ${nomeEmp} para prospeccao local. ` +
     'Tom humano, curto, consultivo e respeitoso. Retorne APENAS o texto da mensagem, sem JSON e sem markdown.'
 
   const userPrompt =
@@ -122,7 +125,7 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
     `- sinal real: ${sinal}\n` +
     `- slot planejado de envio: ${row.slot_envio}\n\n` +
     `REGRAS:\n` +
-    `1. Diga "Sou da PJ Codeworks" na abertura.\n` +
+    `1. Diga "Sou da ${nomeEmp}" na abertura.\n` +
     `2. Use os dados reais acima; nao invente numeros, promessas, descontos ou resultados.\n` +
     `3. Nao peca reuniao nesta primeira mensagem.\n` +
     `4. Termine pedindo permissao para mandar uma analise rapida.\n` +

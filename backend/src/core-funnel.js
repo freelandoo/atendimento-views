@@ -6,8 +6,10 @@ const {
   sanitizarMencoesPessoaParaEquipe,
   sanitizarTermosInternosParaLead,
   sanitizarFrasesProibidasDaResposta,
+  aplicarNomeEmpresa,
   textoContemPrecoParaLead,
 } = require('./institutional-language')
+const { nomeEmpresa } = require('./db/empresas')
 const { validarRespostaAntesDeEnviar } = require('./agent-validators')
 const { limitarBolhasPorEtapa } = require('./message-limits')
 const { decidirProximaAcao, separarEcoDaUltimaPergunta } = require('./next-action-orchestrator')
@@ -138,7 +140,7 @@ function createCoreFunnel(deps = {}) {
     calcularFimReuniao,
     dataInicioReuniao,
     // Roteamento multiempresa (Contexto 2 / playbook). Opcionais: se ausentes,
-    // o funil roda 100% no agente legado (PJ Codeworks), comportamento atual.
+    // o funil roda 100% no agente legado ({{empresa}}), comportamento atual.
     getContextoAtivoEmpresa,
     processarMensagemComPlaybook,
     // Modelo unificado: contexto ativo com estágios próprios (Núcleo + 5). Opcional.
@@ -375,7 +377,7 @@ function createCoreFunnel(deps = {}) {
     }
   }
 
-  const MENSAGEM_AGENDA_INDISPONIVEL = 'Nao consegui consultar a agenda agora. Vou pedir para a equipe da PJ Codeworks verificar os proximos horarios e te chamar por aqui.'
+  const MENSAGEM_AGENDA_INDISPONIVEL = 'Nao consegui consultar a agenda agora. Vou pedir para a equipe da {{empresa}} verificar os proximos horarios e te chamar por aqui.'
   const MENSAGEM_PRECO_SITE_DIAGNOSTICO = 'Depende do tipo de site.\n\nUma pagina simples de apresentacao e diferente de uma estrutura mais completa com servicos, SEO local, integracao com WhatsApp e paginas especificas.\n\nPara eu te passar a direcao certa: voce quer algo mais simples para comecar ou uma estrutura mais completa para gerar contatos?'
   const MENSAGEM_SITE_ENTRADA = 'Perfeito. Para eu te orientar do jeito certo, me fala rapidinho:\n\n1. Qual e o seu negocio?\n2. Qual cidade ou regiao voce atende?\n3. O objetivo do site e mais apresentar a empresa, receber contatos pelo WhatsApp ou aparecer melhor no Google?'
   const MENSAGEM_LEAD_PESQUISANDO = 'Sem problema. Posso te orientar sem compromisso.\n\nNormalmente, para site, existem dois caminhos: uma estrutura mais simples para apresentar sua empresa e WhatsApp, ou algo mais completo para fortalecer presenca, servicos e conversao.\n\nVoce esta pesquisando mais para entender valores ou pensa em criar o site em breve?'
@@ -433,7 +435,7 @@ function createCoreFunnel(deps = {}) {
     }
     if (perfil && perfil.negocio) fatos.push(`- Negocio do lead: ${perfil.negocio}`)
     const system =
-      'Voce e o assistente de vendas da PJ Codeworks no WhatsApp. Reescreva a mensagem de forma calorosa, humana e curta (no maximo 2 frases). Portugues brasileiro, sem markdown, sem bullets, sem emojis em excesso.'
+      'Voce e o assistente de vendas da {{empresa}} no WhatsApp. Reescreva a mensagem de forma calorosa, humana e curta (no maximo 2 frases). Portugues brasileiro, sem markdown, sem bullets, sem emojis em excesso.'
     const user = [
       'Reescreva a mensagem abaixo mantendo EXATAMENTE os fatos. NUNCA invente, troque ou omita horario, dia ou valor. NUNCA cite preco em reais.',
       '',
@@ -542,7 +544,7 @@ function createCoreFunnel(deps = {}) {
     // do modelo + tom-referencia.
     switch (acao) {
       case 'convite_reuniao':
-        return 'Convide o lead para uma conversa rapida de ate 15 minutos com a equipe da PJ Codeworks e FECHE O HORARIO de forma assertiva e CURTA: em 1-2 bolhas curtas, proponha DOIS horarios concretos de "horarios_disponiveis" com o dia (data_label, ex.: "hoje"/"amanha") e peca para o lead escolher UM — ex.: "Consigo hoje as 20:00 ou 20:15 — qual fica melhor?". NAO escreva recapitulacao longa nem pergunte de forma aberta "que dia voce prefere?" sem dar opcoes concretas. USE APENAS os horarios de "horarios_disponiveis"; NUNCA invente horario ou dia. Cite o negocio do lead (perfil.negocio + perfil.cidade) so se couber em uma frase curta. Se dados_extraidos.horario indicar um horario fora dos slots, reconheca a proposta antes de reofertar (ex.: "Entendi, X. Pra alinhar com a janela da equipe..."). Tom leve e humano, nunca pressao.'
+        return 'Convide o lead para uma conversa rapida de ate 15 minutos com a equipe da {{empresa}} e FECHE O HORARIO de forma assertiva e CURTA: em 1-2 bolhas curtas, proponha DOIS horarios concretos de "horarios_disponiveis" com o dia (data_label, ex.: "hoje"/"amanha") e peca para o lead escolher UM — ex.: "Consigo hoje as 20:00 ou 20:15 — qual fica melhor?". NAO escreva recapitulacao longa nem pergunte de forma aberta "que dia voce prefere?" sem dar opcoes concretas. USE APENAS os horarios de "horarios_disponiveis"; NUNCA invente horario ou dia. Cite o negocio do lead (perfil.negocio + perfil.cidade) so se couber em uma frase curta. Se dados_extraidos.horario indicar um horario fora dos slots, reconheca a proposta antes de reofertar (ex.: "Entendi, X. Pra alinhar com a janela da equipe..."). Tom leve e humano, nunca pressao.'
       case 'responder_preco_sem_contexto':
         return 'Explique brevemente que tem dois caminhos: assinatura de site (rapido) ou projeto sob medida (estrutura, sistema, automacao etc.). Pergunte qual faz mais sentido. NAO mencione valores em reais — preco so na reuniao.'
       case 'confirmacao_reuniao':
@@ -552,9 +554,9 @@ function createCoreFunnel(deps = {}) {
       case 'diagnostico':
         return 'Avance no diagnostico perguntando UM unico dado faltante (de dados_faltantes). Se o dado faltante for a "necessidade", apresente as opcoes de forma direta e simples: pergunte se o lead procura um site, um sistema ou um agente de IA (exatamente essas tres opcoes, sem menu longo). NUNCA repita uma pergunta que ja aparece no resumo_historico — se o lead ja respondeu algo, siga em frente. Se nao houver dado faltante, va para conexao de valor ou convite de reuniao.'
       case 'primeiro_contato':
-        return 'Cumprimente curto (ex.: "Oi! Tudo bem? Aqui é o assistente da PJ Codeworks 👋") e pergunte o tipo do negocio. Uma pergunta apenas.'
+        return 'Cumprimente curto (ex.: "Oi! Tudo bem? Aqui é o assistente da {{empresa}} 👋") e pergunte o tipo do negocio. Uma pergunta apenas.'
       case 'conexao_valor':
-        return 'Conecte o que o lead disse com a solucao da PJ Codeworks. Termine perguntando como os clientes chegam hoje (Google/Instagram/indicacao).'
+        return 'Conecte o que o lead disse com a solucao da {{empresa}}. Termine perguntando como os clientes chegam hoje (Google/Instagram/indicacao).'
       case 'responder_duvida':
         return 'Responda direto a duvida do lead com base no historico. Se o lead perguntou "como funciona", explique de forma clara antes de coletar dados e depois reformule com simpatia, por exemplo: "Pelo que voce falou, parece que seria um site para o restaurante. E isso mesmo ou voce estava pensando em outra coisa?". Se houver pergunta pendente em turn_context ou acoes_proibidas incluir oferecer_reuniao, explique de forma clara e reformule a pergunta pendente com simpatia, sem avancar para reuniao. Se nao houver pergunta pendente, a duvida estiver resolvida e o perfil estiver completo, ofereca a reuniao.'
       case 'explicar_projeto_sob_medida':
@@ -655,8 +657,8 @@ function createCoreFunnel(deps = {}) {
     // O texto fixo era a raiz da repeticao robotica vista em producao.
     if (decisao.acao_decidida === 'pedido_humano') {
       return resultadoBase({
-        mensagem_pro_lead: 'Claro. Vou chamar a equipe da PJ Codeworks para te ajudar diretamente por aqui.',
-        mensagens_bolhas: ['Claro. Vou chamar a equipe da PJ Codeworks para te ajudar diretamente por aqui.'],
+        mensagem_pro_lead: 'Claro. Vou chamar a equipe da {{empresa}} para te ajudar diretamente por aqui.',
+        mensagens_bolhas: ['Claro. Vou chamar a equipe da {{empresa}} para te ajudar diretamente por aqui.'],
         atualizar_perfil: patchPerfilPorDecisao(decisao, perfil),
         etapa_proxima: etapa,
         handoff: true,
@@ -706,10 +708,10 @@ function createCoreFunnel(deps = {}) {
             : '')
         return resultadoBase({
           mensagem_pro_lead:
-            `Perfeito! Sua reunião está marcada para ${dataLabel} às ${horario} com a equipe da PJ Codeworks. ` +
+            `Perfeito! Sua reunião está marcada para ${dataLabel} às ${horario} com a equipe da {{empresa}}. ` +
             `Vai ser rápida, de até 15 minutos. Qual é o melhor e-mail para eu te enviar o convite?`,
           mensagens_bolhas: [
-            `Perfeito! Sua reunião está marcada para ${dataLabel} às ${horario} com a equipe da PJ Codeworks — vai ser rápida, de até 15 minutos.`,
+            `Perfeito! Sua reunião está marcada para ${dataLabel} às ${horario} com a equipe da {{empresa}} — vai ser rápida, de até 15 minutos.`,
             'Qual é o melhor e-mail para eu te enviar o convite?',
           ],
           atualizar_perfil: {
@@ -732,8 +734,8 @@ function createCoreFunnel(deps = {}) {
     if (decisao.acao_decidida === 'convite_reuniao' && slots && agendaTemSlots(slots)) {
       const intro =
         perfil && perfil.negocio
-          ? 'Perfeito! Pra te mostrar na prática como a PJ Codeworks pode ajudar o seu negócio, dá pra alinhar numa conversa rápida de 15 minutos com a equipe.'
-          : 'Perfeito! Pra te mostrar como ficaria na prática, dá pra alinhar numa conversa rápida de 15 minutos com a equipe da PJ Codeworks.'
+          ? 'Perfeito! Pra te mostrar na prática como a {{empresa}} pode ajudar o seu negócio, dá pra alinhar numa conversa rápida de 15 minutos com a equipe.'
+          : 'Perfeito! Pra te mostrar como ficaria na prática, dá pra alinhar numa conversa rápida de 15 minutos com a equipe da {{empresa}}.'
       const msg = montarMensagemOfertaAgenda(slots, intro)
       return resultadoBase({
         mensagem_pro_lead: msg,
@@ -802,7 +804,7 @@ function createCoreFunnel(deps = {}) {
       {
         const horarios = horariosValidosAgenda(slots)
         const intro = decisao.prioridade_aplicada === 'dados_minimos_coletados'
-          ? 'Com essas informações, o ideal é uma conversa rápida com a equipe da PJ Codeworks para entender o escopo e te apresentar estrutura, prazo e investimento.'
+          ? 'Com essas informações, o ideal é uma conversa rápida com a equipe da {{empresa}} para entender o escopo e te apresentar estrutura, prazo e investimento.'
           : 'Sem problema. Posso remarcar.'
         const frase = montarMensagemOfertaAgenda(slots, intro)
         return resultadoBase({
@@ -830,8 +832,8 @@ function createCoreFunnel(deps = {}) {
         const frase = montarMensagemOfertaAgenda(
           slots,
           veioDeAceiteConvite
-            ? 'Perfeito. Vou verificar os proximos horarios disponiveis para uma conversa rapida com a equipe da PJ Codeworks.'
-            : 'Boa pergunta. Como é um projeto sob medida, o valor depende da estrutura que sua empresa precisa.\n\nA equipe da PJ Codeworks te mostra estrutura, prazo e investimento na reunião, sem chute.'
+            ? 'Perfeito. Vou verificar os proximos horarios disponiveis para uma conversa rapida com a equipe da {{empresa}}.'
+            : 'Boa pergunta. Como é um projeto sob medida, o valor depende da estrutura que sua empresa precisa.\n\nA equipe da {{empresa}} te mostra estrutura, prazo e investimento na reunião, sem chute.'
         )
         return resultadoBase({
           mensagem_pro_lead: frase,
@@ -901,7 +903,7 @@ function createCoreFunnel(deps = {}) {
             duracao_maxima_minutos: 15,
           },
         }
-        const resumoHandoff = `Lead confirmou reuniao com a equipe da PJ Codeworks para ${dataSugeridaConfirmada || 'data sugerida'} as ${horario}. Estagio: ${estagioLive}. Intencao: escolha_horario. Valor interno para referencia da equipe: ${perfil?.preco_calculado ? `R$ ${perfil.preco_calculado}` : 'nao calculado'}. Nao foi informado ao lead.`
+        const resumoHandoff = `Lead confirmou reuniao com a equipe da {{empresa}} para ${dataSugeridaConfirmada || 'data sugerida'} as ${horario}. Estagio: ${estagioLive}. Intencao: escolha_horario. Valor interno para referencia da equipe: ${perfil?.preco_calculado ? `R$ ${perfil.preco_calculado}` : 'nao calculado'}. Nao foi informado ao lead.`
         if (decisao.deve_sobrescrever_modelo === false) {
           return {
             _merge_after: perfilConfirmacao,
@@ -915,7 +917,7 @@ function createCoreFunnel(deps = {}) {
           }
         }
         return resultadoBase({
-          mensagem_pro_lead: `Fechado: reunião marcada para ${dataLabel} às ${horario} com a equipe da PJ Codeworks. Vai ser uma conversa rápida, de até 15 minutos, para alinhar estrutura, prazo e investimento. Qual é o melhor e-mail para contato?`,
+          mensagem_pro_lead: `Fechado: reunião marcada para ${dataLabel} às ${horario} com a equipe da {{empresa}}. Vai ser uma conversa rápida, de até 15 minutos, para alinhar estrutura, prazo e investimento. Qual é o melhor e-mail para contato?`,
           atualizar_perfil: perfilConfirmacao,
           etapa_proxima: 'reuniao_agendada',
           handoff: true,
@@ -929,7 +931,7 @@ function createCoreFunnel(deps = {}) {
 
   /**
    * Resposta para empresas com Contexto 2 (playbook) ATIVO — NÃO usa o agente
-   * legado (prompts PJ Codeworks). Cada empresa responde com o próprio contexto.
+   * legado (prompts {{empresa}}). Cada empresa responde com o próprio contexto.
    * Caminho aditivo: só é chamado quando getContextoAtivoEmpresa retorna playbook.
    * Limite v1: sem agenda/reunião automática nem follow-up rico (isso vive no
    * fluxo legado). Atende empresas novas/simples; handoff pausa a conversa.
@@ -1792,7 +1794,7 @@ function createCoreFunnel(deps = {}) {
           const horariosSeguros = horariosValidosAgenda(slots)
           resultado.mensagem_pro_lead = montarMensagemOfertaAgenda(
             slots,
-            'Boa pergunta. Como é um projeto sob medida, o valor depende da estrutura que sua empresa precisa.\n\nA equipe da PJ Codeworks te mostra estrutura, prazo e investimento na reunião, sem chute.'
+            'Boa pergunta. Como é um projeto sob medida, o valor depende da estrutura que sua empresa precisa.\n\nA equipe da {{empresa}} te mostra estrutura, prazo e investimento na reunião, sem chute.'
           )
           resultado.mensagens_bolhas = null
           resultado.solicitar_calculo_preco = false
@@ -1829,14 +1831,18 @@ function createCoreFunnel(deps = {}) {
     if (!textoRespostaBruto) {
       throw new Error('Modelo retornou mensagem vazia para o lead')
     }
-    const textoResposta = sanitizarTermosInternosParaLead(
+    // Nome real da empresa dona da conversa: substitui "{{empresa}}" legado na
+    // saída ao lead (fail-open: PJ/desconhecida = no-op). Ponto único que cobre os
+    // literais do funil legado em mensagem_pro_lead e bolhas.
+    const nomeEmpConversa = await nomeEmpresa(empresaIdConversa)
+    const textoResposta = aplicarNomeEmpresa(sanitizarTermosInternosParaLead(
       sanitizarMencoesPessoaParaEquipe(
         sanitizarPlaceholderEmpresaNaSaidaTexto(
           sanitizarCpfNaSaidaTexto(textoRespostaBruto)
         )
       )
-    )
-  
+    ), nomeEmpConversa)
+
     const etapaEnvio = estagioLive === 'primeiro_contato'
       ? 'primeiro_contato'
       : (resultado.etapa_proxima || estagioLive)
@@ -1846,11 +1852,11 @@ function createCoreFunnel(deps = {}) {
             etapa: etapaEnvio,
             mensagens: resultado.mensagens_bolhas,
           })
-            .map((x) => sanitizarTermosInternosParaLead(
+            .map((x) => aplicarNomeEmpresa(sanitizarTermosInternosParaLead(
               sanitizarMencoesPessoaParaEquipe(
                 sanitizarPlaceholderEmpresaNaSaidaTexto(sanitizarCpfNaSaidaTexto(String(x || '').trim()))
               )
-            ))
+            ), nomeEmpConversa))
             .filter((x) => x.length > 0)
         : null
     auditoriaTurno.etapaNova = resultado.etapa_proxima || estagioLive

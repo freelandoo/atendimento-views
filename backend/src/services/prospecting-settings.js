@@ -67,7 +67,7 @@ function configProspeccaoPersistida(row) {
   }
 }
 
-// Empresa padrão (PJ Codeworks): default para callers single-tenant legados
+// Empresa padrão ({{empresa}}): default para callers single-tenant legados
 // (scheduler, daily-queue, places-queue) — preserva o comportamento atual.
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
 

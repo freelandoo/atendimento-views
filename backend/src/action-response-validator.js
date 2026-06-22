@@ -398,11 +398,11 @@ function fallbackContextual(contexto = {}, erros = []) {
   if (erros.includes('mencionou_janela_sem_agenda') ||
       erros.includes('ofereceu_horario_sem_agenda') ||
       erros.includes('ofereceu_horario_fora_da_agenda')) {
-    return 'Nao consegui consultar a agenda agora. Vou pedir para a equipe da PJ Codeworks verificar os proximos horarios e te chamar por aqui.'
+    return 'Nao consegui consultar a agenda agora. Vou pedir para a equipe da {{empresa}} verificar os proximos horarios e te chamar por aqui.'
   }
   if ((contexto?.decisao?.acao_decidida === 'convite_reuniao' || contexto?.decisao?.acao_decidida === 'consultar_agenda') &&
       normalizarLista(contexto.horarios_disponiveis || contexto.perfil?.horarios_oferecidos).length === 0) {
-    return 'Nao consegui consultar a agenda agora. Vou pedir para a equipe da PJ Codeworks verificar os proximos horarios e te chamar por aqui.'
+    return 'Nao consegui consultar a agenda agora. Vou pedir para a equipe da {{empresa}} verificar os proximos horarios e te chamar por aqui.'
   }
   // ia_alterou_etapa: a mensagem do LLM provavelmente esta ok mas o
   // campo etapa_proxima divergiu. Usamos fallback que avanca o funil
@@ -473,11 +473,11 @@ function capitalizar(str) {
 // Convite de reuniao (primeira vez): convite leve, sem horario concreto — o
 // horario real vem do caminho consultar_agenda do orquestrador.
 const MENSAGEM_OFERTA_REUNIAO =
-  'Show, ja tenho um bom panorama do seu caso. Posso ver um horario rapido com a equipe da PJ Codeworks pra te mostrar como ficaria na pratica?'
+  'Show, ja tenho um bom panorama do seu caso. Posso ver um horario rapido com a equipe da {{empresa}} pra te mostrar como ficaria na pratica?'
 // Escalonamento: ja convidamos antes e seguimos sem horario marcado. Em vez de
 // repetir o mesmo convite, passamos pra equipe confirmar o horario concreto.
 const MENSAGEM_HANDOFF_REUNIAO =
-  'Perfeito! Vou passar seu caso pra equipe da PJ Codeworks confirmar o melhor horario com voce por aqui. Eles te chamam em instantes. 👍'
+  'Perfeito! Vou passar seu caso pra equipe da {{empresa}} confirmar o melhor horario com voce por aqui. Eles te chamam em instantes. 👍'
 
 // Detecta se o bot JA convidou o lead para uma reuniao em algum turno anterior
 // (convite leve OU oferta de horario concreto). Usado para nao repetir o mesmo
@@ -536,10 +536,10 @@ function fallbackPorRepeticao(contexto = {}) {
 function fallbackSeguroPorAcao(contexto = {}) {
   const acao = contexto?.decisao?.acao_decidida
   if (acao === 'responder_preco_sem_contexto') return 'Temos dois caminhos: algo mais simples para comecar rapido, ou um projeto sob medida quando precisa de algo mais personalizado. Pra eu te orientar certo: o que voce quer construir agora?'
-  if (acao === 'convite_reuniao' || acao === 'consultar_agenda') return 'Nao consegui consultar a agenda agora. Vou pedir para a equipe da PJ Codeworks verificar os proximos horarios e te chamar por aqui.'
+  if (acao === 'convite_reuniao' || acao === 'consultar_agenda') return 'Nao consegui consultar a agenda agora. Vou pedir para a equipe da {{empresa}} verificar os proximos horarios e te chamar por aqui.'
   if (acao === 'confirmacao_reuniao') return 'Esse horario precisa estar entre as opcoes disponiveis que eu te enviei. Vou verificar novamente os horarios reais com a equipe.'
-  if (acao === 'pedido_humano') return 'Claro. Vou chamar a equipe da PJ Codeworks para te ajudar diretamente por aqui.'
-  if (acao === 'primeiro_contato') return 'Oi! Tudo bem? Aqui e o assistente da PJ Codeworks. Com o que voce trabalha hoje?'
+  if (acao === 'pedido_humano') return 'Claro. Vou chamar a equipe da {{empresa}} para te ajudar diretamente por aqui.'
+  if (acao === 'primeiro_contato') return 'Oi! Tudo bem? Aqui e o assistente da {{empresa}}. Com o que voce trabalha hoje?'
   // Para diagnostico / conexao_valor / responder_duvida sem fallback
   // especifico, avanca para o proximo dado faltante OU pede handoff.
   return fallbackPorRepeticao(contexto)
@@ -602,7 +602,7 @@ function mencionaHoraSemNumero(s) {
  * conversa e refez a apresentacao inicial.
  *
  * Regra: se o historico tem >=2 turnos do assistant, qualquer nova
- * mensagem que comece com saudacao + auto-apresentacao da PJ Codeworks
+ * mensagem que comece com saudacao + auto-apresentacao da {{empresa}}
  * e bloqueada.
  */
 function botReGreeting(texto, historico) {

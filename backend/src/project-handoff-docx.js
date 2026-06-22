@@ -82,7 +82,7 @@ async function gerarBriefingDocx(handoff, outPathAbs) {
 
   const kids = [
     new Paragraph({
-      text: 'Briefing de Projeto — PJ Codeworks',
+      text: 'Briefing de Projeto — {{empresa}}',
       heading: HeadingLevel.TITLE,
     }),
     tx(`Lead: ${subtituloParts.join(' — ')}`, true),
@@ -222,7 +222,7 @@ async function gerarBriefingDocx(handoff, outPathAbs) {
     bullets(m.checklistPosFechamento),
     tx(''),
     tx(
-      'PJ Codeworks — soluções em código, tecnologia, sites, sistemas, automações e agentes de IA. SEO/local faz parte da estrutura do site quando combinado no escopo.',
+      '{{empresa}} — soluções em código, tecnologia, sites, sistemas, automações e agentes de IA. SEO/local faz parte da estrutura do site quando combinado no escopo.',
       true
     ),
   ]

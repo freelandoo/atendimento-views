@@ -20,7 +20,7 @@ test('A.1 abertura nao usa textao institucional antigo', () => {
   const path = require('node:path')
   const conteudo = fs.readFileSync(path.join(__dirname, '..', 'src', 'agent.js'), 'utf8')
   // A nova abertura tem que estar presente
-  assert.match(conteudo, /Oi! Tudo bem\? Aqui é o assistente da PJ Codeworks/,
+  assert.match(conteudo, /Oi! Tudo bem\? Aqui é o assistente da {{empresa}}/,
     'nova abertura curta deve estar presente em agent.js')
   // A abertura antiga (39 palavras) nao pode mais estar como abertura padrao
   const antiga = 'Eu sou o assistente virtual da PJ Codeworks.\\nVou te ajudar com as primeiras informacoes'
@@ -78,7 +78,7 @@ test('C.1 prompts/tom-referencia.md existe e tem cabecalho conhecido', () => {
   const p = path.join(__dirname, '..', 'prompts', 'tom-referencia.md')
   assert.ok(fs.existsSync(p), 'prompts/tom-referencia.md deve existir')
   const conteudo = fs.readFileSync(p, 'utf8')
-  assert.match(conteudo, /^# Tom de referência — PJ Codeworks/m,
+  assert.match(conteudo, /^# Tom de referência — \{\{empresa\}\}/m,
     'cabecalho do arquivo deve ser estavel (usado por withTomReferencia para idempotencia)')
 })
 
@@ -89,7 +89,7 @@ test('C.2 loadTomReferenciaPrompt carrega conteudo do disco', () => {
   const base = prompts.TOM_REFERENCIA_BASE
   assert.ok(typeof base === 'string', 'TOM_REFERENCIA_BASE deve ser string')
   assert.ok(base.length > 200, 'TOM_REFERENCIA_BASE deve ter conteudo (>200 chars)')
-  assert.match(base, /Tom de referência — PJ Codeworks/, 'conteudo deve ter o cabecalho')
+  assert.match(base, /Tom de referência — \{\{empresa\}\}/, 'conteudo deve ter o cabecalho')
 })
 
 test('C.3 withTomReferencia anexa o bloco quando ele esta carregado', () => {
@@ -98,7 +98,7 @@ test('C.3 withTomReferencia anexa o bloco quando ele esta carregado', () => {
   const base = 'REGRAS DA ETAPA DIAGNOSTICO: faca pergunta de diagnostico.'
   const resultado = prompts.withTomReferencia(base)
   assert.match(resultado, /^REGRAS DA ETAPA DIAGNOSTICO/, 'deve preservar o conteudo original no inicio')
-  assert.match(resultado, /Tom de referência — PJ Codeworks/, 'deve anexar o bloco de tom-referencia')
+  assert.match(resultado, /Tom de referência — \{\{empresa\}\}/, 'deve anexar o bloco de tom-referencia')
   assert.match(resultado, /\n---\n/, 'deve usar separador --- entre o prompt e o tom-referencia')
 })
 
@@ -110,7 +110,7 @@ test('C.4 withTomReferencia e idempotente (nao duplica se ja anexado)', () => {
   const twice = prompts.withTomReferencia(once)
   assert.equal(once, twice, 'aplicar duas vezes deve gerar o mesmo resultado')
   // E so deve aparecer 1 vez o cabecalho
-  const ocorrencias = (twice.match(/# Tom de referência — PJ Codeworks/g) || []).length
+  const ocorrencias = (twice.match(/# Tom de referência — \{\{empresa\}\}/g) || []).length
   assert.equal(ocorrencias, 1, 'cabecalho do tom-referencia nao pode aparecer mais de uma vez')
 })
 
@@ -121,5 +121,5 @@ test('C.5 withTomReferencia retorna apenas o tom-referencia quando o prompt base
   // Quando base vazia + tom-referencia carregado, o resultado e apenas o
   // bloco de tom (com prefixo de separador). Isso evita crash e permite o
   // bot ter algum guidance mesmo se um arquivo de etapa estiver ausente.
-  assert.match(out, /# Tom de referência — PJ Codeworks/)
+  assert.match(out, /# Tom de referência — \{\{empresa\}\}/)
 })

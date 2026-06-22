@@ -4,6 +4,8 @@ const crypto = require('crypto')
 const { pool } = require('./db')
 const { logger } = require('./logger')
 const { enviarMensagem } = require('./whatsapp')
+const mensagensSvc = require('./services/mensagens-automaticas')
+const { empresaAgentePausada } = require('./db/empresas')
 const {
   REUNIAO_PROPOSTA_HORARIOS_PADRAO,
   horariosPadraoParaWeekday,
@@ -538,19 +540,38 @@ function horarioReuniaoLabel(row) {
   return formatarHoraSaoPaulo(row?.data_inicio) || '--:--'
 }
 
-function gerarMensagemLembreteReuniao(evento, lead = {}, tipo = '15min') {
+// Saudação (sensível ao nome) por tipo de lembrete. Continua no código porque
+// depende do nome do lead; entra no template via placeholder {saudacao}.
+function saudacaoLembrete(tipo, nome) {
+  if (tipo === 'dia') return nome ? `Oi, ${nome}, bom dia! 😊` : 'Bom dia! 😊'
+  if (tipo === 'agora') return nome ? `${nome}, chegou a hora! 🙌` : 'Chegou a hora! 🙌'
+  return nome ? `Oi, ${nome}, tudo bem?` : 'Oi, tudo bem?'
+}
+function chaveLembrete(tipo) {
+  return tipo === 'dia' ? 'lembrete_dia' : tipo === 'agora' ? 'lembrete_agora' : 'lembrete_15min'
+}
+function valoresLembrete(evento, lead = {}, tipo = '15min') {
   const nome = normalizarTexto(lead.apelido || lead.nome || lead.negocio || lead.empresa, 80)
-  const hora = horarioReuniaoLabel(evento)
-  if (tipo === 'dia') {
-    const saudacao = nome ? `Oi, ${nome}, bom dia! 😊` : 'Bom dia! 😊'
-    return `${saudacao} Hoje às ${hora} temos nossa conversa rápida com a equipe da PJ Codeworks. Posso confirmar seu horário? Responde *sim* que já garanto. 🙌`
-  }
-  if (tipo === 'agora') {
-    const saudacao = nome ? `${nome}, chegou a hora! 🙌` : 'Chegou a hora! 🙌'
-    return `${saudacao} Nossa conversa rápida com a equipe da PJ Codeworks é agora (${hora}). Já estou te aguardando por aqui!`
-  }
-  const saudacao = nome ? `Oi, ${nome}, tudo bem?` : 'Oi, tudo bem?'
-  return `${saudacao} Lembrete rápido: nossa reunião com a equipe da PJ Codeworks está marcada para hoje às ${hora}.\n\nA ideia é te mostrar a estrutura recomendada, prazo e investimento em até 15 minutos. Continua disponível nesse horário?`
+  return { nome, hora: horarioReuniaoLabel(evento), saudacao: saudacaoLembrete(tipo, nome) }
+}
+
+// Versão SÍNCRONA (template default, nome da empresa padrão) — back-compat e
+// fallback. O envio real usa montarMensagemLembrete (empresa-aware) abaixo.
+function gerarMensagemLembreteReuniao(evento, lead = {}, tipo = '15min') {
+  const template = mensagensSvc.defaultsDoGrupo('gatilhos_agenda')[chaveLembrete(tipo)]
+  return mensagensSvc.renderTemplate(template, { ...valoresLembrete(evento, lead, tipo), empresa: require('./db/empresas').NOME_PADRAO })
+}
+
+// Versão empresa-aware: resolve o template salvo do contexto ativo da empresa dona
+// do evento e injeta o nome certo. Fail-open (cai no default) via resolverMensagem.
+async function montarMensagemLembrete(row, tipo = '15min', empresaId = null) {
+  return mensagensSvc.resolverMensagem(pool, {
+    empresaId,
+    grupo: 'gatilhos_agenda',
+    chave: chaveLembrete(tipo),
+    values: valoresLembrete(row, row, tipo),
+    log: logger,
+  })
 }
 
 async function enfileirarJobLembreteReuniao(lembreteId, enviarEm) {
@@ -735,6 +756,7 @@ async function enviarLembreteReuniao(lembreteId, { manual = false, enviarMensage
   const { rows } = await pool.query(
     `SELECT l.*, l.status AS lembrete_status, l.tipo AS lembrete_tipo,
             e.*, e.status AS evento_status, e.tipo AS evento_tipo,
+            e.empresa_id AS evento_empresa_id, c.empresa_id AS conversa_empresa_id,
             c.numero AS conversa_numero, c.venda_fechada AS conversa_venda_fechada, lp.numero AS lead_numero,
             lp.apelido, lp.negocio, NULL::text AS nome, lp.contexto_prospeccao
      FROM vendas.agenda_lembretes l
@@ -761,7 +783,15 @@ async function enviarLembreteReuniao(lembreteId, { manual = false, enviarMensage
     await pool.query(`UPDATE vendas.agenda_lembretes SET status = 'falhou', erro = 'sem_numero', atualizado_em = NOW() WHERE id = $1`, [lembreteId])
     throw erroLembrete('lead_sem_telefone', 'Nao foi possivel enviar lembrete: lead sem telefone valido.')
   }
-  const mensagem = gerarMensagemLembreteReuniao(row, row, row.lembrete_tipo)
+  // Pause da empresa: agente pausado = não dispara lembrete automático. Envio manual
+  // (manual=true) ignora o pause (o operador decidiu enviar). Fail-open: erro de
+  // leitura do pause nunca bloqueia o envio (empresaAgentePausada já é fail-open).
+  const empresaIdEvento = row.evento_empresa_id || row.conversa_empresa_id || null
+  if (!manual && empresaIdEvento && await empresaAgentePausada(empresaIdEvento)) {
+    await pool.query(`UPDATE vendas.agenda_lembretes SET status = 'cancelado', erro = 'agente_pausado', atualizado_em = NOW() WHERE id = $1`, [lembreteId])
+    return { ok: true, cancelado: true, motivo: 'agente_pausado' }
+  }
+  const mensagem = await montarMensagemLembrete(row, row.lembrete_tipo, empresaIdEvento)
   try {
     await enviarMensagemFn(numero, mensagem)
     await registrarHistoricoLembrete(row, mensagem)
@@ -874,7 +904,14 @@ async function registrarSugestaoReagendamentoLembrete(row, enviarMensagemFn = en
   if (!horarios.length) return null
   const dataLabel = slots.data_label || 'em outro horario'
   const opcoes = horarios.length === 1 ? horarios[0] : `${horarios[0]} ou ${horarios[1]}`
-  const mensagem = `Sem problema, a gente remarca. Tenho ${dataLabel} às ${opcoes} com a equipe da PJ Codeworks. Qual desses horários fica melhor pra você?`
+  const empresaIdRemarca = row.evento_empresa_id || row.conversa_empresa_id || row.empresa_id || null
+  const mensagem = await mensagensSvc.resolverMensagem(pool, {
+    empresaId: empresaIdRemarca,
+    grupo: 'gatilhos_agenda',
+    chave: 'remarcacao',
+    values: { data: dataLabel, opcoes },
+    log: logger,
+  })
   await enviarMensagemFn(numero, mensagem)
   await pool.query(
     `UPDATE vendas.conversas
@@ -1757,7 +1794,7 @@ async function montarTextoResumoDiarioAgenda(dataIso) {
   )
   const dataBr = `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
   if (!rows.length) {
-    return `📅 Agenda de hoje (${dataBr}) — PJ Codeworks\nNenhuma reunião agendada para hoje.`
+    return `📅 Agenda de hoje (${dataBr}) — {{empresa}}\nNenhuma reunião agendada para hoje.`
   }
   const linhas = rows.map((r) => {
     const hora = formatarHoraSaoPaulo(r.data_inicio) || '--:--'

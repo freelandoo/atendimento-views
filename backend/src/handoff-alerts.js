@@ -70,16 +70,16 @@ function createHandoffAlerts(deps = {}) {
     })
     const linhas = [
       `Data/hora de referência (America/Sao_Paulo): ${horaLegivel}`,
-      `Redirecionamento imediato para a equipe da PJ Codeworks permitido AGORA: ${permitido ? 'SIM' : 'NÃO'}`,
+      `Redirecionamento imediato para a equipe da {{empresa}} permitido AGORA: ${permitido ? 'SIM' : 'NÃO'}`,
       'Regras: segunda a sexta 9h–18h; sábado 9h–15h; domingo sem redirecionamento imediato.',
     ]
     if (permitido) {
       linhas.push(
-        'Com handoff true: diga que a equipe da PJ Codeworks assume a conversa em breve, sem citar pessoa especifica.'
+        'Com handoff true: diga que a equipe da {{empresa}} assume a conversa em breve, sem citar pessoa especifica.'
       )
     } else {
       linhas.push(
-        'Com handoff true: NÃO prometa urgência imediata. Diga com naturalidade que a equipe da PJ Codeworks vai analisar e retornar com atenção. Registre handoff normalmente (handoff: true).'
+        'Com handoff true: NÃO prometa urgência imediata. Diga com naturalidade que a equipe da {{empresa}} vai analisar e retornar com atenção. Registre handoff normalmente (handoff: true).'
       )
     }
     return linhas.join('\n')
@@ -163,7 +163,7 @@ function createHandoffAlerts(deps = {}) {
     const termLinha = (term != null && term !== '') ? ` · 🌡️${term}/10` : ''
     const titulo = MOTIVO_LABEL[String(motivo || '')] || 'Lead encaminhado'
 
-    const linhas = [`🔔 ${titulo} — PJ Codeworks`, leadLinha, `${negCidade}${termLinha}`]
+    const linhas = [`🔔 ${titulo} — {{empresa}}`, leadLinha, `${negCidade}${termLinha}`]
 
     const reuniao = formatarReuniaoCurta(perfil)
     if (reuniao) linhas.push(`📅 ${reuniao}`)
@@ -287,7 +287,7 @@ function createHandoffAlerts(deps = {}) {
     const det = String(detalhe || '').trim()
     const detCorte = det.length > 400 ? `${det.slice(0, 397)}…` : det
     const textoWa =
-      `📌 Lacuna de conhecimento — PJ Codeworks\n` +
+      `📌 Lacuna de conhecimento — {{empresa}}\n` +
       `Tema: ${temaLinha}\n` +
       `Lead: ${phone || '?'}\n` +
       detCorte
@@ -302,7 +302,7 @@ function createHandoffAlerts(deps = {}) {
     if (!token || !chatId) return
   
     const texto =
-      `📌 *Lacuna — PJ Codeworks*\n` +
+      `📌 *Lacuna — {{empresa}}*\n` +
       `Tema: \`${String(tema || '?').replace(/`/g, "'")}\`\n` +
       `Lead: \`${phone || '?'}\`\n` +
       detCorte
@@ -358,7 +358,7 @@ function createHandoffAlerts(deps = {}) {
       : ''
     const resumo = String(resumoHandoff || '').trim()
     const texto =
-      `✅ Venda fechada — PJ Codeworks\n` +
+      `✅ Venda fechada — {{empresa}}\n` +
       `Lead: ${phone || numero}\n` +
       `Nicho: ${perfil.negocio || '?'} | ${perfil.cidade || '?'}\n` +
       (perfil.plano_sugerido ? `Plano: ${perfil.plano_sugerido}\n` : '') +
@@ -388,7 +388,7 @@ function createHandoffAlerts(deps = {}) {
     const phone = String(numero).replace(/@s\.whatsapp\.net$/i, '').replace(/\D/g, '')
     const detalhe = resumirTextoOperacional(falha?.detalhe || falha?.resumo || '', 280)
     const texto =
-      `⚠️ Falha de resposta automática — PJ Codeworks\n` +
+      `⚠️ Falha de resposta automática — {{empresa}}\n` +
       `Lead: ${phone || numero}\n` +
       `Código: ${falha?.codigo || 'resposta_falhou'}\n` +
       `Resumo: ${falha?.resumo || 'falha ao gerar ou enviar resposta'}\n` +

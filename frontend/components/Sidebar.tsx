@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useSession, podePapel, type Role } from '@/lib/useSession'
 
-type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report' | 'accounts' | 'profile'
+type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report' | 'accounts' | 'profile' | 'prompts'
 
 const NAV = [
   { href: '/dashboard', label: 'Visão Geral', icon: 'overview' },
@@ -15,6 +15,7 @@ const NAV = [
   { href: '/dashboard/agenda', label: 'Agenda', icon: 'agenda' },
   { href: '/dashboard/contextos', label: 'Empresas', icon: 'company' },
   { href: '/dashboard/llm', label: 'Modelo LLM', icon: 'model', minRole: 'admin' },
+  { href: '/dashboard/prompts', label: 'Prompts & Saudações', icon: 'prompts', minRole: 'admin' },
   { href: '/dashboard/uso', label: 'Uso & Custo', icon: 'usage', minRole: 'admin' },
   { href: '/dashboard/relatorios', label: 'Relatórios', icon: 'report', minRole: 'admin' },
   { href: '/dashboard/contas', label: 'Contas', icon: 'accounts', minRole: 'superadmin' },
@@ -339,6 +340,13 @@ function NavGlyph({ name, className }: { name: NavIcon; className?: string }) {
         <>
           <circle {...common} cx="12" cy="8" r="3.5" />
           <path {...common} d="M5 20v-1a6 6 0 0 1 6-6h2a6 6 0 0 1 6 6v1" />
+        </>
+      )}
+      {name === 'prompts' && (
+        <>
+          <path {...common} d="M5 6.5h14v9H9l-4 3v-12z" />
+          <path {...common} d="M8 10h8M8 13h4" />
+          <path {...common} d="M15.5 13.5l1.2 1.2 2.3-2.6" />
         </>
       )}
     </svg>
