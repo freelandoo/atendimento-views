@@ -63,6 +63,32 @@ function invalidarCachePauseEmpresa(empresaId) {
   else _pauseCache.clear()
 }
 
+// ─── Usa agenda? por empresa (config.usa_agenda) ───────────────────────────────
+// Default LIGADO (ausência = true) — preserva o comportamento atual. Quando false,
+// o agente NUNCA oferece/agenda reunião e a geração de contexto não cria regras de
+// reunião. Mesma estratégia de cache curto/fail-open do pause. Fail-open = agenda ON.
+const _agendaCache = new Map() // empresaId -> { usa, at }
+const AGENDA_TTL_MS = 30_000
+
+async function empresaUsaAgenda(empresaId) {
+  if (!empresaId) return true
+  const c = _agendaCache.get(empresaId)
+  if (c && Date.now() - c.at < AGENDA_TTL_MS) return c.usa
+  try {
+    const { rows } = await pool.query('SELECT config FROM app.empresas WHERE id = $1', [empresaId])
+    const usa = rows[0]?.config?.usa_agenda !== false
+    _agendaCache.set(empresaId, { usa, at: Date.now() })
+    return usa
+  } catch {
+    return true
+  }
+}
+
+function invalidarCacheAgendaEmpresa(empresaId) {
+  if (empresaId) _agendaCache.delete(empresaId)
+  else _agendaCache.clear()
+}
+
 // ─── Nome de exibição da empresa (para mensagens automáticas/lembretes) ─────────
 // Resolve app.empresas.nome com cache curto. Fallback (empresa nula/desconhecida)
 // = EMPRESA_NOME_PADRAO. EM PRODUÇÃO defina EMPRESA_NOME_PADRAO com a marca real:
@@ -99,6 +125,8 @@ module.exports = {
   usuarioPertenceAEmpresa,
   empresaAgentePausada,
   invalidarCachePauseEmpresa,
+  empresaUsaAgenda,
+  invalidarCacheAgendaEmpresa,
   nomeEmpresa,
   NOME_PADRAO,
   invalidarCacheNomeEmpresa,

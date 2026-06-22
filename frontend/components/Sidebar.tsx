@@ -1,8 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
-import { apiFetch, getEmpresaId } from '@/lib/api'
+import { usePathname } from 'next/navigation'
 import { useSession, podePapel, type Role } from '@/lib/useSession'
 
 type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report' | 'accounts' | 'profile' | 'prompts'
@@ -13,7 +12,7 @@ const NAV = [
   { href: '/dashboard/aquisicao', label: 'Aquisição', icon: 'prospect', minRole: 'admin' },
   { href: '/dashboard/banco-leads', label: 'Banco de Leads', icon: 'leads', minRole: 'admin' },
   { href: '/dashboard/agenda', label: 'Agenda', icon: 'agenda' },
-  { href: '/dashboard/contextos', label: 'Empresas', icon: 'company' },
+  { href: '/dashboard/contextos', label: 'Instância', icon: 'company' },
   { href: '/dashboard/llm', label: 'Modelo LLM', icon: 'model', minRole: 'admin' },
   { href: '/dashboard/prompts', label: 'Prompts & Saudações', icon: 'prompts', minRole: 'admin' },
   { href: '/dashboard/uso', label: 'Uso & Custo', icon: 'usage', minRole: 'admin' },
@@ -22,33 +21,15 @@ const NAV = [
   { href: '/dashboard/perfil', label: 'Perfil', icon: 'profile' },
 ] satisfies { href: string; label: string; icon: NavIcon; minRole?: Role }[]
 
-type Empresa = { id: string; nome: string; slug: string; plano?: string }
-
 export default function Sidebar() {
   const pathname = usePathname()
-  const router = useRouter()
   const { role } = useSession()
-  const [empresas, setEmpresas] = useState<Empresa[]>([])
-  const [empresaIdAtual, setEmpresaIdAtual] = useState<string>('')
   const [retraido, setRetraido] = useState(true)
-  const [aberto, setAberto] = useState(false)
-  const [criandoOpen, setCriandoOpen] = useState(false)
-  const [novoNome, setNovoNome] = useState('')
-  const [novoSlug, setNovoSlug] = useState('')
-  const [criando, setCriando] = useState(false)
-  const [erro, setErro] = useState<string | null>(null)
-
-  useEffect(() => {
-    setEmpresaIdAtual(getEmpresaId())
-    apiFetch<Empresa[]>('/api/empresas').then((r) => setEmpresas(r.data || [])).catch(() => {})
-  }, [pathname])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     setRetraido(window.localStorage.getItem('dashboard_toolbar_retraido') !== 'false')
   }, [])
-
-  const atual = empresas.find((e) => e.id === empresaIdAtual)
 
   function alternarToolbar() {
     setRetraido((prev) => {
@@ -56,40 +37,8 @@ export default function Sidebar() {
       if (typeof window !== 'undefined') {
         window.localStorage.setItem('dashboard_toolbar_retraido', String(next))
       }
-      if (next) setAberto(false)
       return next
     })
-  }
-
-  function trocar(empresaId: string) {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('empresa_id', empresaId)
-      setEmpresaIdAtual(empresaId)
-      setAberto(false)
-      router.refresh()
-      window.location.reload()
-    }
-  }
-
-  async function criarEmpresa(e: React.FormEvent) {
-    e.preventDefault()
-    setCriando(true)
-    setErro(null)
-    try {
-      const r = await apiFetch<Empresa>('/api/empresas', {
-        method: 'POST',
-        body: JSON.stringify({ nome: novoNome, slug: novoSlug || undefined }),
-      })
-      setEmpresas((prev) => [...prev, r.data])
-      setCriandoOpen(false)
-      setNovoNome('')
-      setNovoSlug('')
-      trocar(r.data.id)
-    } catch (err: unknown) {
-      setErro(err instanceof Error ? err.message : 'Erro ao criar empresa.')
-    } finally {
-      setCriando(false)
-    }
   }
 
   return (
@@ -102,9 +51,14 @@ export default function Sidebar() {
         <div className={`border-b border-[var(--border-soft)] px-3 py-3 ${retraido ? 'space-y-3' : 'space-y-4'}`}>
           <div className={`flex items-center ${retraido ? 'justify-center' : 'justify-between gap-3'}`}>
             {!retraido && (
-              <div className="min-w-0">
-                <p className="truncate font-display text-sm font-semibold tracking-tight text-hi">{atual?.nome || 'Atendimento-Views'}</p>
-                <p className="truncate text-[11px] font-medium uppercase tracking-[0.18em] text-neon-cyan/70">Command Deck</p>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-neon-cyan/40 bg-neon-cyan/15 text-xs font-bold text-neon-cyan shadow-glow-cyan">
+                  AV
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate font-display text-sm font-semibold tracking-tight text-hi">Atendimento-Views</p>
+                  <p className="truncate text-[11px] font-medium uppercase tracking-[0.18em] text-neon-cyan/70">Command Deck</p>
+                </div>
               </div>
             )}
             <button
@@ -117,62 +71,7 @@ export default function Sidebar() {
               <ChevronIcon className={`h-4 w-4 transition-transform duration-300 ${retraido ? 'rotate-180' : ''}`} />
             </button>
           </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              if (retraido) {
-                setRetraido(false)
-                if (typeof window !== 'undefined') window.localStorage.setItem('dashboard_toolbar_retraido', 'false')
-              } else {
-                setAberto((p) => !p)
-              }
-            }}
-            aria-label="Selecionar empresa"
-            title={atual?.nome || 'Atendimento-Views'}
-            className={`flex w-full items-center rounded-xl border border-white/10 bg-white/5 text-left transition hover:border-neon-cyan/30 hover:bg-white/[0.08] active:scale-[0.98] ${
-              retraido ? 'h-11 justify-center px-0' : 'justify-between gap-3 px-3 py-2'
-            }`}
-          >
-            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-neon-cyan/40 bg-neon-cyan/15 text-xs font-bold text-neon-cyan shadow-glow-cyan">
-              {(atual?.nome || 'PJ').slice(0, 2).toUpperCase()}
-            </span>
-            {!retraido && (
-              <>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-hi">{atual?.nome || 'Atendimento-Views'}</span>
-                  <span className="block truncate text-xs text-lo">{atual?.slug || 'painel'}</span>
-                </span>
-                <ChevronDownIcon className={`h-4 w-4 shrink-0 text-lo transition-transform ${aberto ? 'rotate-180' : ''}`} />
-              </>
-            )}
-          </button>
         </div>
-
-        {aberto && (
-          <div className="glass absolute left-3 top-[118px] z-20 w-56 overflow-hidden rounded-2xl py-1 shadow-glow-soft">
-            {empresas.map((e) => (
-              <button
-                key={e.id}
-                onClick={() => trocar(e.id)}
-                className={`w-full text-left px-3 py-2.5 text-sm transition hover:bg-white/5 ${
-                  e.id === empresaIdAtual ? 'font-semibold text-neon-cyan' : 'text-mid'
-                }`}
-              >
-                {e.nome}
-                <span className="block text-xs text-lo">{e.slug}</span>
-              </button>
-            ))}
-            <div className="mt-1 border-t border-white/10 pt-1">
-              <button
-                onClick={() => { setAberto(false); setCriandoOpen(true) }}
-                className="w-full text-left px-3 py-2.5 text-sm font-medium text-neon-cyan transition hover:bg-white/5"
-              >
-                + Nova empresa
-              </button>
-            </div>
-          </div>
-        )}
 
         <nav className="flex-1 space-y-1.5 px-3 py-4" aria-label="Navegação principal">
           {NAV.filter((item) => !item.minRole || podePapel(role, item.minRole)).map(({ href, label, icon }) => {
@@ -217,33 +116,6 @@ export default function Sidebar() {
           </div>
         </div>
       </div>
-
-      {criandoOpen && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-void/70 p-4 backdrop-blur-sm" onClick={() => setCriandoOpen(false)}>
-          <form
-            onSubmit={criarEmpresa}
-            onClick={(e) => e.stopPropagation()}
-            className="glass w-full max-w-sm space-y-4 rounded-2xl p-6 shadow-glow-soft"
-          >
-            <h3 className="font-display text-lg font-semibold text-hi">Nova empresa</h3>
-            <div className="space-y-1">
-              <label className="block text-xs text-lo">Nome</label>
-              <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} required minLength={2} className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-hi outline-none transition focus:border-neon-cyan" />
-            </div>
-            <div className="space-y-1">
-              <label className="block text-xs text-lo">Slug opcional</label>
-              <input value={novoSlug} onChange={(e) => setNovoSlug(e.target.value)} placeholder="ex: minha-empresa" className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-hi outline-none transition focus:border-neon-cyan" />
-            </div>
-            {erro && <p className="text-sm text-neon-red">{erro}</p>}
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setCriandoOpen(false)} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-mid transition hover:bg-white/10 active:scale-[0.98]">Cancelar</button>
-              <button type="submit" disabled={criando || !novoNome} className="rounded-lg border border-neon-cyan/40 bg-neon-cyan/15 px-3 py-2 text-sm font-medium text-neon-cyan transition hover:bg-neon-cyan/25 hover:shadow-glow-cyan active:scale-[0.98] disabled:opacity-50">
-                {criando ? 'Criando...' : 'Criar e entrar'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
     </aside>
   )
 }
@@ -252,14 +124,6 @@ function ChevronIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={className}>
       <path d="M14.5 6.75L9.25 12l5.25 5.25" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function ChevronDownIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={className}>
-      <path d="M6.75 9.75L12 15l5.25-5.25" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }

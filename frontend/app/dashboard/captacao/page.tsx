@@ -10,6 +10,11 @@ type CampanhaMeta = {
   usar_cse?: boolean
   usar_snowball?: boolean
   seguir_link_bio?: boolean
+  agendamento_ativo?: boolean
+  intervalo_horas?: number
+  janela_inicio?: string
+  janela_fim?: string
+  dias_semana?: number[]
 }
 type Campanha = {
   id: string; fonte: string; termo: string; nicho: string | null; cidade: string | null
@@ -51,6 +56,17 @@ const STATUS_STYLE: Record<string, string> = {
 // Estado dos toggles + limite usado pelo painel ad-hoc e pelo form de campanha.
 type Opcoes = { usar_cse: boolean; usar_snowball: boolean; seguir_link_bio: boolean }
 const OPCOES_PADRAO: Opcoes = { usar_cse: true, usar_snowball: true, seguir_link_bio: true }
+
+// Agenda de disparo automático da campanha (a cada X horas, dentro de janela/dias).
+type Agenda = {
+  agendamento_ativo: boolean; intervalo_horas: number
+  janela_inicio: string; janela_fim: string; dias_semana: number[]
+}
+const AGENDA_PADRAO: Agenda = {
+  agendamento_ativo: false, intervalo_horas: 24,
+  janela_inicio: '08:00', janela_fim: '18:00', dias_semana: [1, 2, 3, 4, 5],
+}
+const DIAS_LABEL = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
 export default function CaptacaoPage() {
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
@@ -98,12 +114,13 @@ export default function CaptacaoPage() {
   const [cTeto, setCTeto] = useState('50')
   const [cAtivo, setCAtivo] = useState(true)
   const [cOpcoes, setCOpcoes] = useState<Opcoes>(OPCOES_PADRAO)
+  const [cAgenda, setCAgenda] = useState<Agenda>(AGENDA_PADRAO)
 
   // Edição de campanha existente
   const [editId, setEditId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<{
-    nicho: string; cidade: string; perfis: string; teto: string; ativo: boolean; opcoes: Opcoes
-  }>({ nicho: '', cidade: '', perfis: '', teto: '50', ativo: true, opcoes: OPCOES_PADRAO })
+    nicho: string; cidade: string; perfis: string; teto: string; ativo: boolean; opcoes: Opcoes; agenda: Agenda
+  }>({ nicho: '', cidade: '', perfis: '', teto: '50', ativo: true, opcoes: OPCOES_PADRAO, agenda: AGENDA_PADRAO })
 
   const fb = useFeedback()
   const podeColetar = !!orcamento?.brightdata_configurado
@@ -181,9 +198,10 @@ export default function CaptacaoPage() {
           usar_cse: cOpcoes.usar_cse,
           usar_snowball: cOpcoes.usar_snowball,
           seguir_link_bio: cOpcoes.seguir_link_bio,
+          ...cAgenda,
         }),
       }), { sucesso: 'Campanha salva.' })
-      setCNicho(''); setCCidade(''); setCPerfis(''); setCTeto('50'); setCAtivo(true); setCOpcoes(OPCOES_PADRAO)
+      setCNicho(''); setCCidade(''); setCPerfis(''); setCTeto('50'); setCAtivo(true); setCOpcoes(OPCOES_PADRAO); setCAgenda(AGENDA_PADRAO)
       setNovaAberta(false)
       carregarMeta()
     } catch { /* erro já exibido pelo feedback */ }
@@ -203,6 +221,13 @@ export default function CaptacaoPage() {
         usar_snowball: m.usar_snowball ?? true,
         seguir_link_bio: m.seguir_link_bio ?? true,
       },
+      agenda: {
+        agendamento_ativo: m.agendamento_ativo ?? false,
+        intervalo_horas: m.intervalo_horas ?? 24,
+        janela_inicio: m.janela_inicio ?? '08:00',
+        janela_fim: m.janela_fim ?? '18:00',
+        dias_semana: m.dias_semana ?? [1, 2, 3, 4, 5],
+      },
     })
   }
 
@@ -219,6 +244,7 @@ export default function CaptacaoPage() {
           usar_cse: editForm.opcoes.usar_cse,
           usar_snowball: editForm.opcoes.usar_snowball,
           seguir_link_bio: editForm.opcoes.seguir_link_bio,
+          ...editForm.agenda,
         }),
       }), { sucesso: 'Campanha atualizada.' })
       setEditId(null)
@@ -366,6 +392,7 @@ export default function CaptacaoPage() {
                 placeholder={'@studioabc, @casadecor'} className="w-full border rounded-lg px-3 py-2 text-sm font-mono" />
             </div>
             <Toggles value={cOpcoes} onChange={setCOpcoes} />
+            <AgendaCampanha value={cAgenda} onChange={setCAgenda} />
             <div className="flex justify-end">
               <button type="submit" className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium">Salvar campanha</button>
             </div>
@@ -400,6 +427,7 @@ export default function CaptacaoPage() {
                         className="w-full border rounded-lg px-3 py-2 text-sm font-mono" />
                     </div>
                     <Toggles value={editForm.opcoes} onChange={(o) => setEditForm((p) => ({ ...p, opcoes: o }))} />
+                    <AgendaCampanha value={editForm.agenda} onChange={(a) => setEditForm((p) => ({ ...p, agenda: a }))} />
                     <div className="flex justify-end gap-2">
                       <button onClick={() => setEditId(null)} className="px-3 py-1.5 rounded-lg border text-xs">Cancelar</button>
                       <button onClick={() => salvarEdicao(c.id)} className="px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-medium">Salvar</button>
@@ -413,6 +441,11 @@ export default function CaptacaoPage() {
                         <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${c.ativo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                           {c.ativo ? 'Ativa' : 'Pausada'}
                         </span>
+                        {c.metadata_json?.agendamento_ativo && (
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-violet-100 text-violet-700">
+                            ⏱ auto a cada {c.metadata_json.intervalo_horas ?? 24}h
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-slate-500 mt-0.5">
                         {[c.cidade || '—', `teto ${c.teto_diario}/dia`,
@@ -565,6 +598,65 @@ function Toggles({ value, onChange }: { value: Opcoes; onChange: (o: Opcoes) => 
           {label}
         </label>
       ))}
+    </div>
+  )
+}
+
+function AgendaCampanha({ value, onChange }: { value: Agenda; onChange: (a: Agenda) => void }) {
+  return (
+    <div className="rounded-xl border bg-white p-3 space-y-2">
+      <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+        <input type="checkbox" checked={value.agendamento_ativo}
+          onChange={(e) => onChange({ ...value, agendamento_ativo: e.target.checked })} />
+        ⏱ Prospectar automaticamente (a cada X horas)
+      </label>
+      {value.agendamento_ativo && (
+        <div className="space-y-2 pl-6">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-32">
+              <label className="block text-xs text-slate-500 mb-1">A cada (horas)</label>
+              <input type="number" min={1} max={168} value={value.intervalo_horas}
+                onChange={(e) => onChange({ ...value, intervalo_horas: Number(e.target.value) || 1 })}
+                className="w-full border rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div className="w-28">
+              <label className="block text-xs text-slate-500 mb-1">Das</label>
+              <input type="time" value={value.janela_inicio}
+                onChange={(e) => onChange({ ...value, janela_inicio: e.target.value })}
+                className="w-full border rounded-lg px-2 py-2 text-sm" />
+            </div>
+            <div className="w-28">
+              <label className="block text-xs text-slate-500 mb-1">Até</label>
+              <input type="time" value={value.janela_fim}
+                onChange={(e) => onChange({ ...value, janela_fim: e.target.value })}
+                className="w-full border rounded-lg px-2 py-2 text-sm" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Dias da semana</label>
+            <div className="flex flex-wrap gap-1.5">
+              {DIAS_LABEL.map((d, i) => {
+                const on = value.dias_semana.includes(i)
+                return (
+                  <button key={i} type="button"
+                    onClick={() => onChange({
+                      ...value,
+                      dias_semana: on
+                        ? value.dias_semana.filter((x) => x !== i)
+                        : [...value.dias_semana, i].sort((a, b) => a - b),
+                    })}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${on ? 'bg-brand text-white border-brand' : 'text-slate-600 hover:bg-slate-50'}`}>
+                    {d}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Respeita o teto diário da campanha e o orçamento da Bright Data. Lembre que o Google CSE tem free tier de ~100 buscas/dia — use intervalos folgados.
+          </p>
+        </div>
+      )}
     </div>
   )
 }

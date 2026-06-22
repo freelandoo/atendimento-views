@@ -3,7 +3,7 @@ const { Router } = require('express')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { listEmpresasDoUsuario } = require('../db/usuarios')
-const { invalidarCachePauseEmpresa } = require('../db/empresas')
+const { invalidarCachePauseEmpresa, invalidarCacheAgendaEmpresa } = require('../db/empresas')
 
 const router = Router()
 
@@ -69,7 +69,26 @@ router.get('/:empresaId', requireAuth, requireEmpresaAccess, (req, res) => {
 // GET /api/empresas/:empresaId/agente — retorna estado global do agente
 router.get('/:empresaId/agente', requireAuth, requireEmpresaAccess, async (req, res) => {
   const pausado = !!(req.empresa?.config?.agente_pausado)
-  return res.json({ ok: true, data: { pausado } })
+  // Default LIGADO: só desliga quando explicitamente gravado como false.
+  const usa_agenda = req.empresa?.config?.usa_agenda !== false
+  return res.json({ ok: true, data: { pausado, usa_agenda } })
+})
+
+// PATCH /api/empresas/:empresaId/agenda { usa_agenda: true/false }
+// Decide se o agente DESTA empresa tenta agendar reunião (impacta geração de
+// contexto e runtime). Default ligado; gravar false desativa toda a agenda.
+router.patch('/:empresaId/agenda', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const usa_agenda = req.body?.usa_agenda !== false
+  const { rows: [empresa] } = await pool.query(
+    `UPDATE app.empresas
+        SET config = COALESCE(config, '{}'::jsonb) || jsonb_build_object('usa_agenda', $2::boolean),
+            atualizado_em = NOW()
+      WHERE id = $1
+      RETURNING id, nome, config`,
+    [req.empresa.id, usa_agenda]
+  )
+  invalidarCacheAgendaEmpresa(req.empresa.id)
+  return res.json({ ok: true, data: { usa_agenda: empresa.config?.usa_agenda !== false } })
 })
 
 // PATCH /api/empresas/:empresaId/agente { pausado: true/false }
@@ -103,7 +122,7 @@ router.put('/:empresaId', requireAuth, requireEmpresaAccess, async (req, res) =>
     `UPDATE app.empresas SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING *`,
     vals
   )
-  if (config) invalidarCachePauseEmpresa(req.empresa.id)
+  if (config) { invalidarCachePauseEmpresa(req.empresa.id); invalidarCacheAgendaEmpresa(req.empresa.id) }
   return res.json({ ok: true, data: empresa })
 })
 

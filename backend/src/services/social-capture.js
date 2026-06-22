@@ -16,12 +16,16 @@ const { logger } = require('../logger')
 const brightdata = require('./brightdata-client')
 const { extrairContato } = require('./social-contact-extract')
 const { descobrirPerfisPorNicho, normalizarSeeds } = require('./social-discovery')
+const { normalizarAgendaCampanha, campanhaDevePreencher } = require('./captacao-scheduler')
 
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
 const POLL_MS = Number(process.env.CAPTACAO_WORKER_POLL_MS || 60000)
+// A cada quanto tempo o worker reavalia campanhas para disparo automático.
+const SCHEDULER_INTERVAL_MS = Math.max(60000, Number(process.env.CAPTACAO_SCHEDULER_INTERVAL_MS || 5 * 60 * 1000))
 // Profundidade máxima da bola de neve (nível 0 = sementes; 1 = relacionados; ...).
 const SNOWBALL_MAX_NIVEL = Math.max(0, Number(process.env.CAPTACAO_SNOWBALL_MAX_NIVEL || 1))
 let captureWorkerTimer = null
+let _ultimoSchedulerMs = 0
 
 function tetoDiarioGlobal() {
   const n = Number(process.env.BRIGHTDATA_CAPTACAO_TETO_DIARIO)
@@ -138,6 +142,8 @@ function montarMetadata(input = {}, base = {}) {
     usar_cse: input.usar_cse != null ? Boolean(input.usar_cse) : (base.usar_cse ?? true),
     usar_snowball: input.usar_snowball != null ? Boolean(input.usar_snowball) : (base.usar_snowball ?? true),
     seguir_link_bio: input.seguir_link_bio != null ? Boolean(input.seguir_link_bio) : (base.seguir_link_bio ?? true),
+    // Agenda de disparo automático (a cada X horas dentro de janela/dias).
+    ...normalizarAgendaCampanha(input, base),
   }
 }
 
@@ -469,6 +475,39 @@ async function processarSnapshotsPendentes() {
   return { processados: n }
 }
 
+// Varre campanhas ativas com agendamento ligado e dispara uma nova coleta nas que
+// estão "vencidas" (intervalo + janela + dias). Reusa iniciarColeta, que já respeita
+// o orçamento diário (lança 429 quando esgota) — erro por campanha não derruba o loop.
+async function dispararCampanhasAgendadas(agora = new Date()) {
+  if (!brightdata.brightDataConfigurado()) return { disparadas: 0 }
+  const { rows } = await pool.query(
+    `SELECT id, empresa_id, fonte, nicho, cidade, teto_diario, ativo, ultima_coleta_em, metadata_json
+       FROM prospectador.captacao_campanhas
+      WHERE ativo = true
+        AND COALESCE((metadata_json->>'agendamento_ativo')::boolean, false) = true`
+  )
+  let disparadas = 0
+  for (const camp of rows) {
+    try {
+      if (!campanhaDevePreencher(camp, agora)) continue
+      await iniciarColeta(camp.empresa_id, { campanhaId: camp.id })
+      disparadas += 1
+    } catch (err) {
+      logger.warn({ campanha: camp.id, err: err.message }, '[captacao] agendamento: campanha pulada')
+    }
+  }
+  if (disparadas) logger.info({ disparadas }, '[captacao] campanhas agendadas disparadas')
+  return { disparadas }
+}
+
+async function captureWorkerTick() {
+  await processarSnapshotsPendentes().catch((e) => logger.error('[captacao] tick erro:', e.message))
+  if (Date.now() - _ultimoSchedulerMs > SCHEDULER_INTERVAL_MS) {
+    _ultimoSchedulerMs = Date.now()
+    await dispararCampanhasAgendadas().catch((e) => logger.error('[captacao] scheduler erro:', e.message))
+  }
+}
+
 function iniciarCaptureWorker() {
   if (captureWorkerTimer) return
   if (!brightdata.brightDataConfigurado()) {
@@ -476,10 +515,10 @@ function iniciarCaptureWorker() {
     return
   }
   captureWorkerTimer = setInterval(() => {
-    processarSnapshotsPendentes().catch((e) => logger.error('[captacao] tick erro:', e.message))
+    captureWorkerTick().catch((e) => logger.error('[captacao] tick erro:', e.message))
   }, POLL_MS)
-  processarSnapshotsPendentes().catch((e) => logger.error('[captacao] primeiro tick erro:', e.message))
-  logger.info({ pollMs: POLL_MS }, '[captacao] worker iniciado')
+  captureWorkerTick().catch((e) => logger.error('[captacao] primeiro tick erro:', e.message))
+  logger.info({ pollMs: POLL_MS, schedulerMs: SCHEDULER_INTERVAL_MS }, '[captacao] worker iniciado')
 }
 
 module.exports = {
@@ -491,6 +530,7 @@ module.exports = {
   removerCampanha,
   iniciarColeta,
   processarSnapshotsPendentes,
+  dispararCampanhasAgendadas,
   iniciarCaptureWorker,
   upsertProspectSocial,
 }

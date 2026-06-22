@@ -1,6 +1,7 @@
 'use strict'
 
 const { parsearRespostaJsonClaude } = require('../string-utils')
+const { empresaUsaAgenda } = require('../db/empresas')
 
 // Cache TTL: 60s por empresa_id (apenas para getContextoAtivoEmpresa)
 const _cache = new Map()
@@ -340,6 +341,16 @@ async function gerarContexto2Playbook({ pool, log, empresaId, contextoId, userId
   const jsonValidado = validarContexto2PlaybookComUrls(parsed.json || {}, { linkPrincipal: linkPrincipalReal })
   if (c1.precos_planos && !jsonValidado.precos_planos) {
     jsonValidado.precos_planos = String(c1.precos_planos).trim()
+  }
+  // Gate de agenda: instância sem agenda não recebe regras de reunião no playbook
+  // (o runtime também bloqueia, mas aqui o texto gerado já sai coerente).
+  const usaAgenda = await empresaUsaAgenda(empresaId).catch(() => true)
+  if (!usaAgenda) {
+    jsonValidado.regras_reuniao = {
+      oferecer_reuniao_quando: [],
+      nao_oferecer_reuniao_quando: ['Esta instância não usa agenda — nunca ofereça nem agende reunião; conduza para qualificação e handoff humano.'],
+      mensagens_base: [],
+    }
   }
 
   const { rows: [last] } = await pool.query(

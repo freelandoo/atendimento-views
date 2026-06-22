@@ -2,6 +2,16 @@
 
 const { parsearRespostaJsonClaude } = require('../string-utils')
 const { buscarContexto2Ativo, registrarSugestaoAprendizadoContexto } = require('./contexto-empresa')
+const { empresaUsaAgenda } = require('../db/empresas')
+
+// Override duro quando a instância NÃO usa agenda (config.usa_agenda=false).
+// Anexado ao REPLY_SYSTEM para sobrepor qualquer regra de reunião do playbook.
+const REPLY_SEM_AGENDA = `
+
+IMPORTANTE — ESTA INSTÂNCIA NÃO USA AGENDA:
+- NUNCA ofereça, sugira, marque ou confirme reunião/call/horário, mesmo que o playbook tenha regras de reunião — ignore-as por completo.
+- Em vez de reunião, conduza a conversa: qualifique, responda dúvidas e, quando o lead estiver pronto ou o caso for complexo, faça handoff humano (precisa_handoff=true).
+- Não cite "agenda", "agendar", "marcar um horário" nem proponha janelas de horário.`
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function _safeJson(text) {
@@ -301,6 +311,11 @@ sugestao_aprendizado pode ser null OU objeto:
 
 async function decidirRespostaComPlaybook({ pool, log, playbook, historico, mensagem, leadInsights, extracao, empresaId, conversaId, leadPhone, aiProvider }) {
   const provider = aiProvider || require('../ai-provider')
+  // Gate de agenda por instância: se desligada, força reuniao_status neutro e
+  // anexa o override que proíbe qualquer oferta de reunião.
+  const usaAgenda = await empresaUsaAgenda(empresaId).catch(() => true)
+  const extracaoView = usaAgenda ? extracao : { ...(extracao || {}), reuniao_status: 'nao_oferecida' }
+  const systemPrompt = usaAgenda ? REPLY_SYSTEM : REPLY_SYSTEM + REPLY_SEM_AGENDA
   const userPrompt = `PLAYBOOK ATIVO:
 ${_truncatePlaybook(playbook?.json || playbook)}
 
@@ -308,7 +323,7 @@ LEAD INSIGHTS:
 ${JSON.stringify(leadInsights || {}, null, 2)}
 
 EXTRAÇÃO RECENTE:
-${JSON.stringify(extracao || {}, null, 2)}
+${JSON.stringify(extracaoView || {}, null, 2)}
 
 HISTÓRICO:
 ${_formatHistorico(historico)}
@@ -320,7 +335,7 @@ Decida a melhor resposta.`
 
   const result = await provider.generateAIResponse(
     {
-      systemPrompt: REPLY_SYSTEM,
+      systemPrompt,
       userPrompt,
       task: 'replyWithPlaybook',
       maxTokens: 1200,
