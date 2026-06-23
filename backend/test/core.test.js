@@ -1499,6 +1499,19 @@ test('prompt dinamico inclui bloco de continuidade quando ha historico', () => {
   assert.match(texto, /Ultima fala do lead/)
 })
 
+test('prompt dinamico instrui uso natural do apelido do lead', () => {
+  const system = montarSystemPromptDinamico(
+    'diagnostico',
+    { apelido: 'Ana', negocio: 'clinica odontologica', cidade: 'Campinas' },
+    '',
+    {},
+    []
+  )
+  const texto = system.map((b) => b?.text || '').join('\n')
+  assert.match(texto, /NOME_DO_LEAD: Ana/)
+  assert.match(texto, /nao repita o nome em toda mensagem/)
+})
+
 test('diagnosticoCompletoParaPreco exige campos minimos', () => {
   assert.equal(
     diagnosticoCompletoParaPreco({

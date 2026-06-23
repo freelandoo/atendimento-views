@@ -220,6 +220,13 @@ test('resposta lead: webhook sempre deve gravar contexto de prospeccao no perfil
     'perfil transferido da prospeccao deve sinalizar site para o agente comercial')
   const posSalvar = fonte.indexOf('await salvarConversa(numero, historico, estagio')
   const posPerfil = fonte.indexOf('await atualizarPerfil(numero, perfilProspeccaoPatch)')
+  const posNome = fonte.indexOf('await capturarNomeContato(numero, { pushName: msg.pushName, texto: textoHistorico }')
   assert.ok(posSalvar >= 0 && posPerfil > posSalvar,
     'webhook deve salvar a conversa antes de inserir lead_profiles por causa da FK numero -> conversas(numero)')
+  assert.ok(posNome > posPerfil,
+    'webhook deve capturar apelido depois de salvar a conversa e aplicar o patch de perfil')
+  assert.match(fonte, /capturarNomeContato,\s*\n\s*\} = deps/,
+    'webhook deve receber capturarNomeContato por dependency injection')
+  assert.match(fonte, /pushName: msg\.pushName/,
+    'webhook deve repassar pushName do WhatsApp para captura de apelido')
 })

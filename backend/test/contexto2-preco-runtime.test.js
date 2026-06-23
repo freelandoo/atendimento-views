@@ -3,9 +3,10 @@
 const assert = require('node:assert')
 const test = require('node:test')
 
-function mockAIProvider(textOut) {
+function mockAIProvider(textOut, calls = []) {
   return {
-    async generateAIResponse() {
+    async generateAIResponse(input) {
+      calls.push(input)
       return { text: typeof textOut === 'function' ? textOut() : textOut, provider: 'mock', model: 'mock' }
     },
   }
@@ -75,4 +76,72 @@ test('extrairEDecidirBundle corrige resposta sem valor quando playbook tem preco
 
   assert.match(r.decisao.mensagem_pro_lead, /R\$\s?300 ao ano/i)
   assert.doesNotMatch(r.decisao.mensagem_pro_lead, /preciso entender melhor/i)
+})
+
+test('Contexto 2 injeta apelido no prompt de resposta separado', async () => {
+  const calls = []
+  const ai = mockAIProvider(JSON.stringify({
+    mensagem_pro_lead: 'Oi Ana, consigo te ajudar.',
+    etapa_proxima: 'diagnostico',
+    atualizar_perfil: {},
+    precisa_handoff: false,
+    sugestao_aprendizado: null,
+  }), calls)
+  const { decidirRespostaComPlaybook } = require('../src/services/contexto2-runtime')
+  await decidirRespostaComPlaybook({
+    pool, log: console,
+    playbook: { json: {} },
+    historico: [],
+    mensagem: 'oi',
+    leadInsights: {},
+    extracao: {},
+    apelido: 'Ana',
+    empresaId: 'e',
+    conversaId: 'c',
+    leadPhone: '+55',
+    aiProvider: ai,
+  })
+
+  assert.match(calls[0].userPrompt, /NOME DO LEAD/)
+  assert.match(calls[0].userPrompt, /Ana/)
+  assert.match(calls[0].userPrompt, /nao repita o nome em toda mensagem/)
+})
+
+test('Contexto 2 injeta apelido no prompt bundle', async () => {
+  const calls = []
+  const ai = mockAIProvider(JSON.stringify({
+    extracao: { intencoes: ['duvida'], intencao_principal: 'duvida', intencao: 'duvida' },
+    decisao: {
+      mensagem_pro_lead: 'Oi Bia, claro.',
+      etapa_proxima: 'diagnostico',
+      atualizar_perfil: {},
+      precisa_handoff: false,
+      sugestao_aprendizado: null,
+    },
+  }), calls)
+  const { extrairEDecidirBundle } = require('../src/services/contexto2-runtime')
+  await extrairEDecidirBundle({
+    pool, log: console,
+    playbook: { json: {} },
+    historico: [],
+    mensagem: 'oi',
+    leadInsights: {},
+    apelido: 'Bia',
+    empresaId: 'e',
+    conversaId: 'c',
+    leadPhone: '+55',
+    aiProvider: ai,
+  })
+
+  assert.match(calls[0].userPrompt, /NOME DO LEAD/)
+  assert.match(calls[0].userPrompt, /Bia/)
+})
+
+test('Contexto 2 bundle tem gate de agenda no system prompt e na extracao', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const fonte = fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'contexto2-runtime.js'), 'utf8')
+
+  assert.match(fonte, /const systemPrompt = usaAgenda \? BUNDLE_SYSTEM : BUNDLE_SYSTEM \+ REPLY_SEM_AGENDA/)
+  assert.match(fonte, /if \(!usaAgenda\) _neutralizarAgendaDesligada\(extracao, decisao\)/)
 })

@@ -33,6 +33,7 @@ function registerWebhookRoute(app, deps = {}) {
     enfileirarJobRespostaWebhook,
     registrarRespostaLembreteReuniao,
     podeGerarRespostaAutomatica,
+    capturarNomeContato,
   } = deps
 
   app.post('/webhook', async (req, res) => {
@@ -195,6 +196,11 @@ function registerWebhookRoute(app, deps = {}) {
         await salvarConversa(numero, historico, estagio, conversa?.status || 'ativo', undefined, req.empresaId, req.evolutionInstance)
         if (perfilProspeccaoPatch) {
           await atualizarPerfil(numero, perfilProspeccaoPatch)
+        }
+        if (typeof capturarNomeContato === 'function') {
+          await capturarNomeContato(numero, { pushName: msg.pushName, texto: textoHistorico }, webhookLog).catch((err) =>
+            webhookLog.warn({ err: serializeError(err) }, 'Falha ao capturar apelido do contato')
+          )
         }
         let respostaLembrete = null
         if (typeof registrarRespostaLembreteReuniao === 'function') {

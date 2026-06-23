@@ -79,6 +79,7 @@ const { getContextoAtivoEmpresa } = require('./services/contexto-empresa')
 const { getContextoAtivoComEstagios } = require('./services/contexto-estagios')
 const { empresaAgentePausada } = require('./db/empresas')
 const { createCoreFunnel } = require('./core-funnel')
+const { extrairNomeDeclarado, nomeDePushName } = require('./nome-contato')
 const {
   calcularPreco,
   diagnosticoCompletoParaPreco,
@@ -2647,6 +2648,12 @@ function montarSystemPromptDinamico(estagio, perfil, aprendizado, flags = {}, hi
 
   // Flags de pressao/instrucao-dinamica: sinalizam ao modelo quando acionar regras de prompt.
   const linhasFlags = []
+  const apelidoLead = typeof perfil?.apelido === 'string' ? perfil.apelido.trim().slice(0, 30) : ''
+  if (apelidoLead) {
+    linhasFlags.push(
+      `- NOME_DO_LEAD: ${apelidoLead}. Use o primeiro nome de forma natural para acolher/saudar quando fizer sentido; nao repita o nome em toda mensagem.`
+    )
+  }
   const pedidosPreco = Number(flags.pedidosPreco) || 0
   const temPrecoCalculado = !!flags.temPrecoCalculado
   if (pedidosPreco >= 2 && !temPrecoCalculado) {
@@ -5782,6 +5789,43 @@ async function registrarRespostaLembreteReuniaoComAlerta(numero, texto, opts) {
   return res
 }
 
+async function capturarNomeContato(numero, { pushName, texto } = {}, log = logger) {
+  const nomeDeclarado = extrairNomeDeclarado(texto)
+  const nomePush = nomeDePushName(pushName)
+  const apelido = nomeDeclarado || nomePush
+  const sobrescrever = !!nomeDeclarado
+  const fonte = nomeDeclarado ? 'mensagem' : (nomePush ? 'pushName' : null)
+  if (!numero || !apelido) return null
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO vendas.lead_profiles (numero, apelido, atualizado_em)
+       SELECT $1, $2, NOW()
+       WHERE EXISTS (SELECT 1 FROM vendas.conversas WHERE numero = $1)
+       ON CONFLICT (numero) DO UPDATE
+       SET apelido = CASE
+             WHEN $3::boolean THEN EXCLUDED.apelido
+             ELSE COALESCE(NULLIF(vendas.lead_profiles.apelido, ''), EXCLUDED.apelido)
+           END,
+           atualizado_em = CASE
+             WHEN $3::boolean OR NULLIF(vendas.lead_profiles.apelido, '') IS NULL THEN NOW()
+             ELSE vendas.lead_profiles.atualizado_em
+           END
+       WHERE $3::boolean OR NULLIF(vendas.lead_profiles.apelido, '') IS NULL
+       RETURNING numero, apelido`,
+      [numero, apelido, sobrescrever]
+    )
+    const row = rows[0] || null
+    if (row) {
+      log?.info?.({ fonte, apelido: row.apelido }, 'Apelido do lead capturado')
+    }
+    return row
+  } catch (err) {
+    log?.warn?.({ err: serializeError(err), fonte }, 'Falha ao capturar apelido do lead')
+    return null
+  }
+}
+
 registerWebhookRoute(app, {
   webhookAutorizado,
   gerarRequestIdAnthropic,
@@ -5814,6 +5858,7 @@ registerWebhookRoute(app, {
   enfileirarJobRespostaWebhook,
   registrarRespostaLembreteReuniao: registrarRespostaLembreteReuniaoComAlerta,
   podeGerarRespostaAutomatica,
+  capturarNomeContato,
 })
 
 /** Detalhe de uma conversa para o dashboard (perfil do lead). Auth: x-reprocess-secret se REPROCESS_SECRET definido. */

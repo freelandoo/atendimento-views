@@ -112,7 +112,10 @@ Extraia.`
     pool, log
   )
   const parsed = _safeJson(result.text)
-  return _normalizeExtracao(parsed)
+  const extracao = _normalizeExtracao(parsed)
+  const usaAgenda = await empresaUsaAgenda(empresaId).catch(() => true)
+  if (!usaAgenda) _neutralizarAgendaDesligada(extracao)
+  return extracao
 }
 
 function _normalizeExtracao(p) {
@@ -142,6 +145,16 @@ function _normalizeExtracao(p) {
     proxima_pergunta_sugerida: typeof e.proxima_pergunta_sugerida === 'string' ? e.proxima_pergunta_sugerida : '',
     precisa_handoff: !!e.precisa_handoff,
     motivo_handoff: typeof e.motivo_handoff === 'string' ? e.motivo_handoff : '',
+  }
+}
+
+function _neutralizarAgendaDesligada(extracao, decisao = null) {
+  if (extracao && typeof extracao === 'object') {
+    extracao.reuniao_status = 'nao_oferecida'
+  }
+  const perfil = decisao?.atualizar_perfil
+  if (perfil && typeof perfil === 'object' && !Array.isArray(perfil)) {
+    delete perfil.reuniao_proposta
   }
 }
 
@@ -309,14 +322,14 @@ sugestao_aprendizado pode ser null OU objeto:
 { "tipo": "objecao_nova|pergunta_frequente|resposta_que_funcionou|outro",
   "evidencia": "", "sugestao_markdown": "", "confianca": "baixa|media|alta" }`
 
-async function decidirRespostaComPlaybook({ pool, log, playbook, historico, mensagem, leadInsights, extracao, empresaId, conversaId, leadPhone, aiProvider }) {
+async function decidirRespostaComPlaybook({ pool, log, playbook, historico, mensagem, leadInsights, extracao, apelido, empresaId, conversaId, leadPhone, aiProvider }) {
   const provider = aiProvider || require('../ai-provider')
   // Gate de agenda por instância: se desligada, força reuniao_status neutro e
   // anexa o override que proíbe qualquer oferta de reunião.
   const usaAgenda = await empresaUsaAgenda(empresaId).catch(() => true)
   const extracaoView = usaAgenda ? extracao : { ...(extracao || {}), reuniao_status: 'nao_oferecida' }
   const systemPrompt = usaAgenda ? REPLY_SYSTEM : REPLY_SYSTEM + REPLY_SEM_AGENDA
-  const userPrompt = `PLAYBOOK ATIVO:
+  const userPrompt = `${apelido ? `NOME DO LEAD (trate pelo primeiro nome, com naturalidade; nao repita o nome em toda mensagem): ${apelido}\n\n` : ''}PLAYBOOK ATIVO:
 ${_truncatePlaybook(playbook?.json || playbook)}
 
 LEAD INSIGHTS:
@@ -617,9 +630,13 @@ Mantenha "intencao" (singular) preenchido com intencao_principal para compatibil
 REGRA DE URL — PROIBIDO INVENTAR LINK.
 Nunca emita example.com, localhost, teste.com, site.com, yoursite.com, dominio.com, sample.com, fake.com ou qualquer URL placeholder. Use APENAS URLs presentes em playbook.links_uteis_estruturados, playbook.cadastro_e_onboarding.link_cadastro, playbook.resumo_empresa.site ou nos dados do lead. Se não houver URL real, NÃO inclua link na resposta.`
 
-async function extrairEDecidirBundle({ pool, log, playbook, historico, mensagem, leadInsights, empresaId, conversaId, leadPhone, aiProvider }) {
+async function extrairEDecidirBundle({ pool, log, playbook, historico, mensagem, leadInsights, apelido, empresaId, conversaId, leadPhone, aiProvider }) {
   const provider = aiProvider || require('../ai-provider')
-  const userPrompt = `PLAYBOOK ATIVO:
+  // Gate de agenda (também no caminho bundle, que é o default): se desligada, anexa
+  // o override que proíbe oferecer reunião.
+  const usaAgenda = await empresaUsaAgenda(empresaId).catch(() => true)
+  const systemPrompt = usaAgenda ? BUNDLE_SYSTEM : BUNDLE_SYSTEM + REPLY_SEM_AGENDA
+  const userPrompt = `${apelido ? `NOME DO LEAD (trate pelo primeiro nome, com naturalidade; nao repita o nome em toda mensagem): ${apelido}\n\n` : ''}PLAYBOOK ATIVO:
 ${_truncatePlaybook(playbook?.json || playbook)}
 
 DADOS JÁ CONHECIDOS DO LEAD:
@@ -635,7 +652,7 @@ Extraia + decida em um único JSON.`
 
   const result = await provider.generateAIResponse(
     {
-      systemPrompt: BUNDLE_SYSTEM,
+      systemPrompt,
       userPrompt,
       task: 'extractAndReply',
       maxTokens: 2000,
@@ -646,6 +663,7 @@ Extraia + decida em um único JSON.`
   )
   const p = _safeJson(result.text)
   const extracao = _normalizeExtracao(p.extracao || {})
+  if (!usaAgenda) _neutralizarAgendaDesligada(extracao)
   // Reforço heurístico: garante que multi-intent não passe batido se a IA emitir só um
   const heur = detectarIntencoesHeuristicas(mensagem)
   if (heur.length) {
@@ -663,6 +681,7 @@ Extraia + decida em um único JSON.`
     motivo_handoff: typeof p.decisao?.motivo_handoff === 'string' ? p.decisao.motivo_handoff : '',
     sugestao_aprendizado: p.decisao?.sugestao_aprendizado && typeof p.decisao.sugestao_aprendizado === 'object' ? p.decisao.sugestao_aprendizado : null,
   }
+  if (!usaAgenda) _neutralizarAgendaDesligada(extracao, decisao)
   // Sanitiza URLs fake na resposta — substitui por link real do playbook se existir
   const { sanitizarDecisaoUrls } = require('./url-sanitize')
   const linkReal = _extrairLinkPrincipalDoPlaybook(playbook?.json || playbook)
@@ -702,13 +721,16 @@ async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, 
     [empresaId, leadPhone]
   )
   const leadInsights = insightsRow || {}
+  // Nome do contato (apelido) p/ o agente saudar pelo nome. Fail-open: sem nome, segue.
+  const apelido = await pool.query('SELECT apelido FROM vendas.lead_profiles WHERE numero = $1', [leadPhone])
+    .then((r) => (r.rows[0]?.apelido || null)).catch(() => null)
 
   const usarBundle = String(process.env.CONTEXT_PLAYBOOK_BUNDLE || 'true').toLowerCase() !== 'false'
 
   let extracao, decisao
   if (usarBundle) {
     const b = await extrairEDecidirBundle({
-      pool, log, playbook, historico, mensagem, leadInsights,
+      pool, log, playbook, historico, mensagem, leadInsights, apelido,
       empresaId, conversaId, leadPhone, aiProvider,
     })
     extracao = b.extracao
@@ -719,7 +741,7 @@ async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, 
       empresaId, conversaId, leadPhone, aiProvider,
     })
     decisao = await decidirRespostaComPlaybook({
-      pool, log, playbook, historico, mensagem, leadInsights, extracao,
+      pool, log, playbook, historico, mensagem, leadInsights, extracao, apelido,
       empresaId, conversaId, leadPhone, aiProvider,
     })
   }
