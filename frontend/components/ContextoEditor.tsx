@@ -214,7 +214,7 @@ export default function ContextoEditor({ empresaId, contextoId }: { empresaId: s
         />
         <CardTeste empresaId={empresaId} contextoForm={contexto.contexto_form_json || {}} versaoAtiva={versoes.find((v) => v.status === 'ativo') || null} />
       </div>
-      <CardEstagios empresaId={empresaId} contextoId={contexto.id} contextoNome={contexto.nome} reloadKey={pipelineNonce} onAtivacao={carregar} />
+      <CardEstagios empresaId={empresaId} contextoId={contexto.id} contextoNome={contexto.nome} reloadKey={pipelineNonce} onAtivacao={carregar} onGerouTudo={recarregarDerivados} />
       <CardMensagens empresaId={empresaId} contextoId={contexto.id} reloadKey={pipelineNonce} />
     </div>
   )
@@ -839,12 +839,13 @@ type SimItem = {
   erro?: string
 }
 
-function CardEstagios({ empresaId, contextoId, contextoNome: _contextoNome, reloadKey, onAtivacao }: {
+function CardEstagios({ empresaId, contextoId, contextoNome: _contextoNome, reloadKey, onAtivacao, onGerouTudo }: {
   empresaId: string
   contextoId: string
   contextoNome: string
   reloadKey?: number
   onAtivacao: () => Promise<void> | void
+  onGerouTudo?: () => Promise<void> | void
 }) {
   const [etapas, setEtapas] = useState<{ chave: string; label: string }[]>([])
   const [estagios, setEstagios] = useState<Record<string, string>>({})
@@ -901,8 +902,10 @@ function CardEstagios({ empresaId, contextoId, contextoNome: _contextoNome, relo
       setDirty(false) // o backend já salvou os estágios
       const erros = (r.data.passos || []).filter((p) => p.erro)
       if (erros.length) fb.toast(`Gerado com avisos em: ${erros.map((e) => e.etapa).join(', ')}. Revise os campos.`, 'info')
-      else fb.sucessoModal('Tudo gerado', 'Contexto 1, estágios e playbook comercial. Revise, edite se quiser e ative.')
+      else fb.sucessoModal('Tudo gerado', 'Contexto 1, estágios, playbook e mensagens automáticas. Revise, edite se quiser e ative.')
       await onAtivacao()
+      // Recarrega os cards derivados (inclui Mensagens automáticas, geradas no mesmo fluxo).
+      if (onGerouTudo) await onGerouTudo()
     } catch { /* erro já exibido pelo feedback */ }
     finally { setBusy(null) }
   }
@@ -1132,21 +1135,6 @@ function CardMensagens({ empresaId, contextoId, reloadKey }: {
     setDirty((d) => ({ ...d, [grupo]: true }))
   }
 
-  async function gerar(grupo: string) {
-    setBusy(`gerar-${grupo}`)
-    try {
-      const atual = grupos.find((g) => g.grupo === grupo)?.mensagens || {}
-      const r = await fb.runTask(() => apiFetch<{ grupo: string; mensagens: Record<string, string> }>(
-        `/api/empresas/${empresaId}/contextos/${contextoId}/mensagens/gerar`,
-        { method: 'POST', body: JSON.stringify({ grupo, mensagens: atual }), timeoutMs: 120000 }
-      ), { sucesso: null })
-      setGrupos((prev) => prev.map((g) => g.grupo === grupo ? { ...g, mensagens: r.data.mensagens } : g))
-      setDirty((d) => ({ ...d, [grupo]: true }))
-      fb.toast('Mensagens geradas. Revise e salve.', 'info')
-    } catch { /* erro já exibido pelo feedback */ }
-    finally { setBusy(null) }
-  }
-
   async function salvar(grupo: string) {
     setBusy(`salvar-${grupo}`)
     try {
@@ -1164,7 +1152,7 @@ function CardMensagens({ empresaId, contextoId, reloadKey }: {
       <div>
         <h3 className="font-semibold text-sm">Mensagens automáticas</h3>
         <p className="text-xs text-gray-500 mt-0.5">
-          Textos fixos enviados pelo agente, por empresa. Use <strong>Gerar</strong> pra adaptar ao seu negócio (com a IA) e edite o que quiser.
+          Textos fixos enviados pelo agente, por empresa. São adaptados ao seu negócio (com a IA) pelo <strong>Gerar tudo</strong> acima — edite o que quiser e salve.
         </p>
         {placeholders.length > 0 && (
           <p className="text-[11px] text-gray-400 mt-1">
@@ -1175,7 +1163,7 @@ function CardMensagens({ empresaId, contextoId, reloadKey }: {
 
       {!temConhecimento && (
         <p className="text-[11px] text-amber-600">
-          Dica: adicione fontes (link/PDF) acima antes de <strong>Gerar</strong> — a IA usa o conhecimento do contexto pra adaptar o tom.
+          Dica: adicione fontes (link/PDF) acima antes de <strong>Gerar tudo</strong> — a IA usa o conhecimento do contexto pra adaptar o tom.
         </p>
       )}
       {msg && <p className={`text-xs ${msg.tone === 'ok' ? 'text-brand' : 'text-red-600'}`}>{msg.text}</p>}
@@ -1193,13 +1181,6 @@ function CardMensagens({ empresaId, contextoId, reloadKey }: {
                   {meta.desc && <p className="text-[11px] text-gray-500">{meta.desc}</p>}
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => gerar(g.grupo)}
-                    disabled={!!busy}
-                    className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
-                  >
-                    {busy === `gerar-${g.grupo}` ? 'Gerando…' : '✨ Gerar'}
-                  </button>
                   <button
                     onClick={() => salvar(g.grupo)}
                     disabled={!!busy || !dirty[g.grupo]}

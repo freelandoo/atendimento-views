@@ -12,6 +12,7 @@ const {
   mesclarSugestaoNoContexto1,
 } = require('./knowledge-ingestion')
 const { MAPA_POR_ETAPA, REFINO_SYSTEM } = require('./geracao-frameworks')
+const mensagensSvc = require('./mensagens-automaticas')
 
 const REFINO_MAX_TOKENS = Number(process.env.ESTAGIOS_MAX_TOKENS) || 4000
 const REFINO_TIMEOUT_MS = Number(process.env.ESTAGIOS_TIMEOUT_MS) || 90000
@@ -145,7 +146,25 @@ async function gerarTudo({ pool, log, empresaId, contextoId, userId, aiProvider 
     marcar('playbook', { erro: e.message })
   }
 
-  return { contexto1: contexto1Aplicado, estagios: estagiosSalvos, playbook, passos }
+  // 7) Mensagens automáticas (saudações + gatilhos da agenda): adapta os defaults
+  //    ao conhecimento da empresa (mesmo modelo de geração) e salva no contexto.
+  //    Tolerante a falha por grupo — o que der pra gerar, gera.
+  const mensagens = {}
+  for (const grupo of mensagensSvc.CHAVES_GRUPO) {
+    try {
+      const gerado = await mensagensSvc.gerarGrupo({
+        pool, log, aiProvider: genProvider, empresaId, contextoId, grupo, conhecimento,
+      })
+      const salvoGrupo = await mensagensSvc.salvarGrupo(pool, empresaId, contextoId, grupo, gerado)
+      mensagens[grupo] = salvoGrupo || gerado
+      marcar(`mensagens_${grupo}`, {})
+    } catch (e) {
+      marcar(`mensagens_${grupo}`, { erro: e.message })
+    }
+  }
+  mensagensSvc.invalidarCacheAtivo(empresaId)
+
+  return { contexto1: contexto1Aplicado, estagios: estagiosSalvos, playbook, mensagens, passos }
 }
 
 /**
