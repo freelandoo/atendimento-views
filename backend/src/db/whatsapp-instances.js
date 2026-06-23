@@ -49,4 +49,38 @@ async function resolverEmpresaPorInstance(pool, instanceName, log) {
   }
 }
 
-module.exports = { resolverEmpresaPorInstance }
+// ─── Usa agenda? POR INSTÂNCIA (config_json.usa_agenda) ─────────────────────────
+// Regra de cada instância, não da empresa. Default LIGADO (ausência/erro = true)
+// para preservar o comportamento atual. Quando false, o agente daquela instância
+// NUNCA oferece/agenda reunião e a geração de contexto não cria regras de reunião.
+// Cache curto fail-open (= agenda ON), igual ao resolver de empresa.
+const _agendaCache = new Map() // evolution_instance -> { usa, at }
+const AGENDA_TTL_MS = 30_000
+
+async function instanciaUsaAgenda(pool, instanceName, log) {
+  if (!instanceName) return true
+  const c = _agendaCache.get(instanceName)
+  if (c && Date.now() - c.at < AGENDA_TTL_MS) return c.usa
+  try {
+    const { rows } = await pool.query(
+      `SELECT config_json->>'usa_agenda' AS usa_agenda
+         FROM app.empresa_whatsapp_instances
+        WHERE evolution_instance = $1
+        LIMIT 1`,
+      [instanceName]
+    )
+    const usa = rows[0]?.usa_agenda !== 'false' // ausência = true
+    _agendaCache.set(instanceName, { usa, at: Date.now() })
+    return usa
+  } catch (err) {
+    if (log) log.warn({ err: err.message, evolution_instance: instanceName }, 'Falha ao resolver usa_agenda da instância — fail-open (agenda ON)')
+    return true
+  }
+}
+
+function invalidarCacheAgendaInstancia(instanceName) {
+  if (instanceName) _agendaCache.delete(instanceName)
+  else _agendaCache.clear()
+}
+
+module.exports = { resolverEmpresaPorInstance, instanciaUsaAgenda, invalidarCacheAgendaInstancia }

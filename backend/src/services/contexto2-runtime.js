@@ -2,9 +2,9 @@
 
 const { parsearRespostaJsonClaude } = require('../string-utils')
 const { buscarContexto2Ativo, registrarSugestaoAprendizadoContexto } = require('./contexto-empresa')
-const { empresaUsaAgenda } = require('../db/empresas')
+const { instanciaUsaAgenda } = require('../db/whatsapp-instances')
 
-// Override duro quando a instância NÃO usa agenda (config.usa_agenda=false).
+// Override duro quando a instância NÃO usa agenda (config_json.usa_agenda=false).
 // Anexado ao REPLY_SYSTEM para sobrepor qualquer regra de reunião do playbook.
 const REPLY_SEM_AGENDA = `
 
@@ -84,7 +84,7 @@ Retorne APENAS JSON válido neste schema:
   "motivo_handoff": ""
 }`
 
-async function extrairDadosDaMensagem({ pool, log, playbook, historico, mensagem, leadInsights, empresaId, conversaId, leadPhone, aiProvider }) {
+async function extrairDadosDaMensagem({ pool, log, playbook, historico, mensagem, leadInsights, empresaId, conversaId, leadPhone, aiProvider, usaAgenda = true }) {
   const provider = aiProvider || require('../ai-provider')
   const userPrompt = `PLAYBOOK ATIVO:
 ${_truncatePlaybook(playbook?.json || playbook)}
@@ -113,7 +113,6 @@ Extraia.`
   )
   const parsed = _safeJson(result.text)
   const extracao = _normalizeExtracao(parsed)
-  const usaAgenda = await empresaUsaAgenda(empresaId).catch(() => true)
   if (!usaAgenda) _neutralizarAgendaDesligada(extracao)
   return extracao
 }
@@ -322,11 +321,10 @@ sugestao_aprendizado pode ser null OU objeto:
 { "tipo": "objecao_nova|pergunta_frequente|resposta_que_funcionou|outro",
   "evidencia": "", "sugestao_markdown": "", "confianca": "baixa|media|alta" }`
 
-async function decidirRespostaComPlaybook({ pool, log, playbook, historico, mensagem, leadInsights, extracao, apelido, empresaId, conversaId, leadPhone, aiProvider }) {
+async function decidirRespostaComPlaybook({ pool, log, playbook, historico, mensagem, leadInsights, extracao, apelido, empresaId, conversaId, leadPhone, aiProvider, usaAgenda = true }) {
   const provider = aiProvider || require('../ai-provider')
   // Gate de agenda por instância: se desligada, força reuniao_status neutro e
   // anexa o override que proíbe qualquer oferta de reunião.
-  const usaAgenda = await empresaUsaAgenda(empresaId).catch(() => true)
   const extracaoView = usaAgenda ? extracao : { ...(extracao || {}), reuniao_status: 'nao_oferecida' }
   const systemPrompt = usaAgenda ? REPLY_SYSTEM : REPLY_SYSTEM + REPLY_SEM_AGENDA
   const userPrompt = `${apelido ? `NOME DO LEAD (trate pelo primeiro nome, com naturalidade; nao repita o nome em toda mensagem): ${apelido}\n\n` : ''}PLAYBOOK ATIVO:
@@ -630,11 +628,10 @@ Mantenha "intencao" (singular) preenchido com intencao_principal para compatibil
 REGRA DE URL — PROIBIDO INVENTAR LINK.
 Nunca emita example.com, localhost, teste.com, site.com, yoursite.com, dominio.com, sample.com, fake.com ou qualquer URL placeholder. Use APENAS URLs presentes em playbook.links_uteis_estruturados, playbook.cadastro_e_onboarding.link_cadastro, playbook.resumo_empresa.site ou nos dados do lead. Se não houver URL real, NÃO inclua link na resposta.`
 
-async function extrairEDecidirBundle({ pool, log, playbook, historico, mensagem, leadInsights, apelido, empresaId, conversaId, leadPhone, aiProvider }) {
+async function extrairEDecidirBundle({ pool, log, playbook, historico, mensagem, leadInsights, apelido, empresaId, conversaId, leadPhone, aiProvider, usaAgenda = true }) {
   const provider = aiProvider || require('../ai-provider')
   // Gate de agenda (também no caminho bundle, que é o default): se desligada, anexa
   // o override que proíbe oferecer reunião.
-  const usaAgenda = await empresaUsaAgenda(empresaId).catch(() => true)
   const systemPrompt = usaAgenda ? BUNDLE_SYSTEM : BUNDLE_SYSTEM + REPLY_SEM_AGENDA
   const userPrompt = `${apelido ? `NOME DO LEAD (trate pelo primeiro nome, com naturalidade; nao repita o nome em toda mensagem): ${apelido}\n\n` : ''}PLAYBOOK ATIVO:
 ${_truncatePlaybook(playbook?.json || playbook)}
@@ -727,22 +724,26 @@ async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, 
 
   const usarBundle = String(process.env.CONTEXT_PLAYBOOK_BUNDLE || 'true').toLowerCase() !== 'false'
 
+  // Gate de agenda é POR INSTÂNCIA (config_json.usa_agenda). Resolve uma vez aqui
+  // — onde temos a evolutionInstance — e propaga; fail-open (= agenda ON).
+  const usaAgenda = await instanciaUsaAgenda(pool, evolutionInstance, log).catch(() => true)
+
   let extracao, decisao
   if (usarBundle) {
     const b = await extrairEDecidirBundle({
       pool, log, playbook, historico, mensagem, leadInsights, apelido,
-      empresaId, conversaId, leadPhone, aiProvider,
+      empresaId, conversaId, leadPhone, aiProvider, usaAgenda,
     })
     extracao = b.extracao
     decisao = b.decisao
   } else {
     extracao = await extrairDadosDaMensagem({
       pool, log, playbook, historico, mensagem, leadInsights,
-      empresaId, conversaId, leadPhone, aiProvider,
+      empresaId, conversaId, leadPhone, aiProvider, usaAgenda,
     })
     decisao = await decidirRespostaComPlaybook({
       pool, log, playbook, historico, mensagem, leadInsights, extracao, apelido,
-      empresaId, conversaId, leadPhone, aiProvider,
+      empresaId, conversaId, leadPhone, aiProvider, usaAgenda,
     })
   }
 

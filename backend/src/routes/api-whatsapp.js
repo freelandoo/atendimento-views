@@ -7,6 +7,7 @@ const { marcarOnboardingCompleto } = require('../db/usuarios')
 const { invalidarCacheEmpresa } = require('../services/contexto-empresa')
 const { enviarMensagem } = require('../whatsapp')
 const { renderSaudacao, saudacaoDaInstancia } = require('../services/rodar-leads')
+const { invalidarCacheAgendaInstancia } = require('../db/whatsapp-instances')
 
 const router = Router({ mergeParams: true })
 
@@ -124,6 +125,10 @@ router.patch('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res)
   if (req.body?.saudacao !== undefined) {
     sets.push(`config_json = COALESCE(config_json, '{}'::jsonb) || jsonb_build_object('saudacao', $${vals.push(String(req.body.saudacao || ''))}::text)`)
   }
+  // Usa agenda? é regra POR INSTÂNCIA — fica em config_json.usa_agenda (default ligado).
+  if (typeof req.body?.usa_agenda === 'boolean') {
+    sets.push(`config_json = COALESCE(config_json, '{}'::jsonb) || jsonb_build_object('usa_agenda', $${vals.push(req.body.usa_agenda)}::boolean)`)
+  }
   if (!sets.length) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Nada para atualizar.' } })
   }
@@ -136,6 +141,10 @@ router.patch('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res)
     vals
   )
   if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instância não encontrada.' } })
+  // Invalida o cache de usa_agenda da instância quando o flag muda (runtime lê por instance name).
+  if (typeof req.body?.usa_agenda === 'boolean' && inst.evolution_instance) {
+    invalidarCacheAgendaInstancia(inst.evolution_instance)
+  }
   return res.json({ ok: true, data: inst })
 })
 

@@ -1,7 +1,6 @@
 'use strict'
 
 const { parsearRespostaJsonClaude } = require('../string-utils')
-const { empresaUsaAgenda } = require('../db/empresas')
 
 // Cache TTL: 60s por empresa_id (apenas para getContextoAtivoEmpresa)
 const _cache = new Map()
@@ -342,9 +341,14 @@ async function gerarContexto2Playbook({ pool, log, empresaId, contextoId, userId
   if (c1.precos_planos && !jsonValidado.precos_planos) {
     jsonValidado.precos_planos = String(c1.precos_planos).trim()
   }
-  // Gate de agenda: instância sem agenda não recebe regras de reunião no playbook
-  // (o runtime também bloqueia, mas aqui o texto gerado já sai coerente).
-  const usaAgenda = await empresaUsaAgenda(empresaId).catch(() => true)
+  // Gate de agenda POR INSTÂNCIA: a instância dona deste contexto (1:1) define se
+  // usa agenda. Sem agenda → não gera regras de reunião no playbook (o runtime
+  // também bloqueia, mas aqui o texto gerado já sai coerente). Default = ligado.
+  const usaAgenda = await pool.query(
+    `SELECT config_json->>'usa_agenda' AS usa_agenda
+       FROM app.empresa_whatsapp_instances WHERE contexto_id = $1 LIMIT 1`,
+    [contextoId]
+  ).then((r) => r.rows[0]?.usa_agenda !== 'false').catch(() => true)
   if (!usaAgenda) {
     jsonValidado.regras_reuniao = {
       oferecer_reuniao_quando: [],

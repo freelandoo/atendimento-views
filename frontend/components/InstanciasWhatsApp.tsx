@@ -21,6 +21,7 @@ type WhatsAppInstance = {
   ativo: boolean
   contexto_id?: string | null
   contexto_nome?: string | null
+  config_json?: { usa_agenda?: boolean; saudacao?: string } | null
 }
 type QRState = {
   open: boolean
@@ -67,6 +68,29 @@ export default function InstanciasWhatsApp({ empresaId }: {
       setMsg(novo ? 'Número ativado — o agente volta a responder por ele.' : 'Número desativado — o agente para de responder por ele.')
     } catch (err: unknown) {
       setErroForm(err instanceof Error ? err.message : 'Erro ao alterar o status do número.')
+    }
+  }
+
+  async function toggleUsaAgenda(inst: WhatsAppInstance) {
+    if (!empresaId) return
+    setErroForm('')
+    const atual = inst.config_json?.usa_agenda !== false // default ligado
+    const novo = !atual
+    // otimista
+    setInstancias((prev) => prev.map((x) => (x.id === inst.id ? { ...x, config_json: { ...(x.config_json || {}), usa_agenda: novo } } : x)))
+    try {
+      const r = await apiFetch<WhatsAppInstance>(`/api/empresas/${empresaId}/whatsapp/${inst.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ usa_agenda: novo }),
+      })
+      setInstancias((prev) => prev.map((x) => (x.id === inst.id ? { ...x, config_json: r.data.config_json } : x)))
+      setMsg(novo
+        ? 'Agenda ativada nesta instância. Gere o contexto dela de novo para a mudança valer no texto.'
+        : 'Agenda desativada nesta instância. Gere o contexto dela de novo para a mudança valer no texto.')
+    } catch (err: unknown) {
+      // reverte
+      setInstancias((prev) => prev.map((x) => (x.id === inst.id ? { ...x, config_json: { ...(x.config_json || {}), usa_agenda: atual } } : x)))
+      setErroForm(err instanceof Error ? err.message : 'Erro ao alterar a agenda da instância.')
     }
   }
 
@@ -223,6 +247,29 @@ export default function InstanciasWhatsApp({ empresaId }: {
                   aria-label="Remover instância"
                 >
                   Remover
+                </button>
+              </div>
+
+              {/* Usa agenda? é regra DESTA instância (default ligado). Impacta a geração
+                  de contexto e o runtime: desligado, o agente nunca oferece reunião. */}
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-medium text-white/80">🗓️ Usa agenda?</p>
+                  <p className="text-[10px] text-white/40 leading-tight">
+                    {i.config_json?.usa_agenda !== false
+                      ? 'Tenta agendar reunião quando fizer sentido.'
+                      : 'Nunca oferece reunião — só qualifica e encaminha.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={i.config_json?.usa_agenda !== false}
+                  onClick={() => toggleUsaAgenda(i)}
+                  title="Liga/desliga a agenda nesta instância (gere o contexto de novo depois)"
+                  className={`relative shrink-0 inline-flex h-6 w-11 items-center rounded-full transition ${i.config_json?.usa_agenda !== false ? 'bg-neon-cyan' : 'bg-white/20'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${i.config_json?.usa_agenda !== false ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
               </div>
             </div>
