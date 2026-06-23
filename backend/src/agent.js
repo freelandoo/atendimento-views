@@ -75,6 +75,7 @@ const {
 } = require('./agenda')
 const { sincronizarAtribuicaoMetaAds } = require('./services/meta-attribution')
 const { processarMensagemComPlaybook, gerarFollowupComPlaybook } = require('./services/contexto2-runtime')
+const { createContexto2Responder } = require('./services/contexto2-responder')
 const { getContextoAtivoEmpresa } = require('./services/contexto-empresa')
 const { getContextoAtivoComEstagios } = require('./services/contexto-estagios')
 const { empresaAgentePausada } = require('./db/empresas')
@@ -4225,9 +4226,25 @@ async function gerarTextoIA({ system, user, maxTokens = 200, temperature = 0.5, 
   }
 }
 
+// Enviador do Contexto 2 (relocado de core-funnel) — mesmas deps/wiring por injeção.
+const { responderContexto2 } = createContexto2Responder({
+  pool,
+  logger,
+  processarMensagemComPlaybook,
+  buscarPerfil,
+  atualizarPerfil,
+  salvarConversa,
+  limparFalhaResposta,
+  alertarHandoff,
+  enviarMensagem,
+  buscarSlotsDisponiveis,
+  validarSlotReuniao,
+})
+
 const coreFunnel = createCoreFunnel({
   logger,
   pool,
+  responderContexto2,
   gerarTextoIA,
   normalizarHistoricoMensagens,
   buscarConversa,

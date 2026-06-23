@@ -143,6 +143,9 @@ function createCoreFunnel(deps = {}) {
     // o funil roda 100% no agente legado ({{empresa}}), comportamento atual.
     getContextoAtivoEmpresa,
     processarMensagemComPlaybook,
+    // Enviador do Contexto 2 (relocado p/ src/services/contexto2-responder.js).
+    // Quando presente, substitui o responderComPlaybookEmpresa local (transitório).
+    responderContexto2,
     // Modelo unificado: contexto ativo com estágios próprios (Núcleo + 5). Opcional.
     getContextoAtivoComEstagios,
     // Pause global do agente por empresa (config.agente_pausado). Opcional.
@@ -1115,7 +1118,9 @@ function createCoreFunnel(deps = {}) {
         )
       }
       if (playbookAtivo) {
-        return await responderComPlaybookEmpresa({
+        // Enviador relocado (contexto2-responder.js) quando injetado; senão o local.
+        const responder = responderContexto2 || responderComPlaybookEmpresa
+        return await responder({
           numero,
           empresaId: empresaIdConversa,
           conversaUsada,
