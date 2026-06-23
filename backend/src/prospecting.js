@@ -28,6 +28,7 @@ const {
   salvarConfiguracaoProspeccao,
   montarAgendaPainelProspeccao,
 } = require('./services/prospecting-settings')
+const { buscaProspeccaoDevePreencher } = require('./services/prospecting-search-scheduler')
 const {
   canProspectLead,
 } = require('./services/prospecting-eligibility')
@@ -2886,6 +2887,50 @@ async function verificarAgendaDiariaProspeccao(now = new Date()) {
   return { ok: true, empresas: empresas.length, resultados }
 }
 
+// "Agenda" da Aquisição (Google Places): re-roda a BUSCA a cada X horas para as
+// empresas com agendamento_busca_ativo. Decisão pura em prospecting-search-scheduler;
+// aqui só o I/O (busca + marca ultima_busca_em). Chamada no tick periódico (gate 60s).
+// Independente da rodada diária de ENVIO (_rodadaDiariaProspeccaoEmpresa).
+async function verificarAgendaBuscaRecorrenteProspeccao(now = new Date()) {
+  let empresas
+  try {
+    const { rows } = await pool.query(
+      `SELECT empresa_id FROM prospectador.prospeccao_configuracoes WHERE agendamento_busca_ativo = true`
+    )
+    empresas = rows.map((r) => r.empresa_id).filter(Boolean)
+  } catch (e) {
+    return { ok: false, disparadas: 0, motivo: 'config_indisponivel', erro: e.message }
+  }
+  if (!empresas.length) return { ok: true, disparadas: 0, motivo: 'desabilitado' }
+
+  let disparadas = 0
+  for (const empresaId of empresas) {
+    try {
+      const cfg = await obterConfiguracaoProspeccao(pool, empresaId)
+      if (!buscaProspeccaoDevePreencher(cfg, now)) continue
+      const local = [cfg.cidade_padrao, cfg.estado_padrao].filter(Boolean).join(', ')
+      await pesquisarPlaces({
+        nicho: cfg.categoria_padrao,
+        local,
+        quantidade: cfg.limite_diario || 20,
+        // 'automatico' é o único valor permitido para origem não-manual no CHECK
+        // de prospectador.prospects (manual|automatico|instagram|linkedin).
+        origem: 'automatico',
+        empresaId,
+      })
+      await pool.query(
+        `UPDATE prospectador.prospeccao_configuracoes SET ultima_busca_em = NOW(), atualizado_em = NOW() WHERE empresa_id = $1`,
+        [empresaId]
+      )
+      disparadas += 1
+    } catch (e) {
+      logger.warn({ operation: 'prospeccao_busca_recorrente', empresa_id: empresaId, erro: e.message }, 'busca agendada pulada')
+    }
+  }
+  if (disparadas) logger.info({ operation: 'prospeccao_busca_recorrente', disparadas }, 'buscas agendadas disparadas')
+  return { ok: true, disparadas, empresas: empresas.length }
+}
+
 async function enfileirarJobProspeccao(tipo, payload = {}, dedupeKey = null, availableAt = null) {
   const safeTipo = String(tipo || '').trim()
   if (!['prospeccao_nichos_sync', 'prospeccao_completo', 'prospeccao_envio_agendado'].includes(safeTipo)) {
@@ -4036,6 +4081,7 @@ module.exports = {
   substituirPlaceholderEmpresa,
   temPlaceholderResidual,
   verificarAgendaDiariaProspeccao,
+  verificarAgendaBuscaRecorrenteProspeccao,
   selecionarMercadoDiarioIA,
   resumoMercadosProspeccao,
   agendarEnvioItemFilaDiaria,

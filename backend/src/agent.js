@@ -117,6 +117,7 @@ const {
   buscarContextoProspeccao,
   executarJobProspeccao,
   verificarAgendaDiariaProspeccao,
+  verificarAgendaBuscaRecorrenteProspeccao,
 } = require('./prospecting')
 
 const {
@@ -475,6 +476,10 @@ async function jobWorkerTick() {
       _ultimaVerificacaoPeriodicaMs = Date.now()
       await verificarAgendaDiariaProspeccao().catch((e) =>
         logger.warn({ operation: 'prospeccao_diaria', etapa: 'tick_erro', erro: e.message })
+      )
+      // "Agenda" da Aquisição: re-roda a busca do Google Places a cada X horas.
+      await verificarAgendaBuscaRecorrenteProspeccao().catch((e) =>
+        logger.warn({ operation: 'prospeccao_busca_recorrente', etapa: 'tick_erro', erro: e.message })
       )
       // Atribuição Meta (CTWA) + score determinístico — a cada ~10 min (gate próprio).
       if (Date.now() - _ultimaAtribuicaoMetaMs > ATRIBUICAO_META_INTERVALO_MS) {

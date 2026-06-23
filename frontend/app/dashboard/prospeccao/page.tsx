@@ -4,6 +4,7 @@ import { apiFetch, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import NeonProgress from '@/components/ui/NeonProgress'
+import ModalAgenda from '@/components/ui/ModalAgenda'
 
 type Prospect = {
   id: string
@@ -19,6 +20,7 @@ type Prospect = {
   maps_url: string | null
   status: string
   score: number | null
+  created_at: string | null
 }
 type Metricas = {
   total: string; aguardando: string; aprovados: string; rejeitados: string
@@ -31,6 +33,9 @@ type Config = {
   limite_diario: number; intervalo_envio_minutos: number
   horario_inicio: string; horario_fim: string
   gerar_mensagem_ia: boolean; envio_real_habilitado: boolean
+  // "Agenda": re-busca automática do Google Places a cada X horas.
+  agendamento_busca_ativo: boolean; busca_intervalo_horas: number
+  ultima_busca_em: string | null
 }
 type Agenda = {
   total_slots: number; primeiro_slot: string | null; ultimo_slot: string | null
@@ -74,22 +79,26 @@ function temperatura(score: number | null): { emoji: string; label: string } {
   return { emoji: '❄️', label: 'Frio' }
 }
 
+// Data/hora "Entrou em" (1ª coluna): registro de quando o lead caiu na carteira.
+function quando(iso: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return Number.isNaN(d.valueOf()) ? '—' : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+}
+
 export default function ProspeccaoPage() {
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [metricas, setMetricas] = useState<Metricas | null>(null)
   const [rotina, setRotina] = useState<ConfigResp | null>(null)
   const [resultados, setResultados] = useState<ResultadosResp | null>(null)
   const [analytics, setAnalytics] = useState<Analytics | null>(null)
-  const [nicho, setNicho] = useState('')
-  const [cidade, setCidade] = useState('')
   const [buscando, setBuscando] = useState(false)
   const [progresso, setProgresso] = useState<number | null>(null)
   const [erro, setErro] = useState('')
   const [filtro, setFiltro] = useState('')
   const [agindo, setAgindo] = useState<string | null>(null)
-  const [editRotina, setEditRotina] = useState(false)
-  const [rotinaForm, setRotinaForm] = useState<Partial<Config>>({})
-  const [salvandoRotina, setSalvandoRotina] = useState(false)
+  const [agendaAberta, setAgendaAberta] = useState(false)
+  const [form, setForm] = useState<Partial<Config>>({})
   const fb = useFeedback()
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
 
@@ -128,59 +137,58 @@ export default function ProspeccaoPage() {
     fb.toast(email ? 'E-mail salvo.' : 'E-mail removido.')
   }
 
-  function abrirEdicaoRotina() {
-    if (rotina) setRotinaForm({ ...rotina.config })
-    setEditRotina(true)
+  function abrirAgenda() {
+    setErro('')
+    setForm(rotina ? { ...rotina.config } : {
+      ativo: true, modo: 'manual', limite_diario: 20, intervalo_envio_minutos: 15,
+      horario_inicio: '08:00', horario_fim: '18:00',
+      agendamento_busca_ativo: false, busca_intervalo_horas: 24,
+    })
+    setAgendaAberta(true)
   }
-  async function salvarRotina() {
+  function setF<K extends keyof Config>(k: K, v: Config[K]) {
+    setForm((p) => ({ ...p, [k]: v }))
+  }
+
+  // Mais quentes primeiro (maior score no topo).
+  const ordenados = [...prospects].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+
+  // "Rodar" da Agenda: roda a busca AGORA (com barra) E salva a agenda recorrente.
+  async function rodar() {
     if (!empresaId) return
+    const nicho = (form.categoria_padrao || '').trim()
+    const cidade = (form.cidade_padrao || '').trim()
+    if (!nicho || !cidade) { setErro('Informe nicho e cidade na Agenda.'); return }
+
     // Regra de negócio: disparo real só liga junto com a geração de mensagem por IA.
-    let payload = { ...rotinaForm }
-    if (payload.envio_real_habilitado) {
-      if (!payload.gerar_mensagem_ia) {
+    if (form.envio_real_habilitado) {
+      if (!form.gerar_mensagem_ia) {
         setErro('Para ligar o disparo real é preciso também ligar a geração de mensagem por IA.')
         return
       }
-      const jaEstava = rotina?.config.envio_real_habilitado
-      if (!jaEstava) {
+      if (!rotina?.config.envio_real_habilitado) {
         const ok = window.confirm(
           '⚠️ Ligar o DISPARO REAL fará a rotina enviar mensagens de WhatsApp automaticamente aos leads aprovados, dentro da janela configurada.\n\nConfirma a ativação do envio real para esta empresa?'
         )
         if (!ok) return
       }
     }
-    setSalvandoRotina(true)
-    try {
-      const r = await fb.runTask(
-        () => apiFetch<ConfigResp>(`/api/empresas/${empresaId}/prospeccao/configuracao`, {
-          method: 'PUT',
-          body: JSON.stringify(payload),
-        }),
-        { sucesso: 'Rotina salva.' }
-      )
-      setRotina(r.data)
-      setEditRotina(false)
-    } catch { /* erro já exibido pelo feedback */ }
-    finally { setSalvandoRotina(false) }
-  }
-  function setRF<K extends keyof Config>(k: K, v: Config[K]) {
-    setRotinaForm((p) => ({ ...p, [k]: v }))
-  }
 
-  // Mais quentes primeiro (maior score no topo).
-  const ordenados = [...prospects].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-
-  async function buscar(e: React.FormEvent) {
-    e.preventDefault()
-    if (!empresaId || !nicho || !cidade) return
+    setErro('')
+    setAgendaAberta(false)
     setBuscando(true)
-    // Progresso simulado: sobe rápido no começo e desacelera perto de 90% enquanto
-    // a busca roda; ao terminar completa em 100% e some. (Mesma barra neon do login.)
     setProgresso(8)
     const timer = setInterval(() => {
       setProgresso((p) => (p == null || p >= 90 ? p : p + Math.max(1, Math.round((90 - p) * 0.12))))
     }, 400)
     try {
+      // 1) Salva a agenda (rotina + busca recorrente a cada X horas).
+      const r = await apiFetch<ConfigResp>(`/api/empresas/${empresaId}/prospeccao/configuracao`, {
+        method: 'PUT',
+        body: JSON.stringify(form),
+      })
+      setRotina(r.data)
+      // 2) Roda a busca agora.
       await fb.runTask(
         () => apiFetch(`/api/empresas/${empresaId}/prospeccao/buscar`, {
           method: 'POST',
@@ -189,8 +197,9 @@ export default function ProspeccaoPage() {
         { pesada: true, sucesso: 'Busca concluída', detalhe: 'Os prospects aparecem na lista abaixo.' }
       )
       carregar()
-    } catch { /* erro já exibido pelo feedback */ }
-    finally {
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao rodar a agenda.')
+    } finally {
       clearInterval(timer)
       setProgresso(100)
       setBuscando(false)
@@ -198,109 +207,39 @@ export default function ProspeccaoPage() {
     }
   }
 
+  const cfg = rotina?.config
+  const resumoAgenda = cfg
+    ? [
+        cfg.categoria_padrao || 'sem nicho',
+        cfg.cidade_padrao || 'sem cidade',
+        cfg.agendamento_busca_ativo ? `busca a cada ${cfg.busca_intervalo_horas}h` : 'busca manual',
+      ].join(' · ')
+    : 'configure nicho, cidade e frequência'
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Prospecção</h1>
-        <p className="text-sm text-slate-500 mt-1">Busque leads no Google e gerencie a carteira de prospecção desta empresa.</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Prospecção</h1>
+          <p className="text-sm text-slate-500 mt-1">Busque leads no Google e gerencie a carteira desta empresa. Tudo começa na <strong>Agenda</strong>.</p>
+        </div>
+        <button onClick={abrirAgenda}
+          className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white">
+          📅 Agenda
+        </button>
       </div>
 
-      <form onSubmit={buscar} className="bg-white rounded-2xl shadow-sm border p-4 flex flex-wrap items-end gap-3">
-        <div className="flex-1 min-w-[160px]">
-          <label className="block text-xs text-slate-500 mb-1">Nicho</label>
-          <input value={nicho} onChange={(e) => setNicho(e.target.value)} placeholder="ex: dentista" className="w-full border rounded-lg px-3 py-2 text-sm" />
-        </div>
-        <div className="flex-1 min-w-[160px]">
-          <label className="block text-xs text-slate-500 mb-1">Cidade</label>
-          <input value={cidade} onChange={(e) => setCidade(e.target.value)} placeholder="ex: Santana, SP" className="w-full border rounded-lg px-3 py-2 text-sm" />
-        </div>
-        <button type="submit" disabled={buscando || !nicho || !cidade} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium disabled:opacity-50">
-          {buscando && <Spinner />}
-          {buscando ? 'Buscando…' : '🔎 Buscar no Google'}
+      <div className="flex items-center justify-between gap-3 rounded-2xl border bg-white px-4 py-3 shadow-sm">
+        <p className="truncate text-sm text-slate-600">
+          <span className="font-medium text-slate-800">{cfg?.agendamento_busca_ativo ? 'Agenda ativa' : 'Agenda manual'}</span>
+          <span className="text-slate-400"> · {resumoAgenda}</span>
+        </p>
+        <button onClick={abrirAgenda} className="shrink-0 rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50">
+          Abrir Agenda
         </button>
-      </form>
+      </div>
 
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
-
-      {rotina && (
-        <div className="bg-white rounded-2xl shadow-sm border p-4">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rotina automática · esta empresa</p>
-              <p className="text-sm text-slate-600 mt-0.5">
-                {rotina.config.ativo ? 'Ativa' : 'Pausada'} · {rotina.config.modo} · janela {rotina.config.horario_inicio}–{rotina.config.horario_fim}, a cada {rotina.config.intervalo_envio_minutos} min
-              </p>
-              <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${rotina.config.envio_real_habilitado ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
-                {rotina.config.envio_real_habilitado ? '🚀 Disparo real ATIVO' : '🛡️ Disparo real desligado'}
-              </span>
-            </div>
-            {!editRotina ? (
-              <button onClick={abrirEdicaoRotina} className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-slate-50">Editar rotina</button>
-            ) : (
-              <div className="flex gap-2">
-                <button onClick={() => setEditRotina(false)} className="px-3 py-1.5 rounded-lg border text-xs">Cancelar</button>
-                <button onClick={salvarRotina} disabled={salvandoRotina} className="px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-medium disabled:opacity-50">{salvandoRotina ? 'Salvando…' : 'Salvar'}</button>
-              </div>
-            )}
-          </div>
-
-          {!editRotina ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
-              <Mini title="Nicho" value={rotina.config.categoria_padrao || '—'} />
-              <Mini title="Região" value={[rotina.config.cidade_padrao, rotina.config.estado_padrao || rotina.config.regiao_padrao].filter(Boolean).join(' / ') || '—'} />
-              <Mini title="Capacidade/dia" value={rotina.config.limite_diario} />
-              <Mini title="Slots hoje" value={rotina.agenda?.total_slots ?? '—'} />
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
-              <Campo label="Nicho padrão"><input value={rotinaForm.categoria_padrao || ''} onChange={(e) => setRF('categoria_padrao', e.target.value)} placeholder="ex: dentista" className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
-              <Campo label="Cidade padrão"><input value={rotinaForm.cidade_padrao || ''} onChange={(e) => setRF('cidade_padrao', e.target.value)} placeholder="ex: Santana" className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
-              <Campo label="Estado (UF)"><input value={rotinaForm.estado_padrao || ''} maxLength={2} onChange={(e) => setRF('estado_padrao', e.target.value.toUpperCase())} placeholder="SP" className="w-full border rounded-lg px-2 py-1.5 text-sm uppercase" /></Campo>
-              <Campo label="Capacidade/dia"><input type="number" min={1} max={200} value={rotinaForm.limite_diario ?? 80} onChange={(e) => setRF('limite_diario', Number(e.target.value))} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
-              <Campo label="Intervalo (min)"><input type="number" min={5} max={1440} value={rotinaForm.intervalo_envio_minutos ?? 15} onChange={(e) => setRF('intervalo_envio_minutos', Number(e.target.value))} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
-              <Campo label="Início"><input type="time" value={rotinaForm.horario_inicio || '08:00'} onChange={(e) => setRF('horario_inicio', e.target.value)} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
-              <Campo label="Fim"><input type="time" value={rotinaForm.horario_fim || '17:00'} onChange={(e) => setRF('horario_fim', e.target.value)} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
-              <Campo label="Modo">
-                <select value={rotinaForm.modo || 'manual'} onChange={(e) => setRF('modo', e.target.value)} className="w-full border rounded-lg px-2 py-1.5 text-sm">
-                  <option value="manual">Manual</option>
-                  <option value="semi_automatico">Semiautomático</option>
-                  <option value="automatico">Automático</option>
-                </select>
-              </Campo>
-              <Campo label="Status">
-                <label className="flex items-center gap-2 text-sm py-1.5">
-                  <input type="checkbox" checked={!!rotinaForm.ativo} onChange={(e) => setRF('ativo', e.target.checked)} /> Ativa
-                </label>
-              </Campo>
-              <Campo label="Gerar mensagem por IA">
-                <label className="flex items-center gap-2 text-sm py-1.5">
-                  <input
-                    type="checkbox"
-                    checked={!!rotinaForm.gerar_mensagem_ia}
-                    onChange={(e) => {
-                      const v = e.target.checked
-                      setRotinaForm((p) => ({ ...p, gerar_mensagem_ia: v, ...(v ? {} : { envio_real_habilitado: false }) }))
-                    }}
-                  /> Gerar com IA
-                </label>
-              </Campo>
-              <Campo label="Disparo real (envia WhatsApp)">
-                <label className={`flex items-center gap-2 text-sm py-1.5 ${rotinaForm.gerar_mensagem_ia ? '' : 'opacity-50'}`} title={rotinaForm.gerar_mensagem_ia ? '' : 'Ligue a geração por IA primeiro'}>
-                  <input
-                    type="checkbox"
-                    disabled={!rotinaForm.gerar_mensagem_ia}
-                    checked={!!rotinaForm.envio_real_habilitado}
-                    onChange={(e) => setRF('envio_real_habilitado', e.target.checked)}
-                  /> 🚀 Enviar de verdade
-                </label>
-              </Campo>
-            </div>
-          )}
-          {rotina.agenda?.observacao && (
-            <p className={`text-xs mt-3 ${rotina.config.envio_real_habilitado ? 'text-red-600' : 'text-slate-400'}`}>{rotina.agenda.observacao}</p>
-          )}
-        </div>
-      )}
 
       <div className="flex flex-wrap gap-1.5">
         {FILTROS.map((f) => (
@@ -337,6 +276,7 @@ export default function ProspeccaoPage() {
       <table className="w-full text-sm border rounded-xl overflow-hidden bg-white shadow-sm">
         <thead className="bg-gray-100">
           <tr>
+            <th className="text-left px-4 py-2">Entrou em</th>
             <th className="text-left px-4 py-2">Temp.</th>
             <th className="text-left px-4 py-2">Nome</th>
             <th className="text-left px-4 py-2">Telefone</th>
@@ -353,6 +293,7 @@ export default function ProspeccaoPage() {
             const t = temperatura(p.score)
             return (
             <tr key={p.id} className="border-t hover:bg-gray-50">
+              <td className="px-4 py-2 whitespace-nowrap text-xs text-slate-500">{quando(p.created_at)}</td>
               <td className="px-4 py-2 whitespace-nowrap" title={t.label}>{t.emoji} <span className="text-xs text-slate-500">{t.label}</span></td>
               <td className="px-4 py-2 font-medium">
                 {p.maps_url ? (
@@ -387,7 +328,7 @@ export default function ProspeccaoPage() {
             )
           })}
           {ordenados.length === 0 && (
-            <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Faça uma busca acima.</td></tr>
+            <tr><td colSpan={10} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Abra a Agenda e clique em Rodar.</td></tr>
           )}
         </tbody>
       </table>
@@ -452,6 +393,85 @@ export default function ProspeccaoPage() {
           </div>
         </div>
       )}
+
+      <ModalAgenda
+        aberto={agendaAberta}
+        titulo="Agenda · Google Places"
+        subtitulo="Defina nicho, cidade e a frequência. Rodar busca agora e mantém a agenda repetindo."
+        onFechar={() => setAgendaAberta(false)}
+        rodape={
+          <>
+            <button onClick={() => setAgendaAberta(false)} className="rounded-lg border px-3 py-2 text-sm">Cancelar</button>
+            <button onClick={rodar} disabled={buscando}
+              className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+              {buscando && <Spinner />}{buscando ? 'Rodando…' : '▶ Rodar'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <Campo label="Nicho"><input value={form.categoria_padrao || ''} onChange={(e) => setF('categoria_padrao', e.target.value)} placeholder="ex: dentista" className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
+            <Campo label="Cidade"><input value={form.cidade_padrao || ''} onChange={(e) => setF('cidade_padrao', e.target.value)} placeholder="ex: Santana" className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
+            <Campo label="Estado (UF)"><input value={form.estado_padrao || ''} maxLength={2} onChange={(e) => setF('estado_padrao', e.target.value.toUpperCase())} placeholder="SP" className="w-full border rounded-lg px-2 py-1.5 text-sm uppercase" /></Campo>
+          </div>
+
+          <div className="rounded-xl border bg-slate-50/60 p-3 space-y-3">
+            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+              <input type="checkbox" checked={!!form.agendamento_busca_ativo} onChange={(e) => setF('agendamento_busca_ativo', e.target.checked)} />
+              ⏱ Buscar automaticamente (a cada X horas)
+            </label>
+            {form.agendamento_busca_ativo && (
+              <>
+                <div className="grid grid-cols-3 gap-3 pl-6">
+                  <Campo label="A cada (horas)"><input type="number" min={1} max={168} value={form.busca_intervalo_horas ?? 24} onChange={(e) => setF('busca_intervalo_horas', Number(e.target.value) || 1)} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
+                  <Campo label="Início"><input type="time" value={form.horario_inicio || '08:00'} onChange={(e) => setF('horario_inicio', e.target.value)} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
+                  <Campo label="Fim"><input type="time" value={form.horario_fim || '18:00'} onChange={(e) => setF('horario_fim', e.target.value)} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
+                </div>
+                <p className="pl-6 text-[11px] text-slate-400">Quantidade por busca segue a “Capacidade/dia” do disparo automático abaixo.</p>
+              </>
+            )}
+            {rotina?.config.ultima_busca_em && (
+              <p className="pl-6 text-[11px] text-slate-400">Última busca automática: {quando(rotina.config.ultima_busca_em)}</p>
+            )}
+          </div>
+
+          <details className="rounded-xl border p-3">
+            <summary className="cursor-pointer text-sm font-medium text-slate-700">Disparo automático (envio de WhatsApp)</summary>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+              <Campo label="Capacidade/dia"><input type="number" min={1} max={200} value={form.limite_diario ?? 80} onChange={(e) => setF('limite_diario', Number(e.target.value))} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
+              <Campo label="Intervalo envio (min)"><input type="number" min={5} max={1440} value={form.intervalo_envio_minutos ?? 15} onChange={(e) => setF('intervalo_envio_minutos', Number(e.target.value))} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
+              <Campo label="Modo">
+                <select value={form.modo || 'manual'} onChange={(e) => setF('modo', e.target.value)} className="w-full border rounded-lg px-2 py-1.5 text-sm">
+                  <option value="manual">Manual</option>
+                  <option value="semi_automatico">Semiautomático</option>
+                  <option value="automatico">Automático</option>
+                </select>
+              </Campo>
+              <Campo label="Rotina ativa">
+                <label className="flex items-center gap-2 text-sm py-1.5">
+                  <input type="checkbox" checked={!!form.ativo} onChange={(e) => setF('ativo', e.target.checked)} /> Ativa
+                </label>
+              </Campo>
+              <Campo label="Gerar mensagem por IA">
+                <label className="flex items-center gap-2 text-sm py-1.5">
+                  <input type="checkbox" checked={!!form.gerar_mensagem_ia}
+                    onChange={(e) => {
+                      const v = e.target.checked
+                      setForm((p) => ({ ...p, gerar_mensagem_ia: v, ...(v ? {} : { envio_real_habilitado: false }) }))
+                    }} /> Gerar com IA
+                </label>
+              </Campo>
+              <Campo label="Disparo real (envia WhatsApp)">
+                <label className={`flex items-center gap-2 text-sm py-1.5 ${form.gerar_mensagem_ia ? '' : 'opacity-50'}`} title={form.gerar_mensagem_ia ? '' : 'Ligue a geração por IA primeiro'}>
+                  <input type="checkbox" disabled={!form.gerar_mensagem_ia} checked={!!form.envio_real_habilitado}
+                    onChange={(e) => setF('envio_real_habilitado', e.target.checked)} /> 🚀 Enviar de verdade
+                </label>
+              </Campo>
+            </div>
+          </details>
+        </div>
+      </ModalAgenda>
     </div>
   )
 }

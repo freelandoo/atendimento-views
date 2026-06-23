@@ -4,6 +4,7 @@ import { apiFetch, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import NeonProgress from '@/components/ui/NeonProgress'
+import ModalAgenda from '@/components/ui/ModalAgenda'
 
 type CampanhaMeta = {
   perfis_semente?: string[]
@@ -53,11 +54,11 @@ const STATUS_STYLE: Record<string, string> = {
   nao_contatar: 'bg-red-100 text-red-600',
 }
 
-// Estado dos toggles + limite usado pelo painel ad-hoc e pelo form de campanha.
+// Estado dos toggles + limite usado pela Agenda e pela edição de campanha.
 type Opcoes = { usar_cse: boolean; usar_snowball: boolean; seguir_link_bio: boolean }
 const OPCOES_PADRAO: Opcoes = { usar_cse: true, usar_snowball: true, seguir_link_bio: true }
 
-// Agenda de disparo automático da campanha (a cada X horas, dentro de janela/dias).
+// Agenda de disparo automático (a cada X horas, dentro de janela/dias).
 type Agenda = {
   agendamento_ativo: boolean; intervalo_horas: number
   janela_inicio: string; janela_fim: string; dias_semana: number[]
@@ -67,6 +68,13 @@ const AGENDA_PADRAO: Agenda = {
   janela_inicio: '08:00', janela_fim: '18:00', dias_semana: [1, 2, 3, 4, 5],
 }
 const DIAS_LABEL = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+
+// Data/hora "Entrou em": registro de quando o lead caiu no funil.
+function quando(iso: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return Number.isNaN(d.valueOf()) ? '—' : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+}
 
 export default function CaptacaoPage() {
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
@@ -99,22 +107,14 @@ export default function CaptacaoPage() {
     }
   }, [carregando])
 
-  // Painel "Coletar agora" (ad-hoc)
-  const [adNicho, setAdNicho] = useState('')
-  const [adCidade, setAdCidade] = useState('')
-  const [adPerfis, setAdPerfis] = useState('')
-  const [adLimite, setAdLimite] = useState('')
-  const [adOpcoes, setAdOpcoes] = useState<Opcoes>(OPCOES_PADRAO)
-
-  // Form nova campanha
-  const [novaAberta, setNovaAberta] = useState(false)
-  const [cNicho, setCNicho] = useState('')
-  const [cCidade, setCCidade] = useState('')
-  const [cPerfis, setCPerfis] = useState('')
-  const [cTeto, setCTeto] = useState('50')
-  const [cAtivo, setCAtivo] = useState(true)
-  const [cOpcoes, setCOpcoes] = useState<Opcoes>(OPCOES_PADRAO)
-  const [cAgenda, setCAgenda] = useState<Agenda>(AGENDA_PADRAO)
+  // Agenda (modal): reúne os filtros de coleta + frequência + Rodar.
+  const [agendaAberta, setAgendaAberta] = useState(false)
+  const [agNicho, setAgNicho] = useState('')
+  const [agCidade, setAgCidade] = useState('')
+  const [agPerfis, setAgPerfis] = useState('')
+  const [agLimite, setAgLimite] = useState('')
+  const [agOpcoes, setAgOpcoes] = useState<Opcoes>(OPCOES_PADRAO)
+  const [agAgenda, setAgAgenda] = useState<Agenda>(AGENDA_PADRAO)
 
   // Edição de campanha existente
   const [editId, setEditId] = useState<string | null>(null)
@@ -157,54 +157,66 @@ export default function CaptacaoPage() {
       .then((r) => setEmailConfigurado(!!r.data?.configurado)).catch(() => {})
   }, [base, empresaId])
 
-  async function coletarAdHoc(e: React.FormEvent) {
-    e.preventDefault()
+  function abrirAgenda() {
+    setErro(null)
+    setAgNicho(''); setAgCidade(''); setAgPerfis(''); setAgLimite('')
+    setAgOpcoes(OPCOES_PADRAO); setAgAgenda(AGENDA_PADRAO)
+    setAgendaAberta(true)
+  }
+
+  // "Rodar" da Agenda: primeiro o Google acha os perfis do nicho, depois o scraping
+  // do Instagram roda em bola de neve. Se o agendamento estiver ligado, persiste uma
+  // campanha recorrente (a cada X horas) usando o scheduler já existente.
+  async function rodarAgenda() {
+    if (!agNicho.trim() && !agPerfis.trim()) {
+      setErro('Informe um nicho (busca no Google) ou ao menos 1 @perfil semente.')
+      return
+    }
+    setErro(null)
+    setAgendaAberta(false)
     setCarregando(true)
     try {
-      await fb.runTask(() => apiFetch(`${base}/coletar`, {
-        method: 'POST',
-        body: JSON.stringify({
-          fonte: 'instagram',
-          nicho: adNicho || undefined,
-          cidade: adCidade || undefined,
-          perfis: adPerfis || undefined,
-          usar_cse: adOpcoes.usar_cse,
-          usar_snowball: adOpcoes.usar_snowball,
-          seguir_link_bio: adOpcoes.seguir_link_bio,
-          limite: adLimite ? Number(adLimite) : undefined,
-        }),
-      }), {
+      await fb.runTask(async () => {
+        // 1) Roda agora: Google (CSE) → bola de neve no Instagram.
+        await apiFetch(`${base}/coletar`, {
+          method: 'POST',
+          body: JSON.stringify({
+            fonte: 'instagram',
+            nicho: agNicho || undefined,
+            cidade: agCidade || undefined,
+            perfis: agPerfis || undefined,
+            usar_cse: true,
+            usar_snowball: true,
+            seguir_link_bio: agOpcoes.seguir_link_bio,
+            limite: agLimite ? Number(agLimite) : undefined,
+          }),
+        })
+        // 2) Se agendado, salva a campanha recorrente.
+        if (agAgenda.agendamento_ativo) {
+          await apiFetch(`${base}/campanhas`, {
+            method: 'POST',
+            body: JSON.stringify({
+              fonte: 'instagram',
+              nicho: agNicho || undefined,
+              cidade: agCidade || undefined,
+              perfis_semente: agPerfis || undefined,
+              teto_diario: agLimite ? Number(agLimite) : 50,
+              ativo: true,
+              usar_cse: true,
+              usar_snowball: true,
+              seguir_link_bio: agOpcoes.seguir_link_bio,
+              ...agAgenda,
+            }),
+          })
+        }
+      }, {
         pesada: true,
-        sucesso: 'Coleta iniciada',
+        sucesso: agAgenda.agendamento_ativo ? 'Coleta iniciada e agenda salva' : 'Coleta iniciada',
         detalhe: 'Os perfis aparecem nas abas conforme o scraper responde.',
       })
       carregarMeta()
     } catch { /* erro já exibido pelo feedback */ }
     finally { setCarregando(false) }
-  }
-
-  async function criarCampanha(e: React.FormEvent) {
-    e.preventDefault()
-    try {
-      await fb.runTask(() => apiFetch(`${base}/campanhas`, {
-        method: 'POST',
-        body: JSON.stringify({
-          fonte: 'instagram',
-          nicho: cNicho || undefined,
-          cidade: cCidade || undefined,
-          perfis_semente: cPerfis || undefined,
-          teto_diario: Number(cTeto) || 50,
-          ativo: cAtivo,
-          usar_cse: cOpcoes.usar_cse,
-          usar_snowball: cOpcoes.usar_snowball,
-          seguir_link_bio: cOpcoes.seguir_link_bio,
-          ...cAgenda,
-        }),
-      }), { sucesso: 'Campanha salva.' })
-      setCNicho(''); setCCidade(''); setCPerfis(''); setCTeto('50'); setCAtivo(true); setCOpcoes(OPCOES_PADRAO); setCAgenda(AGENDA_PADRAO)
-      setNovaAberta(false)
-      carregarMeta()
-    } catch { /* erro já exibido pelo feedback */ }
   }
 
   function abrirEdicao(c: Campanha) {
@@ -306,14 +318,20 @@ export default function CaptacaoPage() {
         <div>
           <h1 className="text-2xl font-bold">Captação (Instagram)</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Descubra perfis por nicho/cidade (Google CSE) ou por @perfis semente → contato → mesma pipeline de disparo da prospecção.
+            Tudo começa na <strong>Agenda</strong>: o Google acha perfis do nicho e o scraping do Instagram roda em bola de neve → mesma pipeline de disparo da prospecção.
           </p>
         </div>
-        <button onClick={processar} disabled={carregando}
-          className="inline-flex shrink-0 items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
-          {carregando && <Spinner />}
-          {carregando ? 'Atualizando…' : '↻ Atualizar coletas'}
-        </button>
+        <div className="flex shrink-0 gap-2">
+          <button onClick={abrirAgenda}
+            className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white">
+            📅 Agenda
+          </button>
+          <button onClick={processar} disabled={carregando}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+            {carregando && <Spinner />}
+            {carregando ? 'Atualizando…' : '↻ Atualizar'}
+          </button>
+        </div>
       </div>
 
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
@@ -334,73 +352,17 @@ export default function CaptacaoPage() {
         </div>
       )}
 
-      {/* Coletar agora (ad-hoc) */}
-      <form onSubmit={coletarAdHoc} className="bg-white rounded-2xl shadow-sm border p-4 space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Coletar agora</p>
-        <div className="flex flex-wrap items-end gap-3">
-          <Field label="Nicho" value={adNicho} onChange={setAdNicho} placeholder="ex: arquitetura de interiores" />
-          <Field label="Cidade" value={adCidade} onChange={setAdCidade} placeholder="ex: São Paulo" />
-          <div className="w-28">
-            <label className="block text-xs text-slate-500 mb-1">Limite</label>
-            <input type="number" min={1} value={adLimite} onChange={(e) => setAdLimite(e.target.value)}
-              placeholder="auto" className="w-full border rounded-lg px-3 py-2 text-sm" />
-          </div>
-        </div>
-        <div>
-          <label className="block text-xs text-slate-500 mb-1">@perfis semente (um por linha ou separados por vírgula)</label>
-          <textarea value={adPerfis} onChange={(e) => setAdPerfis(e.target.value)} rows={3}
-            placeholder={'@studioabc, @casadecor\nperfilxyz'}
-            className="w-full border rounded-lg px-3 py-2 text-sm font-mono" />
-        </div>
-        <Toggles value={adOpcoes} onChange={setAdOpcoes} />
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs text-slate-400">Informe um nicho (com CSE) ou ao menos 1 perfil.</p>
-          <button type="submit" disabled={carregando || !podeColetar}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium disabled:opacity-50">
-            {carregando && <Spinner />}
-            {carregando ? 'Coletando…' : '⚡ Coletar'}
-          </button>
-        </div>
-      </form>
-
-      {/* Campanhas salvas */}
+      {/* Campanhas salvas (gestão das agendas já criadas) */}
       <div className="bg-white rounded-2xl shadow-sm border p-4 space-y-3">
         <div className="flex items-center justify-between">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Campanhas salvas</p>
-          <button onClick={() => setNovaAberta((v) => !v)} className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-slate-50">
-            {novaAberta ? 'Cancelar' : '+ Nova campanha'}
+          <button onClick={abrirAgenda} className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-slate-50">
+            + Nova pela Agenda
           </button>
         </div>
 
-        {novaAberta && (
-          <form onSubmit={criarCampanha} className="rounded-xl border bg-slate-50/60 p-3 space-y-3">
-            <div className="flex flex-wrap items-end gap-3">
-              <Field label="Nicho" value={cNicho} onChange={setCNicho} placeholder="ex: arquitetura de interiores" />
-              <Field label="Cidade" value={cCidade} onChange={setCCidade} placeholder="ex: São Paulo" />
-              <div className="w-28">
-                <label className="block text-xs text-slate-500 mb-1">Teto/dia</label>
-                <input type="number" min={1} value={cTeto} onChange={(e) => setCTeto(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm" />
-              </div>
-              <label className="flex items-center gap-2 text-sm py-2">
-                <input type="checkbox" checked={cAtivo} onChange={(e) => setCAtivo(e.target.checked)} /> Ativa
-              </label>
-            </div>
-            <div>
-              <label className="block text-xs text-slate-500 mb-1">@perfis semente (um por linha ou separados por vírgula)</label>
-              <textarea value={cPerfis} onChange={(e) => setCPerfis(e.target.value)} rows={2}
-                placeholder={'@studioabc, @casadecor'} className="w-full border rounded-lg px-3 py-2 text-sm font-mono" />
-            </div>
-            <Toggles value={cOpcoes} onChange={setCOpcoes} />
-            <AgendaCampanha value={cAgenda} onChange={setCAgenda} />
-            <div className="flex justify-end">
-              <button type="submit" className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium">Salvar campanha</button>
-            </div>
-          </form>
-        )}
-
         {campanhas.length === 0 ? (
-          <p className="text-sm text-slate-400">Nenhuma campanha salva ainda.</p>
+          <p className="text-sm text-slate-400">Nenhuma campanha salva ainda. Abra a Agenda, marque “Prospectar automaticamente” e Rodar.</p>
         ) : (
           <div className="space-y-2">
             {campanhas.map((c) => (
@@ -499,7 +461,8 @@ export default function CaptacaoPage() {
           {leads.map((l) => (
             <div key={l.id} className="flex items-start justify-between gap-4 px-5 py-3">
               <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="text-[11px] text-slate-400">Entrou em {quando(l.created_at)}</div>
+                <div className="flex items-center gap-2 flex-wrap mt-0.5">
                   <span className="font-medium text-slate-900">{l.nome}</span>
                   {l.instagram_handle && (
                     <a href={`https://instagram.com/${l.instagram_handle}`} target="_blank" rel="noreferrer"
@@ -559,6 +522,43 @@ export default function CaptacaoPage() {
           </div>
         </div>
       )}
+
+      <ModalAgenda
+        aberto={agendaAberta}
+        titulo="Agenda · Instagram"
+        subtitulo="Rodar busca no Google pelo nicho e dispara o scraping em bola de neve. Marque a frequência para repetir sozinho."
+        onFechar={() => setAgendaAberta(false)}
+        rodape={
+          <>
+            <button onClick={() => setAgendaAberta(false)} className="rounded-lg border px-3 py-2 text-sm">Cancelar</button>
+            <button onClick={rodarAgenda} disabled={carregando || !podeColetar}
+              className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+              {carregando && <Spinner />}{carregando ? 'Rodando…' : '▶ Rodar'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <Field label="Nicho (busca no Google)" value={agNicho} onChange={setAgNicho} placeholder="ex: arquitetura de interiores" />
+            <Field label="Cidade" value={agCidade} onChange={setAgCidade} placeholder="ex: São Paulo" />
+            <div className="w-28">
+              <label className="block text-xs text-slate-500 mb-1">Limite</label>
+              <input type="number" min={1} value={agLimite} onChange={(e) => setAgLimite(e.target.value)}
+                placeholder="auto" className="w-full border rounded-lg px-3 py-2 text-sm" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">@perfis semente (um por linha ou separados por vírgula)</label>
+            <textarea value={agPerfis} onChange={(e) => setAgPerfis(e.target.value)} rows={3}
+              placeholder={'@studioabc, @casadecor\nperfilxyz'}
+              className="w-full border rounded-lg px-3 py-2 text-sm font-mono" />
+          </div>
+          <Toggles value={agOpcoes} onChange={setAgOpcoes} />
+          <p className="text-[11px] text-slate-400">Ao Rodar, Google CSE e bola de neve já entram ligados (o nicho vira sementes; a bola de neve expande a partir delas).</p>
+          <AgendaCampanha value={agAgenda} onChange={setAgAgenda} />
+        </div>
+      </ModalAgenda>
     </div>
   )
 }
@@ -604,7 +604,7 @@ function Toggles({ value, onChange }: { value: Opcoes; onChange: (o: Opcoes) => 
 
 function AgendaCampanha({ value, onChange }: { value: Agenda; onChange: (a: Agenda) => void }) {
   return (
-    <div className="rounded-xl border bg-white p-3 space-y-2">
+    <div className="rounded-xl border bg-slate-50/60 p-3 space-y-2">
       <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
         <input type="checkbox" checked={value.agendamento_ativo}
           onChange={(e) => onChange({ ...value, agendamento_ativo: e.target.checked })} />

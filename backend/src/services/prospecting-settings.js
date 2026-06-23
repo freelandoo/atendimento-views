@@ -10,6 +10,18 @@ function textoOuNull(valor, max = 160) {
   return texto ? texto.slice(0, max) : null
 }
 
+function inteiroEntre(valor, padrao, min, max) {
+  const n = Number.parseInt(valor, 10)
+  if (!Number.isFinite(n)) return padrao
+  return Math.min(Math.max(n, min), max)
+}
+
+function boolOuPadrao(valor, padrao = false) {
+  if (valor === true || valor === 'true') return true
+  if (valor === false || valor === 'false') return false
+  return padrao
+}
+
 function normalizarConfiguracaoProspeccao(payload = {}) {
   const cfg = normalizarConfigProspeccao({
     ativo: payload.ativo ?? payload.enabled,
@@ -32,6 +44,9 @@ function normalizarConfiguracaoProspeccao(payload = {}) {
     cidade_padrao: textoOuNull(cfg.cidade_padrao),
     estado_padrao: textoOuNull(cfg.estado_padrao, 2),
     regiao_padrao: textoOuNull(cfg.regiao_padrao),
+    // "Agenda" da busca recorrente do Places (a cada X horas).
+    agendamento_busca_ativo: boolOuPadrao(payload.agendamento_busca_ativo, false),
+    busca_intervalo_horas: inteiroEntre(payload.busca_intervalo_horas, 24, 1, 168),
   }
 }
 
@@ -51,6 +66,8 @@ function configProspeccaoPersistida(row) {
     regiao_padrao: row.regiao_padrao,
     gerar_mensagem_ia: row.gerar_mensagem_ia,
     envio_real_habilitado: row.envio_real_habilitado,
+    agendamento_busca_ativo: row.agendamento_busca_ativo,
+    busca_intervalo_horas: row.busca_intervalo_horas,
   })
   const [hour, minute] = cfg.horario_inicio.split(':').map((p) => Number.parseInt(p, 10))
   return {
@@ -62,6 +79,11 @@ function configProspeccaoPersistida(row) {
     hour,
     minute,
     rodada_diaria: true,
+    // Agenda da busca recorrente: o normalizador não conhece estes campos, então
+    // preservamos os valores normalizados acima (não vêm em `cfg`).
+    agendamento_busca_ativo: boolOuPadrao(row.agendamento_busca_ativo, false),
+    busca_intervalo_horas: inteiroEntre(row.busca_intervalo_horas, 24, 1, 168),
+    ultima_busca_em: row.ultima_busca_em || null,
     created_at: row.criado_em || null,
     updated_at: row.atualizado_em || null,
   }
@@ -88,7 +110,9 @@ async function obterConfiguracaoProspeccao(pool, empresaId = PJ_EMPRESA_ID) {
       empresa_id, ativo, modo, horario_inicio, horario_fim,
       intervalo_envio_minutos, limite_diario, dias_semana_ativos,
       categoria_padrao, cidade_padrao, estado_padrao, regiao_padrao,
-      gerar_mensagem_ia, envio_real_habilitado, criado_em, atualizado_em
+      gerar_mensagem_ia, envio_real_habilitado,
+      agendamento_busca_ativo, busca_intervalo_horas, ultima_busca_em,
+      criado_em, atualizado_em
     FROM prospectador.prospeccao_configuracoes
     WHERE empresa_id = $1
     LIMIT 1
@@ -106,9 +130,10 @@ async function salvarConfiguracaoProspeccao(pool, payload = {}, empresaId = PJ_E
       empresa_id, ativo, modo, horario_inicio, horario_fim,
       intervalo_envio_minutos, limite_diario, dias_semana_ativos,
       categoria_padrao, cidade_padrao, estado_padrao, regiao_padrao,
-      gerar_mensagem_ia, envio_real_habilitado
+      gerar_mensagem_ia, envio_real_habilitado,
+      agendamento_busca_ativo, busca_intervalo_horas
     )
-    VALUES ($1, $2, $3, $4::time, $5::time, $6, $7, $8::smallint[], $9, $10, $11, $12, $13, $14)
+    VALUES ($1, $2, $3, $4::time, $5::time, $6, $7, $8::smallint[], $9, $10, $11, $12, $13, $14, $15, $16)
     ON CONFLICT (empresa_id) DO UPDATE
     SET ativo = EXCLUDED.ativo,
         modo = EXCLUDED.modo,
@@ -123,6 +148,8 @@ async function salvarConfiguracaoProspeccao(pool, payload = {}, empresaId = PJ_E
         regiao_padrao = EXCLUDED.regiao_padrao,
         gerar_mensagem_ia = EXCLUDED.gerar_mensagem_ia,
         envio_real_habilitado = EXCLUDED.envio_real_habilitado,
+        agendamento_busca_ativo = EXCLUDED.agendamento_busca_ativo,
+        busca_intervalo_horas = EXCLUDED.busca_intervalo_horas,
         atualizado_em = NOW()
     RETURNING *
     `,
@@ -141,6 +168,8 @@ async function salvarConfiguracaoProspeccao(pool, payload = {}, empresaId = PJ_E
       cfg.regiao_padrao,
       cfg.gerar_mensagem_ia,
       cfg.envio_real_habilitado,
+      cfg.agendamento_busca_ativo,
+      cfg.busca_intervalo_horas,
     ]
   )
   return configProspeccaoPersistida(rows[0] || null)
