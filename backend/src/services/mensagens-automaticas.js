@@ -199,6 +199,30 @@ function invalidarCacheAtivo(empresaId) {
 }
 
 /**
+ * Saudação de PRIMEIRO CONTATO configurada EXPLICITAMENTE pela empresa no contexto
+ * ativo (Mensagens automáticas → Saudações). Usada pelo protocolo determinístico:
+ * quando o lead inicia a conversa, o agente responde com este texto fixo em vez de
+ * deixar a IA improvisar. Retorna '' se a empresa NÃO salvou nada (o caller segue
+ * pelo fluxo normal da IA) — assim PJ/empresas sem isto não mudam de comportamento.
+ * Fail-open: qualquer erro retorna '' (nunca bloqueia o turno).
+ * @returns {Promise<string>} texto renderizado (com {empresa}) ou ''.
+ */
+async function saudacaoPrimeiroContatoConfigurada(pool, { empresaId, values = {}, log = null } = {}) {
+  try {
+    if (!empresaId) return ''
+    const ativo = await _carregarAtivo(pool, empresaId)
+    const salvos = normalizar('saudacoes', ativo && ativo.saudacoes)
+    const txt = (salvos.primeiro_contato || '').trim()
+    if (!txt) return ''
+    const empresa = values.empresa != null ? values.empresa : await nomeEmpresa(empresaId)
+    return renderTemplate(txt, { ...values, empresa })
+  } catch (e) {
+    if (log && typeof log.warn === 'function') log.warn({ err: e.message }, 'saudacaoPrimeiroContatoConfigurada falhou')
+    return ''
+  }
+}
+
+/**
  * Resolve a mensagem final pronta para envio.
  * @returns {Promise<string>} texto renderizado (placeholders substituídos).
  */
@@ -236,5 +260,6 @@ module.exports = {
   getContextoMensagens,
   salvarGrupo,
   resolverMensagem,
+  saudacaoPrimeiroContatoConfigurada,
   invalidarCacheAtivo,
 }

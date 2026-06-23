@@ -150,6 +150,9 @@ function createCoreFunnel(deps = {}) {
     getContextoAtivoComEstagios,
     // Pause global do agente por empresa (config.agente_pausado). Opcional.
     empresaAgentePausada,
+    // Saudação fixa de primeiro contato (protocolo determinístico). Opcional: se
+    // ausente ou se a empresa não configurou, a 1ª resposta segue pela IA (atual).
+    resolverSaudacaoPrimeiroContato,
   } = deps
 
   const MOTIVOS_HANDOFF = [
@@ -1082,6 +1085,35 @@ function createCoreFunnel(deps = {}) {
       if (pausado) {
         logger.info({ empresa_id: empresaIdConversa, numero }, 'Agente da empresa pausado — sem resposta automática')
         return { skipped: true, reason: 'empresa_agente_pausado' }
+      }
+    }
+
+    // ── Protocolo de primeiro contato: 1ª resposta ao lead é a saudação FIXA ──
+    // Determinístico: quando o LEAD inicia a conversa (o agente ainda não respondeu
+    // nada) e estamos em primeiro_contato, responde com a saudação configurada
+    // (Mensagens automáticas → Saudações) em vez de deixar a IA improvisar. A IA
+    // assume do 2º turno em diante, seguindo o Núcleo/protocolo. Só dispara se a
+    // empresa SALVOU uma saudação no contexto ativo — senão segue o fluxo normal,
+    // sem afetar PJ/empresas que não usam isto.
+    const agenteJaRespondeu = historico.some((m) => m && m.role === 'assistant')
+    if (
+      !respostaEnviadaAoLead &&
+      !agenteJaRespondeu &&
+      estagioLive === 'primeiro_contato' &&
+      empresaIdConversa &&
+      typeof resolverSaudacaoPrimeiroContato === 'function'
+    ) {
+      let saudacaoFixa = ''
+      try {
+        saudacaoFixa = await resolverSaudacaoPrimeiroContato(pool, { empresaId: empresaIdConversa, log: logger })
+      } catch (_) { saudacaoFixa = '' }
+      if (saudacaoFixa && saudacaoFixa.trim()) {
+        await enviarMensagem(numero, saudacaoFixa, whatsappOpts)
+        const historicoNovo = [...historico, { role: 'assistant', content: saudacaoFixa }]
+        await salvarConversa(numero, historicoNovo, estagioLive, conversaUsada?.status || 'ativo', undefined, empresaIdConversa, evolutionInstanceConversa)
+        await limparFalhaResposta(numero).catch(() => {})
+        logger.info({ empresa_id: empresaIdConversa, numero, via: 'saudacao_primeiro_contato' }, 'Primeiro contato: saudação fixa enviada (protocolo)')
+        return { destino: numero, trecho_resposta: saudacaoFixa.slice(0, 200) }
       }
     }
 
