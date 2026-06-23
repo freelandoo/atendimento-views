@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { apiFetch, getEmpresaId } from '@/lib/api'
+import { apiFetch } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 
 type Provider = 'openai' | 'anthropic'
@@ -45,8 +45,6 @@ export default function LLMPage() {
   const [conectando, setConectando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
-  const [agentePausado, setAgentePausado] = useState<boolean | null>(null)
-  const [togglingAgente, setTogglingAgente] = useState(false)
   // "LLM de geração" (one-shot): provider/model usados só na geração; reusa a chave do atendimento.
   const [presets, setPresets] = useState<Presets | null>(null)
   const [genProvider, setGenProvider] = useState<Provider>('openai')
@@ -71,27 +69,6 @@ export default function LLMPage() {
         setGenAtual({ provider: r.data.gen_provider || null, model: r.data.gen_model || null })
       }
     } catch {}
-    const eid = getEmpresaId()
-    if (eid) {
-      try {
-        const a = await apiFetch<{ pausado: boolean }>(`/api/empresas/${eid}/agente`)
-        setAgentePausado(!!a.data.pausado)
-      } catch {}
-    }
-  }
-
-  async function setAgenteState(pausado: boolean) {
-    const eid = getEmpresaId()
-    if (!eid) return
-    setTogglingAgente(true)
-    try {
-      const r = await fb.runTask(() => apiFetch<{ pausado: boolean }>(`/api/empresas/${eid}/agente`, {
-        method: 'PATCH',
-        body: JSON.stringify({ pausado }),
-      }), { sucesso: pausado ? 'Agente pausado.' : 'Agente ativado.' })
-      setAgentePausado(!!r.data.pausado)
-    } catch { /* erro já exibido pelo feedback */ }
-    finally { setTogglingAgente(false) }
   }
 
   useEffect(() => {
@@ -186,49 +163,6 @@ export default function LLMPage() {
         <h1 className="text-2xl font-bold">Modelo LLM</h1>
         {status && badge}
       </div>
-
-      {agentePausado !== null && (
-        <div className="bg-white border rounded-2xl p-6 shadow-sm flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <h2 className="font-semibold">Agente da empresa</h2>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Quando pausado, o agente não responde mensagens recebidas no WhatsApp.
-              Use pra atender manualmente sem o bot interromper.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setAgenteState(false)}
-              disabled={togglingAgente || !agentePausado}
-              className={`text-sm px-4 py-2 rounded-lg font-medium transition-colors ${
-                !agentePausado
-                  ? 'bg-green-600 text-white cursor-default'
-                  : 'border border-green-600 text-green-600 hover:bg-green-50 disabled:opacity-50'
-              }`}
-            >
-              Ativar
-            </button>
-            <button
-              type="button"
-              onClick={() => setAgenteState(true)}
-              disabled={togglingAgente || agentePausado}
-              className={`text-sm px-4 py-2 rounded-lg font-medium transition-colors ${
-                agentePausado
-                  ? 'bg-red-600 text-white cursor-default'
-                  : 'border border-red-600 text-red-600 hover:bg-red-50 disabled:opacity-50'
-              }`}
-            >
-              Pausar
-            </button>
-            <span className={`text-xs px-3 py-1 rounded-full font-semibold ${
-              agentePausado ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-            }`}>
-              {agentePausado ? 'pausado' : 'ativo'}
-            </span>
-          </div>
-        </div>
-      )}
 
       {status && (
         <div className="bg-white border rounded-2xl p-6 shadow-sm space-y-2">
