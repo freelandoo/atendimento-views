@@ -78,8 +78,7 @@ const { processarMensagemComPlaybook, gerarFollowupComPlaybook } = require('./se
 const { createContexto2Responder } = require('./services/contexto2-responder')
 const { getContextoAtivoEmpresa } = require('./services/contexto-empresa')
 const { getContextoAtivoComEstagios } = require('./services/contexto-estagios')
-const { empresaAgentePausada } = require('./db/empresas')
-const { saudacaoPrimeiroContatoConfigurada } = require('./services/mensagens-automaticas')
+const { empresaAgentePausada, openerProtocolo } = require('./db/empresas')
 const { createCoreFunnel } = require('./core-funnel')
 const { extrairNomeDeclarado, nomeDePushName } = require('./nome-contato')
 const {
@@ -4292,7 +4291,7 @@ const coreFunnel = createCoreFunnel({
   processarMensagemComPlaybook,
   getContextoAtivoComEstagios,
   empresaAgentePausada,
-  resolverSaudacaoPrimeiroContato: saudacaoPrimeiroContatoConfigurada,
+  resolverOpenerProtocolo: openerProtocolo,
 })
 ;({ gerarEEnviarRespostaWhatsapp } = coreFunnel)
 

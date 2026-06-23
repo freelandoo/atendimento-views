@@ -17,6 +17,27 @@ const { canonicalizarPerfilLead } = require('./lead-profile-canonical')
 const { validarRespostaPorAcao } = require('./action-response-validator')
 const { buildTurnContext } = require('./turn-context-reader')
 
+// Estágios em que o protocolo de abertura determinístico pode rodar (início do
+// funil). Fora deles a conversa já avançou e a abertura não se aplica.
+const OPENER_ESTAGIOS = new Set(['primeiro_contato', 'novo', 'coleta_basica', 'diagnostico'])
+
+/**
+ * Classifica, de forma leve (sem IA), se o lead está OFERECENDO serviços (provedor:
+ * freelancer/influenciador/prestador) ou BUSCANDO CONTRATAR alguém (cliente).
+ * Usado no protocolo de abertura para escolher o CTA. Default = 'provedor' (público
+ * principal). Checa sinais de PROVEDOR primeiro para não confundir "freelancer
+ * procurando clientes" com "cliente procurando profissional".
+ * @returns {'provedor'|'cliente'}
+ */
+function classificarLeadOferecerOuContratar(texto) {
+  const t = String(texto || '').toLowerCase()
+  const provedor = /(sou |trabalho com|trabalho como|ofere[çc]o|presto servi|freela|influenc|criador de conteudo|criador de conteúdo|tenho um trabalho|meu trabalho|meus servi|me cadastr|cadastrar meu|divulgar meu|oferecer meus|vender meus|vendo |fa[çc]o )/
+  if (provedor.test(t)) return 'provedor'
+  const cliente = /(contratar|preciso de|preciso contratar|procuro um|procuro uma|procurando um|procurando uma|quero contratar|busco um|busco uma|achar um |achar uma |encontrar um |encontrar uma |contratar algu|algu[ée]m que fa[çc]a|algu[ée]m pra)/
+  if (cliente.test(t)) return 'cliente'
+  return 'provedor'
+}
+
 /**
  * Mescla os sinais do lead (insights_lead) capturados pela IA num turno com o que já
  * estava salvo. Escalares: o novo só sobrescreve se vier preenchido. Arrays
@@ -150,9 +171,9 @@ function createCoreFunnel(deps = {}) {
     getContextoAtivoComEstagios,
     // Pause global do agente por empresa (config.agente_pausado). Opcional.
     empresaAgentePausada,
-    // Saudação fixa de primeiro contato (protocolo determinístico). Opcional: se
-    // ausente ou se a empresa não configurou, a 1ª resposta segue pela IA (atual).
-    resolverSaudacaoPrimeiroContato,
+    // Protocolo de abertura determinístico (saudação → 1 pergunta → CTA). Opcional:
+    // se ausente ou se a empresa não configurou, a abertura segue pela IA (atual).
+    resolverOpenerProtocolo,
   } = deps
 
   const MOTIVOS_HANDOFF = [
@@ -1088,32 +1109,44 @@ function createCoreFunnel(deps = {}) {
       }
     }
 
-    // ── Protocolo de primeiro contato: 1ª resposta ao lead é a saudação FIXA ──
-    // Determinístico: quando o LEAD inicia a conversa (o agente ainda não respondeu
-    // nada) e estamos em primeiro_contato, responde com a saudação configurada
-    // (Mensagens automáticas → Saudações) em vez de deixar a IA improvisar. A IA
-    // assume do 2º turno em diante, seguindo o Núcleo/protocolo. Só dispara se a
-    // empresa SALVOU uma saudação no contexto ativo — senão segue o fluxo normal,
-    // sem afetar PJ/empresas que não usam isto.
-    const agenteJaRespondeu = historico.some((m) => m && m.role === 'assistant')
-    if (
-      !respostaEnviadaAoLead &&
-      !agenteJaRespondeu &&
-      estagioLive === 'primeiro_contato' &&
-      empresaIdConversa &&
-      typeof resolverSaudacaoPrimeiroContato === 'function'
-    ) {
-      let saudacaoFixa = ''
-      try {
-        saudacaoFixa = await resolverSaudacaoPrimeiroContato(pool, { empresaId: empresaIdConversa, log: logger })
-      } catch (_) { saudacaoFixa = '' }
-      if (saudacaoFixa && saudacaoFixa.trim()) {
-        await enviarMensagem(numero, saudacaoFixa, whatsappOpts)
-        const historicoNovo = [...historico, { role: 'assistant', content: saudacaoFixa }]
-        await salvarConversa(numero, historicoNovo, estagioLive, conversaUsada?.status || 'ativo', undefined, empresaIdConversa, evolutionInstanceConversa)
-        await limparFalhaResposta(numero).catch(() => {})
-        logger.info({ empresa_id: empresaIdConversa, numero, via: 'saudacao_primeiro_contato' }, 'Primeiro contato: saudação fixa enviada (protocolo)')
-        return { destino: numero, trecho_resposta: saudacaoFixa.slice(0, 200) }
+    // ── Protocolo de abertura determinístico (saudação → 1 pergunta → CTA) ────
+    // Nos primeiros turnos, o agente segue uma sequência FIXA (sem IA): abre com a
+    // saudação oficial, faz UMA pergunta de qualificação (oferecer vs. contratar) e
+    // dispara o CTA + link certo pra cada caminho. A IA assume depois. Opt-in: só
+    // roda se a empresa configurou config.opener_protocolo; senão o fluxo segue
+    // 100% pela IA (PJ/demais empresas não mudam de comportamento).
+    if (empresaIdConversa && typeof resolverOpenerProtocolo === 'function' && OPENER_ESTAGIOS.has(estagioLive)) {
+      let opener = null
+      try { opener = await resolverOpenerProtocolo(empresaIdConversa) } catch (_) { opener = null }
+      if (opener) {
+        const enviados = historico.filter((m) => m && m.role === 'assistant')
+        const jaEnviou = (txt) =>
+          !!txt && enviados.some((m) => typeof m.content === 'string' && m.content.includes(String(txt).slice(0, 40)))
+        // Sequência fixa de aberturas (só saudação + pergunta; o CTA é dinâmico).
+        const seq = []
+        if (opener.saudacao) seq.push(opener.saudacao)
+        if (opener.pergunta) seq.push(opener.pergunta)
+
+        let proxima = ''
+        let proximoEstagio = estagioLive
+        if (enviados.length < seq.length) {
+          proxima = seq[enviados.length]
+        } else if (!jaEnviou(opener.cta_provedor) && !jaEnviou(opener.cta_cliente)) {
+          // Classifica a resposta do lead e escolhe o CTA. Default = provedor
+          // (público principal: profissionais que ativam o perfil).
+          const textoUltimaMsg = typeof ultima.content === 'string' ? ultima.content : String((ultima && ultima.content) || '')
+          const tipo = classificarLeadOferecerOuContratar(textoUltimaMsg)
+          proxima = (tipo === 'cliente' && opener.cta_cliente) ? opener.cta_cliente : (opener.cta_provedor || opener.cta_cliente)
+          proximoEstagio = 'diagnostico'
+        }
+        if (proxima && proxima.trim()) {
+          await enviarMensagem(numero, proxima, whatsappOpts)
+          const historicoNovo = [...historico, { role: 'assistant', content: proxima }]
+          await salvarConversa(numero, historicoNovo, proximoEstagio, conversaUsada?.status || 'ativo', undefined, empresaIdConversa, evolutionInstanceConversa)
+          await limparFalhaResposta(numero).catch(() => {})
+          logger.info({ empresa_id: empresaIdConversa, numero, etapa: proximoEstagio, via: 'opener_protocolo' }, 'Protocolo de abertura: mensagem fixa enviada')
+          return { destino: numero, trecho_resposta: proxima.slice(0, 200) }
+        }
       }
     }
 
@@ -2203,4 +2236,4 @@ function createCoreFunnel(deps = {}) {
   }
 }
 
-module.exports = { createCoreFunnel, mesclarInsightsLead }
+module.exports = { createCoreFunnel, mesclarInsightsLead, classificarLeadOferecerOuContratar }

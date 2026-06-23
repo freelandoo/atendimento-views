@@ -92,6 +92,40 @@ function invalidarCacheNomeEmpresa(empresaId) {
   else _nomeCache.clear()
 }
 
+// ─── Protocolo de abertura por empresa (config.opener_protocolo) ───────────────
+// Sequência fixa e determinística dos primeiros turnos (saudação → 1 pergunta de
+// qualificação → CTA por caminho), lida no caminho de resposta (core-funnel) para
+// NÃO deixar a IA improvisar/interrogar na abertura. Opt-in: só empresas que
+// configuram isto entram no fluxo; as demais seguem 100% pela IA (comportamento
+// atual). Cache curto; fail-open (erro/nulo => '' e o caller cai pra IA).
+// Formato esperado: { saudacao, pergunta, cta_provedor, cta_cliente } (strings).
+const _openerCache = new Map() // empresaId -> { data, at }
+const OPENER_TTL_MS = 30_000
+
+async function openerProtocolo(empresaId) {
+  if (!empresaId) return null
+  const c = _openerCache.get(empresaId)
+  if (c && Date.now() - c.at < OPENER_TTL_MS) return c.data
+  let data = null
+  try {
+    const { rows } = await pool.query('SELECT config FROM app.empresas WHERE id = $1', [empresaId])
+    const op = rows[0]?.config?.opener_protocolo
+    if (op && typeof op === 'object' && !Array.isArray(op)) {
+      const s = (k) => (typeof op[k] === 'string' ? op[k].trim() : '')
+      const out = { saudacao: s('saudacao'), pergunta: s('pergunta'), cta_provedor: s('cta_provedor'), cta_cliente: s('cta_cliente') }
+      // Só vale como protocolo se houver ao menos a saudação ou um CTA configurado.
+      if (out.saudacao || out.cta_provedor || out.cta_cliente) data = out
+    }
+  } catch { data = null }
+  _openerCache.set(empresaId, { data, at: Date.now() })
+  return data
+}
+
+function invalidarCacheOpener(empresaId) {
+  if (empresaId) _openerCache.delete(empresaId)
+  else _openerCache.clear()
+}
+
 module.exports = {
   findEmpresaById,
   findEmpresaBySlug,
@@ -102,4 +136,6 @@ module.exports = {
   nomeEmpresa,
   NOME_PADRAO,
   invalidarCacheNomeEmpresa,
+  openerProtocolo,
+  invalidarCacheOpener,
 }
