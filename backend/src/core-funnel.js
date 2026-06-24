@@ -1117,7 +1117,7 @@ function createCoreFunnel(deps = {}) {
     // 100% pela IA (PJ/demais empresas não mudam de comportamento).
     if (empresaIdConversa && typeof resolverOpenerProtocolo === 'function' && OPENER_ESTAGIOS.has(estagioLive)) {
       let opener = null
-      try { opener = await resolverOpenerProtocolo(empresaIdConversa) } catch (_) { opener = null }
+      try { opener = await resolverOpenerProtocolo(empresaIdConversa, evolutionInstanceConversa) } catch (_) { opener = null }
       if (opener) {
         const enviados = historico.filter((m) => m && m.role === 'assistant')
         const jaEnviou = (txt) =>
@@ -1157,7 +1157,7 @@ function createCoreFunnel(deps = {}) {
     let ctxEstagiosTurno = null
     if (empresaIdConversa && typeof getContextoAtivoComEstagios === 'function') {
       try {
-        ctxEstagiosTurno = await getContextoAtivoComEstagios(pool, empresaIdConversa)
+        ctxEstagiosTurno = await getContextoAtivoComEstagios(pool, empresaIdConversa, evolutionInstanceConversa)
       } catch (e) {
         logger.warn({ err: e.message, empresa_id: empresaIdConversa }, 'Falha ao carregar contexto ativo com estágios — seguindo sem injeção')
         ctxEstagiosTurno = null

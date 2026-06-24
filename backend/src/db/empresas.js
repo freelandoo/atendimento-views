@@ -92,38 +92,55 @@ function invalidarCacheNomeEmpresa(empresaId) {
   else _nomeCache.clear()
 }
 
-// ─── Protocolo de abertura por empresa (config.opener_protocolo) ───────────────
-// Sequência fixa e determinística dos primeiros turnos (saudação → 1 pergunta de
-// qualificação → CTA por caminho), lida no caminho de resposta (core-funnel) para
-// NÃO deixar a IA improvisar/interrogar na abertura. Opt-in: só empresas que
-// configuram isto entram no fluxo; as demais seguem 100% pela IA (comportamento
-// atual). Cache curto; fail-open (erro/nulo => '' e o caller cai pra IA).
+// ─── Protocolo de abertura (saudação → 1 pergunta → CTA) ───────────────────────
+// Sequência fixa e determinística dos primeiros turnos, lida no caminho de resposta
+// (core-funnel) para NÃO deixar a IA improvisar/interrogar na abertura. Opt-in.
+// Resolução POR INSTÂNCIA (1 número = 1 negócio): se a instância tem o próprio
+// protocolo em config_json.opener_protocolo, usa esse; senão cai no da empresa
+// (app.empresas.config.opener_protocolo). Cache curto; fail-open (nulo => IA).
 // Formato esperado: { saudacao, pergunta, cta_provedor, cta_cliente } (strings).
-const _openerCache = new Map() // empresaId -> { data, at }
+const _openerCache = new Map() // `${empresaId}:${instance||''}` -> { data, at }
 const OPENER_TTL_MS = 30_000
 
-async function openerProtocolo(empresaId) {
+function _normalizarOpener(op) {
+  if (!op || typeof op !== 'object' || Array.isArray(op)) return null
+  const s = (k) => (typeof op[k] === 'string' ? op[k].trim() : '')
+  const out = { saudacao: s('saudacao'), pergunta: s('pergunta'), cta_provedor: s('cta_provedor'), cta_cliente: s('cta_cliente') }
+  // Só vale como protocolo se houver ao menos a saudação ou um CTA configurado.
+  return (out.saudacao || out.cta_provedor || out.cta_cliente) ? out : null
+}
+
+async function openerProtocolo(empresaId, evolutionInstance = null) {
   if (!empresaId) return null
-  const c = _openerCache.get(empresaId)
+  const cacheKey = `${empresaId}:${evolutionInstance || ''}`
+  const c = _openerCache.get(cacheKey)
   if (c && Date.now() - c.at < OPENER_TTL_MS) return c.data
   let data = null
   try {
-    const { rows } = await pool.query('SELECT config FROM app.empresas WHERE id = $1', [empresaId])
-    const op = rows[0]?.config?.opener_protocolo
-    if (op && typeof op === 'object' && !Array.isArray(op)) {
-      const s = (k) => (typeof op[k] === 'string' ? op[k].trim() : '')
-      const out = { saudacao: s('saudacao'), pergunta: s('pergunta'), cta_provedor: s('cta_provedor'), cta_cliente: s('cta_cliente') }
-      // Só vale como protocolo se houver ao menos a saudação ou um CTA configurado.
-      if (out.saudacao || out.cta_provedor || out.cta_cliente) data = out
+    // 1) Protocolo da própria INSTÂNCIA (config_json.opener_protocolo).
+    if (evolutionInstance) {
+      const { rows } = await pool.query(
+        `SELECT config_json FROM app.empresa_whatsapp_instances
+          WHERE evolution_instance = $1 AND empresa_id = $2 AND ativo = true LIMIT 1`,
+        [evolutionInstance, empresaId]
+      )
+      data = _normalizarOpener(rows[0]?.config_json?.opener_protocolo)
+    }
+    // 2) Fallback: protocolo da empresa (app.empresas.config.opener_protocolo).
+    if (!data) {
+      const { rows } = await pool.query('SELECT config FROM app.empresas WHERE id = $1', [empresaId])
+      data = _normalizarOpener(rows[0]?.config?.opener_protocolo)
     }
   } catch { data = null }
-  _openerCache.set(empresaId, { data, at: Date.now() })
+  _openerCache.set(cacheKey, { data, at: Date.now() })
   return data
 }
 
 function invalidarCacheOpener(empresaId) {
-  if (empresaId) _openerCache.delete(empresaId)
-  else _openerCache.clear()
+  if (!empresaId) return _openerCache.clear()
+  for (const k of _openerCache.keys()) {
+    if (k === empresaId || k.startsWith(`${empresaId}:`)) _openerCache.delete(k)
+  }
 }
 
 module.exports = {

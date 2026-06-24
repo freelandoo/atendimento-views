@@ -73,6 +73,10 @@ function createContexto2Responder(deps = {}) {
     const ultima = historico[historico.length - 1]
     const mensagem = typeof ultima?.content === 'string' ? ultima.content : String(ultima?.content || '')
     const status = conversaUsada?.status || 'ativo'
+    // Atendimento é 100% por instância: a resolução do playbook usa a instância
+    // (config_json.contexto_id), nunca contexto "fora da instância". Sem instância
+    // ligada a um contexto, processarMensagemComPlaybook retorna null → não responde.
+    const evolutionInstance = conversaUsada?.evolution_instance || null
 
     let res
     try {
@@ -84,6 +88,7 @@ function createContexto2Responder(deps = {}) {
         leadPhone: numero,
         mensagem,
         historico,
+        evolutionInstance,
       })
     } catch (e) {
       logger.error({ err: e.message, empresa_id: empresaId, numero }, 'Playbook multiempresa falhou — sem resposta automática neste turno')
@@ -148,7 +153,6 @@ function createContexto2Responder(deps = {}) {
       return { skipped: true, reason: 'playbook_sem_mensagem' }
     }
 
-    const evolutionInstance = conversaUsada?.evolution_instance || null
     const whatsappOpts = evolutionInstance ? { instanceName: evolutionInstance } : {}
     await enviarMensagem(numero, texto, whatsappOpts)
     const historicoNovo = [...historico, { role: 'assistant', content: texto }]

@@ -466,6 +466,11 @@ async function buscarContexto2Ativo(pool, empresaId, evolutionInstance = null) {
         contexto_id: rows[0].contexto_id,
       }
     }
+    // Atendimento é 100% por instância (regra do projeto): instância informada
+    // mas SEM contexto linkado NÃO responde — nunca cai em contexto da empresa
+    // "fora da instância". O fallback por empresa abaixo só vale p/ chamadas
+    // administrativas que não informam instância (preview/edição de versão).
+    return null
   }
 
   const { rows } = await pool.query(

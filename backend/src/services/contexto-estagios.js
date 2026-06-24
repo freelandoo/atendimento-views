@@ -247,16 +247,7 @@ async function desativarContexto(pool, empresaId, contextoId) {
   return ctx || null
 }
 
-/** Runtime: contexto runtime-ativo da empresa com seus estágios + conhecimento. */
-async function getContextoAtivoComEstagios(pool, empresaId) {
-  if (!empresaId) return null
-  const { rows: [ctx] } = await pool.query(
-    `SELECT id, nome, conteudo, contexto_form_json, estagios_json, thumbnail_url
-       FROM app.empresa_contextos
-      WHERE empresa_id = $1 AND runtime_ativo = true
-      LIMIT 1`,
-    [empresaId]
-  )
+function _montarContextoEstagios(ctx) {
   if (!ctx) return null
   const estagios = normalizarEstagios(ctx.estagios_json)
   if (estagiosVazios(estagios)) return null
@@ -266,6 +257,38 @@ async function getContextoAtivoComEstagios(pool, empresaId) {
     estagios: preencherInformacoesEstagio(estagios, ctx),
     conhecimento: montarConhecimentoDoContexto(ctx),
   }
+}
+
+/**
+ * Runtime: contexto com estágios + conhecimento para o turno.
+ * Resolução POR INSTÂNCIA (1 número = 1 negócio): se a conversa veio de uma
+ * `evolutionInstance` vinculada a um contexto COM estágios, usa esse. Senão cai
+ * no contexto runtime-ativo da empresa (comportamento legado / fallback).
+ */
+async function getContextoAtivoComEstagios(pool, empresaId, evolutionInstance = null) {
+  if (!empresaId) return null
+  // 1) Preferência: contexto amarrado à instância que recebeu a mensagem.
+  if (evolutionInstance) {
+    const { rows: [ctxInst] } = await pool.query(
+      `SELECT ec.id, ec.nome, ec.conteudo, ec.contexto_form_json, ec.estagios_json, ec.thumbnail_url
+         FROM app.empresa_whatsapp_instances ewi
+         JOIN app.empresa_contextos ec ON ec.id = ewi.contexto_id
+        WHERE ewi.evolution_instance = $1 AND ewi.empresa_id = $2 AND ewi.ativo = true
+        LIMIT 1`,
+      [evolutionInstance, empresaId]
+    )
+    const montado = _montarContextoEstagios(ctxInst)
+    if (montado) return montado
+  }
+  // 2) Fallback: contexto runtime-ativo da empresa.
+  const { rows: [ctx] } = await pool.query(
+    `SELECT id, nome, conteudo, contexto_form_json, estagios_json, thumbnail_url
+       FROM app.empresa_contextos
+      WHERE empresa_id = $1 AND runtime_ativo = true
+      LIMIT 1`,
+    [empresaId]
+  )
+  return _montarContextoEstagios(ctx)
 }
 
 module.exports = {
