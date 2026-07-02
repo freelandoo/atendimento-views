@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import InstanciasWhatsApp from '@/components/InstanciasWhatsApp'
+import InstanciasFreelandoo from '@/components/InstanciasFreelandoo'
 
 type Sugestao = {
   id: string
@@ -60,6 +61,12 @@ export default function ContextosPage() {
           instância e vive dentro do card dela. */}
       <div className="bg-white border rounded-2xl p-5 shadow-sm">
         <InstanciasWhatsApp empresaId={empresaId} />
+      </div>
+
+      {/* Instância Freelandoo — mesma ideia da instância WhatsApp, mas conectada
+          por token de API (não por QR Code). Mesmo contexto/agenda/motor. */}
+      <div className="bg-white border rounded-2xl p-5 shadow-sm">
+        <InstanciasFreelandoo empresaId={empresaId} />
       </div>
 
       {sugestoes.length > 0 && (

@@ -58,6 +58,7 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
        FROM app.empresa_whatsapp_instances ewi
        LEFT JOIN app.empresa_contextos c ON c.id = ewi.contexto_id
       WHERE ewi.empresa_id = $1
+        AND COALESCE(ewi.config_json->>'canal', 'whatsapp') <> 'freelandoo'
       ORDER BY ewi.criado_em DESC`,
     [req.empresa.id]
   )

@@ -37,6 +37,11 @@ const allowedOrigins = process.env.FRONTEND_URL
   : true
 app.use(cors({ origin: allowedOrigins, credentials: true }))
 
+// Webhook da Freelandoo precisa do corpo CRU (Buffer) para validar a assinatura
+// HMAC byte-a-byte. Registrado ANTES do express.json — que então pula este path
+// (express.raw marca req._body=true), evitando dupla-parse.
+app.use('/freelandoo/webhook', express.raw({ type: '*/*', limit: '2mb' }))
+
 app.use(express.json({ limit: '20mb' }))
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
@@ -64,6 +69,7 @@ const fontesRouter = require('./src/routes/api-contextos-fontes')
 app.use('/api/empresas/:empresaId/contextos/:contextoId/fontes', fontesRouter)
 app.use('/api/empresas/:empresaId/contextos/:contextoId/sugerir-contexto1', fontesRouter.sugerirRouter)
 app.use('/api/empresas/:empresaId/whatsapp', require('./src/routes/api-whatsapp'))
+app.use('/api/empresas/:empresaId/freelandoo', require('./src/routes/api-freelandoo'))
 app.use('/api/empresas/:empresaId/conversas', require('./src/routes/api-conversas'))
 app.use('/api/empresas/:empresaId/leads-quentes', require('./src/routes/api-leads-quentes'))
 // Aquisição / banco de leads / relatórios / LLM são admin-only (gating de backend SaaS)
@@ -76,6 +82,9 @@ app.use('/api/empresas/:empresaId/agente-pj', require('./src/routes/api-agente-p
 app.use('/api/llm', requireAuth, requireRole('admin'), require('./src/routes/api-llm'))
 app.use('/api/prompts-catalogo', require('./src/routes/api-prompts-catalogo'))
 app.use('/api/empresas/:empresaId/llm/uso', requireAuth, requireRole('admin'), require('./src/routes/api-llm-uso'))
+
+// Webhook público da Freelandoo (valida HMAC internamente; sem auth JWT).
+app.use('/freelandoo/webhook', require('./src/routes/freelandoo-webhook'))
 
 // Resolve empresa a partir da evolution_instance em todos os webhooks (fallback PJ).
 app.use('/webhook', resolveEmpresaFromWebhook)
