@@ -3,18 +3,28 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch, apiDownload, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
+import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
 
-// Banco de Leads — visão unificada das duas origens (Google Places + Instagram),
-// agrupada nos 3 estágios do funil. Consome /api/empresas/:id/banco-leads.
+// Banco de Leads — as duas origens em tabelas separadas (Google Places e
+// Instagram), com as MESMAS colunas/pontuação/ordenação/JSON da Aquisição,
+// agrupadas nos 3 estágios do funil. Consome /api/empresas/:id/banco-leads.
+type JsonApresLead = JsonApresentacao & {
+  empresa?: { horario_funcionamento?: boolean; fotos?: number }
+}
 type Lead = {
   id: string; origem: string; status: string; nome: string
   telefone: string | null; email: string | null; instagram_handle: string | null
   nicho: string | null; cidade: string | null; site: string | null
   seguidores: number | null; categoria_perfil: string | null
+  endereco: string | null; rating: number | null; avaliacoes: number | null
+  tem_site: boolean | null; maps_url: string | null; link_bio: string | null; bio: string | null
+  score_cadastro: number | null; score_cadastro_max: number | null
+  json_apresentacao: JsonApresLead | null
   created_at: string; updated_at: string
   bloqueado_ate: string | null; bloqueio_motivo: string | null
   rodado_em: string | null; rodado_por: string | null
 }
+type Ordem = { chave: string; dir: 'asc' | 'desc' }
 type Resumo = { abas: Record<string, number>; por_status: Record<string, number> }
 type Instancia = {
   id: string; evolution_instance: string; nome?: string | null
@@ -50,9 +60,6 @@ const STATUS_STYLE: Record<string, string> = {
   respondeu: 'bg-orange-100 text-orange-700',
   fechado: 'bg-violet-100 text-violet-700',
 }
-const ORIGEM_LABEL: Record<string, string> = {
-  manual: 'Places', automatico: 'Places', instagram: 'Instagram', linkedin: 'LinkedIn',
-}
 const MOTIVO_LABEL: Record<string, string> = {
   rejeicao: 'rejeição', sem_resposta: 'sem resposta',
 }
@@ -66,6 +73,44 @@ function isRodavel(l: Lead): boolean {
 function fmtData(s: string | null): string {
   if (!s) return ''
   try { return new Date(s).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) } catch { return '' }
+}
+function fmtDataHora(s: string | null): string {
+  if (!s) return '—'
+  const d = new Date(s)
+  return Number.isNaN(d.valueOf()) ? '—' : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+}
+
+const ORIGENS_PLACES = new Set(['manual', 'automatico'])
+
+// Valor de cada coluna pra ordenação — mesma régua das tabelas de Aquisição.
+function valorColuna(l: Lead, chave: string): number | string {
+  switch (chave) {
+    case 'entrou': return l.created_at || ''
+    case 'nome': return (l.nome || '').toLowerCase()
+    case 'username': return (l.instagram_handle || '').toLowerCase()
+    case 'telefone': return l.telefone || ''
+    case 'email': return l.email || ''
+    case 'endereco': return (l.endereco || '').toLowerCase()
+    case 'nicho': return `${l.nicho || l.categoria_perfil || ''} ${l.cidade || ''}`.toLowerCase()
+    case 'seguidores': return l.seguidores ?? -1
+    case 'aval': return l.avaliacoes ?? -1
+    case 'nota': return l.rating ?? -1
+    case 'horario': return l.json_apresentacao?.empresa?.horario_funcionamento ? 1 : 0
+    case 'site': return l.tem_site || l.site ? 1 : 0
+    case 'links': return (l.link_bio || l.site) ? 1 : 0
+    case 'pontos': return l.score_cadastro ?? 0
+    case 'status': return l.status || ''
+    default: return 0
+  }
+}
+
+function ordenarLeads(lista: Lead[], ordem: Ordem): Lead[] {
+  return [...lista].sort((a, b) => {
+    const va = valorColuna(a, ordem.chave)
+    const vb = valorColuna(b, ordem.chave)
+    const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb), 'pt-BR')
+    return ordem.dir === 'asc' ? cmp : -cmp
+  })
 }
 
 export default function BancoLeadsPage() {
@@ -89,6 +134,11 @@ export default function BancoLeadsPage() {
   const [rodando, setRodando] = useState(false)
   const [saudacaoOpen, setSaudacaoOpen] = useState(false)
   const [cadastroOpen, setCadastroOpen] = useState(false)
+  // Ordenação independente por tabela — mesmos defaults da Aquisição:
+  // Places = menos pontos no topo; Instagram = mais seguidores no topo.
+  const [ordemPlaces, setOrdemPlaces] = useState<Ordem>({ chave: 'pontos', dir: 'asc' })
+  const [ordemIg, setOrdemIg] = useState<Ordem>({ chave: 'seguidores', dir: 'desc' })
+  const [jsonAberto, setJsonAberto] = useState<{ titulo: string; json: JsonApresLead } | null>(null)
   const fb = useFeedback()
 
   function query() {
@@ -137,6 +187,9 @@ export default function BancoLeadsPage() {
 
   const instanciaSel = useMemo(() => instancias.find((i) => i.id === instanciaId) || null, [instancias, instanciaId])
   const rodaveis = useMemo(() => leads.filter(isRodavel), [leads])
+  // Divisão por origem: Places (manual/automático) × Instagram (social).
+  const leadsPlaces = useMemo(() => ordenarLeads(leads.filter((l) => ORIGENS_PLACES.has(l.origem)), ordemPlaces), [leads, ordemPlaces])
+  const leadsIg = useMemo(() => ordenarLeads(leads.filter((l) => !ORIGENS_PLACES.has(l.origem)), ordemIg), [leads, ordemIg])
 
   function toggleSel(id: string) {
     setSelecionados((prev) => {
@@ -315,96 +368,47 @@ export default function BancoLeadsPage() {
         </div>
       </div>
 
-      {/* Tabela */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
-              <tr>
-                {mostrarRodar && (
-                  <th className="px-4 py-3 w-10">
-                    <input type="checkbox"
-                      checked={!!selecionados.size && rodaveis.length > 0 && rodaveis.slice(0, MAX_LOTE).every((l) => selecionados.has(l.id))}
-                      onChange={(e) => (e.target.checked ? selecionarLote() : setSelecionados(new Set()))}
-                      aria-label="Selecionar lote" />
-                  </th>
-                )}
-                <th className="text-left font-medium px-4 py-3">Nome</th>
-                <th className="text-left font-medium px-4 py-3">Origem</th>
-                <th className="text-left font-medium px-4 py-3">Contato</th>
-                <th className="text-left font-medium px-4 py-3">Nicho / Cidade</th>
-                <th className="text-left font-medium px-4 py-3">Status</th>
-                <th className="text-right font-medium px-4 py-3">Ação</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {leads.map((l) => {
-                const locked = isLocked(l)
-                const rodavel = isRodavel(l)
-                return (
-                  <tr key={l.id} className="hover:bg-slate-50/60">
-                    {mostrarRodar && (
-                      <td className="px-4 py-3">
-                        <input type="checkbox" checked={selecionados.has(l.id)} disabled={!rodavel}
-                          onChange={() => toggleSel(l.id)} aria-label={`Selecionar ${l.nome}`} />
-                      </td>
-                    )}
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-slate-800">{l.nome || '—'}</div>
-                      {l.instagram_handle && <div className="text-xs text-slate-400">@{l.instagram_handle.replace(/^@/, '')}</div>}
-                    </td>
-                    <td className="px-4 py-3 text-slate-500">{ORIGEM_LABEL[l.origem] || l.origem}</td>
-                    <td className="px-4 py-3 text-slate-600">
-                      <div className="flex flex-col gap-0.5 text-xs">
-                        {l.telefone && <span className="text-emerald-700">📱 {l.telefone}</span>}
-                        <EmailEditavel value={l.email} onSave={(email) => salvarEmail(l.id, email)} />
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-slate-500">
-                      {[l.nicho, l.cidade].filter(Boolean).join(' · ') || '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLE[l.status] || 'bg-slate-100 text-slate-600'}`}>
-                        {l.status}
-                      </span>
-                      {locked && (
-                        <div className="text-[11px] text-red-600 mt-1">
-                          🔒 travado até {fmtData(l.bloqueado_ate)}{l.bloqueio_motivo ? ` (${MOTIVO_LABEL[l.bloqueio_motivo] || l.bloqueio_motivo})` : ''}
-                        </div>
-                      )}
-                      {l.rodado_em && (
-                        <div className="text-[11px] text-slate-400 mt-0.5">
-                          rodado{l.rodado_por ? ` por ${l.rodado_por}` : ''} em {fmtData(l.rodado_em)}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {l.status === 'fechado' ? (
-                        <button onClick={() => reabrir(l.id)}
-                          className="px-2.5 py-1 rounded-lg border text-xs font-medium hover:bg-slate-50">
-                          Reabrir
-                        </button>
-                      ) : (
-                        <button onClick={() => fechar(l.id)}
-                          className="px-2.5 py-1 rounded-lg border border-violet-300 text-violet-700 text-xs font-medium hover:bg-violet-50">
-                          ✓ Fechou
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-              {!leads.length && (
-                <tr>
-                  <td colSpan={mostrarRodar ? 7 : 6} className="px-4 py-10 text-center text-slate-400">
-                    {carregando ? 'Carregando…' : 'Nenhum lead nesta aba.'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* Tabelas por origem — mesmas colunas/pontuação/ordenação/JSON da Aquisição */}
+      {carregando && !leads.length ? (
+        <p className="text-sm text-slate-400 text-center py-8">Carregando…</p>
+      ) : !leads.length ? (
+        <p className="text-sm text-slate-400 text-center py-8">Nenhum lead nesta aba.</p>
+      ) : (
+        <>
+          {leadsPlaces.length > 0 && (
+            <TabelaPlacesBanco
+              leads={leadsPlaces}
+              ordem={ordemPlaces}
+              onOrdenar={(chave) => setOrdemPlaces((o) => (o.chave === chave ? { chave, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { chave, dir: 'desc' }))}
+              mostrarRodar={mostrarRodar}
+              selecionados={selecionados}
+              onToggleSel={toggleSel}
+              onSalvarEmail={salvarEmail}
+              onFechar={fechar}
+              onReabrir={reabrir}
+              onAbrirJson={(l) => l.json_apresentacao && setJsonAberto({ titulo: l.nome, json: l.json_apresentacao })}
+            />
+          )}
+          {leadsIg.length > 0 && (
+            <TabelaInstagramBanco
+              leads={leadsIg}
+              ordem={ordemIg}
+              onOrdenar={(chave) => setOrdemIg((o) => (o.chave === chave ? { chave, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { chave, dir: 'desc' }))}
+              mostrarRodar={mostrarRodar}
+              selecionados={selecionados}
+              onToggleSel={toggleSel}
+              onSalvarEmail={salvarEmail}
+              onFechar={fechar}
+              onReabrir={reabrir}
+              onAbrirJson={(l) => l.json_apresentacao && setJsonAberto({ titulo: l.nome, json: l.json_apresentacao })}
+            />
+          )}
+        </>
+      )}
+
+      {jsonAberto && (
+        <JsonLeadModal titulo={`JSON de apresentação — ${jsonAberto.titulo}`} json={jsonAberto.json} onFechar={() => setJsonAberto(null)} />
+      )}
 
       {cadastroOpen && (
         <CadastroModal
@@ -424,6 +428,226 @@ export default function BancoLeadsPage() {
           }}
         />
       )}
+    </div>
+  )
+}
+
+// ─── Tabelas por origem (mesmo layout da Aquisição) ────────────────────────────
+type TabelaProps = {
+  leads: Lead[]
+  ordem: Ordem
+  onOrdenar: (chave: string) => void
+  mostrarRodar: boolean
+  selecionados: Set<string>
+  onToggleSel: (id: string) => void
+  onSalvarEmail: (id: string, email: string) => Promise<void>
+  onFechar: (id: string) => void
+  onReabrir: (id: string) => void
+  onAbrirJson: (l: Lead) => void
+}
+
+// Célula de status compartilhada (badge + trava + último disparo).
+function StatusCelula({ l }: { l: Lead }) {
+  const locked = isLocked(l)
+  return (
+    <td className="px-3 py-2">
+      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLE[l.status] || 'bg-slate-100 text-slate-600'}`}>
+        {l.status}
+      </span>
+      {locked && (
+        <div className="text-[11px] text-red-600 mt-1">
+          🔒 travado até {fmtData(l.bloqueado_ate)}{l.bloqueio_motivo ? ` (${MOTIVO_LABEL[l.bloqueio_motivo] || l.bloqueio_motivo})` : ''}
+        </div>
+      )}
+      {l.rodado_em && (
+        <div className="text-[11px] text-slate-400 mt-0.5">
+          rodado{l.rodado_por ? ` por ${l.rodado_por}` : ''} em {fmtData(l.rodado_em)}
+        </div>
+      )}
+    </td>
+  )
+}
+
+function JsonCelula({ l, onAbrirJson }: { l: Lead; onAbrirJson: (l: Lead) => void }) {
+  return (
+    <td className="px-3 py-2">
+      {l.json_apresentacao && (
+        <button onClick={() => onAbrirJson(l)}
+          className="text-xs px-2 py-1 rounded-lg border text-brand hover:bg-blue-50"
+          title="Dados unificados + prompt único pro bot gerar a saudação de análise">
+          {'{ }'}
+        </button>
+      )}
+    </td>
+  )
+}
+
+function AcaoCelula({ l, onFechar, onReabrir }: { l: Lead; onFechar: (id: string) => void; onReabrir: (id: string) => void }) {
+  return (
+    <td className="px-3 py-2 text-right whitespace-nowrap">
+      {l.status === 'fechado' ? (
+        <button onClick={() => onReabrir(l.id)}
+          className="px-2.5 py-1 rounded-lg border text-xs font-medium hover:bg-slate-50">
+          Reabrir
+        </button>
+      ) : (
+        <button onClick={() => onFechar(l.id)}
+          className="px-2.5 py-1 rounded-lg border border-violet-300 text-violet-700 text-xs font-medium hover:bg-violet-50">
+          ✓ Fechou
+        </button>
+      )}
+    </td>
+  )
+}
+
+function SelCelula({ l, selecionados, onToggleSel }: { l: Lead; selecionados: Set<string>; onToggleSel: (id: string) => void }) {
+  return (
+    <td className="px-3 py-2">
+      <input type="checkbox" checked={selecionados.has(l.id)} disabled={!isRodavel(l)}
+        onChange={() => onToggleSel(l.id)} aria-label={`Selecionar ${l.nome}`} />
+    </td>
+  )
+}
+
+function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, selecionados, onToggleSel, onSalvarEmail, onFechar, onReabrir, onAbrirJson }: TabelaProps) {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
+      <div className="px-4 py-3 border-b flex items-center gap-2">
+        <h2 className="text-sm font-semibold">Google Places</h2>
+        <span className="text-xs text-slate-400">{leads.length} lead{leads.length === 1 ? '' : 's'}</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              {mostrarRodar && <th className="px-3 py-2 w-8" />}
+              <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="Endereço" chave="endereco" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="Nicho / Cidade" chave="nicho" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="Aval." chave="aval" ordem={ordem} onOrdenar={onOrdenar} align="right" />
+              <ThOrdenavel label="Nota" chave="nota" ordem={ordem} onOrdenar={onOrdenar} align="right" />
+              <ThOrdenavel label="Horário" chave="horario" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="Site" chave="site" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="Pontos" chave="pontos" ordem={ordem} onOrdenar={onOrdenar} align="right" />
+              <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={onOrdenar} />
+              <th className="text-left px-3 py-2">JSON</th>
+              <th className="text-right px-3 py-2">Ação</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {leads.map((l) => {
+              const horario = !!l.json_apresentacao?.empresa?.horario_funcionamento
+              return (
+                <tr key={l.id} className="hover:bg-slate-50/60">
+                  {mostrarRodar && <SelCelula l={l} selecionados={selecionados} onToggleSel={onToggleSel} />}
+                  <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{fmtDataHora(l.created_at)}</td>
+                  <td className="px-3 py-2 font-medium">
+                    {l.maps_url ? (
+                      <a href={l.maps_url} target="_blank" rel="noreferrer"
+                        className="text-brand hover:underline inline-flex items-center gap-1" title="Ver ficha no Google Maps">
+                        {l.nome} <span className="text-xs text-slate-400">↗</span>
+                      </a>
+                    ) : (l.nome || '—')}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{l.telefone || '—'}</td>
+                  <td className="px-3 py-2 text-xs"><EmailEditavel value={l.email} onSave={(email) => onSalvarEmail(l.id, email)} /></td>
+                  <td className="px-3 py-2 text-xs text-slate-600 max-w-[180px] truncate" title={l.endereco || ''}>{l.endereco || '—'}</td>
+                  <td className="px-3 py-2 text-slate-600 text-xs">{[l.nicho, l.cidade].filter(Boolean).join(' · ') || '—'}</td>
+                  <td className="px-3 py-2 text-right text-xs">{l.avaliacoes ?? '—'}</td>
+                  <td className="px-3 py-2 text-right text-xs">{l.rating != null ? Number(l.rating).toFixed(1) : '—'}</td>
+                  <td className="px-3 py-2 text-center">{horario ? '✅' : '❌'}</td>
+                  <td className="px-3 py-2">
+                    {l.site ? (
+                      <a href={l.site} target="_blank" rel="noreferrer" className="hover:underline" title={l.site}>✅ <span className="text-xs text-brand">site</span></a>
+                    ) : l.tem_site ? '✅' : '❌'}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <span className={`font-semibold ${((l.score_cadastro ?? 0) <= 40) ? 'text-red-600' : (l.score_cadastro ?? 0) <= 70 ? 'text-amber-600' : 'text-emerald-600'}`}
+                      title="Pontuação do cadastro (0-100): site 20 · fotos, endereço, telefone, e-mail, horário, links extras, avaliações e nota>4 valem 10 cada">
+                      {l.score_cadastro ?? 0}
+                    </span>
+                    <span className="text-[10px] text-slate-400">/100</span>
+                  </td>
+                  <StatusCelula l={l} />
+                  <JsonCelula l={l} onAbrirJson={onAbrirJson} />
+                  <AcaoCelula l={l} onFechar={onFechar} onReabrir={onReabrir} />
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function TabelaInstagramBanco({ leads, ordem, onOrdenar, mostrarRodar, selecionados, onToggleSel, onSalvarEmail, onFechar, onReabrir, onAbrirJson }: TabelaProps) {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
+      <div className="px-4 py-3 border-b flex items-center gap-2">
+        <h2 className="text-sm font-semibold">Instagram</h2>
+        <span className="text-xs text-slate-400">{leads.length} lead{leads.length === 1 ? '' : 's'}</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              {mostrarRodar && <th className="px-3 py-2 w-8" />}
+              <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="@username" chave="username" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="Nicho" chave="nicho" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="Seguidores" chave="seguidores" ordem={ordem} onOrdenar={onOrdenar} align="right" />
+              <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="Links" chave="links" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="Pontos" chave="pontos" ordem={ordem} onOrdenar={onOrdenar} align="right" />
+              <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={onOrdenar} />
+              <th className="text-left px-3 py-2">JSON</th>
+              <th className="text-right px-3 py-2">Ação</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {leads.map((l) => (
+              <tr key={l.id} className="hover:bg-slate-50/60 align-top">
+                {mostrarRodar && <SelCelula l={l} selecionados={selecionados} onToggleSel={onToggleSel} />}
+                <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{fmtDataHora(l.created_at)}</td>
+                <td className="px-3 py-2 font-medium text-slate-900 max-w-[200px] truncate" title={l.bio || l.nome}>{l.nome || '—'}</td>
+                <td className="px-3 py-2 text-xs">
+                  {l.instagram_handle ? (
+                    <a href={`https://instagram.com/${l.instagram_handle.replace(/^@/, '')}`} target="_blank" rel="noreferrer"
+                      className="text-brand hover:underline">@{l.instagram_handle.replace(/^@/, '')}</a>
+                  ) : '—'}
+                </td>
+                <td className="px-3 py-2 text-xs text-slate-600 max-w-[160px] truncate" title={[l.nicho, l.categoria_perfil, l.cidade].filter(Boolean).join(' · ')}>
+                  {l.nicho || l.categoria_perfil || '—'}
+                </td>
+                <td className="px-3 py-2 text-right text-xs font-semibold">{l.seguidores != null ? l.seguidores.toLocaleString('pt-BR') : '—'}</td>
+                <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{l.telefone || '—'}</td>
+                <td className="px-3 py-2 text-xs"><EmailEditavel value={l.email} onSave={(email) => onSalvarEmail(l.id, email)} /></td>
+                <td className="px-3 py-2 text-xs whitespace-nowrap">
+                  {l.link_bio && <a href={l.link_bio} target="_blank" rel="noreferrer" className="text-slate-500 underline mr-2">bio</a>}
+                  {l.site && <a href={l.site} target="_blank" rel="noreferrer" className="text-slate-500 underline">site</a>}
+                  {!l.link_bio && !l.site && '—'}
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <span className={`font-semibold ${((l.score_cadastro ?? 0) <= 20) ? 'text-red-600' : (l.score_cadastro ?? 0) <= 40 ? 'text-amber-600' : 'text-emerald-600'}`}
+                    title="Pontuação do cadastro: 10 pontos por coluna (nicho, seguidores, telefone, e-mail, links, @username)">
+                    {l.score_cadastro ?? 0}
+                  </span>
+                  <span className="text-[10px] text-slate-400">/{l.score_cadastro_max ?? 60}</span>
+                </td>
+                <StatusCelula l={l} />
+                <JsonCelula l={l} onAbrirJson={onAbrirJson} />
+                <AcaoCelula l={l} onFechar={onFechar} onReabrir={onReabrir} />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

@@ -13,6 +13,12 @@ const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { atualizarEmailProspect } = require('../prospecting')
 const { rodarLeads } = require('../services/rodar-leads')
+const {
+  calcularScoreCadastroPlaces,
+  montarJsonApresentacaoPlaces,
+  calcularScoreCadastroInstagram,
+  montarJsonApresentacaoInstagram,
+} = require('../services/lead-score-cadastro')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -67,7 +73,34 @@ function montarFiltro(empresaId, query) {
 
 const COLUNAS = `id, origem, status, nome, telefone, email, instagram_handle,
   nicho, cidade, site, seguidores, categoria_perfil, created_at, updated_at,
-  bloqueado_ate, bloqueio_motivo`
+  bloqueado_ate, bloqueio_motivo, endereco, rating, avaliacoes, tem_site,
+  maps_url, link_bio, bio`
+
+// Origens do Google Places (inclui cadastro manual); o resto é social (IG/LinkedIn).
+const ORIGENS_PLACES = new Set(['manual', 'automatico'])
+
+// Anexa a pontuação de cadastro + JSON de apresentação conforme a origem do lead
+// (mesma régua da Aquisição: Places 0-100, Instagram 0-60). Remove o raw_json do
+// payload (pesado — só serve pro cálculo de fotos/horário do Places).
+function anexarScoreCadastro(row) {
+  const { raw_json: _rawJson, ...lead } = row
+  if (ORIGENS_PLACES.has(row.origem)) {
+    const cad = calcularScoreCadastroPlaces(row)
+    return {
+      ...lead,
+      score_cadastro: cad.score,
+      score_cadastro_max: cad.maximo,
+      json_apresentacao: montarJsonApresentacaoPlaces(row, cad),
+    }
+  }
+  const cad = calcularScoreCadastroInstagram(row)
+  return {
+    ...lead,
+    score_cadastro: cad.score,
+    score_cadastro_max: cad.maximo,
+    json_apresentacao: montarJsonApresentacaoInstagram(row, cad),
+  }
+}
 
 // GET /leads?aba=sem_contato|conversou|fecharam&origem=&busca=
 // Inclui o último disparo (quem rodou / quando) e o estado da trava (bloqueado_ate).
@@ -77,7 +110,7 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 300, 1), 1000)
     params.push(limit)
     const { rows } = await pool.query(
-      `SELECT ${COLUNAS},
+      `SELECT ${COLUNAS}, raw_json,
          (SELECT d.criado_em FROM prospectador.lead_disparos d
             WHERE d.prospect_id = prospects.id ORDER BY d.criado_em DESC LIMIT 1) AS rodado_em,
          (SELECT COALESCE(u.nome, u.email) FROM prospectador.lead_disparos d
@@ -87,7 +120,8 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
         WHERE ${where} ORDER BY updated_at DESC LIMIT $${params.length}`,
       params
     )
-    return res.json({ ok: true, data: rows, meta: { total: rows.length } })
+    const data = rows.map(anexarScoreCadastro)
+    return res.json({ ok: true, data, meta: { total: data.length } })
   } catch (err) { return envelopeErro(res, err, 'LEADS_FAILED') }
 })
 
