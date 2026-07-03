@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSession, podePapel, type Role } from '@/lib/useSession'
 
-type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report' | 'accounts' | 'profile' | 'prompts'
+type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report' | 'accounts' | 'profile' | 'prompts' | 'playbook'
 
 const NAV = [
   { href: '/dashboard', label: 'Visão Geral', icon: 'overview' },
@@ -13,6 +13,7 @@ const NAV = [
   { href: '/dashboard/banco-leads', label: 'Banco de Leads', icon: 'leads', minRole: 'admin' },
   { href: '/dashboard/agenda', label: 'Agenda', icon: 'agenda' },
   { href: '/dashboard/contextos', label: 'Instância', icon: 'company' },
+  { href: '/dashboard/playbook', label: 'Playbook', icon: 'playbook', minRole: 'admin' },
   { href: '/dashboard/llm', label: 'Modelo LLM', icon: 'model', minRole: 'admin' },
   { href: '/dashboard/prompts', label: 'Prompts & Saudações', icon: 'prompts', minRole: 'admin' },
   { href: '/dashboard/uso', label: 'Uso & Custo', icon: 'usage', minRole: 'admin' },
@@ -211,6 +212,13 @@ function NavGlyph({ name, className }: { name: NavIcon; className?: string }) {
           <path {...common} d="M5 6.5h14v9H9l-4 3v-12z" />
           <path {...common} d="M8 10h8M8 13h4" />
           <path {...common} d="M15.5 13.5l1.2 1.2 2.3-2.6" />
+        </>
+      )}
+      {name === 'playbook' && (
+        <>
+          <path {...common} d="M6 4h9l3 3v13H6z" />
+          <path {...common} d="M14 4v4h4" />
+          <path {...common} d="M9 12h6M9 15h6M9 18h4" />
         </>
       )}
     </svg>
