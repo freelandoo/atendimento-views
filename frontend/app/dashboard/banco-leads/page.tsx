@@ -88,6 +88,7 @@ export default function BancoLeadsPage() {
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [rodando, setRodando] = useState(false)
   const [saudacaoOpen, setSaudacaoOpen] = useState(false)
+  const [cadastroOpen, setCadastroOpen] = useState(false)
   const fb = useFeedback()
 
   function query() {
@@ -234,6 +235,10 @@ export default function BancoLeadsPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <button onClick={() => setCadastroOpen(true)}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand text-white text-sm font-semibold hover:bg-brand-dark">
+            ＋ Adicionar cadastro
+          </button>
           <button onClick={limpar} disabled={limpando}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50 disabled:opacity-50"
             title="Apaga todos os leads sem e-mail e sem telefone (negócios fechados são preservados)">
@@ -401,6 +406,14 @@ export default function BancoLeadsPage() {
         </div>
       </div>
 
+      {cadastroOpen && (
+        <CadastroModal
+          base={base}
+          onClose={() => setCadastroOpen(false)}
+          onSaved={() => { setCadastroOpen(false); carregarLeads(); carregarResumo() }}
+        />
+      )}
+
       {saudacaoOpen && instanciaSel && (
         <SaudacaoModal
           empresaId={empresaId}
@@ -411,6 +424,90 @@ export default function BancoLeadsPage() {
           }}
         />
       )}
+    </div>
+  )
+}
+
+// ─── Modal Adicionar cadastro — cria um lead manualmente no banco ──────────────
+const ORIGENS_CADASTRO: { valor: string; label: string }[] = [
+  { valor: 'manual', label: 'Manual' },
+  { valor: 'google', label: 'Google' },
+  { valor: 'instagram', label: 'Instagram' },
+]
+function CadastroModal({ base, onClose, onSaved }: {
+  base: string
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [origem, setOrigem] = useState('manual')
+  const [nome, setNome] = useState('')
+  const [whatsapp, setWhatsapp] = useState('')
+  const [instagram, setInstagram] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const fb = useFeedback()
+
+  async function salvar() {
+    if (!nome.trim()) { fb.toast('Informe o nome do lead.', 'error'); return }
+    const tel = whatsapp.replace(/\D/g, '')
+    if (!tel && !instagram.trim()) { fb.toast('Informe WhatsApp ou Instagram.', 'error'); return }
+    if (tel && tel.length < 10) { fb.toast('WhatsApp inválido — informe DDD + número.', 'error'); return }
+    setSalvando(true)
+    try {
+      await fb.runTask(() => apiFetch(`${base}/leads`, {
+        method: 'POST',
+        body: JSON.stringify({ origem, nome: nome.trim(), whatsapp: tel, instagram: instagram.trim() }),
+      }), { sucesso: 'Cadastro adicionado ao banco.' })
+      onSaved()
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setSalvando(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="font-semibold text-lg">Adicionar cadastro</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Cria um lead manualmente no banco. Informe ao menos WhatsApp ou Instagram.</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none" aria-label="Fechar">×</button>
+        </div>
+
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">Origem</label>
+          <select value={origem} onChange={(e) => setOrigem(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm">
+            {ORIGENS_CADASTRO.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">Nome</label>
+          <input value={nome} onChange={(e) => setNome(e.target.value)}
+            placeholder="Nome do lead ou empresa" className="w-full border rounded-lg px-3 py-2 text-sm" />
+        </div>
+
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">WhatsApp</label>
+          <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)}
+            placeholder="ex: 5521999998888" className="w-full border rounded-lg px-3 py-2 text-sm" />
+        </div>
+
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">Instagram</label>
+          <input value={instagram} onChange={(e) => setInstagram(e.target.value)}
+            placeholder="@usuario" className="w-full border rounded-lg px-3 py-2 text-sm" />
+        </div>
+
+        <div className="flex justify-end gap-2 border-t pt-3">
+          <button onClick={onClose} className="px-3 py-2 rounded-lg border text-sm">Cancelar</button>
+          <button onClick={salvar} disabled={salvando}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-semibold hover:bg-brand-dark disabled:opacity-50">
+            {salvando && <Spinner size={13} />}
+            {salvando ? 'Salvando…' : 'Adicionar'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

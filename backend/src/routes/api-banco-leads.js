@@ -91,6 +91,43 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
   } catch (err) { return envelopeErro(res, err, 'LEADS_FAILED') }
 })
 
+// POST /leads  { origem, nome, whatsapp, instagram } — cadastro manual de um lead.
+// A origem do formulário (manual/google/instagram) mapeia para a coluna `origem`:
+//   manual → 'manual' · google → 'automatico' (ambos aparecem como "Places")
+//   instagram → 'instagram'. Exige nome + ao menos um contato (whatsapp ou @).
+const ORIGEM_CADASTRO = { manual: 'manual', google: 'automatico', instagram: 'instagram' }
+router.post('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const b = req.body || {}
+    const origem = ORIGEM_CADASTRO[String(b.origem || '').toLowerCase()]
+    if (!origem) {
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Origem inválida (use manual, google ou instagram).' } })
+    }
+    const nome = String(b.nome || '').trim().slice(0, 200)
+    if (!nome) {
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe o nome do lead.' } })
+    }
+    const telefone = String(b.whatsapp || '').replace(/\D/g, '').slice(0, 20)
+    if (telefone && telefone.length < 10) {
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'WhatsApp inválido — informe DDD + número.' } })
+    }
+    const instagram = String(b.instagram || '').trim().replace(/^@+/, '').toLowerCase().slice(0, 100)
+    if (!telefone && !instagram) {
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe ao menos WhatsApp ou Instagram.' } })
+    }
+    // Com telefone o lead já é "rodável" (contato_encontrado); sem, fica só coletado.
+    const status = telefone ? 'contato_encontrado' : 'coletado'
+    const { rows } = await pool.query(
+      `INSERT INTO prospectador.prospects
+         (empresa_id, origem, nome, telefone, instagram_handle, status, raw_json)
+       VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6, $7::jsonb)
+       RETURNING ${COLUNAS}`,
+      [req.empresa.id, origem, nome, telefone, instagram, status, JSON.stringify({ fonte: 'cadastro_manual' })]
+    )
+    return res.status(201).json({ ok: true, data: { ...rows[0], rodado_em: null, rodado_por: null } })
+  } catch (err) { return envelopeErro(res, err, 'LEAD_CREATE_FAILED') }
+})
+
 // GET /meus-disparos — histórico de "quanto rodou" do usuário logado nesta empresa.
 // Resumo (total/hoje/semana/enviados/falhou) + contagem por dia (14d) + últimos disparos.
 router.get('/meus-disparos', requireAuth, requireEmpresaAccess, async (req, res) => {
