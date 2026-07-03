@@ -38,9 +38,77 @@ type Fonte = {
   created_at: string
   updated_at: string
 }
-type SugestaoCtx1 = {
-  sugestao: Record<string, unknown>
-  contexto_atual: Record<string, string>
+// ─── Progresso do pipeline (Inserir → tudo pronto) ───────────────────────────
+type EtapaProg = { chave: string; status: 'pendente' | 'rodando' | 'ok' | 'erro'; erro?: string | null }
+type PipelineState = {
+  fase: 'lendo_fonte' | 'gerando' | 'finalizando'
+  incluiLeitura: boolean
+  etapas: EtapaProg[]
+}
+
+// Ordem espelha ETAPAS_GERAR_TUDO do backend — o overlay mostra o passo REAL.
+const ETAPAS_PIPELINE: { chave: string; label: string }[] = [
+  { chave: 'lendo_fonte', label: 'Lendo a fonte (site / documento)' },
+  { chave: 'analisar_fontes', label: 'Analisando o conteúdo das fontes' },
+  { chave: 'contexto1', label: 'Preenchendo o Contexto 1 (formulário)' },
+  { chave: 'estagios_base', label: 'Gerando os estágios do funil' },
+  { chave: 'estagios_refinados', label: 'Refinando estágios com técnicas de venda' },
+  { chave: 'playbook', label: 'Criando o Playbook Comercial (Contexto 2)' },
+  { chave: 'mensagens_saudacoes', label: 'Gerando saudações automáticas' },
+  { chave: 'mensagens_gatilhos_agenda', label: 'Gerando gatilhos da agenda' },
+  { chave: 'finalizando', label: 'Atualizando os painéis' },
+]
+
+function PipelineOverlay({ pipeline }: { pipeline: PipelineState }) {
+  const porChave = new Map(pipeline.etapas.map((e) => [e.chave, e]))
+  const rows = ETAPAS_PIPELINE
+    .filter((e) => e.chave !== 'lendo_fonte' || pipeline.incluiLeitura)
+    .map((e) => {
+      if (e.chave === 'lendo_fonte') {
+        return { ...e, status: pipeline.fase === 'lendo_fonte' ? 'rodando' : 'ok', erro: null }
+      }
+      if (e.chave === 'finalizando') {
+        return { ...e, status: pipeline.fase === 'finalizando' ? 'rodando' : 'pendente', erro: null }
+      }
+      const et = porChave.get(e.chave)
+      // Enquanto o backend ainda não reportou nada, o 1º passo da geração aparece
+      // como "rodando" pra UI não ficar parada entre a leitura e o 1º polling.
+      if (!et && pipeline.fase === 'gerando' && e.chave === 'analisar_fontes' && pipeline.etapas.length === 0) {
+        return { ...e, status: 'rodando', erro: null }
+      }
+      return { ...e, status: et?.status || 'pendente', erro: et?.erro || null }
+    })
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5 space-y-3">
+        <h3 className="font-semibold text-sm">Preparando seu atendimento…</h3>
+        <p className="text-xs text-gray-500">
+          A IA está lendo as fontes e montando tudo: Contexto 1, estágios, playbook e mensagens automáticas. Pode levar 1-2 min.
+        </p>
+        <ul className="space-y-2">
+          {rows.map((r) => (
+            <li key={r.chave} className="flex items-center gap-2 text-xs">
+              <span className="w-4 flex justify-center">
+                {r.status === 'ok' ? <span className="text-green-600 font-bold">✓</span>
+                  : r.status === 'rodando' ? <Spinner size={13} />
+                  : r.status === 'erro' ? <span className="text-red-600">⚠</span>
+                  : <span className="text-gray-300">•</span>}
+              </span>
+              <span className={
+                r.status === 'rodando' ? 'text-gray-900 font-medium'
+                  : r.status === 'ok' ? 'text-gray-500'
+                  : r.status === 'erro' ? 'text-red-600'
+                  : 'text-gray-400'
+              }>
+                {r.label}
+              </span>
+              {r.erro && <span className="text-[10px] text-red-500 truncate" title={r.erro}>({r.erro})</span>}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  )
 }
 
 const CONTEXTO1_FIELDS: { name: string; label: string; type?: 'text' | 'textarea' }[] = [
@@ -90,6 +158,7 @@ export default function ContextoEditor({ empresaId, contextoId }: { empresaId: s
   const [contexto, setContexto] = useState<Contexto | null>(null)
   const [versoes, setVersoes] = useState<Versao[]>([])
   const [gerando, setGerando] = useState(false)
+  const [pipeline, setPipeline] = useState<PipelineState | null>(null)
   // Incrementado após o pipeline (gerar/analisar/remover fonte) pra forçar os
   // sub-cards (Fontes, Estágios) a recarregarem seus próprios dados.
   const [pipelineNonce, setPipelineNonce] = useState(0)
@@ -113,19 +182,6 @@ export default function ContextoEditor({ empresaId, contextoId }: { empresaId: s
 
   useEffect(() => { carregar(); carregarVersoes() }, [carregar, carregarVersoes])
 
-  async function gerarPlaybook() {
-    setGerando(true)
-    try {
-      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/gerar-playbook`, { method: 'POST' }), {
-        pesada: true,
-        sucesso: 'Playbook gerado',
-        detalhe: 'Criado como rascunho. Revise no card "Playbook" e ative.',
-      })
-      await carregarVersoes()
-    } catch { /* erro já exibido pelo feedback */ }
-    finally { setGerando(false) }
-  }
-
   // Recarrega tudo que deriva das fontes e sinaliza os sub-cards via pipelineNonce.
   async function recarregarDerivados() {
     await carregar()
@@ -133,19 +189,43 @@ export default function ContextoEditor({ empresaId, contextoId }: { empresaId: s
     setPipelineNonce((n) => n + 1)
   }
 
-  // "Analisar" = pipeline completo: analisa as fontes, preenche o Contexto 1, gera
-  // os estágios e o playbook — tudo numa chamada — e recarrega os painéis.
+  // Marca o início da fase "lendo fonte" (o Inserir do CardFontes chama antes do upload/crawl).
+  function iniciarLeituraFonte() {
+    setPipeline({ fase: 'lendo_fonte', incluiLeitura: true, etapas: [] })
+  }
+  function cancelarPipeline() {
+    setPipeline(null)
+  }
+
+  // Pipeline completo (disparado pelo Inserir): analisa as fontes, preenche o
+  // Contexto 1, gera estágios + refino, playbook e mensagens automáticas — tudo
+  // numa chamada — enquanto o overlay mostra o passo real via polling do progresso.
   async function rodarPipeline() {
+    if (gerando) return
     setGerando(true)
+    setPipeline((p) => ({ fase: 'gerando', incluiLeitura: !!p?.incluiLeitura, etapas: [] }))
+    const poll = setInterval(async () => {
+      try {
+        const r = await apiFetch<{ rodando: boolean; etapas: EtapaProg[] | null }>(
+          `/api/empresas/${empresaId}/contextos/${contextoId}/gerar-tudo/progresso`
+        )
+        const etapas = r.data?.etapas
+        if (etapas && etapas.length) setPipeline((p) => (p ? { ...p, etapas } : p))
+      } catch { /* polling é best-effort; o POST é a fonte de verdade */ }
+    }, 1500)
     try {
-      await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/gerar-tudo`, { method: 'POST', timeoutMs: 600000 }), {
-        pesada: true,
-        sucesso: 'Fontes analisadas',
-        detalhe: 'Contexto 1, estágios e playbook gerados. Revise e ative.',
-      })
+      await apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/gerar-tudo`, { method: 'POST', timeoutMs: 600000 })
+      clearInterval(poll)
+      setPipeline((p) => (p ? { ...p, fase: 'finalizando', etapas: p.etapas.map((e) => ({ ...e, status: e.status === 'rodando' ? 'ok' : e.status })) } : p))
       await recarregarDerivados()
-    } catch { /* erro já exibido pelo feedback */ }
-    finally { setGerando(false) }
+      fb.sucessoModal('Tudo pronto', 'Contexto 1, estágios, playbook e mensagens automáticas gerados a partir das fontes. Revise o que quiser e ative o contexto.')
+    } catch (e: unknown) {
+      fb.toast(e instanceof Error ? e.message : 'Falha ao gerar. Tente de novo.', 'error')
+    } finally {
+      clearInterval(poll)
+      setGerando(false)
+      setPipeline(null)
+    }
   }
 
   async function ativarVersao(versaoId: string) {
@@ -170,6 +250,7 @@ export default function ContextoEditor({ empresaId, contextoId }: { empresaId: s
 
   return (
     <div className="space-y-4">
+      {pipeline && <PipelineOverlay pipeline={pipeline} />}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <h2 className="font-semibold">Contexto</h2>
@@ -192,43 +273,36 @@ export default function ContextoEditor({ empresaId, contextoId }: { empresaId: s
           contextoId={contexto.id}
           contextoAtual={contexto.contexto_form_json || {}}
           reloadKey={pipelineNonce}
+          onLeituraInicio={iniciarLeituraFonte}
+          onLeituraFalhou={cancelarPipeline}
           onAnalisarTudo={() => rodarPipeline()}
           onAposRemover={() => recarregarDerivados()}
-          onAplicarSugestao={async (novoForm) => {
-            await apiFetch(`/api/empresas/${empresaId}/contextos/${contexto.id}`, {
-              method: 'PUT',
-              body: JSON.stringify({ contexto_form_json: novoForm }),
-            })
-            await carregar()
-            fb.toast('Contexto 1 atualizado pela sugestão das fontes.')
-          }}
         />
         <CardContexto1 empresaId={empresaId} contexto={contexto} onSalvo={carregar} />
         <CardPlaybook
           contextoId={contexto.id}
           versoes={versoes}
-          gerando={gerando}
-          onGerar={gerarPlaybook}
           onAtivar={ativarVersao}
           empresaId={empresaId}
         />
         <CardTeste empresaId={empresaId} contextoForm={contexto.contexto_form_json || {}} versaoAtiva={versoes.find((v) => v.status === 'ativo') || null} />
       </div>
-      <CardEstagios empresaId={empresaId} contextoId={contexto.id} contextoNome={contexto.nome} reloadKey={pipelineNonce} onAtivacao={carregar} onGerouTudo={recarregarDerivados} />
+      <CardEstagios empresaId={empresaId} contextoId={contexto.id} contextoNome={contexto.nome} reloadKey={pipelineNonce} onAtivacao={carregar} />
       <CardMensagens empresaId={empresaId} contextoId={contexto.id} reloadKey={pipelineNonce} />
     </div>
   )
 }
 
 // ─── Card 1 — Fontes ─────────────────────────────────────────────────────────
-function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisarTudo, onAposRemover, onAplicarSugestao }: {
+function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onLeituraInicio, onLeituraFalhou, onAnalisarTudo, onAposRemover }: {
   empresaId: string
   contextoId: string
   contextoAtual: Record<string, unknown>
   reloadKey?: number
+  onLeituraInicio: () => void
+  onLeituraFalhou: () => void
   onAnalisarTudo: () => Promise<void> | void
   onAposRemover: () => Promise<void> | void
-  onAplicarSugestao: (novoForm: Record<string, string>) => Promise<void>
 }) {
   const [fontes, setFontes] = useState<Fonte[]>([])
   const [tipo, setTipo] = useState<'link' | 'pdf' | 'texto'>('link')
@@ -238,8 +312,6 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisa
   const [carregando, setCarregando] = useState(false)
   const [analisando, setAnalisando] = useState<string | null>(null)
   const [erro, setErro] = useState('')
-  const [sugestao, setSugestao] = useState<SugestaoCtx1 | null>(null)
-  const [sugerindo, setSugerindo] = useState(false)
   const fb = useFeedback()
 
   const carregar = useCallback(async () => {
@@ -254,13 +326,15 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisa
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { carregar() }, [carregar, reloadKey])
 
+  // Inserir = fluxo completo: lê a fonte (crawl/upload) e já dispara o pipeline
+  // (Contexto 1 + estágios + playbook + mensagens). O overlay do pai mostra cada passo.
   async function adicionar() {
     // Validação client-side antes de disparar (erros vão pro toast).
     let req: () => Promise<unknown>
     let limpar: () => void
     if (tipo === 'link') {
       if (!/^https?:\/\//i.test(url)) { fb.toast('URL precisa começar com http:// ou https://', 'error'); return }
-      req = () => apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/link`, { method: 'POST', body: JSON.stringify({ url }) })
+      req = () => apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes/link`, { method: 'POST', body: JSON.stringify({ url }), timeoutMs: 600000 })
       limpar = () => setUrl('')
     } else if (tipo === 'texto') {
       if (texto.trim().length < 10) { fb.toast('Cole pelo menos 10 caracteres.', 'error'); return }
@@ -274,12 +348,20 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisa
       limpar = () => setArquivo(null)
     }
     setCarregando(true)
+    onLeituraInicio()
     try {
-      await fb.runTask(req, { sucesso: 'Fonte adicionada.' })
-      limpar()
-      await carregar()
-    } catch { /* erro já exibido pelo feedback */ }
-    finally { setCarregando(false) }
+      await req()
+    } catch (e: unknown) {
+      onLeituraFalhou()
+      setCarregando(false)
+      fb.toast(e instanceof Error ? e.message : 'Falha ao ler a fonte.', 'error')
+      return
+    }
+    limpar()
+    await carregar()
+    setCarregando(false)
+    // Fonte lida — segue direto pro pipeline (o pai troca o overlay pra fase "gerando").
+    await onAnalisarTudo()
   }
 
   // Analisar = pipeline completo (analisa as fontes pendentes, preenche Contexto 1,
@@ -311,28 +393,6 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisa
     finally { setAnalisando(null) }
   }
 
-  async function sugerir() {
-    setSugerindo(true)
-    try {
-      const r = await fb.runTask(() => apiFetch<SugestaoCtx1>(`/api/empresas/${empresaId}/contextos/${contextoId}/sugerir-contexto1`, { method: 'POST' }),
-        { sucesso: 'Sugestão gerada.' })
-      setSugestao(r.data)
-    } catch { /* erro já exibido pelo feedback */ }
-    finally { setSugerindo(false) }
-  }
-
-  async function aplicarSugestao() {
-    if (!sugestao) return
-    const novoForm: Record<string, string> = normalizarFormContexto(sugestao.contexto_atual || {})
-    for (const f of CONTEXTO1_FIELDS) {
-      const atual = (novoForm[f.name] || '').trim()
-      const novo = normalizarValorContexto((sugestao.sugestao as Record<string, unknown>)?.[f.name]).trim()
-      if (!atual && novo) novoForm[f.name] = novo
-    }
-    await onAplicarSugestao(novoForm)
-    setSugestao(null)
-  }
-
   const analisadas = fontes.filter((f) => f.status === 'analisado').length
   const statsFontes = fontes
     .filter((f) => f.status === 'analisado')
@@ -349,7 +409,7 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisa
         links: acc.links + (Number.isFinite(linksInternos) ? linksInternos : 0) + (Number.isFinite(linksExternos) ? linksExternos : 0),
       }
     }, { sites: 0, paginas: 0, links: 0 })
-  const contextoBaseStats = normalizarFormContexto(sugestao?.contexto_atual || contextoAtual)
+  const contextoBaseStats = normalizarFormContexto(contextoAtual)
   const camposPreenchidosStats = CONTEXTO1_FIELDS.filter((f) => (contextoBaseStats[f.name] || '').trim()).length
   const labelFontesStats = statsFontes.sites > 0
     ? `${statsFontes.sites} site${statsFontes.sites === 1 ? '' : 's'} analisado${statsFontes.sites === 1 ? '' : 's'}`
@@ -381,13 +441,16 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisa
           {tipo === 'pdf' && (
             <input type="file" accept=".pdf,.txt" onChange={(e) => setArquivo(e.target.files?.[0] || null)} className="flex-1 text-xs" />
           )}
-          <button onClick={adicionar} disabled={carregando} className="bg-brand text-white px-3 py-1.5 rounded-lg text-xs disabled:opacity-50">
+          <button onClick={adicionar} disabled={carregando || analisando !== null} className="bg-brand text-white px-3 py-1.5 rounded-lg text-xs disabled:opacity-50">
             {carregando ? '…' : 'Inserir'}
           </button>
         </div>
         {tipo === 'texto' && (
           <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={4} placeholder="Cole o texto…" className="w-full border rounded-lg px-2 py-1.5 text-xs" />
         )}
+        <p className="text-[11px] text-gray-400">
+          Ao inserir, a IA lê a fonte e já monta tudo sozinha: Contexto 1, estágios, playbook e mensagens automáticas.
+        </p>
       </div>
 
       {erro && <p className="text-xs text-red-600">{erro}</p>}
@@ -408,58 +471,17 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onAnalisa
                 <span className="text-gray-500 mr-1">[{f.tipo}]</span>
                 {f.titulo || f.url || f.filename || '(sem título)'}
               </span>
-              {f.status === 'pendente' && f.tem_conteudo && (
-                <button onClick={() => analisar(f.id)} disabled={analisando !== null} title="Analisa e já gera Contexto 1 + estágios + playbook" className="text-brand hover:underline disabled:opacity-50">
-                  {analisando !== null ? 'Processando…' : 'Analisar'}
+              {/* Recuperação: se o pipeline falhou/parou no meio, dá pra reprocessar a fonte. */}
+              {(f.status === 'pendente' && f.tem_conteudo) || f.status === 'erro' ? (
+                <button onClick={() => analisar(f.id)} disabled={analisando !== null} title={f.erro || 'Reprocessa esta fonte e regenera tudo'} className={`${f.status === 'erro' ? 'text-amber-600' : 'text-brand'} hover:underline disabled:opacity-50`}>
+                  {analisando !== null ? 'Processando…' : 'Tentar de novo'}
                 </button>
-              )}
-              {f.status === 'erro' && (
-                <button onClick={() => analisar(f.id)} disabled={analisando !== null} className="text-amber-600 hover:underline disabled:opacity-50" title={f.erro || ''}>
-                  Tentar de novo
-                </button>
-              )}
+              ) : null}
               <button onClick={() => remover(f.id)} disabled={analisando !== null} className="text-gray-400 hover:text-red-600 disabled:opacity-50" title="Remover (regenera o resto)">×</button>
             </div>
           ))
         )}
       </div>
-
-      {analisadas > 0 && !sugestao && (
-        <button onClick={sugerir} disabled={sugerindo} className="w-full text-xs bg-gray-100 hover:bg-brand hover:text-white px-3 py-2 rounded-lg disabled:opacity-50">
-          {sugerindo ? 'Consolidando com IA…' : `Sugerir Contexto 1 a partir de ${analisadas} fonte(s)`}
-        </button>
-      )}
-
-      {sugestao && (
-        <div className="border-2 border-brand rounded-lg p-3 space-y-2 bg-blue-50">
-          <p className="text-xs font-semibold">Sugestão consolidada (preserva seus dados manuais)</p>
-          <div className="max-h-48 overflow-y-auto space-y-1">
-            {CONTEXTO1_FIELDS.map((f) => {
-              const novo = normalizarValorContexto((sugestao.sugestao as Record<string, unknown>)?.[f.name]).trim()
-              const atual = normalizarValorContexto(sugestao.contexto_atual?.[f.name]).trim()
-              if (!novo) return null
-              const conflito = atual && atual !== novo
-              return (
-                <div key={f.name} className="text-[11px]">
-                  <span className="font-medium text-gray-700">{f.label}:</span>{' '}
-                  <span className={conflito ? 'text-amber-700' : 'text-gray-600'}>
-                    {novo.slice(0, 200)}{novo.length > 200 ? '…' : ''}
-                  </span>
-                  {conflito && <span className="ml-1 text-amber-700">(⚠ atual: {atual.slice(0, 80)})</span>}
-                </div>
-              )
-            })}
-          </div>
-          <div className="flex gap-2">
-            <button onClick={aplicarSugestao} className="flex-1 text-xs bg-brand text-white px-3 py-1.5 rounded-lg">
-              Aplicar (preserva dados manuais existentes)
-            </button>
-            <button onClick={() => setSugestao(null)} className="text-xs px-3 py-1.5 rounded-lg border">
-              Descartar
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -554,16 +576,13 @@ function CardContexto1({ empresaId, contexto, onSalvo }: {
 }
 
 // ─── Card 3 — Playbook ───────────────────────────────────────────────────────
-function CardPlaybook({ contextoId: _contextoId, empresaId, versoes, gerando, onGerar, onAtivar }: {
+function CardPlaybook({ contextoId: _contextoId, empresaId, versoes, onAtivar }: {
   contextoId: string
   empresaId: string
   versoes: Versao[]
-  gerando: boolean
-  onGerar: () => void
   onAtivar: (versaoId: string) => void
 }) {
   const ativa = versoes.find((v) => v.status === 'ativo')
-  const labelBotao = ativa ? 'Atualizar Playbook (nova versão)' : 'Gerar Playbook com IA'
 
   return (
     <div className="bg-white border rounded-xl p-4 space-y-3">
@@ -571,9 +590,9 @@ function CardPlaybook({ contextoId: _contextoId, empresaId, versoes, gerando, on
         <h3 className="font-semibold text-sm">Contexto 2 — Playbook Comercial</h3>
         {ativa && <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700">Ativo: v{ativa.versao}</span>}
       </div>
-      <button onClick={onGerar} disabled={gerando} className="w-full text-xs bg-brand text-white px-3 py-2 rounded-lg disabled:opacity-50">
-        {gerando ? 'Gerando…' : labelBotao}
-      </button>
+      <p className="text-[11px] text-gray-400">
+        Gerado automaticamente ao inserir uma fonte. Cada geração cria uma versão nova — revise e ative.
+      </p>
       <div className="space-y-2 max-h-96 overflow-y-auto">
         {versoes.length === 0 ? (
           <p className="text-xs text-gray-400 text-center py-3">Nenhuma versão ainda.</p>
@@ -839,13 +858,12 @@ type SimItem = {
   erro?: string
 }
 
-function CardEstagios({ empresaId, contextoId, contextoNome: _contextoNome, reloadKey, onAtivacao, onGerouTudo }: {
+function CardEstagios({ empresaId, contextoId, contextoNome: _contextoNome, reloadKey, onAtivacao }: {
   empresaId: string
   contextoId: string
   contextoNome: string
   reloadKey?: number
   onAtivacao: () => Promise<void> | void
-  onGerouTudo?: () => Promise<void> | void
 }) {
   const [etapas, setEtapas] = useState<{ chave: string; label: string }[]>([])
   const [estagios, setEstagios] = useState<Record<string, string>>({})
@@ -882,32 +900,6 @@ function CardEstagios({ empresaId, contextoId, contextoNome: _contextoNome, relo
   function setEtapa(chave: string, v: string) {
     setEstagios((p) => ({ ...p, [chave]: v }))
     setDirty(true)
-  }
-
-  // Fluxo ÚNICO: lê link/PDF (fontes já adicionadas acima) → preenche Contexto 1 →
-  // gera Núcleo + 5 estágios (com técnicas de venda + auto-crítica) → cria o playbook.
-  // O backend já SALVA os estágios e cria a versão do playbook.
-  async function gerarTudo() {
-    setBusy('gerar-tudo')
-    try {
-      const r = await fb.runTask(() => apiFetch<{
-        estagios: Record<string, string>
-        playbook: { versao?: number } | null
-        passos: { etapa: string; erro?: string }[]
-      }>(`/api/empresas/${empresaId}/contextos/${contextoId}/gerar-tudo`, {
-        method: 'POST',
-        timeoutMs: 600000, // pode levar 1-2 min (várias chamadas de IA encadeadas)
-      }), { sucesso: null })
-      if (r.data.estagios) setEstagios(r.data.estagios)
-      setDirty(false) // o backend já salvou os estágios
-      const erros = (r.data.passos || []).filter((p) => p.erro)
-      if (erros.length) fb.toast(`Gerado com avisos em: ${erros.map((e) => e.etapa).join(', ')}. Revise os campos.`, 'info')
-      else fb.sucessoModal('Tudo gerado', 'Contexto 1, estágios, playbook e mensagens automáticas. Revise, edite se quiser e ative.')
-      await onAtivacao()
-      // Recarrega os cards derivados (inclui Mensagens automáticas, geradas no mesmo fluxo).
-      if (onGerouTudo) await onGerouTudo()
-    } catch { /* erro já exibido pelo feedback */ }
-    finally { setBusy(null) }
   }
 
   // Loop "gera→simula→corrige" (opt-in): simula lead difícil, o modelo de atendimento
@@ -993,13 +985,6 @@ function CardEstagios({ empresaId, contextoId, contextoNome: _contextoNome, relo
 
       <div className="flex flex-wrap gap-2 items-center">
         <button
-          onClick={gerarTudo}
-          disabled={!!busy}
-          className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
-          {busy === 'gerar-tudo' ? 'Gerando tudo… (pode levar 1-2 min)' : '✨ Gerar tudo (Contexto 1 + estágios + playbook)'}
-        </button>
-        <button
           onClick={simularRefinar}
           disabled={!!busy}
           title="Simula um lead difícil, deixa o modelo de atendimento responder e o modelo de geração reescreve os estágios pra ficarem melhores."
@@ -1013,7 +998,7 @@ function CardEstagios({ empresaId, contextoId, contextoNome: _contextoNome, relo
       </div>
       {!temConhecimento && (
         <p className="text-[11px] text-amber-600">
-          Dica: adicione o link do site e/ou um PDF nas <strong>fontes</strong> acima antes de gerar — a IA usa isso pra preencher tudo.
+          Dica: insira o link do site e/ou um PDF nas <strong>fontes</strong> acima — a IA lê e preenche tudo sozinha.
         </p>
       )}
 
@@ -1152,7 +1137,7 @@ function CardMensagens({ empresaId, contextoId, reloadKey }: {
       <div>
         <h3 className="font-semibold text-sm">Mensagens automáticas</h3>
         <p className="text-xs text-gray-500 mt-0.5">
-          Textos fixos enviados pelo agente, por empresa. São adaptados ao seu negócio (com a IA) pelo <strong>Gerar tudo</strong> acima — edite o que quiser e salve.
+          Textos fixos enviados pelo agente, por empresa. São adaptados ao seu negócio pela IA ao <strong>inserir uma fonte</strong> — edite o que quiser e salve.
         </p>
         {placeholders.length > 0 && (
           <p className="text-[11px] text-gray-400 mt-1">
@@ -1163,7 +1148,7 @@ function CardMensagens({ empresaId, contextoId, reloadKey }: {
 
       {!temConhecimento && (
         <p className="text-[11px] text-amber-600">
-          Dica: adicione fontes (link/PDF) acima antes de <strong>Gerar tudo</strong> — a IA usa o conhecimento do contexto pra adaptar o tom.
+          Dica: insira uma fonte (link/PDF) acima — a IA usa o conhecimento do contexto pra adaptar o tom automaticamente.
         </p>
       )}
       {msg && <p className={`text-xs ${msg.tone === 'ok' ? 'text-brand' : 'text-red-600'}`}>{msg.text}</p>}

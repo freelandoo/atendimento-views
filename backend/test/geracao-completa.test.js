@@ -142,6 +142,38 @@ test('gerarTudo: encadeia Contexto 1 → estágios refinados → playbook (com g
   assert.ok(tasks.includes('generateContextPlaybook'))
 })
 
+// ─── 3b) gerarTudo: reporta progresso etapa a etapa via onEtapa ────────────────
+test('gerarTudo: onEtapa recebe rodando→ok na ordem de ETAPAS_GERAR_TUDO', async () => {
+  const { ETAPAS_GERAR_TUDO } = require('../src/services/geracao-completa')
+  estagiosSvc.invalidarGenericoCache()
+  const pool = mockPool()
+  const genProvider = fakeGenProvider()
+  const eventos = []
+
+  await gerarTudo({
+    pool, log: null, empresaId: 'e1', contextoId: 'c1', userId: 'u1', aiProvider: genProvider,
+    onEtapa: (chave, status) => eventos.push({ chave, status }),
+  })
+
+  // Toda etapa do catálogo começa (rodando) e termina (ok ou erro), nessa ordem.
+  for (const chave of ETAPAS_GERAR_TUDO) {
+    const doPasso = eventos.filter((e) => e.chave === chave)
+    assert.equal(doPasso[0]?.status, 'rodando', `etapa ${chave} não reportou início`)
+    assert.ok(['ok', 'erro'].includes(doPasso[doPasso.length - 1]?.status), `etapa ${chave} não reportou fim`)
+  }
+  // A ordem dos inícios espelha o catálogo (é o que a UI mostra como "passo atual").
+  const inicios = eventos.filter((e) => e.status === 'rodando').map((e) => e.chave)
+  assert.deepEqual(inicios, ETAPAS_GERAR_TUDO)
+
+  // onEtapa que lança não pode quebrar o fluxo.
+  estagiosSvc.invalidarGenericoCache()
+  const out = await gerarTudo({
+    pool: mockPool(), log: null, empresaId: 'e1', contextoId: 'c1', userId: 'u1',
+    aiProvider: fakeGenProvider(), onEtapa: () => { throw new Error('boom') },
+  })
+  assert.ok(out.playbook)
+})
+
 // ─── 4) rederivarOuLimpar: sem fontes restantes → limpa Contexto 1/estágios + arquiva playbook
 test('rederivarOuLimpar: sem fontes, limpa derivados e arquiva o playbook ativo', async () => {
   const sqls = []

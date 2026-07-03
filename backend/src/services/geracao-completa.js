@@ -68,12 +68,25 @@ async function refinarEstagiosComFrameworks({ genProvider, pool, log, empresaId,
   return estagiosSvc.normalizarEstagios(out)
 }
 
+// Etapas do fluxo "Gerar tudo", na ordem real de execução. Usadas pelo endpoint
+// de progresso (a UI mostra exatamente em qual passo o pipeline está).
+const ETAPAS_GERAR_TUDO = [
+  'analisar_fontes',
+  'contexto1',
+  'estagios_base',
+  'estagios_refinados',
+  'playbook',
+  ...mensagensSvc.CHAVES_GRUPO.map((g) => `mensagens_${g}`),
+]
+
 /**
  * Fluxo único "Gerar tudo". Roda com a LLM de geração (ou um aiProvider injetado em testes).
  * Cada passo é tolerante a falha e registrado em `passos`; o que der pra gerar, gera.
+ * `onEtapa(chave, status, extra)` (opcional) recebe 'rodando'|'ok'|'erro' no início/fim
+ * de cada etapa de ETAPAS_GERAR_TUDO — alimenta o progresso em tempo real da UI.
  * @returns {{ contexto1, estagios, playbook, passos }}
  */
-async function gerarTudo({ pool, log, empresaId, contextoId, userId, aiProvider } = {}) {
+async function gerarTudo({ pool, log, empresaId, contextoId, userId, aiProvider, onEtapa } = {}) {
   if (!pool || !empresaId || !contextoId) {
     throw new Error('gerarTudo: pool, empresaId, contextoId obrigatórios')
   }
@@ -83,8 +96,13 @@ async function gerarTudo({ pool, log, empresaId, contextoId, userId, aiProvider 
     passos.push({ etapa, ...info })
     if (log && typeof log.info === 'function') log.info({ etapa, ...info }, 'gerarTudo')
   }
+  const progresso = (etapa, status, extra = {}) => {
+    if (typeof onEtapa !== 'function') return
+    try { onEtapa(etapa, status, extra) } catch (_) { /* progresso nunca quebra o fluxo */ }
+  }
 
   // 1) Analisar fontes ainda não analisadas (extração — modelo padrão, não é o passo criativo).
+  progresso('analisar_fontes', 'rodando')
   const { rows: fontesPend } = await pool.query(
     `SELECT id FROM app.empresa_fontes_conhecimento
       WHERE empresa_id = $1 AND contexto_id = $2
@@ -96,8 +114,10 @@ async function gerarTudo({ pool, log, empresaId, contextoId, userId, aiProvider 
     catch (e) { marcar('analisar_fonte', { fonteId: f.id, erro: e.message }) }
   }
   marcar('analisar_fontes', { pendentes: fontesPend.length })
+  progresso('analisar_fontes', 'ok')
 
   // 2) Sugerir Contexto 1 das fontes + mesclar (preserva o manual) + persistir.
+  progresso('contexto1', 'rodando')
   let contexto1Aplicado = null
   try {
     const { sugestao, contexto_atual } = await sugerirContexto1APartirDasFontes(
@@ -111,11 +131,14 @@ async function gerarTudo({ pool, log, empresaId, contextoId, userId, aiProvider 
     )
     contexto1Aplicado = merged
     marcar('contexto1', { aplicado: true })
+    progresso('contexto1', 'ok')
   } catch (e) {
     marcar('contexto1', { erro: e.message })
+    progresso('contexto1', 'erro', { erro: e.message })
   }
 
   // 3) Estágios: genéricos (estrutura PJ) → adaptar ao conhecimento (modelo de geração).
+  progresso('estagios_base', 'rodando')
   const ctxRow = await estagiosSvc.getContextoComEstagios(pool, empresaId, contextoId)
   const conhecimento = estagiosSvc.montarConhecimentoDoContexto(ctxRow)
   const genericos = await estagiosSvc.gerarEstagiosGenericos({ pool, log, aiProvider: genProvider })
@@ -123,8 +146,10 @@ async function gerarTudo({ pool, log, empresaId, contextoId, userId, aiProvider 
     pool, log, aiProvider: genProvider, empresaId, contextoId, estagios: genericos, conhecimento,
   })
   marcar('estagios_base', {})
+  progresso('estagios_base', 'ok')
 
   // 4) Auto-crítica/refino aplicando os frameworks de venda.
+  progresso('estagios_refinados', 'rodando')
   estagios = await refinarEstagiosComFrameworks({ genProvider, pool, log, empresaId, contextoId, estagios, conhecimento })
   marcar('estagios_refinados', {})
 
@@ -135,15 +160,19 @@ async function gerarTudo({ pool, log, empresaId, contextoId, userId, aiProvider 
   const saved = await estagiosSvc.salvarEstagiosNoContexto(pool, empresaId, contextoId, estagios)
   const estagiosSalvos = estagiosSvc.normalizarEstagios(saved && saved.estagios_json)
   marcar('estagios_salvos', {})
+  progresso('estagios_refinados', 'ok')
 
   // 6) Gerar Contexto 2 playbook (rascunho) com o modelo de geração.
+  progresso('playbook', 'rodando')
   let playbook = null
   try {
     const r = await gerarContexto2Playbook({ pool, log, empresaId, contextoId, userId, aiProvider: genProvider })
     playbook = { versao_id: r && r.versao && r.versao.id, versao: r && r.versao && r.versao.versao }
     marcar('playbook', { versao: playbook.versao })
+    progresso('playbook', 'ok')
   } catch (e) {
     marcar('playbook', { erro: e.message })
+    progresso('playbook', 'erro', { erro: e.message })
   }
 
   // 7) Mensagens automáticas (saudações + gatilhos da agenda): adapta os defaults
@@ -151,6 +180,7 @@ async function gerarTudo({ pool, log, empresaId, contextoId, userId, aiProvider 
   //    Tolerante a falha por grupo — o que der pra gerar, gera.
   const mensagens = {}
   for (const grupo of mensagensSvc.CHAVES_GRUPO) {
+    progresso(`mensagens_${grupo}`, 'rodando')
     try {
       const gerado = await mensagensSvc.gerarGrupo({
         pool, log, aiProvider: genProvider, empresaId, contextoId, grupo, conhecimento,
@@ -158,8 +188,10 @@ async function gerarTudo({ pool, log, empresaId, contextoId, userId, aiProvider 
       const salvoGrupo = await mensagensSvc.salvarGrupo(pool, empresaId, contextoId, grupo, gerado)
       mensagens[grupo] = salvoGrupo || gerado
       marcar(`mensagens_${grupo}`, {})
+      progresso(`mensagens_${grupo}`, 'ok')
     } catch (e) {
       marcar(`mensagens_${grupo}`, { erro: e.message })
+      progresso(`mensagens_${grupo}`, 'erro', { erro: e.message })
     }
   }
   mensagensSvc.invalidarCacheAtivo(empresaId)
@@ -199,4 +231,4 @@ async function rederivarOuLimpar({ pool, log, empresaId, contextoId, userId } = 
   return { limpo: true }
 }
 
-module.exports = { gerarTudo, refinarEstagiosComFrameworks, rederivarOuLimpar }
+module.exports = { gerarTudo, refinarEstagiosComFrameworks, rederivarOuLimpar, ETAPAS_GERAR_TUDO }

@@ -47,12 +47,51 @@ router.get('/estagios', carregarContexto, async (req, res) => {
   })
 })
 
+// ─── Progresso do "Gerar tudo" (em memória, por contexto) ─────────────────────
+// A UI faz polling em GET .../gerar-tudo/progresso enquanto o POST roda, pra
+// mostrar exatamente em qual etapa o pipeline está. Volátil por design: se o
+// processo reiniciar no meio, o POST falha e a UI trata como erro.
+const PROGRESSO_TTL_MS = 30 * 60 * 1000
+const progressoGerarTudo = new Map() // contextoId -> { rodando, etapas, iniciado_em, atualizado_em }
+
+function novoProgresso() {
+  return {
+    rodando: true,
+    etapas: geracaoCompleta.ETAPAS_GERAR_TUDO.map((chave) => ({ chave, status: 'pendente', erro: null })),
+    iniciado_em: new Date().toISOString(),
+    atualizado_em: new Date().toISOString(),
+  }
+}
+
+function limparProgressosVelhos() {
+  const agora = Date.now()
+  for (const [k, p] of progressoGerarTudo) {
+    if (agora - new Date(p.atualizado_em).getTime() > PROGRESSO_TTL_MS) progressoGerarTudo.delete(k)
+  }
+}
+
 // POST .../gerar-tudo — fluxo ÚNICO com a LLM de geração: fontes → Contexto 1 →
 // estágios (genérico → adaptar → refino com frameworks de venda + auto-crítica) →
-// Contexto 2 playbook. Salva estágios e cria versão de playbook (rascunho).
+// Contexto 2 playbook → mensagens automáticas. Salva estágios e cria versão de
+// playbook (rascunho). Reporta o progresso etapa a etapa (ver GET /progresso).
 router.post('/gerar-tudo', carregarContexto, async (req, res) => {
   req.setTimeout(600000)
   res.setTimeout(600000)
+  limparProgressosVelhos()
+  const emAndamento = progressoGerarTudo.get(req.contexto.id)
+  if (emAndamento && emAndamento.rodando) {
+    return res.status(409).json({ ok: false, error: { code: 'JA_RODANDO', message: 'Já existe uma geração em andamento para este contexto. Aguarde terminar.' } })
+  }
+  const prog = novoProgresso()
+  progressoGerarTudo.set(req.contexto.id, prog)
+  const onEtapa = (chave, status, extra = {}) => {
+    const et = prog.etapas.find((e) => e.chave === chave)
+    if (et) {
+      et.status = status
+      et.erro = status === 'erro' ? String(extra.erro || 'falhou') : null
+    }
+    prog.atualizado_em = new Date().toISOString()
+  }
   try {
     const data = await geracaoCompleta.gerarTudo({
       pool,
@@ -60,12 +99,27 @@ router.post('/gerar-tudo', carregarContexto, async (req, res) => {
       empresaId: req.empresa.id,
       contextoId: req.contexto.id,
       userId: req.user && req.user.id,
+      onEtapa,
     })
+    prog.rodando = false
+    prog.atualizado_em = new Date().toISOString()
     return res.json({ ok: true, data })
   } catch (err) {
+    prog.rodando = false
+    // Marca a etapa que estava rodando como erro (a UI mostra onde parou).
+    const rodava = prog.etapas.find((e) => e.status === 'rodando')
+    if (rodava) { rodava.status = 'erro'; rodava.erro = err.message || 'falhou' }
+    prog.atualizado_em = new Date().toISOString()
     logger.error({ err: err.message }, 'gerar-tudo')
     return res.status(502).json({ ok: false, error: { code: 'IA_FALHOU', message: err.message || 'Falha ao gerar. Tente de novo.' } })
   }
+})
+
+// GET .../gerar-tudo/progresso — estado atual do pipeline deste contexto.
+router.get('/gerar-tudo/progresso', carregarContexto, async (req, res) => {
+  const prog = progressoGerarTudo.get(req.contexto.id)
+  if (!prog) return res.json({ ok: true, data: { rodando: false, etapas: null } })
+  return res.json({ ok: true, data: prog })
 })
 
 // POST .../simular-refinar — loop "simula lead difícil → modelo de atendimento responde →
