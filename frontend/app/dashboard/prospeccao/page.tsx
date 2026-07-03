@@ -5,6 +5,11 @@ import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import NeonProgress from '@/components/ui/NeonProgress'
 import ModalAgenda from '@/components/ui/ModalAgenda'
+import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
+
+type JsonApresProspect = JsonApresentacao & {
+  empresa?: { horario_funcionamento?: boolean; fotos?: number }
+}
 
 type Prospect = {
   id: string
@@ -13,6 +18,7 @@ type Prospect = {
   email: string | null
   nicho: string
   cidade: string
+  endereco: string | null
   rating: number | null
   avaliacoes: number | null
   tem_site: boolean
@@ -20,6 +26,9 @@ type Prospect = {
   maps_url: string | null
   status: string
   score: number | null
+  score_cadastro: number | null
+  score_cadastro_max: number | null
+  json_apresentacao: JsonApresProspect | null
   created_at: string | null
 }
 type Metricas = {
@@ -86,6 +95,32 @@ function quando(iso: string | null): string {
   return Number.isNaN(d.valueOf()) ? '—' : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 }
 
+// Valor de cada coluna pra ordenação (clique no cabeçalho alterna asc/desc).
+function valorColuna(p: Prospect, chave: string): number | string {
+  switch (chave) {
+    case 'entrou': return p.created_at || ''
+    case 'nome': return (p.nome || '').toLowerCase()
+    case 'telefone': return p.telefone || ''
+    case 'email': return p.email || ''
+    case 'endereco': return (p.endereco || '').toLowerCase()
+    case 'nicho': return `${p.nicho || ''} ${p.cidade || ''}`.toLowerCase()
+    case 'aval': return p.avaliacoes ?? -1
+    case 'nota': return p.rating ?? -1
+    case 'horario': return p.json_apresentacao?.empresa?.horario_funcionamento ? 1 : 0
+    case 'site': return p.tem_site ? 1 : 0
+    case 'pontos': return p.score_cadastro ?? 0
+    case 'status': return p.status || ''
+    default: return 0
+  }
+}
+
+function compararProspects(a: Prospect, b: Prospect, ordem: { chave: string; dir: 'asc' | 'desc' }): number {
+  const va = valorColuna(a, ordem.chave)
+  const vb = valorColuna(b, ordem.chave)
+  const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb), 'pt-BR')
+  return ordem.dir === 'asc' ? cmp : -cmp
+}
+
 export default function ProspeccaoPage() {
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [metricas, setMetricas] = useState<Metricas | null>(null)
@@ -99,8 +134,16 @@ export default function ProspeccaoPage() {
   const [agindo, setAgindo] = useState<string | null>(null)
   const [agendaAberta, setAgendaAberta] = useState(false)
   const [form, setForm] = useState<Partial<Config>>({})
+  // Ordenação da tabela: default = MENOS pontos de cadastro no topo (mais
+  // oportunidade de venda). Clicar no cabeçalho alterna asc/desc por coluna.
+  const [ordem, setOrdem] = useState<{ chave: string; dir: 'asc' | 'desc' }>({ chave: 'pontos', dir: 'asc' })
+  const [jsonAberto, setJsonAberto] = useState<{ titulo: string; json: JsonApresProspect } | null>(null)
   const fb = useFeedback()
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
+
+  function ordenarPor(chave: string) {
+    setOrdem((o) => (o.chave === chave ? { chave, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { chave, dir: 'desc' }))
+  }
 
   function carregar() {
     if (!empresaId) return
@@ -150,8 +193,7 @@ export default function ProspeccaoPage() {
     setForm((p) => ({ ...p, [k]: v }))
   }
 
-  // Mais quentes primeiro (maior score no topo).
-  const ordenados = [...prospects].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+  const ordenados = [...prospects].sort((a, b) => compararProspects(a, b, ordem))
 
   // "Rodar" da Agenda: roda a busca AGORA (com barra) E salva a agenda recorrente.
   async function rodar() {
@@ -273,29 +315,35 @@ export default function ProspeccaoPage() {
         </div>
       )}
 
-      <table className="w-full text-sm border rounded-xl overflow-hidden bg-white shadow-sm">
+      <div className="overflow-x-auto border rounded-xl bg-white shadow-sm">
+      <table className="w-full text-sm">
         <thead className="bg-gray-100">
           <tr>
-            <th className="text-left px-4 py-2">Entrou em</th>
-            <th className="text-left px-4 py-2">Temp.</th>
-            <th className="text-left px-4 py-2">Nome</th>
-            <th className="text-left px-4 py-2">Telefone</th>
-            <th className="text-left px-4 py-2">E-mail</th>
-            <th className="text-left px-4 py-2">Nicho / Cidade</th>
-            <th className="text-right px-4 py-2">Score</th>
-            <th className="text-left px-4 py-2">Site</th>
-            <th className="text-left px-4 py-2">Status</th>
-            <th className="text-right px-4 py-2">Ações</th>
+            <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={ordenarPor} />
+            <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={ordenarPor} />
+            <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={ordenarPor} />
+            <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={ordenarPor} />
+            <ThOrdenavel label="Endereço" chave="endereco" ordem={ordem} onOrdenar={ordenarPor} />
+            <ThOrdenavel label="Nicho / Cidade" chave="nicho" ordem={ordem} onOrdenar={ordenarPor} />
+            <ThOrdenavel label="Aval." chave="aval" ordem={ordem} onOrdenar={ordenarPor} align="right" />
+            <ThOrdenavel label="Nota" chave="nota" ordem={ordem} onOrdenar={ordenarPor} align="right" />
+            <ThOrdenavel label="Horário" chave="horario" ordem={ordem} onOrdenar={ordenarPor} />
+            <ThOrdenavel label="Site" chave="site" ordem={ordem} onOrdenar={ordenarPor} />
+            <ThOrdenavel label="Pontos" chave="pontos" ordem={ordem} onOrdenar={ordenarPor} align="right" />
+            <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={ordenarPor} />
+            <th className="text-left px-3 py-2">JSON</th>
+            <th className="text-right px-3 py-2">Ações</th>
           </tr>
         </thead>
         <tbody>
           {ordenados.map((p) => {
             const t = temperatura(p.score)
+            const horario = !!p.json_apresentacao?.empresa?.horario_funcionamento
             return (
             <tr key={p.id} className="border-t hover:bg-gray-50">
-              <td className="px-4 py-2 whitespace-nowrap text-xs text-slate-500">{quando(p.created_at)}</td>
-              <td className="px-4 py-2 whitespace-nowrap" title={t.label}>{t.emoji} <span className="text-xs text-slate-500">{t.label}</span></td>
-              <td className="px-4 py-2 font-medium">
+              <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{quando(p.created_at)}</td>
+              <td className="px-3 py-2 font-medium">
+                <span title={t.label} className="mr-1">{t.emoji}</span>
                 {p.maps_url ? (
                   <a href={p.maps_url} target="_blank" rel="noreferrer"
                     className="text-brand hover:underline inline-flex items-center gap-1"
@@ -304,19 +352,38 @@ export default function ProspeccaoPage() {
                   </a>
                 ) : p.nome}
               </td>
-              <td className="px-4 py-2 font-mono text-xs">{p.telefone || '—'}</td>
-              <td className="px-4 py-2 text-xs"><EmailEditavel value={p.email} onSave={(email) => salvarEmail(p.id, email)} /></td>
-              <td className="px-4 py-2 text-slate-600">{p.nicho} · {p.cidade}</td>
-              <td className="px-4 py-2 text-right font-semibold">{p.score ?? '—'}</td>
-              <td className="px-4 py-2">
+              <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{p.telefone || '—'}</td>
+              <td className="px-3 py-2 text-xs"><EmailEditavel value={p.email} onSave={(email) => salvarEmail(p.id, email)} /></td>
+              <td className="px-3 py-2 text-xs text-slate-600 max-w-[180px] truncate" title={p.endereco || ''}>{p.endereco || '—'}</td>
+              <td className="px-3 py-2 text-slate-600 text-xs">{p.nicho} · {p.cidade}</td>
+              <td className="px-3 py-2 text-right text-xs">{p.avaliacoes ?? '—'}</td>
+              <td className="px-3 py-2 text-right text-xs">{p.rating != null ? Number(p.rating).toFixed(1) : '—'}</td>
+              <td className="px-3 py-2 text-center">{horario ? '✅' : '❌'}</td>
+              <td className="px-3 py-2">
                 {p.site ? (
                   <a href={p.site} target="_blank" rel="noreferrer" className="hover:underline" title={p.site}>✅ <span className="text-xs text-brand">site</span></a>
                 ) : p.tem_site ? '✅' : '❌'}
               </td>
-              <td className="px-4 py-2">
+              <td className="px-3 py-2 text-right">
+                <span className={`font-semibold ${((p.score_cadastro ?? 0) <= 40) ? 'text-red-600' : (p.score_cadastro ?? 0) <= 70 ? 'text-amber-600' : 'text-emerald-600'}`}
+                  title="Pontuação do cadastro (0-100): site 20 · fotos, endereço, telefone, e-mail, horário, links extras, avaliações e nota>4 valem 10 cada">
+                  {p.score_cadastro ?? 0}
+                </span>
+                <span className="text-[10px] text-slate-400">/100</span>
+              </td>
+              <td className="px-3 py-2">
                 <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLE[p.status] || 'bg-gray-100 text-gray-500'}`}>{p.status}</span>
               </td>
-              <td className="px-4 py-2 text-right whitespace-nowrap">
+              <td className="px-3 py-2">
+                {p.json_apresentacao && (
+                  <button onClick={() => setJsonAberto({ titulo: p.nome, json: p.json_apresentacao! })}
+                    className="text-xs px-2 py-1 rounded-lg border text-brand hover:bg-blue-50"
+                    title="Dados unificados + prompt único pro bot gerar a saudação de análise">
+                    {'{ }'}
+                  </button>
+                )}
+              </td>
+              <td className="px-3 py-2 text-right whitespace-nowrap">
                 {(p.status === 'aguardando' || p.status === 'rejeitado') && (
                   <button disabled={agindo === p.id} onClick={() => acao(p.id, 'aprovar')} className="text-emerald-600 hover:underline disabled:opacity-40 mr-3">Aprovar</button>
                 )}
@@ -328,10 +395,15 @@ export default function ProspeccaoPage() {
             )
           })}
           {ordenados.length === 0 && (
-            <tr><td colSpan={10} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Abra a Agenda e clique em Rodar.</td></tr>
+            <tr><td colSpan={14} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Abra a Agenda e clique em Rodar.</td></tr>
           )}
         </tbody>
       </table>
+      </div>
+
+      {jsonAberto && (
+        <JsonLeadModal titulo={`JSON de apresentação — ${jsonAberto.titulo}`} json={jsonAberto.json} onFechar={() => setJsonAberto(null)} />
+      )}
 
       {analytics && analytics.metricas.mensagens_enviadas > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border p-4 space-y-4">

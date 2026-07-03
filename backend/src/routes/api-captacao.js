@@ -6,6 +6,7 @@ const { logger } = require('../logger')
 const captacao = require('../services/social-capture')
 const { atualizarEmailProspect } = require('../prospecting')
 const { enviarEmailProspect, emailConfigurado } = require('../services/email-outreach')
+const { calcularScoreCadastroInstagram, montarJsonApresentacaoInstagram } = require('../services/lead-score-cadastro')
 
 const router = Router({ mergeParams: true })
 
@@ -124,7 +125,19 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
         ORDER BY updated_at DESC LIMIT 300`,
       params
     )
-    return res.json({ ok: true, data: rows, meta: { total: rows.length } })
+    // Pontuação de cadastro (10 pts por coluna: nicho, seguidores, telefone,
+    // e-mail, links, @username) + JSON de apresentação (prompt único pro bot).
+    const data = rows.map((row) => {
+      const cad = calcularScoreCadastroInstagram(row)
+      return {
+        ...row,
+        score_cadastro: cad.score,
+        score_cadastro_max: cad.maximo,
+        score_cadastro_criterios: cad.criterios,
+        json_apresentacao: montarJsonApresentacaoInstagram(row, cad),
+      }
+    })
+    return res.json({ ok: true, data, meta: { total: data.length } })
   } catch (err) { return envelopeErro(res, err, 'LEADS_FAILED') }
 })
 

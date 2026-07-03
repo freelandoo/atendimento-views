@@ -6,6 +6,7 @@ const { pool } = require('./db')
 const aiProvider = require('./ai-provider')
 const { enviarMensagem, classificarErroEvolution, verificarStatusInstanciaEvolution } = require('./whatsapp')
 const { registrarEnvioNoHistorico } = require('./services/historico-envio')
+const { calcularScoreCadastroPlaces, montarJsonApresentacaoPlaces } = require('./services/lead-score-cadastro')
 const { logger } = require('./logger')
 const { dashboardAutorizado: dashboardSessionAutorizado } = require('./dashboardAuth')
 const {
@@ -77,6 +78,10 @@ const DEFAULT_FIELD_MASK = [
   'places.businessStatus',
   'places.primaryTypeDisplayName',
   'places.types',
+  // Pontuação de cadastro (lead-score-cadastro): fotos e horário de funcionamento.
+  // Ambos dentro dos SKUs já usados (Pro/Enterprise) — não muda o tier de cobrança.
+  'places.photos',
+  'places.regularOpeningHours',
 ].join(',')
 
 function dashboardAutorizado(req) {
@@ -1279,7 +1284,20 @@ async function listarProspects(filtros = {}) {
     `,
     params
   )
-  return rows.map(prospectPersistido)
+  // Anexa a pontuação de CADASTRO (0-100, completude da presença digital) e o
+  // JSON de apresentação (prompt unificado pro bot) — computados na leitura,
+  // usando as colunas + raw_json (fotos/horário vêm do Places).
+  return rows.map((row) => {
+    const p = prospectPersistido(row)
+    const cad = calcularScoreCadastroPlaces(row)
+    return {
+      ...p,
+      score_cadastro: cad.score,
+      score_cadastro_max: cad.maximo,
+      score_cadastro_criterios: cad.criterios,
+      json_apresentacao: montarJsonApresentacaoPlaces(row, cad),
+    }
+  })
 }
 
 async function atualizarStatusProspect(id, status, empresaId = null) {

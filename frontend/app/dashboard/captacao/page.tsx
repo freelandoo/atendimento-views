@@ -5,6 +5,7 @@ import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import NeonProgress from '@/components/ui/NeonProgress'
 import ModalAgenda from '@/components/ui/ModalAgenda'
+import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
 
 type CampanhaMeta = {
   perfis_semente?: string[]
@@ -27,6 +28,25 @@ type Lead = {
   telefone: string | null; email: string | null; nicho: string | null; cidade: string | null
   bio: string | null; link_bio: string | null; categoria_perfil: string | null
   seguidores: number | null; site: string | null; status: string; created_at: string; updated_at: string
+  score_cadastro: number | null; score_cadastro_max: number | null
+  json_apresentacao: JsonApresentacao | null
+}
+
+// Valor de cada coluna pra ordenação (clique no cabeçalho alterna asc/desc).
+function valorColunaLead(l: Lead, chave: string): number | string {
+  switch (chave) {
+    case 'entrou': return l.created_at || ''
+    case 'nome': return (l.nome || '').toLowerCase()
+    case 'username': return (l.instagram_handle || '').toLowerCase()
+    case 'nicho': return (l.nicho || l.categoria_perfil || '').toLowerCase()
+    case 'seguidores': return l.seguidores ?? -1
+    case 'telefone': return l.telefone || ''
+    case 'email': return l.email || ''
+    case 'links': return (l.link_bio || l.site) ? 1 : 0
+    case 'pontos': return l.score_cadastro ?? 0
+    case 'status': return l.status || ''
+    default: return 0
+  }
 }
 type Orcamento = {
   teto_diario_global: number; consumido_hoje: number; restante_hoje: number; brightdata_configurado: boolean
@@ -86,6 +106,9 @@ export default function CaptacaoPage() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([])
   const [leads, setLeads] = useState<Lead[]>([])
   const [aba, setAba] = useState('entrada')
+  // Ordenação: default = MAIS seguidores no topo. Clique no cabeçalho alterna.
+  const [ordem, setOrdem] = useState<{ chave: string; dir: 'asc' | 'desc' }>({ chave: 'seguidores', dir: 'desc' })
+  const [jsonAberto, setJsonAberto] = useState<{ titulo: string; json: JsonApresentacao } | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
@@ -124,6 +147,16 @@ export default function CaptacaoPage() {
 
   const fb = useFeedback()
   const podeColetar = !!orcamento?.brightdata_configurado
+
+  function ordenarPor(chave: string) {
+    setOrdem((o) => (o.chave === chave ? { chave, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { chave, dir: 'desc' }))
+  }
+  const leadsOrdenados = [...leads].sort((a, b) => {
+    const va = valorColunaLead(a, ordem.chave)
+    const vb = valorColunaLead(b, ordem.chave)
+    const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb), 'pt-BR')
+    return ordem.dir === 'asc' ? cmp : -cmp
+  })
 
   const carregarMeta = useCallback(async () => {
     if (!empresaId) return
@@ -456,53 +489,101 @@ export default function CaptacaoPage() {
             </button>
           ))}
         </div>
-        <div className="divide-y">
-          {leads.length === 0 && <p className="px-5 py-8 text-center text-sm text-slate-400">Nenhum lead nesta aba.</p>}
-          {leads.map((l) => (
-            <div key={l.id} className="flex items-start justify-between gap-4 px-5 py-3">
-              <div className="min-w-0">
-                <div className="text-[11px] text-slate-400">Entrou em {quando(l.created_at)}</div>
-                <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                  <span className="font-medium text-slate-900">{l.nome}</span>
-                  {l.instagram_handle && (
-                    <a href={`https://instagram.com/${l.instagram_handle}`} target="_blank" rel="noreferrer"
-                      className="text-xs text-slate-400 hover:underline">@{l.instagram_handle}</a>
-                  )}
-                  <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${STATUS_STYLE[l.status] || 'bg-gray-100 text-gray-600'}`}>{l.status}</span>
-                </div>
-                <div className="mt-0.5 truncate text-xs text-slate-500">
-                  {[l.nicho, l.cidade, l.categoria_perfil, l.seguidores != null ? `${l.seguidores} seguidores` : null].filter(Boolean).join(' · ') || '—'}
-                </div>
-                <div className="mt-1 flex flex-wrap gap-3 text-xs">
-                  {l.telefone && <span className="text-emerald-700">📱 {l.telefone}</span>}
-                  <EmailEditavel value={l.email} onSave={(email) => salvarEmail(l.id, email)} />
-                  {l.link_bio && <a href={l.link_bio} target="_blank" rel="noreferrer" className="text-slate-500 underline">link da bio</a>}
-                </div>
-              </div>
-              <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
-                {l.status !== 'aprovado' && l.telefone && (
-                  <button onClick={() => mudarStatus(l.id, 'aprovado')}
-                    className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700">Aprovar p/ WhatsApp</button>
-                )}
-                {emailConfigurado && l.email && (
-                  <EmailBotao onEnviar={(assunto, corpo) =>
-                    apiFetch(`${base}/leads/${l.id}/email`, { method: 'POST', body: JSON.stringify({ assunto, corpo }) })
-                      .then(() => setMsg('E-mail enviado.'))
-                      .catch((e) => setErro(e instanceof Error ? e.message : 'Erro ao enviar e-mail.'))} />
-                )}
-                {l.status !== 'rejeitado' && (
-                  <button onClick={() => mudarStatus(l.id, 'rejeitado')}
-                    className="rounded-md border px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50">Descartar</button>
-                )}
-                {l.status !== 'nao_contatar' && (
-                  <button onClick={() => mudarStatus(l.id, 'nao_contatar')}
-                    className="rounded-md border border-red-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50">Não contatar</button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+        {leads.length === 0 ? (
+          <p className="px-5 py-8 text-center text-sm text-slate-400">Nenhum lead nesta aba.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={ordenarPor} />
+                  <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={ordenarPor} />
+                  <ThOrdenavel label="@username" chave="username" ordem={ordem} onOrdenar={ordenarPor} />
+                  <ThOrdenavel label="Nicho" chave="nicho" ordem={ordem} onOrdenar={ordenarPor} />
+                  <ThOrdenavel label="Seguidores" chave="seguidores" ordem={ordem} onOrdenar={ordenarPor} align="right" />
+                  <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={ordenarPor} />
+                  <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={ordenarPor} />
+                  <ThOrdenavel label="Links" chave="links" ordem={ordem} onOrdenar={ordenarPor} />
+                  <ThOrdenavel label="Pontos" chave="pontos" ordem={ordem} onOrdenar={ordenarPor} align="right" />
+                  <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={ordenarPor} />
+                  <th className="text-left px-3 py-2">JSON</th>
+                  <th className="text-right px-3 py-2">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leadsOrdenados.map((l) => (
+                  <tr key={l.id} className="border-t hover:bg-gray-50 align-top">
+                    <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{quando(l.created_at)}</td>
+                    <td className="px-3 py-2 font-medium text-slate-900 max-w-[200px] truncate" title={l.bio || l.nome}>{l.nome}</td>
+                    <td className="px-3 py-2 text-xs">
+                      {l.instagram_handle ? (
+                        <a href={`https://instagram.com/${l.instagram_handle}`} target="_blank" rel="noreferrer"
+                          className="text-brand hover:underline">@{l.instagram_handle}</a>
+                      ) : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-600 max-w-[160px] truncate" title={[l.nicho, l.categoria_perfil, l.cidade].filter(Boolean).join(' · ')}>
+                      {l.nicho || l.categoria_perfil || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right text-xs font-semibold">{l.seguidores != null ? l.seguidores.toLocaleString('pt-BR') : '—'}</td>
+                    <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{l.telefone || '—'}</td>
+                    <td className="px-3 py-2 text-xs"><EmailEditavel value={l.email} onSave={(email) => salvarEmail(l.id, email)} /></td>
+                    <td className="px-3 py-2 text-xs whitespace-nowrap">
+                      {l.link_bio && <a href={l.link_bio} target="_blank" rel="noreferrer" className="text-slate-500 underline mr-2">bio</a>}
+                      {l.site && <a href={l.site} target="_blank" rel="noreferrer" className="text-slate-500 underline">site</a>}
+                      {!l.link_bio && !l.site && '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <span className={`font-semibold ${((l.score_cadastro ?? 0) <= 20) ? 'text-red-600' : (l.score_cadastro ?? 0) <= 40 ? 'text-amber-600' : 'text-emerald-600'}`}
+                        title="Pontuação do cadastro: 10 pontos por coluna (nicho, seguidores, telefone, e-mail, links, @username)">
+                        {l.score_cadastro ?? 0}
+                      </span>
+                      <span className="text-[10px] text-slate-400">/{l.score_cadastro_max ?? 60}</span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${STATUS_STYLE[l.status] || 'bg-gray-100 text-gray-600'}`}>{l.status}</span>
+                    </td>
+                    <td className="px-3 py-2">
+                      {l.json_apresentacao && (
+                        <button onClick={() => setJsonAberto({ titulo: l.nome, json: l.json_apresentacao! })}
+                          className="text-xs px-2 py-1 rounded-lg border text-brand hover:bg-blue-50"
+                          title="Dados unificados + prompt único pro bot gerar a saudação de análise">
+                          {'{ }'}
+                        </button>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                        {l.status !== 'aprovado' && l.telefone && (
+                          <button onClick={() => mudarStatus(l.id, 'aprovado')}
+                            className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700">Aprovar p/ WhatsApp</button>
+                        )}
+                        {emailConfigurado && l.email && (
+                          <EmailBotao onEnviar={(assunto, corpo) =>
+                            apiFetch(`${base}/leads/${l.id}/email`, { method: 'POST', body: JSON.stringify({ assunto, corpo }) })
+                              .then(() => setMsg('E-mail enviado.'))
+                              .catch((e) => setErro(e instanceof Error ? e.message : 'Erro ao enviar e-mail.'))} />
+                        )}
+                        {l.status !== 'rejeitado' && (
+                          <button onClick={() => mudarStatus(l.id, 'rejeitado')}
+                            className="rounded-md border px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50">Descartar</button>
+                        )}
+                        {l.status !== 'nao_contatar' && (
+                          <button onClick={() => mudarStatus(l.id, 'nao_contatar')}
+                            className="rounded-md border border-red-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50">Não contatar</button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
+
+      {jsonAberto && (
+        <JsonLeadModal titulo={`JSON de apresentação — ${jsonAberto.titulo}`} json={jsonAberto.json} onFechar={() => setJsonAberto(null)} />
+      )}
 
       {/* Coletas recentes */}
       {snapshots.length > 0 && (
