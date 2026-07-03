@@ -10,6 +10,7 @@
 // o que já conta pro cooldown/teto e evita corrida), responde na hora e processa os
 // envios em background com jitter, atualizando cada disparo pra 'enviado'/'falhou'.
 const { enviarMensagem } = require('../whatsapp')
+const { registrarEnvioNoHistorico } = require('./historico-envio')
 const { logger } = require('../logger')
 
 const MAX_LOTE = Math.max(1, parseInt(process.env.RODAR_LEADS_MAX_LOTE, 10) || 15)
@@ -166,16 +167,26 @@ async function rodarLeads(pool, { empresaId, usuarioId, instanciaId, prospectIds
   }
 }
 
-async function processarEnviosEmBackground(pool, { aceitos, disparoIds, evolutionInstance }) {
+async function processarEnviosEmBackground(pool, { empresaId, aceitos, disparoIds, evolutionInstance }) {
   for (let i = 0; i < aceitos.length; i++) {
     const p = aceitos[i]
     const { disparoId, mensagem } = disparoIds.get(p.id)
     try {
-      await enviarMensagem(p.telefone, mensagem, { instanceName: evolutionInstance })
+      const respostaEnvio = await enviarMensagem(p.telefone, mensagem, { instanceName: evolutionInstance })
       await pool.query(
         `UPDATE prospectador.lead_disparos SET status = 'enviado' WHERE id = $1`,
         [disparoId]
       )
+      // Espelha a saudação no histórico da conversa (painel Conversas). Best-effort.
+      await registrarEnvioNoHistorico(pool, {
+        respostaEnvio,
+        numero: p.telefone,
+        texto: mensagem,
+        tipo: 'prospeccao_saudacao',
+        empresaId,
+        evolutionInstance,
+        meta: { prospect_id: p.id },
+      }).catch((err) => logger.warn({ prospect: p.id, err: err.message }, '[rodar-leads] registrar saudação no histórico falhou'))
       // Move o prospect pro funil "já conversou" (não reabordar). Só se ainda rodável.
       await pool.query(
         `UPDATE prospectador.prospects SET status = 'enviado', updated_at = NOW()

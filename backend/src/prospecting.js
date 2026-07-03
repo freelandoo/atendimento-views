@@ -5,6 +5,7 @@ const crypto = require('crypto')
 const { pool } = require('./db')
 const aiProvider = require('./ai-provider')
 const { enviarMensagem, classificarErroEvolution, verificarStatusInstanciaEvolution } = require('./whatsapp')
+const { registrarEnvioNoHistorico } = require('./services/historico-envio')
 const { logger } = require('./logger')
 const { dashboardAutorizado: dashboardSessionAutorizado } = require('./dashboardAuth')
 const {
@@ -1945,6 +1946,16 @@ async function enviarProspectsAprovados(input = {}) {
         message_hash: hashMensagem(mensagem),
       })
       await registrarProspectEvent(p.id, 'enviado', { tentativa: 1, idempotency_key: reserva.idempotencyKey })
+      // Espelha a 1ª mensagem da prospecção no histórico da conversa (painel
+      // Conversas). Best-effort: falha aqui não desfaz o envio já feito.
+      await registrarEnvioNoHistorico(pool, {
+        respostaEnvio,
+        numero: telefone,
+        texto: mensagem,
+        tipo: 'prospeccao_inicial',
+        empresaId: row.empresa_id || null,
+        meta: { prospect_id: p.id },
+      }).catch((err) => logger.warn({ prospect_id: p.id, err: err.message }, 'registrarEnvioNoHistorico (prospecção) falhou'))
       ultimoErro = null
     } catch (err) {
       ultimoErro = err
