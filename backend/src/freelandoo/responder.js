@@ -9,9 +9,32 @@
 const { pool } = require('../db')
 const { logger } = require('../logger')
 const aiProvider = require('../ai-provider')
-const { criarCliente } = require('./client')
+const { criarCliente, tipoDaConversa } = require('./client')
 const { processarMensagemComPlaybook } = require('../services/contexto2-runtime')
-const { buscarConexaoDescriptografada, marcarEventoProcessado, marcarEventoErro } = require('../db/freelandoo')
+const {
+  buscarConexaoDescriptografada, marcarEventoProcessado, marcarEventoErro, somarTokensUsados,
+} = require('../db/freelandoo')
+
+// Provider com CONTADOR: intercepta generateAIResponse e acumula os tokens
+// reais (usage do provedor; fallback ~chars/4). Usado pelo limite por ciclo
+// do Atendimento IA — cada instância provisionada tem token_limit_monthly.
+function criarProviderContado(base) {
+  let total = 0
+  const wrapped = {
+    ...base,
+    async generateAIResponse(...args) {
+      const r = await base.generateAIResponse(...args)
+      const u = r?.usage
+      if (u && (u.input_tokens || u.output_tokens)) {
+        total += (Number(u.input_tokens) || 0) + (Number(u.output_tokens) || 0)
+      } else if (r?.text) {
+        total += Math.ceil(String(r.text).length / 4)
+      }
+      return r
+    },
+  }
+  return { provider: wrapped, tokensGastos: () => total }
+}
 
 // Monta o histórico {role, content} a partir da thread da conversa (mais recente
 // por último). Fail-open: se a leitura falhar, usa só a mensagem recebida.
@@ -43,25 +66,57 @@ async function processarEventoWebhook({ instanceId, conversationId, mensagemText
   }
   if (!conexao.token) return { skipped: true, reason: 'sem_token' }
 
+  // ─── Gates do Atendimento IA (instância provisionada pela Freelandoo) ─────
+  const config = conexao.config && typeof conexao.config === 'object' ? conexao.config : {}
+  if (config.paused === true) {
+    logger.info({ instanceId, conversationId }, 'Freelandoo: bot pausado pelo vendedor — não responde')
+    return { skipped: true, reason: 'pausado' }
+  }
+  const tipo = tipoDaConversa(conversationId)
+  if (tipo === 'dm' && config.answer_dm === false) {
+    return { skipped: true, reason: 'dm_desligado' }
+  }
+  if (tipo === 'os' && config.answer_os === false) {
+    return { skipped: true, reason: 'os_desligado' }
+  }
+  // Limite de tokens do ciclo: bateu, o bot PARA até o próximo invoice.paid
+  // (a Freelandoo re-push com cycle_start novo, que zera o contador).
+  if (conexao.tokenLimitMonthly && conexao.tokensUsed >= conexao.tokenLimitMonthly) {
+    logger.info(
+      { instanceId, conversationId, used: conexao.tokensUsed, limit: conexao.tokenLimitMonthly },
+      'Freelandoo: limite de tokens do ciclo atingido — não responde'
+    )
+    return { skipped: true, reason: 'limite_tokens' }
+  }
+
   const cliente = criarCliente({ baseUrl: conexao.baseUrl, token: conexao.token })
   const historico = await montarHistorico(cliente, conversationId, mensagemTexto)
   const ultima = historico[historico.length - 1]
   const mensagem = mensagemTexto || (ultima && ultima.role === 'user' ? ultima.content : '')
   if (!mensagem) return { skipped: true, reason: 'sem_mensagem' }
 
+  const { provider, tokensGastos } = criarProviderContado(aiProvider)
+
   // leadPhone sintético estável = id da conversa; a engine usa como chave de
   // insights/perfil (colunas TEXT), o que preserva o estado entre turnos.
-  const res = await processarMensagemComPlaybook({
-    pool,
-    log: logger,
-    empresaId: conexao.empresaId,
-    conversaId: conversationId,
-    leadPhone: conversationId,
-    mensagem,
-    historico,
-    evolutionInstance: conexao.evolutionInstance,
-    aiProvider,
-  })
+  let res
+  try {
+    res = await processarMensagemComPlaybook({
+      pool,
+      log: logger,
+      empresaId: conexao.empresaId,
+      conversaId: conversationId,
+      leadPhone: conversationId,
+      mensagem,
+      historico,
+      evolutionInstance: conexao.evolutionInstance,
+      aiProvider: provider,
+    })
+  } finally {
+    // Conta o gasto mesmo em turno com erro parcial — a LLM já rodou.
+    const gastos = tokensGastos()
+    if (gastos > 0) await somarTokensUsados(instanceId, gastos).catch(() => {})
+  }
   if (!res) {
     logger.warn({ instanceId, conversationId }, 'Freelandoo: sem playbook ativo na instância — nada enviado')
     return { skipped: true, reason: 'sem_playbook' }

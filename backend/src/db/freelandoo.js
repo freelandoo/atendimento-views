@@ -52,16 +52,7 @@ async function atualizarWebhook(instanceId, { webhookSecret, webhookUrl }) {
   )
 }
 
-// Conexão descriptografada (uso interno: webhook/responder). Retorna null se não existe.
-async function buscarConexaoDescriptografada(instanceId) {
-  const { rows: [c] } = await pool.query(
-    `SELECT fc.*, ewi.evolution_instance, ewi.ativo, ewi.empresa_id AS empresa_id_inst
-       FROM app.freelandoo_connections fc
-       JOIN app.empresa_whatsapp_instances ewi ON ewi.id = fc.instance_id
-      WHERE fc.instance_id = $1`,
-    [instanceId]
-  )
-  if (!c) return null
+function _shapeConexao(c) {
   return {
     instanceId: c.instance_id,
     empresaId: c.empresa_id,
@@ -74,7 +65,110 @@ async function buscarConexaoDescriptografada(instanceId) {
     webhookUrl: c.webhook_url,
     evolutionInstance: c.evolution_instance,
     ativo: c.ativo,
+    contextoId: c.contexto_id,
+    // Provisionamento Atendimento IA (mig 020)
+    externalId: c.external_id || null,
+    tokenData: c.token_data_enc ? decrypt(c.token_data_enc) : null,
+    tokenLimitMonthly: c.token_limit_monthly !== null && c.token_limit_monthly !== undefined
+      ? Number(c.token_limit_monthly) : null,
+    cycleStart: c.cycle_start || null,
+    tokensUsed: Number(c.tokens_used || 0),
+    config: c.config_json || {},
+    playbookGeneratedAt: c.playbook_generated_at || null,
   }
+}
+
+// Conexão descriptografada (uso interno: webhook/responder). Retorna null se não existe.
+async function buscarConexaoDescriptografada(instanceId) {
+  const { rows: [c] } = await pool.query(
+    `SELECT fc.*, ewi.evolution_instance, ewi.ativo, ewi.contexto_id,
+            ewi.empresa_id AS empresa_id_inst
+       FROM app.freelandoo_connections fc
+       JOIN app.empresa_whatsapp_instances ewi ON ewi.id = fc.instance_id
+      WHERE fc.instance_id = $1`,
+    [instanceId]
+  )
+  if (!c) return null
+  return _shapeConexao(c)
+}
+
+// Conexão provisionada pela Freelandoo (Atendimento IA), por id_user externo.
+async function buscarConexaoPorExternalId(externalId) {
+  const { rows: [c] } = await pool.query(
+    `SELECT fc.*, ewi.evolution_instance, ewi.ativo, ewi.contexto_id,
+            ewi.empresa_id AS empresa_id_inst
+       FROM app.freelandoo_connections fc
+       JOIN app.empresa_whatsapp_instances ewi ON ewi.id = fc.instance_id
+      WHERE fc.external_id = $1`,
+    [externalId]
+  )
+  if (!c) return null
+  return _shapeConexao(c)
+}
+
+// Campos do provisionamento (tokens re-cunhados chegam cifrados aqui; campos
+// undefined = manter o valor atual). Se o cycle_start mudou, ZERA o contador.
+async function atualizarProvisionamento(instanceId, {
+  externalId, token, tokenData, tokenLimitMonthly, cycleStart, config,
+}) {
+  await pool.query(
+    `UPDATE app.freelandoo_connections
+        SET external_id         = COALESCE($2, external_id),
+            api_token_enc       = COALESCE($3, api_token_enc),
+            token_data_enc      = COALESCE($4, token_data_enc),
+            token_limit_monthly = COALESCE($5, token_limit_monthly),
+            tokens_used         = CASE
+                                    WHEN $6::timestamptz IS NOT NULL
+                                     AND (cycle_start IS NULL OR cycle_start <> $6::timestamptz)
+                                    THEN 0 ELSE tokens_used END,
+            cycle_start         = COALESCE($6, cycle_start),
+            config_json         = COALESCE($7::jsonb, config_json),
+            atualizado_em       = NOW()
+      WHERE instance_id = $1`,
+    [
+      instanceId,
+      externalId || null,
+      token !== undefined && token !== null ? encrypt(token) : null,
+      tokenData !== undefined && tokenData !== null ? encrypt(tokenData) : null,
+      tokenLimitMonthly !== undefined && tokenLimitMonthly !== null ? tokenLimitMonthly : null,
+      cycleStart || null,
+      config !== undefined ? JSON.stringify(config) : null,
+    ]
+  )
+}
+
+// Soma tokens de LLM gastos num turno (contador do ciclo).
+async function somarTokensUsados(instanceId, tokens) {
+  const n = Math.max(0, Math.round(Number(tokens) || 0))
+  if (!n) return
+  await pool.query(
+    `UPDATE app.freelandoo_connections
+        SET tokens_used = tokens_used + $2, atualizado_em = NOW()
+      WHERE instance_id = $1`,
+    [instanceId, n]
+  )
+}
+
+async function marcarPlaybookGerado(instanceId) {
+  await pool.query(
+    `UPDATE app.freelandoo_connections
+        SET playbook_generated_at = NOW(), atualizado_em = NOW()
+      WHERE instance_id = $1`,
+    [instanceId]
+  )
+}
+
+// Instâncias provisionadas ativas com token de dados (para o refresh diário).
+async function listarProvisionadasAtivas() {
+  const { rows } = await pool.query(
+    `SELECT fc.instance_id
+       FROM app.freelandoo_connections fc
+       JOIN app.empresa_whatsapp_instances ewi ON ewi.id = fc.instance_id
+      WHERE fc.external_id IS NOT NULL
+        AND fc.token_data_enc IS NOT NULL
+        AND ewi.ativo = TRUE`
+  )
+  return rows.map((r) => r.instance_id)
 }
 
 // Lista para a UI: instância + metadados da conexão, SEM segredos.
@@ -130,6 +224,11 @@ module.exports = {
   salvarConexao,
   atualizarWebhook,
   buscarConexaoDescriptografada,
+  buscarConexaoPorExternalId,
+  atualizarProvisionamento,
+  somarTokensUsados,
+  marcarPlaybookGerado,
+  listarProvisionadasAtivas,
   listarConexoesPorEmpresa,
   registrarEventoRecebido,
   marcarEventoProcessado,
