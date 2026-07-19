@@ -232,7 +232,6 @@ async function _semiEmpresa(pool, empresaId, deps = {}) {
 
 async function _autoEmpresa(pool, empresaId, now, deps = {}) {
   const rodarLeadsFn = deps.rodarLeadsFn || rodarLeads
-  const canProspectLeadFn = deps.canProspectLeadFn || canProspectLead
   const cfg = await obterConfigBancoLeads(pool, empresaId)
   if (cfg.modo !== 'automatico' || !cfg.auto_ativo) return { empresa_id: empresaId, motivo: 'inativo' }
   if (!dentroDaJanela(now, cfg.janela_inicio, cfg.janela_fim)) return { empresa_id: empresaId, motivo: 'fora_janela' }
@@ -259,40 +258,15 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
   // Próximo lead elegível (rodável, com telefone, não travado, com WhatsApp != false).
   // Ordem: MELHOR primeiro (maior score = mais quente), desempate por mais antigo e id
   // (determinístico, sem empates indefinidos entre leads do mesmo lote).
+  // Varre a carteira em PÁGINAS (com memória de offset por empresa) até achar um lead
+  // elegível — NÃO desiste só porque os primeiros por score são telefone fixo/inválido
+  // (o que travava o disparo quando o topo do score era dominado por landlines).
   const statusList = [...STATUS_RODAVEL]
-  const { rows: leads } = await pool.query(
-    `SELECT p.id, p.telefone FROM prospectador.prospects p
-      WHERE p.empresa_id = $1
-        AND p.status = ANY($2)
-        AND NULLIF(BTRIM(COALESCE(p.telefone, '')), '') IS NOT NULL
-        AND (p.tem_whatsapp IS DISTINCT FROM false)
-        AND (p.bloqueado_ate IS NULL OR p.bloqueado_ate <= NOW())
-        AND NOT EXISTS (
-          SELECT 1 FROM prospectador.lead_disparos d
-           WHERE d.empresa_id = p.empresa_id
-             AND d.prospect_id = p.id
-             AND d.status IN ('gerando', 'aguardando_disparo', 'enviando', 'pendente_confirmacao')
-        )
-      ORDER BY p.score DESC NULLS LAST, p.created_at ASC, p.id ASC LIMIT $3`,
-    [empresaId, statusList, MAX_LOTE]
-  )
-  if (!leads.length) return { empresa_id: empresaId, motivo: 'sem_lead' }
-
-  // A consulta remove reservas ativas; a elegibilidade compartilhada remove telefone fixo,
-  // opt-out e conversas ativas. Assim um candidato bloqueado nao prende todos os ticks.
-  let lead = null
-  for (const candidato of leads) {
-    const elegibilidade = await canProspectLeadFn(pool, candidato.telefone, {
-      prospectId: candidato.id,
-      empresaId,
-      complianceOnly: true,
-    })
-    if (elegibilidade.allowed) {
-      lead = candidato
-      break
-    }
+  const scan = await buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps)
+  const lead = scan.lead
+  if (!lead) {
+    return { empresa_id: empresaId, motivo: scan.esgotou ? 'sem_lead' : 'sem_lead_elegivel', analisados: scan.analisados }
   }
-  if (!lead) return { empresa_id: empresaId, motivo: 'sem_lead_elegivel' }
 
   try {
     const res = await rodarLeadsFn(pool, {
