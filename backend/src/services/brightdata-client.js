@@ -28,6 +28,8 @@ function datasetId(chave) {
     ig_perfis: process.env.BRIGHTDATA_DATASET_IG_PERFIS,
     li_descoberta: process.env.BRIGHTDATA_DATASET_LI_DESCOBERTA,
     li_perfis: process.env.BRIGHTDATA_DATASET_LI_PERFIS,
+    // Google Maps "full information" — Discover by location (nicho+coordenadas).
+    maps_descoberta: process.env.BRIGHTDATA_DATASET_MAPS_DESCOBERTA,
   }
   return String(map[chave] || '').trim()
 }

@@ -36,9 +36,14 @@ function normalizarHora(valor, padrao) {
 function buscaProspeccaoDevePreencher(config, agora = new Date(), tz = TZ) {
   if (!config) return false
   if (config.agendamento_busca_ativo !== true) return false
+  const modo = String(config.modo_busca || 'ia')
+  if (!['automatico_fixo', 'ia'].includes(modo)) return false
+  if (['esgotado', 'sem_mercados', 'erro', 'pausado'].includes(String(config.busca_estado || ''))) return false
+  // A busca tem seu próprio liga/desliga. Não reutilize `ativo`: esse campo pertence à
+  // rotina legada de disparo, removida do tick automático da Aquisição.
 
   // Sem nicho+cidade padrão não há o que buscar (a busca do Places exige ambos).
-  if (!config.categoria_padrao || !config.cidade_padrao) return false
+  if (modo === 'automatico_fixo' && (!config.categoria_padrao || !config.cidade_padrao)) return false
 
   const dias = normalizarDias(config.dias_semana_ativos)
   const inicio = normalizarHora(config.horario_inicio, '08:00')
@@ -50,7 +55,7 @@ function buscaProspeccaoDevePreencher(config, agora = new Date(), tz = TZ) {
   if (minutos_do_dia < horaParaMinutos(inicio)) return false
   if (minutos_do_dia > horaParaMinutos(fim)) return false
 
-  const intervalo = inteiro(config.busca_intervalo_horas, 24, 1, 168)
+  const intervalo = inteiro(config.busca_intervalo_horas, 6, 6, 168)
   const ultima = config.ultima_busca_em ? new Date(config.ultima_busca_em) : null
   if (ultima && Number.isFinite(ultima.valueOf())) {
     const ref = agora instanceof Date ? agora.getTime() : Date.now()
@@ -60,7 +65,24 @@ function buscaProspeccaoDevePreencher(config, agora = new Date(), tz = TZ) {
   return true
 }
 
+function resultadoBuscaAutomatica(config, resultado = {}) {
+  const novos = Math.max(0, Number.parseInt(resultado.novos_prospects, 10) || 0)
+  const zeros = novos === 0 ? Math.max(0, Number(config?.busca_zero_consecutivos || 0)) + 1 : 0
+  const nicho = String(resultado.nicho || '').trim()
+  const cidade = String(resultado.cidade || '').trim()
+  let estado = 'aguardando'
+  let mensagem = `Busca concluída: ${novos} leads novos em ${nicho} / ${cidade}.`
+  if (zeros >= 2 && config?.modo_busca === 'automatico_fixo') {
+    estado = 'esgotado'
+    mensagem = `Não encontramos mais leads novos para ${nicho} em ${cidade}. Altere o mercado ou ative a Busca IA.`
+  } else if (zeros >= 2 && config?.modo_busca === 'ia') {
+    mensagem = `O mercado ${nicho} / ${cidade} se esgotou. A IA escolherá outro mercado no próximo ciclo.`
+  }
+  return { novos, zeros, estado, mensagem }
+}
+
 module.exports = {
   TZ,
   buscaProspeccaoDevePreencher,
+  resultadoBuscaAutomatica,
 }

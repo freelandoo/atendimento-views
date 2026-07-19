@@ -11,12 +11,12 @@ const JOB_MAX_ATTEMPTS = Math.min(
 )
 
 // Railway free tier limit: ~8 concurrent connections per user.
-// max=2 mantido como default conservador (suporta multi-replica sem estourar).
-// Timeouts ajustados em 2026-05-28: o anterior 1s causava falha fast sob
-// contencao breve (webhook + worker + dashboard competem por 2 conexoes).
+// max=4 atende API + workers no processo principal; em multi-replica, ajuste POOL_MAX
+// para que a soma dos pools permaneca dentro do limite do banco.
+// Timeouts ajustados em 2026-05-28: o anterior 1s causava falha fast sob contencao.
 // Todos os valores sao env-overridable para tuning em producao.
 const POOL_CONFIG = {
-  max: process.env.POOL_MAX ? parseInt(process.env.POOL_MAX, 10) : 2,
+  max: process.env.POOL_MAX ? parseInt(process.env.POOL_MAX, 10) : 4,
   idleTimeoutMillis: process.env.POOL_IDLE_TIMEOUT_MS
     ? parseInt(process.env.POOL_IDLE_TIMEOUT_MS, 10)
     : 10000, // Close idle connections after 10s
@@ -24,7 +24,11 @@ const POOL_CONFIG = {
     ? parseInt(process.env.POOL_CONNECTION_TIMEOUT_MS, 10)
     : 3000, // Wait up to 3s for available connection
   statement_timeout: 15000, // Cancel queries after 15s
-  min: 0 // Don't pre-create connections
+  min: 0, // Don't pre-create connections
+  // keepAlive mantem o TCP vivo: evita conexoes meio-abertas que o Postgres/Docker
+  // derruba em silencio e depois estouram como erro de protocolo (pg-protocol parse).
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
 }
 
 const pool = new Pool({
@@ -42,6 +46,21 @@ pool.on('error', (err) => {
 pool.on('connect', () => {
   logger.debug(`📊 Pool: ${pool.totalCount}/${POOL_CONFIG.max} connections`)
 })
+
+// waitingCount revela contencao real entre dashboard, webhooks e workers. O timer
+// nao mantem o processo vivo e so gera log quando existe fila por conexao.
+const poolMonitor = setInterval(() => {
+  if (pool.waitingCount > 0) {
+    logger.warn({
+      operation: 'db_pool_wait',
+      total: pool.totalCount,
+      idle: pool.idleCount,
+      waiting: pool.waitingCount,
+      max: POOL_CONFIG.max,
+    }, '[db] requisicoes aguardando conexao no pool')
+  }
+}, 30000)
+if (poolMonitor.unref) poolMonitor.unref()
 
 async function initProspectadorDB() {
   await pool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`)

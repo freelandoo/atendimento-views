@@ -153,7 +153,37 @@ function evolutionMensagemErroDoCorpo(data) {
   }
 }
 
+function evolutionStatusMensagem(data) {
+  if (!data || typeof data !== 'object') return ''
+  const candidatos = [
+    data.status,
+    data.message?.status,
+    data.data?.status,
+    data.data?.message?.status,
+    data.instance?.status,
+  ]
+  return String(candidatos.find((v) => typeof v === 'string' && v.trim()) || '').trim().toUpperCase()
+}
+
+function evolutionEnvioPendente(data) {
+  return evolutionStatusMensagem(data) === 'PENDING'
+}
+
+function evolutionEnvioErro(data) {
+  return evolutionStatusMensagem(data) === 'ERROR'
+}
+
 function assertEvolutionEnvioOk(data, rotulo) {
+  if (evolutionEnvioErro(data)) {
+    const err = new Error(`${rotulo}: Evolution retornou status ERROR`)
+    err.evolutionClassificacao = {
+      tipo: 'message_error',
+      retryable: false,
+      motivo: 'Evolution retornou status ERROR para o envio',
+      status: 'ERROR',
+    }
+    throw err
+  }
   if (evolutionCorpoIndicaFalha(data)) {
     throw new Error(`${rotulo}: Evolution retornou success:false — ${evolutionMensagemErroDoCorpo(data)}`)
   }
@@ -248,12 +278,43 @@ async function verificarStatusInstanciaEvolution(instanceNameOverride = '') {
   }
 }
 
+// Consulta na Evolution quais números NÃO têm conta WhatsApp. Retorna um Set de dígitos
+// CONFIRMADOS como inexistentes (exists:false), ou null se a checagem falhar. Só rejeita
+// o que a Evolution afirma que não existe — nunca chuta (evita falso-negativo com o 9º dígito).
+async function numerosSemWhatsapp(numeros, instanceNameOverride = '') {
+  const instanceName = normalizarEvolutionInstanceName(instanceNameOverride) || normalizarEvolutionInstanceName(INSTANCE_NAME)
+  const nums = [...new Set((numeros || []).map((n) => numeroEnvioWhatsapp(n)).filter(Boolean))]
+  if (!nums.length) return new Set()
+  if (!EVOLUTION_URL || !EVOLUTION_KEY) return null
+  try {
+    const { data } = await axios.post(
+      `${EVOLUTION_URL}/chat/whatsappNumbers/${encodeURIComponent(instanceName)}`,
+      { numbers: nums },
+      { headers: { apikey: EVOLUTION_KEY }, timeout: 10000 }
+    )
+    if (!Array.isArray(data)) return null
+    const semZap = new Set()
+    for (const item of data) {
+      if (item && item.exists === false) semZap.add(String(item.number || '').replace(/\D/g, ''))
+    }
+    return semZap
+  } catch (e) {
+    logger.warn({ err: serializeError(e), instance: instanceName }, 'numerosSemWhatsapp falhou')
+    return null
+  }
+}
+
 function numeroEnvioWhatsapp(numero) {
   const raw = String(numero || '').trim()
   if (!raw) return ''
   if (/@g\.us$/i.test(raw) || /@broadcast$/i.test(raw)) return ''
   if (/@/.test(raw) && !/@s\.whatsapp\.net$/i.test(raw)) return ''
-  return raw.replace(/@s\.whatsapp\.net$/i, '').replace(/\D/g, '')
+  let digitos = raw.replace(/@s\.whatsapp\.net$/i, '').replace(/\D/g, '')
+  // Números BR locais (DDD + 8/9 dígitos = 10 ou 11) chegam SEM o código do país.
+  // Sem o 55 o WhatsApp rejeita (exists:false → 400 no envio). 12-13 dígitos já têm
+  // código do país — não mexe. Regra por tamanho trata DDDs iniciados em 55 (RS) certo.
+  if (digitos.length === 10 || digitos.length === 11) digitos = '55' + digitos
+  return digitos
 }
 
 async function enviarMensagem(numero, texto, opts = {}) {
@@ -448,10 +509,14 @@ module.exports = {
   evolutionDetalheNumeroInexistente,
   evolutionCorpoIndicaFalha,
   evolutionMensagemErroDoCorpo,
+  evolutionStatusMensagem,
+  evolutionEnvioPendente,
+  evolutionEnvioErro,
   assertEvolutionEnvioOk,
   classificarErroEvolution,
   verificarStatusInstanciaEvolution,
   numeroEnvioWhatsapp,
+  numerosSemWhatsapp,
   enviarMensagem,
   enviarPrintLocal,
   enviarComBotoes,

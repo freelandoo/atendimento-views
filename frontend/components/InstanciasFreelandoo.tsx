@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { apiFetch } from '@/lib/api'
+import { IconCalendar } from '@/components/ui/icons'
 
 type FreelandooInstance = {
   id: string
@@ -203,7 +204,7 @@ export default function InstanciasFreelandoo({ empresaId }: { empresaId: string 
 
               <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
                 <div className="min-w-0">
-                  <p className="text-[11px] font-medium text-white/80">🗓️ Usa agenda?</p>
+                  <p className="inline-flex items-center gap-1 text-[11px] font-medium text-white/80"><IconCalendar className="h-3.5 w-3.5" /> Usa agenda?</p>
                   <p className="text-[10px] text-white/40 leading-tight">
                     {i.config_json?.usa_agenda !== false
                       ? 'Tenta agendar reunião quando fizer sentido.'

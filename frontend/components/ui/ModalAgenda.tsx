@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, ReactNode } from 'react'
+import { IconClose } from '@/components/ui/icons'
 
 // Shell genérico do painel "Agenda" (modal central). Usado pelas duas frentes de
 // Aquisição (Google Places e Instagram) para reunir filtros + frequência + Rodar.
@@ -44,7 +45,7 @@ export default function ModalAgenda({
             {subtitulo && <p className="mt-0.5 text-sm text-slate-500">{subtitulo}</p>}
           </div>
           <button onClick={onFechar} aria-label="Fechar"
-            className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">✕</button>
+            className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><IconClose /></button>
         </div>
         <div className="max-h-[70vh] overflow-y-auto px-5 py-4">{children}</div>
         {rodape && <div className="flex items-center justify-end gap-2 border-t px-5 py-3">{rodape}</div>}

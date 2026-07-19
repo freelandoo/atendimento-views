@@ -12,7 +12,8 @@ const { Router } = require('express')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { atualizarEmailProspect } = require('../prospecting')
-const { rodarLeads } = require('../services/rodar-leads')
+const { rodarLeads, gerarMensagensSemi, gerarPendentesSemi, dispararGerados, estadoEnvioInstancia, STATUS_RODAVEL } = require('../services/rodar-leads')
+const { obterConfigBancoLeads, salvarConfigBancoLeads } = require('../db/banco-leads-config')
 const {
   calcularScoreCadastroPlaces,
   montarJsonApresentacaoPlaces,
@@ -31,6 +32,19 @@ const ABAS = {
 }
 const ORIGENS_VALIDAS = new Set(['manual', 'automatico', 'instagram', 'linkedin'])
 
+// Contato "agendado": tem evento FUTURO (pendente/confirmado) na agenda multiempresa
+// (app.agenda_eventos, migration 011), casado por telefone (só dígitos). Usa `prospects`
+// não-qualificado (funciona no FROM prospectador.prospects).
+const AGENDA_FUTURA_EXISTS = `EXISTS (
+  SELECT 1 FROM app.agenda_eventos ae
+   WHERE ae.empresa_id = prospects.empresa_id
+     AND ae.excluido_em IS NULL
+     AND ae.status IN ('pendente', 'confirmado')
+     AND ae.data_inicio >= NOW()
+     AND NULLIF(regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g'), '') IS NOT NULL
+     AND regexp_replace(COALESCE(ae.lead_telefone, ''), '[^0-9]', '', 'g')
+         = regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g')
+)`
 function envelopeErro(res, err, code) {
   const status = err.statusCode || 500
   logger.error(`[api-banco-leads] ${code}:`, err.message)
@@ -43,9 +57,17 @@ function montarFiltro(empresaId, query) {
   const where = [`empresa_id = $1`]
 
   const aba = String(query.aba || '').toLowerCase()
-  if (ABAS[aba]) {
+  if (aba === 'agendados') {
+    // Só contatos com agendamento futuro (ordenação por proximidade é feita no GET /leads).
+    where.push(AGENDA_FUTURA_EXISTS)
+  } else if (aba === 'descartados') {
+    // Descartados: rejeitados/não-contatar OU sem conta WhatsApp (envio não chegou).
+    where.push(`(status IN ('rejeitado', 'nao_contatar') OR tem_whatsapp = false)`)
+  } else if (ABAS[aba]) {
     params.push(ABAS[aba])
     where.push(`status = ANY($${params.length})`)
+    // Sem WhatsApp sai do funil ativo (vai pra Descartados) — não polui "Sem contato".
+    if (aba === 'sem_contato') where.push(`(tem_whatsapp IS DISTINCT FROM false)`)
   } else {
     // Sem aba válida: mostra o funil inteiro (exclui descartados).
     params.push([...ABAS.sem_contato, ...ABAS.conversou, ...ABAS.fecharam])
@@ -74,7 +96,7 @@ function montarFiltro(empresaId, query) {
 const COLUNAS = `id, origem, status, nome, telefone, email, instagram_handle,
   nicho, cidade, site, seguidores, categoria_perfil, created_at, updated_at,
   bloqueado_ate, bloqueio_motivo, endereco, rating, avaliacoes, tem_site,
-  maps_url, link_bio, bio`
+  maps_url, link_bio, bio, tem_whatsapp, score`
 
 // Origens do Google Places (inclui cadastro manual); o resto é social (IG/LinkedIn).
 const ORIGENS_PLACES = new Set(['manual', 'automatico'])
@@ -107,17 +129,64 @@ function anexarScoreCadastro(row) {
 router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const { where, params } = montarFiltro(req.empresa.id, req.query)
+    // Aba "Agendados" ordena pelos horários mais próximos; demais por atividade recente.
+    const ordemLeads = String(req.query.aba || '').toLowerCase() === 'agendados'
+      ? 'proximo_agendamento ASC NULLS LAST'
+      : 'updated_at DESC'
+    // Escopo da mensagem gerada (Semi): só mostra o rascunho que SERÁ disparado pela
+    // instância selecionada — evita mostrar rascunho de outra instância (que ao disparar
+    // pela instância atual não seria encontrado). Sem instancia_id, mostra qualquer um.
+    let filtroInstMsg = ''
+    const instId = String(req.query.instancia_id || '').trim()
+    if (instId) {
+      const { rows: ir } = await pool.query(
+        `SELECT evolution_instance FROM app.empresa_whatsapp_instances WHERE id = $1 AND empresa_id = $2`,
+        [instId, req.empresa.id]
+      )
+      if (ir[0]?.evolution_instance) {
+        params.push(ir[0].evolution_instance)
+        filtroInstMsg = ` AND d.evolution_instance = $${params.length}`
+      }
+    }
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 300, 1), 1000)
     params.push(limit)
     const { rows } = await pool.query(
       `SELECT ${COLUNAS}, raw_json,
-         (SELECT d.criado_em FROM prospectador.lead_disparos d
-            WHERE d.prospect_id = prospects.id ORDER BY d.criado_em DESC LIMIT 1) AS rodado_em,
-         (SELECT COALESCE(u.nome, u.email) FROM prospectador.lead_disparos d
-            LEFT JOIN app.usuarios u ON u.id = d.usuario_id
-            WHERE d.prospect_id = prospects.id ORDER BY d.criado_em DESC LIMIT 1) AS rodado_por
+          ultimo.rodado_em, ultimo.rodado_por, ultimo.ultimo_status, ultimo.ultimo_erro,
+          rascunho.mensagem_gerada, rascunho.gerada_em,
+          agenda.proximo_agendamento
         FROM prospectador.prospects
-        WHERE ${where} ORDER BY updated_at DESC LIMIT $${params.length}`,
+        LEFT JOIN LATERAL (
+          SELECT d.criado_em AS rodado_em,
+                 COALESCE(u.nome, u.email) AS rodado_por,
+                 d.status AS ultimo_status,
+                 d.erro AS ultimo_erro
+            FROM prospectador.lead_disparos d
+            LEFT JOIN app.usuarios u ON u.id = d.usuario_id
+           WHERE d.prospect_id = prospects.id
+           ORDER BY d.criado_em DESC
+           LIMIT 1
+        ) ultimo ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT d.mensagem AS mensagem_gerada, d.criado_em AS gerada_em
+            FROM prospectador.lead_disparos d
+           WHERE d.prospect_id = prospects.id
+             AND d.status = 'aguardando_disparo'${filtroInstMsg}
+           ORDER BY d.criado_em DESC
+           LIMIT 1
+        ) rascunho ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT MIN(ae.data_inicio) AS proximo_agendamento
+            FROM app.agenda_eventos ae
+           WHERE ae.empresa_id = prospects.empresa_id
+             AND ae.excluido_em IS NULL
+             AND ae.status IN ('pendente', 'confirmado')
+             AND ae.data_inicio >= NOW()
+             AND NULLIF(regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g'), '') IS NOT NULL
+             AND regexp_replace(COALESCE(ae.lead_telefone, ''), '[^0-9]', '', 'g')
+                 = regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g')
+        ) agenda ON TRUE
+        WHERE ${where} ORDER BY ${ordemLeads} LIMIT $${params.length}`,
       params
     )
     const data = rows.map(anexarScoreCadastro)
@@ -224,6 +293,161 @@ router.post('/rodar', requireAuth, requireEmpresaAccess, async (req, res) => {
   }
 })
 
+// GET /config — modo de disparo (manual/semi/auto) + geração por IA, por empresa.
+router.get('/config', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const data = await obterConfigBancoLeads(pool, req.empresa.id)
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'CONFIG_FAILED') }
+})
+
+// PUT /config — atualiza a config do Banco de Leads (upsert parcial: só os campos
+// presentes no body mudam). Aceita: modo, gerar_ia, instrucoes_ia (Manual/Semi) +
+// auto_ativo, janela_inicio, janela_fim, intervalo_min, intervalo_max (Automático).
+router.put('/config', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const b = req.body || {}
+    const patch = {}
+    for (const campo of ['modo', 'gerar_ia', 'instrucoes_ia', 'auto_ativo', 'auto_instancia_id',
+      'janela_inicio', 'janela_fim', 'intervalo_min', 'intervalo_max', 'auto_proximo_disparo_em']) {
+      if (b[campo] !== undefined) patch[campo] = b[campo]
+    }
+    const data = await salvarConfigBancoLeads(pool, req.empresa.id, patch)
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'CONFIG_UPDATE_FAILED') }
+})
+
+// GET /cooldown?instancia_id=… — estado do cooldown/teto da instância (para o cronômetro
+// do modo Semi). Só leitura; reusa o MESMO throttle do disparo (sem regra duplicada).
+router.get('/cooldown', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const instId = String(req.query.instancia_id || '').trim()
+    if (!instId) {
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'instancia_id é obrigatório.' } })
+    }
+    const data = await estadoEnvioInstancia(pool, { empresaId: req.empresa.id, instanciaId: instId })
+    return res.json({ ok: true, data })
+  } catch (err) {
+    const status = err.statusCode || 500
+    return res.status(status).json({ ok: false, error: { code: 'COOLDOWN_FAILED', message: err.message } })
+  }
+})
+
+// GET /geracao-progresso?instancia_id= — progresso da preparação das mensagens desta
+// instância. Alimenta a BARRA de progresso no painel. Independe da tela: a geração roda
+// no worker de fundo (Semi) / no disparo (Auto); aqui só CONTAMOS o estado atual.
+//   eligiveis = leads que ainda precisam de mensagem (rodáveis, sem disparo ativo)
+//   prontas   = mensagens já geradas aguardando disparo (Semi)
+//   gerando   = em geração agora
+//   enviados  = já contatados (Auto/Semi)   ·   erros = falha de IA
+router.get('/geracao-progresso', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const instId = String(req.query.instancia_id || '').trim()
+    if (!instId) return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'instancia_id é obrigatório.' } })
+    const { rows: [inst] } = await pool.query(
+      `SELECT evolution_instance FROM app.empresa_whatsapp_instances WHERE id = $1 AND empresa_id = $2`,
+      [instId, req.empresa.id]
+    )
+    if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instância não encontrada.' } })
+    const ev = inst.evolution_instance
+    const emp = req.empresa.id
+    const { rows: [c] } = await pool.query(
+      `WITH fila AS (
+         SELECT p.id,
+                (SELECT d.status
+                   FROM prospectador.lead_disparos d
+                  WHERE d.empresa_id = p.empresa_id
+                    AND d.prospect_id = p.id
+                    AND d.evolution_instance = $3
+                    AND d.status IN ('gerando','aguardando_disparo','erro_ia','enviando','pendente_confirmacao','enviado')
+                  ORDER BY d.criado_em DESC
+                  LIMIT 1) AS status_geracao
+           FROM prospectador.prospects p
+          WHERE p.empresa_id = $1
+            AND p.status = ANY($2)
+            AND NULLIF(BTRIM(COALESCE(p.telefone, '')), '') IS NOT NULL
+            AND p.tem_whatsapp IS DISTINCT FROM false
+            AND (p.bloqueado_ate IS NULL OR p.bloqueado_ate <= NOW())
+       )
+       SELECT COUNT(*) FILTER (WHERE status_geracao IS NULL)::int AS eligiveis,
+              COUNT(*) FILTER (WHERE status_geracao = 'aguardando_disparo')::int AS prontas,
+              COUNT(*) FILTER (WHERE status_geracao = 'gerando')::int AS gerando,
+              COUNT(*) FILTER (WHERE status_geracao IN ('enviado','enviando','pendente_confirmacao'))::int AS enviados,
+              COUNT(*) FILTER (WHERE status_geracao = 'erro_ia')::int AS erros
+         FROM fila`,
+      [emp, [...STATUS_RODAVEL], ev]
+    )
+    return res.json({ ok: true, data: c })
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: { code: 'PROGRESSO_FAILED', message: err.message } })
+  }
+})
+
+// POST /gerar { instancia_id, prospect_ids } — SEMI: gera as mensagens (IA c/ fallback) e
+// deixa 'aguardando_disparo' (não envia, não consome teto). Retorna as prévias geradas.
+router.post('/gerar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const { instancia_id, prospect_ids } = req.body || {}
+    if (!instancia_id) {
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Escolha uma instância.' } })
+    }
+    const data = await gerarMensagensSemi(pool, {
+      empresaId: req.empresa.id,
+      usuarioId: req.usuario?.id || null,
+      instanciaId: instancia_id,
+      prospectIds: Array.isArray(prospect_ids) ? prospect_ids : [],
+    })
+    return res.json({ ok: true, data })
+  } catch (err) {
+    const status = err.statusCode || 500
+    if (status >= 500) logger.error('[api-banco-leads] GERAR_FAILED:', err.message)
+    return res.status(status).json({ ok: false, error: { code: 'GERAR_FAILED', message: err.message } })
+  }
+})
+
+// POST /gerar-pendentes { instancia_id, limit? } — SEMI: gera mensagens para os
+// leads elegíveis que ainda não têm rascunho/erro/envio nesta instância.
+router.post('/gerar-pendentes', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const { instancia_id, limit } = req.body || {}
+    if (!instancia_id) {
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Escolha uma instância.' } })
+    }
+    const data = await gerarPendentesSemi(pool, {
+      empresaId: req.empresa.id,
+      usuarioId: req.usuario?.id || null,
+      instanciaId: instancia_id,
+      limit: limit || 1000,
+    })
+    return res.json({ ok: true, data })
+  } catch (err) {
+    const status = err.statusCode || 500
+    if (status >= 500) logger.error('[api-banco-leads] GERAR_PENDENTES_FAILED:', err.message)
+    return res.status(status).json({ ok: false, error: { code: 'GERAR_PENDENTES_FAILED', message: err.message } })
+  }
+})
+
+// POST /disparar-gerados { instancia_id, prospect_ids? } — envia as mensagens já geradas
+// (aguardando_disparo). Sem prospect_ids, dispara todos os pendentes da instância.
+router.post('/disparar-gerados', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const { instancia_id, prospect_ids } = req.body || {}
+    if (!instancia_id) {
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Escolha uma instância.' } })
+    }
+    const data = await dispararGerados(pool, {
+      empresaId: req.empresa.id,
+      instanciaId: instancia_id,
+      prospectIds: Array.isArray(prospect_ids) ? prospect_ids : [],
+    })
+    return res.json({ ok: true, data })
+  } catch (err) {
+    const status = err.statusCode || 500
+    if (status >= 500) logger.error('[api-banco-leads] DISPARAR_GERADOS_FAILED:', err.message)
+    return res.status(status).json({ ok: false, error: { code: 'DISPARAR_GERADOS_FAILED', message: err.message } })
+  }
+})
+
 // POST /limpar — apaga os leads SEM contato (sem email E sem telefone).
 // Protege negócios fechados (status 'fechado' nunca é removido). Irreversível.
 router.post('/limpar', requireAuth, requireEmpresaAccess, async (req, res) => {
@@ -258,15 +482,34 @@ router.post('/limpar', requireAuth, requireEmpresaAccess, async (req, res) => {
 // GET /resumo — contagem por aba (para os badges das abas).
 router.get('/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT status, COUNT(*)::int AS total
-         FROM prospectador.prospects WHERE empresa_id = $1 GROUP BY status`,
-      [req.empresa.id]
-    )
+    const [{ rows }, { rows: [c] }, { rows: [ag] }] = await Promise.all([
+      pool.query(
+        `SELECT status, COUNT(*)::int AS total
+           FROM prospectador.prospects WHERE empresa_id = $1 GROUP BY status`,
+        [req.empresa.id]
+      ),
+      // Contagem por aba consistente com os filtros (sem WhatsApp conta em Descartados,
+      // não em Sem contato).
+      pool.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE status = ANY($2) AND tem_whatsapp IS DISTINCT FROM false)::int AS sem_contato,
+           COUNT(*) FILTER (WHERE status = ANY($3))::int AS conversou,
+           COUNT(*) FILTER (WHERE status = ANY($4))::int AS fecharam,
+           COUNT(*) FILTER (WHERE status IN ('rejeitado', 'nao_contatar') OR tem_whatsapp = false)::int AS descartados
+         FROM prospectador.prospects WHERE empresa_id = $1`,
+        [req.empresa.id, ABAS.sem_contato, ABAS.conversou, ABAS.fecharam]
+      ),
+      pool.query(
+        `SELECT COUNT(*)::int AS total FROM prospectador.prospects WHERE empresa_id = $1 AND ${AGENDA_FUTURA_EXISTS}`,
+        [req.empresa.id]
+      ),
+    ])
     const porStatus = Object.fromEntries(rows.map((r) => [r.status, r.total]))
-    const abas = Object.fromEntries(
-      Object.entries(ABAS).map(([aba, sts]) => [aba, sts.reduce((s, st) => s + (porStatus[st] || 0), 0)])
-    )
+    const abas = {
+      sem_contato: c.sem_contato, conversou: c.conversou,
+      fecharam: c.fecharam, descartados: c.descartados,
+      agendados: ag.total,
+    }
     return res.json({ ok: true, data: { abas, por_status: porStatus } })
   } catch (err) { return envelopeErro(res, err, 'RESUMO_FAILED') }
 })

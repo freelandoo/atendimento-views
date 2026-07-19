@@ -61,7 +61,29 @@ test('selecionarMercadoDiarioIA: IA escolhe nicho+cidade fresco vendo o que já 
     },
   }
   const r = await selecionarMercadoDiarioIA(pool, {}, { aiProvider: aiProviderFake })
-  assert.deepEqual(r, { nicho: 'dentista', cidade: 'Curitiba - PR', origem: 'ia', motivo: 'fresco' })
+  assert.deepEqual(r, { nicho: 'dentista', cidade: 'Curitiba - PR', origem: 'ia', motivo: 'fresco', confianca: 0, estrategia: 'equilibrada' })
+})
+
+test('selecionarMercadoDiarioIA: respeita nicho e localização estritos', async () => {
+  const pool = poolComResultado([])
+  const prompts = []
+  const ai = {
+    generateAIResponse: async (input) => {
+      prompts.push(input.userPrompt)
+      return { text: '{"nicho":"dentista","cidade":"Campinas - SP","motivo":"permitido","confianca":91}' }
+    },
+  }
+  const r = await selecionarMercadoDiarioIA(pool, {
+    busca_estrategia: 'conservadora',
+    busca_nichos_permitidos: ['dentista'],
+    busca_localizacoes_permitidas: ['SP'],
+    busca_permitir_nichos_relacionados: false,
+  }, { aiProvider: ai, maxTentativas: 1 })
+  assert.equal(r.nicho, 'dentista')
+  assert.equal(r.confianca, 91)
+  assert.equal(r.estrategia, 'conservadora')
+  assert.match(prompts[0], /Nichos permitidos.*dentista/i)
+  assert.match(prompts[0], /Localizações permitidas: SP/i)
 })
 
 test('selecionarMercadoDiarioIA: erro persistente → null (SEM fallback; o chamador aborta o dia)', async () => {

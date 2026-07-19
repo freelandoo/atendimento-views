@@ -73,7 +73,13 @@ const {
 const { pool } = require('../src/db')
 const dashboardAuth = require('../src/dashboardAuth')
 const agenda = require('../src/agenda')
-const { numeroEnvioWhatsapp } = require('../src/whatsapp')
+const {
+  assertEvolutionEnvioOk,
+  evolutionEnvioErro,
+  evolutionEnvioPendente,
+  evolutionStatusMensagem,
+  numeroEnvioWhatsapp,
+} = require('../src/whatsapp')
 const { redactPhone, redactValue, serializeError } = require('../src/logger')
 const {
   validarAtualizarPerfilLead,
@@ -421,9 +427,35 @@ test('webhook aceita somente conversas 1:1 de lead', () => {
 
 test('envio WhatsApp rejeita JID de grupo e broadcast', () => {
   assert.equal(numeroEnvioWhatsapp('5511999999999@s.whatsapp.net'), '5511999999999')
-  assert.equal(numeroEnvioWhatsapp('11999999999'), '11999999999')
   assert.equal(numeroEnvioWhatsapp('120363012345678@g.us'), '')
   assert.equal(numeroEnvioWhatsapp('status@broadcast'), '')
+})
+
+test('envio WhatsApp adiciona o código do país (55) em números BR locais', () => {
+  // 11 dígitos (DDD + celular 9) e 10 dígitos (DDD + fixo) chegam SEM o 55 → adiciona.
+  assert.equal(numeroEnvioWhatsapp('11987309724'), '5511987309724')
+  assert.equal(numeroEnvioWhatsapp('(19) 3243-9173'), '551932439173')
+  // 12-13 dígitos já têm código do país → não mexe.
+  assert.equal(numeroEnvioWhatsapp('5511987309724'), '5511987309724')
+  assert.equal(numeroEnvioWhatsapp('551932439173'), '551932439173')
+})
+
+test('envio WhatsApp aceita PENDING inicial e rejeita ERROR da Evolution', () => {
+  const pendente = { key: { id: 'abc' }, status: 'PENDING' }
+  assert.equal(evolutionStatusMensagem(pendente), 'PENDING')
+  assert.equal(evolutionEnvioPendente(pendente), true)
+  assert.doesNotThrow(() => assertEvolutionEnvioOk(pendente, 'sendText'))
+
+  const erro = { key: { id: 'abc' }, status: 'ERROR' }
+  assert.equal(evolutionEnvioErro(erro), true)
+  assert.throws(
+    () => assertEvolutionEnvioOk(erro, 'sendText'),
+    (err) => {
+      assert.equal(err.evolutionClassificacao?.tipo, 'message_error')
+      assert.equal(err.evolutionClassificacao?.retryable, false)
+      return /ERROR/.test(err.message)
+    }
+  )
 })
 
 test('servidor estatico serve apenas public e nao expoe arquivos sensiveis da raiz', async () => {

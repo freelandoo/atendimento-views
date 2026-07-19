@@ -3,7 +3,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { buscaProspeccaoDevePreencher } = require('../src/services/prospecting-search-scheduler')
+const { buscaProspeccaoDevePreencher, resultadoBuscaAutomatica } = require('../src/services/prospecting-search-scheduler')
 
 const TZ = 'America/Sao_Paulo'
 // Helper: Date em horário de Brasília (UTC-3, sem horário de verão hoje).
@@ -11,7 +11,10 @@ const brt = (iso) => new Date(`${iso}-03:00`)
 
 // Config base: agendamento ligado, nicho/cidade preenchidos, janela 08–18, dias úteis.
 const base = (over = {}) => ({
+  ativo: true,
   agendamento_busca_ativo: true,
+  modo_busca: 'automatico_fixo',
+  busca_estado: 'aguardando',
   categoria_padrao: 'dentista',
   cidade_padrao: 'Santana',
   estado_padrao: 'SP',
@@ -30,9 +33,23 @@ test('não dispara se agendamento desligado', () => {
   assert.equal(buscaProspeccaoDevePreencher(base({ agendamento_busca_ativo: false }), TERCA_10H, TZ), false)
 })
 
+test('agenda de busca independe do campo legado ativo', () => {
+  assert.equal(buscaProspeccaoDevePreencher(base({ ativo: false }), TERCA_10H, TZ), true)
+})
+
 test('não dispara sem nicho ou sem cidade (busca do Places exige ambos)', () => {
   assert.equal(buscaProspeccaoDevePreencher(base({ categoria_padrao: null }), TERCA_10H, TZ), false)
   assert.equal(buscaProspeccaoDevePreencher(base({ cidade_padrao: '' }), TERCA_10H, TZ), false)
+})
+
+test('Busca IA pode partir das preferências sem nicho/cidade fixos', () => {
+  assert.equal(buscaProspeccaoDevePreencher(base({ modo_busca: 'ia', categoria_padrao: null, cidade_padrao: null }), TERCA_10H, TZ), true)
+})
+
+test('estados pausados bloqueiam nova cobrança automática', () => {
+  for (const busca_estado of ['esgotado', 'sem_mercados', 'erro', 'pausado']) {
+    assert.equal(buscaProspeccaoDevePreencher(base({ busca_estado }), TERCA_10H, TZ), false)
+  }
 })
 
 test('dispara dentro da janela, dia útil, sem busca anterior', () => {
@@ -64,4 +81,30 @@ test('dispara quando o intervalo já passou', () => {
 
 test('config nula é tratada com segurança', () => {
   assert.equal(buscaProspeccaoDevePreencher(null, TERCA_10H, TZ), false)
+})
+
+test('automático fixo pausa depois de duas buscas sem leads novos', () => {
+  const r = resultadoBuscaAutomatica({ modo_busca: 'automatico_fixo', busca_zero_consecutivos: 1 }, {
+    novos_prospects: 0, nicho: 'dentistas', cidade: 'Campinas',
+  })
+  assert.equal(r.zeros, 2)
+  assert.equal(r.estado, 'esgotado')
+  assert.match(r.mensagem, /Não encontramos mais leads novos/)
+})
+
+test('Busca IA troca o mercado depois de duas buscas vazias sem pausar o motor', () => {
+  const r = resultadoBuscaAutomatica({ modo_busca: 'ia', busca_zero_consecutivos: 1 }, {
+    novos_prospects: 0, nicho: 'dentistas', cidade: 'Campinas',
+  })
+  assert.equal(r.zeros, 2)
+  assert.equal(r.estado, 'aguardando')
+  assert.match(r.mensagem, /escolherá outro mercado/)
+})
+
+test('resultado com leads novos zera a sequência de esgotamento', () => {
+  const r = resultadoBuscaAutomatica({ modo_busca: 'automatico_fixo', busca_zero_consecutivos: 2 }, {
+    novos_prospects: 7, nicho: 'dentistas', cidade: 'Campinas',
+  })
+  assert.equal(r.zeros, 0)
+  assert.equal(r.estado, 'aguardando')
 })

@@ -56,13 +56,14 @@ async function queryOpcional(pool, sql, params = []) {
   }
 }
 
-async function checarBloqueioManual(pool, telefone, prospectId) {
+async function checarBloqueioManual(pool, telefone, prospectId, empresaId = null) {
   const { rows } = await queryOpcional(
     pool,
     `
     SELECT id, motivo, origem, expira_em, criado_em
     FROM prospectador.prospeccao_bloqueios
     WHERE ativo = true
+      AND ($3::uuid IS NULL OR empresa_id = $3::uuid)
       AND (expira_em IS NULL OR expira_em > NOW())
       AND (
         telefone_normalizado = $1
@@ -71,54 +72,57 @@ async function checarBloqueioManual(pool, telefone, prospectId) {
     ORDER BY criado_em DESC
     LIMIT 1
     `,
-    [telefone, prospectId || null]
+    [telefone, prospectId || null, empresaId]
   )
   return rows[0] || null
 }
 
-async function checarOptOut(pool, telefone) {
+async function checarOptOut(pool, telefone, empresaId = null) {
   const { rows } = await queryOpcional(
     pool,
     `
     SELECT telefone, opt_out, updated_at
     FROM prospectador.contato_politicas
     WHERE regexp_replace(telefone, '\\D', '', 'g') = $1
+      AND ($2::uuid IS NULL OR empresa_id = $2::uuid)
     LIMIT 1
     `,
-    [telefone]
+    [telefone, empresaId]
   )
   return rows[0] || null
 }
 
-async function checarConversa(pool, telefone) {
+async function checarConversa(pool, telefone, empresaId = null) {
   const { rows } = await queryOpcional(
     pool,
     `
     SELECT id, numero, status, estagio, venda_fechada, agente_pausado, atualizado_em
     FROM vendas.conversas
-    WHERE regexp_replace(numero, '\\D', '', 'g') = $1
-       OR numero = $1
-       OR numero = $1 || '@s.whatsapp.net'
+    WHERE ($2::uuid IS NULL OR empresa_id = $2::uuid)
+      AND (regexp_replace(numero, '\\D', '', 'g') = $1
+        OR numero = $1
+        OR numero = $1 || '@s.whatsapp.net')
     ORDER BY atualizado_em DESC
     LIMIT 1
     `,
-    [telefone]
+    [telefone, empresaId]
   )
   return rows[0] || null
 }
 
-async function checarProspect(pool, telefone, prospectId) {
+async function checarProspect(pool, telefone, prospectId, empresaId = null) {
   const { rows } = await queryOpcional(
     pool,
     `
     SELECT id, telefone, status, updated_at, created_at
     FROM prospectador.prospects
-    WHERE ($2::uuid IS NOT NULL AND id = $2::uuid)
-       OR regexp_replace(COALESCE(telefone, ''), '\\D', '', 'g') = $1
+    WHERE ($3::uuid IS NULL OR empresa_id = $3::uuid)
+      AND (($2::uuid IS NOT NULL AND id = $2::uuid)
+        OR regexp_replace(COALESCE(telefone, ''), '\\D', '', 'g') = $1)
     ORDER BY updated_at DESC
     LIMIT 1
     `,
-    [telefone, prospectId || null]
+    [telefone, prospectId || null, empresaId]
   )
   return rows[0] || null
 }
@@ -215,12 +219,13 @@ async function canProspectLead(pool, phone, options = {}) {
   }
 
   const prospectId = options.prospectId || options.prospect_id || null
+  const empresaId = options.empresaId || options.empresa_id || null
   const diasReprospeccao = Number.isInteger(options.diasReprospeccao)
     ? options.diasReprospeccao
     : PERIODO_REPROSPECCAO_DIAS
   const desde = options.desde instanceof Date ? options.desde : diasAtras(diasReprospeccao)
 
-  const bloqueio = await checarBloqueioManual(pool, normalizedPhone, prospectId)
+  const bloqueio = await checarBloqueioManual(pool, normalizedPhone, prospectId, empresaId)
   if (bloqueio) {
     return motivoBloqueio(`bloqueado:${bloqueio.motivo || 'manual'}`, {
       normalizedPhone,
@@ -228,7 +233,7 @@ async function canProspectLead(pool, phone, options = {}) {
     })
   }
 
-  const politica = await checarOptOut(pool, normalizedPhone)
+  const politica = await checarOptOut(pool, normalizedPhone, empresaId)
   if (politica?.opt_out === true) {
     return motivoBloqueio('opt_out', {
       normalizedPhone,
@@ -236,7 +241,7 @@ async function canProspectLead(pool, phone, options = {}) {
     })
   }
 
-  const conversa = await checarConversa(pool, normalizedPhone)
+  const conversa = await checarConversa(pool, normalizedPhone, empresaId)
   if (conversa?.venda_fechada === true) {
     return motivoBloqueio('cliente_fechado', {
       normalizedPhone,
@@ -254,13 +259,26 @@ async function canProspectLead(pool, phone, options = {}) {
     })
   }
 
-  const prospect = await checarProspect(pool, normalizedPhone, prospectId)
+  const prospect = await checarProspect(pool, normalizedPhone, prospectId, empresaId)
   if (prospect?.status === 'respondeu') {
     return motivoBloqueio('lead_ja_respondeu', {
       normalizedPhone,
       existingProspectId: prospect.id,
       lastContactAt: rowAtualizadoEm(prospect) || undefined,
     })
+  }
+
+  // Banco de Leads reutiliza as guardas de compliance, mas possui sua propria
+  // reserva/idempotencia. Nao consulta filas/jobs do pipeline legado nesse modo.
+  if (options.complianceOnly === true) {
+    return {
+      allowed: true,
+      reason: 'ok',
+      normalizedPhone,
+      existingProspectId: prospect?.id || prospectId || undefined,
+      currentStage: conversa?.estagio || undefined,
+      lastContactAt: rowAtualizadoEm(prospect) || conversa?.atualizado_em || undefined,
+    }
   }
 
   const ultimoEnvio = await checarUltimoEnvio(pool, normalizedPhone, prospect?.id || prospectId, desde, options)

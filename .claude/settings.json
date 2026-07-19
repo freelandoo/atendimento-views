@@ -16,7 +16,17 @@
       "Bash(DATABASE_URL='postgresql://postgres:xkRLoJwvqnfqjKOgLrxpaDXxeqCSYoUF@yamabiko.proxy.rlwy.net:14878/railway' node scripts/agendar-reuniao.js 5547933888204 2026-06-08 19:45 Souzacasasfabiano18@gmail.com)",
       "Bash(DATABASE_URL='postgresql://postgres:xkRLoJwvqnfqjKOgLrxpaDXxeqCSYoUF@yamabiko.proxy.rlwy.net:14878/railway' node scripts/push-overlay.js system-core)",
       "mcp__railway__list_deployments",
-      "Bash(node --check src/agenda.js)"
+      "Bash(node --check src/agenda.js)",
+      "Bash(unzip -p \"Documentacao_Workflow_Padrao_IA_PJ_Codeworks_v2.docx\" word/document.xml)",
+      "Bash(ls -la .env)",
+      "Bash(ls -la backend/.env)",
+      "PowerShell(Start-Process \"C:\\\\Program Files\\\\Docker\\\\Docker\\\\Docker Desktop.exe\")",
+      "Bash(docker compose *)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:8080)",
+      "Bash(npm start *)",
+      "Bash(netstat -ano)",
+      "Bash(docker port *)",
+      "Bash(PGPASSWORD=evolution psql -h localhost -p 5433 -U evolution -d evolution_api -c \"select 'conexão OK' as status;\")"
     ]
   }
 }

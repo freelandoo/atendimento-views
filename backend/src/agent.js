@@ -119,6 +119,7 @@ const {
   executarJobProspeccao,
   verificarAgendaDiariaProspeccao,
   verificarAgendaBuscaRecorrenteProspeccao,
+  processarBuscasPlacesPendentes,
 } = require('./prospecting')
 
 const {
@@ -475,12 +476,17 @@ async function jobWorkerTick() {
   try {
     if (Date.now() - _ultimaVerificacaoPeriodicaMs > VERIFICACOES_PERIODICAS_INTERVALO_MS) {
       _ultimaVerificacaoPeriodicaMs = Date.now()
-      await verificarAgendaDiariaProspeccao().catch((e) =>
-        logger.warn({ operation: 'prospeccao_diaria', etapa: 'tick_erro', erro: e.message })
-      )
-      // "Agenda" da Aquisição: re-roda a busca do Google Places a cada X horas.
+      // DISPARO automático da Aquisição REMOVIDO: a Aquisição agora só ALIMENTA o Banco
+      // de Leads (busca). Todo envio de WhatsApp acontece no Banco de Leads (modos
+      // Manual/Semi/Automático). Antes: verificarAgendaDiariaProspeccao() (mantida como
+      // função/rota para acionamento manual, mas não roda mais no tick automático).
+      // "Agenda" da Aquisição: re-roda a BUSCA do Google Places a cada X horas.
       await verificarAgendaBuscaRecorrenteProspeccao().catch((e) =>
         logger.warn({ operation: 'prospeccao_busca_recorrente', etapa: 'tick_erro', erro: e.message })
+      )
+      // Materializa as buscas da Aquisição (Bright Data Maps) que já ficaram prontas.
+      await processarBuscasPlacesPendentes().catch((e) =>
+        logger.warn({ operation: 'places_brightdata', etapa: 'tick_erro', erro: e.message })
       )
       // Atribuição Meta (CTWA) + score determinístico — a cada ~10 min (gate próprio).
       if (Date.now() - _ultimaAtribuicaoMetaMs > ATRIBUICAO_META_INTERVALO_MS) {

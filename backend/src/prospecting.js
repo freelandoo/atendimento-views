@@ -1,6 +1,5 @@
 'use strict'
 
-const axios = require('axios')
 const crypto = require('crypto')
 const { pool } = require('./db')
 const aiProvider = require('./ai-provider')
@@ -30,7 +29,8 @@ const {
   salvarConfiguracaoProspeccao,
   montarAgendaPainelProspeccao,
 } = require('./services/prospecting-settings')
-const { buscaProspeccaoDevePreencher } = require('./services/prospecting-search-scheduler')
+const { buscaProspeccaoDevePreencher, resultadoBuscaAutomatica } = require('./services/prospecting-search-scheduler')
+const placesBrightData = require('./services/places-brightdata')
 const {
   canProspectLead,
 } = require('./services/prospecting-eligibility')
@@ -64,26 +64,6 @@ const {
   obterDashboardEstrategicoProspeccao,
 } = require('./services/prospecting-performance-analytics')
 
-const PLACES_TEXT_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText'
-const DEFAULT_FIELD_MASK = [
-  'places.id',
-  'places.displayName',
-  'places.formattedAddress',
-  'places.nationalPhoneNumber',
-  'places.internationalPhoneNumber',
-  'places.websiteUri',
-  'places.googleMapsUri',
-  'places.rating',
-  'places.userRatingCount',
-  'places.businessStatus',
-  'places.primaryTypeDisplayName',
-  'places.types',
-  // Pontuação de cadastro (lead-score-cadastro): fotos e horário de funcionamento.
-  // Ambos dentro dos SKUs já usados (Pro/Enterprise) — não muda o tier de cobrança.
-  'places.photos',
-  'places.regularOpeningHours',
-].join(',')
-
 function dashboardAutorizado(req) {
   if (dashboardSessionAutorizado(req)) return true
   const secret = String(process.env.REPROCESS_SECRET || '').trim()
@@ -102,14 +82,14 @@ function normalizarInteiro(v, fallback, min, max) {
   return Math.max(min, Math.min(n, max))
 }
 
-function normalizarQuantidade(v) {
-  // Alvo total de resultados; a busca pagina em páginas de até 20 (limite da API).
-  return normalizarInteiro(v, 10, 1, 60)
-}
-
 function normalizarOrigem(v) {
   const origem = String(v || '').trim().toLowerCase()
-  return origem === 'automatico' ? 'automatico' : 'manual'
+  return ['automatico', 'automatico_fixo', 'ia'].includes(origem) ? 'automatico' : 'manual'
+}
+
+function normalizarOrigemBusca(v) {
+  const origem = String(v || '').trim().toLowerCase()
+  return ['manual', 'automatico_fixo', 'ia'].includes(origem) ? origem : 'manual'
 }
 
 function normalizarOrigemFiltro(v) {
@@ -2611,13 +2591,10 @@ async function resumoMercadosProspeccao(poolRef, limite = 60, empresaId = null) 
   }
 }
 
-// Seletor de mercado por IA (autônomo, data-aware): a IA recebe o que já foi prospectado
-// e escolhe UM nicho + UMA cidade frescos para hoje. SÓ decide nicho/cidade — a busca no
-// Places e o resto continuam programáticos. Modelo barato (estratégia, não texto pro
-// cliente). SEMPRE ligado. NÃO há fallback para a rotação heurística: a IA tem RETRY
-// (PROSPEC_MERCADO_IA_RETRIES, default 3 tentativas) e, se todas falharem, o erro fica
-// REGISTRADO no log do Railway (logger.error) e a função retorna null — o chamador
-// aborta a rodada do dia (não usa mercado burro).
+// Seletor do modo Busca IA (autônomo e data-aware): recebe o histórico e as preferências
+// do operador e escolhe UM nicho + UMA cidade. Só decide o mercado; coleta e importação
+// continuam programáticas. Não há fallback heurístico: após os retries, retorna null e o
+// scheduler pausa o modo com um estado/mensagem visível, evitando uma busca paga arbitrária.
 async function selecionarMercadoDiarioIA(poolRef, config = {}, deps = {}) {
   const ai = deps.aiProvider || aiProvider
   const maxTentativas = Math.max(
@@ -2628,6 +2605,20 @@ async function selecionarMercadoDiarioIA(poolRef, config = {}, deps = {}) {
   const jaTocados = mercados.length
     ? mercados.map((m) => `- ${m.nicho} / ${m.cidade} (${m.total} contatos, último ${m.ultimo || '?'})`).join('\n')
     : '(nenhum ainda)'
+  const nichosPermitidos = Array.isArray(config.busca_nichos_permitidos) ? config.busca_nichos_permitidos.filter(Boolean) : []
+  const locaisPermitidos = Array.isArray(config.busca_localizacoes_permitidas) ? config.busca_localizacoes_permitidas.filter(Boolean) : []
+  const estrategia = ['conservadora', 'equilibrada', 'exploratoria'].includes(config.busca_estrategia)
+    ? config.busca_estrategia
+    : 'equilibrada'
+  const permitirRelacionados = config.busca_permitir_nichos_relacionados !== false
+  const mercadoAnterior = config.busca_mercado_atual && typeof config.busca_mercado_atual === 'object'
+    ? `${config.busca_mercado_atual.nicho || ''} / ${config.busca_mercado_atual.cidade || ''}`
+    : null
+  const politicaEstrategia = estrategia === 'conservadora'
+    ? 'Priorize mercados muito próximos dos nichos permitidos e cidades já validadas.'
+    : estrategia === 'exploratoria'
+      ? 'Priorize descoberta: varie cidades e teste nichos relacionados com potencial.'
+      : 'Use uma política equilibrada: aproximadamente 70% de aproveitamento de padrões promissores e 30% de exploração.'
   const systemPrompt =
     'Voce e o estrategista de prospeccao da {{empresa}}, que vende SITES para pequenos ' +
     'negocios locais no Brasil inteiro. Tarefa: escolher UM mercado (um nicho + uma cidade ' +
@@ -2637,11 +2628,17 @@ async function selecionarMercadoDiarioIA(poolRef, config = {}, deps = {}) {
     'que ja tem muitos contatos). Nao repita nicho+cidade ja muito explorado.\n' +
     '2. Priorize cidades brasileiras com bastante pequeno negocio e demanda por site, variando ' +
     'regioes do pais (nao fique so em SP).\n' +
-    '3. Prefira nichos de servico local que costumam NAO ter site e decidem rapido; pode usar a ' +
-    'semente OU propor um nicho novo relevante.\n' +
-    'Responda SOMENTE um JSON: {"nicho":"...","cidade":"Cidade - UF","motivo":"..."}'
+    '3. Prefira nichos de servico local que costumam NAO ter site e decidem rapido.\n' +
+    `4. Estratégia selecionada: ${estrategia}. ${politicaEstrategia}\n` +
+    `5. Nichos relacionados: ${permitirRelacionados ? 'permitidos' : 'proibidos; use exatamente um nicho da lista permitida'}.\n` +
+    'Responda SOMENTE um JSON: {"nicho":"...","cidade":"Cidade - UF","motivo":"...","confianca":0-100}'
   const userPrompt =
     `Nichos-semente: ${PROSPEC_SEED_NICHOS.join(', ')}.\n\n` +
+    `Nichos permitidos pelo operador: ${nichosPermitidos.length ? nichosPermitidos.join(', ') : '(qualquer nicho local adequado)'}.\n` +
+    `Localizações permitidas: ${locaisPermitidos.length ? locaisPermitidos.join(', ') : '(Brasil inteiro)'}.\n` +
+    (Number(config.busca_zero_consecutivos || 0) >= 2 && mercadoAnterior
+      ? `O mercado anterior (${mercadoAnterior}) não gerou leads novos em duas buscas; não o repita agora.\n`
+      : '') +
     `Mercados JA prospectados (evite os esgotados/recentes):\n${jaTocados}\n\n` +
     'Escolha o melhor proximo mercado fresco para hoje.'
 
@@ -2668,9 +2665,18 @@ async function selecionarMercadoDiarioIA(poolRef, config = {}, deps = {}) {
       const nicho = normalizarTexto(parsed?.nicho, 60)
       const cidade = normalizarTexto(parsed?.cidade, 60)
       if (!nicho || !cidade) throw new Error('IA devolveu nicho/cidade vazio')
+      const nichoLower = nicho.toLocaleLowerCase('pt-BR')
+      const cidadeLower = cidade.toLocaleLowerCase('pt-BR')
+      if (nichosPermitidos.length && !permitirRelacionados && !nichosPermitidos.some((item) => nichoLower === String(item).toLocaleLowerCase('pt-BR'))) {
+        throw new Error('IA escolheu nicho fora da lista permitida')
+      }
+      if (locaisPermitidos.length && !locaisPermitidos.some((item) => cidadeLower.includes(String(item).toLocaleLowerCase('pt-BR')))) {
+        throw new Error('IA escolheu localização fora da lista permitida')
+      }
       const motivo = normalizarTexto(parsed?.motivo, 200) || null
+      const confianca = Math.max(0, Math.min(100, parseInt(parsed?.confianca, 10) || 0))
       logger.info({ operation: 'prospeccao_diaria', etapa: 'mercado_ia', tentativa, nicho, cidade, motivo })
-      return { nicho, cidade, origem: 'ia', motivo }
+      return { nicho, cidade, origem: 'ia', motivo, confianca, estrategia }
     } catch (e) {
       ultimoErro = e
       logger.warn({ operation: 'prospeccao_diaria', etapa: 'mercado_ia_retry', tentativa, de: maxTentativas, erro: e.message })
@@ -2916,10 +2922,56 @@ async function verificarAgendaDiariaProspeccao(now = new Date()) {
   return { ok: true, empresas: empresas.length, resultados }
 }
 
-// "Agenda" da Aquisição (Google Places): re-roda a BUSCA a cada X horas para as
-// empresas com agendamento_busca_ativo. Decisão pura em prospecting-search-scheduler;
-// aqui só o I/O (busca + marca ultima_busca_em). Chamada no tick periódico (gate 60s).
-// Independente da rodada diária de ENVIO (_rodadaDiariaProspeccaoEmpresa).
+// Busca automática da Aquisição (Google Maps): a cada X horas, executa o modo explícito
+// escolhido pelo operador (mercado fixo ou seleção por IA). O scheduler puro concentra os
+// gates de modo/intervalo/janela; aqui ficam I/O, limite diário, exclusão mútua e estados.
+// Chamada no tick periódico e independente da rodada diária legada de ENVIO.
+async function atualizarEstadoBusca(empresaId, estado, mensagem = null, mercado = undefined) {
+  const params = [empresaId, estado, mensagem]
+  let mercadoSql = ''
+  if (mercado !== undefined) {
+    params.push(mercado == null ? null : JSON.stringify(mercado))
+    mercadoSql = `, busca_mercado_atual = $4::jsonb, busca_ultima_decisao_em = NOW()`
+  }
+  await pool.query(
+    `UPDATE prospectador.prospeccao_configuracoes
+        SET busca_estado = $2, busca_mensagem = $3${mercadoSql}, atualizado_em = NOW()
+      WHERE empresa_id = $1`,
+    params
+  )
+}
+
+async function totalBuscasAutomaticasHoje(empresaId, now = new Date()) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS total
+       FROM prospectador.busca_snapshots
+      WHERE empresa_id = $1
+        AND origem IN ('automatico_fixo', 'ia')
+        AND (created_at AT TIME ZONE 'America/Sao_Paulo')::date = ($2::timestamptz AT TIME ZONE 'America/Sao_Paulo')::date`,
+    [empresaId, now instanceof Date ? now.toISOString() : now]
+  )
+  return Number(rows[0]?.total || 0)
+}
+
+async function existeBuscaEmAndamento(empresaId) {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM prospectador.busca_snapshots
+      WHERE empresa_id = $1 AND status IN ('pendente', 'processando')
+      LIMIT 1`,
+    [empresaId]
+  )
+  return !!rows[0]
+}
+
+function mercadoFixoDaConfig(cfg) {
+  const nicho = normalizarTexto(cfg?.categoria_padrao, 60)
+  const cidadeBase = normalizarTexto(cfg?.cidade_padrao, 60)
+  const uf = normalizarTexto(cfg?.estado_padrao, 2).toUpperCase()
+  if (!nicho || !cidadeBase) return null
+  const cidade = uf && !cidadeBase.toUpperCase().includes(uf) ? `${cidadeBase} - ${uf}` : cidadeBase
+  return { nicho, cidade, origem: 'automatico_fixo', motivo: 'Mercado fixo configurado pelo operador.' }
+}
+
 async function verificarAgendaBuscaRecorrenteProspeccao(now = new Date()) {
   let empresas
   try {
@@ -2937,23 +2989,46 @@ async function verificarAgendaBuscaRecorrenteProspeccao(now = new Date()) {
     try {
       const cfg = await obterConfiguracaoProspeccao(pool, empresaId)
       if (!buscaProspeccaoDevePreencher(cfg, now)) continue
-      const local = [cfg.cidade_padrao, cfg.estado_padrao].filter(Boolean).join(', ')
-      await pesquisarPlaces({
-        nicho: cfg.categoria_padrao,
-        local,
-        quantidade: cfg.limite_diario || 20,
-        // 'automatico' é o único valor permitido para origem não-manual no CHECK
-        // de prospectador.prospects (manual|automatico|instagram|linkedin).
-        origem: 'automatico',
-        empresaId,
-      })
-      await pool.query(
-        `UPDATE prospectador.prospeccao_configuracoes SET ultima_busca_em = NOW(), atualizado_em = NOW() WHERE empresa_id = $1`,
-        [empresaId]
-      )
-      disparadas += 1
+      if (await existeBuscaEmAndamento(empresaId)) {
+        await atualizarEstadoBusca(empresaId, 'processando', 'A coleta anterior ainda está sendo processada. A próxima decisão aguardará a conclusão.')
+        continue
+      }
+      const feitasHoje = await totalBuscasAutomaticasHoje(empresaId, now)
+      if (feitasHoje >= Number(cfg.busca_max_diaria || 2)) {
+        await atualizarEstadoBusca(empresaId, 'limite_diario', `Limite diário atingido (${feitasHoje}/${cfg.busca_max_diaria || 2}). A busca retoma na próxima janela.`)
+        continue
+      }
+      const modoBusca = cfg.modo_busca === 'automatico_fixo' ? 'automatico_fixo' : 'ia'
+      await atualizarEstadoBusca(empresaId, modoBusca === 'ia' ? 'escolhendo' : 'coletando', modoBusca === 'ia' ? 'A IA está escolhendo o próximo mercado.' : 'Preparando a busca do mercado configurado.')
+      const mercado = modoBusca === 'ia'
+        ? await selecionarMercadoDiarioIA(pool, cfg, { empresaId })
+        : mercadoFixoDaConfig(cfg)
+      if (mercado && mercado.nicho && mercado.cidade) {
+        await pesquisarPlaces({
+          nicho: mercado.nicho,
+          local: mercado.cidade,
+          // O snapshot preserva o modo; os prospects continuam usando a origem histórica
+          // 'automatico', compatível com o CHECK existente da tabela de leads.
+          origem: modoBusca,
+          empresaId,
+          decisao: mercado,
+        })
+        await pool.query(
+          `UPDATE prospectador.prospeccao_configuracoes
+              SET ultima_busca_em = NOW(), busca_estado = 'coletando',
+                  busca_mensagem = $2, busca_mercado_atual = $3::jsonb,
+                  busca_ultima_decisao_em = NOW(), atualizado_em = NOW()
+            WHERE empresa_id = $1`,
+          [empresaId, `Buscando ${mercado.nicho} em ${mercado.cidade}.`, JSON.stringify(mercado)]
+        )
+        disparadas += 1
+      } else {
+        await atualizarEstadoBusca(empresaId, 'sem_mercados', 'A IA não encontrou um mercado novo dentro das preferências. Ajuste as listas ou retome para tentar novamente.')
+        logger.warn({ operation: 'prospeccao_busca_recorrente', empresa_id: empresaId }, 'mercado IA indisponível — busca pausada')
+      }
     } catch (e) {
-      logger.warn({ operation: 'prospeccao_busca_recorrente', empresa_id: empresaId, erro: e.message }, 'busca agendada pulada')
+      await atualizarEstadoBusca(empresaId, 'erro', 'A busca foi pausada por uma falha operacional. Revise a configuração e tente novamente.').catch(() => {})
+      logger.warn({ operation: 'prospeccao_busca_recorrente', empresa_id: empresaId, erro: e.message }, 'busca agendada pausada')
     }
   }
   if (disparadas) logger.info({ operation: 'prospeccao_busca_recorrente', disparadas }, 'buscas agendadas disparadas')
@@ -3547,14 +3622,12 @@ async function alterarOfertaProspect(id, payload = {}) {
   return { ok: true, prospect_id: safeId, oferta_anterior: ofertaAnterior, oferta_recomendada: ofertaNova }
 }
 
-async function pesquisarPlaces({ nicho, local, quantidade, origem = 'manual', empresaId = null }) {
-  const apiKey = String(process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '').trim()
-  if (!apiKey) {
-    const err = new Error('GOOGLE_PLACES_API_KEY ausente no ambiente do servidor.')
-    err.statusCode = 500
-    throw err
-  }
-
+// Busca de leads da Aquisição via Bright Data (Google Maps "Discover by location").
+// ASSÍNCRONA: dispara o job na Bright Data (minutos) e ENFILEIRA em busca_snapshots;
+// os leads são materializados depois por processarBuscasPlacesPendentes (worker).
+// Mantém a mesma assinatura/retorno-shape (prospects: []) — quem lê `.prospects`
+// (orquestrador diário) apenas cai no backlog; os frescos chegam pelo worker.
+async function pesquisarPlaces({ nicho, local, origem = 'manual', empresaId = null, decisao = null }) {
   const queryNicho = normalizarTexto(nicho)
   const queryLocal = normalizarTexto(local)
   if (!queryNicho || !queryLocal) {
@@ -3562,55 +3635,160 @@ async function pesquisarPlaces({ nicho, local, quantidade, origem = 'manual', em
     err.statusCode = 400
     throw err
   }
+  if (!placesBrightData.brightDataMapsConfigurado()) {
+    const err = new Error('Bright Data Maps não configurado (defina BRIGHTDATA_API_TOKEN e BRIGHTDATA_DATASET_MAPS_DESCOBERTA).')
+    err.statusCode = 500
+    throw err
+  }
+  if (empresaId && await existeBuscaEmAndamento(empresaId)) {
+    const err = new Error('Já existe uma busca em andamento. Aguarde a conclusão antes de iniciar outra.')
+    err.statusCode = 409
+    throw err
+  }
 
-  const alvo = normalizarQuantidade(quantidade)
+  // A Aquisição usa um lote único e previsível; o worker aplica o mesmo limite.
+  const alvo = placesBrightData.MAX_LEADS_POR_BUSCA
   const textQuery = `${queryNicho} em ${queryLocal}`
 
-  // Paginação: a API v1 devolve no máx. 20/página; usamos nextPageToken até
-  // atingir o alvo (até 60). Falha numa página seguinte não descarta as anteriores.
-  const places = []
-  let pageToken = null
-  do {
-    const body = {
-      textQuery,
-      maxResultCount: Math.min(20, alvo - places.length),
-      languageCode: 'pt-BR',
-      regionCode: 'BR',
-    }
-    if (pageToken) body.pageToken = pageToken
+  let snapshotId
+  try {
+    ;({ snapshotId } = await placesBrightData.dispararBuscaMaps({
+      nicho: queryNicho,
+      cidade: queryLocal,
+    }))
+  } catch (err) {
+    if (!err.statusCode) err.statusCode = 502
+    throw err
+  }
 
-    let data
-    try {
-      ({ data } = await axios.post(PLACES_TEXT_SEARCH_URL, body, {
-        timeout: 15000,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': `${DEFAULT_FIELD_MASK},nextPageToken`,
-        },
-      }))
-    } catch (err) {
-      if (places.length === 0) throw err
-      break
-    }
+  await pool.query(
+    `INSERT INTO prospectador.busca_snapshots (empresa_id, nicho, cidade, origem, snapshot_id, status, decisao_json)
+     VALUES ($1, $2, $3, $4, $5, 'pendente', $6::jsonb)`,
+    [empresaId, queryNicho, queryLocal, normalizarOrigemBusca(origem), snapshotId, decisao ? JSON.stringify(decisao) : null]
+  )
 
-    if (Array.isArray(data?.places)) places.push(...data.places)
-    pageToken = data?.nextPageToken || null
-  } while (pageToken && places.length < alvo)
-
-  const prospects = places.map(mapearPlace)
-  const salvos = await salvarProspects(prospects, {
-    nicho: queryNicho,
-    cidade: queryLocal,
-    origem,
-    empresaId,
-  })
-
+  logger.info({ operation: 'places_brightdata', etapa: 'enfileirado', nicho: queryNicho, cidade: queryLocal, snapshotId }, 'busca enfileirada')
   return {
     consulta: textQuery,
     quantidade_solicitada: alvo,
-    prospects: salvos,
+    prospects: [],            // materializados pelo worker (assíncrono)
+    status: 'em_andamento',
+    snapshot_id: snapshotId,
   }
+}
+
+// Worker: acompanha os snapshots da Aquisição (Bright Data) e materializa os leads.
+// Espelha o worker da captação social (progress -> ready -> snapshot -> salvarProspects),
+// com a MESMA guarda de consistência eventual (ready mas download vazio = re-tenta).
+async function contarPlaceIdsNovos(empresaId, places) {
+  const ids = [...new Set((places || []).map((place) => normalizarTexto(place?.id, 240)).filter(Boolean))]
+  if (!empresaId || !ids.length) return ids.length
+  const { rows } = await pool.query(
+    `SELECT place_id FROM prospectador.prospects
+      WHERE empresa_id = $1 AND place_id = ANY($2::text[])`,
+    [empresaId, ids]
+  )
+  const existentes = new Set(rows.map((row) => row.place_id))
+  return ids.filter((id) => !existentes.has(id)).length
+}
+
+async function registrarResultadoBuscaAutomatica(snapshot, novosProspects) {
+  if (!snapshot?.empresa_id || !['automatico_fixo', 'ia'].includes(snapshot.origem)) return
+  const cfg = await obterConfiguracaoProspeccao(pool, snapshot.empresa_id)
+  if (!cfg || cfg.modo_busca !== snapshot.origem) return
+  const { zeros, estado, mensagem } = resultadoBuscaAutomatica(cfg, {
+    novos_prospects: novosProspects,
+    nicho: snapshot.nicho,
+    cidade: snapshot.cidade,
+  })
+  await pool.query(
+    `UPDATE prospectador.prospeccao_configuracoes
+        SET busca_zero_consecutivos = $2, busca_estado = $3, busca_mensagem = $4, atualizado_em = NOW()
+      WHERE empresa_id = $1`,
+    [snapshot.empresa_id, zeros, estado, mensagem]
+  )
+}
+
+async function processarBuscasPlacesPendentes(limit = 5) {
+  let pendentes
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, empresa_id, nicho, cidade, origem, snapshot_id, status, created_at
+         FROM prospectador.busca_snapshots
+        WHERE status IN ('pendente', 'processando') AND snapshot_id IS NOT NULL
+        ORDER BY created_at ASC LIMIT $1`,
+      [limit]
+    )
+    pendentes = rows
+  } catch (e) {
+    return { ok: false, processados: 0, motivo: 'tabela_indisponivel', erro: e.message }
+  }
+  if (!pendentes.length) return { ok: true, processados: 0 }
+
+  let processados = 0
+  for (const snap of pendentes) {
+    try {
+      const status = await placesBrightData.estadoBuscaMaps(snap.snapshot_id)
+      if (status === 'running' || status === 'building' || status === 'collecting' || status === 'pending') {
+        if (snap.status !== 'processando') {
+          await pool.query(`UPDATE prospectador.busca_snapshots SET status = 'processando', updated_at = NOW() WHERE id = $1`, [snap.id])
+        }
+        continue
+      }
+      if (status === 'failed' || status === 'error') {
+        await pool.query(`UPDATE prospectador.busca_snapshots SET status = 'falhou', erro = $2, updated_at = NOW() WHERE id = $1`, [snap.id, `bright_data:${status}`])
+        if (['automatico_fixo', 'ia'].includes(snap.origem)) {
+          await atualizarEstadoBusca(snap.empresa_id, 'erro', 'A Bright Data não concluiu a coleta. A busca foi pausada para evitar novas cobranças.').catch(() => {})
+        }
+        continue
+      }
+      if (status !== 'ready') continue // estado desconhecido — espera o próximo tick
+
+      const { places, recebidos } = await placesBrightData.snapshotParaPlacesComResumo(snap.snapshot_id)
+      // Consistência eventual: 'ready' com download vazio pode ser materialização atrasada.
+      // Não finaliza com 0 nos primeiros 30 min (re-tenta no próximo tick).
+      const idadeMin = (Date.now() - new Date(snap.created_at).getTime()) / 60000
+      if (places.length === 0 && idadeMin < 30) {
+        if (snap.status !== 'processando') {
+          await pool.query(`UPDATE prospectador.busca_snapshots SET status = 'processando', updated_at = NOW() WHERE id = $1`, [snap.id])
+        }
+        continue
+      }
+
+      const novosProspects = await contarPlaceIdsNovos(snap.empresa_id, places)
+      const prospects = places.map(mapearPlace)
+      const salvos = await salvarProspects(prospects, {
+        nicho: snap.nicho, cidade: snap.cidade, origem: snap.origem, empresaId: snap.empresa_id,
+      })
+      await pool.query(
+        `UPDATE prospectador.busca_snapshots
+            SET status = 'concluido', total_prospects = $2, custo_registros = $3,
+                novos_prospects = $4, updated_at = NOW()
+          WHERE id = $1`,
+        [snap.id, Array.isArray(salvos) ? salvos.length : 0, recebidos, novosProspects]
+      )
+      await registrarResultadoBuscaAutomatica(snap, novosProspects)
+      processados += 1
+      logger.info({ operation: 'places_brightdata', etapa: 'materializado', snapshotId: snap.snapshot_id, leads: Array.isArray(salvos) ? salvos.length : 0 }, 'busca concluída')
+    } catch (e) {
+      logger.warn({ operation: 'places_brightdata', etapa: 'worker_erro', snapshotId: snap.snapshot_id, erro: e.message }, 'snapshot re-tenta no próximo tick')
+    }
+  }
+  return { ok: true, processados }
+}
+
+// Lista as buscas recentes da Aquisição (para o painel acompanhar o andamento async).
+async function listarBuscasRecentes(empresaId, limit = 10) {
+  const { rows } = await pool.query(
+    `SELECT id, nicho, cidade, origem, status, total_prospects, novos_prospects, erro,
+            created_at, updated_at
+       FROM prospectador.busca_snapshots
+      WHERE empresa_id = $1
+      ORDER BY created_at DESC
+      LIMIT $2`,
+    [empresaId, Math.max(1, Math.min(50, parseInt(limit, 10) || 10))]
+  )
+  return rows
 }
 
 function erroHttp(err) {
@@ -4040,7 +4218,6 @@ function registerProspectingRoutes(app) {
 }
 
 module.exports = {
-  DEFAULT_FIELD_MASK,
   atualizarMensagemEditada,
   atualizarEmailProspect,
   atualizarStatusProspect,
@@ -4111,6 +4288,8 @@ module.exports = {
   temPlaceholderResidual,
   verificarAgendaDiariaProspeccao,
   verificarAgendaBuscaRecorrenteProspeccao,
+  processarBuscasPlacesPendentes,
+  listarBuscasRecentes,
   selecionarMercadoDiarioIA,
   resumoMercadosProspeccao,
   agendarEnvioItemFilaDiaria,

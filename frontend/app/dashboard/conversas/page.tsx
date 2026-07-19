@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
+import DataTableFrame from '@/components/ui/DataTableFrame'
 
 type ScoreCriterio = {
   delta: number
@@ -279,7 +280,11 @@ export default function ConversasPage() {
         })}
       </div>
 
-      <table className="w-full text-sm border rounded-xl overflow-hidden bg-white shadow-sm">
+      <DataTableFrame
+        className="overflow-hidden rounded-xl border bg-white shadow-sm"
+        ariaLabel="Rolagem horizontal da tabela de conversas"
+      >
+      <table className="w-full min-w-max text-sm">
         <thead className="bg-gray-100">
           <tr>
             <th className="text-left px-4 py-2">Número</th>
@@ -346,6 +351,7 @@ export default function ConversasPage() {
           )}
         </tbody>
       </table>
+      </DataTableFrame>
 
       {aberta && (
         <div

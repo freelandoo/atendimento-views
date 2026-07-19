@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { apiFetch } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { useSession, podePapel, type Role } from '@/lib/useSession'
+import DataTableFrame from '@/components/ui/DataTableFrame'
 
 type Conta = {
   id: string
@@ -111,9 +112,13 @@ export default function ContasPage() {
         </button>
       </form>
 
-      <div className="glass overflow-x-auto rounded-2xl">
-        <table className="w-full text-sm">
-          <thead className="text-left text-xs uppercase tracking-wide text-lo">
+      <DataTableFrame
+        className="glass overflow-hidden rounded-2xl"
+        scrollbarClassName="border-b border-white/10 bg-panel"
+        ariaLabel="Rolagem horizontal da tabela de contas"
+      >
+        <table className="w-full min-w-max text-sm">
+          <thead className="bg-panel text-left text-xs uppercase tracking-wide text-lo">
             <tr className="border-b border-white/10">
               <th className="px-4 py-3">Nome</th>
               <th className="px-4 py-3">E-mail</th>
@@ -153,7 +158,7 @@ export default function ContasPage() {
             )}
           </tbody>
         </table>
-      </div>
+      </DataTableFrame>
     </div>
   )
 }

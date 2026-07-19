@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { IconEnvelope } from '@/components/ui/icons'
 
 // Campo de e-mail inline e editável, reusado nas telas de Prospecção, Banco de Leads
 // e Captação. `onSave` recebe o e-mail já trimado ('' = limpar) e deve persistir + atualizar
@@ -33,10 +34,10 @@ export function EmailEditavel({
     return value ? (
       <button
         onClick={() => { setTexto(value); setEditando(true) }}
-        className="text-blue-700 hover:underline"
+        className="inline-flex items-center gap-1.5 text-blue-700 hover:underline"
         title="Editar e-mail"
       >
-        ✉ {value}
+        <IconEnvelope /> {value}
       </button>
     ) : (
       <button

@@ -1,11 +1,11 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
-import NeonProgress from '@/components/ui/NeonProgress'
-import ModalAgenda from '@/components/ui/ModalAgenda'
 import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
+import DataTableFrame from '@/components/ui/DataTableFrame'
+import { IconTrash, IconStar, IconUndo, IconPlay } from '@/components/ui/icons'
 
 type JsonApresProspect = JsonApresentacao & {
   empresa?: { horario_funcionamento?: boolean; fotos?: number }
@@ -45,12 +45,31 @@ type Config = {
   // "Agenda": re-busca automática do Google Places a cada X horas.
   agendamento_busca_ativo: boolean; busca_intervalo_horas: number
   ultima_busca_em: string | null
+  modo_busca: 'manual' | 'automatico_fixo' | 'ia'
+  busca_max_diaria: 1 | 2
+  busca_estrategia: 'conservadora' | 'equilibrada' | 'exploratoria'
+  busca_nichos_permitidos: string[]
+  busca_localizacoes_permitidas: string[]
+  busca_permitir_nichos_relacionados: boolean
+  busca_estado: 'aguardando' | 'escolhendo' | 'coletando' | 'processando' | 'esgotado' | 'sem_mercados' | 'limite_diario' | 'erro' | 'pausado'
+  busca_mensagem: string | null
+  busca_mercado_atual: { nicho?: string; cidade?: string; motivo?: string; confianca?: number } | null
+  busca_zero_consecutivos: number
+  busca_ultima_decisao_em: string | null
 }
+type ConfigPatch = Partial<Config> & { retomar_busca?: boolean }
 type Agenda = {
   total_slots: number; primeiro_slot: string | null; ultimo_slot: string | null
   envio_real_habilitado?: boolean; observacao?: string
 }
 type ConfigResp = { config: Config; agenda: Agenda; escopo: string }
+// Busca da Aquisição (Bright Data Maps é assíncrona — o painel acompanha o status).
+type Busca = {
+  id: string; nicho: string; cidade: string; origem: string
+  status: 'pendente' | 'processando' | 'concluido' | 'falhou'
+  total_prospects: number; novos_prospects: number; erro: string | null
+  created_at: string; updated_at: string
+}
 type Mercado = { nicho: string; cidade: string; total: string; enviados: string; responderam: string }
 type Recente = { nome: string; telefone: string | null; nicho: string; cidade: string; score: number | null; updated_at: string }
 type ResultadosResp = { por_mercado: Mercado[]; recentes: Recente[] }
@@ -70,15 +89,28 @@ const STATUS_STYLE: Record<string, string> = {
   enviado: 'bg-blue-100 text-blue-700',
   respondeu: 'bg-orange-100 text-orange-700',
 }
+// Rótulo amigável do status (consistente com os botões Marcar / Descartar).
+const STATUS_LABEL: Record<string, string> = {
+  aguardando: 'aguardando', aprovado: 'marcado', rejeitado: 'descartado',
+  enviado: 'enviado', respondeu: 'respondeu',
+}
 
 const FILTROS: { valor: string; label: string }[] = [
   { valor: '', label: 'Todos' },
   { valor: 'aguardando', label: 'Aguardando' },
-  { valor: 'aprovado', label: 'Aprovados' },
-  { valor: 'rejeitado', label: 'Rejeitados' },
+  { valor: 'aprovado', label: 'Marcados' },
+  { valor: 'rejeitado', label: 'Descartados' },
   { valor: 'enviado', label: 'Enviados' },
   { valor: 'respondeu', label: 'Responderam' },
 ]
+
+const LEADS_POR_BUSCA = 200
+const BUSCA_ESTADO_LABEL: Record<Config['busca_estado'], string> = {
+  aguardando: 'Aguardando próximo ciclo', escolhendo: 'IA escolhendo mercado',
+  coletando: 'Coleta em andamento', processando: 'Processando resultados',
+  esgotado: 'Mercado esgotado', sem_mercados: 'Nenhum mercado novo encontrado',
+  limite_diario: 'Limite diário atingido', erro: 'Busca pausada por erro', pausado: 'Pausado',
+}
 
 // Temperatura do lead pela pontuação (score): quente = mais dor digital / maior chance.
 function temperatura(score: number | null): { emoji: string; label: string } {
@@ -128,11 +160,12 @@ export default function ProspeccaoPage() {
   const [resultados, setResultados] = useState<ResultadosResp | null>(null)
   const [analytics, setAnalytics] = useState<Analytics | null>(null)
   const [buscando, setBuscando] = useState(false)
-  const [progresso, setProgresso] = useState<number | null>(null)
+  const [buscas, setBuscas] = useState<Busca[]>([])
+  const emAndamentoRef = useRef<Set<string>>(new Set())
   const [erro, setErro] = useState('')
   const [filtro, setFiltro] = useState('')
   const [agindo, setAgindo] = useState<string | null>(null)
-  const [agendaAberta, setAgendaAberta] = useState(false)
+  const [salvandoConfig, setSalvandoConfig] = useState(false)
   const [form, setForm] = useState<Partial<Config>>({})
   // Ordenação da tabela: default = MENOS pontos de cadastro no topo (mais
   // oportunidade de venda). Clicar no cabeçalho alterna asc/desc por coluna.
@@ -153,7 +186,10 @@ export default function ProspeccaoPage() {
     apiFetch<Metricas>(`/api/empresas/${empresaId}/prospeccao/metricas`)
       .then((r) => setMetricas(r.data)).catch(() => {})
     apiFetch<ConfigResp>(`/api/empresas/${empresaId}/prospeccao/configuracao`)
-      .then((r) => setRotina(r.data)).catch(() => {})
+      .then((r) => {
+        setRotina(r.data)
+        setForm({ ...r.data.config, limite_diario: LEADS_POR_BUSCA })
+      }).catch(() => {})
     apiFetch<ResultadosResp>(`/api/empresas/${empresaId}/prospeccao/resultados`)
       .then((r) => setResultados(r.data)).catch(() => {})
     apiFetch<Analytics>(`/api/empresas/${empresaId}/prospeccao/analytics`)
@@ -161,13 +197,52 @@ export default function ProspeccaoPage() {
   }
   useEffect(() => { carregar() }, [empresaId, filtro])
 
-  async function acao(id: string, acaoTipo: 'aprovar' | 'rejeitar') {
+  // A busca da Aquisição é ASSÍNCRONA (Bright Data Maps, ~minutos). Aqui acompanhamos o
+  // andamento: quando uma busca que estava rodando fica 'concluido'/'falhou', avisa e
+  // recarrega a lista de leads sozinho.
+  async function carregarBuscas() {
+    if (!empresaId) return
+    try {
+      const r = await apiFetch<Busca[]>(`/api/empresas/${empresaId}/prospeccao/buscas?limit=10`)
+      const lista = r.data || []
+      const antes = emAndamentoRef.current
+      const terminadas = lista.filter((b) => antes.has(b.id) && (b.status === 'concluido' || b.status === 'falhou'))
+      for (const b of terminadas) {
+        if (b.status === 'concluido') fb.toast(`Busca concluída: ${b.total_prospects} leads (${b.nicho} em ${b.cidade}).`, 'success')
+        else fb.toast(`Busca falhou (${b.nicho} em ${b.cidade}): ${b.erro || 'erro'}.`, 'error')
+      }
+      if (terminadas.length) carregar()
+      emAndamentoRef.current = new Set(lista.filter((b) => b.status === 'pendente' || b.status === 'processando').map((b) => b.id))
+      setBuscas(lista)
+      const configAtual = await apiFetch<ConfigResp>(`/api/empresas/${empresaId}/prospeccao/configuracao`)
+      setRotina(configAtual.data)
+      setForm((atual) => ({
+        ...atual,
+        modo_busca: configAtual.data.config.modo_busca,
+        agendamento_busca_ativo: configAtual.data.config.agendamento_busca_ativo,
+        busca_estado: configAtual.data.config.busca_estado,
+        busca_mensagem: configAtual.data.config.busca_mensagem,
+        busca_mercado_atual: configAtual.data.config.busca_mercado_atual,
+        busca_zero_consecutivos: configAtual.data.config.busca_zero_consecutivos,
+        busca_ultima_decisao_em: configAtual.data.config.busca_ultima_decisao_em,
+      }))
+    } catch { /* silencioso */ }
+  }
+  useEffect(() => {
+    if (!empresaId) return
+    carregarBuscas()
+    const t = setInterval(carregarBuscas, 20000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empresaId])
+
+  async function acao(id: string, acaoTipo: 'aprovar' | 'rejeitar', sucesso: string) {
     if (!empresaId) return
     setAgindo(id)
     try {
       await fb.runTask(
         () => apiFetch(`/api/empresas/${empresaId}/prospeccao/prospects/${id}/${acaoTipo}`, { method: 'POST' }),
-        { sucesso: acaoTipo === 'aprovar' ? 'Lead aprovado.' : 'Lead rejeitado.' }
+        { sucesso }
       )
       carregar()
     } catch { /* erro já exibido pelo feedback */ }
@@ -180,105 +255,250 @@ export default function ProspeccaoPage() {
     fb.toast(email ? 'E-mail salvo.' : 'E-mail removido.')
   }
 
-  function abrirAgenda() {
-    setErro('')
-    setForm(rotina ? { ...rotina.config } : {
-      ativo: true, modo: 'manual', limite_diario: 20, intervalo_envio_minutos: 15,
-      horario_inicio: '08:00', horario_fim: '18:00',
-      agendamento_busca_ativo: false, busca_intervalo_horas: 24,
-    })
-    setAgendaAberta(true)
-  }
   function setF<K extends keyof Config>(k: K, v: Config[K]) {
     setForm((p) => ({ ...p, [k]: v }))
   }
 
   const ordenados = [...prospects].sort((a, b) => compararProspects(a, b, ordem))
 
-  // "Rodar" da Agenda: roda a busca AGORA (com barra) E salva a agenda recorrente.
+  function payloadConfiguracao(patch: ConfigPatch = {}) {
+    return {
+      ...form,
+      ...patch,
+      // Aquisição nunca religa o disparo legado; a busca recorrente tem flag própria.
+      ativo: false,
+      modo: 'manual',
+      limite_diario: LEADS_POR_BUSCA,
+      envio_real_habilitado: false,
+      gerar_mensagem_ia: false,
+    }
+  }
+
+  async function persistirConfiguracao(patch: ConfigPatch = {}) {
+    if (!empresaId) return null
+    setSalvandoConfig(true)
+    try {
+      const r = await apiFetch<ConfigResp>(`/api/empresas/${empresaId}/prospeccao/configuracao`, {
+        method: 'PUT',
+        body: JSON.stringify(payloadConfiguracao(patch)),
+      })
+      setRotina(r.data)
+      const chaves = Object.keys(patch).filter((chave) => chave in r.data.config) as (keyof Config)[]
+      if (chaves.length === 0) {
+        setForm({ ...r.data.config, limite_diario: LEADS_POR_BUSCA })
+      } else {
+        // Atualiza somente os campos persistidos; não apaga outro input que o operador
+        // esteja digitando enquanto uma gravação onBlur termina.
+        setForm((atual) => {
+          const normalizados: Partial<Config> = {}
+          for (const chave of chaves) normalizados[chave] = r.data.config[chave] as never
+          return { ...atual, ...normalizados, limite_diario: LEADS_POR_BUSCA }
+        })
+      }
+      return r.data
+    } finally {
+      setSalvandoConfig(false)
+    }
+  }
+
+  async function salvarAjuste(patch: ConfigPatch) {
+    try {
+      setErro('')
+      const mudouMercadoFixo = form.modo_busca === 'automatico_fixo' && ('categoria_padrao' in patch || 'cidade_padrao' in patch || 'estado_padrao' in patch)
+      await persistirConfiguracao(mudouMercadoFixo ? { ...patch, retomar_busca: true } : patch)
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao salvar a configuração da busca.')
+    }
+  }
+
+  async function trocarModoBusca(modo: Config['modo_busca']) {
+    if (modo === 'automatico_fixo' && (!(form.categoria_padrao || '').trim() || !(form.cidade_padrao || '').trim())) {
+      fb.toast('Informe nicho e cidade antes de ligar o automático fixo.', 'error')
+      return
+    }
+    try {
+      setErro('')
+      await persistirConfiguracao({
+        modo_busca: modo,
+        agendamento_busca_ativo: modo !== 'manual',
+        retomar_busca: modo !== 'manual',
+      })
+      fb.toast(modo === 'manual' ? 'Modo manual ativado.' : modo === 'ia' ? 'Busca IA ativada.' : 'Automático fixo ativado.')
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao alterar o modo da busca.')
+    }
+  }
+
+  // Executa uma busca imediata e salva os mesmos parâmetros usados pelo automático.
   async function rodar() {
     if (!empresaId) return
     const nicho = (form.categoria_padrao || '').trim()
     const cidade = (form.cidade_padrao || '').trim()
-    if (!nicho || !cidade) { setErro('Informe nicho e cidade na Agenda.'); return }
-
-    // Regra de negócio: disparo real só liga junto com a geração de mensagem por IA.
-    if (form.envio_real_habilitado) {
-      if (!form.gerar_mensagem_ia) {
-        setErro('Para ligar o disparo real é preciso também ligar a geração de mensagem por IA.')
-        return
-      }
-      if (!rotina?.config.envio_real_habilitado) {
-        const ok = window.confirm(
-          '⚠️ Ligar o DISPARO REAL fará a rotina enviar mensagens de WhatsApp automaticamente aos leads aprovados, dentro da janela configurada.\n\nConfirma a ativação do envio real para esta empresa?'
-        )
-        if (!ok) return
-      }
-    }
+    if (!nicho || !cidade) { setErro('Informe nicho e cidade para buscar.'); return }
 
     setErro('')
-    setAgendaAberta(false)
     setBuscando(true)
-    setProgresso(8)
-    const timer = setInterval(() => {
-      setProgresso((p) => (p == null || p >= 90 ? p : p + Math.max(1, Math.round((90 - p) * 0.12))))
-    }, 400)
     try {
-      // 1) Salva a agenda (rotina + busca recorrente a cada X horas).
-      const r = await apiFetch<ConfigResp>(`/api/empresas/${empresaId}/prospeccao/configuracao`, {
-        method: 'PUT',
-        body: JSON.stringify(form),
+      await persistirConfiguracao()
+      // 2) Enfileira a busca (Bright Data Maps é assíncrona — leva alguns minutos).
+      await apiFetch(`/api/empresas/${empresaId}/prospeccao/buscar`, {
+        method: 'POST',
+        body: JSON.stringify({ nicho, cidade }),
       })
-      setRotina(r.data)
-      // 2) Roda a busca agora.
-      await fb.runTask(
-        () => apiFetch(`/api/empresas/${empresaId}/prospeccao/buscar`, {
-          method: 'POST',
-          body: JSON.stringify({ nicho, cidade, quantidade: 20 }),
-        }),
-        { pesada: true, sucesso: 'Busca concluída', detalhe: 'Os prospects aparecem na lista abaixo.' }
-      )
-      carregar()
+      fb.toast(`Busca de até ${LEADS_POR_BUSCA} leads em andamento. A lista atualiza sozinha.`, 'info')
+      carregarBuscas()
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao rodar a agenda.')
     } finally {
-      clearInterval(timer)
-      setProgresso(100)
       setBuscando(false)
-      setTimeout(() => setProgresso(null), 700)
     }
   }
 
   const cfg = rotina?.config
-  const resumoAgenda = cfg
-    ? [
-        cfg.categoria_padrao || 'sem nicho',
-        cfg.cidade_padrao || 'sem cidade',
-        cfg.agendamento_busca_ativo ? `busca a cada ${cfg.busca_intervalo_horas}h` : 'busca manual',
-      ].join(' · ')
-    : 'configure nicho, cidade e frequência'
+  async function retomarBusca() {
+    try {
+      setErro('')
+      await persistirConfiguracao({ retomar_busca: true })
+      fb.toast('Busca retomada. O worker seguirá a janela e o intervalo.')
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao retomar a busca.')
+    }
+  }
+
+  const modoBusca = form.modo_busca || (form.agendamento_busca_ativo ? 'ia' : 'manual')
+  const modoAutomatico = modoBusca !== 'manual'
+  const estadoBloqueado = ['sem_mercados', 'erro'].includes(cfg?.busca_estado || '')
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Prospecção</h1>
-          <p className="text-sm text-slate-500 mt-1">Busque leads no Google e gerencie a carteira desta empresa. Tudo começa na <strong>Agenda</strong>.</p>
-        </div>
-        <button onClick={abrirAgenda}
-          className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white">
-          📅 Agenda
-        </button>
+      <div>
+        <h1 className="text-2xl font-bold">Prospecção</h1>
+        <p className="text-sm text-slate-500 mt-1">Configure a origem da busca e deixe o worker alimentar o Banco de Leads, mesmo fora desta tela.</p>
       </div>
 
-      <div className="flex items-center justify-between gap-3 rounded-2xl border bg-white px-4 py-3 shadow-sm">
-        <p className="truncate text-sm text-slate-600">
-          <span className="font-medium text-slate-800">{cfg?.agendamento_busca_ativo ? 'Agenda ativa' : 'Agenda manual'}</span>
-          <span className="text-slate-400"> · {resumoAgenda}</span>
-        </p>
-        <button onClick={abrirAgenda} className="shrink-0 rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50">
-          Abrir Agenda
-        </button>
+      <div className="space-y-4 rounded-2xl border bg-white p-4 shadow-sm">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">Modo da busca</label>
+            <select value={modoBusca} disabled={salvandoConfig}
+              onChange={(e) => trocarModoBusca(e.target.value as Config['modo_busca'])}
+              className="w-full rounded-lg border px-3 py-2 text-sm disabled:opacity-60">
+              <option value="manual">Manual</option>
+              <option value="automatico_fixo">Automático fixo</option>
+              <option value="ia">Busca IA</option>
+            </select>
+            <div className={`mt-2 flex items-start gap-2 text-xs ${modoAutomatico ? 'text-emerald-700' : 'text-slate-500'}`}>
+              <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${modoAutomatico ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+              <span>{modoBusca === 'ia'
+                ? 'A IA escolhe um mercado novo dentro das suas preferências.'
+                : modoBusca === 'automatico_fixo'
+                  ? 'Repete o nicho e a cidade até não encontrar mais leads novos.'
+                  : 'A busca acontece somente quando você clicar em Buscar agora.'}</span>
+            </div>
+          </div>
+
+          {modoBusca !== 'ia' && <div className="grid gap-3 sm:grid-cols-3">
+            <Campo label="Nicho"><input value={form.categoria_padrao || ''}
+              onChange={(e) => setF('categoria_padrao', e.target.value)}
+              onBlur={(e) => salvarAjuste({ categoria_padrao: e.target.value })}
+              placeholder="ex: dentista" className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
+            <Campo label="Cidade"><input value={form.cidade_padrao || ''}
+              onChange={(e) => setF('cidade_padrao', e.target.value)}
+              onBlur={(e) => salvarAjuste({ cidade_padrao: e.target.value })}
+              placeholder="ex: Campinas" className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
+            <Campo label="Estado (UF)"><input value={form.estado_padrao || ''} maxLength={2}
+              onChange={(e) => setF('estado_padrao', e.target.value.toUpperCase())}
+              onBlur={(e) => salvarAjuste({ estado_padrao: e.target.value.toUpperCase() })}
+              placeholder="SP" className="w-full rounded-lg border px-3 py-2 text-sm uppercase" /></Campo>
+          </div>}
+        </div>
+
+        {modoAutomatico && (
+          <div className="grid gap-3 border-t pt-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Campo label="Buscar a cada (horas)"><input type="number" min={6} max={168}
+              value={form.busca_intervalo_horas ?? 6}
+              onChange={(e) => setF('busca_intervalo_horas', Math.max(6, Number(e.target.value) || 6))}
+              onBlur={(e) => salvarAjuste({ busca_intervalo_horas: Math.max(6, Number(e.target.value) || 6) })}
+              className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
+            <Campo label="Máximo por dia"><select value={form.busca_max_diaria ?? 2}
+              onChange={(e) => salvarAjuste({ busca_max_diaria: Number(e.target.value) as 1 | 2 })}
+              className="w-full rounded-lg border px-3 py-2 text-sm">
+              <option value={1}>1 busca por dia</option>
+              <option value={2}>2 buscas por dia</option>
+            </select></Campo>
+            <Campo label="Início da janela"><input type="time" value={form.horario_inicio || '08:00'}
+              onChange={(e) => setF('horario_inicio', e.target.value)}
+              onBlur={(e) => salvarAjuste({ horario_inicio: e.target.value })}
+              className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
+            <Campo label="Fim da janela"><input type="time" value={form.horario_fim || '17:00'}
+              onChange={(e) => setF('horario_fim', e.target.value)}
+              onBlur={(e) => salvarAjuste({ horario_fim: e.target.value })}
+              className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
+          </div>
+        )}
+
+        {modoBusca === 'ia' && (
+          <div className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/50 p-3">
+            <div className="grid gap-3 lg:grid-cols-3">
+              <Campo label="Estratégia"><select value={form.busca_estrategia || 'equilibrada'}
+                onChange={(e) => salvarAjuste({ busca_estrategia: e.target.value as Config['busca_estrategia'] })}
+                className="w-full rounded-lg border px-3 py-2 text-sm">
+                <option value="conservadora">Conservadora</option>
+                <option value="equilibrada">Equilibrada — recomendada</option>
+                <option value="exploratoria">Exploratória</option>
+              </select></Campo>
+              <Campo label="Nichos permitidos"><input
+                value={(form.busca_nichos_permitidos || []).join(', ')}
+                onChange={(e) => setF('busca_nichos_permitidos', e.target.value.split(',').map((v) => v.trim()).filter(Boolean))}
+                onBlur={(e) => salvarAjuste({ busca_nichos_permitidos: e.target.value.split(',').map((v) => v.trim()).filter(Boolean) })}
+                placeholder="ex: dentistas, clínicas, arquitetos"
+                className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
+              <Campo label="Regiões permitidas"><input
+                value={(form.busca_localizacoes_permitidas || []).join(', ')}
+                onChange={(e) => setF('busca_localizacoes_permitidas', e.target.value.split(',').map((v) => v.trim()).filter(Boolean))}
+                onBlur={(e) => salvarAjuste({ busca_localizacoes_permitidas: e.target.value.split(',').map((v) => v.trim()).filter(Boolean) })}
+                placeholder="ex: SP, Campinas, Paraná"
+                className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
+            </div>
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input type="checkbox" className="mt-0.5" checked={form.busca_permitir_nichos_relacionados !== false}
+                onChange={(e) => salvarAjuste({ busca_permitir_nichos_relacionados: e.target.checked })} />
+              <span><b>Permitir nichos relacionados</b><span className="block text-xs text-slate-500">A IA pode explorar variações próximas dos nichos informados.</span></span>
+            </label>
+          </div>
+        )}
+
+        {modoAutomatico && cfg?.busca_estado && (
+          <div className={`rounded-xl border px-3 py-2.5 text-sm ${['esgotado', 'sem_mercados', 'erro'].includes(cfg.busca_estado) ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <b>{BUSCA_ESTADO_LABEL[cfg.busca_estado]}</b>
+              {cfg.busca_mercado_atual?.nicho && <span className="text-xs">Último mercado: {cfg.busca_mercado_atual.nicho} · {cfg.busca_mercado_atual.cidade}</span>}
+            </div>
+            {cfg.busca_mensagem && <p className="mt-1 text-xs">{cfg.busca_mensagem}</p>}
+            {modoBusca === 'ia' && cfg.busca_mercado_atual?.motivo && <p className="mt-1 text-xs opacity-80">Decisão da IA: {cfg.busca_mercado_atual.motivo}</p>}
+          </div>
+        )}
+
+        <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-xs text-slate-500">
+            <p><b className="text-slate-700">Até {LEADS_POR_BUSCA} leads por busca.</b> Os resultados entram no Banco de Leads; nenhum WhatsApp é enviado aqui.</p>
+            {cfg?.ultima_busca_em && <p className="mt-1">Última busca automática: {quando(cfg.ultima_busca_em)}</p>}
+            {salvandoConfig && <p className="mt-1 text-brand">Salvando configuração…</p>}
+          </div>
+          {modoBusca !== 'ia' ? (
+            <button onClick={rodar} disabled={buscando || salvandoConfig || !rotina}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+              {buscando ? <Spinner /> : <IconPlay />}{buscando ? 'Iniciando busca…' : `Buscar ${LEADS_POR_BUSCA} agora`}
+            </button>
+          ) : estadoBloqueado ? (
+            <button onClick={retomarBusca} disabled={salvandoConfig}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+              <IconPlay /> Tentar novamente
+            </button>
+          ) : (
+            <span className="text-xs font-medium text-emerald-700">Busca IA ativa em segundo plano</span>
+          )}
+        </div>
       </div>
 
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
@@ -299,24 +519,27 @@ export default function ProspeccaoPage() {
         <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
           <Mini title="Total" value={metricas.total} />
           <Mini title="Aguardando" value={metricas.aguardando} />
-          <Mini title="Aprovados" value={metricas.aprovados} />
+          <Mini title="Marcados" value={metricas.aprovados} />
           <Mini title="Enviados" value={metricas.enviados} />
           <Mini title="Responderam" value={metricas.responderam} />
           <Mini title="Taxa resp." value={`${metricas.taxa_resposta}%`} />
         </div>
       )}
 
-      {progresso != null && (
-        <div className="space-y-1">
-          <NeonProgress value={progresso} tone="cyan" />
-          <p className="text-xs text-slate-500">
-            {progresso >= 100 ? 'Busca concluída.' : 'Buscando no Google…'}
-          </p>
+      {buscas.filter((b) => b.status === 'pendente' || b.status === 'processando').map((b) => (
+        <div key={b.id} className="flex items-center gap-3 rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
+          <Spinner />
+          <span>
+            <strong>Busca em andamento</strong> — {b.nicho} em {b.cidade}. Os leads aparecem em alguns minutos; a lista atualiza sozinha.
+          </span>
         </div>
-      )}
+      ))}
 
-      <div className="overflow-x-auto border rounded-xl bg-white shadow-sm">
-      <table className="w-full text-sm">
+      <DataTableFrame
+        className="overflow-hidden rounded-xl border bg-white shadow-sm"
+        ariaLabel="Rolagem horizontal da tabela de prospecção"
+      >
+      <table className="w-full min-w-max text-sm">
         <thead className="bg-gray-100">
           <tr>
             <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={ordenarPor} />
@@ -372,7 +595,7 @@ export default function ProspeccaoPage() {
                 <span className="text-[10px] text-slate-400">/100</span>
               </td>
               <td className="px-3 py-2">
-                <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLE[p.status] || 'bg-gray-100 text-gray-500'}`}>{p.status}</span>
+                <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLE[p.status] || 'bg-gray-100 text-gray-500'}`}>{STATUS_LABEL[p.status] || p.status}</span>
               </td>
               <td className="px-3 py-2">
                 {p.json_apresentacao && (
@@ -384,22 +607,38 @@ export default function ProspeccaoPage() {
                 )}
               </td>
               <td className="px-3 py-2 text-right whitespace-nowrap">
-                {(p.status === 'aguardando' || p.status === 'rejeitado') && (
-                  <button disabled={agindo === p.id} onClick={() => acao(p.id, 'aprovar')} className="text-emerald-600 hover:underline disabled:opacity-40 mr-3">Aprovar</button>
-                )}
-                {(p.status === 'aguardando' || p.status === 'aprovado') && (
-                  <button disabled={agindo === p.id} onClick={() => acao(p.id, 'rejeitar')} className="text-red-600 hover:underline disabled:opacity-40">Rejeitar</button>
+                {p.status === 'rejeitado' ? (
+                  <button disabled={agindo === p.id}
+                    onClick={() => acao(p.id, 'aprovar', 'Lead restaurado — voltou para a fila de disparo.')}
+                    title="Traz o lead de volta para a fila de disparo (sai dos Descartados)."
+                    className="inline-flex items-center gap-1.5 text-emerald-600 hover:underline disabled:opacity-40">
+                    <IconUndo /> Restaurar</button>
+                ) : (
+                  <div className="inline-flex items-center gap-3">
+                    {p.status === 'aguardando' && (
+                      <button disabled={agindo === p.id}
+                        onClick={() => acao(p.id, 'aprovar', 'Lead marcado como bom.')}
+                        title="Marca como lead bom (opcional — ele já pode ser disparado sem isso)."
+                        className="inline-flex items-center gap-1.5 text-emerald-600 hover:underline disabled:opacity-40">
+                        <IconStar /> Marcar</button>
+                    )}
+                    <button disabled={agindo === p.id}
+                      onClick={() => acao(p.id, 'rejeitar', 'Lead descartado — foi para a aba Descartados.')}
+                      title="Remove o lead do disparo — vai para a aba Descartados no Banco de Leads."
+                      className="inline-flex items-center gap-1.5 text-red-600 hover:underline disabled:opacity-40">
+                      <IconTrash /> Descartar</button>
+                  </div>
                 )}
               </td>
             </tr>
             )
           })}
           {ordenados.length === 0 && (
-            <tr><td colSpan={14} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Abra a Agenda e clique em Rodar.</td></tr>
+            <tr><td colSpan={14} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Configure a busca acima e clique em Buscar agora.</td></tr>
           )}
         </tbody>
       </table>
-      </div>
+      </DataTableFrame>
 
       {jsonAberto && (
         <JsonLeadModal titulo={`JSON de apresentação — ${jsonAberto.titulo}`} json={jsonAberto.json} onFechar={() => setJsonAberto(null)} />
@@ -466,84 +705,6 @@ export default function ProspeccaoPage() {
         </div>
       )}
 
-      <ModalAgenda
-        aberto={agendaAberta}
-        titulo="Agenda · Google Places"
-        subtitulo="Defina nicho, cidade e a frequência. Rodar busca agora e mantém a agenda repetindo."
-        onFechar={() => setAgendaAberta(false)}
-        rodape={
-          <>
-            <button onClick={() => setAgendaAberta(false)} className="rounded-lg border px-3 py-2 text-sm">Cancelar</button>
-            <button onClick={rodar} disabled={buscando}
-              className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-              {buscando && <Spinner />}{buscando ? 'Rodando…' : '▶ Rodar'}
-            </button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <Campo label="Nicho"><input value={form.categoria_padrao || ''} onChange={(e) => setF('categoria_padrao', e.target.value)} placeholder="ex: dentista" className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
-            <Campo label="Cidade"><input value={form.cidade_padrao || ''} onChange={(e) => setF('cidade_padrao', e.target.value)} placeholder="ex: Santana" className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
-            <Campo label="Estado (UF)"><input value={form.estado_padrao || ''} maxLength={2} onChange={(e) => setF('estado_padrao', e.target.value.toUpperCase())} placeholder="SP" className="w-full border rounded-lg px-2 py-1.5 text-sm uppercase" /></Campo>
-          </div>
-
-          <div className="rounded-xl border bg-slate-50/60 p-3 space-y-3">
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-              <input type="checkbox" checked={!!form.agendamento_busca_ativo} onChange={(e) => setF('agendamento_busca_ativo', e.target.checked)} />
-              ⏱ Buscar automaticamente (a cada X horas)
-            </label>
-            {form.agendamento_busca_ativo && (
-              <>
-                <div className="grid grid-cols-3 gap-3 pl-6">
-                  <Campo label="A cada (horas)"><input type="number" min={1} max={168} value={form.busca_intervalo_horas ?? 24} onChange={(e) => setF('busca_intervalo_horas', Number(e.target.value) || 1)} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
-                  <Campo label="Início"><input type="time" value={form.horario_inicio || '08:00'} onChange={(e) => setF('horario_inicio', e.target.value)} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
-                  <Campo label="Fim"><input type="time" value={form.horario_fim || '18:00'} onChange={(e) => setF('horario_fim', e.target.value)} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
-                </div>
-                <p className="pl-6 text-[11px] text-slate-400">Quantidade por busca segue a “Capacidade/dia” do disparo automático abaixo.</p>
-              </>
-            )}
-            {rotina?.config.ultima_busca_em && (
-              <p className="pl-6 text-[11px] text-slate-400">Última busca automática: {quando(rotina.config.ultima_busca_em)}</p>
-            )}
-          </div>
-
-          <details className="rounded-xl border p-3">
-            <summary className="cursor-pointer text-sm font-medium text-slate-700">Disparo automático (envio de WhatsApp)</summary>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
-              <Campo label="Capacidade/dia"><input type="number" min={1} max={200} value={form.limite_diario ?? 80} onChange={(e) => setF('limite_diario', Number(e.target.value))} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
-              <Campo label="Intervalo envio (min)"><input type="number" min={5} max={1440} value={form.intervalo_envio_minutos ?? 15} onChange={(e) => setF('intervalo_envio_minutos', Number(e.target.value))} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></Campo>
-              <Campo label="Modo">
-                <select value={form.modo || 'manual'} onChange={(e) => setF('modo', e.target.value)} className="w-full border rounded-lg px-2 py-1.5 text-sm">
-                  <option value="manual">Manual</option>
-                  <option value="semi_automatico">Semiautomático</option>
-                  <option value="automatico">Automático</option>
-                </select>
-              </Campo>
-              <Campo label="Rotina ativa">
-                <label className="flex items-center gap-2 text-sm py-1.5">
-                  <input type="checkbox" checked={!!form.ativo} onChange={(e) => setF('ativo', e.target.checked)} /> Ativa
-                </label>
-              </Campo>
-              <Campo label="Gerar mensagem por IA">
-                <label className="flex items-center gap-2 text-sm py-1.5">
-                  <input type="checkbox" checked={!!form.gerar_mensagem_ia}
-                    onChange={(e) => {
-                      const v = e.target.checked
-                      setForm((p) => ({ ...p, gerar_mensagem_ia: v, ...(v ? {} : { envio_real_habilitado: false }) }))
-                    }} /> Gerar com IA
-                </label>
-              </Campo>
-              <Campo label="Disparo real (envia WhatsApp)">
-                <label className={`flex items-center gap-2 text-sm py-1.5 ${form.gerar_mensagem_ia ? '' : 'opacity-50'}`} title={form.gerar_mensagem_ia ? '' : 'Ligue a geração por IA primeiro'}>
-                  <input type="checkbox" disabled={!form.gerar_mensagem_ia} checked={!!form.envio_real_habilitado}
-                    onChange={(e) => setF('envio_real_habilitado', e.target.checked)} /> 🚀 Enviar de verdade
-                </label>
-              </Campo>
-            </div>
-          </details>
-        </div>
-      </ModalAgenda>
     </div>
   )
 }

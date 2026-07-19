@@ -4,8 +4,9 @@ import { apiFetch, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import NeonProgress from '@/components/ui/NeonProgress'
-import ModalAgenda from '@/components/ui/ModalAgenda'
 import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
+import DataTableFrame from '@/components/ui/DataTableFrame'
+import { IconEnvelope, IconPlay } from '@/components/ui/icons'
 
 type CampanhaMeta = {
   perfis_semente?: string[]
@@ -130,8 +131,7 @@ export default function CaptacaoPage() {
     }
   }, [carregando])
 
-  // Agenda (modal): reúne os filtros de coleta + frequência + Rodar.
-  const [agendaAberta, setAgendaAberta] = useState(false)
+  // Menu operacional: filtros da coleta e frequência ficam visíveis na própria tela.
   const [agNicho, setAgNicho] = useState('')
   const [agCidade, setAgCidade] = useState('')
   const [agPerfis, setAgPerfis] = useState('')
@@ -190,14 +190,7 @@ export default function CaptacaoPage() {
       .then((r) => setEmailConfigurado(!!r.data?.configurado)).catch(() => {})
   }, [base, empresaId])
 
-  function abrirAgenda() {
-    setErro(null)
-    setAgNicho(''); setAgCidade(''); setAgPerfis(''); setAgLimite('')
-    setAgOpcoes(OPCOES_PADRAO); setAgAgenda(AGENDA_PADRAO)
-    setAgendaAberta(true)
-  }
-
-  // "Rodar" da Agenda: primeiro o Google acha os perfis do nicho, depois o scraping
+  // Primeiro o Google acha os perfis do nicho, depois o scraping
   // do Instagram roda em bola de neve. Se o agendamento estiver ligado, persiste uma
   // campanha recorrente (a cada X horas) usando o scheduler já existente.
   async function rodarAgenda() {
@@ -206,7 +199,6 @@ export default function CaptacaoPage() {
       return
     }
     setErro(null)
-    setAgendaAberta(false)
     setCarregando(true)
     try {
       await fb.runTask(async () => {
@@ -351,18 +343,62 @@ export default function CaptacaoPage() {
         <div>
           <h1 className="text-2xl font-bold">Captação (Instagram)</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Tudo começa na <strong>Agenda</strong>: o Google acha perfis do nicho e o scraping do Instagram roda em bola de neve → mesma pipeline de disparo da prospecção.
+            O Google encontra perfis do nicho e o worker do Instagram expande a coleta em segundo plano.
           </p>
         </div>
-        <div className="flex shrink-0 gap-2">
-          <button onClick={abrirAgenda}
-            className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white">
-            📅 Agenda
-          </button>
-          <button onClick={processar} disabled={carregando}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
-            {carregando && <Spinner />}
-            {carregando ? 'Atualizando…' : '↻ Atualizar'}
+        <button onClick={processar} disabled={carregando}
+          className="inline-flex shrink-0 items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+          {carregando && <Spinner />}
+          {carregando ? 'Atualizando…' : '↻ Atualizar'}
+        </button>
+      </div>
+
+      <div className="space-y-4 rounded-2xl border bg-white p-4 shadow-sm">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">Modo da coleta</label>
+            <select value={agAgenda.agendamento_ativo ? 'automatico' : 'manual'} disabled={carregando}
+              onChange={(e) => setAgAgenda((a) => ({ ...a, agendamento_ativo: e.target.value === 'automatico' }))}
+              className="w-full rounded-lg border px-3 py-2 text-sm disabled:opacity-60">
+              <option value="manual">Manual</option>
+              <option value="automatico">Automática</option>
+            </select>
+            <div className={`mt-2 flex items-start gap-2 text-xs ${agAgenda.agendamento_ativo ? 'text-emerald-700' : 'text-slate-500'}`}>
+              <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${agAgenda.agendamento_ativo ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+              <span>{agAgenda.agendamento_ativo
+                ? 'Ao iniciar, a campanha fica salva e o worker repete a coleta.'
+                : 'A coleta acontece somente quando você clicar em Coletar agora.'}</span>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="Nicho (busca no Google)" value={agNicho} onChange={setAgNicho} placeholder="ex: arquitetura de interiores" />
+            <Field label="Cidade" value={agCidade} onChange={setAgCidade} placeholder="ex: São Paulo" />
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Limite</label>
+              <input type="number" min={1} max={200} value={agLimite} onChange={(e) => setAgLimite(e.target.value)}
+                placeholder="orçamento disponível" className="w-full rounded-lg border px-3 py-2 text-sm" />
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">@perfis semente (um por linha ou separados por vírgula)</label>
+          <textarea value={agPerfis} onChange={(e) => setAgPerfis(e.target.value)} rows={2}
+            placeholder="@studioabc, @casadecor"
+            className="w-full rounded-lg border px-3 py-2 text-sm font-mono" />
+        </div>
+
+        <Toggles value={agOpcoes} onChange={setAgOpcoes} />
+
+        {agAgenda.agendamento_ativo && (
+          <AgendaCampanha value={agAgenda} onChange={setAgAgenda} mostrarAtivacao={false} />
+        )}
+
+        <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-slate-500">Google CSE e bola de neve usam o orçamento diário disponível; nenhum WhatsApp é enviado nesta página.</p>
+          <button onClick={rodarAgenda} disabled={carregando || !podeColetar}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+            {carregando ? <Spinner /> : <IconPlay />}{carregando ? 'Iniciando coleta…' : 'Coletar agora'}
           </button>
         </div>
       </div>
@@ -387,15 +423,10 @@ export default function CaptacaoPage() {
 
       {/* Campanhas salvas (gestão das agendas já criadas) */}
       <div className="bg-white rounded-2xl shadow-sm border p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Campanhas salvas</p>
-          <button onClick={abrirAgenda} className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-slate-50">
-            + Nova pela Agenda
-          </button>
-        </div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Campanhas salvas</p>
 
         {campanhas.length === 0 ? (
-          <p className="text-sm text-slate-400">Nenhuma campanha salva ainda. Abra a Agenda, marque “Prospectar automaticamente” e Rodar.</p>
+          <p className="text-sm text-slate-400">Nenhuma campanha salva ainda. Selecione o modo Automática acima e inicie a primeira coleta.</p>
         ) : (
           <div className="space-y-2">
             {campanhas.map((c) => (
@@ -492,8 +523,8 @@ export default function CaptacaoPage() {
         {leads.length === 0 ? (
           <p className="px-5 py-8 text-center text-sm text-slate-400">Nenhum lead nesta aba.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <DataTableFrame ariaLabel="Rolagem horizontal da tabela de captação">
+            <table className="w-full min-w-max text-sm">
               <thead className="bg-gray-50">
                 <tr>
                   <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={ordenarPor} />
@@ -577,7 +608,7 @@ export default function CaptacaoPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </DataTableFrame>
         )}
       </div>
 
@@ -604,42 +635,6 @@ export default function CaptacaoPage() {
         </div>
       )}
 
-      <ModalAgenda
-        aberto={agendaAberta}
-        titulo="Agenda · Instagram"
-        subtitulo="Rodar busca no Google pelo nicho e dispara o scraping em bola de neve. Marque a frequência para repetir sozinho."
-        onFechar={() => setAgendaAberta(false)}
-        rodape={
-          <>
-            <button onClick={() => setAgendaAberta(false)} className="rounded-lg border px-3 py-2 text-sm">Cancelar</button>
-            <button onClick={rodarAgenda} disabled={carregando || !podeColetar}
-              className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-              {carregando && <Spinner />}{carregando ? 'Rodando…' : '▶ Rodar'}
-            </button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <Field label="Nicho (busca no Google)" value={agNicho} onChange={setAgNicho} placeholder="ex: arquitetura de interiores" />
-            <Field label="Cidade" value={agCidade} onChange={setAgCidade} placeholder="ex: São Paulo" />
-            <div className="w-28">
-              <label className="block text-xs text-slate-500 mb-1">Limite</label>
-              <input type="number" min={1} value={agLimite} onChange={(e) => setAgLimite(e.target.value)}
-                placeholder="auto" className="w-full border rounded-lg px-3 py-2 text-sm" />
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs text-slate-500 mb-1">@perfis semente (um por linha ou separados por vírgula)</label>
-            <textarea value={agPerfis} onChange={(e) => setAgPerfis(e.target.value)} rows={3}
-              placeholder={'@studioabc, @casadecor\nperfilxyz'}
-              className="w-full border rounded-lg px-3 py-2 text-sm font-mono" />
-          </div>
-          <Toggles value={agOpcoes} onChange={setAgOpcoes} />
-          <p className="text-[11px] text-slate-400">Ao Rodar, Google CSE e bola de neve já entram ligados (o nicho vira sementes; a bola de neve expande a partir delas).</p>
-          <AgendaCampanha value={agAgenda} onChange={setAgAgenda} />
-        </div>
-      </ModalAgenda>
     </div>
   )
 }
@@ -683,15 +678,19 @@ function Toggles({ value, onChange }: { value: Opcoes; onChange: (o: Opcoes) => 
   )
 }
 
-function AgendaCampanha({ value, onChange }: { value: Agenda; onChange: (a: Agenda) => void }) {
+function AgendaCampanha({ value, onChange, mostrarAtivacao = true }: {
+  value: Agenda; onChange: (a: Agenda) => void; mostrarAtivacao?: boolean
+}) {
   return (
     <div className="rounded-xl border bg-slate-50/60 p-3 space-y-2">
-      <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-        <input type="checkbox" checked={value.agendamento_ativo}
-          onChange={(e) => onChange({ ...value, agendamento_ativo: e.target.checked })} />
-        ⏱ Prospectar automaticamente (a cada X horas)
-      </label>
-      {value.agendamento_ativo && (
+      {mostrarAtivacao && (
+        <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+          <input type="checkbox" checked={value.agendamento_ativo}
+            onChange={(e) => onChange({ ...value, agendamento_ativo: e.target.checked })} />
+          ⏱ Prospectar automaticamente (a cada X horas)
+        </label>
+      )}
+      {(!mostrarAtivacao || value.agendamento_ativo) && (
         <div className="space-y-2 pl-6">
           <div className="flex flex-wrap items-end gap-3">
             <div className="w-32">
@@ -749,7 +748,7 @@ function EmailBotao({ onEnviar }: { onEnviar: (assunto: string, corpo: string) =
   if (!aberto) {
     return (
       <button onClick={() => setAberto(true)}
-        className="rounded-md border px-2.5 py-1 text-xs text-blue-700 hover:bg-blue-50">✉ E-mail</button>
+        className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs text-blue-700 hover:bg-blue-50"><IconEnvelope /> E-mail</button>
     )
   }
   return (

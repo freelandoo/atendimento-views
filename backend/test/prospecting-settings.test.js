@@ -36,6 +36,18 @@ function criarPoolFake() {
             regiao_padrao: null,
             gerar_mensagem_ia: false,
             envio_real_habilitado: false,
+            agendamento_busca_ativo: false,
+            busca_intervalo_horas: 6,
+            modo_busca: 'manual',
+            busca_max_diaria: 2,
+            busca_estrategia: 'equilibrada',
+            busca_nichos_permitidos: [],
+            busca_localizacoes_permitidas: [],
+            busca_permitir_nichos_relacionados: true,
+            busca_estado: 'pausado',
+            busca_mensagem: null,
+            busca_mercado_atual: null,
+            busca_zero_consecutivos: 0,
             criado_em: '2026-05-24T00:00:00.000Z',
             atualizado_em: '2026-05-24T00:00:00.000Z',
           }
@@ -59,6 +71,18 @@ function criarPoolFake() {
           regiao_padrao: params[11],
           gerar_mensagem_ia: params[12],
           envio_real_habilitado: params[13],
+          agendamento_busca_ativo: params[14],
+          busca_intervalo_horas: params[15],
+          modo_busca: params[16],
+          busca_max_diaria: params[17],
+          busca_estrategia: params[18],
+          busca_nichos_permitidos: params[19],
+          busca_localizacoes_permitidas: params[20],
+          busca_permitir_nichos_relacionados: params[21],
+          busca_estado: params[22] ? 'aguardando' : 'pausado',
+          busca_mensagem: null,
+          busca_mercado_atual: null,
+          busca_zero_consecutivos: 0,
           criado_em: '2026-05-24T00:00:00.000Z',
           atualizado_em: '2026-05-24T01:00:00.000Z',
         }
@@ -123,6 +147,25 @@ test('prospecting settings: row persistida retorna aliases usados pelo dashboard
   assert.equal(cfg.hour, 9)
   assert.equal(cfg.minute, 15)
   assert.equal(cfg.horario_fim, '16:45')
+})
+
+test('prospecting settings: Busca IA aplica guardrails simples no backend', () => {
+  const cfg = normalizarConfiguracaoProspeccao({
+    modo_busca: 'ia',
+    busca_intervalo_horas: 2,
+    busca_max_diaria: 9,
+    busca_estrategia: 'exploratoria',
+    busca_nichos_permitidos: 'dentistas, clínicas, dentistas',
+    busca_localizacoes_permitidas: ['SP', 'Campinas'],
+    busca_permitir_nichos_relacionados: false,
+  })
+  assert.equal(cfg.agendamento_busca_ativo, true)
+  assert.equal(cfg.busca_intervalo_horas, 6)
+  assert.equal(cfg.busca_max_diaria, 2)
+  assert.equal(cfg.busca_estrategia, 'exploratoria')
+  assert.deepEqual(cfg.busca_nichos_permitidos, ['dentistas', 'clínicas'])
+  assert.deepEqual(cfg.busca_localizacoes_permitidas, ['SP', 'Campinas'])
+  assert.equal(cfg.busca_permitir_nichos_relacionados, false)
 })
 
 test('prospecting settings: salvar e recarregar preserva configuracao no pool', async () => {

@@ -54,3 +54,6 @@ next-env.d.ts
 
 # arquivos temporários com segredos (nunca commitar)
 *.tmp
+
+# Override local de dev (Postgres 5433, etc.) — não versionar
+docker-compose.override.yml

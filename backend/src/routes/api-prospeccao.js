@@ -5,6 +5,7 @@ const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const {
   listarProspects,
   pesquisarPlaces,
+  listarBuscasRecentes,
   atualizarStatusProspect,
   atualizarStatusProspectsLote,
   atualizarEmailProspect,
@@ -61,10 +62,10 @@ router.get('/metricas', requireAuth, requireEmpresaAccess, async (req, res) => {
   }
 })
 
-// POST /api/empresas/:empresaId/prospeccao/buscar  { nicho, cidade, quantidade }
+// POST /api/empresas/:empresaId/prospeccao/buscar  { nicho, cidade }
 // Pesquisa leads no Google Places e persiste como prospects DESTA empresa.
 router.post('/buscar', requireAuth, requireEmpresaAccess, async (req, res) => {
-  const { nicho, cidade, local, quantidade } = req.body || {}
+  const { nicho, cidade, local } = req.body || {}
   if (!nicho || !(cidade || local)) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe nicho e cidade.' } })
   }
@@ -72,7 +73,6 @@ router.post('/buscar', requireAuth, requireEmpresaAccess, async (req, res) => {
     const resultado = await pesquisarPlaces({
       nicho,
       local: cidade || local,
-      quantidade,
       origem: 'manual',
       empresaId: req.empresa.id,
     })
@@ -81,6 +81,19 @@ router.post('/buscar', requireAuth, requireEmpresaAccess, async (req, res) => {
     const status = err.statusCode || 500
     logger.error('POST prospeccao/buscar:', err.message)
     return res.status(status).json({ ok: false, error: { code: 'BUSCA_FAILED', message: err.message } })
+  }
+})
+
+// GET /api/empresas/:empresaId/prospeccao/buscas
+// Andamento das buscas (Bright Data Maps é assíncrona): o painel acompanha o status
+// de cada busca e atualiza a lista quando 'concluido'.
+router.get('/buscas', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const buscas = await listarBuscasRecentes(req.empresa.id, req.query.limit)
+    return res.json({ ok: true, data: buscas })
+  } catch (err) {
+    logger.error('GET prospeccao/buscas:', err.message)
+    return res.status(500).json({ ok: false, error: { code: 'BUSCAS_FAILED', message: err.message } })
   }
 })
 

@@ -30,6 +30,26 @@ const { logger } = require('./src/logger')
 const dashboardAuth = require('./src/dashboardAuth')
 const cors = require('cors')
 
+// Robustez do processo: uma queda de conexao com o Postgres (parse de protocolo,
+// ECONNRESET, etc.) NAO deve derrubar o backend — o pool recria a conexao na proxima
+// query e os workers (Auto/Semi/prospeccao) seguem rodando. Erros realmente inesperados
+// encerram o processo (para o supervisor/Railway reiniciar limpo).
+process.on('unhandledRejection', (reason) => {
+  const e = reason instanceof Error ? { message: reason.message, stack: reason.stack, code: reason.code } : { reason }
+  logger.error({ err: e }, 'unhandledRejection')
+})
+process.on('uncaughtException', (err) => {
+  const txt = `${err && err.message ? err.message : ''} ${err && err.stack ? err.stack : ''}`
+  const recuperavel =
+    (err && ['ECONNRESET', 'EPIPE', 'ETIMEDOUT', 'ECONNREFUSED'].includes(err.code)) ||
+    /pg-protocol|Connection terminated|Connection ended|read ECONNRESET|socket hang up|server closed the connection/i.test(txt)
+  logger.error(
+    { err: { message: err && err.message, code: err && err.code, stack: err && err.stack }, recuperavel },
+    recuperavel ? '[processo] erro de conexao capturado — mantendo o backend vivo' : 'uncaughtException — encerrando para reinicio limpo'
+  )
+  if (!recuperavel) process.exit(1)
+})
+
 const app = express()
 
 const allowedOrigins = process.env.FRONTEND_URL
@@ -186,6 +206,11 @@ function iniciarServidor() {
         require('./src/services/lead-lock').iniciarLeadLockWorker(pool)
       } catch (e) {
         logger.warn('iniciarLeadLockWorker:', e.message)
+      }
+      try {
+        require('./src/services/banco-leads-auto').iniciarBancoLeadsAutoWorker(pool)
+      } catch (e) {
+        logger.warn('iniciarBancoLeadsAutoWorker:', e.message)
       }
       const PORT = process.env.PORT || 3000
       app.listen(PORT, '0.0.0.0', () => {

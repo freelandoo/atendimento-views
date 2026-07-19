@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
+import { IconFlask } from '@/components/ui/icons'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 export type Contexto = {
@@ -990,7 +991,7 @@ function CardEstagios({ empresaId, contextoId, contextoNome: _contextoNome, relo
           title="Simula um lead difícil, deixa o modelo de atendimento responder e o modelo de geração reescreve os estágios pra ficarem melhores."
           className="text-xs px-3 py-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
         >
-          {busy === 'simular' ? 'Simulando…' : '🧪 Simular e melhorar'}
+          {busy === 'simular' ? 'Simulando…' : <span className="inline-flex items-center gap-1.5"><IconFlask /> Simular e melhorar</span>}
         </button>
         <button onClick={salvar} disabled={!!busy || !dirty} className="text-xs px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand-dark disabled:opacity-50">
           {busy === 'salvar' ? 'Salvando…' : 'Salvar edições'}

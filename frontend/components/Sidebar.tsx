@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSession, podePapel, type Role } from '@/lib/useSession'
+import { apiFetch, getEmpresaId } from '@/lib/api'
 
 type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report' | 'accounts' | 'profile' | 'prompts' | 'playbook'
 
@@ -26,10 +27,27 @@ export default function Sidebar() {
   const pathname = usePathname()
   const { role } = useSession()
   const [retraido, setRetraido] = useState(true)
+  // Alerta de instância WhatsApp desconectada (bolinha no item "Instância").
+  const [instAlerta, setInstAlerta] = useState(false)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     setRetraido(window.localStorage.getItem('dashboard_toolbar_retraido') !== 'false')
+  }, [])
+
+  useEffect(() => {
+    const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
+    if (!empresaId) return
+    let vivo = true
+    const checar = async () => {
+      try {
+        const r = await apiFetch<{ alguma_desconectada: boolean }>(`/api/empresas/${empresaId}/whatsapp/conexao-resumo`)
+        if (vivo) setInstAlerta(!!r.data.alguma_desconectada)
+      } catch { /* silencioso */ }
+    }
+    checar()
+    const t = setInterval(checar, 30000)
+    return () => { vivo = false; clearInterval(t) }
   }, [])
 
   function alternarToolbar() {
@@ -92,6 +110,12 @@ export default function Sidebar() {
                 }`}
               >
                 {active && <span className="absolute left-0 top-1/2 h-6 -translate-y-1/2 rounded-r bg-neon-cyan" style={{ width: 3, boxShadow: '0 0 10px var(--neon-cyan)' }} />}
+                {href === '/dashboard/contextos' && instAlerta && (
+                  <span className="absolute right-2 top-1.5 flex h-2.5 w-2.5" title="Instância WhatsApp desconectada — clique para reconectar">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-70" />
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+                  </span>
+                )}
                 <NavGlyph name={icon} className="h-5 w-5 shrink-0" />
                 {!retraido && <span className="truncate">{label}</span>}
                 {retraido && (

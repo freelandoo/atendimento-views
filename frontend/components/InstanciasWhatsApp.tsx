@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { apiFetch } from '@/lib/api'
+import { IconCalendar } from '@/components/ui/icons'
 
 function slugifyInstance(s: string): string {
   return s
@@ -38,6 +39,8 @@ export default function InstanciasWhatsApp({ empresaId }: {
   empresaId: string
 }) {
   const [instancias, setInstancias] = useState<WhatsAppInstance[]>([])
+  // Estado REAL de conexão por instância (open/close na Evolution). true/false/null(desconhecido).
+  const [statusConexao, setStatusConexao] = useState<Record<string, boolean | null>>({})
   const [nomeInstance, setNomeInstance] = useState('')
   const novaInstance = useMemo(() => slugifyInstance(nomeInstance), [nomeInstance])
   const [msg, setMsg] = useState('')
@@ -48,12 +51,54 @@ export default function InstanciasWhatsApp({ empresaId }: {
     base64: null, pairingCode: null, connected: false, error: null,
   })
 
+  // Busca o estado de conexão real de cada instância (open/close na Evolution).
+  async function carregarStatusConexao(lista: WhatsAppInstance[]) {
+    const entradas = await Promise.all(lista.map(async (inst) => {
+      try {
+        const s = await apiFetch<{ connected: boolean | null }>(`/api/empresas/${empresaId}/whatsapp/${inst.id}/status`)
+        return [inst.id, s.data.connected] as const
+      } catch { return [inst.id, null] as const }
+    }))
+    setStatusConexao(Object.fromEntries(entradas))
+  }
+
   useEffect(() => {
     if (!empresaId) return
+    let vivo = true
     apiFetch<WhatsAppInstance[]>(`/api/empresas/${empresaId}/whatsapp`)
-      .then((w) => setInstancias(w.data))
+      .then((w) => {
+        if (!vivo) return
+        setInstancias(w.data)
+        carregarStatusConexao(w.data || [])
+      })
       .catch(() => {})
+    // Revalida o status a cada 30s (detecta desconexão sem recarregar a página).
+    const t = setInterval(() => {
+      apiFetch<WhatsAppInstance[]>(`/api/empresas/${empresaId}/whatsapp`)
+        .then((w) => { if (vivo) carregarStatusConexao(w.data || []) })
+        .catch(() => {})
+    }, 30000)
+    return () => { vivo = false; clearInterval(t) }
   }, [empresaId])
+
+  // Auto-atualiza o QR enquanto o modal está aberto e não conectou (o QR expira a cada
+  // ~20-40s no Baileys/Evolution). Também detecta quando parear e vira "Conectado".
+  useEffect(() => {
+    if (!qr.open || !qr.instanceId || qr.connected) return
+    const instId = qr.instanceId
+    const t = setInterval(async () => {
+      try {
+        const r = await apiFetch<{ connected: boolean; base64?: string; pairingCode?: string }>(
+          `/api/empresas/${empresaId}/whatsapp/${instId}/qrcode`
+        )
+        setQr((q) => (q.open && q.instanceId === instId
+          ? { ...q, connected: !!r.data.connected, base64: r.data.base64 || q.base64, pairingCode: r.data.pairingCode || q.pairingCode }
+          : q))
+        if (r.data.connected) setStatusConexao((prev) => ({ ...prev, [instId]: true }))
+      } catch { /* silencioso */ }
+    }, 20000)
+    return () => clearInterval(t)
+  }, [qr.open, qr.instanceId, qr.connected, empresaId])
 
   async function toggleAtivo(inst: WhatsAppInstance) {
     if (!empresaId) return
@@ -150,6 +195,8 @@ export default function InstanciasWhatsApp({ empresaId }: {
         base64: r.data.base64 || null,
         pairingCode: r.data.pairingCode || null,
       }))
+      // Reflete o estado real no badge do card (verde quando parear).
+      setStatusConexao((prev) => ({ ...prev, [inst.id]: !!r.data.connected }))
     } catch (err: unknown) {
       setQr((q) => ({
         ...q, loading: false,
@@ -212,10 +259,23 @@ export default function InstanciasWhatsApp({ empresaId }: {
 
             {/* Corpo do card: status + botões sobre o fundo do card */}
             <div className="space-y-3 p-4">
+              {/* UM selo só, por prioridade: inativo → desconectado → conectado → (verificando). */}
               <div className="flex justify-center">
-                <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${i.ativo ? 'border-neon-lime/30 bg-neon-lime/15 text-neon-lime' : 'border-white/10 bg-white/5 text-mid'}`}>
-                  {i.ativo ? '● ativo' : '○ inativo'}
-                </span>
+                {!i.ativo ? (
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-medium text-mid">○ inativo</span>
+                ) : statusConexao[i.id] === false ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-neon-red/40 bg-neon-red/15 px-2.5 py-0.5 text-[11px] font-medium text-neon-red">
+                    <span className="relative flex h-2 w-2">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-70" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+                    </span>
+                    Desconectado
+                  </span>
+                ) : statusConexao[i.id] === true ? (
+                  <span className="rounded-full border border-neon-lime/30 bg-neon-lime/15 px-2.5 py-0.5 text-[11px] font-medium text-neon-lime">🟢 Conectado</span>
+                ) : (
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-medium text-mid">● ativo · verificando…</span>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <Link
@@ -254,7 +314,7 @@ export default function InstanciasWhatsApp({ empresaId }: {
                   de contexto e o runtime: desligado, o agente nunca oferece reunião. */}
               <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
                 <div className="min-w-0">
-                  <p className="text-[11px] font-medium text-white/80">🗓️ Usa agenda?</p>
+                  <p className="inline-flex items-center gap-1 text-[11px] font-medium text-white/80"><IconCalendar className="h-3.5 w-3.5" /> Usa agenda?</p>
                   <p className="text-[10px] text-white/40 leading-tight">
                     {i.config_json?.usa_agenda !== false
                       ? 'Tenta agendar reunião quando fizer sentido.'
@@ -334,6 +394,7 @@ export default function InstanciasWhatsApp({ empresaId }: {
                   <li>Toque em <strong>Conectar um aparelho</strong></li>
                   <li>Aponte a câmera para este QR Code</li>
                 </ol>
+                <p className="text-[11px] text-center text-gray-400">O QR se atualiza sozinho a cada ~20s — escaneie assim que aparecer.</p>
                 {qr.pairingCode && (
                   <p className="text-xs text-center text-gray-500">
                     Código de pareamento: <span className="font-mono font-semibold">{qr.pairingCode}</span>

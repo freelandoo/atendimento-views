@@ -4,6 +4,11 @@
 
 Sempre comece qualquer tarefa de código em **modo de análise**.
 
+**Fase 0 obrigatória (Workflow Padrão de IA):** ao iniciar uma tarefa/projeto de alteração,
+registre o início em `docs/ai-task-start-log.md`, confirme no chat que está seguindo o
+workflow padrão e só então avance. O fluxo completo (Fase 0 → 11), a verificação visual/UX e
+a confirmação de arquitetura estão em `docs/ai-workflow.md`.
+
 Antes de editar arquivos:
 1. leia os arquivos relevantes;
 2. explique o impacto;

@@ -1,0 +1,327 @@
+# Registro de início de tarefas da IA
+
+Toda IA deve registrar aqui o início de cada tarefa/projeto de alteração **antes**
+de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
+[ai-workflow.md](ai-workflow.md)). Entradas em ordem cronológica inversa (mais recente no topo).
+
+---
+
+## 2026-07-04 - Início de tarefa IA — Modos Manual/Semi/Auto no Banco de Leads
+
+- **IA/Ferramenta:** Claude Code (Opus 4.8)
+- **Pedido resumido:** Transformar a página **Banco de Leads** em uma central de disparo
+  com **Modo Manual / Semiautomático / Automático** configurável no "Rodar". A listagem se
+  adapta ao modo. Unificar "Saudação — teste e edição" em **um botão** só para verificar
+  envio. Regras: Manual = usuário envia (clicar = aprovação), pode escrever ou gerar por IA;
+  Semi = mensagem já gerada por IA aguardando disparo do usuário (sem aprovação);
+  Automático = janela horária, teto 100/dia, intervalo 15–30 min, sistema dispara sozinho
+  (botão manual ainda existe, mas preferência é do sistema). Adaptar bem transições de status.
+- **É projeto/tarefa de alteração?** Sim (feature grande — front + back + provável migration + worker).
+- **Workflow padrão consultado?**
+  - AGENTS.md: Sim
+  - CLAUDE.md: Sim
+  - docs/ai-workflow.md: Sim
+  - docs/project-change-map.md: A consultar na Fase 7
+  - docs/ai-decision-log.md: A registrar na Fase 8
+  - docs/ui-visual-standard.md: Sim (tela/tabela/modal — impacta UX)
+  - docs/project-architecture.md: Sim
+  - Spec relacionada: docs/superpowers/specs/2026-07-03-saudacao-analise-e-estagios-design.md
+- **Áreas possivelmente impactadas:**
+  - Front-end: Sim (banco-leads/page.tsx — barra de rodar, modal, tabelas)
+  - Back-end: Sim (api-banco-leads.js, rodar-leads.js, provável novo worker/scheduler)
+  - Banco de dados: Provável (novo estado "gerada/aguardando disparo" + config de modo/agenda)
+  - Financeiro: Não
+  - Dashboards: Não
+  - Assinaturas: Não
+  - Custos: Sim (geração IA por lead — já existe kill-switch por instância)
+  - Permissões: Não (rota já é admin-only)
+  - Integrações: WhatsApp (Evolution) — envio já existente
+  - Visual/UX: Sim (listagem adapta ao modo)
+  - Arquitetura: Sim (risco de duplicar o motor de modos da Prospecção — decidir reuso)
+- **Confirmação:** A IA confirma que está utilizando o workflow padrão do projeto antes de alterar código.
+- **Próxima etapa:** Fase 1–2 — Entendimento + Confirmação de escopo/arquitetura com o Alex (SEM tocar código ainda).
+
+---
+
+## 2026-07-04 - Início de tarefa IA
+
+- **IA/Ferramenta:** Claude Code (Opus 4.8)
+- **Pedido resumido:** Aplicar o "Workflow Padrão de IA para Projetos v2.0" da PJ Codeworks
+  (documento `Documentacao_Workflow_Padrao_IA_PJ_Codeworks_v2.docx`) — criar/atualizar os
+  arquivos de governança de workflow no repositório.
+- **É projeto/tarefa de alteração?** Sim (documentação de governança).
+- **Workflow padrão consultado?**
+  - AGENTS.md: Sim
+  - CLAUDE.md: Sim
+  - docs/ai-workflow.md: Criado nesta tarefa
+  - docs/project-change-map.md: Criado nesta tarefa
+  - docs/ai-decision-log.md: Criado nesta tarefa
+  - docs/ui-visual-standard.md: Criado nesta tarefa (referencia `GUIA-VISUAL-PJ-CODEWORKS.md`)
+  - docs/project-architecture.md: Criado nesta tarefa (referencia `project-map.md` + `architecture-rules.md`)
+- **Áreas possivelmente impactadas:**
+  - Front-end: Não
+  - Back-end: Não
+  - Banco de dados: Não
+  - Financeiro: Não
+  - Dashboards: Não
+  - Assinaturas: Não
+  - Custos: Não
+  - Permissões: Não
+  - Integrações: Não
+  - Visual/UX: Não (apenas documentação de padrão)
+  - Arquitetura: Não altera código; apenas documenta a arquitetura já existente
+- **Confirmação:** A IA confirma que está utilizando o workflow padrão do projeto antes de alterar código.
+- **Próxima etapa:** Documentação criada; código de produção não foi tocado.
+
+---
+
+## 2026-07-05 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Codex
+- **Pedido resumido:** Adicionar uma coluna "Envio" no Banco de Leads para visualizar quando o envio esta previsto/status do disparo.
+- **E projeto/tarefa de alteracao?** Sim (ajuste visual/operacional no frontend).
+- **Workflow padrao consultado?**
+  - AGENTS.md: Sim
+  - CLAUDE.md: Sim
+  - docs/ai-workflow.md: Sim
+  - docs/project-map.md: Sim
+  - docs/architecture-rules.md: Sim
+  - docs/ui-visual-standard.md: Sim
+  - docs/project-architecture.md: Sim
+- **Areas possivelmente impactadas:**
+  - Front-end: Sim (tabela do Banco de Leads)
+  - Back-end: Nao previsto (reuso de dados ja retornados)
+  - Banco de dados: Nao
+  - Financeiro: Nao
+  - Dashboards: Banco de Leads
+  - Permissoes: Nao
+  - Integracoes: Nao
+  - Visual/UX: Sim (nova coluna informativa)
+  - Arquitetura: Nao
+- **Confirmacao:** A IA confirma que esta utilizando o workflow padrao do projeto antes de alterar codigo.
+- **Proxima etapa:** Fase 1 - Entendimento e implementacao de diff minimo.
+
+---
+
+## 2026-07-06 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Codex
+- **Pedido resumido:** Continuar a investigacao da ultima conversa do Claude sobre envio real no Banco de Leads que nao saiu/ficou PENDING.
+- **E projeto/tarefa de alteracao?** Sim (correcao backend em integracao WhatsApp/disparo de leads).
+- **Workflow padrao consultado?**
+  - AGENTS.md: Sim
+  - CLAUDE.md: Sim
+  - docs/ai-workflow.md: Sim
+  - docs/project-map.md: Sim
+  - docs/architecture-rules.md: Sim
+  - docs/ui-visual-standard.md: Nao aplicavel
+  - docs/project-architecture.md: Sim
+- **Areas possivelmente impactadas:**
+  - Front-end: Nao
+  - Back-end: Sim (integracao Evolution e servico de disparo)
+  - Banco de dados: Nao previsto
+  - Financeiro: Nao
+  - Dashboards: Banco de Leads apenas por refletir status ja gravado
+  - Permissoes: Nao
+  - Integracoes: Sim (Evolution API)
+  - Visual/UX: Nao
+  - Arquitetura: Nao
+- **Confirmacao:** A IA confirma que esta utilizando o workflow padrao do projeto antes de alterar codigo.
+- **Proxima etapa:** Fase 1 - Entendimento e correcao de diff minimo.
+
+---
+
+## 2026-07-06 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code (Opus 4.8)
+- **Pedido resumido:** Passar a coleta de dados do Google Maps (prospeccao/Aquisicao) da Places API oficial para a API da Bright Data (reduzir custo / usar fornecedor ja contratado).
+- **E projeto/tarefa de alteracao?** Sim (nova integracao de fonte de dados na prospeccao — estrutural).
+- **Workflow padrao consultado?**
+  - AGENTS.md: Sim
+  - CLAUDE.md: Sim
+  - docs/ai-workflow.md: Sim
+  - docs/project-map.md: Sim
+  - docs/architecture-rules.md: Sim
+  - docs/ui-visual-standard.md: Nao aplicavel
+  - docs/project-architecture.md: Sim
+- **Areas possivelmente impactadas:**
+  - Front-end: Talvez (UX do botao Rodar se a fonte for assincrona)
+  - Back-end: Sim (pesquisarPlaces + novo provider Bright Data)
+  - Banco de dados: Nao previsto (mesmo shape de prospect)
+  - Financeiro: Sim (troca de custo de coleta)
+  - Dashboards: Aquisicao/Banco de Leads (alimentacao)
+  - Permissoes: Nao
+  - Integracoes: Sim (Bright Data — nova rota/produto)
+  - Visual/UX: Talvez
+  - Arquitetura: Sim (abstracao de provider de busca)
+- **Confirmacao:** A IA confirma que esta utilizando o workflow padrao do projeto e vai CONFIRMAR o escopo (produto Bright Data + substituir vs adicionar) antes de alterar codigo.
+- **Proxima etapa:** Fase 1 - Analise de impacto + decisao de produto/credencial com o usuario (aguardando confirmacao).
+
+---
+
+## 2026-07-06 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code (Opus 4.8)
+- **Pedido resumido:** Permitir REUTILIZAR o contexto de uma instancia em outra (sem recriar). Controle na pagina de contexto da instancia; duas formas: compartilhar (mesmo contexto) e duplicar (copia editavel).
+- **E projeto/tarefa de alteracao?** Sim (feature front + endpoint backend de clone).
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | ai-workflow: Sim | project-map: Sim | architecture-rules: Sim | ui-visual-standard: Sim | project-architecture: Sim
+- **Areas possivelmente impactadas:**
+  - Front-end: Sim (instancias/[id]/contexto/page.tsx — painel de reuso)
+  - Back-end: Sim (api-whatsapp.js — endpoint /contexto/duplicar + helper duplicarContexto)
+  - Banco de dados: Nao (reusa app.empresa_contextos; sem migration)
+  - Integracoes/Prompts/Permissoes: Nao (rota ja e requireAuth+requireEmpresaAccess)
+  - Arquitetura: Baixo (reusa PATCH existente p/ compartilhar; clone isolado por transacao)
+- **Confirmacao:** Workflow padrao seguido; escopo confirmado com o usuario (controle na pagina de contexto).
+- **Proxima etapa:** Implementado e validado (846 testes, tsc 0, e2e compartilhar+duplicar OK).
+
+---
+
+<!-- Modelo para novas entradas (copie o bloco abaixo):
+
+## [DATA] - Início de tarefa IA
+
+- **IA/Ferramenta:**
+- **Pedido resumido:**
+- **É projeto/tarefa de alteração?** Sim/Não
+- **Workflow padrão consultado?**
+  - AGENTS.md: Sim/Não/Inexistente
+  - CLAUDE.md: Sim/Não/Inexistente
+  - docs/ai-workflow.md: Sim/Não/Inexistente
+  - docs/project-change-map.md: Sim/Não/Inexistente
+  - docs/ai-decision-log.md: Sim/Não/Inexistente
+  - docs/ui-visual-standard.md: Sim/Não/Inexistente/Não aplicável
+  - docs/project-architecture.md: Sim/Não/Inexistente/Não aplicável
+- **Áreas possivelmente impactadas:**
+  - Front-end / Back-end / Banco / Financeiro / Dashboards / Assinaturas / Custos / Permissões / Integrações / Visual-UX / Arquitetura
+- **Confirmação:** A IA confirma que está utilizando o workflow padrão do projeto antes de alterar código.
+- **Próxima etapa:** Fase 1 - Entendimento do Pedido.
+
+-->
+
+---
+
+## 2026-07-15 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Codex
+- **Pedido resumido:** Corrigir gargalos de performance no Banco de Leads: subqueries correlacionadas do GET /leads, chamadas seriais da Evolution no GET /conexao-resumo, indice do proximo lead automatico e pool PostgreSQL subdimensionado.
+- **E projeto/tarefa de alteracao?** Sim (performance de backend, banco e integracao externa).
+- **Workflow padrao consultado?**
+  - AGENTS.md: Sim
+  - CLAUDE.md: Sim
+  - docs/ai-workflow.md: Sim
+  - docs/project-map.md: Sim
+  - docs/architecture-rules.md: Sim
+  - docs/project-change-map.md: Sim
+  - docs/ai-decision-log.md: Sim
+  - docs/ui-visual-standard.md: Nao aplicavel
+  - docs/project-architecture.md: Sim
+- **Areas possivelmente impactadas:**
+  - Front-end: Nao (contratos HTTP preservados)
+  - Back-end: Sim (rotas Banco de Leads e WhatsApp, configuracao do pool)
+  - Banco de dados: Sim (indices aditivos e idempotentes)
+  - Financeiro: Nao
+  - Dashboards: Sim (menor latencia, sem mudanca visual)
+  - Permissoes: Nao
+  - Integracoes: Sim (Evolution API consultada em paralelo e com cache curto)
+  - Visual/UX: Nao
+  - Arquitetura: Nao (otimizacao dentro das camadas existentes)
+- **Confirmacao:** O usuario solicitou explicitamente as correcoes, incluindo a migration de indice. A IA confirma que esta usando o workflow padrao do projeto.
+- **Proxima etapa:** Fases 1 a 9 - impacto, implementacao de diff minimo e testes.
+
+---
+
+## 2026-07-15 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Codex
+- **Pedido resumido:** Corrigir bugs criticos dos modos Manual, Semi e Automatico: disparo duplicado, falta de compliance, falso sucesso de entrega, filtro de WhatsApp, timezone e teto diario elevado sem revisao.
+- **E projeto/tarefa de alteracao?** Sim (seguranca operacional, banco, worker e integracao Evolution).
+- **Workflow padrao consultado?**
+  - AGENTS.md: Sim
+  - CLAUDE.md: Sim
+  - docs/ai-workflow.md: Sim
+  - docs/project-map.md: Sim
+  - docs/architecture-rules.md: Sim
+  - docs/project-change-map.md: Sim
+  - docs/ai-decision-log.md: Sim
+  - docs/ui-visual-standard.md: Nao aplicavel
+  - docs/project-architecture.md: Sim
+- **Areas possivelmente impactadas:**
+  - Front-end: Sim (texto/default do teto, sem mudanca de layout)
+  - Back-end: Sim (disparo, elegibilidade e worker)
+  - Banco de dados: Sim (claim unico, message id e backfill 100 para 40)
+  - Financeiro: Sim (evita chamadas IA duplicadas)
+  - Dashboards: Sim (status de entrega mais honesto)
+  - Permissoes: Nao
+  - Integracoes: Sim (Evolution API)
+  - Visual/UX: Nao
+  - Arquitetura: Nao (reuso das camadas e locks existentes)
+- **Confirmacao:** O usuario solicitou explicitamente as correcoes e identificou o backfill ausente. A IA confirma que segue o workflow padrao.
+- **Proxima etapa:** Implementacao do claim atomico, compliance, entrega terminal, lock do worker e testes de concorrencia.
+
+---
+
+## 2026-07-15 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Codex
+- **Pedido resumido:** Adicionar rolagem horizontal no topo das tabelas do Banco de Leads e manter os nomes das colunas visiveis ao rolar os registros.
+- **E projeto/tarefa de alteracao?** Sim (UX de tabela no frontend).
+- **Workflow padrao consultado?** AGENTS.md, ai-workflow, project-map, architecture-rules, ui-visual-standard e guia visual: Sim.
+- **Areas possivelmente impactadas:** Front-end e Visual/UX; sem impacto em backend, banco, permissoes, custos ou integracoes.
+- **Confirmacao:** O pedido define diretamente o comportamento desejado e preserva o padrao existente de tabela operacional.
+- **Proxima etapa:** Implementar wrapper de rolagem sincronizada e validar desktop/mobile.
+
+---
+
+## 2026-07-16 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Codex (continuacao de tarefa iniciada no Claude)
+- **Pedido resumido:** Fazer a geracao de mensagens do modo Semiautomatico continuar em segundo plano, incluir automaticamente leads novos e exibir progresso mensagem a mensagem no Banco de Leads.
+- **E projeto/tarefa de alteracao?** Sim (worker existente, endpoint de leitura e UX no frontend).
+- **Workflow padrao consultado?** AGENTS.md, ai-workflow, project-map, architecture-rules, ui-visual-standard e project-architecture: Sim.
+- **Areas possivelmente impactadas:** Front-end e back-end; sem mudanca de banco, autenticacao, segredos, prompts ou integracoes externas.
+- **Confirmacao:** O usuario pediu explicitamente para continuar a implementacao interrompida. A arquitetura preserva o worker existente e adiciona somente observabilidade por polling.
+- **Proxima etapa:** Remover a geracao sincrona da tela, concluir o progresso visual e validar testes/typecheck.
+
+---
+
+## 2026-07-17 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Codex
+- **Pedido resumido:** Fazer a Aquisição respeitar o teto efetivo de 200 leads por busca, tornar o agendamento automático rodável, substituir os botões/modais de Agenda por menus operacionais inline em Google Maps e Instagram e planejar o modo Busca IA com indicação de esgotamento de nicho/localização.
+- **E projeto/tarefa de alteracao?** Sim (backend, worker de busca, configuração e UX da Aquisição).
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/project-map.md, docs/architecture-rules.md e docs/project-architecture.md: Sim.
+- **Areas possivelmente impactadas:** Front-end, back-end, worker, banco de dados, custos Bright Data e visual/UX; sem mudança em autenticação, segredos, prompts de atendimento ou envio de WhatsApp.
+- **Confirmacao:** O usuário solicitou explicitamente as duas correções. O modo Busca IA será apenas planejado nesta etapa, sem ampliação silenciosa do escopo.
+- **Proxima etapa:** Mapear o contrato da agenda e do snapshot, implementar diff mínimo e validar teto, execução em segundo plano e regressões.
+## 2026-07-17 — Modo Busca IA configurável na Aquisição
+
+- Pedido: implementar o modo Busca IA aprovado, com configuração simples, estratégia equilibrada, limite diário, intervalo seguro, preferências de nicho/localização e mensagens claras de estado/esgotamento.
+- Áreas: configuração multiempresa de prospecção, migration PostgreSQL, scheduler/worker de busca, seletor de mercado por IA, tela `dashboard/prospeccao` e testes.
+- Restrições: reutilizar `selecionarMercadoDiarioIA`; máximo de 200 leads importados por busca; uma busca por vez; nenhum envio de WhatsApp; sem nova dependência ou segredo.
+- Validação prevista: testes de settings/scheduler/rotação/worker, suíte completa, typecheck, boot com migration e verificação visual responsiva.
+
+---
+
+## 2026-07-17 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Codex (retomada de conversa iniciada no Claude)
+- **Pedido resumido:** Verificar o modo Automatico do Banco de Leads e corrigir a fila que permanece vencida sem disparar.
+- **E projeto/tarefa de alteracao?** Sim (worker existente e teste de regressao).
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/project-map.md, docs/architecture-rules.md, docs/project-change-map.md, docs/ai-decision-log.md e docs/project-architecture.md: Sim.
+- **Areas possivelmente impactadas:** Back-end e worker do Banco de Leads; sem mudanca de banco, frontend, autenticacao, segredos, prompts ou integracoes.
+- **Diagnostico confirmado:** O worker executa, mas seleciona repetidamente o lead de maior score mesmo quando ele possui reserva ativa; `rodarLeads` o rejeita e o ciclo retorna `nao_aceito` sem avancar para outro lead.
+- **Confirmacao:** O usuario pediu para retomar a conversa do Claude e verificar o Automatico. A correcao sera um diff minimo na selecao da fila, com teste e validacao operacional real.
+- **Proxima etapa:** Ignorar reservas ativas ao selecionar o proximo lead, rodar a suite e observar um ciclo real do worker.
+
+---
+
+## 2026-07-17 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Codex
+- **Pedido resumido:** Impedir que o modo Automatico pare quando os primeiros candidatos forem inelegiveis.
+- **E projeto/tarefa de alteracao?** Sim (worker, reconciliacao operacional e testes).
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/project-map.md, docs/architecture-rules.md, docs/project-change-map.md, docs/ai-decision-log.md e docs/project-architecture.md: Sim.
+- **Areas possivelmente impactadas:** Worker do Banco de Leads e observabilidade; sem migration, frontend, autenticacao, segredos, prompts ou novo endpoint.
+- **Diagnostico confirmado:** A selecao limitada aos primeiros 15 candidatos encontrou 14 telefones fixos e 1 invalido; havia 139 celulares validos depois deles, com o primeiro na posicao 18.
+- **Confirmacao:** O usuario aprovou explicitamente a varredura que avanca pelos inelegiveis, o reagendamento seguro, o resumo de motivos e a recuperacao de geracoes travadas.
+- **Proxima etapa:** Implementar paginacao limitada por tick com cursor de continuacao, reconciliar `gerando` antigo e validar regressao/operacao real.

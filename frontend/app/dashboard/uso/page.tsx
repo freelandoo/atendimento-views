@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { Spinner } from '@/components/feedback/FeedbackProvider'
+import DataTableFrame from '@/components/ui/DataTableFrame'
 
 type Totais = {
   chamadas: number
@@ -176,8 +177,8 @@ function Tabela({ titulo, colunas, linhas, vazio }: {
       <div className="px-5 py-3 border-b">
         <h2 className="font-semibold text-sm">{titulo}</h2>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+      <DataTableFrame ariaLabel={`Rolagem horizontal da tabela ${titulo}`}>
+        <table className="w-full min-w-max text-sm">
           <thead className="bg-gray-50 text-gray-600 text-xs uppercase">
             <tr>
               {colunas.map((c) => (
@@ -199,7 +200,7 @@ function Tabela({ titulo, colunas, linhas, vazio }: {
             )}
           </tbody>
         </table>
-      </div>
+      </DataTableFrame>
     </div>
   )
 }

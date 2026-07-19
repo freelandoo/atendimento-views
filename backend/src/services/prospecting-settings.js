@@ -22,7 +22,22 @@ function boolOuPadrao(valor, padrao = false) {
   return padrao
 }
 
+function enumOuPadrao(valor, permitidos, padrao) {
+  const normalizado = String(valor == null ? '' : valor).trim().toLowerCase()
+  return permitidos.includes(normalizado) ? normalizado : padrao
+}
+
+function listaTexto(valor, maxItens = 20, maxTexto = 80) {
+  const itens = Array.isArray(valor) ? valor : String(valor == null ? '' : valor).split(/[,\n;]/)
+  return [...new Set(itens.map((item) => textoOuNull(item, maxTexto)).filter(Boolean))].slice(0, maxItens)
+}
+
 function normalizarConfiguracaoProspeccao(payload = {}) {
+  const modoBusca = enumOuPadrao(
+    payload.modo_busca,
+    ['manual', 'automatico_fixo', 'ia'],
+    boolOuPadrao(payload.agendamento_busca_ativo, false) ? 'ia' : 'manual'
+  )
   const cfg = normalizarConfigProspeccao({
     ativo: payload.ativo ?? payload.enabled,
     modo: payload.modo,
@@ -44,9 +59,15 @@ function normalizarConfiguracaoProspeccao(payload = {}) {
     cidade_padrao: textoOuNull(cfg.cidade_padrao),
     estado_padrao: textoOuNull(cfg.estado_padrao, 2),
     regiao_padrao: textoOuNull(cfg.regiao_padrao),
-    // "Agenda" da busca recorrente do Places (a cada X horas).
-    agendamento_busca_ativo: boolOuPadrao(payload.agendamento_busca_ativo, false),
-    busca_intervalo_horas: inteiroEntre(payload.busca_intervalo_horas, 24, 1, 168),
+    modo_busca: modoBusca,
+    // O modo é a única fonte de verdade do liga/desliga; não depende do campo legado `ativo`.
+    agendamento_busca_ativo: modoBusca !== 'manual',
+    busca_intervalo_horas: inteiroEntre(payload.busca_intervalo_horas, 6, 6, 168),
+    busca_max_diaria: inteiroEntre(payload.busca_max_diaria, 2, 1, 2),
+    busca_estrategia: enumOuPadrao(payload.busca_estrategia, ['conservadora', 'equilibrada', 'exploratoria'], 'equilibrada'),
+    busca_nichos_permitidos: listaTexto(payload.busca_nichos_permitidos),
+    busca_localizacoes_permitidas: listaTexto(payload.busca_localizacoes_permitidas),
+    busca_permitir_nichos_relacionados: boolOuPadrao(payload.busca_permitir_nichos_relacionados, true),
   }
 }
 
@@ -68,6 +89,12 @@ function configProspeccaoPersistida(row) {
     envio_real_habilitado: row.envio_real_habilitado,
     agendamento_busca_ativo: row.agendamento_busca_ativo,
     busca_intervalo_horas: row.busca_intervalo_horas,
+    modo_busca: row.modo_busca,
+    busca_max_diaria: row.busca_max_diaria,
+    busca_estrategia: row.busca_estrategia,
+    busca_nichos_permitidos: row.busca_nichos_permitidos,
+    busca_localizacoes_permitidas: row.busca_localizacoes_permitidas,
+    busca_permitir_nichos_relacionados: row.busca_permitir_nichos_relacionados,
   })
   const [hour, minute] = cfg.horario_inicio.split(':').map((p) => Number.parseInt(p, 10))
   return {
@@ -82,8 +109,19 @@ function configProspeccaoPersistida(row) {
     // Agenda da busca recorrente: o normalizador não conhece estes campos, então
     // preservamos os valores normalizados acima (não vêm em `cfg`).
     agendamento_busca_ativo: boolOuPadrao(row.agendamento_busca_ativo, false),
-    busca_intervalo_horas: inteiroEntre(row.busca_intervalo_horas, 24, 1, 168),
+    busca_intervalo_horas: inteiroEntre(row.busca_intervalo_horas, 6, 6, 168),
     ultima_busca_em: row.ultima_busca_em || null,
+    modo_busca: cfg.modo_busca,
+    busca_max_diaria: cfg.busca_max_diaria,
+    busca_estrategia: cfg.busca_estrategia,
+    busca_nichos_permitidos: cfg.busca_nichos_permitidos,
+    busca_localizacoes_permitidas: cfg.busca_localizacoes_permitidas,
+    busca_permitir_nichos_relacionados: cfg.busca_permitir_nichos_relacionados,
+    busca_estado: enumOuPadrao(row.busca_estado, ['aguardando', 'escolhendo', 'coletando', 'processando', 'esgotado', 'sem_mercados', 'limite_diario', 'erro', 'pausado'], 'aguardando'),
+    busca_mensagem: textoOuNull(row.busca_mensagem, 500),
+    busca_mercado_atual: row.busca_mercado_atual && typeof row.busca_mercado_atual === 'object' ? row.busca_mercado_atual : null,
+    busca_zero_consecutivos: inteiroEntre(row.busca_zero_consecutivos, 0, 0, 100),
+    busca_ultima_decisao_em: row.busca_ultima_decisao_em || null,
     created_at: row.criado_em || null,
     updated_at: row.atualizado_em || null,
   }
@@ -112,6 +150,10 @@ async function obterConfiguracaoProspeccao(pool, empresaId = PJ_EMPRESA_ID) {
       categoria_padrao, cidade_padrao, estado_padrao, regiao_padrao,
       gerar_mensagem_ia, envio_real_habilitado,
       agendamento_busca_ativo, busca_intervalo_horas, ultima_busca_em,
+      modo_busca, busca_max_diaria, busca_estrategia,
+      busca_nichos_permitidos, busca_localizacoes_permitidas,
+      busca_permitir_nichos_relacionados, busca_estado, busca_mensagem,
+      busca_mercado_atual, busca_zero_consecutivos, busca_ultima_decisao_em,
       criado_em, atualizado_em
     FROM prospectador.prospeccao_configuracoes
     WHERE empresa_id = $1
@@ -124,6 +166,7 @@ async function obterConfiguracaoProspeccao(pool, empresaId = PJ_EMPRESA_ID) {
 
 async function salvarConfiguracaoProspeccao(pool, payload = {}, empresaId = PJ_EMPRESA_ID) {
   const cfg = normalizarConfiguracaoProspeccao(payload)
+  const retomarBusca = boolOuPadrao(payload.retomar_busca, false)
   const { rows } = await pool.query(
     `
     INSERT INTO prospectador.prospeccao_configuracoes (
@@ -131,9 +174,13 @@ async function salvarConfiguracaoProspeccao(pool, payload = {}, empresaId = PJ_E
       intervalo_envio_minutos, limite_diario, dias_semana_ativos,
       categoria_padrao, cidade_padrao, estado_padrao, regiao_padrao,
       gerar_mensagem_ia, envio_real_habilitado,
-      agendamento_busca_ativo, busca_intervalo_horas
+      agendamento_busca_ativo, busca_intervalo_horas,
+      modo_busca, busca_max_diaria, busca_estrategia,
+      busca_nichos_permitidos, busca_localizacoes_permitidas,
+      busca_permitir_nichos_relacionados
     )
-    VALUES ($1, $2, $3, $4::time, $5::time, $6, $7, $8::smallint[], $9, $10, $11, $12, $13, $14, $15, $16)
+    VALUES ($1, $2, $3, $4::time, $5::time, $6, $7, $8::smallint[], $9, $10, $11, $12, $13, $14, $15, $16,
+            $17, $18, $19, $20::text[], $21::text[], $22)
     ON CONFLICT (empresa_id) DO UPDATE
     SET ativo = EXCLUDED.ativo,
         modo = EXCLUDED.modo,
@@ -150,6 +197,15 @@ async function salvarConfiguracaoProspeccao(pool, payload = {}, empresaId = PJ_E
         envio_real_habilitado = EXCLUDED.envio_real_habilitado,
         agendamento_busca_ativo = EXCLUDED.agendamento_busca_ativo,
         busca_intervalo_horas = EXCLUDED.busca_intervalo_horas,
+        modo_busca = EXCLUDED.modo_busca,
+        busca_max_diaria = EXCLUDED.busca_max_diaria,
+        busca_estrategia = EXCLUDED.busca_estrategia,
+        busca_nichos_permitidos = EXCLUDED.busca_nichos_permitidos,
+        busca_localizacoes_permitidas = EXCLUDED.busca_localizacoes_permitidas,
+        busca_permitir_nichos_relacionados = EXCLUDED.busca_permitir_nichos_relacionados,
+        busca_estado = CASE WHEN EXCLUDED.modo_busca = 'manual' THEN 'pausado' WHEN $23 THEN 'aguardando' ELSE prospectador.prospeccao_configuracoes.busca_estado END,
+        busca_mensagem = CASE WHEN EXCLUDED.modo_busca = 'manual' OR $23 THEN NULL ELSE prospectador.prospeccao_configuracoes.busca_mensagem END,
+        busca_zero_consecutivos = CASE WHEN EXCLUDED.modo_busca = 'manual' OR $23 THEN 0 ELSE prospectador.prospeccao_configuracoes.busca_zero_consecutivos END,
         atualizado_em = NOW()
     RETURNING *
     `,
@@ -170,6 +226,13 @@ async function salvarConfiguracaoProspeccao(pool, payload = {}, empresaId = PJ_E
       cfg.envio_real_habilitado,
       cfg.agendamento_busca_ativo,
       cfg.busca_intervalo_horas,
+      cfg.modo_busca,
+      cfg.busca_max_diaria,
+      cfg.busca_estrategia,
+      cfg.busca_nichos_permitidos,
+      cfg.busca_localizacoes_permitidas,
+      cfg.busca_permitir_nichos_relacionados,
+      retomarBusca,
     ]
   )
   return configProspeccaoPersistida(rows[0] || null)
