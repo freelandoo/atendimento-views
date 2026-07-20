@@ -158,6 +158,7 @@ const PLAYBOOK_TABS = [
 export default function ContextoEditor({ empresaId, contextoId }: { empresaId: string; contextoId: string }) {
   const [contexto, setContexto] = useState<Contexto | null>(null)
   const [versoes, setVersoes] = useState<Versao[]>([])
+  const [erroCarregamento, setErroCarregamento] = useState('')
   const [gerando, setGerando] = useState(false)
   const [pipeline, setPipeline] = useState<PipelineState | null>(null)
   // Incrementado após o pipeline (gerar/analisar/remover fonte) pra forçar os
@@ -169,8 +170,12 @@ export default function ContextoEditor({ empresaId, contextoId }: { empresaId: s
     if (!empresaId || !contextoId) return
     try {
       const r = await apiFetch<Contexto[]>(`/api/empresas/${empresaId}/contextos`)
-      setContexto(r.data.find((c) => c.id === contextoId) || null)
-    } catch {}
+      const encontrado = r.data.find((c) => c.id === contextoId) || null
+      setContexto(encontrado)
+      setErroCarregamento(encontrado ? '' : 'Contexto não encontrado.')
+    } catch (e: unknown) {
+      setErroCarregamento(e instanceof Error ? e.message : 'Erro ao carregar contexto.')
+    }
   }, [empresaId, contextoId])
 
   const carregarVersoes = useCallback(async () => {
@@ -178,7 +183,9 @@ export default function ContextoEditor({ empresaId, contextoId }: { empresaId: s
     try {
       const r = await apiFetch<Versao[]>(`/api/empresas/${empresaId}/contextos/${contextoId}/versoes`)
       setVersoes(r.data)
-    } catch {}
+    } catch (e: unknown) {
+      setErroCarregamento(e instanceof Error ? e.message : 'Erro ao carregar versões do playbook.')
+    }
   }, [empresaId, contextoId])
 
   useEffect(() => { carregar(); carregarVersoes() }, [carregar, carregarVersoes])
@@ -219,7 +226,7 @@ export default function ContextoEditor({ empresaId, contextoId }: { empresaId: s
       clearInterval(poll)
       setPipeline((p) => (p ? { ...p, fase: 'finalizando', etapas: p.etapas.map((e) => ({ ...e, status: e.status === 'rodando' ? 'ok' : e.status })) } : p))
       await recarregarDerivados()
-      fb.sucessoModal('Tudo pronto', 'Contexto 1, estágios, playbook e mensagens automáticas gerados a partir das fontes. Revise o que quiser e ative o contexto.')
+      fb.sucessoModal('Tudo pronto', 'Contexto 1, estágios, playbook e mensagens da agenda gerados a partir das fontes. Revise o conteúdo e ative a versão correta do playbook.')
     } catch (e: unknown) {
       fb.toast(e instanceof Error ? e.message : 'Falha ao gerar. Tente de novo.', 'error')
     } finally {
@@ -240,13 +247,13 @@ export default function ContextoEditor({ empresaId, contextoId }: { empresaId: s
   async function ativarContexto(ativar: boolean) {
     try {
       await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/contextos/${contextoId}/${ativar ? 'ativar' : 'desativar'}`, { method: 'POST' }),
-        { sucesso: ativar ? 'Contexto ativado.' : 'Contexto desativado.' })
+        { sucesso: ativar ? 'Contexto definido como fallback da empresa.' : 'Fallback da empresa removido.' })
       await carregar()
     } catch { /* erro já exibido pelo feedback */ }
   }
 
   if (!contexto) {
-    return <p className="text-sm text-gray-400">Carregando contexto…</p>
+    return <p className={`text-sm ${erroCarregamento ? 'text-red-600' : 'text-gray-400'}`}>{erroCarregamento || 'Carregando contexto…'}</p>
   }
 
   return (
@@ -255,18 +262,22 @@ export default function ContextoEditor({ empresaId, contextoId }: { empresaId: s
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <h2 className="font-semibold">Contexto</h2>
-          {contexto.runtime_ativo && <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700">Ativo</span>}
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Vinculado à instância</span>
+          {contexto.runtime_ativo && <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Fallback da empresa</span>}
         </div>
         {contexto.runtime_ativo ? (
           <button onClick={() => ativarContexto(false)} className="text-xs px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50">
-            Desativar contexto
+            Remover fallback
           </button>
         ) : (
           <button onClick={() => ativarContexto(true)} className="text-xs px-3 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700">
-            Ativar contexto
+            Definir como fallback
           </button>
         )}
       </div>
+      <p className="text-[11px] text-gray-500">
+        A instância usa este contexto enquanto estiver habilitada. O fallback só atende fluxos legados que chegam sem uma instância identificada.
+      </p>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <CardFontes
@@ -320,7 +331,10 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onLeitura
     try {
       const r = await apiFetch<Fonte[]>(`/api/empresas/${empresaId}/contextos/${contextoId}/fontes`)
       setFontes(r.data || [])
-    } catch {}
+      setErro('')
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : 'Erro ao carregar fontes.')
+    }
   }, [empresaId, contextoId])
 
   // reloadKey força recarregar as fontes após o pipeline (analisar/remover).
@@ -430,19 +444,19 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onLeitura
       )}
 
       <div className="space-y-2">
-        <div className="flex gap-2">
-          <select value={tipo} onChange={(e) => setTipo(e.target.value as 'link' | 'pdf' | 'texto')} className="border rounded-lg px-2 py-1.5 text-xs">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <select value={tipo} onChange={(e) => setTipo(e.target.value as 'link' | 'pdf' | 'texto')} className="min-w-0 border rounded-lg px-2 py-1.5 text-xs">
             <option value="link">Link do site</option>
             <option value="pdf">PDF / Documento</option>
             <option value="texto">Texto manual</option>
           </select>
           {tipo === 'link' && (
-            <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." className="flex-1 border rounded-lg px-2 py-1.5 text-xs" />
+            <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." className="min-w-0 flex-1 border rounded-lg px-2 py-1.5 text-xs" />
           )}
           {tipo === 'pdf' && (
-            <input type="file" accept=".pdf,.txt" onChange={(e) => setArquivo(e.target.files?.[0] || null)} className="flex-1 text-xs" />
+            <input type="file" accept=".pdf,.txt" onChange={(e) => setArquivo(e.target.files?.[0] || null)} className="min-w-0 flex-1 text-xs" />
           )}
-          <button onClick={adicionar} disabled={carregando || analisando !== null} className="bg-brand text-white px-3 py-1.5 rounded-lg text-xs disabled:opacity-50">
+          <button onClick={adicionar} disabled={carregando || analisando !== null} className="shrink-0 bg-brand text-white px-3 py-1.5 rounded-lg text-xs disabled:opacity-50">
             {carregando ? '…' : 'Inserir'}
           </button>
         </div>
@@ -450,7 +464,7 @@ function CardFontes({ empresaId, contextoId, contextoAtual, reloadKey, onLeitura
           <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={4} placeholder="Cole o texto…" className="w-full border rounded-lg px-2 py-1.5 text-xs" />
         )}
         <p className="text-[11px] text-gray-400">
-          Ao inserir, a IA lê a fonte e já monta tudo sozinha: Contexto 1, estágios, playbook e mensagens automáticas.
+          Ao inserir, a IA lê a fonte e monta o Contexto 1, os estágios, o playbook e as mensagens da agenda.
         </p>
       </div>
 
@@ -962,7 +976,7 @@ function CardEstagios({ empresaId, contextoId, contextoNome: _contextoNome, relo
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h3 className="font-semibold text-sm">Estágios do contexto</h3>
-          <p className="text-xs text-gray-500 mt-0.5">Cada contexto tem seus próprios estágios. Ative o contexto pra o agente usá-los.</p>
+          <p className="text-xs text-gray-500 mt-0.5">A instância usa estes estágios enquanto estiver habilitada.</p>
         </div>
         <div className="flex items-center gap-2">
           {thumb ? (
@@ -979,8 +993,8 @@ function CardEstagios({ empresaId, contextoId, contextoNome: _contextoNome, relo
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
-        <input value={thumbUrl} onChange={(e) => setThumbUrl(e.target.value)} placeholder="ou cole uma URL de imagem" className="flex-1 border rounded-lg px-2 py-1 text-xs" />
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <input value={thumbUrl} onChange={(e) => setThumbUrl(e.target.value)} placeholder="ou cole uma URL de imagem" className="min-w-0 flex-1 border rounded-lg px-2 py-1 text-xs" />
         <button onClick={() => enviarThumb(thumbUrl.trim() || null)} disabled={busy === 'thumb' || !thumbUrl.trim()} className="text-xs px-2 py-1 rounded-lg border disabled:opacity-50">Usar URL</button>
       </div>
 
@@ -1080,7 +1094,6 @@ type MensagensResp = {
 }
 
 const GRUPO_LABEL: Record<string, { titulo: string; desc: string }> = {
-  saudacoes: { titulo: 'Saudações automáticas', desc: 'Aberturas e respostas fixas do agente (primeiro contato, handoff, agenda indisponível).' },
   gatilhos_agenda: { titulo: 'Gatilhos da agenda', desc: 'Lembretes e remarcação de reunião enviados automaticamente.' },
 }
 
@@ -1103,7 +1116,7 @@ function CardMensagens({ empresaId, contextoId, reloadKey }: {
     setCarregando(true)
     try {
       const r = await apiFetch<MensagensResp>(`/api/empresas/${empresaId}/contextos/${contextoId}/mensagens`)
-      setGrupos(r.data.grupos || [])
+      setGrupos((r.data.grupos || []).filter((g) => g.grupo === 'gatilhos_agenda'))
       setPlaceholders(r.data.placeholders || [])
       setTemConhecimento(!!r.data.tem_conhecimento)
       setDirty({})
@@ -1136,9 +1149,9 @@ function CardMensagens({ empresaId, contextoId, reloadKey }: {
   return (
     <div className="bg-white border rounded-xl p-4 space-y-4">
       <div>
-        <h3 className="font-semibold text-sm">Mensagens automáticas</h3>
+        <h3 className="font-semibold text-sm">Mensagens automáticas da agenda</h3>
         <p className="text-xs text-gray-500 mt-0.5">
-          Textos fixos enviados pelo agente, por empresa. São adaptados ao seu negócio pela IA ao <strong>inserir uma fonte</strong> — edite o que quiser e salve.
+          Lembretes e remarcações enviados pela agenda para conversas desta instância. São adaptados pela IA ao <strong>inserir uma fonte</strong>.
         </p>
         {placeholders.length > 0 && (
           <p className="text-[11px] text-gray-400 mt-1">

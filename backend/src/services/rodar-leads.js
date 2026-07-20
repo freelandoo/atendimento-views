@@ -143,7 +143,8 @@ async function carregarInstancia(pool, empresaId, instanciaId) {
   const { rows } = await pool.query(
     `SELECT id, evolution_instance, nome, ativo, config_json, contexto_id
        FROM app.empresa_whatsapp_instances
-      WHERE id = $1 AND empresa_id = $2`,
+      WHERE id = $1 AND empresa_id = $2
+        AND COALESCE(config_json->>'canal', 'whatsapp') <> 'freelandoo'`,
     [instanciaId, empresaId]
   )
   return rows[0] || null

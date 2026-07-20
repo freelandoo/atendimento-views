@@ -5,7 +5,7 @@ const {
   renderSaudacao, rodarLeads, gerarMensagensSemi, dispararGerados, estadoEnvioInstancia,
   aguardarStatusEnvioEvolution, afirmarEnvioNaoFalhouNaEvolution, enviarLoteEmBackground,
   reconciliarConfirmacoesPendentes,
-  separarElegiveis, exigirInstanciaConectada, STATUS_RODAVEL,
+  separarElegiveis, exigirInstanciaConectada, carregarInstancia, STATUS_RODAVEL,
 } = require('../src/services/rodar-leads')
 
 // Pool mockado por roteamento de SQL: casa a primeira needle contida no texto.
@@ -61,6 +61,18 @@ test('STATUS_RODAVEL cobre exatamente os status de "sem contato"', () => {
     [...STATUS_RODAVEL].sort(),
     ['aguardando', 'aprovado', 'coletado', 'contato_encontrado']
   )
+})
+
+test('carregarInstancia rejeita o canal Freelandoo nos fluxos de disparo', async () => {
+  let sqlExecutado = ''
+  const pool = {
+    query: async (sql) => {
+      sqlExecutado = sql
+      return { rows: [] }
+    },
+  }
+  await carregarInstancia(pool, 'e1', 'i1')
+  assert.match(sqlExecutado, /canal.*freelandoo/)
 })
 
 test('rodarLeads rejeita seleção vazia (400)', async () => {

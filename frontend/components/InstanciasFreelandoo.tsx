@@ -30,7 +30,7 @@ export default function InstanciasFreelandoo({ empresaId }: { empresaId: string 
     if (!empresaId) return
     apiFetch<FreelandooInstance[]>(`/api/empresas/${empresaId}/freelandoo`)
       .then((r) => setInstancias(r.data))
-      .catch(() => {})
+      .catch((e: unknown) => setErro(e instanceof Error ? e.message : 'Erro ao carregar contas Freelandoo.'))
   }, [empresaId])
 
   async function conectar(e: React.FormEvent) {
@@ -69,7 +69,7 @@ export default function InstanciasFreelandoo({ empresaId }: { empresaId: string 
         method: 'PATCH', body: JSON.stringify({ ativo: novo }),
       })
       setInstancias((prev) => prev.map((x) => (x.id === inst.id ? { ...x, ativo: r.data.ativo } : x)))
-      setMsg(novo ? 'Conta ativada — o bot volta a responder por ela.' : 'Conta desativada — o bot para de responder por ela.')
+      setMsg(novo ? 'Conta habilitada — o bot volta a responder por ela.' : 'Conta desabilitada — o bot para de responder por ela.')
     } catch (err: unknown) {
       setErro(err instanceof Error ? err.message : 'Erro ao alterar o status.')
     }
@@ -133,16 +133,16 @@ export default function InstanciasFreelandoo({ empresaId }: { empresaId: string 
           placeholder="Nome amigável (ex: Freelandoo — João)"
           className="border rounded-lg px-3 py-2 text-sm w-full"
         />
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <input
             value={token}
             onChange={(e) => setToken(e.target.value)}
             placeholder="Cole o token (flnd_atd_...)"
-            className="border rounded-lg px-3 py-2 text-sm flex-1 font-mono"
+            className="min-w-0 flex-1 border rounded-lg px-3 py-2 text-sm font-mono"
           />
           <button
             disabled={conectando || !token.trim()}
-            className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
+            className="shrink-0 bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
           >
             {conectando ? 'Validando…' : 'Conectar'}
           </button>
@@ -166,8 +166,8 @@ export default function InstanciasFreelandoo({ empresaId }: { empresaId: string 
 
             <div className="space-y-3 p-4">
               <div className="flex justify-center">
-                <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${i.ativo ? 'border-neon-lime/30 bg-neon-lime/15 text-neon-lime' : 'border-white/10 bg-white/5 text-mid'}`}>
-                  {i.ativo ? '● ativo' : '○ inativo'}
+                <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${i.ativo && i.webhook_url ? 'border-neon-lime/30 bg-neon-lime/15 text-neon-lime' : i.ativo ? 'border-amber-400/30 bg-amber-400/10 text-amber-300' : 'border-white/10 bg-white/5 text-mid'}`}>
+                  {i.ativo && i.webhook_url ? '● habilitada · webhook configurado' : i.ativo ? '⚠ habilitada · webhook ausente' : '○ desabilitada'}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2">

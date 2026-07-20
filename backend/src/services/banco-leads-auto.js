@@ -100,7 +100,9 @@ async function instanciaConfiguradaOuRecente(pool, empresaId, instanciaId) {
   if (instanciaId) {
     const { rows } = await pool.query(
       `SELECT id, evolution_instance FROM app.empresa_whatsapp_instances
-        WHERE id = $1 AND empresa_id = $2 AND ativo = true LIMIT 1`,
+        WHERE id = $1 AND empresa_id = $2 AND ativo = true
+          AND COALESCE(config_json->>'canal', 'whatsapp') <> 'freelandoo'
+        LIMIT 1`,
       [instanciaId, empresaId]
     )
     if (rows[0]) return rows[0]
@@ -108,6 +110,7 @@ async function instanciaConfiguradaOuRecente(pool, empresaId, instanciaId) {
   const { rows } = await pool.query(
     `SELECT id, evolution_instance FROM app.empresa_whatsapp_instances
       WHERE empresa_id = $1 AND ativo = true
+        AND COALESCE(config_json->>'canal', 'whatsapp') <> 'freelandoo'
       ORDER BY atualizado_em DESC, criado_em DESC LIMIT 1`,
     [empresaId]
   )

@@ -13,8 +13,9 @@ type Inst = {
   ativo: boolean
   contexto_id?: string | null
   contexto_nome?: string | null
+  config_json?: { canal?: string } | null
 }
-type Ctx = { id: string; nome: string }
+type Ctx = { id: string; nome: string; runtime_ativo?: boolean }
 
 export default function InstanciaContextoPage() {
   const params = useParams<{ id: string }>()
@@ -41,7 +42,9 @@ export default function InstanciaContextoPage() {
   useEffect(() => { carregarInst() }, [carregarInst])
   useEffect(() => {
     if (!empresaId) return
-    apiFetch<Ctx[]>(`/api/empresas/${empresaId}/contextos`).then((r) => setContextos(r.data || [])).catch(() => {})
+    apiFetch<Ctx[]>(`/api/empresas/${empresaId}/contextos`)
+      .then((r) => setContextos(r.data || []))
+      .catch((e: unknown) => setErro(e instanceof Error ? e.message : 'Erro ao carregar contextos disponíveis.'))
   }, [empresaId])
 
   // Reutilizar contexto: compartilhar (mesmo contexto) OU duplicar (cópia editável).
@@ -71,6 +74,7 @@ export default function InstanciaContextoPage() {
   }
 
   const titulo = inst?.nome || inst?.evolution_instance || '…'
+  const freelandoo = inst?.config_json?.canal === 'freelandoo'
 
   return (
     <div className="space-y-5 max-w-6xl">
@@ -85,7 +89,9 @@ export default function InstanciaContextoPage() {
             Instância <span className="font-mono">{inst.evolution_instance}</span>
             {' · '}
             <span className={inst.ativo ? 'text-green-700' : 'text-amber-700'}>
-              {inst.ativo ? 'número ativo' : 'número desativado'}
+              {freelandoo
+                ? (inst.ativo ? 'conta habilitada para responder' : 'conta desabilitada')
+                : (inst.ativo ? 'número habilitado' : 'número desabilitado')}
             </span>
           </p>
         )}
@@ -109,7 +115,11 @@ export default function InstanciaContextoPage() {
                   <select value={origem} onChange={(e) => setOrigem(e.target.value)}
                     className="w-full rounded-lg border px-2 py-1.5 text-sm">
                     <option value="">Selecione…</option>
-                    {outros.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                    {outros.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nome}{c.runtime_ativo ? ' · fallback da empresa' : ''} · {c.id.slice(0, 8)}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <div className="text-xs">

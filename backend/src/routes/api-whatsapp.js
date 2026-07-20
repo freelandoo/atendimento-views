@@ -7,7 +7,8 @@ const { marcarOnboardingCompleto } = require('../db/usuarios')
 const { invalidarCacheEmpresa } = require('../services/contexto-empresa')
 const { enviarMensagem, verificarStatusInstanciaEvolution } = require('../whatsapp')
 const { renderSaudacao, saudacaoDaInstancia } = require('../services/rodar-leads')
-const { invalidarCacheAgendaInstancia } = require('../db/whatsapp-instances')
+const { invalidarCacheAgendaInstancia, removerContextoSeOrfao } = require('../db/whatsapp-instances')
+const mensagensSvc = require('../services/mensagens-automaticas')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -121,7 +122,7 @@ async function duplicarContexto(client, empresaId, origemId) {
        (empresa_id, nome, conteudo, contexto_form_json, schema_version,
         fontes_usadas_json, estagios_json, saudacoes_json, gatilhos_agenda_json, runtime_ativo, ativo)
      SELECT empresa_id, nome || ' (cópia)', conteudo, contexto_form_json, schema_version,
-            fontes_usadas_json, estagios_json, saudacoes_json, gatilhos_agenda_json, runtime_ativo, ativo
+            fontes_usadas_json, estagios_json, saudacoes_json, gatilhos_agenda_json, false, ativo
        FROM app.empresa_contextos
       WHERE id = $1 AND empresa_id = $2
       RETURNING id, nome`,
@@ -259,6 +260,10 @@ router.patch('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res)
     invalidarCacheAgendaInstancia(inst.evolution_instance)
   }
   if (typeof req.body?.ativo === 'boolean') invalidarResumoConexao(req.empresa.id)
+  if (contexto_id !== undefined) {
+    invalidarCacheEmpresa(req.empresa.id)
+    mensagensSvc.invalidarCacheAtivo(req.empresa.id)
+  }
   return res.json({ ok: true, data: inst })
 })
 
@@ -292,6 +297,7 @@ router.post('/:instanceId/contexto/duplicar', requireAuth, requireEmpresaAccess,
     )
     await client.query('COMMIT')
     invalidarCacheEmpresa(req.empresa.id)
+    mensagensSvc.invalidarCacheAtivo(req.empresa.id)
     return res.json({ ok: true, data: { contexto_id: novo.id, contexto_nome: novo.nome } })
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {})
@@ -416,10 +422,11 @@ router.delete('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res
 
   await pool.query('DELETE FROM app.empresa_whatsapp_instances WHERE id = $1', [inst.id])
   invalidarResumoConexao(req.empresa.id)
-  // Contexto é 1:1 com a instância — apaga o contexto dela (CASCADE leva versões/fontes junto).
+  // Contextos podem ser compartilhados. Só remove quando a instância apagada era
+  // a última referência; caso contrário preserva o conteúdo para as demais.
   if (inst.contexto_id) {
-    await pool.query('DELETE FROM app.empresa_contextos WHERE id = $1 AND empresa_id = $2', [inst.contexto_id, req.empresa.id])
-    invalidarCacheEmpresa(req.empresa.id)
+    const removeuContexto = await removerContextoSeOrfao(pool, req.empresa.id, inst.contexto_id)
+    if (removeuContexto) invalidarCacheEmpresa(req.empresa.id)
   }
   return res.json({ ok: true, data: { id: inst.id, deleted: true } })
 })
@@ -457,3 +464,4 @@ module.exports = router
 module.exports.calcularResumoConexao = calcularResumoConexao
 module.exports.obterResumoConexao = obterResumoConexao
 module.exports.invalidarResumoConexao = invalidarResumoConexao
+module.exports.duplicarContexto = duplicarContexto

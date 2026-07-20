@@ -3,7 +3,7 @@ const { test } = require('node:test')
 const assert = require('node:assert')
 const router = require('../src/routes/api-whatsapp')
 
-const { calcularResumoConexao, obterResumoConexao, invalidarResumoConexao } = router
+const { calcularResumoConexao, obterResumoConexao, invalidarResumoConexao, duplicarContexto } = router
 
 test('calcularResumoConexao consulta instancias em paralelo', async () => {
   let ativas = 0
@@ -91,4 +91,18 @@ test('invalidacao durante requisicao nao restaura resposta antiga no cache', asy
 
   assert.equal(buscas, 2)
   invalidarResumoConexao(empresaId)
+})
+
+test('duplicarContexto nunca copia runtime_ativo da origem', async () => {
+  const sqls = []
+  const client = {
+    query: async (sql) => {
+      sqls.push(sql)
+      if (sql.includes('INSERT INTO app.empresa_contextos')) return { rows: [{ id: 'ctx-novo', nome: 'Cópia' }] }
+      return { rows: [] }
+    },
+  }
+  const novo = await duplicarContexto(client, 'e1', 'ctx-origem')
+  assert.equal(novo.id, 'ctx-novo')
+  assert.match(sqls[0], /gatilhos_agenda_json, false, ativo/)
 })

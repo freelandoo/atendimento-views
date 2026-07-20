@@ -66,7 +66,10 @@ test('_autoEmpresa: aguarda o intervalo quando próximo disparo é no futuro', a
 test('_autoEmpresa: sem lead elegível não dispara', async () => {
   const pool = makePool([
     ['FROM app.banco_leads_config', () => ({ rows: [autoCfg] })],
-    ['FROM app.empresa_whatsapp_instances', () => ({ rows: [{ id: 'i1', evolution_instance: 'inst' }] })],
+    ['FROM app.empresa_whatsapp_instances', (sql) => {
+      assert.match(sql, /canal.*freelandoo/)
+      return { rows: [{ id: 'i1', evolution_instance: 'inst' }] }
+    }],
     ['FROM prospectador.prospects', () => ({ rows: [] })],
     ['FROM prospectador.lead_disparos', () => ({ rows: [{ hoje: 0 }] })],
   ])
@@ -78,7 +81,10 @@ test('_autoEmpresa: dispara 1 lead e agenda o próximo', async () => {
   let agendouProximo = false
   const pool = makePool([
     ['FROM app.banco_leads_config', () => ({ rows: [autoCfg] })],
-    ['FROM app.empresa_whatsapp_instances', () => ({ rows: [{ id: 'i1', evolution_instance: 'inst' }] })],
+    ['FROM app.empresa_whatsapp_instances', (sql) => {
+      assert.match(sql, /canal.*freelandoo/)
+      return { rows: [{ id: 'i1', evolution_instance: 'inst' }] }
+    }],
     ['FROM prospectador.prospects', (sql) => {
       assert.match(sql, /NOT EXISTS/)
       assert.match(sql, /aguardando_disparo/)

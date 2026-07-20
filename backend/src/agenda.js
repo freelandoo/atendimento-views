@@ -567,6 +567,7 @@ function gerarMensagemLembreteReuniao(evento, lead = {}, tipo = '15min') {
 async function montarMensagemLembrete(row, tipo = '15min', empresaId = null) {
   return mensagensSvc.resolverMensagem(pool, {
     empresaId,
+    evolutionInstance: row?.evolution_instance || null,
     grupo: 'gatilhos_agenda',
     chave: chaveLembrete(tipo),
     values: valoresLembrete(row, row, tipo),
@@ -757,6 +758,7 @@ async function enviarLembreteReuniao(lembreteId, { manual = false, enviarMensage
     `SELECT l.*, l.status AS lembrete_status, l.tipo AS lembrete_tipo,
             e.*, e.status AS evento_status, e.tipo AS evento_tipo,
             e.empresa_id AS evento_empresa_id, c.empresa_id AS conversa_empresa_id,
+            c.evolution_instance,
             c.numero AS conversa_numero, c.venda_fechada AS conversa_venda_fechada, lp.numero AS lead_numero,
             lp.apelido, lp.negocio, NULL::text AS nome, lp.contexto_prospeccao
      FROM vendas.agenda_lembretes l
@@ -907,6 +909,7 @@ async function registrarSugestaoReagendamentoLembrete(row, enviarMensagemFn = en
   const empresaIdRemarca = row.evento_empresa_id || row.conversa_empresa_id || row.empresa_id || null
   const mensagem = await mensagensSvc.resolverMensagem(pool, {
     empresaId: empresaIdRemarca,
+    evolutionInstance: row.evolution_instance || null,
     grupo: 'gatilhos_agenda',
     chave: 'remarcacao',
     values: { data: dataLabel, opcoes },
@@ -941,7 +944,9 @@ async function registrarRespostaLembreteReuniao(numero, texto, opts = {}) {
   const jid = String(numero || '').trim()
   if (!tipoResposta || !jid) return null
   const { rows } = await pool.query(
-    `SELECT e.id, e.usuario_id, e.metadata, c.numero AS conversa_numero, lp.numero AS lead_numero
+    `SELECT e.id, e.usuario_id, e.metadata,
+            e.empresa_id AS evento_empresa_id, c.empresa_id AS conversa_empresa_id,
+            c.evolution_instance, c.numero AS conversa_numero, lp.numero AS lead_numero
      FROM vendas.agenda_eventos e
      LEFT JOIN vendas.conversas c ON c.id = e.conversa_id
      LEFT JOIN vendas.lead_profiles lp ON lp.id = e.lead_id

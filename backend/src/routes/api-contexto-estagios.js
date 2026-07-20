@@ -218,7 +218,7 @@ router.put('/estagios', carregarContexto, async (req, res) => {
   }
   try {
     const saved = await estagiosSvc.salvarEstagiosNoContexto(pool, req.empresa.id, req.contexto.id, estagios)
-    return res.json({ ok: true, data: { estagios: estagiosSvc.normalizarEstagios(saved.estagios_json), ativo: !!saved.ativo } })
+    return res.json({ ok: true, data: { estagios: estagiosSvc.normalizarEstagios(saved.estagios_json), ativo: !!saved.runtime_ativo } })
   } catch (err) {
     logger.error({ err: err.message }, 'salvar estágios')
     return res.status(500).json({ ok: false, error: { code: 'INTERNAL', message: 'Erro ao salvar.' } })
@@ -233,7 +233,8 @@ router.post('/ativar', carregarContexto, async (req, res) => {
   }
   try {
     const ctx = await estagiosSvc.ativarContexto(pool, req.empresa.id, req.contexto.id)
-    return res.json({ ok: true, data: { ativo: !!ctx.ativo } })
+    mensagensSvc.invalidarCacheAtivo(req.empresa.id)
+    return res.json({ ok: true, data: { ativo: !!ctx.runtime_ativo } })
   } catch (err) {
     logger.error({ err: err.message }, 'ativar contexto')
     return res.status(500).json({ ok: false, error: { code: 'INTERNAL', message: 'Erro ao ativar.' } })
@@ -244,7 +245,8 @@ router.post('/ativar', carregarContexto, async (req, res) => {
 router.post('/desativar', carregarContexto, async (req, res) => {
   try {
     const ctx = await estagiosSvc.desativarContexto(pool, req.empresa.id, req.contexto.id)
-    return res.json({ ok: true, data: { ativo: !!ctx.ativo } })
+    mensagensSvc.invalidarCacheAtivo(req.empresa.id)
+    return res.json({ ok: true, data: { ativo: !!ctx.runtime_ativo } })
   } catch (err) {
     logger.error({ err: err.message }, 'desativar contexto')
     return res.status(500).json({ ok: false, error: { code: 'INTERNAL', message: 'Erro ao desativar.' } })

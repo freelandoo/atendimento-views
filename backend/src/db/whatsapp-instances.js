@@ -83,4 +83,25 @@ function invalidarCacheAgendaInstancia(instanceName) {
   else _agendaCache.clear()
 }
 
-module.exports = { resolverEmpresaPorInstance, instanciaUsaAgenda, invalidarCacheAgendaInstancia }
+// Apaga o contexto somente quando nenhuma outra instância ainda o referencia.
+// Isso preserva o recurso de compartilhamento de contexto entre instâncias.
+async function removerContextoSeOrfao(pool, empresaId, contextoId) {
+  if (!pool || !empresaId || !contextoId) return false
+  const { rowCount = 0 } = await pool.query(
+    `DELETE FROM app.empresa_contextos ec
+      WHERE ec.id = $1 AND ec.empresa_id = $2
+        AND NOT EXISTS (
+          SELECT 1 FROM app.empresa_whatsapp_instances ewi
+           WHERE ewi.contexto_id = ec.id
+        )`,
+    [contextoId, empresaId]
+  )
+  return rowCount > 0
+}
+
+module.exports = {
+  resolverEmpresaPorInstance,
+  instanciaUsaAgenda,
+  invalidarCacheAgendaInstancia,
+  removerContextoSeOrfao,
+}

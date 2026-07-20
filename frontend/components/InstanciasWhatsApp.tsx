@@ -71,11 +71,15 @@ export default function InstanciasWhatsApp({ empresaId }: {
         setInstancias(w.data)
         carregarStatusConexao(w.data || [])
       })
-      .catch(() => {})
+      .catch((e: unknown) => setErroForm(e instanceof Error ? e.message : 'Erro ao carregar instâncias WhatsApp.'))
     // Revalida o status a cada 30s (detecta desconexão sem recarregar a página).
     const t = setInterval(() => {
       apiFetch<WhatsAppInstance[]>(`/api/empresas/${empresaId}/whatsapp`)
-        .then((w) => { if (vivo) carregarStatusConexao(w.data || []) })
+        .then((w) => {
+          if (!vivo) return
+          setInstancias(w.data || [])
+          carregarStatusConexao(w.data || [])
+        })
         .catch(() => {})
     }, 30000)
     return () => { vivo = false; clearInterval(t) }
@@ -221,17 +225,17 @@ export default function InstanciasWhatsApp({ empresaId }: {
         </p>
       </div>
       <form onSubmit={adicionarInstancia} className="space-y-2">
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <input
             value={nomeInstance}
             onChange={(e) => setNomeInstance(e.target.value)}
             placeholder="Nome amigável (ex: Vendas BR)"
             required
-            className="border rounded-lg px-3 py-2 text-sm flex-1"
+            className="min-w-0 flex-1 border rounded-lg px-3 py-2 text-sm"
           />
           <button
             disabled={adicionando || !novaInstance}
-            className="bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
+            className="shrink-0 bg-brand text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-dark disabled:opacity-50"
           >
             {adicionando ? 'Criando…' : 'Adicionar'}
           </button>

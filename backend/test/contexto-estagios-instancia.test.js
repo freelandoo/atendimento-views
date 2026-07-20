@@ -4,6 +4,8 @@ const assert = require('node:assert')
 const test = require('node:test')
 
 const estagiosSvc = require('../src/services/contexto-estagios')
+const mensagensSvc = require('../src/services/mensagens-automaticas')
+const { removerContextoSeOrfao } = require('../src/db/whatsapp-instances')
 
 // Resolução do contexto de ESTÁGIOS por instância (1 número = 1 negócio):
 // preferência pelo contexto amarrado à instância; fallback no runtime-ativo.
@@ -56,4 +58,37 @@ test('estágios nada configurado: retorna null', async () => {
   const pool = mockPool({})
   const r = await estagiosSvc.getContextoAtivoComEstagios(pool, 'e1', 'fun')
   assert.equal(r, null)
+})
+
+test('mensagem da agenda usa o contexto vinculado à instância', async () => {
+  mensagensSvc.invalidarCacheAtivo('e1')
+  const pool = {
+    async query(sql) {
+      if (sql.includes('empresa_whatsapp_instances ewi')) {
+        return { rows: [{ gatilhos_agenda_json: { lembrete_15min: 'Mensagem da instância {empresa}' } }] }
+      }
+      throw new Error('não deveria consultar o fallback global')
+    },
+  }
+  const texto = await mensagensSvc.resolverMensagem(pool, {
+    empresaId: 'e1', evolutionInstance: 'fun', grupo: 'gatilhos_agenda', chave: 'lembrete_15min',
+    values: { empresa: 'Empresa X' },
+  })
+  assert.equal(texto, 'Mensagem da instância Empresa X')
+  mensagensSvc.invalidarCacheAtivo('e1')
+})
+
+test('contexto compartilhado só é removido quando fica órfão', async () => {
+  let sqlExecutado = ''
+  const pool = {
+    async query(sql, params) {
+      sqlExecutado = sql
+      assert.deepEqual(params, ['ctx-1', 'e1'])
+      return { rowCount: 0, rows: [] }
+    },
+  }
+  const removeu = await removerContextoSeOrfao(pool, 'e1', 'ctx-1')
+  assert.equal(removeu, false)
+  assert.match(sqlExecutado, /NOT EXISTS/)
+  assert.match(sqlExecutado, /empresa_whatsapp_instances/)
 })

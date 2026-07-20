@@ -168,46 +168,65 @@ async function salvarGrupo(pool, empresaId, contextoId, grupo, mensagens) {
 }
 
 // ─── Runtime: resolve UMA mensagem pronta para envio ──────────────────────────
-// Lê o contexto runtime-ativo da empresa, escolhe o texto salvo (ou default) e
-// renderiza com o nome da empresa + valores. Fail-open: qualquer erro cai no
-// default renderizado, então o envio NUNCA quebra por causa disto.
-const _ativoCache = new Map() // empresaId -> { data:{saudacoes,gatilhos_agenda}, at }
+// Quando a conversa informa a instância, usa o contexto vinculado a ela. O
+// contexto runtime-ativo fica apenas como fallback legado para eventos sem
+// instância identificável. Fail-open: qualquer erro cai no texto default.
+const _ativoCache = new Map() // empresaId:evolutionInstance -> { data, at }
 const ATIVO_TTL_MS = 30_000
 
-async function _carregarAtivo(pool, empresaId) {
-  const c = _ativoCache.get(empresaId)
+async function _carregarAtivo(pool, empresaId, evolutionInstance = null) {
+  const cacheKey = `${empresaId || '_null_'}:${evolutionInstance || '_fallback_'}`
+  const c = _ativoCache.get(cacheKey)
   if (c && Date.now() - c.at < ATIVO_TTL_MS) return c.data
   let data = { saudacoes: {}, gatilhos_agenda: {} }
   try {
     if (empresaId) {
-      const { rows: [ctx] } = await pool.query(
-        `SELECT saudacoes_json, gatilhos_agenda_json
-           FROM app.empresa_contextos
-          WHERE empresa_id = $1 AND runtime_ativo = true LIMIT 1`,
-        [empresaId]
-      )
+      let ctx = null
+      if (evolutionInstance) {
+        const { rows } = await pool.query(
+          `SELECT ec.saudacoes_json, ec.gatilhos_agenda_json
+             FROM app.empresa_whatsapp_instances ewi
+             JOIN app.empresa_contextos ec ON ec.id = ewi.contexto_id
+            WHERE ewi.empresa_id = $1 AND ewi.evolution_instance = $2
+            LIMIT 1`,
+          [empresaId, evolutionInstance]
+        )
+        ctx = rows[0] || null
+      }
+      if (!ctx) {
+        const { rows } = await pool.query(
+          `SELECT saudacoes_json, gatilhos_agenda_json
+             FROM app.empresa_contextos
+            WHERE empresa_id = $1 AND runtime_ativo = true LIMIT 1`,
+          [empresaId]
+        )
+        ctx = rows[0] || null
+      }
       if (ctx) data = { saudacoes: ctx.saudacoes_json || {}, gatilhos_agenda: ctx.gatilhos_agenda_json || {} }
     }
   } catch { /* fail-open: usa defaults */ }
-  _ativoCache.set(empresaId || '_null_', { data, at: Date.now() })
+  _ativoCache.set(cacheKey, { data, at: Date.now() })
   return data
 }
 
 function invalidarCacheAtivo(empresaId) {
-  if (empresaId) _ativoCache.delete(empresaId)
-  else _ativoCache.clear()
+  if (!empresaId) return _ativoCache.clear()
+  const prefix = `${empresaId}:`
+  for (const key of _ativoCache.keys()) {
+    if (key.startsWith(prefix)) _ativoCache.delete(key)
+  }
 }
 
 /**
  * Resolve a mensagem final pronta para envio.
  * @returns {Promise<string>} texto renderizado (placeholders substituídos).
  */
-async function resolverMensagem(pool, { empresaId = null, grupo, chave, values = {}, log = null } = {}) {
+async function resolverMensagem(pool, { empresaId = null, evolutionInstance = null, grupo, chave, values = {}, log = null } = {}) {
   try {
     if (!grupoValido(grupo) || !chavesDoGrupo(grupo).includes(chave)) {
       throw new Error(`grupo/chave inválido: ${grupo}/${chave}`)
     }
-    const ativo = await _carregarAtivo(pool, empresaId)
+    const ativo = await _carregarAtivo(pool, empresaId, evolutionInstance)
     const salvos = normalizar(grupo, ativo[grupo])
     const template = salvos[chave] || defaultsDoGrupo(grupo)[chave]
     const empresa = values.empresa != null ? values.empresa : await nomeEmpresa(empresaId)

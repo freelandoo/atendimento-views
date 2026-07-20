@@ -13,6 +13,7 @@ const crypto = require('crypto')
 const { pool } = require('../db')
 const { logger } = require('../logger')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
+const { removerContextoSeOrfao } = require('../db/whatsapp-instances')
 const { criarCliente, FreelandooError, BASE_URL_PADRAO } = require('../freelandoo/client')
 const {
   salvarConexao, atualizarWebhook, listarConexoesPorEmpresa, buscarConexaoDescriptografada,
@@ -197,10 +198,11 @@ router.delete('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res
   )
   if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instância Freelandoo não encontrada.' } })
 
-  // Apaga a instância (CASCADE remove a linha em freelandoo_connections) e o contexto dela.
+  // Apaga a instância (CASCADE remove a conexão). O contexto só é removido se
+  // não estiver compartilhado com outra instância.
   await pool.query('DELETE FROM app.empresa_whatsapp_instances WHERE id = $1 AND empresa_id = $2', [inst.id, req.empresa.id])
   if (inst.contexto_id) {
-    await pool.query('DELETE FROM app.empresa_contextos WHERE id = $1 AND empresa_id = $2', [inst.contexto_id, req.empresa.id])
+    await removerContextoSeOrfao(pool, req.empresa.id, inst.contexto_id)
   }
   return res.json({ ok: true, data: { id: inst.id, deleted: true } })
 })
