@@ -34,6 +34,21 @@ const STATUS_RODAVEL = new Set(['coletado', 'contato_encontrado', 'aguardando', 
 const ORIGENS_PLACES = new Set(['manual', 'automatico'])
 const STATUS_EVOLUTION_SUCESSO = new Set(['DELIVERY_ACK', 'READ', 'PLAYED'])
 
+// A Evolution usa schemas diferentes entre os ambientes existentes deste projeto:
+// Docker local grava em public; Railway grava em evolution. Detectamos a relação real
+// e retornamos somente nomes hardcoded — nenhum identificador externo entra no SQL.
+async function resolverTabelaMessageUpdate(pool) {
+  const { rows } = await pool.query(
+    `SELECT to_regclass('evolution."MessageUpdate"') IS NOT NULL AS evolution_disponivel,
+            to_regclass('public."MessageUpdate"') IS NOT NULL AS public_disponivel`
+  )
+  if (rows[0]?.evolution_disponivel) return 'evolution."MessageUpdate"'
+  if (rows[0]?.public_disponivel) return 'public."MessageUpdate"'
+  const err = new Error('Tabela MessageUpdate da Evolution não encontrada')
+  err.code = 'evolution_message_update_missing'
+  throw err
+}
+
 // Colunas do prospect necessárias pro throttle/render/JSON de apresentação (geração IA).
 const COLS_PROSPECT = `id, nome, telefone, status, nicho, cidade, bloqueado_ate, tem_whatsapp,
   origem, email, endereco, rating, avaliacoes, tem_site, site, maps_url,
@@ -85,13 +100,14 @@ function chaveMensagemEvolution(respostaEnvio) {
 async function aguardarStatusEnvioEvolution(pool, respostaEnvio, opts = {}) {
   const { keyId } = chaveMensagemEvolution(respostaEnvio)
   if (!keyId) return null
+  const tabelaMessageUpdate = await resolverTabelaMessageUpdate(pool)
   const timeoutMs = Math.max(0, opts.timeoutMs == null ? 12000 : Number(opts.timeoutMs) || 0)
   const intervalMs = Math.max(100, opts.intervalMs == null ? 700 : Number(opts.intervalMs) || 100)
   const fim = Date.now() + timeoutMs
   while (true) {
     const { rows } = await pool.query(
       `SELECT status
-         FROM public."MessageUpdate"
+         FROM ${tabelaMessageUpdate}
         WHERE "keyId" = $1
         ORDER BY CASE status
           WHEN 'ERROR' THEN 0
@@ -681,6 +697,7 @@ async function marcarConfirmacaoPendente(pool, disparoId, keyId, motivo) {
 
 async function reconciliarConfirmacoesPendentes(pool, limit = 100) {
   const max = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 1000)
+  const tabelaMessageUpdate = await resolverTabelaMessageUpdate(pool)
   await pool.query(
     `UPDATE prospectador.lead_disparos
         SET status = 'pendente_confirmacao', erro = 'confirmacao_pendente:worker_interrompido'
@@ -692,7 +709,7 @@ async function reconciliarConfirmacoesPendentes(pool, limit = 100) {
        FROM prospectador.lead_disparos d
        LEFT JOIN LATERAL (
          SELECT mu.status
-           FROM public."MessageUpdate" mu
+           FROM ${tabelaMessageUpdate} mu
           WHERE mu."keyId" = d.evolution_message_id
           ORDER BY CASE UPPER(mu.status::text)
             WHEN 'ERROR' THEN 0
@@ -834,6 +851,7 @@ module.exports = {
   afirmarEnvioNaoFalhouNaEvolution,
   enviarLoteEmBackground,
   reconciliarConfirmacoesPendentes,
+  resolverTabelaMessageUpdate,
   finalizarDisparoEnviado,
   renderSaudacao,
   estadoThrottle,

@@ -258,3 +258,22 @@ cronológica inversa (mais recente no topo).
 - **Impacto:** servicos `followup-call-score`/`followup-listing`, contrato de leitura da rota existente, tela e testes; sem banco, auth, segredo, integracao externa ou prompt de producao.
 - **Riscos:** a qualidade da recomendacao depende dos sinais ja coletados no perfil; por seguranca, o prompt proibe inventar dados comerciais e exige contexto minimo antes de aparecer.
 - **Como validar:** testes unitarios das prioridades e janelas, teste da listagem/SQL, consulta read-only ao banco, suite completa, typechecks e verificacao das rotas em execucao.
+
+---
+
+## 2026-07-20 - Resolver MessageUpdate pelo schema real da Evolution
+
+- **Decisao:** Detectar por `to_regclass` se a tabela `MessageUpdate` esta em `evolution`
+  ou `public` antes da checagem e reconciliacao dos disparos.
+- **Motivo:** O Railway usa o schema `evolution`, enquanto o Docker local existente configura
+  a Evolution com `schema=public`; o nome hardcoded em `public` abortava todos os ticks.
+- **Alternativas consideradas:** fixar `evolution` e quebrar o ambiente local; criar nova
+  variavel de ambiente; criar view/migration de compatibilidade; consultar schemas arbitrarios.
+- **Escolha:** Resolver somente os dois schemas conhecidos e retornar nomes de tabela hardcoded,
+  sem interpolar entrada externa nem introduzir configuracao operacional.
+- **Impacto:** leitura da integracao Evolution e worker do Banco de Leads; nenhum impacto em
+  banco/schema, auth, segredos, prompts, frontend ou contratos HTTP.
+- **Riscos:** se a Evolution mudar para um terceiro schema, a aplicacao falhara explicitamente
+  com `evolution_message_update_missing` em vez de ignorar confirmacoes.
+- **Como validar:** cobertura dos schemas `public`/`evolution`, ausencia dos dois, suite
+  completa, typecheck, deploy Railway e tick real sem `tick falhou`.

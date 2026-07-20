@@ -412,3 +412,16 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Areas possivelmente impactadas:** Servicos de priorizacao, consulta autenticada e tela de Follow-ups; sem migration, nova dependencia, segredo, prompt de producao, worker ou alteracao de permissao.
 - **Confirmacao:** O usuario aprovou explicitamente a implementacao e restringiu preview a copia de prompt para geracao externa, sem gerar imagem dentro do projeto.
 - **Proxima etapa:** Implementar a menor extensao do contrato existente e validar criterios, consulta real, suite completa, typechecks e aplicacao local.
+
+## 2026-07-20 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Codex
+- **Pedido resumido:** Corrigir o modo Automatico da PJ Codeworks no Railway apos confirmar que todos os ticks falham antes de avaliar a empresa.
+- **E projeto/tarefa de alteracao?** Sim (servico de disparo, worker e teste de regressao).
+- **Workflow padrao consultado?** AGENTS.md, docs/ai-workflow.md, docs/project-map.md, docs/architecture-rules.md, docs/project-change-map.md, docs/ai-decision-log.md e docs/project-architecture.md: Sim.
+- **Areas possivelmente impactadas:** Back-end, worker do Banco de Leads e leitura da tabela Evolution; sem migration, frontend, autenticacao, segredo, prompt ou alteracao de permissao.
+- **Diagnostico confirmado:** O codigo consulta `public."MessageUpdate"`, mas o Railway armazena a tabela em `evolution."MessageUpdate"`; a reconciliacao lanca erro antes de executar o modo Automatico.
+- **Confirmacao:** O usuario autorizou explicitamente a correcao. A solucao detectara somente os schemas permitidos `evolution` e `public`, preservando o Docker local e sem nova configuracao.
+- **Proxima etapa:** Implementar a resolucao segura da relacao, adicionar cobertura dos dois ambientes, validar e observar um tick real no Railway.
+
+---

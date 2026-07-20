@@ -243,3 +243,17 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
   autenticada recusou acesso sem token (401).
 - Documentos atualizados: `AGENTS.md`, `ai-task-start-log.md`, `ai-decision-log.md`,
   `project-map.md`, `project-architecture.md` e este mapa.
+
+## 2026-07-20 - Banco de Leads - MessageUpdate compativel entre Railway e Docker
+
+- Area(s) tocada(s): servico de disparo/reconciliacao (`rodar-leads.js`) e testes.
+- Regras preservadas: sucesso somente em estado terminal da Evolution, isolamento por empresa,
+  lock do worker, elegibilidade, janela, teto, cooldown e envio unitario pelo motor existente.
+- O que mudou: antes de consultar confirmacoes, o backend verifica com `to_regclass` se
+  `MessageUpdate` vive em `evolution` (Railway) ou `public` (Docker local) e usa apenas um
+  dos dois nomes hardcoded; se nenhum existir, falha com codigo operacional explicito.
+- Impacto: corrige tanto a checagem logo apos o envio quanto a reconciliacao do worker, sem
+  migration, variavel de ambiente, segredo, endpoint, frontend ou alteracao de schema.
+- Validacao: testes focados 39/39, suite completa 896/896 e typecheck do backend passaram;
+  a validacao final exige deploy e observacao de tick real no Railway.
+- Documentos atualizados: `ai-task-start-log.md`, `ai-decision-log.md` e este mapa.

@@ -4,7 +4,7 @@ const assert = require('node:assert')
 const {
   renderSaudacao, rodarLeads, gerarMensagensSemi, dispararGerados, estadoEnvioInstancia,
   aguardarStatusEnvioEvolution, afirmarEnvioNaoFalhouNaEvolution, enviarLoteEmBackground,
-  reconciliarConfirmacoesPendentes,
+  reconciliarConfirmacoesPendentes, resolverTabelaMessageUpdate,
   separarElegiveis, exigirInstanciaConectada, carregarInstancia, STATUS_RODAVEL,
 } = require('../src/services/rodar-leads')
 
@@ -14,6 +14,9 @@ function makePool(handlers) {
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(String(sql).trim())) return { rows: [], rowCount: 0 }
     for (const [needle, fn] of handlers) {
       if (sql.includes(needle)) return fn(params, sql)
+    }
+    if (sql.includes("to_regclass('evolution.\"MessageUpdate\"')")) {
+      return { rows: [{ evolution_disponivel: false, public_disponivel: true }] }
     }
     if (
       sql.includes('prospectador.prospeccao_bloqueios') ||
@@ -227,6 +230,40 @@ test('aguardarStatusEnvioEvolution lê ERROR do MessageUpdate pelo key id', asyn
   await assert.rejects(
     () => afirmarEnvioNaoFalhouNaEvolution(pool, { key: { id: 'msg-1' } }, { timeoutMs: 0 }),
     (err) => err.evolutionClassificacao?.tipo === 'message_error'
+  )
+})
+
+test('MessageUpdate usa o schema evolution quando ele existe no Railway', async () => {
+  let consultaEvolution = false
+  const pool = makePool([
+    ["to_regclass('evolution.\"MessageUpdate\"')", () => ({
+      rows: [{ evolution_disponivel: true, public_disponivel: false }],
+    })],
+    ['FROM evolution."MessageUpdate"', () => {
+      consultaEvolution = true
+      return { rows: [{ status: 'DELIVERY_ACK' }] }
+    }],
+  ])
+  const tabela = await resolverTabelaMessageUpdate(pool)
+  assert.equal(tabela, 'evolution."MessageUpdate"')
+  const status = await aguardarStatusEnvioEvolution(
+    pool,
+    { key: { id: 'msg-railway' } },
+    { timeoutMs: 0 }
+  )
+  assert.equal(consultaEvolution, true)
+  assert.deepEqual(status, { keyId: 'msg-railway', status: 'DELIVERY_ACK' })
+})
+
+test('MessageUpdate falha de forma explícita quando nenhum schema existe', async () => {
+  const pool = makePool([
+    ["to_regclass('evolution.\"MessageUpdate\"')", () => ({
+      rows: [{ evolution_disponivel: false, public_disponivel: false }],
+    })],
+  ])
+  await assert.rejects(
+    () => resolverTabelaMessageUpdate(pool),
+    (err) => err.code === 'evolution_message_update_missing'
   )
 })
 
