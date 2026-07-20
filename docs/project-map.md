@@ -21,6 +21,7 @@ dashboard estático e jobs de prospecção.
 ### Entrada HTTP / rotas
 - `routes.js` — agregador de rotas.
 - `webhook-handler.js`, `whatsapp-routes.js`, `ai-routes.js`, `ai-test-routes.js`.
+- `routes/api-follow-ups.js` — API autenticada multiempresa da Central de Follow-ups.
 
 ### Conversa / funil / orquestração (regra de negócio)
 - `agent.js` — núcleo da conversa, funil e parsing das respostas LLM.
@@ -29,6 +30,9 @@ dashboard estático e jobs de prospecção.
 - `conversation-pipeline.js`, `conversation-stage-classifier.js`.
 - `intent-detector.js`, `confusion-handler.js`, `question-limiter.js`.
 - `follow-up.js`, `followup-auto.js`, `followup-execution.js`.
+- `services/followup-listing.js`, `followup-manual.js`, `followup-call-score.js` —
+  fila de atendimento humano, próxima ação determinística, prompt externo de preview, roteiro
+  de ligação e envio manual da Central de Follow-ups.
 - `operator-commands.js`, `operator-meeting-detector.js`, `meeting-invite.js`.
 - `lead-profile.js`, `lead-profile-canonical.js`, `learning.js`.
 - `message-buffer.js`, `message-limits.js`, `reply-delay.js`.
@@ -41,6 +45,8 @@ dashboard estático e jobs de prospecção.
 ### Acesso a dados
 - `db.js` — pool, init/migração via `sql/init.sql` (fallback inline).
 - `db-crud.js` — operações CRUD.
+- `db/followup-config.js`, `db/followup-ligacoes.js` — configuração por empresa,
+  registro de ligações e métricas da Central de Follow-ups.
 
 ### Integrações externas
 - `ai-provider.js`, `ai-response.js`, `ai-structured-analysis.js` — LLM (Anthropic).

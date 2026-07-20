@@ -234,3 +234,27 @@ cronológica inversa (mais recente no topo).
   worker; um provedor pode cobrar registros além dos 200 importados pelo aplicativo.
 - **Como validar:** migration real, testes puros de agenda/resultado, suíte completa, typecheck,
   contrato HTTP autenticado e inspeção visual desktop/mobile sem disparar coleta.
+
+---
+
+## 2026-07-20 - Central de Follow-ups com pausa forte e registro consistente
+
+- **Decisao:** Tratar `app.followup_config.pausado` como bloqueio efetivo do modo Automatico tanto no watcher quanto no executor de jobs ja enfileirados; restringir o envio complementar pos-ligacao ao resultado `nao_atendeu`; registrar `sem_interesse` e a pausa do lead em uma unica operacao SQL.
+- **Motivo:** Evitar envio depois de uma pausa administrativa, combinacoes comerciais contraditorias e estado parcial entre historico da ligacao e opt-out do lead.
+- **Alternativas consideradas:** cancelar definitivamente todos os jobs ao pausar; validar apenas no frontend; manter INSERT e UPDATE em queries separadas; abrir transacao explicita na rota.
+- **Escolha:** O job pausado volta para `pending` com atraso de cinco minutos e sem consumir tentativa; backend e banco protegem as invariantes; uma CTE modificadora mantem o registro atomico sem transacao longa.
+- **Impacto:** back-end, worker, banco, tela de Follow-ups e metricas de IA por tenant; sem nova dependencia, segredo ou prompt.
+- **Riscos:** jobs pausados continuam visiveis como pendentes e sao revisitados periodicamente; a migration `031` exige que `029/030` tenham sido executadas antes, como ja ocorre pela ordem do migrador.
+- **Como validar:** testes focados de rotas, ligacoes, watcher e ai-provider; `npm test`; typecheck de backend/frontend; aplicacao das migrations e boot local.
+
+---
+
+## 2026-07-20 - Atendimento humano com proxima acao deterministica
+
+- **Decisao:** Renomear o modo Semi para Atendimento humano e recomendar uma unica proxima acao por lead: assumir handoff, ligar, revisar proposta, escrever manualmente ou copiar um prompt de preview para uso externo.
+- **Motivo:** Ligacao e apenas um dos caminhos humanos. Handoff, contexto comercial, tentativas ignoradas, proposta e oportunidade visual pedem orientacoes diferentes e uma janela adequada.
+- **Alternativas consideradas:** manter apenas score de ligacao; deixar a IA escolher toda acao; gerar o preview dentro do produto.
+- **Escolha:** Regras deterministicas e auditaveis no backend, com prioridade explicita. A IA permanece no roteiro de ligacao. Preview nao e gerado nem enviado: o operador apenas copia um prompt contextualizado, gera fora do projeto e revisa o resultado.
+- **Impacto:** servicos `followup-call-score`/`followup-listing`, contrato de leitura da rota existente, tela e testes; sem banco, auth, segredo, integracao externa ou prompt de producao.
+- **Riscos:** a qualidade da recomendacao depende dos sinais ja coletados no perfil; por seguranca, o prompt proibe inventar dados comerciais e exige contexto minimo antes de aparecer.
+- **Como validar:** testes unitarios das prioridades e janelas, teste da listagem/SQL, consulta read-only ao banco, suite completa, typechecks e verificacao das rotas em execucao.

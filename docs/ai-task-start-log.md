@@ -176,6 +176,56 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-07-20 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code (Opus 4.8)
+- **Pedido resumido:** Criar a pagina de Follow-ups (`/dashboard/follow-ups`, admin) com 3 modos:
+  Automatico (visao/controle do motor atual + reprocessar falhas), Semi (LISTA DE QUEM LIGAR:
+  call score por criterios + roteiro de ligacao por IA + meta diaria configuravel) e Manual
+  (gerar/enviar follow-up por IA). Escopo Fase 1 travado; registrar resultado da ligacao e a
+  escada de escalonamento sao Fase 2; config editavel de pesos/intervalos e Fase 3. Plano
+  completo em scratchpad/follow-ups-plano.md.
+- **E projeto/tarefa de alteracao?** Sim (feature grande — front + back + migration + IA).
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | ai-workflow: Sim |
+  project-map: Sim | architecture-rules: Sim | ui-visual-standard: Sim | project-architecture: Sim
+- **Areas possivelmente impactadas:**
+  - Front-end: Sim (nova pagina follow-ups + item no Sidebar)
+  - Back-end: Sim (nova rota api-follow-ups + servicos de score/listagem; reusa motor de followup)
+  - Banco de dados: Sim (migration aditiva: followup_config; followup_ligacoes so na Fase 2)
+  - Custos: Sim (roteiro de ligacao + follow-up manual usam IA — ja rastreado na pagina Uso & Custo)
+  - Integracoes: WhatsApp (envio ja existente) + IA (generateAIResponse)
+  - Permissoes: rota admin-only
+  - Visual/UX: Sim (padrao do Banco de Leads)
+  - Arquitetura: Media (REUSAR o motor de follow-up existente, nao recriar envio/agendamento)
+- **Confirmacao:** Workflow padrao seguido; escopo Fase 1 confirmado com o usuario.
+- **Proxima etapa:** Fase 1 passo 1 — migration followup_config + db/followup-config.js.
+
+---
+
+## 2026-07-20 - Inicio de tarefa IA (Follow-ups Fase 2)
+
+- **IA/Ferramenta:** Claude Code (Opus 4.8)
+- **Pedido resumido:** Fase 2 da pagina de Follow-ups: (1) REGISTRAR RESULTADO da ligacao
+  (atendeu / nao_atendeu / agendou / sem_interesse / ligar_depois) com notas + quem registrou;
+  (2) efeitos: sem_interesse pausa o auto follow-up do lead, opcao de disparar follow-up no
+  WhatsApp quando nao_atendeu, e dedup (lead ligado nas ultimas 12h sai da call-list);
+  (3) METRICAS ligação (total, por resultado, taxa de agendamento); (4) ESCADA de escalonamento
+  visivel (lead que ignorou N follow-ups ganha selo "mensagem esgotou, hora de ligar").
+- **E projeto/tarefa de alteracao?** Sim (feature — front + back + migration).
+- **Workflow padrao consultado?** AGENTS.md/CLAUDE.md/ai-workflow/project-map/architecture-rules: Sim.
+- **Areas possivelmente impactadas:**
+  - Front-end: Sim (aba Semi da pagina Follow-ups: modal de registro + cards de metricas + selo escalado)
+  - Back-end: Sim (novo db/followup-ligacoes.js + endpoints na rota api-follow-ups; ajuste em followup-listing.montarCallList)
+  - Banco de dados: Sim (migration aditiva `030_followup_ligacoes.sql` = vendas.followup_ligacoes)
+  - Custos: eventual disparo de follow-up no WhatsApp reusa o Manual (IA ja rastreada)
+  - Integracoes: WhatsApp (envio ja existente via followup-manual), sem novas
+  - Permissoes: endpoints admin-only (mesmo mount da pagina)
+  - Arquitetura: Baixa/Media — reusa followup-manual para o disparo; nao mexe no engine.
+- **Confirmacao:** Escopo Fase 2 escolhido pelo Victor (AskUserQuestion). Sem env nova.
+- **Proxima etapa:** migration 030 + src/db/followup-ligacoes.js.
+
+---
+
 <!-- Modelo para novas entradas (copie o bloco abaixo):
 
 ## [DATA] - Início de tarefa IA
@@ -325,3 +375,40 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Diagnostico confirmado:** A selecao limitada aos primeiros 15 candidatos encontrou 14 telefones fixos e 1 invalido; havia 139 celulares validos depois deles, com o primeiro na posicao 18.
 - **Confirmacao:** O usuario aprovou explicitamente a varredura que avanca pelos inelegiveis, o reagendamento seguro, o resumo de motivos e a recuperacao de geracoes travadas.
 - **Proxima etapa:** Implementar paginacao limitada por tick com cursor de continuacao, reconciliar `gerando` antigo e validar regressao/operacao real.
+
+---
+
+## 2026-07-20 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Codex
+- **Pedido resumido:** Adicionar uma busca simples por numero na pagina de Conversas e alinhar a listagem ao padrao visual das demais paginas operacionais.
+- **E projeto/tarefa de alteracao?** Sim (UX e consulta da listagem de conversas).
+- **Workflow padrao consultado?** AGENTS.md, docs/ai-workflow.md, docs/project-map.md, docs/architecture-rules.md, docs/ui-visual-standard.md, docs/GUIA-VISUAL-PJ-CODEWORKS.md e docs/project-architecture.md: Sim.
+- **Areas possivelmente impactadas:** Front-end e rota autenticada de leitura de conversas; sem impacto em banco/schema, permissoes, segredos, prompts, jobs ou integracoes externas.
+- **Confirmacao:** O pedido e pequeno, claro e preserva o padrao existente; nao exige confirmacao arquitetural adicional.
+- **Proxima etapa:** Implementar filtro seguro por numero, reorganizar a listagem com os componentes existentes e validar testes/typecheck.
+
+---
+
+## 2026-07-20 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Codex (continuacao de tarefa iniciada no Claude)
+- **Pedido resumido:** Auditar o que faltava para concluir a Central de Follow-ups e finalizar os pontos pendentes apos confirmacao do usuario.
+- **E projeto/tarefa de alteracao?** Sim (backend, banco, worker, UI, testes e governanca).
+- **Workflow padrao consultado?** AGENTS.md, docs/ai-workflow.md, docs/project-map.md, docs/architecture-rules.md, docs/ui-visual-standard.md, docs/GUIA-VISUAL-PJ-CODEWORKS.md e docs/project-architecture.md: Sim.
+- **Areas possivelmente impactadas:** Front-end, back-end, worker de jobs, banco, metricas de custo por empresa e UX; sem nova dependencia, segredo, prompt de producao ou permissao.
+- **Diagnostico confirmado:** A pausa nao bloqueava jobs ja enfileirados; a API permitia envio complementar para resultados incompativeis; logs de IA perdiam referencias camelCase/empresa; validacao e cobertura HTTP estavam incompletas; tabelas precisavam de responsividade e filtros reversiveis.
+- **Confirmacao:** O usuario confirmou explicitamente a execucao com "pode".
+- **Proxima etapa:** Aplicar hardening de menor escopo, documentar e executar testes, typechecks, migration/boot e verificacao operacional.
+
+---
+
+## 2026-07-20 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Codex
+- **Pedido resumido:** Ampliar a aba Ligacoes para Atendimento humano, orientando a melhor proxima acao e o momento adequado para executa-la.
+- **E projeto/tarefa de alteracao?** Sim (criterios operacionais no backend, UX e testes).
+- **Workflow padrao consultado?** AGENTS.md, docs/ai-workflow.md, docs/project-map.md, docs/architecture-rules.md, docs/ui-visual-standard.md, docs/ai-decision-log.md e docs/project-architecture.md: Sim.
+- **Areas possivelmente impactadas:** Servicos de priorizacao, consulta autenticada e tela de Follow-ups; sem migration, nova dependencia, segredo, prompt de producao, worker ou alteracao de permissao.
+- **Confirmacao:** O usuario aprovou explicitamente a implementacao e restringiu preview a copia de prompt para geracao externa, sem gerar imagem dentro do projeto.
+- **Proxima etapa:** Implementar a menor extensao do contrato existente e validar criterios, consulta real, suite completa, typechecks e aplicacao local.

@@ -97,6 +97,7 @@ app.use('/api/empresas/:empresaId/leads-quentes', require('./src/routes/api-lead
 app.use('/api/empresas/:empresaId/prospeccao', requireAuth, requireRole('admin'), require('./src/routes/api-prospeccao'))
 app.use('/api/empresas/:empresaId/captacao', requireAuth, requireRole('admin'), require('./src/routes/api-captacao'))
 app.use('/api/empresas/:empresaId/banco-leads', requireAuth, requireRole('admin'), require('./src/routes/api-banco-leads'))
+app.use('/api/empresas/:empresaId/follow-ups', requireAuth, requireRole('admin'), require('./src/routes/api-follow-ups'))
 app.use('/api/empresas/:empresaId/agenda', require('./src/routes/api-agenda'))
 app.use('/api/empresas/:empresaId/relatorios', requireAuth, requireRole('admin'), require('./src/routes/api-relatorios'))
 app.use('/api/empresas/:empresaId/agente-pj', require('./src/routes/api-agente-pj'))

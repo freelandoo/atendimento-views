@@ -76,7 +76,7 @@ function criarPoolMock({ leaderAcquired = true, encerramentoRows = 0, elegiveis 
         if (/INSERT INTO vendas\.job_queue/i.test(norm)) {
           return { rows: [{ id: 8888 }] }
         }
-        if (/SELECT.*FROM vendas\.followup_auto_agendamentos.*WHERE id = \$1/i.test(norm)) {
+        if (/SELECT.*FROM vendas\.followup_auto_agendamentos.*WHERE (?:fa\.)?id = \$1/i.test(norm)) {
           return existingAgendamento ? { rows: [existingAgendamento] } : { rows: [] }
         }
 
@@ -310,4 +310,32 @@ test('6. SQL corrigido NAO faz SELECT FROM updated (causa do bug original)', asy
     'SELECT corrigido nao pode ler de "updated" (origem do bug do commit 55b2c83)')
   assert.match(sqlSelect.sql, /FROM vendas\.conversas c/i,
     'SELECT corrigido deve ler direto de vendas.conversas')
+})
+
+test('9. job ja enfileirado e adiado sem envio quando a empresa esta pausada', async () => {
+  const existente = {
+    id: 321,
+    status: 'agendado',
+    numero: '5511999999999@s.whatsapp.net',
+    empresa_id: 'empresa-1',
+    empresa_pausada: true,
+    historico: [{ role: 'assistant', content: 'mensagem anterior' }],
+  }
+  const { pool, captura } = criarPoolMock({ existingAgendamento: existente })
+  let envios = 0
+  const deps = depsBase(pool)
+  deps.executarFollowupUmNumero = async () => { envios += 1 }
+  const fa = createFollowupAuto(deps)
+
+  const resultado = await fa.processarFollowupAutoJob({
+    id: 777,
+    payload: { agendamento_id: 321, numero: existente.numero },
+  })
+
+  assert.deepEqual(resultado, { jobReagendado: true })
+  assert.equal(envios, 0, 'empresa pausada nao pode enviar follow-up automatico')
+  const reagendamento = captura.queries.find((q) => /UPDATE vendas\.job_queue/i.test(q.sql))
+  assert.ok(reagendamento, 'job deve voltar para pending em vez de ser concluido')
+  assert.match(reagendamento.sql, /status = 'pending'/)
+  assert.equal(reagendamento.params[0], 777)
 })

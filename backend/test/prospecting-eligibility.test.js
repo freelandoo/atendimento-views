@@ -151,6 +151,30 @@ test('eligibilidade: bloqueia job pendente de prospeccao', async () => {
   assert.equal(r.reason, 'job_prospeccao_pendente')
 })
 
+test('eligibilidade (complianceOnly): bloqueia telefone ja contatado por OUTRO prospect', async () => {
+  const pool = criarPoolElegibilidade({
+    prospect: { id: '66666666-6666-4666-8666-666666666666', telefone: '5511999999999', status: 'enviado', updated_at: '2026-05-11T00:00:00Z' },
+  })
+  const r = await canProspectLead(pool, '11999999999', {
+    prospectId: '77777777-7777-4777-8777-777777777777',
+    complianceOnly: true,
+  })
+  assert.equal(r.allowed, false)
+  assert.equal(r.reason, 'telefone_ja_contatado')
+  assert.equal(r.existingProspectId, '66666666-6666-4666-8666-666666666666')
+})
+
+test('eligibilidade (complianceOnly): permite reprocessar o PROPRIO prospect ja enviado', async () => {
+  const pool = criarPoolElegibilidade({
+    prospect: { id: '66666666-6666-4666-8666-666666666666', telefone: '5511999999999', status: 'enviado', updated_at: '2026-05-11T00:00:00Z' },
+  })
+  const r = await canProspectLead(pool, '11999999999', {
+    prospectId: '66666666-6666-4666-8666-666666666666',
+    complianceOnly: true,
+  })
+  assert.equal(r.allowed, true)
+})
+
 test('eligibilidade: permite lead limpo e retorna contexto normalizado', async () => {
   const pool = criarPoolElegibilidade({
     prospect: { id: '55555555-5555-4555-8555-555555555555', telefone: '5511999999999', status: 'aguardando', updated_at: '2026-05-01T00:00:00Z' },

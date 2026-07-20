@@ -85,6 +85,19 @@ O frontend apenas edita e apresenta essa configuração. O scheduler admite uma 
 empresa; o worker registra quantos `place_id` eram realmente novos e decide entre continuar,
 trocar de mercado ou declarar o mercado fixo esgotado. O envio permanece fora deste fluxo.
 
+### 2026-07-20 - Central de Follow-ups multiempresa
+
+A Central de Follow-ups usa a mesma separacao do restante do SaaS: rota autenticada em
+`src/routes/api-follow-ups.js`, regra operacional em `src/services/followup-*.js`, acesso a
+dados em `src/db/followup-*.js` e apresentacao no frontend Next.js. A configuracao por empresa
+e a fonte de verdade dos modos Manual, Semi e Automatico. A pausa do Automatico e verificada
+na selecao e novamente na execucao; jobs existentes sao adiados, nao enviados ou descartados.
+Resultados de ligacao e seus efeitos de opt-out sao consistentes no banco, e chamadas de IA
+registram `empresa_id`, tokens, custo estimado e referencias quando fornecidas. No modo Semi, a
+fila de Atendimento humano escolhe uma unica proxima acao por regras deterministicas; IA continua
+restrita ao roteiro de ligacao. Quando um preview visual fizer sentido, o sistema apenas monta e
+copia um prompt contextualizado para uso externo, sem gerar, enviar ou persistir imagem.
+
 <!-- Modelo (ver também ai-decision-log.md):
 
 ### [DATA] — [Decisão]

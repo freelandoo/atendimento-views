@@ -435,8 +435,7 @@ async function processarJob(job) {
     return
   }
   if (job.tipo === 'followup_auto') {
-    await processarFollowupAutoJob(job)
-    return
+    return processarFollowupAutoJob(job)
   }
   if (job.tipo === 'agenda_lembrete_reuniao') {
     await processarLembreteReuniaoJob(job)
@@ -513,9 +512,13 @@ async function jobWorkerTick() {
     const jobLog = loggerForJob(job, { request_id: job.payload?.request_id || null })
     try {
       jobLog.info('Job iniciado')
-      await processarJob(job)
-      await concluirJob(job.id)
-      jobLog.info('Job concluido')
+      const resultadoJob = await processarJob(job)
+      if (resultadoJob?.jobReagendado === true) {
+        jobLog.info('Job reagendado pelo processador')
+      } else {
+        await concluirJob(job.id)
+        jobLog.info('Job concluido')
+      }
     } catch (err) {
       jobLog.error({ err: serializeError(err) }, 'Erro no job worker')
       await falharOuReagendarJob(job, err)

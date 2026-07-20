@@ -4,6 +4,7 @@ const { aplicarNomeEmpresaProfundo } = require('./institutional-language')
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
+const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
 
 // Preços em USD por TOKEN (não por 1k). Atualize quando houver mudança de tabela.
 // Usado pela camada SaaS (api-llm-uso) para estimar custo a partir do usage logado.
@@ -349,11 +350,29 @@ async function _doCall(provider, model, opts) {
   return _callAnthropic({ model, ...opts })
 }
 
-async function _logAI(pool, { provider, model, task, success, errorMessage, latency, fallback_used }) {
+// Normaliza o `usage` das duas APIs (OpenAI: prompt/completion_tokens; Anthropic:
+// input/output_tokens) para { input, output } em número (ou null quando ausente).
+function _tokensDoUsage(usage) {
+  if (!usage || typeof usage !== 'object') return { input: null, output: null }
+  const inp = usage.input_tokens != null ? usage.input_tokens : usage.prompt_tokens
+  const out = usage.output_tokens != null ? usage.output_tokens : usage.completion_tokens
+  return {
+    input: inp == null ? null : Number(inp),
+    output: out == null ? null : Number(out),
+  }
+}
+
+async function _logAI(pool, { provider, model, task, success, errorMessage, latency, fallback_used, usage, empresa_id, ref_type, ref_id, client_numero }) {
   if (!pool) return
   try {
+    const { input, output } = _tokensDoUsage(usage)
+    // Custo estimado pela tabela de preços (computeCost). Só calcula quando há tokens.
+    const cost = (input != null || output != null) ? (computeCost(model, input || 0, output || 0) || 0) : null
     await pool.query(
-      'INSERT INTO vendas.ai_logs (provider, model, task, success, error_message, latency_ms) VALUES ($1,$2,$3,$4,$5,$6)',
+      `INSERT INTO vendas.ai_logs
+         (provider, model, task, success, error_message, latency_ms,
+          empresa_id, input_tokens, output_tokens, cost_usd, ref_type, ref_id, client_numero)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
       [
         provider,
         model,
@@ -361,6 +380,13 @@ async function _logAI(pool, { provider, model, task, success, errorMessage, late
         success,
         errorMessage || null,
         Math.round(latency),
+        empresa_id || PJ_EMPRESA_ID,
+        input,
+        output,
+        cost,
+        ref_type || null,
+        ref_id != null ? String(ref_id) : null,
+        client_numero != null ? String(client_numero) : null,
       ]
     )
   } catch (_) {}
@@ -438,14 +464,23 @@ async function generateAIResponse(input, pool, log) {
     log.info(`[AI_ENGINE] conversation messages loaded: ${Array.isArray(input.messages) ? input.messages.length : 0}`)
   }
 
+  // Referências opcionais para a página Uso & Custo (por contexto / por cliente).
+  // Best-effort: só preenche quando o caller passou. A rota tolera nulos (cai no task).
+  const logRef = {
+    empresa_id: input.empresa_id || input.empresaId || null,
+    ref_type: input.ref_type || input.refType || (input.contextoId ? 'contexto' : null),
+    ref_id: input.ref_id || input.refId || input.contextoId || null,
+    client_numero: input.client_numero || input.clientNumero || input.numero || null,
+  }
+
   try {
     const result = await _doCall(provider, model, { ...callOpts, timeoutMs: primaryTimeoutMs })
     if (log && typeof log.info === 'function') log.info('[AI_ENGINE] fallback used: false')
-    await _logAI(pool, { provider: result.provider, model: result.model, task, success: true, latency: Date.now() - inicio })
+    await _logAI(pool, { provider: result.provider, model: result.model, task, success: true, latency: Date.now() - inicio, usage: result.usage, ...logRef })
     return { ...result, fallback_used: false }
   } catch (primaryErr) {
     if (disableFallback || !settings.fallback_enabled || !settings.fallback_provider) {
-      await _logAI(pool, { provider, model, task, success: false, errorMessage: primaryErr.message, latency: Date.now() - inicio })
+      await _logAI(pool, { provider, model, task, success: false, errorMessage: primaryErr.message, latency: Date.now() - inicio, ...logRef })
       throw primaryErr
     }
     const fbProvider = settings.fallback_provider
@@ -457,11 +492,11 @@ async function generateAIResponse(input, pool, log) {
     try {
       const result = await _doCall(fbProvider, fbModel, { ...callOpts, timeoutMs: fallbackTimeoutMs })
       if (log && typeof log.info === 'function') log.info('[AI_ENGINE] fallback used: true')
-      await _logAI(pool, { provider: result.provider, model: result.model, task, success: true, latency: Date.now() - inicio, fallback_used: true })
+      await _logAI(pool, { provider: result.provider, model: result.model, task, success: true, latency: Date.now() - inicio, fallback_used: true, usage: result.usage, ...logRef })
       return { ...result, fallback_used: true, primary_error: primaryErr.message }
     } catch (fallbackErr) {
       const errMsg = `primary: ${primaryErr.message}; fallback: ${fallbackErr.message}`
-      await _logAI(pool, { provider: fbProvider, model: fbModel, task, success: false, errorMessage: errMsg, latency: Date.now() - inicio, fallback_used: true })
+      await _logAI(pool, { provider: fbProvider, model: fbModel, task, success: false, errorMessage: errMsg, latency: Date.now() - inicio, fallback_used: true, ...logRef })
       throw fallbackErr
     }
   }

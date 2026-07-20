@@ -899,6 +899,7 @@ export default function BancoLeadsPage() {
           sem_whatsapp: 'Este número não tem WhatsApp — não dá pra enviar.',
           bloqueado: 'Lead bloqueado (trava anti-ban).',
           sem_telefone: 'Lead sem telefone.',
+          telefone_ja_contatado: 'Esse telefone já recebeu contato por outro cadastro (duplicado).',
         }
         fb.toast(motivo ? (MOTIVOS[motivo] || `Não enviado (${motivo}).`) : 'Nada para enviar.', motivo === 'sem_whatsapp' ? 'error' : 'info')
         if (motivo === 'sem_whatsapp') { setConversaAberta(null); setTimeout(() => { carregarLeads(); carregarResumo() }, 1200) }

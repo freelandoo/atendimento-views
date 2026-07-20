@@ -194,3 +194,52 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
 - Validacao operacional: o worker disparou sozinho, a Evolution confirmou a entrega, o banco
   marcou o disparo como `enviado` e persistiu o proximo horario aleatorio.
 - Documentos atualizados: `ai-task-start-log.md` e este mapa.
+
+## 2026-07-20 - Conversas - busca por numero e listagem padronizada
+- Area(s) tocada(s): rota autenticada de conversas (`api-conversas.js`) e tela
+  `frontend/app/dashboard/conversas/page.tsx`.
+- Regras preservadas: isolamento por `empresa_id`, parametros SQL, limite da consulta,
+  filtros comerciais existentes, historico e acoes de remocao/reenvio.
+- O que mudou: busca por numero com normalizacao de mascara e debounce; respostas antigas
+  da consulta sao ignoradas; busca, filtros, contagem, estados e tabela passaram a compor
+  um unico card no padrao das demais listagens operacionais.
+- Validacao: typecheck do frontend e teste focado multiempresa passaram; a inspecao visual
+  no navegador parou na autenticacao, sem uso ou contorno de credenciais.
+- Documentos atualizados: `ai-task-start-log.md` e este mapa.
+
+## 2026-07-20 - Follow-ups - conclusao e hardening operacional
+
+- Area(s) tocada(s): provedor de IA (`ai-provider.js`), executor de follow-up e job worker
+  (`followup-auto.js`, `agent.js`), rota/servicos/db da Central de Follow-ups, migration `031`,
+  tela `frontend/app/dashboard/follow-ups/page.tsx` e testes focados.
+- Regras preservadas: isolamento por `empresa_id`, auth/admin existente, envio pela integracao
+  WhatsApp atual, regra de negocio no backend e chamadas externas fora de transacao.
+- O que mudou: pausa administrativa tambem adia jobs ja enfileirados sem envio nem consumo de
+  tentativa; envio pos-ligacao so e aceito para `nao_atendeu`; `sem_interesse` grava ligacao e
+  pausa atomicamente; erros 5xx nao vazam detalhes; logs de IA guardam tenant/tokens/custo e
+  referencias camelCase; filtros/tabelas e preferencia de aba ficaram operacionais no mobile;
+  o timer inicial do refresh Freelandoo deixou de manter processos de teste encerrados abertos.
+- Banco: constraints de dominio para modo/meta e indice composto de historico de ligacoes por
+  empresa/numero/data, todos aditivos e idempotentes.
+- Validacao: 882/882 testes passaram; typechecks de backend/frontend e smoke de preco passaram;
+  migration `031` aplicada e confirmada no PostgreSQL; backend 3000 e frontend 3001 responderam,
+  com a rota autenticada recusando acesso sem token (401).
+- Documentos atualizados: `AGENTS.md`, `ai-task-start-log.md`, `ai-decision-log.md`,
+  `project-map.md`, `project-architecture.md` e este mapa.
+
+## 2026-07-20 - Follow-ups - Ligacoes ampliada para Atendimento humano
+
+- Area(s) tocada(s): criterios puros de priorizacao (`followup-call-score.js`), consulta da fila
+  (`followup-listing.js`), rotulo de contrato da rota, tela de Follow-ups e testes focados.
+- Regras preservadas: isolamento por `empresa_id`, rota autenticada existente, IA apenas no roteiro
+  de ligacao, nenhuma geracao/envio de imagem e nenhuma mudanca de banco, worker ou permissao.
+- O que mudou: a fila recomenda uma unica acao entre assumir conversa, ligar, revisar proposta,
+  mensagem manual e copiar prompt de preview; mostra motivo, orientacao e melhor janela. Handoff
+  tem prioridade imediata, tentativas ignoradas favorecem ligacao e preview exige contexto suficiente.
+- Restricao de preview: o botao apenas copia um prompt seguro; a imagem e gerada e revisada fora
+  do projeto, sem chamada a gerador, persistencia ou envio automatico.
+- Validacao: consulta read-only retornou 8 acoes reais sem expor PII; 890/890 testes e os
+  typechecks de backend/frontend passaram; backend 3000 e frontend 3001 responderam, e a rota
+  autenticada recusou acesso sem token (401).
+- Documentos atualizados: `AGENTS.md`, `ai-task-start-log.md`, `ai-decision-log.md`,
+  `project-map.md`, `project-architecture.md` e este mapa.

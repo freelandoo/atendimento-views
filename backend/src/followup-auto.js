@@ -19,6 +19,7 @@ const FOLLOWUP_JANELAS_OTIMIZADAS = [
   { start: [14, 30], end: [17, 0] },
   { start: [18, 30], end: [20, 0] },
 ]
+const FOLLOWUP_PAUSA_RETRY_SEGUNDOS = 300
 
 function createFollowupAuto(deps = {}) {
   const {
@@ -654,6 +655,12 @@ function createFollowupAuto(deps = {}) {
           AND COALESCE(jsonb_array_length(c.historico), 0) > 0
           AND (c.historico->-1->>'role') = 'assistant'
           AND c.atualizado_em <= NOW() - ($1::int * INTERVAL '1 minute')
+          -- Pausa por empresa (pagina de Follow-ups, modo Automatico): se a empresa
+          -- marcou followup_config.pausado, o watcher nao agenda novos follow-ups dela.
+          AND NOT EXISTS (
+            SELECT 1 FROM app.followup_config fc
+            WHERE fc.empresa_id = c.empresa_id AND fc.pausado = true
+          )
           AND NOT EXISTS (
             SELECT 1
             FROM vendas.followup_auto_agendamentos fa
@@ -749,17 +756,34 @@ function createFollowupAuto(deps = {}) {
     const { rows } = await pool.query(
       `
       SELECT fa.*, c.historico, c.status AS conversa_status, c.venda_fechada, c.agente_pausado,
-             c.arquivado,
+             c.arquivado, c.empresa_id,
+             COALESCE(fc.pausado, false) AS empresa_pausada,
              p.temperatura_lead
       FROM vendas.followup_auto_agendamentos fa
       JOIN vendas.conversas c ON c.numero = fa.numero
       LEFT JOIN vendas.lead_profiles p ON p.numero = fa.numero
+      LEFT JOIN app.followup_config fc ON fc.empresa_id = c.empresa_id
       WHERE fa.id = $1
       `,
       [agendamentoId]
     )
     const ag = rows[0]
     if (!ag || ag.status !== 'agendado') return
+    if (ag.empresa_pausada === true) {
+      await pool.query(
+        `UPDATE vendas.job_queue
+            SET status = 'pending',
+                locked_at = NULL,
+                locked_until = NULL,
+                available_at = NOW() + ($2::int * INTERVAL '1 second'),
+                last_error = 'follow-up automatico pausado pela empresa',
+                atualizado_em = NOW()
+          WHERE id = $1`,
+        [job.id, FOLLOWUP_PAUSA_RETRY_SEGUNDOS]
+      )
+      logger.info({ empresa_id: ag.empresa_id, agendamento_id: agendamentoId }, 'Follow-up automatico adiado: empresa pausada')
+      return { jobReagendado: true }
+    }
     const historico = normalizarHistoricoMensagens(ag.historico)
     const ultima = historico[historico.length - 1]
 

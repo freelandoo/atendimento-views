@@ -5,13 +5,14 @@ import { usePathname } from 'next/navigation'
 import { useSession, podePapel, type Role } from '@/lib/useSession'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 
-type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report' | 'accounts' | 'profile' | 'prompts' | 'playbook'
+type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report' | 'accounts' | 'profile' | 'prompts' | 'playbook' | 'followup'
 
 const NAV = [
   { href: '/dashboard', label: 'Visão Geral', icon: 'overview' },
   { href: '/dashboard/conversas', label: 'Conversas', icon: 'chat' },
   { href: '/dashboard/aquisicao', label: 'Aquisição', icon: 'prospect', minRole: 'admin' },
   { href: '/dashboard/banco-leads', label: 'Banco de Leads', icon: 'leads', minRole: 'admin' },
+  { href: '/dashboard/follow-ups', label: 'Follow-ups', icon: 'followup', minRole: 'admin' },
   { href: '/dashboard/agenda', label: 'Agenda', icon: 'agenda' },
   { href: '/dashboard/contextos', label: 'Instância', icon: 'company' },
   { href: '/dashboard/playbook', label: 'Playbook', icon: 'playbook', minRole: 'admin' },
@@ -185,6 +186,11 @@ function NavGlyph({ name, className }: { name: NavIcon; className?: string }) {
           <path {...common} d="M5 6h14v14H5z" />
           <path {...common} d="M5 10h14M8 3v4M16 3v4" />
           <path {...common} d="M9 14h2M13 14h2" />
+        </>
+      )}
+      {name === 'followup' && (
+        <>
+          <path {...common} d="M6.5 4h3l1.5 4-2 1.5a11 11 0 0 0 5 5l1.5-2 4 1.5v3a2 2 0 0 1-2.2 2A15 15 0 0 1 4.5 6.2 2 2 0 0 1 6.5 4z" />
         </>
       )}
       {name === 'context' && (

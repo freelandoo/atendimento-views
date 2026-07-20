@@ -144,6 +144,23 @@
 - `LEAD_MORTA_DIAS` (default `5`): dias sem resposta para considerar a conversa morta.
 - `LEAD_LOCK_WORKER_MS` (default `3600000`): intervalo do worker de auto-lock.
 
+### Central de Follow-ups
+- Página admin multiempresa em `frontend/app/dashboard/follow-ups`, exposta pela rota
+  `src/routes/api-follow-ups.js`. Possui modos **Atendimento humano (Semi)**, **Automático** e
+  **Manual**; a preferência fica em `app.followup_config` (migration `029`).
+- Listagem/priorização e operações manuais vivem em `src/services/followup-listing.js`,
+  `followup-call-score.js` e `followup-manual.js`; configuração, ligações e métricas ficam em
+  `src/db/followup-config.js` e `src/db/followup-ligacoes.js` (migrations `030/031`).
+- O Atendimento humano recomenda uma única próxima ação por critérios determinísticos: assumir
+  handoff, ligar, revisar proposta, escrever manualmente ou copiar um prompt de preview. O prompt
+  serve apenas para geração externa e revisão humana; esta tela não gera, envia ou salva imagens.
+- `pausado=true` bloqueia novos agendamentos e também adia jobs `followup_auto` já enfileirados,
+  sem enviar nem consumir tentativa. O envio complementar depois de uma ligação só é permitido
+  quando o resultado for `nao_atendeu`; `sem_interesse` registra a ligação e pausa o lead
+  atomicamente no PostgreSQL.
+- Logs de IA usados pela Central devem levar `empresaId`/`empresa_id`, referência e número do
+  cliente para que Uso & Custo permaneça isolado por tenant.
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

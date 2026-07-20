@@ -108,6 +108,45 @@ test('OpenAI: prompt COM "JSON" mas SEM responseFormatJson NAO ativa json_object
   })
 })
 
+test('log de uso preserva empresa e referencias em camelCase', async () => {
+  process.env.OPENAI_KEY = 'sk-test-fake'
+  await withAxiosMock(async () => {
+    const { generateAIResponse } = require('../src/ai-provider')
+    const inserts = []
+    const fakePool = {
+      query: async (sql, params) => {
+        if (/SELECT/i.test(sql)) {
+          return { rows: [{ provider: 'openai', model: 'gpt-4o', temperature: 0, max_tokens: 40, fallback_enabled: false }] }
+        }
+        if (/INSERT INTO vendas\.ai_logs/i.test(sql)) inserts.push({ sql, params })
+        return { rows: [] }
+      },
+    }
+
+    await generateAIResponse({
+      systemPrompt: 'Responda de forma curta.',
+      userPrompt: 'Oi.',
+      task: 'followup_manual',
+      provider: 'openai',
+      model: 'gpt-4o',
+      disableFallback: true,
+      empresaId: 'empresa-123',
+      refType: 'followup_manual',
+      refId: 456,
+      clientNumero: '5511999999999@s.whatsapp.net',
+    }, fakePool)
+
+    assert.equal(inserts.length, 1)
+    assert.match(inserts[0].sql, /empresa_id, input_tokens, output_tokens, cost_usd, ref_type, ref_id, client_numero/)
+    assert.equal(inserts[0].params[6], 'empresa-123')
+    assert.equal(inserts[0].params[7], 10)
+    assert.equal(inserts[0].params[8], 5)
+    assert.equal(inserts[0].params[10], 'followup_manual')
+    assert.equal(inserts[0].params[11], '456')
+    assert.equal(inserts[0].params[12], '5511999999999@s.whatsapp.net')
+  })
+})
+
 test('OpenAI: responseFormatJson:true ativa response_format json_object (opt-in)', async () => {
   process.env.OPENAI_KEY = 'sk-test-fake'
   await withAxiosMock(async (requests) => {

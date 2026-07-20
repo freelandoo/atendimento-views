@@ -1,8 +1,9 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import DataTableFrame from '@/components/ui/DataTableFrame'
+import { IconTrash } from '@/components/ui/icons'
 
 type ScoreCriterio = {
   delta: number
@@ -148,18 +149,38 @@ export default function ConversasPage() {
   const [apagando, setApagando] = useState(false)
   const [reenviando, setReenviando] = useState(false)
   const [filtro, setFiltro] = useState<'todos' | Faixa | 'esfriando'>('todos')
+  const [buscaNumero, setBuscaNumero] = useState('')
+  const [carregandoLista, setCarregandoLista] = useState(true)
+  const requisicaoLista = useRef(0)
   const fb = useFeedback()
 
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
 
-  function carregar() {
+  function carregar(numeroBuscado = buscaNumero) {
     if (!empresaId) return
-    apiFetch<Conversa[]>(`/api/empresas/${empresaId}/conversas?limit=50`)
-      .then((r) => setLista(r.data))
-      .catch((e) => setErro(e.message))
+    const requisicao = ++requisicaoLista.current
+    const numero = numeroBuscado.replace(/\D/g, '').slice(0, 20)
+    const params = new URLSearchParams({ limit: '100' })
+    if (numero) params.set('numero', numero)
+
+    setCarregandoLista(true)
+    setErro('')
+    apiFetch<Conversa[]>(`/api/empresas/${empresaId}/conversas?${params.toString()}`)
+      .then((r) => {
+        if (requisicao === requisicaoLista.current) setLista(r.data)
+      })
+      .catch((e) => {
+        if (requisicao === requisicaoLista.current) setErro(e.message)
+      })
+      .finally(() => {
+        if (requisicao === requisicaoLista.current) setCarregandoLista(false)
+      })
   }
 
-  useEffect(() => { carregar() }, [empresaId])
+  useEffect(() => {
+    const timer = window.setTimeout(() => carregar(buscaNumero), 300)
+    return () => window.clearTimeout(timer)
+  }, [empresaId, buscaNumero])
 
   async function removerConversa(c: Conversa) {
     if (!empresaId) return
@@ -244,7 +265,10 @@ export default function ConversasPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Conversas</h1>
+      <div>
+        <h1 className="text-2xl font-bold">Conversas</h1>
+        <p className="mt-1 text-sm text-slate-500">Encontre um contato e acompanhe o histórico do atendimento.</p>
+      </div>
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
 
       {cont.esfriando > 0 && (
@@ -260,32 +284,62 @@ export default function ConversasPage() {
         </button>
       )}
 
-      <div className="flex flex-wrap gap-1.5">
-        {FILTROS.map((f) => {
-          const ativo = filtro === f.valor
-          const isAlerta = f.valor === 'esfriando'
-          return (
-            <button
-              key={f.valor}
-              onClick={() => setFiltro(f.valor)}
-              className={`px-3 py-1 rounded-full text-xs font-medium border transition ${
-                ativo
-                  ? isAlerta ? 'bg-red-600 text-white border-red-600' : 'bg-brand text-white border-brand'
-                  : isAlerta ? 'bg-white text-red-600 border-red-200 hover:bg-red-50' : 'bg-white text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              {f.label} <span className={ativo ? 'opacity-80' : 'text-slate-400'}>({f.n})</span>
-            </button>
-          )
-        })}
-      </div>
+      <section className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b px-4 py-4">
+          <div className="min-w-[240px] flex-1 sm:max-w-xl">
+            <label htmlFor="busca-numero" className="mb-1 block text-xs font-medium text-slate-500">Pesquisar número</label>
+            <div className="relative">
+              <input
+                id="busca-numero"
+                type="search"
+                inputMode="tel"
+                value={buscaNumero}
+                onChange={(e) => setBuscaNumero(e.target.value)}
+                placeholder="Ex.: (11) 99999-9999"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 pr-16 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
+              />
+              {buscaNumero && (
+                <button
+                  type="button"
+                  onClick={() => setBuscaNumero('')}
+                  className="absolute inset-y-0 right-0 px-3 text-xs font-medium text-slate-500 hover:text-brand"
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
+          </div>
+          <p className="pb-2 text-xs text-slate-500" aria-live="polite">
+            {carregandoLista ? 'Buscando conversas…' : `${visiveis.length} conversa${visiveis.length === 1 ? '' : 's'} encontrada${visiveis.length === 1 ? '' : 's'}`}
+          </p>
+        </div>
 
-      <DataTableFrame
-        className="overflow-hidden rounded-xl border bg-white shadow-sm"
-        ariaLabel="Rolagem horizontal da tabela de conversas"
-      >
+        <div className="flex flex-wrap gap-1.5 border-b bg-slate-50/60 px-4 py-3">
+          {FILTROS.map((f) => {
+            const ativo = filtro === f.valor
+            const isAlerta = f.valor === 'esfriando'
+            return (
+              <button
+                key={f.valor}
+                onClick={() => setFiltro(f.valor)}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                  ativo
+                    ? isAlerta ? 'border-red-600 bg-red-600 text-white' : 'border-brand bg-brand text-white'
+                    : isAlerta ? 'border-red-200 bg-white text-red-600 hover:bg-red-50' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                {f.label} <span className={ativo ? 'opacity-80' : 'text-slate-400'}>({f.n})</span>
+              </button>
+            )
+          })}
+        </div>
+
+        <DataTableFrame
+          className="rounded-b-2xl"
+          ariaLabel="Rolagem horizontal da tabela de conversas"
+        >
       <table className="w-full min-w-max text-sm">
-        <thead className="bg-gray-100">
+        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 shadow-[0_1px_0_0_#e2e8f0]">
           <tr>
             <th className="text-left px-4 py-2">Número</th>
             <th className="text-left px-4 py-2">Negócio</th>
@@ -297,28 +351,30 @@ export default function ConversasPage() {
             <th className="text-right px-4 py-2">Ações</th>
           </tr>
         </thead>
-        <tbody>
-          {visiveis.map(({ c, alerta }) => (
-            <tr key={c.numero} className={`border-t hover:bg-gray-50 ${alerta ? 'bg-red-50/60' : ''}`}>
-              <td className="px-4 py-2 font-mono text-xs">{fmtNumero(c.numero)}</td>
-              <td className="px-4 py-2">{c.negocio || '—'}</td>
-              <td className="px-4 py-2">
+        <tbody className="divide-y divide-slate-100">
+          {carregandoLista ? (
+            <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">Buscando conversas…</td></tr>
+          ) : visiveis.map(({ c, alerta }) => (
+            <tr key={c.numero} className={`hover:bg-slate-50/70 ${alerta ? 'bg-red-50/60' : ''}`}>
+              <td className="whitespace-nowrap px-4 py-3 font-mono text-xs font-medium text-slate-700">{fmtNumero(c.numero)}</td>
+              <td className="px-4 py-3 font-medium text-slate-800">{c.negocio || '—'}</td>
+              <td className="px-4 py-3">
                 <div className="inline-flex items-center gap-1.5">
                   <TempBadge t={c.temperatura_lead} />
                   {alerta && <span title="Era quente e está esfriando — intervir" className="text-sm">⚠️</span>}
                 </div>
               </td>
-              <td className="px-4 py-2"><InteresseBadge c={c} compact /></td>
-              <td className="px-4 py-2">{c.estagio}</td>
-              <td className="px-4 py-2">
+              <td className="px-4 py-3"><InteresseBadge c={c} compact /></td>
+              <td className="px-4 py-3">{c.estagio}</td>
+              <td className="px-4 py-3">
                 <span className={`px-2 py-0.5 rounded-full text-xs ${c.status === 'ativo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                   {c.status}
                 </span>
               </td>
-              <td className="px-4 py-2 text-right text-gray-500">
+              <td className="whitespace-nowrap px-4 py-3 text-right text-gray-500">
                 {fmtData(c.atualizado_em)}
               </td>
-              <td className="px-4 py-2 text-right">
+              <td className="px-4 py-3 text-right">
                 <div className="inline-flex items-center gap-2">
                   <button
                     onClick={() => abrirHistorico(c)}
@@ -332,26 +388,23 @@ export default function ConversasPage() {
                     aria-label="Remover"
                     className="text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg p-1.5 transition-colors"
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 6h18"/>
-                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                      <path d="M10 11v6"/>
-                      <path d="M14 11v6"/>
-                    </svg>
+                    <IconTrash className="h-4 w-4" />
                   </button>
                 </div>
               </td>
             </tr>
           ))}
-          {visiveis.length === 0 && (
-            <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">
-              {lista.length === 0 ? 'Nenhuma conversa encontrada.' : 'Nenhuma conversa neste filtro.'}
+          {!carregandoLista && visiveis.length === 0 && (
+            <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400">
+              {buscaNumero.replace(/\D/g, '')
+                ? 'Nenhuma conversa encontrada para esse número.'
+                : lista.length === 0 ? 'Nenhuma conversa encontrada.' : 'Nenhuma conversa neste filtro.'}
             </td></tr>
           )}
         </tbody>
       </table>
-      </DataTableFrame>
+        </DataTableFrame>
+      </section>
 
       {aberta && (
         <div

@@ -104,3 +104,20 @@ test('conversas API — PJ enxerga conversas legadas sem empresa_id e salvarConv
     'salvarConversa deve preencher empresa_id quando a conversa antiga estiver nula'
   )
 })
+
+test('conversas API — busca por numero remove formatacao e usa parametro SQL', () => {
+  const apiConversas = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'api-conversas.js'), 'utf8')
+
+  assert.ok(
+    apiConversas.includes("String(req.query.numero || '').replace(/\\D/g, '').slice(0, 20)"),
+    'busca deve aceitar numero formatado sem repassar texto livre para a consulta'
+  )
+  assert.ok(
+    apiConversas.includes("regexp_replace(c.numero, '[^0-9]', '', 'g') LIKE $"),
+    'filtro deve comparar somente os digitos armazenados'
+  )
+  assert.ok(
+    apiConversas.includes('vals.push(`%${numero}%`)'),
+    'valor pesquisado deve entrar como parametro SQL'
+  )
+})

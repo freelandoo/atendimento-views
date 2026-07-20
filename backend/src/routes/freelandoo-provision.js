@@ -314,7 +314,8 @@ function iniciarRefreshDiarioDePlaybooks() {
       logger.error({ err: err.message }, 'Freelandoo provision: refresh diário falhou')
     }
   }
-  setTimeout(tick, 10 * 60 * 1000) // 10 min após o boot
+  const initialTimer = setTimeout(tick, 10 * 60 * 1000) // 10 min após o boot
+  if (initialTimer.unref) initialTimer.unref()
   const timer = setInterval(tick, DAY_MS)
   if (timer.unref) timer.unref()
 }

@@ -271,6 +271,16 @@ async function canProspectLead(pool, phone, options = {}) {
   // Banco de Leads reutiliza as guardas de compliance, mas possui sua propria
   // reserva/idempotencia. Nao consulta filas/jobs do pipeline legado nesse modo.
   if (options.complianceOnly === true) {
+    // O mesmo telefone pode estar cadastrado em mais de um prospect (ex.: o Google
+    // Maps devolve varias fichas para o mesmo negocio/numero). Se OUTRO prospect com
+    // esse telefone ja recebeu a saudacao de primeiro contato, nao manda de novo.
+    if (prospect && prospect.id !== prospectId && prospect.status === 'enviado') {
+      return motivoBloqueio('telefone_ja_contatado', {
+        normalizedPhone,
+        existingProspectId: prospect.id,
+        lastContactAt: rowAtualizadoEm(prospect) || undefined,
+      })
+    }
     return {
       allowed: true,
       reason: 'ok',

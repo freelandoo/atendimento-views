@@ -43,18 +43,22 @@ function anexarScoreInteresse(conversa) {
   }
 }
 
-// GET /api/empresas/:empresaId/conversas?page=1&limit=50&status=ativo
+// GET /api/empresas/:empresaId/conversas?page=1&limit=50&status=ativo&numero=5511
 router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1)
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50))
   const offset = (page - 1) * limit
   const { status, estagio } = req.query
+  const numero = String(req.query.numero || '').replace(/\D/g, '').slice(0, 20)
 
   const conds = [conversaEmpresaScope('c')]
   const vals = [req.empresa.id, PJ_EMPRESA_ID]
 
   if (status) { conds.push(`c.status = $${vals.push(status)}`); }
   if (estagio) { conds.push(`c.estagio = $${vals.push(estagio)}`); }
+  if (numero) {
+    conds.push(`regexp_replace(c.numero, '[^0-9]', '', 'g') LIKE $${vals.push(`%${numero}%`)}`)
+  }
 
   const where = conds.join(' AND ')
 
