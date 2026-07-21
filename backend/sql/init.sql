@@ -308,7 +308,7 @@ CREATE TABLE IF NOT EXISTS vendas.eventos_comerciais (
   origem     TEXT NOT NULL DEFAULT 'sistema',
   detalhe    JSONB NOT NULL DEFAULT '{}'::jsonb,
   criado_em  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT eventos_comerciais_tipo_chk CHECK (tipo IN ('pediu_preco', 'recebeu_proposta', 'respondeu_followup', 'recebeu_preview')),
+  CONSTRAINT eventos_comerciais_tipo_chk CHECK (tipo IN ('pediu_preco', 'recebeu_proposta', 'respondeu_followup', 'recebeu_preview', 'auto_reply_detectado')),
   CONSTRAINT eventos_comerciais_origem_chk CHECK (origem IN ('sistema', 'operador'))
 );
 
@@ -433,7 +433,7 @@ BEGIN
     ALTER TABLE vendas.eventos_comerciais DROP CONSTRAINT eventos_comerciais_tipo_chk;
   END IF;
   ALTER TABLE vendas.eventos_comerciais ADD CONSTRAINT eventos_comerciais_tipo_chk
-    CHECK (tipo IN ('pediu_preco', 'recebeu_proposta', 'respondeu_followup', 'recebeu_preview'));
+    CHECK (tipo IN ('pediu_preco', 'recebeu_proposta', 'respondeu_followup', 'recebeu_preview', 'auto_reply_detectado'));
 END $$;
 
 CREATE TABLE IF NOT EXISTS vendas.job_queue (
