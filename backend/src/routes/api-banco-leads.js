@@ -32,10 +32,34 @@ const ABAS = {
 }
 const ORIGENS_VALIDAS = new Set(['manual', 'automatico', 'instagram', 'linkedin'])
 
-// Contato "agendado": tem evento FUTURO (pendente/confirmado) na agenda multiempresa
-// (app.agenda_eventos, migration 011), casado por telefone (só dígitos). Usa `prospects`
-// não-qualificado (funciona no FROM prospectador.prospects).
-const AGENDA_FUTURA_EXISTS = `EXISTS (
+// Contato "agendado": tem evento FUTURO (pendente/confirmado). Le as DUAS agendas:
+//  - app.agenda_eventos (migration 011): eventos criados manualmente no dashboard,
+//    casados por telefone (só dígitos).
+//  - vendas.agenda_eventos: reunioes marcadas pelo BOT (criarEventoAgenda). Nao tem
+//    empresa_id/telefone diretos — casa via conversa/lead (mesma empresa) por telefone.
+// Sem a segunda fonte, reunioes agendadas pelo bot nunca apareciam na aba "Agendados".
+// normFone: so digitos, removendo o DDI 55 quando presente (length>=12) — casa o
+// prospects.telefone (geralmente sem 55) com vendas.conversas.numero (JID com 55) sem
+// corromper numeros de DDD 55.
+const _foneDig = (col) => `regexp_replace(COALESCE(${col}, ''), '[^0-9]', '', 'g')`
+const normFone = (col) => `(CASE WHEN length(${_foneDig(col)}) >= 12 AND left(${_foneDig(col)}, 2) = '55' THEN substr(${_foneDig(col)}, 3) ELSE ${_foneDig(col)} END)`
+const AGENDA_VENDAS_FUTURA_EXISTS = `EXISTS (
+  SELECT 1 FROM vendas.agenda_eventos ve
+   WHERE ve.excluido_em IS NULL
+     AND ve.tipo = 'reuniao'
+     AND ve.status IN ('pendente', 'confirmado')
+     AND ve.data_inicio >= NOW()
+     AND NULLIF(${normFone('prospects.telefone')}, '') IS NOT NULL
+     AND (
+       EXISTS (SELECT 1 FROM vendas.conversas vc
+                WHERE vc.id = ve.conversa_id AND vc.empresa_id = prospects.empresa_id
+                  AND ${normFone('vc.numero')} = ${normFone('prospects.telefone')})
+       OR EXISTS (SELECT 1 FROM vendas.lead_profiles vlp
+                   WHERE vlp.id = ve.lead_id AND vlp.empresa_id = prospects.empresa_id
+                     AND ${normFone('vlp.numero')} = ${normFone('prospects.telefone')})
+     )
+)`
+const AGENDA_FUTURA_EXISTS = `(EXISTS (
   SELECT 1 FROM app.agenda_eventos ae
    WHERE ae.empresa_id = prospects.empresa_id
      AND ae.excluido_em IS NULL
@@ -44,7 +68,7 @@ const AGENDA_FUTURA_EXISTS = `EXISTS (
      AND NULLIF(regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g'), '') IS NOT NULL
      AND regexp_replace(COALESCE(ae.lead_telefone, ''), '[^0-9]', '', 'g')
          = regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g')
-)`
+) OR ${AGENDA_VENDAS_FUTURA_EXISTS})`
 function envelopeErro(res, err, code) {
   const status = err.statusCode || 500
   logger.error(`[api-banco-leads] ${code}:`, err.message)
@@ -176,15 +200,33 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
            LIMIT 1
         ) rascunho ON TRUE
         LEFT JOIN LATERAL (
-          SELECT MIN(ae.data_inicio) AS proximo_agendamento
-            FROM app.agenda_eventos ae
-           WHERE ae.empresa_id = prospects.empresa_id
-             AND ae.excluido_em IS NULL
-             AND ae.status IN ('pendente', 'confirmado')
-             AND ae.data_inicio >= NOW()
-             AND NULLIF(regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g'), '') IS NOT NULL
-             AND regexp_replace(COALESCE(ae.lead_telefone, ''), '[^0-9]', '', 'g')
-                 = regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g')
+          SELECT MIN(di) AS proximo_agendamento FROM (
+            SELECT ae.data_inicio AS di
+              FROM app.agenda_eventos ae
+             WHERE ae.empresa_id = prospects.empresa_id
+               AND ae.excluido_em IS NULL
+               AND ae.status IN ('pendente', 'confirmado')
+               AND ae.data_inicio >= NOW()
+               AND NULLIF(regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g'), '') IS NOT NULL
+               AND regexp_replace(COALESCE(ae.lead_telefone, ''), '[^0-9]', '', 'g')
+                   = regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g')
+            UNION ALL
+            SELECT ve.data_inicio AS di
+              FROM vendas.agenda_eventos ve
+             WHERE ve.excluido_em IS NULL
+               AND ve.tipo = 'reuniao'
+               AND ve.status IN ('pendente', 'confirmado')
+               AND ve.data_inicio >= NOW()
+               AND NULLIF(${normFone('prospects.telefone')}, '') IS NOT NULL
+               AND (
+                 EXISTS (SELECT 1 FROM vendas.conversas vc
+                          WHERE vc.id = ve.conversa_id AND vc.empresa_id = prospects.empresa_id
+                            AND ${normFone('vc.numero')} = ${normFone('prospects.telefone')})
+                 OR EXISTS (SELECT 1 FROM vendas.lead_profiles vlp
+                             WHERE vlp.id = ve.lead_id AND vlp.empresa_id = prospects.empresa_id
+                               AND ${normFone('vlp.numero')} = ${normFone('prospects.telefone')})
+               )
+          ) u
         ) agenda ON TRUE
         WHERE ${where} ORDER BY ${ordemLeads} LIMIT $${params.length}`,
       params

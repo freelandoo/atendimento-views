@@ -173,11 +173,18 @@ async function montarCallList(pool, empresaId, opts = {}) {
                      WHERE e.numero = c.numero AND e.tipo = 'recebeu_proposta') AS recebeu_proposta,
             (SELECT COUNT(*)::int FROM vendas.followup_auto_agendamentos fa
                WHERE fa.numero = c.numero AND fa.status = 'executado') AS followups_ignorados,
-            EXISTS (SELECT 1 FROM app.agenda_eventos ae
-                     WHERE ae.empresa_id = c.empresa_id AND ae.excluido_em IS NULL
-                       AND ae.status = 'pendente'
-                       AND regexp_replace(COALESCE(ae.lead_telefone, ''), '[^0-9]', '', 'g')
-                           = regexp_replace(c.numero, '[^0-9]', '', 'g')) AS reuniao_pendente,
+            -- Reuniao marcada nao confirmada / no-show: le as DUAS agendas. app.agenda_eventos
+            -- (criada manualmente no dashboard, casada por telefone) OU vendas.agenda_eventos
+            -- (marcada pelo BOT, ligada exata pela conversa_id). Sem os dois, reunioes do bot
+            -- nunca disparavam esse sinal.
+            (EXISTS (SELECT 1 FROM app.agenda_eventos ae
+                      WHERE ae.empresa_id = c.empresa_id AND ae.excluido_em IS NULL
+                        AND ae.status = 'pendente'
+                        AND regexp_replace(COALESCE(ae.lead_telefone, ''), '[^0-9]', '', 'g')
+                            = regexp_replace(c.numero, '[^0-9]', '', 'g'))
+             OR EXISTS (SELECT 1 FROM vendas.agenda_eventos ve
+                         WHERE ve.conversa_id = c.id AND ve.excluido_em IS NULL
+                           AND ve.tipo = 'reuniao' AND ve.status = 'pendente')) AS reuniao_pendente,
             EXISTS (SELECT 1 FROM vendas.eventos_comerciais e
                      WHERE e.numero = c.numero AND e.tipo = 'recebeu_preview') AS recebeu_preview
        FROM vendas.conversas c
