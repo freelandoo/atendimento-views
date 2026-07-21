@@ -589,8 +589,33 @@ async function generateReport({ dados, tipo = 'geral', pool, log, empresaId }) {
   )
 }
 
+// Modelo para chamadas AUXILIARES (classificação, seleção, extração leve): usa um modelo
+// do provider ATIVO em vez de fixar um provider/modelo. Como generateAIResponse infere o
+// provider pelo modelo, fixar 'claude-*'/'gpt-*' força aquele provider — então um modelo
+// Anthropic fixo tomava 400 quando AI_PROVIDER=openai (Anthropic sem crédito) e caía no
+// fallback. Estes helpers eliminam essa classe de bug e centralizam a escolha.
+//   modeloAuxiliarAtivo()      → modelo PEQUENO/rápido (openai→gpt-4o-mini, anthropic→haiku)
+//   modeloAuxiliarCapazAtivo() → modelo GRANDE/capaz  (openai→gpt-4o,     anthropic→sonnet)
+// Override opcional por AI_AUX_MODEL / AI_AUX_CAPABLE_MODEL (ver AGENTS.md/.env.example).
+function _providerAtivo() {
+  const p = String(process.env.AI_PROVIDER || process.env.DEFAULT_AI_PROVIDER || 'openai').toLowerCase()
+  return p === 'anthropic' ? 'anthropic' : 'openai'
+}
+function modeloAuxiliarAtivo() {
+  const override = String(process.env.AI_AUX_MODEL || '').trim()
+  if (override) return override
+  return _providerAtivo() === 'anthropic' ? 'claude-haiku-4-5-20251001' : 'gpt-4o-mini'
+}
+function modeloAuxiliarCapazAtivo() {
+  const override = String(process.env.AI_AUX_CAPABLE_MODEL || '').trim()
+  if (override) return override
+  return _providerAtivo() === 'anthropic' ? 'claude-sonnet-4-6' : 'gpt-4o'
+}
+
 module.exports = {
   generateAIResponse,
+  modeloAuxiliarAtivo,
+  modeloAuxiliarCapazAtivo,
   getAISettings,
   getGenerationSettings,
   makeGenerationProvider,

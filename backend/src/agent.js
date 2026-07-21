@@ -1256,36 +1256,8 @@ function normalizarRespostaContextualIA(valor = {}) {
 }
 
 /**
- * Modelo para as chamadas AUXILIARES/leves (ex.: classificar_intencao): usa um modelo
- * PEQUENO do provider ATIVO, não um modelo fixo. Antes fixava 'claude-haiku-4-5', que
- * o generateAIResponse roteia SEMPRE para a Anthropic (infere provider pelo modelo) —
- * então, com AI_PROVIDER=openai, toda chamada tomava 400/timeout na Anthropic e caía no
- * fallback heurístico. Override opcional por AI_AUX_MODEL (ver AGENTS.md/.env.example).
- */
-function modeloAuxiliarAtivo() {
-  const override = String(process.env.AI_AUX_MODEL || '').trim()
-  if (override) return override
-  const provider = String(process.env.AI_PROVIDER || process.env.DEFAULT_AI_PROVIDER || 'openai').toLowerCase()
-  return provider === 'anthropic' ? 'claude-haiku-4-5-20251001' : 'gpt-4o-mini'
-}
-
-/**
- * Modelo para chamadas auxiliares que exigem um modelo CAPAZ (ex.: reescrever/incorporar
- * regras num prompt — aplicar_overlay_aprendizado). Mesma lógica de modeloAuxiliarAtivo(),
- * mas escolhe o modelo GRANDE do provider ativo (não o pequeno). Antes fixava
- * 'claude-sonnet-4-6', que ia sempre p/ Anthropic e tomava 400 com AI_PROVIDER=openai.
- * Override opcional por AI_AUX_CAPABLE_MODEL (ver AGENTS.md/.env.example).
- */
-function modeloAuxiliarCapazAtivo() {
-  const override = String(process.env.AI_AUX_CAPABLE_MODEL || '').trim()
-  if (override) return override
-  const provider = String(process.env.AI_PROVIDER || process.env.DEFAULT_AI_PROVIDER || 'openai').toLowerCase()
-  return provider === 'anthropic' ? 'claude-sonnet-4-6' : 'gpt-4o'
-}
-
-/**
  * Classifica a intenção principal da mensagem do lead via IA (modelo pequeno/rápido do
- * provider ativo). Ver modeloAuxiliarAtivo().
+ * provider ativo). Ver aiProvider.modeloAuxiliarAtivo().
  * Retorna o mesmo shape de interpretarIntencaoMensagem para compatibilidade.
  * Em caso de falha (timeout, parse inválido), retorna null — o caller cai no fallback regex.
  */
@@ -1314,7 +1286,7 @@ async function interpretarIntencaoMensagemIA({ texto = '', perfil = {}, estagio 
   const t0 = Date.now()
   const promptChars = promptBase.length + userMsg.length
   const historicoSize = Array.isArray(historico) ? historico.length : 0
-  const model = modeloAuxiliarAtivo()
+  const model = aiProvider.modeloAuxiliarAtivo()
   const timeoutMs = 8000
 
   function diagnosticar(motivo, extra = {}) {
@@ -7064,7 +7036,7 @@ app.post('/dashboard/prompt-aprendizados/:id/aplicar-overlay', async (req, res) 
       tipo: 'aplicar_overlay_aprendizado',
       system: systemIncorporar,
       userMessage: userMsg,
-      model: modeloAuxiliarCapazAtivo(),
+      model: aiProvider.modeloAuxiliarCapazAtivo(),
       max_tokens: 16384,
       temperature: 0.2,
       timeout_ms: overlayTimeoutMs,

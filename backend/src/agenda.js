@@ -848,8 +848,7 @@ async function classificarRespostaLembreteIA(texto, deps = {}) {
         systemPrompt,
         userPrompt,
         task: 'classificar_resposta_lembrete',
-        provider: 'openai',
-        model: 'gpt-4o-mini',
+        model: require('./ai-provider').modeloAuxiliarAtivo(),
         temperature: 0,
         maxTokens: 30,
         timeoutMs: 12000,
@@ -915,7 +914,17 @@ async function registrarSugestaoReagendamentoLembrete(row, enviarMensagemFn = en
     values: { data: dataLabel, opcoes },
     log: logger,
   })
-  await enviarMensagemFn(numero, mensagem)
+  // Envio best-effort: se a Evolution falhar (instância desconectada / erro transitório),
+  // NÃO derruba o registro da resposta ao lembrete (o status de remarcação já foi
+  // persistido pelo caller). Sem isto, uma falha de envio virava o warn recorrente
+  // "Falha ao registrar resposta de lembrete" e marcava tudo como falha — a IA segue
+  // o fluxo normal e responde o lead de qualquer forma (mensagem_enviada=false).
+  try {
+    await enviarMensagemFn(numero, mensagem)
+  } catch (e) {
+    logger.warn({ err: e?.message, agenda_evento_id: row.id }, 'Sugestao de reagendamento nao enviada (Evolution); IA seguira o fluxo')
+    return { mensagem: null, disponibilidade: slots, enviado: false }
+  }
   await pool.query(
     `UPDATE vendas.conversas
      SET historico = (
@@ -934,7 +943,7 @@ async function registrarSugestaoReagendamentoLembrete(row, enviarMensagemFn = en
       }]),
     ]
   )
-  return { mensagem, disponibilidade: slots }
+  return { mensagem, disponibilidade: slots, enviado: true }
 }
 
 async function registrarRespostaLembreteReuniao(numero, texto, opts = {}) {

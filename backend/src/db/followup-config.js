@@ -3,6 +3,9 @@
 // Acesso a banco isolado, como manda a arquitetura. A tabela e criada pela migration
 // 029; quando ainda nao ha linha, devolve o default virtual (sem persistir) para o
 // GET/boot nunca falhar. Espelha src/db/banco-leads-config.js.
+// NB: 'semi' aqui = modo "Atendimento humano" (fila de ligações / próxima melhor ação),
+// um conceito DIFERENTE do 'semi_automatico' do Banco de Leads (gerar por IA sem enviar).
+// Nomes distintos de propósito — não unificar; são domínios e significados diferentes.
 const MODOS = new Set(['manual', 'semi', 'automatico'])
 
 const CAMPOS = 'empresa_id, modo, meta_ligacoes_dia, pausado'
