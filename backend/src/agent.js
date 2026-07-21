@@ -1256,7 +1256,22 @@ function normalizarRespostaContextualIA(valor = {}) {
 }
 
 /**
- * Classifica a intenção principal da mensagem do lead via IA (Haiku, rápido).
+ * Modelo para as chamadas AUXILIARES/leves (ex.: classificar_intencao): usa um modelo
+ * PEQUENO do provider ATIVO, não um modelo fixo. Antes fixava 'claude-haiku-4-5', que
+ * o generateAIResponse roteia SEMPRE para a Anthropic (infere provider pelo modelo) —
+ * então, com AI_PROVIDER=openai, toda chamada tomava 400/timeout na Anthropic e caía no
+ * fallback heurístico. Override opcional por AI_AUX_MODEL (ver AGENTS.md/.env.example).
+ */
+function modeloAuxiliarAtivo() {
+  const override = String(process.env.AI_AUX_MODEL || '').trim()
+  if (override) return override
+  const provider = String(process.env.AI_PROVIDER || process.env.DEFAULT_AI_PROVIDER || 'openai').toLowerCase()
+  return provider === 'anthropic' ? 'claude-haiku-4-5-20251001' : 'gpt-4o-mini'
+}
+
+/**
+ * Classifica a intenção principal da mensagem do lead via IA (modelo pequeno/rápido do
+ * provider ativo). Ver modeloAuxiliarAtivo().
  * Retorna o mesmo shape de interpretarIntencaoMensagem para compatibilidade.
  * Em caso de falha (timeout, parse inválido), retorna null — o caller cai no fallback regex.
  */
@@ -1285,7 +1300,7 @@ async function interpretarIntencaoMensagemIA({ texto = '', perfil = {}, estagio 
   const t0 = Date.now()
   const promptChars = promptBase.length + userMsg.length
   const historicoSize = Array.isArray(historico) ? historico.length : 0
-  const model = 'claude-haiku-4-5-20251001'
+  const model = modeloAuxiliarAtivo()
   const timeoutMs = 8000
 
   function diagnosticar(motivo, extra = {}) {
