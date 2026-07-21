@@ -37,4 +37,16 @@ const EVENTOS_COMERCIAIS_TIPOS = Object.freeze([
   'pediu_preco', 'recebeu_proposta', 'respondeu_followup', 'recebeu_preview', 'auto_reply_detectado',
 ])
 
-module.exports = { AGENDA_VENDAS, AGENDA_APP, EVENTOS_COMERCIAIS_TIPOS }
+// Tipos aceitos por vendas.job_queue (CHECK job_queue_tipo_chk em sql/init.sql / src/db.js).
+// Diferente dos outros domínios, o job_queue NÃO tem um Set de whitelist no código — os
+// tipos são literais espalhados nos INSERTs de cada produtor. O risco real é enfileirar um
+// tipo FORA desta lista: a CHECK rejeita o INSERT e o job "some" (falha silenciosa). O teste
+// domain-enums.test.js trava dois lados: (1) esta lista == a CHECK; (2) todo tipo literal
+// enfileirado em src/ está aqui. Ordem espelha a CHECK.
+const JOB_QUEUE_TIPOS = Object.freeze([
+  'webhook_resposta', 'followup_auto', 'agenda_lembrete_reuniao',
+  'prospeccao_nichos_sync', 'prospeccao_places_auto', 'prospeccao_completo',
+  'prospeccao_envio_agendado', 'resumo_agenda_operador',
+])
+
+module.exports = { AGENDA_VENDAS, AGENDA_APP, EVENTOS_COMERCIAIS_TIPOS, JOB_QUEUE_TIPOS }

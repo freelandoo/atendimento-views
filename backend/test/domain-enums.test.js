@@ -3,7 +3,7 @@ const path = require('path')
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { AGENDA_VENDAS, AGENDA_APP, EVENTOS_COMERCIAIS_TIPOS } = require('../src/domain-enums')
+const { AGENDA_VENDAS, AGENDA_APP, EVENTOS_COMERCIAIS_TIPOS, JOB_QUEUE_TIPOS } = require('../src/domain-enums')
 
 const initSql = fs.readFileSync(path.join(__dirname, '..', 'sql', 'init.sql'), 'utf8')
 const mig011 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '011_agenda_multiempresa.sql'), 'utf8')
@@ -41,6 +41,35 @@ test('db-crud.registrarEventoComercial usa a fonte unica (whitelist = EVENTOS_CO
   // Garante que o whitelist do codigo nao voltou a ser um array literal solto.
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'db-crud.js'), 'utf8')
   assert.match(src, /new Set\(EVENTOS_COMERCIAIS_TIPOS\)/, 'db-crud deve construir o Set a partir da fonte unica')
+})
+
+test('JOB_QUEUE_TIPOS bate com a CHECK job_queue_tipo_chk (sql/init.sql)', () => {
+  mesmoConjunto(JOB_QUEUE_TIPOS, checkIn(initSql, 'job_queue_tipo_chk'), 'job_queue')
+})
+
+// Varre src/ por INSERTs literais em vendas.job_queue e coleta o tipo. Enqueues
+// parametrizados (VALUES ($1, ...)) nao casam (nao tem aspas) — sao validados no proprio
+// produtor. Pega o risco concreto: um produtor enfileirar um tipo fora da CHECK.
+function scanEnqueueTipos(dir, out = new Set()) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) { scanEnqueueTipos(full, out); continue }
+    if (!entry.name.endsWith('.js')) continue
+    const txt = fs.readFileSync(full, 'utf8')
+    const re = /INSERT\s+INTO\s+vendas\.job_queue[\s\S]{0,200}?VALUES\s*\(\s*'([a-z_]+)'/g
+    let m
+    while ((m = re.exec(txt))) out.add(m[1])
+  }
+  return out
+}
+
+test('job_queue: todo tipo literal enfileirado em src/ esta na fonte unica (== CHECK)', () => {
+  const enfileirados = scanEnqueueTipos(path.join(__dirname, '..', 'src'))
+  assert.ok(enfileirados.size > 0, 'esperava achar ao menos um enqueue literal de job_queue')
+  for (const tipo of enfileirados) {
+    assert.ok(JOB_QUEUE_TIPOS.includes(tipo),
+      `job_queue: produtor enfileira '${tipo}', que NAO esta na CHECK job_queue_tipo_chk — INSERT seria rejeitado (falha silenciosa)`)
+  }
 })
 
 test('arrays da fonte unica sem duplicatas e nao vazios', () => {
