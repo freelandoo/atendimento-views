@@ -19,10 +19,15 @@ const {
   utcParaDataLocalEmTimezone,
 } = require('./date-utils')
 
-const TIPOS_EVENTO = new Set(['reuniao', 'follow_up', 'retorno', 'tarefa', 'prospeccao', 'disparo', 'pessoal', 'bloqueio', 'outro'])
-const STATUS_EVENTO = new Set(['pendente', 'concluido', 'atrasado', 'cancelado', 'bloqueado', 'confirmado', 'nao_compareceu', 'reagendamento_pendente'])
+// Enums do banco (tipo/status/prioridade) vêm da fonte única — espelham a CHECK de
+// vendas.agenda_eventos (sql/init.sql). Ver src/domain-enums.js.
+const { AGENDA_VENDAS } = require('./domain-enums')
+const TIPOS_EVENTO = new Set(AGENDA_VENDAS.TIPOS)
+const STATUS_EVENTO = new Set(AGENDA_VENDAS.STATUS)
+const PRIORIDADES = new Set(AGENDA_VENDAS.PRIORIDADES)
+// Subconjunto semântico (quais status ocupam horário na checagem de conflito) — não é o
+// enum completo, então fica local de propósito.
 const STATUS_OCUPA_HORARIO = new Set(['pendente', 'confirmado', 'bloqueado'])
-const PRIORIDADES = new Set(['baixa', 'normal', 'media', 'alta', 'urgente'])
 const RECORRENCIAS = new Set(['nenhuma', 'diaria', 'semanal', 'mensal'])
 const LEMBRETE_15_MIN_MS = 15 * 60 * 1000
 

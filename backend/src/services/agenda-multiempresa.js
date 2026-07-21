@@ -5,9 +5,12 @@
 // nem ao worker de lembretes/IA. Funções de DB recebem `pool` por injeção (testáveis).
 
 const TIMEZONE = 'America/Sao_Paulo'
-const TIPOS = new Set(['reuniao', 'follow_up', 'retorno', 'tarefa', 'bloqueio', 'outro'])
-const STATUS = new Set(['pendente', 'confirmado', 'concluido', 'cancelado', 'bloqueado', 'nao_compareceu'])
-const PRIORIDADES = new Set(['baixa', 'normal', 'media', 'alta', 'urgente'])
+// Enums do banco vêm da fonte única — espelham a CHECK de app.agenda_eventos
+// (sql/migrations/011_agenda_multiempresa.sql). Ver src/domain-enums.js.
+const { AGENDA_APP } = require('../domain-enums')
+const TIPOS = new Set(AGENDA_APP.TIPOS)
+const STATUS = new Set(AGENDA_APP.STATUS)
+const PRIORIDADES = new Set(AGENDA_APP.PRIORIDADES)
 // Status que efetivamente ocupam o horário (entram na checagem de conflito).
 const STATUS_OCUPA = ['pendente', 'confirmado', 'bloqueado']
 
