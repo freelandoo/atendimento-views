@@ -3,10 +3,11 @@ const path = require('path')
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { AGENDA_VENDAS, AGENDA_APP } = require('../src/domain-enums')
+const { AGENDA_VENDAS, AGENDA_APP, EVENTOS_COMERCIAIS_TIPOS } = require('../src/domain-enums')
 
 const initSql = fs.readFileSync(path.join(__dirname, '..', 'sql', 'init.sql'), 'utf8')
 const mig011 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '011_agenda_multiempresa.sql'), 'utf8')
+const mig032 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '032_eventos_comerciais_auto_reply.sql'), 'utf8')
 
 // Extrai a lista de valores da primeira CHECK (... IN (...)) que segue o nome da constraint.
 function checkIn(sql, constraintName) {
@@ -31,9 +32,20 @@ test('AGENDA_APP bate com a CHECK de app.agenda_eventos (migration 011)', () => 
   mesmoConjunto(AGENDA_APP.STATUS, checkIn(mig011, 'agenda_eventos_status_chk'), 'app.status')
 })
 
+test('EVENTOS_COMERCIAIS_TIPOS bate com a CHECK eventos_comerciais_tipo_chk (init.sql + migration 032)', () => {
+  mesmoConjunto(EVENTOS_COMERCIAIS_TIPOS, checkIn(initSql, 'eventos_comerciais_tipo_chk'), 'eventos_comerciais(init.sql)')
+  mesmoConjunto(EVENTOS_COMERCIAIS_TIPOS, checkIn(mig032, 'eventos_comerciais_tipo_chk'), 'eventos_comerciais(migration 032)')
+})
+
+test('db-crud.registrarEventoComercial usa a fonte unica (whitelist = EVENTOS_COMERCIAIS_TIPOS)', () => {
+  // Garante que o whitelist do codigo nao voltou a ser um array literal solto.
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'db-crud.js'), 'utf8')
+  assert.match(src, /new Set\(EVENTOS_COMERCIAIS_TIPOS\)/, 'db-crud deve construir o Set a partir da fonte unica')
+})
+
 test('arrays da fonte unica sem duplicatas e nao vazios', () => {
   for (const arr of [AGENDA_VENDAS.TIPOS, AGENDA_VENDAS.STATUS, AGENDA_VENDAS.PRIORIDADES,
-    AGENDA_APP.TIPOS, AGENDA_APP.STATUS, AGENDA_APP.PRIORIDADES]) {
+    AGENDA_APP.TIPOS, AGENDA_APP.STATUS, AGENDA_APP.PRIORIDADES, EVENTOS_COMERCIAIS_TIPOS]) {
     assert.ok(arr.length > 0)
     assert.equal(new Set(arr).size, arr.length, 'ha valor duplicado no enum')
   }

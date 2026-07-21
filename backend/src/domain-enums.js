@@ -26,4 +26,15 @@ const AGENDA_APP = Object.freeze({
   PRIORIDADES: Object.freeze(['baixa', 'normal', 'media', 'alta', 'urgente']),
 })
 
-module.exports = { AGENDA_VENDAS, AGENDA_APP }
+// Tipos de vendas.eventos_comerciais. Fonte do whitelist em db-crud.js
+// (registrarEventoComercial) E da CHECK eventos_comerciais_tipo_chk (sql/init.sql,
+// src/db.js e migration 032). O drift entre esses dois causou, em produção, o erro
+// "violates check constraint eventos_comerciais_tipo_chk" a cada auto-reply — este é o
+// domínio que motivou a fonte única. Ordem espelha a CHECK.
+// Obs.: followup-auto.js filtra um SUBCONJUNTO (sinais de compra, sem auto_reply_detectado)
+// numa query de leitura — isso é intencional e NÃO deriva deste array.
+const EVENTOS_COMERCIAIS_TIPOS = Object.freeze([
+  'pediu_preco', 'recebeu_proposta', 'respondeu_followup', 'recebeu_preview', 'auto_reply_detectado',
+])
+
+module.exports = { AGENDA_VENDAS, AGENDA_APP, EVENTOS_COMERCIAIS_TIPOS }

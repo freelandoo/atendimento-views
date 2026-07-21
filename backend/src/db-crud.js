@@ -1,6 +1,7 @@
 'use strict'
 
 const { normalizarEstagio, validarAtualizarPerfilLead } = require('./domainSchemas')
+const { EVENTOS_COMERCIAIS_TIPOS } = require('./domain-enums')
 const {
   LEAD_CONTEXTO_MAX_CHARS,
   LEAD_CONTEXTO_PROMPT_LIMIT,
@@ -427,7 +428,9 @@ function createDbCrud({ pool, logger, serializeError }) {
   }
 
   async function registrarEventoComercial(numero, tipo, detalhe = {}, origem = 'sistema') {
-    const tipos = new Set(['pediu_preco', 'recebeu_proposta', 'respondeu_followup', 'recebeu_preview', 'auto_reply_detectado'])
+    // Whitelist da fonte única — DEVE bater com a CHECK eventos_comerciais_tipo_chk
+    // (domain-enums.test.js trava o drift). Ver src/domain-enums.js.
+    const tipos = new Set(EVENTOS_COMERCIAIS_TIPOS)
     if (!tipos.has(tipo)) return false
     const org = origem === 'operador' ? 'operador' : 'sistema'
     let json = '{}'
