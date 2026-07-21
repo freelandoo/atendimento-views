@@ -1270,6 +1270,20 @@ function modeloAuxiliarAtivo() {
 }
 
 /**
+ * Modelo para chamadas auxiliares que exigem um modelo CAPAZ (ex.: reescrever/incorporar
+ * regras num prompt — aplicar_overlay_aprendizado). Mesma lógica de modeloAuxiliarAtivo(),
+ * mas escolhe o modelo GRANDE do provider ativo (não o pequeno). Antes fixava
+ * 'claude-sonnet-4-6', que ia sempre p/ Anthropic e tomava 400 com AI_PROVIDER=openai.
+ * Override opcional por AI_AUX_CAPABLE_MODEL (ver AGENTS.md/.env.example).
+ */
+function modeloAuxiliarCapazAtivo() {
+  const override = String(process.env.AI_AUX_CAPABLE_MODEL || '').trim()
+  if (override) return override
+  const provider = String(process.env.AI_PROVIDER || process.env.DEFAULT_AI_PROVIDER || 'openai').toLowerCase()
+  return provider === 'anthropic' ? 'claude-sonnet-4-6' : 'gpt-4o'
+}
+
+/**
  * Classifica a intenção principal da mensagem do lead via IA (modelo pequeno/rápido do
  * provider ativo). Ver modeloAuxiliarAtivo().
  * Retorna o mesmo shape de interpretarIntencaoMensagem para compatibilidade.
@@ -7050,7 +7064,7 @@ app.post('/dashboard/prompt-aprendizados/:id/aplicar-overlay', async (req, res) 
       tipo: 'aplicar_overlay_aprendizado',
       system: systemIncorporar,
       userMessage: userMsg,
-      model: 'claude-sonnet-4-6',
+      model: modeloAuxiliarCapazAtivo(),
       max_tokens: 16384,
       temperature: 0.2,
       timeout_ms: overlayTimeoutMs,
