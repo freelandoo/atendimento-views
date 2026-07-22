@@ -151,6 +151,7 @@ export default function ConversasPage() {
   const [reenviando, setReenviando] = useState(false)
   const [mensagemManual, setMensagemManual] = useState('')
   const [enviandoManual, setEnviandoManual] = useState(false)
+  const [abaModal, setAbaModal] = useState<'chat' | 'interesses'>('chat')
   const [filtro, setFiltro] = useState<'todos' | Faixa | 'esfriando'>('todos')
   const [buscaNumero, setBuscaNumero] = useState('')
   const [carregandoLista, setCarregandoLista] = useState(true)
@@ -200,6 +201,7 @@ export default function ConversasPage() {
     setCarregando(true)
     setErro('')
     setMensagemManual('')
+    setAbaModal('chat')
     try {
       const r = await apiFetch<ConversaDetail>(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(c.numero)}`)
       setAberta(r.data)
@@ -213,6 +215,7 @@ export default function ConversasPage() {
   function fecharHistorico() {
     setAberta(null)
     setMensagemManual('')
+    setAbaModal('chat')
   }
 
   async function deletarHistorico() {
@@ -449,21 +452,23 @@ export default function ConversasPage() {
           onClick={fecharHistorico}
         >
           <div
-            className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden"
+            className="bg-white rounded-2xl shadow-xl max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-5 py-4 border-b flex justify-between items-start gap-3">
+            <div className="px-6 py-5 border-b flex justify-between items-start gap-4">
               <div>
-                <h3 className="font-semibold">{fmtNumero(aberta.numero)}</h3>
+                <h3 className="font-semibold text-lg">{fmtNumero(aberta.numero)}</h3>
                 <p className="text-xs text-gray-500 mt-0.5">
                   Estágio: <span className="font-medium">{aberta.estagio}</span> ·
                   Status: <span className="font-medium">{aberta.status}</span> ·
                   {aberta.historico?.length || 0} msgs
                 </p>
-                <div className="mt-3 flex flex-wrap items-center gap-3">
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
+                  <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Prioridade comercial</div>
+                  <div className="flex flex-wrap items-center gap-3">
                   <InteresseBadge c={aberta} />
                   {scoreValue(aberta.score_lead) != null && (
-                    <span className="inline-flex items-center rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                    <span className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
                       Fit do lead: <strong className="ml-1 text-gray-900">{scoreValue(aberta.score_lead)}</strong>
                     </span>
                   )}
@@ -473,6 +478,7 @@ export default function ConversasPage() {
                       WhatsApp: <strong className="ml-1">{aberta.evolution_instance}</strong>
                     </span>
                   )}
+                  </div>
                 </div>
                 {aberta.ultima_falha_resposta_em && (
                   <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -489,29 +495,65 @@ export default function ConversasPage() {
               </button>
             </div>
 
-            {criteriosInteresse.length > 0 && (
-              <div className="border-b bg-white px-5 py-3">
+            <div className="border-b bg-white px-6 pt-3">
+              <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
+                <button
+                  type="button"
+                  onClick={() => setAbaModal('chat')}
+                  className={`rounded-md px-4 py-2 text-sm font-medium transition ${abaModal === 'chat' ? 'bg-white text-brand shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                >
+                  Conversa
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAbaModal('interesses')}
+                  className={`rounded-md px-4 py-2 text-sm font-medium transition ${abaModal === 'interesses' ? 'bg-white text-brand shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                >
+                  Interesses
+                </button>
+              </div>
+            </div>
+
+            {abaModal === 'interesses' && (
+              <div className="flex-1 overflow-y-auto bg-gray-50 px-7 py-6">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Criterios do interesse</div>
-                  <div className="text-xs text-gray-500">{aberta.score_interesse_mensagens_lead ?? 0} mensagens do lead analisadas</div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-900">Interesses detalhados</h4>
+                    <div className="mt-1 text-xs text-gray-500">{aberta.score_interesse_mensagens_lead ?? 0} mensagens do lead analisadas</div>
+                  </div>
+                  <span className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                    Score {scoreValue(aberta.score_interesse) ?? '--'}
+                  </span>
                 </div>
-                <div className="grid max-h-40 gap-2 overflow-y-auto sm:grid-cols-2">
+                {criteriosInteresse.length > 0 ? (
+                <div className="grid gap-3 md:grid-cols-2">
                   {criteriosInteresse.map((c, i) => (
-                    <div key={`${c.titulo}-${i}`} className="flex min-w-0 gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
-                      <span className={`inline-flex h-6 min-w-10 shrink-0 items-center justify-center rounded-full border px-2 text-xs font-semibold ${criterioClasse(c)}`}>
+                    <div key={`${c.titulo}-${i}`} className="flex min-w-0 gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                      <span className={`inline-flex h-7 min-w-12 shrink-0 items-center justify-center rounded-full border px-2 text-xs font-semibold ${criterioClasse(c)}`}>
                         {criterioDelta(c)}
                       </span>
                       <div className="min-w-0">
-                        <div className="text-xs font-semibold text-gray-800">{c.titulo}</div>
-                        {c.detalhe && <div className="mt-0.5 text-xs text-gray-500 line-clamp-2">{c.detalhe}</div>}
+                        <div className="text-sm font-semibold text-gray-900">{c.titulo}</div>
+                        {c.detalhe ? (
+                          <div className="mt-1 text-sm leading-relaxed text-gray-600">{c.detalhe}</div>
+                        ) : (
+                          <div className="mt-1 text-sm text-gray-400">Sem detalhe registrado.</div>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-12 text-center text-sm text-slate-400">
+                    Ainda nao ha criterios detalhados para este lead.
+                  </div>
+                )}
               </div>
             )}
 
-            <div className="flex-1 overflow-y-auto bg-gray-50 px-5 py-4 space-y-2">
+            {abaModal === 'chat' && (
+            <>
+            <div className="flex-1 overflow-y-auto bg-gray-50 px-7 py-6 space-y-4">
               {carregando ? (
                 <p className="text-sm text-center text-gray-500 py-8">Carregando…</p>
               ) : !aberta.historico || aberta.historico.length === 0 ? (
@@ -530,8 +572,8 @@ export default function ConversasPage() {
                         : 'bg-gray-200 text-gray-700 mx-auto'
                   const label = isUser ? 'Lead' : isAssistant ? 'Agente' : isOperator ? 'Operador' : (m.role || '?')
                   return (
-                    <div key={i} className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${bubble}`}>
-                      <div className={`text-[10px] uppercase mb-0.5 ${isAssistant ? 'text-white/70' : 'text-gray-500'}`}>{label}</div>
+                    <div key={i} className={`max-w-[72%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${bubble}`}>
+                      <div className={`text-[10px] uppercase mb-1 ${isAssistant ? 'text-white/70' : 'text-gray-500'}`}>{label}</div>
                       <div className="whitespace-pre-wrap break-words">{m.content || m.text || '(vazio)'}</div>
                     </div>
                   )
@@ -539,8 +581,8 @@ export default function ConversasPage() {
               )}
             </div>
 
-            <div className="border-t bg-white px-5 py-4">
-              <label htmlFor="mensagem-operador" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div className="border-t bg-white px-6 py-5">
+              <label htmlFor="mensagem-operador" className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Mensagem do operador
               </label>
               <textarea
@@ -550,9 +592,9 @@ export default function ConversasPage() {
                 maxLength={4096}
                 rows={3}
                 placeholder="Escreva uma mensagem para enviar pelo WhatsApp..."
-                className="w-full resize-none rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
+                className="w-full resize-none rounded-xl border border-slate-300 px-4 py-3 text-sm leading-relaxed outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
               />
-              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                 <span className="text-xs text-slate-500">Ao enviar, o agente automatico fica pausado nesta conversa.</span>
                 <button
                   onClick={enviarMensagemOperador}
@@ -563,6 +605,8 @@ export default function ConversasPage() {
                 </button>
               </div>
             </div>
+            </>
+            )}
 
             <div className="px-5 py-3 border-t flex flex-wrap justify-between items-center gap-3">
               <button
