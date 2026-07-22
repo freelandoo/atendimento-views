@@ -815,10 +815,6 @@
             })
             const jidRaw = String(c.numero || '')
             const jid = escAttr(jidRaw)
-            const pausadoBit = agentePausado ?'1' : '0'
-            const titleAgente = agentePausado
-              ?'Reativar agente — religa as respostas automáticas do bot neste contato'
-              : 'Pausar agente — desliga as respostas automáticas do bot neste contato'
             const erroResumo = (c.ultima_falha_resposta_msg || '').trim()
             const erroCode = (c.ultima_falha_resposta_codigo || '').trim()
             const erroTitle = erroResumo || erroCode || 'Houve falha no fluxo de resposta automática.'
@@ -943,17 +939,6 @@
               '">' +
               icoSpan('user') +
               '</a>' +
-              '<button type="button" class="conversa-acao-btn conversa-acao-btn--agente" data-numero="' +
-              jid +
-              '" data-atual-pausado="' +
-              pausadoBit +
-              '" title="' +
-              escAttr(titleAgente) +
-              '" aria-label="' +
-              escAttr(titleAgente) +
-              '">' +
-              icoSpan(agentePausado ?'play' : 'pause') +
-              '</button>' +
               '<button type="button" class="conversa-acao-btn conversa-acao-btn--preview" data-numero="' +
               jid +
               '" data-action="preview" title="' +
@@ -1231,28 +1216,6 @@
     })
 
     document.getElementById('lista-conversas').addEventListener('click', async (e) => {
-      const btnPausar = e.target.closest('.conversa-acao-btn--agente')
-      if (btnPausar && btnPausar.dataset.numero) {
-        const numero = btnPausar.dataset.numero
-        const atualPausado = btnPausar.dataset.atualPausado === '1'
-        const novoPausado = !atualPausado
-        setConversaAcaoLoading(btnPausar, true)
-        try {
-          const r = await fetch('/dashboard/agente-pausar', {
-            method: 'POST',
-            headers: headersComReprocessSecret(),
-            body: JSON.stringify({ numero, pausado: novoPausado }),
-          })
-          const j = await r.json().catch(() => ({}))
-          if (!r.ok) throw new Error(j.erro || r.statusText)
-          carregarConversas()
-        } catch (err) {
-          alert(err.message || 'Falha ao alterar pausa do agente')
-          setConversaAcaoLoading(btnPausar, false)
-        }
-        return
-      }
-
       const btnFu = e.target.closest('.conversa-acao-btn[data-action="followup"]')
       if (btnFu && btnFu.dataset.numero) {
         e.preventDefault()

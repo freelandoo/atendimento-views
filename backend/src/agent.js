@@ -5614,33 +5614,6 @@ app.delete('/dashboard/conversas', async (req, res) => {
   }
 })
 
-/** Pausar ou reativar respostas automáticas do webhook para um número (dashboard). */
-app.post('/dashboard/agente-pausar', async (req, res) => {
-  if (!reprocessarAutorizado(req)) {
-    return res.status(401).json({ ok: false, erro: 'Não autorizado (x-reprocess-secret)' })
-  }
-  const raw = req.body?.numero
-  const jid = typeof raw === 'string' ? normalizarNumeroParaJid(raw.trim()) : null
-  if (!jid) {
-    return res.status(400).json({ ok: false, erro: 'Campo "numero" (telefone ou JID) é obrigatório' })
-  }
-  const pausado = !!req.body?.pausado
-  try {
-    const { rows } = await pool.query(
-      `UPDATE vendas.conversas SET agente_pausado = $2, atualizado_em = NOW() WHERE numero = $1 RETURNING numero, agente_pausado`,
-      [jid, pausado]
-    )
-    if (!rows.length) {
-      return res.status(404).json({ ok: false, erro: 'Conversa não encontrada (ainda não há histórico com esse número)' })
-    }
-    if (pausado) await cancelarFollowupsAutoPendentes(jid, 'agente_pausado')
-    res.json({ ok: true, numero: rows[0].numero, agente_pausado: rows[0].agente_pausado })
-  } catch (err) {
-    logger.error('❌ agente-pausar:', err.message)
-    res.status(500).json({ ok: false, erro: err.message })
-  }
-})
-
 /**
  * User part pode vir como `5511999999999` ou `5511999999999:8` (índice de dispositivo).
  * Só o trecho antes do primeiro `:` é o telefone.

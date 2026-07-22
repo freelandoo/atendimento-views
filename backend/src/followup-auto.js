@@ -12,6 +12,7 @@ const {
   FOLLOWUP_AUTO_BUSINESS_TZ,
   FOLLOWUP_AUTO_DELAY_HORAS,
 } = require('./config')
+const { cancelarFollowupsAutoPendentes: cancelarFollowupsAutoPendentesBase } = require('./services/followup-auto-cancel')
 
 const FOLLOWUP_JANELAS_OTIMIZADAS = [
   { start: [8, 30], end: [10, 30] },
@@ -175,37 +176,7 @@ function createFollowupAuto(deps = {}) {
   }
   
   async function cancelarFollowupsAutoPendentes(numero, motivo = 'lead_respondeu') {
-    const jid = typeof numero === 'string' ? numero.trim() : ''
-    if (!jid) return 0
-    const { rows } = await pool.query(
-      `
-      UPDATE vendas.followup_auto_agendamentos
-      SET status = 'cancelado',
-          cancelado_em = NOW(),
-          motivo_decisao = LEFT(CONCAT(COALESCE(motivo_decisao, ''), CASE WHEN motivo_decisao IS NULL OR motivo_decisao = '' THEN '' ELSE ' | ' END, $2::text), 1000)
-      WHERE numero = $1
-        AND status = 'agendado'
-      RETURNING job_id
-      `,
-      [jid, motivo]
-    )
-    const jobIds = rows.map((r) => r.job_id).filter((x) => x != null)
-    if (jobIds.length) {
-      await pool.query(
-        `
-        UPDATE vendas.job_queue
-        SET status = 'completed',
-            last_error = $2,
-            locked_at = NULL,
-            locked_until = NULL,
-            atualizado_em = NOW()
-        WHERE id = ANY($1::bigint[])
-          AND status = 'pending'
-        `,
-        [jobIds, `cancelado: ${motivo}`]
-      )
-    }
-    return rows.length
+    return cancelarFollowupsAutoPendentesBase(pool, numero, motivo)
   }
   
   async function resumoEventosComerciaisFollowup(numero) {

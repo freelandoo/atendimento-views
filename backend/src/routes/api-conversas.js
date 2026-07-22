@@ -6,7 +6,7 @@ const { gerarESalvarResumo, buscarUltimoResumo } = require('../services/resumo-c
 const { logger } = require('../logger')
 const { enviarMensagem } = require('../whatsapp')
 const { calcularScoreInteresseLead } = require('../services/lead-interest-score')
-const { enviarMensagemManualOperador } = require('../services/conversa-manual')
+const { enviarMensagemManualOperador, alterarPausaAgenteConversa } = require('../services/conversa-manual')
 
 const router = Router({ mergeParams: true })
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
@@ -233,6 +233,23 @@ router.post('/:numero/mensagem', requireAuth, requireEmpresaAccess, async (req, 
     return res.status(201).json({ ok: true, data: out })
   } catch (err) {
     return erroConversas(res, err, 'MANUAL_MESSAGE_FAILED')
+  }
+})
+
+// PATCH /api/empresas/:empresaId/conversas/:numero/agente
+// Pausa ou retoma as respostas automaticas apenas desta conversa.
+router.patch('/:numero/agente', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const out = await alterarPausaAgenteConversa({
+      pool,
+      empresaId: req.empresa.id,
+      numero: req.params.numero,
+      pausado: req.body?.pausado,
+      log: logger,
+    })
+    return res.json({ ok: true, data: out })
+  } catch (err) {
+    return erroConversas(res, err, 'AGENT_PAUSE_FAILED')
   }
 })
 

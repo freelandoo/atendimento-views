@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import DataTableFrame from '@/components/ui/DataTableFrame'
-import { IconTrash } from '@/components/ui/icons'
+import { IconSend, IconTrash } from '@/components/ui/icons'
 
 type ScoreCriterio = {
   delta: number
@@ -151,6 +151,8 @@ export default function ConversasPage() {
   const [reenviando, setReenviando] = useState(false)
   const [mensagemManual, setMensagemManual] = useState('')
   const [enviandoManual, setEnviandoManual] = useState(false)
+  const [alterandoPausa, setAlterandoPausa] = useState(false)
+  const [composerAberto, setComposerAberto] = useState(false)
   const [abaModal, setAbaModal] = useState<'chat' | 'interesses'>('chat')
   const [filtro, setFiltro] = useState<'todos' | Faixa | 'esfriando'>('todos')
   const [buscaNumero, setBuscaNumero] = useState('')
@@ -201,6 +203,7 @@ export default function ConversasPage() {
     setCarregando(true)
     setErro('')
     setMensagemManual('')
+    setComposerAberto(false)
     setAbaModal('chat')
     try {
       const r = await apiFetch<ConversaDetail>(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(c.numero)}`)
@@ -215,6 +218,7 @@ export default function ConversasPage() {
   function fecharHistorico() {
     setAberta(null)
     setMensagemManual('')
+    setComposerAberto(false)
     setAbaModal('chat')
   }
 
@@ -271,9 +275,27 @@ export default function ConversasPage() {
         agente_pausado: true,
       } : p)
       setMensagemManual('')
+      setComposerAberto(false)
       carregar()
     } catch { /* erro ja exibido pelo feedback */ }
     finally { setEnviandoManual(false) }
+  }
+
+  async function alterarPausaAgente(pausado: boolean) {
+    if (!aberta || !empresaId) return
+    setAlterandoPausa(true)
+    try {
+      const r = await fb.runTask(
+        () => apiFetch<ConversaDetail>(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(aberta.numero)}/agente`, {
+          method: 'PATCH',
+          body: JSON.stringify({ pausado }),
+        }),
+        { sucesso: pausado ? 'Agente pausado nesta conversa.' : 'Agente retomado nesta conversa.' }
+      )
+      setAberta((p) => p ? { ...p, ...r.data, agente_pausado: r.data.agente_pausado } : p)
+      carregar()
+    } catch { /* erro ja exibido pelo feedback */ }
+    finally { setAlterandoPausa(false) }
   }
 
   const historicoAberto = aberta?.historico || []
@@ -469,6 +491,9 @@ export default function ConversasPage() {
                   <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Prioridade comercial</div>
                   <div className="flex flex-wrap items-center gap-2">
                   <InteresseBadge c={aberta} compact />
+                  <span className={`inline-flex items-center rounded-md border px-2.5 py-1.5 text-xs ${aberta.agente_pausado ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
+                    Agente: <strong className="ml-1">{aberta.agente_pausado ? 'pausado' : 'ativo'}</strong>
+                  </span>
                   {scoreValue(aberta.score_lead) != null && (
                     <span className="inline-flex items-center rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600">
                       Fit do lead: <strong className="ml-1 text-gray-900">{scoreValue(aberta.score_lead)}</strong>
@@ -583,28 +608,41 @@ export default function ConversasPage() {
               )}
             </div>
 
-            <div className="border-t bg-white px-6 py-5">
-              <label htmlFor="mensagem-operador" className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Mensagem do operador
-              </label>
-              <textarea
-                id="mensagem-operador"
-                value={mensagemManual}
-                onChange={(e) => setMensagemManual(e.target.value)}
-                maxLength={4096}
-                rows={3}
-                placeholder="Escreva uma mensagem para enviar pelo WhatsApp..."
-                className="w-full resize-none rounded-xl border border-slate-300 px-4 py-3 text-sm leading-relaxed outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
-              />
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                <span className="text-xs text-slate-500">Ao enviar, o agente automatico fica pausado nesta conversa.</span>
-                <button
-                  onClick={enviarMensagemOperador}
-                  disabled={enviandoManual || !mensagemManual.trim()}
-                  className="text-xs px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {enviandoManual ? 'Enviando...' : 'Enviar e assumir'}
-                </button>
+            <div className={`border-t bg-white px-6 transition-all duration-200 ${composerAberto ? 'py-4' : 'py-2'}`}>
+              <button
+                type="button"
+                onClick={() => setComposerAberto((v) => !v)}
+                className="mb-2 flex w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:bg-slate-100"
+                aria-expanded={composerAberto}
+              >
+                <span>Mensagem do operador</span>
+                <span className="text-slate-400">{composerAberto ? 'Recolher' : 'Escrever'}</span>
+              </button>
+              <div className={`grid transition-all duration-200 ${composerAberto ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+                <div className="min-h-0 overflow-hidden">
+                  <div className="relative">
+                    <textarea
+                      id="mensagem-operador"
+                      value={mensagemManual}
+                      onFocus={() => setComposerAberto(true)}
+                      onChange={(e) => setMensagemManual(e.target.value)}
+                      maxLength={4096}
+                      rows={3}
+                      placeholder="Escreva uma mensagem para enviar pelo WhatsApp..."
+                      className="w-full resize-none rounded-xl border border-slate-300 px-4 py-3 pr-14 text-sm leading-relaxed outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
+                    />
+                    <button
+                      type="button"
+                      onClick={enviarMensagemOperador}
+                      disabled={enviandoManual || !mensagemManual.trim()}
+                      title="Enviar mensagem"
+                      aria-label="Enviar mensagem"
+                      className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-600 text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <IconSend className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
             </>
@@ -624,6 +662,13 @@ export default function ConversasPage() {
                 className="text-xs px-3 py-2 rounded-lg bg-brand text-white hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {reenviando ? 'Reenviando...' : 'Reenviar WhatsApp'}
+              </button>
+              <button
+                onClick={() => alterarPausaAgente(!aberta.agente_pausado)}
+                disabled={alterandoPausa}
+                className={`text-xs px-3 py-2 rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed ${aberta.agente_pausado ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'}`}
+              >
+                {alterandoPausa ? 'Atualizando...' : aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente'}
               </button>
               <button
                 onClick={fecharHistorico}

@@ -3326,16 +3326,6 @@ button.conversas-resumo-card:hover,
   border-color: var(--linha-forte);
   background: #fff;
 }
-.conversa-acao-btn--agente {
-  border-color: #a78bfa;
-  background: var(--roxo);
-  color: #f5f3ff;
-}
-.conversa-acao-btn--agente:hover {
-  background: rgba(124, 58, 237, 0.92);
-  color: #fff;
-  border-color: #c4b5fd;
-}
 .conversa-acao-btn--arquivar {
   border-color: var(--azul);
   background: var(--azul);

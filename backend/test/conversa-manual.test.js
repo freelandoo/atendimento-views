@@ -4,6 +4,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const {
   enviarMensagemManualOperador,
+  alterarPausaAgenteConversa,
   validarNumeroConversa,
   validarTextoMensagem,
 } = require('../src/services/conversa-manual')
@@ -190,4 +191,82 @@ test('mensagem manual bloqueia conversa com instancia antiga inativa mesmo com f
     (err) => err.statusCode === 409 && err.code === 'INSTANCE_UNAVAILABLE'
   )
   assert.equal(verificou, false)
+})
+
+test('pausa da conversa atualiza agente_pausado e cancela follow-ups pendentes', async () => {
+  const chamadas = []
+  const pool = {
+    query: async (sql, params) => {
+      chamadas.push({ sql, params })
+      assert.match(sql, /UPDATE vendas\.conversas/)
+      assert.equal(params[0], EMPRESA_ID)
+      assert.equal(params[2], NUMERO)
+      assert.equal(params[3], true)
+      return {
+        rows: [{
+          numero: NUMERO,
+          historico: [],
+          estagio: 'diagnostico',
+          status: 'ativo',
+          agente_pausado: true,
+          evolution_instance: 'inst-main',
+          atualizado_em: '2026-07-22T12:00:00.000Z',
+        }],
+      }
+    },
+  }
+  const cancelados = []
+  const out = await alterarPausaAgenteConversa({
+    pool,
+    empresaId: EMPRESA_ID,
+    numero: NUMERO,
+    pausado: true,
+    _cancelarFollowupsAutoPendentes: async (poolArg, numero, motivo) => {
+      assert.equal(poolArg, pool)
+      cancelados.push({ numero, motivo })
+      return 2
+    },
+  })
+
+  assert.equal(out.agente_pausado, true)
+  assert.equal(out.followups_cancelados, 2)
+  assert.deepEqual(cancelados, [{ numero: NUMERO, motivo: 'agente_pausado' }])
+  assert.equal(chamadas.length, 1)
+})
+
+test('retomada da conversa nao cancela follow-ups e valida booleano', async () => {
+  const pool = {
+    query: async (sql, params) => {
+      assert.match(sql, /UPDATE vendas\.conversas/)
+      assert.equal(params[3], false)
+      return {
+        rows: [{
+          numero: NUMERO,
+          historico: [],
+          estagio: 'diagnostico',
+          status: 'ativo',
+          agente_pausado: false,
+          evolution_instance: 'inst-main',
+          atualizado_em: '2026-07-22T12:00:00.000Z',
+        }],
+      }
+    },
+  }
+  let cancelou = false
+  const out = await alterarPausaAgenteConversa({
+    pool,
+    empresaId: EMPRESA_ID,
+    numero: NUMERO,
+    pausado: false,
+    _cancelarFollowupsAutoPendentes: async () => { cancelou = true },
+  })
+
+  assert.equal(out.agente_pausado, false)
+  assert.equal(out.followups_cancelados, 0)
+  assert.equal(cancelou, false)
+
+  await assert.rejects(
+    () => alterarPausaAgenteConversa({ pool, empresaId: EMPRESA_ID, numero: NUMERO, pausado: 'false' }),
+    (err) => err.statusCode === 400 && /booleano/.test(err.message)
+  )
 })

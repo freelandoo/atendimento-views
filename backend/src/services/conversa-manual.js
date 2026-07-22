@@ -1,5 +1,6 @@
 'use strict'
 const { enviarMensagem, verificarStatusInstanciaEvolution } = require('../whatsapp')
+const { cancelarFollowupsAutoPendentes } = require('./followup-auto-cancel')
 
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
 const HISTORICO_MAX = 40
@@ -159,8 +160,57 @@ async function enviarMensagemManualOperador({
   }
 }
 
+async function alterarPausaAgenteConversa({
+  pool,
+  empresaId,
+  numero,
+  pausado,
+  motivo = 'agente_pausado',
+  log = null,
+  _cancelarFollowupsAutoPendentes = cancelarFollowupsAutoPendentes,
+}) {
+  if (!pool) throw erroOperacao('pool obrigatorio.', 500, 'INTERNAL_ERROR')
+  if (!empresaId) throw erroOperacao('empresaId obrigatorio.', 500, 'INTERNAL_ERROR')
+  if (typeof pausado !== 'boolean') throw erroOperacao('pausado deve ser booleano.')
+
+  const numeroValidado = validarNumeroConversa(numero)
+  const { rows: [atualizada] } = await pool.query(
+    `UPDATE vendas.conversas
+        SET agente_pausado = $4::boolean,
+            empresa_id = COALESCE(empresa_id, $1::uuid),
+            atualizado_em = NOW()
+      WHERE (empresa_id = $1 OR ($1::uuid = $2::uuid AND empresa_id IS NULL))
+        AND numero = $3
+      RETURNING numero, historico, estagio, status, agente_pausado, evolution_instance, atualizado_em`,
+    [empresaId, PJ_EMPRESA_ID, numeroValidado, pausado]
+  )
+  if (!atualizada) throw erroOperacao('Conversa nao encontrada para esta empresa.', 404, 'NOT_FOUND')
+
+  let followupsCancelados = 0
+  if (pausado) {
+    try {
+      followupsCancelados = await _cancelarFollowupsAutoPendentes(pool, numeroValidado, motivo)
+    } catch (err) {
+      if (log?.error) log.error({ err: err.message }, '[conversa-manual] falha ao cancelar follow-ups pendentes')
+      throw erroOperacao('Agente pausado, mas nao foi possivel cancelar follow-ups pendentes.', 500, 'FOLLOWUP_CANCEL_FAILED')
+    }
+  }
+
+  return {
+    numero: atualizada.numero,
+    agente_pausado: !!atualizada.agente_pausado,
+    followups_cancelados: followupsCancelados,
+    historico: atualizada.historico,
+    estagio: atualizada.estagio,
+    status: atualizada.status,
+    evolution_instance: atualizada.evolution_instance,
+    atualizado_em: atualizada.atualizado_em,
+  }
+}
+
 module.exports = {
   enviarMensagemManualOperador,
+  alterarPausaAgenteConversa,
   validarNumeroConversa,
   validarTextoMensagem,
   _internals: { buscarConversaParaEnvio, erroOperacao },
