@@ -314,7 +314,13 @@ export default function ContextoEditor({ empresaId, contextoId }: { empresaId: s
           onAposRemover={() => recarregarDerivados()}
         />
         <CardContexto1 empresaId={empresaId} contexto={contexto} onSalvo={carregar} />
-        <CardServicos empresaId={empresaId} contextoId={contexto.id} reloadKey={pipelineNonce} />
+        <CardServicos
+          empresaId={empresaId}
+          contextoId={contexto.id}
+          reloadKey={pipelineNonce}
+          atualizando={gerando}
+          onAtualizarServicos={() => rodarPipeline()}
+        />
         <CardPlaybook
           contextoId={contexto.id}
           versoes={versoes}
@@ -652,10 +658,12 @@ const STATUS_SERVICO: Record<ServicoContexto['status_revisao'], { label: string;
   precisa_revisao: { label: 'Precisa revisão', cls: 'bg-amber-100 text-amber-700' },
 }
 
-function CardServicos({ empresaId, contextoId, reloadKey }: {
+function CardServicos({ empresaId, contextoId, reloadKey, atualizando = false, onAtualizarServicos }: {
   empresaId: string
   contextoId: string
   reloadKey?: number
+  atualizando?: boolean
+  onAtualizarServicos: () => Promise<void> | void
 }) {
   const [servicos, setServicos] = useState<ServicoContexto[]>([])
   const [aberto, setAberto] = useState<string | null>(null)
@@ -742,7 +750,27 @@ function CardServicos({ empresaId, contextoId, reloadKey }: {
       {carregando ? (
         <p className="text-xs text-gray-400 py-3 text-center">Carregando serviços…</p>
       ) : servicos.length === 0 ? (
-        <p className="text-xs text-gray-400 py-3 text-center">Nenhum serviço separado ainda. Use Gerar tudo após inserir uma fonte.</p>
+        <>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-900 space-y-2">
+            <p className="font-medium">Este contexto ainda nao tem servicos estruturados.</p>
+            <p>
+              O atendimento continua funcionando com o Contexto 1/playbook atual, mas a IA tera menos precisao para separar, escolher e rastrear servicos como SEO, criacao de site e sistemas.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => onAtualizarServicos()}
+                disabled={atualizando}
+                className="inline-flex items-center gap-2 text-xs bg-amber-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-50"
+              >
+                {atualizando && <Spinner size={13} />}
+                {atualizando ? 'Atualizando...' : 'Rodar Gerar tudo'}
+              </button>
+              <button onClick={novoServico} className="text-xs px-3 py-1.5 rounded-lg border border-amber-300 bg-white text-amber-800 hover:bg-amber-100">
+                Criar servico manual
+              </button>
+            </div>
+          </div>
+        </>
       ) : (
         <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
           {servicos.map((s) => {

@@ -455,33 +455,35 @@ export default function ConversasPage() {
             className="bg-white rounded-2xl shadow-xl max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-6 py-5 border-b flex justify-between items-start gap-4">
-              <div>
-                <h3 className="font-semibold text-lg">{fmtNumero(aberta.numero)}</h3>
+            <div className="px-6 py-3 border-b flex justify-between items-start gap-4">
+              <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-4 gap-y-2">
+                <div className="min-w-[220px]">
+                <h3 className="font-semibold text-base">{fmtNumero(aberta.numero)}</h3>
                 <p className="text-xs text-gray-500 mt-0.5">
                   Estágio: <span className="font-medium">{aberta.estagio}</span> ·
                   Status: <span className="font-medium">{aberta.status}</span> ·
                   {aberta.historico?.length || 0} msgs
                 </p>
-                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                  <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Prioridade comercial</div>
-                  <div className="flex flex-wrap items-center gap-3">
-                  <InteresseBadge c={aberta} />
+                </div>
+                <div className="min-w-[320px] flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Prioridade comercial</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                  <InteresseBadge c={aberta} compact />
                   {scoreValue(aberta.score_lead) != null && (
-                    <span className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+                    <span className="inline-flex items-center rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600">
                       Fit do lead: <strong className="ml-1 text-gray-900">{scoreValue(aberta.score_lead)}</strong>
                     </span>
                   )}
                   <TempBadge t={aberta.temperatura_lead} />
                   {aberta.evolution_instance && (
-                    <span className="inline-flex items-center rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                    <span className="inline-flex items-center rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-xs text-blue-700">
                       WhatsApp: <strong className="ml-1">{aberta.evolution_instance}</strong>
                     </span>
                   )}
                   </div>
                 </div>
                 {aberta.ultima_falha_resposta_em && (
-                  <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                     Falha no envio: {aberta.ultima_falha_resposta_msg || aberta.ultima_falha_resposta_codigo || 'erro desconhecido'}
                   </div>
                 )}
@@ -495,7 +497,7 @@ export default function ConversasPage() {
               </button>
             </div>
 
-            <div className="border-b bg-white px-6 pt-3">
+            <div className="border-b bg-white px-6 py-2">
               <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
                 <button
                   type="button"
