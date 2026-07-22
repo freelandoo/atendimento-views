@@ -6,6 +6,7 @@ const { gerarESalvarResumo, buscarUltimoResumo } = require('../services/resumo-c
 const { logger } = require('../logger')
 const { enviarMensagem } = require('../whatsapp')
 const { calcularScoreInteresseLead } = require('../services/lead-interest-score')
+const { enviarMensagemManualOperador } = require('../services/conversa-manual')
 
 const router = Router({ mergeParams: true })
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
@@ -41,6 +42,20 @@ function anexarScoreInteresse(conversa) {
     score_interesse_criterios: interesse.criterios,
     score_interesse_mensagens_lead: interesse.mensagens_lead,
   }
+}
+
+function erroConversas(res, err, code = 'CONVERSAS_FAILED') {
+  const status = err?.statusCode || 500
+  const errorCode = err?.code || code
+  if (status >= 500) {
+    logger.error({ err: err?.message, code: errorCode }, '[api-conversas] falha')
+  } else {
+    logger.warn({ err: err?.message, code: errorCode }, '[api-conversas] operacao recusada')
+  }
+  const message = status >= 500
+    ? 'Nao foi possivel concluir a operacao.'
+    : (err?.message || 'Dados invalidos.')
+  return res.status(status).json({ ok: false, error: { code: errorCode, message } })
 }
 
 // GET /api/empresas/:empresaId/conversas?page=1&limit=50&status=ativo&numero=5511
@@ -199,6 +214,25 @@ router.post('/:numero/reprocessar', requireAuth, requireEmpresaAccess, async (re
   } catch (err) {
     logger.error({ err: err.message, numero: conversa.numero }, 'Reprocessar conversa falhou')
     return res.status(502).json({ ok: false, error: { code: 'WHATSAPP_SEND_FAILED', message: err.message || 'Falha ao reenviar WhatsApp.' } })
+  }
+})
+
+// POST /api/empresas/:empresaId/conversas/:numero/mensagem
+// Envia uma mensagem escrita pelo operador e registra no historico como role=operator.
+router.post('/:numero/mensagem', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const out = await enviarMensagemManualOperador({
+      pool,
+      empresaId: req.empresa.id,
+      numero: req.params.numero,
+      texto: req.body?.texto,
+      assumir: req.body?.assumir !== false,
+      operadorId: req.usuario?.id || null,
+      log: logger,
+    })
+    return res.status(201).json({ ok: true, data: out })
+  } catch (err) {
+    return erroConversas(res, err, 'MANUAL_MESSAGE_FAILED')
   }
 })
 

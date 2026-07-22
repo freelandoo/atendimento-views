@@ -92,6 +92,7 @@ function criterioClasse(c: ScoreCriterio) {
 type Mensagem = { role?: string; content?: string; text?: string; timestamp?: string }
 type ConversaDetail = Conversa & {
   historico?: Mensagem[]
+  agente_pausado?: boolean
   ultima_falha_resposta_codigo?: string | null
   ultima_falha_resposta_msg?: string | null
   ultima_falha_resposta_em?: string | null
@@ -148,6 +149,8 @@ export default function ConversasPage() {
   const [carregando, setCarregando] = useState(false)
   const [apagando, setApagando] = useState(false)
   const [reenviando, setReenviando] = useState(false)
+  const [mensagemManual, setMensagemManual] = useState('')
+  const [enviandoManual, setEnviandoManual] = useState(false)
   const [filtro, setFiltro] = useState<'todos' | Faixa | 'esfriando'>('todos')
   const [buscaNumero, setBuscaNumero] = useState('')
   const [carregandoLista, setCarregandoLista] = useState(true)
@@ -196,6 +199,7 @@ export default function ConversasPage() {
     if (!empresaId) return
     setCarregando(true)
     setErro('')
+    setMensagemManual('')
     try {
       const r = await apiFetch<ConversaDetail>(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(c.numero)}`)
       setAberta(r.data)
@@ -204,6 +208,11 @@ export default function ConversasPage() {
     } finally {
       setCarregando(false)
     }
+  }
+
+  function fecharHistorico() {
+    setAberta(null)
+    setMensagemManual('')
   }
 
   async function deletarHistorico() {
@@ -234,6 +243,34 @@ export default function ConversasPage() {
       } : p)
     } catch { /* erro já exibido pelo feedback */ }
     finally { setReenviando(false) }
+  }
+
+  async function enviarMensagemOperador() {
+    if (!aberta || !empresaId) return
+    const texto = mensagemManual.trim()
+    if (!texto) {
+      fb.toast('Escreva a mensagem antes de enviar.', 'error')
+      return
+    }
+    setEnviandoManual(true)
+    try {
+      const r = await fb.runTask(
+        () => apiFetch<ConversaDetail>(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(aberta.numero)}/mensagem`, {
+          method: 'POST',
+          body: JSON.stringify({ texto, assumir: true }),
+        }),
+        { sucesso: 'Mensagem enviada e conversa assumida.' }
+      )
+      setAberta((p) => p ? {
+        ...p,
+        ...r.data,
+        historico: r.data.historico || p.historico,
+        agente_pausado: true,
+      } : p)
+      setMensagemManual('')
+      carregar()
+    } catch { /* erro ja exibido pelo feedback */ }
+    finally { setEnviandoManual(false) }
   }
 
   const historicoAberto = aberta?.historico || []
@@ -409,7 +446,7 @@ export default function ConversasPage() {
       {aberta && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => setAberta(null)}
+          onClick={fecharHistorico}
         >
           <div
             className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden"
@@ -444,7 +481,7 @@ export default function ConversasPage() {
                 )}
               </div>
               <button
-                onClick={() => setAberta(null)}
+                onClick={fecharHistorico}
                 className="text-gray-400 hover:text-gray-700 text-xl leading-none px-2"
                 aria-label="Fechar"
               >
@@ -502,6 +539,31 @@ export default function ConversasPage() {
               )}
             </div>
 
+            <div className="border-t bg-white px-5 py-4">
+              <label htmlFor="mensagem-operador" className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Mensagem do operador
+              </label>
+              <textarea
+                id="mensagem-operador"
+                value={mensagemManual}
+                onChange={(e) => setMensagemManual(e.target.value)}
+                maxLength={4096}
+                rows={3}
+                placeholder="Escreva uma mensagem para enviar pelo WhatsApp..."
+                className="w-full resize-none rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
+              />
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-slate-500">Ao enviar, o agente automatico fica pausado nesta conversa.</span>
+                <button
+                  onClick={enviarMensagemOperador}
+                  disabled={enviandoManual || !mensagemManual.trim()}
+                  className="text-xs px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {enviandoManual ? 'Enviando...' : 'Enviar e assumir'}
+                </button>
+              </div>
+            </div>
+
             <div className="px-5 py-3 border-t flex flex-wrap justify-between items-center gap-3">
               <button
                 onClick={deletarHistorico}
@@ -518,7 +580,7 @@ export default function ConversasPage() {
                 {reenviando ? 'Reenviando...' : 'Reenviar WhatsApp'}
               </button>
               <button
-                onClick={() => setAberta(null)}
+                onClick={fecharHistorico}
                 className="text-sm px-3 py-2 border rounded-lg"
               >
                 Fechar
