@@ -7,6 +7,7 @@ const { logger } = require('../logger')
 const { enviarMensagem } = require('../whatsapp')
 const { calcularScoreInteresseLead } = require('../services/lead-interest-score')
 const { enviarMensagemManualOperador, alterarPausaAgenteConversa } = require('../services/conversa-manual')
+const { gerarOrientacaoResposta } = require('../services/orientador-resposta')
 
 const router = Router({ mergeParams: true })
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
@@ -250,6 +251,23 @@ router.patch('/:numero/agente', requireAuth, requireEmpresaAccess, async (req, r
     return res.json({ ok: true, data: out })
   } catch (err) {
     return erroConversas(res, err, 'AGENT_PAUSE_FAILED')
+  }
+})
+
+// POST /api/empresas/:empresaId/conversas/:numero/orientador-resposta
+// Gera uma sugestao editavel e uma explicacao para o operador. Nao envia mensagem.
+router.post('/:numero/orientador-resposta', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const out = await gerarOrientacaoResposta({
+      pool,
+      empresaId: req.empresa.id,
+      numero: req.params.numero,
+      rascunho: req.body?.rascunho || '',
+      log: logger,
+    })
+    return res.json({ ok: true, data: out })
+  } catch (err) {
+    return erroConversas(res, err, 'RESPONSE_COACH_FAILED')
   }
 })
 
