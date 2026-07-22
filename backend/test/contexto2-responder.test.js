@@ -31,6 +31,22 @@ function montar(overrides = {}) {
 const conversaBase = { id: 'c1', status: 'ativo', evolution_instance: 'freelandoo' }
 const historicoBase = [{ role: 'user', content: 'oi, como funciona?' }]
 
+test('responderContexto2: persiste atualizar_perfil geral da decisao do playbook', async () => {
+  const { responderContexto2, calls } = montar({
+    processarMensagemComPlaybook: async () => ({
+      extracao: {},
+      decisao: {
+        mensagem_pro_lead: 'Para seu caso, eu recomendo SEO.',
+        atualizar_perfil: { produto_sugerido: 'SEO' },
+      },
+    }),
+  })
+  await responderContexto2({ numero: '5511999990000', empresaId: 'e1', conversaUsada: conversaBase, historico: historicoBase, estagioLive: 'diagnostico' })
+
+  assert.ok(calls.atualizarPerfil.some((a) => a[1]?.produto_sugerido === 'SEO'))
+  assert.strictEqual(calls.enviarMensagem.length, 1)
+})
+
 test('responderContexto2: envia a mensagem do playbook e persiste a conversa', async () => {
   const { responderContexto2, calls } = montar()
   const r = await responderContexto2({ numero: '5511999990000', empresaId: 'e1', conversaUsada: conversaBase, historico: historicoBase, estagioLive: 'diagnostico' })

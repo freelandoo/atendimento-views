@@ -257,3 +257,35 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
 - Validacao: testes focados 39/39, suite completa 896/896 e typecheck do backend passaram;
   a validacao final exige deploy e observacao de tick real no Railway.
 - Documentos atualizados: `ai-task-start-log.md`, `ai-decision-log.md` e este mapa.
+
+## 2026-07-22 - Contextos - catalogo estruturado de servicos no Gerar tudo
+
+- Area(s) tocada(s): migration `033`, servico de catalogo (`contexto-servicos.js`), ingestao
+  de conhecimento, pipeline `gerarTudo`, geracao do Contexto 2, rota autenticada de contexto,
+  editor `ContextoEditor.tsx` e testes de playbook.
+- Regras preservadas: `servicos_produtos` continua existindo como resumo editavel; itens
+  revisados pelo operador nao sao sobrescritos por nova leitura de fonte; playbook ativo recebe
+  snapshot do catalogo; a decisao automatica de oferta agora fica rastreavel no runtime, sem criar
+  envio automatico nem alterar permissao.
+- O que mudou: o fluxo Gerar tudo separa ofertas como SEO, criacao de site e sistemas em
+  registros individuais de `app.contexto_servicos`, marca lacunas como `precisa_revisao`,
+  permite editar/ativar/desativar cada servico no editor e injeta esses itens em `playbook.servicos`.
+- Banco: tabela aditiva por `empresa_id`/`contexto_id`, com `slug` unico por contexto, status de
+  revisao, confianca, fontes e conflitos em JSONB.
+- Validacao: suite completa do backend passou com 909 testes; typechecks de backend e frontend passaram.
+- Documentos atualizados: `ai-task-start-log.md`, `ai-decision-log.md`, `project-architecture.md`,
+  `project-map.md` e este mapa.
+
+## 2026-07-22 - Contextos - rastreio de decisao de servico no runtime
+
+- Area(s) tocada(s): migration `034`, runtime do Contexto 2 (`contexto2-runtime.js`), responder
+  multiempresa (`contexto2-responder.js`) e testes de playbook/responder.
+- Regras preservadas: tracking e snapshot sao aditivos; erro ao registrar decisao de servico nao
+  bloqueia a resposta ao lead; prompts de producao legados nao foram alterados.
+- O que mudou: a IA recebe catalogo canonico de servicos, normaliza slugs mesmo quando responde por
+  nome/texto, grava `servicos_interesse_slugs`, ultimo recomendado/oferecido e historico em
+  `app.lead_servico_decisoes`.
+- Banco: campos aditivos em `app.lead_insights` e tabela append-only para auditoria por
+  `empresa_id`, `numero`, `servico_slug` e tipo de decisao.
+- Validacao: testes focados de Contexto 2 passaram; suite completa do backend passou com 909
+  testes; typechecks de backend e frontend passaram.

@@ -277,3 +277,40 @@ cronológica inversa (mais recente no topo).
   com `evolution_message_update_missing` em vez de ignorar confirmacoes.
 - **Como validar:** cobertura dos schemas `public`/`evolution`, ausencia dos dois, suite
   completa, typecheck, deploy Railway e tick real sem `tick falhou`.
+
+---
+
+## 2026-07-22 - Catalogo estruturado de servicos por contexto
+
+- **Decisao:** Criar `app.contexto_servicos` como fonte estruturada e editavel de ofertas por
+  contexto, preenchida pelo `Gerar tudo` antes do playbook e injetada em `playbook.servicos`.
+- **Motivo:** O campo textual `servicos_produtos` e o array livre do playbook nao davam garantia
+  de separacao correta entre ofertas distintas. Sites que citam SEO, criacao de site e sistemas
+  precisam virar tres itens rastreaveis, preenchiveis e revisaveis.
+- **Alternativas consideradas:** guardar tudo dentro de `contexto_form_json`; confiar apenas no
+  prompt do playbook; adiar a decisao de oferta por lead para uma fase separada.
+- **Escolha:** Tabela aditiva com `slug` unico por contexto, status de revisao, confianca,
+  fontes/conflitos em JSONB e merge que preserva item revisado. O runtime tambem passa a registrar
+  `servicos_interesse_slugs`, ultimo servico recomendado/oferecido e eventos em
+  `app.lead_servico_decisoes`.
+- **Impacto:** banco, pipeline de IA, rotas autenticadas de contexto, editor Next.js e testes.
+  Sem nova dependencia, segredo, permissao ou envio automatico.
+- **Riscos:** a qualidade inicial depende da extracao das fontes; lacunas ficam visiveis como
+  `precisa_revisao` em vez de serem inventadas.
+- **Como validar:** testes de separacao de catalogo e injecao no playbook, suite completa,
+  typechecks de backend/frontend e validacao visual do editor apos login.
+
+## 2026-07-22 - Rastreio de decisao de servico no Contexto 2 runtime
+
+- **Decisao:** Estender o runtime do playbook para pedir slugs canonicos de servico e gravar a
+  trilha de `interesse_detectado`, `recomendado` e `oferecido`.
+- **Motivo:** Sem slug persistido, a IA ate poderia citar um servico na mensagem, mas o operador
+  nao conseguiria auditar depois qual oferta ela escolheu nem correlacionar esse dado por lead.
+- **Escolha:** Campos aditivos em `app.lead_insights` para snapshot atual e tabela append-only
+  `app.lead_servico_decisoes` para historico. O responder tambem persiste `decisao.atualizar_perfil`
+  geral, incluindo `produto_sugerido`.
+- **Impacto:** migration `034`, `contexto2-runtime.js`, `contexto2-responder.js` e testes.
+- **Riscos:** catalogos antigos sem slug/id ainda funcionam por normalizacao textual, mas a
+  confianca operacional melhora quando o catalogo foi gerado/revisado pelo fluxo novo.
+- **Como validar:** testes focados de normalizacao, registro de decisao e persistencia de perfil,
+  depois suite completa e typecheck do backend.

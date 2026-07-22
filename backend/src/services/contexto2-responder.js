@@ -99,6 +99,14 @@ function createContexto2Responder(deps = {}) {
     const decisao = res?.decisao || {}
     let texto = typeof decisao.mensagem_pro_lead === 'string' ? decisao.mensagem_pro_lead.trim() : ''
     const precisaHandoff = !!decisao.precisa_handoff
+    const patchPerfilDecisao = decisao.atualizar_perfil && typeof decisao.atualizar_perfil === 'object' && !Array.isArray(decisao.atualizar_perfil)
+      ? decisao.atualizar_perfil
+      : {}
+    if (Object.keys(patchPerfilDecisao).length) {
+      await atualizarPerfil(numero, patchPerfilDecisao).catch((e) => {
+        logger.warn({ err: e.message, empresa_id: empresaId, numero }, 'Playbook: atualizar_perfil da decisao falhou')
+      })
+    }
 
     // ── Agenda (reunião) — reusa os helpers/booking da infra ───────────────────
     let reuniaoConfirmada = false

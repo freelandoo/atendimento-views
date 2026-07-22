@@ -1,6 +1,11 @@
 'use strict'
 
 const { parsearRespostaJsonClaude } = require('../string-utils')
+const {
+  listarServicosContexto,
+  servicosParaPlaybook,
+  resumoServicosParaTexto,
+} = require('./contexto-servicos')
 
 // Cache TTL: 60s por empresa_id (apenas para getContextoAtivoEmpresa)
 const _cache = new Map()
@@ -198,13 +203,14 @@ function validarContexto2PlaybookComUrls(json, { linkPrincipal = '' } = {}) {
 }
 
 // ─── Prompt para gerar Contexto 2 Playbook ────────────────────────────────────
-function gerarPromptContexto2({ empresa, contexto1 }) {
+function gerarPromptContexto2({ empresa, contexto1, catalogoServicos = [] }) {
   const empresaJson = JSON.stringify({
     id: empresa?.id, nome: empresa?.nome, slug: empresa?.slug, plano: empresa?.plano,
   })
   const contexto1Json = typeof contexto1 === 'string'
     ? contexto1
     : JSON.stringify(contexto1, null, 2)
+  const catalogoServicosJson = JSON.stringify(servicosParaPlaybook(catalogoServicos), null, 2)
 
   const systemPrompt = `Você é um estrategista comercial especialista em vendas consultivas, WhatsApp, qualificação de leads e agentes de IA.
 
@@ -236,6 +242,7 @@ EXTRAÇÃO ESPECÍFICA OBRIGATÓRIA do Contexto 1:
 - cadastro_e_onboarding.perguntas_para_direcionar: 2-4 perguntas curtas (ex: "Você quer vender serviços, criar curso ou captar clientes?").
 - maquinas_ou_modulos: se Contexto 1 menciona módulos, áreas, máquinas ou funções da plataforma (ex: "divulgar serviços", "vender cursos", "agenda", "feed", "perfil"), transforme cada um em item com nome/descricao/indicado_para/beneficios/quando_recomendar/perguntas_de_qualificacao.
 - links_uteis_estruturados: array de { label, url, quando_enviar } extraído de links_uteis.
+- servicos: use o CATALOGO DE SERVICOS ESTRUTURADO como fonte oficial. Preserve cada oferta em item separado; se houver SEO, criação de site e sistemas, gere 3 itens distintos.
 - intencoes_de_conversao: mantenha o default (cadastro/preco/como_funciona/plano_gratuito/link), customize deve_responder_com se necessário.
 - regras_de_conversao: mantenha defaults; ajuste perguntas_que_exigem_resposta_direta com termos do nicho da empresa.
 
@@ -274,6 +281,9 @@ ${empresaJson}
 CONTEXTO 1:
 ${contexto1Json}
 
+CATALOGO DE SERVICOS ESTRUTURADO:
+${catalogoServicosJson}
+
 Gere o Contexto 2 Playbook em JSON conforme as regras.`
 
   return { systemPrompt, userPrompt }
@@ -283,7 +293,7 @@ Gere o Contexto 2 Playbook em JSON conforme as regras.`
  * Gera o Contexto 2 Playbook chamando IA e salva como nova versão (rascunho).
  * Retorna { versao_id, markdown, json }.
  */
-async function gerarContexto2Playbook({ pool, log, empresaId, contextoId, userId, aiProvider }) {
+async function gerarContexto2Playbook({ pool, log, empresaId, contextoId, userId, aiProvider, catalogoServicos = null }) {
   if (!pool || !empresaId || !contextoId) {
     throw new Error('gerarContexto2Playbook: pool, empresaId, contextoId obrigatórios')
   }
@@ -308,7 +318,11 @@ async function gerarContexto2Playbook({ pool, log, empresaId, contextoId, userId
     throw new Error('Contexto 1 muito curto para gerar playbook')
   }
 
-  const { systemPrompt, userPrompt } = gerarPromptContexto2({ empresa, contexto1 })
+  const catalogoAtivo = Array.isArray(catalogoServicos)
+    ? catalogoServicos
+    : await listarServicosContexto(pool, empresaId, contextoId, { somenteAtivos: true }).catch(() => [])
+
+  const { systemPrompt, userPrompt } = gerarPromptContexto2({ empresa, contexto1, catalogoServicos: catalogoAtivo })
 
   const provider = aiProvider || require('../ai-provider')
   const result = await provider.generateAIResponse(
@@ -338,6 +352,28 @@ async function gerarContexto2Playbook({ pool, log, empresaId, contextoId, userId
     c1.link_principal, c1.link_cadastro, c1.links_uteis,
   ])
   const jsonValidado = validarContexto2PlaybookComUrls(parsed.json || {}, { linkPrincipal: linkPrincipalReal })
+  const servicosPlaybook = servicosParaPlaybook(catalogoAtivo)
+  if (servicosPlaybook.length) {
+    jsonValidado.servicos = servicosPlaybook
+    jsonValidado.catalogo_servicos_snapshot = {
+      total: servicosPlaybook.length,
+      itens: servicosPlaybook.map((s) => ({
+        id: s.id,
+        slug: s.slug,
+        nome: s.nome,
+        status_revisao: s.status_revisao,
+        confianca: s.confianca,
+      })),
+    }
+    const resumoCatalogo = resumoServicosParaTexto(catalogoAtivo)
+    if (resumoCatalogo) {
+      jsonValidado.informacoes_empresa = [
+        jsonValidado.informacoes_empresa || '',
+        'SERVICOS ESTRUTURADOS:',
+        resumoCatalogo,
+      ].filter(Boolean).join('\n')
+    }
+  }
   if (c1.precos_planos && !jsonValidado.precos_planos) {
     jsonValidado.precos_planos = String(c1.precos_planos).trim()
   }
@@ -433,7 +469,12 @@ function _enriquecerPlaybookComContexto1(playbookJson, contextoFormJson) {
   // Sempre (re)injeta o bloco de informações da empresa — funciona inclusive para
   // playbooks antigos que foram gerados antes deste campo existir.
   const bloco = _blocoInformacoesDoForm(c1)
-  if (bloco) out.informacoes_empresa = bloco
+  if (bloco) {
+    out.informacoes_empresa = [
+      bloco,
+      out.informacoes_empresa && !String(out.informacoes_empresa).includes(bloco) ? String(out.informacoes_empresa).trim() : '',
+    ].filter(Boolean).join('\n\n')
+  }
   return out
 }
 

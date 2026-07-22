@@ -36,6 +36,9 @@ dashboard estático e jobs de prospecção.
 - `operator-commands.js`, `operator-meeting-detector.js`, `meeting-invite.js`.
 - `lead-profile.js`, `lead-profile-canonical.js`, `learning.js`.
 - `message-buffer.js`, `message-limits.js`, `reply-delay.js`.
+- `services/contexto-empresa.js`, `contexto2-runtime.js`, `contexto-estagios.js`,
+  `contexto-servicos.js`, `knowledge-ingestion.js` — contexto multiempresa, playbook,
+  estagios, catalogo estruturado de servicos e leitura de fontes.
 
 ### Serviços de prospecção
 - `prospecting.js` — endpoints/jobs de prospecção (entrada).

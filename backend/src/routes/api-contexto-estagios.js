@@ -9,6 +9,7 @@ const estagiosSvc = require('../services/contexto-estagios')
 const mensagensSvc = require('../services/mensagens-automaticas')
 const geracaoCompleta = require('../services/geracao-completa')
 const geracaoSimulacao = require('../services/geracao-simulacao')
+const servicosSvc = require('../services/contexto-servicos')
 
 const router = Router({ mergeParams: true })
 
@@ -45,6 +46,38 @@ router.get('/estagios', carregarContexto, async (req, res) => {
       tem_conhecimento: !!estagiosSvc.montarConhecimentoDoContexto(req.contexto),
     },
   })
+})
+
+// GET .../servicos — catalogo estruturado detectado pelo Gerar tudo e editavel.
+router.get('/servicos', carregarContexto, async (req, res) => {
+  try {
+    const servicos = await servicosSvc.listarServicosContexto(pool, req.empresa.id, req.contexto.id)
+    return res.json({ ok: true, data: { servicos } })
+  } catch (err) {
+    logger.error({ err: err.message }, 'api-contexto-servicos: listar')
+    return res.status(500).json({ ok: false, error: { code: 'INTERNAL', message: 'Erro interno.' } })
+  }
+})
+
+// POST .../servicos — cria item manual revisado.
+router.post('/servicos', carregarContexto, async (req, res) => {
+  try {
+    const servico = await servicosSvc.criarServicoContexto(pool, req.empresa.id, req.contexto.id, req.body || {})
+    return res.status(201).json({ ok: true, data: servico })
+  } catch (err) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: err.message || 'Servico invalido.' } })
+  }
+})
+
+// PUT .../servicos/:servicoId — salva edicao do operador e marca como revisado por padrao.
+router.put('/servicos/:servicoId', carregarContexto, async (req, res) => {
+  try {
+    const servico = await servicosSvc.atualizarServicoContexto(pool, req.empresa.id, req.contexto.id, req.params.servicoId, req.body || {})
+    if (!servico) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Servico nao encontrado.' } })
+    return res.json({ ok: true, data: servico })
+  } catch (err) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: err.message || 'Servico invalido.' } })
+  }
 })
 
 // ─── Progresso do "Gerar tudo" (em memória, por contexto) ─────────────────────

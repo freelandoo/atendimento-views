@@ -15,7 +15,7 @@ const {
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 function mockPool({ queries = {} } = {}) {
   const calls = []
-  const inserts = { sugestoes: [], lead_insights: [], versoes: [] }
+  const inserts = { sugestoes: [], lead_insights: [], lead_servico_decisoes: [], versoes: [] }
   return {
     calls, inserts,
     async query(sql, params) {
@@ -35,6 +35,11 @@ function mockPool({ queries = {} } = {}) {
       if (/INSERT INTO app\.lead_insights/i.test(sql)) {
         const row = { id: 'li-1' }
         inserts.lead_insights.push({ params })
+        return { rows: [row] }
+      }
+      if (/INSERT INTO app\.lead_servico_decisoes/i.test(sql)) {
+        const row = { id: 'lsd-' + (inserts.lead_servico_decisoes.length + 1) }
+        inserts.lead_servico_decisoes.push({ params })
         return { rows: [row] }
       }
       if (/SELECT \* FROM app\.lead_insights/i.test(sql)) {
@@ -163,6 +168,47 @@ test('decidirRespostaComPlaybook gera mensagem e detecta handoff', async () => {
   assert.strictEqual(d.precisa_handoff, false)
 })
 
+test('decidirRespostaComPlaybook normaliza servico escolhido pelo catalogo canonico', async () => {
+  const pool = mockPool()
+  const ai = mockAIProvider(JSON.stringify({
+    mensagem_pro_lead: 'Para esse objetivo, eu comecaria por criacao de site.',
+    etapa_proxima: 'diagnostico',
+    atualizar_perfil: {},
+    precisa_handoff: false,
+    servico_recomendado_slug: 'criação de site',
+    servico_oferecido_slug: '',
+    motivo_decisao_servico: 'Lead quer melhorar presenca digital.',
+    confianca_servico: 'alta',
+    sugestao_aprendizado: null,
+  }))
+  const { decidirRespostaComPlaybook } = require('../src/services/contexto2-runtime')
+  const d = await decidirRespostaComPlaybook({
+    pool,
+    log: console,
+    playbook: {
+      json: {
+        servicos: [
+          { id: '11111111-1111-4111-8111-111111111111', slug: 'seo', nome: 'SEO' },
+          { id: '22222222-2222-4222-8222-222222222222', slug: 'criacao-de-site', nome: 'Criacao de site' },
+          { id: '33333333-3333-4333-8333-333333333333', slug: 'sistemas', nome: 'Sistemas' },
+        ],
+      },
+    },
+    historico: [],
+    mensagem: 'Quero um site para vender melhor',
+    leadInsights: {},
+    extracao: { servicos_interesse: ['site'], servicos_interesse_slugs: [] },
+    empresaId: 'e',
+    conversaId: 'c',
+    leadPhone: '+55',
+    aiProvider: ai,
+  })
+
+  assert.strictEqual(d.servico_recomendado_slug, 'criacao-de-site')
+  assert.strictEqual(d.servico_recomendado_nome, 'Criacao de site')
+  assert.strictEqual(d.atualizar_perfil.produto_sugerido, 'Criacao de site')
+})
+
 test('sugestao_aprendizado é salva como pendente, não altera contexto ativo', async () => {
   const pool = mockPool()
   const { talvezGerarSugestaoAprendizado } = require('../src/services/contexto2-runtime')
@@ -220,4 +266,87 @@ test('atualizarLeadInsights faz merge seguro (não apaga dados anteriores)', asy
   assert.strictEqual(r.dados_extraidos.urgencia, 'esta_semana')
   // Objeções viram set (sem duplicar)
   assert.deepStrictEqual([...new Set(r.objecoes)].sort(), ['nao_tem_tempo', 'preco_alto'])
+})
+
+test('registrarDecisoesServico grava eventos e snapshot da decisao de servico', async () => {
+  const pool = mockPool()
+  const { registrarDecisoesServico } = require('../src/services/contexto2-runtime')
+  const r = await registrarDecisoesServico({
+    pool,
+    empresaId: '00000000-0000-0000-0000-000000000001',
+    playbook: {
+      contexto_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      versao_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      json: {
+        servicos: [
+          { id: '11111111-1111-4111-8111-111111111111', slug: 'seo', nome: 'SEO' },
+          { id: '22222222-2222-4222-8222-222222222222', slug: 'criacao-de-site', nome: 'Criacao de site' },
+        ],
+      },
+    },
+    conversaId: 'c1',
+    leadPhone: '5511999990000',
+    mensagem: 'Preciso aparecer no Google e talvez criar site',
+    extracao: { servicos_interesse_slugs: ['seo'] },
+    decisao: {
+      servico_recomendado_slug: 'seo',
+      servico_recomendado_nome: 'SEO',
+      servico_oferecido_slug: 'criacao-de-site',
+      servico_oferecido_nome: 'Criacao de site',
+      motivo_decisao_servico: 'Lead mencionou busca no Google e site.',
+      confianca_servico: 'alta',
+      mensagem_pro_lead: 'Podemos comecar por SEO e avaliar o site.',
+    },
+  })
+
+  assert.strictEqual(r.eventos, 3)
+  assert.strictEqual(pool.inserts.lead_servico_decisoes.length, 3)
+  assert.ok(pool.calls.some((c) => /UPDATE app\.lead_insights/.test(c.sql) && /ultima_decisao_servico_json/.test(c.sql)))
+})
+
+test('contexto-servicos separa catalogo de ofertas em servicos distintos', () => {
+  const { catalogoDasFontes } = require('../src/services/contexto-servicos')
+  const servicos = catalogoDasFontes([
+    {
+      id: 'f1',
+      tipo: 'site',
+      url: 'https://exemplo.com',
+      resumo_json: {
+        catalogo_de_ofertas: [
+          { nome: 'SEO', descricao: 'Otimização para buscadores', beneficios: ['Aparecer melhor no Google'] },
+          { nome: 'Criação de site', descricao: 'Sites institucionais e landing pages' },
+          { nome: 'Sistemas', descricao: 'Sistemas sob medida para operação' },
+        ],
+      },
+    },
+  ])
+
+  assert.deepStrictEqual(servicos.map((s) => s.nome), ['SEO', 'Criação de site', 'Sistemas'])
+  assert.deepStrictEqual(servicos.map((s) => s.slug), ['seo', 'criacao-de-site', 'sistemas'])
+})
+
+test('gerarContexto2Playbook injeta catalogo estruturado no playbook validado', async () => {
+  const pool = mockPool()
+  const ai = mockAIProvider(JSON.stringify({
+    markdown: '# Playbook',
+    json: { servicos: [{ nome: 'Misturado' }] },
+  }))
+  const { gerarContexto2Playbook } = require('../src/services/contexto-empresa')
+  const r = await gerarContexto2Playbook({
+    pool,
+    log: console,
+    empresaId: 'emp-1',
+    contextoId: 'ctx-1',
+    userId: 'u-1',
+    aiProvider: ai,
+    catalogoServicos: [
+      { id: 's1', slug: 'seo', nome: 'SEO', descricao_curta: 'Otimização para buscadores', ativo: true },
+      { id: 's2', slug: 'criacao-de-site', nome: 'Criação de site', descricao_curta: 'Sites institucionais', ativo: true },
+      { id: 's3', slug: 'sistemas', nome: 'Sistemas', descricao_curta: 'Sistemas sob medida', ativo: true },
+    ],
+  })
+
+  assert.deepStrictEqual(r.json.servicos.map((s) => s.nome), ['SEO', 'Criação de site', 'Sistemas'])
+  assert.equal(r.json.catalogo_servicos_snapshot.total, 3)
+  assert.match(r.json.informacoes_empresa, /SERVICOS ESTRUTURADOS/)
 })

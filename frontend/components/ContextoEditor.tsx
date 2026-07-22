@@ -39,6 +39,28 @@ type Fonte = {
   created_at: string
   updated_at: string
 }
+type ServicoContexto = {
+  id: string
+  slug: string
+  nome: string
+  categoria: string
+  descricao_curta: string
+  descricao_completa: string
+  indicado_para: string[]
+  problemas_que_resolve: string[]
+  beneficios: string[]
+  perguntas_qualificacao: string[]
+  sinais_para_recomendar: string[]
+  sinais_para_nao_recomendar: string[]
+  preco_texto: string
+  prazo_texto: string
+  link_relacionado: string
+  origem: string
+  confianca: 'baixa' | 'media' | 'alta'
+  status_revisao: 'ia_preencheu' | 'revisado' | 'precisa_revisao'
+  ativo: boolean
+  ordem: number
+}
 // ─── Progresso do pipeline (Inserir → tudo pronto) ───────────────────────────
 type EtapaProg = { chave: string; status: 'pendente' | 'rodando' | 'ok' | 'erro'; erro?: string | null }
 type PipelineState = {
@@ -52,6 +74,7 @@ const ETAPAS_PIPELINE: { chave: string; label: string }[] = [
   { chave: 'lendo_fonte', label: 'Lendo a fonte (site / documento)' },
   { chave: 'analisar_fontes', label: 'Analisando o conteúdo das fontes' },
   { chave: 'contexto1', label: 'Preenchendo o Contexto 1 (formulário)' },
+  { chave: 'servicos', label: 'Separando serviços e ofertas' },
   { chave: 'estagios_base', label: 'Gerando os estágios do funil' },
   { chave: 'estagios_refinados', label: 'Refinando estágios com técnicas de venda' },
   { chave: 'playbook', label: 'Criando o Playbook Comercial (Contexto 2)' },
@@ -291,6 +314,7 @@ export default function ContextoEditor({ empresaId, contextoId }: { empresaId: s
           onAposRemover={() => recarregarDerivados()}
         />
         <CardContexto1 empresaId={empresaId} contexto={contexto} onSalvo={carregar} />
+        <CardServicos empresaId={empresaId} contextoId={contexto.id} reloadKey={pipelineNonce} />
         <CardPlaybook
           contextoId={contexto.id}
           versoes={versoes}
@@ -590,7 +614,209 @@ function CardContexto1({ empresaId, contexto, onSalvo }: {
   )
 }
 
-// ─── Card 3 — Playbook ───────────────────────────────────────────────────────
+// ─── Card 3 — Serviços separados ─────────────────────────────────────────────
+function arrTexto(v: unknown): string {
+  if (!Array.isArray(v)) return ''
+  return v.map((x) => String(x || '').trim()).filter(Boolean).join('\n')
+}
+
+function textoArr(v: string): string[] {
+  return v.split('\n').map((x) => x.trim()).filter(Boolean)
+}
+
+function servicoVazio(ordem = 0): Partial<ServicoContexto> {
+  return {
+    nome: '',
+    categoria: '',
+    descricao_curta: '',
+    descricao_completa: '',
+    indicado_para: [],
+    problemas_que_resolve: [],
+    beneficios: [],
+    perguntas_qualificacao: [],
+    sinais_para_recomendar: [],
+    sinais_para_nao_recomendar: [],
+    preco_texto: '',
+    prazo_texto: '',
+    link_relacionado: '',
+    confianca: 'media',
+    status_revisao: 'revisado',
+    ativo: true,
+    ordem,
+  }
+}
+
+const STATUS_SERVICO: Record<ServicoContexto['status_revisao'], { label: string; cls: string }> = {
+  revisado: { label: 'Revisado', cls: 'bg-green-100 text-green-700' },
+  ia_preencheu: { label: 'IA preencheu', cls: 'bg-blue-100 text-blue-700' },
+  precisa_revisao: { label: 'Precisa revisão', cls: 'bg-amber-100 text-amber-700' },
+}
+
+function CardServicos({ empresaId, contextoId, reloadKey }: {
+  empresaId: string
+  contextoId: string
+  reloadKey?: number
+}) {
+  const [servicos, setServicos] = useState<ServicoContexto[]>([])
+  const [aberto, setAberto] = useState<string | null>(null)
+  const [draft, setDraft] = useState<Partial<ServicoContexto> | null>(null)
+  const [carregando, setCarregando] = useState(true)
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
+  const fb = useFeedback()
+
+  const carregar = useCallback(async () => {
+    setCarregando(true)
+    try {
+      const r = await apiFetch<{ servicos: ServicoContexto[] }>(`/api/empresas/${empresaId}/contextos/${contextoId}/servicos`)
+      setServicos(r.data.servicos || [])
+      setErro('')
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : 'Erro ao carregar serviços.')
+    } finally {
+      setCarregando(false)
+    }
+  }, [empresaId, contextoId])
+
+  useEffect(() => { carregar() }, [carregar, reloadKey])
+
+  function abrirServico(s: ServicoContexto) {
+    setAberto(s.id)
+    setDraft({ ...s })
+  }
+
+  function novoServico() {
+    setAberto('__novo__')
+    setDraft(servicoVazio(servicos.length))
+  }
+
+  function patchDraft(patch: Partial<ServicoContexto>) {
+    setDraft((d) => ({ ...(d || servicoVazio(servicos.length)), ...patch }))
+  }
+
+  async function salvarServico() {
+    if (!draft?.nome?.trim()) { fb.toast('Informe o nome do serviço.', 'error'); return }
+    setSalvando(true)
+    const body = JSON.stringify({
+      ...draft,
+      indicado_para: Array.isArray(draft.indicado_para) ? draft.indicado_para : textoArr(String(draft.indicado_para || '')),
+      problemas_que_resolve: Array.isArray(draft.problemas_que_resolve) ? draft.problemas_que_resolve : textoArr(String(draft.problemas_que_resolve || '')),
+      beneficios: Array.isArray(draft.beneficios) ? draft.beneficios : textoArr(String(draft.beneficios || '')),
+      perguntas_qualificacao: Array.isArray(draft.perguntas_qualificacao) ? draft.perguntas_qualificacao : textoArr(String(draft.perguntas_qualificacao || '')),
+      sinais_para_recomendar: Array.isArray(draft.sinais_para_recomendar) ? draft.sinais_para_recomendar : textoArr(String(draft.sinais_para_recomendar || '')),
+      sinais_para_nao_recomendar: Array.isArray(draft.sinais_para_nao_recomendar) ? draft.sinais_para_nao_recomendar : textoArr(String(draft.sinais_para_nao_recomendar || '')),
+      status_revisao: draft.status_revisao || 'revisado',
+    })
+    const isNovo = aberto === '__novo__'
+    try {
+      await fb.runTask(() => apiFetch(
+        isNovo
+          ? `/api/empresas/${empresaId}/contextos/${contextoId}/servicos`
+          : `/api/empresas/${empresaId}/contextos/${contextoId}/servicos/${aberto}`,
+        { method: isNovo ? 'POST' : 'PUT', body }
+      ), { sucesso: 'Serviço salvo.' })
+      await carregar()
+      setAberto(null)
+      setDraft(null)
+    } catch { /* feedback ja exibido */ }
+    finally { setSalvando(false) }
+  }
+
+  const revisao = servicos.filter((s) => s.status_revisao === 'precisa_revisao').length
+
+  return (
+    <div className="bg-white border rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h3 className="font-semibold text-sm">Serviços separados</h3>
+          <p className="text-[11px] text-gray-400 mt-0.5">Gerado no “Gerar tudo” e usado como fonte oficial do playbook.</p>
+        </div>
+        <button onClick={novoServico} className="text-xs px-3 py-1.5 rounded-lg border hover:bg-gray-50">Adicionar</button>
+      </div>
+      {erro && <p className="text-xs text-red-600">{erro}</p>}
+      {servicos.length > 0 && (
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+          {servicos.length} serviço{servicos.length === 1 ? '' : 's'} separado{servicos.length === 1 ? '' : 's'} · {revisao} precisa{revisao === 1 ? '' : 'm'} revisão
+        </div>
+      )}
+      {carregando ? (
+        <p className="text-xs text-gray-400 py-3 text-center">Carregando serviços…</p>
+      ) : servicos.length === 0 ? (
+        <p className="text-xs text-gray-400 py-3 text-center">Nenhum serviço separado ainda. Use Gerar tudo após inserir uma fonte.</p>
+      ) : (
+        <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+          {servicos.map((s) => {
+            const meta = STATUS_SERVICO[s.status_revisao] || STATUS_SERVICO.ia_preencheu
+            return (
+              <div key={s.id} className={`border rounded-lg ${s.ativo ? 'bg-white' : 'bg-gray-50 opacity-75'}`}>
+                <button onClick={() => abrirServico(s)} className="w-full px-3 py-2 text-left flex items-center justify-between gap-2">
+                  <span className="min-w-0">
+                    <span className="block text-xs font-medium text-gray-900 truncate">{s.nome}</span>
+                    <span className="block text-[11px] text-gray-500 truncate">{s.descricao_curta || s.categoria || 'Sem descrição curta'}</span>
+                  </span>
+                  <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded-full ${meta.cls}`}>{meta.label}</span>
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      {draft && (
+        <div className="border rounded-lg p-3 space-y-2 bg-gray-50">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Nome</label>
+              <input value={draft.nome || ''} onChange={(e) => patchDraft({ nome: e.target.value })} className="w-full border rounded-lg px-2 py-1 text-xs" />
+            </div>
+            <div>
+              <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Categoria</label>
+              <input value={draft.categoria || ''} onChange={(e) => patchDraft({ categoria: e.target.value })} className="w-full border rounded-lg px-2 py-1 text-xs" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Descrição curta</label>
+            <textarea rows={2} value={draft.descricao_curta || ''} onChange={(e) => patchDraft({ descricao_curta: e.target.value })} className="w-full border rounded-lg px-2 py-1 text-xs" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Preço</label>
+              <input value={draft.preco_texto || ''} onChange={(e) => patchDraft({ preco_texto: e.target.value })} className="w-full border rounded-lg px-2 py-1 text-xs" />
+            </div>
+            <div>
+              <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Prazo</label>
+              <input value={draft.prazo_texto || ''} onChange={(e) => patchDraft({ prazo_texto: e.target.value })} className="w-full border rounded-lg px-2 py-1 text-xs" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Benefícios (um por linha)</label>
+            <textarea rows={2} value={arrTexto(draft.beneficios)} onChange={(e) => patchDraft({ beneficios: textoArr(e.target.value) })} className="w-full border rounded-lg px-2 py-1 text-xs" />
+          </div>
+          <div>
+            <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Quando recomendar (um por linha)</label>
+            <textarea rows={2} value={arrTexto(draft.sinais_para_recomendar)} onChange={(e) => patchDraft({ sinais_para_recomendar: textoArr(e.target.value) })} className="w-full border rounded-lg px-2 py-1 text-xs" />
+          </div>
+          <div>
+            <label className="block text-[10px] uppercase text-gray-500 mb-0.5">Perguntas de qualificação (uma por linha)</label>
+            <textarea rows={2} value={arrTexto(draft.perguntas_qualificacao)} onChange={(e) => patchDraft({ perguntas_qualificacao: textoArr(e.target.value) })} className="w-full border rounded-lg px-2 py-1 text-xs" />
+          </div>
+          <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+            <input type="checkbox" checked={draft.ativo !== false} onChange={(e) => patchDraft({ ativo: e.target.checked })} />
+            Ativo no playbook
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={salvarServico} disabled={salvando} className="inline-flex items-center gap-2 text-xs bg-brand text-white px-3 py-1.5 rounded-lg disabled:opacity-50">
+              {salvando && <Spinner size={13} />}
+              {salvando ? 'Salvando…' : 'Salvar serviço'}
+            </button>
+            <button onClick={() => { setDraft(null); setAberto(null) }} className="text-xs px-3 py-1.5 rounded-lg border">Cancelar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Card 4 — Playbook ───────────────────────────────────────────────────────
 function CardPlaybook({ contextoId: _contextoId, empresaId, versoes, onAtivar }: {
   contextoId: string
   empresaId: string

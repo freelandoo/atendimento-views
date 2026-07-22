@@ -545,8 +545,11 @@ Retorne APENAS JSON válido neste schema:
   "maquinas_modulos_funcionalidades": [],
   "catalogo_de_ofertas": [
     {
-      "nome": "", "descricao": "", "preco": "", "periodicidade": "",
-      "beneficios": [], "publico": [], "quando_oferecer": [],
+      "nome": "", "categoria": "", "descricao": "", "descricao_completa": "",
+      "preco": "", "periodicidade": "", "prazo_texto": "",
+      "beneficios": [], "publico": [], "problemas_que_resolve": [],
+      "perguntas_qualificacao": [], "quando_oferecer": [],
+      "sinais_para_nao_recomendar": [],
       "link_relacionado": ""
     }
   ],
@@ -693,12 +696,18 @@ function _normalizeResumo(j, fonte) {
         .filter((x) => x && (x.nome || x.descricao || x.preco))
         .map((x) => ({
           nome: String(x.nome || '').trim(),
+          categoria: String(x.categoria || x.tipo || '').trim(),
           descricao: String(x.descricao || '').trim(),
+          descricao_completa: String(x.descricao_completa || '').trim(),
           preco: String(x.preco || '').trim(),
           periodicidade: String(x.periodicidade || '').trim(),
+          prazo_texto: String(x.prazo_texto || x.prazo || '').trim(),
           beneficios: Array.isArray(x.beneficios) ? x.beneficios.filter(Boolean) : [],
           publico: Array.isArray(x.publico) ? x.publico.filter(Boolean) : [],
+          problemas_que_resolve: Array.isArray(x.problemas_que_resolve) ? x.problemas_que_resolve.filter(Boolean) : [],
+          perguntas_qualificacao: Array.isArray(x.perguntas_qualificacao) ? x.perguntas_qualificacao.filter(Boolean) : [],
           quando_oferecer: Array.isArray(x.quando_oferecer) ? x.quando_oferecer.filter(Boolean) : [],
+          sinais_para_nao_recomendar: Array.isArray(x.sinais_para_nao_recomendar) ? x.sinais_para_nao_recomendar.filter(Boolean) : [],
           link_relacionado: sanitizarUrl(x.link_relacionado, ''),
         }))
     : []

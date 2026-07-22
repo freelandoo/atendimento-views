@@ -6,6 +6,7 @@
 const { makeGenerationProvider } = require('../ai-provider')
 const estagiosSvc = require('./contexto-estagios')
 const { gerarContexto2Playbook, invalidarCacheEmpresa } = require('./contexto-empresa')
+const servicosSvc = require('./contexto-servicos')
 const {
   analisarFonteComIA,
   sugerirContexto1APartirDasFontes,
@@ -73,6 +74,7 @@ async function refinarEstagiosComFrameworks({ genProvider, pool, log, empresaId,
 const ETAPAS_GERAR_TUDO = [
   'analisar_fontes',
   'contexto1',
+  'servicos',
   'estagios_base',
   'estagios_refinados',
   'playbook',
@@ -137,6 +139,23 @@ async function gerarTudo({ pool, log, empresaId, contextoId, userId, aiProvider,
     progresso('contexto1', 'erro', { erro: e.message })
   }
 
+  // 2b) Servicos estruturados: separa ofertas individuais detectadas nas fontes
+  // (ex.: SEO, criacao de site, sistemas) em itens editaveis por contexto.
+  progresso('servicos', 'rodando')
+  let servicos = []
+  try {
+    const baseCtx = contexto1Aplicado || {}
+    servicos = await servicosSvc.gerarServicosDoContexto({
+      pool, empresaId, contextoId, contexto1: baseCtx,
+    })
+    marcar('servicos', { total: servicos.length })
+    progresso('servicos', 'ok')
+  } catch (e) {
+    marcar('servicos', { erro: e.message })
+    progresso('servicos', 'erro', { erro: e.message })
+    servicos = null
+  }
+
   // 3) Estágios: genéricos (estrutura PJ) → adaptar ao conhecimento (modelo de geração).
   progresso('estagios_base', 'rodando')
   const ctxRow = await estagiosSvc.getContextoComEstagios(pool, empresaId, contextoId)
@@ -166,7 +185,7 @@ async function gerarTudo({ pool, log, empresaId, contextoId, userId, aiProvider,
   progresso('playbook', 'rodando')
   let playbook = null
   try {
-    const r = await gerarContexto2Playbook({ pool, log, empresaId, contextoId, userId, aiProvider: genProvider })
+    const r = await gerarContexto2Playbook({ pool, log, empresaId, contextoId, userId, aiProvider: genProvider, catalogoServicos: servicos })
     playbook = { versao_id: r && r.versao && r.versao.id, versao: r && r.versao && r.versao.versao }
     marcar('playbook', { versao: playbook.versao })
     progresso('playbook', 'ok')
@@ -196,7 +215,7 @@ async function gerarTudo({ pool, log, empresaId, contextoId, userId, aiProvider,
   }
   mensagensSvc.invalidarCacheAtivo(empresaId)
 
-  return { contexto1: contexto1Aplicado, estagios: estagiosSalvos, playbook, mensagens, passos }
+  return { contexto1: contexto1Aplicado, servicos, estagios: estagiosSalvos, playbook, mensagens, passos }
 }
 
 /**

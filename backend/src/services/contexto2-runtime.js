@@ -3,6 +3,7 @@
 const { parsearRespostaJsonClaude } = require('../string-utils')
 const { buscarContexto2Ativo, registrarSugestaoAprendizadoContexto } = require('./contexto-empresa')
 const { instanciaUsaAgenda } = require('../db/whatsapp-instances')
+const { slugify } = require('./contexto-servicos')
 
 // Override duro quando a instância NÃO usa agenda (config_json.usa_agenda=false).
 // Anexado ao REPLY_SYSTEM para sobrepor qualquer regra de reunião do playbook.
@@ -23,6 +24,95 @@ function _truncatePlaybook(json) {
   // Cap a ~12KB pra deixar headroom de contexto.
   const s = JSON.stringify(json || {}, null, 2)
   return s.length > 12000 ? s.slice(0, 12000) + '\n…[truncado]…' : s
+}
+
+function _catalogoServicosDoPlaybook(playbook) {
+  const pb = playbook?.json || playbook || {}
+  const servicos = Array.isArray(pb.servicos) ? pb.servicos : []
+  return servicos
+    .filter((s) => s && (s.slug || s.nome))
+    .map((s) => ({
+      id: s.id || null,
+      slug: slugify(s.slug || s.nome),
+      nome: String(s.nome || s.slug || '').trim(),
+      categoria: String(s.categoria || '').trim(),
+      descricao_curta: String(s.descricao_curta || s.descricao || '').trim(),
+      sinais_para_recomendar: Array.isArray(s.sinais_para_recomendar) ? s.sinais_para_recomendar.filter(Boolean).slice(0, 5) : [],
+      sinais_para_nao_recomendar: Array.isArray(s.sinais_para_nao_recomendar) ? s.sinais_para_nao_recomendar.filter(Boolean).slice(0, 5) : [],
+    }))
+}
+
+function _formatarCatalogoServicosParaPrompt(playbook) {
+  const catalogo = _catalogoServicosDoPlaybook(playbook)
+  return catalogo.length ? JSON.stringify(catalogo, null, 2).slice(0, 5000) : '[]'
+}
+
+function _resolverServicoCatalogo(playbook, valor) {
+  const raw = String(valor || '').trim()
+  if (!raw) return null
+  const catalogo = _catalogoServicosDoPlaybook(playbook)
+  if (!catalogo.length) return null
+  const alvo = slugify(raw)
+  let found = catalogo.find((s) => s.slug === alvo)
+  if (found) return { ...found, origem_match: 'slug' }
+  found = catalogo.find((s) => slugify(s.nome) === alvo)
+  if (found) return { ...found, origem_match: 'nome' }
+  const textoNorm = ` ${alvo.replace(/-/g, ' ')} `
+  const matches = catalogo.filter((s) => {
+    const nome = ` ${slugify(s.nome).replace(/-/g, ' ')} `
+    const slug = ` ${s.slug.replace(/-/g, ' ')} `
+    return textoNorm.includes(nome) || textoNorm.includes(slug)
+  })
+  if (matches.length === 1) return { ...matches[0], origem_match: 'texto' }
+  if (matches.length > 1) return { slug: '', nome: raw, ambigua: true, matches }
+  return null
+}
+
+function _normalizarConfiancaServico(v) {
+  return ['baixa', 'media', 'alta'].includes(v) ? v : 'media'
+}
+
+function _uuidOrNull(v) {
+  const s = String(v || '').trim()
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s) ? s : null
+}
+
+function _normalizarServicosNaResposta({ playbook, extracao, decisao, mensagem }) {
+  const e = extracao || {}
+  const d = decisao || {}
+  const slugsInteresse = new Set(Array.isArray(e.servicos_interesse_slugs) ? e.servicos_interesse_slugs.map(slugify).filter(Boolean) : [])
+  for (const item of Array.isArray(e.servicos_interesse) ? e.servicos_interesse : []) {
+    const match = _resolverServicoCatalogo(playbook, item)
+    if (match?.slug) slugsInteresse.add(match.slug)
+  }
+  e.servicos_interesse_slugs = [...slugsInteresse]
+
+  const recomendado = _resolverServicoCatalogo(playbook, d.servico_recomendado_slug || d.servico_recomendado || d.servico_recomendado_nome || d.atualizar_perfil?.produto_sugerido)
+  const oferecido = _resolverServicoCatalogo(playbook, d.servico_oferecido_slug || d.servico_oferecido || d.servico_oferecido_nome || d.mensagem_pro_lead)
+  if (recomendado?.slug) {
+    d.servico_recomendado_slug = recomendado.slug
+    d.servico_recomendado_id = recomendado.id || null
+    d.servico_recomendado_nome = recomendado.nome
+  }
+  if (oferecido?.slug) {
+    d.servico_oferecido_slug = oferecido.slug
+    d.servico_oferecido_id = oferecido.id || null
+    d.servico_oferecido_nome = oferecido.nome
+  }
+  if (!d.servico_oferecido_slug && !d.servico_recomendado_slug) {
+    const mencionado = _resolverServicoCatalogo(playbook, mensagem)
+    if (mencionado?.slug) {
+      d.servico_recomendado_slug = mencionado.slug
+      d.servico_recomendado_id = mencionado.id || null
+      d.servico_recomendado_nome = mencionado.nome
+    }
+  }
+  if ((d.servico_oferecido_nome || d.servico_recomendado_nome) && !d.atualizar_perfil?.produto_sugerido) {
+    d.atualizar_perfil = { ...(d.atualizar_perfil || {}), produto_sugerido: d.servico_oferecido_nome || d.servico_recomendado_nome }
+  }
+  d.confianca_servico = _normalizarConfiancaServico(d.confianca_servico)
+  if (typeof d.motivo_decisao_servico !== 'string') d.motivo_decisao_servico = ''
+  return { extracao: e, decisao: d }
 }
 
 function _formatHistorico(historico) {
@@ -74,6 +164,7 @@ Retorne APENAS JSON válido neste schema:
   "objecoes_detectadas": [],
   "dores_detectadas": [],
   "servicos_interesse": [],
+  "servicos_interesse_slugs": [],
   "temperatura": "quente|morno|frio",
   "score": 0,
   "orcamento_status": "nao_solicitado | solicitado_sem_escopo | pronto_para_faixa | precisa_reuniao | enviado",
@@ -88,6 +179,9 @@ async function extrairDadosDaMensagem({ pool, log, playbook, historico, mensagem
   const provider = aiProvider || require('../ai-provider')
   const userPrompt = `PLAYBOOK ATIVO:
 ${_truncatePlaybook(playbook?.json || playbook)}
+
+CATALOGO DE SERVICOS CANONICO (use exatamente estes slugs quando detectar interesse):
+${_formatarCatalogoServicosParaPrompt(playbook)}
 
 HISTÓRICO RECENTE:
 ${_formatHistorico(historico)}
@@ -136,6 +230,7 @@ function _normalizeExtracao(p) {
     objecoes_detectadas: Array.isArray(e.objecoes_detectadas) ? e.objecoes_detectadas : [],
     dores_detectadas: Array.isArray(e.dores_detectadas) ? e.dores_detectadas : [],
     servicos_interesse: Array.isArray(e.servicos_interesse) ? e.servicos_interesse : [],
+    servicos_interesse_slugs: Array.isArray(e.servicos_interesse_slugs) ? e.servicos_interesse_slugs.map(slugify).filter(Boolean) : [],
     temperatura: ['quente', 'morno', 'frio'].includes(e.temperatura) ? e.temperatura : 'morno',
     score: typeof e.score === 'number' ? e.score : 0,
     orcamento_status: typeof e.orcamento_status === 'string' ? e.orcamento_status : 'nao_solicitado',
@@ -207,6 +302,10 @@ async function atualizarLeadInsights({ pool, empresaId, conversaId, leadPhone, e
   const objecoes = [...new Set([...(prev?.objecoes || []), ...(extracao.objecoes_detectadas || [])])]
   const dores = [...new Set([...(prev?.dores || []), ...(extracao.dores_detectadas || [])])]
   const servicos = [...new Set([...(prev?.servicos_interesse || []), ...(extracao.servicos_interesse || [])])]
+  const servicosSlugs = [...new Set([
+    ...(Array.isArray(prev?.servicos_interesse_slugs) ? prev.servicos_interesse_slugs : []),
+    ...(Array.isArray(extracao.servicos_interesse_slugs) ? extracao.servicos_interesse_slugs : []),
+  ].map(slugify).filter(Boolean))]
 
   const dataPayload = {
     empresa_id: empresaId,
@@ -225,6 +324,7 @@ async function atualizarLeadInsights({ pool, empresaId, conversaId, leadPhone, e
     objecoes,
     dores,
     servicos_interesse: servicos,
+    servicos_interesse_slugs: servicosSlugs,
     orcamento_status: extracao.orcamento_status,
     reuniao_status: extracao.reuniao_status,
     proximas_acoes: prev?.proximas_acoes || [],
@@ -238,9 +338,10 @@ async function atualizarLeadInsights({ pool, empresaId, conversaId, leadPhone, e
         dados_extraidos = $3, campos_coletados_json = $4, campos_faltantes_json = $5,
         ultima_intencao = $6, proxima_melhor_acao = $7, temperatura = $8, score = $9,
         objecoes = $10, dores = $11, servicos_interesse = $12,
-        orcamento_status = $13, reuniao_status = $14, confianca_json = $15,
+        servicos_interesse_slugs = $13,
+        orcamento_status = $14, reuniao_status = $15, confianca_json = $16,
         updated_at = NOW()
-       WHERE id = $16`,
+       WHERE id = $17`,
       [
         dataPayload.conversa_id, dataPayload.lead_phone,
         JSON.stringify(dataPayload.dados_extraidos),
@@ -251,6 +352,7 @@ async function atualizarLeadInsights({ pool, empresaId, conversaId, leadPhone, e
         JSON.stringify(dataPayload.objecoes),
         JSON.stringify(dataPayload.dores),
         JSON.stringify(dataPayload.servicos_interesse),
+        JSON.stringify(dataPayload.servicos_interesse_slugs),
         dataPayload.orcamento_status, dataPayload.reuniao_status,
         JSON.stringify(dataPayload.confianca_json),
         prev.id,
@@ -263,8 +365,9 @@ async function atualizarLeadInsights({ pool, empresaId, conversaId, leadPhone, e
         (empresa_id, numero, tipo, conteudo, conversa_id, lead_phone,
          dados_extraidos, campos_coletados_json, campos_faltantes_json,
          ultima_intencao, proxima_melhor_acao, temperatura, score,
-         objecoes, dores, servicos_interesse, orcamento_status, reuniao_status, confianca_json)
-       VALUES ($1,$2,'playbook_runtime','{}',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+         objecoes, dores, servicos_interesse, servicos_interesse_slugs,
+         orcamento_status, reuniao_status, confianca_json)
+       VALUES ($1,$2,'playbook_runtime','{}',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        RETURNING *`,
       [
         empresaId, leadPhone,
@@ -277,6 +380,7 @@ async function atualizarLeadInsights({ pool, empresaId, conversaId, leadPhone, e
         JSON.stringify(dataPayload.objecoes),
         JSON.stringify(dataPayload.dores),
         JSON.stringify(dataPayload.servicos_interesse),
+        JSON.stringify(dataPayload.servicos_interesse_slugs),
         dataPayload.orcamento_status, dataPayload.reuniao_status,
         JSON.stringify(dataPayload.confianca_json),
       ]
@@ -314,6 +418,10 @@ Retorne APENAS JSON neste formato:
   "atualizar_perfil": {},
   "precisa_handoff": false,
   "motivo_handoff": "",
+  "servico_recomendado_slug": "",
+  "servico_oferecido_slug": "",
+  "motivo_decisao_servico": "",
+  "confianca_servico": "baixa|media|alta",
   "sugestao_aprendizado": null
 }
 
@@ -329,6 +437,9 @@ async function decidirRespostaComPlaybook({ pool, log, playbook, historico, mens
   const systemPrompt = usaAgenda ? REPLY_SYSTEM : REPLY_SYSTEM + REPLY_SEM_AGENDA
   const userPrompt = `${apelido ? `NOME DO LEAD (trate pelo primeiro nome, com naturalidade; nao repita o nome em toda mensagem): ${apelido}\n\n` : ''}PLAYBOOK ATIVO:
 ${_truncatePlaybook(playbook?.json || playbook)}
+
+CATALOGO DE SERVICOS CANONICO (quando recomendar/oferecer, retorne servico_*_slug com um destes slugs):
+${_formatarCatalogoServicosParaPrompt(playbook)}
 
 LEAD INSIGHTS:
 ${JSON.stringify(leadInsights || {}, null, 2)}
@@ -362,8 +473,13 @@ Decida a melhor resposta.`
     atualizar_perfil: p.atualizar_perfil && typeof p.atualizar_perfil === 'object' ? p.atualizar_perfil : {},
     precisa_handoff: !!p.precisa_handoff,
     motivo_handoff: typeof p.motivo_handoff === 'string' ? p.motivo_handoff : '',
+    servico_recomendado_slug: typeof p.servico_recomendado_slug === 'string' ? p.servico_recomendado_slug : '',
+    servico_oferecido_slug: typeof p.servico_oferecido_slug === 'string' ? p.servico_oferecido_slug : '',
+    motivo_decisao_servico: typeof p.motivo_decisao_servico === 'string' ? p.motivo_decisao_servico : '',
+    confianca_servico: _normalizarConfiancaServico(p.confianca_servico),
     sugestao_aprendizado: p.sugestao_aprendizado && typeof p.sugestao_aprendizado === 'object' ? p.sugestao_aprendizado : null,
   }
+  _normalizarServicosNaResposta({ playbook, extracao, decisao, mensagem })
   _corrigirRespostaPrecoQuandoTemContexto({ decisao, playbook, mensagem, extracao })
   return _corrigirRespostaCadastroQuandoTemLink({ decisao, playbook, mensagem, extracao })
 }
@@ -390,7 +506,98 @@ async function talvezGerarSugestaoAprendizado({ pool, log, empresaId, contextoVe
   }
 }
 
-// ─── Pipeline em uma chamada (extração + decisão juntos) ─────────────────────
+// Registra a trilha de qual servico a IA detectou, recomendou ou ofereceu.
+async function registrarDecisoesServico({ pool, empresaId, playbook, conversaId, leadPhone, mensagem, extracao, decisao }) {
+  if (!pool || !empresaId || !leadPhone) return { eventos: 0 }
+
+  const eventos = []
+  const addEvento = (slug, tipoDecisao) => {
+    const servicoSlug = slugify(slug)
+    if (!servicoSlug) return
+    if (eventos.some((e) => e.servico_slug === servicoSlug && e.tipo_decisao === tipoDecisao)) return
+    const servico = _resolverServicoCatalogo(playbook, servicoSlug) || { slug: servicoSlug, nome: servicoSlug }
+    eventos.push({
+      contexto_servico_id: _uuidOrNull(servico.id),
+      servico_slug: servico.slug || servicoSlug,
+      servico_nome: servico.nome || servicoSlug,
+      tipo_decisao: tipoDecisao,
+    })
+  }
+
+  for (const slug of Array.isArray(extracao?.servicos_interesse_slugs) ? extracao.servicos_interesse_slugs : []) {
+    addEvento(slug, 'interesse_detectado')
+  }
+  addEvento(decisao?.servico_recomendado_slug, 'recomendado')
+  addEvento(decisao?.servico_oferecido_slug, 'oferecido')
+
+  if (!eventos.length) return { eventos: 0 }
+
+  const contextoId = _uuidOrNull(playbook?.contexto_id)
+  const contextoVersaoId = _uuidOrNull(playbook?.versao_id)
+  const confianca = _normalizarConfiancaServico(decisao?.confianca_servico)
+  const motivo = typeof decisao?.motivo_decisao_servico === 'string' ? decisao.motivo_decisao_servico.slice(0, 1000) : ''
+  const mensagemLead = String(mensagem || '').slice(0, 2000)
+  const mensagemIa = String(decisao?.mensagem_pro_lead || '').slice(0, 2000)
+
+  for (const evento of eventos) {
+    await pool.query(
+      `INSERT INTO app.lead_servico_decisoes
+        (empresa_id, contexto_id, contexto_versao_id, conversa_id, numero,
+         contexto_servico_id, servico_slug, servico_nome, tipo_decisao,
+         origem, motivo, confianca, mensagem_lead, mensagem_ia, metadata_json)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'ia',$10,$11,$12,$13,$14::jsonb)`,
+      [
+        empresaId, contextoId, contextoVersaoId, conversaId || null, leadPhone,
+        evento.contexto_servico_id, evento.servico_slug, evento.servico_nome, evento.tipo_decisao,
+        motivo, confianca, mensagemLead, mensagemIa,
+        JSON.stringify({
+          servico_recomendado_slug: decisao?.servico_recomendado_slug || '',
+          servico_oferecido_slug: decisao?.servico_oferecido_slug || '',
+          servicos_interesse_slugs: extracao?.servicos_interesse_slugs || [],
+        }),
+      ]
+    )
+  }
+
+  const slugsInteresse = [...new Set(eventos
+    .filter((e) => e.tipo_decisao === 'interesse_detectado')
+    .map((e) => e.servico_slug)
+    .filter(Boolean))]
+  const snapshot = {
+    recomendado_slug: decisao?.servico_recomendado_slug || '',
+    recomendado_nome: decisao?.servico_recomendado_nome || '',
+    oferecido_slug: decisao?.servico_oferecido_slug || '',
+    oferecido_nome: decisao?.servico_oferecido_nome || '',
+    motivo,
+    confianca,
+    atualizado_em: new Date().toISOString(),
+  }
+
+  await pool.query(
+    `UPDATE app.lead_insights
+        SET ultimo_servico_recomendado_slug = COALESCE(NULLIF($1, ''), ultimo_servico_recomendado_slug),
+            ultimo_servico_oferecido_slug = COALESCE(NULLIF($2, ''), ultimo_servico_oferecido_slug),
+            ultima_decisao_servico_json = $3::jsonb,
+            servicos_interesse_slugs = (
+              SELECT COALESCE(jsonb_agg(DISTINCT value), '[]'::jsonb)
+                FROM jsonb_array_elements_text(COALESCE(servicos_interesse_slugs, '[]'::jsonb) || $4::jsonb) AS t(value)
+            ),
+            updated_at = NOW()
+      WHERE empresa_id = $5 AND numero = $6 AND tipo = 'playbook_runtime'`,
+    [
+      snapshot.recomendado_slug,
+      snapshot.oferecido_slug,
+      JSON.stringify(snapshot),
+      JSON.stringify(slugsInteresse),
+      empresaId,
+      leadPhone,
+    ]
+  )
+
+  return { eventos: eventos.length, snapshot }
+}
+
+// Pipeline em uma chamada (extracao + decisao juntos).
 function _leadPediuPreco(mensagem, extracao) {
   const intents = Array.isArray(extracao?.intencoes) ? extracao.intencoes : []
   return intents.includes('preco') || PRECO_INTENT_RX.test(String(mensagem || ''))
@@ -604,6 +811,7 @@ Retorne APENAS JSON neste schema:
     "objecoes_detectadas": [],
     "dores_detectadas": [],
     "servicos_interesse": [],
+    "servicos_interesse_slugs": [],
     "temperatura": "quente|morno|frio",
     "score": 0,
     "orcamento_status": "nao_solicitado|solicitado_sem_escopo|pronto_para_faixa|precisa_reuniao|enviado",
@@ -619,6 +827,10 @@ Retorne APENAS JSON neste schema:
     "atualizar_perfil": {},
     "precisa_handoff": false,
     "motivo_handoff": "",
+    "servico_recomendado_slug": "",
+    "servico_oferecido_slug": "",
+    "motivo_decisao_servico": "",
+    "confianca_servico": "baixa|media|alta",
     "sugestao_aprendizado": null
   }
 }
@@ -635,6 +847,9 @@ async function extrairEDecidirBundle({ pool, log, playbook, historico, mensagem,
   const systemPrompt = usaAgenda ? BUNDLE_SYSTEM : BUNDLE_SYSTEM + REPLY_SEM_AGENDA
   const userPrompt = `${apelido ? `NOME DO LEAD (trate pelo primeiro nome, com naturalidade; nao repita o nome em toda mensagem): ${apelido}\n\n` : ''}PLAYBOOK ATIVO:
 ${_truncatePlaybook(playbook?.json || playbook)}
+
+CATALOGO DE SERVICOS CANONICO (use estes slugs em servicos_interesse_slugs e servico_*_slug):
+${_formatarCatalogoServicosParaPrompt(playbook)}
 
 DADOS JÁ CONHECIDOS DO LEAD:
 ${JSON.stringify(leadInsights || {}, null, 2)}
@@ -676,9 +891,14 @@ Extraia + decida em um único JSON.`
     atualizar_perfil: p.decisao?.atualizar_perfil && typeof p.decisao.atualizar_perfil === 'object' ? p.decisao.atualizar_perfil : {},
     precisa_handoff: !!p.decisao?.precisa_handoff,
     motivo_handoff: typeof p.decisao?.motivo_handoff === 'string' ? p.decisao.motivo_handoff : '',
+    servico_recomendado_slug: typeof p.decisao?.servico_recomendado_slug === 'string' ? p.decisao.servico_recomendado_slug : '',
+    servico_oferecido_slug: typeof p.decisao?.servico_oferecido_slug === 'string' ? p.decisao.servico_oferecido_slug : '',
+    motivo_decisao_servico: typeof p.decisao?.motivo_decisao_servico === 'string' ? p.decisao.motivo_decisao_servico : '',
+    confianca_servico: _normalizarConfiancaServico(p.decisao?.confianca_servico),
     sugestao_aprendizado: p.decisao?.sugestao_aprendizado && typeof p.decisao.sugestao_aprendizado === 'object' ? p.decisao.sugestao_aprendizado : null,
   }
   if (!usaAgenda) _neutralizarAgendaDesligada(extracao, decisao)
+  _normalizarServicosNaResposta({ playbook, extracao, decisao, mensagem })
   // Sanitiza URLs fake na resposta — substitui por link real do playbook se existir
   const { sanitizarDecisaoUrls } = require('./url-sanitize')
   const linkReal = _extrairLinkPrincipalDoPlaybook(playbook?.json || playbook)
@@ -748,6 +968,11 @@ async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, 
   }
 
   await atualizarLeadInsights({ pool, empresaId, conversaId, leadPhone, extracao })
+  await registrarDecisoesServico({
+    pool, empresaId, playbook, conversaId, leadPhone, mensagem, extracao, decisao,
+  }).catch((err) => {
+    if (log) log.warn({ err: err.message, empresa_id: empresaId }, 'Falha ao registrar decisao de servico')
+  })
 
   await talvezGerarSugestaoAprendizado({
     pool, log, empresaId, contextoVersaoId: playbook.versao_id,
@@ -808,6 +1033,7 @@ module.exports = {
   extrairDadosDaMensagem,
   atualizarLeadInsights,
   decidirRespostaComPlaybook,
+  registrarDecisoesServico,
   extrairEDecidirBundle,
   talvezGerarSugestaoAprendizado,
   processarMensagemComPlaybook,

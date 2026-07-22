@@ -98,6 +98,18 @@ fila de Atendimento humano escolhe uma unica proxima acao por regras determinist
 restrita ao roteiro de ligacao. Quando um preview visual fizer sentido, o sistema apenas monta e
 copia um prompt contextualizado para uso externo, sem gerar, enviar ou persistir imagem.
 
+### 2026-07-22 - Catalogo estruturado de servicos no contexto
+
+O cadastro textual `servicos_produtos` permanece como resumo humano do Contexto 1, mas ofertas
+operacionais vivem em `app.contexto_servicos`, escopadas por `empresa_id` e `contexto_id`. O fluxo
+`Gerar tudo` popula esse catalogo logo apos consolidar o Contexto 1 e antes de gerar estagios e
+playbook. Cada item possui status de revisao; dados marcados como `revisado` pelo operador nao sao
+sobrescritos por novas fontes. O Contexto 2 recebe um snapshot do catalogo em `playbook.servicos`,
+preservando itens separados como SEO, criacao de site e sistemas. No runtime, o playbook recebe um
+catalogo canonico compacto e deve devolver `servicos_interesse_slugs`,
+`servico_recomendado_slug` e/ou `servico_oferecido_slug`. Essas decisoes ficam em
+`app.lead_insights` como snapshot e em `app.lead_servico_decisoes` como historico auditavel.
+
 <!-- Modelo (ver também ai-decision-log.md):
 
 ### [DATA] — [Decisão]

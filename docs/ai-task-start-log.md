@@ -6,6 +6,18 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-07-22 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Codex
+- **Pedido resumido:** Criar catalogo estruturado de servicos no fluxo Gerar tudo, separando ofertas como SEO, criacao de site e sistemas em itens editaveis e reutilizados pelo playbook.
+- **E projeto/tarefa de alteracao?** Sim (backend, banco, pipeline de IA, UI do editor de contexto e testes).
+- **Workflow padrao consultado?** AGENTS.md, docs/ai-workflow.md, docs/project-map.md, docs/architecture-rules.md, docs/ui-visual-standard.md, docs/project-architecture.md, docs/project-change-map.md e docs/ai-decision-log.md: Sim.
+- **Areas possivelmente impactadas:** Contexto 1/2, ingestao de fontes, pipeline Gerar tudo, migrations PostgreSQL, rotas autenticadas de contexto, editor Next.js e testes de contexto/playbook.
+- **Confirmacao:** O usuario confirmou a arquitetura desejada com "Crie"; a implementacao sera aditiva, sem sobrescrever informacao revisada pelo operador e sem alterar automaticamente decisoes de oferta no runtime nesta fase.
+- **Proxima etapa:** Criar a camada `contexto_servicos`, preencher via IA/fonte no Gerar tudo, mostrar/editar no editor e alimentar o playbook com o catalogo separado.
+
+---
+
 ## 2026-07-04 - Início de tarefa IA — Modos Manual/Semi/Auto no Banco de Leads
 
 - **IA/Ferramenta:** Claude Code (Opus 4.8)
