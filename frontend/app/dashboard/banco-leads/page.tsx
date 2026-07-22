@@ -1105,8 +1105,10 @@ export default function BancoLeadsPage() {
                   </div>
                 ) : (
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-700">Disparo automático</p>
-                    <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{modoAtual.hint}</p>
+                    <p className="text-sm font-semibold text-slate-700">Automático</p>
+                    <p className="mt-0.5 truncate text-xs text-slate-500" title={instanciaSel?.nome || instanciaSel?.evolution_instance || ''}>
+                      {instanciaSel?.nome || instanciaSel?.evolution_instance || 'Escolha uma instância'}
+                    </p>
                   </div>
                 )}
 
@@ -1165,25 +1167,23 @@ export default function BancoLeadsPage() {
 
           {/* Config do modo Automático */}
           {config.modo === 'automatico' && (
-            <div className="mt-2 rounded-xl border bg-slate-50/60 p-3 space-y-3">
-              {/* Status claro (em cima) + botão Ligar/Desligar (com aviso ao ligar). */}
-              <div className="flex flex-wrap items-center gap-3">
+            <div className="mt-2 rounded-xl border bg-slate-50/60 p-3 space-y-2">
+              {/* Status claro + botão Ligar/Desligar (com aviso ao ligar). */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className={`inline-flex items-center gap-2 text-sm font-bold ${config.auto_ativo ? (motivoBloqueioConexao ? 'text-red-700' : 'text-emerald-700') : 'text-slate-500'}`}>
                   <span className={`h-2.5 w-2.5 rounded-full ${config.auto_ativo ? (motivoBloqueioConexao ? 'bg-red-500' : 'bg-emerald-500 animate-pulse') : 'bg-slate-300'}`}></span>
-                  {config.auto_ativo ? (motivoBloqueioConexao ? 'Automático aguardando conexão' : 'Rodando automático') : 'Automático parado'}
+                  {config.auto_ativo ? (motivoBloqueioConexao ? 'Aguardando conexão' : 'Rodando') : 'Parado'}
                 </span>
-                <button onClick={toggleAutoAtivo}
-                  disabled={salvandoAuto || !instanciaId || (!config.auto_ativo && !!motivoBloqueioConexao)}
-                  title={!config.auto_ativo && motivoBloqueioConexao ? motivoBloqueioConexao : undefined}
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 ${config.auto_ativo ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
-                  {salvandoAuto && <Spinner />}
-                  {config.auto_ativo ? '■ Desligar' : '▶ Ligar automático'}
-                </button>
-                <span className="text-xs text-slate-500">
-                  Dispara pela <b>instância selecionada acima</b> ({instanciaSel?.nome || instanciaSel?.evolution_instance || '—'}).
-                </span>
-                <div className="flex-1" />
-                {salvandoAuto && <span className="text-xs text-slate-400 self-center">salvando…</span>}
+                <div className="flex items-center gap-2">
+                  {salvandoAuto && <span className="text-xs text-slate-400">salvando...</span>}
+                  <button onClick={toggleAutoAtivo}
+                    disabled={salvandoAuto || !instanciaId || (!config.auto_ativo && !!motivoBloqueioConexao)}
+                    title={!config.auto_ativo && motivoBloqueioConexao ? motivoBloqueioConexao : undefined}
+                    className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold text-white disabled:opacity-50 ${config.auto_ativo ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+                    {salvandoAuto && <Spinner />}
+                    {config.auto_ativo ? '■ Desligar' : '▶ Ligar'}
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div>
@@ -1201,14 +1201,14 @@ export default function BancoLeadsPage() {
                     className="w-full border rounded-lg px-2 py-1.5 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1">Intervalo mín (min)</label>
+                  <label className="block text-xs text-slate-500 mb-1">Mín. (min)</label>
                   <input type="number" min={15} max={30} value={config.intervalo_min} disabled={salvandoAuto}
                     onChange={(e) => setConfig((c) => ({ ...c, intervalo_min: Number(e.target.value) }))}
                     onBlur={(e) => salvarAutoConfig({ intervalo_min: Number(e.target.value) })}
                     className="w-full border rounded-lg px-2 py-1.5 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1">Intervalo máx (min)</label>
+                  <label className="block text-xs text-slate-500 mb-1">Máx. (min)</label>
                   <input type="number" min={15} max={30} value={config.intervalo_max} disabled={salvandoAuto}
                     onChange={(e) => setConfig((c) => ({ ...c, intervalo_max: Number(e.target.value) }))}
                     onBlur={(e) => salvarAutoConfig({ intervalo_max: Number(e.target.value) })}
@@ -1221,9 +1221,6 @@ export default function BancoLeadsPage() {
                     title="Limite de segurança anti-ban. O volume real é limitado pelo intervalo × janela." />
                 </div>
               </div>
-              <p className="text-[11px] text-slate-500">
-                O sistema dispara 1 lead por vez, na janela e a cada 15–30 min (aleatório), usando a instância ativa da empresa. O teto fixo de 40 envios por dia é uma proteção adicional.
-              </p>
             </div>
           )}
         </div>
