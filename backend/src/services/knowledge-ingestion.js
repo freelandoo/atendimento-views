@@ -638,15 +638,34 @@ function _safeJson(text) {
   try { return parsearRespostaJsonClaude(text) || {} } catch (_) { return {} }
 }
 
+function _textoPlano(v) {
+  if (v == null) return ''
+  if (typeof v === 'string') return v.trim()
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v).trim()
+  if (Array.isArray(v)) return v.map(_textoPlano).filter(Boolean).join(', ').trim()
+  if (typeof v === 'object') {
+    const preferidos = ['nome', 'titulo', 'label', 'descricao', 'description', 'texto', 'valor', 'url']
+    const vals = preferidos.map((k) => _textoPlano(v[k])).filter(Boolean)
+    if (vals.length) return [...new Set(vals)].join(' - ').trim()
+    return Object.entries(v).map(([k, val]) => `${k}: ${_textoPlano(val)}`).filter((x) => !x.endsWith(': ')).join(' | ').trim()
+  }
+  return String(v).trim()
+}
+
+function _listaTexto(v, limite = 20) {
+  const src = Array.isArray(v) ? v : (v ? [v] : [])
+  return src.map(_textoPlano).filter(Boolean).slice(0, limite)
+}
+
 function _normalizeResumo(j, fonte) {
   const { sanitizarUrl, sanitizarListaLinks, ehUrlFalsa } = require('./url-sanitize')
   const out = {}
   // Campos legados (string)
-  for (const c of CONTEXTO1_CAMPOS) out[c] = String((j && j[c]) || '').trim()
+  for (const c of CONTEXTO1_CAMPOS) out[c] = _textoPlano(j && j[c])
 
   // Campos novos string
   for (const k of ['como_funciona', 'plano_gratuito', 'diferenciais_competitivos', 'proposta_de_valor']) {
-    out[k] = String((j && j[k]) || '').trim()
+    out[k] = _textoPlano(j && j[k])
   }
 
   // URLs — sanitiza e usa URL real da fonte como fallback
@@ -658,11 +677,11 @@ function _normalizeResumo(j, fonte) {
   // Contatos: salva object E flatten pra campos top-level (formulário edita strings)
   const contatos = j?.contatos && typeof j.contatos === 'object' ? j.contatos : {}
   out.contatos = {
-    telefone: String(contatos.telefone || '').trim(),
-    whatsapp: String(contatos.whatsapp || '').trim(),
-    email: String(contatos.email || '').trim(),
-    instagram: String(contatos.instagram || '').trim(),
-    endereco: String(contatos.endereco || '').trim(),
+    telefone: _textoPlano(contatos.telefone),
+    whatsapp: _textoPlano(contatos.whatsapp),
+    email: _textoPlano(contatos.email),
+    instagram: _textoPlano(contatos.instagram),
+    endereco: _textoPlano(contatos.endereco),
   }
   out.telefone = out.contatos.telefone
   out.whatsapp = out.contatos.whatsapp
@@ -675,7 +694,7 @@ function _normalizeResumo(j, fonte) {
 
   // CTAs
   out.ctas_principais = Array.isArray(j?.ctas_principais)
-    ? j.ctas_principais.map((c) => String(c || '').trim()).filter(Boolean).slice(0, 12)
+    ? _listaTexto(j.ctas_principais, 12)
     : []
 
   // Máquinas/módulos
@@ -683,8 +702,8 @@ function _normalizeResumo(j, fonte) {
     ? j.maquinas_modulos_funcionalidades.map((m) => {
         if (typeof m === 'string') return { nome: m, descricao: '' }
         if (m && typeof m === 'object') return {
-          nome: String(m.nome || m.name || '').trim(),
-          descricao: String(m.descricao || m.description || '').trim(),
+          nome: _textoPlano(m.nome || m.name),
+          descricao: _textoPlano(m.descricao || m.description),
         }
         return null
       }).filter((m) => m && m.nome)
@@ -695,19 +714,19 @@ function _normalizeResumo(j, fonte) {
     ? j.catalogo_de_ofertas
         .filter((x) => x && (x.nome || x.descricao || x.preco))
         .map((x) => ({
-          nome: String(x.nome || '').trim(),
-          categoria: String(x.categoria || x.tipo || '').trim(),
-          descricao: String(x.descricao || '').trim(),
-          descricao_completa: String(x.descricao_completa || '').trim(),
-          preco: String(x.preco || '').trim(),
-          periodicidade: String(x.periodicidade || '').trim(),
-          prazo_texto: String(x.prazo_texto || x.prazo || '').trim(),
-          beneficios: Array.isArray(x.beneficios) ? x.beneficios.filter(Boolean) : [],
-          publico: Array.isArray(x.publico) ? x.publico.filter(Boolean) : [],
-          problemas_que_resolve: Array.isArray(x.problemas_que_resolve) ? x.problemas_que_resolve.filter(Boolean) : [],
-          perguntas_qualificacao: Array.isArray(x.perguntas_qualificacao) ? x.perguntas_qualificacao.filter(Boolean) : [],
-          quando_oferecer: Array.isArray(x.quando_oferecer) ? x.quando_oferecer.filter(Boolean) : [],
-          sinais_para_nao_recomendar: Array.isArray(x.sinais_para_nao_recomendar) ? x.sinais_para_nao_recomendar.filter(Boolean) : [],
+          nome: _textoPlano(x.nome),
+          categoria: _textoPlano(x.categoria || x.tipo),
+          descricao: _textoPlano(x.descricao),
+          descricao_completa: _textoPlano(x.descricao_completa),
+          preco: _textoPlano(x.preco),
+          periodicidade: _textoPlano(x.periodicidade),
+          prazo_texto: _textoPlano(x.prazo_texto || x.prazo),
+          beneficios: _listaTexto(x.beneficios),
+          publico: _listaTexto(x.publico),
+          problemas_que_resolve: _listaTexto(x.problemas_que_resolve),
+          perguntas_qualificacao: _listaTexto(x.perguntas_qualificacao),
+          quando_oferecer: _listaTexto(x.quando_oferecer),
+          sinais_para_nao_recomendar: _listaTexto(x.sinais_para_nao_recomendar),
           link_relacionado: sanitizarUrl(x.link_relacionado, ''),
         }))
     : []

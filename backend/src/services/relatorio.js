@@ -11,7 +11,7 @@ const TIPOS_VALIDOS = new Set(['geral', 'vendas', 'funil', 'followup', 'leads'])
  */
 async function gerarRelatorioIA(pool, { empresaId, tipo = 'geral', dados, log }) {
   if (!TIPOS_VALIDOS.has(tipo)) tipo = 'geral'
-  const result = await generateReport({ dados, tipo, pool, log })
+  const result = await generateReport({ dados, tipo, pool, log, empresaId })
   return { texto: result.text || '', provider: result.provider, model: result.model }
 }
 

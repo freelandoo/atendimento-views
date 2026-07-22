@@ -325,6 +325,34 @@ test('contexto-servicos separa catalogo de ofertas em servicos distintos', () =>
   assert.deepStrictEqual(servicos.map((s) => s.slug), ['seo', 'criacao-de-site', 'sistemas'])
 })
 
+test('contexto-servicos nao deixa objetos da IA virarem [object Object]', () => {
+  const { catalogoDasFontes } = require('../src/services/contexto-servicos')
+  const servicos = catalogoDasFontes([
+    {
+      id: 'f1',
+      tipo: 'site',
+      url: 'https://exemplo.com',
+      resumo_json: {
+        catalogo_de_ofertas: [
+          {
+            nome: { titulo: 'SEO' },
+            descricao: { texto: 'Otimização para buscadores' },
+            beneficios: [{ titulo: 'Aparecer no Google', descricao: 'Mais tráfego qualificado' }],
+            publico: [{ nome: 'Empresas locais' }],
+            quando_oferecer: [{ descricao: 'Quando o lead quer mais visitas pelo Google' }],
+          },
+        ],
+      },
+    },
+  ])
+
+  assert.strictEqual(servicos[0].nome, 'SEO')
+  const bruto = JSON.stringify(servicos[0])
+  assert.ok(!bruto.includes('[object Object]'))
+  assert.ok(servicos[0].beneficios.some((b) => b.includes('Aparecer no Google')))
+  assert.ok(servicos[0].sinais_para_recomendar.some((b) => b.includes('lead quer mais visitas')))
+})
+
 test('gerarContexto2Playbook injeta catalogo estruturado no playbook validado', async () => {
   const pool = mockPool()
   const ai = mockAIProvider(JSON.stringify({

@@ -37,12 +37,12 @@ router.get('/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
     pool.query(
       `SELECT
          COUNT(*) AS chamadas,
-         SUM(COALESCE((usage->>'input_tokens')::int, 0)) AS input_tokens,
-         SUM(COALESCE((usage->>'output_tokens')::int, 0)) AS output_tokens,
-         AVG(duration_ms)::int AS latencia_media_ms
-       FROM vendas.llm_chamadas
-       WHERE numero IN (SELECT numero FROM vendas.conversas WHERE empresa_id = $1)
-         AND criado_em >= NOW() - INTERVAL '30 days'`,
+         SUM(COALESCE(input_tokens, 0)) AS input_tokens,
+         SUM(COALESCE(output_tokens, 0)) AS output_tokens,
+         AVG(latency_ms)::int AS latencia_media_ms
+       FROM vendas.ai_logs
+       WHERE empresa_id = $1
+         AND created_at >= NOW() - INTERVAL '30 days'`,
       [id]
     ),
     pool.query(

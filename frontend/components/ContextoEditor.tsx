@@ -623,7 +623,7 @@ function CardContexto1({ empresaId, contexto, onSalvo }: {
 // ─── Card 3 — Serviços separados ─────────────────────────────────────────────
 function arrTexto(v: unknown): string {
   if (!Array.isArray(v)) return ''
-  return v.map((x) => String(x || '').trim()).filter(Boolean).join('\n')
+  return v.map((x) => normalizarValorContexto(x)).filter(Boolean).join('\n')
 }
 
 function textoArr(v: string): string[] {

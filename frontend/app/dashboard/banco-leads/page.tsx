@@ -1053,7 +1053,7 @@ export default function BancoLeadsPage() {
                   {!instancias.length && <option value="">Nenhuma instância ativa</option>}
                   {instancias.map((i) => (
                     <option key={i.id} value={i.id}>
-                      {i.nome || i.evolution_instance}{conexoes[i.id]?.connected === true ? ' · conectada' : conexoes[i.id]?.connected === false ? ' · desconectada' : ''}
+                      {i.nome || i.evolution_instance}
                     </option>
                   ))}
                 </select>
@@ -1106,8 +1106,8 @@ export default function BancoLeadsPage() {
                 ) : (
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-700">Automático</p>
-                    <p className="mt-0.5 truncate text-xs text-slate-500" title={instanciaSel?.nome || instanciaSel?.evolution_instance || ''}>
-                      {instanciaSel?.nome || instanciaSel?.evolution_instance || 'Escolha uma instância'}
+                    <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
+                      Envia 1 lead por vez na janela configurada.
                     </p>
                   </div>
                 )}

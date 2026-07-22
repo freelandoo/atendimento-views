@@ -5,7 +5,18 @@ const CONFIANCA = new Set(['baixa', 'media', 'alta'])
 const ORIGEM = new Set(['ia', 'manual', 'freelandoo', 'importado'])
 
 function str(v) {
-  return typeof v === 'string' ? v.trim() : (v == null ? '' : String(v).trim())
+  if (v == null) return ''
+  if (typeof v === 'string') return v.trim()
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v).trim()
+  if (Array.isArray(v)) return v.map(str).filter(Boolean).join(', ').trim()
+  if (typeof v === 'object') {
+    const o = v
+    const preferidos = ['nome', 'titulo', 'label', 'descricao', 'description', 'texto', 'valor', 'url']
+    const valores = preferidos.map((k) => str(o[k])).filter(Boolean)
+    if (valores.length) return [...new Set(valores)].join(' - ').trim()
+    return Object.entries(o).map(([k, val]) => `${k}: ${str(val)}`).filter((x) => !x.endsWith(': ')).join(' | ').trim()
+  }
+  return String(v).trim()
 }
 
 function arr(v) {
