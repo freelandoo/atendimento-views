@@ -80,6 +80,18 @@ router.put('/servicos/:servicoId', carregarContexto, async (req, res) => {
   }
 })
 
+// DELETE .../servicos/:servicoId - remove um item do catalogo deste contexto.
+router.delete('/servicos/:servicoId', carregarContexto, async (req, res) => {
+  try {
+    const removido = await servicosSvc.removerServicoContexto(pool, req.empresa.id, req.contexto.id, req.params.servicoId)
+    if (!removido) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Servico nao encontrado.' } })
+    return res.json({ ok: true, data: { id: removido.id, deleted: true } })
+  } catch (err) {
+    logger.error({ err: err.message }, 'api-contexto-servicos: remover')
+    return res.status(500).json({ ok: false, error: { code: 'INTERNAL', message: 'Erro ao remover servico.' } })
+  }
+})
+
 // ─── Progresso do "Gerar tudo" (em memória, por contexto) ─────────────────────
 // A UI faz polling em GET .../gerar-tudo/progresso enquanto o POST roda, pra
 // mostrar exatamente em qual etapa o pipeline está. Volátil por design: se o

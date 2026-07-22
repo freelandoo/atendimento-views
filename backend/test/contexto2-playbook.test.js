@@ -353,6 +353,32 @@ test('contexto-servicos nao deixa objetos da IA virarem [object Object]', () => 
   assert.ok(servicos[0].sinais_para_recomendar.some((b) => b.includes('lead quer mais visitas')))
 })
 
+test('contexto-servicos limpa gerados antigos quando a fonte nao sustenta mais servicos', async () => {
+  const { salvarCatalogoGerado } = require('../src/services/contexto-servicos')
+  const calls = []
+  const pool = {
+    async query(sql, params) {
+      calls.push({ sql, params })
+      if (/SELECT \*/.test(sql)) {
+        return {
+          rows: [
+            { id: 'manual-1', slug: 'consultoria', nome: 'Consultoria', origem: 'manual', ativo: true, ordem: 0 },
+          ],
+        }
+      }
+      if (/DELETE FROM app\.contexto_servicos/.test(sql)) return { rowCount: 2, rows: [] }
+      return { rows: [] }
+    },
+  }
+
+  const r = await salvarCatalogoGerado(pool, 'emp-1', 'ctx-1', [])
+
+  assert.deepStrictEqual(r.map((s) => s.slug), ['consultoria'])
+  const del = calls.find((c) => /DELETE FROM app\.contexto_servicos/.test(c.sql))
+  assert.ok(del, 'esperava limpeza de servicos gerados')
+  assert.match(del.sql, /origem = 'ia'/)
+})
+
 test('gerarContexto2Playbook injeta catalogo estruturado no playbook validado', async () => {
   const pool = mockPool()
   const ai = mockAIProvider(JSON.stringify({

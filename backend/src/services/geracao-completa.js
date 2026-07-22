@@ -246,6 +246,7 @@ async function rederivarOuLimpar({ pool, log, empresaId, contextoId, userId } = 
       WHERE contexto_id = $1 AND empresa_id = $2 AND status = 'ativo'`,
     [contextoId, empresaId]
   )
+  await servicosSvc.limparServicosGerados(pool, empresaId, contextoId)
   invalidarCacheEmpresa(empresaId)
   return { limpo: true }
 }

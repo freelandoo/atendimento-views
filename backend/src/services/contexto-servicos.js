@@ -175,6 +175,21 @@ async function listarServicosContexto(pool, empresaId, contextoId, { somenteAtiv
   return rows
 }
 
+async function limparServicosGerados(pool, empresaId, contextoId, { excetoSlugs = [] } = {}) {
+  const slugs = [...new Set((excetoSlugs || []).map(slugify).filter(Boolean))]
+  const params = [empresaId, contextoId]
+  const filtroSlug = slugs.length
+    ? `AND NOT (slug = ANY($${params.push(slugs)}::text[]))`
+    : ''
+  const { rowCount } = await pool.query(
+    `DELETE FROM app.contexto_servicos
+      WHERE empresa_id = $1 AND contexto_id = $2
+        AND origem = 'ia' ${filtroSlug}`,
+    params
+  )
+  return rowCount || 0
+}
+
 function valoresPersistencia(s) {
   return [
     s.slug, s.nome, s.categoria, s.descricao_curta, s.descricao_completa,
@@ -189,10 +204,14 @@ function valoresPersistencia(s) {
 
 async function salvarCatalogoGerado(pool, empresaId, contextoId, servicos) {
   const normalizados = dedupeServicos(servicos)
-  if (!normalizados.length) return await listarServicosContexto(pool, empresaId, contextoId)
+  if (!normalizados.length) {
+    await limparServicosGerados(pool, empresaId, contextoId)
+    return await listarServicosContexto(pool, empresaId, contextoId)
+  }
 
   const existentes = await listarServicosContexto(pool, empresaId, contextoId)
   const porSlug = new Map(existentes.map((s) => [s.slug, s]))
+  const slugsGerados = normalizados.map((s) => s.slug)
 
   for (const s of normalizados) {
     const atual = porSlug.get(s.slug)
@@ -269,6 +288,7 @@ async function salvarCatalogoGerado(pool, empresaId, contextoId, servicos) {
     )
   }
 
+  await limparServicosGerados(pool, empresaId, contextoId, { excetoSlugs: slugsGerados })
   return await listarServicosContexto(pool, empresaId, contextoId)
 }
 
@@ -351,6 +371,16 @@ async function criarServicoContexto(pool, empresaId, contextoId, input) {
   return row
 }
 
+async function removerServicoContexto(pool, empresaId, contextoId, servicoId) {
+  const { rows: [row] } = await pool.query(
+    `DELETE FROM app.contexto_servicos
+      WHERE id = $1 AND empresa_id = $2 AND contexto_id = $3
+      RETURNING id`,
+    [servicoId, empresaId, contextoId]
+  )
+  return row || null
+}
+
 function servicosParaPlaybook(servicos = []) {
   return servicos
     .filter((s) => s && s.ativo !== false)
@@ -395,10 +425,12 @@ module.exports = {
   fallbackServicosDoTexto,
   catalogoDasFontes,
   listarServicosContexto,
+  limparServicosGerados,
   salvarCatalogoGerado,
   gerarServicosDoContexto,
   atualizarServicoContexto,
   criarServicoContexto,
+  removerServicoContexto,
   servicosParaPlaybook,
   resumoServicosParaTexto,
   slugify,

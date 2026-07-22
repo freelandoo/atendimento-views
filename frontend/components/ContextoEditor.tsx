@@ -730,6 +730,22 @@ function CardServicos({ empresaId, contextoId, reloadKey, atualizando = false, o
     finally { setSalvando(false) }
   }
 
+  async function removerServico() {
+    if (!aberto || aberto === '__novo__' || !draft?.nome) return
+    if (!confirm(`Remover o serviço "${draft.nome}" deste contexto?`)) return
+    setSalvando(true)
+    try {
+      await fb.runTask(() => apiFetch(
+        `/api/empresas/${empresaId}/contextos/${contextoId}/servicos/${aberto}`,
+        { method: 'DELETE' }
+      ), { sucesso: 'Serviço removido.' })
+      await carregar()
+      setAberto(null)
+      setDraft(null)
+    } catch { /* feedback ja exibido */ }
+    finally { setSalvando(false) }
+  }
+
   const revisao = servicos.filter((s) => s.status_revisao === 'precisa_revisao').length
 
   return (
@@ -836,6 +852,11 @@ function CardServicos({ empresaId, contextoId, reloadKey, atualizando = false, o
               {salvando && <Spinner size={13} />}
               {salvando ? 'Salvando…' : 'Salvar serviço'}
             </button>
+            {aberto !== '__novo__' && (
+              <button onClick={removerServico} disabled={salvando} className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50">
+                Remover serviço
+              </button>
+            )}
             <button onClick={() => { setDraft(null); setAberto(null) }} className="text-xs px-3 py-1.5 rounded-lg border">Cancelar</button>
           </div>
         </div>

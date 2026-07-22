@@ -188,6 +188,7 @@ test('rederivarOuLimpar: sem fontes, limpa derivados e arquiva o playbook ativo'
   assert.deepEqual(out, { limpo: true })
   assert.ok(sqls.some((s) => /UPDATE app\.empresa_contextos[\s\S]*contexto_form_json = '\{\}'/.test(s)))
   assert.ok(sqls.some((s) => /UPDATE app\.empresa_contexto_versoes[\s\S]*'arquivado'/.test(s)))
+  assert.ok(sqls.some((s) => /DELETE FROM app\.contexto_servicos[\s\S]*origem = 'ia'/.test(s)))
 })
 
 // ─── 5) Estágio de informações: bloco de fatos auto-preenchido, fora da IA ─────
