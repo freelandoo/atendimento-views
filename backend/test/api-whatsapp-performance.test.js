@@ -10,6 +10,8 @@ const {
   duplicarContexto,
   limparReferenciasInstanciaRemovida,
   calcularImpactoRemocaoInstancia,
+  calcularImpactoSubstituicaoInstancia,
+  substituirReferenciasInstancia,
 } = router
 
 test('calcularResumoConexao consulta instancias em paralelo', async () => {
@@ -208,4 +210,89 @@ test('calcularImpactoRemocaoInstancia resume impacto e bloqueia envio em andamen
   assert.equal(out.contexto.sera_removido, true)
   assert.equal(out.bloqueia_remocao, true)
   assert.ok(out.avisos.some((a) => /envios em andamento/.test(a)))
+})
+
+test('calcularImpactoSubstituicaoInstancia resume transferencia sem apagar dados', async () => {
+  const client = {
+    query: async (sql, params) => {
+      if (sql.includes('FROM app.banco_leads_config')) {
+        assert.deepStrictEqual(params, ['e1', 'origem-id'])
+        return { rows: [{ auto_ativo: true, modo: 'automatico' }] }
+      }
+      if (sql.includes("status IN ('gerando', 'aguardando_disparo', 'erro_ia')")) {
+        assert.deepStrictEqual(params, ['e1', 'inst-antiga'])
+        return { rows: [{ total: 5 }] }
+      }
+      if (sql.includes("status IN ('enviando', 'pendente_confirmacao')")) {
+        assert.deepStrictEqual(params, ['e1', 'inst-antiga'])
+        return { rows: [{ total: 0 }] }
+      }
+      if (sql.includes('FROM vendas.conversas') && params[1] === 'inst-antiga') {
+        return { rows: [{ total: 8 }] }
+      }
+      if (sql.includes('FROM vendas.conversas') && params[1] === 'inst-nova') {
+        return { rows: [{ total: 2 }] }
+      }
+      throw new Error(`SQL inesperado: ${sql}`)
+    },
+  }
+
+  const out = await calcularImpactoSubstituicaoInstancia(
+    client,
+    'e1',
+    { id: 'origem-id', nome: 'Antiga', evolution_instance: 'inst-antiga', contexto_id: 'ctx-1' },
+    { id: 'destino-id', nome: 'Nova', evolution_instance: 'inst-nova', ativo: true, contexto_id: 'ctx-2' }
+  )
+
+  assert.equal(out.banco_leads.configuracao_usando, true)
+  assert.equal(out.rascunhos_transferiveis, 5)
+  assert.equal(out.conversas_transferiveis, 8)
+  assert.equal(out.destino_conversas_atuais, 2)
+  assert.equal(out.contexto.sera_transferido, true)
+  assert.equal(out.contexto.destino_contexto_substituido, true)
+  assert.equal(out.bloqueia_substituicao, false)
+  assert.ok(out.avisos.some((a) => /passara a usar a instancia nova/.test(a)))
+})
+
+test('substituirReferenciasInstancia transfere ponteiros e desativa origem', async () => {
+  const chamadas = []
+  const client = {
+    query: async (sql, params) => {
+      chamadas.push({ sql, params })
+      if (sql.includes('UPDATE app.banco_leads_config')) return { rowCount: 1, rows: [] }
+      if (sql.includes('UPDATE prospectador.lead_disparos')) return { rowCount: 2, rows: [] }
+      if (sql.includes('UPDATE vendas.conversas')) return { rowCount: 3, rows: [] }
+      if (sql.includes('UPDATE app.empresa_whatsapp_instances') && sql.includes('contexto_id = $3')) return { rowCount: 1, rows: [] }
+      if (sql.includes('DELETE FROM app.empresa_contextos')) return { rowCount: 1, rows: [] }
+      if (sql.includes('UPDATE app.empresa_whatsapp_instances') && sql.includes('ativo = false')) return { rowCount: 1, rows: [] }
+      throw new Error(`SQL inesperado: ${sql}`)
+    },
+  }
+
+  const out = await substituirReferenciasInstancia(client, 'e1', {
+    id: 'origem-id',
+    evolution_instance: 'inst-antiga',
+    contexto_id: 'ctx-origem',
+    config_json: { saudacao: 'Oi', usa_agenda: false },
+  }, {
+    id: 'destino-id',
+    evolution_instance: 'inst-nova',
+    contexto_id: 'ctx-destino',
+    config_json: {},
+  })
+
+  assert.deepStrictEqual(out, {
+    banco_leads_config: 1,
+    rascunhos_transferidos: 2,
+    conversas_transferidas: 3,
+    contexto_transferido: true,
+    destino_contexto_anterior_removido: true,
+    origem_desativada: true,
+  })
+  assert.deepStrictEqual(chamadas[0].params, ['e1', 'origem-id', 'destino-id'])
+  assert.deepStrictEqual(chamadas[1].params, ['e1', 'inst-antiga', 'inst-nova'])
+  assert.deepStrictEqual(chamadas[2].params, ['e1', 'inst-antiga', 'inst-nova'])
+  assert.match(chamadas[3].sql, /contexto_id = \$3/)
+  assert.deepStrictEqual(chamadas[3].params.slice(0, 3), ['destino-id', 'e1', 'ctx-origem'])
+  assert.match(chamadas[chamadas.length - 1].sql, /ativo = false/)
 })

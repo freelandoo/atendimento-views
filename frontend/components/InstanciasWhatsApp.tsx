@@ -52,6 +52,23 @@ type RemocaoImpacto = {
   bloqueia_remocao: boolean
   avisos: string[]
 }
+type SubstituicaoImpacto = {
+  origem: { id: string; nome?: string | null; evolution_instance: string }
+  destino: { id: string; nome?: string | null; evolution_instance: string; ativo: boolean }
+  banco_leads: { configuracao_usando: boolean; automatico_ativo: boolean; modo?: string | null }
+  rascunhos_transferiveis: number
+  envios_em_andamento: number
+  conversas_transferiveis: number
+  destino_conversas_atuais: number
+  contexto: {
+    origem_id?: string | null
+    destino_id?: string | null
+    sera_transferido: boolean
+    destino_contexto_substituido: boolean
+  }
+  bloqueia_substituicao: boolean
+  avisos: string[]
+}
 type QRState = {
   open: boolean
   instanceId: string | null
@@ -82,6 +99,15 @@ export default function InstanciasWhatsApp({ empresaId }: {
     impacto: RemocaoImpacto | null
     error: string | null
   }>({ open: false, loading: false, removing: false, inst: null, impacto: null, error: null })
+  const [substituicao, setSubstituicao] = useState<{
+    open: boolean
+    loading: boolean
+    transferindo: boolean
+    origem: WhatsAppInstance | null
+    destinoId: string
+    impacto: SubstituicaoImpacto | null
+    error: string | null
+  }>({ open: false, loading: false, transferindo: false, origem: null, destinoId: '', impacto: null, error: null })
   const [qr, setQr] = useState<QRState>({
     open: false, instanceId: null, instanceLabel: '', loading: false,
     base64: null, pairingCode: null, connected: false, error: null,
@@ -268,6 +294,91 @@ export default function InstanciasWhatsApp({ empresaId }: {
     }
   }
 
+  async function carregarImpactoSubstituicao(origem: WhatsAppInstance, destinoId: string) {
+    setSubstituicao((prev) => ({ ...prev, loading: true, impacto: null, error: null, destinoId }))
+    try {
+      const r = await apiFetch<SubstituicaoImpacto>(
+        `/api/empresas/${empresaId}/whatsapp/${origem.id}/substituicao-impacto?destino_id=${encodeURIComponent(destinoId)}`
+      )
+      setSubstituicao((prev) => ({
+        ...prev,
+        loading: false,
+        destinoId,
+        impacto: r.data,
+        error: null,
+      }))
+    } catch (err: unknown) {
+      setSubstituicao((prev) => ({
+        ...prev,
+        loading: false,
+        destinoId,
+        impacto: null,
+        error: err instanceof Error ? err.message : 'Falha ao calcular impacto da substituicao.',
+      }))
+    }
+  }
+
+  async function abrirSubstituicaoInstancia(origem: WhatsAppInstance) {
+    if (!empresaId) return
+    setMsg('')
+    setErroForm('')
+    const destinos = instancias.filter((inst) => inst.id !== origem.id)
+    const destinoInicial = destinos.find((inst) => inst.ativo)?.id || destinos[0]?.id || ''
+    setSubstituicao({
+      open: true,
+      loading: !!destinoInicial,
+      transferindo: false,
+      origem,
+      destinoId: destinoInicial,
+      impacto: null,
+      error: destinoInicial ? null : 'Crie a nova instancia primeiro, gere o QR Code e depois volte para substituir.',
+    })
+    if (destinoInicial) await carregarImpactoSubstituicao(origem, destinoInicial)
+  }
+
+  function fecharSubstituicao() {
+    if (substituicao.transferindo) return
+    setSubstituicao({ open: false, loading: false, transferindo: false, origem: null, destinoId: '', impacto: null, error: null })
+  }
+
+  async function selecionarDestinoSubstituicao(destinoId: string) {
+    const origem = substituicao.origem
+    if (!origem || !destinoId) return
+    await carregarImpactoSubstituicao(origem, destinoId)
+  }
+
+  async function confirmarSubstituicaoInstancia() {
+    const origem = substituicao.origem
+    if (!empresaId || !origem || !substituicao.destinoId || substituicao.impacto?.bloqueia_substituicao) return
+    setSubstituicao((prev) => ({ ...prev, transferindo: true, error: null }))
+    try {
+      const r = await apiFetch<{
+        transferencia?: {
+          banco_leads_config?: number
+          rascunhos_transferidos?: number
+          conversas_transferidas?: number
+          contexto_transferido?: boolean
+        }
+      }>(`/api/empresas/${empresaId}/whatsapp/${origem.id}/substituir`, {
+        method: 'POST',
+        body: JSON.stringify({ destino_instance_id: substituicao.destinoId }),
+      })
+      const transferencia = r.data.transferencia
+      const detalhes = transferencia
+        ? ` Conversas: ${transferencia.conversas_transferidas || 0}. Rascunhos: ${transferencia.rascunhos_transferidos || 0}.`
+        : ''
+      setMsg(`Instancia substituida. A antiga foi desativada e os vinculos passaram para a nova.${detalhes}`)
+      setSubstituicao({ open: false, loading: false, transferindo: false, origem: null, destinoId: '', impacto: null, error: null })
+      carregarInstancias({ silencioso: true })
+    } catch (err: unknown) {
+      setSubstituicao((prev) => ({
+        ...prev,
+        transferindo: false,
+        error: err instanceof Error ? err.message : 'Falha ao substituir instancia.',
+      }))
+    }
+  }
+
   async function abrirQrCode(inst: WhatsAppInstance) {
     if (!empresaId) return
     setQr({
@@ -317,6 +428,14 @@ export default function InstanciasWhatsApp({ empresaId }: {
 
   const impactoRemocao = remocao.impacto
   const podeConfirmarRemocao = !!impactoRemocao && !impactoRemocao.bloqueia_remocao && !remocao.loading && !remocao.removing
+  const impactoSubstituicao = substituicao.impacto
+  const destinosSubstituicao = substituicao.origem
+    ? instancias.filter((inst) => inst.id !== substituicao.origem?.id)
+    : []
+  const podeConfirmarSubstituicao = !!impactoSubstituicao &&
+    !impactoSubstituicao.bloqueia_substituicao &&
+    !substituicao.loading &&
+    !substituicao.transferindo
 
   return (
     <div className="space-y-4">
@@ -411,6 +530,14 @@ export default function InstanciasWhatsApp({ empresaId }: {
                 </button>
                 <button
                   type="button"
+                  onClick={() => abrirSubstituicaoInstancia(i)}
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-neon-amber/40 px-3 py-2 text-xs font-medium text-neon-amber transition-colors hover:bg-neon-amber/15"
+                  aria-label="Substituir instancia"
+                >
+                  Substituir
+                </button>
+                <button
+                  type="button"
                   onClick={() => abrirRemocaoInstancia(i)}
                   className="flex items-center justify-center gap-1.5 rounded-lg border border-neon-red/40 px-3 py-2 text-xs font-medium text-neon-red transition-colors hover:bg-neon-red/15"
                   aria-label="Remover instância"
@@ -448,6 +575,131 @@ export default function InstanciasWhatsApp({ empresaId }: {
           <p className="col-span-full text-sm text-gray-400">Nenhuma instância ainda. Adicione uma acima.</p>
         )}
       </div>
+
+      {substituicao.open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={fecharSubstituicao}
+        >
+          <div
+            className="w-full max-w-xl rounded-2xl border border-white/10 bg-panel p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-neon-amber/80">Substituir instancia</p>
+                <h3 className="mt-1 font-display text-xl font-bold text-white">
+                  {substituicao.origem?.nome || substituicao.origem?.evolution_instance || 'Instancia'}
+                </h3>
+                <p className="mt-1 font-mono text-[11px] text-white/45">{substituicao.origem?.evolution_instance}</p>
+              </div>
+              <button
+                type="button"
+                onClick={fecharSubstituicao}
+                disabled={substituicao.transferindo}
+                className="text-xl leading-none text-white/40 hover:text-white disabled:opacity-40"
+                aria-label="Fechar"
+              >
+                x
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <label className="block text-xs font-medium text-white/60">
+                Instancia nova
+                <select
+                  value={substituicao.destinoId}
+                  onChange={(e) => selecionarDestinoSubstituicao(e.target.value)}
+                  disabled={substituicao.loading || substituicao.transferindo || destinosSubstituicao.length === 0}
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-neon-cyan disabled:opacity-50"
+                >
+                  {destinosSubstituicao.length === 0 ? (
+                    <option value="">Nenhuma instancia disponivel</option>
+                  ) : destinosSubstituicao.map((inst) => (
+                    <option key={inst.id} value={inst.id}>
+                      {inst.nome || inst.evolution_instance}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {substituicao.loading && (
+                <div className="py-8 text-center text-sm text-white/55">Calculando transferencia...</div>
+              )}
+
+              {substituicao.error && (
+                <div className="rounded-lg border border-neon-red/30 bg-neon-red/10 px-3 py-2 text-sm text-neon-red">
+                  {substituicao.error}
+                </div>
+              )}
+
+              {impactoSubstituicao && (
+                <>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-wide text-white/35">Conversas</p>
+                      <p className="mt-1 text-lg font-semibold text-white">{impactoSubstituicao.conversas_transferiveis}</p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-wide text-white/35">Rascunhos</p>
+                      <p className="mt-1 text-lg font-semibold text-white">{impactoSubstituicao.rascunhos_transferiveis}</p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-wide text-white/35">Envios</p>
+                      <p className={`mt-1 text-lg font-semibold ${impactoSubstituicao.envios_em_andamento > 0 ? 'text-neon-red' : 'text-white'}`}>
+                        {impactoSubstituicao.envios_em_andamento}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-wide text-white/35">Auto</p>
+                      <p className={`mt-1 text-sm font-semibold ${impactoSubstituicao.banco_leads.configuracao_usando ? 'text-neon-amber' : 'text-white/70'}`}>
+                        {impactoSubstituicao.banco_leads.configuracao_usando ? 'Transfere' : 'Nao usa'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {impactoSubstituicao.avisos.length > 0 && (
+                    <div className="space-y-2 text-sm text-white/70">
+                      {impactoSubstituicao.avisos.map((aviso, idx) => (
+                        <p key={idx} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">{aviso}</p>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs leading-relaxed text-white/50">
+                    Use isto quando o mesmo numero foi recriado em outra instancia. A antiga fica inativa e a nova assume os vinculos operacionais.
+                  </div>
+
+                  {impactoSubstituicao.bloqueia_substituicao && (
+                    <div className="rounded-lg border border-neon-red/30 bg-neon-red/10 px-3 py-2 text-sm text-neon-red">
+                      Substituicao bloqueada enquanto houver envio em andamento. Aguarde a confirmacao do envio e tente novamente.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={fecharSubstituicao}
+                disabled={substituicao.transferindo}
+                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/70 hover:bg-white/5 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarSubstituicaoInstancia}
+                disabled={!podeConfirmarSubstituicao}
+                className="rounded-lg border border-neon-amber/40 px-4 py-2 text-sm font-medium text-neon-amber hover:bg-neon-amber/15 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {substituicao.transferindo ? 'Transferindo...' : 'Transferir vinculos'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {remocao.open && (
         <div

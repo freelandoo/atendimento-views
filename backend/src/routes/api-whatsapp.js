@@ -262,6 +262,173 @@ async function calcularImpactoRemocaoInstancia(client, empresaId, inst) {
   }
 }
 
+async function calcularImpactoSubstituicaoInstancia(client, empresaId, origem, destino) {
+  const [
+    bancoLeads,
+    rascunhos,
+    envios,
+    conversasOrigem,
+    conversasDestino,
+  ] = await Promise.all([
+    client.query(
+      `SELECT auto_ativo, modo
+         FROM app.banco_leads_config
+        WHERE empresa_id = $1 AND auto_instancia_id = $2
+        LIMIT 1`,
+      [empresaId, origem.id]
+    ),
+    client.query(
+      `SELECT COUNT(*)::int AS total
+         FROM prospectador.lead_disparos
+        WHERE empresa_id = $1
+          AND evolution_instance = $2
+          AND status IN ('gerando', 'aguardando_disparo', 'erro_ia')`,
+      [empresaId, origem.evolution_instance]
+    ),
+    client.query(
+      `SELECT COUNT(*)::int AS total
+         FROM prospectador.lead_disparos
+        WHERE empresa_id = $1
+          AND evolution_instance = $2
+          AND status IN ('enviando', 'pendente_confirmacao')`,
+      [empresaId, origem.evolution_instance]
+    ),
+    client.query(
+      `SELECT COUNT(*)::int AS total
+         FROM vendas.conversas
+        WHERE empresa_id = $1
+          AND evolution_instance = $2`,
+      [empresaId, origem.evolution_instance]
+    ),
+    client.query(
+      `SELECT COUNT(*)::int AS total
+         FROM vendas.conversas
+        WHERE empresa_id = $1
+          AND evolution_instance = $2`,
+      [empresaId, destino.evolution_instance]
+    ),
+  ])
+
+  const bancoConfig = bancoLeads.rows[0] || null
+  const enviosEmAndamento = envios.rows[0]?.total || 0
+  const rascunhosTransferiveis = rascunhos.rows[0]?.total || 0
+  const conversasTransferiveis = conversasOrigem.rows[0]?.total || 0
+  const conversasAtuaisDestino = conversasDestino.rows[0]?.total || 0
+  const contextoTransferido = !!origem.contexto_id && origem.contexto_id !== destino.contexto_id
+  const avisos = []
+
+  if (enviosEmAndamento > 0) avisos.push('Existem envios em andamento na instancia antiga. Aguarde a confirmacao antes de substituir.')
+  if (bancoConfig) avisos.push('A configuracao do Banco de Leads passara a usar a instancia nova.')
+  if (rascunhosTransferiveis > 0) avisos.push('Rascunhos e mensagens geradas serao movidos para a instancia nova.')
+  if (conversasTransferiveis > 0) avisos.push('Conversas vinculadas serao apontadas para a instancia nova, preservando o historico.')
+  if (contextoTransferido) avisos.push('O contexto da instancia antiga sera vinculado a instancia nova.')
+  if (!origem.contexto_id) avisos.push('A instancia antiga nao tem contexto vinculado para transferir.')
+  if (destino.contexto_id && contextoTransferido) avisos.push('O contexto atual da instancia nova sera substituido pelo contexto da antiga.')
+  if (!destino.ativo) avisos.push('A instancia nova esta inativa no aplicativo; ative antes de operar por ela.')
+
+  return {
+    origem: {
+      id: origem.id,
+      nome: origem.nome || null,
+      evolution_instance: origem.evolution_instance,
+    },
+    destino: {
+      id: destino.id,
+      nome: destino.nome || null,
+      evolution_instance: destino.evolution_instance,
+      ativo: !!destino.ativo,
+    },
+    banco_leads: {
+      configuracao_usando: !!bancoConfig,
+      automatico_ativo: !!bancoConfig?.auto_ativo,
+      modo: bancoConfig?.modo || null,
+    },
+    rascunhos_transferiveis: rascunhosTransferiveis,
+    envios_em_andamento: enviosEmAndamento,
+    conversas_transferiveis: conversasTransferiveis,
+    destino_conversas_atuais: conversasAtuaisDestino,
+    contexto: {
+      origem_id: origem.contexto_id || null,
+      destino_id: destino.contexto_id || null,
+      sera_transferido: contextoTransferido,
+      destino_contexto_substituido: !!destino.contexto_id && contextoTransferido,
+    },
+    bloqueia_substituicao: enviosEmAndamento > 0,
+    avisos,
+  }
+}
+
+async function substituirReferenciasInstancia(client, empresaId, origem, destino) {
+  const bancoLeadsConfig = await client.query(
+    `UPDATE app.banco_leads_config
+        SET auto_instancia_id = $3,
+            atualizado_em = NOW()
+      WHERE empresa_id = $1 AND auto_instancia_id = $2`,
+    [empresaId, origem.id, destino.id]
+  )
+  const rascunhos = await client.query(
+    `UPDATE prospectador.lead_disparos
+        SET evolution_instance = $3
+      WHERE empresa_id = $1
+        AND evolution_instance = $2
+        AND status IN ('gerando', 'aguardando_disparo', 'erro_ia')`,
+    [empresaId, origem.evolution_instance, destino.evolution_instance]
+  )
+  const conversas = await client.query(
+    `UPDATE vendas.conversas
+        SET evolution_instance = $3,
+            atualizado_em = NOW()
+      WHERE empresa_id = $1
+        AND evolution_instance = $2`,
+    [empresaId, origem.evolution_instance, destino.evolution_instance]
+  )
+
+  let contextoAtualizado = 0
+  let destinoContextoAnteriorRemovido = false
+  if (origem.contexto_id && origem.contexto_id !== destino.contexto_id) {
+    const destinoContextoAnterior = destino.contexto_id || null
+    const contexto = await client.query(
+      `UPDATE app.empresa_whatsapp_instances
+          SET contexto_id = $3,
+              config_json = COALESCE(config_json, '{}'::jsonb) || (COALESCE($4::jsonb, '{}'::jsonb) - 'substituida_por' - 'substituida_em'),
+              atualizado_em = NOW()
+        WHERE id = $1 AND empresa_id = $2`,
+      [destino.id, empresaId, origem.contexto_id, JSON.stringify(origem.config_json || {})]
+    )
+    contextoAtualizado = contexto.rowCount || 0
+    if (destinoContextoAnterior) {
+      destinoContextoAnteriorRemovido = await removerContextoSeOrfao(client, empresaId, destinoContextoAnterior)
+    }
+  } else {
+    await client.query(
+      `UPDATE app.empresa_whatsapp_instances
+          SET config_json = COALESCE(config_json, '{}'::jsonb) || (COALESCE($3::jsonb, '{}'::jsonb) - 'substituida_por' - 'substituida_em'),
+              atualizado_em = NOW()
+        WHERE id = $1 AND empresa_id = $2`,
+      [destino.id, empresaId, JSON.stringify(origem.config_json || {})]
+    )
+  }
+
+  await client.query(
+    `UPDATE app.empresa_whatsapp_instances
+        SET ativo = false,
+            config_json = COALESCE(config_json, '{}'::jsonb) ||
+              jsonb_build_object('substituida_por', $3::text, 'substituida_em', NOW()::text),
+            atualizado_em = NOW()
+      WHERE id = $1 AND empresa_id = $2`,
+    [origem.id, empresaId, destino.id]
+  )
+
+  return {
+    banco_leads_config: bancoLeadsConfig.rowCount || 0,
+    rascunhos_transferidos: rascunhos.rowCount || 0,
+    conversas_transferidas: conversas.rowCount || 0,
+    contexto_transferido: contextoAtualizado > 0,
+    destino_contexto_anterior_removido: destinoContextoAnteriorRemovido,
+    origem_desativada: true,
+  }
+}
+
 async function montarDiagnosticoInstancia(inst) {
   const status = await verificarStatusInstanciaEvolution(inst.evolution_instance)
   const webhookCfg = webhookConfigForInstance()
@@ -623,6 +790,100 @@ router.get('/:instanceId/qrcode', requireAuth, requireEmpresaAccess, async (req,
   }
 })
 
+router.get('/:instanceId/substituicao-impacto', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const destinoId = String(req.query?.destino_id || '').trim()
+  if (!destinoId) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe a instancia destino.' } })
+  }
+  if (destinoId === req.params.instanceId) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'A instancia destino precisa ser diferente da antiga.' } })
+  }
+  const [origem, destino] = await Promise.all([
+    carregarInstanciaEmpresa(req.params.instanceId, req.empresa.id),
+    carregarInstanciaEmpresa(destinoId, req.empresa.id),
+  ])
+  if (!origem || !destino) {
+    return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instancia de origem ou destino nao encontrada.' } })
+  }
+  const data = await calcularImpactoSubstituicaoInstancia(pool, req.empresa.id, origem, destino)
+  return res.json({ ok: true, data })
+})
+
+router.post('/:instanceId/substituir', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const destinoId = String(req.body?.destino_instance_id || '').trim()
+  if (!destinoId) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe a instancia destino.' } })
+  }
+  if (destinoId === req.params.instanceId) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'A instancia destino precisa ser diferente da antiga.' } })
+  }
+
+  const client = await pool.connect()
+  let transferencia
+  let impacto
+  let origem
+  let destino
+  try {
+    await client.query('BEGIN')
+    const { rows } = await client.query(
+      `SELECT id, evolution_instance, nome, ativo, config_json, contexto_id
+         FROM app.empresa_whatsapp_instances
+        WHERE empresa_id = $1
+          AND id IN ($2, $3)
+          AND COALESCE(config_json->>'canal', 'whatsapp') <> 'freelandoo'
+        FOR UPDATE`,
+      [req.empresa.id, req.params.instanceId, destinoId]
+    )
+    origem = rows.find((row) => row.id === req.params.instanceId)
+    destino = rows.find((row) => row.id === destinoId)
+    if (!origem || !destino) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instancia de origem ou destino nao encontrada.' } })
+    }
+
+    impacto = await calcularImpactoSubstituicaoInstancia(client, req.empresa.id, origem, destino)
+    if (impacto.bloqueia_substituicao) {
+      await client.query('ROLLBACK')
+      return res.status(409).json({
+        ok: false,
+        error: {
+          code: 'INSTANCE_REPLACE_BLOCKED',
+          message: 'Existem envios em andamento nesta instancia. Aguarde a confirmacao antes de substituir.',
+        },
+        data: impacto,
+      })
+    }
+
+    transferencia = await substituirReferenciasInstancia(client, req.empresa.id, origem, destino)
+    await client.query('COMMIT')
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
+
+  invalidarCacheEmpresaInstancia(origem.evolution_instance)
+  invalidarCacheEmpresaInstancia(destino.evolution_instance)
+  invalidarCacheAgendaInstancia(origem.evolution_instance)
+  invalidarCacheAgendaInstancia(destino.evolution_instance)
+  invalidarResumoConexao(req.empresa.id)
+  if (transferencia.contexto_transferido || transferencia.destino_contexto_anterior_removido) {
+    invalidarCacheEmpresa(req.empresa.id)
+    mensagensSvc.invalidarCacheAtivo(req.empresa.id)
+  }
+  return res.json({
+    ok: true,
+    data: {
+      origem_id: origem.id,
+      destino_id: destino.id,
+      substituida: true,
+      transferencia,
+      impacto,
+    },
+  })
+})
+
 router.get('/:instanceId/remocao-impacto', requireAuth, requireEmpresaAccess, async (req, res) => {
   const inst = await carregarInstanciaEmpresa(req.params.instanceId, req.empresa.id)
   if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instancia nao encontrada.' } })
@@ -750,3 +1011,5 @@ module.exports.invalidarResumoConexao = invalidarResumoConexao
 module.exports.duplicarContexto = duplicarContexto
 module.exports.limparReferenciasInstanciaRemovida = limparReferenciasInstanciaRemovida
 module.exports.calcularImpactoRemocaoInstancia = calcularImpactoRemocaoInstancia
+module.exports.calcularImpactoSubstituicaoInstancia = calcularImpactoSubstituicaoInstancia
+module.exports.substituirReferenciasInstancia = substituirReferenciasInstancia
