@@ -11,18 +11,22 @@ const {
   enviarRelatorioDiarioOperadores,
 } = require('../src/services/prospecting-daily-report')
 
-function criarPoolRelatorioFake() {
+const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
+
+function criarPoolRelatorioFake(opts = {}) {
   const state = {
-    relatorio: null,
+    relatorios: new Map(), // chave `${data_referencia}|${empresa_id}`
     envioUpdate: null,
-    execucao: {
-      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-      data_execucao: '2026-05-24',
-      modo: 'automatico',
-      config_snapshot: {
-        categoria_padrao: 'restaurantes',
-        cidade_padrao: 'Salvador',
-        estado_padrao: 'BA',
+    execucoes: opts.execucoes || {
+      [PJ_EMPRESA_ID]: {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        data_execucao: '2026-05-24',
+        modo: 'automatico',
+        config_snapshot: {
+          categoria_padrao: 'restaurantes',
+          cidade_padrao: 'Salvador',
+          estado_padrao: 'BA',
+        },
       },
     },
   }
@@ -31,7 +35,8 @@ function criarPoolRelatorioFake() {
     state,
     async query(sql, params = []) {
       if (/FROM prospectador\.prospeccao_execucoes_diarias/i.test(sql)) {
-        return { rows: [state.execucao] }
+        const execucao = state.execucoes[params[1]] || null
+        return { rows: execucao ? [execucao] : [] }
       }
 
       if (/COUNT\(\*\)::int AS total_fila/i.test(sql)) {
@@ -56,24 +61,28 @@ function criarPoolRelatorioFake() {
       }
 
       if (/SELECT \*\s+FROM prospectador\.prospeccao_relatorios_diarios/i.test(sql)) {
-        return { rows: state.relatorio ? [state.relatorio] : [] }
+        const row = state.relatorios.get(`${params[0]}|${params[1]}`)
+        return { rows: row ? [row] : [] }
       }
 
       if (/INSERT INTO prospectador\.prospeccao_relatorios_diarios/i.test(sql)) {
-        state.relatorio = {
+        const row = {
           data_referencia: params[0],
-          execucao_id: params[1],
+          empresa_id: params[1],
+          execucao_id: params[2],
           status: 'gerado',
-          relatorio_json: JSON.parse(params[2]),
-          texto_relatorio: params[3],
-          metadata_json: JSON.parse(params[4]),
+          relatorio_json: JSON.parse(params[3]),
+          texto_relatorio: params[4],
+          metadata_json: JSON.parse(params[5]),
         }
-        return { rows: [state.relatorio] }
+        state.relatorios.set(`${params[0]}|${params[1]}`, row)
+        return { rows: [row] }
       }
 
       if (/UPDATE prospectador\.prospeccao_relatorios_diarios/i.test(sql)) {
-        state.envioUpdate = { data_referencia: params[0], status: params[1], resultados: JSON.parse(params[2]) }
-        if (state.relatorio) state.relatorio.status = params[1]
+        const row = state.relatorios.get(`${params[0]}|${params[1]}`)
+        state.envioUpdate = { data_referencia: params[0], empresa_id: params[1], status: params[2], resultados: JSON.parse(params[3]) }
+        if (row) row.status = params[2]
         return { rows: [] }
       }
 
@@ -95,7 +104,7 @@ test('relatorio diario: gera, calcula taxa e persiste no banco', async () => {
   assert.equal(r.relatorio_json.cidade, 'Salvador')
   assert.equal(r.relatorio_json.funil.diagnostico, 1)
   assert.match(r.texto_relatorio, /Enviadas: 3/)
-  assert.match(pool.state.relatorio.texto_relatorio, /Taxa de resposta: 33%/)
+  assert.match(pool.state.relatorios.get(`2026-05-24|${PJ_EMPRESA_ID}`).texto_relatorio, /Taxa de resposta: 33%/)
 })
 
 test('relatorio diario: busca relatorio persistido sem regenerar', async () => {
@@ -112,6 +121,39 @@ test('relatorio diario: nao conta falha como envio enviado', async () => {
   const r = await gerarRelatorioDiarioProspeccao(pool, { data: '2026-05-24' })
   assert.equal(r.relatorio_json.resumo.total_enviados, 3)
   assert.equal(r.relatorio_json.resumo.total_falhas, 1)
+})
+
+test('relatorio diario: isola relatorio por empresa (nao sobrescreve nem vaza entre empresas)', async () => {
+  const EMPRESA_A = PJ_EMPRESA_ID
+  const EMPRESA_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  const pool = criarPoolRelatorioFake({
+    execucoes: {
+      [EMPRESA_A]: {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        data_execucao: '2026-05-24',
+        modo: 'automatico',
+        config_snapshot: { categoria_padrao: 'restaurantes', cidade_padrao: 'Salvador', estado_padrao: 'BA' },
+      },
+      [EMPRESA_B]: {
+        id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        data_execucao: '2026-05-24',
+        modo: 'automatico',
+        config_snapshot: { categoria_padrao: 'clinicas', cidade_padrao: 'Recife', estado_padrao: 'PE' },
+      },
+    },
+  })
+
+  const rA = await gerarRelatorioDiarioProspeccao(pool, { data: '2026-05-24', empresaId: EMPRESA_A })
+  const rB = await gerarRelatorioDiarioProspeccao(pool, { data: '2026-05-24', empresaId: EMPRESA_B })
+
+  assert.equal(rA.relatorio_json.categoria, 'restaurantes')
+  assert.equal(rB.relatorio_json.categoria, 'clinicas')
+
+  // Gerar o relatorio da empresa B nao pode ter sobrescrito o da empresa A (bug corrigido).
+  const buscaA = await obterRelatorioDiarioProspeccao(pool, { data: '2026-05-24', empresaId: EMPRESA_A })
+  const buscaB = await obterRelatorioDiarioProspeccao(pool, { data: '2026-05-24', empresaId: EMPRESA_B })
+  assert.equal(buscaA.relatorio.relatorio_json.categoria, 'restaurantes')
+  assert.equal(buscaB.relatorio.relatorio_json.categoria, 'clinicas')
 })
 
 test('relatorio diario: formata texto para envio aos operadores', () => {

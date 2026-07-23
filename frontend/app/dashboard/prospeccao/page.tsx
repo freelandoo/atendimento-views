@@ -81,6 +81,12 @@ type Analytics = {
   }
   melhores: { categoria: Rank | null; cidade: Rank | null; horario: Rank | null }
 }
+type OpcaoFiltroMercado = { valor: string; total: number }
+type FiltrosMercado = {
+  nichos: OpcaoFiltroMercado[]
+  categorias: OpcaoFiltroMercado[]
+  cidades: OpcaoFiltroMercado[]
+}
 
 const STATUS_STYLE: Record<string, string> = {
   aguardando: 'bg-slate-100 text-slate-600',
@@ -103,6 +109,16 @@ const FILTROS: { valor: string; label: string }[] = [
   { valor: 'enviado', label: 'Enviados' },
   { valor: 'respondeu', label: 'Responderam' },
 ]
+function opcoesMercado(filtros: FiltrosMercado | null): OpcaoFiltroMercado[] {
+  const mapa = new Map<string, OpcaoFiltroMercado>()
+  for (const item of [...(filtros?.nichos || []), ...(filtros?.categorias || [])]) {
+    const valor = String(item.valor || '').trim()
+    if (!valor) continue
+    const atual = mapa.get(valor)
+    mapa.set(valor, { valor, total: (atual?.total || 0) + Number(item.total || 0) })
+  }
+  return [...mapa.values()].sort((a, b) => b.total - a.total || a.valor.localeCompare(b.valor, 'pt-BR'))
+}
 
 const LEADS_POR_BUSCA = 200
 const BUSCA_ESTADO_LABEL: Record<Config['busca_estado'], string> = {
@@ -164,6 +180,10 @@ export default function ProspeccaoPage() {
   const emAndamentoRef = useRef<Set<string>>(new Set())
   const [erro, setErro] = useState('')
   const [filtro, setFiltro] = useState('')
+  const [buscaDados, setBuscaDados] = useState('')
+  const [mercado, setMercado] = useState('')
+  const [cidadeFiltro, setCidadeFiltro] = useState('')
+  const [filtrosMercado, setFiltrosMercado] = useState<FiltrosMercado | null>(null)
   const [agindo, setAgindo] = useState<string | null>(null)
   const [salvandoConfig, setSalvandoConfig] = useState(false)
   const [form, setForm] = useState<Partial<Config>>({})
@@ -180,8 +200,12 @@ export default function ProspeccaoPage() {
 
   function carregar() {
     if (!empresaId) return
-    const qs = filtro ? `&status=${encodeURIComponent(filtro)}` : ''
-    apiFetch<Prospect[]>(`/api/empresas/${empresaId}/prospeccao/prospects?limit=100${qs}`)
+    const p = new URLSearchParams({ limit: '100' })
+    if (filtro) p.set('status', filtro)
+    if (buscaDados.trim()) p.set('busca', buscaDados.trim())
+    if (mercado) p.set('mercado', mercado)
+    if (cidadeFiltro) p.set('cidade', cidadeFiltro)
+    apiFetch<Prospect[]>(`/api/empresas/${empresaId}/prospeccao/prospects?${p.toString()}`)
       .then((r) => setProspects(r.data || [])).catch((e) => setErro(e.message))
     apiFetch<Metricas>(`/api/empresas/${empresaId}/prospeccao/metricas`)
       .then((r) => setMetricas(r.data)).catch(() => {})
@@ -195,7 +219,14 @@ export default function ProspeccaoPage() {
     apiFetch<Analytics>(`/api/empresas/${empresaId}/prospeccao/analytics`)
       .then((r) => setAnalytics(r.data)).catch(() => {})
   }
-  useEffect(() => { carregar() }, [empresaId, filtro])
+  useEffect(() => { carregar() }, [empresaId, filtro, buscaDados, mercado, cidadeFiltro])
+  useEffect(() => {
+    if (!empresaId) return
+    const p = new URLSearchParams()
+    if (filtro) p.set('status', filtro)
+    apiFetch<FiltrosMercado>(`/api/empresas/${empresaId}/prospeccao/filtros?${p.toString()}`)
+      .then((r) => setFiltrosMercado(r.data || null)).catch(() => {})
+  }, [empresaId, filtro])
 
   // A busca da Aquisição é ASSÍNCRONA (Bright Data Maps, ~minutos). Aqui acompanhamos o
   // andamento: quando uma busca que estava rodando fica 'concluido'/'falhou', avisa e
@@ -368,6 +399,8 @@ export default function ProspeccaoPage() {
   const modoBusca = form.modo_busca || (form.agendamento_busca_ativo ? 'ia' : 'manual')
   const modoAutomatico = modoBusca !== 'manual'
   const estadoBloqueado = ['sem_mercados', 'erro'].includes(cfg?.busca_estado || '')
+  const mercadoOpcoes = opcoesMercado(filtrosMercado)
+  const cidadeOpcoes = filtrosMercado?.cidades || []
 
   return (
     <div className="space-y-6">
@@ -513,6 +546,39 @@ export default function ProspeccaoPage() {
             {f.label}
           </button>
         ))}
+      </div>
+
+      <div className="rounded-xl border bg-white px-3 py-3 shadow-sm">
+        <div className="mb-2 text-xs font-medium text-slate-500">Filtrar leads encontrados</div>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-xs text-slate-500 mb-1">Buscar dados</label>
+            <input value={buscaDados} onChange={(e) => setBuscaDados(e.target.value)}
+              placeholder="nome, telefone, endereço ou mercado" className="w-full border rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Nicho/Categoria</label>
+            <select value={mercado} onChange={(e) => setMercado(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm min-w-[180px]">
+              <option value="">Todos os nichos</option>
+              {mercadoOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Cidade</label>
+            <select value={cidadeFiltro} onChange={(e) => setCidadeFiltro(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm min-w-[150px]">
+              <option value="">Todas</option>
+              {cidadeOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
+            </select>
+          </div>
+          {(mercado || cidadeFiltro || buscaDados.trim()) && (
+            <button onClick={() => { setMercado(''); setCidadeFiltro(''); setBuscaDados('') }}
+              className="border rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+              Limpar filtros
+            </button>
+          )}
+        </div>
       </div>
 
       {metricas && (

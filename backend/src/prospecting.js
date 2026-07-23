@@ -34,6 +34,7 @@ const placesBrightData = require('./services/places-brightdata')
 const {
   canProspectLead,
 } = require('./services/prospecting-eligibility')
+const { adicionarFiltroMercado, termoBuscaProspect } = require('./services/prospect-filters')
 const { extrairEmailDeUrl } = require('./services/social-contact-extract')
 const {
   criarFilaDiariaSimulada,
@@ -1193,24 +1194,15 @@ async function listarProspects(filtros = {}) {
     where.push(`p.empresa_id = $${params.length}`)
   }
   const status = normalizarStatusProspect(filtros.status)
-  const nicho = normalizarTexto(filtros.nicho, 160)
-  const cidade = normalizarTexto(filtros.cidade || filtros.local, 160)
-  const busca = normalizarTexto(filtros.busca, 160)
+  const busca = termoBuscaProspect(filtros)
   if (status) {
     params.push(status)
     where.push(`status = $${params.length}`)
   }
-  if (nicho) {
-    params.push(`%${nicho}%`)
-    where.push(`nicho ILIKE $${params.length}`)
-  }
-  if (cidade) {
-    params.push(`%${cidade}%`)
-    where.push(`cidade ILIKE $${params.length}`)
-  }
+  adicionarFiltroMercado(where, params, filtros, { alias: 'p' })
   if (busca) {
     params.push(`%${busca}%`)
-    where.push(`(nome ILIKE $${params.length} OR telefone ILIKE $${params.length} OR endereco ILIKE $${params.length})`)
+    where.push(`(p.nome ILIKE $${params.length} OR p.telefone ILIKE $${params.length} OR p.endereco ILIKE $${params.length} OR p.nicho ILIKE $${params.length} OR p.categoria_perfil ILIKE $${params.length} OR p.cidade ILIKE $${params.length})`)
   }
   const origem = normalizarOrigemFiltro(filtros.origem)
   if (origem) {

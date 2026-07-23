@@ -16,6 +16,7 @@ const {
   montarAgendaPainelProspeccao,
 } = require('../services/prospecting-settings')
 const { obterDashboardEstrategicoProspeccao } = require('../services/prospecting-performance-analytics')
+const { listarOpcoesFiltrosMercado } = require('../services/prospect-filters')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -26,7 +27,9 @@ router.get('/prospects', requireAuth, requireEmpresaAccess, async (req, res) => 
     const prospects = await listarProspects({
       empresaId: req.empresa.id,
       status: req.query.status,
+      mercado: req.query.mercado,
       nicho: req.query.nicho,
+      categoria: req.query.categoria,
       cidade: req.query.cidade,
       busca: req.query.busca,
       origem: req.query.origem,
@@ -36,6 +39,21 @@ router.get('/prospects', requireAuth, requireEmpresaAccess, async (req, res) => 
   } catch (err) {
     logger.error('GET prospeccao/prospects:', err.message)
     return res.status(500).json({ ok: false, error: { code: 'PROSPECTS_FAILED', message: err.message } })
+  }
+})
+
+router.get('/filtros', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const status = String(req.query.status || '')
+    const data = await listarOpcoesFiltrosMercado(pool, {
+      empresaId: req.empresa.id,
+      origem: req.query.origem ? String(req.query.origem) : undefined,
+      status: status || undefined,
+    })
+    return res.json({ ok: true, data })
+  } catch (err) {
+    logger.error('GET prospeccao/filtros:', err.message)
+    return res.status(500).json({ ok: false, error: { code: 'FILTROS_FAILED', message: err.message } })
   }
 })
 

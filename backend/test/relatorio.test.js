@@ -43,7 +43,35 @@ test('gerarRelatorioIA repassa empresaId para o log de uso do provider', async (
 })
 
 test('resumo de relatorios usa ai_logs, a mesma fonte do painel Uso & Custo', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'api-relatorios.js'), 'utf8')
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'relatorio.js'), 'utf8')
   assert.match(src, /FROM vendas\.ai_logs/)
   assert.doesNotMatch(src, /FROM vendas\.llm_chamadas/)
+})
+
+test('rota /resumo reusa coletarDadosRelatorio em vez de duplicar as queries', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'api-relatorios.js'), 'utf8')
+  assert.match(src, /coletarDadosRelatorio\(pool, req\.empresa\.id\)/)
+  assert.doesNotMatch(src, /FROM vendas\.conversas/)
+})
+
+test('coletarDadosRelatorio inclui temperatura e llm_30d (a mesma analise via IA usa)', async () => {
+  const { coletarDadosRelatorio } = require('../src/services/relatorio')
+  const queries = []
+  const poolFake = {
+    async query(sql, params) {
+      queries.push(sql)
+      if (/FROM vendas\.conversas WHERE empresa_id = \$1`?$/m.test(sql) || /AS ativas/.test(sql)) {
+        return { rows: [{ ativas: '1', fechadas: '0', arquivadas: '0', total: '1' }] }
+      }
+      if (/GROUP BY estagio/.test(sql)) return { rows: [{ estagio: 'diagnostico', total: '1' }] }
+      if (/FROM vendas\.followup_envios/.test(sql)) return { rows: [{ enviados: '0', respondidos: '0' }] }
+      if (/FROM vendas\.ai_logs/.test(sql)) return { rows: [{ chamadas: '2', input_tokens: '10', output_tokens: '5', latencia_media_ms: '100' }] }
+      if (/FROM vendas\.lead_profiles/.test(sql)) return { rows: [{ quente: '1', morno: '0', frio: '0', prontos_handoff: '1' }] }
+      return { rows: [] }
+    },
+  }
+  const data = await coletarDadosRelatorio(poolFake, '00000000-0000-0000-0000-000000000001')
+  assert.equal(data.temperatura.quente, '1')
+  assert.equal(data.llm_30d.chamadas, '2')
+  assert.equal(queries.length, 5)
 })

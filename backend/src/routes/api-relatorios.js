@@ -9,65 +9,8 @@ const router = Router({ mergeParams: true })
 
 // GET /api/empresas/:empresaId/relatorios/resumo
 router.get('/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
-  const id = req.empresa.id
-
-  const [conversas, estagios, followups, llm, temperatura] = await Promise.all([
-    pool.query(
-      `SELECT
-         COUNT(*) FILTER (WHERE status = 'ativo') AS ativas,
-         COUNT(*) FILTER (WHERE venda_fechada = true) AS fechadas,
-         COUNT(*) FILTER (WHERE arquivado = true) AS arquivadas,
-         COUNT(*) AS total
-       FROM vendas.conversas WHERE empresa_id = $1`,
-      [id]
-    ),
-    pool.query(
-      `SELECT estagio, COUNT(*) AS total
-       FROM vendas.conversas WHERE empresa_id = $1 AND status = 'ativo'
-       GROUP BY estagio ORDER BY total DESC`,
-      [id]
-    ),
-    pool.query(
-      `SELECT
-         COUNT(*) FILTER (WHERE envio_ok = true) AS enviados,
-         COUNT(*) FILTER (WHERE resposta_lead_em IS NOT NULL) AS respondidos
-       FROM vendas.followup_envios WHERE empresa_id = $1`,
-      [id]
-    ),
-    pool.query(
-      `SELECT
-         COUNT(*) AS chamadas,
-         SUM(COALESCE(input_tokens, 0)) AS input_tokens,
-         SUM(COALESCE(output_tokens, 0)) AS output_tokens,
-         AVG(latency_ms)::int AS latencia_media_ms
-       FROM vendas.ai_logs
-       WHERE empresa_id = $1
-         AND created_at >= NOW() - INTERVAL '30 days'`,
-      [id]
-    ),
-    pool.query(
-      `SELECT
-         COUNT(*) FILTER (WHERE lp.temperatura_lead = 'quente') AS quente,
-         COUNT(*) FILTER (WHERE lp.temperatura_lead = 'morno')  AS morno,
-         COUNT(*) FILTER (WHERE lp.temperatura_lead = 'frio')   AS frio,
-         COUNT(*) FILTER (WHERE lp.pronto_handoff = true)       AS prontos_handoff
-       FROM vendas.lead_profiles lp
-       JOIN vendas.conversas c ON c.numero = lp.numero
-       WHERE c.empresa_id = $1`,
-      [id]
-    ),
-  ])
-
-  return res.json({
-    ok: true,
-    data: {
-      conversas: conversas.rows[0],
-      por_estagio: estagios.rows,
-      followups: followups.rows[0],
-      llm_30d: llm.rows[0],
-      temperatura: temperatura.rows[0],
-    },
-  })
+  const data = await coletarDadosRelatorio(pool, req.empresa.id)
+  return res.json({ ok: true, data })
 })
 
 // POST /api/empresas/:empresaId/relatorios/ia

@@ -7,6 +7,11 @@ const captacao = require('../services/social-capture')
 const { atualizarEmailProspect } = require('../prospecting')
 const { enviarEmailProspect, emailConfigurado } = require('../services/email-outreach')
 const { calcularScoreCadastroInstagram, montarJsonApresentacaoInstagram } = require('../services/lead-score-cadastro')
+const {
+  adicionarFiltroMercado,
+  listarOpcoesFiltrosMercado,
+  termoBuscaProspect,
+} = require('../services/prospect-filters')
 
 const router = Router({ mergeParams: true })
 
@@ -117,6 +122,13 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
     } else if (req.query.status && STATUS_VALIDOS.has(String(req.query.status))) {
       params.push(String(req.query.status)); where.push(`status = $${params.length}`)
     }
+    adicionarFiltroMercado(where, params, req.query || {})
+    const busca = termoBuscaProspect(req.query || {})
+    if (busca) {
+      params.push(`%${busca}%`)
+      const i = params.length
+      where.push(`(nome ILIKE $${i} OR telefone ILIKE $${i} OR email ILIKE $${i} OR instagram_handle ILIKE $${i} OR nicho ILIKE $${i} OR categoria_perfil ILIKE $${i} OR cidade ILIKE $${i} OR bio ILIKE $${i})`)
+    }
     const { rows } = await pool.query(
       `SELECT id, origem, external_ref, instagram_handle, nome, telefone, email, nicho, cidade,
               bio, link_bio, categoria_perfil, seguidores, site, status, created_at, updated_at
@@ -139,6 +151,19 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
     })
     return res.json({ ok: true, data, meta: { total: data.length } })
   } catch (err) { return envelopeErro(res, err, 'LEADS_FAILED') }
+})
+
+router.get('/filtros', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const fonte = String(req.query.fonte || '').toLowerCase()
+    const aba = String(req.query.aba || '').toLowerCase()
+    const escopo = { empresaId: req.empresa.id, somenteSociais: true }
+    if (fonte === 'instagram' || fonte === 'linkedin') escopo.origem = fonte
+    if (ABAS[aba]) escopo.statusAny = ABAS[aba]
+    else if (req.query.status && STATUS_VALIDOS.has(String(req.query.status))) escopo.status = String(req.query.status)
+    const data = await listarOpcoesFiltrosMercado(pool, escopo)
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'FILTROS_FAILED') }
 })
 
 // Resumo de contagem por aba do funil.

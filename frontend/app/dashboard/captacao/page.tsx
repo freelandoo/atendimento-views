@@ -57,6 +57,12 @@ type Snapshot = {
   id: string; fonte: string; etapa: string; status: string; termo: string | null
   custo_registros: number; total_prospects: number; erro: string | null; created_at: string
 }
+type OpcaoFiltroMercado = { valor: string; total: number }
+type FiltrosMercado = {
+  nichos: OpcaoFiltroMercado[]
+  categorias: OpcaoFiltroMercado[]
+  cidades: OpcaoFiltroMercado[]
+}
 
 const ABAS: { valor: string; label: string }[] = [
   { valor: 'entrada', label: 'Entrada' },
@@ -73,6 +79,16 @@ const STATUS_STYLE: Record<string, string> = {
   respondeu: 'bg-orange-100 text-orange-700',
   rejeitado: 'bg-red-100 text-red-600',
   nao_contatar: 'bg-red-100 text-red-600',
+}
+function opcoesMercado(filtros: FiltrosMercado | null): OpcaoFiltroMercado[] {
+  const mapa = new Map<string, OpcaoFiltroMercado>()
+  for (const item of [...(filtros?.nichos || []), ...(filtros?.categorias || [])]) {
+    const valor = String(item.valor || '').trim()
+    if (!valor) continue
+    const atual = mapa.get(valor)
+    mapa.set(valor, { valor, total: (atual?.total || 0) + Number(item.total || 0) })
+  }
+  return [...mapa.values()].sort((a, b) => b.total - a.total || a.valor.localeCompare(b.valor, 'pt-BR'))
 }
 
 // Estado dos toggles + limite usado pela Agenda e pela edição de campanha.
@@ -107,6 +123,10 @@ export default function CaptacaoPage() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([])
   const [leads, setLeads] = useState<Lead[]>([])
   const [aba, setAba] = useState('entrada')
+  const [busca, setBusca] = useState('')
+  const [mercado, setMercado] = useState('')
+  const [cidadeFiltro, setCidadeFiltro] = useState('')
+  const [filtrosMercado, setFiltrosMercado] = useState<FiltrosMercado | null>(null)
   // Ordenação: default = MAIS seguidores no topo. Clique no cabeçalho alterna.
   const [ordem, setOrdem] = useState<{ chave: string; dir: 'asc' | 'desc' }>({ chave: 'seguidores', dir: 'desc' })
   const [jsonAberto, setJsonAberto] = useState<{ titulo: string; json: JsonApresentacao } | null>(null)
@@ -157,6 +177,8 @@ export default function CaptacaoPage() {
     const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb), 'pt-BR')
     return ordem.dir === 'asc' ? cmp : -cmp
   })
+  const mercadoOpcoes = opcoesMercado(filtrosMercado)
+  const cidadeOpcoes = filtrosMercado?.cidades || []
 
   const carregarMeta = useCallback(async () => {
     if (!empresaId) return
@@ -177,13 +199,26 @@ export default function CaptacaoPage() {
   const carregarLeads = useCallback(async () => {
     if (!empresaId) return
     try {
-      const r = await apiFetch<Lead[]>(`${base}/leads?aba=${aba}`)
+      const p = new URLSearchParams({ aba })
+      if (busca.trim()) p.set('busca', busca.trim())
+      if (mercado) p.set('mercado', mercado)
+      if (cidadeFiltro) p.set('cidade', cidadeFiltro)
+      const r = await apiFetch<Lead[]>(`${base}/leads?${p.toString()}`)
       setLeads(r.data || [])
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao carregar leads.') }
+  }, [base, aba, busca, mercado, cidadeFiltro, empresaId])
+
+  const carregarFiltrosMercado = useCallback(async () => {
+    if (!empresaId) return
+    try {
+      const r = await apiFetch<FiltrosMercado>(`${base}/filtros?aba=${encodeURIComponent(aba)}`)
+      setFiltrosMercado(r.data || null)
+    } catch { /* apoio visual; filtros digitados continuam funcionando */ }
   }, [base, aba, empresaId])
 
   useEffect(() => { carregarMeta() }, [carregarMeta])
   useEffect(() => { carregarLeads() }, [carregarLeads])
+  useEffect(() => { carregarFiltrosMercado() }, [carregarFiltrosMercado])
   useEffect(() => {
     if (!empresaId) return
     apiFetch<{ configurado: boolean }>(`${base}/email/status`)
@@ -519,6 +554,35 @@ export default function CaptacaoPage() {
               {a.label}{funil ? ` (${funil.abas[a.valor] ?? 0})` : ''}
             </button>
           ))}
+        </div>
+        <div className="flex flex-wrap items-end gap-3 border-b px-3 py-3">
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-xs text-slate-500 mb-1">Buscar dados</label>
+            <input value={busca} onChange={(e) => setBusca(e.target.value)}
+              placeholder="nome, telefone, email, @ ou bio" className="w-full border rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Nicho/Categoria</label>
+            <select value={mercado} onChange={(e) => setMercado(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm min-w-[180px]">
+              <option value="">Todos os nichos</option>
+              {mercadoOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Cidade</label>
+            <select value={cidadeFiltro} onChange={(e) => setCidadeFiltro(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm min-w-[150px]">
+              <option value="">Todas</option>
+              {cidadeOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
+            </select>
+          </div>
+          {(mercado || cidadeFiltro || busca.trim()) && (
+            <button onClick={() => { setMercado(''); setCidadeFiltro(''); setBusca('') }}
+              className="border rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+              Limpar filtros
+            </button>
+          )}
         </div>
         {leads.length === 0 ? (
           <p className="px-5 py-8 text-center text-sm text-slate-400">Nenhum lead nesta aba.</p>

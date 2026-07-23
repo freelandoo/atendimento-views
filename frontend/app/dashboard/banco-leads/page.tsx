@@ -54,6 +54,12 @@ type Config = {
   teto_diario: number; intervalo_min: number; intervalo_max: number
   auto_proximo_disparo_em?: string | null
 }
+type OpcaoFiltroMercado = { valor: string; total: number }
+type FiltrosMercado = {
+  nichos: OpcaoFiltroMercado[]
+  categorias: OpcaoFiltroMercado[]
+  cidades: OpcaoFiltroMercado[]
+}
 type RodarResumo = {
   rodada: boolean
   aceitos: { id: string; nome: string }[]
@@ -97,6 +103,16 @@ const ORIGENS: { valor: string; label: string }[] = [
   { valor: 'places', label: 'Google Places' },
   { valor: 'social', label: 'Instagram' },
 ]
+function opcoesMercado(filtros: FiltrosMercado | null): OpcaoFiltroMercado[] {
+  const mapa = new Map<string, OpcaoFiltroMercado>()
+  for (const item of [...(filtros?.nichos || []), ...(filtros?.categorias || [])]) {
+    const valor = String(item.valor || '').trim()
+    if (!valor) continue
+    const atual = mapa.get(valor)
+    mapa.set(valor, { valor, total: (atual?.total || 0) + Number(item.total || 0) })
+  }
+  return [...mapa.values()].sort((a, b) => b.total - a.total || a.valor.localeCompare(b.valor, 'pt-BR'))
+}
 const STATUS_STYLE: Record<string, string> = {
   coletado: 'bg-slate-100 text-slate-600',
   contato_encontrado: 'bg-slate-100 text-slate-600',
@@ -428,6 +444,9 @@ export default function BancoLeadsPage() {
 
   const [aba, setAba] = useState('sem_contato')
   const [origem, setOrigem] = useState('')
+  const [mercado, setMercado] = useState('')
+  const [cidadeFiltro, setCidadeFiltro] = useState('')
+  const [filtrosMercado, setFiltrosMercado] = useState<FiltrosMercado | null>(null)
   const [busca, setBusca] = useState('')
   const [leads, setLeads] = useState<Lead[]>([])
   const [resumo, setResumo] = useState<Resumo | null>(null)
@@ -485,6 +504,8 @@ export default function BancoLeadsPage() {
   function query() {
     const p = new URLSearchParams({ aba })
     if (origem) p.set('origem', origem)
+    if (mercado) p.set('mercado', mercado)
+    if (cidadeFiltro) p.set('cidade', cidadeFiltro)
     if (busca.trim()) p.set('busca', busca.trim())
     return p.toString()
   }
@@ -515,6 +536,8 @@ export default function BancoLeadsPage() {
     try {
       const p = new URLSearchParams({ aba })
       if (origem) p.set('origem', origem)
+      if (mercado) p.set('mercado', mercado)
+      if (cidadeFiltro) p.set('cidade', cidadeFiltro)
       if (busca.trim()) p.set('busca', busca.trim())
       // Escopa a "Mensagem gerada" pela instância selecionada (modo Semi).
       if (instanciaId) p.set('instancia_id', instanciaId)
@@ -522,7 +545,17 @@ export default function BancoLeadsPage() {
       setLeads(r.data || [])
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao carregar leads.') }
     finally { setCarregando(false) }
-  }, [base, empresaId, aba, origem, busca, instanciaId])
+  }, [base, empresaId, aba, origem, mercado, cidadeFiltro, busca, instanciaId])
+
+  const carregarFiltrosMercado = useCallback(async () => {
+    if (!empresaId) return
+    try {
+      const p = new URLSearchParams({ aba })
+      if (origem) p.set('origem', origem)
+      const r = await apiFetch<FiltrosMercado>(`${base}/filtros?${p.toString()}`)
+      setFiltrosMercado(r.data || null)
+    } catch { /* filtros sao apoio de UI; a listagem continua funcionando */ }
+  }, [base, empresaId, aba, origem])
 
   const carregarInstancias = useCallback(async () => {
     if (!empresaId) return
@@ -563,6 +596,7 @@ export default function BancoLeadsPage() {
   useEffect(() => { carregarResumo() }, [carregarResumo])
   useEffect(() => { carregarConfig() }, [carregarConfig])
   useEffect(() => { carregarLeads() }, [carregarLeads])
+  useEffect(() => { carregarFiltrosMercado() }, [carregarFiltrosMercado])
   useEffect(() => { carregarInstancias() }, [carregarInstancias])
   useEffect(() => {
     carregarConexoes()
@@ -617,7 +651,7 @@ export default function BancoLeadsPage() {
     return () => clearInterval(t)
   }, [])
   // Limpa a seleção ao trocar de aba/filtro (os ids podem sair da lista).
-  useEffect(() => { setSelecionados(new Set()) }, [aba, origem, busca])
+  useEffect(() => { setSelecionados(new Set()) }, [aba, origem, mercado, cidadeFiltro, busca])
   // Personalização: carrega do localStorage (1x) e persiste a cada mudança.
   useEffect(() => {
     try {
@@ -700,6 +734,8 @@ export default function BancoLeadsPage() {
   const totalFiltrado = leadsPlaces.length + leadsIg.length
   const chips = chipsDaView(view)
   const filtrosAtivos = chips.length + (view.ordenacao !== 'padrao' ? 1 : 0)
+  const mercadoOpcoes = useMemo(() => opcoesMercado(filtrosMercado), [filtrosMercado])
+  const cidadeOpcoes = filtrosMercado?.cidades || []
 
   function toggleSel(id: string) {
     setSelecionados((prev) => {
@@ -1240,6 +1276,31 @@ export default function BancoLeadsPage() {
           <input value={busca} onChange={(e) => setBusca(e.target.value)}
             placeholder="digite para filtrar…" className="w-full border rounded-lg px-3 py-2 text-sm" />
         </div>
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">Nicho/Categoria</label>
+          <select value={mercado} onChange={(e) => setMercado(e.target.value)}
+            className="border rounded-lg px-3 py-2 text-sm min-w-[180px]">
+            <option value="">Todos os nichos</option>
+            {mercadoOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">Cidade</label>
+          <select value={cidadeFiltro} onChange={(e) => setCidadeFiltro(e.target.value)}
+            className="border rounded-lg px-3 py-2 text-sm min-w-[150px]">
+            <option value="">Todas</option>
+            {cidadeOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
+          </select>
+        </div>
+        {(mercado || cidadeFiltro) && (
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">&nbsp;</label>
+            <button onClick={() => { setMercado(''); setCidadeFiltro('') }}
+              className="border rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+              Limpar mercado
+            </button>
+          </div>
+        )}
         <div>
           <label className="block text-xs text-slate-500 mb-1">&nbsp;</label>
           <button onClick={() => setPersAberto(true)}

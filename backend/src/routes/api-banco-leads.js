@@ -15,6 +15,11 @@ const { atualizarEmailProspect } = require('../prospecting')
 const { rodarLeads, gerarMensagensSemi, gerarPendentesSemi, dispararGerados, estadoEnvioInstancia, STATUS_RODAVEL } = require('../services/rodar-leads')
 const { obterConfigBancoLeads, salvarConfigBancoLeads } = require('../db/banco-leads-config')
 const {
+  adicionarFiltroMercado,
+  listarOpcoesFiltrosMercado,
+  termoBuscaProspect,
+} = require('../services/prospect-filters')
+const {
   calcularScoreCadastroPlaces,
   montarJsonApresentacaoPlaces,
   calcularScoreCadastroInstagram,
@@ -108,13 +113,27 @@ function montarFiltro(empresaId, query) {
     where.push(`origem IN ('instagram','linkedin')`)
   }
 
-  const busca = String(query.busca || '').trim().slice(0, 160)
+  adicionarFiltroMercado(where, params, query)
+
+  const busca = termoBuscaProspect(query)
   if (busca) {
     params.push(`%${busca}%`)
     const i = params.length
-    where.push(`(nome ILIKE $${i} OR telefone ILIKE $${i} OR email ILIKE $${i} OR instagram_handle ILIKE $${i})`)
+    where.push(`(nome ILIKE $${i} OR telefone ILIKE $${i} OR email ILIKE $${i} OR instagram_handle ILIKE $${i} OR nicho ILIKE $${i} OR categoria_perfil ILIKE $${i} OR cidade ILIKE $${i})`)
   }
   return { where: where.join(' AND '), params }
+}
+
+function montarEscopoOpcoes(query) {
+  const aba = String(query.aba || '').toLowerCase()
+  const origem = String(query.origem || '').toLowerCase()
+  const escopo = {}
+  if (aba === 'descartados') escopo.statusAny = ['rejeitado', 'nao_contatar']
+  else if (ABAS[aba]) escopo.statusAny = ABAS[aba]
+  if (ORIGENS_VALIDAS.has(origem)) escopo.origem = origem
+  else if (origem === 'places') escopo.origemIn = ['manual', 'automatico']
+  else if (origem === 'social') escopo.origemIn = ['instagram', 'linkedin']
+  return escopo
 }
 
 const COLUNAS = `id, origem, status, nome, telefone, email, instagram_handle,
@@ -554,6 +573,18 @@ router.get('/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
     }
     return res.json({ ok: true, data: { abas, por_status: porStatus } })
   } catch (err) { return envelopeErro(res, err, 'RESUMO_FAILED') }
+})
+
+router.get('/filtros', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const data = await listarOpcoesFiltrosMercado(pool, {
+      empresaId: req.empresa.id,
+      ...montarEscopoOpcoes(req.query || {}),
+    })
+    return res.json({ ok: true, data })
+  } catch (err) {
+    return envelopeErro(res, err, 'FILTROS_FAILED')
+  }
 })
 
 // POST /leads/:id/fechar — marca o lead como fechado (botão manual).

@@ -2,6 +2,10 @@
 
 const { normalizarData } = require('./prospecting-daily-queue')
 
+// Empresa padrão (PJ Codeworks) — usada quando o chamador não informa empresaId, mantendo
+// o comportamento single-tenant das rotas legadas do dashboard (/dashboard/prospeccao/*).
+const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
+
 function numeroEnvioWhatsapp(numero) {
   const raw = String(numero || '').trim()
   if (!raw) return ''
@@ -115,25 +119,25 @@ function formatarRelatorioDiarioWhatsapp(relatorio = {}) {
   return linhas.join('\n').trim()
 }
 
-async function buscarExecucaoDoDia(pool, dataReferencia) {
+async function buscarExecucaoDoDia(pool, dataReferencia, empresaId) {
   const { rows } = await pool.query(
     `
     SELECT *
     FROM prospectador.prospeccao_execucoes_diarias
-    WHERE data_execucao = $1::date
+    WHERE data_execucao = $1::date AND empresa_id = $2::uuid
     ORDER BY criado_em DESC
     LIMIT 1
     `,
-    [dataReferencia]
+    [dataReferencia, empresaId]
   )
   return rows[0] || null
 }
 
-async function coletarResumoFila(pool, dataReferencia, execucao) {
-  const params = execucao ? [execucao.id] : [dataReferencia]
+async function coletarResumoFila(pool, dataReferencia, execucao, empresaId) {
+  const params = execucao ? [execucao.id] : [dataReferencia, empresaId]
   const where = execucao
     ? `f.execucao_id = $1::uuid`
-    : `COALESCE(f.slot_envio::date, f.criado_em::date) = $1::date`
+    : `COALESCE(f.slot_envio::date, f.criado_em::date) = $1::date AND f.empresa_id = $2::uuid`
 
   const [resumo, categorias, cidades, funil] = await Promise.all([
     pool.query(
@@ -224,10 +228,10 @@ async function salvarRelatorio(pool, relatorio) {
   const { rows } = await pool.query(
     `
     INSERT INTO prospectador.prospeccao_relatorios_diarios (
-      data_referencia, execucao_id, status, relatorio_json, texto_relatorio, metadata_json
+      data_referencia, empresa_id, execucao_id, status, relatorio_json, texto_relatorio, metadata_json
     )
-    VALUES ($1::date, $2::uuid, 'gerado', $3::jsonb, $4, $5::jsonb)
-    ON CONFLICT (data_referencia) DO UPDATE
+    VALUES ($1::date, $2::uuid, $3::uuid, 'gerado', $4::jsonb, $5, $6::jsonb)
+    ON CONFLICT (data_referencia, empresa_id) DO UPDATE
     SET execucao_id = EXCLUDED.execucao_id,
         status = 'gerado',
         relatorio_json = EXCLUDED.relatorio_json,
@@ -238,6 +242,7 @@ async function salvarRelatorio(pool, relatorio) {
     `,
     [
       relatorio.data_referencia,
+      relatorio.empresa_id,
       relatorio.execucao_id || null,
       JSON.stringify(relatorio),
       relatorio.texto_relatorio,
@@ -249,14 +254,15 @@ async function salvarRelatorio(pool, relatorio) {
 
 async function obterRelatorioDiarioProspeccao(pool, input = {}) {
   const dataReferencia = normalizarData(input.data || input.data_referencia || new Date())
+  const empresaId = input.empresaId || input.empresa_id || PJ_EMPRESA_ID
   const { rows } = await pool.query(
     `
     SELECT *
     FROM prospectador.prospeccao_relatorios_diarios
-    WHERE data_referencia = $1::date
+    WHERE data_referencia = $1::date AND empresa_id = $2::uuid
     LIMIT 1
     `,
-    [dataReferencia]
+    [dataReferencia, empresaId]
   )
   if (!rows[0]) return { ok: true, data_referencia: dataReferencia, relatorio: null }
   return { ok: true, data_referencia: dataReferencia, relatorio: rows[0] }
@@ -264,13 +270,15 @@ async function obterRelatorioDiarioProspeccao(pool, input = {}) {
 
 async function gerarRelatorioDiarioProspeccao(pool, input = {}) {
   const dataReferencia = normalizarData(input.data || input.data_referencia || new Date())
-  const execucao = await buscarExecucaoDoDia(pool, dataReferencia)
-  const dados = await coletarResumoFila(pool, dataReferencia, execucao)
+  const empresaId = input.empresaId || input.empresa_id || PJ_EMPRESA_ID
+  const execucao = await buscarExecucaoDoDia(pool, dataReferencia, empresaId)
+  const dados = await coletarResumoFila(pool, dataReferencia, execucao, empresaId)
   const snapshot = execucao?.config_snapshot || {}
   const categoriaTop = primeiroRanking(dados.categorias, 'total')?.categoria
   const cidadeTop = primeiroRanking(dados.cidades, 'total') || {}
   const relatorio = {
     data_referencia: dataReferencia,
+    empresa_id: empresaId,
     execucao_id: execucao?.id || null,
     modo: execucao?.modo || snapshot.modo || null,
     categoria: snapshot.categoria_padrao || snapshot.categoria || categoriaTop || null,
@@ -299,6 +307,7 @@ async function enviarRelatorioDiarioOperadores(pool, input = {}, deps = {}) {
   const enviarMensagemFn = deps.enviarMensagemFn
   if (typeof enviarMensagemFn !== 'function') throw new Error('enviarMensagemFn e obrigatorio.')
 
+  const empresaId = input.empresaId || input.empresa_id || PJ_EMPRESA_ID
   const gerado = input.relatorio_json && input.texto_relatorio
     ? { relatorio_json: input.relatorio_json, texto_relatorio: input.texto_relatorio, data_referencia: input.relatorio_json.data_referencia }
     : await gerarRelatorioDiarioProspeccao(pool, input)
@@ -324,13 +333,13 @@ async function enviarRelatorioDiarioOperadores(pool, input = {}, deps = {}) {
   await pool.query(
     `
     UPDATE prospectador.prospeccao_relatorios_diarios
-    SET status = $2,
-        enviado_operadores_em = CASE WHEN $2 = 'enviado' THEN NOW() ELSE enviado_operadores_em END,
-        metadata_json = COALESCE(metadata_json, '{}'::jsonb) || jsonb_build_object('envio_operadores', $3::jsonb),
+    SET status = $3,
+        enviado_operadores_em = CASE WHEN $3 = 'enviado' THEN NOW() ELSE enviado_operadores_em END,
+        metadata_json = COALESCE(metadata_json, '{}'::jsonb) || jsonb_build_object('envio_operadores', $4::jsonb),
         atualizado_em = NOW()
-    WHERE data_referencia = $1::date
+    WHERE data_referencia = $1::date AND empresa_id = $2::uuid
     `,
-    [dataReferencia, enviados > 0 ? 'enviado' : 'falhou_envio', JSON.stringify(resultados)]
+    [dataReferencia, empresaId, enviados > 0 ? 'enviado' : 'falhou_envio', JSON.stringify(resultados)]
   )
 
   return { ok: true, enviado: enviados > 0, total_operadores: operadores.length, enviados, resultados, texto_relatorio: texto }
