@@ -353,6 +353,62 @@ test('contexto-servicos nao deixa objetos da IA virarem [object Object]', () => 
   assert.ok(servicos[0].sinais_para_recomendar.some((b) => b.includes('lead quer mais visitas')))
 })
 
+test('contexto-servicos marca precisa_revisao e confianca baixa quando a IA chuta campos', () => {
+  const { catalogoDasFontes } = require('../src/services/contexto-servicos')
+  const servicos = catalogoDasFontes([
+    {
+      id: 'f1',
+      tipo: 'site',
+      url: 'https://exemplo.com',
+      resumo_json: {
+        catalogo_de_ofertas: [
+          {
+            nome: 'Criação de site',
+            descricao: 'Sites institucionais',
+            categoria: 'Desenvolvimento',
+            beneficios: ['Presença digital'],
+            perguntas_qualificacao: ['Já tem domínio registrado?'],
+            prazo_texto: 'cerca de 20 dias úteis',
+            preco: 'A partir de R$ 1.500',
+            campos_chutados: ['prazo_texto', 'preco'],
+          },
+        ],
+      },
+    },
+  ])
+
+  assert.strictEqual(servicos[0].confianca, 'baixa')
+  assert.strictEqual(servicos[0].status_revisao, 'precisa_revisao')
+  assert.ok(servicos[0].conflitos_json.some((c) => c.includes('prazo_texto') && c.includes('preco')))
+})
+
+test('contexto-servicos nao marca precisa_revisao quando nao ha campos chutados', () => {
+  const { catalogoDasFontes } = require('../src/services/contexto-servicos')
+  const servicos = catalogoDasFontes([
+    {
+      id: 'f1',
+      tipo: 'site',
+      url: 'https://exemplo.com',
+      resumo_json: {
+        catalogo_de_ofertas: [
+          {
+            nome: 'SEO',
+            descricao: 'Otimização para buscadores',
+            categoria: 'Marketing',
+            beneficios: ['Mais tráfego'],
+            perguntas_qualificacao: ['Tem site hoje?'],
+            prazo_texto: '3 meses',
+            preco: 'R$ 500/mês',
+          },
+        ],
+      },
+    },
+  ])
+
+  assert.strictEqual(servicos[0].confianca, 'media')
+  assert.strictEqual(servicos[0].status_revisao, 'ia_preencheu')
+})
+
 test('contexto-servicos limpa gerados antigos quando a fonte nao sustenta mais servicos', async () => {
   const { salvarCatalogoGerado } = require('../src/services/contexto-servicos')
   const calls = []

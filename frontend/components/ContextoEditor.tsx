@@ -1045,6 +1045,12 @@ function avaliarGenerico(
   return { termos_esperados: termos, falhas }
 }
 
+function contarServicosPrecisamRevisao(conteudoJson: Record<string, unknown> | null | undefined): number {
+  const snapshot = conteudoJson?.catalogo_servicos_snapshot as { itens?: { status_revisao?: string }[] } | undefined
+  const itens = Array.isArray(snapshot?.itens) ? snapshot.itens : []
+  return itens.filter((i) => i?.status_revisao === 'precisa_revisao').length
+}
+
 function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao: Versao; onAtivar: () => void }) {
   const [tab, setTab] = useState<'markdown' | 'json'>('markdown')
   const [secao, setSecao] = useState<string>('resumo_empresa')
@@ -1059,6 +1065,19 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
     : versao.status === 'rascunho'
       ? 'bg-amber-100 text-amber-700'
       : 'bg-gray-100 text-gray-600'
+
+  function handleAtivar() {
+    const pendentes = contarServicosPrecisamRevisao(versao.conteudo_json)
+    if (pendentes > 0) {
+      const ok = window.confirm(
+        `${pendentes} serviço${pendentes === 1 ? '' : 's'} desta versão ainda precisa${pendentes === 1 ? '' : 'm'} de revisão ` +
+        `(dados como preço/prazo/benefícios podem ter sido estimados pela IA, não confirmados). ` +
+        `Ativar mesmo assim? O agente passará a usar esses dados nas conversas.`
+      )
+      if (!ok) return
+    }
+    onAtivar()
+  }
 
   async function salvarMarkdown() {
     setSavingMd(true)
@@ -1082,7 +1101,7 @@ function VersaoCard({ empresaId, versao, onAtivar }: { empresaId: string; versao
           <span className="text-gray-500 ml-2">{new Date(versao.criado_em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>
         </button>
         {versao.status !== 'ativo' && (
-          <button onClick={onAtivar} className="text-brand hover:underline">Ativar</button>
+          <button onClick={handleAtivar} className="text-brand hover:underline">Ativar</button>
         )}
       </div>
       {aberto && (

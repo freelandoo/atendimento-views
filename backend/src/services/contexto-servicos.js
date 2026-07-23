@@ -61,6 +61,7 @@ function normalizarServico(input = {}, index = 0) {
   const preco = str(input.preco_texto || input.preco || input.valor || input.price)
   const prazo = str(input.prazo_texto || input.prazo || input.duracao || input.tempo)
   const link = pickLinkValido([input.link_relacionado, input.link, input.url])
+  const camposChutados = arr(input.campos_chutados)
   const out = {
     slug: slugify(input.slug || nome),
     nome,
@@ -83,6 +84,14 @@ function normalizarServico(input = {}, index = 0) {
     status_revisao: STATUS_REVISAO.has(input.status_revisao) ? input.status_revisao : 'ia_preencheu',
     ativo: input.ativo === undefined ? true : !!input.ativo,
     ordem: Number.isFinite(Number(input.ordem)) ? Number(input.ordem) : index,
+  }
+  if (camposChutados.length && out.status_revisao !== 'revisado') {
+    out.confianca = 'baixa'
+    out.status_revisao = 'precisa_revisao'
+    out.conflitos_json = [
+      ...out.conflitos_json,
+      `IA estimou (chutou) os campos: ${camposChutados.join(', ')} — confira antes de usar no atendimento.`,
+    ]
   }
   if (servicoTemLacunas(out) && out.status_revisao !== 'revisado') out.status_revisao = 'precisa_revisao'
   return out.nome ? out : null

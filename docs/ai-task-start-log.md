@@ -6,6 +6,31 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-07-22 - Inicio de tarefa IA - Preenchimento por chute no catalogo de servicos
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5)
+- **Pedido resumido:** Ao gerar o catalogo de servicos (`app.contexto_servicos`) via IA, quando a
+  fonte nao trouxer categoria, descricao curta, preco, prazo, beneficios, "quando recomendar" ou
+  perguntas de qualificacao para um servico, a IA deve poder "chutar" (inferir com bom senso, com
+  base no que ja sabe sobre o tipo de servico) em vez de deixar o campo vazio. Preco chutado deve
+  vir no formato "A partir de R$ X". Dados gerais da empresa (contato, endereco, URLs) continuam
+  proibidos de serem inventados.
+- **E projeto/tarefa de alteracao?** Sim (prompt de extracao/consolidacao por IA embutido em
+  `knowledge-ingestion.js` + ajuste de sinalizacao de revisao em `contexto-servicos.js`).
+- **Workflow padrao consultado?** AGENTS.md, docs/ai-workflow.md, docs/project-map.md,
+  docs/architecture-rules.md: Sim.
+- **Areas possivelmente impactadas:** Prompt de extracao de fonte (`RESUMO_FONTE_SYSTEM`) e de
+  consolidacao (`SUGESTAO_CTX1_SYSTEM`) em `knowledge-ingestion.js`; normalizacao/flag de revisao
+  em `contexto-servicos.js`; dado exibido ao operador no editor de contexto e usado no playbook de
+  atendimento (dados podem chegar a leads via WhatsApp).
+- **Confirmacao:** Aguardando confirmacao do usuario sobre o desenho antes de editar (mudanca em
+  prompt de producao que afeta dado mostrado a lead).
+- **Proxima etapa:** Ajustar os prompts para permitir chute apenas nos campos do
+  `catalogo_de_ofertas`, e marcar `confianca='baixa'`/`status_revisao='precisa_revisao'` quando a
+  IA chutar, preservando a fila de revisao humana existente.
+
+---
+
 ## 2026-07-22 - Inicio de tarefa IA
 
 - **IA/Ferramenta:** Codex

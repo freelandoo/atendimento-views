@@ -504,6 +504,18 @@ REGRAS DURAS:
 - Conflitos óbvios (dois preços diferentes pro mesmo serviço): listar em conflitos_ou_duvidas.
 - Não consolide com Contexto 1 ainda; só extraia desta fonte.
 
+EXCEÇÃO — apenas dentro de cada item de catalogo_de_ofertas (nunca para os outros campos do schema):
+Se a fonte não informar categoria, descricao (curta), prazo_texto, beneficios, quando_oferecer ou
+perguntas_qualificacao de um serviço, PREENCHA com sua melhor estimativa de bom senso pelo tipo de
+serviço (ex.: um serviço "Criação de site" pode ter prazo_texto "cerca de 15 a 30 dias úteis" mesmo
+sem a fonte dizer isso). Nunca deixe esses campos vazios se o serviço tiver nome identificado.
+Para "preco": se a fonte não informar valor algum, estime um preço plausível para o tipo de serviço
+no formato "A partir de R$ X" (nunca invente um preço fixo sem essa ressalva). Liste em
+"campos_chutados" (dentro do próprio item) os nomes exatos dos campos que você estimou dessa forma
+— ex: ["categoria", "prazo_texto"]. Campos que vieram da fonte NÃO entram em campos_chutados.
+Essa exceção NÃO vale para nome, link_relacionado nem para nenhum campo fora de catalogo_de_ofertas
+(nome_empresa, contatos, links, etc.) — continuam proibidos de inventar.
+
 Retorne APENAS JSON válido neste schema:
 
 {
@@ -550,7 +562,8 @@ Retorne APENAS JSON válido neste schema:
       "beneficios": [], "publico": [], "problemas_que_resolve": [],
       "perguntas_qualificacao": [], "quando_oferecer": [],
       "sinais_para_nao_recomendar": [],
-      "link_relacionado": ""
+      "link_relacionado": "",
+      "campos_chutados": []
     }
   ],
   "conflitos_ou_duvidas": []
@@ -728,6 +741,7 @@ function _normalizeResumo(j, fonte) {
           quando_oferecer: _listaTexto(x.quando_oferecer),
           sinais_para_nao_recomendar: _listaTexto(x.sinais_para_nao_recomendar),
           link_relacionado: sanitizarUrl(x.link_relacionado, ''),
+          campos_chutados: _listaTexto(x.campos_chutados),
         }))
     : []
 
@@ -764,7 +778,8 @@ Regras duras:
 - Se houver conflito (ex: dois preços diferentes pro mesmo serviço), NÃO escolha: registre em conflitos_ou_duvidas.
 - Diferenciais e tom_de_voz: combine em texto único, sem repetição.
 - Liste em fontes_utilizadas todas as fontes consideradas.
-- Retorne APENAS JSON válido com o mesmo schema do extrator de fonte (incluindo contatos object, link_principal, link_cadastro, link_login, links_uteis array, ctas_principais, maquinas_modulos_funcionalidades, catalogo_de_ofertas com link_relacionado).`
+- EXCEÇÃO — apenas dentro de cada item de catalogo_de_ofertas: se, depois de juntar todas as fontes, um serviço ainda não tiver categoria, descricao, prazo_texto, beneficios, quando_oferecer ou perguntas_qualificacao, preencha com sua melhor estimativa de bom senso pelo tipo de serviço (nunca deixe vazio se o serviço tem nome). Preço sem valor em nenhuma fonte: estime no formato "A partir de R$ X". Liste em "campos_chutados" (dentro do item) os nomes dos campos estimados dessa forma; campos vindos de fonte real não entram nessa lista. Fora de catalogo_de_ofertas, a proibição de inventar continua valendo integralmente.
+- Retorne APENAS JSON válido com o mesmo schema do extrator de fonte (incluindo contatos object, link_principal, link_cadastro, link_login, links_uteis array, ctas_principais, maquinas_modulos_funcionalidades, catalogo_de_ofertas com link_relacionado e campos_chutados).`
 
 async function sugerirContexto1APartirDasFontes(pool, log, { empresaId, contextoId, aiProvider: aiProviderArg } = {}) {
   const ai = aiProviderArg || aiProvider
