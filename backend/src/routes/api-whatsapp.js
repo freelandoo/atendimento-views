@@ -14,6 +14,11 @@ const {
   removerContextoSeOrfao,
 } = require('../db/whatsapp-instances')
 const mensagensSvc = require('../services/mensagens-automaticas')
+const {
+  alertaSaudeDeEvento,
+  buscarUltimoEventoSaudeInstancia,
+  listarEventosSaudeInstancia,
+} = require('../db/whatsapp-instance-events')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -37,6 +42,15 @@ async function calcularResumoConexao(instancias, verificarStatus = verificarStat
         motivo: status.motivo || null,
         last_checked_at: status.last_checked_at || new Date().toISOString(),
         can_send: status.connected === true,
+        health_alert: alertaSaudeDeEvento(inst.saude_event ? {
+          event: inst.saude_event,
+          state: inst.saude_state,
+          reason: inst.saude_reason,
+          disconnect_code: inst.saude_disconnect_code,
+          risk_level: inst.saude_risk_level,
+          risk_message: inst.saude_risk_message,
+          criado_em: inst.saude_criado_em,
+        } : null),
       }
     })
   )
@@ -56,9 +70,27 @@ async function obterResumoConexao(empresaId, deps = {}) {
   const agora = deps.agora || Date.now
   const buscarInstancias = deps.buscarInstancias || (async () => {
     const { rows } = await pool.query(
-      `SELECT id, evolution_instance FROM app.empresa_whatsapp_instances
-        WHERE empresa_id = $1 AND ativo = true
-          AND COALESCE(config_json->>'canal', 'whatsapp') <> 'freelandoo'`,
+      `SELECT ewi.id, ewi.evolution_instance,
+              evt.event AS saude_event,
+              evt.state AS saude_state,
+              evt.reason AS saude_reason,
+              evt.disconnect_code AS saude_disconnect_code,
+              evt.risk_level AS saude_risk_level,
+              evt.risk_message AS saude_risk_message,
+              evt.criado_em AS saude_criado_em
+         FROM app.empresa_whatsapp_instances ewi
+         LEFT JOIN LATERAL (
+           SELECT event, state, reason, disconnect_code, risk_level, risk_message, criado_em
+             FROM app.whatsapp_instance_events
+           WHERE empresa_id = ewi.empresa_id
+             AND instance_id = ewi.id
+              AND risk_level IN ('atencao','alto')
+              AND criado_em > NOW() - INTERVAL '7 days'
+            ORDER BY criado_em DESC
+            LIMIT 1
+         ) evt ON true
+        WHERE ewi.empresa_id = $1 AND ewi.ativo = true
+          AND COALESCE(ewi.config_json->>'canal', 'whatsapp') <> 'freelandoo'`,
       [empresaId]
     )
     return rows
@@ -98,7 +130,7 @@ function webhookConfigForInstance() {
     byEvents: false,
     base64: false,
     headers: WEBHOOK_SECRET ? { 'x-webhook-secret': WEBHOOK_SECRET } : undefined,
-    events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE', 'QRCODE_UPDATED'],
+    events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE', 'QRCODE_UPDATED'],
   }
 }
 
@@ -562,6 +594,7 @@ router.get('/:instanceId/status', requireAuth, requireEmpresaAccess, async (req,
   const inst = await carregarInstanciaEmpresa(req.params.instanceId, req.empresa.id)
   if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instância não encontrada.' } })
   const st = await verificarStatusInstanciaEvolution(inst.evolution_instance)
+  const ultimoEvento = await buscarUltimoEventoSaudeInstancia(pool, req.empresa.id, inst.id).catch(() => null)
   return res.json({
     ok: true,
     data: {
@@ -571,11 +604,33 @@ router.get('/:instanceId/status', requireAuth, requireEmpresaAccess, async (req,
       last_checked_at: st.last_checked_at || new Date().toISOString(),
       ativo: inst.ativo,
       can_send: !!inst.ativo && st.connected === true,
+      health_alert: alertaSaudeDeEvento(ultimoEvento),
     },
   })
 })
 
 // GET /api/empresas/:empresaId/whatsapp/:instanceId/diagnostico — diagnostico operacional.
+// GET /api/empresas/:empresaId/whatsapp/:instanceId/saude - ultimos eventos
+// tecnicos de conexao/risco da instancia, sem payload bruto nem conteudo de mensagem.
+router.get('/:instanceId/saude', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const inst = await carregarInstanciaEmpresa(req.params.instanceId, req.empresa.id)
+  if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instancia nao encontrada.' } })
+  const eventos = await listarEventosSaudeInstancia(pool, req.empresa.id, inst.id, req.query?.limit)
+  const eventoAlerta = eventos.find((evt) => evt.risk_level === 'alto' || evt.risk_level === 'atencao') || null
+  return res.json({
+    ok: true,
+    data: {
+      instance: {
+        id: inst.id,
+        nome: inst.nome || null,
+        evolution_instance: inst.evolution_instance,
+      },
+      alerta: alertaSaudeDeEvento(eventoAlerta),
+      eventos,
+    },
+  })
+})
+
 router.get('/:instanceId/diagnostico', requireAuth, requireEmpresaAccess, async (req, res) => {
   const inst = await carregarInstanciaEmpresa(req.params.instanceId, req.empresa.id)
   if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instancia nao encontrada.' } })

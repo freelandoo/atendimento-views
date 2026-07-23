@@ -2,6 +2,10 @@
 const { test } = require('node:test')
 const assert = require('node:assert')
 const router = require('../src/routes/api-whatsapp')
+const { registerWebhookRoute } = require('../src/webhook-handler')
+const {
+  eventoSaudeDeWebhook,
+} = require('../src/db/whatsapp-instance-events')
 
 const {
   calcularResumoConexao,
@@ -64,6 +68,97 @@ test('calcularResumoConexao trata status desconhecido como indisponivel', async 
   assert.equal(data.alguma_indisponivel, true)
   assert.equal(data.instancias[1].can_send, false)
   assert.equal(data.instancias[1].motivo, 'Evolution indisponivel')
+})
+
+test('calcularResumoConexao inclui alerta de saude quando a instancia tem evento de risco', async () => {
+  const data = await calcularResumoConexao([
+    {
+      id: 'i1',
+      evolution_instance: 'a',
+      saude_event: 'CONNECTION_UPDATE',
+      saude_state: 'close',
+      saude_reason: 'device_removed',
+      saude_disconnect_code: '401',
+      saude_risk_level: 'alto',
+      saude_risk_message: 'Nao reconecte ainda.',
+      saude_criado_em: '2026-07-23T10:00:00.000Z',
+    },
+  ], async () => ({ connected: false, state: 'close' }))
+
+  assert.equal(data.instancias[0].health_alert.risk_level, 'alto')
+  assert.equal(data.instancias[0].health_alert.message, 'Nao reconecte ainda.')
+  assert.equal(data.instancias[0].health_alert.disconnect_code, '401')
+})
+
+test('eventoSaudeDeWebhook classifica desconexao 401 como alto risco sem payload bruto', () => {
+  const evento = eventoSaudeDeWebhook({
+    event: 'CONNECTION_UPDATE',
+    instance: 'inst-main',
+    data: {
+      state: 'close',
+      lastDisconnect: {
+        error: {
+          message: 'device_removed',
+          output: { statusCode: 401 },
+        },
+      },
+    },
+  }, 'e1', 'inst-main')
+
+  assert.equal(evento.event, 'CONNECTION_UPDATE')
+  assert.equal(evento.risk_level, 'alto')
+  assert.equal(evento.disconnect_code, '401')
+  assert.equal(evento.reason, 'device_removed')
+  assert.deepStrictEqual(Object.keys(evento.detalhes_json).sort(), ['message_status', 'message_stub_parameters', 'source_event'])
+})
+
+test('eventoSaudeDeWebhook classifica MESSAGES_UPDATE ERROR 463 como alto risco', () => {
+  const evento = eventoSaudeDeWebhook({
+    event: 'MESSAGES_UPDATE',
+    instance: 'inst-main',
+    data: {
+      status: 'ERROR',
+      messageStubParameters: ['463'],
+    },
+  }, 'e1', 'inst-main')
+
+  assert.equal(evento.risk_level, 'alto')
+  assert.deepStrictEqual(evento.detalhes_json.message_stub_parameters, ['463'])
+})
+
+test('webhook registra CONNECTION_UPDATE antes de ignorar eventos sem mensagem', async () => {
+  let handler
+  const app = { post: (_path, cb) => { handler = cb } }
+  const log = {
+    child: () => log,
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  }
+  const registrados = []
+  registerWebhookRoute(app, {
+    webhookAutorizado: () => true,
+    gerarRequestIdAnthropic: () => 'rid',
+    loggerForWebhook: () => log,
+    serializeError: (err) => ({ message: err.message }),
+    eventoSaudeDeWebhook: (body, empresaId, evolutionInstance) => ({
+      empresa_id: empresaId,
+      evolution_instance: evolutionInstance,
+      event: body.event,
+      risk_level: 'atencao',
+    }),
+    registrarEventoSaudeInstancia: async (evento) => { registrados.push(evento) },
+  })
+
+  await handler(
+    { headers: {}, body: { event: 'CONNECTION_UPDATE' }, empresaId: 'e1', evolutionInstance: 'inst-main' },
+    { status: () => ({ json: () => {} }), json: () => {} }
+  )
+
+  assert.equal(registrados.length, 1)
+  assert.equal(registrados[0].event, 'CONNECTION_UPDATE')
+  assert.equal(registrados[0].empresa_id, 'e1')
+  assert.equal(registrados[0].evolution_instance, 'inst-main')
 })
 
 test('obterResumoConexao reutiliza cache e agrupa requisicoes simultaneas', async () => {

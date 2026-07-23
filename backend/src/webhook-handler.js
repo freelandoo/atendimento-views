@@ -1,5 +1,10 @@
 'use strict'
 
+const {
+  eventoSaudeDeWebhook: eventoSaudeDeWebhookDefault,
+  registrarEventoSaudeInstancia: registrarEventoSaudeInstanciaDefault,
+} = require('./db/whatsapp-instance-events')
+
 function registerWebhookRoute(app, deps = {}) {
   const {
     webhookAutorizado,
@@ -33,6 +38,8 @@ function registerWebhookRoute(app, deps = {}) {
     enfileirarJobRespostaWebhook,
     registrarRespostaLembreteReuniao,
     podeGerarRespostaAutomatica,
+    eventoSaudeDeWebhook = eventoSaudeDeWebhookDefault,
+    registrarEventoSaudeInstancia = registrarEventoSaudeInstanciaDefault,
     capturarNomeContato,
   } = deps
 
@@ -47,6 +54,17 @@ function registerWebhookRoute(app, deps = {}) {
       try {
         const event = req.body?.event
         webhookLog = webhookLog.child({ event })
+        const eventoSaude = eventoSaudeDeWebhook(req.body, req.empresaId, req.evolutionInstance)
+        if (eventoSaude) {
+          await registrarEventoSaudeInstancia(eventoSaude).catch((err) => {
+            webhookLog.warn({ err: serializeError(err) }, 'Falha ao registrar evento de saude da instancia')
+          })
+          webhookLog.info({
+            risk_level: eventoSaude.risk_level,
+            state: eventoSaude.state,
+            disconnect_code: eventoSaude.disconnect_code,
+          }, 'Evento de saude da instancia registrado')
+        }
         if (event !== 'messages.upsert') return
     
         const msg = req.body?.data?.messages?.[0] || req.body?.data

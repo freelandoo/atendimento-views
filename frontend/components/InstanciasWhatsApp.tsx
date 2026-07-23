@@ -33,6 +33,15 @@ type StatusConexaoInstancia = {
   motivo?: string | null
   last_checked_at?: string | null
   can_send?: boolean
+  health_alert?: {
+    risk_level: 'normal' | 'atencao' | 'alto'
+    message: string
+    event?: string | null
+    state?: string | null
+    reason?: string | null
+    disconnect_code?: string | null
+    criado_em?: string | null
+  } | null
 }
 type ResumoConexao = {
   total: number
@@ -502,8 +511,29 @@ export default function InstanciasWhatsApp({ empresaId }: {
                   <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-medium text-mid">● ativo · verificando…</span>
                 )}
               </div>
-              {i.ativo && statusConexao[i.id]?.connected === false && (
+              {i.ativo && statusConexao[i.id]?.connected === false && statusConexao[i.id]?.health_alert?.risk_level !== 'alto' && (
                 <p className="text-center text-[11px] text-neon-amber">Leia o QR Code novamente para reconectar.</p>
+              )}
+              {statusConexao[i.id]?.health_alert && (
+                <div className={`rounded-lg border px-3 py-2 text-[11px] leading-relaxed ${
+                  statusConexao[i.id]?.health_alert?.risk_level === 'alto'
+                    ? 'border-neon-red/35 bg-neon-red/10 text-neon-red'
+                    : 'border-neon-amber/35 bg-neon-amber/10 text-neon-amber'
+                }`}>
+                  <p className="font-semibold">
+                    {statusConexao[i.id]?.health_alert?.risk_level === 'alto'
+                      ? 'Nao reconecte ainda'
+                      : 'Reconecte com cautela'}
+                  </p>
+                  <p className="mt-0.5">{statusConexao[i.id]?.health_alert?.message}</p>
+                  {(statusConexao[i.id]?.health_alert?.reason || statusConexao[i.id]?.health_alert?.disconnect_code) && (
+                    <p className="mt-1 font-mono text-[10px] opacity-75">
+                      {[statusConexao[i.id]?.health_alert?.reason, statusConexao[i.id]?.health_alert?.disconnect_code]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  )}
+                </div>
               )}
               <div className="grid grid-cols-2 gap-2">
                 <Link
