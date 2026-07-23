@@ -20,6 +20,11 @@ function _cacheSet(instanceName, empresaId) {
   _cache.set(instanceName, { empresaId, at: Date.now() })
 }
 
+function invalidarCacheEmpresaInstancia(instanceName) {
+  if (instanceName) _cache.delete(instanceName)
+  else _cache.clear()
+}
+
 /**
  * Resolve empresa_id a partir do nome da Evolution instance.
  * Fallback: PJ Codeworks (UUID fixo) se não encontrar no banco.
@@ -102,6 +107,7 @@ async function removerContextoSeOrfao(pool, empresaId, contextoId) {
 module.exports = {
   resolverEmpresaPorInstance,
   instanciaUsaAgenda,
+  invalidarCacheEmpresaInstancia,
   invalidarCacheAgendaInstancia,
   removerContextoSeOrfao,
 }

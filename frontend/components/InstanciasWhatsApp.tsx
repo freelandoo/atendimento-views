@@ -23,6 +23,24 @@ type WhatsAppInstance = {
   contexto_id?: string | null
   contexto_nome?: string | null
   config_json?: { usa_agenda?: boolean; saudacao?: string } | null
+  aviso?: string | null
+}
+type StatusConexaoInstancia = {
+  id: string | null
+  evolution_instance: string
+  connected: boolean | null
+  state: string
+  motivo?: string | null
+  last_checked_at?: string | null
+  can_send?: boolean
+}
+type ResumoConexao = {
+  total: number
+  desconectadas: number
+  desconhecidas?: number
+  alguma_desconectada: boolean
+  alguma_indisponivel?: boolean
+  instancias: StatusConexaoInstancia[]
 }
 type QRState = {
   open: boolean
@@ -40,49 +58,49 @@ export default function InstanciasWhatsApp({ empresaId }: {
 }) {
   const [instancias, setInstancias] = useState<WhatsAppInstance[]>([])
   // Estado REAL de conexão por instância (open/close na Evolution). true/false/null(desconhecido).
-  const [statusConexao, setStatusConexao] = useState<Record<string, boolean | null>>({})
+  const [statusConexao, setStatusConexao] = useState<Record<string, StatusConexaoInstancia>>({})
   const [nomeInstance, setNomeInstance] = useState('')
   const novaInstance = useMemo(() => slugifyInstance(nomeInstance), [nomeInstance])
   const [msg, setMsg] = useState('')
   const [erroForm, setErroForm] = useState('')
   const [adicionando, setAdicionando] = useState(false)
+  const [verificando, setVerificando] = useState(false)
+  const [revalidandoWebhook, setRevalidandoWebhook] = useState<string | null>(null)
   const [qr, setQr] = useState<QRState>({
     open: false, instanceId: null, instanceLabel: '', loading: false,
     base64: null, pairingCode: null, connected: false, error: null,
   })
 
   // Busca o estado de conexão real de cada instância (open/close na Evolution).
-  async function carregarStatusConexao(lista: WhatsAppInstance[]) {
-    const entradas = await Promise.all(lista.map(async (inst) => {
-      try {
-        const s = await apiFetch<{ connected: boolean | null }>(`/api/empresas/${empresaId}/whatsapp/${inst.id}/status`)
-        return [inst.id, s.data.connected] as const
-      } catch { return [inst.id, null] as const }
-    }))
-    setStatusConexao(Object.fromEntries(entradas))
+  async function carregarInstancias({ silencioso = false }: { silencioso?: boolean } = {}) {
+    if (!empresaId) return
+    if (!silencioso) setVerificando(true)
+    try {
+      const [w, resumo] = await Promise.all([
+        apiFetch<WhatsAppInstance[]>(`/api/empresas/${empresaId}/whatsapp`),
+        apiFetch<ResumoConexao>(`/api/empresas/${empresaId}/whatsapp/conexao-resumo`).catch(() => null),
+      ])
+      setInstancias(w.data || [])
+      const mapa: Record<string, StatusConexaoInstancia> = {}
+      for (const status of resumo?.data?.instancias || []) {
+        if (status.id) mapa[status.id] = status
+      }
+      setStatusConexao(mapa)
+    } catch (e: unknown) {
+      if (!silencioso) setErroForm(e instanceof Error ? e.message : 'Erro ao carregar instancias WhatsApp.')
+    } finally {
+      if (!silencioso) setVerificando(false)
+    }
   }
 
   useEffect(() => {
     if (!empresaId) return
-    let vivo = true
-    apiFetch<WhatsAppInstance[]>(`/api/empresas/${empresaId}/whatsapp`)
-      .then((w) => {
-        if (!vivo) return
-        setInstancias(w.data)
-        carregarStatusConexao(w.data || [])
-      })
-      .catch((e: unknown) => setErroForm(e instanceof Error ? e.message : 'Erro ao carregar instâncias WhatsApp.'))
+    carregarInstancias()
     // Revalida o status a cada 30s (detecta desconexão sem recarregar a página).
     const t = setInterval(() => {
-      apiFetch<WhatsAppInstance[]>(`/api/empresas/${empresaId}/whatsapp`)
-        .then((w) => {
-          if (!vivo) return
-          setInstancias(w.data || [])
-          carregarStatusConexao(w.data || [])
-        })
-        .catch(() => {})
+      carregarInstancias({ silencioso: true })
     }, 30000)
-    return () => { vivo = false; clearInterval(t) }
+    return () => { clearInterval(t) }
   }, [empresaId])
 
   // Auto-atualiza o QR enquanto o modal está aberto e não conectou (o QR expira a cada
@@ -92,13 +110,26 @@ export default function InstanciasWhatsApp({ empresaId }: {
     const instId = qr.instanceId
     const t = setInterval(async () => {
       try {
-        const r = await apiFetch<{ connected: boolean; base64?: string; pairingCode?: string }>(
+        const r = await apiFetch<{ connected: boolean; instance?: string; base64?: string; pairingCode?: string }>(
           `/api/empresas/${empresaId}/whatsapp/${instId}/qrcode`
         )
         setQr((q) => (q.open && q.instanceId === instId
           ? { ...q, connected: !!r.data.connected, base64: r.data.base64 || q.base64, pairingCode: r.data.pairingCode || q.pairingCode }
           : q))
-        if (r.data.connected) setStatusConexao((prev) => ({ ...prev, [instId]: true }))
+        if (r.data.connected) {
+          setStatusConexao((prev) => ({
+            ...prev,
+            [instId]: {
+              id: instId,
+              evolution_instance: r.data.instance || '',
+              connected: true,
+              state: 'open',
+              last_checked_at: new Date().toISOString(),
+              can_send: true,
+            },
+          }))
+          carregarInstancias({ silencioso: true })
+        }
       } catch { /* silencioso */ }
     }, 20000)
     return () => clearInterval(t)
@@ -115,6 +146,7 @@ export default function InstanciasWhatsApp({ empresaId }: {
       })
       setInstancias((prev) => prev.map((x) => (x.id === inst.id ? { ...x, ativo: r.data.ativo } : x)))
       setMsg(novo ? 'Número ativado — o agente volta a responder por ele.' : 'Número desativado — o agente para de responder por ele.')
+      carregarInstancias({ silencioso: true })
     } catch (err: unknown) {
       setErroForm(err instanceof Error ? err.message : 'Erro ao alterar o status do número.')
     }
@@ -160,7 +192,8 @@ export default function InstanciasWhatsApp({ empresaId }: {
       })
       setInstancias((prev) => [r.data, ...prev])
       setNomeInstance('')
-      setMsg('Instância criada e sincronizada no Evolution. Clique em "Gerar QR Code" para parear.')
+      setMsg(r.data.aviso || 'Instância criada e sincronizada no Evolution. Clique em "Gerar QR Code" para parear.')
+      carregarInstancias({ silencioso: true })
     } catch (err: unknown) {
       setErroForm(err instanceof Error ? err.message : 'Falha ao criar instância.')
     } finally {
@@ -170,13 +203,50 @@ export default function InstanciasWhatsApp({ empresaId }: {
 
   async function removerInstancia(inst: WhatsAppInstance) {
     if (!empresaId) return
-    if (!confirm(`Remover "${inst.nome || inst.evolution_instance}"? Isso apaga também no Evolution e desconecta o WhatsApp.`)) return
+    if (!confirm(
+      `Remover "${inst.nome || inst.evolution_instance}"?\n\n` +
+      'Isso apaga a instancia no Evolution, desliga automacoes que apontavam para ela e cancela rascunhos pendentes.\n' +
+      'Historico, leads e agenda permanecem salvos.'
+    )) return
     try {
-      await apiFetch(`/api/empresas/${empresaId}/whatsapp/${inst.id}`, { method: 'DELETE' })
+      const r = await apiFetch<{
+        limpeza?: {
+          rascunhos_cancelados?: number
+          conversas_desvinculadas?: number
+          contexto_removido?: boolean
+        }
+      }>(`/api/empresas/${empresaId}/whatsapp/${inst.id}`, { method: 'DELETE' })
       setInstancias((prev) => prev.filter((i) => i.id !== inst.id))
-      setMsg('Instância removida.')
+      const limpeza = r.data.limpeza
+      const detalhes = limpeza
+        ? ` Rascunhos cancelados: ${limpeza.rascunhos_cancelados || 0}. Conversas desvinculadas: ${limpeza.conversas_desvinculadas || 0}.`
+        : ''
+      setMsg(`Instancia removida. Historico, leads e agenda foram preservados.${detalhes}`)
+      carregarInstancias({ silencioso: true })
     } catch (err: unknown) {
       setErroForm(err instanceof Error ? err.message : 'Falha ao remover.')
+    }
+  }
+
+  async function revalidarWebhook(inst: WhatsAppInstance) {
+    if (!empresaId) return
+    setErroForm('')
+    setMsg('')
+    setRevalidandoWebhook(inst.id)
+    try {
+      const r = await apiFetch<{
+        webhook: { configured: boolean; skipped?: boolean; error?: string; expected_url?: string }
+      }>(`/api/empresas/${empresaId}/whatsapp/${inst.id}/webhook/revalidar`, { method: 'POST' })
+      if (r.data.webhook.configured) {
+        setMsg('Webhook revalidado nesta instância.')
+      } else {
+        setErroForm(r.data.webhook.error || 'Webhook não foi confirmado. Verifique PUBLIC_BACKEND_URL e Evolution.')
+      }
+      carregarInstancias({ silencioso: true })
+    } catch (err: unknown) {
+      setErroForm(err instanceof Error ? err.message : 'Falha ao revalidar webhook.')
+    } finally {
+      setRevalidandoWebhook(null)
     }
   }
 
@@ -200,7 +270,18 @@ export default function InstanciasWhatsApp({ empresaId }: {
         pairingCode: r.data.pairingCode || null,
       }))
       // Reflete o estado real no badge do card (verde quando parear).
-      setStatusConexao((prev) => ({ ...prev, [inst.id]: !!r.data.connected }))
+      setStatusConexao((prev) => ({
+        ...prev,
+        [inst.id]: {
+          id: inst.id,
+          evolution_instance: r.data.instance || inst.evolution_instance,
+          connected: !!r.data.connected,
+          state: r.data.connected ? 'open' : (prev[inst.id]?.state || 'qrcode'),
+          last_checked_at: new Date().toISOString(),
+          can_send: !!r.data.connected && inst.ativo,
+        },
+      }))
+      if (r.data.connected) carregarInstancias({ silencioso: true })
     } catch (err: unknown) {
       setQr((q) => ({
         ...q, loading: false,
@@ -267,7 +348,7 @@ export default function InstanciasWhatsApp({ empresaId }: {
               <div className="flex justify-center">
                 {!i.ativo ? (
                   <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-medium text-mid">○ inativo</span>
-                ) : statusConexao[i.id] === false ? (
+                ) : statusConexao[i.id]?.connected === false ? (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-neon-red/40 bg-neon-red/15 px-2.5 py-0.5 text-[11px] font-medium text-neon-red">
                     <span className="relative flex h-2 w-2">
                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-70" />
@@ -275,11 +356,23 @@ export default function InstanciasWhatsApp({ empresaId }: {
                     </span>
                     Desconectado
                   </span>
-                ) : statusConexao[i.id] === true ? (
+                ) : statusConexao[i.id]?.connected === true ? (
                   <span className="rounded-full border border-neon-lime/30 bg-neon-lime/15 px-2.5 py-0.5 text-[11px] font-medium text-neon-lime">🟢 Conectado</span>
                 ) : (
                   <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-medium text-mid">● ativo · verificando…</span>
                 )}
+              </div>
+              <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-white/45">
+                <p>
+                  Evolution: <span className="font-mono text-white/70">{statusConexao[i.id]?.state || 'unknown'}</span>
+                  {statusConexao[i.id]?.last_checked_at && (
+                    <span> · {new Date(statusConexao[i.id]!.last_checked_at!).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                  )}
+                </p>
+                {i.ativo && statusConexao[i.id]?.connected !== true && (
+                  <p className="mt-1 text-neon-amber">{statusConexao[i.id]?.motivo || 'Conexão ainda não confirmada pela Evolution.'}</p>
+                )}
+                {i.aviso && <p className="mt-1 text-neon-amber">{i.aviso}</p>}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <Link
@@ -295,6 +388,22 @@ export default function InstanciasWhatsApp({ empresaId }: {
                   className="flex items-center justify-center gap-1.5 rounded-lg border border-neon-cyan/40 px-3 py-2 text-xs font-medium text-neon-cyan transition-colors hover:bg-neon-cyan/15"
                 >
                   Gerar QR Code
+                </button>
+                <button
+                  type="button"
+                  onClick={() => carregarInstancias()}
+                  disabled={verificando}
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-neon-cyan/30 px-3 py-2 text-xs font-medium text-neon-cyan transition-colors hover:bg-neon-cyan/15 disabled:opacity-50"
+                >
+                  {verificando ? 'Verificando...' : 'Verificar'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => revalidarWebhook(i)}
+                  disabled={revalidandoWebhook === i.id}
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-neon-violet/30 px-3 py-2 text-xs font-medium text-neon-violet transition-colors hover:bg-neon-violet/15 disabled:opacity-50"
+                >
+                  {revalidandoWebhook === i.id ? 'Revalidando...' : 'Webhook'}
                 </button>
                 <button
                   type="button"

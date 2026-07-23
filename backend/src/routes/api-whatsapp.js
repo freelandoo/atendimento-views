@@ -7,7 +7,11 @@ const { marcarOnboardingCompleto } = require('../db/usuarios')
 const { invalidarCacheEmpresa } = require('../services/contexto-empresa')
 const { enviarMensagem, verificarStatusInstanciaEvolution } = require('../whatsapp')
 const { renderSaudacao, saudacaoDaInstancia } = require('../services/rodar-leads')
-const { invalidarCacheAgendaInstancia, removerContextoSeOrfao } = require('../db/whatsapp-instances')
+const {
+  invalidarCacheEmpresaInstancia,
+  invalidarCacheAgendaInstancia,
+  removerContextoSeOrfao,
+} = require('../db/whatsapp-instances')
 const mensagensSvc = require('../services/mensagens-automaticas')
 const { logger } = require('../logger')
 
@@ -29,14 +33,20 @@ async function calcularResumoConexao(instancias, verificarStatus = verificarStat
         evolution_instance: inst.evolution_instance,
         connected: status.connected,
         state: status.state || 'unknown',
+        motivo: status.motivo || null,
+        last_checked_at: status.last_checked_at || new Date().toISOString(),
+        can_send: status.connected === true,
       }
     })
   )
   const desconectadas = estados.filter((st) => st.connected === false).length
+  const desconhecidas = estados.filter((st) => st.connected !== true && st.connected !== false).length
   return {
     total: instancias.length,
     desconectadas,
+    desconhecidas,
     alguma_desconectada: desconectadas > 0,
+    alguma_indisponivel: estados.some((st) => st.connected !== true),
     instancias: estados,
   }
 }
@@ -93,14 +103,97 @@ function webhookConfigForInstance() {
 
 async function aplicarWebhookEvolution(instanceName) {
   const wh = webhookConfigForInstance()
-  if (!wh) return
+  if (!wh) return { configured: false, skipped: true, reason: 'PUBLIC_BACKEND_URL ausente' }
   try {
     await axios.post(
       `${EVOLUTION_URL}/webhook/set/${encodeURIComponent(instanceName)}`,
       { webhook: wh },
       { headers: { apikey: EVOLUTION_KEY }, timeout: 10000 }
     )
-  } catch (_) {}
+    return { configured: true, skipped: false, expected_url: wh.url }
+  } catch (err) {
+    const message = err.response?.data?.message || err.message || 'Falha ao configurar webhook.'
+    logger.warn({ instance: instanceName, err: String(message).slice(0, 300) }, '[api-whatsapp] webhook nao confirmado')
+    return { configured: false, skipped: false, expected_url: wh.url, error: String(message).slice(0, 500) }
+  }
+}
+
+async function carregarInstanciaEmpresa(instanceId, empresaId) {
+  const { rows: [inst] } = await pool.query(
+    `SELECT id, evolution_instance, nome, ativo, config_json, contexto_id
+       FROM app.empresa_whatsapp_instances
+      WHERE id = $1 AND empresa_id = $2
+        AND COALESCE(config_json->>'canal', 'whatsapp') <> 'freelandoo'`,
+    [instanceId, empresaId]
+  )
+  return inst || null
+}
+
+async function limparReferenciasInstanciaRemovida(client, empresaId, inst) {
+  const bancoLeadsConfig = await client.query(
+    `UPDATE app.banco_leads_config
+        SET auto_instancia_id = NULL,
+            auto_ativo = false,
+            auto_proximo_disparo_em = NULL,
+            atualizado_em = NOW()
+      WHERE empresa_id = $1 AND auto_instancia_id = $2`,
+    [empresaId, inst.id]
+  )
+  const rascunhos = await client.query(
+    `UPDATE prospectador.lead_disparos
+        SET status = 'falhou',
+            erro = 'instancia_removida'
+      WHERE empresa_id = $1
+        AND evolution_instance = $2
+        AND status IN ('gerando', 'aguardando_disparo')`,
+    [empresaId, inst.evolution_instance]
+  )
+  const conversas = await client.query(
+    `UPDATE vendas.conversas
+        SET evolution_instance = NULL,
+            atualizado_em = NOW()
+      WHERE empresa_id = $1
+        AND evolution_instance = $2`,
+    [empresaId, inst.evolution_instance]
+  )
+  return {
+    banco_leads_config: bancoLeadsConfig.rowCount || 0,
+    rascunhos_cancelados: rascunhos.rowCount || 0,
+    conversas_desvinculadas: conversas.rowCount || 0,
+  }
+}
+
+async function montarDiagnosticoInstancia(inst) {
+  const status = await verificarStatusInstanciaEvolution(inst.evolution_instance)
+  const webhookCfg = webhookConfigForInstance()
+  const warnings = []
+  if (!inst.ativo) warnings.push('Instancia desativada no aplicativo.')
+  if (status.connected === false) warnings.push(status.motivo || 'Instancia desconectada na Evolution.')
+  if (status.connected == null) warnings.push('Nao foi possivel confirmar a conexao na Evolution.')
+  if (!webhookCfg) warnings.push('PUBLIC_BACKEND_URL nao configurado; webhook nao pode ser validado automaticamente.')
+
+  return {
+    instance: {
+      id: inst.id,
+      nome: inst.nome || null,
+      evolution_instance: inst.evolution_instance,
+      ativo: !!inst.ativo,
+    },
+    connection: {
+      connected: status.connected,
+      state: status.state || 'unknown',
+      motivo: status.motivo || null,
+      last_checked_at: status.last_checked_at || new Date().toISOString(),
+    },
+    webhook: {
+      enabled: !!webhookCfg,
+      expected_url: webhookCfg?.url || null,
+      configured: webhookCfg ? null : false,
+      last_check: webhookCfg ? 'use revalidar_webhook' : 'skipped',
+    },
+    can_send: !!inst.ativo && status.connected === true,
+    warnings,
+  }
 }
 
 // Cada instância é dona de um Contexto 1:1. Cria um contexto vazio e devolve {id, nome}.
@@ -200,16 +293,37 @@ router.get('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res) =
 // GET /api/empresas/:empresaId/whatsapp/:instanceId/status — estado de conexão da
 // instância na Evolution (open/close). Reusa verificarStatusInstanciaEvolution; nunca lança.
 router.get('/:instanceId/status', requireAuth, requireEmpresaAccess, async (req, res) => {
-  const { rows: [inst] } = await pool.query(
-    `SELECT evolution_instance, ativo FROM app.empresa_whatsapp_instances WHERE id = $1 AND empresa_id = $2`,
-    [req.params.instanceId, req.empresa.id]
-  )
+  const inst = await carregarInstanciaEmpresa(req.params.instanceId, req.empresa.id)
   if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instância não encontrada.' } })
   const st = await verificarStatusInstanciaEvolution(inst.evolution_instance)
   return res.json({
     ok: true,
-    data: { connected: st.connected, state: st.state || 'unknown', ativo: inst.ativo },
+    data: {
+      connected: st.connected,
+      state: st.state || 'unknown',
+      motivo: st.motivo || null,
+      last_checked_at: st.last_checked_at || new Date().toISOString(),
+      ativo: inst.ativo,
+      can_send: !!inst.ativo && st.connected === true,
+    },
   })
+})
+
+// GET /api/empresas/:empresaId/whatsapp/:instanceId/diagnostico — diagnostico operacional.
+router.get('/:instanceId/diagnostico', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const inst = await carregarInstanciaEmpresa(req.params.instanceId, req.empresa.id)
+  if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instancia nao encontrada.' } })
+  const data = await montarDiagnosticoInstancia(inst)
+  return res.json({ ok: true, data })
+})
+
+// POST /api/empresas/:empresaId/whatsapp/:instanceId/webhook/revalidar — reaplica webhook Evolution.
+router.post('/:instanceId/webhook/revalidar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const inst = await carregarInstanciaEmpresa(req.params.instanceId, req.empresa.id)
+  if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instancia nao encontrada.' } })
+  const webhook = await aplicarWebhookEvolution(inst.evolution_instance)
+  const diagnostico = await montarDiagnosticoInstancia(inst)
+  return res.json({ ok: true, data: { webhook, diagnostico } })
 })
 
 // PATCH /api/empresas/:empresaId/whatsapp/:instanceId — atualiza link de contexto (e nome opcional)
@@ -259,7 +373,10 @@ router.patch('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res)
   if (typeof req.body?.usa_agenda === 'boolean' && inst.evolution_instance) {
     invalidarCacheAgendaInstancia(inst.evolution_instance)
   }
-  if (typeof req.body?.ativo === 'boolean') invalidarResumoConexao(req.empresa.id)
+  if (typeof req.body?.ativo === 'boolean') {
+    invalidarCacheEmpresaInstancia(inst.evolution_instance)
+    invalidarResumoConexao(req.empresa.id)
+  }
   if (contexto_id !== undefined) {
     invalidarCacheEmpresa(req.empresa.id)
     mensagensSvc.invalidarCacheAtivo(req.empresa.id)
@@ -342,7 +459,7 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   }
 
   // Garante webhook configurado (idempotente — funciona mesmo se a instância já existia)
-  await aplicarWebhookEvolution(evolution_instance)
+  const webhook = await aplicarWebhookEvolution(evolution_instance)
 
   // Cria a instância + o contexto dela (1:1) na mesma transação — sem contexto órfão se algo falhar.
   const client = await pool.connect()
@@ -356,6 +473,11 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
     )
     await client.query('COMMIT')
     inst.contexto_nome = ctx.nome
+    if (webhook?.configured === false) {
+      inst.aviso = webhook.skipped
+        ? 'Instancia criada, mas webhook nao foi configurado porque falta PUBLIC_BACKEND_URL.'
+        : 'Instancia criada, mas webhook nao foi confirmado. Use Revalidar webhook.'
+    }
     invalidarResumoConexao(req.empresa.id)
     marcarOnboardingCompleto(req.usuario.id, req.empresa.id).catch(() => {})
     return res.status(201).json({ ok: true, data: inst })
@@ -420,15 +542,40 @@ router.delete('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res
     }
   }
 
-  await pool.query('DELETE FROM app.empresa_whatsapp_instances WHERE id = $1', [inst.id])
+  let limpeza = {
+    banco_leads_config: 0,
+    rascunhos_cancelados: 0,
+    conversas_desvinculadas: 0,
+    contexto_removido: false,
+  }
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    limpeza = {
+      ...limpeza,
+      ...(await limparReferenciasInstanciaRemovida(client, req.empresa.id, inst)),
+    }
+    await client.query('DELETE FROM app.empresa_whatsapp_instances WHERE id = $1 AND empresa_id = $2', [inst.id, req.empresa.id])
+    if (inst.contexto_id) {
+      limpeza.contexto_removido = await removerContextoSeOrfao(client, req.empresa.id, inst.contexto_id)
+    }
+    await client.query('COMMIT')
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
+  invalidarCacheEmpresaInstancia(inst.evolution_instance)
+  invalidarCacheAgendaInstancia(inst.evolution_instance)
   invalidarResumoConexao(req.empresa.id)
   // Contextos podem ser compartilhados. Só remove quando a instância apagada era
   // a última referência; caso contrário preserva o conteúdo para as demais.
-  if (inst.contexto_id) {
-    const removeuContexto = await removerContextoSeOrfao(pool, req.empresa.id, inst.contexto_id)
-    if (removeuContexto) invalidarCacheEmpresa(req.empresa.id)
+  if (limpeza.contexto_removido) {
+    invalidarCacheEmpresa(req.empresa.id)
+    mensagensSvc.invalidarCacheAtivo(req.empresa.id)
   }
-  return res.json({ ok: true, data: { id: inst.id, deleted: true } })
+  return res.json({ ok: true, data: { id: inst.id, deleted: true, limpeza } })
 })
 
 // POST /api/empresas/:empresaId/whatsapp/:instanceId/saudacao/testar { numero_teste }
@@ -465,3 +612,4 @@ module.exports.calcularResumoConexao = calcularResumoConexao
 module.exports.obterResumoConexao = obterResumoConexao
 module.exports.invalidarResumoConexao = invalidarResumoConexao
 module.exports.duplicarContexto = duplicarContexto
+module.exports.limparReferenciasInstanciaRemovida = limparReferenciasInstanciaRemovida

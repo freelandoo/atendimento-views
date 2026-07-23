@@ -42,8 +42,8 @@ export default function Sidebar() {
     let vivo = true
     const checar = async () => {
       try {
-        const r = await apiFetch<{ alguma_desconectada: boolean }>(`/api/empresas/${empresaId}/whatsapp/conexao-resumo`)
-        if (vivo) setInstAlerta(!!r.data.alguma_desconectada)
+        const r = await apiFetch<{ alguma_desconectada: boolean; alguma_indisponivel?: boolean }>(`/api/empresas/${empresaId}/whatsapp/conexao-resumo`)
+        if (vivo) setInstAlerta(!!(r.data.alguma_indisponivel ?? r.data.alguma_desconectada))
       } catch { /* silencioso */ }
     }
     checar()
