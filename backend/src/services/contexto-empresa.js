@@ -478,6 +478,43 @@ function _enriquecerPlaybookComContexto1(playbookJson, contextoFormJson) {
   return out
 }
 
+function _jsonPathChanges(before, after, base = '') {
+  if (JSON.stringify(before) === JSON.stringify(after)) return []
+  const beforeObj = before && typeof before === 'object'
+  const afterObj = after && typeof after === 'object'
+  if (!beforeObj || !afterObj || Array.isArray(before) || Array.isArray(after)) {
+    return [base || '$']
+  }
+  const keys = Array.from(new Set([...Object.keys(before || {}), ...Object.keys(after || {})])).sort()
+  const out = []
+  for (const key of keys) {
+    out.push(..._jsonPathChanges(before?.[key], after?.[key], base ? `${base}.${key}` : key))
+    if (out.length >= 80) break
+  }
+  return out
+}
+
+function _markdownDiffResumo(before = '', after = '') {
+  const oldLines = String(before || '').split('\n')
+  const newLines = String(after || '').split('\n')
+  const max = Math.max(oldLines.length, newLines.length)
+  const changes = []
+  for (let i = 0; i < max; i += 1) {
+    if ((oldLines[i] || '') === (newLines[i] || '')) continue
+    changes.push({
+      line: i + 1,
+      before: oldLines[i] || '',
+      after: newLines[i] || '',
+    })
+    if (changes.length >= 60) break
+  }
+  return {
+    total_changed_lines: changes.length,
+    truncated: changes.length >= 60,
+    changes,
+  }
+}
+
 async function buscarContexto2Ativo(pool, empresaId, evolutionInstance = null) {
   if (!empresaId) return null
 
@@ -610,6 +647,10 @@ Incorpore a sugestão. Retorne o playbook completo (não só o delta).`
   const parsed = parsearRespostaJsonClaude(result.text) || {}
   const markdown = typeof parsed.markdown === 'string' ? parsed.markdown : (ativo.markdown || '')
   const jsonValidado = validarContexto2Playbook(parsed.json || ativo.json || {})
+  const diff = {
+    json_paths_changed: _jsonPathChanges(ativo.json || {}, jsonValidado).slice(0, 80),
+    markdown: _markdownDiffResumo(ativo.markdown || '', markdown),
+  }
 
   // Cria novo draft
   const { rows: [last] } = await pool.query(
@@ -635,7 +676,7 @@ Incorpore a sugestão. Retorne o playbook completo (não só o delta).`
   )
 
   invalidarCacheEmpresa(empresaId)
-  return { versao_novo_draft: v, sugestao_id: sugestaoId }
+  return { versao_novo_draft: v, sugestao_id: sugestaoId, diff }
 }
 
 /**
@@ -644,20 +685,20 @@ Incorpore a sugestão. Retorne o playbook completo (não só o delta).`
  */
 async function registrarSugestaoAprendizadoContexto({
   pool, empresaId, contextoVersaoId, conversaId, leadPhone,
-  tipo, evidencia, sugestaoJson, sugestaoMarkdown, confianca, impactoComercial,
+  tipo, evidencia, sugestaoJson, sugestaoMarkdown, confianca, impactoComercial, feedbackId,
 }) {
   if (!pool || !empresaId || !tipo || !evidencia) return null
   const conf = ['baixa', 'media', 'alta'].includes(confianca) ? confianca : 'media'
   const { rows: [s] } = await pool.query(
     `INSERT INTO app.empresa_contexto_sugestoes
       (empresa_id, contexto_versao_id, conversa_id, lead_phone, tipo, evidencia,
-       impacto_comercial, sugestao_json, sugestao_markdown, confianca, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pendente')
+       impacto_comercial, sugestao_json, sugestao_markdown, confianca, feedback_id, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pendente')
      RETURNING *`,
     [
       empresaId, contextoVersaoId || null, conversaId || null, leadPhone || null,
       tipo, evidencia, impactoComercial || null,
-      JSON.stringify(sugestaoJson || {}), sugestaoMarkdown || null, conf,
+      JSON.stringify(sugestaoJson || {}), sugestaoMarkdown || null, conf, feedbackId || null,
     ]
   )
   return s

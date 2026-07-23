@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import DataTableFrame from '@/components/ui/DataTableFrame'
-import { IconSend, IconStar, IconTrash } from '@/components/ui/icons'
+import { IconSend, IconStar, IconThumbDown, IconThumbUp, IconTrash } from '@/components/ui/icons'
 
 type ScoreCriterio = {
   delta: number
@@ -105,6 +105,31 @@ type OrientacaoResposta = {
   alertas?: string[]
 }
 
+type FeedbackTipo = 'positivo' | 'negativo'
+type FeedbackState = {
+  tipo?: FeedbackTipo
+  enviando?: boolean
+  feedback_id?: string
+  sugestao_id?: string | null
+  criou_sugestao?: boolean
+}
+type FeedbackResponse = {
+  feedback_id: string
+  tipo: FeedbackTipo
+  criou_sugestao: boolean
+  sugestao_id: string | null
+  contexto_versao_id: string | null
+}
+
+const FEEDBACK_TAGS = [
+  { id: 'tom_ruim', label: 'Tom ruim' },
+  { id: 'nao_respondeu', label: 'Nao respondeu' },
+  { id: 'inventou_informacao', label: 'Inventou info' },
+  { id: 'preco_link_errado', label: 'Preco/link errado' },
+  { id: 'repetiu_pergunta', label: 'Repetiu pergunta' },
+  { id: 'fora_do_contexto', label: 'Fora do contexto' },
+] as const
+
 function fmtNumero(n: string): string {
   return String(n || '').replace('@s.whatsapp.net', '').replace(/^(\d{2})(\d{2})(\d)(\d{4})(\d{4})$/, '+$1 ($2) $3$4-$5')
 }
@@ -166,6 +191,8 @@ export default function ConversasPage() {
   const [filtro, setFiltro] = useState<'todos' | Faixa | 'esfriando'>('todos')
   const [buscaNumero, setBuscaNumero] = useState('')
   const [carregandoLista, setCarregandoLista] = useState(true)
+  const [feedbacksMensagem, setFeedbacksMensagem] = useState<Record<number, FeedbackState>>({})
+  const [feedbackNegativo, setFeedbackNegativo] = useState<{ index: number; observacao: string; tags: string[] } | null>(null)
   const requisicaoLista = useRef(0)
   const fb = useFeedback()
 
@@ -215,6 +242,8 @@ export default function ConversasPage() {
     setOrientacaoResposta(null)
     setComposerAberto(false)
     setAbaModal('chat')
+    setFeedbacksMensagem({})
+    setFeedbackNegativo(null)
     try {
       const r = await apiFetch<ConversaDetail>(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(c.numero)}`)
       setAberta(r.data)
@@ -231,6 +260,8 @@ export default function ConversasPage() {
     setOrientacaoResposta(null)
     setComposerAberto(false)
     setAbaModal('chat')
+    setFeedbacksMensagem({})
+    setFeedbackNegativo(null)
   }
 
   async function deletarHistorico() {
@@ -326,6 +357,53 @@ export default function ConversasPage() {
       carregar()
     } catch { /* erro ja exibido pelo feedback */ }
     finally { setAlterandoPausa(false) }
+  }
+
+  function toggleFeedbackTag(tag: string) {
+    setFeedbackNegativo((atual) => {
+      if (!atual) return atual
+      const tags = atual.tags.includes(tag)
+        ? atual.tags.filter((t) => t !== tag)
+        : [...atual.tags, tag]
+      return { ...atual, tags }
+    })
+  }
+
+  async function enviarFeedbackMensagem(index: number, tipo: FeedbackTipo, dados?: { observacao?: string; tags?: string[] }) {
+    if (!aberta || !empresaId) return
+    const observacao = (dados?.observacao || '').trim()
+    if (tipo === 'negativo' && !observacao) {
+      fb.toast('Explique rapidamente o motivo do nao gostei.', 'error')
+      return
+    }
+    setFeedbacksMensagem((prev) => ({ ...prev, [index]: { ...prev[index], tipo, enviando: true } }))
+    try {
+      const r = await fb.runTask(
+        () => apiFetch<FeedbackResponse>(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(aberta.numero)}/feedback`, {
+          method: 'POST',
+          body: JSON.stringify({
+            mensagem_index: index,
+            tipo,
+            observacao,
+            tags: dados?.tags || [],
+          }),
+        }),
+        { sucesso: tipo === 'positivo' ? 'Feedback registrado.' : 'Feedback registrado para revisao.' }
+      )
+      setFeedbacksMensagem((prev) => ({
+        ...prev,
+        [index]: {
+          tipo,
+          enviando: false,
+          feedback_id: r.data.feedback_id,
+          sugestao_id: r.data.sugestao_id,
+          criou_sugestao: r.data.criou_sugestao,
+        },
+      }))
+      if (tipo === 'negativo') setFeedbackNegativo(null)
+    } catch {
+      setFeedbacksMensagem((prev) => ({ ...prev, [index]: { ...prev[index], enviando: false } }))
+    }
   }
 
   const historicoAberto = aberta?.historico || []
@@ -628,10 +706,98 @@ export default function ConversasPage() {
                         ? 'bg-amber-100 text-amber-900 ml-auto'
                         : 'bg-gray-200 text-gray-700 mx-auto'
                   const label = isUser ? 'Lead' : isAssistant ? 'Agente' : isOperator ? 'Operador' : (m.role || '?')
+                  const feedbackAtual = feedbacksMensagem[i]
+                  const formAberto = feedbackNegativo?.index === i
+                  const align = isAssistant || isOperator ? 'items-end' : isUser ? 'items-start' : 'items-center'
                   return (
-                    <div key={i} className={`max-w-[72%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${bubble}`}>
-                      <div className={`text-[10px] uppercase mb-1 ${isAssistant ? 'text-white/70' : 'text-gray-500'}`}>{label}</div>
-                      <div className="whitespace-pre-wrap break-words">{m.content || m.text || '(vazio)'}</div>
+                    <div key={i} className={`group flex flex-col ${align}`}>
+                      <div className={`max-w-[72%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${bubble}`}>
+                        <div className={`text-[10px] uppercase mb-1 ${isAssistant ? 'text-white/70' : 'text-gray-500'}`}>{label}</div>
+                        <div className="whitespace-pre-wrap break-words">{m.content || m.text || '(vazio)'}</div>
+                      </div>
+                      {isAssistant && (
+                        <>
+                          <div className={`mt-1 flex max-w-[72%] flex-wrap items-center justify-end gap-1.5 text-[11px] transition ${feedbackAtual?.tipo || formAberto ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'}`}>
+                            {feedbackAtual?.tipo ? (
+                              <span className={`rounded-full border px-2 py-1 ${feedbackAtual.tipo === 'positivo' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+                                {feedbackAtual.enviando ? 'Registrando...' : feedbackAtual.tipo === 'positivo' ? 'Gostei registrado' : 'Feedback registrado'}
+                              </span>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => enviarFeedbackMensagem(i, 'positivo')}
+                                  disabled={!!feedbackAtual?.enviando}
+                                  className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-2 py-1 text-emerald-700 shadow-sm transition hover:bg-emerald-50 disabled:opacity-50"
+                                >
+                                  <IconThumbUp className="h-3.5 w-3.5" />
+                                  Gostei
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setFeedbackNegativo({ index: i, observacao: '', tags: [] })}
+                                  disabled={!!feedbackAtual?.enviando}
+                                  className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-white px-2 py-1 text-amber-700 shadow-sm transition hover:bg-amber-50 disabled:opacity-50"
+                                >
+                                  <IconThumbDown className="h-3.5 w-3.5" />
+                                  Nao gostei
+                                </button>
+                              </>
+                            )}
+                          </div>
+                          {formAberto && (
+                            <div className="mt-2 w-full max-w-[72%] rounded-xl border border-amber-200 bg-white p-3 shadow-sm">
+                              <div className="mb-2 flex flex-wrap gap-1.5">
+                                {FEEDBACK_TAGS.map((tag) => (
+                                  <button
+                                    key={tag.id}
+                                    type="button"
+                                    onClick={() => toggleFeedbackTag(tag.id)}
+                                    className={`rounded-full border px-2 py-1 text-[11px] transition ${feedbackNegativo?.tags.includes(tag.id) ? 'border-amber-500 bg-amber-100 text-amber-800' : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+                                  >
+                                    {tag.label}
+                                  </button>
+                                ))}
+                              </div>
+                              <textarea
+                                value={feedbackNegativo?.observacao || ''}
+                                onChange={(e) => setFeedbackNegativo((atual) => atual ? { ...atual, observacao: e.target.value } : atual)}
+                                rows={3}
+                                maxLength={2000}
+                                placeholder="O que ficou errado nessa resposta?"
+                                className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-800 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                              />
+                              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                                <span className="text-[11px] text-slate-500">
+                                  Vai para Contextos como sugestao pendente.
+                                </span>
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setFeedbackNegativo(null)}
+                                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+                                  >
+                                    Cancelar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => enviarFeedbackMensagem(i, 'negativo', feedbackNegativo || undefined)}
+                                    disabled={!!feedbackAtual?.enviando || !feedbackNegativo?.observacao.trim()}
+                                    className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {feedbackAtual?.enviando ? 'Registrando...' : 'Registrar'}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          {feedbackAtual?.tipo === 'negativo' && !feedbackAtual.enviando && (
+                            <a href="/dashboard/contextos" className="mt-1 max-w-[72%] text-[11px] font-medium text-amber-700 underline underline-offset-2">
+                              Revisar em Contextos
+                            </a>
+                          )}
+                        </>
+                      )}
                     </div>
                   )
                 })

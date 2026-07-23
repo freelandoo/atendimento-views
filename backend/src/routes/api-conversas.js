@@ -8,6 +8,7 @@ const { enviarMensagem } = require('../whatsapp')
 const { calcularScoreInteresseLead } = require('../services/lead-interest-score')
 const { enviarMensagemManualOperador, alterarPausaAgenteConversa } = require('../services/conversa-manual')
 const { gerarOrientacaoResposta } = require('../services/orientador-resposta')
+const { registrarFeedbackConversa } = require('../services/conversa-feedback')
 
 const router = Router({ mergeParams: true })
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
@@ -234,6 +235,36 @@ router.post('/:numero/mensagem', requireAuth, requireEmpresaAccess, async (req, 
     return res.status(201).json({ ok: true, data: out })
   } catch (err) {
     return erroConversas(res, err, 'MANUAL_MESSAGE_FAILED')
+  }
+})
+
+// POST /api/empresas/:empresaId/conversas/:numero/feedback
+// Registra avaliacao humana de uma resposta do agente; negativo cria sugestao pendente.
+router.post('/:numero/feedback', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const out = await registrarFeedbackConversa({
+      pool,
+      empresaId: req.empresa.id,
+      numero: req.params.numero,
+      mensagemIndex: req.body?.mensagem_index,
+      tipo: req.body?.tipo,
+      tags: req.body?.tags,
+      observacao: req.body?.observacao,
+      usuarioId: req.usuario?.id || null,
+      log: logger,
+    })
+    return res.status(201).json({
+      ok: true,
+      data: {
+        feedback_id: out.feedback?.id,
+        tipo: out.feedback?.tipo,
+        criou_sugestao: out.criou_sugestao,
+        sugestao_id: out.sugestao?.id || null,
+        contexto_versao_id: out.contexto_versao_id || null,
+      },
+    })
+  } catch (err) {
+    return erroConversas(res, err, 'CONVERSA_FEEDBACK_FAILED')
   }
 })
 

@@ -289,3 +289,16 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
   `empresa_id`, `numero`, `servico_slug` e tipo de decisao.
 - Validacao: testes focados de Contexto 2 passaram; suite completa do backend passou com 909
   testes; typechecks de backend e frontend passaram.
+
+## 2026-07-22 - Conversas - feedback supervisionado de respostas do agente
+
+- Area(s) tocada(s): migration `036`, service `conversa-feedback.js`, rota autenticada de
+  Conversas, fluxo de sugestoes de Contexto 2 e telas Next.js de Conversas/Contextos.
+- Regras preservadas: feedback negativo nao chama IA, nao altera Playbook ativo e nao toca
+  prompts globais, Contexto 1, catalogo de servicos, mensagens automaticas ou envio WhatsApp.
+- O que mudou: respostas do agente podem receber `gostei` ou `nao gostei` no historico; feedback
+  negativo exige observacao, registra snapshot auditavel e cria sugestao pendente quando ha
+  Playbook ativo. Aplicar sugestao continua gerando apenas rascunho revisavel.
+- Banco: tabela append-only `app.conversa_feedbacks` por `empresa_id`, com vinculo opcional
+  `feedback_id` em `app.empresa_contexto_sugestoes`.
+- Validacao: testes focados de feedback e Contexto 2 passaram; typecheck do frontend passou.

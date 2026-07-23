@@ -120,3 +120,13 @@ catalogo canonico compacto e deve devolver `servicos_interesse_slugs`,
 - Como validar:
 
 -->
+
+### 2026-07-22 - Feedback supervisionado de conversa para Playbook
+
+Feedback humano sobre uma resposta do agente e tratado como evidencia operacional, nao como
+permissao para reescrever o atendimento. A tela de Conversas registra `gostei`/`nao gostei` por
+mensagem `assistant`; o backend valida tenant, indice e role da mensagem e persiste a auditoria em
+`app.conversa_feedbacks`. Feedback negativo com Playbook ativo cria uma sugestao pendente em
+`app.empresa_contexto_sugestoes`, vinculada por `feedback_id`. A IA so roda quando o operador
+clica para aplicar a sugestao, e ainda assim cria apenas uma nova versao `rascunho` do Contexto 2,
+com resumo de diff para revisao antes de ativar.

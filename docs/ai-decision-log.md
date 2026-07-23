@@ -314,3 +314,19 @@ cronológica inversa (mais recente no topo).
   confianca operacional melhora quando o catalogo foi gerado/revisado pelo fluxo novo.
 - **Como validar:** testes focados de normalizacao, registro de decisao e persistencia de perfil,
   depois suite completa e typecheck do backend.
+
+## 2026-07-22 - Feedback de conversa como aprendizado supervisionado
+
+- **Decisao:** Registrar feedback humano em respostas do agente como auditoria append-only e,
+  no caso negativo, criar apenas sugestao pendente para o Playbook ativo.
+- **Motivo:** Uma conversa isolada nao deve reescrever automaticamente o atendimento inteiro.
+  O operador precisa ver evidencia, rascunho e diff antes de ativar qualquer mudanca.
+- **Escolha:** Nova tabela `app.conversa_feedbacks`, vinculo opcional em
+  `app.empresa_contexto_sugestoes`, UI no hover de mensagens `assistant` em Conversas e revisao
+  em Contextos. A aplicacao sob demanda continua usando `aplicarSugestaoComoDraft`.
+- **Impacto:** front-end, rota autenticada, service de conversa e banco `app`; sem alteracao em
+  prompts globais, Contexto 1, catalogo de servicos, mensagens automaticas, segredos ou WhatsApp.
+- **Riscos:** feedbacks positivos ficam como auditoria para uma fase futura; sugestoes negativas
+  dependem de Playbook ativo para serem aplicaveis.
+- **Como validar:** testes de feedback positivo/negativo/bloqueios, teste de Contexto 2, suite
+  completa e typechecks de backend/frontend.

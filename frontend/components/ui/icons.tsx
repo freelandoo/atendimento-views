@@ -55,6 +55,12 @@ export const IconClose = (p: P) => (
 export const IconCheck = (p: P) => (
   <Svg {...p}><path d="M5 12l5 5L20 6" /></Svg>
 )
+export const IconThumbUp = (p: P) => (
+  <Svg {...p}><path d="M7 10v11" /><path d="M15 5l-1 5h5a2 2 0 0 1 2 2.3l-1 6A3 3 0 0 1 17 21H7" /><path d="M7 10H4a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3" /></Svg>
+)
+export const IconThumbDown = (p: P) => (
+  <Svg {...p}><path d="M7 14V3" /><path d="M15 19l-1-5h5a2 2 0 0 0 2-2.3l-1-6A3 3 0 0 0 17 3H7" /><path d="M7 14H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h3" /></Svg>
+)
 export const IconPlus = (p: P) => (
   <Svg {...p}><path d="M12 5v14M5 12h14" /></Svg>
 )

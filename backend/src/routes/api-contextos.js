@@ -148,7 +148,7 @@ router.post('/:contextoId/gerar-playbook', requireAuth, requireEmpresaAccess, as
       pool, log: logger,
       empresaId: req.empresa.id,
       contextoId: req.params.contextoId,
-      userId: req.user?.id,
+      userId: req.usuario?.id,
     })
     return res.status(201).json({ ok: true, data: r })
   } catch (err) {
@@ -195,7 +195,7 @@ router.post('/:contextoId/gerar-plano', requireAuth, requireEmpresaAccess, async
 async function ativarHandler(req, res) {
   try {
     const ativada = await ativarContexto2({
-      pool, empresaId: req.empresa.id, versaoId: req.params.versaoId, userId: req.user?.id,
+      pool, empresaId: req.empresa.id, versaoId: req.params.versaoId, userId: req.usuario?.id,
     })
     return res.json({ ok: true, data: ativada })
   } catch (err) {
@@ -246,9 +246,28 @@ router.post('/versoes/:versaoId/testar', requireAuth, requireEmpresaAccess, asyn
 router.get('/sugestoes', requireAuth, requireEmpresaAccess, async (req, res) => {
   const status = String(req.query.status || 'pendente')
   const { rows } = await pool.query(
-    `SELECT * FROM app.empresa_contexto_sugestoes
-     WHERE empresa_id = $1 AND status = $2
-     ORDER BY created_at DESC LIMIT 200`,
+    `SELECT s.*,
+            ec.nome AS contexto_nome,
+            CASE WHEN f.id IS NULL THEN NULL ELSE jsonb_build_object(
+              'id', f.id,
+              'tipo', f.tipo,
+              'tags', f.tags,
+              'observacao', f.observacao,
+              'lead_phone', f.lead_phone,
+              'evolution_instance', f.evolution_instance,
+              'mensagem_index', f.mensagem_index,
+              'mensagem_snapshot', f.mensagem_snapshot,
+              'created_at', f.created_at
+            ) END AS feedback
+       FROM app.empresa_contexto_sugestoes s
+       LEFT JOIN app.conversa_feedbacks f
+         ON f.id = s.feedback_id AND f.empresa_id = s.empresa_id
+       LEFT JOIN app.empresa_contexto_versoes ecv
+         ON ecv.id = s.contexto_versao_id AND ecv.empresa_id = s.empresa_id
+       LEFT JOIN app.empresa_contextos ec
+         ON ec.id = ecv.contexto_id AND ec.empresa_id = s.empresa_id
+      WHERE s.empresa_id = $1 AND s.status = $2
+      ORDER BY s.created_at DESC LIMIT 200`,
     [req.empresa.id, status]
   )
   return res.json({ ok: true, data: rows })
@@ -260,7 +279,7 @@ router.post('/sugestoes/:sugestaoId/aprovar', requireAuth, requireEmpresaAccess,
     `UPDATE app.empresa_contexto_sugestoes
        SET status = 'aprovada', reviewed_at = NOW(), reviewed_by = $3
      WHERE id = $1 AND empresa_id = $2 RETURNING *`,
-    [req.params.sugestaoId, req.empresa.id, req.user?.id || null]
+    [req.params.sugestaoId, req.empresa.id, req.usuario?.id || null]
   )
   if (!s) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Sugestão não encontrada.' } })
   return res.json({ ok: true, data: s })
@@ -274,7 +293,7 @@ router.post('/sugestoes/:sugestaoId/aplicar', requireAuth, requireEmpresaAccess,
       pool, log: logger,
       empresaId: req.empresa.id,
       sugestaoId: req.params.sugestaoId,
-      userId: req.user?.id,
+      userId: req.usuario?.id,
     })
     return res.status(201).json({ ok: true, data: r })
   } catch (err) {
@@ -288,7 +307,7 @@ router.post('/sugestoes/:sugestaoId/rejeitar', requireAuth, requireEmpresaAccess
     `UPDATE app.empresa_contexto_sugestoes
        SET status = 'rejeitada', reviewed_at = NOW(), reviewed_by = $3
      WHERE id = $1 AND empresa_id = $2 RETURNING *`,
-    [req.params.sugestaoId, req.empresa.id, req.user?.id || null]
+    [req.params.sugestaoId, req.empresa.id, req.usuario?.id || null]
   )
   if (!s) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Sugestão não encontrada.' } })
   return res.json({ ok: true, data: s })

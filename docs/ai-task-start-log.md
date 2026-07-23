@@ -6,6 +6,18 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-07-22 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Codex
+- **Pedido resumido:** Implementar feedback positivo/negativo em respostas do agente no historico de Conversas, com aprendizado supervisionado para o Playbook ativo.
+- **E projeto/tarefa de alteracao?** Sim (UX, rota autenticada, service, migration, revisao de Contextos e testes).
+- **Workflow padrao consultado?** AGENTS.md, docs/ai-workflow.md, docs/project-map.md, docs/architecture-rules.md, docs/ui-visual-standard.md, docs/project-architecture.md e plano aprovado pelo usuario: Sim.
+- **Areas possivelmente impactadas:** Front-end da pagina Conversas e Contextos, rota SaaS de conversas, banco `app`, sugestoes de contexto e testes. Sem alteracao em prompts globais, segredos, envio WhatsApp, Contexto 1, catalogo de servicos ou mensagens automaticas.
+- **Confirmacao:** O usuario pediu explicitamente para implementar o plano aprovado. A aplicacao de aprendizado sera supervisionada: feedback negativo cria sugestao pendente, mas nao chama IA nem ativa contexto automaticamente.
+- **Proxima etapa:** Implementar diff minimo com auditoria por tenant, sugestao pendente opcional, UI de hover/formulario e validacao por testes/typechecks.
+
+---
+
 ## 2026-07-22 - Inicio de tarefa IA - Preenchimento por chute no catalogo de servicos
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5)

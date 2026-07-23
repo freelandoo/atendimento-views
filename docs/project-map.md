@@ -39,6 +39,8 @@ dashboard estático e jobs de prospecção.
 - `services/contexto-empresa.js`, `contexto2-runtime.js`, `contexto-estagios.js`,
   `contexto-servicos.js`, `knowledge-ingestion.js` — contexto multiempresa, playbook,
   estagios, catalogo estruturado de servicos e leitura de fontes.
+- `services/conversa-feedback.js` - feedback humano sobre respostas do agente no historico,
+  auditoria por tenant e criacao supervisionada de sugestoes pendentes para o Playbook.
 
 ### Serviços de prospecção
 - `prospecting.js` — endpoints/jobs de prospecção (entrada).
