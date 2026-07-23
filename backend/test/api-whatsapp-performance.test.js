@@ -9,6 +9,7 @@ const {
   invalidarResumoConexao,
   duplicarContexto,
   limparReferenciasInstanciaRemovida,
+  calcularImpactoRemocaoInstancia,
 } = router
 
 test('calcularResumoConexao consulta instancias em paralelo', async () => {
@@ -163,4 +164,48 @@ test('limparReferenciasInstanciaRemovida limpa ponteiros operacionais e preserva
   assert.match(chamadas[1].sql, /status IN \('gerando', 'aguardando_disparo'\)/)
   assert.deepStrictEqual(chamadas[1].params, ['e1', 'inst-main'])
   assert.match(chamadas[2].sql, /SET evolution_instance = NULL/)
+})
+
+test('calcularImpactoRemocaoInstancia resume impacto e bloqueia envio em andamento', async () => {
+  const client = {
+    query: async (sql, params) => {
+      if (sql.includes('FROM app.banco_leads_config')) {
+        assert.deepStrictEqual(params, ['e1', 'inst-id'])
+        return { rows: [{ auto_ativo: true, modo: 'automatico' }] }
+      }
+      if (sql.includes("status IN ('gerando', 'aguardando_disparo')")) {
+        assert.deepStrictEqual(params, ['e1', 'inst-main'])
+        return { rows: [{ total: 4 }] }
+      }
+      if (sql.includes("status IN ('enviando', 'pendente_confirmacao')")) {
+        assert.deepStrictEqual(params, ['e1', 'inst-main'])
+        return { rows: [{ total: 1 }] }
+      }
+      if (sql.includes('FROM vendas.conversas')) {
+        assert.deepStrictEqual(params, ['e1', 'inst-main'])
+        return { rows: [{ total: 7 }] }
+      }
+      if (sql.includes('FROM app.empresa_whatsapp_instances')) {
+        assert.deepStrictEqual(params, ['ctx-1', 'e1', 'inst-id'])
+        return { rows: [{ total: 0 }] }
+      }
+      throw new Error(`SQL inesperado: ${sql}`)
+    },
+  }
+
+  const out = await calcularImpactoRemocaoInstancia(client, 'e1', {
+    id: 'inst-id',
+    nome: 'Vendas',
+    evolution_instance: 'inst-main',
+    contexto_id: 'ctx-1',
+  })
+
+  assert.equal(out.banco_leads.configuracao_usando, true)
+  assert.equal(out.banco_leads.automatico_ativo, true)
+  assert.equal(out.rascunhos_cancelaveis, 4)
+  assert.equal(out.envios_em_andamento, 1)
+  assert.equal(out.conversas_vinculadas, 7)
+  assert.equal(out.contexto.sera_removido, true)
+  assert.equal(out.bloqueia_remocao, true)
+  assert.ok(out.avisos.some((a) => /envios em andamento/.test(a)))
 })

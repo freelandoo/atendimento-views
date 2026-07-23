@@ -1,6 +1,7 @@
 'use strict'
 const { Router } = require('express')
 const axios = require('axios')
+const crypto = require('crypto')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { marcarOnboardingCompleto } = require('../db/usuarios')
@@ -101,19 +102,32 @@ function webhookConfigForInstance() {
   }
 }
 
-async function aplicarWebhookEvolution(instanceName) {
+function refInstanciaLog(instanceName) {
+  return crypto.createHash('sha256').update(String(instanceName || '')).digest('hex').slice(0, 12)
+}
+
+async function aplicarWebhookEvolution(instanceName, meta = {}) {
+  const logBase = {
+    empresa_id: meta.empresaId || null,
+    instance_id: meta.instanceId || null,
+    instance_ref: refInstanciaLog(instanceName),
+  }
   const wh = webhookConfigForInstance()
-  if (!wh) return { configured: false, skipped: true, reason: 'PUBLIC_BACKEND_URL ausente' }
+  if (!wh) {
+    logger.warn(logBase, '[api-whatsapp] webhook ignorado sem PUBLIC_BACKEND_URL')
+    return { configured: false, skipped: true, reason: 'PUBLIC_BACKEND_URL ausente' }
+  }
   try {
     await axios.post(
       `${EVOLUTION_URL}/webhook/set/${encodeURIComponent(instanceName)}`,
       { webhook: wh },
       { headers: { apikey: EVOLUTION_KEY }, timeout: 10000 }
     )
+    logger.info(logBase, '[api-whatsapp] webhook configurado')
     return { configured: true, skipped: false, expected_url: wh.url }
   } catch (err) {
     const message = err.response?.data?.message || err.message || 'Falha ao configurar webhook.'
-    logger.warn({ instance: instanceName, err: String(message).slice(0, 300) }, '[api-whatsapp] webhook nao confirmado')
+    logger.warn({ ...logBase, err: String(message).slice(0, 300) }, '[api-whatsapp] webhook nao confirmado')
     return { configured: false, skipped: false, expected_url: wh.url, error: String(message).slice(0, 500) }
   }
 }
@@ -160,6 +174,91 @@ async function limparReferenciasInstanciaRemovida(client, empresaId, inst) {
     banco_leads_config: bancoLeadsConfig.rowCount || 0,
     rascunhos_cancelados: rascunhos.rowCount || 0,
     conversas_desvinculadas: conversas.rowCount || 0,
+  }
+}
+
+async function calcularImpactoRemocaoInstancia(client, empresaId, inst) {
+  const [
+    bancoLeads,
+    rascunhos,
+    envios,
+    conversas,
+    contextoRefs,
+  ] = await Promise.all([
+    client.query(
+      `SELECT auto_ativo, modo
+         FROM app.banco_leads_config
+        WHERE empresa_id = $1 AND auto_instancia_id = $2
+        LIMIT 1`,
+      [empresaId, inst.id]
+    ),
+    client.query(
+      `SELECT COUNT(*)::int AS total
+         FROM prospectador.lead_disparos
+        WHERE empresa_id = $1
+          AND evolution_instance = $2
+          AND status IN ('gerando', 'aguardando_disparo')`,
+      [empresaId, inst.evolution_instance]
+    ),
+    client.query(
+      `SELECT COUNT(*)::int AS total
+         FROM prospectador.lead_disparos
+        WHERE empresa_id = $1
+          AND evolution_instance = $2
+          AND status IN ('enviando', 'pendente_confirmacao')`,
+      [empresaId, inst.evolution_instance]
+    ),
+    client.query(
+      `SELECT COUNT(*)::int AS total
+         FROM vendas.conversas
+        WHERE empresa_id = $1
+          AND evolution_instance = $2`,
+      [empresaId, inst.evolution_instance]
+    ),
+    inst.contexto_id
+      ? client.query(
+        `SELECT COUNT(*)::int AS total
+           FROM app.empresa_whatsapp_instances
+          WHERE contexto_id = $1
+            AND empresa_id = $2
+            AND id <> $3`,
+        [inst.contexto_id, empresaId, inst.id]
+      )
+      : Promise.resolve({ rows: [{ total: 0 }] }),
+  ])
+  const enviosEmAndamento = envios.rows[0]?.total || 0
+  const bancoConfig = bancoLeads.rows[0] || null
+  const rascunhosCancelaveis = rascunhos.rows[0]?.total || 0
+  const conversasVinculadas = conversas.rows[0]?.total || 0
+  const outrasRefsContexto = contextoRefs.rows[0]?.total || 0
+  const avisos = []
+  if (enviosEmAndamento > 0) avisos.push('Existem envios em andamento. Aguarde a confirmacao antes de remover.')
+  if (bancoConfig) avisos.push('A configuracao do Banco de Leads aponta para esta instancia e sera desligada.')
+  if (rascunhosCancelaveis > 0) avisos.push('Rascunhos pendentes desta instancia serao cancelados.')
+  if (conversasVinculadas > 0) avisos.push('Conversas serao desvinculadas da instancia, mas o historico sera preservado.')
+  if (inst.contexto_id && outrasRefsContexto === 0) avisos.push('O contexto exclusivo desta instancia tambem sera removido.')
+
+  return {
+    instance: {
+      id: inst.id,
+      nome: inst.nome || null,
+      evolution_instance: inst.evolution_instance,
+    },
+    banco_leads: {
+      configuracao_usando: !!bancoConfig,
+      automatico_ativo: !!bancoConfig?.auto_ativo,
+      modo: bancoConfig?.modo || null,
+    },
+    rascunhos_cancelaveis: rascunhosCancelaveis,
+    envios_em_andamento: enviosEmAndamento,
+    conversas_vinculadas: conversasVinculadas,
+    contexto: {
+      id: inst.contexto_id || null,
+      sera_removido: !!inst.contexto_id && outrasRefsContexto === 0,
+      compartilhado: !!inst.contexto_id && outrasRefsContexto > 0,
+    },
+    bloqueia_remocao: enviosEmAndamento > 0,
+    avisos,
   }
 }
 
@@ -321,7 +420,10 @@ router.get('/:instanceId/diagnostico', requireAuth, requireEmpresaAccess, async 
 router.post('/:instanceId/webhook/revalidar', requireAuth, requireEmpresaAccess, async (req, res) => {
   const inst = await carregarInstanciaEmpresa(req.params.instanceId, req.empresa.id)
   if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instancia nao encontrada.' } })
-  const webhook = await aplicarWebhookEvolution(inst.evolution_instance)
+  const webhook = await aplicarWebhookEvolution(inst.evolution_instance, {
+    empresaId: req.empresa.id,
+    instanceId: inst.id,
+  })
   const diagnostico = await montarDiagnosticoInstancia(inst)
   return res.json({ ok: true, data: { webhook, diagnostico } })
 })
@@ -459,7 +561,7 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   }
 
   // Garante webhook configurado (idempotente — funciona mesmo se a instância já existia)
-  const webhook = await aplicarWebhookEvolution(evolution_instance)
+  const webhook = await aplicarWebhookEvolution(evolution_instance, { empresaId: req.empresa.id })
 
   // Cria a instância + o contexto dela (1:1) na mesma transação — sem contexto órfão se algo falhar.
   const client = await pool.connect()
@@ -475,8 +577,8 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
     inst.contexto_nome = ctx.nome
     if (webhook?.configured === false) {
       inst.aviso = webhook.skipped
-        ? 'Instancia criada, mas webhook nao foi configurado porque falta PUBLIC_BACKEND_URL.'
-        : 'Instancia criada, mas webhook nao foi confirmado. Use Revalidar webhook.'
+        ? 'Instancia criada. A verificacao automatica da conexao ficara pendente ate o backend publico estar configurado.'
+        : 'Instancia criada. A verificacao automatica vai confirmar a recepcao de mensagens em instantes.'
     }
     invalidarResumoConexao(req.empresa.id)
     marcarOnboardingCompleto(req.usuario.id, req.empresa.id).catch(() => {})
@@ -521,14 +623,33 @@ router.get('/:instanceId/qrcode', requireAuth, requireEmpresaAccess, async (req,
   }
 })
 
+router.get('/:instanceId/remocao-impacto', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const inst = await carregarInstanciaEmpresa(req.params.instanceId, req.empresa.id)
+  if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instancia nao encontrada.' } })
+  const data = await calcularImpactoRemocaoInstancia(pool, req.empresa.id, inst)
+  return res.json({ ok: true, data })
+})
+
 // DELETE /api/empresas/:empresaId/whatsapp/:instanceId
 // Remove do Evolution e apaga do banco (hard delete — sincronia)
 router.delete('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res) => {
   const { rows: [inst] } = await pool.query(
-    'SELECT id, evolution_instance, contexto_id FROM app.empresa_whatsapp_instances WHERE id = $1 AND empresa_id = $2',
+    'SELECT id, evolution_instance, nome, contexto_id FROM app.empresa_whatsapp_instances WHERE id = $1 AND empresa_id = $2',
     [req.params.instanceId, req.empresa.id]
   )
   if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instância não encontrada.' } })
+
+  const impactoAtual = await calcularImpactoRemocaoInstancia(pool, req.empresa.id, inst)
+  if (impactoAtual.bloqueia_remocao) {
+    return res.status(409).json({
+      ok: false,
+      error: {
+        code: 'INSTANCE_DELETE_BLOCKED',
+        message: 'Existem envios em andamento nesta instancia. Aguarde a confirmacao antes de remover.',
+      },
+      data: impactoAtual,
+    })
+  }
 
   try {
     await axios.delete(
@@ -551,6 +672,14 @@ router.delete('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
+    const impactoTransacao = await calcularImpactoRemocaoInstancia(client, req.empresa.id, inst)
+    if (impactoTransacao.bloqueia_remocao) {
+      const err = new Error('Existem envios em andamento nesta instancia. Aguarde a confirmacao antes de remover.')
+      err.statusCode = 409
+      err.code = 'INSTANCE_DELETE_BLOCKED'
+      err.impacto = impactoTransacao
+      throw err
+    }
     limpeza = {
       ...limpeza,
       ...(await limparReferenciasInstanciaRemovida(client, req.empresa.id, inst)),
@@ -562,6 +691,13 @@ router.delete('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res
     await client.query('COMMIT')
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {})
+    if (err.statusCode === 409) {
+      return res.status(409).json({
+        ok: false,
+        error: { code: err.code || 'INSTANCE_DELETE_BLOCKED', message: err.message },
+        data: err.impacto || null,
+      })
+    }
     throw err
   } finally {
     client.release()
@@ -613,3 +749,4 @@ module.exports.obterResumoConexao = obterResumoConexao
 module.exports.invalidarResumoConexao = invalidarResumoConexao
 module.exports.duplicarContexto = duplicarContexto
 module.exports.limparReferenciasInstanciaRemovida = limparReferenciasInstanciaRemovida
+module.exports.calcularImpactoRemocaoInstancia = calcularImpactoRemocaoInstancia

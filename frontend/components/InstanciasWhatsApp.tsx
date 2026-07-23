@@ -42,6 +42,16 @@ type ResumoConexao = {
   alguma_indisponivel?: boolean
   instancias: StatusConexaoInstancia[]
 }
+type RemocaoImpacto = {
+  instance: { id: string; nome?: string | null; evolution_instance: string }
+  banco_leads: { configuracao_usando: boolean; automatico_ativo: boolean; modo?: string | null }
+  rascunhos_cancelaveis: number
+  envios_em_andamento: number
+  conversas_vinculadas: number
+  contexto: { id?: string | null; sera_removido: boolean; compartilhado: boolean }
+  bloqueia_remocao: boolean
+  avisos: string[]
+}
 type QRState = {
   open: boolean
   instanceId: string | null
@@ -64,8 +74,14 @@ export default function InstanciasWhatsApp({ empresaId }: {
   const [msg, setMsg] = useState('')
   const [erroForm, setErroForm] = useState('')
   const [adicionando, setAdicionando] = useState(false)
-  const [verificando, setVerificando] = useState(false)
-  const [revalidandoWebhook, setRevalidandoWebhook] = useState<string | null>(null)
+  const [remocao, setRemocao] = useState<{
+    open: boolean
+    loading: boolean
+    removing: boolean
+    inst: WhatsAppInstance | null
+    impacto: RemocaoImpacto | null
+    error: string | null
+  }>({ open: false, loading: false, removing: false, inst: null, impacto: null, error: null })
   const [qr, setQr] = useState<QRState>({
     open: false, instanceId: null, instanceLabel: '', loading: false,
     base64: null, pairingCode: null, connected: false, error: null,
@@ -74,7 +90,6 @@ export default function InstanciasWhatsApp({ empresaId }: {
   // Busca o estado de conexão real de cada instância (open/close na Evolution).
   async function carregarInstancias({ silencioso = false }: { silencioso?: boolean } = {}) {
     if (!empresaId) return
-    if (!silencioso) setVerificando(true)
     try {
       const [w, resumo] = await Promise.all([
         apiFetch<WhatsAppInstance[]>(`/api/empresas/${empresaId}/whatsapp`),
@@ -88,8 +103,6 @@ export default function InstanciasWhatsApp({ empresaId }: {
       setStatusConexao(mapa)
     } catch (e: unknown) {
       if (!silencioso) setErroForm(e instanceof Error ? e.message : 'Erro ao carregar instancias WhatsApp.')
-    } finally {
-      if (!silencioso) setVerificando(false)
     }
   }
 
@@ -192,7 +205,7 @@ export default function InstanciasWhatsApp({ empresaId }: {
       })
       setInstancias((prev) => [r.data, ...prev])
       setNomeInstance('')
-      setMsg(r.data.aviso || 'Instância criada e sincronizada no Evolution. Clique em "Gerar QR Code" para parear.')
+      setMsg('Instância criada e sincronizada. Clique em "Gerar QR Code" para parear.')
       carregarInstancias({ silencioso: true })
     } catch (err: unknown) {
       setErroForm(err instanceof Error ? err.message : 'Falha ao criar instância.')
@@ -201,13 +214,35 @@ export default function InstanciasWhatsApp({ empresaId }: {
     }
   }
 
-  async function removerInstancia(inst: WhatsAppInstance) {
+  async function abrirRemocaoInstancia(inst: WhatsAppInstance) {
     if (!empresaId) return
-    if (!confirm(
-      `Remover "${inst.nome || inst.evolution_instance}"?\n\n` +
-      'Isso apaga a instancia no Evolution, desliga automacoes que apontavam para ela e cancela rascunhos pendentes.\n' +
-      'Historico, leads e agenda permanecem salvos.'
-    )) return
+    setMsg('')
+    setErroForm('')
+    setRemocao({ open: true, loading: true, removing: false, inst, impacto: null, error: null })
+    try {
+      const r = await apiFetch<RemocaoImpacto>(`/api/empresas/${empresaId}/whatsapp/${inst.id}/remocao-impacto`)
+      setRemocao({ open: true, loading: false, removing: false, inst, impacto: r.data, error: null })
+    } catch (err: unknown) {
+      setRemocao({
+        open: true,
+        loading: false,
+        removing: false,
+        inst,
+        impacto: null,
+        error: err instanceof Error ? err.message : 'Falha ao calcular impacto da remocao.',
+      })
+    }
+  }
+
+  function fecharRemocao() {
+    if (remocao.removing) return
+    setRemocao({ open: false, loading: false, removing: false, inst: null, impacto: null, error: null })
+  }
+
+  async function confirmarRemocaoInstancia() {
+    const inst = remocao.inst
+    if (!empresaId || !inst || remocao.impacto?.bloqueia_remocao) return
+    setRemocao((prev) => ({ ...prev, removing: true, error: null }))
     try {
       const r = await apiFetch<{
         limpeza?: {
@@ -222,31 +257,14 @@ export default function InstanciasWhatsApp({ empresaId }: {
         ? ` Rascunhos cancelados: ${limpeza.rascunhos_cancelados || 0}. Conversas desvinculadas: ${limpeza.conversas_desvinculadas || 0}.`
         : ''
       setMsg(`Instancia removida. Historico, leads e agenda foram preservados.${detalhes}`)
+      setRemocao({ open: false, loading: false, removing: false, inst: null, impacto: null, error: null })
       carregarInstancias({ silencioso: true })
     } catch (err: unknown) {
-      setErroForm(err instanceof Error ? err.message : 'Falha ao remover.')
-    }
-  }
-
-  async function revalidarWebhook(inst: WhatsAppInstance) {
-    if (!empresaId) return
-    setErroForm('')
-    setMsg('')
-    setRevalidandoWebhook(inst.id)
-    try {
-      const r = await apiFetch<{
-        webhook: { configured: boolean; skipped?: boolean; error?: string; expected_url?: string }
-      }>(`/api/empresas/${empresaId}/whatsapp/${inst.id}/webhook/revalidar`, { method: 'POST' })
-      if (r.data.webhook.configured) {
-        setMsg('Webhook revalidado nesta instância.')
-      } else {
-        setErroForm(r.data.webhook.error || 'Webhook não foi confirmado. Verifique PUBLIC_BACKEND_URL e Evolution.')
-      }
-      carregarInstancias({ silencioso: true })
-    } catch (err: unknown) {
-      setErroForm(err instanceof Error ? err.message : 'Falha ao revalidar webhook.')
-    } finally {
-      setRevalidandoWebhook(null)
+      setRemocao((prev) => ({
+        ...prev,
+        removing: false,
+        error: err instanceof Error ? err.message : 'Falha ao remover.',
+      }))
     }
   }
 
@@ -296,6 +314,9 @@ export default function InstanciasWhatsApp({ empresaId }: {
       base64: null, pairingCode: null, connected: false, error: null,
     })
   }
+
+  const impactoRemocao = remocao.impacto
+  const podeConfirmarRemocao = !!impactoRemocao && !impactoRemocao.bloqueia_remocao && !remocao.loading && !remocao.removing
 
   return (
     <div className="space-y-4">
@@ -362,18 +383,9 @@ export default function InstanciasWhatsApp({ empresaId }: {
                   <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-medium text-mid">● ativo · verificando…</span>
                 )}
               </div>
-              <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-white/45">
-                <p>
-                  Evolution: <span className="font-mono text-white/70">{statusConexao[i.id]?.state || 'unknown'}</span>
-                  {statusConexao[i.id]?.last_checked_at && (
-                    <span> · {new Date(statusConexao[i.id]!.last_checked_at!).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-                  )}
-                </p>
-                {i.ativo && statusConexao[i.id]?.connected !== true && (
-                  <p className="mt-1 text-neon-amber">{statusConexao[i.id]?.motivo || 'Conexão ainda não confirmada pela Evolution.'}</p>
-                )}
-                {i.aviso && <p className="mt-1 text-neon-amber">{i.aviso}</p>}
-              </div>
+              {i.ativo && statusConexao[i.id]?.connected === false && (
+                <p className="text-center text-[11px] text-neon-amber">Leia o QR Code novamente para reconectar.</p>
+              )}
               <div className="grid grid-cols-2 gap-2">
                 <Link
                   href={`/dashboard/instancias/${i.id}/contexto`}
@@ -391,22 +403,6 @@ export default function InstanciasWhatsApp({ empresaId }: {
                 </button>
                 <button
                   type="button"
-                  onClick={() => carregarInstancias()}
-                  disabled={verificando}
-                  className="flex items-center justify-center gap-1.5 rounded-lg border border-neon-cyan/30 px-3 py-2 text-xs font-medium text-neon-cyan transition-colors hover:bg-neon-cyan/15 disabled:opacity-50"
-                >
-                  {verificando ? 'Verificando...' : 'Verificar'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => revalidarWebhook(i)}
-                  disabled={revalidandoWebhook === i.id}
-                  className="flex items-center justify-center gap-1.5 rounded-lg border border-neon-violet/30 px-3 py-2 text-xs font-medium text-neon-violet transition-colors hover:bg-neon-violet/15 disabled:opacity-50"
-                >
-                  {revalidandoWebhook === i.id ? 'Revalidando...' : 'Webhook'}
-                </button>
-                <button
-                  type="button"
                   onClick={() => toggleAtivo(i)}
                   className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${i.ativo ? 'border-neon-amber/40 text-neon-amber hover:bg-neon-amber/15' : 'border-neon-lime/40 text-neon-lime hover:bg-neon-lime/15'}`}
                   title={i.ativo ? 'Desativar este número (o agente para de responder por ele)' : 'Ativar este número (o agente volta a responder por ele)'}
@@ -415,7 +411,7 @@ export default function InstanciasWhatsApp({ empresaId }: {
                 </button>
                 <button
                   type="button"
-                  onClick={() => removerInstancia(i)}
+                  onClick={() => abrirRemocaoInstancia(i)}
                   className="flex items-center justify-center gap-1.5 rounded-lg border border-neon-red/40 px-3 py-2 text-xs font-medium text-neon-red transition-colors hover:bg-neon-red/15"
                   aria-label="Remover instância"
                 >
@@ -452,6 +448,111 @@ export default function InstanciasWhatsApp({ empresaId }: {
           <p className="col-span-full text-sm text-gray-400">Nenhuma instância ainda. Adicione uma acima.</p>
         )}
       </div>
+
+      {remocao.open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={fecharRemocao}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-white/10 bg-panel p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-neon-red/80">Remover instancia</p>
+                <h3 className="mt-1 font-display text-xl font-bold text-white">
+                  {remocao.inst?.nome || remocao.inst?.evolution_instance || 'Instancia'}
+                </h3>
+                <p className="mt-1 font-mono text-[11px] text-white/45">{remocao.inst?.evolution_instance}</p>
+              </div>
+              <button
+                type="button"
+                onClick={fecharRemocao}
+                disabled={remocao.removing}
+                className="text-xl leading-none text-white/40 hover:text-white disabled:opacity-40"
+                aria-label="Fechar"
+              >
+                x
+              </button>
+            </div>
+
+            {remocao.loading && (
+              <div className="py-10 text-center text-sm text-white/55">Calculando impacto...</div>
+            )}
+
+            {remocao.error && (
+              <div className="mt-4 rounded-lg border border-neon-red/30 bg-neon-red/10 px-3 py-2 text-sm text-neon-red">
+                {remocao.error}
+              </div>
+            )}
+
+            {impactoRemocao && (
+              <div className="mt-5 space-y-4">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-white/35">Conversas</p>
+                    <p className="mt-1 text-lg font-semibold text-white">{impactoRemocao.conversas_vinculadas}</p>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-white/35">Rascunhos</p>
+                    <p className="mt-1 text-lg font-semibold text-white">{impactoRemocao.rascunhos_cancelaveis}</p>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-white/35">Envios</p>
+                    <p className={`mt-1 text-lg font-semibold ${impactoRemocao.envios_em_andamento > 0 ? 'text-neon-red' : 'text-white'}`}>
+                      {impactoRemocao.envios_em_andamento}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-white/35">Auto</p>
+                    <p className={`mt-1 text-sm font-semibold ${impactoRemocao.banco_leads.configuracao_usando ? 'text-neon-amber' : 'text-white/70'}`}>
+                      {impactoRemocao.banco_leads.configuracao_usando ? 'Usa' : 'Nao usa'}
+                    </p>
+                  </div>
+                </div>
+
+                {impactoRemocao.avisos.length > 0 && (
+                  <div className="space-y-2 text-sm text-white/70">
+                    {impactoRemocao.avisos.map((aviso, idx) => (
+                      <p key={idx} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">{aviso}</p>
+                    ))}
+                  </div>
+                )}
+
+                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs leading-relaxed text-white/50">
+                  Historico, leads e agenda permanecem salvos. O contexto sera removido somente se for exclusivo desta instancia.
+                </div>
+
+                {impactoRemocao.bloqueia_remocao && (
+                  <div className="rounded-lg border border-neon-red/30 bg-neon-red/10 px-3 py-2 text-sm text-neon-red">
+                    Remocao bloqueada enquanto houver envio em andamento. Aguarde a confirmacao do envio e tente novamente.
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={fecharRemocao}
+                disabled={remocao.removing}
+                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/70 hover:bg-white/5 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarRemocaoInstancia}
+                disabled={!podeConfirmarRemocao}
+                className="rounded-lg border border-neon-red/40 px-4 py-2 text-sm font-medium text-neon-red hover:bg-neon-red/15 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {remocao.removing ? 'Removendo...' : 'Remover agora'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {qr.open && (
         <div
