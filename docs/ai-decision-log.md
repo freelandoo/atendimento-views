@@ -330,3 +330,34 @@ cronológica inversa (mais recente no topo).
   dependem de Playbook ativo para serem aplicaveis.
 - **Como validar:** testes de feedback positivo/negativo/bloqueios, teste de Contexto 2, suite
   completa e typechecks de backend/frontend.
+
+## 2026-07-30 - Central de Ligacoes: fonte unica de interesse e duracao honesta
+
+- **Decisao:** Antes de iniciar a Central de Gestao Comercial, corrigir a ORIGEM dos dados:
+  (1) unificar as marcas 🟢/🔴 em `app.ligacao_sinais`; (2) separar o fim da chamada do momento
+  do save; (3) remover o caminho legado `POST /api/empresas/:id/ligacoes` e expurgar seu passivo;
+  (4) completar `app.vw_ligacoes_analiticas` com texto e identidade.
+- **Motivo:** a validacao operacional mostrou que 3 numeros que o painel exibiria estariam
+  errados. As marcas viviam so na memoria do React (`ligacao_etapa_eventos` so era gravado no
+  encerrar), entao um refresh zerava `etapa_maior_interesse`/`etapa_perda_interesse`. A
+  `duracao_seg` era medida no instante do POST /encerrar, mas o botao "Encerrar ligacao" apenas
+  ABRE o formulario — todo o tempo de preenchimento entrava na duracao da ligacao E da ultima
+  etapa. E o caminho legado gravava encerradas com duracao vinda do cliente e zero etapas.
+- **Escolha:** interesse/resistencia passam a ter UMA fonte (`ligacao_sinais`), ja persistida no
+  clique; `etapa_maior_interesse`/`etapa_perda_interesse` viram DERIVACAO no servidor
+  (`derivarEtapasDeSinais`), nao mais estado do cliente. Nova coluna `chamada_encerrada_em`
+  (migration 049) alimenta `duracao_seg` e o fechamento da ultima etapa no MESMO instante.
+  A tabela `ligacao_etapa_eventos` nao e' dropada (historico), so deixa de receber escrita.
+- **Impacto:** migrations `049/050/051`, `src/db/ligacoes.js`, `src/db/ligacao-etapas.js`
+  (`fecharEtapaAtiva` ganha `momento` opcional), `src/routes/api-ligacoes.js`,
+  `frontend/app/dashboard/central-ligacoes/page.tsx`, `frontend/lib/ligacao-sinais-resumo.js`
+  (substitui `ligacao-marcas`). Sem novo env, segredo, prompt de producao ou dependencia.
+- **Riscos:** a migration `050` APAGA linhas e roda automatica no boot (`runMigrations`) — por
+  isso arquiva antes em `app.ligacoes_legado_arquivo`. O discriminante e' `status='encerrada'
+  AND duracao_seg IS NULL AND sem ocorrencia em ligacao_etapas`: os dois criterios JUNTOS, porque
+  `0 etapas` isolado apagaria ligacoes legitimas de campanha sem roteiro publicado.
+  `etapa_alcancada` segue vindo do cliente (redundante com `etapa_final` da view) — nao foi
+  alterado para manter o diff minimo.
+- **Como validar:** `npm test` (backend 1044, frontend 15), typecheck de backend e frontend, e
+  cenario ponta a ponta contra o router real: 20/20, com prova de que conversa de 3s + 4s de
+  preenchimento grava `duracao_seg = 3s` e ultima etapa = 3s.

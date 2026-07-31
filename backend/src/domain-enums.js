@@ -49,4 +49,85 @@ const JOB_QUEUE_TIPOS = Object.freeze([
   'prospeccao_envio_agendado', 'resumo_agenda_operador',
 ])
 
-module.exports = { AGENDA_VENDAS, AGENDA_APP, EVENTOS_COMERCIAIS_TIPOS, JOB_QUEUE_TIPOS }
+// --- Modulo Prospeccao & Inteligencia Comercial (Fase 0: Roteiros versionados) ---
+// Status da versao de um roteiro humano. Fonte da CHECK roteiro_versoes_status_chk
+// (migration 033). Publicada = imutavel; arquivada = fora de uso; rascunho = editavel.
+const ROTEIRO_VERSAO_STATUS = Object.freeze(['rascunho', 'publicada', 'arquivada'])
+
+// Tipos de etapa de um roteiro (ordem/estrutura da conversa de venda). Fonte da CHECK
+// roteiro_etapas_tipo_chk (migration 033). Ordem espelha a CHECK.
+const ROTEIRO_ETAPA_TIPO = Object.freeze([
+  'abertura', 'permissao', 'situacao', 'descoberta', 'problema', 'implicacao',
+  'insight', 'qualificacao', 'objecoes', 'convite_reuniao', 'proxima_acao',
+])
+
+// Fase 2: Campanhas. Status da campanha (CHECK campanhas_status_chk, migration 039).
+const CAMPANHA_STATUS = Object.freeze(['rascunho', 'ativa', 'pausada', 'encerrada'])
+
+// Status da OPORTUNIDADE por campanha (campanha_leads). Andamento do lead DENTRO da campanha
+// — separado do resultado da ligacao. CHECK campanha_leads_status_chk (migration 039).
+const OPORTUNIDADE_STATUS = Object.freeze([
+  'nao_iniciado', 'tentativa_contato', 'nao_atendeu', 'contato_realizado', 'em_descoberta',
+  'qualificado', 'follow_up', 'reuniao_marcada', 'proposta_enviada', 'negociacao',
+  'convertido', 'descartado',
+])
+
+// Fase 3: Ligacoes. Disposicao da chamada (CHECK ligacoes_resultado_chk, migration 040).
+const LIGACAO_RESULTADO = Object.freeze([
+  'atendeu', 'nao_atendeu', 'caixa_postal', 'ocupado', 'numero_invalido', 'reagendou',
+])
+
+// Fatia A (migration 041): ciclo de vida da SESSAO de ligacao. A ligacao nasce
+// 'em_andamento' no clique explicito de Iniciar; vira 'encerrada' (alimenta analitica)
+// ou 'descartada' (fica so para auditoria). CHECK ligacoes_status_chk. So 'encerrada'
+// entra em dashboards/IA (ver STATUS_ANALITICO em src/db/ligacoes.js).
+const LIGACAO_STATUS = Object.freeze(['em_andamento', 'encerrada', 'descartada'])
+
+// Fatia D (migration 044): sinais registrados DURANTE a ligacao (interesse/resistencia),
+// vindos do roteiro (clique no chip) ou criados na hora. CHECK ligacao_sinais_tipo_chk /
+// ligacao_sinais_origem_chk. 'novo_durante_ligacao' fica so na ligacao — promover ao
+// roteiro publicado e' acao separada (nao automatica).
+const SINAL_TIPO = Object.freeze(['interesse', 'resistencia'])
+const SINAL_ORIGEM = Object.freeze(['roteiro', 'novo_durante_ligacao'])
+
+// Fatia E (migration 045): objecoes registradas DURANTE a ligacao. Mesma logica de origem
+// dos sinais (vinda do roteiro ou criada na hora). CHECK ligacao_objecoes_origem_chk.
+const OBJECAO_ORIGEM = Object.freeze(['roteiro', 'novo_durante_ligacao'])
+
+// Fatia C (migration 043): perguntas do roteiro marcadas como feitas DURANTE a ligacao.
+// So do roteiro (nao ha criacao na hora). Desmarcar nao apaga: vira 'desmarcada' (correcao
+// auditavel). CHECK ligacao_perguntas_status_chk.
+const PERGUNTA_STATUS = Object.freeze(['realizada', 'desmarcada'])
+
+// Motivo de perda (separado do status/resultado). CHECK ligacoes_motivo_perda_chk — definida
+// na migration 040 e REDEFINIDA pela 052, que e' a fonte atual (o anti-drift aponta para la).
+// A 052 tirou dois valores, por serem de outro dominio:
+//   - 'numero_invalido'    -> e' DISPOSICAO DA CHAMADA e ja vive em LIGACAO_RESULTADO. Nos dois
+//                             enums, permitia gravar contradicao (resultado='atendeu' +
+//                             motivo_perda='numero_invalido').
+//   - 'pediu_novo_contato' -> e' ADIAMENTO, nao perda. Ja coberto por resultado='reagendou' +
+//                             status 'follow_up' + proxima_acao/data_followup. Como motivo de
+//                             perda, inflava a contagem de perdas com leads ainda vivos.
+// Os valores antigos ficaram em app.ligacoes_motivo_perda_v1_arquivo (auditoria).
+const MOTIVO_PERDA = Object.freeze([
+  'nao_era_decisor', 'sem_disponibilidade', 'sem_prioridade', 'sem_orcamento',
+  'ja_tem_fornecedor', 'nao_percebeu_valor', 'sem_perfil', 'sem_interesse',
+])
+
+module.exports = {
+  AGENDA_VENDAS,
+  AGENDA_APP,
+  EVENTOS_COMERCIAIS_TIPOS,
+  JOB_QUEUE_TIPOS,
+  ROTEIRO_VERSAO_STATUS,
+  ROTEIRO_ETAPA_TIPO,
+  CAMPANHA_STATUS,
+  OPORTUNIDADE_STATUS,
+  LIGACAO_RESULTADO,
+  LIGACAO_STATUS,
+  SINAL_TIPO,
+  SINAL_ORIGEM,
+  OBJECAO_ORIGEM,
+  PERGUNTA_STATUS,
+  MOTIVO_PERDA,
+}

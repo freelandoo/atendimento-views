@@ -1,5 +1,5 @@
 'use client'
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { apiFetch } from '@/lib/api'
@@ -11,6 +11,14 @@ export default function LoginPage() {
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Mostra (uma única vez) o aviso de sessão expirada deixado pelo AuthGuard.
+  useEffect(() => {
+    try {
+      const m = sessionStorage.getItem('authMsg')
+      if (m) { setErro(m); sessionStorage.removeItem('authMsg') }
+    } catch { /* */ }
+  }, [])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()

@@ -5,14 +5,16 @@ import { usePathname } from 'next/navigation'
 import { useSession, podePapel, type Role } from '@/lib/useSession'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 
-type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report' | 'accounts' | 'profile' | 'prompts' | 'playbook' | 'followup'
+type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report' | 'accounts' | 'profile' | 'prompts' | 'playbook' | 'followup' | 'roteiro' | 'central'
 
 const NAV = [
   { href: '/dashboard', label: 'Visão Geral', icon: 'overview' },
   { href: '/dashboard/conversas', label: 'Conversas', icon: 'chat' },
   { href: '/dashboard/aquisicao', label: 'Aquisição', icon: 'prospect', minRole: 'admin' },
   { href: '/dashboard/banco-leads', label: 'Banco de Leads', icon: 'leads', minRole: 'admin' },
+  { href: '/dashboard/central-ligacoes', label: 'Central de Ligações', icon: 'central', minRole: 'admin' },
   { href: '/dashboard/follow-ups', label: 'Follow-ups', icon: 'followup', minRole: 'admin' },
+  { href: '/dashboard/roteiros', label: 'Roteiros', icon: 'roteiro', minRole: 'admin' },
   { href: '/dashboard/agenda', label: 'Agenda', icon: 'agenda' },
   { href: '/dashboard/contextos', label: 'Instância', icon: 'company' },
   { href: '/dashboard/playbook', label: 'Playbook', icon: 'playbook', minRole: 'admin' },
@@ -191,6 +193,18 @@ function NavGlyph({ name, className }: { name: NavIcon; className?: string }) {
       {name === 'followup' && (
         <>
           <path {...common} d="M6.5 4h3l1.5 4-2 1.5a11 11 0 0 0 5 5l1.5-2 4 1.5v3a2 2 0 0 1-2.2 2A15 15 0 0 1 4.5 6.2 2 2 0 0 1 6.5 4z" />
+        </>
+      )}
+      {name === 'roteiro' && (
+        <>
+          <path {...common} d="M7 4h8l3 3v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
+          <path {...common} d="M14 4v4h4M9 12h6M9 15h6M9 9h2" />
+        </>
+      )}
+      {name === 'central' && (
+        <>
+          <path {...common} d="M6.5 4h3l1.5 4-2 1.5a11 11 0 0 0 5 5l1.5-2 4 1.5v3a2 2 0 0 1-2.2 2A15 15 0 0 1 4.5 6.2 2 2 0 0 1 6.5 4z" />
+          <circle {...common} cx="17.5" cy="6.5" r="2.5" />
         </>
       )}
       {name === 'context' && (

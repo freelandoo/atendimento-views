@@ -10,6 +10,14 @@ export function getEmpresaId(): string {
   return localStorage.getItem('empresa_id') || ''
 }
 
+// Erro enriquecido lançado por apiFetch: status HTTP (quando houve resposta) e isNetwork
+// (falha de conexão). Permite ao chamador distinguir sessão/permissão/conflito/rede.
+export interface ApiError extends Error {
+  status?: number
+  code?: string
+  isNetwork?: boolean
+}
+
 type ApiFetchInit = RequestInit & { timeoutMs?: number }
 
 const DEFAULT_TIMEOUT_MS = 180000
@@ -40,9 +48,15 @@ export async function apiFetch<T = unknown>(
     })
   } catch (err: unknown) {
     if ((err as { name?: string })?.name === 'AbortError') {
-      throw new Error(`Tempo esgotado após ${Math.round(timeoutMs / 1000)}s. Tente de novo ou cheque os logs.`)
+      const e = new Error(`Tempo esgotado após ${Math.round(timeoutMs / 1000)}s. Tente de novo ou cheque os logs.`) as ApiError
+      e.isNetwork = true
+      throw e
     }
-    throw err
+    // Falha de conexão (backend fora do ar, DNS, etc.) — marca como erro de REDE (≠ auth).
+    const e = new Error('Falha de conexão com o servidor.') as ApiError
+    e.isNetwork = true
+    e.cause = err
+    throw e
   } finally {
     clearTimeout(timer)
   }
@@ -51,10 +65,16 @@ export async function apiFetch<T = unknown>(
   try {
     json = await res.json()
   } catch {
-    throw new Error(`Erro ${res.status}: resposta inválida do servidor.`)
+    const e = new Error(`Erro ${res.status}: resposta inválida do servidor.`) as ApiError
+    e.status = res.status
+    throw e
   }
   if (!json.ok) {
-    throw new Error(json.error?.message || `Erro ${res.status}`)
+    // Anexa status/código HTTP para o chamador mapear (401=sessão, 403=permissão, 409=conflito…).
+    const e = new Error(json.error?.message || `Erro ${res.status}`) as ApiError
+    e.status = res.status
+    e.code = json.error?.code
+    throw e
   }
   return json
 }

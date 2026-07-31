@@ -3,11 +3,24 @@ const path = require('path')
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { AGENDA_VENDAS, AGENDA_APP, EVENTOS_COMERCIAIS_TIPOS, JOB_QUEUE_TIPOS } = require('../src/domain-enums')
+const {
+  AGENDA_VENDAS, AGENDA_APP, EVENTOS_COMERCIAIS_TIPOS, JOB_QUEUE_TIPOS,
+  ROTEIRO_VERSAO_STATUS, ROTEIRO_ETAPA_TIPO, CAMPANHA_STATUS, OPORTUNIDADE_STATUS,
+  LIGACAO_RESULTADO, LIGACAO_STATUS, SINAL_TIPO, SINAL_ORIGEM, OBJECAO_ORIGEM,
+  PERGUNTA_STATUS, MOTIVO_PERDA,
+} = require('../src/domain-enums')
 
 const initSql = fs.readFileSync(path.join(__dirname, '..', 'sql', 'init.sql'), 'utf8')
 const mig011 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '011_agenda_multiempresa.sql'), 'utf8')
 const mig032 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '032_eventos_comerciais_auto_reply.sql'), 'utf8')
+const mig033 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '033_roteiros.sql'), 'utf8')
+const mig039 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '039_campanhas.sql'), 'utf8')
+const mig040 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '040_ligacoes.sql'), 'utf8')
+const mig041 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '041_ligacoes_estado.sql'), 'utf8')
+const mig044 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '044_ligacao_sinais.sql'), 'utf8')
+const mig045 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '045_ligacao_objecoes.sql'), 'utf8')
+const mig043 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '043_ligacao_perguntas.sql'), 'utf8')
+const mig052 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '052_ligacoes_motivo_perda_v2.sql'), 'utf8')
 
 // Extrai a lista de valores da primeira CHECK (... IN (...)) que segue o nome da constraint.
 function checkIn(sql, constraintName) {
@@ -72,9 +85,61 @@ test('job_queue: todo tipo literal enfileirado em src/ esta na fonte unica (== C
   }
 })
 
+test('ROTEIRO_* batem com as CHECK de roteiro_versoes/roteiro_etapas (migration 033)', () => {
+  mesmoConjunto(ROTEIRO_VERSAO_STATUS, checkIn(mig033, 'roteiro_versoes_status_chk'), 'roteiro_versao_status')
+  mesmoConjunto(ROTEIRO_ETAPA_TIPO, checkIn(mig033, 'roteiro_etapas_tipo_chk'), 'roteiro_etapa_tipo')
+})
+
+test('CAMPANHA_STATUS / OPORTUNIDADE_STATUS batem com as CHECK (migration 039)', () => {
+  mesmoConjunto(CAMPANHA_STATUS, checkIn(mig039, 'campanhas_status_chk'), 'campanha_status')
+  mesmoConjunto(OPORTUNIDADE_STATUS, checkIn(mig039, 'campanha_leads_status_chk'), 'oportunidade_status')
+})
+
+test('LIGACAO_RESULTADO bate com a CHECK ligacoes_resultado_chk (migration 040)', () => {
+  mesmoConjunto(LIGACAO_RESULTADO, checkIn(mig040, 'ligacoes_resultado_chk'), 'ligacao_resultado')
+})
+
+// A CHECK de motivo_perda nasceu na 040 e foi REDEFINIDA pela 052 — o anti-drift tem de
+// comparar com a definicao ATUAL, senao trava o enum na versao antiga.
+test('MOTIVO_PERDA bate com a CHECK ligacoes_motivo_perda_chk (migration 052, que redefine a 040)', () => {
+  mesmoConjunto(MOTIVO_PERDA, checkIn(mig052, 'ligacoes_motivo_perda_chk'), 'motivo_perda')
+})
+
+// Trava a decisao da 052: estes dois valores pertencem a OUTRO dominio e nao podem voltar.
+// 'numero_invalido' e' disposicao da chamada (LIGACAO_RESULTADO); 'pediu_novo_contato' e'
+// adiamento (resultado='reagendou' + follow_up), nao perda.
+test('MOTIVO_PERDA nao reintroduz os valores descontinuados pela 052', () => {
+  for (const proibido of ['numero_invalido', 'pediu_novo_contato']) {
+    assert.ok(!MOTIVO_PERDA.includes(proibido),
+      `'${proibido}' saiu de MOTIVO_PERDA na migration 052 — reintroduzir volta a permitir registro contraditorio/inflacao de perdas`)
+  }
+  assert.ok(LIGACAO_RESULTADO.includes('numero_invalido'),
+    'numero_invalido deve seguir existindo como RESULTADO (disposicao da chamada)')
+})
+
+test('LIGACAO_STATUS bate com a CHECK ligacoes_status_chk (migration 041)', () => {
+  mesmoConjunto(LIGACAO_STATUS, checkIn(mig041, 'ligacoes_status_chk'), 'ligacao_status')
+})
+
+test('SINAL_TIPO / SINAL_ORIGEM batem com as CHECK ligacao_sinais_* (migration 044)', () => {
+  mesmoConjunto(SINAL_TIPO, checkIn(mig044, 'ligacao_sinais_tipo_chk'), 'sinal_tipo')
+  mesmoConjunto(SINAL_ORIGEM, checkIn(mig044, 'ligacao_sinais_origem_chk'), 'sinal_origem')
+})
+
+test('OBJECAO_ORIGEM bate com a CHECK ligacao_objecoes_origem_chk (migration 045)', () => {
+  mesmoConjunto(OBJECAO_ORIGEM, checkIn(mig045, 'ligacao_objecoes_origem_chk'), 'objecao_origem')
+})
+
+test('PERGUNTA_STATUS bate com a CHECK ligacao_perguntas_status_chk (migration 043)', () => {
+  mesmoConjunto(PERGUNTA_STATUS, checkIn(mig043, 'ligacao_perguntas_status_chk'), 'pergunta_status')
+})
+
 test('arrays da fonte unica sem duplicatas e nao vazios', () => {
   for (const arr of [AGENDA_VENDAS.TIPOS, AGENDA_VENDAS.STATUS, AGENDA_VENDAS.PRIORIDADES,
-    AGENDA_APP.TIPOS, AGENDA_APP.STATUS, AGENDA_APP.PRIORIDADES, EVENTOS_COMERCIAIS_TIPOS]) {
+    AGENDA_APP.TIPOS, AGENDA_APP.STATUS, AGENDA_APP.PRIORIDADES, EVENTOS_COMERCIAIS_TIPOS,
+    ROTEIRO_VERSAO_STATUS, ROTEIRO_ETAPA_TIPO, CAMPANHA_STATUS, OPORTUNIDADE_STATUS,
+    LIGACAO_RESULTADO, LIGACAO_STATUS, SINAL_TIPO, SINAL_ORIGEM, OBJECAO_ORIGEM,
+    PERGUNTA_STATUS, MOTIVO_PERDA]) {
     assert.ok(arr.length > 0)
     assert.equal(new Set(arr).size, arr.length, 'ha valor duplicado no enum')
   }

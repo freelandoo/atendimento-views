@@ -1,0 +1,1009 @@
+'use client'
+// Central de Ligações + Operação da Ligação (módulo Prospecção & Inteligência Comercial).
+// Cockpit do vendedor: escolhe a campanha ativa, vê a fila priorizada e liga. A Operação
+// (3 colunas) mostra o lead, o roteiro navegável e o registro rápido; ao encerrar, o
+// resumo estruturado é enviado. Consome /api/empresas/:id/{campanhas,roteiros,ligacoes}.
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { apiFetch } from '@/lib/api'
+import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
+import { IconClose, IconSend } from '@/components/ui/icons'
+import { resumoSinais } from '@/lib/ligacao-sinais-resumo'
+import { segDesde, fmtCronometro } from '@/lib/ligacao-estado'
+import { fmtFone, telHref, avisoFone, analisarFone } from '@/lib/ligacao-fone'
+import { msgErro } from '@/lib/erro-msg'
+
+const base = () => `/api/empresas/${typeof window !== 'undefined' ? localStorage.getItem('empresa_id') : ''}`
+
+const ETAPA_LABEL: Record<string, string> = {
+  abertura: 'Abertura', permissao: 'Permissão', situacao: 'Situação', descoberta: 'Descoberta',
+  problema: 'Problema', implicacao: 'Implicação', insight: 'Insight', qualificacao: 'Qualificação',
+  objecoes: 'Objeções', convite_reuniao: 'Convite p/ reunião', proxima_acao: 'Próxima ação',
+}
+const RESULTADOS: [string, string][] = [
+  ['atendeu', 'Atendeu'], ['nao_atendeu', 'Não atendeu'], ['caixa_postal', 'Caixa postal'],
+  ['ocupado', 'Ocupado'], ['numero_invalido', 'Número inválido'], ['reagendou', 'Reagendou'],
+]
+const STATUS_OP: [string, string][] = [
+  ['nao_iniciado', 'Não iniciado'], ['tentativa_contato', 'Tentativa de contato'], ['nao_atendeu', 'Não atendeu'],
+  ['contato_realizado', 'Contato realizado'], ['em_descoberta', 'Em descoberta'], ['qualificado', 'Qualificado'],
+  ['follow_up', 'Follow-up'], ['reuniao_marcada', 'Reunião marcada'], ['proposta_enviada', 'Proposta enviada'],
+  ['negociacao', 'Negociação'], ['convertido', 'Convertido'], ['descartado', 'Descartado'],
+]
+// Espelha MOTIVO_PERDA (backend/src/domain-enums.js) — CHECK redefinida na migration 052.
+// 'numero_invalido' saiu (é disposição da chamada, vive em RESULTADOS) e 'pediu_novo_contato'
+// também (é adiamento: use Resultado "Reagendou" + status Follow-up).
+const MOTIVOS: [string, string][] = [
+  ['nao_era_decisor', 'Não era o decisor'], ['sem_disponibilidade', 'Sem disponibilidade'],
+  ['sem_prioridade', 'Sem prioridade'], ['sem_orcamento', 'Sem orçamento'], ['ja_tem_fornecedor', 'Já tem fornecedor'],
+  ['nao_percebeu_valor', 'Não percebeu valor'], ['sem_perfil', 'Sem perfil'], ['sem_interesse', 'Sem interesse'],
+]
+
+// Cor por status da oportunidade. Antes TODOS usavam o mesmo cinza — "Convertido" e
+// "Descartado" ficavam visualmente idênticos na lista. Só apresentação.
+const STATUS_CLS: Record<string, string> = {
+  descartado: 'bg-red-100 text-red-700',
+  convertido: 'bg-emerald-100 text-emerald-800',
+  reuniao_marcada: 'bg-emerald-100 text-emerald-700',
+  proposta_enviada: 'bg-sky-100 text-sky-700',
+  negociacao: 'bg-sky-100 text-sky-700',
+  qualificado: 'bg-indigo-100 text-indigo-700',
+  em_descoberta: 'bg-indigo-100 text-indigo-700',
+  follow_up: 'bg-amber-100 text-amber-700',
+  nao_atendeu: 'bg-amber-100 text-amber-700',
+  tentativa_contato: 'bg-amber-100 text-amber-700',
+  contato_realizado: 'bg-slate-200 text-slate-700',
+  nao_iniciado: 'bg-slate-100 text-slate-500',
+}
+const clsStatus = (s: string) => STATUS_CLS[s] || 'bg-slate-100 text-slate-600'
+const rotuloStatus = (s: string) => STATUS_OP.find((x) => x[0] === s)?.[1] || s
+// Status que caracterizam PERDA — só neles faz sentido pedir "motivo de perda".
+const STATUS_PERDA = new Set(['descartado'])
+
+type Campanha = { id: string; nome: string; status: string; total_leads: number; convertidos: number }
+type CampanhaDetalhe = {
+  id: string; nome: string; roteiro_versao_id: string | null; roteiro_nome: string | null; roteiro_versao: number | null
+  meta_ligacoes: number | null; meta_reunioes: number | null; leads_por_status: Record<string, number>
+}
+type FilaItem = {
+  campanha_lead_id: string; status: string; prospect_id: string; nome: string
+  telefone: string | null; cidade: string | null; nicho: string | null; score: number | null; tentativas: number
+}
+type LeadAcomp = {
+  id: string; status: string; proxima_acao: string | null; data_followup: string | null
+  prospect_id: string; nome: string; telefone: string | null; cidade: string | null; nicho: string | null
+}
+type EtapaApi = {
+  id: string; ordem: number; tipo: string; titulo: string | null; objetivo: string | null; frase_sugerida: string | null
+  perguntas_json: string[]; sinais_interesse_json: string[]; sinais_resistencia_json: string[]
+  objecoes_json: { objecao: string; resposta: string }[]
+}
+type SinalReg = { id: string; tipo: 'interesse' | 'resistencia'; texto: string; origem: string; etapa_tipo: string | null }
+type ObjecaoReg = { id: string; texto_objecao: string; origem: string; etapa_tipo: string | null; resposta_utilizada: string | null; resolvida: boolean }
+type PerguntaReg = { id: string; texto_no_momento: string; etapa_tipo: string | null; pergunta_indice: number | null }
+type ObjecaoRoteiro = { objecao: string; resposta: string }
+type Ligacao = { id: string; resultado: string; etapa_alcancada: string | null; objecao_principal: string | null; motivo_perda: string | null; criado_em: string }
+type Funil = { encerraram: Record<string, number>; perderam: Record<string, number>; total_ligacoes: number }
+const ETAPA_ORDEM = ['abertura', 'permissao', 'situacao', 'descoberta', 'problema', 'implicacao', 'insight', 'qualificacao', 'objecoes', 'convite_reuniao', 'proxima_acao']
+
+// Severidade do alerta de qualidade do número, derivada do `motivo` de analisarFone().
+// Glifo DIFERENTE por severidade (não só cor) para não depender de percepção de cor.
+// 'vazio' não entra: telefone ausente já se explica com o "—", alerta ali seria ruído.
+const FONE_ALERTA: Record<string, { glifo: string; rotulo: string; cls: string }> = {
+  sem_ddd: { glifo: '!', rotulo: 'Atenção', cls: 'border-amber-400 bg-amber-50 text-amber-700' },
+  formato_desconhecido: { glifo: '✕', rotulo: 'Número inválido', cls: 'border-red-300 bg-red-50 text-red-700' },
+}
+
+// Telefone clicável: o vendedor disca no clique em vez de ler da tela e digitar — que era a
+// principal fonte de erro de discagem. Número não discável (sem DDD/irreconhecível) não vira
+// link e ganha um SELO de alerta, em vez de aparecer como se estivesse completo.
+//
+// O aviso era texto inline ("⚠ sem DDD — confira antes de ligar"): ocupava mais espaço que o
+// próprio número, quebrava a célula em duas linhas e engordava a tabela toda. Agora é um selo
+// de 16px + tooltip sob demanda — nenhuma informação se perde: o motivo continua no tooltip
+// visual (hover E foco por teclado), no `title` nativo e no aria-label para leitor de tela.
+function Fone({ tel, className = '' }: { tel: string | null; className?: string }) {
+  const href = telHref(tel)
+  const aviso = avisoFone(tel)
+  const alerta = FONE_ALERTA[analisarFone(tel).motivo || '']
+  return (
+    <span className={`inline-flex items-center gap-1 whitespace-nowrap ${className}`}>
+      {href
+        ? <a href={href} className="text-brand hover:underline" title="Clique para discar">{fmtFone(tel)}</a>
+        : <span className="text-slate-500">{fmtFone(tel)}</span>}
+      {alerta && aviso && (
+        // tabIndex=0 + group-focus: o tooltip abre no Tab, não só no mouse. O `title` fica como
+        // fallback nativo; o aria-label é o que o leitor de tela anuncia.
+        <span tabIndex={0} title={aviso} aria-label={`${alerta.rotulo}: ${aviso}`}
+          className="group relative inline-flex rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500">
+          <span aria-hidden="true" className={`inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-bold leading-none ${alerta.cls}`}>{alerta.glifo}</span>
+          {/* Abre para CIMA: dentro da tabela (wrapper overflow-hidden) sempre há o cabeçalho
+              acima da 1ª linha, então a bolha nunca é cortada. */}
+          <span role="tooltip"
+            className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-1 hidden w-max max-w-[210px] -translate-x-1/2 whitespace-normal rounded-md bg-slate-800 px-2 py-1 text-left text-[11px] font-normal leading-snug text-white shadow-lg group-hover:block group-focus:block">
+            {aviso}
+          </span>
+        </span>
+      )}
+    </span>
+  )
+}
+
+export default function CentralLigacoesPage() {
+  const fb = useFeedback()
+  const [campanhas, setCampanhas] = useState<Campanha[]>([])
+  const [campanhaId, setCampanhaId] = useState('')
+  const [detalhe, setDetalhe] = useState<CampanhaDetalhe | null>(null)
+  const [fila, setFila] = useState<FilaItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [operando, setOperando] = useState<FilaItem | null>(null)
+  const [aba, setAba] = useState<'fila' | 'acompanhamento' | 'funil'>('fila')
+  const [todosLeads, setTodosLeads] = useState<LeadAcomp[]>([])
+  const [funil, setFunil] = useState<Funil | null>(null)
+  const [busca, setBusca] = useState('')
+  const [statusFiltro, setStatusFiltro] = useState('')
+  const [pagina, setPagina] = useState(1)
+  const POR_PAGINA = 25
+  useEffect(() => { setPagina(1) }, [busca, statusFiltro, campanhaId, aba])
+
+  useEffect(() => {
+    apiFetch<Campanha[]>(`${base()}/campanhas`).then((r) => {
+      setCampanhas(r.data)
+      const ativa = r.data.find((c) => c.status === 'ativa') || r.data[0]
+      if (ativa) setCampanhaId(ativa.id)
+    }).catch((e) => fb.toast(msgErro(e, 'Não foi possível carregar as campanhas.'), 'error')).finally(() => setLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const carregarCampanha = useCallback(async (id: string) => {
+    if (!id) { setDetalhe(null); setFila([]); return }
+    try {
+      const [d, f, l, fu] = await Promise.all([
+        apiFetch<CampanhaDetalhe>(`${base()}/campanhas/${id}`),
+        apiFetch<FilaItem[]>(`${base()}/campanhas/${id}/fila`),
+        apiFetch<LeadAcomp[]>(`${base()}/campanhas/${id}/leads`),
+        apiFetch<Funil>(`${base()}/campanhas/${id}/funil`),
+      ])
+      setDetalhe(d.data); setFila(f.data); setTodosLeads(l.data); setFunil(fu.data)
+    } catch (e) { fb.toast(msgErro(e, 'Não foi possível carregar a campanha.'), 'error') }
+  }, [fb])
+
+  useEffect(() => { carregarCampanha(campanhaId) }, [campanhaId, carregarCampanha])
+
+  const fecharOperacao = useCallback((recarrega: boolean) => {
+    setOperando(null)
+    if (recarrega) carregarCampanha(campanhaId)
+  }, [campanhaId, carregarCampanha])
+
+  if (loading) return <div className="flex justify-center py-20"><Spinner /></div>
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Central de Ligações</h1>
+          <p className="text-sm text-slate-500">Escolha a campanha, ligue para o próximo da fila e registre em poucos cliques.</p>
+        </div>
+        <select value={campanhaId} onChange={(e) => setCampanhaId(e.target.value)} className="rounded-lg border px-3 py-2 text-sm">
+          <option value="">Selecione a campanha…</option>
+          {campanhas.map((c) => <option key={c.id} value={c.id}>{c.nome} {c.status === 'ativa' ? '• ativa' : ''}</option>)}
+        </select>
+      </div>
+
+      {!detalhe ? (
+        <div className="rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">
+          {campanhas.length === 0 ? 'Nenhuma campanha ainda. Crie uma campanha para começar a ligar.' : 'Selecione uma campanha acima.'}
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Card label="Na fila" valor={fila.length} cor="text-brand" />
+            <Card label="Reuniões marcadas" valor={detalhe.leads_por_status?.reuniao_marcada || 0} cor="text-emerald-600" />
+            <Card label="Convertidos" valor={detalhe.leads_por_status?.convertido || 0} cor="text-emerald-700" />
+            <Card label="Roteiro" valor={detalhe.roteiro_nome ? `v${detalhe.roteiro_versao}` : '—'} cor="text-slate-600" sub={detalhe.roteiro_nome || 'sem roteiro'} />
+          </div>
+
+          <div className="flex gap-2 border-b">
+            {([['fila', `📞 Fila (${fila.length})`], ['acompanhamento', `📋 Acompanhamento (${todosLeads.length})`], ['funil', '📊 Funil']] as ['fila' | 'acompanhamento' | 'funil', string][]).map(([id, label]) => (
+              <button key={id} onClick={() => setAba(id)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition ${aba === id ? 'border-brand text-brand' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>{label}</button>
+            ))}
+          </div>
+
+          {aba === 'fila' && (
+            <>
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={fila.length === 0}
+                  onClick={() => setOperando(fila[0])}
+                  className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+                  ▶ Ligar agora {fila[0] ? `(${fila[0].nome})` : ''}
+                </button>
+                <button onClick={() => carregarCampanha(campanhaId)} className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50">Atualizar</button>
+              </div>
+              {fila.length === 0 ? (
+                <div className="rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">Fila vazia — todos os leads desta campanha já foram trabalhados. 🎉</div>
+              ) : (
+                <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                      <tr><th className="px-4 py-3">#</th><th className="px-4 py-3">Lead</th><th className="px-4 py-3">Telefone</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Tentativas</th><th className="px-4 py-3"></th></tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {fila.map((l, i) => (
+                        <tr key={l.campanha_lead_id} className={i === 0 ? 'bg-amber-50/40' : ''}>
+                          <td className="px-4 py-3 text-slate-400">{i + 1}</td>
+                          <td className="px-4 py-3"><div className="font-medium text-slate-800">{l.nome}</div><div className="text-xs text-slate-400">{[l.nicho, l.cidade].filter(Boolean).join(' · ')}</div></td>
+                          <td className="px-4 py-3"><Fone tel={l.telefone} className="text-sm" /></td>
+                          <td className="px-4 py-3"><span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${clsStatus(l.status)}`}>{rotuloStatus(l.status)}</span></td>
+                          <td className="px-4 py-3 text-slate-500">{l.tentativas}</td>
+                          <td className="px-4 py-3 text-right"><button onClick={() => setOperando(l)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white">Ligar</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+
+          {aba === 'acompanhamento' && (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nome ou telefone…" className="min-w-[220px] flex-1 rounded-lg border px-3 py-2 text-sm" />
+                <select value={statusFiltro} onChange={(e) => setStatusFiltro(e.target.value)} className="rounded-lg border px-2 py-2 text-sm">
+                  <option value="">Todos os status</option>
+                  {STATUS_OP.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+                <button onClick={() => carregarCampanha(campanhaId)} className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50">Atualizar</button>
+              </div>
+              {(() => {
+                const qn = busca.trim().toLowerCase()
+                const qd = busca.replace(/\D/g, '')
+                const filtrados = todosLeads.filter((l) =>
+                  (!statusFiltro || l.status === statusFiltro) &&
+                  (!qn || l.nome.toLowerCase().includes(qn) || (qd !== '' && (l.telefone || '').replace(/\D/g, '').includes(qd))))
+                  // Descartado é status final (vermelho): vai para o FIM da lista, senão o lead
+                  // que você acabou de descartar volta ao topo (ordem do servidor = atualizado_em
+                  // DESC) e empurra o trabalho vivo para a página seguinte. Sort estável ⇒ dentro
+                  // de cada grupo a ordem do servidor é preservada. Só apresentação.
+                  .slice().sort((a, b) => Number(a.status === 'descartado') - Number(b.status === 'descartado'))
+                if (filtrados.length === 0) {
+                  return <div className="rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">Nenhum lead {busca || statusFiltro ? 'com esse filtro' : 'nesta campanha'}.</div>
+                }
+                const totalPaginas = Math.max(1, Math.ceil(filtrados.length / POR_PAGINA))
+                const p = Math.min(pagina, totalPaginas)
+                const pageItems = filtrados.slice((p - 1) * POR_PAGINA, p * POR_PAGINA)
+                return (
+                  <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+                    <div className="border-b px-4 py-2 text-xs text-slate-500">{filtrados.length}{filtrados.length !== todosLeads.length ? ` de ${todosLeads.length}` : ''} lead(s)</div>
+                    <table className="w-full text-sm">
+                      <thead className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                        <tr><th className="px-4 py-3">Lead</th><th className="px-4 py-3">Telefone</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Próxima ação</th><th className="px-4 py-3">Follow-up</th><th className="px-4 py-3"></th></tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {pageItems.map((l) => (
+                          <tr key={l.id}>
+                            <td className="px-4 py-3"><div className="font-medium text-slate-800">{l.nome}</div><div className="text-xs text-slate-400">{[l.nicho, l.cidade].filter(Boolean).join(' · ')}</div></td>
+                            <td className="px-4 py-3"><Fone tel={l.telefone} className="text-sm" /></td>
+                            <td className="px-4 py-3"><span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${clsStatus(l.status)}`}>{rotuloStatus(l.status)}</span></td>
+                            {/* Texto livre: trunca em 1 linha (completo no title) para não ser
+                                ele a esticar a altura da linha que acabamos de compactar. */}
+                            <td className="max-w-[220px] truncate px-4 py-3 text-xs text-slate-500" title={l.proxima_acao || ''}>{l.proxima_acao || '—'}</td>
+                            <td className="px-4 py-3 text-xs text-slate-500">{l.data_followup ? new Date(l.data_followup).toLocaleDateString('pt-BR') : '—'}</td>
+                            <td className="px-4 py-3 text-right"><button onClick={() => setOperando({ campanha_lead_id: l.id, status: l.status, prospect_id: l.prospect_id, nome: l.nome, telefone: l.telefone, cidade: l.cidade, nicho: l.nicho, score: null, tentativas: 0 })} className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50">Registrar</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {totalPaginas > 1 && (
+                      <div className="flex items-center justify-between border-t px-4 py-2">
+                        <span className="text-xs text-slate-500">Página {p} de {totalPaginas} · {POR_PAGINA}/página</span>
+                        <div className="flex gap-1">
+                          <button onClick={() => setPagina(Math.max(1, p - 1))} disabled={p === 1} className="rounded border px-3 py-1 text-xs disabled:opacity-30">◀ Anterior</button>
+                          <button onClick={() => setPagina(Math.min(totalPaginas, p + 1))} disabled={p === totalPaginas} className="rounded border px-3 py-1 text-xs disabled:opacity-30">Próxima ▶</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+            </>
+          )}
+
+          {aba === 'funil' && <FunilPanel funil={funil} />}
+        </>
+      )}
+
+      {operando && detalhe && (
+        <OperacaoLigacao lead={operando} campanha={detalhe} onFechar={fecharOperacao} fb={fb} />
+      )}
+    </div>
+  )
+}
+
+function FunilPanel({ funil }: { funil: Funil | null }) {
+  if (!funil || funil.total_ligacoes === 0) {
+    return <div className="rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">Ainda não há ligações registradas nesta campanha. O funil aparece conforme você registra as ligações — mostrando em qual etapa cada ligação parou.</div>
+  }
+  const max = Math.max(1, ...ETAPA_ORDEM.map((e) => funil.encerraram[e] || 0))
+  return (
+    <div className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm">
+      <div className="text-sm text-slate-500">Onde as ligações estão <b>parando</b> (etapa em que foram encerradas) e onde os leads <b>perdem interesse</b>. Total: {funil.total_ligacoes} ligação(ões).</div>
+      <div className="space-y-2">
+        {ETAPA_ORDEM.map((e) => {
+          const enc = funil.encerraram[e] || 0
+          const perd = funil.perderam[e] || 0
+          if (enc === 0 && perd === 0) return null
+          return (
+            <div key={e} className="flex items-center gap-2">
+              <div className="w-40 shrink-0 text-sm text-slate-600">{ETAPA_LABEL[e] || e}</div>
+              <div className="h-5 flex-1 rounded bg-slate-100"><div className="h-5 rounded bg-brand/70" style={{ width: `${(enc / max) * 100}%` }} /></div>
+              <div className="w-32 shrink-0 text-right text-xs text-slate-500">{enc} encerr.{perd ? ` · ${perd} 🔴` : ''}</div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="text-xs text-slate-400">🔴 = leads que perderam interesse naquela etapa. Barra = quantas ligações terminaram ali.</div>
+    </div>
+  )
+}
+
+function Card({ label, valor, cor, sub }: { label: string; valor: number | string; cor: string; sub?: string }) {
+  return (
+    <div className="rounded-2xl border bg-white p-4 shadow-sm">
+      <div className={`text-2xl font-bold ${cor}`}>{valor}</div>
+      <div className="text-xs text-slate-500">{label}{sub ? ` · ${sub}` : ''}</div>
+    </div>
+  )
+}
+
+function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
+  lead: FilaItem; campanha: CampanhaDetalhe; onFechar: (recarrega: boolean) => void; fb: ReturnType<typeof useFeedback>
+}) {
+  const [etapas, setEtapas] = useState<EtapaApi[]>([])
+  const [historico, setHistorico] = useState<Ligacao[]>([])
+  const [idx, setIdx] = useState(0)
+  // Sessão: visualizando → em_andamento → aguardando_resumo → encerrada.
+  // 'visualizando' só existe aqui (abrir a tela não grava nada). Os outros três vêm do
+  // servidor em `estado_sessao` — o front NUNCA decide sozinho se a chamada acabou. Antes,
+  // "chamada encerrada" era só o booleano local `encerrando`, que o refresh perdia: a sessão
+  // voltava como em_andamento, o cronômetro reiniciava e o resumo preenchido sumia.
+  const [estado, setEstado] = useState<'visualizando' | 'em_andamento' | 'aguardando_resumo' | 'encerrada'>('visualizando')
+  const [ligacaoId, setLigacaoId] = useState<string | null>(null)
+  const [iniciadaEm, setIniciadaEm] = useState<string | null>(null)
+  // Instante oficial do fim da chamada (servidor). Congela o cronômetro e é o marco da duração.
+  const [chamadaEncerradaEm, setChamadaEncerradaEm] = useState<string | null>(null)
+  const [encerrandoChamada, setEncerrandoChamada] = useState(false)
+  // A chamada acabou e o resumo ainda não foi salvo.
+  const encerrando = estado === 'aguardando_resumo'
+  const [agora, setAgora] = useState(() => Date.now())
+  const [confirmFechar, setConfirmFechar] = useState(false)
+  const [iniciando, setIniciando] = useState(false)
+  const iniciandoRef = useRef(false)
+  const encerrandoRef = useRef(false)
+  const clientEventIdRef = useRef('')
+  // resumo
+  const [resultado, setResultado] = useState('atendeu')
+  const [novoStatus, setNovoStatus] = useState(lead.status)
+  const [objecao, setObjecao] = useState('')
+  const [motivo, setMotivo] = useState('')
+  const [proximaAcao, setProximaAcao] = useState('')
+  const [dataFollowup, setDataFollowup] = useState('')
+  const [notas, setNotas] = useState('')
+  const [perguntasReg, setPerguntasReg] = useState<PerguntaReg[]>([])
+  // sinais (Fatia D) e objeções (Fatia E) estruturados: persistidos na hora; fonte da seleção.
+  const [roteiroId, setRoteiroId] = useState<string | null>(null)
+  const [sinaisReg, setSinaisReg] = useState<SinalReg[]>([])
+  const [objecoesReg, setObjecoesReg] = useState<ObjecaoReg[]>([])
+  // etapas temporais (Fatia B): a etapa ativa vem do servidor; navegação chama /etapas/trocar.
+  const [etapaAtivaReId, setEtapaAtivaReId] = useState<string | null>(null)
+  const [trocando, setTrocando] = useState(false)
+  const trocandoRef = useRef(false)
+  // registro rápido incremental (Fatia F): autosave das notas + indicador de sincronização.
+  const [notasSync, setNotasSync] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const lastSavedNotasRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (campanha.roteiro_versao_id) {
+      apiFetch<{ roteiro_id: string; etapas: EtapaApi[] }>(`${base()}/roteiros/versoes/${campanha.roteiro_versao_id}`).then((r) => { setEtapas(r.data.etapas || []); setRoteiroId(r.data.roteiro_id || null) }).catch(() => setEtapas([]))
+    }
+    apiFetch<Ligacao[]>(`${base()}/ligacoes?campanha_lead_id=${lead.campanha_lead_id}`).then((r) => setHistorico(r.data)).catch(() => {})
+    // Recuperação: se já existe sessão recuperável deste lead, retoma (não duplica). O
+    // `estado_sessao` do servidor decide se voltamos para a conversa ou para o resumo pendente.
+    apiFetch<{ id: string; iniciada_em: string; chamada_encerrada_em: string | null; estado_sessao: string; notas: string | null } | null>(`${base()}/ligacoes/ativa?campanha_lead_id=${lead.campanha_lead_id}`).then((r) => {
+      if (r.data && r.data.id) {
+        const pendente = r.data.estado_sessao === 'aguardando_resumo'
+        setLigacaoId(r.data.id); setIniciadaEm(r.data.iniciada_em)
+        setChamadaEncerradaEm(r.data.chamada_encerrada_em || null)
+        setEstado(pendente ? 'aguardando_resumo' : 'em_andamento')
+        // Recupera o registro rápido já salvo (evita reenviar o mesmo valor no autosave).
+        setNotas(r.data.notas || ''); lastSavedNotasRef.current = r.data.notas || ''
+        fb.toast(pendente ? 'Retomando o resumo pendente — a chamada já foi encerrada' : 'Retomando ligação em andamento', 'info')
+      }
+    }).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Cronômetro VISUAL — sempre reconstruído de iniciada_em (fonte oficial = servidor), nunca
+  // do momento do refresh. Só roda enquanto a chamada está de fato acontecendo.
+  useEffect(() => {
+    if (estado !== 'em_andamento') return
+    setAgora(Date.now())
+    const t = setInterval(() => setAgora(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [estado])
+
+  // Duração exibida: com a chamada encerrada, congela em chamada_encerrada_em (servidor) —
+  // assim o tempo de preenchimento do resumo não aparece como tempo de ligação, e o valor
+  // sobrevive a refresh sem "andar".
+  const fimVisual = chamadaEncerradaEm ? new Date(chamadaEncerradaEm).getTime() : agora
+  const segundosChamada = segDesde(iniciadaEm, fimVisual)
+
+  // Proteção contra perda: avisa ao atualizar/fechar a aba com chamada ativa OU resumo pendente.
+  useEffect(() => {
+    if (estado !== 'em_andamento' && estado !== 'aguardando_resumo') return
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', h)
+    return () => window.removeEventListener('beforeunload', h)
+  }, [estado])
+
+  // Sinais + objeções + etapa ativa (reconstrói a seleção/navegação ao iniciar OU retomar).
+  useEffect(() => {
+    if (!ligacaoId) { setSinaisReg([]); setObjecoesReg([]); setPerguntasReg([]); return }
+    apiFetch<SinalReg[]>(`${base()}/ligacoes/${ligacaoId}/sinais`).then((r) => setSinaisReg(r.data || [])).catch(() => {})
+    apiFetch<ObjecaoReg[]>(`${base()}/ligacoes/${ligacaoId}/objecoes`).then((r) => setObjecoesReg(r.data || [])).catch(() => {})
+    apiFetch<PerguntaReg[]>(`${base()}/ligacoes/${ligacaoId}/perguntas`).then((r) => setPerguntasReg(r.data || [])).catch(() => {})
+    apiFetch<{ roteiro_etapa_id: string } | null>(`${base()}/ligacoes/${ligacaoId}/etapas/ativa`).then((r) => { if (r.data?.roteiro_etapa_id) setEtapaAtivaReId(r.data.roteiro_etapa_id) }).catch(() => {})
+  }, [ligacaoId])
+
+  // Posiciona a navegação na etapa ativa devolvida pelo servidor (após carregar as etapas).
+  useEffect(() => {
+    if (!etapaAtivaReId || etapas.length === 0) return
+    const i = etapas.findIndex((e) => e.id === etapaAtivaReId)
+    if (i >= 0) setIdx(i)
+  }, [etapaAtivaReId, etapas])
+
+  // Autosave do registro rápido (Fatia F): last-write-wins, só durante a ligação; recuperável.
+  const salvarNotas = useCallback(async (valor: string) => {
+    if (!ligacaoId || estado !== 'em_andamento' || lastSavedNotasRef.current === valor) return
+    setNotasSync('saving')
+    try {
+      await apiFetch(`${base()}/ligacoes/${ligacaoId}/notas`, { method: 'PATCH', body: JSON.stringify({ notas: valor }) })
+      lastSavedNotasRef.current = valor
+      setNotasSync('saved')
+    } catch { setNotasSync('error') }
+  }, [ligacaoId, estado])
+  useEffect(() => {
+    if (estado !== 'em_andamento' || !ligacaoId) return
+    const t = setTimeout(() => salvarNotas(notas), 800) // debounce
+    return () => clearTimeout(t)
+  }, [notas, estado, ligacaoId, salvarNotas])
+
+  const ativo = estado === 'em_andamento'
+  const etapa = etapas[idx]
+  // --- Perguntas estruturadas (marcar = feita; persistência imediata; só do roteiro) -----
+  const perguntaAtiva = (indice: number) =>
+    perguntasReg.find((p) => p.pergunta_indice === indice && (p.etapa_tipo || '') === (etapa?.tipo || ''))
+  const registrarPergunta = async (indice: number, texto: string) => {
+    if (!ativo || !ligacaoId || perguntaAtiva(indice)) return
+    try {
+      const r = await apiFetch<PerguntaReg>(`${base()}/ligacoes/${ligacaoId}/perguntas`, {
+        method: 'POST',
+        body: JSON.stringify({
+          texto, pergunta_indice: indice, client_event_id: novoClientEventId(),
+          roteiro_versao_id: campanha.roteiro_versao_id, roteiro_etapa_id: etapa?.id || null, etapa_tipo: etapa?.tipo || null,
+        }),
+      })
+      setPerguntasReg((a) => (a.some((x) => x.id === r.data.id) ? a : [...a, r.data]))
+    } catch (e) { fb.toast(msgErro(e, 'Não foi possível marcar a pergunta.'), 'error') }
+  }
+  const removerPergunta = async (id: string) => {
+    setPerguntasReg((a) => a.filter((p) => p.id !== id)) // otimista
+    try { await apiFetch(`${base()}/ligacoes/${ligacaoId}/perguntas/${id}`, { method: 'DELETE' }) } catch { /* */ }
+  }
+  const togglePergunta = (indice: number, texto: string) => {
+    const ja = perguntaAtiva(indice)
+    if (ja) removerPergunta(ja.id); else registrarPergunta(indice, texto)
+  }
+
+  // --- Sinais estruturados (persistência imediata no clique) -------------------------
+  const sinalAtivo = (tipo: 'interesse' | 'resistencia', texto: string) =>
+    sinaisReg.find((s) => s.tipo === tipo && s.texto.toLowerCase() === texto.trim().toLowerCase() && (s.etapa_tipo || '') === (etapa?.tipo || ''))
+  const registrarSinal = async (tipo: 'interesse' | 'resistencia', texto: string, origem: 'roteiro' | 'novo_durante_ligacao') => {
+    if (!ativo || !ligacaoId) return
+    const t = texto.trim(); if (!t || sinalAtivo(tipo, t)) return // já selecionado → não duplica
+    try {
+      const r = await apiFetch<SinalReg>(`${base()}/ligacoes/${ligacaoId}/sinais`, {
+        method: 'POST',
+        body: JSON.stringify({
+          tipo, texto: t, origem, client_event_id: novoClientEventId(),
+          roteiro_versao_id: campanha.roteiro_versao_id, roteiro_id: roteiroId,
+          roteiro_etapa_id: etapa?.id || null, etapa_tipo: etapa?.tipo || null,
+        }),
+      })
+      setSinaisReg((a) => (a.some((x) => x.id === r.data.id) ? a : [...a, r.data]))
+    } catch (e) { fb.toast(msgErro(e, 'Não foi possível registrar o sinal.'), 'error') }
+  }
+  const removerSinal = async (id: string) => {
+    setSinaisReg((a) => a.filter((s) => s.id !== id)) // otimista
+    try { await apiFetch(`${base()}/ligacoes/${ligacaoId}/sinais/${id}`, { method: 'DELETE' }) } catch { /* */ }
+  }
+  const toggleSinal = (tipo: 'interesse' | 'resistencia', texto: string, origem: 'roteiro' | 'novo_durante_ligacao') => {
+    const ja = sinalAtivo(tipo, texto)
+    if (ja) removerSinal(ja.id); else registrarSinal(tipo, texto, origem)
+  }
+  const novosDaEtapa = (tipo: 'interesse' | 'resistencia') =>
+    sinaisReg.filter((s) => s.tipo === tipo && s.origem === 'novo_durante_ligacao' && (s.etapa_tipo || '') === (etapa?.tipo || '')).map((s) => s.texto)
+
+  // --- Objeções estruturadas (persistência imediata; resposta + resolvida) ------------
+  const objecaoAtiva = (texto: string) =>
+    objecoesReg.find((o) => o.texto_objecao.toLowerCase() === texto.trim().toLowerCase() && (o.etapa_tipo || '') === (etapa?.tipo || ''))
+  const registrarObjecao = async (texto: string, origem: 'roteiro' | 'novo_durante_ligacao', respostaSugerida?: string) => {
+    if (!ativo || !ligacaoId) return
+    const t = texto.trim(); if (!t || objecaoAtiva(t)) return
+    try {
+      const r = await apiFetch<ObjecaoReg>(`${base()}/ligacoes/${ligacaoId}/objecoes`, {
+        method: 'POST',
+        body: JSON.stringify({
+          texto: t, origem, resposta_utilizada: respostaSugerida || null, client_event_id: novoClientEventId(),
+          roteiro_versao_id: campanha.roteiro_versao_id, roteiro_id: roteiroId,
+          roteiro_etapa_id: etapa?.id || null, etapa_tipo: etapa?.tipo || null,
+        }),
+      })
+      setObjecoesReg((a) => (a.some((x) => x.id === r.data.id) ? a : [...a, r.data]))
+    } catch (e) { fb.toast(msgErro(e, 'Não foi possível registrar a objeção.'), 'error') }
+  }
+  const removerObjecao = async (id: string) => {
+    setObjecoesReg((a) => a.filter((o) => o.id !== id)) // otimista
+    try { await apiFetch(`${base()}/ligacoes/${ligacaoId}/objecoes/${id}`, { method: 'DELETE' }) } catch { /* */ }
+  }
+  const toggleObjecao = (texto: string, origem: 'roteiro' | 'novo_durante_ligacao', respostaSugerida?: string) => {
+    const ja = objecaoAtiva(texto)
+    if (ja) removerObjecao(ja.id); else registrarObjecao(texto, origem, respostaSugerida)
+  }
+  const patchObjecao = async (id: string, patch: { resposta_utilizada?: string; resolvida?: boolean }) => {
+    setObjecoesReg((a) => a.map((o) => (o.id === id ? { ...o, ...('resolvida' in patch ? { resolvida: !!patch.resolvida } : {}), ...('resposta_utilizada' in patch ? { resposta_utilizada: patch.resposta_utilizada ?? null } : {}) } : o))) // otimista
+    try { await apiFetch(`${base()}/ligacoes/${ligacaoId}/objecoes/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }) }
+    catch (e) { fb.toast(msgErro(e, 'Não foi possível atualizar a objeção.'), 'error') }
+  }
+  const objecoesDaEtapa = objecoesReg.filter((o) => (o.etapa_tipo || '') === (etapa?.tipo || ''))
+
+  // Encerrada NA ETAPA que está aberta agora.
+  const etapaAlcancada = etapa?.tipo || (etapas[idx - 1]?.tipo)
+  // Interesse/resistência vêm SÓ dos sinais persistidos (fonte única) — por isso sobrevivem
+  // ao refresh. Aqui é só exibição; o que fica gravado é a derivação equivalente do servidor.
+  const { interesse: nInteresse, resistencia: nResistencia, etapaMaiorInteresse, etapaPerda } = resumoSinais(sinaisReg)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (encerrando && !objecao && objecoesReg[0]) setObjecao(objecoesReg[0].texto_objecao) }, [encerrando])
+
+  // Resultado e status eram 3 campos independentes: dava para salvar combinação contraditória.
+  // "Número inválido" é disposição da chamada; a oportunidade telefônica acaba junto — mas o
+  // lead NÃO é excluído (outros canais leem prospects, não campanha_leads). Sugestão editável.
+  const trocarResultado = (v: string) => {
+    setResultado(v)
+    if (v === 'numero_invalido') { setNovoStatus('descartado'); setMotivo('') }
+  }
+  // Sai de um status de perda ⇒ limpa o motivo, senão um valor escondido seria enviado.
+  const trocarStatus = (v: string) => {
+    setNovoStatus(v)
+    if (!STATUS_PERDA.has(v)) setMotivo('')
+  }
+
+  function novoClientEventId(): string {
+    try { if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID() } catch { /* */ }
+    return 'cid-' + Date.now() + '-' + Math.random().toString(16).slice(2)
+  }
+
+  // Início EXPLÍCITO: cria a ligação em_andamento (idempotente por client_event_id).
+  const iniciar = useCallback(async () => {
+    // Guarda síncrona (ref) contra duplo disparo + estado que DESABILITA o botão no request.
+    if (estado !== 'visualizando' || iniciandoRef.current) return
+    iniciandoRef.current = true; setIniciando(true)
+    if (!clientEventIdRef.current) clientEventIdRef.current = novoClientEventId() // 1 client_event_id por operação
+    try {
+      const r = await apiFetch<{ id: string; iniciada_em: string; chamada_encerrada_em: string | null; estado_sessao: string; notas: string | null; etapa_ativa: { roteiro_etapa_id: string } | null }>(`${base()}/ligacoes/iniciar`, {
+        method: 'POST',
+        body: JSON.stringify({
+          campanha_id: campanha.id, campanha_lead_id: lead.campanha_lead_id, prospect_id: lead.prospect_id,
+          telefone: lead.telefone, roteiro_versao_id: campanha.roteiro_versao_id, client_event_id: clientEventIdRef.current,
+        }),
+      })
+      // Estado (e cronômetro) só mudam APÓS sucesso real do backend, e seguem o estado_sessao
+      // dele: /iniciar é idempotente e pode devolver uma sessão cujo resumo já está pendente —
+      // nesse caso abrimos o resumo, não a conversa.
+      setLigacaoId(r.data.id); setIniciadaEm(r.data.iniciada_em)
+      setChamadaEncerradaEm(r.data.chamada_encerrada_em || null)
+      setEstado(r.data.estado_sessao === 'aguardando_resumo' ? 'aguardando_resumo' : 'em_andamento')
+      if (r.data.notas) { setNotas(r.data.notas); lastSavedNotasRef.current = r.data.notas }
+      if (r.data.etapa_ativa?.roteiro_etapa_id) setEtapaAtivaReId(r.data.etapa_ativa.roteiro_etapa_id)
+    } catch (e) {
+      // Falha NÃO muda o estado (segue 'visualizando'); uma única mensagem operacional.
+      if (typeof console !== 'undefined') console.error('[iniciar ligação]', e)
+      fb.toast(msgErro(e, 'Não foi possível iniciar a ligação. Tente novamente.'), 'error')
+    } finally { iniciandoRef.current = false; setIniciando(false) }
+  }, [estado, campanha, lead, fb])
+
+  // Navegação de etapas = troca temporal no servidor (fecha a ativa, abre a destino). Otimista,
+  // com guarda contra duplo clique; em erro, restaura a etapa anterior.
+  const irParaEtapa = useCallback(async (destIdx: number) => {
+    if (!ativo || trocandoRef.current || destIdx < 0 || destIdx >= etapas.length || destIdx === idx) return
+    const alvo = etapas[destIdx]
+    if (!alvo || !ligacaoId) return
+    trocandoRef.current = true; setTrocando(true)
+    const prev = idx
+    setIdx(destIdx)
+    try {
+      const r = await apiFetch<{ roteiro_etapa_id: string }>(`${base()}/ligacoes/${ligacaoId}/etapas/trocar`, {
+        method: 'POST', body: JSON.stringify({ roteiro_etapa_id: alvo.id, client_event_id: novoClientEventId() }),
+      })
+      if (r.data?.roteiro_etapa_id) setEtapaAtivaReId(r.data.roteiro_etapa_id)
+    } catch (e) { setIdx(prev); fb.toast(msgErro(e, 'Não foi possível trocar de etapa.'), 'error') }
+    finally { trocandoRef.current = false; setTrocando(false) }
+  }, [ativo, etapas, idx, ligacaoId, fb])
+
+  // A CHAMADA terminou: marca o instante no servidor ANTES de abrir o resumo, senão todo o
+  // tempo de preenchimento entraria na duração da ligação e da última etapa. Só depois abre
+  // o formulário — e mesmo se a marcação falhar, o operador não fica preso (cai no NOW()).
+  // A transição para 'aguardando_resumo' é do SERVIDOR: só mudamos a tela depois que ele
+  // grava chamada_encerrada_em e fecha a etapa ativa (na mesma transação). Antes isto era
+  // `setEncerrando(true)` local e otimista — que o refresh perdia. Em falha, a tela continua
+  // na chamada e o operador pode tentar de novo, em vez de ficar num estado que o servidor
+  // desconhece. É idempotente: o servidor mantém o instante do PRIMEIRO clique.
+  const encerrarChamada = useCallback(async () => {
+    if (!ligacaoId || estado !== 'em_andamento' || encerrandoChamada) return
+    setEncerrandoChamada(true)
+    try {
+      const r = await apiFetch<{ chamada_encerrada_em: string; estado_sessao: string }>(
+        `${base()}/ligacoes/${ligacaoId}/chamada-encerrada`, { method: 'POST' })
+      setChamadaEncerradaEm(r.data.chamada_encerrada_em)
+      setEstado('aguardando_resumo')
+    } catch (e) {
+      if (typeof console !== 'undefined') console.error('[fim de chamada]', e)
+      fb.toast(msgErro(e, 'Não foi possível encerrar a chamada. Tente novamente.'), 'error')
+    } finally { setEncerrandoChamada(false) }
+  }, [ligacaoId, estado, encerrandoChamada, fb])
+
+  // Encerramento: idempotente (guard por ref + status no backend). Só fecha em sucesso.
+  const salvar = useCallback(async () => {
+    // Só a partir do resumo pendente — a chamada precisa ter sido encerrada antes.
+    if (!ligacaoId || estado !== 'aguardando_resumo' || encerrandoRef.current) return
+    encerrandoRef.current = true
+    // Perguntas/sinais/objeções agora são estruturados; notas = só conteúdo realmente livre.
+    // etapa_maior_interesse / etapa_perda_interesse NÃO são enviados: o servidor os deriva
+    // dos sinais ativos (fonte única), então não dependem do estado desta aba.
+    const notasFinais = notas.trim() || null
+    try {
+      await apiFetch(`${base()}/ligacoes/${ligacaoId}/encerrar`, {
+        method: 'POST',
+        body: JSON.stringify({
+          resultado,
+          etapa_alcancada: etapaAlcancada || null,
+          objecao_principal: objecao || objecoesReg[0]?.texto_objecao || null,
+          motivo_perda: motivo || null, notas: notasFinais,
+          novo_status_oportunidade: novoStatus || null, proxima_acao: proximaAcao || null,
+          data_followup: dataFollowup || null,
+        }),
+      })
+      fb.toast('Ligação registrada', 'success')
+      setEstado('encerrada')
+      onFechar(true)
+    } catch (e) { fb.toast(msgErro(e, 'Não foi possível encerrar a ligação.'), 'error') }
+    finally { encerrandoRef.current = false }
+  }, [ligacaoId, estado, fb, resultado, etapaAlcancada, objecao, objecoesReg, motivo, notas, novoStatus, proximaAcao, dataFollowup, onFechar])
+
+  // Descarte: fica só para auditoria (fora da analítica).
+  const descartar = useCallback(async () => {
+    if (!ligacaoId) { onFechar(false); return }
+    try { await apiFetch(`${base()}/ligacoes/${ligacaoId}/descartar`, { method: 'POST', body: JSON.stringify({ motivo: 'descartada_pelo_operador' }) }) } catch { /* */ }
+    onFechar(true)
+  }, [ligacaoId, onFechar])
+
+  // X (fechar interface) ≠ Encerrar. Confirma tanto com a chamada rolando quanto com o
+  // resumo pendente — nos dois casos há sessão viva que sairia da analítica se descartada.
+  const tentarFechar = useCallback(() => {
+    if (estado === 'em_andamento' || estado === 'aguardando_resumo') { setConfirmFechar(true); return }
+    onFechar(estado === 'encerrada')
+  }, [estado, onFechar])
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-100">
+      <div className="flex items-center justify-between border-b bg-white px-5 py-3">
+        <div className="flex items-center gap-3">
+          <div><span className="text-lg font-semibold">{lead.nome}</span> <span className="text-sm text-slate-400">· {campanha.nome}</span></div>
+          {/* Cronômetro: pulsando enquanto a chamada corre; congelado no fim da chamada. */}
+          {estado === 'em_andamento' && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" /> ⏱ {fmtCronometro(segundosChamada)}
+            </span>
+          )}
+          {estado === 'aguardando_resumo' && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-700">
+              ⏱ {fmtCronometro(segundosChamada)} · chamada encerrada · resumo pendente
+            </span>
+          )}
+          {estado === 'visualizando' && <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-500">Visualizando — a ligação ainda não começou</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          {estado === 'visualizando' && (
+            <button onClick={iniciar} disabled={iniciando} className="rounded-lg bg-brand px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50">{iniciando ? 'Iniciando…' : '▶ Iniciar ligação'}</button>
+          )}
+          {estado === 'em_andamento' && (
+            <button onClick={encerrarChamada} disabled={encerrandoChamada} className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50">{encerrandoChamada ? 'Encerrando…' : 'Encerrar ligação'}</button>
+          )}
+          {estado === 'aguardando_resumo' && (
+            <span className="rounded-lg bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-800">Conclua o resumo →</span>
+          )}
+          <button onClick={tentarFechar} aria-label="Fechar" className="text-slate-400 hover:text-slate-600"><IconClose className="h-6 w-6" /></button>
+        </div>
+      </div>
+
+      <div className="grid flex-1 grid-cols-1 gap-3 overflow-auto p-4 lg:grid-cols-[280px_1fr_320px]">
+        {/* Lead */}
+        <div className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="text-xs font-semibold uppercase text-slate-400">Lead</div>
+          <div className="text-lg font-semibold">{lead.nome}</div>
+          <div className="text-sm text-slate-600">📞 <Fone tel={lead.telefone} /></div>
+          {lead.cidade && <div className="text-sm text-slate-500">📍 {lead.cidade}</div>}
+          {lead.nicho && <div className="text-sm text-slate-500">🏷 {lead.nicho}</div>}
+          <div className="text-sm text-slate-500">Tentativas: {lead.tentativas}</div>
+          <div className="border-t pt-2">
+            <div className="mb-1 text-xs font-semibold uppercase text-slate-400">Ligações anteriores</div>
+            {historico.length === 0 ? <div className="text-xs text-slate-400">Nenhuma.</div>
+              : historico.map((h) => <div key={h.id} className="text-xs text-slate-500">{new Date(h.criado_em).toLocaleDateString('pt-BR')} — {RESULTADOS.find((r) => r[0] === h.resultado)?.[1] || h.resultado}{h.motivo_perda ? ` (${h.motivo_perda})` : ''}</div>)}
+          </div>
+        </div>
+
+        {/* Roteiro */}
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          {etapas.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-center text-sm text-slate-400">Esta campanha não tem um roteiro publicado com etapas.<br />Você ainda pode registrar a ligação à direita.</div>
+          ) : (
+            <div className="flex h-full flex-col">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-semibold text-brand">
+                  Etapa {idx + 1}/{etapas.length}: {ETAPA_LABEL[etapa?.tipo] || etapa?.tipo}
+                  {trocando && <span className="text-xs font-normal text-slate-400">salvando…</span>}
+                </div>
+                <div className="flex gap-1">
+                  <button onClick={() => irParaEtapa(idx - 1)} disabled={!ativo || idx === 0 || trocando} className="rounded border px-2 py-1 text-xs disabled:opacity-30">◀ Voltar</button>
+                  <button onClick={() => irParaEtapa(idx + 1)} disabled={!ativo || idx === etapas.length - 1 || trocando} className="rounded bg-brand px-2 py-1 text-xs text-white disabled:opacity-30">Avançar ▶</button>
+                </div>
+              </div>
+              {etapa?.titulo && <div className="font-medium">{etapa.titulo}</div>}
+              {etapa?.objetivo && <div className="mb-2 text-sm text-slate-500">🎯 {etapa.objetivo}</div>}
+              {etapa?.frase_sugerida && <div className="mb-3 rounded-lg bg-slate-50 p-3 text-sm italic text-slate-700">“{etapa.frase_sugerida}”</div>}
+              <div className="grid gap-3 md:grid-cols-2">
+                {etapa?.perguntas_json?.length > 0 && (
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-slate-500">Perguntas — clique nas que você fez</div>
+                    <div className="flex flex-wrap gap-1">
+                      {etapa.perguntas_json.map((q, i) => {
+                        const feita = !!perguntaAtiva(i)
+                        return (
+                          <button key={i} onClick={() => togglePergunta(i, q)} disabled={!ativo} className={`rounded-full border px-2 py-1 text-left text-xs ${feita ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'hover:bg-slate-50'} ${!ativo ? 'opacity-60' : ''}`}>{feita ? '✓ ' : ''}{q}</button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+                <div className="md:col-span-2">
+                  <ObjecaoGroup itensRoteiro={etapa?.objecoes_json || []} registradas={objecoesDaEtapa} ativo={ativo}
+                    estaAtiva={(t) => !!objecaoAtiva(t)} onToggle={(t, o) => toggleObjecao(t, o)}
+                    onNovo={(t) => registrarObjecao(t, 'novo_durante_ligacao')}
+                    onResposta={(id, r) => patchObjecao(id, { resposta_utilizada: r })}
+                    onResolvida={(id, v) => patchObjecao(id, { resolvida: v })} />
+                </div>
+                <SinalGroup titulo="Sinais de interesse 🟢" cor="emerald" itensRoteiro={etapa?.sinais_interesse_json || []} novos={novosDaEtapa('interesse')} ativo={ativo}
+                  estaAtivo={(t) => !!sinalAtivo('interesse', t)} onToggle={(t, o) => toggleSinal('interesse', t, o)} onNovo={(t) => registrarSinal('interesse', t, 'novo_durante_ligacao')} />
+                <SinalGroup titulo="Sinais de resistência 🔴" cor="red" itensRoteiro={etapa?.sinais_resistencia_json || []} novos={novosDaEtapa('resistencia')} ativo={ativo}
+                  estaAtivo={(t) => !!sinalAtivo('resistencia', t)} onToggle={(t, o) => toggleSinal('resistencia', t, o)} onNovo={(t) => registrarSinal('resistencia', t, 'novo_durante_ligacao')} />
+              </div>
+              <div className="mt-auto space-y-2 border-t pt-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-semibold uppercase text-slate-400">Registro nesta etapa · {ETAPA_LABEL[etapa?.tipo] || etapa?.tipo}</div>
+                  {estado === 'visualizando' && <span className="text-xs text-amber-600">Inicie a ligação para registrar</span>}
+                  {estado === 'aguardando_resumo' && <span className="text-xs font-medium text-amber-700">🔒 Somente leitura — a chamada foi encerrada</span>}
+                </div>
+                <div className="text-xs text-slate-400">{nInteresse}🟢 interesse · {nResistencia}🔴 resistência · {objecoesReg.length} objeção · {perguntasReg.length} pergunta(s) — tudo salvo na hora</div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Registro / Resumo */}
+        <div className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm">
+          {estado === 'visualizando' ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 py-8 text-center">
+              <div className="text-4xl">📞</div>
+              <div className="text-sm text-slate-500">Você está <b>visualizando</b> o roteiro.<br />Nada é gravado até iniciar a ligação.</div>
+              <button onClick={iniciar} disabled={iniciando} className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{iniciando ? 'Iniciando…' : '▶ Iniciar ligação'}</button>
+            </div>
+          ) : !encerrando ? (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-semibold uppercase text-slate-400">Registro rápido</div>
+                <span className="text-xs text-slate-400">{notasSync === 'saving' ? 'salvando…' : notasSync === 'saved' ? '✓ salvo' : notasSync === 'error' ? '⚠ erro ao salvar' : ''}</span>
+              </div>
+              <textarea className="w-full rounded-lg border px-2 py-1.5 text-sm" rows={4} placeholder="Anotações durante a ligação…" value={notas} onChange={(e) => setNotas(e.target.value)} onBlur={() => salvarNotas(notas)} />
+              {(objecoesReg.length > 0 || perguntasReg.length > 0 || sinaisReg.length > 0) && (
+                <div className="space-y-1 rounded-lg bg-slate-50 p-2 text-xs text-slate-500">
+                  {nInteresse}🟢 · {nResistencia}🔴 · {objecoesReg.length} objeção · {perguntasReg.length} pergunta(s)
+                </div>
+              )}
+              <div className="text-xs text-slate-400">Marque sinais e objeções direto no roteiro (chips) conforme a conversa. Ao <b>Encerrar ligação</b>, a etapa em que você parar fica registrada.</div>
+            </>
+          ) : (
+            <>
+              <div className="text-xs font-semibold uppercase text-slate-400">Resumo da ligação</div>
+              <div className="rounded-lg bg-brand/10 px-3 py-2 text-sm text-brand">Encerrada na etapa: <b>{ETAPA_LABEL[etapaAlcancada || ''] || '—'}</b></div>
+              <label className="block text-sm">Resultado
+                <select value={resultado} onChange={(e) => trocarResultado(e.target.value)} className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm">{RESULTADOS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+              </label>
+              {resultado === 'numero_invalido' && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Descarta a oportunidade <b>só para a prospecção por telefone</b>. O lead continua na base e
+                  segue disponível para WhatsApp e e-mail. Descreva o que a operadora informou nas notas.
+                </div>
+              )}
+              <label className="block text-sm">Status da oportunidade
+                <select value={novoStatus} onChange={(e) => trocarStatus(e.target.value)} className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm">{STATUS_OP.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+              </label>
+              <input className="w-full rounded-lg border px-2 py-1.5 text-sm" placeholder="Objeção principal" value={objecao} onChange={(e) => setObjecao(e.target.value)} />
+              {/* Motivo de perda só faz sentido quando o status É perda — evita gravar motivo
+                  em lead que segue vivo (o que inflava a contagem de perdas). */}
+              {STATUS_PERDA.has(novoStatus) && (
+                <label className="block text-sm">Motivo de perda
+                  <select value={motivo} onChange={(e) => setMotivo(e.target.value)} className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm"><option value="">—</option>{MOTIVOS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+                </label>
+              )}
+              <input className="w-full rounded-lg border px-2 py-1.5 text-sm" placeholder="Próxima ação" value={proximaAcao} onChange={(e) => setProximaAcao(e.target.value)} />
+              <label className="block text-sm">Data do follow-up
+                <input type="date" className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm" value={dataFollowup} onChange={(e) => setDataFollowup(e.target.value)} />
+              </label>
+              <div className="text-xs text-slate-400">{etapaMaiorInteresse ? `Maior interesse: ${ETAPA_LABEL[etapaMaiorInteresse]}. ` : ''}{etapaPerda ? `Perdeu interesse: ${ETAPA_LABEL[etapaPerda]}.` : ''}</div>
+              <button onClick={salvar} className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"><IconSend className="h-4 w-4" /> Salvar ligação</button>
+              {/* Sem "Voltar ao roteiro": a chamada já terminou e não pode ser reaberta. O
+                  roteiro segue visível ao lado, em modo somente leitura. */}
+              <div className="text-center text-[11px] text-slate-400">O roteiro ao lado fica em consulta — a chamada já foi encerrada.</div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {confirmFechar && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <div className="text-lg font-semibold">Existe uma ligação em andamento</div>
+            <p className="mt-2 text-sm text-slate-600">Esta ligação ainda não foi encerrada. Ao descartar a operação, os registros não serão considerados nas métricas comerciais nem nas análises futuras.</p>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button onClick={() => setConfirmFechar(false)} className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white">Voltar para a ligação</button>
+              <button onClick={() => { setConfirmFechar(false); descartar() }} className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50">Descartar operação</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Grupo de sinais (interesse/resistência) na PRÓPRIA seção do roteiro: chips clicáveis +
+// botão ＋ para criar um sinal na hora. Selecionar/criar persiste imediatamente (Fatia D);
+// o selecionado fica destacado. Sem lista de histórico durante a chamada (só chips).
+function SinalGroup({ titulo, cor, itensRoteiro, novos, ativo, estaAtivo, onToggle, onNovo }: {
+  titulo: string; cor: 'emerald' | 'red'; itensRoteiro: string[]; novos: string[]; ativo: boolean
+  estaAtivo: (texto: string) => boolean
+  onToggle: (texto: string, origem: 'roteiro' | 'novo_durante_ligacao') => void
+  onNovo: (texto: string) => void
+}) {
+  const [add, setAdd] = useState(false)
+  const [txt, setTxt] = useState('')
+  const extras = novos.filter((n) => !itensRoteiro.some((r) => r.toLowerCase() === n.toLowerCase()))
+  const chips = [
+    ...itensRoteiro.map((t) => ({ t, origem: 'roteiro' as const })),
+    ...extras.map((t) => ({ t, origem: 'novo_durante_ligacao' as const })),
+  ]
+  if (!ativo && chips.length === 0) return null
+  const confirmar = () => { const t = txt.trim(); if (t) { onNovo(t); setTxt(''); setAdd(false) } }
+  const selCls = cor === 'emerald' ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-red-400 bg-red-50 text-red-700'
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <div className="text-xs font-medium text-slate-500">{titulo}</div>
+        {ativo && <button onClick={() => setAdd((v) => !v)} title="Adicionar sinal" className="rounded-full border px-2 text-sm leading-5 text-slate-500 hover:bg-slate-50">＋</button>}
+      </div>
+      {ativo && add && (
+        <div className="mb-1 flex gap-1">
+          <input autoFocus value={txt} onChange={(e) => setTxt(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') confirmar(); if (e.key === 'Escape') { setTxt(''); setAdd(false) } }}
+            placeholder="Novo sinal…" className="w-full rounded-lg border px-2 py-1 text-xs" />
+          <button onClick={confirmar} className="rounded-lg bg-slate-800 px-2 py-1 text-xs font-medium text-white">Salvar</button>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-1">
+        {chips.length === 0 && <span className="text-xs text-slate-300">Nenhum — use ＋ para adicionar.</span>}
+        {chips.map(({ t, origem }, i) => {
+          const sel = estaAtivo(t)
+          return (
+            <button key={t + i} disabled={!ativo} onClick={() => onToggle(t, origem)}
+              className={`rounded-full border px-2 py-1 text-left text-xs ${sel ? selCls : 'hover:bg-slate-50'} ${!ativo ? 'opacity-60' : ''}`}>
+              {sel ? '✓ ' : ''}{t}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// Objeções na própria seção do roteiro (Fatia E): chips clicáveis + ＋ para criar na hora.
+// Selecionar/criar persiste imediatamente. Cada objeção selecionada abre um detalhe com
+// "resposta utilizada" (opcional, salva no blur) e "resolvida" (toggle). Soft-remove ao desmarcar.
+function ObjecaoGroup({ itensRoteiro, registradas, ativo, estaAtiva, onToggle, onNovo, onResposta, onResolvida }: {
+  itensRoteiro: ObjecaoRoteiro[]; registradas: ObjecaoReg[]; ativo: boolean
+  estaAtiva: (texto: string) => boolean
+  onToggle: (texto: string, origem: 'roteiro' | 'novo_durante_ligacao') => void
+  onNovo: (texto: string) => void
+  onResposta: (id: string, resposta: string) => void
+  onResolvida: (id: string, resolvida: boolean) => void
+}) {
+  const [add, setAdd] = useState(false)
+  const [txt, setTxt] = useState('')
+  const roteiroTextos = itensRoteiro.map((o) => o.objecao)
+  const extras = registradas
+    .filter((o) => o.origem === 'novo_durante_ligacao' && !roteiroTextos.some((t) => t.toLowerCase() === o.texto_objecao.toLowerCase()))
+    .map((o) => o.texto_objecao)
+  const chips = [
+    ...roteiroTextos.map((t) => ({ t, origem: 'roteiro' as const })),
+    ...extras.map((t) => ({ t, origem: 'novo_durante_ligacao' as const })),
+  ]
+  if (!ativo && chips.length === 0) return null
+  const confirmar = () => { const t = txt.trim(); if (t) { onNovo(t); setTxt(''); setAdd(false) } }
+  const respSugerida = (texto: string) => itensRoteiro.find((o) => o.objecao.toLowerCase() === texto.toLowerCase())?.resposta || ''
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <div className="text-xs font-medium text-slate-500">Objeções — clique se surgir</div>
+        {ativo && <button onClick={() => setAdd((v) => !v)} title="Adicionar objeção" className="rounded-full border px-2 text-sm leading-5 text-slate-500 hover:bg-slate-50">＋</button>}
+      </div>
+      {ativo && add && (
+        <div className="mb-1 flex gap-1">
+          <input autoFocus value={txt} onChange={(e) => setTxt(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') confirmar(); if (e.key === 'Escape') { setTxt(''); setAdd(false) } }}
+            placeholder="Nova objeção…" className="w-full rounded-lg border px-2 py-1 text-xs" />
+          <button onClick={confirmar} className="rounded-lg bg-slate-800 px-2 py-1 text-xs font-medium text-white">Salvar</button>
+        </div>
+      )}
+      <div className="flex flex-wrap gap-1">
+        {chips.length === 0 && <span className="text-xs text-slate-300">Nenhuma — use ＋ para adicionar.</span>}
+        {chips.map(({ t, origem }, i) => {
+          const sel = estaAtiva(t)
+          return (
+            <button key={t + i} disabled={!ativo} onClick={() => onToggle(t, origem)}
+              className={`rounded-full border px-2 py-1 text-left text-xs ${sel ? 'border-amber-400 bg-amber-50 text-amber-700' : 'hover:bg-slate-50'} ${!ativo ? 'opacity-60' : ''}`}>
+              {sel ? '✓ ' : ''}{t}
+            </button>
+          )
+        })}
+      </div>
+      {ativo && registradas.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {registradas.map((o) => (
+            <div key={o.id} className="rounded-lg border border-amber-200 bg-amber-50/40 p-1.5 text-xs">
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="font-medium text-amber-800">{o.texto_objecao}</span>
+                <label className="flex items-center gap-1 whitespace-nowrap text-slate-600">
+                  <input type="checkbox" checked={o.resolvida} onChange={(e) => onResolvida(o.id, e.target.checked)} /> resolvida
+                </label>
+              </div>
+              <input defaultValue={o.resposta_utilizada || ''}
+                placeholder={respSugerida(o.texto_objecao) ? `Resposta utilizada…  (sugestão: ${respSugerida(o.texto_objecao)})` : 'Resposta utilizada…'}
+                onBlur={(e) => { if ((e.target.value || '') !== (o.resposta_utilizada || '')) onResposta(o.id, e.target.value) }}
+                onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                className="w-full rounded border px-2 py-1 text-xs" />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}

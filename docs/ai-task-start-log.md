@@ -6,6 +6,55 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-07-31 - Inicio de tarefa IA - Validacao final e publicacao (commit + push) do modulo Central de Ligacoes
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Revisao completa das alteracoes pendentes na branch `master` (12 modificados
+  + 59 novos) para garantir consistencia e prontidao, seguida de commit e push. Escopo declarado
+  como EXCLUSIVAMENTE validacao/publicacao: sem nova funcionalidade, sem refatoracao, sem mudanca
+  de arquitetura.
+- **E projeto/tarefa de alteracao?** Nao no codigo de aplicacao — nenhum arquivo de `backend/src`,
+  `frontend/` ou `sql/` foi tocado por esta tarefa. A unica escrita foi este registro de Fase 0.
+  A tarefa PUBLICA trabalho ja concluido e validado em sessoes anteriores.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
+- **Validacoes executadas:** `npm test` backend (1061/1061), `npm test` frontend (27/27),
+  `npm run typecheck` backend e frontend (limpos), `npm run smoke:preco` (ok), carga dos 16
+  modulos novos via `require`, `node --check index.js`.
+- **Verificacao da pendencia arquitetural:** confirmado que `src/db/ligacoes*.js` e
+  `src/routes/api-ligacoes.js` NAO referenciam conversas/WhatsApp/historico-envio. A integracao
+  Ligacoes ↔ Mensagens permanece apenas documentada em
+  `docs/PENDENCIA_ARQUITETURAL_CENTRAL_LIGACOES_E_MENSAGENS.md`, sem codigo iniciado.
+- **Risco declarado no push:** as migrations `050` (DELETE) e `052` (UPDATE + troca de CHECK)
+  rodam sozinhas no boot em producao (`runMigrations`). Ambas ARQUIVAM antes de mutar
+  (`app.ligacoes_legado_arquivo`, `app.ligacoes_motivo_perda_v1_arquivo`). Revisadas linha a
+  linha nesta validacao.
+- **Proxima etapa:** commit unico na `master` e push para `origin`.
+
+---
+
+## 2026-07-30 - Inicio de tarefa IA - Analise arquitetural Ligacoes -> Mensagens (WhatsApp)
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Analise arquitetural (SEM implementacao) de como a Central de Ligacoes deve
+  entregar a continuidade da negociacao para a Central de Mensagens (WhatsApp): onde termina cada
+  dominio, qual o contrato entre eles, o que e compartilhado, o que fica exclusivo, e qual o fluxo
+  ideal para o vendedor.
+- **E projeto/tarefa de alteracao?** Nao nesta etapa — e analise/decisao de arquitetura. O pedido
+  proibe explicitamente implementar, gerar codigo ou criar integracao prematura. Nenhum arquivo de
+  `backend/` ou `frontend/` foi tocado.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim (Fase 0 → 2).
+- **Areas mapeadas (leitura):** `src/db/ligacoes.js`, `ligacoes-estado.js`, `routes/api-ligacoes.js`,
+  `domain-enums.js`, migrations 039/047/049/051, `services/rodar-leads.js`, `conversa-manual.js`,
+  `followup-manual.js`, `db/followup-ligacoes.js`, `services/historico-envio.js`,
+  `frontend/app/dashboard/central-ligacoes`, `banco-leads`, `components/ConversaHistoricoModal.tsx`.
+- **Confirmacao:** Analise entregue no chat; nenhuma decisao foi aplicada em codigo/banco. Achados
+  estruturais (identidade prospect_id ↔ JID, duplicacao `vendas.followup_ligacoes` × `app.ligacoes`,
+  `proxima_acao` como TEXT livre) precisam de decisao do usuario antes de qualquer implementacao.
+- **Proxima etapa:** Aguardar escolha do usuario sobre a arquitetura recomendada; se aprovada,
+  abrir tarefa de implementacao propria (nova Fase 0) com analise de impacto e migration dedicada.
+
+---
+
 ## 2026-07-22 - Inicio de tarefa IA
 
 - **IA/Ferramenta:** Codex
@@ -275,6 +324,28 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-07-21 - Inicio de tarefa IA (Modulo Prospeccao & Inteligencia Comercial - Fase 0)
+
+- **IA/Ferramenta:** Claude Code (Opus 4.8)
+- **Pedido resumido:** Planejamento aprovado do modulo "Prospeccao & Inteligencia Comercial"
+  (nichos, campanhas, roteiros humanos versionados, central de ligacoes, operacao da ligacao,
+  follow-ups redefinida, inteligencia comercial). Fase 0 = fundacao de DADOS, SEM UI. Primeira
+  fatia vertical: **Roteiros versionados** (schema + enums + acesso a dados + testes).
+- **E projeto/tarefa de alteracao?** Sim (feature grande, multi-fase). Fase 0 = so backend/dados.
+- **Workflow padrao consultado?** AGENTS.md/CLAUDE.md/architecture-rules/project-map: Sim.
+- **Areas impactadas nesta fase:**
+  - Banco: migration aditiva `033_roteiros.sql` (app.roteiros / roteiro_versoes / roteiro_etapas).
+  - Enums: `src/domain-enums.js` + `test/domain-enums.test.js` (ROTEIRO_VERSAO_STATUS, ROTEIRO_ETAPA_TIPO).
+  - Multi-tenant: todas as tabelas com empresa_id NOT NULL + isolamento por filtro (padrao existente).
+  - Front-end: NENHUM nesta fase.
+- **Decisoes travadas com o Victor:** plano consolidado aprovado (opcao "a"); unificar followup_ligacoes
+  em ligacoes (fase futura), catalogo de nicho + texto, gating por app.usuarios_empresas.role.
+- **Reversibilidade:** LOCAL only nesta etapa (aplica no banco clonado local, roda testes, SEM push);
+  schema apresentado ao Victor para revisao antes de qualquer deploy.
+- **Proxima etapa:** migration 033 + enums + teste anti-drift; depois db/roteiros.js (CRUD + imutabilidade).
+
+---
+
 <!-- Modelo para novas entradas (copie o bloco abaixo):
 
 ## [DATA] - Início de tarefa IA
@@ -474,3 +545,37 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Proxima etapa:** Implementar a resolucao segura da relacao, adicionar cobertura dos dois ambientes, validar e observar um tick real no Railway.
 
 ---
+
+## 2026-07-30 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** Validacao funcional (QA de produto) da Central de Ligacoes fatias A-G, antes de iniciar o Painel de Gestao Comercial. Objetivo: confirmar se uma ligacao comercial completa gera todos os dados necessarios para analise gerencial futura.
+- **E projeto/tarefa de alteracao?** Nao. Tarefa de VALIDACAO/QA, somente leitura de codigo + execucao de um cenario real contra o banco LOCAL de desenvolvimento. Nenhum arquivo de producao alterado.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
+- **Areas exercitadas:** src/routes/api-ligacoes.js, src/db/ligacoes.js, ligacao-etapas.js, ligacao-perguntas.js, ligacao-sinais.js, ligacao-objecoes.js, ligacoes-analitica.js, auditoria.js, view app.vw_ligacoes_analiticas e frontend/app/dashboard/central-ligacoes/page.tsx.
+- **Efeito colateral declarado:** o cenario real criou 1 ligacao encerrada de teste no banco LOCAL (evolution_api) e moveu 1 campanha_lead para status follow_up. Nada em producao.
+- **Proxima etapa:** Entregar o laudo de lacunas de coleta e a recomendacao sobre iniciar (ou nao) o Painel de Gestao Comercial.
+
+---
+
+## 2026-07-30 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** Refinamento visual das colunas Telefone e Status da Central de Ligacoes — reduzir ruido de texto, transformar avisos de qualidade do numero em indicador + tooltip, validar leitura da coluna Status.
+- **E projeto/tarefa de alteracao?** Sim, mas de escopo pequeno e seguro (apresentacao). Sem schema, sem autenticacao, sem prompt, sem rota nova.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
+- **Areas possivelmente impactadas:** frontend/app/dashboard/central-ligacoes/page.tsx (componente Fone + tabelas Fila/Acompanhamento) e frontend/lib/ligacao-fone.js (apenas o texto de aviso; regra de analise do telefone inalterada).
+- **Fora de escopo declarado:** backend, banco, regras de negocio, demais telas.
+- **Proxima etapa:** Aplicar o diff minimo, rodar `npm test` (frontend e backend) e `npm run typecheck`.
+
+---
+
+## 2026-07-30 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** Analise arquitetural de IDENTIDADE UNICA entre a Central de Ligacoes (prospect_id) e a Central de Mensagens (numero/JID do WhatsApp), antes de qualquer integracao entre ligacao, WhatsApp e canais futuros.
+- **E projeto/tarefa de alteracao?** Nao. Tarefa de DIAGNOSTICO/ANALISE, somente leitura de codigo/schema + consultas SELECT no banco LOCAL de desenvolvimento. O usuario proibiu explicitamente implementar nesta etapa.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
+- **Areas inspecionadas:** sql/init.sql (vendas.conversas, vendas.lead_profiles, prospectador.prospects), migrations 001/005/006/012/016/039/040/047, src/db-crud.js, src/services/historico-envio.js, src/services/rodar-leads.js, src/services/prospecting-eligibility.js, src/prospecting.js, src/agent.js, src/whatsapp.js, src/middleware/tenant.js, src/routes/api-conversas.js, src/routes/api-ligacoes.js, src/db/ligacoes.js, frontend/lib/ligacao-fone.js e as paginas central-ligacoes, banco-leads, follow-ups, conversas.
+- **Efeito colateral declarado:** nenhum. As unicas escritas foram um INSERT/INSERT dentro de uma transacao com ROLLBACK explicito no banco LOCAL (simulacao de colisao multi-tenant); verificado que nada persistiu (count = 0). Nenhum arquivo de codigo alterado.
+- **Proxima etapa:** Entregar o laudo tecnico (identidade canonica, normalizacoes divergentes, risco multi-tenant, alternativas e ordem de implementacao) e aguardar aprovacao antes de qualquer migration.
