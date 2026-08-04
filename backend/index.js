@@ -96,6 +96,7 @@ app.use('/api/empresas/:empresaId/leads-quentes', require('./src/routes/api-lead
 // Aquisição / banco de leads / relatórios / LLM são admin-only (gating de backend SaaS)
 // Rotinas de Aquisição: montadas ANTES da rota mais genérica de prospecção.
 app.use('/api/empresas/:empresaId/prospeccao/rotinas', requireAuth, requireRole('admin'), require('./src/routes/api-aquisicao-rotinas'))
+app.use('/api/empresas/:empresaId/prospeccao/oportunidades', requireAuth, requireRole('admin'), require('./src/routes/api-aquisicao-oportunidades'))
 app.use('/api/empresas/:empresaId/prospeccao', requireAuth, requireRole('admin'), require('./src/routes/api-prospeccao'))
 app.use('/api/empresas/:empresaId/captacao', requireAuth, requireRole('admin'), require('./src/routes/api-captacao'))
 app.use('/api/empresas/:empresaId/banco-leads', requireAuth, requireRole('admin'), require('./src/routes/api-banco-leads'))

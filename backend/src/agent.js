@@ -118,7 +118,6 @@ const {
   buscarContextoProspeccao,
   executarJobProspeccao,
   verificarAgendaDiariaProspeccao,
-  verificarAgendaBuscaRecorrenteProspeccao,
   executarRotinasAquisicao,
   processarBuscasPlacesPendentes,
 } = require('./prospecting')
@@ -485,10 +484,9 @@ async function jobWorkerTick() {
       await executarRotinasAquisicao().catch((e) =>
         logger.warn({ operation: 'aquisicao_rotinas', etapa: 'tick_erro', erro: e.message })
       )
-      // Busca IA (motor global por empresa, mercado escolhido pela IA) — segue como estava.
-      await verificarAgendaBuscaRecorrenteProspeccao().catch((e) =>
-        logger.warn({ operation: 'prospeccao_busca_recorrente', etapa: 'tick_erro', erro: e.message })
-      )
+      // A Busca IA autônoma foi REMOVIDA daqui: ela escolhia um mercado e disparava
+      // coleta paga sozinha. A inteligência virou o Assistente de Oportunidades, que
+      // roda SOB DEMANDA (rota admin) e só produz sugestões — quem aprova é o humano.
       // Materializa as buscas da Aquisição (Bright Data Maps) que já ficaram prontas.
       await processarBuscasPlacesPendentes().catch((e) =>
         logger.warn({ operation: 'places_brightdata', etapa: 'tick_erro', erro: e.message })

@@ -5,7 +5,8 @@ import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
-import RotinasAquisicao from '@/components/RotinasAquisicao'
+import RotinasAquisicao, { type RotinasResp } from '@/components/RotinasAquisicao'
+import AssistenteOportunidades from '@/components/AssistenteOportunidades'
 import { IconTrash, IconStar, IconUndo, IconPlay } from '@/components/ui/icons'
 
 type JsonApresProspect = JsonApresentacao & {
@@ -122,13 +123,6 @@ function opcoesMercado(filtros: FiltrosMercado | null): OpcaoFiltroMercado[] {
 }
 
 const LEADS_POR_BUSCA = 200
-const BUSCA_ESTADO_LABEL: Record<Config['busca_estado'], string> = {
-  aguardando: 'Aguardando próximo ciclo', escolhendo: 'IA escolhendo mercado',
-  coletando: 'Coleta em andamento', processando: 'Processando resultados',
-  esgotado: 'Mercado esgotado', sem_mercados: 'Nenhum mercado novo encontrado',
-  limite_diario: 'Limite diário atingido', erro: 'Busca pausada por erro', pausado: 'Pausado',
-}
-
 // Temperatura do lead pela pontuação (score): quente = mais dor digital / maior chance.
 function temperatura(score: number | null): { emoji: string; label: string } {
   const s = score ?? 0
@@ -187,6 +181,10 @@ export default function ProspeccaoPage() {
   const [agindo, setAgindo] = useState<string | null>(null)
   const [salvandoConfig, setSalvandoConfig] = useState(false)
   const [form, setForm] = useState<Partial<Config>>({})
+  // As rotinas já carregadas pelo painel de rotinas, reaproveitadas pelo assistente
+  // (que precisa dos valores atuais para pré-preencher um ajuste sem sobrescrever nada).
+  const [dadosRotinas, setDadosRotinas] = useState<RotinasResp | null>(null)
+  const [recarregarRotinas, setRecarregarRotinas] = useState(0)
   // Ordenação da tabela: default = MENOS pontos de cadastro no topo (mais
   // oportunidade de venda). Clicar no cabeçalho alterna asc/desc por coluna.
   const [ordem, setOrdem] = useState<{ chave: string; dir: 'asc' | 'desc' }>({ chave: 'pontos', dir: 'asc' })
@@ -245,18 +243,9 @@ export default function ProspeccaoPage() {
       if (terminadas.length) carregar()
       emAndamentoRef.current = new Set(lista.filter((b) => b.status === 'pendente' || b.status === 'processando').map((b) => b.id))
       setBuscas(lista)
-      const configAtual = await apiFetch<ConfigResp>(`/api/empresas/${empresaId}/prospeccao/configuracao`)
-      setRotina(configAtual.data)
-      setForm((atual) => ({
-        ...atual,
-        modo_busca: configAtual.data.config.modo_busca,
-        agendamento_busca_ativo: configAtual.data.config.agendamento_busca_ativo,
-        busca_estado: configAtual.data.config.busca_estado,
-        busca_mensagem: configAtual.data.config.busca_mensagem,
-        busca_mercado_atual: configAtual.data.config.busca_mercado_atual,
-        busca_zero_consecutivos: configAtual.data.config.busca_zero_consecutivos,
-        busca_ultima_decisao_em: configAtual.data.config.busca_ultima_decisao_em,
-      }))
+      // A configuração NÃO é relida aqui: com o motor automático aposentado, não há mais
+      // estado de busca mudando sozinho no servidor. Reler a cada 20s era só requisição
+      // repetida — e ainda atropelava o que o operador estivesse digitando.
     } catch { /* silencioso */ }
   }
   useEffect(() => {
@@ -341,35 +330,6 @@ export default function ProspeccaoPage() {
     }
   }
 
-  // A busca de mercado FIXO virou Rotina de Aquisição; aqui só liga/desliga a Busca IA.
-  async function trocarModoBusca(modo: Config['modo_busca']) {
-    try {
-      setErro('')
-      await persistirConfiguracao({
-        modo_busca: modo,
-        agendamento_busca_ativo: modo === 'ia',
-        retomar_busca: modo === 'ia',
-      })
-      fb.toast(modo === 'ia' ? 'Busca IA ligada.' : 'Busca IA desligada.')
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao alterar a Busca IA.')
-    }
-  }
-
-  const cfg = rotina?.config
-  async function retomarBusca() {
-    try {
-      setErro('')
-      await persistirConfiguracao({ retomar_busca: true })
-      fb.toast('Busca retomada. O worker seguirá a janela e o intervalo.')
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao retomar a busca.')
-    }
-  }
-
-  const modoBusca = form.modo_busca || (form.agendamento_busca_ativo ? 'ia' : 'manual')
-  const modoAutomatico = modoBusca !== 'manual'
-  const estadoBloqueado = ['sem_mercados', 'erro'].includes(cfg?.busca_estado || '')
   const mercadoOpcoes = opcoesMercado(filtrosMercado)
   const cidadeOpcoes = filtrosMercado?.cidades || []
 
@@ -380,86 +340,59 @@ export default function ProspeccaoPage() {
         <p className="text-sm text-slate-500 mt-1">Configure a origem da busca e deixe o worker alimentar o Banco de Leads, mesmo fora desta tela.</p>
       </div>
 
-      <RotinasAquisicao empresaId={empresaId} onColetaIniciada={carregarBuscas} />
+      <RotinasAquisicao
+        empresaId={empresaId}
+        onColetaIniciada={carregarBuscas}
+        onDados={setDadosRotinas}
+        recarregarChave={recarregarRotinas}
+      />
 
-      <div className="space-y-4 rounded-2xl border bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold">Busca IA</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Em vez de você escolher o mercado, a IA escolhe um mercado novo dentro das suas
-              preferências e coleta sozinha. Funciona em paralelo às rotinas, respeitando a mesma
-              regra de uma coleta por vez.
-            </p>
-          </div>
-          <label className="flex shrink-0 items-center gap-2 text-sm">
-            <input type="checkbox" checked={modoBusca === 'ia'} disabled={salvandoConfig}
-              onChange={(e) => trocarModoBusca(e.target.checked ? 'ia' : 'manual')} />
-            <span className={modoBusca === 'ia' ? 'font-medium text-emerald-700' : 'text-slate-500'}>
-              {modoBusca === 'ia' ? 'Ligada' : 'Desligada'}
-            </span>
-          </label>
+      <AssistenteOportunidades
+        empresaId={empresaId}
+        rotinas={dadosRotinas?.rotinas || []}
+        limites={dadosRotinas?.limites}
+        onRotinasAlteradas={() => setRecarregarRotinas((n) => n + 1)}
+      />
+
+      {/* Preferências que o assistente respeita ao propor um mercado NOVO. Elas já
+          existiam (eram da Busca IA automática) e continuam valendo — o que mudou é que
+          agora orientam uma sugestão, não uma coleta disparada sozinha. */}
+      <div className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm">
+        <div>
+          <h2 className="text-base font-semibold">Preferências do assistente</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Onde o assistente pode procurar oportunidades novas. Deixe em branco para não limitar.
+          </p>
         </div>
-
-        {modoBusca === 'ia' && (
-          <div className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/50 p-3">
-            <div className="grid gap-3 lg:grid-cols-3">
-              <Campo label="Estratégia"><select value={form.busca_estrategia || 'equilibrada'}
-                onChange={(e) => salvarAjuste({ busca_estrategia: e.target.value as Config['busca_estrategia'] })}
-                className="w-full rounded-lg border px-3 py-2 text-sm">
-                <option value="conservadora">Conservadora</option>
-                <option value="equilibrada">Equilibrada — recomendada</option>
-                <option value="exploratoria">Exploratória</option>
-              </select></Campo>
-              <Campo label="Nichos permitidos"><input
-                value={(form.busca_nichos_permitidos || []).join(', ')}
-                onChange={(e) => setF('busca_nichos_permitidos', e.target.value.split(',').map((v) => v.trim()).filter(Boolean))}
-                onBlur={(e) => salvarAjuste({ busca_nichos_permitidos: e.target.value.split(',').map((v) => v.trim()).filter(Boolean) })}
-                placeholder="ex: dentistas, clínicas, arquitetos"
-                className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
-              <Campo label="Regiões permitidas"><input
-                value={(form.busca_localizacoes_permitidas || []).join(', ')}
-                onChange={(e) => setF('busca_localizacoes_permitidas', e.target.value.split(',').map((v) => v.trim()).filter(Boolean))}
-                onBlur={(e) => salvarAjuste({ busca_localizacoes_permitidas: e.target.value.split(',').map((v) => v.trim()).filter(Boolean) })}
-                placeholder="ex: SP, Campinas, Paraná"
-                className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
-            </div>
-            <label className="flex items-start gap-2 text-sm text-slate-700">
-              <input type="checkbox" className="mt-0.5" checked={form.busca_permitir_nichos_relacionados !== false}
-                onChange={(e) => salvarAjuste({ busca_permitir_nichos_relacionados: e.target.checked })} />
-              <span><b>Permitir nichos relacionados</b><span className="block text-xs text-slate-500">A IA pode explorar variações próximas dos nichos informados.</span></span>
-            </label>
-          </div>
-        )}
-
-        {modoAutomatico && cfg?.busca_estado && (
-          <div className={`rounded-xl border px-3 py-2.5 text-sm ${['esgotado', 'sem_mercados', 'erro'].includes(cfg.busca_estado) ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <b>{BUSCA_ESTADO_LABEL[cfg.busca_estado]}</b>
-              {cfg.busca_mercado_atual?.nicho && <span className="text-xs">Último mercado: {cfg.busca_mercado_atual.nicho} · {cfg.busca_mercado_atual.cidade}</span>}
-            </div>
-            {cfg.busca_mensagem && <p className="mt-1 text-xs">{cfg.busca_mensagem}</p>}
-            {cfg.busca_mercado_atual?.motivo && <p className="mt-1 text-xs opacity-80">Decisão da IA: {cfg.busca_mercado_atual.motivo}</p>}
-          </div>
-        )}
-
-        {modoAutomatico && (
-          <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-xs text-slate-500">
-              <p>Importa até {LEADS_POR_BUSCA} leads por busca. Os resultados entram no Banco de Leads; nenhum WhatsApp é enviado aqui.</p>
-              {cfg?.ultima_busca_em && <p className="mt-1">Última busca da IA: {quando(cfg.ultima_busca_em)}</p>}
-              {salvandoConfig && <p className="mt-1 text-brand">Salvando configuração…</p>}
-            </div>
-            {estadoBloqueado ? (
-              <button onClick={retomarBusca} disabled={salvandoConfig}
-                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-                <IconPlay /> Tentar novamente
-              </button>
-            ) : (
-              <span className="text-xs font-medium text-emerald-700">Busca IA ativa em segundo plano</span>
-            )}
-          </div>
-        )}
+        <div className="grid gap-3 lg:grid-cols-3">
+          <Campo label="Estratégia"><select value={form.busca_estrategia || 'equilibrada'}
+            onChange={(e) => salvarAjuste({ busca_estrategia: e.target.value as Config['busca_estrategia'] })}
+            className="w-full rounded-lg border px-3 py-2 text-sm">
+            <option value="conservadora">Conservadora — perto do que já funciona</option>
+            <option value="equilibrada">Equilibrada — recomendada</option>
+            <option value="exploratoria">Exploratória — testa mais mercados novos</option>
+          </select></Campo>
+          <Campo label="Nichos permitidos"><input
+            value={(form.busca_nichos_permitidos || []).join(', ')}
+            onChange={(e) => setF('busca_nichos_permitidos', e.target.value.split(',').map((v) => v.trim()).filter(Boolean))}
+            onBlur={(e) => salvarAjuste({ busca_nichos_permitidos: e.target.value.split(',').map((v) => v.trim()).filter(Boolean) })}
+            placeholder="ex: dentistas, clínicas, arquitetos"
+            className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
+          <Campo label="Regiões permitidas"><input
+            value={(form.busca_localizacoes_permitidas || []).join(', ')}
+            onChange={(e) => setF('busca_localizacoes_permitidas', e.target.value.split(',').map((v) => v.trim()).filter(Boolean))}
+            onBlur={(e) => salvarAjuste({ busca_localizacoes_permitidas: e.target.value.split(',').map((v) => v.trim()).filter(Boolean) })}
+            placeholder="ex: SP, Campinas, Paraná"
+            className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
+        </div>
+        <label className="flex items-start gap-2 text-sm text-slate-700">
+          <input type="checkbox" className="mt-0.5" checked={form.busca_permitir_nichos_relacionados !== false}
+            onChange={(e) => salvarAjuste({ busca_permitir_nichos_relacionados: e.target.checked })} />
+          <span><b>Permitir nichos relacionados</b>
+            <span className="block text-xs text-slate-500">O assistente pode propor variações próximas dos nichos informados.</span>
+          </span>
+        </label>
+        {salvandoConfig && <p className="text-xs text-brand">Salvando preferências…</p>}
       </div>
 
       {erro && <p className="text-red-600 text-sm">{erro}</p>}

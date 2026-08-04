@@ -149,9 +149,11 @@ test('prospecting settings: row persistida retorna aliases usados pelo dashboard
   assert.equal(cfg.horario_fim, '16:45')
 })
 
-test('prospecting settings: Busca IA aplica guardrails simples no backend', () => {
+// As PREFERÊNCIAS (estratégia, nichos e regiões permitidos) sobreviveram à
+// aposentadoria do motor: hoje elas alimentam o Assistente de Oportunidades. Se este
+// teste quebrar, o assistente perde o filtro que o operador configurou.
+test('prospecting settings: preferências de mercado seguem normalizadas no backend', () => {
   const cfg = normalizarConfiguracaoProspeccao({
-    modo_busca: 'ia',
     busca_intervalo_horas: 2,
     busca_max_diaria: 9,
     busca_estrategia: 'exploratoria',
@@ -159,7 +161,6 @@ test('prospecting settings: Busca IA aplica guardrails simples no backend', () =
     busca_localizacoes_permitidas: ['SP', 'Campinas'],
     busca_permitir_nichos_relacionados: false,
   })
-  assert.equal(cfg.agendamento_busca_ativo, true)
   assert.equal(cfg.busca_intervalo_horas, 6)
   assert.equal(cfg.busca_max_diaria, 2)
   assert.equal(cfg.busca_estrategia, 'exploratoria')
@@ -182,10 +183,14 @@ test('prospecting settings: modo automatico_fixo foi aposentado e falha fechado'
   assert.equal(cfg.agendamento_busca_ativo, false, 'o agendador antigo fica desligado')
 })
 
-test('prospecting settings: Busca IA continua podendo ser ligada', () => {
-  const cfg = normalizarConfiguracaoProspeccao({ modo_busca: 'ia' })
-  assert.equal(cfg.modo_busca, 'ia')
-  assert.equal(cfg.agendamento_busca_ativo, true)
+// Regressão do Assistente de Oportunidades (migration 054): a Busca IA autônoma
+// escolhia um mercado e DISPARAVA coleta paga sem aprovação. O motor foi removido; se a
+// config voltar a aceitar 'ia', o painel passa a anunciar uma busca automática que não
+// existe — e um cliente antigo poderia religá-la só mandando o campo.
+test('prospecting settings: modo ia foi aposentado e falha fechado', () => {
+  const cfg = normalizarConfiguracaoProspeccao({ modo_busca: 'ia', agendamento_busca_ativo: true })
+  assert.equal(cfg.modo_busca, 'manual', 'valor legado não pode reativar a busca autônoma')
+  assert.equal(cfg.agendamento_busca_ativo, false, 'nenhum agendador de busca fica ligado aqui')
 })
 
 test('prospecting settings: salvar e recarregar preserva configuracao no pool', async () => {

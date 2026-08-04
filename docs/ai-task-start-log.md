@@ -6,6 +6,56 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-04 - Inicio de tarefa IA - Assistente de Oportunidades (Busca IA perde autonomia de coleta paga)
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Transformar a **Busca IA** (que hoje escolhe nicho+cidade sozinha e DISPARA
+  coleta paga) em um **Assistente de Oportunidades**: analisa rotinas, resultados de coleta e
+  resultado comercial por mercado, e SUGERE (criar rotina, pausar/revisar, variar mercado, ajustar
+  quantidade/intervalo/dias) com motivo, evidências e confiança. O administrador **sempre aprova**;
+  a IA nunca cria/edita/ativa rotina nem inicia coleta. Decisões (aprovar/editar/dispensar) ficam
+  registradas para a mesma sugestão não reaparecer sem motivo novo. A Busca IA legada continua
+  funcional nesta etapa (sem remoção).
+- **E projeto/tarefa de alteracao?** Sim — feature GRANDE e ESTRUTURAL: migration nova, módulo de
+  sinais + geração de sugestões, rotas admin novas, nova seção na tela de Aquisição.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/architecture-rules.md: Sim | docs/project-map.md: Sim | docs/ui-visual-standard.md: a
+  consultar na Fase 5 | docs/project-architecture.md: Sim | docs/ai-decision-log.md: a registrar
+  na Fase 8.
+- **Areas mapeadas (leitura, antes de qualquer edicao):**
+  - `src/prospecting.js`: `selecionarMercadoDiarioIA` (2596), `resumoMercadosProspeccao` (2561),
+    `verificarAgendaBuscaRecorrenteProspeccao` (2972 — é ELE que chama `pesquisarPlaces` com a
+    escolha da IA), `executarRotinasAquisicao` (3039), `pesquisarPlaces` (3710).
+  - `src/services/aquisicao-rotinas-scheduler.js` (lógica pura de tempo/normalização/validação),
+    `src/db/aquisicao-rotinas.js` (CRUD + `listarAtividadeRecente`), `src/routes/api-aquisicao-rotinas.js`.
+  - `src/services/prospecting-settings.js` (config legada da Busca IA: estratégia, nichos/regiões
+    permitidos, `busca_estado`), migrations `027` e `053`.
+  - `src/routes/api-prospeccao.js` (`/resultados`, `/analytics`, `/metricas`) — fonte de sinal
+    comercial já existente por nicho/cidade.
+  - `index.js:98-99` (montagem admin-only) e `src/agent.js:483-495` (tick de 60s dos workers).
+  - Front: `frontend/app/dashboard/prospeccao/page.tsx` e `frontend/components/RotinasAquisicao.tsx`.
+- **Fatos confirmados no codigo (nao sao hipotese):**
+  1. A autonomia de coleta paga da Busca IA está em `verificarAgendaBuscaRecorrenteProspeccao`,
+     não em `selecionarMercadoDiarioIA` (que só devolve `{nicho, cidade, motivo, confianca}`).
+  2. O sinal comercial por mercado JÁ existe: `prospectador.prospects` (status
+     `enviado`/`respondeu`), `prospectador.lead_disparos` e `app.agenda_eventos` (reuniões, casadas
+     por telefone). O sinal de coleta está em `prospectador.busca_snapshots`
+     (`total_prospects`/`novos_prospects`) e nos contadores da rotina.
+  3. Isolamento por empresa já é padrão em todas as tabelas envolvidas.
+- **Areas possivelmente impactadas:** Banco (migration ADITIVA nova para sugestões/decisões),
+  back-end (novo service de sinais + geração, novas rotas admin), front-end (nova seção em
+  Aquisição), custo de IA (1 chamada por análise — rastreada em Uso & Custo por empresa),
+  visual/UX (nova seção), permissões (mantidas: `requireAuth` + `requireRole('admin')` +
+  `requireEmpresaAccess`). SEM impacto em envio de WhatsApp, Banco de Leads, prompts de produção
+  ou segredos. NENHUMA chamada paga à Bright Data é feita por este módulo.
+- **Restricao declarada pelo usuario:** a IA não pode chamar Bright Data nem qualquer função de
+  disparo; não pode alterar rotinas direto no banco; a aprovação passa por rota autenticada de
+  admin com validação de backend. Nenhuma chamada paga real na validação.
+- **Proxima etapa:** Fase 1-6 — entendimento, impacto e **confirmação da arquitetura com o Victor**
+  antes de escrever código (feature estrutural com migration).
+
+---
+
 ## 2026-08-04 - Inicio de tarefa IA - Reestruturar Aquisicao como rotinas continuas de coleta
 
 - **IA/Ferramenta:** Claude Code (Opus 5)

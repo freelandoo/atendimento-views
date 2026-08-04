@@ -1,8 +1,16 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { IconTrash, IconPlay } from '@/components/ui/icons'
+import RotinaCampos, {
+  Campo,
+  QUANTIDADE_MAX,
+  INTERVALO_MIN,
+  RASCUNHO_VAZIO,
+  resumoDias,
+  type Rascunho,
+} from '@/components/RotinaCampos'
 
 // Rotinas de Aquisição: cada rotina é um mercado (nicho + cidade + UF) com agenda
 // própria. A tela fala a língua do operador — nada de snapshot, dataset ou webhook.
@@ -46,38 +54,12 @@ type Atividade = {
   erro: string | null
   created_at: string
 }
-type RotinasResp = {
+export type RotinasResp = {
   rotinas: Rotina[]
   atividade: Atividade[]
   coleta_em_andamento: boolean
   limites: { quantidade_min: number; quantidade_max: number; intervalo_min_horas: number }
 }
-type Rascunho = {
-  id?: string
-  nicho: string
-  cidade: string
-  uf: string
-  dias_semana: number[]
-  janela_inicio: string
-  janela_fim: string
-  intervalo_horas: number
-  quantidade: number
-  ativo: boolean
-}
-
-const DIAS = [
-  { valor: 0, curto: 'D', nome: 'domingo' },
-  { valor: 1, curto: 'S', nome: 'segunda' },
-  { valor: 2, curto: 'T', nome: 'terça' },
-  { valor: 3, curto: 'Q', nome: 'quarta' },
-  { valor: 4, curto: 'Q', nome: 'quinta' },
-  { valor: 5, curto: 'S', nome: 'sexta' },
-  { valor: 6, curto: 'S', nome: 'sábado' },
-]
-
-const QUANTIDADE_MAX = 200
-const INTERVALO_MIN = 6
-
 // Cor por estado — o admin identifica o que precisa de ação sem ler texto.
 const ESTADO_STYLE: Record<string, string> = {
   ativa: 'bg-emerald-100 text-emerald-700',
@@ -97,12 +79,6 @@ const STATUS_ATIVIDADE: Record<string, { label: string; cor: string }> = {
   falhou: { label: 'Falhou', cor: 'bg-red-100 text-red-600' },
 }
 
-const RASCUNHO_VAZIO: Rascunho = {
-  nicho: '', cidade: '', uf: '', dias_semana: [1, 2, 3, 4, 5],
-  janela_inicio: '08:00', janela_fim: '18:00',
-  intervalo_horas: INTERVALO_MIN, quantidade: QUANTIDADE_MAX, ativo: true,
-}
-
 function quando(iso: string | null): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -119,21 +95,19 @@ function origemLabel(a: Atividade): string {
   return 'Avulsa'
 }
 
-// "Seg a Sex", "Todos os dias", "Seg, Qua, Sex" — resumo legível dos dias ativos.
-function resumoDias(dias: number[]): string {
-  const ordenados = [...new Set(dias)].sort((a, b) => a - b)
-  if (ordenados.length === 7) return 'Todos os dias'
-  if (ordenados.join(',') === '1,2,3,4,5') return 'Seg a Sex'
-  const nomes = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
-  return ordenados.map((d) => nomes[d]).join(', ') || 'Nenhum dia'
-}
-
 export default function RotinasAquisicao({
   empresaId,
   onColetaIniciada,
+  onDados,
+  recarregarChave = 0,
 }: {
   empresaId: string
   onColetaIniciada?: () => void
+  // Publica as rotinas já carregadas para quem precisa delas na mesma tela (o
+  // Assistente de Oportunidades), em vez de repetir a mesma requisição.
+  onDados?: (dados: RotinasResp) => void
+  // Muda de valor quando algo externo alterou as rotinas (ex.: aprovação de sugestão).
+  recarregarChave?: number
 }) {
   const [dados, setDados] = useState<RotinasResp | null>(null)
   const [rascunho, setRascunho] = useState<Rascunho | null>(null)
@@ -146,17 +120,23 @@ export default function RotinasAquisicao({
 
   const base = `/api/empresas/${empresaId}/prospeccao/rotinas`
 
+  // Guardado em ref para que `carregar` permaneça estável mesmo com callback inline no
+  // pai — sem isso o intervalo de 20s seria recriado a cada render.
+  const onDadosRef = useRef(onDados)
+  useEffect(() => { onDadosRef.current = onDados }, [onDados])
+
   const carregar = useCallback(async () => {
     if (!empresaId) return
     try {
       const r = await apiFetch<RotinasResp>(base)
       setDados(r.data)
+      onDadosRef.current?.(r.data)
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar as rotinas.')
     }
   }, [empresaId, base])
 
-  useEffect(() => { carregar() }, [carregar])
+  useEffect(() => { carregar() }, [carregar, recarregarChave])
   // A coleta é assíncrona (leva minutos): o painel se atualiza sozinho.
   useEffect(() => {
     const t = setInterval(carregar, 20000)
@@ -172,14 +152,6 @@ export default function RotinasAquisicao({
       id: r.id, nicho: r.nicho, cidade: r.cidade, uf: r.uf || '',
       dias_semana: r.dias_semana, janela_inicio: r.janela_inicio, janela_fim: r.janela_fim,
       intervalo_horas: r.intervalo_horas, quantidade: r.quantidade, ativo: r.ativo,
-    })
-  }
-
-  function alternarDia(dia: number) {
-    setRascunho((r) => {
-      if (!r) return r
-      const tem = r.dias_semana.includes(dia)
-      return { ...r, dias_semana: tem ? r.dias_semana.filter((d) => d !== dia) : [...r.dias_semana, dia].sort((a, b) => a - b) }
     })
   }
 
@@ -285,76 +257,7 @@ export default function RotinasAquisicao({
           <div className="space-y-4 rounded-xl border border-brand/40 bg-brand/5 p-4">
             <p className="text-sm font-semibold">{rascunho.id ? 'Editar rotina' : 'Nova rotina'}</p>
 
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Campo label="Nicho">
-                <input value={rascunho.nicho} placeholder="ex: dentista"
-                  onChange={(e) => setRascunho({ ...rascunho, nicho: e.target.value })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm" />
-              </Campo>
-              <Campo label="Cidade">
-                <input value={rascunho.cidade} placeholder="ex: Campinas"
-                  onChange={(e) => setRascunho({ ...rascunho, cidade: e.target.value })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm" />
-              </Campo>
-              <Campo label="Estado (UF)">
-                <input value={rascunho.uf} maxLength={2} placeholder="SP"
-                  onChange={(e) => setRascunho({ ...rascunho, uf: e.target.value.toUpperCase() })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm uppercase" />
-              </Campo>
-              {/* A quantidade corta a IMPORTAÇÃO, não a coleta na origem: a fonte pode
-                  devolver mais registros antes desse corte. O rótulo não promete volume
-                  coletado nem custo. */}
-              <Campo label={`Máx. de leads a importar (1 a ${limites.quantidade_max})`}>
-                <input type="number" min={limites.quantidade_min} max={limites.quantidade_max} value={rascunho.quantidade}
-                  title="Limite de leads que entram no Banco de Leads a cada execução. A busca na origem pode encontrar mais registros do que isso."
-                  onChange={(e) => setRascunho({ ...rascunho, quantidade: Number(e.target.value) || limites.quantidade_max })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm" />
-              </Campo>
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-[10px] uppercase text-slate-500">Dias ativos</label>
-              <div className="flex flex-wrap gap-1.5">
-                {DIAS.map((d) => {
-                  const ativo = rascunho.dias_semana.includes(d.valor)
-                  return (
-                    <button key={d.valor} type="button" onClick={() => alternarDia(d.valor)}
-                      title={d.nome} aria-pressed={ativo}
-                      className={`h-9 w-9 rounded-lg border text-sm font-medium transition ${
-                        ativo ? 'border-brand bg-brand text-white' : 'bg-white text-slate-500 hover:bg-slate-50'
-                      }`}>
-                      {d.curto}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Campo label="Início da janela">
-                <input type="time" value={rascunho.janela_inicio}
-                  onChange={(e) => setRascunho({ ...rascunho, janela_inicio: e.target.value })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm" />
-              </Campo>
-              <Campo label="Fim da janela">
-                <input type="time" value={rascunho.janela_fim}
-                  onChange={(e) => setRascunho({ ...rascunho, janela_fim: e.target.value })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm" />
-              </Campo>
-              <Campo label={`Buscar a cada (mín. ${limites.intervalo_min_horas}h)`}>
-                <input type="number" min={limites.intervalo_min_horas} max={168} value={rascunho.intervalo_horas}
-                  onChange={(e) => setRascunho({ ...rascunho, intervalo_horas: Math.max(limites.intervalo_min_horas, Number(e.target.value) || limites.intervalo_min_horas) })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm" />
-              </Campo>
-            </div>
-
-            <label className="flex items-start gap-2 text-sm text-slate-700">
-              <input type="checkbox" className="mt-0.5" checked={rascunho.ativo}
-                onChange={(e) => setRascunho({ ...rascunho, ativo: e.target.checked })} />
-              <span><b>Rotina ativa</b>
-                <span className="block text-xs text-slate-500">Desmarcado, a rotina fica pausada e não coleta nada.</span>
-              </span>
-            </label>
+            <RotinaCampos rascunho={rascunho} onChange={setRascunho} limites={limites} />
 
             <div className="flex flex-wrap gap-2">
               <button onClick={salvar} disabled={salvando}
@@ -510,14 +413,6 @@ export default function RotinasAquisicao({
   )
 }
 
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="mb-0.5 block text-[10px] uppercase text-slate-500">{label}</label>
-      {children}
-    </div>
-  )
-}
 
 function Dado({ rotulo, valor }: { rotulo: string; valor: string }) {
   return (

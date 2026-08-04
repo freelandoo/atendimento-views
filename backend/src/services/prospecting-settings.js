@@ -33,17 +33,12 @@ function listaTexto(valor, maxItens = 20, maxTexto = 80) {
 }
 
 function normalizarConfiguracaoProspeccao(payload = {}) {
-  // 'automatico_fixo' foi APOSENTADO: o mercado fixo agora é uma Rotina de Aquisição
-  // (prospectador.aquisicao_rotinas, migration 053). Aceitá-lo aqui ligaria um SEGUNDO
-  // agendador sobre o mesmo mercado, com risco de coleta paga em duplicidade — então
-  // qualquer valor legado cai em 'manual' (falha fechada, motor desligado).
-  const modoBusca = enumOuPadrao(
-    payload.modo_busca,
-    ['manual', 'ia'],
-    boolOuPadrao(payload.agendamento_busca_ativo, false) && String(payload.modo_busca || '') !== 'automatico_fixo'
-      ? 'ia'
-      : 'manual'
-  )
+  // Só resta 'manual'. Os dois modos automáticos foram aposentados e seus motores
+  // REMOVIDOS: 'automatico_fixo' virou Rotina de Aquisição (migration 053) e 'ia' virou o
+  // Assistente de Oportunidades (migration 054), que sugere em vez de coletar sozinho.
+  // Qualquer valor legado cai em 'manual' — falha fechada: sem motor, um modo gravado
+  // aqui só produziria um painel dizendo que algo roda quando nada roda.
+  const modoBusca = enumOuPadrao(payload.modo_busca, ['manual'], 'manual')
   const cfg = normalizarConfigProspeccao({
     ativo: payload.ativo ?? payload.enabled,
     modo: payload.modo,
@@ -66,8 +61,10 @@ function normalizarConfiguracaoProspeccao(payload = {}) {
     estado_padrao: textoOuNull(cfg.estado_padrao, 2),
     regiao_padrao: textoOuNull(cfg.regiao_padrao),
     modo_busca: modoBusca,
-    // O modo é a única fonte de verdade do liga/desliga; não depende do campo legado `ativo`.
-    agendamento_busca_ativo: modoBusca !== 'manual',
+    // Não existe mais busca automática nesta configuração: as rotinas têm agenda própria
+    // e o assistente só sugere. Manter isto derivado (e não vindo do payload) impede que
+    // um cliente antigo religue um agendador que não existe mais.
+    agendamento_busca_ativo: false,
     busca_intervalo_horas: inteiroEntre(payload.busca_intervalo_horas, 6, 6, 168),
     busca_max_diaria: inteiroEntre(payload.busca_max_diaria, 2, 1, 2),
     busca_estrategia: enumOuPadrao(payload.busca_estrategia, ['conservadora', 'equilibrada', 'exploratoria'], 'equilibrada'),

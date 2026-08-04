@@ -29,7 +29,7 @@ const {
   salvarConfiguracaoProspeccao,
   montarAgendaPainelProspeccao,
 } = require('./services/prospecting-settings')
-const { buscaProspeccaoDevePreencher, resultadoBuscaAutomatica } = require('./services/prospecting-search-scheduler')
+const { resultadoBuscaAutomatica } = require('./services/prospecting-search-scheduler')
 const {
   escolherRotinaElegivel,
   localizacaoRotina,
@@ -2938,18 +2938,6 @@ async function atualizarEstadoBusca(empresaId, estado, mensagem = null, mercado 
   )
 }
 
-async function totalBuscasAutomaticasHoje(empresaId, now = new Date()) {
-  const { rows } = await pool.query(
-    `SELECT COUNT(*)::int AS total
-       FROM prospectador.busca_snapshots
-      WHERE empresa_id = $1
-        AND origem IN ('automatico_fixo', 'ia')
-        AND (created_at AT TIME ZONE 'America/Sao_Paulo')::date = ($2::timestamptz AT TIME ZONE 'America/Sao_Paulo')::date`,
-    [empresaId, now instanceof Date ? now.toISOString() : now]
-  )
-  return Number(rows[0]?.total || 0)
-}
-
 async function existeBuscaEmAndamento(empresaId) {
   const { rows } = await pool.query(
     `SELECT 1 FROM prospectador.busca_snapshots
@@ -2960,78 +2948,10 @@ async function existeBuscaEmAndamento(empresaId) {
   return !!rows[0]
 }
 
-function mercadoFixoDaConfig(cfg) {
-  const nicho = normalizarTexto(cfg?.categoria_padrao, 60)
-  const cidadeBase = normalizarTexto(cfg?.cidade_padrao, 60)
-  const uf = normalizarTexto(cfg?.estado_padrao, 2).toUpperCase()
-  if (!nicho || !cidadeBase) return null
-  const cidade = uf && !cidadeBase.toUpperCase().includes(uf) ? `${cidadeBase} - ${uf}` : cidadeBase
-  return { nicho, cidade, origem: 'automatico_fixo', motivo: 'Mercado fixo configurado pelo operador.' }
-}
-
-async function verificarAgendaBuscaRecorrenteProspeccao(now = new Date()) {
-  let empresas
-  try {
-    const { rows } = await pool.query(
-      `SELECT empresa_id FROM prospectador.prospeccao_configuracoes WHERE agendamento_busca_ativo = true`
-    )
-    empresas = rows.map((r) => r.empresa_id).filter(Boolean)
-  } catch (e) {
-    return { ok: false, disparadas: 0, motivo: 'config_indisponivel', erro: e.message }
-  }
-  if (!empresas.length) return { ok: true, disparadas: 0, motivo: 'desabilitado' }
-
-  let disparadas = 0
-  for (const empresaId of empresas) {
-    try {
-      const cfg = await obterConfiguracaoProspeccao(pool, empresaId)
-      if (!buscaProspeccaoDevePreencher(cfg, now)) continue
-      if (await existeBuscaEmAndamento(empresaId)) {
-        await atualizarEstadoBusca(empresaId, 'processando', 'A coleta anterior ainda está sendo processada. A próxima decisão aguardará a conclusão.')
-        continue
-      }
-      const feitasHoje = await totalBuscasAutomaticasHoje(empresaId, now)
-      if (feitasHoje >= Number(cfg.busca_max_diaria || 2)) {
-        await atualizarEstadoBusca(empresaId, 'limite_diario', `Limite diário atingido (${feitasHoje}/${cfg.busca_max_diaria || 2}). A busca retoma na próxima janela.`)
-        continue
-      }
-      const modoBusca = cfg.modo_busca === 'automatico_fixo' ? 'automatico_fixo' : 'ia'
-      await atualizarEstadoBusca(empresaId, modoBusca === 'ia' ? 'escolhendo' : 'coletando', modoBusca === 'ia' ? 'A IA está escolhendo o próximo mercado.' : 'Preparando a busca do mercado configurado.')
-      const mercado = modoBusca === 'ia'
-        ? await selecionarMercadoDiarioIA(pool, cfg, { empresaId })
-        : mercadoFixoDaConfig(cfg)
-      if (mercado && mercado.nicho && mercado.cidade) {
-        await pesquisarPlaces({
-          nicho: mercado.nicho,
-          local: mercado.cidade,
-          // O snapshot preserva o modo; os prospects continuam usando a origem histórica
-          // 'automatico', compatível com o CHECK existente da tabela de leads.
-          origem: modoBusca,
-          empresaId,
-          decisao: mercado,
-        })
-        await pool.query(
-          `UPDATE prospectador.prospeccao_configuracoes
-              SET ultima_busca_em = NOW(), busca_estado = 'coletando',
-                  busca_mensagem = $2, busca_mercado_atual = $3::jsonb,
-                  busca_ultima_decisao_em = NOW(), atualizado_em = NOW()
-            WHERE empresa_id = $1`,
-          [empresaId, `Buscando ${mercado.nicho} em ${mercado.cidade}.`, JSON.stringify(mercado)]
-        )
-        disparadas += 1
-      } else {
-        await atualizarEstadoBusca(empresaId, 'sem_mercados', 'A IA não encontrou um mercado novo dentro das preferências. Ajuste as listas ou retome para tentar novamente.')
-        logger.warn({ operation: 'prospeccao_busca_recorrente', empresa_id: empresaId }, 'mercado IA indisponível — busca pausada')
-      }
-    } catch (e) {
-      await atualizarEstadoBusca(empresaId, 'erro', 'A busca foi pausada por uma falha operacional. Revise a configuração e tente novamente.').catch(() => {})
-      logger.warn({ operation: 'prospeccao_busca_recorrente', empresa_id: empresaId, erro: e.message }, 'busca agendada pausada')
-    }
-  }
-  if (disparadas) logger.info({ operation: 'prospeccao_busca_recorrente', disparadas }, 'buscas agendadas disparadas')
-  return { ok: true, disparadas, empresas: empresas.length }
-}
-
+// A Busca IA AUTONOMA foi removida: verificarAgendaBuscaRecorrenteProspeccao escolhia um
+// mercado por IA e chamava pesquisarPlaces (coleta paga) sem aprovacao humana. A escolha
+// de mercado (selecionarMercadoDiarioIA) continua viva e agora alimenta o Assistente de
+// Oportunidades (services/aquisicao-assistente.js), que so PROPOE — quem aprova e o admin.
 // Motor das ROTINAS de Aquisição. Roda no mesmo tick de 60s do worker de buscas.
 // Para cada empresa escolhe NO MÁXIMO UMA rotina elegível e dispara UMA coleta.
 // As demais rotinas vencidas simplesmente continuam elegíveis no próximo tick — é o
@@ -4485,7 +4405,6 @@ module.exports = {
   substituirPlaceholderEmpresa,
   temPlaceholderResidual,
   verificarAgendaDiariaProspeccao,
-  verificarAgendaBuscaRecorrenteProspeccao,
   executarRotinasAquisicao,
   processarBuscasPlacesPendentes,
   listarBuscasRecentes,
