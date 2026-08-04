@@ -302,3 +302,27 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
 - Banco: tabela append-only `app.conversa_feedbacks` por `empresa_id`, com vinculo opcional
   `feedback_id` em `app.empresa_contexto_sugestoes`.
 - Validacao: testes focados de feedback e Contexto 2 passaram; typecheck do frontend passou.
+
+## 2026-08-04 - Aquisicao - reorganizacao de UI/UX da pagina (sem mudanca de comportamento)
+
+- Area(s) tocada(s): apenas frontend — `app/dashboard/prospeccao/page.tsx`,
+  `components/RotinasAquisicao.tsx`, `components/AssistenteOportunidades.tsx` e dois
+  componentes novos de apresentacao (`components/ui/Abas.tsx`, `components/HistoricoColetas.tsx`).
+- Regras preservadas: nenhuma regra de coleta, Bright Data, idempotencia, worker, migration,
+  permissao ou Banco de Leads foi tocada; Rotinas de coleta e Busca avulsa mantiveram
+  comportamento, campos e endpoints; as regras de sugestao/aprovacao do Assistente de
+  Oportunidades continuam iguais (so o lugar das Preferencias mudou); tabela de leads manteve
+  colunas, ordenacao, filtros, busca e acoes de marcar/descartar.
+- O que mudou: hierarquia da tela passou a ser coleta -> leads -> consulta. A lista de leads
+  virou o conteudo principal (secao "Leads encontrados"); os blocos analiticos foram reunidos
+  numa secao "Acompanhar resultados" com 3 abas acessiveis (Desempenho por mercado, que agora
+  concentra a tabela por mercado + os sinais comerciais que antes eram um card solto; Respostas
+  recentes; Historico de coletas, que e a antiga "Atividade recente" movida das Rotinas). As
+  "Preferencias do assistente" sairam de card proprio e vivem recolhidas dentro do card do
+  assistente, sob "Configurar criterios". Nenhuma requisicao nova, removida ou reordenada.
+- Validacao: `npm run typecheck` e `npm run build` do frontend passaram; validacao no navegador
+  (build de producao servido localmente com API simulada) cobriu desktop 1440x900 e mobile
+  390x844, as tres abas com e sem dados, teclado nas abas (setas/roving tabindex/aria), ausencia
+  de rolagem horizontal do body e a preservacao de ordenacao/filtros/busca ao trocar de aba;
+  o log de rede confirmou que nenhuma requisicao de coleta e disparada pela mudanca.
+- Documentos atualizados: `ai-task-start-log.md`, `ai-decision-log.md` e este mapa.

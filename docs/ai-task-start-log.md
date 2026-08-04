@@ -735,3 +735,16 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Areas inspecionadas:** sql/init.sql (vendas.conversas, vendas.lead_profiles, prospectador.prospects), migrations 001/005/006/012/016/039/040/047, src/db-crud.js, src/services/historico-envio.js, src/services/rodar-leads.js, src/services/prospecting-eligibility.js, src/prospecting.js, src/agent.js, src/whatsapp.js, src/middleware/tenant.js, src/routes/api-conversas.js, src/routes/api-ligacoes.js, src/db/ligacoes.js, frontend/lib/ligacao-fone.js e as paginas central-ligacoes, banco-leads, follow-ups, conversas.
 - **Efeito colateral declarado:** nenhum. As unicas escritas foram um INSERT/INSERT dentro de uma transacao com ROLLBACK explicito no banco LOCAL (simulacao de colisao multi-tenant); verificado que nada persistiu (count = 0). Nenhum arquivo de codigo alterado.
 - **Proxima etapa:** Entregar o laudo tecnico (identidade canonica, normalizacoes divergentes, risco multi-tenant, alternativas e ordem de implementacao) e aguardar aprovacao antes de qualquer migration.
+
+
+---
+
+## 2026-08-04 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** Reorganizar UI/UX da pagina de Aquisicao (aba Google Places = ProspeccaoPage): manter Rotinas de coleta e Busca avulsa no topo, deixar o Assistente de Oportunidades discreto com as Preferencias recolhidas dentro dele, promover a lista de leads a conteudo principal e reunir os blocos analiticos numa secao "Acompanhar resultados" com 3 abas (Desempenho por mercado / Respostas recentes / Historico de coletas, ex-"Atividade recente").
+- **E projeto/tarefa de alteracao?** Sim, mas de escopo APRESENTACAO (frontend). Sem schema, sem migration, sem rota, sem regra de coleta/Bright Data/worker/permissao.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/ui-visual-standard.md: Sim.
+- **Areas possivelmente impactadas:** frontend/app/dashboard/prospeccao/page.tsx, frontend/components/RotinasAquisicao.tsx, frontend/components/AssistenteOportunidades.tsx e dois componentes novos de apresentacao (abas acessiveis + tabela de historico de coletas movida).
+- **Fora de escopo declarado:** backend, banco, Banco de Leads, regras de sugestao/aprovacao do assistente, comportamento de Busca avulsa e das Rotinas, requisicoes de coleta.
+- **Proxima etapa:** Aplicar o diff minimo de apresentacao, rodar `npm run typecheck` e `npm run build` no frontend e validar desktop/mobile com as tres abas com e sem dados.

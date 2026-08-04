@@ -7,7 +7,9 @@ import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import RotinasAquisicao, { type RotinasResp } from '@/components/RotinasAquisicao'
 import AssistenteOportunidades from '@/components/AssistenteOportunidades'
-import { IconTrash, IconStar, IconUndo, IconPlay } from '@/components/ui/icons'
+import HistoricoColetas from '@/components/HistoricoColetas'
+import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
+import { IconTrash, IconStar, IconUndo } from '@/components/ui/icons'
 
 type JsonApresProspect = JsonApresentacao & {
   empresa?: { horario_funcionamento?: boolean; fotos?: number }
@@ -123,6 +125,14 @@ function opcoesMercado(filtros: FiltrosMercado | null): OpcaoFiltroMercado[] {
 }
 
 const LEADS_POR_BUSCA = 200
+// Seção "Acompanhar resultados": consulta secundária, abaixo da lista de leads. As abas
+// evitam que vários painéis analíticos disputem a tela ao mesmo tempo.
+const ID_ABAS = 'resultados'
+const ABAS_RESULTADO: Aba[] = [
+  { id: 'desempenho', titulo: 'Desempenho por mercado', descricao: 'Volume, envios, respostas e sinais comerciais por nicho e cidade' },
+  { id: 'respostas', titulo: 'Respostas recentes', descricao: 'Quem respondeu por último' },
+  { id: 'historico', titulo: 'Histórico de coletas', descricao: 'Coletas das rotinas e das buscas avulsas' },
+]
 // Temperatura do lead pela pontuação (score): quente = mais dor digital / maior chance.
 function temperatura(score: number | null): { emoji: string; label: string } {
   const s = score ?? 0
@@ -188,6 +198,9 @@ export default function ProspeccaoPage() {
   // Ordenação da tabela: default = MENOS pontos de cadastro no topo (mais
   // oportunidade de venda). Clicar no cabeçalho alterna asc/desc por coluna.
   const [ordem, setOrdem] = useState<{ chave: string; dir: 'asc' | 'desc' }>({ chave: 'pontos', dir: 'asc' })
+  // Aba visível de "Acompanhar resultados". Trocar de aba só alterna o painel: não
+  // recarrega dado nenhum nem toca no filtro/ordenação da tabela de leads.
+  const [abaResultado, setAbaResultado] = useState('desempenho')
   const [jsonAberto, setJsonAberto] = useState<{ titulo: string; json: JsonApresProspect } | null>(null)
   const fb = useFeedback()
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
@@ -332,39 +345,21 @@ export default function ProspeccaoPage() {
 
   const mercadoOpcoes = opcoesMercado(filtrosMercado)
   const cidadeOpcoes = filtrosMercado?.cidades || []
+  const atividade = dadosRotinas?.atividade || []
+  const porMercado = resultados?.por_mercado || []
+  const recentes = resultados?.recentes || []
+  const temAnalytics = !!analytics && analytics.metricas.mensagens_enviadas > 0
+  const temDesempenho = porMercado.length > 0 || temAnalytics
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Prospecção</h1>
-        <p className="text-sm text-slate-500 mt-1">Configure a origem da busca e deixe o worker alimentar o Banco de Leads, mesmo fora desta tela.</p>
-      </div>
-
-      <RotinasAquisicao
-        empresaId={empresaId}
-        onColetaIniciada={carregarBuscas}
-        onDados={setDadosRotinas}
-        recarregarChave={recarregarRotinas}
-      />
-
-      <AssistenteOportunidades
-        empresaId={empresaId}
-        rotinas={dadosRotinas?.rotinas || []}
-        limites={dadosRotinas?.limites}
-        onRotinasAlteradas={() => setRecarregarRotinas((n) => n + 1)}
-      />
-
-      {/* Preferências que o assistente respeita ao propor um mercado NOVO. Elas já
-          existiam (eram da Busca IA automática) e continuam valendo — o que mudou é que
-          agora orientam uma sugestão, não uma coleta disparada sozinha. */}
-      <div className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm">
-        <div>
-          <h2 className="text-base font-semibold">Preferências do assistente</h2>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Onde o assistente pode procurar oportunidades novas. Deixe em branco para não limitar.
-          </p>
-        </div>
-        <div className="grid gap-3 lg:grid-cols-3">
+  // Preferências que o assistente respeita ao propor um mercado NOVO. Elas já
+  // existiam (eram da Busca IA automática) e continuam valendo — o que mudou é que
+  // agora vivem DENTRO do card do assistente, recolhidas até o operador pedir.
+  const preferenciasAssistente = (
+    <div className="space-y-3 rounded-xl border bg-slate-50/60 p-4">
+      <p className="text-xs text-slate-500">
+        Onde o assistente pode procurar oportunidades novas. Deixe em branco para não limitar.
+      </p>
+      <div className="grid gap-3 lg:grid-cols-3">
           <Campo label="Estratégia"><select value={form.busca_estrategia || 'equilibrada'}
             onChange={(e) => salvarAjuste({ busca_estrategia: e.target.value as Config['busca_estrategia'] })}
             className="w-full rounded-lg border px-3 py-2 text-sm">
@@ -394,8 +389,42 @@ export default function ProspeccaoPage() {
         </label>
         {salvandoConfig && <p className="text-xs text-brand">Salvando preferências…</p>}
       </div>
+  )
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Prospecção</h1>
+        <p className="text-sm text-slate-500 mt-1">
+          Configure a origem da busca: os leads continuam chegando ao Banco de Leads mesmo
+          com esta tela fechada.
+        </p>
+      </div>
+
+      <RotinasAquisicao
+        empresaId={empresaId}
+        onColetaIniciada={carregarBuscas}
+        onDados={setDadosRotinas}
+        recarregarChave={recarregarRotinas}
+      />
+
+      <AssistenteOportunidades
+        empresaId={empresaId}
+        rotinas={dadosRotinas?.rotinas || []}
+        limites={dadosRotinas?.limites}
+        onRotinasAlteradas={() => setRecarregarRotinas((n) => n + 1)}
+        criterios={preferenciasAssistente}
+      />
 
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-base font-semibold">Leads encontrados</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Tudo o que as rotinas e as buscas avulsas trouxeram. Marque ou descarte por aqui.
+          </p>
+        </div>
 
       <div className="flex flex-wrap gap-1.5">
         {FILTROS.map((f) => (
@@ -566,72 +595,111 @@ export default function ProspeccaoPage() {
         </tbody>
       </table>
       </DataTableFrame>
+      </section>
 
       {jsonAberto && (
         <JsonLeadModal titulo={`JSON de apresentação — ${jsonAberto.titulo}`} json={jsonAberto.json} onFechar={() => setJsonAberto(null)} />
       )}
 
-      {analytics && analytics.metricas.mensagens_enviadas > 0 && (
-        <div className="bg-white rounded-2xl shadow-sm border p-4 space-y-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Analytics da prospecção · esta empresa</p>
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-            <Mini title="Enviados" value={analytics.metricas.mensagens_enviadas} />
-            <Mini title="Respostas" value={analytics.metricas.respostas} />
-            <Mini title="Taxa resp." value={`${analytics.metricas.taxa_resposta}%`} />
-            <Mini title="Diagnóstico" value={analytics.metricas.diagnostico} />
-            <Mini title="Reuniões" value={analytics.metricas.reunioes} />
-            <Mini title="Fechados" value={analytics.metricas.fechados} />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Destaque title="Melhor nicho" rank={analytics.melhores.categoria} />
-            <Destaque title="Melhor cidade" rank={analytics.melhores.cidade} />
-            <Destaque title="Melhor horário" rank={analytics.melhores.horario} />
-          </div>
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-base font-semibold">Acompanhar resultados</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Consulta do que já aconteceu: o que cada mercado rendeu, quem respondeu e as coletas feitas.
+          </p>
         </div>
-      )}
 
-      {resultados && (resultados.por_mercado.length > 0 || resultados.recentes.length > 0) && (
-        <div className="grid md:grid-cols-2 gap-4">
-          <div className="bg-white rounded-2xl shadow-sm border p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Desempenho por mercado</p>
-            {resultados.por_mercado.length === 0 ? (
-              <p className="text-sm text-gray-400">Sem dados ainda.</p>
+        <Abas
+          abas={ABAS_RESULTADO}
+          ativa={abaResultado}
+          onMudar={setAbaResultado}
+          idBase={ID_ABAS}
+          ariaLabel="Acompanhar resultados"
+        />
+
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <PainelAba id="desempenho" idBase={ID_ABAS} ativa={abaResultado}>
+            {temDesempenho ? (
+              <div className="space-y-5">
+                {porMercado.length > 0 && (
+                  <div className="-mx-4 overflow-x-auto px-4">
+                    <table className="w-full min-w-max text-sm">
+                      <thead><tr className="text-left text-xs text-slate-500">
+                        <th className="py-1 pr-4">Nicho / Cidade</th><th className="py-1 pr-4 text-right">Total</th><th className="py-1 pr-4 text-right">Enviados</th><th className="py-1 text-right">Resp.</th>
+                      </tr></thead>
+                      <tbody>
+                        {porMercado.map((m, i) => (
+                          <tr key={i} className="border-t">
+                            <td className="py-1.5 pr-4">{m.nicho} · {m.cidade}</td>
+                            <td className="py-1.5 pr-4 text-right">{m.total}</td>
+                            <td className="py-1.5 pr-4 text-right">{m.enviados}</td>
+                            <td className="py-1.5 text-right font-semibold text-orange-600">{m.responderam}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {temAnalytics && (
+                  <div className="space-y-3 border-t pt-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sinais comerciais · esta empresa</p>
+                    <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                      <Mini title="Enviados" value={analytics!.metricas.mensagens_enviadas} />
+                      <Mini title="Respostas" value={analytics!.metricas.respostas} />
+                      <Mini title="Taxa resp." value={`${analytics!.metricas.taxa_resposta}%`} />
+                      <Mini title="Diagnóstico" value={analytics!.metricas.diagnostico} />
+                      <Mini title="Reuniões" value={analytics!.metricas.reunioes} />
+                      <Mini title="Fechados" value={analytics!.metricas.fechados} />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <Destaque title="Melhor nicho" rank={analytics!.melhores.categoria} />
+                      <Destaque title="Melhor cidade" rank={analytics!.melhores.cidade} />
+                      <Destaque title="Melhor horário" rank={analytics!.melhores.horario} />
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
-              <table className="w-full text-sm">
-                <thead><tr className="text-left text-slate-500">
-                  <th className="py-1">Nicho / Cidade</th><th className="py-1 text-right">Total</th><th className="py-1 text-right">Enviados</th><th className="py-1 text-right">Resp.</th>
-                </tr></thead>
-                <tbody>
-                  {resultados.por_mercado.map((m, i) => (
-                    <tr key={i} className="border-t">
-                      <td className="py-1.5">{m.nicho} · {m.cidade}</td>
-                      <td className="py-1.5 text-right">{m.total}</td>
-                      <td className="py-1.5 text-right">{m.enviados}</td>
-                      <td className="py-1.5 text-right font-semibold text-orange-600">{m.responderam}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <VazioAba
+                titulo="Ainda não há desempenho para mostrar."
+                dica="Assim que os leads coletados começarem a receber mensagens no Banco de Leads, o resultado de cada mercado aparece aqui."
+              />
             )}
-          </div>
-          <div className="bg-white rounded-2xl shadow-sm border p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Responderam recentemente</p>
-            {resultados.recentes.length === 0 ? (
-              <p className="text-sm text-gray-400">Ninguém respondeu ainda.</p>
-            ) : (
+          </PainelAba>
+
+          <PainelAba id="respostas" idBase={ID_ABAS} ativa={abaResultado}>
+            {recentes.length > 0 ? (
               <ul className="space-y-1.5">
-                {resultados.recentes.map((r, i) => (
-                  <li key={i} className="flex items-center justify-between text-sm border-t pt-1.5 first:border-0 first:pt-0">
+                {recentes.map((r, i) => (
+                  <li key={i} className="flex items-center justify-between gap-3 text-sm border-t pt-1.5 first:border-0 first:pt-0">
                     <span><span className="font-medium">{r.nome}</span> <span className="text-slate-500">· {r.nicho} / {r.cidade}</span></span>
                     <span className="font-mono text-xs text-slate-500">{r.telefone || '—'}</span>
                   </li>
                 ))}
               </ul>
+            ) : (
+              <VazioAba
+                titulo="Ninguém respondeu ainda."
+                dica="As respostas dos leads que receberam mensagem aparecem aqui, da mais recente para a mais antiga."
+              />
             )}
-          </div>
-        </div>
-      )}
+          </PainelAba>
 
+          <PainelAba id="historico" idBase={ID_ABAS} ativa={abaResultado}>
+            <HistoricoColetas atividade={atividade} />
+          </PainelAba>
+        </div>
+      </section>
+
+    </div>
+  )
+}
+
+function VazioAba({ titulo, dica }: { titulo: string; dica: string }) {
+  return (
+    <div className="rounded-xl border border-dashed px-4 py-8 text-center">
+      <p className="text-sm text-slate-500">{titulo}</p>
+      <p className="mx-auto mt-1 max-w-md text-xs text-slate-400">{dica}</p>
     </div>
   )
 }

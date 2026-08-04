@@ -75,11 +75,16 @@ export default function AssistenteOportunidades({
   rotinas = [],
   limites,
   onRotinasAlteradas,
+  criterios,
 }: {
   empresaId: string
   rotinas?: Rotina[]
   limites?: Limites
   onRotinasAlteradas?: () => void
+  // Preferências que o assistente respeita ao propor um mercado novo. Ficam DENTRO do
+  // card (recolhidas por padrão) para não competir com as sugestões e as ações
+  // pendentes, que são o que o operador precisa ver primeiro.
+  criterios?: React.ReactNode
 }) {
   const [dados, setDados] = useState<OportunidadesResp | null>(null)
   const [analisando, setAnalisando] = useState(false)
@@ -88,6 +93,7 @@ export default function AssistenteOportunidades({
   const [erro, setErro] = useState('')
   const [mensagem, setMensagem] = useState<string | null>(null)
   const [verHistorico, setVerHistorico] = useState(false)
+  const [verCriterios, setVerCriterios] = useState(false)
   const [agora, setAgora] = useState(() => Date.now())
   const fb = useFeedback()
 
@@ -174,11 +180,17 @@ export default function AssistenteOportunidades({
     <div className="space-y-4 rounded-2xl border bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold">Assistente de Oportunidades</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-semibold">Assistente de Oportunidades</h2>
+            {sugestoes.length > 0 && (
+              <span className="rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand">
+                {sugestoes.length} para revisar
+              </span>
+            )}
+          </div>
           <p className="mt-0.5 max-w-2xl text-xs text-slate-500">
-            Ele olha o resultado das suas rotinas e dos seus mercados e sugere o próximo passo —
-            criar, ajustar ou pausar. Nada acontece sem você aprovar: nenhuma sugestão inicia uma
-            busca por conta própria.
+            Sugere o próximo passo nos seus mercados — criar, ajustar ou pausar uma rotina.
+            Nada acontece sem a sua aprovação: nenhuma sugestão inicia uma busca sozinha.
           </p>
         </div>
         <div className="shrink-0 text-right">
@@ -300,6 +312,22 @@ export default function AssistenteOportunidades({
               </div>
             )
           })}
+        </div>
+      )}
+
+      {criterios && (
+        <div className="border-t pt-3">
+          <button
+            onClick={() => setVerCriterios((v) => !v)}
+            aria-expanded={verCriterios}
+            aria-controls="assistente-criterios"
+            className="text-xs text-slate-500 hover:underline"
+          >
+            {verCriterios ? 'Ocultar critérios' : 'Configurar critérios'}
+          </button>
+          <div id="assistente-criterios" hidden={!verCriterios} className="mt-3">
+            {verCriterios && criterios}
+          </div>
         </div>
       )}
 

@@ -422,3 +422,34 @@ cronológica inversa (mais recente no topo).
 - **Como validar:** `npm test` (backend 1044, frontend 15), typecheck de backend e frontend, e
   cenario ponta a ponta contra o router real: 20/20, com prova de que conversa de 3s + 4s de
   preenchimento grava `duracao_seg = 3s` e ultima etapa = 3s.
+
+## 2026-08-04 - Aquisicao: hierarquia da tela (coleta -> leads -> consulta) com abas de resultado
+
+- **Decisao:** reorganizar a pagina de Aquisicao (aba Google Places) sem alterar comportamento:
+  (1) manter Rotinas de coleta e Busca avulsa no topo; (2) deixar o Assistente de Oportunidades
+  discreto, com as "Preferencias do assistente" recolhidas DENTRO do card, sob "Configurar
+  criterios"; (3) promover a lista de leads a conteudo principal; (4) reunir os blocos
+  analiticos numa secao "Acompanhar resultados" com tres abas (Desempenho por mercado,
+  Respostas recentes, Historico de coletas).
+- **Motivo:** a tela empilhava cinco blocos de peso visual parecido (rotinas, assistente,
+  preferencias, leads, dois cards analiticos + "Atividade recente"), competindo pela atencao.
+  A prioridade operacional e' configurar a origem, ver os leads e so entao consultar resultado.
+- **Escolha tecnica:** o "Historico de coletas" (antiga "Atividade recente") saiu de
+  `RotinasAquisicao` e virou `components/HistoricoColetas.tsx`, alimentado pelos MESMOS dados que
+  a pagina ja recebia via `onDados` — nenhuma requisicao nova. As abas viraram
+  `components/ui/Abas.tsx` (padrao WAI-ARIA tabs: `role=tablist/tab/tabpanel`, `aria-selected`,
+  roving tabindex, setas/Home/End, foco visivel), com o mesmo visual do seletor de sessoes ja
+  usado em `dashboard/aquisicao`. As preferencias continuam sendo estado da pagina e sao
+  injetadas no assistente pela prop `criterios` (ReactNode), para nao mover regra nenhuma para
+  dentro do componente do assistente. O card "Analytics da prospeccao" deixou de ser bloco solto
+  e virou o sub-bloco "Sinais comerciais" da aba Desempenho, evitando metrica repetida na tela.
+- **Impacto:** apenas frontend. `dashboard/prospeccao/page.tsx`, `RotinasAquisicao.tsx`,
+  `AssistenteOportunidades.tsx` + os dois componentes novos. Sem backend, migration, env, rota,
+  permissao, prompt ou dependencia nova. A troca de aba nao dispara fetch nem reseta filtro,
+  busca, ordenacao ou estado da tabela (a aba e' estado local isolado).
+- **Riscos:** a aba inicial e' sempre "Desempenho por mercado"; sem dados ela mostra estado vazio
+  util em vez de sumir — decisao consciente para a secao nao "piscar" entre existir e nao existir.
+  O texto do cabecalho da pagina deixou de citar "worker" (termo interno de infraestrutura).
+- **Como validar:** `npm run typecheck` e `npm run build` no `frontend/`; abrir a Aquisicao,
+  conferir a ordem dos blocos, abrir "Configurar criterios", trocar as tres abas com e sem dados
+  e confirmar que filtros/ordenacao/busca da tabela sobrevivem a troca de aba, em desktop e mobile.
