@@ -119,6 +119,7 @@ const {
   executarJobProspeccao,
   verificarAgendaDiariaProspeccao,
   verificarAgendaBuscaRecorrenteProspeccao,
+  executarRotinasAquisicao,
   processarBuscasPlacesPendentes,
 } = require('./prospecting')
 
@@ -479,7 +480,12 @@ async function jobWorkerTick() {
       // de Leads (busca). Todo envio de WhatsApp acontece no Banco de Leads (modos
       // Manual/Semi/Automático). Antes: verificarAgendaDiariaProspeccao() (mantida como
       // função/rota para acionamento manual, mas não roda mais no tick automático).
-      // "Agenda" da Aquisição: re-roda a BUSCA do Google Places a cada X horas.
+      // ROTINAS de Aquisição: cada rotina (nicho+cidade+UF) tem sua própria agenda.
+      // Uma coleta por empresa por vez — as demais rotinas vencidas esperam o próximo tick.
+      await executarRotinasAquisicao().catch((e) =>
+        logger.warn({ operation: 'aquisicao_rotinas', etapa: 'tick_erro', erro: e.message })
+      )
+      // Busca IA (motor global por empresa, mercado escolhido pela IA) — segue como estava.
       await verificarAgendaBuscaRecorrenteProspeccao().catch((e) =>
         logger.warn({ operation: 'prospeccao_busca_recorrente', etapa: 'tick_erro', erro: e.message })
       )

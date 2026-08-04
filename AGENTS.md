@@ -124,7 +124,37 @@
   - `GET/PUT .../banco-leads/config`: `{ modo, gerar_ia, instrucoes_ia }` + campos do Auto (`auto_ativo, janela_inicio, janela_fim, intervalo_min, intervalo_max`; `intervalo` clampado em 15–30, `teto_diario` fixo 40).
 - **Selo de WhatsApp por lead** (`prospectador.prospects.tem_whatsapp`, migration `021`): aprendido no disparo — envio OK ⇒ `true` (ícone verde no painel); Evolution `exists:false`/`numero_inexistente` ⇒ `false` (registra "sem WhatsApp", sai da elegibilidade). `NULL` = ainda não disparado.
 - `BANCO_LEADS_AUTO_WORKER_MS` (default `60000`, mín `30000`): intervalo do tick do worker do modo Automático.
-- **Aquisição é SÓ BUSCA (agora via Bright Data Maps, assíncrona):** a fonte de dados passou do **Google Places API** para o **Bright Data "Google Maps full information"** (Discover by location). `pesquisarPlaces` não busca mais na hora — **dispara o job (minutos) e ENFILEIRA em `prospectador.busca_snapshots`** (migration `024`); o worker `processarBuscasPlacesPendentes` (tick 60s em `agent.js`) acompanha o job (`progress`), e quando fica `ready` baixa os registros → adapter (`places-brightdata.js`) → `mapearPlace` → `salvarProspects`. Dedup por `place_id` (formato Google, compatível) e **teto fixo de 200 resultados importados por busca**, aplicado no backend mesmo que a Bright Data devolva mais registros. O disparo automático de ENVIO foi **removido do tick** (`agent.js` não chama `verificarAgendaDiariaProspeccao`). A página `dashboard/prospeccao` só encontra leads e alimenta o Banco de Leads — menu inline (sem modal/Agenda duplicada) e três modos explícitos: **Manual**, **Automático fixo** e **Busca IA**. Os modos automáticos usam intervalo mínimo de 6 horas, no máximo 2 buscas/dia, uma coleta ativa por empresa e estados operacionais persistidos; no IA, o operador escolhe estratégia, nichos/regiões permitidos e se aceita nichos relacionados. O worker `verificarAgendaBuscaRecorrenteProspeccao` não depende do campo legado `ativo`; depois de resultados zerados, o fixo informa mercado esgotado e a IA escolhe outro mercado. A aba Instagram segue o mesmo padrão de menu inline e reusa campanhas/worker social. **Todo envio de WhatsApp acontece no Banco de Leads.** `GOOGLE_PLACES_API_KEY` deixou de ser usada pela busca.
+- **Aquisição é SÓ BUSCA (agora via Bright Data Maps, assíncrona):** a fonte de dados passou do **Google Places API** para o **Bright Data "Google Maps full information"** (Discover by location). `pesquisarPlaces` não busca mais na hora — **dispara o job (minutos) e ENFILEIRA em `prospectador.busca_snapshots`** (migration `024`); o worker `processarBuscasPlacesPendentes` (tick 60s em `agent.js`) acompanha o job (`progress`), e quando fica `ready` baixa os registros → adapter (`places-brightdata.js`) → `mapearPlace` → `salvarProspects`. Dedup por `place_id` (formato Google, compatível) e **teto fixo de 200 resultados importados por busca**, aplicado no backend mesmo que a Bright Data devolva mais registros. O disparo automático de ENVIO foi **removido do tick** (`agent.js` não chama `verificarAgendaDiariaProspeccao`). A página `dashboard/prospeccao` só encontra leads e alimenta o Banco de Leads. Hoje ela tem **Rotinas de Aquisição** (ver bloco abaixo), **Busca avulsa** e **Busca IA**. O modo **Automático fixo** foi APOSENTADO (migration `053`): virou rotina, e `normalizarConfiguracaoProspeccao` mapeia o valor legado para `manual` — reaceitá-lo criaria um segundo agendador sobre o mesmo mercado, com risco de coleta paga em duplicidade. A Busca IA segue no motor global (`verificarAgendaBuscaRecorrenteProspeccao`, teto próprio de 2 buscas/dia, estratégia + nichos/regiões permitidos); ela não depende do campo legado `ativo` e, depois de resultados zerados, escolhe outro mercado. A aba Instagram segue o mesmo padrão de menu inline e reusa campanhas/worker social. **Todo envio de WhatsApp acontece no Banco de Leads.** `GOOGLE_PLACES_API_KEY` deixou de ser usada pela busca.
+### Rotinas de Aquisição (coleta contínua por mercado)
+- A Aquisição deixou de ser uma configuração única por empresa: agora são **rotinas
+  independentes**, uma por mercado (`nicho` + `cidade` + `uf`), cada uma com seus dias ativos,
+  janela, intervalo (mín. **6h**) e quantidade por execução (**1..200**), podendo ser pausada e
+  retomada sem perder o histórico. **Não há teto diário** de buscas nem de leads para as rotinas.
+- Schema: migration `053_aquisicao_rotinas.sql` → `prospectador.aquisicao_rotinas` +
+  colunas novas em `busca_snapshots` (`rotina_id`, `quantidade_solicitada`, `tentativas`,
+  `idempotency_key`). A migration converte a config fixa atual na 1ª rotina **PAUSADA** e
+  desliga o `automatico_fixo` (mutação de dados declarada no cabeçalho do arquivo).
+- **Uma coleta paga em andamento por empresa** é garantida no BANCO, não na aplicação:
+  índice único parcial `busca_snapshots_uma_ativa_por_empresa_uk`. Vale para TODAS as origens
+  (rotina, avulsa e Busca IA). `busca_snapshots_idempotency_uk` torna requisições iguais
+  idempotentes (chave por minuto).
+- **A tentativa é persistida ANTES do disparo pago**: `pesquisarPlaces` grava a reserva
+  (`status='pendente'`, sem `snapshot_id`) e só então chama a Bright Data; se o trigger falhar,
+  a reserva vira `falhou` e libera a trava. Nunca existe coleta paga órfã.
+- O intervalo conta a partir do **DISPARO** (`ultima_execucao_em`), não da conclusão — uma coleta
+  travada não pode reabrir o intervalo. Execução perdida fora da janela **não é compensada**.
+- Desistência: o worker expira snapshots por idade (3h), por tentativas (40) e reservas sem
+  disparo (10 min); a rotina para sozinha em `precisa_atencao` após 3 falhas seguidas.
+- Código: lógica PURA de tempo em `src/services/aquisicao-rotinas-scheduler.js` (reusa
+  `horaLocal`/`normalizarDias` da captação), SQL em `src/db/aquisicao-rotinas.js`, motor
+  `executarRotinasAquisicao` em `prospecting.js` (tick de `agent.js`), rotas em
+  `src/routes/api-aquisicao-rotinas.js` (montadas ANTES de `/prospeccao`, admin-only).
+  Front: `frontend/components/RotinasAquisicao.tsx`. Testes:
+  `test/aquisicao-rotinas-scheduler.test.js` e `test/aquisicao-rotinas-motor.test.js`.
+- **Cidade + UF** compõem a localização usada na geocodificação e na coleta, no automático **e**
+  no manual (`POST /prospeccao/buscar` aceita `uf`) — sem a UF, "Santana" resolvia em qualquer estado.
+- Nenhuma variável de ambiente nova foi criada para este módulo.
+
 - Geração por IA da saudação de análise: `src/services/saudacao-analise.js` (spec `docs/superpowers/specs/2026-07-03-saudacao-analise-e-estagios-design.md`). Usa `json_apresentacao` (lacunas do cadastro) + conhecimento do contexto da instância + `instrucoes_ia`. Faz **retries** (`SAUDACAO_IA_RETRIES`) antes de desistir.
 - **IA obrigatória quando `gerar_ia` ligado — sem fallback silencioso pro template:** se a IA falhar, o disparo é marcado com **erro no status** (Semi ⇒ `lead_disparos.status='erro_ia'`, com botão "Gerar de novo" no painel; Manual/Auto ⇒ `status='falhou', erro='ia_falhou'`, **não envia**). Com `gerar_ia` desligado, usa o template (mensagem escolhida). O template segue exigido por instância como base.
 - **Aba "Descartados"** no Banco de Leads: leads com `status IN ('rejeitado','nao_contatar')` OU `tem_whatsapp=false` (envio não chegou), com o **motivo claro** no painel. Leads sem WhatsApp saem da aba "Sem contato".

@@ -30,6 +30,11 @@ const {
   montarAgendaPainelProspeccao,
 } = require('./services/prospecting-settings')
 const { buscaProspeccaoDevePreencher, resultadoBuscaAutomatica } = require('./services/prospecting-search-scheduler')
+const {
+  escolherRotinaElegivel,
+  localizacaoRotina,
+} = require('./services/aquisicao-rotinas-scheduler')
+const rotinasDb = require('./db/aquisicao-rotinas')
 const placesBrightData = require('./services/places-brightdata')
 const {
   canProspectLead,
@@ -85,12 +90,13 @@ function normalizarInteiro(v, fallback, min, max) {
 
 function normalizarOrigem(v) {
   const origem = String(v || '').trim().toLowerCase()
-  return ['automatico', 'automatico_fixo', 'ia'].includes(origem) ? 'automatico' : 'manual'
+  // 'rotina' (Rotinas de Aquisição) é automática, como o antigo 'automatico_fixo'.
+  return ['automatico', 'automatico_fixo', 'ia', 'rotina'].includes(origem) ? 'automatico' : 'manual'
 }
 
 function normalizarOrigemBusca(v) {
   const origem = String(v || '').trim().toLowerCase()
-  return ['manual', 'automatico_fixo', 'ia'].includes(origem) ? origem : 'manual'
+  return ['manual', 'automatico_fixo', 'ia', 'rotina'].includes(origem) ? origem : 'manual'
 }
 
 function normalizarOrigemFiltro(v) {
@@ -3026,6 +3032,80 @@ async function verificarAgendaBuscaRecorrenteProspeccao(now = new Date()) {
   return { ok: true, disparadas, empresas: empresas.length }
 }
 
+// Motor das ROTINAS de Aquisição. Roda no mesmo tick de 60s do worker de buscas.
+// Para cada empresa escolhe NO MÁXIMO UMA rotina elegível e dispara UMA coleta.
+// As demais rotinas vencidas simplesmente continuam elegíveis no próximo tick — é o
+// comportamento de "fila" pedido, sem estado extra para envelhecer no banco.
+async function executarRotinasAquisicao(now = new Date()) {
+  let rotinas
+  try {
+    rotinas = await rotinasDb.listarRotinasAtivas(pool)
+  } catch (e) {
+    return { ok: false, disparadas: 0, motivo: 'tabela_indisponivel', erro: e.message }
+  }
+  if (!rotinas.length) return { ok: true, disparadas: 0, na_fila: 0 }
+
+  const porEmpresa = new Map()
+  for (const rotina of rotinas) {
+    if (!rotina.empresa_id) continue
+    if (!porEmpresa.has(rotina.empresa_id)) porEmpresa.set(rotina.empresa_id, [])
+    porEmpresa.get(rotina.empresa_id).push(rotina)
+  }
+
+  let disparadas = 0
+  let naFila = 0
+  for (const [empresaId, lista] of porEmpresa) {
+    const escolhida = escolherRotinaElegivel(lista, now)
+    if (!escolhida) continue
+
+    // Checagem barata antes de qualquer trabalho. A garantia REAL é o índice único no
+    // banco (dentro de pesquisarPlaces); esta consulta só evita o caminho inútil.
+    if (await existeBuscaEmAndamento(empresaId)) {
+      naFila += 1
+      continue
+    }
+
+    // Reserva a vez da rotina ANTES de disparar. O UPDATE é condicionado ao estado, então
+    // dois ticks concorrentes não conseguem disparar a mesma rotina duas vezes.
+    const anterior = escolhida.ultima_execucao_em || null
+    const marcada = await rotinasDb.marcarDisparo(pool, escolhida.id)
+    if (!marcada) {
+      naFila += 1
+      continue
+    }
+
+    try {
+      await pesquisarPlaces({
+        nicho: escolhida.nicho,
+        cidade: escolhida.cidade,
+        uf: escolhida.uf,
+        origem: 'rotina',
+        empresaId,
+        rotinaId: escolhida.id,
+        quantidade: escolhida.quantidade,
+        agora: now,
+      })
+      disparadas += 1
+    } catch (err) {
+      if (err && err.statusCode === 409) {
+        // Corrida perdida (outra coleta da empresa entrou primeiro): não é falha da
+        // rotina — devolve a vez dela sem queimar tentativa.
+        await rotinasDb.reverterDisparo(pool, escolhida.id, anterior).catch(() => {})
+        naFila += 1
+      } else {
+        await rotinasDb.marcarFalha(pool, escolhida.id, err.message).catch(() => {})
+        logger.warn(
+          { operation: 'aquisicao_rotinas', empresa_id: empresaId, rotina_id: escolhida.id, erro: err.message },
+          'rotina de aquisição falhou ao disparar'
+        )
+      }
+    }
+  }
+
+  if (disparadas) logger.info({ operation: 'aquisicao_rotinas', disparadas, na_fila: naFila }, 'rotinas de aquisição disparadas')
+  return { ok: true, disparadas, na_fila: naFila, empresas: porEmpresa.size }
+}
+
 async function enfileirarJobProspeccao(tipo, payload = {}, dedupeKey = null, availableAt = null) {
   const safeTipo = String(tipo || '').trim()
   if (!['prospeccao_nichos_sync', 'prospeccao_completo', 'prospeccao_envio_agendado'].includes(safeTipo)) {
@@ -3618,9 +3698,31 @@ async function alterarOfertaProspect(id, payload = {}) {
 // os leads são materializados depois por processarBuscasPlacesPendentes (worker).
 // Mantém a mesma assinatura/retorno-shape (prospects: []) — quem lê `.prospects`
 // (orquestrador diário) apenas cai no backlog; os frescos chegam pelo worker.
-async function pesquisarPlaces({ nicho, local, origem = 'manual', empresaId = null, decisao = null }) {
+// Chave de idempotência de um disparo. Duas requisições iguais no mesmo minuto (duplo
+// clique, retry de rede, dois ticks concorrentes) colidem no índice único e a segunda
+// NÃO vira coleta paga.
+function chaveIdempotenciaBusca({ empresaId, rotinaId, nicho, local, origem }, agora = new Date()) {
+  const minuto = new Date(agora).toISOString().slice(0, 16) // YYYY-MM-DDTHH:mm
+  if (rotinaId) return `rotina:${rotinaId}:${minuto}`
+  return `${origem}:${empresaId || 'sem-empresa'}:${String(nicho).toLowerCase()}:${String(local).toLowerCase()}:${minuto}`
+}
+
+async function pesquisarPlaces({
+  nicho,
+  local,
+  cidade = null,
+  uf = null,
+  origem = 'manual',
+  empresaId = null,
+  decisao = null,
+  rotinaId = null,
+  quantidade = null,
+  agora = new Date(),
+}) {
   const queryNicho = normalizarTexto(nicho)
-  const queryLocal = normalizarTexto(local)
+  // Cidade + UF compõem a localização usada na geocodificação e na coleta. O fluxo
+  // manual mandava só a cidade — "Santana" sem UF geocodifica em qualquer estado.
+  const queryLocal = normalizarTexto(local || localizacaoRotina(cidade, uf) || cidade)
   if (!queryNicho || !queryLocal) {
     const err = new Error('Informe nicho e cidade/regiao para pesquisar.')
     err.statusCode = 400
@@ -3631,16 +3733,54 @@ async function pesquisarPlaces({ nicho, local, origem = 'manual', empresaId = nu
     err.statusCode = 500
     throw err
   }
-  if (empresaId && await existeBuscaEmAndamento(empresaId)) {
-    const err = new Error('Já existe uma busca em andamento. Aguarde a conclusão antes de iniciar outra.')
-    err.statusCode = 409
+
+  const alvo = Math.max(1, Math.min(placesBrightData.MAX_LEADS_POR_BUSCA, Number.parseInt(quantidade, 10) || placesBrightData.MAX_LEADS_POR_BUSCA))
+  const textQuery = `${queryNicho} em ${queryLocal}`
+  const origemBusca = normalizarOrigemBusca(origem)
+  const idempotencyKey = chaveIdempotenciaBusca(
+    { empresaId, rotinaId, nicho: queryNicho, local: queryLocal, origem: origemBusca },
+    agora
+  )
+
+  // PASSO 1 — RESERVAR ANTES DE PAGAR. A linha é gravada com status 'pendente' e sem
+  // snapshot_id. Dois índices únicos parciais no banco fazem o trabalho pesado:
+  //   busca_snapshots_uma_ativa_por_empresa_uk → uma coleta em voo por empresa;
+  //   busca_snapshots_idempotency_uk           → uma coleta por chave.
+  // Se a reserva falhar, NENHUMA chamada paga acontece. Se a Bright Data falhar depois,
+  // a reserva vira 'falhou' — nunca fica coleta paga órfã nem trava presa.
+  let reservaId
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO prospectador.busca_snapshots (
+         empresa_id, nicho, cidade, origem, snapshot_id, status, decisao_json,
+         rotina_id, quantidade_solicitada, idempotency_key
+       ) VALUES ($1, $2, $3, $4, NULL, 'pendente', $5::jsonb, $6::uuid, $7, $8)
+       RETURNING id`,
+      [
+        empresaId, queryNicho, queryLocal, origemBusca,
+        decisao ? JSON.stringify(decisao) : null,
+        rotinaId, alvo, idempotencyKey,
+      ]
+    )
+    reservaId = rows[0].id
+  } catch (err) {
+    if (err && err.code === '23505') {
+      const constraint = String(err.constraint || '')
+      if (constraint.includes('idempotency')) {
+        const e = new Error('Esta busca já foi iniciada. Aguarde o resultado antes de tentar de novo.')
+        e.statusCode = 409
+        e.motivo = 'idempotente'
+        throw e
+      }
+      const e = new Error('Já existe uma busca em andamento. Aguarde a conclusão antes de iniciar outra.')
+      e.statusCode = 409
+      e.motivo = 'coleta_em_andamento'
+      throw e
+    }
     throw err
   }
 
-  // A Aquisição usa um lote único e previsível; o worker aplica o mesmo limite.
-  const alvo = placesBrightData.MAX_LEADS_POR_BUSCA
-  const textQuery = `${queryNicho} em ${queryLocal}`
-
+  // PASSO 2 — só agora o disparo pago.
   let snapshotId
   try {
     ;({ snapshotId } = await placesBrightData.dispararBuscaMaps({
@@ -3648,14 +3788,20 @@ async function pesquisarPlaces({ nicho, local, origem = 'manual', empresaId = nu
       cidade: queryLocal,
     }))
   } catch (err) {
+    // Libera a trava da empresa: sem isso um erro de trigger bloquearia toda coleta futura.
+    await pool.query(
+      `UPDATE prospectador.busca_snapshots
+          SET status = 'falhou', erro = $2, updated_at = NOW()
+        WHERE id = $1`,
+      [reservaId, `trigger: ${String(err.message || 'falha').slice(0, 300)}`]
+    ).catch(() => {})
     if (!err.statusCode) err.statusCode = 502
     throw err
   }
 
   await pool.query(
-    `INSERT INTO prospectador.busca_snapshots (empresa_id, nicho, cidade, origem, snapshot_id, status, decisao_json)
-     VALUES ($1, $2, $3, $4, $5, 'pendente', $6::jsonb)`,
-    [empresaId, queryNicho, queryLocal, normalizarOrigemBusca(origem), snapshotId, decisao ? JSON.stringify(decisao) : null]
+    `UPDATE prospectador.busca_snapshots SET snapshot_id = $2, updated_at = NOW() WHERE id = $1`,
+    [reservaId, snapshotId]
   )
 
   logger.info({ operation: 'places_brightdata', etapa: 'enfileirado', nicho: queryNicho, cidade: queryLocal, snapshotId }, 'busca enfileirada')
@@ -3664,6 +3810,7 @@ async function pesquisarPlaces({ nicho, local, origem = 'manual', empresaId = nu
     quantidade_solicitada: alvo,
     prospects: [],            // materializados pelo worker (assíncrono)
     status: 'em_andamento',
+    busca_id: reservaId,
     snapshot_id: snapshotId,
   }
 }
@@ -3700,13 +3847,35 @@ async function registrarResultadoBuscaAutomatica(snapshot, novosProspects) {
   )
 }
 
+// Política de desistência do worker: sem isso, uma coleta que nunca fica 'ready' seria
+// consultada para sempre — e, pior, seguraria a trava de "uma coleta por empresa".
+const BUSCA_MAX_TENTATIVAS = 40          // ~40 ticks de 60s acompanhando o mesmo snapshot
+const BUSCA_MAX_IDADE_MIN = 180          // 3h é muito acima do tempo normal (minutos)
+const RESERVA_ORFA_MAX_MIN = 10          // reserva sem snapshot_id = trigger que não completou
+
+// Encerra uma busca em falha, liberando a trava da empresa e avisando quem a originou.
+async function encerrarBuscaComFalha(snap, motivo) {
+  await pool.query(
+    `UPDATE prospectador.busca_snapshots
+        SET status = 'falhou', erro = $2, updated_at = NOW()
+      WHERE id = $1`,
+    [snap.id, String(motivo || 'erro').slice(0, 400)]
+  )
+  if (snap.rotina_id) {
+    await rotinasDb.marcarFalha(pool, snap.rotina_id, motivo).catch(() => {})
+  } else if (['automatico_fixo', 'ia'].includes(snap.origem)) {
+    await atualizarEstadoBusca(snap.empresa_id, 'erro', 'A Bright Data não concluiu a coleta. A busca foi pausada para evitar novas cobranças.').catch(() => {})
+  }
+}
+
 async function processarBuscasPlacesPendentes(limit = 5) {
   let pendentes
   try {
     const { rows } = await pool.query(
-      `SELECT id, empresa_id, nicho, cidade, origem, snapshot_id, status, created_at
+      `SELECT id, empresa_id, nicho, cidade, origem, snapshot_id, status, created_at,
+              rotina_id, quantidade_solicitada, tentativas
          FROM prospectador.busca_snapshots
-        WHERE status IN ('pendente', 'processando') AND snapshot_id IS NOT NULL
+        WHERE status IN ('pendente', 'processando')
         ORDER BY created_at ASC LIMIT $1`,
       [limit]
     )
@@ -3717,7 +3886,35 @@ async function processarBuscasPlacesPendentes(limit = 5) {
   if (!pendentes.length) return { ok: true, processados: 0 }
 
   let processados = 0
+  let expirados = 0
   for (const snap of pendentes) {
+    const idadeMin = (Date.now() - new Date(snap.created_at).getTime()) / 60000
+
+    // Reserva órfã: gravamos a linha ANTES de chamar a Bright Data. Se o processo morreu
+    // no meio, ela ficou sem snapshot_id — nada foi cobrado, mas a trava está presa.
+    if (!snap.snapshot_id) {
+      if (idadeMin >= RESERVA_ORFA_MAX_MIN) {
+        await encerrarBuscaComFalha(snap, 'reserva_sem_disparo_expirada').catch(() => {})
+        expirados += 1
+      }
+      continue
+    }
+
+    // Desistência por idade ou tentativas.
+    if (idadeMin >= BUSCA_MAX_IDADE_MIN || Number(snap.tentativas || 0) >= BUSCA_MAX_TENTATIVAS) {
+      await encerrarBuscaComFalha(
+        snap,
+        `expirada apos ${Math.round(idadeMin)} min e ${snap.tentativas || 0} tentativas`
+      ).catch(() => {})
+      expirados += 1
+      continue
+    }
+
+    await pool.query(
+      `UPDATE prospectador.busca_snapshots SET tentativas = tentativas + 1, updated_at = NOW() WHERE id = $1`,
+      [snap.id]
+    ).catch(() => {})
+
     try {
       const status = await placesBrightData.estadoBuscaMaps(snap.snapshot_id)
       if (status === 'running' || status === 'building' || status === 'collecting' || status === 'pending') {
@@ -3727,18 +3924,20 @@ async function processarBuscasPlacesPendentes(limit = 5) {
         continue
       }
       if (status === 'failed' || status === 'error') {
-        await pool.query(`UPDATE prospectador.busca_snapshots SET status = 'falhou', erro = $2, updated_at = NOW() WHERE id = $1`, [snap.id, `bright_data:${status}`])
-        if (['automatico_fixo', 'ia'].includes(snap.origem)) {
-          await atualizarEstadoBusca(snap.empresa_id, 'erro', 'A Bright Data não concluiu a coleta. A busca foi pausada para evitar novas cobranças.').catch(() => {})
-        }
+        await encerrarBuscaComFalha(snap, `bright_data:${status}`)
         continue
       }
       if (status !== 'ready') continue // estado desconhecido — espera o próximo tick
 
-      const { places, recebidos } = await placesBrightData.snapshotParaPlacesComResumo(snap.snapshot_id)
+      if (snap.rotina_id) await rotinasDb.marcarImportando(pool, snap.rotina_id).catch(() => {})
+
+      // A quantidade pedida na rotina limita quantos leads entram no Banco de Leads.
+      const { places, recebidos } = await placesBrightData.snapshotParaPlacesComResumo(
+        snap.snapshot_id,
+        snap.quantidade_solicitada
+      )
       // Consistência eventual: 'ready' com download vazio pode ser materialização atrasada.
       // Não finaliza com 0 nos primeiros 30 min (re-tenta no próximo tick).
-      const idadeMin = (Date.now() - new Date(snap.created_at).getTime()) / 60000
       if (places.length === 0 && idadeMin < 30) {
         if (snap.status !== 'processando') {
           await pool.query(`UPDATE prospectador.busca_snapshots SET status = 'processando', updated_at = NOW() WHERE id = $1`, [snap.id])
@@ -3751,6 +3950,7 @@ async function processarBuscasPlacesPendentes(limit = 5) {
       const salvos = await salvarProspects(prospects, {
         nicho: snap.nicho, cidade: snap.cidade, origem: snap.origem, empresaId: snap.empresa_id,
       })
+      const coletados = places.length
       await pool.query(
         `UPDATE prospectador.busca_snapshots
             SET status = 'concluido', total_prospects = $2, custo_registros = $3,
@@ -3758,6 +3958,13 @@ async function processarBuscasPlacesPendentes(limit = 5) {
           WHERE id = $1`,
         [snap.id, Array.isArray(salvos) ? salvos.length : 0, recebidos, novosProspects]
       )
+      if (snap.rotina_id) {
+        await rotinasDb.marcarConclusao(pool, snap.rotina_id, {
+          coletados,
+          novos: novosProspects,
+          duplicados: Math.max(0, coletados - novosProspects),
+        }).catch(() => {})
+      }
       await registrarResultadoBuscaAutomatica(snap, novosProspects)
       processados += 1
       logger.info({ operation: 'places_brightdata', etapa: 'materializado', snapshotId: snap.snapshot_id, leads: Array.isArray(salvos) ? salvos.length : 0 }, 'busca concluída')
@@ -3765,7 +3972,7 @@ async function processarBuscasPlacesPendentes(limit = 5) {
       logger.warn({ operation: 'places_brightdata', etapa: 'worker_erro', snapshotId: snap.snapshot_id, erro: e.message }, 'snapshot re-tenta no próximo tick')
     }
   }
-  return { ok: true, processados }
+  return { ok: true, processados, expirados }
 }
 
 // Lista as buscas recentes da Aquisição (para o painel acompanhar o andamento async).
@@ -4279,6 +4486,7 @@ module.exports = {
   temPlaceholderResidual,
   verificarAgendaDiariaProspeccao,
   verificarAgendaBuscaRecorrenteProspeccao,
+  executarRotinasAquisicao,
   processarBuscasPlacesPendentes,
   listarBuscasRecentes,
   selecionarMercadoDiarioIA,

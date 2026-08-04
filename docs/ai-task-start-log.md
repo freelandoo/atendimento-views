@@ -6,6 +6,112 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-04 - Inicio de tarefa IA - Reestruturar Aquisicao como rotinas continuas de coleta
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Transformar a Aquisicao de uma CONFIGURACAO UNICA por empresa em uma
+  maquina de ROTINAS independentes (nicho + cidade + UF + dias + janela + intervalo >= 6h +
+  quantidade 1..200 + ativo/pausado), com CRUD e observabilidade por rotina; remover o teto de
+  1-2 buscas/dia; expor dias da semana (ja suportados no backend); corrigir a UF ausente na
+  busca manual; e endurecer o disparo pago (idempotencia, tentativa persistida ANTES do trigger,
+  uma coleta paga por empresa por vez, politica de tentativas/expiracao).
+- **E projeto/tarefa de alteracao?** Sim — feature GRANDE e ESTRUTURAL: migration nova, troca do
+  modelo de agendamento, rotas novas, reescrita do scheduler/worker de busca e da tela.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/project-map.md: Sim | docs/architecture-rules.md: Sim | docs/ui-visual-standard.md: Sim |
+  docs/project-architecture.md: Sim | docs/ai-decision-log.md: a registrar na Fase 8.
+- **Areas mapeadas (leitura, antes de qualquer edicao):**
+  - `sql/migrations/009, 018, 024, 027` (config por empresa, busca recorrente, busca_snapshots,
+    modos/estado da busca IA).
+  - `src/services/prospecting-settings.js` (normalizacao/persistencia da config unica),
+    `src/services/prospecting-search-scheduler.js` (decisao PURA: janela, dias, intervalo, TZ),
+    `src/services/captacao-scheduler.js` (helpers `horaLocal`/`normalizarDias` reusados),
+    `src/services/places-brightdata.js` (trigger/progress/snapshot + `MAX_LEADS_POR_BUSCA=200`).
+  - `src/prospecting.js`: `pesquisarPlaces` (dispara + enfileira), `existeBuscaEmAndamento`,
+    `totalBuscasAutomaticasHoje`, `verificarAgendaBuscaRecorrenteProspeccao`,
+    `processarBuscasPlacesPendentes`, `listarBuscasRecentes`, `atualizarEstadoBusca`.
+  - `src/agent.js:483-487` (tick de 60s que chama scheduler + worker).
+  - `src/routes/api-prospeccao.js` (rotas `/buscar`, `/buscas`, `/configuracao`).
+  - `frontend/app/dashboard/prospeccao/page.tsx` (tela unica de configuracao).
+- **Problemas confirmados no codigo (nao sao hipotese):**
+  1. `api-prospeccao.js` POST `/buscar` envia so `{nicho, cidade}` — a UF (`estado_padrao`) NAO
+     entra na geocodificacao; o automatico compoe "Cidade - UF" em `mercadoFixoDaConfig`, o
+     manual nao.
+  2. `pesquisarPlaces` checa `existeBuscaEmAndamento` e so DEPOIS chama a Bright Data; duas
+     requisicoes simultaneas passam pela checagem juntas (TOCTOU) e geram DUAS coletas pagas.
+  3. A linha em `busca_snapshots` e' inserida DEPOIS do trigger pago — se o INSERT falhar, a
+     coleta paga fica orfa (sem registro, sem worker, sem cobranca rastreada).
+  4. `processarBuscasPlacesPendentes` re-tenta indefinidamente em erro/estado desconhecido: nao
+     ha contador de tentativas nem expiracao por idade.
+- **Areas possivelmente impactadas:** Banco (migration aditiva nova), back-end (settings,
+  scheduler, worker, rotas), front-end (tela Aquisicao), custos Bright Data (positivo: menos
+  risco de coleta duplicada), permissoes (mantidas: `requireAuth` + `requireEmpresaAccess`),
+  visual/UX (tela passa de formulario unico para lista de rotinas). Sem impacto em envio de
+  WhatsApp, Banco de Leads, campanhas sociais, prompts ou segredos.
+- **Restricao declarada pelo usuario:** nao fazer chamada real paga a Bright Data sem
+  autorizacao explicita — a validacao sera por testes com cliente Bright Data mockado.
+- **Decisoes travadas com o Victor (Fase 2/6, antes de codar):**
+  1. Rotinas cobrem SO mercado fixo; a **Busca IA fica como esta** (motor global na config antiga).
+  2. A config fixa atual e' convertida na 1a rotina **PAUSADA** (nada dispara cobranca no deploy).
+- **Entregue:** migration `053_aquisicao_rotinas.sql`, `services/aquisicao-rotinas-scheduler.js`,
+  `db/aquisicao-rotinas.js`, `routes/api-aquisicao-rotinas.js`, `executarRotinasAquisicao` em
+  `prospecting.js` (+ `pesquisarPlaces` reescrito com reserva-antes-do-pagamento e UF), tick em
+  `agent.js`, `components/RotinasAquisicao.tsx` e a tela `dashboard/prospeccao` reorganizada.
+- **Validacao executada:** `npm test` backend 1109/1109 (46 testes novos), `npm test` frontend
+  27/27, `npm run typecheck` backend e frontend limpos, `npm run smoke:preco` ok,
+  `next build` ok, carga de todos os modulos novos via `require`.
+- **2a etapa (mesma data) — pendencias fechadas:**
+  1. Corrida entre PAUSA e disparo: `marcarDisparo` passou a exigir `ativo = true` no mesmo
+     UPDATE atomico; sem linha atualizada, o motor nao chama a Bright Data. +2 testes.
+  2. Quantidade comunicada como "Max. de leads a importar" (nao promete volume coletado/custo).
+  3. Migration 053 APLICADA em Postgres real: banco descartavel com casos patologicos + banco de
+     desenvolvimento pelo caminho de boot (`runMigrations`). A config `automatico_fixo`
+     (Barbearia/SBC/SP) virou rotina PAUSADA; o modo `ia` de outra empresa ficou intacto.
+  4. Validacao visual/operacional: 33 verificacoes e2e contra o backend real com Bright Data
+     NEUTRALIZADA + capturas desktop/mobile; os 6 estados observados na tela.
+- **Correcao de diagnostico:** a 1a etapa afirmou ter corrigido um risco de "janela invertida
+  abortar o boot". Esse caso NAO e alcancavel — `prospeccao_configuracoes` ja tem
+  `CHECK (horario_fim > horario_inicio)` (colunas NOT NULL) e CHECK de cardinalidade nos dias.
+  O tratamento defensivo permanece como seguro barato.
+- **Efeito colateral declarado no banco de DEV:** o novo worker expirou um snapshot travado em
+  `processando` desde 28/07 (`sd_ms4jo59...`, 0 leads) — comportamento novo e desejado. Durante a
+  limpeza eu flipei por engano um snapshot concluido (`sd_ms3h3q8...`, 200 leads) para
+  `processando`; foi restaurado para `concluido` com os contadores intactos. Nada em producao.
+- **Proxima etapa:** deploy; a migration roda sozinha no boot. Depois, revisar e ATIVAR a rotina
+  convertida (nasce pausada de proposito).
+
+---
+
+## 2026-08-03 - Inicio de tarefa IA - Recriar nicho/roteiro/campanha da Central de Ligacoes em PRODUCAO
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Recriar em PRODUCAO a campanha e os roteiros que existiam apenas no banco
+  LOCAL de desenvolvimento. O deploy do commit `37c1254` levou o SCHEMA para producao, mas os
+  DADOS de configuracao do modulo ficaram so no local.
+- **E projeto/tarefa de alteracao?** Nao de CODIGO — nenhum arquivo de `backend/`, `frontend/` ou
+  `sql/` sera alterado. E uma tarefa de DADOS: escrita em producao.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
+- **Estado verificado antes (somente leitura):** producao com as 17 migrations (033/038-052)
+  aplicadas e `app.nichos`, `app.roteiros`, `app.roteiro_versoes`, `app.campanhas`,
+  `app.campanha_leads` e `app.ligacoes` TODOS vazios. Empresa PJ Codeworks
+  (`f5f47737-…`) e 2.853 prospects ja existem; os 179 prospect_ids da campanha local
+  foram conferidos um a um e os 179 existem em producao no tenant correto.
+- **Escopo aprovado pelo Victor:** nicho "Funilaria e pintura automotiva" + roteiro
+  "Atendimento a Funileiro" (11 etapas SPIN, publicado) + campanha "Demo — Funileiros" (ativa,
+  metas 20/5) + os 179 leads, todos zerados em `nao_iniciado`.
+- **Fora de escopo (decisao registrada):** as 18 ligacoes locais (8 encerradas / 10 descartadas)
+  NAO sao recriadas — sao artefatos de teste e contaminariam a analitica que o modulo existe para
+  proteger. A versao v1 (arquivada e VAZIA no local) tambem nao e' recriada; em producao o roteiro
+  nasce com v1 publicada em vez de v2.
+- **Metodo:** via API REST de producao (`/api/auth/login` + rotas admin), NAO por SQL direto, para
+  que as validacoes de dominio (tipos de etapa, imutabilidade da versao publicada, checagem
+  same-tenant de FKs, `adicionarLeads` filtrando por empresa) sejam todas exercidas.
+- **Reversibilidade:** tudo e' dado novo em tabelas hoje vazias; reverter e' apagar as linhas
+  criadas. Nenhum dado pre-existente e' alterado ou apagado.
+- **Proxima etapa:** executar a recriacao e conferir o resultado lendo de volta de producao.
+
+---
+
 ## 2026-07-31 - Inicio de tarefa IA - Validacao final e publicacao (commit + push) do modulo Central de Ligacoes
 
 - **IA/Ferramenta:** Claude Code (Opus 5)

@@ -168,6 +168,26 @@ test('prospecting settings: Busca IA aplica guardrails simples no backend', () =
   assert.equal(cfg.busca_permitir_nichos_relacionados, false)
 })
 
+// Regressão: o mercado fixo virou Rotina de Aquisição (migration 053). Se a config
+// voltar a aceitar 'automatico_fixo', dois agendadores passam a mirar o mesmo mercado
+// e a empresa pode ser cobrada duas vezes pela mesma coleta.
+test('prospecting settings: modo automatico_fixo foi aposentado e falha fechado', () => {
+  const cfg = normalizarConfiguracaoProspeccao({
+    modo_busca: 'automatico_fixo',
+    agendamento_busca_ativo: true,
+    categoria_padrao: 'dentista',
+    cidade_padrao: 'Campinas',
+  })
+  assert.equal(cfg.modo_busca, 'manual', 'valor legado não pode reativar o motor antigo')
+  assert.equal(cfg.agendamento_busca_ativo, false, 'o agendador antigo fica desligado')
+})
+
+test('prospecting settings: Busca IA continua podendo ser ligada', () => {
+  const cfg = normalizarConfiguracaoProspeccao({ modo_busca: 'ia' })
+  assert.equal(cfg.modo_busca, 'ia')
+  assert.equal(cfg.agendamento_busca_ativo, true)
+})
+
 test('prospecting settings: salvar e recarregar preserva configuracao no pool', async () => {
   const pool = criarPoolFake()
   const salvo = await salvarConfiguracaoProspeccao(pool, {

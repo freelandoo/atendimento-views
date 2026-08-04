@@ -115,28 +115,30 @@ function adaptarRegistroParaPlace(r) {
   }
 }
 
-function adaptarRegistrosParaPlaces(registros) {
+// `limite` = quantidade pedida na execução (1..200). Nunca ultrapassa o teto da fonte.
+function adaptarRegistrosParaPlaces(registros, limite = MAX_LEADS_POR_BUSCA) {
+  const teto = Math.max(1, Math.min(MAX_LEADS_POR_BUSCA, Number.parseInt(limite, 10) || MAX_LEADS_POR_BUSCA))
   const places = []
   for (const r of registros || []) {
     const p = adaptarRegistroParaPlace(r)
     if (p && p.id && p.displayName.text) places.push(p)
-    if (places.length >= MAX_LEADS_POR_BUSCA) break
+    if (places.length >= teto) break
   }
   return places
 }
 
 // Baixa o snapshot e preserva a contagem bruta para auditoria de custo, mesmo que somente
-// os primeiros 200 registros válidos sigam para o Banco de Leads.
-async function snapshotParaPlacesComResumo(snapshotId) {
+// os primeiros `limite` registros válidos sigam para o Banco de Leads.
+async function snapshotParaPlacesComResumo(snapshotId, limite = MAX_LEADS_POR_BUSCA) {
   const registros = await snapshot(snapshotId, { format: 'json' })
   return {
-    places: adaptarRegistrosParaPlaces(registros),
+    places: adaptarRegistrosParaPlaces(registros, limite),
     recebidos: Array.isArray(registros) ? registros.length : 0,
   }
 }
 
-async function snapshotParaPlaces(snapshotId) {
-  const { places } = await snapshotParaPlacesComResumo(snapshotId)
+async function snapshotParaPlaces(snapshotId, limite = MAX_LEADS_POR_BUSCA) {
+  const { places } = await snapshotParaPlacesComResumo(snapshotId, limite)
   return places
 }
 

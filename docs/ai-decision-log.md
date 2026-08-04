@@ -11,6 +11,67 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-04 — Aquisição: rotinas contínuas de coleta (migration 053)
+
+- **Nova entidade em vez de esticar a config única:** `prospectador.aquisicao_rotinas`
+  (empresa_id + nicho + cidade + uf + dias + janela + intervalo + quantidade + ativo). A
+  `prospeccao_configuracoes` NÃO foi apagada — ela ainda hospeda a Busca IA e a rotina legada de
+  envio. Alternativa descartada: transformar a config única em JSONB de rotinas (perderia CHECKs,
+  índices e a trava de unicidade por mercado).
+- **Destino do "Automático fixo" (decisão do Victor):** rotinas cobrem só mercado FIXO; a
+  **Busca IA fica como está**, no motor global. Consequência aceita: dois agendadores coexistem.
+  Mitigação: a trava de "uma coleta paga por empresa" é do BANCO (índice único parcial), então
+  vale para os dois motores; e `normalizarConfiguracaoProspeccao` deixou de aceitar
+  `automatico_fixo` (falha fechada), impedindo que o motor antigo mire um mercado de rotina.
+- **Migração dos dados (decisão do Victor):** a config fixa atual vira a 1ª rotina **PAUSADA**.
+  Nenhuma coleta paga dispara sozinha no primeiro tick após o deploy; o admin revisa e ativa.
+- **A trava vive no banco, não na aplicação:** `busca_snapshots_uma_ativa_por_empresa_uk`
+  (índice único parcial em `status IN ('pendente','processando')`). O código anterior fazia
+  `SELECT` e depois `INSERT` — janela TOCTOU que permitia duas coletas pagas simultâneas.
+  Idempotência por `busca_snapshots_idempotency_uk` (chave por minuto/rotina).
+- **Reserva antes de pagar:** `pesquisarPlaces` grava a linha (sem `snapshot_id`) e só então
+  chama a Bright Data. Antes, o INSERT vinha DEPOIS do trigger — falha ali gerava coleta paga
+  órfã. Falha no trigger marca a reserva como `falhou` para não prender a trava; reservas sem
+  disparo expiram em 10 min.
+- **Intervalo conta do DISPARO, não da conclusão:** uma coleta travada não pode reabrir a janela
+  e gerar cobrança nova. Execuções perdidas não são compensadas (sem fila de atrasadas).
+- **Fila sem estado persistido:** o scheduler escolhe UMA rotina elegível por empresa por tick
+  (quem esperou mais vai primeiro); as demais continuam elegíveis no tick seguinte. Evita criar
+  uma tabela de fila que envelheceria sozinha.
+- **Quantidade (1..200) é teto de IMPORTAÇÃO, não de cobrança:** o trigger da Bright Data não
+  recebe parâmetro de limite (não dá para validar sem chamada paga real, proibida nesta tarefa);
+  o corte acontece em `adaptarRegistrosParaPlaces`. Dívida técnica registrada.
+- **Pausa vence a corrida do disparo:** entre a seleção da rotina pelo worker e a reserva existe
+  uma janela real. `marcarDisparo` exige `ativo = true` **no mesmo UPDATE atômico** (além do
+  estado não estar em voo); zero linhas atualizadas = nenhuma chamada à Bright Data. Sem isso,
+  clicar em "Pausar" ainda deixaria escapar uma coleta paga.
+- **Quantidade é comunicada como teto de IMPORTAÇÃO** na tela ("Máx. de leads a importar"),
+  nunca como volume coletado ou custo — a fonte pode devolver/cobrar mais antes do corte.
+- **Correção de um diagnóstico anterior:** o registro dizia que a migration tratava um risco de
+  janela invertida abortar o boot. Isso NÃO era alcançável: `prospeccao_configuracoes` já tem
+  `CHECK (horario_fim > horario_inicio)` com ambas as colunas NOT NULL, e
+  `CHECK (cardinality(dias_semana_ativos) BETWEEN 1 AND 7)`. O tratamento defensivo na migration
+  ficou, mas como seguro barato — não como correção de um defeito real. O que É alcançável e a
+  migration trata: `estado_padrao` é texto livre (UF inválida) e `busca_intervalo_horas` pode ser
+  1..5 (abaixo do mínimo da rotina).
+- **Como validar:** `npm test` backend 1111 ok (48 testes novos), frontend 27 ok, typecheck
+  back/front limpos, `npm run smoke:preco`, `next build` ok.
+- **Migration validada em Postgres real (2026-08-04):** (a) banco descartável com casos
+  patológicos — UF inválida/1 letra vira NULL sem perder a rotina, intervalo 1h→6h, nicho/cidade
+  só com espaços não gera rotina fantasma, 3 coletas em voo na mesma empresa reduzidas a 1,
+  snapshots com `empresa_id` NULL preservados, migration reaplicável sem duplicar; (b) banco de
+  desenvolvimento pelo caminho real de boot (`runMigrations`): a config `automatico_fixo`
+  (Barbearia/SBC/SP) virou rotina **pausada** preservando janela/dias/intervalo, o modo caiu para
+  `manual` e o modo `ia` de outra empresa ficou intacto. Os três índices únicos foram testados
+  rejeitando: 2ª coleta em voo por empresa, chave de idempotência repetida e rotina duplicada no
+  mesmo mercado (inclusive com caixa diferente).
+- **Validação visual/operacional:** 33 verificações end-to-end contra o backend real com a
+  Bright Data NEUTRALIZADA (token/dataset vazios), cobrindo criar/editar/pausar/retomar/remover,
+  validações 400/409, autorização 401/404 e um ciclo controlado do worker. Capturas em desktop
+  (1440px) e mobile (390px) sem overflow horizontal; os 6 estados foram observados na tela real.
+
+---
+
 ## 2026-07-05 — Banco de Leads: UX de disparo (cooldown, agendados, conversa, personalização)
 
 - **Cooldown centralizado e reutilizado:** o cronômetro do Manual e do Semi consome o MESMO

@@ -80,24 +80,28 @@ router.get('/metricas', requireAuth, requireEmpresaAccess, async (req, res) => {
   }
 })
 
-// POST /api/empresas/:empresaId/prospeccao/buscar  { nicho, cidade }
-// Pesquisa leads no Google Places e persiste como prospects DESTA empresa.
+// POST /api/empresas/:empresaId/prospeccao/buscar  { nicho, cidade, uf }
+// Busca manual (uma execução avulsa). A UF entra junto com a cidade: sem ela a
+// geocodificação resolve o nome em qualquer estado ("Santana" existe em vários).
 router.post('/buscar', requireAuth, requireEmpresaAccess, async (req, res) => {
-  const { nicho, cidade, local } = req.body || {}
+  const { nicho, cidade, local, uf, estado } = req.body || {}
   if (!nicho || !(cidade || local)) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe nicho e cidade.' } })
   }
   try {
     const resultado = await pesquisarPlaces({
       nicho,
-      local: cidade || local,
+      cidade: cidade || local,
+      uf: uf || estado || null,
+      quantidade: req.body?.quantidade,
       origem: 'manual',
       empresaId: req.empresa.id,
     })
     return res.json({ ok: true, data: resultado })
   } catch (err) {
     const status = err.statusCode || 500
-    logger.error('POST prospeccao/buscar:', err.message)
+    // 409 é fluxo normal (coleta em andamento / clique duplicado), não erro de servidor.
+    if (status >= 500) logger.error('POST prospeccao/buscar:', err.message)
     return res.status(status).json({ ok: false, error: { code: 'BUSCA_FAILED', message: err.message } })
   }
 })

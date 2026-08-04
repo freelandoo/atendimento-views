@@ -5,6 +5,7 @@ import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
+import RotinasAquisicao from '@/components/RotinasAquisicao'
 import { IconTrash, IconStar, IconUndo, IconPlay } from '@/components/ui/icons'
 
 type JsonApresProspect = JsonApresentacao & {
@@ -175,7 +176,6 @@ export default function ProspeccaoPage() {
   const [rotina, setRotina] = useState<ConfigResp | null>(null)
   const [resultados, setResultados] = useState<ResultadosResp | null>(null)
   const [analytics, setAnalytics] = useState<Analytics | null>(null)
-  const [buscando, setBuscando] = useState(false)
   const [buscas, setBuscas] = useState<Busca[]>([])
   const emAndamentoRef = useRef<Set<string>>(new Set())
   const [erro, setErro] = useState('')
@@ -335,53 +335,24 @@ export default function ProspeccaoPage() {
   async function salvarAjuste(patch: ConfigPatch) {
     try {
       setErro('')
-      const mudouMercadoFixo = form.modo_busca === 'automatico_fixo' && ('categoria_padrao' in patch || 'cidade_padrao' in patch || 'estado_padrao' in patch)
-      await persistirConfiguracao(mudouMercadoFixo ? { ...patch, retomar_busca: true } : patch)
+      await persistirConfiguracao(patch)
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao salvar a configuração da busca.')
     }
   }
 
+  // A busca de mercado FIXO virou Rotina de Aquisição; aqui só liga/desliga a Busca IA.
   async function trocarModoBusca(modo: Config['modo_busca']) {
-    if (modo === 'automatico_fixo' && (!(form.categoria_padrao || '').trim() || !(form.cidade_padrao || '').trim())) {
-      fb.toast('Informe nicho e cidade antes de ligar o automático fixo.', 'error')
-      return
-    }
     try {
       setErro('')
       await persistirConfiguracao({
         modo_busca: modo,
-        agendamento_busca_ativo: modo !== 'manual',
-        retomar_busca: modo !== 'manual',
+        agendamento_busca_ativo: modo === 'ia',
+        retomar_busca: modo === 'ia',
       })
-      fb.toast(modo === 'manual' ? 'Modo manual ativado.' : modo === 'ia' ? 'Busca IA ativada.' : 'Automático fixo ativado.')
+      fb.toast(modo === 'ia' ? 'Busca IA ligada.' : 'Busca IA desligada.')
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao alterar o modo da busca.')
-    }
-  }
-
-  // Executa uma busca imediata e salva os mesmos parâmetros usados pelo automático.
-  async function rodar() {
-    if (!empresaId) return
-    const nicho = (form.categoria_padrao || '').trim()
-    const cidade = (form.cidade_padrao || '').trim()
-    if (!nicho || !cidade) { setErro('Informe nicho e cidade para buscar.'); return }
-
-    setErro('')
-    setBuscando(true)
-    try {
-      await persistirConfiguracao()
-      // 2) Enfileira a busca (Bright Data Maps é assíncrona — leva alguns minutos).
-      await apiFetch(`/api/empresas/${empresaId}/prospeccao/buscar`, {
-        method: 'POST',
-        body: JSON.stringify({ nicho, cidade }),
-      })
-      fb.toast(`Busca de até ${LEADS_POR_BUSCA} leads em andamento. A lista atualiza sozinha.`, 'info')
-      carregarBuscas()
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao rodar a agenda.')
-    } finally {
-      setBuscando(false)
+      setErro(e instanceof Error ? e.message : 'Erro ao alterar a Busca IA.')
     }
   }
 
@@ -409,66 +380,26 @@ export default function ProspeccaoPage() {
         <p className="text-sm text-slate-500 mt-1">Configure a origem da busca e deixe o worker alimentar o Banco de Leads, mesmo fora desta tela.</p>
       </div>
 
+      <RotinasAquisicao empresaId={empresaId} onColetaIniciada={carregarBuscas} />
+
       <div className="space-y-4 rounded-2xl border bg-white p-4 shadow-sm">
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <label className="mb-1 block text-xs text-slate-500">Modo da busca</label>
-            <select value={modoBusca} disabled={salvandoConfig}
-              onChange={(e) => trocarModoBusca(e.target.value as Config['modo_busca'])}
-              className="w-full rounded-lg border px-3 py-2 text-sm disabled:opacity-60">
-              <option value="manual">Manual</option>
-              <option value="automatico_fixo">Automático fixo</option>
-              <option value="ia">Busca IA</option>
-            </select>
-            <div className={`mt-2 flex items-start gap-2 text-xs ${modoAutomatico ? 'text-emerald-700' : 'text-slate-500'}`}>
-              <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${modoAutomatico ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
-              <span>{modoBusca === 'ia'
-                ? 'A IA escolhe um mercado novo dentro das suas preferências.'
-                : modoBusca === 'automatico_fixo'
-                  ? 'Repete o nicho e a cidade até não encontrar mais leads novos.'
-                  : 'A busca acontece somente quando você clicar em Buscar agora.'}</span>
-            </div>
+            <h2 className="text-base font-semibold">Busca IA</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Em vez de você escolher o mercado, a IA escolhe um mercado novo dentro das suas
+              preferências e coleta sozinha. Funciona em paralelo às rotinas, respeitando a mesma
+              regra de uma coleta por vez.
+            </p>
           </div>
-
-          {modoBusca !== 'ia' && <div className="grid gap-3 sm:grid-cols-3">
-            <Campo label="Nicho"><input value={form.categoria_padrao || ''}
-              onChange={(e) => setF('categoria_padrao', e.target.value)}
-              onBlur={(e) => salvarAjuste({ categoria_padrao: e.target.value })}
-              placeholder="ex: dentista" className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
-            <Campo label="Cidade"><input value={form.cidade_padrao || ''}
-              onChange={(e) => setF('cidade_padrao', e.target.value)}
-              onBlur={(e) => salvarAjuste({ cidade_padrao: e.target.value })}
-              placeholder="ex: Campinas" className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
-            <Campo label="Estado (UF)"><input value={form.estado_padrao || ''} maxLength={2}
-              onChange={(e) => setF('estado_padrao', e.target.value.toUpperCase())}
-              onBlur={(e) => salvarAjuste({ estado_padrao: e.target.value.toUpperCase() })}
-              placeholder="SP" className="w-full rounded-lg border px-3 py-2 text-sm uppercase" /></Campo>
-          </div>}
+          <label className="flex shrink-0 items-center gap-2 text-sm">
+            <input type="checkbox" checked={modoBusca === 'ia'} disabled={salvandoConfig}
+              onChange={(e) => trocarModoBusca(e.target.checked ? 'ia' : 'manual')} />
+            <span className={modoBusca === 'ia' ? 'font-medium text-emerald-700' : 'text-slate-500'}>
+              {modoBusca === 'ia' ? 'Ligada' : 'Desligada'}
+            </span>
+          </label>
         </div>
-
-        {modoAutomatico && (
-          <div className="grid gap-3 border-t pt-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Campo label="Buscar a cada (horas)"><input type="number" min={6} max={168}
-              value={form.busca_intervalo_horas ?? 6}
-              onChange={(e) => setF('busca_intervalo_horas', Math.max(6, Number(e.target.value) || 6))}
-              onBlur={(e) => salvarAjuste({ busca_intervalo_horas: Math.max(6, Number(e.target.value) || 6) })}
-              className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
-            <Campo label="Máximo por dia"><select value={form.busca_max_diaria ?? 2}
-              onChange={(e) => salvarAjuste({ busca_max_diaria: Number(e.target.value) as 1 | 2 })}
-              className="w-full rounded-lg border px-3 py-2 text-sm">
-              <option value={1}>1 busca por dia</option>
-              <option value={2}>2 buscas por dia</option>
-            </select></Campo>
-            <Campo label="Início da janela"><input type="time" value={form.horario_inicio || '08:00'}
-              onChange={(e) => setF('horario_inicio', e.target.value)}
-              onBlur={(e) => salvarAjuste({ horario_inicio: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
-            <Campo label="Fim da janela"><input type="time" value={form.horario_fim || '17:00'}
-              onChange={(e) => setF('horario_fim', e.target.value)}
-              onBlur={(e) => salvarAjuste({ horario_fim: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
-          </div>
-        )}
 
         {modoBusca === 'ia' && (
           <div className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/50 p-3">
@@ -508,30 +439,27 @@ export default function ProspeccaoPage() {
               {cfg.busca_mercado_atual?.nicho && <span className="text-xs">Último mercado: {cfg.busca_mercado_atual.nicho} · {cfg.busca_mercado_atual.cidade}</span>}
             </div>
             {cfg.busca_mensagem && <p className="mt-1 text-xs">{cfg.busca_mensagem}</p>}
-            {modoBusca === 'ia' && cfg.busca_mercado_atual?.motivo && <p className="mt-1 text-xs opacity-80">Decisão da IA: {cfg.busca_mercado_atual.motivo}</p>}
+            {cfg.busca_mercado_atual?.motivo && <p className="mt-1 text-xs opacity-80">Decisão da IA: {cfg.busca_mercado_atual.motivo}</p>}
           </div>
         )}
 
-        <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-xs text-slate-500">
-            <p><b className="text-slate-700">Até {LEADS_POR_BUSCA} leads por busca.</b> Os resultados entram no Banco de Leads; nenhum WhatsApp é enviado aqui.</p>
-            {cfg?.ultima_busca_em && <p className="mt-1">Última busca automática: {quando(cfg.ultima_busca_em)}</p>}
-            {salvandoConfig && <p className="mt-1 text-brand">Salvando configuração…</p>}
+        {modoAutomatico && (
+          <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-xs text-slate-500">
+              <p>Importa até {LEADS_POR_BUSCA} leads por busca. Os resultados entram no Banco de Leads; nenhum WhatsApp é enviado aqui.</p>
+              {cfg?.ultima_busca_em && <p className="mt-1">Última busca da IA: {quando(cfg.ultima_busca_em)}</p>}
+              {salvandoConfig && <p className="mt-1 text-brand">Salvando configuração…</p>}
+            </div>
+            {estadoBloqueado ? (
+              <button onClick={retomarBusca} disabled={salvandoConfig}
+                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+                <IconPlay /> Tentar novamente
+              </button>
+            ) : (
+              <span className="text-xs font-medium text-emerald-700">Busca IA ativa em segundo plano</span>
+            )}
           </div>
-          {modoBusca !== 'ia' ? (
-            <button onClick={rodar} disabled={buscando || salvandoConfig || !rotina}
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-              {buscando ? <Spinner /> : <IconPlay />}{buscando ? 'Iniciando busca…' : `Buscar ${LEADS_POR_BUSCA} agora`}
-            </button>
-          ) : estadoBloqueado ? (
-            <button onClick={retomarBusca} disabled={salvandoConfig}
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-              <IconPlay /> Tentar novamente
-            </button>
-          ) : (
-            <span className="text-xs font-medium text-emerald-700">Busca IA ativa em segundo plano</span>
-          )}
-        </div>
+        )}
       </div>
 
       {erro && <p className="text-red-600 text-sm">{erro}</p>}

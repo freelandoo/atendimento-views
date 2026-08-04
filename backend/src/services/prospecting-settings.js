@@ -33,10 +33,16 @@ function listaTexto(valor, maxItens = 20, maxTexto = 80) {
 }
 
 function normalizarConfiguracaoProspeccao(payload = {}) {
+  // 'automatico_fixo' foi APOSENTADO: o mercado fixo agora é uma Rotina de Aquisição
+  // (prospectador.aquisicao_rotinas, migration 053). Aceitá-lo aqui ligaria um SEGUNDO
+  // agendador sobre o mesmo mercado, com risco de coleta paga em duplicidade — então
+  // qualquer valor legado cai em 'manual' (falha fechada, motor desligado).
   const modoBusca = enumOuPadrao(
     payload.modo_busca,
-    ['manual', 'automatico_fixo', 'ia'],
-    boolOuPadrao(payload.agendamento_busca_ativo, false) ? 'ia' : 'manual'
+    ['manual', 'ia'],
+    boolOuPadrao(payload.agendamento_busca_ativo, false) && String(payload.modo_busca || '') !== 'automatico_fixo'
+      ? 'ia'
+      : 'manual'
   )
   const cfg = normalizarConfigProspeccao({
     ativo: payload.ativo ?? payload.enabled,
