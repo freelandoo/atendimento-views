@@ -64,6 +64,10 @@ export const IconThumbDown = (p: P) => (
 export const IconPlus = (p: P) => (
   <Svg {...p}><path d="M12 5v14M5 12h14" /></Svg>
 )
+// Brilho/estrela de IA — usado no gatilho do Assistente de Oportunidades.
+export const IconSparkle = (p: P) => (
+  <Svg {...p}><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" /><path d="M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z" /></Svg>
+)
 export const IconAlert = (p: P) => (
   <Svg {...p}><path d="M12 3l9 16H3l9-16z" /><path d="M12 10v4M12 17h.01" /></Svg>
 )

@@ -57,6 +57,27 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
 
 -->
 
+## 2026-08-04 — Aquisição + Banco + Front — Assistente de Oportunidades por LEAD na Busca avulsa
+- Área(s) tocada(s): Banco (migration ADITIVA `055` → `prospectador.curadoria_sessoes` +
+  `curadoria_decisoes`), SaaS/rotas (`api-aquisicao-curadoria.js`, montada admin-only ANTES de
+  `/prospeccao`), Prospecção (services `aquisicao-curadoria.js` + `aquisicao-curadoria-ranking.js`,
+  db `aquisicao-curadoria.js`), Front (`AssistenteOportunidades.tsx` reescrito,
+  `RotinasAquisicao.tsx`, `dashboard/prospeccao/page.tsx`, `ui/icons.tsx`).
+- Regras preservadas: **o pipeline de coleta não foi tocado** — `pesquisarPlaces`,
+  `processarBuscasPlacesPendentes`, `salvarProspects`, as Rotinas de Aquisição e a trava de
+  "uma coleta paga por empresa" continuam idênticos. Nenhuma chamada paga à Bright Data neste
+  módulo (coberto por espião nos testes). Isolamento por `empresa_id` em toda consulta; rota
+  admin-only. Status de prospect segue o CHECK existente (`aprovado`/`rejeitado`) — sem
+  status novo e sem coluna nova em `prospects`.
+- O que mudou: a Busca avulsa ganhou o gatilho manual "Analisar oportunidades" (uma oportunidade
+  por vez, com justificativa curta); a meta de leads novos conta CLAIM e não clique; decisões
+  viram sinal de aprendizado da própria empresa. O campo "Máx. de leads a importar" virou
+  "Máx. de leads novos" e serve aos dois botões. **Assistente por MERCADO saiu da tela** (código,
+  tabela e rota preservados) e o formulário de critérios manuais deixou de ser exibido — os
+  dados (`busca_estrategia`, nichos e regiões permitidos) continuam gravados.
+- Documentos atualizados: `AGENTS.md`, `docs/ai-decision-log.md`, `docs/ai-task-start-log.md`,
+  este mapa.
+
 ## 2026-07-05 — Banco de Leads — cooldown Manual+Semi, aba Agendados, telefone→conversa, personalização
 - Área(s) tocada(s): SaaS/rotas (`api-banco-leads.js` — `/cooldown`, aba Agendados, resumo),
   Prospecção (`rodar-leads.js` — `estadoEnvioInstancia`), Front (`banco-leads/page.tsx` +

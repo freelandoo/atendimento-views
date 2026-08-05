@@ -6,6 +6,38 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-04 - Inicio de tarefa IA - Evolucao da Busca avulsa com Assistente de Oportunidades POR LEAD
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Evoluir a **Busca avulsa** (nicho + cidade + max. de leads novos a importar,
+  acao principal "Buscar agora" = SO encontrar candidatos) e criar um gatilho manual premium
+  "Analisar oportunidades" que abre uma **sessao do assistente com UMA OPORTUNIDADE POR VEZ**:
+  justificativa curta da IA, **Aprovar = importa o lead** (idempotente, so conta lead NOVO) e
+  **Descartar = nao importa + vira sinal de aprendizado**. O maximo informado limita os leads
+  NOVOS APROVADOS, nao os candidatos avaliados. Criterios passam a ser automaticos/invisiveis.
+- **E projeto/tarefa de alteracao?** Sim — Fase 1 (analise de impacto) obrigatoria antes de codar;
+  o proprio pedido define um `decision_gate`.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/ui-visual-standard.md: a consultar na Fase 5 | docs/ai-decision-log.md: a registrar na Fase 8.
+- **Areas mapeadas (somente leitura nesta fase):** `frontend/components/RotinasAquisicao.tsx`
+  (Busca avulsa), `frontend/components/AssistenteOportunidades.tsx`,
+  `frontend/app/dashboard/prospeccao/page.tsx`, `src/routes/api-prospeccao.js` (POST /buscar),
+  `src/routes/api-aquisicao-oportunidades.js`, `src/services/aquisicao-assistente.js`,
+  `src/services/aquisicao-sinais.js`, `src/db/aquisicao-oportunidades.js`,
+  `src/services/places-brightdata.js`, `src/prospecting.js`
+  (`pesquisarPlaces` 3630, `processarBuscasPlacesPendentes` 3791, `salvarProspects` 1132,
+  `mapearPlace` 1016), migrations `053` e `054`, `sql/init.sql` (prospectador.prospects).
+- **Conflito material encontrado (motivo do decision_gate):** o pedido descreve um assistente
+  **POR LEAD** (aprovar importa o lead), mas (1) a Busca avulsa de hoje **ja importa todos** os
+  leads encontrados automaticamente pelo worker — nao existe area de candidatos nao importados; e
+  (2) o "Assistente de Oportunidades" ja entregue (commit 6e4beed, migration 054) e' **POR
+  MERCADO/ROTINA**, com o mesmo nome, o mesmo botao "Analisar oportunidades" e o mesmo lugar na tela.
+- **Decisao pendente do Victor:** onde nasce o candidato (area de espera antes da importacao x
+  curadoria sobre leads ja importados) e o destino do assistente por mercado ja publicado.
+- **Proxima etapa:** entregar o relatorio de impacto e AGUARDAR a decisao antes da Fase 2.
+
+---
+
 ## 2026-08-04 - Inicio de tarefa IA - Assistente de Oportunidades (Busca IA perde autonomia de coleta paga)
 
 - **IA/Ferramenta:** Claude Code (Opus 5)

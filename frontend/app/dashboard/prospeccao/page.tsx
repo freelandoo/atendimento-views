@@ -6,7 +6,6 @@ import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import RotinasAquisicao, { type RotinasResp } from '@/components/RotinasAquisicao'
-import AssistenteOportunidades from '@/components/AssistenteOportunidades'
 import HistoricoColetas from '@/components/HistoricoColetas'
 import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
 import { IconTrash, IconStar, IconUndo } from '@/components/ui/icons'
@@ -39,34 +38,9 @@ type Metricas = {
   total: string; aguardando: string; aprovados: string; rejeitados: string
   enviados: string; responderam: string; taxa_resposta: number
 }
-type Config = {
-  ativo: boolean; modo: string
-  categoria_padrao: string | null; cidade_padrao: string | null
-  estado_padrao: string | null; regiao_padrao: string | null
-  limite_diario: number; intervalo_envio_minutos: number
-  horario_inicio: string; horario_fim: string
-  gerar_mensagem_ia: boolean; envio_real_habilitado: boolean
-  // "Agenda": re-busca automática do Google Places a cada X horas.
-  agendamento_busca_ativo: boolean; busca_intervalo_horas: number
-  ultima_busca_em: string | null
-  modo_busca: 'manual' | 'automatico_fixo' | 'ia'
-  busca_max_diaria: 1 | 2
-  busca_estrategia: 'conservadora' | 'equilibrada' | 'exploratoria'
-  busca_nichos_permitidos: string[]
-  busca_localizacoes_permitidas: string[]
-  busca_permitir_nichos_relacionados: boolean
-  busca_estado: 'aguardando' | 'escolhendo' | 'coletando' | 'processando' | 'esgotado' | 'sem_mercados' | 'limite_diario' | 'erro' | 'pausado'
-  busca_mensagem: string | null
-  busca_mercado_atual: { nicho?: string; cidade?: string; motivo?: string; confianca?: number } | null
-  busca_zero_consecutivos: number
-  busca_ultima_decisao_em: string | null
-}
-type ConfigPatch = Partial<Config> & { retomar_busca?: boolean }
-type Agenda = {
-  total_slots: number; primeiro_slot: string | null; ultimo_slot: string | null
-  envio_real_habilitado?: boolean; observacao?: string
-}
-type ConfigResp = { config: Config; agenda: Agenda; escopo: string }
+// A configuração de prospecção (estratégia, nichos e regiões permitidos) continua
+// existindo no banco, mas saiu desta tela: os critérios do assistente passaram a ser
+// automáticos — ele aprende sozinho com o que você aprova e descarta.
 // Busca da Aquisição (Bright Data Maps é assíncrona — o painel acompanha o status).
 type Busca = {
   id: string; nicho: string; cidade: string; origem: string
@@ -124,7 +98,6 @@ function opcoesMercado(filtros: FiltrosMercado | null): OpcaoFiltroMercado[] {
   return [...mapa.values()].sort((a, b) => b.total - a.total || a.valor.localeCompare(b.valor, 'pt-BR'))
 }
 
-const LEADS_POR_BUSCA = 200
 // Seção "Acompanhar resultados": consulta secundária, abaixo da lista de leads. As abas
 // evitam que vários painéis analíticos disputem a tela ao mesmo tempo.
 const ID_ABAS = 'resultados'
@@ -177,7 +150,6 @@ function compararProspects(a: Prospect, b: Prospect, ordem: { chave: string; dir
 export default function ProspeccaoPage() {
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [metricas, setMetricas] = useState<Metricas | null>(null)
-  const [rotina, setRotina] = useState<ConfigResp | null>(null)
   const [resultados, setResultados] = useState<ResultadosResp | null>(null)
   const [analytics, setAnalytics] = useState<Analytics | null>(null)
   const [buscas, setBuscas] = useState<Busca[]>([])
@@ -189,12 +161,9 @@ export default function ProspeccaoPage() {
   const [cidadeFiltro, setCidadeFiltro] = useState('')
   const [filtrosMercado, setFiltrosMercado] = useState<FiltrosMercado | null>(null)
   const [agindo, setAgindo] = useState<string | null>(null)
-  const [salvandoConfig, setSalvandoConfig] = useState(false)
-  const [form, setForm] = useState<Partial<Config>>({})
-  // As rotinas já carregadas pelo painel de rotinas, reaproveitadas pelo assistente
-  // (que precisa dos valores atuais para pré-preencher um ajuste sem sobrescrever nada).
+  // As rotinas já carregadas pelo painel de rotinas, reaproveitadas pelo histórico de
+  // coletas em "Acompanhar resultados" — sem repetir a mesma requisição.
   const [dadosRotinas, setDadosRotinas] = useState<RotinasResp | null>(null)
-  const [recarregarRotinas, setRecarregarRotinas] = useState(0)
   // Ordenação da tabela: default = MENOS pontos de cadastro no topo (mais
   // oportunidade de venda). Clicar no cabeçalho alterna asc/desc por coluna.
   const [ordem, setOrdem] = useState<{ chave: string; dir: 'asc' | 'desc' }>({ chave: 'pontos', dir: 'asc' })
@@ -220,11 +189,6 @@ export default function ProspeccaoPage() {
       .then((r) => setProspects(r.data || [])).catch((e) => setErro(e.message))
     apiFetch<Metricas>(`/api/empresas/${empresaId}/prospeccao/metricas`)
       .then((r) => setMetricas(r.data)).catch(() => {})
-    apiFetch<ConfigResp>(`/api/empresas/${empresaId}/prospeccao/configuracao`)
-      .then((r) => {
-        setRotina(r.data)
-        setForm({ ...r.data.config, limite_diario: LEADS_POR_BUSCA })
-      }).catch(() => {})
     apiFetch<ResultadosResp>(`/api/empresas/${empresaId}/prospeccao/resultados`)
       .then((r) => setResultados(r.data)).catch(() => {})
     apiFetch<Analytics>(`/api/empresas/${empresaId}/prospeccao/analytics`)
@@ -288,60 +252,7 @@ export default function ProspeccaoPage() {
     fb.toast(email ? 'E-mail salvo.' : 'E-mail removido.')
   }
 
-  function setF<K extends keyof Config>(k: K, v: Config[K]) {
-    setForm((p) => ({ ...p, [k]: v }))
-  }
-
   const ordenados = [...prospects].sort((a, b) => compararProspects(a, b, ordem))
-
-  function payloadConfiguracao(patch: ConfigPatch = {}) {
-    return {
-      ...form,
-      ...patch,
-      // Aquisição nunca religa o disparo legado; a busca recorrente tem flag própria.
-      ativo: false,
-      modo: 'manual',
-      limite_diario: LEADS_POR_BUSCA,
-      envio_real_habilitado: false,
-      gerar_mensagem_ia: false,
-    }
-  }
-
-  async function persistirConfiguracao(patch: ConfigPatch = {}) {
-    if (!empresaId) return null
-    setSalvandoConfig(true)
-    try {
-      const r = await apiFetch<ConfigResp>(`/api/empresas/${empresaId}/prospeccao/configuracao`, {
-        method: 'PUT',
-        body: JSON.stringify(payloadConfiguracao(patch)),
-      })
-      setRotina(r.data)
-      const chaves = Object.keys(patch).filter((chave) => chave in r.data.config) as (keyof Config)[]
-      if (chaves.length === 0) {
-        setForm({ ...r.data.config, limite_diario: LEADS_POR_BUSCA })
-      } else {
-        // Atualiza somente os campos persistidos; não apaga outro input que o operador
-        // esteja digitando enquanto uma gravação onBlur termina.
-        setForm((atual) => {
-          const normalizados: Partial<Config> = {}
-          for (const chave of chaves) normalizados[chave] = r.data.config[chave] as never
-          return { ...atual, ...normalizados, limite_diario: LEADS_POR_BUSCA }
-        })
-      }
-      return r.data
-    } finally {
-      setSalvandoConfig(false)
-    }
-  }
-
-  async function salvarAjuste(patch: ConfigPatch) {
-    try {
-      setErro('')
-      await persistirConfiguracao(patch)
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao salvar a configuração da busca.')
-    }
-  }
 
   const mercadoOpcoes = opcoesMercado(filtrosMercado)
   const cidadeOpcoes = filtrosMercado?.cidades || []
@@ -350,46 +261,6 @@ export default function ProspeccaoPage() {
   const recentes = resultados?.recentes || []
   const temAnalytics = !!analytics && analytics.metricas.mensagens_enviadas > 0
   const temDesempenho = porMercado.length > 0 || temAnalytics
-
-  // Preferências que o assistente respeita ao propor um mercado NOVO. Elas já
-  // existiam (eram da Busca IA automática) e continuam valendo — o que mudou é que
-  // agora vivem DENTRO do card do assistente, recolhidas até o operador pedir.
-  const preferenciasAssistente = (
-    <div className="space-y-3 rounded-xl border bg-slate-50/60 p-4">
-      <p className="text-xs text-slate-500">
-        Onde o assistente pode procurar oportunidades novas. Deixe em branco para não limitar.
-      </p>
-      <div className="grid gap-3 lg:grid-cols-3">
-          <Campo label="Estratégia"><select value={form.busca_estrategia || 'equilibrada'}
-            onChange={(e) => salvarAjuste({ busca_estrategia: e.target.value as Config['busca_estrategia'] })}
-            className="w-full rounded-lg border px-3 py-2 text-sm">
-            <option value="conservadora">Conservadora — perto do que já funciona</option>
-            <option value="equilibrada">Equilibrada — recomendada</option>
-            <option value="exploratoria">Exploratória — testa mais mercados novos</option>
-          </select></Campo>
-          <Campo label="Nichos permitidos"><input
-            value={(form.busca_nichos_permitidos || []).join(', ')}
-            onChange={(e) => setF('busca_nichos_permitidos', e.target.value.split(',').map((v) => v.trim()).filter(Boolean))}
-            onBlur={(e) => salvarAjuste({ busca_nichos_permitidos: e.target.value.split(',').map((v) => v.trim()).filter(Boolean) })}
-            placeholder="ex: dentistas, clínicas, arquitetos"
-            className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
-          <Campo label="Regiões permitidas"><input
-            value={(form.busca_localizacoes_permitidas || []).join(', ')}
-            onChange={(e) => setF('busca_localizacoes_permitidas', e.target.value.split(',').map((v) => v.trim()).filter(Boolean))}
-            onBlur={(e) => salvarAjuste({ busca_localizacoes_permitidas: e.target.value.split(',').map((v) => v.trim()).filter(Boolean) })}
-            placeholder="ex: SP, Campinas, Paraná"
-            className="w-full rounded-lg border px-3 py-2 text-sm" /></Campo>
-        </div>
-        <label className="flex items-start gap-2 text-sm text-slate-700">
-          <input type="checkbox" className="mt-0.5" checked={form.busca_permitir_nichos_relacionados !== false}
-            onChange={(e) => salvarAjuste({ busca_permitir_nichos_relacionados: e.target.checked })} />
-          <span><b>Permitir nichos relacionados</b>
-            <span className="block text-xs text-slate-500">O assistente pode propor variações próximas dos nichos informados.</span>
-          </span>
-        </label>
-        {salvandoConfig && <p className="text-xs text-brand">Salvando preferências…</p>}
-      </div>
-  )
 
   return (
     <div className="space-y-6">
@@ -405,15 +276,7 @@ export default function ProspeccaoPage() {
         empresaId={empresaId}
         onColetaIniciada={carregarBuscas}
         onDados={setDadosRotinas}
-        recarregarChave={recarregarRotinas}
-      />
-
-      <AssistenteOportunidades
-        empresaId={empresaId}
-        rotinas={dadosRotinas?.rotinas || []}
-        limites={dadosRotinas?.limites}
-        onRotinasAlteradas={() => setRecarregarRotinas((n) => n + 1)}
-        criterios={preferenciasAssistente}
+        onLeadsAlterados={carregar}
       />
 
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
@@ -729,11 +592,3 @@ function Destaque({ title, rank }: { title: string; rank: Rank | null }) {
   )
 }
 
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="block text-[10px] uppercase text-slate-500 mb-0.5">{label}</label>
-      {children}
-    </div>
-  )
-}

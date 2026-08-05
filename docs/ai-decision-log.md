@@ -11,6 +11,52 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-04 — Assistente de Oportunidades POR LEAD na Busca avulsa (migration 055)
+
+- **Curadoria sobre o já importado, não área de espera (decisão do Victor):** o pedido descrevia
+  "aprovar importa o lead", mas a Busca avulsa **já importa 100%** do que coleta (worker
+  `processarBuscasPlacesPendentes` → `salvarProspects`). Duas saídas eram possíveis: (a) parar a
+  importação e criar uma tabela de candidatos, ou (b) curar o que já entrou. Escolhida a **(b)**:
+  o pipeline de coleta fica **intocado** e "aprovar" significa mover o lead de `aguardando` para
+  `aprovado` (carteira de trabalho); "descartar" o manda para `rejeitado`. Custo aceito: o lead
+  descartado já ocupou a coleta paga — o que não muda nada, porque o corte por `quantidade` já
+  acontecia DEPOIS do download do snapshot (o custo é da coleta, não do registro importado).
+- **A meta conta CLAIM, não clique:** `aprovados` só incrementa quando o `UPDATE ... WHERE
+  status = 'aguardando'` devolve linha. Repetir a ação, recarregar a página ou decidir um lead
+  que já saiu da fila devolve `contou_meta=false`. Alternativa descartada: contar no frontend
+  (dois cliques simultâneos furariam a meta).
+- **Idempotência em dois níveis:** o CLAIM (acima) impede importação duplicada, e o índice único
+  `curadoria_decisoes_sessao_lead_uk` impede registro duplicado da mesma decisão na mesma sessão.
+  Tudo em UMA transação com a atualização dos contadores — nunca sobra estado pela metade.
+- **Uma sessão ativa por OPERADOR, não por empresa:** índice único parcial sobre
+  `(empresa_id, COALESCE(usuario_id, uuid_nulo))`. Dois admins podem curar em paralelo; a corrida
+  pelo mesmo lead é resolvida pelo CLAIM, então o segundo recebe "já decidido" em vez de duplicar.
+- **A fila é persistida em `fila_json`, com a explicação junto:** recarregar a página não regera
+  a explicação (não repaga a IA) e não perde o ritmo. A fila só é remontada quando esvazia.
+- **A IA redige, as regras decidem:** a ordem vem de `aquisicao-curadoria-ranking.js` (puro);
+  a IA só transforma faixas em frase, **uma chamada por lote de 12**, não uma por lead. IA fora
+  do ar não trava a sessão — o motivo determinístico assume.
+- **O prompt não recebe PII:** nome, telefone, e-mail e endereço do lead nunca entram na chamada
+  de IA (só faixas: tem site, faixa de nota, faixa de avaliações, completude do cadastro). Mesma
+  postura do assistente por mercado; coberto por teste.
+- **Aprendizado determinístico e auditável:** taxa de aprovação por característica, suavizada
+  (Laplace), comparada com a taxa geral da empresa, com amostra mínima de 3 e teto de ±25 pontos.
+  Sem modelo treinado e **sem configuração visível** — era requisito do produto. Consequência
+  correta e testada: histórico só de aprovações ensina ZERO (nada distingue os leads).
+- **Ausente ≠ zero:** `Number(null)` é 0, então "sem nota" virava `nota_baixa` e "cadastro
+  desconhecido" virava `cadastro_fraco` (+25 pontos). Bug encontrado pelo próprio teste de borda
+  antes de existir dado real; `num()` passou a devolver `null` para ausente.
+- **Assistente por MERCADO aposentado só na UI (decisão do Victor):** a seção de sugestões de
+  rotina saiu da tela de Aquisição. `prospectador.aquisicao_sugestoes`, o serviço
+  `aquisicao-assistente.js` e a rota `/prospeccao/oportunidades` **permanecem** — nada foi
+  apagado e as decisões já tomadas seguem consultáveis. O nome "Assistente de Oportunidades"
+  passou para o assistente por lead.
+- **Critérios manuais saíram da tela, os dados ficaram:** `busca_estrategia`,
+  `busca_nichos_permitidos` e `busca_localizacoes_permitidas` continuam em
+  `prospeccao_configuracoes` (nenhuma migration os apaga); só o formulário deixou de ser exibido.
+
+---
+
 ## 2026-08-04 — Aquisição: rotinas contínuas de coleta (migration 053)
 
 - **Nova entidade em vez de esticar a config única:** `prospectador.aquisicao_rotinas`

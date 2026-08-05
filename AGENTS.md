@@ -155,6 +155,44 @@
   no manual (`POST /prospeccao/buscar` aceita `uf`) — sem a UF, "Santana" resolvia em qualquer estado.
 - Nenhuma variável de ambiente nova foi criada para este módulo.
 
+### Assistente de Oportunidades (curadoria POR LEAD, na Busca avulsa)
+- Sessão de análise aberta **só no clique** do botão premium "Analisar oportunidades", ao lado de
+  "Buscar agora". **Buscar não analisa e analisar não busca**: este módulo não importa
+  `pesquisarPlaces` nem qualquer função de coleta — nenhuma chamada paga à Bright Data.
+- Mostra **uma oportunidade por vez** com uma justificativa curta. **Aprovar** move o lead de
+  `aguardando` para `aprovado` (carteira de trabalho); **Descartar** move para `rejeitado`. O
+  pipeline de coleta é o de sempre — a Busca avulsa continua importando o que coleta.
+- **A meta ("Máx. de leads novos") conta CLAIM, não clique:** `aprovados` só sobe quando o
+  `UPDATE ... WHERE status='aguardando'` devolve linha. Repetir a ação, recarregar a página ou
+  decidir um lead que já saiu da fila **não consome a meta e não duplica nada**. Descarte e
+  duplicado não param a sessão: a fila continua até a meta ou o esgotamento.
+- Esgotou o mercado antes da meta ⇒ oferece **Ampliar a busca** (passa a olhar toda a carteira);
+  já ampliado ⇒ orienta rodar uma nova busca. Nunca encerra no vazio.
+- **Aprendizado automático, sem configuração visível:** taxa de aprovação por característica
+  (faixas: tem site, faixa de nota, faixa de avaliações, completude do cadastro, nicho),
+  suavizada por Laplace, comparada com a taxa geral **da própria empresa**; amostra mínima 3,
+  teto de ±25 pontos. Ausente ≠ zero (sem nota não é nota baixa).
+- **A IA só redige:** a ordem vem das regras puras; a IA transforma faixas em frase, **uma
+  chamada por lote de 12** (não uma por lead), e a fila fica persistida em `fila_json` — recarregar
+  não repaga a explicação. IA fora do ar não trava a sessão (motivo determinístico assume).
+  **Nome, telefone, e-mail e endereço do lead nunca entram no prompt.**
+- Uma sessão ativa por **operador** (índice único parcial). Dois admins podem curar em paralelo:
+  a corrida pelo mesmo lead é resolvida pelo claim, e o segundo recebe "já decidido".
+- Schema: migration `055_aquisicao_curadoria.sql` → `prospectador.curadoria_sessoes` +
+  `curadoria_decisoes` (aditiva; não muta dado existente). Código: regras PURAS em
+  `src/services/aquisicao-curadoria-ranking.js`, orquestração em
+  `src/services/aquisicao-curadoria.js`, SQL em `src/db/aquisicao-curadoria.js`, rotas em
+  `src/routes/api-aquisicao-curadoria.js` (montadas ANTES de `/prospeccao`, admin-only). Front:
+  `frontend/components/AssistenteOportunidades.tsx` (aberto por `RotinasAquisicao.tsx`). Testes:
+  `test/aquisicao-curadoria-ranking.test.js` e `test/aquisicao-curadoria.test.js`.
+- **Assistente por MERCADO (sugestões de rotina) aposentado só na UI:** saiu da tela de Aquisição,
+  mas `prospectador.aquisicao_sugestoes`, `src/services/aquisicao-assistente.js`,
+  `aquisicao-sinais.js` e a rota `/prospeccao/oportunidades` **continuam existindo** — as decisões
+  já tomadas seguem consultáveis. Os critérios manuais (`busca_estrategia`,
+  `busca_nichos_permitidos`, `busca_localizacoes_permitidas`) saíram do formulário mas **continuam
+  gravados** em `prospeccao_configuracoes`.
+- Nenhuma variável de ambiente nova foi criada para este módulo.
+
 - Geração por IA da saudação de análise: `src/services/saudacao-analise.js` (spec `docs/superpowers/specs/2026-07-03-saudacao-analise-e-estagios-design.md`). Usa `json_apresentacao` (lacunas do cadastro) + conhecimento do contexto da instância + `instrucoes_ia`. Faz **retries** (`SAUDACAO_IA_RETRIES`) antes de desistir.
 - **IA obrigatória quando `gerar_ia` ligado — sem fallback silencioso pro template:** se a IA falhar, o disparo é marcado com **erro no status** (Semi ⇒ `lead_disparos.status='erro_ia'`, com botão "Gerar de novo" no painel; Manual/Auto ⇒ `status='falhou', erro='ia_falhou'`, **não envia**). Com `gerar_ia` desligado, usa o template (mensagem escolhida). O template segue exigido por instância como base.
 - **Aba "Descartados"** no Banco de Leads: leads com `status IN ('rejeitado','nao_contatar')` OU `tem_whatsapp=false` (envio não chegou), com o **motivo claro** no painel. Leads sem WhatsApp saem da aba "Sem contato".

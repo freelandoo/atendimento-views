@@ -1,9 +1,8 @@
 'use client'
 import type { ReactNode } from 'react'
 
-// Campos de uma rotina de coleta (mercado + agenda), compartilhados por quem cria a
-// rotina à mão (RotinasAquisicao) e por quem aprova uma sugestão do assistente
-// (AssistenteOportunidades). Um formulário só, para as duas telas nunca divergirem
+// Campos de uma rotina de coleta (mercado + agenda), usados por quem cria e edita a
+// rotina em RotinasAquisicao. Um formulário só, para criação e edição nunca divergirem
 // nos limites, nos rótulos ou no que cada campo significa.
 
 export type Rascunho = {

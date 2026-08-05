@@ -96,6 +96,10 @@ app.use('/api/empresas/:empresaId/leads-quentes', require('./src/routes/api-lead
 // Aquisição / banco de leads / relatórios / LLM são admin-only (gating de backend SaaS)
 // Rotinas de Aquisição: montadas ANTES da rota mais genérica de prospecção.
 app.use('/api/empresas/:empresaId/prospeccao/rotinas', requireAuth, requireRole('admin'), require('./src/routes/api-aquisicao-rotinas'))
+// Assistente de Oportunidades por LEAD (curadoria da Busca avulsa).
+app.use('/api/empresas/:empresaId/prospeccao/curadoria', requireAuth, requireRole('admin'), require('./src/routes/api-aquisicao-curadoria'))
+// Sugestões de ROTINA (assistente por mercado): sem UI desde a curadoria por lead, mas
+// a rota segue montada — as sugestões já decididas continuam consultáveis.
 app.use('/api/empresas/:empresaId/prospeccao/oportunidades', requireAuth, requireRole('admin'), require('./src/routes/api-aquisicao-oportunidades'))
 app.use('/api/empresas/:empresaId/prospeccao', requireAuth, requireRole('admin'), require('./src/routes/api-prospeccao'))
 app.use('/api/empresas/:empresaId/captacao', requireAuth, requireRole('admin'), require('./src/routes/api-captacao'))

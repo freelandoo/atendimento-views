@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
-import { IconTrash, IconPlay } from '@/components/ui/icons'
+import { IconTrash, IconPlay, IconSparkle } from '@/components/ui/icons'
+import AssistenteOportunidades from '@/components/AssistenteOportunidades'
 import RotinaCampos, {
   Campo,
   QUANTIDADE_MAX,
@@ -71,15 +72,15 @@ export default function RotinasAquisicao({
   empresaId,
   onColetaIniciada,
   onDados,
-  recarregarChave = 0,
+  onLeadsAlterados,
 }: {
   empresaId: string
   onColetaIniciada?: () => void
-  // Publica as rotinas já carregadas para quem precisa delas na mesma tela (o
-  // Assistente de Oportunidades), em vez de repetir a mesma requisição.
+  // Cada decisão do assistente muda o status de um lead: a lista da página recarrega.
+  onLeadsAlterados?: () => void
+  // Publica as rotinas já carregadas para quem precisa delas na mesma tela (o histórico
+  // de coletas), em vez de repetir a mesma requisição.
   onDados?: (dados: RotinasResp) => void
-  // Muda de valor quando algo externo alterou as rotinas (ex.: aprovação de sugestão).
-  recarregarChave?: number
 }) {
   const [dados, setDados] = useState<RotinasResp | null>(null)
   const [rascunho, setRascunho] = useState<Rascunho | null>(null)
@@ -88,6 +89,9 @@ export default function RotinasAquisicao({
   const [erro, setErro] = useState('')
   const [avulsa, setAvulsa] = useState({ nicho: '', cidade: '', uf: '', quantidade: QUANTIDADE_MAX })
   const [buscandoAvulsa, setBuscandoAvulsa] = useState(false)
+  // Sessão do Assistente de Oportunidades. Só abre no clique — a análise NUNCA começa
+  // sozinha depois de uma busca.
+  const [assistenteAberto, setAssistenteAberto] = useState(false)
   const fb = useFeedback()
 
   const base = `/api/empresas/${empresaId}/prospeccao/rotinas`
@@ -108,7 +112,7 @@ export default function RotinasAquisicao({
     }
   }, [empresaId, base])
 
-  useEffect(() => { carregar() }, [carregar, recarregarChave])
+  useEffect(() => { carregar() }, [carregar])
   // A coleta é assíncrona (leva minutos): o painel se atualiza sozinho.
   useEffect(() => {
     const t = setInterval(carregar, 20000)
@@ -328,19 +332,41 @@ export default function RotinasAquisicao({
               onChange={(e) => setAvulsa({ ...avulsa, uf: e.target.value.toUpperCase() })}
               className="w-full rounded-lg border px-3 py-2 text-sm uppercase" />
           </Campo>
-          <Campo label={`Máx. de leads a importar (1 a ${limites.quantidade_max})`}>
+          <Campo label={`Máx. de leads novos (1 a ${limites.quantidade_max})`}>
             <input type="number" min={limites.quantidade_min} max={limites.quantidade_max} value={avulsa.quantidade}
-              title="Limite de leads que entram no Banco de Leads nesta busca. A origem pode encontrar mais registros do que isso."
+              title="Vale para os dois botões: quantos leads esta busca importa e, no assistente, quantos você quer aprovar. A origem pode encontrar mais registros do que isso."
               onChange={(e) => setAvulsa({ ...avulsa, quantidade: Number(e.target.value) || limites.quantidade_max })}
               className="w-full rounded-lg border px-3 py-2 text-sm" />
           </Campo>
         </div>
-        <button onClick={buscarAgora} disabled={buscandoAvulsa || dados?.coleta_em_andamento}
-          title={dados?.coleta_em_andamento ? 'Aguarde a coleta em andamento terminar.' : undefined}
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-          {buscandoAvulsa ? <Spinner /> : <IconPlay />}{buscandoAvulsa ? 'Iniciando…' : 'Buscar agora'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={buscarAgora} disabled={buscandoAvulsa || dados?.coleta_em_andamento}
+            title={dados?.coleta_em_andamento ? 'Aguarde a coleta em andamento terminar.' : undefined}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+            {buscandoAvulsa ? <Spinner /> : <IconPlay />}{buscandoAvulsa ? 'Iniciando…' : 'Buscar agora'}
+          </button>
+          {/* Gatilho MANUAL da análise: buscar não analisa, analisar não busca. */}
+          <button onClick={() => setAssistenteAberto(true)} disabled={assistenteAberto}
+            title="Revisa os leads que ainda não foram decididos, um por vez, com uma explicação curta."
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:from-orange-600 hover:to-amber-600 disabled:opacity-50">
+            <IconSparkle /> Analisar oportunidades
+          </button>
+        </div>
+        <p className="text-xs text-slate-500">
+          <b>Buscar agora</b> traz leads novos para a sua carteira. <b>Analisar oportunidades</b> abre o
+          assistente, que mostra um lead por vez e explica por que vale (ou não) abordar.
+        </p>
       </div>
+
+      {assistenteAberto && (
+        <AssistenteOportunidades
+          empresaId={empresaId}
+          mercado={{ nicho: avulsa.nicho, cidade: avulsa.cidade, uf: avulsa.uf }}
+          meta={avulsa.quantidade}
+          onFechar={() => setAssistenteAberto(false)}
+          onLeadsAlterados={onLeadsAlterados}
+        />
+      )}
     </div>
   )
 }
