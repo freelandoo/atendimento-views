@@ -6,6 +6,47 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-05 - Inicio de tarefa IA - Modal guiado de entrada do Assistente de Oportunidades
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** O botao premium "Analisar oportunidades" deixa de abrir a sessao de analise
+  direto. Ele passa a abrir um **modal curto e guiado** ("O que voce quer fazer agora?") com duas
+  opcoes: (1) **Revisar oportunidades encontradas** — vai direto ao fluxo atual de aprovar/descartar;
+  (2) **Encontrar novas oportunidades** — busca guiada perguntando o que mudar (nicho, localidade ou
+  ambos). Sem configuracao manual de criterios, preservando o contexto da busca atual.
+- **E projeto/tarefa de alteracao?** Sim — front-end (novo componente + fluxo) e um endpoint
+  read-only novo no back-end. **Sem migration, sem env nova, sem mudanca de schema.**
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/ui-visual-standard.md: Sim (modal — Fase 5) | docs/ai-decision-log.md: a registrar na Fase 8.
+- **Areas mapeadas (leitura antes de editar):** `frontend/components/RotinasAquisicao.tsx`
+  (Busca avulsa + gatilho), `frontend/components/AssistenteOportunidades.tsx` (sessao),
+  `frontend/lib/ligacao-estado.js` (padrao de logica PURA testavel em `lib/*.test.js`),
+  `src/services/aquisicao-curadoria.js` (`obterEstadoAtual`, `montarEstado`, `montarFila`),
+  `src/db/aquisicao-curadoria.js` (sessao unica por operador, claim, idempotencia),
+  `src/routes/api-aquisicao-curadoria.js`, `src/routes/api-prospeccao.js` (POST `/buscar`),
+  migration `055_aquisicao_curadoria.sql`.
+- **Fatos confirmados no codigo (nao sao hipotese):**
+  1. `GET /curadoria` chama `montarEstado`, que **remonta a fila e chama a IA** quando a sessao
+     ativa esta com `fila_json` vazio. Usar esse GET so para desenhar o modal de entrada custaria
+     uma chamada de IA por abertura — por isso nasce um `GET /curadoria/resumo` read-only.
+  2. `iniciarSessao` devolve a sessao ATIVA existente e **ignora** o mercado pedido
+     (`reaproveitada: true`). Hoje isso e' silencioso; o modal passa a mostrar a sessao em
+     andamento explicitamente.
+  3. Uma coleta paga por empresa por vez e' garantida no BANCO
+     (`busca_snapshots_uma_ativa_por_empresa_uk`) + idempotencia por minuto; o modal so precisa
+     refletir esse estado, nao reimplementa-lo.
+- **Decisao de arquitetura tomada (Fase 6):** a **busca guiada NAO cria e NAO muta sessao**. Ela
+  so dispara a coleta pelo mesmo `POST /prospeccao/buscar` ja existente; a sessao continua nascendo
+  no `POST /curadoria/sessao`, no comando "Revisar". Retargetar uma sessao ativa corromperia
+  meta/fila em andamento, e criar uma segunda sessao e' impedido pelo indice unico parcial.
+- **Areas possivelmente impactadas:** Front-end (novo modal + novo modulo puro em `lib/`),
+  Back-end (1 rota GET read-only), Banco: **Nao**, Custos: **reduz** (o modal nao paga IA),
+  Permissoes: mantidas (admin-only + `requireEmpresaAccess`), Integracoes: nenhuma nova.
+- **Proxima etapa:** Fases 3-9 — implementar o diff minimo e validar com `npm test` (back e front)
+  e `npm run typecheck`.
+
+---
+
 ## 2026-08-04 - Inicio de tarefa IA - Evolucao da Busca avulsa com Assistente de Oportunidades POR LEAD
 
 - **IA/Ferramenta:** Claude Code (Opus 5)

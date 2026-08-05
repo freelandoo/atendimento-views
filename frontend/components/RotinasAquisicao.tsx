@@ -4,6 +4,8 @@ import { apiFetch } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { IconTrash, IconPlay, IconSparkle } from '@/components/ui/icons'
 import AssistenteOportunidades from '@/components/AssistenteOportunidades'
+import AssistenteEntrada from '@/components/AssistenteEntrada'
+import type { Mercado } from '@/lib/assistente-entrada'
 import RotinaCampos, {
   Campo,
   QUANTIDADE_MAX,
@@ -89,8 +91,10 @@ export default function RotinasAquisicao({
   const [erro, setErro] = useState('')
   const [avulsa, setAvulsa] = useState({ nicho: '', cidade: '', uf: '', quantidade: QUANTIDADE_MAX })
   const [buscandoAvulsa, setBuscandoAvulsa] = useState(false)
-  // Sessão do Assistente de Oportunidades. Só abre no clique — a análise NUNCA começa
-  // sozinha depois de uma busca.
+  // Assistente de Oportunidades. Só abre no clique — a análise NUNCA começa sozinha
+  // depois de uma busca. O clique cai primeiro no menu guiado (`entrada`), que decide
+  // entre revisar o que já existe ou procurar mais; só "revisar" abre a sessão.
+  const [entradaAberta, setEntradaAberta] = useState(false)
   const [assistenteAberto, setAssistenteAberto] = useState(false)
   const fb = useFeedback()
 
@@ -181,26 +185,42 @@ export default function RotinasAquisicao({
     } finally { setAgindo(null) }
   }
 
+  // Disparo único da coleta. É o MESMO caminho para o botão "Buscar agora" e para a busca
+  // guiada do assistente — nenhum motor de busca é duplicado. Propaga o erro para quem
+  // chamou decidir como mostrá-lo.
+  const dispararBusca = useCallback(async (destino: Mercado) => {
+    await apiFetch(`/api/empresas/${empresaId}/prospeccao/buscar`, {
+      method: 'POST',
+      body: JSON.stringify({
+        nicho: destino.nicho.trim(),
+        cidade: destino.cidade.trim(),
+        uf: destino.uf.trim().toUpperCase() || null,
+        quantidade: avulsa.quantidade,
+      }),
+    })
+    carregar()
+    onColetaIniciada?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empresaId, avulsa.quantidade, carregar])
+
   async function buscarAgora() {
     if (!avulsa.nicho.trim() || !avulsa.cidade.trim()) { setErro('Informe nicho e cidade para a busca avulsa.'); return }
     setErro('')
     setBuscandoAvulsa(true)
     try {
-      await apiFetch(`/api/empresas/${empresaId}/prospeccao/buscar`, {
-        method: 'POST',
-        body: JSON.stringify({
-          nicho: avulsa.nicho.trim(),
-          cidade: avulsa.cidade.trim(),
-          uf: avulsa.uf.trim().toUpperCase() || null,
-          quantidade: avulsa.quantidade,
-        }),
-      })
+      await dispararBusca(avulsa)
       fb.toast('Busca iniciada. Os leads aparecem em alguns minutos — a lista atualiza sozinha.', 'info')
-      carregar()
-      onColetaIniciada?.()
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao iniciar a busca.')
     } finally { setBuscandoAvulsa(false) }
+  }
+
+  // Busca disparada de dentro do assistente: o contexto da Busca avulsa passa a ser o
+  // mercado escolhido, para a tela continuar coerente com o que foi pedido.
+  async function buscarPeloAssistente(destino: Mercado) {
+    await dispararBusca(destino)
+    setAvulsa((a) => ({ ...a, nicho: destino.nicho, cidade: destino.cidade, uf: destino.uf }))
+    fb.toast('Busca iniciada. Os leads aparecem em alguns minutos — a lista atualiza sozinha.', 'info')
   }
 
   return (
@@ -346,7 +366,7 @@ export default function RotinasAquisicao({
             {buscandoAvulsa ? <Spinner /> : <IconPlay />}{buscandoAvulsa ? 'Iniciando…' : 'Buscar agora'}
           </button>
           {/* Gatilho MANUAL da análise: buscar não analisa, analisar não busca. */}
-          <button onClick={() => setAssistenteAberto(true)} disabled={assistenteAberto}
+          <button onClick={() => setEntradaAberta(true)} disabled={entradaAberta || assistenteAberto}
             title="Revisa os leads que ainda não foram decididos, um por vez, com uma explicação curta."
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:from-orange-600 hover:to-amber-600 disabled:opacity-50">
             <IconSparkle /> Analisar oportunidades
@@ -354,9 +374,22 @@ export default function RotinasAquisicao({
         </div>
         <p className="text-xs text-slate-500">
           <b>Buscar agora</b> traz leads novos para a sua carteira. <b>Analisar oportunidades</b> abre o
-          assistente, que mostra um lead por vez e explica por que vale (ou não) abordar.
+          assistente: ele pergunta se você quer revisar o que já foi encontrado — um lead por vez, com o
+          motivo — ou procurar em outro nicho ou cidade.
         </p>
       </div>
+
+      {entradaAberta && (
+        <AssistenteEntrada
+          empresaId={empresaId}
+          mercado={{ nicho: avulsa.nicho, cidade: avulsa.cidade, uf: avulsa.uf }}
+          meta={avulsa.quantidade}
+          coletaEmAndamento={!!dados?.coleta_em_andamento}
+          onRevisar={() => { setEntradaAberta(false); setAssistenteAberto(true) }}
+          onBuscar={buscarPeloAssistente}
+          onFechar={() => setEntradaAberta(false)}
+        />
+      )}
 
       {assistenteAberto && (
         <AssistenteOportunidades

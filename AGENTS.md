@@ -156,9 +156,23 @@
 - Nenhuma variável de ambiente nova foi criada para este módulo.
 
 ### Assistente de Oportunidades (curadoria POR LEAD, na Busca avulsa)
-- Sessão de análise aberta **só no clique** do botão premium "Analisar oportunidades", ao lado de
-  "Buscar agora". **Buscar não analisa e analisar não busca**: este módulo não importa
-  `pesquisarPlaces` nem qualquer função de coleta — nenhuma chamada paga à Bright Data.
+- O botão premium "Analisar oportunidades" abre um **menu guiado** ("O que você quer fazer
+  agora?", `frontend/components/AssistenteEntrada.tsx`) com dois caminhos: **Revisar oportunidades
+  encontradas** (abre a sessão de análise de sempre) e **Encontrar novas oportunidades** (busca
+  guiada: alterar nicho, localidade ou ambos). O menu lê `GET .../curadoria/resumo` — endpoint
+  read-only que **não monta fila e não chama IA** (o `GET /curadoria` chama, quando `fila_json`
+  está vazio; abrir um modal não pode custar chamada paga).
+- **A busca guiada não cria, não encerra e não retargeta sessão.** Ela só dispara a coleta pelo
+  mesmo `POST /prospeccao/buscar` da Busca avulsa (função única `dispararBusca` em
+  `RotinasAquisicao.tsx`); a sessão continua nascendo em `POST .../curadoria/sessao`, no comando
+  "Revisar". Retargetar misturaria dois mercados na mesma meta/fila, e uma segunda sessão é
+  impedida pelo índice único. Havendo sessão ativa, o menu rotula "Retomar a revisão em andamento"
+  com o mercado e o progresso REAIS dela — `iniciarSessao` sempre devolveu a sessão existente
+  ignorando o mercado pedido, e a tela deixou de esconder isso. Lógica pura de passos/campos em
+  `frontend/lib/assistente-entrada.js` (+ teste `lib/assistente-entrada.test.js`).
+- Sessão de análise aberta **só no clique**, ao lado de "Buscar agora". **Buscar não analisa e
+  analisar não busca**: este módulo não importa `pesquisarPlaces` nem qualquer função de coleta —
+  nenhuma chamada paga à Bright Data parte da análise.
 - Mostra **uma oportunidade por vez** com uma justificativa curta. **Aprovar** move o lead de
   `aguardando` para `aprovado` (carteira de trabalho); **Descartar** move para `rejeitado`. O
   pipeline de coleta é o de sempre — a Busca avulsa continua importando o que coleta.

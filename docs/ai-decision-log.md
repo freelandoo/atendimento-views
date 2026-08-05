@@ -11,6 +11,45 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-05 — Modal guiado de entrada do Assistente de Oportunidades (sem migration)
+
+- **A busca guiada NÃO cria e NÃO muta sessão (decisão central):** o pedido deixava em aberto se
+  "Encontrar novas oportunidades" deveria abrir uma sessão isolada ou retargetar a atual. As três
+  saídas foram avaliadas:
+  (a) *retargetar a sessão ativa* — descartada: trocaria `nicho/cidade` de uma sessão com meta
+  parcialmente cumprida e fila já paga em `fila_json`, misturando dois mercados no mesmo contador
+  e no mesmo aprendizado;
+  (b) *abrir uma segunda sessão* — impossível por construção: o índice único parcial
+  `curadoria_sessoes_uma_ativa_uk` garante uma sessão ativa por operador (e é bom que garanta);
+  (c) **escolhida** — a busca guiada só dispara a COLETA (mesmo `POST /prospeccao/buscar` da
+  Busca avulsa) e não toca em sessão nenhuma. A sessão continua nascendo no
+  `POST /curadoria/sessao`, no comando "Revisar". Consequência: decisões anteriores nunca se
+  perdem, a meta nunca é consumida por uma busca, e nada é importado duas vezes (a dedup por
+  `place_id` do pipeline de coleta segue sendo a única regra de importação).
+- **`GET /curadoria/resumo` nasceu para o menu não custar dinheiro:** `GET /curadoria` chama
+  `montarEstado`, que **remonta a fila e chama a IA** quando `fila_json` está vazio. Usar esse
+  endpoint só para desenhar o menu pagaria uma explicação por abertura de modal. O `/resumo` é
+  read-only e responde apenas "existe sessão? de qual mercado? em que ponto?" — sem montar fila,
+  sem varrer candidatos, sem IA. Coberto por teste que falha se alguém religar a IA nesse caminho.
+- **O menu diz a verdade sobre a sessão em andamento:** `iniciarSessao` já devolvia a sessão ativa
+  existente **ignorando** o mercado pedido (`reaproveitada: true`) — comportamento correto, mas até
+  aqui silencioso. O menu passa a rotular a opção como "Retomar a revisão em andamento" com o
+  mercado e o progresso REAIS da sessão, não o que está digitado na busca. Alternativa descartada:
+  encerrar a sessão automaticamente para adotar o novo mercado (destrói progresso sem pedir).
+- **Lógica do fluxo em módulo PURO (`frontend/lib/assistente-entrada.js`):** passos, campos por
+  tipo de ajuste, validação e rótulos ficam fora do React, no mesmo padrão de
+  `ligacao-estado.js` — é o único jeito de testá-los com `node --test`, que é o runner do
+  frontend (não há runner de componente React neste repositório).
+- **Contexto preservado por regra, não por sorte:** `mercadoResultante` copia o contexto atual e
+  só sobrescreve os campos que a pessoa escolheu mudar; `camposVisiveis` acrescenta o que estiver
+  vazio no contexto, para "mudar só o nicho" nunca virar um beco sem saída na validação.
+- **Nenhuma migration, nenhuma env nova, nenhum motor de busca duplicado:** `dispararBusca` é a
+  única função que fala com `POST /prospeccao/buscar`, usada pelo botão "Buscar agora" e pela
+  busca guiada. A trava de uma coleta paga por empresa continua no banco; o modal só a espelha
+  para o clique não virar 409.
+
+---
+
 ## 2026-08-04 — Assistente de Oportunidades POR LEAD na Busca avulsa (migration 055)
 
 - **Curadoria sobre o já importado, não área de espera (decisão do Victor):** o pedido descrevia

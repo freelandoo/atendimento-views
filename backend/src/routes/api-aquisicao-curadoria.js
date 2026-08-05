@@ -11,6 +11,7 @@ const { Router } = require('express')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const {
+  resumoSessao,
   obterEstadoAtual,
   iniciarSessao,
   decidirOportunidade,
@@ -41,6 +42,18 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
     return res.json({ ok: true, data })
   } catch (err) {
     return falhar(res, err, 'CURADORIA_ESTADO_FAILED')
+  }
+})
+
+// GET /api/empresas/:empresaId/prospeccao/curadoria/resumo
+// Retrato barato para o modal de entrada: existe sessão em andamento e em que ponto ela
+// está. NÃO monta fila e NÃO chama a IA — abrir o menu não pode custar chamada paga.
+router.get('/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const data = await resumoSessao(pool, contexto(req))
+    return res.json({ ok: true, data })
+  } catch (err) {
+    return falhar(res, err, 'CURADORIA_RESUMO_FAILED')
   }
 })
 

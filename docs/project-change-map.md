@@ -57,6 +57,24 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
 
 -->
 
+## 2026-08-05 — Aquisição + Front — Menu guiado de entrada do Assistente de Oportunidades
+- Área(s) tocada(s): Front (`components/AssistenteEntrada.tsx` novo,
+  `lib/assistente-entrada.js`/`.d.ts`/`.test.js` novos, `components/RotinasAquisicao.tsx`),
+  SaaS/rotas (`api-aquisicao-curadoria.js`: `GET /resumo`), Prospecção
+  (`services/aquisicao-curadoria.js`: `resumoSessao`). **Banco: nada** — sem migration.
+- Regras preservadas: pipeline de coleta intocado; `AssistenteOportunidades.tsx` e todo o motor
+  de sessão/claim/aprendizado **inalterados**; a Busca avulsa e o botão "Buscar agora" continuam
+  sendo um fluxo independente; rota admin-only + `requireEmpresaAccess`; a trava de uma coleta
+  paga por empresa continua no banco (o modal só a espelha); nenhuma env nova.
+- O que mudou: o botão premium deixou de cair direto na sessão — abre um menu curto de dois
+  caminhos. "Revisar" leva ao fluxo de aprovar/descartar de sempre; "Encontrar novas
+  oportunidades" pergunta o que mudar (nicho / localidade / ambos), preserva o resto do contexto e
+  dispara a MESMA busca da Busca avulsa, sem criar nem alterar sessão. Havendo sessão ativa, o
+  menu mostra o mercado e o progresso reais dela em vez de sugerir que o mercado digitado vale.
+  Novo `GET .../curadoria/resumo` para o menu não pagar uma chamada de IA por abertura.
+- Documentos atualizados: `AGENTS.md`, `docs/ai-decision-log.md`, `docs/ai-task-start-log.md`,
+  este mapa.
+
 ## 2026-08-04 — Aquisição + Banco + Front — Assistente de Oportunidades por LEAD na Busca avulsa
 - Área(s) tocada(s): Banco (migration ADITIVA `055` → `prospectador.curadoria_sessoes` +
   `curadoria_decisoes`), SaaS/rotas (`api-aquisicao-curadoria.js`, montada admin-only ANTES de

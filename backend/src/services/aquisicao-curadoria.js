@@ -235,9 +235,16 @@ async function montarEstado(pool, { empresaId, sessao, deps = {} }) {
   }
 
   if (!fila.length) {
+    // Sessão que ainda não decidiu nada e não achou ninguém não é fila esgotada: é
+    // mercado que ainda não chegou na carteira (a coleta leva minutos). Dizer "você já
+    // decidiu todos" nesse caso seria mentira — e logo depois de uma busca guiada, é
+    // justamente o estado mais provável.
+    const nadaDecidido = Number(sessao.aprovados) === 0 && Number(sessao.descartados) === 0
     const mensagem = sessao.escopo_ampliado
       ? 'Acabaram os leads sem decisão na sua carteira. Faça uma nova busca para trazer leads novos.'
-      : `Você já decidiu todos os leads de ${mercadoDaSessao(sessao)}. Dá para ampliar e olhar o resto da carteira, ou buscar mais leads deste mercado.`
+      : nadaDecidido
+        ? `Ainda não há leads de ${mercadoDaSessao(sessao)} esperando decisão. Se você acabou de buscar, eles chegam em alguns minutos — ou dá para ampliar e olhar o resto da carteira agora.`
+        : `Você já decidiu todos os leads de ${mercadoDaSessao(sessao)}. Dá para ampliar e olhar o resto da carteira, ou buscar mais leads deste mercado.`
     return {
       sessao: apresentarSessao(sessao),
       oportunidade: null,
@@ -259,6 +266,28 @@ async function montarEstado(pool, { empresaId, sessao, deps = {} }) {
     estado: ESTADOS.ANALISANDO,
     restantes,
     mensagem: null,
+  }
+}
+
+/**
+ * Retrato BARATO da sessão do operador, para desenhar o modal de entrada do assistente.
+ *
+ * Diferente de `obterEstadoAtual`, este caminho NÃO monta fila e portanto NÃO chama a IA
+ * nem varre candidatos: abrir o menu do botão premium não pode custar uma chamada paga.
+ * Só responde "existe sessão em andamento? de qual mercado? em que ponto ela está?".
+ */
+async function resumoSessao(pool, { empresaId, usuarioId = null } = {}) {
+  if (!empresaId) throw erro('Empresa não informada.', 400)
+  const [sessao, historico] = await Promise.all([
+    curadoriaDb.obterSessaoAtiva(pool, empresaId, usuarioId),
+    curadoriaDb.historicoSessoes(pool, empresaId),
+  ])
+  return {
+    sessao: apresentarSessao(sessao),
+    // Quantos leads da fila já explicada continuam esperando decisão. É estimativa de
+    // tela (a fila é reabastecida quando esvazia), nunca base para contar meta.
+    fila_pendente: Array.isArray(sessao?.fila_json) ? sessao.fila_json.length : 0,
+    historico,
   }
 }
 
@@ -382,6 +411,7 @@ module.exports = {
   apresentarSessao,
   montarFila,
   montarEstado,
+  resumoSessao,
   obterEstadoAtual,
   iniciarSessao,
   decidirOportunidade,

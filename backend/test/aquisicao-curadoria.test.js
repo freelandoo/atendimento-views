@@ -15,6 +15,7 @@ const assert = require('node:assert/strict')
 const placesBrightData = require('../src/services/places-brightdata')
 const prospecting = require('../src/prospecting')
 const {
+  resumoSessao,
   iniciarSessao,
   decidirOportunidade,
   ampliarSessao,
@@ -393,6 +394,29 @@ test('sem candidatos, o assistente sugere ampliar em vez de encerrar no vazio', 
   assert.equal(ampliada.sessao.escopo_ampliado, true)
 })
 
+// Estado provável logo depois de uma busca guiada: o mercado é novo e a coleta (que leva
+// minutos) ainda não chegou. Dizer "você já decidiu todos" aí seria mentira.
+test('mercado ainda sem leads não é anunciado como fila já decidida', async () => {
+  const pool = montarPool({ prospects: [prospect({ nicho: 'Padaria', cidade: 'Sorocaba - SP' })] })
+  const r = await iniciarSessao(pool, { ...ctx(), nicho: 'Dentista', cidade: 'Campinas', meta: 3, deps: { aiProvider: aiFake() } })
+
+  assert.equal(r.estado, ESTADOS.SEM_CANDIDATOS)
+  assert.ok(/Ainda não há leads/i.test(r.mensagem), r.mensagem)
+  assert.ok(/alguns minutos/i.test(r.mensagem), 'a coleta é assíncrona e a tela precisa dizer isso')
+  assert.ok(!/já decidiu/i.test(r.mensagem))
+  assert.equal(r.ampliar_disponivel, true)
+})
+
+test('fila realmente esgotada continua dizendo que já foi tudo decidido', async () => {
+  const pool = montarPool({ prospects: [prospect()] })
+  const deps = { aiProvider: aiFake() }
+  await iniciarSessao(pool, { ...ctx(), nicho: 'Dentista', cidade: 'Campinas', meta: 5, deps })
+  const r = await decidirOportunidade(pool, { ...ctx(), prospectId: 'p1', decisao: 'descartado', deps })
+
+  assert.equal(r.estado, ESTADOS.SEM_CANDIDATOS)
+  assert.ok(/já decidiu todos/i.test(r.mensagem), r.mensagem)
+})
+
 test('sessão ampliada e esgotada orienta a buscar mais leads, sem oferecer ampliar de novo', async () => {
   const pool = montarPool({ prospects: [] })
   const deps = { aiProvider: aiFake() }
@@ -477,6 +501,69 @@ test('duas sessões de operadores diferentes não disputam o mesmo lead', async 
   assert.equal(a.decisao.contou_meta, true)
   assert.equal(b.decisao.contou_meta, false, 'o segundo não pode contar o mesmo lead')
   assert.equal(b.decisao.ja_decidido, true)
+})
+
+// ── Resumo (menu guiado do botão premium) ───────────────────────────────────────
+// O menu de entrada precisa saber onde o operador parou. Ele NÃO pode pagar por isso:
+// montar fila chama a IA, e abrir um menu não é motivo para gastar.
+
+test('resumo sem sessão devolve vazio, sem chamar a IA e sem tocar na coleta paga', async () => {
+  const espiao = vigiarColetaPaga()
+  try {
+    const pool = montarPool({ prospects: [prospect()] })
+    const r = await resumoSessao(pool, ctx())
+    assert.equal(r.sessao, null)
+    assert.equal(r.fila_pendente, 0)
+    assert.deepEqual(r.historico, [])
+  } finally {
+    assert.deepEqual(espiao.chamadas, [], 'nenhuma coleta paga pode ser iniciada')
+    espiao.restaurar()
+  }
+})
+
+test('resumo mostra a sessão em andamento com mercado e progresso reais', async () => {
+  const pool = montarPool({ prospects: [prospect(), prospect({ id: 'p2', nome: 'Clínica B' })] })
+  await iniciarSessao(pool, { ...ctx(), nicho: 'Dentista', cidade: 'Campinas', uf: 'SP', meta: 3, deps: { aiProvider: aiFake() } })
+  await decidirOportunidade(pool, { ...ctx(), prospectId: 'p1', decisao: 'aprovado', deps: { aiProvider: aiFake() } })
+
+  const r = await resumoSessao(pool, ctx())
+  assert.equal(r.sessao.nicho, 'Dentista')
+  assert.equal(r.sessao.cidade, 'Campinas')
+  assert.equal(r.sessao.uf, 'SP')
+  assert.equal(r.sessao.meta, 3)
+  assert.equal(r.sessao.aprovados, 1)
+  assert.equal(r.sessao.status, 'ativa')
+})
+
+test('resumo NÃO monta fila e NÃO chama a IA — abrir o menu não custa chamada paga', async () => {
+  const pool = montarPool({ prospects: [prospect(), prospect({ id: 'p2', nome: 'Clínica B' })] })
+  await iniciarSessao(pool, { ...ctx(), nicho: 'Dentista', cidade: 'Campinas', meta: 5, deps: { aiProvider: aiFake() } })
+  // Esvazia a fila persistida: é exatamente o estado em que `obterEstadoAtual` pagaria
+  // uma nova explicação. O resumo não pode fazer o mesmo.
+  pool.dados.sessoes[0].fila_json = []
+
+  const ai = aiFake()
+  const r = await resumoSessao(pool, { ...ctx(), deps: { aiProvider: ai } })
+  assert.equal(ai.chamadas.length, 0, 'o resumo não pode chamar a IA')
+  assert.equal(r.fila_pendente, 0)
+  assert.equal(r.sessao.status, 'ativa')
+})
+
+test('resumo não enxerga a sessão de outro operador nem de outra empresa', async () => {
+  const pool = montarPool({ prospects: [prospect()] })
+  await iniciarSessao(pool, { ...ctx(), nicho: 'Dentista', cidade: 'Campinas', meta: 2, deps: { aiProvider: aiFake() } })
+
+  const outroOperador = await resumoSessao(pool, ctx({ usuarioId: '44444444-4444-4444-8444-444444444444' }))
+  assert.equal(outroOperador.sessao, null, 'a sessão é pessoal')
+
+  const outraEmpresa = await resumoSessao(pool, { empresaId: OUTRA_EMPRESA, usuarioId: USUARIO })
+  assert.equal(outraEmpresa.sessao, null, 'nada atravessa a fronteira de empresa')
+  assert.deepEqual(outraEmpresa.historico, [])
+})
+
+test('resumo exige empresa', async () => {
+  const pool = montarPool()
+  await assert.rejects(() => resumoSessao(pool, { empresaId: null }), /Empresa não informada/)
 })
 
 test('justificativa inválida da IA não derruba o item — só mantém o motivo das regras', () => {
