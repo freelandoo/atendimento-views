@@ -821,3 +821,16 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Areas possivelmente impactadas:** frontend/app/dashboard/prospeccao/page.tsx, frontend/components/RotinasAquisicao.tsx, frontend/components/AssistenteOportunidades.tsx e dois componentes novos de apresentacao (abas acessiveis + tabela de historico de coletas movida).
 - **Fora de escopo declarado:** backend, banco, Banco de Leads, regras de sugestao/aprovacao do assistente, comportamento de Busca avulsa e das Rotinas, requisicoes de coleta.
 - **Proxima etapa:** Aplicar o diff minimo de apresentacao, rodar `npm run typecheck` e `npm run build` no frontend e validar desktop/mobile com as tres abas com e sem dados.
+
+---
+
+## 2026-08-05 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** Adicionar uma acao "Copiar contexto para IA" ao lado do selo de status da versao PUBLICADA do roteiro: monta um JSON legivel da versao exibida e copia para a area de transferencia, para o usuario colar manualmente numa IA externa e pedir sugestoes de melhoria.
+- **E projeto/tarefa de alteracao?** Sim, de escopo PEQUENO e seguro (frontend/apresentacao + logica pura). Sem schema, sem migration, sem rota, sem chamada externa, sem escrita no banco, sem alteracao em publicacao/versionamento.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/ui-visual-standard.md: Sim.
+- **Ambiguidade resolvida com o usuario:** o pedido citava "Central de Ligacao", mas o selo "Publicada" da versao do roteiro so existe em frontend/app/dashboard/roteiros/page.tsx (a Central de Ligacoes nao tem seletor de versao nem selo). Usuario confirmou: acao fica na pagina Roteiros.
+- **Areas possivelmente impactadas:** frontend/app/dashboard/roteiros/page.tsx (cabecalho da versao), frontend/components/ui/icons.tsx (icone novo copiar+brilho) e frontend/lib/roteiro-contexto-ia.js (+ .d.ts e .test.js, modulo PURO novo).
+- **Fora de escopo declarado:** backend, banco, API, campanhas, fila de ligacoes, leads, automacoes, integracao com qualquer provedor de IA e importacao de resposta de IA.
+- **Proxima etapa:** Implementar o diff minimo, rodar `npm test` + `npm run typecheck` no frontend e `npm test` no backend (garantia de nao regressao), e validar copia/fallback/acessibilidade na tela.

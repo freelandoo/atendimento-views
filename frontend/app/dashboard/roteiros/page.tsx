@@ -2,10 +2,16 @@
 // Roteiros humanos versionados (módulo Prospecção & Inteligência Comercial).
 // Lista de roteiros + editor de etapas por versão. Regra: versão PUBLICADA é read-only
 // (imutável); para editar, cria-se uma NOVA versão. Consome /api/empresas/:id/roteiros.
+//
+// "Copiar contexto para IA" (ao lado do selo da versão publicada): monta um JSON da
+// versão EXIBIDA e copia para a área de transferência, para o operador colar numa IA
+// externa e pedir sugestões. É export MANUAL — não chama provedor de IA, não envia nada
+// para fora e não escreve no banco. Montagem do JSON em lib/roteiro-contexto-ia.js.
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
-import { IconPlus, IconTrash, IconSend, IconClose } from '@/components/ui/icons'
+import { IconPlus, IconTrash, IconSend, IconClose, IconCopySparkle } from '@/components/ui/icons'
+import { podeExportarContextoIA, serializarContextoIA } from '@/lib/roteiro-contexto-ia'
 
 const TIPOS: { v: EtapaTipo; label: string }[] = [
   { v: 'abertura', label: 'Abertura' }, { v: 'permissao', label: 'Permissão' },
@@ -40,6 +46,28 @@ const STATUS_STYLE: Record<StatusVersao, string> = {
   rascunho: 'bg-amber-100 text-amber-700', publicada: 'bg-emerald-100 text-emerald-700', arquivada: 'bg-slate-100 text-slate-500',
 }
 
+// Cópia direta (sem modal): Clipboard API quando o navegador permite (exige contexto
+// seguro/HTTPS) e, se ela falhar, o caminho legado execCommand. Se os dois falharem, a
+// tela mostra o JSON para cópia manual — o conteúdo nunca se perde.
+async function copiarTexto(texto: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(texto); return true }
+  } catch { /* segue para o fallback */ }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = texto
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.top = '-1000px'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch { return false }
+}
+
 function etapaVazia(ordem: number): Etapa {
   return { ordem, tipo: 'abertura', titulo: '', objetivo: '', frase_sugerida: '', perguntas: [], sinais_interesse: [], sinais_resistencia: [], objecoes: [] }
 }
@@ -61,6 +89,8 @@ export default function RoteirosPage() {
   const [versaoAtiva, setVersaoAtiva] = useState<VersaoDetalhe | null>(null)
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [novoAberto, setNovoAberto] = useState(false)
+  // JSON exibido para cópia MANUAL quando o navegador bloqueia a área de transferência.
+  const [contextoManual, setContextoManual] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -88,9 +118,40 @@ export default function RoteirosPage() {
     const r = await apiFetch<VersaoDetalhe>(`${base}/versoes/${versaoId}`)
     setVersaoAtiva(r.data)
     setEtapas(r.data.etapas.map(daApi))
+    setContextoManual(null)
   }, [base])
 
   const editavel = versaoAtiva?.status === 'rascunho'
+  const exportavel = podeExportarContextoIA(versaoAtiva)
+
+  // Export MANUAL do roteiro publicado: serializa o que está na tela e copia. Não há
+  // request, não há gravação — só leitura do estado local + área de transferência.
+  const copiarContextoIA = useCallback(async () => {
+    if (!sel || !versaoAtiva || !podeExportarContextoIA(versaoAtiva)) return
+    let json: string
+    try {
+      json = serializarContextoIA({
+        roteiro: { nome: sel.nome, descricao: sel.descricao, nicho: sel.nicho },
+        versao: { versao: versaoAtiva.versao, status: versaoAtiva.status, publicada_em: versaoAtiva.publicada_em },
+        etapas: etapas.map((e) => ({
+          tipo: e.tipo, titulo: e.titulo, objetivo: e.objetivo, frase_sugerida: e.frase_sugerida,
+          perguntas: e.perguntas, sinais_interesse: e.sinais_interesse,
+          sinais_resistencia: e.sinais_resistencia, objecoes: e.objecoes,
+        })),
+        tiposDeEtapaPermitidos: TIPOS.map((t) => t.v),
+      })
+    } catch (e) {
+      fb.toast(e instanceof Error ? e.message : 'Não foi possível montar o contexto.', 'error')
+      return
+    }
+    if (await copiarTexto(json)) {
+      setContextoManual(null)
+      fb.toast('Contexto copiado')
+    } else {
+      setContextoManual(json)
+      fb.toast('Não foi possível copiar automaticamente — o conteúdo ficou abaixo para copiar à mão.', 'error')
+    }
+  }, [sel, versaoAtiva, etapas, fb])
 
   const salvarEtapas = useCallback(async () => {
     if (!versaoAtiva) return
@@ -178,6 +239,19 @@ export default function RoteirosPage() {
                     {sel.versoes.map((v) => <option key={v.id} value={v.id}>v{v.versao} · {v.status}</option>)}
                   </select>
                   {versaoAtiva && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[versaoAtiva.status]}`}>{versaoAtiva.status}</span>}
+                  {/* Só aparece com versão PUBLICADA — é a única fonte de verdade do export. */}
+                  {exportavel && (
+                    <button
+                      type="button"
+                      onClick={copiarContextoIA}
+                      title="Copiar contexto para IA"
+                      aria-label="Copiar contexto para IA"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-orange-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-1"
+                    >
+                      <IconCopySparkle className="h-4 w-4" />
+                      <span className="hidden sm:inline">Copiar contexto para IA</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -196,6 +270,23 @@ export default function RoteirosPage() {
                   </>
                 )}
               </div>
+
+              {/* Cópia bloqueada pelo navegador: o conteúdo continua disponível aqui. */}
+              {contextoManual && (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 p-3" role="group" aria-label="Contexto para IA — cópia manual">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-xs text-amber-900">
+                      O navegador bloqueou a cópia automática (a área de transferência costuma exigir HTTPS).
+                      Selecione o conteúdo abaixo e copie com <b>Ctrl+C</b>.
+                    </p>
+                    <button type="button" onClick={() => setContextoManual(null)} aria-label="Fechar contexto para cópia manual"
+                      className="shrink-0 text-amber-700 hover:text-amber-900"><IconClose className="h-4 w-4" /></button>
+                  </div>
+                  <textarea readOnly rows={8} value={contextoManual} aria-label="Contexto do roteiro em JSON"
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="mt-2 w-full rounded-lg border border-amber-200 bg-white p-2 font-mono text-[11px] text-slate-700" />
+                </div>
+              )}
 
               {/* Etapas */}
               {etapas.length === 0 ? (

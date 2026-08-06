@@ -365,3 +365,33 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
   de rolagem horizontal do body e a preservacao de ordenacao/filtros/busca ao trocar de aba;
   o log de rede confirmou que nenhuma requisicao de coleta e disparada pela mudanca.
 - Documentos atualizados: `ai-task-start-log.md`, `ai-decision-log.md` e este mapa.
+
+## 2026-08-05 - Roteiros - "Copiar contexto para IA" (export manual da versao publicada)
+
+- Area(s) tocada(s): apenas frontend — `app/dashboard/roteiros/page.tsx` (cabecalho da versao),
+  `components/ui/icons.tsx` (icone novo `IconCopySparkle`) e o modulo PURO novo
+  `lib/roteiro-contexto-ia.js` (+ `.d.ts` + `.test.js`).
+- Regras preservadas: publicacao/versionamento intactos (nenhuma escrita, nenhum endpoint novo,
+  nenhuma migration); imutabilidade da versao publicada; a acao NAO integra com Claude/OpenAI nem
+  com qualquer provedor, NAO envia dado para servico externo e NAO importa resposta de IA — e um
+  copiar/colar manual feito pelo operador. Campanhas, fila de ligacoes, leads e automacoes nao
+  foram tocadas.
+- O que mudou: com uma versao PUBLICADA aberta, aparece ao lado do selo de status um botao
+  discreto (borda laranja + icone copiar com brilho de IA) que serializa a versao exibida em JSON
+  indentado e copia para a area de transferencia, com feedback "Contexto copiado". O JSON so usa
+  campos reais de `app.roteiros`/`roteiro_versoes`/`roteiro_etapas` (migration 033): nome,
+  versao, status/publicada_em, objetivo (= descricao do roteiro), publico-alvo (= nicho), etapas
+  na ORDEM EXIBIDA, falas/instrucoes e perguntas por etapa, sinais e objecoes por etapa,
+  restricoes e a instrucao de analise. Nao exporta `empresa_id`, `roteiro_id`, `versao_id` nem
+  dado de lead. Se o navegador bloquear a area de transferencia (contexto nao seguro), ha
+  fallback `execCommand` e, em ultimo caso, um painel inline com o JSON para copia manual — o
+  conteudo nunca se perde.
+- Ponto de atencao (divida declarada): `RESULTADOS_POSSIVEIS_LIGACAO` em
+  `lib/roteiro-contexto-ia.js` espelha `LIGACAO_RESULTADO` de `backend/src/domain-enums.js`
+  (mesma duplicacao ja existente em `app/dashboard/central-ligacoes/page.tsx`). Um teste trava a
+  lista no frontend, mas o anti-drift com o backend continua manual.
+- Validacao: `npm test` do frontend 55/55 (11 testes novos do modulo puro), `npm run typecheck`
+  do frontend e `npm test` do backend 1166/1166 passaram; a rota `/dashboard/roteiros` compilou
+  e respondeu 200 no dev server. `npm run build` do frontend NAO foi executado para nao corromper
+  o `.next` do `next dev` em uso.
+- Documentos atualizados: `ai-task-start-log.md` e este mapa.

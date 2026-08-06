@@ -68,6 +68,15 @@ export const IconPlus = (p: P) => (
 export const IconSparkle = (p: P) => (
   <Svg {...p}><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" /><path d="M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z" /></Svg>
 )
+// Copiar + brilho de IA. O traço do "copiar" herda a cor do botão; o brilho é laranja
+// (mesma família visual do gatilho de IA do produto — ver RotinasAquisicao).
+export const IconCopySparkle = (p: P) => (
+  <Svg {...p}>
+    <rect x="8" y="9" width="11" height="11" rx="2" />
+    <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+    <path className="text-orange-500" stroke="currentColor" d="M19 1.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" />
+  </Svg>
+)
 export const IconAlert = (p: P) => (
   <Svg {...p}><path d="M12 3l9 16H3l9-16z" /><path d="M12 10v4M12 17h.01" /></Svg>
 )
