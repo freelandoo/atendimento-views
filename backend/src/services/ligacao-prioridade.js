@@ -27,10 +27,11 @@ const PESOS = Object.freeze({
   nota_regular: 4,  // >= 3.5
   // Ja investe em presenca digital, mas sem site: dor evidente.
   rede_social_sem_site: 10,
-  // Esforco ja gasto no telefone.
+  // Esforco ja gasto no telefone. A fila PADRAO e' de lead ainda NAO INICIADO — por isso so
+  // "nenhuma tentativa" pontua. Ter uma tentativa anterior nao vale bonus nenhum: retentativa
+  // e' uma FILA propria (filtro "Com tentativa" na tela), nao um lead mais quente que os novos.
   sem_tentativa: 10,
-  uma_tentativa: 5,
-  duas_ou_mais_tentativas: 0,
+  com_tentativa: 0,
 })
 
 const CORTES = Object.freeze({
@@ -155,11 +156,14 @@ function calcularPrioridade(lead = {}) {
     motivos.push('Ativo em rede social, sem site')
   }
 
-  // 5) Esforco telefonico ja gasto.
+  // 5) Esforco telefonico ja gasto. O motivo continua sendo exibido quando ha tentativa (o
+  // operador precisa ver que o lead ja foi tocado), mas ele nao SOMA — so o inedito pontua.
   const tentativas = Math.max(0, Number.parseInt(lead.tentativas, 10) || 0)
   if (tentativas === 0) { score += PESOS.sem_tentativa; motivos.push('Nenhuma tentativa ainda') }
-  else if (tentativas === 1) { score += PESOS.uma_tentativa; motivos.push('1 tentativa anterior') }
-  else { score += PESOS.duas_ou_mais_tentativas; motivos.push(`${tentativas} tentativas anteriores`) }
+  else {
+    score += PESOS.com_tentativa
+    motivos.push(tentativas === 1 ? '1 tentativa anterior' : `${tentativas} tentativas anteriores`)
+  }
 
   const final = Math.max(0, Math.min(SCORE_MAX, Math.round(score)))
   const faixa = faixaDoScore(final)

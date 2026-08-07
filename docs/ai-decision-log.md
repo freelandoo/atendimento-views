@@ -11,6 +11,53 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-07 — Correções de UX/operação da Central de Ligações (sem migration)
+
+Ajustes sobre a entrega do mesmo dia (logo abaixo), após revisão de UX/operação.
+
+- **Tentativa anterior deixa de valer ponto (mudança de regra):** `PESOS.uma_tentativa` (5) e
+  `PESOS.duas_ou_mais_tentativas` (0) viraram um único `PESOS.com_tentativa = 0`. O desenho
+  anterior colocava um lead já tocado na frente de um lead inédito de mesmo perfil, o que é o
+  oposto do que a operação quer da PRIMEIRA fila. **Retentativa passou a ser uma FILA, não um
+  bônus:** o filtro "Tentativas de contato" (`Não iniciados | Com tentativa | Todos`) nasce em
+  "Não iniciados" e a retentativa é alcançada trocando o filtro. O motivo continua sendo exibido
+  no tooltip (o operador precisa saber que o lead já foi tocado) — só não soma.
+- **Tooltip da prioridade em PORTAL, não em `position:absolute`:** a versão anterior renderizava
+  a bolha dentro do `<td>`, e o wrapper da tabela é `overflow-hidden` — a explicação da 1ª linha
+  era cortada pela borda do container (o comentário no código afirmava o contrário). Agora
+  `createPortal` para o `<body>` com `position:fixed` calculado do `getBoundingClientRect()` do
+  círculo; fecha em `scroll` (capture) e `resize`, porque a âncora se moveria. Ganho colateral:
+  a bolha não pode mais influenciar a altura da linha. Somente leitura (`pointer-events-none`).
+- **O toggle de visão saiu da LISTAGEM e foi para a TELA DE ATENDIMENTO.** Detalhe enriquecido
+  por linha engorda a tabela justamente na tela cujo trabalho é escanear e discar rápido. O
+  contexto comercial só é útil com alguém na linha — então `Visão simples | detalhada` vive ao
+  lado do bloco do lead depois de clicar em Ligar, em `simples` por padrão, sem persistência
+  (é escolha do atendimento atual, não configuração de tela).
+- **`listarLeadsDaCampanha` passou a trazer os mesmos campos enriquecidos + `situacao_site`.**
+  A tela de atendimento também abre pela aba Acompanhamento ("Registrar"); sem isso a Visão
+  detalhada abriria vazia por aquele caminho. `situacao_site` vem da função PURA `situacaoSite`
+  do service (reuso), **nunca recalculada no front** — a regra dos três estados do site tem uma
+  fonte só. Não há `prioridade` nessa lista de propósito: ela não é a fila de ligação.
+- **Painel de filtros virou OPERACIONAL GERAL,** em grupos (Operação, Contato, Potencial
+  comercial, Perfil do negócio, Presença digital, Qualidade do dado), no padrão do
+  `PersonalizarModal` do Banco de Leads. Duas coisas que o pedido listava e que **não viraram
+  controle**, por decisão explícita: (1) **Campanha** — o seletor já existe no topo da página e
+  duplicar o mesmo estado em dois lugares é o que o AGENTS.md proíbe; vira indicador com a dica
+  de onde trocar. (2) **Telefone disponível** — telefone discável é requisito de ENTRADA
+  garantido no backend, então o filtro seria sempre no-op; vira nota fixa no grupo Contato.
+- **Chips passam a ser medidos contra um estado NEUTRO, não contra o padrão.** Como a fila nasce
+  filtrada ("Não iniciados"), medir os chips contra o padrão esconderia do operador o fato de a
+  tela estar escondendo leads. Consequência de desenho: `limparFiltros()` vai para o NEUTRO
+  (mostra a fila inteira, inclusive retentativas) e há um botão separado "Fila padrão".
+- **Chave do localStorage subiu para `filaLigacoesView.v2`:** a view salva pela versão anterior
+  tem `modo` (extinto) e `tentativas:'todas'` — valor ainda válido no enum novo, que sobreviveria
+  à normalização e deixaria o operador antigo sem a fila padrão.
+- **Nada disso cria coleta:** todos os sinais usados (site, avaliações, nota, e-mail, redes,
+  endereço, origem, data de entrada) já são lidos hoje de `prospectador.prospects`.
+  Sem migration, sem env nova, sem rota nova.
+
+---
+
 ## 2026-08-07 — Prioridade comercial da fila da Central de Ligações (sem migration)
 
 - **A prioridade NÃO reaproveita `prospects.score` (decisão central):** o `score` mede completude

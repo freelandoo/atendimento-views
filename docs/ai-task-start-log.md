@@ -6,6 +6,58 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-07 - Inicio de tarefa IA - Correcoes de UX/operacao da Central de Ligacoes
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Corrigir a entrega anterior (Prioridade comercial da fila) em 3 frentes:
+  (1) TIRAR o toggle "Visao simplificada/detalhada" da LISTAGEM e move-lo para a TELA DE
+  ATENDIMENTO (apos clicar em Ligar), ao lado do bloco do lead, com a visao detalhada mostrando
+  os dados enriquecidos do Bright Data; (2) o hover da Prioridade deve ser um TOOLTIP FLUTUANTE
+  ancorado no circulo (nao pode aumentar a altura da linha nem ser cortado pelo container);
+  (3) tentativa anterior deixa de ser bonus (1+ tentativas = 0 pontos) e a fila PADRAO passa a
+  ser "telefone valido + nenhuma tentativa", com filtro `Nao iniciados | Com tentativa | Todos`;
+  alem disso, o painel de filtros vira OPERACIONAL GERAL (grupos Operacao / Contato / Potencial
+  comercial / Perfil do negocio / Presenca digital / Qualidade do dado), nao so "site".
+- **E projeto/tarefa de alteracao?** Sim. Escopo MEDIO, quase todo em apresentacao + 1 peso de
+  regra pura. **Sem schema, sem migration, sem env nova, sem rota nova, sem prompt, sem
+  autenticacao, sem coleta nova** — todos os campos usados ja sao lidos hoje do cadastro.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/ui-visual-standard.md: Sim (padrao de filtros/chips do Banco de Leads reusado).
+- **Areas mapeadas (leitura antes de editar):** `src/services/ligacao-prioridade.js`,
+  `src/db/campanhas.js` (`filaDeTrabalho`, `listarLeadsDaCampanha`), `src/routes/api-campanhas.js`,
+  `frontend/lib/fila-ligacoes-view.js` (+ `.d.ts`/`.test.js`),
+  `frontend/app/dashboard/central-ligacoes/page.tsx`,
+  `frontend/app/dashboard/banco-leads/page.tsx` (`PersonalizarModal` — padrao visual dos grupos).
+- **Defeito real confirmado no codigo (nao e hipotese):** o tooltip do circulo de prioridade e
+  `position:absolute` DENTRO do `<td>`, e o wrapper da tabela e `overflow-hidden` — a bolha da
+  1a linha e cortada pela borda superior do container. O comentario no codigo afirmava o
+  contrario. Correcao: renderizar em PORTAL (`createPortal`) com `position:fixed` calculado do
+  `getBoundingClientRect()` do circulo; fecha em scroll/resize.
+- **Arquivos alterados/criados:** `backend/src/services/ligacao-prioridade.js`,
+  `backend/src/db/campanhas.js`, `backend/test/ligacao-prioridade.test.js`,
+  `frontend/lib/fila-ligacoes-view.js` + `.d.ts` + `.test.js`,
+  `frontend/app/dashboard/central-ligacoes/page.tsx`.
+- **Decisoes tomadas (Fase 6/8):**
+  1. `PESOS.uma_tentativa` (5) e `PESOS.duas_ou_mais_tentativas` (0) viram um unico
+     `PESOS.com_tentativa = 0`. Retentativa passa a ser FILA (filtro), nao bonus.
+  2. Chave do localStorage sobe para `filaLigacoesView.v2`: a view salva na versao anterior tem
+     `modo` (extinto) e `tentativas:'todas'` (valido no enum novo), e sobreviveria a
+     normalizacao — o operador antigo nao veria a fila padrao "nao iniciados".
+  3. "Campanha" (grupo Operacao) NAO ganha um segundo seletor dentro do painel: o controle ja
+     existe no topo da pagina; duplicar o mesmo estado em dois lugares e o que o AGENTS.md
+     proibe. O painel mostra a campanha ativa como indicador com a dica de onde troca-la.
+  4. "Telefone disponivel" (grupo Contato) tambem NAO vira controle: telefone discavel e
+     requisito de ENTRADA garantido no backend — o filtro seria sempre no-op. Vira nota fixa.
+  5. `listarLeadsDaCampanha` passa a trazer os mesmos campos enriquecidos + `situacao_site`
+     (reusando a funcao PURA `situacaoSite`, sem reimplementar a regra no front), senao a visao
+     detalhada abriria VAZIA quando o atendimento e aberto pela aba Acompanhamento.
+- **Fora de escopo declarado:** banco/migrations, roteiro/cockpit/encerramento da ligacao, aba
+  Funil, Banco de Leads, coleta Bright Data, envio de WhatsApp, variaveis de ambiente.
+- **Proxima etapa:** implementar o diff minimo e validar com `npm test` (backend e frontend) e
+  `npm run typecheck` (frontend).
+
+---
+
 ## 2026-08-07 - Inicio de tarefa IA - Prioridade comercial da fila da Central de Ligacoes
 
 - **IA/Ferramenta:** Claude Code (Opus 5)

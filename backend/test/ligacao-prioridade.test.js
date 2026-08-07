@@ -94,14 +94,22 @@ test('rede social so pontua quando NAO ha site', () => {
   assert.equal(comSiteComRede.score, comSiteSemRede.score)
 })
 
-test('tentativas anteriores derrubam a prioridade (10 / 5 / 0)', () => {
+test('so o lead INEDITO pontua: 1+ tentativas nao ganha bonus algum', () => {
   const zero = calcularPrioridade({ ...leadBase, tentativas: 0 }).score
   const uma = calcularPrioridade({ ...leadBase, tentativas: 1 }).score
   const duas = calcularPrioridade({ ...leadBase, tentativas: 2 }).score
   const cinco = calcularPrioridade({ ...leadBase, tentativas: 5 }).score
-  assert.equal(zero - uma, PESOS.sem_tentativa - PESOS.uma_tentativa)
-  assert.equal(uma - duas, PESOS.uma_tentativa - PESOS.duas_ou_mais_tentativas)
+  assert.equal(PESOS.com_tentativa, 0)
+  assert.equal(zero - uma, PESOS.sem_tentativa)
+  assert.equal(uma, duas)
   assert.equal(duas, cinco)
+})
+
+test('tentativa anterior continua explicada no tooltip, mesmo valendo 0 ponto', () => {
+  const uma = calcularPrioridade({ ...leadBase, tentativas: 1 })
+  const tres = calcularPrioridade({ ...leadBase, tentativas: 3 })
+  assert.ok(uma.motivos.some((m) => /^1 tentativa anterior$/.test(m)))
+  assert.ok(tres.motivos.some((m) => /^3 tentativas anteriores$/.test(m)))
 })
 
 // --- Score final / faixa / explicacao --------------------------------------------------

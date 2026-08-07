@@ -396,6 +396,48 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
   o `.next` do `next dev` em uso.
 - Documentos atualizados: `ai-task-start-log.md` e este mapa.
 
+## 2026-08-07 - Central de Ligacoes - Correcoes de UX/operacao da fila (sem migration)
+
+Ajuste sobre a entrega imediatamente abaixo, apos revisao de UX/operacao.
+
+- Area(s) tocada(s): `backend/src/services/ligacao-prioridade.js` (PESOS de tentativa),
+  `backend/src/db/campanhas.js` (`filaDeTrabalho` + `listarLeadsDaCampanha`),
+  `backend/test/ligacao-prioridade.test.js`, `frontend/lib/fila-ligacoes-view.js` (+ `.d.ts` +
+  `.test.js`, reescritos) e `frontend/app/dashboard/central-ligacoes/page.tsx`.
+- Regras preservadas: Operacao da Ligacao inteira (iniciar/chamada-encerrada/encerrar/descartar,
+  sinais, objecoes, perguntas, etapas temporais, autosave de notas, cronometro do servidor)
+  intacta; aba Funil intacta; telefone discavel continua sendo requisito de ENTRADA decidido no
+  BACKEND; ordem da fila continua vindo do servidor (o front nunca reordena); nenhuma migration,
+  env, rota, permissao ou chamada paga (Bright Data/IA) criada.
+- O que mudou:
+  1. **Pontuacao**: `uma_tentativa` (5) + `duas_ou_mais_tentativas` (0) viraram
+     `PESOS.com_tentativa = 0`. **Regra a preservar:** tentativa anterior NAO e bonus na fila
+     inicial — retentativa e' fila propria (filtro), nao lead mais quente. O motivo segue
+     aparecendo no tooltip; so nao soma.
+  2. **Fila padrao**: telefone valido (backend) + **nenhuma tentativa** + maior prioridade.
+     Filtro `Tentativas de contato`: `Nao iniciados | Com tentativa | Todos`.
+  3. **Listagem**: sem toggle de visao e sem detalhe enriquecido por linha. Colunas fixas:
+     Prioridade, Lead (nome + localizacao, **sem nicho**), Telefone, Status, Tentativas, Ligar.
+  4. **Tela de atendimento**: ganhou `Visao simples | detalhada` ao lado do bloco do lead
+     (padrao `simples`, sem persistencia). A detalhada mostra os sinais do Bright Data.
+  5. **Tooltip de Prioridade**: renderizado em PORTAL no `<body>` (`position:fixed` a partir do
+     `getBoundingClientRect()` do circulo). **Regra a preservar:** nao voltar para
+     `position:absolute` dentro do `<td>` — o wrapper da tabela e `overflow-hidden` e corta a
+     bolha da 1a linha. Fecha em scroll/resize; somente leitura.
+  6. **Filtros**: painel operacional geral em grupos (Operacao, Contato, Potencial comercial,
+     Perfil do negocio, Presenca digital, Qualidade do dado). Campanha e "telefone disponivel"
+     NAO viraram controle (ver `ai-decision-log.md`). Chips medidos contra o estado NEUTRO;
+     `limparFiltros()` mostra a fila inteira e ha um botao separado "Fila padrao".
+  7. **`listarLeadsDaCampanha`** passou a devolver os campos enriquecidos + `situacao_site`
+     (funcao PURA do service). **Regra a preservar:** a situacao do site nunca e recalculada no
+     frontend.
+  8. `localStorage` da view subiu para `filaLigacoesView.v2`.
+- Divida tecnica: a duplicacao de "telefone discavel" (backend `ligacao-prioridade.js` x
+  frontend `lib/ligacao-fone.js`) declarada na entrega anterior **continua valendo**.
+- Validacao: `npm test` backend 1182/1182, `npm test` frontend 73/73, `npm run typecheck`
+  backend e frontend limpos, `npm run build` do frontend OK.
+- Documentos atualizados: `ai-task-start-log.md`, `ai-decision-log.md` e este mapa.
+
 ## 2026-08-07 - Central de Ligacoes - Prioridade comercial da fila (sem migration)
 
 - Area(s) tocada(s): `backend/src/services/ligacao-prioridade.js` (NOVO, puro),

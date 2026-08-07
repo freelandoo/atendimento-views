@@ -4,7 +4,7 @@
 // prospect/responsavel) DEVEM ser do MESMO tenant — validado aqui antes de gravar, para
 // nao referenciar dado de outra empresa.
 const { CAMPANHA_STATUS, OPORTUNIDADE_STATUS } = require('../domain-enums')
-const { montarFilaPriorizada } = require('../services/ligacao-prioridade')
+const { montarFilaPriorizada, situacaoSite } = require('../services/ligacao-prioridade')
 
 const STATUS_CAMPANHA = new Set(CAMPANHA_STATUS)
 const STATUS_OPORTUNIDADE = new Set(OPORTUNIDADE_STATUS)
@@ -145,13 +145,20 @@ async function adicionarLeads(pool, empresaId, campanhaId, prospectIds = []) {
   return { adicionados: rows.length }
 }
 
+// Acompanhamento da campanha (TODOS os leads, inclusive finalizados). Traz os mesmos sinais
+// enriquecidos da fila porque a tela de atendimento tambem e' aberta daqui ("Registrar") e a
+// visao detalhada do lead precisa deles — sem isso ela abriria vazia por este caminho.
+// `situacao_site` vem da funcao PURA do service (mesma regra da fila), nunca recalculada no
+// front. Nao ha `prioridade` aqui de proposito: esta lista NAO e' a fila de ligacao.
 async function listarLeadsDaCampanha(pool, empresaId, campanhaId, { status } = {}) {
   const params = [campanhaId, empresaId]
   let filtro = ''
   if (status && STATUS_OPORTUNIDADE.has(status)) { params.push(status); filtro = `AND cl.status = $${params.length}` }
   const { rows } = await pool.query(
     `SELECT cl.id, cl.status, cl.responsavel_id, cl.proxima_acao, cl.data_followup,
-            p.id AS prospect_id, p.nome, p.telefone, p.cidade, p.nicho
+            p.id AS prospect_id, p.nome, p.telefone, p.cidade, p.nicho,
+            p.tem_site, p.site, p.maps_url, p.place_id, p.avaliacoes, p.rating,
+            p.email, p.endereco, p.instagram_handle, p.link_bio, p.seguidores, p.categoria_perfil
        FROM app.campanha_leads cl
        JOIN prospectador.prospects p ON p.id = cl.prospect_id
       WHERE cl.campanha_id = $1 AND cl.empresa_id = $2 ${filtro}
@@ -159,7 +166,7 @@ async function listarLeadsDaCampanha(pool, empresaId, campanhaId, { status } = {
       LIMIT 1000`,
     params
   )
-  return rows
+  return rows.map((r) => ({ ...r, situacao_site: situacaoSite(r) }))
 }
 
 // Fila de trabalho da Central de Ligacoes: leads NAO finalizados da campanha, ordenados
@@ -185,6 +192,7 @@ async function filaDeTrabalho(pool, empresaId, campanhaId, { limit = 50 } = {}) 
             p.id AS prospect_id, p.nome, p.telefone, p.cidade, p.nicho, p.score,
             p.tem_site, p.site, p.maps_url, p.place_id, p.avaliacoes, p.rating,
             p.email, p.endereco, p.instagram_handle, p.link_bio, p.seguidores, p.categoria_perfil,
+            p.origem, p.created_at,
             (SELECT COUNT(*)::int FROM app.ligacoes l WHERE l.campanha_lead_id = cl.id AND l.status = 'encerrada') AS tentativas
        FROM app.campanha_leads cl
        JOIN prospectador.prospects p ON p.id = cl.prospect_id

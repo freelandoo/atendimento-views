@@ -4,6 +4,7 @@
 // (3 colunas) mostra o lead, o roteiro navegável e o registro rápido; ao encerrar, o
 // resumo estruturado é enviado. Consome /api/empresas/:id/{campanhas,roteiros,ligacoes}.
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { apiFetch } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { IconClose, IconSend } from '@/components/ui/icons'
@@ -11,9 +12,11 @@ import { resumoSinais } from '@/lib/ligacao-sinais-resumo'
 import { segDesde, fmtCronometro } from '@/lib/ligacao-estado'
 import { fmtFone, telHref, avisoFone, analisarFone } from '@/lib/ligacao-fone'
 import {
-  VIEW_PADRAO, VIEW_RECOMENDADA, SITE_OPCOES, PRIORIDADE_OPCOES, TENTATIVAS_OPCOES,
-  normalizarView, limparFiltros, limparCampo, filtrarFila, chipsAtivos, contarFiltrosAtivos,
-  type FilaView, type ChipFiltro,
+  VIEW_PADRAO, SITE_OPCOES, PRIORIDADE_OPCOES, TENTATIVAS_OPCOES, PROXIMA_ACAO_OPCOES,
+  EMAIL_OPCOES, REDES_OPCOES, RECENCIA_OPCOES,
+  normalizarView, limparFiltros, filaPadrao, limparCampo, filtrarFila, opcoesDaFila,
+  chipsAtivos, contarFiltrosAtivos,
+  type FilaView, type ChipFiltro, type OpcoesDaFila,
 } from '@/lib/fila-ligacoes-view'
 import { msgErro } from '@/lib/erro-msg'
 
@@ -79,17 +82,27 @@ type Prioridade = {
 // Os campos opcionais já existem no cadastro (Bright Data / Banco de Leads) e só são
 // exibidos — nada é coletado por esta tela. Opcionais porque a aba Acompanhamento reaproveita
 // este tipo para abrir a Operação com o que ela tem em mãos.
-type FilaItem = {
-  campanha_lead_id: string; status: string; prospect_id: string; nome: string
-  telefone: string | null; cidade: string | null; nicho: string | null; score: number | null; tentativas: number
-  prioridade?: Prioridade | null
+// Sinais enriquecidos do cadastro (Bright Data / Banco de Leads). Ficam FORA da listagem —
+// só aparecem na tela de atendimento, na Visão detalhada. Nenhum deles é coletado aqui.
+type LeadEnriquecido = {
   tem_site?: boolean | null; site?: string | null; maps_url?: string | null
   avaliacoes?: number | null; rating?: number | null
   email?: string | null; endereco?: string | null
   instagram_handle?: string | null; link_bio?: string | null
   seguidores?: number | null; categoria_perfil?: string | null
+  // `situacao_site` chega pronta do backend (mesma função pura da prioridade). A regra de
+  // "tem / não tem / não identificado" NUNCA é recalculada aqui.
+  situacao_site?: 'tem_site' | 'sem_site' | 'nao_identificado' | null
 }
-type LeadAcomp = {
+type FilaItem = LeadEnriquecido & {
+  campanha_lead_id: string; status: string; prospect_id: string; nome: string
+  telefone: string | null; cidade: string | null; nicho: string | null; score: number | null; tentativas: number
+  prioridade?: Prioridade | null
+  proxima_acao?: string | null
+  // Qualidade do dado (filtros): de onde veio e há quanto tempo está na base.
+  origem?: string | null; created_at?: string | null
+}
+type LeadAcomp = LeadEnriquecido & {
   id: string; status: string; proxima_acao: string | null; data_followup: string | null
   prospect_id: string; nome: string; telefone: string | null; cidade: string | null; nicho: string | null
 }
@@ -161,105 +174,223 @@ const SITE_SELO: Record<string, { txt: string; cls: string }> = {
   nao_identificado: { txt: 'Site não identificado', cls: 'border-amber-300 bg-amber-50 text-amber-700' },
   tem_site: { txt: 'Tem site', cls: 'border-slate-300 bg-slate-50 text-slate-500' },
 }
-const CHAVE_VIEW = 'filaLigacoesView'
+// v2: a view salva pela versão anterior tinha `modo` (extinto) e `tentativas: 'todas'`, que
+// sobreviveria à normalização — o operador antigo não veria a fila padrão "não iniciados".
+const CHAVE_VIEW = 'filaLigacoesView.v2'
 
-// Círculo de pontuação da coluna Prioridade. Só leitura: explica a composição no hover E no
-// foco por teclado (tooltip com transição suave), sem abrir painel e sem criar colunas novas.
+// Círculo de pontuação da coluna Prioridade: só o círculo fica na tabela. A explicação é um
+// tooltip FLUTUANTE renderizado em portal no <body>, posicionado a partir do retângulo do
+// próprio círculo — assim ele nunca aumenta a altura da linha nem é cortado pelo wrapper da
+// tabela (que é `overflow-hidden`), que era o defeito da versão anterior (position:absolute
+// dentro do <td>). Somente leitura: `pointer-events-none` e sem nenhum controle dentro.
 function CirculoPrioridade({ p }: { p: Prioridade | null | undefined }) {
+  const ref = useRef<HTMLSpanElement | null>(null)
+  const [caixa, setCaixa] = useState<{ x: number; y: number } | null>(null)
+  const [visivel, setVisivel] = useState(false)
+
+  const abrir = useCallback(() => {
+    const r = ref.current?.getBoundingClientRect()
+    if (!r) return
+    setCaixa({ x: r.left + r.width / 2, y: r.top })
+  }, [])
+  const fechar = useCallback(() => { setCaixa(null); setVisivel(false) }, [])
+
+  // Anima em dois frames: monta invisível e sobe a opacidade no frame seguinte (transição
+  // curta e discreta). Fecha em scroll/resize — a âncora se moveria e a bolha ficaria solta.
+  useEffect(() => {
+    if (!caixa) return
+    const raf = requestAnimationFrame(() => setVisivel(true))
+    window.addEventListener('scroll', fechar, true)
+    window.addEventListener('resize', fechar)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('scroll', fechar, true)
+      window.removeEventListener('resize', fechar)
+    }
+  }, [caixa, fechar])
+
   if (!p) return <span className="text-slate-300">—</span>
   const resumo = `${p.score}/100 · ${p.faixa_label}${p.motivos.length ? ` — ${p.motivos.join(', ')}` : ''}`
   return (
-    <span tabIndex={0} title={resumo} aria-label={`Prioridade ${resumo}`}
-      className="group relative inline-flex rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand">
-      <span aria-hidden="true"
-        className={`inline-flex h-9 w-9 items-center justify-center rounded-full border-2 text-xs font-bold transition group-hover:scale-105 ${FAIXA_CLS[p.faixa] || FAIXA_CLS.baixa}`}>
-        {p.score}
-      </span>
-      {/* Abre para CIMA (o wrapper da tabela é overflow-hidden; acima da 1ª linha há sempre
-          o cabeçalho, então a bolha nunca é cortada). */}
-      <span role="tooltip"
-        className="pointer-events-none invisible absolute bottom-full left-1/2 z-30 mb-2 w-max max-w-[240px] -translate-x-1/2 translate-y-1 whitespace-normal rounded-lg bg-slate-800 px-3 py-2 text-left text-[11px] font-normal leading-snug text-white opacity-0 shadow-lg transition duration-150 ease-out group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 group-focus:visible group-focus:translate-y-0 group-focus:opacity-100">
-        <span className="block font-semibold">{p.score}/100 · {p.faixa_label}</span>
-        <span className="mt-1 block space-y-0.5">
-          {p.motivos.map((m, i) => <span key={i} className="block text-slate-200">• {m}</span>)}
+    <>
+      <span ref={ref} tabIndex={0} title={resumo} aria-label={`Prioridade ${resumo}`}
+        onMouseEnter={abrir} onMouseLeave={fechar} onFocus={abrir} onBlur={fechar}
+        className="inline-flex rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand">
+        <span aria-hidden="true"
+          className={`inline-flex h-9 w-9 items-center justify-center rounded-full border-2 text-xs font-bold transition hover:scale-105 ${FAIXA_CLS[p.faixa] || FAIXA_CLS.baixa}`}>
+          {p.score}
         </span>
       </span>
-    </span>
+      {caixa && typeof document !== 'undefined' && createPortal(
+        <div role="tooltip"
+          style={{ position: 'fixed', left: caixa.x, top: caixa.y - 8, transform: 'translate(-50%, -100%)' }}
+          className={`pointer-events-none z-[70] w-max max-w-[260px] rounded-lg bg-slate-800 px-3 py-2 text-left text-[11px] font-normal leading-snug text-white shadow-xl transition-all duration-150 ease-out ${visivel ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0'}`}>
+          <div className="font-semibold">{p.faixa_label} · {p.score}/100</div>
+          <ul className="mt-1 space-y-0.5">
+            {p.motivos.map((m, i) => <li key={i} className="text-slate-200">• {m}</li>)}
+          </ul>
+        </div>,
+        document.body
+      )}
+    </>
   )
 }
 
-// Visão detalhada da coluna Lead: contexto comercial antes/durante a ligação, sem nova
-// página e sem colunas extras. Só reapresenta dados que já vieram do cadastro.
-function LeadDetalhado({ l }: { l: FilaItem }) {
-  const selo = SITE_SELO[l.prioridade?.situacao_site || 'nao_identificado']
+// Visão detalhada do lead — exclusiva da TELA DE ATENDIMENTO. Reapresenta os sinais que já
+// vieram do cadastro (Bright Data / Banco de Leads) para orientar a conversa; nada é coletado
+// aqui. A situação do site vem pronta do backend (`situacao_site`), nunca recalculada.
+function LeadDetalhes({ l }: { l: FilaItem }) {
+  const sit = l.prioridade?.situacao_site || l.situacao_site || null
+  const selo = sit ? SITE_SELO[sit] : null
   const insta = (l.instagram_handle || '').replace(/^@/, '')
+  const temAlgo = !!(selo || l.site || l.avaliacoes != null || l.rating != null || l.email
+    || insta || l.link_bio || l.maps_url || l.endereco || l.seguidores != null || l.categoria_perfil)
+  if (!temAlgo) {
+    return <div className="rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-400">Sem dados enriquecidos para este lead.</div>
+  }
   return (
-    <div className="mt-1.5 space-y-1 text-xs text-slate-500">
+    <div className="space-y-1.5 border-t pt-2 text-xs text-slate-500">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${selo.cls}`}>{selo.txt}</span>
+        {selo && <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${selo.cls}`}>{selo.txt}</span>}
         {l.site && <a href={l.site} target="_blank" rel="noreferrer" className="text-brand hover:underline">abrir site ↗</a>}
-        {l.avaliacoes != null && <span>{l.avaliacoes} avaliações</span>}
-        {l.rating != null && <span>★ {Number(l.rating).toFixed(1)}</span>}
-        {l.seguidores != null && <span>{l.seguidores.toLocaleString('pt-BR')} seguidores</span>}
       </div>
+      {(l.avaliacoes != null || l.rating != null || l.seguidores != null) && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {l.avaliacoes != null && <span>{l.avaliacoes} avaliações</span>}
+          {l.rating != null && <span>★ {Number(l.rating).toFixed(1)}</span>}
+          {l.seguidores != null && <span>{l.seguidores.toLocaleString('pt-BR')} seguidores</span>}
+        </div>
+      )}
       {(l.email || insta || l.link_bio || l.maps_url) && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          {l.email && <a href={`mailto:${l.email}`} className="text-brand hover:underline">{l.email}</a>}
+          {l.email && <a href={`mailto:${l.email}`} className="break-all text-brand hover:underline">{l.email}</a>}
           {insta && <a href={`https://instagram.com/${insta}`} target="_blank" rel="noreferrer" className="text-brand hover:underline">@{insta}</a>}
           {l.link_bio && <a href={l.link_bio} target="_blank" rel="noreferrer" className="text-brand hover:underline">link da bio ↗</a>}
           {l.maps_url && <a href={l.maps_url} target="_blank" rel="noreferrer" className="hover:underline">ver no Maps ↗</a>}
         </div>
       )}
-      {l.endereco && <div className="max-w-[420px] truncate" title={l.endereco}>📍 {l.endereco}</div>}
+      {l.endereco && <div title={l.endereco}>📍 {l.endereco}</div>}
       {(l.nicho || l.categoria_perfil) && <div>🏷 {[l.nicho, l.categoria_perfil].filter(Boolean).join(' · ')}</div>}
     </div>
   )
 }
 
-// Painel de filtros da fila — mesmo padrão compacto do Banco de Leads (tudo client-side
-// sobre a fila já carregada; nenhuma requisição nova).
-function FiltrosFila({ view, onChange, onLimpar }: {
+// ── Painel de filtros da fila ────────────────────────────────────────────────────────
+// Painel OPERACIONAL GERAL (não um filtro de site): grupos Operação, Contato, Potencial
+// comercial, Perfil do negócio, Presença digital e Qualidade do dado — mesmo padrão compacto
+// do Banco de Leads. Tudo client-side sobre a fila já carregada; nenhuma requisição nova.
+function GrupoFiltro({ titulo, children, cols = 3 }: { titulo: string; children: React.ReactNode; cols?: 2 | 3 }) {
+  return (
+    <section>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{titulo}</p>
+      <div className={`grid gap-3 ${cols === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3'}`}>{children}</div>
+    </section>
+  )
+}
+
+function SelFiltro({ label, value, onChange, opcoes }: {
+  label: string; value: string; onChange: (v: string) => void; opcoes: readonly (readonly [string, string])[]
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-[11px] text-slate-500">{label}</label>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-lg border px-2 py-1.5 text-sm">
+        {opcoes.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+    </div>
+  )
+}
+
+function FaixaNum({ label, min, max, onMin, onMax, step, teto }: {
+  label: string; min: string; max: string; onMin: (v: string) => void; onMax: (v: string) => void; step?: number; teto?: number
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-[11px] text-slate-500">{label}</label>
+      <div className="flex items-center gap-1">
+        <input type="number" min={0} max={teto} step={step} value={min} onChange={(e) => onMin(e.target.value)} placeholder="mín"
+          aria-label={`${label} — mínimo`} className="w-full min-w-0 rounded-lg border px-2 py-1.5 text-sm" />
+        <input type="number" min={0} max={teto} step={step} value={max} onChange={(e) => onMax(e.target.value)} placeholder="máx"
+          aria-label={`${label} — máximo`} className="w-full min-w-0 rounded-lg border px-2 py-1.5 text-sm" />
+      </div>
+    </div>
+  )
+}
+
+function FiltrosFila({ view, onChange, onLimpar, opcoes, campanhaNome }: {
   view: FilaView; onChange: (v: FilaView) => void; onLimpar: () => void
+  opcoes: OpcoesDaFila; campanhaNome: string
 }) {
   const set = (patch: Partial<FilaView>) => onChange({ ...view, ...patch })
-  const sel = 'rounded-lg border px-2 py-1.5 text-sm'
-  const num = 'w-20 rounded-lg border px-2 py-1.5 text-sm'
+  // Só os status realmente presentes na fila — filtro que não casaria com ninguém é ruído.
+  const statusOpcoes: [string, string][] = [
+    ['todos', 'Todos os status'],
+    ...opcoes.status.map((s) => [s, rotuloStatus(s)] as [string, string]),
+  ]
   return (
-    <div className="grid gap-3 rounded-2xl border bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-3">
-      <label className="flex items-center justify-between gap-2 text-sm text-slate-600">Site
-        <select value={view.site} onChange={(e) => set({ site: e.target.value as FilaView['site'] })} className={sel}>
-          {SITE_OPCOES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-      </label>
-      <label className="flex items-center justify-between gap-2 text-sm text-slate-600">Prioridade
-        <select value={view.prioridade} onChange={(e) => set({ prioridade: e.target.value as FilaView['prioridade'] })} className={sel}>
-          {PRIORIDADE_OPCOES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-      </label>
-      <label className="flex items-center justify-between gap-2 text-sm text-slate-600">Tentativas
-        <select value={view.tentativas} onChange={(e) => set({ tentativas: e.target.value as FilaView['tentativas'] })} className={sel}>
-          {TENTATIVAS_OPCOES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-      </label>
-      <div className="flex items-center justify-between gap-2 text-sm text-slate-600">Avaliações
-        <span className="flex items-center gap-1">
-          <input type="number" min={0} value={view.avalMin} onChange={(e) => set({ avalMin: e.target.value })} placeholder="mín" className={num} aria-label="Avaliações mínimas" />
-          <input type="number" min={0} value={view.avalMax} onChange={(e) => set({ avalMax: e.target.value })} placeholder="máx" className={num} aria-label="Avaliações máximas" />
-        </span>
-      </div>
-      <div className="flex items-center justify-between gap-2 text-sm text-slate-600">Nota
-        <span className="flex items-center gap-1">
-          <input type="number" min={0} max={5} step={0.1} value={view.notaMin} onChange={(e) => set({ notaMin: e.target.value })} placeholder="mín" className={num} aria-label="Nota mínima" />
-          <input type="number" min={0} max={5} step={0.1} value={view.notaMax} onChange={(e) => set({ notaMax: e.target.value })} placeholder="máx" className={num} aria-label="Nota máxima" />
-        </span>
-      </div>
-      <label className="flex items-center justify-between gap-2 text-sm text-slate-600">Localização
-        <input value={view.local} onChange={(e) => set({ local: e.target.value })} placeholder="cidade, bairro ou região"
-          className="min-w-0 flex-1 rounded-lg border px-2 py-1.5 text-sm" />
-      </label>
-      <div className="flex items-center gap-2 sm:col-span-2 lg:col-span-3">
-        <button onClick={() => onChange({ ...VIEW_RECOMENDADA, modo: view.modo })} className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50">
-          Recomendado da campanha (sem site)
+    <div className="space-y-5 rounded-2xl border bg-white p-4 shadow-sm">
+      <GrupoFiltro titulo="Operação">
+        <SelFiltro label="Status" value={view.status} onChange={(v) => set({ status: v })} opcoes={statusOpcoes} />
+        <SelFiltro label="Tentativas de contato" value={view.tentativas}
+          onChange={(v) => set({ tentativas: v as FilaView['tentativas'] })} opcoes={TENTATIVAS_OPCOES} />
+        <SelFiltro label="Próxima ação" value={view.proximaAcao}
+          onChange={(v) => set({ proximaAcao: v as FilaView['proximaAcao'] })} opcoes={PROXIMA_ACAO_OPCOES} />
+        {/* Campanha NÃO ganha um segundo seletor: o controle já existe no topo da página e
+            duplicar o mesmo estado em dois lugares confunde mais do que ajuda. */}
+        <div className="sm:col-span-2 lg:col-span-3">
+          <span className="text-[11px] text-slate-400">Campanha: <b className="text-slate-600">{campanhaNome || '—'}</b> · troque no seletor do topo da página.</span>
+        </div>
+      </GrupoFiltro>
+
+      <GrupoFiltro titulo="Contato" cols={2}>
+        <SelFiltro label="E-mail disponível" value={view.email} onChange={(v) => set({ email: v as FilaView['email'] })} opcoes={EMAIL_OPCOES} />
+        {/* Telefone não é filtro: é requisito de ENTRADA, aplicado no servidor. */}
+        <div className="flex items-end pb-1.5 text-[11px] text-slate-400">
+          Telefone válido é exigido para entrar na fila — todos os leads listados são discáveis.
+        </div>
+      </GrupoFiltro>
+
+      <GrupoFiltro titulo="Potencial comercial">
+        <SelFiltro label="Faixa de prioridade" value={view.prioridade}
+          onChange={(v) => set({ prioridade: v as FilaView['prioridade'] })} opcoes={PRIORIDADE_OPCOES} />
+        <FaixaNum label="Quantidade de avaliações" min={view.avalMin} max={view.avalMax}
+          onMin={(v) => set({ avalMin: v })} onMax={(v) => set({ avalMax: v })} />
+        <FaixaNum label="Faixa de nota" min={view.notaMin} max={view.notaMax} step={0.1} teto={5}
+          onMin={(v) => set({ notaMin: v })} onMax={(v) => set({ notaMax: v })} />
+      </GrupoFiltro>
+
+      <GrupoFiltro titulo="Perfil do negócio" cols={2}>
+        <div>
+          <label className="mb-1 block text-[11px] text-slate-500">Localização (cidade ou endereço contém)</label>
+          <input value={view.local} onChange={(e) => set({ local: e.target.value })} placeholder="ex: Feira de Santana, Centro"
+            className="w-full rounded-lg border px-2 py-1.5 text-sm" />
+        </div>
+        <SelFiltro label="Segmento" value={view.nicho} onChange={(v) => set({ nicho: v })}
+          opcoes={[['', 'Todos os segmentos'], ...opcoes.nichos.map((n) => [n, n] as [string, string])]} />
+      </GrupoFiltro>
+
+      <GrupoFiltro titulo="Presença digital" cols={2}>
+        <SelFiltro label="Situação do site" value={view.site} onChange={(v) => set({ site: v as FilaView['site'] })} opcoes={SITE_OPCOES} />
+        <SelFiltro label="Redes sociais" value={view.redes} onChange={(v) => set({ redes: v as FilaView['redes'] })} opcoes={REDES_OPCOES} />
+      </GrupoFiltro>
+
+      {/* Só aparece quando o dado existe na fila carregada. */}
+      {opcoes.mostrarQualidadeDado && (
+        <GrupoFiltro titulo="Qualidade do dado" cols={2}>
+          {opcoes.origens.length > 0 && (
+            <SelFiltro label="Origem do dado" value={view.origem} onChange={(v) => set({ origem: v })}
+              opcoes={[['todas', 'Todas'], ...opcoes.origens.map((o) => [o, o] as [string, string])]} />
+          )}
+          {opcoes.temRecencia && (
+            <SelFiltro label="Recência do dado" value={view.recencia}
+              onChange={(v) => set({ recencia: v as FilaView['recencia'] })} opcoes={RECENCIA_OPCOES} />
+          )}
+        </GrupoFiltro>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+        <button onClick={() => onChange(filaPadrao())} className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50">
+          Fila padrão (não iniciados)
         </button>
         <button onClick={onLimpar} className="rounded-lg border px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">Limpar filtros</button>
       </div>
@@ -283,9 +414,9 @@ export default function CentralLigacoesPage() {
   const [pagina, setPagina] = useState(1)
   const POR_PAGINA = 25
   useEffect(() => { setPagina(1) }, [busca, statusFiltro, campanhaId, aba])
-  // Visão da fila (modo + filtros), persistida como no Banco de Leads: o operador não
-  // reconfigura a tela a cada abertura. Só apresentação — nada aqui muda o que o servidor
-  // considera elegível (telefone válido) nem a ordem por prioridade.
+  // Filtros da fila, persistidos como no Banco de Leads: o operador não reconfigura a tela a
+  // cada abertura. Só apresentação — nada aqui muda o que o servidor considera elegível
+  // (telefone válido) nem a ordem por prioridade. Padrão: leads ainda não iniciados.
   const [view, setView] = useState<FilaView>(VIEW_PADRAO)
   const [painelFiltros, setPainelFiltros] = useState(false)
   useEffect(() => {
@@ -370,6 +501,7 @@ export default function CentralLigacoesPage() {
             const visiveis = filtrarFila(fila, view)
             const chips: ChipFiltro[] = chipsAtivos(view)
             const nFiltros = contarFiltrosAtivos(view)
+            const opcoes = opcoesDaFila(fila)
             const proximo = visiveis[0]
             return (
               <>
@@ -381,19 +513,12 @@ export default function CentralLigacoesPage() {
                     ▶ Ligar agora {proximo ? `(${proximo.nome})` : ''}
                   </button>
                   <button onClick={() => carregarCampanha(campanhaId)} className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50">Atualizar</button>
+                  {/* Compacto e colado no Atualizar, no padrão do Banco de Leads. Nenhum
+                      controle de "visão" aqui: a listagem é sempre enxuta. */}
                   <button onClick={() => setPainelFiltros((v) => !v)} aria-expanded={painelFiltros}
                     className={`rounded-lg border px-3 py-2 text-sm hover:bg-slate-50 ${nFiltros ? 'border-brand text-brand' : ''}`}>
                     ⚙ Filtros{nFiltros ? ` (${nFiltros})` : ''}
                   </button>
-                  {/* Alternância de visão — canto superior direito da área da fila. */}
-                  <div className="ml-auto inline-flex rounded-lg border p-0.5" role="group" aria-label="Modo de exibição da fila">
-                    {([['simplificada', 'Simplificada'], ['detalhada', 'Detalhada']] as ['simplificada' | 'detalhada', string][]).map(([m, label]) => (
-                      <button key={m} onClick={() => setView({ ...view, modo: m })} aria-pressed={view.modo === m}
-                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${view.modo === m ? 'bg-brand text-white' : 'text-slate-500 hover:text-slate-700'}`}>
-                        {label}
-                      </button>
-                    ))}
-                  </div>
                 </div>
 
                 {chips.length > 0 && (
@@ -405,18 +530,21 @@ export default function CentralLigacoesPage() {
                         {c.label} <span aria-hidden="true">×</span>
                       </button>
                     ))}
-                    <button onClick={() => setView(limparFiltros(view))} className="text-xs text-slate-400 underline hover:text-slate-600">limpar tudo</button>
+                    <button onClick={() => setView(limparFiltros())} className="text-xs text-slate-400 underline hover:text-slate-600">limpar tudo</button>
                   </div>
                 )}
 
-                {painelFiltros && <FiltrosFila view={view} onChange={setView} onLimpar={() => setView(limparFiltros(view))} />}
+                {painelFiltros && (
+                  <FiltrosFila view={view} onChange={setView} onLimpar={() => setView(limparFiltros())}
+                    opcoes={opcoes} campanhaNome={detalhe.nome} />
+                )}
 
                 {fila.length === 0 ? (
                   <div className="rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">Fila vazia — todos os leads com telefone válido desta campanha já foram trabalhados. 🎉</div>
                 ) : visiveis.length === 0 ? (
                   <div className="rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">
                     Nenhum lead com esses filtros.{' '}
-                    <button onClick={() => setView(limparFiltros(view))} className="text-brand underline">Limpar filtros</button>
+                    <button onClick={() => setView(limparFiltros())} className="text-brand underline">Limpar filtros</button>
                   </div>
                 ) : (
                   <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
@@ -435,10 +563,11 @@ export default function CentralLigacoesPage() {
                           <tr key={l.campanha_lead_id} className={i === 0 ? 'bg-amber-50/40' : ''}>
                             <td className="px-4 py-3"><CirculoPrioridade p={l.prioridade} /></td>
                             <td className="px-4 py-3">
-                              {/* Nicho sai da visão padrão: a campanha selecionada já o define. */}
+                              {/* Só nome + localização. O nicho já é contextualizado pela
+                                  campanha ativa, e os dados enriquecidos vivem na tela de
+                                  atendimento — a listagem fica enxuta e rápida de escanear. */}
                               <div className="font-medium text-slate-800">{l.nome}</div>
                               <div className="text-xs text-slate-400">{l.cidade || '—'}</div>
-                              {view.modo === 'detalhada' && <LeadDetalhado l={l} />}
                             </td>
                             <td className="px-4 py-3 align-top"><Fone tel={l.telefone} className="text-sm" /></td>
                             <td className="px-4 py-3 align-top"><span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${clsStatus(l.status)}`}>{rotuloStatus(l.status)}</span></td>
@@ -498,7 +627,11 @@ export default function CentralLigacoesPage() {
                                 ele a esticar a altura da linha que acabamos de compactar. */}
                             <td className="max-w-[220px] truncate px-4 py-3 text-xs text-slate-500" title={l.proxima_acao || ''}>{l.proxima_acao || '—'}</td>
                             <td className="px-4 py-3 text-xs text-slate-500">{l.data_followup ? new Date(l.data_followup).toLocaleDateString('pt-BR') : '—'}</td>
-                            <td className="px-4 py-3 text-right"><button onClick={() => setOperando({ campanha_lead_id: l.id, status: l.status, prospect_id: l.prospect_id, nome: l.nome, telefone: l.telefone, cidade: l.cidade, nicho: l.nicho, score: null, tentativas: 0 })} className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50">Registrar</button></td>
+                            {/* Espalha o lead inteiro: a tela de atendimento tem a mesma Visão
+                                detalhada aberta pela fila, e sem os campos enriquecidos ela
+                                abriria vazia por este caminho. Sem `prioridade`: esta lista
+                                não é a fila de ligação (inclui convertido/descartado). */}
+                            <td className="px-4 py-3 text-right"><button onClick={() => setOperando({ ...l, campanha_lead_id: l.id, score: null, tentativas: 0 })} className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50">Registrar</button></td>
                           </tr>
                         ))}
                       </tbody>
@@ -571,6 +704,9 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
   const [etapas, setEtapas] = useState<EtapaApi[]>([])
   const [historico, setHistorico] = useState<Ligacao[]>([])
   const [idx, setIdx] = useState(0)
+  // Nível de detalhe do bloco do lead. Começa em 'simples': durante a ligação o que importa
+  // primeiro é nome/telefone/status. Não é persistido — é escolha do atendimento atual.
+  const [visao, setVisao] = useState<'simples' | 'detalhada'>('simples')
   // Sessão: visualizando → em_andamento → aguardando_resumo → encerrada.
   // 'visualizando' só existe aqui (abrir a tela não grava nada). Os outros três vêm do
   // servidor em `estado_sessao` — o front NUNCA decide sozinho se a chamada acabou. Antes,
@@ -946,14 +1082,29 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
       </div>
 
       <div className="grid flex-1 grid-cols-1 gap-3 overflow-auto p-4 lg:grid-cols-[280px_1fr_320px]">
-        {/* Lead */}
+        {/* Lead — é AQUI que vive a alternância de visão (nunca na listagem da fila). */}
         <div className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm">
-          <div className="text-xs font-semibold uppercase text-slate-400">Lead</div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-xs font-semibold uppercase text-slate-400">Lead</div>
+            <div className="inline-flex rounded-lg border p-0.5" role="group" aria-label="Nível de detalhe do lead">
+              {([['simples', 'Simples'], ['detalhada', 'Detalhada']] as ['simples' | 'detalhada', string][]).map(([m, label]) => (
+                <button key={m} onClick={() => setVisao(m)} aria-pressed={visao === m}
+                  className={`rounded-md px-2 py-1 text-[11px] font-medium transition ${visao === m ? 'bg-brand text-white' : 'text-slate-500 hover:text-slate-700'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="text-lg font-semibold">{lead.nome}</div>
           <div className="text-sm text-slate-600">📞 <Fone tel={lead.telefone} /></div>
           {lead.cidade && <div className="text-sm text-slate-500">📍 {lead.cidade}</div>}
-          {lead.nicho && <div className="text-sm text-slate-500">🏷 {lead.nicho}</div>}
+          <div className="text-sm text-slate-500">
+            <span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${clsStatus(lead.status)}`}>{rotuloStatus(lead.status)}</span>
+          </div>
           <div className="text-sm text-slate-500">Tentativas: {lead.tentativas}</div>
+          {/* Visão detalhada: sinais enriquecidos que já existem no cadastro, para orientar
+              a conversa. Nada é coletado ao abrir — é só reapresentação. */}
+          {visao === 'detalhada' && <LeadDetalhes l={lead} />}
           <div className="border-t pt-2">
             <div className="mb-1 text-xs font-semibold uppercase text-slate-400">Ligações anteriores</div>
             {historico.length === 0 ? <div className="text-xs text-slate-400">Nenhuma.</div>
