@@ -1,42 +1,47 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useSession, podePapel, type Role } from '@/lib/useSession'
+import { useSession } from '@/lib/useSession'
+import {
+  navegacaoVisivel, resolverAtivo, alternarGrupo, normalizarGruposAbertos, lerGruposAbertos,
+  type NavIcon, type NavItem, type NavNo, type Ativo,
+} from '@/lib/navegacao'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 
-type NavIcon = 'overview' | 'chat' | 'leads' | 'prospect' | 'agenda' | 'context' | 'company' | 'model' | 'usage' | 'report' | 'accounts' | 'profile' | 'prompts' | 'playbook' | 'followup' | 'roteiro' | 'central'
+// A ÁRVORE e as REGRAS (quem vê o quê, o que está ativo, qual grupo abre) vivem em
+// `lib/navegacao.js`, testadas com `node --test`. Este arquivo é só o desenho — e ele
+// desenha a MESMA árvore em dois lugares: a coluna do desktop e o drawer do mobile.
 
-const NAV = [
-  { href: '/dashboard', label: 'Visão Geral', icon: 'overview' },
-  { href: '/dashboard/conversas', label: 'Conversas', icon: 'chat' },
-  { href: '/dashboard/aquisicao', label: 'Aquisição', icon: 'prospect', minRole: 'admin' },
-  { href: '/dashboard/banco-leads', label: 'Banco de Leads', icon: 'leads', minRole: 'admin' },
-  { href: '/dashboard/central-ligacoes', label: 'Central de Ligações', icon: 'central', minRole: 'admin' },
-  { href: '/dashboard/follow-ups', label: 'Follow-ups', icon: 'followup', minRole: 'admin' },
-  { href: '/dashboard/roteiros', label: 'Roteiros', icon: 'roteiro', minRole: 'admin' },
-  { href: '/dashboard/agenda', label: 'Agenda', icon: 'agenda' },
-  { href: '/dashboard/contextos', label: 'Instância', icon: 'company' },
-  { href: '/dashboard/playbook', label: 'Playbook', icon: 'playbook', minRole: 'admin' },
-  { href: '/dashboard/llm', label: 'Modelo LLM', icon: 'model', minRole: 'admin' },
-  { href: '/dashboard/prompts', label: 'Prompts & Saudações', icon: 'prompts', minRole: 'admin' },
-  { href: '/dashboard/uso', label: 'Uso & Custo', icon: 'usage', minRole: 'admin' },
-  { href: '/dashboard/relatorios', label: 'Relatórios', icon: 'report', minRole: 'admin' },
-  { href: '/dashboard/contas', label: 'Contas', icon: 'accounts', minRole: 'superadmin' },
-  { href: '/dashboard/perfil', label: 'Perfil', icon: 'profile' },
-] satisfies { href: string; label: string; icon: NavIcon; minRole?: Role }[]
+const CHAVE_RETRAIDO = 'dashboard_toolbar_retraido'
+const CHAVE_GRUPOS = 'dashboard_nav_grupos'
 
 export default function Sidebar() {
   const pathname = usePathname()
   const { role } = useSession()
   const [retraido, setRetraido] = useState(true)
-  // Alerta de instância WhatsApp desconectada (bolinha no item "Instância").
+  const [abertos, setAbertos] = useState<string[]>([])
+  const [drawer, setDrawer] = useState(false)
+  // Alerta de instância WhatsApp desconectada.
   const [instAlerta, setInstAlerta] = useState(false)
+
+  const nav = useMemo(() => navegacaoVisivel(role), [role])
+  const ativo = useMemo(() => resolverAtivo(pathname, role), [pathname, role])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    setRetraido(window.localStorage.getItem('dashboard_toolbar_retraido') !== 'false')
+    setRetraido(window.localStorage.getItem(CHAVE_RETRAIDO) !== 'false')
+    setAbertos(normalizarGruposAbertos(lerGruposAbertos(window.localStorage.getItem(CHAVE_GRUPOS))))
   }, [])
+
+  // O grupo da página atual abre sozinho: chegar numa tela escondida dentro de um grupo
+  // fechado e não ver onde você está seria pior que a lista plana de antes.
+  useEffect(() => {
+    setAbertos((prev) => {
+      const proximo = normalizarGruposAbertos(prev, ativo.grupoId)
+      return proximo.length === prev.length && proximo.every((g, i) => g === prev[i]) ? prev : proximo
+    })
+  }, [ativo.grupoId])
 
   useEffect(() => {
     const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
@@ -53,98 +58,317 @@ export default function Sidebar() {
     return () => { vivo = false; clearInterval(t) }
   }, [])
 
+  // Navegar fecha o drawer — no mobile ele cobre a tela inteira.
+  useEffect(() => { setDrawer(false) }, [pathname])
+
+  // Identidade estável: o Drawer usa `onFechar` como dependência de efeito. Uma arrow
+  // inline nasceria diferente a cada render e o efeito reexecutaria, roubando o foco
+  // de volta para o botão de fechar no meio do Tab.
+  const fecharDrawer = useCallback(() => setDrawer(false), [])
+
   function alternarToolbar() {
     setRetraido((prev) => {
       const next = !prev
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('dashboard_toolbar_retraido', String(next))
-      }
+      if (typeof window !== 'undefined') window.localStorage.setItem(CHAVE_RETRAIDO, String(next))
       return next
     })
   }
 
+  const alternar = useCallback((id: string) => {
+    setAbertos((prev) => {
+      const next = alternarGrupo(prev, id)
+      if (typeof window !== 'undefined') window.localStorage.setItem(CHAVE_GRUPOS, JSON.stringify(next))
+      return next
+    })
+  }, [])
+
+  // No modo retraído só cabe o ícone: clicar num grupo expande a barra E abre o grupo,
+  // senão o item filho ficaria inalcançável pelo trilho estreito.
+  const abrirGrupo = useCallback((id: string) => {
+    if (retraido) {
+      setRetraido(false)
+      if (typeof window !== 'undefined') window.localStorage.setItem(CHAVE_RETRAIDO, 'false')
+      setAbertos((prev) => {
+        const next = normalizarGruposAbertos(prev, id)
+        if (typeof window !== 'undefined') window.localStorage.setItem(CHAVE_GRUPOS, JSON.stringify(next))
+        return next
+      })
+      return
+    }
+    alternar(id)
+  }, [retraido, alternar])
+
   return (
-    <aside
-      className={`sticky top-0 z-30 min-h-[100dvh] shrink-0 border-r border-[var(--border-soft)] bg-panel/80 backdrop-blur-xl transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-        retraido ? 'w-[76px]' : 'w-64'
-      }`}
-    >
-      <div className="flex min-h-[100dvh] flex-col">
-        <div className={`border-b border-[var(--border-soft)] px-3 py-3 ${retraido ? 'space-y-3' : 'space-y-4'}`}>
-          <div className={`flex items-center ${retraido ? 'justify-center' : 'justify-between gap-3'}`}>
-            {!retraido && (
-              <div className="flex min-w-0 items-center gap-2.5">
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-neon-cyan/40 bg-neon-cyan/15 text-xs font-bold text-neon-cyan shadow-glow-cyan">
-                  AV
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate font-display text-sm font-semibold tracking-tight text-hi">Atendimento-Views</p>
-                  <p className="truncate text-[11px] font-medium uppercase tracking-[0.18em] text-neon-cyan/70">Command Deck</p>
+    <>
+      <BarraMobile aberto={drawer} onAbrir={() => setDrawer(true)} alerta={instAlerta} />
+
+      <aside
+        className={`sticky top-0 z-30 hidden min-h-[100dvh] shrink-0 border-r border-[var(--border-soft)] bg-panel/80 backdrop-blur-xl transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] md:block ${
+          retraido ? 'w-[76px]' : 'w-64'
+        }`}
+      >
+        <div className="flex min-h-[100dvh] flex-col">
+          <div className={`border-b border-[var(--border-soft)] px-3 py-3 ${retraido ? 'space-y-3' : 'space-y-4'}`}>
+            <div className={`flex items-center ${retraido ? 'justify-center' : 'justify-between gap-3'}`}>
+              {!retraido && <Marca />}
+              <button
+                type="button"
+                onClick={alternarToolbar}
+                aria-label={retraido ? 'Expandir toolbar' : 'Retrair toolbar'}
+                title={retraido ? 'Expandir toolbar' : 'Retrair toolbar'}
+                className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/5 text-mid transition hover:border-neon-cyan/40 hover:text-neon-cyan active:scale-[0.98]"
+              >
+                <ChevronIcon className={`h-4 w-4 transition-transform duration-300 ${retraido ? 'rotate-180' : ''}`} />
+              </button>
+            </div>
+          </div>
+
+          <nav className="flex-1 space-y-1.5 overflow-y-auto px-3 py-4" aria-label="Navegação principal">
+            <Arvore
+              nav={nav}
+              ativo={ativo}
+              retraido={retraido}
+              abertos={abertos}
+              onGrupo={abrirGrupo}
+              instAlerta={instAlerta}
+            />
+          </nav>
+
+          <div className="border-t border-[var(--border-soft)] px-3 py-3">
+            <div className={`rounded-xl border border-white/10 bg-white/5 text-mid ${retraido ? 'grid h-11 place-items-center' : 'px-3 py-2'}`}>
+              {retraido ? (
+                <span className="h-2 w-2 rounded-full bg-neon-lime shadow-glow-lime animate-pulse-glow" aria-label="Online" title="Online" />
+              ) : (
+                <div className="flex items-center gap-2 text-xs font-medium">
+                  <span className="h-2 w-2 rounded-full bg-neon-lime shadow-glow-lime animate-pulse-glow" />
+                  <span>Online</span>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <Drawer aberto={drawer} onFechar={fecharDrawer}>
+        <nav className="flex-1 space-y-1.5 overflow-y-auto px-3 py-4" aria-label="Navegação principal">
+          <Arvore
+            nav={nav}
+            ativo={ativo}
+            retraido={false}
+            abertos={abertos}
+            onGrupo={alternar}
+            instAlerta={instAlerta}
+          />
+        </nav>
+      </Drawer>
+    </>
+  )
+}
+
+function Marca() {
+  return (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-neon-cyan/40 bg-neon-cyan/15 text-xs font-bold text-neon-cyan shadow-glow-cyan">
+        AV
+      </span>
+      <div className="min-w-0">
+        <p className="truncate font-display text-sm font-semibold tracking-tight text-hi">Atendimento-Views</p>
+        <p className="truncate text-[11px] font-medium uppercase tracking-[0.18em] text-neon-cyan/70">Command Deck</p>
+      </div>
+    </div>
+  )
+}
+
+/** Barra superior do mobile: é ela que abre o drawer. Some a partir de `md`. */
+function BarraMobile({ aberto, onAbrir, alerta }: { aberto: boolean; onAbrir: () => void; alerta: boolean }) {
+  return (
+    <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-[var(--border-soft)] bg-panel/90 px-4 py-2.5 backdrop-blur-xl md:hidden">
+      <button
+        type="button"
+        onClick={onAbrir}
+        aria-label="Abrir navegação"
+        aria-expanded={aberto}
+        className="relative grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/5 text-mid transition hover:border-neon-cyan/40 hover:text-neon-cyan active:scale-[0.98]"
+      >
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="h-5 w-5">
+          <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+        {alerta && <Alerta titulo="Instância WhatsApp desconectada" />}
+      </button>
+      <Marca />
+    </div>
+  )
+}
+
+/**
+ * Drawer do mobile: overlay, trava de rolagem, fecha no Escape e prende o foco enquanto
+ * está aberto (Tab não escapa para a página atrás, que continua visível sob o overlay).
+ */
+function Drawer({ aberto, onFechar, children }: { aberto: boolean; onFechar: () => void; children: React.ReactNode }) {
+  const painel = useRef<HTMLDivElement>(null)
+  const fechar = useRef<HTMLButtonElement>(null)
+
+  // Foco e trava de rolagem dependem SÓ de abrir/fechar — nunca de um re-render.
+  useEffect(() => {
+    if (!aberto) return
+    const anterior = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    fechar.current?.focus()
+    return () => { document.body.style.overflow = anterior }
+  }, [aberto])
+
+  useEffect(() => {
+    if (!aberto) return
+    const aoTeclar = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onFechar(); return }
+      if (e.key !== 'Tab' || !painel.current) return
+      const focaveis = painel.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled])')
+      if (!focaveis.length) return
+      const primeiro = focaveis[0]
+      const ultimo = focaveis[focaveis.length - 1]
+      if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primeiro.focus() }
+      else if (e.shiftKey && document.activeElement === primeiro) { e.preventDefault(); ultimo.focus() }
+    }
+    document.addEventListener('keydown', aoTeclar)
+    return () => document.removeEventListener('keydown', aoTeclar)
+  }, [aberto, onFechar])
+
+  if (!aberto) return null
+
+  return (
+    <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Navegação">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onFechar} aria-hidden="true" />
+      <div
+        ref={painel}
+        className="absolute inset-y-0 left-0 flex w-[min(18rem,85vw)] flex-col border-r border-[var(--border-soft)] bg-panel shadow-2xl"
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border-soft)] px-3 py-3">
+          <Marca />
+          <button
+            ref={fechar}
+            type="button"
+            onClick={onFechar}
+            aria-label="Fechar navegação"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/5 text-mid transition hover:border-neon-cyan/40 hover:text-neon-cyan active:scale-[0.98]"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="h-4 w-4">
+              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+type ArvoreProps = {
+  nav: NavNo[]
+  ativo: Ativo
+  retraido: boolean
+  abertos: string[]
+  onGrupo: (id: string) => void
+  instAlerta: boolean
+}
+
+function Arvore({ nav, ativo, retraido, abertos, onGrupo, instAlerta }: ArvoreProps) {
+  return (
+    <>
+      {nav.map((no) => {
+        if (no.tipo === 'item') {
+          return <ItemLink key={no.href} item={no} ativo={ativo.href === no.href} retraido={retraido} instAlerta={instAlerta} />
+        }
+        const aberto = abertos.includes(no.id)
+        const temAtivo = ativo.grupoId === no.id
+        // O alerta de desconexão sobe para o cabeçalho quando o filho está escondido —
+        // a reorganização não pode apagar um aviso operacional que existe hoje.
+        const alertaNoGrupo = instAlerta && (retraido || !aberto) && no.itens.some((i) => i.href === '/dashboard/contextos')
+        return (
+          <div key={no.id}>
             <button
               type="button"
-              onClick={alternarToolbar}
-              aria-label={retraido ? 'Expandir toolbar' : 'Retrair toolbar'}
-              title={retraido ? 'Expandir toolbar' : 'Retrair toolbar'}
-              className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/5 text-mid transition hover:border-neon-cyan/40 hover:text-neon-cyan active:scale-[0.98]"
+              onClick={() => onGrupo(no.id)}
+              aria-expanded={retraido ? false : aberto}
+              title={no.label}
+              className={`group relative flex h-11 w-full items-center rounded-xl text-sm font-medium transition duration-200 active:scale-[0.98] ${
+                retraido ? 'justify-center px-0' : 'gap-3 px-3'
+              } ${
+                temAtivo
+                  ? 'border border-neon-cyan/25 bg-white/5 text-hi'
+                  : 'border border-transparent text-mid hover:bg-white/5 hover:text-hi'
+              }`}
             >
-              <ChevronIcon className={`h-4 w-4 transition-transform duration-300 ${retraido ? 'rotate-180' : ''}`} />
+              {temAtivo && !aberto && <span className="absolute left-0 top-1/2 h-6 -translate-y-1/2 rounded-r bg-neon-cyan/60" style={{ width: 3 }} />}
+              {alertaNoGrupo && <Alerta titulo="Instância WhatsApp desconectada — abra Configurações › Instâncias" />}
+              <NavGlyph name={no.icon} className="h-5 w-5 shrink-0" />
+              {!retraido && (
+                <>
+                  <span className="flex-1 truncate text-left">{no.label}</span>
+                  <ChevronIcon className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${aberto ? '-rotate-90' : 'rotate-180'}`} />
+                </>
+              )}
+              {retraido && <Dica>{no.label}</Dica>}
             </button>
-          </div>
-        </div>
 
-        <nav className="flex-1 space-y-1.5 px-3 py-4" aria-label="Navegação principal">
-          {NAV.filter((item) => !item.minRole || podePapel(role, item.minRole)).map(({ href, label, icon }) => {
-            const active = href === '/dashboard' ? pathname === href : pathname.startsWith(href)
-            return (
-              <Link
-                key={href}
-                href={href}
-                title={label}
-                aria-label={label}
-                className={`group relative flex h-11 items-center rounded-xl text-sm font-medium transition duration-200 active:scale-[0.98] ${
-                  retraido ? 'justify-center px-0' : 'gap-3 px-3'
-                } ${
-                  active
-                    ? 'border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan shadow-glow-cyan'
-                    : 'border border-transparent text-mid hover:bg-white/5 hover:text-hi'
-                }`}
-              >
-                {active && <span className="absolute left-0 top-1/2 h-6 -translate-y-1/2 rounded-r bg-neon-cyan" style={{ width: 3, boxShadow: '0 0 10px var(--neon-cyan)' }} />}
-                {href === '/dashboard/contextos' && instAlerta && (
-                  <span className="absolute right-2 top-1.5 flex h-2.5 w-2.5" title="Instância WhatsApp desconectada — clique para reconectar">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-70" />
-                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
-                  </span>
-                )}
-                <NavGlyph name={icon} className="h-5 w-5 shrink-0" />
-                {!retraido && <span className="truncate">{label}</span>}
-                {retraido && (
-                  <span className="glass pointer-events-none absolute left-[58px] top-1/2 z-30 -translate-y-1/2 translate-x-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-hi opacity-0 shadow-glow-soft transition group-hover:translate-x-0 group-hover:opacity-100">
-                    {label}
-                  </span>
-                )}
-              </Link>
-            )
-          })}
-        </nav>
-
-        <div className="border-t border-[var(--border-soft)] px-3 py-3">
-          <div className={`rounded-xl border border-white/10 bg-white/5 text-mid ${retraido ? 'grid h-11 place-items-center' : 'px-3 py-2'}`}>
-            {retraido ? (
-              <span className="h-2 w-2 rounded-full bg-neon-lime shadow-glow-lime animate-pulse-glow" aria-label="Online" title="Online" />
-            ) : (
-              <div className="flex items-center gap-2 text-xs font-medium">
-                <span className="h-2 w-2 rounded-full bg-neon-lime shadow-glow-lime animate-pulse-glow" />
-                <span>Online</span>
-              </div>
+            {!retraido && aberto && (
+              <ul className="relative mt-1 space-y-1 pl-5 before:absolute before:bottom-2 before:left-[22px] before:top-1 before:w-px before:bg-white/10">
+                {no.itens.map((item) => (
+                  <li key={item.href}>
+                    <ItemLink item={item} ativo={ativo.href === item.href} retraido={false} instAlerta={instAlerta} filho />
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
-        </div>
-      </div>
-    </aside>
+        )
+      })}
+    </>
+  )
+}
+
+function ItemLink({ item, ativo, retraido, instAlerta, filho = false }: {
+  item: NavItem; ativo: boolean; retraido: boolean; instAlerta: boolean; filho?: boolean
+}) {
+  return (
+    <Link
+      href={item.href}
+      title={item.label}
+      aria-label={item.label}
+      aria-current={ativo ? 'page' : undefined}
+      className={`group relative flex items-center rounded-xl text-sm font-medium transition duration-200 active:scale-[0.98] ${
+        filho ? 'h-10' : 'h-11'
+      } ${retraido ? 'justify-center px-0' : 'gap-3 px-3'} ${
+        ativo
+          ? 'border border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan shadow-glow-cyan'
+          : 'border border-transparent text-mid hover:bg-white/5 hover:text-hi'
+      }`}
+    >
+      {ativo && <span className="absolute left-0 top-1/2 h-6 -translate-y-1/2 rounded-r bg-neon-cyan" style={{ width: 3, boxShadow: '0 0 10px var(--neon-cyan)' }} />}
+      {item.href === '/dashboard/contextos' && instAlerta && (
+        <Alerta titulo="Instância WhatsApp desconectada — clique para reconectar" />
+      )}
+      <NavGlyph name={item.icon} className={filho ? 'h-4 w-4 shrink-0' : 'h-5 w-5 shrink-0'} />
+      {!retraido && <span className="truncate">{item.label}</span>}
+      {retraido && <Dica>{item.label}</Dica>}
+    </Link>
+  )
+}
+
+function Alerta({ titulo }: { titulo: string }) {
+  return (
+    <span className="absolute right-2 top-1.5 flex h-2.5 w-2.5" title={titulo}>
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-70" />
+      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+    </span>
+  )
+}
+
+/** Rótulo que aparece no hover quando a coluna está retraída. */
+function Dica({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="glass pointer-events-none absolute left-[58px] top-1/2 z-30 -translate-y-1/2 translate-x-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium text-hi opacity-0 shadow-glow-soft transition group-hover:translate-x-0 group-hover:opacity-100">
+      {children}
+    </span>
   )
 }
 
@@ -263,6 +487,25 @@ function NavGlyph({ name, className }: { name: NavIcon; className?: string }) {
           <path {...common} d="M6 4h9l3 3v13H6z" />
           <path {...common} d="M14 4v4h4" />
           <path {...common} d="M9 12h6M9 15h6M9 18h4" />
+        </>
+      )}
+      {name === 'operacao' && (
+        <>
+          <path {...common} d="M4 5h5v14H4zM10.5 5h4v9h-4zM16 5h4v11h-4z" />
+        </>
+      )}
+      {name === 'settings' && (
+        <>
+          <circle {...common} cx="12" cy="12" r="3.2" />
+          <path {...common} d="M12 3v2.4M12 18.6V21M3 12h2.4M18.6 12H21" />
+          <path {...common} d="M5.6 5.6l1.7 1.7M16.7 16.7l1.7 1.7M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7" />
+        </>
+      )}
+      {name === 'integracoes' && (
+        <>
+          <path {...common} d="M9 3v5M15 3v5" />
+          <path {...common} d="M6.5 8h11v4a5.5 5.5 0 0 1-11 0V8z" />
+          <path {...common} d="M12 17.5V21" />
         </>
       )}
     </svg>

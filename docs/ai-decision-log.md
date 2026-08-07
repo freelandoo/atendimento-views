@@ -11,6 +11,61 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-07 — Navegação do painel por seções (grupos + drawer mobile + Integrações)
+
+Mudança de APRESENTAÇÃO: nenhum arquivo de `backend/`, nenhuma migration, nenhuma env, nenhuma
+rota de API. O menu principal crescia um item por funcionalidade nova e já estava em 16.
+
+- **Dois grupos, não um.** O pedido original previa só "Configurações", mas 7 páginas de hoje
+  (Visão Geral, Aquisição, Banco de Leads, Follow-ups, Roteiros, Agenda, Contas) não cabiam nem
+  nos 5 itens de topo nem na lista de filhos administrativos. Enfiá-las em Configurações
+  contradiria a própria regra de produto ("Configurações = administrativo/parametrização") e
+  omiti-las contradiria o requisito de não esconder funcionalidade. Decisão do Victor:
+  **grupo "Operação"** para as operacionais + **"Configurações"** para as administrativas.
+  Contas ficou em Configurações (é `superadmin`, não operação).
+- **NENHUMA rota foi renomeada.** Só o rótulo muda (`/conversas` → "Central de Mensagens",
+  `/contextos` → "Instâncias", `/llm` → "Modelo e IA", `/uso` → "Uso e custos",
+  `/prompts` → "Prompts e Saudações"). Isso zera a superfície de compatibilidade: nenhum link
+  interno, bookmark, doc ou redirect novo entra na conta. `/dashboard/empresa` segue sendo o
+  único redirect do projeto. O teste `nenhuma rota foi renomeada nesta reorganizacao` congela
+  essa decisão contra regressão.
+- **A árvore e as regras viraram módulo PURO** (`frontend/lib/navegacao.js` + `.d.ts` +
+  `.test.js`, 22 testes). Motivo determinante: a mesma navegação agora é desenhada em DOIS
+  lugares (coluna do desktop e drawer do mobile). Regra em módulo único é o que impede as duas
+  apresentações de divergirem — duplicá-la em dois `.tsx` é exatamente o que o AGENTS.md proíbe.
+- **`podePapel`/`NIVEL_ROLE` MIGRARAM de `lib/useSession.ts` para `lib/navegacao.js`**, com
+  reexport em `useSession.ts` para não quebrar quem já importava de lá (`dashboard/contas`).
+  Motivo: a escada de papéis decide o que aparece no menu e precisa ser testável com
+  `node --test`, que não lê `.ts`. Continua existindo em UM lugar. Endurecimento aproveitado:
+  exigência de papel desconhecida agora **nega** em vez de deixar passar.
+- **Comparação de rota por SEGMENTO**, não por prefixo de texto. O código antigo usava
+  `pathname.startsWith(href)` cru: uma rota futura `/dashboard/conversas-arquivadas` acenderia
+  "Conversas". Agora é `igual || começa com href + '/'`, com `exato: true` em `/dashboard`.
+- **`aliases` por item.** `/dashboard/prospeccao` e `/dashboard/captacao` existem como rota E
+  são renderizadas como abas dentro de `/dashboard/aquisicao`; `/dashboard/instancias/:id/contexto`
+  é filha de Instâncias. Sem alias, entrar por esses caminhos não acenderia item nenhum — e,
+  com grupos, também não abriria o grupo, ficando pior que a lista plana anterior.
+- **O grupo da página atual abre sozinho e nunca pode ser fechado pelo estado salvo**
+  (`normalizarGruposAbertos` força o grupo ativo). Chegar numa tela e não ver onde se está é o
+  principal risco de qualquer agrupamento.
+- **O alerta de instância desconectada SOBE para o cabeçalho do grupo** quando Configurações
+  está fechada (e para o botão de menu no mobile). Sem isso, a reorganização apagaria um aviso
+  operacional que existe hoje — foi o único efeito colateral funcional identificado.
+- **No modo retraído (76px), clicar num grupo expande a barra e abre o grupo** em vez de só
+  alternar: no trilho estreito não há espaço para os filhos, e sem isso eles ficariam
+  inalcançáveis por ali.
+- **`Configurações › Integrações` nasce estática de propósito** — card "Meta Conversions —
+  Em breve", sem `apiFetch`, sem campo de credencial, sem token. O backend multitenant da Meta
+  CAPI está fora de escopo (a tela completa está especificada em
+  `docs/analise-integracao-meta-multitenant.md`, seção 14). O ponto de entrada existe para que a
+  próxima integração entre como card, não como item de menu.
+- **Dívida técnica declarada:** a verificação visual desta entrega foi feita por revisão de
+  código e pelos testes puros — **não houve captura de tela**, pois o MCP de navegador não estava
+  disponível na sessão. O drawer mobile, o comportamento do trilho retraído e o alerta no
+  cabeçalho do grupo precisam de uma passada visual em desktop/tablet/mobile antes do deploy.
+
+---
+
 ## 2026-08-07 — Aquisição em dois modos (Busca / Rotinas): padrão de troca de modo em página
 
 Mudança 100% de apresentação — sem backend, banco, env ou regra de negócio. A tela empilhava

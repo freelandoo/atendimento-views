@@ -6,6 +6,95 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-07 - Inicio de tarefa IA - Reorganizar a navegacao do painel por secoes
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Reorganizar a navegacao lateral para o menu principal nao crescer a cada
+  funcionalidade nova: manter no topo so as areas OPERACIONAIS (Central de Mensagens, Central de
+  Ligacoes, Relatorios), agrupar as paginas administrativas/de parametrizacao sob um item
+  expansivel **Configuracoes** (Instancias, Playbook, Modelo e IA, Prompts, Saudacoes, Uso e
+  custos, Integracoes) e criar o ponto de entrada **Configuracoes > Integracoes**, cujo primeiro
+  item sera **Meta Conversions**. Rotas atuais preservadas ou redirecionadas.
+- **E projeto/tarefa de alteracao?** Sim. Escopo declarado pelo pedido como **Fase 1 de
+  apresentacao**: sem schema, sem migration, sem env nova, sem backend de conversoes, sem Meta
+  CAPI multitenant (tudo isso esta em `out_of_scope`). O pedido exige entregar PRIMEIRO o mapa
+  rotas-atuais x estrutura proposta e **so implementar apos aprovacao explicita**.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/ui-visual-standard.md: Sim (Fase 5 — o pedido mexe em sidebar/menu, caso coberto pela
+  Regra nova 1) | docs/analise-integracao-meta-multitenant.md: Sim (secao 14 ja PROPOE
+  `frontend/app/dashboard/integracoes` admin-only, ainda nao implementada).
+- **Fatos confirmados no codigo (nao sao hipotese):**
+  1. A navegacao inteira e uma constante `NAV` de **16 itens planos** em
+     `frontend/components/Sidebar.tsx:10-27`, filtrada por `minRole` via `podePapel`
+     (`lib/useSession.ts:36`). Nao existe nenhuma nocao de grupo/submenu hoje.
+  2. `dashboard/layout.tsx` renderiza `<Sidebar />` como coluna fixa (`sticky`), retratil
+     (76px/256px, persistida em `localStorage.dashboard_toolbar_retraido`). **Nao existe
+     navegacao mobile separada** — nao ha `md:hidden`/drawer em lugar nenhum do frontend.
+  3. Ja existe precedente de redirect de rota aposentada: `app/dashboard/empresa/page.tsx` faz
+     `redirect('/dashboard/contextos')`. E o padrao a reusar para links antigos.
+  4. `dashboard/aquisicao` **nao e uma pagina propria**: importa e renderiza
+     `ProspeccaoPage` e `CaptacaoPage` em abas. Logo `/dashboard/prospeccao` e
+     `/dashboard/captacao` existem como rota E como componente de outra rota.
+  5. Nao existe nada de "Integracoes" no frontend (grep vazio) — a area nasce nesta tarefa.
+  6. Nao existe pagina "Saudacoes" separada: hoje e uma pagina so,
+     `/dashboard/prompts` = "Prompts & Saudacoes".
+- **Conflito material encontrado (motivo de parar e perguntar antes da Fase 3):** o criterio de
+  aceite diz que o menu principal contem APENAS 5 itens, mas 8 itens de HOJE nao cabem nem nos 5
+  nem na lista de filhos de Configuracoes: **Visao Geral, Aquisicao, Banco de Leads, Follow-ups,
+  Roteiros, Agenda, Contas** (+ `contextos` aparece como "Instancias" nos filhos). Sao paginas
+  OPERACIONAIS, nao administrativas — enfia-las em Configuracoes contraria a propria regra de
+  produto do pedido, e omiti-las contraria o requisito de UX "nao esconder funcionalidades sem
+  rota de acesso clara". Preciso da decisao do Victor antes de desenhar a hierarquia final.
+- **Arquivos que pretendo alterar (se aprovado):** `frontend/components/Sidebar.tsx` (grupos),
+  NOVO `frontend/app/dashboard/integracoes/page.tsx` (ponto de entrada), possivelmente NOVO
+  `frontend/lib/navegacao.js` + `.d.ts` + `.test.js` (logica PURA de arvore/ativo/permissao),
+  e redirects em rotas renomeadas. Documentacao: `docs/ui-visual-standard.md` e
+  `docs/ai-decision-log.md`.
+- **Fora de escopo declarado (pelo proprio pedido):** Meta CAPI multitenant, backend de
+  conversoes, tabelas/migrations, leitura de gastos pela Marketing API. Acrescento: nenhuma
+  regra de permissao e afrouxada — `minRole` por item continua sendo a fonte, e a UI nunca
+  vira o controle de acesso (o backend ja protege as rotas).
+- **Decisoes travadas com o Victor (Fase 2/6, antes de codar):**
+  1. **Dois grupos expansiveis**, nao um. As paginas operacionais viram o grupo **Operacao**
+     (Aquisicao, Banco de Leads, Follow-ups, Roteiros, Agenda); as administrativas viram
+     **Configuracoes** (Instancias, Playbook, Modelo e IA, Prompts e Saudacoes, Uso e custos,
+     Integracoes, Contas). Visao Geral, Central de Mensagens, Central de Ligacoes, Relatorios e
+     Perfil ficam soltos no topo. Isso resolve o conflito do criterio de aceite sem esconder
+     funcionalidade e sem chamar Banco de Leads/Agenda de "configuracao".
+  2. **Navegacao mobile ENTRA nesta fase** (drawer + overlay + hamburguer), assumindo o diff
+     maior. Hoje ela nao existe: e comportamento novo, nao ajuste.
+  3. **Integracoes** nasce como pagina com card "Meta Conversions" em estado *Em breve*,
+     admin-only, **sem nenhuma chamada ao backend e sem campo de credencial**.
+  4. **Nenhuma rota e renomeada.** Muda so o ROTULO (`/conversas` → "Central de Mensagens",
+     `/contextos` → "Instancias", `/llm` → "Modelo e IA", `/uso` → "Uso e custos"). Zero
+     redirect novo, zero link/bookmark/doc quebrado. Consequencia: `/dashboard/empresa`
+     continua sendo o unico redirect do projeto.
+  5. **Saudacoes NAO vira pagina propria** nesta fase — continua em `/dashboard/prompts`
+     ("Prompts e Saudacoes"). Separar e trabalho de conteudo, fora do escopo de navegacao.
+- **Ponto de atencao herdado (achado 2 da lista acima):** o alerta de instancia WhatsApp
+  desconectada hoje e uma bolinha no item "Instancia". Com esse item dentro de um grupo FECHADO,
+  o alerta ficaria invisivel — ele precisa **propagar para o cabecalho do grupo**, senao a
+  reorganizacao esconde um aviso operacional que existe hoje.
+- **Entregue (apos o "pode implementar" do Victor):** NOVO `frontend/lib/navegacao.js` +
+  `.d.ts` + `.test.js` (arvore + regras PURAS, 22 testes), `frontend/components/Sidebar.tsx`
+  reescrito (grupos expansiveis + barra e drawer do mobile), `frontend/app/dashboard/layout.tsx`
+  (eixo vertical abaixo de `md`), NOVO `frontend/app/dashboard/integracoes/page.tsx` (estatica),
+  `frontend/lib/useSession.ts` (reexporta `podePapel`/`NIVEL_ROLE`, que migraram para o modulo
+  puro). Docs: `ui-visual-standard.md` (1a divergencia registrada do projeto) e
+  `ai-decision-log.md`.
+- **Validacao executada:** `npm test` frontend 128/128 (106 antes + 22 novos), `npm test`
+  backend 1241/1241 (nenhum arquivo de backend tocado), `npm run typecheck` frontend limpo,
+  e as rotas `/dashboard`, `/dashboard/integracoes`, `/dashboard/conversas` e `/dashboard/uso`
+  compilando 200 no `next dev`.
+- **`next build` NAO foi rodado de proposito:** havia um `next dev` ativo na maquina e dois
+  processos sobre o mesmo `.next` corrompem o cache (problema ja conhecido neste ambiente).
+- **Pendencia declarada:** **verificacao visual nao realizada** — o MCP de navegador nao estava
+  disponivel na sessao, entao nao houve captura de tela. Falta uma passada visual em
+  desktop/tablet/mobile no drawer, no trilho retraido e no alerta de instancia no cabecalho do
+  grupo antes do deploy.
+
+---
+
 ## 2026-08-07 - Inicio de tarefa IA - Aquisicao em dois modos: Busca e Rotinas
 
 - **IA/Ferramenta:** Claude Code (Opus 5)

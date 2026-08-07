@@ -3,10 +3,15 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiFetch } from '@/lib/api'
 
-export type Role = 'user' | 'admin' | 'superadmin'
-export type SessionUser = { id: string; email: string; nome: string; role: Role }
+// A escada de papéis vive em `lib/navegacao.js` (módulo puro, testado com `node --test`),
+// porque é lá que ela decide o que aparece no menu. Aqui só reexportamos para não quebrar
+// quem já importava `podePapel`/`Role` daqui — a regra continua existindo em UM lugar.
+export type { Role } from '@/lib/navegacao'
+export { NIVEL_ROLE, podePapel } from '@/lib/navegacao'
 
-export const NIVEL_ROLE: Record<Role, number> = { user: 1, admin: 2, superadmin: 3 }
+import type { Role } from '@/lib/navegacao'
+
+export type SessionUser = { id: string; email: string; nome: string; role: Role }
 
 // Hook de sessão: resolve o usuário logado via /api/auth/me.
 // Por padrão redireciona para /login se não houver token ou a sessão for inválida.
@@ -31,8 +36,4 @@ export function useSession(redirectOnFail = true) {
   }, [router, redirectOnFail])
 
   return { usuario, role: usuario?.role, loading }
-}
-
-export function podePapel(role: Role | undefined, minimo: Role): boolean {
-  return NIVEL_ROLE[role ?? 'user'] >= NIVEL_ROLE[minimo]
 }
