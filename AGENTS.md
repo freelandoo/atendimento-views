@@ -249,19 +249,27 @@
   API: `classificarUrl(url)`, `classificarMelhorLink([...])`, `classificarLead(lead)`,
   `temSiteProprio(lead)`, `situacaoSiteDoLead(lead)`.
   Categorias: `site_proprio | rede_social | agregador | perfil_ou_diretorio | desconhecido | sem_link`.
-  `desconhecido` = encurtador ou subdomínio de construtor (`*.wixsite.com`, `*.blogspot.com`) —
-  vira "Verificar link", **nunca** é promovido a site próprio.
+  `desconhecido` = encurtador ou subdomínio de construtor (`*.wixsite.com`, `*.blogspot.com`).
+  **Decisão do operador (2026-08-07): link duvidoso conta como COM site** — `desconhecido`
+  cai em `situacao_site='tem_site'`. Na dúvida o lead **não** entra na lista de "sem site",
+  para ninguém ser abordado dizendo que não tem site quando talvez tenha; o custo aceito é o
+  inverso (um lead sem site pode ficar de fora). A evidência crua não se perde:
+  `classificacao_url` continua `'desconhecido'` e o rótulo do link segue "Link a verificar",
+  então dá para revisar e reverter — é uma linha em `classificarLead`.
 - **PROIBIDO** reintroduzir `!!(lead.site || lead.tem_site)`: foi essa equivalência, repetida em
   7 pontos, que fez o sistema inteiro chamar Instagram de site. Todo produtor e consumidor chama o
   classificador.
 - **Contrato de dados** (`prospectador.prospects`, migration `056_site_classificacao.sql`,
-  aditiva): `site` = **só** site próprio; `link_original` = link cru preservado para auditoria
-  (nunca apagado); `classificacao_url` = categoria (`CHECK` fechado; `NULL` = ainda não
+  aditiva): `site` = **só** site próprio confirmado; `link_original` = link cru preservado para
+  auditoria (nunca apagado); `classificacao_url` = categoria (`CHECK` fechado; `NULL` = ainda não
   classificado, ≠ `'desconhecido'`). `tem_site` é **cache** — a autoridade é a função na LEITURA.
+  **`site` e `tem_site` deixaram de andar juntos**: link duvidoso dá `tem_site=true` com
+  `site=NULL` (o link fica em `link_original`). Quem decide o que entra em `site` é a
+  CLASSIFICAÇÃO (`=== 'site_proprio'`), nunca a flag.
 - **Situação em 3 estados** (`situacao_site`, usada pela fila e pelas telas): `tem_site` (site
-  próprio) · `sem_site` (ficha do Maps lida sem site **ou** único link é social/agregador/perfil —
-  ganha o bônus de 40 pts em `ligacao-prioridade.js`) · `nao_identificado` (ninguém verificou, ou
-  link a revisar — 15 pts).
+  próprio **ou** link duvidoso) · `sem_site` (ficha do Maps lida sem site **ou** único link é
+  social/agregador/perfil — ganha o bônus de 40 pts em `ligacao-prioridade.js`) ·
+  `nao_identificado` (ninguém verificou: sem link algum e sem ficha do Maps — 15 pts).
 - **Correção histórica:** `npm run reclassificar:sites` **simula** (padrão, não grava);
   `npm run reclassificar:sites -- --aplicar` grava. Flags: `--lote=N`, `--empresa=<uuid>`,
   `--tudo`. Idempotente, em lotes (keyset), **sem chamada externa ou paga**, com relatório de

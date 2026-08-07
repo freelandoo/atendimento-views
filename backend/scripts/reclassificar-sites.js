@@ -72,7 +72,11 @@ function alvoDaLinha(row) {
   const linkOriginal = row.link_original || row.site || url.link_original || null
   return {
     tem_site: url.tem_site,
-    site: url.tem_site ? (row.site || url.site || null) : null,
+    // A coluna `site` guarda SO' site proprio confirmado — a chave e' a CLASSIFICACAO, nao
+    // `tem_site`. Desde que link duvidoso ('desconhecido') passou a contar como COM site,
+    // os dois deixaram de andar juntos: usar `tem_site` aqui gravaria um bit.ly em `site` e
+    // quebraria o contrato. O link duvidoso vive em `link_original`.
+    site: url.classificacao === 'site_proprio' ? (row.site || url.site || null) : null,
     link_original: linkOriginal,
     classificacao_url: url.classificacao,
   }

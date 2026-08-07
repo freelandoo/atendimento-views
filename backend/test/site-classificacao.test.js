@@ -208,9 +208,19 @@ test('ficha do Maps lida e sem site => sem site confirmado', () => {
   assert.equal(situacaoSiteDoLead({ place_id: 'ChIJ_x', tem_site: false, site: null }), 'sem_site')
 })
 
-test('link a verificar nao vira site proprio nem sem site', () => {
-  assert.equal(situacaoSiteDoLead({ site: 'https://lojax.wixsite.com/x', place_id: 'ChIJ_x' }), 'nao_identificado')
-  assert.equal(temSiteProprio({ site: 'https://lojax.wixsite.com/x' }), false)
+// DECISAO DO OPERADOR (2026-08-07): link duvidoso conta como COM site. A leitura e'
+// conservadora do lado da campanha — na duvida o lead nao entra na lista de "sem site",
+// para ninguem ser abordado dizendo que nao tem site quando talvez tenha.
+test('link a verificar conta como com site, nunca como sem site', () => {
+  assert.equal(situacaoSiteDoLead({ site: 'https://lojax.wixsite.com/x', place_id: 'ChIJ_x' }), 'tem_site')
+  assert.equal(temSiteProprio({ site: 'https://lojax.wixsite.com/x' }), true)
+  // o que importa para a campanha: ele NAO cai no balde de "sem site"
+  assert.notEqual(situacaoSiteDoLead({ site: 'https://bit.ly/3x', place_id: 'ChIJ_x' }), 'sem_site')
+})
+
+// `nao_identificado` continua existindo — so' deixou de ser o destino do link duvidoso.
+test('nao_identificado sobra para quem nao tem link nem ficha do Maps', () => {
+  assert.equal(situacaoSiteDoLead({ site: null, place_id: null }), 'nao_identificado')
 })
 
 test('link_original preservado ainda classifica o lead (dado historico)', () => {
@@ -224,7 +234,10 @@ test('link_original preservado ainda classifica o lead (dado historico)', () => 
 test('rotulos da tela de atendimento nao chamam rede social de site', () => {
   assert.equal(classificarLead({ site: 'https://lojax.com.br' }).situacao_label, 'Tem site proprio')
   assert.equal(classificarLead({ site: 'https://instagram.com/x', place_id: 'p' }).situacao_label, 'Sem site proprio')
-  assert.equal(classificarLead({ site: 'https://bit.ly/x' }).situacao_label, 'Verificar link')
+  // Link duvidoso conta como com site (decisao do operador), mas o rotulo do LINK segue
+  // 'Link a verificar' — o operador continua vendo que ninguem abriu aquela URL.
+  assert.equal(classificarLead({ site: 'https://bit.ly/x' }).situacao_label, 'Tem site proprio')
+  assert.equal(classificarLead({ site: 'https://bit.ly/x' }).classificacao, 'desconhecido')
 })
 
 test('classificarLead e idempotente e nao lanca com entrada suja', () => {

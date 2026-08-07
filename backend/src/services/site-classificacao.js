@@ -283,7 +283,15 @@ function classificarMelhorLink(links = []) {
  *                         link do lead e' rede social / agregador / perfil (decisao do
  *                         operador: link social so' conta como SEM site), ou (b) a ficha do
  *                         Maps foi lida (`place_id`) e nao havia site.
- *   - nao_identificado -> ninguem verificou, ou o link precisa de revisao humana.
+ *   - nao_identificado -> ninguem verificou (lead sem link algum e sem ficha do Maps).
+ *
+ * DECISAO DO OPERADOR (2026-08-07): link DUVIDOSO conta como COM site.
+ * `desconhecido` (encurtador, subdominio de construtor) cai em `tem_site`, nao em
+ * `nao_identificado`. A leitura e' conservadora do lado da campanha: na duvida, o lead NAO
+ * entra na lista de "sem site" e ninguem e' abordado dizendo que nao tem site quando talvez
+ * tenha. O custo e' o oposto — um lead que de fato nao tem site pode ficar de fora.
+ * A evidencia crua nao se perde: `classificacao_url` continua 'desconhecido' e o rotulo do
+ * link segue "verificar", entao da' para revisar e reverter quando quiser.
  *
  * @param {object} lead linha de prospectador.prospects (ou payload equivalente).
  */
@@ -294,7 +302,7 @@ function classificarLead(lead = {}) {
   let situacao
   if (cls.classificacao === 'site_proprio') situacao = 'tem_site'
   else if (cls.classificacao === 'rede_social' || cls.classificacao === 'agregador' || cls.classificacao === 'perfil_ou_diretorio') situacao = 'sem_site'
-  else if (cls.classificacao === 'desconhecido') situacao = 'nao_identificado'
+  else if (cls.classificacao === 'desconhecido') situacao = 'tem_site'
   else if (lead.tem_site === true) situacao = 'tem_site'      // flag sem URL: respeita o dado existente
   else if (fichaMapsLida) situacao = 'sem_site'               // Maps lido e sem site na ficha
   else situacao = 'nao_identificado'

@@ -61,14 +61,27 @@ test('lead com Linktree na bio: vira sem site sem perder a bio', () => {
   assert.equal(alvo.classificacao_url, 'agregador')
 })
 
-test('link duvidoso vira desconhecido e NUNCA e promovido a site proprio', () => {
+// DECISAO DO OPERADOR (2026-08-07): na duvida, conta como COM site — o lead fica de fora
+// da campanha de "sem site". O que NAO pode acontecer e' o link duvidoso virar `site`:
+// essa coluna e' o contrato de "site proprio confirmado" e alimenta o resto do sistema.
+test('link duvidoso conta como com site, mas nunca ocupa a coluna `site`', () => {
   for (const site of ['https://bit.ly/3x', 'https://lojax.wixsite.com/x', 'https://example.com']) {
     const alvo = alvoDaLinha({ site, tem_site: true, place_id: 'ChIJ_x' })
     assert.equal(alvo.classificacao_url, 'desconhecido', site)
-    assert.equal(alvo.tem_site, false, site)
-    assert.equal(alvo.site, null, site)
+    assert.equal(alvo.tem_site, true, site)
+    assert.equal(alvo.site, null, `${site}: link duvidoso nao e site proprio confirmado`)
     assert.equal(alvo.link_original, site, 'link duvidoso tambem e preservado')
   }
+})
+
+// A evidencia crua tem de sobreviver, senao nao da' para revisar nem reverter a decisao.
+test('link duvidoso continua distinguivel de site proprio de verdade', () => {
+  const duvidoso = alvoDaLinha({ site: 'https://bit.ly/3x', tem_site: false, place_id: 'ChIJ_x' })
+  const real = alvoDaLinha({ site: 'https://padariadobairro.com.br', tem_site: false, place_id: 'ChIJ_x' })
+  assert.equal(duvidoso.tem_site, real.tem_site, 'ambos contam como com site')
+  assert.notEqual(duvidoso.classificacao_url, real.classificacao_url, 'mas a origem do veredito difere')
+  assert.equal(duvidoso.site, null)
+  assert.equal(real.site, 'https://padariadobairro.com.br')
 })
 
 test('lead sem link nenhum: registrado como sem_link, sem inventar dado', () => {
