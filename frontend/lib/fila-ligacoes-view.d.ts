@@ -80,3 +80,26 @@ export function opcoesDaFila<T extends FilaLeadFiltravel>(lista: T[]): OpcoesDaF
 export function chipsAtivos(view: Partial<FilaView>): ChipFiltro[]
 export function contarFiltrosAtivos(view: Partial<FilaView>): number
 export function viewsIguais(a: Partial<FilaView>, b: Partial<FilaView>): boolean
+
+export interface PaginaFila<T> {
+  itens: T[]
+  pagina: number
+  totalPaginas: number
+  porPagina: number
+  total: number
+  /** Índice GLOBAL (0-based) do primeiro item da página. */
+  offset: number
+  /** Posição 1-based do primeiro item exibido (0 quando a lista está vazia). */
+  inicio: number
+  /** Posição 1-based do último item exibido. */
+  fim: number
+  temAnterior: boolean
+  temProxima: boolean
+}
+
+export const TAMANHOS_PAGINA: readonly number[]
+export const POR_PAGINA_PADRAO: number
+export function normalizarPorPagina(valor: unknown): number
+export function paginar<T>(lista: T[], pagina: unknown, porPagina: unknown): PaginaFila<T>
+export function resumoPaginacao(pg: { total: number; inicio: number; fim: number } | null | undefined): string
+export function mostrarPaginacao(total: unknown, porPagina: unknown): boolean

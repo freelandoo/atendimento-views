@@ -16,7 +16,8 @@ import {
   EMAIL_OPCOES, REDES_OPCOES, RECENCIA_OPCOES,
   normalizarView, limparFiltros, filaPadrao, limparCampo, filtrarFila, opcoesDaFila,
   chipsAtivos, contarFiltrosAtivos, viewsIguais,
-  type FilaView, type ChipFiltro, type OpcoesDaFila,
+  TAMANHOS_PAGINA, POR_PAGINA_PADRAO, normalizarPorPagina, paginar, resumoPaginacao, mostrarPaginacao,
+  type FilaView, type ChipFiltro, type OpcoesDaFila, type PaginaFila,
 } from '@/lib/fila-ligacoes-view'
 import { msgErro } from '@/lib/erro-msg'
 
@@ -177,6 +178,9 @@ const SITE_SELO: Record<string, { txt: string; cls: string }> = {
 // v2: a view salva pela versão anterior tinha `modo` (extinto) e `tentativas: 'todas'`, que
 // sobreviveria à normalização — o operador antigo não veria a fila padrão "não iniciados".
 const CHAVE_VIEW = 'filaLigacoesView.v2'
+// Tamanho de página fica FORA da view: não é filtro (não vira chip nem conta como filtro ativo),
+// mas continua sendo preferência do operador — por isso, chave própria.
+const CHAVE_POR_PAGINA = 'filaLigacoesPorPagina.v1'
 
 // Círculo de pontuação da coluna Prioridade: só o círculo fica na tabela. A explicação é um
 // tooltip FLUTUANTE renderizado em portal no <body>, posicionado a partir do retângulo do
@@ -530,6 +534,48 @@ function FiltrosFila({ ancora, viewAplicada, fila, opcoes, campanhaNome, onAplic
   return createPortal(corpo, document.body)
 }
 
+// ── Rodapé de paginação da fila ──────────────────────────────────────────────────────
+// Fila longa cansa e esconde onde o operador está. O recorte é client-side (a fila já veio
+// inteira e ordenada por prioridade) — trocar de página NÃO refaz requisição e não recarrega
+// a tela. Nada de rolagem infinita: o operador precisa saber o tamanho do trabalho.
+// Desktop: resumo + navegação + seletor na mesma linha. Mobile: empilhado, com alvos de toque
+// maiores (min-h 36px) — mesmo padrão discreto do rodapé da aba Acompanhamento.
+function PaginacaoFila({ pg, onPagina, onPorPagina }: {
+  pg: PaginaFila<FilaItem>
+  onPagina: (p: number) => void
+  onPorPagina: (n: number) => void
+}) {
+  return (
+    <div className="flex flex-col gap-2 border-t px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
+      <span className="text-xs text-slate-500">{resumoPaginacao(pg)}</span>
+      <div className="flex flex-wrap items-center justify-between gap-2 sm:justify-end sm:gap-3">
+        <label className="flex items-center gap-1.5 text-xs text-slate-500">
+          <span className="hidden sm:inline">Itens por página</span>
+          <span className="sm:hidden">Por página</span>
+          <select value={pg.porPagina} onChange={(e) => onPorPagina(Number(e.target.value))}
+            aria-label="Itens por página"
+            className="min-h-[36px] rounded-lg border px-2 py-1 text-xs">
+            {TAMANHOS_PAGINA.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+        <div className="flex items-center gap-1">
+          <button onClick={() => onPagina(pg.pagina - 1)} disabled={!pg.temAnterior}
+            className="min-h-[36px] rounded-lg border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-transparent">
+            ◀ <span className="hidden sm:inline">Anterior</span>
+          </button>
+          <span className="px-1 text-xs text-slate-500" aria-live="polite">
+            Página <b className="text-slate-700">{pg.pagina}</b> de {pg.totalPaginas}
+          </span>
+          <button onClick={() => onPagina(pg.pagina + 1)} disabled={!pg.temProxima}
+            className="min-h-[36px] rounded-lg border px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-30 disabled:hover:bg-transparent">
+            <span className="hidden sm:inline">Próxima</span> ▶
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function CentralLigacoesPage() {
   const fb = useFeedback()
   const [campanhas, setCampanhas] = useState<Campanha[]>([])
@@ -550,6 +596,27 @@ export default function CentralLigacoesPage() {
   // cada abertura. Só apresentação — nada aqui muda o que o servidor considera elegível
   // (telefone válido) nem a ordem por prioridade. Padrão: leads ainda não iniciados.
   const [view, setView] = useState<FilaView>(VIEW_PADRAO)
+  // Paginação da FILA (separada da aba Acompanhamento, que tem a sua). Só recorte de
+  // apresentação: não muda filtros, ordem nem faz requisição.
+  const [paginaFila, setPaginaFila] = useState(1)
+  const [porPaginaFila, setPorPaginaFila] = useState(POR_PAGINA_PADRAO)
+  const [trocandoPagina, setTrocandoPagina] = useState(false)
+  // Qualquer mudança no recorte volta para a primeira página: aplicar/remover/limpar filtro,
+  // trocar de campanha ou de aba. Sem isso o operador cairia numa página vazia ou, pior,
+  // no meio de uma lista que ele acabou de redefinir.
+  useEffect(() => { setPaginaFila(1) }, [view, campanhaId, aba])
+  // Pista visual curta na ÁREA DA TABELA. Não há requisição: o conteúdo já trocou, isto é só
+  // a transição que evita o "pisca" de a lista inteira se substituir sem aviso.
+  useEffect(() => {
+    if (!trocandoPagina) return
+    const t = setTimeout(() => setTrocandoPagina(false), 140)
+    return () => clearTimeout(t)
+  }, [trocandoPagina])
+  const irParaPagina = useCallback((p: number) => { setPaginaFila(Math.max(1, p)); setTrocandoPagina(true) }, [])
+  const trocarPorPagina = useCallback((n: number) => {
+    setPorPaginaFila(normalizarPorPagina(n)); setPaginaFila(1); setTrocandoPagina(true)
+    try { localStorage.setItem(CHAVE_POR_PAGINA, String(normalizarPorPagina(n))) } catch { /* quota/privado */ }
+  }, [])
   const [painelFiltros, setPainelFiltros] = useState(false)
   // Âncora do painel flutuante. Fica aqui (topo do componente) porque a aba Fila é renderizada
   // dentro de uma IIFE — não dá para declarar hook lá dentro.
@@ -563,6 +630,10 @@ export default function CentralLigacoesPage() {
       const salvo = localStorage.getItem(CHAVE_VIEW)
       if (salvo) setView(normalizarView(JSON.parse(salvo)))
     } catch { /* view corrompida ⇒ padrão */ }
+    try {
+      const tam = localStorage.getItem(CHAVE_POR_PAGINA)
+      if (tam) setPorPaginaFila(normalizarPorPagina(tam))
+    } catch { /* tamanho corrompido ⇒ padrão */ }
   }, [])
   useEffect(() => {
     try { localStorage.setItem(CHAVE_VIEW, JSON.stringify(view)) } catch { /* quota/privado */ }
@@ -641,7 +712,12 @@ export default function CentralLigacoesPage() {
             const chips: ChipFiltro[] = chipsAtivos(view)
             const nFiltros = contarFiltrosAtivos(view)
             const opcoes = opcoesDaFila(fila)
+            // O próximo a ligar é o 1º do conjunto FILTRADO INTEIRO, não o 1º da página aberta:
+            // a fila é priorizada pelo servidor e navegar não pode trocar quem vem primeiro.
             const proximo = visiveis[0]
+            // Paginar DEPOIS de filtrar: `filtrarFila` preserva a ordem de prioridade, então o
+            // recorte sempre sai do conjunto completo já ordenado.
+            const pg = paginar(visiveis, paginaFila, porPaginaFila)
             return (
               <>
                 <div className="flex flex-wrap items-center gap-2">
@@ -699,7 +775,10 @@ export default function CentralLigacoesPage() {
                     {visiveis.length !== fila.length && (
                       <div className="border-b px-4 py-2 text-xs text-slate-500">{visiveis.length} de {fila.length} lead(s) na fila</div>
                     )}
-                    <table className="w-full text-sm">
+                    {/* Estado de carregamento leve: aria-busy + opacidade SÓ na tabela — a
+                        troca de página não pisca a tela nem mexe na barra de filtros acima. */}
+                    <table aria-busy={trocandoPagina}
+                      className={`w-full text-sm transition-opacity duration-150 ${trocandoPagina ? 'opacity-50' : 'opacity-100'}`}>
                       <thead className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                         <tr>
                           <th className="px-4 py-3">Prioridade</th><th className="px-4 py-3">Lead</th><th className="px-4 py-3">Telefone</th>
@@ -707,8 +786,10 @@ export default function CentralLigacoesPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {visiveis.map((l, i) => (
-                          <tr key={l.campanha_lead_id} className={i === 0 ? 'bg-amber-50/40' : ''}>
+                        {/* Destaque âmbar = o PRÓXIMO da fila (índice global 0), não o 1º da
+                            página atual — senão a 2ª página fingiria ter um "próximo". */}
+                        {pg.itens.map((l, i) => (
+                          <tr key={l.campanha_lead_id} className={pg.offset + i === 0 ? 'bg-amber-50/40' : ''}>
                             <td className="px-4 py-3"><CirculoPrioridade p={l.prioridade} /></td>
                             <td className="px-4 py-3">
                               {/* Só nome + localização. O nicho já é contextualizado pela
@@ -725,6 +806,9 @@ export default function CentralLigacoesPage() {
                         ))}
                       </tbody>
                     </table>
+                    {mostrarPaginacao(pg.total, pg.porPagina) && (
+                      <PaginacaoFila pg={pg} onPagina={irParaPagina} onPorPagina={trocarPorPagina} />
+                    )}
                   </div>
                 )}
               </>

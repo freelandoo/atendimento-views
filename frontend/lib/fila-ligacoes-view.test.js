@@ -5,6 +5,7 @@ const {
   VIEW_NEUTRA, VIEW_PADRAO,
   normalizarView, limparFiltros, filaPadrao, limparCampo, faixaTentativas,
   passaNosFiltros, filtrarFila, opcoesDaFila, chipsAtivos, contarFiltrosAtivos, viewsIguais,
+  TAMANHOS_PAGINA, POR_PAGINA_PADRAO, normalizarPorPagina, paginar, resumoPaginacao, mostrarPaginacao,
 } = require('./fila-ligacoes-view')
 
 const AGORA = Date.parse('2026-08-07T12:00:00Z')
@@ -176,6 +177,92 @@ test('viewsIguais compara o RECORTE, nao a referencia do objeto', () => {
 
 test('a fila padrao NAO e a fila inteira — sao os dois estados de saida do painel', () => {
   assert.equal(viewsIguais(filaPadrao(), limparFiltros()), false)
+})
+
+// --- Paginacao ------------------------------------------------------------------------------
+const listaDe = (n) => Array.from({ length: n }, (_, i) => lead({ campanha_lead_id: `l${i + 1}` }))
+const ids = (arr) => arr.map((l) => l.campanha_lead_id)
+
+test('a pagina padrao mostra os 25 primeiros e o resumo descreve o trecho', () => {
+  assert.equal(POR_PAGINA_PADRAO, 25)
+  assert.deepEqual([...TAMANHOS_PAGINA], [25, 50, 100])
+  const pg = paginar(listaDe(132), 1, POR_PAGINA_PADRAO)
+  assert.equal(pg.itens.length, 25)
+  assert.equal(pg.itens[0].campanha_lead_id, 'l1')
+  assert.equal(pg.totalPaginas, 6)
+  assert.equal(pg.total, 132)
+  assert.equal(resumoPaginacao(pg), 'Mostrando 1–25 de 132 leads')
+  assert.equal(pg.temAnterior, false)
+  assert.equal(pg.temProxima, true)
+})
+
+test('a ultima pagina traz o resto e desabilita "proxima"', () => {
+  const pg = paginar(listaDe(132), 6, 25)
+  assert.equal(pg.itens.length, 7)
+  assert.deepEqual(ids(pg.itens)[0], 'l126')
+  assert.equal(resumoPaginacao(pg), 'Mostrando 126–132 de 132 leads')
+  assert.equal(pg.temProxima, false)
+  assert.equal(pg.temAnterior, true)
+})
+
+test('pagina fora do intervalo e clampada — nunca resulta em tela vazia', () => {
+  assert.equal(paginar(listaDe(30), 99, 25).pagina, 2)
+  assert.equal(paginar(listaDe(30), 0, 25).pagina, 1)
+  assert.equal(paginar(listaDe(30), -3, 25).pagina, 1)
+  assert.equal(paginar(listaDe(30), 'abc', 25).pagina, 1)
+  // Lista encolheu depois de um filtro: cai na ultima pagina existente, com itens.
+  const pg = paginar(listaDe(10), 4, 25)
+  assert.equal(pg.pagina, 1)
+  assert.equal(pg.itens.length, 10)
+})
+
+test('lista vazia: 1 pagina, sem itens, sem navegacao', () => {
+  const pg = paginar([], 3, 25)
+  assert.deepEqual(pg.itens, [])
+  assert.equal(pg.pagina, 1)
+  assert.equal(pg.totalPaginas, 1)
+  assert.equal(pg.inicio, 0)
+  assert.equal(pg.temAnterior, false)
+  assert.equal(pg.temProxima, false)
+  assert.equal(resumoPaginacao(pg), 'Nenhum lead')
+})
+
+test('tamanho de pagina invalido volta ao padrao; 50 e 100 sao aceitos', () => {
+  assert.equal(normalizarPorPagina(50), 50)
+  assert.equal(normalizarPorPagina('100'), 100)
+  assert.equal(normalizarPorPagina(10), POR_PAGINA_PADRAO)
+  assert.equal(normalizarPorPagina(null), POR_PAGINA_PADRAO)
+  assert.equal(normalizarPorPagina('lixo'), POR_PAGINA_PADRAO)
+  assert.equal(paginar(listaDe(132), 2, 50).itens.length, 50)
+  assert.equal(paginar(listaDe(132), 2, 50).offset, 50)
+})
+
+test('paginar preserva a ordem de prioridade e nao reordena nada', () => {
+  const pg = paginar(listaDe(60), 2, 25)
+  assert.deepEqual(ids(pg.itens).slice(0, 3), ['l26', 'l27', 'l28'])
+  assert.equal(pg.offset, 25)
+})
+
+test('o total paginado e o do conjunto FILTRADO, nao o da fila inteira', () => {
+  const lista = [...listaDe(3), lead({ campanha_lead_id: 'x', tentativas: 2 })]
+  const pg = paginar(filtrarFila(lista, VIEW_PADRAO, AGORA), 1, 25)
+  assert.equal(pg.total, 3)
+  assert.equal(resumoPaginacao(pg), 'Mostrando 1–3 de 3 leads')
+})
+
+test('rodape so aparece quando ha mais itens que o limite — ou quando o tamanho nao e o padrao', () => {
+  assert.equal(mostrarPaginacao(10, 25), false)
+  assert.equal(mostrarPaginacao(25, 25), false)
+  assert.equal(mostrarPaginacao(26, 25), true)
+  assert.equal(mostrarPaginacao(0, 25), false)
+  // Sem esta excecao, escolher 100 com 40 leads esconderia o proprio seletor.
+  assert.equal(mostrarPaginacao(40, 100), true)
+})
+
+test('tamanho de pagina NAO e filtro: nao vira chip nem entra na view', () => {
+  assert.equal('porPagina' in VIEW_NEUTRA, false)
+  assert.equal('porPagina' in normalizarView({ porPagina: 50 }), false)
+  assert.equal(contarFiltrosAtivos({ ...VIEW_NEUTRA, porPagina: 100 }), 0)
 })
 
 test('limpar um chip zera so aquele grupo, para o estado neutro', () => {

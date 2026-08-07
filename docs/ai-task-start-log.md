@@ -6,6 +6,101 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-07 - Inicio de tarefa IA - Paginacao da tabela da Fila da Central de Ligacoes
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** A tabela da FILA renderiza todos os leads de uma vez. Adicionar paginacao no
+  RODAPE da tabela (25 por pagina, opcoes 25/50/100), com resumo "Mostrando 1-25 de 132 leads",
+  anterior/proxima, pagina atual, total de paginas e seletor de itens por pagina. Trocar de pagina
+  preserva filtros, ordenacao, campanha e modo da fila; mexer nos filtros volta para a pagina 1;
+  ordenar o conjunto COMPLETO antes de paginar; sem recarregar a pagina; estado de carregamento
+  leve so na area da tabela; botoes desabilitados nos extremos; rodape so aparece quando ha mais
+  itens que o limite. Sem rolagem infinita.
+- **E projeto/tarefa de alteracao?** Sim. Escopo PEQUENO e **100% de apresentacao**: sem schema,
+  sem migration, sem env nova, sem rota nova, **sem chamada nova ao backend**, sem prompt, sem
+  autenticacao. Nenhuma regra de elegibilidade/prioridade muda.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/ui-visual-standard.md: Sim (o padrao reusado e o rodape de paginacao ja existente na aba
+  **Acompanhamento** desta mesma tela, L787-795).
+- **Fatos confirmados no codigo (nao sao hipotese):**
+  1. `page.tsx:640` calcula `visiveis = filtrarFila(fila, view)` e `:710` mapeia `visiveis` INTEIRO
+     no `<tbody>` — nao ha recorte de pagina na aba Fila hoje.
+  2. A fila ja chega ORDENADA por prioridade do servidor (`services/ligacao-prioridade.js`) e
+     `filtrarFila` e um `.filter()` que **preserva a ordem** — logo, paginar depois de filtrar ja
+     satisfaz "ordenar o conjunto completo antes de paginar". Nada e reordenado no cliente.
+  3. Lead sem telefone discavel nao entra na fila (requisito de ENTRADA do backend) — o total
+     paginado ja e' o de elegiveis + filtrados, sem trabalho novo.
+  4. O estado `pagina`/`POR_PAGINA` que existe hoje (`:546-548`) e' **exclusivo da aba
+     Acompanhamento**; reusa-lo na Fila acoplaria as duas listas.
+- **Decisoes (Fase 6/8):**
+  1. Paginacao **client-side**, como os filtros: a fila ja vem inteira (`fila?limit=500`) e o
+     recorte e' de apresentacao. Trocar de pagina **nao faz requisicao**.
+  2. Logica PURA (`paginar`, `resumoPaginacao`, `normalizarPorPagina`, `TAMANHOS_PAGINA`) vai para
+     `frontend/lib/fila-ligacoes-view.js` + `.d.ts` + testes — nenhuma aritmetica de pagina no `.tsx`,
+     mesma convencao dos filtros.
+  3. Tamanho de pagina **nao entra na `FilaView`**: nao e' filtro (nao pode virar chip nem contar
+     em `contarFiltrosAtivos`). Persiste em chave propria do localStorage.
+  4. "Ligar agora" e o destaque ambar continuam apontando para o **1o do conjunto filtrado
+     inteiro**, nao para o 1o da pagina atual — a fila e priorizada, o topo nao muda por navegacao.
+  5. Rodape aparece quando `total > porPagina` **ou** quando o operador escolheu um tamanho
+     diferente do padrao — senao, escolher 100 com 40 leads esconderia o seletor e prenderia a
+     escolha.
+- **Arquivos alterados:** `frontend/lib/fila-ligacoes-view.js` + `.d.ts` + `.test.js`,
+  `frontend/app/dashboard/central-ligacoes/page.tsx`.
+- **Fora de escopo declarado:** backend (nenhum arquivo tocado), banco/migrations, abas
+  Acompanhamento e Funil, tela de atendimento/roteiro/encerramento, Banco de Leads, coleta Bright
+  Data, envio de WhatsApp, variaveis de ambiente.
+- **Proxima etapa:** implementar o diff minimo e validar com `npm test` e `npm run typecheck`
+  (frontend).
+
+---
+
+## 2026-08-07 - Inicio de tarefa IA - Classificacao canonica de SITE PROPRIO x rede social/agregador
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Hoje um link QUALQUER preenchido em `prospectador.prospects.site` faz o
+  lead contar como "tem site". Instagram, Facebook, TikTok, WhatsApp, Google Maps, Linktree e
+  perfis de marketplace/diretorio aparecem como site proprio. Corrigir a CAUSA RAIZ: criar um
+  classificador central e reusavel de URL, fazer TODOS os produtores e consumidores usarem o
+  mesmo resultado canonico, reclassificar os dados historicos sem perder o link original e
+  garantir que novas entradas nao reintroduzam o erro.
+- **E projeto/tarefa de alteracao?** Sim. Escopo MEDIO/GRANDE e **estrutural**: toca regra de
+  negocio compartilhada, schema (2 colunas aditivas), rotina de correcao de dados historicos,
+  backend (produtores + consumidores) e 3 telas. **Nao toca** autenticacao, segredos, prompts de
+  producao, rotas publicas nem coleta paga (Bright Data). Nenhuma env nova.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/project-map.md: Sim | docs/architecture-rules.md: Sim.
+- **Defeito real confirmado no codigo (nao e' hipotese):**
+  1. `src/prospecting.js:1031` — `tem_site: !!place.websiteUri` (qualquer URL do Maps).
+  2. `src/prospecting.js:1065` — `tem_site: !!(pIn.tem_site || pIn.site)` na persistencia.
+  3. `src/services/social-capture.js:284,321` — `site = contato.link_bio || perfil.website` e
+     `tem_site = Boolean(site)`: o **link da bio do Instagram** (tipicamente Linktree/WhatsApp)
+     e' gravado como site proprio. Este e' o produtor mais grave.
+  4. `src/services/ligacao-prioridade.js:95-101` (`situacaoSite`) — `if (site || tem_site === true)
+     return 'tem_site'`: qualquer URL derruba o bonus de 40 pontos da fila de ligacoes.
+  5. `src/services/aquisicao-curadoria-ranking.js:54` — `!!(lead.tem_site || texto(lead.site))`.
+  6. `src/services/lead-score-cadastro.js:29,41-42,53` — 20 pontos de "Tem site" por qualquer URL.
+  7. Frontend: `banco-leads/page.tsx:263,358` e `prospeccao/page.tsx:136,405-407` decidem
+     "tem site" localmente por `site || tem_site` (logica duplicada fora do canonico).
+- **Areas mapeadas (leitura antes de editar):** `src/prospecting.js` (mapearPlace,
+  normalizarProspectParaPersistencia, salvarProspect, normalizarProspectPersistido),
+  `src/services/places-brightdata.js`, `src/services/social-capture.js`,
+  `src/services/ligacao-prioridade.js`, `src/services/aquisicao-curadoria-ranking.js`,
+  `src/services/aquisicao-curadoria.js`, `src/services/lead-score-cadastro.js`,
+  `src/services/followup-call-score.js`, `src/webhook-handler.js`, `src/db/campanhas.js`,
+  `src/routes/api-banco-leads.js`, `sql/init.sql` + `sql/migrations/`,
+  `frontend/app/dashboard/{banco-leads,prospeccao,central-ligacoes}/page.tsx`,
+  `frontend/components/AssistenteOportunidades.tsx`, `frontend/lib/fila-ligacoes-view.js`.
+- **Fora de escopo declarado:** o `tem_site` **conversacional** (o que o LEAD declara no
+  WhatsApp) — `prompts/*.md`, `src/agent.js`, `src/turn-context-reader.js`, `src/core-funnel.js`,
+  `vendas.lead_profiles`. Ali `tem_site` nasce de fala humana, nao de URL; o classificador de URL
+  nao se aplica e mexer nisso alteraria prompt de producao sem necessidade.
+- **Proxima etapa:** Fase 1/2 — apresentar entendimento, impacto e as duas decisoes de
+  arquitetura (onde o canonico e' persistido; como a correcao historica roda) e aguardar
+  confirmacao antes de implementar, conforme CLAUDE.md (schema/banco + mutacao de dados).
+
+---
+
 ## 2026-08-07 - Inicio de tarefa IA - Painel de filtros FLUTUANTE da Central de Ligacoes
 
 - **IA/Ferramenta:** Claude Code (Opus 5)
