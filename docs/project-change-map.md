@@ -396,6 +396,45 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
   o `.next` do `next dev` em uso.
 - Documentos atualizados: `ai-task-start-log.md` e este mapa.
 
+## 2026-08-07 - Central de Ligacoes - Painel de filtros FLUTUANTE (sem migration)
+
+Correcao de UX sobre a entrega imediatamente abaixo. **Somente apresentacao**: nenhum arquivo de
+`backend/` tocado, nenhuma requisicao nova, nenhuma migration/env/rota/permissao criada.
+
+- Area(s) tocada(s): `frontend/app/dashboard/central-ligacoes/page.tsx`,
+  `frontend/lib/fila-ligacoes-view.js` (+ `.d.ts` + `.test.js`).
+- Regras preservadas: elegibilidade (telefone discavel) e ordenacao por prioridade continuam
+  decididas no BACKEND — o front nunca reordena nem inclui quem o servidor excluiu; a semantica
+  dos filtros (`passaNosFiltros`) nao mudou uma linha; chips continuam medidos contra o estado
+  NEUTRO; `filaLigacoesView.v2` mantido (a forma da view nao mudou, so o helper novo).
+- O que mudou:
+  1. **O painel nao ocupa mais espaco no fluxo.** `<FiltrosFila>` renderiza em `createPortal` no
+     `<body>` com `position:fixed` ancorado no `getBoundingClientRect()` do botao "Filtros".
+     **Regra a preservar:** nao voltar a renderizar o painel no fluxo entre os chips e a tabela —
+     era isso que empurrava a fila para baixo ao abrir os filtros.
+  2. **Rascunho x aplicado.** O painel edita uma copia local; so "Aplicar filtros" muda a
+     listagem. **Regra a preservar:** fechar por botao/clique fora/Escape/Cancelar DESCARTA o
+     rascunho e MANTEM o aplicado. O rodape mostra a previa `N de M` do rascunho.
+  3. **"Limpar filtros" restaura a FILA PADRAO** (`filaPadrao()`, nao iniciados), nao o estado
+     neutro. **Regra a preservar:** limpar nunca devolve uma lista sem criterio. A fila inteira
+     (`limparFiltros()`) segue alcancavel de forma explicita: "Ver a fila inteira" no estado
+     vazio e a remocao do chip de tentativas.
+  4. **Ordem da fila** entrou como INDICADOR no grupo Operacao (junto de campanha e telefone).
+     **Regra a preservar:** esses tres nao viram `<select>` — teriam dois donos do mesmo estado.
+  5. **Entrar em ligacao fecha o painel** (`useEffect` em `operando`). **Regra a preservar:**
+     `OperacaoLigacao` e overlay `fixed inset-0 z-50` e o painel e `z-[80]` — sem isso o painel
+     flutua por cima da tela de atendimento e o Escape e disputado pelos dois.
+  6. **Responsivo:** `< 768px` vira drawer inferior com backdrop + `aria-modal` e rolagem
+     interna; desktop tem 620px fixos e **sem** backdrop (a fila fica visivel ao fundo, padrao do
+     `PersonalizarModal` do Banco de Leads).
+  7. Novo helper PURO `viewsIguais(a, b)` em `fila-ligacoes-view.js`. **Regra a preservar:**
+     logica de filtro/comparacao fica no `lib/` testavel, nunca no `.tsx`.
+- Validacao: `npm test` frontend 75/75 (2 testes novos), `npm test` backend 1182/1182 (inalterado),
+  `npm run typecheck` frontend limpo, `next build` OK.
+- Nao validado: verificacao visual em navegador com dados reais (exige backend + banco + login).
+  A conferencia foi por tipos, testes e leitura do layout.
+- Documentos atualizados: `ai-task-start-log.md`, `ai-decision-log.md` e este mapa.
+
 ## 2026-08-07 - Central de Ligacoes - Correcoes de UX/operacao da fila (sem migration)
 
 Ajuste sobre a entrega imediatamente abaixo, apos revisao de UX/operacao.

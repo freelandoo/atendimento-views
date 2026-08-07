@@ -11,6 +11,45 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-07 — Painel de filtros da Central de Ligações vira FLUTUANTE (sem migration)
+
+Correção de UX sobre a entrega anterior do mesmo dia. Alteração **100% de apresentação**: nenhum
+arquivo de `backend/` foi tocado, nenhuma requisição nova, nenhuma regra de elegibilidade ou de
+ordenação da fila mudou (quem entra e a ordem seguem decididos em `services/ligacao-prioridade.js`).
+
+- **O painel saiu do FLUXO e foi para um PORTAL.** A versão anterior renderizava `<FiltrosFila>`
+  entre os chips e a tabela: com 6 grupos e `space-y-5`, abrir os filtros empurrava a fila
+  centenas de pixels para baixo — exatamente quando o operador precisa dela na tela. Agora é
+  `createPortal` no `<body>` com `position:fixed` calculado do `getBoundingClientRect()` do botão
+  "Filtros" (mesma técnica já usada no tooltip da Prioridade nesta tela). Em portal o painel tem
+  **altura zero no fluxo**, então a tabela não muda de altura nem de posição.
+- **Rascunho x aplicado.** O painel edita uma CÓPIA local da view; só "Aplicar filtros" troca o
+  recorte da tela. Mexer nos controles mudaria a listagem a cada tecla, e a fila dançaria embaixo
+  de quem ainda está configurando. O rodapé mostra a **prévia** (`N de M leads`) do rascunho, com
+  aviso "ainda não aplicado" enquanto diverge. Fechar por qualquer via (botão, clique fora,
+  Escape, Cancelar) **descarta o rascunho e preserva o que já estava aplicado**. Como o componente
+  é montado/desmontado no toggle, reabrir sempre parte do aplicado — sem estado obsoleto.
+- **"Limpar filtros" volta à FILA PADRÃO, não ao vazio de critério.** `filaPadrao()` (não
+  iniciados), não `limparFiltros()`. Zerar tudo devolveria ao operador leads que ele já
+  trabalhou — o oposto do que "limpar" significa numa fila de trabalho. `limparFiltros()` (fila
+  inteira) continua existindo como saída EXPLÍCITA no estado vazio ("Ver a fila inteira") e via
+  remoção do chip de tentativas.
+- **Novo helper puro `viewsIguais(a, b)`** em `frontend/lib/fila-ligacoes-view.js`: normaliza os
+  dois lados antes de comparar campo a campo. Serve ao "ainda não aplicado" e a esconder o
+  "restaurar padrão" quando já se está nele. Nenhuma lógica de filtro migrou para o `.tsx`.
+- **Campanha, telefone e ordem seguem INDICADORES, não controles** (decisão anterior mantida, e
+  agora estendida à ordem): a campanha já tem seletor no topo, telefone discável é requisito de
+  ENTRADA garantido no servidor (filtro seria no-op) e a ordem por prioridade é do servidor.
+  Virar `<select>` criaria dois donos para o mesmo estado.
+- **Defeito evitado durante a implementação:** `OperacaoLigacao` é um overlay `fixed inset-0
+  z-50`; um painel `z-[80]` aberto ficaria POR CIMA da tela de atendimento e o Escape seria
+  disputado pelos dois. Entrar em ligação agora fecha o painel.
+- **Responsivo:** abaixo de 768px o painel vira drawer inferior com backdrop e rolagem interna
+  (`aria-modal`); no desktop tem largura fixa de 620px, sem backdrop — a fila continua visível e
+  clicável ao fundo, como no `PersonalizarModal` do Banco de Leads.
+
+---
+
 ## 2026-08-07 — Correções de UX/operação da Central de Ligações (sem migration)
 
 Ajustes sobre a entrega do mesmo dia (logo abaixo), após revisão de UX/operação.

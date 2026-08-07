@@ -218,6 +218,17 @@ function chipsAtivos(view) {
 
 const contarFiltrosAtivos = (view) => chipsAtivos(view).length
 
+/**
+ * Duas views produzem exatamente o mesmo recorte? Usado pelo painel flutuante para saber se
+ * o RASCUNHO ainda nao foi aplicado (o painel so muda a fila no "Aplicar") e para esconder o
+ * "restaurar padrao" quando a fila ja esta no padrao.
+ */
+function viewsIguais(a, b) {
+  const x = normalizarView(a)
+  const y = normalizarView(b)
+  return Object.keys(VIEW_NEUTRA).every((campo) => x[campo] === y[campo])
+}
+
 /** Zera so um grupo de filtros (usado no "x" do chip) — sempre para o estado NEUTRO. */
 function limparCampo(view, campo) {
   const v = normalizarView(view)
@@ -232,5 +243,5 @@ module.exports = {
   TENTATIVAS_OPCOES, PROXIMA_ACAO_OPCOES, EMAIL_OPCOES,
   PRIORIDADE_OPCOES, SITE_OPCOES, REDES_OPCOES, RECENCIA_OPCOES,
   normalizarView, limparFiltros, filaPadrao, limparCampo, faixaTentativas,
-  passaNosFiltros, filtrarFila, opcoesDaFila, chipsAtivos, contarFiltrosAtivos,
+  passaNosFiltros, filtrarFila, opcoesDaFila, chipsAtivos, contarFiltrosAtivos, viewsIguais,
 }

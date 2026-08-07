@@ -15,7 +15,7 @@ import {
   VIEW_PADRAO, SITE_OPCOES, PRIORIDADE_OPCOES, TENTATIVAS_OPCOES, PROXIMA_ACAO_OPCOES,
   EMAIL_OPCOES, REDES_OPCOES, RECENCIA_OPCOES,
   normalizarView, limparFiltros, filaPadrao, limparCampo, filtrarFila, opcoesDaFila,
-  chipsAtivos, contarFiltrosAtivos,
+  chipsAtivos, contarFiltrosAtivos, viewsIguais,
   type FilaView, type ChipFiltro, type OpcoesDaFila,
 } from '@/lib/fila-ligacoes-view'
 import { msgErro } from '@/lib/erro-msg'
@@ -279,6 +279,11 @@ function LeadDetalhes({ l }: { l: FilaItem }) {
 // Painel OPERACIONAL GERAL (não um filtro de site): grupos Operação, Contato, Potencial
 // comercial, Perfil do negócio, Presença digital e Qualidade do dado — mesmo padrão compacto
 // do Banco de Leads. Tudo client-side sobre a fila já carregada; nenhuma requisição nova.
+//
+// Ele é FLUTUANTE (portal no <body> + position:fixed ancorado no botão "Filtros"), e não uma
+// seção no fluxo da página: a versão anterior era renderizada entre os chips e a tabela, então
+// abrir os filtros empurrava a fila centenas de pixels para baixo justamente quando o operador
+// precisava vê-la. Em portal ele tem altura ZERO no fluxo — a tabela não se move.
 function GrupoFiltro({ titulo, children, cols = 3 }: { titulo: string; children: React.ReactNode; cols?: 2 | 3 }) {
   return (
     <section>
@@ -317,85 +322,212 @@ function FaixaNum({ label, min, max, onMin, onMax, step, teto }: {
   )
 }
 
-function FiltrosFila({ view, onChange, onLimpar, opcoes, campanhaNome }: {
-  view: FilaView; onChange: (v: FilaView) => void; onLimpar: () => void
-  opcoes: OpcoesDaFila; campanhaNome: string
+// Indicador de critério FIXO da fila — algo que o operador precisa saber que está valendo,
+// mas que não é controlável aqui (quem decide é o servidor, ou já existe controle em outro
+// lugar). Duplicar esses estados como <select> criaria dois donos para a mesma informação.
+function NotaFixa({ children }: { children: React.ReactNode }) {
+  return <div className="rounded-lg bg-slate-50 px-2.5 py-2 text-[11px] leading-snug text-slate-500">{children}</div>
+}
+
+const LARGURA_PAINEL = 620
+
+// Posição do painel ancorada no botão "Filtros". Recalcula em scroll/resize para a bolha não
+// ficar solta da âncora. Abaixo de 768px vira drawer inferior (largura total, rolagem interna).
+type CaixaPainel = { left: number; top: number; larg: number; maxH: number; compacto: boolean }
+function usePosicaoPainel(ancora: HTMLElement | null): CaixaPainel | null {
+  const [caixa, setCaixa] = useState<CaixaPainel | null>(null)
+  useEffect(() => {
+    // Só troca o estado quando a posição realmente muda: o listener de scroll é `capture`,
+    // então a própria rolagem INTERNA do painel o dispara — sem isso, re-renderizava a cada
+    // tique de rolagem dentro do painel.
+    const guardar = (nova: CaixaPainel) => setCaixa((atual) => (
+      atual && atual.left === nova.left && atual.top === nova.top
+        && atual.larg === nova.larg && atual.maxH === nova.maxH && atual.compacto === nova.compacto
+        ? atual : nova
+    ))
+    const calcular = () => {
+      const compacto = window.innerWidth < 768
+      if (compacto) {
+        guardar({ left: 0, top: 0, larg: window.innerWidth, maxH: Math.round(window.innerHeight * 0.85), compacto })
+        return
+      }
+      const r = ancora?.getBoundingClientRect()
+      const larg = Math.min(LARGURA_PAINEL, window.innerWidth - 16)
+      const left = Math.max(8, Math.min(r ? r.left : 8, window.innerWidth - larg - 8))
+      // Clampa o topo: se o botão sair da tela por rolagem, o painel para na borda em vez de
+      // subir junto e desaparecer.
+      const top = Math.max(8, Math.min(r ? r.bottom + 8 : 88, window.innerHeight - 220))
+      guardar({ left, top, larg, maxH: Math.max(240, window.innerHeight - top - 16), compacto })
+    }
+    calcular()
+    window.addEventListener('resize', calcular)
+    window.addEventListener('scroll', calcular, true)
+    return () => {
+      window.removeEventListener('resize', calcular)
+      window.removeEventListener('scroll', calcular, true)
+    }
+  }, [ancora])
+  return caixa
+}
+
+function FiltrosFila({ ancora, viewAplicada, fila, opcoes, campanhaNome, onAplicar, onFechar }: {
+  ancora: HTMLElement | null
+  viewAplicada: FilaView
+  fila: FilaItem[]
+  opcoes: OpcoesDaFila
+  campanhaNome: string
+  onAplicar: (v: FilaView) => void
+  onFechar: () => void
 }) {
-  const set = (patch: Partial<FilaView>) => onChange({ ...view, ...patch })
+  // RASCUNHO: mexer nos controles não mexe na fila — só "Aplicar filtros" troca a view da tela.
+  // Fechar (botão, clique fora, Escape) descarta o rascunho e mantém o que já estava aplicado.
+  // O componente é montado/desmontado no toggle, então reabrir sempre parte do aplicado.
+  const [rascunho, setRascunho] = useState<FilaView>(viewAplicada)
+  const painelRef = useRef<HTMLDivElement | null>(null)
+  const caixa = usePosicaoPainel(ancora)
+
+  useEffect(() => {
+    const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape') onFechar() }
+    // Clique dentro da âncora é ignorado aqui: o próprio botão faz o toggle, e tratar os dois
+    // fecharia e reabriria no mesmo clique.
+    const fora = (e: MouseEvent) => {
+      const alvo = e.target as Node
+      if (painelRef.current?.contains(alvo) || ancora?.contains(alvo)) return
+      onFechar()
+    }
+    window.addEventListener('keydown', tecla)
+    window.addEventListener('mousedown', fora)
+    return () => {
+      window.removeEventListener('keydown', tecla)
+      window.removeEventListener('mousedown', fora)
+    }
+  }, [ancora, onFechar])
+
+  if (typeof document === 'undefined' || !caixa) return null
+
+  const set = (patch: Partial<FilaView>) => setRascunho((v) => ({ ...v, ...patch }))
+  const nAtivos = contarFiltrosAtivos(rascunho)
+  const previa = filtrarFila(fila, rascunho).length
+  const pendente = !viewsIguais(rascunho, viewAplicada)
   // Só os status realmente presentes na fila — filtro que não casaria com ninguém é ruído.
   const statusOpcoes: [string, string][] = [
     ['todos', 'Todos os status'],
     ...opcoes.status.map((s) => [s, rotuloStatus(s)] as [string, string]),
   ]
-  return (
-    <div className="space-y-5 rounded-2xl border bg-white p-4 shadow-sm">
-      <GrupoFiltro titulo="Operação">
-        <SelFiltro label="Status" value={view.status} onChange={(v) => set({ status: v })} opcoes={statusOpcoes} />
-        <SelFiltro label="Tentativas de contato" value={view.tentativas}
-          onChange={(v) => set({ tentativas: v as FilaView['tentativas'] })} opcoes={TENTATIVAS_OPCOES} />
-        <SelFiltro label="Próxima ação" value={view.proximaAcao}
-          onChange={(v) => set({ proximaAcao: v as FilaView['proximaAcao'] })} opcoes={PROXIMA_ACAO_OPCOES} />
-        {/* Campanha NÃO ganha um segundo seletor: o controle já existe no topo da página e
-            duplicar o mesmo estado em dois lugares confunde mais do que ajuda. */}
-        <div className="sm:col-span-2 lg:col-span-3">
-          <span className="text-[11px] text-slate-400">Campanha: <b className="text-slate-600">{campanhaNome || '—'}</b> · troque no seletor do topo da página.</span>
+
+  const corpo = (
+    <>
+      {/* Backdrop só no drawer: no desktop o painel é discreto e a fila continua clicável. */}
+      {caixa.compacto && <div className="fixed inset-0 z-[75] bg-black/30" aria-hidden="true" />}
+      <div ref={painelRef} role="dialog" aria-modal={caixa.compacto} aria-label="Filtrar fila"
+        style={caixa.compacto
+          ? { position: 'fixed', left: 0, right: 0, bottom: 0, maxHeight: caixa.maxH }
+          : { position: 'fixed', left: caixa.left, top: caixa.top, width: caixa.larg, maxHeight: caixa.maxH }}
+        className={`z-[80] flex flex-col border bg-white shadow-2xl ${caixa.compacto ? 'rounded-t-2xl' : 'rounded-2xl'}`}>
+
+        <div className="flex items-start justify-between gap-3 rounded-t-2xl border-b bg-slate-50 px-4 py-3">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-slate-800">Filtrar fila</h3>
+            <p className="text-[11px] text-slate-500">
+              {nAtivos === 0 ? 'Nenhum filtro ativo' : `${nAtivos} filtro${nAtivos > 1 ? 's' : ''} ativo${nAtivos > 1 ? 's' : ''}`}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* "Limpar" volta à FILA PADRÃO (não iniciados), não a uma lista sem critério —
+                zerar tudo devolveria ao operador leads que ele já trabalhou. */}
+            <button onClick={() => setRascunho(filaPadrao())}
+              className="rounded-lg border bg-white px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100">
+              Limpar filtros
+            </button>
+            <button onClick={onFechar} aria-label="Fechar"
+              className="text-xl leading-none text-slate-400 hover:text-slate-700">×</button>
+          </div>
         </div>
-      </GrupoFiltro>
 
-      <GrupoFiltro titulo="Contato" cols={2}>
-        <SelFiltro label="E-mail disponível" value={view.email} onChange={(v) => set({ email: v as FilaView['email'] })} opcoes={EMAIL_OPCOES} />
-        {/* Telefone não é filtro: é requisito de ENTRADA, aplicado no servidor. */}
-        <div className="flex items-end pb-1.5 text-[11px] text-slate-400">
-          Telefone válido é exigido para entrar na fila — todos os leads listados são discáveis.
-        </div>
-      </GrupoFiltro>
+        {/* min-h-0: sem isso o item flex não encolhe abaixo do conteúdo e a rolagem interna
+            não acontece — o painel estouraria a altura máxima. */}
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
+          <GrupoFiltro titulo="Operação">
+            <SelFiltro label="Status" value={rascunho.status} onChange={(v) => set({ status: v })} opcoes={statusOpcoes} />
+            <SelFiltro label="Tentativas de contato" value={rascunho.tentativas}
+              onChange={(v) => set({ tentativas: v as FilaView['tentativas'] })} opcoes={TENTATIVAS_OPCOES} />
+            <SelFiltro label="Próxima ação" value={rascunho.proximaAcao}
+              onChange={(v) => set({ proximaAcao: v as FilaView['proximaAcao'] })} opcoes={PROXIMA_ACAO_OPCOES} />
+            {/* Campanha NÃO ganha um segundo seletor: o controle já existe no topo da página e
+                duplicar o mesmo estado em dois lugares confunde mais do que ajuda. A ordem
+                também não é editável: quem ordena é o servidor, por prioridade comercial. */}
+            <div className="sm:col-span-2 lg:col-span-3">
+              <NotaFixa>
+                Campanha: <b className="text-slate-700">{campanhaNome || '—'}</b> · troque no seletor do topo da página.
+                <br />Ordem da fila: <b className="text-slate-700">maior prioridade primeiro</b> (definida pelo sistema).
+              </NotaFixa>
+            </div>
+          </GrupoFiltro>
 
-      <GrupoFiltro titulo="Potencial comercial">
-        <SelFiltro label="Faixa de prioridade" value={view.prioridade}
-          onChange={(v) => set({ prioridade: v as FilaView['prioridade'] })} opcoes={PRIORIDADE_OPCOES} />
-        <FaixaNum label="Quantidade de avaliações" min={view.avalMin} max={view.avalMax}
-          onMin={(v) => set({ avalMin: v })} onMax={(v) => set({ avalMax: v })} />
-        <FaixaNum label="Faixa de nota" min={view.notaMin} max={view.notaMax} step={0.1} teto={5}
-          onMin={(v) => set({ notaMin: v })} onMax={(v) => set({ notaMax: v })} />
-      </GrupoFiltro>
+          <GrupoFiltro titulo="Contato" cols={2}>
+            <SelFiltro label="E-mail disponível" value={rascunho.email} onChange={(v) => set({ email: v as FilaView['email'] })} opcoes={EMAIL_OPCOES} />
+            {/* Telefone não é filtro: é requisito de ENTRADA, aplicado no servidor. */}
+            <NotaFixa>Telefone válido é exigido para entrar na fila — todos os leads listados são discáveis.</NotaFixa>
+          </GrupoFiltro>
 
-      <GrupoFiltro titulo="Perfil do negócio" cols={2}>
-        <div>
-          <label className="mb-1 block text-[11px] text-slate-500">Localização (cidade ou endereço contém)</label>
-          <input value={view.local} onChange={(e) => set({ local: e.target.value })} placeholder="ex: Feira de Santana, Centro"
-            className="w-full rounded-lg border px-2 py-1.5 text-sm" />
-        </div>
-        <SelFiltro label="Segmento" value={view.nicho} onChange={(v) => set({ nicho: v })}
-          opcoes={[['', 'Todos os segmentos'], ...opcoes.nichos.map((n) => [n, n] as [string, string])]} />
-      </GrupoFiltro>
+          <GrupoFiltro titulo="Potencial comercial">
+            <SelFiltro label="Faixa de prioridade" value={rascunho.prioridade}
+              onChange={(v) => set({ prioridade: v as FilaView['prioridade'] })} opcoes={PRIORIDADE_OPCOES} />
+            <FaixaNum label="Quantidade de avaliações" min={rascunho.avalMin} max={rascunho.avalMax}
+              onMin={(v) => set({ avalMin: v })} onMax={(v) => set({ avalMax: v })} />
+            <FaixaNum label="Faixa de nota" min={rascunho.notaMin} max={rascunho.notaMax} step={0.1} teto={5}
+              onMin={(v) => set({ notaMin: v })} onMax={(v) => set({ notaMax: v })} />
+          </GrupoFiltro>
 
-      <GrupoFiltro titulo="Presença digital" cols={2}>
-        <SelFiltro label="Situação do site" value={view.site} onChange={(v) => set({ site: v as FilaView['site'] })} opcoes={SITE_OPCOES} />
-        <SelFiltro label="Redes sociais" value={view.redes} onChange={(v) => set({ redes: v as FilaView['redes'] })} opcoes={REDES_OPCOES} />
-      </GrupoFiltro>
+          <GrupoFiltro titulo="Perfil do negócio" cols={2}>
+            <div>
+              <label className="mb-1 block text-[11px] text-slate-500">Localização (cidade ou endereço contém)</label>
+              <input value={rascunho.local} onChange={(e) => set({ local: e.target.value })} placeholder="ex: Feira de Santana, Centro"
+                className="w-full rounded-lg border px-2 py-1.5 text-sm" />
+            </div>
+            <SelFiltro label="Segmento" value={rascunho.nicho} onChange={(v) => set({ nicho: v })}
+              opcoes={[['', 'Todos os segmentos'], ...opcoes.nichos.map((n) => [n, n] as [string, string])]} />
+          </GrupoFiltro>
 
-      {/* Só aparece quando o dado existe na fila carregada. */}
-      {opcoes.mostrarQualidadeDado && (
-        <GrupoFiltro titulo="Qualidade do dado" cols={2}>
-          {opcoes.origens.length > 0 && (
-            <SelFiltro label="Origem do dado" value={view.origem} onChange={(v) => set({ origem: v })}
-              opcoes={[['todas', 'Todas'], ...opcoes.origens.map((o) => [o, o] as [string, string])]} />
+          <GrupoFiltro titulo="Presença digital" cols={2}>
+            <SelFiltro label="Situação do site" value={rascunho.site} onChange={(v) => set({ site: v as FilaView['site'] })} opcoes={SITE_OPCOES} />
+            <SelFiltro label="Redes sociais" value={rascunho.redes} onChange={(v) => set({ redes: v as FilaView['redes'] })} opcoes={REDES_OPCOES} />
+          </GrupoFiltro>
+
+          {/* Só aparece quando o dado existe na fila carregada. */}
+          {opcoes.mostrarQualidadeDado && (
+            <GrupoFiltro titulo="Qualidade do dado" cols={2}>
+              {opcoes.origens.length > 0 && (
+                <SelFiltro label="Origem do dado" value={rascunho.origem} onChange={(v) => set({ origem: v })}
+                  opcoes={[['todas', 'Todas'], ...opcoes.origens.map((o) => [o, o] as [string, string])]} />
+              )}
+              {opcoes.temRecencia && (
+                <SelFiltro label="Recência do dado" value={rascunho.recencia}
+                  onChange={(v) => set({ recencia: v as FilaView['recencia'] })} opcoes={RECENCIA_OPCOES} />
+              )}
+            </GrupoFiltro>
           )}
-          {opcoes.temRecencia && (
-            <SelFiltro label="Recência do dado" value={view.recencia}
-              onChange={(v) => set({ recencia: v as FilaView['recencia'] })} opcoes={RECENCIA_OPCOES} />
-          )}
-        </GrupoFiltro>
-      )}
+        </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-t pt-3">
-        <button onClick={() => onChange(filaPadrao())} className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50">
-          Fila padrão (não iniciados)
-        </button>
-        <button onClick={onLimpar} className="rounded-lg border px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">Limpar filtros</button>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-white px-4 py-3">
+          {/* Prévia: a contagem acompanha o rascunho, mas a LISTAGEM só muda no Aplicar —
+              a fila não pode dançar embaixo do operador enquanto ele configura. */}
+          <span className="text-xs text-slate-500">
+            <b className="text-slate-800">{previa}</b> de {fila.length} lead(s) com estes filtros
+            {pendente && <span className="ml-1 font-medium text-amber-600">· ainda não aplicado</span>}
+          </span>
+          <div className="flex items-center gap-2">
+            <button onClick={onFechar} className="rounded-lg border px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
+            <button onClick={() => onAplicar(rascunho)}
+              className="rounded-lg bg-brand px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand-dark">
+              Aplicar filtros
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
+    </>
   )
+  return createPortal(corpo, document.body)
 }
 
 export default function CentralLigacoesPage() {
@@ -419,6 +551,13 @@ export default function CentralLigacoesPage() {
   // (telefone válido) nem a ordem por prioridade. Padrão: leads ainda não iniciados.
   const [view, setView] = useState<FilaView>(VIEW_PADRAO)
   const [painelFiltros, setPainelFiltros] = useState(false)
+  // Âncora do painel flutuante. Fica aqui (topo do componente) porque a aba Fila é renderizada
+  // dentro de uma IIFE — não dá para declarar hook lá dentro.
+  const btnFiltrosRef = useRef<HTMLButtonElement | null>(null)
+  const fecharPainel = useCallback(() => setPainelFiltros(false), [])
+  // A tela de atendimento é um overlay `fixed inset-0`; o painel flutuante ficaria POR CIMA
+  // dela e o Escape seria disputado pelos dois. Entrar em ligação fecha o painel.
+  useEffect(() => { if (operando) setPainelFiltros(false) }, [operando])
   useEffect(() => {
     try {
       const salvo = localStorage.getItem(CHAVE_VIEW)
@@ -514,8 +653,9 @@ export default function CentralLigacoesPage() {
                   </button>
                   <button onClick={() => carregarCampanha(campanhaId)} className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50">Atualizar</button>
                   {/* Compacto e colado no Atualizar, no padrão do Banco de Leads. Nenhum
-                      controle de "visão" aqui: a listagem é sempre enxuta. */}
-                  <button onClick={() => setPainelFiltros((v) => !v)} aria-expanded={painelFiltros}
+                      controle de "visão" aqui: a listagem é sempre enxuta. O painel abre
+                      FLUTUANTE (portal), ancorado neste botão — a tabela não se move. */}
+                  <button ref={btnFiltrosRef} onClick={() => setPainelFiltros((v) => !v)} aria-expanded={painelFiltros}
                     className={`rounded-lg border px-3 py-2 text-sm hover:bg-slate-50 ${nFiltros ? 'border-brand text-brand' : ''}`}>
                     ⚙ Filtros{nFiltros ? ` (${nFiltros})` : ''}
                   </button>
@@ -530,21 +670,29 @@ export default function CentralLigacoesPage() {
                         {c.label} <span aria-hidden="true">×</span>
                       </button>
                     ))}
-                    <button onClick={() => setView(limparFiltros())} className="text-xs text-slate-400 underline hover:text-slate-600">limpar tudo</button>
+                    {/* Restaura a FILA PADRÃO (não iniciados) — "limpar" aqui não devolve uma
+                        lista sem critério. Para ver a fila inteira, remova o chip de tentativas. */}
+                    {!viewsIguais(view, VIEW_PADRAO) && (
+                      <button onClick={() => setView(filaPadrao())} className="text-xs text-slate-400 underline hover:text-slate-600">restaurar padrão</button>
+                    )}
                   </div>
                 )}
 
                 {painelFiltros && (
-                  <FiltrosFila view={view} onChange={setView} onLimpar={() => setView(limparFiltros())}
-                    opcoes={opcoes} campanhaNome={detalhe.nome} />
+                  <FiltrosFila ancora={btnFiltrosRef.current} viewAplicada={view} fila={fila}
+                    opcoes={opcoes} campanhaNome={detalhe.nome}
+                    onAplicar={(v) => { setView(v); setPainelFiltros(false) }} onFechar={fecharPainel} />
                 )}
 
                 {fila.length === 0 ? (
                   <div className="rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">Fila vazia — todos os leads com telefone válido desta campanha já foram trabalhados. 🎉</div>
                 ) : visiveis.length === 0 ? (
-                  <div className="rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">
-                    Nenhum lead com esses filtros.{' '}
-                    <button onClick={() => setView(limparFiltros())} className="text-brand underline">Limpar filtros</button>
+                  <div className="space-y-2 rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">
+                    <p>Nenhum lead com esses filtros.</p>
+                    <div className="flex flex-wrap justify-center gap-3 text-sm">
+                      <button onClick={() => setView(filaPadrao())} className="text-brand underline">Restaurar fila padrão</button>
+                      <button onClick={() => setView(limparFiltros())} className="text-slate-400 underline hover:text-slate-600">Ver a fila inteira</button>
+                    </div>
                   </div>
                 ) : (
                   <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">

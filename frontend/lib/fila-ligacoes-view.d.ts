@@ -79,3 +79,4 @@ export function filtrarFila<T extends FilaLeadFiltravel>(lista: T[], view: Parti
 export function opcoesDaFila<T extends FilaLeadFiltravel>(lista: T[]): OpcoesDaFila
 export function chipsAtivos(view: Partial<FilaView>): ChipFiltro[]
 export function contarFiltrosAtivos(view: Partial<FilaView>): number
+export function viewsIguais(a: Partial<FilaView>, b: Partial<FilaView>): boolean

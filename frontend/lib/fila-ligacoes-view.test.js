@@ -4,7 +4,7 @@ const assert = require('node:assert/strict')
 const {
   VIEW_NEUTRA, VIEW_PADRAO,
   normalizarView, limparFiltros, filaPadrao, limparCampo, faixaTentativas,
-  passaNosFiltros, filtrarFila, opcoesDaFila, chipsAtivos, contarFiltrosAtivos,
+  passaNosFiltros, filtrarFila, opcoesDaFila, chipsAtivos, contarFiltrosAtivos, viewsIguais,
 } = require('./fila-ligacoes-view')
 
 const AGORA = Date.parse('2026-08-07T12:00:00Z')
@@ -162,6 +162,20 @@ test('chips descrevem os filtros ativos e o contador bate', () => {
   assert.equal(contarFiltrosAtivos(v), 4)
   assert.ok(chips.some((c) => /Sem site/i.test(c.label)))
   assert.ok(chips.some((c) => /50\+ avaliações/i.test(c.label)))
+})
+
+// --- Rascunho x aplicado (painel flutuante) ------------------------------------------------
+test('viewsIguais compara o RECORTE, nao a referencia do objeto', () => {
+  assert.equal(viewsIguais(VIEW_PADRAO, filaPadrao()), true)
+  assert.equal(viewsIguais(VIEW_PADRAO, { ...VIEW_PADRAO }), true)
+  // Campo ausente/lixo e' normalizado antes de comparar: rascunho parcial nao vira "diferente".
+  assert.equal(viewsIguais(VIEW_PADRAO, { tentativas: 'nao_iniciados', site: 'inexistente' }), true)
+  assert.equal(viewsIguais(VIEW_PADRAO, VIEW_NEUTRA), false)
+  assert.equal(viewsIguais(VIEW_PADRAO, { ...VIEW_PADRAO, avalMin: '50' }), false)
+})
+
+test('a fila padrao NAO e a fila inteira — sao os dois estados de saida do painel', () => {
+  assert.equal(viewsIguais(filaPadrao(), limparFiltros()), false)
 })
 
 test('limpar um chip zera so aquele grupo, para o estado neutro', () => {

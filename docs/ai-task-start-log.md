@@ -6,6 +6,57 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-07 - Inicio de tarefa IA - Painel de filtros FLUTUANTE da Central de Ligacoes
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Hoje o botao "Filtros" da fila EXPANDE um bloco alto no fluxo da pagina,
+  empurrando a tabela para baixo. Trocar por um **painel flutuante** ancorado no botao (padrao do
+  modal flutuante do Banco de Leads): tabela nao se desloca, fecha no proprio botao / clique fora /
+  Escape, filtros aplicados sobrevivem ao fechamento. Painel com largura fixa, altura maxima e
+  rolagem interna; cabecalho "Filtrar fila" + contagem de filtros ativos + "Limpar filtros"; corpo
+  agrupado (Operacao / Contato / Potencial comercial / Perfil do negocio / Presenca digital);
+  rodape com previa da quantidade de leads + "Aplicar filtros" + "Cancelar". Aplicar SO no clique
+  em Aplicar; chips compactos na barra depois de aplicar, removiveis um a um; "Limpar" volta a
+  **fila padrao** (nao a uma lista sem criterio). Em telas menores, drawer com rolagem interna.
+- **E projeto/tarefa de alteracao?** Sim. Escopo PEQUENO/MEDIO e **100% de apresentacao**:
+  **sem schema, sem migration, sem env nova, sem rota nova, sem chamada nova ao backend, sem
+  prompt, sem autenticacao**. Nenhuma regra de elegibilidade/prioridade da fila muda — quem entra
+  e a ordem continuam decididos no backend (`services/ligacao-prioridade.js`).
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/ui-visual-standard.md: Sim (o padrao reusado e o `PersonalizarModal` do Banco de Leads —
+  painel flutuante sem backdrop escuro, `max-h`, rolagem interna, cabecalho/rodape fixos).
+- **Areas mapeadas (leitura antes de editar):**
+  `frontend/app/dashboard/central-ligacoes/page.tsx` (`FiltrosFila`, barra da aba Fila, chips),
+  `frontend/lib/fila-ligacoes-view.js` (+ `.d.ts`/`.test.js`),
+  `frontend/app/dashboard/banco-leads/page.tsx` (`PersonalizarModal`, L1762-1881 — referencia).
+- **Defeito real confirmado no codigo:** `page.tsx:537` renderiza `<FiltrosFila>` **no fluxo**,
+  entre os chips e a tabela; o painel tem 6 grupos e `space-y-5`, entao abrir empurra a tabela
+  centenas de pixels para baixo. Nao e' hipotese — nao ha portal nem posicionamento fixo ali.
+- **Decisoes (Fase 6/8):**
+  1. Painel em `createPortal` no `<body>` com `position:fixed` calculado do
+     `getBoundingClientRect()` do botao — mesma tecnica ja usada no tooltip da Prioridade nesta
+     mesma tela. Portal ⇒ altura zero no fluxo ⇒ a tabela nao se move (criterio de aceite 1).
+  2. **Rascunho x aplicado:** o painel edita uma copia local; so "Aplicar filtros" troca a view da
+     tela. Fechar (botao, clique fora, Escape) DESCARTA o rascunho e mantem o aplicado.
+  3. "Limpar filtros" do painel volta a **`filaPadrao()`** (nao iniciados), nao ao neutro — o
+     pedido exige que Limpar restaure o padrao da fila. `limparFiltros()` (fila inteira) continua
+     existindo, oferecida no estado vazio como saida explicita.
+  4. "Campanha" e "Telefone disponivel" seguem como INDICADORES, nao controles (decisao da tarefa
+     anterior, mantida): a campanha ja tem seletor no topo e telefone discavel e' requisito de
+     ENTRADA garantido no backend — o filtro seria no-op. A ordem ("maior prioridade primeiro")
+     entra como indicador pelo mesmo motivo: quem ordena e' o servidor.
+  5. Novo helper PURO `viewsIguais(a, b)` em `fila-ligacoes-view.js` para saber se o rascunho
+     ainda nao foi aplicado e se ja se esta na fila padrao. Nenhuma logica de filtro no `.tsx`.
+- **Arquivos alterados:** `frontend/lib/fila-ligacoes-view.js` + `.d.ts` + `.test.js`,
+  `frontend/app/dashboard/central-ligacoes/page.tsx`.
+- **Fora de escopo declarado:** backend (nenhum arquivo tocado), banco/migrations, tela de
+  atendimento/roteiro/encerramento, abas Acompanhamento e Funil, Banco de Leads, coleta Bright
+  Data, envio de WhatsApp, variaveis de ambiente.
+- **Proxima etapa:** implementar o diff minimo e validar com `npm test` (frontend) e
+  `npm run typecheck` (frontend).
+
+---
+
 ## 2026-08-07 - Inicio de tarefa IA - Correcoes de UX/operacao da Central de Ligacoes
 
 - **IA/Ferramenta:** Claude Code (Opus 5)
