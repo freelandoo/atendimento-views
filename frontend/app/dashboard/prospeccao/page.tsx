@@ -6,7 +6,7 @@ import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import { rotuloLink, tituloLinkNaoSite } from '@/lib/site-rotulos'
-import RotinasAquisicao, { type RotinasResp } from '@/components/RotinasAquisicao'
+import RotinasAquisicao, { type ModoAquisicao, type RotinasResp } from '@/components/RotinasAquisicao'
 import HistoricoColetas from '@/components/HistoricoColetas'
 import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
 import { IconTrash, IconStar, IconUndo } from '@/components/ui/icons'
@@ -104,13 +104,27 @@ function opcoesMercado(filtros: FiltrosMercado | null): OpcaoFiltroMercado[] {
   return [...mapa.values()].sort((a, b) => b.total - a.total || a.valor.localeCompare(b.valor, 'pt-BR'))
 }
 
+// Modo da tela. A Aquisição faz duas coisas distintas — operar uma busca e administrar
+// automações — e exibi-las juntas era a densidade que este controle resolve. Trocar de modo
+// só troca o conteúdo: não busca, não salva rotina, não chama a origem paga.
+const ID_MODOS = 'modo'
+const MODO_PADRAO: ModoAquisicao = 'busca'
+const CHAVE_MODO = 'prospeccaoModo'
+const ABAS_MODO: Aba[] = [
+  { id: 'busca', titulo: 'Busca', descricao: 'Encontrar, configurar e revisar leads de uma coleta.' },
+  { id: 'rotinas', titulo: 'Rotinas', descricao: 'Configurar, acompanhar e revisar execuções automáticas.' },
+]
+function normalizarModo(valor: string | null | undefined): ModoAquisicao | null {
+  return valor === 'busca' || valor === 'rotinas' ? valor : null
+}
+
 // Seção "Acompanhar resultados": consulta secundária, abaixo da lista de leads. As abas
-// evitam que vários painéis analíticos disputem a tela ao mesmo tempo.
+// evitam que vários painéis analíticos disputem a tela ao mesmo tempo. O histórico de
+// coletas saiu daqui: é execução de rotina, e vive no modo Rotinas.
 const ID_ABAS = 'resultados'
 const ABAS_RESULTADO: Aba[] = [
   { id: 'desempenho', titulo: 'Desempenho por mercado', descricao: 'Volume, envios, respostas e sinais comerciais por nicho e cidade' },
   { id: 'respostas', titulo: 'Respostas recentes', descricao: 'Quem respondeu por último' },
-  { id: 'historico', titulo: 'Histórico de coletas', descricao: 'Coletas das rotinas e das buscas avulsas' },
 ]
 // Temperatura do lead pela pontuação (score): quente = mais dor digital / maior chance.
 function temperatura(score: number | null): { emoji: string; label: string } {
@@ -176,9 +190,36 @@ export default function ProspeccaoPage() {
   // Aba visível de "Acompanhar resultados". Trocar de aba só alterna o painel: não
   // recarrega dado nenhum nem toca no filtro/ordenação da tabela de leads.
   const [abaResultado, setAbaResultado] = useState('desempenho')
+  // Modo da tela (Busca / Rotinas). Começa no padrão e só depois é restaurado, no efeito:
+  // ler storage/URL durante o render quebraria a hidratação.
+  const [modo, setModo] = useState<ModoAquisicao>(MODO_PADRAO)
   const [jsonAberto, setJsonAberto] = useState<{ titulo: string; json: JsonApresProspect } | null>(null)
   const fb = useFeedback()
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
+
+  // Restaura o modo: a URL manda (link compartilhado/recarregado), senão a sessão.
+  useEffect(() => {
+    try {
+      const daUrl = normalizarModo(new URLSearchParams(window.location.search).get('modo'))
+      const daSessao = normalizarModo(sessionStorage.getItem(CHAVE_MODO))
+      if (daUrl || daSessao) setModo(daUrl || daSessao!)
+    } catch { /* storage indisponível: fica no padrão */ }
+  }, [])
+
+  // Troca de modo: só apresentação. Nenhuma requisição sai daqui — `carregar`,
+  // `carregarBuscas` e o painel de rotinas não dependem de `modo`.
+  function trocarModo(id: string) {
+    const alvo = normalizarModo(id)
+    if (!alvo) return
+    setModo(alvo)
+    try {
+      sessionStorage.setItem(CHAVE_MODO, alvo)
+      const url = new URL(window.location.href)
+      url.searchParams.set('modo', alvo)
+      // replaceState: alternar modo não é navegação, não polui o histórico do navegador.
+      window.history.replaceState(null, '', url.toString())
+    } catch { /* storage/URL indisponível: o modo continua valendo na tela */ }
+  }
 
   function ordenarPor(chave: string) {
     setOrdem((o) => (o.chave === chave ? { chave, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { chave, dir: 'desc' }))
@@ -278,8 +319,29 @@ export default function ProspeccaoPage() {
         </p>
       </div>
 
+      <Abas
+        abas={ABAS_MODO}
+        ativa={modo}
+        onMudar={trocarModo}
+        idBase={ID_MODOS}
+        ariaLabel="Modo da Aquisição"
+      />
+
+      {/* Painel único que troca de conteúdo: os ids acompanham o modo ativo, para o vínculo
+          aba ↔ painel continuar valendo sem duplicar a tela inteira no DOM. */}
+      <div
+        role="tabpanel"
+        id={`${ID_MODOS}-painel-${modo}`}
+        aria-labelledby={`${ID_MODOS}-aba-${modo}`}
+        tabIndex={0}
+        className="space-y-6 focus:outline-none"
+      >
+
+      {/* Fica SEMPRE montado (só o card interno muda com o modo): é o que preserva o
+          formulário da busca avulsa e o acompanhamento da coleta ao alternar. */}
       <RotinasAquisicao
         empresaId={empresaId}
+        modo={modo}
         onColetaIniciada={carregarBuscas}
         onDados={setDadosRotinas}
         onLeadsAlterados={carregar}
@@ -287,6 +349,8 @@ export default function ProspeccaoPage() {
 
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
 
+      {modo === 'busca' && (
+      <div className="painel-troca space-y-6">
       <section className="space-y-3">
         <div>
           <h2 className="text-base font-semibold">Leads encontrados</h2>
@@ -471,15 +535,11 @@ export default function ProspeccaoPage() {
       </DataTableFrame>
       </section>
 
-      {jsonAberto && (
-        <JsonLeadModal titulo={`JSON de apresentação — ${jsonAberto.titulo}`} json={jsonAberto.json} onFechar={() => setJsonAberto(null)} />
-      )}
-
       <section className="space-y-3">
         <div>
           <h2 className="text-base font-semibold">Acompanhar resultados</h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            Consulta do que já aconteceu: o que cada mercado rendeu, quem respondeu e as coletas feitas.
+            Consulta do que já aconteceu: o que cada mercado rendeu e quem respondeu.
           </p>
         </div>
 
@@ -559,12 +619,30 @@ export default function ProspeccaoPage() {
             )}
           </PainelAba>
 
-          <PainelAba id="historico" idBase={ID_ABAS} ativa={abaResultado}>
-            <HistoricoColetas atividade={atividade} />
-          </PainelAba>
         </div>
       </section>
+      </div>
+      )}
 
+      {modo === 'rotinas' && (
+      <section className="painel-troca space-y-3">
+        <div>
+          <h2 className="text-base font-semibold">Histórico de coletas</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            O que cada execução rendeu — das rotinas e das buscas avulsas —, da mais recente para a mais antiga.
+          </p>
+        </div>
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <HistoricoColetas atividade={atividade} />
+        </div>
+      </section>
+      )}
+
+      </div>
+
+      {jsonAberto && (
+        <JsonLeadModal titulo={`JSON de apresentação — ${jsonAberto.titulo}`} json={jsonAberto.json} onFechar={() => setJsonAberto(null)} />
+      )}
     </div>
   )
 }

@@ -6,6 +6,63 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-07 - Inicio de tarefa IA - Aquisicao em dois modos: Busca e Rotinas
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Separar a tela de Aquisicao (`dashboard/prospeccao`) em dois modos via
+  controle segmentado no topo do conteudo: **Busca** (parametros da busca avulsa, disparo,
+  status da coleta, tabela de leads captados, filtros e acoes) e **Rotinas** (estado, agenda,
+  criterios, limites, ultima/proxima execucao, resumo da ultima coleta, historico compacto e
+  acoes de ativar/pausar/salvar). Default `busca`; alternar so troca o conteudo, preserva o
+  estado de cada modo, nao dispara coleta nem chamada externa; modo persistido na sessao e
+  restauravel pela URL.
+- **E projeto/tarefa de alteracao?** Sim. Escopo PEQUENO e **100% de apresentacao**: sem schema,
+  sem migration, sem env nova, sem rota nova, **sem chamada nova ao backend**, sem prompt, sem
+  autenticacao. Nenhuma regra de coleta, elegibilidade, custo ou pontuacao muda.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/ui-visual-standard.md: Sim (o padrao reusado e o componente `components/ui/Abas.tsx` —
+  pilulas WAI-ARIA em trilho arredondado — ja usado NESTA mesma tela em "Acompanhar resultados").
+- **Fatos confirmados no codigo (nao sao hipotese):**
+  1. `components/RotinasAquisicao.tsx` renderiza HOJE os dois blocos no mesmo componente:
+     card "Rotinas de coleta" (L228-332) e card "Busca avulsa" (L334-380). O estado do
+     formulario avulso (`avulsa`, L92) e o polling de 20s (L121-124) vivem nesse componente.
+  2. O historico de coletas ja e um componente proprio (`HistoricoColetas.tsx`), alimentado por
+     `dadosRotinas.atividade`, que vem do `onDados` de `RotinasAquisicao` — nao ha requisicao
+     dedicada a mover.
+  3. Os filtros da tabela de leads (`filtro`, `buscaDados`, `mercado`, `cidadeFiltro`, `ordem`)
+     vivem em `page.tsx`, que permanece montado — alternar modo nao os reinicia.
+  4. `carregar()` depende de `[empresaId, filtro, buscaDados, mercado, cidadeFiltro]` e o
+     `carregar` das rotinas depende de `[empresaId, base]`: **nenhum dos dois depende do modo**,
+     logo trocar de modo nao gera requisicao nem coleta.
+  5. O projeto NAO usa `useSearchParams` em lugar nenhum (grep) — nao ha padrao de parametro
+     de rota estabelecido.
+- **Decisoes (Fase 6/8):**
+  1. `RotinasAquisicao` continua **sempre montado**, na mesma posicao da arvore, recebendo
+     `modo` como prop e renderizando so o card do modo ativo. E o unico jeito de nao reiniciar
+     o formulario da busca ao ir em Rotinas e voltar — desmontar o componente perderia o estado.
+  2. **Nenhum componente novo de toggle**: reuso do `Abas`/`PainelAba` existente (teclado,
+     `aria-selected`, foco visivel, trilho rolavel no mobile ja resolvidos).
+  3. O bloco de `erro` do `RotinasAquisicao` sai de dentro do card de rotinas para o container:
+     hoje um erro de "Buscar agora" so era exibido dentro do card de rotinas — no modo Busca
+     ele ficaria invisivel. Correcao necessaria da separacao, sem duplicar a mensagem.
+  4. A aba "Historico de coletas" sai de "Acompanhar resultados" (que fica com Desempenho e
+     Respostas, no modo Busca) e vira secao propria do modo Rotinas — e historico operacional
+     de rotina, nao revisao de leads.
+  5. Persistencia do modo: `sessionStorage` (sessao) + `?modo=` via `history.replaceState`,
+     lidos em `useEffect` (nunca no render, para nao quebrar a hidratacao). Sem
+     `useSearchParams`, que exigiria Suspense e mudaria o padrao de rota do projeto.
+- **Arquivos alterados:** `frontend/app/dashboard/prospeccao/page.tsx`,
+  `frontend/components/RotinasAquisicao.tsx`, `frontend/app/globals.css` (classe
+  `.painel-troca`, a transicao curta da troca de modo), `frontend/components/HistoricoColetas.tsx`
+  (so o comentario de cabecalho, que apontava para o lugar antigo).
+- **Fora de escopo declarado:** backend inteiro, banco/migrations, Bright Data/coleta,
+  Assistente de Oportunidades (logica), Banco de Leads, Central de Ligacoes, envio de WhatsApp,
+  variaveis de ambiente.
+- **Proxima etapa:** implementar o diff minimo e validar com `npm test` e `npm run typecheck`
+  (frontend) + verificacao visual em desktop e mobile.
+
+---
+
 ## 2026-08-07 - Inicio de tarefa IA - Paginacao da tabela da Fila da Central de Ligacoes
 
 - **IA/Ferramenta:** Claude Code (Opus 5)

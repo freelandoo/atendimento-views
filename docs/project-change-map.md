@@ -79,6 +79,23 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
 
 -->
 
+## 2026-08-07 — Front (Aquisição) — Tela dividida em dois modos: Busca e Rotinas
+- Área(s) tocada(s): Front (`app/dashboard/prospeccao/page.tsx`,
+  `components/RotinasAquisicao.tsx`, `components/HistoricoColetas.tsx` — só comentário,
+  `app/globals.css` — classe `.painel-troca`). **Backend: nada. Banco: nada. Env: nada.**
+- Regras preservadas: **nenhuma chamada nova ao backend e nenhuma coleta paga disparada por
+  alternar o modo** (nem `carregar`, nem `carregarBuscas`, nem o painel de rotinas dependem de
+  `modo`); a trava de uma coleta por empresa segue no banco; "buscar não analisa, analisar não
+  busca"; o `RotinasAquisicao` continua sendo o único caminho de disparo (`dispararBusca`);
+  reuso do `components/ui/Abas.tsx` — nenhum toggle novo foi criado.
+- O que mudou: a Aquisição passou a ter um controle segmentado no topo. **Busca** = busca avulsa,
+  status da coleta, tabela de leads e "Acompanhar resultados". **Rotinas** = painel de rotinas +
+  histórico de coletas (que saiu da aba de "Acompanhar resultados", por ser execução de rotina e
+  não revisão de lead). O `RotinasAquisicao` recebe `modo` e fica **sempre montado** — é o que
+  preserva o formulário da busca ao alternar. O bloco de `erro` saiu de dentro do card de rotinas
+  (no modo Busca ele ficaria invisível). Modo persistido em `sessionStorage` + `?modo=`.
+- Documentos atualizados: `ai-task-start-log.md`, `ai-decision-log.md`, este arquivo, `AGENTS.md`.
+
 ## 2026-08-05 — Aquisição + Front — Menu guiado de entrada do Assistente de Oportunidades
 - Área(s) tocada(s): Front (`components/AssistenteEntrada.tsx` novo,
   `lib/assistente-entrada.js`/`.d.ts`/`.test.js` novos, `components/RotinasAquisicao.tsx`),

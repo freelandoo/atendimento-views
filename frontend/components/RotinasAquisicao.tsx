@@ -20,6 +20,12 @@ import type { Atividade } from '@/components/HistoricoColetas'
 
 // Rotinas de Aquisição: cada rotina é um mercado (nicho + cidade + UF) com agenda
 // própria. A tela fala a língua do operador — nada de snapshot, dataset ou webhook.
+//
+// A página de Aquisição tem dois MODOS (Busca / Rotinas) e este componente renderiza o
+// card de um deles por vez, conforme a prop `modo`. Ele fica SEMPRE montado: é o que
+// preserva o formulário da busca avulsa e o polling ao alternar de modo. Desmontar por
+// modo reiniciaria o formulário — exatamente o que a separação não pode causar.
+export type ModoAquisicao = 'busca' | 'rotinas'
 
 export type Rotina = {
   id: string
@@ -72,11 +78,14 @@ function quando(iso: string | null): string {
 
 export default function RotinasAquisicao({
   empresaId,
+  modo,
   onColetaIniciada,
   onDados,
   onLeadsAlterados,
 }: {
   empresaId: string
+  // Qual card aparece. Só um por vez — os dois juntos era a densidade que a separação resolve.
+  modo: ModoAquisicao
   onColetaIniciada?: () => void
   // Cada decisão do assistente muda o status de um lead: a lista da página recarrega.
   onLeadsAlterados?: () => void
@@ -225,159 +234,172 @@ export default function RotinasAquisicao({
 
   return (
     <div className="space-y-4">
-      <div className="space-y-4 rounded-2xl border bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold">Rotinas de coleta</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Cada rotina busca um mercado (nicho + cidade) no seu próprio ritmo, importando até
-              {' '}{limites.quantidade_max} leads por execução. Uma coleta por vez — as demais esperam a vez.
-            </p>
+      {modo === 'rotinas' && (
+        <div className="painel-troca space-y-4 rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold">Rotinas de coleta</h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Cada rotina busca um mercado (nicho + cidade) no seu próprio ritmo, importando até
+                {' '}{limites.quantidade_max} leads por execução. Uma coleta por vez — as demais esperam a vez.
+              </p>
+            </div>
+            {!rascunho && (
+              <button onClick={() => { setErro(''); setRascunho({ ...RASCUNHO_VAZIO }) }}
+                className="shrink-0 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white">
+                + Nova rotina
+              </button>
+            )}
           </div>
-          {!rascunho && (
-            <button onClick={() => { setErro(''); setRascunho({ ...RASCUNHO_VAZIO }) }}
-              className="shrink-0 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white">
-              + Nova rotina
-            </button>
+
+          {dados?.coleta_em_andamento && (
+            <div className="flex items-center gap-3 rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
+              <Spinner />
+              <span>Uma coleta está em andamento. As outras rotinas entram na fila e rodam em seguida.</span>
+            </div>
+          )}
+
+          {rascunho && (
+            <div className="space-y-4 rounded-xl border border-brand/40 bg-brand/5 p-4">
+              <p className="text-sm font-semibold">{rascunho.id ? 'Editar rotina' : 'Nova rotina'}</p>
+
+              <RotinaCampos rascunho={rascunho} onChange={setRascunho} limites={limites} />
+
+              <div className="flex flex-wrap gap-2">
+                <button onClick={salvar} disabled={salvando}
+                  className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+                  {salvando && <Spinner />}{rascunho.id ? 'Salvar alterações' : 'Criar rotina'}
+                </button>
+                <button onClick={() => { setRascunho(null); setErro('') }} disabled={salvando}
+                  className="rounded-lg border px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {rotinas.length === 0 && !rascunho ? (
+            <div className="rounded-xl border border-dashed px-4 py-8 text-center">
+              <p className="text-sm text-slate-500">Nenhuma rotina cadastrada.</p>
+              <p className="mt-1 text-xs text-slate-400">Crie uma rotina para coletar leads de um mercado continuamente.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {rotinas.map((r) => (
+                <div key={r.id} className="rounded-xl border p-3 sm:p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">{r.nicho}</span>
+                        <span className="text-slate-400">·</span>
+                        <span className="text-slate-600">{r.localizacao || r.cidade}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_STYLE[r.estado] || 'bg-slate-100 text-slate-600'}`}>
+                          {r.estado_label}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {resumoDias(r.dias_semana)} · {r.janela_inicio}–{r.janela_fim} · a cada {r.intervalo_horas}h ·
+                        {' '}importa até {r.quantidade} leads
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-3 text-sm">
+                      <button onClick={() => editar(r)} disabled={agindo === r.id}
+                        className="text-brand hover:underline disabled:opacity-40">Editar</button>
+                      <button onClick={() => alternarAtivo(r)} disabled={agindo === r.id}
+                        className={`hover:underline disabled:opacity-40 ${r.ativo ? 'text-amber-600' : 'text-emerald-600'}`}>
+                        {r.ativo ? 'Pausar' : 'Retomar'}
+                      </button>
+                      <button onClick={() => remover(r)} disabled={agindo === r.id}
+                        className="inline-flex items-center gap-1 text-red-600 hover:underline disabled:opacity-40">
+                        <IconTrash /> Remover
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-3 border-t pt-3 text-xs sm:grid-cols-4">
+                    <Dado rotulo="Próxima execução" valor={r.ativo ? quando(r.proxima_execucao_em) : 'Pausada'} />
+                    <Dado rotulo="Última execução" valor={quando(r.ultima_execucao_em)} />
+                    <Dado rotulo="Última coleta"
+                      valor={r.ultimo_coletados == null ? '—' : `${r.ultimo_coletados} encontrados`} />
+                    <Dado rotulo="Novos / duplicados"
+                      valor={r.ultimo_novos == null ? '—' : `${r.ultimo_novos} / ${r.ultimo_duplicados ?? 0}`} />
+                  </div>
+
+                  {r.mensagem && <p className="mt-2 text-xs text-slate-500">{r.mensagem}</p>}
+                  {r.estado === 'precisa_atencao' && (
+                    <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      <b>Precisa de atenção.</b> A rotina parou depois de {r.falhas_consecutivas} tentativas sem sucesso.
+                      {r.ultimo_erro && <span className="mt-0.5 block opacity-80">Último erro: {r.ultimo_erro}</span>}
+                      <span className="mt-0.5 block">Revise os dados e clique em <b>Retomar</b>.</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </div>
+      )}
 
-        {dados?.coleta_em_andamento && (
-          <div className="flex items-center gap-3 rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
-            <Spinner />
-            <span>Uma coleta está em andamento. As outras rotinas entram na fila e rodam em seguida.</span>
+      {modo === 'busca' && (
+        <div className="painel-troca space-y-3 rounded-2xl border bg-white p-4 shadow-sm">
+          <div>
+            <h2 className="text-base font-semibold">Busca avulsa</h2>
+            <p className="mt-0.5 text-xs text-slate-500">Uma coleta única, agora, sem criar rotina.</p>
           </div>
-        )}
-
-        {rascunho && (
-          <div className="space-y-4 rounded-xl border border-brand/40 bg-brand/5 p-4">
-            <p className="text-sm font-semibold">{rascunho.id ? 'Editar rotina' : 'Nova rotina'}</p>
-
-            <RotinaCampos rascunho={rascunho} onChange={setRascunho} limites={limites} />
-
-            <div className="flex flex-wrap gap-2">
-              <button onClick={salvar} disabled={salvando}
-                className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-                {salvando && <Spinner />}{rascunho.id ? 'Salvar alterações' : 'Criar rotina'}
-              </button>
-              <button onClick={() => { setRascunho(null); setErro('') }} disabled={salvando}
-                className="rounded-lg border px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">
-                Cancelar
-              </button>
-            </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Campo label="Nicho">
+              <input value={avulsa.nicho} placeholder="ex: dentista"
+                onChange={(e) => setAvulsa({ ...avulsa, nicho: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm" />
+            </Campo>
+            <Campo label="Cidade">
+              <input value={avulsa.cidade} placeholder="ex: Campinas"
+                onChange={(e) => setAvulsa({ ...avulsa, cidade: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm" />
+            </Campo>
+            <Campo label="Estado (UF)">
+              <input value={avulsa.uf} maxLength={2} placeholder="SP"
+                onChange={(e) => setAvulsa({ ...avulsa, uf: e.target.value.toUpperCase() })}
+                className="w-full rounded-lg border px-3 py-2 text-sm uppercase" />
+            </Campo>
+            <Campo label={`Máx. de leads novos (1 a ${limites.quantidade_max})`}>
+              <input type="number" min={limites.quantidade_min} max={limites.quantidade_max} value={avulsa.quantidade}
+                title="Vale para os dois botões: quantos leads esta busca importa e, no assistente, quantos você quer aprovar. A origem pode encontrar mais registros do que isso."
+                onChange={(e) => setAvulsa({ ...avulsa, quantidade: Number(e.target.value) || limites.quantidade_max })}
+                className="w-full rounded-lg border px-3 py-2 text-sm" />
+            </Campo>
           </div>
-        )}
-
-        {erro && <p className="text-sm text-red-600">{erro}</p>}
-
-        {rotinas.length === 0 && !rascunho ? (
-          <div className="rounded-xl border border-dashed px-4 py-8 text-center">
-            <p className="text-sm text-slate-500">Nenhuma rotina cadastrada.</p>
-            <p className="mt-1 text-xs text-slate-400">Crie uma rotina para coletar leads de um mercado continuamente.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={buscarAgora} disabled={buscandoAvulsa || dados?.coleta_em_andamento}
+              title={dados?.coleta_em_andamento ? 'Aguarde a coleta em andamento terminar.' : undefined}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+              {buscandoAvulsa ? <Spinner /> : <IconPlay />}{buscandoAvulsa ? 'Iniciando…' : 'Buscar agora'}
+            </button>
+            {/* Gatilho MANUAL da análise: buscar não analisa, analisar não busca. */}
+            <button onClick={() => setEntradaAberta(true)} disabled={entradaAberta || assistenteAberto}
+              title="Revisa os leads que ainda não foram decididos, um por vez, com uma explicação curta."
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:from-orange-600 hover:to-amber-600 disabled:opacity-50">
+              <IconSparkle /> Analisar oportunidades
+            </button>
           </div>
-        ) : (
-          <div className="space-y-3">
-            {rotinas.map((r) => (
-              <div key={r.id} className="rounded-xl border p-3 sm:p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold">{r.nicho}</span>
-                      <span className="text-slate-400">·</span>
-                      <span className="text-slate-600">{r.localizacao || r.cidade}</span>
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_STYLE[r.estado] || 'bg-slate-100 text-slate-600'}`}>
-                        {r.estado_label}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {resumoDias(r.dias_semana)} · {r.janela_inicio}–{r.janela_fim} · a cada {r.intervalo_horas}h ·
-                      {' '}importa até {r.quantidade} leads
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-3 text-sm">
-                    <button onClick={() => editar(r)} disabled={agindo === r.id}
-                      className="text-brand hover:underline disabled:opacity-40">Editar</button>
-                    <button onClick={() => alternarAtivo(r)} disabled={agindo === r.id}
-                      className={`hover:underline disabled:opacity-40 ${r.ativo ? 'text-amber-600' : 'text-emerald-600'}`}>
-                      {r.ativo ? 'Pausar' : 'Retomar'}
-                    </button>
-                    <button onClick={() => remover(r)} disabled={agindo === r.id}
-                      className="inline-flex items-center gap-1 text-red-600 hover:underline disabled:opacity-40">
-                      <IconTrash /> Remover
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 gap-3 border-t pt-3 text-xs sm:grid-cols-4">
-                  <Dado rotulo="Próxima execução" valor={r.ativo ? quando(r.proxima_execucao_em) : 'Pausada'} />
-                  <Dado rotulo="Última execução" valor={quando(r.ultima_execucao_em)} />
-                  <Dado rotulo="Última coleta"
-                    valor={r.ultimo_coletados == null ? '—' : `${r.ultimo_coletados} encontrados`} />
-                  <Dado rotulo="Novos / duplicados"
-                    valor={r.ultimo_novos == null ? '—' : `${r.ultimo_novos} / ${r.ultimo_duplicados ?? 0}`} />
-                </div>
-
-                {r.mensagem && <p className="mt-2 text-xs text-slate-500">{r.mensagem}</p>}
-                {r.estado === 'precisa_atencao' && (
-                  <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                    <b>Precisa de atenção.</b> A rotina parou depois de {r.falhas_consecutivas} tentativas sem sucesso.
-                    {r.ultimo_erro && <span className="mt-0.5 block opacity-80">Último erro: {r.ultimo_erro}</span>}
-                    <span className="mt-0.5 block">Revise os dados e clique em <b>Retomar</b>.</span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm">
-        <div>
-          <h2 className="text-base font-semibold">Busca avulsa</h2>
-          <p className="mt-0.5 text-xs text-slate-500">Uma coleta única, agora, sem criar rotina.</p>
+          {/* A coleta em andamento é global (uma por empresa): quem está no modo Busca
+              precisa saber por que o botão está desabilitado sem ir até as Rotinas. */}
+          {dados?.coleta_em_andamento && (
+            <p className="text-xs text-cyan-800">
+              Há uma coleta em andamento. Assim que ela terminar, a busca avulsa fica liberada.
+            </p>
+          )}
+          <p className="text-xs text-slate-500">
+            <b>Buscar agora</b> traz leads novos para a sua carteira. <b>Analisar oportunidades</b> abre o
+            assistente: ele pergunta se você quer revisar o que já foi encontrado — um lead por vez, com o
+            motivo — ou procurar em outro nicho ou cidade.
+          </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Campo label="Nicho">
-            <input value={avulsa.nicho} placeholder="ex: dentista"
-              onChange={(e) => setAvulsa({ ...avulsa, nicho: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 text-sm" />
-          </Campo>
-          <Campo label="Cidade">
-            <input value={avulsa.cidade} placeholder="ex: Campinas"
-              onChange={(e) => setAvulsa({ ...avulsa, cidade: e.target.value })}
-              className="w-full rounded-lg border px-3 py-2 text-sm" />
-          </Campo>
-          <Campo label="Estado (UF)">
-            <input value={avulsa.uf} maxLength={2} placeholder="SP"
-              onChange={(e) => setAvulsa({ ...avulsa, uf: e.target.value.toUpperCase() })}
-              className="w-full rounded-lg border px-3 py-2 text-sm uppercase" />
-          </Campo>
-          <Campo label={`Máx. de leads novos (1 a ${limites.quantidade_max})`}>
-            <input type="number" min={limites.quantidade_min} max={limites.quantidade_max} value={avulsa.quantidade}
-              title="Vale para os dois botões: quantos leads esta busca importa e, no assistente, quantos você quer aprovar. A origem pode encontrar mais registros do que isso."
-              onChange={(e) => setAvulsa({ ...avulsa, quantidade: Number(e.target.value) || limites.quantidade_max })}
-              className="w-full rounded-lg border px-3 py-2 text-sm" />
-          </Campo>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button onClick={buscarAgora} disabled={buscandoAvulsa || dados?.coleta_em_andamento}
-            title={dados?.coleta_em_andamento ? 'Aguarde a coleta em andamento terminar.' : undefined}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-            {buscandoAvulsa ? <Spinner /> : <IconPlay />}{buscandoAvulsa ? 'Iniciando…' : 'Buscar agora'}
-          </button>
-          {/* Gatilho MANUAL da análise: buscar não analisa, analisar não busca. */}
-          <button onClick={() => setEntradaAberta(true)} disabled={entradaAberta || assistenteAberto}
-            title="Revisa os leads que ainda não foram decididos, um por vez, com uma explicação curta."
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:from-orange-600 hover:to-amber-600 disabled:opacity-50">
-            <IconSparkle /> Analisar oportunidades
-          </button>
-        </div>
-        <p className="text-xs text-slate-500">
-          <b>Buscar agora</b> traz leads novos para a sua carteira. <b>Analisar oportunidades</b> abre o
-          assistente: ele pergunta se você quer revisar o que já foi encontrado — um lead por vez, com o
-          motivo — ou procurar em outro nicho ou cidade.
-        </p>
-      </div>
+      )}
+
+      {/* Um único bloco de erro, FORA dos cards: o mesmo estado é escrito pela rotina e
+          pela busca avulsa, e precisa aparecer no modo em que o operador está. */}
+      {erro && <p className="text-sm text-red-600">{erro}</p>}
 
       {entradaAberta && (
         <AssistenteEntrada

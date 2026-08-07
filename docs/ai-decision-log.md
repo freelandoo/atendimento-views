@@ -11,6 +11,42 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-07 — Aquisição em dois modos (Busca / Rotinas): padrão de troca de modo em página
+
+Mudança 100% de apresentação — sem backend, banco, env ou regra de negócio. A tela empilhava
+duas operações de natureza diferente (operar uma busca agora × administrar automações), e o
+custo era densidade, não funcionalidade.
+
+- **O componente não é desmontado por modo.** `RotinasAquisicao` recebe `modo` e renderiza só o
+  card correspondente, mas fica **sempre montado, na mesma posição da árvore**. Foi a decisão
+  central: o formulário da busca avulsa, o polling de 20s e o `coleta_em_andamento` vivem no
+  estado desse componente — desmontá-lo ao ir em Rotinas reiniciaria o formulário, exatamente o
+  que a separação não pode causar. Os filtros da tabela de leads já viviam na página, que
+  permanece montada.
+- **Nenhum toggle novo.** Reuso do `components/ui/Abas.tsx`, que já é usado NESTA tela e já
+  resolve teclado (setas/Home/End), `aria-selected`, foco visível e trilho rolável no mobile.
+  Criar um segmentado próprio duplicaria um padrão visual e um contrato de acessibilidade.
+- **Um painel só, com os ids do modo ativo**, em vez de dois painéis no DOM: manter os dois
+  montados contradiria "não renderizar os dois conteúdos ao mesmo tempo", e é o `PainelAba` que
+  desmontaria o `RotinasAquisicao`.
+- **O bloco de `erro` saiu de dentro do card de rotinas.** Correção necessária, não estética: o
+  mesmo estado é escrito por "Buscar agora" e pelas rotinas, e dentro do card de rotinas a falha
+  da busca ficaria invisível no modo Busca. Um bloco só, fora dos dois cards.
+- **Histórico de coletas migrou para o modo Rotinas** (saiu da aba de "Acompanhar resultados"):
+  é histórico de execução de rotina, não revisão de lead. "Acompanhar resultados" ficou com
+  Desempenho por mercado e Respostas recentes.
+- **Persistência sem `useSearchParams`:** o projeto não usa parâmetro de rota em lugar nenhum, e
+  `useSearchParams` exigiria Suspense e mudaria o padrão de roteamento por causa de um toggle.
+  Modo restaurado em `useEffect` (nunca no render, para não quebrar a hidratação) a partir da URL
+  (`?modo=`, prioridade — é o que um link compartilhado carrega) e, na falta dela, do
+  `sessionStorage`. Gravação com `history.replaceState`: alternar modo não é navegação e não
+  deve poluir o histórico do navegador.
+- **Transição:** nova classe `.painel-troca` no `globals.css` (fade + 4px, 0.16s). Curta e sem
+  deslocamento grande, para a página não "pular"; o bloco `prefers-reduced-motion` já existente
+  a neutraliza automaticamente.
+
+---
+
 ## 2026-08-07 — Classificação CANÔNICA de site próprio x rede social / agregador (migration 056)
 
 Correção de causa raiz, não de tela. O defeito não era um bug isolado: era **a mesma pergunta

@@ -151,6 +151,15 @@
   `src/routes/api-aquisicao-rotinas.js` (montadas ANTES de `/prospeccao`, admin-only).
   Front: `frontend/components/RotinasAquisicao.tsx`. Testes:
   `test/aquisicao-rotinas-scheduler.test.js` e `test/aquisicao-rotinas-motor.test.js`.
+- **A tela de Aquisição tem DOIS MODOS** (controle segmentado no topo, reusando
+  `components/ui/Abas.tsx`): **Busca** (busca avulsa, status da coleta, tabela de leads
+  encontrados e "Acompanhar resultados") e **Rotinas** (painel de rotinas + histórico de
+  coletas). `RotinasAquisicao` recebe a prop `modo` e renderiza só o card do modo ativo, mas
+  fica **sempre montado** — é o que preserva o formulário da busca avulsa e o acompanhamento da
+  coleta ao alternar; desmontá-lo reiniciaria o formulário. **Trocar de modo é só apresentação:
+  não dispara busca, coleta paga, salvamento de rotina nem requisição nova** (`carregar`,
+  `carregarBuscas` e o painel de rotinas não dependem de `modo`). O modo persiste em
+  `sessionStorage` + `?modo=busca|rotinas` (via `history.replaceState`, sem `useSearchParams`).
 - **Cidade + UF** compõem a localização usada na geocodificação e na coleta, no automático **e**
   no manual (`POST /prospeccao/buscar` aceita `uf`) — sem a UF, "Santana" resolvia em qualquer estado.
 - Nenhuma variável de ambiente nova foi criada para este módulo.

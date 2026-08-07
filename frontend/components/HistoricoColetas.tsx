@@ -1,9 +1,10 @@
 'use client'
 
 // Histórico de coletas (antiga "Atividade recente" das Rotinas de Aquisição).
-// É consulta secundária: vive na seção "Acompanhar resultados", abaixo da lista de
-// leads. O conteúdo é o mesmo de antes — quando, mercado, origem, situação,
-// encontrados, novos, duplicados e a falha quando houver.
+// É consulta secundária: vive no modo **Rotinas** da página de Aquisição, abaixo do painel
+// de rotinas — é histórico de execução, não revisão de lead. O conteúdo é o mesmo de
+// antes — quando, mercado, origem, situação, encontrados, novos, duplicados e a falha
+// quando houver.
 
 export type Atividade = {
   id: string
