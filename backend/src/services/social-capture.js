@@ -315,7 +315,20 @@ async function upsertProspectSocial(empresaId, fonte, perfil, campanha = null, o
           WHEN EXCLUDED.classificacao_url = 'sem_link' THEN COALESCE(prospectador.prospects.classificacao_url, EXCLUDED.classificacao_url)
           ELSE EXCLUDED.classificacao_url
         END,
-        tem_site = (COALESCE(prospectador.prospects.site, EXCLUDED.site) IS NOT NULL),
+        -- tem_site e' CACHE do veredito, nunca "tem algum link" (era
+        -- COALESCE(site, EXCLUDED.site) IS NOT NULL, o padrao proibido: so' acertava
+        -- porque OUTRA parte do sistema garante o campo site limpo). Segue a mesma regra
+        -- de "so' promove" da classificacao_url acima — o melhor link conhecido vence.
+        tem_site = CASE
+          WHEN EXCLUDED.classificacao_url = 'site_proprio' THEN TRUE
+          WHEN prospectador.prospects.classificacao_url = 'site_proprio' THEN TRUE
+          -- recoleta sem link e nada classificado antes: respeita a flag que ja existia
+          -- (site confirmado por outra via, sem URL no cadastro).
+          WHEN EXCLUDED.classificacao_url = 'sem_link'
+               AND prospectador.prospects.classificacao_url IS NULL
+            THEN prospectador.prospects.tem_site
+          ELSE FALSE
+        END,
         nome = EXCLUDED.nome,
         -- só promove para contato_encontrado; nunca rebaixa um lead já trabalhado.
         status = CASE
