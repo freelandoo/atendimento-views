@@ -6,6 +6,7 @@ const aiProvider = require('./ai-provider')
 const { enviarMensagem, classificarErroEvolution, verificarStatusInstanciaEvolution } = require('./whatsapp')
 const { registrarEnvioNoHistorico } = require('./services/historico-envio')
 const { calcularScoreCadastroPlaces, montarJsonApresentacaoPlaces } = require('./services/lead-score-cadastro')
+const { classificarUrl, classificarLead } = require('./services/site-classificacao')
 const { logger } = require('./logger')
 const { dashboardAutorizado: dashboardSessionAutorizado } = require('./dashboardAuth')
 const {
@@ -231,11 +232,27 @@ function textoPrimaryType(primaryTypeDisplayName) {
   return primaryTypeDisplayName.text || ''
 }
 
+// "Este prospect tem site proprio?" — resposta CANONICA, aceitando tanto o shape cru do
+// Places (`websiteUri`) quanto a linha do banco (`site`/`link_original`/`link_bio`).
+// Usada pelo diagnostico, pelo roteamento de oferta e pelos prompts de mensagem: antes,
+// um Instagram fazia o motor oferecer "modernizacao do site atual" a quem nao tem site.
+function temSiteProprioDoProspect(prospect = {}) {
+  return classificarLead({
+    site: prospect.site || prospect.websiteUri || null,
+    link_original: prospect.link_original || null,
+    link_bio: prospect.link_bio || null,
+    tem_site: prospect.tem_site,
+    place_id: prospect.place_id,
+  }).tem_site
+}
+
 function calcularScoreProspect(place) {
   let score = 50
   const rating = Number(place.rating || 0)
   const reviews = Number(place.userRatingCount || 0)
-  const temSite = !!place.websiteUri
+  // Regra canonica: um link de Instagram/Linktree na ficha do Maps NAO e' site — este
+  // lead continua valendo os 22 pontos de "sem presenca propria".
+  const temSite = classificarUrl(place.websiteUri).tem_site
   const temTelefone = !!(place.internationalPhoneNumber || place.nationalPhoneNumber)
 
   if (!temSite) score += 22
@@ -250,7 +267,8 @@ function calcularScoreProspect(place) {
 
 function motivoScore(place) {
   const partes = []
-  if (!place.websiteUri) partes.push('sem site visivel')
+  const url = classificarUrl(place.websiteUri)
+  if (!url.tem_site) partes.push(url.classificacao === 'sem_link' ? 'sem site visivel' : `sem site proprio (${url.label.toLowerCase()})`)
   if (place.rating) partes.push(`nota ${place.rating}`)
   if (place.userRatingCount) partes.push(`${place.userRatingCount} reviews`)
   if (place.internationalPhoneNumber || place.nationalPhoneNumber) partes.push('telefone disponivel')
@@ -270,7 +288,7 @@ function calcularScoreV2(prospect) {
 
   // ── presenca_digital (0-25) ──────────────────────────────────────────────
   let presenca_digital = 0
-  const temSite = !!(prospect.websiteUri || prospect.site || prospect.tem_site)
+  const temSite = temSiteProprioDoProspect(prospect)
   if (!temSite) {
     presenca_digital = 25
     motivos.push('sem presenca digital propria')
@@ -613,7 +631,7 @@ async function persistirScoreV2Prospect(prospectId, prospectOriginal) {
 
 /** Diagnóstico estruturado fallback (sem chamada de IA). */
 function fallbackDiagnosticoEstruturado(prospect) {
-  const temSite = !!(prospect.websiteUri || prospect.site || prospect.tem_site)
+  const temSite = temSiteProprioDoProspect(prospect)
   const rating = Number(prospect.rating || 0)
   const reviews = Number(prospect.avaliacoes || prospect.userRatingCount || 0)
   return {
@@ -663,7 +681,7 @@ async function gerarDiagnosticoEstruturado(prospect) {
   const fallback = fallbackDiagnosticoEstruturado(prospect)
   if (!process.env.ANTHROPIC_KEY) return fallback
 
-  const temSite = !!(prospect.websiteUri || prospect.site || prospect.tem_site)
+  const temSite = temSiteProprioDoProspect(prospect)
   const systemPrompt =
     'Voce e um analista de negocios digitais da {{empresa}}. ' +
     'Avalie o perfil digital do negocio local abaixo e retorne APENAS JSON valido sem markdown.'
@@ -728,7 +746,7 @@ async function gerarDiagnosticoEstruturado(prospect) {
  */
 function rotearOferta(prospect, diagnosticoJson, scoreV2) {
   const nicho = String(prospect.nicho || '').toLowerCase()
-  const temSite = !!(prospect.tem_site || prospect.site || prospect.websiteUri)
+  const temSite = temSiteProprioDoProspect(prospect)
   const ofertaIA = diagnosticoJson?.oferta_sugerida || null
   const perfilDigital = diagnosticoJson?.perfil_digital || null
   const dores = Array.isArray(diagnosticoJson?.dores_identificadas) ? diagnosticoJson.dores_identificadas : []
@@ -778,7 +796,7 @@ function rotearOferta(prospect, diagnosticoJson, scoreV2) {
 function montarMensagemComercialV2Fallback(prospect, diagnosticoJson, ofertaRecomendada) {
   const nome = prospect.nome || 'sua empresa'
   const nicho = prospect.nicho || 'seu segmento'
-  const temSite = !!(prospect.tem_site || prospect.site || prospect.websiteUri)
+  const temSite = temSiteProprioDoProspect(prospect)
   const sinal = (diagnosticoJson?.sinais_positivos || [])[0] || ''
   const dor = (diagnosticoJson?.dores_identificadas || [])[0] ||
     (temSite ? 'conversao digital abaixo do potencial' : 'ausencia de presenca digital')
@@ -815,7 +833,7 @@ async function gerarMensagemComercialV2(prospect, diagnosticoJson, ofertaRecomen
     return { mensagem: fallbackMsg, prompt_version: MESSAGE_PROMPT_VERSION, provider: 'heuristico' }
   }
 
-  const temSite = !!(prospect.tem_site || prospect.site || prospect.websiteUri)
+  const temSite = temSiteProprioDoProspect(prospect)
   const rating = prospect.rating ? `nota ${prospect.rating}` : ''
   const reviews = Number(prospect.avaliacoes || prospect.userRatingCount || 0)
   const dor = (diagnosticoJson?.dores_identificadas || [])[0] ||
@@ -1014,12 +1032,18 @@ async function gerarPipelineDiagnosticoV2(prospect) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function mapearPlace(place) {
+  // O `websiteUri` da ficha do Maps e' frequentemente o Instagram, o Linktree ou o proprio
+  // link do Perfil da Empresa. `site` so' recebe site PROPRIO; o link cru vai para
+  // `link_original` (auditoria) e a categoria para `classificacao_url`.
+  const url = classificarUrl(place.websiteUri)
   return {
     place_id: place.id || '',
     nome: textoDisplayName(place.displayName),
     endereco: place.formattedAddress || '',
     telefone: place.internationalPhoneNumber || place.nationalPhoneNumber || '',
-    site: place.websiteUri || '',
+    site: url.site || '',
+    link_original: url.link_original || '',
+    classificacao_url: url.classificacao,
     maps_url: place.googleMapsUri || '',
     rating: place.rating ?? null,
     reviews: place.userRatingCount ?? null,
@@ -1028,7 +1052,7 @@ function mapearPlace(place) {
     tipos: Array.isArray(place.types) ? place.types : [],
     score: calcularScoreProspect(place),
     motivo_score: motivoScore(place),
-    tem_site: !!place.websiteUri,
+    tem_site: url.tem_site,
     raw_json: place && typeof place === 'object' ? place : {},
   }
 }
@@ -1053,6 +1077,10 @@ function normalizarProspectParaPersistencia(prospect, contexto = {}) {
   // empresa_id vem do contexto CRU (não passa pelo schema, que o descartaria);
   // fallback para a empresa padrão {{empresa}} quando não informado.
   const empresaId = (contexto && (contexto.empresaId || contexto.empresa_id)) || '00000000-0000-0000-0000-000000000001'
+  // ULTIMA barreira antes do banco: nenhum link de rede social/agregador/diretorio pode
+  // ser gravado como site proprio, venha de onde vier (coleta, importacao, cadastro
+  // manual). `tem_site` deixa de ser "tem algum link" e passa a ser o veredito canonico.
+  const url = classificarUrl(pIn.site || pIn.link_original)
   return {
     empresa_id: empresaId,
     nome,
@@ -1062,8 +1090,10 @@ function normalizarProspectParaPersistencia(prospect, contexto = {}) {
     endereco: normalizarTexto(pIn.endereco, 500) || null,
     avaliacoes: pIn.reviews == null ? null : parseInt(pIn.reviews, 10),
     rating: pIn.rating == null ? null : Number(pIn.rating),
-    tem_site: !!(pIn.tem_site || pIn.site),
-    site: normalizarTexto(pIn.site, 500) || null,
+    tem_site: url.tem_site,
+    site: normalizarTexto(url.site, 500) || null,
+    link_original: normalizarTexto(url.link_original, 500) || null,
+    classificacao_url: url.classificacao,
     maps_url: normalizarTexto(pIn.maps_url, 500) || null,
     place_id: placeId,
     origem: normalizarOrigem(ctx.origem),
@@ -1080,11 +1110,13 @@ async function salvarProspect(prospect, contexto = {}) {
     `
     INSERT INTO prospectador.prospects (
       nome, telefone, nicho, cidade, endereco, avaliacoes, rating, tem_site,
-      site, maps_url, place_id, origem, score, motivo_score, raw_json, empresa_id
+      site, maps_url, place_id, origem, score, motivo_score, raw_json, empresa_id,
+      link_original, classificacao_url
     )
     VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8,
-      $9, $10, $11, $12, $13, $14, $15::jsonb, $16
+      $9, $10, $11, $12, $13, $14, $15::jsonb, $16,
+      $17, $18
     )
     ON CONFLICT (empresa_id, place_id) DO UPDATE
     SET nome = EXCLUDED.nome,
@@ -1096,6 +1128,8 @@ async function salvarProspect(prospect, contexto = {}) {
         rating = COALESCE(EXCLUDED.rating, prospectador.prospects.rating),
         tem_site = EXCLUDED.tem_site,
         site = COALESCE(EXCLUDED.site, prospectador.prospects.site),
+        link_original = COALESCE(EXCLUDED.link_original, prospectador.prospects.link_original),
+        classificacao_url = EXCLUDED.classificacao_url,
         maps_url = COALESCE(EXCLUDED.maps_url, prospectador.prospects.maps_url),
         origem = CASE
           WHEN prospectador.prospects.origem = 'automatico' THEN prospectador.prospects.origem
@@ -1124,6 +1158,8 @@ async function salvarProspect(prospect, contexto = {}) {
       p.motivo_score,
       JSON.stringify(p.raw_json),
       p.empresa_id,
+      p.link_original,
+      p.classificacao_url,
     ]
   )
   return prospectPersistido(rows[0])
@@ -1334,7 +1370,7 @@ async function atualizarStatusProspectsLote(ids, status, empresaId = null) {
 function calcularPerdaEstimadaProspect(prospect) {
   const reviews = Number(prospect.avaliacoes || 0)
   const rating = Number(prospect.rating || 0)
-  const base = prospect.tem_site ? 650 : 1200
+  const base = temSiteProprioDoProspect(prospect) ? 650 : 1200
   const bonusReviews = Math.min(1500, reviews * 12)
   const bonusRating = rating >= 4.3 ? 800 : rating >= 4 ? 450 : 200
   return Math.max(300, Math.round(base + bonusReviews + bonusRating))
@@ -1379,8 +1415,8 @@ async function gerarDiagnosticoComClaude(prospect) {
     `- endereco: ${prospect.endereco || ''}\n` +
     `- rating: ${prospect.rating == null ? '' : prospect.rating}\n` +
     `- avaliacoes: ${prospect.avaliacoes == null ? '' : prospect.avaliacoes}\n` +
-    `- tem_site: ${prospect.tem_site ? 'sim' : 'nao'}\n` +
-    `- site: ${prospect.site || ''}\n\n` +
+    `- tem_site: ${temSiteProprioDoProspect(prospect) ? 'sim' : 'nao'}\n` +
+    `- site: ${temSiteProprioDoProspect(prospect) ? (prospect.site || '') : ''}\n\n` +
     `REGRAS OBRIGATORIAS para mensagem_gerada (1a mensagem ao lead):\n` +
     `1. Identidade: assine como "{{empresa}}" no corpo da mensagem ("Sou da {{empresa}}"). NUNCA escreva placeholders entre colchetes — proibido [Empresa], [Sua Empresa], [Nome da Empresa], [Nome], [Cidade], [Nicho] ou qualquer texto entre [ ]. Use diretamente os dados do prospect.\n` +
     `2. Tom consultivo, profissional, com cara de WhatsApp humano (NAO vendedor agressivo).\n` +
@@ -2435,8 +2471,10 @@ function montarContextoVendasProspeccao({ prospect, diagnostico, fila, mensagemE
     estado,
     endereco,
     regiao_atendimento: regiaoAtendimento,
-    tem_site: !!p.tem_site,
-    site: valorTextoContexto(p.site, candidato.site),
+    // Contexto de venda entregue ao bot: so' entra "tem site" quando ha' site PROPRIO.
+    tem_site: temSiteProprioDoProspect(p),
+    site: temSiteProprioDoProspect(p) ? valorTextoContexto(p.site, candidato.site) : '',
+    link_original: valorTextoContexto(p.link_original, p.site, candidato.site),
     maps_url: valorTextoContexto(p.maps_url, candidato.maps_url),
     place_id: valorTextoContexto(p.place_id, candidato.place_id),
     rating: valorNumeroContexto(p.rating, candidato.rating),
@@ -3285,7 +3323,8 @@ async function buscarFilaAprovacao(filtros = {}) {
     pool.query(
       `SELECT
          p.id, p.nome, p.telefone, p.nicho, p.cidade, p.endereco,
-         p.rating, p.avaliacoes, p.tem_site, p.site, p.maps_url,
+         p.rating, p.avaliacoes, p.tem_site, p.site, p.link_original,
+         p.classificacao_url, p.link_bio, p.place_id, p.maps_url,
          p.status, p.score, p.score_v2, p.score_dimensoes, p.oferta_recomendada,
          p.decision_log, p.created_at, p.updated_at,
          CASE
@@ -3327,7 +3366,11 @@ async function buscarFilaAprovacao(filtros = {}) {
     return 'desqualificado'
   }
 
-  const items = dataRes.rows.map((row) => ({
+  const items = dataRes.rows.map((row) => {
+    // Veredito canonico na leitura: a coluna `tem_site` e' cache e pode estar
+    // desatualizada em lead anterior a reclassificacao historica.
+    const url = classificarLead(row)
+    return {
     id: row.id,
     nome: row.nome,
     telefone: row.telefone || '',
@@ -3335,8 +3378,12 @@ async function buscarFilaAprovacao(filtros = {}) {
     cidade: row.cidade || '',
     rating: row.rating == null ? null : Number(row.rating),
     avaliacoes: row.avaliacoes == null ? null : Number(row.avaliacoes),
-    tem_site: !!row.tem_site,
-    site: row.site || null,
+    tem_site: url.tem_site,
+    site: url.site,
+    link_original: url.link_original,
+    classificacao_url: url.classificacao,
+    situacao_site: url.situacao_site,
+    situacao_site_label: url.situacao_label,
     maps_url: row.maps_url || null,
     score: row.score == null ? null : Number(row.score),
     score_v2: row.score_v2 == null ? null : Number(row.score_v2),
@@ -3351,7 +3398,8 @@ async function buscarFilaAprovacao(filtros = {}) {
     decision_log: Array.isArray(row.decision_log) ? row.decision_log : [],
     created_at: row.created_at,
     updated_at: row.updated_at,
-  }))
+    }
+  })
 
   return { items, total: Number(countRes.rows[0]?.total || 0), limit, offset }
 }

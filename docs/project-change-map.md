@@ -20,6 +20,28 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
   fila (`captacao_snapshots`), trava de 15 dias (`lead-lock.js`). Não iniciar conversas fora
   das regras de disparo.
 
+### Classificação de site próprio (transversal)
+- **Arquivos:** `backend/src/services/site-classificacao.js` (**fonte de verdade única**),
+  `scripts/reclassificar-sites.js`, `sql/migrations/056_site_classificacao.sql`,
+  `frontend/lib/site-rotulos.js`.
+- **Regras a preservar:**
+  - `tem_site = true` **somente** para site próprio em domínio independente. Rede social,
+    agregador, mapa, marketplace, diretório e perfil ⇒ `false`. Link duvidoso (encurtador,
+    subdomínio de construtor) ⇒ `desconhecido`, **nunca** promovido a site próprio.
+  - **Nunca** escrever `!!(lead.site || lead.tem_site)` de novo — foi essa equivalência,
+    repetida em 7 lugares, que causou o defeito. Todo produtor e todo consumidor chama
+    `classificarUrl` / `classificarLead` / `temSiteProprio` / `situacaoSiteDoLead`.
+  - A coluna `site` significa **exclusivamente** site próprio; o link cru vive em
+    `link_original` e nunca é apagado. `classificacao_url` guarda a categoria.
+  - A autoridade é a função na **leitura**; as colunas são cache. Não inverter isso.
+  - O `tem_site` **conversacional** (o que o lead declara no WhatsApp — `agent.js`,
+    `turn-context-reader.js`, `prompts/*.md`, `vendas.lead_profiles`) é outro domínio e
+    **não** passa pelo classificador de URL.
+  - `npm run reclassificar:sites` simula por padrão; só grava com `--aplicar`. É idempotente
+    e não faz nenhuma chamada externa/paga.
+- **Cobertura:** `test/site-classificacao.test.js` (unitários + integração entre consumidores),
+  `test/reclassificar-sites.test.js` (idempotência e preservação do link).
+
 ### Banco de dados
 - **Arquivos:** `backend/src/db.js`, `db-crud.js`, `sql/init.sql`, `sql/migrations/*`.
 - **Regras a preservar:** migrations aplicadas no boot; isolamento por tenant (`empresa_id`).

@@ -4,6 +4,7 @@ const {
   eventoSaudeDeWebhook: eventoSaudeDeWebhookDefault,
   registrarEventoSaudeInstancia: registrarEventoSaudeInstanciaDefault,
 } = require('./db/whatsapp-instance-events')
+const { classificarLead } = require('./services/site-classificacao')
 
 function registerWebhookRoute(app, deps = {}) {
   const {
@@ -170,8 +171,12 @@ function registerWebhookRoute(app, deps = {}) {
             endereco: contextoVendas.endereco || p.endereco || '',
             regiao_atendimento: contextoVendas.regiao_atendimento || '',
             telefone: contextoVendas.telefone || p.telefone || '',
-            tem_site: !!(contextoVendas.tem_site || p.tem_site),
-            site: contextoVendas.site || p.site || '',
+            // Canonico: um lead cujo unico link e' o Instagram entra na conversa como SEM
+            // site. Antes ele chegava como "ja tem site" e o bot oferecia melhoria de site
+            // inexistente. `contextoVendas.tem_site` (o que o LEAD declarou na conversa)
+            // continua tendo precedencia — ali a fonte e' a fala humana, nao a URL.
+            tem_site: contextoVendas.tem_site === true ? true : classificarLead(p).tem_site,
+            site: contextoVendas.site || classificarLead(p).site || '',
             maps_url: contextoVendas.maps_url || p.maps_url || '',
             place_id: contextoVendas.place_id || p.place_id || '',
             rating: contextoVendas.rating ?? p.rating ?? null,

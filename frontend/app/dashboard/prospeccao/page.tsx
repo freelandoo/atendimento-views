@@ -5,6 +5,7 @@ import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
+import { rotuloLink, tituloLinkNaoSite } from '@/lib/site-rotulos'
 import RotinasAquisicao, { type RotinasResp } from '@/components/RotinasAquisicao'
 import HistoricoColetas from '@/components/HistoricoColetas'
 import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
@@ -24,8 +25,13 @@ type Prospect = {
   endereco: string | null
   rating: number | null
   avaliacoes: number | null
+  // Canônicos do backend (services/site-classificacao.js): `site` só vem quando é site
+  // PRÓPRIO; o link cru (Instagram, Linktree, ficha do Maps) vem em `link_original`.
   tem_site: boolean
   site: string | null
+  link_original: string | null
+  classificacao_url: string | null
+  situacao_site: 'tem_site' | 'sem_site' | 'nao_identificado' | null
   maps_url: string | null
   status: string
   score: number | null
@@ -402,13 +408,18 @@ export default function ProspeccaoPage() {
               <td className="px-3 py-2 text-right text-xs">{p.rating != null ? Number(p.rating).toFixed(1) : '—'}</td>
               <td className="px-3 py-2 text-center">{horario ? '✅' : '❌'}</td>
               <td className="px-3 py-2">
-                {p.site ? (
+                {p.tem_site && p.site ? (
                   <a href={p.site} target="_blank" rel="noreferrer" className="hover:underline" title={p.site}>✅ <span className="text-xs text-brand">site</span></a>
-                ) : p.tem_site ? '✅' : '❌'}
+                ) : p.link_original ? (
+                  <a href={p.link_original} target="_blank" rel="noreferrer" className="hover:underline"
+                    title={tituloLinkNaoSite(p.classificacao_url, p.link_original)}>
+                    ❌ <span className="text-xs text-slate-500">{rotuloLink(p.classificacao_url) || 'verificar'}</span>
+                  </a>
+                ) : '❌'}
               </td>
               <td className="px-3 py-2 text-right">
                 <span className={`font-semibold ${((p.score_cadastro ?? 0) <= 40) ? 'text-red-600' : (p.score_cadastro ?? 0) <= 70 ? 'text-amber-600' : 'text-emerald-600'}`}
-                  title="Pontuação do cadastro (0-100): site 20 · fotos, endereço, telefone, e-mail, horário, links extras, avaliações e nota>4 valem 10 cada">
+                  title="Pontuação do cadastro (0-100): site próprio 20 · fotos, endereço, telefone, e-mail, horário, links extras, avaliações e nota>4 valem 10 cada">
                   {p.score_cadastro ?? 0}
                 </span>
                 <span className="text-[10px] text-slate-400">/100</span>

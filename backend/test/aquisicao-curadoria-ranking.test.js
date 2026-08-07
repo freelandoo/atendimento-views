@@ -123,7 +123,7 @@ test('o aprendizado empurra, mas respeita o teto', () => {
   }
   const { pesos } = aprenderPesos(historico)
   const bom = pontuarLead(lead(), pesos)
-  const ruim = pontuarLead(lead({ tem_site: true, site: 'https://x', nicho: 'Padaria' }), pesos)
+  const ruim = pontuarLead(lead({ tem_site: true, site: 'https://lojax.com.br', nicho: 'Padaria' }), pesos)
   assert.ok(Math.abs(bom.ajuste) <= PESO_APRENDIZADO)
   assert.ok(Math.abs(ruim.ajuste) <= PESO_APRENDIZADO)
   assert.ok(bom.pontos > ruim.pontos)
@@ -143,7 +143,7 @@ test('decisão registrada sem características não corrompe o aprendizado', () 
 test('a fila vem do melhor para o pior e desempata pelo lead mais recente', () => {
   const antigo = lead({ id: 'antigo', created_at: '2026-07-01T10:00:00Z' })
   const novo = lead({ id: 'novo', created_at: '2026-08-01T10:00:00Z' })
-  const fraco = lead({ id: 'fraco', tem_site: true, site: 'https://x', score_cadastro: 95, avaliacoes: 0, rating: null })
+  const fraco = lead({ id: 'fraco', tem_site: true, site: 'https://lojax.com.br', score_cadastro: 95, avaliacoes: 0, rating: null })
 
   const ordem = ordenarCandidatos([fraco, antigo, novo]).map((i) => i.lead.id)
   assert.deepEqual(ordem, ['novo', 'antigo', 'fraco'])
@@ -156,7 +156,7 @@ test('pontuação nunca fica negativa', () => {
   }))
   const { pesos } = aprenderPesos(historico)
   const p = pontuarLead(
-    lead({ tem_site: true, site: 'https://x', telefone: null, nicho: 'Padaria', score_cadastro: 100, avaliacoes: 0, rating: null }),
+    lead({ tem_site: true, site: 'https://lojax.com.br', telefone: null, nicho: 'Padaria', score_cadastro: 100, avaliacoes: 0, rating: null }),
     pesos
   )
   assert.ok(p.pontos >= 0)
@@ -184,7 +184,7 @@ test('o motivo de reserva menciona o aprendizado quando ele é relevante', () =>
   const { pesos } = aprenderPesos(historico)
   const bom = pontuarLead(lead(), pesos)
   const ruim = pontuarLead(
-    lead({ tem_site: true, site: 'https://x', nicho: 'Padaria', score_cadastro: 95 }),
+    lead({ tem_site: true, site: 'https://lojax.com.br', nicho: 'Padaria', score_cadastro: 95 }),
     pesos
   )
   assert.ok(bom.motivos.some((m) => /costuma aprovar/i.test(m)))

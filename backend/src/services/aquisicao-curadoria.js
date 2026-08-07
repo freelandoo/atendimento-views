@@ -17,6 +17,7 @@ const aiProviderPadrao = require('../ai-provider')
 const curadoriaDb = require('../db/aquisicao-curadoria')
 const { aprenderPesos, ordenarCandidatos, pontuarLead } = require('./aquisicao-curadoria-ranking')
 const { calcularScoreCadastroPlaces } = require('./lead-score-cadastro')
+const { classificarLead } = require('./site-classificacao')
 const { normalizarUf } = require('./aquisicao-rotinas-scheduler')
 const { logger } = require('../logger')
 
@@ -134,6 +135,9 @@ async function justificarComIA(pool, empresaId, itens, deps = {}) {
 // O item da fila carrega tudo o que a tela precisa mostrar. Guardá-lo pronto é o que
 // permite recarregar a página sem repetir a chamada de IA.
 function itemDaFila(lead, avaliacao) {
+  // Veredito canônico: `site` só aparece quando é site PRÓPRIO; um Instagram vai para
+  // `link_original` e o selo da tela mostra "Sem site próprio", não "Tem site".
+  const url = classificarLead(lead)
   return {
     prospect_id: lead.id,
     nome: lead.nome,
@@ -141,8 +145,11 @@ function itemDaFila(lead, avaliacao) {
     endereco: lead.endereco || null,
     nicho: lead.nicho,
     cidade: lead.cidade,
-    site: lead.site || null,
-    tem_site: !!lead.tem_site,
+    site: url.site || null,
+    tem_site: url.tem_site,
+    link_original: url.link_original || null,
+    classificacao_url: url.classificacao,
+    situacao_site: url.situacao_site,
     maps_url: lead.maps_url || null,
     rating: lead.rating == null ? null : Number(lead.rating),
     avaliacoes: lead.avaliacoes == null ? null : Number(lead.avaliacoes),

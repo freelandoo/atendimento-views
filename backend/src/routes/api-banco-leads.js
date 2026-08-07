@@ -25,6 +25,7 @@ const {
   calcularScoreCadastroInstagram,
   montarJsonApresentacaoInstagram,
 } = require('../services/lead-score-cadastro')
+const { classificarLead } = require('../services/site-classificacao')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -139,7 +140,8 @@ function montarEscopoOpcoes(query) {
 const COLUNAS = `id, origem, status, nome, telefone, email, instagram_handle,
   nicho, cidade, site, seguidores, categoria_perfil, created_at, updated_at,
   bloqueado_ate, bloqueio_motivo, endereco, rating, avaliacoes, tem_site,
-  maps_url, link_bio, bio, tem_whatsapp, score`
+  maps_url, link_bio, bio, tem_whatsapp, score, place_id,
+  link_original, classificacao_url`
 
 // Origens do Google Places (inclui cadastro manual); o resto é social (IG/LinkedIn).
 const ORIGENS_PLACES = new Set(['manual', 'automatico'])
@@ -147,24 +149,43 @@ const ORIGENS_PLACES = new Set(['manual', 'automatico'])
 // Anexa a pontuação de cadastro + JSON de apresentação conforme a origem do lead
 // (mesma régua da Aquisição: Places 0-100, Instagram 0-60). Remove o raw_json do
 // payload (pesado — só serve pro cálculo de fotos/horário do Places).
+// Ponto UNICO por onde todo lead do Banco de Leads sai para a tela. Aqui o veredito de
+// site vira canonico (services/site-classificacao): `site` so' sobrevive quando e' site
+// PROPRIO e `tem_site` deixa de significar "tem algum link". O link cru continua no
+// payload em `link_original`, para o operador ver o Instagram/Linktree sem que a tela o
+// chame de site. Sem isto, Banco de Leads e Central de Ligacoes mostrariam resultados
+// diferentes para o MESMO lead.
+function comSiteCanonico(lead) {
+  const url = classificarLead(lead)
+  return {
+    ...lead,
+    site: url.site,
+    tem_site: url.tem_site,
+    link_original: url.link_original,
+    classificacao_url: url.classificacao,
+    situacao_site: url.situacao_site,
+    situacao_site_label: url.situacao_label,
+  }
+}
+
 function anexarScoreCadastro(row) {
   const { raw_json: _rawJson, ...lead } = row
   if (ORIGENS_PLACES.has(row.origem)) {
     const cad = calcularScoreCadastroPlaces(row)
-    return {
+    return comSiteCanonico({
       ...lead,
       score_cadastro: cad.score,
       score_cadastro_max: cad.maximo,
       json_apresentacao: montarJsonApresentacaoPlaces(row, cad),
-    }
+    })
   }
   const cad = calcularScoreCadastroInstagram(row)
-  return {
+  return comSiteCanonico({
     ...lead,
     score_cadastro: cad.score,
     score_cadastro_max: cad.maximo,
     json_apresentacao: montarJsonApresentacaoInstagram(row, cad),
-  }
+  })
 }
 
 // GET /leads?aba=sem_contato|conversou|fecharam&origem=&busca=

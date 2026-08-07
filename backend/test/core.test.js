@@ -3970,10 +3970,21 @@ test('prospectador calcula oportunidade maior quando nao tem site', () => {
     rating: 4.6,
     userRatingCount: 30,
     internationalPhoneNumber: '+55 11 99999-0000',
-    websiteUri: 'https://exemplo.com',
+    // Dominio proprio REAL: `exemplo.com`/`example.com` sao placeholders e o classificador
+    // canonico os trata como 'desconhecido' — nao dariam o delta de site aqui.
+    websiteUri: 'https://padariadobairro.com.br',
     businessStatus: 'OPERATIONAL',
   })
   assert.equal(semSite - comSite, 22)
+})
+
+test('link de rede social na ficha do Maps NAO conta como site no score', () => {
+  const base = { rating: 4.6, userRatingCount: 30, internationalPhoneNumber: '+55 11 99999-0000', businessStatus: 'OPERATIONAL' }
+  const semLink = calcularScoreProspect(base)
+  const comInstagram = calcularScoreProspect({ ...base, websiteUri: 'https://instagram.com/lojax' })
+  const comSiteReal = calcularScoreProspect({ ...base, websiteUri: 'https://padariadobairro.com.br' })
+  assert.equal(comInstagram, semLink, 'Instagram nao pode remover o bonus de "sem site"')
+  assert.equal(semLink - comSiteReal, 22)
 })
 
 test('salvarProspect usa upsert por place_id e retorna registro persistido', async () => {

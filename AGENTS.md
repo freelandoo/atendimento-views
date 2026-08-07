@@ -228,6 +228,54 @@
 - `LEAD_MORTA_DIAS` (default `5`): dias sem resposta para considerar a conversa morta.
 - `LEAD_LOCK_WORKER_MS` (default `3600000`): intervalo do worker de auto-lock.
 
+### Classificação canônica de "site próprio" (transversal — Banco de Leads, Aquisição, Ligações)
+- **Regra de negócio:** `tem_site = true` **somente** quando existe site próprio em **domínio
+  independente**. Instagram, Facebook, TikTok, YouTube, WhatsApp/`wa.me`, Google Maps, Perfil da
+  Empresa (`business.site`/`negocio.site`), Linktree/Beacons/Carrd e demais agregadores, além de
+  perfis de marketplace/diretório (iFood, Mercado Livre, OLX, TripAdvisor, Apontador…) ⇒
+  `tem_site=false`. **Link preenchido ≠ tem site.**
+- **Fonte de verdade única:** `src/services/site-classificacao.js` — módulo **PURO** (sem banco,
+  HTTP, IA ou rede). Classifica pelo **domínio/subdomínio**, nunca por texto solto, subindo a
+  hierarquia do host do mais específico para o menos (`maps.app.goo.gl` vence `goo.gl`).
+  API: `classificarUrl(url)`, `classificarMelhorLink([...])`, `classificarLead(lead)`,
+  `temSiteProprio(lead)`, `situacaoSiteDoLead(lead)`.
+  Categorias: `site_proprio | rede_social | agregador | perfil_ou_diretorio | desconhecido | sem_link`.
+  `desconhecido` = encurtador ou subdomínio de construtor (`*.wixsite.com`, `*.blogspot.com`) —
+  vira "Verificar link", **nunca** é promovido a site próprio.
+- **PROIBIDO** reintroduzir `!!(lead.site || lead.tem_site)`: foi essa equivalência, repetida em
+  7 pontos, que fez o sistema inteiro chamar Instagram de site. Todo produtor e consumidor chama o
+  classificador.
+- **Contrato de dados** (`prospectador.prospects`, migration `056_site_classificacao.sql`,
+  aditiva): `site` = **só** site próprio; `link_original` = link cru preservado para auditoria
+  (nunca apagado); `classificacao_url` = categoria (`CHECK` fechado; `NULL` = ainda não
+  classificado, ≠ `'desconhecido'`). `tem_site` é **cache** — a autoridade é a função na LEITURA.
+- **Situação em 3 estados** (`situacao_site`, usada pela fila e pelas telas): `tem_site` (site
+  próprio) · `sem_site` (ficha do Maps lida sem site **ou** único link é social/agregador/perfil —
+  ganha o bônus de 40 pts em `ligacao-prioridade.js`) · `nao_identificado` (ninguém verificou, ou
+  link a revisar — 15 pts).
+- **Correção histórica:** `npm run reclassificar:sites` **simula** (padrão, não grava);
+  `npm run reclassificar:sites -- --aplicar` grava. Flags: `--lote=N`, `--empresa=<uuid>`,
+  `--tudo`. Idempotente, em lotes (keyset), **sem chamada externa ou paga**, com relatório de
+  analisados/alterados/mantidos/desconhecidos. Copia `site` → `link_original` na mesma instrução
+  antes de limpar. `scripts/reclassificar-sites.js`.
+- **Produtores atualizados:** `prospecting.js` (`mapearPlace`, `calcularScoreProspect`,
+  `motivoScore`, `normalizarProspectParaPersistencia`, `salvarProspect`), `social-capture.js`
+  (o link da bio do Instagram **não** vira mais `site`).
+  **Consumidores atualizados:** `ligacao-prioridade.js` (`situacaoSite` delega),
+  `aquisicao-curadoria-ranking.js`, `aquisicao-curadoria.js`, `lead-score-cadastro.js`
+  (os 20 pts de "Tem site próprio"), `domainSchemas.js`, `db/campanhas.js`,
+  `routes/api-banco-leads.js`, `webhook-handler.js`.
+- **Fora de escopo (outro domínio):** o `tem_site` **conversacional** — o que o LEAD declara no
+  WhatsApp (`agent.js`, `turn-context-reader.js`, `core-funnel.js`, `prompts/*.md`,
+  `vendas.lead_profiles`). Ali a fonte é fala humana, não URL. No `webhook-handler.js` o valor
+  declarado pelo lead tem precedência sobre o cadastro.
+- **Frontend:** `frontend/lib/site-rotulos.js` (+ `.d.ts`) só **traduz** o veredito que a API
+  mandou — não há lista de domínios no front, de propósito. Telas: `banco-leads`, `prospeccao`,
+  `central-ligacoes`, `AssistenteOportunidades`. Rótulos: "Tem site próprio" / "Sem site próprio"
+  / "Verificar link"; o link não-site continua clicável, rotulado pelo que é.
+- Nenhuma variável de ambiente nova. Testes: `test/site-classificacao.test.js`,
+  `test/reclassificar-sites.test.js`.
+
 ### Central de Follow-ups
 - Página admin multiempresa em `frontend/app/dashboard/follow-ups`, exposta pela rota
   `src/routes/api-follow-ups.js`. Possui modos **Atendimento humano (Semi)**, **Automático** e

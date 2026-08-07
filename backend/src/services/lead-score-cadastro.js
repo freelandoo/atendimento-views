@@ -10,6 +10,8 @@
 // Instagram (0-60): 10 pontos por coluna — nicho, seguidores, telefone,
 //   e-mail, links (bio/site), @username.
 
+const { classificarMelhorLink } = require('./site-classificacao')
+
 function temTexto(v) {
   return typeof v === 'string' ? v.trim().length > 0 : v != null && String(v).trim().length > 0
 }
@@ -24,12 +26,18 @@ function rawJsonDe(row) {
 // ─── Google Places ────────────────────────────────────────────────────────────
 
 // Visão unificada dos dados do prospect (colunas do banco + raw_json do Places).
+// Os 20 pontos de "Tem site" valem só para site PRÓPRIO: um Instagram no campo `site`
+// inflava o cadastro do lead e escondia a lacuna que a proposta comercial deveria atacar.
 function dadosPlaces(row = {}) {
   const raw = rawJsonDe(row)
-  const site = temTexto(row.site) ? String(row.site).trim() : (temTexto(raw.websiteUri) ? String(raw.websiteUri).trim() : '')
+  const url = classificarMelhorLink([row.site, row.link_original, raw.websiteUri, row.link_bio])
+  const site = url.site || ''
   const fotos = Array.isArray(raw.photos) ? raw.photos.length : 0
   const horario = !!(raw.regularOpeningHours || raw.currentOpeningHours)
   const mapsUrl = temTexto(row.maps_url) ? String(row.maps_url).trim() : (temTexto(raw.googleMapsUri) ? String(raw.googleMapsUri).trim() : '')
+  // O link que NÃO é site (Instagram, Linktree) NÃO entra em `links_extras`: ele vale 10
+  // pontos ali e mascararia justamente a lacuna que a proposta comercial deve atacar. Ele
+  // continua visível ao operador e à IA por `link_original` e pela linha dedicada do prompt.
   const linksExtras = [mapsUrl].filter((l) => l && l !== site)
   return {
     nome: row.nome || '',
@@ -38,8 +46,10 @@ function dadosPlaces(row = {}) {
     endereco: temTexto(row.endereco) ? String(row.endereco).trim() : (temTexto(raw.formattedAddress) ? String(raw.formattedAddress).trim() : ''),
     telefone: temTexto(row.telefone) ? String(row.telefone).trim() : '',
     email: temTexto(row.email) ? String(row.email).trim() : '',
-    site: site || (row.tem_site ? '(tem site, URL não capturada)' : ''),
-    tem_site: !!(site || row.tem_site),
+    site: site || (url.classificacao === 'sem_link' && row.tem_site ? '(tem site, URL não capturada)' : ''),
+    tem_site: url.tem_site || (url.classificacao === 'sem_link' && !!row.tem_site),
+    classificacao_url: url.classificacao,
+    link_original: url.link_original || '',
     maps_url: mapsUrl,
     links_extras: linksExtras,
     fotos,
@@ -50,7 +60,7 @@ function dadosPlaces(row = {}) {
 }
 
 const CRITERIOS_PLACES = [
-  { chave: 'site', label: 'Tem site', pontos: 20, ok: (d) => d.tem_site },
+  { chave: 'site', label: 'Tem site próprio', pontos: 20, ok: (d) => d.tem_site },
   { chave: 'fotos', label: 'Tem fotos', pontos: 10, ok: (d) => d.fotos > 0 },
   { chave: 'endereco', label: 'Tem endereço', pontos: 10, ok: (d) => temTexto(d.endereco) },
   { chave: 'telefone', label: 'Tem telefone', pontos: 10, ok: (d) => temTexto(d.telefone) },
@@ -92,7 +102,10 @@ function montarJsonApresentacaoPlaces(row = {}, cad = null) {
     linhaDado('Endereço', d.endereco),
     linhaDado('Telefone', d.telefone),
     linhaDado('E-mail', d.email),
-    linhaDado('Site', d.tem_site ? d.site : ''),
+    linhaDado('Site próprio', d.tem_site ? d.site : ''),
+    // A IA precisa saber a diferença entre "não tem link nenhum" e "só tem Instagram":
+    // a segunda é a oportunidade comercial mais forte da campanha de criação de site.
+    d.tem_site ? null : linhaDado('Link que o negócio usa hoje (não é site)', d.link_original),
     `- Avaliações: ${d.avaliacoes ?? 0} · Nota: ${d.nota ?? '(sem nota)'}`,
     `- Horário de funcionamento cadastrado: ${d.horario_funcionamento ? 'sim' : 'não'}`,
     `- Fotos no perfil: ${d.fotos}`,
@@ -108,7 +121,7 @@ function montarJsonApresentacaoPlaces(row = {}, cad = null) {
     '3. Aponte 1-2 lacunas como oportunidade concreta de ganhar clientes.',
     '4. Ofereça uma solução para essas lacunas e termine com UMA pergunta.',
     'Regras: máximo 400 caracteres, tom humano de WhatsApp, não invente dados que não estão acima.',
-  ].join('\n')
+  ].filter((linha) => linha !== null).join('\n')
   return {
     fonte: 'google_places',
     empresa: {
@@ -119,6 +132,9 @@ function montarJsonApresentacaoPlaces(row = {}, cad = null) {
       telefone: d.telefone || null,
       email: d.email || null,
       site: d.tem_site ? d.site : null,
+      tem_site: d.tem_site,
+      link_original: d.link_original || null,
+      classificacao_url: d.classificacao_url,
       maps_url: d.maps_url || null,
       links_extras: d.links_extras,
       avaliacoes: d.avaliacoes,

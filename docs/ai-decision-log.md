@@ -11,6 +11,58 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-07 — Classificação CANÔNICA de site próprio x rede social / agregador (migration 056)
+
+Correção de causa raiz, não de tela. O defeito não era um bug isolado: era **a mesma pergunta
+respondida de sete jeitos diferentes** pelo projeto. Em todos eles a regra era
+`site preenchido ⇒ tem site`, então Instagram, Facebook, TikTok, wa.me, Google Maps, Linktree e
+perfis de marketplace contavam como site próprio — sumindo do filtro "Sem site" e perdendo o
+bônus de prioridade justamente os leads **alvo** de uma campanha de criação de site.
+
+- **Novo módulo PURO `backend/src/services/site-classificacao.js` como fonte de verdade única.**
+  Sem banco, sem HTTP, sem IA, sem rede: classifica pelo DOMÍNIO (nunca por texto solto —
+  `padariax.com.br/instagram` é site próprio; `instagramdaloja.com.br` também). A busca sobe a
+  hierarquia do host do mais específico para o menos, então `maps.app.goo.gl` (mapa) vence
+  `goo.gl` (encurtador) e `sites.google.com` (construtor) vence `google.com`. Categorias:
+  `site_proprio`, `rede_social`, `agregador`, `perfil_ou_diretorio`, `desconhecido`, `sem_link`.
+- **A autoridade é a função na LEITURA; as colunas são cache.** Foi a decisão central. Se a
+  verdade fosse só a coluna, as telas continuariam erradas até a correção histórica rodar, e
+  qualquer produtor esquecido reintroduziria o erro em silêncio. Com o veredito na leitura, o
+  deploy já corrige a exibição e a coluna desatualizada nunca engana ninguém.
+- **`desconhecido` existe para não mentir nos dois sentidos.** Encurtador (`bit.ly`) esconde o
+  destino; subdomínio de construtor (`lojax.wixsite.com`) não é domínio independente mas pode ser
+  uma página real. Nenhum dos dois vira "tem site" nem "sem site" — vira "Verificar link".
+- **Contrato de dados (migration 056, ADITIVA):** `site` passa a significar EXCLUSIVAMENTE site
+  próprio; `link_original` guarda o link cru para auditoria; `classificacao_url` guarda a
+  categoria (`CHECK` de vocabulário fechado; `NULL` = ainda não classificado, ≠ `'desconhecido'`,
+  que é decisão tomada). A migration **não muta `tem_site` nem limpa `site`** — a regra é
+  JavaScript testado, não SQL, e a correção precisa de simulação antes de gravar.
+- **Correção histórica é SCRIPT com simulação por padrão**, não backfill no boot:
+  `npm run reclassificar:sites` (simula) / `-- --aplicar` (grava). Idempotente (testado até a
+  3ª passada), em lotes com paginação keyset, sem nenhuma chamada externa ou paga, com relatório
+  de analisados/alterados/mantidos/desconhecidos. Antes de limpar `site`, copia o valor para
+  `link_original` **na mesma instrução UPDATE** — nenhum link histórico se perde.
+- **Decisão do operador: link social conta como SEM site (40 pts na fila), não "não
+  identificado".** Um Linktree prova que aquele link não é site; o operador optou por tratar o
+  lead como oportunidade confirmada. Só fica em "Verificar link" quem não tem link nenhum e nunca
+  teve a ficha do Maps lida, ou cujo link é ambíguo.
+- **Fora de escopo declarado:** o `tem_site` **conversacional** (o que o lead declara no WhatsApp,
+  em `agent.js`, `turn-context-reader.js`, `prompts/*.md`, `vendas.lead_profiles`). Ali o valor
+  nasce de fala humana, não de URL — o classificador não se aplica e mexer nisso alteraria prompt
+  de produção sem necessidade. No `webhook-handler.js`, o que o lead DECLAROU continua tendo
+  precedência sobre o que o cadastro diz.
+- **Ajuste de escopo durante a implementação:** o link não-site chegou a entrar em
+  `links_extras` do score de cadastro, mas isso lhe dava 10 pontos e **mascarava justamente a
+  lacuna** que a proposta comercial deve atacar. Revertido: o Instagram aparece em
+  `link_original` e numa linha dedicada do prompt, sem pontuar.
+- **Frontend não replica a regra.** `frontend/lib/site-rotulos.js` só traduz o veredito que a API
+  já mandou (não há lista de domínios lá, de propósito). A dívida de backend/frontend serem
+  pacotes npm separados está declarada no cabeçalho do arquivo.
+- Nenhuma variável de ambiente nova. Testes: `test/site-classificacao.test.js` (unitários +
+  integração cruzando os consumidores) e `test/reclassificar-sites.test.js` (idempotência).
+
+---
+
 ## 2026-08-07 — Painel de filtros da Central de Ligações vira FLUTUANTE (sem migration)
 
 Correção de UX sobre a entrega anterior do mesmo dia. Alteração **100% de apresentação**: nenhum

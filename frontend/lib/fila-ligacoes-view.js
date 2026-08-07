@@ -53,8 +53,10 @@ const EMAIL_OPCOES = Object.freeze([
 const PRIORIDADE_OPCOES = Object.freeze([
   ['todas', 'Todas'], ['alta', 'Alta'], ['media', 'Média'], ['baixa', 'Baixa'],
 ])
+// "Com site" = site PROPRIO confirmado. Um lead cujo unico link e' Instagram/Linktree cai
+// em "Sem site" — a regra vem do backend em `situacao_site`, nunca e' decidida aqui.
 const SITE_OPCOES = Object.freeze([
-  ['todos', 'Todos'], ['sem_site', 'Sem site'], ['tem_site', 'Com site'], ['nao_identificado', 'Site não identificado'],
+  ['todos', 'Todos'], ['sem_site', 'Sem site próprio'], ['tem_site', 'Com site próprio'], ['nao_identificado', 'Verificar link'],
 ])
 const REDES_OPCOES = Object.freeze([
   ['todas', 'Todas'], ['com', 'Com redes sociais'], ['sem', 'Sem redes sociais'],

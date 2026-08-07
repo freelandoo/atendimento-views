@@ -1,5 +1,7 @@
 'use strict'
 
+const { classificarLead } = require('./services/site-classificacao')
+
 /**
  * @typedef {Record<string, unknown>} JsonObject
  *
@@ -298,6 +300,7 @@ function normalizarProspectPersistido(row) {
   const categoria = row.categoria
     || (typeof categoriaRaw === 'string' ? categoriaRaw : isPlainObject(categoriaRaw) ? categoriaRaw.text : '')
     || ''
+  const urlCls = classificarLead(row)
   return {
     id: row.id,
     nome: row.nome,
@@ -308,8 +311,13 @@ function normalizarProspectPersistido(row) {
     endereco: row.endereco || '',
     avaliacoes: row.avaliacoes == null ? null : Number(row.avaliacoes),
     rating: row.rating == null ? null : Number(row.rating),
-    tem_site: !!row.tem_site,
+    // Veredito CANONICO na leitura (services/site-classificacao.js): a coluna `tem_site`
+    // e' cache e pode estar desatualizada em lead antigo, antes da reclassificacao.
+    tem_site: urlCls.tem_site,
     site: row.site || '',
+    link_original: row.link_original || row.site || '',
+    classificacao_url: row.classificacao_url || urlCls.classificacao,
+    situacao_site: urlCls.situacao_site,
     maps_url: row.maps_url || '',
     place_id: row.place_id,
     origem: row.origem,

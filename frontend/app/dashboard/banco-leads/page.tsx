@@ -7,6 +7,7 @@ import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
 import ConversaHistoricoModal from '@/components/ConversaHistoricoModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
+import { rotuloLink, tituloLinkNaoSite } from '@/lib/site-rotulos'
 import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconSend, IconAlert } from '@/components/ui/icons'
 
 // Banco de Leads — central de disparo com Modo Manual / Semiautomático / Automático.
@@ -22,7 +23,14 @@ type Lead = {
   nicho: string | null; cidade: string | null; site: string | null
   seguidores: number | null; categoria_perfil: string | null
   endereco: string | null; rating: number | null; avaliacoes: number | null
+  // `tem_site`/`site` chegam CANONICOS do backend (services/site-classificacao.js):
+  // `site` so' vem preenchido quando e' site PROPRIO. O link cru (Instagram, Linktree,
+  // ficha do Maps) vem em `link_original` — exibi-lo e' certo, chama-lo de site nao.
   tem_site: boolean | null; maps_url: string | null; link_bio: string | null; bio: string | null
+  link_original: string | null
+  classificacao_url: string | null
+  situacao_site: 'tem_site' | 'sem_site' | 'nao_identificado' | null
+  situacao_site_label: string | null
   score: number | null
   score_cadastro: number | null; score_cadastro_max: number | null
   json_apresentacao: JsonApresLead | null
@@ -260,8 +268,8 @@ function valorColuna(l: Lead, chave: string): number | string {
     case 'aval': return l.avaliacoes ?? -1
     case 'nota': return l.rating ?? -1
     case 'horario': return l.json_apresentacao?.empresa?.horario_funcionamento ? 1 : 0
-    case 'site': return l.tem_site || l.site ? 1 : 0
-    case 'links': return (l.link_bio || l.site) ? 1 : 0
+    case 'site': return l.tem_site ? 1 : 0
+    case 'links': return (l.link_bio || l.site || l.link_original) ? 1 : 0
     case 'envio': return l.gerada_em || l.rodado_em || ''
     case 'pontos': return l.score_cadastro ?? 0
     case 'status': return l.status || ''
@@ -355,7 +363,9 @@ function mesmoDia(a: Date, b: Date): boolean {
 
 // Filtro client-side de um lead segundo a configuração de visualização.
 function passaFiltrosView(l: Lead, v: ViewConfig): boolean {
-  const temSite = !!(l.site || l.tem_site)
+  // Veredito canônico do backend: um lead cujo único link é Instagram/Linktree responde
+  // `tem_site=false` e passa a aparecer em "Sem site", não em "Com site".
+  const temSite = !!l.tem_site
   if (v.site === 'com' && !temSite) return false
   if (v.site === 'sem' && temSite) return false
   const temEmail = !!String(l.email || '').trim()
@@ -421,7 +431,7 @@ function ordenarPorView(lista: Lead[], ord: string): Lead[] {
 // Nº de filtros ativos + chips descritivos (para mostrar que a lista está filtrada).
 function chipsDaView(v: ViewConfig): string[] {
   const c: string[] = []
-  if (v.site !== 'todos') c.push(v.site === 'com' ? 'Com site' : 'Sem site')
+  if (v.site !== 'todos') c.push(v.site === 'com' ? 'Com site próprio' : 'Sem site próprio')
   if (v.email !== 'todos') c.push(v.email === 'com' ? 'Com e-mail' : 'Sem e-mail')
   if (v.telefone !== 'todos') c.push(v.telefone === 'com' ? 'Com telefone' : 'Sem telefone')
   if (v.envio === 'possivel') c.push('Envio possível')
@@ -1560,6 +1570,33 @@ function TelefoneCelula({ l, onAbrirConversa }: { l: Lead; onAbrirConversa: (l: 
   )
 }
 
+// Coluna "Site". Nunca chama Instagram, Facebook, Linktree ou ficha do Maps de site: o
+// veredito vem canônico do backend. O link cru continua clicável, rotulado pelo que ele
+// realmente é, para o operador conferir sem ser induzido ao erro.
+function CelulaSite({ l }: { l: Lead }) {
+  if (l.tem_site && l.site) {
+    return (
+      <td className="px-3 py-2">
+        <a href={l.site} target="_blank" rel="noreferrer" className="hover:underline" title={l.site}>
+          ✅ <span className="text-xs text-brand">site</span>
+        </a>
+      </td>
+    )
+  }
+  const rotulo = rotuloLink(l.classificacao_url)
+  if (l.link_original && rotulo) {
+    return (
+      <td className="px-3 py-2">
+        <a href={l.link_original} target="_blank" rel="noreferrer" className="hover:underline"
+          title={tituloLinkNaoSite(l.classificacao_url, l.link_original)}>
+          ❌ <span className="text-xs text-slate-500">{rotulo}</span>
+        </a>
+      </td>
+    )
+  }
+  return <td className="px-3 py-2">❌</td>
+}
+
 function JsonCelula({ l, onAbrirJson }: { l: Lead; onAbrirJson: (l: Lead) => void }) {
   return (
     <td className="px-3 py-2">
@@ -1631,7 +1668,7 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
                   {cols.pontos && (
                     <td className="px-3 py-2 text-right">
                       <span className={`font-semibold ${((l.score_cadastro ?? 0) <= 40) ? 'text-red-600' : (l.score_cadastro ?? 0) <= 70 ? 'text-amber-600' : 'text-emerald-600'}`}
-                        title="Pontuação do cadastro (0-100): site 20 · fotos, endereço, telefone, e-mail, horário, links extras, avaliações e nota>4 valem 10 cada">
+                        title="Pontuação do cadastro (0-100): site próprio 20 · fotos, endereço, telefone, e-mail, horário, links extras, avaliações e nota>4 valem 10 cada">
                         {l.score_cadastro ?? 0}
                       </span>
                       <span className="text-[10px] text-slate-400">/100</span>
@@ -1644,13 +1681,7 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
                   {cols.aval && <td className="px-3 py-2 text-right text-xs">{l.avaliacoes ?? '—'}</td>}
                   {cols.nota && <td className="px-3 py-2 text-right text-xs">{l.rating != null ? Number(l.rating).toFixed(1) : '—'}</td>}
                   {cols.horario && <td className="px-3 py-2 text-center">{horario ? '✅' : '❌'}</td>}
-                  {cols.site && (
-                    <td className="px-3 py-2">
-                      {l.site ? (
-                        <a href={l.site} target="_blank" rel="noreferrer" className="hover:underline" title={l.site}>✅ <span className="text-xs text-brand">site</span></a>
-                      ) : l.tem_site ? '✅' : '❌'}
-                    </td>
-                  )}
+                  {cols.site && <CelulaSite l={l} />}
                   <JsonCelula l={l} onAbrirJson={onAbrirJson} />
                 </tr>
               )
@@ -1722,8 +1753,15 @@ function TabelaInstagramBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, pre
                 {cols.links && (
                   <td className="px-3 py-2 text-xs whitespace-nowrap">
                     {l.link_bio && <a href={l.link_bio} target="_blank" rel="noreferrer" className="text-slate-500 underline mr-2">bio</a>}
-                    {l.site && <a href={l.site} target="_blank" rel="noreferrer" className="text-slate-500 underline">site</a>}
-                    {!l.link_bio && !l.site && '—'}
+                    {l.tem_site && l.site && <a href={l.site} target="_blank" rel="noreferrer" className="text-slate-500 underline mr-2">site</a>}
+                    {/* Link que existe mas NÃO é site: aparece pelo que é, nunca como "site". */}
+                    {!l.tem_site && l.link_original && l.link_original !== l.link_bio && (
+                      <a href={l.link_original} target="_blank" rel="noreferrer" className="text-slate-500 underline"
+                        title={`Não é site próprio: ${l.link_original}`}>
+                        {rotuloLink(l.classificacao_url) || 'link'}
+                      </a>
+                    )}
+                    {!l.link_bio && !l.site && !l.link_original && '—'}
                   </td>
                 )}
                 <JsonCelula l={l} onAbrirJson={onAbrirJson} />
@@ -1739,7 +1777,7 @@ function TabelaInstagramBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, pre
 // ─── Modal Personalizar visualização (colunas + filtros + ordenação + presets) ──
 const PRESETS: { nome: string; dica: string; patch: Partial<ViewConfig>; aba?: string }[] = [
   { nome: 'Oportunidades fortes', dica: 'Boa pontuação, com telefone, sem disparo', patch: { scoreMin: '70', telefone: 'com', disparo: 'nao_disparado', ordenacao: 'pontos_desc' } },
-  { nome: 'Sem presença digital', dica: 'Sem site, com telefone', patch: { site: 'sem', telefone: 'com', disparo: 'nao_disparado' }, aba: 'sem_contato' },
+  { nome: 'Sem presença digital', dica: 'Sem site próprio, com telefone', patch: { site: 'sem', telefone: 'com', disparo: 'nao_disparado' }, aba: 'sem_contato' },
   { nome: 'Baixa autoridade', dica: 'Poucas avaliações', patch: { avalMax: '10', ordenacao: 'aval_asc' } },
   { nome: 'Prontos para disparo', dica: 'Com telefone e mensagem gerada', patch: { telefone: 'com', msgGerada: 'com' } },
   { nome: 'Agendados próximos', dica: 'Agendamento futuro primeiro', patch: { agendamento: 'com', ordenacao: 'agendamento_asc' }, aba: 'agendados' },
@@ -1829,7 +1867,7 @@ function PersonalizarModal({ view, onPatch, onReset, onPreset, onClose }: {
           <section>
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Filtros</p>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              <SelFiltro label="Site" value={view.site} onChange={(v) => onPatch({ site: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com site'], ['sem', 'Sem site']]} />
+              <SelFiltro label="Site próprio" value={view.site} onChange={(v) => onPatch({ site: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com site próprio'], ['sem', 'Sem site próprio']]} />
               <SelFiltro label="E-mail" value={view.email} onChange={(v) => onPatch({ email: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com e-mail'], ['sem', 'Sem e-mail']]} />
               <SelFiltro label="Telefone" value={view.telefone} onChange={(v) => onPatch({ telefone: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com telefone'], ['sem', 'Sem telefone']]} />
               <SelFiltro label="Envio (WhatsApp)" value={view.envio} onChange={(v) => onPatch({ envio: v as ViewConfig['envio'] })} opcoes={[['todos', 'Todos'], ['possivel', 'Envio possível'], ['impossivel', 'Sem WhatsApp']]} />

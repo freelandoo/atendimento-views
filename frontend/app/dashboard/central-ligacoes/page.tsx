@@ -19,6 +19,7 @@ import {
   TAMANHOS_PAGINA, POR_PAGINA_PADRAO, normalizarPorPagina, paginar, resumoPaginacao, mostrarPaginacao,
   type FilaView, type ChipFiltro, type OpcoesDaFila, type PaginaFila,
 } from '@/lib/fila-ligacoes-view'
+import { rotuloLink, tituloLinkNaoSite } from '@/lib/site-rotulos'
 import { msgErro } from '@/lib/erro-msg'
 
 const base = () => `/api/empresas/${typeof window !== 'undefined' ? localStorage.getItem('empresa_id') : ''}`
@@ -94,6 +95,10 @@ type LeadEnriquecido = {
   // `situacao_site` chega pronta do backend (mesma função pura da prioridade). A regra de
   // "tem / não tem / não identificado" NUNCA é recalculada aqui.
   situacao_site?: 'tem_site' | 'sem_site' | 'nao_identificado' | null
+  // `site` só vem preenchido quando é site PRÓPRIO; o link cru (Instagram, Linktree,
+  // ficha do Maps) vem em `link_original`, com a categoria em `classificacao_url`.
+  link_original?: string | null
+  classificacao_url?: string | null
 }
 type FilaItem = LeadEnriquecido & {
   campanha_lead_id: string; status: string; prospect_id: string; nome: string
@@ -170,10 +175,13 @@ const FAIXA_CLS: Record<string, string> = {
   media: 'border-amber-400 text-amber-700 bg-amber-50',
   baixa: 'border-slate-300 text-slate-500 bg-slate-50',
 }
+// Rótulos explícitos: "Tem site próprio" / "Sem site próprio" / "Verificar link". Um lead
+// cujo único link é Instagram, Facebook ou Linktree é "Sem site próprio" — nunca "Tem site".
+// A decisão vem pronta do backend em `situacao_site` (services/site-classificacao.js).
 const SITE_SELO: Record<string, { txt: string; cls: string }> = {
-  sem_site: { txt: 'Sem site', cls: 'border-emerald-300 bg-emerald-50 text-emerald-700' },
-  nao_identificado: { txt: 'Site não identificado', cls: 'border-amber-300 bg-amber-50 text-amber-700' },
-  tem_site: { txt: 'Tem site', cls: 'border-slate-300 bg-slate-50 text-slate-500' },
+  sem_site: { txt: 'Sem site próprio', cls: 'border-emerald-300 bg-emerald-50 text-emerald-700' },
+  nao_identificado: { txt: 'Verificar link', cls: 'border-amber-300 bg-amber-50 text-amber-700' },
+  tem_site: { txt: 'Tem site próprio', cls: 'border-slate-300 bg-slate-50 text-slate-500' },
 }
 // v2: a view salva pela versão anterior tinha `modo` (extinto) e `tentativas: 'todas'`, que
 // sobreviveria à normalização — o operador antigo não veria a fila padrão "não iniciados".
@@ -247,7 +255,7 @@ function LeadDetalhes({ l }: { l: FilaItem }) {
   const sit = l.prioridade?.situacao_site || l.situacao_site || null
   const selo = sit ? SITE_SELO[sit] : null
   const insta = (l.instagram_handle || '').replace(/^@/, '')
-  const temAlgo = !!(selo || l.site || l.avaliacoes != null || l.rating != null || l.email
+  const temAlgo = !!(selo || l.site || l.link_original || l.avaliacoes != null || l.rating != null || l.email
     || insta || l.link_bio || l.maps_url || l.endereco || l.seguidores != null || l.categoria_perfil)
   if (!temAlgo) {
     return <div className="rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-400">Sem dados enriquecidos para este lead.</div>
@@ -256,7 +264,15 @@ function LeadDetalhes({ l }: { l: FilaItem }) {
     <div className="space-y-1.5 border-t pt-2 text-xs text-slate-500">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         {selo && <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${selo.cls}`}>{selo.txt}</span>}
-        {l.site && <a href={l.site} target="_blank" rel="noreferrer" className="text-brand hover:underline">abrir site ↗</a>}
+        {l.tem_site && l.site && <a href={l.site} target="_blank" rel="noreferrer" className="text-brand hover:underline">abrir site ↗</a>}
+        {/* O link que NÃO é site continua acessível ao operador, dito pelo que ele é —
+            "abrir rede social", nunca "abrir site". */}
+        {!l.tem_site && l.link_original && (
+          <a href={l.link_original} target="_blank" rel="noreferrer" className="text-slate-500 hover:underline"
+            title={tituloLinkNaoSite(l.classificacao_url, l.link_original)}>
+            abrir {rotuloLink(l.classificacao_url) || 'link'} ↗
+          </a>
+        )}
       </div>
       {(l.avaliacoes != null || l.rating != null || l.seguidores != null) && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">

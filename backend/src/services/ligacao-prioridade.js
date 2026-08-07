@@ -11,12 +11,14 @@
 // Pesos ficam agrupados em PESOS/FAIXAS para calibracao futura (por reunioes marcadas e
 // conversoes), no mesmo padrao de services/followup-call-score.js.
 
+const { situacaoSiteDoLead } = require('./site-classificacao')
+
 // --- Pesos (0-100 no total, com clamp) ------------------------------------------------
 const PESOS = Object.freeze({
   // Situacao do site — o sinal mais forte para uma campanha de criacao de site.
-  site_ausente_confirmado: 40, // a ficha do Maps foi lida e nao havia site
-  site_nao_identificado: 15,   // ninguem verificou (ex.: lead social) — vale investigar
-  site_presente: 0,            // nao exclui o lead; so nao prioriza nesta campanha
+  site_ausente_confirmado: 40, // ficha do Maps lida sem site, OU o unico link e' social/agregador
+  site_nao_identificado: 15,   // ninguem verificou, ou o link precisa de revisao humana
+  site_presente: 0,            // site PROPRIO: nao exclui o lead; so nao prioriza nesta campanha
   // Volume de avaliacoes = negocio ativo, com movimento real.
   avaliacoes_muitas: 20, // >= 50
   avaliacoes_medias: 12, // 20..49
@@ -89,21 +91,25 @@ function elegivelParaFila(lead = {}) {
 }
 
 // --- Situacao do site ------------------------------------------------------------------
+// DELEGA para o classificador CANONICO (services/site-classificacao.js). Esta funcao
+// continua exportada porque db/campanhas.js e os testes a consomem, mas ela nao decide
+// mais nada sozinha — a regra e' uma so' no projeto inteiro.
+//
 // Tres estados, porque "nao tem site" e "ninguem olhou" valem coisas diferentes numa
-// campanha de criacao de site. `tem_site=false` so e' CONFIRMACAO quando a ficha do Google
-// Maps foi lida (place_id presente) — leads sociais nunca tiveram o site verificado.
+// campanha de criacao de site:
+//   tem_site         -> site PROPRIO em dominio independente
+//   sem_site         -> confirmado sem site: ou a ficha do Maps foi lida e nao havia site,
+//                       ou o unico link do lead e' rede social / agregador / diretorio
+//                       (um Instagram nao e' site — este lead e' ALVO da campanha)
+//   nao_identificado -> ninguem verificou, ou o link precisa de revisao humana
 function situacaoSite(lead = {}) {
-  const site = lead.site == null ? '' : String(lead.site).trim()
-  if (site || lead.tem_site === true) return 'tem_site'
-  const fichaMapsLida = !!(lead.place_id && String(lead.place_id).trim())
-  if (lead.tem_site === false && fichaMapsLida) return 'sem_site'
-  return 'nao_identificado'
+  return situacaoSiteDoLead(lead)
 }
 
 const SITE_LABEL = Object.freeze({
-  tem_site: 'Tem site',
-  sem_site: 'Sem site',
-  nao_identificado: 'Site nao identificado',
+  tem_site: 'Tem site proprio',
+  sem_site: 'Sem site proprio',
+  nao_identificado: 'Verificar link',
 })
 
 function temRedeSocial(lead = {}) {
@@ -134,9 +140,9 @@ function calcularPrioridade(lead = {}) {
 
   // 1) Site — o criterio dominante desta campanha.
   const site = situacaoSite(lead)
-  if (site === 'sem_site') { score += PESOS.site_ausente_confirmado; motivos.push('Sem site') }
-  else if (site === 'nao_identificado') { score += PESOS.site_nao_identificado; motivos.push('Site nao identificado') }
-  else { score += PESOS.site_presente; motivos.push('Ja tem site') }
+  if (site === 'sem_site') { score += PESOS.site_ausente_confirmado; motivos.push('Sem site proprio') }
+  else if (site === 'nao_identificado') { score += PESOS.site_nao_identificado; motivos.push('Verificar link') }
+  else { score += PESOS.site_presente; motivos.push('Ja tem site proprio') }
 
   // 2) Avaliacoes — volume indica negocio ativo. Ausente != zero: nao pontua e nao penaliza.
   const aval = numeroOuNull(lead.avaliacoes)

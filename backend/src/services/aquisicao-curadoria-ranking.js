@@ -26,6 +26,11 @@ const PESO_APRENDIZADO = 25
 // Decisões antigas descrevem uma operação que talvez não exista mais.
 const HISTORICO_MAX = 400
 
+// "Tem site" é a característica de maior peso da base (30 pontos). Ela NÃO pode ser
+// decidida aqui por `site preenchido`: um Instagram no campo derrubava justamente o lead
+// mais qualificado da campanha. Quem decide é o classificador canônico.
+const { temSiteProprio } = require('./site-classificacao')
+
 // Ausente é ausente: `Number(null)` é 0, e tratar "sem nota" como nota 0 (ou "cadastro
 // desconhecido" como cadastro fraco) inflaria justamente os leads sobre os quais não
 // sabemos nada.
@@ -51,7 +56,7 @@ function caracteristicasDoLead(lead = {}) {
   const rating = num(lead.rating)
   const avaliacoes = num(lead.avaliacoes)
   const cadastro = num(lead.score_cadastro)
-  const temSite = !!(lead.tem_site || texto(lead.site))
+  const temSite = temSiteProprio(lead)
   const temTelefone = !!texto(lead.telefone)
   const temEmail = !!texto(lead.email)
 
@@ -75,7 +80,7 @@ function caracteristicasDoLead(lead = {}) {
 // não responde — por isso ele nasce aqui, não no prompt.
 const REGRAS_BASE = [
   { quando: (c) => c.contato === 'com_telefone', pontos: 15, motivo: 'Tem telefone para abordagem direta.' },
-  { quando: (c) => c.site === 'sem_site', pontos: 30, motivo: 'Não tem site — a dor digital é evidente.' },
+  { quando: (c) => c.site === 'sem_site', pontos: 30, motivo: 'Não tem site próprio — a dor digital é evidente.' },
   { quando: (c) => c.cadastro === 'cadastro_fraco', pontos: 25, motivo: 'Cadastro fraco no Maps: muito espaço para melhorar.' },
   { quando: (c) => c.cadastro === 'cadastro_medio', pontos: 12, motivo: 'Cadastro incompleto no Maps.' },
   { quando: (c) => c.avaliacoes === 'muitas_avaliacoes', pontos: 15, motivo: 'Muitas avaliações: é um negócio com movimento.' },

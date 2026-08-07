@@ -691,8 +691,15 @@ CREATE TABLE IF NOT EXISTS prospectador.prospects (
   endereco    TEXT,
   avaliacoes  INT,
   rating      NUMERIC,
+  -- tem_site/site: "site PROPRIO em dominio independente". Rede social, agregador,
+  -- mapa, marketplace e diretorio NAO contam (ver src/services/site-classificacao.js).
   tem_site    BOOLEAN NOT NULL DEFAULT false,
   site        TEXT,
+  -- link_original: o link CRU recebido na coleta, preservado para auditoria mesmo
+  -- quando nao e' site proprio. classificacao_url: a categoria decidida pelo
+  -- classificador central (migration 056_site_classificacao.sql).
+  link_original     TEXT,
+  classificacao_url TEXT,
   maps_url    TEXT,
   place_id    TEXT NOT NULL UNIQUE,
   origem      TEXT NOT NULL DEFAULT 'manual',

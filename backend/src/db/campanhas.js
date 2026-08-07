@@ -4,7 +4,8 @@
 // prospect/responsavel) DEVEM ser do MESMO tenant — validado aqui antes de gravar, para
 // nao referenciar dado de outra empresa.
 const { CAMPANHA_STATUS, OPORTUNIDADE_STATUS } = require('../domain-enums')
-const { montarFilaPriorizada, situacaoSite } = require('../services/ligacao-prioridade')
+const { montarFilaPriorizada } = require('../services/ligacao-prioridade')
+const { classificarLead } = require('../services/site-classificacao')
 
 const STATUS_CAMPANHA = new Set(CAMPANHA_STATUS)
 const STATUS_OPORTUNIDADE = new Set(OPORTUNIDADE_STATUS)
@@ -127,6 +128,23 @@ async function definirResponsaveis(pool, empresaId, campanhaId, usuarioIds = [])
   return { responsaveis: ids.length }
 }
 
+// Aplica o veredito CANONICO de site a uma linha lida do banco (services/site-classificacao).
+// `site` sai do banco como qualquer link; aqui ele so' sobrevive quando e' site PROPRIO —
+// assim a tela nunca chama Instagram/Linktree de site, e a fila e o Banco de Leads mostram
+// o MESMO resultado para o mesmo lead. O link cru continua em `link_original`.
+function comSiteCanonico(row) {
+  const url = classificarLead(row)
+  return {
+    ...row,
+    site: url.site,
+    tem_site: url.tem_site,
+    link_original: url.link_original,
+    classificacao_url: url.classificacao,
+    situacao_site: url.situacao_site,
+    situacao_site_label: url.situacao_label,
+  }
+}
+
 // --- LEADS DA CAMPANHA -------------------------------------------------------------
 // Adiciona leads. So insere prospects que sao DA MESMA empresa (filtro no SELECT) —
 // impossivel injetar lead de outro tenant. Dedup por (campanha, prospect).
@@ -157,7 +175,8 @@ async function listarLeadsDaCampanha(pool, empresaId, campanhaId, { status } = {
   const { rows } = await pool.query(
     `SELECT cl.id, cl.status, cl.responsavel_id, cl.proxima_acao, cl.data_followup,
             p.id AS prospect_id, p.nome, p.telefone, p.cidade, p.nicho,
-            p.tem_site, p.site, p.maps_url, p.place_id, p.avaliacoes, p.rating,
+            p.tem_site, p.site, p.link_original, p.classificacao_url,
+            p.maps_url, p.place_id, p.avaliacoes, p.rating,
             p.email, p.endereco, p.instagram_handle, p.link_bio, p.seguidores, p.categoria_perfil
        FROM app.campanha_leads cl
        JOIN prospectador.prospects p ON p.id = cl.prospect_id
@@ -166,7 +185,7 @@ async function listarLeadsDaCampanha(pool, empresaId, campanhaId, { status } = {
       LIMIT 1000`,
     params
   )
-  return rows.map((r) => ({ ...r, situacao_site: situacaoSite(r) }))
+  return rows.map(comSiteCanonico)
 }
 
 // Fila de trabalho da Central de Ligacoes: leads NAO finalizados da campanha, ordenados
@@ -190,7 +209,8 @@ async function filaDeTrabalho(pool, empresaId, campanhaId, { limit = 50 } = {}) 
   const { rows } = await pool.query(
     `SELECT cl.id AS campanha_lead_id, cl.status, cl.proxima_acao, cl.data_followup,
             p.id AS prospect_id, p.nome, p.telefone, p.cidade, p.nicho, p.score,
-            p.tem_site, p.site, p.maps_url, p.place_id, p.avaliacoes, p.rating,
+            p.tem_site, p.site, p.link_original, p.classificacao_url,
+            p.maps_url, p.place_id, p.avaliacoes, p.rating,
             p.email, p.endereco, p.instagram_handle, p.link_bio, p.seguidores, p.categoria_perfil,
             p.origem, p.created_at,
             (SELECT COUNT(*)::int FROM app.ligacoes l WHERE l.campanha_lead_id = cl.id AND l.status = 'encerrada') AS tentativas
@@ -205,7 +225,7 @@ async function filaDeTrabalho(pool, empresaId, campanhaId, { limit = 50 } = {}) 
       LIMIT $3`,
     [campanhaId, empresaId, TETO_LEITURA_FILA]
   )
-  return montarFilaPriorizada(rows).slice(0, lim)
+  return montarFilaPriorizada(rows.map(comSiteCanonico)).slice(0, lim)
 }
 
 // Funil por etapa: onde as ligacoes da campanha ESTAO PARANDO (etapa alcancada ao encerrar)

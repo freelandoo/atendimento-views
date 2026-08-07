@@ -21,8 +21,12 @@ type Oportunidade = {
   endereco: string | null
   nicho: string
   cidade: string
+  // Canônicos do backend: `site` só quando é site PRÓPRIO (services/site-classificacao.js).
   site: string | null
   tem_site: boolean
+  link_original: string | null
+  classificacao_url: string | null
+  situacao_site: 'tem_site' | 'sem_site' | 'nao_identificado' | null
   maps_url: string | null
   rating: number | null
   avaliacoes: number | null
@@ -251,7 +255,11 @@ export default function AssistenteOportunidades({
             </div>
 
             <div className="flex flex-wrap gap-1.5 text-[11px]">
-              <Selo ok={!oportunidade.tem_site} texto={oportunidade.tem_site ? 'Tem site' : 'Sem site'} />
+              {/* Rótulo explícito: um Instagram no cadastro é "Sem site próprio", não "Tem site". */}
+              <Selo ok={!oportunidade.tem_site}
+                texto={oportunidade.situacao_site === 'nao_identificado'
+                  ? 'Verificar link'
+                  : oportunidade.tem_site ? 'Tem site próprio' : 'Sem site próprio'} />
               <Selo ok={(oportunidade.avaliacoes ?? 0) >= 50}
                 texto={`${oportunidade.avaliacoes ?? 0} avaliações`} />
               <Selo ok={(oportunidade.rating ?? 0) >= 4}

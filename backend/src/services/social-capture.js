@@ -17,6 +17,7 @@ const brightdata = require('./brightdata-client')
 const { extrairContato } = require('./social-contact-extract')
 const { descobrirPerfisPorNicho, normalizarSeeds } = require('./social-discovery')
 const { normalizarAgendaCampanha, campanhaDevePreencher } = require('./captacao-scheduler')
+const { classificarMelhorLink } = require('./site-classificacao')
 
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
 const POLL_MS = Number(process.env.CAPTACAO_WORKER_POLL_MS || 60000)
@@ -281,7 +282,13 @@ async function upsertProspectSocial(empresaId, fonte, perfil, campanha = null, o
     const n = parseInt(perfil.followers || perfil.followers_count || perfil.edge_followed_by, 10)
     return Number.isFinite(n) ? n : null
   })()
-  const site = contato.link_bio || txt(perfil.website, 500) || null
+  // O link da bio do Instagram e' quase sempre Linktree, wa.me ou o proprio @ — gravar
+  // isso como `site` fazia TODO lead social nascer com "ja tem site" e sumir da campanha
+  // de criacao de site. Agora o classificador decide: `site` so' recebe site PROPRIO, o
+  // link cru fica em `link_bio`/`link_original` e a categoria em `classificacao_url`.
+  const linkBruto = contato.link_bio || txt(perfil.website, 500) || null
+  const urlCls = classificarMelhorLink([txt(perfil.website, 500), contato.link_bio])
+  const site = urlCls.site || null
   const temContato = Boolean(contato.email || contato.telefone)
   const status = temContato ? 'contato_encontrado' : 'coletado'
 
@@ -291,8 +298,8 @@ async function upsertProspectSocial(empresaId, fonte, perfil, campanha = null, o
     `INSERT INTO prospectador.prospects
        (empresa_id, origem, external_ref, nome, telefone, email, instagram_handle,
         nicho, cidade, bio, link_bio, categoria_perfil, seguidores, tem_site, site,
-        status, raw_json)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb)
+        status, raw_json, link_original, classificacao_url)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19)
      ON CONFLICT (empresa_id, origem, external_ref) WHERE external_ref IS NOT NULL
      DO UPDATE SET
         telefone = COALESCE(prospectador.prospects.telefone, EXCLUDED.telefone),
@@ -302,6 +309,13 @@ async function upsertProspectSocial(empresaId, fonte, perfil, campanha = null, o
         categoria_perfil = COALESCE(EXCLUDED.categoria_perfil, prospectador.prospects.categoria_perfil),
         seguidores = COALESCE(EXCLUDED.seguidores, prospectador.prospects.seguidores),
         site = COALESCE(prospectador.prospects.site, EXCLUDED.site),
+        link_original = COALESCE(EXCLUDED.link_original, prospectador.prospects.link_original),
+        -- so' promove: um recoleta sem link nao apaga a classificacao ja conhecida.
+        classificacao_url = CASE
+          WHEN EXCLUDED.classificacao_url = 'sem_link' THEN COALESCE(prospectador.prospects.classificacao_url, EXCLUDED.classificacao_url)
+          ELSE EXCLUDED.classificacao_url
+        END,
+        tem_site = (COALESCE(prospectador.prospects.site, EXCLUDED.site) IS NOT NULL),
         nome = EXCLUDED.nome,
         -- só promove para contato_encontrado; nunca rebaixa um lead já trabalhado.
         status = CASE
@@ -318,7 +332,8 @@ async function upsertProspectSocial(empresaId, fonte, perfil, campanha = null, o
     [
       empresaId, fonte, externalRef, nome, contato.telefone, contato.email, handle,
       nicho, cidade, contato.bio, contato.link_bio, categoria, seguidores,
-      Boolean(site), site, status, JSON.stringify(raw),
+      urlCls.tem_site, site, status, JSON.stringify(raw),
+      urlCls.link_original || linkBruto || null, urlCls.classificacao,
     ]
   )
   return rows[0] || null
