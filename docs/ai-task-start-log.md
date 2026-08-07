@@ -6,6 +6,86 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-07 - Inicio de tarefa IA - Prioridade comercial da fila da Central de Ligacoes
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Transformar a fila da Central de Ligacoes em ferramenta de ligacao rapida:
+  (1) so lead com telefone DISCAVEL entra e conta na fila; (2) nova pontuacao **Prioridade**
+  (0-100) voltada a campanha de criacao de site (sem site 40 / site nao identificado 15 /
+  tem site 0; avaliacoes 20/12/5; nota ate 10; rede social sem site 10; tentativas 10/5/0),
+  com pesos configuraveis e composicao explicavel; (3) circulo de pontuacao com tooltip;
+  (4) alternancia Visao simplificada (padrao) / detalhada na coluna Lead; (5) filtros compactos
+  (site, prioridade, avaliacoes, nota, tentativas, localizacao) com chips e limpar.
+- **E projeto/tarefa de alteracao?** Sim. Escopo MEDIO: regra de negocio nova (pura) + leitura
+  da fila + apresentacao. **Sem schema, sem migration, sem env nova, sem rota nova, sem prompt,
+  sem autenticacao.** Nenhum dado novo e coletado: tudo ja existe em `prospectador.prospects`
+  (Bright Data/Banco de Leads) e em `app.ligacoes` (tentativas).
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/project-map.md: Sim | docs/architecture-rules.md: Sim | docs/ui-visual-standard.md: Sim.
+- **Areas mapeadas (leitura):** `src/db/campanhas.js` (`filaDeTrabalho` — unica consumidora e'
+  `GET /campanhas/:id/fila`), `src/routes/api-campanhas.js`, `src/db/ligacoes.js`,
+  `src/routes/api-ligacoes.js`, `src/services/followup-call-score.js` (padrao de PESOS puros),
+  `sql/init.sql` + migrations 012/016/021 (colunas de prospects), `frontend/lib/ligacao-fone.js`,
+  `frontend/app/dashboard/central-ligacoes/page.tsx`, `frontend/app/dashboard/banco-leads/page.tsx`
+  (padrao de filtros/chips/pontos).
+- **Arquivos que pretendo alterar/criar:**
+  - NOVO `backend/src/services/ligacao-prioridade.js` (PURO: PESOS, situacao do site,
+    telefone discavel, `calcularPrioridade`, ordenacao da fila).
+  - NOVO `backend/test/ligacao-prioridade.test.js`.
+  - EDIT `backend/src/db/campanhas.js` — `filaDeTrabalho` passa a trazer os sinais ja existentes
+    do prospect, excluir telefone nao discavel e devolver `prioridade` (score + faixa + motivos).
+  - NOVO `frontend/lib/fila-ligacoes-view.js` (+ `.d.ts` + `.test.js`) — filtros/chips PUROS.
+  - EDIT `frontend/app/dashboard/central-ligacoes/page.tsx` — circulo de prioridade + tooltip,
+    alternancia simplificada/detalhada, barra de filtros; coluna Lead sem nicho no padrao.
+- **Fora de escopo declarado:** banco/migrations, Operacao da Ligacao (cockpit, roteiro, sinais,
+  encerramento), aba Acompanhamento, aba Funil, Banco de Leads, coleta Bright Data (nenhuma
+  chamada paga nova), envio de WhatsApp e qualquer variavel de ambiente.
+- **Divida tecnica declarada:** a regra de "telefone discavel" passa a existir no backend
+  (elegibilidade) e permanece no `frontend/lib/ligacao-fone.js` (formatacao/discagem). Os dois
+  pacotes nao compartilham modulo; a duplicacao fica anotada nos dois arquivos.
+- **Proxima etapa:** implementar o diff minimo, rodar `npm test` (backend e frontend) e
+  `npm run typecheck` (frontend), e validar a tela com fila cheia, filtrada e vazia.
+
+---
+
+## 2026-08-06 - Inicio de tarefa IA - Analise estrutural: integracao Meta (CAPI) por tenant
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Analise estrutural COMPLETA (sem implementar) de como integrar o Atendimento
+  Views com a Meta para enviar **reuniao marcada** e **venda fechada**, de forma segura, rastreavel
+  e **isolada por tenant** (cada empresa com sua conta/dataset/token). Saida: relatorio tecnico em
+  19 secoes + plano por fases.
+- **E projeto/tarefa de alteracao?** **Nao nesta etapa.** O proprio pedido proibe alterar codigo
+  ("Nao altere o codigo durante a analise inicial" / "aguarde aprovacao"). Nenhum arquivo de
+  `backend/`, `frontend/` ou `sql/` foi tocado. As unicas escritas sao este registro e o relatorio
+  em `docs/analise-integracao-meta-multitenant.md`.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/project-map.md: Sim | docs/architecture-rules.md: a consultar na fase de implementacao |
+  docs/ui-visual-standard.md: a consultar se a tela de Integracoes for aprovada |
+  docs/ai-decision-log.md: a registrar quando a arquitetura for aprovada.
+- **Areas mapeadas (somente leitura):** `src/services/meta-capi.js`,
+  `src/services/meta-attribution.js`, `src/meta-routes.js`, `src/agent.js` (tick ~L497),
+  `src/middleware/tenant.js`, `src/db-crud.js` (upsert de conversa), `src/agenda.js`
+  (`criarEventoAgenda`, PATCH `/vendido`), `src/services/agenda-multiempresa.js`,
+  `src/handoff-alerts.js`, `src/db/ligacoes.js` (`encerrarLigacao`), `src/db/campanhas.js`,
+  `src/db/auditoria.js`, `src/freelandoo/crypto.js`, `src/domain-enums.js`,
+  `sql/init.sql` (vendas.*), migrations `001, 006, 011, 013, 019, 032, 039, 047`,
+  `frontend/app/dashboard/*`, `.env.example`.
+- **Achado central (fato verificado no codigo, nao hipotese):** JA EXISTE integracao Meta CAPI —
+  e ela e **100% single-tenant e global**. `meta-capi.js` le `META_DATASET_ID`/`META_CAPI_TOKEN`/
+  `META_PAGE_ID` do PROCESSO; `dispararEventosMetaPendentes` varre `vendas.lead_profiles` **sem
+  filtro de empresa_id** e manda TODOS os leads de todos os tenants para o MESMO dataset. Detalhes,
+  riscos e o restante dos achados no relatorio.
+- **Areas possivelmente impactadas (se a implementacao for aprovada):** Banco (migrations aditivas
+  novas), back-end (novo dominio de integracoes + ledger + worker), front-end (area de Integracoes),
+  seguranca/segredos (credenciais por tenant cifradas), LGPD (dado pessoal enviado a terceiro),
+  custos (nenhum novo alem de chamadas HTTP a Meta). Sem impacto em prompts de producao, envio de
+  WhatsApp ou Bright Data.
+- **Proxima etapa:** entregar o relatorio e **AGUARDAR aprovacao**. Se aprovado, abrir tarefa de
+  implementacao propria (nova Fase 0) por fase, com analise de impacto e migration dedicada.
+
+---
+
 ## 2026-08-05 - Inicio de tarefa IA - Modal guiado de entrada do Assistente de Oportunidades
 
 - **IA/Ferramenta:** Claude Code (Opus 5)

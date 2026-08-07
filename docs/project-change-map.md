@@ -395,3 +395,51 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
   e respondeu 200 no dev server. `npm run build` do frontend NAO foi executado para nao corromper
   o `.next` do `next dev` em uso.
 - Documentos atualizados: `ai-task-start-log.md` e este mapa.
+
+## 2026-08-07 - Central de Ligacoes - Prioridade comercial da fila (sem migration)
+
+- Area(s) tocada(s): `backend/src/services/ligacao-prioridade.js` (NOVO, puro),
+  `backend/src/db/campanhas.js` (`filaDeTrabalho`), `backend/test/ligacao-prioridade.test.js`
+  (NOVO, registrado no `npm test`), `frontend/lib/fila-ligacoes-view.js` (NOVO, puro, + `.d.ts`
+  + `.test.js`) e `frontend/app/dashboard/central-ligacoes/page.tsx` (aba Fila).
+- Regras preservadas: Operacao da Ligacao inteira (iniciar/chamada-encerrada/encerrar/descartar,
+  sinais, objecoes, perguntas, etapas temporais, autosave de notas, cronometro do servidor)
+  intacta; abas Acompanhamento e Funil intactas; nenhuma migration, env, rota, permissao ou
+  chamada paga (Bright Data/IA) criada; `requireAuth`/`requireEmpresaAccess` e o filtro por
+  `empresa_id` de `filaDeTrabalho` inalterados.
+- O que mudou (contrato do `GET /campanhas/:id/fila`):
+  1. **Elegibilidade**: so entra na fila quem tem telefone DISCAVEL. Quem nao tem nao aparece
+     e **nao conta** no total (segue no Banco de Leads e na aba Acompanhamento, para
+     enriquecimento de contato).
+  2. **Ordem**: deixou de ser `prospects.score` (completude do CADASTRO) e passou a ser a
+     PRIORIDADE COMERCIAL da campanha (0-100). O `score` continua sendo devolvido, sem uso na
+     fila. A ordenacao do SQL virou desempate (sort estavel).
+  3. **Payload**: cada item traz `prioridade { score, faixa, faixa_label, situacao_site,
+     motivos[] }` + sinais que JA existiam no cadastro (`tem_site`, `site`, `maps_url`,
+     `avaliacoes`, `rating`, `email`, `endereco`, `instagram_handle`, `link_bio`, `seguidores`,
+     `categoria_perfil`). Nenhum dado novo e coletado; `raw_json` NAO e exposto.
+- Regra da prioridade (pesos em `PESOS`/`CORTES`, prontos para calibracao por reunioes e
+  conversoes): sem site confirmado 40 / site nao identificado 15 / tem site 0; avaliacoes
+  >=50 20, 20-49 12, 5-19 5; nota >=4,5 10, >=4,0 7, >=3,5 4; rede social sem site 10;
+  0 tentativas 10, 1 tentativa 5, 2+ 0. Clamp 0-100. Telefone valido e requisito de ENTRADA e
+  **nao soma pontos**. Ausencia de dado nunca vira zero (sem nota != nota baixa). Lead com site
+  **nao e excluido** — so perde prioridade nesta campanha.
+- Interface: coluna **Prioridade** com circulo de pontuacao (cor por faixa, no mesmo padrao de
+  leitura dos "Pontos" do Banco de Leads) e tooltip so-leitura com a composicao, no hover **e**
+  no foco por teclado; coluna Lead sem NICHO na visao padrao (a campanha ja o define);
+  alternancia **Simplificada** (padrao) / **Detalhada** no canto superior direito da fila, onde
+  a detalhada expande a propria coluna Lead (situacao do site, link, avaliacoes, nota, e-mail,
+  redes, endereco) sem nova pagina e sem colunas novas; botao compacto de **Filtros** ao lado de
+  Atualizar (site, prioridade, avaliacoes, nota, tentativas, localizacao) com chips removiveis,
+  "limpar tudo" e atalho "Recomendado da campanha (sem site)". Tudo client-side sobre a fila ja
+  carregada (`?limit=500`), persistido em `localStorage` (`filaLigacoesView`). Ligar continua
+  direto, sem exigir a visao detalhada.
+- Ponto de atencao (divida declarada): a regra de "telefone discavel" agora existe nos DOIS
+  pacotes — `backend/src/services/ligacao-prioridade.js` (elegibilidade) e
+  `frontend/lib/ligacao-fone.js` (exibicao/discagem). `backend/` e `frontend/` sao pacotes npm
+  separados e nao compartilham modulo; a duplicacao esta anotada nos dois arquivos e o
+  anti-drift e manual.
+- Validacao: `npm test` do backend 1181/1181 (15 testes novos) e do frontend 67/67 (12 novos),
+  `npm run typecheck` do frontend limpo. `npm run build` do frontend NAO foi executado para nao
+  corromper o `.next` do `next dev` em uso (portas 3000/3001 ativas).
+- Documentos atualizados: `ai-task-start-log.md`, `ai-decision-log.md` e este mapa.

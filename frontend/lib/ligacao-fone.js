@@ -13,6 +13,11 @@
 //   - '+55' + 8~9 digitos (DDI presente, DDD AUSENTE) caia no fallback e era exibido cru,
 //     parecendo completo quando nao e'.
 //
+// DIVIDA TECNICA DECLARADA: a MESMA regra de "discavel" vive em
+// backend/src/services/ligacao-prioridade.js (`telefoneDiscavel`), onde decide a
+// ELEGIBILIDADE do lead na fila da Central de Ligacoes. backend/ e frontend/ sao pacotes npm
+// separados e nao compartilham modulo — ao mudar a regra aqui, mude la tambem.
+//
 // Regra central: o '+' EXPLICITO no texto original e' o desempatador. '+55 3220-1234' declara
 // 55 como DDI, logo faltam 2 digitos de DDD -> incompleto. Ja '55 9999-8888' (11 digitos, sem
 // '+') e' DDD 55 + numero -> discavel. Sem esse sinal os dois casos sao indistinguiveis.

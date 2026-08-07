@@ -11,6 +11,42 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-07 — Prioridade comercial da fila da Central de Ligações (sem migration)
+
+- **A prioridade NÃO reaproveita `prospects.score` (decisão central):** o `score` mede completude
+  do CADASTRO (tem site, fotos, horário, links…). Usá-lo como fila de ligação inverte o sinal
+  numa campanha de criação de site — quem tem site pontua ALTO no cadastro e é exatamente quem
+  vale menos ligar agora. Por isso nasceu uma pontuação separada, `prioridade` (0-100), calculada
+  por `src/services/ligacao-prioridade.js`. O `score` continua no payload, sem uso na fila.
+- **Regra no BACK-END, apresentação no front:** quem entra na fila e em que ordem é decisão
+  comercial, não de tela (AGENTS.md: regra sensível não fica só no front). O módulo é PURO e
+  testável, no mesmo padrão de `followup-call-score.js`, com `PESOS`/`CORTES` agrupados no topo
+  para calibração futura por reuniões marcadas e conversões. O front (`lib/fila-ligacoes-view.js`,
+  também puro) só ESCOLHE o que exibir do que já veio — não recalcula prioridade nem reordena.
+- **Telefone válido é requisito de ENTRADA, não peso:** somar pontos por ter telefone faria um
+  lead sem telefone "quase entrar" na fila. Alternativa descartada: manter na fila com aviso —
+  polui a operação de discagem e falseia o total. Sem telefone discável o lead não aparece e
+  **não conta** no total; continua no Banco de Leads e na aba Acompanhamento, para enriquecimento.
+- **Três estados de site, não dois:** `prospects.tem_site` é `NOT NULL DEFAULT false`, então
+  `false` sozinho significa tanto "confirmado sem site" quanto "ninguém verificou". Tratar tudo
+  como "sem site" daria 40 pontos a lead social nunca checado. A confirmação passou a exigir
+  `place_id` (ficha do Maps efetivamente lida): com ele, `tem_site=false` vale 40; sem ele, o lead
+  cai em "não identificado" (15). Alternativa descartada: criar coluna/migration para o terceiro
+  estado — a informação já é derivável do que existe, e o pedido não pedia mudança de schema.
+- **Filtro e ordenação client-side sobre a fila inteira (`?limit=500`, teto do servidor):** com
+  filtro server-side, cada mudança de filtro custaria requisição e a contagem "X de Y" ficaria
+  ambígua; a fila é pequena por natureza (leads não finalizados de UMA campanha) e o Banco de
+  Leads já usa exatamente esse padrão (fetch único + view persistida em `localStorage`).
+- **A explicação da pontuação é determinística e sem PII:** os `motivos` saem das próprias regras
+  (nenhuma chamada de IA nesta tela) e nunca incluem nome, telefone, e-mail ou endereço — há
+  teste que falha se algum desses vazar para a explicação.
+- **Dívida técnica declarada:** a regra de "telefone discável" passou a existir também no backend
+  (`telefoneDiscavel`), duplicando `analisarFone` de `frontend/lib/ligacao-fone.js`. `backend/` e
+  `frontend/` são pacotes npm separados, sem módulo compartilhado; extrair um pacote comum seria
+  mudança estrutural fora do escopo. Ambos os arquivos carregam o aviso cruzado.
+
+---
+
 ## 2026-08-05 — Modal guiado de entrada do Assistente de Oportunidades (sem migration)
 
 - **A busca guiada NÃO cria e NÃO muta sessão (decisão central):** o pedido deixava em aberto se

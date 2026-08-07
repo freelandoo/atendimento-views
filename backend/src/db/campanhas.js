@@ -4,6 +4,7 @@
 // prospect/responsavel) DEVEM ser do MESMO tenant — validado aqui antes de gravar, para
 // nao referenciar dado de outra empresa.
 const { CAMPANHA_STATUS, OPORTUNIDADE_STATUS } = require('../domain-enums')
+const { montarFilaPriorizada } = require('../services/ligacao-prioridade')
 
 const STATUS_CAMPANHA = new Set(CAMPANHA_STATUS)
 const STATUS_OPORTUNIDADE = new Set(OPORTUNIDADE_STATUS)
@@ -161,13 +162,29 @@ async function listarLeadsDaCampanha(pool, empresaId, campanhaId, { status } = {
   return rows
 }
 
-// Fila de trabalho da Central de Ligacoes: leads NAO finalizados da campanha, priorizados
-// (pendentes primeiro, depois por score do lead). Traz nº de tentativas ja feitas.
+// Fila de trabalho da Central de Ligacoes: leads NAO finalizados da campanha, ordenados
+// pela PRIORIDADE COMERCIAL da campanha (services/ligacao-prioridade.js) — nao mais pelo
+// `p.score`, que mede completude do CADASTRO e nao "quanto vale ligar agora".
+//
+// Duas mudancas de contrato, ambas pedidas pela operacao:
+//   1) So entra quem tem telefone DISCAVEL. Quem nao tem nao aparece e nao conta no total
+//      da fila (continua no Banco de Leads / aba Acompanhamento, para enriquecimento).
+//   2) Cada item traz `prioridade` = { score 0-100, faixa, motivos[] }, para a tela explicar
+//      ao operador por que o lead esta no topo — sem inventar coluna nova.
+// Os sinais lidos aqui JA existem no cadastro (Bright Data / Banco de Leads): nada e' coletado.
+//
+// A ordenacao do SQL vira DESEMPATE (sort estavel no JS): dentro do mesmo score, pendente
+// primeiro e mais antigo antes. TETO_LEITURA limita o custo da leitura; o `limit` e' aplicado
+// depois do filtro para que leads sem telefone nao consumam vagas da fila.
+const TETO_LEITURA_FILA = 500
+
 async function filaDeTrabalho(pool, empresaId, campanhaId, { limit = 50 } = {}) {
-  const lim = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 500)
+  const lim = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), TETO_LEITURA_FILA)
   const { rows } = await pool.query(
     `SELECT cl.id AS campanha_lead_id, cl.status, cl.proxima_acao, cl.data_followup,
             p.id AS prospect_id, p.nome, p.telefone, p.cidade, p.nicho, p.score,
+            p.tem_site, p.site, p.maps_url, p.place_id, p.avaliacoes, p.rating,
+            p.email, p.endereco, p.instagram_handle, p.link_bio, p.seguidores, p.categoria_perfil,
             (SELECT COUNT(*)::int FROM app.ligacoes l WHERE l.campanha_lead_id = cl.id AND l.status = 'encerrada') AS tentativas
        FROM app.campanha_leads cl
        JOIN prospectador.prospects p ON p.id = cl.prospect_id
@@ -176,11 +193,11 @@ async function filaDeTrabalho(pool, empresaId, campanhaId, { limit = 50 } = {}) 
       ORDER BY CASE cl.status
                  WHEN 'nao_iniciado' THEN 0 WHEN 'tentativa_contato' THEN 1
                  WHEN 'nao_atendeu' THEN 2 WHEN 'follow_up' THEN 3 ELSE 4 END,
-               p.score DESC NULLS LAST, cl.atualizado_em ASC
+               cl.atualizado_em ASC
       LIMIT $3`,
-    [campanhaId, empresaId, lim]
+    [campanhaId, empresaId, TETO_LEITURA_FILA]
   )
-  return rows
+  return montarFilaPriorizada(rows).slice(0, lim)
 }
 
 // Funil por etapa: onde as ligacoes da campanha ESTAO PARANDO (etapa alcancada ao encerrar)
