@@ -6,6 +6,7 @@ const assert = require('node:assert/strict')
 const {
   adicionarFiltroMercado,
   termoBuscaProspect,
+  normalizarOrigemFiltro,
   listarOpcoesFiltrosMercado,
 } = require('../src/services/prospect-filters')
 
@@ -67,4 +68,21 @@ test('prospect filters: opcoes de mercado ficam escopadas por empresa, origem e 
     assert.match(q.sql, /status = ANY\(\$3\)/)
     assert.deepEqual(q.params, ['empresa-1', ['manual', 'automatico'], ['aguardando', 'aprovado'], 10])
   }
+})
+
+// A origem e' normalizada num lugar so: a listagem (/prospects) e a contagem por status
+// (/metricas) precisam recortar o MESMO universo, senao o numero do filtro nao bate com a lista.
+test('prospect filters: origem so tem dois valores; desconhecido cai em manual', () => {
+  assert.equal(normalizarOrigemFiltro('automatico'), 'automatico')
+  assert.equal(normalizarOrigemFiltro('  AUTOMATICO '), 'automatico')
+  assert.equal(normalizarOrigemFiltro('manual'), 'manual')
+  assert.equal(normalizarOrigemFiltro('rotina'), 'manual')
+  assert.equal(normalizarOrigemFiltro('qualquer-coisa'), 'manual')
+})
+
+test('prospect filters: origem vazia nao filtra nada', () => {
+  assert.equal(normalizarOrigemFiltro(''), '')
+  assert.equal(normalizarOrigemFiltro('   '), '')
+  assert.equal(normalizarOrigemFiltro(null), '')
+  assert.equal(normalizarOrigemFiltro(undefined), '')
 })

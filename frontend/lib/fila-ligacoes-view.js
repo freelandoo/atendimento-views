@@ -65,6 +65,14 @@ const RECENCIA_OPCOES = Object.freeze([
   ['todas', 'Todas'], ['7d', 'Últimos 7 dias'], ['30d', 'Últimos 30 dias'], ['90mais', 'Mais de 90 dias'],
 ])
 
+// Paginacao da fila: mesmo recorte de apresentacao usado pela listagem da Aquisicao, entao
+// mora em lib/paginacao.js e e' apenas REEXPORTADO aqui (quem ja importava daqui nao muda).
+// O tamanho de pagina de proposito NAO entra na FilaView: nao e' filtro, nao pode virar chip
+// nem contar em contarFiltrosAtivos.
+const {
+  TAMANHOS_PAGINA, POR_PAGINA_PADRAO, normalizarPorPagina, paginar, resumoPaginacao, mostrarPaginacao,
+} = require('./paginacao')
+
 const DIA_MS = 24 * 60 * 60 * 1000
 
 const rotulo = (opcoes, valor) => (opcoes.find((o) => o[0] === valor) || [])[1] || valor
@@ -229,65 +237,6 @@ function viewsIguais(a, b) {
   const x = normalizarView(a)
   const y = normalizarView(b)
   return Object.keys(VIEW_NEUTRA).every((campo) => x[campo] === y[campo])
-}
-
-// --- Paginacao da fila --------------------------------------------------------------------
-// Recorte de APRESENTACAO sobre a lista ja filtrada. Nao reordena e nao pede nada ao servidor:
-// a fila chega inteira e ordenada por prioridade, e `filtrarFila` preserva essa ordem — entao
-// paginar DEPOIS de filtrar ja e' "ordenar o conjunto completo antes de paginar".
-//
-// O tamanho de pagina de proposito NAO entra na FilaView: nao e' filtro, nao pode virar chip
-// nem contar em contarFiltrosAtivos.
-const TAMANHOS_PAGINA = Object.freeze([25, 50, 100])
-const POR_PAGINA_PADRAO = 25
-
-/** Tamanho invalido/antigo do localStorage volta ao padrao. */
-function normalizarPorPagina(valor) {
-  const n = Number.parseInt(valor, 10)
-  return TAMANHOS_PAGINA.includes(n) ? n : POR_PAGINA_PADRAO
-}
-
-/**
- * Recorta a pagina pedida. A pagina e' CLAMPADA no intervalo valido: encolher a lista (filtro
- * mais restrito, lead trabalhado) nunca deixa o operador numa pagina vazia — ele cai na ultima.
- * `offset` e' o indice GLOBAL do 1o item da pagina; `inicio`/`fim` sao 1-based, para o resumo.
- */
-function paginar(lista, pagina, porPagina) {
-  const arr = Array.isArray(lista) ? lista : []
-  const tam = normalizarPorPagina(porPagina)
-  const total = arr.length
-  const totalPaginas = Math.max(1, Math.ceil(total / tam))
-  const pedida = Math.trunc(Number(pagina))
-  const p = Math.min(Math.max(Number.isFinite(pedida) ? pedida : 1, 1), totalPaginas)
-  const offset = (p - 1) * tam
-  return {
-    itens: arr.slice(offset, offset + tam),
-    pagina: p,
-    totalPaginas,
-    porPagina: tam,
-    total,
-    offset,
-    inicio: total === 0 ? 0 : offset + 1,
-    fim: Math.min(offset + tam, total),
-    temAnterior: p > 1,
-    temProxima: p < totalPaginas,
-  }
-}
-
-/** "Mostrando 1–25 de 132 leads" — o trecho visivel dentro do total FILTRADO. */
-function resumoPaginacao(pg) {
-  if (!pg || !pg.total) return 'Nenhum lead'
-  return `Mostrando ${pg.inicio}–${pg.fim} de ${pg.total} lead${pg.total > 1 ? 's' : ''}`
-}
-
-/**
- * O rodape aparece? Regra base: so quando ha mais itens que o limite da pagina. Excecao: se o
- * operador escolheu um tamanho diferente do padrao, o rodape continua visivel — senao escolher
- * 100 com 40 leads esconderia o proprio seletor e prenderia a escolha.
- */
-function mostrarPaginacao(total, porPagina) {
-  const tam = normalizarPorPagina(porPagina)
-  return (Number(total) || 0) > tam || tam !== POR_PAGINA_PADRAO
 }
 
 /** Zera so um grupo de filtros (usado no "x" do chip) — sempre para o estado NEUTRO. */

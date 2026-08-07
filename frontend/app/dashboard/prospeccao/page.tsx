@@ -10,6 +10,8 @@ import RotinasAquisicao, { type ModoAquisicao, type RotinasResp } from '@/compon
 import HistoricoColetas from '@/components/HistoricoColetas'
 import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
 import { IconTrash, IconStar, IconUndo } from '@/components/ui/icons'
+import { paginar, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
+import { FILTROS_STATUS, contagensDosFiltros, taxaResposta, resumoRodape } from '@/lib/prospeccao-listagem'
 
 type JsonApresProspect = JsonApresentacao & {
   empresa?: { horario_funcionamento?: boolean; fotos?: number }
@@ -85,14 +87,9 @@ const STATUS_LABEL: Record<string, string> = {
   enviado: 'enviado', respondeu: 'respondeu',
 }
 
-const FILTROS: { valor: string; label: string }[] = [
-  { valor: '', label: 'Todos' },
-  { valor: 'aguardando', label: 'Aguardando' },
-  { valor: 'aprovado', label: 'Marcados' },
-  { valor: 'rejeitado', label: 'Descartados' },
-  { valor: 'enviado', label: 'Enviados' },
-  { valor: 'respondeu', label: 'Responderam' },
-]
+// Os filtros de status (e a contagem de cada um) vivem em lib/prospeccao-listagem.js —
+// puro e testado, porque "quantos leads tem cada status" é o número que o operador lê antes
+// de decidir onde trabalhar.
 function opcoesMercado(filtros: FiltrosMercado | null): OpcaoFiltroMercado[] {
   const mapa = new Map<string, OpcaoFiltroMercado>()
   for (const item of [...(filtros?.nichos || []), ...(filtros?.categorias || [])]) {
@@ -190,6 +187,9 @@ export default function ProspeccaoPage() {
   // Aba visível de "Acompanhar resultados". Trocar de aba só alterna o painel: não
   // recarrega dado nenhum nem toca no filtro/ordenação da tabela de leads.
   const [abaResultado, setAbaResultado] = useState('desempenho')
+  // Página visível da tabela. Recorte de APRESENTAÇÃO sobre os leads já carregados: trocar de
+  // página não refaz requisição, não reordena e não muda filtro nenhum.
+  const [pagina, setPagina] = useState(1)
   // Modo da tela (Busca / Rotinas). Começa no padrão e só depois é restaurado, no efeito:
   // ler storage/URL durante o render quebraria a hidratação.
   const [modo, setModo] = useState<ModoAquisicao>(MODO_PADRAO)
@@ -234,7 +234,12 @@ export default function ProspeccaoPage() {
     if (cidadeFiltro) p.set('cidade', cidadeFiltro)
     apiFetch<Prospect[]>(`/api/empresas/${empresaId}/prospeccao/prospects?${p.toString()}`)
       .then((r) => setProspects(r.data || [])).catch((e) => setErro(e.message))
-    apiFetch<Metricas>(`/api/empresas/${empresaId}/prospeccao/metricas`)
+    // Contagens dos filtros de status: mesmo recorte da listagem, MENOS o status — ele escolhe
+    // qual contagem olhar, não o universo. Por isso `p` é reaproveitado sem o `status`.
+    const pm = new URLSearchParams(p)
+    pm.delete('status')
+    pm.delete('limit')
+    apiFetch<Metricas>(`/api/empresas/${empresaId}/prospeccao/metricas?${pm.toString()}`)
       .then((r) => setMetricas(r.data)).catch(() => {})
     apiFetch<ResultadosResp>(`/api/empresas/${empresaId}/prospeccao/resultados`)
       .then((r) => setResultados(r.data)).catch(() => {})
@@ -242,6 +247,9 @@ export default function ProspeccaoPage() {
       .then((r) => setAnalytics(r.data)).catch(() => {})
   }
   useEffect(() => { carregar() }, [empresaId, filtro, buscaDados, mercado, cidadeFiltro])
+  // Mudou o recorte (filtro, busca ou ordenação)? A lista é outra: voltar para a 1ª página é o
+  // único ponto de partida que o operador consegue prever.
+  useEffect(() => { setPagina(1) }, [filtro, buscaDados, mercado, cidadeFiltro, ordem.chave, ordem.dir])
   useEffect(() => {
     if (!empresaId) return
     const p = new URLSearchParams()
@@ -300,6 +308,11 @@ export default function ProspeccaoPage() {
   }
 
   const ordenados = [...prospects].sort((a, b) => compararProspects(a, b, ordem))
+  // Ordena o conjunto COMPLETO carregado e só então recorta a página visível.
+  const pg = paginar(ordenados, pagina, POR_PAGINA_PADRAO)
+  const contagens = contagensDosFiltros(metricas)
+  const rodape = resumoRodape(pg, contagens[filtro])
+  const taxa = taxaResposta(metricas)
 
   const mercadoOpcoes = opcoesMercado(filtrosMercado)
   const cidadeOpcoes = filtrosMercado?.cidades || []
@@ -359,16 +372,33 @@ export default function ProspeccaoPage() {
           </p>
         </div>
 
-      <div className="flex flex-wrap gap-1.5">
-        {FILTROS.map((f) => (
-          <button
-            key={f.valor || 'todos'}
-            onClick={() => setFiltro(f.valor)}
-            className={`px-3 py-1 rounded-full text-xs font-medium border ${filtro === f.valor ? 'bg-brand text-white border-brand' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-          >
-            {f.label}
-          </button>
-        ))}
+      {/* Filtros de status COM a contagem dentro do próprio rótulo: o número passou a viver
+          onde a decisão é tomada, em vez de num painel de cards separado acima da tabela.
+          A contagem fica DENTRO do botão, então entra no nome acessível ("Aguardando 42"). */}
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar leads por status">
+        {FILTROS_STATUS.map((f) => {
+          const ativo = filtro === f.valor
+          const n = contagens[f.valor]
+          return (
+            <button
+              key={f.valor || 'todos'}
+              type="button"
+              onClick={() => setFiltro(f.valor)}
+              aria-pressed={ativo}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${ativo ? 'border-brand bg-brand text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+            >
+              {f.label}
+              {/* Contagem desconhecida (métricas ainda não chegaram) não vira "0". */}
+              {n != null && (
+                <span
+                  className={`rounded-full px-1.5 text-[10px] font-semibold tabular-nums ${ativo ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-600'}`}
+                >
+                  {n}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
 
       <div className="rounded-xl border bg-white px-3 py-3 shadow-sm">
@@ -404,16 +434,9 @@ export default function ProspeccaoPage() {
         </div>
       </div>
 
-      {metricas && (
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-          <Mini title="Total" value={metricas.total} />
-          <Mini title="Aguardando" value={metricas.aguardando} />
-          <Mini title="Marcados" value={metricas.aprovados} />
-          <Mini title="Enviados" value={metricas.enviados} />
-          <Mini title="Responderam" value={metricas.responderam} />
-          <Mini title="Taxa resp." value={`${metricas.taxa_resposta}%`} />
-        </div>
-      )}
+      {/* Os cards de resumo (Total/Aguardando/Marcados/Enviados/Responderam/Taxa) saíram daqui:
+          cada número foi para onde ele é usado — as contagens, para dentro dos filtros de
+          status; a taxa de resposta, para o rodapé da listagem. */}
 
       {buscas.filter((b) => b.status === 'pendente' || b.status === 'processando').map((b) => (
         <div key={b.id} className="flex items-center gap-3 rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
@@ -424,10 +447,10 @@ export default function ProspeccaoPage() {
         </div>
       ))}
 
-      <DataTableFrame
-        className="overflow-hidden rounded-xl border bg-white shadow-sm"
-        ariaLabel="Rolagem horizontal da tabela de prospecção"
-      >
+      {/* O card envolve tabela + rodapé: o rodapé fica FORA do viewport rolável, para não
+          sumir na rolagem horizontal nem na vertical da tabela. */}
+      <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      <DataTableFrame ariaLabel="Rolagem horizontal da tabela de prospecção">
       <table className="w-full min-w-max text-sm">
         <thead className="bg-gray-100">
           <tr>
@@ -448,7 +471,7 @@ export default function ProspeccaoPage() {
           </tr>
         </thead>
         <tbody>
-          {ordenados.map((p) => {
+          {pg.itens.map((p) => {
             const t = temperatura(p.score)
             const horario = !!p.json_apresentacao?.empresa?.horario_funcionamento
             return (
@@ -527,12 +550,20 @@ export default function ProspeccaoPage() {
             </tr>
             )
           })}
-          {ordenados.length === 0 && (
+          {pg.total === 0 && (
             <tr><td colSpan={14} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Configure a busca acima e clique em Buscar agora.</td></tr>
           )}
         </tbody>
       </table>
       </DataTableFrame>
+      <RodapeListagem
+        pg={pg}
+        texto={rodape.texto}
+        aviso={rodape.aviso}
+        taxa={taxa}
+        onPagina={setPagina}
+      />
+      </div>
       </section>
 
       <section className="space-y-3">
@@ -642,6 +673,61 @@ export default function ProspeccaoPage() {
 
       {jsonAberto && (
         <JsonLeadModal titulo={`JSON de apresentação — ${jsonAberto.titulo}`} json={jsonAberto.json} onFechar={() => setJsonAberto(null)} />
+      )}
+    </div>
+  )
+}
+
+// Rodapé da listagem: o que está visível, o que já foi respondido e como andar na lista.
+// Toda a aritmética (intervalo, total, taxa) vem de lib/paginacao + lib/prospeccao-listagem —
+// aqui é só apresentação. Desktop: resumo à esquerda, navegação à direita; mobile: empilhado
+// com alvos de toque de 36px, mesmo padrão do rodapé da fila da Central de Ligações.
+function RodapeListagem({ pg, texto, aviso, taxa, onPagina }: {
+  pg: PaginaLista<Prospect>
+  texto: string
+  aviso: string
+  taxa: { texto: string; responderam: number; base: number }
+  onPagina: (p: number) => void
+}) {
+  return (
+    <div className="flex flex-col gap-2 border-t px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <p className="text-xs text-slate-500" aria-live="polite">
+          <span className="tabular-nums">{texto}</span>
+          <span className="mx-1.5 text-slate-300" aria-hidden="true">·</span>
+          Taxa de resposta <b className="tabular-nums text-slate-700">{taxa.texto}</b>
+          {taxa.base > 0 ? (
+            <span className="text-slate-400"> ({taxa.responderam} de {taxa.base} que receberam mensagem)</span>
+          ) : (
+            <span className="text-slate-400"> (nenhuma mensagem enviada ainda)</span>
+          )}
+        </p>
+        {aviso && <p className="mt-0.5 text-[11px] text-amber-600">{aviso}</p>}
+      </div>
+      {pg.totalPaginas > 1 && (
+        <div className="flex items-center gap-1 self-end sm:self-auto">
+          <button
+            type="button"
+            onClick={() => onPagina(pg.pagina - 1)}
+            disabled={!pg.temAnterior}
+            aria-label="Página anterior"
+            className="min-h-[36px] rounded-lg border px-3 py-1 text-xs hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            ◀ <span className="hidden sm:inline">Anterior</span>
+          </button>
+          <span className="px-1 text-xs text-slate-500">
+            Página <b className="tabular-nums text-slate-700">{pg.pagina}</b> de <span className="tabular-nums">{pg.totalPaginas}</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => onPagina(pg.pagina + 1)}
+            disabled={!pg.temProxima}
+            aria-label="Próxima página"
+            className="min-h-[36px] rounded-lg border px-3 py-1 text-xs hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <span className="hidden sm:inline">Próxima</span> ▶
+          </button>
+        </div>
       )}
     </div>
   )

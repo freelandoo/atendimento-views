@@ -40,7 +40,7 @@ const placesBrightData = require('./services/places-brightdata')
 const {
   canProspectLead,
 } = require('./services/prospecting-eligibility')
-const { adicionarFiltroMercado, termoBuscaProspect } = require('./services/prospect-filters')
+const { adicionarFiltroMercado, termoBuscaProspect, normalizarOrigemFiltro } = require('./services/prospect-filters')
 const { extrairEmailDeUrl } = require('./services/social-contact-extract')
 const {
   criarFilaDiariaSimulada,
@@ -98,12 +98,6 @@ function normalizarOrigem(v) {
 function normalizarOrigemBusca(v) {
   const origem = String(v || '').trim().toLowerCase()
   return ['manual', 'automatico_fixo', 'ia', 'rotina'].includes(origem) ? origem : 'manual'
-}
-
-function normalizarOrigemFiltro(v) {
-  const origem = String(v || '').trim().toLowerCase()
-  if (!origem) return ''
-  return origem === 'automatico' ? 'automatico' : 'manual'
 }
 
 function normalizarStatusProspect(v) {

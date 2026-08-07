@@ -16,7 +16,12 @@ const {
   montarAgendaPainelProspeccao,
 } = require('../services/prospecting-settings')
 const { obterDashboardEstrategicoProspeccao } = require('../services/prospecting-performance-analytics')
-const { listarOpcoesFiltrosMercado } = require('../services/prospect-filters')
+const {
+  listarOpcoesFiltrosMercado,
+  adicionarFiltroMercado,
+  termoBuscaProspect,
+  normalizarOrigemFiltro,
+} = require('../services/prospect-filters')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -57,9 +62,27 @@ router.get('/filtros', requireAuth, requireEmpresaAccess, async (req, res) => {
   }
 })
 
-// GET /api/empresas/:empresaId/prospeccao/metricas
+// GET /api/empresas/:empresaId/prospeccao/metricas?busca=&mercado=&cidade=&origem=
+// Contagem por status. Aceita os MESMOS filtros de recorte da listagem (`/prospects`), para o
+// número exibido em cada filtro de status bater com a lista que está na tela. O filtro de
+// `status` de propósito NÃO se aplica aqui: ele escolhe qual contagem olhar, não o universo —
+// aplicá-lo zeraria todos os outros status. Sem parâmetro, o resultado é o de sempre.
 router.get('/metricas', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
+    const params = [req.empresa.id]
+    const where = ['empresa_id = $1']
+    adicionarFiltroMercado(where, params, req.query || {})
+    const busca = termoBuscaProspect(req.query || {})
+    if (busca) {
+      params.push(`%${busca}%`)
+      const i = params.length
+      where.push(`(nome ILIKE $${i} OR telefone ILIKE $${i} OR endereco ILIKE $${i} OR nicho ILIKE $${i} OR categoria_perfil ILIKE $${i} OR cidade ILIKE $${i})`)
+    }
+    const origem = normalizarOrigemFiltro(req.query.origem)
+    if (origem) {
+      params.push(origem)
+      where.push(`origem = $${params.length}`)
+    }
     const { rows: [m] } = await pool.query(
       `SELECT
          COUNT(*)                                   AS total,
@@ -68,8 +91,8 @@ router.get('/metricas', requireAuth, requireEmpresaAccess, async (req, res) => {
          COUNT(*) FILTER (WHERE status='rejeitado')  AS rejeitados,
          COUNT(*) FILTER (WHERE status='enviado')    AS enviados,
          COUNT(*) FILTER (WHERE status='respondeu')  AS responderam
-       FROM prospectador.prospects WHERE empresa_id = $1`,
-      [req.empresa.id]
+       FROM prospectador.prospects WHERE ${where.join(' AND ')}`,
+      params
     )
     const enviados = Number(m.enviados || 0) + Number(m.responderam || 0)
     const taxa_resposta = enviados > 0 ? Math.round((Number(m.responderam || 0) / enviados) * 100) : 0

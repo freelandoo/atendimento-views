@@ -1169,3 +1169,15 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Areas possivelmente impactadas:** frontend/app/dashboard/roteiros/page.tsx (cabecalho da versao), frontend/components/ui/icons.tsx (icone novo copiar+brilho) e frontend/lib/roteiro-contexto-ia.js (+ .d.ts e .test.js, modulo PURO novo).
 - **Fora de escopo declarado:** backend, banco, API, campanhas, fila de ligacoes, leads, automacoes, integracao com qualquer provedor de IA e importacao de resposta de IA.
 - **Proxima etapa:** Implementar o diff minimo, rodar `npm test` + `npm run typecheck` no frontend e `npm test` no backend (garantia de nao regressao), e validar copia/fallback/acessibilidade na tela.
+
+---
+
+## 2026-08-07 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** UX da listagem de leads da Aquisicao (modo Busca): remover os 6 cards grandes de resumo, levar as contagens para dentro dos proprios filtros de status (Todos/Aguardando/Marcados/Descartados/Enviados/Responderam), criar rodape da tabela com intervalo exibido + total + taxa de resposta e adicionar paginacao (anterior/proxima, pagina X de Y), mantendo filtros, acoes e regras atuais.
+- **E projeto/tarefa de alteracao?** Sim, escopo APRESENTACAO/NAVEGACAO + 1 ajuste ADITIVO de leitura no backend (o endpoint de metricas passa a aceitar os mesmos filtros da listagem, para as contagens dos chips baterem com a busca aplicada). Sem schema, sem migration, sem regra de negocio, sem escrita, sem chamada paga.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/ui-visual-standard.md: Sim.
+- **Areas possivelmente impactadas:** frontend/app/dashboard/prospeccao/page.tsx (tela), frontend/lib/paginacao.js (+ .d.ts/.test.js — modulo PURO extraido de lib/fila-ligacoes-view.js para nao duplicar paginacao), frontend/lib/fila-ligacoes-view.js (passa a reexportar a paginacao, sem mudanca de comportamento) e backend/src/routes/api-prospeccao.js (GET /metricas aceita busca/mercado/cidade/origem; sem parametro o resultado e' identico ao de hoje).
+- **Fora de escopo declarado:** status/dados dos leads, regras de coleta e disparo, Banco de Leads, Central de Ligacoes, modo Rotinas, secao "Acompanhar resultados", schema e permissoes.
+- **Proxima etapa:** Aplicar o diff minimo, rodar `npm test` + `npm run typecheck` no frontend e `npm test` no backend, e validar desktop/mobile (foco visivel, teclado, estados vazios).

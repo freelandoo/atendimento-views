@@ -25,6 +25,18 @@ function termoBuscaProspect(query = {}) {
   return normalizarTexto(query.busca || query.q || query.pesquisa, 160)
 }
 
+/**
+ * Origem do prospect no recorte da listagem: só existem duas ('automatico' e 'manual'), e
+ * qualquer outro valor não vazio cai em 'manual' (o mundo pré-automação). Vazio = sem filtro.
+ * Vive aqui, junto dos demais filtros, porque a listagem e a contagem por status precisam
+ * recortar exatamente o mesmo universo — duas normalizações diferentes dariam dois números.
+ */
+function normalizarOrigemFiltro(v) {
+  const origem = String(v || '').trim().toLowerCase()
+  if (!origem) return ''
+  return origem === 'automatico' ? 'automatico' : 'manual'
+}
+
 async function listarOpcoesFiltrosMercado(pool, {
   empresaId,
   origem,
@@ -102,5 +114,6 @@ module.exports = {
   normalizarTexto,
   adicionarFiltroMercado,
   termoBuscaProspect,
+  normalizarOrigemFiltro,
   listarOpcoesFiltrosMercado,
 }
