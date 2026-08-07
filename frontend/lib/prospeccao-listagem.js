@@ -8,8 +8,10 @@
 // daria numero errado. As contagens vem de GET /prospeccao/metricas, que aplica os mesmos
 // filtros de busca/nicho/cidade da listagem — e de proposito NAO aplica o filtro de status,
 // senao cada chip mostraria o total do status selecionado.
-
-const { resumoIntervalo } = require('./paginacao')
+//
+// A PAGINACAO e' do servidor: `paginaServidor` so descreve o recorte que ja veio pronto. O
+// resumo em texto ("Exibindo 26–50 de 2223 leads") continua sendo `resumoIntervalo`, de
+// lib/paginacao.js, compartilhado com a Fila da Central de Ligacoes.
 
 // Filtros de status da listagem. `chave` e' o campo correspondente em /prospeccao/metricas.
 const FILTROS_STATUS = Object.freeze([
@@ -55,20 +57,36 @@ function taxaResposta(metricas) {
 }
 
 /**
- * Rodape da listagem: o intervalo visivel dentro do que foi carregado.
+ * Descreve a pagina que o SERVIDOR devolveu, no mesmo formato de `paginar` — a diferenca e' que
+ * aqui os itens ja vem recortados e o total vem da contagem do filtro (`/metricas`), nao do
+ * tamanho do array. E' o que permite andar pelos 2223 leads sem nunca carregar 2223 leads.
  *
- * `totalNoFiltro` (das metricas) pode ser MAIOR que o total carregado, porque a requisicao tem
- * limite. Nesse caso o aviso e' explicito: paginar so anda dentro do que veio, e esconder isso
- * faria o operador acreditar que viu a carteira inteira.
+ * `total` desconhecido (metricas ainda em voo) NAO vira zero: assume-se o que ja se sabe (o que
+ * veio ate aqui) e "tem proxima" passa a ser inferido de a pagina ter vindo cheia. Sem isso, a
+ * navegacao ficaria travada no primeiro instante da tela.
  */
-function resumoRodape(pg, totalNoFiltro) {
-  const carregados = pg?.total || 0
-  const texto = resumoIntervalo(pg, { vazio: 'Nenhum lead nesta lista' })
-  const total = inteiroOuNulo(totalNoFiltro)
-  const aviso = total != null && total > carregados
-    ? `Lista limitada a ${carregados} de ${total} leads deste filtro — refine a busca para ver o resto.`
-    : ''
-  return { texto, aviso }
+function paginaServidor({ itens, pagina, porPagina, total } = {}) {
+  const arr = Array.isArray(itens) ? itens : []
+  const tam = Math.max(Math.trunc(Number(porPagina)) || 1, 1)
+  const pedida = Math.trunc(Number(pagina))
+  const p = Math.max(Number.isFinite(pedida) ? pedida : 1, 1)
+  const offset = (p - 1) * tam
+  const totalConhecido = inteiroOuNulo(total)
+  const totalEfetivo = totalConhecido != null ? totalConhecido : offset + arr.length
+  const totalPaginas = Math.max(1, Math.ceil(totalEfetivo / tam))
+  return {
+    itens: arr,
+    pagina: p,
+    totalPaginas,
+    porPagina: tam,
+    total: totalEfetivo,
+    totalEstimado: totalConhecido == null,
+    offset,
+    inicio: arr.length === 0 ? 0 : offset + 1,
+    fim: offset + arr.length,
+    temAnterior: p > 1,
+    temProxima: totalConhecido != null ? p < totalPaginas : arr.length === tam,
+  }
 }
 
-module.exports = { FILTROS_STATUS, contagensDosFiltros, taxaResposta, resumoRodape }
+module.exports = { FILTROS_STATUS, contagensDosFiltros, taxaResposta, paginaServidor }

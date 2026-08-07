@@ -1221,32 +1221,158 @@ async function atualizarEmailProspect(empresaId, id, emailBruto) {
   return rows[0]
 }
 
-async function listarProspects(filtros = {}) {
+// Ordenação da listagem: mapa FECHADO (chave da tela → expressão SQL). Fechado porque o valor
+// vem da URL: só entra aqui coluna conhecida, nunca texto do cliente concatenado no ORDER BY.
+//
+// `pontos` e `horario` NÃO estão aqui de propósito: os dois saem de `calcularScoreCadastroPlaces`
+// /`dadosPlaces`, calculados na LEITURA a partir das colunas + `raw_json`. Traduzi-los para SQL
+// seria duplicar a regra de pontuação em dois lugares — e bastaria alguém acrescentar um critério
+// para a ordem da tela divergir silenciosamente do número que ela mostra. Eles têm caminho
+// próprio (`idsPorOrdemCalculada`), que ordena chamando a MESMA função.
+const ORDEM_SQL_PROSPECTS = {
+  entrou: 'p.created_at',
+  nome: 'LOWER(p.nome)',
+  telefone: 'p.telefone',
+  email: 'p.email',
+  endereco: 'LOWER(p.endereco)',
+  nicho: "LOWER(CONCAT_WS(' ', p.nicho, p.cidade))",
+  aval: 'p.avaliacoes',
+  nota: 'p.rating',
+  site: 'p.tem_site',
+  status: 'p.status',
+}
+const ORDEM_CALCULADA_PROSPECTS = Object.freeze(['pontos', 'horario'])
+
+function normalizarOrdemProspects(ordenar, direcao) {
+  const chave = String(ordenar || '').trim().toLowerCase()
+  if (!chave) return null
+  const dir = String(direcao || '').trim().toLowerCase() === 'asc' ? 'asc' : 'desc'
+  if (ORDEM_CALCULADA_PROSPECTS.includes(chave)) return { chave, dir, calculada: true }
+  return ORDEM_SQL_PROSPECTS[chave] ? { chave, dir, calculada: false } : null
+}
+
+// Valor de ordenação das chaves CALCULADAS. Mesma fonte que a tela exibe: a pontuação vem de
+// calcularScoreCadastroPlaces e o horário, do dado unificado que ela já devolve.
+function valorCalculadoProspect(row, chave) {
+  const cad = calcularScoreCadastroPlaces(row)
+  if (chave === 'horario') return cad.dados.horario_funcionamento ? 1 : 0
+  return cad.score
+}
+
+/**
+ * Filtros de recorte da listagem, num lugar só.
+ *
+ * A contagem por status (`/metricas`) recorta o MESMO universo que a lista — é dela que sai o
+ * número exibido em cada filtro e o total do rodapé. Duas construções de WHERE separadas
+ * divergiriam no primeiro ajuste e a tela passaria a se contradizer sem ninguém perceber.
+ *
+ * `comStatus: false` é o que a contagem usa: lá o status escolhe qual coluna do resultado olhar,
+ * não o universo — filtrar por ele zeraria todos os outros status.
+ */
+function montarFiltrosProspects(filtros = {}, { alias = 'p', comStatus = true } = {}) {
+  const a = alias ? `${alias}.` : ''
   const where = []
   const params = []
   // Escopo multiempresa: quando informado, lista só os prospects da empresa.
   if (filtros.empresaId) {
     params.push(filtros.empresaId)
-    where.push(`p.empresa_id = $${params.length}`)
+    where.push(`${a}empresa_id = $${params.length}`)
   }
-  const status = normalizarStatusProspect(filtros.status)
+  const status = comStatus ? normalizarStatusProspect(filtros.status) : ''
   const busca = termoBuscaProspect(filtros)
   if (status) {
     params.push(status)
-    where.push(`status = $${params.length}`)
+    where.push(`${a}status = $${params.length}`)
   }
-  adicionarFiltroMercado(where, params, filtros, { alias: 'p' })
+  adicionarFiltroMercado(where, params, filtros, { alias })
   if (busca) {
     params.push(`%${busca}%`)
-    where.push(`(p.nome ILIKE $${params.length} OR p.telefone ILIKE $${params.length} OR p.endereco ILIKE $${params.length} OR p.nicho ILIKE $${params.length} OR p.categoria_perfil ILIKE $${params.length} OR p.cidade ILIKE $${params.length})`)
+    const i = params.length
+    where.push(`(${a}nome ILIKE $${i} OR ${a}telefone ILIKE $${i} OR ${a}endereco ILIKE $${i} OR ${a}nicho ILIKE $${i} OR ${a}categoria_perfil ILIKE $${i} OR ${a}cidade ILIKE $${i})`)
   }
   const origem = normalizarOrigemFiltro(filtros.origem)
   if (origem) {
     params.push(origem)
-    where.push(`origem = $${params.length}`)
+    where.push(`${a}origem = $${params.length}`)
   }
+  return { where, params, whereSql: where.length ? `WHERE ${where.join(' AND ')}` : '' }
+}
+
+/**
+ * Ids da página quando a ordem é CALCULADA na leitura (`pontos`, `horario`).
+ *
+ * Lê o conjunto filtrado, pontua com a MESMA função da tela, ordena e recorta. Só os ids saem
+ * daqui: o `json_apresentacao` (que carrega um prompt inteiro por lead) e o diagnóstico são
+ * montados depois, apenas para a página — por isso a resposta fica MENOR do que era quando a
+ * tela puxava 100 leads hidratados de uma vez.
+ *
+ * DÍVIDA TÉCNICA (registrada em docs/ai-decision-log.md): esta varredura relê o conjunto
+ * filtrado a cada página. É barata na ordem de grandeza atual (milhares de leads), mas cresce
+ * linear. A saída, quando incomodar, é persistir a pontuação numa coluna mantida na escrita —
+ * não traduzir a regra para SQL aqui.
+ */
+// Parte PURA (testável sem banco): pontua, ordena e recorta a página. Ver `idsPorOrdemCalculada`.
+function recortarIdsCalculados(rows, ordem, limit, offset) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => ({ id: row.id, valor: valorCalculadoProspect(row, ordem.chave), updated_at: row.updated_at }))
+    .sort((a, b) => {
+      const cmp = a.valor - b.valor
+      if (cmp !== 0) return ordem.dir === 'asc' ? cmp : -cmp
+      // Empate resolvido pelo mais recente: sem desempate estável, o mesmo lead poderia
+      // aparecer em duas páginas (ou em nenhuma) entre uma requisição e outra.
+      return new Date(b.updated_at || 0) - new Date(a.updated_at || 0)
+    })
+    .slice(Math.max(offset, 0), Math.max(offset, 0) + limit)
+    .map((r) => r.id)
+}
+
+async function idsPorOrdemCalculada(whereSql, params, ordem, limit, offset) {
+  const { rows } = await pool.query(
+    `SELECT p.* FROM prospectador.prospects p ${whereSql}`,
+    params
+  )
+  return recortarIdsCalculados(rows, ordem, limit, offset)
+}
+
+// Ordem de negócio padrão (a de sempre): reunião marcada primeiro, depois quem ainda não foi
+// abordado, e por último quem já recebeu mensagem. Vale quando a tela não pediu coluna nenhuma.
+const ORDEM_PADRAO_PROSPECTS = `
+      CASE
+        WHEN p.status IN ('enviado', 'respondeu') THEN 2
+        WHEN p.status = 'aprovado' AND d_last.agendado_para IS NOT NULL THEN 0
+        ELSE 1
+      END ASC,
+      CASE WHEN p.status = 'aprovado' AND d_last.agendado_para IS NOT NULL THEN d_last.agendado_para END ASC NULLS LAST,
+      p.updated_at DESC,
+      p.created_at DESC`
+
+async function listarProspects(filtros = {}) {
+  const { params, whereSql } = montarFiltrosProspects(filtros)
   const limit = Math.min(Math.max(parseInt(filtros.limit, 10) || 80, 1), 200)
-  params.push(limit)
+  const offset = Math.max(parseInt(filtros.offset, 10) || 0, 0)
+  const ordem = normalizarOrdemProspects(filtros.ordenar, filtros.direcao)
+
+  // Ordem calculada: descobre os ids da página primeiro e hidrata só eles, preservando a ordem.
+  if (ordem?.calculada) {
+    const ids = await idsPorOrdemCalculada(whereSql, params, ordem, limit, offset)
+    if (!ids.length) return []
+    const pagina = await consultarProspectsHidratados('WHERE p.id = ANY($1)', [ids], '')
+    const porId = new Map(pagina.map((p) => [p.id, p]))
+    return ids.map((id) => porId.get(id)).filter(Boolean)
+  }
+
+  // Ordem do banco (ou a ordem de negócio padrão, quando a tela não pediu coluna nenhuma).
+  const ordemSql = ordem
+    ? `${ORDEM_SQL_PROSPECTS[ordem.chave]} ${ordem.dir === 'asc' ? 'ASC' : 'DESC'} NULLS LAST, p.updated_at DESC`
+    : ORDEM_PADRAO_PROSPECTS
+  const paramsPagina = [...params]
+  paramsPagina.push(limit)
+  const limitSql = `LIMIT $${paramsPagina.length}`
+  paramsPagina.push(offset)
+  return consultarProspectsHidratados(whereSql, paramsPagina, `ORDER BY ${ordemSql} ${limitSql} OFFSET $${paramsPagina.length}`)
+}
+
+async function consultarProspectsHidratados(whereSql, params, ordemELimite) {
   const { rows } = await pool.query(
     `
     SELECT p.*,
@@ -1278,17 +1404,8 @@ async function listarProspects(filtros = {}) {
       ORDER BY d2.updated_at DESC, d2.created_at DESC
       LIMIT 1
     ) d_last ON true
-    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-    ORDER BY
-      CASE
-        WHEN p.status IN ('enviado', 'respondeu') THEN 2
-        WHEN p.status = 'aprovado' AND d_last.agendado_para IS NOT NULL THEN 0
-        ELSE 1
-      END ASC,
-      CASE WHEN p.status = 'aprovado' AND d_last.agendado_para IS NOT NULL THEN d_last.agendado_para END ASC NULLS LAST,
-      p.updated_at DESC,
-      p.created_at DESC
-    LIMIT $${params.length}
+    ${whereSql}
+    ${ordemELimite}
     `,
     params
   )
@@ -4419,6 +4536,9 @@ module.exports = {
   gerarDiagnosticos,
   buscarContextoProspeccao,
   listarProspects,
+  montarFiltrosProspects,
+  normalizarOrdemProspects,
+  recortarIdsCalculados,
   marcarProspectComoRespondeuPorNumero,
   marcarFilaProspeccaoRespondidaPorNumero,
   bloquearProspeccaoPorRespostaLead,

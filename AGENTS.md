@@ -162,6 +162,26 @@
   `sessionStorage` + `?modo=busca|rotinas` (via `history.replaceState`, sem `useSearchParams`).
 - **Cidade + UF** compõem a localização usada na geocodificação e na coleta, no automático **e**
   no manual (`POST /prospeccao/buscar` aceita `uf`) — sem a UF, "Santana" resolvia em qualquer estado.
+- **A tabela "Leads encontrados" é paginada NO SERVIDOR** (`GET /prospeccao/prospects` aceita
+  `limit`, `offset`, `ordenar`, `direcao`; 25 por página). Antes ela puxava 100 leads e ordenava
+  no cliente — com milhares na carteira, o resto era inalcançável. **A ordenação vai junto**: com
+  25 de milhares na tela, ordenar só a página daria uma ordem falsa.
+  - `ordenar` é um **mapa fechado** chave→SQL (`ORDEM_SQL_PROSPECTS`): o valor vem da URL e nada
+    do cliente é concatenado no `ORDER BY`. Chave desconhecida é ignorada e cai na ordem de
+    negócio histórica (que é o que os demais chamadores de `listarProspects` continuam recebendo,
+    pois não mandam `ordenar`).
+  - `pontos` e `horario` **não** estão nesse mapa: saem de `calcularScoreCadastroPlaces`/
+    `dadosPlaces`, calculados na LEITURA. Traduzi-los para SQL duplicaria a regra de pontuação.
+    Eles usam `idsPorOrdemCalculada`, que lê o conjunto filtrado, pontua com a MESMA função,
+    ordena, recorta e devolve só ids — a hidratação pesada (`json_apresentacao`, diagnóstico) roda
+    apenas para os 25 da página. **Dívida técnica declarada** em `docs/ai-decision-log.md`: essa
+    varredura é linear; a saída, quando incomodar, é persistir a pontuação numa coluna mantida na
+    escrita, nunca traduzir a regra para SQL.
+  - **Um único construtor de WHERE** (`montarFiltrosProspects`, opções `alias`/`comStatus`) serve a
+    listagem **e** `GET /prospeccao/metricas`. É de lá que vêm a contagem dentro de cada filtro de
+    status e o total do rodapé; dois WHERE separados divergiriam e a tela passaria a se contradizer.
+    A contagem de propósito **não** filtra por `status` — ele escolhe qual coluna do resultado
+    olhar, não o universo (filtrar zeraria os outros cinco).
 - Nenhuma variável de ambiente nova foi criada para este módulo.
 
 ### Assistente de Oportunidades (curadoria POR LEAD, na Busca avulsa)

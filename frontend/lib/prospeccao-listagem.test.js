@@ -1,8 +1,8 @@
 'use strict'
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { FILTROS_STATUS, contagensDosFiltros, taxaResposta, resumoRodape } = require('./prospeccao-listagem')
-const { paginar } = require('./paginacao')
+const { FILTROS_STATUS, contagensDosFiltros, taxaResposta, paginaServidor } = require('./prospeccao-listagem')
+const { resumoIntervalo } = require('./paginacao')
 
 // Formato real de GET /prospeccao/metricas: COUNT(*) do PostgreSQL chega como STRING.
 const METRICAS = {
@@ -70,26 +70,59 @@ test('todo mundo que recebeu respondeu = 100%', () => {
   assert.equal(t.base, 7)
 })
 
-test('rodape mostra o intervalo visivel da pagina', () => {
-  const { texto, aviso } = resumoRodape(paginar(listaDe(128), 2, 25), 128)
-  assert.equal(texto, 'Exibindo 26–50 de 128 leads')
-  assert.equal(aviso, '')
+// --- Paginacao vinda do SERVIDOR ---------------------------------------------------------
+// A pagina chega recortada (25 itens) e o total vem da contagem do filtro. E' isso que permite
+// alcancar o lead 2000 sem nunca carregar 2000 leads.
+const pagina2 = () => paginaServidor({ itens: listaDe(25), pagina: 2, porPagina: 25, total: '2223' })
+
+test('descreve a pagina recortada pelo servidor com o total do filtro', () => {
+  const pg = pagina2()
+  assert.equal(pg.itens.length, 25)
+  assert.equal(pg.pagina, 2)
+  assert.equal(pg.total, 2223)
+  assert.equal(pg.totalPaginas, 89)
+  assert.equal(pg.offset, 25)
+  assert.equal(pg.inicio, 26)
+  assert.equal(pg.fim, 50)
+  assert.equal(pg.temAnterior, true)
+  assert.equal(pg.temProxima, true)
+  assert.equal(pg.totalEstimado, false)
 })
 
-test('rodape avisa quando o filtro tem mais leads do que a lista carregada', () => {
-  const { texto, aviso } = resumoRodape(paginar(listaDe(100), 1, 25), '128')
-  assert.equal(texto, 'Exibindo 1–25 de 100 leads')
-  assert.match(aviso, /limitada a 100 de 128 leads/)
+test('o resumo cobre a carteira inteira, nao so o que foi carregado', () => {
+  assert.equal(resumoIntervalo(pagina2()), 'Exibindo 26–50 de 2223 leads')
 })
 
-test('total do filtro desconhecido ou menor nao gera aviso', () => {
-  assert.equal(resumoRodape(paginar(listaDe(100), 1, 25), null).aviso, '')
-  assert.equal(resumoRodape(paginar(listaDe(100), 1, 25), 100).aviso, '')
-  assert.equal(resumoRodape(paginar(listaDe(100), 1, 25), 3).aviso, '')
+test('ultima pagina fecha no total e nao oferece proxima', () => {
+  const pg = paginaServidor({ itens: listaDe(23), pagina: 89, porPagina: 25, total: 2223 })
+  assert.equal(pg.inicio, 2201)
+  assert.equal(pg.fim, 2223)
+  assert.equal(pg.temProxima, false)
+  assert.equal(pg.temAnterior, true)
 })
 
-test('lista vazia tem rodape proprio, sem intervalo inventado', () => {
-  const { texto, aviso } = resumoRodape(paginar([], 1, 25), 0)
-  assert.equal(texto, 'Nenhum lead nesta lista')
-  assert.equal(aviso, '')
+test('total ainda desconhecido nao vira zero nem trava a navegacao', () => {
+  const cheia = paginaServidor({ itens: listaDe(25), pagina: 1, porPagina: 25, total: null })
+  assert.equal(cheia.totalEstimado, true)
+  assert.equal(cheia.total, 25)
+  // Pagina veio CHEIA: provavelmente ha mais. Sem isso a tela travaria no primeiro instante.
+  assert.equal(cheia.temProxima, true)
+
+  const parcial = paginaServidor({ itens: listaDe(9), pagina: 1, porPagina: 25, total: undefined })
+  assert.equal(parcial.temProxima, false)
+})
+
+test('pagina vazia nao inventa intervalo', () => {
+  const pg = paginaServidor({ itens: [], pagina: 1, porPagina: 25, total: 0 })
+  assert.equal(pg.inicio, 0)
+  assert.equal(pg.fim, 0)
+  assert.equal(pg.temProxima, false)
+  assert.equal(resumoIntervalo(pg, { vazio: 'Nenhum lead nesta lista' }), 'Nenhum lead nesta lista')
+})
+
+test('entrada invalida cai em pagina 1 sem quebrar', () => {
+  const pg = paginaServidor({ itens: null, pagina: 'abc', porPagina: 0, total: 'lixo' })
+  assert.equal(pg.pagina, 1)
+  assert.equal(pg.itens.length, 0)
+  assert.equal(pg.total, 0)
 })

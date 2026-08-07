@@ -1,3 +1,5 @@
+import type { PaginaLista } from './paginacao'
+
 export interface FiltroStatusListagem {
   /** Valor enviado ao backend em `?status=`; string vazia = todos. */
   valor: string
@@ -24,19 +26,21 @@ export interface TaxaRespostaListagem {
   base: number
 }
 
-export interface ResumoRodapeListagem {
-  texto: string
-  /** Vazio quando a lista carregada já cobre todo o filtro. */
-  aviso: string
-}
-
 export const FILTROS_STATUS: readonly FiltroStatusListagem[]
 /** Contagem por filtro; `null` = desconhecida (não exibir número). */
 export function contagensDosFiltros(
   metricas: MetricasProspeccao | null | undefined
 ): Record<string, number | null>
 export function taxaResposta(metricas: MetricasProspeccao | null | undefined): TaxaRespostaListagem
-export function resumoRodape(
-  pg: { total: number; inicio: number; fim: number } | null | undefined,
-  totalNoFiltro: unknown
-): ResumoRodapeListagem
+export interface PaginaServidor<T> extends PaginaLista<T> {
+  /** `true` quando o total do filtro ainda não chegou e foi inferido do que já veio. */
+  totalEstimado: boolean
+}
+
+/** Descreve a página que o servidor já recortou (itens da página + total vindo de /metricas). */
+export function paginaServidor<T>(entrada: {
+  itens: T[]
+  pagina: unknown
+  porPagina: unknown
+  total: unknown
+}): PaginaServidor<T>

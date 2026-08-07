@@ -748,3 +748,47 @@ Ajustes sobre a entrega do mesmo dia (logo abaixo), após revisão de UX/operaç
 - **Como validar:** `npm run typecheck` e `npm run build` no `frontend/`; abrir a Aquisicao,
   conferir a ordem dos blocos, abrir "Configurar criterios", trocar as tres abas com e sem dados
   e confirmar que filtros/ordenacao/busca da tabela sobrevivem a troca de aba, em desktop e mobile.
+
+---
+
+## 2026-08-07 - Paginacao no servidor da listagem de leads da Aquisicao
+
+- **Decisao:** a listagem de "Leads encontrados" (`dashboard/prospeccao`, modo Busca) passa a ser
+  paginada NO SERVIDOR (`?limit=&offset=&ordenar=&direcao=`), com a ordenacao aplicada ao conjunto
+  completo antes do recorte. Os cards de resumo sairam: as contagens foram para dentro dos filtros
+  de status e a taxa de resposta, para o rodape.
+- **Motivo:** a tela pedia no maximo 100 leads e paginava so o que tinha vindo. Com 2223 leads na
+  carteira, 2123 eram inalcancaveis por qualquer caminho da tela. Um aviso ("refine a busca") foi
+  a primeira tentativa e o operador recusou, com razao: o limite nao era pedido dele.
+- **Escolha tecnica:** o total de cada pagina NAO e contado de novo — vem de `/metricas`, que
+  passou a aceitar os mesmos filtros da lista. Para garantir que os dois numeros nunca divirjam,
+  ha UM construtor de WHERE (`montarFiltrosProspects`, com `alias`/`comStatus`), usado pela lista
+  e pela contagem. A contagem de proposito NAO filtra por status: la o status escolhe qual coluna
+  do resultado olhar, nao o universo.
+- **Ordenacao em duas familias:** as colunas do banco (entrou, nome, telefone, email, endereco,
+  nicho, aval, nota, site, status) entram num mapa FECHADO chave→SQL e viram `ORDER BY` + `OFFSET`
+  normais — o valor vem da URL, entao nada do cliente e concatenado no SQL. `pontos` e `horario`
+  NAO estao nesse mapa: os dois saem de `calcularScoreCadastroPlaces`/`dadosPlaces`, calculados na
+  LEITURA a partir das colunas + `raw_json`. Traduzi-los para SQL duplicaria a regra de pontuacao,
+  e bastaria alguem acrescentar um criterio para a ordem da tela divergir do numero que ela mostra.
+  Eles usam `idsPorOrdemCalculada`, que le o conjunto filtrado, pontua com a MESMA funcao, ordena,
+  recorta e devolve so os ids; a hidratacao (`json_apresentacao`, diagnostico) roda apenas para os
+  25 da pagina — a resposta ficou MENOR do que era com 100 leads hidratados.
+- **DIVIDA TECNICA declarada:** `idsPorOrdemCalculada` rele o conjunto filtrado a cada pagina, e
+  `pontos` e a ordenacao PADRAO da tabela. E barato na ordem de grandeza atual (milhares) e cresce
+  linear. A saida, quando incomodar, e persistir a pontuacao numa coluna mantida na escrita
+  (precedente: `tem_site`, que ja e cache de uma funcao de leitura) — NAO traduzir a regra p/ SQL.
+- **Impacto:** `src/prospecting.js` (`listarProspects` reestruturado; `montarFiltrosProspects`,
+  `normalizarOrdemProspects`, `recortarIdsCalculados` novos e exportados; `normalizarOrigemFiltro`
+  mudou-se para `services/prospect-filters.js`), `src/routes/api-prospeccao.js` (`/prospects` e
+  `/metricas`), `frontend/app/dashboard/prospeccao/page.tsx`, `frontend/lib/paginacao.js` (extraida
+  de `fila-ligacoes-view.js`, que so reexporta) e `frontend/lib/prospeccao-listagem.js`. Sem
+  migration, sem env, sem prompt, sem escrita em lead.
+- **Riscos:** `listarProspects` e caminho de listagem em producao e tambem serve a rota interna de
+  dashboard (`prospecting.js`); sem `ordenar` na query ele mantem a ordem de negocio historica, e
+  esse caller nao muda. A ordem calculada depende de desempate estavel (`updated_at` DESC) para o
+  mesmo lead nao pular de pagina — coberto por teste.
+- **Como validar:** `npm test` (backend, inclui `test/prospects-paginacao.test.js`) e
+  `npm test` + `npm run typecheck` no `frontend/`; na tela, virar paginas ate o fim, trocar a
+  ordenacao por cada coluna (com atencao a Pontos e Horario) e conferir que o rodape e o numero do
+  filtro de status contam a mesma coisa.

@@ -4,6 +4,7 @@ const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const {
   listarProspects,
+  montarFiltrosProspects,
   pesquisarPlaces,
   listarBuscasRecentes,
   atualizarStatusProspect,
@@ -16,17 +17,17 @@ const {
   montarAgendaPainelProspeccao,
 } = require('../services/prospecting-settings')
 const { obterDashboardEstrategicoProspeccao } = require('../services/prospecting-performance-analytics')
-const {
-  listarOpcoesFiltrosMercado,
-  adicionarFiltroMercado,
-  termoBuscaProspect,
-  normalizarOrigemFiltro,
-} = require('../services/prospect-filters')
+const { listarOpcoesFiltrosMercado } = require('../services/prospect-filters')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
 
 // GET /api/empresas/:empresaId/prospeccao/prospects?status=&nicho=&cidade=&busca=
+//   &limit=&offset=&ordenar=&direcao=
+// A listagem é paginada NO SERVIDOR: `offset` anda pela carteira inteira e `ordenar`/`direcao`
+// ordenam o conjunto completo antes do recorte (ordenar só a página devolveria uma ordem falsa).
+// O total de cada status vem de `/metricas`, que aplica os mesmos filtros — não há contagem
+// duplicada aqui.
 router.get('/prospects', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const prospects = await listarProspects({
@@ -39,6 +40,9 @@ router.get('/prospects', requireAuth, requireEmpresaAccess, async (req, res) => 
       busca: req.query.busca,
       origem: req.query.origem,
       limit: req.query.limit,
+      offset: req.query.offset,
+      ordenar: req.query.ordenar,
+      direcao: req.query.direcao,
     })
     return res.json({ ok: true, data: prospects, meta: { total: prospects.length } })
   } catch (err) {
@@ -69,20 +73,12 @@ router.get('/filtros', requireAuth, requireEmpresaAccess, async (req, res) => {
 // aplicá-lo zeraria todos os outros status. Sem parâmetro, o resultado é o de sempre.
 router.get('/metricas', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const params = [req.empresa.id]
-    const where = ['empresa_id = $1']
-    adicionarFiltroMercado(where, params, req.query || {})
-    const busca = termoBuscaProspect(req.query || {})
-    if (busca) {
-      params.push(`%${busca}%`)
-      const i = params.length
-      where.push(`(nome ILIKE $${i} OR telefone ILIKE $${i} OR endereco ILIKE $${i} OR nicho ILIKE $${i} OR categoria_perfil ILIKE $${i} OR cidade ILIKE $${i})`)
-    }
-    const origem = normalizarOrigemFiltro(req.query.origem)
-    if (origem) {
-      params.push(origem)
-      where.push(`origem = $${params.length}`)
-    }
+    // Mesmo construtor de WHERE da listagem, sem alias e sem status: um lugar só decide o
+    // universo, então o número do filtro e a lista nunca divergem.
+    const { params, whereSql } = montarFiltrosProspects(
+      { ...req.query, empresaId: req.empresa.id },
+      { alias: '', comStatus: false }
+    )
     const { rows: [m] } = await pool.query(
       `SELECT
          COUNT(*)                                   AS total,
@@ -91,7 +87,7 @@ router.get('/metricas', requireAuth, requireEmpresaAccess, async (req, res) => {
          COUNT(*) FILTER (WHERE status='rejeitado')  AS rejeitados,
          COUNT(*) FILTER (WHERE status='enviado')    AS enviados,
          COUNT(*) FILTER (WHERE status='respondeu')  AS responderam
-       FROM prospectador.prospects WHERE ${where.join(' AND ')}`,
+       FROM prospectador.prospects ${whereSql}`,
       params
     )
     const enviados = Number(m.enviados || 0) + Number(m.responderam || 0)

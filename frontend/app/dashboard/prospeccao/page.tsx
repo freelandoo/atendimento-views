@@ -10,8 +10,10 @@ import RotinasAquisicao, { type ModoAquisicao, type RotinasResp } from '@/compon
 import HistoricoColetas from '@/components/HistoricoColetas'
 import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
 import { IconTrash, IconStar, IconUndo } from '@/components/ui/icons'
-import { paginar, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
-import { FILTROS_STATUS, contagensDosFiltros, taxaResposta, resumoRodape } from '@/lib/prospeccao-listagem'
+import { resumoIntervalo, POR_PAGINA_PADRAO } from '@/lib/paginacao'
+import {
+  FILTROS_STATUS, contagensDosFiltros, taxaResposta, paginaServidor, type PaginaServidor,
+} from '@/lib/prospeccao-listagem'
 
 type JsonApresProspect = JsonApresentacao & {
   empresa?: { horario_funcionamento?: boolean; fotos?: number }
@@ -138,31 +140,9 @@ function quando(iso: string | null): string {
   return Number.isNaN(d.valueOf()) ? '—' : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 }
 
-// Valor de cada coluna pra ordenação (clique no cabeçalho alterna asc/desc).
-function valorColuna(p: Prospect, chave: string): number | string {
-  switch (chave) {
-    case 'entrou': return p.created_at || ''
-    case 'nome': return (p.nome || '').toLowerCase()
-    case 'telefone': return p.telefone || ''
-    case 'email': return p.email || ''
-    case 'endereco': return (p.endereco || '').toLowerCase()
-    case 'nicho': return `${p.nicho || ''} ${p.cidade || ''}`.toLowerCase()
-    case 'aval': return p.avaliacoes ?? -1
-    case 'nota': return p.rating ?? -1
-    case 'horario': return p.json_apresentacao?.empresa?.horario_funcionamento ? 1 : 0
-    case 'site': return p.tem_site ? 1 : 0
-    case 'pontos': return p.score_cadastro ?? 0
-    case 'status': return p.status || ''
-    default: return 0
-  }
-}
-
-function compararProspects(a: Prospect, b: Prospect, ordem: { chave: string; dir: 'asc' | 'desc' }): number {
-  const va = valorColuna(a, ordem.chave)
-  const vb = valorColuna(b, ordem.chave)
-  const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb), 'pt-BR')
-  return ordem.dir === 'asc' ? cmp : -cmp
-}
+// A ordenação passou a ser do SERVIDOR (`?ordenar=&direcao=`): a tabela mostra 25 de milhares,
+// e ordenar só a página visível daria uma ordem falsa — "o menor cadastro" seria o menor
+// daqueles 25, não o da carteira. O clique no cabeçalho vira parâmetro da requisição.
 
 export default function ProspeccaoPage() {
   const [prospects, setProspects] = useState<Prospect[]>([])
@@ -190,6 +170,8 @@ export default function ProspeccaoPage() {
   // Página visível da tabela. Recorte de APRESENTAÇÃO sobre os leads já carregados: trocar de
   // página não refaz requisição, não reordena e não muda filtro nenhum.
   const [pagina, setPagina] = useState(1)
+  const [carregandoLista, setCarregandoLista] = useState(false)
+  const listaSeqRef = useRef(0)
   // Modo da tela (Busca / Rotinas). Começa no padrão e só depois é restaurado, no efeito:
   // ler storage/URL durante o render quebraria a hidratação.
   const [modo, setModo] = useState<ModoAquisicao>(MODO_PADRAO)
@@ -221,35 +203,67 @@ export default function ProspeccaoPage() {
     } catch { /* storage/URL indisponível: o modo continua valendo na tela */ }
   }
 
-  function ordenarPor(chave: string) {
-    setOrdem((o) => (o.chave === chave ? { chave, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { chave, dir: 'desc' }))
+  // Trocar filtro, busca ou ordenação recomeça a paginação: manter a página 3 de uma lista que
+  // virou outra mostraria um recorte que ninguém pediu. Feito aqui, no HANDLER, e não num efeito
+  // — resetar depois do render dispararia uma requisição a mais com a página velha, que ainda
+  // poderia chegar DEPOIS da correta e sobrescrever a tela.
+  function comReinicioDePagina(muda: () => void) {
+    muda()
+    setPagina(1)
   }
 
-  function carregar() {
-    if (!empresaId) return
-    const p = new URLSearchParams({ limit: '100' })
-    if (filtro) p.set('status', filtro)
+  function ordenarPor(chave: string) {
+    comReinicioDePagina(() =>
+      setOrdem((o) => (o.chave === chave ? { chave, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { chave, dir: 'desc' })))
+  }
+
+  // Filtros de recorte, compartilhados pela lista e pelas contagens.
+  function filtrosAtuais() {
+    const p = new URLSearchParams()
     if (buscaDados.trim()) p.set('busca', buscaDados.trim())
     if (mercado) p.set('mercado', mercado)
     if (cidadeFiltro) p.set('cidade', cidadeFiltro)
+    return p
+  }
+
+  // A LISTA é uma página do servidor: muda com filtro, ordenação e página.
+  function carregarLista() {
+    if (!empresaId) return
+    const p = filtrosAtuais()
+    if (filtro) p.set('status', filtro)
+    p.set('limit', String(POR_PAGINA_PADRAO))
+    p.set('offset', String((pagina - 1) * POR_PAGINA_PADRAO))
+    p.set('ordenar', ordem.chave)
+    p.set('direcao', ordem.dir)
+    // Só a requisição MAIS RECENTE pode escrever na tela: clicar rápido em "Próxima" duas vezes
+    // pode fazer a resposta da página 2 chegar depois da 3 e reverter a navegação.
+    const seq = ++listaSeqRef.current
+    setCarregandoLista(true)
     apiFetch<Prospect[]>(`/api/empresas/${empresaId}/prospeccao/prospects?${p.toString()}`)
-      .then((r) => setProspects(r.data || [])).catch((e) => setErro(e.message))
-    // Contagens dos filtros de status: mesmo recorte da listagem, MENOS o status — ele escolhe
-    // qual contagem olhar, não o universo. Por isso `p` é reaproveitado sem o `status`.
-    const pm = new URLSearchParams(p)
-    pm.delete('status')
-    pm.delete('limit')
-    apiFetch<Metricas>(`/api/empresas/${empresaId}/prospeccao/metricas?${pm.toString()}`)
+      .then((r) => { if (seq === listaSeqRef.current) setProspects(r.data || []) })
+      .catch((e) => { if (seq === listaSeqRef.current) setErro(e.message) })
+      .finally(() => { if (seq === listaSeqRef.current) setCarregandoLista(false) })
+  }
+
+  // O RESUMO (contagens, desempenho) não depende da página nem da ordenação — só do recorte.
+  // Separado da lista de propósito: virar página não pode disparar quatro requisições.
+  function carregarResumo() {
+    if (!empresaId) return
+    // Contagens dos filtros de status: mesmo recorte da lista, MENOS o status — ele escolhe
+    // qual contagem olhar, não o universo.
+    apiFetch<Metricas>(`/api/empresas/${empresaId}/prospeccao/metricas?${filtrosAtuais().toString()}`)
       .then((r) => setMetricas(r.data)).catch(() => {})
     apiFetch<ResultadosResp>(`/api/empresas/${empresaId}/prospeccao/resultados`)
       .then((r) => setResultados(r.data)).catch(() => {})
     apiFetch<Analytics>(`/api/empresas/${empresaId}/prospeccao/analytics`)
       .then((r) => setAnalytics(r.data)).catch(() => {})
   }
-  useEffect(() => { carregar() }, [empresaId, filtro, buscaDados, mercado, cidadeFiltro])
-  // Mudou o recorte (filtro, busca ou ordenação)? A lista é outra: voltar para a 1ª página é o
-  // único ponto de partida que o operador consegue prever.
-  useEffect(() => { setPagina(1) }, [filtro, buscaDados, mercado, cidadeFiltro, ordem.chave, ordem.dir])
+
+  // Recarrega tudo: usado quando um lead muda de status ou uma coleta termina.
+  function carregar() { carregarLista(); carregarResumo() }
+
+  useEffect(() => { carregarLista() }, [empresaId, filtro, buscaDados, mercado, cidadeFiltro, pagina, ordem.chave, ordem.dir])
+  useEffect(() => { carregarResumo() }, [empresaId, buscaDados, mercado, cidadeFiltro])
   useEffect(() => {
     if (!empresaId) return
     const p = new URLSearchParams()
@@ -307,11 +321,10 @@ export default function ProspeccaoPage() {
     fb.toast(email ? 'E-mail salvo.' : 'E-mail removido.')
   }
 
-  const ordenados = [...prospects].sort((a, b) => compararProspects(a, b, ordem))
-  // Ordena o conjunto COMPLETO carregado e só então recorta a página visível.
-  const pg = paginar(ordenados, pagina, POR_PAGINA_PADRAO)
+  // A página já vem recortada e ordenada do servidor; o total do filtro vem das métricas.
   const contagens = contagensDosFiltros(metricas)
-  const rodape = resumoRodape(pg, contagens[filtro])
+  const pg = paginaServidor<Prospect>({ itens: prospects, pagina, porPagina: POR_PAGINA_PADRAO, total: contagens[filtro] })
+  const rodape = resumoIntervalo(pg, { vazio: 'Nenhum lead nesta lista' })
   const taxa = taxaResposta(metricas)
 
   const mercadoOpcoes = opcoesMercado(filtrosMercado)
@@ -383,7 +396,7 @@ export default function ProspeccaoPage() {
             <button
               key={f.valor || 'todos'}
               type="button"
-              onClick={() => setFiltro(f.valor)}
+              onClick={() => comReinicioDePagina(() => setFiltro(f.valor))}
               aria-pressed={ativo}
               className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${ativo ? 'border-brand bg-brand text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
             >
@@ -406,12 +419,12 @@ export default function ProspeccaoPage() {
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs text-slate-500 mb-1">Buscar dados</label>
-            <input value={buscaDados} onChange={(e) => setBuscaDados(e.target.value)}
+            <input value={buscaDados} onChange={(e) => comReinicioDePagina(() => setBuscaDados(e.target.value))}
               placeholder="nome, telefone, endereço ou mercado" className="w-full border rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
             <label className="block text-xs text-slate-500 mb-1">Nicho/Categoria</label>
-            <select value={mercado} onChange={(e) => setMercado(e.target.value)}
+            <select value={mercado} onChange={(e) => comReinicioDePagina(() => setMercado(e.target.value))}
               className="border rounded-lg px-3 py-2 text-sm min-w-[180px]">
               <option value="">Todos os nichos</option>
               {mercadoOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
@@ -419,14 +432,14 @@ export default function ProspeccaoPage() {
           </div>
           <div>
             <label className="block text-xs text-slate-500 mb-1">Cidade</label>
-            <select value={cidadeFiltro} onChange={(e) => setCidadeFiltro(e.target.value)}
+            <select value={cidadeFiltro} onChange={(e) => comReinicioDePagina(() => setCidadeFiltro(e.target.value))}
               className="border rounded-lg px-3 py-2 text-sm min-w-[150px]">
               <option value="">Todas</option>
               {cidadeOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
             </select>
           </div>
           {(mercado || cidadeFiltro || buscaDados.trim()) && (
-            <button onClick={() => { setMercado(''); setCidadeFiltro(''); setBuscaDados('') }}
+            <button onClick={() => comReinicioDePagina(() => { setMercado(''); setCidadeFiltro(''); setBuscaDados('') })}
               className="border rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
               Limpar filtros
             </button>
@@ -449,7 +462,7 @@ export default function ProspeccaoPage() {
 
       {/* O card envolve tabela + rodapé: o rodapé fica FORA do viewport rolável, para não
           sumir na rolagem horizontal nem na vertical da tabela. */}
-      <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      <div className="overflow-hidden rounded-xl border bg-white shadow-sm" aria-busy={carregandoLista}>
       <DataTableFrame ariaLabel="Rolagem horizontal da tabela de prospecção">
       <table className="w-full min-w-max text-sm">
         <thead className="bg-gray-100">
@@ -550,19 +563,13 @@ export default function ProspeccaoPage() {
             </tr>
             )
           })}
-          {pg.total === 0 && (
+          {pg.itens.length === 0 && (
             <tr><td colSpan={14} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Configure a busca acima e clique em Buscar agora.</td></tr>
           )}
         </tbody>
       </table>
       </DataTableFrame>
-      <RodapeListagem
-        pg={pg}
-        texto={rodape.texto}
-        aviso={rodape.aviso}
-        taxa={taxa}
-        onPagina={setPagina}
-      />
+      <RodapeListagem pg={pg} texto={rodape} taxa={taxa} onPagina={setPagina} />
       </div>
       </section>
 
@@ -682,10 +689,9 @@ export default function ProspeccaoPage() {
 // Toda a aritmética (intervalo, total, taxa) vem de lib/paginacao + lib/prospeccao-listagem —
 // aqui é só apresentação. Desktop: resumo à esquerda, navegação à direita; mobile: empilhado
 // com alvos de toque de 36px, mesmo padrão do rodapé da fila da Central de Ligações.
-function RodapeListagem({ pg, texto, aviso, taxa, onPagina }: {
-  pg: PaginaLista<Prospect>
+function RodapeListagem({ pg, texto, taxa, onPagina }: {
+  pg: PaginaServidor<Prospect>
   texto: string
-  aviso: string
   taxa: { texto: string; responderam: number; base: number }
   onPagina: (p: number) => void
 }) {
@@ -702,9 +708,8 @@ function RodapeListagem({ pg, texto, aviso, taxa, onPagina }: {
             <span className="text-slate-400"> (nenhuma mensagem enviada ainda)</span>
           )}
         </p>
-        {aviso && <p className="mt-0.5 text-[11px] text-amber-600">{aviso}</p>}
       </div>
-      {pg.totalPaginas > 1 && (
+      {(pg.temAnterior || pg.temProxima) && (
         <div className="flex items-center gap-1 self-end sm:self-auto">
           <button
             type="button"
@@ -716,7 +721,9 @@ function RodapeListagem({ pg, texto, aviso, taxa, onPagina }: {
             ◀ <span className="hidden sm:inline">Anterior</span>
           </button>
           <span className="px-1 text-xs text-slate-500">
-            Página <b className="tabular-nums text-slate-700">{pg.pagina}</b> de <span className="tabular-nums">{pg.totalPaginas}</span>
+            Página <b className="tabular-nums text-slate-700">{pg.pagina}</b>
+            {/* Sem o total do filtro (métricas em voo) não dá para afirmar quantas páginas há. */}
+            {!pg.totalEstimado && <> de <span className="tabular-nums">{pg.totalPaginas}</span></>}
           </span>
           <button
             type="button"
