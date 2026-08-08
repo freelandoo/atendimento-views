@@ -1507,3 +1507,31 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Fora de escopo declarado:** ativar a Meta, configurar token/Dataset, qualquer chamada a Graph API, deploy manual e alteracao de configuracao de producao.
 - **Risco de producao declarado:** AGENTS.md registra medicao de 2026-08-08 em que 3 de 6 conversas marcadas como PJ vieram de instancia NAO MAPEADA e 2 sem instancia. Com a quarentena ligada, essas conversas deixam de ser respondidas ate a instancia ser mapeada.
 - **Proxima etapa:** Confirmar com o usuario a profundidade da quarentena (guarda payload para replay ou so a pendencia) e a estrategia de corte em producao; so entao implementar.
+
+---
+
+## 2026-08-08 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** ORIGEM AUTORIZADA de instancia. Unica origem valida de um vinculo empresa-instancia e' o fluxo de criacao DENTRO do Atendimento Views. Instancia criada direto no Evolution (API externa, painel da infra) nao pertence a empresa alguma e NAO pode ser regularizada por tela administrativa: remover a adocao na criacao, remover o reprocessamento da quarentena, transformar a tela de pendencias em alerta tecnico/auditoria somente leitura e gravar evidencia persistente de origem autorizada junto do vinculo.
+- **E projeto/tarefa de alteracao?** Sim, e ESTRUTURAL: muda o contrato da criacao de instancia (rota publica do dashboard), remove endpoint existente (`POST /api/webhook-quarentena/:id/reprocessar`), exige migration em `app.empresa_whatsapp_instances` e altera tela. Exige confirmacao previa (CLAUDE.md) — pontos que podem parar atendimento em producao levados ao usuario ANTES de implementar.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
+- **Areas mapeadas na Fase 0:** `src/routes/api-whatsapp.js:769-817` (o `alreadyExists` engolido e' HOJE o caminho de adocao de instancia externa), `src/routes/api-webhook-quarentena.js` (rota de reprocessamento a remover), `src/db/webhook-quarentena.js` (`resolverPendencia`/`buscarPendencia`), `sql/migrations/060_webhook_quarentena.sql` (colunas `resolvida_*` e CHECK), `src/services/webhook-quarentena.js` (vocabulario e acoes por motivo), `src/middleware/tenant.js` + `src/db/empresas.js` (`findEmpresaEInstanciaPorEvolution`), `src/routes/api-freelandoo.js:106` e `src/routes/freelandoo-provision.js:207` (os outros dois INSERT de vinculo, tambem autorizados), `frontend/components/PendenciasInstancia.tsx` + `frontend/lib/pendencias-instancia.js`, testes `test/webhook-quarentena*.test.js` e `frontend/lib/pendencias-instancia.test.js`.
+- **Achado colateral (fora do escopo pedido, so registrado):** `src/db/whatsapp-instances.js:33` `resolverEmpresaPorInstance` ainda devolve a PJ como fallback; nao tem NENHUM chamador de producao (so `test/multitenant.test.js`).
+- **Fora de escopo declarado:** credenciais, integracoes externas e configuracao da Meta; fluxos de dashboard e atendimento manual que nao dependem do webhook; qualquer heuristica de associacao por nome/numero/e-mail.
+- **Risco de producao a confirmar:** instancias JA vinculadas nao tem evidencia de origem. Exigir a evidencia no webhook sem carencia pararia o atendimento de todas elas.
+- **Proxima etapa:** Confirmar com o usuario (1) o tratamento das instancias legadas e (2) se a pendencia passa a ser permanente ou admite arquivamento; so entao implementar.
+
+---
+
+## 2026-08-08 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** Fechar a entrega de ORIGEM AUTORIZADA removendo o ultimo fallback legado para a PJ: `resolverEmpresaPorInstance` em `src/db/whatsapp-instances.js`. A funcao passa a devolver AUSENCIA de empresa quando nao existe vinculo valido, jamais a PJ. Depois: proteger contra regressao, validar (testes + typecheck backend e frontend) e publicar TODA a entrega (origem autorizada + quarentena somente leitura + remocao do fallback) em UM commit, com push.
+- **E projeto/tarefa de alteracao?** Sim, mas de escopo PEQUENO e contido: a funcao alterada nao tem NENHUM chamador de producao (auditoria confirmada nesta fase). Sem schema novo, sem migration nova, sem rota, sem chamada externa, sem escrita no banco.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
+- **Auditoria do fallback (Fase 1 do pedido):** `resolverEmpresaPorInstance` e' importada em UM unico lugar no repositorio inteiro — `test/multitenant.test.js:10`. Os demais consumidores de `src/db/whatsapp-instances.js` importam so `instanciaUsaAgenda` (`src/services/contexto2-runtime.js`), `removerContextoSeOrfao` (`src/routes/api-freelandoo.js`) e os invalidadores de cache (`src/routes/api-whatsapp.js`). O resolvedor de producao e' `findEmpresaEInstanciaPorEvolution` (`src/db/empresas.js`), chamado por `src/middleware/tenant.js`. **Nenhuma dependencia de producao: a remocao do fallback esta liberada** (stop condition do pedido NAO acionada).
+- **Areas impactadas:** `src/db/whatsapp-instances.js` (fallback removido) e `test/multitenant.test.js` (os 3 testes que exigiam a PJ viram testes que exigem ausencia de empresa).
+- **Fora de escopo declarado:** credenciais, variaveis de ambiente, Meta e integracoes externas; os demais `PJ_EMPRESA_ID` do repo (dashboard legado single-tenant e defaults de ESCRITA em `db-crud.js`/`lead-profile-empresa.js`), que nao resolvem tenant por instancia; qualquer operacao em dados de producao.
+- **Fora do commit (WIP alheio):** `backend/scripts/seed-campanha-nail-designer.js`.
+- **Proxima etapa:** Aplicar o diff minimo, rodar `npm test` no backend, `npm test` + `npm run typecheck` no frontend e `npm run typecheck` no backend, revisar o diff completo e so entao commit + push na `master`.

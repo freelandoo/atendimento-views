@@ -24,6 +24,7 @@ const { logger } = require('../logger')
 const { criarCliente, BASE_URL_PADRAO } = require('../freelandoo/client')
 const { gerarPlaybook } = require('../services/playbook-freelandoo')
 const { ativarContexto2 } = require('../services/contexto-empresa')
+const { evidenciaDeOrigemAutorizada } = require('../services/instancia-origem')
 const {
   salvarConexao, atualizarWebhook, buscarConexaoPorExternalId,
   atualizarProvisionamento, marcarPlaybookGerado, listarProvisionadasAtivas,
@@ -203,10 +204,20 @@ router.post('/provision', requireProvisionSecret, async (req, res) => {
            VALUES ($1, $2, '', '{}'::jsonb) RETURNING id`,
           [empresaId, `Atendimento IA — ${label}`]
         )
+        // Origem autorizada: o vínculo nasce deste provisionamento, com nome técnico
+        // gerado aqui, na empresa dedicada criada logo acima. Sem usuário humano na
+        // requisição (chamada máquina-a-máquina), daí o `origem_vinculo_usuario_id` nulo.
+        const evidencia = evidenciaDeOrigemAutorizada(null)
         const { rows: [row] } = await client.query(
-          `INSERT INTO app.empresa_whatsapp_instances (empresa_id, evolution_instance, nome, config_json, contexto_id)
-           VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-          [empresaId, evolutionInstance, `Atendimento IA — ${label}`, JSON.stringify({ canal: 'freelandoo', origem: 'atendimento_ia' }), ctx.id]
+          `INSERT INTO app.empresa_whatsapp_instances
+             (empresa_id, evolution_instance, nome, config_json, contexto_id,
+              origem_vinculo, origem_vinculo_em, origem_vinculo_usuario_id)
+           VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7) RETURNING id`,
+          [
+            empresaId, evolutionInstance, `Atendimento IA — ${label}`,
+            JSON.stringify({ canal: 'freelandoo', origem: 'atendimento_ia' }), ctx.id,
+            evidencia.origem_vinculo, evidencia.origem_vinculo_usuario_id,
+          ]
         )
         inst = row
         await salvarConexao(client, {

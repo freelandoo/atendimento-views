@@ -35,21 +35,26 @@ test('formatarContexto2ParaPrompt — inclui arrays como bullet list', () => {
 })
 
 // ─── resolverEmpresaPorInstance ───────────────────────────────────────────────
+// Não existe empresa padrão. Os três casos abaixo devolviam a PJ Codeworks; era esse
+// fallback que fazia o dado de um negócio qualquer nascer dentro do tenant da PJ.
+// Ausência de vínculo é `null`, e quem chama tem de tratar a ausência.
 
-test('resolverEmpresaPorInstance — retorna fallback para instance vazia', async () => {
+test('resolverEmpresaPorInstance — sem instance NÃO resolve empresa', async () => {
   const mockPool = {
     query: async () => { throw new Error('DB não deve ser chamado') },
   }
-  const id = await resolverEmpresaPorInstance(mockPool, '')
-  assert.equal(id, PJ_UUID, 'deve retornar PJ Codeworks UUID para instance vazia')
+  assert.equal(await resolverEmpresaPorInstance(mockPool, ''), null)
+  assert.equal(await resolverEmpresaPorInstance(mockPool, null), null)
+  assert.equal(await resolverEmpresaPorInstance(mockPool, undefined), null)
 })
 
-test('resolverEmpresaPorInstance — retorna fallback quando instance não encontrada', async () => {
+test('resolverEmpresaPorInstance — instance não mapeada NÃO recebe empresa padrão', async () => {
   const mockPool = {
     query: async () => ({ rows: [] }),
   }
   const id = await resolverEmpresaPorInstance(mockPool, 'InstanceInexistente_xpto123')
-  assert.equal(id, PJ_UUID, 'deve usar fallback quando instance não está no banco')
+  assert.equal(id, null, 'instância sem vínculo não pode receber empresa alguma')
+  assert.notEqual(id, PJ_UUID, 'a PJ Codeworks voltou a ser fallback de instância desconhecida')
 })
 
 test('resolverEmpresaPorInstance — retorna empresa_id quando instance existe', async () => {
@@ -61,12 +66,29 @@ test('resolverEmpresaPorInstance — retorna empresa_id quando instance existe',
   assert.equal(id, FAKE_ID, 'deve retornar empresa_id do banco')
 })
 
-test('resolverEmpresaPorInstance — retorna fallback se DB lança erro', async () => {
+test('resolverEmpresaPorInstance — falha de DB NÃO resolve empresa', async () => {
+  let chamadas = 0
   const mockPool = {
-    query: async () => { throw new Error('connection refused') },
+    query: async () => { chamadas += 1; throw new Error('connection refused') },
   }
-  const id = await resolverEmpresaPorInstance(mockPool, 'AnyInstance')
-  assert.equal(id, PJ_UUID, 'deve usar fallback silencioso em falha de DB')
+  assert.equal(await resolverEmpresaPorInstance(mockPool, 'InstanciaComErro_xpto'), null)
+  // Falha técnica não é cacheada como veredito: a próxima tentativa consulta o banco de novo.
+  assert.equal(await resolverEmpresaPorInstance(mockPool, 'InstanciaComErro_xpto'), null)
+  assert.equal(chamadas, 2, 'erro transitório não pode virar ausência cacheada por 2 minutos')
+})
+
+test('resolverEmpresaPorInstance — a PJ Codeworks não está mais no fonte do resolvedor', () => {
+  // Guarda de regressão: o fallback era um UUID literal no módulo. Se ele voltar, volta com
+  // ele o dado sujo que a quarentena de webhook existe para impedir.
+  const fonte = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'db', 'whatsapp-instances.js'),
+    'utf8'
+  )
+  const semComentarios = fonte.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  assert.ok(
+    !semComentarios.includes(PJ_UUID),
+    'o UUID da PJ Codeworks voltou ao resolvedor de empresa por instância'
+  )
 })
 
 // ─── Isolamento cross-tenant: verificação de lógica sem DB ──────────────────

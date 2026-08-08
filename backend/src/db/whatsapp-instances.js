@@ -1,7 +1,5 @@
 'use strict'
 
-const PJ_CODEWORKS_ID = '00000000-0000-0000-0000-000000000001'
-
 // Cache simples: instanceName → { empresaId, at }
 const _cache = new Map()
 const CACHE_TTL_MS = 120_000
@@ -27,11 +25,21 @@ function invalidarCacheEmpresaInstancia(instanceName) {
 
 /**
  * Resolve empresa_id a partir do nome da Evolution instance.
- * Fallback: PJ Codeworks (UUID fixo) se não encontrar no banco.
- * @returns {Promise<string>} empresa_id UUID
+ *
+ * NÃO EXISTE EMPRESA PADRÃO. Instância sem vínculo ativo — nome ausente, instância não
+ * mapeada ou falha ao consultar — devolve `null`, nunca a PJ Codeworks. O fallback anterior
+ * marcava o dado de um negócio qualquer como sendo da PJ; medido em produção em 2026-08-08,
+ * das 6 conversas atribuídas à PJ apenas 1 era PJ de verdade. Quem chamar isto tem de tratar
+ * a ausência (é o que a quarentena de webhook faz), não escolher uma empresa por ela.
+ *
+ * O resolvedor do webhook é `findEmpresaEInstanciaPorEvolution` (`src/db/empresas.js`), que
+ * além da empresa devolve a instância e a procedência. Esta função é o atalho que responde
+ * só "de quem é esta instância?".
+ *
+ * @returns {Promise<string|null>} empresa_id UUID, ou null quando não há vínculo comprovado
  */
 async function resolverEmpresaPorInstance(pool, instanceName, log) {
-  if (!instanceName) return PJ_CODEWORKS_ID
+  if (!instanceName) return null
   const cached = _cacheGet(instanceName)
   if (cached !== undefined) return cached
 
@@ -42,15 +50,17 @@ async function resolverEmpresaPorInstance(pool, instanceName, log) {
        LIMIT 1`,
       [instanceName]
     )
-    const empresaId = rows.length ? rows[0].empresa_id : PJ_CODEWORKS_ID
+    const empresaId = rows.length ? rows[0].empresa_id : null
     if (!rows.length && log) {
-      log.warn({ evolution_instance: instanceName }, 'Evolution instance sem empresa registrada — usando empresa padrão do sistema')
+      log.warn({ evolution_instance: instanceName }, 'Evolution instance sem empresa registrada — sem empresa resolvida')
     }
     _cacheSet(instanceName, empresaId)
     return empresaId
   } catch (err) {
-    if (log) log.warn({ err: err.message, evolution_instance: instanceName }, 'Falha ao resolver empresa por instance — usando fallback')
-    return PJ_CODEWORKS_ID
+    // Falha TÉCNICA não vira veredito de negócio: não é cacheada, para que a próxima
+    // tentativa volte a consultar o banco.
+    if (log) log.warn({ err: err.message, evolution_instance: instanceName }, 'Falha ao resolver empresa por instance — sem empresa resolvida')
+    return null
   }
 }
 

@@ -1089,3 +1089,87 @@ Ajustes sobre a entrega do mesmo dia (logo abaixo), após revisão de UX/operaç
   `webhook-quarentena-handler.test.js`) e `npm test` + `npm run typecheck` no `frontend/`; na
   tela, Configuracoes > Instancias mostra a secao so quando ha pendencia, e "Reprocessar"
   recusa enquanto a instancia nao estiver cadastrada.
+
+---
+
+## 2026-08-08 - Origem AUTORIZADA da instancia: fim da adocao e do reprocessamento
+
+- **Decisao:** um vinculo empresa<->instancia so nasce do fluxo de criacao DENTRO do
+  Atendimento Views. Instancia criada direto no Evolution nao pertence a empresa alguma e nao
+  pode ser regularizada por tela administrativa. A evidencia de origem passa a ser PERSISTIDA
+  junto do vinculo, na mesma transacao que o cria.
+- **O defeito real nao estava na quarentena, estava na CRIACAO.** `POST /api/empresas/:id/whatsapp`
+  engolia o 403/409 "already in use" do Evolution (variavel `alreadyExists`) e gravava o vinculo
+  assim mesmo. Bastava digitar o nome de uma instancia criada por fora para o produto adota-la.
+  Agora esse caso RECUSA com `409 INSTANCIA_JA_EXISTE_NO_EVOLUTION`. A quarentena (060) ja
+  bloqueava corretamente o webhook; o que sobrava dela era o caminho de regularizacao.
+- **Reprocessamento REMOVIDO** (`POST /api/webhook-quarentena/:id/reprocessar`,
+  `resolverPendencia`, `buscarPendencia`, botao da tela): fechava a pendencia assim que alguem
+  cadastrasse a instancia a mao. Vinculo criado depois nao prova como a instancia nasceu — era
+  a adocao com aparencia de decisao humana informada. Consequencia assumida: **pendencia aberta
+  e PERMANENTE**. Como a tabela guarda uma linha por instancia+motivo (nao uma por mensagem),
+  ela nao cresce com o trafego. As colunas `resolvida_*` continuam LIDAS (historico do fluxo
+  antigo); nada mais as escreve.
+- **NOT NULL e SEM DEFAULT** em `origem_vinculo` (migration 061): um DEFAULT autorizaria
+  silenciosamente qualquer INSERT futuro que esquecesse a coluna. Sem ele, o INSERT falha alto,
+  na hora de escrever, e nao meses depois numa auditoria. `evidenciaDeOrigemAutorizada` NAO
+  recebe a origem como parametro pelo mesmo motivo — so existe um valor que codigo novo tem o
+  direito de escrever.
+- **Carencia para o legado (decidida com o operador):** a migration marca as linhas existentes
+  como `legado` (MUTACAO DE DADO declarada no cabecalho) e elas continuam atendendo. Exigir
+  prova delas pararia todos os numeros ja conectados ate cada um ser recriado (nome tecnico
+  novo, QR novo, reconexao). `legado` NAO e uma terceira origem autorizada: e a ausencia de
+  prova, nomeada — e a tela de instancias marca "vinculo legado - origem nao comprovada".
+- **Compensacao no Evolution:** se a transacao do vinculo falhar depois da criacao no Evolution,
+  a rota apaga a instancia la. Sem isso ela ficaria orfa e, como o produto nao adota instancia
+  externa, o operador ficaria impedido para sempre de reusar aquele nome. Excecao: `23505`
+  (nome ja usado por outro vinculo no banco) NAO apaga, para nao derrubar numero em operacao.
+- **A acao do motivo `instancia_desconhecida` mudou** de `mapear_instancia` para
+  `auditar_origem_instancia`. O texto era o ultimo lugar por onde a regra vazava: mandar
+  "cadastre e reprocesse" recria na cabeca do operador a adocao que o produto removeu.
+- **Guardas de regressao lendo o FONTE** (`test/instancia-origem.test.js`): o defeito original
+  nao era uma regra errada, era um `catch` que engolia o erro — teste de unidade nao pegaria
+  isso de volta. As guardas verificam que `alreadyExists` nao voltou, que os TRES INSERTs de
+  vinculo gravam a origem (um quarto ponto quebra o teste de proposito), que a rota nao tem
+  verbo de escrita e que a tela nao chama escrita nenhuma.
+- **O ULTIMO fallback para a PJ tambem saiu, no mesmo commit.**
+  `resolverEmpresaPorInstance` (`src/db/whatsapp-instances.js`) devolvia o UUID da PJ nos tres
+  casos em que nao provava a origem (nome ausente, instancia nao mapeada, erro de consulta) —
+  o mesmo defeito que a quarentena fechou no webhook, sobrevivendo num segundo resolvedor.
+  Auditoria antes de remover: **nenhum chamador de producao** (o unico import no repositorio
+  inteiro era `test/multitenant.test.js`; o resolvedor do webhook e
+  `findEmpresaEInstanciaPorEvolution`, em `src/db/empresas.js`). Removido de todo modo — um
+  fallback sem chamador e so um fallback esperando um chamador, e este ja tinha a forma exata
+  do bug que acabou de custar uma migration para corrigir. Agora devolve `null`; falha TECNICA
+  nao e cacheada, para a proxima tentativa reconsultar o banco (ausencia por erro transitorio
+  nao pode virar veredito por 2 minutos). Os tres testes que exigiam a PJ passaram a exigir a
+  ausencia, e uma guarda le o fonte do modulo para falhar se o UUID voltar.
+- **Nao mexemos nos outros `PJ_EMPRESA_ID` do repo**, de proposito: eles nao resolvem tenant
+  por instancia — sao o escopo do dashboard legado single-tenant e defaults de ESCRITA
+  (`db-crud.js`, `db/lead-profile-empresa.js`, ja tratados na Fase A). Junta-los aqui
+  misturaria dois problemas num diff.
+- **Impacto:** `sql/migrations/061_instancia_origem_autorizada.sql` (nova),
+  `src/services/instancia-origem.js` (novo), `src/db/whatsapp-instances.js`,
+  `test/multitenant.test.js`, `src/routes/api-whatsapp.js`,
+  `src/routes/api-freelandoo.js`, `src/routes/freelandoo-provision.js`,
+  `src/routes/api-webhook-quarentena.js`, `src/db/webhook-quarentena.js`,
+  `src/services/webhook-quarentena.js`, `package.json` (o teste novo precisava entrar na lista
+  explicita do script `test`, senao nunca rodaria — mesma armadilha da tarefa anterior),
+  `frontend/components/PendenciasInstancia.tsx`, `frontend/components/InstanciasWhatsApp.tsx`,
+  `frontend/lib/pendencias-instancia.js` (+ `.d.ts`/`.test.js`). Sem env nova, sem prompt, sem
+  Meta, sem credencial.
+- **Riscos:** (1) numero cujo vinculo nao veio do produto nao e atendido e NAO ha como liberar
+  por tela — e o comportamento pedido, o custo e operacional; (2) o legado segue atendendo, e
+  se algum foi adotado de fora pelo defeito antigo, so sai sendo removido a mao; (3) nome
+  tecnico ja existente no Evolution passa a recusar a criacao — operador que reusava nomes vai
+  bater nisso e precisa escolher outro; (4) a migration 061 aplica sozinha no proximo boot e
+  muta dado (backfill `legado`).
+- **Como validar:** `npm test` no `backend/` (1388) + `npm run typecheck`, e `npm test` (151) +
+  `npm run typecheck` no `frontend/`; na tela, criar instancia com nome ja existente no
+  Evolution deve devolver a recusa, e Configuracoes > Instancias mostra "Instancias
+  bloqueadas" sem nenhum botao.
+- **Limpeza colateral no mesmo commit:** `test/webhook-quarentena.test.js` tinha um byte NUL
+  CRU numa string de teste (o caso "controle vira espaco"), o que fazia o git tratar o arquivo
+  como BINARIO — diff e revisao cegos num arquivo de teste de isolamento. Trocado pelo escape
+  `\u0000`, mesmo comportamento. O `Bin` ainda aparece neste commit porque o lado do HEAD e
+  binario; a partir do proximo, o diff volta a ser texto.

@@ -92,12 +92,21 @@
   em `webhook-handler.js`) **para o fluxo inteiro** logo após o 2xx: nada de conversa, lead,
   reunião, atribuição CTWA, follow-up, resposta automática, evento de saúde de instância ou
   evento Meta. Vale para **todo evento**, não só `messages.upsert`.
+- **Nenhum resolvedor de empresa por instância tem fallback**, nem os que o webhook não usa.
+  `resolverEmpresaPorInstance` (`src/db/whatsapp-instances.js`) devolvia a PJ nos três casos
+  (nome ausente, instância não mapeada, erro de consulta) e hoje devolve **`null`**; falha
+  técnica **não** é cacheada, para a próxima tentativa reconsultar o banco. Ela não tinha
+  chamador de produção quando o fallback foi removido — o resolvedor do webhook é
+  `findEmpresaEInstanciaPorEvolution` (`src/db/empresas.js`) —, mas um fallback sem chamador
+  é só um fallback esperando um chamador. Guarda de regressão em `test/multitenant.test.js`
+  falha se o UUID da PJ voltar ao fonte do módulo.
 - **A quarentena NÃO guarda payload** (nem cifrado), nem telefone, texto, pushName,
   `ctwa_clid` ou id de mensagem em claro. Guardar a conversa de um negócio sem dono conhecido
   seria criar o mesmo dado sujo, só que em repouso e sem ninguém para responder por ele.
-  **Consequência declarada e aceita: a mensagem em quarentena NÃO é reencenada.** Mapeada a
-  instância, o lead volta a ser atendido na PRÓXIMA mensagem — recupera-se o vínculo, não o
-  histórico.
+  **Consequência declarada e aceita: a mensagem em quarentena NÃO é reencenada** — e, desde a
+  regra de origem autorizada, também não há como "religar" a instância bloqueada: o número só
+  volta a ser atendido por uma instância CRIADA pelo Atendimento Views, que nasce com outro
+  nome técnico. Recupera-se o atendimento, nunca o histórico.
 - **Schema:** migration `060_webhook_quarentena.sql` → `app.webhook_quarentena`. Uma linha por
   **instância + motivo** (índice único PARCIAL, só entre as abertas), não uma por mensagem: um
   número mal configurado produz milhares de webhooks e a tela precisa dizer "esta instância
@@ -105,31 +114,73 @@
   com NULL em índice único. `ocorrencias` só cresce quando `ultima_mensagem_hash` (SHA-256 do
   id da mensagem) muda — **reentrega do mesmo webhook não infla o contador**.
 - **Os três motivos são distintos de propósito:** `sem_instancia` (corrigir o webhook na
-  Evolution) · `instancia_desconhecida` (a única que se resolve cadastrando) · `erro_resolucao`
-  (falha TÉCNICA transitória). Numa consulta que falhou o vínculo chega nulo pelo mesmo motivo
-  que chegaria se a instância não existisse; tratar as duas igual mandaria o operador cadastrar
-  uma instância que já está lá. O erro é checado **antes** do vínculo.
-- **Resolução sem inventar dono:** `POST /api/webhook-quarentena/:id/reprocessar` **reconsulta**
-  `findEmpresaEInstanciaPorEvolution` pelo mesmo caminho do webhook e só fecha se a instância
-  AGORA resolver. O corpo da requisição **não carrega empresa** — deixar o operador apontar a
-  empresa à mão reintroduziria o fallback com aparência de decisão humana. `CHECK` no banco
-  garante que pendência fechada tem empresa **e** instância, e pendência aberta não tem nenhuma.
-- **Rota GLOBAL** (`/api/webhook-quarentena`, admin-only), fora de `/api/empresas/:empresaId`:
-  a pendência é justamente o caso em que não se sabe a empresa; pendurá-la num tenant exigiria
-  escolher um.
+  Evolution) · `instancia_desconhecida` (a instância não tem vínculo autorizado) ·
+  `erro_resolucao` (falha TÉCNICA transitória). Numa consulta que falhou o vínculo chega nulo
+  pelo mesmo motivo que chegaria se a instância não existisse; tratar as duas igual mandaria o
+  operador procurar cadastro onde o problema é o serviço. O erro é checado **antes** do vínculo.
+- **A pendência é PERMANENTE e a tela é SOMENTE LEITURA** (ver "Origem autorizada" abaixo).
+  `POST /api/webhook-quarentena/:id/reprocessar`, `resolverPendencia`, `buscarPendencia` e o
+  botão "Reprocessar" **foram REMOVIDOS**: fechavam a pendência assim que alguém cadastrasse a
+  instância à mão, o que é regularizar por tela administrativa uma instância que não nasceu do
+  fluxo autorizado. **Não reintroduza** — a ação do motivo `instancia_desconhecida` deixou de
+  ser `mapear_instancia` e virou `auditar_origem_instancia` justamente para isso. As colunas
+  `resolvida_*` da migration 060 continuam existindo e sendo LIDAS (há linhas fechadas pelo
+  fluxo antigo, que seguem consultáveis como histórico); nada mais as escreve.
+- **Rota GLOBAL** (`/api/webhook-quarentena`, admin-only, **só `GET /`**), fora de
+  `/api/empresas/:empresaId`: a pendência é justamente o caso em que não se sabe a empresa;
+  pendurá-la num tenant exigiria escolher um.
 - **Falhar ao registrar a pendência NÃO libera o fluxo** — preferimos perder o registro a
   gravar dado sob a empresa errada.
 - Código: regras PURAS em `src/services/webhook-quarentena.js` (dono do vocabulário
   `ORIGEM_EMPRESA`), SQL em `src/db/webhook-quarentena.js`, barreira em
   `src/webhook-handler.js`, resolução em `src/middleware/tenant.js`, rota em
   `src/routes/api-webhook-quarentena.js`. Front: `frontend/components/PendenciasInstancia.tsx`
-  dentro de **Configurações › Instâncias** (a seção se esconde quando não há pendência; a ação
-  de resolução é cadastrar a instância, que é o que se faz na mesma página) +
+  ("Instâncias bloqueadas", dentro de **Configurações › Instâncias**; a seção se esconde quando
+  não há nada bloqueado e **não tem nenhum botão de ação**) +
   `frontend/lib/pendencias-instancia.js` (+ `.d.ts`/`.test.js`, só TRADUZ o veredito da API).
-  Testes: `test/webhook-quarentena.test.js`, `test/webhook-quarentena-handler.test.js`.
-- **Risco operacional declarado:** um número legítimo que não esteja mapeado **para de ser
-  atendido** até ser cadastrado. É o comportamento correto por isolamento — o custo é
-  operacional, não de dado — e é o que a tela de pendências existe para tornar visível.
+  Testes: `test/webhook-quarentena.test.js`, `test/webhook-quarentena-handler.test.js`,
+  `test/instancia-origem.test.js`.
+- **Risco operacional declarado:** um número cuja instância não foi criada pelo Atendimento
+  Views **não é atendido**, e não há como liberá-lo por tela. É o comportamento correto por
+  isolamento — o custo é operacional, não de dado — e é o que a tela de instâncias bloqueadas
+  existe para tornar visível. O caminho é criar a instância pelo produto (nome técnico novo).
+- Nenhuma variável de ambiente nova foi criada para este módulo.
+
+### Origem AUTORIZADA do vínculo empresa↔instância (não existe adoção)
+- **Regra de negócio:** uma instância só tem vínculo com uma empresa quando foi **CRIADA pelo
+  Atendimento Views**, dentro daquela empresa. Instância criada direto no Evolution (API
+  externa, painel da infraestrutura, script) **não pertence a empresa alguma** dentro do
+  produto e **não pode ser regularizada** — nem por tela, nem por rota, nem por reprocessamento.
+  Um vínculo criado DEPOIS não prova nada sobre como a instância nasceu.
+- **Defeito corrigido:** `POST /api/empresas/:empresaId/whatsapp` **engolia** o 403/409
+  "already in use" do Evolution (variável `alreadyExists`) e gravava o vínculo assim mesmo.
+  Bastava digitar o nome de uma instância criada por fora para o produto adotá-la e passar a
+  atendê-la. Agora esse caso **RECUSA** com `409 INSTANCIA_JA_EXISTE_NO_EVOLUTION`.
+  **PROIBIDO** reintroduzir qualquer variação de "se já existe, segue mesmo assim".
+- **Evidência persistente, na mesma transação do vínculo** (migration
+  `061_instancia_origem_autorizada.sql`): `origem_vinculo` (`atendimento_views` | `legado`,
+  CHECK fechado, **NOT NULL e SEM DEFAULT** — um DEFAULT autorizaria silenciosamente qualquer
+  INSERT futuro que esquecesse a coluna), `origem_vinculo_em` e `origem_vinculo_usuario_id`.
+- **`legado` NÃO é origem autorizada: é a ausência de prova, nomeada.** A migration marca
+  assim todas as linhas que já existiam (**mutação de dado declarada**). Elas **continuam
+  atendendo** — carência decidida com o operador, porque exigir prova delas pararia todos os
+  números já conectados até cada um ser recriado. **Risco residual aceito:** se alguma foi
+  adotada de fora pelo defeito acima, segue atendendo até ser removida à mão; por isso a tela
+  de instâncias marca "vínculo legado · origem não comprovada".
+- **São TRÊS os pontos que criam vínculo**, todos autorizados e todos gravando a evidência:
+  `routes/api-whatsapp.js` (QR Code), `routes/api-freelandoo.js` e
+  `routes/freelandoo-provision.js` (nome técnico `fl-…` gerado pelo próprio produto; o
+  provisionamento é máquina-a-máquina e grava `origem_vinculo_usuario_id` nulo). Um quarto
+  ponto quebra `test/instancia-origem.test.js` de propósito.
+- **Compensação:** se a transação do vínculo falhar depois de criar a instância no Evolution,
+  a rota **apaga a instância lá**. Sem isso ela ficaria órfã e, como o produto não adota
+  instância externa, o operador ficaria impedido para sempre de reusar aquele nome. A exceção
+  é o `23505` (nome já usado por outro vínculo no banco): ali **não** se apaga, para não
+  derrubar um número que está operando.
+- Código: vocabulário PURO em `src/services/instancia-origem.js` (`origemComprovada` só aceita
+  `atendimento_views`; `evidenciaDeOrigemAutorizada` **não recebe a origem como parâmetro**, de
+  propósito). Front: selo de vínculo legado em `frontend/components/InstanciasWhatsApp.tsx`.
+  Testes: `test/instancia-origem.test.js` (inclui guardas de regressão que leem o fonte).
 - Nenhuma variável de ambiente nova foi criada para este módulo.
 
 ### Atribuição CTWA — capturada NO WEBHOOK, por empresa **e** instância

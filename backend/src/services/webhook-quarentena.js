@@ -30,12 +30,14 @@ const { createHash } = require('node:crypto')
 // ação diferente do operador:
 //   - sem_instancia          → o payload não identificou a instância. Configuração do
 //                              webhook na Evolution, não cadastro faltando;
-//   - instancia_desconhecida → a instância existe e fala, mas não está mapeada (ou está
-//                              inativa) em `app.empresa_whatsapp_instances`. É a única
-//                              que se resolve cadastrando;
+//   - instancia_desconhecida → a instância existe e fala, mas não tem vínculo autorizado
+//                              em `app.empresa_whatsapp_instances` (nunca foi criada pelo
+//                              Atendimento Views, ou o vínculo dela está desativado). NÃO
+//                              se resolve cadastrando à mão — ver `acaoDoMotivo`;
 //   - erro_resolucao         → falha TÉCNICA ao consultar (banco fora, timeout). Não pede
 //                              cadastro: pede olhar a infraestrutura. Misturá-la com a
-//                              anterior mandaria o operador cadastrar algo que já existe.
+//                              anterior mandaria o operador procurar cadastro onde o
+//                              problema é o serviço.
 //
 // Os valores são exatamente os motivos gravados em `app.webhook_quarentena.motivo`
 // (CHECK fechado na migration 060) — um vocabulário só, não dois que precisam ser
@@ -71,9 +73,15 @@ function motivoEhTransitorio(motivo) {
 /**
  * O que o operador precisa fazer. Fica aqui (regra), não na tela: a tela do desktop e a
  * resposta da API precisam dizer a MESMA coisa.
+ *
+ * `instancia_desconhecida` NÃO manda mais "cadastrar a instância". Cadastrar à mão um
+ * número que apareceu sozinho era a adoção de instância externa — e um vínculo criado
+ * depois não prova como a instância nasceu. A ação agora é AUDITAR a origem: se o número
+ * é seu, ele volta pelo fluxo de criação dentro do Atendimento Views (que gera outro nome
+ * técnico); se não é, o bloqueio já está fazendo o trabalho dele.
  */
 function acaoDoMotivo(motivo) {
-  if (motivo === MOTIVO_QUARENTENA.INSTANCIA_DESCONHECIDA) return 'mapear_instancia'
+  if (motivo === MOTIVO_QUARENTENA.INSTANCIA_DESCONHECIDA) return 'auditar_origem_instancia'
   if (motivo === MOTIVO_QUARENTENA.SEM_INSTANCIA) return 'revisar_webhook_evolution'
   if (motivo === MOTIVO_QUARENTENA.ERRO_RESOLUCAO) return 'verificar_infraestrutura'
   return null

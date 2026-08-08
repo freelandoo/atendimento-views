@@ -14,6 +14,7 @@ const { pool } = require('../db')
 const { logger } = require('../logger')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { removerContextoSeOrfao } = require('../db/whatsapp-instances')
+const { evidenciaDeOrigemAutorizada } = require('../services/instancia-origem')
 const { criarCliente, FreelandooError, BASE_URL_PADRAO } = require('../freelandoo/client')
 const {
   salvarConexao, atualizarWebhook, listarConexoesPorEmpresa, buscarConexaoDescriptografada,
@@ -102,10 +103,18 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
        VALUES ($1, $2, '', '{}'::jsonb) RETURNING id, nome`,
       [req.empresa.id, nomeInstancia]
     )
+    // Origem autorizada: o nome técnico é gerado AQUI (`fl-…` + sufixo aleatório), dentro
+    // da empresa da requisição — este fluxo nunca adota instância que já existia.
+    const evidencia = evidenciaDeOrigemAutorizada(req.usuario?.id)
     const { rows: [row] } = await client.query(
-      `INSERT INTO app.empresa_whatsapp_instances (empresa_id, evolution_instance, nome, config_json, contexto_id)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [req.empresa.id, evolutionInstance, nomeInstancia, JSON.stringify({ canal: 'freelandoo' }), ctx.id]
+      `INSERT INTO app.empresa_whatsapp_instances
+         (empresa_id, evolution_instance, nome, config_json, contexto_id,
+          origem_vinculo, origem_vinculo_em, origem_vinculo_usuario_id)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7) RETURNING *`,
+      [
+        req.empresa.id, evolutionInstance, nomeInstancia, JSON.stringify({ canal: 'freelandoo' }), ctx.id,
+        evidencia.origem_vinculo, evidencia.origem_vinculo_usuario_id,
+      ]
     )
     inst = row
     inst.contexto_nome = ctx.nome

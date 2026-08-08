@@ -24,6 +24,11 @@ type WhatsAppInstance = {
   contexto_nome?: string | null
   config_json?: { usa_agenda?: boolean; saudacao?: string } | null
   aviso?: string | null
+  // Evidência de como o vínculo empresa↔instância nasceu (migration 061).
+  // `atendimento_views` = criada por este produto. `legado` = já existia quando a
+  // evidência passou a ser exigida; continua atendendo por carência, e é marcada
+  // justamente para poder ser auditada.
+  origem_vinculo?: 'atendimento_views' | 'legado' | null
 }
 type StatusConexaoInstancia = {
   id: string | null
@@ -489,6 +494,14 @@ export default function InstanciasWhatsApp({ empresaId }: {
                 {i.nome || i.evolution_instance}
               </h3>
               <p className="mt-0.5 truncate font-mono text-[11px] text-white/40">{i.evolution_instance}</p>
+              {/* Vínculo anterior à exigência de evidência de origem. Continua atendendo
+                  (carência), mas fica visível para auditoria: só quem foi criado por aqui
+                  tem origem comprovada. */}
+              {i.origem_vinculo === 'legado' && (
+                <p className="mt-1 text-[10px] font-medium text-amber-300/80" title="Este vínculo já existia antes de o sistema passar a registrar a origem da instância. Continua atendendo; recrie-o pelo Atendimento Views se quiser origem comprovada.">
+                  vínculo legado · origem não comprovada
+                </p>
+              )}
             </div>
 
             {/* Corpo do card: status + botões sobre o fundo do card */}

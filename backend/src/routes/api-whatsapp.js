@@ -13,6 +13,7 @@ const {
   invalidarCacheAgendaInstancia,
   removerContextoSeOrfao,
 } = require('../db/whatsapp-instances')
+const { evidenciaDeOrigemAutorizada } = require('../services/instancia-origem')
 const mensagensSvc = require('../services/mensagens-automaticas')
 const {
   alertaSaudeDeEvento,
@@ -766,6 +767,14 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
     qrcode: true,
     ...(webhookCfg ? { webhook: webhookCfg } : {}),
   }
+  // A instância tem de NASCER aqui. Se o Evolution responde que o nome já está em uso, ela
+  // foi criada por outro caminho (API externa, painel da infraestrutura, script) — ou já
+  // pertence a outro vínculo deste produto. Nos dois casos o pedido é RECUSADO.
+  //
+  // Antes, este 403/409 era engolido e o vínculo era gravado assim mesmo: era a ADOÇÃO de
+  // instância externa, e era o que dava a um número criado fora o direito de atender por
+  // uma empresa. Vincular depois não prova como a instância nasceu, então não há "só desta
+  // vez" — nem aqui, nem por tela administrativa.
   try {
     await axios.post(
       `${EVOLUTION_URL}/instance/create`,
@@ -775,14 +784,26 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   } catch (err) {
     const status = err.response?.status
     const msg = err.response?.data?.response?.message || err.response?.data?.message || err.message
-    const alreadyExists = status === 403 || status === 409 ||
+    const jaExiste = status === 403 || status === 409 ||
       (Array.isArray(msg) ? msg.some((m) => /already in use|exists/i.test(String(m))) : /already in use|exists/i.test(String(msg)))
-    if (!alreadyExists) {
-      return res.status(502).json({ ok: false, error: { code: 'EVOLUTION_CREATE_FAILED', message: Array.isArray(msg) ? msg.join('; ') : String(msg || 'Falha ao criar instância no Evolution.') } })
+    if (jaExiste) {
+      logger.warn({
+        empresa_id: req.empresa.id,
+        instance_ref: refInstanciaLog(evolution_instance),
+        usuario_id: req.usuario?.id || null,
+      }, '[api-whatsapp] criacao recusada: nome ja existe no Evolution (sem adocao de instancia externa)')
+      return res.status(409).json({
+        ok: false,
+        error: {
+          code: 'INSTANCIA_JA_EXISTE_NO_EVOLUTION',
+          message: 'Já existe uma instância com esse nome técnico no Evolution. O Atendimento Views só atende instâncias que ele mesmo cria: escolha outro nome. Se este número já é seu, conecte-o por uma instância criada aqui.',
+        },
+      })
     }
+    return res.status(502).json({ ok: false, error: { code: 'EVOLUTION_CREATE_FAILED', message: Array.isArray(msg) ? msg.join('; ') : String(msg || 'Falha ao criar instância no Evolution.') } })
   }
 
-  // Garante webhook configurado (idempotente — funciona mesmo se a instância já existia)
+  // Webhook da instância recém-criada.
   const webhook = await aplicarWebhookEvolution(evolution_instance, { empresaId: req.empresa.id })
 
   // Cria a instância + o contexto dela (1:1) na mesma transação — sem contexto órfão se algo falhar.
@@ -790,10 +811,18 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     await client.query('BEGIN')
     const ctx = await criarContextoParaInstancia(client, req.empresa.id, nome || evolution_instance)
+    // A evidência de origem autorizada é gravada na MESMA transação que o vínculo: não
+    // existe janela em que a instância esteja vinculada sem prova de como nasceu.
+    const evidencia = evidenciaDeOrigemAutorizada(req.usuario?.id)
     const { rows: [inst] } = await client.query(
-      `INSERT INTO app.empresa_whatsapp_instances (empresa_id, evolution_instance, nome, config_json, contexto_id)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [req.empresa.id, evolution_instance, nome || null, JSON.stringify(config_json), ctx.id]
+      `INSERT INTO app.empresa_whatsapp_instances
+         (empresa_id, evolution_instance, nome, config_json, contexto_id,
+          origem_vinculo, origem_vinculo_em, origem_vinculo_usuario_id)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7) RETURNING *`,
+      [
+        req.empresa.id, evolution_instance, nome || null, JSON.stringify(config_json), ctx.id,
+        evidencia.origem_vinculo, evidencia.origem_vinculo_usuario_id,
+      ]
     )
     await client.query('COMMIT')
     inst.contexto_nome = ctx.nome
@@ -808,8 +837,24 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK')
     if (err.code === '23505') {
+      // Nome já usado por outro vínculo no banco. NÃO removemos a instância do Evolution
+      // aqui: o nome é o mesmo do vínculo existente, e apagar por engano derrubaria um
+      // número que está operando.
       return res.status(409).json({ ok: false, error: { code: 'CONFLICT', message: 'Já existe uma instância com esse nome técnico.' } })
     }
+    // A instância foi criada no Evolution NESTA requisição e o vínculo não chegou a existir.
+    // Sem esta compensação ela ficaria órfã lá — e, como o produto não adota instância
+    // externa, o operador ficaria permanentemente impedido de reusar aquele nome.
+    await axios.delete(
+      `${EVOLUTION_URL}/instance/delete/${encodeURIComponent(evolution_instance)}`,
+      { headers: { apikey: EVOLUTION_KEY }, timeout: 15000 }
+    ).catch((delErr) => {
+      logger.error({
+        empresa_id: req.empresa.id,
+        instance_ref: refInstanciaLog(evolution_instance),
+        err: String(delErr.response?.data?.message || delErr.message).slice(0, 300),
+      }, '[api-whatsapp] instancia orfa no Evolution: criacao falhou e a remocao compensatoria tambem')
+    })
     throw err
   } finally {
     client.release()

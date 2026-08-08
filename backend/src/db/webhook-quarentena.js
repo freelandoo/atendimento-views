@@ -3,9 +3,9 @@
 // Acesso a app.webhook_quarentena — os webhooks que chegaram SEM DONO COMPROVADO.
 //
 // INVARIANTES DESTE MÓDULO (são o isolamento, não zelo estético):
-//   1. Nenhuma função aceita `empresaId` de quem chama para ABRIR ou FECHAR pendência.
-//      A empresa só entra aqui depois de provada pela instância, e quem prova é a
-//      reconsulta a `app.empresa_whatsapp_instances` — nunca a escolha de um operador.
+//   1. Nenhuma função aceita `empresaId` de quem chama, e nenhuma FECHA pendência. Não há
+//      caminho, aqui ou acima, que transforme uma instância bloqueada em vínculo válido:
+//      vínculo só nasce do fluxo de criação dentro do Atendimento Views.
 //   2. Nada de PII: este módulo não recebe telefone, texto, pushName nem payload. O id da
 //      mensagem chega SEMPRE como hash (ver `hashMensagemId`).
 //   3. A idempotência é do BANCO (índice único parcial), não de um SELECT antes do INSERT.
@@ -124,44 +124,25 @@ async function resumoPendencias(db) {
   return { total, por_motivo: porMotivo }
 }
 
-/** Uma pendência pelo id, crua (uso interno da resolução). */
-async function buscarPendencia(db, id) {
-  const conexao = db || poolPadrao
-  const { rows } = await conexao.query(
-    `SELECT id, evolution_instance, instancia_chave, motivo, resolvida_em
-       FROM app.webhook_quarentena WHERE id = $1`,
-    [id]
-  )
-  return rows[0] || null
-}
-
-/**
- * Fecha a pendência com o dono PROVADO. `empresaId`/`instanciaId` chegam da reconsulta
- * feita pela rota, nunca do corpo da requisição — é o que impede o operador de apontar
- * uma mensagem para a empresa que quiser (o fallback com outro nome).
- *
- * O UPDATE é condicionado a `resolvida_em IS NULL`: dois operadores clicando ao mesmo
- * tempo não geram dois fechamentos, o segundo simplesmente não afeta linha.
- */
-async function resolverPendencia(db, id, { empresaId, instanciaId }) {
-  if (!empresaId || !instanciaId) {
-    throw erro('SEM_DONO_PROVADO', 'Pendência só pode ser resolvida com empresa e instância provadas.', 400)
-  }
-  const conexao = db || poolPadrao
-  const { rows } = await conexao.query(
-    `UPDATE app.webhook_quarentena
-        SET resolvida_em = NOW(), resolvida_empresa_id = $2, resolvida_instancia_id = $3
-      WHERE id = $1 AND resolvida_em IS NULL
-      RETURNING id, resolvida_em`,
-    [id, empresaId, instanciaId]
-  )
-  return rows[0] ? { id: Number(rows[0].id), resolvida_em: rows[0].resolvida_em } : null
-}
+// NÃO EXISTE FUNÇÃO DE RESOLUÇÃO NESTE MÓDULO, e isso é deliberado.
+//
+// `buscarPendencia`/`resolverPendencia` viviam aqui e fechavam a pendência assim que a
+// instância passasse a resolver — ou seja, assim que alguém a cadastrasse à mão. Isso é
+// regularizar por tela administrativa uma instância que não nasceu do fluxo autorizado, e
+// um vínculo criado depois não prova como a instância foi criada. As duas foram removidas
+// junto com `POST /api/webhook-quarentena/:id/reprocessar`.
+//
+// A consequência é assumida: uma pendência aberta é PERMANENTE. Como a tabela guarda uma
+// linha por instância+motivo (não uma por mensagem), ela não cresce com o tráfego — a
+// instância bloqueada aparece uma vez e continua aparecendo enquanto insistir em mandar
+// webhook. O caminho para o número voltar a ser atendido é criar a instância pelo
+// Atendimento Views, o que produz outro nome técnico e outro vínculo.
+//
+// As colunas `resolvida_*` da migration 060 continuam existindo e sendo LIDAS: há linhas
+// fechadas pelo fluxo antigo que seguem consultáveis como histórico.
 
 module.exports = {
   registrarPendencia,
   listarPendencias,
   resumoPendencias,
-  buscarPendencia,
-  resolverPendencia,
 }

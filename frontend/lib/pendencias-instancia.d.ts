@@ -1,5 +1,5 @@
 export type MotivoPendencia = 'sem_instancia' | 'instancia_desconhecida' | 'erro_resolucao'
-export type AcaoPendencia = 'mapear_instancia' | 'revisar_webhook_evolution' | 'verificar_infraestrutura'
+export type AcaoPendencia = 'auditar_origem_instancia' | 'revisar_webhook_evolution' | 'verificar_infraestrutura'
 export type TomPendencia = 'ok' | 'atencao' | 'alerta' | 'neutro'
 
 export interface PendenciaInstancia {
@@ -11,6 +11,7 @@ export interface PendenciaInstancia {
   ocorrencias: number
   primeira_em: string
   ultima_em: string
+  /** Só existe em linhas fechadas pelo fluxo antigo de reprocessamento, que foi removido. */
   resolvida_em: string | null
   resolvida_empresa_id: string | null
   resolvida_empresa: string | null
@@ -28,6 +29,5 @@ export declare const ACAO_MOTIVO: Record<string, string>
 export declare function rotuloMotivo(motivo: string | null | undefined): string
 export declare function explicacaoMotivo(motivo: string | null | undefined): string
 export declare function acaoTexto(acao: string | null | undefined): string
-export declare function podeReprocessar(pendencia: PendenciaInstancia | null | undefined): boolean
 export declare function tomPendencia(pendencia: PendenciaInstancia | null | undefined): TomPendencia
 export declare function resumoTexto(resumo: ResumoPendencias | null | undefined): string
