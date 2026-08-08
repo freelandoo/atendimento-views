@@ -48,6 +48,11 @@ const whatsapp = require('./whatsapp')
 const { logger, loggerForWebhook, loggerForJob, redactPhone, serializeError } = require('./logger')
 const { dashboardAutorizado } = require('./dashboardAuth')
 const { createDbCrud } = require('./db-crud')
+const {
+  EMPRESA_PADRAO_PJ,
+  insertEmpresa: insertEmpresaLeadProfile,
+  conflitoEmpresa: conflitoEmpresaLeadProfile,
+} = require('./db/lead-profile-empresa')
 const { limitarBolhasPorEtapa } = require('./message-limits')
 const { createMediaProcessing } = require('./media-processing')
 const { createPreviewSite } = require('./preview-site')
@@ -74,6 +79,7 @@ const {
   verificarLembretesManhaReuniao,
 } = require('./agenda')
 const { sincronizarAtribuicaoMetaAds } = require('./services/meta-attribution')
+const { processarConversoesMeta } = require('./services/meta-dispatch')
 const { processarMensagemComPlaybook, gerarFollowupComPlaybook } = require('./services/contexto2-runtime')
 const { createContexto2Responder } = require('./services/contexto2-responder')
 const { getContextoAtivoEmpresa } = require('./services/contexto-empresa')
@@ -496,6 +502,13 @@ async function jobWorkerTick() {
         _ultimaAtribuicaoMetaMs = Date.now()
         await sincronizarAtribuicaoMetaAds(pool, { logger }).catch((e) =>
           logger.warn({ operation: 'meta_attribution', etapa: 'tick_erro', erro: e.message })
+        )
+        // Conversões da Meta POR EMPRESA (reconcilia as reuniões e envia o pendente
+        // com a credencial de cada empresa). Roda depois da atribuição de propósito:
+        // é ela que acabou de gravar o ctwa_clid que o envio precisa. No-op imediato
+        // enquanto nenhuma empresa tiver integração ATIVA.
+        await processarConversoesMeta(pool, { logger }).catch((e) =>
+          logger.warn({ operation: 'meta_capi', etapa: 'tick_erro', erro: e.message })
         )
       }
       await verificarResumoDiarioAgenda().catch((e) =>
@@ -5540,14 +5553,18 @@ app.post('/dashboard/apelido', async (req, res) => {
   try {
     const conv = await buscarConversa(jid)
     if (!conv) return res.status(404).json({ ok: false, erro: 'Conversa nao encontrada' })
+    // Pode CRIAR o perfil: precisa gravar a empresa da conversa (migration 058 tirou
+    // o DEFAULT da PJ). Ver src/db/lead-profile-empresa.js.
+    const empresaApelido = insertEmpresaLeadProfile('$1', '$3')
     const { rows } = await pool.query(
-      `INSERT INTO vendas.lead_profiles (numero, apelido, atualizado_em)
-       VALUES ($1, $2, NOW())
+      `INSERT INTO vendas.lead_profiles (numero, apelido, atualizado_em, ${empresaApelido.colunas})
+       VALUES ($1, $2, NOW(), ${empresaApelido.valores})
        ON CONFLICT (numero) DO UPDATE
        SET apelido = EXCLUDED.apelido,
+           ${conflitoEmpresaLeadProfile()},
            atualizado_em = NOW()
        RETURNING numero, apelido`,
-      [jid, apelido]
+      [jid, apelido, EMPRESA_PADRAO_PJ]
     )
     res.json({ ok: true, numero: rows[0].numero, apelido: rows[0].apelido })
   } catch (err) {
@@ -5808,22 +5825,27 @@ async function capturarNomeContato(numero, { pushName, texto } = {}, log = logge
   if (!numero || !apelido) return null
 
   try {
+    // Este é o INSERT que costuma CRIAR o perfil (o apelido chega na 1ª mensagem):
+    // é o principal responsável por gravar a empresa certa. Ver
+    // src/db/lead-profile-empresa.js.
+    const empresaNome = insertEmpresaLeadProfile('$1', '$4')
     const { rows } = await pool.query(
-      `INSERT INTO vendas.lead_profiles (numero, apelido, atualizado_em)
-       SELECT $1, $2, NOW()
+      `INSERT INTO vendas.lead_profiles (numero, apelido, atualizado_em, ${empresaNome.colunas})
+       SELECT $1, $2, NOW(), ${empresaNome.valores}
        WHERE EXISTS (SELECT 1 FROM vendas.conversas WHERE numero = $1)
        ON CONFLICT (numero) DO UPDATE
        SET apelido = CASE
              WHEN $3::boolean THEN EXCLUDED.apelido
              ELSE COALESCE(NULLIF(vendas.lead_profiles.apelido, ''), EXCLUDED.apelido)
            END,
+           ${conflitoEmpresaLeadProfile()},
            atualizado_em = CASE
              WHEN $3::boolean OR NULLIF(vendas.lead_profiles.apelido, '') IS NULL THEN NOW()
              ELSE vendas.lead_profiles.atualizado_em
            END
        WHERE $3::boolean OR NULLIF(vendas.lead_profiles.apelido, '') IS NULL
        RETURNING numero, apelido`,
-      [numero, apelido, sobrescrever]
+      [numero, apelido, sobrescrever, EMPRESA_PADRAO_PJ]
     )
     const row = rows[0] || null
     if (row) {

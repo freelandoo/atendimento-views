@@ -1,6 +1,11 @@
 'use strict'
 
 const { normalizarEstagio, validarAtualizarPerfilLead } = require('./domainSchemas')
+const {
+  EMPRESA_PADRAO_PJ,
+  insertEmpresa: insertEmpresaLeadProfile,
+  conflitoEmpresa: conflitoEmpresaLeadProfile,
+} = require('./db/lead-profile-empresa')
 const { EVENTOS_COMERCIAIS_TIPOS } = require('./domain-enums')
 const {
   LEAD_CONTEXTO_MAX_CHARS,
@@ -365,13 +370,20 @@ function createDbCrud({ pool, logger, serializeError }) {
       LEAD_PROFILE_CAMPOS_JSON_MERGE.has(k) ? JSON.stringify(d[k]) : d[k]
     )
 
+    // A empresa do perfil vem da CONVERSA, dentro do próprio SQL — nunca de `dados`
+    // (que é payload da IA/rotas) nem de um parâmetro do chamador. Ver o porquê em
+    // src/db/lead-profile-empresa.js. Os placeholders da empresa vão no FIM para não
+    // deslocar os índices dos campos (`$${i + 2}` acima).
+    const pPj = `$${campos.length + 2}`
+    const empresa = insertEmpresaLeadProfile('$1', pPj)
     await pool.query(
       `
-      INSERT INTO vendas.lead_profiles (numero, ${campos.join(', ')})
-      VALUES ($1, ${campos.map((_, i) => `$${i + 2}`).join(', ')})
-      ON CONFLICT (numero) DO UPDATE SET ${sets}, atualizado_em = NOW()
+      INSERT INTO vendas.lead_profiles (numero, ${campos.join(', ')}, ${empresa.colunas})
+      VALUES ($1, ${campos.map((_, i) => `$${i + 2}`).join(', ')}, ${empresa.valores})
+      ON CONFLICT (numero) DO UPDATE
+      SET ${sets}, ${conflitoEmpresaLeadProfile()}, atualizado_em = NOW()
       `,
-      [numero, ...valores]
+      [numero, ...valores, EMPRESA_PADRAO_PJ]
     )
 
     if (Object.keys(patchColetados).length > 0) {

@@ -6,6 +6,164 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-07 - Inicio de tarefa IA - Fase A: empresa_id real em vendas.lead_profiles
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Corrigir o defeito em que `vendas.lead_profiles` recebe o `empresa_id`
+  PADRAO da PJ em vez da empresa real, preparando a base para a Meta Conversions isolada por
+  empresa (Fase B) e, depois, por instancia (Fase C, so' apos medicao). Escopo declarado:
+  codigo + migration aditiva + script de backfill SEPARADO (simulacao por padrao) + medicao
+  read-only em producao, se autorizada. **Parar antes de aplicar backfill em producao, antes da
+  Fase B, antes de commit/push.**
+- **E projeto/tarefa de alteracao?** Sim. Toca **banco** (migration) e **caminho de escrita de
+  producao** (`atualizarPerfil` roda em toda mensagem). Cai nos gatilhos de confirmacao do
+  CLAUDE.md — mas a estrategia ja veio **aprovada no proprio pedido** (fases A/B/C, preservar
+  fallback PJ, nao migrar UNIQUE(numero), backfill fora do boot).
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/ai-decision-log.md: a registrar na Fase 8 | ui-visual-standard.md: **nao aplicavel**
+  (nenhuma tela e' tocada nesta fase).
+- **Fatos reconfirmados no codigo HOJE (nao sao hipotese):**
+  1. `sql/migrations/006_vendas_empresa_default.sql:28` — `ALTER TABLE vendas.lead_profiles
+     ALTER COLUMN empresa_id SET DEFAULT '…0001'` (PJ). O proprio cabecalho da 006 declara que
+     o default sairia "quando o roteamento por instancia for ligado". Ele nunca saiu.
+  2. Existem **4** caminhos de INSERT em `vendas.lead_profiles` e **nenhum** informa
+     `empresa_id`: `db-crud.js:370` (`atualizarPerfil`, o principal), `learning.js:806`
+     (memoria de vendas), `agent.js:5552` (`POST /dashboard/apelido`) e `agent.js:5820`
+     (`capturarNomeContato`). Todos caem no DEFAULT PJ.
+  3. `db-crud.js:126` (`salvarConversa`) **ja** grava `empresa_id` explicito com
+     `COALESCE($empresa, PJ)` e `ON CONFLICT` que NUNCA migra dono
+     (`COALESCE(vendas.conversas.empresa_id, EXCLUDED.empresa_id)`). E' o molde a seguir.
+  4. `vendas.lead_profiles.numero` e' `UNIQUE REFERENCES vendas.conversas(numero)`
+     (`db.js:294`) — **nao existe perfil sem conversa**. Logo a conversa e' fonte sempre
+     disponivel no momento do INSERT, e ela ja carrega a empresa resolvida pela instancia.
+  5. `empresa_id` **nao** esta em `LEAD_PROFILE_CAMPOS_PERMITIDOS` (`db-crud.js:13-45`) — a IA
+     e as rotas nunca puderam setar esse campo, e nao vao poder depois desta fase.
+  6. Consumidores que ja dependem de `lead_profiles.empresa_id` e sofrem HOJE com o default:
+     `meta-attribution.js:227` (`obterResultadosAnunciosMeta`), `meta-dispatch.js:74 e 132`
+     (join `lp.empresa_id = e.empresa_id` / `= c.empresa_id`),
+     `meta-dispatch.js:288` (`carregarAtribuicoes`), `db/aquisicao-oportunidades.js:79`.
+- **Efeito REAL do defeito, medido no codigo (nao e' vazamento, e' silencio):** como
+  `meta-dispatch` casa `lp.empresa_id` com a empresa da REUNIAO/CONVERSA, um lead de anuncio da
+  empresa B fica com `lp.empresa_id = PJ` e o join nao casa ⇒ `temAtribuicao = false` ⇒
+  `reconciliarEmpresa` faz `continue` em `sem_atribuicao` e **nem registra o fato**. Ou seja: a
+  conversao CTWA da empresa B nunca sai — e nao ha risco de ela sair no dataset da PJ, porque o
+  telefone e' unico em `vendas.conversas` e a reuniao da B nao entra na lista da PJ. O prejuizo
+  e' **perda de conversao**, nao mistura entre tenants. O painel `obterResultadosAnunciosMeta`,
+  esse sim, mostra leads da B dentro da PJ.
+- **Decisao de arquitetura minha (Fase 6), declarada antes de codar:** a fonte de `empresa_id`
+  do perfil e' **a CONVERSA, dentro do proprio SQL** (subconsulta em `vendas.conversas`), e nao
+  um parametro vindo dos ~20 chamadores. Motivos: (a) e' exatamente a coluna com que os
+  consumidores casam (`lp.empresa_id = c.empresa_id`) — um parametro que discordasse da conversa
+  reintroduziria o bug; (b) nenhum chamador consegue poluir o campo (IA/API nao alcancam);
+  (c) diff minimo — zero mudanca de assinatura em caminho de producao.
+- **Marcacao de origem (preparacao da Fase B):** coluna nova `empresa_id_origem`
+  (`conversa` | `fallback_pj` | `backfill_conversa`; `NULL` = legado, procedencia desconhecida).
+  E' o que permitira a Meta **recusar** o fallback da PJ na Fase B sem remover o fallback agora.
+- **Arquivos que pretendo alterar/criar:** NOVOS `sql/migrations/058_lead_profiles_empresa.sql`,
+  `src/db/lead-profile-empresa.js` (fragmentos SQL puros, fonte unica), 
+  `scripts/backfill-lead-profiles-empresa.js`, `test/lead-profile-empresa.test.js`;
+  ALTERADOS `src/db-crud.js`, `src/learning.js`, `src/agent.js` (2 INSERTs + nada mais),
+  `src/services/meta-dispatch.js` (valvula de pausa), `package.json` (script npm),
+  `.env.example` + `AGENTS.md` (env nova documentada), `docs/ai-decision-log.md`.
+- **Fora de escopo (declarado pelo pedido):** aplicar backfill em producao sem nova confirmacao,
+  trocar `UNIQUE(numero)` por `UNIQUE(empresa_id, numero)`, `instancia_id` em qualquer modelo,
+  reescrever CTWA por instancia, remover o fallback da PJ, commit/push/ativacao da Meta.
+
+---
+
+## 2026-08-07 - Inicio de tarefa IA - Meta CAPI multitenant baseada em resultado de reuniao
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Substituir a integracao Meta CAPI **global/single-tenant** que ja existe por
+  uma integracao **isolada por empresa**, configurada pelo dono/admin do tenant (token manual +
+  Dataset/Pixel), baseada em **resultado de reuniao** (`reuniao_agendada`, `reuniao_realizada`,
+  `reuniao_realizada_com_venda`), com **ledger de eventos por empresa** (idempotencia pela
+  entidade de negocio + tipo, nunca por telefone), reenvio de falhas e tela em
+  **Configuracoes > Integracoes > Meta Conversions**. `cancelada`/`no_show` ficam SO internos.
+- **E projeto/tarefa de alteracao?** Sim. Escopo **GRANDE e ESTRUTURAL**: migration nova
+  (credenciais + ledger + tentativas), credenciais de terceiros cifradas em repouso, novo dominio
+  de servico + worker, rotas admin novas, desligamento de um caminho de envio que **hoje roda em
+  producao**, e tela nova. Cai em TODOS os gatilhos de confirmacao do CLAUDE.md (schema/banco,
+  segredos, rotas, muitos arquivos).
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/analise-integracao-meta-multitenant.md: Sim (analise de 2026-08-06, 20 secoes — este pedido
+  e' a implementacao das Fases 2-6 daquele documento) | docs/ui-visual-standard.md: a consultar na
+  Fase 5 | docs/ai-decision-log.md: a registrar na Fase 8.
+- **Fatos reconfirmados no codigo HOJE (nao sao hipotese, nao vieram so do relatorio):**
+  1. `src/services/meta-capi.js:32-42` le `META_DATASET_ID`/`META_CAPI_TOKEN`/`META_PAGE_ID` do
+     `process.env`. A funcao `enviarEventoMetaCAPI(evt, deps)` **nao recebe e nao conhece config**.
+  2. `src/services/meta-attribution.js:198-213` — `dispararEventosMetaPendentes` faz
+     `SELECT ... FROM vendas.lead_profiles WHERE p.origem='meta_ads'` **sem filtro de empresa_id**
+     e manda todos os tenants para o mesmo dataset. Chamado por `sincronizarAtribuicaoMetaAds`
+     (linha 158), que roda no tick global.
+  3. `meta-attribution.js:225` — `event_id = ${numero}:${event_name}`: **um LeadSubmitted e um
+     Purchase por telefone, para sempre**. E' exatamente a dedup por telefone que o pedido proibe.
+  4. `meta-attribution.js:204-207` — `eventosDevidos` so pergunta `EXISTS(tipo='reuniao' AND
+     excluido_em IS NULL)`: **reuniao cancelada e no-show ja contam como conversao hoje**.
+  5. `vendas.agenda_eventos` (`sql/init.sql:565`) — onde o BOT cria a reuniao — **nao tem
+     `empresa_id`**; e' chaveada por `usuario_id` → `vendas.dashboard_users`. `app.agenda_eventos`
+     (migration 011) tem `empresa_id NOT NULL`. Sao duas agendas com enums diferentes
+     (`src/domain-enums.js`), e as duas aceitam `cancelado`/`nao_compareceu`/`concluido`.
+  6. **Nao existe campo de VALOR de venda na reuniao.** O unico valor do sistema e'
+     `vendas.conversas.venda_valor`, gravado por `PATCH /dashboard/agenda/:id/vendido`
+     (`src/agenda.js:1362-1384`) — rota do **dashboard legado, sem tenant**, que casa por telefone.
+  7. `src/meta-routes.js:13` — `GET /dashboard/meta/anuncios` devolve resultado de anuncios de
+     **todos os tenants** para qualquer admin legado.
+  8. `frontend/app/dashboard/integracoes/page.tsx` ja existe (entregue ontem) como pagina
+     **100% estatica**, com o card "Meta Conversions" em *Em breve* e zero chamada ao backend.
+  9. `app.freelandoo_connections` + `src/freelandoo/crypto.js` (AES-256-GCM) sao o molde pronto
+     de credencial de terceiro cifrada por empresa. `assertMesmaEmpresa` (`src/db/ligacoes.js:18`)
+     e' o molde de same-tenant assertion.
+- **Conflitos materiais do pedido x codigo (motivo de parar antes da Fase 3):**
+  - **(A) Venda com valor nao tem onde morar.** O pedido exige "valor da venda e moeda antes de
+    criar o evento" E declara "novo modulo independente de vendas" como fora de escopo E manda
+    "usar somente dados ja existentes". As tres coisas nao fecham: o unico valor existente esta
+    numa rota single-tenant casada por telefone, e a reuniao multiempresa (`app.agenda_eventos`)
+    nao tem campo de valor nem de resultado.
+  - **(B) Reuniao do BOT nao carrega empresa_id.** O criterio "nao existe evento Meta sem
+    empresa_id" exige uma regra de resolucao declarada para as reunioes de `vendas.agenda_eventos`.
+  - **(C) A Meta so aceita 2 nomes de evento no CTWA.** Com `action_source=business_messaging`,
+    `LeadSubmitted` e `Purchase` passam e nomes de pixel sao rejeitados (subcode 2804066, ja
+    documentado no AGENTS.md). O pedido pede **tres** eventos configuraveis independentes —
+    o mapeamento dos tres para a taxonomia aceita e' uma decisao de produto, nao de codigo.
+- **Fora de escopo declarado (pelo proprio pedido):** OAuth/Facebook Login, Marketing API/gasto/
+  CPA/ROAS, envio de no-show e cancelamento, modulo de vendas independente, coleta de campos novos
+  de contato/atribuicao, remocao automatica de evento ja enviado, outros provedores.
+- **Decisoes travadas com o Victor (Fase 2/6, antes de codar):**
+  1. **(A) Resultado da reuniao reusa o `status` que a tabela ja tem** + 2 colunas novas
+     (`venda_valor`, `venda_moeda`, `venda_registrada_em`) em `app.agenda_eventos`. Sem enum novo,
+     sem modulo de vendas. `concluido` = realizada; `concluido` + valor = realizada com venda.
+  2. **(B) A reuniao do BOT resolve empresa por `vendas.conversas.empresa_id`** (join por telefone
+     de `metadata->>'lead_numero'`). Sem resolucao ⇒ nenhum evento. Risco residual do fallback da
+     PJ (`tenant.js:78`) declarado e aceito.
+  3. **(C) 3 eventos padrao distintos** — `LeadSubmitted` / `QualifiedLead` / `Purchase` —, com
+     "Testar conexao" exercitando TODOS os eventos habilitados em modo teste ANTES de a ativacao
+     ser liberada (o AGENTS.md registra `QualifiedLead` rejeitado numa taxonomia anterior).
+  4. **Superadmin continua passando**, como no resto do sistema; token nao e devolvido nem a ele e
+     toda escrita vira auditoria.
+- **Decisao de arquitetura minha (Fase 6), fora das 4 perguntas:** o registro dos fatos e feito por
+  um **RECONCILIADOR** que LE as reunioes, e nao por ganchos dentro de `handoff-alerts.js`,
+  `ligacoes.js`, `agenda-multiempresa.js` e `agenda.js` (que era a proposta da analise de 06/08).
+  Motivo: zero codigo novo dentro de transacoes que criam reuniao em producao, idempotencia por
+  construcao e cobertura das reunioes que ja existiam. Registrado em `ai-decision-log.md`.
+- **Entregue:** migration `057_meta_conversoes.sql`; NOVOS `src/segredos-crypto.js`,
+  `src/services/meta-crypto.js`, `meta-conversao.js`, `meta-dispatch.js`, `meta-teste-conexao.js`,
+  `src/db/meta-integracoes.js`, `src/db/conversao-eventos.js`,
+  `src/routes/api-integracoes-meta.js`; REESCRITO `src/services/meta-capi.js` (recebe config, nao
+  le env); `meta-attribution.js` perdeu o disparo global; `meta-routes.js` escopado na PJ;
+  `agenda-multiempresa.js` grava venda; tick em `agent.js`; montagem em `index.js`.
+  Front: NOVOS `frontend/app/dashboard/integracoes/meta/page.tsx` e
+  `frontend/lib/meta-integracao.js` (+ `.d.ts`/`.test.js`); card de Integracoes deixa de ser
+  "Em breve". Docs: `AGENTS.md`, `.env.example`, `ai-decision-log.md`.
+- **Validacao executada:** `npm test` backend **1297/1297** (57 testes novos em 3 arquivos),
+  `npm test` frontend **145/145** (17 novos), `npm run typecheck` backend e frontend limpos,
+  `npm run smoke:preco` ok, e carga de todos os modulos novos via `require`.
+- **Pendencia declarada:** **verificacao visual nao realizada** — sem MCP de navegador na sessao.
+  Falta uma passada visual em `dashboard/integracoes/meta` (desktop e mobile) e o **piloto em modo
+  teste na PJ** antes de ativar qualquer tenant, que e o que prova o mapeamento `QualifiedLead`.
+
+---
+
 ## 2026-08-07 - Inicio de tarefa IA - Reorganizar a navegacao do painel por secoes
 
 - **IA/Ferramenta:** Claude Code (Opus 5)
@@ -1270,3 +1428,16 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Areas possivelmente impactadas:** frontend/app/dashboard/prospeccao/page.tsx (tela), frontend/lib/paginacao.js (+ .d.ts/.test.js — modulo PURO extraido de lib/fila-ligacoes-view.js para nao duplicar paginacao), frontend/lib/fila-ligacoes-view.js (passa a reexportar a paginacao, sem mudanca de comportamento) e backend/src/routes/api-prospeccao.js (GET /metricas aceita busca/mercado/cidade/origem; sem parametro o resultado e' identico ao de hoje).
 - **Fora de escopo declarado:** status/dados dos leads, regras de coleta e disparo, Banco de Leads, Central de Ligacoes, modo Rotinas, secao "Acompanhar resultados", schema e permissoes.
 - **Proxima etapa:** Aplicar o diff minimo, rodar `npm test` + `npm run typecheck` no frontend e `npm test` no backend, e validar desktop/mobile (foco visivel, teclado, estados vazios).
+
+---
+
+## 2026-08-07 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** VERIFICAR se a integracao Meta Conversions recem-implementada isola a configuracao por INSTANCIA (uma instancia = um negocio separado), sem fallback entre instancias, entre empresas ou para credencial global. Commit/push somente se todos os criterios de aceite passarem.
+- **E projeto/tarefa de alteracao?** Nesta fase, NAO: tarefa de AUDITORIA/leitura. Nenhum arquivo de codigo foi alterado. A correcao (se aprovada) sera tarefa separada, com schema/migration e mudanca de modelo — exige confirmacao previa (CLAUDE.md).
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
+- **Areas inspecionadas:** sql/migrations/057_meta_conversoes.sql, src/db/meta-integracoes.js, src/db/conversao-eventos.js, src/services/meta-dispatch.js, meta-capi.js, meta-crypto.js, meta-attribution.js, src/routes/api-integracoes-meta.js, src/middleware/tenant.js, src/webhook-handler.js, src/meta-routes.js, frontend/app/dashboard/integracoes/meta, test/meta-*.test.js.
+- **Resultado:** REPROVADO nos criterios de isolamento por instancia. O modelo implementado e' por EMPRESA (`app.meta_integracoes.empresa_id UNIQUE`); a dimensao instancia nao existe em schema, backend, rotas, tela nem testes. Ver relatorio no chat.
+- **Efeito colateral declarado:** nenhum. Somente leitura + `npm test` (1297/1297 passaram). Unica escrita: este registro de log.
+- **Proxima etapa:** NAO commitar nem dar push (stop condition acionada). Apresentar o laudo e o plano de correcao ao usuario e aguardar aprovacao antes de qualquer migration.

@@ -79,10 +79,108 @@
 - `REUNIAO_BUFFER_MIN`: folga em minutos exigida ENTRE reuniões (default `30`; `0` desliga). Reflete em 3 pontos da agenda: oferta de horários (`slotsLivresDoDia`), validação da escolha (`validarSlotReuniao`) e criação do evento (`criarEventoAgenda`, só tipo `reuniao`). A reunião gravada mantém a duração real (15 min); o buffer só afeta o espaçamento.
 - Seletor autônomo de mercado da **Busca IA** (`selecionarMercadoDiarioIA` em `prospecting.js`): só roda quando `modo_busca='ia'`. A IA recebe o raio-x dos mercados já prospectados e as preferências simples do operador, então escolhe um `{nicho, cidade}` fresco (gpt-4o-mini); a busca no Maps segue programática. **Sem fallback para rotação heurística**: tem RETRY (`PROSPEC_MERCADO_IA_RETRIES`, default 3); se todas as tentativas falharem, o erro é registrado com `logger.error`, o estado vira `sem_mercados`/`erro` e o ciclo fica pausado até o operador ajustar ou tentar novamente.
 - `PROSPEC_MERCADO_IA_RETRIES`: nº de tentativas da IA ao escolher o mercado do dia (default `3`).
-- Atribuição Meta Ads (CTWA) em `src/services/meta-attribution.js`, chamada a cada ~10 min pelo worker (`sincronizarAtribuicaoMetaAds`): captura de qual anúncio cada lead veio (lê `public."Message".contextInfo.externalAdReply`; telefone real em `key.remoteJidAlt`) → grava `vendas.lead_profiles.origem='meta_ads'` + `origem_anuncio` jsonb `{ad_id, ctwa_clid, title, source_url}`; e recalcula `score_lead` por CRITÉRIOS (determinístico, `calcularScoreLeadDeterministico`) p/ leads ativos. `score_lead >= META_QUALIFIED_LEAD_MIN` (default 60) = "QualifiedLead".
-- `META_QUALIFIED_LEAD_MIN`: score mínimo (0-100) p/ um lead virar "qualificado" e disparar `LeadSubmitted` à Meta (default `60`). Reunião agendada também qualifica.
-- `META_DATASET_ID` / `META_CAPI_TOKEN`: conjunto de dados + token da Conversions API do Meta (envio de eventos CTWA). Secretos, só no Railway; sem eles o envio fica desligado.
-- `META_PAGE_ID` (ou `META_WABA_ID`): ID da Página do Facebook dos anúncios CTWA (ou da conta WhatsApp Business). **Obrigatório p/ a CAPI funcionar** — `action_source=business_messaging` exige `page_id` OU `whatsapp_business_account_id` no `user_data` (senão a Meta rejeita com subcode 2804116). Atenção: CTWA só aceita os eventos `LeadSubmitted` (lead qualificado/com reunião) e `Purchase` (venda) — nomes de pixel (Lead/QualifiedLead/Schedule/MeetingCompleted) são rejeitados (subcode 2804066).
+- Atribuição Meta Ads (CTWA) em `src/services/meta-attribution.js`, chamada a cada ~10 min pelo worker (`sincronizarAtribuicaoMetaAds`): captura de qual anúncio cada lead veio (lê `public."Message".contextInfo.externalAdReply`; telefone real em `key.remoteJidAlt`) → grava `vendas.lead_profiles.origem='meta_ads'` + `origem_anuncio` jsonb `{ad_id, ctwa_clid, title, source_url}`; e recalcula `score_lead` por CRITÉRIOS (determinístico, `calcularScoreLeadDeterministico`) p/ leads ativos. **Este módulo NÃO envia nada à Meta** — quem envia é a integração por empresa (bloco abaixo).
+- `META_QUALIFIED_LEAD_MIN`: score mínimo (0-100) p/ um lead contar como "qualificado" no painel de resultados por anúncio (default `60`). Não decide envio.
+- `META_ENC_KEY`: 32 bytes (base64/hex) que cifram em repouso o token da Meta de CADA empresa. Cofre próprio, separado do `FREELANDOO_ENC_KEY`. Em `NODE_ENV=production`, **salvar credencial da Meta é recusado sem ela**.
+- `META_CONVERSOES_PAUSADO`: `on` PAUSA o ciclo inteiro de conversões da Meta (`processarConversoesMeta` retorna antes de consultar o banco: não reconcilia e não envia). Janela de manutenção da atribuição — em especial durante o backfill de `vendas.lead_profiles.empresa_id`: se a empresa de um lead muda entre um tick e outro, o evento sairia com a atribuição antiga, e evento aceito pela Meta **não se estorna**. O ledger não é perdido: o pendente sai no primeiro ciclo depois de despausar. Lida a cada ciclo (não exige restart). Default desligado.
+- **APOSENTADAS** (não são mais lidas por código nenhum): `META_DATASET_ID`, `META_CAPI_TOKEN`, `META_PAGE_ID`, `META_WABA_ID`, `META_CAPI_TEST_CODE`, `META_CAPI_PURCHASE_ENABLED`. Configuravam a integração GLOBAL; hoje tudo isso é por empresa, na tabela `app.meta_integracoes`.
+
+### Meta Conversions — integração MULTITENANT por resultado de reunião
+- **O que mudou e por quê:** a integração anterior era global. `meta-capi.js` lia dataset/token do
+  `process.env` e `dispararEventosMetaPendentes` varria `vendas.lead_profiles` **sem filtro de
+  `empresa_id`** — a conversão de qualquer tenant ia para o dataset de um só. Esse caminho foi
+  **removido**; `vendas.meta_eventos_conversao` vira histórico read-only (nada mais escreve nela).
+- **Credencial por empresa** (`app.meta_integracoes`, UNIQUE por `empresa_id`): dataset, `page_id`
+  **ou** `waba_id`, token cifrado (AES-256-GCM, `services/meta-crypto.js` sobre a fábrica
+  `src/segredos-crypto.js`), `test_event_code` próprio e os 3 eventos habilitáveis
+  independentemente. Estados: `em_teste | ativa | precisa_atencao | desativada`
+  (*não configurada* = ausência de linha). **O token NUNCA é devolvido por rota alguma** — a API
+  expõe só `token_hint` (4 últimos). Ativar exige teste bem-sucedido (regra em
+  `db/meta-integracoes.js`, não na tela).
+- **Mapeamento adotado** (CTWA, `action_source=business_messaging`):
+  `reuniao_agendada`→`LeadSubmitted` · `reuniao_realizada`→`QualifiedLead` ·
+  `reuniao_realizada_com_venda`→`Purchase` (+`value`/`currency`). Três nomes DISTINTOS de
+  propósito — a Meta deduplica por `event_id` e reusar nome apagaria a fase anterior do funil.
+  `cancelada` e `no_show` são resultado **interno** e nunca chegam à Meta. Como o histórico deste
+  repo registra `QualifiedLead` rejeitado (subcode 2804066) numa taxonomia anterior,
+  **"Testar conexão" exercita todos os eventos habilitados em modo teste antes de permitir ativar**.
+- **Resultado da reunião reusa o `status` que já existe** — nenhum enum novo. `concluido` = realizada;
+  `concluido` + `venda_valor > 0` = realizada com venda. Migration `057` só acrescenta
+  `venda_valor`/`venda_moeda`/`venda_registrada_em` em `app.agenda_eventos` (CHECK: ou venda completa,
+  ou nenhuma).
+- **Reconciliador, não gancho nos pontos de negócio:** `services/meta-dispatch.js` LÊ as reuniões por
+  empresa e registra os fatos no ledger; nenhum caminho que cria reunião foi tocado. É idempotente por
+  construção, enxerga também reuniões já existentes, e uma falha aqui não derruba a criação de reunião.
+- **Duas fontes de reunião:** `app.agenda_eventos` (tem `empresa_id`) e `vendas.agenda_eventos` (a do
+  BOT, que **não tem** `empresa_id` — a empresa é resolvida por `vendas.conversas.empresa_id` casando o
+  telefone de `metadata->>'lead_numero'`). Conversa sem empresa resolvida **não gera evento**. Na
+  agenda legada a venda vem de `vendas.conversas.venda_valor` (a mesma linha de onde a empresa saiu) e
+  é creditada só à ÚLTIMA reunião concluída do lead — senão um fechamento viraria duas conversões.
+- **Idempotência pela ENTIDADE, nunca pelo telefone:** `event_id = <ra|rr|rv>:<entidade_tipo>:<id>`,
+  com `UNIQUE (empresa_id, event_id)`. Corrige o modelo antigo (`${telefone}:${event_name}`), que
+  travava em uma venda por telefone para sempre. Duas reuniões do mesmo contato = duas conversões.
+- **Ledger** `app.conversao_eventos` (`pendente|enviado|falhou|ignorado|corrigido`) +
+  `app.conversao_tentativas` (1 linha por tentativa, com código/subcódigo/fbtrace — **nunca o corpo
+  cru da resposta**, que pode ecoar o payload enviado). Reserva por lease de 10 min
+  (`FOR UPDATE SKIP LOCKED` + `proxima_tentativa_em`), envio HTTP FORA da transação, backoff
+  1/5/25/120/360/720 min e teto de 6 tentativas — tudo dentro da janela de 7 dias da Meta. Fato mais
+  velho que 7 dias não entra no ledger (é o que impede a 1ª ativação de despejar meses de histórico).
+- **Correção de valor depois do envio NÃO reenvia:** o primeiro envio aceito é o registro externo
+  válido (a Meta não estorna). O valor novo fica em `valor_corrigido` e o evento vira `corrigido`.
+- **Falha permanente** (token inválido 190, 2804066, 2804116) joga a integração inteira para
+  `precisa_atencao` e interrompe o lote; transitória (5xx/429) volta para a fila com backoff.
+- Código: regras PURAS em `src/services/meta-conversao.js`, transporte em `meta-capi.js`
+  (**recebe config, não lê env**), motor em `meta-dispatch.js` (tick de `agent.js`, junto da
+  atribuição), teste de conexão em `meta-teste-conexao.js`, SQL em `src/db/meta-integracoes.js` e
+  `src/db/conversao-eventos.js`, rotas em `src/routes/api-integracoes-meta.js` (admin-only +
+  `requireEmpresaAccess`; toda escrita vira linha em `app.auditoria_eventos`). Front:
+  `frontend/app/dashboard/integracoes/meta` + `frontend/lib/meta-integracao.js` (+ `.d.ts`/`.test.js`).
+  Testes: `test/meta-conversao.test.js`, `meta-integracoes.test.js`, `meta-dispatch.test.js`.
+- `GET /dashboard/meta/anuncios` (dashboard legado) passou a ser **escopado na PJ Codeworks**;
+  `obterResultadosAnunciosMeta` agora **exige** `empresaId` e lança sem ele.
+
+### `vendas.lead_profiles.empresa_id` — dono real do lead (Fase A do isolamento)
+- **Defeito corrigido:** a migration `006` pôs `DEFAULT '<PJ>'` na coluna (declarando no próprio
+  cabeçalho que sairia "quando o roteamento por instância for ligado" — nunca saiu) e **nenhum**
+  dos 4 caminhos de INSERT informava `empresa_id`. Todo lead de toda empresa nascia marcado como
+  PJ. Efeito real: `meta-dispatch` casa `lp.empresa_id` com a empresa da reunião/conversa, o join
+  não fecha, o lead conta como `sem_atribuicao` e a **conversão CTWA do tenant nunca sai**. Não é
+  vazamento entre tenants (o telefone é único em `vendas.conversas`, e a reunião da empresa B não
+  entra na lista da PJ) — é **perda de conversão**. O painel `obterResultadosAnunciosMeta`, esse
+  sim, contava leads de outros tenants dentro da PJ.
+- **Fonte da verdade: a CONVERSA, dentro do próprio SQL.** `src/db/lead-profile-empresa.js` é o
+  único lugar que sabe escrever essa coluna; os 4 writers (`db-crud.js` `atualizarPerfil`,
+  `learning.js` memória de vendas, `agent.js` `POST /dashboard/apelido` e `capturarNomeContato`)
+  usam o mesmo fragmento. **Não é parâmetro do chamador de propósito**: é exatamente a coluna com
+  que os consumidores casam (`lp.empresa_id = c.empresa_id`), então um parâmetro que discordasse
+  da conversa reintroduziria o bug. `lead_profiles.numero` é `REFERENCES vendas.conversas(numero)`
+  — não existe perfil sem conversa, a fonte está sempre disponível.
+- **PROIBIDO** aceitar `empresa_id`/`empresa_id_origem` vindos de payload: não estão em
+  `LEAD_PROFILE_CAMPOS_PERMITIDOS` e o valor nasce de subconsulta, nunca de entrada externa.
+- **O upsert nunca migra o dono** (mesmo contrato de `salvarConversa`): `ON CONFLICT` só preenche
+  a empresa quando a linha ainda está sem dono. Corrigir linha antiga é trabalho do backfill.
+- **Confiança da atribuição** (`empresa_id_origem`, migration `058`): `conversa_confirmada` (a
+  empresa veio da conversa **e** a instância WhatsApp dela aponta para a mesma empresa) ·
+  `conversa_nao_confirmada` (veio da conversa, mas nada confirmou: sem instância, instância não
+  mapeada, ou fallback da PJ) · `NULL` (linha anterior à correção). É o que permitirá à Meta
+  **recusar** atribuição frouxa sem remover o fallback agora. **A confirmação pela instância é
+  obrigatória, "veio da conversa" não basta:** medido em produção (2026-08-08), das 6 conversas
+  marcadas como PJ apenas **1** é PJ de verdade — 2 sem instância e 3 com instância não mapeada.
+  **Quem** escreveu o valor (atendimento ou backfill) não entra nesta coluna: esse rastro é
+  auditoria e vive em `vendas.lead_profiles_empresa_backfill`.
+- **Migration `058_lead_profiles_empresa.sql`** (aditiva, não muta dado): tira o `DEFAULT` da PJ,
+  cria `empresa_id_origem` (CHECK fechado), o índice `(empresa_id, numero)` e a tabela
+  `vendas.lead_profiles_empresa_backfill` (o "antes" de cada linha = rollback do backfill).
+  `empresa_id` **não** virou `NOT NULL` (linhas antigas com NULL derrubariam o boot) e
+  `UNIQUE (numero)` **não** foi tocado.
+- **Correção histórica:** `npm run backfill:lead-profiles-empresa` **simula** (padrão, não grava);
+  `-- --aplicar` grava. Idempotente, keyset por `id`, **um COMMIT por lote** (nunca um UPDATE
+  massivo em transação única), sem chamada externa, com relatório sem PII e SQL de rollback
+  impresso ao final. Perfil sem conversa ou conversa sem empresa: **nada é alterado** — inventar
+  dono seria pior. **Pause a Meta (`META_CONVERSOES_PAUSADO=on`) antes de aplicar em produção.**
+- **Medição read-only:** `npm run medir:isolamento-empresa` (usa a `DATABASE_URL` do ambiente).
+  Roda em `BEGIN TRANSACTION READ ONLY` + `ROLLBACK`, imprime **só contagens agregadas** e
+  mascara até o id da empresa. Nenhum telefone, nome, token ou mensagem sai dele.
 
 ### Captação social (Bright Data — Instagram agora, LinkedIn no mesmo motor)
 - `BRIGHTDATA_API_TOKEN`: token da Bright Data Web Scraper / Dataset API. **Sem ele o canal de captação fica desligado** (worker não roda) e a **Aquisição** (busca de leads via Maps) também. Mesmo token serve Instagram, LinkedIn e Google Maps.

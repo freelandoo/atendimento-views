@@ -1,45 +1,62 @@
 'use strict'
 
-// Enviador de eventos de conversão para a Meta (Conversions API / Click-to-WhatsApp).
-// Manda eventos de funil (Lead, QualifiedLead, Schedule, MeetingCompleted, Purchase) com
-// o ctwa_clid do lead → a Meta atribui ao anúncio e otimiza a entrega.
+// Enviador de UM evento de conversão para a Meta (Conversions API / Click-to-WhatsApp).
 //
-// Liga-se SÓ se META_DATASET_ID + META_CAPI_TOKEN estiverem no ambiente (Railway). Sem
-// eles, fica desligado (no-op) — nada é enviado. META_CAPI_TEST_CODE: se setado, manda
-// como evento de TESTE (aparece em "Testar eventos" do Gerenciador de Eventos).
+// MUDANÇA ESTRUTURAL (integração multitenant): este módulo NÃO lê mais
+// META_DATASET_ID / META_CAPI_TOKEN / META_PAGE_ID do processo. Ele recebe a `config`
+// da EMPRESA dona do evento como argumento. Enquanto a credencial vinha do ambiente,
+// não havia como um segundo tenant existir sem que a conversão dele fosse parar no
+// dataset do primeiro — que é exatamente o vazamento que esta integração corrige.
+//
+// Continua sendo transporte puro: não decide o que enviar, não lê banco, não deduplica.
+// Quem decide é meta-conversao.js (regras) + meta-dispatch.js (orquestração).
 
 const axiosDefault = require('axios')
 
 const META_API_VERSION = process.env.META_CAPI_API_VERSION || 'v21.0'
 
-function capiConfigurado() {
-  return Boolean(
-    String(process.env.META_DATASET_ID || '').trim() &&
-    String(process.env.META_CAPI_TOKEN || '').trim()
-  )
+/**
+ * A configuração de uma empresa é utilizável?
+ * @param {object} config { datasetId, token, pageId, wabaId }
+ */
+function configValida(config = {}) {
+  const dataset = String(config.datasetId || '').trim()
+  const token = String(config.token || '').trim()
+  const destino = String(config.pageId || '').trim() || String(config.wabaId || '').trim()
+  return Boolean(dataset && token && destino)
 }
 
 /**
- * Envia UM evento de conversão à Meta. Retorna {ok, status, data} ou {ok:false, ...}.
- * Nunca lança — erro é capturado e devolvido (o chamador registra no ledger).
+ * Envia UM evento à Meta. NUNCA lança: devolve { ok, ... } e o chamador grava a
+ * tentativa no ledger. O erro vem estruturado (código/subcódigo/fbtrace) porque é
+ * disso que sai a mensagem que o operador lê na tela — a mensagem genérica da Meta
+ * ("Invalid parameter") não diz nada a ninguém.
+ *
+ * @param {object} config { datasetId, token, pageId, wabaId, testEventCode, apiVersion }
+ * @param {object} evt    { eventName, eventId, ctwaClid, eventTime, value, currency }
+ * @param {object} deps   { axios, logger }
  */
-async function enviarEventoMetaCAPI(evt = {}, deps = {}) {
+async function enviarEventoMetaCAPI(config = {}, evt = {}, deps = {}) {
   const logger = deps.logger || console
   const axios = deps.axios || axiosDefault
-  if (!capiConfigurado()) return { ok: false, motivo: 'capi_desligado' }
+
+  if (!configValida(config)) return { ok: false, motivo: 'config_invalida' }
   if (!evt.ctwaClid) return { ok: false, motivo: 'sem_ctwa_clid' }
+  if (!evt.eventName) return { ok: false, motivo: 'sem_event_name' }
 
-  const datasetId = String(process.env.META_DATASET_ID).trim()
-  const token = String(process.env.META_CAPI_TOKEN).trim()
-  const url = `https://graph.facebook.com/${META_API_VERSION}/${datasetId}/events`
+  const apiVersion = String(config.apiVersion || META_API_VERSION).trim()
+  const datasetId = String(config.datasetId).trim()
+  const token = String(config.token).trim()
+  const url = `https://graph.facebook.com/${apiVersion}/${datasetId}/events`
 
-  // CTWA exige page_id OU whatsapp_business_account_id no user_data (subcode 2804116):
-  // sem isso a Meta rejeita o evento. page_id é o da Página que roda os anúncios.
+  // CTWA exige page_id OU whatsapp_business_account_id no user_data (subcode 2804116).
+  // Para WhatsApp a documentação pede o WABA; page_id serve o caminho Messenger. Por
+  // isso o WABA tem precedência quando os dois estiverem preenchidos.
   const userData = { ctwa_clid: evt.ctwaClid }
-  const pageId = String(process.env.META_PAGE_ID || '').trim()
-  const wabaId = String(process.env.META_WABA_ID || '').trim()
-  if (pageId) userData.page_id = pageId
-  else if (wabaId) userData.whatsapp_business_account_id = wabaId
+  const wabaId = String(config.wabaId || '').trim()
+  const pageId = String(config.pageId || '').trim()
+  if (wabaId) userData.whatsapp_business_account_id = wabaId
+  else if (pageId) userData.page_id = pageId
 
   const evento = {
     event_name: evt.eventName,
@@ -54,36 +71,52 @@ async function enviarEventoMetaCAPI(evt = {}, deps = {}) {
   }
 
   const body = { data: [evento], access_token: token }
-  const testCode = String(process.env.META_CAPI_TEST_CODE || '').trim()
+  // Modo teste POR EMPRESA: os eventos aparecem em "Testar eventos" do Gerenciador e
+  // não entram na otimização. Antes isso era um env global — um tenant não conseguia
+  // testar sem contaminar os outros.
+  const testCode = String(config.testEventCode || '').trim()
   if (testCode) body.test_event_code = testCode
 
+  const inicio = Date.now()
   try {
     const resp = await axios.post(url, body, { timeout: 15000 })
-    return { ok: true, status: resp.status, data: resp.data }
+    return { ok: true, status: resp.status, duracaoMs: Date.now() - inicio, data: resp.data }
   } catch (e) {
-    // Captura o detalhe real do erro da Meta (não só "Invalid parameter"): o motivo
-    // específico vem em error_subcode / error_user_title / error_user_msg / error_data.
-    // Sem isso, todo erro vira a mensagem genérica e fica impossível diagnosticar.
-    const apiErr = e.response?.data?.error
-    const erro = apiErr
-      ? {
-          message: apiErr.message || null,
-          type: apiErr.type || null,
-          code: apiErr.code ?? null,
-          error_subcode: apiErr.error_subcode ?? null,
-          error_user_title: apiErr.error_user_title || null,
-          error_user_msg: apiErr.error_user_msg || null,
-          error_data: apiErr.error_data || null,
-          fbtrace_id: apiErr.fbtrace_id || null,
-        }
-      : (e.response?.data || e.message)
-    logger.warn?.({ operation: 'meta_capi', etapa: 'envio_erro', eventName: evt.eventName, erro })
-    return { ok: false, motivo: 'erro_api', erro }
+    const apiErr = e.response?.data?.error || null
+    const erro = {
+      codigo: apiErr?.code ?? null,
+      subcodigo: apiErr?.error_subcode ?? null,
+      fbtraceId: apiErr?.fbtrace_id || null,
+      // Título/mensagem "user" da Meta são os campos pensados para exibição; ainda
+      // assim eles NÃO vão para a tela crus (meta-conversao.mensagemDeErro traduz a
+      // partir do código). Ficam aqui só para o diagnóstico do log.
+      titulo: apiErr?.error_user_title || null,
+      tipo: apiErr?.type || null,
+    }
+    // Log sem token, sem ctwa_clid, sem telefone e sem o corpo cru da resposta — a
+    // resposta da Meta pode ecoar o que foi enviado, e o que foi enviado identifica
+    // uma pessoa.
+    logger.warn?.({
+      operation: 'meta_capi',
+      etapa: 'envio_erro',
+      event_name: evt.eventName,
+      http_status: e.response?.status ?? null,
+      erro_codigo: erro.codigo,
+      erro_subcodigo: erro.subcodigo,
+      fbtrace_id: erro.fbtraceId,
+    })
+    return {
+      ok: false,
+      motivo: 'erro_api',
+      status: e.response?.status ?? null,
+      duracaoMs: Date.now() - inicio,
+      erro,
+    }
   }
 }
 
 module.exports = {
   META_API_VERSION,
-  capiConfigurado,
+  configValida,
   enviarEventoMetaCAPI,
 }

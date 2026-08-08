@@ -1,15 +1,15 @@
 'use client'
 import { useEffect } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useSession, podePapel } from '@/lib/useSession'
 
 // Configurações › Integrações — PONTO DE ENTRADA.
 //
 // Esta página existe para que integrações novas não virem item solto no menu principal:
-// elas entram como card aqui dentro. Nesta fase ela é 100% estática — nenhuma chamada ao
-// backend, nenhum campo de credencial, nenhum token. O backend multitenant da Meta CAPI
-// está declarado como fora de escopo (ver docs/analise-integracao-meta-multitenant.md,
-// seção 14, que descreve a tela completa a ser construída depois).
+// elas entram como card aqui dentro. Ela continua sem chamar o backend e sem tocar em
+// credencial — quem configura a Meta é a página filha `integracoes/meta`, que é onde o
+// token trafega.
 //
 // A proteção real é do backend; o guard abaixo só evita mostrar a tela a quem não opera.
 
@@ -21,15 +21,17 @@ type Integracao = {
   descricao: string
   estado: Estado
   icone: 'meta' | 'crm' | 'agenda' | 'pagamentos' | 'anuncios'
+  href?: string
 }
 
 const INTEGRACOES: Integracao[] = [
   {
     id: 'meta-conversions',
     nome: 'Meta Conversions',
-    descricao: 'Envia reunião marcada e venda fechada para o Meta Ads, com as credenciais da sua empresa, para o anúncio aprender com quem realmente comprou.',
-    estado: 'em_breve',
+    descricao: 'Envia o resultado das suas reuniões para o Meta Ads, com as credenciais da sua empresa, para o anúncio aprender com quem realmente fechou.',
+    estado: 'disponivel',
     icone: 'meta',
+    href: '/dashboard/integracoes/meta',
   },
 ]
 
@@ -77,14 +79,23 @@ export default function IntegracoesPage() {
                 <p className="mt-1.5 text-sm text-slate-600">{it.descricao}</p>
               </div>
             </div>
-            <button
-              type="button"
-              disabled
-              title="Disponível em breve"
-              className="mt-4 w-full cursor-not-allowed rounded-lg border bg-slate-50 px-4 py-2 text-sm font-medium text-slate-400"
-            >
-              Configurar
-            </button>
+            {it.href ? (
+              <Link
+                href={it.href}
+                className="mt-4 block rounded-lg bg-slate-900 px-4 py-2 text-center text-sm font-medium text-white hover:bg-slate-800"
+              >
+                Configurar
+              </Link>
+            ) : (
+              <button
+                type="button"
+                disabled
+                title="Disponível em breve"
+                className="mt-4 w-full cursor-not-allowed rounded-lg border bg-slate-50 px-4 py-2 text-sm font-medium text-slate-400"
+              >
+                Configurar
+              </button>
+            )}
           </article>
         ))}
       </div>

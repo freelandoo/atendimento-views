@@ -110,6 +110,10 @@ app.use('/api/empresas/:empresaId/nichos', requireAuth, requireRole('admin'), re
 app.use('/api/empresas/:empresaId/campanhas', requireAuth, requireRole('admin'), require('./src/routes/api-campanhas'))
 app.use('/api/empresas/:empresaId/ligacoes', requireAuth, requireRole('admin'), require('./src/routes/api-ligacoes'))
 app.use('/api/empresas/:empresaId/agenda', require('./src/routes/api-agenda'))
+// Configurações › Integrações › Meta Conversions. Admin-only + requireEmpresaAccess
+// por rota: a credencial da Meta é de terceiro e não pode ser vista/editada por
+// membro comum nem por admin de outra empresa.
+app.use('/api/empresas/:empresaId/integracoes/meta', requireAuth, requireRole('admin'), require('./src/routes/api-integracoes-meta'))
 app.use('/api/empresas/:empresaId/relatorios', requireAuth, requireRole('admin'), require('./src/routes/api-relatorios'))
 app.use('/api/empresas/:empresaId/agente-pj', require('./src/routes/api-agente-pj'))
 app.use('/api/llm', requireAuth, requireRole('admin'), require('./src/routes/api-llm'))

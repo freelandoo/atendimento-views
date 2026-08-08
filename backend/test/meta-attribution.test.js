@@ -3,8 +3,10 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { calcularScoreLeadDeterministico, leadQualificado, eventosDevidos, obterResultadosAnunciosMeta } = require('../src/services/meta-attribution')
-const { enviarEventoMetaCAPI } = require('../src/services/meta-capi')
+const { calcularScoreLeadDeterministico, leadQualificado, obterResultadosAnunciosMeta } = require('../src/services/meta-attribution')
+const { enviarEventoMetaCAPI, configValida } = require('../src/services/meta-capi')
+
+const EMPRESA_A = '00000000-0000-0000-0000-0000000000aa'
 
 test('score: lead forte (negócio+dor+sem site+intenção+engajado+estágio) é alto e qualificado', () => {
   const s = calcularScoreLeadDeterministico(
@@ -47,71 +49,97 @@ test('score: nunca passa de 100 nem fica negativo', () => {
   assert.ok(cheio <= 100 && cheio >= 0)
 })
 
-test('eventosDevidos: sem ctwa_clid não envia nada', () => {
-  assert.deepEqual(eventosDevidos({ ctwaClid: null, score: 90, temReuniao: true }), [])
-})
+// --- meta-capi.js: transporte por CONFIG, nunca por variável de ambiente ---------
 
-test('eventosDevidos: lead qualificado (CTWA só aceita LeadSubmitted) → 1 evento', () => {
-  const due = eventosDevidos({ ctwaClid: 'X', score: 65, temReuniao: true, reuniaoConcluida: true, jaEnviados: [] })
-  assert.deepEqual(due.map((e) => e.eventName), ['LeadSubmitted'])
-})
-
-test('eventosDevidos: reunião agendada qualifica mesmo com score baixo; não repete o já enviado', () => {
-  const comReuniao = eventosDevidos({ ctwaClid: 'X', score: 40, temReuniao: true, jaEnviados: [] })
-  assert.deepEqual(comReuniao.map((e) => e.eventName), ['LeadSubmitted']) // reunião torna lead real
-  const jaMandado = eventosDevidos({ ctwaClid: 'X', score: 65, temReuniao: true, jaEnviados: ['LeadSubmitted'] })
-  assert.deepEqual(jaMandado.map((e) => e.eventName), []) // não repete
-  const semFit = eventosDevidos({ ctwaClid: 'X', score: 40, temReuniao: false, jaEnviados: [] })
-  assert.deepEqual(semFit.map((e) => e.eventName), []) // score<60 e sem reunião não qualifica
-})
-
-test('eventosDevidos: Purchase só quando ativo, com valor', () => {
-  const off = eventosDevidos({ ctwaClid: 'X', score: 10, purchaseAtivo: false, valorVenda: 500, jaEnviados: ['Lead'] })
-  assert.deepEqual(off.map((e) => e.eventName), [])
-  const on = eventosDevidos({ ctwaClid: 'X', score: 10, purchaseAtivo: true, valorVenda: 500, jaEnviados: ['Lead'] })
-  assert.deepEqual(on.map((e) => e.eventName), ['Purchase'])
-  assert.equal(on[0].value, 500)
-  assert.equal(on[0].currency, 'BRL')
-})
-
-test('enviarEventoMetaCAPI: desligado sem dataset/token', async () => {
-  delete process.env.META_DATASET_ID
-  delete process.env.META_CAPI_TOKEN
-  const r = await enviarEventoMetaCAPI({ eventName: 'Lead', ctwaClid: 'X', eventId: '1:Lead' })
-  assert.equal(r.ok, false)
-  assert.equal(r.motivo, 'capi_desligado')
-})
-
-test('enviarEventoMetaCAPI: monta o payload CTWA correto e envia', async () => {
+test('meta-capi: variável de ambiente NÃO liga mais o envio (config é obrigatória)', async () => {
+  // Regressão do vazamento entre tenants: enquanto o dataset/token vinham do
+  // processo, qualquer chamada mandava evento para a conta de um tenant só.
   process.env.META_DATASET_ID = '1572278814315441'
-  process.env.META_CAPI_TOKEN = 'tok-fake'
-  let capturado = null
-  const axiosFake = { post: async (url, body) => { capturado = { url, body }; return { status: 200, data: { events_received: 1 } } } }
+  process.env.META_CAPI_TOKEN = 'tok-do-processo'
   try {
-    const r = await enviarEventoMetaCAPI(
-      { eventName: 'Schedule', ctwaClid: 'CLID123', eventId: '5511:Schedule' },
-      { axios: axiosFake }
-    )
-    assert.equal(r.ok, true)
-    assert.match(capturado.url, /1572278814315441\/events/)
-    const evt = capturado.body.data[0]
-    assert.equal(evt.event_name, 'Schedule')
-    assert.equal(evt.action_source, 'business_messaging')
-    assert.equal(evt.messaging_channel, 'whatsapp')
-    assert.equal(evt.user_data.ctwa_clid, 'CLID123')
-    assert.equal(evt.event_id, '5511:Schedule')
-    assert.equal(capturado.body.access_token, 'tok-fake')
+    let chamou = false
+    const axiosFake = { post: async () => { chamou = true; return { status: 200, data: {} } } }
+    const r = await enviarEventoMetaCAPI({}, { eventName: 'LeadSubmitted', ctwaClid: 'X', eventId: 'e1' }, { axios: axiosFake })
+    assert.equal(r.ok, false)
+    assert.equal(r.motivo, 'config_invalida')
+    assert.equal(chamou, false, 'não pode chamar a Meta sem config da empresa')
   } finally {
     delete process.env.META_DATASET_ID
     delete process.env.META_CAPI_TOKEN
   }
 })
 
-test('obterResultadosAnunciosMeta: mapeia linhas e deriva ativo (leads_7d > 0)', async () => {
+test('meta-capi: configValida exige dataset, token e um destino (page ou waba)', () => {
+  assert.equal(configValida({ datasetId: '123456', token: 't' }), false) // sem destino
+  assert.equal(configValida({ datasetId: '123456', pageId: 'p' }), false) // sem token
+  assert.equal(configValida({ token: 't', pageId: 'p' }), false) // sem dataset
+  assert.equal(configValida({ datasetId: '123456', token: 't', pageId: 'p' }), true)
+  assert.equal(configValida({ datasetId: '123456', token: 't', wabaId: 'w' }), true)
+})
+
+test('meta-capi: monta o payload CTWA com a credencial DA EMPRESA', async () => {
+  let capturado = null
+  const axiosFake = { post: async (url, body) => { capturado = { url, body }; return { status: 200, data: { events_received: 1 } } } }
+  const r = await enviarEventoMetaCAPI(
+    { datasetId: '1572278814315441', token: 'tok-empresa-A', wabaId: 'WABA-A', testEventCode: 'TEST1' },
+    { eventName: 'LeadSubmitted', ctwaClid: 'CLID123', eventId: 'ra:agenda_app:99', eventTime: 1700000000 },
+    { axios: axiosFake }
+  )
+  assert.equal(r.ok, true)
+  assert.match(capturado.url, /1572278814315441\/events/)
+  const evt = capturado.body.data[0]
+  assert.equal(evt.event_name, 'LeadSubmitted')
+  assert.equal(evt.action_source, 'business_messaging')
+  assert.equal(evt.messaging_channel, 'whatsapp')
+  assert.equal(evt.user_data.ctwa_clid, 'CLID123')
+  // WhatsApp: a documentação pede o WABA; page_id serve o caminho Messenger.
+  assert.equal(evt.user_data.whatsapp_business_account_id, 'WABA-A')
+  assert.equal(evt.user_data.page_id, undefined)
+  assert.equal(evt.event_id, 'ra:agenda_app:99')
+  assert.equal(evt.event_time, 1700000000)
+  assert.equal(capturado.body.access_token, 'tok-empresa-A')
+  assert.equal(capturado.body.test_event_code, 'TEST1')
+})
+
+test('meta-capi: erro da Meta volta estruturado e o corpo cru NÃO é devolvido', async () => {
+  const axiosFake = {
+    post: async () => {
+      const e = new Error('Request failed')
+      e.response = {
+        status: 400,
+        data: { error: { message: 'Invalid parameter', code: 190, error_subcode: 2804116, fbtrace_id: 'FB1', error_user_msg: 'eco do payload com ctwa_clid' } },
+      }
+      throw e
+    },
+  }
+  const r = await enviarEventoMetaCAPI(
+    { datasetId: '123456', token: 't', wabaId: 'w' },
+    { eventName: 'Purchase', ctwaClid: 'X', eventId: 'rv:agenda_app:1' },
+    { axios: axiosFake, logger: { warn() {} } }
+  )
+  assert.equal(r.ok, false)
+  assert.equal(r.status, 400)
+  assert.equal(r.erro.codigo, 190)
+  assert.equal(r.erro.subcodigo, 2804116)
+  assert.equal(r.erro.fbtraceId, 'FB1')
+  // A mensagem "user" da Meta pode ecoar o payload enviado — ela não pode subir crua.
+  assert.equal(r.erro.error_user_msg, undefined)
+  assert.equal(JSON.stringify(r).includes('eco do payload'), false)
+})
+
+test('obterResultadosAnunciosMeta: exige empresaId (sem ele, devolvia todos os tenants)', async () => {
+  const poolFake = { query: async () => { throw new Error('não deveria consultar') } }
+  await assert.rejects(() => obterResultadosAnunciosMeta(poolFake), /empresaId/)
+  await assert.rejects(() => obterResultadosAnunciosMeta(poolFake, {}), /empresaId/)
+})
+
+test('obterResultadosAnunciosMeta: mapeia linhas, filtra por empresa e deriva ativo', async () => {
   const poolFake = {
     query: async (sql, params) => {
       assert.match(sql, /lead_profiles/)
-      assert.deepEqual(params, [60]) // QUALIFIED_LEAD_MIN default
+      // O filtro por empresa é parte da consulta, não um detalhe de chamada.
+      assert.match(sql, /p\.empresa_id = \$2/)
+      assert.deepEqual(params, [60, EMPRESA_A]) // QUALIFIED_LEAD_MIN default + empresa
       return {
         rows: [
           { ad_id: 'A1', titulo: 'Anúncio bom', leads: 64, qualificados: 9, reunioes: 8, reunioes_concluidas: 1, primeiro_contato: '2026-05-10', ultimo_contato: '2026-06-12', leads_7d: 17 },
@@ -120,7 +148,7 @@ test('obterResultadosAnunciosMeta: mapeia linhas e deriva ativo (leads_7d > 0)',
       }
     },
   }
-  const out = await obterResultadosAnunciosMeta(poolFake)
+  const out = await obterResultadosAnunciosMeta(poolFake, { empresaId: EMPRESA_A })
   assert.equal(out.length, 2)
   assert.equal(out[0].ad_id, 'A1')
   assert.equal(out[0].leads, 64)

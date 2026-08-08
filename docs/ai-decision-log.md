@@ -11,6 +11,116 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-07 — `vendas.lead_profiles.empresa_id` real (migration 058, Fase A)
+
+Fase A do isolamento por empresa da Meta. A migration `006` pôs `DEFAULT '<PJ>'` na coluna —
+declarando no próprio cabeçalho que o default sairia "quando o roteamento por instância for
+ligado" — e nenhum dos 4 caminhos de INSERT informava `empresa_id`. Todo lead de toda empresa
+nasceu marcado como PJ. Decisões, com o porquê:
+
+- **O dono do perfil vem da CONVERSA, dentro do próprio SQL — não de um parâmetro dos ~20
+  chamadores.** É exatamente a coluna com que os consumidores casam
+  (`lp.empresa_id = c.empresa_id` em `meta-dispatch.js`): um parâmetro que discordasse da
+  conversa reintroduziria o bug que a correção existe para fechar. Como `lead_profiles.numero`
+  é `REFERENCES vendas.conversas(numero)`, não existe perfil sem conversa e a fonte está sempre
+  disponível no INSERT. Bônus: nem a IA nem as rotas alcançam o campo (não está na whitelist e o
+  valor nasce de subconsulta), e o diff em caminho de produção é mínimo — nenhuma assinatura
+  mudou. Fonte única: `src/db/lead-profile-empresa.js`.
+- **O upsert nunca migra o dono**, replicando o contrato de `salvarConversa`: `ON CONFLICT` só
+  preenche a empresa quando a linha ainda está sem dono. Corrigir linha antiga no meio do
+  atendimento seria um UPDATE silencioso e não auditável — é trabalho do backfill, com
+  simulação, lote e rollback.
+- **O fallback da PJ FICA, mas passa a ser rastreável.** Removê-lo agora quebraria conversas de
+  instância não mapeada. Em vez disso, `empresa_id_origem` grava **a confiança** da atribuição
+  (`conversa_confirmada` | `conversa_nao_confirmada` | `NULL` = legado), permitindo à Fase B
+  recusar o que é frouxo sem que o fallback precise sumir hoje.
+- **A confiança exige confirmação pela INSTÂNCIA — "veio da conversa" não basta.** Esta decisão
+  foi corrigida *depois* da medição, e a medição é o motivo: das 6 conversas marcadas como PJ em
+  produção, apenas **1** é PJ de verdade (2 sem instância, 3 com instância não mapeada). O
+  desenho original carimbaria as outras 5 como "veio da conversa", entregando à Fase B uma
+  confiança inventada — 3 dos 4 perfis pendurados nessas conversas. O carimbo passou a testar
+  `i.empresa_id = c.empresa_id` via `app.empresa_whatsapp_instances`. Custo: dois lookups por
+  índice único no caminho quente do atendimento. Simulação em produção depois da correção: 18
+  confiáveis, 3 não confiáveis — casando exatamente com a medição.
+- **A coluna não registra QUEM escreveu** (atendimento vs. backfill), só o quanto se confia.
+  Misturar autoria com semântica obrigaria a duplicar cada valor; a autoria já está em
+  `vendas.lead_profiles_empresa_backfill`, com `execucao_id`.
+- **O que mediu o tamanho real do defeito:** ele NÃO vaza entre tenants. O telefone é único em
+  `vendas.conversas`, então a reunião da empresa B não entra na lista da PJ; o que acontece é o
+  join de atribuição não fechar, o lead cair em `sem_atribuicao` e a **conversão do tenant nunca
+  sair**. O prejuízo é perda de conversão, não mistura. (O painel legado
+  `obterResultadosAnunciosMeta`, esse sim, contava leads de outros tenants dentro da PJ.)
+- **Backfill é script separado, nunca migration.** Migration que muta base inteira roda no boot
+  do Railway e trava o start. O script simula por padrão, corre por keyset com **um COMMIT por
+  lote**, guarda o valor anterior em `vendas.lead_profiles_empresa_backfill` na MESMA transação e
+  imprime o SQL de rollback. Perfil sem conversa ou conversa sem empresa: **nada é alterado** —
+  inventar dono é pior do que deixar visível que ninguém sabe.
+- **Válvula `META_CONVERSOES_PAUSADO`.** Se a empresa de um lead muda entre um tick e o outro, o
+  motor mandaria a conversão com a atribuição antiga — e evento aceito pela Meta não se estorna.
+  A pausa interrompe o ciclo INTEIRO (reconciliação inclusive) antes de tocar no banco; o ledger
+  não é perdido. Alternativa descartada: pausar só o envio — a reconciliação já grava o fato com
+  a empresa lida naquele instante.
+- **Dívida técnica declarada:** `UNIQUE (numero)` continua GLOBAL em `vendas.lead_profiles` (e em
+  `vendas.conversas`). Enquanto for assim, o mesmo telefone não pode existir em duas empresas —
+  é o que torna "a conversa é o dono" uma regra segura hoje, e é exatamente o que a Fase C
+  (dimensão instância) terá de enfrentar. Migrar para `UNIQUE (empresa_id, numero)` está fora
+  desta fase por decisão explícita do pedido.
+
+---
+
+## 2026-08-07 — Meta Conversions multitenant por resultado de reunião (migration 057)
+
+Substituição da integração Meta CAPI **global** (que já rodava em produção) por uma integração
+**isolada por empresa**. O caminho antigo lia dataset/token do `process.env` e varria
+`vendas.lead_profiles` sem filtro de `empresa_id`: a conversão de qualquer tenant ia para o
+dataset de um só. Decisões, com o porquê:
+
+- **Resultado da reunião reusa o `status` que já existe** (aprovada pelo Victor entre 3 opções).
+  `concluido` = realizada; `concluido` + `venda_valor > 0` = realizada com venda; `cancelado` e
+  `nao_compareceu` continuam internos. A alternativa (coluna `resultado` própria) criaria um
+  segundo enum sobre o MESMO fato — duas verdades para a mesma reunião, que é a duplicação que o
+  AGENTS.md proíbe. A migration `057` só acrescenta `venda_valor`/`venda_moeda`/
+  `venda_registrada_em` em `app.agenda_eventos`, com CHECK de "venda completa ou nenhuma": venda
+  pela metade viraria `Purchase` de receita zero, corrompendo o ROAS do anunciante em silêncio.
+- **Reunião do BOT resolve empresa por `vendas.conversas.empresa_id`** (aprovada). A tabela
+  `vendas.agenda_eventos` não tem `empresa_id` — e é por ela que passa o lead de anúncio. Cobrir só
+  `app.agenda_eventos` daria isolamento perfeito e uma integração que quase nunca dispara. Conversa
+  sem empresa resolvida não gera evento. **Risco residual declarado:** instância Evolution não
+  mapeada cai no fallback da PJ (`middleware/tenant.js:78`) e isso é indistinguível depois do fato.
+- **Mapeamento em 3 eventos padrão distintos** (aprovada): `LeadSubmitted` / `QualifiedLead` /
+  `Purchase`. A documentação vigente da Meta lista os três na taxonomia `business_messaging`, mas
+  o AGENTS.md registra `QualifiedLead` REJEITADO em produção (subcode 2804066) numa versão
+  anterior. Por isso **"Testar conexão" exercita cada evento habilitado em modo teste e a ativação
+  fica bloqueada até o teste passar** — a divergência é descoberta no teste, não em produção.
+- **Superadmin continua passando** (aprovada), como em todo o resto do sistema. Mitigação: o token
+  não é devolvido nem para ele, e toda escrita/ativação/remoção vira linha em
+  `app.auditoria_eventos`.
+- **Reconciliador, não gancho nos pontos de negócio.** A análise prévia propunha chamar
+  `registrarConversao` dentro de `handoff-alerts.js`, `ligacoes.js`, `agenda-multiempresa.js` e
+  `agenda.js`. Preferi um worker que LÊ as reuniões: zero código novo dentro de transações que
+  criam reunião em produção (um bug ali viraria reunião não criada), idempotente por construção, e
+  enxerga o que já existia. Custo aceito: o fato vira evento no próximo tick, irrelevante para uma
+  janela de atribuição de 7 dias.
+- **Idempotência pela ENTIDADE + tipo, nunca pelo telefone.**
+  `event_id = <ra|rr|rv>:<entidade_tipo>:<id>` com `UNIQUE (empresa_id, event_id)`. O modelo antigo
+  (`${telefone}:${event_name}`) permitia **uma venda por telefone, para sempre**.
+- **Correção de valor pós-envio não reenvia.** O primeiro envio aceito é o registro externo válido
+  (a Meta não estorna); o valor novo vai para `valor_corrigido` e o evento vira `corrigido`.
+  Reenviar valor corrigido é como se infla ROAS sem ninguém perceber.
+- **Janela de 7 dias no reconciliador.** Fato mais velho não entra no ledger. Além de ser o limite
+  da Meta, é o que impede a PRIMEIRA ativação de despejar meses de reuniões antigas no Gerenciador.
+- **Cofres de segredo separados, sem duplicar código.** `src/segredos-crypto.js` virou fábrica
+  genérica; `freelandoo/crypto.js` passou a usá-la mantendo prefixo (`fl1`), salt e ordem de envs
+  IDÊNTICOS (o que já está cifrado segue legível), e a Meta ganhou `mt1` + `META_ENC_KEY`. Em
+  produção, salvar credencial da Meta sem `META_ENC_KEY` é **recusado**: derivar de `JWT_SECRET`
+  faria uma rotação de JWT tornar ilegível o token de todos os tenants de uma vez.
+- **Dívida técnica declarada:** na agenda legada a venda não tem moeda nem carimbo de tempo
+  próprio (`vendas.conversas.venda_valor` é do painel single-tenant). Assumimos `BRL` e usamos
+  `COALESCE(concluido_em, data_fim)` como momento do fato. A saída, quando incomodar, é migrar
+  esse fechamento para `app.agenda_eventos.venda_valor`, que já existe.
+
+---
+
 ## 2026-08-07 — Navegação do painel por seções (grupos + drawer mobile + Integrações)
 
 Mudança de APRESENTAÇÃO: nenhum arquivo de `backend/`, nenhuma migration, nenhuma env, nenhuma

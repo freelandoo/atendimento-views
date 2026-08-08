@@ -3,6 +3,12 @@
 // Constantes do motor central. Antes este modulo chamava Anthropic diretamente;
 // agora usa aiProvider.generateAIResponse para respeitar a configuracao do Motor de IA.
 
+const {
+  EMPRESA_PADRAO_PJ,
+  insertEmpresa: insertEmpresaLeadProfile,
+  conflitoEmpresa: conflitoEmpresaLeadProfile,
+} = require('./db/lead-profile-empresa')
+
 const LEAD_COACH_MAX_TRANSCRIPT_CHARS = 14000
 
 function createLearning(deps = {}) {
@@ -801,18 +807,23 @@ function createLearning(deps = {}) {
   async function atualizarCamadaMemoriaVendasPosResposta(numero, historico, perfil, estagio, textoEnviado) {
     const resumo = montarResumoMemoriaVendas(historico, perfil, estagio)
     const { totalDetectado, divergente } = avaliarDivergenciaPrecoIaNoTexto(perfil, textoEnviado)
+    // Este INSERT também pode CRIAR o perfil (ON CONFLICT), então precisa gravar a
+    // empresa vinda da conversa — senão a linha nasceria sem dono agora que o DEFAULT
+    // da PJ saiu (migration 058). Ver src/db/lead-profile-empresa.js.
+    const empresa = insertEmpresaLeadProfile('$1', '$5')
     await pool.query(
       `
-      INSERT INTO vendas.lead_profiles (numero, resumo_memoria_vendas, memoria_vendas_versao, ia_total_projeto_detectado_ultima_resposta, preco_ia_divergente_motor)
-      VALUES ($1, $2, 1, $3, $4)
+      INSERT INTO vendas.lead_profiles (numero, resumo_memoria_vendas, memoria_vendas_versao, ia_total_projeto_detectado_ultima_resposta, preco_ia_divergente_motor, ${empresa.colunas})
+      VALUES ($1, $2, 1, $3, $4, ${empresa.valores})
       ON CONFLICT (numero) DO UPDATE SET
         resumo_memoria_vendas = EXCLUDED.resumo_memoria_vendas,
         memoria_vendas_versao = COALESCE(vendas.lead_profiles.memoria_vendas_versao, 0) + 1,
         ia_total_projeto_detectado_ultima_resposta = EXCLUDED.ia_total_projeto_detectado_ultima_resposta,
         preco_ia_divergente_motor = EXCLUDED.preco_ia_divergente_motor,
+        ${conflitoEmpresaLeadProfile()},
         atualizado_em = NOW()
       `,
-      [numero, resumo, totalDetectado, divergente]
+      [numero, resumo, totalDetectado, divergente, EMPRESA_PADRAO_PJ]
     )
   }
 

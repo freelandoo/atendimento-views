@@ -1,8 +1,17 @@
 'use strict'
 
-const { capiConfigurado, enviarEventoMetaCAPI } = require('./meta-capi')
-
 // Atribuição Meta (Click-to-WhatsApp) + score determinístico de qualidade do lead.
+//
+// ESTE MÓDULO NÃO ENVIA MAIS NADA À META. O disparo global que existia aqui
+// (`dispararEventosMetaPendentes`) varria vendas.lead_profiles SEM filtro de
+// empresa_id e mandava a conversão de todos os tenants para o dataset configurado no
+// PROCESSO. Ele foi REMOVIDO — o envio agora é por empresa, com a credencial da
+// empresa, e vive em services/meta-dispatch.js sobre o ledger app.conversao_eventos.
+//
+// O que sobrou aqui é o que continua sendo útil e é inofensivo entre tenants:
+// capturar de qual anúncio o lead veio e pontuar o lead. Ambos escrevem em
+// vendas.lead_profiles, cuja chave (telefone) é global — um telefone pertence a uma
+// única conversa em todo o sistema, então não há mistura possível nessas escritas.
 //
 // 1) CAPTURA: leads de anúncio chegam na tabela do Evolution (public."Message") com
 //    contextInfo.externalAdReply { ctwaClid, sourceId(=ad), title, sourceUrl } e o
@@ -154,96 +163,11 @@ async function sincronizarAtribuicaoMetaAds(pool, deps = {}) {
     logger.info?.({ operation: 'meta_attribution', atribuidos, pontuados })
   }
 
-  // 3) Envia os eventos de funil pendentes à Meta (se a CAPI estiver configurada).
-  const { enviados } = await dispararEventosMetaPendentes(pool, deps)
-
-  return { atribuidos, pontuados, eventos_enviados: enviados }
-}
-
-/**
- * Decide quais eventos um lead ainda DEVE enviar à Meta (sem repetir os já enviados).
- * Pura/testável.
- *
- * A Conversions API com action_source=business_messaging (CTWA) só aceita a taxonomia
- * de mensagens — NÃO os nomes de pixel (Lead/QualifiedLead/Schedule/MeetingCompleted são
- * rejeitados com subcode 2804066). Os dois eventos válidos são:
- *  - LeadSubmitted: lead REAL (qualificado por score >= LIMIAR OU com reunião agendada).
- *    Otimiza por qualidade — não dispara em todo clique.
- *  - Purchase: venda fechada (com valor). Fica inativo até META_CAPI_PURCHASE_ENABLED=on.
- */
-function eventosDevidos(estado = {}) {
-  const { ctwaClid, score, temReuniao, purchaseAtivo, valorVenda, jaEnviados } = estado
-  if (!ctwaClid) return []
-  const enviados = new Set(Array.isArray(jaEnviados) ? jaEnviados : [])
-  const due = []
-  const ehLeadReal = leadQualificado(score) || temReuniao === true
-  if (ehLeadReal && !enviados.has('LeadSubmitted')) due.push({ eventName: 'LeadSubmitted' })
-  if (purchaseAtivo && Number(valorVenda) > 0 && !enviados.has('Purchase')) {
-    due.push({ eventName: 'Purchase', value: Number(valorVenda), currency: 'BRL' })
-  }
-  return due
-}
-
-/**
- * Para cada lead de anúncio, envia os eventos pendentes à Meta e registra no ledger
- * (vendas.meta_eventos_conversao) — dedupe por event_id (numero:event_name). Idempotente:
- * só reenvia o que não foi 'enviado'. Desligado se a CAPI não estiver configurada.
- */
-async function dispararEventosMetaPendentes(pool, deps = {}) {
-  const logger = deps.logger || console
-  if (!capiConfigurado()) return { enviados: 0, motivo: 'capi_desligado' }
-  const purchaseAtivo = String(process.env.META_CAPI_PURCHASE_ENABLED || '').toLowerCase() === 'on'
-  let enviados = 0
-  try {
-    const { rows } = await pool.query(
-      `
-      SELECT p.numero,
-             p.origem_anuncio->>'ctwa_clid' AS ctwa_clid,
-             p.origem_anuncio->>'ad_id' AS ad_id,
-             p.score_lead,
-             EXISTS(SELECT 1 FROM vendas.agenda_eventos e WHERE e.tipo='reuniao' AND e.excluido_em IS NULL
-                    AND regexp_replace(COALESCE(e.metadata->>'lead_numero',''),'\\D','','g') = regexp_replace(p.numero,'\\D','','g')) AS tem_reuniao,
-             EXISTS(SELECT 1 FROM vendas.agenda_eventos e WHERE e.tipo='reuniao' AND e.excluido_em IS NULL AND e.status='concluido'
-                    AND regexp_replace(COALESCE(e.metadata->>'lead_numero',''),'\\D','','g') = regexp_replace(p.numero,'\\D','','g')) AS reuniao_concluida,
-             (SELECT array_agg(event_name) FROM vendas.meta_eventos_conversao m WHERE m.numero=p.numero AND m.status='enviado') AS ja_enviados,
-             (SELECT c.venda_valor FROM vendas.conversas c WHERE c.numero=p.numero) AS venda_valor
-      FROM vendas.lead_profiles p
-      WHERE p.origem='meta_ads' AND p.origem_anuncio->>'ctwa_clid' IS NOT NULL
-      `
-    )
-    for (const l of rows) {
-      const due = eventosDevidos({
-        ctwaClid: l.ctwa_clid,
-        score: l.score_lead,
-        temReuniao: l.tem_reuniao,
-        reuniaoConcluida: l.reuniao_concluida,
-        purchaseAtivo,
-        valorVenda: l.venda_valor,
-        jaEnviados: l.ja_enviados,
-      })
-      for (const ev of due) {
-        const eventId = `${String(l.numero).replace(/\D/g, '')}:${ev.eventName}`
-        const res = await enviarEventoMetaCAPI(
-          { eventName: ev.eventName, ctwaClid: l.ctwa_clid, eventId, value: ev.value, currency: ev.currency },
-          deps
-        )
-        await pool.query(
-          `INSERT INTO vendas.meta_eventos_conversao (numero, ad_id, ctwa_clid, event_name, event_id, value, currency, status, resposta)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
-           ON CONFLICT (event_id) DO UPDATE SET status=EXCLUDED.status, resposta=EXCLUDED.resposta, atualizado_em=NOW()`,
-          [
-            l.numero, l.ad_id, l.ctwa_clid, ev.eventName, eventId, ev.value ?? null, ev.currency ?? null,
-            res.ok ? 'enviado' : 'erro', JSON.stringify(res.data || { erro: res.erro || res.motivo || null }),
-          ]
-        )
-        if (res.ok) enviados += 1
-      }
-    }
-  } catch (e) {
-    logger.warn?.({ operation: 'meta_capi', etapa: 'disparo_erro', erro: e.message })
-  }
-  if (enviados) logger.info?.({ operation: 'meta_capi', etapa: 'eventos_enviados', enviados })
-  return { enviados }
+  // O envio de eventos NÃO acontece mais aqui. Quem envia é o ciclo por empresa
+  // (services/meta-dispatch.js → processarConversoesMeta), com a credencial da
+  // empresa dona do evento. A tabela legada vendas.meta_eventos_conversao vira
+  // histórico read-only do que o motor antigo já mandou: nada é escrito nela.
+  return { atribuidos, pontuados }
 }
 
 /**
@@ -253,8 +177,15 @@ async function dispararEventosMetaPendentes(pool, deps = {}) {
  * custo-por-reunião NÃO vem daqui (a Meta não está acessível neste serviço) — é
  * preenchido no painel. Read-only. A datação do 1º/último contato vem da tabela do
  * Evolution (public."Message"), única fonte de quando o lead clicou no anúncio.
+ *
+ * ESCOPO POR EMPRESA (obrigatório): sem `empresaId` esta consulta devolvia o
+ * resultado de anúncios de TODOS os tenants para qualquer admin do dashboard legado.
+ * O parâmetro passou a ser exigido — quem chama precisa dizer de quem é o painel.
  */
-async function obterResultadosAnunciosMeta(pool) {
+async function obterResultadosAnunciosMeta(pool, { empresaId } = {}) {
+  if (!empresaId) {
+    throw new Error('obterResultadosAnunciosMeta exige empresaId (isolamento por tenant)')
+  }
   // Datação do 1º/último contato vem da tabela do Evolution; se ela não existir neste
   // banco, neutraliza o CTE (datas nulas) em vez de quebrar a consulta do painel.
   const fcSql = (await messageEvolutionExiste(pool))
@@ -293,10 +224,11 @@ async function obterResultadosAnunciosMeta(pool) {
     FROM vendas.lead_profiles p
     LEFT JOIN fc ON fc.telefone = p.numero
     WHERE p.origem = 'meta_ads' AND p.origem_anuncio->>'ad_id' IS NOT NULL
+      AND p.empresa_id = $2
     GROUP BY 1
     ORDER BY reunioes DESC, leads DESC
     `,
-    [QUALIFIED_LEAD_MIN]
+    [QUALIFIED_LEAD_MIN, empresaId]
   )
   const isoDate = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null)
   return rows.map((r) => ({
@@ -317,8 +249,6 @@ module.exports = {
   QUALIFIED_LEAD_MIN,
   calcularScoreLeadDeterministico,
   leadQualificado,
-  eventosDevidos,
-  dispararEventosMetaPendentes,
   sincronizarAtribuicaoMetaAds,
   obterResultadosAnunciosMeta,
 }

@@ -84,6 +84,26 @@ function validarEvento(body = {}, { parcial = false } = {}) {
     out.metadata = body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata) ? body.metadata : {}
   }
 
+  // Resultado FINANCEIRO da reunião. Não é um status novo: `status='concluido'` já
+  // diz que a reunião aconteceu; o valor diz que ela terminou em venda. É este par
+  // que a integração Meta lê como "reunião realizada com venda".
+  // Ou vem completo (valor > 0 + moeda) ou é limpo — venda pela metade viraria
+  // conversão de receita zero na Meta.
+  if (body.venda_valor !== undefined || body.venda_moeda !== undefined) {
+    const limpar = body.venda_valor === null || body.venda_valor === ''
+    if (limpar) {
+      out.venda_valor = null
+      out.venda_moeda = null
+    } else {
+      const n = Number(body.venda_valor)
+      if (!Number.isFinite(n) || n <= 0) issues.push('venda_valor deve ser maior que zero')
+      else out.venda_valor = Math.round(n * 100) / 100
+      const moeda = String(body.venda_moeda || 'BRL').trim().toUpperCase()
+      if (!/^[A-Z]{3}$/.test(moeda)) issues.push('venda_moeda invalida (use 3 letras, ex.: BRL)')
+      else out.venda_moeda = moeda
+    }
+  }
+
   return { ok: issues.length === 0, value: out, issues }
 }
 
@@ -105,6 +125,9 @@ function mapEvento(row) {
     lead_telefone: row.lead_telefone || null,
     lead_nome: row.lead_nome || null,
     metadata: row.metadata || {},
+    venda_valor: row.venda_valor != null ? Number(row.venda_valor) : null,
+    venda_moeda: row.venda_moeda || null,
+    venda_registrada_em: iso(row.venda_registrada_em),
     criado_em: iso(row.criado_em),
     atualizado_em: iso(row.atualizado_em),
   }
@@ -207,6 +230,11 @@ async function atualizarEvento(pool, { empresaId, id, ...body } = {}) {
   if (fimFinal <= inicioFinal) throw erro('VALIDATION', 'data_fim deve ser maior que data_inicio', 400)
   const tipoFinal = v.tipo || atual.tipo
   const statusFinal = v.status || atual.status
+  // Venda pertence a uma REUNIÃO. Registrar valor num bloqueio de agenda seria dado
+  // sem significado — e a integração Meta, que só lê reuniões, o ignoraria em silêncio.
+  if (v.venda_valor != null && tipoFinal !== 'reuniao') {
+    throw erro('VALIDATION', 'Só é possível registrar venda em um evento do tipo reunião.', 400)
+  }
   if (tipoFinal !== 'bloqueio' && STATUS_OCUPA.includes(statusFinal)) {
     const conflito = await existeConflito(pool, { empresaId, dataInicio: inicioFinal, dataFim: fimFinal, ignorarId: id })
     if (conflito) throw erro('CONFLICT', 'Já existe um compromisso nesse horário.', 409)
@@ -226,6 +254,14 @@ async function atualizarEvento(pool, { empresaId, id, ...body } = {}) {
   if (v.lead_telefone !== undefined) add('lead_telefone', v.lead_telefone)
   if (v.lead_nome !== undefined) add('lead_nome', v.lead_nome)
   if (v.metadata !== undefined) { params.push(JSON.stringify(v.metadata)); campos.push(`metadata = $${params.length}::jsonb`) }
+  if (v.venda_valor !== undefined) {
+    add('venda_valor', v.venda_valor)
+    add('venda_moeda', v.venda_moeda ?? null)
+    // O carimbo de tempo é do SERVIDOR e é a data real do resultado que a integração
+    // Meta usa. Preservar o primeiro registro evita que reeditar a venda desloque a
+    // data do fato para fora da janela de atribuição.
+    campos.push(v.venda_valor == null ? 'venda_registrada_em = NULL' : 'venda_registrada_em = COALESCE(venda_registrada_em, NOW())')
+  }
   if (!campos.length) return atual
   campos.push('atualizado_em = NOW()')
   params.push(id, empresaId)
