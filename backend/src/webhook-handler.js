@@ -13,6 +13,10 @@ const {
 const {
   registrarAtribuicao: registrarAtribuicaoDefault,
 } = require('./db/atribuicao-anuncios')
+const {
+  registrarPendencia: registrarPendenciaDefault,
+} = require('./db/webhook-quarentena')
+const { hashMensagemId, resumoPendencia } = require('./services/webhook-quarentena')
 const { pool: poolDefault } = require('./db')
 
 function registerWebhookRoute(app, deps = {}) {
@@ -51,9 +55,53 @@ function registerWebhookRoute(app, deps = {}) {
     eventoSaudeDeWebhook = eventoSaudeDeWebhookDefault,
     registrarEventoSaudeInstancia = registrarEventoSaudeInstanciaDefault,
     registrarAtribuicaoAnuncio = registrarAtribuicaoDefault,
+    registrarPendenciaQuarentena = registrarPendenciaDefault,
     pool: poolAtribuicao = poolDefault,
     capturarNomeContato,
   } = deps
+
+  /**
+   * O webhook chegou sem dono comprovado?
+   *
+   * Substitui o fallback para a PJ. Antes, instância ausente, não mapeada ou com erro de
+   * consulta produziam o `empresa_id` da PJ e o atendimento seguia normalmente — gravando
+   * conversa, perfil de lead e evento comercial de um negócio que não é a PJ dentro do
+   * tenant da PJ. Agora o fluxo PARA aqui: nada de conversa, lead, reunião, atribuição
+   * CTWA, follow-up, resposta automática ou evento Meta em nome de tenant nenhum.
+   *
+   * O custo aceito e declarado: a mensagem não é reencenada depois. Mapeada a instância,
+   * o lead volta a ser atendido na PRÓXIMA mensagem — guardar a conversa de um negócio
+   * sem dono conhecido seria criar o mesmo dado sujo, só que em repouso.
+   *
+   * Nunca lança: uma falha ao registrar a pendência não pode virar erro no webhook (o
+   * Evolution reentregaria), e muito menos liberar o fluxo barrado.
+   *
+   * @returns {Promise<boolean>} true quando o fluxo deve parar.
+   */
+  async function barrarSemDonoComprovado(req, log) {
+    const pendencia = req.tenantPendencia
+    if (!pendencia) return false
+
+    // Id da mensagem só para IDEMPOTÊNCIA, e só como hash — nunca em claro, nunca em log.
+    const msg = req.body?.data?.messages?.[0] || req.body?.data
+    const mensagemHash = hashMensagemId(msg?.key?.id)
+
+    try {
+      const { novaOcorrencia } = await registrarPendenciaQuarentena(poolAtribuicao, pendencia, mensagemHash)
+      log.warn(
+        resumoPendencia(pendencia, { etapa: novaOcorrencia ? 'aberta' : 'reincidente', event: req.body?.event || null }),
+        'Webhook sem dono comprovado — mensagem em quarentena, nada foi gravado'
+      )
+    } catch (err) {
+      // Mesmo sem conseguir registrar, o fluxo continua barrado: preferimos perder a
+      // pendência a gravar dado sob a empresa errada.
+      log.error(
+        resumoPendencia(pendencia, { etapa: 'falha_registro', err: serializeError ? serializeError(err) : String(err) }),
+        'Falha ao registrar a pendência de quarentena — webhook segue barrado'
+      )
+    }
+    return true
+  }
 
   /**
    * Captura a atribuição de anúncio (CTWA) da mensagem recebida.
@@ -117,6 +165,14 @@ function registerWebhookRoute(app, deps = {}) {
       try {
         const event = req.body?.event
         webhookLog = webhookLog.child({ event })
+
+        // ── QUARENTENA ─────────────────────────────────────────────────────────────
+        // Primeira coisa depois do 2xx: sem empresa E instância comprovadas pela
+        // `evolution_instance`, NADA deste webhook é gravado sob tenant nenhum. Vale para
+        // todo evento, inclusive os de saúde da instância — atribuir a saúde de um número
+        // desconhecido a uma empresa seria a mesma invenção de dono.
+        if (await barrarSemDonoComprovado(req, webhookLog)) return
+
         const eventoSaude = eventoSaudeDeWebhook(req.body, req.empresaId, req.evolutionInstance)
         if (eventoSaude) {
           await registrarEventoSaudeInstancia(eventoSaude).catch((err) => {
@@ -295,8 +351,9 @@ function registerWebhookRoute(app, deps = {}) {
           historico.push({ role: 'user', content: textoHistorico })
         }
     
-        // empresa resolvida pela instância Evolution (resolveEmpresaFromWebhook),
-        // com fallback PJ; fixa o dono da conversa na criação. Roteamento multiempresa.
+        // Empresa COMPROVADA pela instância Evolution (resolveEmpresaFromWebhook). Não há
+        // fallback: se o código chegou aqui, `barrarSemDonoComprovado` já deixou passar,
+        // e `req.empresaId` é o dono real. Fixa o dono da conversa na criação.
         await salvarConversa(numero, historico, estagio, conversa?.status || 'ativo', undefined, req.empresaId, req.evolutionInstance)
         if (perfilProspeccaoPatch) {
           await atualizarPerfil(numero, perfilProspeccaoPatch)

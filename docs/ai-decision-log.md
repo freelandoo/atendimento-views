@@ -1031,3 +1031,61 @@ Ajustes sobre a entrega do mesmo dia (logo abaixo), após revisão de UX/operaç
   `npm test` + `npm run typecheck` no `frontend/`; na tela, virar paginas ate o fim, trocar a
   ordenacao por cada coluna (com atencao a Pontos e Horario) e conferir que o rodape e o numero do
   filtro de status contam a mesma coisa.
+
+## 2026-08-08 - Quarentena de webhook: o fallback para a PJ foi REMOVIDO
+
+- **Problema:** `resolveEmpresaFromWebhook` devolvia o `empresa_id` da PJ Codeworks nos TRES
+  casos em que nao conseguia provar a origem (payload sem instancia, instancia nao mapeada ou
+  inativa, erro de consulta). Nao era um default inofensivo: o atendimento seguia e gravava
+  conversa, perfil de lead e evento comercial de um negocio que NAO e a PJ dentro do tenant da
+  PJ. Medido em producao em 2026-08-08, das 6 conversas marcadas como PJ apenas 1 era PJ.
+- **Decisao:** nao existe empresa padrao para mensagem sem origem provada. `req.empresaId` fica
+  NULO, o middleware publica `req.tenantPendencia` e o webhook PARA o fluxo inteiro logo apos o
+  2xx (nada de conversa, lead, reuniao, CTWA, follow-up, resposta automatica, evento de saude
+  de instancia ou Meta), em TODO evento — nao so `messages.upsert`.
+- **Corte direto, sem flag de observacao** (decisao do usuario). Uma flag `observar|bloquear`
+  manteria vivo o caminho de fallback e contrariaria o criterio "nao existe mais nenhum caminho
+  que grave PJ_EMPRESA_ID como fallback". O custo aceito e operacional: numero legitimo nao
+  mapeado para de ser atendido ate ser cadastrado — e para isso existe a tela de pendencias.
+- **A quarentena NAO guarda payload** (decisao do usuario), nem cifrado, nem telefone, texto,
+  pushName, ctwa_clid ou id de mensagem em claro. Guardar a conversa de um negocio sem dono
+  conhecido seria criar o mesmo dado sujo, so que em repouso e sem ninguem para responder por
+  ele. CONSEQUENCIA DECLARADA: a mensagem em quarentena nao e reencenada. Mapeada a instancia,
+  o lead volta a ser atendido na PROXIMA mensagem — recupera-se o VINCULO, nao o historico.
+- **Uma linha por instancia+motivo, nao por mensagem** (indice unico PARCIAL, so entre as
+  abertas): um numero mal configurado produz milhares de webhooks e a tela precisa dizer "esta
+  instancia esta orfa", nao listar dez mil eventos identicos. `ocorrencias` so cresce quando o
+  `ultima_mensagem_hash` (SHA-256 do id) muda, entao reentrega do mesmo webhook nao infla a
+  contagem. `instancia_chave` (string vazia quando nao ha nome) existe porque NULL nao colide
+  com NULL em indice unico — sem ela cada webhook sem instancia abriria uma linha nova.
+- **Os tres motivos ficam distintos, e o erro e checado ANTES do vinculo:** numa consulta que
+  falhou o vinculo chega nulo pelo mesmo motivo que chegaria se a instancia nao existisse.
+  Tratar as duas igual mandaria o operador cadastrar uma instancia que ja esta cadastrada.
+- **Resolucao sem inventar dono:** `POST /api/webhook-quarentena/:id/reprocessar` RECONSULTA
+  `findEmpresaEInstanciaPorEvolution` pelo mesmo caminho do webhook e so fecha se a instancia
+  agora resolver; o corpo da requisicao nao carrega empresa. Deixar o operador apontar a
+  empresa a mao reintroduziria o fallback com aparencia de decisao humana informada. Um CHECK
+  no banco garante que pendencia fechada tem empresa E instancia, e aberta nao tem nenhuma.
+- **Rota GLOBAL, fora de `/api/empresas/:empresaId`:** a pendencia e justamente o caso em que
+  nao se sabe a empresa; pendura-la num tenant exigiria escolher um.
+- **Vocabulario unico:** `ORIGEM_EMPRESA` mudou-se para `services/webhook-quarentena.js` e
+  perdeu o prefixo `fallback_` (`sem_instancia`, `instancia_desconhecida`, `erro_resolucao`) —
+  os mesmos valores gravados em `webhook_quarentena.motivo`. `ctwa-atribuicao.js` reexporta,
+  para nao existir uma segunda definicao a manter em sincronia. Os testes antigos citavam
+  `ORIGEM_EMPRESA.FALLBACK_*`, que passariam a ser `undefined` e continuariam VERDES por
+  acidente — foram renomeados para voltar a asserir de verdade.
+- **Impacto:** `sql/migrations/060_webhook_quarentena.sql` (aditiva, rollback no cabecalho),
+  `src/services/webhook-quarentena.js` e `src/db/webhook-quarentena.js` (novos),
+  `src/routes/api-webhook-quarentena.js` (nova), `src/middleware/tenant.js`,
+  `src/webhook-handler.js`, `src/services/ctwa-atribuicao.js`, `index.js`, `package.json`
+  (os testes novos precisavam entrar na lista explicita do script `test`, senao nunca
+  rodariam), `frontend/components/PendenciasInstancia.tsx`, `frontend/lib/pendencias-instancia.js`
+  e `frontend/app/dashboard/contextos/page.tsx`. Sem env nova, sem prompt, sem Meta.
+- **Riscos:** (1) numero legitimo nao mapeado deixa de ser atendido ate o cadastro — visivel na
+  tela de pendencias, resolvido por reprocessar; (2) `salvarConversa` mantem o COALESCE para a
+  PJ, que continua servindo os OUTROS chamadores (dashboard/manual) e nao e mais alcancavel
+  pelo webhook sem dono provado; (3) a migration 060 aplica sozinha no proximo boot.
+- **Como validar:** `npm test` no `backend/` (1377, inclui `webhook-quarentena.test.js` e
+  `webhook-quarentena-handler.test.js`) e `npm test` + `npm run typecheck` no `frontend/`; na
+  tela, Configuracoes > Instancias mostra a secao so quando ha pendencia, e "Reprocessar"
+  recusa enquanto a instancia nao estiver cadastrada.

@@ -117,7 +117,7 @@ test('mensagem sem externalAdReply não cria atribuição', async () => {
 test('instância desconhecida não cria atribuição elegível', async () => {
   const { receber, tabela, logs } = montarWebhook()
   await receber(mensagemDeAnuncio(), reqOk({
-    empresaOrigem: ORIGEM_EMPRESA.FALLBACK_INSTANCIA_DESCONHECIDA,
+    empresaOrigem: ORIGEM_EMPRESA.INSTANCIA_DESCONHECIDA,
     whatsappInstanciaId: null,
   }))
   assert.equal(tabela.length, 0)
@@ -129,7 +129,7 @@ test('instância desconhecida não cria atribuição elegível', async () => {
 test('webhook sem instância não cria atribuição elegível', async () => {
   const { receber, tabela, logs } = montarWebhook()
   await receber(mensagemDeAnuncio(), reqOk({
-    empresaOrigem: ORIGEM_EMPRESA.FALLBACK_SEM_INSTANCIA,
+    empresaOrigem: ORIGEM_EMPRESA.SEM_INSTANCIA,
     whatsappInstanciaId: null,
     evolutionInstance: null,
   }))
@@ -139,7 +139,7 @@ test('webhook sem instância não cria atribuição elegível', async () => {
 
 test('empresa resolvida por fallback não cria atribuição elegível', async () => {
   const { receber, tabela } = montarWebhook()
-  await receber(mensagemDeAnuncio(), reqOk({ empresaOrigem: ORIGEM_EMPRESA.FALLBACK_ERRO }))
+  await receber(mensagemDeAnuncio(), reqOk({ empresaOrigem: ORIGEM_EMPRESA.ERRO_RESOLUCAO }))
   assert.equal(tabela.length, 0)
 })
 

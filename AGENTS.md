@@ -81,6 +81,57 @@
 - `PROSPEC_MERCADO_IA_RETRIES`: nº de tentativas da IA ao escolher o mercado do dia (default `3`).
 - `src/services/meta-attribution.js`, chamado a cada ~10 min pelo worker (`sincronizarAtribuicaoMetaAds`): hoje faz **só** o recálculo determinístico de `score_lead` (`calcularScoreLeadDeterministico`) dos leads ativos. **Não envia nada à Meta e não captura mais atribuição** (bloco abaixo).
 
+### Quarentena de webhook — o fallback para a PJ foi REMOVIDO
+- **Defeito corrigido:** `resolveEmpresaFromWebhook` devolvia o `empresa_id` da PJ nos três
+  casos em que não conseguia provar a origem (payload sem instância, instância não mapeada
+  ou inativa, erro de consulta). O atendimento seguia normalmente e gravava **conversa,
+  perfil de lead e evento comercial de um negócio que não é a PJ dentro do tenant da PJ**.
+  Medido em produção em 2026-08-08: das 6 conversas marcadas como PJ, apenas **1** era PJ.
+- **Não existe empresa padrão para uma mensagem sem origem provada.** `req.empresaId` fica
+  **NULO** e o middleware publica `req.tenantPendencia`. O webhook (`barrarSemDonoComprovado`
+  em `webhook-handler.js`) **para o fluxo inteiro** logo após o 2xx: nada de conversa, lead,
+  reunião, atribuição CTWA, follow-up, resposta automática, evento de saúde de instância ou
+  evento Meta. Vale para **todo evento**, não só `messages.upsert`.
+- **A quarentena NÃO guarda payload** (nem cifrado), nem telefone, texto, pushName,
+  `ctwa_clid` ou id de mensagem em claro. Guardar a conversa de um negócio sem dono conhecido
+  seria criar o mesmo dado sujo, só que em repouso e sem ninguém para responder por ele.
+  **Consequência declarada e aceita: a mensagem em quarentena NÃO é reencenada.** Mapeada a
+  instância, o lead volta a ser atendido na PRÓXIMA mensagem — recupera-se o vínculo, não o
+  histórico.
+- **Schema:** migration `060_webhook_quarentena.sql` → `app.webhook_quarentena`. Uma linha por
+  **instância + motivo** (índice único PARCIAL, só entre as abertas), não uma por mensagem: um
+  número mal configurado produz milhares de webhooks e a tela precisa dizer "esta instância
+  está órfã". `instancia_chave` existe porque `evolution_instance` é NULLABLE e NULL não colide
+  com NULL em índice único. `ocorrencias` só cresce quando `ultima_mensagem_hash` (SHA-256 do
+  id da mensagem) muda — **reentrega do mesmo webhook não infla o contador**.
+- **Os três motivos são distintos de propósito:** `sem_instancia` (corrigir o webhook na
+  Evolution) · `instancia_desconhecida` (a única que se resolve cadastrando) · `erro_resolucao`
+  (falha TÉCNICA transitória). Numa consulta que falhou o vínculo chega nulo pelo mesmo motivo
+  que chegaria se a instância não existisse; tratar as duas igual mandaria o operador cadastrar
+  uma instância que já está lá. O erro é checado **antes** do vínculo.
+- **Resolução sem inventar dono:** `POST /api/webhook-quarentena/:id/reprocessar` **reconsulta**
+  `findEmpresaEInstanciaPorEvolution` pelo mesmo caminho do webhook e só fecha se a instância
+  AGORA resolver. O corpo da requisição **não carrega empresa** — deixar o operador apontar a
+  empresa à mão reintroduziria o fallback com aparência de decisão humana. `CHECK` no banco
+  garante que pendência fechada tem empresa **e** instância, e pendência aberta não tem nenhuma.
+- **Rota GLOBAL** (`/api/webhook-quarentena`, admin-only), fora de `/api/empresas/:empresaId`:
+  a pendência é justamente o caso em que não se sabe a empresa; pendurá-la num tenant exigiria
+  escolher um.
+- **Falhar ao registrar a pendência NÃO libera o fluxo** — preferimos perder o registro a
+  gravar dado sob a empresa errada.
+- Código: regras PURAS em `src/services/webhook-quarentena.js` (dono do vocabulário
+  `ORIGEM_EMPRESA`), SQL em `src/db/webhook-quarentena.js`, barreira em
+  `src/webhook-handler.js`, resolução em `src/middleware/tenant.js`, rota em
+  `src/routes/api-webhook-quarentena.js`. Front: `frontend/components/PendenciasInstancia.tsx`
+  dentro de **Configurações › Instâncias** (a seção se esconde quando não há pendência; a ação
+  de resolução é cadastrar a instância, que é o que se faz na mesma página) +
+  `frontend/lib/pendencias-instancia.js` (+ `.d.ts`/`.test.js`, só TRADUZ o veredito da API).
+  Testes: `test/webhook-quarentena.test.js`, `test/webhook-quarentena-handler.test.js`.
+- **Risco operacional declarado:** um número legítimo que não esteja mapeado **para de ser
+  atendido** até ser cadastrado. É o comportamento correto por isolamento — o custo é
+  operacional, não de dado — e é o que a tela de pendências existe para tornar visível.
+- Nenhuma variável de ambiente nova foi criada para este módulo.
+
 ### Atribuição CTWA — capturada NO WEBHOOK, por empresa **e** instância
 - ⚠️ **A captura antiga (mineração do banco do Evolution) nunca funcionou, e não era falta de dado.** Medido em produção (2026-08-08), em três camadas independentes:
   1. **Schema errado.** O código procurava `public."Message"`; a tabela do Evolution é `evolution."Message"` — **mesmo banco**, outro schema (`public` está vazio). `to_regclass` devolvia null e a função virava **no-op silencioso** a cada tick.
@@ -88,7 +139,7 @@
   3. **O lead de anúncio chega como `@lid`, não como telefone.** Das 526 mensagens com `externalAdReply` (509 com `ctwaClid`, 18 anúncios distintos), **100%** têm `remoteJid` `@lid`. Não há tradução `@lid` → telefone em `Contact`/`Chat`: 251 telefones de anúncio, **0** casam com `vendas.conversas`.
   A varredura foi **REMOVIDA**. Há guarda de regressão em `test/ctwa-atribuicao.test.js` que falha se `public."Message"`, `to_regclass`, `remoteJidAlt` ou `origem_anuncio` voltarem ao código de atribuição. **Não reintroduza:** não tem como funcionar.
 - **A captura vive no WEBHOOK** (`src/webhook-handler.js` → `capturarAtribuicaoAnuncio`, regras puras em `src/services/ctwa-atribuicao.js`), único ponto onde coexistem o **telefone real** (`vendas.conversas.numero` é `@s.whatsapp.net` em 100% das conversas), a **empresa resolvida pela instância** e a **instância de origem**. `externalAdReply` é procurado nos DOIS formatos possíveis — `data.contextInfo` (normalizado pelo Evolution) e `data.message.<tipo>.contextInfo` (nativo do Baileys) — porque escolher um exigiria saber de antemão qual a versão emite.
-- **Atribuição só é ELEGÍVEL com dono COMPROVADO.** `middleware/tenant.js` passou a publicar `req.empresaOrigem` (`instancia` | `fallback_sem_instancia` | `fallback_instancia_desconhecida` | `fallback_erro`) e `req.whatsappInstanciaId`. Antes, os três fallbacks produziam exatamente o mesmo `req.empresaId` da PJ e eram indistinguíveis do caso bom. Só `instancia` comprova. Empresa e instância **nunca** são inferidas pelo telefone.
+- **Atribuição só é ELEGÍVEL com dono COMPROVADO.** `middleware/tenant.js` publica `req.empresaOrigem` (`instancia` | `sem_instancia` | `instancia_desconhecida` | `erro_resolucao`) e `req.whatsappInstanciaId`. Só `instancia` comprova. Empresa e instância **nunca** são inferidas pelo telefone. Os três valores não-comprovados são também os motivos da **quarentena** (bloco abaixo) — vocabulário único, definido em `src/services/webhook-quarentena.js` e reexportado por `ctwa-atribuicao.js`.
 - **Sem dono comprovado, NÃO se grava nada** — o motivo (`empresa_nao_comprovada`, `instancia_nao_comprovada`, `telefone_nao_resolvido`, `sem_id_mensagem`) vai só para o log, sem PII. Escrever um telefone sob uma empresa que só o fallback resolveu produziria exatamente o dado sujo que esta captura existe para evitar. Anúncio **sem `ctwa_clid`** é gravado, mas nasce `atribuicao_confiavel=false` (motivo `sem_ctwa_clid`): fica auditável e jamais é enviado.
 - **Schema:** migration `059_atribuicao_ctwa_webhook.sql` → `app.atribuicao_anuncios` (`empresa_id` e `instancia_id` **NOT NULL**). **Tabela própria, não mais uma coluna em `vendas.lead_profiles`**: aquela tabela é chaveada por telefone GLOBAL (`UNIQUE (numero)`), e atribuição de anúncio é fato **de uma instância** — o mesmo número pode falar com dois negócios.
 - **Idempotência por `(empresa_id, mensagem_id)`**, nunca por telefone. A chave é o id da mensagem que trouxe o anúncio: reentrega/retry não duplicam, e um clique NOVO (mensagem nova) continua virando linha nova. Corrige o modelo antigo, que deduplicava por telefone e congelava o lead numa única atribuição para sempre.
@@ -516,7 +567,8 @@ padrão/seed (`empresa_id` `00000000-…-0001`).
 
 - **Auth JWT**: `src/auth.js` (scrypt + jsonwebtoken). Seed do admin em `seedAdminUser()` no boot.
 - **Isolamento de tenant**: `src/middleware/tenant.js` — `requireAuth`, `requireEmpresaAccess`
-  e `resolveEmpresaFromWebhook` (resolve `empresa_id` pela instância Evolution; fallback PJ).
+  e `resolveEmpresaFromWebhook` (resolve `empresa_id` pela instância Evolution; **sem fallback** —
+  origem não comprovada vai para quarentena).
 - **Acesso a dados multiempresa**: `src/db/empresas.js`, `src/db/usuarios.js`, `src/db/whatsapp-instances.js`.
 - **Rotas REST (Bearer token)**: `src/routes/api-*.js` — empresas, contextos, fontes de
   conhecimento (contexto por link), criação de instâncias WhatsApp, conversas, relatórios, LLM.

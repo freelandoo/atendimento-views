@@ -4,6 +4,7 @@ import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import InstanciasWhatsApp from '@/components/InstanciasWhatsApp'
 import InstanciasFreelandoo from '@/components/InstanciasFreelandoo'
+import PendenciasInstancia from '@/components/PendenciasInstancia'
 
 type Sugestao = {
   id: string
@@ -99,6 +100,11 @@ export default function ContextosPage() {
       <div className="bg-white border rounded-2xl p-5 shadow-sm">
         <InstanciasFreelandoo empresaId={empresaId} />
       </div>
+
+      {/* Pendências de instância — números que estão enviando mensagens sem estar
+          cadastrados. Ficam aqui porque a ação de resolução é justamente cadastrar a
+          instância, logo acima. A seção se esconde sozinha quando não há pendência. */}
+      <PendenciasInstancia />
 
       {(sugestoes.length > 0 || ultimoDiff) && (
         <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">

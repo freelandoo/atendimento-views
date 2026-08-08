@@ -130,9 +130,9 @@ test('normalizarTelefone deixa só dígitos', () => {
 
 test('só a resolução pela instância comprova a empresa', () => {
   assert.equal(empresaComprovada(ORIGEM_EMPRESA.INSTANCIA), true)
-  assert.equal(empresaComprovada(ORIGEM_EMPRESA.FALLBACK_SEM_INSTANCIA), false)
-  assert.equal(empresaComprovada(ORIGEM_EMPRESA.FALLBACK_INSTANCIA_DESCONHECIDA), false)
-  assert.equal(empresaComprovada(ORIGEM_EMPRESA.FALLBACK_ERRO), false)
+  assert.equal(empresaComprovada(ORIGEM_EMPRESA.SEM_INSTANCIA), false)
+  assert.equal(empresaComprovada(ORIGEM_EMPRESA.INSTANCIA_DESCONHECIDA), false)
+  assert.equal(empresaComprovada(ORIGEM_EMPRESA.ERRO_RESOLUCAO), false)
   assert.equal(empresaComprovada(undefined), false)
 })
 
@@ -160,11 +160,14 @@ test('mensagem sem externalAdReply não vira atribuição nem motivo', () => {
   assert.equal(r.registro, null)
 })
 
-test('empresa vinda de FALLBACK não gera atribuição', () => {
+// Defesa em profundidade: hoje o webhook nem chega aqui nesses casos (a quarentena barra
+// antes), mas a regra de atribuição continua recusando por conta própria. As duas camadas
+// são independentes de propósito — uma falha na barreira não pode virar atribuição suja.
+test('empresa sem origem comprovada não gera atribuição', () => {
   for (const origem of [
-    ORIGEM_EMPRESA.FALLBACK_SEM_INSTANCIA,
-    ORIGEM_EMPRESA.FALLBACK_INSTANCIA_DESCONHECIDA,
-    ORIGEM_EMPRESA.FALLBACK_ERRO,
+    ORIGEM_EMPRESA.SEM_INSTANCIA,
+    ORIGEM_EMPRESA.INSTANCIA_DESCONHECIDA,
+    ORIGEM_EMPRESA.ERRO_RESOLUCAO,
   ]) {
     const r = avaliarAtribuicao({ msg: msgDeAnuncio(), ...ctxBom({ empresaOrigem: origem }) })
     assert.equal(r.capturar, false, `origem ${origem} não pode capturar`)

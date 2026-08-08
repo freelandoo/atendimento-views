@@ -117,6 +117,10 @@ app.use('/api/empresas/:empresaId/integracoes/meta', requireAuth, requireRole('a
 app.use('/api/empresas/:empresaId/relatorios', requireAuth, requireRole('admin'), require('./src/routes/api-relatorios'))
 app.use('/api/empresas/:empresaId/agente-pj', require('./src/routes/api-agente-pj'))
 app.use('/api/llm', requireAuth, requireRole('admin'), require('./src/routes/api-llm'))
+// Pendências de instância (webhooks sem dono comprovado). GLOBAL de propósito: a pendência
+// é justamente o caso em que não se sabe a empresa — pendurá-la num tenant exigiria
+// escolher um, que é o fallback removido.
+app.use('/api/webhook-quarentena', requireAuth, requireRole('admin'), require('./src/routes/api-webhook-quarentena'))
 app.use('/api/prompts-catalogo', require('./src/routes/api-prompts-catalogo'))
 app.use('/api/empresas/:empresaId/llm/uso', requireAuth, requireRole('admin'), require('./src/routes/api-llm-uso'))
 
@@ -130,7 +134,8 @@ const freelandooProvision = require('./src/routes/freelandoo-provision')
 app.use('/freelandoo', freelandooProvision)
 freelandooProvision.iniciarRefreshDiarioDePlaybooks()
 
-// Resolve empresa a partir da evolution_instance em todos os webhooks (fallback PJ).
+// Resolve a empresa pela evolution_instance em todos os webhooks. SEM FALLBACK: quando a
+// origem não é comprovada, `req.empresaId` fica nulo e o webhook vai para quarentena.
 app.use('/webhook', resolveEmpresaFromWebhook)
 
 require('./src/routes')(app)

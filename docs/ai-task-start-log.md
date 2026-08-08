@@ -1496,3 +1496,14 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Resultado:** REPROVADO nos criterios de isolamento por instancia. O modelo implementado e' por EMPRESA (`app.meta_integracoes.empresa_id UNIQUE`); a dimensao instancia nao existe em schema, backend, rotas, tela nem testes. Ver relatorio no chat.
 - **Efeito colateral declarado:** nenhum. Somente leitura + `npm test` (1297/1297 passaram). Unica escrita: este registro de log.
 - **Proxima etapa:** NAO commitar nem dar push (stop condition acionada). Apresentar o laudo e o plano de correcao ao usuario e aguardar aprovacao antes de qualquer migration.
+
+## 2026-08-08 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** Remover o fallback para a PJ em `resolveEmpresaFromWebhook` (instancia ausente, desconhecida ou erro de resolucao) e substituir por QUARENTENA auditavel: o webhook sem dono comprovado nao cria conversa, lead, reuniao, atribuicao CTWA, follow-up, resposta automatica nem evento Meta. Inclui visibilidade administrativa das pendencias e caminho seguro de reprocessamento. Commit + push ao final, se os criterios de aceite passarem.
+- **E projeto/tarefa de alteracao?** Sim, e ESTRUTURAL: muda o contrato de resolucao de tenant do webhook publico, adiciona migration (tabela de quarentena), rota admin nova e tela. Exige confirmacao previa (CLAUDE.md) — pontos ambiguos levados ao usuario antes de implementar.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
+- **Areas mapeadas na Fase 0:** `src/middleware/tenant.js` (unico produtor do fallback), `index.js:134` (unico ponto de montagem), `src/webhook-handler.js` (unico consumidor de `req.empresaId`/`req.empresaOrigem`/`req.whatsappInstanciaId`), `src/services/ctwa-atribuicao.js` (ORIGEM_EMPRESA), `src/db/empresas.js` (`findEmpresaEInstanciaPorEvolution`), `src/db-crud.js:134` e `src/db/lead-profile-empresa.js` (PJ como default de escrita), `src/meta-routes.js` (dashboard legado escopado na PJ).
+- **Fora de escopo declarado:** ativar a Meta, configurar token/Dataset, qualquer chamada a Graph API, deploy manual e alteracao de configuracao de producao.
+- **Risco de producao declarado:** AGENTS.md registra medicao de 2026-08-08 em que 3 de 6 conversas marcadas como PJ vieram de instancia NAO MAPEADA e 2 sem instancia. Com a quarentena ligada, essas conversas deixam de ser respondidas ate a instancia ser mapeada.
+- **Proxima etapa:** Confirmar com o usuario a profundidade da quarentena (guarda payload para replay ou so a pendencia) e a estrategia de corte em producao; so entao implementar.

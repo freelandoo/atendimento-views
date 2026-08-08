@@ -32,27 +32,18 @@
 
 // ─── Procedência da empresa resolvida no webhook ──────────────────────────────
 //
-// `middleware/tenant.js` resolvia a empresa e devolvia SEMPRE o mesmo `req.empresaId`,
-// tanto quando a instância batia em `app.empresa_whatsapp_instances` quanto quando caía
-// no fallback da PJ. Sem separar os casos é impossível cumprir a regra "webhook de
-// instância ausente, desconhecida ou resolvida por fallback não gera atribuição
-// elegível" — os três casos eram indistinguíveis do caso bom.
+// O vocabulário de procedência VIVE EM `services/webhook-quarentena.js`, que é quem
+// decide o dono do webhook — aqui ele é só consumido. Foi ele que substituiu o fallback
+// para a PJ: `middleware/tenant.js` devolvia o mesmo `req.empresaId` da PJ tanto quando a
+// instância batia em `app.empresa_whatsapp_instances` quanto quando não batia, e os casos
+// eram indistinguíveis do caso bom.
 //
-// Só `instancia` comprova a empresa. Os demais são fallback e, para efeito de
+// Só `instancia` comprova a empresa. Os demais viram PENDÊNCIA e, para efeito de
 // atribuição, valem o mesmo que "não sei de quem é este lead".
-const ORIGEM_EMPRESA = Object.freeze({
-  INSTANCIA: 'instancia',
-  FALLBACK_SEM_INSTANCIA: 'fallback_sem_instancia',
-  FALLBACK_INSTANCIA_DESCONHECIDA: 'fallback_instancia_desconhecida',
-  FALLBACK_ERRO: 'fallback_erro',
-})
-
-const ORIGENS_EMPRESA = Object.freeze(Object.values(ORIGEM_EMPRESA))
-
-/** A empresa deste webhook foi COMPROVADA pela instância (não é fallback)? */
-function empresaComprovada(origem) {
-  return origem === ORIGEM_EMPRESA.INSTANCIA
-}
+//
+// Reexportados abaixo por compatibilidade: quem já importava `ORIGEM_EMPRESA` deste
+// módulo continua funcionando, sem uma segunda definição para manter em sincronia.
+const { ORIGEM_EMPRESA, ORIGENS_EMPRESA, empresaComprovada } = require('./webhook-quarentena')
 
 // ─── Motivos de descarte / não-elegibilidade (auditáveis, sem PII) ────────────
 const MOTIVO = Object.freeze({

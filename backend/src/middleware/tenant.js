@@ -3,9 +3,7 @@ const { verifyJwt } = require('../auth')
 const { findEmpresaById, findEmpresaEInstanciaPorEvolution, usuarioPertenceAEmpresa } = require('../db/empresas')
 const { findUsuarioById } = require('../db/usuarios')
 const { logger } = require('../logger')
-const { ORIGEM_EMPRESA } = require('../services/ctwa-atribuicao')
-
-const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
+const { resolverTenantWebhook } = require('../services/webhook-quarentena')
 
 // Extrai Bearer token do header Authorization
 function extractToken(req) {
@@ -57,56 +55,55 @@ async function requireEmpresaAccess(req, res, next) {
   next()
 }
 
-// Resolve empresa a partir da evolution_instance no corpo do webhook.
-// Não bloqueia — apenas popula req.empresaId com fallback para PJ Codeworks.
+// Resolve a empresa a partir da evolution_instance no corpo do webhook.
 //
-// ALÉM DO empresaId, popula duas coisas que o atendimento não usava e a ATRIBUIÇÃO DE
-// ANÚNCIO exige:
-//   - `req.empresaOrigem`      — se a empresa foi COMPROVADA pela instância ou veio do
-//                                fallback. Antes, os três caminhos de fallback (sem
-//                                instância, instância não mapeada, erro de consulta)
-//                                produziam exatamente o mesmo `req.empresaId` da PJ, e
-//                                nenhum consumidor tinha como saber a diferença. Sem
-//                                essa distinção é impossível cumprir "webhook resolvido
-//                                por fallback não gera atribuição elegível".
-//   - `req.whatsappInstanciaId` — o id (uuid) de app.empresa_whatsapp_instances, que é o
-//                                identificador confiável da instância. O NOME da
-//                                instância sozinho não serve como chave: ele pode ser
-//                                renomeado/recriado, e é texto vindo do payload.
+// NÃO EXISTE MAIS FALLBACK PARA A PJ. Antes, os três casos em que a origem não podia ser
+// provada (payload sem instância, instância não mapeada, erro de consulta) devolviam o
+// `empresa_id` da PJ Codeworks, e o atendimento seguia gravando conversa, perfil de lead e
+// evento comercial sob a PJ — dado de um negócio que não é a PJ, dentro do tenant da PJ.
+// Medido em produção em 2026-08-08: das 6 conversas marcadas como PJ, apenas 1 era PJ.
 //
-// O comportamento do ATENDIMENTO não muda: `req.empresaId` continua caindo na PJ nos
-// mesmos casos de antes. O que muda é que agora dá para saber que caiu.
+// Agora esses três casos deixam `req.empresaId` NULO e publicam `req.tenantPendencia`.
+// Quem decide o que fazer com isso é o webhook (`webhook-handler.js`), que barra o fluxo
+// inteiro e registra a pendência em `app.webhook_quarentena`. O middleware continua sem
+// bloquear a requisição — quem responde 2xx rápido ao Evolution é a rota.
+//
+// O que este middleware publica:
+//   - `req.empresaId`        — a empresa PROVADA, ou null. Nunca uma empresa "padrão".
+//   - `req.empresaOrigem`    — como a empresa foi (ou não foi) resolvida. Só `instancia`
+//                              comprova; ver `services/webhook-quarentena.js`.
+//   - `req.whatsappInstanciaId` — o id (uuid) de app.empresa_whatsapp_instances, o
+//                              identificador confiável da instância. O NOME sozinho não
+//                              serve como chave: pode ser renomeado/recriado e é texto
+//                              vindo do payload.
+//   - `req.tenantPendencia`  — a pendência a registrar, ou null quando há dono provado.
 async function resolveEmpresaFromWebhook(req, _res, next) {
   const instanceName =
     req.body?.instance ||
     req.body?.sender ||
     req.headers['x-evolution-instance'] ||
     null
-  req.evolutionInstance = instanceName || null
-  req.whatsappInstanciaId = null
 
-  if (!instanceName) {
-    req.empresaId = PJ_EMPRESA_ID
-    req.empresaOrigem = ORIGEM_EMPRESA.FALLBACK_SEM_INSTANCIA
-    return next()
-  }
-
-  try {
-    const vinculo = await findEmpresaEInstanciaPorEvolution(instanceName)
-    if (vinculo) {
-      req.empresaId = vinculo.empresa.id
-      req.whatsappInstanciaId = vinculo.instanciaId
-      req.empresaOrigem = ORIGEM_EMPRESA.INSTANCIA
-    } else {
-      logger.warn({ instance: instanceName }, 'Webhook: instance sem empresa mapeada — usando empresa padrão do sistema.')
-      req.empresaId = PJ_EMPRESA_ID
-      req.empresaOrigem = ORIGEM_EMPRESA.FALLBACK_INSTANCIA_DESCONHECIDA
+  let vinculo = null
+  let erro = false
+  if (instanceName) {
+    try {
+      vinculo = await findEmpresaEInstanciaPorEvolution(instanceName)
+    } catch (err) {
+      // Falha TÉCNICA é diferente de instância inexistente: a primeira é transitória e não
+      // pede cadastro nenhum. Sem separar, o operador seria mandado cadastrar uma
+      // instância que já está lá.
+      erro = true
+      logger.error({ err: err.message }, 'Erro ao resolver a empresa do webhook — mensagem vai para quarentena.')
     }
-  } catch (err) {
-    logger.error({ err: err.message }, 'Erro ao resolver empresa do webhook — usando fallback.')
-    req.empresaId = PJ_EMPRESA_ID
-    req.empresaOrigem = ORIGEM_EMPRESA.FALLBACK_ERRO
   }
+
+  const resolucao = resolverTenantWebhook({ instanceName, vinculo, erro })
+  req.evolutionInstance = resolucao.evolutionInstance
+  req.empresaId = resolucao.empresaId
+  req.whatsappInstanciaId = resolucao.instanciaId
+  req.empresaOrigem = resolucao.origem
+  req.tenantPendencia = resolucao.pendencia
 
   next()
 }
