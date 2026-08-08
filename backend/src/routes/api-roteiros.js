@@ -51,6 +51,28 @@ router.get('/:roteiroId', requireAuth, requireEmpresaAccess, async (req, res) =>
   } catch (err) { return erro(res, err, 'ROTEIRO_GET_FAILED') }
 })
 
+// POST /:roteiroId/arquivar e /desarquivar — ciclo de vida do ROTEIRO (nao da versao).
+// Reversivel e nao destrutivo: nada e' apagado. NAO existe DELETE de roteiro neste modulo,
+// de proposito — as FKs de historico (app.ligacoes, ligacao_etapas/sinais/objecoes/perguntas
+// e campanhas.roteiro_versao_id) sao ON DELETE SET NULL, entao um DELETE nao seria barrado
+// pelo banco: ele desligaria em silencio as ligacoes ja realizadas do roteiro que as gerou.
+// Arquivar e' a operacao segura equivalente. Nao reintroduza exclusao aqui.
+router.post('/:roteiroId/arquivar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const roteiroId = idParam(res, req.params.roteiroId, 'roteiroId'); if (!roteiroId) return
+    const data = await R.definirArquivamentoRoteiro(pool, req.empresa.id, roteiroId, true)
+    return res.json({ ok: true, data })
+  } catch (err) { return erro(res, err, 'ROTEIRO_ARQUIVAR_FAILED') }
+})
+
+router.post('/:roteiroId/desarquivar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const roteiroId = idParam(res, req.params.roteiroId, 'roteiroId'); if (!roteiroId) return
+    const data = await R.definirArquivamentoRoteiro(pool, req.empresa.id, roteiroId, false)
+    return res.json({ ok: true, data })
+  } catch (err) { return erro(res, err, 'ROTEIRO_DESARQUIVAR_FAILED') }
+})
+
 // POST /:roteiroId/versoes — nova versao (rascunho); { basear_em_versao_id? } copia etapas.
 router.post('/:roteiroId/versoes', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {

@@ -80,3 +80,12 @@ export const IconCopySparkle = (p: P) => (
 export const IconAlert = (p: P) => (
   <Svg {...p}><path d="M12 3l9 16H3l9-16z" /><path d="M12 10v4M12 17h.01" /></Svg>
 )
+// Caixa de arquivo — guardar sem apagar. Usado no arquivamento de roteiro, que e' reversivel;
+// nao confundir com IconTrash, que sinaliza remocao.
+export const IconArchive = (p: P) => (
+  <Svg {...p}><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" /><path d="M10 12h4" /></Svg>
+)
+// Seta de expandir/recolher. Aponta para baixo por padrao; a tela gira com `rotate-*`.
+export const IconChevron = (p: P) => (
+  <Svg {...p}><path d="M6 9l6 6 6-6" /></Svg>
+)

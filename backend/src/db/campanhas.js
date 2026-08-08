@@ -25,6 +25,30 @@ async function assertMesmaEmpresa(pool, { schema, table, id, empresaId, rotulo }
   if (!rows[0]) throw erroEntrada(`${rotulo} nao encontrado(a) nesta empresa.`, 400)
 }
 
+// Roteiro ARQUIVADO (app.roteiros.ativo = false) e' historico: segue consultavel, e as
+// campanhas e ligacoes que JA o usam continuam intactas — arquivar nunca interrompe
+// atendimento em andamento. O que ele perde e' o direito de ser ADOTADO por uma campanha
+// nova (ou trocado para dentro de uma existente). E' aqui, no unico ponto onde uma campanha
+// passa a apontar para uma versao de roteiro, que "arquivado nao entra em atendimento novo"
+// deixa de ser texto de tela e vira regra de dados.
+//
+// Silencio quando a versao nao existe/e' de outro tenant: quem barra esse caso e'
+// assertMesmaEmpresa, chamado antes. Aqui so' se decide sobre roteiro que o tenant enxerga.
+async function assertRoteiroVersaoUtilizavel(pool, empresaId, roteiroVersaoId) {
+  if (!roteiroVersaoId) return
+  const { rows } = await pool.query(
+    `SELECT r.ativo
+       FROM app.roteiro_versoes v
+       JOIN app.roteiros r ON r.id = v.roteiro_id AND r.empresa_id = v.empresa_id
+      WHERE v.id = $1 AND v.empresa_id = $2`,
+    [roteiroVersaoId, empresaId]
+  )
+  if (!rows[0]) return
+  if (rows[0].ativo === false) {
+    throw erroEntrada('Roteiro arquivado nao pode ser usado em campanha. Desarquive-o antes.', 409)
+  }
+}
+
 // --- CAMPANHAS ---------------------------------------------------------------------
 async function listarCampanhas(pool, empresaId) {
   const { rows } = await pool.query(
@@ -48,6 +72,7 @@ async function criarCampanha(pool, empresaId, patch = {}) {
   if (patch.status !== undefined && !STATUS_CAMPANHA.has(patch.status)) throw erroEntrada('status invalido.')
   await assertMesmaEmpresa(pool, { schema: 'app', table: 'nichos', id: patch.nicho_id, empresaId, rotulo: 'Nicho' })
   await assertMesmaEmpresa(pool, { schema: 'app', table: 'roteiro_versoes', id: patch.roteiro_versao_id, empresaId, rotulo: 'Versao do roteiro' })
+  await assertRoteiroVersaoUtilizavel(pool, empresaId, patch.roteiro_versao_id)
   const { rows } = await pool.query(
     `INSERT INTO app.campanhas
        (empresa_id, nome, objetivo, hipotese, nicho_id, roteiro_versao_id, data_inicio, data_fim,
@@ -89,6 +114,7 @@ async function atualizarCampanha(pool, empresaId, campanhaId, patch = {}) {
   if (patch.status !== undefined && !STATUS_CAMPANHA.has(patch.status)) throw erroEntrada('status invalido.')
   await assertMesmaEmpresa(pool, { schema: 'app', table: 'nichos', id: patch.nicho_id, empresaId, rotulo: 'Nicho' })
   await assertMesmaEmpresa(pool, { schema: 'app', table: 'roteiro_versoes', id: patch.roteiro_versao_id, empresaId, rotulo: 'Versao do roteiro' })
+  await assertRoteiroVersaoUtilizavel(pool, empresaId, patch.roteiro_versao_id)
   const campos = []
   const params = [campanhaId, empresaId]
   const set = (col, val) => { params.push(val); campos.push(`${col} = $${params.length}`) }
@@ -287,6 +313,7 @@ async function removerLead(pool, empresaId, campanhaLeadId) {
 
 module.exports = {
   assertMesmaEmpresa,
+  assertRoteiroVersaoUtilizavel,
   listarCampanhas, criarCampanha, obterCampanha, atualizarCampanha,
   definirResponsaveis, adicionarLeads, listarLeadsDaCampanha, filaDeTrabalho, funilEtapas, atualizarLead, removerLead,
 }

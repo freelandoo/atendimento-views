@@ -642,6 +642,49 @@
 - Logs de IA usados pela Central devem levar `empresaId`/`empresa_id`, referência e número do
   cliente para que Uso & Custo permaneça isolado por tenant.
 
+### Roteiros — ciclo de vida do ROTEIRO (arquivar) ≠ ciclo de vida da VERSÃO
+- **Dois ciclos de vida convivem na tela `/dashboard/roteiros`, e confundi-los é o erro fácil
+  deste módulo.** `app.roteiro_versoes.status` (`rascunho|publicada|arquivada`) descreve **uma
+  versão** — publicada é **imutável**, para editar cria-se outra. O estado do **roteiro**
+  (`rascunho|publicado|arquivado`) é do cabeçalho e **não é derivável do status das versões**:
+  `publicarVersao` arquiva a versão publicada anterior por conta própria, então quase todo
+  roteiro saudável tem versão arquivada sem estar arquivado.
+- **Onde mora:** `app.roteiros.ativo` — coluna criada na migration `033`, indexada em
+  `idx_roteiros_empresa (empresa_id, ativo)` e que **nunca havia sido escrita nem exposta**.
+  **Nenhuma migration nova foi criada**; nenhum dado existente foi mutado (todo roteiro nasce
+  e permanece `ativo = true` até alguém arquivar).
+- **NÃO EXISTE EXCLUSÃO DE ROTEIRO, de propósito, e não deve ser criada.** As FKs de histórico
+  (`app.ligacoes`, `ligacao_etapas/sinais/objecoes/perguntas`, `campanhas.roteiro_versao_id`)
+  são **`ON DELETE SET NULL`**: o banco **não barra** um DELETE — ele desliga em silêncio as
+  ligações já realizadas do roteiro que as gerou. **Arquivar é a operação segura equivalente**,
+  e é reversível. Guarda de regressão em `test/roteiros.test.js` falha se o módulo passar a
+  exportar qualquer função com nome de exclusão.
+- **Arquivar não interrompe nada em andamento.** Nenhuma versão, etapa, ligação ou campanha é
+  tocada; a campanha aponta para a **versão**, que continua existindo. O que o roteiro
+  arquivado perde é o direito de ser **ADOTADO por campanha nova** (ou trocado para dentro de
+  uma existente): a regra vive em `assertRoteiroVersaoUtilizavel` (`src/db/campanhas.js`,
+  **409**), chamada por `criarCampanha` e `atualizarCampanha` — o único ponto onde uma campanha
+  passa a apontar para uma versão. Sem essa guarda, "arquivado" seria só um rótulo de tela.
+- **A tela avisa antes de confirmar:** `obterRoteiro` devolve `campanhas_usando` (contagem
+  escopada na empresa) e o modal diz, com o número, que essas campanhas continuam funcionando.
+- **Rotas:** `POST /:roteiroId/arquivar` e `POST /:roteiroId/desarquivar` (admin-only +
+  `requireEmpresaAccess`, como todas do módulo). Idempotentes; `UPDATE` escopado por
+  `empresa_id`, 404 fora do tenant. **Não há DELETE** em `src/routes/api-roteiros.js`.
+- **"Atendimento X" é o NICHO.** Não existe vínculo roteiro↔instância no schema; `app.roteiros.nicho`
+  (texto livre) é o agrupamento que os dados realmente têm, e é por ele que a lista lateral agrupa.
+- **Apresentação é PURA e testada** em `frontend/lib/roteiros-lista.js` (+ `.d.ts`/`.test.js`):
+  estado do roteiro, agrupamento por nicho, seção "Arquivados" recolhida, qual versão abrir,
+  quais ações cabem em cada estado e o texto de confirmação. A tela só desenha. Cor é **reforço**,
+  nunca a informação: todo selo carrega rótulo em texto + frase de consequência.
+- **Trocar de roteiro nunca mostra conteúdo do anterior:** a página usa um token de requisição
+  (só a resposta do último clique escreve na tela), limpa o painel no clique e **desabilita
+  TODAS as ações enquanto carrega** — publicar/arquivar durante o carregamento agiria sobre o
+  roteiro anterior. Nome e status aparecem na hora, vindos da lista já em memória.
+- Confirmação em `frontend/components/ui/ModalConfirmar.tsx` (acessível: `role="alertdialog"`,
+  foco preso, Escape, foco devolvido ao gatilho) — substitui `window.confirm` neste fluxo.
+- Testes: `test/roteiros.test.js`, `test/campanhas.test.js`, `frontend/lib/roteiros-lista.test.js`.
+- Nenhuma variável de ambiente nova foi criada para este módulo.
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

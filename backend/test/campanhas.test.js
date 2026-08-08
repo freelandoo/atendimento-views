@@ -2,12 +2,27 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 
 const {
-  assertMesmaEmpresa, criarCampanha, atualizarCampanha, atualizarLead, adicionarLeads,
+  assertMesmaEmpresa, assertRoteiroVersaoUtilizavel,
+  criarCampanha, atualizarCampanha, atualizarLead, adicionarLeads,
 } = require('../src/db/campanhas')
 
 function fakePool(rows = []) {
   const calls = []
   return { calls, async query(sql, params) { calls.push({ sql, params }); return { rows } } }
+}
+
+// Pool por padrao de SQL: os caminhos com roteiro passam por consultas DIFERENTES
+// (assertMesmaEmpresa e depois a guarda de arquivamento), entao um unico `rows` fixo nao serve.
+function poolPorSql(regras) {
+  const calls = []
+  return {
+    calls,
+    async query(sql, params) {
+      calls.push({ sql, params })
+      for (const [padrao, rows] of regras) if (padrao.test(sql)) return { rows }
+      return { rows: [] }
+    },
+  }
 }
 
 test('assertMesmaEmpresa: id de outra empresa (nao achou) -> 400', async () => {
@@ -60,6 +75,66 @@ test('atualizarLead: status valido do enum passa da validacao', async () => {
   const r = await atualizarLead(pool, 'emp1', 'cl1', { status: 'qualificado' })
   assert.equal(r.status, 'qualificado')
   assert.match(pool.calls[0].sql, /WHERE id = \$1 AND empresa_id = \$2/)
+})
+
+// --- roteiro ARQUIVADO nao entra em campanha nova ------------------------------------
+// A tela promete que arquivar nao interrompe nada em andamento e so' impede adocao NOVA.
+// Estes testes sao o lado de dados dessa promessa: sem eles, "arquivado" seria so' um rotulo.
+test('assertRoteiroVersaoUtilizavel: versao de roteiro ARQUIVADO -> 409', async () => {
+  const pool = poolPorSql([[/FROM app\.roteiro_versoes v/, [{ ativo: false }]]])
+  await assert.rejects(
+    () => assertRoteiroVersaoUtilizavel(pool, 'emp1', 'v-arquivado'),
+    (err) => err.statusCode === 409 && /arquivado/i.test(err.message)
+  )
+})
+
+test('assertRoteiroVersaoUtilizavel: versao de roteiro ATIVO passa', async () => {
+  const pool = poolPorSql([[/FROM app\.roteiro_versoes v/, [{ ativo: true }]]])
+  await assertRoteiroVersaoUtilizavel(pool, 'emp1', 'v-ok')
+})
+
+test('assertRoteiroVersaoUtilizavel: sem id nao consulta (no-op)', async () => {
+  const pool = fakePool([])
+  await assertRoteiroVersaoUtilizavel(pool, 'emp1', null)
+  assert.equal(pool.calls.length, 0)
+})
+
+// Quem barra versao inexistente/de outro tenant e' assertMesmaEmpresa, que roda antes.
+// Esta guarda cala de proposito para nao dar dois erros diferentes para a mesma causa.
+test('assertRoteiroVersaoUtilizavel: versao inexistente e silencio (quem barra e assertMesmaEmpresa)', async () => {
+  const pool = poolPorSql([])
+  await assertRoteiroVersaoUtilizavel(pool, 'emp1', 'v-inexistente')
+})
+
+test('assertRoteiroVersaoUtilizavel: consulta escopada na empresa (isolamento)', async () => {
+  const pool = poolPorSql([[/FROM app\.roteiro_versoes v/, [{ ativo: true }]]])
+  await assertRoteiroVersaoUtilizavel(pool, 'emp1', 'v1')
+  assert.match(pool.calls[0].sql, /v\.empresa_id = \$2/)
+  assert.deepEqual(pool.calls[0].params, ['v1', 'emp1'])
+})
+
+test('criarCampanha: roteiro arquivado e barrado ANTES do INSERT', async () => {
+  const pool = poolPorSql([
+    [/^SELECT 1 FROM app\.roteiro_versoes/, [{ id: 'v1' }]], // assertMesmaEmpresa
+    [/JOIN app\.roteiros r/, [{ ativo: false }]],                                     // guarda
+  ])
+  await assert.rejects(
+    () => criarCampanha(pool, 'emp1', { nome: 'C', roteiro_versao_id: 'v1' }),
+    (err) => err.statusCode === 409 && /arquivado/i.test(err.message)
+  )
+  assert.ok(pool.calls.every((c) => !/INSERT/.test(c.sql)), 'nao pode chegar ao INSERT')
+})
+
+test('atualizarCampanha: nao aceita TROCAR para um roteiro arquivado', async () => {
+  const pool = poolPorSql([
+    [/^SELECT 1 FROM app\.roteiro_versoes/, [{ id: 'v1' }]],
+    [/JOIN app\.roteiros r/, [{ ativo: false }]],
+  ])
+  await assert.rejects(
+    () => atualizarCampanha(pool, 'emp1', 'c1', { roteiro_versao_id: 'v1' }),
+    (err) => err.statusCode === 409 && /arquivado/i.test(err.message)
+  )
+  assert.ok(pool.calls.every((c) => !/UPDATE/.test(c.sql)), 'nao pode chegar ao UPDATE')
 })
 
 test('adicionarLeads: sem ids -> 0 (nao consulta insert)', async () => {

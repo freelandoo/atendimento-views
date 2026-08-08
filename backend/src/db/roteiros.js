@@ -95,10 +95,17 @@ async function criarRoteiro(pool, empresaId, { nome, descricao, nicho, criadoPor
   return rows[0]
 }
 
+// `campanhas_usando` alimenta o aviso de consequencia do arquivamento na tela: arquivar um
+// roteiro que uma campanha ja adotou NAO interrompe nada em andamento (a campanha aponta para
+// a VERSAO, que continua existindo) — o operador so precisa saber disso antes de confirmar.
 async function obterRoteiro(pool, empresaId, roteiroId) {
   const { rows } = await pool.query(
-    `SELECT id, nome, descricao, nicho, ativo, criado_em, atualizado_em
-       FROM app.roteiros WHERE id = $1 AND empresa_id = $2`,
+    `SELECT r.id, r.nome, r.descricao, r.nicho, r.ativo, r.criado_em, r.atualizado_em,
+            (SELECT COUNT(*)::int
+               FROM app.campanhas c
+               JOIN app.roteiro_versoes v ON v.id = c.roteiro_versao_id
+              WHERE v.roteiro_id = r.id AND c.empresa_id = $2) AS campanhas_usando
+       FROM app.roteiros r WHERE r.id = $1 AND r.empresa_id = $2`,
     [roteiroId, empresaId]
   )
   if (!rows[0]) return null
@@ -213,6 +220,26 @@ async function publicarVersao(pool, empresaId, versaoId) {
   return rows[0]
 }
 
+// Arquivamento do ROTEIRO (o cabecalho), que e' coisa diferente de arquivar uma VERSAO.
+// Mora na coluna `ativo` da migration 033 — criada exatamente para isso, indexada em
+// idx_roteiros_empresa (empresa_id, ativo) e ate aqui nunca escrita. Nao ha status derivavel
+// das versoes que sirva: `publicarVersao` arquiva a versao publicada anterior por conta
+// propria, entao quase todo roteiro saudavel tem versao arquivada sem estar arquivado.
+//
+// E' reversivel e NAO destrutivo: nenhuma versao, etapa, ligacao ou campanha e' tocada. O que
+// o arquivamento impede e' a ADOCAO por campanha nova (guarda em src/db/campanhas.js).
+// Idempotente de proposito: arquivar o que ja esta arquivado nao e' erro.
+async function definirArquivamentoRoteiro(pool, empresaId, roteiroId, arquivado) {
+  const { rows } = await pool.query(
+    `UPDATE app.roteiros SET ativo = $3, atualizado_em = NOW()
+      WHERE id = $1 AND empresa_id = $2
+      RETURNING id, nome, ativo`,
+    [roteiroId, empresaId, !arquivado]
+  )
+  if (!rows[0]) throw erroEntrada('Roteiro nao encontrado.', 404)
+  return { id: rows[0].id, nome: rows[0].nome, ativo: rows[0].ativo, arquivado: !rows[0].ativo }
+}
+
 async function arquivarVersao(pool, empresaId, versaoId) {
   const { rows } = await pool.query(
     `UPDATE app.roteiro_versoes SET status = 'arquivada', arquivada_em = NOW()
@@ -234,4 +261,5 @@ module.exports = {
   salvarEtapas,
   publicarVersao,
   arquivarVersao,
+  definirArquivamentoRoteiro,
 }
