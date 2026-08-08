@@ -28,9 +28,15 @@
 //
 // A PAGINACAO nao mora aqui: o dono e' `lib/paginacao.js` (o mesmo da Aquisicao e da fila
 // da Central de Ligacoes). Ela e' apenas REEXPORTADA, para a tela importar de um lugar so.
+//
+// A IDENTIDADE do lead (o que e nome de verdade, como se formata telefone, qual e o rotulo
+// visivel) tambem nao mora aqui: o dono e' `lib/lead-identidade.js`, o mesmo que o painel de
+// conversa usa. Duas copias fariam a mesma conversa aparecer com um nome na fila e outro no
+// painel aberto a partir dela.
 const {
   TAMANHOS_PAGINA, POR_PAGINA_PADRAO, normalizarPorPagina, paginar, resumoIntervalo, mostrarPaginacao,
 } = require('./paginacao')
+const { digitos, texto, nomeDeVerdade, formatarTelefone, rotuloLead } = require('./lead-identidade')
 
 /** Situacao do item na fila. Fechada de proposito — a tela nao inventa estado. */
 const SITUACOES = Object.freeze({
@@ -91,45 +97,6 @@ const PRAZO_ABERTO = Object.freeze(['agora', 'atrasado', 'hoje'])
 
 const PESO_SITUACAO = Object.freeze({ aberto: 0, aguardando: 1, falha: 2, concluido: 3, cancelado: 4 })
 const PESO_PRAZO = Object.freeze({ agora: 0, atrasado: 0, hoje: 1, futuro: 2, passado: 3 })
-
-function digitos(valor) {
-  return String(valor || '').replace(/\D/g, '')
-}
-
-function texto(valor) {
-  return String(valor == null ? '' : valor).trim()
-}
-
-/**
- * Nome de verdade, ou nada. Identificador tecnico do Evolution (`…@s.whatsapp.net`,
- * `…@lid`) NAO e nome de lead: o backend ja parou de usar o numero como fallback, e este
- * guarda protege as linhas antigas que ainda o carregam. Sem nome, quem decide o
- * fallback legivel e `rotuloLead`.
- */
-function nomeDeVerdade(valor) {
-  const t = texto(valor)
-  if (!t || t.includes('@')) return null
-  // "5511999999999" e telefone, nao nome — mesmo sem o sufixo do JID.
-  if (/^\+?\d[\d\s()-]*$/.test(t)) return null
-  return t
-}
-
-/** "(11) 99999-9999" a partir dos digitos (com ou sem o 55 do pais). */
-function formatarTelefone(valor) {
-  const d = digitos(valor).replace(/^55/, '')
-  if (d.length < 10 || d.length > 11) return digitos(valor) || ''
-  return `(${d.slice(0, 2)}) ${d.slice(2, d.length - 4)}-${d.slice(-4)}`
-}
-
-/**
- * O que a coluna "Lead" mostra: o nome do negocio e, so na falta dele, o telefone
- * formatado. Nunca o JID. Vive aqui (e nao no `.tsx`) porque a ordenacao e a busca da
- * fila precisam enxergar exatamente o mesmo rotulo que o operador le.
- */
-function rotuloLead(item) {
-  if (!item) return ''
-  return nomeDeVerdade(item.nome) || formatarTelefone(item.telefone_digitos) || texto(item.numero)
-}
 
 function dataValida(iso) {
   if (!iso) return null
@@ -548,6 +515,7 @@ module.exports = {
   descricaoPrioridade,
   classificarPrazoData,
   classificarPrazoJanela,
+  // Reexportados de ./lead-identidade — a MESMA identidade que o painel de conversa usa.
   nomeDeVerdade,
   formatarTelefone,
   rotuloLead,

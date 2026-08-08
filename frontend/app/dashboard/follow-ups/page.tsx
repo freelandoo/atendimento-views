@@ -33,7 +33,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
-import ConversaHistoricoModal from '@/components/ConversaHistoricoModal'
+import ConversaPainel from '@/components/ConversaPainel'
 import { IconSend, IconGear, IconPlay, IconAlert, IconClose, IconPlus } from '@/components/ui/icons'
 import {
   FILTROS_RAPIDOS,
@@ -415,8 +415,18 @@ export default function FollowUpsPage() {
         )}
       </div>
 
+      {/* MESMO painel do Histórico da Central de Mensagens (`components/ConversaPainel.tsx`).
+          A fila é só uma porta de entrada: a origem muda apenas o DESTINO do fechamento
+          (voltar para a fila, com filtros, ordenação e página intactos — eles vivem no estado
+          desta página e no localStorage, e o painel não os toca). Dados, permissões e ações
+          são os mesmos nas duas entradas. Não recriar um modal exclusivo daqui. */}
       {numeroHistorico && (
-        <ConversaHistoricoModal empresaId={empresaId} numero={numeroHistorico} onClose={() => setNumeroHistorico(null)} />
+        <ConversaPainel
+          empresaId={empresaId}
+          numero={numeroHistorico}
+          onFechar={() => setNumeroHistorico(null)}
+          onAtualizou={carregar}
+        />
       )}
 
       {roteiro && (

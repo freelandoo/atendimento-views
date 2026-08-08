@@ -642,6 +642,46 @@
 - Logs de IA usados pela Central devem levar `empresaId`/`empresa_id`, referência e número do
   cliente para que Uso & Custo permaneça isolado por tenant.
 
+### Painel de conversa — UM só, para todas as portas de entrada
+- **Regra de produto:** Central de Mensagens e Central de Follow-ups são **pontos de entrada
+  diferentes para a mesma conversa**. Painel, histórico, dados, permissões e ações são os
+  mesmos. A origem de entrada pode mudar **apenas o destino do fechamento**.
+- **Defeito corrigido:** o painel completo vivia INLINE em
+  `frontend/app/dashboard/conversas/page.tsx`, e o "Abrir conversa" da fila de Follow-ups
+  abria `components/ConversaHistoricoModal.tsx`, somente-leitura. Para a MESMA conversa e as
+  MESMAS permissões (`GET/POST /api/empresas/:id/conversas/:numero…`, `requireAuth` +
+  `requireEmpresaAccess` nos dois caminhos; `/follow-ups` é ainda mais restrito, admin-only),
+  quem chegava pela fila **não tinha** compositor do operador, "Orientar resposta",
+  pausar/retomar agente, reenviar WhatsApp, deletar histórico, prioridade comercial nem a aba
+  de Interesses. A divergência era 100% de **apresentação** — nenhuma rota mudou.
+- **Dono único: `frontend/components/ConversaPainel.tsx`.** Recebe `empresaId`, `numero`,
+  `onFechar` e o opcional `onAtualizou` (avisa a lista de trás que algo mudou no servidor).
+  **PROIBIDO** criar um segundo painel/modal de conversa por tela — foi exatamente isso que
+  produziu duas experiências para o mesmo trabalho.
+- **O painel CARREGA a conversa sozinho a partir do número.** É o que faz as três regras de
+  carregamento valerem em qualquer porta de entrada: (a) estado de carregando explícito;
+  (b) **token de requisição** + limpeza do estado a cada `numero` — troca rápida nunca mostra
+  a conversa anterior como se fosse a nova seleção; (c) erro tem mensagem simples e
+  **"Tentar de novo"**. `404` **não** é erro: é contato ainda sem conversa, e vira estado
+  vazio explicativo em vez de alarme.
+- **`ConversaHistoricoModal` NÃO é o painel** — sobrou para o **Banco de Leads**, por causa
+  das props de gerar/enviar **saudação** (cooldown, template, "Gerar de novo"), que pertencem
+  ao "Rodar leads" e não ao atendimento. Se um dia o Banco de Leads precisar do atendimento
+  completo, a saída é usar `ConversaPainel` e mover a saudação — nunca inchar aquele modal.
+- **Identidade humana do contato em `frontend/lib/lead-identidade.js`** (+ `.d.ts`/`.test.js`),
+  módulo PURO e dono único de `nomeDeVerdade`, `formatarTelefone`, `rotuloLead` e
+  `identidadeConversa`. `followups-fila.js` **reexporta** daqui (mesmo padrão de
+  `paginacao.js`) — duas cópias fariam a mesma conversa aparecer com um nome na fila e outro
+  no painel aberto a partir dela. O identificador técnico do Evolution nunca é a informação
+  principal: o título é o **nome do negócio** e, só na falta dele, o telefone formatado. A
+  listagem da Central de Mensagens passou a usar a mesma identidade (colunas "Lead" +
+  "Telefone", no lugar de "Número" + "Negócio").
+- **Filtros, ordenação e paginação de Follow-ups sobrevivem ao fechamento**: vivem no estado
+  da página e no `localStorage`, e o painel não os toca.
+- Testes: `frontend/lib/lead-identidade.test.js` (inclui guarda de regressão que lê o fonte de
+  `followups-fila.js` e falha se a regra de identidade for duplicada lá).
+- Nenhuma variável de ambiente nova, nenhuma rota nova, nenhuma migration.
+
 ### Roteiros — ciclo de vida do ROTEIRO (arquivar) ≠ ciclo de vida da VERSÃO
 - **Dois ciclos de vida convivem na tela `/dashboard/roteiros`, e confundi-los é o erro fácil
   deste módulo.** `app.roteiro_versoes.status` (`rascunho|publicada|arquivada`) descreve **uma

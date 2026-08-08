@@ -2,9 +2,18 @@
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 
-// Modal enxuto (somente leitura) do histórico de conversa de um contato. Reusa o MESMO
-// endpoint da página de Conversas (GET /api/empresas/:id/conversas/:numero) — sem recriar
-// a lógica de conversa. Usado ao clicar no telefone na listagem do Banco de Leads.
+// Modal enxuto do Banco de Leads. Reusa o MESMO endpoint da página de Conversas
+// (GET /api/empresas/:id/conversas/:numero) — sem recriar a lógica de conversa.
+//
+// NÃO é o painel de conversa da aplicação: esse é `components/ConversaPainel.tsx`, usado
+// pela Central de Mensagens e pela fila de Follow-ups. Este modal existe por causa das props
+// de gerar/enviar SAUDAÇÃO (cooldown, template, "Gerar de novo"), que pertencem ao "Rodar
+// leads" e não ao atendimento. Ao clicar no telefone na listagem, o operador está decidindo
+// um disparo — vê o histórico como contexto dessa decisão.
+//
+// Se um dia o Banco de Leads precisar do atendimento completo (compositor do operador,
+// pausar agente, interesses), a saída é usar `ConversaPainel` e levar a saudação para outro
+// lugar — nunca inchar este modal até virar um segundo painel de conversa.
 type Mensagem = { role?: string; content?: string; text?: string; timestamp?: string }
 type ConversaDetail = { numero?: string; historico?: Mensagem[]; estagio?: string }
 
