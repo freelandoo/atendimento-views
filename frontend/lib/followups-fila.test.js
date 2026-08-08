@@ -15,6 +15,12 @@ const {
   descricaoPrioridade,
   filtroRapidoValido,
   FILTROS_RAPIDOS,
+  nomeDeVerdade,
+  formatarTelefone,
+  rotuloLead,
+  paginar,
+  resumoIntervalo,
+  POR_PAGINA_PADRAO,
 } = require('./followups-fila')
 
 const AGORA = new Date('2026-08-08T15:00:00')
@@ -258,4 +264,89 @@ test('entrada vazia ou malformada nao quebra a fila', () => {
   assert.deepEqual(montarFila(), [])
   assert.deepEqual(montarFila({ humanos: null, automaticos: undefined }), [])
   assert.deepEqual(montarFila({ humanos: [{ nome: 'sem numero' }] }), [])
+})
+
+// ── Rotulo do lead: nenhum identificador tecnico do Evolution chega a tela ──────────
+
+test('identificador do Evolution NUNCA vira nome de lead', () => {
+  assert.equal(nomeDeVerdade('5511999990001@s.whatsapp.net'), null)
+  assert.equal(nomeDeVerdade('5511999990001@lid'), null)
+  assert.equal(nomeDeVerdade('5511999990001'), null) // telefone tambem nao e nome
+  assert.equal(nomeDeVerdade('+55 11 99999-0001'), null)
+  assert.equal(nomeDeVerdade(''), null)
+  assert.equal(nomeDeVerdade(null), null)
+  assert.equal(nomeDeVerdade('  Padaria do Zé '), 'Padaria do Zé')
+})
+
+test('sem nome, a linha mostra o telefone formatado — nunca o JID', () => {
+  const semNome = montarFila({ humanos: [humano({ nome: null })], agora: AGORA })[0]
+  assert.equal(semNome.nome, null)
+  assert.equal(semNome.rotulo, '(11) 99999-0001')
+  assert.equal(semNome.rotulo.includes('@'), false)
+
+  // Linha antiga que ainda traz o JID no campo `nome` e' saneada na entrada.
+  const legado = montarFila({ humanos: [humano({ nome: '5511999990001@s.whatsapp.net' })], agora: AGORA })[0]
+  assert.equal(legado.nome, null)
+  assert.equal(legado.rotulo, '(11) 99999-0001')
+
+  // Item vindo so do automatico segue a mesma regra.
+  const ia = montarFila({ automaticos: [auto({ nome: null })], agora: AGORA })[0]
+  assert.equal(ia.rotulo, '(11) 99999-0002')
+})
+
+test('com nome de negocio, o rotulo e o nome (o telefone fica so como contato)', () => {
+  const item = montarFila({ humanos: [humano()], agora: AGORA })[0]
+  assert.equal(item.nome, 'Padaria do Zé')
+  assert.equal(item.rotulo, 'Padaria do Zé')
+})
+
+test('formatarTelefone tolera 55, 10 e 11 digitos e nao inventa formato', () => {
+  assert.equal(formatarTelefone('5511999990001'), '(11) 99999-0001')
+  assert.equal(formatarTelefone('11999990001'), '(11) 99999-0001')
+  assert.equal(formatarTelefone('1133330001'), '(11) 3333-0001')
+  assert.equal(formatarTelefone('123'), '123') // curto demais: devolve os digitos, sem mascara falsa
+  assert.equal(formatarTelefone(''), '')
+})
+
+test('a busca da fila enxerga o rotulo visivel, inclusive quando ele e o telefone', () => {
+  const fila = montarFila({ humanos: [humano({ nome: null, negocio: null, cidade: null })], agora: AGORA })
+  assert.equal(fila[0].rotulo, '(11) 99999-0001')
+  // Casa pelo trecho do telefone e tambem pelo rotulo formatado que esta na tela.
+  assert.equal(aplicarAvancado(fila, { busca: '99999' }).length, 1)
+  assert.equal(aplicarAvancado(fila, { busca: '(11) 99999' }).length, 1)
+  assert.equal(aplicarAvancado(fila, { busca: 'Padaria' }).length, 0)
+})
+
+test('rotuloLead nao quebra com entrada vazia', () => {
+  assert.equal(rotuloLead(null), '')
+  assert.equal(rotuloLead({}), '')
+})
+
+// ── Paginacao: reuso do mesmo modulo da Aquisicao e da Central de Ligacoes ─────────
+
+test('a fila pagina de 25 em 25 sobre o conjunto JA filtrado', () => {
+  assert.equal(POR_PAGINA_PADRAO, 25)
+  const humanos = Array.from({ length: 60 }, (_, i) => humano({
+    numero: `55119999${String(i).padStart(5, '0')}@s.whatsapp.net`,
+    telefone_digitos: `55119999${String(i).padStart(5, '0')}`,
+    nome: `Lead ${String(i).padStart(2, '0')}`,
+  }))
+  const fila = montarFila({ humanos, agora: AGORA })
+  assert.equal(fila.length, 60)
+
+  const p1 = paginar(fila, 1, POR_PAGINA_PADRAO)
+  assert.equal(p1.itens.length, 25)
+  assert.equal(p1.temAnterior, false)
+  assert.equal(p1.temProxima, true)
+  assert.equal(resumoIntervalo(p1, { singular: 'follow-up', plural: 'follow-ups' }), 'Exibindo 1–25 de 60 follow-ups')
+
+  const p3 = paginar(fila, 3, POR_PAGINA_PADRAO)
+  assert.equal(p3.itens.length, 10)
+  assert.equal(p3.temProxima, false)
+  assert.equal(resumoIntervalo(p3, { singular: 'follow-up', plural: 'follow-ups' }), 'Exibindo 51–60 de 60 follow-ups')
+
+  // A pagina e' clampada: filtrar ate sobrar pouco nunca deixa uma janela vazia.
+  const encolhida = paginar(fila.slice(0, 3), 3, POR_PAGINA_PADRAO)
+  assert.equal(encolhida.pagina, 1)
+  assert.equal(encolhida.itens.length, 3)
 })

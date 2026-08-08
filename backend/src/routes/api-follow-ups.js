@@ -22,11 +22,13 @@ const {
   reprocessarFalhas,
   cancelarPorLead,
   montarCallList,
+  buscarLeadsParaFollowup,
 } = require('../services/followup-listing')
 const {
   gerarRoteiroLigacao,
   gerarPreviewFollowup,
   enviarFollowupTexto,
+  iniciarConversaManual,
 } = require('../services/followup-manual')
 const {
   registrarLigacao,
@@ -198,6 +200,30 @@ router.get('/metricas', requireAuth, requireEmpresaAccess, async (req, res) => {
 })
 
 // --- MANUAL ----------------------------------------------------------------------
+// GET /manual/leads?q=… — busca ASSISTIDA do compositor manual: sugere leads que a
+// empresa JA conhece, por nome do negocio ou por telefone, para o operador nao redigitar
+// o numero. Read-only, escopada na empresa, sem IA e sem envio.
+router.get('/manual/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const q = validarTextoEntrada(req.query.q, 'q', 80)
+    const itens = await buscarLeadsParaFollowup(pool, req.empresa.id, { q, limit: req.query.limit })
+    return res.json({ ok: true, data: { itens } })
+  } catch (err) { return erro(res, err, 'MANUAL_LEADS_FAILED') }
+})
+
+// POST /manual/iniciar — abre a conversa de um numero que a empresa ainda nao conhece,
+// com o AGENTE PAUSADO, e registra a origem em app.auditoria_eventos. NAO envia mensagem
+// nenhuma: so' torna possivel compor o follow-up nos dois passos de sempre.
+router.post('/manual/iniciar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const numero = validarNumeroEntrada(req.body?.numero)
+    const out = await iniciarConversaManual({
+      pool, empresaId: req.empresa.id, numero, usuarioId: req.usuario?.id || null,
+    })
+    return res.json({ ok: true, data: out })
+  } catch (err) { return erro(res, err, 'MANUAL_INICIAR_FAILED') }
+})
+
 // POST /manual/gerar — gera o preview do follow-up por IA (NAO envia).
 router.post('/manual/gerar', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {

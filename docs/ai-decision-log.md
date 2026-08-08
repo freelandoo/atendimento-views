@@ -11,6 +11,63 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-08 — Follow-ups: fila paginada, sem identificador do Evolution, com Manual assistido
+
+Continuação da fila única entregue em `2621db9`. Cinco decisões que valem mais que o diff:
+
+1. **A área "Automação" virou um TOGGLE, não uma página nova.** Ela tinha três coisas de
+   naturezas diferentes: uma DECISÃO diária (ligar/desligar o motor), um PARÂMETRO
+   (`meta_ligacoes_dia`) e DIAGNÓSTICO (cards de saúde + reprocessar falhas). Só a primeira é
+   trabalho de quem opera a fila; as outras duas são configuração e telemetria, que o pedido
+   põe fora de escopo. Decisão do operador: manter apenas o toggle no cabeçalho.
+   **Custo declarado e aceito:** `meta_ligacoes_dia` fica sem editor (a marca "na capacidade
+   do dia" segue lendo o valor salvo, default 12) e "Reprocessar falhas" sai da UI. **Nenhuma
+   rota foi removida** — `PUT /config` e `POST /auto/reprocessar` continuam intactos, para a
+   área nascer em Configurações depois sem trabalho de backend. Alternativa recusada agora:
+   criar a página de Configurações nesta entrega (escopo maior, e o pedido só a cita como
+   direção futura).
+
+2. **O JID do Evolution some corrigindo a ORIGEM, não escondendo na tela.** O SQL fazia
+   `COALESCE(apelido, negocio, c.numero) AS nome`; bastava um lead sem cadastro para a coluna
+   "Lead" virar `5511999990001@s.whatsapp.net`. O SQL passa a devolver **nome NULO** e a
+   escolha do fallback legível é da apresentação (`rotuloLead`, PURO). Motivo de não fazer
+   `nome || telefone` no `.tsx`: a **ordenação** e a **busca** da fila precisam enxergar
+   exatamente o rótulo que está na tela — desempatar por um `nome` invisível produziria uma
+   ordem que o operador não consegue explicar. `nomeDeVerdade` também saneia linhas antigas
+   que ainda tragam JID (ou um telefone cru) no campo `nome`; guarda de regressão lê o fonte
+   do SQL e falha se o `COALESCE` voltar.
+
+3. **A paginação não ganhou módulo próprio.** `frontend/lib/paginacao.js` já é o dono
+   compartilhado (Aquisição + Central de Ligações). Follow-ups apenas o **reexporta** via
+   `followups-fila.js`, para a tela importar de um lugar só. Zero aritmética de página no
+   `.tsx`. Recorte **depois** de filtrar/ordenar, página clampada, e filtro mexido volta para
+   a página 1 (manter a página 7 depois de restringir mostraria uma janela vazia).
+
+4. **Conversa criada pelo Manual nasce com o AGENTE PAUSADO.** Foi a decisão de produto do
+   operador, contra as duas alternativas: recusar o número novo (mantinha o 404 de hoje e
+   deixava o pedido sem atender) ou criar a conversa ativa (o bot passaria a atender
+   automaticamente alguém que **nunca escreveu** — iniciar atendimento por conta própria).
+   Pausado é o meio-termo honesto: o operador fala, e liberar o bot vira ato explícito na
+   Central de Mensagens.
+   **`ON CONFLICT (numero) DO NOTHING` + releitura, nunca `DO UPDATE`:**
+   `vendas.conversas.numero` é UNIQUE **GLOBAL** (`init.sql:6`), não por empresa — um upsert
+   aqui reescreveria a conversa de outro tenant. Número que já é de outra empresa é **recusado
+   com 409**, sem adotar e sem devolver nada da linha alheia. Guarda de regressão lê o fonte e
+   falha se o `DO UPDATE` ou um `agente_pausado = false` voltarem.
+
+5. **A origem do Manual foi para `app.auditoria_eventos`, sem migration.** A tabela da
+   migration `047` já tem empresa, usuário, entidade, ação, contexto JSONB e data — exatamente
+   o que o pedido exige. `vendas.eventos_comerciais` foi **recusada**: tem CHECK fechado de
+   `tipo` (`init.sql:311`), o que exigiria alterar a constraint, e não carrega `empresa_id`.
+   No registro entram só `origem` e `telefone_digitos`; nenhum JID e nenhum texto de mensagem.
+
+**Filtros não implementados, por decisão e não por esquecimento:** "responsável" (o item da
+fila não tem dono — `usuario_id` só existe em ligação já registrada) e "tipo de falha" (o motor
+grava `motivo_decisao` em texto livre, sem taxonomia). Inventar qualquer um dos dois daria um
+filtro que mente. As duas ausências estão escritas na própria tela.
+
+---
+
 ## 2026-08-08 — Atribuição CTWA capturada no WEBHOOK, escopada por empresa **e** instância
 
 Implementação da saída apontada pela medição do mesmo dia (entrada abaixo). Quatro decisões

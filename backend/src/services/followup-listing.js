@@ -39,7 +39,10 @@ async function listarAgendamentosAuto(pool, empresaId, opts = {}) {
     `SELECT fa.id, fa.numero, fa.sequencia, fa.status, fa.agendado_para,
             fa.executado_em, fa.cancelado_em, fa.motivo_decisao, fa.detectado_em,
             c.estagio,
-            COALESCE(NULLIF(p.apelido, ''), NULLIF(p.negocio, ''), fa.numero) AS nome
+            -- Sem apelido/negocio o nome fica NULO de proposito: cair para fa.numero
+            -- colocaria o JID do Evolution (...@s.whatsapp.net) na coluna "Lead" da tela.
+            -- Quem escolhe o fallback legivel (telefone formatado) e a apresentacao.
+            COALESCE(NULLIF(p.apelido, ''), NULLIF(p.negocio, '')) AS nome
        FROM vendas.followup_auto_agendamentos fa
        JOIN vendas.conversas c ON c.numero = fa.numero
        LEFT JOIN vendas.lead_profiles p ON p.numero = fa.numero
@@ -149,7 +152,8 @@ async function montarCallList(pool, empresaId, opts = {}) {
             c.estagio,
             c.status,
             c.agente_pausado,
-            COALESCE(NULLIF(p.apelido, ''), NULLIF(p.negocio, ''), c.numero) AS nome,
+            -- Nome NULO quando o lead nao tem apelido nem negocio (ver listarAgendamentosAuto).
+            COALESCE(NULLIF(p.apelido, ''), NULLIF(p.negocio, '')) AS nome,
             p.negocio,
             p.cidade,
             p.score_lead,
@@ -259,11 +263,66 @@ async function montarCallList(pool, empresaId, opts = {}) {
   return lista.slice(0, limit)
 }
 
+// --- BUSCA ASSISTIDA de lead (Follow-up manual) ----------------------------------
+// Uma unica caixa que aceita NOME do negocio ou TELEFONE. Existe para o operador nao
+// redigitar (nem adivinhar) o numero de um lead que o sistema ja conhece.
+//
+// Isolamento: `c.empresa_id = $1`, sem o fallback para a PJ que `api-conversas.js` faz —
+// sugerir contato e' expor dado, e aqui nao ha motivo para atravessar tenant.
+//
+// O JID (`…@s.whatsapp.net`) volta em `numero` porque e' a CHAVE das rotas seguintes; o
+// que a tela mostra e' `nome` + `telefone_digitos`. Sem apelido/negocio o nome vem NULO,
+// pelo mesmo motivo das consultas acima.
+const BUSCA_MIN_CARACTERES = 2
+const BUSCA_LIMITE_PADRAO = 8
+const BUSCA_LIMITE_MAX = 20
+
+// `%` e `_` sao curingas do LIKE: sem escapar, "100%" viraria "qualquer coisa".
+function escaparLike(termo) {
+  return termo.replace(/([\\%_])/g, '\\$1')
+}
+
+async function buscarLeadsParaFollowup(pool, empresaId, opts = {}) {
+  const termo = String(opts.q || '').trim().slice(0, 80)
+  if (termo.length < BUSCA_MIN_CARACTERES) return []
+  const limit = Math.min(Math.max(Number.parseInt(opts.limit, 10) || BUSCA_LIMITE_PADRAO, 1), BUSCA_LIMITE_MAX)
+  const dig = limparNumero(termo)
+  const { rows } = await pool.query(
+    `SELECT c.numero,
+            regexp_replace(c.numero, '[^0-9]', '', 'g') AS telefone_digitos,
+            COALESCE(NULLIF(p.apelido, ''), NULLIF(p.negocio, '')) AS nome,
+            p.cidade,
+            c.estagio,
+            c.atualizado_em
+       FROM vendas.conversas c
+       LEFT JOIN vendas.lead_profiles p ON p.numero = c.numero
+      WHERE c.empresa_id = $1
+        AND COALESCE(c.arquivado, false) = false
+        AND (
+          COALESCE(p.apelido, '') ILIKE $2 ESCAPE '\\'
+          OR COALESCE(p.negocio, '') ILIKE $2 ESCAPE '\\'
+          OR ($3::text <> '' AND regexp_replace(c.numero, '[^0-9]', '', 'g') LIKE $4)
+        )
+      ORDER BY c.atualizado_em DESC
+      LIMIT $5`,
+    [empresaId, `%${escaparLike(termo)}%`, dig, `%${dig}%`, limit]
+  )
+  return rows.map((r) => ({
+    numero: r.numero,
+    telefone_digitos: r.telefone_digitos,
+    nome: r.nome || null,
+    cidade: r.cidade || null,
+    estagio: r.estagio || null,
+  }))
+}
+
 module.exports = {
   listarAgendamentosAuto,
   resumoAgendamentosAuto,
   reprocessarFalhas,
   cancelarPorLead,
   montarCallList,
+  buscarLeadsParaFollowup,
   CALLLIST_SILENCIO_MIN_MINUTOS,
+  BUSCA_MIN_CARACTERES,
 }

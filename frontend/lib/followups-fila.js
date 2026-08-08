@@ -25,6 +25,12 @@
 //    faixa. Numero errado numa fila de trabalho custa mais caro que numero ausente.
 //
 // Sem React, sem rede, sem DOM: testavel com `node --test`.
+//
+// A PAGINACAO nao mora aqui: o dono e' `lib/paginacao.js` (o mesmo da Aquisicao e da fila
+// da Central de Ligacoes). Ela e' apenas REEXPORTADA, para a tela importar de um lugar so.
+const {
+  TAMANHOS_PAGINA, POR_PAGINA_PADRAO, normalizarPorPagina, paginar, resumoIntervalo, mostrarPaginacao,
+} = require('./paginacao')
 
 /** Situacao do item na fila. Fechada de proposito — a tela nao inventa estado. */
 const SITUACOES = Object.freeze({
@@ -92,6 +98,37 @@ function digitos(valor) {
 
 function texto(valor) {
   return String(valor == null ? '' : valor).trim()
+}
+
+/**
+ * Nome de verdade, ou nada. Identificador tecnico do Evolution (`…@s.whatsapp.net`,
+ * `…@lid`) NAO e nome de lead: o backend ja parou de usar o numero como fallback, e este
+ * guarda protege as linhas antigas que ainda o carregam. Sem nome, quem decide o
+ * fallback legivel e `rotuloLead`.
+ */
+function nomeDeVerdade(valor) {
+  const t = texto(valor)
+  if (!t || t.includes('@')) return null
+  // "5511999999999" e telefone, nao nome — mesmo sem o sufixo do JID.
+  if (/^\+?\d[\d\s()-]*$/.test(t)) return null
+  return t
+}
+
+/** "(11) 99999-9999" a partir dos digitos (com ou sem o 55 do pais). */
+function formatarTelefone(valor) {
+  const d = digitos(valor).replace(/^55/, '')
+  if (d.length < 10 || d.length > 11) return digitos(valor) || ''
+  return `(${d.slice(0, 2)}) ${d.slice(2, d.length - 4)}-${d.slice(-4)}`
+}
+
+/**
+ * O que a coluna "Lead" mostra: o nome do negocio e, so na falta dele, o telefone
+ * formatado. Nunca o JID. Vive aqui (e nao no `.tsx`) porque a ordenacao e a busca da
+ * fila precisam enxergar exatamente o mesmo rotulo que o operador le.
+ */
+function rotuloLead(item) {
+  if (!item) return ''
+  return nomeDeVerdade(item.nome) || formatarTelefone(item.telefone_digitos) || texto(item.numero)
 }
 
 function dataValida(iso) {
@@ -216,11 +253,14 @@ function montarFila(entrada = {}) {
     const grupo = porNumero.has(numero) ? resumirAutomaticos(porNumero.get(numero)) : null
     if (grupo) usados.add(numero)
     const ia = grupo ? itemDoAutomatico(grupo, agora, true) : null
+    const telefoneHumano = texto(h.telefone_digitos) || digitos(numero)
+    const nomeHumano = nomeDeVerdade(h.nome)
     itens.push({
       id: `humano:${numero}`,
       numero,
-      telefone_digitos: texto(h.telefone_digitos) || digitos(numero),
-      nome: texto(h.nome) || numero,
+      telefone_digitos: telefoneHumano,
+      nome: nomeHumano,
+      rotulo: rotuloLead({ nome: nomeHumano, telefone_digitos: telefoneHumano, numero }),
       contexto: contextoDoLead(h),
       estagio: texto(h.estagio) || null,
       humano: true,
@@ -256,11 +296,14 @@ function montarFila(entrada = {}) {
     const grupo = resumirAutomaticos(lista)
     const ia = itemDoAutomatico(grupo, agora, false)
     const p = grupo.principal
+    const telefoneIa = digitos(numero)
+    const nomeIa = nomeDeVerdade(p.nome)
     itens.push({
       id: `ia:${p.id}`,
       numero,
-      telefone_digitos: digitos(numero),
-      nome: texto(p.nome) || numero,
+      telefone_digitos: telefoneIa,
+      nome: nomeIa,
+      rotulo: rotuloLead({ nome: nomeIa, telefone_digitos: telefoneIa, numero }),
       contexto: null,
       estagio: texto(p.estagio) || null,
       humano: false,
@@ -307,7 +350,9 @@ function ordenarFila(itens) {
     if (p !== 0) return p
     const score = (b.prioridade_score ?? -1) - (a.prioridade_score ?? -1)
     if (score !== 0) return score
-    return String(a.nome).localeCompare(String(b.nome), 'pt-BR')
+    // Desempate pelo rotulo VISIVEL (nome, ou telefone formatado): ordenar por um `nome`
+    // que a tela nao mostra produziria uma ordem que o operador nao consegue explicar.
+    return String(rotuloLead(a)).localeCompare(String(rotuloLead(b)), 'pt-BR')
   })
 }
 
@@ -392,7 +437,7 @@ function aplicarAvancado(itens, view = {}) {
 
   return (Array.isArray(itens) ? itens : []).filter((i) => {
     if (busca) {
-      const alvo = `${i.nome} ${i.contexto || ''}`.toLowerCase()
+      const alvo = `${rotuloLead(i)} ${i.nome || ''} ${i.contexto || ''}`.toLowerCase()
       const casaTexto = alvo.includes(busca)
       const casaFone = buscaDigitos.length >= 3 && String(i.telefone_digitos || '').includes(buscaDigitos)
       if (!casaTexto && !casaFone) return false
@@ -503,4 +548,9 @@ module.exports = {
   descricaoPrioridade,
   classificarPrazoData,
   classificarPrazoJanela,
+  nomeDeVerdade,
+  formatarTelefone,
+  rotuloLead,
+  // Reexportados de ./paginacao — mesma aritmetica da Aquisicao e da Central de Ligacoes.
+  TAMANHOS_PAGINA, POR_PAGINA_PADRAO, normalizarPorPagina, paginar, resumoIntervalo, mostrarPaginacao,
 }

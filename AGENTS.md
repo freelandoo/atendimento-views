@@ -538,9 +538,25 @@
   só a ORIGEM do item, e origem não é trabalho: hoje há **uma fila só**, ordenada pela próxima
   ação de cada conversa, com **filtros rápidos** (Todos · Aguardando · Próxima ação hoje ·
   Atendimento humano · Atendimento IA · Falhas · Concluídos) e um **filtro avançado**
-  ("Personalizar filtros", painel flutuante no padrão do Banco de Leads). Duas áreas seguem
-  separadas (`components/ui/Abas.tsx`): **Fila** (o trabalho) e **Automação** (configuração e
-  saúde do motor: pausar, capacidade de ligações/dia, reprocessar falhas, diagnóstico).
+  ("Personalizar filtros", painel flutuante no padrão do Banco de Leads).
+- **A área "Automação" foi REMOVIDA da tela** (cards de saúde, editor de capacidade,
+  "Reprocessar falhas" e a listagem de diagnóstico). Logs, telemetria e reprocessamento não
+  pertencem a uma fila de trabalho. Do que ela tinha, sobrou o que é DECISÃO diária e não
+  diagnóstico: o **toggle "Follow-up automático: ativo/desativado"** no cabeçalho, que é o
+  mesmo `PUT /config {pausado}` de sempre. `components/ui/Abas.tsx` não é mais usado aqui.
+  **Consequências declaradas e aceitas com o operador:**
+  - `meta_ligacoes_dia` **deixou de ter editor**. A marca "na capacidade do dia" continua
+    lendo o valor já salvo da empresa (`GET /config`, default 12) e o contrato `PUT /config`
+    segue intacto — a edição volta quando a área nascer em **Configurações** (direção futura
+    combinada). Enquanto isso o valor só muda pela API.
+  - **"Reprocessar falhas" saiu da UI.** `POST /auto/reprocessar` **continua existindo** no
+    backend e não foi tocado; o caso normal é a retomada silenciosa do próprio motor. O filtro
+    rápido "Falhas" continua mostrando o que falhou.
+- **Paginação de 25 por página**, com rodapé "Exibindo 1–25 de X follow-ups" e anterior/próxima.
+  Reusa `frontend/lib/paginacao.js` — o MESMO módulo da Aquisição e da fila da Central de
+  Ligações, apenas reexportado por `followups-fila.js` (a tela importa de um lugar só). Pagina
+  **depois** de filtrar e ordenar, e a página é clampada: encolher o recorte nunca deixa o
+  operador numa janela vazia. Mexer em qualquer filtro volta para a página 1.
 - **Uma linha por CONVERSA, não por registro.** `GET /call-list` (próxima ação humana) e
   `GET /auto` (agendamentos do motor) falam do MESMO atendimento: quando os dois existem para
   o mesmo número, viram uma linha só — a ação humana é a próxima ação e o automático vira
@@ -548,7 +564,8 @@
   abas causavam. A linha aparece nos filtros "humano" **e** "IA": é verdade, não duplicidade.
 - **"Todos" = o que está EM ABERTO** (ação humana pendente ou envio automático agendado).
   Concluídos, cancelados e falhas só entram pelos próprios filtros — falha é diagnóstico, não
-  tarefa, e o **reprocessamento continua só em Automação**.
+  tarefa. **Falha NUNCA é "Aguardando"**: `SITUACAO_POR_STATUS_IA.falhou` = `falha`, e item
+  humano com falha do automático fica `aberto` + `tem_falha` (nunca some da fila de trabalho).
 - **Prioridade só existe onde o backend calculou.** Item que só tem follow-up automático não
   passa pelo call score: a bolinha aparece vazada e diz "prioridade não calculada". Não se
   inventa faixa — número errado numa fila de trabalho custa mais que número ausente.
@@ -559,19 +576,59 @@
   silêncio ao mudar o texto. Campo **aditivo**: nenhum consumidor anterior mudou.
 - **O "Manual" NÃO virou filtro**: é um compositor de mensagem 1:1 (função distinta não vira
   filtro). Virou o botão "Follow-up manual" do cabeçalho da fila, reaproveitado pelos itens
-  cuja ação recomendada é escrever manualmente. Mesmos endpoints, mesma revisão humana antes
-  do envio.
+  cuja ação recomendada é escrever manualmente. Mesma geração por IA, mesma revisão humana
+  antes do envio. O que mudou é a **ENTRADA**:
+  - **Busca assistida** (`GET /follow-ups/manual/leads?q=`): uma caixa só aceita nome do
+    negócio **ou** telefone e sugere leads que a empresa já conhece (atraso de 300 ms, estados
+    de carregando/erro/nenhum resultado). Escopada em `c.empresa_id` — **sem** o fallback para
+    a PJ que `api-conversas.js` faz: sugerir contato é expor dado. Curinga de `LIKE` digitado
+    pelo operador (`%`, `_`) é escapado. Mínimo de 2 caracteres, teto de 20 resultados.
+  - **Número sem lead existente** (`POST /follow-ups/manual/iniciar`): abre a conversa e **não
+    envia nada**. Três garantias, todas travadas em `test/followup-manual-iniciar.test.js`:
+    (a) a conversa nasce com **`agente_pausado = true`** — conversa criada pela mão do operador
+    não é lead que chegou pelo funil, e o bot não pode assumir sozinho um número que nunca
+    escreveu; despausar continua sendo ato explícito na Central de Mensagens;
+    (b) é `ON CONFLICT (numero) DO NOTHING` + releitura, **nunca `DO UPDATE`** —
+    `vendas.conversas.numero` é UNIQUE **GLOBAL** (`init.sql:6`), então um upsert aqui
+    reescreveria a conversa de outro tenant; número de outra empresa é **recusado com 409**,
+    sem adotar e sem devolver nada da linha alheia;
+    (c) a origem é registrada em **`app.auditoria_eventos`** (migration `047` — **nenhuma
+    tabela nova**) com `entidade_tipo='conversa'`,
+    `acao='followup_manual_conversa_iniciada'`, o usuário responsável, a data e
+    `contexto={origem:'follow_up_manual', telefone_digitos}`. É o que distingue esta conversa
+    de uma recebida pelo webhook, de campanha ou de automação. Só na CRIAÇÃO: repetir a ação
+    não infla a auditoria. Nenhum JID e nenhum texto de mensagem entram no registro.
+- **Identificador técnico do Evolution NÃO aparece na interface.** As duas consultas de
+  `followup-listing.js` faziam `COALESCE(NULLIF(p.apelido,''), NULLIF(p.negocio,''), c.numero)`
+  — lead sem apelido/negócio aparecia na coluna "Lead" como `5511999990001@s.whatsapp.net`.
+  Hoje o SQL devolve **nome NULO** e quem decide o fallback legível é a apresentação:
+  `rotuloLead` (PURO) mostra o nome do negócio e, só na falta dele, o **telefone formatado**.
+  `nomeDeVerdade` também **sanea linhas antigas** que ainda tragam JID ou telefone no campo
+  `nome`. O desempate da ordenação e a busca usam o MESMO rótulo que está na tela — ordenar por
+  um `nome` invisível daria uma ordem que o operador não consegue explicar. Guardas de
+  regressão em `test/followup-listing.test.js` (lê o fonte do SQL) e em
+  `lib/followups-fila.test.js`.
+- **O rótulo solto "Escalado" saiu da linha.** Quem precisa de gente é dito pela própria
+  próxima ação ("Ligar", "Assumir conversa") e pelo "Por que agora" — um selo ao lado do nome
+  não dizia o que fazer. O campo `escalado` continua vindo do backend (`followup-listing.js`
+  o calcula a partir de `followups_ignorados`) e continua alimentando a recomendação de ação.
 - **`app.followup_config.modo` deixou de ser escrito pela tela.** Ele nunca foi lido por motor
   algum (`followup-auto.js` lê só `fc.pausado`); antes, clicar numa aba gravava configuração da
   empresa. Preferência de filtro é de TELA e vive no `localStorage` (`followupsFila`), como em
   Banco de Leads/Aquisição. A coluna, o CHECK da migration `031` e o contrato de `GET/PUT
   /config` continuam intactos (a config segue guardando `meta_ligacoes_dia` e `pausado`).
-- Montagem da fila, filtros, contagens e chips são PUROS e testados em
-  `frontend/lib/followups-fila.js` (+ `.d.ts`/`.test.js`) — a tela não decide próxima ação,
+- Montagem da fila, filtros, contagens, chips, rótulo do lead e paginação são PUROS e testados
+  em `frontend/lib/followups-fila.js` (+ `.d.ts`/`.test.js`) — a tela não decide próxima ação,
   prioridade nem estado; só junta e traduz o que as duas fontes já disseram.
-- **Lacunas declaradas (não implementadas por falta de fonte):** filtro por **responsável** (o
-  item não tem dono; `usuario_id` só existe em ligação já registrada) e por **tipo de falha**
-  (o motor grava `motivo_decisao` em texto livre, sem taxonomia — o filtro é "motivo contém").
+- **Abrir conversa reusa `components/ConversaHistoricoModal.tsx`**, o mesmo da Central de
+  Mensagens e do Banco de Leads. **Não existe um segundo modal de conversa** só para
+  Follow-ups, de propósito: a fila aponta o trabalho, a Central de Mensagens contextualiza a
+  conversa.
+- **Lacunas declaradas (não implementadas por falta de fonte confirmada):** filtro por
+  **responsável** (o item da fila não tem dono; `usuario_id` só existe em ligação já
+  registrada) e por **tipo de falha** (o motor grava `motivo_decisao` em texto livre, sem
+  taxonomia — o filtro possível é "motivo contém"). As duas ausências estão escritas na
+  própria tela, no rodapé de cada grupo do painel de filtros.
 - Listagem/priorização e operações manuais vivem em `src/services/followup-listing.js`,
   `followup-call-score.js` e `followup-manual.js`; configuração, ligações e métricas ficam em
   `src/db/followup-config.js` e `src/db/followup-ligacoes.js` (migrations `030/031`).

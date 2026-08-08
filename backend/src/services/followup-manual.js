@@ -8,6 +8,7 @@ const { generateAIResponse } = require('../ai-provider')
 const { getContextoAtivoEmpresa } = require('./contexto-empresa')
 const { gerarFollowupComPlaybook } = require('./contexto2-runtime')
 const { enviarMensagem } = require('../whatsapp')
+const { registrarAuditoria } = require('../db/auditoria')
 const { logger } = require('../logger')
 
 const TIMEOUT_MS = 30000
@@ -156,9 +157,88 @@ async function registrarEnvioFollowup(pool, { empresaId, numero, preview, ok, er
   }
 }
 
+// --- MANUAL — iniciar conversa para um numero SEM lead existente ------------------
+// Ate aqui o Manual so falava com quem ja tinha conversa: os tres caminhos acima
+// devolvem 404 sem `vendas.conversas`. Para o operador poder abrir um follow-up para um
+// numero novo, a conversa precisa passar a existir — e e' uma escrita de producao, por
+// isso as tres travas abaixo.
+//
+// 1. **Nasce com o agente PAUSADO** (`agente_pausado = true`). Uma conversa criada pela
+//    mao do operador nao e' um lead que chegou pelo funil: deixar o bot assumir o numero
+//    sozinho seria iniciar atendimento automatico para alguem que nunca escreveu.
+//    Despausar continua sendo ato explicito, na Central de Mensagens.
+// 2. **Nunca ADOTA conversa de outra empresa.** `vendas.conversas.numero` e' UNIQUE
+//    GLOBAL (init.sql:6), nao por empresa — um `ON CONFLICT DO UPDATE` aqui reescreveria
+//    a conversa de outro tenant. Por isso e' `DO NOTHING` + releitura: se a linha existe e
+//    e' de outra empresa, a rota RECUSA (409) em vez de devolver o dado ou sequestrar o
+//    numero.
+// 3. **A origem fica registrada** em `app.auditoria_eventos` (migration 047; nenhuma
+//    tabela nova), com data, responsavel e o numero — e' o que distingue esta conversa de
+//    uma recebida pelo webhook, de campanha ou de automacao.
+const JID_WHATSAPP = '@s.whatsapp.net'
+
+function erroConflito(mensagem) {
+  const err = new Error(mensagem)
+  err.statusCode = 409
+  return err
+}
+
+/** Numero de entrada (cru ou ja em JID) para a chave canonica de `vendas.conversas`. */
+function normalizarJid(numero) {
+  const bruto = String(numero || '').trim()
+  if (/@/.test(bruto)) return bruto
+  const dig = bruto.replace(/\D/g, '')
+  return dig ? `${dig}${JID_WHATSAPP}` : ''
+}
+
+async function iniciarConversaManual({ pool, log = logger, empresaId, numero, usuarioId = null }) {
+  const jid = normalizarJid(numero)
+  if (!jid) throw new Error('Numero invalido.')
+
+  const { rowCount } = await pool.query(
+    `INSERT INTO vendas.conversas (numero, historico, estagio, status, agente_pausado, empresa_id)
+     VALUES ($1, '[]'::jsonb, 'primeiro_contato', 'ativo', true, $2)
+     ON CONFLICT (numero) DO NOTHING`,
+    [jid, empresaId]
+  )
+  const criada = rowCount === 1
+
+  // Releitura SEM filtro de empresa: e' o unico jeito de distinguir "ja existe nesta
+  // empresa" (reaproveita) de "existe em outra" (recusa). Nada da linha alheia vaza —
+  // so' a comparacao do dono.
+  const { rows } = await pool.query(
+    'SELECT numero, empresa_id, agente_pausado FROM vendas.conversas WHERE numero = $1',
+    [jid]
+  )
+  const conversa = rows[0]
+  if (!conversa) throw new Error('Nao foi possivel iniciar a conversa.')
+  if (String(conversa.empresa_id) !== String(empresaId)) {
+    throw erroConflito('Este numero ja pertence a outra empresa e nao pode ser usado aqui.')
+  }
+
+  if (criada) {
+    await registrarAuditoria(pool, empresaId, {
+      usuarioId,
+      entidadeTipo: 'conversa',
+      entidadeId: null,
+      acao: 'followup_manual_conversa_iniciada',
+      estadoNovo: 'agente_pausado',
+      // Telefone so em digitos e sem JID; nenhum texto de mensagem entra aqui.
+      contexto: { telefone_digitos: jid.replace(/\D/g, ''), origem: 'follow_up_manual' },
+    })
+    if (log && log.info) {
+      log.info({ empresa_id: empresaId, origem: 'follow_up_manual' }, '[followup-manual] conversa iniciada pelo operador')
+    }
+  }
+
+  return { criada, numero: jid, agente_pausado: conversa.agente_pausado === true }
+}
+
 module.exports = {
   gerarRoteiroLigacao,
   gerarPreviewFollowup,
   enviarFollowupTexto,
   buscarConversaEmpresa,
+  iniciarConversaManual,
+  normalizarJid,
 }

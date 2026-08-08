@@ -7,7 +7,8 @@ export type FiltroRapido = 'todos' | 'aguardando' | 'hoje' | 'humano' | 'ia' | '
 export interface AtendimentoHumano {
   numero: string
   telefone_digitos: string
-  nome: string
+  /** Apelido ou negócio. NULO quando o lead não tem nome — nunca o JID do Evolution. */
+  nome: string | null
   negocio: string | null
   cidade: string | null
   estagio: string
@@ -39,7 +40,16 @@ export interface AgendamentoAuto {
   motivo_decisao: string | null
   detectado_em: string | null
   estagio: string | null
-  nome: string
+  nome: string | null
+}
+
+/** Sugestão da busca assistida do Follow-up manual (`GET /follow-ups/manual/leads`). */
+export interface SugestaoLead {
+  numero: string
+  telefone_digitos: string
+  nome: string | null
+  cidade: string | null
+  estagio: string | null
 }
 
 /** Uma linha da fila = uma conversa, com a próxima ação já decidida. */
@@ -47,7 +57,10 @@ export interface ItemFila {
   id: string
   numero: string
   telefone_digitos: string
-  nome: string
+  /** Nome real do negócio, ou `null`. Identificador do Evolution nunca chega aqui. */
+  nome: string | null
+  /** O que a tela mostra: o nome, ou o telefone formatado na falta dele. */
+  rotulo: string
   contexto: string | null
   estagio: string | null
   humano: boolean
@@ -118,3 +131,15 @@ export declare function resumoFila(contagens: Record<string, number> | null | un
 export declare function descricaoPrioridade(item: ItemFila | null | undefined): string
 export declare function classificarPrazoData(iso: string | null, agora: Date, pendente: boolean): PrazoQuando | null
 export declare function classificarPrazoJanela(janelaQuando: string | null | undefined): PrazoQuando | null
+
+/** `null` para vazio, telefone ou identificador do Evolution (`…@s.whatsapp.net`). */
+export declare function nomeDeVerdade(valor: unknown): string | null
+export declare function formatarTelefone(valor: unknown): string
+export declare function rotuloLead(item: { nome?: string | null; telefone_digitos?: string; numero?: string } | null | undefined): string
+
+// Paginação — mesma aritmética da Aquisição e da Central de Ligações.
+export type { PaginaLista } from './paginacao'
+export {
+  TAMANHOS_PAGINA, POR_PAGINA_PADRAO,
+  normalizarPorPagina, paginar, resumoIntervalo, mostrarPaginacao,
+} from './paginacao'

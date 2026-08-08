@@ -6,6 +6,137 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-08 - Inicio de tarefa IA - Roteiros: selecao, ciclo de vida visivel, arquivados e exclusao protegida
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Melhorar a experiencia da tela de Roteiros (`/dashboard/roteiros`): lista
+  lateral limpa no uso diario (publicados na lista principal, secao recolhivel "Arquivados (n)"
+  no fim), status como ciclo de vida VISIVEL (selo + frase de consequencia + acoes coerentes),
+  estado de carregamento correto ao trocar de roteiro (destaque imediato, skeleton, acoes
+  desabilitadas, nunca mostrar conteudo do roteiro anterior, erro com "Tentar novamente"), acao
+  de excluir com confirmacao e PROTECAO contra exclusao destrutiva, e desarquivar.
+- **E projeto/tarefa de alteracao?** Sim. A maior parte e' apresentacao/UX no frontend, mas
+  TRES pontos caem nos gatilhos de confirmacao do CLAUDE.md e foram levados ao usuario ANTES de
+  implementar: (a) **nao existe "roteiro arquivado"** — hoje o status e' da VERSAO
+  (`app.roteiro_versoes.status`), nao do roteiro; a secao "Arquivados" pedida exige decidir onde
+  esse estado mora; (b) **nao existe rota de exclusao** de roteiro/versao em lugar nenhum —
+  criar DELETE numa entidade referenciada por historico de ligacoes e' mudanca estrutural;
+  (c) o pedido cita "Atendimento Academias > Novo roteiro", mas **nao existe vinculo entre
+  roteiro e instancia/atendimento** no schema.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/ui-visual-standard.md, docs/project-map.md, docs/architecture-rules.md: Sim.
+- **Areas mapeadas na Fase 0:**
+  - Tela: `frontend/app/dashboard/roteiros/page.tsx` (unico arquivo da pagina; lista + editor +
+    `ModalNovo` inline). Modulo puro ja existente e reusavel: `frontend/lib/roteiro-contexto-ia.js`.
+  - API: `backend/src/routes/api-roteiros.js` (GET `/`, POST `/`, GET `/:roteiroId`,
+    POST `/:roteiroId/versoes`, GET `/versoes/:versaoId`, PUT `/versoes/:versaoId/etapas`,
+    POST `/versoes/:versaoId/publicar`, POST `/versoes/:versaoId/arquivar`). **Nao ha DELETE.**
+    Admin-only + `requireEmpresaAccess` em todas.
+  - Dados: `backend/src/db/roteiros.js` (toda query filtra `empresa_id`) e migration
+    `sql/migrations/033_roteiros.sql` (`app.roteiros` / `roteiro_versoes` / `roteiro_etapas`).
+  - Enums: `backend/src/domain-enums.js` (`ROTEIRO_VERSAO_STATUS`, `ROTEIRO_ETAPA_TIPO`) com
+    anti-drift em `test/domain-enums.test.js`.
+  - Testes existentes: `backend/test/roteiros.test.js` (validacao pura + guardas de imutabilidade
+    e isolamento), `frontend/lib/roteiro-contexto-ia.test.js`.
+- **Achados da Fase 0 que mudam o desenho pedido:**
+  1. **Status e' da VERSAO, nao do roteiro.** `app.roteiros` tem apenas `ativo BOOLEAN NOT NULL
+     DEFAULT true` (indexado em `idx_roteiros_empresa (empresa_id, ativo)`) — coluna criada na
+     033 e **nunca escrita nem exposta** por rota, tela ou motor. `publicarVersao` ARQUIVA
+     automaticamente a versao publicada anterior, entao quase todo roteiro saudavel tem versoes
+     arquivadas: derivar "roteiro arquivado" do status das versoes daria resultado errado.
+  2. **Exclusao nao pode ser destrutiva por default.** As FKs de historico apontam para roteiro/
+     versao/etapa com **`ON DELETE SET NULL`** (`app.ligacoes`, `ligacao_etapas`, `ligacao_sinais`,
+     `ligacao_objecoes`, `ligacao_perguntas`, `campanhas.roteiro_versao_id`) e as internas com
+     `ON DELETE CASCADE` (`roteiro_versoes` -> `roteiro_etapas`). Ou seja: o banco **nao barra** o
+     DELETE — ele apaga silenciosamente o vinculo do historico de ligacoes ja realizadas. A
+     protecao tem de ser na camada de aplicacao.
+  3. **Nao existe vinculo roteiro <-> instancia/atendimento.** O unico consumo do roteiro em
+     producao e' `app.campanhas.roteiro_versao_id`, lido pela Central de Ligacoes
+     (`frontend/app/dashboard/central-ligacoes/page.tsx`). O agrupamento mais proximo de
+     "Atendimento Academias" que ja existe nos dados e' `app.roteiros.nicho` (TEXTO livre).
+- **Fora de escopo declarado:** motor da Central de Ligacoes, campanhas, regras de imutabilidade
+  da versao publicada, conteudo/etapas dos roteiros, prompts de producao, credenciais,
+  integracoes externas e qualquer operacao em dados de producao.
+- **Proxima etapa:** Confirmar com o usuario as 3 decisoes acima (onde mora o "arquivado", o que
+  a exclusao pode apagar e o significado de "Atendimento X > Novo roteiro") e so entao
+  implementar (Fase 3 em diante).
+
+---
+
+## 2026-08-08 - Inicio de tarefa IA - Follow-ups como fila operacional PAGINADA e Follow-up manual assistido
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Continuar a reestruturacao da pagina de Follow-ups como fila operacional
+  unica: paginacao de 25 com rodape/controles, remocao de identificadores tecnicos do Evolution
+  e do rotulo solto "Escalado", busca ASSISTIDA por nome/telefone no Follow-up manual (com
+  sugestao de leads existentes), criacao de follow-up para numero SEM lead existente com evento
+  de origem persistente/auditavel, e retirada da area de Automacao de dentro de Follow-ups.
+- **E projeto/tarefa de alteracao?** Sim. A maior parte e' apresentacao, mas TRES pontos sao
+  estruturais e caem nos gatilhos de confirmacao do CLAUDE.md: (a) remover a area de Automacao
+  remove funcionalidade de PRODUCAO (pausar o motor, capacidade de ligacoes/dia, reprocessar
+  falhas); (b) "criar follow-up para numero sem lead" exige criar linha em `vendas.conversas`,
+  o que muda o comportamento do atendimento em producao; (c) endpoint NOVO de busca de leads.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/ui-visual-standard.md: a consultar na Fase 5 | docs/ai-decision-log.md: a registrar na Fase 8.
+- **Estado REAL da tela hoje (medido no codigo, nao no pedido):** o commit `2621db9`
+  ("Transforma a Central de Follow-ups numa fila unica de acoes") **ja entregou** boa parte do
+  escopo: fila unica (uma linha por CONVERSA, `lib/followups-fila.js`), os **7 filtros rapidos
+  exatos** que o pedido lista, "Personalizar filtros" no padrao do Banco de Leads (painel
+  flutuante arrastavel), `ConversaHistoricoModal` da Central de Mensagens **ja reusado** ao abrir
+  conversa, bolinha de prioridade com `aria-label`+`title` e "prioridade nao calculada" quando o
+  backend nao pontuou, origem discreta como selo, e rolagem horizontal (`overflow-x-auto`).
+- **Lacunas confirmadas no codigo (nao sao hipotese):**
+  1. **Sem paginacao.** `page.tsx:367` mapeia `visiveis` INTEIRO no `<tbody>`. O modulo PURO
+     `frontend/lib/paginacao.js` ja existe e ja e' o dono compartilhado (Aquisicao + Central de
+     Ligacoes) — e' reuso, nao codigo novo.
+  2. **Identificador tecnico do Evolution NA TELA.** `followup-listing.js:152` e `:42` fazem
+     `COALESCE(NULLIF(p.apelido,''), NULLIF(p.negocio,''), c.numero) AS nome`, e
+     `followups-fila.js:225` faz `nome: texto(h.nome) || numero`. Lead sem apelido/negocio
+     aparece na coluna "Lead" como `5511999999999@s.whatsapp.net`. E' exatamente o que o pedido
+     proibe.
+  3. **Rotulo solto "Escalado"** existe em `page.tsx:469-473`; o pedido manda nao exibi-lo.
+  4. **Follow-up manual nao tem busca assistida:** `page.tsx:780` e um input de telefone cru.
+     Nao existe endpoint de sugestao por NOME — `GET /conversas` (`api-conversas.js:69`) filtra
+     so por digitos do numero.
+  5. **Numero sem lead existente e' RECUSADO hoje:** `followup-manual.js:56,83,122` chamam
+     `buscarConversaEmpresa` e lancam **404** quando nao ha conversa daquela empresa. Nao existe
+     entidade "Follow-up" persistida (o Manual e' compor+enviar), entao "referencia ao Follow-up
+     criado" nao tem hoje a que se referir.
+  6. **A area de Automacao existe e esta em uso** (`page.tsx:387-399, 542-654`): pausar/retomar
+     (`PUT /config {pausado}`), capacidade de ligacoes/dia (`meta_ligacoes_dia`, que alimenta a
+     marca "na capacidade do dia" da propria fila) e reprocessar falhas
+     (`POST /auto/reprocessar`). O pedido poe isso FORA DE ESCOPO e proibe implementa-lo dentro
+     de Follow-ups, mas so aponta Configuracoes como "direcao futura".
+  7. **Casa pronta para o evento de origem:** `app.auditoria_eventos` (migration `047`) ja tem
+     `empresa_id`, `usuario_id`, `entidade_tipo`, `entidade_id`, `acao`, `contexto` JSONB e
+     `ocorrido_em`, com writer em `src/db/auditoria.js`. **Nenhuma migration nova e' necessaria**
+     para o registro de auditoria. Ja `vendas.eventos_comerciais` NAO serve: tem CHECK fechado de
+     `tipo` (`init.sql:311`) e nao carrega `empresa_id`.
+  8. **Filtros sem fonte, ja declarados no AGENTS.md:** "Responsavel" (o item da fila nao tem
+     dono; `usuario_id` so existe em ligacao ja registrada) e "Tipo de falha" (o motor grava
+     `motivo_decisao` em texto livre, sem taxonomia). Continuam FORA, por decisao do proprio
+     pedido ("exibir somente filtros sustentados por dados reais").
+- **Semantica de estados — ja conforme, verificado:** `SITUACAO_POR_STATUS_IA.falhou` =
+  `FALHA` (`followups-fila.js:63`), nunca `AGUARDANDO`; item humano com falha do automatico fica
+  `ABERTO` + `tem_falha`. "Sem resposta" ja vira proxima acao humana pelo `dias_silencio` do
+  `montarCallList`. Nada a corrigir aqui.
+- **Conflitos materiais levados ao Victor ANTES da Fase 3 (nao decidi sozinho):**
+  - **(1) Destino da area de Automacao.** Remove-la sem destino apaga a unica forma de pausar o
+    motor de follow-up de uma empresa. O pedido nao autoriza criar a area em Configuracoes agora.
+  - **(2) Follow-up manual para numero sem lead.** Atender o pedido ao pe da letra exige CRIAR
+    `vendas.conversas` para aquele numero na empresa — e a partir dai o bot passa a atender
+    aquele numero. E decisao de produto, com efeito em producao, nao de implementacao.
+- **Arquivos que pretendo alterar/criar (sujeito as decisoes acima):** ALTERADOS
+  `frontend/app/dashboard/follow-ups/page.tsx`, `frontend/lib/followups-fila.js` (+ `.d.ts`/
+  `.test.js`), `backend/src/services/followup-listing.js` (nome sem JID),
+  `backend/src/routes/api-follow-ups.js` (busca assistida); NOVOS testes de regressao. Docs:
+  `AGENTS.md`, `docs/ai-decision-log.md`.
+- **Fora de escopo (declarado pelo pedido):** area de Automacao/logs/telemetria/reprocessamento
+  dentro de Follow-ups, cadencias e regras de disparo, credenciais e integracoes externas,
+  **disparo real de mensagem em teste**, e commit/push/deploy.
+
+---
+
 ## 2026-08-08 - Inicio de tarefa IA - Captura de atribuicao CTWA no WEBHOOK (por empresa + instancia)
 
 - **IA/Ferramenta:** Claude Code (Opus 5)
