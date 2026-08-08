@@ -26,6 +26,22 @@ async function existeRelacao(client, nome) {
   return !!(rows[0] && rows[0].t)
 }
 
+/**
+ * Onde mora a tabela de mensagens do Evolution.
+ *
+ * NAO assumir `public."Message"`. Em producao ela esta em `evolution."Message"` — o
+ * schema `public` esta VAZIO. Este script (e `services/meta-attribution.js`) checavam
+ * so' `public` e concluiam "a tabela nao existe neste banco", o que virou o diagnostico
+ * errado de que o Evolution rodaria em banco separado. Ele nao roda: e' o MESMO banco,
+ * outro schema. Aqui a relacao e' RESOLVIDA, nao adivinhada.
+ */
+async function relacaoMessageEvolution(client) {
+  for (const candidata of ['evolution."Message"', 'public."Message"']) {
+    if (await existeRelacao(client, candidata)) return candidata
+  }
+  return null
+}
+
 const MEDICOES = [
   {
     titulo: '1. lead_profiles com empresa_id divergente da conversa',
@@ -95,26 +111,50 @@ const MEDICOES = [
     },
   },
   {
-    titulo: '5. Telefone visto em MAIS DE UMA instancia (tabela do Evolution)',
+    titulo: '5. Contato visto em MAIS DE UMA instancia (tabela do Evolution)',
     async executar(client) {
-      if (!(await existeRelacao(client, 'public."Message"'))) {
-        return { indisponivel: 'tabela public."Message" nao existe neste banco' }
-      }
-      // Sem telefone na saida: so' quantos telefones distintos apareceram em 2+ instancias.
+      const rel = await relacaoMessageEvolution(client)
+      if (!rel) return { indisponivel: 'tabela "Message" do Evolution nao encontrada em nenhum schema' }
+      // Identidade por `remoteJid`, NAO por `remoteJidAlt`: nesta versao do Evolution a
+      // coluna `key` guarda so' {fromMe, id, remoteJid}, e o `remoteJid` persistido e'
+      // quase sempre um `@lid` (identificador opaco), nao o telefone. Filtrar por
+      // `@s.whatsapp.net` como antes descartava ~100% das linhas e devolvia zero — um
+      // zero que parecia resposta e era artefato. Sem telefone na saida: so' contagens.
       const { rows } = await client.query(`
-        SELECT COUNT(*)::int                                   AS telefones_distintos,
-               COUNT(*) FILTER (WHERE instancias >= 2)::int     AS em_2_ou_mais_instancias,
-               COALESCE(MAX(instancias), 0)::int                AS max_instancias_por_telefone
+        SELECT COUNT(*)::int                                AS contatos_distintos,
+               COUNT(*) FILTER (WHERE instancias >= 2)::int  AS em_2_ou_mais_instancias,
+               COALESCE(MAX(instancias), 0)::int             AS max_instancias_por_contato
           FROM (
-            SELECT m.key->>'remoteJidAlt' AS telefone,
+            SELECT m.key->>'remoteJid' AS contato,
                    COUNT(DISTINCT m."instanceId")::int AS instancias
-              FROM public."Message" m
-             WHERE m.key->>'remoteJidAlt' LIKE '%@s.whatsapp.net'
+              FROM ${rel} m
+             WHERE m.key->>'remoteJid' IS NOT NULL
                AND m."messageTimestamp" > extract(epoch from now() - interval '90 days')
              GROUP BY 1
           ) t
       `)
-      return rows[0]
+      return { relacao: rel, ...rows[0] }
+    },
+  },
+  {
+    // Mede POR QUE a atribuicao CTWA nao produz nada hoje. Sem isto, a conclusao
+    // "nao ha dado de anuncio" e' tirada de um no-op e fica errada: o dado EXISTE,
+    // o que falta e' o telefone junto dele.
+    titulo: '5b. Anuncios CTWA na tabela do Evolution (por que a atribuicao nao casa)',
+    async executar(client) {
+      const rel = await relacaoMessageEvolution(client)
+      if (!rel) return { indisponivel: 'tabela "Message" do Evolution nao encontrada em nenhum schema' }
+      const { rows } = await client.query(`
+        SELECT COUNT(*)::int AS msgs_com_anuncio,
+               COUNT(*) FILTER (WHERE m."contextInfo"->'externalAdReply'->>'ctwaClid' IS NOT NULL)::int AS com_ctwa_clid,
+               COUNT(DISTINCT m."contextInfo"->'externalAdReply'->>'sourceId')::int AS anuncios_distintos,
+               COUNT(*) FILTER (WHERE m.key->>'remoteJid' LIKE '%@s.whatsapp.net')::int AS com_telefone_real,
+               COUNT(*) FILTER (WHERE m.key->>'remoteJid' LIKE '%@lid')::int AS so_com_lid,
+               COUNT(*) FILTER (WHERE m.key->>'remoteJidAlt' IS NOT NULL)::int AS com_remote_jid_alt
+          FROM ${rel} m
+         WHERE m."contextInfo"->'externalAdReply'->>'sourceId' IS NOT NULL
+      `)
+      return { relacao: rel, ...rows[0] }
     },
   },
   {

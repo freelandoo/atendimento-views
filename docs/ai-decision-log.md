@@ -11,6 +11,39 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-08 — Onde a atribuição CTWA realmente quebra (medição, sem código novo)
+
+Investigação read-only em produção, feita para decidir se valia trabalho de infraestrutura
+(FDW/réplica) para alcançar a tabela do Evolution. **Não vale: o diagnóstico anterior estava
+errado.** Registrado aqui porque o custo de redescobrir isso é alto e o caminho errado é caro.
+
+- **A tabela do Evolution está no MESMO banco**, no schema `evolution` (38 tabelas). `public`
+  está vazio. O código consulta `public."Message"`, `to_regclass` devolve null e
+  `sincronizarAtribuicaoMetaAds` é um no-op silencioso desde sempre. Nenhuma obra de infra
+  era necessária — era um qualificador de schema.
+- **Corrigir o schema não resolve.** `key` só tem `{fromMe, id, remoteJid}`: `remoteJidAlt`,
+  de onde o código tira o telefone, não existe nesta versão.
+- **O lead de anúncio chega como `@lid`.** 526 mensagens com `externalAdReply` (509 com
+  `ctwaClid`, 18 anúncios), **100%** com `remoteJid` `@lid`. O filtro `LIKE '%@s.whatsapp.net'`
+  descarta tudo. E não há tradução `@lid`→telefone em `Contact`/`Chat`: 251 telefones de
+  anúncio, **0** casam com `vendas.conversas`.
+- **A saída é o WEBHOOK, não o banco.** `vendas.conversas.numero` é `@s.whatsapp.net` em 100%
+  das 62 conversas: o payload carrega o telefone que o Evolution não persiste. Capturar
+  `externalAdReply` na chegada da mensagem — onde telefone e anúncio estão na mesma requisição
+  — mata as três camadas de uma vez e dispensa `messageEvolutionExiste`.
+- **Suposição pendente, declarada:** não confirmei o payload ao vivo. Inferi de o Evolution
+  persistir `externalAdReply` + o CRM ter os telefones. Uma linha de log no webhook resolve,
+  e isso deve ser o primeiro passo de qualquer retomada.
+- **Dívida corrigida na mesma leva:** `scripts/medir-isolamento-empresa.js` carregava a mesma
+  premissa errada e por isso respondia "a tabela não existe neste banco" — um zero que parecia
+  resposta e era artefato. Agora ele RESOLVE a relação (`evolution` → `public`) e mede também
+  por que a atribuição não casa (medição 5b). `meta-attribution.js` **não** foi tocado de
+  propósito: corrigir só o schema faria a consulta rodar para achar zero, gastando banco a cada
+  tick sem entregar nada. A correção de verdade é a captura no webhook, que é feature nova e
+  merece Fase 0 própria.
+
+---
+
 ## 2026-08-07 — `vendas.lead_profiles.empresa_id` real (migration 058, Fase A)
 
 Fase A do isolamento por empresa da Meta. A migration `006` pôs `DEFAULT '<PJ>'` na coluna —
