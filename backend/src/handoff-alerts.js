@@ -113,7 +113,12 @@ function createHandoffAlerts(deps = {}) {
   // URL pública conhecida do painel (produção Railway). Serve de padrão quando
   // nenhuma env aponta a base — assim o link funciona sem config manual. Pode ser
   // sobreposta por DASHBOARD_URL (ex.: domínio próprio) ou RAILWAY_PUBLIC_DOMAIN.
-  const DASHBOARD_URL_PADRAO = 'https://pjcodeworks-agent-production.up.railway.app'
+  //
+  // O valor anterior (`pjcodeworks-agent-production…`) já não existia: o edge do Railway
+  // respondia "Application not found". Como o Railway injeta RAILWAY_PUBLIC_DOMAIN
+  // sozinho quando há domínio, o padrão morto só apareceria se as duas envs sumissem —
+  // era bug latente, e o link do alerta levaria o operador a uma página inexistente.
+  const DASHBOARD_URL_PADRAO = 'https://atendimento-views-production.up.railway.app'
 
   // Link para o perfil do lead no painel. Ordem: DASHBOARD_URL → RAILWAY_PUBLIC_DOMAIN
   // → padrão de produção. Lê process.env em tempo de chamada (testável/override em runtime).

@@ -4887,7 +4887,7 @@ test('montarPingOperador: sem env de URL, usa o painel de produção como padrã
       motivo: 'lead_pediu_humano',
     })
     assert.match(txt, /Lead pediu humano/)
-    assert.match(txt, /pjcodeworks-agent-production\.up\.railway\.app\/perfil-lead\.html\?numero=/)
+    assert.match(txt, /atendimento-views-production\.up\.railway\.app\/perfil-lead\.html\?numero=/)
   } finally {
     if (prevDash !== undefined) process.env.DASHBOARD_URL = prevDash
     if (prevRailway !== undefined) process.env.RAILWAY_PUBLIC_DOMAIN = prevRailway
