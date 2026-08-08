@@ -81,6 +81,35 @@ export type Acoes = {
   motivoAtivarBloqueado: string | null
 }
 
+/**
+ * Atribuição de anúncio (CTWA) capturada no webhook, JÁ SANITIZADA pela API.
+ * O `ctwa_clid` completo e o telefone completo não existem neste tipo de propósito:
+ * o backend nunca os devolve (src/db/atribuicao-anuncios.js → listarParaApi).
+ */
+export type AtribuicaoAnuncio = {
+  id: number
+  ad_id: string | null
+  titulo: string | null
+  /** Só os 4 últimos caracteres do identificador do clique. */
+  ctwa_clid_hint: string | null
+  telefone_mascarado: string | null
+  instancia_id: string
+  instancia: string | null
+  /** A origem pode ser usada pela Meta? false = registrada só para auditoria. */
+  origem_disponivel: boolean
+  motivo: string | null
+  capturado_em: string
+}
+
+export type ResumoAnuncio = {
+  ad_id: string | null
+  titulo: string | null
+  leads: number
+  confiaveis: number
+  primeiro_em: string | null
+  ultimo_em: string | null
+}
+
 export const ESTADOS: EstadoIntegracao[]
 export const EVENTOS: EventoConfiguravel[]
 export const AJUDA_CAMPO: Record<string, string>

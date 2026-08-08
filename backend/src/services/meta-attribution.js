@@ -13,13 +13,22 @@
 // vendas.lead_profiles, cuja chave (telefone) é global — um telefone pertence a uma
 // única conversa em todo o sistema, então não há mistura possível nessas escritas.
 //
-// 1) CAPTURA: leads de anúncio chegam na tabela do Evolution (public."Message") com
-//    contextInfo.externalAdReply { ctwaClid, sourceId(=ad), title, sourceUrl } e o
-//    telefone real em key.remoteJidAlt (mesmo quando remoteJid é @lid). Gravamos isso
-//    no lead (vendas.lead_profiles.origem='meta_ads' + origem_anuncio jsonb) p/ depois
-//    enviar eventos de conversão à Meta (Conversions API) com o ctwa_clid.
-// 2) SCORE: pontuação 0-100 por CRITÉRIOS (não por achismo da IA), a partir dos campos
-//    capturados de forma confiável — é a base do evento "QualifiedLead" (>= LIMIAR).
+// A CAPTURA DE ATRIBUIÇÃO TAMBÉM SAIU DAQUI (2026-08-08).
+// Ela minerava a tabela do Evolution e NUNCA produziu uma única atribuição. Medido em
+// produção, três causas empilhadas: (1) procurava `public."Message"`, mas a tabela é
+// `evolution."Message"` — `to_regclass` devolvia null e a rotina era um NO-OP silencioso
+// a cada tick; (2) lia o telefone de `key->>'remoteJidAlt'`, campo inexistente nesta
+// versão; (3) das 526 mensagens com `externalAdReply`, 100% têm `remoteJid` `@lid`, sem
+// tradução para telefone — o filtro `LIKE '%@s.whatsapp.net'` descartaria todas mesmo
+// com o schema certo.
+//
+// A captura passou para o WEBHOOK (src/webhook-handler.js + services/ctwa-atribuicao.js),
+// onde telefone real, empresa resolvida pela instância e instância de origem coexistem,
+// e grava em app.atribuicao_anuncios — escopada por empresa E instância. NÃO REINTRODUZA
+// varredura de `Message` aqui: ela não tem como funcionar.
+//
+// O que sobrou neste módulo é o SCORE: pontuação 0-100 por CRITÉRIOS (não por achismo da
+// IA), a partir dos campos capturados de forma confiável.
 
 const QUALIFIED_LEAD_MIN = (() => {
   const n = parseInt(process.env.META_QUALIFIED_LEAD_MIN, 10)
@@ -63,78 +72,17 @@ function leadQualificado(score) {
 }
 
 /**
- * A tabela do Evolution (public."Message") — fonte dos cliques CTWA — pode NÃO existir
- * neste banco (em alguns ambientes o Evolution roda em DB próprio). Checa via to_regclass
- * para pular a atribuição sem erro (evitava log "relation public.Message does not exist"
- * a cada tick do worker). Retorna false em qualquer falha.
- */
-async function messageEvolutionExiste(pool) {
-  try {
-    const { rows } = await pool.query(`SELECT to_regclass('public."Message"') AS t`)
-    return !!(rows[0] && rows[0].t)
-  } catch {
-    return false
-  }
-}
-
-/**
- * Sincroniza atribuição (Message → origem_anuncio) e recalcula score_lead dos leads
- * ativos recentemente. Idempotente. Chamado periodicamente pelo worker.
+ * Recalcula score_lead dos leads ativos recentemente. Idempotente. Chamado
+ * periodicamente pelo worker.
+ *
+ * A etapa de ATRIBUIÇÃO que existia aqui foi removida — ver o cabeçalho do arquivo.
+ * A captura acontece no webhook e grava em app.atribuicao_anuncios.
  */
 async function sincronizarAtribuicaoMetaAds(pool, deps = {}) {
   const logger = deps.logger || console
-  let atribuidos = 0
   let pontuados = 0
 
-  // 1) Atribuição CTWA: primeira mensagem de anúncio de cada telefone → grava no lead.
-  // Só roda se a tabela do Evolution existir aqui (senão, no-op silencioso por tick).
-  try {
-    if (await messageEvolutionExiste(pool)) {
-    const { rows: ads } = await pool.query(
-      `
-      SELECT DISTINCT ON (telefone) telefone, ad_id, ctwa_clid, title, source_url
-      FROM (
-        SELECT m.key->>'remoteJidAlt' AS telefone,
-               m."contextInfo"->'externalAdReply'->>'sourceId' AS ad_id,
-               m."contextInfo"->'externalAdReply'->>'ctwaClid' AS ctwa_clid,
-               m."contextInfo"->'externalAdReply'->>'title' AS title,
-               m."contextInfo"->'externalAdReply'->>'sourceUrl' AS source_url,
-               m."messageTimestamp" AS ts
-        FROM public."Message" m
-        WHERE m."contextInfo"->'externalAdReply'->>'sourceId' IS NOT NULL
-          AND m.key->>'fromMe' = 'false'
-          AND m.key->>'remoteJidAlt' LIKE '%@s.whatsapp.net'
-          AND m."messageTimestamp" > extract(epoch from now() - interval '60 days')
-      ) t
-      WHERE telefone IS NOT NULL
-      ORDER BY telefone, ts ASC
-      `
-    )
-    for (const a of ads) {
-      const payload = JSON.stringify({
-        ad_id: a.ad_id,
-        ctwa_clid: a.ctwa_clid || null,
-        title: a.title || null,
-        source_url: a.source_url || null,
-        fonte: 'ctwa',
-      })
-      const r = await pool.query(
-        `UPDATE vendas.lead_profiles
-         SET origem = 'meta_ads',
-             origem_anuncio = COALESCE(origem_anuncio, '{}'::jsonb) || $2::jsonb,
-             atualizado_em = NOW()
-         WHERE numero = $1
-           AND (origem_anuncio IS NULL OR origem_anuncio->>'ad_id' IS DISTINCT FROM $3)`,
-        [a.telefone, payload, a.ad_id]
-      )
-      atribuidos += r.rowCount || 0
-    }
-    }
-  } catch (e) {
-    logger.warn?.({ operation: 'meta_attribution', etapa: 'atribuicao_erro', erro: e.message })
-  }
-
-  // 2) Score determinístico p/ leads ativos nos últimos 7 dias.
+  // Score determinístico p/ leads ativos nos últimos 7 dias.
   try {
     const { rows: leads } = await pool.query(
       `
@@ -159,15 +107,15 @@ async function sincronizarAtribuicaoMetaAds(pool, deps = {}) {
     logger.warn?.({ operation: 'meta_attribution', etapa: 'score_erro', erro: e.message })
   }
 
-  if (atribuidos || pontuados) {
-    logger.info?.({ operation: 'meta_attribution', atribuidos, pontuados })
+  if (pontuados) {
+    logger.info?.({ operation: 'meta_attribution', pontuados })
   }
 
   // O envio de eventos NÃO acontece mais aqui. Quem envia é o ciclo por empresa
   // (services/meta-dispatch.js → processarConversoesMeta), com a credencial da
   // empresa dona do evento. A tabela legada vendas.meta_eventos_conversao vira
   // histórico read-only do que o motor antigo já mandou: nada é escrito nela.
-  return { atribuidos, pontuados }
+  return { pontuados }
 }
 
 /**
@@ -175,60 +123,62 @@ async function sincronizarAtribuicaoMetaAds(pool, deps = {}) {
  * chegaram, qualificados (score >= LIMIAR), reuniões (e concluídas), janela de
  * atividade e se ainda traz lead (leads nos últimos 7 dias → "ativo"). O gasto/CPL/
  * custo-por-reunião NÃO vem daqui (a Meta não está acessível neste serviço) — é
- * preenchido no painel. Read-only. A datação do 1º/último contato vem da tabela do
- * Evolution (public."Message"), única fonte de quando o lead clicou no anúncio.
+ * preenchido no painel. Read-only.
  *
- * ESCOPO POR EMPRESA (obrigatório): sem `empresaId` esta consulta devolvia o
- * resultado de anúncios de TODOS os tenants para qualquer admin do dashboard legado.
- * O parâmetro passou a ser exigido — quem chama precisa dizer de quem é o painel.
+ * FONTE: app.atribuicao_anuncios (captura do webhook). Antes este painel lia
+ * `vendas.lead_profiles.origem_anuncio` — que a varredura morta nunca preencheu — e
+ * datava o contato por `public."Message"`, tabela inexistente neste schema. Ou seja:
+ * o painel sempre devolveu lista vazia. Agora ele lê a única fonte que existe.
+ *
+ * ESCOPO POR EMPRESA (obrigatório) E POR INSTÂNCIA (opcional): sem `empresaId` esta
+ * consulta devolvia o resultado de anúncios de TODOS os tenants para qualquer admin do
+ * dashboard legado. `instanciaId` recorta um número específico — duas instâncias da
+ * mesma empresa são dois negócios e não compartilham resultado.
+ *
+ * NADA DE PESSOA SAI DAQUI: só contagens por anúncio. Nem telefone, nem ctwa_clid.
  */
-async function obterResultadosAnunciosMeta(pool, { empresaId } = {}) {
+async function obterResultadosAnunciosMeta(pool, { empresaId, instanciaId = null } = {}) {
   if (!empresaId) {
     throw new Error('obterResultadosAnunciosMeta exige empresaId (isolamento por tenant)')
   }
-  // Datação do 1º/último contato vem da tabela do Evolution; se ela não existir neste
-  // banco, neutraliza o CTE (datas nulas) em vez de quebrar a consulta do painel.
-  const fcSql = (await messageEvolutionExiste(pool))
-    ? `SELECT m.key->>'remoteJidAlt' AS telefone,
-              to_timestamp(MIN((m."messageTimestamp")::bigint)) AS primeiro,
-              to_timestamp(MAX((m."messageTimestamp")::bigint)) AS ultimo
-       FROM public."Message" m
-       WHERE m."contextInfo"->'externalAdReply'->>'sourceId' IS NOT NULL
-         AND m.key->>'fromMe' = 'false'
-         AND m.key->>'remoteJidAlt' LIKE '%@s.whatsapp.net'
-       GROUP BY 1`
-    : `SELECT NULL::text AS telefone, NULL::timestamptz AS primeiro, NULL::timestamptz AS ultimo WHERE false`
   const { rows } = await pool.query(
     `
-    WITH fc AS (
-      ${fcSql}
+    WITH atrib AS (
+      SELECT DISTINCT ON (a.telefone_norm)
+             a.telefone_norm, a.ad_id, a.titulo, a.capturado_em
+        FROM app.atribuicao_anuncios a
+       WHERE a.empresa_id = $2
+         AND a.ad_id IS NOT NULL
+         AND ($3::uuid IS NULL OR a.instancia_id = $3::uuid)
+       ORDER BY a.telefone_norm, a.capturado_em DESC
     )
     SELECT
-      p.origem_anuncio->>'ad_id' AS ad_id,
-      MAX(p.origem_anuncio->>'title') AS titulo,
+      atrib.ad_id,
+      MAX(atrib.titulo) AS titulo,
       COUNT(*)::int AS leads,
-      COUNT(*) FILTER (WHERE p.score_lead >= $1)::int AS qualificados,
+      COUNT(*) FILTER (WHERE lp.score_lead >= $1)::int AS qualificados,
       COUNT(*) FILTER (WHERE EXISTS (
         SELECT 1 FROM vendas.agenda_eventos e
         WHERE e.tipo='reuniao' AND e.excluido_em IS NULL
           AND regexp_replace(COALESCE(e.metadata->>'lead_numero',''),'\\D','','g')
-            = regexp_replace(p.numero,'\\D','','g')))::int AS reunioes,
+            = atrib.telefone_norm))::int AS reunioes,
       COUNT(*) FILTER (WHERE EXISTS (
         SELECT 1 FROM vendas.agenda_eventos e
         WHERE e.tipo='reuniao' AND e.excluido_em IS NULL AND e.status='concluido'
           AND regexp_replace(COALESCE(e.metadata->>'lead_numero',''),'\\D','','g')
-            = regexp_replace(p.numero,'\\D','','g')))::int AS reunioes_concluidas,
-      MIN(fc.primeiro)::date AS primeiro_contato,
-      MAX(fc.ultimo)::date AS ultimo_contato,
-      COUNT(*) FILTER (WHERE fc.primeiro > NOW() - interval '7 days')::int AS leads_7d
-    FROM vendas.lead_profiles p
-    LEFT JOIN fc ON fc.telefone = p.numero
-    WHERE p.origem = 'meta_ads' AND p.origem_anuncio->>'ad_id' IS NOT NULL
-      AND p.empresa_id = $2
-    GROUP BY 1
+            = atrib.telefone_norm))::int AS reunioes_concluidas,
+      MIN(atrib.capturado_em)::date AS primeiro_contato,
+      MAX(atrib.capturado_em)::date AS ultimo_contato,
+      COUNT(*) FILTER (WHERE atrib.capturado_em > NOW() - interval '7 days')::int AS leads_7d
+    FROM atrib
+    -- O score do lead continua vindo do perfil, casado por telefone DENTRO da empresa.
+    LEFT JOIN vendas.lead_profiles lp
+           ON lp.empresa_id = $2
+          AND regexp_replace(lp.numero,'\\D','','g') = atrib.telefone_norm
+    GROUP BY atrib.ad_id
     ORDER BY reunioes DESC, leads DESC
     `,
-    [QUALIFIED_LEAD_MIN, empresaId]
+    [QUALIFIED_LEAD_MIN, empresaId, instanciaId]
   )
   const isoDate = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null)
   return rows.map((r) => ({

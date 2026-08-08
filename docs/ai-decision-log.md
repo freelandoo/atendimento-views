@@ -11,6 +11,47 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-08 — Atribuição CTWA capturada no WEBHOOK, escopada por empresa **e** instância
+
+Implementação da saída apontada pela medição do mesmo dia (entrada abaixo). Quatro decisões
+que valem mais que o diff:
+
+- **Tabela própria (`app.atribuicao_anuncios`), não mais uma coluna em `vendas.lead_profiles`.**
+  `lead_profiles` é chaveada por telefone GLOBAL (`UNIQUE (numero)`): um telefone, uma linha em
+  todo o sistema. Atribuição de anúncio é fato **de uma instância** — o mesmo número pode falar
+  com dois negócios, e guardar a atribuição lá obrigaria a escolher qual anúncio "vence".
+  `empresa_id` e `instancia_id` são NOT NULL: não existe linha sem dono provado.
+- **Idempotência por `(empresa_id, mensagem_id)`, nunca por telefone.** A chave é o id da
+  mensagem que trouxe o anúncio. Reentrega do webhook não duplica; clique NOVO (mensagem nova)
+  vira linha nova. É a correção direta do modelo antigo (`${telefone}:${event_name}`), que
+  congelava o lead numa única atribuição para sempre. A instância fica FORA da chave de
+  propósito — uma mensagem chega por exatamente uma instância, e incluí-la permitiria que a
+  mesma mensagem virasse duas linhas se fosse reprocessada com a instância resolvida de outro
+  jeito. O isolamento por instância é garantido na LEITURA, onde toda consulta filtra por ela.
+- **Ausência é melhor que dado sujo.** Quando a empresa vem do fallback da PJ, ou a instância
+  não está mapeada, **nada é gravado** — só o motivo, em log sem PII. Gravar um telefone sob uma
+  empresa que só o fallback resolveu recriaria, com nome novo, o defeito da Fase A. Para isso
+  `middleware/tenant.js` passou a publicar `req.empresaOrigem` e `req.whatsappInstanciaId`:
+  antes os três caminhos de fallback produziam o mesmo `req.empresaId` e eram indistinguíveis
+  do caso bom. O comportamento do ATENDIMENTO não mudou — mudou só o que dá para saber sobre ele.
+- **`ctwa_clid` em claro no banco, nunca em rota nem em log.** A Conversions API o exige no
+  envio (mesma escolha do sistema legado em `origem_anuncio`); cifrá-lo criaria dependência de
+  env num caminho de leitura do worker. A proteção é de SAÍDA: `src/db/atribuicao-anuncios.js`
+  sanitiza na origem (`ctwa_clid_hint` de 4 caracteres + telefone mascarado) e a rota devolve o
+  que ele já sanitizou. Dívida declarada: se a política mudar, o lugar de cifrar é o cofre já
+  existente (`src/segredos-crypto.js`), e só o `carregarCtwaPorTelefone` decifraria.
+
+**Alternativa descartada:** continuar em `vendas.lead_profiles.origem_anuncio` e só consertar o
+schema da varredura. Descartada pela medição: mesmo com `evolution."Message"` o telefone não
+existe naquela tabela (100% `@lid`, sem tradução). Não era um bug de qualificador — era a
+estratégia inteira.
+
+**Fora de escopo desta entrega (declarado):** nenhum evento real foi enviado à Meta, nenhuma
+integração foi ativada, nenhum backfill histórico foi feito (backfill de CTWA por telefone é
+justamente a inferência que este desenho recusa).
+
+---
+
 ## 2026-08-08 — Onde a atribuição CTWA realmente quebra (medição, sem código novo)
 
 Investigação read-only em produção, feita para decidir se valia trabalho de infraestrutura

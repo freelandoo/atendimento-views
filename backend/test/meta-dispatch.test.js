@@ -53,8 +53,22 @@ function criarPool(estado = {}) {
     if (/FROM vendas\.agenda_eventos/.test(sql)) {
       return { rows: (estado.reunioesVendas || {})[params[0]] || [] }
     }
-    if (/FROM vendas\.lead_profiles/.test(sql)) {
-      return { rows: (estado.atribuicoes || {})[params[0]] || [] }
+    // A atribuição CTWA saiu de vendas.lead_profiles (onde a varredura morta do banco do
+    // Evolution deveria tê-la escrito, e nunca escreveu) e passou a viver em
+    // app.atribuicao_anuncios, alimentada pela captura do webhook.
+    if (/FROM app\.atribuicao_anuncios/.test(sql)) {
+      const empresaId = params[0]
+      const explicitas = (estado.atribuicoes || {})[empresaId]
+      if (explicitas) return { rows: explicitas }
+      // Sem declaração explícita, a atribuição é derivada dos fixtures de reunião (que
+      // trazem `ctwa_clid`) — preserva a intenção dos testes escritos antes da mudança.
+      const derivadas = [
+        ...((estado.reunioesApp || {})[empresaId] || []),
+        ...((estado.reunioesVendas || {})[empresaId] || []),
+      ]
+        .filter((r) => r.ctwa_clid)
+        .map((r) => ({ telefone_norm: r.telefone_norm, ctwa_clid: r.ctwa_clid }))
+      return { rows: derivadas }
     }
     if (/INSERT INTO app\.conversao_eventos/.test(sql)) {
       const [empresa_id, tipo, event_id, entidade_tipo, entidade_id, telefone_norm,

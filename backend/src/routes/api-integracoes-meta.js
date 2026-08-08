@@ -18,6 +18,7 @@ const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const integracoesDb = require('../db/meta-integracoes')
 const ledger = require('../db/conversao-eventos')
+const atribuicaoDb = require('../db/atribuicao-anuncios')
 const { testarConexaoMeta } = require('../services/meta-teste-conexao')
 const { registrarAuditoria } = require('../db/auditoria')
 const { EVENTO_META, STATUS_EVENTO } = require('../services/meta-conversao')
@@ -195,6 +196,37 @@ router.post('/eventos/reenviar-falhas', requireAuth, requireEmpresaAccess, async
     return res.json({ ok: true, data })
   } catch (err) {
     return falhar(res, err, 'META_EVENTOS_REENVIAR_FALHOU')
+  }
+})
+
+// GET /atribuicoes  → atribuições de anúncio (CTWA) capturadas no webhook DESTA empresa.
+//
+// SANITIZADO NA ORIGEM (src/db/atribuicao-anuncios.js → listarParaApi): telefone
+// mascarado, `ctwa_clid` reduzido à dica de 4 caracteres, nenhum payload cru. Esta rota
+// não remonta nem enriquece nada — devolve o que o módulo de dados já sanitizou. O
+// `ctwa_clid` completo existe no banco porque a Conversions API o exige no envio, e
+// NENHUMA rota deste sistema o devolve.
+//
+// `?instancia_id=` recorta por número: duas instâncias da mesma empresa são dois
+// negócios e não devem enxergar a atribuição uma da outra.
+router.get('/atribuicoes', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const instanciaId = String(req.query?.instancia_id || '').trim()
+  if (instanciaId && !UUID_RE.test(instanciaId)) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Instância inválida.' } })
+  }
+  try {
+    const { empresaId } = contexto(req)
+    const limite = Number.parseInt(req.query?.limite, 10)
+    const [atribuicoes, anuncios] = await Promise.all([
+      atribuicaoDb.listarParaApi(pool, empresaId, {
+        instanciaId: instanciaId || null,
+        limite: Number.isFinite(limite) ? limite : 50,
+      }),
+      atribuicaoDb.resumoPorAnuncio(pool, empresaId, { instanciaId: instanciaId || null }),
+    ])
+    return res.json({ ok: true, data: { atribuicoes, anuncios } })
+  } catch (err) {
+    return falhar(res, err, 'META_ATRIBUICOES_LISTAR_FALHOU')
   }
 })
 

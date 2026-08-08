@@ -32,6 +32,7 @@ const {
 const { enviarEventoMetaCAPI } = require('./meta-capi')
 const integracoesDb = require('../db/meta-integracoes')
 const ledger = require('../db/conversao-eventos')
+const atribuicaoDb = require('../db/atribuicao-anuncios')
 
 // A Meta só aceita evento de mensagem com até 7 dias de atraso. Fato mais velho que
 // isso não é registrado: seria uma linha nascida para falhar. Isto também protege a
@@ -70,7 +71,12 @@ function dentroDaJanela(data, agora) {
 /**
  * Reuniões da AGENDA MULTIEMPRESA (app.agenda_eventos). Caminho nativo: a tabela já
  * tem empresa_id NOT NULL, então o isolamento é a própria cláusula WHERE.
- * A atribuição vem de vendas.lead_profiles da MESMA empresa, casada por telefone.
+ *
+ * A ATRIBUIÇÃO NÃO VEM MAIS DE vendas.lead_profiles. Ela é resolvida depois, em
+ * `marcarAtribuicao`, contra app.atribuicao_anuncios (a captura do webhook). O join
+ * antigo lia `lp.origem_anuncio->>'ctwa_clid'`, campo que a varredura morta de
+ * `public."Message"` nunca preencheu — `temAtribuicao` era false para todo mundo e
+ * NENHUMA conversão CTWA jamais saiu.
  */
 async function lerReunioesAgendaApp(pool, empresaId) {
   const { rows } = await pool.query(
@@ -81,14 +87,8 @@ async function lerReunioesAgendaApp(pool, empresaId) {
             e.venda_valor,
             e.venda_moeda,
             e.venda_registrada_em,
-            regexp_replace(COALESCE(e.lead_telefone, ''), '\\D', '', 'g') AS telefone_norm,
-            lp.origem_anuncio->>'ctwa_clid' AS ctwa_clid
+            regexp_replace(COALESCE(e.lead_telefone, ''), '\\D', '', 'g') AS telefone_norm
        FROM app.agenda_eventos e
-       LEFT JOIN vendas.lead_profiles lp
-              ON lp.empresa_id = e.empresa_id
-             AND lp.origem = 'meta_ads'
-             AND regexp_replace(lp.numero, '\\D', '', 'g')
-                 = regexp_replace(COALESCE(e.lead_telefone, ''), '\\D', '', 'g')
       WHERE e.empresa_id = $1
         AND e.tipo = 'reuniao'
         AND e.excluido_em IS NULL
@@ -104,7 +104,7 @@ async function lerReunioesAgendaApp(pool, empresaId) {
     agendadoEm: r.criado_em,
     realizadoEm: r.data_fim,
     telefoneNorm: r.telefone_norm || null,
-    temAtribuicao: Boolean(r.ctwa_clid),
+    temAtribuicao: false,
     vendaValor: r.venda_valor != null ? Number(r.venda_valor) : null,
     vendaMoeda: r.venda_moeda || MOEDA_PADRAO,
     vendaEm: r.venda_registrada_em || r.data_fim,
@@ -136,16 +136,11 @@ async function lerReunioesAgendaVendas(pool, empresaId) {
             e.concluido_em,
             regexp_replace(COALESCE(e.metadata->>'lead_numero', ''), '\\D', '', 'g') AS telefone_norm,
             c.venda_fechada,
-            c.venda_valor,
-            lp.origem_anuncio->>'ctwa_clid' AS ctwa_clid
+            c.venda_valor
        FROM vendas.agenda_eventos e
        JOIN vendas.conversas c
               ON regexp_replace(c.numero, '\\D', '', 'g')
                  = regexp_replace(COALESCE(e.metadata->>'lead_numero', ''), '\\D', '', 'g')
-       LEFT JOIN vendas.lead_profiles lp
-              ON lp.empresa_id = c.empresa_id
-             AND lp.origem = 'meta_ads'
-             AND regexp_replace(lp.numero, '\\D', '', 'g') = regexp_replace(c.numero, '\\D', '', 'g')
       WHERE c.empresa_id = $1
         AND e.tipo = 'reuniao'
         AND e.excluido_em IS NULL
@@ -162,7 +157,7 @@ async function lerReunioesAgendaVendas(pool, empresaId) {
     agendadoEm: r.criado_em,
     realizadoEm: r.concluido_em || r.data_fim,
     telefoneNorm: r.telefone_norm || null,
-    temAtribuicao: Boolean(r.ctwa_clid),
+    temAtribuicao: false, // resolvido em marcarAtribuicao (app.atribuicao_anuncios)
     // A venda desta agenda mora na CONVERSA, não na reunião — ou seja, é do LEAD.
     // Sem o desempate abaixo, um lead com duas reuniões concluídas geraria duas
     // vendas para a Meta a partir de um único fechamento.
@@ -186,6 +181,26 @@ async function lerReunioesAgendaVendas(pool, empresaId) {
     }
   }
   return lidas
+}
+
+/**
+ * Marca quais reuniões têm atribuição de anúncio, lendo a ÚNICA fonte segura:
+ * app.atribuicao_anuncios, escopada na mesma empresa.
+ *
+ * Feito em UMA consulta para o lote inteiro (não uma por reunião), e fora do SQL das
+ * agendas de propósito: a atribuição não é mais um join da tabela de perfis, é um
+ * domínio próprio. O `ctwa_clid` NÃO é trazido aqui — só a existência dele. O valor
+ * só é lido na hora do envio (`despacharEmpresa`), para não circular por estruturas
+ * que a tela lê.
+ */
+async function marcarAtribuicao(pool, empresaId, reunioes = []) {
+  const telefones = reunioes.map((r) => r.telefoneNorm).filter(Boolean)
+  if (!telefones.length) return reunioes
+  const comAtribuicao = await atribuicaoDb.telefonesComAtribuicao(pool, empresaId, telefones)
+  for (const r of reunioes) {
+    r.temAtribuicao = !!(r.telefoneNorm && comAtribuicao.has(r.telefoneNorm))
+  }
+  return reunioes
 }
 
 /** Os três fatos candidatos de UMA reunião, com o momento real de cada um. */
@@ -220,10 +235,10 @@ function fatosDaReuniao(reuniao) {
  */
 async function reconciliarEmpresa(pool, empresaId, integracao, deps = {}) {
   const agora = deps.agora instanceof Date ? deps.agora : new Date()
-  const reunioes = [
+  const reunioes = await marcarAtribuicao(pool, empresaId, [
     ...(await lerReunioesAgendaApp(pool, empresaId)),
     ...(await lerReunioesAgendaVendas(pool, empresaId)),
-  ]
+  ])
 
   let registrados = 0
   let ignorados = 0
@@ -289,23 +304,15 @@ async function reconciliarEmpresa(pool, empresaId, integracao, deps = {}) {
 // ─── Fase 2: despacho ─────────────────────────────────────────────────────────
 
 /**
- * ctwa_clid dos telefones do lote, lido da MESMA empresa. Fica fora do ledger de
- * propósito: é identificador de clique de uma pessoa, e o ledger é lido pela tela.
+ * ctwa_clid dos telefones do lote, lido da MESMA empresa em app.atribuicao_anuncios —
+ * a captura do webhook, que é a única fonte com dono (empresa + instância) comprovado.
+ *
+ * Fica fora do ledger de propósito: é identificador de clique de uma pessoa, e o ledger
+ * é lido pela tela. Antes vinha de `vendas.lead_profiles.origem_anuncio`, que a
+ * varredura morta de `public."Message"` nunca preencheu.
  */
 async function carregarAtribuicoes(pool, empresaId, telefones = []) {
-  const lista = [...new Set(telefones.filter(Boolean))]
-  if (!lista.length) return new Map()
-  const { rows } = await pool.query(
-    `SELECT regexp_replace(numero, '\\D', '', 'g') AS telefone_norm,
-            origem_anuncio->>'ctwa_clid' AS ctwa_clid
-       FROM vendas.lead_profiles
-      WHERE empresa_id = $1
-        AND origem = 'meta_ads'
-        AND origem_anuncio->>'ctwa_clid' IS NOT NULL
-        AND regexp_replace(numero, '\\D', '', 'g') = ANY($2::text[])`,
-    [empresaId, lista]
-  )
-  return new Map(rows.map((r) => [r.telefone_norm, r.ctwa_clid]))
+  return atribuicaoDb.carregarCtwaPorTelefone(pool, empresaId, telefones)
 }
 
 /** Envia os eventos pendentes de UMA empresa. */
@@ -484,6 +491,7 @@ module.exports = {
   fatosDaReuniao,
   lerReunioesAgendaApp,
   lerReunioesAgendaVendas,
+  marcarAtribuicao,
   carregarAtribuicoes,
   reconciliarEmpresa,
   despacharEmpresa,

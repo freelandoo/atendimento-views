@@ -1,8 +1,9 @@
 'use strict'
 const { verifyJwt } = require('../auth')
-const { findEmpresaById, findEmpresaByEvolutionInstance, usuarioPertenceAEmpresa } = require('../db/empresas')
+const { findEmpresaById, findEmpresaEInstanciaPorEvolution, usuarioPertenceAEmpresa } = require('../db/empresas')
 const { findUsuarioById } = require('../db/usuarios')
 const { logger } = require('../logger')
+const { ORIGEM_EMPRESA } = require('../services/ctwa-atribuicao')
 
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
 
@@ -58,6 +59,23 @@ async function requireEmpresaAccess(req, res, next) {
 
 // Resolve empresa a partir da evolution_instance no corpo do webhook.
 // Não bloqueia — apenas popula req.empresaId com fallback para PJ Codeworks.
+//
+// ALÉM DO empresaId, popula duas coisas que o atendimento não usava e a ATRIBUIÇÃO DE
+// ANÚNCIO exige:
+//   - `req.empresaOrigem`      — se a empresa foi COMPROVADA pela instância ou veio do
+//                                fallback. Antes, os três caminhos de fallback (sem
+//                                instância, instância não mapeada, erro de consulta)
+//                                produziam exatamente o mesmo `req.empresaId` da PJ, e
+//                                nenhum consumidor tinha como saber a diferença. Sem
+//                                essa distinção é impossível cumprir "webhook resolvido
+//                                por fallback não gera atribuição elegível".
+//   - `req.whatsappInstanciaId` — o id (uuid) de app.empresa_whatsapp_instances, que é o
+//                                identificador confiável da instância. O NOME da
+//                                instância sozinho não serve como chave: ele pode ser
+//                                renomeado/recriado, e é texto vindo do payload.
+//
+// O comportamento do ATENDIMENTO não muda: `req.empresaId` continua caindo na PJ nos
+// mesmos casos de antes. O que muda é que agora dá para saber que caiu.
 async function resolveEmpresaFromWebhook(req, _res, next) {
   const instanceName =
     req.body?.instance ||
@@ -65,23 +83,29 @@ async function resolveEmpresaFromWebhook(req, _res, next) {
     req.headers['x-evolution-instance'] ||
     null
   req.evolutionInstance = instanceName || null
+  req.whatsappInstanciaId = null
 
   if (!instanceName) {
     req.empresaId = PJ_EMPRESA_ID
+    req.empresaOrigem = ORIGEM_EMPRESA.FALLBACK_SEM_INSTANCIA
     return next()
   }
 
   try {
-    const empresa = await findEmpresaByEvolutionInstance(instanceName)
-    if (empresa) {
-      req.empresaId = empresa.id
+    const vinculo = await findEmpresaEInstanciaPorEvolution(instanceName)
+    if (vinculo) {
+      req.empresaId = vinculo.empresa.id
+      req.whatsappInstanciaId = vinculo.instanciaId
+      req.empresaOrigem = ORIGEM_EMPRESA.INSTANCIA
     } else {
       logger.warn({ instance: instanceName }, 'Webhook: instance sem empresa mapeada — usando empresa padrão do sistema.')
       req.empresaId = PJ_EMPRESA_ID
+      req.empresaOrigem = ORIGEM_EMPRESA.FALLBACK_INSTANCIA_DESCONHECIDA
     }
   } catch (err) {
     logger.error({ err: err.message }, 'Erro ao resolver empresa do webhook — usando fallback.')
     req.empresaId = PJ_EMPRESA_ID
+    req.empresaOrigem = ORIGEM_EMPRESA.FALLBACK_ERRO
   }
 
   next()

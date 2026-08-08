@@ -12,6 +12,7 @@ import {
 } from '@/lib/meta-integracao'
 import type {
   Integracao, EventoHistorico, ResumoStatus, ChaveEvento, StatusEvento,
+  AtribuicaoAnuncio, ResumoAnuncio,
 } from '@/lib/meta-integracao'
 
 // Configurações › Integrações › Meta Conversions.
@@ -57,6 +58,11 @@ export default function MetaConversionsPage() {
 
   const [historico, setHistorico] = useState<EventoHistorico[]>([])
   const [filtro, setFiltro] = useState<StatusEvento | 'todos'>('todos')
+
+  // Atribuições de anúncio capturadas no webhook. Já chegam sanitizadas da API —
+  // esta tela NUNCA teve, e não pode ter, o ctwa_clid ou o telefone completos.
+  const [atribuicoes, setAtribuicoes] = useState<AtribuicaoAnuncio[]>([])
+  const [anuncios, setAnuncios] = useState<ResumoAnuncio[]>([])
 
   const base = `/api/empresas/${empresaId}/integracoes/meta`
   const integracao = dados?.integracao ?? null
@@ -105,8 +111,21 @@ export default function MetaConversionsPage() {
     }
   }, [base, empresaId, filtro])
 
+  const carregarAtribuicoes = useCallback(async () => {
+    if (!empresaId) return
+    try {
+      const r = await apiFetch<{ atribuicoes: AtribuicaoAnuncio[]; anuncios: ResumoAnuncio[] }>(`${base}/atribuicoes`)
+      setAtribuicoes(r.data.atribuicoes || [])
+      setAnuncios(r.data.anuncios || [])
+    } catch {
+      setAtribuicoes([])
+      setAnuncios([])
+    }
+  }, [base, empresaId])
+
   useEffect(() => { void carregar() }, [carregar])
   useEffect(() => { void carregarHistorico() }, [carregarHistorico])
+  useEffect(() => { void carregarAtribuicoes() }, [carregarAtribuicoes])
 
   async function acao<T>(nome: string, fn: () => Promise<T>, sucesso?: string) {
     setOcupado(nome)
@@ -460,6 +479,77 @@ export default function MetaConversionsPage() {
                         </tr>
                       )
                     })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {/* Origem dos contatos — atribuição de anúncio capturada no webhook.
+              Tudo aqui já vem sanitizado da API: telefone mascarado e apenas os 4
+              últimos caracteres do identificador do clique. O valor completo não
+              trafega e não existe nesta tela. */}
+          <section className="rounded-xl border bg-white p-5 shadow-sm">
+            <h2 className="font-semibold text-slate-900">Origem dos contatos (anúncios)</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              De qual anúncio cada contato chegou, capturado no momento em que a mensagem
+              entra — por número de WhatsApp. Um contato só conta como vindo de anúncio
+              quando a empresa e o número de origem são confirmados.
+            </p>
+
+            {anuncios.length > 0 && (
+              <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+                {anuncios.map((a) => (
+                  <li key={a.ad_id ?? 'sem-id'} className="rounded-lg border bg-slate-50 px-3 py-2">
+                    <p className="truncate text-sm font-medium text-slate-800">{a.titulo || a.ad_id || 'Anúncio sem identificação'}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {a.leads} {a.leads === 1 ? 'contato' : 'contatos'} · {a.confiaveis} com origem disponível
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {atribuicoes.length === 0 ? (
+              <p className="mt-4 text-sm text-slate-500">
+                Nenhum contato de anúncio registrado ainda. Assim que alguém iniciar uma
+                conversa clicando em um anúncio, ele aparece aqui.
+              </p>
+            ) : (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full min-w-[640px] text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs uppercase tracking-wide text-slate-500">
+                      <th className="py-2 pr-3 font-medium">Anúncio</th>
+                      <th className="py-2 pr-3 font-medium">Número</th>
+                      <th className="py-2 pr-3 font-medium">Contato</th>
+                      <th className="py-2 pr-3 font-medium">Quando</th>
+                      <th className="py-2 font-medium">Origem</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {atribuicoes.map((a) => (
+                      <tr key={a.id} className="border-b last:border-0 align-top">
+                        <td className="py-2.5 pr-3">
+                          <span className="font-medium text-slate-800">{a.titulo || a.ad_id || '—'}</span>
+                          {a.ctwa_clid_hint && (
+                            <span className="ml-2 font-mono text-[11px] text-slate-400">{a.ctwa_clid_hint}</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 pr-3 text-slate-600">{a.instancia || '—'}</td>
+                        <td className="py-2.5 pr-3 font-mono text-xs text-slate-500">{a.telefone_mascarado || '—'}</td>
+                        <td className="py-2.5 pr-3 text-slate-600">{formatarData(a.capturado_em)}</td>
+                        <td className="py-2.5">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                              a.origem_disponivel ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {a.origem_disponivel ? 'Disponível' : 'Indisponível'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

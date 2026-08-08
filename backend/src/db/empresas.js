@@ -17,15 +17,30 @@ async function findEmpresaBySlug(slug) {
   return rows[0] || null
 }
 
-async function findEmpresaByEvolutionInstance(instanceName) {
+/**
+ * Empresa + INSTÂNCIA a partir do nome da instância Evolution.
+ *
+ * Substitui `findEmpresaByEvolutionInstance` (que devolvia só a empresa e tinha este
+ * middleware como único chamador). A atribuição de anúncio precisa do id da instância:
+ * cada instância é um negócio separado, e o NOME que vem no payload não serve como
+ * chave — `app.empresa_whatsapp_instances.id` serve.
+ *
+ * @returns {Promise<{empresa: object, instanciaId: string}|null>} null quando a
+ *   instância não está mapeada ou está inativa — é o caso em que o chamador NÃO pode
+ *   dizer que a empresa foi comprovada.
+ */
+async function findEmpresaEInstanciaPorEvolution(instanceName) {
   const { rows } = await pool.query(
-    `SELECT e.*
+    `SELECT e.*, ewi.id AS _instancia_id
      FROM app.empresas e
      JOIN app.empresa_whatsapp_instances ewi ON ewi.empresa_id = e.id
      WHERE ewi.evolution_instance = $1 AND ewi.ativo = true AND e.ativo = true`,
     [instanceName]
   )
-  return rows[0] || null
+  const row = rows[0]
+  if (!row) return null
+  const { _instancia_id: instanciaId, ...empresa } = row
+  return { empresa, instanciaId }
 }
 
 async function usuarioPertenceAEmpresa(usuario_id, empresa_id) {
@@ -146,7 +161,7 @@ function invalidarCacheOpener(empresaId) {
 module.exports = {
   findEmpresaById,
   findEmpresaBySlug,
-  findEmpresaByEvolutionInstance,
+  findEmpresaEInstanciaPorEvolution,
   usuarioPertenceAEmpresa,
   empresaAgentePausada,
   invalidarCachePauseEmpresa,

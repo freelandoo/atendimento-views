@@ -136,10 +136,13 @@ test('obterResultadosAnunciosMeta: exige empresaId (sem ele, devolvia todos os t
 test('obterResultadosAnunciosMeta: mapeia linhas, filtra por empresa e deriva ativo', async () => {
   const poolFake = {
     query: async (sql, params) => {
-      assert.match(sql, /lead_profiles/)
+      // A fonte passou a ser a captura do webhook, e não mais a coluna que a varredura
+      // morta de public."Message" deveria ter preenchido.
+      assert.match(sql, /app\.atribuicao_anuncios/)
+      assert.doesNotMatch(sql, /public\."Message"/)
       // O filtro por empresa é parte da consulta, não um detalhe de chamada.
-      assert.match(sql, /p\.empresa_id = \$2/)
-      assert.deepEqual(params, [60, EMPRESA_A]) // QUALIFIED_LEAD_MIN default + empresa
+      assert.match(sql, /a\.empresa_id = \$2/)
+      assert.deepEqual(params, [60, EMPRESA_A, null]) // limiar + empresa + instância (todas)
       return {
         rows: [
           { ad_id: 'A1', titulo: 'Anúncio bom', leads: 64, qualificados: 9, reunioes: 8, reunioes_concluidas: 1, primeiro_contato: '2026-05-10', ultimo_contato: '2026-06-12', leads_7d: 17 },

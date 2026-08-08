@@ -6,6 +6,61 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-08 - Inicio de tarefa IA - Captura de atribuicao CTWA no WEBHOOK (por empresa + instancia)
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Substituir a mineracao inoperante de `public."Message"` (banco do Evolution)
+  por **captura no webhook**, no unico momento em que o sistema tem ao mesmo tempo o **telefone
+  real**, a **empresa resolvida** e a **instancia de origem**. Atribuicao so e' elegivel para a
+  Meta quando empresa E instancia forem **comprovadas**; nunca inferir empresa/instancia pelo
+  telefone; sem backfill por inferencia. **Nenhum evento real a' Meta nesta tarefa.**
+- **E projeto/tarefa de alteracao?** Sim. Toca **banco** (migration nova), **caminho de escrita de
+  producao** (`POST /webhook` roda em toda mensagem recebida) e **leitura da integracao Meta**.
+  Cai nos gatilhos de confirmacao do CLAUDE.md — mas a estrategia veio **declarada no proprio
+  pedido** (capturar no webhook, escopar por empresa+instancia, desligar a varredura antiga).
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/ai-decision-log.md: a registrar na Fase 8 | ui-visual-standard.md: **nao aplicavel**
+  (nenhuma tela nova; a API existente so' passa a devolver campo sanitizado).
+- **Fatos reconfirmados no codigo HOJE (nao sao hipotese):**
+  1. `services/meta-attribution.js:73` — `to_regclass('public."Message"')`. A tabela do Evolution
+     esta em `evolution."Message"`; `public` esta vazio ⇒ `messageEvolutionExiste` devolve false e
+     `sincronizarAtribuicaoMetaAds` etapa 1 e' **no-op silencioso a cada tick**. O mesmo CTE
+     neutralizado aparece em `obterResultadosAnunciosMeta:191`.
+  2. `meta-attribution.js:97,106` — o SQL depende de `m.key->>'remoteJidAlt'` e de
+     `LIKE '%@s.whatsapp.net'`. Medido em 2026-08-08: `key` guarda so' `{fromMe,id,remoteJid}` e
+     **100%** das 526 mensagens com `externalAdReply` tem `remoteJid` `@lid` ⇒ mesmo com o schema
+     certo, o filtro descartaria todas.
+  3. `webhook-handler.js:80` — `canonicoRemoteJidParaConversa(msg.key)` ja resolve o telefone
+     canonico, e `vendas.conversas.numero` e' `@s.whatsapp.net` em 100% das conversas. O telefone
+     existe **no webhook**, nao no banco do Evolution.
+  4. `webhook-handler.js:219` — `salvarConversa(..., req.empresaId, req.evolutionInstance)`: a
+     empresa e a instancia ja chegam resolvidas no handler.
+  5. `middleware/tenant.js:61-88` — `resolveEmpresaFromWebhook` **nao distingue** empresa resolvida
+     pela instancia de empresa vinda do **fallback PJ**. Hoje os tres caminhos (sem instancia,
+     instancia nao mapeada, erro de consulta) produzem exatamente o mesmo `req.empresaId`. Sem
+     essa distincao e' impossivel cumprir "fallback nao gera atribuicao elegivel".
+  6. `app.empresa_whatsapp_instances.id` (uuid) **existe** e e' identificador confiavel de
+     instancia — a dependencia de Fase B levantada no pedido **nao bloqueia** esta tarefa.
+  7. `meta-dispatch.js:295` (`carregarAtribuicoes`) e `:87,145` (joins) leem o `ctwa_clid` de
+     `vendas.lead_profiles.origem_anuncio` — a fonte que a varredura morta deveria ter preenchido.
+- **Decisao de arquitetura minha (Fase 6), declarada antes de codar:** a atribuicao ganha **tabela
+  propria** (`app.atribuicao_anuncios`), escopada por `empresa_id` + `instancia_id`, e **nao** vira
+  mais uma coluna de `vendas.lead_profiles` (cuja chave e' o telefone GLOBAL — nao comporta duas
+  instancias/dois negocios). `lead_profiles.origem_anuncio` continua sendo escrito para nao quebrar
+  o painel legado, mas a **fonte de verdade da Meta passa a ser a tabela nova**.
+- **Arquivos que pretendo alterar/criar:** NOVOS `sql/migrations/059_atribuicao_ctwa_webhook.sql`,
+  `src/services/ctwa-atribuicao.js` (extracao PURA), `src/db/atribuicao-anuncios.js`,
+  `test/ctwa-atribuicao.test.js`, `test/atribuicao-webhook.test.js`; ALTERADOS
+  `src/middleware/tenant.js` (procedencia da empresa), `src/webhook-handler.js` (captura),
+  `src/agent.js` (fiacao das deps), `src/services/meta-attribution.js` (varredura morta removida),
+  `src/services/meta-dispatch.js` (le a fonte nova), `AGENTS.md`, `.env.example`,
+  `docs/ai-decision-log.md`.
+- **Fora de escopo (declarado pelo pedido):** ativar Meta CAPI, enviar evento real, OAuth da Meta,
+  trocar a chave global de telefone por chave composta, backfill de CTWA historico por telefone,
+  agenda/vendas/reunioes, commit/push/deploy.
+
+---
+
 ## 2026-08-07 - Inicio de tarefa IA - Fase A: empresa_id real em vendas.lead_profiles
 
 - **IA/Ferramenta:** Claude Code (Opus 5)

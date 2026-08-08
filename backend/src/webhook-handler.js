@@ -5,6 +5,15 @@ const {
   registrarEventoSaudeInstancia: registrarEventoSaudeInstanciaDefault,
 } = require('./db/whatsapp-instance-events')
 const { classificarLead } = require('./services/site-classificacao')
+const {
+  avaliarAtribuicao,
+  resumoDiagnostico,
+  diagnosticoLigado,
+} = require('./services/ctwa-atribuicao')
+const {
+  registrarAtribuicao: registrarAtribuicaoDefault,
+} = require('./db/atribuicao-anuncios')
+const { pool: poolDefault } = require('./db')
 
 function registerWebhookRoute(app, deps = {}) {
   const {
@@ -41,8 +50,61 @@ function registerWebhookRoute(app, deps = {}) {
     podeGerarRespostaAutomatica,
     eventoSaudeDeWebhook = eventoSaudeDeWebhookDefault,
     registrarEventoSaudeInstancia = registrarEventoSaudeInstanciaDefault,
+    registrarAtribuicaoAnuncio = registrarAtribuicaoDefault,
+    pool: poolAtribuicao = poolDefault,
     capturarNomeContato,
   } = deps
+
+  /**
+   * Captura a atribuição de anúncio (CTWA) da mensagem recebida.
+   *
+   * Três desfechos, todos deliberados (regras em services/ctwa-atribuicao.js):
+   *   - mensagem não veio de anúncio        → nada acontece, nem log;
+   *   - veio de anúncio SEM dono comprovado → NÃO grava. Escrever um telefone sob uma
+   *     empresa que só o fallback resolveu produziria exatamente o dado sujo que esta
+   *     captura existe para evitar. O motivo vai para o log, sem PII;
+   *   - veio de anúncio COM empresa e instância comprovadas → grava (idempotente pelo
+   *     id da mensagem). Sem `ctwa_clid` a linha nasce não-confiável: fica visível para
+   *     auditoria e jamais é enviada à Meta.
+   *
+   * Nunca lança: o chamador já trata, mas o atendimento não pode depender disto.
+   */
+  async function capturarAtribuicaoAnuncio(msg, ctx, log) {
+    // Observabilidade TEMPORÁRIA — responde "externalAdReply chega no webhook?" em
+    // produção sem um deploy de código novo. Desligada por padrão; o resumo só carrega
+    // booleanos e nomes de campo de lista fechada (jamais telefone, texto ou clid).
+    if (diagnosticoLigado()) {
+      log.info(resumoDiagnostico(msg, ctx), 'Diagnóstico CTWA do webhook')
+    }
+
+    const veredito = avaliarAtribuicao({ msg, ...ctx })
+    if (!veredito.capturar) {
+      if (veredito.motivo) {
+        // Sem PII: motivo, procedência da empresa e se havia instância. Nada mais.
+        log.warn({
+          operation: 'ctwa_atribuicao',
+          etapa: 'descartada',
+          motivo: veredito.motivo,
+          empresa_origem: ctx.empresaOrigem || null,
+          tem_instancia: !!ctx.instanciaId,
+        }, 'Atribuição de anúncio descartada')
+      }
+      return
+    }
+
+    const { registro } = veredito
+    const { criado } = await registrarAtribuicaoAnuncio(poolAtribuicao, registro.empresaId, registro)
+    log.info({
+      operation: 'ctwa_atribuicao',
+      etapa: criado ? 'registrada' : 'ja_registrada',
+      empresa_id: registro.empresaId,
+      instancia_id: registro.instanciaId,
+      confiavel: registro.elegivel,
+      motivo: registro.motivo,
+      // Dica de 4 caracteres, nunca o identificador do clique.
+      ctwa_clid_hint: registro.ctwaClidHint,
+    }, 'Atribuição de anúncio capturada no webhook')
+  }
 
   app.post('/webhook', async (req, res) => {
       if (!webhookAutorizado(req)) {
@@ -114,6 +176,25 @@ function registerWebhookRoute(app, deps = {}) {
           webhookLog.info({ dedupe_key: chaveEvt }, 'Webhook ignorado por duplicata')
           return
         }
+
+        // ── ATRIBUIÇÃO DE ANÚNCIO (CTWA) ────────────────────────────────────────────
+        // Único ponto do sistema em que telefone real + empresa resolvida pela instância
+        // + instância de origem existem ao mesmo tempo. A mineração de
+        // `evolution."Message"` que isto substitui nunca teve o telefone (o lead de
+        // anúncio chega como `@lid`) — ver services/ctwa-atribuicao.js.
+        //
+        // Roda ANTES das travas de auto-reply/mídia de propósito: o clique no anúncio é
+        // um fato do lead, independente de o bot responder ou não àquela mensagem.
+        // Best-effort e isolado: falhar aqui NUNCA pode derrubar o atendimento.
+        await capturarAtribuicaoAnuncio(msg, {
+          empresaId: req.empresaId,
+          empresaOrigem: req.empresaOrigem,
+          instanciaId: req.whatsappInstanciaId,
+          evolutionInstance: req.evolutionInstance,
+          numero,
+        }, webhookLog).catch((err) =>
+          webhookLog.warn({ err: serializeError(err) }, 'Falha ao capturar atribuição de anúncio')
+        )
 
         const { texto, visao } = await extrairTextoEMidiaDoWebhook(msg)
         if (!texto && !visao) return
