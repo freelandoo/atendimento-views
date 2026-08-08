@@ -1173,3 +1173,58 @@ Ajustes sobre a entrega do mesmo dia (logo abaixo), após revisão de UX/operaç
   como BINARIO — diff e revisao cegos num arquivo de teste de isolamento. Trocado pelo escape
   `\u0000`, mesmo comportamento. O `Bin` ainda aparece neste commit porque o lado do HEAD e
   binario; a partir do proximo, o diff volta a ser texto.
+
+---
+
+## 2026-08-08 — Follow-ups: fila unica de acoes (abas viram filtros)
+
+- **Decisao:** a pagina de Follow-ups passa a ter UMA fila operacional, ordenada pela proxima
+  acao de cada conversa, com filtros rapidos (Todos, Aguardando, Proxima acao hoje, Atendimento
+  humano, Atendimento IA, Falhas, Concluidos) e filtro avancado num painel flutuante. As abas
+  "Atendimento humano" e "Automatico" viraram FILTROS; "Automacao" (configurar/pausar/capacidade/
+  reprocessar/diagnosticar) virou area separada.
+- **Por que:** as abas organizavam pela ORIGEM do item (quem produziu), nao pelo trabalho. O
+  operador decide por conversa e por proxima acao; a origem e atributo, e continua visivel e
+  filtravel.
+- **Uma linha por CONVERSA, nao por registro:** `call-list` e `auto` descrevem o mesmo
+  atendimento. Quando os dois existem para o mesmo numero, a acao HUMANA e a proxima acao da
+  linha e o automatico vira contexto. Duas linhas recriariam a fragmentacao dentro da fila unica.
+  A linha aparece nos filtros "humano" e "IA" — verdade, nao duplicidade.
+- **"Todos" = em aberto.** Concluido/cancelado/falha so entram pelos proprios filtros. Falha e
+  diagnostico, nao tarefa; o reprocessamento continua exclusivamente em Automacao.
+- **Prioridade nao e inventada:** agendamento automatico nao passa pelo call score, entao a
+  bolinha e vazada e diz "prioridade nao calculada", com opcao propria no filtro. Numero errado
+  numa fila de trabalho custa mais caro que numero ausente (AGENTS.md: nao criar painel com dado
+  incerto).
+- **Contrato ADITIVO no backend:** `services/followup-call-score.js` passa a publicar
+  `janela_quando` ('agora'|'hoje'|'proximo_dia_util') junto da frase, calculados pela MESMA
+  funcao (`avaliarJanelaAcao`) — dois calculos independentes divergiriam e a tela mostraria
+  "Hoje" num item que o filtro de hoje ignora. Alternativa recusada: o front interpretar o
+  prefixo da frase, o que poria regra de negocio no front e quebraria em silencio.
+- **`app.followup_config.modo` deixou de ser escrito pela tela.** Auditoria: nenhum motor le
+  essa coluna (`followup-auto.js` le so `fc.pausado`); antes, clicar numa aba gravava
+  configuracao da empresa. Filtro e preferencia de TELA e foi para o `localStorage`
+  (`followupsFila`). Coluna, CHECK da migration 031 e contrato de `/config` intactos.
+- **"Manual" nao virou filtro:** e um compositor 1:1 (funcao distinta nao vira filtro). Virou
+  botao do cabecalho da fila + acao dos itens com recomendacao "mensagem manual". Mesmos
+  endpoints (`/manual/gerar`, `/manual/enviar`), mesma revisao humana antes do envio.
+- **Lacunas declaradas (nao implementadas por falta de fonte):** filtro por RESPONSAVEL (item
+  nao tem dono; `usuario_id` so existe em ligacao ja registrada) e por TIPO DE FALHA (o motor
+  grava `motivo_decisao` em texto livre, sem taxonomia — o filtro oferecido e "motivo contem").
+  O filtro de PERIODO alcanca so item com data real (agendado/enviado): acao humana tem janela
+  recomendada, nao data, e entra em "hoje" pelo `janela_quando`, nao pelo periodo.
+- **Impacto:** `frontend/app/dashboard/follow-ups/page.tsx` (reescrita da tela),
+  `frontend/lib/followups-fila.js` (novo, PURO) + `.d.ts` + `.test.js`,
+  `backend/src/services/followup-call-score.js`, `backend/src/services/followup-listing.js`,
+  `backend/test/followup-call-score.test.js`. Sem migration, sem env nova, sem rota nova, sem
+  mudanca em envio, elegibilidade, permissao ou historico.
+- **Riscos:** (1) a fila agora depende de `GET /auto?limit=300`; empresa com historico muito
+  grande ve so os 300 registros mais recentes do automatico (a fila de trabalho em aberto nao e
+  afetada na pratica, mas "Concluidos" e um recorte, nao o historico completo); (2) `modo`
+  fica congelado no valor atual no banco, sem UI para altera-lo — proposital, mas se alguem
+  voltar a ler a coluna vai ler um valor parado; (3) a marca "na capacidade do dia" usa a fila
+  inteira, entao muda quando a fila muda, nao quando o filtro muda.
+- **Como validar:** `npm test` no `backend/` (1390) + `npm run typecheck`; `npm test` (168) +
+  `npm run typecheck` no `frontend/`. Na tela: filtro rapido nao pode disparar requisicao de
+  escrita; "Personalizar filtros" abre/fecha por teclado (Escape) e devolve o foco ao botao;
+  cada bolinha de prioridade tem nome acessivel.

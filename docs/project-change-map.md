@@ -563,3 +563,34 @@ Ajuste sobre a entrega imediatamente abaixo, apos revisao de UX/operacao.
   `npm run typecheck` do frontend limpo. `npm run build` do frontend NAO foi executado para nao
   corromper o `.next` do `next dev` em uso (portas 3000/3001 ativas).
 - Documentos atualizados: `ai-task-start-log.md`, `ai-decision-log.md` e este mapa.
+
+## 2026-08-08 - Follow-ups - fila unica de acoes (abas viram filtros)
+
+- Area(s) tocada(s): tela `frontend/app/dashboard/follow-ups/page.tsx` (reescrita),
+  `frontend/lib/followups-fila.js` (novo, PURO, + `.d.ts`/`.test.js`), janela estruturada em
+  `backend/src/services/followup-call-score.js` e repasse em `followup-listing.js`.
+- Regras preservadas: nenhuma regra de envio, elegibilidade, call score, permissao admin,
+  isolamento por `empresa_id`, historico ou schema foi alterada. Endpoints inalterados
+  (`/config`, `/auto`, `/auto/reprocessar`, `/auto/cancelar`, `/call-list`, `/roteiro`,
+  `/ligacoes`, `/manual/gerar`, `/manual/enviar`). Sem migration, sem env nova, sem chamada paga.
+- O que mudou: as 3 abas viraram UMA fila com filtros rapidos (Todos, Aguardando, Proxima acao
+  hoje, Atendimento humano, Atendimento IA, Falhas, Concluidos) + filtro avancado no padrao do
+  Banco de Leads; "Automacao" (pausar, capacidade de ligacoes/dia, reprocessar, diagnostico de
+  falhas) virou area separada; o compositor Manual virou botao/modal da fila. Uma linha por
+  CONVERSA: acao humana e a proxima acao, e o automatico do mesmo numero vira contexto da
+  mesma linha.
+- Regra NOVA a preservar: `app.followup_config.modo` NAO deve voltar a ser escrito por clique de
+  filtro. Filtro e preferencia de tela (`localStorage: followupsFila`). A coluna e o contrato de
+  `/config` continuam existindo (guardam `meta_ligacoes_dia` e `pausado`, este ultimo LIDO pelo
+  motor em `followup-auto.js`).
+- Regra NOVA a preservar: `janela_recomendada` (frase) e `janela_quando` (chave fechada) saem da
+  MESMA avaliacao (`avaliarJanelaAcao`). Nao criar um segundo calculo, e nao interpretar a frase
+  no frontend.
+- Regra NOVA a preservar: item que so tem follow-up automatico NAO recebe prioridade — nao
+  inventar faixa para preencher a bolinha.
+- Lacunas declaradas: filtro por responsavel (sem fonte de dados) e por tipo de falha (o motor
+  grava texto livre, sem taxonomia).
+- Validacao: backend 1390/1390 + typecheck; frontend 169/169 + typecheck; rota
+  `/dashboard/follow-ups` compilou e respondeu 200 no dev server ja em execucao (3001).
+  Revisao visual autenticada em navegador fica com o operador.
+- Documentos atualizados: `AGENTS.md`, `ai-task-start-log.md`, `ai-decision-log.md` e este mapa.

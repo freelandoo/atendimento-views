@@ -1535,3 +1535,16 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Fora de escopo declarado:** credenciais, variaveis de ambiente, Meta e integracoes externas; os demais `PJ_EMPRESA_ID` do repo (dashboard legado single-tenant e defaults de ESCRITA em `db-crud.js`/`lead-profile-empresa.js`), que nao resolvem tenant por instancia; qualquer operacao em dados de producao.
 - **Fora do commit (WIP alheio):** `backend/scripts/seed-campanha-nail-designer.js`.
 - **Proxima etapa:** Aplicar o diff minimo, rodar `npm test` no backend, `npm test` + `npm run typecheck` no frontend e `npm run typecheck` no backend, revisar o diff completo e so entao commit + push na `master`.
+
+---
+
+## 2026-08-08 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** Reestruturar a pagina de Follow-ups como FILA UNICA de acoes: substituir as abas fragmentadas (Atendimento humano / Automatico / Manual) por filtros rapidos (Todos, Aguardando, Proxima acao hoje, Atendimento humano, Atendimento IA, Falhas, Concluidos) + botao "Personalizar filtros" (modal no padrao do Banco de Leads), com prioridade visual/acessivel por item e area separada de saude/configuracao da automacao. Sem alterar regras de envio, atendimento, permissoes ou historico.
+- **E projeto/tarefa de alteracao?** Sim, escopo APRESENTACAO/NAVEGACAO no frontend + possivel ajuste ADITIVO de leitura no backend (campo estruturado da janela recomendada, para o filtro "Proxima acao hoje" nao depender de parsing de texto no front). Sem schema, sem migration, sem regra de envio, sem escrita nova, sem chamada paga.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/ui-visual-standard.md: Sim.
+- **Areas mapeadas na Fase 0:** `frontend/app/dashboard/follow-ups/page.tsx` (unica tela; 3 abas), `backend/src/routes/api-follow-ups.js` (config, /auto, /call-list, /roteiro, /ligacoes, /manual/*), `backend/src/services/followup-listing.js` (montarCallList + timeline do automatico), `backend/src/services/followup-call-score.js` (acao recomendada, score, temperatura, janela), `backend/src/db/followup-config.js` (modo/meta/pausado), padroes a reusar: `frontend/app/dashboard/prospeccao/page.tsx` (chips de filtro com contagem), `frontend/lib/prospeccao-listagem.js` (modulo PURO de apresentacao), `frontend/app/dashboard/banco-leads/page.tsx` (`PersonalizarModal` + persistencia em localStorage), `frontend/components/ui/Abas.tsx`.
+- **Achado relevante da Fase 0:** `app.followup_config.modo` NAO e lido por nenhum motor — `followup-auto.js` le apenas `fc.pausado`. Hoje clicar numa aba GRAVA `modo` na empresa; como filtro de tela isso viraria escrita de configuracao a cada clique. Preferencia de filtro passa a ser local (localStorage), como no Banco de Leads/Aquisicao; o endpoint de config permanece intacto.
+- **Fora de escopo declarado:** motor de follow-up automatico (`followup-auto.js`), regras de call score/elegibilidade, envio/throttle, permissoes admin, schema, Central de Ligacoes e Banco de Leads.
+- **Proxima etapa:** Confirmar com o usuario 3 decisoes de produto (destino da aba Manual, universo do filtro "Todos" e o campo aditivo da janela) antes de implementar.

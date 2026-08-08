@@ -1,0 +1,120 @@
+export type SituacaoFila = 'aberto' | 'aguardando' | 'falha' | 'concluido' | 'cancelado'
+export type PrioridadeFila = 'alta' | 'media' | 'baixa'
+export type PrazoQuando = 'agora' | 'atrasado' | 'hoje' | 'futuro' | 'passado'
+export type FiltroRapido = 'todos' | 'aguardando' | 'hoje' | 'humano' | 'ia' | 'falhas' | 'concluidos'
+
+/** Item de `GET /follow-ups/call-list` (fila de atendimento humano). */
+export interface AtendimentoHumano {
+  numero: string
+  telefone_digitos: string
+  nome: string
+  negocio: string | null
+  cidade: string | null
+  estagio: string
+  dias_silencio: number
+  score: number
+  temperatura: 'quente' | 'morno' | 'frio'
+  motivo: string
+  motivos: string[]
+  followups_ignorados: number
+  escalado: boolean
+  acao_recomendada: string
+  acao_label: string
+  janela_recomendada: string
+  /** Chave fechada da mesma janela, publicada por `services/followup-call-score.js`. */
+  janela_quando: 'agora' | 'hoje' | 'proximo_dia_util' | null
+  orientacao: string
+  prompt_preview: string | null
+}
+
+/** Item de `GET /follow-ups/auto` (agendamento do motor automático). */
+export interface AgendamentoAuto {
+  id: number
+  numero: string
+  sequencia: number
+  status: 'agendado' | 'executado' | 'cancelado' | 'falhou'
+  agendado_para: string | null
+  executado_em: string | null
+  cancelado_em: string | null
+  motivo_decisao: string | null
+  detectado_em: string | null
+  estagio: string | null
+  nome: string
+}
+
+/** Uma linha da fila = uma conversa, com a próxima ação já decidida. */
+export interface ItemFila {
+  id: string
+  numero: string
+  telefone_digitos: string
+  nome: string
+  contexto: string | null
+  estagio: string | null
+  humano: boolean
+  ia_agendada: boolean
+  origem_label: string
+  situacao: SituacaoFila
+  acao: string | null
+  acao_label: string | null
+  prazo: string | null
+  prazo_quando: PrazoQuando | null
+  prazo_label: string | null
+  prioridade: PrioridadeFila | null
+  prioridade_score: number | null
+  motivo: string | null
+  orientacao: string | null
+  escalado: boolean
+  dias_silencio: number
+  prompt_preview: string | null
+  tentativas: number
+  tem_falha: boolean
+  falha_motivo: string | null
+  ia_status: AgendamentoAuto['status'] | null
+  ia_data: string | null
+  ia_data_label: string | null
+  ia_id: number | null
+}
+
+export interface ViewFollowups {
+  busca: string
+  acao: string
+  prioridade: string
+  origem: string
+  situacao: string
+  dataDe: string
+  dataAte: string
+  tentativasMin: string
+  falhaTexto: string
+}
+
+export interface FiltroRapidoDef {
+  valor: FiltroRapido
+  label: string
+  descricao: string
+}
+
+export declare const SITUACOES: Record<string, SituacaoFila>
+export declare const SITUACAO_LABEL: Record<string, string>
+export declare const ACAO_IA_LABEL: Record<string, string>
+export declare const PRIORIDADE_LABEL: Record<string, string>
+export declare const FILTROS_RAPIDOS: readonly FiltroRapidoDef[]
+export declare const VIEW_PADRAO: ViewFollowups
+
+export declare function montarFila(entrada: {
+  humanos?: AtendimentoHumano[]
+  automaticos?: AgendamentoAuto[]
+  agora?: Date
+}): ItemFila[]
+export declare function ordenarFila(itens: ItemFila[]): ItemFila[]
+export declare function emAberto(item: ItemFila): boolean
+export declare function filtroRapidoValido(valor: string | null | undefined): FiltroRapido
+export declare function aplicarFiltroRapido(itens: ItemFila[], valor: string | null | undefined): ItemFila[]
+export declare function aplicarAvancado(itens: ItemFila[], view?: Partial<ViewFollowups>): ItemFila[]
+export declare function contarFiltrosAtivos(view?: Partial<ViewFollowups>): number
+export declare function chipsAtivos(view?: Partial<ViewFollowups>, rotulosDeAcao?: Record<string, string>): string[]
+export declare function contagensRapidas(itens: ItemFila[]): Record<FiltroRapido, number>
+export declare function opcoesDeAcao(itens: ItemFila[]): { valor: string; label: string }[]
+export declare function resumoFila(contagens: Record<string, number> | null | undefined): string
+export declare function descricaoPrioridade(item: ItemFila | null | undefined): string
+export declare function classificarPrazoData(iso: string | null, agora: Date, pendente: boolean): PrazoQuando | null
+export declare function classificarPrazoJanela(janelaQuando: string | null | undefined): PrazoQuando | null

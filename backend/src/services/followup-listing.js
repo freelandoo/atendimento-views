@@ -245,6 +245,9 @@ async function montarCallList(pool, empresaId, opts = {}) {
       acao_recomendada: avaliacao.acao_recomendada,
       acao_label: avaliacao.acao_label,
       janela_recomendada: avaliacao.janela_recomendada,
+      // Chave fechada da MESMA janela ('agora'|'hoje'|'proximo_dia_util'). E o que
+      // permite o filtro "proxima acao hoje" da fila sem a tela interpretar a frase.
+      janela_quando: avaliacao.janela_quando,
       orientacao: avaliacao.orientacao,
       prompt_preview: avaliacao.prompt_preview,
       followups_ignorados: Number(r.followups_ignorados) || 0,

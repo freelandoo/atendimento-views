@@ -211,8 +211,14 @@ function fmtHora(decimal) {
   return m ? `${h}h${String(m).padStart(2, '0')}` : `${h}h`
 }
 
-function recomendarJanelaAcao(acao, contexto = horarioSaoPaulo()) {
-  if (acao === ACOES_HUMANAS.ASSUMIR) return 'Agora'
+// Janela recomendada em DUAS leituras da MESMA decisao: `texto` (frase para o
+// operador) e `quando` (chave fechada 'agora' | 'hoje' | 'proximo_dia_util').
+// A chave existe porque a fila de Follow-ups filtra por "proxima acao hoje" — e o
+// unico jeito de a tela saber isso sem a chave seria interpretar a frase, o que poria
+// regra de negocio no front e quebraria em silencio ao mudar o texto. Uma funcao so
+// para os dois: dois calculos independentes divergiriam.
+function avaliarJanelaAcao(acao, contexto = horarioSaoPaulo()) {
+  if (acao === ACOES_HUMANAS.ASSUMIR) return { quando: 'agora', texto: 'Agora' }
   const diaUtil = !['Sat', 'Sun', 'sabado', 'domingo'].includes(contexto.dia)
   const janelas = acao === ACOES_HUMANAS.COPIAR_PROMPT_PREVIEW || acao === ACOES_HUMANAS.REVISAR_PROPOSTA
     ? [[14.5, 17]]
@@ -227,13 +233,22 @@ function recomendarJanelaAcao(acao, contexto = horarioSaoPaulo()) {
       : acao === ACOES_HUMANAS.REVISAR_PROPOSTA
         ? 'revisar a proposta'
         : 'contatar'
-  if (!diaUtil) return `Próximo dia útil — ${verbo}, ${label(janelas[0])}`
+  const proximoDiaUtil = { quando: 'proximo_dia_util', texto: `Próximo dia útil — ${verbo}, ${label(janelas[0])}` }
+  if (!diaUtil) return proximoDiaUtil
   const atual = janelas.find(([ini, fim]) => contexto.hora >= ini && contexto.hora <= fim)
-  if (atual) return `Agora — ${verbo} até ${fmtHora(atual[1])}`
+  if (atual) return { quando: 'agora', texto: `Agora — ${verbo} até ${fmtHora(atual[1])}` }
   const proxima = janelas.find(([ini]) => contexto.hora < ini)
   return proxima
-    ? `Hoje — ${verbo}, ${label(proxima)}`
-    : `Próximo dia útil — ${verbo}, ${label(janelas[0])}`
+    ? { quando: 'hoje', texto: `Hoje — ${verbo}, ${label(proxima)}` }
+    : proximoDiaUtil
+}
+
+function recomendarJanelaAcao(acao, contexto = horarioSaoPaulo()) {
+  return avaliarJanelaAcao(acao, contexto).texto
+}
+
+function classificarJanelaAcao(acao, contexto = horarioSaoPaulo()) {
+  return avaliarJanelaAcao(acao, contexto).quando
 }
 
 function recomendarAcaoHumana(s = {}, contextoHorario) {
@@ -245,6 +260,7 @@ function recomendarAcaoHumana(s = {}, contextoHorario) {
       acao_recomendada: null,
       acao_label: null,
       janela_recomendada: null,
+      janela_quando: null,
       orientacao: null,
       prompt_preview: null,
     }
@@ -298,6 +314,7 @@ function recomendarAcaoHumana(s = {}, contextoHorario) {
     score = Math.max(score, 35)
   }
 
+  const janela = avaliarJanelaAcao(acao, contextoHorario || horarioSaoPaulo())
   return {
     elegivel: true,
     score: Math.min(100, Math.round(score)),
@@ -306,7 +323,8 @@ function recomendarAcaoHumana(s = {}, contextoHorario) {
     motivos: call.motivos,
     acao_recomendada: acao,
     acao_label: ACAO_LABEL[acao],
-    janela_recomendada: recomendarJanelaAcao(acao, contextoHorario || horarioSaoPaulo()),
+    janela_recomendada: janela.texto,
+    janela_quando: janela.quando,
     orientacao,
     prompt_preview: acao === ACOES_HUMANAS.COPIAR_PROMPT_PREVIEW ? montarPromptPreviewExterno(s) : null,
   }
@@ -323,5 +341,6 @@ module.exports = {
   ACAO_LABEL,
   recomendarAcaoHumana,
   recomendarJanelaAcao,
+  classificarJanelaAcao,
   montarPromptPreviewExterno,
 }

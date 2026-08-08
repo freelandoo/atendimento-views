@@ -7,6 +7,7 @@ const {
   fatorRecencia,
   recomendarAcaoHumana,
   recomendarJanelaAcao,
+  classificarJanelaAcao,
   montarPromptPreviewExterno,
   ACOES_HUMANAS,
 } = require('../src/services/followup-call-score')
@@ -156,4 +157,30 @@ test('janela de preview evita noite e final de semana', () => {
   const domingo = recomendarJanelaAcao(ACOES_HUMANAS.COPIAR_PROMPT_PREVIEW, { dia: 'Sun', hora: 10 })
   assert.match(aposJanela, /Próximo dia útil.*enviar o preview/)
   assert.match(domingo, /Próximo dia útil.*enviar o preview/)
+})
+
+// A fila de Follow-ups filtra por "proxima acao hoje". A chave e a frase saem da MESMA
+// avaliacao: se divergirem, a tela mostra "Hoje" num item que o filtro de hoje ignora.
+test('classificarJanelaAcao usa chave fechada e concorda com o texto da janela', () => {
+  const casos = [
+    [ACOES_HUMANAS.ASSUMIR, { dia: 'Sun', hora: 3 }, 'agora'],
+    [ACOES_HUMANAS.LIGAR, { dia: 'Tue', hora: 9 }, 'agora'],
+    [ACOES_HUMANAS.LIGAR, { dia: 'Tue', hora: 12 }, 'hoje'],
+    [ACOES_HUMANAS.LIGAR, { dia: 'Tue', hora: 21 }, 'proximo_dia_util'],
+    [ACOES_HUMANAS.LIGAR, { dia: 'Sat', hora: 9 }, 'proximo_dia_util'],
+    [ACOES_HUMANAS.COPIAR_PROMPT_PREVIEW, { dia: 'Fri', hora: 18 }, 'proximo_dia_util'],
+  ]
+  const prefixo = { agora: /^Agora/, hoje: /^Hoje/, proximo_dia_util: /^Próximo dia útil/ }
+  for (const [acao, ctx, esperado] of casos) {
+    assert.equal(classificarJanelaAcao(acao, ctx), esperado, `${acao} em ${ctx.dia} ${ctx.hora}h`)
+    assert.match(recomendarJanelaAcao(acao, ctx), prefixo[esperado])
+  }
+})
+
+test('recomendarAcaoHumana publica a chave da janela junto do texto', () => {
+  const r = recomendarAcaoHumana({ aguardando_handoff: true, dias_silencio: 1 }, { dia: 'Tue', hora: 9 })
+  assert.equal(r.janela_quando, 'agora')
+  assert.equal(r.janela_recomendada, 'Agora')
+  const inelegivel = recomendarAcaoHumana({ opt_out: true })
+  assert.equal(inelegivel.janela_quando, null)
 })

@@ -531,10 +531,47 @@
 - Nenhuma variável de ambiente nova. Testes: `test/site-classificacao.test.js`,
   `test/reclassificar-sites.test.js`.
 
-### Central de Follow-ups
+### Central de Follow-ups — FILA ÚNICA de ações (as abas viraram filtros)
 - Página admin multiempresa em `frontend/app/dashboard/follow-ups`, exposta pela rota
-  `src/routes/api-follow-ups.js`. Possui modos **Atendimento humano (Semi)**, **Automático** e
-  **Manual**; a preferência fica em `app.followup_config` (migration `029`).
+  `src/routes/api-follow-ups.js`.
+- **A tela deixou de ter 3 abas** (Atendimento humano / Automático / Manual). Duas delas eram
+  só a ORIGEM do item, e origem não é trabalho: hoje há **uma fila só**, ordenada pela próxima
+  ação de cada conversa, com **filtros rápidos** (Todos · Aguardando · Próxima ação hoje ·
+  Atendimento humano · Atendimento IA · Falhas · Concluídos) e um **filtro avançado**
+  ("Personalizar filtros", painel flutuante no padrão do Banco de Leads). Duas áreas seguem
+  separadas (`components/ui/Abas.tsx`): **Fila** (o trabalho) e **Automação** (configuração e
+  saúde do motor: pausar, capacidade de ligações/dia, reprocessar falhas, diagnóstico).
+- **Uma linha por CONVERSA, não por registro.** `GET /call-list` (próxima ação humana) e
+  `GET /auto` (agendamentos do motor) falam do MESMO atendimento: quando os dois existem para
+  o mesmo número, viram uma linha só — a ação humana é a próxima ação e o automático vira
+  contexto (selo + data). Duas linhas recriariam, dentro da fila única, a fragmentação que as
+  abas causavam. A linha aparece nos filtros "humano" **e** "IA": é verdade, não duplicidade.
+- **"Todos" = o que está EM ABERTO** (ação humana pendente ou envio automático agendado).
+  Concluídos, cancelados e falhas só entram pelos próprios filtros — falha é diagnóstico, não
+  tarefa, e o **reprocessamento continua só em Automação**.
+- **Prioridade só existe onde o backend calculou.** Item que só tem follow-up automático não
+  passa pelo call score: a bolinha aparece vazada e diz "prioridade não calculada". Não se
+  inventa faixa — número errado numa fila de trabalho custa mais que número ausente.
+- **`janela_quando`** (`'agora' | 'hoje' | 'proximo_dia_util'`) é publicado por
+  `services/followup-call-score.js` junto da frase da janela, pela MESMA avaliação
+  (`avaliarJanelaAcao`), e repassado por `montarCallList`. Existe para o filtro "próxima ação
+  hoje" não depender de a tela interpretar a frase — regra de negócio no front quebraria em
+  silêncio ao mudar o texto. Campo **aditivo**: nenhum consumidor anterior mudou.
+- **O "Manual" NÃO virou filtro**: é um compositor de mensagem 1:1 (função distinta não vira
+  filtro). Virou o botão "Follow-up manual" do cabeçalho da fila, reaproveitado pelos itens
+  cuja ação recomendada é escrever manualmente. Mesmos endpoints, mesma revisão humana antes
+  do envio.
+- **`app.followup_config.modo` deixou de ser escrito pela tela.** Ele nunca foi lido por motor
+  algum (`followup-auto.js` lê só `fc.pausado`); antes, clicar numa aba gravava configuração da
+  empresa. Preferência de filtro é de TELA e vive no `localStorage` (`followupsFila`), como em
+  Banco de Leads/Aquisição. A coluna, o CHECK da migration `031` e o contrato de `GET/PUT
+  /config` continuam intactos (a config segue guardando `meta_ligacoes_dia` e `pausado`).
+- Montagem da fila, filtros, contagens e chips são PUROS e testados em
+  `frontend/lib/followups-fila.js` (+ `.d.ts`/`.test.js`) — a tela não decide próxima ação,
+  prioridade nem estado; só junta e traduz o que as duas fontes já disseram.
+- **Lacunas declaradas (não implementadas por falta de fonte):** filtro por **responsável** (o
+  item não tem dono; `usuario_id` só existe em ligação já registrada) e por **tipo de falha**
+  (o motor grava `motivo_decisao` em texto livre, sem taxonomia — o filtro é "motivo contém").
 - Listagem/priorização e operações manuais vivem em `src/services/followup-listing.js`,
   `followup-call-score.js` e `followup-manual.js`; configuração, ligações e métricas ficam em
   `src/db/followup-config.js` e `src/db/followup-ligacoes.js` (migrations `030/031`).
