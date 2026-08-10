@@ -5,6 +5,7 @@ const {
   FOLLOWUP_SNIPPET_MAX_CHARS,
   LEAD_CONTEXTO_PROMPT_LIMIT,
 } = require('./config')
+const { CAPACIDADES } = require('./services/conversa-modo-ia')
 
 const FOLLOWUP_HORAS_CONTINUACAO = 6
 const FOLLOWUP_HORAS_DISTANCIADO = 24
@@ -310,11 +311,15 @@ function createFollowupExecution(deps = {}) {
     const modo = ultima && ultima.role === 'user' ? 'fluxo_funil' : 'reengajamento'
     const estagio = conversa.estagio || 'primeiro_contato'
   
-    const funnelOpcoes =
-      instrTrim
-        ? { instrucaoOperador: instrTrim }
-        : {}
-  
+    // Follow-up NAO depende do modo da conversa (Conversa/Analise): ele tem ativacao,
+    // regras, prazos e canais proprios (app.followup_config + followup-auto.js). Declarar a
+    // capacidade e' o que mantem os dois modulos desacoplados — sem isso, o gate de entrega
+    // do funil (que serve tambem a resposta conversacional) barraria o follow-up junto.
+    const funnelOpcoes = {
+      capacidade: CAPACIDADES.FOLLOW_UP,
+      ...(instrTrim ? { instrucaoOperador: instrTrim } : {}),
+    }
+
     try {
       if (ultima && ultima.role === 'user') {
         let info = await gerarEEnviarRespostaWhatsapp(

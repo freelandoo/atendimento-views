@@ -1379,3 +1379,72 @@ Ajustes sobre a entrega do mesmo dia (logo abaixo), após revisão de UX/operaç
   `npm run typecheck` no `frontend/`. Na tela: filtro rapido nao pode disparar requisicao de
   escrita; "Personalizar filtros" abre/fecha por teclado (Escape) e devolve o foco ao botao;
   cada bolinha de prioridade tem nome acessivel.
+
+## 2026-08-10 - Modo de atuacao da IA por conversa (Conversa / Analise)
+
+- **Decisao central: `modo_ia` e uma COLUNA NOVA, separada de `agente_pausado`.** Nao se
+  deriva um do outro e nenhum dos dois escreve o outro. Sao dois fatos independentes sobre a
+  mesma conversa, com donos e tempos de vida diferentes:
+  `agente_pausado` e estado OPERACIONAL efemero, escrito pelo PROPRIO SISTEMA (o
+  `conversa-manual.js` liga sozinho quando um atendente envia mensagem; `followup-auto.js`
+  liga quando o lead frio esgota tentativas; encerrar ligacao com `sem_interesse` tambem
+  liga). `modo_ia` e DECISAO do operador sobre o atendimento, persistente, so muda por acao
+  explicita dele. Alternativa recusada: um terceiro valor em `agente_pausado`. Ela faria a
+  pausa automatica (um atendente respondeu uma vez) APAGAR uma decisao de configuracao, e
+  faria a decisao de configuracao sobreviver ao "Retomar agente" — dois bugs simetricos.
+  O envio automatico exige os DOIS liberados; a checagem da pausa continua onde sempre
+  esteve e nao foi tocada.
+- **O bloqueio NAO vive no webhook, e isso e o ponto do desenho.** `webhook-handler.js` nao
+  envia nada: ele enfileira o job `webhook_resposta`. E dentro desse turno que a IA analisa
+  (extracao, lead_insights, perfil, interesse, objecoes) E redige. Um `return` no webhook
+  desligaria a inteligencia junto com a fala — exatamente o oposto do pedido. O gate vive nos
+  DOIS enviadores (`core-funnel.js` e `services/contexto2-responder.js`), depois da analise
+  ja persistida e imediatamente antes do `enviarMensagem`. Guarda de regressao em
+  `test/conversa-modo-ia.test.js` falha se `modo_ia` reaparecer em `webhook-handler.js`.
+- **Modulo de POLITICA em vez de condicionais espalhadas** (`src/services/conversa-modo-ia.js`,
+  PURO). Ele nao pergunta "qual o modo?" e sim "esta capacidade esta liberada?". A matriz
+  `modo x capacidade` e a regra inteira: `analise` (sempre) · `resposta_conversacional` (so
+  no modo Conversa) · `follow_up` e `agenda` (SEMPRE, nos dois modos). Follow-up e agenda
+  aparecem na matriz de proposito: e o que impede alguem, depois, de "aproveitar" o modo
+  Analise como pausa global de automacao.
+- **A capacidade vem de QUEM CHAMA, nao do modo.** `gerarEEnviarRespostaWhatsapp` serve dois
+  clientes: a resposta conversacional (webhook) e a execucao de follow-up
+  (`followup-execution.js`). Sem declarar a capacidade, o gate barraria os dois e o toggle
+  viraria, em silencio, um interruptor de follow-up. Quem omite recebe
+  `resposta_conversacional` (o caminho governado) — o default e o mais restrito.
+- **A mensagem gerada e nao entregue e DESCARTADA, nunca gravada como `assistant`.** Grava-la
+  faria o painel exibir ao operador um balao do agente que o cliente nunca recebeu, e o turno
+  seguinte raciocinaria sobre uma fala que nao existiu. Pelo mesmo motivo,
+  `atualizarCamadaMemoriaVendasPosResposta` (que registra O QUE O AGENTE DISSE) passou a
+  depender de `respostaEnviadaAoLead` — que ja existia e sempre foi `true` neste ponto, entao
+  o modo Conversa nao muda. A sugestao para revisao humana e o "Orientar resposta" que ja
+  existe: gera, o atendente edita e envia. Nenhum armazenamento novo foi criado para isso.
+- **O flag morto `reterMensagemParaAprovacao` (fixo em `false` desde 2026-06-06) virou o
+  seam da mudanca.** Reusar a retencao que ja estava plumbada evitou espalhar `if` pelos 7
+  pontos de envio do funil legado: hoje e um booleano so, calculado uma vez por turno.
+- **Custo de IA declarado: o modo Analise NAO economiza.** Extracao e mensagem saem da MESMA
+  chamada de LLM nos dois motores (`extrairEDecidirBundle` no playbook, `chamarClaudeTurno`
+  no legado). O turno roda inteiro e a mensagem e descartada. Separar analise de redacao
+  seria refatorar o motor — fora do escopo declarado.
+- **Risco residual aceito:** o comando `/followup` do operador no WhatsApp cai no ramo
+  "fluxo_funil" quando a ultima mensagem e do lead, e como follow-up e independente do modo,
+  ele RESPONDE o cliente mesmo em Analise. E acao humana explicita e coerente com a regra de
+  produto ("follow-up nao depende do toggle"), mas e a unica porta pela qual sai texto de IA
+  numa conversa em Analise. Fechar exigiria distinguir follow-up agendado de follow-up
+  comandado — uma linha, se o operador quiser.
+- **Consequencia observada (nao e regra):** o watcher de follow-up automatico exige
+  `historico->-1->>'role' = 'assistant'`. Como em Analise nada e anexado, conversas nesse modo
+  raramente entram na fila do watcher. Nenhuma condicional de modo foi adicionada ao
+  follow-up — o efeito vem de nao haver mensagem do bot, igual a qualquer turno sem resposta.
+- **Impacto:** migration `063_conversa_modo_ia.sql` (aditiva, `NOT NULL DEFAULT 'conversa'`,
+  CHECK fechado, nenhum dado mutado), `src/services/conversa-modo-ia.js` (novo, PURO),
+  `core-funnel.js`, `services/contexto2-responder.js`, `followup-execution.js`,
+  `services/conversa-manual.js` (`alterarModoIaConversa`), `routes/api-conversas.js`
+  (`PATCH /:numero/modo-ia`), `frontend/lib/conversa-modo-ia.js` (+ `.d.ts`/`.test.js`),
+  `frontend/components/ui/AlternadorModoIa.tsx` (novo), `frontend/components/ConversaPainel.tsx`.
+  Sem tabela nova (auditoria em `app.auditoria_eventos`), sem variavel de ambiente nova,
+  sem alteracao em `webhook-handler.js`, `followup-auto.js` ou `agenda.js`.
+- **Como validar:** `npm test` no `backend/` (1444; 2 falhas conhecidas de rede 429 em
+  `core.test.js`) + `npm run typecheck`; `npm test` (274) + `npm run typecheck` no `frontend/`.
+  Na tela: alternar o modo com o teclado (setas dentro do radiogroup), tooltip abrindo no
+  FOCO e nao so no hover, e o modo persistindo ao fechar e reabrir a conversa.

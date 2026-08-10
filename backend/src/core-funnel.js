@@ -16,6 +16,7 @@ const { decidirProximaAcao, separarEcoDaUltimaPergunta } = require('./next-actio
 const { canonicalizarPerfilLead } = require('./lead-profile-canonical')
 const { validarRespostaPorAcao } = require('./action-response-validator')
 const { buildTurnContext } = require('./turn-context-reader')
+const { avaliarEnvio, resumoBloqueio, CAPACIDADES } = require('./services/conversa-modo-ia')
 
 // Estágios em que o protocolo de abertura determinístico pode rodar (início do
 // funil). Fora deles a conversa já avançou e a abertura não se aplica.
@@ -1080,7 +1081,24 @@ function createCoreFunnel(deps = {}) {
     const estagioLive = conversaLive?.estagio || estagio || 'primeiro_contato'
     const conversaUsada = conversaLive || conversa
     let respostaEnviadaAoLead = false
-  
+
+    // ── POLITICA DE RESPOSTA DA CONVERSA ───────────────────────────────────────
+    // Consultada UMA vez, aqui, e guardada num booleano. O veredito nao muda no meio do
+    // turno, e reconsultar em cada ponto de envio espalharia a regra — que e' justamente
+    // o que o desenho modular proibe.
+    //
+    // A capacidade vem de QUEM CHAMOU, e nao do modo: este mesmo motor atende a resposta
+    // conversacional (webhook) e a execucao de follow-up (`followup-execution.js`), e
+    // follow-up nao depende deste toggle — tem ativacao, regras e prazos proprios. Quem
+    // omite a capacidade recebe `resposta_conversacional`, que e' o caminho governado.
+    //
+    // ATENCAO: este booleano so decide ENTREGA. Nada abaixo dele encurta a analise — o
+    // turno de LLM roda inteiro, o perfil e' atualizado, os eventos sao registrados e o
+    // estagio avanca igual. Um `return` aqui desligaria a inteligencia junto com a fala.
+    const capacidadeTurno = opcoes?.capacidade || CAPACIDADES.RESPOSTA_CONVERSACIONAL
+    const vereditoEnvio = avaliarEnvio({ modo: conversaUsada?.modo_ia, capacidade: capacidadeTurno })
+    const entregaPermitida = vereditoEnvio.permitido
+
     if (typeof podeGerarRespostaAutomatica === 'function' && !podeGerarRespostaAutomatica({ ...conversaUsada, historico })) {
       logger.info(`Resposta automatica bloqueada: ultima mensagem nao e lead real (${numero})`)
       return { skipped: true, reason: 'ultima_mensagem_nao_lead_real' }
@@ -1115,7 +1133,12 @@ function createCoreFunnel(deps = {}) {
     // dispara o CTA + link certo pra cada caminho. A IA assume depois. Opt-in: só
     // roda se a empresa configurou config.opener_protocolo; senão o fluxo segue
     // 100% pela IA (PJ/demais empresas não mudam de comportamento).
-    if (empresaIdConversa && typeof resolverOpenerProtocolo === 'function' && OPENER_ESTAGIOS.has(estagioLive)) {
+    //
+    // `entregaPermitida` entra na condicao (em vez de um `return` dentro do bloco) porque o
+    // opener e' o unico caminho que responde SEM analisar: sao mensagens fixas. Bloquear com
+    // `return` faria a conversa em modo Analise perder o turno inteiro; pulando o bloco, ela
+    // segue para o playbook/legado, ANALISA normalmente e para no gate de entrega de la.
+    if (entregaPermitida && empresaIdConversa && typeof resolverOpenerProtocolo === 'function' && OPENER_ESTAGIOS.has(estagioLive)) {
       let opener = null
       try { opener = await resolverOpenerProtocolo(empresaIdConversa, evolutionInstanceConversa) } catch (_) { opener = null }
       if (opener) {
@@ -1191,6 +1214,9 @@ function createCoreFunnel(deps = {}) {
           conversaUsada,
           historico,
           estagioLive,
+          // A capacidade viaja junto: o gate de entrega do playbook e' o mesmo deste motor,
+          // e follow-up executado por aqui nao pode ser barrado pelo toggle da conversa.
+          capacidade: capacidadeTurno,
         })
       }
     }
@@ -1941,7 +1967,8 @@ function createCoreFunnel(deps = {}) {
         : dividirTextoPorQuebrasHeuristico(textoResposta, etapaEnvio)
     ).map((msg) => truncarAuditoria(msg))
   
-    if (typeof resultado.enviar_print === 'string' && resultado.enviar_print.trim()) {
+    // O print tambem e' entrega ao cliente (imagem no WhatsApp) — passa pela mesma politica.
+    if (entregaPermitida && typeof resultado.enviar_print === 'string' && resultado.enviar_print.trim()) {
       const captionPrint = typeof resultado.caption_print === 'string' && resultado.caption_print.trim()
         ? resultado.caption_print.trim()
         : ''
@@ -1954,19 +1981,28 @@ function createCoreFunnel(deps = {}) {
     const textoHistoricoAssist =
       linksExtra.length > 0 ? `${textoResposta}\n\n${linksExtra.join('\n')}` : textoResposta
   
-    let historicoNovo = [...historico, { role: 'assistant', content: textoHistoricoAssist }]
-    if (historicoNovo.length > 40) historicoNovo = historicoNovo.slice(-40)
-  
-    const precisaHandoff = !!resultado.handoff
-    const novoStatus = precisaHandoff ? 'aguardando_handoff' : (conversaUsada?.status || 'ativo')
-  
     // Fluxo de "aprovação de valor" removido (2026-06-06): o projeto não tem
     // aprovação — só reunião agendada com prévia de valor (uso interno do operador).
-    // A mensagem da IA nunca mais é retida aguardando OK.
-    const reterMensagemParaAprovacao = false
+    // A mensagem da IA nunca mais é retida aguardando OK. O que retém hoje é a POLÍTICA
+    // da conversa (modo Análise), avaliada uma única vez no início do turno.
+    const reterMensagem = !entregaPermitida
+
+    // Mensagem não entregue NÃO entra no histórico como `assistant`. O painel mostraria ao
+    // operador um balão do agente que o cliente nunca recebeu, e o turno seguinte
+    // raciocinaria sobre uma fala que não existiu. O resto da persistência (estágio,
+    // status, perfil, eventos) continua — é registro interno, e registro interno é
+    // exatamente o que o modo Análise preserva.
+    let historicoNovo = reterMensagem
+      ? [...historico]
+      : [...historico, { role: 'assistant', content: textoHistoricoAssist }]
+    if (historicoNovo.length > 40) historicoNovo = historicoNovo.slice(-40)
+
+    const precisaHandoff = !!resultado.handoff
+    const novoStatus = precisaHandoff ? 'aguardando_handoff' : (conversaUsada?.status || 'ativo')
+
     const mensagensEnviadasAuditoria = []
-  
-    if (!reterMensagemParaAprovacao) {
+
+    if (!reterMensagem) {
       const botoes = extrairBotoes(textoRespostaBruto)
       const bolhasModelo = bolhasSanitizadas && bolhasSanitizadas.length > 0
   
@@ -2041,12 +2077,22 @@ function createCoreFunnel(deps = {}) {
         }
       }
     } else {
-      logger.info(`⏸️  Mensagem retida (aprovacao_valor) — aguardando OK do Operador`)
+      logger.info(
+        resumoBloqueio({
+          empresaId: empresaIdConversa,
+          numero,
+          modo: vereditoEnvio.modo,
+          capacidade: capacidadeTurno,
+        }),
+        'Modo Analise: resposta conversacional nao enviada (analise registrada normalmente)'
+      )
       respostaEnviadaAoLead = false
     }
     try {
-      logger.info(`✉️  [${resultado.etapa_proxima || estagioLive}] Resposta enviada`)
-  
+      if (respostaEnviadaAoLead) {
+        logger.info(`✉️  [${resultado.etapa_proxima || estagioLive}] Resposta enviada`)
+      }
+
       auditoriaTurno.mensagensEnviadas = mensagensEnviadasAuditoria.map((msg) => truncarAuditoria(msg))
       auditoriaTurno.perfilDepois = resumirPerfilAuditoria(perfil)
       registrarLogDecisaoTurno(auditoriaTurno)
@@ -2121,16 +2167,22 @@ function createCoreFunnel(deps = {}) {
         logger.warn('captura de sinal_conversa falhou:', e.message)
       }
   
-      try {
-        await atualizarCamadaMemoriaVendasPosResposta(
-          numero,
-          historicoNovo,
-          perfil,
-          resultado.etapa_proxima || estagioLive,
-          textoHistoricoAssist
-        )
-      } catch (e) {
-        logger.warn('⚠️ Camada memória vendas:', e.message)
+      // Memória de vendas registra O QUE O AGENTE DISSE ao lead. Sem entrega, não houve
+      // fala — gravar o texto retido faria a memória (e os turnos seguintes) acreditarem
+      // numa resposta que o cliente nunca leu. A análise da MENSAGEM DO LEAD, essa sim,
+      // já foi persistida antes deste ponto.
+      if (respostaEnviadaAoLead) {
+        try {
+          await atualizarCamadaMemoriaVendasPosResposta(
+            numero,
+            historicoNovo,
+            perfil,
+            resultado.etapa_proxima || estagioLive,
+            textoHistoricoAssist
+          )
+        } catch (e) {
+          logger.warn('⚠️ Camada memória vendas:', e.message)
+        }
       }
   
       if (
@@ -2187,6 +2239,13 @@ function createCoreFunnel(deps = {}) {
         })
       }
   
+      // Nada foi entregue: o chamador não pode receber um "trecho da resposta" como se
+      // tivesse havido resposta (é isso que alimenta métrica de follow-up e o retorno do
+      // comando do operador). O turno foi bem-sucedido — só não falou com o cliente.
+      if (reterMensagem) {
+        return { skipped: true, reason: vereditoEnvio.motivo, analise_registrada: true }
+      }
+
       const destino = String(numero).replace(/@s\.whatsapp\.net$/i, '').replace(/\D/g, '')
       return {
         destino,

@@ -1,0 +1,152 @@
+'use client'
+// Controle segmentado de DOIS estados para o modo de atuacao da IA na conversa.
+//
+// POR QUE NAO REUSA `components/ui/Abas.tsx`
+// Abas e' `role="tablist"` com `aria-controls` apontando para um painel: a semantica diz
+// "estas opcoes trocam o que voce esta vendo". Aqui nada muda na tela — muda o
+// COMPORTAMENTO do sistema com o cliente. Um leitor de tela anunciando "aba selecionada"
+// esconderia justamente o que importa. Por isso `role="radiogroup"`, que anuncia escolha
+// entre opcoes, e um rotulo em texto ao lado dizendo o estado por extenso.
+//
+// Cor nunca e' o unico sinal: o botao ativo tem contorno e peso proprios, o estado aparece
+// escrito ao lado e a frase completa (estado + consequencia) vai no `aria-label` do grupo.
+//
+// A regra de negocio nao esta aqui. Rotulos, descricoes e textos de ajuda vem de
+// `lib/conversa-modo-ia.js`; a permissao de enviar e' decidida no backend, sempre.
+import { useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { descreverModo, opcoesDeModo, rotuloAcessivel } from '@/lib/conversa-modo-ia'
+import type { ModoIa } from '@/lib/conversa-modo-ia'
+
+/**
+ * Balao de ajuda leve — hover, foco e toque; nunca modal (o pedido e' explicito).
+ * Em portal no `<body>` e posicionado pelo rect da ancora: dentro do cabecalho do painel,
+ * que tem `overflow-hidden`, uma versao `absolute` seria cortada. Mesma solucao ja usada
+ * em `BolinhaPontuacao`.
+ */
+function AjudaModo({ texto, rotulo }: { texto: string; rotulo: string }) {
+  const [aberto, setAberto] = useState(false)
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+  const ancora = useRef<HTMLButtonElement | null>(null)
+  const id = useId()
+
+  function abrir() {
+    const r = ancora.current?.getBoundingClientRect()
+    if (!r) return
+    // Abre abaixo da ancora e preso as bordas: o cabecalho fica colado no topo da tela e
+    // um balao para cima sairia da viewport.
+    const largura = 280
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - largura / 2), window.innerWidth - largura - 8)
+    setPos({ left, top: r.bottom + 8 })
+    setAberto(true)
+  }
+  function fechar() { setAberto(false) }
+
+  useEffect(() => {
+    if (!aberto) return
+    const aoTeclado = (e: KeyboardEvent) => { if (e.key === 'Escape') fechar() }
+    window.addEventListener('keydown', aoTeclado)
+    window.addEventListener('scroll', fechar, true)
+    window.addEventListener('resize', fechar)
+    return () => {
+      window.removeEventListener('keydown', aoTeclado)
+      window.removeEventListener('scroll', fechar, true)
+      window.removeEventListener('resize', fechar)
+    }
+  }, [aberto])
+
+  return (
+    <>
+      <button
+        ref={ancora}
+        type="button"
+        aria-label={`O que significa o modo ${rotulo}`}
+        aria-describedby={aberto ? id : undefined}
+        onMouseEnter={abrir}
+        onMouseLeave={fechar}
+        onFocus={abrir}
+        onBlur={fechar}
+        onClick={() => (aberto ? fechar() : abrir())}
+        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[11px] font-semibold text-slate-500 transition hover:border-slate-400 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1"
+      >
+        i
+      </button>
+      {aberto && pos && typeof document !== 'undefined' && createPortal(
+        <div
+          id={id}
+          role="tooltip"
+          style={{ left: pos.left, top: pos.top, width: 280 }}
+          className="pointer-events-none fixed z-[60] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-relaxed text-slate-700 shadow-lg"
+        >
+          {texto}
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
+
+export default function AlternadorModoIa({
+  modo,
+  onMudar,
+  ocupado = false,
+}: {
+  modo: ModoIa
+  onMudar: (novo: ModoIa) => void
+  /** Desabilita o controle enquanto o PATCH esta em voo. */
+  ocupado?: boolean
+}) {
+  const opcoes = opcoesDeModo()
+  const atual = descreverModo(modo)
+  const refs = useRef<Record<string, HTMLButtonElement | null>>({})
+
+  // Navegacao por setas dentro do grupo, como manda o padrao de radiogroup.
+  function aoTeclado(e: React.KeyboardEvent, indice: number) {
+    if (!['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp'].includes(e.key)) return
+    e.preventDefault()
+    const passo = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1
+    const alvo = opcoes[(indice + passo + opcoes.length) % opcoes.length]
+    refs.current[alvo.id]?.focus()
+    if (!ocupado) onMudar(alvo.id)
+  }
+
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <div
+        role="radiogroup"
+        aria-label={rotuloAcessivel(modo)}
+        className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1"
+      >
+        {opcoes.map((o, i) => {
+          const selecionado = o.id === atual.id
+          return (
+            <button
+              key={o.id}
+              ref={(el) => { refs.current[o.id] = el }}
+              type="button"
+              role="radio"
+              aria-checked={selecionado}
+              aria-label={`${o.rotulo}. ${o.descricao}`}
+              tabIndex={selecionado ? 0 : -1}
+              disabled={ocupado}
+              onClick={() => onMudar(o.id)}
+              onKeyDown={(e) => aoTeclado(e, i)}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60 ${
+                selecionado
+                  ? 'border border-brand bg-white text-brand shadow-sm'
+                  : 'border border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              {o.rotulo}
+            </button>
+          )
+        })}
+      </div>
+      {/* O estado por extenso, sempre visivel: quem nao distingue as cores le a mesma coisa. */}
+      <span className="text-xs text-slate-600" aria-live="polite">
+        {ocupado ? 'Atualizando…' : atual.estado}
+      </span>
+      <AjudaModo texto={atual.ajuda} rotulo={atual.rotulo} />
+    </div>
+  )
+}

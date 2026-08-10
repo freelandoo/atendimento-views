@@ -1,6 +1,8 @@
 'use strict'
 const { enviarMensagem, verificarStatusInstanciaEvolution } = require('../whatsapp')
 const { cancelarFollowupsAutoPendentes } = require('./followup-auto-cancel')
+const { modoValido, normalizarModo, MODOS_IA_VALIDOS, MODO_IA_PADRAO } = require('./conversa-modo-ia')
+const { registrarAuditoria } = require('../db/auditoria')
 
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
 const HISTORICO_MAX = 40
@@ -208,9 +210,121 @@ async function alterarPausaAgenteConversa({
   }
 }
 
+/**
+ * Troca a politica de resposta da conversa (Conversa <-> Analise).
+ *
+ * Vive aqui, ao lado de `alterarPausaAgenteConversa`, porque e' a MESMA familia de acao:
+ * o operador mexendo no atendimento de um contato. Modulo novo so duplicaria o escopo por
+ * empresa e a validacao de numero que ja existem neste arquivo.
+ *
+ * O `UPDATE` e' condicionado (`modo_ia IS DISTINCT FROM $4`) para que o proprio banco diga
+ * se houve mudanca REAL: e' o que impede a auditoria de inflar quando alguem clica duas
+ * vezes no mesmo modo, sem precisar de um SELECT antes (que abriria corrida).
+ *
+ * `agente_pausado` NAO e' tocado aqui, nem lido: sao dois fatos independentes sobre a
+ * conversa e o envio automatico exige os dois liberados.
+ */
+async function alterarModoIaConversa({
+  pool,
+  empresaId,
+  numero,
+  modo,
+  usuarioId = null,
+  log = null,
+  _registrarAuditoria = registrarAuditoria,
+}) {
+  if (!pool) throw erroOperacao('pool obrigatorio.', 500, 'INTERNAL_ERROR')
+  if (!empresaId) throw erroOperacao('empresaId obrigatorio.', 500, 'INTERNAL_ERROR')
+  if (!modoValido(modo)) {
+    throw erroOperacao(`modo invalido. Use um destes: ${MODOS_IA_VALIDOS.join(', ')}.`, 400, 'MODO_IA_INVALIDO')
+  }
+
+  const numeroValidado = validarNumeroConversa(numero)
+  const modoNovo = normalizarModo(modo)
+
+  // A CTE fotografa o valor ANTERIOR na mesma instrucao que grava o novo: a auditoria
+  // registra o que realmente estava la, sem SELECT separado (que abriria corrida) e sem
+  // deduzir "o outro modo" (deducao que quebraria em silencio se um terceiro modo nascer).
+  const { rows: [atualizada] } = await pool.query(
+    `WITH anterior AS (
+       SELECT numero, COALESCE(modo_ia, $5::text) AS modo_ia
+         FROM vendas.conversas
+        WHERE (empresa_id = $1 OR ($1::uuid = $2::uuid AND empresa_id IS NULL))
+          AND numero = $3
+     )
+     UPDATE vendas.conversas c
+        SET modo_ia = $4::text,
+            empresa_id = COALESCE(c.empresa_id, $1::uuid),
+            atualizado_em = NOW()
+       FROM anterior a
+      WHERE c.numero = a.numero
+        AND a.modo_ia IS DISTINCT FROM $4::text
+      RETURNING c.numero, c.modo_ia, a.modo_ia AS modo_anterior,
+                c.agente_pausado, c.estagio, c.status, c.atualizado_em`,
+    [empresaId, PJ_EMPRESA_ID, numeroValidado, modoNovo, MODO_IA_PADRAO]
+  )
+
+  // Sem linha: ou a conversa nao e' desta empresa, ou o modo ja era esse. As duas
+  // possibilidades sao distinguidas por uma leitura escopada — nunca devolvendo dado de
+  // conversa de outro tenant.
+  if (!atualizada) {
+    const { rows: [atual] } = await pool.query(
+      `SELECT numero, modo_ia, agente_pausado, estagio, status, atualizado_em
+         FROM vendas.conversas
+        WHERE (empresa_id = $1 OR ($1::uuid = $2::uuid AND empresa_id IS NULL))
+          AND numero = $3`,
+      [empresaId, PJ_EMPRESA_ID, numeroValidado]
+    )
+    if (!atual) throw erroOperacao('Conversa nao encontrada para esta empresa.', 404, 'NOT_FOUND')
+    return {
+      numero: atual.numero,
+      modo_ia: normalizarModo(atual.modo_ia),
+      modo_anterior: normalizarModo(atual.modo_ia),
+      alterado: false,
+      agente_pausado: !!atual.agente_pausado,
+      estagio: atual.estagio,
+      status: atual.status,
+      atualizado_em: atual.atualizado_em,
+    }
+  }
+
+  const modoAnterior = normalizarModo(atualizada.modo_anterior)
+
+  // Auditoria SO na mudanca real (best-effort, como todo `registrarAuditoria`). O contexto
+  // leva os digitos do telefone, nunca o JID nem texto de mensagem.
+  await _registrarAuditoria(pool, empresaId, {
+    usuarioId,
+    entidadeTipo: 'conversa',
+    entidadeId: null,
+    acao: 'conversa_modo_ia_alterado',
+    estadoAnterior: modoAnterior,
+    estadoNovo: modoNovo,
+    contexto: {
+      modo_anterior: modoAnterior,
+      modo_novo: modoNovo,
+      telefone_digitos: numeroValidado.replace(/\D/g, ''),
+    },
+  })
+  if (log?.info) {
+    log.info({ empresa_id: empresaId, modo_novo: modoNovo }, '[conversa-manual] modo de IA alterado')
+  }
+
+  return {
+    numero: atualizada.numero,
+    modo_ia: normalizarModo(atualizada.modo_ia),
+    modo_anterior: modoAnterior,
+    alterado: true,
+    agente_pausado: !!atualizada.agente_pausado,
+    estagio: atualizada.estagio,
+    status: atualizada.status,
+    atualizado_em: atualizada.atualizado_em,
+  }
+}
+
 module.exports = {
   enviarMensagemManualOperador,
   alterarPausaAgenteConversa,
+  alterarModoIaConversa,
   validarNumeroConversa,
   validarTextoMensagem,
   _internals: { buscarConversaParaEnvio, erroOperacao },

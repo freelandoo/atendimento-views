@@ -6,7 +6,11 @@ const { gerarESalvarResumo, buscarUltimoResumo } = require('../services/resumo-c
 const { logger } = require('../logger')
 const { enviarMensagem } = require('../whatsapp')
 const { calcularScoreInteresseLead } = require('../services/lead-interest-score')
-const { enviarMensagemManualOperador, alterarPausaAgenteConversa } = require('../services/conversa-manual')
+const {
+  enviarMensagemManualOperador,
+  alterarPausaAgenteConversa,
+  alterarModoIaConversa,
+} = require('../services/conversa-manual')
 const { gerarOrientacaoResposta } = require('../services/orientador-resposta')
 const { registrarFeedbackConversa } = require('../services/conversa-feedback')
 
@@ -282,6 +286,26 @@ router.patch('/:numero/agente', requireAuth, requireEmpresaAccess, async (req, r
     return res.json({ ok: true, data: out })
   } catch (err) {
     return erroConversas(res, err, 'AGENT_PAUSE_FAILED')
+  }
+})
+
+// PATCH /api/empresas/:empresaId/conversas/:numero/modo-ia
+// Troca a politica de resposta desta conversa (Conversa <-> Analise). O modo ATUAL nao tem
+// rota de leitura propria de proposito: `GET /:numero` ja faz `SELECT c.*` e devolve
+// `modo_ia` junto com o resto da conversa — o painel nao precisa de uma segunda requisicao.
+router.patch('/:numero/modo-ia', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const out = await alterarModoIaConversa({
+      pool,
+      empresaId: req.empresa.id,
+      numero: req.params.numero,
+      modo: req.body?.modo,
+      usuarioId: req.usuario?.id || null,
+      log: logger,
+    })
+    return res.json({ ok: true, data: out })
+  } catch (err) {
+    return erroConversas(res, err, 'CONVERSA_MODO_IA_FAILED')
   }
 })
 

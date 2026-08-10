@@ -8,6 +8,8 @@
 // preservando o wiring exato das factories (createDbCrud, createHandoffAlerts, etc.).
 // Os helpers de agenda abaixo são puros e foram trazidos inline do core-funnel.
 
+const { avaliarEnvio, resumoBloqueio, CAPACIDADES } = require('./conversa-modo-ia')
+
 const MENSAGEM_AGENDA_INDISPONIVEL =
   'Nao consegui consultar a agenda agora. Vou pedir para a equipe da {{empresa}} verificar os proximos horarios e te chamar por aqui.'
 
@@ -69,7 +71,14 @@ function createContexto2Responder(deps = {}) {
    * com o próprio contexto. Reusa a agenda/handoff da infra. Handoff pausa a conversa.
    * @returns {Promise<{ ok: true, via: 'playbook' }|{ skipped: true, reason: string }>}
    */
-  async function responderContexto2({ numero, empresaId, conversaUsada, historico, estagioLive }) {
+  async function responderContexto2({
+    numero,
+    empresaId,
+    conversaUsada,
+    historico,
+    estagioLive,
+    capacidade = CAPACIDADES.RESPOSTA_CONVERSACIONAL,
+  }) {
     const ultima = historico[historico.length - 1]
     const mensagem = typeof ultima?.content === 'string' ? ultima.content : String(ultima?.content || '')
     const status = conversaUsada?.status || 'ativo'
@@ -159,6 +168,25 @@ function createContexto2Responder(deps = {}) {
     if (!texto) {
       logger.warn({ empresa_id: empresaId, numero }, 'Playbook não produziu mensagem — nada enviado neste turno')
       return { skipped: true, reason: 'playbook_sem_mensagem' }
+    }
+
+    // ── POLITICA DE RESPOSTA DA CONVERSA ───────────────────────────────────────
+    // Ultimo passo antes da entrega, e so aqui. Tudo o que era ANALISE ja aconteceu e ja
+    // esta persistido: `processarMensagemComPlaybook` gravou os lead_insights (extracao,
+    // interesse, objecoes, pendencias) e o `atualizar_perfil` da decisao ja foi aplicado.
+    // Bloquear antes disso desligaria a inteligencia junto com a fala, que e' exatamente
+    // o que o modo Analise nao pode fazer.
+    //
+    // Nao persistimos nada aqui de proposito: a mensagem que nao foi entregue NAO entra no
+    // historico como `assistant` — o painel mostraria ao operador um balao do agente que o
+    // cliente nunca recebeu, e o proximo turno raciocinaria sobre uma fala que nao existiu.
+    const veredito = avaliarEnvio({ modo: conversaUsada?.modo_ia, capacidade })
+    if (!veredito.permitido) {
+      logger.info(
+        resumoBloqueio({ empresaId, numero, modo: veredito.modo, capacidade }),
+        'Modo Analise: resposta conversacional nao enviada (analise registrada normalmente)'
+      )
+      return { skipped: true, reason: veredito.motivo, analise_registrada: true }
     }
 
     const whatsappOpts = evolutionInstance ? { instanceName: evolutionInstance } : {}

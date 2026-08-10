@@ -34,6 +34,9 @@ import { IconSend, IconStar, IconThumbDown, IconThumbUp } from '@/components/ui/
 import { identidadeConversa } from '@/lib/lead-identidade'
 import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
 import { VARIANTES, O_QUE_MEDE, fatoresDeInteresse } from '@/lib/pontuacao-indicador'
+import AlternadorModoIa from '@/components/ui/AlternadorModoIa'
+import { avisoDoCompositor, descreverModo, houveMudanca, normalizarModo } from '@/lib/conversa-modo-ia'
+import type { ModoIa } from '@/lib/conversa-modo-ia'
 
 export type ScoreCriterio = {
   delta: number
@@ -66,6 +69,13 @@ type Mensagem = { role?: string; content?: string; text?: string; timestamp?: st
 type ConversaDetail = ConversaResumo & {
   historico?: Mensagem[]
   agente_pausado?: boolean
+  /**
+   * Politica de resposta da conversa. Vem junto do `GET /conversas/:numero` (que ja faz
+   * `SELECT c.*`) — nao ha requisicao extra para saber o modo.
+   * NAO e' derivado de `agente_pausado` nem o substitui: sao dois fatos independentes, e o
+   * envio automatico exige os dois liberados.
+   */
+  modo_ia?: string | null
   ultima_falha_resposta_codigo?: string | null
   ultima_falha_resposta_msg?: string | null
   ultima_falha_resposta_em?: string | null
@@ -203,6 +213,7 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
   const [mensagemManual, setMensagemManual] = useState('')
   const [enviandoManual, setEnviandoManual] = useState(false)
   const [alterandoPausa, setAlterandoPausa] = useState(false)
+  const [alterandoModo, setAlterandoModo] = useState(false)
   const [composerAberto, setComposerAberto] = useState(false)
   const [orientandoResposta, setOrientandoResposta] = useState(false)
   const [orientacaoResposta, setOrientacaoResposta] = useState<OrientacaoResposta | null>(null)
@@ -350,6 +361,35 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
     finally { setAlterandoPausa(false) }
   }
 
+  /**
+   * Troca o modo de atuacao da IA. OTIMISTA: o controle responde no clique, porque o efeito
+   * vale so' para mensagens futuras e esperar a rede faria o operador clicar duas vezes.
+   * Falhou, VOLTA ao modo anterior e o erro aparece — a tela nunca pode afirmar "Análise"
+   * enquanto o backend continua em "Conversa", que e' onde o cliente sentiria a diferenca.
+   */
+  async function alterarModoIa(novo: ModoIa) {
+    if (!aberta || !empresaId || alterandoModo) return
+    const anterior = normalizarModo(aberta.modo_ia)
+    if (!houveMudanca(anterior, novo)) return
+    setAlterandoModo(true)
+    setAberta((p) => p ? { ...p, modo_ia: novo } : p)
+    try {
+      const r = await fb.runTask(
+        () => apiFetch<{ modo_ia: string }>(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(aberta.numero)}/modo-ia`, {
+          method: 'PATCH',
+          body: JSON.stringify({ modo: novo }),
+        }),
+        { sucesso: `Modo alterado para ${descreverModo(novo).rotulo}.` }
+      )
+      setAberta((p) => p ? { ...p, modo_ia: normalizarModo(r.data.modo_ia) } : p)
+      avisar()
+    } catch {
+      setAberta((p) => p ? { ...p, modo_ia: anterior } : p)
+    } finally {
+      setAlterandoModo(false)
+    }
+  }
+
   function toggleFeedbackTag(tag: string) {
     setFeedbackNegativo((atual) => {
       if (!atual) return atual
@@ -405,6 +445,9 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
   const ultimaMensagemAberta = historicoAberto[historicoAberto.length - 1]
   const podeReenviarUltimaResposta = ultimaMensagemAberta?.role === 'assistant'
   const criteriosInteresse = aberta?.score_interesse_criterios || []
+  // Aviso no compositor: so' existe no modo Analise, e aponta o caminho que JA existe para
+  // o atendente obter uma sugestao da IA, revisar e enviar ele mesmo.
+  const avisoModo = aberta ? avisoDoCompositor(aberta.modo_ia) : null
 
   return (
     <div
@@ -453,6 +496,18 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                     </span>
                   )}
                 </div>
+              </div>
+            )}
+            {aberta && (
+              <div className="min-w-[300px] rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Atuação da IA nesta conversa
+                </div>
+                <AlternadorModoIa
+                  modo={normalizarModo(aberta.modo_ia)}
+                  onMudar={alterarModoIa}
+                  ocupado={alterandoModo}
+                />
               </div>
             )}
             {contextoOrigem && contextoOrigem.linhas.length > 0 && (
@@ -675,6 +730,11 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                 </div>
 
                 <div className={`border-t bg-white px-6 transition-all duration-200 ${composerAberto ? 'py-4' : 'py-2'}`}>
+                  {avisoModo && (
+                    <div className="mb-2 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                      <span className="font-semibold">{avisoModo.titulo}.</span> {avisoModo.texto}
+                    </div>
+                  )}
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     <button
                       type="button"

@@ -594,3 +594,24 @@ Ajuste sobre a entrega imediatamente abaixo, apos revisao de UX/operacao.
   `/dashboard/follow-ups` compilou e respondeu 200 no dev server ja em execucao (3001).
   Revisao visual autenticada em navegador fica com o operador.
 - Documentos atualizados: `AGENTS.md`, `ai-task-start-log.md`, `ai-decision-log.md` e este mapa.
+
+## 2026-08-10 - Modo de atuacao da IA por conversa (Conversa / Analise)
+
+- Area alterada: painel de conversa (Central de Mensagens e Central de Follow-ups usam o MESMO
+  `frontend/components/ConversaPainel.tsx`) + caminho de resposta automatica no backend.
+- Regra NOVA a preservar: `vendas.conversas.modo_ia` e SEPARADA de `agente_pausado` e nenhum dos
+  dois escreve o outro. Pausa e estado operacional efemero do SISTEMA; modo e decisao
+  persistente do OPERADOR. O envio automatico exige os dois liberados.
+- Regra NOVA a preservar: o bloqueio NAO pode migrar para `webhook-handler.js`. La ele mataria a
+  analise junto com o envio (o webhook so enfileira o turno). O gate vive nos dois enviadores,
+  imediatamente antes do `enviarMensagem`. Ha guarda de regressao lendo o fonte.
+- Regra NOVA a preservar: `src/services/conversa-modo-ia.js` e o dono UNICO do vocabulario e da
+  matriz `modo x capacidade`. Nao comparar `modo_ia` com literal em outro arquivo.
+- Regra NOVA a preservar: follow-up e agenda NAO dependem do toggle. `followup-auto.js` e
+  `agenda.js` nao foram tocados; quem executa follow-up declara `CAPACIDADES.FOLLOW_UP`.
+- Regra NOVA a preservar: resposta nao entregue nunca vira mensagem `assistant` no historico.
+- Risco declarado: o comando `/followup` do operador pode responder o cliente numa conversa em
+  Analise (follow-up e independente do modo, por decisao de produto).
+- Validacao: backend 1444 (2 falhas conhecidas de rede 429 em `core.test.js`) + typecheck;
+  frontend 274/274 + typecheck. Revisao visual autenticada em navegador fica com o operador.
+- Documentos atualizados: `AGENTS.md`, `ai-task-start-log.md`, `ai-decision-log.md` e este mapa.

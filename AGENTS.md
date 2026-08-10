@@ -682,6 +682,75 @@
   `followups-fila.js` e falha se a regra de identidade for duplicada lá).
 - Nenhuma variável de ambiente nova, nenhuma rota nova, nenhuma migration.
 
+### Modo de atuação da IA por conversa (`modo_ia`) — permissão de RESPONDER ≠ capacidade de ANALISAR
+- **Regra de produto:** cada conversa tem um modo. `conversa` (default) = a IA analisa **e**
+  pode responder automaticamente. `analise` = a IA analisa, registra e sugere, mas **não
+  envia resposta conversacional ao cliente**. O toggle governa **uma única capacidade**; não
+  é pausa global de automação.
+- **`modo_ia` é coluna PRÓPRIA e NÃO se deriva de `agente_pausado`** (migration
+  `063_conversa_modo_ia.sql`, aditiva, `NOT NULL DEFAULT 'conversa'`, CHECK fechado — nenhuma
+  conversa existente muda de comportamento). `agente_pausado` é estado **operacional efêmero
+  escrito pelo próprio sistema** (atendente respondeu, lead frio esgotado, ligação
+  `sem_interesse`); `modo_ia` é **decisão persistente do operador**. Derivar um do outro faria
+  a pausa automática apagar uma configuração, e a configuração sobreviver ao "Retomar agente".
+  **Os dois convivem e o envio automático exige os dois liberados.** PROIBIDO fundi-los.
+- **O bloqueio NÃO vive no webhook.** `webhook-handler.js` não envia nada — enfileira o job
+  `webhook_resposta`, e é dentro desse turno que a IA analisa **e** redige. Um `return` no
+  webhook desligaria a inteligência junto com a fala. O gate vive nos **dois enviadores**
+  (`core-funnel.js` e `services/contexto2-responder.js`), depois da análise já persistida e
+  imediatamente antes do `enviarMensagem`. Guarda de regressão falha se `modo_ia` reaparecer
+  em `webhook-handler.js`.
+- **Fonte de verdade única: `src/services/conversa-modo-ia.js`** (PURO — sem banco, HTTP, IA
+  ou rede). Ele não responde "qual o modo?", e sim **"esta capacidade está liberada?"**. A
+  matriz `modo × capacidade` é a regra inteira: `analise` (sempre) · `resposta_conversacional`
+  (só no modo Conversa) · **`follow_up` e `agenda` (SEMPRE, nos dois modos)**. As duas últimas
+  estão na matriz de propósito — é o que impede alguém de "aproveitar" o modo Análise como
+  interruptor geral de automação. **PROIBIDO** comparar `modo_ia` com literal fora deste
+  módulo (guarda de regressão lê o fonte de `src/**`).
+- **A capacidade vem de QUEM CHAMA.** `gerarEEnviarRespostaWhatsapp` serve a resposta
+  conversacional (webhook) **e** a execução de follow-up (`followup-execution.js`, que declara
+  `CAPACIDADES.FOLLOW_UP`). Sem declarar, o gate barraria os dois e o toggle viraria, em
+  silêncio, um interruptor de follow-up. Quem omite recebe `resposta_conversacional` — o
+  default é o mais restrito.
+- **Follow-up e agenda NÃO dependem do toggle.** `followup-auto.js` e `agenda.js` **não foram
+  tocados** (há guarda para `agenda.js`); valem as configurações próprias
+  (`app.followup_config.pausado`, pause por empresa, elegibilidade). *Consequência observada,
+  não regra:* o watcher exige `historico->-1->>'role' = 'assistant'` e em Análise nada é
+  anexado — conversas nesse modo raramente entram na fila dele.
+- **A mensagem gerada e não entregue é DESCARTADA, nunca gravada como `assistant`** — o painel
+  mostraria um balão do agente que o cliente nunca recebeu e o turno seguinte raciocinaria
+  sobre uma fala inexistente. Pelo mesmo motivo `atualizarCamadaMemoriaVendasPosResposta` (que
+  registra o que o agente DISSE) passou a depender de `respostaEnviadaAoLead`. Estágio,
+  status, perfil, eventos e `lead_insights` continuam sendo gravados: é registro interno, que
+  é justamente o que o modo Análise preserva. A **sugestão para revisão humana é o "Orientar
+  resposta"** que já existe — nenhum armazenamento novo foi criado.
+- **Custo declarado: o modo Análise NÃO economiza IA.** Extração e mensagem saem da MESMA
+  chamada de LLM nos dois motores (`extrairEDecidirBundle`, `chamarClaudeTurno`); o turno roda
+  inteiro e a mensagem é descartada.
+- **Risco residual aceito:** o comando `/followup` do operador no WhatsApp cai no ramo
+  "fluxo_funil" quando a última mensagem é do lead e, como follow-up é independente do modo,
+  **responde o cliente mesmo em Análise**. É ação humana explícita e coerente com a regra, mas
+  é a única porta por onde sai texto de IA numa conversa em Análise.
+- **Rota:** `PATCH /api/empresas/:empresaId/conversas/:numero/modo-ia` (`requireAuth` +
+  `requireEmpresaAccess`; modo fora da lista → 400; conversa de outra empresa → 404). **Não há
+  rota de leitura**: `GET /:numero` já faz `SELECT c.*` e devolve `modo_ia` — o painel não faz
+  request extra. Auditoria em `app.auditoria_eventos` (**sem tabela nova**),
+  `acao='conversa_modo_ia_alterado'`, contexto `{modo_anterior, modo_novo, telefone_digitos}`
+  — nunca JID nem texto. O `UPDATE` é condicionado (`IS DISTINCT FROM`) com CTE que fotografa
+  o valor anterior: **repetir a ação não infla a auditoria** e o "anterior" é o real, não
+  deduzido.
+- **Front:** `frontend/components/ConversaPainel.tsx` (dono ÚNICO — vale para Central de
+  Mensagens e Follow-ups; **não** duplicar o controle em outra tela) +
+  `frontend/components/ui/AlternadorModoIa.tsx` (novo). **`Abas.tsx` não serve**: é
+  `role="tablist"` com painel vinculado, e aqui não muda o que se vê, muda o comportamento com
+  o cliente — por isso `role="radiogroup"` + setas + estado escrito ao lado (cor nunca é o
+  único sinal) + tooltip leve em hover/foco/toque, em portal, nunca modal. Otimista com
+  reversão: PATCH falhou, volta ao modo anterior. Toda tradução em
+  `frontend/lib/conversa-modo-ia.js` (+ `.d.ts`/`.test.js`) — a tela só desenha.
+- Testes: `test/conversa-modo-ia.test.js` (puro + guardas), `test/conversa-modo-ia-fluxo.test.js`
+  (webhook nos dois modos, os dois enviadores, rota/auditoria),
+  `frontend/lib/conversa-modo-ia.test.js`. Nenhuma variável de ambiente nova.
+
 ### Indicador de pontuação (a "bolinha") — componente ÚNICO, significado POR TELA
 - **Regra que governa o módulo:** o *componente* é único; a *pontuação* não é. A mesma bolinha
   em duas telas nunca pode sugerir que 72 significa a mesma coisa nas duas.
