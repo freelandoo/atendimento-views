@@ -760,6 +760,11 @@
   link ali seria inalcançável. Ele vive em "Detalhes" (`LeadDetalhesModal`) e, no Banco de
   Leads, também na coluna "Links". **Os filtros por site continuam** nas duas telas — remover a
   coluna tirou uma exibição redundante, não o recorte de trabalho.
+- **A lista de fatores vira DUAS COLUNAS a partir de 6 itens** (`usaDuasColunas`, no módulo
+  puro — nunca um literal no componente). Altura é problema real, não estética: a completude do
+  Places tem 9 critérios e, empilhados, o balão não cabe acima da âncora. O corte é 6 e não 4
+  porque com 4-5 itens a coluna dupla economiza duas linhas e custa o dobro de largura. A ordem
+  de leitura é por LINHA (grid), não `columns-2` do CSS, que quebraria itens no meio.
 - **O balão VIRA PARA BAIXO quando não cabe acima**, e é preso nas bordas laterais. Abrir sempre
   para cima funcionava nas TABELAS (sempre há cabeçalho acima da 1ª linha) mas quebrava na
   **Central de Mensagens**: lá a bolinha fica no cabeçalho de um modal colado no topo da tela, e

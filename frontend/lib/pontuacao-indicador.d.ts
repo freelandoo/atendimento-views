@@ -72,6 +72,9 @@ export interface ContextoSiteCadastro {
   rotuloLink?: string | null
 }
 export declare const ROTULO_SITE_POR_SITUACAO: Record<string, string>
+/** A partir de quantos fatores o balão lista em duas colunas (altura, não estética). */
+export declare const MIN_FATORES_DUAS_COLUNAS: number
+export declare function usaDuasColunas(quantidade: number | null | undefined): boolean
 export declare function fatoresDeCadastro(
   criterios: CriterioCadastro[] | null | undefined,
   contexto?: ContextoSiteCadastro | null,

@@ -26,12 +26,16 @@
 //     topo da tela, e o balao — que pode ter 9 criterios de altura — subia para fora da
 //     viewport. O tamanho e' MEDIDO, nao estimado: o balao de cadastro (9 linhas) e o de
 //     prioridade (2 linhas) tem alturas muito diferentes para um chute unico servir.
+//   • lista de fatores em DUAS COLUNAS quando ha muitos (regra em `lib/pontuacao-indicador`).
+//     Completude do Places tem 9 criterios; empilhados, o balao fica alto demais para caber
+//     acima da ancora. Duas colunas cortam a altura pela metade. Ordem de leitura por LINHA
+//     (grid), nao por coluna: `columns-2` do CSS quebraria itens no meio.
 //   • somente leitura (`pointer-events-none`): nenhum controle dentro do balao.
 //   • nunca renderiza JSON, id, UUID, place_id ou telefone — o balao e' operacional.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  classesDaBolinha, normalizarValor, resumoTextual, textoValor,
+  classesDaBolinha, normalizarValor, resumoTextual, textoValor, usaDuasColunas,
   type FatorPontuacao, type VarianteIndicador,
 } from '@/lib/pontuacao-indicador'
 
@@ -129,6 +133,8 @@ export default function BolinhaPontuacao({
     }
   }, [caixa, pos, fechar])
 
+  // A largura acompanha a decisao: em coluna unica o balao continua estreito, como sempre foi.
+  const duasColunas = usaDuasColunas(fatores.length)
   const v = normalizarValor(valor, maximo)
   const tituloExibido = v == null ? rotuloSemValor : titulo
   const resumo = resumoTextual({ titulo: tituloExibido, valor: v, maximo, oQueMede, fatores, nota })
@@ -166,7 +172,9 @@ export default function BolinhaPontuacao({
             top: pos ? pos.top : -9999,
             transform: 'translateX(-50%)',
           }}
-          className={`pointer-events-none z-[70] w-max max-w-[280px] rounded-lg bg-slate-800 px-3 py-2 text-left text-[11px] font-normal leading-snug text-white shadow-xl transition-all duration-150 ease-out ${
+          className={`pointer-events-none z-[70] w-max rounded-lg bg-slate-800 px-3 py-2 text-left text-[11px] font-normal leading-snug text-white shadow-xl transition-all duration-150 ease-out ${
+            duasColunas ? 'max-w-[420px]' : 'max-w-[280px]'
+          } ${
             visivel ? 'translate-y-0 opacity-100' : `${pos && pos.abaixo ? '-translate-y-1' : 'translate-y-1'} opacity-0`
           }`}
         >
@@ -175,13 +183,15 @@ export default function BolinhaPontuacao({
           </div>
           <div className="mt-0.5 text-slate-300">{oQueMede}</div>
           {fatores.length > 0 && (
-            <ul className="mt-1.5 space-y-0.5">
+            <ul className={`mt-1.5 ${duasColunas ? 'grid grid-cols-2 gap-x-3 gap-y-0.5' : 'space-y-0.5'}`}>
               {fatores.map((f, i) => (
                 <li key={i} className="flex gap-1.5">
                   {f.peso && (
                     <span className={`shrink-0 tabular-nums font-semibold ${CLS_SINAL[f.sinal || 'neutro']}`}>{f.peso}</span>
                   )}
-                  <span className="text-slate-200">
+                  {/* min-w-0: sem ele o item do grid nao encolhe abaixo do conteudo e um rotulo
+                      longo ("Sem site proprio — so rede social") estouraria a coluna. */}
+                  <span className="min-w-0 text-slate-200">
                     {!f.peso && '• '}{f.rotulo}
                     {f.detalhe && <span className="text-slate-400"> — “{f.detalhe}”</span>}
                   </span>

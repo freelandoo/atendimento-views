@@ -6,7 +6,7 @@ const path = require('node:path')
 const {
   VARIANTES, PALETAS, CLASSE_SEM_VALOR, NOTA_COMPLETUDE, O_QUE_MEDE,
   normalizarFaixa, normalizarValor, classesDaBolinha, textoValor, resumoTextual,
-  fatoresDeCadastro, fatoresDeInteresse, fatoresDeMotivos, leituraCadastro,
+  fatoresDeCadastro, fatoresDeInteresse, fatoresDeMotivos, leituraCadastro, usaDuasColunas,
 } = require('./pontuacao-indicador')
 
 // ─── Variante PRIORIDADE COMERCIAL ────────────────────────────────────────────
@@ -274,4 +274,30 @@ test('a coluna "Site" não voltou para a Aquisição nem para o Banco de Leads',
     assert.doesNotMatch(src, /label="Site"\s+chave="site"/,
       `${alvo} voltou a ter a coluna Site — ela agora é um fator da pontuação de cadastro`)
   }
+})
+
+// ─── Forma do balão: duas colunas quando a lista é longa ─────────────────────
+// A altura do balão é problema real, não estética: com 9 critérios empilhados ele não cabe
+// acima da âncora, que foi o que o operador viu na Central de Mensagens.
+
+test('duas colunas só a partir de 6 fatores', () => {
+  // Places tem 9 critérios e Instagram tem 6 — os dois casos que motivaram a regra.
+  assert.equal(usaDuasColunas(9), true, 'completude do Places')
+  assert.equal(usaDuasColunas(6), true, 'completude do Instagram')
+  // Com 4 ou 5 a coluna dupla economiza duas linhas e custa o dobro de largura: não compensa.
+  assert.equal(usaDuasColunas(5), false)
+  assert.equal(usaDuasColunas(2), false, 'prioridade de ligação costuma ter poucos motivos')
+  assert.equal(usaDuasColunas(0), false)
+})
+
+test('quantidade inválida não vira duas colunas', () => {
+  for (const v of [null, undefined, NaN, 'muitos']) {
+    assert.equal(usaDuasColunas(v), false, `"${v}" não pode ligar o layout de duas colunas`)
+  }
+})
+
+test('o componente usa a regra do módulo puro, não um número solto', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'components/ui/BolinhaPontuacao.tsx'), 'utf8')
+  assert.match(src, /usaDuasColunas\(fatores\.length\)/,
+    'o corte tem de vir do módulo puro — um literal no componente sairia do alcance do teste')
 })

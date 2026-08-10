@@ -238,6 +238,30 @@ function leituraCadastro(valor, maximo = 100, criterios = []) {
  */
 const NOTA_COMPLETUDE = 'Cadastro fraco costuma ser a melhor oportunidade nesta operação.'
 
+// ─── Forma do balao ──────────────────────────────────────────────────────────
+
+/**
+ * A partir de quantos fatores o balao passa a listar em DUAS COLUNAS.
+ *
+ * Por que existe: a completude do Places tem 9 criterios e a do Instagram tem 6. Em coluna
+ * unica isso vira um balao alto o bastante para nao caber acima da ancora — foi o que o
+ * operador viu na Central de Mensagens, onde a bolinha fica no cabecalho de um modal colado
+ * no topo da tela. Virar para baixo resolveu o corte; duas colunas resolvem a ALTURA.
+ *
+ * O corte e' 6 e nao 4: com 4 ou 5 itens a coluna dupla economiza duas linhas e custa o dobro
+ * de largura, o que atrapalha mais do que ajuda. Prioridade de ligacao e interesse costumam
+ * ter poucos fatores e seguem em coluna unica.
+ *
+ * Mora aqui, e nao no componente, pelo mesmo motivo do resto deste modulo: e' uma decisao de
+ * apresentacao com regra, e regra tem teste.
+ */
+const MIN_FATORES_DUAS_COLUNAS = 6
+
+function usaDuasColunas(quantidade) {
+  const n = Number(quantidade)
+  return Number.isFinite(n) && n >= MIN_FATORES_DUAS_COLUNAS
+}
+
 /** Frase obrigatoria de "o que esta pontuacao mede", por contexto de tela. */
 const O_QUE_MEDE = Object.freeze({
   prioridade_ligacao: 'Quanto vale ligar para este negócio agora, nesta campanha.',
@@ -252,6 +276,8 @@ module.exports = {
   CLASSE_SEM_VALOR,
   NOTA_COMPLETUDE,
   O_QUE_MEDE,
+  MIN_FATORES_DUAS_COLUNAS,
+  usaDuasColunas,
   normalizarFaixa,
   normalizarValor,
   classesDaBolinha,
