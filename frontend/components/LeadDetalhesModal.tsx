@@ -43,6 +43,8 @@ export type LeadDetalhavel = {
   link_original?: string | null
   link_bio?: string | null
   classificacao_url?: string | null
+  /** Veredito de 3 estados do backend. É ele que a bolinha de cadastro passou a dizer. */
+  situacao_site?: 'tem_site' | 'sem_site' | 'nao_identificado' | null
   maps_url?: string | null
   score_cadastro?: number | null
   score_cadastro_max?: number | null
@@ -67,7 +69,16 @@ export function maximoDoLead(l: LeadDetalhavel): number {
   return typeof m === 'number' && Number.isFinite(m) && m > 0 ? m : 100
 }
 
-/** Bolinha de COMPLETUDE pronta para as tabelas — o mesmo veredito nas duas telas. */
+/**
+ * Bolinha de COMPLETUDE pronta para as tabelas — o mesmo veredito nas duas telas.
+ *
+ * A coluna "Site" saiu da Aquisição e do Banco de Leads (decisão do operador em 2026-08-10):
+ * a situação do site passou a ser lida DENTRO desta pontuação, onde ela já valia 20 dos 100
+ * pontos. Por isso o contexto de site é passado ao tradutor de fatores — sem ele, o balão
+ * diria só "Tem site próprio ✗", que não distingue "não tem" (a oportunidade) de "ninguém
+ * verificou". O LINK continua clicável em "Detalhes": balão de hover é `pointer-events-none`,
+ * e link dentro dele seria inalcançável.
+ */
 export function BolinhaCadastro({ l }: { l: LeadDetalhavel }) {
   const maximo = maximoDoLead(l)
   const criterios = criteriosDoLead(l)
@@ -80,7 +91,10 @@ export function BolinhaCadastro({ l }: { l: LeadDetalhavel }) {
       faixa={leitura.faixa}
       titulo={leitura.titulo}
       oQueMede={instagram ? O_QUE_MEDE.cadastro_instagram : O_QUE_MEDE.cadastro_places}
-      fatores={fatoresDeCadastro(criterios)}
+      fatores={fatoresDeCadastro(criterios, {
+        situacaoSite: l.situacao_site,
+        rotuloLink: rotuloLink(l.classificacao_url),
+      })}
       nota={NOTA_COMPLETUDE}
       variante={VARIANTES.COMPLETUDE}
       rotuloSemValor="Cadastro não avaliado"

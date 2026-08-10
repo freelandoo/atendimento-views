@@ -274,9 +274,14 @@ Site · Status · Ações).
 **Fica visível de propósito, mesmo podendo ser resumido:**
 - **Telefone** — é o meio de contato e decide se o lead é acionável;
 - **Nicho / Cidade** — é o mercado; o operador filtra e escaneia por ele;
-- **Site** — é a *tese comercial* da operação, e o link tem rótulo próprio
+- ~~**Site** — é a *tese comercial* da operação, e o link tem rótulo próprio
   (`lib/site-rotulos.js`) que o distingue de rede social. Esconder isso reintroduziria, por UX,
-  a confusão que a classificação canônica corrigiu;
+  a confusão que a classificação canônica corrigiu;~~
+  > **SUPERADO em 2026-08-10, por decisão do operador.** A coluna "Site" foi REMOVIDA das duas
+  > telas: ela repetia um dado que já era 20 dos 100 pontos da completude. A objeção acima foi
+  > endereçada, não ignorada — o balão da pontuação passou a distinguir as **três** situações
+  > (`tem_site` / `sem_site` / `nao_identificado`) em vez do booleano do critério, e o link
+  > continua clicável em "Detalhes". Os filtros por site permaneceram. Ver AGENTS.md.
 - **Status** — governa quais ações aparecem na linha;
 - **E-mail** — é editável in-loco (`EmailEditavel`); dentro de tooltip não seria editável.
 

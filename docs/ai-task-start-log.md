@@ -6,6 +6,45 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-10 - Inicio de tarefa IA - Site vira fator da pontuacao de cadastro (coluna removida)
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** O operador observou que a coluna "Site" repete um dado que ja esta dentro
+  de "Pontos" (completude de cadastro) e pediu para **remover a coluna** e fazer o site aparecer
+  **so' dentro da pontuacao de cadastro** — no balao que abre ao passar o mouse ou no modal de
+  detalhes. Em seguida, relatou que **o balao da Central de Mensagens fica "muito pra cima"** e
+  nao da' para ler.
+- **E projeto/tarefa de alteracao?** Sim, pequeno e 100% de apresentacao: sem schema, sem
+  migration, sem env, sem rota, sem chamada nova ao backend. Nenhuma regra de pontuacao,
+  classificacao de site ou elegibilidade muda.
+- **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/ui-visual-standard.md
+  (Fase 5 — e' tela) e docs/analise-indicador-pontuacao.md: Sim.
+- **Conflito declarado ANTES de implementar:** a §5.1 daquela analise decidiu o CONTRARIO
+  (Site "fica visivel de proposito") e a §8 lista "esconder dado decisivo dentro do tooltip"
+  como risco. Levei as tres perdas ao operador (Pontos e' lossy; a direcao da escala e'
+  invertida; `situacao_site` tem 3 estados e o criterio tem 2); ele **reafirmou a decisao**, que
+  passou a valer. Duas das tres perdas foram ENDERECADAS na implementacao, nao ignoradas — ver
+  `docs/ai-decision-log.md`.
+- **Fatos confirmados no codigo:** `site` e' 1 dos 9 criterios de `calcularScoreCadastroPlaces`
+  (**20 de 100**, `lead-score-cadastro.js:66`); a Aquisicao ordena `pontos ASC`
+  (`prospeccao/page.tsx:183`); `ligacao-prioridade.js:19` da **+40** para
+  `site_ausente_confirmado`; `situacao_site` tem 3 estados por decisao explicita
+  (`site-classificacao.js:279`); `BolinhaCadastro` e' compartilhada pelas duas telas
+  (`LeadDetalhesModal.tsx:71`), entao o enriquecimento foi feito em UM lugar.
+- **Defeito de posicionamento encontrado a partir do relato do operador:** o balao era fixado em
+  `top: rect.top - 8` com `translate(-50%,-100%)` — abria SEMPRE para cima. Nas tabelas sempre ha
+  cabecalho acima; na Central de Mensagens a bolinha vive no cabecalho de um modal colado no topo
+  da tela, e o balao (ate 9 criterios) subia para fora da viewport. Passou a MEDIR a propria
+  altura e virar para baixo quando nao cabe, alem de ser preso nas bordas laterais.
+- **Arquivos alterados:** `frontend/lib/pontuacao-indicador.js` (+ `.d.ts`/`.test.js`),
+  `frontend/components/LeadDetalhesModal.tsx`, `frontend/components/ui/BolinhaPontuacao.tsx`,
+  `frontend/app/dashboard/prospeccao/page.tsx`, `frontend/app/dashboard/banco-leads/page.tsx`,
+  `AGENTS.md`, `docs/analise-indicador-pontuacao.md`, `docs/ai-decision-log.md`.
+- **Validacao:** frontend 261/261 e typecheck limpo. **Verificacao visual do balao pendente** —
+  a correcao de posicionamento e' justamente do tipo que so' a tela confirma.
+
+---
+
 ## 2026-08-08 - Inicio de tarefa IA - Fluxo integrado de Follow-ups (Ligacoes <-> Follow-ups <-> Mensagens)
 
 - **IA/Ferramenta:** Claude Code (Opus 5)

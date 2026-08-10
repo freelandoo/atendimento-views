@@ -66,8 +66,15 @@ export declare function resumoTextual(dados: {
   fatores?: FatorPontuacao[]
   nota?: string
 }): string
+/** Contexto opcional do SITE: faz o critério booleano do backend dizer as três situações. */
+export interface ContextoSiteCadastro {
+  situacaoSite?: 'tem_site' | 'sem_site' | 'nao_identificado' | null
+  rotuloLink?: string | null
+}
+export declare const ROTULO_SITE_POR_SITUACAO: Record<string, string>
 export declare function fatoresDeCadastro(
-  criterios: CriterioCadastro[] | null | undefined
+  criterios: CriterioCadastro[] | null | undefined,
+  contexto?: ContextoSiteCadastro | null,
 ): FatorPontuacao[]
 export declare function fatoresDeInteresse(
   criterios: CriterioInteresse[] | null | undefined

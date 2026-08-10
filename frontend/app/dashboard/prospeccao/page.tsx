@@ -6,7 +6,6 @@ import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { ThOrdenavel, type JsonApresentacao, type CriterioApresentacao } from '@/components/ui/JsonLeadModal'
 import LeadDetalhesModal, { BolinhaCadastro } from '@/components/LeadDetalhesModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
-import { rotuloLink, tituloLinkNaoSite } from '@/lib/site-rotulos'
 import RotinasAquisicao, { type ModoAquisicao, type RotinasResp } from '@/components/RotinasAquisicao'
 import HistoricoColetas from '@/components/HistoricoColetas'
 import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
@@ -180,6 +179,8 @@ export default function ProspeccaoPage() {
   const [dadosRotinas, setDadosRotinas] = useState<RotinasResp | null>(null)
   // Ordenação da tabela: default = MENOS pontos de cadastro no topo (mais
   // oportunidade de venda). Clicar no cabeçalho alterna asc/desc por coluna.
+  // `site` saiu das colunas: uma ordenação ainda apontada para ela ordenaria por um critério
+  // invisível, que o operador não conseguiria explicar nem desfazer pelo cabeçalho.
   const [ordem, setOrdem] = useState<{ chave: string; dir: 'asc' | 'desc' }>({ chave: 'pontos', dir: 'asc' })
   // Aba visível de "Acompanhar resultados". Trocar de aba só alterna o painel: não
   // recarrega dado nenhum nem toca no filtro/ordenação da tabela de leads.
@@ -509,7 +510,6 @@ export default function ProspeccaoPage() {
             <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={ordenarPor} />
             <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={ordenarPor} />
             <ThOrdenavel label="Nicho / Cidade" chave="nicho" ordem={ordem} onOrdenar={ordenarPor} />
-            <ThOrdenavel label="Site" chave="site" ordem={ordem} onOrdenar={ordenarPor} />
             <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={ordenarPor} />
             <th className="text-right px-3 py-2">Ações</th>
           </tr>
@@ -530,7 +530,11 @@ export default function ProspeccaoPage() {
               {/* Bolinha de COMPLETUDE — paleta neutra, nunca a de prioridade comercial: aqui
                   cadastro alto significa MENOS oportunidade, e a ordenação padrão da tela
                   (`pontos ASC`) já assume isso. Endereço, nota, avaliações e horário viraram
-                  critérios dentro do tooltip; os valores ficam em "Detalhes". */}
+                  critérios dentro do tooltip; os valores ficam em "Detalhes".
+                  O SITE também mora aqui: ele já valia 20 dos 100 pontos, e a coluna própria
+                  saiu (decisão do operador em 2026-08-10). O balão distingue as três
+                  situações — tem / não tem / não verificado — e o link fica em "Detalhes",
+                  porque o balão é `pointer-events-none` e um link ali seria inalcançável. */}
               <td className="px-3 py-2">
                 <div className="flex items-center gap-1.5">
                   <BolinhaCadastro l={p} />
@@ -546,16 +550,6 @@ export default function ProspeccaoPage() {
               <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{p.telefone || '—'}</td>
               <td className="px-3 py-2 text-xs"><EmailEditavel value={p.email} onSave={(email) => salvarEmail(p.id, email)} /></td>
               <td className="px-3 py-2 text-slate-600 text-xs">{p.nicho} · {p.cidade}</td>
-              <td className="px-3 py-2">
-                {p.tem_site && p.site ? (
-                  <a href={p.site} target="_blank" rel="noreferrer" className="hover:underline" title={p.site}>✅ <span className="text-xs text-brand">site</span></a>
-                ) : p.link_original ? (
-                  <a href={p.link_original} target="_blank" rel="noreferrer" className="hover:underline"
-                    title={tituloLinkNaoSite(p.classificacao_url, p.link_original)}>
-                    ❌ <span className="text-xs text-slate-500">{rotuloLink(p.classificacao_url) || 'verificar'}</span>
-                  </a>
-                ) : '❌'}
-              </td>
               <td className="px-3 py-2">
                 <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLE[p.status] || 'bg-gray-100 text-gray-500'}`}>{STATUS_LABEL[p.status] || p.status}</span>
               </td>

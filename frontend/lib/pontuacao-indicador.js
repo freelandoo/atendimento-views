@@ -137,13 +137,42 @@ function resumoTextual({ titulo, valor, maximo = 100, oQueMede, fatores = [], no
  * Criterios de COMPLETUDE DE CADASTRO (`services/lead-score-cadastro.js`):
  * `{ chave, label, ok, pontos, pontos_possiveis }`. O que falta aparece com o quanto valeria —
  * e' a lacuna que a proposta comercial ataca, entao ela e' informacao, nao ausencia.
+ *
+ * O criterio `site` recebe tratamento PROPRIO porque a coluna "Site" saiu da tabela e este
+ * balao passou a ser onde a tese comercial da operacao e' lida. O criterio do backend e'
+ * booleano (tem/nao tem), mas o negocio distingue TRES situacoes, e confundir duas delas foi
+ * um defeito real deste projeto: "nao tem site" (a oportunidade) nao e' "ninguem verificou"
+ * (um link duvidoso que ainda pode ser site). O `contexto` traz `situacao_site` — o mesmo
+ * veredito de 3 estados que o backend ja publica — e o rotulo passa a dize-lo por extenso.
+ * Sem contexto, cai no comportamento antigo: nada quebra em quem nao passa o 2o argumento.
  */
-function fatoresDeCadastro(criterios) {
+const ROTULO_SITE_POR_SITUACAO = Object.freeze({
+  tem_site: 'Tem site próprio',
+  sem_site: 'Sem site próprio',
+  nao_identificado: 'Site não verificado',
+})
+
+function rotuloDoCriterioSite(criterio, contexto) {
+  const situacao = contexto && contexto.situacaoSite
+  const base = ROTULO_SITE_POR_SITUACAO[situacao] || String(criterio.label)
+  // Qualifica o que existe no lugar do site ("só rede social", "só agregador"). E' o que
+  // explica, dentro do balao, por que um lead COM link aparece como sem site.
+  // Só em `sem_site`: em `nao_identificado` o rótulo do link é literalmente "verificar", que
+  // repetiria o que a frase já diz.
+  const tipoLink = contexto && contexto.rotuloLink
+  if (situacao === 'sem_site' && tipoLink && tipoLink !== 'site') return `${base} — só ${tipoLink}`
+  return base
+}
+
+function fatoresDeCadastro(criterios, contexto = null) {
   return (Array.isArray(criterios) ? criterios : [])
     .filter((c) => c && c.label)
-    .map((c) => (c.ok
-      ? { rotulo: String(c.label), peso: '✓', sinal: 'positivo' }
-      : { rotulo: String(c.label), peso: `✗ (+${Number(c.pontos_possiveis) || 0})`, sinal: 'ausente' }))
+    .map((c) => {
+      const rotulo = c.chave === 'site' ? rotuloDoCriterioSite(c, contexto) : String(c.label)
+      return c.ok
+        ? { rotulo, peso: '✓', sinal: 'positivo' }
+        : { rotulo, peso: `✗ (+${Number(c.pontos_possiveis) || 0})`, sinal: 'ausente' }
+    })
 }
 
 /**
@@ -229,6 +258,7 @@ module.exports = {
   textoValor,
   resumoTextual,
   fatoresDeCadastro,
+  ROTULO_SITE_POR_SITUACAO,
   fatoresDeInteresse,
   fatoresDeMotivos,
   leituraCadastro,

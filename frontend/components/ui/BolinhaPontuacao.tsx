@@ -20,6 +20,12 @@
 //   • tooltip em PORTAL no <body>, posicionado pelo rect da ancora. Nao e' preferencia: dentro
 //     das tabelas (wrapper `overflow-hidden`) a versao `position:absolute` era cortada, e foi
 //     esse o defeito que a Central de Ligacoes corrigiu.
+//   • o balao VIRA PARA BAIXO quando nao cabe acima, e e' preso nas bordas laterais. Abrir
+//     sempre para cima funcionava nas TABELAS (sempre ha cabecalho acima da 1a linha), mas
+//     quebrava na Central de Mensagens: la a bolinha fica no CABECALHO de um modal colado no
+//     topo da tela, e o balao — que pode ter 9 criterios de altura — subia para fora da
+//     viewport. O tamanho e' MEDIDO, nao estimado: o balao de cadastro (9 linhas) e o de
+//     prioridade (2 linhas) tem alturas muito diferentes para um chute unico servir.
 //   • somente leitura (`pointer-events-none`): nenhum controle dentro do balao.
 //   • nunca renderiza JSON, id, UUID, place_id ou telefone — o balao e' operacional.
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -68,22 +74,48 @@ export default function BolinhaPontuacao({
   variante, tamanho = 'md', rotuloSemValor = 'Pontuação não calculada',
 }: BolinhaPontuacaoProps) {
   const ref = useRef<HTMLSpanElement | null>(null)
-  const [caixa, setCaixa] = useState<{ x: number; y: number } | null>(null)
+  const balaoRef = useRef<HTMLDivElement | null>(null)
+  const [caixa, setCaixa] = useState<{ x: number; topo: number; base: number } | null>(null)
+  const [pos, setPos] = useState<{ left: number; top: number; abaixo: boolean } | null>(null)
   const [visivel, setVisivel] = useState(false)
 
   const abrir = useCallback(() => {
     const r = ref.current?.getBoundingClientRect()
     if (!r) return
-    setCaixa({ x: r.left + r.width / 2, y: r.top })
+    setCaixa({ x: r.left + r.width / 2, topo: r.top, base: r.bottom })
   }, [])
-  const fechar = useCallback(() => { setCaixa(null); setVisivel(false) }, [])
+  const fechar = useCallback(() => { setCaixa(null); setPos(null); setVisivel(false) }, [])
+
+  // Mede o balao JA MONTADO (ainda invisivel) e decide o lado. Roda antes de `visivel`, entao
+  // nao ha salto: o operador so' ve o balao depois de posicionado.
+  //   • acima, se couber; abaixo, caso contrario (modal colado no topo da tela);
+  //   • preso nas bordas laterais, senao o balao de um lead na primeira/ultima coluna sai da
+  //     tela pelo lado.
+  useEffect(() => {
+    if (!caixa) return
+    const el = balaoRef.current
+    if (!el) return
+    const MARGEM = 8
+    const h = el.offsetHeight
+    const meia = el.offsetWidth / 2
+    const cabeAcima = caixa.topo - MARGEM - h >= MARGEM
+    const left = Math.min(
+      Math.max(caixa.x, MARGEM + meia),
+      (typeof window !== 'undefined' ? window.innerWidth : caixa.x + meia) - MARGEM - meia,
+    )
+    setPos({
+      left,
+      top: cabeAcima ? caixa.topo - MARGEM - h : caixa.base + MARGEM,
+      abaixo: !cabeAcima,
+    })
+  }, [caixa])
 
   // Anima em dois frames: monta invisivel e sobe a opacidade no frame seguinte. Fecha em
   // scroll/resize (a ancora se moveria e o balao ficaria solto) e em Escape — o unico
   // acrescimo ao comportamento herdado da Central de Ligacoes, para quem navega por teclado
   // poder dispensar o balao sem sair do campo.
   useEffect(() => {
-    if (!caixa) return
+    if (!caixa || !pos) return
     const raf = requestAnimationFrame(() => setVisivel(true))
     const aoTeclar = (e: KeyboardEvent) => { if (e.key === 'Escape') fechar() }
     window.addEventListener('scroll', fechar, true)
@@ -95,7 +127,7 @@ export default function BolinhaPontuacao({
       window.removeEventListener('resize', fechar)
       window.removeEventListener('keydown', aoTeclar)
     }
-  }, [caixa, fechar])
+  }, [caixa, pos, fechar])
 
   const v = normalizarValor(valor, maximo)
   const tituloExibido = v == null ? rotuloSemValor : titulo
@@ -125,9 +157,18 @@ export default function BolinhaPontuacao({
       </span>
       {caixa && typeof document !== 'undefined' && createPortal(
         <div
+          ref={balaoRef}
           role="tooltip"
-          style={{ position: 'fixed', left: caixa.x, top: caixa.y - 8, transform: 'translate(-50%, -100%)' }}
-          className={`pointer-events-none z-[70] w-max max-w-[280px] rounded-lg bg-slate-800 px-3 py-2 text-left text-[11px] font-normal leading-snug text-white shadow-xl transition-all duration-150 ease-out ${visivel ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0'}`}
+          style={{
+            position: 'fixed',
+            left: pos ? pos.left : caixa.x,
+            // Enquanto nao mediu, fica fora da tela em vez de aparecer no lugar errado.
+            top: pos ? pos.top : -9999,
+            transform: 'translateX(-50%)',
+          }}
+          className={`pointer-events-none z-[70] w-max max-w-[280px] rounded-lg bg-slate-800 px-3 py-2 text-left text-[11px] font-normal leading-snug text-white shadow-xl transition-all duration-150 ease-out ${
+            visivel ? 'translate-y-0 opacity-100' : `${pos && pos.abaixo ? '-translate-y-1' : 'translate-y-1'} opacity-0`
+          }`}
         >
           <div className="font-semibold">
             {tituloExibido}{v != null && <> · {textoValor(v, maximo)}</>}

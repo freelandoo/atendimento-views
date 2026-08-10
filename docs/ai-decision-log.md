@@ -11,6 +11,36 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-10 — A coluna "Site" vira um fator da pontuação de cadastro
+
+**Decisão do operador**, contra a minha recomendação inicial — registro os dois lados porque a
+próxima IA precisa saber que a §5.1 de `analise-indicador-pontuacao.md` foi superada de propósito.
+
+**O argumento do operador:** `site` já é um dos 9 critérios da completude (20 de 100 pontos em
+`lead-score-cadastro.js`). A coluna era o mesmo dado duas vezes na mesma linha.
+
+**Minha objeção, e o que fiz com ela.** Levantei três perdas: (a) Pontos é *lossy* — de "60" não
+se sabe se tem site; (b) a direção é invertida (ter site SOMA pontos, mas não ter é a
+oportunidade — a tela ordena `pontos ASC` e `ligacao-prioridade` dá +40 para `sem_site`); (c) o
+score tem 2 estados e `situacao_site` tem 3. O operador manteve a decisão. Em vez de só executar,
+**endereçei (a) e (c) na implementação**: o balão deixou de repetir o rótulo do critério e passou
+a dizer a situação por extenso — "Sem site próprio — só rede social" / "Site não verificado" —,
+o que dá no balão uma informação **mais precisa** do que a coluna removida tinha. (b) já estava
+coberto pela nota de rodapé da variante completude, que existe justamente para isso.
+
+**O que NÃO foi para o balão:** o link. O tooltip é `pointer-events-none` (contrato do
+componente), então um link ali seria inalcançável. Ele fica em "Detalhes" e, no Banco de Leads,
+na coluna "Links". **Os filtros por site permaneceram** nas duas telas: o pedido tirou uma
+exibição redundante, não o recorte de trabalho.
+
+**Correção de posicionamento junto:** o balão abria sempre para cima. Funcionava nas tabelas
+(sempre há cabeçalho acima da 1ª linha) e quebrava na Central de Mensagens, onde a bolinha fica
+no cabeçalho de um modal colado no topo — o balão saía da viewport. Agora ele mede a própria
+altura e vira para baixo quando não cabe, além de ser preso nas bordas laterais. Medir, e não
+estimar, porque o balão de cadastro tem 9 critérios e o de prioridade tem 2.
+
+---
+
 ## 2026-08-10 — Follow-up vira ENTIDADE: o fluxo integrado Ligações ↔ Follow-ups ↔ Mensagens
 
 Esta tarefa disparou o gatilho formal de

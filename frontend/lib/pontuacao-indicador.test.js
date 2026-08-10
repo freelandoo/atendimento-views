@@ -215,3 +215,63 @@ test('a completude nao e pintada com a paleta de prioridade nas telas de lead', 
     )
   }
 })
+
+// ─── O site DENTRO da pontuação de cadastro ──────────────────────────────────
+// A coluna "Site" saiu da Aquisição e do Banco de Leads (decisão do operador em 2026-08-10).
+// A partir daí, este balão é o único lugar da tabela onde a tese comercial da operação é
+// lida — então ele precisa carregar as TRÊS situações, não o booleano do critério.
+
+const CRIT_SITE_AUSENTE = [
+  { chave: 'site', label: 'Tem site próprio', ok: false, pontos: 0, pontos_possiveis: 20 },
+]
+
+test('sem contexto, o critério de site continua exatamente como era', () => {
+  // Compatibilidade: quem não passa o 2º argumento não muda de comportamento.
+  assert.equal(fatoresDeCadastro(CRIT_SITE_AUSENTE)[0].rotulo, 'Tem site próprio')
+})
+
+test('"não tem site" e "ninguém verificou" deixam de ser a mesma frase', () => {
+  // É a distinção que o critério booleano do backend não carrega, e que a coluna removida
+  // mostrava. Confundir as duas é um defeito com história neste projeto.
+  const semSite = fatoresDeCadastro(CRIT_SITE_AUSENTE, { situacaoSite: 'sem_site' })[0]
+  const naoVerificado = fatoresDeCadastro(CRIT_SITE_AUSENTE, { situacaoSite: 'nao_identificado' })[0]
+  assert.equal(semSite.rotulo, 'Sem site próprio')
+  assert.equal(naoVerificado.rotulo, 'Site não verificado')
+  assert.notEqual(semSite.rotulo, naoVerificado.rotulo)
+})
+
+test('o balão diz o que existe NO LUGAR do site', () => {
+  const f = fatoresDeCadastro(CRIT_SITE_AUSENTE, { situacaoSite: 'sem_site', rotuloLink: 'rede social' })[0]
+  assert.equal(f.rotulo, 'Sem site próprio — só rede social',
+    'é o que explica por que um lead COM link aparece como sem site')
+})
+
+test('"não verificado" não repete o rótulo do link', () => {
+  // `rotuloLink('desconhecido')` é literalmente "verificar" — anexá-lo diria a mesma coisa duas vezes.
+  const f = fatoresDeCadastro(CRIT_SITE_AUSENTE, { situacaoSite: 'nao_identificado', rotuloLink: 'verificar' })[0]
+  assert.equal(f.rotulo, 'Site não verificado')
+})
+
+test('o peso e o sinal do critério não mudam — só o rótulo ficou mais preciso', () => {
+  const f = fatoresDeCadastro(CRIT_SITE_AUSENTE, { situacaoSite: 'sem_site' })[0]
+  assert.equal(f.peso, '✗ (+20)')
+  assert.equal(f.sinal, 'ausente')
+})
+
+test('o contexto de site NÃO vaza para os outros critérios', () => {
+  const f = fatoresDeCadastro(
+    [{ chave: 'email', label: 'Tem e-mail', ok: false, pontos_possiveis: 10 }],
+    { situacaoSite: 'sem_site', rotuloLink: 'rede social' },
+  )[0]
+  assert.equal(f.rotulo, 'Tem e-mail')
+})
+
+test('a coluna "Site" não voltou para a Aquisição nem para o Banco de Leads', () => {
+  // Guarda de regressão: a informação agora vive na pontuação de cadastro (balão) e em
+  // "Detalhes". Reintroduzir a coluna duplicaria o mesmo dado em dois lugares da mesma linha.
+  for (const alvo of ['app/dashboard/prospeccao/page.tsx', 'app/dashboard/banco-leads/page.tsx']) {
+    const src = fs.readFileSync(path.join(__dirname, '..', alvo), 'utf8')
+    assert.doesNotMatch(src, /label="Site"\s+chave="site"/,
+      `${alvo} voltou a ter a coluna Site — ela agora é um fator da pontuação de cadastro`)
+  }
+})

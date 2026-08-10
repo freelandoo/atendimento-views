@@ -744,7 +744,29 @@
   em aberto, registrada em `docs/analise-indicador-pontuacao.md` §7.3. E **não existe** pontuação
   de "potencial de abordagem" no Banco de Leads: não há fonte fora de campanha, e criá-la seria
   inventar régua.
-- Testes: `frontend/lib/pontuacao-indicador.test.js`. Nenhuma variável de ambiente nova,
+- **A coluna "Site" SAIU da Aquisição e do Banco de Leads (2026-08-10, decisão do operador).**
+  Ela era o mesmo dado duas vezes na linha: `site` já é 1 dos 9 critérios da completude
+  (**20 de 100 pontos**, `lead-score-cadastro.js`). Agora a situação do site é lida **dentro da
+  bolinha de cadastro** e o link fica em **"Detalhes"**. Isto REVERTE a §5.1 de
+  `docs/analise-indicador-pontuacao.md`, que mandava mantê-la — a nota de reversão está lá.
+- **O critério de site no balão diz TRÊS situações, não o booleano do backend.** O critério que
+  chega é `ok: true|false`, mas o negócio distingue `tem_site` · `sem_site` (a oportunidade) ·
+  `nao_identificado` (ninguém verificou). Confundir os dois últimos é um defeito com histórico
+  neste projeto. `fatoresDeCadastro(criterios, { situacaoSite, rotuloLink })` reescreve o rótulo
+  daquele critério — e só dele; o 2º argumento é opcional, então quem não passa nada não muda de
+  comportamento. Em `sem_site` o balão ainda qualifica o que existe no lugar ("— só rede
+  social"), que é o que explica um lead **com** link aparecer como sem site.
+- **O LINK não foi para o balão, e não deve ir:** o tooltip é `pointer-events-none`, então um
+  link ali seria inalcançável. Ele vive em "Detalhes" (`LeadDetalhesModal`) e, no Banco de
+  Leads, também na coluna "Links". **Os filtros por site continuam** nas duas telas — remover a
+  coluna tirou uma exibição redundante, não o recorte de trabalho.
+- **O balão VIRA PARA BAIXO quando não cabe acima**, e é preso nas bordas laterais. Abrir sempre
+  para cima funcionava nas TABELAS (sempre há cabeçalho acima da 1ª linha) mas quebrava na
+  **Central de Mensagens**: lá a bolinha fica no cabeçalho de um modal colado no topo da tela, e
+  o balão subia para fora da viewport. A altura é **MEDIDA**, nunca estimada — o balão de
+  cadastro tem 9 critérios e o de prioridade tem 2; um chute único não serviria para os dois.
+- Testes: `frontend/lib/pontuacao-indicador.test.js` (inclui guarda de regressão que falha se a
+  coluna "Site" voltar a qualquer uma das duas telas). Nenhuma variável de ambiente nova,
   nenhuma rota, nenhuma migration, nenhum arquivo de backend alterado.
 
 ### Follow-up como ENTIDADE — o fluxo integrado Ligações ↔ Follow-ups ↔ Mensagens

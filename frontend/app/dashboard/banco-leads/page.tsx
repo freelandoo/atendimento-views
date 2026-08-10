@@ -8,7 +8,7 @@ import { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModa
 import LeadDetalhesModal, { BolinhaCadastro } from '@/components/LeadDetalhesModal'
 import ConversaHistoricoModal from '@/components/ConversaHistoricoModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
-import { rotuloLink, tituloLinkNaoSite } from '@/lib/site-rotulos'
+import { rotuloLink } from '@/lib/site-rotulos'
 import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconSend, IconAlert } from '@/components/ui/icons'
 
 // Banco de Leads — central de disparo com Modo Manual / Semiautomático / Automático.
@@ -269,7 +269,6 @@ function valorColuna(l: Lead, chave: string): number | string {
     case 'aval': return l.avaliacoes ?? -1
     case 'nota': return l.rating ?? -1
     case 'horario': return l.json_apresentacao?.empresa?.horario_funcionamento ? 1 : 0
-    case 'site': return l.tem_site ? 1 : 0
     case 'links': return (l.link_bio || l.site || l.link_original) ? 1 : 0
     case 'envio': return l.gerada_em || l.rodado_em || ''
     case 'pontos': return l.score_cadastro ?? 0
@@ -326,7 +325,6 @@ const COLUNAS_TOGGLE: { key: string; label: string }[] = [
   { key: 'aval', label: 'Avaliações' },
   { key: 'nota', label: 'Nota' },
   { key: 'horario', label: 'Horário' },
-  { key: 'site', label: 'Site' },
   { key: 'links', label: 'Links' },
   { key: 'pontos', label: 'Pontos' },
   { key: 'status', label: 'Status' },
@@ -1597,32 +1595,6 @@ function TelefoneCelula({ l, onAbrirConversa }: { l: Lead; onAbrirConversa: (l: 
   )
 }
 
-// Coluna "Site". Nunca chama Instagram, Facebook, Linktree ou ficha do Maps de site: o
-// veredito vem canônico do backend. O link cru continua clicável, rotulado pelo que ele
-// realmente é, para o operador conferir sem ser induzido ao erro.
-function CelulaSite({ l }: { l: Lead }) {
-  if (l.tem_site && l.site) {
-    return (
-      <td className="px-3 py-2">
-        <a href={l.site} target="_blank" rel="noreferrer" className="hover:underline" title={l.site}>
-          ✅ <span className="text-xs text-brand">site</span>
-        </a>
-      </td>
-    )
-  }
-  const rotulo = rotuloLink(l.classificacao_url)
-  if (l.link_original && rotulo) {
-    return (
-      <td className="px-3 py-2">
-        <a href={l.link_original} target="_blank" rel="noreferrer" className="hover:underline"
-          title={tituloLinkNaoSite(l.classificacao_url, l.link_original)}>
-          ❌ <span className="text-xs text-slate-500">{rotulo}</span>
-        </a>
-      </td>
-    )
-  }
-  return <td className="px-3 py-2">❌</td>
-}
 
 // Substitui a antiga coluna `{ }` de JSON cru. Identificador técnico e payload não pertencem a
 // uma tabela de trabalho; o JSON continua a dois cliques (Detalhes → "Ver dados completos"),
@@ -1672,7 +1644,6 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
               {cols.aval && <ThOrdenavel label="Aval." chave="aval" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
               {cols.nota && <ThOrdenavel label="Nota" chave="nota" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
               {cols.horario && <ThOrdenavel label="Horário" chave="horario" ordem={ordem} onOrdenar={onOrdenar} />}
-              {cols.site && <ThOrdenavel label="Site" chave="site" ordem={ordem} onOrdenar={onOrdenar} />}
               <th className="text-left px-3 py-2">Detalhes</th>
             </tr>
           </thead>
@@ -1703,7 +1674,6 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
                   {cols.aval && <td className="px-3 py-2 text-right text-xs">{l.avaliacoes ?? '—'}</td>}
                   {cols.nota && <td className="px-3 py-2 text-right text-xs">{l.rating != null ? Number(l.rating).toFixed(1) : '—'}</td>}
                   {cols.horario && <td className="px-3 py-2 text-center">{horario ? '✅' : '❌'}</td>}
-                  {cols.site && <CelulaSite l={l} />}
                   <DetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
                 </tr>
               )
