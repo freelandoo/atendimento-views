@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
-import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
+import { ThOrdenavel, type JsonApresentacao, type CriterioApresentacao } from '@/components/ui/JsonLeadModal'
+import LeadDetalhesModal, { BolinhaCadastro } from '@/components/LeadDetalhesModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import { rotuloLink, tituloLinkNaoSite } from '@/lib/site-rotulos'
 import RotinasAquisicao, { type ModoAquisicao, type RotinasResp } from '@/components/RotinasAquisicao'
@@ -41,6 +42,9 @@ type Prospect = {
   score: number | null
   score_cadastro: number | null
   score_cadastro_max: number | null
+  // Os critérios da completude sempre vieram na resposta (`prospecting.js:1422`) — só não
+  // estavam declarados aqui. São eles que explicam a bolinha no tooltip e nos detalhes.
+  score_cadastro_criterios: CriterioApresentacao[] | null
   json_apresentacao: JsonApresProspect | null
   created_at: string | null
 }
@@ -125,13 +129,26 @@ const ABAS_RESULTADO: Aba[] = [
   { id: 'desempenho', titulo: 'Desempenho por mercado', descricao: 'Volume, envios, respostas e sinais comerciais por nicho e cidade' },
   { id: 'respostas', titulo: 'Respostas recentes', descricao: 'Quem respondeu por último' },
 ]
-// Temperatura do lead pela pontuação (score): quente = mais dor digital / maior chance.
-function temperatura(score: number | null): { emoji: string; label: string } {
-  const s = score ?? 0
-  if (s >= 70) return { emoji: '🔥', label: 'Quente' }
-  if (s >= 40) return { emoji: '🌡️', label: 'Morno' }
-  return { emoji: '❄️', label: 'Frio' }
-}
+// O emoji de temperatura saiu da coluna Nome. Ele vinha de `prospects.score`, que é
+// CONGELADO na coleta (`mapearPlace`) e nunca recalculado na leitura: um lead coletado antes
+// da correção da classificação de site carrega um número de outra régua, e a explicação dele
+// (`motivo_score`) é texto livre. Duas pontuações na mesma linha, com escalas, origens e
+// DIREÇÕES opostas, sem a tela dizer que eram duas. Ficou a de cadastro, que é recalculada na
+// leitura e tem critérios auditáveis. `p.score` continua no payload e no banco.
+
+// Ordenações que NÃO têm mais coluna na tabela. Endereço, avaliações, nota e horário saíram
+// da tela (viraram critério do tooltip e valor nos Detalhes), mas a ordenação deles é do
+// SERVIDOR e continua válida — some do cabeçalho, não do produto. Sem este controle, reduzir a
+// tabela teria removido em silêncio a capacidade de varrer a carteira inteira por esses
+// campos. As chaves são as mesmas de `ORDEM_SQL_PROSPECTS`/`ORDEM_CALCULADA_PROSPECTS`.
+const ORDENS_SEM_COLUNA: { chave: string; dir: 'asc' | 'desc'; label: string }[] = [
+  { chave: 'aval', dir: 'desc', label: 'Mais avaliações primeiro' },
+  { chave: 'aval', dir: 'asc', label: 'Menos avaliações primeiro' },
+  { chave: 'nota', dir: 'desc', label: 'Maior nota primeiro' },
+  { chave: 'nota', dir: 'asc', label: 'Menor nota primeiro' },
+  { chave: 'horario', dir: 'asc', label: 'Sem horário cadastrado primeiro' },
+  { chave: 'endereco', dir: 'asc', label: 'Endereço (A→Z)' },
+]
 
 // Data/hora "Entrou em" (1ª coluna): registro de quando o lead caiu na carteira.
 function quando(iso: string | null): string {
@@ -175,7 +192,9 @@ export default function ProspeccaoPage() {
   // Modo da tela (Busca / Rotinas). Começa no padrão e só depois é restaurado, no efeito:
   // ler storage/URL durante o render quebraria a hidratação.
   const [modo, setModo] = useState<ModoAquisicao>(MODO_PADRAO)
-  const [jsonAberto, setJsonAberto] = useState<{ titulo: string; json: JsonApresProspect } | null>(null)
+  // Detalhes do lead: destino dos campos que saíram da tabela (endereço, nota, avaliações,
+  // horário) e do JSON, que deixou de ser uma coluna da tela de trabalho.
+  const [detalheAberto, setDetalheAberto] = useState<Prospect | null>(null)
   const fb = useFeedback()
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
 
@@ -438,6 +457,23 @@ export default function ProspeccaoPage() {
               {cidadeOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
             </select>
           </div>
+          <div>
+            <label htmlFor="ordem-sem-coluna" className="block text-xs text-slate-500 mb-1">Ordenar por</label>
+            <select
+              id="ordem-sem-coluna"
+              value={ORDENS_SEM_COLUNA.some((o) => o.chave === ordem.chave && o.dir === ordem.dir) ? `${ordem.chave}:${ordem.dir}` : ''}
+              onChange={(e) => {
+                const [chave, dir] = e.target.value.split(':')
+                if (chave) comReinicioDePagina(() => setOrdem({ chave, dir: dir === 'asc' ? 'asc' : 'desc' }))
+              }}
+              className="border rounded-lg px-3 py-2 text-sm min-w-[190px]"
+            >
+              <option value="">Cabeçalho da tabela</option>
+              {ORDENS_SEM_COLUNA.map((o) => (
+                <option key={`${o.chave}:${o.dir}`} value={`${o.chave}:${o.dir}`}>{o.label}</option>
+              ))}
+            </select>
+          </div>
           {(mercado || cidadeFiltro || buscaDados.trim()) && (
             <button onClick={() => comReinicioDePagina(() => { setMercado(''); setCidadeFiltro(''); setBuscaDados('') })}
               className="border rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
@@ -469,29 +505,20 @@ export default function ProspeccaoPage() {
           <tr>
             <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={ordenarPor} />
             <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={ordenarPor} />
+            <ThOrdenavel label="Cadastro" chave="pontos" ordem={ordem} onOrdenar={ordenarPor} />
             <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={ordenarPor} />
             <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={ordenarPor} />
-            <ThOrdenavel label="Endereço" chave="endereco" ordem={ordem} onOrdenar={ordenarPor} />
             <ThOrdenavel label="Nicho / Cidade" chave="nicho" ordem={ordem} onOrdenar={ordenarPor} />
-            <ThOrdenavel label="Aval." chave="aval" ordem={ordem} onOrdenar={ordenarPor} align="right" />
-            <ThOrdenavel label="Nota" chave="nota" ordem={ordem} onOrdenar={ordenarPor} align="right" />
-            <ThOrdenavel label="Horário" chave="horario" ordem={ordem} onOrdenar={ordenarPor} />
             <ThOrdenavel label="Site" chave="site" ordem={ordem} onOrdenar={ordenarPor} />
-            <ThOrdenavel label="Pontos" chave="pontos" ordem={ordem} onOrdenar={ordenarPor} align="right" />
             <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={ordenarPor} />
-            <th className="text-left px-3 py-2">JSON</th>
             <th className="text-right px-3 py-2">Ações</th>
           </tr>
         </thead>
         <tbody>
-          {pg.itens.map((p) => {
-            const t = temperatura(p.score)
-            const horario = !!p.json_apresentacao?.empresa?.horario_funcionamento
-            return (
+          {pg.itens.map((p) => (
             <tr key={p.id} className="border-t hover:bg-gray-50">
               <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{quando(p.created_at)}</td>
               <td className="px-3 py-2 font-medium">
-                <span title={t.label} className="mr-1">{t.emoji}</span>
                 {p.maps_url ? (
                   <a href={p.maps_url} target="_blank" rel="noreferrer"
                     className="text-brand hover:underline inline-flex items-center gap-1"
@@ -500,13 +527,25 @@ export default function ProspeccaoPage() {
                   </a>
                 ) : p.nome}
               </td>
+              {/* Bolinha de COMPLETUDE — paleta neutra, nunca a de prioridade comercial: aqui
+                  cadastro alto significa MENOS oportunidade, e a ordenação padrão da tela
+                  (`pontos ASC`) já assume isso. Endereço, nota, avaliações e horário viraram
+                  critérios dentro do tooltip; os valores ficam em "Detalhes". */}
+              <td className="px-3 py-2">
+                <div className="flex items-center gap-1.5">
+                  <BolinhaCadastro l={p} />
+                  <button
+                    onClick={() => setDetalheAberto(p)}
+                    className="text-[11px] text-slate-500 underline-offset-2 hover:text-brand hover:underline"
+                    title="Endereço, nota, avaliações, horário, links e dados completos do lead"
+                  >
+                    Detalhes
+                  </button>
+                </div>
+              </td>
               <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{p.telefone || '—'}</td>
               <td className="px-3 py-2 text-xs"><EmailEditavel value={p.email} onSave={(email) => salvarEmail(p.id, email)} /></td>
-              <td className="px-3 py-2 text-xs text-slate-600 max-w-[180px] truncate" title={p.endereco || ''}>{p.endereco || '—'}</td>
               <td className="px-3 py-2 text-slate-600 text-xs">{p.nicho} · {p.cidade}</td>
-              <td className="px-3 py-2 text-right text-xs">{p.avaliacoes ?? '—'}</td>
-              <td className="px-3 py-2 text-right text-xs">{p.rating != null ? Number(p.rating).toFixed(1) : '—'}</td>
-              <td className="px-3 py-2 text-center">{horario ? '✅' : '❌'}</td>
               <td className="px-3 py-2">
                 {p.tem_site && p.site ? (
                   <a href={p.site} target="_blank" rel="noreferrer" className="hover:underline" title={p.site}>✅ <span className="text-xs text-brand">site</span></a>
@@ -517,24 +556,8 @@ export default function ProspeccaoPage() {
                   </a>
                 ) : '❌'}
               </td>
-              <td className="px-3 py-2 text-right">
-                <span className={`font-semibold ${((p.score_cadastro ?? 0) <= 40) ? 'text-red-600' : (p.score_cadastro ?? 0) <= 70 ? 'text-amber-600' : 'text-emerald-600'}`}
-                  title="Pontuação do cadastro (0-100): site próprio 20 · fotos, endereço, telefone, e-mail, horário, links extras, avaliações e nota>4 valem 10 cada">
-                  {p.score_cadastro ?? 0}
-                </span>
-                <span className="text-[10px] text-slate-400">/100</span>
-              </td>
               <td className="px-3 py-2">
                 <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLE[p.status] || 'bg-gray-100 text-gray-500'}`}>{STATUS_LABEL[p.status] || p.status}</span>
-              </td>
-              <td className="px-3 py-2">
-                {p.json_apresentacao && (
-                  <button onClick={() => setJsonAberto({ titulo: p.nome, json: p.json_apresentacao! })}
-                    className="text-xs px-2 py-1 rounded-lg border text-brand hover:bg-blue-50"
-                    title="Dados unificados + prompt único pro bot gerar a saudação de análise">
-                    {'{ }'}
-                  </button>
-                )}
               </td>
               <td className="px-3 py-2 text-right whitespace-nowrap">
                 {p.status === 'rejeitado' ? (
@@ -561,10 +584,9 @@ export default function ProspeccaoPage() {
                 )}
               </td>
             </tr>
-            )
-          })}
+          ))}
           {pg.itens.length === 0 && (
-            <tr><td colSpan={14} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Configure a busca acima e clique em Buscar agora.</td></tr>
+            <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Configure a busca acima e clique em Buscar agora.</td></tr>
           )}
         </tbody>
       </table>
@@ -678,8 +700,8 @@ export default function ProspeccaoPage() {
 
       </div>
 
-      {jsonAberto && (
-        <JsonLeadModal titulo={`JSON de apresentação — ${jsonAberto.titulo}`} json={jsonAberto.json} onFechar={() => setJsonAberto(null)} />
+      {detalheAberto && (
+        <LeadDetalhesModal lead={detalheAberto} onFechar={() => setDetalheAberto(null)} />
       )}
     </div>
   )

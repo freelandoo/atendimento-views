@@ -53,6 +53,19 @@ import {
   formatarTelefone,
   paginar,
   resumoIntervalo,
+  // Vocabulário e ações da PRÓXIMA AÇÃO registrada (migration 062). Mesmo módulo puro que a
+  // Central de Ligações usa para criá-la — a fila só traduz o que o backend decidiu.
+  opcoesDeResponsavel,
+  iconeCanal,
+  rotuloCanal,
+  rotuloOrigem,
+  rotuloEvento,
+  formatarQuando,
+  paraInputLocal,
+  deInputLocal,
+  contextoDeOrigem,
+  PRIORIDADE_OPCOES,
+  ORIGEM_LABEL,
   type ItemFila,
   type ViewFollowups,
   type FiltroRapido,
@@ -60,6 +73,9 @@ import {
   type AgendamentoAuto,
   type SugestaoLead,
   type PaginaLista,
+  type FollowUpApi,
+  type ContextoOrigem,
+  type EventoContato,
 } from '@/lib/followups-fila'
 
 type Config = { modo: 'manual' | 'semi' | 'automatico'; meta_ligacoes_dia: number; pausado: boolean }
@@ -79,6 +95,10 @@ const PRIORIDADE_DOT: Record<string, string> = {
   baixa: 'bg-sky-400',
 }
 const ACAO_STYLE: Record<string, string> = {
+  // Follow-up REGISTRADO: destacado do resto porque é compromisso assumido com o cliente,
+  // não recomendação do sistema.
+  followup_whatsapp: 'border-emerald-300 bg-emerald-50 text-emerald-800',
+  followup_ligacao: 'border-indigo-300 bg-indigo-50 text-indigo-800',
   assumir_conversa: 'border-red-200 bg-red-100 text-red-700',
   ligar: 'border-orange-200 bg-orange-100 text-orange-700',
   copiar_prompt_preview: 'border-violet-200 bg-violet-100 text-violet-700',
@@ -105,6 +125,8 @@ export default function FollowUpsPage() {
   const [config, setConfig] = useState<Config | null>(null)
   const [humanos, setHumanos] = useState<AtendimentoHumano[]>([])
   const [automaticos, setAutomaticos] = useState<AgendamentoAuto[]>([])
+  const [followups, setFollowups] = useState<FollowUpApi[]>([])
+  const [responsaveis, setResponsaveis] = useState<{ id: string; nome: string }[]>([])
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -115,6 +137,29 @@ export default function FollowUpsPage() {
   const persBotaoRef = useRef<HTMLButtonElement | null>(null)
 
   const [numeroHistorico, setNumeroHistorico] = useState<string | null>(null)
+  const [contextoAberto, setContextoAberto] = useState<ContextoOrigem | null>(null)
+  const [reagendando, setReagendando] = useState<ItemFila | null>(null)
+  const [historicoContato, setHistoricoContato] = useState<ItemFila | null>(null)
+
+  // Regra de roteamento, num lugar só: WhatsApp executa na Central de Mensagens; ligação
+  // executa na Central de Ligações. A fila OPERA os dois; ela não executa nenhum.
+  const executarItem = useCallback((item: ItemFila) => {
+    if (item.destino === 'central_ligacoes') {
+      if (!item.campanha_lead_id) {
+        fb.toast('Este follow-up não está ligado a uma campanha — abra a Central de Ligações e escolha o lead.', 'info')
+        return
+      }
+      // A campanha vem junto do item; o lead é encontrado na fila daquela campanha.
+      window.location.href = `/dashboard/central-ligacoes?campanha=${encodeURIComponent(item.campanha_id || '')}&lead=${encodeURIComponent(item.campanha_lead_id)}`
+      return
+    }
+    if (!item.numero) {
+      fb.toast('Este contato ainda não tem conversa de WhatsApp aberta.', 'info')
+      return
+    }
+    setContextoAberto(contextoDeOrigem(item))
+    setNumeroHistorico(item.numero)
+  }, [fb])
   const [roteiro, setRoteiro] = useState<{ nome: string; texto: string } | null>(null)
   const [registro, setRegistro] = useState<ItemFila | null>(null)
   const [manual, setManual] = useState<{ numero: string; nome: string } | null>(null)
@@ -131,18 +176,30 @@ export default function FollowUpsPage() {
     setCarregando(true)
     setErro(null)
     try {
-      const [humano, auto] = await Promise.all([
+      const [humano, auto, registrados] = await Promise.all([
         apiFetch<{ lista: AtendimentoHumano[] }>(`${base}/call-list`),
         apiFetch<{ itens: AgendamentoAuto[] }>(`${base}/auto?limit=300`),
+        apiFetch<{ itens: FollowUpApi[] }>(`${base}/itens?limit=300`),
       ])
       setHumanos(humano.data.lista || [])
       setAutomaticos(auto.data.itens || [])
+      setFollowups(registrados.data.itens || [])
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não foi possível carregar a fila de follow-ups.')
     } finally { setCarregando(false) }
   }, [base])
 
+  // Lista de responsáveis: alimenta só o SELETOR do filtro. Falha silenciosa — a fila
+  // continua utilizável sem ela (os nomes já vêm junto de cada item).
+  const carregarResponsaveis = useCallback(async () => {
+    try {
+      const r = await apiFetch<{ itens: { id: string; nome: string }[] }>(`${base}/responsaveis`)
+      setResponsaveis(r.data.itens || [])
+    } catch { /* silencioso */ }
+  }, [base])
+
   useEffect(() => { carregarConfig() }, [carregarConfig])
+  useEffect(() => { carregarResponsaveis() }, [carregarResponsaveis])
   useEffect(() => { carregar() }, [carregar])
 
   // Preferência de tela (filtro rápido + filtro avançado). Nunca vai para o servidor.
@@ -176,7 +233,7 @@ export default function FollowUpsPage() {
     })
   }, [config, salvarConfig, fb])
 
-  const fila = useMemo(() => montarFila({ humanos, automaticos }), [humanos, automaticos])
+  const fila = useMemo(() => montarFila({ humanos, automaticos, followups }), [humanos, automaticos, followups])
   // O avançado compõe com o rápido: as contagens dos chips já refletem o avançado, senão
   // o número prometeria itens que o clique não mostraria.
   const aposAvancado = useMemo(() => aplicarAvancado(fila, view), [fila, view])
@@ -192,7 +249,13 @@ export default function FollowUpsPage() {
     for (const o of opcoesDeAcao(fila)) mapa[o.valor] = o.label
     return mapa
   }, [fila])
-  const chips = useMemo(() => chipsAtivos(view, rotulosDeAcao), [view, rotulosDeAcao])
+  const rotulosDeResponsavel = useMemo(() => {
+    const mapa: Record<string, string> = {}
+    for (const u of responsaveis) mapa[u.id] = u.nome
+    for (const o of opcoesDeResponsavel(fila)) mapa[o.valor] = mapa[o.valor] || o.label
+    return mapa
+  }, [responsaveis, fila])
+  const chips = useMemo(() => chipsAtivos(view, rotulosDeAcao, rotulosDeResponsavel), [view, rotulosDeAcao, rotulosDeResponsavel])
 
   // Capacidade de ligações do dia: destaca as primeiras N ligações da fila em aberto.
   // Calculada sobre a fila inteira (não sobre o filtro nem sobre a página), senão a marca
@@ -239,6 +302,27 @@ export default function FollowUpsPage() {
       fb.toast('Não foi possível copiar o prompt neste navegador.', 'error')
     }
   }, [fb])
+
+  // Concluir / cancelar. Idempotentes no backend: repetir o clique não move a hora do fim.
+  const mudarStatusFollowUp = useCallback(async (item: ItemFila, status: 'concluido' | 'cancelado', nota?: string) => {
+    if (!item.followup_id) return
+    await fb.runTask(async () => {
+      await apiFetch(`${base}/itens/${item.followup_id}/status`, {
+        method: 'POST', body: JSON.stringify({ status, nota: nota || undefined }),
+      })
+      await carregar()
+    }, { sucesso: status === 'concluido' ? 'Follow-up concluído' : 'Follow-up cancelado' })
+  }, [base, carregar, fb])
+
+  const reagendarFollowUp = useCallback(async (item: ItemFila, patch: Record<string, unknown>) => {
+    if (!item.followup_id) return
+    await fb.runTask(async () => {
+      await apiFetch(`${base}/itens/${item.followup_id}/reagendar`, {
+        method: 'POST', body: JSON.stringify(patch),
+      })
+      await carregar()
+    }, { sucesso: 'Follow-up reagendado' })
+  }, [base, carregar, fb])
 
   const cancelarAuto = useCallback(async (item: ItemFila) => {
     await fb.runTask(async () => {
@@ -386,6 +470,7 @@ export default function FollowUpsPage() {
                   <tr>
                     <th scope="col" className="px-3 py-3"><span className="sr-only">Prioridade</span></th>
                     <th scope="col" className="px-4 py-3">Lead</th>
+                    <th scope="col" className="px-4 py-3">Canal</th>
                     <th scope="col" className="px-4 py-3">Próxima ação</th>
                     <th scope="col" className="px-4 py-3">Prazo</th>
                     <th scope="col" className="px-4 py-3">Por que agora</th>
@@ -399,12 +484,17 @@ export default function FollowUpsPage() {
                       key={item.id}
                       item={item}
                       naMeta={naMeta.has(item.id)}
-                      onAbrirHistorico={setNumeroHistorico}
+                      onAbrirHistorico={(n) => { setContextoAberto(null); setNumeroHistorico(n) }}
                       onRoteiro={gerarRoteiro}
                       onRegistrar={setRegistro}
                       onCopiarPrompt={copiarPromptPreview}
                       onManual={(i) => setManual({ numero: i.telefone_digitos, nome: i.rotulo })}
                       onCancelarAuto={cancelarAuto}
+                      onExecutar={executarItem}
+                      onConcluir={(i) => mudarStatusFollowUp(i, 'concluido')}
+                      onCancelarFollowUp={(i) => mudarStatusFollowUp(i, 'cancelado')}
+                      onReagendar={setReagendando}
+                      onHistorico={setHistoricoContato}
                     />
                   ))}
                 </tbody>
@@ -424,9 +514,25 @@ export default function FollowUpsPage() {
         <ConversaPainel
           empresaId={empresaId}
           numero={numeroHistorico}
-          onFechar={() => setNumeroHistorico(null)}
+          onFechar={() => { setNumeroHistorico(null); setContextoAberto(null) }}
           onAtualizou={carregar}
+          /* Contexto da ligação/evento que originou o item. São DADOS, não requisição: o
+             painel é o mesmo da Central de Mensagens, que não pode chamar rota admin-only. */
+          contextoOrigem={contextoAberto}
         />
+      )}
+
+      {reagendando && (
+        <ModalReagendar
+          item={reagendando}
+          responsaveis={responsaveis}
+          onFechar={() => setReagendando(null)}
+          onConfirmar={async (patch) => { await reagendarFollowUp(reagendando, patch); setReagendando(null) }}
+        />
+      )}
+
+      {historicoContato && (
+        <ModalHistoricoContato base={base} item={historicoContato} onFechar={() => setHistoricoContato(null)} />
       )}
 
       {roteiro && (
@@ -457,6 +563,7 @@ export default function FollowUpsPage() {
         <PersonalizarFiltros
           view={view}
           acoes={opcoesDeAcao(fila)}
+          responsaveis={opcoesDeResponsavel(fila)}
           onPatch={(p) => setView((v) => ({ ...v, ...p }))}
           onLimpar={() => setView(VIEW_PADRAO)}
           onFechar={fecharPersonalizar}
@@ -508,7 +615,7 @@ function RodapeFila({ pg, onPagina }: { pg: PaginaLista<ItemFila>; onPagina: (p:
 }
 
 // ───────────────────────────── Linha da fila ─────────────────────────────
-function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onCopiarPrompt, onManual, onCancelarAuto }: {
+function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onCopiarPrompt, onManual, onCancelarAuto, onExecutar, onConcluir, onCancelarFollowUp, onReagendar, onHistorico }: {
   item: ItemFila
   naMeta: boolean
   onAbrirHistorico: (n: string) => void
@@ -517,7 +624,14 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
   onCopiarPrompt: (i: ItemFila) => void
   onManual: (i: ItemFila) => void
   onCancelarAuto: (i: ItemFila) => void
+  onExecutar: (i: ItemFila) => void
+  onConcluir: (i: ItemFila) => void
+  onCancelarFollowUp: (i: ItemFila) => void
+  onReagendar: (i: ItemFila) => void
+  onHistorico: (i: ItemFila) => void
 }) {
+  const registrado = !!item.followup_id
+  const emAberto = registrado && item.followup_status === 'aguardando'
   const descricao = descricaoPrioridade(item)
   return (
     <tr className={naMeta ? 'bg-amber-50/40' : ''}>
@@ -554,6 +668,18 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
         )}
       </td>
       <td className="px-4 py-3 align-top">
+        {/* Canal: discreto, com ícone E rótulo em texto — cor/glifo nunca sozinhos.
+            Item derivado não tem canal escolhido: a célula diz isso em vez de presumir um. */}
+        {item.canal ? (
+          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700">
+            <span aria-hidden="true">{iconeCanal(item.canal)}</span>
+            {rotuloCanal(item.canal)}
+          </span>
+        ) : (
+          <span className="text-[11px] text-slate-400" title="Item sem canal escolhido: veio da recomendação ou do motor automático">—</span>
+        )}
+      </td>
+      <td className="px-4 py-3 align-top">
         <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${ACAO_STYLE[item.acao || ''] || 'border-slate-200 bg-slate-100 text-slate-600'}`}>
           {item.acao_label || '—'}
         </span>
@@ -575,6 +701,13 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
       </td>
       <td className="px-4 py-3 align-top">
         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{item.origem_label}</span>
+        {registrado && (
+          <div className="mt-1 space-y-0.5 text-[11px] text-slate-400">
+            <div>{item.responsavel_nome ? `Responsável: ${item.responsavel_nome}` : 'Não atribuído'}</div>
+            {item.campanha_nome && <div>{item.campanha_nome}</div>}
+            <button onClick={() => onHistorico(item)} className="text-brand hover:underline">Histórico do contato</button>
+          </div>
+        )}
         {item.ia_status && (
           <div className="mt-1 text-[11px] text-slate-400">
             IA: {SITUACAO_LABEL[item.ia_status === 'falhou' ? 'falha' : item.ia_status === 'executado' ? 'concluido' : item.ia_status === 'cancelado' ? 'cancelado' : 'aguardando']}
@@ -583,7 +716,22 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
         )}
       </td>
       <td className="px-4 py-3 text-right align-top">
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
+          {/* Follow-up REGISTRADO: executar leva à tela do canal; concluir/reagendar/cancelar
+              atualizam o item. Item já fechado não oferece ação — só histórico. */}
+          {emAberto && (
+            <>
+              <button onClick={() => onExecutar(item)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white">
+                {item.destino === 'central_ligacoes' ? 'Ir para a ligação' : 'Abrir conversa'}
+              </button>
+              <button onClick={() => onConcluir(item)} className="rounded-lg border border-emerald-300 px-2.5 py-1 text-xs text-emerald-700 hover:bg-emerald-50">Concluir</button>
+              <button onClick={() => onReagendar(item)} className="rounded-lg border px-2.5 py-1 text-xs hover:bg-slate-50">Reagendar</button>
+              <button onClick={() => onCancelarFollowUp(item)} className="rounded-lg border px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-50">Cancelar</button>
+            </>
+          )}
+          {registrado && !emAberto && item.numero && (
+            <button onClick={() => onAbrirHistorico(item.numero as string)} className="rounded-lg border px-2.5 py-1 text-xs hover:bg-slate-50">Ver conversa</button>
+          )}
           {item.acao === 'ligar' && (
             <>
               <button onClick={() => onRoteiro(item)} className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50">Roteiro</button>
@@ -708,6 +856,148 @@ function ModalRegistrarLigacao({ item, onFechar, onRegistrar }: {
 //     O aviso disso fica na tela, antes do clique: é escrita de produção.
 //
 // A sugestão nunca mostra o identificador do Evolution — só nome e telefone formatado.
+// ─────────────── Reagendar um follow-up (move o MESMO item) ───────────────
+// Reagendar não é "cancelar e criar outro": o item mantém origem, contexto e rastreabilidade,
+// e o histórico do contato não ganha um cancelamento que nunca aconteceu.
+function ModalReagendar({ item, responsaveis, onFechar, onConfirmar }: {
+  item: ItemFila
+  responsaveis: { id: string; nome: string }[]
+  onFechar: () => void
+  onConfirmar: (patch: Record<string, unknown>) => Promise<void>
+}) {
+  const [quando, setQuando] = useState(() => paraInputLocal(item.prazo))
+  const [acao, setAcao] = useState(item.acao_label || '')
+  const [prioridade, setPrioridade] = useState(item.prioridade || 'media')
+  const [responsavel, setResponsavel] = useState(item.responsavel_id || '')
+  const [erro, setErro] = useState<string | null>(null)
+  const [salvando, setSalvando] = useState(false)
+
+  const confirmar = async () => {
+    const iso = deInputLocal(quando)
+    if (!iso) { setErro('Informe a nova data e hora.'); return }
+    if (!acao.trim()) { setErro('Descreva o que precisa ser feito.'); return }
+    setErro(null)
+    setSalvando(true)
+    try {
+      await onConfirmar({
+        agendado_para: iso,
+        proxima_acao: acao.trim(),
+        prioridade,
+        // `null` explícito devolve o item para "não atribuído" — é uma escolha, não omissão.
+        responsavel_id: responsavel || null,
+      })
+    } finally { setSalvando(false) }
+  }
+
+  return (
+    <ModalSimples titulo={`Reagendar — ${item.rotulo}`} onFechar={onFechar}>
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500">
+          O canal ({rotuloCanal(item.canal) || '—'}) e a origem ({rotuloOrigem(item.origem) || '—'}) não mudam:
+          trocar de canal é outra decisão, tomada onde a ação é executada.
+        </p>
+        <label className="block text-sm">O que fazer
+          <input value={acao} onChange={(e) => setAcao(e.target.value)}
+            className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm" />
+        </label>
+        <label className="block text-sm">Nova data e hora
+          <input type="datetime-local" value={quando} onChange={(e) => setQuando(e.target.value)}
+            className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm" />
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block text-sm">Prioridade
+            <select value={prioridade} onChange={(e) => setPrioridade(e.target.value as typeof prioridade)}
+              className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm">
+              {PRIORIDADE_OPCOES.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+            </select>
+          </label>
+          <label className="block text-sm">Responsável
+            <select value={responsavel} onChange={(e) => setResponsavel(e.target.value)}
+              className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm">
+              <option value="">Não atribuído</option>
+              {responsaveis.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+            </select>
+          </label>
+        </div>
+        {erro && <p className="text-xs text-red-600" role="alert">{erro}</p>}
+        <div className="flex justify-end gap-2">
+          <button onClick={onFechar} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50">Voltar</button>
+          <button onClick={confirmar} disabled={salvando}
+            className="rounded-lg bg-brand px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
+            {salvando ? 'Salvando…' : 'Reagendar'}
+          </button>
+        </div>
+      </div>
+    </ModalSimples>
+  )
+}
+
+// ─────────────── Linha do tempo do contato ───────────────
+// Responde "por que esta ação existe": ligações, follow-ups criados e como cada um terminou.
+// NÃO repete as mensagens — elas são do painel de conversa, que mostra o histórico inteiro.
+function ModalHistoricoContato({ base, item, onFechar }: {
+  base: string
+  item: ItemFila
+  onFechar: () => void
+}) {
+  const [eventos, setEventos] = useState<EventoContato[] | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+
+  const carregar = useCallback(async () => {
+    setErro(null)
+    setEventos(null)
+    try {
+      const r = await apiFetch<{ eventos: EventoContato[] }>(
+        `${base}/contatos/${encodeURIComponent(item.telefone_digitos)}/historico`)
+      setEventos(r.data.eventos || [])
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não foi possível carregar o histórico.')
+    }
+  }, [base, item.telefone_digitos])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  return (
+    <ModalSimples titulo={`Histórico — ${item.rotulo}`} onFechar={onFechar}>
+      {erro ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm text-red-700">
+          <p>{erro}</p>
+          <button onClick={carregar} className="mt-2 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium">
+            Tentar de novo
+          </button>
+        </div>
+      ) : eventos === null ? (
+        <div className="flex justify-center py-10" role="status" aria-live="polite">
+          <Spinner /><span className="sr-only">Carregando o histórico…</span>
+        </div>
+      ) : eventos.length === 0 ? (
+        <p className="py-8 text-center text-sm text-slate-500">
+          Ainda não há ligações nem follow-ups registrados para este contato.
+        </p>
+      ) : (
+        <ol className="space-y-2">
+          {eventos.map((ev, i) => (
+            <li key={`${ev.tipo}-${ev.referencia_id || i}`} className="rounded-xl border bg-slate-50 px-3 py-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="text-sm font-medium text-slate-800">{rotuloEvento(ev.tipo)}</span>
+                <span className="text-xs tabular-nums text-slate-500">{formatarQuando(ev.ocorrido_em)}</span>
+              </div>
+              <div className="text-xs text-slate-600">
+                {ev.rotulo || '—'}
+                {ev.canal ? ` · ${rotuloCanal(ev.canal)}` : ''}
+                {ev.detalhe ? ` · ${ev.detalhe}` : ''}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+      <p className="mt-3 text-[11px] text-slate-400">
+        As mensagens não aparecem aqui: elas ficam no painel de conversa, que mostra o histórico completo.
+      </p>
+    </ModalSimples>
+  )
+}
+
 function ModalManual({ base, inicial, onFechar, onEnviado, fb }: {
   base: string
   inicial: { numero: string; nome: string }
@@ -909,9 +1199,10 @@ function ModalManual({ base, inicial, onFechar, onEnviado, fb }: {
 // arrastável e SEM fundo escuro, para ver a fila mudando atrás enquanto se ajusta. Por
 // não bloquear o resto da tela, é um diálogo NÃO modal (sem `aria-modal`): fecha no
 // Escape e devolve o foco ao botão que o abriu.
-function PersonalizarFiltros({ view, acoes, onPatch, onLimpar, onFechar }: {
+function PersonalizarFiltros({ view, acoes, responsaveis, onPatch, onLimpar, onFechar }: {
   view: ViewFollowups
   acoes: { valor: string; label: string }[]
+  responsaveis: { valor: string; label: string }[]
   onPatch: (p: Partial<ViewFollowups>) => void
   onLimpar: () => void
   onFechar: () => void
@@ -980,11 +1271,30 @@ function PersonalizarFiltros({ view, acoes, onPatch, onLimpar, onFechar }: {
                 <option value="sem">Não calculada (automático)</option>
               </select>
             </Campo>
+            <Campo label="Canal">
+              <select value={view.canal} onChange={(e) => onPatch({ canal: e.target.value })} className="w-full rounded-lg border px-2 py-1.5 text-sm">
+                <option value="">Todos</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="ligacao">Ligação</option>
+              </select>
+            </Campo>
             <Campo label="Origem do atendimento">
               <select value={view.origem} onChange={(e) => onPatch({ origem: e.target.value })} className="w-full rounded-lg border px-2 py-1.5 text-sm">
                 <option value="">Todas</option>
                 <option value="humano">Atendimento humano</option>
                 <option value="ia">Atendimento IA</option>
+              </select>
+            </Campo>
+            <Campo label="Origem da próxima ação">
+              <select value={view.origemAcao} onChange={(e) => onPatch({ origemAcao: e.target.value })} className="w-full rounded-lg border px-2 py-1.5 text-sm">
+                <option value="">Todas</option>
+                {Object.entries(ORIGEM_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </Campo>
+            <Campo label="Responsável">
+              <select value={view.responsavel} onChange={(e) => onPatch({ responsavel: e.target.value })} className="w-full rounded-lg border px-2 py-1.5 text-sm">
+                <option value="">Todos</option>
+                {responsaveis.map((r) => <option key={r.valor} value={r.valor}>{r.label}</option>)}
               </select>
             </Campo>
             <Campo label="Status">
@@ -1008,7 +1318,8 @@ function PersonalizarFiltros({ view, acoes, onPatch, onLimpar, onFechar }: {
           </div>
           <p className="mt-1 text-[11px] text-slate-400">
             Tentativas = follow-ups automáticos já disparados para o lead (ou ignorados por ele, na fila humana).
-            Não há filtro por responsável: o item da fila ainda não tem dono registrado.
+            Canal, origem da próxima ação e responsável só existem em follow-up <b>registrado</b> — item vindo da
+            recomendação ou do motor automático fica de fora desses três filtros, em vez de receber um valor presumido.
           </p>
         </section>
 

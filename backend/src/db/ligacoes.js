@@ -11,6 +11,7 @@
 const { LIGACAO_RESULTADO, MOTIVO_PERDA, ROTEIRO_ETAPA_TIPO, OPORTUNIDADE_STATUS } = require('../domain-enums')
 const { assertMesmaEmpresa } = require('./campanhas')
 const ligacaoEtapas = require('./ligacao-etapas')
+const { criarFollowUp } = require('./follow-ups')
 
 const RES = new Set(LIGACAO_RESULTADO)
 const MOT = new Set(MOTIVO_PERDA)
@@ -247,7 +248,34 @@ async function encerrarLigacao(pool, empresaId, id, p = {}) {
     // etapa final vem da ultima ocorrencia (o contrato `etapa_final` nao pode regredir a null).
     const etapaFinal = (await ligacaoEtapas.fecharEtapaAtiva(client, empresaId, id, ligacao.chamada_encerrada_em || null))
       || (await ligacaoEtapas.obterEtapaFinal(client, empresaId, id))
-    if (ligacao.campanha_lead_id && (p.novoStatusOportunidade || p.proximaAcao !== undefined || p.dataFollowup !== undefined)) {
+
+    // PROXIMA ACAO como entidade (migration 062). Criada na MESMA transacao do encerramento:
+    // ou a ligacao encerra COM a acao combinada, ou nao encerra. Gravar o follow-up fora da
+    // transacao permitiria que ele sobrevivesse a um rollback e mandasse o operador agir sobre
+    // uma ligacao que nao existe.
+    //
+    // `followUp` ausente (ou canal vazio) = "sem proxima acao", que e' uma resposta valida do
+    // formulario — nao um erro e nao um default. Nada e' criado nesse caso.
+    let followUp = null
+    if (p.followUp && p.followUp.canal) {
+      const telefone = p.followUp.telefone || ligacao.telefone || await telefoneDoLead(client, empresaId, ligacao)
+      followUp = await criarFollowUp(client, empresaId, {
+        ...p.followUp,
+        telefone,
+        origem: 'ligacao',
+        ligacao_id: ligacao.id,
+        campanha_lead_id: ligacao.campanha_lead_id || null,
+        prospect_id: ligacao.prospect_id || null,
+      }, { usuarioId: p.usuarioId || ligacao.usuario_id || null })
+    }
+
+    // `app.campanha_leads` continua sendo escrita: e ela que alimenta a aba Acompanhamento da
+    // campanha e o filtro "com/sem proxima acao" da fila de ligacoes. O follow-up nao a
+    // substitui — quando existe, ele e a FONTE do resumo gravado aqui, para as duas telas nao
+    // divergirem sobre o que foi combinado.
+    const proximaAcaoResumo = followUp ? followUp.proxima_acao : p.proximaAcao
+    const dataFollowupResumo = followUp ? followUp.agendado_para : p.dataFollowup
+    if (ligacao.campanha_lead_id && (p.novoStatusOportunidade || proximaAcaoResumo !== undefined || dataFollowupResumo !== undefined)) {
       const campos = []
       const params = [ligacao.campanha_lead_id, empresaId]
       const set = (col, val) => { params.push(val); campos.push(`${col} = $${params.length}`) }
@@ -255,16 +283,34 @@ async function encerrarLigacao(pool, empresaId, id, p = {}) {
         if (!OPS.has(p.novoStatusOportunidade)) throw erroEntrada('status de oportunidade invalido.')
         set('status', p.novoStatusOportunidade)
       }
-      if (p.proximaAcao !== undefined) set('proxima_acao', p.proximaAcao === '' ? null : p.proximaAcao)
-      if (p.dataFollowup !== undefined) set('data_followup', p.dataFollowup || null)
+      if (proximaAcaoResumo !== undefined) set('proxima_acao', proximaAcaoResumo === '' ? null : proximaAcaoResumo)
+      if (dataFollowupResumo !== undefined) set('data_followup', dataFollowupResumo || null)
       if (campos.length) {
         await client.query(
           `UPDATE app.campanha_leads SET ${campos.join(', ')}, atualizado_em = NOW() WHERE id = $1 AND empresa_id = $2`,
           params)
       }
     }
-    return { ...comEstado(ligacao), etapa_final: etapaFinal ? etapaFinal.tipo_etapa : null }
+    return { ...comEstado(ligacao), etapa_final: etapaFinal ? etapaFinal.tipo_etapa : null, follow_up: followUp }
   })
+}
+
+// Telefone do lead quando a propria ligacao nao guardou um (ligacoes antigas, ou iniciadas
+// sem telefone). Sem telefone nao existe identidade de contato, e o follow-up nao pode nascer.
+async function telefoneDoLead(client, empresaId, ligacao) {
+  const chave = ligacao.prospect_id
+    ? ['p.id = $2', ligacao.prospect_id]
+    : (ligacao.campanha_lead_id ? ['cl.id = $2', ligacao.campanha_lead_id] : null)
+  if (!chave) return null
+  const { rows } = await client.query(
+    `SELECT p.telefone
+       FROM prospectador.prospects p
+       LEFT JOIN app.campanha_leads cl ON cl.prospect_id = p.id AND cl.empresa_id = $1
+      WHERE p.empresa_id = $1 AND ${chave[0]}
+      LIMIT 1`,
+    [empresaId, chave[1]]
+  )
+  return rows[0] ? rows[0].telefone : null
 }
 
 // Descarta a operacao (idempotente). Fecha a etapa ativa na MESMA transacao (preserva as

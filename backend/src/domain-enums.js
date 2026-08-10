@@ -114,9 +114,22 @@ const MOTIVO_PERDA = Object.freeze([
   'ja_tem_fornecedor', 'nao_percebeu_valor', 'sem_perfil', 'sem_interesse',
 ])
 
+// Fluxo integrado de Follow-ups (migration 062): a PROXIMA ACAO como entidade persistida.
+// Fonte das CHECKs follow_ups_{canal,status,prioridade,origem}_chk. As definicoes com
+// comentario vivem em src/services/follow-up-modelo.js (modulo PURO, dono do vocabulario);
+// aqui elas sao apenas REEXPORTADAS para o anti-drift ter um lugar so' para olhar — duplicar
+// os arrays criaria exatamente o drift que este arquivo existe para impedir.
+const {
+  FOLLOWUP_CANAL, FOLLOWUP_STATUS, FOLLOWUP_PRIORIDADE, FOLLOWUP_ORIGEM,
+} = require('./services/follow-up-modelo')
+
 module.exports = {
   AGENDA_VENDAS,
   AGENDA_APP,
+  FOLLOWUP_CANAL,
+  FOLLOWUP_STATUS,
+  FOLLOWUP_PRIORIDADE,
+  FOLLOWUP_ORIGEM,
   EVENTOS_COMERCIAIS_TIPOS,
   JOB_QUEUE_TIPOS,
   ROTEIRO_VERSAO_STATUS,

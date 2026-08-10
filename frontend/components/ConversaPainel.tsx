@@ -32,6 +32,8 @@ import { apiFetch } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { IconSend, IconStar, IconThumbDown, IconThumbUp } from '@/components/ui/icons'
 import { identidadeConversa } from '@/lib/lead-identidade'
+import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
+import { VARIANTES, O_QUE_MEDE, fatoresDeInteresse } from '@/lib/pontuacao-indicador'
 
 export type ScoreCriterio = {
   delta: number
@@ -107,11 +109,7 @@ const TEMP_STYLE: Record<string, { label: string; cls: string }> = {
   frio: { label: '❄️ Frio', cls: 'bg-sky-100 text-sky-700' },
 }
 
-const INTERESSE_STYLE: Record<string, { cls: string; text: string }> = {
-  alto: { cls: 'border-emerald-500 bg-emerald-50 text-emerald-700', text: 'Alto' },
-  medio: { cls: 'border-amber-500 bg-amber-50 text-amber-700', text: 'Medio' },
-  baixo: { cls: 'border-slate-400 bg-slate-50 text-slate-600', text: 'Baixo' },
-}
+const ROTULO_FAIXA_INTERESSE: Record<string, string> = { alto: 'alto', medio: 'medio', baixo: 'baixo' }
 
 export function scoreValue(score?: number | null) {
   return typeof score === 'number' && Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : null
@@ -122,29 +120,43 @@ export function TempBadge({ t }: { t?: string | null }) {
   return <span className={`px-2 py-0.5 rounded-full text-xs ${TEMP_STYLE[t].cls}`}>{TEMP_STYLE[t].label}</span>
 }
 
+/**
+ * Bolinha de INTERESSE COMERCIAL da conversa. Antes era um circulo inline com `title=` apenas:
+ * sem foco por teclado, sem `aria-label` e sem os criterios — que a API JA mandava em
+ * `score_interesse_criterios`. O resumo de uma linha escondia a informacao mais util da
+ * pontuacao: os deltas NEGATIVOS. "Interesse 38" e' muito diferente de "38 porque pediu preco e
+ * depois recusou", e so' o segundo diz o que fazer.
+ *
+ * Nenhum calculo aqui: score, faixa, rotulo e criterios vem prontos de
+ * `services/lead-interest-score.js`.
+ */
 export function InteresseBadge({ c, compact = false }: {
-  c: Pick<ConversaResumo, 'score_interesse' | 'score_interesse_faixa' | 'score_interesse_label' | 'score_interesse_resumo'>
+  c: Pick<ConversaResumo,
+    'score_interesse' | 'score_interesse_faixa' | 'score_interesse_label' | 'score_interesse_resumo'
+    | 'score_interesse_criterios' | 'score_interesse_mensagens_lead'>
   compact?: boolean
 }) {
   const score = scoreValue(c.score_interesse)
-  const faixa = c.score_interesse_faixa && INTERESSE_STYLE[c.score_interesse_faixa] ? c.score_interesse_faixa : 'baixo'
-  const st = INTERESSE_STYLE[faixa]
-  const label = c.score_interesse_label || `Interesse ${st.text.toLowerCase()}`
-  if (compact) {
-    return (
-      <span
-        title={`${label}${c.score_interesse_resumo ? ` - ${c.score_interesse_resumo}` : ''}`}
-        className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold ${st.cls}`}
-      >
-        {score ?? '--'}
-      </span>
-    )
-  }
+  const faixa = c.score_interesse_faixa || 'baixo'
+  const label = c.score_interesse_label || `Interesse ${ROTULO_FAIXA_INTERESSE[faixa] || 'baixo'}`
+  const msgs = c.score_interesse_mensagens_lead ?? 0
+  const bolinha = (
+    <BolinhaPontuacao
+      valor={score}
+      maximo={100}
+      faixa={faixa}
+      titulo={label}
+      oQueMede={O_QUE_MEDE.interesse_conversa}
+      fatores={fatoresDeInteresse(c.score_interesse_criterios)}
+      nota={msgs ? `${msgs} mensagem${msgs > 1 ? 's' : ''} do lead analisada${msgs > 1 ? 's' : ''}.` : undefined}
+      variante={VARIANTES.PRIORIDADE}
+      rotuloSemValor="Interesse ainda não calculado"
+    />
+  )
+  if (compact) return bolinha
   return (
     <div className="inline-flex min-w-0 items-center gap-2">
-      <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 text-sm font-bold ${st.cls}`}>
-        {score ?? '--'}
-      </span>
+      {bolinha}
       <div className="min-w-0">
         <div className="text-sm font-semibold text-gray-900">{label}</div>
         <div className="text-xs text-gray-500">{c.score_interesse_resumo || 'Sem resumo disponivel'}</div>
@@ -164,13 +176,21 @@ function criterioClasse(c: ScoreCriterio) {
   return 'bg-gray-50 text-gray-500 border-gray-200'
 }
 
-export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizou }: {
+export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizou, contextoOrigem }: {
   empresaId: string
   numero: string
   /** Destino do fechamento — a UNICA coisa que a origem de entrada pode mudar. */
   onFechar: () => void
   /** Avisa a tela de tras que algo mudou no servidor. Opcional. */
   onAtualizou?: () => void
+  /**
+   * Contexto do EVENTO que originou a abertura (ex.: o follow-up criado numa ligacao).
+   * Sao DADOS prontos, nunca uma requisicao: quem abre ja os tem, e o painel e o mesmo nas
+   * duas portas de entrada — buscar aqui obrigaria a Central de Mensagens (que nao e
+   * admin-only) a chamar uma rota admin-only e tomar 403.
+   * Apresentacao pura: nao muda dados, permissoes nem acoes disponiveis.
+   */
+  contextoOrigem?: { titulo: string; linhas: string[] } | null
 }) {
   const fb = useFeedback()
   const [aberta, setAberta] = useState<ConversaDetail | null>(null)
@@ -433,6 +453,16 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                     </span>
                   )}
                 </div>
+              </div>
+            )}
+            {contextoOrigem && contextoOrigem.linhas.length > 0 && (
+              <div className="min-w-[260px] rounded-lg border border-brand/30 bg-blue-50/60 px-3 py-2">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-brand">
+                  {contextoOrigem.titulo}
+                </div>
+                <ul className="space-y-0.5 text-xs text-slate-600">
+                  {contextoOrigem.linhas.map((linha, i) => <li key={i}>{linha}</li>)}
+                </ul>
               </div>
             )}
             {aberta?.ultima_falha_resposta_em && (

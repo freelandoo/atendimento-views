@@ -682,6 +682,146 @@
   `followups-fila.js` e falha se a regra de identidade for duplicada lá).
 - Nenhuma variável de ambiente nova, nenhuma rota nova, nenhuma migration.
 
+### Indicador de pontuação (a "bolinha") — componente ÚNICO, significado POR TELA
+- **Regra que governa o módulo:** o *componente* é único; a *pontuação* não é. A mesma bolinha
+  em duas telas nunca pode sugerir que 72 significa a mesma coisa nas duas.
+- **Defeito corrigido (o mais grave):** na Aquisição e no Banco de Leads a completude de
+  cadastro era pintada com a paleta de **prioridade comercial**
+  (`score_cadastro <= 40 ? text-red-600 : … text-emerald-600`). As duas pontuações andam em
+  **direções opostas** sobre o mesmo lead — site próprio **derruba** a prioridade
+  (peso 0 em `ligacao-prioridade.js`) e **soma 20** na completude —, e a própria tela ordena por
+  `pontos ASC`. Resultado: **o melhor lead da campanha aparecia em vermelho**. **PROIBIDO**
+  reintroduzir cor de prioridade para completude; há guarda de regressão que lê o fonte das
+  duas telas (`lib/pontuacao-indicador.test.js`).
+- **Defeito corrigido (acessibilidade):** existiam **três** implementações da bolinha. Só a da
+  Central de Ligações tinha foco por teclado, `aria-label` e tooltip em portal; a da Central de
+  Mensagens tinha a geometria idêntica com `title=` apenas e **escondia os `criterios[]` que a
+  API já mandava**. A unificação subiu a mais fraca para o nível da mais forte — **nunca o
+  contrário**.
+- **Duas variantes semânticas, e elas não compartilham cores de propósito:**
+  `prioridade_comercial` (emerald = melhor; Central de Ligações e Central de Mensagens) e
+  `completude_cadastro` (**paleta neutra**, mais escuro = mais preenchido; Aquisição e Banco de
+  Leads). Cor nunca é o único sinal: número no círculo, rótulo em texto e o resumo inteiro no
+  `aria-label`.
+- **Contrato do componente** (`frontend/components/ui/BolinhaPontuacao.tsx`): `oQueMede` é
+  **obrigatório** — é a única coisa que impede duas telas de parecerem medir a mesma coisa.
+  `maximo` também é obrigatório e sempre exibido (`40/100`, `30/60`): **cadastro de Instagram
+  vale até 60**, e "30" sozinho mentiria. `valor: null` é estado de primeira classe (bolinha
+  vazada, "não calculada") — **nunca `0`**. Tooltip em **portal no `<body>`** posicionado pelo
+  rect da âncora (dentro das tabelas, `overflow-hidden` cortava a versão `absolute`), somente
+  leitura, fecha em `blur`/`Escape`/scroll/resize. Nunca renderiza JSON, id, UUID, `place_id`
+  ou telefone.
+- **A regra de pontuação NÃO vive no front.** Pesos, faixas e critérios são calculados no
+  backend (`services/ligacao-prioridade.js`, `lead-interest-score.js`,
+  `lead-score-cadastro.js`) e o front só **traduz o veredito**, como `lib/site-rotulos.js`.
+  A tradução pura é `frontend/lib/pontuacao-indicador.js` (+ `.d.ts`/`.test.js`).
+- **"Cadastro incompleto", nunca "pontuação baixa".** `leituraCadastro` rotula
+  completo/parcial/incompleto com a contagem de lacunas, e os cortes são **proporcionais ao
+  máximo** (70%/40%) para 30/60 ler igual a 50/100. O rodapé fixo do balão ("cadastro fraco
+  costuma ser a melhor oportunidade") é o que impede a bolinha de mentir.
+- **Tabelas reduzidas** (Aquisição 14 → 9 colunas; Banco de Leads com padrão enxuto). **Nada
+  saiu sem destino:** avaliação, nota, horário e endereço viraram critério no tooltip + valor em
+  **"Detalhes"** (`frontend/components/LeadDetalhesModal.tsx`); o **JSON cru deixou de ser
+  coluna** e virou botão "Ver dados completos" dentro dos Detalhes — `JsonLeadModal` **continua
+  existindo**, porque carrega o *prompt unificado*, que é ferramenta de trabalho.
+- **O emoji de temperatura saiu da Aquisição.** Vinha de `prospects.score`, **congelado na
+  coleta** e explicado por texto livre (`motivo_score`) de outra régua: eram duas pontuações na
+  mesma linha, com escalas e direções opostas, sem a tela dizer que eram duas. `p.score`
+  continua no payload e no banco.
+- **A ordenação do servidor não foi perdida com as colunas.** `ORDEM_SQL_PROSPECTS` está
+  intacto; a Aquisição ganhou um seletor "Ordenar por" com as ordens cujo cabeçalho saiu
+  (avaliações, nota, horário, endereço). Reduzir a tabela não pode remover em silêncio a
+  capacidade de varrer a carteira inteira por esses campos.
+- **`localStorage` do Banco de Leads migrado de forma compatível:** `bancoLeadsView` ganhou
+  `versao`. Na migração v1→v2 **filtros e ordenação são preservados integralmente** (são
+  trabalho do operador) e só o conjunto de **colunas** passa a ser o novo padrão — layout, que
+  volta em um clique no "⚙ Personalizar".
+- **PROIBIDO** criar um segundo círculo de pontuação inline numa tela. Foi a duplicação em três
+  telas que produziu paleta divergente e acessibilidade desigual; há guarda de regressão que lê
+  o fonte das 5 telas e falha com a mensagem apontando o componente.
+- **Fora de escopo declarado:** a bolinha de **Follow-ups** (`red = alta`, semântica de
+  urgência) **não foi tocada** — padronizá-la com `emerald = melhor` é decisão de produto ainda
+  em aberto, registrada em `docs/analise-indicador-pontuacao.md` §7.3. E **não existe** pontuação
+  de "potencial de abordagem" no Banco de Leads: não há fonte fora de campanha, e criá-la seria
+  inventar régua.
+- Testes: `frontend/lib/pontuacao-indicador.test.js`. Nenhuma variável de ambiente nova,
+  nenhuma rota, nenhuma migration, nenhum arquivo de backend alterado.
+
+### Follow-up como ENTIDADE — o fluxo integrado Ligações ↔ Follow-ups ↔ Mensagens
+- **Gatilho formal:** `docs/PENDENCIA_ARQUITETURAL_CENTRAL_LIGACOES_E_MENSAGENS.md` congelava
+  esta integração e mandava revisar a arquitetura **antes de gerar código**. A revisão foi
+  feita e as quatro decisões estruturais foram aprovadas pelo operador (registradas em
+  `docs/ai-decision-log.md`). **A pendência continua valendo para o que não foi feito aqui**:
+  `vendas.conversas.numero` segue `UNIQUE` **GLOBAL** e a normalização de telefone segue
+  espalhada — nada disso foi unificado.
+- **Defeito corrigido:** **não existia a entidade "Follow-up"**. A fila era DERIVADA a cada
+  request de duas fontes que não se conhecem — `montarCallList`
+  (`services/followup-listing.js`, recomendação heurística, **nada persistido**) e
+  `vendas.followup_auto_agendamentos` (agenda do motor de IA). Nenhuma das duas tem canal,
+  responsável, origem ou status editável, então **"concluir", "reagendar" e "cancelar" não
+  tinham onde ser gravados** (um item sumia da fila por efeito colateral do dedup de 12h em
+  `CALLLIST_DEDUP_HORAS`). Em paralelo, a próxima ação decidida ao encerrar uma ligação era
+  texto livre em `app.campanha_leads.proxima_acao` + `data_followup` (DATE, **sem hora**), e
+  **nenhuma linha da Central de Follow-ups lia aquela tabela** — a decisão tomada na ligação
+  era invisível para a fila.
+- **Schema:** migration `062_follow_ups.sql` → `app.follow_ups`. **Aditiva**: não muta, não
+  apaga e não move nenhum dado; `app.campanha_leads` continua intacta **e continua sendo
+  escrita** por `encerrarLigacao` (é dela que vivem a aba Acompanhamento da campanha e o
+  filtro "com/sem próxima ação" da fila de ligações). Quando há follow-up, ele é a FONTE do
+  resumo gravado lá — as duas telas não podem divergir sobre o que foi combinado.
+- **IDENTIDADE DO CONTATO = `empresa_id` + `telefone_digitos`, resolvida na LEITURA.** Os dois
+  mundos têm chaves incompatíveis (Ligações: `prospectador.prospects.id`; Mensagens:
+  `vendas.conversas.numero`). **PROIBIDO** criar FK para `vendas.conversas`: aquele `numero` é
+  `UNIQUE` **GLOBAL** (`init.sql:6`) — a FK exigiria que a conversa já existisse **e ainda
+  assim não provaria mesma empresa**. `conversa_numero` existe só como **cache** de
+  conveniência. Guarda de regressão em `test/follow-up-modelo.test.js` falha se um
+  `REFERENCES vendas.conversas` aparecer na migration.
+- **ANTIDUPLICIDADE no banco, não na aplicação:** índice único PARCIAL
+  `follow_ups_um_aberto_por_canal_uk (empresa_id, telefone_digitos, canal) WHERE status =
+  'aguardando'`. **Por canal, e não por contato**, de propósito: "ligar na sexta" e "mandar
+  mensagem amanhã" são dois trabalhos, feitos em duas telas — juntá-los esconderia um dos dois.
+  O `ON CONFLICT` faz **DO UPDATE**, com regra explícita: **a decisão mais recente vence** —
+  quem acabou de falar com o cliente sabe mais que o agendamento anterior.
+- **O follow-up da ligação nasce DENTRO da transação do encerramento** (`db/ligacoes.js` →
+  `criarFollowUp(client, …)`). Fora dela, sobreviveria a um rollback e mandaria o operador agir
+  sobre uma ligação que não existe. Por isso `POST /follow-ups/itens` **recusa `origem:
+  'ligacao'`** (`ORIGENS_DA_ROTA = {manual, mensagem}`) — **não afrouxe isso**.
+- **Precedência declarada na fila:** `follow-up registrado > recomendação do call score >
+  agendamento do motor`. Uma decisão de uma PESSOA vence uma recomendação CALCULADA. Quando o
+  contato já tem follow-up em aberto, a recomendação heurística **não vira segunda linha**:
+  vira o "por que agora" daquele item. As três fontes **convivem** — nada do que funcionava foi
+  desligado.
+- **`aguardando` ≠ `aberto`:** follow-up com prazo no FUTURO fica "aguardando"; com prazo
+  vencido/hoje vira trabalho "aberto". Sem isso, um compromisso do mês que vem disputaria o
+  topo da fila com o trabalho de hoje. **Falha NUNCA é "aguardando"** (mesma regra que a fila
+  já aplicava).
+- **Canal, responsável e origem só existem onde alguém escolheu.** Item derivado não recebe
+  canal presumido — os filtros por canal/responsável/origem simplesmente não o alcançam, e a
+  célula diz "—" em vez de inventar. Mesma disciplina de "prioridade não calculada".
+- **Responsável é OPCIONAL** (`responsavel_id` NULL = "não atribuído", estado legítimo e
+  filtrável). Validado contra `app.usuarios_empresas` **da própria empresa**; atribuir dono
+  nunca é pré-requisito para registrar uma ligação que já aconteceu.
+- **Roteamento:** `whatsapp` → executa na **Central de Mensagens** (abre `ConversaPainel`, com
+  `contextoOrigem` — DADOS prontos, nunca uma requisição: o painel é o mesmo da Central de
+  Mensagens, que **não** é admin-only e tomaria 403 numa rota de follow-ups). `ligacao` →
+  executa na **Central de Ligações**, via `?campanha=&lead=` (mesmo padrão de `location.search`
+  + `history.replaceState` da Aquisição; **sem** `useSearchParams`). **A Central de Ligações
+  não vira fila de mensagens**: ela mostra só o RESUMO + link.
+- **Linha do tempo do contato** (`GET /contatos/:telefone/historico`): ligações encerradas,
+  ligações registradas e o ciclo de vida dos follow-ups. **NÃO devolve texto de mensagem** — as
+  mensagens são do painel de conversa, que já mostra o histórico inteiro; repeti-las criaria
+  duas fontes que divergem. Guarda de regressão no teste.
+- Código: regras PURAS em `src/services/follow-up-modelo.js` (dono do vocabulário; reexportado
+  por `domain-enums.js`, **não copiado**), SQL em `src/db/follow-ups.js`, criação transacional
+  em `src/db/ligacoes.js`, rotas em `src/routes/api-follow-ups.js` (`/itens`, `/itens/:id/status`,
+  `/itens/:id/reagendar`, `/responsaveis`, `/contatos/:telefone/historico` — admin-only pelo
+  mount + `requireEmpresaAccess`; toda escrita vira linha em `app.auditoria_eventos`). Front:
+  `frontend/lib/follow-up-acao.js` (+ `.d.ts`/`.test.js`) é o dono do vocabulário de
+  apresentação e `followups-fila.js` apenas o **reexporta** (padrão de `paginacao.js` /
+  `lead-identidade.js`). Testes: `test/follow-up-modelo.test.js`,
+  `frontend/lib/follow-up-acao.test.js`.
+- **Nenhuma variável de ambiente nova.**
+
 ### Roteiros — ciclo de vida do ROTEIRO (arquivar) ≠ ciclo de vida da VERSÃO
 - **Dois ciclos de vida convivem na tela `/dashboard/roteiros`, e confundi-los é o erro fácil
   deste módulo.** `app.roteiro_versoes.status` (`rascunho|publicada|arquivada`) descreve **uma

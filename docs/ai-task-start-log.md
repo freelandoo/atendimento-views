@@ -6,6 +6,168 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-08 - Inicio de tarefa IA - Fluxo integrado de Follow-ups (Ligacoes <-> Follow-ups <-> Mensagens)
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Fluxo integrado em que **encerrar uma ligacao cria uma proxima acao**
+  (canal WhatsApp **ou** nova ligacao) com data/hora, prioridade, responsavel, status, origem e
+  historico preservados; a **Central de Ligacoes** so mostra o RESUMO + link da proxima acao; a
+  **Central de Follow-ups** e' a fila operacional unica (filtros por canal/status/prioridade/
+  origem/responsavel/periodo, paginacao e contexto preservados); a **Central de Mensagens**
+  executa o item de WhatsApp reusando o painel de conversa ja existente. Mais: historico
+  unificado por contato e estados `aguardando | proxima_acao | concluido | cancelado | falha`.
+- **E projeto/tarefa de alteracao?** Sim, e **ESTRUTURAL**. Cai em todos os gatilhos de
+  confirmacao do CLAUDE.md (schema/banco, muitos arquivos, regra de negocio nova, rotas novas).
+- **GATILHO FORMAL DISPARADO — `docs/PENDENCIA_ARQUITETURAL_CENTRAL_LIGACOES_E_MENSAGENS.md`:**
+  aquele documento congela EXATAMENTE esta integracao e instrui, textualmente: *"Quando o projeto
+  entrar na fase de integracao entre Ligacoes e Mensagens, **interrompa a implementacao
+  inicialmente** e recupere esta documentacao para revisar toda a arquitetura antes de gerar
+  codigo."* O checklist dele (identidade canonica, multi-tenant, normalizacao de telefones,
+  contrato Ligacoes <-> Mensagens) e' pre-requisito declarado. Por isso esta entrada registra
+  **descoberta + proposta de arquitetura**, sem codigo.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/PENDENCIA_ARQUITETURAL_CENTRAL_LIGACOES_E_MENSAGENS.md: Sim |
+  docs/ui-visual-standard.md: a consultar na Fase 5 | docs/ai-decision-log.md: a registrar na Fase 8.
+- **Fatos confirmados no codigo HOJE (nao sao hipotese):**
+  1. **NAO EXISTE a entidade "Follow-up".** A fila de `/dashboard/follow-ups` e' **derivada em
+     tempo de request** de duas fontes que nao se conhecem: `montarCallList`
+     (`services/followup-listing.js:148`, recalcula a recomendacao a cada GET, **nada e'
+     persistido**) e `listarAgendamentosAuto` (`:29`, le `vendas.followup_auto_agendamentos`, a
+     agenda do motor de IA). Nenhuma das duas tem **canal**, **responsavel**, **origem** ou
+     **status editavel pelo operador**.
+  2. **"Proxima acao" ja existe — mas no OUTRO mundo e sem estrutura.**
+     `POST /ligacoes/:id/encerrar` (`routes/api-ligacoes.js:77`) ja aceita `proxima_acao` e
+     `data_followup`, e `db/ligacoes.js:250-264` os grava em **`app.campanha_leads`**
+     (`proxima_acao` TEXTO LIVRE, `data_followup` TIMESTAMPTZ, `responsavel_id` UUID, `status`
+     de oportunidade). No front isso e' um `<input placeholder="Proxima acao">` +
+     `<input type="date">` (`central-ligacoes/page.tsx:1466-1469`). **Nenhuma linha de codigo da
+     Central de Follow-ups le `app.campanha_leads`** — a proxima acao criada na ligacao e' hoje
+     invisivel para a fila.
+  3. **Os dois mundos tem CHAVES DIFERENTES e nao ha identidade canonica.** Ligacoes:
+     `prospectador.prospects.id` / `app.campanha_leads.id` (telefone em formato livre).
+     Mensagens/Follow-ups: `vendas.conversas.numero`, o JID `…@s.whatsapp.net`, com
+     **`UNIQUE` GLOBAL** (`sql/init.sql:6`) — nao e' `UNIQUE (empresa_id, numero)`. E' o item 1
+     do checklist da pendencia congelada, e e' o que impede casar os dois lados por FK.
+  4. **Um lead so' de ligacao pode NAO TER conversa.** `montarCallList` exige
+     `jsonb_array_length(c.historico) > 0`; prospect que nunca trocou WhatsApp nao tem linha em
+     `vendas.conversas`. O caminho autorizado de criar uma ja existe e e' `POST
+     /follow-ups/manual/iniciar` (`services/followup-manual.js`), que nasce com
+     `agente_pausado = true`, usa `ON CONFLICT DO NOTHING` (nunca `DO UPDATE`, por causa do
+     UNIQUE global), **recusa com 409** numero de outra empresa e audita a origem em
+     `app.auditoria_eventos`.
+  5. **"Concluir / reagendar / cancelar" nao tem onde ser gravado.** Hoje um item humano some da
+     fila por EFEITO COLATERAL: `montarCallList` filtra `NOT EXISTS (followup_ligacoes … ultimas
+     12h)` (`CALLLIST_DEDUP_HORAS`). Nao ha status, nao ha conclusao, nao ha reagendamento.
+  6. **Prioridade so' existe de um lado.** `services/followup-call-score.js` pontua o item humano
+     (0-100 + temperatura + `janela_quando`); o item do automatico **nao tem** call score e a tela
+     ja diz "prioridade nao calculada" (`lib/followups-fila.js:285-288`). `ligacao-prioridade.js`
+     pontua a fila da campanha, com OUTRA escala e outro significado.
+  7. **Responsavel nao existe no item da fila** — e ja esta declarado como lacuna no AGENTS.md.
+     `app.campanha_leads.responsavel_id` existe mas nunca e' escrito por nenhuma rota;
+     `vendas.followup_ligacoes.usuario_id` so' registra quem ja ligou (fato passado).
+  8. **O painel de conversa unico JA FOI ENTREGUE** no commit `38befc4`:
+     `components/ConversaPainel.tsx` e o mesmo em `/dashboard/conversas` e em
+     `/dashboard/follow-ups` (`follow-ups/page.tsx:424`). O requisito
+     `fluxo_central_de_mensagens.requisito` do pedido **ja esta cumprido**; falta so' passar o
+     CONTEXTO da ligacao de origem.
+  9. **Isolamento por empresa esta OK nos tres pontos de entrada:** `/follow-ups` e `/ligacoes`
+     sao `requireAuth + requireRole('admin')` no mount (`index.js:107,111`) + `requireEmpresaAccess`
+     por rota; `db/ligacoes.js` e `db/campanhas.js` filtram `empresa_id` e usam
+     `assertMesmaEmpresa`. **Ressalva herdada:** `api-conversas.js:18` mantem o fallback da PJ
+     (`c.empresa_id IS NULL`), que nao foi criado por esta tarefa.
+- **Conclusao da descoberta (respondendo ao `descoberta_obrigatoria` do pedido):** dos 9 campos
+  minimos do modelo pedido, **existem hoje** apenas *proxima acao* (texto livre), *data* (sem
+  hora) e *status de oportunidade* — e apenas dentro de `app.campanha_leads`, sem alcance da fila.
+  **Nao existem:** canal, prioridade do follow-up, responsavel efetivo, status do follow-up,
+  origem, referencia ao contato/conversa e referencia ao evento de origem. Portanto **o pedido
+  nao pode ser cumprido sem entidade persistida nova (migration)** — o que o proprio pedido
+  condicionou a "confirmar que os dados necessarios nao existem". Confirmado que nao existem.
+- **Decisoes levadas ao Victor ANTES da Fase 3 (nao decidi sozinho):** (a) criar ou nao
+  `app.follow_ups` como entidade unica; (b) qual e' a identidade canonica do contato que liga os
+  dois mundos; (c) o que fazer com as duas fontes derivadas atuais (call-list e agendamentos do
+  motor) quando a entidade existir; (d) de onde sai a lista de responsaveis.
+- **Fora de escopo declarado (pelo proprio pedido):** credenciais, env, Meta, Evolution e
+  integracoes externas; disparo real de mensagem ou chamada em desenvolvimento/validacao;
+  segunda tela de conversa; transformar a Central de Ligacoes em fila de WhatsApp; logs globais,
+  automacoes e telemetria fora deste fluxo.
+- **Nenhum arquivo de codigo foi alterado nesta etapa.**
+
+---
+
+## 2026-08-08 - Inicio de tarefa IA - ANALISE (sem implementacao): indicador reusavel de pontuacao (bolinha + explicacao)
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Analisar onde um indicador visual reusavel de pontuacao — bolinha com
+  explicacao ao foco/clique/hover — pode ser aplicado, em 4 areas: **Central de Ligacoes**
+  (referencia visual ja existente), **Central de Mensagens** (interesse comercial da conversa),
+  **Aquisicao** (resumir colunas) e **Banco de Leads** (priorizacao). Componente unico e
+  consistente; SIGNIFICADO da pontuacao contextual por pagina. Entregar mapa das areas, tabela
+  de decisao (aplicar agora / depois / nao aplicar), colunas que podem sair e para onde vao,
+  contrato reusavel do componente, lacunas de dados e evidencias de leitura de codigo.
+- **E projeto/tarefa de alteracao?** **Nao nesta etapa** — o proprio pedido poe em
+  `fora_de_escopo`: "Implementar o componente ou alterar paginas nesta etapa", "Criar pontuacao
+  em outras areas", "Modificar regras comerciais, automacoes, dados de producao ou integracoes".
+  Registro assim mesmo porque a analise PRECEDE um projeto de alteracao de UI em 4 telas e
+  produz o desenho que sera implementado depois. **Nenhum arquivo de codigo foi alterado.**
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/ui-visual-standard.md: Sim (Fase 5 — o pedido e' 100% de interface) |
+  docs/ai-decision-log.md: a registrar SE e quando houver implementacao.
+- **Fatos confirmados no codigo HOJE (nao sao hipotese):**
+  1. **A bolinha ja existe DUAS vezes, com a MESMA geometria e implementacoes diferentes.**
+     `central-ligacoes/page.tsx:198` (`CirculoPrioridade`, `h-9 w-9 rounded-full border-2`,
+     tooltip em portal no `<body>`, fecha em scroll/resize, `tabIndex=0` + `aria-label`) e
+     `components/ConversaPainel.tsx:125` (`InteresseBadge compact`, `h-9 w-9 rounded-full
+     border-2`, **so' `title=`**, sem foco por teclado e sem os criterios). Uma TERCEIRA
+     variante, menor e sem numero, esta em `follow-ups/page.tsx:527` (`h-2.5 w-2.5`, cor +
+     `aria-label` de `descricaoPrioridade`).
+  2. **As paletas de faixa ja divergem entre as duas.** Ligacoes: `alta=emerald / media=amber /
+     baixa=slate` (`FAIXA_CLS`, page.tsx:173). Mensagens: `alto=emerald / medio=amber /
+     baixo=slate` (`INTERESSE_STYLE`, ConversaPainel.tsx:110) — coincidem. Follow-ups:
+     `alta=red / media=amber / baixa=sky` (`PRIORIDADE_DOT`, page.tsx:76) — **conflita**: o
+     vermelho ali significa "mais urgente", e nas outras duas significaria "pior".
+  3. **Os quatro scores do produto sao MESMO diferentes, e nenhum e' substituivel pelo outro:**
+     `ligacao-prioridade.calcularPrioridade` (0-100, "quanto vale LIGAR agora nesta campanha";
+     site ausente vale 40) · `lead-interest-score.calcularScoreInteresseLead` (0-100, sinal de
+     compra lido do TEXTO das mensagens do lead; tem deltas negativos) ·
+     `lead-score-cadastro.calcularScoreCadastroPlaces` (0-100 de COMPLETUDE do cadastro, o
+     "Pontos" das tabelas; Instagram e' 0-60) · `prospecting.calcularScoreProspect` (0-100,
+     `prospects.score`, o emoji de temperatura da Aquisicao). **Cadastro alto e' oportunidade
+     BAIXA** — a Aquisicao ja ordena por `pontos ASC` por causa disso (`prospeccao/page.tsx:166`).
+  4. **Explicacao auditavel ja existe em todos os quatro:** `prioridade.motivos[]`,
+     `score_interesse_criterios[]` (com `delta`/`titulo`/`detalhe`/`tipo`),
+     `score_cadastro_criterios[]` (a rota de prospects ja devolve — `prospecting.js:1422`) e
+     `pontuacao.criterios` dentro de `json_apresentacao` (Banco de Leads,
+     `api-banco-leads.js:179`). **Nenhuma regra de pontuacao nova precisa ser inventada.**
+  5. **A Aquisicao exibe HOJE duas pontuacoes na mesma linha sem dizer que sao duas:** o emoji
+     de temperatura de `p.score` (`page.tsx:494`) e a coluna "Pontos" de `p.score_cadastro`
+     (`:521`). Sao escalas com sentidos opostos.
+  6. **JSON bruto esta na tabela operacional:** coluna "JSON" com `{ }` abrindo
+     `JsonLeadModal`, que renderiza `JSON.stringify(json, null, 2)` — na Aquisicao
+     (`prospeccao/page.tsx:482,530`) e no Banco de Leads (`banco-leads/page.tsx`, colunas fixas).
+  7. **Banco de Leads NAO tem prioridade comercial calculada.** A rota devolve `score`,
+     `score_cadastro` e `situacao_site`, mas `montarFilaPriorizada` so' e' chamada em
+     `db/campanhas.js:254` (fila de ligacoes). Aplicar a bolinha de PRIORIDADE ali exige
+     decidir se a mesma funcao passa a valer fora de campanha.
+  8. **Central de Mensagens esta em refatoracao NAO COMMITADA** neste working tree:
+     `components/ConversaPainel.tsx` e `lib/lead-identidade.js` sao arquivos novos (untracked) e
+     `conversas/page.tsx` esta modificado. Qualquer proposta para essa tela tem de partir do
+     estado novo, nao do commitado.
+  9. **Nao existe componente de tooltip/popover compartilhado** em `frontend/components/ui/`
+     (ha `Abas`, `ModalConfirmar`, `StatusPill`, `DataTableFrame`, `JsonLeadModal`, `icons`).
+     O unico tooltip acessivel e posicionado do projeto e' o inline da Central de Ligacoes.
+  10. **Isolamento por empresa esta OK em todas as fontes** (`requireAuth` +
+      `requireEmpresaAccess` nas 4 rotas). Ressalva: `api-conversas.js:18` mantem o fallback da
+      PJ (`$1::uuid = $2::uuid AND c.empresa_id IS NULL`) — nao e' criado por esta analise, mas
+      e' o universo de onde o score de interesse sairia.
+- **Padrao de modulo PURO a reusar (nao inventar outro):** `lib/site-rotulos.js`,
+  `lib/followups-fila.js`, `lib/pendencias-instancia.js` e `lib/roteiros-lista.js` — o front
+  TRADUZ o veredito do backend e nunca recalcula a regra.
+- **Nada foi alterado:** entrega e' analise escrita. Se aprovada, a implementacao exige nova
+  passada pelas Fases 3-11 (e Fase 5 obrigatoria: o item 2 acima e' uma divergencia visual real
+  entre telas que ja existem).
+
+---
+
 ## 2026-08-08 - Inicio de tarefa IA - Roteiros: selecao, ciclo de vida visivel, arquivados e exclusao protegida
 
 - **IA/Ferramenta:** Claude Code (Opus 5)
@@ -1692,3 +1854,20 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Achado da validacao (divergencia CONFIRMADA):** os dois pontos de entrada NAO compartilham painel. Historico usa um painel completo (abas Conversa/Interesses, prioridade comercial, feedback por mensagem, compositor do operador, orientar resposta, pausar/retomar agente, reenviar WhatsApp, deletar historico); Follow-ups usa `ConversaHistoricoModal`, que so LE o historico e nao oferece nenhuma acao. Mesmo endpoint (`GET /conversas/:numero`) e mesmas permissoes nos dois caminhos — a divergencia e 100% de apresentacao.
 - **Fora de escopo declarado:** backend inteiro; Banco de Leads (segue com `ConversaHistoricoModal`, cujas props de gerar/enviar saudacao pertencem ao "Rodar leads", nao a este painel); regras de envio, cadencia e conteudo de mensagem; exclusao destrutiva alem da ja existente.
 - **Proxima etapa:** Extrair o painel do Historico para `frontend/components/ConversaPainel.tsx` (auto-carregado por `numero`, com token de requisicao, estado de carregando e erro com "Tentar de novo"), extrair a identidade humana do lead para `frontend/lib/lead-identidade.js` (reexportada por `followups-fila.js`, sem duplicar regra) e consumir o painel nas DUAS telas. Validar com `npm test` + `npm run typecheck` no frontend e `npm test` no backend.
+
+---
+
+## 2026-08-08 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** CONSOLIDAR o indicador visual de pontuacao (a "bolinha") num componente unico, reutilizavel e acessivel, preservando o SIGNIFICADO por pagina; e REDUZIR as colunas operacionais das tabelas de Aquisicao e Banco de Leads sem perder acesso aos dados. Escopo: Central de Ligacoes, Central de Mensagens, Aquisicao, Banco de Leads.
+- **E projeto/tarefa de alteracao?** Sim, escopo APRESENTACAO no frontend. Nenhuma rota, schema, migration, prompt, permissao, regra de negocio ou variavel de ambiente muda. Backend NAO foi tocado (nem um arquivo).
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/ui-visual-standard.md, docs/analise-indicador-pontuacao.md: Sim.
+- **Base:** a analise previa (`docs/analise-indicador-pontuacao.md`, 2026-08-08) ja mapeara as 3 implementacoes divergentes da bolinha, as 4 pontuacoes do produto e as colunas das duas tabelas. Esta tarefa IMPLEMENTA aquela analise.
+- **Decisoes de negocio que estavam pendentes na analise e vieram RESOLVIDAS no pedido:** (7.1) NAO criar potencial de abordagem sem fonte -> nao criado; (7.2) manter a direcao numerica de "Pontos" e usar paleta NEUTRA -> feito; (7.4) remover o emoji de temperatura da Aquisicao -> autorizado e feito; (7.5) tirar o JSON cru da tabela preservando o modal -> autorizado e feito. (7.3) paleta de Follow-ups continua pendente: a tela esta FORA do escopo declarado.
+- **Areas alteradas:** `frontend/lib/pontuacao-indicador.js` (+ `.d.ts`/`.test.js`, modulo PURO novo), `frontend/components/ui/BolinhaPontuacao.tsx` (novo), `frontend/components/LeadDetalhesModal.tsx` (novo), `frontend/components/ui/JsonLeadModal.tsx` (tipo `criterios` declarado, aditivo), `frontend/components/ConversaPainel.tsx`, `frontend/app/dashboard/central-ligacoes/page.tsx`, `frontend/app/dashboard/prospeccao/page.tsx`, `frontend/app/dashboard/banco-leads/page.tsx`.
+- **Achado que mudou o desenho:** na Aquisicao e no Banco de Leads a bolinha pintava COMPLETUDE DE CADASTRO com a paleta de PRIORIDADE COMERCIAL (`<=40 vermelho ... >70 esmeralda`). As duas pontuacoes andam em direcoes OPOSTAS — a propria tela ordena por `pontos ASC`. Ou seja, o melhor lead da campanha aparecia em vermelho. Corrigido com uma variante semantica de paleta NEUTRA, nao reusando a de prioridade.
+- **Mutacao de dado do operador declarada:** a view do Banco de Leads no `localStorage` (`bancoLeadsView`) ganhou `versao`. Na migracao v1->v2 os FILTROS e a ORDENACAO sao preservados integralmente e apenas o conjunto de COLUNAS passa a ser o novo padrao enxuto (reversivel em um clique no "Personalizar").
+- **Fora de escopo declarado:** backend inteiro; Follow-ups; criacao de qualquer pontuacao nova; automacoes, campanhas, credenciais e integracoes externas.
+- **Validacao:** `npm test` backend 1410/1410, `npm run typecheck` backend OK, `npm test` frontend 229/229 (19 novos), `npm run typecheck` frontend OK, e as 4 rotas alteradas compilaram e responderam 200 no dev server.
+- **Pendencia declarada:** revisao VISUAL em navegador (desktop + rolagem horizontal + leitor de tela) nao foi executada por mim — nao tenho ferramenta de browser nesta sessao. Precisa do operador em `localhost:3001`.

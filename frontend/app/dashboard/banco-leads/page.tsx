@@ -4,7 +4,8 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import { apiFetch, apiDownload, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
-import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
+import { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
+import LeadDetalhesModal, { BolinhaCadastro } from '@/components/LeadDetalhesModal'
 import ConversaHistoricoModal from '@/components/ConversaHistoricoModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import { rotuloLink, tituloLinkNaoSite } from '@/lib/site-rotulos'
@@ -298,6 +299,7 @@ function ordenarLeads(lista: Lead[], ordem: Ordem, previsoes?: Map<string, Previ
 // ─── Personalização da listagem (filtros/ordenação/colunas) ────────────────────
 type Filtro3 = 'todos' | 'com' | 'sem'
 type ViewConfig = {
+  versao?: number
   cols: Record<string, boolean>
   site: Filtro3; email: Filtro3; telefone: Filtro3
   envio: 'todos' | 'possivel' | 'impossivel'
@@ -345,12 +347,35 @@ const ORDENACOES: { valor: string; label: string }[] = [
   { valor: 'contato_asc', label: 'Último contato (mais antigo)' },
 ]
 
+// Visualização PADRÃO enxuta: nome, contato, operação (envio/status), mercado, site e a
+// completude do cadastro. Avaliações, nota, horário, endereço e links entram desligados —
+// continuam a um clique em "⚙ Personalizar", e os valores estão em "Detalhes" e no tooltip da
+// bolinha. Trocar o padrão (em vez de remover a coluna do código) mantém a mudança reversível
+// pelo próprio operador.
+const COLUNAS_PADRAO_DESLIGADAS = new Set(['aval', 'nota', 'horario', 'endereco', 'links'])
+
 const VIEW_PADRAO: ViewConfig = {
-  cols: Object.fromEntries(COLUNAS_TOGGLE.map((c) => [c.key, true])),
+  cols: Object.fromEntries(COLUNAS_TOGGLE.map((c) => [c.key, !COLUNAS_PADRAO_DESLIGADAS.has(c.key)])),
   site: 'todos', email: 'todos', telefone: 'todos', envio: 'todos',
   msgGerada: 'todos', disparo: 'todos', agendamento: 'todos',
   regiao: '', scoreMin: '', scoreMax: '', notaMin: '', notaMax: '',
   avalMin: '', avalMax: '', dataDe: '', dataAte: '', ordenacao: 'padrao',
+}
+
+// Versão da view salva no localStorage. A v1 gravava TODAS as colunas ligadas (era o padrão
+// da época), então um merge simples com o novo padrão faria todo operador existente continuar
+// vendo a tabela larga — a redução não chegaria a ninguém. A migração aplica o novo conjunto
+// de colunas UMA vez e **preserva todos os filtros e a ordenação**, que são trabalho do
+// operador; coluna é layout e volta em um clique.
+const VIEW_VERSAO = 2
+const CHAVE_VIEW = 'bancoLeadsView'
+
+function migrarView(salvo: Partial<ViewConfig> & { versao?: number }): ViewConfig {
+  const base = { ...VIEW_PADRAO, ...salvo }
+  const cols = salvo.versao === VIEW_VERSAO
+    ? { ...VIEW_PADRAO.cols, ...(salvo.cols || {}) }
+    : VIEW_PADRAO.cols
+  return { ...base, cols }
 }
 
 function numOuNull(s: string): number | null {
@@ -493,7 +518,9 @@ export default function BancoLeadsPage() {
   // Places = menos pontos no topo; Instagram = mais seguidores no topo.
   const [ordemPlaces, setOrdemPlaces] = useState<Ordem>({ chave: 'pontos', dir: 'asc' })
   const [ordemIg, setOrdemIg] = useState<Ordem>({ chave: 'seguidores', dir: 'desc' })
-  const [jsonAberto, setJsonAberto] = useState<{ titulo: string; json: JsonApresLead } | null>(null)
+  // Detalhes do lead: destino dos campos que saíram das colunas padrão e do JSON, que deixou
+  // de ocupar uma coluna da tela de trabalho.
+  const [detalheAberto, setDetalheAberto] = useState<Lead | null>(null)
   const [conversaAberta, setConversaAberta] = useState<{ numero: string; titulo: string; leadId: string; mensagemGerada: string | null; rodavel: boolean; status: string } | null>(null)
   const [enviandoConversa, setEnviandoConversa] = useState(false)
   const [gerandoConversa, setGerandoConversa] = useState(false)
@@ -665,12 +692,12 @@ export default function BancoLeadsPage() {
   // Personalização: carrega do localStorage (1x) e persiste a cada mudança.
   useEffect(() => {
     try {
-      const s = localStorage.getItem('bancoLeadsView')
-      if (s) { const p = JSON.parse(s); setView({ ...VIEW_PADRAO, ...p, cols: { ...VIEW_PADRAO.cols, ...(p.cols || {}) } }) }
+      const s = localStorage.getItem(CHAVE_VIEW)
+      if (s) setView(migrarView(JSON.parse(s)))
     } catch { /* ignore */ }
   }, [])
   useEffect(() => {
-    try { localStorage.setItem('bancoLeadsView', JSON.stringify(view)) } catch { /* ignore */ }
+    try { localStorage.setItem(CHAVE_VIEW, JSON.stringify({ ...view, versao: VIEW_VERSAO })) } catch { /* ignore */ }
   }, [view])
 
   const cooldownAtivo = cooldownS != null && cooldownS > 0
@@ -1361,7 +1388,7 @@ export default function BancoLeadsPage() {
               onToggleSel={toggleSel}
               onAbrirConversa={abrirConversa}
               onSalvarEmail={salvarEmail}
-              onAbrirJson={(l) => l.json_apresentacao && setJsonAberto({ titulo: l.nome, json: l.json_apresentacao })}
+              onAbrirDetalhes={setDetalheAberto}
             />
           )}
           {leadsIg.length > 0 && (
@@ -1376,14 +1403,14 @@ export default function BancoLeadsPage() {
               onToggleSel={toggleSel}
               onAbrirConversa={abrirConversa}
               onSalvarEmail={salvarEmail}
-              onAbrirJson={(l) => l.json_apresentacao && setJsonAberto({ titulo: l.nome, json: l.json_apresentacao })}
+              onAbrirDetalhes={setDetalheAberto}
             />
           )}
         </>
       )}
 
-      {jsonAberto && (
-        <JsonLeadModal titulo={`JSON de apresentação — ${jsonAberto.titulo}`} json={jsonAberto.json} onFechar={() => setJsonAberto(null)} />
+      {detalheAberto && (
+        <LeadDetalhesModal lead={detalheAberto} onFechar={() => setDetalheAberto(null)} />
       )}
 
       {conversaAberta && (
@@ -1457,7 +1484,7 @@ type TabelaProps = {
   onToggleSel: (id: string) => void
   onAbrirConversa: (l: Lead) => void
   onSalvarEmail: (id: string, email: string) => Promise<void>
-  onAbrirJson: (l: Lead) => void
+  onAbrirDetalhes: (l: Lead) => void
 }
 
 // Célula de status compartilhada (badge + trava + último disparo).
@@ -1597,16 +1624,17 @@ function CelulaSite({ l }: { l: Lead }) {
   return <td className="px-3 py-2">❌</td>
 }
 
-function JsonCelula({ l, onAbrirJson }: { l: Lead; onAbrirJson: (l: Lead) => void }) {
+// Substitui a antiga coluna `{ }` de JSON cru. Identificador técnico e payload não pertencem a
+// uma tabela de trabalho; o JSON continua a dois cliques (Detalhes → "Ver dados completos"),
+// junto dos campos complementares que saíram das colunas.
+function DetalhesCelula({ l, onAbrirDetalhes }: { l: Lead; onAbrirDetalhes: (l: Lead) => void }) {
   return (
     <td className="px-3 py-2">
-      {l.json_apresentacao && (
-        <button onClick={() => onAbrirJson(l)}
-          className="text-xs px-2 py-1 rounded-lg border text-brand hover:bg-blue-50"
-          title="Dados unificados + prompt único pro bot gerar a saudação de análise">
-          {'{ }'}
-        </button>
-      )}
+      <button onClick={() => onAbrirDetalhes(l)}
+        className="rounded-lg border px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+        title="Endereço, nota, avaliações, horário, links e dados completos do lead">
+        Detalhes
+      </button>
     </td>
   )
 }
@@ -1620,7 +1648,7 @@ function SelCelula({ l, selecionados, onToggleSel }: { l: Lead; selecionados: Se
   )
 }
 
-function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onAbrirJson }: TabelaProps) {
+function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onAbrirDetalhes }: TabelaProps) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
       <div className="px-4 py-3 border-b flex items-center gap-2">
@@ -1636,7 +1664,7 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
               <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={onOrdenar} />
               {cols.telefone && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.envio_previsto && <ThOrdenavel label="Envio" chave="envio" ordem={ordem} onOrdenar={onOrdenar} />}
-              {cols.pontos && <ThOrdenavel label="Pontos" chave="pontos" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
+              {cols.pontos && <ThOrdenavel label="Cadastro" chave="pontos" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.status && <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.email && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.endereco && <ThOrdenavel label="Endereço" chave="endereco" ordem={ordem} onOrdenar={onOrdenar} />}
@@ -1645,7 +1673,7 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
               {cols.nota && <ThOrdenavel label="Nota" chave="nota" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
               {cols.horario && <ThOrdenavel label="Horário" chave="horario" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.site && <ThOrdenavel label="Site" chave="site" ordem={ordem} onOrdenar={onOrdenar} />}
-              <th className="text-left px-3 py-2">JSON</th>
+              <th className="text-left px-3 py-2">Detalhes</th>
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -1665,15 +1693,9 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
                   </td>
                   {cols.telefone && <TelefoneCelula l={l} onAbrirConversa={onAbrirConversa} />}
                   {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
-                  {cols.pontos && (
-                    <td className="px-3 py-2 text-right">
-                      <span className={`font-semibold ${((l.score_cadastro ?? 0) <= 40) ? 'text-red-600' : (l.score_cadastro ?? 0) <= 70 ? 'text-amber-600' : 'text-emerald-600'}`}
-                        title="Pontuação do cadastro (0-100): site próprio 20 · fotos, endereço, telefone, e-mail, horário, links extras, avaliações e nota>4 valem 10 cada">
-                        {l.score_cadastro ?? 0}
-                      </span>
-                      <span className="text-[10px] text-slate-400">/100</span>
-                    </td>
-                  )}
+                  {/* Completude do cadastro, em paleta NEUTRA. A régua e os critérios são os
+                      mesmos da Aquisição — mesma função do backend, mesmo componente. */}
+                  {cols.pontos && <td className="px-3 py-2"><BolinhaCadastro l={l} /></td>}
                   {cols.status && <StatusCelula l={l} />}
                   {cols.email && <td className="px-3 py-2 text-xs"><EmailEditavel value={l.email} onSave={(email) => onSalvarEmail(l.id, email)} /></td>}
                   {cols.endereco && <td className="px-3 py-2 text-xs text-slate-600 max-w-[180px] truncate" title={l.endereco || ''}>{l.endereco || '—'}</td>}
@@ -1682,7 +1704,7 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
                   {cols.nota && <td className="px-3 py-2 text-right text-xs">{l.rating != null ? Number(l.rating).toFixed(1) : '—'}</td>}
                   {cols.horario && <td className="px-3 py-2 text-center">{horario ? '✅' : '❌'}</td>}
                   {cols.site && <CelulaSite l={l} />}
-                  <JsonCelula l={l} onAbrirJson={onAbrirJson} />
+                  <DetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
                 </tr>
               )
             })}
@@ -1693,7 +1715,7 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
   )
 }
 
-function TabelaInstagramBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onAbrirJson }: TabelaProps) {
+function TabelaInstagramBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onAbrirDetalhes }: TabelaProps) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
       <div className="px-4 py-3 border-b flex items-center gap-2">
@@ -1712,11 +1734,11 @@ function TabelaInstagramBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, pre
               {cols.seguidores && <ThOrdenavel label="Seguidores" chave="seguidores" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
               {cols.telefone && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.envio_previsto && <ThOrdenavel label="Envio" chave="envio" ordem={ordem} onOrdenar={onOrdenar} />}
-              {cols.pontos && <ThOrdenavel label="Pontos" chave="pontos" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
+              {cols.pontos && <ThOrdenavel label="Cadastro" chave="pontos" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.status && <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.email && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.links && <ThOrdenavel label="Links" chave="links" ordem={ordem} onOrdenar={onOrdenar} />}
-              <th className="text-left px-3 py-2">JSON</th>
+              <th className="text-left px-3 py-2">Detalhes</th>
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -1739,15 +1761,9 @@ function TabelaInstagramBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, pre
                 {cols.seguidores && <td className="px-3 py-2 text-right text-xs font-semibold">{l.seguidores != null ? l.seguidores.toLocaleString('pt-BR') : '—'}</td>}
                 {cols.telefone && <TelefoneCelula l={l} onAbrirConversa={onAbrirConversa} />}
                 {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
-                {cols.pontos && (
-                  <td className="px-3 py-2 text-right">
-                    <span className={`font-semibold ${((l.score_cadastro ?? 0) <= 20) ? 'text-red-600' : (l.score_cadastro ?? 0) <= 40 ? 'text-amber-600' : 'text-emerald-600'}`}
-                      title="Pontuação do cadastro: 10 pontos por coluna (nicho, seguidores, telefone, e-mail, links, @username)">
-                      {l.score_cadastro ?? 0}
-                    </span>
-                    <span className="text-[10px] text-slate-400">/{l.score_cadastro_max ?? 60}</span>
-                  </td>
-                )}
+                {/* Instagram vale até 60 — o máximo vem do backend e é sempre exibido pelo
+                    componente, para 30/60 nunca ser lido como 30/100. */}
+                {cols.pontos && <td className="px-3 py-2"><BolinhaCadastro l={l} /></td>}
                 {cols.status && <StatusCelula l={l} />}
                 {cols.email && <td className="px-3 py-2 text-xs"><EmailEditavel value={l.email} onSave={(email) => onSalvarEmail(l.id, email)} /></td>}
                 {cols.links && (
@@ -1764,7 +1780,7 @@ function TabelaInstagramBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, pre
                     {!l.link_bio && !l.site && !l.link_original && '—'}
                   </td>
                 )}
-                <JsonCelula l={l} onAbrirJson={onAbrirJson} />
+                <DetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
               </tr>
             ))}
           </tbody>

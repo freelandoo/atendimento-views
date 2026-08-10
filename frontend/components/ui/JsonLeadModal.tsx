@@ -4,10 +4,20 @@ import { useState } from 'react'
 // Modal do "JSON de apresentação" do lead: dados unificados + prompt único
 // pro bot gerar a saudação de análise. Usado nas tabelas de Aquisição
 // (Google Places e Instagram).
+export type CriterioApresentacao = {
+  chave?: string
+  label: string
+  ok: boolean
+  pontos?: number
+  pontos_possiveis?: number
+}
+
 export type JsonApresentacao = {
   fonte: string
   prompt: string
-  pontuacao?: { total: number; maximo: number }
+  // `criterios` sempre veio do backend (lead-score-cadastro.js) — só não estava declarado
+  // aqui. É a lista auditável que alimenta o tooltip da bolinha e o painel de detalhes.
+  pontuacao?: { total: number; maximo: number; criterios?: CriterioApresentacao[] }
   [k: string]: unknown
 }
 

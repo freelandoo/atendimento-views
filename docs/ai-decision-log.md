@@ -11,6 +11,70 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-10 — Follow-up vira ENTIDADE: o fluxo integrado Ligações ↔ Follow-ups ↔ Mensagens
+
+Esta tarefa disparou o gatilho formal de
+[PENDENCIA_ARQUITETURAL_CENTRAL_LIGACOES_E_MENSAGENS.md](PENDENCIA_ARQUITETURAL_CENTRAL_LIGACOES_E_MENSAGENS.md),
+que manda **interromper a implementação e revisar a arquitetura antes de gerar código**. A
+revisão foi feita, e quatro decisões estruturais foram levadas ao operador **antes** da Fase 3.
+
+**Achado que motivou tudo:** não existia a entidade "Follow-up". A fila era derivada a cada
+request de duas fontes que não se conhecem (recomendação heurística + agenda do motor), e a
+próxima ação decidida ao encerrar uma ligação era texto livre em `app.campanha_leads`, que
+**nenhuma linha da Central de Follow-ups lia**. Dos 9 campos do modelo pedido, existiam 3.
+
+1. **Criar `app.follow_ups` (migration 062), em vez de estender `app.campanha_leads`.**
+   Estender amarraria todo follow-up a uma CAMPANHA — follow-up de mensagem, de automação ou
+   manual não teria linha —, e o `UNIQUE (campanha_id, prospect_id)` daria **um** follow-up por
+   lead, sem histórico de reagendamentos. Alternativa descartada: "só ligar o que existe, sem
+   migration", que entregaria o item na fila mas sem status próprio, sem responsável e sem
+   concluir/reagendar — ou seja, sem o que o pedido pede.
+
+2. **Identidade canônica do contato = `empresa_id` + `telefone_digitos`, resolvida na leitura.**
+   Alternativa descartada: FK dura para `vendas.conversas(numero)`. Aquele `numero` é `UNIQUE`
+   **GLOBAL**, não `UNIQUE (empresa_id, numero)` — a FK **não provaria mesma empresa** e ainda
+   exigiria criar a conversa antes, inclusive para follow-up de LIGAÇÃO, que não precisa dela.
+   Precedente já existente no repo: `followup-listing.js` casa agenda × conversa por
+   `regexp_replace(…, '[^0-9]', '', 'g')`. **Consequência declarada:** resolver a identidade
+   canônica do projeto inteiro (normalização única de telefone e `UNIQUE (empresa_id, numero)`
+   em `vendas.conversas`) **continua pendente** — é trabalho que toca o webhook em produção e
+   não foi feito aqui.
+
+3. **As três fontes CONVIVEM; nada foi desligado.** Alternativa descartada: materializar a
+   call-list em follow-ups. Isso exigiria um motor novo (criar/expirar), backfill, e mudaria o
+   que o operador vê hoje — risco de fila duplicada ou vazia durante a transição, em troca de
+   elegância. A precedência declarada resolve o conflito sem desligar nada:
+   `registrado > call score > motor`, e a recomendação heurística vira o "por que agora" do
+   item registrado em vez de uma segunda linha do mesmo contato.
+
+4. **Responsável OPCIONAL, vindo de `app.usuarios_empresas`.** Alternativa descartada:
+   obrigatório com default = quem encerrou a ligação. Quem registra a chamada nem sempre é quem
+   executa o follow-up, e follow-up criado por AUTOMAÇÃO não tem usuário para atribuir. `NULL`
+   = "não atribuído" é estado legítimo **e filtrável** — é justamente o recorte que o operador
+   procura para saber o que está sem dono.
+
+**Decisões minhas, fora das quatro perguntas:**
+
+- **Antiduplicidade no BANCO** (índice único parcial), não na aplicação, e **por canal**: um
+  contato pode ter uma ação de WhatsApp e uma de ligação abertas ao mesmo tempo — são trabalhos
+  diferentes, feitos em telas diferentes. O `ON CONFLICT` faz **DO UPDATE** (a decisão mais
+  recente vence), não `DO NOTHING`: ignorar o novo faria a tela mentir sobre o que foi
+  combinado na ligação que acabou de acontecer.
+- **O follow-up da ligação nasce dentro da TRANSAÇÃO do encerramento.** Fora dela, sobreviveria
+  a um rollback. Por isso a rota HTTP de criação **recusa** `origem: 'ligacao'`.
+- **`contextoOrigem` do painel de conversa são DADOS, não uma requisição.** `ConversaPainel` é o
+  mesmo componente na Central de Mensagens, que **não** é admin-only: buscar o contexto lá
+  dentro faria aquela tela chamar uma rota admin-only e tomar 403.
+- **A linha do tempo não devolve texto de mensagem.** O painel de conversa já mostra o histórico
+  inteiro; repetir criaria duas fontes que divergem.
+
+**Dívida declarada:** `app.campanha_leads.proxima_acao`/`data_followup` seguem existindo e
+sendo escritos (a aba Acompanhamento depende deles). Hoje são um RESUMO derivado do follow-up,
+não uma segunda fonte de verdade — mas continuam sendo dois lugares guardando a mesma decisão.
+Unificá-los exige mexer na tela de campanha, que estava fora do escopo.
+
+---
+
 ## 2026-08-08 — Follow-ups: fila paginada, sem identificador do Evolution, com Manual assistido
 
 Continuação da fila única entregue em `2621db9`. Cinco decisões que valem mais que o diff:

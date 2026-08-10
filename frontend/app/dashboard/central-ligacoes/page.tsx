@@ -20,7 +20,19 @@ import {
   type FilaView, type ChipFiltro, type OpcoesDaFila, type PaginaFila,
 } from '@/lib/fila-ligacoes-view'
 import { rotuloLink, tituloLinkNaoSite } from '@/lib/site-rotulos'
+// Vocabulario da PROXIMA ACAO — o MESMO modulo puro que a fila de Follow-ups usa. A Central
+// de Ligacoes nao decide nada sobre a fila: ela registra a decisao e mostra o resumo.
+// `PRIORIDADE_OPCOES` ja existe neste arquivo (filtros da fila de ligacao, outro dominio),
+// entao o vocabulario do follow-up entra com apelido.
+import {
+  CANAL_OPCOES,
+  PRIORIDADE_OPCOES as PRIORIDADE_FOLLOWUP_OPCOES,
+  sugerirProximaAcao, validarProximaAcao, montarPayloadProximaAcao, resumoProximaAcao, formatarQuando,
+  type FormProximaAcao, type FollowUpApi,
+} from '@/lib/follow-up-acao'
 import { msgErro } from '@/lib/erro-msg'
+import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
+import { VARIANTES, O_QUE_MEDE, fatoresDeMotivos } from '@/lib/pontuacao-indicador'
 
 const base = () => `/api/empresas/${typeof window !== 'undefined' ? localStorage.getItem('empresa_id') : ''}`
 
@@ -168,13 +180,8 @@ function Fone({ tel, className = '' }: { tel: string | null; className?: string 
   )
 }
 
-// Cores da faixa de prioridade — mesma leitura de cor já usada nos "Pontos" do Banco de
-// Leads (vermelho = fraco, âmbar = médio, verde = forte).
-const FAIXA_CLS: Record<string, string> = {
-  alta: 'border-emerald-500 text-emerald-700 bg-emerald-50',
-  media: 'border-amber-400 text-amber-700 bg-amber-50',
-  baixa: 'border-slate-300 text-slate-500 bg-slate-50',
-}
+// A paleta da faixa de prioridade saiu daqui: virou a variante `prioridade_comercial` de
+// `lib/pontuacao-indicador.js`, preservada classe a classe (há teste que falha se mudar).
 // Rótulos explícitos: "Tem site próprio" / "Sem site próprio" / "Verificar link". Um lead
 // cujo único link é Instagram, Facebook ou Linktree é "Sem site próprio" — nunca "Tem site".
 // A decisão vem pronta do backend em `situacao_site` (services/site-classificacao.js).
@@ -190,61 +197,24 @@ const CHAVE_VIEW = 'filaLigacoesView.v2'
 // mas continua sendo preferência do operador — por isso, chave própria.
 const CHAVE_POR_PAGINA = 'filaLigacoesPorPagina.v1'
 
-// Círculo de pontuação da coluna Prioridade: só o círculo fica na tabela. A explicação é um
-// tooltip FLUTUANTE renderizado em portal no <body>, posicionado a partir do retângulo do
-// próprio círculo — assim ele nunca aumenta a altura da linha nem é cortado pelo wrapper da
-// tabela (que é `overflow-hidden`), que era o defeito da versão anterior (position:absolute
-// dentro do <td>). Somente leitura: `pointer-events-none` e sem nenhum controle dentro.
+// Círculo de pontuação da coluna Prioridade. O componente (geometria, tooltip em portal,
+// foco por teclado, fechamento em scroll/resize) foi extraído para
+// `components/ui/BolinhaPontuacao.tsx` — esta tela era a única das três com acessibilidade e
+// posicionamento corretos, então virou a referência que as outras passaram a consumir.
+// O que continua sendo desta tela: os pesos, as faixas e o significado — prioridade de
+// LIGAÇÃO dentro de uma campanha, que não é qualidade do lead nem qualidade da conversa.
 function CirculoPrioridade({ p }: { p: Prioridade | null | undefined }) {
-  const ref = useRef<HTMLSpanElement | null>(null)
-  const [caixa, setCaixa] = useState<{ x: number; y: number } | null>(null)
-  const [visivel, setVisivel] = useState(false)
-
-  const abrir = useCallback(() => {
-    const r = ref.current?.getBoundingClientRect()
-    if (!r) return
-    setCaixa({ x: r.left + r.width / 2, y: r.top })
-  }, [])
-  const fechar = useCallback(() => { setCaixa(null); setVisivel(false) }, [])
-
-  // Anima em dois frames: monta invisível e sobe a opacidade no frame seguinte (transição
-  // curta e discreta). Fecha em scroll/resize — a âncora se moveria e a bolha ficaria solta.
-  useEffect(() => {
-    if (!caixa) return
-    const raf = requestAnimationFrame(() => setVisivel(true))
-    window.addEventListener('scroll', fechar, true)
-    window.addEventListener('resize', fechar)
-    return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener('scroll', fechar, true)
-      window.removeEventListener('resize', fechar)
-    }
-  }, [caixa, fechar])
-
   if (!p) return <span className="text-slate-300">—</span>
-  const resumo = `${p.score}/100 · ${p.faixa_label}${p.motivos.length ? ` — ${p.motivos.join(', ')}` : ''}`
   return (
-    <>
-      <span ref={ref} tabIndex={0} title={resumo} aria-label={`Prioridade ${resumo}`}
-        onMouseEnter={abrir} onMouseLeave={fechar} onFocus={abrir} onBlur={fechar}
-        className="inline-flex rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand">
-        <span aria-hidden="true"
-          className={`inline-flex h-9 w-9 items-center justify-center rounded-full border-2 text-xs font-bold transition hover:scale-105 ${FAIXA_CLS[p.faixa] || FAIXA_CLS.baixa}`}>
-          {p.score}
-        </span>
-      </span>
-      {caixa && typeof document !== 'undefined' && createPortal(
-        <div role="tooltip"
-          style={{ position: 'fixed', left: caixa.x, top: caixa.y - 8, transform: 'translate(-50%, -100%)' }}
-          className={`pointer-events-none z-[70] w-max max-w-[260px] rounded-lg bg-slate-800 px-3 py-2 text-left text-[11px] font-normal leading-snug text-white shadow-xl transition-all duration-150 ease-out ${visivel ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0'}`}>
-          <div className="font-semibold">{p.faixa_label} · {p.score}/100</div>
-          <ul className="mt-1 space-y-0.5">
-            {p.motivos.map((m, i) => <li key={i} className="text-slate-200">• {m}</li>)}
-          </ul>
-        </div>,
-        document.body
-      )}
-    </>
+    <BolinhaPontuacao
+      valor={p.score}
+      maximo={100}
+      faixa={p.faixa}
+      titulo={p.faixa_label}
+      oQueMede={O_QUE_MEDE.prioridade_ligacao}
+      fatores={fatoresDeMotivos(p.motivos)}
+      variante={VARIANTES.PRIORIDADE}
+    />
   )
 }
 
@@ -681,6 +651,37 @@ export default function CentralLigacoesPage() {
 
   useEffect(() => { carregarCampanha(campanhaId) }, [campanhaId, carregarCampanha])
 
+  // Chegada vinda da fila de Follow-ups: `?campanha=<id>&lead=<campanha_lead_id>`.
+  // É o que fecha a regra de roteamento — follow-up de ligação é operado pela fila e
+  // EXECUTADO aqui, sem o operador ter de procurar o lead na campanha certa.
+  // Lido no efeito (nunca no render, para não quebrar a hidratação) e no padrão que a
+  // Aquisição já usa: `location.search` + `history.replaceState`, sem `useSearchParams`.
+  const alvoRef = useRef<string | null>(null)
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search)
+      const c = q.get('campanha')
+      const l = q.get('lead')
+      if (!c || !l) return
+      alvoRef.current = l
+      setCampanhaId(c)
+      // Limpa a URL: um F5 depois de fechar a operação não pode reabri-la.
+      window.history.replaceState({}, '', window.location.pathname)
+    } catch { /* sem window/URL: navegação normal */ }
+  }, [])
+
+  // A fila chega depois da URL. Só quando ela existe dá para achar o lead e abrir a operação.
+  // Lead fora da fila (já convertido, descartado ou sem telefone discável) NÃO abre nada e
+  // avisa — abrir a operação de um lead que a campanha não trabalha mais seria mentira.
+  useEffect(() => {
+    const alvo = alvoRef.current
+    if (!alvo || !fila.length) return
+    alvoRef.current = null
+    const item = fila.find((f) => f.campanha_lead_id === alvo)
+    if (item) setOperando(item)
+    else fb.toast('Este lead não está mais na fila desta campanha.', 'info')
+  }, [fila, fb])
+
   const fecharOperacao = useCallback((recarrega: boolean) => {
     setOperando(null)
     if (recarrega) carregarCampanha(campanhaId)
@@ -874,7 +875,16 @@ export default function CentralLigacoesPage() {
                             {/* Texto livre: trunca em 1 linha (completo no title) para não ser
                                 ele a esticar a altura da linha que acabamos de compactar. */}
                             <td className="max-w-[220px] truncate px-4 py-3 text-xs text-slate-500" title={l.proxima_acao || ''}>{l.proxima_acao || '—'}</td>
-                            <td className="px-4 py-3 text-xs text-slate-500">{l.data_followup ? new Date(l.data_followup).toLocaleDateString('pt-BR') : '—'}</td>
+                            <td className="px-4 py-3 text-xs text-slate-500">
+                              {l.data_followup ? (
+                                <>
+                                  <div>{formatarQuando(l.data_followup) || '—'}</div>
+                                  {/* Link, não fila: quem gerencia a próxima ação é a tela de
+                                      Follow-ups. Aqui fica só o caminho até ela. */}
+                                  <a href="/dashboard/follow-ups" className="text-brand hover:underline">Abrir no Follow-ups</a>
+                                </>
+                              ) : '—'}
+                            </td>
                             {/* Espalha o lead inteiro: a tela de atendimento tem a mesma Visão
                                 detalhada aberta pela fila, e sem os campos enriquecidos ela
                                 abriria vazia por este caminho. Sem `prioridade`: esta lista
@@ -979,8 +989,13 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
   const [novoStatus, setNovoStatus] = useState(lead.status)
   const [objecao, setObjecao] = useState('')
   const [motivo, setMotivo] = useState('')
-  const [proximaAcao, setProximaAcao] = useState('')
-  const [dataFollowup, setDataFollowup] = useState('')
+  // Etapa "Proxima acao" do resumo. Substitui os dois campos soltos que existiam aqui
+  // (um <input> de texto livre + um <input type="date">, gravados so' em
+  // `app.campanha_leads` e invisiveis para a fila de Follow-ups). Agora e' uma decisao
+  // estruturada — canal, prazo COM HORA, prioridade e responsavel — que vira item da fila.
+  const [proxAcao, setProxAcao] = useState<FormProximaAcao>(() => sugerirProximaAcao('atendeu'))
+  const [errosProxAcao, setErrosProxAcao] = useState<Record<string, string>>({})
+  const [responsaveis, setResponsaveis] = useState<{ id: string; nome: string }[]>([])
   const [notas, setNotas] = useState('')
   const [perguntasReg, setPerguntasReg] = useState<PerguntaReg[]>([])
   // sinais (Fatia D) e objeções (Fatia E) estruturados: persistidos na hora; fonte da seleção.
@@ -1000,6 +1015,11 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
       apiFetch<{ roteiro_id: string; etapas: EtapaApi[] }>(`${base()}/roteiros/versoes/${campanha.roteiro_versao_id}`).then((r) => { setEtapas(r.data.etapas || []); setRoteiroId(r.data.roteiro_id || null) }).catch(() => setEtapas([]))
     }
     apiFetch<Ligacao[]>(`${base()}/ligacoes?campanha_lead_id=${lead.campanha_lead_id}`).then((r) => setHistorico(r.data)).catch(() => {})
+    // Responsaveis possiveis. Falha silenciosa de proposito: sem a lista, o campo fica
+    // vazio ("Nao atribuido") e o encerramento continua funcionando — atribuir dono nunca
+    // pode ser pre-requisito para registrar uma ligacao que ja aconteceu.
+    apiFetch<{ itens: { id: string; nome: string }[] }>(`${base()}/follow-ups/responsaveis`)
+      .then((r) => setResponsaveis(r.data.itens || [])).catch(() => setResponsaveis([]))
     // Recuperação: se já existe sessão recuperável deste lead, retoma (não duplica). O
     // `estado_sessao` do servidor decide se voltamos para a conversa ou para o resumo pendente.
     apiFetch<{ id: string; iniciada_em: string; chamada_encerrada_em: string | null; estado_sessao: string; notas: string | null } | null>(`${base()}/ligacoes/ativa?campanha_lead_id=${lead.campanha_lead_id}`).then((r) => {
@@ -1174,6 +1194,10 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
   const trocarResultado = (v: string) => {
     setResultado(v)
     if (v === 'numero_invalido') { setNovoStatus('descartado'); setMotivo('') }
+    // Sugestao, nao decisao: todos os campos seguem editaveis e "Sem proxima acao" fica a um
+    // clique. Existe para o caso comum nao exigir digitacao.
+    setProxAcao(sugerirProximaAcao(v))
+    setErrosProxAcao({})
   }
   // Sai de um status de perda ⇒ limpa o motivo, senão um valor escondido seria enviado.
   const trocarStatus = (v: string) => {
@@ -1264,24 +1288,41 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
     // etapa_maior_interesse / etapa_perda_interesse NÃO são enviados: o servidor os deriva
     // dos sinais ativos (fonte única), então não dependem do estado desta aba.
     const notasFinais = notas.trim() || null
+    // Validacao local so' para o operador nao perder o resumo inteiro num 400; a validacao
+    // de verdade e a do backend (fonte unica).
+    const checagem = validarProximaAcao(proxAcao)
+    if (!checagem.ok) {
+      setErrosProxAcao(checagem.erros)
+      fb.toast('Revise a próxima ação antes de salvar.', 'error')
+      encerrandoRef.current = false
+      return
+    }
+    setErrosProxAcao({})
+    const followUp = montarPayloadProximaAcao(proxAcao)
     try {
-      await apiFetch(`${base()}/ligacoes/${ligacaoId}/encerrar`, {
-        method: 'POST',
-        body: JSON.stringify({
-          resultado,
-          etapa_alcancada: etapaAlcancada || null,
-          objecao_principal: objecao || objecoesReg[0]?.texto_objecao || null,
-          motivo_perda: motivo || null, notas: notasFinais,
-          novo_status_oportunidade: novoStatus || null, proxima_acao: proximaAcao || null,
-          data_followup: dataFollowup || null,
-        }),
-      })
-      fb.toast('Ligação registrada', 'success')
+      const r = await apiFetch<{ follow_up: FollowUpApi | null }>(
+        `${base()}/ligacoes/${ligacaoId}/encerrar`, {
+          method: 'POST',
+          body: JSON.stringify({
+            resultado,
+            etapa_alcancada: etapaAlcancada || null,
+            objecao_principal: objecao || objecoesReg[0]?.texto_objecao || null,
+            motivo_perda: motivo || null, notas: notasFinais,
+            novo_status_oportunidade: novoStatus || null,
+            // A proxima acao vai ESTRUTURADA. O backend deriva dela o resumo gravado em
+            // `app.campanha_leads`, para as duas telas nao divergirem sobre o combinado.
+            follow_up: followUp,
+          }),
+        })
+      const criado = r.data?.follow_up
+      fb.toast(criado
+        ? `Ligação registrada · ${resumoProximaAcao(criado)}`
+        : 'Ligação registrada', 'success')
       setEstado('encerrada')
       onFechar(true)
     } catch (e) { fb.toast(msgErro(e, 'Não foi possível encerrar a ligação.'), 'error') }
     finally { encerrandoRef.current = false }
-  }, [ligacaoId, estado, fb, resultado, etapaAlcancada, objecao, objecoesReg, motivo, notas, novoStatus, proximaAcao, dataFollowup, onFechar])
+  }, [ligacaoId, estado, fb, resultado, etapaAlcancada, objecao, objecoesReg, motivo, notas, novoStatus, proxAcao, onFechar])
 
   // Descarte: fica só para auditoria (fora da analítica).
   const descartar = useCallback(async () => {
@@ -1463,10 +1504,12 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
                   <select value={motivo} onChange={(e) => setMotivo(e.target.value)} className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm"><option value="">—</option>{MOTIVOS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
                 </label>
               )}
-              <input className="w-full rounded-lg border px-2 py-1.5 text-sm" placeholder="Próxima ação" value={proximaAcao} onChange={(e) => setProximaAcao(e.target.value)} />
-              <label className="block text-sm">Data do follow-up
-                <input type="date" className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm" value={dataFollowup} onChange={(e) => setDataFollowup(e.target.value)} />
-              </label>
+              <ProximaAcaoCampos
+                form={proxAcao}
+                erros={errosProxAcao}
+                responsaveis={responsaveis}
+                onPatch={(patch) => { setProxAcao((f) => ({ ...f, ...patch })); setErrosProxAcao({}) }}
+              />
               <div className="text-xs text-slate-400">{etapaMaiorInteresse ? `Maior interesse: ${ETAPA_LABEL[etapaMaiorInteresse]}. ` : ''}{etapaPerda ? `Perdeu interesse: ${ETAPA_LABEL[etapaPerda]}.` : ''}</div>
               <button onClick={salvar} className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"><IconSend className="h-4 w-4" /> Salvar ligação</button>
               {/* Sem "Voltar ao roteiro": a chamada já terminou e não pode ser reaberta. O
@@ -1488,6 +1531,93 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+// ───────────────────────── Etapa "Próxima ação" do resumo ─────────────────────────
+// Curta de propósito: canal, o que fazer, quando, prioridade e responsável. É o que cria o
+// item na fila de Follow-ups — e é TUDO o que a Central de Ligações faz a respeito dela.
+// A tela de ligações não vira fila de mensagens: quem gerencia a fila é /dashboard/follow-ups.
+function ProximaAcaoCampos({ form, erros, responsaveis, onPatch }: {
+  form: FormProximaAcao
+  erros: Record<string, string>
+  responsaveis: { id: string; nome: string }[]
+  onPatch: (patch: Partial<FormProximaAcao>) => void
+}) {
+  const escolhida = CANAL_OPCOES.find((o) => o.valor === form.canal) || CANAL_OPCOES[0]
+  const semAcao = form.canal === 'nenhuma'
+  return (
+    <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+      <div className="text-xs font-semibold uppercase text-slate-500">Próxima ação</div>
+      <div className="inline-flex w-full rounded-lg border bg-white p-0.5" role="group" aria-label="Canal da próxima ação">
+        {CANAL_OPCOES.map((o) => (
+          <button
+            key={o.valor}
+            type="button"
+            onClick={() => onPatch({ canal: o.valor })}
+            aria-pressed={form.canal === o.valor}
+            title={o.ajuda}
+            className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${form.canal === o.valor ? 'bg-brand text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      {/* A consequência de cada escolha fica escrita, não só implícita na cor do botão. */}
+      <p className="text-[11px] text-slate-500">{escolhida.ajuda}</p>
+
+      {!semAcao && (
+        <>
+          <label className="block text-sm">O que fazer
+            <input
+              className={`mt-1 w-full rounded-lg border px-2 py-1.5 text-sm ${erros.proxima_acao ? 'border-red-400' : ''}`}
+              placeholder="Ex.: retomar pelo preço"
+              value={form.proxima_acao}
+              aria-invalid={!!erros.proxima_acao}
+              onChange={(e) => onPatch({ proxima_acao: e.target.value })}
+            />
+            {erros.proxima_acao && <span className="mt-0.5 block text-[11px] text-red-600">{erros.proxima_acao}</span>}
+          </label>
+          {/* datetime-local, não date: "amanhã às 10h" é o compromisso real; só a data
+              perderia a hora e a fila não saberia dizer o que é para agora. */}
+          <label className="block text-sm">Quando
+            <input
+              type="datetime-local"
+              className={`mt-1 w-full rounded-lg border px-2 py-1.5 text-sm ${erros.agendado_para ? 'border-red-400' : ''}`}
+              value={form.agendado_para}
+              aria-invalid={!!erros.agendado_para}
+              onChange={(e) => onPatch({ agendado_para: e.target.value })}
+            />
+            {erros.agendado_para && <span className="mt-0.5 block text-[11px] text-red-600">{erros.agendado_para}</span>}
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block text-sm">Prioridade
+              <select
+                className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm"
+                value={form.prioridade || 'media'}
+                onChange={(e) => onPatch({ prioridade: e.target.value as FormProximaAcao['prioridade'] })}
+              >
+                {PRIORIDADE_FOLLOWUP_OPCOES.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+              </select>
+            </label>
+            <label className="block text-sm">Responsável
+              <select
+                className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm"
+                value={form.responsavel_id}
+                onChange={(e) => onPatch({ responsavel_id: e.target.value })}
+              >
+                {/* Sem dono é estado legítimo e filtrável na fila — não uma pendência. */}
+                <option value="">Não atribuído</option>
+                {responsaveis.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+              </select>
+            </label>
+          </div>
+          <p className="text-[11px] text-slate-500">
+            Entra na fila de <b>Follow-ups</b>. Esta tela só guarda o resumo.
+          </p>
+        </>
       )}
     </div>
   )

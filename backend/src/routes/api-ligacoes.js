@@ -75,9 +75,23 @@ router.post('/:id/encerrar', requireAuth, requireEmpresaAccess, async (req, res)
       etapaAlcancada: b.etapa_alcancada, objecaoPrincipal: b.objecao_principal,
       motivoPerda: b.motivo_perda, notas: b.notas,
       novoStatusOportunidade: b.novo_status_oportunidade, proximaAcao: b.proxima_acao, dataFollowup: b.data_followup,
+      // Etapa "Proxima acao" do resumo. Ausente ou com canal vazio = "sem proxima acao", que
+      // e uma resposta valida — nada e criado. A validacao e a normalizacao ficam no modulo
+      // PURO (services/follow-up-modelo.js); aqui so' se repassa o bloco.
+      followUp: b.follow_up || null,
+      usuarioId: req.usuario?.id,
     })
     if (!data.ja_encerrada) {
       A.registrarAuditoria(pool, req.empresa.id, { usuarioId: req.usuario?.id, entidadeTipo: 'ligacao', entidadeId: data.id, acao: 'ligacao_encerrada', estadoAnterior: 'em_andamento', estadoNovo: 'encerrada', contexto: { resultado: data.resultado, duracao_seg: data.duracao_seg } })
+      // Auditoria do follow-up: e o registro de "canal escolhido para continuidade" que a
+      // linha do tempo do contato precisa. Sem telefone nem texto — so' o que foi decidido.
+      if (data.follow_up) {
+        A.registrarAuditoria(pool, req.empresa.id, {
+          usuarioId: req.usuario?.id, entidadeTipo: 'follow_up', entidadeId: data.follow_up.id,
+          acao: 'follow_up_criado', estadoNovo: 'aguardando',
+          contexto: { origem: 'ligacao', canal: data.follow_up.canal, ligacao_id: data.id },
+        })
+      }
     }
     return res.json({ ok: true, data })
   } catch (err) { return erro(res, err, 'LIGACAO_ENCERRAR_FAILED') }

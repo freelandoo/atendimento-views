@@ -33,10 +33,35 @@
 // visivel) tambem nao mora aqui: o dono e' `lib/lead-identidade.js`, o mesmo que o painel de
 // conversa usa. Duas copias fariam a mesma conversa aparecer com um nome na fila e outro no
 // painel aberto a partir dela.
+//
+// O VOCABULARIO da entidade follow-up (canal, origem, status, prioridade, prazo legivel) e'
+// de `lib/follow-up-acao.js`, e tambem so' e' reexportado daqui.
+//
+// TERCEIRA FONTE (migration 062): alem da recomendacao humana e do agendamento do motor, a
+// fila le agora os follow-ups PERSISTIDOS — a proxima acao que uma pessoa registrou, com
+// canal, prazo, prioridade, responsavel, status e origem. Precedencia declarada:
+//
+//     follow-up registrado  >  recomendacao do call score  >  agendamento do motor
+//
+// Uma decisao tomada por uma PESSOA vence uma recomendacao CALCULADA. Quando o contato ja tem
+// follow-up em aberto, a recomendacao heuristica NAO vira uma segunda linha: ela vira o
+// "por que agora" daquele item. Sem essa regra o mesmo contato apareceria duas vezes — que e'
+// exatamente a fragmentacao que a fila unica existe para acabar.
+//
+// A granularidade muda num unico caso, de proposito: havendo follow-up registrado, a linha e'
+// por CONTATO **e CANAL**. "Ligar na sexta" e "mandar mensagem amanha" sao dois trabalhos,
+// feitos em duas telas — junta-los esconderia um dos dois.
 const {
   TAMANHOS_PAGINA, POR_PAGINA_PADRAO, normalizarPorPagina, paginar, resumoIntervalo, mostrarPaginacao,
 } = require('./paginacao')
 const { digitos, texto, nomeDeVerdade, formatarTelefone, rotuloLead } = require('./lead-identidade')
+const {
+  PRIORIDADE_LABEL,
+  CANAL_LABEL, CANAL_ICONE, CANAL_OPCOES, ORIGEM_LABEL, STATUS_FOLLOWUP_LABEL, PRIORIDADE_OPCOES,
+  rotuloCanal, iconeCanal, destinoDoCanal, rotuloOrigem, rotuloStatusFollowUp, rotuloEvento,
+  formatarQuando, resumoProximaAcao, sugerirProximaAcao, paraInputLocal, deInputLocal,
+  validarProximaAcao, montarPayloadProximaAcao, itemDeFollowUp, contextoDeOrigem,
+} = require('./follow-up-acao')
 
 /** Situacao do item na fila. Fechada de proposito — a tela nao inventa estado. */
 const SITUACOES = Object.freeze({
@@ -61,6 +86,11 @@ const ACAO_IA_LABEL = Object.freeze({
   falha_envio_ia: 'Falha no envio automático',
   follow_up_enviado: 'Follow-up enviado',
   follow_up_cancelado: 'Follow-up cancelado',
+  // Follow-up REGISTRADO: o rotulo da LINHA e' o texto livre que a pessoa escreveu
+  // ("Retomar por WhatsApp amanha"), mas o FILTRO precisa de um rotulo estavel — texto livre
+  // como opcao de seletor produziria uma lista diferente a cada carga da fila.
+  followup_whatsapp: 'Follow-up por WhatsApp',
+  followup_ligacao: 'Follow-up por ligação',
 })
 
 const ACAO_POR_STATUS_IA = Object.freeze({
@@ -82,12 +112,6 @@ const PRIORIDADE_POR_TEMPERATURA = Object.freeze({
   quente: 'alta',
   morno: 'media',
   frio: 'baixa',
-})
-
-const PRIORIDADE_LABEL = Object.freeze({
-  alta: 'Prioridade alta',
-  media: 'Prioridade média',
-  baixa: 'Prioridade baixa',
 })
 
 /** Quanto um agendamento pesa na hora de escolher qual representa a conversa. */
@@ -193,14 +217,35 @@ function itemDoAutomatico(grupo, agora, humano) {
   }
 }
 
+/** Campos "de fila" que todo item tem, para as linhas nao divergirem em forma. */
+const CAMPOS_FOLLOWUP_VAZIOS = Object.freeze({
+  followup_id: null,
+  followup_status: null,
+  canal: null,
+  origem: null,
+  responsavel_id: null,
+  responsavel_nome: null,
+  campanha_lead_id: null,
+  campanha_id: null,
+  campanha_nome: null,
+  prospect_id: null,
+  ligacao_id: null,
+  ligacao_resultado: null,
+  ligacao_em: null,
+  observacao: null,
+  resultado_nota: null,
+  destino: null,
+})
+
 /**
- * Junta as duas fontes numa fila unica.
- * @param {{humanos?: any[], automaticos?: any[], agora?: Date}} entrada
+ * Junta as TRES fontes numa fila unica.
+ * @param {{humanos?: any[], automaticos?: any[], followups?: any[], agora?: Date}} entrada
  * @returns {any[]} itens normalizados, ja ordenados por urgencia de trabalho.
  */
 function montarFila(entrada = {}) {
   const humanos = Array.isArray(entrada.humanos) ? entrada.humanos : []
   const automaticos = Array.isArray(entrada.automaticos) ? entrada.automaticos : []
+  const followups = Array.isArray(entrada.followups) ? entrada.followups : []
   const agora = entrada.agora instanceof Date ? entrada.agora : new Date()
 
   const porNumero = new Map()
@@ -214,15 +259,93 @@ function montarFila(entrada = {}) {
   const itens = []
   const usados = new Set()
 
+  // --- 1) Follow-ups REGISTRADOS: a decisao de uma pessoa vem primeiro -------------
+  // Indexados por DIGITOS porque e essa a identidade canonica do contato (as outras duas
+  // fontes chegam com o JID, que nem sempre existe para um lead que so' foi ligado).
+  const followupsPorDigitos = new Map()
+  const digitosComAcaoAberta = new Set()
+  for (const f of followups) {
+    const chave = digitos(f && (f.telefone_digitos || f.conversa_numero))
+    if (!chave) continue
+    if (!followupsPorDigitos.has(chave)) followupsPorDigitos.set(chave, [])
+    followupsPorDigitos.get(chave).push(f)
+    if (f.status === 'aguardando') digitosComAcaoAberta.add(chave)
+  }
+
+  // Contexto das outras duas fontes, para enriquecer o item registrado sem criar 2a linha.
+  const humanoPorDigitos = new Map()
+  for (const h of humanos) {
+    const chave = digitos(h && (h.telefone_digitos || h.numero))
+    if (chave && !humanoPorDigitos.has(chave)) humanoPorDigitos.set(chave, h)
+  }
+  const autoPorDigitos = new Map()
+  for (const [numero, lista] of porNumero) {
+    const chave = digitos(numero)
+    if (chave && !autoPorDigitos.has(chave)) autoPorDigitos.set(chave, { numero, lista })
+  }
+
+  for (const f of followups) {
+    const chave = digitos(f && (f.telefone_digitos || f.conversa_numero))
+    if (!chave) continue
+    const base = itemDeFollowUp(f, agora)
+    const h = humanoPorDigitos.get(chave) || null
+    const autoDoContato = autoPorDigitos.get(chave) || null
+    const grupo = autoDoContato ? resumirAutomaticos(autoDoContato.lista) : null
+    const ia = grupo ? itemDoAutomatico(grupo, agora, true) : null
+    // O JID e' o que abre a conversa. Preferencia: o que o proprio follow-up guardou, depois
+    // o da recomendacao humana, depois o do agendamento. Sem nenhum, a conversa ainda nao
+    // existe — a tela oferece iniciar, em vez de abrir uma conversa que nao ha.
+    const numero = texto(f.conversa_numero) || texto(h && h.numero) || texto(autoDoContato && autoDoContato.numero) || null
+    const nome = nomeDeVerdade(f.nome) || nomeDeVerdade(h && h.nome)
+    itens.push({
+      ...CAMPOS_FOLLOWUP_VAZIOS,
+      ...base,
+      id: `fu:${f.id}`,
+      numero,
+      telefone_digitos: chave,
+      nome,
+      rotulo: rotuloLead({ nome, telefone_digitos: chave, numero }),
+      contexto: contextoDoLead({ negocio: f.nome, cidade: f.cidade }) || contextoDoLead(h || {}),
+      estagio: texto(h && h.estagio) || null,
+      humano: true,
+      ia_agendada: !!(ia && ia.ia_agendada),
+      origem_label: rotuloOrigem(f.origem) || 'Follow-up',
+      acao: `followup_${f.canal}`,
+      // A prioridade e a do item registrado (uma pessoa escolheu); o score do call score
+      // entra so' como numero de apoio, quando existe.
+      prioridade_score: h && Number.isFinite(Number(h.score)) ? Number(h.score) : null,
+      // "Por que agora": a recomendacao heuristica deixa de competir e vira explicacao.
+      motivo: texto(h && h.motivo) || base.observacao || null,
+      orientacao: texto(h && h.orientacao) || null,
+      escalado: !!(h && h.escalado === true),
+      dias_silencio: Number(h && h.dias_silencio) || 0,
+      prompt_preview: (h && h.prompt_preview) || null,
+      tentativas: ia ? ia.tentativas : 0,
+      tem_falha: f.status === 'falha' || !!(ia && ia.tem_falha),
+      falha_motivo: f.status === 'falha' ? base.resultado_nota : (ia ? ia.falha_motivo : null),
+      ia_status: ia ? ia.ia_status : null,
+      ia_data: ia ? ia.ia_data : null,
+      ia_data_label: ia ? ia.ia_data_label : null,
+      ia_id: ia ? ia.ia_id : null,
+    })
+  }
+
   for (const h of humanos) {
     const numero = texto(h && h.numero)
     if (!numero) continue
+    // Ja existe acao registrada para este contato: a recomendacao virou o "por que agora"
+    // daquele item, la em cima. Criar a linha aqui duplicaria o contato na fila.
+    if (digitosComAcaoAberta.has(digitos(h.telefone_digitos || numero))) {
+      if (porNumero.has(numero)) usados.add(numero)
+      continue
+    }
     const grupo = porNumero.has(numero) ? resumirAutomaticos(porNumero.get(numero)) : null
     if (grupo) usados.add(numero)
     const ia = grupo ? itemDoAutomatico(grupo, agora, true) : null
     const telefoneHumano = texto(h.telefone_digitos) || digitos(numero)
     const nomeHumano = nomeDeVerdade(h.nome)
     itens.push({
+      ...CAMPOS_FOLLOWUP_VAZIOS,
       id: `humano:${numero}`,
       numero,
       telefone_digitos: telefoneHumano,
@@ -260,12 +383,16 @@ function montarFila(entrada = {}) {
 
   for (const [numero, lista] of porNumero) {
     if (usados.has(numero)) continue
+    // Mesma regra do bloco humano: o agendamento do motor e' contexto do item registrado,
+    // nunca uma segunda linha do mesmo contato.
+    if (digitosComAcaoAberta.has(digitos(numero))) continue
     const grupo = resumirAutomaticos(lista)
     const ia = itemDoAutomatico(grupo, agora, false)
     const p = grupo.principal
     const telefoneIa = digitos(numero)
     const nomeIa = nomeDeVerdade(p.nome)
     itens.push({
+      ...CAMPOS_FOLLOWUP_VAZIOS,
       id: `ia:${p.id}`,
       numero,
       telefone_digitos: telefoneIa,
@@ -329,19 +456,25 @@ function ordenarFila(itens) {
  * proprios filtros para nao afogarem a fila de trabalho.
  */
 const FILTROS_RAPIDOS = Object.freeze([
-  { valor: 'todos', label: 'Todos', descricao: 'Tudo em aberto: ação humana pendente ou follow-up automático agendado.' },
-  { valor: 'aguardando', label: 'Aguardando', descricao: 'Follow-up automático agendado, sem ação humana pendente.' },
+  { valor: 'todos', label: 'Todos', descricao: 'Tudo em aberto: próxima ação registrada, ação humana recomendada ou envio automático agendado.' },
+  { valor: 'aguardando', label: 'Aguardando', descricao: 'Compromisso com prazo futuro ou envio automático agendado — nada a fazer agora.' },
   { valor: 'hoje', label: 'Próxima ação hoje', descricao: 'Prazo vencido, agora ou ainda hoje.' },
+  { valor: 'whatsapp', label: 'WhatsApp', descricao: 'Próxima ação executada na Central de Mensagens.' },
+  { valor: 'ligacao', label: 'Ligação', descricao: 'Próxima ação executada na Central de Ligações.' },
   { valor: 'humano', label: 'Atendimento humano', descricao: 'Itens que precisam de uma pessoa.' },
   { valor: 'ia', label: 'Atendimento IA', descricao: 'Itens com follow-up automático agendado.' },
-  { valor: 'falhas', label: 'Falhas', descricao: 'Follow-up automático que falhou. O reprocessamento fica em Automação.' },
-  { valor: 'concluidos', label: 'Concluídos', descricao: 'Follow-up automático já enviado.' },
+  { valor: 'falhas', label: 'Falhas', descricao: 'Follow-up que falhou. Falha nunca aparece como "aguardando".' },
+  { valor: 'concluidos', label: 'Concluídos', descricao: 'Ação já registrada como finalizada.' },
 ])
 
 const PREDICADO_RAPIDO = Object.freeze({
   todos: (i) => emAberto(i),
   aguardando: (i) => i.situacao === SITUACOES.AGUARDANDO,
   hoje: (i) => emAberto(i) && PRAZO_ABERTO.includes(i.prazo_quando),
+  // Canal so' existe onde alguem escolheu um: item derivado (recomendacao heuristica ou
+  // agendamento do motor) NAO entra nestes dois filtros, em vez de receber canal presumido.
+  whatsapp: (i) => emAberto(i) && i.canal === 'whatsapp',
+  ligacao: (i) => emAberto(i) && i.canal === 'ligacao',
   humano: (i) => emAberto(i) && i.humano,
   ia: (i) => emAberto(i) && i.ia_agendada,
   falhas: (i) => i.tem_falha === true,
@@ -361,8 +494,15 @@ function aplicarFiltroRapido(itens, valor) {
 const VIEW_PADRAO = Object.freeze({
   busca: '',
   acao: '',
+  canal: '',
   prioridade: '',
+  // `origem` = ATENDIMENTO (humano | ia): quem cuida do item hoje.
   origem: '',
+  // `origemAcao` = o que GEROU a proxima acao (ligacao | mensagem | automacao | manual).
+  // Sao perguntas diferentes, entao sao dois campos: junta-las faria "humano" e "ligacao"
+  // parecerem alternativas do mesmo eixo, e nao sao.
+  origemAcao: '',
+  responsavel: '',
   situacao: '',
   dataDe: '',
   dataAte: '',
@@ -410,6 +550,14 @@ function aplicarAvancado(itens, view = {}) {
       if (!casaTexto && !casaFone) return false
     }
     if (v.acao && i.acao !== v.acao) return false
+    if (v.canal && i.canal !== v.canal) return false
+    if (v.origemAcao && i.origem !== v.origemAcao) return false
+    // 'sem' = nao atribuido, estado legitimo de trabalho — e justamente o recorte que o
+    // operador procura quando quer saber o que esta sem dono.
+    if (v.responsavel) {
+      if (v.responsavel === 'sem') { if (i.responsavel_id) return false }
+      else if (i.responsavel_id !== v.responsavel) return false
+    }
     if (v.prioridade) {
       if (v.prioridade === 'sem') { if (i.prioridade) return false }
       else if (i.prioridade !== v.prioridade) return false
@@ -435,7 +583,7 @@ function contarFiltrosAtivos(view = {}) {
 }
 
 /** Resumo dos criterios avancados ativos, para os chips da pagina. */
-function chipsAtivos(view = {}, rotulosDeAcao = {}) {
+function chipsAtivos(view = {}, rotulosDeAcao = {}, rotulosDeResponsavel = {}) {
   const v = { ...VIEW_PADRAO, ...(view || {}) }
   const chips = []
   if (texto(v.busca)) chips.push(`Busca: ${texto(v.busca)}`)
@@ -443,7 +591,14 @@ function chipsAtivos(view = {}, rotulosDeAcao = {}) {
   if (texto(v.prioridade)) {
     chips.push(v.prioridade === 'sem' ? 'Prioridade: não calculada' : PRIORIDADE_LABEL[v.prioridade] || `Prioridade: ${v.prioridade}`)
   }
-  if (texto(v.origem)) chips.push(`Origem: ${v.origem === 'humano' ? 'Atendimento humano' : 'Atendimento IA'}`)
+  if (texto(v.canal)) chips.push(`Canal: ${CANAL_LABEL[v.canal] || v.canal}`)
+  if (texto(v.origem)) chips.push(`Atendimento: ${v.origem === 'humano' ? 'humano' : 'IA'}`)
+  if (texto(v.origemAcao)) chips.push(`Origem: ${ORIGEM_LABEL[v.origemAcao] || v.origemAcao}`)
+  if (texto(v.responsavel)) {
+    chips.push(v.responsavel === 'sem'
+      ? 'Responsável: não atribuído'
+      : `Responsável: ${rotulosDeResponsavel[v.responsavel] || v.responsavel}`)
+  }
   if (texto(v.situacao)) chips.push(`Status: ${SITUACAO_LABEL[v.situacao] || v.situacao}`)
   if (texto(v.tentativasMin)) chips.push(`Tentativas ≥ ${texto(v.tentativasMin)}`)
   if (texto(v.falhaTexto)) chips.push(`Falha contém: ${texto(v.falhaTexto)}`)
@@ -469,7 +624,8 @@ function opcoesDeAcao(itens) {
   const mapa = new Map()
   for (const i of Array.isArray(itens) ? itens : []) {
     if (!i.acao) continue
-    if (!mapa.has(i.acao)) mapa.set(i.acao, texto(i.acao_label) || i.acao)
+    // Rotulo ESTAVEL primeiro: o `acao_label` de um follow-up registrado e' texto livre.
+    if (!mapa.has(i.acao)) mapa.set(i.acao, ACAO_IA_LABEL[i.acao] || texto(i.acao_label) || i.acao)
   }
   return [...mapa.entries()]
     .map(([valor, label]) => ({ valor, label }))
@@ -494,12 +650,33 @@ function descricaoPrioridade(item) {
   return item.prioridade_score == null ? base : `${base} (${item.prioridade_score} de 100)`
 }
 
+/** Opcoes do seletor de responsavel, derivadas dos itens presentes (nunca de lista paralela). */
+function opcoesDeResponsavel(itens) {
+  const mapa = new Map()
+  let temSemDono = false
+  for (const i of Array.isArray(itens) ? itens : []) {
+    if (!i.followup_id) continue
+    if (!i.responsavel_id) { temSemDono = true; continue }
+    if (!mapa.has(i.responsavel_id)) mapa.set(i.responsavel_id, texto(i.responsavel_nome) || 'Sem nome')
+  }
+  const lista = [...mapa.entries()]
+    .map(([valor, label]) => ({ valor, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
+  return temSemDono ? [{ valor: 'sem', label: 'Não atribuído' }, ...lista] : lista
+}
+
 module.exports = {
   SITUACOES,
   SITUACAO_LABEL,
   ACAO_IA_LABEL,
   PRIORIDADE_LABEL,
   FILTROS_RAPIDOS,
+  opcoesDeResponsavel,
+  // Reexportados de ./follow-up-acao — o MESMO vocabulario que a Central de Ligacoes usa.
+  CANAL_LABEL, CANAL_ICONE, CANAL_OPCOES, ORIGEM_LABEL, STATUS_FOLLOWUP_LABEL, PRIORIDADE_OPCOES,
+  rotuloCanal, iconeCanal, destinoDoCanal, rotuloOrigem, rotuloStatusFollowUp, rotuloEvento,
+  formatarQuando, resumoProximaAcao, sugerirProximaAcao, paraInputLocal, deInputLocal,
+  validarProximaAcao, montarPayloadProximaAcao, itemDeFollowUp, contextoDeOrigem,
   VIEW_PADRAO,
   montarFila,
   ordenarFila,

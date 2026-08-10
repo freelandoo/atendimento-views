@@ -36,6 +36,9 @@ const {
   metricasLigacoes,
   validarEnvioAposLigacao,
 } = require('../db/followup-ligacoes')
+const F = require('../db/follow-ups')
+const { normalizarTelefoneDigitos } = require('../services/follow-up-modelo')
+const A = require('../db/auditoria')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -241,6 +244,88 @@ router.post('/manual/enviar', requireAuth, requireEmpresaAccess, async (req, res
     const out = await enviarFollowupTexto({ pool, empresaId: req.empresa.id, numero, texto })
     return res.json({ ok: true, data: out })
   } catch (err) { return erro(res, err, 'MANUAL_SEND_FAILED') }
+})
+
+// --- FOLLOW-UPS PERSISTIDOS (entidade — migration 062) ---------------------------
+// A proxima acao concreta de um contato: canal, prazo, prioridade, responsavel, status e
+// origem. Convive com as duas fontes derivadas acima (call-list e agendamentos do motor);
+// nao as substitui. Toda rota e' admin-only pelo mount + requireEmpresaAccess.
+
+// GET /itens?status=&canal=&limit= — a fila persistida.
+router.get('/itens', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const itens = await F.listarFollowUps(pool, req.empresa.id, {
+      status: req.query.status, canal: req.query.canal, limit: req.query.limit,
+    })
+    return res.json({ ok: true, data: { itens } })
+  } catch (err) { return erro(res, err, 'FOLLOWUPS_LIST_FAILED') }
+})
+
+// GET /responsaveis — usuarios da empresa que podem receber um follow-up.
+router.get('/responsaveis', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    return res.json({ ok: true, data: { itens: await F.listarResponsaveis(pool, req.empresa.id) } })
+  } catch (err) { return erro(res, err, 'FOLLOWUPS_RESPONSAVEIS_FAILED') }
+})
+
+// POST /itens — cria a proxima acao a partir da fila (origem 'manual' ou 'mensagem').
+// A origem 'ligacao' NAO passa por aqui: ela nasce dentro da transacao de
+// POST /ligacoes/:id/encerrar, para nunca existir follow-up de uma ligacao que deu rollback.
+const ORIGENS_DA_ROTA = new Set(['manual', 'mensagem'])
+router.post('/itens', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const b = req.body || {}
+    if (!ORIGENS_DA_ROTA.has(b.origem)) {
+      throw erroValidacao('origem invalida por esta rota (use manual ou mensagem).')
+    }
+    const item = await F.criarFollowUp(pool, req.empresa.id, b, { usuarioId: req.usuario?.id || null })
+    A.registrarAuditoria(pool, req.empresa.id, {
+      usuarioId: req.usuario?.id, entidadeTipo: 'follow_up', entidadeId: item.id,
+      acao: 'follow_up_criado', estadoNovo: 'aguardando',
+      contexto: { origem: item.origem, canal: item.canal, substituiu_anterior: item.substituiu === true },
+    })
+    return res.status(201).json({ ok: true, data: item })
+  } catch (err) { return erro(res, err, 'FOLLOWUP_CRIAR_FAILED') }
+})
+
+// POST /itens/:id/status — concluir | cancelar | falha. Idempotente.
+router.post('/itens/:id/status', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const b = req.body || {}
+    const item = await F.mudarStatusFollowUp(pool, req.empresa.id, req.params.id, b, { usuarioId: req.usuario?.id || null })
+    if (!item.ja_estava) {
+      A.registrarAuditoria(pool, req.empresa.id, {
+        usuarioId: req.usuario?.id, entidadeTipo: 'follow_up', entidadeId: item.id,
+        acao: `follow_up_${item.status}`, estadoAnterior: 'aguardando', estadoNovo: item.status,
+        contexto: { canal: item.canal, origem: item.origem },
+      })
+    }
+    return res.json({ ok: true, data: item })
+  } catch (err) { return erro(res, err, 'FOLLOWUP_STATUS_FAILED') }
+})
+
+// POST /itens/:id/reagendar — move prazo/prioridade/texto/responsavel MANTENDO o mesmo item.
+router.post('/itens/:id/reagendar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const item = await F.reagendarFollowUp(pool, req.empresa.id, req.params.id, req.body || {})
+    A.registrarAuditoria(pool, req.empresa.id, {
+      usuarioId: req.usuario?.id, entidadeTipo: 'follow_up', entidadeId: item.id,
+      acao: 'follow_up_reagendado', estadoAnterior: 'aguardando', estadoNovo: 'aguardando',
+      contexto: { canal: item.canal },
+    })
+    return res.json({ ok: true, data: item })
+  } catch (err) { return erro(res, err, 'FOLLOWUP_REAGENDAR_FAILED') }
+})
+
+// GET /contatos/:telefone/historico — linha do tempo do contato (ligacoes + follow-ups).
+// NAO devolve texto de mensagem: isso e' do painel de conversa, que ja mostra o historico
+// inteiro. Repetir ali seria a mesma informacao em dois lugares, com risco de divergirem.
+router.get('/contatos/:telefone/historico', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const digitos = normalizarTelefoneDigitos(req.params.telefone)
+    const eventos = await F.historicoDoContato(pool, req.empresa.id, digitos, { limit: req.query.limit })
+    return res.json({ ok: true, data: { eventos } })
+  } catch (err) { return erro(res, err, 'FOLLOWUP_HISTORICO_FAILED') }
 })
 
 router._internals = { validarNumeroEntrada, validarTextoEntrada, validarPatchConfig }

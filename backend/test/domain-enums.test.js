@@ -8,6 +8,7 @@ const {
   ROTEIRO_VERSAO_STATUS, ROTEIRO_ETAPA_TIPO, CAMPANHA_STATUS, OPORTUNIDADE_STATUS,
   LIGACAO_RESULTADO, LIGACAO_STATUS, SINAL_TIPO, SINAL_ORIGEM, OBJECAO_ORIGEM,
   PERGUNTA_STATUS, MOTIVO_PERDA,
+  FOLLOWUP_CANAL, FOLLOWUP_STATUS, FOLLOWUP_PRIORIDADE, FOLLOWUP_ORIGEM,
 } = require('../src/domain-enums')
 
 const initSql = fs.readFileSync(path.join(__dirname, '..', 'sql', 'init.sql'), 'utf8')
@@ -21,6 +22,7 @@ const mig044 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '
 const mig045 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '045_ligacao_objecoes.sql'), 'utf8')
 const mig043 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '043_ligacao_perguntas.sql'), 'utf8')
 const mig052 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '052_ligacoes_motivo_perda_v2.sql'), 'utf8')
+const mig062 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '062_follow_ups.sql'), 'utf8')
 
 // Extrai a lista de valores da primeira CHECK (... IN (...)) que segue o nome da constraint.
 function checkIn(sql, constraintName) {
@@ -134,12 +136,30 @@ test('PERGUNTA_STATUS bate com a CHECK ligacao_perguntas_status_chk (migration 0
   mesmoConjunto(PERGUNTA_STATUS, checkIn(mig043, 'ligacao_perguntas_status_chk'), 'pergunta_status')
 })
 
+test('FOLLOWUP_* batem com as CHECK de app.follow_ups (migration 062)', () => {
+  mesmoConjunto(FOLLOWUP_CANAL, checkIn(mig062, 'follow_ups_canal_chk'), 'follow_up.canal')
+  mesmoConjunto(FOLLOWUP_STATUS, checkIn(mig062, 'follow_ups_status_chk'), 'follow_up.status')
+  mesmoConjunto(FOLLOWUP_PRIORIDADE, checkIn(mig062, 'follow_ups_prioridade_chk'), 'follow_up.prioridade')
+  mesmoConjunto(FOLLOWUP_ORIGEM, checkIn(mig062, 'follow_ups_origem_chk'), 'follow_up.origem')
+})
+
+test('os enums de follow-up sao REEXPORTADOS do modulo puro, nao copiados', () => {
+  // Duplicar os arrays aqui criaria exatamente o drift que este arquivo existe para impedir.
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'domain-enums.js'), 'utf8')
+  assert.match(src, /require\('\.\/services\/follow-up-modelo'\)/,
+    'domain-enums deve importar o vocabulario de follow-up da fonte unica')
+  const modelo = require('../src/services/follow-up-modelo')
+  assert.equal(FOLLOWUP_CANAL, modelo.FOLLOWUP_CANAL, 'tem de ser a MESMA referencia, nao uma copia')
+  assert.equal(FOLLOWUP_STATUS, modelo.FOLLOWUP_STATUS)
+})
+
 test('arrays da fonte unica sem duplicatas e nao vazios', () => {
   for (const arr of [AGENDA_VENDAS.TIPOS, AGENDA_VENDAS.STATUS, AGENDA_VENDAS.PRIORIDADES,
     AGENDA_APP.TIPOS, AGENDA_APP.STATUS, AGENDA_APP.PRIORIDADES, EVENTOS_COMERCIAIS_TIPOS,
     ROTEIRO_VERSAO_STATUS, ROTEIRO_ETAPA_TIPO, CAMPANHA_STATUS, OPORTUNIDADE_STATUS,
     LIGACAO_RESULTADO, LIGACAO_STATUS, SINAL_TIPO, SINAL_ORIGEM, OBJECAO_ORIGEM,
-    PERGUNTA_STATUS, MOTIVO_PERDA]) {
+    PERGUNTA_STATUS, MOTIVO_PERDA,
+    FOLLOWUP_CANAL, FOLLOWUP_STATUS, FOLLOWUP_PRIORIDADE, FOLLOWUP_ORIGEM]) {
     assert.ok(arr.length > 0)
     assert.equal(new Set(arr).size, arr.length, 'ha valor duplicado no enum')
   }

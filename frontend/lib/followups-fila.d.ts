@@ -1,7 +1,14 @@
 export type SituacaoFila = 'aberto' | 'aguardando' | 'falha' | 'concluido' | 'cancelado'
 export type PrioridadeFila = 'alta' | 'media' | 'baixa'
 export type PrazoQuando = 'agora' | 'atrasado' | 'hoje' | 'futuro' | 'passado'
-export type FiltroRapido = 'todos' | 'aguardando' | 'hoje' | 'humano' | 'ia' | 'falhas' | 'concluidos'
+export type FiltroRapido =
+  | 'todos' | 'aguardando' | 'hoje'
+  | 'whatsapp' | 'ligacao'
+  | 'humano' | 'ia' | 'falhas' | 'concluidos'
+
+import type {
+  CanalFollowUp, StatusFollowUp, OrigemFollowUp, DestinoFollowUp, FollowUpApi,
+} from './follow-up-acao'
 
 /** Item de `GET /follow-ups/call-list` (fila de atendimento humano). */
 export interface AtendimentoHumano {
@@ -86,13 +93,38 @@ export interface ItemFila {
   ia_data: string | null
   ia_data_label: string | null
   ia_id: number | null
+
+  // --- Follow-up REGISTRADO (migration 062). Todos `null` num item derivado: canal,
+  // responsável e origem só existem onde uma pessoa escolheu — a fila não os presume.
+  followup_id: string | null
+  followup_status: StatusFollowUp | null
+  canal: CanalFollowUp | null
+  origem: OrigemFollowUp | null
+  responsavel_id: string | null
+  responsavel_nome: string | null
+  campanha_lead_id: string | null
+  campanha_id: string | null
+  campanha_nome: string | null
+  prospect_id: string | null
+  ligacao_id: string | null
+  ligacao_resultado: string | null
+  ligacao_em: string | null
+  observacao: string | null
+  resultado_nota: string | null
+  destino: DestinoFollowUp | null
 }
 
 export interface ViewFollowups {
   busca: string
   acao: string
+  canal: string
   prioridade: string
+  /** Atendimento: `humano` | `ia` — quem cuida do item hoje. */
   origem: string
+  /** O que GEROU a próxima ação: `ligacao` | `mensagem` | `automacao` | `manual`. */
+  origemAcao: string
+  /** Id do usuário, ou `sem` para "não atribuído". */
+  responsavel: string
   situacao: string
   dataDe: string
   dataAte: string
@@ -116,6 +148,8 @@ export declare const VIEW_PADRAO: ViewFollowups
 export declare function montarFila(entrada: {
   humanos?: AtendimentoHumano[]
   automaticos?: AgendamentoAuto[]
+  /** Follow-ups persistidos. Precedem as outras duas fontes: pessoa vence heurística. */
+  followups?: FollowUpApi[]
   agora?: Date
 }): ItemFila[]
 export declare function ordenarFila(itens: ItemFila[]): ItemFila[]
@@ -124,7 +158,12 @@ export declare function filtroRapidoValido(valor: string | null | undefined): Fi
 export declare function aplicarFiltroRapido(itens: ItemFila[], valor: string | null | undefined): ItemFila[]
 export declare function aplicarAvancado(itens: ItemFila[], view?: Partial<ViewFollowups>): ItemFila[]
 export declare function contarFiltrosAtivos(view?: Partial<ViewFollowups>): number
-export declare function chipsAtivos(view?: Partial<ViewFollowups>, rotulosDeAcao?: Record<string, string>): string[]
+export declare function chipsAtivos(
+  view?: Partial<ViewFollowups>,
+  rotulosDeAcao?: Record<string, string>,
+  rotulosDeResponsavel?: Record<string, string>,
+): string[]
+export declare function opcoesDeResponsavel(itens: ItemFila[]): { valor: string; label: string }[]
 export declare function contagensRapidas(itens: ItemFila[]): Record<FiltroRapido, number>
 export declare function opcoesDeAcao(itens: ItemFila[]): { valor: string; label: string }[]
 export declare function resumoFila(contagens: Record<string, number> | null | undefined): string
@@ -136,6 +175,18 @@ export declare function classificarPrazoJanela(janelaQuando: string | null | und
 export declare function nomeDeVerdade(valor: unknown): string | null
 export declare function formatarTelefone(valor: unknown): string
 export declare function rotuloLead(item: { nome?: string | null; telefone_digitos?: string; numero?: string } | null | undefined): string
+
+// Vocabulário da entidade follow-up — o MESMO que a Central de Ligações usa.
+export type {
+  CanalFollowUp, StatusFollowUp, PrioridadeFollowUp, OrigemFollowUp, DestinoFollowUp,
+  EscolhaCanal, FollowUpApi, FormProximaAcao, PayloadProximaAcao, ContextoOrigem, EventoContato,
+} from './follow-up-acao'
+export {
+  CANAL_LABEL, CANAL_ICONE, CANAL_OPCOES, ORIGEM_LABEL, STATUS_FOLLOWUP_LABEL, PRIORIDADE_OPCOES,
+  rotuloCanal, iconeCanal, destinoDoCanal, rotuloOrigem, rotuloStatusFollowUp, rotuloEvento,
+  formatarQuando, resumoProximaAcao, sugerirProximaAcao, paraInputLocal, deInputLocal,
+  validarProximaAcao, montarPayloadProximaAcao, itemDeFollowUp, contextoDeOrigem,
+} from './follow-up-acao'
 
 // Paginação — mesma aritmética da Aquisição e da Central de Ligações.
 export type { PaginaLista } from './paginacao'
