@@ -172,6 +172,11 @@ function createCoreFunnel(deps = {}) {
     getContextoAtivoComEstagios,
     // Pause global do agente por empresa (config.agente_pausado). Opcional.
     empresaAgentePausada,
+    // Modo padrao da IA por empresa (config.modo_ia_padrao). Opcional: ausente, toda
+    // conversa em `herdar` cai no padrao de fabrica (`conversa`) — comportamento historico.
+    // NAO se confunde com o pause acima: um e' permissao de responder, o outro e' pausa
+    // temporaria, e o envio exige os dois liberados.
+    modoIaPadraoEmpresa,
     // Protocolo de abertura determinístico (saudação → 1 pergunta → CTA). Opcional:
     // se ausente ou se a empresa não configurou, a abertura segue pela IA (atual).
     resolverOpenerProtocolo,
@@ -1083,9 +1088,15 @@ function createCoreFunnel(deps = {}) {
     let respostaEnviadaAoLead = false
 
     // ── POLITICA DE RESPOSTA DA CONVERSA ───────────────────────────────────────
-    // Consultada UMA vez, aqui, e guardada num booleano. O veredito nao muda no meio do
-    // turno, e reconsultar em cada ponto de envio espalharia a regra — que e' justamente
-    // o que o desenho modular proibe.
+    // Resolvida UMA vez por turno: uma leitura do modo global (cacheada em db/empresas.js)
+    // e um veredito guardado num booleano. O veredito nao muda no meio do turno, e
+    // reconsultar em cada ponto de envio espalharia a regra — o que o desenho modular
+    // proibe. Quem precisa do global adiante (o enviador do playbook) recebe o valor JA
+    // resolvido, em vez de ler de novo.
+    //
+    // Sao dois fatos combinados aqui: a PREFERENCIA da conversa (`modo_ia`, que pode ser
+    // `herdar`) e o MODO GLOBAL da Central. A ordem de prioridade vive inteira em
+    // `services/conversa-modo-ia.js`; este arquivo nao decide nada, so' pergunta.
     //
     // A capacidade vem de QUEM CHAMOU, e nao do modo: este mesmo motor atende a resposta
     // conversacional (webhook) e a execucao de follow-up (`followup-execution.js`), e
@@ -1096,7 +1107,17 @@ function createCoreFunnel(deps = {}) {
     // turno de LLM roda inteiro, o perfil e' atualizado, os eventos sao registrados e o
     // estagio avanca igual. Um `return` aqui desligaria a inteligencia junto com a fala.
     const capacidadeTurno = opcoes?.capacidade || CAPACIDADES.RESPOSTA_CONVERSACIONAL
-    const vereditoEnvio = avaliarEnvio({ modo: conversaUsada?.modo_ia, capacidade: capacidadeTurno })
+    let modoGlobalTurno = null
+    if (conversaUsada?.empresa_id && typeof modoIaPadraoEmpresa === 'function') {
+      // `modoIaPadraoEmpresa` ja e' tolerante a falha (serve o ultimo valor conhecido); o
+      // catch aqui e' so' para o caso de a propria injecao estar quebrada.
+      try { modoGlobalTurno = await modoIaPadraoEmpresa(conversaUsada.empresa_id) } catch (_) { modoGlobalTurno = null }
+    }
+    const vereditoEnvio = avaliarEnvio({
+      preferencia: conversaUsada?.modo_ia,
+      modoGlobal: modoGlobalTurno,
+      capacidade: capacidadeTurno,
+    })
     const entregaPermitida = vereditoEnvio.permitido
 
     if (typeof podeGerarRespostaAutomatica === 'function' && !podeGerarRespostaAutomatica({ ...conversaUsada, historico })) {
@@ -1217,6 +1238,8 @@ function createCoreFunnel(deps = {}) {
           // A capacidade viaja junto: o gate de entrega do playbook e' o mesmo deste motor,
           // e follow-up executado por aqui nao pode ser barrado pelo toggle da conversa.
           capacidade: capacidadeTurno,
+          // O global JA resolvido: uma leitura por turno, nao uma por enviador.
+          modoGlobal: modoGlobalTurno,
         })
       }
     }
@@ -2082,6 +2105,7 @@ function createCoreFunnel(deps = {}) {
           empresaId: empresaIdConversa,
           numero,
           modo: vereditoEnvio.modo,
+          origem: vereditoEnvio.origem,
           capacidade: capacidadeTurno,
         }),
         'Modo Analise: resposta conversacional nao enviada (analise registrada normalmente)'

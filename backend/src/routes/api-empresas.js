@@ -3,7 +3,12 @@ const { Router } = require('express')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { listEmpresasDoUsuario } = require('../db/usuarios')
-const { invalidarCachePauseEmpresa } = require('../db/empresas')
+const { invalidarCachePauseEmpresa, invalidarCacheModoIaPadrao } = require('../db/empresas')
+const {
+  modoValido,
+  normalizarModo,
+  MODOS_IA_VALIDOS,
+} = require('../services/conversa-modo-ia')
 
 const router = Router()
 
@@ -85,6 +90,41 @@ router.patch('/:empresaId/agente', requireAuth, requireEmpresaAccess, async (req
   )
   invalidarCachePauseEmpresa(req.empresa.id)
   return res.json({ ok: true, data: { pausado: !!(empresa.config?.agente_pausado) } })
+})
+
+// GET /api/empresas/:empresaId/modo-ia-padrao — modo padrao da IA na Central de Mensagens
+// Vale para toda conversa cuja preferencia e' `herdar`. Conversa com excecao explicita
+// ignora este valor — a precedencia vive em services/conversa-modo-ia.js.
+router.get('/:empresaId/modo-ia-padrao', requireAuth, requireEmpresaAccess, async (req, res) => {
+  return res.json({ ok: true, data: { modo: normalizarModo(req.empresa?.config?.modo_ia_padrao) } })
+})
+
+// PATCH /api/empresas/:empresaId/modo-ia-padrao { modo: 'conversa' | 'analise' }
+// Efeito IMEDIATO nas conversas em `herdar` (o cache e' invalidado aqui); conversas com
+// excecao explicita nao sao tocadas — nem aqui, nem em lugar nenhum.
+router.patch('/:empresaId/modo-ia-padrao', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const modo = req.body?.modo
+  if (!modoValido(modo)) {
+    return res.status(400).json({
+      ok: false,
+      error: {
+        code: 'MODO_IA_INVALIDO',
+        // `herdar` e' preferencia de CONVERSA, nao modo global: a Central nao tem de quem herdar.
+        message: `modo invalido. Use um destes: ${MODOS_IA_VALIDOS.join(', ')}.`,
+      },
+    })
+  }
+  const modoNorm = normalizarModo(modo)
+  const { rows: [empresa] } = await pool.query(
+    `UPDATE app.empresas
+        SET config = COALESCE(config, '{}'::jsonb) || jsonb_build_object('modo_ia_padrao', $2::text),
+            atualizado_em = NOW()
+      WHERE id = $1
+      RETURNING id, config`,
+    [req.empresa.id, modoNorm]
+  )
+  invalidarCacheModoIaPadrao(req.empresa.id)
+  return res.json({ ok: true, data: { modo: normalizarModo(empresa?.config?.modo_ia_padrao) } })
 })
 
 // PUT /api/empresas/:empresaId

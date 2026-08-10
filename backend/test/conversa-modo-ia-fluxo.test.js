@@ -2,13 +2,14 @@
 
 // O modo de IA no CAMINHO REAL, nao so nas regras puras.
 //
-// Tres frentes, porque tres coisas diferentes podem quebrar:
-//   1. WEBHOOK  — a analise nao pode ser encurtada pelo modo. O webhook nao envia nada (ele
-//                 enfileira o turno); se o modo aparecesse ali, o bloqueio mataria junto a
-//                 analise, que e' exatamente o que o modo Analise existe para preservar.
-//   2. ENVIADOR — o playbook (contexto2-responder) tem de ANALISAR e NAO ENVIAR em analise,
-//                 e continuar identico a hoje em conversa.
-//   3. ROTA     — validacao de entrada, isolamento por empresa e auditoria so na mudanca real.
+// Quatro frentes, porque quatro coisas diferentes podem quebrar:
+//   1. WEBHOOK    — a analise nao pode ser encurtada pelo modo. O webhook nao envia nada
+//                   (ele enfileira o turno); se o modo aparecesse ali, o bloqueio mataria
+//                   junto a analise, que e' o que o modo Analise existe para preservar.
+//   2. ENVIADOR   — a precedencia (excecao da conversa > padrao da Central) exercitada no
+//                   motor de verdade, com a analise rodando nos quatro casos.
+//   3. ROTA       — validacao de entrada, isolamento por empresa e auditoria so na mudanca.
+//   4. MODO GLOBAL— leitura, cache e o que acontece quando o banco falha.
 
 const test = require('node:test')
 const assert = require('node:assert')
@@ -16,7 +17,13 @@ const assert = require('node:assert')
 const { registerWebhookRoute } = require('../src/webhook-handler')
 const { createContexto2Responder } = require('../src/services/contexto2-responder')
 const { alterarModoIaConversa } = require('../src/services/conversa-manual')
-const { MODOS_IA, CAPACIDADES, MOTIVO_BLOQUEIO } = require('../src/services/conversa-modo-ia')
+const {
+  MODOS_IA,
+  PREFERENCIAS,
+  ORIGEM_MODO,
+  CAPACIDADES,
+  MOTIVO_BLOQUEIO,
+} = require('../src/services/conversa-modo-ia')
 
 const EMPRESA = '11111111-1111-1111-1111-111111111111'
 const OUTRA_EMPRESA = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
@@ -36,7 +43,7 @@ function stubLogger() {
 // ─── 1. WEBHOOK: o modo nao pode encurtar a analise ───────────────────────────
 
 /**
- * Monta o webhook com todas as dependencias observaveis. O ponto do teste e o que acontece
+ * Monta o webhook com todas as dependencias observaveis. O ponto do teste e' o que acontece
  * ANTES do turno de IA: salvar conversa, atualizar perfil, registrar eventos e enfileirar o
  * job. Nada aqui envia WhatsApp — o envio vive no turno, testado na secao 2.
  */
@@ -88,7 +95,7 @@ function montarWebhook(conversaExistente) {
   return { handler, chamadas, registros }
 }
 
-const requisicao = (modo) => ({
+const requisicao = () => ({
   body: {
     event: 'messages.upsert',
     data: { messages: [{ key: { id: 'M1', fromMe: false, remoteJid: NUMERO }, message: { conversation: 'quanto custa?' } }] },
@@ -98,21 +105,20 @@ const requisicao = (modo) => ({
   whatsappInstanciaId: 'i1',
   evolutionInstance: 'inst-1',
   tenantPendencia: null,
-  _modo: modo,
 })
 const resposta = () => ({ status() { return this }, json() { return this } })
 
-for (const modo of [MODOS_IA.CONVERSA, MODOS_IA.ANALISE]) {
-  test(`webhook (modo ${modo}): analise e registros acontecem e o turno e enfileirado`, async () => {
-    const conversa = { numero: NUMERO, historico: [], estagio: 'diagnostico', status: 'ativo', modo_ia: modo }
+for (const preferencia of [PREFERENCIAS.HERDAR, PREFERENCIAS.CONVERSA, PREFERENCIAS.ANALISE]) {
+  test(`webhook (preferencia ${preferencia}): analise e registros acontecem e o turno e enfileirado`, async () => {
+    const conversa = { numero: NUMERO, historico: [], estagio: 'diagnostico', status: 'ativo', modo_ia: preferencia }
     const { handler, chamadas } = montarWebhook(conversa)
-    await handler(requisicao(modo), resposta())
+    await handler(requisicao(), resposta())
 
-    // O modo NAO pode encurtar nada disto: e o registro interno que o modo Analise preserva.
+    // O modo NAO pode encurtar nada disto: e' o registro interno que o modo Analise preserva.
     assert.strictEqual(chamadas.salvarConversa.length, 1, 'a mensagem do lead precisa ser gravada')
     assert.strictEqual(chamadas.capturarNomeContato.length, 1)
     assert.ok(chamadas.eventosComerciais.some(([, tipo]) => tipo === 'pediu_preco'))
-    // E o turno tem de ser enfileirado nos DOIS modos: e dentro dele que a IA analisa.
+    // E o turno tem de ser enfileirado nos tres casos: e' dentro dele que a IA analisa.
     assert.strictEqual(chamadas.enfileirarJob.length, 1, 'o turno de analise foi encurtado pelo modo')
   })
 }
@@ -126,18 +132,20 @@ test('webhook: o modo nao aparece no webhook — quem decide entrega e o enviado
   assert.ok(!/modo_ia/.test(fonte), 'webhook-handler.js passou a decidir o modo — o bloqueio pertence ao enviador')
 })
 
-test('webhook: agente pausado continua cortando o fluxo, como sempre', () => {
-  // A pausa por intervencao humana e OUTRO mecanismo e nao foi tocada. O envio automatico
+test('webhook: agente pausado continua cortando o fluxo, como sempre', async () => {
+  // A pausa por intervencao humana e' OUTRO mecanismo e nao foi tocada. O envio automatico
   // exige os dois liberados; este teste protege o "sempre foi assim" do agente_pausado.
-  const conversa = { numero: NUMERO, historico: [], estagio: 'diagnostico', status: 'ativo', agente_pausado: true, modo_ia: MODOS_IA.CONVERSA }
+  const conversa = {
+    numero: NUMERO, historico: [], estagio: 'diagnostico', status: 'ativo',
+    agente_pausado: true, modo_ia: PREFERENCIAS.HERDAR,
+  }
   const { handler, chamadas } = montarWebhook(conversa)
-  return handler(requisicao(MODOS_IA.CONVERSA), resposta()).then(() => {
-    assert.strictEqual(chamadas.enfileirarJob.length, 0, 'agente pausado nao pode gerar turno de resposta')
-    assert.strictEqual(chamadas.salvarConversa.length, 1, 'mesmo pausado, a mensagem do lead e gravada')
-  })
+  await handler(requisicao(), resposta())
+  assert.strictEqual(chamadas.enfileirarJob.length, 0, 'agente pausado nao pode gerar turno de resposta')
+  assert.strictEqual(chamadas.salvarConversa.length, 1, 'mesmo pausado, a mensagem do lead e gravada')
 })
 
-// ─── 2. ENVIADOR: analisa nos dois modos, entrega so em um ────────────────────
+// ─── 2. ENVIADOR: analisa sempre, entrega conforme a precedencia ──────────────
 
 function montarResponder(overrides = {}) {
   const { log } = stubLogger()
@@ -167,78 +175,85 @@ function montarResponder(overrides = {}) {
 
 const historicoBase = [{ role: 'user', content: 'quanto custa?' }]
 
-test('enviador em modo conversa: comportamento identico ao de hoje', async () => {
-  const { responderContexto2, calls } = montarResponder()
-  const r = await responderContexto2({
-    numero: NUMERO, empresaId: EMPRESA, historico: historicoBase, estagioLive: 'diagnostico',
-    conversaUsada: { status: 'ativo', evolution_instance: 'inst-1', modo_ia: MODOS_IA.CONVERSA },
+function responder(responderContexto2, { preferencia, modoGlobal, capacidade } = {}) {
+  return responderContexto2({
+    numero: NUMERO,
+    empresaId: EMPRESA,
+    historico: historicoBase,
+    estagioLive: 'diagnostico',
+    conversaUsada: { status: 'ativo', evolution_instance: 'inst-1', modo_ia: preferencia },
+    modoGlobal,
+    ...(capacidade ? { capacidade } : {}),
   })
+}
 
-  assert.deepStrictEqual(r, { ok: true, via: 'playbook' })
-  assert.strictEqual(calls.enviarMensagem.length, 1)
-  const histSalvo = calls.salvarConversa[0][1]
-  assert.strictEqual(histSalvo[histSalvo.length - 1].role, 'assistant')
-})
+// A matriz de precedencia, exercitada no ENVIADOR e nao so nas regras puras.
+const CASOS_ENTREGA = [
+  { preferencia: 'herdar', modoGlobal: 'conversa', envia: true, nota: 'herda a Central em Conversa' },
+  { preferencia: 'herdar', modoGlobal: 'analise', envia: false, nota: 'herda a Central em Analise' },
+  { preferencia: 'conversa', modoGlobal: 'analise', envia: true, nota: 'excecao Conversa resiste a Central em Analise' },
+  { preferencia: 'analise', modoGlobal: 'conversa', envia: false, nota: 'excecao Analise resiste a Central em Conversa' },
+]
 
-test('enviador em modo analise: analisa, registra e NAO envia', async () => {
-  const { responderContexto2, calls } = montarResponder()
-  const r = await responderContexto2({
-    numero: NUMERO, empresaId: EMPRESA, historico: historicoBase, estagioLive: 'diagnostico',
-    conversaUsada: { status: 'ativo', evolution_instance: 'inst-1', modo_ia: MODOS_IA.ANALISE },
+for (const caso of CASOS_ENTREGA) {
+  test(`enviador: ${caso.nota} => ${caso.envia ? 'envia' : 'NAO envia'}`, async () => {
+    const { responderContexto2, calls } = montarResponder()
+    const r = await responder(responderContexto2, caso)
+
+    // A ANALISE roda nos quatro casos: o playbook e' quem grava lead_insights, e o patch de
+    // perfil da decisao e' aplicado antes de qualquer decisao de entrega.
+    assert.strictEqual(calls.playbook.length, 1, 'a analise foi pulada')
+    assert.ok(calls.atualizarPerfil.some((a) => a[1]?.produto_sugerido === 'site'))
+
+    if (caso.envia) {
+      assert.deepStrictEqual(r, { ok: true, via: 'playbook' })
+      assert.strictEqual(calls.enviarMensagem.length, 1)
+      const histSalvo = calls.salvarConversa[0][1]
+      assert.strictEqual(histSalvo[histSalvo.length - 1].role, 'assistant')
+    } else {
+      assert.strictEqual(calls.enviarMensagem.length, 0, 'a IA enviou mensagem em modo Analise')
+      assert.deepStrictEqual(r, { skipped: true, reason: MOTIVO_BLOQUEIO.MODO_ANALISE, analise_registrada: true })
+    }
   })
+}
 
-  // A analise rodou inteira: o playbook foi consultado (e' ele quem grava lead_insights) e
-  // o patch de perfil da decisao foi aplicado.
-  assert.strictEqual(calls.playbook.length, 1, 'a analise foi pulada')
-  assert.ok(calls.atualizarPerfil.some((a) => a[1]?.produto_sugerido === 'site'))
-  // E nada saiu para o cliente.
-  assert.strictEqual(calls.enviarMensagem.length, 0, 'a IA enviou mensagem em modo Analise')
-  assert.deepStrictEqual(r, { skipped: true, reason: MOTIVO_BLOQUEIO.MODO_ANALISE, analise_registrada: true })
-})
-
-test('enviador em modo analise: a resposta nao entregue NAO vira mensagem do assistente', async () => {
+test('enviador: a resposta nao entregue NAO vira mensagem do assistente', async () => {
   // Se isto quebrar, o painel mostra ao operador um balao do agente que o cliente nunca
   // recebeu — e o proximo turno raciocina sobre uma fala que nao existiu.
   const { responderContexto2, calls } = montarResponder()
-  await responderContexto2({
-    numero: NUMERO, empresaId: EMPRESA, historico: historicoBase, estagioLive: 'diagnostico',
-    conversaUsada: { status: 'ativo', evolution_instance: 'inst-1', modo_ia: MODOS_IA.ANALISE },
-  })
+  await responder(responderContexto2, { preferencia: 'herdar', modoGlobal: 'analise' })
   const salvouAssistente = calls.salvarConversa.some(([, hist]) =>
     Array.isArray(hist) && hist.some((m) => m?.role === 'assistant'))
   assert.strictEqual(salvouAssistente, false)
 })
 
-test('enviador: follow-up atravessa o modo analise (capacidade propria)', async () => {
-  // Regra de produto: follow-up nao depende deste toggle.
+test('enviador: follow-up atravessa o modo analise, venha ele da Central ou da excecao', async () => {
+  // Regra de produto: follow-up nao depende deste toggle, em nenhuma das duas origens.
+  for (const preferencia of ['herdar', 'analise']) {
+    const { responderContexto2, calls } = montarResponder()
+    const r = await responder(responderContexto2, {
+      preferencia, modoGlobal: 'analise', capacidade: CAPACIDADES.FOLLOW_UP,
+    })
+    assert.deepStrictEqual(r, { ok: true, via: 'playbook' })
+    assert.strictEqual(calls.enviarMensagem.length, 1, `follow-up barrado com preferencia ${preferencia}`)
+  }
+})
+
+test('enviador: conversa e Central sem valor gravado respondem normalmente', async () => {
+  // Comportamento historico: quem nunca configurou nada continua sendo atendido.
   const { responderContexto2, calls } = montarResponder()
-  const r = await responderContexto2({
-    numero: NUMERO, empresaId: EMPRESA, historico: historicoBase, estagioLive: 'diagnostico',
-    conversaUsada: { status: 'ativo', evolution_instance: 'inst-1', modo_ia: MODOS_IA.ANALISE },
-    capacidade: CAPACIDADES.FOLLOW_UP,
-  })
-  assert.deepStrictEqual(r, { ok: true, via: 'playbook' })
+  await responder(responderContexto2, {})
   assert.strictEqual(calls.enviarMensagem.length, 1)
 })
 
-test('enviador: conversa sem modo gravado responde normalmente', async () => {
-  const { responderContexto2, calls } = montarResponder()
-  await responderContexto2({
-    numero: NUMERO, empresaId: EMPRESA, historico: historicoBase, estagioLive: 'diagnostico',
-    conversaUsada: { status: 'ativo', evolution_instance: 'inst-1' },
-  })
-  assert.strictEqual(calls.enviarMensagem.length, 1)
-})
-
-test('enviador em modo analise: o log do bloqueio nao carrega PII', async () => {
+test('enviador: o log do bloqueio diz a ORIGEM e nao carrega PII', async () => {
   const { log, registros } = stubLogger()
   const { responderContexto2 } = montarResponder({ logger: log })
-  await responderContexto2({
-    numero: NUMERO, empresaId: EMPRESA, historico: historicoBase, estagioLive: 'diagnostico',
-    conversaUsada: { status: 'ativo', evolution_instance: 'inst-1', modo_ia: MODOS_IA.ANALISE },
-  })
+  await responder(responderContexto2, { preferencia: 'herdar', modoGlobal: 'analise' })
+
   const bloqueio = registros.find((r) => r.o?.etapa === 'envio_bloqueado')
   assert.ok(bloqueio, 'o bloqueio precisa ser registrado')
+  assert.strictEqual(bloqueio.o.origem, ORIGEM_MODO.HERDADO, 'sem a origem, o operador nao sabe onde mexer')
   const serializado = JSON.stringify(bloqueio)
   assert.ok(!serializado.includes('5511988887777'))
   assert.ok(!serializado.includes('Custa R$'), 'o texto nao enviado vazou para o log')
@@ -252,7 +267,11 @@ function montarPool(conversas) {
   const pool = {
     async query(sql, params) {
       if (/INSERT INTO app\.auditoria_eventos/.test(sql)) {
-        auditoria.push({ empresaId: params[0], usuarioId: params[1], entidadeTipo: params[2], acao: params[4], estadoAnterior: params[5], estadoNovo: params[6], contexto: JSON.parse(params[7]) })
+        auditoria.push({
+          empresaId: params[0], usuarioId: params[1], entidadeTipo: params[2],
+          acao: params[4], estadoAnterior: params[5], estadoNovo: params[6],
+          contexto: JSON.parse(params[7]),
+        })
         return { rows: [{ id: 'a1', ocorrido_em: new Date() }] }
       }
       const [empresaId, , numero, modoNovo] = params
@@ -269,11 +288,14 @@ function montarPool(conversas) {
   return { pool, auditoria }
 }
 
-const conversaPadrao = () => ([{ numero: NUMERO, empresa_id: EMPRESA, modo_ia: MODOS_IA.CONVERSA, agente_pausado: false, estagio: 'diagnostico', status: 'ativo' }])
+const conversaPadrao = (modo = PREFERENCIAS.HERDAR) => ([{
+  numero: NUMERO, empresa_id: EMPRESA, modo_ia: modo,
+  agente_pausado: false, estagio: 'diagnostico', status: 'ativo',
+}])
 
-test('rota: modo fora da lista fechada e recusado com 400', async () => {
+test('rota: preferencia fora da lista fechada e recusada com 400', async () => {
   const { pool } = montarPool(conversaPadrao())
-  for (const invalido of ['pausado', '', null, 'ANALISE_TOTAL', 42]) {
+  for (const invalido of ['pausado', '', null, 'HERDAR_TUDO', 42]) {
     await assert.rejects(
       () => alterarModoIaConversa({ pool, empresaId: EMPRESA, numero: NUMERO, modo: invalido }),
       (err) => err.statusCode === 400 && err.code === 'MODO_IA_INVALIDO'
@@ -281,10 +303,20 @@ test('rota: modo fora da lista fechada e recusado com 400', async () => {
   }
 })
 
+test('rota: `herdar` E uma preferencia valida — e como se remove a excecao', async () => {
+  const conversas = conversaPadrao(PREFERENCIAS.ANALISE)
+  const { pool } = montarPool(conversas)
+  const out = await alterarModoIaConversa({ pool, empresaId: EMPRESA, numero: NUMERO, modo: PREFERENCIAS.HERDAR })
+  assert.strictEqual(out.alterado, true)
+  assert.strictEqual(out.modo_ia, PREFERENCIAS.HERDAR)
+  assert.strictEqual(out.modo_anterior, PREFERENCIAS.ANALISE)
+  assert.strictEqual(conversas[0].modo_ia, PREFERENCIAS.HERDAR)
+})
+
 test('rota: conversa de outra empresa devolve 404, sem vazar a linha alheia', async () => {
   const { pool } = montarPool(conversaPadrao())
   await assert.rejects(
-    () => alterarModoIaConversa({ pool, empresaId: OUTRA_EMPRESA, numero: NUMERO, modo: MODOS_IA.ANALISE }),
+    () => alterarModoIaConversa({ pool, empresaId: OUTRA_EMPRESA, numero: NUMERO, modo: PREFERENCIAS.ANALISE }),
     (err) => err.statusCode === 404 && err.code === 'NOT_FOUND'
   )
 })
@@ -292,53 +324,123 @@ test('rota: conversa de outra empresa devolve 404, sem vazar a linha alheia', as
 test('rota: mudanca real grava UMA linha de auditoria, com anterior e novo', async () => {
   const { pool, auditoria } = montarPool(conversaPadrao())
   const out = await alterarModoIaConversa({
-    pool, empresaId: EMPRESA, numero: NUMERO, modo: MODOS_IA.ANALISE, usuarioId: 'u1',
+    pool, empresaId: EMPRESA, numero: NUMERO, modo: PREFERENCIAS.ANALISE, usuarioId: 'u1',
   })
 
   assert.strictEqual(out.alterado, true)
-  assert.strictEqual(out.modo_ia, MODOS_IA.ANALISE)
-  assert.strictEqual(out.modo_anterior, MODOS_IA.CONVERSA)
+  assert.strictEqual(out.modo_ia, PREFERENCIAS.ANALISE)
+  assert.strictEqual(out.modo_anterior, PREFERENCIAS.HERDAR)
   assert.strictEqual(auditoria.length, 1)
   assert.strictEqual(auditoria[0].acao, 'conversa_modo_ia_alterado')
   assert.strictEqual(auditoria[0].entidadeTipo, 'conversa')
   assert.strictEqual(auditoria[0].usuarioId, 'u1')
   assert.deepStrictEqual(auditoria[0].contexto, {
-    modo_anterior: MODOS_IA.CONVERSA,
-    modo_novo: MODOS_IA.ANALISE,
+    modo_anterior: PREFERENCIAS.HERDAR,
+    modo_novo: PREFERENCIAS.ANALISE,
     telefone_digitos: '5511988887777',
   })
 })
 
 test('rota: auditoria nao guarda JID nem texto de mensagem', async () => {
   const { pool, auditoria } = montarPool(conversaPadrao())
-  await alterarModoIaConversa({ pool, empresaId: EMPRESA, numero: NUMERO, modo: MODOS_IA.ANALISE })
+  await alterarModoIaConversa({ pool, empresaId: EMPRESA, numero: NUMERO, modo: PREFERENCIAS.ANALISE })
   assert.ok(!JSON.stringify(auditoria[0]).includes('@s.whatsapp.net'))
 })
 
-test('rota: repetir a mesma mudanca nao infla a auditoria', async () => {
+test('rota: repetir a mesma escolha nao infla a auditoria', async () => {
   const { pool, auditoria } = montarPool(conversaPadrao())
-  await alterarModoIaConversa({ pool, empresaId: EMPRESA, numero: NUMERO, modo: MODOS_IA.ANALISE })
-  const segunda = await alterarModoIaConversa({ pool, empresaId: EMPRESA, numero: NUMERO, modo: MODOS_IA.ANALISE })
+  await alterarModoIaConversa({ pool, empresaId: EMPRESA, numero: NUMERO, modo: PREFERENCIAS.ANALISE })
+  const segunda = await alterarModoIaConversa({ pool, empresaId: EMPRESA, numero: NUMERO, modo: PREFERENCIAS.ANALISE })
 
   assert.strictEqual(segunda.alterado, false)
-  assert.strictEqual(segunda.modo_ia, MODOS_IA.ANALISE, 'o estado devolvido continua correto')
-  assert.strictEqual(auditoria.length, 1, 'clicar duas vezes no mesmo modo criou linha nova')
+  assert.strictEqual(segunda.modo_ia, PREFERENCIAS.ANALISE, 'o estado devolvido continua correto')
+  assert.strictEqual(auditoria.length, 1, 'clicar duas vezes na mesma opcao criou linha nova')
 })
 
-test('rota: o modo persiste e volta na leitura da conversa', async () => {
-  const conversas = conversaPadrao()
-  const { pool } = montarPool(conversas)
-  await alterarModoIaConversa({ pool, empresaId: EMPRESA, numero: NUMERO, modo: MODOS_IA.ANALISE })
-  assert.strictEqual(conversas[0].modo_ia, MODOS_IA.ANALISE)
-})
-
-test('rota: trocar o modo nao mexe em agente_pausado', async () => {
+test('rota: trocar a preferencia nao mexe em agente_pausado', async () => {
   // Sao dois fatos independentes. Se um passar a escrever o outro, a pausa automatica
   // apagaria a decisao do operador (ou vice-versa).
   const conversas = conversaPadrao()
   conversas[0].agente_pausado = true
   const { pool } = montarPool(conversas)
-  const out = await alterarModoIaConversa({ pool, empresaId: EMPRESA, numero: NUMERO, modo: MODOS_IA.ANALISE })
+  const out = await alterarModoIaConversa({ pool, empresaId: EMPRESA, numero: NUMERO, modo: PREFERENCIAS.ANALISE })
   assert.strictEqual(conversas[0].agente_pausado, true)
   assert.strictEqual(out.agente_pausado, true)
+})
+
+// ─── 4. MODO GLOBAL: leitura, cache e falha transitoria ───────────────────────
+
+const dbReal = require('../src/db')
+const { modoIaPadraoEmpresa, invalidarCacheModoIaPadrao } = require('../src/db/empresas')
+
+/** Troca `pool.query` por um dublê e devolve a funcao que restaura. */
+function comPoolFalso(impl) {
+  const original = dbReal.pool.query
+  dbReal.pool.query = impl
+  return () => { dbReal.pool.query = original }
+}
+
+test('modo global: le a config da empresa e cacheia', async () => {
+  invalidarCacheModoIaPadrao()
+  let consultas = 0
+  const restaurar = comPoolFalso(async () => {
+    consultas += 1
+    return { rows: [{ config: { modo_ia_padrao: 'analise' } }] }
+  })
+  try {
+    assert.strictEqual(await modoIaPadraoEmpresa(EMPRESA), 'analise')
+    assert.strictEqual(await modoIaPadraoEmpresa(EMPRESA), 'analise')
+    assert.strictEqual(consultas, 1, 'o cache nao segurou a segunda leitura')
+  } finally { restaurar(); invalidarCacheModoIaPadrao() }
+})
+
+test('modo global: empresa sem a chave cai no padrao de fabrica', async () => {
+  invalidarCacheModoIaPadrao()
+  const restaurar = comPoolFalso(async () => ({ rows: [{ config: {} }] }))
+  try {
+    assert.strictEqual(await modoIaPadraoEmpresa(EMPRESA), MODOS_IA.CONVERSA)
+  } finally { restaurar(); invalidarCacheModoIaPadrao() }
+})
+
+test('modo global: com cache quente, a falha de leitura nem chega a acontecer', async () => {
+  invalidarCacheModoIaPadrao()
+  let restaurar = comPoolFalso(async () => ({ rows: [{ config: { modo_ia_padrao: 'analise' } }] }))
+  await modoIaPadraoEmpresa(EMPRESA)
+  restaurar()
+
+  restaurar = comPoolFalso(async () => { throw new Error('conexao caiu') })
+  try {
+    assert.strictEqual(await modoIaPadraoEmpresa(EMPRESA), 'analise')
+  } finally { restaurar(); invalidarCacheModoIaPadrao() }
+})
+
+test('modo global: falha SEM cache algum cai no padrao, sem lancar', async () => {
+  // Contingencia final: sem nenhuma leitura bem-sucedida na vida do processo, o padrao de
+  // fabrica assume. Nunca lanca — uma falha aqui nao pode derrubar o turno.
+  invalidarCacheModoIaPadrao()
+  const restaurar = comPoolFalso(async () => { throw new Error('conexao caiu') })
+  try {
+    assert.strictEqual(await modoIaPadraoEmpresa(EMPRESA), MODOS_IA.CONVERSA)
+  } finally { restaurar(); invalidarCacheModoIaPadrao() }
+})
+
+test('modo global: falha nao envenena o cache — a proxima leitura boa vale', async () => {
+  // Se a falha gravasse o padrao no cache, a Central ficaria em Conversa por 30s depois de
+  // um soluco de banco, mesmo com o operador tendo escolhido Analise.
+  invalidarCacheModoIaPadrao()
+  let restaurar = comPoolFalso(async () => { throw new Error('conexao caiu') })
+  assert.strictEqual(await modoIaPadraoEmpresa(EMPRESA), MODOS_IA.CONVERSA)
+  restaurar()
+
+  restaurar = comPoolFalso(async () => ({ rows: [{ config: { modo_ia_padrao: 'analise' } }] }))
+  try {
+    assert.strictEqual(await modoIaPadraoEmpresa(EMPRESA), 'analise')
+  } finally { restaurar(); invalidarCacheModoIaPadrao() }
+})
+
+test('modo global: sem empresa (single-tenant legado) devolve o padrao sem consultar', async () => {
+  const restaurar = comPoolFalso(async () => { throw new Error('nao deveria consultar') })
+  try {
+    assert.strictEqual(await modoIaPadraoEmpresa(null), MODOS_IA.CONVERSA)
+  } finally { restaurar() }
 })

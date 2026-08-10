@@ -1,5 +1,10 @@
 'use strict'
 const { pool } = require('../db')
+const {
+  MODO_GLOBAL_PADRAO,
+  normalizarModo,
+  resolverModoGlobal,
+} = require('../services/conversa-modo-ia')
 
 async function findEmpresaById(id) {
   const { rows } = await pool.query(
@@ -76,6 +81,46 @@ async function empresaAgentePausada(empresaId) {
 function invalidarCachePauseEmpresa(empresaId) {
   if (empresaId) _pauseCache.delete(empresaId)
   else _pauseCache.clear()
+}
+
+// ─── Modo padrao da IA por empresa (config.modo_ia_padrao) ─────────────────────
+// O padrao da Central de Mensagens: vale para toda conversa cuja preferencia e' `herdar`.
+// Mesmo molde do pause acima (JSONB de config + cache curto + invalidacao no PATCH), por
+// isso nao ha migration para ele.
+//
+// A ENTRADA que nunca expira e a diferenca em relacao ao pause. Aqui o cache guarda o
+// ultimo valor CONHECIDO para sempre; o TTL so decide quando vale a pena reconsultar. Numa
+// falha transitoria de banco, servir o ultimo valor conhecido (ainda que vencido) e' melhor
+// que cair no padrao de fabrica — cair no padrao apagaria, por alguns segundos, uma decisao
+// que o operador tomou, e poderia soltar o bot numa Central que ele colocou em Analise.
+// A precedencia (leitura > cache vencido > padrao) e' regra PURA, definida em
+// services/conversa-modo-ia.js; aqui so' se faz o I/O.
+const _modoIaCache = new Map() // empresaId -> { modo, at }
+const MODO_IA_TTL_MS = 30_000
+
+async function modoIaPadraoEmpresa(empresaId) {
+  if (!empresaId) return MODO_GLOBAL_PADRAO
+  const c = _modoIaCache.get(empresaId)
+  if (c && Date.now() - c.at < MODO_IA_TTL_MS) return c.modo
+  let lido = null
+  try {
+    const { rows } = await pool.query('SELECT config FROM app.empresas WHERE id = $1', [empresaId])
+    // Empresa sem a chave = padrao de fabrica (comportamento historico), e isso e' uma
+    // leitura BEM-SUCEDIDA: vira cache normalmente.
+    lido = normalizarModo(rows[0]?.config?.modo_ia_padrao)
+  } catch {
+    lido = null
+  }
+  const { modo, fonte } = resolverModoGlobal({ lido, ultimoConhecido: c?.modo })
+  // Cache so' e' reescrito com leitura fresca; senao o valor vencido seria "renovado" sem
+  // nunca mais tentar o banco.
+  if (fonte === 'leitura') _modoIaCache.set(empresaId, { modo, at: Date.now() })
+  return modo
+}
+
+function invalidarCacheModoIaPadrao(empresaId) {
+  if (empresaId) _modoIaCache.delete(empresaId)
+  else _modoIaCache.clear()
 }
 
 // ─── Nome de exibição da empresa (para mensagens automáticas/lembretes) ─────────
@@ -165,6 +210,8 @@ module.exports = {
   usuarioPertenceAEmpresa,
   empresaAgentePausada,
   invalidarCachePauseEmpresa,
+  modoIaPadraoEmpresa,
+  invalidarCacheModoIaPadrao,
   nomeEmpresa,
   NOME_PADRAO,
   invalidarCacheNomeEmpresa,

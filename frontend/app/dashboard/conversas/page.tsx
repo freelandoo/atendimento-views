@@ -22,6 +22,17 @@ import ConversaPainel, {
   type ConversaResumo,
 } from '@/components/ConversaPainel'
 import { identidadeConversa } from '@/lib/lead-identidade'
+import AlternadorModoIa from '@/components/ui/AlternadorModoIa'
+import {
+  AVISO_EXCECOES_PADRAO,
+  descreverModo,
+  explicarPadraoGlobal,
+  houveMudancaDeModo,
+  normalizarModo,
+  opcoesDeModo,
+  rotuloAcessivelPadrao,
+} from '@/lib/conversa-modo-ia'
+import type { ModoIa } from '@/lib/conversa-modo-ia'
 
 type Conversa = ConversaResumo
 
@@ -74,6 +85,10 @@ export default function ConversasPage() {
   const [filtro, setFiltro] = useState<'todos' | Faixa | 'esfriando'>('todos')
   const [buscaNumero, setBuscaNumero] = useState('')
   const [carregandoLista, setCarregandoLista] = useState(true)
+  // Padrao GLOBAL da IA (app.empresas.config.modo_ia_padrao). `null` = ainda carregando:
+  // desenhar "Conversa" antes de saber mostraria um estado que talvez nao seja o real.
+  const [modoPadrao, setModoPadrao] = useState<ModoIa | null>(null)
+  const [alterandoPadrao, setAlterandoPadrao] = useState(false)
   const requisicaoLista = useRef(0)
   const fb = useFeedback()
 
@@ -104,6 +119,45 @@ export default function ConversasPage() {
     const timer = window.setTimeout(() => carregar(buscaNumero), 300)
     return () => window.clearTimeout(timer)
   }, [empresaId, buscaNumero])
+
+  // O padrao global e' carregado uma vez, fora do ciclo da busca: ele nao depende de filtro
+  // nem de texto digitado. Falha aqui NAO vira erro na tela — a lista de conversas continua
+  // util sem o controle, e um alarme vermelho no topo diria que a Central quebrou.
+  useEffect(() => {
+    if (!empresaId) return
+    let vivo = true
+    apiFetch<{ modo: string }>(`/api/empresas/${empresaId}/modo-ia-padrao`)
+      .then((r) => { if (vivo) setModoPadrao(normalizarModo(r.data.modo)) })
+      .catch(() => { /* sem controle global; o resto da tela segue */ })
+    return () => { vivo = false }
+  }, [empresaId])
+
+  /**
+   * OTIMISTA com reversao, como no painel: o efeito vale para mensagens futuras e esperar a
+   * rede faria o operador clicar duas vezes. Falhou, volta ao valor anterior — a tela nunca
+   * pode afirmar "Análise" enquanto o motor continua respondendo.
+   */
+  async function alterarModoPadrao(novo: ModoIa) {
+    if (!empresaId || alterandoPadrao) return
+    const anterior = modoPadrao
+    if (!houveMudancaDeModo(anterior, novo)) return
+    setAlterandoPadrao(true)
+    setModoPadrao(novo)
+    try {
+      const r = await fb.runTask(
+        () => apiFetch<{ modo: string }>(`/api/empresas/${empresaId}/modo-ia-padrao`, {
+          method: 'PATCH',
+          body: JSON.stringify({ modo: novo }),
+        }),
+        { sucesso: `Modo padrão da Central: ${descreverModo(novo).rotulo}.` }
+      )
+      setModoPadrao(normalizarModo(r.data.modo))
+    } catch {
+      setModoPadrao(anterior)
+    } finally {
+      setAlterandoPadrao(false)
+    }
+  }
 
   async function removerConversa(c: Conversa) {
     if (!empresaId) return
@@ -141,9 +195,33 @@ export default function ConversasPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Conversas</h1>
-        <p className="mt-1 text-sm text-slate-500">Encontre um contato e acompanhe o histórico do atendimento.</p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Conversas</h1>
+          <p className="mt-1 text-sm text-slate-500">Encontre um contato e acompanhe o histórico do atendimento.</p>
+        </div>
+        {/* Padrao GLOBAL da IA. So aparece depois de carregado: um controle que mostra
+            "Conversa" antes de saber o valor real e' pior que controle nenhum. */}
+        {modoPadrao && (
+          <div className="min-w-[340px] rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Modo padrão da IA
+            </div>
+            <AlternadorModoIa
+              opcoes={opcoesDeModo()}
+              selecionado={modoPadrao}
+              onMudar={(id) => alterarModoPadrao(id as ModoIa)}
+              ocupado={alterandoPadrao}
+              estado={descreverModo(modoPadrao).estado}
+              compacto
+              ariaLabel={rotuloAcessivelPadrao(modoPadrao)}
+            />
+            <p className="mt-2 text-xs text-slate-600">{explicarPadraoGlobal(modoPadrao)}</p>
+            {/* O limite do controle dito na propria tela: sem isto, uma conversa que nao
+                muda junto parece defeito, quando e' a excecao funcionando. */}
+            <p className="mt-1 text-xs text-slate-500">{AVISO_EXCECOES_PADRAO}</p>
+          </div>
+        )}
       </div>
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
 

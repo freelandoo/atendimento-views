@@ -78,6 +78,9 @@ function createContexto2Responder(deps = {}) {
     historico,
     estagioLive,
     capacidade = CAPACIDADES.RESPOSTA_CONVERSACIONAL,
+    // Modo padrao da Central, JA resolvido pelo chamador (core-funnel) — uma leitura por
+    // turno. Ausente = padrao de fabrica; a precedencia e' do modulo puro, nao daqui.
+    modoGlobal = null,
   }) {
     const ultima = historico[historico.length - 1]
     const mensagem = typeof ultima?.content === 'string' ? ultima.content : String(ultima?.content || '')
@@ -180,10 +183,10 @@ function createContexto2Responder(deps = {}) {
     // Nao persistimos nada aqui de proposito: a mensagem que nao foi entregue NAO entra no
     // historico como `assistant` — o painel mostraria ao operador um balao do agente que o
     // cliente nunca recebeu, e o proximo turno raciocinaria sobre uma fala que nao existiu.
-    const veredito = avaliarEnvio({ modo: conversaUsada?.modo_ia, capacidade })
+    const veredito = avaliarEnvio({ preferencia: conversaUsada?.modo_ia, modoGlobal, capacidade })
     if (!veredito.permitido) {
       logger.info(
-        resumoBloqueio({ empresaId, numero, modo: veredito.modo, capacidade }),
+        resumoBloqueio({ empresaId, numero, modo: veredito.modo, origem: veredito.origem, capacidade }),
         'Modo Analise: resposta conversacional nao enviada (analise registrada normalmente)'
       )
       return { skipped: true, reason: veredito.motivo, analise_registrada: true }

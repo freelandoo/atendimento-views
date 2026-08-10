@@ -1,22 +1,23 @@
 'use client'
-// Controle segmentado de DOIS estados para o modo de atuacao da IA na conversa.
+// Controle segmentado do modo de atuacao da IA. Serve os DOIS niveis da politica:
+//   • Central de Mensagens — 2 opcoes (Conversa | Analise), o padrao global;
+//   • conversa aberta      — 3 opcoes (Herdar | Conversa | Analise), a excecao.
 //
 // POR QUE NAO REUSA `components/ui/Abas.tsx`
 // Abas e' `role="tablist"` com `aria-controls` apontando para um painel: a semantica diz
 // "estas opcoes trocam o que voce esta vendo". Aqui nada muda na tela — muda o
 // COMPORTAMENTO do sistema com o cliente. Um leitor de tela anunciando "aba selecionada"
-// esconderia justamente o que importa. Por isso `role="radiogroup"`, que anuncia escolha
-// entre opcoes, e um rotulo em texto ao lado dizendo o estado por extenso.
+// esconderia justamente o que importa. Por isso `role="radiogroup"`.
 //
-// Cor nunca e' o unico sinal: o botao ativo tem contorno e peso proprios, o estado aparece
-// escrito ao lado e a frase completa (estado + consequencia) vai no `aria-label` do grupo.
+// Cor nunca e' o unico sinal: a opcao ativa tem contorno e peso proprios, o estado e a
+// origem aparecem escritos ao lado, e a frase completa vai no `aria-label` do grupo.
 //
-// A regra de negocio nao esta aqui. Rotulos, descricoes e textos de ajuda vem de
-// `lib/conversa-modo-ia.js`; a permissao de enviar e' decidida no backend, sempre.
+// A regra de negocio nao esta aqui. Rotulos e textos vem de `lib/conversa-modo-ia.js`; o
+// modo EFETIVO e a ORIGEM sao calculados no backend; a permissao de enviar tambem.
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { descreverModo, opcoesDeModo, rotuloAcessivel } from '@/lib/conversa-modo-ia'
-import type { ModoIa } from '@/lib/conversa-modo-ia'
+
+export type OpcaoModo = { id: string; rotulo: string; ajuda: string }
 
 /**
  * Balao de ajuda leve — hover, foco e toque; nunca modal (o pedido e' explicito).
@@ -24,7 +25,7 @@ import type { ModoIa } from '@/lib/conversa-modo-ia'
  * que tem `overflow-hidden`, uma versao `absolute` seria cortada. Mesma solucao ja usada
  * em `BolinhaPontuacao`.
  */
-function AjudaModo({ texto, rotulo }: { texto: string; rotulo: string }) {
+export function BalaoAjuda({ texto, rotuloAcessivelBotao }: { texto: string; rotuloAcessivelBotao: string }) {
   const [aberto, setAberto] = useState(false)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   const ancora = useRef<HTMLButtonElement | null>(null)
@@ -33,10 +34,10 @@ function AjudaModo({ texto, rotulo }: { texto: string; rotulo: string }) {
   function abrir() {
     const r = ancora.current?.getBoundingClientRect()
     if (!r) return
-    // Abre abaixo da ancora e preso as bordas: o cabecalho fica colado no topo da tela e
-    // um balao para cima sairia da viewport.
-    const largura = 280
-    const left = Math.min(Math.max(8, r.left + r.width / 2 - largura / 2), window.innerWidth - largura - 8)
+    // Abre abaixo da ancora e preso as bordas: o cabecalho fica colado no topo da tela e um
+    // balao para cima sairia da viewport.
+    const largura = 300
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - largura / 2), Math.max(8, window.innerWidth - largura - 8))
     setPos({ left, top: r.bottom + 8 })
     setAberto(true)
   }
@@ -60,7 +61,7 @@ function AjudaModo({ texto, rotulo }: { texto: string; rotulo: string }) {
       <button
         ref={ancora}
         type="button"
-        aria-label={`O que significa o modo ${rotulo}`}
+        aria-label={rotuloAcessivelBotao}
         aria-describedby={aberto ? id : undefined}
         onMouseEnter={abrir}
         onMouseLeave={fechar}
@@ -75,7 +76,7 @@ function AjudaModo({ texto, rotulo }: { texto: string; rotulo: string }) {
         <div
           id={id}
           role="tooltip"
-          style={{ left: pos.left, top: pos.top, width: 280 }}
+          style={{ left: pos.left, top: pos.top, width: 300 }}
           className="pointer-events-none fixed z-[60] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-relaxed text-slate-700 shadow-lg"
         >
           {texto}
@@ -87,18 +88,27 @@ function AjudaModo({ texto, rotulo }: { texto: string; rotulo: string }) {
 }
 
 export default function AlternadorModoIa({
-  modo,
+  opcoes,
+  selecionado,
   onMudar,
+  ariaLabel,
+  estado,
   ocupado = false,
+  compacto = false,
 }: {
-  modo: ModoIa
-  onMudar: (novo: ModoIa) => void
+  opcoes: OpcaoModo[]
+  selecionado: string
+  onMudar: (novo: string) => void
+  /** Frase completa (estado + consequencia + origem) para o leitor de tela. */
+  ariaLabel: string
+  /** Estado por extenso, ao lado do controle. Cor nunca e' o unico sinal. */
+  estado?: string
   /** Desabilita o controle enquanto o PATCH esta em voo. */
   ocupado?: boolean
+  compacto?: boolean
 }) {
-  const opcoes = opcoesDeModo()
-  const atual = descreverModo(modo)
   const refs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const ativa = opcoes.find((o) => o.id === selecionado) || opcoes[0]
 
   // Navegacao por setas dentro do grupo, como manda o padrao de radiogroup.
   function aoTeclado(e: React.KeyboardEvent, indice: number) {
@@ -114,25 +124,25 @@ export default function AlternadorModoIa({
     <div className="flex min-w-0 flex-wrap items-center gap-2">
       <div
         role="radiogroup"
-        aria-label={rotuloAcessivel(modo)}
+        aria-label={ariaLabel}
         className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1"
       >
         {opcoes.map((o, i) => {
-          const selecionado = o.id === atual.id
+          const marcada = o.id === ativa?.id
           return (
             <button
               key={o.id}
               ref={(el) => { refs.current[o.id] = el }}
               type="button"
               role="radio"
-              aria-checked={selecionado}
-              aria-label={`${o.rotulo}. ${o.descricao}`}
-              tabIndex={selecionado ? 0 : -1}
+              aria-checked={marcada}
+              aria-label={`${o.rotulo}. ${o.ajuda}`}
+              tabIndex={marcada ? 0 : -1}
               disabled={ocupado}
               onClick={() => onMudar(o.id)}
               onKeyDown={(e) => aoTeclado(e, i)}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60 ${
-                selecionado
+              className={`rounded-md ${compacto ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm'} font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60 ${
+                marcada
                   ? 'border border-brand bg-white text-brand shadow-sm'
                   : 'border border-transparent text-slate-500 hover:text-slate-800'
               }`}
@@ -142,11 +152,12 @@ export default function AlternadorModoIa({
           )
         })}
       </div>
-      {/* O estado por extenso, sempre visivel: quem nao distingue as cores le a mesma coisa. */}
-      <span className="text-xs text-slate-600" aria-live="polite">
-        {ocupado ? 'Atualizando…' : atual.estado}
-      </span>
-      <AjudaModo texto={atual.ajuda} rotulo={atual.rotulo} />
+      {(ocupado || estado) && (
+        <span className="text-xs text-slate-600" aria-live="polite">
+          {ocupado ? 'Atualizando…' : estado}
+        </span>
+      )}
+      {ativa && <BalaoAjuda texto={ativa.ajuda} rotuloAcessivelBotao={`O que significa a opção ${ativa.rotulo}`} />}
     </div>
   )
 }

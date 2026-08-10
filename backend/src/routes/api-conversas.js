@@ -13,6 +13,8 @@ const {
 } = require('../services/conversa-manual')
 const { gerarOrientacaoResposta } = require('../services/orientador-resposta')
 const { registrarFeedbackConversa } = require('../services/conversa-feedback')
+const { modoIaPadraoEmpresa } = require('../db/empresas')
+const { modoEfetivo } = require('../services/conversa-modo-ia')
 
 const router = Router({ mergeParams: true })
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
@@ -111,6 +113,29 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   })
 })
 
+/**
+ * O modo EFETIVO e a ORIGEM sao calculados AQUI, no backend, e nunca persistidos.
+ *
+ * Por que no backend: a precedencia (excecao da conversa > padrao da Central) e' a MESMA
+ * regra que decide o envio. Se a tela recalculasse, existiriam duas implementacoes da
+ * prioridade e a interface poderia afirmar "Conversa" enquanto o motor cala. A tela so
+ * desenha o que vem daqui.
+ *
+ * Por que nao persistido: uma copia gravada envelheceria no instante em que o modo global
+ * mudasse — e o requisito e' que conversas em `herdar` acompanhem o global imediatamente.
+ */
+async function anexarModoIa(conversa, empresaId) {
+  const padrao = await modoIaPadraoEmpresa(empresaId)
+  const efetivo = modoEfetivo({ preferencia: conversa?.modo_ia, modoGlobal: padrao })
+  return {
+    ...conversa,
+    modo_ia: efetivo.preferencia,
+    modo_ia_padrao: efetivo.modo_global,
+    modo_ia_efetivo: efetivo.modo,
+    modo_ia_origem: efetivo.origem,
+  }
+}
+
 // GET /api/empresas/:empresaId/conversas/:numero
 router.get('/:numero', requireAuth, requireEmpresaAccess, async (req, res) => {
   const { rows: [conversa] } = await pool.query(
@@ -121,7 +146,7 @@ router.get('/:numero', requireAuth, requireEmpresaAccess, async (req, res) => {
     [req.empresa.id, PJ_EMPRESA_ID, req.params.numero]
   )
   if (!conversa) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Conversa não encontrada.' } })
-  return res.json({ ok: true, data: anexarScoreInteresse(conversa) })
+  return res.json({ ok: true, data: await anexarModoIa(anexarScoreInteresse(conversa), req.empresa.id) })
 })
 
 // DELETE /api/empresas/:empresaId/conversas/:numero
@@ -290,9 +315,12 @@ router.patch('/:numero/agente', requireAuth, requireEmpresaAccess, async (req, r
 })
 
 // PATCH /api/empresas/:empresaId/conversas/:numero/modo-ia
-// Troca a politica de resposta desta conversa (Conversa <-> Analise). O modo ATUAL nao tem
-// rota de leitura propria de proposito: `GET /:numero` ja faz `SELECT c.*` e devolve
-// `modo_ia` junto com o resto da conversa — o painel nao precisa de uma segunda requisicao.
+// Body: { modo: 'herdar' | 'conversa' | 'analise' } — a PREFERENCIA da conversa. `herdar`
+// remove a excecao e devolve a conversa ao modo padrao da Central.
+//
+// O estado atual nao tem rota de leitura propria de proposito: `GET /:numero` ja devolve
+// preferencia, padrao global, modo efetivo e origem — o painel nao faz requisicao extra.
+// A resposta deste PATCH traz os MESMOS campos derivados, para a tela nao precisar recarregar.
 router.patch('/:numero/modo-ia', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const out = await alterarModoIaConversa({
@@ -303,7 +331,7 @@ router.patch('/:numero/modo-ia', requireAuth, requireEmpresaAccess, async (req, 
       usuarioId: req.usuario?.id || null,
       log: logger,
     })
-    return res.json({ ok: true, data: out })
+    return res.json({ ok: true, data: await anexarModoIa(out, req.empresa.id) })
   } catch (err) {
     return erroConversas(res, err, 'CONVERSA_MODO_IA_FAILED')
   }

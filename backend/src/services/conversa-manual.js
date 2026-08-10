@@ -1,7 +1,12 @@
 'use strict'
 const { enviarMensagem, verificarStatusInstanciaEvolution } = require('../whatsapp')
 const { cancelarFollowupsAutoPendentes } = require('./followup-auto-cancel')
-const { modoValido, normalizarModo, MODOS_IA_VALIDOS, MODO_IA_PADRAO } = require('./conversa-modo-ia')
+const {
+  preferenciaValida,
+  normalizarPreferencia,
+  PREFERENCIAS_VALIDAS,
+  PREFERENCIA_PADRAO,
+} = require('./conversa-modo-ia')
 const { registrarAuditoria } = require('../db/auditoria')
 
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
@@ -211,15 +216,19 @@ async function alterarPausaAgenteConversa({
 }
 
 /**
- * Troca a politica de resposta da conversa (Conversa <-> Analise).
+ * Troca a PREFERENCIA de modo de IA da conversa (`herdar` | `conversa` | `analise`).
+ *
+ * `herdar` REMOVE a excecao: a conversa volta a seguir o modo padrao da Central. Nao e' um
+ * terceiro modo — e' a ausencia de escolha, e precisa ser gravavel para que o operador
+ * possa desfazer uma excecao sem adivinhar qual era o global.
  *
  * Vive aqui, ao lado de `alterarPausaAgenteConversa`, porque e' a MESMA familia de acao:
  * o operador mexendo no atendimento de um contato. Modulo novo so duplicaria o escopo por
  * empresa e a validacao de numero que ja existem neste arquivo.
  *
- * O `UPDATE` e' condicionado (`modo_ia IS DISTINCT FROM $4`) para que o proprio banco diga
- * se houve mudanca REAL: e' o que impede a auditoria de inflar quando alguem clica duas
- * vezes no mesmo modo, sem precisar de um SELECT antes (que abriria corrida).
+ * O `UPDATE` e' condicionado (`IS DISTINCT FROM`) para que o proprio banco diga se houve
+ * mudanca REAL: e' o que impede a auditoria de inflar quando alguem clica duas vezes na
+ * mesma opcao, sem precisar de um SELECT antes (que abriria corrida).
  *
  * `agente_pausado` NAO e' tocado aqui, nem lido: sao dois fatos independentes sobre a
  * conversa e o envio automatico exige os dois liberados.
@@ -235,12 +244,12 @@ async function alterarModoIaConversa({
 }) {
   if (!pool) throw erroOperacao('pool obrigatorio.', 500, 'INTERNAL_ERROR')
   if (!empresaId) throw erroOperacao('empresaId obrigatorio.', 500, 'INTERNAL_ERROR')
-  if (!modoValido(modo)) {
-    throw erroOperacao(`modo invalido. Use um destes: ${MODOS_IA_VALIDOS.join(', ')}.`, 400, 'MODO_IA_INVALIDO')
+  if (!preferenciaValida(modo)) {
+    throw erroOperacao(`modo invalido. Use um destes: ${PREFERENCIAS_VALIDAS.join(', ')}.`, 400, 'MODO_IA_INVALIDO')
   }
 
   const numeroValidado = validarNumeroConversa(numero)
-  const modoNovo = normalizarModo(modo)
+  const modoNovo = normalizarPreferencia(modo)
 
   // A CTE fotografa o valor ANTERIOR na mesma instrucao que grava o novo: a auditoria
   // registra o que realmente estava la, sem SELECT separado (que abriria corrida) e sem
@@ -261,7 +270,7 @@ async function alterarModoIaConversa({
         AND a.modo_ia IS DISTINCT FROM $4::text
       RETURNING c.numero, c.modo_ia, a.modo_ia AS modo_anterior,
                 c.agente_pausado, c.estagio, c.status, c.atualizado_em`,
-    [empresaId, PJ_EMPRESA_ID, numeroValidado, modoNovo, MODO_IA_PADRAO]
+    [empresaId, PJ_EMPRESA_ID, numeroValidado, modoNovo, PREFERENCIA_PADRAO]
   )
 
   // Sem linha: ou a conversa nao e' desta empresa, ou o modo ja era esse. As duas
@@ -278,8 +287,8 @@ async function alterarModoIaConversa({
     if (!atual) throw erroOperacao('Conversa nao encontrada para esta empresa.', 404, 'NOT_FOUND')
     return {
       numero: atual.numero,
-      modo_ia: normalizarModo(atual.modo_ia),
-      modo_anterior: normalizarModo(atual.modo_ia),
+      modo_ia: normalizarPreferencia(atual.modo_ia),
+      modo_anterior: normalizarPreferencia(atual.modo_ia),
       alterado: false,
       agente_pausado: !!atual.agente_pausado,
       estagio: atual.estagio,
@@ -288,7 +297,7 @@ async function alterarModoIaConversa({
     }
   }
 
-  const modoAnterior = normalizarModo(atualizada.modo_anterior)
+  const modoAnterior = normalizarPreferencia(atualizada.modo_anterior)
 
   // Auditoria SO na mudanca real (best-effort, como todo `registrarAuditoria`). O contexto
   // leva os digitos do telefone, nunca o JID nem texto de mensagem.
@@ -311,7 +320,7 @@ async function alterarModoIaConversa({
 
   return {
     numero: atualizada.numero,
-    modo_ia: normalizarModo(atualizada.modo_ia),
+    modo_ia: normalizarPreferencia(atualizada.modo_ia),
     modo_anterior: modoAnterior,
     alterado: true,
     agente_pausado: !!atualizada.agente_pausado,

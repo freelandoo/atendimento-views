@@ -6,6 +6,69 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-10 - Inicio de tarefa IA - Nome do lead na Central de Mensagens (fontes alternativas, sem telefone como nome)
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** A coluna "Lead" da Central de Mensagens deve exibir **so' um nome
+  identificado**, seguindo a prioridade **nome cadastrado > nome do WhatsApp > nome do Google
+  Maps > campo VAZIO**. Telefone nunca no campo de nome (ele ja tem coluna propria), sem traco
+  como substituto, resolucao **centralizada** num modulo reusavel (a ordem nao pode ficar
+  espalhada em componente), backend devolvendo nome resolvido **ou nome + fonte**, dados
+  originais preservados (nao sobrescrever nome cadastrado) e testes por prioridade.
+- **E projeto/tarefa de alteracao?** Sim. As prioridades 1, 3 e 4 sao leitura/apresentacao; a
+  **prioridade 2 (nome do WhatsApp) nao tem onde ser lida hoje** e so' existe com persistencia
+  nova — o que cai nos gatilhos de confirmacao do CLAUDE.md (schema/banco + escrita no caminho
+  de producao do webhook). Por isso esta entrada registra a descoberta e **para antes da Fase 3**.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/ui-visual-standard.md: a consultar na Fase 5 | docs/ai-decision-log.md: a registrar na Fase 8.
+- **Fatos confirmados no codigo HOJE (nao sao hipotese):**
+  1. **A coluna "Lead" ja e' o `rotuloLead`/`identidadeConversa`** de
+     `frontend/lib/lead-identidade.js` — modulo PURO que ja e' o dono unico da identidade e ja e'
+     REEXPORTADO por `followups-fila.js`. O requisito "centralizar num modulo reusavel" **ja esta
+     cumprido**; o que muda e' a REGRA dentro dele, nao onde ela mora.
+  2. **O fallback para o telefone e' DELIBERADO hoje**, nao descuido: `lead-identidade.js:50` e
+     `:70` caem em `formatarTelefone` de proposito, e o AGENTS.md registra isso na secao
+     "Identificador tecnico do Evolution NAO aparece na interface". Na LISTA o pedido esta certo
+     (ha coluna "Telefone" separada em `conversas/page.tsx:240`, entao e' duplicacao); no
+     **cabecalho do painel** (`ConversaPainel.tsx:443,467`) nao ha duplicacao, porque a linha do
+     telefone so' renderiza quando `temNome` e' true.
+  3. **A prioridade 1 esta partida em DUAS colunas e as duas telas ja divergem.**
+     `vendas.lead_profiles.apelido` (nome da pessoa) e `.negocio` (nome do negocio). A Central de
+     Mensagens seleciona **so' `lp.negocio`** (`api-conversas.js:92`); a fila de Follow-ups usa
+     `COALESCE(NULLIF(p.apelido,''), NULLIF(p.negocio,''))` (`followup-listing.js:45`). O mesmo
+     lead pode aparecer com nome em Follow-ups e com telefone em Mensagens **hoje**.
+  4. **A prioridade 2 (nome do WhatsApp) NAO E' PERSISTIDA em lugar nenhum.** Nao existe coluna
+     `push_name` no backend (grep em `backend/`: zero ocorrencias em schema). O `msg.pushName`
+     chega ao `webhook-handler.js:362`, e' consumido em memoria por `capturarNomeContato`
+     (`agent.js:5820`) e **jogado fora** depois de passar por `nomeDePushName` → `primeiroNome`
+     (`nome-contato.js:25-40`), que (a) fica **so' com o PRIMEIRO token** e (b) **recusa** uma
+     lista fechada de palavras genericas que inclui `pizzaria`, `restaurante`, `loja`,
+     `barbearia`, `academia`, `clinica` (`nome-contato.js:6-17`). Consequencias medidas na regra:
+     um perfil WhatsApp Business chamado "Pizzaria do Ze" e' **descartado por inteiro**; "Joao
+     Silva" vira "Joao". O que sobra e' gravado em `apelido` **e so' quando `apelido` esta vazio**.
+  5. **Logo, `apelido` mistura a prioridade 1 e a 2 e a origem nao e' recuperavel.**
+     `capturarNomeContato` calcula `fonte` (`'mensagem'` | `'pushName'`) mas **so' loga** — nada
+     e' persistido (`agent.js:5825,5853`). Sem coluna nova, "nome cadastrado" e "nome do WhatsApp"
+     sao indistinguiveis no dado, e os leads cujo pushName foi recusado no filtro **nao tem nome
+     nenhum para exibir**.
+  6. **A prioridade 3 (Google Maps) e' alcancavel SEM mudanca de schema.**
+     `prospectador.prospects.nome` e' `NOT NULL` (`init.sql:687`), tem `telefone`
+     (`:688`) e ganhou `empresa_id` na migration `005_prospeccao_multiempresa.sql`. O casamento
+     por digitos do telefone e' o padrao ja usado no repo
+     (`regexp_replace(..., '[^0-9]', '', 'g')` em `db/follow-ups.js:261`, `prospecting.js:2384`).
+     Custo: um LATERAL a mais na listagem — a rota **nao** faz esse join hoje.
+  7. **A rota nao devolve fonte de nome nenhuma.** `GET /conversas` seleciona `lp.negocio` e mais
+     14 campos do perfil; `GET /:numero` faz `SELECT c.*, lp.*`. O requisito "retornar o nome ja
+     resolvido ou nome + fonte" exige tocar `api-conversas.js` nos dois pontos.
+- **Decisoes levadas ao Victor ANTES da Fase 3 (nao decidi sozinho):** (a) criar ou nao a
+  persistencia do nome CRU do WhatsApp (migration + escrita no webhook) para a prioridade 2
+  existir de fato; (b) a precedencia entre `negocio` e `apelido` dentro da prioridade 1.
+- **Fora de escopo (declarado pelo pedido):** sobrescrever nome cadastrado, criar/editar perfil
+  de lead a partir de WhatsApp/Maps, e mexer em aquisicao, follow-up, agenda ou analise da IA.
+- **Nenhum arquivo de codigo foi alterado nesta etapa.**
+
+---
+
 ## 2026-08-10 - Inicio de tarefa IA - Site vira fator da pontuacao de cadastro (coluna removida)
 
 - **IA/Ferramenta:** Claude Code (Opus 5)
@@ -1924,3 +1987,34 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Segundo achado:** extracao (analise) e mensagem saem da MESMA chamada de LLM nos dois motores (`extrairEDecidirBundle` no playbook, `chamarClaudeTurno` no legado). Logo, o modo `analise` NAO reduz custo de IA — ele so nao entrega a mensagem. Separar os dois seria refatoracao grande, fora do escopo declarado.
 - **Fora de escopo declarado:** novas automacoes comerciais; follow-up automatico no modo Analise; mudancas no motor de inteligencia alem da separacao analisar/responder; perfil 360 do contato; `agente_pausado` (comportamento atual preservado, nao derivado nem reusado).
 - **Proxima etapa:** apresentar a analise de impacto + lista de arquivos e aguardar confirmacao de 4 decisoes de produto (destino da mensagem gerada e nao enviada; comportamento com o agente pausado; envios compostos pela IA e disparados por humano; abrangencia sobre lembrete de reuniao e "Rodar leads"). So entao implementar.
+
+---
+
+## 2026-08-10 - Inicio de tarefa IA (2a do dia)
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** Evoluir o modo de atuacao da IA (entregue hoje, commit f2ce4c1) de POR CONVERSA para POLITICA: modo PADRAO GLOBAL da Central de Mensagens + EXCECAO explicita por conversa (`herdar` | `conversa` | `analise`). A pausa por mensagem humana continua temporaria e nao pode criar, remover ou alterar preferencia.
+- **E projeto/tarefa de alteracao?** Sim, ESTRUTURAL: migration nova que MUTA DADO EXISTENTE (a semantica da coluna `vendas.conversas.modo_ia` muda), leitura nova no caminho de resposta automatica, rota nova de configuracao da empresa e mudanca no contrato de leitura da conversa. Exige confirmacao antes de implementar.
+- **Workflow padrao consultado?** AGENTS.md (incluindo o bloco novo do modo de IA), CLAUDE.md, docs/ai-workflow.md, docs/ai-decision-log.md, docs/ui-visual-standard.md: Sim.
+- **Areas mapeadas na Fase 0:** `src/services/conversa-modo-ia.js` (dono do vocabulario, criado hoje), `sql/migrations/063_conversa_modo_ia.sql` (CHECK e DEFAULT a alterar), `src/db/empresas.js:55-77` (padrao ESTABELECIDO de configuracao global por empresa: `app.empresas.config` JSONB + cache de 30s + invalidacao), `src/routes/api-empresas.js:69-88` (`GET/PATCH /:empresaId/agente`, o molde da rota global), `src/core-funnel.js` (gate de entrega; ja recebe `empresaAgentePausada` por injecao), `src/services/contexto2-responder.js`, `src/routes/api-conversas.js` (`GET /:numero`), `src/services/conversa-manual.js`, `frontend/app/dashboard/conversas/page.tsx` (cabecalho da Central), `frontend/components/ConversaPainel.tsx`, `frontend/components/ui/AlternadorModoIa.tsx`, `frontend/lib/conversa-modo-ia.js`.
+- **Achado que decide o desenho (1):** o global cabe em `app.empresas.config` JSONB, reusando integralmente o padrao de `config.agente_pausado` — **nenhuma migration para o global**, so para a coluna individual.
+- **Achado que decide o desenho (2):** o modo EFETIVO deve ser calculado no BACKEND e devolvido pelo `GET /conversas/:numero` (que ja faz `SELECT c.*`). Assim a fonte de verdade e unica, a tela nao recalcula prioridade e o painel continua sem requisicao extra.
+- **Risco declarado que precisa de decisao do operador:** a migration precisa converter as linhas existentes de `'conversa'` para `'herdar'`. Sem isso TODA a base nasce com excecao explicita e mudar o global nao afetaria conversa alguma — o 1o criterio de aceite nasceria falso. Linhas em `'analise'` sao preservadas como excecao.
+- **Fora de escopo declarado:** logica propria de ativacao de follow-up; regras proprias de agenda e lembretes; automacoes novas a partir dos insights; perfil 360.
+- **Proxima etapa:** apresentar a analise de impacto + lista de arquivos e aguardar confirmacao de 2 decisoes (mutacao das linhas existentes e comportamento em caso de falha de leitura do modo global). So entao implementar.
+
+---
+
+## 2026-08-10 - Inicio de tarefa IA (3a do dia)
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** Coluna "Lead" da Central de Mensagens deve exibir o nome mais util disponivel, com prioridade fixa (1 nome cadastrado do lead -> 2 nome do WhatsApp -> 3 nome do Google Maps -> 4 VAZIO). Telefone NUNCA ocupa o campo de nome; ele fica so na coluna propria. Resolucao centralizada num modulo reutilizavel, backend devolvendo o nome ja resolvido + a fonte, e testes por prioridade.
+- **E projeto/tarefa de alteracao?** Sim, e ESTRUTURAL: a prioridade 2 exige migration nova (o pushName CRU do WhatsApp NAO e persistido hoje) + escrita no caminho do webhook; a prioridade 3 exige join novo entre `vendas.conversas` e `prospectador.prospects` numa listagem paginada sem indice de telefone. Exige confirmacao antes de implementar (CLAUDE.md item 4).
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/ui-visual-standard.md: Sim.
+- **Areas mapeadas na Fase 0 (leitura antes de editar):** `src/services/lead-nome-exibicao.js` (modulo PURO ja escrito por sessao anterior e AINDA NAO LIGADO a nada — grep confirma zero importadores), `src/routes/api-conversas.js:92` (`GET /` da listagem) e `:142` (`GET /:numero`), `src/agent.js:5820 capturarNomeContato` (unico ponto que aproveita o pushName hoje), `src/nome-contato.js` (`nomeDePushName` -> `primeiroNome`), `src/webhook-handler.js:361` (repasse do `msg.pushName`), `sql/init.sql:685` (`prospectador.prospects`: `nome` NOT NULL + `telefone` TEXT), `frontend/lib/lead-identidade.js` (dono de `identidadeConversa`/`rotuloLead`), `frontend/app/dashboard/conversas/page.tsx:236-240` (coluna Lead + coluna Telefone), `frontend/lib/followups-fila.js` (reexporta a identidade).
+- **Achado que decide o desenho (1):** o nome do WhatsApp **nao existe no banco**. `capturarNomeContato` roda `nomeDePushName`, que fica so com o PRIMEIRO TOKEN e recusa palavras de negocio (`pizzaria`, `loja`, `clinica`… em `NAO_NOME`) — "Pizzaria do Ze" e descartado inteiro e nada e gravado. O que sobra em `lead_profiles.apelido` ja e "nome cadastrado" (prioridade 1), nao a prioridade 2. Sem migration nao existe fonte 2.
+- **Achado que decide o desenho (2):** nao ha indice em `prospectador.prospects.telefone` (nem funcional sobre os digitos). O casamento conversa<->prospect e por telefone normalizado (padrao ja usado em `prospecting.js:1925`), entao o join na listagem de 50 conversas por pagina varre a tabela de prospects por linha.
+- **Achado que decide o desenho (3):** hoje `identidadeConversa` usa o TELEFONE como titulo quando nao ha nome — exatamente o que o pedido proibe no campo de nome. A mesma funcao serve o cabecalho do painel de conversa e a fila de Follow-ups, entao mudar a regra sem recortar o escopo muda 3 telas.
+- **Fora de escopo declarado (do proprio pedido):** sobrescrever nome cadastrado do lead; criar/editar perfil de lead a partir de WhatsApp ou Maps; mexer em aquisicao, follow-up, agenda ou analise da IA.
+- **WIP alheio no working tree (nao entra neste diff):** modo_ia `herdar` (migration 064 + `conversa-modo-ia.js` + `ConversaPainel.tsx` + testes), ainda nao commitado.
+- **Proxima etapa:** apresentar a analise de impacto + lista de arquivos e aguardar confirmacao de 3 decisoes (persistir o pushName cru via migration; custo/forma do join com o Maps; abrangencia do "campo vazio" fora da coluna Lead). So entao implementar.

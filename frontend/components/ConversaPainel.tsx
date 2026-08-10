@@ -35,8 +35,19 @@ import { identidadeConversa } from '@/lib/lead-identidade'
 import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
 import { VARIANTES, O_QUE_MEDE, fatoresDeInteresse } from '@/lib/pontuacao-indicador'
 import AlternadorModoIa from '@/components/ui/AlternadorModoIa'
-import { avisoDoCompositor, descreverModo, houveMudanca, normalizarModo } from '@/lib/conversa-modo-ia'
-import type { ModoIa } from '@/lib/conversa-modo-ia'
+import {
+  avisoDePausa,
+  avisoDoCompositor,
+  descreverModo,
+  descreverPreferencia,
+  explicarOrigem,
+  houveMudancaDePreferencia,
+  normalizarPreferencia,
+  opcoesDePreferencia,
+  preverEfetivo,
+  rotuloAcessivel,
+} from '@/lib/conversa-modo-ia'
+import type { PreferenciaModoIa } from '@/lib/conversa-modo-ia'
 
 export type ScoreCriterio = {
   delta: number
@@ -70,12 +81,24 @@ type ConversaDetail = ConversaResumo & {
   historico?: Mensagem[]
   agente_pausado?: boolean
   /**
-   * Politica de resposta da conversa. Vem junto do `GET /conversas/:numero` (que ja faz
-   * `SELECT c.*`) — nao ha requisicao extra para saber o modo.
-   * NAO e' derivado de `agente_pausado` nem o substitui: sao dois fatos independentes, e o
-   * envio automatico exige os dois liberados.
+   * Politica de resposta da conversa, TODA calculada no backend e entregue pelo
+   * `GET /conversas/:numero` — nao ha requisicao extra e a tela nao recalcula a
+   * precedencia (excecao da conversa > padrao da Central).
+   *
+   *   modo_ia         PREFERENCIA desta conversa: herdar | conversa | analise.
+   *                   `herdar` = sem excecao (o default).
+   *   modo_ia_padrao  o padrao da Central de Mensagens, para a tela poder dizer o que a
+   *                   conversa esta herdando.
+   *   modo_ia_efetivo o que vale AGORA.
+   *   modo_ia_origem  excecao | herdado.
+   *
+   * Nada disso e' derivado de `agente_pausado`, nem o substitui: a pausa e' temporaria,
+   * nasce do atendimento humano e o envio exige os dois liberados.
    */
   modo_ia?: string | null
+  modo_ia_padrao?: string | null
+  modo_ia_efetivo?: string | null
+  modo_ia_origem?: string | null
   ultima_falha_resposta_codigo?: string | null
   ultima_falha_resposta_msg?: string | null
   ultima_falha_resposta_em?: string | null
@@ -362,29 +385,47 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
   }
 
   /**
-   * Troca o modo de atuacao da IA. OTIMISTA: o controle responde no clique, porque o efeito
-   * vale so' para mensagens futuras e esperar a rede faria o operador clicar duas vezes.
-   * Falhou, VOLTA ao modo anterior e o erro aparece — a tela nunca pode afirmar "Análise"
-   * enquanto o backend continua em "Conversa", que e' onde o cliente sentiria a diferenca.
+   * Troca a PREFERENCIA de modo desta conversa (`herdar` remove a excecao).
+   *
+   * OTIMISTA: o controle responde no clique, porque o efeito vale so' para mensagens
+   * futuras e esperar a rede faria o operador clicar duas vezes. A previsao local
+   * (`preverEfetivo`) so' existe para o intervalo do request — a resposta do servidor
+   * sobrescreve, e o backend continua sendo a autoridade sobre o modo efetivo.
+   *
+   * Falhou, VOLTA ao estado anterior INTEIRO e o erro aparece: a tela nunca pode afirmar
+   * "Análise" enquanto o backend continua em "Conversa", que e' onde o cliente sentiria a
+   * diferenca.
    */
-  async function alterarModoIa(novo: ModoIa) {
+  async function alterarModoIa(nova: PreferenciaModoIa) {
     if (!aberta || !empresaId || alterandoModo) return
-    const anterior = normalizarModo(aberta.modo_ia)
-    if (!houveMudanca(anterior, novo)) return
+    const anterior = {
+      modo_ia: aberta.modo_ia,
+      modo_ia_padrao: aberta.modo_ia_padrao,
+      modo_ia_efetivo: aberta.modo_ia_efetivo,
+      modo_ia_origem: aberta.modo_ia_origem,
+    }
+    if (!houveMudancaDePreferencia(anterior.modo_ia, nova)) return
     setAlterandoModo(true)
-    setAberta((p) => p ? { ...p, modo_ia: novo } : p)
+    const previsto = preverEfetivo({ preferencia: nova, modoPadrao: anterior.modo_ia_padrao })
+    setAberta((p) => p ? { ...p, ...previsto } : p)
     try {
       const r = await fb.runTask(
-        () => apiFetch<{ modo_ia: string }>(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(aberta.numero)}/modo-ia`, {
+        () => apiFetch<ConversaDetail>(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(aberta.numero)}/modo-ia`, {
           method: 'PATCH',
-          body: JSON.stringify({ modo: novo }),
+          body: JSON.stringify({ modo: nova }),
         }),
-        { sucesso: `Modo alterado para ${descreverModo(novo).rotulo}.` }
+        { sucesso: `Modo desta conversa: ${descreverPreferencia(nova).rotulo}.` }
       )
-      setAberta((p) => p ? { ...p, modo_ia: normalizarModo(r.data.modo_ia) } : p)
+      setAberta((p) => p ? {
+        ...p,
+        modo_ia: r.data.modo_ia,
+        modo_ia_padrao: r.data.modo_ia_padrao,
+        modo_ia_efetivo: r.data.modo_ia_efetivo,
+        modo_ia_origem: r.data.modo_ia_origem,
+      } : p)
       avisar()
     } catch {
-      setAberta((p) => p ? { ...p, modo_ia: anterior } : p)
+      setAberta((p) => p ? { ...p, ...anterior } : p)
     } finally {
       setAlterandoModo(false)
     }
@@ -445,9 +486,14 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
   const ultimaMensagemAberta = historicoAberto[historicoAberto.length - 1]
   const podeReenviarUltimaResposta = ultimaMensagemAberta?.role === 'assistant'
   const criteriosInteresse = aberta?.score_interesse_criterios || []
-  // Aviso no compositor: so' existe no modo Analise, e aponta o caminho que JA existe para
-  // o atendente obter uma sugestao da IA, revisar e enviar ele mesmo.
-  const avisoModo = aberta ? avisoDoCompositor(aberta.modo_ia) : null
+  // Aviso no compositor: existe quando a IA nao vai responder — por modo, por pausa, ou
+  // pelos dois. Aponta o caminho que JA existe para o atendente obter uma sugestao da IA,
+  // revisar e enviar ele mesmo.
+  const avisoModo = aberta
+    ? avisoDoCompositor({ modoEfetivo: aberta.modo_ia_efetivo, agentePausado: aberta.agente_pausado })
+    : null
+  // A pausa e' dita SEPARADA do modo: e' temporaria e nao mexe na preferencia.
+  const avisoPausa = aberta ? avisoDePausa(aberta.agente_pausado) : null
 
   return (
     <div
@@ -481,9 +527,9 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Prioridade comercial</div>
                 <div className="flex flex-wrap items-center gap-2">
                   <InteresseBadge c={aberta} compact />
-                  <span className={`inline-flex items-center rounded-md border px-2.5 py-1.5 text-xs ${aberta.agente_pausado ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
-                    Agente: <strong className="ml-1">{aberta.agente_pausado ? 'pausado' : 'ativo'}</strong>
-                  </span>
+                  {/* O selo "Agente: pausado/ativo" saiu daqui: estado de atuacao da IA
+                      agora vive inteiro no bloco "Modo desta conversa", junto do modo
+                      efetivo. Dois lugares dizendo a mesma coisa se contradizem cedo. */}
                   {scoreValue(aberta.score_lead) != null && (
                     <span className="inline-flex items-center rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600">
                       Fit do lead: <strong className="ml-1 text-gray-900">{scoreValue(aberta.score_lead)}</strong>
@@ -499,15 +545,41 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
               </div>
             )}
             {aberta && (
-              <div className="min-w-[300px] rounded-lg border border-slate-200 bg-white px-3 py-2">
+              <div className="min-w-[340px] rounded-lg border border-slate-200 bg-white px-3 py-2">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Atuação da IA nesta conversa
+                  Modo desta conversa
                 </div>
                 <AlternadorModoIa
-                  modo={normalizarModo(aberta.modo_ia)}
-                  onMudar={alterarModoIa}
+                  opcoes={opcoesDePreferencia()}
+                  selecionado={normalizarPreferencia(aberta.modo_ia)}
+                  onMudar={(id) => alterarModoIa(id as PreferenciaModoIa)}
                   ocupado={alterandoModo}
+                  compacto
+                  ariaLabel={rotuloAcessivel({
+                    modoEfetivo: aberta.modo_ia_efetivo,
+                    origem: aberta.modo_ia_origem,
+                    modoPadrao: aberta.modo_ia_padrao,
+                  })}
                 />
+                {/* Modo EFETIVO e ORIGEM em texto: o controle sozinho mostra a escolha, nao
+                    o que esta valendo — e em "Herdar" as duas coisas sao diferentes. */}
+                <p className="mt-2 text-xs text-slate-600">
+                  <span className="font-semibold text-slate-800">
+                    Agora: {descreverModo(aberta.modo_ia_efetivo).estado}
+                  </span>
+                  {' · '}
+                  {explicarOrigem({
+                    origem: aberta.modo_ia_origem,
+                    modoEfetivo: aberta.modo_ia_efetivo,
+                    modoPadrao: aberta.modo_ia_padrao,
+                  })}
+                </p>
+                {/* A pausa e' OUTRO estado, dito em outra linha de proposito. */}
+                {avisoPausa && (
+                  <p className="mt-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                    <span className="font-semibold">{avisoPausa.titulo}.</span> {avisoPausa.texto}
+                  </p>
+                )}
               </div>
             )}
             {contextoOrigem && contextoOrigem.linhas.length > 0 && (
