@@ -24,9 +24,8 @@ import ConversaPainel, {
 import { identidadeConversa, nomeColunaLead } from '@/lib/lead-identidade'
 import AlternadorModoIa from '@/components/ui/AlternadorModoIa'
 import {
-  AVISO_EXCECOES_PADRAO,
+  ajudaPadraoGlobal,
   descreverModo,
-  explicarPadraoGlobal,
   houveMudancaDeModo,
   normalizarModo,
   opcoesDeModo,
@@ -201,25 +200,23 @@ export default function ConversasPage() {
           <p className="mt-1 text-sm text-slate-500">Encontre um contato e acompanhe o histórico do atendimento.</p>
         </div>
         {/* Padrao GLOBAL da IA. So aparece depois de carregado: um controle que mostra
-            "Conversa" antes de saber o valor real e' pior que controle nenhum. */}
+            "Conversa" antes de saber o valor real e' pior que controle nenhum.
+            Padrao compacto de controle de ativacao: NOME + icone de informacao + controle.
+            O estado por extenso e os dois paragrafos fixos sairam — a opcao marcada JA e' o
+            estado, e a consequencia + o limite das excecoes vivem no balao (`ajudaPadraoGlobal`)
+            e no `aria-label`, sem ocupar espaco permanente no topo da tela. */}
         {modoPadrao && (
-          <div className="min-w-[340px] rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Modo padrão da IA
-            </div>
+          <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
+            <span className="text-sm font-medium text-slate-700">Modo padrão da IA</span>
             <AlternadorModoIa
               opcoes={opcoesDeModo()}
               selecionado={modoPadrao}
               onMudar={(id) => alterarModoPadrao(id as ModoIa)}
               ocupado={alterandoPadrao}
-              estado={descreverModo(modoPadrao).estado}
               compacto
+              ajuda={ajudaPadraoGlobal(modoPadrao)}
               ariaLabel={rotuloAcessivelPadrao(modoPadrao)}
             />
-            <p className="mt-2 text-xs text-slate-600">{explicarPadraoGlobal(modoPadrao)}</p>
-            {/* O limite do controle dito na propria tela: sem isto, uma conversa que nao
-                muda junto parece defeito, quando e' a excecao funcionando. */}
-            <p className="mt-1 text-xs text-slate-500">{AVISO_EXCECOES_PADRAO}</p>
           </div>
         )}
       </div>

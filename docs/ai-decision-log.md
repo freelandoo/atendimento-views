@@ -11,6 +11,57 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-10 — Controle de ativação padronizado (nome + ícone "i" + controle), e por que a Central NÃO virou toggle
+
+**Pedido:** padronizar os controles de ativação da Central de Mensagens e do Follow-up
+Automático num único padrão compacto — ícone de informação + toggle + tooltip curto —,
+removendo rótulos redundantes ("Ativo", "Desativo", "Acompanhando sem responder") e descrições
+longas de espaço fixo. Alteração **exclusivamente de apresentação**.
+
+**A decisão que precisou do operador.** O controle da Central **não era booleano**: são dois
+modos NOMEADOS (Conversa | Análise) num `role="radiogroup"`, escolha deliberada registrada no
+`AGENTS.md`. Transformá-lo em interruptor passaria a chamar "Análise" de *desligado* — e o
+mesmo `AGENTS.md` avisa que o modo Análise **não é pausa de automação** (follow-up e agenda
+continuam rodando nos dois modos). Levei as duas leituras ao operador; ele escolheu **manter os
+dois modos nomeados**. Portanto: **só o Follow-up Automático virou interruptor**; a Central
+manteve o segmentado e perdeu apenas os textos redundantes.
+
+**O que é "padronizado", então.** Não é a mesma *forma* de controle nos dois lugares — é a mesma
+**anatomia** e a mesma disciplina: `NOME do que se controla` → `ícone "i"` → `controle`, sem
+estado escrito ao lado e sem parágrafo fixo embaixo. O estado vive no próprio controle (opção
+marcada, ou posição do botão no trilho) e no `aria-label`/`aria-checked`; a consequência vive no
+balão, que só ocupa espaço quando alguém pergunta.
+
+**Nada de informação foi jogado fora.** Os dois parágrafos fixos da Central (`explicarPadraoGlobal`
++ `AVISO_EXCECOES_PADRAO`) viraram `ajudaPadraoGlobal(modo)` — função **pura**, no módulo de
+tradução, com teste que falha se qualquer uma das duas partes sumir. O aviso das exceções é o que
+impede uma conversa que não muda junto de parecer defeito; ele continua também no
+`rotuloAcessivelPadrao`. O banner de alerta do Follow-up pausado **ficou**: é alerta operacional,
+não rótulo redundante.
+
+**Dono único do balão.** `BalaoAjuda` nasceu dentro de `AlternadorModoIa.tsx` e foi **extraído**
+para `components/ui/BalaoAjuda.tsx` quando o segundo controle passou a precisar dele —
+`AlternadorModoIa` **reexporta** daqui (padrão de `lib/paginacao.js`), então nada que já
+importava por aquele caminho quebrou. Duas cópias divergiriam justamente na parte difícil:
+posicionamento em portal, foco, fechamento em Escape/scroll/resize.
+
+**Por que um componente novo e não o switch inline das instâncias.** `InstanciasWhatsApp.tsx` e
+`InstanciasFreelandoo.tsx` já tinham a geometria (`role="switch"` + knob que translada), mas
+inline, com paleta do painel escuro e sem ícone de informação. `components/ui/InterruptorAtivacao.tsx`
+consolida o padrão com a mesma geometria; as duas telas de instâncias **não foram tocadas** (fora
+do escopo do pedido) e migram quando alguém mexer nelas.
+
+**Estado nunca só por cor:** a posição do botão dentro do trilho é o sinal principal (forma), e
+há teste de regressão que falha se `translate-x-*` sumir ou se `role="switch"`/`aria-checked`
+deixarem de existir. Outro teste lê o fonte das duas telas e falha se o estado voltar a ser
+escrito ao lado do controle.
+
+**Nenhuma regra operacional mudou:** mesmo `PATCH /modo-ia-padrao`, mesmo `PUT /config {pausado}`,
+mesmos payloads, mesmos bloqueios (`ocupado` na Central, `!config` no Follow-up). Zero arquivo de
+`backend/` alterado.
+
+---
+
 ## 2026-08-10 — A coluna "Site" vira um fator da pontuação de cadastro
 
 **Decisão do operador**, contra a minha recomendação inicial — registro os dois lados porque a

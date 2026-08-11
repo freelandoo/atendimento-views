@@ -54,6 +54,7 @@ export declare function avisoDoCompositor(entrada: {
 }): Aviso | null
 export declare const AVISO_EXCECOES_PADRAO: string
 export declare function explicarPadraoGlobal(modo: unknown): string
+export declare function ajudaPadraoGlobal(modo: unknown): string
 export declare function rotuloAcessivelPadrao(modo: unknown): string
 export declare function rotuloAcessivel(entrada: {
   modoEfetivo?: unknown

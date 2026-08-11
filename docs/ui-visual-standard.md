@@ -59,6 +59,45 @@ Registre aqui toda divergência visual autorizada pelo usuário.
 
 -->
 
+### 2026-08-10 — Controle de ativação padronizado (Central de Mensagens + Follow-up Automático)
+
+- **Padrão aprovado:** todo controle de ativação da área superior de uma tela tem a mesma
+  anatomia — **`NOME do que se controla` → `ícone "i"` → `controle`**, dentro de uma pílula
+  `rounded-lg border border-slate-200 bg-white px-3 py-1.5 shadow-sm`. **Não se escreve o estado
+  ao lado** ("Ativo", "Desativo", "Acompanhando sem responder") e **não há parágrafo fixo
+  embaixo**: o estado vive no próprio controle e no `aria-label`; a consequência de ligar/desligar
+  vive no balão do ícone.
+- **Motivo:** os dois controles eram visualmente diferentes e ambos repetiam por extenso o que já
+  mostravam. A Central gastava três linhas fixas no topo (estado + 2 parágrafos) e o Follow-up era
+  um botão colorido com o estado escrito dentro. Texto que só repete o controle rouba altura da
+  área mais disputada da tela.
+- **Componentes (reuso obrigatório, não recriar):**
+  - `frontend/components/ui/BalaoAjuda.tsx` — **dono único** do ícone "i" e do balão (portal no
+    `<body>`, abre abaixo da âncora e preso às bordas, hover + foco + toque, fecha em
+    Escape/scroll/resize). `AlternadorModoIa` apenas **reexporta**.
+  - `frontend/components/ui/InterruptorAtivacao.tsx` — o liga/desliga padrão (`role="switch"` +
+    `aria-checked`, trilho `h-6 w-11`, knob branco `h-4 w-4` com `translate-x-1`/`translate-x-6`,
+    `bg-emerald-600` ligado / `bg-slate-300` desligado).
+  - `frontend/components/ui/AlternadorModoIa.tsx` — quando o controle tem **modos nomeados** em
+    vez de liga/desliga (é o caso do "Modo padrão da IA"). O ícone "i" vem antes do grupo, como
+    no interruptor.
+- **Divergência deliberada:** a Central **não** virou interruptor. Conversa e Análise são dois
+  modos nomeados, e chamar "Análise" de *desligado* mentiria — nesse modo a IA continua
+  analisando, e follow-up e agenda continuam rodando. Decisão do operador (2026-08-10), registrada
+  em [ai-decision-log.md](ai-decision-log.md). **Padronizada é a anatomia, não a forma do
+  controle.**
+- **Acessibilidade obrigatória:** estado nunca só por cor (opção marcada ou posição do knob),
+  `aria-label` que diz a ação **e** o estado, balão alcançável por mouse, teclado e toque,
+  bloqueio (`disabled`) preservado enquanto o valor real não chegou.
+- **O que NÃO sai:** alertas, erros e bloqueios com impacto operacional. O banner do Follow-up
+  pausado continua; "Atualizando…" continua enquanto o PATCH viaja.
+- **Como validar:** desktop e mobile (a pílula quebra linha no `flex-wrap` do cabeçalho, sem
+  aumentar a altura); balão por hover, por Tab e por toque; leitor de tela anunciando estado ao
+  alternar; Follow-up com `config` ainda carregando (controle desabilitado).
+- **Fora desta padronização (ainda):** os switches inline de `InstanciasWhatsApp.tsx` e
+  `InstanciasFreelandoo.tsx` — mesma geometria, mas paleta do painel escuro e sem ícone "i".
+  Migram quando alguém mexer naquelas telas.
+
 ### 2026-08-07 — Navegação do painel (Sidebar + drawer mobile)
 
 - **Divergência aprovada:** a navegação lateral deixou de ser uma lista PLANA de 16 itens e

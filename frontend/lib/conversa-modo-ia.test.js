@@ -29,6 +29,7 @@ const {
   houveMudancaDeModo,
   preverEfetivo,
   explicarPadraoGlobal,
+  ajudaPadraoGlobal,
   rotuloAcessivelPadrao,
   AVISO_EXCECOES_PADRAO,
 } = require('./conversa-modo-ia.js')
@@ -283,6 +284,59 @@ test('rotuloAcessivelPadrao entrega modo, consequencia e limite numa frase', () 
   assert.ok(frase.includes(AVISO_EXCECOES_PADRAO), 'o limite do controle vai junto no leitor de tela')
   // Nao pode se passar pelo controle DA CONVERSA.
   assert.doesNotMatch(frase, /nesta conversa/i)
+})
+
+test('ajudaPadraoGlobal leva consequencia E limite para o balao', () => {
+  // Os dois paragrafos fixos embaixo do controle viraram balao. A padronizacao tirou o
+  // espaco permanente, nao a informacao: se uma das duas partes sumir daqui, sumiu da tela.
+  for (const modo of MODOS_IA_VALIDOS) {
+    const ajuda = ajudaPadraoGlobal(modo)
+    assert.ok(ajuda.includes(explicarPadraoGlobal(modo)), `${modo}: consequencia ausente no balao`)
+    assert.ok(ajuda.includes(AVISO_EXCECOES_PADRAO), `${modo}: limite das excecoes ausente no balao`)
+  }
+})
+
+test('guarda: os controles de ativacao nao voltam a escrever o estado ao lado', () => {
+  // A padronizacao removeu os rotulos redundantes ("Ativo"/"Desativo"/"Acompanhando sem
+  // responder"): o proprio controle ja mostra o estado, e repeti-lo em texto era o que
+  // engordava a area superior das duas telas. O estado continua no `aria-label` e no
+  // `aria-checked` — o que esta proibido e' o texto SOLTO na interface.
+  const alvos = [
+    path.join(__dirname, '..', 'app', 'dashboard', 'conversas', 'page.tsx'),
+    path.join(__dirname, '..', 'app', 'dashboard', 'follow-ups', 'page.tsx'),
+  ]
+  for (const alvo of alvos) {
+    const fonte = fs.readFileSync(alvo, 'utf8')
+    // `descreverModo(...).estado` era a fonte do "IA acompanhando, sem responder".
+    assert.doesNotMatch(fonte, /\)\.estado\b/, `${path.basename(alvo)} voltou a imprimir o estado por extenso`)
+    // O texto "Follow-up automático: ativo/desativado" dentro de um elemento visivel.
+    assert.doesNotMatch(
+      fonte,
+      /<(span|b|p|div)[^>]*>\s*(ativo|desativado|ativa|desativada)\s*</i,
+      `${path.basename(alvo)} voltou a escrever o estado ao lado do controle`
+    )
+  }
+})
+
+test('guarda: o balao de ajuda tem um dono so', () => {
+  // Ele nasceu dentro do `AlternadorModoIa` e foi extraido quando o segundo controle passou
+  // a precisar dele. Duas implementacoes divergiriam justamente na parte dificil
+  // (posicionamento em portal, foco, fechamento em scroll/resize/Escape).
+  const alternador = fs.readFileSync(path.join(__dirname, '..', 'components', 'ui', 'AlternadorModoIa.tsx'), 'utf8')
+  const interruptor = fs.readFileSync(path.join(__dirname, '..', 'components', 'ui', 'InterruptorAtivacao.tsx'), 'utf8')
+  for (const [nome, fonte] of [['AlternadorModoIa', alternador], ['InterruptorAtivacao', interruptor]]) {
+    assert.match(fonte, /from '@\/components\/ui\/BalaoAjuda'/, `${nome} deve IMPORTAR o balao, nunca recriar`)
+    assert.doesNotMatch(fonte, /createPortal/, `${nome} recriou o balao em vez de reusar BalaoAjuda`)
+  }
+})
+
+test('guarda: o interruptor nao transmite o estado so por cor', () => {
+  const fonte = fs.readFileSync(path.join(__dirname, '..', 'components', 'ui', 'InterruptorAtivacao.tsx'), 'utf8')
+  assert.match(fonte, /role="switch"/, 'sem role=switch o leitor de tela nao anuncia o estado')
+  assert.match(fonte, /aria-checked=\{ligado\}/, 'o estado precisa chegar ao leitor de tela')
+  // A POSICAO do botao dentro do trilho e' o sinal nao-cromatico do estado.
+  assert.match(fonte, /translate-x-6/, 'sem deslocamento, so a cor diferencia ligado de desligado')
+  assert.match(fonte, /translate-x-1/, 'sem deslocamento, so a cor diferencia ligado de desligado')
 })
 
 test('guarda: a tela nao reimplementa a decisao de enviar', () => {

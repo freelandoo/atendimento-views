@@ -177,6 +177,20 @@ export function explicarPadraoGlobal(modo) {
 export const AVISO_EXCECOES_PADRAO =
   'Conversas com exceção própria (Conversa ou Análise fixados) não são alteradas.'
 
+/**
+ * O texto do BALAO do controle global. Reune, numa frase so', a consequencia do modo que
+ * esta valendo e o limite das excecoes.
+ *
+ * As duas coisas eram dois paragrafos FIXOS embaixo do controle. A padronizacao dos
+ * controles de ativacao tirou o espaco permanente deles, nao a informacao: ela passou para
+ * o balao (mouse, teclado e toque) e continua inteira no `rotuloAcessivelPadrao`, que e' o
+ * que o leitor de tela anuncia. Perder o AVISO_EXCECOES_PADRAO faria uma conversa que nao
+ * muda junto parecer defeito.
+ */
+export function ajudaPadraoGlobal(modo) {
+  return `${explicarPadraoGlobal(modo)} ${AVISO_EXCECOES_PADRAO}`
+}
+
 /** Frase completa do controle GLOBAL para leitor de tela: estado, consequencia e limite. */
 export function rotuloAcessivelPadrao(modo) {
   return `Modo padrão da IA na Central de Mensagens: ${descreverModo(modo).rotulo}. ${explicarPadraoGlobal(modo)} ${AVISO_EXCECOES_PADRAO}`

@@ -14,85 +14,22 @@
 //
 // A regra de negocio nao esta aqui. Rotulos e textos vem de `lib/conversa-modo-ia.js`; o
 // modo EFETIVO e a ORIGEM sao calculados no backend; a permissao de enviar tambem.
-import { useEffect, useId, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useRef } from 'react'
+import BalaoAjuda from '@/components/ui/BalaoAjuda'
 
 export type OpcaoModo = { id: string; rotulo: string; ajuda: string }
 
-/**
- * Balao de ajuda leve — hover, foco e toque; nunca modal (o pedido e' explicito).
- * Em portal no `<body>` e posicionado pelo rect da ancora: dentro do cabecalho do painel,
- * que tem `overflow-hidden`, uma versao `absolute` seria cortada. Mesma solucao ja usada
- * em `BolinhaPontuacao`.
- */
-export function BalaoAjuda({ texto, rotuloAcessivelBotao }: { texto: string; rotuloAcessivelBotao: string }) {
-  const [aberto, setAberto] = useState(false)
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
-  const ancora = useRef<HTMLButtonElement | null>(null)
-  const id = useId()
-
-  function abrir() {
-    const r = ancora.current?.getBoundingClientRect()
-    if (!r) return
-    // Abre abaixo da ancora e preso as bordas: o cabecalho fica colado no topo da tela e um
-    // balao para cima sairia da viewport.
-    const largura = 300
-    const left = Math.min(Math.max(8, r.left + r.width / 2 - largura / 2), Math.max(8, window.innerWidth - largura - 8))
-    setPos({ left, top: r.bottom + 8 })
-    setAberto(true)
-  }
-  function fechar() { setAberto(false) }
-
-  useEffect(() => {
-    if (!aberto) return
-    const aoTeclado = (e: KeyboardEvent) => { if (e.key === 'Escape') fechar() }
-    window.addEventListener('keydown', aoTeclado)
-    window.addEventListener('scroll', fechar, true)
-    window.addEventListener('resize', fechar)
-    return () => {
-      window.removeEventListener('keydown', aoTeclado)
-      window.removeEventListener('scroll', fechar, true)
-      window.removeEventListener('resize', fechar)
-    }
-  }, [aberto])
-
-  return (
-    <>
-      <button
-        ref={ancora}
-        type="button"
-        aria-label={rotuloAcessivelBotao}
-        aria-describedby={aberto ? id : undefined}
-        onMouseEnter={abrir}
-        onMouseLeave={fechar}
-        onFocus={abrir}
-        onBlur={fechar}
-        onClick={() => (aberto ? fechar() : abrir())}
-        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[11px] font-semibold text-slate-500 transition hover:border-slate-400 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1"
-      >
-        i
-      </button>
-      {aberto && pos && typeof document !== 'undefined' && createPortal(
-        <div
-          id={id}
-          role="tooltip"
-          style={{ left: pos.left, top: pos.top, width: 300 }}
-          className="pointer-events-none fixed z-[60] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-relaxed text-slate-700 shadow-lg"
-        >
-          {texto}
-        </div>,
-        document.body
-      )}
-    </>
-  )
-}
+// O balao de ajuda mudou de casa (`components/ui/BalaoAjuda.tsx`) quando o controle de
+// ativacao do Follow-up passou a usar o mesmo icone. Reexportado daqui — como
+// `lib/paginacao.js` faz — para nao quebrar quem ja importava por este caminho.
+export { BalaoAjuda }
 
 export default function AlternadorModoIa({
   opcoes,
   selecionado,
   onMudar,
   ariaLabel,
-  estado,
+  ajuda,
   ocupado = false,
   compacto = false,
 }: {
@@ -101,8 +38,12 @@ export default function AlternadorModoIa({
   onMudar: (novo: string) => void
   /** Frase completa (estado + consequencia + origem) para o leitor de tela. */
   ariaLabel: string
-  /** Estado por extenso, ao lado do controle. Cor nunca e' o unico sinal. */
-  estado?: string
+  /**
+   * Texto do balao. Sem ele, o balao explica a OPCAO ativa — o que serve ao controle DA
+   * CONVERSA. O controle do padrao GLOBAL tem outro escopo ("toda conversa sem excecao") e
+   * precisa dizer isso, senao o operador acredita estar mexendo so' na conversa aberta.
+   */
+  ajuda?: string
   /** Desabilita o controle enquanto o PATCH esta em voo. */
   ocupado?: boolean
   compacto?: boolean
@@ -122,6 +63,14 @@ export default function AlternadorModoIa({
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
+      {/* Icone de informacao ANTES do controle: mesma ordem do `InterruptorAtivacao`, para os
+          controles das duas telas serem lidos do mesmo jeito. */}
+      {ativa && (
+        <BalaoAjuda
+          texto={ajuda || ativa.ajuda}
+          rotuloAcessivelBotao={ajuda ? 'O que este controle define' : `O que significa a opção ${ativa.rotulo}`}
+        />
+      )}
       <div
         role="radiogroup"
         aria-label={ariaLabel}
@@ -152,12 +101,14 @@ export default function AlternadorModoIa({
           )
         })}
       </div>
-      {(ocupado || estado) && (
+      {/* O estado por extenso saiu daqui: a opcao marcada dentro do grupo JA e' o estado, em
+          texto, e repeti-lo ao lado era o rotulo redundante que a padronizacao removeu.
+          "Atualizando…" fica — nao e' estado, e' bloqueio temporario com impacto operacional. */}
+      {ocupado && (
         <span className="text-xs text-slate-600" aria-live="polite">
-          {ocupado ? 'Atualizando…' : estado}
+          Atualizando…
         </span>
       )}
-      {ativa && <BalaoAjuda texto={ativa.ajuda} rotuloAcessivelBotao={`O que significa a opção ${ativa.rotulo}`} />}
     </div>
   )
 }

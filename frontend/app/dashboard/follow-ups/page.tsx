@@ -34,7 +34,8 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import ConversaPainel from '@/components/ConversaPainel'
-import { IconSend, IconGear, IconPlay, IconAlert, IconClose, IconPlus } from '@/components/ui/icons'
+import { IconSend, IconGear, IconAlert, IconClose, IconPlus } from '@/components/ui/icons'
+import InterruptorAtivacao from '@/components/ui/InterruptorAtivacao'
 import {
   FILTROS_RAPIDOS,
   VIEW_PADRAO,
@@ -348,26 +349,20 @@ export default function FollowUpsPage() {
           </p>
         </div>
         {/* O que sobrou da área de Automação: a decisão diária de deixar o motor rodar ou
-            não. Toggle com `aria-pressed` e estado escrito por extenso — nunca só cor. */}
-        <button
-          type="button"
-          onClick={alternarAutomatico}
-          aria-pressed={!pausado}
-          disabled={!config}
-          title={pausado
-            ? 'O motor não agenda nem envia follow-ups automáticos. A fila continua funcionando.'
-            : 'O motor agenda e envia follow-ups automáticos conforme as regras da empresa.'}
-          className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 disabled:opacity-50 ${
-            pausado ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-emerald-300 bg-emerald-50 text-emerald-800'
-          }`}
-        >
-          {pausado ? <IconPlay className="h-4 w-4" /> : <IconGear className="h-4 w-4" />}
-          <span>Follow-up automático: <b>{pausado ? 'desativado' : 'ativo'}</b></span>
-          <span
-            aria-hidden="true"
-            className={`ml-0.5 h-2.5 w-2.5 rounded-full ${pausado ? 'bg-amber-500' : 'bg-emerald-500'}`}
-          />
-        </button>
+            não. Passou a usar o controle de ativação padronizado (nome + ícone de informação
+            + interruptor), o mesmo padrão da Central de Mensagens. O "ativo/desativado" por
+            extenso saiu: o interruptor já mostra o estado pela POSIÇÃO (não só pela cor) e
+            `role="switch"` + `aria-checked` o levam ao leitor de tela. A consequência de
+            ligar e a de desligar ficaram no balão, sem ocupar espaço fixo no topo.
+            `desabilitado` enquanto `config` não chegou: o bloqueio existente foi preservado. */}
+        <InterruptorAtivacao
+          rotulo="Follow-up automático"
+          ligado={!pausado}
+          onMudar={alternarAutomatico}
+          desabilitado={!config}
+          ajuda="Ligado: o motor agenda e envia follow-ups automáticos conforme as regras da empresa. Desligado: ele não agenda nem envia nada — a fila desta tela continua funcionando normalmente."
+          ariaLabel={`Follow-up automático: ${pausado ? 'desativado' : 'ativo'}. Ativar ou desativar o envio automático de follow-ups pelo motor.`}
+        />
       </div>
 
       {pausado && (
