@@ -6,6 +6,36 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-10 - Inicio de tarefa IA - ANALISE (sem implementacao): contexto de instancia na operacao (seletor persistente)
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Mapear, **antes de implementar**, o que precisa ser global da empresa,
+  o que precisa ser por instancia de WhatsApp e o que deve existir uma unica vez com
+  atribuicao/filtro, para viabilizar um **seletor de instancia persistente** no topo da
+  aplicacao (com atalhos sincronizados nas telas operacionais e uma visao "Todas as
+  instancias" somente de acompanhamento). Entregavel: relatorio tecnico de impacto com mapa
+  de entidades/rotas/jobs/componentes, matriz de classificacao, fluxos que exigem escopo,
+  riscos (integridade/seguranca/desempenho/migracao), proposta de arquitetura com fonte unica
+  de verdade, plano em fases reversiveis e lista de decisoes que dependem de confirmacao.
+- **E projeto/tarefa de alteracao?** **Nao nesta etapa.** O proprio pedido poe em `restricoes`:
+  nao implementar o seletor, nao criar migrations, nao alterar dados, nao disparar mensagens/
+  follow-ups/automacoes. Registro assim mesmo porque a analise **precede** uma alteracao
+  estrutural grande (schema/banco + rotas + jobs + muitas telas) e produz o desenho que sera
+  implementado depois. **Nenhum arquivo de codigo, SQL, config ou automacao foi alterado.**
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/project-map.md e docs/architecture-rules.md: Sim |
+  docs/PENDENCIA_ARQUITETURAL_CENTRAL_LIGACOES_E_MENSAGENS.md: Sim (o item 1 do checklist dele
+  — identidade canonica / `UNIQUE` global de `vendas.conversas.numero` — e' pre-requisito
+  direto deste tema) | docs/ui-visual-standard.md: a consultar SE e quando houver implementacao |
+  docs/ai-decision-log.md: a registrar SE e quando houver implementacao.
+- **Fora de escopo declarado pelo pedido:** implementar o seletor, criar migration, alterar
+  dados existentes, disparar mensagens/follow-ups/automacoes, e assumir que tela filtrada
+  significa backend protegido.
+- **Entrega:** relatorio escrito em `docs/analise-contexto-instancia.md`. Se aprovado, a
+  implementacao exige nova passada pelas Fases 3-11.
+
+---
+
 ## 2026-08-10 - Inicio de tarefa IA - Nome do lead na Central de Mensagens (fontes alternativas, sem telefone como nome)
 
 - **IA/Ferramenta:** Claude Code (Opus 5)

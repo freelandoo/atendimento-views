@@ -8,6 +8,7 @@ const { registrarEnvioNoHistorico } = require('./services/historico-envio')
 const { calcularScoreCadastroPlaces, montarJsonApresentacaoPlaces } = require('./services/lead-score-cadastro')
 const { classificarUrl, classificarLead } = require('./services/site-classificacao')
 const { logger } = require('./logger')
+const { candidatosTelefoneBR } = require('./telefone-br')
 const { dashboardAutorizado: dashboardSessionAutorizado } = require('./dashboardAuth')
 const {
   TIMEZONE,
@@ -183,23 +184,10 @@ function mascararNumero(numero) {
   return `${n.slice(0, 2)}***${n.slice(-4)}`
 }
 
-/**
- * Gera as variações plausíveis de um número BR (só dígitos) para casar telefones
- * armazenados em formatos diferentes: com/sem 9º dígito móvel e com/sem prefixo 55.
- * Usado no match prospect↔webhook, onde o JID nem sempre bate exato com o telefone
- * vindo do Places. Match por igualdade em QUALQUER candidato (escopo: prospects
- * já enviados → risco de falso-positivo baixíssimo).
- */
-function candidatosTelefoneBR(numero) {
-  let d = normalizarTelefone(String(numero == null ? '' : numero).replace(/@s\.whatsapp\.net$/i, ''))
-  if (!d) return []
-  if (d.length >= 10 && d.length <= 11 && !d.startsWith('55')) d = `55${d}`
-  const set = new Set([d])
-  if (d.length === 13 && d.charAt(4) === '9') set.add(d.slice(0, 4) + d.slice(5)) // remove 9º dígito
-  if (d.length === 12) set.add(`${d.slice(0, 4)}9${d.slice(4)}`)                   // adiciona 9º dígito
-  for (const v of [...set]) if (v.startsWith('55')) set.add(v.slice(2))            // variante sem 55
-  return [...set].filter(Boolean)
-}
+// `candidatosTelefoneBR` vive em src/telefone-br.js (modulo PURO) desde que o casamento
+// conversa<->prospect por telefone passou a ser usado tambem pela Central de Mensagens
+// (src/db/lead-nome-maps.js). Importar este arquivo de dentro da camada de dados criaria
+// ciclo — por isso a funcao foi movida, e nao duplicada. Comportamento inalterado.
 
 function hashMensagem(mensagem) {
   return crypto.createHash('sha256').update(String(mensagem || '')).digest('hex').slice(0, 16)

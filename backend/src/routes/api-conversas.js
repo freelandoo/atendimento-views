@@ -15,6 +15,8 @@ const { gerarOrientacaoResposta } = require('../services/orientador-resposta')
 const { registrarFeedbackConversa } = require('../services/conversa-feedback')
 const { modoIaPadraoEmpresa } = require('../db/empresas')
 const { modoEfetivo } = require('../services/conversa-modo-ia')
+const { anexarNomeExibicao } = require('../services/lead-nome-exibicao')
+const { buscarNomesMapsPorTelefone } = require('../db/lead-nome-maps')
 
 const router = Router({ mergeParams: true })
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
@@ -50,6 +52,32 @@ function anexarScoreInteresse(conversa) {
     score_interesse_criterios: interesse.criterios,
     score_interesse_mensagens_lead: interesse.mensagens_lead,
   }
+}
+
+/**
+ * Resolve o nome de EXIBICAO de um lote de conversas (a pagina inteira de uma vez).
+ *
+ * A ordem de prioridade nao esta aqui nem no SQL: ela vive em
+ * `src/services/lead-nome-exibicao.js`. Esta funcao so' junta as fontes — o pushName ja vem
+ * na propria linha (`c.nome_whatsapp`) e o nome do Maps sai de UMA consulta por pagina.
+ *
+ * Falha ao consultar o Maps NAO derruba a listagem: o nome cai para o que o WhatsApp deu, que
+ * e' a prioridade 1 de qualquer forma. Uma coluna de nome incompleta e' um problema menor do
+ * que uma Central de Mensagens que nao abre.
+ */
+async function anexarNomesExibicao(conversas, empresaId) {
+  const lista = Array.isArray(conversas) ? conversas : []
+  if (lista.length === 0) return lista
+  let nomesMaps = new Map()
+  try {
+    nomesMaps = await buscarNomesMapsPorTelefone(pool, {
+      empresaId,
+      numeros: lista.map((c) => c && c.numero).filter(Boolean),
+    })
+  } catch (err) {
+    logger.warn({ err: err?.message }, '[api-conversas] nome do Maps indisponivel; usando so o do WhatsApp')
+  }
+  return lista.map((c) => anexarNomeExibicao(c, nomesMaps.get(c && c.numero) || null))
 }
 
 function erroConversas(res, err, code = 'CONVERSAS_FAILED') {
@@ -108,7 +136,7 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
 
   return res.json({
     ok: true,
-    data: rows.map(anexarScoreInteresse),
+    data: await anexarNomesExibicao(rows.map(anexarScoreInteresse), req.empresa.id),
     meta: { total: parseInt(cnt.total, 10), page, limit },
   })
 })
@@ -146,7 +174,8 @@ router.get('/:numero', requireAuth, requireEmpresaAccess, async (req, res) => {
     [req.empresa.id, PJ_EMPRESA_ID, req.params.numero]
   )
   if (!conversa) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Conversa não encontrada.' } })
-  return res.json({ ok: true, data: await anexarModoIa(anexarScoreInteresse(conversa), req.empresa.id) })
+  const [comNome] = await anexarNomesExibicao([anexarScoreInteresse(conversa)], req.empresa.id)
+  return res.json({ ok: true, data: await anexarModoIa(comNome, req.empresa.id) })
 })
 
 // DELETE /api/empresas/:empresaId/conversas/:numero

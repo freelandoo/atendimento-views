@@ -62,6 +62,14 @@ export type ConversaResumo = {
   estagio: string
   status: string
   negocio?: string
+  /**
+   * Nome ja RESOLVIDO pelo backend (`lead-nome-exibicao.js`): nome do WhatsApp e, na falta
+   * dele, nome do Google Maps. `null` = nenhuma fonte tinha nome valido. A tela nao recalcula
+   * a prioridade; ver `lib/lead-identidade.js`.
+   */
+  nome_exibicao?: string | null
+  /** De onde saiu o nome acima: 'whatsapp' | 'google_maps' | null. */
+  nome_exibicao_fonte?: 'whatsapp' | 'google_maps' | null
   temperatura_lead?: string | null
   score_dor?: number | null
   score_lead?: number | null

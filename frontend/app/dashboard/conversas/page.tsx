@@ -21,7 +21,7 @@ import ConversaPainel, {
   scoreValue,
   type ConversaResumo,
 } from '@/components/ConversaPainel'
-import { identidadeConversa } from '@/lib/lead-identidade'
+import { identidadeConversa, nomeColunaLead } from '@/lib/lead-identidade'
 import AlternadorModoIa from '@/components/ui/AlternadorModoIa'
 import {
   AVISO_EXCECOES_PADRAO,
@@ -309,12 +309,15 @@ export default function ConversasPage() {
           {carregandoLista ? (
             <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">Buscando conversas…</td></tr>
           ) : visiveis.map(({ c, alerta }) => {
-            // Mesma identidade que a fila de Follow-ups e o painel usam: nome do negócio
-            // em destaque, telefone ao lado. Nunca o identificador do Evolution.
+            // Coluna Lead = SÓ nome (resolvido no backend: WhatsApp → Google Maps → vazio).
+            // O telefone tem coluna própria ao lado; repeti-lo aqui seria o mesmo dado duas
+            // vezes na linha. `identidade` continua servindo a coluna Telefone e a confirmação
+            // de remoção, onde o telefone é a identificação de segurança.
             const identidade = identidadeConversa(c)
+            const nomeLead = nomeColunaLead(c)
             return (
             <tr key={c.numero} className={`hover:bg-slate-50/70 ${alerta ? 'bg-red-50/60' : ''}`}>
-              <td className="px-4 py-3 font-medium text-slate-800">{identidade.titulo}</td>
+              <td className="px-4 py-3 font-medium text-slate-800">{nomeLead}</td>
               <td className="whitespace-nowrap px-4 py-3 text-xs tabular-nums text-slate-600">{identidade.telefone || '—'}</td>
               <td className="px-4 py-3">
                 <div className="inline-flex items-center gap-1.5">

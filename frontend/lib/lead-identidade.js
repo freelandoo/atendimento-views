@@ -51,8 +51,28 @@ function rotuloLead(item) {
 }
 
 /**
+ * O que a COLUNA "Lead" da Central de Mensagens mostra: o nome ja resolvido pelo backend
+ * (`nome_exibicao`), ou VAZIO. Nunca um traco, nunca o telefone — o telefone tem coluna
+ * propria, ao lado, e repeti-lo aqui seria o mesmo dado duas vezes na linha.
+ *
+ * A ORDEM DE PRIORIDADE NAO ESTA AQUI, de proposito: ela vive em
+ * `backend/src/services/lead-nome-exibicao.js` (WhatsApp -> Google Maps -> vazio) e chega
+ * pronta na resposta. Esta funcao so' protege contra linha antiga que ainda traga telefone ou
+ * JID no campo. Mesmo padrao de `lib/site-rotulos.js`: o front traduz o veredito, nao o calcula.
+ */
+function nomeColunaLead(conversa) {
+  return nomeDeVerdade(conversa && conversa.nome_exibicao) || ''
+}
+
+/**
  * Identidade de uma CONVERSA para o cabecalho do painel, a partir do que
- * `GET /conversas/:numero` devolve (`numero` = JID, `negocio` = nome do lead_profile).
+ * `GET /conversas/:numero` devolve (`numero` = JID, `nome_exibicao` = nome resolvido,
+ * `negocio` = nome do lead_profile).
+ *
+ * Diferenca DELIBERADA em relacao a `nomeColunaLead`: o painel e' um cabecalho, e um titulo
+ * vazio deixaria o operador sem saber qual conversa abriu. Aqui o telefone formatado continua
+ * valendo como identificacao de seguranca (decisao do operador, 2026-08-10) — a regra de
+ * "campo vazio" vale especificamente para a coluna Lead.
  *
  * - `titulo`: o que o operador le em destaque. Nome do negocio; sem ele, o telefone.
  * - `telefone`: sempre o telefone formatado, para a linha secundaria.
@@ -64,7 +84,10 @@ function rotuloLead(item) {
  */
 function identidadeConversa(conversa) {
   const numero = texto(conversa && conversa.numero)
-  const nome = nomeDeVerdade(conversa && conversa.negocio)
+  // `nome_exibicao` primeiro (o nome automatico do canal, ja resolvido pelo backend); o
+  // `negocio` curado continua atras dele, para o painel nao PERDER nome que ja mostrava hoje.
+  const nome = nomeDeVerdade(conversa && conversa.nome_exibicao)
+    || nomeDeVerdade(conversa && conversa.negocio)
   const telefone = formatarTelefone(numero)
   return {
     titulo: nome || telefone || digitos(numero) || 'Contato sem identificação',
@@ -79,5 +102,6 @@ module.exports = {
   nomeDeVerdade,
   formatarTelefone,
   rotuloLead,
+  nomeColunaLead,
   identidadeConversa,
 }

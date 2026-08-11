@@ -5817,12 +5817,41 @@ async function registrarRespostaLembreteReuniaoComAlerta(numero, texto, opts) {
   return res
 }
 
+/**
+ * Guarda o pushName CRU do WhatsApp em `vendas.conversas.nome_whatsapp` (migration 065).
+ *
+ * Fica separado de `capturarNomeContato` porque os dois filtram coisas diferentes: o apelido
+ * do perfil passa por `nomeDePushName` (primeiro token, sem palavras de negocio) e descarta
+ * "Pizzaria do Ze" inteiro; aqui o valor e' preservado como veio, e quem decide se aquilo e'
+ * nome e' `src/services/lead-nome-exibicao.js`, na LEITURA.
+ *
+ * NAO toca `atualizado_em`: a Central de Mensagens ordena por ele, e um pushName repetido a
+ * cada mensagem reordenaria a lista sem nenhum fato novo. Escreve so quando o valor muda.
+ */
+async function persistirNomeWhatsapp(numero, pushName, log = logger) {
+  const cru = String(pushName == null ? '' : pushName).trim()
+  if (!numero || !cru) return
+  try {
+    await pool.query(
+      `UPDATE vendas.conversas
+          SET nome_whatsapp = $2
+        WHERE numero = $1 AND nome_whatsapp IS DISTINCT FROM $2`,
+      [numero, cru]
+    )
+  } catch (err) {
+    log?.warn?.({ err: serializeError(err) }, 'Falha ao guardar nome do WhatsApp da conversa')
+  }
+}
+
 async function capturarNomeContato(numero, { pushName, texto } = {}, log = logger) {
   const nomeDeclarado = extrairNomeDeclarado(texto)
   const nomePush = nomeDePushName(pushName)
   const apelido = nomeDeclarado || nomePush
   const sobrescrever = !!nomeDeclarado
   const fonte = nomeDeclarado ? 'mensagem' : (nomePush ? 'pushName' : null)
+  // Antes do early return de proposito: o pushName pode ser um nome de negocio valido
+  // ("Pizzaria do Ze") mesmo quando o filtro do apelido nao aproveita nada dele.
+  await persistirNomeWhatsapp(numero, pushName, log)
   if (!numero || !apelido) return null
 
   try {

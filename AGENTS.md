@@ -751,6 +751,66 @@
   (webhook nos dois modos, os dois enviadores, rota/auditoria),
   `frontend/lib/conversa-modo-ia.test.js`. Nenhuma variável de ambiente nova.
 
+### Nome de exibição do lead — a coluna "Lead" mostra NOME, e só nome
+- **Regra de produto:** a coluna Lead da Central de Mensagens exibe o melhor **nome
+  automático** disponível, nesta ordem: **1. nome do WhatsApp → 2. nome do Google Maps →
+  3. VAZIO**. Sem nome válido, o campo fica **vazio** — nunca um traço, **nunca o telefone**.
+  O telefone tem coluna própria, ao lado.
+- **Defeito corrigido (1):** a coluna mostrava o TELEFONE quando não havia nome
+  (`identidadeConversa`), ou seja, o mesmo dado duas vezes na mesma linha, com o campo de nome
+  afirmando algo que não é nome.
+- **Defeito corrigido (2), o mais caro:** **o nome do WhatsApp era jogado fora a cada
+  mensagem.** `capturarNomeContato` (`src/agent.js`) passa o `pushName` por `nomeDePushName`
+  (`src/nome-contato.js`), que fica só com o **primeiro token** e recusa palavras de negócio
+  (`pizzaria`, `loja`, `clinica`… na lista `NAO_NOME`) — "Pizzaria do Zé" era descartado
+  INTEIRO e nada era gravado. A melhor fonte de nome do produto não existia no banco.
+- **Fonte de verdade única: `src/services/lead-nome-exibicao.js`** (PURO — sem banco, HTTP, IA
+  ou rede). Dono de `ORDEM_FONTES` e de `nomeValido`, que recusa vazio, JID
+  (`…@s.whatsapp.net`, `…@lid`), telefone em qualquer formatação, emoji/enfeite puro (emoji
+  não é `\p{L}`), uma letra só e texto genérico. **Genérico é comparado com a string INTEIRA,
+  nunca por token** — senão "Cliente Feliz Pet Shop" seria recusado pela primeira palavra.
+  Há guarda de regressão que lê o fonte e falha se o módulo passar a conhecer `telefone`/`numero`.
+- **`lead_profiles.negocio` e `apelido` NÃO estão na ordem, de propósito.** São nome **curado**
+  (extraído da conversa pela IA / filtrado por `nome-contato.js`); esta coluna mostra o nome
+  **automático do canal**. **Consequência declarada e aceita (decisão do operador, 2026-08-10):**
+  lead com `negocio` preenchido e pushName inválido fica com a coluna Lead **vazia**. Apelido e
+  edição manual de nome estão **fora de escopo** desta etapa.
+- **Schema:** migration `065_conversa_nome_whatsapp.sql` (**aditiva**, nullable, sem DEFAULT e
+  sem CHECK — nenhuma linha existente é tocada) → `vendas.conversas.nome_whatsapp`, o pushName
+  **cru**, preservado sem filtro. Fica na CONVERSA e não em `lead_profiles` porque o pushName é
+  atributo do **canal**, chega por mensagem, e gravá-lo junto do `apelido` misturaria o valor
+  bruto com o curado e mudaria o que os prompts leem.
+- **A escrita NÃO toca `atualizado_em`** (`persistirNomeWhatsapp`, em `agent.js`, ao lado de
+  `capturarNomeContato`): a Central ordena por ele, e um pushName repetido a cada mensagem
+  reordenaria a lista sem nenhum fato novo. Só grava quando o valor **muda**
+  (`IS DISTINCT FROM`). Roda **antes** do early-return do apelido, de propósito — o pushName
+  pode ser um nome de negócio válido mesmo quando o filtro do apelido não aproveita nada dele.
+- **O nome do Maps é UMA consulta por página, não um `LEFT JOIN LATERAL`.** O casamento
+  conversa↔`prospectador.prospects` é por **telefone** (não há FK) e precisa aceitar as
+  variações de formato (com/sem `55`, com/sem 9º dígito), que se geram em JS
+  (`candidatosTelefoneBR`). Um LATERAL teria de reproduzir a mesma regra em SQL — duas
+  implementações do mesmo casamento. `src/db/lead-nome-maps.js` manda todos os candidatos da
+  página numa query só, escopada por empresa. **A expressão do `WHERE` é idêntica à expressão
+  indexada** (`idx_prospects_empresa_telefone_digitos`, criado na 065): mudar uma sem a outra
+  faz o índice deixar de ser usado **em silêncio** — a listagem continua correta e fica lenta.
+- **Falha ao consultar o Maps não derruba a listagem:** o nome cai para o do WhatsApp, que é a
+  prioridade 1 de qualquer forma.
+- **`candidatosTelefoneBR` foi MOVIDO para `src/telefone-br.js`** (puro). Ele vivia dentro de
+  `prospecting.js` (4.5k linhas, com rotas e workers no import); importar aquele arquivo da
+  camada de dados criaria ciclo. **Movido, não duplicado** — comportamento inalterado. Isto
+  **não** unifica a normalização de telefone do repo, que segue espalhada.
+- **Front:** `frontend/lib/lead-identidade.js` ganhou `nomeColunaLead` (nome resolvido ou `''`).
+  **A ordem de prioridade não está no front** — chega pronta em `nome_exibicao` /
+  `nome_exibicao_fonte`, como em `lib/site-rotulos.js`. Guarda de regressão em
+  `test/lead-nome-exibicao.test.js` falha se a tela passar a ler `nome_whatsapp`/`nome_maps`.
+- **`identidadeConversa` é DELIBERADAMENTE diferente:** o título do painel de conversa e a fila
+  de Follow-ups mantêm o **telefone formatado** como identificação de segurança quando não há
+  nome — um cabeçalho vazio deixaria o operador sem saber que conversa abriu. A regra de "campo
+  vazio" vale **especificamente para a coluna Lead**. Ali o `negocio` curado continua atrás do
+  `nome_exibicao`, para o painel não perder nome que já mostrava.
+- Testes: `test/lead-nome-exibicao.test.js`, `frontend/lib/lead-identidade.test.js`.
+  **Nenhuma variável de ambiente nova, nenhuma rota nova.**
+
 ### Indicador de pontuação (a "bolinha") — componente ÚNICO, significado POR TELA
 - **Regra que governa o módulo:** o *componente* é único; a *pontuação* não é. A mesma bolinha
   em duas telas nunca pode sugerir que 72 significa a mesma coisa nas duas.

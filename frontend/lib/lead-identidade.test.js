@@ -9,8 +9,27 @@ const {
   nomeDeVerdade,
   formatarTelefone,
   rotuloLead,
+  nomeColunaLead,
   identidadeConversa,
 } = require('./lead-identidade')
+
+// --- Coluna "Lead" da Central de Mensagens: SO nome, nunca telefone --------------------
+
+test('nomeColunaLead mostra o nome ja resolvido pelo backend', () => {
+  assert.equal(nomeColunaLead({ nome_exibicao: 'Pizzaria do Zé' }), 'Pizzaria do Zé')
+})
+
+test('nomeColunaLead fica VAZIO quando nao ha nome — nunca traco, nunca telefone', () => {
+  const semNome = { numero: '5511999990001@s.whatsapp.net', nome_exibicao: null, negocio: 'Padaria do Zé' }
+  assert.equal(nomeColunaLead(semNome), '')
+  assert.equal(nomeColunaLead({}), '')
+  assert.equal(nomeColunaLead(null), '')
+})
+
+test('nomeColunaLead nao aceita telefone nem JID vindos de linha antiga', () => {
+  assert.equal(nomeColunaLead({ nome_exibicao: '5511999990001' }), '')
+  assert.equal(nomeColunaLead({ nome_exibicao: '5511999990001@s.whatsapp.net' }), '')
+})
 
 test('nomeDeVerdade recusa identificador tecnico do Evolution', () => {
   assert.equal(nomeDeVerdade('5511999990001@s.whatsapp.net'), null)
@@ -41,6 +60,24 @@ test('rotuloLead prefere o nome e cai no telefone formatado', () => {
 test('identidadeConversa mostra o negocio como informacao principal', () => {
   const id = identidadeConversa({ numero: '5511999990001@s.whatsapp.net', negocio: 'Padaria do Zé' })
   assert.deepEqual(id, { titulo: 'Padaria do Zé', telefone: '(11) 99999-0001', temNome: true })
+})
+
+test('identidadeConversa prefere o nome resolvido ao negocio curado', () => {
+  const id = identidadeConversa({
+    numero: '5511999990001@s.whatsapp.net',
+    nome_exibicao: 'Pizzaria do Zé',
+    negocio: 'Pizzaria',
+  })
+  assert.equal(id.titulo, 'Pizzaria do Zé')
+  assert.equal(id.temNome, true)
+})
+
+// O painel e um CABECALHO: titulo vazio deixaria o operador sem saber que conversa abriu.
+// A regra de "campo vazio" vale so para a coluna Lead (decisao do operador, 2026-08-10).
+test('identidadeConversa mantem o telefone como identificacao de seguranca no painel', () => {
+  const id = identidadeConversa({ numero: '5511999990001@s.whatsapp.net', nome_exibicao: null, negocio: null })
+  assert.equal(id.titulo, '(11) 99999-0001')
+  assert.equal(id.temNome, false)
 })
 
 test('identidadeConversa sem nome usa o telefone e avisa que nao ha nome', () => {

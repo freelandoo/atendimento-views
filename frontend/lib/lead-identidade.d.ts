@@ -1,5 +1,5 @@
 export interface IdentidadeConversa {
-  /** Nome do negócio; na falta dele, o telefone formatado. Nunca o JID do Evolution. */
+  /** Nome resolvido; na falta dele, o telefone formatado. Nunca o JID do Evolution. */
   titulo: string
   /** Telefone formatado "(11) 99999-9999" (vazio quando o número não é reconhecível). */
   telefone: string
@@ -16,7 +16,15 @@ export declare function rotuloLead(item: {
   telefone_digitos?: string | null
   numero?: string | null
 } | null | undefined): string
+/**
+ * Nome da coluna "Lead" da Central de Mensagens: o `nome_exibicao` resolvido pelo backend,
+ * ou string vazia. Nunca traço, nunca telefone.
+ */
+export declare function nomeColunaLead(conversa: {
+  nome_exibicao?: string | null
+} | null | undefined): string
 export declare function identidadeConversa(conversa: {
   numero?: string | null
+  nome_exibicao?: string | null
   negocio?: string | null
 } | null | undefined): IdentidadeConversa
