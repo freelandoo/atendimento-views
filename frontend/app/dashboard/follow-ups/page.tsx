@@ -712,6 +712,13 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
       </td>
       <td className="px-4 py-3 text-right align-top">
         <div className="flex flex-wrap justify-end gap-2">
+          {/* O nome (coluna Lead) já é um botão que abre a mesma conversa em QUALQUER estado da
+              linha — por isso os botões secundários "Ver conversa" que só repetiam
+              `onAbrirHistorico` sem nenhum sinal visual próprio foram removidos daqui. Os botões
+              que sobram com esse mesmo destino (`Abrir conversa` de `emAberto`/`assumir_conversa`/
+              `revisar_proposta`) são mantidos de propósito: são a AÇÃO PRIMÁRIA recomendada
+              (estilo `bg-brand`, com peso visual distinto do nome) — decidir removê-los também é
+              decisão de produto sobre a hierarquia da fila, não limpeza óbvia de duplicidade. */}
           {/* Follow-up REGISTRADO: executar leva à tela do canal; concluir/reagendar/cancelar
               atualizam o item. Item já fechado não oferece ação — só histórico. */}
           {emAberto && (
@@ -723,9 +730,6 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
               <button onClick={() => onReagendar(item)} className="rounded-lg border px-2.5 py-1 text-xs hover:bg-slate-50">Reagendar</button>
               <button onClick={() => onCancelarFollowUp(item)} className="rounded-lg border px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-50">Cancelar</button>
             </>
-          )}
-          {registrado && !emAberto && item.numero && (
-            <button onClick={() => onAbrirHistorico(item.numero as string)} className="rounded-lg border px-2.5 py-1 text-xs hover:bg-slate-50">Ver conversa</button>
           )}
           {item.acao === 'ligar' && (
             <>
@@ -747,9 +751,6 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
             <button onClick={() => onCancelarAuto(item)} className="rounded-lg border px-2.5 py-1 text-xs hover:bg-slate-50" title="Cancela os follow-ups automáticos agendados deste lead">
               Cancelar automático
             </button>
-          )}
-          {!item.humano && !item.ia_agendada && (
-            <button onClick={() => onAbrirHistorico(item.numero)} className="rounded-lg border px-2.5 py-1 text-xs hover:bg-slate-50">Ver conversa</button>
           )}
         </div>
       </td>

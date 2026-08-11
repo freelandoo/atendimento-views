@@ -7,6 +7,7 @@ import NeonProgress from '@/components/ui/NeonProgress'
 import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import { IconEnvelope, IconPlay } from '@/components/ui/icons'
+import { BolinhaCadastro } from '@/components/LeadDetalhesModal'
 
 type CampanhaMeta = {
   perfis_semente?: string[]
@@ -599,7 +600,7 @@ export default function CaptacaoPage() {
                   <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={ordenarPor} />
                   <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={ordenarPor} />
                   <ThOrdenavel label="Links" chave="links" ordem={ordem} onOrdenar={ordenarPor} />
-                  <ThOrdenavel label="Pontos" chave="pontos" ordem={ordem} onOrdenar={ordenarPor} align="right" />
+                  <ThOrdenavel label="Pontos" chave="pontos" ordem={ordem} onOrdenar={ordenarPor} />
                   <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={ordenarPor} />
                   <th className="text-left px-3 py-2">JSON</th>
                   <th className="text-right px-3 py-2">Ações</th>
@@ -627,13 +628,13 @@ export default function CaptacaoPage() {
                       {l.site && <a href={l.site} target="_blank" rel="noreferrer" className="text-slate-500 underline">site</a>}
                       {!l.link_bio && !l.site && '—'}
                     </td>
-                    <td className="px-3 py-2 text-right">
-                      <span className={`font-semibold ${((l.score_cadastro ?? 0) <= 20) ? 'text-red-600' : (l.score_cadastro ?? 0) <= 40 ? 'text-amber-600' : 'text-emerald-600'}`}
-                        title="Pontuação do cadastro: 10 pontos por coluna (nicho, seguidores, telefone, e-mail, links, @username)">
-                        {l.score_cadastro ?? 0}
-                      </span>
-                      <span className="text-[10px] text-slate-400">/{l.score_cadastro_max ?? 60}</span>
-                    </td>
+                    {/* Completude do cadastro, no componente canônico — mesmo `BolinhaCadastro`
+                        que a tabela Instagram do Banco de Leads já usa com os mesmos campos
+                        (`score_cadastro`, `score_cadastro_max`, `json_apresentacao`). Antes esta
+                        coluna reimplementava a bolinha à mão, com a paleta de PRIORIDADE
+                        (vermelho/âmbar/verde) — exatamente o antipadrão que o AGENTS.md proíbe
+                        (completude e prioridade nunca compartilham paleta). */}
+                    <td className="px-3 py-2"><BolinhaCadastro l={l} /></td>
                     <td className="px-3 py-2">
                       <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${STATUS_STYLE[l.status] || 'bg-gray-100 text-gray-600'}`}>{l.status}</span>
                     </td>

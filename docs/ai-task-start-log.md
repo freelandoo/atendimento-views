@@ -6,6 +6,66 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-11 - Início de tarefa IA - Próxima etapa de padronização visual: BolinhaPontuacao, "Detalhes" e Central de Mensagens
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`listagens-pontuacao-detalhes`).
+- **Pedido resumido:** Continuar a padronização visual das listagens (sequência das entregas de
+  truncamento de nomes e separação nicho/cidade), com foco em: reaproveitar `BolinhaPontuacao`/
+  `BolinhaCadastro` onde ainda há reimplementação própria, revisar a ação "Detalhes" onde houver
+  duplicidade óbvia de nome clicável + botão que faz a mesma coisa, e um ajuste de baixo risco na
+  Central de Mensagens se algo concreto aparecer. Entrega pequena e segura, sem gesto radial, sem
+  mexer em paginação/exportação do Banco de Leads, sem redesenhar todas as ações de linha.
+- **É projeto/tarefa de alteração?** Sim, pequena e 100% de apresentação (frontend): sem schema,
+  sem migration, sem rota nova, sem chamada nova ao backend, sem prompt de produção tocado.
+- **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim. `docs/ui-visual-standard.md`
+  não existe como arquivo neste repositório (mesma observação já registrada em entradas anteriores).
+  Relatório de padronização anterior (artifact `a2d1196d-ac45-4fc6-b2ed-0ce90c1f5b95`, lido via
+  WebFetch por já ter sido fornecido pelo operador): Sim — é a referência principal desta etapa.
+- **Mapeamento feito antes de editar:**
+  1. `BolinhaPontuacao.tsx`/`BolinhaCadastro` (em `LeadDetalhesModal.tsx`) já são reaproveitados em
+     Prospecção, Banco de Leads (as duas tabelas), Central de Ligações (`CirculoPrioridade`) e
+     Central de Mensagens (`InteresseBadge`, linha da tabela **e** painel) — confirmado lendo os 4
+     arquivos. **Não há duplicidade a corrigir nesses pontos.**
+  2. `frontend/app/dashboard/captacao/page.tsx:630-636` reimplementa a bolinha de pontuação à mão
+     (`<span>` com semáforo vermelho/âmbar/verde), em vez de `BolinhaCadastro`. O relatório aponta
+     isso como reintrodução do antipadrão que o próprio AGENTS.md proíbe (paleta de prioridade
+     dentro de completude de cadastro). O tipo `Lead` desta tela já tem `score_cadastro`,
+     `score_cadastro_max` e `json_apresentacao` — os mesmos campos que `BolinhaCadastro` já lê com
+     sucesso na tabela Instagram do Banco de Leads (`banco-leads/page.tsx:1739`, reuso confirmado,
+     mesmo formato de dado). Baixo risco, sem decisão de produto pendente.
+  3. `frontend/app/dashboard/follow-ups/page.tsx` (`LinhaFila`, dentro de `Ações`): em três estados
+     distintos e mutuamente exclusivos (item registrado não aberto; item "assumir_conversa"/
+     "revisar_proposta"; item sem ação humana/automática) existe um botão ("Ver conversa"/"Abrir
+     conversa") que chama exatamente `onAbrirHistorico(item.numero)` — a MESMA função que o nome do
+     lead já dispara (nome é sempre um botão clicável na coluna Lead, incondicional, linhas
+     651-657). Confirmado lendo `frontend/lib/followups-fila.js:280-420` que os três estados nunca
+     coexistem na mesma linha (cada item nasce de um único laço), então não há risco de remover uma
+     ação que só *parecia* redundante por coincidência de estado.
+  4. Central de Ligações, Prospecção e Banco de Leads: nome vai para o Google Maps (link externo) e
+     "Detalhes" abre o modal — destinos DIFERENTES, sem duplicidade. Central de Mensagens: "Histórico"
+     é a única ação que abre o painel, sem concorrência com o nome (que não é clicável na listagem).
+     **Nenhuma mudança nesses pontos.**
+- **Decisão de escopo (o que fica de fora, registrado para não repetir depois):**
+  - A bolinha de prioridade do Follow-ups (`PRIORIDADE_DOT`, vermelho=urgente) **não será tocada**:
+    já está registrada no AGENTS.md como decisão de produto em aberto (a direção da cor diverge da
+    paleta canônica de propósito, não por descuido). Critério de parada do próprio pedido.
+  - Dentro da redundância do Follow-ups, o botão "Abrir conversa" do estado
+    `assumir_conversa`/`revisar_proposta` (estilo primário, `bg-brand`) **é preservado**: ele
+    funciona como sinal visual de "ação recomendada agora", distinto do nome (link de texto simples)
+    — remover isso seria decisão de produto sobre hierarquia visual, não limpeza óbvia de
+    duplicidade. Só os botões secundários "Ver conversa" (estilo neutro, mesmo peso visual do nome)
+    são removidos, sem alterar destino funcional (o nome continua abrindo a mesma conversa).
+  - Central de Mensagens: nenhuma duplicidade óbvia encontrada na listagem em si; nenhuma mudança
+    visual será feita lá nesta etapa além de eventual polimento textual, se aparecer durante a
+    implementação.
+- **Arquivos que pretendo alterar:** `frontend/app/dashboard/captacao/page.tsx`,
+  `frontend/app/dashboard/follow-ups/page.tsx`. Nenhum arquivo de `backend/` tocado.
+- **Validação prevista:** `npm run typecheck` (frontend) e `npm test` do frontend (`lib/*.test.js`).
+  Commit único + push para master **só se** tudo passar e o diff não sair do escopo acima —
+  autorizado pelo operador neste pedido.
+
+---
+
 ## 2026-08-11 - Início de tarefa IA - Separar nicho e cidade nas listagens (1ª etapa da padronização visual)
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`listagens-nicho-cidade`).
