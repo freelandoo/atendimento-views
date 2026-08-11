@@ -2030,7 +2030,15 @@ async function enviarProspectsAprovados(input = {}) {
     let ultimoErro = null
     let respostaEnvio = null
     try {
-      respostaEnvio = await enviarMensagemFn(telefone, mensagem)
+      // Fase 2: este disparo (caminho LEGADO do dashboard — o envio suportado hoje é o
+      // "Rodar leads" do Banco de Leads, que já escolhe a instância) não passava instância
+      // nenhuma e saía pelo fallback global. Agora a instância precisa vir do vínculo provado
+      // da conversa, conferido contra a empresa do prospect. Consequência declarada: prospect
+      // que ainda NÃO tem conversa não é abordado por aqui — a 1ª mensagem tem de sair de um
+      // número escolhido, e escolher por ele era justamente o defeito.
+      respostaEnvio = await enviarMensagemFn(telefone, mensagem, {
+        empresaId: row?.empresa_id || p.empresa_id || undefined,
+      })
       await registrarTentativaEnvio({
         prospectId: p.id,
         mensagem,
@@ -4192,7 +4200,11 @@ function registerProspectingRoutes(app) {
   app.get('/dashboard/prospeccao/whatsapp/status', async (req, res) => {
     if (!dashboardAutorizado(req)) return res.status(401).json({ erro: 'Nao autorizado' })
     try {
-      const status = await verificarStatusInstanciaEvolution()
+      // Fase 2: este diagnóstico media a instância do env (`EVOLUTION_INSTANCE`, default
+      // 'PJ'). Com mais de uma instância ele respondia sobre um número que podia não ser o
+      // perguntado — pior que responder "não sei". Agora exige o nome; sem ele, a própria
+      // função devolve `state: 'nao_informada'` sem consultar a Evolution.
+      const status = await verificarStatusInstanciaEvolution(req.query?.instancia || '')
       res.json(status)
     } catch (err) {
       const e = erroHttp(err)

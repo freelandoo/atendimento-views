@@ -210,13 +210,20 @@ function registerWebhookRoute(app, deps = {}) {
         const operadoresAtivos = await listarOperadoresAtivos()
         const jidRemetente = operadoresAtivos.find(op => jidIgual(numero, op.jid))?.jid ?? null
         if (jidRemetente && !fromMe) {
-          await processarComandosOperadorChat(msg, jidRemetente)
+          // Fase 2: `req.evolutionInstance` e a instancia que RECEBEU esta mensagem, ja
+          // provada por `barrarSemDonoComprovado` acima. Responder o operador por ela e o
+          // unico vinculo provado que existe aqui — o operador nao tem conversa de lead.
+          await processarComandosOperadorChat(msg, jidRemetente, {
+            instanceName: req.evolutionInstance || '',
+          })
           return
         }
     
         if (fromMe) {
           if (isConversaLeadUmAUm(numero)) {
-            await processarIntervencaoOperadorNoLead(msg, numero)
+            await processarIntervencaoOperadorNoLead(msg, numero, {
+              instanceName: req.evolutionInstance || '',
+            })
             // #4: o operador pode ter fechado uma reuniao nesta mensagem.
             if (typeof tratarPossivelReuniaoOperador === 'function') {
               await tratarPossivelReuniaoOperador(numero).catch((err) =>
@@ -252,7 +259,11 @@ function registerWebhookRoute(app, deps = {}) {
           webhookLog.warn({ err: serializeError(err) }, 'Falha ao capturar atribuição de anúncio')
         )
 
-        const { texto, visao } = await extrairTextoEMidiaDoWebhook(msg)
+        // A instancia provada segue junto: baixar a midia desta mensagem tambem e uma
+        // chamada a UMA instancia da Evolution (Fase 2).
+        const { texto, visao } = await extrairTextoEMidiaDoWebhook(msg, {
+          instanceName: req.evolutionInstance || '',
+        })
         if (!texto && !visao) return
 
         // ── TRAVA 1: auto-reply do WhatsApp Business (vale para qualquer lead) ──────────

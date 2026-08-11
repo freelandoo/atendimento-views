@@ -79,6 +79,158 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   (endereço, nicho, Instagram, roteiros, sidebar, etc.), qualquer regra de negócio, dados de
   produção, prompts, credenciais, commit/push.
 
+---
+
+## 2026-08-10 - Inicio de tarefa IA - Fase 2 do escopo por instancia: REGRA UNICA e SEGURA de selecao de instancia no envio
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Implementar **somente a Fase 2** do plano de
+  `docs/analise-contexto-instancia.md` (§9): criar uma **regra unica** de resolucao de
+  instancia para todo envio Evolution/WhatsApp; **remover os fallbacks inseguros** (instancia
+  "mais recentemente atualizada", env global `EVOLUTION_INSTANCE`/`'PJ'`, e nome de instancia
+  aceito sem validacao); exigir que o envio use instancia **comprovadamente da mesma empresa,
+  ativa e compativel com WhatsApp/Evolution**; **bloquear de forma auditavel** quando nao
+  houver vinculo comprovado, nunca escolher outro numero em silencio. Centralizar em
+  `whatsapp.js` e fazer `conversa-manual.js` consumir a MESMA regra. Cobrir follow-up, agenda,
+  prospeccao, handoff, comandos de operador e rotas legadas pertinentes. Corrigir diagnostico
+  que depende do fallback global. Preservar o efeito D-8 (a instancia gravada da conversa nao
+  migra automaticamente) e documenta-lo.
+- **E projeto/tarefa de alteracao?** Sim, e **sensivel**: mexe no caminho de ENVIO de producao
+  (o que o cliente ve) em ~8 modulos. **Nao** cria migration, **nao** cria env, **nao** cria
+  rota nova, **nao** faz backfill, **nao** cria seletor visual, **nao** dispara envio real.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/analise-contexto-instancia.md (a analise que definiu esta fase): Sim |
+  docs/ui-visual-standard.md: **nao aplicavel** (nenhuma tela) | docs/ai-decision-log.md: a
+  registrar na Fase 8.
+- **Estado REAL medido no codigo (nao no pedido):**
+  1. `whatsapp.js:72` (`instanceNameParaEnvio`) resolve em 3 passos e **dois deles sao
+     inseguros**: `getInstanceNameForConversation` (`:51-60`) cai num `LEFT JOIN LATERAL ...
+     ORDER BY atualizado_em DESC LIMIT 1` — "a instancia ativa mais recentemente atualizada" —
+     e, na falta dela, `:79` usa `INSTANCE_NAME` = `process.env.EVOLUTION_INSTANCE || 'PJ'`,
+     que **ignora a empresa por completo**.
+  2. **O mesmo fallback arbitrario esta DUPLICADO** em `services/conversa-manual.js:61-69`.
+  3. **O nome explicito nunca e validado.** Todos os chamadores "seguros"
+     (`core-funnel.js:1055/1134`, `contexto2-responder.js:195`, `api-conversas.js:261`,
+     `agent.js:7311`) fazem `conversa.evolution_instance ? { instanceName } : {}` — passam o
+     TEXTO da coluna sem provar que aquela instancia existe, esta ativa, e' da mesma empresa e
+     nao e' Freelandoo; e quando a coluna esta vazia caem exatamente nos passos 2b/3.
+  4. **Chamadores que nao passam instancia nenhuma:** `followup-execution.js:386`,
+     `agenda.js:803` e `:928`, `prospecting.js:2033`, `services/prospecting-send-worker.js:252`,
+     `services/prospecting-daily-report.js:325`, `services/followup-manual.js:126`,
+     `handoff-alerts.js:342` (alertas ao operador) e todo o `operator-commands.js`.
+  5. **Diagnostico preso ao global:** `GET /dashboard/prospeccao/whatsapp/status`
+     (`prospecting.js:4195`) chama `verificarStatusInstanciaEvolution()` **sem argumento** —
+     responde sobre a instancia do env, nao sobre a da empresa. `numerosSemWhatsapp` tem o
+     mesmo default.
+  6. **Rotas legadas** `/dashboard/whatsapp/connect|refresh-qr|check-status|disconnect`
+     (`whatsapp-routes.js:66,154,203,288`) operam a instancia do env direto — inclusive um
+     `DELETE /instance/logout/<env>`, que **derruba a conexao de um numero que pode nao ser de
+     quem clicou**.
+- **Decisoes levadas ao operador ANTES de implementar (nao decidi sozinho):** (a) empresa com
+  exatamente UMA instancia ativa conta como vinculo comprovado? (b) por qual instancia saem os
+  alertas ao operador e as respostas de comandos de operador, ja que `vendas.operadores` nao
+  tem empresa? (c) D-8: alinhar a escrita de `db-crud.js:154` para "nunca migra" ou nao tocar
+  no caminho de escrita nesta fase? (d) o que fazer com as rotas legadas de QR.
+- **Fora de escopo declarado pelo pedido:** backfill, seletor visual, producao, credenciais,
+  commit/push e envio real de mensagem.
+
+---
+
+## 2026-08-10 - Inicio de tarefa IA - Padronizacao visual dos controles de ativacao (Central de Mensagens + Follow-up Automatico)
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Padronizar o visual dos controles de ativacao das duas telas num unico
+  padrao compacto — **icone de informacao + toggle + tooltip curto** —, removendo rotulos
+  textuais redundantes ("Ativo", "Desativo", "Acompanhando sem responder") e descricoes longas
+  que ocupam espaco fixo. **Proibido** pelo proprio pedido: alterar regras de acompanhamento,
+  logica de resposta automatica/humana, dados, endpoints, permissoes, automacoes ou o
+  significado funcional de ativo/inativo.
+- **E projeto/tarefa de alteracao?** Sim, **pequeno e 100% de apresentacao**: sem schema, sem
+  migration, sem env, sem rota, sem payload novo, sem worker. Nenhum arquivo de `backend/` deve
+  ser tocado.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/ui-visual-standard.md: Sim (Fase 5 — o pedido e' 100% interface) |
+  docs/ai-decision-log.md: a registrar na Fase 8.
+- **Estado REAL dos dois controles hoje (medido no codigo, nao no pedido):**
+  1. **Central de Mensagens** (`frontend/app/dashboard/conversas/page.tsx:205-224`): card
+     "Modo padrao da IA" com `AlternadorModoIa` — um **`role="radiogroup"` de 2 opcoes**
+     (Conversa | Analise), mais o `estado` por extenso (`descreverModo().estado` →
+     "IA pode responder" / "IA acompanhando, sem responder"), mais DOIS paragrafos fixos
+     (`explicarPadraoGlobal` e `AVISO_EXCECOES_PADRAO`). O balao "i" **ja existe** dentro do
+     `AlternadorModoIa` (`BalaoAjuda`, em portal no `<body>`, hover/foco/toque, Escape).
+  2. **Follow-up Automatico** (`frontend/app/dashboard/follow-ups/page.tsx:352-370`): um
+     `<button aria-pressed>` com borda/fundo coloridos, icone, o texto
+     "Follow-up automatico: **ativo/desativado**" e uma bolinha de cor. **Nao e' um switch** e
+     nao tem icone de informacao — so' `title=`.
+  3. **Ja existe padrao de switch no projeto** (`role="switch"` + `aria-checked` + knob que
+     translada): `components/InstanciasWhatsApp.tsx:603-612` e
+     `components/InstanciasFreelandoo.tsx:216`. E' reuso, nao componente inventado.
+- **Conflito material declarado ANTES de implementar (levado ao operador):** o controle da
+  Central **nao e' booleano hoje** — sao dois modos NOMEADOS. O AGENTS.md registra a escolha
+  do `role="radiogroup"` de proposito ("aqui nada muda na tela — muda o COMPORTAMENTO do
+  sistema com o cliente"). Transformar em toggle passa a chamar "Analise" de **desligado**, e
+  a mesma secao do AGENTS.md avisa que o modo Analise **nao e' pausa de automacao** (follow-up
+  e agenda continuam rodando nos dois modos). O pedido, por outro lado, e' explicito ao listar
+  "Acompanhando sem responder" como rotulo a remover.
+- **Guarda de regressao que restringe a implementacao:** `frontend/lib/conversa-modo-ia.test.js:288`
+  falha se `conversas/page.tsx`, `ConversaPainel.tsx` ou `AlternadorModoIa.tsx` compararem o
+  modo com literal (`=== 'analise'`). Logo, qualquer mapeamento modo↔ligado/desligado tem de
+  nascer **puro**, dentro de `frontend/lib/conversa-modo-ia.js`.
+- **Fora de escopo declarado:** o controle **DA CONVERSA** (`ConversaPainel.tsx:560`), que tem
+  **3 opcoes** (Herdar | Conversa | Analise) e nao cabe num booleano — o pedido fala da "area
+  superior" da Central; qualquer backend; e o banner de aviso quando o follow-up esta pausado
+  (alerta com impacto operacional, que o proprio pedido manda conservar).
+- **Arquivos que pretendo alterar/criar:** NOVO `frontend/components/ui/InterruptorAtivacao.tsx`
+  (+ possivel extracao de `BalaoAjuda` para arquivo proprio, sem duplicar); ALTERADOS
+  `frontend/app/dashboard/conversas/page.tsx`, `frontend/app/dashboard/follow-ups/page.tsx`,
+  `frontend/lib/conversa-modo-ia.js` (+ `.d.ts`/`.test.js`), `frontend/components/ui/AlternadorModoIa.tsx`,
+  `AGENTS.md`, `docs/ai-decision-log.md`, `docs/ui-visual-standard.md`.
+- **Validacao prevista:** `npm test` (frontend + backend), `npm run typecheck`, verificacao
+  visual em desktop e mobile. Commit unico + push **so' se** todas passarem e o diff nao sair
+  do escopo de padronizacao.
+
+---
+
+## 2026-08-10 - Inicio de tarefa IA - Fase 0 do escopo por instancia: script de MEDICAO read-only
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Criar **exclusivamente** a Fase 0 de medicao do plano registrado em
+  `docs/analise-contexto-instancia.md`: um script de diagnostico **read-only**, no padrao do
+  `medir:isolamento-empresa` ja existente, que responda quantas empresas tem mais de uma
+  instancia WhatsApp ativa, quantas conversas estao sem `evolution_instance`, a distribuicao
+  por empresa e por instancia, instancias sem uso e os sinais de risco que impedem atribuicao
+  segura. Saida legivel no terminal (totais + tabela por empresa + achados).
+- **E projeto/tarefa de alteracao?** Sim, **pequeno e de escopo controlado**: cria arquivo
+  novo + 1 linha em `package.json` + teste de regressao. **Nao toca** schema, migration,
+  rota, motor, automacao ou tela. O proprio pedido lista em `nao_fazer`: nao implementar
+  filtro por instancia, nao mexer na precedencia de `evolution_instance`, nao corrigir o
+  fallback de envio, nao alterar o teto diario, nao modificar dados.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/analise-contexto-instancia.md (a analise que produziu esta fase): Sim |
+  docs/ui-visual-standard.md: **nao aplicavel** (nenhuma tela) | docs/ai-decision-log.md:
+  nada a registrar — a decisao arquitetural ja esta na analise e nenhuma nova foi tomada.
+- **Padrao reusado (nao inventei outro):** `backend/scripts/medir-isolamento-empresa.js` —
+  `BEGIN TRANSACTION READ ONLY` + `ROLLBACK`, `DATABASE_URL` explicita (o script nunca
+  escolhe banco sozinho), ids mascarados, so contagens agregadas, zero chamada externa,
+  zero dependencia nova (`pg` ja e' dependencia).
+- **Regra de negocio que o script PRECISA respeitar (e o motivo de ele existir):** conversa
+  **sem** `evolution_instance` nao tem, por definicao, vinculo PROVADO com instancia alguma.
+  Agrupar por `c.empresa_id` e' informativo, nunca prova — aquele `empresa_id` pode ter vindo
+  do antigo fallback da PJ (AGENTS.md, secao da quarentena de webhook). Por isso a
+  classificacao de atribuibilidade e' explicita e conservadora: empresa com **1** instancia
+  ativa = atribuivel; empresa com **2+** = **nao atribuivel**; conversa sem empresa =
+  quarentena analitica. Nao se inventa dono.
+- **Arquivos criados/alterados:** NOVOS `backend/scripts/medir-escopo-instancia.js`,
+  `backend/test/medir-escopo-instancia.test.js` (guarda de regressao que le o fonte e falha
+  se aparecer qualquer verbo de escrita); ALTERADO `backend/package.json` (script npm
+  `medir:escopo-instancia` + o teste na lista do `npm test`).
+- **Limite declarado:** a medicao **nao corrige** nenhum dos defeitos que a analise apontou
+  (envio pela instancia errada, precedencia divergente de `evolution_instance`, teto diario
+  por empresa) e **nao cria** o seletor por instancia. Ela so dimensiona.
+- **Fora de escopo:** executar contra producao sem autorizacao explicita do operador.
+
+---
+
 ## 2026-08-10 - Inicio de tarefa IA - ANALISE (sem implementacao): contexto de instancia na operacao (seletor persistente)
 
 - **IA/Ferramenta:** Claude Code (Opus 5)
@@ -2121,3 +2273,57 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Fora de escopo declarado (do proprio pedido):** sobrescrever nome cadastrado do lead; criar/editar perfil de lead a partir de WhatsApp ou Maps; mexer em aquisicao, follow-up, agenda ou analise da IA.
 - **WIP alheio no working tree (nao entra neste diff):** modo_ia `herdar` (migration 064 + `conversa-modo-ia.js` + `ConversaPainel.tsx` + testes), ainda nao commitado.
 - **Proxima etapa:** apresentar a analise de impacto + lista de arquivos e aguardar confirmacao de 3 decisoes (persistir o pushName cru via migration; custo/forma do join com o Maps; abrangencia do "campo vazio" fora da coluna Lead). So entao implementar.
+
+---
+
+## 2026-08-10 - Inicio de tarefa IA (4a do dia)
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** Corrigir o defeito ATIVO de selecao de instancia de envio, preservar isolamento por empresa+instancia, fazer o backfill conservador das conversas comprovadamente atribuiveis e preparar o seletor operacional por instancia. Ordem declarada pelo pedido: Fase 2 (proteger envios) -> Fase 4 (backfill) -> Fase 3 (seletor) -> documentacao/validacao. Rotacao de credencial de producao FICA FORA desta entrega.
+- **E projeto/tarefa de alteracao?** Sim, e ESTRUTURAL: toca caminho de ENVIO em producao (4 chamadores), a regra unica de resolucao de instancia (`src/whatsapp.js`), backfill de dados e, na fase seguinte, leitura filtrada + frontend. Exige confirmacao antes de implementar (CLAUDE.md item 4).
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/analise-contexto-instancia.md, docs/architecture-rules.md: Sim.
+- **Base:** a analise de impacto completa ja existe (`docs/analise-contexto-instancia.md`, 2026-08-10, somente leitura) e o instrumento de medicao ja foi entregue (`npm run medir:escopo-instancia`). Esta tarefa IMPLEMENTA as Fases 2, 4 e 3 daquele plano.
+- **Areas mapeadas na Fase 0 (leitura antes de editar):** `src/whatsapp.js:45-81` (`getInstanceNameForConversation` + `instanceNameParaEnvio` — a cadeia de fallback defeituosa), `src/services/conversa-manual.js:41-104` (o UNICO caminho que ja recusa envio sem instancia provada, com `409 INSTANCE_UNAVAILABLE` — molde a reusar; mas ele TAMBEM carrega o fallback "mais recentemente atualizada" em :61-69), `src/services/rodar-leads.js:158-167` (`carregarInstancia` com `WHERE id=$1 AND empresa_id=$2` + exclusao do canal freelandoo — molde de validacao), `src/followup-execution.js:386`, `src/agenda.js:803` e `:928`, `src/prospecting.js:2033` (os 4 envios sem `instanceName`), `src/handoff-alerts.js:342` (envio ao operador, risco menor), `src/db-crud.js:154` vs `historico-envio.js:71` vs `conversa-manual.js:144` (precedencia divergente de escrita de `evolution_instance`), `scripts/medir-escopo-instancia.js` + `test/medir-escopo-instancia.test.js` (guarda de somente-leitura).
+- **Achado que decide o desenho (1):** o defeito nao esta nos 4 chamadores — esta na CADEIA de resolucao. Mesmo passando `instanceName`, `instanceNameParaEnvio` nao valida se aquele nome existe, esta ativo, pertence a empresa da conversa e e do canal WhatsApp/Evolution. Corrigir so os chamadores deixaria o passo 2b ("instancia ativa mais recentemente atualizada") e o passo 3 (`process.env.EVOLUTION_INSTANCE`, default literal `'PJ'`) vivos para todo o resto. A correcao tem de ser a REGRA UNICA, no molde da quarentena de webhook: sem origem provada, nao envia.
+- **Achado que decide o desenho (2):** `conversa-manual.js` ja resolve isso corretamente para o operador, com SQL proprio. Centralizar significa aquele arquivo passar a CONSUMIR a regra unica, nao duplica-la — senao o repo fica com duas implementacoes do mesmo julgamento (a licao ja paga com a bolinha de pontuacao e o painel de conversa).
+- **Achado que decide o desenho (3):** o backfill so e seguro onde a atribuicao e DERIVAVEL. `classificarAtribuibilidade` (script de medicao) ja e a regra: empresa com 1 instancia ativa = `atribuivel`; com 2+ = `nao_atribuivel`; conversa sem empresa = `quarentena_analitica`. Escolher "a mais recente" repetiria, em repouso e permanente, o defeito que a Fase 2 remove.
+- **Restricoes declaradas pelo pedido:** nao rotacionar credenciais nesta entrega; nao expor credencial em log/teste/doc/commit; nao atribuir conversa por heuristica; nao usar fallback por instancia mais recente; nao enviar mensagem real durante a validacao; preservar isolamento por empresa e instancia.
+- **Fora de escopo declarado:** rotacao/remocao da credencial de producao exposta (etapa posterior); mudanca no `UNIQUE (numero)` global de `vendas.conversas` (decisao D-1, congelada pela pendencia arquitetural); teto/janela/pausa por instancia (Fase 8); remocao do env `EVOLUTION_INSTANCE` (D-7, so depois da Fase 2 estabilizada).
+- **Bloqueio na Fase 0:** o pedido chegou TRUNCADO — corta em `fase_2_proteger_envios.requisitos` ("Quando evolution_inst...") e as secoes de backfill (Fase 4), seletor (Fase 3) e documentacao nao chegaram. Analise feita; implementacao aguarda o texto completo.
+- **Proxima etapa:** receber o restante do pedido, apresentar a analise de impacto + lista de arquivos e aguardar confirmacao. So entao implementar.
+
+---
+
+## 2026-08-11 - Inicio de tarefa IA (retomada limpa da Fase 2)
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** Implementar SOMENTE a **Fase 2** do plano de escopo por instancia
+  (`docs/analise-contexto-instancia.md` §9): centralizar em `src/whatsapp.js` uma unica regra
+  SEGURA de resolucao da instancia de envio, remover os fallbacks (instancia "mais recentemente
+  atualizada", `EVOLUTION_INSTANCE`, literal `'PJ'`, nome explicito sem validacao), fazer
+  `services/conversa-manual.js` consumir a regra unica, cobrir os chamadores (follow-up, agenda,
+  prospeccao, handoff, comandos de operador, rotas legadas), corrigir diagnosticos dependentes do
+  fallback global e aplicar **D-8** (preservar a instancia ja gravada na conversa).
+- **E projeto/tarefa de alteracao?** Sim, e ESTRUTURAL: toca o caminho de ENVIO em producao.
+  Retomada limpa de sessao anterior bloqueada (entrada de 2026-08-10, 4a do dia, que ficou parada
+  por pedido truncado). Escopo agora e menor e fechado: **so a Fase 2**.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/analise-contexto-instancia.md: Sim.
+- **Fora de escopo declarado pelo pedido:** backfill (Fase 4), seletor visual (Fases 5-6),
+  producao, credenciais, rotacao de senha, commit, push e envio real. Os arquivos de Fase 0
+  (`scripts/medir-escopo-instancia.js`, `test/medir-escopo-instancia.test.js`,
+  `docs/analise-contexto-instancia.md`) sao diagnostico pre-existente e nao entram no diff,
+  exceto a nota de status da Fase 2.
+- **Achado que decide o desenho (1):** o defeito nao esta nos chamadores, esta na CADEIA de
+  resolucao (`whatsapp.js:72-81`). Mesmo quem passa `instanceName` nao tem o nome validado
+  (existe? ativo? da mesma empresa? canal WhatsApp?). Corrigir so os chamadores deixaria o passo
+  2b (ordenacao por `atualizado_em`) e o passo 3 (`process.env.EVOLUTION_INSTANCE || 'PJ'`) vivos.
+- **Achado que decide o desenho (2):** `conversa-manual.js` ja recusa envio sem instancia
+  (`409 INSTANCE_UNAVAILABLE`) — mas com SQL PROPRIO, que carrega o mesmo fallback por
+  `atualizado_em` (:61-69). Centralizar significa aquele arquivo CONSUMIR a regra unica, nao
+  duplicar o julgamento.
+- **Achado que decide o desenho (3):** a instancia carrega o `empresa_id` dela. Entao o cruzamento
+  seguro e "instancia nomeada pela conversa/chamador PERTENCE a empresa esperada", nao
+  "empresa -> escolhe instancia". A segunda direcao e justamente a que inventa dono.
+- **Proxima etapa:** implementar o modulo puro de vocabulario, a regra unica em `whatsapp.js`,
+  os chamadores, os testes e a documentacao; rodar `npm test` e `npm run typecheck`.

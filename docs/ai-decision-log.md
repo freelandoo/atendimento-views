@@ -1499,3 +1499,59 @@ Ajustes sobre a entrega do mesmo dia (logo abaixo), após revisão de UX/operaç
   `core.test.js`) + `npm run typecheck`; `npm test` (274) + `npm run typecheck` no `frontend/`.
   Na tela: alternar o modo com o teclado (setas dentro do radiogroup), tooltip abrindo no
   FOCO e nao so no hover, e o modo persistindo ao fechar e reabrir a conversa.
+
+---
+
+## 2026-08-11 — Instancia de ENVIO: regra unica, sem fallback (Fase 2)
+
+- **Decisao 1 — a correcao e a CADEIA, nao os chamadores.** O plano (§9 de
+  `analise-contexto-instancia.md`) pedia "passar `instanceName` nos 4 caminhos de §2.4".
+  Divergimos de proposito: mesmo quem ja passava `instanceName` nao tinha o nome verificado, e
+  os passos 2b (`ORDER BY atualizado_em DESC LIMIT 1`) e 3 (`process.env.EVOLUTION_INSTANCE ||
+  'PJ'`) continuariam vivos para todo o resto. A regra virou UMA, em `src/whatsapp.js`
+  (`resolverInstanciaEnvio`), sobre vocabulario PURO em `src/services/instancia-envio.js`.
+- **Decisao 2 — o gate pergunta "esta instancia esta PROVADA?", nao "qual instancia usar?".**
+  A segunda pergunta admite resposta por heuristica, e foi ela que produziu o defeito. Mesmo
+  molde de `services/conversa-modo-ia.js` (matriz fechada) e da quarentena de webhook.
+- **Decisao 3 — a direcao do cruzamento e "a instancia nomeada pertence a empresa esperada?"**,
+  nunca "a empresa escolhe uma instancia". A empresa e conferida contra DUAS fontes (a da
+  conversa e a declarada pelo chamador): conferir so uma deixaria a conversa orfa
+  (`empresa_id` nulo) virar porta para o numero de outro tenant. Conversa orfa continua
+  enviando pela instancia gravada nela — o dono efetivo passa a ser o `empresa_id` da propria
+  instancia, que e NOT NULL.
+- **Decisao 4 — instancia explicita diferente da gravada na conversa e ACEITA** (mesma
+  empresa) e apenas LOGADA. Bloquear quebraria o disparo do Banco de Leads e o teste de
+  numero, que sao escolhas humanas. Quem garante que a conversa nao migra e a precedencia de
+  ESCRITA (D-8), nao o julgamento do envio.
+- **Decisao 5 — D-8 aplicado agora, junto.** `db-crud.js` fazia `COALESCE(EXCLUDED, existente)`
+  e a conversa MIGRAVA de numero sozinha; os outros dois writers ja preservavam. Sem alinhar,
+  o vinculo em que a Fase 2 se apoia seria instavel. **Consequencia aceita:** lead que passa a
+  falar com outro numero da mesma empresa continua recebendo pelo numero ORIGINAL.
+- **Decisao 6 — D-7 antecipada.** O plano dizia remover `EVOLUTION_INSTANCE` "so depois da
+  Fase 2". Como esta entrega fechou TODOS os chamadores de uma vez, manter o env seria manter
+  o proprio defeito de pe. Ele esta aposentado, com guarda de regressao.
+- **Decisao 7 — alertas e comandos do operador tambem tem vinculo provado.** O alerta sai pela
+  instancia do LEAD que o originou; o comando do operador e respondido pela instancia que
+  RECEBEU a mensagem dele (`req.evolutionInstance`). Antes, os dois saiam pelo numero do env —
+  o operador de um tenant podia ser avisado pelo numero de outro.
+- **Consequencias declaradas e aceitas (coisas que DEIXAM de sair):** resumo diario da agenda,
+  relatorio diario de prospeccao aos operadores e o disparo LEGADO de prospeccao para prospect
+  sem conversa. Os tres nao tem vinculo provado com instancia alguma. Todos bloqueiam com
+  registro (o relatorio, por operador, em `metadata_json.envio_operadores`). Preferimos um
+  aviso que nao sai a um aviso que sai pelo numero errado — e o mesmo criterio da quarentena.
+- **Divida tecnica declarada:** `backend/tools/build-split.cjs` (ferramenta de migracao de um
+  monolito antigo, sem chamador e fora do `package.json`) ainda gera um `src/whatsapp.js` com
+  `INSTANCE_NAME`. Se alguem a rodar, destroi o repo inteiro — nao so este modulo. Nao foi
+  tocada por estar fora do escopo; a guarda de regressao de `test/instancia-envio.test.js`
+  quebra se o resultado dela for commitado.
+- **Impacto:** `src/services/instancia-envio.js` (novo, PURO), `src/whatsapp.js`,
+  `src/services/conversa-manual.js`, `src/db-crud.js`, `src/followup-execution.js`,
+  `src/agenda.js`, `src/prospecting.js`, `src/services/prospecting-send-worker.js`,
+  `src/services/prospecting-daily-report.js`, `src/services/followup-manual.js`,
+  `src/handoff-alerts.js`, `src/core-funnel.js`, `src/agent.js`, `src/operator-commands.js`,
+  `src/webhook-handler.js`, `src/media-processing.js`, `src/whatsapp-routes.js`,
+  `test/instancia-envio.test.js` (novo), `test/conversa-manual.test.js`, `package.json`,
+  `.env.example`, `AGENTS.md`, `docs/analise-contexto-instancia.md`.
+  **Sem migration, sem rota nova, sem variavel de ambiente nova** (uma foi aposentada).
+- **Como validar:** `npm test` no `backend/` (1503/1503) + `npm run typecheck` (limpo).
+  Nenhuma mensagem real foi enviada e nada foi executado contra producao.

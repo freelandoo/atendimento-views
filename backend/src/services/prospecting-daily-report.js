@@ -322,6 +322,11 @@ async function enviarRelatorioDiarioOperadores(pool, input = {}, deps = {}) {
   const resultados = []
   for (const op of operadores) {
     try {
+      // Fase 2 — consequência declarada: este relatório fala do DIA, não de um lead, e os
+      // operadores vêm de `OPERATOR_WHATSAPP`. Não há instância comprovada por onde enviá-lo,
+      // então a regra única de `whatsapp.js` bloqueia e o motivo fica registrado por operador
+      // em `metadata_json.envio_operadores` (status `falhou_envio`) — auditável, não silencioso.
+      // Antes ele saía pelo `EVOLUTION_INSTANCE` global, que pode ser de outra empresa.
       await enviarMensagemFn(op.numero, texto)
       resultados.push({ numero: op.numero, ok: true })
     } catch (err) {

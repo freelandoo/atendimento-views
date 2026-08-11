@@ -54,9 +54,9 @@ function createMediaProcessing({
     return msg?.message?.audioMessage || null
   }
 
-  async function baixarETranscreverAudioMensagem(msg, audioPart) {
+  async function baixarETranscreverAudioMensagem(msg, audioPart, instanceName = '') {
     if (!audioPart) throw new Error('Mensagem sem audioMessage')
-    const b64 = await evolutionObterBase64Midia(msg)
+    const b64 = await evolutionObterBase64Midia(msg, { instanceName })
     const rawB64 = limparBase64String(b64)
     if (!rawB64) throw new Error('Audio sem base64 retornado pela Evolution')
     const buf = Buffer.from(rawB64, 'base64')
@@ -68,7 +68,7 @@ function createMediaProcessing({
     return { transcricao: transcricao.trim(), mimetype: mimeFull, bytes: buf.length }
   }
 
-  async function processarImagemWebhook(msg, part, textoBase, isSticker, remetenteCliente = true) {
+  async function processarImagemWebhook(msg, part, textoBase, isSticker, remetenteCliente = true, instanceName = '') {
     const caption = (part.caption || '').trim()
     const partes = [textoBase, caption].filter((s) => s && s.length)
     const fallbackSticker = remetenteCliente ? 'O cliente enviou uma figurinha.' : 'O operador enviou uma figurinha.'
@@ -82,7 +82,7 @@ function createMediaProcessing({
     }
     let rawB64 = ''
     try {
-      const b64 = await evolutionObterBase64Midia(msg)
+      const b64 = await evolutionObterBase64Midia(msg, { instanceName })
       rawB64 = limparBase64String(b64)
     } catch (e) {
       log.error('Imagem Evolution:', e.message)
@@ -104,7 +104,7 @@ function createMediaProcessing({
     return { texto: texto.trim(), visao: { media_type: mime, data: rawB64 } }
   }
 
-  async function processarAudioWebhook(msg, audioPart, textoBase, remetenteCliente = true) {
+  async function processarAudioWebhook(msg, audioPart, textoBase, remetenteCliente = true, instanceName = '') {
     const numeroAudio = canonicoRemoteJidParaConversa(msg?.key) || msg?.key?.remoteJid || null
     const messageKeyAudio = construirChaveIdempotenciaWebhookMensagem(msg)
     const fallbackAudio =
@@ -112,7 +112,7 @@ function createMediaProcessing({
         ? '[Audio recebido - nao foi possivel baixar/transcrever. Peca ao cliente para repetir ou enviar em texto.]'
         : '[Audio recebido - nao foi possivel baixar/transcrever. Peca ao operador para repetir ou enviar em texto.]'
     try {
-      const rAudio = await baixarETranscreverAudioMensagem(msg, audioPart)
+      const rAudio = await baixarETranscreverAudioMensagem(msg, audioPart, instanceName)
       if (numeroAudio) {
         await registrarAudioProcessamento(numeroAudio, messageKeyAudio, msg, audioPart, {
           status: 'processed',
@@ -151,8 +151,12 @@ function createMediaProcessing({
     return null
   }
 
+  // Fase 2: `opts.instanceName` e a instancia que RECEBEU a mensagem (provada pelo webhook).
+  // Baixar midia tambem e uma chamada A UMA instancia: sem esse repasse, o download caia na
+  // instancia global do env e so funcionava enquanto existia uma unica instancia.
   async function extrairTextoEMidiaDoWebhook(msg, opts = {}) {
     const remetenteCliente = opts.remetenteCliente !== false
+    const instanceName = String(opts.instanceName || '').trim()
     const m = msg?.message
     if (!m) {
       return { texto: null, visao: null }
@@ -166,16 +170,16 @@ function createMediaProcessing({
     )
 
     if (m.imageMessage) {
-      return processarImagemWebhook(msg, m.imageMessage, textoBase, false, remetenteCliente)
+      return processarImagemWebhook(msg, m.imageMessage, textoBase, false, remetenteCliente, instanceName)
     }
     if (m.stickerMessage) {
-      return processarImagemWebhook(msg, m.stickerMessage, textoBase, true, remetenteCliente)
+      return processarImagemWebhook(msg, m.stickerMessage, textoBase, true, remetenteCliente, instanceName)
     }
     if (m.documentMessage?.mimetype?.startsWith('image/')) {
-      return processarImagemWebhook(msg, m.documentMessage, textoBase, false, remetenteCliente)
+      return processarImagemWebhook(msg, m.documentMessage, textoBase, false, remetenteCliente, instanceName)
     }
     if (m.audioMessage) {
-      return processarAudioWebhook(msg, m.audioMessage, textoBase, remetenteCliente)
+      return processarAudioWebhook(msg, m.audioMessage, textoBase, remetenteCliente, instanceName)
     }
 
     if (textoBase) return { texto: textoBase, visao: null }

@@ -4,11 +4,22 @@ const fs = require('fs')
 const path = require('path')
 const { logger, redactPhone, serializeError } = require('./logger')
 const { aplicarNomeEmpresa } = require('./institutional-language')
+const {
+  MOTIVOS_BLOQUEIO,
+  ErroInstanciaEnvio,
+  erroInstanciaEnvio,
+  normalizarNomeInstancia,
+  nomeParaEnvio,
+  validarInstanciaParaEnvio,
+} = require('./services/instancia-envio')
 const ROOT = path.join(__dirname, '..')
 
 const EVOLUTION_URL = process.env.EVOLUTION_URL || 'http://evolution-api:8080'
 const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY
-const INSTANCE_NAME = process.env.EVOLUTION_INSTANCE || 'PJ'
+// NAO existe instancia global de envio. `EVOLUTION_INSTANCE` (default literal 'PJ') era lida
+// aqui e servia de ultimo fallback: sem instancia na conversa, a mensagem saia pelo numero do
+// env — que pode pertencer a OUTRA empresa. Era o mesmo defeito que a quarentena de webhook
+// (migration 060) removeu do lado da ENTRADA, vivo do lado da SAIDA. Ver `services/instancia-envio.js`.
 
 const BOLHAS_ENVIO_DELAY_MS = 450
 // Timeout default para chamadas Evolution. Antes ausente -> axios default = 0
@@ -18,66 +29,110 @@ const EVOLUTION_DEFAULT_TIMEOUT_MS = Math.max(
   3000
 )
 
-async function getInstanceNameForUser(userId) {
-  if (!userId) return INSTANCE_NAME
+/** Compatibilidade: a normalizacao vive no modulo puro (dono do vocabulario). */
+const normalizarEvolutionInstanceName = normalizarNomeInstancia
+
+/** Le a conversa. Falha TECNICA nao vira "sem vinculo" — vira `erro_resolucao`, como na quarentena. */
+async function carregarVinculoDaConversa(jid) {
+  if (!jid) return null
   try {
     const { pool } = require('./db')
     const { rows } = await pool.query(
-      `SELECT instance_name FROM vendas.whatsapp_connections
-       WHERE user_id = $1 AND status = 'connected' AND deleted_at IS NULL
-       ORDER BY updated_at DESC LIMIT 1`, [userId]
-    )
-    return rows[0]?.instance_name || INSTANCE_NAME
-  } catch (_) {
-    return INSTANCE_NAME
-  }
-}
-
-function normalizarEvolutionInstanceName(value) {
-  const raw = String(value || '').trim()
-  if (!raw) return ''
-  if (!/^[a-zA-Z0-9_-]+$/.test(raw)) {
-    throw new Error('Evolution instance invalida para envio')
-  }
-  return raw
-}
-
-async function getInstanceNameForConversation(numero) {
-  const jid = String(numero || '').trim()
-  if (!jid) return ''
-  try {
-    const { pool } = require('./db')
-    const { rows } = await pool.query(
-      `SELECT COALESCE(NULLIF(BTRIM(c.evolution_instance), ''), ewi.evolution_instance) AS evolution_instance
-         FROM vendas.conversas c
-         LEFT JOIN LATERAL (
-           SELECT evolution_instance
-             FROM app.empresa_whatsapp_instances
-            WHERE empresa_id = c.empresa_id
-              AND ativo = true
-            ORDER BY atualizado_em DESC, criado_em DESC
-            LIMIT 1
-         ) ewi ON true
-        WHERE c.numero = $1
+      `SELECT empresa_id, evolution_instance
+         FROM vendas.conversas
+        WHERE numero = $1
         LIMIT 1`,
       [jid]
     )
-    return normalizarEvolutionInstanceName(rows[0]?.evolution_instance || '')
+    return rows[0] || null
   } catch (err) {
-    logger.warn({ err: serializeError(err), numero: redactPhone(jid) }, 'Falha ao resolver Evolution instance da conversa')
-    return ''
+    logger.error(
+      { err: serializeError(err), numero: redactPhone(jid) },
+      'Falha ao ler o vinculo de instancia da conversa'
+    )
+    throw erroInstanciaEnvio(MOTIVOS_BLOQUEIO.ERRO_RESOLUCAO)
   }
 }
 
+/** Le a instancia PELO NOME (`evolution_instance` e UNIQUE GLOBAL — a leitura e exata). */
+async function carregarInstanciaPorNome(nome) {
+  try {
+    const { pool } = require('./db')
+    const { rows } = await pool.query(
+      `SELECT id, empresa_id, evolution_instance, ativo, config_json
+         FROM app.empresa_whatsapp_instances
+        WHERE evolution_instance = $1
+        LIMIT 1`,
+      [nome]
+    )
+    return rows[0] || null
+  } catch (err) {
+    logger.error({ err: serializeError(err) }, 'Falha ao ler a instancia WhatsApp para envio')
+    throw erroInstanciaEnvio(MOTIVOS_BLOQUEIO.ERRO_RESOLUCAO)
+  }
+}
+
+/**
+ * REGRA UNICA de resolucao da instancia de envio — o unico caminho por onde qualquer
+ * mensagem sai deste sistema para a Evolution API.
+ *
+ * Ordem, e nao ha uma terceira etapa:
+ *   1. `opts.instanceName` — o chamador declarou por qual numero quer falar;
+ *   2. `vendas.conversas.evolution_instance` — o vinculo gravado quando a conversa nasceu.
+ * Nenhum dos dois? **Bloqueia** (`ErroInstanciaEnvio`, 409). NAO ha escolha por empresa com
+ * uma instancia so, por `atualizado_em`, nem por `process.env.EVOLUTION_INSTANCE`.
+ *
+ * O nome escolhido e sempre CONFERIDO no banco: precisa existir, estar `ativo`, ser do canal
+ * WhatsApp/Evolution e pertencer a mesma empresa da conversa e do chamador. Antes, mesmo quem
+ * passava `instanceName` nao tinha nada disso verificado.
+ *
+ * @param {string} numero JID/telefone do destinatario (usado so para achar a conversa)
+ * @param {{instanceName?: string, empresaId?: string}|string} opts
+ * @returns {Promise<{instanceName: string, origem: string, empresaId: string, instanciaId: string|null}>}
+ * @throws {ErroInstanciaEnvio}
+ */
+async function resolverInstanciaEnvio(numero, opts = {}) {
+  const opcoes = typeof opts === 'string'
+    ? { instanceName: opts }
+    : (opts && typeof opts === 'object' ? opts : {})
+  const jid = String(numero || '').trim()
+
+  const conversa = await carregarVinculoDaConversa(jid)
+  const nomeDaConversa = String(conversa?.evolution_instance || '').trim()
+
+  const escolha = nomeParaEnvio({
+    nomeSolicitado: opcoes.instanceName || '',
+    nomeDaConversa,
+  })
+  if (!escolha.ok) throw erroInstanciaEnvio(escolha.motivo)
+
+  const instancia = await carregarInstanciaPorNome(escolha.nome)
+  const veredito = validarInstanciaParaEnvio({
+    nome: escolha.nome,
+    origem: escolha.origem,
+    instancia,
+    empresaIdDaConversa: conversa?.empresa_id || null,
+    empresaIdDeclarada: opcoes.empresaId || null,
+    nomeDaConversa,
+  })
+  if (!veredito.ok) throw erroInstanciaEnvio(veredito.motivo)
+
+  if (veredito.divergeDaConversa) {
+    // Escolha humana legitima (disparo do Banco de Leads, teste de numero). Fica no log
+    // porque e o unico sinal de que o cliente vai receber de um numero diferente do que ja
+    // falou com ele. A conversa NAO e migrada: ver D-8 em `db-crud.js`.
+    logger.warn(
+      { numero: redactPhone(jid), instancia_usada: veredito.instanceName, origem: veredito.origem },
+      'Envio por instancia diferente da gravada na conversa'
+    )
+  }
+  return veredito
+}
+
+/** Acucar: so o nome tecnico. Mesma regra, mesmo bloqueio. */
 async function instanceNameParaEnvio(numero, opts = {}) {
-  const explicit = typeof opts === 'string'
-    ? opts
-    : (opts && typeof opts === 'object' ? opts.instanceName : '')
-  return (
-    normalizarEvolutionInstanceName(explicit) ||
-    await getInstanceNameForConversation(numero) ||
-    normalizarEvolutionInstanceName(INSTANCE_NAME)
-  )
+  const { instanceName } = await resolverInstanciaEnvio(numero, opts)
+  return instanceName
 }
 
 function sleep(ms) {
@@ -92,8 +147,12 @@ function extrairBase64DaRespostaEvolution(data) {
   return null
 }
 
-async function evolutionObterBase64Midia(webMessageInfo) {
-  const instanceName = normalizarEvolutionInstanceName(INSTANCE_NAME)
+// Baixar midia tambem e uma chamada a UMA instancia: pedir a midia de uma mensagem a
+// instancia global do env so funcionava enquanto existia uma instancia. O nome vem do
+// webhook (que ja o resolveu com prova) ou da propria conversa da mensagem.
+async function evolutionObterBase64Midia(webMessageInfo, opts = {}) {
+  const jidDaMensagem = String(webMessageInfo?.key?.remoteJid || '').trim()
+  const instanceName = await instanceNameParaEnvio(jidDaMensagem, opts)
   const url = `${EVOLUTION_URL}/chat/getBase64FromMediaMessage/${encodeURIComponent(instanceName)}`
   const { data } = await axios.post(
     url,
@@ -243,12 +302,30 @@ function classificarErroEvolution(err) {
 }
 
 /**
- * Verifica se a instância pj-dashboard-1 está conectada na Evolution API.
- * Retorna { ok, instance, connected, state } ou erro estruturado.
- * Nunca lança — falha silenciosa se o endpoint não existir.
+ * Verifica se UMA instância nomeada está conectada na Evolution API.
+ * Retorna { ok, instance, connected, state } ou erro estruturado. Nunca lança.
+ *
+ * O nome e OBRIGATORIO. Sem ele, este diagnostico media a instancia do env e reportava a
+ * saude de um numero que podia nao ser o da empresa que perguntou — um painel que responde
+ * sobre outro numero e pior que um painel que diz "nao sei".
  */
 async function verificarStatusInstanciaEvolution(instanceNameOverride = '') {
-  const instanceName = normalizarEvolutionInstanceName(instanceNameOverride) || normalizarEvolutionInstanceName(INSTANCE_NAME)
+  let instanceName = ''
+  try {
+    instanceName = normalizarEvolutionInstanceName(instanceNameOverride)
+  } catch (_) {
+    instanceName = ''
+  }
+  if (!instanceName) {
+    return {
+      ok: false,
+      instance: null,
+      connected: null,
+      state: 'nao_informada',
+      motivo: 'Instancia WhatsApp nao informada para a verificacao de status.',
+      last_checked_at: new Date().toISOString(),
+    }
+  }
   if (!EVOLUTION_URL || !EVOLUTION_KEY) {
     return { ok: true, instance: instanceName, connected: null, state: 'unknown', motivo: 'Evolution não configurada' }
   }
@@ -282,9 +359,17 @@ async function verificarStatusInstanciaEvolution(instanceNameOverride = '') {
 // CONFIRMADOS como inexistentes (exists:false), ou null se a checagem falhar. Só rejeita
 // o que a Evolution afirma que não existe — nunca chuta (evita falso-negativo com o 9º dígito).
 async function numerosSemWhatsapp(numeros, instanceNameOverride = '') {
-  const instanceName = normalizarEvolutionInstanceName(instanceNameOverride) || normalizarEvolutionInstanceName(INSTANCE_NAME)
+  let instanceName = ''
+  try {
+    instanceName = normalizarEvolutionInstanceName(instanceNameOverride)
+  } catch (_) {
+    instanceName = ''
+  }
   const nums = [...new Set((numeros || []).map((n) => numeroEnvioWhatsapp(n)).filter(Boolean))]
   if (!nums.length) return new Set()
+  // Sem instancia nomeada a checagem NAO e feita: `null` ja significa "nao deu para checar"
+  // no contrato desta funcao, e os chamadores tratam isso sem rejeitar numero nenhum.
+  if (!instanceName) return null
   if (!EVOLUTION_URL || !EVOLUTION_KEY) return null
   try {
     const { data } = await axios.post(
@@ -490,6 +575,8 @@ async function enviarComBotoes(numero, texto, botoes, opts = {}) {
 }
 
 async function enviarSequenciaMensagens(numero, partes, opts = {}) {
+  // Resolve UMA vez e repassa o nome ja provado: as bolhas de um mesmo turno precisam sair
+  // todas pelo mesmo numero, mesmo que algo mude no cadastro no meio da sequencia.
   const instanceName = await instanceNameParaEnvio(numero, opts)
   for (let i = 0; i < partes.length; i++) {
     await enviarMensagem(numero, partes[i], { instanceName })
@@ -500,7 +587,6 @@ async function enviarSequenciaMensagens(numero, partes, opts = {}) {
 module.exports = {
   EVOLUTION_URL,
   EVOLUTION_KEY,
-  INSTANCE_NAME,
   BOLHAS_ENVIO_DELAY_MS,
   sleep,
   extrairBase64DaRespostaEvolution,
@@ -521,8 +607,9 @@ module.exports = {
   enviarPrintLocal,
   enviarComBotoes,
   enviarSequenciaMensagens,
-  getInstanceNameForUser,
   normalizarEvolutionInstanceName,
-  getInstanceNameForConversation,
+  resolverInstanciaEnvio,
   instanceNameParaEnvio,
+  ErroInstanciaEnvio,
+  MOTIVOS_BLOQUEIO_INSTANCIA: MOTIVOS_BLOQUEIO,
 }

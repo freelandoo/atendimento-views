@@ -31,6 +31,7 @@ async function buscarItemFilaEnvio(pool, filaId) {
     SELECT
       f.*,
       p.nome AS prospect_nome,
+      p.empresa_id AS prospect_empresa_id,
       p.telefone AS prospect_telefone,
       p.status AS prospect_status,
       p.nicho AS prospect_nicho,
@@ -249,7 +250,11 @@ async function processarEnvioFilaAgendado(pool, filaId, deps = {}) {
   }
 
   try {
-    const evolution = await enviarMensagemFn(telefone, mensagem)
+    // Fase 2: mesma regra do disparo legado — instância pelo vínculo provado da conversa,
+    // conferida contra a empresa do prospect. Nunca pelo env nem pela "mais recente".
+    const evolution = await enviarMensagemFn(telefone, mensagem, {
+      empresaId: row?.prospect_empresa_id || undefined,
+    })
     await atualizarTentativa(pool, {
       row,
       mensagem,

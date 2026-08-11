@@ -13,6 +13,9 @@ function createHandoffAlerts(deps = {}) {
     resumirTextoOperacional,
     criarEventoAgenda,
     slotEstaOcupado,
+    // Fase 2: injetável para teste; por padrão é a regra única de `whatsapp.js` — nunca uma
+    // segunda implementação de escolha de instância.
+    resolverInstanciaEnvio = (...args) => require('./whatsapp').resolverInstanciaEnvio(...args),
   } = deps
 
   const alertaFalhaRespostaPorJid = new Map()
@@ -204,7 +207,7 @@ function createHandoffAlerts(deps = {}) {
       previaValor: previaValor || null,
     })
 
-    const enviouWa = await notificarVictorWhatsapp(textoWa)
+    const enviouWa = await notificarVictorWhatsapp(textoWa, { conversaNumero: numero })
     if (enviouWa) {
       logger.info('📲 Handoff notificado ao operador (WhatsApp):', motivoStr)
     }
@@ -297,7 +300,7 @@ function createHandoffAlerts(deps = {}) {
       `Lead: ${phone || '?'}\n` +
       detCorte
   
-    const enviouWa = await notificarVictorWhatsapp(textoWa)
+    const enviouWa = await notificarVictorWhatsapp(textoWa, { conversaNumero: numero })
     if (enviouWa) {
       logger.info('📲 Lacuna notificada aos operadores (WhatsApp):', temaLinha)
     }
@@ -329,17 +332,54 @@ function createHandoffAlerts(deps = {}) {
     return [resumo, detalhe].filter(Boolean).join(' | ')
   }
 
-  async function notificarVictorWhatsapp(texto) {
+  // O bloqueio precisa aparecer no log — e' o unico rastro de um alerta que nao saiu. O
+  // logger injetado varia entre chamadores e testes, entao a chamada e' defensiva.
+  function registrarBloqueioAlerta(motivo) {
+    const escrever = logger?.warn || logger?.info
+    if (typeof escrever === 'function') {
+      escrever.call(logger, { motivo }, 'Alerta ao operador nao enviado: sem instancia comprovada')
+    }
+  }
+
+  /**
+   * Alerta operacional aos operadores, por WhatsApp.
+   *
+   * Fase 2 — `opcoes.conversaNumero` é o número do LEAD que originou o alerta, e não um
+   * detalhe: é dele que sai a instância de envio. O alerta sobre o lead da empresa X tem de
+   * sair pelo número da empresa X; antes ele saía pelo fallback global (`EVOLUTION_INSTANCE`,
+   * default 'PJ'), ou seja, o operador de um tenant podia ser avisado pelo número de outro.
+   *
+   * Alerta SEM lead de origem (resumo diário da agenda, reuniões não confirmadas) não tem
+   * vínculo provado com instância alguma: ele é **bloqueado e registrado**, não enviado por um
+   * número escolhido no chute. Consequência declarada — esses dois avisos deixam de sair até
+   * ganharem escopo de instância (fora do escopo da Fase 2).
+   */
+  async function notificarVictorWhatsapp(texto, opcoes = {}) {
     const t = String(texto || '').trim()
     if (!t) return false
+    const conversaNumero = String(opcoes?.conversaNumero || '').trim()
+    if (!conversaNumero) {
+      registrarBloqueioAlerta('sem_conversa_de_origem')
+      return false
+    }
     const operadores = await listarOperadoresAtivos({ alertas: true })
     if (operadores.length === 0) return false
+
+    // Resolve UMA vez, pelo lead, e reusa para todos os operadores: o alerta é o mesmo fato.
+    let instanceName
+    try {
+      ;({ instanceName } = await resolverInstanciaEnvio(conversaNumero))
+    } catch (e) {
+      registrarBloqueioAlerta(e?.motivo || 'instancia_nao_comprovada')
+      return false
+    }
+
     let enviados = 0
     const erros = []
     try {
       for (const op of operadores) {
         try {
-          await enviarMensagem(op.jid, t)
+          await enviarMensagem(op.jid, t, { instanceName })
           enviados++
         } catch (e) {
           erros.push(`${op.jid}: ${e.message}`)
@@ -372,7 +412,7 @@ function createHandoffAlerts(deps = {}) {
       `Termômetro: ${perfil.termometro_dor ?? perfil.score_dor ?? '?'}/10\n` +
       (resumo ? `Resumo: ${resumirTextoOperacional(resumo, 320)}\n` : '') +
       `Ação sugerida: confirmar dados finais e seguir com contrato/pagamento.`
-    const enviou = await notificarVictorWhatsapp(texto)
+    const enviou = await notificarVictorWhatsapp(texto, { conversaNumero: numero })
     if (enviou) logger.info('📲 Venda fechada notificada aos operadores:', phone || numero)
     return enviou
   }
@@ -399,7 +439,7 @@ function createHandoffAlerts(deps = {}) {
       `Resumo: ${falha?.resumo || 'falha ao gerar ou enviar resposta'}\n` +
       `Detalhe: ${detalhe || 'sem detalhe adicional'}\n` +
       `Ação sugerida: revisar no dashboard e usar Reenviar resposta se fizer sentido.`
-    const enviou = await notificarVictorWhatsapp(texto)
+    const enviou = await notificarVictorWhatsapp(texto, { conversaNumero: numero })
     if (enviou) {
       logger.info('📲 Falha de resposta notificada aos operadores (WhatsApp):', falha?.codigo || 'resposta_falhou')
     }
@@ -417,7 +457,7 @@ function createHandoffAlerts(deps = {}) {
       resumoHandoff: detalhe.nota || 'O lead pediu para remarcar a reunião.',
       previaValor: null,
     })
-    const enviou = await notificarVictorWhatsapp(texto)
+    const enviou = await notificarVictorWhatsapp(texto, { conversaNumero: numero })
     if (enviou) logger.info('📲 Reagendamento (lead) notificado ao operador:', numeroDisplayDoJid(numero))
     return enviou
   }

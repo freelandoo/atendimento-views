@@ -800,7 +800,14 @@ async function enviarLembreteReuniao(lembreteId, { manual = false, enviarMensage
   }
   const mensagem = await montarMensagemLembrete(row, row.lembrete_tipo, empresaIdEvento)
   try {
-    await enviarMensagemFn(numero, mensagem)
+    // Fase 2: o lembrete não passava instância e saía pelo fallback global. `row` já traz
+    // `c.evolution_instance` (join com a conversa do evento); quando ele vem nulo, a regra
+    // única de `whatsapp.js` ainda tenta o vínculo da conversa pelo número e, sem prova,
+    // BLOQUEIA — o lembrete fica `falhou` com o motivo, em vez de sair pelo número errado.
+    await enviarMensagemFn(numero, mensagem, {
+      instanceName: row.evolution_instance || undefined,
+      empresaId: empresaIdEvento || undefined,
+    })
     await registrarHistoricoLembrete(row, mensagem)
     await pool.query(
       `UPDATE vendas.agenda_lembretes
@@ -925,7 +932,12 @@ async function registrarSugestaoReagendamentoLembrete(row, enviarMensagemFn = en
   // "Falha ao registrar resposta de lembrete" e marcava tudo como falha — a IA segue
   // o fluxo normal e responde o lead de qualquer forma (mensagem_enviada=false).
   try {
-    await enviarMensagemFn(numero, mensagem)
+    // Mesma regra do lembrete (Fase 2): instância do vínculo da conversa, conferida contra a
+    // empresa do evento. Este envio já era best-effort — bloquear aqui não derruba nada.
+    await enviarMensagemFn(numero, mensagem, {
+      instanceName: row.evolution_instance || undefined,
+      empresaId: empresaIdRemarca || undefined,
+    })
   } catch (e) {
     logger.warn({ err: e?.message, agenda_evento_id: row.id }, 'Sugestao de reagendamento nao enviada (Evolution); IA seguira o fluxo')
     return { mensagem: null, disponibilidade: slots, enviado: false }
@@ -1906,7 +1918,10 @@ async function verificarReunioesNaoConfirmadas(now = new Date(), deps = {}) {
         numero: ev.numero,
       })
       try {
-        const enviou = await notificar(texto)
+        // Fase 2: o alerta sai pela instância do LEAD daquela reunião — é o único vínculo
+        // provado disponível aqui. Bloqueio devolve `false`, o flag de escalada NÃO é
+        // gravado e o próximo tick tenta de novo (idempotência já era assim).
+        const enviou = await notificar(texto, { conversaNumero: ev.numero })
         if (!enviou) continue
         await pool.query(
           `UPDATE vendas.agenda_eventos

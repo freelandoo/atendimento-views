@@ -103,8 +103,13 @@ function createOperatorCommands(deps = {}) {
     return false
   }
   
-  async function processarIntervencaoOperadorNoLead(msg, numero) {
-    const { texto } = await extrairTextoEMidiaDoWebhook(msg, { remetenteCliente: false })
+  async function processarIntervencaoOperadorNoLead(msg, numero, opcoes = {}) {
+    // `opcoes.instanceName` e a instancia provada pelo webhook (Fase 2): a midia enviada
+    // pelo operador dentro da conversa do lead e baixada por ela, nao pela instancia do env.
+    const { texto } = await extrairTextoEMidiaDoWebhook(msg, {
+      remetenteCliente: false,
+      instanceName: opcoes?.instanceName || '',
+    })
     const textoHistorico =
       texto || (msg.message?.imageMessage || msg.message?.audioMessage ? '(Operador enviou mídia.)' : null)
     if (!textoHistorico) return
@@ -161,12 +166,12 @@ function createOperatorCommands(deps = {}) {
    * Envia o menu de ações como lista interativa (botão "Ver opções").
    * Se a API não suportar sendList (ex.: número com @lid), cai em texto plano.
    */
-  async function enviarMenuListaOperador(jidOperador, nome) {
+  async function enviarMenuListaOperador(jidOperador, nome, instanceName) {
     const numLimpo = String(jidOperador).replace(/@s\.whatsapp\.net$/i, '').replace(/\D/g, '')
   
     // sendList e sendButtons são bloqueados pelo WhatsApp em conexões Baileys (API não oficial).
     // Menu em texto numerado é o único formato confiável.
-    await enviarMensagem(jidOperador, montarMenuOperador(nome))
+    await enviarMensagem(jidOperador, montarMenuOperador(nome), { instanceName })
   }
   
   /** Consulta DB e retorna texto com agendamentos dos leads em estágio handoff. */
@@ -238,42 +243,46 @@ function createOperatorCommands(deps = {}) {
   /**
    * Executa a opção selecionada pelo operador no menu (1–6).
    */
-  async function executarOpcaoOperador(opcao, msg, jidOperador) {
+  async function executarOpcaoOperador(opcao, msg, jidOperador, instanceName) {
     const nome = (await nomeOperadorPorJid(jidOperador)) || (msg.pushName || '').trim() || 'parceiro'
     try {
       switch (opcao) {
         case 1:
           await enviarMensagem(jidOperador,
-            '✍️ *Responder lead*\n\nUse o formato:\n`5511999999999 INSTRUÇÃO: seu texto`\n\nO agente vai incluir sua orientação na próxima resposta ao lead.'
+            '✍️ *Responder lead*\n\nUse o formato:\n`5511999999999 INSTRUÇÃO: seu texto`\n\nO agente vai incluir sua orientação na próxima resposta ao lead.',
+          { instanceName }
           )
           break
         case 2:
           await enviarMensagem(jidOperador,
-            '📸 *Enviar apresentação*\n\nUse o formato:\n`5511999999999 APRESENTAÇÃO`\n\nO agente envia as imagens de modelos + planos com mensagem complementar para o lead.'
+            '📸 *Enviar apresentação*\n\nUse o formato:\n`5511999999999 APRESENTAÇÃO`\n\nO agente envia as imagens de modelos + planos com mensagem complementar para o lead.',
+          { instanceName }
           )
           break
         case 3: {
           const texto = await textoAgendamentosOperador()
-          await enviarMensagem(jidOperador, texto)
+          await enviarMensagem(jidOperador, texto, { instanceName })
           break
         }
         case 4:
           await enviarMensagem(jidOperador,
-            '🎯 *Simular abordagem*\n\nMe descreva o perfil do lead e eu respondo como se fosse ele:\n\nEx: "Simula lead: pintor de paredes em São Paulo, não aparece no Google, ticket R$500"\n\nVou jogar o papel do lead para você treinar o script.'
+            '🎯 *Simular abordagem*\n\nMe descreva o perfil do lead e eu respondo como se fosse ele:\n\nEx: "Simula lead: pintor de paredes em São Paulo, não aparece no Google, ticket R$500"\n\nVou jogar o papel do lead para você treinar o script.',
+          { instanceName }
           )
           break
         case 5: {
           const texto = await textoRelatorioOperador()
-          await enviarMensagem(jidOperador, texto)
+          await enviarMensagem(jidOperador, texto, { instanceName })
           break
         }
         case 6:
           await enviarMensagem(jidOperador,
-            '⚙️ *Ajustar configuração*\n\nPara ajustar scripts, preços ou regras do agente, acesse o painel ou fale diretamente com a equipe da {{empresa}}.\n\nPara comandos rápidos:\n`5511999999999 INSTRUÇÃO: novo contexto para o agente`'
+            '⚙️ *Ajustar configuração*\n\nPara ajustar scripts, preços ou regras do agente, acesse o painel ou fale diretamente com a equipe da {{empresa}}.\n\nPara comandos rápidos:\n`5511999999999 INSTRUÇÃO: novo contexto para o agente`',
+          { instanceName }
           )
           break
         default:
-          await enviarMenuListaOperador(jidOperador, nome)
+          await enviarMenuListaOperador(jidOperador, nome, instanceName)
       }
     } catch (e) {
       logger.error('❌ Opção operador:', e.message)
@@ -300,7 +309,7 @@ function createOperatorCommands(deps = {}) {
    * - Número 1–6 → executa a opção selecionada
    * - Outras mensagens -> ajuda programada
    */
-  async function processarMensagemLivreOperador(msg, jidOperador) {
+  async function processarMensagemLivreOperador(msg, jidOperador, instanceName) {
     const nomeConfig = await nomeOperadorPorJid(jidOperador)
     const nome = nomeConfig || (msg.pushName || '').trim() || 'parceiro'
     const textoInterativo = extrairTextoInterativo(msg.message)
@@ -315,22 +324,22 @@ function createOperatorCommands(deps = {}) {
       // Seleção numerada do menu (aceita "1", "1.", "1)" etc.)
       const mOpcao = texto.match(/^([1-6])[.):\s]?\s*$/)
       if (mOpcao) {
-        await executarOpcaoOperador(parseInt(mOpcao[1]), msg, jidOperador)
+        await executarOpcaoOperador(parseInt(mOpcao[1]), msg, jidOperador, instanceName)
         return
       }
   
       // Verificar se é modo de simulação de lead
       if (/^simula\b/i.test(texto)) {
-        await executarSimulacaoLead(texto, jidOperador, nome)
+        await executarSimulacaoLead(texto, jidOperador, nome, instanceName)
         return
       }
   
       if (!texto || REGEX_CUMPRIMENTO_OPERADOR.test(texto)) {
         // Cumprimento, "menu", "opções" → menu completo
-        await enviarMenuListaOperador(jidOperador, nome)
+        await enviarMenuListaOperador(jidOperador, nome, instanceName)
       } else {
         // Pergunta livre -> ajuda programada
-        await enviarMensagem(jidOperador, textoAjudaOperadorProgramada())
+        await enviarMensagem(jidOperador, textoAjudaOperadorProgramada(), { instanceName })
       }
     } catch (e) {
       logger.error('❌ Menu operador:', e.message)
@@ -340,7 +349,7 @@ function createOperatorCommands(deps = {}) {
   /**
    * Modo de simulação: Claude joga o papel de um lead baseado na descrição do operador.
    */
-  async function executarSimulacaoLead(descricao, jidOperador, nomeOperador) {
+  async function executarSimulacaoLead(descricao, jidOperador, nomeOperador, instanceName) {
     const system = [
       `Você é um lead (cliente em potencial) de pequeno negócio no Brasil.`,
       `Responda APENAS como o lead responderia — curto, direto, natural, como em WhatsApp.`,
@@ -376,7 +385,7 @@ function createOperatorCommands(deps = {}) {
         })
       }
       const fala = String(result?.text || '').trim()
-      await enviarMensagem(jidOperador, `🎯 *Simulação iniciada!*\n\nPerfil: ${descricao}\n\n_Lead diz:_\n${fala}\n\n_(Responda normalmente para continuar o roleplay)_`)
+      await enviarMensagem(jidOperador, `🎯 *Simulação iniciada!*\n\nPerfil: ${descricao}\n\n_Lead diz:_\n${fala}\n\n_(Responda normalmente para continuar o roleplay)_`, { instanceName })
     } catch (e) {
       await registrarChamadaAnthropic({
         request_id: requestId,
@@ -390,7 +399,7 @@ function createOperatorCommands(deps = {}) {
         erro_msg: mensagemErroAnthropic(e),
       })
       logger.error('❌ Simulação lead:', e.message)
-      await enviarMensagem(jidOperador, '❌ Não foi possível iniciar a simulação agora.')
+      await enviarMensagem(jidOperador, '❌ Não foi possível iniciar a simulação agora.', { instanceName })
     }
   }
   
@@ -453,7 +462,14 @@ function createOperatorCommands(deps = {}) {
     }
   }
   
-  async function processarComandosOperadorChat(msg, jidOperador) {
+  async function processarComandosOperadorChat(msg, jidOperador, opcoes = {}) {
+    // Fase 2: a resposta ao operador sai pela MESMA instancia que RECEBEU a mensagem dele
+    // (`req.evolutionInstance`, ja provada pelo middleware de tenant). Antes ela saia pelo
+    // fallback global — o operador de um tenant podia ser respondido pelo numero de outro.
+    // Sem instancia provada, a regra unica de `whatsapp.js` bloqueia (nada e' enviado ao
+    // operador), mas os comandos que agem sobre o LEAD continuam valendo: o envio ao lead
+    // resolve pelo vinculo da conversa dele.
+    const instanceName = String(opcoes?.instanceName || '').trim() || undefined
     // Suporte a respostas interativas (lista / botões) além de texto livre
     const textoInterativo = extrairTextoInterativo(msg.message)
     const texto = (
@@ -469,7 +485,7 @@ function createOperatorCommands(deps = {}) {
       // Seleção do menu (1–6): encaminha para processarMensagemLivreOperador que executa a opção
       const mOpcaoMenu = texto.match(/^([1-6])[.):\s]?\s*$/)
       if (mOpcaoMenu) {
-        await processarMensagemLivreOperador(msg, jidOperador)
+        await processarMensagemLivreOperador(msg, jidOperador, instanceName)
         return
       }
       if (/^\s*\d{5,}/.test(texto)) {
@@ -477,14 +493,15 @@ function createOperatorCommands(deps = {}) {
         try {
           await enviarMensagem(
             jidOperador,
-            'Formato:\n5511999999999 PAUSAR\n5511999999999 RETOMAR\n5511999999999 INSTRUÇÃO: texto\n5511999999999 APRESENTAÇÃO'
+            'Formato:\n5511999999999 PAUSAR\n5511999999999 RETOMAR\n5511999999999 INSTRUÇÃO: texto\n5511999999999 APRESENTAÇÃO',
+            { instanceName }
           )
         } catch (e) {
           logger.error('❌ Aviso ao operador:', e.message)
         }
       } else {
         // Mensagem conversacional — saudação, pergunta ou seleção de menu
-        await processarMensagemLivreOperador(msg, jidOperador)
+        await processarMensagemLivreOperador(msg, jidOperador, instanceName)
       }
       return
     }
@@ -503,10 +520,10 @@ function createOperatorCommands(deps = {}) {
         await enviarPrintLocal(jidLead, 'modelos-site', apres.captionModelos)
         await enviarPrintLocal(jidLead, 'planos-mensais', apres.captionPlanos)
         await enviarMensagem(jidLead, apres.fechamento)
-        await enviarMensagem(jidOperador, `✅ Apresentação enviada ao lead ${num}.`)
+        await enviarMensagem(jidOperador, `✅ Apresentação enviada ao lead ${num}.`, { instanceName })
       } catch (e) {
         logger.error('❌ Apresentação ao lead:', e.message)
-        try { await enviarMensagem(jidOperador, `❌ Erro ao enviar apresentação: ${e.message}`) } catch (_) {}
+        try { await enviarMensagem(jidOperador, `❌ Erro ao enviar apresentação: ${e.message}`, { instanceName }) } catch (_) {}
       }
       return
     }
@@ -514,7 +531,7 @@ function createOperatorCommands(deps = {}) {
     const conversa = await buscarConversa(jidLead)
     if (!conversa) {
       try {
-        await enviarMensagem(jidOperador, `Não há conversa salva para ${jidLead}.`)
+        await enviarMensagem(jidOperador, `Não há conversa salva para ${jidLead}.`, { instanceName })
       } catch (e) {
         logger.error('❌ Aviso ao operador:', e.message)
       }
@@ -527,7 +544,7 @@ function createOperatorCommands(deps = {}) {
           `UPDATE vendas.conversas SET agente_pausado = true, atualizado_em = NOW() WHERE numero = $1`,
           [jidLead]
         )
-        await enviarMensagem(jidOperador, `✅ Agente pausado para ${jidLead}`)
+        await enviarMensagem(jidOperador, `✅ Agente pausado para ${jidLead}`, { instanceName })
         return
       }
       if (tipo === 'retomar') {
@@ -535,7 +552,7 @@ function createOperatorCommands(deps = {}) {
           `UPDATE vendas.conversas SET agente_pausado = false, atualizado_em = NOW() WHERE numero = $1`,
           [jidLead]
         )
-        await enviarMensagem(jidOperador, `✅ Agente retomado para ${jidLead}`)
+        await enviarMensagem(jidOperador, `✅ Agente retomado para ${jidLead}`, { instanceName })
         return
       }
       let historico = normalizarHistoricoMensagens(conversa.historico)
@@ -549,21 +566,23 @@ function createOperatorCommands(deps = {}) {
           : ''
         await enviarMensagem(
           jidOperador,
-          `✅ Instrução registrada e mensagem enviada ao lead ${jidLead}.${preview}`
+          `✅ Instrução registrada e mensagem enviada ao lead ${jidLead}.${preview}`,
+          { instanceName }
         )
       } catch (eFollowup) {
         logger.error('❌ Follow-up após INSTRUÇÃO:', eFollowup.message)
         try {
           await enviarMensagem(
             jidOperador,
-            `⚠️ Instrução salva no histórico, mas não foi possível enviar a mensagem ao lead: ${eFollowup.message}`
+            `⚠️ Instrução salva no histórico, mas não foi possível enviar a mensagem ao lead: ${eFollowup.message}`,
+            { instanceName }
           )
         } catch (_) {}
       }
     } catch (e) {
       logger.error('❌ Comando operador:', e.message)
       try {
-        await enviarMensagem(jidOperador, `Erro: ${e.message}`)
+        await enviarMensagem(jidOperador, `Erro: ${e.message}`, { instanceName })
       } catch (_) {}
     }
   }

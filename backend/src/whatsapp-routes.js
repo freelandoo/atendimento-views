@@ -34,6 +34,35 @@ async function getWhatsappStatus(userId) {
   return response
 }
 
+/**
+ * Nome tecnico da instancia JA VINCULADA a este usuario do dashboard legado.
+ *
+ * Fase 2: estas rotas liam `process.env.EVOLUTION_INSTANCE || 'PJ'` — um nome global,
+ * possivelmente de outra empresa, usado para conectar, checar e DESCONECTAR. Agora o nome sai
+ * do proprio registro do usuario (`vendas.whatsapp_connections.instance_name`), que e o unico
+ * vinculo provado disponivel aqui. Sem registro, a rota recusa em vez de agir sobre o numero
+ * de alguem.
+ */
+async function instanciaVinculadaAoUsuario(userId) {
+  const { rows } = await pool.query(
+    `SELECT instance_name
+       FROM vendas.whatsapp_connections
+      WHERE user_id = $1 AND deleted_at IS NULL
+      ORDER BY updated_at DESC LIMIT 1`,
+    [userId]
+  )
+  const nome = String(rows[0]?.instance_name || '').trim()
+  if (!nome || !/^[a-zA-Z0-9_-]+$/.test(nome)) return ''
+  return nome
+}
+
+function semInstanciaVinculada(res) {
+  return res.status(409).json({
+    error: 'Nenhuma instância WhatsApp vinculada a este usuário. '
+      + 'Crie a instância em Configurações › Instâncias (/api/empresas/:empresaId/whatsapp).',
+  })
+}
+
 async function registerWhatsappRoutes(app) {
   const { requireDashboardAuth } = require('./dashboardAuth')
 
@@ -63,7 +92,11 @@ async function registerWhatsappRoutes(app) {
       }
 
       const userId = req.dashboardUser.id
-      const instanceName = process.env.EVOLUTION_INSTANCE || 'PJ'
+      // Fase 2: esta rota CRIAVA o vinculo com o nome do env (`EVOLUTION_INSTANCE`, default
+      // 'PJ'). Isso e' adocao de instancia por nome nao comprovado — exatamente o que a regra
+      // de "origem autorizada" (AGENTS.md) proibe. Ela so opera sobre um vinculo que ja exista.
+      const instanceName = await instanciaVinculadaAoUsuario(userId)
+      if (!instanceName) return semInstanciaVinculada(res)
 
       let qrResponse
       try {
@@ -96,26 +129,15 @@ async function registerWhatsappRoutes(app) {
       await client.query('BEGIN')
       txAberta = true
 
-      const existing = await client.query(
-        `SELECT id FROM vendas.whatsapp_connections WHERE user_id = $1 AND deleted_at IS NULL`,
-        [userId]
+      // Só ATUALIZA: o vínculo já existe (é dele que saiu `instanceName`). O INSERT que
+      // havia aqui era o que criava o vínculo com o nome do env — removido junto com o
+      // fallback, e não substituído: instância nasce pelo fluxo autorizado, não por esta rota.
+      await client.query(
+        `UPDATE vendas.whatsapp_connections
+         SET status = $1, qr_code = $2, qr_expires_at = $3, updated_at = NOW()
+         WHERE user_id = $4 AND deleted_at IS NULL`,
+        ['qr_pending', qrCode, qrExpiresAt, userId]
       )
-
-      if (existing.rows.length > 0) {
-        await client.query(
-          `UPDATE vendas.whatsapp_connections
-           SET status = $1, qr_code = $2, qr_expires_at = $3, updated_at = NOW()
-           WHERE id = $4`,
-          ['qr_pending', qrCode, qrExpiresAt, existing.rows[0].id]
-        )
-      } else {
-        await client.query(
-          `INSERT INTO vendas.whatsapp_connections
-           (user_id, instance_name, status, qr_code, qr_expires_at, metadata)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [userId, instanceName, 'qr_pending', qrCode, qrExpiresAt, '{}']
-        )
-      }
 
       await client.query('COMMIT')
       txAberta = false
@@ -150,8 +172,9 @@ async function registerWhatsappRoutes(app) {
       }
 
       const userId = req.dashboardUser.id
-      // Use pre-configured instance
-      const instanceName = process.env.EVOLUTION_INSTANCE || 'PJ'
+      // Fase 2: nome do VINCULO deste usuario, nunca `process.env.EVOLUTION_INSTANCE`.
+      const instanceName = await instanciaVinculadaAoUsuario(userId)
+      if (!instanceName) return semInstanciaVinculada(res)
 
       // Get new QR Code
       const qrResponse = await axios.get(
@@ -199,8 +222,9 @@ async function registerWhatsappRoutes(app) {
       }
 
       const userId = req.dashboardUser.id
-      // Use pre-configured instance
-      const instanceName = process.env.EVOLUTION_INSTANCE || 'PJ'
+      // Fase 2: nome do VINCULO deste usuario, nunca `process.env.EVOLUTION_INSTANCE`.
+      const instanceName = await instanciaVinculadaAoUsuario(userId)
+      if (!instanceName) return semInstanciaVinculada(res)
 
       // Get connection state from Evolution
       const stateResponse = await axios.get(
@@ -284,8 +308,9 @@ async function registerWhatsappRoutes(app) {
       }
 
       const userId = req.dashboardUser.id
-      // Use pre-configured instance
-      const instanceName = process.env.EVOLUTION_INSTANCE || 'PJ'
+      // Fase 2: nome do VINCULO deste usuario, nunca `process.env.EVOLUTION_INSTANCE`.
+      const instanceName = await instanciaVinculadaAoUsuario(userId)
+      if (!instanceName) return semInstanciaVinculada(res)
 
       // Call logout on Evolution — 404 (instância não existe) e 500 (já fechada) são esperados
       try {

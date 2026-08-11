@@ -1,5 +1,5 @@
 'use strict'
-const { enviarMensagem, verificarStatusInstanciaEvolution } = require('../whatsapp')
+const { enviarMensagem, verificarStatusInstanciaEvolution, resolverInstanciaEnvio } = require('../whatsapp')
 const { cancelarFollowupsAutoPendentes } = require('./followup-auto-cancel')
 const {
   preferenciaValida,
@@ -38,35 +38,17 @@ function validarTextoMensagem(value, max = TEXTO_MAX) {
   return texto
 }
 
+// Le SO a conversa, escopada na empresa. A escolha da instancia NAO e feita aqui: este
+// arquivo carregava a propria copia da regra — incluindo o mesmo fallback por
+// `atualizado_em DESC` de `whatsapp.js` — e duas implementacoes do mesmo julgamento e
+// exatamente o preco que este repo ja pagou com a bolinha de pontuacao e o painel de
+// conversa. Quem decide e' `resolverInstanciaEnvio` (regra unica).
 async function buscarConversaParaEnvio(pool, empresaId, numero) {
   const { rows } = await pool.query(
     `SELECT c.numero,
             c.empresa_id,
-            c.evolution_instance,
-            CASE
-              WHEN NULLIF(BTRIM(c.evolution_instance), '') IS NOT NULL THEN ci.evolution_instance
-              ELSE fallback.evolution_instance
-            END AS instance_name,
-            CASE
-              WHEN NULLIF(BTRIM(c.evolution_instance), '') IS NOT NULL
-                   AND ci.evolution_instance IS NULL THEN true
-              ELSE false
-            END AS instance_conversa_indisponivel
+            c.evolution_instance
        FROM vendas.conversas c
-       LEFT JOIN app.empresa_whatsapp_instances ci
-         ON ci.empresa_id = COALESCE(c.empresa_id, $1::uuid)
-        AND ci.evolution_instance = c.evolution_instance
-        AND ci.ativo = true
-        AND COALESCE(ci.config_json->>'canal', 'whatsapp') <> 'freelandoo'
-       LEFT JOIN LATERAL (
-         SELECT evolution_instance
-           FROM app.empresa_whatsapp_instances
-          WHERE empresa_id = COALESCE(c.empresa_id, $1::uuid)
-            AND ativo = true
-            AND COALESCE(config_json->>'canal', 'whatsapp') <> 'freelandoo'
-          ORDER BY atualizado_em DESC, criado_em DESC
-          LIMIT 1
-       ) fallback ON true
       WHERE (c.empresa_id = $1 OR ($1::uuid = $2::uuid AND c.empresa_id IS NULL))
         AND c.numero = $3
       LIMIT 1`,
@@ -85,6 +67,7 @@ async function enviarMensagemManualOperador({
   log = null,
   _enviarMensagem = enviarMensagem,
   _verificarStatusInstanciaEvolution = verificarStatusInstanciaEvolution,
+  _resolverInstanciaEnvio = resolverInstanciaEnvio,
   _now = () => new Date(),
 }) {
   if (!pool) throw erroOperacao('pool obrigatorio.', 500, 'INTERNAL_ERROR')
@@ -94,13 +77,18 @@ async function enviarMensagemManualOperador({
   const msg = validarTextoMensagem(texto)
   const conversa = await buscarConversaParaEnvio(pool, empresaId, numeroValidado)
   if (!conversa) throw erroOperacao('Conversa nao encontrada para esta empresa.', 404, 'NOT_FOUND')
-  if (conversa.instance_conversa_indisponivel) {
-    throw erroOperacao('A instancia desta conversa nao esta ativa para envio.', 409, 'INSTANCE_UNAVAILABLE')
-  }
 
-  const instanceName = String(conversa.instance_name || '').trim()
-  if (!instanceName) {
-    throw erroOperacao('Nenhuma instancia WhatsApp ativa encontrada para esta conversa.', 409, 'INSTANCE_UNAVAILABLE')
+  // A regra unica devolve o nome ja provado ou LANCA. O `empresaId` vai junto para que a
+  // instancia seja conferida contra a empresa do OPERADOR, e nao so contra a da conversa
+  // (conversa orfa, sem `empresa_id`, nao pode virar porta para o numero de outro tenant).
+  let instanceName
+  try {
+    ;({ instanceName } = await _resolverInstanciaEnvio(numeroValidado, { empresaId }))
+  } catch (err) {
+    if (err?.instanciaBloqueada) {
+      throw erroOperacao(err.message, 409, 'INSTANCE_UNAVAILABLE')
+    }
+    throw err
   }
 
   const status = await _verificarStatusInstanciaEvolution(instanceName)

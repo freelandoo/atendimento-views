@@ -450,6 +450,10 @@ async function processarJob(job) {
   if (job.tipo === 'resumo_agenda_operador') {
     const dataIso = (job.payload && job.payload.data) || isoDateBrasil(new Date())
     const txt = await montarTextoResumoDiarioAgenda(dataIso)
+    // Fase 2 — consequência declarada: o resumo diário da agenda fala do DIA, não de um lead,
+    // então não há instância comprovada por onde enviá-lo. `notificarVictorWhatsapp` bloqueia
+    // e registra o motivo; antes ele saía pelo `EVOLUTION_INSTANCE` global. Para voltar a
+    // sair, este resumo precisa de escopo de instância (fora do escopo da Fase 2).
     if (txt) await notificarVictorWhatsapp(txt)
     return
   }
@@ -5785,7 +5789,7 @@ async function tratarPossivelReuniaoOperador(numero) {
       (quando ? `Quando: ${quando}\n` : 'Quando: confirmar horário com o lead\n') +
       (eventoCriado ? '📅 Evento criado na Agenda.\n' : '⚠️ Sem data/hora exata — adicionar na Agenda manualmente.\n') +
       'Ação: confirmar a reunião e o horário com o lead.'
-    await notificarVictorWhatsapp(texto)
+    await notificarVictorWhatsapp(texto, { conversaNumero: numero })
     await registrarEventoComercial(numero, 'reuniao_fechada_por_operador', {
       horario: det.horario || null,
       data_relativa: det.dataRelativa || null,

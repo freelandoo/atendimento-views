@@ -128,6 +128,17 @@ function createDbCrud({ pool, logger, serializeError }) {
   // PJ (mesmo resultado do DEFAULT da coluna), preservando 100% o comportamento
   // single-tenant atual. ON CONFLICT NÃO altera empresa_id — a empresa é fixada na
   // criação da conversa (1ª mensagem) e nunca migra de dono.
+  //
+  // D-8 (Fase 2 de docs/analise-contexto-instancia.md): `evolution_instance` segue a MESMA
+  // regra do dono. Este caminho (o do webhook, o mais quente) fazia
+  // `COALESCE(EXCLUDED, existente)` — a instância NOVA sobrescrevia a anterior, então uma
+  // conversa MIGRAVA de número sozinha quando o lead escrevia para um segundo número da
+  // empresa. Os outros dois writers (`historico-envio.js:71`, `conversa-manual.js`) já
+  // preservavam. Agora os três preservam: quem grava o vínculo é o primeiro contato.
+  // Consequência declarada e aceita: se o lead passar a falar com outro número da mesma
+  // empresa, as respostas continuam saindo pelo número ORIGINAL — a conversa é uma só
+  // (`vendas.conversas.numero` é UNIQUE GLOBAL) e trocar o remetente no meio confundiria o
+  // cliente. Mudar o vínculo passa a ser ato explícito, não efeito colateral de uma mensagem.
   async function salvarConversa(numero, historico, estagio, status = 'ativo', agentePausado = undefined, empresaId = null, evolutionInstance = null) {
     const estagioNorm = normalizarEstagio(estagio, 'diagnostico')
     const arr = Array.isArray(historico) ? historico : []
@@ -151,7 +162,7 @@ function createDbCrud({ pool, logger, serializeError }) {
             estagio = EXCLUDED.estagio,
             status = EXCLUDED.status,
             empresa_id = COALESCE(vendas.conversas.empresa_id, EXCLUDED.empresa_id),
-            evolution_instance = COALESCE(EXCLUDED.evolution_instance, vendas.conversas.evolution_instance),
+            evolution_instance = COALESCE(NULLIF(BTRIM(vendas.conversas.evolution_instance), ''), EXCLUDED.evolution_instance),
             atualizado_em = NOW()
         `,
         [numero, jsonText, estagioNorm, status, empresaId, PJ, instance]
@@ -167,7 +178,7 @@ function createDbCrud({ pool, logger, serializeError }) {
             status = EXCLUDED.status,
             agente_pausado = EXCLUDED.agente_pausado,
             empresa_id = COALESCE(vendas.conversas.empresa_id, EXCLUDED.empresa_id),
-            evolution_instance = COALESCE(EXCLUDED.evolution_instance, vendas.conversas.evolution_instance),
+            evolution_instance = COALESCE(NULLIF(BTRIM(vendas.conversas.evolution_instance), ''), EXCLUDED.evolution_instance),
             atualizado_em = NOW()
         `,
         [numero, jsonText, estagioNorm, status, agentePausado, empresaId, PJ, instance]

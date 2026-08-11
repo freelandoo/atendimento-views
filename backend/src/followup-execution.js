@@ -383,7 +383,13 @@ function createFollowupExecution(deps = {}) {
       } else {
         textoFollowup = await chamarClaudeFollowup(historicoBruto, estagio, perfil, opcoesFollow)
       }
-      await enviarMensagem(numero, textoFollowup)
+      // Fase 2: o follow-up automático era um dos 4 caminhos que NÃO passavam instância e
+      // caíam no fallback "a mais recentemente atualizada" — o lead recebia o reengajamento
+      // de um número que talvez nunca tivesse falado com ele. A instância vem do vínculo da
+      // conversa (regra única em `whatsapp.js`); o `empresaId` é declarado para que ela seja
+      // conferida contra a empresa do lead. Sem vínculo provado, o envio falha e o
+      // `registrarFollowupEnvio` do catch grava a falha — nunca sai pelo número errado.
+      await enviarMensagem(numero, textoFollowup, { empresaId: empresaIdFollow || undefined })
   
       let historicoNovo = [...historicoBruto, { role: 'assistant', content: textoFollowup }]
       if (historicoNovo.length > 40) historicoNovo = historicoNovo.slice(-40)

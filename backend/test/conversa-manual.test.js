@@ -30,13 +30,13 @@ test('mensagem manual envia pela instancia da conversa, registra operator e paus
     query: async (sql, params) => {
       chamadas.push({ sql, params })
       if (/SELECT c\.numero/.test(sql)) {
+        // Fase 2: a consulta devolve SO a conversa. A instancia e' decidida pela regra unica
+        // (`resolverInstanciaEnvio`), nao por um fallback proprio deste modulo.
         return {
           rows: [{
             numero: NUMERO,
             empresa_id: EMPRESA_ID,
             evolution_instance: 'inst-main',
-            instance_name: 'inst-main',
-            instance_conversa_indisponivel: false,
           }],
         }
       }
@@ -64,6 +64,10 @@ test('mensagem manual envia pela instancia da conversa, registra operator e paus
     numero: NUMERO,
     texto: '  Vamos retomar por aqui?  ',
     operadorId: 'user-1',
+    _resolverInstanciaEnvio: async (numero, opts) => {
+      assert.equal(opts.empresaId, EMPRESA_ID, 'a empresa do operador tem de ser conferida')
+      return { instanceName: 'inst-main', origem: 'conversa', empresaId: EMPRESA_ID, instanciaId: 'i1' }
+    },
     _verificarStatusInstanciaEvolution: async (instance) => ({ connected: instance === 'inst-main' }),
     _enviarMensagem: async (numero, texto, opts) => {
       envios.push({ numero, texto, opts })
@@ -94,13 +98,7 @@ test('mensagem manual envia pela instancia da conversa, registra operator e paus
 test('mensagem manual bloqueia envio quando instancia esta desconectada', async () => {
   const pool = {
     query: async () => ({
-      rows: [{
-        numero: NUMERO,
-        empresa_id: EMPRESA_ID,
-        evolution_instance: 'inst-main',
-        instance_name: 'inst-main',
-        instance_conversa_indisponivel: false,
-      }],
+      rows: [{ numero: NUMERO, empresa_id: EMPRESA_ID, evolution_instance: 'inst-main' }],
     }),
   }
   let enviou = false
@@ -110,6 +108,7 @@ test('mensagem manual bloqueia envio quando instancia esta desconectada', async 
       empresaId: EMPRESA_ID,
       numero: NUMERO,
       texto: 'oi',
+      _resolverInstanciaEnvio: async () => ({ instanceName: 'inst-main' }),
       _verificarStatusInstanciaEvolution: async () => ({ connected: false, motivo: 'Instancia fechada.' }),
       _enviarMensagem: async () => { enviou = true },
     }),
@@ -118,73 +117,57 @@ test('mensagem manual bloqueia envio quando instancia esta desconectada', async 
   assert.equal(enviou, false)
 })
 
-test('mensagem manual usa fallback ativo quando conversa legada nao tem instancia', async () => {
+// Substitui o antigo teste "usa fallback ativo quando conversa legada nao tem instancia".
+// Aquele comportamento era o DEFEITO da Fase 2: sem instancia gravada, o modulo escolhia a
+// instancia ativa "mais recentemente atualizada" da empresa e o operador falava com o lead
+// por um numero que talvez nunca o tivesse contatado.
+test('mensagem manual BLOQUEIA conversa legada sem instancia — nao escolhe uma pela empresa', async () => {
   const pool = {
-    query: async (sql, params) => {
+    query: async (sql) => {
       if (/SELECT c\.numero/.test(sql)) {
-        return {
-          rows: [{
-            numero: NUMERO,
-            empresa_id: EMPRESA_ID,
-            evolution_instance: null,
-            instance_name: 'inst-fallback',
-            instance_conversa_indisponivel: false,
-          }],
-        }
-      }
-      if (/UPDATE vendas\.conversas/.test(sql)) {
-        const entrada = JSON.parse(params[3])[0]
-        return {
-          rows: [{
-            numero: NUMERO,
-            historico: [entrada],
-            estagio: 'primeiro_contato',
-            status: 'ativo',
-            agente_pausado: true,
-            evolution_instance: params[6],
-            atualizado_em: '2026-07-22T12:00:00.000Z',
-          }],
-        }
+        return { rows: [{ numero: NUMERO, empresa_id: EMPRESA_ID, evolution_instance: null }] }
       }
       throw new Error(`SQL inesperado: ${sql}`)
     },
   }
-  const envios = []
-  const out = await enviarMensagemManualOperador({
-    pool,
-    empresaId: EMPRESA_ID,
-    numero: NUMERO,
-    texto: 'oi',
-    _verificarStatusInstanciaEvolution: async () => ({ connected: true }),
-    _enviarMensagem: async (numero, texto, opts) => {
-      envios.push(opts)
-      return {}
-    },
-  })
-
-  assert.deepEqual(envios, [{ instanceName: 'inst-fallback' }])
-  assert.equal(out.evolution_instance, 'inst-fallback')
-})
-
-test('mensagem manual bloqueia conversa com instancia antiga inativa mesmo com fallback disponivel', async () => {
-  const pool = {
-    query: async () => ({
-      rows: [{
-        numero: NUMERO,
-        empresa_id: EMPRESA_ID,
-        evolution_instance: 'inst-antiga',
-        instance_name: null,
-        instance_conversa_indisponivel: true,
-      }],
-    }),
-  }
+  let enviou = false
   let verificou = false
+  const { ErroInstanciaEnvio, MOTIVOS_BLOQUEIO } = require('../src/services/instancia-envio')
   await assert.rejects(
     () => enviarMensagemManualOperador({
       pool,
       empresaId: EMPRESA_ID,
       numero: NUMERO,
       texto: 'oi',
+      _resolverInstanciaEnvio: async () => {
+        throw new ErroInstanciaEnvio(MOTIVOS_BLOQUEIO.SEM_VINCULO_COMPROVADO)
+      },
+      _verificarStatusInstanciaEvolution: async () => { verificou = true; return { connected: true } },
+      _enviarMensagem: async () => { enviou = true },
+    }),
+    (err) => err.statusCode === 409 && err.code === 'INSTANCE_UNAVAILABLE'
+  )
+  assert.equal(enviou, false)
+  assert.equal(verificou, false, 'nem chega a consultar a Evolution')
+})
+
+test('mensagem manual bloqueia quando a instancia da conversa nao esta mais ativa', async () => {
+  const pool = {
+    query: async () => ({
+      rows: [{ numero: NUMERO, empresa_id: EMPRESA_ID, evolution_instance: 'inst-antiga' }],
+    }),
+  }
+  let verificou = false
+  const { ErroInstanciaEnvio, MOTIVOS_BLOQUEIO } = require('../src/services/instancia-envio')
+  await assert.rejects(
+    () => enviarMensagemManualOperador({
+      pool,
+      empresaId: EMPRESA_ID,
+      numero: NUMERO,
+      texto: 'oi',
+      _resolverInstanciaEnvio: async () => {
+        throw new ErroInstanciaEnvio(MOTIVOS_BLOQUEIO.INSTANCIA_INATIVA)
+      },
       _verificarStatusInstanciaEvolution: async () => { verificou = true; return { connected: true } },
       _enviarMensagem: async () => {},
     }),

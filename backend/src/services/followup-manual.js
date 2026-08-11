@@ -123,7 +123,9 @@ async function enviarFollowupTexto({ pool, log = logger, empresaId, numero, text
   if (!conversa) throw erroNaoEncontrado()
 
   try {
-    await enviarMensagem(numero, msg)
+    // Fase 2: a instância vem do vínculo da conversa (regra única em `whatsapp.js`),
+    // conferida contra a empresa do operador que está enviando.
+    await enviarMensagem(numero, msg, { empresaId })
   } catch (e) {
     await registrarEnvioFollowup(pool, { empresaId, numero, preview: null, ok: false, erro: e.message })
     throw e

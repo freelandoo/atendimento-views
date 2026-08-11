@@ -70,7 +70,9 @@
 ### Opcionais usadas com frequência
 - `WEBHOOK_SECRET`: se definida, `POST /webhook` também aceita `x-webhook-secret` ou `Authorization: Bearer <valor>`.
 - `DATABASE_URL` (default local no código), `PORT` (default `3000`), `NODE_ENV` (`production` ativa cookie Secure e SSL do banco).
-- `AI_PROVIDER` / `AI_MODEL`, `EVOLUTION_URL`, `EVOLUTION_INSTANCE`, `OPERATOR_WHATSAPP`, `GOOGLE_PLACES_API_KEY`, `GOOGLE_CSE_KEY`/`GOOGLE_CSE_ID`.
+- `AI_PROVIDER` / `AI_MODEL`, `EVOLUTION_URL`, `OPERATOR_WHATSAPP`, `GOOGLE_PLACES_API_KEY`, `GOOGLE_CSE_KEY`/`GOOGLE_CSE_ID`.
+- **`EVOLUTION_INSTANCE` está APOSENTADA** (Fase 2 do escopo por instância): nenhum código a lê.
+  Ver "Instância de ENVIO" abaixo.
 - `DASHBOARD_URL`: URL base do painel usada no link do alerta de handoff (ex.: `https://app.exemplo.com`). Sem ela, cai para `RAILWAY_PUBLIC_DOMAIN` e, por fim, para o padrão de produção (`https://atendimento-views-production.up.railway.app`). **O padrão anterior (`pjcodeworks-agent-production…`) já não existia** — o edge do Railway respondia "Application not found"; corrigido em 2026-08-08.
 - `AI_STRUCTURED_OUTPUTS`: liga/desliga o Structured Outputs (json_schema strict) no caminho OpenAI do agente. Default ligado; `off` volta para `json_object`. Se a API recusar o schema, há fallback automático para `json_object`.
 - `AI_AUX_MODEL`: modelo das chamadas AUXILIARES/leves (ex.: `classificar_intencao` em `agent.js`). Sem ela, usa um modelo PEQUENO do provider ATIVO (`AI_PROVIDER`): `openai`→`gpt-4o-mini`, `anthropic`→`claude-haiku-4-5-20251001`. Antes o modelo era fixo em Haiku, que o `generateAIResponse` roteia sempre p/ Anthropic — então com `AI_PROVIDER=openai` toda chamada auxiliar tomava 400/timeout na Anthropic e caía no fallback heurístico. Defina só para forçar um modelo específico (o valor precisa começar com o prefixo do provider ativo: `gpt-`/`claude-`).
@@ -301,6 +303,112 @@
 - **Medição read-only:** `npm run medir:isolamento-empresa` (usa a `DATABASE_URL` do ambiente).
   Roda em `BEGIN TRANSACTION READ ONLY` + `ROLLBACK`, imprime **só contagens agregadas** e
   mascara até o id da empresa. Nenhum telefone, nome, token ou mensagem sai dele.
+
+### Escopo por INSTÂNCIA de WhatsApp — só a MEDIÇÃO existe (Fase 0)
+- **Nada foi implementado além do diagnóstico.** A análise de impacto completa (mapa de
+  entidades/rotas/jobs, matriz global × por instância × compartilhado, riscos, proposta de
+  arquitetura, plano em 10 fases e as 8 decisões pendentes) está em
+  `docs/analise-contexto-instancia.md`. **Leia-a antes de escrever qualquer código deste tema.**
+- **Medição read-only:** `npm run medir:escopo-instancia` (`scripts/medir-escopo-instancia.js`;
+  `--nomes` revela o rótulo das instâncias, `--json` devolve a saída completa). Mesmo padrão do
+  `medir:isolamento-empresa`: `BEGIN TRANSACTION READ ONLY` + `ROLLBACK`, `DATABASE_URL`
+  explícita (o script **nunca** escolhe banco sozinho), só contagens agregadas, ids mascarados,
+  zero chamada externa, zero dependência nova.
+- **A regra que o script encarna: não se inventa dono.** Conversa sem `evolution_instance` não
+  tem vínculo **provado** com instância alguma — agrupar por `c.empresa_id` é informativo, nunca
+  prova (aquele `empresa_id` pode ter vindo do antigo fallback da PJ). Por isso
+  `classificarAtribuibilidade` é conservadora: empresa com **1** instância ativa = `atribuivel`;
+  com **2+** = **`nao_atribuivel`** (escolher uma repetiria, agora em repouso e permanente, o
+  defeito do fallback "instância mais recentemente atualizada" de `whatsapp.js:51-60`); conversa
+  sem empresa = `quarentena_analitica`.
+- **Guarda de regressão** em `test/medir-escopo-instancia.test.js`: lê o fonte do script e falha
+  se aparecer qualquer verbo de escrita (`INSERT`/`UPDATE`/`DELETE`/`ALTER`/`CREATE`/`DROP`/
+  `TRUNCATE`/`SELECT … INTO`/`FOR UPDATE`), se o `READ ONLY`/`ROLLBACK` sumir, se surgir cliente
+  HTTP ou envio de mensagem, ou se uma dependência nova for exigida. O script roda contra
+  produção: a promessa de "somente leitura" precisa quebrar o build quando violada.
+- **Defeito que a medição NÃO corrige e que continua aberto:** teto diário de disparo contado
+  por instância mas configurado por empresa (`banco_leads_config`) — é a Fase 8. Os outros dois
+  (envio pela instância errada e precedência divergente de escrita) foram corrigidos na **Fase 2**,
+  bloco abaixo. Nenhuma variável de ambiente nova, nenhuma migration, nenhuma rota.
+
+### Instância de ENVIO — regra ÚNICA, sem fallback (Fase 2)
+- **Regra de negócio:** só sai mensagem por instância **NOMEADA por um vínculo provado**, que
+  **exista**, esteja **ativa**, seja do canal **WhatsApp/Evolution** e pertença à **mesma
+  empresa** da conversa e do chamador. São exatamente duas fontes de nome, nesta ordem:
+  (1) `opts.instanceName`, declarado pelo chamador; (2) `vendas.conversas.evolution_instance`,
+  gravado quando a conversa nasceu. **Não existe terceira etapa.** Sem nenhuma das duas, o envio
+  é **BLOQUEADO de forma auditável** (`ErroInstanciaEnvio`, `code: INSTANCIA_NAO_COMPROVADA`,
+  HTTP 409) — nunca por "a empresa só tem uma instância", por `atualizado_em` ou por env.
+- **Defeito corrigido (o mais grave, já ativo em produção):** `whatsapp.js` resolvia em três
+  passos e os dois últimos eram invenção de dono — **(2b)** `ORDER BY atualizado_em DESC LIMIT 1`
+  entre as instâncias ativas da empresa (um `PATCH` de configuração em qualquer instância trocava
+  o número por onde o follow-up de todos os leads sem instância gravada saía) e **(3)**
+  `process.env.EVOLUTION_INSTANCE || 'PJ'`, que **ignora a empresa por completo**. É o mesmo
+  defeito que a quarentena de webhook (migration 060) removeu da ENTRADA, e que seguia vivo na
+  SAÍDA. **PROIBIDO reintroduzir qualquer variação.**
+- **Defeito corrigido (2):** mesmo quem passava `instanceName` **não tinha o nome verificado** —
+  não se checava se aquela instância existia, estava ativa, era do canal certo ou era da empresa
+  daquela conversa. Hoje o nome escolhido é sempre CONFERIDO no banco.
+- **Fonte de verdade: `src/services/instancia-envio.js`** (PURO — sem banco, HTTP, IA ou rede),
+  dono do vocabulário (`MOTIVOS_BLOQUEIO`, `ORIGENS_NOME`, `ErroInstanciaEnvio`) e do julgamento
+  (`nomeParaEnvio` + `validarInstanciaParaEnvio`). O I/O e o **único chokepoint** vivem em
+  `src/whatsapp.js` → `resolverInstanciaEnvio(numero, { instanceName?, empresaId? })`. Ele não
+  responde "qual instância usar?", e sim "**esta instância está provada para este envio?**" —
+  a primeira pergunta admite resposta por heurística, e foi ela que produziu o defeito.
+- **A empresa é conferida contra DUAS fontes** (a da conversa e a declarada pelo chamador),
+  porque conferir só uma deixaria passar a conversa órfã (`empresa_id` nulo) usada por um
+  chamador de outro tenant. Conversa órfã **continua enviando** pela instância gravada nela — o
+  dono efetivo passa a ser o `empresa_id` da própria instância, que é NOT NULL no schema.
+- **A direção do cruzamento importa:** é "a instância nomeada pertence à empresa esperada?",
+  nunca "a empresa escolhe uma instância". A segunda direção é a que inventa dono.
+- **Instância explícita diferente da gravada na conversa é ACEITA** (mesma empresa) — é escolha
+  humana: disparo do Banco de Leads, teste de número. Ela fica no log
+  (`Envio por instancia diferente da gravada na conversa`) e **não migra a conversa**.
+- **D-8 — a instância gravada na conversa é PRESERVADA.** `db-crud.js` (`salvarConversa`, o
+  caminho do webhook e o mais quente) fazia `COALESCE(EXCLUDED, existente)`: a conversa **migrava
+  de número sozinha** quando o lead escrevia para um segundo número da empresa, enquanto
+  `historico-envio.js:71` e `conversa-manual.js` preservavam. Os três agora preservam
+  (`COALESCE(NULLIF(BTRIM(existente),''), EXCLUDED)`). **Consequência declarada e aceita:** se o
+  lead passar a falar com outro número da mesma empresa, as respostas continuam saindo pelo
+  número ORIGINAL — a conversa é uma só (`vendas.conversas.numero` é UNIQUE GLOBAL) e trocar o
+  remetente no meio confundiria o cliente. Mudar o vínculo passa a ser ato explícito.
+- **Chamadores cobertos:** `followup-execution.js` (declara `empresaId`), `agenda.js` (lembrete e
+  sugestão de reagendamento, com a instância do join da conversa), `prospecting.js` +
+  `services/prospecting-send-worker.js` (empresa do prospect), `services/followup-manual.js`,
+  `services/conversa-manual.js` (**consome** a regra única; o SQL próprio dele, que carregava o
+  mesmo fallback por `atualizado_em`, foi REMOVIDO), `handoff-alerts.js` e `operator-commands.js`.
+- **Alerta ao operador sai pela instância do LEAD que o originou** (`notificarVictorWhatsapp(texto,
+  { conversaNumero })`): o alerta sobre o lead da empresa X tem de sair pelo número da empresa X.
+  **Comandos do operador no WhatsApp são respondidos pela MESMA instância que recebeu a mensagem
+  dele** (`req.evolutionInstance`, já provado pelo middleware) — `processarComandosOperadorChat`
+  recebe `{ instanceName }` do webhook.
+- **Download de mídia também é chamada A UMA instância:** `evolutionObterBase64Midia` recebe a
+  instância provada pelo webhook (`extrairTextoEMidiaDoWebhook(msg, { instanceName })`); antes
+  usava a instância do env e só funcionava enquanto existia uma.
+- **Diagnósticos corrigidos:** `verificarStatusInstanciaEvolution` e `numerosSemWhatsapp` **exigem**
+  o nome. Sem ele, o primeiro devolve `state: 'nao_informada'` sem consultar a Evolution e o
+  segundo devolve `null` ("não deu para checar", contrato que já existia) — antes os dois mediam
+  a instância do env e respondiam sobre um número que podia não ser o perguntado.
+  `GET /dashboard/prospeccao/whatsapp/status` passou a aceitar `?instancia=`.
+- **Rotas legadas `/dashboard/whatsapp/*`** deixaram de ler `EVOLUTION_INSTANCE`: o nome vem de
+  `vendas.whatsapp_connections.instance_name` do próprio usuário; sem vínculo, **409**. O `INSERT`
+  de `connect`, que criava o vínculo com o nome do env, foi **removido** (era adoção de instância
+  por nome não comprovado — o mesmo que a regra de "origem autorizada" proíbe) e não substituído.
+- **Consequências declaradas e aceitas (coisas que DEIXAM de sair):** (a) o **resumo diário da
+  agenda** e (b) o **relatório diário de prospecção aos operadores** falam do DIA, não de um lead
+  — não há instância comprovada por onde enviá-los, então são bloqueados e registrados (no caso
+  do relatório, por operador, em `metadata_json.envio_operadores`, status `falhou_envio`);
+  (c) o **disparo legado de prospecção** (`/dashboard/prospeccao/disparos/enviar`) não abordará
+  prospect que ainda não tem conversa — a 1ª mensagem precisa de um número escolhido, e escolher
+  por ele era o defeito; o caminho suportado é o "Rodar leads" do Banco de Leads, que já escolhe.
+- **Funções REMOVIDAS de `src/whatsapp.js`:** a constante `INSTANCE_NAME`, `getInstanceNameForUser`
+  (sem chamador, e só existia para devolver o env) e `getInstanceNameForConversation` (substituída
+  por `resolverInstanciaEnvio`).
+- Testes: `test/instancia-envio.test.js` — a regra pura **e** guardas de regressão que leem o
+  fonte e falham se voltarem `EVOLUTION_INSTANCE`, `INSTANCE_NAME`, o literal `'PJ'`, a ordenação
+  por `atualizado_em`, o `COALESCE(EXCLUDED, …)` do D-8, ou se `conversa-manual.js` voltar a
+  consultar `empresa_whatsapp_instances` por conta própria. **Nenhuma variável de ambiente nova,
+  nenhuma migration, nenhuma rota nova.**
 
 ### Captação social (Bright Data — Instagram agora, LinkedIn no mesmo motor)
 - `BRIGHTDATA_API_TOKEN`: token da Bright Data Web Scraper / Dataset API. **Sem ele o canal de captação fica desligado** (worker não roda) e a **Aquisição** (busca de leads via Maps) também. Mesmo token serve Instagram, LinkedIn e Google Maps.

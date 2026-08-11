@@ -344,7 +344,7 @@ function createCoreFunnel(deps = {}) {
       'Acao: fallback seguro enviado; revisar a conversa no dashboard.'
 
     setImmediate(() => {
-      notificarVictorWhatsapp(texto)
+      notificarVictorWhatsapp(texto, { conversaNumero: numero })
         .then((enviou) => {
           if (enviou && logger && typeof logger.info === 'function') {
             logger.info('[guardrail] operador notificado sobre bloqueio critico', {
