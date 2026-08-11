@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import DataTableFrame from '@/components/ui/DataTableFrame'
+import TextoTruncado from '@/components/ui/TextoTruncado'
 import { IconTrash } from '@/components/ui/icons'
 import ConversaPainel, {
   InteresseBadge,
@@ -314,7 +315,9 @@ export default function ConversasPage() {
             const nomeLead = nomeColunaLead(c)
             return (
             <tr key={c.numero} className={`hover:bg-slate-50/70 ${alerta ? 'bg-red-50/60' : ''}`}>
-              <td className="px-4 py-3 font-medium text-slate-800">{nomeLead}</td>
+              <td className="px-4 py-3 font-medium text-slate-800">
+                <TextoTruncado texto={nomeLead} className="max-w-[220px]" vazio="" />
+              </td>
               <td className="whitespace-nowrap px-4 py-3 text-xs tabular-nums text-slate-600">{identidade.telefone || '—'}</td>
               <td className="px-4 py-3">
                 <div className="inline-flex items-center gap-1.5">

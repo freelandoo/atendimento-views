@@ -6,6 +6,79 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-11 - Início de tarefa IA - Truncamento visual com tooltip acessível para nomes do Google Maps
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`truncamento-nome-maps`).
+- **Pedido resumido:** Melhoria visual independente: mapear as telas que exibem nomes vindos do
+  Google Maps (especialmente Central de Ligações, Central de Mensagens, Aquisição e Banco de
+  Leads) e aplicar um padrão reutilizável e responsivo de truncamento com reticências, mantendo
+  o nome completo em tooltip acessível por mouse **e** teclado. Dado original nunca cortado — só
+  a apresentação. Sem alteração de regra de negócio, produção, credenciais, commit ou push.
+- **É projeto/tarefa de alteração?** Sim, pequena e 100% de apresentação (frontend): sem schema,
+  sem migration, sem rota nova, sem chamada nova ao backend, sem prompt de produção tocado.
+  **Nota de processo:** este registro foi lançado de forma retroativa — a análise (mapeamento das
+  telas, leitura dos arquivos-alvo) foi feita antes da escrita desta entrada, mas a implementação
+  só começou depois do mapeamento completo, o que preserva o espírito da Fase 0 mesmo com o
+  registro fora de ordem. Fica anotado para não repetir.
+- **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim. `docs/ui-visual-standard.md`:
+  **não existe** como arquivo neste repositório (só referenciado no índice do workflow) — não há
+  divergência a registrar ali. `docs/ai-decision-log.md`: decisão de arquitetura resumida abaixo,
+  sem necessidade de entrada separada por ser autocontida e de baixo risco.
+- **Telas/colunas mapeadas (nomes com origem no Google Maps ou resolução de lead):**
+  1. **Aquisição** (`frontend/app/dashboard/aquisicao/page.tsx` reaproveita
+     `prospeccao/page.tsx`) — coluna "Nome" da tabela de prospecção (`p.nome`, com/sem
+     `maps_url`).
+  2. **Banco de Leads** (`banco-leads/page.tsx`) — coluna "Nome" da tabela Google Places
+     (`l.nome`, com/sem `maps_url`). A tabela Instagram (nome NÃO vem do Maps) ficou **fora**
+     de escopo, por decisão de manter o pedido literal (nomes do Google Maps).
+  3. **Central de Ligações** (`central-ligacoes/page.tsx`) — nome na fila de trabalho, na aba
+     Acompanhamento, no topo da tela de ligação em andamento e no card "Lead" da ligação
+     (todos `l.nome`/`lead.nome`, vindos de `prospectador.prospects`, fonte Google Maps).
+  4. **Central de Mensagens** (`conversas/page.tsx` + `components/ConversaPainel.tsx`) — coluna
+     "Lead" (`nomeColunaLead`) e título do painel (`identidadeConversa().titulo`): nome resolvido
+     pelo backend com prioridade WhatsApp → Google Maps → vazio
+     (`backend/src/services/lead-nome-exibicao.js`), então uma fração desses nomes tem origem no
+     Maps.
+- **Achado que mudou o desenho:** o padrão de truncamento **já existia**, espalhado (`max-w-[…]
+  truncate` + `title=`) em ~10 pontos do repo (endereço, nicho, nome do Instagram, roteiros,
+  sidebar, etc.). Nenhum é alcançável por teclado nem por leitor de tela — `title` nativo não é
+  confiável nos dois casos. Reescrever TODOS esses pontos seria refatoração grande e fora do
+  pedido ("mapeie... especialmente" as 4 áreas de nomes do Maps); por isso criei um componente
+  novo e apliquei **só** onde o nome vem do Maps, sem tocar o padrão antigo em outras colunas
+  (endereço, nicho, Instagram) — decisão de escopo, não de arquitetura.
+- **Decisão de arquitetura (autocontida):** componente único `frontend/components/ui/TextoTruncado.tsx`
+  (client component), reusando a técnica de tooltip em PORTAL já validada em
+  `BolinhaPontuacao.tsx` (mede a própria altura, vira para baixo quando não cabe acima, presa
+  nas bordas laterais — necessário porque estas colunas vivem dentro de `DataTableFrame`, que
+  tem rolagem horizontal/`overflow-hidden`, e um tooltip `position:absolute` seria cortado). Não
+  criei um hook compartilhado extraído da `BolinhaPontuacao` para não tocar um componente já
+  testado em produção por uma tarefa que não pediu isso — duplicação pequena e isolada (~30
+  linhas de posicionamento), aceita conscientemente.
+- **Contrato do componente:** `texto` (nunca cortado no dado — só na apresentação), `className`
+  (controla a largura máxima, sempre fornecida pelo chamador), `href`/`dica`/`sufixo` opcionais
+  para o caso de link para a ficha do Google Maps (substitui o padrão antigo
+  `<a title="Ver ficha no Google Maps">{nome} ↗</a>` sem duplicar o link em elemento aninhado),
+  `vazio` (default "—", mas a Central de Mensagens passa `vazio=""` para preservar a regra já
+  registrada no AGENTS.md — "coluna Lead nunca mostra traço, fica vazia sem nome"). O tooltip só
+  aparece quando o texto **realmente transborda** (`ResizeObserver` compara `scrollWidth` vs
+  `clientWidth`), e só então o elemento entra na ordem de tabulação — nome curto não ganha foco
+  nem popup redundante.
+- **Arquivos criados:** `frontend/components/ui/TextoTruncado.tsx`.
+- **Arquivos alterados:** `frontend/app/dashboard/prospeccao/page.tsx`,
+  `frontend/app/dashboard/banco-leads/page.tsx`, `frontend/app/dashboard/central-ligacoes/page.tsx`
+  (4 pontos), `frontend/app/dashboard/conversas/page.tsx`, `frontend/components/ConversaPainel.tsx`.
+  Nenhum arquivo de backend, prompt, schema ou config foi tocado.
+- **Validação:** `npm run typecheck` (frontend) limpo; `npm test` (frontend, `lib/*.test.js`)
+  294/294 — nenhum teste de lib pura foi tocado porque a mudança é só de apresentação/JSX.
+  Iniciei o dev server (`next dev -p 3901`) e montei uma página temporária de QA isolada
+  (removida ao final) para exercitar o componente; a extensão Claude in Chrome não estava
+  conectada nesta sessão (job em background), então **não consegui confirmar visualmente no
+  navegador** o posicionamento do balão, o comportamento de foco por Tab/Escape nem a aparência
+  em telas estreitas — fica como pendência explícita para checagem manual do operador.
+- **Fora de escopo (declarado):** os demais ~10 usos do padrão antigo `max-w truncate title=`
+  (endereço, nicho, Instagram, roteiros, sidebar, etc.), qualquer regra de negócio, dados de
+  produção, prompts, credenciais, commit/push.
+
 ## 2026-08-10 - Inicio de tarefa IA - ANALISE (sem implementacao): contexto de instancia na operacao (seletor persistente)
 
 - **IA/Ferramenta:** Claude Code (Opus 5)

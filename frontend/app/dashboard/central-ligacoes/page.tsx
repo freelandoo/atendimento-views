@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom'
 import { apiFetch } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { IconClose, IconSend } from '@/components/ui/icons'
+import TextoTruncado from '@/components/ui/TextoTruncado'
 import { resumoSinais } from '@/lib/ligacao-sinais-resumo'
 import { segDesde, fmtCronometro } from '@/lib/ligacao-estado'
 import { fmtFone, telHref, avisoFone, analisarFone } from '@/lib/ligacao-fone'
@@ -812,7 +813,7 @@ export default function CentralLigacoesPage() {
                               {/* Só nome + localização. O nicho já é contextualizado pela
                                   campanha ativa, e os dados enriquecidos vivem na tela de
                                   atendimento — a listagem fica enxuta e rápida de escanear. */}
-                              <div className="font-medium text-slate-800">{l.nome}</div>
+                              <TextoTruncado texto={l.nome} className="max-w-[200px] font-medium text-slate-800" />
                               <div className="text-xs text-slate-400">{l.cidade || '—'}</div>
                             </td>
                             <td className="px-4 py-3 align-top"><Fone tel={l.telefone} className="text-sm" /></td>
@@ -869,7 +870,10 @@ export default function CentralLigacoesPage() {
                       <tbody className="divide-y">
                         {pageItems.map((l) => (
                           <tr key={l.id}>
-                            <td className="px-4 py-3"><div className="font-medium text-slate-800">{l.nome}</div><div className="text-xs text-slate-400">{[l.nicho, l.cidade].filter(Boolean).join(' · ')}</div></td>
+                            <td className="px-4 py-3">
+                              <TextoTruncado texto={l.nome} className="max-w-[200px] font-medium text-slate-800" />
+                              <div className="text-xs text-slate-400">{[l.nicho, l.cidade].filter(Boolean).join(' · ')}</div>
+                            </td>
                             <td className="px-4 py-3"><Fone tel={l.telefone} className="text-sm" /></td>
                             <td className="px-4 py-3"><span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${clsStatus(l.status)}`}>{rotuloStatus(l.status)}</span></td>
                             {/* Texto livre: trunca em 1 linha (completo no title) para não ser
@@ -1341,8 +1345,11 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-100">
       <div className="flex items-center justify-between border-b bg-white px-5 py-3">
-        <div className="flex items-center gap-3">
-          <div><span className="text-lg font-semibold">{lead.nome}</span> <span className="text-sm text-slate-400">· {campanha.nome}</span></div>
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 items-baseline gap-1.5">
+            <TextoTruncado texto={lead.nome} className="max-w-[280px] text-lg font-semibold" />
+            <span className="shrink-0 text-sm text-slate-400">· {campanha.nome}</span>
+          </div>
           {/* Cronômetro: pulsando enquanto a chamada corre; congelado no fim da chamada. */}
           {estado === 'em_andamento' && (
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">
@@ -1384,7 +1391,7 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
               ))}
             </div>
           </div>
-          <div className="text-lg font-semibold">{lead.nome}</div>
+          <TextoTruncado texto={lead.nome} className="max-w-full text-lg font-semibold" />
           <div className="text-sm text-slate-600">📞 <Fone tel={lead.telefone} /></div>
           {lead.cidade && <div className="text-sm text-slate-500">📍 {lead.cidade}</div>}
           <div className="text-sm text-slate-500">
