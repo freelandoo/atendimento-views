@@ -11,6 +11,42 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-11 — Menu radial de ações secundárias: só Follow-ups, acionado por clique (não por gesto)
+
+- **Contexto:** relatório "Padronização visual das listagens" (artifact
+  `5823a4a6-8243-4274-9449-ebda5b2a6e58`) propôs um menu radial de 4 zonas para compactar ações
+  secundárias que hoje quebram linha, com duas decisões em aberto: D5 (radial em quais telas) e
+  D6 (gesto de clicar-e-segurar vs. popover de clique).
+- **Decisão (dada pelo próprio pedido que motivou a implementação, não inventada pela IA):**
+  1. **D5 — só Follow-ups nesta entrega.** Captação também se beneficiaria (3-4 ações por
+     linha), mas incluí-la ampliaria o diff além de "pequeno/médio". Fica documentada como fase
+     seguinte, junto de Aquisição (que só tem 2 ações hoje — zona cinzenta do relatório).
+  2. **D6 — acionamento por botão/clique, nunca por hover ou clicar-e-segurar.** O pedido exigiu
+     "acionamento previsível por botão/ícone, sem depender apenas de hover frágil" para desktop.
+     Consequência de design: como o gatilho já é um clique/toque explícito (não um "soltar em
+     cima de uma zona"), a distinção do relatório entre "toque simples abre a lista completa" e
+     "toque longo abre o leque" deixa de existir — só há UM caminho, e ele já é a lista completa
+     com as zonas mais usadas destacadas espacialmente dentro dela. Menos superfície de estado,
+     mesma cobertura de acessibilidade (botão focável, `aria-label`, Escape, fecha fora).
+- **Por que não foi ambíguo o suficiente para virar checkpoint:** D1 (destino de
+  `StatusPill.tsx`) permaneceu em aberto porque o próprio pedido citou esse componente
+  nominalmente como caso de parar e perguntar. D5/D6 tinham instrução explícita no pedido
+  (prioridade de tela + critério de acionamento no desktop), então resolvê-los é aplicar a
+  instrução, não adivinhar uma preferência de produto.
+- **Risco aceito:** a ação "Cancelar automático" (follow-up automático agendado) fica sem zona
+  espacial de propósito — é a mais consequente das ações movidas para o radial, então entra só
+  na lista, nunca num atalho de zona de um clique.
+- **Reuso, não invenção:** o componente reaproveita o padrão de fechamento (Escape/clique fora/
+  scroll/resize) e portal no `<body>` já usado por `BolinhaPontuacao.tsx`/`ModalConfirmar.tsx`;
+  a lib pura `frontend/lib/menu-radial.js` segue o mesmo contrato de
+  `lib/pontuacao-indicador.js` (regra fora do componente, testável sem DOM).
+- **No mesmo diff:** as duas trocas de `window.confirm`/`confirm()` por `ModalConfirmar` que o
+  relatório também apontou como inconsistência pequena e segura de corrigir ("Deletar histórico"
+  em `ConversaPainel.tsx`, "Remover rotina" em `RotinasAquisicao.tsx`).
+- Ver `AGENTS.md` → "Menu radial de ações secundárias" para o detalhamento técnico.
+
+---
+
 ## 2026-08-10 — Controle de ativação padronizado (nome + ícone "i" + controle), e por que a Central NÃO virou toggle
 
 **Pedido:** padronizar os controles de ativação da Central de Mensagens e do Follow-up

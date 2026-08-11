@@ -1129,6 +1129,57 @@
 - Testes: `test/roteiros.test.js`, `test/campanhas.test.js`, `frontend/lib/roteiros-lista.test.js`.
 - Nenhuma variável de ambiente nova foi criada para este módulo.
 
+### Menu radial de ações secundárias (`⋯`) — primeira entrega, só em Follow-ups
+- **Origem:** relatório de padronização visual "Padronização visual das listagens" (após os
+  commits `33bdfbd`/`b019b0b`/`06563f9`/`6b3fff9`), que mapeou as 6 telas de listagem e propôs
+  um menu radial para compactar ações secundárias onde a coluna Ações já está no limite do
+  espaço horizontal. **Só Follow-ups recebeu o radial nesta entrega** — é a tela com mais botões
+  simultâneos do produto (até 5, com `flex-wrap`); Captação e Aquisição ficaram para uma fase
+  seguinte, para não ampliar o diff desta primeira entrega.
+- **Compacta, nunca substitui.** A ação PRIMÁRIA de cada linha (a que resolve a maior parte dos
+  cliques — "Abrir conversa", "Registrar", "Escrever"...) continua um botão comum, sempre
+  visível, sem gesto nenhum. O radial só absorve o que sobra: em Follow-ups,
+  Concluir/Reagendar/Cancelar (item com follow-up em aberto), Roteiro (ação `ligar`) e Cancelar
+  automático (quando há follow-up automático agendado).
+- **Acionamento por CLIQUE no botão "⋯", nunca por hover ou por gesto de clicar-e-segurar.**
+  O relatório propunha um gesto de arrastar com zonas espaciais (decisão D6, em aberto); o
+  pedido que motivou esta entrega já resolveu a favor da alternativa mais conservadora —
+  "acionamento previsível por botão/ícone, sem depender apenas de hover frágil". Como resultado,
+  desktop e toque usam o MESMO caminho: não existe um comportamento "escondido" que só quem
+  descobriu o gesto encontra.
+- **O popover É a lista completa — não existe uma segunda superfície.** As zonas espaciais
+  (cima = ação mais frequente/reversível, direita = positiva, esquerda = negativa) mostram as
+  ações mais usadas na posição descrita pelo relatório; o que não tem zona (ou perde a colisão
+  por uma zona já ocupada) aparece logo abaixo, na mesma lista. Toda ação é alcançável por
+  teclado e por toque simples — nenhuma vive só num atalho espacial. Ação rara/de maior
+  consequência (Cancelar automático) fica sem zona de propósito, um nível mais fundo na lista.
+- **Zero ações → nada é renderizado; UMA ação → vira botão comum** (sem o gatilho "⋯") — um
+  menu para uma única opção é fricção pura, mesmo raciocínio do relatório sobre a Central de
+  Ligações (1 ação por aba). A partir de duas, aparece o gatilho.
+- Fecha em Escape, clique fora e scroll/resize (âncora se moveria); portal no `<body>` — mesmo
+  padrão de fechamento de `BolinhaPontuacao.tsx`/`ModalConfirmar.tsx`, para não reinventar foco/
+  posicionamento.
+- Código: regras PURAS (atribuição de zona, rótulo acessível, classes por tom) em
+  `frontend/lib/menu-radial.js` (+ `.d.ts`/`.test.js`) — o componente não decide nada, mesmo
+  contrato de `lib/pontuacao-indicador.js`. Componente em
+  `frontend/components/ui/MenuRadialAcoes.tsx`, usado em
+  `frontend/app/dashboard/follow-ups/page.tsx` (`LinhaFila`).
+- **Duas trocas de `window.confirm`/`confirm()` por `ModalConfirmar`, no mesmo diff** (mesma
+  origem no relatório — "confirmação destrutiva divergente"): "Deletar histórico"
+  (`frontend/components/ConversaPainel.tsx`) e "Remover rotina"
+  (`frontend/components/RotinasAquisicao.tsx`). Em `ConversaPainel.tsx`, o `ModalConfirmar` virou
+  IRMÃO da `<div>` de fundo do painel (não filho): aquela `<div>` tem `onClick={onFechar}` sem
+  `stopPropagation`, e um `ModalConfirmar` aninhado ali dentro faria um clique no fundo do
+  `ModalConfirmar` borbulhar e fechar o painel inteiro junto.
+- **Fora de escopo desta entrega, declarado no relatório (seção 7 — decisões pendentes):**
+  `StatusPill.tsx` (D1, sem uso hoje — adotar como badge de status unificado ou remover por
+  morto é decisão de produto, não implementada aqui), bolinha de prioridade de Follow-ups
+  migrar para `BolinhaPontuacao` (D2), Captação migrar para `BolinhaPontuacao`/
+  `LeadDetalhesModal` (D3), paginação de servidor em Banco de Leads/Captação (D4), e o radial em
+  Captação/Aquisição (D5 — resolvida a favor de "só Follow-ups agora").
+- Testes: `frontend/lib/menu-radial.test.js`. Nenhuma variável de ambiente nova, nenhuma rota,
+  nenhuma migration, nenhum arquivo de backend alterado.
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

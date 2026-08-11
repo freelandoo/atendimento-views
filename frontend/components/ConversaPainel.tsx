@@ -33,6 +33,7 @@ import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { IconSend, IconStar, IconThumbDown, IconThumbUp } from '@/components/ui/icons'
 import { identidadeConversa } from '@/lib/lead-identidade'
 import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
+import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import TextoTruncado from '@/components/ui/TextoTruncado'
 import { VARIANTES, O_QUE_MEDE, fatoresDeInteresse } from '@/lib/pontuacao-indicador'
 import AlternadorModoIa from '@/components/ui/AlternadorModoIa'
@@ -241,6 +242,7 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
   const [naoEncontrada, setNaoEncontrada] = useState(false)
 
   const [apagando, setApagando] = useState(false)
+  const [confirmarApagar, setConfirmarApagar] = useState(false)
   const [reenviando, setReenviando] = useState(false)
   const [mensagemManual, setMensagemManual] = useState('')
   const [enviandoManual, setEnviandoManual] = useState(false)
@@ -300,7 +302,6 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
 
   async function deletarHistorico() {
     if (!aberta || !empresaId) return
-    if (!confirm(`Apagar TODO o histórico de ${identidade.titulo}?\n\nIsso limpa as mensagens, reseta o estágio e despausa o agente. A próxima mensagem do contato vai começar do zero.\n\nAção irreversível.`)) return
     setApagando(true)
     try {
       await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(aberta.numero)}/historico`, { method: 'DELETE' }),
@@ -505,6 +506,7 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
   const avisoPausa = aberta ? avisoDePausa(aberta.agente_pausado) : null
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={onFechar}
@@ -883,7 +885,7 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
 
         <div className="px-5 py-3 border-t flex flex-wrap justify-between items-center gap-3">
           <button
-            onClick={deletarHistorico}
+            onClick={() => setConfirmarApagar(true)}
             disabled={!aberta || apagando || !aberta.historico?.length}
             className="text-xs px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -912,5 +914,22 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
         </div>
       </div>
     </div>
+    {/* Fora da <div> de fundo do painel (onClick={onFechar}): ModalConfirmar tem seu
+        próprio backdrop, sem stopPropagation nele. Aninhado ali dentro, clicar no fundo
+        do ModalConfirmar borbulharia para o onClick do painel e fecharia os dois de uma
+        vez — por isso vira irmão, não filho. */}
+    {aberta && confirmarApagar && (
+      <ModalConfirmar
+        titulo="Apagar histórico"
+        corpo={`Apagar TODO o histórico de ${identidade.titulo}?`}
+        aviso="Isso limpa as mensagens, reseta o estágio e despausa o agente. A próxima mensagem do contato vai começar do zero. Ação irreversível."
+        rotuloConfirmar="Apagar histórico"
+        tom="perigo"
+        ocupado={apagando}
+        onConfirmar={() => { setConfirmarApagar(false); deletarHistorico() }}
+        onCancelar={() => setConfirmarApagar(false)}
+      />
+    )}
+    </>
   )
 }

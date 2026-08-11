@@ -98,6 +98,31 @@ Registre aqui toda divergência visual autorizada pelo usuário.
   `InstanciasFreelandoo.tsx` — mesma geometria, mas paleta do painel escuro e sem ícone "i".
   Migram quando alguém mexer naquelas telas.
 
+### 2026-08-11 — Menu radial de ações secundárias (`⋯`), primeira entrega só em Follow-ups
+
+- **Padrão aprovado:** quando a coluna Ações de uma listagem tem 3+ ações e já quebra linha
+  (`flex-wrap`), a ação PRIMÁRIA continua um botão comum e as secundárias vão para um gatilho
+  "⋯" (`frontend/components/ui/MenuRadialAcoes.tsx`) que abre um popover com 3 zonas espaciais —
+  **cima** (mais frequente/reversível), **direita** (positiva), **esquerda** (negativa) — e o
+  que sobra numa lista logo abaixo. Zero ações secundárias: nada some no lugar do gatilho.
+  Exatamente uma: vira um botão comum, sem o gatilho (menu para 1 opção é fricção pura).
+- **Motivo:** relatório "Padronização visual das listagens" mediu Follow-ups com até 5 botões
+  simultâneos na coluna Ações — a mais densa das 6 telas de listagem do produto.
+- **Acionamento:** clique/toque no "⋯", nunca hover nem clicar-e-segurar — mesmo caminho em
+  desktop e mobile. Fecha em Escape, clique fora e scroll/resize; portal no `<body>`.
+- **Divergência aceita do desenho original do relatório:** o relatório descrevia um gesto de
+  arrastar (toque simples = lista completa, toque longo = leque). Como o gatilho aqui já é
+  sempre um clique explícito, as duas coisas viraram uma só: o popover É a lista completa, com
+  as ações mais usadas destacadas espacialmente dentro dela. Decisão registrada em
+  [ai-decision-log.md](ai-decision-log.md) (2026-08-11).
+- **Escopo desta entrega:** só a Central de Follow-ups. Captação (3-4 ações) e Aquisição (2
+  ações, zona cinzenta) ficam para uma fase seguinte — não avaliadas aqui para não ampliar o
+  diff.
+- **Como validar:** abrir Follow-ups com um item de follow-up em aberto (3 ações secundárias:
+  Concluir/Reagendar/Cancelar) e testar teclado (Tab até o "⋯", Enter abre, Escape fecha),
+  clique fora, e a mesma linha num item com follow-up automático agendado (ação extra "Cancelar
+  automático" sem zona, só na lista).
+
 ### 2026-08-07 — Navegação do painel (Sidebar + drawer mobile)
 
 - **Divergência aprovada:** a navegação lateral deixou de ser uma lista PLANA de 16 itens e

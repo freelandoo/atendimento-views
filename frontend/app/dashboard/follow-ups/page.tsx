@@ -36,6 +36,7 @@ import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import ConversaPainel from '@/components/ConversaPainel'
 import { IconSend, IconGear, IconAlert, IconClose, IconPlus } from '@/components/ui/icons'
 import InterruptorAtivacao from '@/components/ui/InterruptorAtivacao'
+import MenuRadialAcoes, { type AcaoRadial } from '@/components/ui/MenuRadialAcoes'
 import {
   FILTROS_RAPIDOS,
   VIEW_PADRAO,
@@ -628,6 +629,34 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
   const registrado = !!item.followup_id
   const emAberto = registrado && item.followup_status === 'aguardando'
   const descricao = descricaoPrioridade(item)
+
+  // Ações SECUNDÁRIAS desta linha, absorvidas pelo menu radial (⋯) para não quebrar
+  // linha — Follow-ups é a tela com mais botões simultâneos do produto (relatório de
+  // padronização visual, seção 6). A ação PRIMÁRIA de cada linha (a que resolve a
+  // maior parte dos cliques: "Abrir conversa", "Registrar", "Escrever"...) continua um
+  // botão comum, sempre visível, sem gesto nenhum — o radial só compacta o resto.
+  const acoesSecundarias: AcaoRadial[] = []
+  if (emAberto) {
+    acoesSecundarias.push(
+      { id: 'concluir', rotulo: 'Concluir', zona: 'direita', tom: 'positivo', onSelecionar: () => onConcluir(item) },
+      { id: 'reagendar', rotulo: 'Reagendar', zona: 'cima', onSelecionar: () => onReagendar(item) },
+      { id: 'cancelar', rotulo: 'Cancelar', zona: 'esquerda', tom: 'negativo', onSelecionar: () => onCancelarFollowUp(item) },
+    )
+  }
+  if (item.acao === 'ligar') {
+    acoesSecundarias.push({ id: 'roteiro', rotulo: 'Roteiro', zona: 'cima', onSelecionar: () => onRoteiro(item) })
+  }
+  if (item.ia_agendada) {
+    // Ação rara e de maior consequência: fica sem zona de propósito, um nível mais
+    // fundo na lista — nunca num atalho de um clique só.
+    acoesSecundarias.push({
+      id: 'cancelar_automatico',
+      rotulo: 'Cancelar automático',
+      descricao: 'Cancela os follow-ups automáticos agendados deste lead',
+      onSelecionar: () => onCancelarAuto(item),
+    })
+  }
+
   return (
     <tr className={naMeta ? 'bg-amber-50/40' : ''}>
       <td className="px-3 py-3 align-top">
@@ -711,31 +740,24 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
         )}
       </td>
       <td className="px-4 py-3 text-right align-top">
-        <div className="flex flex-wrap justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {/* O nome (coluna Lead) já é um botão que abre a mesma conversa em QUALQUER estado da
               linha — por isso os botões secundários "Ver conversa" que só repetiam
               `onAbrirHistorico` sem nenhum sinal visual próprio foram removidos daqui. Os botões
               que sobram com esse mesmo destino (`Abrir conversa` de `emAberto`/`assumir_conversa`/
               `revisar_proposta`) são mantidos de propósito: são a AÇÃO PRIMÁRIA recomendada
               (estilo `bg-brand`, com peso visual distinto do nome) — decidir removê-los também é
-              decisão de produto sobre a hierarquia da fila, não limpeza óbvia de duplicidade. */}
-          {/* Follow-up REGISTRADO: executar leva à tela do canal; concluir/reagendar/cancelar
-              atualizam o item. Item já fechado não oferece ação — só histórico. */}
+              decisão de produto sobre a hierarquia da fila, não limpeza óbvia de duplicidade.
+              Concluir/Reagendar/Cancelar/Roteiro/Cancelar automático saíram daqui para o menu
+              radial (⋯, `acoesSecundarias` acima) — eram exatamente os botões que quebravam
+              linha nesta tela (relatório de padronização visual, seção 6). */}
           {emAberto && (
-            <>
-              <button onClick={() => onExecutar(item)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white">
-                {item.destino === 'central_ligacoes' ? 'Ir para a ligação' : 'Abrir conversa'}
-              </button>
-              <button onClick={() => onConcluir(item)} className="rounded-lg border border-emerald-300 px-2.5 py-1 text-xs text-emerald-700 hover:bg-emerald-50">Concluir</button>
-              <button onClick={() => onReagendar(item)} className="rounded-lg border px-2.5 py-1 text-xs hover:bg-slate-50">Reagendar</button>
-              <button onClick={() => onCancelarFollowUp(item)} className="rounded-lg border px-2.5 py-1 text-xs text-slate-500 hover:bg-slate-50">Cancelar</button>
-            </>
+            <button onClick={() => onExecutar(item)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white">
+              {item.destino === 'central_ligacoes' ? 'Ir para a ligação' : 'Abrir conversa'}
+            </button>
           )}
           {item.acao === 'ligar' && (
-            <>
-              <button onClick={() => onRoteiro(item)} className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50">Roteiro</button>
-              <button onClick={() => onRegistrar(item)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white">Registrar</button>
-            </>
+            <button onClick={() => onRegistrar(item)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white">Registrar</button>
           )}
           {item.acao === 'copiar_prompt_preview' && (
             <button onClick={() => onCopiarPrompt(item)} className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white">Copiar prompt</button>
@@ -746,11 +768,8 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
           {(item.acao === 'assumir_conversa' || item.acao === 'revisar_proposta') && (
             <button onClick={() => onAbrirHistorico(item.numero)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white">Abrir conversa</button>
           )}
-          {/* Cancelar é ação DESTE item (um lead), não configuração do motor. */}
-          {item.ia_agendada && (
-            <button onClick={() => onCancelarAuto(item)} className="rounded-lg border px-2.5 py-1 text-xs hover:bg-slate-50" title="Cancela os follow-ups automáticos agendados deste lead">
-              Cancelar automático
-            </button>
+          {acoesSecundarias.length > 0 && (
+            <MenuRadialAcoes acoes={acoesSecundarias} rotuloContexto={item.rotulo} />
           )}
         </div>
       </td>

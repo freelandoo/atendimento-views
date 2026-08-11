@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { IconTrash, IconPlay, IconSparkle } from '@/components/ui/icons'
+import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import AssistenteOportunidades from '@/components/AssistenteOportunidades'
 import AssistenteEntrada from '@/components/AssistenteEntrada'
 import type { Mercado } from '@/lib/assistente-entrada'
@@ -97,6 +98,7 @@ export default function RotinasAquisicao({
   const [rascunho, setRascunho] = useState<Rascunho | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [agindo, setAgindo] = useState<string | null>(null)
+  const [confirmarRemocao, setConfirmarRemocao] = useState<Rotina | null>(null)
   const [erro, setErro] = useState('')
   const [avulsa, setAvulsa] = useState({ nicho: '', cidade: '', uf: '', quantidade: QUANTIDADE_MAX })
   const [buscandoAvulsa, setBuscandoAvulsa] = useState(false)
@@ -179,11 +181,6 @@ export default function RotinasAquisicao({
   }
 
   async function remover(r: Rotina) {
-    const ok = window.confirm(
-      `Remover a rotina "${r.nicho} · ${r.localizacao || r.cidade}"?\n\n`
-      + 'Ela deixa de coletar. Os leads já encontrados continuam no Banco de Leads.'
-    )
-    if (!ok) return
     setAgindo(r.id)
     try {
       const resp = await apiFetch<RotinasResp>(`${base}/${r.id}`, { method: 'DELETE' })
@@ -309,7 +306,7 @@ export default function RotinasAquisicao({
                         className={`hover:underline disabled:opacity-40 ${r.ativo ? 'text-amber-600' : 'text-emerald-600'}`}>
                         {r.ativo ? 'Pausar' : 'Retomar'}
                       </button>
-                      <button onClick={() => remover(r)} disabled={agindo === r.id}
+                      <button onClick={() => setConfirmarRemocao(r)} disabled={agindo === r.id}
                         className="inline-flex items-center gap-1 text-red-600 hover:underline disabled:opacity-40">
                         <IconTrash /> Remover
                       </button>
@@ -420,6 +417,19 @@ export default function RotinasAquisicao({
           meta={avulsa.quantidade}
           onFechar={() => setAssistenteAberto(false)}
           onLeadsAlterados={onLeadsAlterados}
+        />
+      )}
+
+      {confirmarRemocao && (
+        <ModalConfirmar
+          titulo="Remover rotina"
+          corpo={`Remover a rotina "${confirmarRemocao.nicho} · ${confirmarRemocao.localizacao || confirmarRemocao.cidade}"?`}
+          aviso="Ela deixa de coletar. Os leads já encontrados continuam no Banco de Leads."
+          rotuloConfirmar="Remover"
+          tom="perigo"
+          ocupado={agindo === confirmarRemocao.id}
+          onConfirmar={() => { const r = confirmarRemocao; setConfirmarRemocao(null); remover(r) }}
+          onCancelar={() => setConfirmarRemocao(null)}
         />
       )}
     </div>

@@ -6,6 +6,65 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-11 - Inicio de tarefa IA - Primeira entrega da padronizacao visual: radial em Follow-ups + confirmacoes acessiveis
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5)
+- **Pedido resumido:** Implementar a primeira entrega, pequena e incremental, da
+  padronizacao visual descrita no relatorio "Padronizacao visual das listagens —
+  Atendimento Views" (artifact `5823a4a6-8243-4274-9449-ebda5b2a6e58`, gerado apos os
+  commits `33bdfbd`/`b019b0b`/`06563f9`/`6b3fff9`), incluindo o prototipo funcional do
+  menu radial onde o relatorio recomenda maior ganho e menor risco.
+- **E projeto/tarefa de alteracao?** Sim, **pequeno e 100% frontend**: sem schema, sem
+  migration, sem env, sem rota nova, sem worker, sem arquivo de `backend/` tocado.
+- **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md:
+  Sim | docs/ui-visual-standard.md: a consultar na Fase 5 (a tarefa e' 100% de interface)
+  | docs/ai-decision-log.md: a registrar na Fase 8 | relatorio do artifact: Sim (secoes
+  1-8 lidas por completo).
+- **Decisoes ja resolvidas pelo PRoprio pedido do operador (nao inventadas agora):**
+  1. **Radial so' em Follow-ups nesta entrega** (D5 do relatorio) — Captacao tem 3-4
+     acoes e tambem se beneficiaria, mas juntar as duas telas no mesmo diff excede o
+     escopo "pequena/media" pedido; fica documentada como fase seguinte.
+  2. **Acionamento no desktop e' por botao/icone previsivel** (nao por "clicar e
+     segurar" puro) — o pedido exige "acionamento previsivel por botao/icone, sem
+     depender apenas de hover fragil", o que resolve a D6 do relatorio a favor da
+     alternativa mais conservadora (popover em leque no clique do gatilho "⋯", sem
+     gesto de arrastar obrigatorio).
+  3. **A coluna Acoes NAO e' removida** — o radial so' compacta o excesso de botoes
+     secundarios que hoje quebra linha (`flex-wrap` em Follow-ups); a acao primaria de
+     cada linha continua um botao normal, visivel, sem gesto.
+- **Decisao D1 (`StatusPill.tsx`) permanece EM ABERTO nesta entrega**, por instrucao
+  explicita do pedido ("Se houver duvida de produto sobre StatusPill.tsx... parar com
+  checkpoint em vez de adivinhar"). R1 do relatorio (badge de status unificado) **nao
+  sera implementado agora**; fica listado nas pendencias do relatorio final.
+- **Decisoes D2/D3/D4 tambem ficam fora do escopo** desta entrega, por instrucao do
+  pedido (nao mexer em paginacao/exportacao/limite do Banco de Leads sem checkpoint;
+  D2/D3 sao fase 5 do proprio relatorio, risco medio, condicionadas a decisao de
+  produto ja registrada como pendente em `docs/analise-indicador-pontuacao.md` §7.3).
+- **Arquivos que pretendo alterar/criar:**
+  - NOVOS `frontend/components/ui/MenuRadialAcoes.tsx` (componente do menu radial,
+    reaproveitando o padrao de portal + Escape + medicao de `BolinhaPontuacao.tsx`) e
+    `frontend/lib/menu-radial.js` (+ `.d.ts`/`.test.js`, regras puras de zona/geometria,
+    no mesmo padrao PURO de `lib/pontuacao-indicador.js`).
+  - ALTERADOS `frontend/app/dashboard/follow-ups/page.tsx` (adota o radial na coluna de
+    Acoes da fila, mantendo a acao primaria visivel fora do menu),
+    `frontend/components/ConversaPainel.tsx` (troca o `confirm()` nativo de "Deletar
+    historico" por `ModalConfirmar`), `frontend/components/RotinasAquisicao.tsx` (troca
+    o `window.confirm` de "Remover rotina" por `ModalConfirmar`) — as duas trocas de
+    confirmacao sao exatamente as citadas no proprio pedido ("window.confirm
+    remanescente em pontos seguros").
+  - Docs: `AGENTS.md` (se necessario documentar o componente novo), `docs/ai-decision-log.md`.
+- **Fora de escopo declarado (pelo proprio pedido):** backend, banco, schema,
+  migrations, credenciais, producao, workers, seguranca de instancia, roteiro
+  comercial; radial em qualquer tela alem de Follow-ups nesta entrega; alteracao de
+  paginacao/exportacao/limite do Banco de Leads; remocao de acoes de negocio ou
+  mudanca de destino funcional; badge de status unificado (D1 em aberto).
+- **Validacao prevista:** `npm run typecheck` (frontend), `npm test` (frontend, se
+  proporcional ao novo modulo puro), `git diff --check`, e conferencia de que nada fora
+  de `frontend/`/`docs/` foi tocado. Commit unico + push para master **so' se** tudo
+  passar e o diff nao sair do escopo combinado.
+
+---
+
 ## 2026-08-11 - Início de tarefa IA - Próxima etapa de padronização visual: BolinhaPontuacao, "Detalhes" e Central de Mensagens
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`listagens-pontuacao-detalhes`).
