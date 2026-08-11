@@ -6,6 +6,57 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-11 - Início de tarefa IA - Separar nicho e cidade nas listagens (1ª etapa da padronização visual)
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`listagens-nicho-cidade`).
+- **Pedido resumido:** Primeira etapa de um relatório de padronização visual das listagens já
+  concluído (planejamento externo, não implementado ainda): separar nicho e cidade onde hoje
+  aparecem mesclados/inconsistentes (concatenação com `·` ou `/` no mesmo texto) no
+  `LeadDetalhesModal` e nas tabelas de Prospecção/Aquisição Google Places e Banco de Leads
+  Places, trocando por dois nós visuais claros; tornar cidade visível onde só existe em tooltip,
+  se estiver no mesmo caminho e for baixo risco; mais uma varredura curta por pontos
+  equivalentes de baixo risco. Fora de escopo: gesto radial, paginação/exportação, padronizar
+  todas as ações de linha, backend/schema/prompts/produção/credenciais.
+- **É projeto/tarefa de alteração?** Sim, pequena e 100% de apresentação (frontend): sem schema,
+  sem migration, sem rota nova, sem chamada nova ao backend, sem prompt de produção tocado.
+- **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim. `docs/ui-visual-standard.md`
+  não existe neste repositório (mesma observação já registrada na entrada anterior).
+- **Mapeamento feito antes de editar:**
+  1. `frontend/components/LeadDetalhesModal.tsx:136` — subtítulo do modal concatena
+     `[lead.nicho, lead.cidade].filter(Boolean).join(' · ')` num texto único.
+  2. `frontend/app/dashboard/prospeccao/page.tsx:553` — coluna "Nicho / Cidade" da tabela Google
+     Places (reaproveitada por `aquisicao/page.tsx`, que não tem JSX próprio para isso):
+     `{p.nicho} · {p.cidade}`, sem tratar ausência de um dos dois.
+  3. Mesma tela, dois pontos equivalentes de baixo risco no MESMO arquivo já tocado:
+     `:622` ("Desempenho por mercado", `{m.nicho} · {m.cidade}`) e `:664` ("Recentes",
+     `{r.nicho} / {r.cidade}` — usa **barra**, a inconsistência de separador que o pedido cita
+     explicitamente).
+  4. `frontend/app/dashboard/banco-leads/page.tsx:1675` — coluna "Nicho / Cidade" da tabela
+     Google Places do Banco de Leads: mesma concatenação, já com `.filter(Boolean)` e fallback
+     `'—'`.
+- **Decisão de arquitetura (autocontida, baixo risco):** componente novo
+  `frontend/components/ui/NichoCidade.tsx` (puro, sem hooks/estado) para os 4 pontos acima —
+  evita duplicar a mesma lógica de "nicho em destaque + cidade em texto secundário, separados
+  por um `·` decorativo (`aria-hidden`)" em 3 arquivos. Sem truncamento/tooltip: as células
+  nunca tiveram `max-w`/`truncate` nesse campo (o `<td>` quebra linha normalmente), então não há
+  risco de overflow a mitigar — `flex-wrap` no wrapper preserva esse comportamento.
+- **Decisão de escopo (fora do pedido, registrada para não repetir depois):** NÃO vou tocar as
+  tabelas Instagram/LinkedIn (`banco-leads/page.tsx:1729` e `captacao/page.tsx:619`, onde cidade
+  hoje só existe no `title=`) nem `central-ligacoes/page.tsx` (`:817`, `:875`, mesmo padrão de
+  concatenação). O pedido nomeia literalmente "Google Places" e "Banco de Leads Places" no item
+  4 do escopo permitido — mesmo precedente já registrado na entrada de truncamento (2026-08-11)
+  para excluir a tabela Instagram do mesmo motivo. Fica como candidato para uma etapa futura.
+- **Arquivos que pretendo criar/alterar:** NOVO `frontend/components/ui/NichoCidade.tsx`;
+  ALTERADOS `frontend/components/LeadDetalhesModal.tsx`, `frontend/app/dashboard/prospeccao/page.tsx`
+  (3 pontos), `frontend/app/dashboard/banco-leads/page.tsx` (1 ponto). Nenhum arquivo de
+  `backend/` tocado.
+- **Validação prevista:** `npm run typecheck` (frontend) e `npm test` do frontend (`lib/*.test.js`
+  — nenhuma lib pura deveria ser tocada, já que a mudança é só JSX/apresentação). Commit único +
+  push para master **só se** tudo passar e o diff não sair do escopo acima — autorizado pelo
+  operador neste pedido.
+
+---
+
 ## 2026-08-11 - Início de tarefa IA - Truncamento visual com tooltip acessível para nomes do Google Maps
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`truncamento-nome-maps`).

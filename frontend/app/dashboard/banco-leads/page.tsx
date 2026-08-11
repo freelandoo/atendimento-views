@@ -9,6 +9,7 @@ import LeadDetalhesModal, { BolinhaCadastro } from '@/components/LeadDetalhesMod
 import ConversaHistoricoModal from '@/components/ConversaHistoricoModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import TextoTruncado from '@/components/ui/TextoTruncado'
+import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink } from '@/lib/site-rotulos'
 import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconSend, IconAlert } from '@/components/ui/icons'
 
@@ -1672,7 +1673,7 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
                   {cols.status && <StatusCelula l={l} />}
                   {cols.email && <td className="px-3 py-2 text-xs"><EmailEditavel value={l.email} onSave={(email) => onSalvarEmail(l.id, email)} /></td>}
                   {cols.endereco && <td className="px-3 py-2 text-xs text-slate-600 max-w-[180px] truncate" title={l.endereco || ''}>{l.endereco || '—'}</td>}
-                  {cols.nicho && <td className="px-3 py-2 text-slate-600 text-xs">{[l.nicho, l.cidade].filter(Boolean).join(' · ') || '—'}</td>}
+                  {cols.nicho && <td className="px-3 py-2 text-xs"><NichoCidade nicho={l.nicho} cidade={l.cidade} /></td>}
                   {cols.aval && <td className="px-3 py-2 text-right text-xs">{l.avaliacoes ?? '—'}</td>}
                   {cols.nota && <td className="px-3 py-2 text-right text-xs">{l.rating != null ? Number(l.rating).toFixed(1) : '—'}</td>}
                   {cols.horario && <td className="px-3 py-2 text-center">{horario ? '✅' : '❌'}</td>}

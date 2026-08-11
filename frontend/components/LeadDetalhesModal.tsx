@@ -14,6 +14,7 @@
 import { useState } from 'react'
 import JsonLeadModal, { type JsonApresentacao, type CriterioApresentacao } from '@/components/ui/JsonLeadModal'
 import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
+import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink, tituloLinkNaoSite } from '@/lib/site-rotulos'
 import {
   VARIANTES, O_QUE_MEDE, NOTA_COMPLETUDE, fatoresDeCadastro, leituraCadastro,
@@ -133,7 +134,7 @@ export default function LeadDetalhesModal({ lead, onFechar }: { lead: LeadDetalh
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h3 className="truncate text-sm font-semibold">{lead.nome || '—'}</h3>
-              <p className="text-xs text-slate-500">{[lead.nicho, lead.cidade].filter(Boolean).join(' · ') || 'Sem mercado informado'}</p>
+              <NichoCidade nicho={lead.nicho} cidade={lead.cidade} className="text-xs" vazio="Sem mercado informado" />
             </div>
             <button onClick={onFechar} aria-label="Fechar detalhes" className="text-lg leading-none text-slate-400 hover:text-slate-600">×</button>
           </div>

@@ -7,6 +7,7 @@ import { ThOrdenavel, type JsonApresentacao, type CriterioApresentacao } from '@
 import LeadDetalhesModal, { BolinhaCadastro } from '@/components/LeadDetalhesModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import TextoTruncado from '@/components/ui/TextoTruncado'
+import NichoCidade from '@/components/ui/NichoCidade'
 import RotinasAquisicao, { type ModoAquisicao, type RotinasResp } from '@/components/RotinasAquisicao'
 import HistoricoColetas from '@/components/HistoricoColetas'
 import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
@@ -550,7 +551,7 @@ export default function ProspeccaoPage() {
               </td>
               <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{p.telefone || '—'}</td>
               <td className="px-3 py-2 text-xs"><EmailEditavel value={p.email} onSave={(email) => salvarEmail(p.id, email)} /></td>
-              <td className="px-3 py-2 text-slate-600 text-xs">{p.nicho} · {p.cidade}</td>
+              <td className="px-3 py-2 text-xs"><NichoCidade nicho={p.nicho} cidade={p.cidade} /></td>
               <td className="px-3 py-2">
                 <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLE[p.status] || 'bg-gray-100 text-gray-500'}`}>{STATUS_LABEL[p.status] || p.status}</span>
               </td>
@@ -619,7 +620,7 @@ export default function ProspeccaoPage() {
                       <tbody>
                         {porMercado.map((m, i) => (
                           <tr key={i} className="border-t">
-                            <td className="py-1.5 pr-4">{m.nicho} · {m.cidade}</td>
+                            <td className="py-1.5 pr-4"><NichoCidade nicho={m.nicho} cidade={m.cidade} /></td>
                             <td className="py-1.5 pr-4 text-right">{m.total}</td>
                             <td className="py-1.5 pr-4 text-right">{m.enviados}</td>
                             <td className="py-1.5 text-right font-semibold text-orange-600">{m.responderam}</td>
@@ -661,7 +662,11 @@ export default function ProspeccaoPage() {
               <ul className="space-y-1.5">
                 {recentes.map((r, i) => (
                   <li key={i} className="flex items-center justify-between gap-3 text-sm border-t pt-1.5 first:border-0 first:pt-0">
-                    <span><span className="font-medium">{r.nome}</span> <span className="text-slate-500">· {r.nicho} / {r.cidade}</span></span>
+                    <span className="inline-flex flex-wrap items-baseline gap-x-1">
+                      <span className="font-medium">{r.nome}</span>
+                      <span className="text-slate-400" aria-hidden="true">·</span>
+                      <NichoCidade nicho={r.nicho} cidade={r.cidade} className="text-slate-500" />
+                    </span>
                     <span className="font-mono text-xs text-slate-500">{r.telefone || '—'}</span>
                   </li>
                 ))}
