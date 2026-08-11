@@ -33,6 +33,7 @@ import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { IconSend, IconStar, IconThumbDown, IconThumbUp } from '@/components/ui/icons'
 import { identidadeConversa } from '@/lib/lead-identidade'
 import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
+import TextoTruncado from '@/components/ui/TextoTruncado'
 import { VARIANTES, O_QUE_MEDE, fatoresDeInteresse } from '@/lib/pontuacao-indicador'
 import AlternadorModoIa from '@/components/ui/AlternadorModoIa'
 import {
@@ -517,8 +518,10 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
       >
         <div className="px-6 py-3 border-b flex justify-between items-start gap-4">
           <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-4 gap-y-2">
-            <div className="min-w-[220px]">
-              <h3 className="font-semibold text-base">{identidade.titulo}</h3>
+            <div className="min-w-[220px] max-w-full">
+              <h3 className="font-semibold text-base">
+                <TextoTruncado texto={identidade.titulo} className="max-w-full" />
+              </h3>
               {identidade.temNome && identidade.telefone && (
                 <p className="text-xs tabular-nums text-slate-500">{identidade.telefone}</p>
               )}

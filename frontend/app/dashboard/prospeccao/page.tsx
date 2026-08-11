@@ -6,6 +6,7 @@ import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { ThOrdenavel, type JsonApresentacao, type CriterioApresentacao } from '@/components/ui/JsonLeadModal'
 import LeadDetalhesModal, { BolinhaCadastro } from '@/components/LeadDetalhesModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
+import TextoTruncado from '@/components/ui/TextoTruncado'
 import RotinasAquisicao, { type ModoAquisicao, type RotinasResp } from '@/components/RotinasAquisicao'
 import HistoricoColetas from '@/components/HistoricoColetas'
 import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
@@ -519,13 +520,13 @@ export default function ProspeccaoPage() {
             <tr key={p.id} className="border-t hover:bg-gray-50">
               <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{quando(p.created_at)}</td>
               <td className="px-3 py-2 font-medium">
-                {p.maps_url ? (
-                  <a href={p.maps_url} target="_blank" rel="noreferrer"
-                    className="text-brand hover:underline inline-flex items-center gap-1"
-                    title="Ver ficha no Google Maps">
-                    {p.nome} <span className="text-xs text-slate-400">↗</span>
-                  </a>
-                ) : p.nome}
+                <TextoTruncado
+                  texto={p.nome}
+                  href={p.maps_url}
+                  dica={p.maps_url ? 'Ver ficha no Google Maps' : undefined}
+                  className={`max-w-[220px] ${p.maps_url ? 'text-brand hover:underline' : ''}`}
+                  sufixo={p.maps_url ? <span className="text-xs text-slate-400 shrink-0">↗</span> : undefined}
+                />
               </td>
               {/* Bolinha de COMPLETUDE — paleta neutra, nunca a de prioridade comercial: aqui
                   cadastro alto significa MENOS oportunidade, e a ordenação padrão da tela

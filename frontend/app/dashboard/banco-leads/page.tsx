@@ -8,6 +8,7 @@ import { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModa
 import LeadDetalhesModal, { BolinhaCadastro } from '@/components/LeadDetalhesModal'
 import ConversaHistoricoModal from '@/components/ConversaHistoricoModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
+import TextoTruncado from '@/components/ui/TextoTruncado'
 import { rotuloLink } from '@/lib/site-rotulos'
 import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconSend, IconAlert } from '@/components/ui/icons'
 
@@ -1655,12 +1656,13 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
                   {mostrarRodar && <SelCelula l={l} selecionados={selecionados} onToggleSel={onToggleSel} />}
                   {cols.entrou && <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{fmtDataHora(l.created_at)}</td>}
                   <td className="px-3 py-2 font-medium">
-                    {l.maps_url ? (
-                      <a href={l.maps_url} target="_blank" rel="noreferrer"
-                        className="text-brand hover:underline inline-flex items-center gap-1" title="Ver ficha no Google Maps">
-                        {l.nome} <span className="text-xs text-slate-400">↗</span>
-                      </a>
-                    ) : (l.nome || '—')}
+                    <TextoTruncado
+                      texto={l.nome}
+                      href={l.maps_url}
+                      dica={l.maps_url ? 'Ver ficha no Google Maps' : undefined}
+                      className={`max-w-[220px] ${l.maps_url ? 'text-brand hover:underline' : ''}`}
+                      sufixo={l.maps_url ? <span className="text-xs text-slate-400 shrink-0">↗</span> : undefined}
+                    />
                   </td>
                   {cols.telefone && <TelefoneCelula l={l} onAbrirConversa={onAbrirConversa} />}
                   {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
