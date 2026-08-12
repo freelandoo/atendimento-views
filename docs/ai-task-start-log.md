@@ -6,6 +6,71 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-12 - Início de tarefa IA - Anotações rápidas no radial da Central de Ligações + análise de canal E-mail em Follow-ups
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5)
+- **Pedido resumido:** (1) Na Central de Ligações, aba Acompanhamento, transformar o botão
+  solto "Registrar" num menu radial (reusando `MenuRadialAcoes`) com uma ação simples para
+  "ver anotações rápidas" — abrindo uma visualização leve (modal) com a última anotação e
+  botão Copiar, sem precisar abrir o registro completo da ligação. (2) Analisar onde e-mail
+  já aparece hoje em ligações/leads/follow-ups e, **só se for seguro com dados/contratos já
+  existentes**, adicionar identificação/filtro "Canal: E-mail" em Follow-ups; se exigir
+  backend/migration/backfill, **parar com checkpoint** em vez de implementar.
+- **É projeto/tarefa de alteração?** Sim, pequeno e de baixo risco na parte 1 (100%
+  apresentação, reuso de componente/endpoint já existentes, sem rota nova, sem schema, sem
+  regra de negócio nova). A parte 2 é **análise** que pode ou não virar código, conforme o
+  próprio pedido condicionou.
+- **Workflow padrão consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/ui-visual-standard.md: consultado via o padrão já registrado do radial (commits
+  `1271749`/`bdec25a`/`ad29728`/`e0a8ab8`/`f6b3cab`) | docs/ai-decision-log.md: nada de novo a
+  registrar — reuso de padrão já aprovado, nenhuma decisão arquitetural nova.
+- **Verificação de conflito com trabalho paralelo:** `git log` mostra commits recentes de
+  radial/pontuação/modo IA já mesclados na master; `git status` limpo antes de começar.
+  Nenhum conflito nos arquivos alterados aqui.
+- **Fatos confirmados no código ANTES de implementar:**
+  1. `frontend/components/ui/MenuRadialAcoes.tsx` + `frontend/lib/menu-radial.js` **já
+     existem** e já são usados em Follow-ups e Aquisição — reuso direto, sem radial paralelo.
+     Com 1 ação vira botão comum; com 2+ vira o gatilho "⋯" com bolinhas.
+  2. `GET /api/empresas/:id/ligacoes?campanha_lead_id=` (`backend/src/routes/api-ligacoes.js`,
+     `db/ligacoes.js:listarLigacoes`) **já existe** e já devolve `notas` de ligações
+     ENCERRADAS. `OperacaoLigacao` (mesmo arquivo) já consome esse endpoint para
+     pré-preencher o campo de notas ao reabrir uma sessão — mas **nunca exibia** as notas de
+     ligações passadas em lugar nenhum da tela. Nenhuma rota nova foi necessária.
+  3. O tipo local `Ligacao` (linha ~137) não tinha o campo `notas` — adicionado como opcional
+     (`notas?: string | null`), mudança aditiva sem efeito em quem já usava o tipo.
+  4. `Copiar` + `navigator.clipboard.writeText` com fallback por `try/catch` e toast de erro é
+     padrão já usado no repo (`components/ui/JsonLeadModal.tsx`,
+     `app/dashboard/follow-ups/page.tsx`) — reaproveitado, não inventado.
+  5. **E-mail em Central de Ligações:** `LeadEnriquecido.email` (linha ~105) já vem de
+     `p.email` (`prospectador.prospects`, via `listarLeadsDaCampanha`/`filaDeTrabalho`) e já
+     é exibido/filtrável (`EMAIL_OPCOES`, "E-mail disponível") — nada a fazer aqui, já
+     cumprido antes desta tarefa.
+  6. **E-mail em Follow-ups: NÃO EXISTE em lugar nenhum do payload.** Buscas por `email` em
+     `backend/src/services/followup-listing.js`, `backend/src/db/follow-ups.js`,
+     `frontend/app/dashboard/follow-ups/page.tsx` e `frontend/lib/followups-fila.js` não
+     encontram nenhuma ocorrência (fora o e-mail do USUÁRIO responsável, que é outra coisa).
+     Nenhuma das SELECTs que alimentam a fila (`montarCallList`, `listarAgendamentosAuto`,
+     `GET /follow-ups/itens`) projeta e-mail de lead/prospect.
+  7. **O canal do follow-up é um ENUM FECHADO no banco:** `FOLLOWUP_CANAL = ['whatsapp',
+     'ligacao']` (`backend/src/services/follow-up-modelo.js`), validado por CHECK na
+     migration `062_follow_ups.sql`. Adicionar `'email'` como canal real exigiria migration
+     (alterar o CHECK) — mudança de schema, fora do que o pedido autoriza sem checkpoint.
+  8. **Conclusão:** identificar/filtrar "Canal: E-mail" em Follow-ups **não é alcançável só
+     com dados já carregados no cliente** — teria de nascer de uma mudança de backend
+     (projetar e-mail na consulta, casando por telefone como `lead-nome-maps.js` já faz para
+     nome) **e** de uma migration no enum de canal para ser um canal de verdade (não seria
+     seguro fingir um "canal" que o banco não aceita). Por isso esta parte **PAROU em
+     checkpoint** — nenhum código de Follow-ups nem de backend foi alterado.
+- **Arquivos alterados:** `frontend/app/dashboard/central-ligacoes/page.tsx` (radial +ver
+  anotações). Nenhum arquivo de `backend/` tocado. `docs/ai-task-start-log.md` (este registro).
+- **Fora de escopo cumprido (nada disso foi feito):** backend/migration/schema/produção,
+  envio real de e-mail, backfill automático, mudança na regra de seleção de canais reais de
+  follow-up, redesign global de listagens.
+- **Validação prevista:** `npm test` (frontend `lib/*.test.js`) e `npm run typecheck`
+  (frontend). Backend não tocado ⇒ sem necessidade de rodar testes de backend.
+
+---
+
 ## 2026-08-12 - Início de tarefa IA - Padronizar a coluna de Ações/radial (largura, centralização, cor "Conversa")
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`padroniza-coluna-acoes-radial`), job em background.
