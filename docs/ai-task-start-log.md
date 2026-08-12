@@ -2965,3 +2965,54 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Proxima etapa:** implementar migration 066 (aditiva), modulo PURO de disponibilidade,
   camada de dados, ligacao no criar/reagendar/listar, UI do reagendamento e testes; rodar
   `npm test` (backend), `npm test` (frontend) e `npm run typecheck` nos dois.
+
+---
+
+## 2026-08-12 - Inicio de tarefa IA (canal de E-MAIL do follow-up)
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** implementar a FASE SEPARADA declarada na Decisao 4 de
+  `docs/ai-decision-log.md` (2026-08-12): hoje "sem WhatsApp" sempre cai em ligacao porque
+  `follow_ups_canal_chk` e fechada em `whatsapp|ligacao` e **nenhuma tela sabe executar** um
+  follow-up de e-mail. Construir o executor, liberar `email` como canal real e ligar o salto
+  ja desenhado em `EMAIL_FASE_SEPARADA` (`src/services/contato-canal-disponibilidade.js`).
+  E-mail de cadastro/anotacao continua CANDIDATO, nunca confirmado automaticamente.
+- **E projeto/tarefa de alteracao?** Sim, ESTRUTURAL: migration nova que ALTERA duas CHECKs
+  existentes (062 e 066), coluna nova em `app.contato_canal_disponibilidade`, tabela nova de
+  registro de envio, rotas novas e envio real por provider externo. Segue o mesmo desenho ja
+  aprovado com o operador na entrega anterior (commit 41a25de).
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/ai-decision-log.md (Decisoes 1..9 de 2026-08-12), docs/ui-visual-standard.md: Sim.
+- **Areas mapeadas na Fase 0 (leitura antes de editar):**
+  `src/services/contato-canal-disponibilidade.js` (modulo PURO, dono do vocabulario e do
+  gancho `EMAIL_FASE_SEPARADA`), `src/services/follow-up-modelo.js` (`FOLLOWUP_CANAL`,
+  `ACAO_PADRAO`, `TELA_EXECUTORA`), `src/db/follow-ups.js` (criar/reagendar/listar/historico),
+  `src/db/contato-canal-disponibilidade.js` (unica escrita, exige `usuarioId`),
+  `src/routes/api-follow-ups.js`, `src/domain-enums.js` (anti-drift),
+  `sql/migrations/062_follow_ups.sql` e `066_contato_canal_disponibilidade.sql` (as duas
+  CHECKs a alargar), `src/services/email-outreach.js` (**unico transporte de e-mail que
+  existe no repo**, gated por `EMAIL_PROVIDER_API_URL`/`_KEY`/`EMAIL_FROM`),
+  `sql/migrations/012_captacao_social.sql` (`prospectador.email_outreach`, ledger do outreach
+  de prospeccao), `frontend/lib/follow-up-acao.js` + `followups-fila.js` +
+  `app/dashboard/follow-ups/page.tsx`, testes `test/contato-canal-disponibilidade.test.js`,
+  `test/follow-up-modelo.test.js`, `test/domain-enums.test.js`,
+  `frontend/lib/follow-up-acao.test.js`.
+- **Achado que decide o desenho (1):** o transporte de e-mail JA EXISTE
+  (`enviarViaProvider`, em `email-outreach.js`) e e gated por env. Nao se cria cliente HTTP
+  novo: ele passa a ser exportado e reusado. O ledger `prospectador.email_outreach`, porem,
+  e do outreach de PROSPECCAO (chaveado por `prospect_id`, com indice unico por
+  `(prospect_id, lower(email))`) — o follow-up nao tem prospect obrigatorio, entao o registro
+  de execucao vira tabela propria em `app`, ao lado de `app.follow_ups`.
+- **Achado que decide o desenho (2):** "e-mail confirmado" e o MESMO tipo de fato que "sem
+  WhatsApp" — veredito humano sobre um canal de um contato. Ele cabe na tabela que ja existe
+  (`app.contato_canal_disponibilidade`, identidade `empresa_id + telefone_digitos`), que so
+  precisa de uma coluna para o ENDERECO e de `email` na CHECK de canal. Criar tabela separada
+  duplicaria a curadoria em dois lugares.
+- **Achado que decide o desenho (3):** sem endereco nao ha canal. Por isso a CHECK nova exige
+  `endereco IS NOT NULL` quando `canal='email' AND disponivel=true` — e o que impede um item
+  de entrar na fila num canal sem para onde enviar (o risco exato que a Decisao 4 apontou).
+- **Fora de escopo declarado:** curadoria de WhatsApp (migration 066) permanece intacta;
+  nenhum e-mail real e enviado na validacao; nenhum acesso a producao ou banco real; nenhum
+  commit/push (diff fica pronto para revisao).
+- **Proxima etapa:** implementar backend (migration 067 -> modulo puro -> dados -> executor ->
+  rotas), depois frontend (lib pura -> tela), depois testes/typecheck/build.

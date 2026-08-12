@@ -133,6 +133,13 @@ const {
   ORIGEM_MARCACAO: DISPONIBILIDADE_ORIGEM,
 } = require('./services/contato-canal-disponibilidade')
 
+// Canal de e-mail do follow-up (migration 067). Status de uma TENTATIVA de envio — fonte da
+// CHECK follow_up_emails_status_chk. Nao existe 'desativado' aqui, ao contrario de
+// prospectador.email_outreach: canal nao configurado recusa ANTES de compor e nada e gravado.
+// Vem do MESMO modulo puro dos demais enums de follow-up (o executor,
+// services/followup-email.js, toca banco e rede — importa-lo daqui criaria ciclo).
+const { FOLLOWUP_EMAIL_STATUS } = require('./services/follow-up-modelo')
+
 module.exports = {
   AGENDA_VENDAS,
   AGENDA_APP,
@@ -142,6 +149,7 @@ module.exports = {
   FOLLOWUP_ORIGEM,
   DISPONIBILIDADE_CANAIS,
   DISPONIBILIDADE_ORIGEM,
+  FOLLOWUP_EMAIL_STATUS,
   EVENTOS_COMERCIAIS_TIPOS,
   JOB_QUEUE_TIPOS,
   ROTEIRO_VERSAO_STATUS,

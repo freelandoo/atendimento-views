@@ -93,4 +93,10 @@ async function enviarEmailProspect(empresaId, prospectId, { assunto, corpo } = {
   }
 }
 
-module.exports = { emailConfigurado, enviarEmailProspect }
+// `enviarViaProvider` e exportado porque o canal de e-mail do FOLLOW-UP (migration 067,
+// services/followup-email.js) precisa do MESMO transporte — mesma credencial, mesmo
+// remetente verificado, mesmo timeout. Duplicar o cliente HTTP criaria dois lugares para
+// ajustar provider e dois comportamentos possiveis quando ele muda. O que NAO e reusado e o
+// ledger: `prospectador.email_outreach` e chaveado por prospect_id (que o follow-up nao tem)
+// e mede a PRIMEIRA abordagem, nao o acompanhamento.
+module.exports = { emailConfigurado, enviarEmailProspect, enviarViaProvider }

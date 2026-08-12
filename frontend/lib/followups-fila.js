@@ -62,8 +62,12 @@ const {
   formatarQuando, resumoProximaAcao, sugerirProximaAcao, paraInputLocal, deInputLocal,
   validarProximaAcao, montarPayloadProximaAcao, itemDeFollowUp, contextoDeOrigem,
   MARCAR_SEM_WHATSAPP_LABEL, MARCAR_SEM_WHATSAPP_AJUDA, AVISO_TROCA_PARA_LIGACAO,
-  AVISO_CANAL_DESCARTADO, rotuloDisponibilidadeWhatsapp, canalDescartadoPeloOperador,
+  AVISO_TROCA_PARA_EMAIL, AVISO_CANAL_DESCARTADO, AVISO_CANAL_EMAIL_DESCARTADO,
+  avisoDaTrocaDeCanal, rotuloDisponibilidadeWhatsapp, canalDescartadoPeloOperador,
   estadoDisponibilidadeInicial, alternarSemWhatsapp, patchDisponibilidade,
+  MARCAR_EMAIL_LABEL, MARCAR_EMAIL_AJUDA, rotuloDisponibilidadeEmail, emailValido,
+  estadoEmailInicial, alternarTemEmail, patchEmailDisponibilidade,
+  LIMITE_ASSUNTO_EMAIL, LIMITE_CORPO_EMAIL, EMAIL_DESTINO_AJUDA, EMAIL_CANDIDATOS_AJUDA,
 } = require('./follow-up-acao')
 
 /** Situacao do item na fila. Fechada de proposito — a tela nao inventa estado. */
@@ -94,6 +98,9 @@ const ACAO_IA_LABEL = Object.freeze({
   // como opcao de seletor produziria uma lista diferente a cada carga da fila.
   followup_whatsapp: 'Follow-up por WhatsApp',
   followup_ligacao: 'Follow-up por ligação',
+  // O rotulo vem do canal (`followup_${canal}`, migration 067). Sem esta entrada o filtro
+  // "Acao" mostraria a chave crua `followup_email` na lista de opcoes.
+  followup_email: 'Follow-up por e-mail',
 })
 
 const ACAO_POR_STATUS_IA = Object.freeze({
@@ -257,6 +264,11 @@ const CAMPOS_FOLLOWUP_VAZIOS = Object.freeze({
   // registrado. Presumi-lo `false` num item sem fonte seria inventar a verificacao.
   whatsapp_disponivel: null,
   whatsapp_motivo: null,
+  // Idem para o canal de e-mail (migration 067): item derivado nao carrega veredito nem
+  // endereco — a confirmacao acompanha o follow-up REGISTRADO.
+  email_disponivel: null,
+  email_endereco: null,
+  email_motivo: null,
 })
 
 /**
@@ -485,6 +497,7 @@ const FILTROS_RAPIDOS = Object.freeze([
   { valor: 'hoje', label: 'Próxima ação hoje', descricao: 'Prazo vencido, agora ou ainda hoje.' },
   { valor: 'whatsapp', label: 'WhatsApp', descricao: 'Próxima ação executada na Central de Mensagens.' },
   { valor: 'ligacao', label: 'Ligação', descricao: 'Próxima ação executada na Central de Ligações.' },
+  { valor: 'email', label: 'E-mail', descricao: 'Próxima ação executada aqui mesmo, pelo compositor de e-mail.' },
   { valor: 'humano', label: 'Atendimento humano', descricao: 'Itens que precisam de uma pessoa.' },
   { valor: 'ia', label: 'Atendimento IA', descricao: 'Itens com follow-up automático agendado.' },
   { valor: 'falhas', label: 'Falhas', descricao: 'Follow-up que falhou. Falha nunca aparece como "aguardando".' },
@@ -499,6 +512,7 @@ const PREDICADO_RAPIDO = Object.freeze({
   // agendamento do motor) NAO entra nestes dois filtros, em vez de receber canal presumido.
   whatsapp: (i) => emAberto(i) && i.canal === 'whatsapp',
   ligacao: (i) => emAberto(i) && i.canal === 'ligacao',
+  email: (i) => emAberto(i) && i.canal === 'email',
   humano: (i) => emAberto(i) && i.humano,
   ia: (i) => emAberto(i) && i.ia_agendada,
   falhas: (i) => i.tem_falha === true,
@@ -704,8 +718,13 @@ module.exports = {
   // Disponibilidade de canal do contato (migration 066) — tambem so' REEXPORTADA daqui, para
   // a tela continuar importando de um lugar so'.
   MARCAR_SEM_WHATSAPP_LABEL, MARCAR_SEM_WHATSAPP_AJUDA, AVISO_TROCA_PARA_LIGACAO,
-  AVISO_CANAL_DESCARTADO, rotuloDisponibilidadeWhatsapp, canalDescartadoPeloOperador,
+  AVISO_TROCA_PARA_EMAIL, AVISO_CANAL_DESCARTADO, AVISO_CANAL_EMAIL_DESCARTADO,
+  avisoDaTrocaDeCanal, rotuloDisponibilidadeWhatsapp, canalDescartadoPeloOperador,
   estadoDisponibilidadeInicial, alternarSemWhatsapp, patchDisponibilidade,
+  // Canal de e-mail do contato (migration 067) — mesmo caminho de reexportacao.
+  MARCAR_EMAIL_LABEL, MARCAR_EMAIL_AJUDA, rotuloDisponibilidadeEmail, emailValido,
+  estadoEmailInicial, alternarTemEmail, patchEmailDisponibilidade,
+  LIMITE_ASSUNTO_EMAIL, LIMITE_CORPO_EMAIL, EMAIL_DESTINO_AJUDA, EMAIL_CANDIDATOS_AJUDA,
   VIEW_PADRAO,
   montarFila,
   ordenarFila,

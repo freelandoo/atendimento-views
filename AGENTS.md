@@ -1119,16 +1119,14 @@
   `test/domain-enums.test.js`. `canal` é fechado em `whatsapp`: `ligacao` não entra porque o
   telefone É a identidade (a resposta seria sempre "disponível"), e `email` não entra pelo
   motivo abaixo.
-- **E-mail é FASE SEPARADA, declarada — não esquecimento.** A prioridade pedida é "sem WhatsApp
-  → e-mail confirmado → ligação", e o primeiro salto **não tem para onde ir**: a CHECK
-  `follow_ups_canal_chk` (migration 062) é fechada em `whatsapp|ligacao` e **nenhuma tela sabe
-  EXECUTAR um follow-up de e-mail**. Criar o valor `email` sem executor produziria itens que
-  entram na fila e nunca saem dela — pior que a ausência do canal. **O salto efetivo é
-  `ligacao`**, e sempre há telefone. E-mail de cadastro ou de anotação livre é **CANDIDATO,
-  nunca confirmado**: promovê-lo sozinho a canal repetiria, do outro lado, o mesmo erro de
-  deduzir disponibilidade sem verificação humana. `EMAIL_FASE_SEPARADA` registra isso no
-  código, com o motivo escrito, e o teste o cobra. Quando o canal nascer, `email` entra nas
-  **duas** CHECKs, numa migration própria.
+- **E-mail era FASE SEPARADA e DEIXOU DE SER na migration 067** (seção própria abaixo). O
+  histórico importa porque explica a regra dura do canal: enquanto `follow_ups_canal_chk` era
+  fechada em `whatsapp|ligacao` e **nenhuma tela sabia EXECUTAR** um follow-up de e-mail, criar
+  o valor `email` produziria itens que entram na fila e nunca saem dela — pior que a ausência
+  do canal. O valor nasceu **junto do executor**, e `EMAIL_FASE_SEPARADA` virou `EMAIL_CANAL`.
+  E-mail de cadastro ou de anotação livre continua sendo **CANDIDATO, nunca confirmado**:
+  promovê-lo sozinho a canal repetiria, do outro lado, o mesmo erro de deduzir disponibilidade
+  sem verificação humana (`EMAIL_CANDIDATO`, e o teste o cobra).
 - **"Sem e-mail nem telefone" NÃO virou regra nova, de propósito:** não existe contato assim
   neste modelo (`telefone_digitos` é NOT NULL, 8..15 dígitos). Regra para estado inalcançável é
   código morto nascendo pronto.
@@ -1167,9 +1165,10 @@
   na data, fazendo parecer que alguém reverificou o contato toda vez. Desmarcar é **desfazer**
   quando havia marcação e **silêncio** quando não havia (`alternarSemWhatsapp`) — desmarcar não
   registra uma verificação que não houve.
-- **Consequência declarada e aceita:** enquanto o canal de e-mail não existir, todo contato
-  marcado como sem WhatsApp vai para **ligação**, inclusive quando há e-mail conhecido no
-  cadastro. É o único canal que o produto sabe executar hoje.
+- **Consequência que a migration 067 REVERTEU:** enquanto o canal de e-mail não existia, todo
+  contato marcado como sem WhatsApp ia para **ligação**, inclusive quando havia e-mail conhecido
+  no cadastro. Hoje o salto do meio existe — mas só com endereço **confirmado por uma pessoa**;
+  sem ele, o destino continua sendo a ligação.
 - Código: regras PURAS em `src/services/contato-canal-disponibilidade.js` (dono do vocabulário;
   reexportado por `domain-enums.js`, **não copiado**), SQL em
   `src/db/contato-canal-disponibilidade.js` (uma única escrita, e ela **exige `usuarioId`**),
@@ -1178,6 +1177,106 @@
   guardas que leem o fonte e a migration), `test/domain-enums.test.js`,
   `test/follow-up-modelo.test.js`, `frontend/lib/follow-up-acao.test.js`.
 - **Nenhuma variável de ambiente nova, nenhuma rota nova.**
+
+### Canal de E-MAIL do follow-up — o valor nasceu JUNTO do executor (migration 067)
+- **Regra de negócio, em uma frase:** e-mail só é canal quando uma **PESSOA confirmou para
+  onde enviar**. A ordem completa passa a existir de fato: **sem WhatsApp → e-mail confirmado
+  → ligação**.
+- **O que esta entrega resolve:** a Decisão 4 de 2026-08-12 proibiu o valor `email` porque
+  `follow_ups_canal_chk` era fechada em `whatsapp|ligacao` e **nenhuma tela sabia EXECUTAR** um
+  follow-up de e-mail — um canal sem executor produz itens que entram na fila e nunca saem
+  dela, pior que a ausência do canal. **O canal e o executor nasceram no mesmo diff, de
+  propósito.** Se um dia alguém alargar a CHECK sem executor, é esse defeito que volta.
+- **Schema:** migration `067_follow_up_canal_email.sql`. **Aditiva quanto a DADOS** (não muta,
+  não apaga e não move linha alguma); o que ela altera são duas CHECKs, e as duas só
+  **ALARGAM** o que era aceito. `origem` (a garantia de "só humano" da 066) **não é tocada**.
+  - `follow_ups_canal_chk` → `whatsapp | ligacao | email`. O índice único parcial
+    `follow_ups_um_aberto_por_canal_uk` **continua valendo sem alteração**: sendo por
+    (empresa, telefone, CANAL), "mandar e-mail amanhã" e "ligar na sexta" seguem sendo dois
+    trabalhos.
+  - `contato_canal_disp_canal_chk` → `whatsapp | email`. **Mesma tabela da 066 de propósito**:
+    é o MESMO tipo de fato (veredito humano sobre um canal de um contato) com a MESMA
+    identidade (`empresa_id + telefone_digitos`). Tabela separada duplicaria a curadoria em
+    dois lugares e deixaria as duas divergirem. `ligacao` continua fora — o telefone É a
+    identidade, então a resposta seria sempre "disponível".
+  - Coluna `endereco` (nullable, sem DEFAULT) + duas CHECKs: `contato_canal_disp_endereco_chk`
+    (só o canal que tem endereço pode carregar um) e
+    **`contato_canal_disp_email_confirmado_chk`** (`canal <> 'email' OR disponivel = false OR
+    endereco IS NOT NULL`). **É esta que impede o defeito da Decisão 4 no banco:** confirmar
+    e-mail é dizer PARA ONDE — canal sem destino não é canal. Negar (`disponivel = false`)
+    segue permitido sem endereço: é uma negação, não um destino.
+  - `app.follow_up_emails` — uma linha por envio TENTADO. Tabela própria, e **não**
+    `prospectador.email_outreach`, por dois motivos concretos: aquela é chaveada por
+    `prospect_id` (o follow-up não tem prospect obrigatório) e é o ledger da **primeira
+    abordagem** — misturar as duas faria abordagem e acompanhamento medirem a mesma coisa.
+    **Não existe status `desativado`** aqui: canal não configurado recusa ANTES de compor e
+    nada é gravado, porque registrar um "envio" que nunca saiu faria a linha do tempo mentir.
+- **A regra do canal vale nos DOIS sentidos, e o banco só cobre um.** A CHECK protege
+  `contato_canal_disponibilidade`, mas não enxerga `follow_ups` — e `POST /follow-ups/itens`
+  aceita `canal` do corpo. Por isso `resolverCanalFollowUp` **rebaixa para `ligacao` todo item
+  de e-mail sem endereço confirmado** (motivo `e-mail sem endereco confirmado por uma pessoa`).
+  Sem essa guarda, bastaria pedir um follow-up de e-mail para um contato sem endereço para
+  criar exatamente o item sem destino que a Decisão 4 descreveu.
+- **O EXECUTOR é a própria Central de Follow-ups** (`TELA_EXECUTORA.email =
+  'central_follow_ups'`). **Não existe uma "Central de E-mails", e não deve nascer:** compor
+  uma mensagem 1:1 é o que o follow-up manual desta fila já faz; uma tela nova duplicaria o
+  compositor. O item ganha o botão primário **"Escrever e-mail"** (fora do radial — é o
+  trabalho em si), que abre `ModalEmail`: destinatário, assunto e corpo, com rascunho pronto.
+- **O DESTINATÁRIO não é um campo, nem na tela nem na rota.** É sempre o endereço confirmado
+  em `app.contato_canal_disponibilidade` (origem `operador`). `POST /itens/:id/email/enviar`
+  **não aceita destinatário no corpo** — há guarda de regressão que lê o fonte da rota. Aceitar
+  um endereço ali permitiria enviar para um destino que ninguém verificou.
+- **O rascunho é DETERMINÍSTICO — não há IA.** Ele é montado a partir do que já está no item
+  (próxima ação + observação). Um canal novo não estreia com custo de LLM por clique; se isso
+  mudar, será decisão de produto, e o teste que proíbe `generateAIResponse` no executor é onde
+  ela apareceria.
+- **Nenhum worker envia e-mail sozinho.** O canal nasceu de uma decisão humana e continua
+  executado por uma pessoa: guarda de regressão varre `src/**` e falha se `enviarEmailFollowUp`
+  ganhar qualquer chamador além da rota.
+- **Enviar CONCLUI o item** (pelo mesmo `mudarStatusFollowUp` do botão "Concluir", nunca um
+  UPDATE próprio) — neste canal, enviar É a ação; deixar o item aberto devolveria a fila ao
+  problema de "item que entra e não sai". **Ordem declarada:** envia primeiro (chamada externa,
+  irreversível), grava depois. Falha do provider vira linha `falhou` e **o item continua em
+  aberto** — trabalho não some da fila por falha de transporte. Se o e-mail sair e a conclusão
+  falhar, o erro é registrado e a tela pede que o operador conclua à mão (`conclusao_erro`, que
+  **não** é falha de envio).
+- **O transporte é REUSADO, o ledger não.** `enviarViaProvider` passou a ser exportado de
+  `services/email-outreach.js` — mesma credencial, mesmo remetente verificado, mesmo timeout.
+  Duplicar o cliente HTTP criaria dois lugares para ajustar provider. Sem
+  `EMAIL_PROVIDER_API_URL`/`EMAIL_PROVIDER_API_KEY`/`EMAIL_FROM` o canal fica **desligado** e o
+  envio é recusado com motivo próprio (a tela distingue "confirme um e-mail" de "o canal não
+  está configurado" — as saídas são diferentes).
+- **Candidatos ≠ confirmação.** `prospectador.prospects.email` aparece como **sugestão** no
+  compositor e na rota `GET /contatos/:telefone/emails`, sempre rotulado como não verificado, e
+  **nunca** vira destino sozinho. O casamento por telefone segue o padrão de
+  `db/lead-nome-maps.js` (variações geradas em JS, expressão do `WHERE` idêntica à indexada em
+  `idx_prospects_empresa_telefone_digitos`).
+- **A linha do tempo do contato mostra os e-mails** (assunto, nunca o corpo) porque, ao
+  contrário das mensagens de WhatsApp, **não há outra tela que os mostre**. O `corpo` é gravado
+  (foi o que o cliente recebeu) mas **nenhuma leitura o devolve** — há teste que lê as colunas.
+- **Auditoria:** `follow_up_email_enviado` (sem endereço e sem texto — o conteúdo vive em
+  `app.follow_up_emails`) e **uma linha por CANAL marcado** no reagendamento, porque WhatsApp e
+  e-mail são dois fatos distintos sobre o contato.
+- **Rotas (as três dentro do mount admin-only + `requireEmpresaAccess`):**
+  `GET /itens/:id/email` (read-only: não envia, não grava, não chama IA; diz **por que** não dá
+  para enviar), `POST /itens/:id/email/enviar`, `GET /contatos/:telefone/emails`.
+  `POST /itens/:id/reagendar` ganhou três campos **OPCIONAIS** (`email_disponivel`,
+  `email_endereco`, `email_motivo`) — quem não os envia mantém o comportamento anterior.
+- **O canal continua FORA do formulário** (Decisão 8 da 066 permanece): `CANAL_OPCOES` do
+  encerramento de ligação **não** oferece e-mail. Ele é alcançado como **consequência** de um
+  fato declarado sobre o contato, nunca escolhido numa lista.
+- Código: regras PURAS em `src/services/contato-canal-disponibilidade.js` (`EMAIL_CANAL`,
+  `EMAIL_CANDIDATO`, `ORDEM_CANAIS`, `normalizarEmail`, `enderecoEmailConfirmado`) e
+  `src/services/follow-up-modelo.js` (`FOLLOWUP_CANAL`, `FOLLOWUP_EMAIL_STATUS`,
+  `TELA_EXECUTORA`); executor em `src/services/followup-email.js`; SQL em
+  `src/db/follow-up-emails.js` e `src/db/contato-canal-disponibilidade.js`; ligação no
+  criar/reagendar/listar/histórico em `src/db/follow-ups.js`; rotas em
+  `src/routes/api-follow-ups.js`. Front: `frontend/lib/follow-up-acao.js` (+ `.d.ts`/`.test.js`),
+  reexportado por `followups-fila.js`, e `ModalEmail` em
+  `frontend/app/dashboard/follow-ups/page.tsx`. Testes: `test/followup-email.test.js` (novo),
+  `test/contato-canal-disponibilidade.test.js`, `test/domain-enums.test.js`,
+  `test/follow-up-modelo.test.js`, `frontend/lib/follow-up-acao.test.js`.
+- **Nenhuma variável de ambiente nova** (o canal reusa as três do provider que já existiam).
 
 ### Roteiros — ciclo de vida do ROTEIRO (arquivar) ≠ ciclo de vida da VERSÃO
 - **Dois ciclos de vida convivem na tela `/dashboard/roteiros`, e confundi-los é o erro fácil

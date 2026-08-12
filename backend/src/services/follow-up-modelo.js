@@ -25,8 +25,17 @@
 // Vocabulario fechado de proposito: a tela nao inventa estado, e as CHECK da migration 062
 // espelham exatamente estes arrays (anti-drift em test/domain-enums.test.js).
 
-/** Por onde a proxima acao vai ser executada. Decide QUAL tela executa o item. */
-const FOLLOWUP_CANAL = Object.freeze(['whatsapp', 'ligacao'])
+/**
+ * Por onde a proxima acao vai ser executada. Decide QUAL tela executa o item.
+ *
+ * `email` entrou na migration 067, **junto com o executor** (services/followup-email.js + a
+ * acao "Escrever e-mail" na propria Central de Follow-ups). Ate ali ele era proibido de
+ * proposito: um canal que nenhuma tela sabe executar produz itens que entram na fila e nunca
+ * saem dela (Decisao 4 de 2026-08-12, em docs/ai-decision-log.md). A ordem de preferencia
+ * ("sem WhatsApp -> e-mail confirmado -> ligacao") vive em
+ * services/contato-canal-disponibilidade.js, nao aqui.
+ */
+const FOLLOWUP_CANAL = Object.freeze(['whatsapp', 'ligacao', 'email'])
 
 /**
  * Estado do trabalho. `falha` existe separado de `aguardando` porque falha e' DIAGNOSTICO:
@@ -39,6 +48,17 @@ const FOLLOWUP_PRIORIDADE = Object.freeze(['alta', 'media', 'baixa'])
 
 /** O que gerou a proxima acao. Rastreabilidade exigida: nunca criar follow-up sem origem. */
 const FOLLOWUP_ORIGEM = Object.freeze(['ligacao', 'mensagem', 'automacao', 'manual'])
+
+/**
+ * Status de uma TENTATIVA de envio do canal de e-mail (`app.follow_up_emails`, migration
+ * 067). Fica aqui, no modulo PURO, e nao no executor (services/followup-email.js), porque o
+ * executor toca banco e rede — importa-lo de `domain-enums.js` criaria ciclo de require.
+ *
+ * Nao existe `desativado`, ao contrario de `prospectador.email_outreach`: quando o canal nao
+ * esta configurado, o envio e recusado ANTES de compor e nada e gravado. Registrar um
+ * "envio" que nunca saiu faria a linha do tempo do contato mentir.
+ */
+const FOLLOWUP_EMAIL_STATUS = Object.freeze(['enviado', 'falhou'])
 
 const CANAIS = new Set(FOLLOWUP_CANAL)
 const STATUS = new Set(FOLLOWUP_STATUS)
@@ -219,6 +239,7 @@ function validarReagendamento(statusAtual, p = {}, agora = new Date(), opcoes = 
 const ACAO_PADRAO = Object.freeze({
   whatsapp: 'Retomar por WhatsApp',
   ligacao: 'Ligar novamente',
+  email: 'Enviar e-mail',
 })
 
 function acaoPadraoDoCanal(canal) {
@@ -232,6 +253,11 @@ function acaoPadraoDoCanal(canal) {
 const TELA_EXECUTORA = Object.freeze({
   whatsapp: 'central_mensagens',
   ligacao: 'central_ligacoes',
+  // O e-mail e executado na PROPRIA fila: nao ha uma "Central de E-mails", e criar uma tela
+  // nova para compor uma mensagem 1:1 duplicaria o compositor manual que a fila ja tem. O
+  // item abre um compositor (assunto + corpo), o operador revisa e envia — mesma disciplina
+  // de revisao humana antes do envio do follow-up manual de WhatsApp.
+  email: 'central_follow_ups',
 })
 
 function telaExecutora(canal) {
@@ -243,6 +269,7 @@ module.exports = {
   FOLLOWUP_STATUS,
   FOLLOWUP_PRIORIDADE,
   FOLLOWUP_ORIGEM,
+  FOLLOWUP_EMAIL_STATUS,
   TRANSICOES,
   LIMITE_PROXIMA_ACAO,
   transicaoStatusValida,

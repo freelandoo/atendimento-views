@@ -3,7 +3,7 @@ export type PrioridadeFila = 'alta' | 'media' | 'baixa'
 export type PrazoQuando = 'agora' | 'atrasado' | 'hoje' | 'futuro' | 'passado'
 export type FiltroRapido =
   | 'todos' | 'aguardando' | 'hoje'
-  | 'whatsapp' | 'ligacao'
+  | 'whatsapp' | 'ligacao' | 'email'
   | 'humano' | 'ia' | 'falhas' | 'concluidos'
 
 import type {
@@ -121,6 +121,11 @@ export interface ItemFila {
   // também o que um item derivado carrega: o veredito acompanha o follow-up registrado.
   whatsapp_disponivel: DisponibilidadeWhatsapp
   whatsapp_motivo: string | null
+  // --- Canal de e-mail do CONTATO (migration 067). Mesmo tri-estado; `email_endereco` só
+  // existe quando uma pessoa confirmou — cadastro é candidato, não confirmação.
+  email_disponivel: DisponibilidadeWhatsapp
+  email_endereco: string | null
+  email_motivo: string | null
 }
 
 export interface ViewFollowups {
@@ -189,7 +194,8 @@ export declare function rotuloLead(item: { nome?: string | null; telefone_digito
 export type {
   CanalFollowUp, StatusFollowUp, PrioridadeFollowUp, OrigemFollowUp, DestinoFollowUp,
   EscolhaCanal, FollowUpApi, FormProximaAcao, PayloadProximaAcao, ContextoOrigem, EventoContato,
-  DisponibilidadeWhatsapp, PatchDisponibilidade,
+  DisponibilidadeWhatsapp, PatchDisponibilidade, PatchEmailDisponibilidade, EmailCandidato,
+  PreparoEmail, EnvioEmailResultado,
 } from './follow-up-acao'
 export {
   CANAL_LABEL, CANAL_ICONE, CANAL_OPCOES, ORIGEM_LABEL, STATUS_FOLLOWUP_LABEL, PRIORIDADE_OPCOES,
@@ -198,8 +204,13 @@ export {
   validarProximaAcao, montarPayloadProximaAcao, itemDeFollowUp, contextoDeOrigem,
   // Disponibilidade de canal do contato (migration 066).
   MARCAR_SEM_WHATSAPP_LABEL, MARCAR_SEM_WHATSAPP_AJUDA, AVISO_TROCA_PARA_LIGACAO,
-  AVISO_CANAL_DESCARTADO, rotuloDisponibilidadeWhatsapp, canalDescartadoPeloOperador,
+  AVISO_TROCA_PARA_EMAIL, AVISO_CANAL_DESCARTADO, AVISO_CANAL_EMAIL_DESCARTADO,
+  avisoDaTrocaDeCanal, rotuloDisponibilidadeWhatsapp, canalDescartadoPeloOperador,
   estadoDisponibilidadeInicial, alternarSemWhatsapp, patchDisponibilidade,
+  // Canal de e-mail do contato (migration 067).
+  MARCAR_EMAIL_LABEL, MARCAR_EMAIL_AJUDA, rotuloDisponibilidadeEmail, emailValido,
+  estadoEmailInicial, alternarTemEmail, patchEmailDisponibilidade,
+  LIMITE_ASSUNTO_EMAIL, LIMITE_CORPO_EMAIL, EMAIL_DESTINO_AJUDA, EMAIL_CANDIDATOS_AJUDA,
 } from './follow-up-acao'
 
 // Paginação — mesma aritmética da Aquisição e da Central de Ligações.
