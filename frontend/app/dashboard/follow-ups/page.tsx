@@ -640,13 +640,17 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
   const acoesSecundarias: AcaoRadial[] = []
   if (emAberto) {
     acoesSecundarias.push(
-      // Sem zona de propósito: Concluir/Reagendar/Cancelar já ocupam os 3 slots
-      // validados nas entregas anteriores — esta ação só se soma ao que já existe,
-      // sem disputar (e sem deslocar) uma zona já estabelecida.
+      // 4ª bolinha (zona `baixo`): Concluir/Reagendar/Cancelar já ocupam os 3 slots
+      // direcionais, e esta é a 4ª ação principal da linha — vira a bolinha de baixo em
+      // vez de cair sem zona no painel de extras (era um quadrado só com esta ação).
+      // Rótulo curto porque o espaço da bolinha é pequeno; a descrição carrega o texto
+      // completo para o tooltip e o `aria-label`.
       {
         id: 'executar',
-        rotulo: item.destino === 'central_ligacoes' ? 'Ir para a ligação' : 'Abrir conversa',
-        descricao: 'Ação recomendada agora para este contato.',
+        rotulo: item.destino === 'central_ligacoes' ? 'Ligação' : 'Conversa',
+        zona: 'baixo',
+        tom: 'positivo',
+        descricao: item.destino === 'central_ligacoes' ? 'Ir para a ligação — ação recomendada agora para este contato.' : 'Abrir conversa — ação recomendada agora para este contato.',
         onSelecionar: () => onExecutar(item),
       },
       { id: 'concluir', rotulo: 'Concluir', zona: 'direita', tom: 'positivo', onSelecionar: () => onConcluir(item) },

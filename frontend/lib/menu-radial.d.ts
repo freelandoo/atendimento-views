@@ -1,4 +1,4 @@
-export type ZonaAcaoRadial = 'cima' | 'direita' | 'esquerda'
+export type ZonaAcaoRadial = 'cima' | 'direita' | 'esquerda' | 'baixo'
 export type TomAcaoRadial = 'positivo' | 'negativo' | 'neutro'
 
 export type AcaoRadial = {
@@ -17,6 +17,7 @@ export type ZonasAcaoRadial = {
   cima: AcaoRadial | null
   direita: AcaoRadial | null
   esquerda: AcaoRadial | null
+  baixo: AcaoRadial | null
   extras: AcaoRadial[]
 }
 

@@ -6,6 +6,49 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-12 - Início de tarefa IA - Follow-ups: "Abrir conversa" vira 4ª bolinha do radial (zona `baixo`)
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5)
+- **Pedido resumido:** Correção pequena e pontual: no radial de ações de Follow-ups
+  (`MenuRadialAcoes`), quando a linha tem as 4 ações principais (Cancelar/Reagendar/
+  Concluir/Abrir conversa), "Abrir conversa" aparecia num painel de extras
+  quadrado/lista em vez de virar bolinha como as outras três. Desejado: "Abrir
+  conversa" vira a 4ª bolinha do próprio radial (abaixo/centro), rótulo curto
+  ("Conversa"/"Ligação"), no mesmo padrão visual das demais — sem card/lista nesse caso.
+- **É projeto/tarefa de alteração?** Sim, pequena e de escopo controlado: 100%
+  apresentação, sem schema, sem migration, sem rota, sem handler novo — só a
+  geometria/zona do menu radial compartilhado e o mapeamento de uma ação já existente
+  em Follow-ups. Nenhum arquivo de `backend/` tocado.
+- **Workflow padrão consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md:
+  Sim | docs/ui-visual-standard.md: não consultado à parte — o padrão a seguir é o do
+  próprio componente radial já existente (`MenuRadialAcoes`/`menu-radial.js`), que é a
+  fonte de verdade visual desta tela | docs/ai-decision-log.md: nada de arquitetural
+  novo a registrar — é extensão pontual de um padrão já aprovado (commits `1271749`,
+  `bdec25a`, `ad29738`).
+- **Causa raiz confirmada no código:** o radial (`frontend/lib/menu-radial.js`,
+  `atribuirZonas`) só reconhece 3 zonas direcionais (`cima`/`direita`/`esquerda`); toda
+  ação sem zona, ou com zona colidida, cai em `extras` (painel quadrado). Em
+  `frontend/app/dashboard/follow-ups/page.tsx`, dentro do bloco `emAberto`, a ação
+  `executar` ("Abrir conversa"/"Ir para a ligação") era empurrada **sem** `zona`
+  (comentário explícito: "Sem zona de propósito"), enquanto Concluir/Reagendar/Cancelar
+  já ocupavam direita/cima/esquerda — por isso ela sempre caía sozinha no quadrado de
+  extras, mesmo sendo uma das 4 ações principais da linha, não uma ação excedente.
+- **Arquivos alterados:** `frontend/lib/menu-radial.js` (+ `.d.ts`/`.test.js`) — nova
+  zona `baixo` em `atribuirZonas`, mesma regra de colisão das demais;
+  `frontend/components/ui/MenuRadialAcoes.tsx` — geometria/posição da 4ª bolinha
+  (abaixo do gatilho, mesmo raio das outras três) e sua renderização;
+  `frontend/app/dashboard/follow-ups/page.tsx` — a ação `executar` passa a usar
+  `zona: 'baixo'` com rótulo curto ("Conversa"/"Ligação"; texto completo preservado em
+  `descricao`, usado no tooltip e no `aria-label`), sem mudar `onSelecionar`/destino.
+- **Fora de escopo (declarado pelo pedido):** backend, banco, produção/Railway,
+  segurança, roteiro SPIN, regra de negócio das ações, e as demais telas
+  (Aquisição/Banco de Leads/Central de Mensagens) — só verificadas quanto a não quebrar
+  com a zona nova (o componente radial é compartilhado).
+- **Validação prevista:** `npm test` (frontend/lib) e `npm run typecheck` (frontend);
+  verificação de escopo do diff (`git diff --check`); commit único direto em `master`.
+
+---
+
 ## 2026-08-12 - Início de tarefa IA - Padrão radial na Aquisição + Detalhes ao lado da pontuação (Banco de Leads) + radial completo em Follow-ups + Detalhes ao lado do interesse (Central de Mensagens)
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`radial-padrao-listagens`), job em background.

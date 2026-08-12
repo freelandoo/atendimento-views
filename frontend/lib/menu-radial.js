@@ -9,6 +9,10 @@
 //   • cima     = a ação mais frequente e mais reversível;
 //   • direita  = a ação que avança o item (positiva);
 //   • esquerda = a ação que nega/reverte (negativa);
+//   • baixo    = 4ª ação, quando a linha tem 4 ações principais — usada hoje para a
+//     ação de navegação/abertura (ex.: "Abrir conversa" em Follow-ups), que antes caía
+//     sem zona e virava único item do painel de extras (quadrado) mesmo sendo uma ação
+//     principal, não excedente;
 //   • centro   = lista completa — TODAS as ações, inclusive as que já têm zona. O
 //     radial é atalho, nunca superfície exclusiva: quem não descobriu o gesto, ou usa
 //     teclado, sempre encontra a mesma ação na lista.
@@ -17,18 +21,18 @@
 // cai no centro (nunca substitui a que já estava lá em silêncio — perder uma ação por
 // colisão seria pior do que ela aparecer só na lista).
 function atribuirZonas(acoes) {
-  const zonas = { cima: null, direita: null, esquerda: null }
+  const zonas = { cima: null, direita: null, esquerda: null, baixo: null }
   const extras = []
   for (const acao of acoes || []) {
     if (!acao) continue
     const zona = acao.zona
-    if ((zona === 'cima' || zona === 'direita' || zona === 'esquerda') && !zonas[zona]) {
+    if ((zona === 'cima' || zona === 'direita' || zona === 'esquerda' || zona === 'baixo') && !zonas[zona]) {
       zonas[zona] = acao
     } else {
       extras.push(acao)
     }
   }
-  return { cima: zonas.cima, direita: zonas.direita, esquerda: zonas.esquerda, extras }
+  return { cima: zonas.cima, direita: zonas.direita, esquerda: zonas.esquerda, baixo: zonas.baixo, extras }
 }
 
 /** Nome acessível do botão-gatilho ("⋯"). Contexto (o rótulo do lead/linha) é opcional. */

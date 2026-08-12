@@ -39,14 +39,35 @@ test('atribuirZonas: colisao de zona — a PRIMEIRA vence, a segunda cai no cent
 })
 
 test('atribuirZonas: lista vazia ou undefined nao quebra', () => {
-  assert.deepEqual(atribuirZonas([]), { cima: null, direita: null, esquerda: null, extras: [] })
-  assert.deepEqual(atribuirZonas(undefined), { cima: null, direita: null, esquerda: null, extras: [] })
+  assert.deepEqual(atribuirZonas([]), { cima: null, direita: null, esquerda: null, baixo: null, extras: [] })
+  assert.deepEqual(atribuirZonas(undefined), { cima: null, direita: null, esquerda: null, baixo: null, extras: [] })
 })
 
 test('atribuirZonas: zona invalida (typo) tambem cai no centro, nao trava', () => {
-  const r = atribuirZonas([acao('x', { zona: 'baixo' })])
+  const r = atribuirZonas([acao('x', { zona: 'diagonal' })])
   assert.equal(r.cima, null)
   assert.equal(r.extras.length, 1)
+})
+
+test('atribuirZonas: quarta acao usa a zona baixo (4 bolinhas, nenhuma cai em extras)', () => {
+  const r = atribuirZonas([
+    acao('concluir', { zona: 'direita' }),
+    acao('reagendar', { zona: 'cima' }),
+    acao('cancelar', { zona: 'esquerda' }),
+    acao('conversa', { zona: 'baixo' }),
+  ])
+  assert.equal(r.baixo.id, 'conversa')
+  assert.deepEqual(r.extras, [])
+})
+
+test('atribuirZonas: colisao na zona baixo tambem cai no centro (nunca some)', () => {
+  const r = atribuirZonas([
+    acao('conversa', { zona: 'baixo' }),
+    acao('outra', { zona: 'baixo' }),
+  ])
+  assert.equal(r.baixo.id, 'conversa')
+  assert.equal(r.extras.length, 1)
+  assert.equal(r.extras[0].id, 'outra')
 })
 
 test('rotuloMenu: com contexto nomeia a linha; sem contexto fica generico', () => {

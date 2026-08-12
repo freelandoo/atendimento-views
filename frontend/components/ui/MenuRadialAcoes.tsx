@@ -19,8 +19,8 @@
 // v2 (2026-08-11): a v1 desenhava as ações numa grade 3x3 dentro de uma caixa
 // retangular — geometricamente um popover comum, não um radial. Esta versão posiciona
 // cada ação como uma BOLINHA (`rounded-full`) flutuando em coordenadas fixas ao redor
-// do CENTRO do próprio botão "⋯" (cima/esquerda/direita, à mesma distância — um anel
-// tracejado decorativo reforça a leitura), sem caixa nenhuma quando não há extras —
+// do CENTRO do próprio botão "⋯" (cima/esquerda/direita/baixo, à mesma distância — um
+// anel tracejado decorativo reforça a leitura), sem caixa nenhuma quando não há extras —
 // que é o caso mais comum desta tela (Concluir/Reagendar/Cancelar, sem sobra). Ainda
 // sem gesto de arrastar (D6 já resolvida a favor de clique/toque previsível); se um
 // gesto de arrastar-em-direção fizer sentido, é fase seguinte documentada aqui, não
@@ -144,6 +144,7 @@ function GatilhoRadial({ acoes, rotuloContexto }: { acoes: AcaoRadial[]; rotuloC
           <BolhaZona posicao={geometria.cima} acao={zonas.cima} onSelecionar={selecionar} direcao="acima" />
           <BolhaZona posicao={geometria.esquerda} acao={zonas.esquerda} onSelecionar={selecionar} direcao="à esquerda" />
           <BolhaZona posicao={geometria.direita} acao={zonas.direita} onSelecionar={selecionar} direcao="à direita" />
+          <BolhaZona posicao={geometria.baixo} acao={zonas.baixo} onSelecionar={selecionar} direcao="abaixo" />
           {zonas.extras.length > 0 && (
             <div
               style={{ position: 'fixed', left: geometria.extras.left, top: geometria.extras.top, width: LARGURA_EXTRAS }}
@@ -198,13 +199,17 @@ function calcularGeometria(centro: Centro, temExtras: boolean) {
   const cima = clampBolha(centro.cx, centro.cy - RAIO)
   const esquerda = clampBolha(centro.cx - RAIO, centro.cy)
   const direita = clampBolha(centro.cx + RAIO, centro.cy)
+  const baixo = clampBolha(centro.cx, centro.cy + RAIO)
 
+  // A borda inferior de `baixo` já fica em `centro.cy + RAIO + BOLHA/2`; o painel de
+  // extras nasce `MARGEM` abaixo disso, então nunca encosta na 4ª bolinha, esteja ela
+  // ocupada ou não.
   const baseTop = centro.cy + RAIO + BOLHA / 2 + MARGEM
   const cabeAbaixo = !temExtras || baseTop + ALTURA_ESTIMADA_EXTRAS <= vh
   const extrasTop = cabeAbaixo ? baseTop : Math.max(MARGEM, centro.cy - RAIO - BOLHA / 2 - MARGEM - ALTURA_ESTIMADA_EXTRAS)
   const extrasLeft = clamp(centro.cx - LARGURA_EXTRAS / 2, MARGEM, vw - LARGURA_EXTRAS - MARGEM)
 
-  return { cima, esquerda, direita, extras: { left: extrasLeft, top: extrasTop } }
+  return { cima, esquerda, direita, baixo, extras: { left: extrasLeft, top: extrasTop } }
 }
 
 function BolhaZona({
@@ -219,7 +224,7 @@ function BolhaZona({
   /** Compõe um `aria-label` mais claro que o texto visível sozinho ("Reagendar, acima") —
    *  útil sobretudo para quem navega por leitor de tela junto com um mouse/trackpad, onde a
    *  posição espacial é parte de como a pessoa vidente ao lado descreveria a ação. */
-  direcao: 'acima' | 'à esquerda' | 'à direita'
+  direcao: 'acima' | 'à esquerda' | 'à direita' | 'abaixo'
 }) {
   if (!acao) return null
   return (
