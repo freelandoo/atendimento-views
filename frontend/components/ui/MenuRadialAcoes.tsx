@@ -133,7 +133,12 @@ function GatilhoRadial({ acoes, rotuloContexto }: { acoes: AcaoRadial[]; rotuloC
         ⋯
       </button>
       {aberto && centro && geometria && typeof document !== 'undefined' && createPortal(
-        <div ref={painelRef} role="menu" aria-label={rotuloMenu(rotuloContexto)} className="z-[70]">
+        <div
+          ref={painelRef}
+          role="menu"
+          aria-label={rotuloMenu(rotuloContexto)}
+          className="pointer-events-none fixed inset-0 z-[70]"
+        >
           {/* Anel decorativo — só reforça a leitura "as bolinhas ficam ao redor do
               gatilho"; nunca carrega informação por si só. */}
           <div
@@ -148,7 +153,7 @@ function GatilhoRadial({ acoes, rotuloContexto }: { acoes: AcaoRadial[]; rotuloC
           {zonas.extras.length > 0 && (
             <div
               style={{ position: 'fixed', left: geometria.extras.left, top: geometria.extras.top, width: LARGURA_EXTRAS }}
-              className="rounded-xl border bg-white p-2 shadow-xl"
+              className="pointer-events-auto rounded-xl border bg-white p-2 shadow-xl"
             >
               <ul className="space-y-0.5">
                 {zonas.extras.map((a) => (
@@ -230,7 +235,7 @@ function BolhaZona({
   return (
     <div
       style={{ position: 'fixed', left: posicao.left, top: posicao.top, width: BOLHA, height: BOLHA, transform: 'translate(-50%, -50%)' }}
-      className="group"
+      className="group pointer-events-auto z-[80] hover:z-[90] focus-within:z-[90]"
     >
       <button
         type="button"
@@ -249,7 +254,7 @@ function BolhaZona({
       {acao.descricao && (
         <span
           role="tooltip"
-          className="pointer-events-none absolute left-1/2 top-full z-10 mt-1.5 w-max max-w-[10rem] -translate-x-1/2 rounded-md bg-slate-800 px-2 py-1 text-center text-[10px] leading-snug text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+          className="pointer-events-none absolute left-1/2 top-full z-[100] mt-1.5 w-max max-w-[10rem] -translate-x-1/2 rounded-md bg-slate-800 px-2 py-1 text-center text-[10px] leading-snug text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
         >
           {acao.descricao}
         </span>
