@@ -34,6 +34,7 @@ import {
 import { msgErro } from '@/lib/erro-msg'
 import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
 import { VARIANTES, O_QUE_MEDE, fatoresDeMotivos } from '@/lib/pontuacao-indicador'
+import MenuRadialAcoes from '@/components/ui/MenuRadialAcoes'
 
 const base = () => `/api/empresas/${typeof window !== 'undefined' ? localStorage.getItem('empresa_id') : ''}`
 
@@ -134,7 +135,7 @@ type SinalReg = { id: string; tipo: 'interesse' | 'resistencia'; texto: string; 
 type ObjecaoReg = { id: string; texto_objecao: string; origem: string; etapa_tipo: string | null; resposta_utilizada: string | null; resolvida: boolean }
 type PerguntaReg = { id: string; texto_no_momento: string; etapa_tipo: string | null; pergunta_indice: number | null }
 type ObjecaoRoteiro = { objecao: string; resposta: string }
-type Ligacao = { id: string; resultado: string; etapa_alcancada: string | null; objecao_principal: string | null; motivo_perda: string | null; criado_em: string }
+type Ligacao = { id: string; resultado: string; etapa_alcancada: string | null; objecao_principal: string | null; motivo_perda: string | null; notas?: string | null; criado_em: string }
 type Funil = { encerraram: Record<string, number>; perderam: Record<string, number>; total_ligacoes: number }
 const ETAPA_ORDEM = ['abertura', 'permissao', 'situacao', 'descoberta', 'problema', 'implicacao', 'insight', 'qualificacao', 'objecoes', 'convite_reuniao', 'proxima_acao']
 
@@ -571,6 +572,9 @@ export default function CentralLigacoesPage() {
   const [fila, setFila] = useState<FilaItem[]>([])
   const [loading, setLoading] = useState(true)
   const [operando, setOperando] = useState<FilaItem | null>(null)
+  // Anotações rápidas de ligações já encerradas — visualização leve, à parte do registro
+  // completo (`operando`/`OperacaoLigacao`). Guarda o lead para o modal buscar e exibir.
+  const [verAnotacoes, setVerAnotacoes] = useState<LeadAcomp | null>(null)
   const [aba, setAba] = useState<'fila' | 'acompanhamento' | 'funil'>('fila')
   const [todosLeads, setTodosLeads] = useState<LeadAcomp[]>([])
   const [funil, setFunil] = useState<Funil | null>(null)
@@ -917,7 +921,23 @@ export default function CentralLigacoesPage() {
                                 detalhada aberta pela fila, e sem os campos enriquecidos ela
                                 abriria vazia por este caminho. Sem `prioridade`: esta lista
                                 não é a fila de ligação (inclui convertido/descartado). */}
-                            <td className="px-4 py-3 text-right"><button onClick={() => setOperando({ ...l, campanha_lead_id: l.id, score: null, tentativas: 0 })} className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50">Registrar</button></td>
+                            <td className="px-4 py-3 text-right">
+                              <MenuRadialAcoes
+                                rotuloContexto={l.nome}
+                                acoes={[
+                                  {
+                                    id: 'notas', rotulo: 'Notas', zona: 'cima', tom: 'neutro',
+                                    descricao: 'Ver as anotações rápidas já registradas nas ligações deste lead.',
+                                    onSelecionar: () => setVerAnotacoes(l),
+                                  },
+                                  {
+                                    id: 'registrar', rotulo: 'Registrar', zona: 'direita', tom: 'positivo',
+                                    descricao: 'Abrir o registro completo desta ligação.',
+                                    onSelecionar: () => setOperando({ ...l, campanha_lead_id: l.id, score: null, tentativas: 0 }),
+                                  },
+                                ]}
+                              />
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -943,6 +963,9 @@ export default function CentralLigacoesPage() {
 
       {operando && detalhe && (
         <OperacaoLigacao lead={operando} campanha={detalhe} onFechar={fecharOperacao} fb={fb} />
+      )}
+      {verAnotacoes && (
+        <AnotacoesRapidasModal lead={verAnotacoes} onFechar={() => setVerAnotacoes(null)} fb={fb} />
       )}
     </div>
   )
@@ -980,6 +1003,94 @@ function Card({ label, valor, cor, sub }: { label: string; valor: number | strin
     <div className="rounded-2xl border bg-white p-4 shadow-sm">
       <div className={`text-2xl font-bold ${cor}`}>{valor}</div>
       <div className="text-xs text-slate-500">{label}{sub ? ` · ${sub}` : ''}</div>
+    </div>
+  )
+}
+
+// Visualização leve das anotações rápidas ("notas") já registradas nas ligações
+// ENCERRADAS deste lead — reusa o MESMO endpoint que `OperacaoLigacao` já consome
+// (`GET /ligacoes?campanha_lead_id=`), sem rota nova. Existe para o operador consultar
+// o que já foi anotado sem abrir o registro completo da ligação (que é uma tela cheia).
+function AnotacoesRapidasModal({ lead, onFechar, fb }: {
+  lead: LeadAcomp; onFechar: () => void; fb: ReturnType<typeof useFeedback>
+}) {
+  const [carregando, setCarregando] = useState(true)
+  const [ligacoes, setLigacoes] = useState<Ligacao[]>([])
+  const [copiado, setCopiado] = useState<string | null>(null)
+  const ref = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    let vivo = true
+    setCarregando(true)
+    apiFetch<Ligacao[]>(`${base()}/ligacoes?campanha_lead_id=${lead.id}`)
+      .then((r) => { if (vivo) setLigacoes(r.data) })
+      .catch((e) => { if (vivo) fb.toast(msgErro(e, 'Não foi possível carregar as anotações.'), 'error') })
+      .finally(() => { if (vivo) setCarregando(false) })
+    return () => { vivo = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lead.id])
+
+  useEffect(() => {
+    ref.current?.focus()
+    const aoTeclado = (e: KeyboardEvent) => { if (e.key === 'Escape') onFechar() }
+    window.addEventListener('keydown', aoTeclado)
+    return () => window.removeEventListener('keydown', aoTeclado)
+  }, [onFechar])
+
+  const copiar = useCallback(async (id: string, texto: string) => {
+    try {
+      await navigator.clipboard.writeText(texto)
+      setCopiado(id)
+      setTimeout(() => setCopiado((atual) => (atual === id ? null : atual)), 1500)
+    } catch { fb.toast('Não foi possível copiar neste navegador.', 'error') }
+  }, [fb])
+
+  const comNotas = ligacoes.filter((l) => (l.notas || '').trim())
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onFechar}>
+      <div
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Anotações rápidas — ${lead.nome}`}
+        tabIndex={-1}
+        className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl focus:outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-slate-800">Anotações rápidas</div>
+            <div className="text-xs text-slate-500">{lead.nome}</div>
+          </div>
+          <button onClick={onFechar} aria-label="Fechar" className="text-slate-400 hover:text-slate-600"><IconClose className="h-5 w-5" /></button>
+        </div>
+        {carregando ? (
+          <div className="flex justify-center py-8"><Spinner /></div>
+        ) : comNotas.length === 0 ? (
+          <div className="rounded-lg bg-slate-50 px-3 py-4 text-center text-sm text-slate-500">Nenhuma anotação registrada para este lead ainda.</div>
+        ) : (
+          <ul className="max-h-[60vh] space-y-3 overflow-y-auto">
+            {comNotas.map((l) => (
+              <li key={l.id} className="rounded-lg border p-3">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className="text-xs text-slate-400">{new Date(l.criado_em).toLocaleString('pt-BR')}</span>
+                  <button
+                    onClick={() => copiar(l.id, l.notas || '')}
+                    className="rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
+                  >
+                    {copiado === l.id ? '✓ Copiado' : 'Copiar'}
+                  </button>
+                </div>
+                <div className="whitespace-pre-wrap text-sm text-slate-700">{l.notas}</div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-4 flex justify-end">
+          <button onClick={onFechar} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50">Fechar</button>
+        </div>
+      </div>
     </div>
   )
 }

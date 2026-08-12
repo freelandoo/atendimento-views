@@ -1,4 +1,4 @@
-﻿# Registro de inÃ­cio de tarefas da IA
+# Registro de inÃ­cio de tarefas da IA
 
 Toda IA deve registrar aqui o inÃ­cio de cada tarefa/projeto de alteraÃ§Ã£o **antes**
 de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â€” ver
@@ -6,69 +6,72 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
-## 2026-08-12 - InÃ­cio de tarefa IA - Simplificar "Modo desta conversa" no ConversaPainel (retomada pÃ³s troca de conta)
+## 2026-08-12 - Início de tarefa IA - Anotações rápidas no radial da Central de Ligações + análise de canal E-mail em Follow-ups
 
-- **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado
-  (`lucky-tickling-starlight`), job em background.
-- **Pedido resumido:** tarefa pequena de apresentaÃ§Ã£o (frontend), retomada de duas tentativas
-  anteriores que nÃ£o concluÃ­ram (`aca54010` ambÃ­gua, `65d67eeb` bloqueada por limite antes de
-  trabalhar). O orquestrador jÃ¡ resolveu a ambiguidade: `modo_ia` Ã© configuraÃ§Ã£o persistente
-  (PadrÃ£o/Conversa/AnÃ¡lise), `agente_pausado` Ã© estado temporÃ¡rio (pausar/retomar), e os dois
-  rÃ³tulos nÃ£o podem se confundir. Pedido: (1) simplificar o controle "Modo desta conversa" para
-  as trÃªs opÃ§Ãµes compactas PadrÃ£o/Conversa/AnÃ¡lise; (2) tirar o texto explicativo fixo abaixo do
-  controle, movendo explicaÃ§Ã£o para tooltip/aria por opÃ§Ã£o; (3) manter "Pausar agente"/"Retomar
-  agente" (nunca "Ativar/Desativar agente"); (4) pode compactar visualmente e aproximar do bloco
-  de prioridade comercial, mas sem fundir as duas regras; (5) sem alterar regra de negÃ³cio nem
-  decisÃ£o de envio na tela.
-- **Ã‰ projeto/tarefa de alteraÃ§Ã£o?** Sim, pequena e 100% de apresentaÃ§Ã£o: sem schema, sem rota
-  nova, sem regra de negÃ³cio tocada. Reaproveita `AlternadorModoIa`/`BalaoAjuda`/
-  `lib/conversa-modo-ia.js` jÃ¡ existentes (commit `4199a3a`, que jÃ¡ padronizou o controle GLOBAL
-  em `dashboard/conversas/page.tsx` e o do Follow-up automÃ¡tico).
-- **Workflow consultado?** AGENTS.md, CLAUDE.md, `docs/ai-workflow.md`: sim.
-- **Achado ao ler o cÃ³digo:** o controle GLOBAL "Modo padrÃ£o da IA" (`dashboard/conversas/page.tsx`)
-  jÃ¡ segue o padrÃ£o minimalista (rÃ³tulo + `AlternadorModoIa` + `ajuda` custom + `ariaLabel`, sem
-  parÃ¡grafo fixo). O bloco "Modo desta conversa" dentro de `ConversaPainel.tsx` ainda tem, abaixo
-  do controle, um parÃ¡grafo fixo "Agora: {estado} Â· {explicarOrigem}" e um aviso de pausa que
-  **duplica** o aviso jÃ¡ mostrado no compositor (`avisoDoCompositor`, visÃ­vel logo acima da caixa
-  de mensagem quando a IA nÃ£o vai responder). Ã‰ esse parÃ¡grafo + duplicaÃ§Ã£o que a tarefa pede
-  para simplificar; o texto de `avisoDoCompositor` mais abaixo nÃ£o Ã© tocado.
-- **Plano:** (a) `lib/conversa-modo-ia.js` â€” encurtar o rÃ³tulo do botÃ£o HERDAR de "Herdar padrÃ£o
-  da Central" para "PadrÃ£o"; (b) `ConversaPainel.tsx` â€” remover o parÃ¡grafo fixo "Agora: ..." e o
-  aviso de pausa duplicado desse bloco, passando `ajuda={explicarOrigem(...)}` ao
-  `AlternadorModoIa` (mesmo mecanismo jÃ¡ usado pelo controle global) para a explicaÃ§Ã£o de origem
-  virar tooltip; nenhuma regra de negÃ³cio nem comparaÃ§Ã£o de modo nova Ã© introduzida (guarda de
-  regressÃ£o em `conversa-modo-ia.test.js` jÃ¡ cobre isso).
-- **ValidaÃ§Ã£o:** `npm run typecheck` e `npm test` dentro de `frontend/`.
-## 2026-08-12 - InÃ­cio de tarefa IA - Retomada da padronizaÃ§Ã£o de busca/filtros/paginaÃ§Ã£o (reaproveitamento)
-
-- **IA/Ferramenta:** Claude Code (Sonnet 5), job em background, isolado em worktree
-  (`retomada-listagens-padrao`).
-- **Pedido resumido:** Retomada, apÃ³s troca de conta, da mesma tarefa jÃ¡ descrita na entrada
-  logo abaixo ("PadronizaÃ§Ã£o de busca/filtros/paginaÃ§Ã£o (1Âª entrega): Banco de Leads + Central
-  de LigaÃ§Ãµes") â€” duas tentativas anteriores (`790ecd7e`, `4341122c`) foram bloqueadas por
-  limite de conta antes de reportar resultado.
-- **Descoberta na Fase 0, antes de reimplementar:** a tarefa **jÃ¡ havia sido concluÃ­da e
-  commitada** por uma dessas tentativas anteriores, isolada no worktree local
-  `frontend-listagens-padrao` (commit `024acc8`, nunca mesclado nem enviado ao `origin`). O
-  diff cumpre exatamente o escopo pedido (paginaÃ§Ã£o client-side com `lib/paginacao.js` nas
-  tabelas Google Places/Instagram do Banco de Leads + 3 chips de filtro rÃ¡pido sobre a `view`
-  jÃ¡ existente; busca por texto livre client-side na fila da Central de LigaÃ§Ãµes, sem tocar
-  `lib/fila-ligacoes-view.js`), sem tocar backend/schema/radial.
-- **VerificaÃ§Ã£o de conflito com a coluna de AÃ§Ãµes/radial:** `024acc8` foi construÃ­do sobre
-  `e0a8ab8`, ancestral direto do `f6b3cab` ("Padroniza a coluna de AÃ§Ãµes do radialâ€¦") que jÃ¡
-  estÃ¡ em `origin/master` â€” o cherry-pick sobre o `master` atual aplicou as duas pÃ¡ginas
-  (`banco-leads/page.tsx`, `central-ligacoes/page.tsx`) **sem nenhum conflito**; sÃ³ este
-  arquivo de log teve conflito textual (duas entradas do mesmo dia), resolvido preservando as
-  duas.
-- **DecisÃ£o:** reaproveitar `024acc8` via `git cherry-pick` sobre o `master` atual em vez de
-  reimplementar do zero â€” mesmo resultado, sem risco de divergÃªncia ou duplicidade de lÃ³gica.
-  Nenhuma linha de cÃ³digo nova foi escrita alÃ©m da resoluÃ§Ã£o do conflito neste log.
-- **ValidaÃ§Ã£o a rodar antes de finalizar:** `npm run typecheck` (frontend), `npm test`
-  (frontend), `git diff --check`.
+- **IA/Ferramenta:** Claude Code (Sonnet 5)
+- **Pedido resumido:** (1) Na Central de Ligações, aba Acompanhamento, transformar o botão
+  solto "Registrar" num menu radial (reusando `MenuRadialAcoes`) com uma ação simples para
+  "ver anotações rápidas" — abrindo uma visualização leve (modal) com a última anotação e
+  botão Copiar, sem precisar abrir o registro completo da ligação. (2) Analisar onde e-mail
+  já aparece hoje em ligações/leads/follow-ups e, **só se for seguro com dados/contratos já
+  existentes**, adicionar identificação/filtro "Canal: E-mail" em Follow-ups; se exigir
+  backend/migration/backfill, **parar com checkpoint** em vez de implementar.
+- **É projeto/tarefa de alteração?** Sim, pequeno e de baixo risco na parte 1 (100%
+  apresentação, reuso de componente/endpoint já existentes, sem rota nova, sem schema, sem
+  regra de negócio nova). A parte 2 é **análise** que pode ou não virar código, conforme o
+  próprio pedido condicionou.
+- **Workflow padrão consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
+  docs/ui-visual-standard.md: consultado via o padrão já registrado do radial (commits
+  `1271749`/`bdec25a`/`ad29728`/`e0a8ab8`/`f6b3cab`) | docs/ai-decision-log.md: nada de novo a
+  registrar — reuso de padrão já aprovado, nenhuma decisão arquitetural nova.
+- **Verificação de conflito com trabalho paralelo:** `git log` mostra commits recentes de
+  radial/pontuação/modo IA já mesclados na master; `git status` limpo antes de começar.
+  Nenhum conflito nos arquivos alterados aqui.
+- **Fatos confirmados no código ANTES de implementar:**
+  1. `frontend/components/ui/MenuRadialAcoes.tsx` + `frontend/lib/menu-radial.js` **já
+     existem** e já são usados em Follow-ups e Aquisição — reuso direto, sem radial paralelo.
+     Com 1 ação vira botão comum; com 2+ vira o gatilho "⋯" com bolinhas.
+  2. `GET /api/empresas/:id/ligacoes?campanha_lead_id=` (`backend/src/routes/api-ligacoes.js`,
+     `db/ligacoes.js:listarLigacoes`) **já existe** e já devolve `notas` de ligações
+     ENCERRADAS. `OperacaoLigacao` (mesmo arquivo) já consome esse endpoint para
+     pré-preencher o campo de notas ao reabrir uma sessão — mas **nunca exibia** as notas de
+     ligações passadas em lugar nenhum da tela. Nenhuma rota nova foi necessária.
+  3. O tipo local `Ligacao` (linha ~137) não tinha o campo `notas` — adicionado como opcional
+     (`notas?: string | null`), mudança aditiva sem efeito em quem já usava o tipo.
+  4. `Copiar` + `navigator.clipboard.writeText` com fallback por `try/catch` e toast de erro é
+     padrão já usado no repo (`components/ui/JsonLeadModal.tsx`,
+     `app/dashboard/follow-ups/page.tsx`) — reaproveitado, não inventado.
+  5. **E-mail em Central de Ligações:** `LeadEnriquecido.email` (linha ~105) já vem de
+     `p.email` (`prospectador.prospects`, via `listarLeadsDaCampanha`/`filaDeTrabalho`) e já
+     é exibido/filtrável (`EMAIL_OPCOES`, "E-mail disponível") — nada a fazer aqui, já
+     cumprido antes desta tarefa.
+  6. **E-mail em Follow-ups: NÃO EXISTE em lugar nenhum do payload.** Buscas por `email` em
+     `backend/src/services/followup-listing.js`, `backend/src/db/follow-ups.js`,
+     `frontend/app/dashboard/follow-ups/page.tsx` e `frontend/lib/followups-fila.js` não
+     encontram nenhuma ocorrência (fora o e-mail do USUÁRIO responsável, que é outra coisa).
+     Nenhuma das SELECTs que alimentam a fila (`montarCallList`, `listarAgendamentosAuto`,
+     `GET /follow-ups/itens`) projeta e-mail de lead/prospect.
+  7. **O canal do follow-up é um ENUM FECHADO no banco:** `FOLLOWUP_CANAL = ['whatsapp',
+     'ligacao']` (`backend/src/services/follow-up-modelo.js`), validado por CHECK na
+     migration `062_follow_ups.sql`. Adicionar `'email'` como canal real exigiria migration
+     (alterar o CHECK) — mudança de schema, fora do que o pedido autoriza sem checkpoint.
+  8. **Conclusão:** identificar/filtrar "Canal: E-mail" em Follow-ups **não é alcançável só
+     com dados já carregados no cliente** — teria de nascer de uma mudança de backend
+     (projetar e-mail na consulta, casando por telefone como `lead-nome-maps.js` já faz para
+     nome) **e** de uma migration no enum de canal para ser um canal de verdade (não seria
+     seguro fingir um "canal" que o banco não aceita). Por isso esta parte **PAROU em
+     checkpoint** — nenhum código de Follow-ups nem de backend foi alterado.
+- **Arquivos alterados:** `frontend/app/dashboard/central-ligacoes/page.tsx` (radial +ver
+  anotações). Nenhum arquivo de `backend/` tocado. `docs/ai-task-start-log.md` (este registro).
+- **Fora de escopo cumprido (nada disso foi feito):** backend/migration/schema/produção,
+  envio real de e-mail, backfill automático, mudança na regra de seleção de canais reais de
+  follow-up, redesign global de listagens.
+- **Validação prevista:** `npm test` (frontend `lib/*.test.js`) e `npm run typecheck`
+  (frontend). Backend não tocado ⇒ sem necessidade de rodar testes de backend.
 
 ---
 
-## 2026-08-12 - InÃ­cio de tarefa IA - Padronizar a coluna de AÃ§Ãµes/radial (largura, centralizaÃ§Ã£o, cor "Conversa")
+## 2026-08-12 - Início de tarefa IA - Padronizar a coluna de Ações/radial (largura, centralização, cor "Conversa")
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`padroniza-coluna-acoes-radial`), job em background.
 - **Pedido resumido:** Tarefa pequena de implementaÃ§Ã£o visual: o operador validou visualmente o
