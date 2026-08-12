@@ -588,10 +588,15 @@ export default function CentralLigacoesPage() {
   const [paginaFila, setPaginaFila] = useState(1)
   const [porPaginaFila, setPorPaginaFila] = useState(POR_PAGINA_PADRAO)
   const [trocandoPagina, setTrocandoPagina] = useState(false)
+  // Busca por texto livre (nome/telefone) DENTRO da fila, 100% client-side, sobre a mesma
+  // lista já carregada — estado próprio da tela (não é filtro de `FilaView`/painel, então não
+  // vira chip nem entra em `contarFiltrosAtivos`; mesmo padrão do `local`/`nicho` do painel,
+  // mas fora do módulo puro `lib/fila-ligacoes-view.js`, que não foi tocado).
+  const [buscaFila, setBuscaFila] = useState('')
   // Qualquer mudança no recorte volta para a primeira página: aplicar/remover/limpar filtro,
-  // trocar de campanha ou de aba. Sem isso o operador cairia numa página vazia ou, pior,
-  // no meio de uma lista que ele acabou de redefinir.
-  useEffect(() => { setPaginaFila(1) }, [view, campanhaId, aba])
+  // buscar, trocar de campanha ou de aba. Sem isso o operador cairia numa página vazia ou,
+  // pior, no meio de uma lista que ele acabou de redefinir.
+  useEffect(() => { setPaginaFila(1) }, [view, buscaFila, campanhaId, aba])
   // Pista visual curta na ÁREA DA TABELA. Não há requisição: o conteúdo já trocou, isto é só
   // a transição que evita o "pisca" de a lista inteira se substituir sem aviso.
   useEffect(() => {
@@ -727,15 +732,26 @@ export default function CentralLigacoesPage() {
             // Só apresentação: a fila já chega do servidor sem quem não tem telefone
             // discável e ordenada por prioridade. Aqui apenas recortamos a visão.
             const visiveis = filtrarFila(fila, view)
+            // Busca por texto livre (nome/telefone), aplicada DEPOIS do painel de filtros e
+            // ANTES de paginar — mesma ordem "filtrar → paginar" do resto da tela. Estado
+            // próprio da tela (`buscaFila`), não entra em `chips`/`nFiltros` (que só refletem
+            // `view`, o painel).
+            const buscaNorm = buscaFila.trim().toLowerCase()
+            const buscaDig = buscaFila.replace(/\D/g, '')
+            const visiveisComBusca = buscaNorm
+              ? visiveis.filter((l) =>
+                  (l.nome || '').toLowerCase().includes(buscaNorm) ||
+                  (buscaDig.length > 0 && String(l.telefone || '').replace(/\D/g, '').includes(buscaDig)))
+              : visiveis
             const chips: ChipFiltro[] = chipsAtivos(view)
             const nFiltros = contarFiltrosAtivos(view)
             const opcoes = opcoesDaFila(fila)
             // O próximo a ligar é o 1º do conjunto FILTRADO INTEIRO, não o 1º da página aberta:
             // a fila é priorizada pelo servidor e navegar não pode trocar quem vem primeiro.
-            const proximo = visiveis[0]
+            const proximo = visiveisComBusca[0]
             // Paginar DEPOIS de filtrar: `filtrarFila` preserva a ordem de prioridade, então o
             // recorte sempre sai do conjunto completo já ordenado.
-            const pg = paginar(visiveis, paginaFila, porPaginaFila)
+            const pg = paginar(visiveisComBusca, paginaFila, porPaginaFila)
             return (
               <>
                 <div className="flex flex-wrap items-center gap-2">
@@ -746,6 +762,13 @@ export default function CentralLigacoesPage() {
                     ▶ Ligar agora {proximo ? `(${proximo.nome})` : ''}
                   </button>
                   <button onClick={() => carregarCampanha(campanhaId)} className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50">Atualizar</button>
+                  <input
+                    value={buscaFila}
+                    onChange={(e) => setBuscaFila(e.target.value)}
+                    placeholder="Buscar por nome ou telefone…"
+                    aria-label="Buscar na fila por nome ou telefone"
+                    className="min-w-[200px] flex-1 rounded-lg border px-3 py-2 text-sm"
+                  />
                   {/* Compacto e colado no Atualizar, no padrão do Banco de Leads. Nenhum
                       controle de "visão" aqui: a listagem é sempre enxuta. O painel abre
                       FLUTUANTE (portal), ancorado neste botão — a tabela não se move. */}
@@ -780,18 +803,19 @@ export default function CentralLigacoesPage() {
 
                 {fila.length === 0 ? (
                   <div className="rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">Fila vazia — todos os leads com telefone válido desta campanha já foram trabalhados. 🎉</div>
-                ) : visiveis.length === 0 ? (
+                ) : visiveisComBusca.length === 0 ? (
                   <div className="space-y-2 rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">
-                    <p>Nenhum lead com esses filtros.</p>
+                    <p>{buscaNorm ? 'Nenhum lead encontrado com essa busca.' : 'Nenhum lead com esses filtros.'}</p>
                     <div className="flex flex-wrap justify-center gap-3 text-sm">
+                      {buscaNorm && <button onClick={() => setBuscaFila('')} className="text-brand underline">Limpar busca</button>}
                       <button onClick={() => setView(filaPadrao())} className="text-brand underline">Restaurar fila padrão</button>
                       <button onClick={() => setView(limparFiltros())} className="text-slate-400 underline hover:text-slate-600">Ver a fila inteira</button>
                     </div>
                   </div>
                 ) : (
                   <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-                    {visiveis.length !== fila.length && (
-                      <div className="border-b px-4 py-2 text-xs text-slate-500">{visiveis.length} de {fila.length} lead(s) na fila</div>
+                    {visiveisComBusca.length !== fila.length && (
+                      <div className="border-b px-4 py-2 text-xs text-slate-500">{visiveisComBusca.length} de {fila.length} lead(s) na fila</div>
                     )}
                     {/* Estado de carregamento leve: aria-busy + opacidade SÓ na tabela — a
                         troca de página não pisca a tela nem mexe na barra de filtros acima. */}

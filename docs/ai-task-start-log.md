@@ -6,6 +6,35 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-12 - Início de tarefa IA - Retomada da padronização de busca/filtros/paginação (reaproveitamento)
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5), job em background, isolado em worktree
+  (`retomada-listagens-padrao`).
+- **Pedido resumido:** Retomada, após troca de conta, da mesma tarefa já descrita na entrada
+  logo abaixo ("Padronização de busca/filtros/paginação (1ª entrega): Banco de Leads + Central
+  de Ligações") — duas tentativas anteriores (`790ecd7e`, `4341122c`) foram bloqueadas por
+  limite de conta antes de reportar resultado.
+- **Descoberta na Fase 0, antes de reimplementar:** a tarefa **já havia sido concluída e
+  commitada** por uma dessas tentativas anteriores, isolada no worktree local
+  `frontend-listagens-padrao` (commit `024acc8`, nunca mesclado nem enviado ao `origin`). O
+  diff cumpre exatamente o escopo pedido (paginação client-side com `lib/paginacao.js` nas
+  tabelas Google Places/Instagram do Banco de Leads + 3 chips de filtro rápido sobre a `view`
+  já existente; busca por texto livre client-side na fila da Central de Ligações, sem tocar
+  `lib/fila-ligacoes-view.js`), sem tocar backend/schema/radial.
+- **Verificação de conflito com a coluna de Ações/radial:** `024acc8` foi construído sobre
+  `e0a8ab8`, ancestral direto do `f6b3cab` ("Padroniza a coluna de Ações do radial…") que já
+  está em `origin/master` — o cherry-pick sobre o `master` atual aplicou as duas páginas
+  (`banco-leads/page.tsx`, `central-ligacoes/page.tsx`) **sem nenhum conflito**; só este
+  arquivo de log teve conflito textual (duas entradas do mesmo dia), resolvido preservando as
+  duas.
+- **Decisão:** reaproveitar `024acc8` via `git cherry-pick` sobre o `master` atual em vez de
+  reimplementar do zero — mesmo resultado, sem risco de divergência ou duplicidade de lógica.
+  Nenhuma linha de código nova foi escrita além da resolução do conflito neste log.
+- **Validação a rodar antes de finalizar:** `npm run typecheck` (frontend), `npm test`
+  (frontend), `git diff --check`.
+
+---
+
 ## 2026-08-12 - Início de tarefa IA - Padronizar a coluna de Ações/radial (largura, centralização, cor "Conversa")
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`padroniza-coluna-acoes-radial`), job em background.
@@ -80,6 +109,74 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Validação prevista:** `npm run typecheck` (frontend), `npm test` (frontend, `lib/menu-radial.test.js`
   e demais `lib/*.test.js` afetados), `git diff --check`. Commit único direto em `master` (via push do
   worktree) se tudo passar e o diff não sair do escopo combinado acima.
+
+---
+
+## 2026-08-12 - Início de tarefa IA - Padronização de busca/filtros/paginação (1ª entrega): Banco de Leads + Central de Ligações
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`frontend-listagens-padrao`), job em background.
+- **Pedido resumido:** Primeira entrega, pequena/média e segura, da padronização de
+  busca/filtros/paginação das listagens (parte irmã da série de padronização visual do radial de
+  Ações, que é tarefa PARALELA em outra sessão — `3ff7e02f` — e não deve ser tocada aqui). Foco:
+  (1) Banco de Leads: melhorar ausência de paginação e reforçar filtros rápidos, sem alterar
+  backend; (2) Central de Ligações: adicionar campo de busca na fila principal, se de baixo
+  risco; (3) manter coerência com Aquisição/Central de Mensagens, sem redesenhar tudo.
+- **É projeto/tarefa de alteração?** Sim, pequena/média e 100% frontend: sem schema, sem
+  migration, sem rota nova, sem chamada nova ao backend, sem prompt de produção tocado.
+- **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim. Não havia
+  artifact/relatório de análise desta rodada específica localizável no histórico desta sessão —
+  o mapeamento foi refeito lendo o código atual (registrado abaixo), como a própria instrução
+  do pedido previa para esse caso.
+- **Mapeamento feito antes de editar:**
+  1. `frontend/lib/paginacao.js` (+ `.d.ts`/`.test.js`) já existe, é PURO/testado e é a fonte
+     única de paginação client-side (`paginar`, `resumoIntervalo`, `mostrarPaginacao`,
+     `POR_PAGINA_PADRAO`), reexportado por `lib/fila-ligacoes-view.js` (Central de Ligações) e
+     `lib/followups-fila.js` (Follow-ups), e consumido também pela Aquisição
+     (`prospeccao/page.tsx`, paginação **servidor**). **Não vou criar um segundo módulo** — vou
+     reusar exatamente este.
+  2. `frontend/app/dashboard/banco-leads/page.tsx` — busca a lista INTEIRA da aba de uma vez
+     (`GET .../leads`, sem `limit`/`offset`), filtra/ordena 100% client-side
+     (`passaFiltrosView`/`ordenarPorView`, já existentes) e **nunca pagina**: as duas tabelas
+     (`TabelaPlacesBanco`/`TabelaInstagramBanco`, linhas ~1631/1697) fazem `leads.map(...)` sobre
+     o array inteiro. Com centenas/milhares de leads (nota do AGENTS.md: "fetch único ≤1000"),
+     a tabela cresce sem limite visual. Já existem "filtros rápidos" reais: as `ABAS` do funil
+     (pills com contagem, servidor) e o botão "⚙ Personalizar" (filtros ricos client-side, chips
+     de filtro ativo) — não há ausência de filtro, e sim de UMA aba a mais de acesso rápido para
+     os 2-3 filtros mais usados sem abrir o modal, e de paginação nas tabelas.
+  3. `frontend/app/dashboard/central-ligacoes/page.tsx` — a aba "Fila" (fila principal de
+     ligação) já carrega a campanha inteira de uma vez (`GET .../fila?limit=500`) e já tem
+     paginação client-side completa (`paginar`/`mostrarPaginacao`/`PaginacaoFila`, reexportados
+     de `lib/paginacao.js` via `lib/fila-ligacoes-view.js`) e um painel de filtros rico
+     (`FiltrosFila`, flutuante em portal). **O que falta é busca por texto livre** (nome/
+     telefone) na própria fila — ela só existe na aba "Acompanhamento" (`busca`/`statusFiltro`,
+     linha ~577/839), sobre `todosLeads`, um estado independente da fila. Adicionar um campo de
+     busca **client-side** na fila (sobre o array já carregado, aplicado depois de
+     `filtrarFila(fila, view)` e antes de paginar) é aditivo, não pede rota nova e não toca o
+     módulo puro já testado (`lib/fila-ligacoes-view.js`) — fica um estado de tela isolado
+     (`buscaFila`), no mesmo padrão do `local`/`nicho` já existentes no painel de filtros.
+  4. `frontend/app/dashboard/prospeccao/page.tsx` (Aquisição) confirmado como referência: pills
+     de status com contagem embutida no rótulo (`FILTROS_STATUS`) — é o padrão que as `ABAS` do
+     Banco de Leads já seguem (mesma geometria conceitual). Nenhuma mudança necessária lá.
+- **Decisão de escopo (baixo risco, sem tocar Ações/radial):**
+  - Banco de Leads: (a) paginar as duas tabelas com `paginar`/`resumoIntervalo`/
+    `mostrarPaginacao` do módulo existente, reset de página ao trocar aba/origem/mercado/
+    cidade/busca/view (mesmo padrão de Follow-ups/Central de Ligações); footer "Anterior/
+    Próxima" no mesmo componente visual já usado em Follow-ups; (b) adicionar 2-3 chips de
+    filtro rápido (toggle) para os campos mais úteis do `ViewConfig` já existente (`envio`,
+    `site`, `disparo`), sem criar filtro novo — só um atalho de UI para valores que o modal
+    "Personalizar" já aceita.
+  - Central de Ligações: adicionar busca de texto livre na aba Fila, 100% client-side, sem tocar
+    `lib/fila-ligacoes-view.js` nem seus testes.
+  - **Nenhuma coluna de Ações, radial, `MenuRadialAcoes` ou `lib/menu-radial.js` será tocada**
+    (tarefa paralela em outra sessão). Nenhum arquivo de `backend/` tocado. Nenhuma API nova,
+    nenhum limite/contrato de paginação servidor alterado.
+- **Arquivos que pretendo alterar:** `frontend/app/dashboard/banco-leads/page.tsx`,
+  `frontend/app/dashboard/central-ligacoes/page.tsx`. Nenhum arquivo novo (reaproveita
+  `lib/paginacao.js` existente).
+- **Validação prevista:** `npm run typecheck` (frontend), `npm test` (frontend, `lib/*.test.js`
+  relevantes: `paginacao.test.js`, `fila-ligacoes-view.test.js`), `git diff --check`. Commit
+  único + push direto para `master` **se** tudo passar e o diff não sair do escopo combinado
+  acima — autorizado pelo próprio pedido.
 
 ---
 
