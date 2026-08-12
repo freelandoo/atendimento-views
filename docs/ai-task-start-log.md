@@ -6,6 +6,104 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-12 - Início de tarefa IA - Padrão radial na Aquisição + Detalhes ao lado da pontuação (Banco de Leads) + radial completo em Follow-ups + Detalhes ao lado do interesse (Central de Mensagens)
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`radial-padrao-listagens`), job em background.
+- **Pedido resumido:** Continuação da série de padronização visual das listagens (radial de
+  `MenuRadialAcoes.tsx`/`lib/menu-radial.js`, já validado em Follow-ups) em 4 frentes, 100%
+  frontend: (1) aplicar o radial na Aquisição para as ações Marcar/Descartar da tabela de
+  prospecção; (2) no Banco de Leads, unificar a coluna "Detalhes" isolada com a coluna
+  "Cadastro" (bolinha + botão pequeno), igual ao padrão já usado na Aquisição; (3) em
+  Follow-ups, dobrar o botão "Abrir conversa"/"Ir para a ligação" para dentro do radial quando
+  isso não quebrar o fluxo, deixando a linha só com o radial como ação compacta; (4) na Central
+  de Mensagens, colocar um botão pequeno de Detalhes ao lado do badge de Interesse, abrindo o
+  painel da conversa já na aba Interesses, se houver suporte técnico claro para o deep-link.
+- **É projeto/tarefa de alteração?** Sim, pequena e 100% de apresentação (frontend): sem
+  schema, sem migration, sem rota nova, sem chamada nova ao backend, sem prompt de produção
+  tocado. Reaproveita `MenuRadialAcoes`/`lib/menu-radial.js` já existentes — nenhum radial
+  paralelo será criado.
+- **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim. `docs/ui-visual-standard.md`
+  não existe como arquivo neste repositório (mesma observação já registrada nas entradas
+  anteriores da série). Entradas anteriores da série (radial em Follow-ups, polimento das
+  bolinhas, Detalhes/BolinhaPontuacao) lidas por completo para não repetir decisões já tomadas.
+- **Mapeamento feito antes de editar:**
+  1. `frontend/app/dashboard/prospeccao/page.tsx:558-581` (reutilizado por
+     `aquisicao/page.tsx`, que não tem JSX próprio para a tabela) — coluna Ações da tabela
+     "Leads encontrados": para `status==='rejeitado'` mostra só "Restaurar" (ícone
+     `IconUndo`, ação única de desfazer); para os demais status mostra "Marcar" (só quando
+     `aguardando`, ícone `IconStar`) e "Descartar" (sempre, ícone `IconTrash`) — o par
+     Marcar/Descartar é exatamente o par de 2 ações que o próprio pedido cita como candidato
+     natural ao radial (mesma cardinalidade do Concluir/Cancelar do Follow-ups).
+  2. A coluna "Cadastro" desta MESMA tabela (linhas 540-551) já é o padrão-alvo pedido para o
+     Banco de Leads: `BolinhaCadastro` + botão texto pequeno "Detalhes"
+     (`text-[11px] text-slate-500 underline-offset-2 hover:text-brand hover:underline`) na
+     mesma célula. Não precisa mudar nada aqui — é a referência a copiar.
+  3. `frontend/app/dashboard/banco-leads/page.tsx` — `TabelaPlacesBanco` (:1625-1689) e
+     `TabelaInstagramBanco` (:1691-1764) têm a coluna "Cadastro" (`cols.pontos`, TOGGLE do
+     "⚙ Personalizar") separada da coluna "Detalhes" (`DetalhesCelula`, SEMPRE renderizada,
+     fora do sistema de toggle). **Risco identificado:** se eu simplesmente mover o botão
+     Detalhes para dentro do `{cols.pontos && ...}`, quem desligar a coluna "Pontos" no
+     Personalizar perde o acesso a Detalhes — violaria "não remover ação sem garantir caminho
+     equivalente" do AGENTS.md. Decisão: tirar o `<th>`/`<td>` de Detalhes do sistema de
+     toggle (torná-lo permanente, como a coluna Nome já é) e colocar `{cols.pontos &&
+     <BolinhaCadastro .../>}` + o botão Detalhes SEMPRE dentro da mesma célula — a bolinha
+     some quando o operador desliga "Pontos", o acesso a Detalhes nunca some. `DetalhesCelula`
+     (função) fica sem uso depois disso nas duas tabelas — será removida (evitar código morto).
+  4. `frontend/lib/pontuacao-indicador.test.js:205-217,269-277` — guardas de regressão que leem
+     o fonte de `prospeccao/page.tsx` e `banco-leads/page.tsx` procurando `score_cadastro...
+     text-(red|emerald)` e a coluna "Site" reintroduzida. Nenhuma das duas mudanças mexe nisso;
+     só preciso não reintroduzir esses padrões.
+  5. `frontend/app/dashboard/follow-ups/page.tsx:614-786` (`LinhaFila`) — hoje `emAberto` (3
+     ações já zoneadas: Concluir=direita, Reagendar=cima, Cancelar=esquerda) e
+     `assumir_conversa`/`revisar_proposta` (0 ações no radial) têm CADA UM seu próprio botão
+     separado "Abrir conversa"/"Ir para a ligação" (`bg-brand`, chamando `onExecutar`/
+     `onAbrirHistorico`), fora do `MenuRadialAcoes`. `item.acao` é um campo único (string), então
+     `ligar`/`mensagem_manual`/`copiar_prompt_preview`/`assumir_conversa`/`revisar_proposta` são
+     mutuamente exclusivos entre si — só `emAberto` (que depende de `followup_status`, campo
+     independente) pode coexistir com qualquer um deles num item de fila mesclado (linha única
+     por conversa, conforme regra já documentada no AGENTS.md). Isso já podia produzir dois
+     botões "Abrir conversa" simultâneos hoje (comportamento pré-existente, não introduzido por
+     esta mudança) — decisão: dobrar CADA UM dos dois blocos para dentro do respectivo
+     `acoesSecundarias`, preservando os handlers (`onExecutar`/`onAbrirHistorico`) e o rótulo
+     condicional por `item.destino`, sem reordenar as zonas já validadas (Concluir/Reagendar/
+     Cancelar) — a ação dobrada de `emAberto` entra SEM zona (vai para "extras", não disputa
+     zona com as 3 já estabelecidas); a de `assumir_conversa`/`revisar_proposta` entra com
+     zona `direita`/tom `positivo` (é a única ação daquele estado na maioria dos casos, então
+     vira o próprio botão do fallback de 1 ação do `MenuRadialAcoes` — exatamente "linha só com
+     o radial"). Nenhuma outra ação primária (Registrar/Escrever/Copiar prompt) é tocada — o
+     pedido nomeia literalmente só "Abrir conversa".
+  6. `frontend/components/ConversaPainel.tsx:222-292` — já existe uma aba interna
+     `abaModal: 'chat' | 'interesses'` (useState), resetada para `'chat'` a cada
+     `carregarConversa()` (troca de `numero`). **Suporte claro para deep-link existe**: vou
+     acrescentar uma prop opcional `abaInicial?: 'chat' | 'interesses'` (default `'chat'`,
+     aditiva, não quebra o uso em `follow-ups/page.tsx`, que não passa a prop) e usar
+     `abaInicial` no lugar do literal `'chat'` na linha que reseta a aba — colocando
+     `abaInicial` nas dependências do `useCallback` de `carregarConversa`, para reabrir a MESMA
+     conversa já focando Interesses funcionar mesmo sem trocar de número.
+  7. `frontend/app/dashboard/conversas/page.tsx:296-345` — coluna "Interesse" só tem
+     `<InteresseBadge compact />`; o botão "Histórico" (coluna Ações) chama
+     `setNumeroAberto(c.numero)`. Vou acrescentar um estado local `abaAberta` (`'chat' |
+     'interesses'`), setado para `'chat'` no clique de "Histórico" e para `'interesses'` no
+     clique do novo botão "Detalhes" ao lado do badge de Interesse — e passar
+     `abaInicial={abaAberta}` para `<ConversaPainel>`. Sem rota nova, sem query string, sem
+     estado no servidor.
+- **Fora de escopo declarado (para não repetir depois):** `RotinasAquisicao.tsx` (cards de
+  rotina com Editar/Pausar/Remover) — o pedido nomeia literalmente "marcar e descartar" como o
+  alvo do radial na Aquisição, que é a tabela de prospecção, não o card de rotina; redesenhar
+  os cards de rotina seria além do escopo pedido. `AssistenteOportunidades.tsx` (Aprovar/
+  Descartar de UM lead por vez, fora de tabela) também fica fora — não é uma listagem com
+  linhas, é um fluxo de decisão sequencial. Nenhum arquivo de `backend/` será tocado.
+- **Arquivos que pretendo alterar:** `frontend/app/dashboard/prospeccao/page.tsx`,
+  `frontend/app/dashboard/banco-leads/page.tsx`, `frontend/app/dashboard/follow-ups/page.tsx`,
+  `frontend/components/ConversaPainel.tsx`, `frontend/app/dashboard/conversas/page.tsx`.
+  Nenhum arquivo novo (reaproveita `MenuRadialAcoes`/`lib/menu-radial.js` existentes).
+- **Validação prevista:** `npm run typecheck` (frontend), `npm test` (frontend, `lib/*.test.js`
+  relevantes: `menu-radial.test.js`, `pontuacao-indicador.test.js`, `conversa-modo-ia.test.js`),
+  `git diff --check`. Commit único + push para master **só se** tudo passar e o diff não sair
+  do escopo combinado acima.
+
+---
+
 ## 2026-08-11 - Inicio de tarefa IA - Radial de verdade em Follow-ups + linha sem duplicidade (2a entrega)
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`followups-radial-polish`).

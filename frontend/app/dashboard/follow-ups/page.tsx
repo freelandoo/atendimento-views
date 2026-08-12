@@ -630,14 +630,25 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
   const emAberto = registrado && item.followup_status === 'aguardando'
   const descricao = descricaoPrioridade(item)
 
-  // Ações SECUNDÁRIAS desta linha, absorvidas pelo menu radial (⋯) para não quebrar
-  // linha — Follow-ups é a tela com mais botões simultâneos do produto (relatório de
-  // padronização visual, seção 6). A ação PRIMÁRIA de cada linha (a que resolve a
-  // maior parte dos cliques: "Abrir conversa", "Registrar", "Escrever"...) continua um
-  // botão comum, sempre visível, sem gesto nenhum — o radial só compacta o resto.
+  // Ações desta linha, absorvidas pelo menu radial (⋯) para não quebrar linha —
+  // Follow-ups é a tela com mais botões simultâneos do produto (relatório de
+  // padronização visual, seção 6). "Registrar"/"Escrever"/"Copiar prompt" continuam
+  // botões comuns fora do radial (são ações distintas, não compactação de "Abrir
+  // conversa"). "Abrir conversa"/"Ir para a ligação" ENTRA no radial junto das demais —
+  // dobrada aqui em vez de ficar como botão `bg-brand` à parte, para a linha ficar só
+  // com o radial nos estados em que essa era a única ação visível.
   const acoesSecundarias: AcaoRadial[] = []
   if (emAberto) {
     acoesSecundarias.push(
+      // Sem zona de propósito: Concluir/Reagendar/Cancelar já ocupam os 3 slots
+      // validados nas entregas anteriores — esta ação só se soma ao que já existe,
+      // sem disputar (e sem deslocar) uma zona já estabelecida.
+      {
+        id: 'executar',
+        rotulo: item.destino === 'central_ligacoes' ? 'Ir para a ligação' : 'Abrir conversa',
+        descricao: 'Ação recomendada agora para este contato.',
+        onSelecionar: () => onExecutar(item),
+      },
       { id: 'concluir', rotulo: 'Concluir', zona: 'direita', tom: 'positivo', onSelecionar: () => onConcluir(item) },
       { id: 'reagendar', rotulo: 'Reagendar', zona: 'cima', onSelecionar: () => onReagendar(item) },
       { id: 'cancelar', rotulo: 'Cancelar', zona: 'esquerda', tom: 'negativo', onSelecionar: () => onCancelarFollowUp(item) },
@@ -645,6 +656,9 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
   }
   if (item.acao === 'ligar') {
     acoesSecundarias.push({ id: 'roteiro', rotulo: 'Roteiro', zona: 'cima', onSelecionar: () => onRoteiro(item) })
+  }
+  if (item.acao === 'assumir_conversa' || item.acao === 'revisar_proposta') {
+    acoesSecundarias.push({ id: 'abrir_conversa', rotulo: 'Abrir conversa', zona: 'direita', tom: 'positivo', onSelecionar: () => onAbrirHistorico(item.numero) })
   }
   if (item.ia_agendada) {
     // Ação rara e de maior consequência: fica sem zona de propósito, um nível mais
@@ -751,19 +765,12 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
         <div className="flex flex-wrap items-center justify-end gap-2">
           {/* O nome (coluna Lead) já é um botão que abre a mesma conversa em QUALQUER estado da
               linha — por isso os botões secundários "Ver conversa" que só repetiam
-              `onAbrirHistorico` sem nenhum sinal visual próprio foram removidos daqui. Os botões
-              que sobram com esse mesmo destino (`Abrir conversa` de `emAberto`/`assumir_conversa`/
-              `revisar_proposta`) são mantidos de propósito: são a AÇÃO PRIMÁRIA recomendada
-              (estilo `bg-brand`, com peso visual distinto do nome) — decidir removê-los também é
-              decisão de produto sobre a hierarquia da fila, não limpeza óbvia de duplicidade.
-              Concluir/Reagendar/Cancelar/Roteiro/Cancelar automático saíram daqui para o menu
-              radial (⋯, `acoesSecundarias` acima) — eram exatamente os botões que quebravam
-              linha nesta tela (relatório de padronização visual, seção 6). */}
-          {emAberto && (
-            <button onClick={() => onExecutar(item)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white">
-              {item.destino === 'central_ligacoes' ? 'Ir para a ligação' : 'Abrir conversa'}
-            </button>
-          )}
+              `onAbrirHistorico` sem nenhum sinal visual próprio já tinham sido removidos daqui.
+              "Abrir conversa"/"Ir para a ligação" (`emAberto` e `assumir_conversa`/
+              `revisar_proposta`) DOBRARAM para dentro do radial (`acoesSecundarias` acima) —
+              nos estados em que essa era a única ação da linha, a linha fica só com o radial.
+              Registrar/Copiar prompt/Escrever continuam botões comuns: são ações distintas de
+              "abrir a conversa", não compactação do mesmo destino. */}
           {item.acao === 'ligar' && (
             <button onClick={() => onRegistrar(item)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white">Registrar</button>
           )}
@@ -772,9 +779,6 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
           )}
           {item.acao === 'mensagem_manual' && (
             <button onClick={() => onManual(item)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white">Escrever</button>
-          )}
-          {(item.acao === 'assumir_conversa' || item.acao === 'revisar_proposta') && (
-            <button onClick={() => onAbrirHistorico(item.numero)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white">Abrir conversa</button>
           )}
           {acoesSecundarias.length > 0 && (
             <MenuRadialAcoes acoes={acoesSecundarias} rotuloContexto={item.rotulo} />

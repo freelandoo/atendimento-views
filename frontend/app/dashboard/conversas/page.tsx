@@ -82,6 +82,9 @@ export default function ConversasPage() {
   // Guarda so o NUMERO: quem carrega a conversa e o painel, que assim garante estado de
   // carregando, erro com "Tentar de novo" e a troca rapida entre conversas sem vazamento.
   const [numeroAberto, setNumeroAberto] = useState<string | null>(null)
+  // Aba com que o painel abre — deep-link aditivo (dado pronto, sem rota nova): "Histórico"
+  // abre em 'chat'; o botão "Detalhes" ao lado do interesse abre já em 'interesses'.
+  const [abaAberta, setAbaAberta] = useState<'chat' | 'interesses'>('chat')
   const [filtro, setFiltro] = useState<'todos' | Faixa | 'esfriando'>('todos')
   const [buscaNumero, setBuscaNumero] = useState('')
   const [carregandoLista, setCarregandoLista] = useState(true)
@@ -325,7 +328,18 @@ export default function ConversasPage() {
                   {alerta && <span title="Era quente e está esfriando — intervir" className="text-sm">⚠️</span>}
                 </div>
               </td>
-              <td className="px-4 py-3"><InteresseBadge c={c} compact /></td>
+              <td className="px-4 py-3">
+                <div className="flex items-center gap-1.5">
+                  <InteresseBadge c={c} compact />
+                  <button
+                    onClick={() => { setAbaAberta('interesses'); setNumeroAberto(c.numero) }}
+                    className="text-[11px] text-slate-500 underline-offset-2 hover:text-brand hover:underline"
+                    title="Abrir a conversa já na aba Interesses"
+                  >
+                    Detalhes
+                  </button>
+                </div>
+              </td>
               <td className="px-4 py-3">{c.estagio}</td>
               <td className="px-4 py-3">
                 <span className={`px-2 py-0.5 rounded-full text-xs ${c.status === 'ativo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
@@ -338,7 +352,7 @@ export default function ConversasPage() {
               <td className="px-4 py-3 text-right">
                 <div className="inline-flex items-center gap-2">
                   <button
-                    onClick={() => setNumeroAberto(c.numero)}
+                    onClick={() => { setAbaAberta('chat'); setNumeroAberto(c.numero) }}
                     className="text-xs px-3 py-1.5 rounded-lg border border-brand text-brand hover:bg-brand hover:text-white transition-colors"
                   >
                     Histórico
@@ -374,6 +388,7 @@ export default function ConversasPage() {
           numero={numeroAberto}
           onFechar={() => setNumeroAberto(null)}
           onAtualizou={() => carregar()}
+          abaInicial={abaAberta}
         />
       )}
     </div>

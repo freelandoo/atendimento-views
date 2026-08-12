@@ -219,7 +219,7 @@ function criterioClasse(c: ScoreCriterio) {
   return 'bg-gray-50 text-gray-500 border-gray-200'
 }
 
-export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizou, contextoOrigem }: {
+export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizou, contextoOrigem, abaInicial }: {
   empresaId: string
   numero: string
   /** Destino do fechamento — a UNICA coisa que a origem de entrada pode mudar. */
@@ -234,6 +234,12 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
    * Apresentacao pura: nao muda dados, permissoes nem acoes disponiveis.
    */
   contextoOrigem?: { titulo: string; linhas: string[] } | null
+  /**
+   * Aba com que o painel abre ('chat' por padrao). Deep-link aditivo: quem abre a partir de
+   * um botao "Detalhes" ao lado do interesse (Central de Mensagens) passa 'interesses' aqui —
+   * dado pronto de quem chama, nao uma rota nem query string nova.
+   */
+  abaInicial?: 'chat' | 'interesses'
 }) {
   const fb = useFeedback()
   const [aberta, setAberta] = useState<ConversaDetail | null>(null)
@@ -271,7 +277,7 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
     setMensagemManual('')
     setOrientacaoResposta(null)
     setComposerAberto(false)
-    setAbaModal('chat')
+    setAbaModal(abaInicial || 'chat')
     setFeedbacksMensagem({})
     setFeedbackNegativo(null)
     try {
@@ -287,7 +293,7 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
     } finally {
       if (meu === requisicao.current) setCarregando(false)
     }
-  }, [empresaId, numero])
+  }, [empresaId, numero, abaInicial])
 
   useEffect(() => { carregarConversa() }, [carregarConversa])
 

@@ -8,10 +8,11 @@ import LeadDetalhesModal, { BolinhaCadastro } from '@/components/LeadDetalhesMod
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
+import MenuRadialAcoes, { type AcaoRadial } from '@/components/ui/MenuRadialAcoes'
 import RotinasAquisicao, { type ModoAquisicao, type RotinasResp } from '@/components/RotinasAquisicao'
 import HistoricoColetas from '@/components/HistoricoColetas'
 import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
-import { IconTrash, IconStar, IconUndo } from '@/components/ui/icons'
+import { IconUndo } from '@/components/ui/icons'
 import { resumoIntervalo, POR_PAGINA_PADRAO } from '@/lib/paginacao'
 import {
   FILTROS_STATUS, contagensDosFiltros, taxaResposta, paginaServidor, type PaginaServidor,
@@ -337,6 +338,34 @@ export default function ProspeccaoPage() {
     finally { setAgindo(null) }
   }
 
+  // Ações da linha (fora de "rejeitado") no radial: Marcar (só quando aguardando, mesma
+  // cardinalidade do par Concluir/Cancelar em Follow-ups) e Descartar (sempre). Mesmos
+  // handlers/destinos de antes — só a apresentação virou o menu radial.
+  function acoesAprovarDescartar(p: Prospect): AcaoRadial[] {
+    const acoes: AcaoRadial[] = []
+    if (p.status === 'aguardando') {
+      acoes.push({
+        id: 'aprovar',
+        rotulo: 'Marcar',
+        zona: 'direita',
+        tom: 'positivo',
+        descricao: 'Marca como lead bom (opcional — ele já pode ser disparado sem isso).',
+        desabilitado: agindo === p.id,
+        onSelecionar: () => acao(p.id, 'aprovar', 'Lead marcado como bom.'),
+      })
+    }
+    acoes.push({
+      id: 'rejeitar',
+      rotulo: 'Descartar',
+      zona: 'esquerda',
+      tom: 'negativo',
+      descricao: 'Remove o lead do disparo — vai para a aba Descartados no Banco de Leads.',
+      desabilitado: agindo === p.id,
+      onSelecionar: () => acao(p.id, 'rejeitar', 'Lead descartado — foi para a aba Descartados.'),
+    })
+    return acoes
+  }
+
   async function salvarEmail(id: string, email: string) {
     await apiFetch(`/api/empresas/${empresaId}/prospeccao/prospects/${id}/email`, { method: 'PATCH', body: JSON.stringify({ email }) })
     setProspects((prev) => prev.map((p) => (p.id === id ? { ...p, email: email || null } : p)))
@@ -563,20 +592,10 @@ export default function ProspeccaoPage() {
                     className="inline-flex items-center gap-1.5 text-emerald-600 hover:underline disabled:opacity-40">
                     <IconUndo /> Restaurar</button>
                 ) : (
-                  <div className="inline-flex items-center gap-3">
-                    {p.status === 'aguardando' && (
-                      <button disabled={agindo === p.id}
-                        onClick={() => acao(p.id, 'aprovar', 'Lead marcado como bom.')}
-                        title="Marca como lead bom (opcional — ele já pode ser disparado sem isso)."
-                        className="inline-flex items-center gap-1.5 text-emerald-600 hover:underline disabled:opacity-40">
-                        <IconStar /> Marcar</button>
-                    )}
-                    <button disabled={agindo === p.id}
-                      onClick={() => acao(p.id, 'rejeitar', 'Lead descartado — foi para a aba Descartados.')}
-                      title="Remove o lead do disparo — vai para a aba Descartados no Banco de Leads."
-                      className="inline-flex items-center gap-1.5 text-red-600 hover:underline disabled:opacity-40">
-                      <IconTrash /> Descartar</button>
-                  </div>
+                  <MenuRadialAcoes
+                    acoes={acoesAprovarDescartar(p)}
+                    rotuloContexto={p.nome}
+                  />
                 )}
               </td>
             </tr>

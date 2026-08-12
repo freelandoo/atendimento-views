@@ -1598,17 +1598,23 @@ function TelefoneCelula({ l, onAbrirConversa }: { l: Lead; onAbrirConversa: (l: 
 }
 
 
-// Substitui a antiga coluna `{ }` de JSON cru. Identificador técnico e payload não pertencem a
-// uma tabela de trabalho; o JSON continua a dois cliques (Detalhes → "Ver dados completos"),
-// junto dos campos complementares que saíram das colunas.
-function DetalhesCelula({ l, onAbrirDetalhes }: { l: Lead; onAbrirDetalhes: (l: Lead) => void }) {
+// Cadastro + Detalhes na MESMA célula — mesmo padrão da Aquisição
+// (prospeccao/page.tsx). A célula é SEMPRE renderizada (fora do sistema de toggle "⚙
+// Personalizar"), porque "Detalhes" é a única porta para endereço, nota, avaliações,
+// horário, links e o JSON cru ("Ver dados completos"): desligar a coluna "Pontos" some só
+// com a bolinha, nunca com o acesso a Detalhes — remover essa garantia violaria "não
+// remover ação sem caminho equivalente" (AGENTS.md).
+function CadastroDetalhesCelula({ l, cols, onAbrirDetalhes }: { l: Lead; cols: Record<string, boolean>; onAbrirDetalhes: (l: Lead) => void }) {
   return (
     <td className="px-3 py-2">
-      <button onClick={() => onAbrirDetalhes(l)}
-        className="rounded-lg border px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-        title="Endereço, nota, avaliações, horário, links e dados completos do lead">
-        Detalhes
-      </button>
+      <div className="flex items-center gap-1.5">
+        {cols.pontos && <BolinhaCadastro l={l} />}
+        <button onClick={() => onAbrirDetalhes(l)}
+          className="text-[11px] text-slate-500 underline-offset-2 hover:text-brand hover:underline"
+          title="Endereço, nota, avaliações, horário, links e dados completos do lead">
+          Detalhes
+        </button>
+      </div>
     </td>
   )
 }
@@ -1638,7 +1644,6 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
               <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={onOrdenar} />
               {cols.telefone && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.envio_previsto && <ThOrdenavel label="Envio" chave="envio" ordem={ordem} onOrdenar={onOrdenar} />}
-              {cols.pontos && <ThOrdenavel label="Cadastro" chave="pontos" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.status && <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.email && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.endereco && <ThOrdenavel label="Endereço" chave="endereco" ordem={ordem} onOrdenar={onOrdenar} />}
@@ -1646,7 +1651,9 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
               {cols.aval && <ThOrdenavel label="Aval." chave="aval" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
               {cols.nota && <ThOrdenavel label="Nota" chave="nota" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
               {cols.horario && <ThOrdenavel label="Horário" chave="horario" ordem={ordem} onOrdenar={onOrdenar} />}
-              <th className="text-left px-3 py-2">Detalhes</th>
+              {/* Cadastro + Detalhes na mesma coluna (padrão da Aquisição) — permanente,
+                  fora do toggle: desligar "Pontos" some só com a bolinha, nunca com Detalhes. */}
+              <ThOrdenavel label="Cadastro" chave="pontos" ordem={ordem} onOrdenar={onOrdenar} />
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -1667,9 +1674,6 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
                   </td>
                   {cols.telefone && <TelefoneCelula l={l} onAbrirConversa={onAbrirConversa} />}
                   {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
-                  {/* Completude do cadastro, em paleta NEUTRA. A régua e os critérios são os
-                      mesmos da Aquisição — mesma função do backend, mesmo componente. */}
-                  {cols.pontos && <td className="px-3 py-2"><BolinhaCadastro l={l} /></td>}
                   {cols.status && <StatusCelula l={l} />}
                   {cols.email && <td className="px-3 py-2 text-xs"><EmailEditavel value={l.email} onSave={(email) => onSalvarEmail(l.id, email)} /></td>}
                   {cols.endereco && <td className="px-3 py-2 text-xs text-slate-600 max-w-[180px] truncate" title={l.endereco || ''}>{l.endereco || '—'}</td>}
@@ -1677,7 +1681,9 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
                   {cols.aval && <td className="px-3 py-2 text-right text-xs">{l.avaliacoes ?? '—'}</td>}
                   {cols.nota && <td className="px-3 py-2 text-right text-xs">{l.rating != null ? Number(l.rating).toFixed(1) : '—'}</td>}
                   {cols.horario && <td className="px-3 py-2 text-center">{horario ? '✅' : '❌'}</td>}
-                  <DetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
+                  {/* Completude do cadastro (paleta NEUTRA, mesma régua da Aquisição) + Detalhes
+                      na mesma célula — ver CadastroDetalhesCelula. */}
+                  <CadastroDetalhesCelula l={l} cols={cols} onAbrirDetalhes={onAbrirDetalhes} />
                 </tr>
               )
             })}
@@ -1707,11 +1713,12 @@ function TabelaInstagramBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, pre
               {cols.seguidores && <ThOrdenavel label="Seguidores" chave="seguidores" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
               {cols.telefone && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.envio_previsto && <ThOrdenavel label="Envio" chave="envio" ordem={ordem} onOrdenar={onOrdenar} />}
-              {cols.pontos && <ThOrdenavel label="Cadastro" chave="pontos" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.status && <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.email && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.links && <ThOrdenavel label="Links" chave="links" ordem={ordem} onOrdenar={onOrdenar} />}
-              <th className="text-left px-3 py-2">Detalhes</th>
+              {/* Cadastro + Detalhes na mesma coluna (padrão da Aquisição) — permanente,
+                  fora do toggle: desligar "Pontos" some só com a bolinha, nunca com Detalhes. */}
+              <ThOrdenavel label="Cadastro" chave="pontos" ordem={ordem} onOrdenar={onOrdenar} />
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -1734,9 +1741,6 @@ function TabelaInstagramBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, pre
                 {cols.seguidores && <td className="px-3 py-2 text-right text-xs font-semibold">{l.seguidores != null ? l.seguidores.toLocaleString('pt-BR') : '—'}</td>}
                 {cols.telefone && <TelefoneCelula l={l} onAbrirConversa={onAbrirConversa} />}
                 {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
-                {/* Instagram vale até 60 — o máximo vem do backend e é sempre exibido pelo
-                    componente, para 30/60 nunca ser lido como 30/100. */}
-                {cols.pontos && <td className="px-3 py-2"><BolinhaCadastro l={l} /></td>}
                 {cols.status && <StatusCelula l={l} />}
                 {cols.email && <td className="px-3 py-2 text-xs"><EmailEditavel value={l.email} onSave={(email) => onSalvarEmail(l.id, email)} /></td>}
                 {cols.links && (
@@ -1753,7 +1757,10 @@ function TabelaInstagramBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, pre
                     {!l.link_bio && !l.site && !l.link_original && '—'}
                   </td>
                 )}
-                <DetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
+                {/* Instagram vale até 60 — o máximo vem do backend e é sempre exibido pelo
+                    componente, para 30/60 nunca ser lido como 30/100. Detalhes na mesma
+                    célula da bolinha, como na Google Places acima — CadastroDetalhesCelula. */}
+                <CadastroDetalhesCelula l={l} cols={cols} onAbrirDetalhes={onAbrirDetalhes} />
               </tr>
             ))}
           </tbody>
