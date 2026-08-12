@@ -1,8 +1,8 @@
-export type CanalFollowUp = 'whatsapp' | 'ligacao'
+export type CanalFollowUp = 'whatsapp' | 'ligacao' | 'email'
 export type StatusFollowUp = 'aguardando' | 'concluido' | 'cancelado' | 'falha'
 export type PrioridadeFollowUp = 'alta' | 'media' | 'baixa'
 export type OrigemFollowUp = 'ligacao' | 'mensagem' | 'automacao' | 'manual'
-export type DestinoFollowUp = 'central_mensagens' | 'central_ligacoes'
+export type DestinoFollowUp = 'central_mensagens' | 'central_ligacoes' | 'central_follow_ups'
 /** Inclui `nenhuma`, que é resposta legítima do formulário — não um default escondido. */
 export type EscolhaCanal = CanalFollowUp | 'nenhuma'
 
@@ -40,6 +40,15 @@ export interface FollowUpApi {
   whatsapp_disponivel?: boolean | null
   whatsapp_motivo?: string | null
   whatsapp_marcado_em?: string | null
+  /**
+   * Mesmo tri-estado para o canal de e-mail (migration 067). `email_endereco` só vem quando
+   * o e-mail foi CONFIRMADO por uma pessoa — canal marcado como indisponível não devolve
+   * destino, e e-mail de cadastro nunca chega aqui (é candidato, não confirmação).
+   */
+  email_disponivel?: boolean | null
+  email_endereco?: string | null
+  email_motivo?: string | null
+  email_marcado_em?: string | null
 }
 
 /** `true` | `false` | `null` ("ninguém verificou"). `null` NÃO é `false`. */
@@ -49,6 +58,20 @@ export type DisponibilidadeWhatsapp = boolean | null
 export interface PatchDisponibilidade {
   whatsapp_disponivel?: boolean
   disponibilidade_motivo?: string
+}
+
+/** Parte de e-mail do mesmo payload. Confirmar exige endereço (é a regra do canal). */
+export interface PatchEmailDisponibilidade {
+  email_disponivel?: boolean
+  email_endereco?: string
+  email_motivo?: string
+}
+
+/** E-mail que o cadastro conhece: SUGESTÃO para confirmar, nunca destino de envio. */
+export interface EmailCandidato {
+  endereco: string
+  nome: string | null
+  fonte: string
 }
 
 /** Estado do formulário "Próxima ação" do encerramento da ligação. */
@@ -100,10 +123,22 @@ export declare const DISPONIBILIDADE_WHATSAPP_LABEL: Record<string, string>
 export declare const MARCAR_SEM_WHATSAPP_LABEL: string
 export declare const MARCAR_SEM_WHATSAPP_AJUDA: string
 export declare const AVISO_TROCA_PARA_LIGACAO: string
+export declare const AVISO_TROCA_PARA_EMAIL: string
 export declare const AVISO_CANAL_DESCARTADO: string
+export declare const AVISO_CANAL_EMAIL_DESCARTADO: string
+/** Texto da consequência da marcação, já resolvido pela ordem WhatsApp → e-mail → ligação. */
+export declare function avisoDaTrocaDeCanal(estado?: {
+  canal?: string | null
+  semWhatsapp?: boolean
+  emailConfirmado?: string | null
+}): string | null
 export declare function rotuloDisponibilidadeWhatsapp(valor: DisponibilidadeWhatsapp | undefined): string
 export declare function canalDescartadoPeloOperador(
-  item: { canal?: string | null; whatsapp_disponivel?: DisponibilidadeWhatsapp } | null | undefined,
+  item: {
+    canal?: string | null
+    whatsapp_disponivel?: DisponibilidadeWhatsapp
+    email_disponivel?: DisponibilidadeWhatsapp
+  } | null | undefined,
 ): boolean
 export declare function estadoDisponibilidadeInicial(
   item: { whatsapp_disponivel?: DisponibilidadeWhatsapp } | null | undefined,
@@ -119,6 +154,55 @@ export declare function patchDisponibilidade(
   escolhido: DisponibilidadeWhatsapp,
   motivo?: string | null,
 ): PatchDisponibilidade
+
+// ─── E-mail do CONTATO (migration 067) ───────────────────────────────────────
+export declare const DISPONIBILIDADE_EMAIL_LABEL: Record<string, string>
+export declare const MARCAR_EMAIL_LABEL: string
+export declare const MARCAR_EMAIL_AJUDA: string
+/** Espelham os limites do backend; a validação que vale continua sendo a de lá. */
+export declare const LIMITE_ASSUNTO_EMAIL: number
+export declare const LIMITE_CORPO_EMAIL: number
+export declare const EMAIL_DESTINO_AJUDA: string
+export declare const EMAIL_CANDIDATOS_AJUDA: string
+
+/** Resposta de `GET /itens/:id/email` — tudo o que o compositor precisa para abrir. */
+export interface PreparoEmail {
+  item: { id: string; canal: string; status: string; proxima_acao?: string | null }
+  /** Endereço confirmado por uma PESSOA, ou `null`. Nunca vem do cadastro. */
+  destinatario: string | null
+  candidatos: EmailCandidato[]
+  canal_configurado: boolean
+  /** Motivo pelo qual o envio está bloqueado, ou `null`. Vocabulário fechado do backend. */
+  bloqueio: string | null
+  bloqueio_mensagem: string | null
+  rascunho: { assunto: string; corpo: string }
+}
+
+/** Resposta de `POST /itens/:id/email/enviar`. */
+export interface EnvioEmailResultado {
+  envio: { id: string; destinatario: string; assunto: string } | null
+  follow_up: { id: string; status: string } | null
+  /** O e-mail saiu, mas o item não pôde ser concluído sozinho. Não é falha de envio. */
+  conclusao_erro: string | null
+}
+export declare function rotuloDisponibilidadeEmail(valor: DisponibilidadeWhatsapp | undefined): string
+/** Só forma do endereço: quem decide se ele RECEBE é uma pessoa. */
+export declare function emailValido(valor: string | null | undefined): boolean
+export declare function estadoEmailInicial(
+  item: { email_disponivel?: DisponibilidadeWhatsapp } | null | undefined,
+): DisponibilidadeWhatsapp
+export declare function alternarTemEmail(
+  inicial: DisponibilidadeWhatsapp,
+  marcado: boolean,
+): DisponibilidadeWhatsapp
+/** Vazio quando nada mudou (veredito e endereço iguais aos que o backend informou). */
+export declare function patchEmailDisponibilidade(
+  inicial: DisponibilidadeWhatsapp,
+  escolhido: DisponibilidadeWhatsapp,
+  endereco?: string | null,
+  enderecoInicial?: string | null,
+  motivo?: string | null,
+): PatchEmailDisponibilidade
 
 export declare function rotuloCanal(canal: string | null | undefined): string | null
 export declare function iconeCanal(canal: string | null | undefined): string | null

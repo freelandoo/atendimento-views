@@ -13,16 +13,21 @@
 // Sem React, sem rede, sem DOM: testável com `node --test`.
 
 /** Por onde a ação é executada. Ícone textual porque cor nunca é a única informação. */
-const CANAL_LABEL = Object.freeze({ whatsapp: 'WhatsApp', ligacao: 'Ligação' })
-const CANAL_ICONE = Object.freeze({ whatsapp: '💬', ligacao: '📞' })
+const CANAL_LABEL = Object.freeze({ whatsapp: 'WhatsApp', ligacao: 'Ligação', email: 'E-mail' })
+const CANAL_ICONE = Object.freeze({ whatsapp: '💬', ligacao: '📞', email: '✉️' })
 
 /**
  * QUAL TELA EXECUTA o item — a regra de roteamento do fluxo, num lugar só.
  * Espelha `telaExecutora` do backend; o teste trava os dois valores.
+ *
+ * `email` executa na PRÓPRIA fila (compositor + envio, migration 067): não existe uma
+ * "Central de E-mails", e criar uma tela nova para compor uma mensagem 1:1 duplicaria o
+ * compositor manual que a fila já tem.
  */
 const DESTINO_POR_CANAL = Object.freeze({
   whatsapp: 'central_mensagens',
   ligacao: 'central_ligacoes',
+  email: 'central_follow_ups',
 })
 
 /** O que gerou a ação. É contexto do item, nunca uma aba. */
@@ -73,15 +78,135 @@ const MARCAR_SEM_WHATSAPP_AJUDA =
   'Marque só se você verificou. O sistema nunca conclui isso sozinho por falha de envio.'
 
 /**
- * Consequência do "sem WhatsApp" no follow-up aberto. E-mail ainda não é canal de follow-up
- * (não há tela que execute um), então o destino possível hoje é a ligação — o contato sempre
- * tem telefone, porque o telefone é a identidade dele.
+ * Consequência do "sem WhatsApp" no follow-up aberto, quando NÃO há e-mail confirmado. O
+ * destino é a ligação — o contato sempre tem telefone, porque o telefone é a identidade dele.
  */
 const AVISO_TROCA_PARA_LIGACAO =
-  'Ao salvar, este follow-up passa a ser feito por Ligação. E-mail ainda não é um canal de follow-up.'
+  'Ao salvar, este follow-up passa a ser feito por Ligação — este contato não tem e-mail confirmado.'
 
-/** Aviso na fila: item de WhatsApp num contato que o operador marcou como sem WhatsApp. */
+/** Mesma consequência, com e-mail confirmado: o salto do meio da ordem passou a existir. */
+const AVISO_TROCA_PARA_EMAIL =
+  'Ao salvar, este follow-up passa a ser feito por E-mail, no endereço confirmado.'
+
+/**
+ * O texto da consequência é decidido AQUI, e não no componente, porque ele depende de duas
+ * declarações ao mesmo tempo (WhatsApp e e-mail) e da ordem "sem WhatsApp → e-mail confirmado
+ * → ligação". A tela só desenha o que esta função devolver; quem decide o canal de verdade é
+ * o backend, e o canal que vale é sempre o que volta na resposta do reagendamento.
+ *
+ * @param {{canal?: string, semWhatsapp?: boolean, emailConfirmado?: string|null}} estado
+ * @returns {string|null} aviso, ou `null` quando nada muda de canal.
+ */
+function avisoDaTrocaDeCanal(estado = {}) {
+  if (estado.canal !== 'whatsapp' || !estado.semWhatsapp) return null
+  return texto(estado.emailConfirmado) ? AVISO_TROCA_PARA_EMAIL : AVISO_TROCA_PARA_LIGACAO
+}
+
+/** Aviso na fila: item num canal que o operador marcou como indisponível para o contato. */
 const AVISO_CANAL_DESCARTADO = 'Contato marcado como sem WhatsApp'
+const AVISO_CANAL_EMAIL_DESCARTADO = 'Contato marcado como sem e-mail'
+
+// ─── E-mail do contato (migration 067) ───────────────────────────────────────
+//
+// Mesmo tri-estado do WhatsApp, com uma diferença que é a regra do canal: confirmar exige
+// dizer PARA ONDE. Sem endereço não há canal — e um item de e-mail sem destino entraria na
+// fila e nunca sairia dela, que é exatamente o motivo pelo qual este canal só nasceu junto
+// do executor.
+const DISPONIBILIDADE_EMAIL_LABEL = Object.freeze({
+  true: 'Tem e-mail confirmado',
+  false: 'Sem e-mail',
+  null: 'E-mail não verificado',
+})
+
+const MARCAR_EMAIL_LABEL = 'Este contato tem e-mail confirmado'
+const MARCAR_EMAIL_AJUDA =
+  'Marque só se você confirmou com o contato. E-mail que veio do cadastro é sugestão, não confirmação.'
+
+/**
+ * Limites do compositor. Espelham `LIMITE_ASSUNTO`/`LIMITE_CORPO` de
+ * `backend/src/services/followup-email.js` — a validação que VALE é a de lá; estes existem
+ * só para o `maxLength` do campo avisar antes, em vez de o operador perder o texto num 400.
+ * Um teste lê o fonte do backend e falha se os dois pares divergirem.
+ */
+const LIMITE_ASSUNTO_EMAIL = 200
+const LIMITE_CORPO_EMAIL = 20000
+
+/** Texto de apoio do compositor, num lugar só — a tela desenha, não redige regra. */
+const EMAIL_DESTINO_AJUDA =
+  'O e-mail sai para o endereço confirmado por uma pessoa. Para trocar o destino, use Reagendar.'
+const EMAIL_CANDIDATOS_AJUDA =
+  'Estes endereços vieram do cadastro do lead. São sugestões: ninguém verificou que recebem. '
+  + 'Confirme um deles em Reagendar para liberar o envio.'
+
+function rotuloDisponibilidadeEmail(valor) {
+  if (valor === true) return DISPONIBILIDADE_EMAIL_LABEL.true
+  if (valor === false) return DISPONIBILIDADE_EMAIL_LABEL.false
+  return DISPONIBILIDADE_EMAIL_LABEL.null
+}
+
+/**
+ * Validação de forma do endereço, só para o operador não perder o formulário num 400. A
+ * validação que vale é a do backend (fonte única), e nenhuma regex decide se um endereço
+ * RECEBE — é por isso que quem confirma é uma pessoa.
+ */
+function emailValido(valor) {
+  const t = texto(valor).toLowerCase()
+  if (!t || t.length > 254) return false
+  if (/[\s<>",;\\]/.test(t)) return false
+  return /^[^@]+@[^@.]+(\.[^@.]+)+$/.test(t)
+}
+
+/** Estado inicial do controle de e-mail no reagendamento. Espelha o backend, não adivinha. */
+function estadoEmailInicial(item) {
+  const v = item && item.email_disponivel
+  return v === true || v === false ? v : null
+}
+
+/**
+ * Parte de e-mail do payload do reagendamento.
+ *
+ * Só envia quando o operador MUDOU alguma coisa nesta tela: o veredito, ou o endereço de um
+ * e-mail que já estava confirmado. Reenviar o mesmo valor gravaria `marcado_por`/`marcado_em`
+ * novos e uma linha de auditoria a cada mexida na data — passaria a parecer que alguém
+ * reverificou o contato toda vez.
+ *
+ * @param {boolean|null} inicial  veredito que o backend informou ao abrir o modal.
+ * @param {boolean|null} escolhido  veredito selecionado agora.
+ * @param {string} endereco  endereço digitado/escolhido agora.
+ * @param {string|null} enderecoInicial  endereço confirmado que o backend informou.
+ * @param {string} motivo  nota opcional do operador.
+ */
+function patchEmailDisponibilidade(inicial, escolhido, endereco, enderecoInicial, motivo) {
+  if (escolhido !== true && escolhido !== false) return {}
+  const novo = texto(endereco).toLowerCase()
+  const antigo = texto(enderecoInicial).toLowerCase()
+  const mudouVeredito = escolhido !== inicial
+  const mudouEndereco = escolhido === true && novo !== antigo
+  if (!mudouVeredito && !mudouEndereco) return {}
+  const patch = { email_disponivel: escolhido }
+  if (escolhido === true) patch.email_endereco = novo
+  const nota = texto(motivo)
+  // O motivo só acompanha a marcação de indisponibilidade, como no WhatsApp: explicar por que
+  // um contato TEM e-mail não é informação que alguém vá procurar depois.
+  if (escolhido === false && nota) patch.email_motivo = nota
+  return patch
+}
+
+/**
+ * O que o veredito de e-mail vira quando o operador marca/desmarca "Este contato tem e-mail
+ * confirmado". Espelha `alternarSemWhatsapp`, com o sinal invertido (aqui o marcado é a
+ * afirmação POSITIVA):
+ *   - marcar   → `true` (confirmado; o endereço vai junto no payload);
+ *   - desmarcar o que ESTAVA confirmado → `false`: é a única forma reversível que existe, e
+ *     ela apaga o endereço — deixar o destino gravado depois de tirar a confirmação daria
+ *     rumo a um canal que o operador acabou de descartar;
+ *   - desmarcar o que ninguém tinha verificado → `null`: não registra uma verificação que
+ *     não houve.
+ */
+function alternarTemEmail(inicial, marcado) {
+  if (marcado) return true
+  return inicial === true ? false : (inicial === false ? false : null)
+}
 
 function rotuloDisponibilidadeWhatsapp(valor) {
   if (valor === true) return DISPONIBILIDADE_WHATSAPP_LABEL.true
@@ -94,7 +219,10 @@ function rotuloDisponibilidadeWhatsapp(valor) {
  * indisponibilidade — `null`/`undefined` nunca acendem o aviso.
  */
 function canalDescartadoPeloOperador(item) {
-  return !!item && item.canal === 'whatsapp' && item.whatsapp_disponivel === false
+  if (!item) return false
+  if (item.canal === 'whatsapp') return item.whatsapp_disponivel === false
+  if (item.canal === 'email') return item.email_disponivel === false
+  return false
 }
 
 /**
@@ -360,6 +488,13 @@ function itemDeFollowUp(f, agora = new Date()) {
       ? f.whatsapp_disponivel
       : null,
     whatsapp_motivo: texto(f.whatsapp_motivo) || null,
+    // Mesmo tri-estado para o e-mail (migration 067). O ENDEREÇO só chega quando foi
+    // confirmado — o backend não devolve destino de um canal marcado como indisponível.
+    email_disponivel: f.email_disponivel === true || f.email_disponivel === false
+      ? f.email_disponivel
+      : null,
+    email_endereco: texto(f.email_endereco) || null,
+    email_motivo: texto(f.email_motivo) || null,
   }
 }
 
@@ -394,6 +529,10 @@ const EVENTO_LABEL = Object.freeze({
   followup_concluido: 'Follow-up concluído',
   followup_cancelado: 'Follow-up cancelado',
   followup_falha: 'Follow-up com falha',
+  // E-mails entram na linha do tempo porque, ao contrário das mensagens de WhatsApp, não há
+  // outra tela que os mostre. Sai o assunto, nunca o corpo.
+  email_enviado: 'E-mail enviado',
+  email_falhou: 'E-mail não enviado',
 })
 
 function rotuloEvento(tipo) {
@@ -416,12 +555,29 @@ module.exports = {
   MARCAR_SEM_WHATSAPP_LABEL,
   MARCAR_SEM_WHATSAPP_AJUDA,
   AVISO_TROCA_PARA_LIGACAO,
+  AVISO_TROCA_PARA_EMAIL,
   AVISO_CANAL_DESCARTADO,
+  AVISO_CANAL_EMAIL_DESCARTADO,
+  avisoDaTrocaDeCanal,
   rotuloDisponibilidadeWhatsapp,
   canalDescartadoPeloOperador,
   estadoDisponibilidadeInicial,
   alternarSemWhatsapp,
   patchDisponibilidade,
+  // E-mail do contato (migration 067). Mesmo contrato: tradução do veredito humano que o
+  // backend já deu — a tela não decide canal nem infere confirmação a partir do cadastro.
+  DISPONIBILIDADE_EMAIL_LABEL,
+  MARCAR_EMAIL_LABEL,
+  MARCAR_EMAIL_AJUDA,
+  LIMITE_ASSUNTO_EMAIL,
+  LIMITE_CORPO_EMAIL,
+  EMAIL_DESTINO_AJUDA,
+  EMAIL_CANDIDATOS_AJUDA,
+  rotuloDisponibilidadeEmail,
+  emailValido,
+  estadoEmailInicial,
+  alternarTemEmail,
+  patchEmailDisponibilidade,
   rotuloCanal,
   iconeCanal,
   destinoDoCanal,

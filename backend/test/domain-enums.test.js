@@ -8,7 +8,7 @@ const {
   ROTEIRO_VERSAO_STATUS, ROTEIRO_ETAPA_TIPO, CAMPANHA_STATUS, OPORTUNIDADE_STATUS,
   LIGACAO_RESULTADO, LIGACAO_STATUS, SINAL_TIPO, SINAL_ORIGEM, OBJECAO_ORIGEM,
   PERGUNTA_STATUS, MOTIVO_PERDA,
-  FOLLOWUP_CANAL, FOLLOWUP_STATUS, FOLLOWUP_PRIORIDADE, FOLLOWUP_ORIGEM,
+  FOLLOWUP_CANAL, FOLLOWUP_STATUS, FOLLOWUP_PRIORIDADE, FOLLOWUP_ORIGEM, FOLLOWUP_EMAIL_STATUS,
   DISPONIBILIDADE_CANAIS, DISPONIBILIDADE_ORIGEM,
 } = require('../src/domain-enums')
 
@@ -25,6 +25,7 @@ const mig043 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '
 const mig052 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '052_ligacoes_motivo_perda_v2.sql'), 'utf8')
 const mig062 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '062_follow_ups.sql'), 'utf8')
 const mig066 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '066_contato_canal_disponibilidade.sql'), 'utf8')
+const mig067 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '067_follow_up_canal_email.sql'), 'utf8')
 
 // Extrai a lista de valores da primeira CHECK (... IN (...)) que segue o nome da constraint.
 function checkIn(sql, constraintName) {
@@ -138,16 +139,27 @@ test('PERGUNTA_STATUS bate com a CHECK ligacao_perguntas_status_chk (migration 0
   mesmoConjunto(PERGUNTA_STATUS, checkIn(mig043, 'ligacao_perguntas_status_chk'), 'pergunta_status')
 })
 
-test('FOLLOWUP_* batem com as CHECK de app.follow_ups (migration 062)', () => {
-  mesmoConjunto(FOLLOWUP_CANAL, checkIn(mig062, 'follow_ups_canal_chk'), 'follow_up.canal')
+test('FOLLOWUP_* batem com as CHECK de app.follow_ups (062, canal REDEFINIDO pela 067)', () => {
+  // `follow_ups_canal_chk` nasceu na 062 e foi REDEFINIDA pela 067 (canal de e-mail). Como no
+  // caso motivo_perda (040 -> 052), o anti-drift compara com a definicao ATUAL — senao trava
+  // o enum na versao antiga.
+  mesmoConjunto(FOLLOWUP_CANAL, checkIn(mig067, 'follow_ups_canal_chk'), 'follow_up.canal')
   mesmoConjunto(FOLLOWUP_STATUS, checkIn(mig062, 'follow_ups_status_chk'), 'follow_up.status')
   mesmoConjunto(FOLLOWUP_PRIORIDADE, checkIn(mig062, 'follow_ups_prioridade_chk'), 'follow_up.prioridade')
   mesmoConjunto(FOLLOWUP_ORIGEM, checkIn(mig062, 'follow_ups_origem_chk'), 'follow_up.origem')
 })
 
-test('DISPONIBILIDADE_* batem com as CHECK de app.contato_canal_disponibilidade (migration 066)', () => {
-  mesmoConjunto(DISPONIBILIDADE_CANAIS, checkIn(mig066, 'contato_canal_disp_canal_chk'), 'disponibilidade.canal')
+test('DISPONIBILIDADE_* batem com as CHECK de app.contato_canal_disponibilidade (066, canal REDEFINIDO pela 067)', () => {
+  mesmoConjunto(DISPONIBILIDADE_CANAIS, checkIn(mig067, 'contato_canal_disp_canal_chk'), 'disponibilidade.canal')
   mesmoConjunto(DISPONIBILIDADE_ORIGEM, checkIn(mig066, 'contato_canal_disp_origem_chk'), 'disponibilidade.origem')
+})
+
+test('FOLLOWUP_EMAIL_STATUS bate com a CHECK follow_up_emails_status_chk (migration 067)', () => {
+  mesmoConjunto(FOLLOWUP_EMAIL_STATUS, checkIn(mig067, 'follow_up_emails_status_chk'), 'follow_up_email.status')
+  // 'desativado' existe em prospectador.email_outreach e NAO pode aparecer aqui: canal nao
+  // configurado recusa antes de compor, e gravar um "envio" que nunca saiu faria a linha do
+  // tempo do contato mentir.
+  assert.ok(!FOLLOWUP_EMAIL_STATUS.includes('desativado'))
 })
 
 test('a origem da marcacao de disponibilidade tem UM valor, e ele e humano', () => {

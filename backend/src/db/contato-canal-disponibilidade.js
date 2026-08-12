@@ -9,11 +9,11 @@
 // que exige `usuarioId` do chamador — uma pessoa autenticada. Guarda de regressao em
 // test/contato-canal-disponibilidade.test.js le este fonte.
 const {
-  validarMarcacao,
+  validarMarcacao, enderecoEmailConfirmado,
 } = require('../services/contato-canal-disponibilidade')
 const { normalizarTelefoneDigitos } = require('../services/follow-up-modelo')
 
-const COLS = `id, empresa_id, telefone_digitos, canal, disponivel, motivo, origem,
+const COLS = `id, empresa_id, telefone_digitos, canal, disponivel, motivo, endereco, origem,
   marcado_por, marcado_em, criado_em, atualizado_em`
 
 /**
@@ -34,18 +34,23 @@ async function marcarDisponibilidade(exec, empresaId, entrada = {}, { usuarioId 
   const telefone = normalizarTelefoneDigitos(entrada.telefone)
   const { rows } = await exec.query(
     `INSERT INTO app.contato_canal_disponibilidade
-       (empresa_id, telefone_digitos, canal, disponivel, motivo, origem, marcado_por)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)
+       (empresa_id, telefone_digitos, canal, disponivel, motivo, endereco, origem, marcado_por)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
      ON CONFLICT (empresa_id, telefone_digitos, canal)
      DO UPDATE SET
        disponivel    = EXCLUDED.disponivel,
        motivo        = EXCLUDED.motivo,
+       -- O endereco acompanha o veredito (e nao COALESCE com o anterior): confirmar um
+       -- e-mail novo troca o destino, e negar o canal apaga o destino antigo. Manter o
+       -- endereco velho depois de "este contato nao recebe e-mail" deixaria a linha se
+       -- contradizendo e daria destino a um canal que o operador acabou de descartar.
+       endereco      = EXCLUDED.endereco,
        origem        = EXCLUDED.origem,
        marcado_por   = EXCLUDED.marcado_por,
        marcado_em    = NOW(),
        atualizado_em = NOW()
      RETURNING ${COLS}`,
-    [empresaId, telefone, p.canal, p.disponivel, p.motivo, p.origem, usuarioId]
+    [empresaId, telefone, p.canal, p.disponivel, p.motivo, p.endereco, p.origem, usuarioId]
   )
   return rows[0]
 }
@@ -73,8 +78,30 @@ async function obterDisponibilidade(exec, empresaId, telefoneDigitos, canal = 'w
   return rows[0] || null
 }
 
+/**
+ * Endereco de e-mail CONFIRMADO por uma PESSOA para este contato, ou `null`.
+ *
+ * Reusa `obterDisponibilidade` de proposito — nenhuma query nova: o veredito de e-mail mora
+ * na MESMA tabela e na mesma linha logica que o de WhatsApp. E a traducao "linha do banco ->
+ * para onde da para enviar" fica em `enderecoEmailConfirmado` (modulo puro), que nunca olha
+ * cadastro: e-mail de `prospectador.prospects` e CANDIDATO, e so vira canal quando alguem
+ * confirma por aqui.
+ */
+async function emailConfirmadoDoContato(exec, empresaId, telefoneDigitos) {
+  const linha = await obterDisponibilidade(exec, empresaId, telefoneDigitos, 'email')
+  return enderecoEmailConfirmado(linha)
+}
+
+/** Veredito de e-mail (tri-estado, como o de WhatsApp): true | false | null. */
+async function emailDisponivelDoContato(exec, empresaId, telefoneDigitos) {
+  const linha = await obterDisponibilidade(exec, empresaId, telefoneDigitos, 'email')
+  return linha ? linha.disponivel : null
+}
+
 module.exports = {
   marcarDisponibilidade,
   whatsappDisponivelDoContato,
   obterDisponibilidade,
+  emailConfirmadoDoContato,
+  emailDisponivelDoContato,
 }

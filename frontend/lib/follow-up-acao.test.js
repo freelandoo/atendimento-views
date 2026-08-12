@@ -88,11 +88,13 @@ function auto(extra = {}) {
 
 // ─── Roteamento: qual tela executa ────────────────────────────────────────────
 
-test('o canal decide a tela executora — e só há dois destinos', () => {
+test('o canal decide a tela executora — e o e-mail executa na PRÓPRIA fila', () => {
   assert.equal(A.destinoDoCanal('whatsapp'), 'central_mensagens')
   assert.equal(A.destinoDoCanal('ligacao'), 'central_ligacoes')
-  assert.equal(A.destinoDoCanal('email'), null)
-  assert.deepEqual(Object.keys(A.DESTINO_POR_CANAL).sort(), ['ligacao', 'whatsapp'])
+  // `email` deixou de ser `null` na migration 067, junto com o executor. Não existe uma
+  // "Central de E-mails": compor uma mensagem 1:1 é o que a própria fila já faz.
+  assert.equal(A.destinoDoCanal('email'), 'central_follow_ups')
+  assert.deepEqual(Object.keys(A.DESTINO_POR_CANAL).sort(), ['email', 'ligacao', 'whatsapp'])
 })
 
 test('o destino do front espelha `telaExecutora` do backend', () => {
@@ -101,6 +103,17 @@ test('o destino do front espelha `telaExecutora` do backend', () => {
     path.join(__dirname, '..', '..', 'backend', 'src', 'services', 'follow-up-modelo.js'), 'utf8')
   assert.match(backend, /whatsapp: 'central_mensagens'/)
   assert.match(backend, /ligacao: 'central_ligacoes'/)
+  assert.match(backend, /email: 'central_follow_ups'/)
+})
+
+test('os limites do compositor espelham os do backend', () => {
+  // Divergir faria o campo aceitar um texto que a rota recusaria, e o operador perderia o
+  // que escreveu num 400.
+  const backend = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'backend', 'src', 'services', 'followup-email.js'), 'utf8')
+  const ler = (nome) => Number(backend.match(new RegExp(`const ${nome} = (\\d+)`))[1])
+  assert.equal(A.LIMITE_ASSUNTO_EMAIL, ler('LIMITE_ASSUNTO'))
+  assert.equal(A.LIMITE_CORPO_EMAIL, ler('LIMITE_CORPO'))
 })
 
 // ─── Prazo legível ────────────────────────────────────────────────────────────
@@ -389,8 +402,82 @@ test('o estado inicial do controle espelha o backend, sem palpite da tela', () =
 test('a tela NAO reimplementa a regra de canal — quem troca é o backend', () => {
   // Guarda de regressão: o módulo de apresentação não pode decidir canal a partir da
   // disponibilidade. O canal que vale é sempre o que volta na resposta do reagendamento.
+  //
+  // O `=(?!=)` restringe a guarda ao que ela sempre quis dizer: ATRIBUIR canal. Sem ele a
+  // expressão também pegava `item.canal === 'email'` de `canalDescartadoPeloOperador`, que
+  // só LÊ o canal do item para acender um aviso — o oposto de decidir canal.
   const fonte = fs.readFileSync(path.join(__dirname, 'follow-up-acao.js'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1')
-  assert.doesNotMatch(fonte, /whatsapp_disponivel[\s\S]{0,80}canal\s*=/,
-    'trocar canal no front criaria uma segunda regra, que divergiria da do backend')
+  for (const veredito of ['whatsapp_disponivel', 'email_disponivel']) {
+    assert.doesNotMatch(fonte, new RegExp(`${veredito}[\\s\\S]{0,80}canal\\s*=(?!=)`),
+      'trocar canal no front criaria uma segunda regra, que divergiria da do backend')
+  }
+})
+
+// ─── Canal de e-mail do contato (migration 067) ──────────────────────────────
+
+test('o veredito de e-mail é tri-estado: `null` não é `false`', () => {
+  assert.equal(A.estadoEmailInicial({ email_disponivel: true }), true)
+  assert.equal(A.estadoEmailInicial({ email_disponivel: false }), false)
+  assert.equal(A.estadoEmailInicial({}), null, 'ninguém verificou não é "não tem"')
+  assert.equal(A.estadoEmailInicial(null), null)
+  assert.equal(A.rotuloDisponibilidadeEmail(null), 'E-mail não verificado')
+  assert.notEqual(A.rotuloDisponibilidadeEmail(null), A.rotuloDisponibilidadeEmail(false))
+})
+
+test('desmarcar só registra veredito quando havia um a desfazer', () => {
+  // Espelha `alternarSemWhatsapp` com o sinal invertido: aqui o marcado é a afirmação
+  // POSITIVA. Desmarcar o que ninguém verificou não pode registrar uma verificação que não
+  // houve.
+  assert.equal(A.alternarTemEmail(null, true), true)
+  assert.equal(A.alternarTemEmail(true, false), false, 'desfazer confirmação é declarar que não tem')
+  assert.equal(A.alternarTemEmail(null, false), null, 'não inventa verificação')
+  assert.equal(A.alternarTemEmail(false, true), true)
+})
+
+test('confirmar e-mail exige endereço — canal sem destino não é canal', () => {
+  assert.ok(A.emailValido('contato@empresa.com.br'))
+  assert.ok(!A.emailValido(''))
+  assert.ok(!A.emailValido('sem-arroba.com'))
+  assert.ok(!A.emailValido('a@b'), 'domínio sem ponto não é endereço')
+  assert.ok(!A.emailValido('a b@c.com'), 'espaço no endereço')
+  assert.ok(!A.emailValido('a@c.com\nBcc: x@y.com'), 'quebra de linha seria injeção de cabeçalho')
+})
+
+test('o patch de e-mail só sai quando o operador MUDOU alguma coisa', () => {
+  // Reenviar o mesmo veredito gravaria `marcado_por`/`marcado_em` novos e uma linha de
+  // auditoria a cada mexida na data — pareceria que alguém reverificou o contato toda vez.
+  assert.deepEqual(A.patchEmailDisponibilidade(null, null, '', '', ''), {})
+  assert.deepEqual(A.patchEmailDisponibilidade(true, true, 'a@b.com', 'a@b.com', ''), {},
+    'mesmo veredito e mesmo endereço não é mudança')
+  assert.deepEqual(A.patchEmailDisponibilidade(null, true, 'A@B.com', '', ''),
+    { email_disponivel: true, email_endereco: 'a@b.com' })
+  assert.deepEqual(A.patchEmailDisponibilidade(true, true, 'novo@b.com', 'a@b.com', ''),
+    { email_disponivel: true, email_endereco: 'novo@b.com' }, 'trocar o destino é mudança')
+  assert.deepEqual(A.patchEmailDisponibilidade(true, false, '', 'a@b.com', 'voltou'),
+    { email_disponivel: false, email_motivo: 'voltou' }, 'negar não carrega destino')
+  assert.deepEqual(A.patchEmailDisponibilidade(null, true, 'a@b.com', '', 'confirmou'),
+    { email_disponivel: true, email_endereco: 'a@b.com' },
+    'explicar por que um contato TEM e-mail não é informação que alguém vá procurar depois')
+})
+
+test('a consequência anunciada segue a ordem WhatsApp → e-mail confirmado → ligação', () => {
+  // É o salto que a Decisão 4 deixou declarado e que a migration 067 passou a permitir.
+  assert.equal(A.avisoDaTrocaDeCanal({ canal: 'whatsapp', semWhatsapp: true, emailConfirmado: 'a@b.com' }),
+    A.AVISO_TROCA_PARA_EMAIL)
+  assert.equal(A.avisoDaTrocaDeCanal({ canal: 'whatsapp', semWhatsapp: true, emailConfirmado: '' }),
+    A.AVISO_TROCA_PARA_LIGACAO, 'sem e-mail confirmado o destino continua sendo a ligação')
+  assert.equal(A.avisoDaTrocaDeCanal({ canal: 'whatsapp', semWhatsapp: false, emailConfirmado: 'a@b.com' }), null)
+  assert.equal(A.avisoDaTrocaDeCanal({ canal: 'ligacao', semWhatsapp: true, emailConfirmado: 'a@b.com' }), null,
+    'num item que já é de ligação a marcação vale como fato do contato, mas não move trabalho')
+  assert.equal(A.avisoDaTrocaDeCanal({}), null)
+})
+
+test('o aviso de canal descartado acende para o canal do próprio item', () => {
+  assert.ok(A.canalDescartadoPeloOperador({ canal: 'email', email_disponivel: false }))
+  assert.ok(!A.canalDescartadoPeloOperador({ canal: 'email', email_disponivel: null }))
+  assert.ok(!A.canalDescartadoPeloOperador({ canal: 'email', whatsapp_disponivel: false }),
+    'o veredito de WhatsApp não descarta um item que já é de e-mail')
+  assert.ok(A.canalDescartadoPeloOperador({ canal: 'whatsapp', whatsapp_disponivel: false }))
+  assert.ok(!A.canalDescartadoPeloOperador({ canal: 'ligacao', whatsapp_disponivel: false }))
 })

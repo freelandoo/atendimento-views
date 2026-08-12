@@ -70,12 +70,29 @@ import {
   // aqui só há o texto da consequência e o estado do controle.
   MARCAR_SEM_WHATSAPP_LABEL,
   MARCAR_SEM_WHATSAPP_AJUDA,
-  AVISO_TROCA_PARA_LIGACAO,
   AVISO_CANAL_DESCARTADO,
+  AVISO_CANAL_EMAIL_DESCARTADO,
+  avisoDaTrocaDeCanal,
   rotuloDisponibilidadeWhatsapp,
   estadoDisponibilidadeInicial,
   alternarSemWhatsapp,
   patchDisponibilidade,
+  // Canal de e-mail do contato (migration 067). Confirmar exige dizer PARA ONDE; quem decide
+  // o canal continua sendo o backend — aqui só há o texto da consequência e o estado do
+  // controle.
+  MARCAR_EMAIL_LABEL,
+  MARCAR_EMAIL_AJUDA,
+  rotuloDisponibilidadeEmail,
+  emailValido,
+  estadoEmailInicial,
+  alternarTemEmail,
+  patchEmailDisponibilidade,
+  LIMITE_ASSUNTO_EMAIL,
+  LIMITE_CORPO_EMAIL,
+  EMAIL_DESTINO_AJUDA,
+  EMAIL_CANDIDATOS_AJUDA,
+  type PreparoEmail,
+  type EnvioEmailResultado,
   PRIORIDADE_OPCOES,
   ORIGEM_LABEL,
   type ItemFila,
@@ -111,6 +128,7 @@ const ACAO_STYLE: Record<string, string> = {
   // não recomendação do sistema.
   followup_whatsapp: 'border-emerald-300 bg-emerald-50 text-emerald-800',
   followup_ligacao: 'border-indigo-300 bg-indigo-50 text-indigo-800',
+  followup_email: 'border-sky-300 bg-sky-50 text-sky-800',
   assumir_conversa: 'border-red-200 bg-red-100 text-red-700',
   ligar: 'border-orange-200 bg-orange-100 text-orange-700',
   copiar_prompt_preview: 'border-violet-200 bg-violet-100 text-violet-700',
@@ -152,10 +170,20 @@ export default function FollowUpsPage() {
   const [contextoAberto, setContextoAberto] = useState<ContextoOrigem | null>(null)
   const [reagendando, setReagendando] = useState<ItemFila | null>(null)
   const [historicoContato, setHistoricoContato] = useState<ItemFila | null>(null)
+  // Item de e-mail aberto no compositor (migration 067). É a execução do canal, e por isso
+  // vive nesta tela, não numa nova.
+  const [emailItem, setEmailItem] = useState<ItemFila | null>(null)
 
   // Regra de roteamento, num lugar só: WhatsApp executa na Central de Mensagens; ligação
-  // executa na Central de Ligações. A fila OPERA os dois; ela não executa nenhum.
+  // executa na Central de Ligações; e-mail executa AQUI, no compositor (migration 067). A
+  // fila opera os três; ela só executa o e-mail, porque não existe uma "Central de E-mails"
+  // — e criar uma tela nova para compor uma mensagem 1:1 duplicaria o compositor manual que
+  // esta fila já tem.
   const executarItem = useCallback((item: ItemFila) => {
+    if (item.destino === 'central_follow_ups') {
+      setEmailItem(item)
+      return
+    }
     if (item.destino === 'central_ligacoes') {
       if (!item.campanha_lead_id) {
         fb.toast('Este follow-up não está ligado a uma campanha — abra a Central de Ligações e escolha o lead.', 'info')
@@ -541,6 +569,20 @@ export default function FollowUpsPage() {
         />
       )}
 
+      {emailItem && (
+        <ModalEmail
+          base={base}
+          item={emailItem}
+          onFechar={() => setEmailItem(null)}
+          onEnviado={(aviso) => {
+            setEmailItem(null)
+            if (aviso) fb.toast(aviso, 'error')
+            carregar()
+          }}
+          fb={fb}
+        />
+      )}
+
       {historicoContato && (
         <ModalHistoricoContato base={base} item={historicoContato} onFechar={() => setHistoricoContato(null)} />
       )}
@@ -652,7 +694,15 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
   // dobrada aqui em vez de ficar como botão `bg-brand` à parte, para a linha ficar só
   // com o radial nos estados em que essa era a única ação visível.
   const acoesSecundarias: AcaoRadial[] = []
-  if (emAberto) {
+  if (emAberto && item.canal === 'email') {
+    // E-mail tem botão primário próprio ("Escrever e-mail", fora do radial): repetir a mesma
+    // ação aqui dentro daria dois caminhos para o mesmo clique na mesma linha.
+    acoesSecundarias.push(
+      { id: 'concluir', rotulo: 'Concluir', zona: 'direita', tom: 'positivo', onSelecionar: () => onConcluir(item) },
+      { id: 'reagendar', rotulo: 'Reagendar', zona: 'cima', onSelecionar: () => onReagendar(item) },
+      { id: 'cancelar', rotulo: 'Cancelar', zona: 'esquerda', tom: 'negativo', onSelecionar: () => onCancelarFollowUp(item) },
+    )
+  } else if (emAberto) {
     acoesSecundarias.push(
       // 4ª bolinha (zona `baixo`): Concluir/Reagendar/Cancelar já ocupam os 3 slots
       // direcionais, e esta é a 4ª ação principal da linha — vira a bolinha de baixo em
@@ -802,6 +852,19 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
           {item.acao === 'mensagem_manual' && (
             <button onClick={() => onManual(item)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white">Escrever</button>
           )}
+          {/* E-mail: a ação PRIMÁRIA da linha fica fora do radial, como "Registrar" e
+              "Escrever" — é o trabalho em si, não uma ação secundária compactada. Enviar é o
+              que executa e fecha o item; deixá-lo escondido num menu faria o operador
+              procurar o botão que resolve a linha. */}
+          {emAberto && item.canal === 'email' && (
+            <button
+              onClick={() => onExecutar(item)}
+              className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white"
+              title="Abrir o compositor de e-mail deste follow-up"
+            >
+              Escrever e-mail
+            </button>
+          )}
           {acoesSecundarias.length > 0 && (
             <MenuRadialAcoes acoes={acoesSecundarias} rotuloContexto={item.rotulo} />
           )}
@@ -926,15 +989,27 @@ function ModalReagendar({ item, responsaveis, onFechar, onConfirmar }: {
   const [disp, setDisp] = useState(dispInicial)
   const [dispMotivo, setDispMotivo] = useState('')
   const semWhatsapp = disp === false
-  // Consequência anunciada ANTES do clique: só há troca de canal quando o item ainda é de
-  // WhatsApp. Num item que já é de ligação a marcação continua valendo como fato do contato,
+  // Veredito HUMANO sobre o e-mail do contato (migration 067). Mesmo tri-estado, com uma
+  // exigência a mais: confirmar é dizer PARA ONDE.
+  const emailInicial = estadoEmailInicial(item)
+  const enderecoInicial = item.email_endereco || ''
+  const [emailDisp, setEmailDisp] = useState(emailInicial)
+  const [emailEndereco, setEmailEndereco] = useState(enderecoInicial)
+  const [emailMotivo, setEmailMotivo] = useState('')
+  const temEmail = emailDisp === true
+  const emailConfirmado = temEmail && emailValido(emailEndereco) ? emailEndereco.trim() : ''
+  // Consequência anunciada ANTES do clique, já na ordem "sem WhatsApp → e-mail confirmado →
+  // ligação". Num item que já é de ligação a marcação continua valendo como fato do contato,
   // mas não move trabalho nenhum.
-  const vaiTrocarCanal = semWhatsapp && item.canal === 'whatsapp'
+  const avisoTroca = avisoDaTrocaDeCanal({ canal: item.canal, semWhatsapp, emailConfirmado })
 
   const confirmar = async () => {
     const iso = deInputLocal(quando)
     if (!iso) { setErro('Informe a nova data e hora.'); return }
     if (!acao.trim()) { setErro('Descreva o que precisa ser feito.'); return }
+    // A validação que vale é a do backend; esta existe só para o operador não perder o
+    // formulário inteiro num 400 por causa de um endereço mal digitado.
+    if (temEmail && !emailValido(emailEndereco)) { setErro('Informe um e-mail válido para confirmar o canal.'); return }
     setErro(null)
     setSalvando(true)
     try {
@@ -947,6 +1022,7 @@ function ModalReagendar({ item, responsaveis, onFechar, onConfirmar }: {
         // Só vai quando o operador MUDOU o veredito aqui: reenviar o mesmo valor gravaria uma
         // marcação nova e uma linha de auditoria a cada mexida na data.
         ...patchDisponibilidade(dispInicial, disp, dispMotivo),
+        ...patchEmailDisponibilidade(emailInicial, emailDisp, emailEndereco, enderecoInicial, emailMotivo),
       })
     } finally { setSalvando(false) }
   }
@@ -1014,11 +1090,59 @@ function ModalReagendar({ item, responsaveis, onFechar, onConfirmar }: {
               />
             </label>
           )}
-          {vaiTrocarCanal && (
-            <p className="mt-2 text-xs font-medium text-amber-700">{AVISO_TROCA_PARA_LIGACAO}</p>
+          {avisoTroca && (
+            <p className="mt-2 text-xs font-medium text-amber-700">{avisoTroca}</p>
           )}
           {dispInicial === false && item.canal === 'whatsapp' && (
             <p className="mt-2 text-xs text-amber-700">{AVISO_CANAL_DESCARTADO}</p>
+          )}
+        </div>
+        {/* E-mail do CONTATO (migration 067). Fica ao lado da marcação de WhatsApp porque é o
+            mesmo tipo de fato — o que o operador sabe sobre por onde dá para falar com esta
+            pessoa. É ele que faz o salto do meio da ordem existir: sem e-mail confirmado, um
+            contato sem WhatsApp cai sempre em ligação. */}
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={temEmail}
+              onChange={(e) => setEmailDisp(alternarTemEmail(emailInicial, e.target.checked))}
+            />
+            <span>
+              <span className="font-medium text-slate-700">{MARCAR_EMAIL_LABEL}</span>
+              <span className="mt-0.5 block text-xs text-slate-500">{MARCAR_EMAIL_AJUDA}</span>
+            </span>
+          </label>
+          {temEmail && (
+            <label className="mt-2 block text-xs text-slate-600">Para qual endereço?
+              <input
+                type="email"
+                value={emailEndereco}
+                onChange={(e) => setEmailEndereco(e.target.value)}
+                placeholder="contato@empresa.com.br"
+                className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm"
+              />
+            </label>
+          )}
+          {/* Estado atual em TEXTO — "não verificado" não pode parecer "não tem". */}
+          <p className="mt-2 text-xs text-slate-500">
+            Situação registrada hoje: {rotuloDisponibilidadeEmail(emailInicial)}
+            {emailInicial === true && enderecoInicial ? ` (${enderecoInicial})` : ''}
+            {emailInicial === false && item.email_motivo ? ` — ${item.email_motivo}` : ''}
+          </p>
+          {emailDisp === false && emailInicial !== false && (
+            <label className="mt-2 block text-xs text-slate-600">Por quê? (opcional)
+              <input
+                value={emailMotivo}
+                onChange={(e) => setEmailMotivo(e.target.value)}
+                placeholder="ex.: o e-mail do cadastro voltou"
+                className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm"
+              />
+            </label>
+          )}
+          {emailInicial === false && item.canal === 'email' && (
+            <p className="mt-2 text-xs text-amber-700">{AVISO_CANAL_EMAIL_DESCARTADO}</p>
           )}
         </div>
         {erro && <p className="text-xs text-red-600" role="alert">{erro}</p>}
@@ -1030,6 +1154,171 @@ function ModalReagendar({ item, responsaveis, onFechar, onConfirmar }: {
           </button>
         </div>
       </div>
+    </ModalSimples>
+  )
+}
+
+// ─────────────── Compositor de e-mail (migration 067) ───────────────
+// A EXECUÇÃO do canal de e-mail. Ela vive aqui, e não numa "Central de E-mails", porque
+// compor uma mensagem 1:1 é exatamente o que o follow-up manual desta fila já faz — uma tela
+// nova duplicaria o compositor. Este modal é o executor que faltava: enquanto ele não existia,
+// o canal `email` era proibido de propósito (Decisão 4 de 2026-08-12), porque um canal que
+// nenhuma tela sabe executar produz itens que entram na fila e nunca saem dela.
+//
+// Duas regras do módulo aparecem como DESENHO, não como texto de ajuda:
+//   1. o DESTINATÁRIO não é um campo. Ele é sempre o endereço confirmado por uma pessoa, e a
+//      rota de envio nem aceita destinatário no corpo — permitir digitá-lo aqui deixaria
+//      enviar para um endereço que ninguém verificou;
+//   2. os CANDIDATOS do cadastro aparecem como sugestão para confirmar em "Reagendar", nunca
+//      como opção de envio. Promovê-los sozinho repetiria, do outro lado, o erro de deduzir
+//      disponibilidade sem verificação humana.
+// O rascunho é determinístico (vem pronto do backend): não há botão de gerar por IA, porque
+// um canal novo não estreia com custo de LLM por clique.
+function ModalEmail({ base, item, onFechar, onEnviado, fb }: {
+  base: string
+  item: ItemFila
+  onFechar: () => void
+  onEnviado: (aviso: string | null) => void
+  fb: ReturnType<typeof useFeedback>
+}) {
+  const [preparo, setPreparo] = useState<PreparoEmail | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const [assunto, setAssunto] = useState('')
+  const [corpo, setCorpo] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  // O rascunho só preenche o compositor na PRIMEIRA carga: recarregar depois de um erro de
+  // envio não pode apagar o texto que o operador acabou de escrever.
+  const rascunhoAplicado = useRef(false)
+
+  const carregar = useCallback(async () => {
+    setErro(null)
+    setPreparo(null)
+    try {
+      const r = await apiFetch<PreparoEmail>(`${base}/itens/${item.followup_id}/email`)
+      setPreparo(r.data)
+      if (!rascunhoAplicado.current) {
+        rascunhoAplicado.current = true
+        setAssunto(r.data.rascunho?.assunto || '')
+        setCorpo(r.data.rascunho?.corpo || '')
+      }
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não foi possível abrir o compositor.')
+    }
+  }, [base, item.followup_id])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  const enviar = useCallback(async () => {
+    if (!assunto.trim()) { fb.toast('Escreva o assunto do e-mail.', 'error'); return }
+    if (!corpo.trim()) { fb.toast('Escreva o corpo do e-mail.', 'error'); return }
+    setEnviando(true)
+    try {
+      const r = await apiFetch<EnvioEmailResultado>(`${base}/itens/${item.followup_id}/email/enviar`, {
+        method: 'POST',
+        body: JSON.stringify({ assunto: assunto.trim(), corpo: corpo.trim() }),
+      })
+      fb.toast('E-mail enviado e follow-up concluído.', 'success')
+      // `conclusao_erro` NÃO é falha de envio: o e-mail saiu e só a conclusão automática do
+      // item não foi. Ele sobe como aviso para o operador concluir à mão, e não como erro.
+      onEnviado(r.data?.conclusao_erro || null)
+    } catch (e) {
+      // O item continua em aberto: falha de transporte não pode fazer trabalho sumir da fila.
+      fb.toast(e instanceof Error ? e.message : 'Não foi possível enviar o e-mail.', 'error')
+      setEnviando(false)
+    }
+  }, [base, item.followup_id, assunto, corpo, fb, onEnviado])
+
+  const bloqueado = !!preparo?.bloqueio
+
+  return (
+    <ModalSimples titulo={`✉️ E-mail — ${item.rotulo}`} onFechar={onFechar}>
+      {erro ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm text-red-700">
+          <p>{erro}</p>
+          <button onClick={carregar} className="mt-2 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium">
+            Tentar de novo
+          </button>
+        </div>
+      ) : preparo === null ? (
+        <div className="flex justify-center py-10" role="status" aria-live="polite">
+          <Spinner /><span className="sr-only">Abrindo o compositor…</span>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {/* Por que não dá para enviar, quando for o caso. Cada motivo tem uma saída
+              diferente — "não foi possível enviar" não diria o que fazer. */}
+          {bloqueado && (
+            <p className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800" role="alert">
+              {preparo.bloqueio_mensagem}
+            </p>
+          )}
+
+          {/* DESTINO: texto, nunca campo. Ver o cabeçalho deste componente. */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <span className="text-xs text-slate-500">Para</span>
+            <p className="text-sm font-medium text-slate-800">
+              {preparo.destinatario || 'Nenhum e-mail confirmado para este contato'}
+            </p>
+            <p className="mt-1 text-[11px] text-slate-500">{EMAIL_DESTINO_AJUDA}</p>
+          </div>
+
+          {/* Candidatos do cadastro: sugestão para confirmar, jamais destino de envio. Só
+              aparecem quando ainda não há endereço confirmado — depois disso seriam ruído. */}
+          {!preparo.destinatario && preparo.candidatos.length > 0 && (
+            <div className="rounded-xl border border-slate-200 px-3 py-2">
+              <p className="text-xs font-medium text-slate-700">E-mails no cadastro deste lead</p>
+              <ul className="mt-1 space-y-0.5">
+                {preparo.candidatos.map((c) => (
+                  <li key={c.endereco} className="text-sm text-slate-700">
+                    {c.endereco}
+                    {c.nome ? <span className="text-xs text-slate-500"> · {c.nome}</span> : null}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-[11px] text-slate-500">{EMAIL_CANDIDATOS_AJUDA}</p>
+            </div>
+          )}
+
+          <label className="block text-xs text-slate-600" htmlFor="email-assunto">Assunto
+            <input
+              id="email-assunto"
+              value={assunto}
+              onChange={(e) => setAssunto(e.target.value)}
+              maxLength={LIMITE_ASSUNTO_EMAIL}
+              disabled={bloqueado}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm disabled:bg-slate-100"
+            />
+          </label>
+
+          <label className="block text-xs text-slate-600" htmlFor="email-corpo">Mensagem
+            <textarea
+              id="email-corpo"
+              value={corpo}
+              onChange={(e) => setCorpo(e.target.value)}
+              rows={10}
+              maxLength={LIMITE_CORPO_EMAIL}
+              disabled={bloqueado}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm disabled:bg-slate-100"
+            />
+          </label>
+
+          <p className="text-[11px] text-slate-400">
+            O rascunho vem do que já foi combinado neste follow-up. Revise antes de enviar —
+            enviar conclui o item.
+          </p>
+
+          <div className="flex justify-end gap-2">
+            <button onClick={onFechar} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50">Voltar</button>
+            <button
+              onClick={enviar}
+              disabled={bloqueado || enviando}
+              className="rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {enviando ? 'Enviando…' : 'Enviar e concluir'}
+            </button>
+          </div>
+        </div>
+      )}
     </ModalSimples>
   )
 }

@@ -6,9 +6,10 @@
 // As REGRAS vivem em services/follow-up-modelo.js (modulo PURO). Aqui so' ha SQL.
 const {
   validarNovoFollowUp, validarMudancaStatus, validarReagendamento, acaoPadraoDoCanal,
+  FOLLOWUP_CANAL, FOLLOWUP_STATUS,
 } = require('../services/follow-up-modelo')
 const {
-  resolverCanalFollowUp, disponibilidadeInformada,
+  resolverCanalFollowUp, disponibilidadeInformada, enderecoEmailConfirmado,
 } = require('../services/contato-canal-disponibilidade')
 const D = require('./contato-canal-disponibilidade')
 const { assertMesmaEmpresa } = require('./campanhas')
@@ -24,6 +25,9 @@ function erroEntrada(message, statusCode = 400) {
   err.statusCode = statusCode
   return err
 }
+
+/** So para MENSAGEM de erro ao operador — a apresentacao da fila vive no front. */
+const CANAL_ROTULO = Object.freeze({ whatsapp: 'WhatsApp', ligacao: 'ligacao', email: 'e-mail' })
 
 /**
  * Resolve o JID da conversa daquele telefone DENTRO da empresa, se ela ja existir.
@@ -45,6 +49,26 @@ async function resolverConversaNumero(exec, empresaId, telefoneDigitos) {
     [empresaId, telefoneDigitos]
   )
   return rows[0] ? rows[0].numero : null
+}
+
+/**
+ * Os vereditos HUMANOS sobre os canais deste contato, num formato so.
+ *
+ * Um lugar unico para as duas leituras porque a regra de canal precisa das duas ao mesmo
+ * tempo: "sem WhatsApp -> e-mail confirmado -> ligacao" nao se decide olhando um canal de
+ * cada vez. Reusa `obterDisponibilidade` (nenhuma query nova) e traduz a linha de e-mail com
+ * a funcao pura — cadastro nunca entra aqui.
+ */
+async function vereditosDoContato(exec, empresaId, telefoneDigitos) {
+  const [whats, email] = await Promise.all([
+    D.obterDisponibilidade(exec, empresaId, telefoneDigitos, 'whatsapp'),
+    D.obterDisponibilidade(exec, empresaId, telefoneDigitos, 'email'),
+  ])
+  return {
+    whatsapp_disponivel: whats ? whats.disponivel : null,
+    email_disponivel: email ? email.disponivel : null,
+    email_confirmado: enderecoEmailConfirmado(email),
+  }
 }
 
 /**
@@ -71,12 +95,14 @@ async function criarFollowUp(exec, empresaId, entrada = {}, { usuarioId = null, 
 
   const conversaNumero = p.conversa_numero || await resolverConversaNumero(exec, empresaId, p.telefone_digitos)
 
-  // DISPONIBILIDADE DE CANAL (migration 066). Se uma PESSOA ja marcou que este contato nao
-  // tem WhatsApp, um follow-up novo por WhatsApp nasce ja no canal possivel — senao a
-  // proxima ligacao encerrada recriaria, sozinha, exatamente o item que o operador acabou de
-  // corrigir. `null` (ninguem verificou) mantem o comportamento historico.
-  const whatsappDisponivel = await D.whatsappDisponivelDoContato(exec, empresaId, p.telefone_digitos)
-  const canalResolvido = resolverCanalFollowUp(p.canal, whatsappDisponivel)
+  // DISPONIBILIDADE DE CANAL (migrations 066 e 067). Se uma PESSOA ja marcou que este
+  // contato nao tem WhatsApp, um follow-up novo por WhatsApp nasce ja no canal possivel —
+  // senao a proxima ligacao encerrada recriaria, sozinha, exatamente o item que o operador
+  // acabou de corrigir. `null` (ninguem verificou) mantem o comportamento historico.
+  // O e-mail so entra na conta quando ha endereco CONFIRMADO por pessoa; cadastro nao conta.
+  const vereditos = await vereditosDoContato(exec, empresaId, p.telefone_digitos)
+  const canalResolvido = resolverCanalFollowUp(
+    p.canal, vereditos.whatsapp_disponivel, vereditos.email_confirmado, vereditos.email_disponivel)
   const canal = canalResolvido.canal
   // A acao padrao acompanha o canal: "Retomar por WhatsApp" num item que virou ligacao
   // mandaria o operador fazer o que acabou de ser declarado impossivel.
@@ -146,8 +172,10 @@ async function obterFollowUp(pool, empresaId, id) {
   return rows[0]
 }
 
-const STATUS_FILTRAVEIS = new Set(['aguardando', 'concluido', 'cancelado', 'falha'])
-const CANAIS_FILTRAVEIS = new Set(['whatsapp', 'ligacao'])
+// Derivados do vocabulario, nao copiados: um canal novo (o `email` da 067 foi o primeiro)
+// precisa aparecer no filtro sem ninguem lembrar de editar dois lugares.
+const STATUS_FILTRAVEIS = new Set(FOLLOWUP_STATUS)
+const CANAIS_FILTRAVEIS = new Set(FOLLOWUP_CANAL)
 
 /**
  * Itens da fila. Enriquecido com o que a tela precisa para identificar o contato sem uma
@@ -180,12 +208,24 @@ async function listarFollowUps(pool, empresaId, opts = {}) {
             -- exatamente o par do indice unico contato_canal_disp_uk.
             d.disponivel AS whatsapp_disponivel,
             d.marcado_em AS whatsapp_marcado_em,
-            d.motivo     AS whatsapp_motivo
+            d.motivo     AS whatsapp_motivo,
+            -- Mesmo veredito HUMANO, para o canal de e-mail (migration 067). O ENDERECO so
+            -- sai quando ele foi confirmado: veredito falso nao tem destino, e mandar um
+            -- endereco junto de "nao recebe e-mail" faria a tela oferecer um caminho que o
+            -- operador acabou de descartar.
+            e.disponivel AS email_disponivel,
+            e.marcado_em AS email_marcado_em,
+            e.motivo     AS email_motivo,
+            CASE WHEN e.disponivel THEN e.endereco END AS email_endereco
        FROM app.follow_ups f
        LEFT JOIN app.contato_canal_disponibilidade d
               ON d.empresa_id = f.empresa_id
              AND d.telefone_digitos = f.telefone_digitos
              AND d.canal = 'whatsapp'
+       LEFT JOIN app.contato_canal_disponibilidade e
+              ON e.empresa_id = f.empresa_id
+             AND e.telefone_digitos = f.telefone_digitos
+             AND e.canal = 'email'
        LEFT JOIN prospectador.prospects pr ON pr.id = f.prospect_id
        LEFT JOIN vendas.conversas c ON c.numero = f.conversa_numero AND c.empresa_id = f.empresa_id
        LEFT JOIN vendas.lead_profiles lp ON lp.numero = c.numero
@@ -248,10 +288,17 @@ async function comTransacao(pool, fn) {
  * mesmo contexto, mesma rastreabilidade. Nao e' "cancelar e criar outro": o historico do
  * contato ficaria com um cancelamento que nunca aconteceu.
  *
- * DISPONIBILIDADE DE CANAL (migration 066). `entrada.whatsapp_disponivel` e' TRI-ESTADO:
+ * DISPONIBILIDADE DE CANAL (migrations 066 e 067). `entrada.whatsapp_disponivel` e'
+ * TRI-ESTADO:
  *   ausente -> o operador nao se pronunciou; nada e' gravado e o canal nao muda;
  *   false   -> "este contato nao tem WhatsApp": grava o veredito e o item sai do WhatsApp;
  *   true    -> DESFAZ a marcacao; o item volta a poder usar WhatsApp.
+ *
+ * `entrada.email_disponivel` (+ `email_endereco`, `email_motivo`) e' o mesmo tri-estado para
+ * o canal de e-mail. Confirmar EXIGE endereco — sem destino nao ha canal, e um item de
+ * e-mail sem para onde enviar entraria na fila e nunca sairia dela. Com e-mail confirmado, o
+ * item que sai do WhatsApp vai para o E-MAIL; sem ele, vai para ligacao (que sempre existe,
+ * porque o telefone e' a identidade do contato).
  *
  * A marcacao e a troca de canal acontecem na MESMA transacao de proposito. O canal continua
  * nao sendo um campo livre do formulario — trocar de canal a mao segue sendo "outra decisao";
@@ -264,11 +311,12 @@ async function comTransacao(pool, fn) {
 async function reagendarFollowUp(pool, empresaId, id, entrada = {}, { agora, usuarioId = null } = {}) {
   const atual = await obterFollowUp(pool, empresaId, id)
   const disponivel = disponibilidadeInformada(entrada.whatsapp_disponivel)
+  const emailDisponivelPedido = disponibilidadeInformada(entrada.email_disponivel, 'email_disponivel')
   // `validarReagendamento` exige pelo menos um campo. Marcar disponibilidade tambem e' uma
   // mudanca legitima, entao ela conta como conteudo — senao "so marquei sem WhatsApp"
   // devolveria "Nada para reagendar".
   const patch = validarReagendamento(atual.status, entrada, agora || new Date(), {
-    permitirPatchVazio: disponivel !== undefined,
+    permitirPatchVazio: disponivel !== undefined || emailDisponivelPedido !== undefined,
   })
   if (patch.responsavel_id) await assertResponsavelDaEmpresa(pool, empresaId, patch.responsavel_id)
 
@@ -280,13 +328,22 @@ async function reagendarFollowUp(pool, empresaId, id, entrada = {}, { agora, usu
         motivo: entrada.disponibilidade_motivo,
       }, { usuarioId })
     }
+    // E-MAIL (migration 067). Confirmar exige dizer PARA ONDE (`email_endereco`) — a mesma
+    // condicao que a CHECK impoe no banco. Negar nao exige endereco: e uma afirmacao sobre o
+    // contato nao receber e-mail, nao sobre um endereco especifico.
+    let disponibilidadeEmail = null
+    if (emailDisponivelPedido !== undefined) {
+      disponibilidadeEmail = await D.marcarDisponibilidade(client, empresaId, {
+        telefone: atual.telefone_digitos, canal: 'email', disponivel: emailDisponivelPedido,
+        motivo: entrada.email_motivo, endereco: entrada.email_endereco,
+      }, { usuarioId })
+    }
 
-    // O veredito que vale e o do banco depois da marcacao (ou o que ja estava la, se o
-    // operador nao se pronunciou agora).
-    const vereditoWhatsapp = disponibilidade
-      ? disponibilidade.disponivel
-      : await D.whatsappDisponivelDoContato(client, empresaId, atual.telefone_digitos)
-    const canalResolvido = resolverCanalFollowUp(atual.canal, vereditoWhatsapp)
+    // Os vereditos que valem sao os do banco DEPOIS das marcacoes desta transacao (ou os que
+    // ja estavam la, quando o operador nao se pronunciou agora).
+    const doBanco = await vereditosDoContato(client, empresaId, atual.telefone_digitos)
+    const canalResolvido = resolverCanalFollowUp(
+      atual.canal, doBanco.whatsapp_disponivel, doBanco.email_confirmado, doBanco.email_disponivel)
 
     const campos = []
     const params = [id, empresaId]
@@ -303,7 +360,7 @@ async function reagendarFollowUp(pool, empresaId, id, entrada = {}, { agora, usu
       : acaoPedida
     if (acaoFinal !== atual.proxima_acao) set('proxima_acao', acaoFinal)
 
-    if (!campos.length) return { ...atual, disponibilidade, canal_trocado: false }
+    if (!campos.length) return { ...atual, disponibilidade, disponibilidade_email: disponibilidadeEmail, canal_trocado: false }
 
     let rows
     try {
@@ -321,7 +378,7 @@ async function reagendarFollowUp(pool, empresaId, id, entrada = {}, { agora, usu
       // errado. O operador fecha o item existente e repete a acao.
       if (e && e.code === '23505') {
         throw erroEntrada(
-          `Este contato ja tem um follow-up de ${canalResolvido.canal} em aberto. `
+          `Este contato ja tem um follow-up de ${CANAL_ROTULO[canalResolvido.canal] || canalResolvido.canal} em aberto. `
           + 'Conclua ou cancele aquele item antes de mover este.', 409)
       }
       throw e
@@ -330,8 +387,10 @@ async function reagendarFollowUp(pool, empresaId, id, entrada = {}, { agora, usu
     return {
       ...rows[0],
       disponibilidade,
+      disponibilidade_email: disponibilidadeEmail,
       canal_trocado: canalResolvido.trocou,
       canal_anterior: canalResolvido.trocou ? atual.canal : null,
+      canal_ajustado_motivo: canalResolvido.trocou ? canalResolvido.motivo : null,
     }
   })
 }
@@ -381,6 +440,16 @@ async function historicoDoContato(pool, empresaId, telefoneDigitos, { limit = 10
          FROM app.follow_ups f
         WHERE f.empresa_id = $1 AND f.telefone_digitos = $2
           AND f.status <> 'aguardando' AND f.concluido_em IS NOT NULL
+
+       -- E-mails do follow-up (migration 067). Entram porque, ao contrario das mensagens de
+       -- WhatsApp, NAO existe outra tela que os mostre — omiti-los deixaria o operador sem
+       -- saber que o contato ja recebeu um e-mail. Sai o ASSUNTO (o titulo do que foi
+       -- combinado), nunca o corpo: a linha do tempo responde "o que aconteceu", nao
+       -- reproduz conteudo.
+       UNION ALL
+       SELECT 'email_' || fe.status, COALESCE(fe.enviado_em, fe.criado_em), fe.assunto, fe.erro, fe.follow_up_id, NULL::int, 'email'
+         FROM app.follow_up_emails fe
+        WHERE fe.empresa_id = $1 AND fe.telefone_digitos = $2
      ) t
      WHERE t.ocorrido_em IS NOT NULL
      ORDER BY t.ocorrido_em DESC
@@ -411,4 +480,5 @@ module.exports = {
   historicoDoContato,
   followUpDaLigacao,
   resolverConversaNumero,
+  vereditosDoContato,
 }

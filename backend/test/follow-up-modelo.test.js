@@ -29,7 +29,9 @@ const BASE = () => ({
 // ─── Vocabulário fechado ──────────────────────────────────────────────────────
 
 test('os quatro vocabulários são fechados — a tela não inventa estado', () => {
-  assert.deepEqual([...M.FOLLOWUP_CANAL], ['whatsapp', 'ligacao'])
+  // `email` entrou na migration 067, JUNTO com o executor (services/followup-email.js). Ate
+  // ali era proibido: canal que nenhuma tela executa vira item que entra na fila e nao sai.
+  assert.deepEqual([...M.FOLLOWUP_CANAL], ['whatsapp', 'ligacao', 'email'])
   assert.deepEqual([...M.FOLLOWUP_STATUS], ['aguardando', 'concluido', 'cancelado', 'falha'])
   assert.deepEqual([...M.FOLLOWUP_PRIORIDADE], ['alta', 'media', 'baixa'])
   assert.deepEqual([...M.FOLLOWUP_ORIGEM], ['ligacao', 'mensagem', 'automacao', 'manual'])
@@ -38,7 +40,20 @@ test('os quatro vocabulários são fechados — a tela não inventa estado', () 
 test('canal decide QUAL tela executa — é a regra de roteamento, num lugar só', () => {
   assert.equal(M.telaExecutora('whatsapp'), 'central_mensagens')
   assert.equal(M.telaExecutora('ligacao'), 'central_ligacoes')
-  assert.equal(M.telaExecutora('email'), null)
+  // O e-mail é executado na PRÓPRIA fila (compositor + envio). Não existe "Central de
+  // E-mails": criar uma tela nova para compor uma mensagem 1:1 duplicaria o compositor
+  // manual que a fila já tem.
+  assert.equal(M.telaExecutora('email'), 'central_follow_ups')
+  assert.equal(M.telaExecutora('sms'), null, 'canal inexistente não ganha destino')
+})
+
+test('todo canal do vocabulário tem tela executora E ação padrão', () => {
+  // É o contrato que impede um canal de nascer sem executor — o defeito que a Decisão 4 de
+  // 2026-08-12 previu e que a 067 só pôde corrigir junto com o compositor de e-mail.
+  for (const canal of M.FOLLOWUP_CANAL) {
+    assert.ok(M.telaExecutora(canal), `canal ${canal} sem tela executora`)
+    assert.ok(M.acaoPadraoDoCanal(canal), `canal ${canal} sem ação padrão`)
+  }
 })
 
 // ─── Identidade do contato ────────────────────────────────────────────────────
@@ -66,7 +81,7 @@ test('criação exige contato, origem e um verbo — rastreabilidade não é opc
   assert.throws(() => M.validarNovoFollowUp({ ...BASE(), origem: undefined }), /origem invalida/)
   assert.throws(() => M.validarNovoFollowUp({ ...BASE(), telefone: '' }), /telefone invalido/)
   assert.throws(() => M.validarNovoFollowUp({ ...BASE(), proxima_acao: '   ' }), /proxima_acao e obrigatoria/)
-  assert.throws(() => M.validarNovoFollowUp({ ...BASE(), canal: 'email' }), /canal invalido/)
+  assert.throws(() => M.validarNovoFollowUp({ ...BASE(), canal: 'sms' }), /canal invalido/)
 })
 
 test('a empresa NÃO é campo do payload — o tenant vem do chamador autenticado', () => {

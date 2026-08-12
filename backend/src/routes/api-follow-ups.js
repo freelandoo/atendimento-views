@@ -37,6 +37,12 @@ const {
   validarEnvioAposLigacao,
 } = require('../db/followup-ligacoes')
 const F = require('../db/follow-ups')
+const FE = require('../db/follow-up-emails')
+const {
+  prepararEnvioEmail,
+  enviarEmailFollowUp,
+} = require('../services/followup-email')
+const { emailConfirmadoDoContato, obterDisponibilidade } = require('../db/contato-canal-disponibilidade')
 const { normalizarTelefoneDigitos } = require('../services/follow-up-modelo')
 const A = require('../db/auditoria')
 const { logger } = require('../logger')
@@ -310,6 +316,10 @@ router.post('/itens/:id/status', requireAuth, requireEmpresaAccess, async (req, 
 // operador declarando um fato sobre o CONTATO ("nao tem WhatsApp" / desfazendo isso). Quando
 // declarado, o veredito e gravado em app.contato_canal_disponibilidade e o canal do item e
 // reavaliado — tudo na MESMA transacao (src/db/follow-ups.js).
+//
+// E, desde a migration 067, `email_disponivel` (+ `email_endereco`, `email_motivo`): o mesmo
+// tri-estado para o canal de e-mail. Confirmar EXIGE endereco; com e-mail confirmado, o item
+// que sai do WhatsApp vai para o e-mail em vez da ligacao.
 router.post('/itens/:id/reagendar', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const b = req.body || {}
@@ -319,16 +329,21 @@ router.post('/itens/:id/reagendar', requireAuth, requireEmpresaAccess, async (re
     // A marcacao e um fato sobre o CONTATO, nao sobre o follow-up: entra na auditoria como
     // evento proprio, para continuar rastreavel mesmo depois de o item ser concluido.
     // Sem JID e sem texto de mensagem — so' os digitos do telefone, como no resto do modulo.
-    if (item.disponibilidade) {
+    // Uma linha por CANAL marcado: WhatsApp e e-mail sao dois fatos distintos sobre o
+    // contato, e juntar os dois num evento so' impediria auditar quando cada um foi dito.
+    // O ENDERECO nao entra no contexto — a auditoria registra que houve confirmacao, nao o
+    // dado de contato em si (mesma disciplina de nao gravar JID nem texto de mensagem).
+    for (const marcacao of [item.disponibilidade, item.disponibilidade_email]) {
+      if (!marcacao) continue
       A.registrarAuditoria(pool, req.empresa.id, {
         usuarioId: req.usuario?.id, entidadeTipo: 'contato', entidadeId: null,
         acao: 'contato_canal_disponibilidade_alterada',
-        estadoNovo: item.disponibilidade.disponivel ? 'disponivel' : 'indisponivel',
+        estadoNovo: marcacao.disponivel ? 'disponivel' : 'indisponivel',
         contexto: {
           telefone_digitos: item.telefone_digitos,
-          canal: item.disponibilidade.canal,
-          disponivel: item.disponibilidade.disponivel,
-          origem: item.disponibilidade.origem,
+          canal: marcacao.canal,
+          disponivel: marcacao.disponivel,
+          origem: marcacao.origem,
         },
       })
     }
@@ -343,6 +358,77 @@ router.post('/itens/:id/reagendar', requireAuth, requireEmpresaAccess, async (re
     })
     return res.json({ ok: true, data: item })
   } catch (err) { return erro(res, err, 'FOLLOWUP_REAGENDAR_FAILED') }
+})
+
+// --- CANAL DE E-MAIL (migration 067) ---------------------------------------------
+// O executor que faltava: ate aqui um contato marcado como "sem WhatsApp" caia SEMPRE em
+// ligacao, porque nenhuma tela sabia executar um follow-up de e-mail. Estas duas rotas sao
+// essa tela — compor (com rascunho pronto e revisao humana) e enviar.
+
+// GET /itens/:id/email — tudo o que o compositor precisa. Read-only: nao envia, nao grava e
+// nao chama IA. Diz tambem POR QUE nao da para enviar, quando for o caso.
+router.get('/itens/:id/email', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const data = await prepararEnvioEmail({ pool, empresaId: req.empresa.id, followUpId: req.params.id })
+    return res.json({ ok: true, data })
+  } catch (err) { return erro(res, err, 'FOLLOWUP_EMAIL_PREPARAR_FAILED') }
+})
+
+// POST /itens/:id/email/enviar — envia o texto revisado pelo operador e conclui o item.
+// O destinatario NUNCA vem do corpo da requisicao: e sempre o e-mail confirmado do contato
+// (app.contato_canal_disponibilidade, origem 'operador'). Aceitar um endereco aqui permitiria
+// enviar para um destino que ninguem verificou — o oposto da regra deste modulo.
+router.post('/itens/:id/email/enviar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const b = req.body || {}
+    const out = await enviarEmailFollowUp({
+      pool,
+      empresaId: req.empresa.id,
+      followUpId: req.params.id,
+      assunto: b.assunto,
+      corpo: b.corpo,
+      usuarioId: req.usuario?.id || null,
+    })
+    A.registrarAuditoria(pool, req.empresa.id, {
+      usuarioId: req.usuario?.id, entidadeTipo: 'follow_up', entidadeId: req.params.id,
+      acao: 'follow_up_email_enviado', estadoAnterior: 'aguardando', estadoNovo: out.follow_up?.status || 'aguardando',
+      // Sem endereco e sem texto: a auditoria registra que o e-mail saiu e por causa de qual
+      // item — o conteudo fica em app.follow_up_emails, que e o registro do envio.
+      contexto: { canal: 'email', envio_id: out.envio?.id || null },
+    })
+    return res.json({ ok: true, data: out })
+  } catch (err) {
+    // O motivo do bloqueio vira o `code` da resposta: a tela precisa distinguir "confirme um
+    // e-mail" de "o canal nao esta configurado neste ambiente" — as saidas sao diferentes.
+    const code = err?.code ? String(err.code).toUpperCase() : 'FOLLOWUP_EMAIL_ENVIAR_FAILED'
+    return erro(res, err, code)
+  }
+})
+
+// GET /contatos/:telefone/emails — o que se sabe sobre o e-mail deste contato: o CONFIRMADO
+// (se houver) e os CANDIDATOS do cadastro. O candidato e sugestao para o operador confirmar,
+// nunca destino: promove-lo sozinho repetiria, do outro lado, o erro de deduzir
+// disponibilidade sem verificacao humana.
+router.get('/contatos/:telefone/emails', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const digitos = normalizarTelefoneDigitos(req.params.telefone)
+    const [confirmado, linha, candidatos] = await Promise.all([
+      emailConfirmadoDoContato(pool, req.empresa.id, digitos),
+      obterDisponibilidade(pool, req.empresa.id, digitos, 'email'),
+      FE.listarCandidatosDeEmail(pool, req.empresa.id, digitos),
+    ])
+    return res.json({
+      ok: true,
+      data: {
+        confirmado,
+        // Tri-estado, como o do WhatsApp: `null` = ninguem verificou, e nao "nao tem".
+        email_disponivel: linha ? linha.disponivel : null,
+        marcado_em: linha ? linha.marcado_em : null,
+        motivo: linha ? linha.motivo : null,
+        candidatos,
+      },
+    })
+  } catch (err) { return erro(res, err, 'FOLLOWUP_EMAILS_CONTATO_FAILED') }
 })
 
 // GET /contatos/:telefone/historico — linha do tempo do contato (ligacoes + follow-ups).
