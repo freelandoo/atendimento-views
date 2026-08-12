@@ -11,6 +11,7 @@ import DataTableFrame from '@/components/ui/DataTableFrame'
 import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink } from '@/lib/site-rotulos'
+import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
 import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconSend, IconAlert } from '@/components/ui/icons'
 
 // Banco de Leads — central de disparo com Modo Manual / Semiautomático / Automático.
@@ -529,6 +530,11 @@ export default function BancoLeadsPage() {
   const [view, setView] = useState<ViewConfig>(VIEW_PADRAO)
   const patchView = useCallback((p: Partial<ViewConfig>) => setView((v) => ({ ...v, ...p })), [])
   const fb = useFeedback()
+  // Paginação client-side das duas tabelas (Places/Instagram), sobre a lista já carregada e já
+  // filtrada — mesmo módulo puro (`lib/paginacao.js`) usado por Follow-ups e Central de
+  // Ligações. Cada origem tem sua própria página, porque são duas tabelas independentes.
+  const [paginaPlaces, setPaginaPlaces] = useState(1)
+  const [paginaIg, setPaginaIg] = useState(1)
 
   // Abre o histórico de conversa do contato (reusa o modal/endpoint de Conversas) e leva
   // a mensagem gerada + elegibilidade para permitir o envio individual dali.
@@ -689,6 +695,10 @@ export default function BancoLeadsPage() {
   }, [])
   // Limpa a seleção ao trocar de aba/filtro (os ids podem sair da lista).
   useEffect(() => { setSelecionados(new Set()) }, [aba, origem, mercado, cidadeFiltro, busca])
+  // Qualquer mudança no recorte volta a paginação para a 1ª página — senão o operador pode
+  // cair numa página vazia depois de filtrar ou trocar de aba (mesmo padrão de Follow-ups e
+  // Central de Ligações).
+  useEffect(() => { setPaginaPlaces(1); setPaginaIg(1) }, [aba, origem, mercado, cidadeFiltro, busca, view])
   // Personalização: carrega do localStorage (1x) e persiste a cada mudança.
   useEffect(() => {
     try {
@@ -769,6 +779,9 @@ export default function BancoLeadsPage() {
     return view.ordenacao !== 'padrao' ? ordenarPorView(f, view.ordenacao) : ordenarLeads(f, ordemIg, previsoesEnvio)
   }, [leadsCustom, ordemIg, view.ordenacao, previsoesEnvio])
   const totalFiltrado = leadsPlaces.length + leadsIg.length
+  // Recorte de apresentação: pagina DEPOIS de filtrar/ordenar (conjunto completo já pronto).
+  const pgPlaces = useMemo(() => paginar(leadsPlaces, paginaPlaces, POR_PAGINA_PADRAO), [leadsPlaces, paginaPlaces])
+  const pgIg = useMemo(() => paginar(leadsIg, paginaIg, POR_PAGINA_PADRAO), [leadsIg, paginaIg])
   const chips = chipsDaView(view)
   const filtrosAtivos = chips.length + (view.ordenacao !== 'padrao' ? 1 : 0)
   const mercadoOpcoes = useMemo(() => opcoesMercado(filtrosMercado), [filtrosMercado])
@@ -1348,6 +1361,23 @@ export default function BancoLeadsPage() {
         </div>
       </div>
 
+      {/* Filtros rápidos: atalho de 1 clique para os recortes mais usados do "Personalizar"
+          (mesmo padrão de pill com estado ativo da Aquisição/Central de Ligações). Não é um
+          filtro novo — só um atalho de UI para valores que `view` (client-side) já aceita;
+          um 2º clique no mesmo chip desliga o filtro. */}
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtros rápidos">
+        {([
+          { chave: 'com_whatsapp', label: 'Com WhatsApp', ativo: view.envio === 'possivel', onClick: () => patchView({ envio: view.envio === 'possivel' ? 'todos' : 'possivel' }) },
+          { chave: 'sem_site', label: 'Sem site próprio', ativo: view.site === 'sem', onClick: () => patchView({ site: view.site === 'sem' ? 'todos' : 'sem' }) },
+          { chave: 'falha_envio', label: 'Falha no envio', ativo: view.disparo === 'falha', onClick: () => patchView({ disparo: view.disparo === 'falha' ? 'todos' : 'falha' }) },
+        ] as const).map((f) => (
+          <button key={f.chave} type="button" onClick={f.onClick} aria-pressed={f.ativo}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${f.ativo ? 'border-brand bg-brand text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       {/* Chips de filtros ativos + contagem de resultados */}
       {filtrosAtivos > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -1378,7 +1408,8 @@ export default function BancoLeadsPage() {
         <>
           {leadsPlaces.length > 0 && (
             <TabelaPlacesBanco
-              leads={leadsPlaces}
+              leads={pgPlaces.itens}
+              total={leadsPlaces.length}
               ordem={ordemPlaces}
               onOrdenar={(chave) => setOrdemPlaces((o) => (o.chave === chave ? { chave, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { chave, dir: 'desc' }))}
               mostrarRodar={mostrarSelecao}
@@ -1391,9 +1422,13 @@ export default function BancoLeadsPage() {
               onAbrirDetalhes={setDetalheAberto}
             />
           )}
+          {mostrarPaginacao(pgPlaces.total, pgPlaces.porPagina) && (
+            <RodapePaginacaoBanco pg={pgPlaces} onPagina={setPaginaPlaces} />
+          )}
           {leadsIg.length > 0 && (
             <TabelaInstagramBanco
-              leads={leadsIg}
+              leads={pgIg.itens}
+              total={leadsIg.length}
               ordem={ordemIg}
               onOrdenar={(chave) => setOrdemIg((o) => (o.chave === chave ? { chave, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { chave, dir: 'desc' }))}
               mostrarRodar={mostrarSelecao}
@@ -1405,6 +1440,9 @@ export default function BancoLeadsPage() {
               onSalvarEmail={salvarEmail}
               onAbrirDetalhes={setDetalheAberto}
             />
+          )}
+          {mostrarPaginacao(pgIg.total, pgIg.porPagina) && (
+            <RodapePaginacaoBanco pg={pgIg} onPagina={setPaginaIg} />
           )}
         </>
       )}
@@ -1475,6 +1513,9 @@ export default function BancoLeadsPage() {
 // ─── Tabelas por origem (mesmo layout da Aquisição) ────────────────────────────
 type TabelaProps = {
   leads: Lead[]
+  // Total do conjunto filtrado (antes da paginação) — `leads` aqui é só a página visível.
+  // Opcional para não quebrar quem ainda não passa: cai para `leads.length`.
+  total?: number
   ordem: Ordem
   onOrdenar: (chave: string) => void
   mostrarRodar: boolean
@@ -1485,6 +1526,36 @@ type TabelaProps = {
   onAbrirConversa: (l: Lead) => void
   onSalvarEmail: (id: string, email: string) => Promise<void>
   onAbrirDetalhes: (l: Lead) => void
+}
+
+// Rodapé "Anterior/Próxima" com o resumo do intervalo — mesmo padrão visual já validado em
+// Follow-ups (`RodapeFila`), sobre o recorte PURO de `lib/paginacao.js`. Compartilhado pelas
+// duas tabelas (Places/Instagram): cada uma tem sua própria página, mas o rodapé é o mesmo.
+function RodapePaginacaoBanco({ pg, onPagina }: { pg: PaginaLista<Lead>; onPagina: (p: number) => void }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-2xl border bg-white px-3 py-2 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-xs text-slate-500" aria-live="polite">
+        <span className="tabular-nums">{resumoIntervalo(pg)}</span>
+      </p>
+      {(pg.temAnterior || pg.temProxima) && (
+        <div className="flex items-center gap-1 self-end sm:self-auto">
+          <button type="button" onClick={() => onPagina(pg.pagina - 1)} disabled={!pg.temAnterior}
+            aria-label="Página anterior"
+            className="min-h-[36px] rounded-lg border px-3 py-1 text-xs hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-30 disabled:hover:bg-transparent">
+            ◀ <span className="hidden sm:inline">Anterior</span>
+          </button>
+          <span className="px-1 text-xs text-slate-500">
+            Página <b className="tabular-nums text-slate-700">{pg.pagina}</b> de <span className="tabular-nums">{pg.totalPaginas}</span>
+          </span>
+          <button type="button" onClick={() => onPagina(pg.pagina + 1)} disabled={!pg.temProxima}
+            aria-label="Próxima página"
+            className="min-h-[36px] rounded-lg border px-3 py-1 text-xs hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-30 disabled:hover:bg-transparent">
+            <span className="hidden sm:inline">Próxima</span> ▶
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // Célula de status compartilhada (badge + trava + último disparo).
@@ -1628,12 +1699,13 @@ function SelCelula({ l, selecionados, onToggleSel }: { l: Lead; selecionados: Se
   )
 }
 
-function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onAbrirDetalhes }: TabelaProps) {
+function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onAbrirDetalhes }: TabelaProps) {
+  const n = total ?? leads.length
   return (
     <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
       <div className="px-4 py-3 border-b flex items-center gap-2">
         <h2 className="text-sm font-semibold">Google Places</h2>
-        <span className="text-xs text-slate-400">{leads.length} lead{leads.length === 1 ? '' : 's'}</span>
+        <span className="text-xs text-slate-400">{n} lead{n === 1 ? '' : 's'}</span>
       </div>
       <DataTableFrame>
         <table className="w-full min-w-max text-sm">
@@ -1694,12 +1766,13 @@ function TabelaPlacesBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previs
   )
 }
 
-function TabelaInstagramBanco({ leads, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onAbrirDetalhes }: TabelaProps) {
+function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onAbrirDetalhes }: TabelaProps) {
+  const n = total ?? leads.length
   return (
     <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
       <div className="px-4 py-3 border-b flex items-center gap-2">
         <h2 className="text-sm font-semibold">Instagram</h2>
-        <span className="text-xs text-slate-400">{leads.length} lead{leads.length === 1 ? '' : 's'}</span>
+        <span className="text-xs text-slate-400">{n} lead{n === 1 ? '' : 's'}</span>
       </div>
       <DataTableFrame>
         <table className="w-full min-w-max text-sm">

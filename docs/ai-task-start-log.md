@@ -1,261 +1,355 @@
-# Registro de início de tarefas da IA
+﻿# Registro de inÃ­cio de tarefas da IA
 
-Toda IA deve registrar aqui o início de cada tarefa/projeto de alteração **antes**
-de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
-[ai-workflow.md](ai-workflow.md)). Entradas em ordem cronológica inversa (mais recente no topo).
+Toda IA deve registrar aqui o inÃ­cio de cada tarefa/projeto de alteraÃ§Ã£o **antes**
+de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â€” ver
+[ai-workflow.md](ai-workflow.md)). Entradas em ordem cronolÃ³gica inversa (mais recente no topo).
 
 ---
 
-## 2026-08-12 - Início de tarefa IA - Simplificar "Modo desta conversa" no ConversaPainel (retomada pós troca de conta)
+## 2026-08-12 - InÃ­cio de tarefa IA - Simplificar "Modo desta conversa" no ConversaPainel (retomada pÃ³s troca de conta)
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado
   (`lucky-tickling-starlight`), job em background.
-- **Pedido resumido:** tarefa pequena de apresentação (frontend), retomada de duas tentativas
-  anteriores que não concluíram (`aca54010` ambígua, `65d67eeb` bloqueada por limite antes de
-  trabalhar). O orquestrador já resolveu a ambiguidade: `modo_ia` é configuração persistente
-  (Padrão/Conversa/Análise), `agente_pausado` é estado temporário (pausar/retomar), e os dois
-  rótulos não podem se confundir. Pedido: (1) simplificar o controle "Modo desta conversa" para
-  as três opções compactas Padrão/Conversa/Análise; (2) tirar o texto explicativo fixo abaixo do
-  controle, movendo explicação para tooltip/aria por opção; (3) manter "Pausar agente"/"Retomar
+- **Pedido resumido:** tarefa pequena de apresentaÃ§Ã£o (frontend), retomada de duas tentativas
+  anteriores que nÃ£o concluÃ­ram (`aca54010` ambÃ­gua, `65d67eeb` bloqueada por limite antes de
+  trabalhar). O orquestrador jÃ¡ resolveu a ambiguidade: `modo_ia` Ã© configuraÃ§Ã£o persistente
+  (PadrÃ£o/Conversa/AnÃ¡lise), `agente_pausado` Ã© estado temporÃ¡rio (pausar/retomar), e os dois
+  rÃ³tulos nÃ£o podem se confundir. Pedido: (1) simplificar o controle "Modo desta conversa" para
+  as trÃªs opÃ§Ãµes compactas PadrÃ£o/Conversa/AnÃ¡lise; (2) tirar o texto explicativo fixo abaixo do
+  controle, movendo explicaÃ§Ã£o para tooltip/aria por opÃ§Ã£o; (3) manter "Pausar agente"/"Retomar
   agente" (nunca "Ativar/Desativar agente"); (4) pode compactar visualmente e aproximar do bloco
-  de prioridade comercial, mas sem fundir as duas regras; (5) sem alterar regra de negócio nem
-  decisão de envio na tela.
-- **É projeto/tarefa de alteração?** Sim, pequena e 100% de apresentação: sem schema, sem rota
-  nova, sem regra de negócio tocada. Reaproveita `AlternadorModoIa`/`BalaoAjuda`/
-  `lib/conversa-modo-ia.js` já existentes (commit `4199a3a`, que já padronizou o controle GLOBAL
-  em `dashboard/conversas/page.tsx` e o do Follow-up automático).
+  de prioridade comercial, mas sem fundir as duas regras; (5) sem alterar regra de negÃ³cio nem
+  decisÃ£o de envio na tela.
+- **Ã‰ projeto/tarefa de alteraÃ§Ã£o?** Sim, pequena e 100% de apresentaÃ§Ã£o: sem schema, sem rota
+  nova, sem regra de negÃ³cio tocada. Reaproveita `AlternadorModoIa`/`BalaoAjuda`/
+  `lib/conversa-modo-ia.js` jÃ¡ existentes (commit `4199a3a`, que jÃ¡ padronizou o controle GLOBAL
+  em `dashboard/conversas/page.tsx` e o do Follow-up automÃ¡tico).
 - **Workflow consultado?** AGENTS.md, CLAUDE.md, `docs/ai-workflow.md`: sim.
-- **Achado ao ler o código:** o controle GLOBAL "Modo padrão da IA" (`dashboard/conversas/page.tsx`)
-  já segue o padrão minimalista (rótulo + `AlternadorModoIa` + `ajuda` custom + `ariaLabel`, sem
-  parágrafo fixo). O bloco "Modo desta conversa" dentro de `ConversaPainel.tsx` ainda tem, abaixo
-  do controle, um parágrafo fixo "Agora: {estado} · {explicarOrigem}" e um aviso de pausa que
-  **duplica** o aviso já mostrado no compositor (`avisoDoCompositor`, visível logo acima da caixa
-  de mensagem quando a IA não vai responder). É esse parágrafo + duplicação que a tarefa pede
-  para simplificar; o texto de `avisoDoCompositor` mais abaixo não é tocado.
-- **Plano:** (a) `lib/conversa-modo-ia.js` — encurtar o rótulo do botão HERDAR de "Herdar padrão
-  da Central" para "Padrão"; (b) `ConversaPainel.tsx` — remover o parágrafo fixo "Agora: ..." e o
+- **Achado ao ler o cÃ³digo:** o controle GLOBAL "Modo padrÃ£o da IA" (`dashboard/conversas/page.tsx`)
+  jÃ¡ segue o padrÃ£o minimalista (rÃ³tulo + `AlternadorModoIa` + `ajuda` custom + `ariaLabel`, sem
+  parÃ¡grafo fixo). O bloco "Modo desta conversa" dentro de `ConversaPainel.tsx` ainda tem, abaixo
+  do controle, um parÃ¡grafo fixo "Agora: {estado} Â· {explicarOrigem}" e um aviso de pausa que
+  **duplica** o aviso jÃ¡ mostrado no compositor (`avisoDoCompositor`, visÃ­vel logo acima da caixa
+  de mensagem quando a IA nÃ£o vai responder). Ã‰ esse parÃ¡grafo + duplicaÃ§Ã£o que a tarefa pede
+  para simplificar; o texto de `avisoDoCompositor` mais abaixo nÃ£o Ã© tocado.
+- **Plano:** (a) `lib/conversa-modo-ia.js` â€” encurtar o rÃ³tulo do botÃ£o HERDAR de "Herdar padrÃ£o
+  da Central" para "PadrÃ£o"; (b) `ConversaPainel.tsx` â€” remover o parÃ¡grafo fixo "Agora: ..." e o
   aviso de pausa duplicado desse bloco, passando `ajuda={explicarOrigem(...)}` ao
-  `AlternadorModoIa` (mesmo mecanismo já usado pelo controle global) para a explicação de origem
-  virar tooltip; nenhuma regra de negócio nem comparação de modo nova é introduzida (guarda de
-  regressão em `conversa-modo-ia.test.js` já cobre isso).
-- **Validação:** `npm run typecheck` e `npm test` dentro de `frontend/`.
+  `AlternadorModoIa` (mesmo mecanismo jÃ¡ usado pelo controle global) para a explicaÃ§Ã£o de origem
+  virar tooltip; nenhuma regra de negÃ³cio nem comparaÃ§Ã£o de modo nova Ã© introduzida (guarda de
+  regressÃ£o em `conversa-modo-ia.test.js` jÃ¡ cobre isso).
+- **ValidaÃ§Ã£o:** `npm run typecheck` e `npm test` dentro de `frontend/`.
+## 2026-08-12 - InÃ­cio de tarefa IA - Retomada da padronizaÃ§Ã£o de busca/filtros/paginaÃ§Ã£o (reaproveitamento)
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5), job em background, isolado em worktree
+  (`retomada-listagens-padrao`).
+- **Pedido resumido:** Retomada, apÃ³s troca de conta, da mesma tarefa jÃ¡ descrita na entrada
+  logo abaixo ("PadronizaÃ§Ã£o de busca/filtros/paginaÃ§Ã£o (1Âª entrega): Banco de Leads + Central
+  de LigaÃ§Ãµes") â€” duas tentativas anteriores (`790ecd7e`, `4341122c`) foram bloqueadas por
+  limite de conta antes de reportar resultado.
+- **Descoberta na Fase 0, antes de reimplementar:** a tarefa **jÃ¡ havia sido concluÃ­da e
+  commitada** por uma dessas tentativas anteriores, isolada no worktree local
+  `frontend-listagens-padrao` (commit `024acc8`, nunca mesclado nem enviado ao `origin`). O
+  diff cumpre exatamente o escopo pedido (paginaÃ§Ã£o client-side com `lib/paginacao.js` nas
+  tabelas Google Places/Instagram do Banco de Leads + 3 chips de filtro rÃ¡pido sobre a `view`
+  jÃ¡ existente; busca por texto livre client-side na fila da Central de LigaÃ§Ãµes, sem tocar
+  `lib/fila-ligacoes-view.js`), sem tocar backend/schema/radial.
+- **VerificaÃ§Ã£o de conflito com a coluna de AÃ§Ãµes/radial:** `024acc8` foi construÃ­do sobre
+  `e0a8ab8`, ancestral direto do `f6b3cab` ("Padroniza a coluna de AÃ§Ãµes do radialâ€¦") que jÃ¡
+  estÃ¡ em `origin/master` â€” o cherry-pick sobre o `master` atual aplicou as duas pÃ¡ginas
+  (`banco-leads/page.tsx`, `central-ligacoes/page.tsx`) **sem nenhum conflito**; sÃ³ este
+  arquivo de log teve conflito textual (duas entradas do mesmo dia), resolvido preservando as
+  duas.
+- **DecisÃ£o:** reaproveitar `024acc8` via `git cherry-pick` sobre o `master` atual em vez de
+  reimplementar do zero â€” mesmo resultado, sem risco de divergÃªncia ou duplicidade de lÃ³gica.
+  Nenhuma linha de cÃ³digo nova foi escrita alÃ©m da resoluÃ§Ã£o do conflito neste log.
+- **ValidaÃ§Ã£o a rodar antes de finalizar:** `npm run typecheck` (frontend), `npm test`
+  (frontend), `git diff --check`.
 
 ---
 
-## 2026-08-12 - Início de tarefa IA - Padronizar a coluna de Ações/radial (largura, centralização, cor "Conversa")
+## 2026-08-12 - InÃ­cio de tarefa IA - Padronizar a coluna de AÃ§Ãµes/radial (largura, centralizaÃ§Ã£o, cor "Conversa")
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`padroniza-coluna-acoes-radial`), job em background.
-- **Pedido resumido:** Tarefa pequena de implementação visual: o operador validou visualmente o
-  radial de Follow-ups (commit `e0a8ab8`, "Abrir conversa" virou a 4ª bolinha), mas reportou que
+- **Pedido resumido:** Tarefa pequena de implementaÃ§Ã£o visual: o operador validou visualmente o
+  radial de Follow-ups (commit `e0a8ab8`, "Abrir conversa" virou a 4Âª bolinha), mas reportou que
   a bolinha "Concluir" (zona direita) fica apertada/encostando na bolinha central quando o radial
-  abre, porque a coluna de ações não tem largura/coluna própria suficiente. Pedido: (1) criar/
-  padronizar uma coluna "Ação/Ações" nas listagens com radial; (2) coluna fixa, não removível por
-  personalização; (3) bolinha do radial sempre centralizada na coluna; (4) largura suficiente para
+  abre, porque a coluna de aÃ§Ãµes nÃ£o tem largura/coluna prÃ³pria suficiente. Pedido: (1) criar/
+  padronizar uma coluna "AÃ§Ã£o/AÃ§Ãµes" nas listagens com radial; (2) coluna fixa, nÃ£o removÃ­vel por
+  personalizaÃ§Ã£o; (3) bolinha do radial sempre centralizada na coluna; (4) largura suficiente para
   o radial abrir sem colar na borda direita nem sobrepor a bolinha central; (5) verificar em todas
-  as telas com radial (mínimo Follow-ups e Aquisição); Banco de Leads/Central de Mensagens não têm
-  radial — só checar alinhamento de ação/detalhes, sem inventar radial lá; (6) a bolinha "Conversa"
-  do radial de Follow-ups ganha cor destacada (azul ou equivalente), para diferenciar navegação/
-  abertura de conclusão/confirmação.
-- **É projeto/tarefa de alteração?** Sim, pequena e 100% de apresentação (frontend): sem schema,
-  sem migration, sem rota nova, sem chamada nova ao backend, sem handler/regra de negócio tocada.
-  Reaproveita `MenuRadialAcoes`/`lib/menu-radial.js` já existentes — nenhum radial novo é criado.
+  as telas com radial (mÃ­nimo Follow-ups e AquisiÃ§Ã£o); Banco de Leads/Central de Mensagens nÃ£o tÃªm
+  radial â€” sÃ³ checar alinhamento de aÃ§Ã£o/detalhes, sem inventar radial lÃ¡; (6) a bolinha "Conversa"
+  do radial de Follow-ups ganha cor destacada (azul ou equivalente), para diferenciar navegaÃ§Ã£o/
+  abertura de conclusÃ£o/confirmaÃ§Ã£o.
+- **Ã‰ projeto/tarefa de alteraÃ§Ã£o?** Sim, pequena e 100% de apresentaÃ§Ã£o (frontend): sem schema,
+  sem migration, sem rota nova, sem chamada nova ao backend, sem handler/regra de negÃ³cio tocada.
+  Reaproveita `MenuRadialAcoes`/`lib/menu-radial.js` jÃ¡ existentes â€” nenhum radial novo Ã© criado.
 - **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim. `docs/ui-visual-standard.md`
-  não existe como arquivo neste repositório (mesma observação já registrada nas entradas anteriores
-  da série de padronização visual). Entradas anteriores da série (radial em Follow-ups, Aquisição,
-  Detalhes/BolinhaPontuacao) lidas para não repetir decisões já tomadas.
-- **Causa raiz confirmada no código:**
-  1. `frontend/components/ui/MenuRadialAcoes.tsx` posiciona as bolinhas satélite em coordenadas
-     `position: fixed` (viewport), a `RAIO=56` px do centro do gatilho "⋯", clampadas só nas bordas
+  nÃ£o existe como arquivo neste repositÃ³rio (mesma observaÃ§Ã£o jÃ¡ registrada nas entradas anteriores
+  da sÃ©rie de padronizaÃ§Ã£o visual). Entradas anteriores da sÃ©rie (radial em Follow-ups, AquisiÃ§Ã£o,
+  Detalhes/BolinhaPontuacao) lidas para nÃ£o repetir decisÃµes jÃ¡ tomadas.
+- **Causa raiz confirmada no cÃ³digo:**
+  1. `frontend/components/ui/MenuRadialAcoes.tsx` posiciona as bolinhas satÃ©lite em coordenadas
+     `position: fixed` (viewport), a `RAIO=56` px do centro do gatilho "â‹¯", clampadas sÃ³ nas bordas
      da VIEWPORT (`calcularGeometria`, `MARGEM=8`). A bolinha "direita" (Concluir) precisa de
-     `RAIO + BOLHA/2 + MARGEM ≈ 90px` livres à direita do centro do gatilho; se o gatilho está perto
-     da borda direita da tabela/página, o clamp de viewport empurra a bolinha para a esquerda,
-     colidindo com o próprio botão central — exatamente o sintoma relatado.
-  2. `frontend/app/dashboard/follow-ups/page.tsx:474` — `<th>` da coluna de ações é
-     `px-4 py-3` com `<span className="sr-only">Ações</span>` (sem largura própria, sem rótulo
-     visível) e a `<td>` (:768) usa `text-right` + `flex justify-end` — o grupo de botões (inclusive
-     o gatilho do radial) fica colado na borda direita da célula/tabela, sem margem de manobra.
-  3. `frontend/app/dashboard/prospeccao/page.tsx:545` (reaproveitada por `aquisicao/page.tsx`) —
-     mesmo padrão: `<th className="text-right px-3 py-2">Ações</th>` sem largura mínima, `<td
-     className="px-3 py-2 text-right whitespace-nowrap">` com o gatilho colado à direita.
-  4. Banco de Leads (`banco-leads/page.tsx`) e Central de Mensagens (`conversas/page.tsx`) **não
-     usam `MenuRadialAcoes`** (confirmado por grep) — Banco de Leads tem `CadastroDetalhesCelula`
-     (bolinha + botão "Detalhes" na mesma célula da coluna "Cadastro") e Central de Mensagens tem
-     "Detalhes" ao lado do badge de Interesse + botões "Histórico"/remover na coluna Ações
-     (`text-right` + `inline-flex gap-2`, já sem radial). Ambas permanecem **fora de escopo** desta
-     tarefa (nenhum radial será criado) — só uma checagem visual de que o alinhamento atual não
-     quebra, sem alteração de código nelas se já estiver correto.
-  5. `frontend/lib/menu-radial.js` (`TOM_CLASSES`) só tem `positivo` (emerald)/`negativo` (red)/
-     `neutro`. A ação "Conversa"/"Ligação" (`id: 'executar'`, zona `baixo`) e "Abrir conversa"
-     (`id: 'abrir_conversa'`, zona `direita`) hoje usam `tom: 'positivo'` — mesma cor de "Concluir",
-     que é confirmação/conclusão, não navegação. É essa mistura de tom que o pedido nomeia no item 6.
-- **Decisão (autocontida, baixo risco):**
-  1. Nenhuma das duas tabelas (Follow-ups, Aquisição/Prospecção) tem sistema de personalização de
-     colunas (`⚙ Personalizar`/toggle) — só o Banco de Leads tem, e ele não usa radial. Logo o
-     requisito "coluna fixa, não removível por personalização" já vale por construção; não crio
-     nenhum mecanismo de toggle novo (evita inventar uma capacidade de remover que hoje não existe).
-  2. Dar à coluna de ações um `min-width` explícito (suficiente para o(s) botão(ões) primário(s) +
+     `RAIO + BOLHA/2 + MARGEM â‰ˆ 90px` livres Ã  direita do centro do gatilho; se o gatilho estÃ¡ perto
+     da borda direita da tabela/pÃ¡gina, o clamp de viewport empurra a bolinha para a esquerda,
+     colidindo com o prÃ³prio botÃ£o central â€” exatamente o sintoma relatado.
+  2. `frontend/app/dashboard/follow-ups/page.tsx:474` â€” `<th>` da coluna de aÃ§Ãµes Ã©
+     `px-4 py-3` com `<span className="sr-only">AÃ§Ãµes</span>` (sem largura prÃ³pria, sem rÃ³tulo
+     visÃ­vel) e a `<td>` (:768) usa `text-right` + `flex justify-end` â€” o grupo de botÃµes (inclusive
+     o gatilho do radial) fica colado na borda direita da cÃ©lula/tabela, sem margem de manobra.
+  3. `frontend/app/dashboard/prospeccao/page.tsx:545` (reaproveitada por `aquisicao/page.tsx`) â€”
+     mesmo padrÃ£o: `<th className="text-right px-3 py-2">AÃ§Ãµes</th>` sem largura mÃ­nima, `<td
+     className="px-3 py-2 text-right whitespace-nowrap">` com o gatilho colado Ã  direita.
+  4. Banco de Leads (`banco-leads/page.tsx`) e Central de Mensagens (`conversas/page.tsx`) **nÃ£o
+     usam `MenuRadialAcoes`** (confirmado por grep) â€” Banco de Leads tem `CadastroDetalhesCelula`
+     (bolinha + botÃ£o "Detalhes" na mesma cÃ©lula da coluna "Cadastro") e Central de Mensagens tem
+     "Detalhes" ao lado do badge de Interesse + botÃµes "HistÃ³rico"/remover na coluna AÃ§Ãµes
+     (`text-right` + `inline-flex gap-2`, jÃ¡ sem radial). Ambas permanecem **fora de escopo** desta
+     tarefa (nenhum radial serÃ¡ criado) â€” sÃ³ uma checagem visual de que o alinhamento atual nÃ£o
+     quebra, sem alteraÃ§Ã£o de cÃ³digo nelas se jÃ¡ estiver correto.
+  5. `frontend/lib/menu-radial.js` (`TOM_CLASSES`) sÃ³ tem `positivo` (emerald)/`negativo` (red)/
+     `neutro`. A aÃ§Ã£o "Conversa"/"LigaÃ§Ã£o" (`id: 'executar'`, zona `baixo`) e "Abrir conversa"
+     (`id: 'abrir_conversa'`, zona `direita`) hoje usam `tom: 'positivo'` â€” mesma cor de "Concluir",
+     que Ã© confirmaÃ§Ã£o/conclusÃ£o, nÃ£o navegaÃ§Ã£o. Ã‰ essa mistura de tom que o pedido nomeia no item 6.
+- **DecisÃ£o (autocontida, baixo risco):**
+  1. Nenhuma das duas tabelas (Follow-ups, AquisiÃ§Ã£o/ProspecÃ§Ã£o) tem sistema de personalizaÃ§Ã£o de
+     colunas (`âš™ Personalizar`/toggle) â€” sÃ³ o Banco de Leads tem, e ele nÃ£o usa radial. Logo o
+     requisito "coluna fixa, nÃ£o removÃ­vel por personalizaÃ§Ã£o" jÃ¡ vale por construÃ§Ã£o; nÃ£o crio
+     nenhum mecanismo de toggle novo (evita inventar uma capacidade de remover que hoje nÃ£o existe).
+  2. Dar Ã  coluna de aÃ§Ãµes um `min-width` explÃ­cito (suficiente para o(s) botÃ£o(Ãµes) primÃ¡rio(s) +
      o gatilho do radial lado a lado, com folga) e trocar o alinhamento de `text-right`/`justify-end`
-     para `text-center`/`justify-center` nas duas tabelas — centralizar dentro de uma coluna mais
-     larga aumenta a distância real entre o centro do gatilho e a borda direita da tabela/página,
-     que é a causa raiz do aperto. Mantém o rótulo do cabeçalho como já estava (sr-only em
-     Follow-ups, visível em Aquisição) — não é o alvo do pedido, só largura/centralização/cor.
-  3. Nova cor no vocabulário do radial: acrescento o tom `navegacao` (azul, mesmo padrão de classes
+     para `text-center`/`justify-center` nas duas tabelas â€” centralizar dentro de uma coluna mais
+     larga aumenta a distÃ¢ncia real entre o centro do gatilho e a borda direita da tabela/pÃ¡gina,
+     que Ã© a causa raiz do aperto. MantÃ©m o rÃ³tulo do cabeÃ§alho como jÃ¡ estava (sr-only em
+     Follow-ups, visÃ­vel em AquisiÃ§Ã£o) â€” nÃ£o Ã© o alvo do pedido, sÃ³ largura/centralizaÃ§Ã£o/cor.
+  3. Nova cor no vocabulÃ¡rio do radial: acrescento o tom `navegacao` (azul, mesmo padrÃ£o de classes
      `border-*-300 bg-*-50 text-*-700 hover:bg-*-100` dos tons existentes) em `lib/menu-radial.js` +
-     `.d.ts`, e aplico nas duas ações de abrir conversa/ligação em Follow-ups (`executar` e
-     `abrir_conversa`). Não mexo em `positivo`/`negativo`/`neutro` nem nos usos existentes deles
+     `.d.ts`, e aplico nas duas aÃ§Ãµes de abrir conversa/ligaÃ§Ã£o em Follow-ups (`executar` e
+     `abrir_conversa`). NÃ£o mexo em `positivo`/`negativo`/`neutro` nem nos usos existentes deles
      (Concluir continua emerald, Cancelar/Descartar continuam vermelho).
-- **Arquivos que pretendo alterar:** `frontend/lib/menu-radial.js` (+ `.d.ts`/`.test.js` — novo tom
-  `navegacao`), `frontend/app/dashboard/follow-ups/page.tsx` (largura/centralização da coluna Ações
-  + tom `navegacao` nas ações de abrir conversa/ligação), `frontend/app/dashboard/prospeccao/page.tsx`
-  (largura/centralização da coluna Ações). Nenhum arquivo de `backend/` tocado; nenhuma regra de
-  negócio, handler, rota ou dado alterado — só CSS/apresentação e um tom de cor novo no vocabulário
-  puro já existente.
-- **Fora de escopo (declarado pelo pedido):** backend, banco, produção/Railway, segurança, roteiro
-  SPIN; redesenhar todas as listagens; regra geral de busca/filtros/paginação; tornar a coluna de
-  ações personalizável/removível; criar radial em Banco de Leads ou Central de Mensagens.
-- **Validação prevista:** `npm run typecheck` (frontend), `npm test` (frontend, `lib/menu-radial.test.js`
-  e demais `lib/*.test.js` afetados), `git diff --check`. Commit único direto em `master` (via push do
-  worktree) se tudo passar e o diff não sair do escopo combinado acima.
+- **Arquivos que pretendo alterar:** `frontend/lib/menu-radial.js` (+ `.d.ts`/`.test.js` â€” novo tom
+  `navegacao`), `frontend/app/dashboard/follow-ups/page.tsx` (largura/centralizaÃ§Ã£o da coluna AÃ§Ãµes
+  + tom `navegacao` nas aÃ§Ãµes de abrir conversa/ligaÃ§Ã£o), `frontend/app/dashboard/prospeccao/page.tsx`
+  (largura/centralizaÃ§Ã£o da coluna AÃ§Ãµes). Nenhum arquivo de `backend/` tocado; nenhuma regra de
+  negÃ³cio, handler, rota ou dado alterado â€” sÃ³ CSS/apresentaÃ§Ã£o e um tom de cor novo no vocabulÃ¡rio
+  puro jÃ¡ existente.
+- **Fora de escopo (declarado pelo pedido):** backend, banco, produÃ§Ã£o/Railway, seguranÃ§a, roteiro
+  SPIN; redesenhar todas as listagens; regra geral de busca/filtros/paginaÃ§Ã£o; tornar a coluna de
+  aÃ§Ãµes personalizÃ¡vel/removÃ­vel; criar radial em Banco de Leads ou Central de Mensagens.
+- **ValidaÃ§Ã£o prevista:** `npm run typecheck` (frontend), `npm test` (frontend, `lib/menu-radial.test.js`
+  e demais `lib/*.test.js` afetados), `git diff --check`. Commit Ãºnico direto em `master` (via push do
+  worktree) se tudo passar e o diff nÃ£o sair do escopo combinado acima.
 
 ---
 
-## 2026-08-12 - Início de tarefa IA - Follow-ups: "Abrir conversa" vira 4ª bolinha do radial (zona `baixo`)
+## 2026-08-12 - InÃ­cio de tarefa IA - PadronizaÃ§Ã£o de busca/filtros/paginaÃ§Ã£o (1Âª entrega): Banco de Leads + Central de LigaÃ§Ãµes
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`frontend-listagens-padrao`), job em background.
+- **Pedido resumido:** Primeira entrega, pequena/mÃ©dia e segura, da padronizaÃ§Ã£o de
+  busca/filtros/paginaÃ§Ã£o das listagens (parte irmÃ£ da sÃ©rie de padronizaÃ§Ã£o visual do radial de
+  AÃ§Ãµes, que Ã© tarefa PARALELA em outra sessÃ£o â€” `3ff7e02f` â€” e nÃ£o deve ser tocada aqui). Foco:
+  (1) Banco de Leads: melhorar ausÃªncia de paginaÃ§Ã£o e reforÃ§ar filtros rÃ¡pidos, sem alterar
+  backend; (2) Central de LigaÃ§Ãµes: adicionar campo de busca na fila principal, se de baixo
+  risco; (3) manter coerÃªncia com AquisiÃ§Ã£o/Central de Mensagens, sem redesenhar tudo.
+- **Ã‰ projeto/tarefa de alteraÃ§Ã£o?** Sim, pequena/mÃ©dia e 100% frontend: sem schema, sem
+  migration, sem rota nova, sem chamada nova ao backend, sem prompt de produÃ§Ã£o tocado.
+- **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim. NÃ£o havia
+  artifact/relatÃ³rio de anÃ¡lise desta rodada especÃ­fica localizÃ¡vel no histÃ³rico desta sessÃ£o â€”
+  o mapeamento foi refeito lendo o cÃ³digo atual (registrado abaixo), como a prÃ³pria instruÃ§Ã£o
+  do pedido previa para esse caso.
+- **Mapeamento feito antes de editar:**
+  1. `frontend/lib/paginacao.js` (+ `.d.ts`/`.test.js`) jÃ¡ existe, Ã© PURO/testado e Ã© a fonte
+     Ãºnica de paginaÃ§Ã£o client-side (`paginar`, `resumoIntervalo`, `mostrarPaginacao`,
+     `POR_PAGINA_PADRAO`), reexportado por `lib/fila-ligacoes-view.js` (Central de LigaÃ§Ãµes) e
+     `lib/followups-fila.js` (Follow-ups), e consumido tambÃ©m pela AquisiÃ§Ã£o
+     (`prospeccao/page.tsx`, paginaÃ§Ã£o **servidor**). **NÃ£o vou criar um segundo mÃ³dulo** â€” vou
+     reusar exatamente este.
+  2. `frontend/app/dashboard/banco-leads/page.tsx` â€” busca a lista INTEIRA da aba de uma vez
+     (`GET .../leads`, sem `limit`/`offset`), filtra/ordena 100% client-side
+     (`passaFiltrosView`/`ordenarPorView`, jÃ¡ existentes) e **nunca pagina**: as duas tabelas
+     (`TabelaPlacesBanco`/`TabelaInstagramBanco`, linhas ~1631/1697) fazem `leads.map(...)` sobre
+     o array inteiro. Com centenas/milhares de leads (nota do AGENTS.md: "fetch Ãºnico â‰¤1000"),
+     a tabela cresce sem limite visual. JÃ¡ existem "filtros rÃ¡pidos" reais: as `ABAS` do funil
+     (pills com contagem, servidor) e o botÃ£o "âš™ Personalizar" (filtros ricos client-side, chips
+     de filtro ativo) â€” nÃ£o hÃ¡ ausÃªncia de filtro, e sim de UMA aba a mais de acesso rÃ¡pido para
+     os 2-3 filtros mais usados sem abrir o modal, e de paginaÃ§Ã£o nas tabelas.
+  3. `frontend/app/dashboard/central-ligacoes/page.tsx` â€” a aba "Fila" (fila principal de
+     ligaÃ§Ã£o) jÃ¡ carrega a campanha inteira de uma vez (`GET .../fila?limit=500`) e jÃ¡ tem
+     paginaÃ§Ã£o client-side completa (`paginar`/`mostrarPaginacao`/`PaginacaoFila`, reexportados
+     de `lib/paginacao.js` via `lib/fila-ligacoes-view.js`) e um painel de filtros rico
+     (`FiltrosFila`, flutuante em portal). **O que falta Ã© busca por texto livre** (nome/
+     telefone) na prÃ³pria fila â€” ela sÃ³ existe na aba "Acompanhamento" (`busca`/`statusFiltro`,
+     linha ~577/839), sobre `todosLeads`, um estado independente da fila. Adicionar um campo de
+     busca **client-side** na fila (sobre o array jÃ¡ carregado, aplicado depois de
+     `filtrarFila(fila, view)` e antes de paginar) Ã© aditivo, nÃ£o pede rota nova e nÃ£o toca o
+     mÃ³dulo puro jÃ¡ testado (`lib/fila-ligacoes-view.js`) â€” fica um estado de tela isolado
+     (`buscaFila`), no mesmo padrÃ£o do `local`/`nicho` jÃ¡ existentes no painel de filtros.
+  4. `frontend/app/dashboard/prospeccao/page.tsx` (AquisiÃ§Ã£o) confirmado como referÃªncia: pills
+     de status com contagem embutida no rÃ³tulo (`FILTROS_STATUS`) â€” Ã© o padrÃ£o que as `ABAS` do
+     Banco de Leads jÃ¡ seguem (mesma geometria conceitual). Nenhuma mudanÃ§a necessÃ¡ria lÃ¡.
+- **DecisÃ£o de escopo (baixo risco, sem tocar AÃ§Ãµes/radial):**
+  - Banco de Leads: (a) paginar as duas tabelas com `paginar`/`resumoIntervalo`/
+    `mostrarPaginacao` do mÃ³dulo existente, reset de pÃ¡gina ao trocar aba/origem/mercado/
+    cidade/busca/view (mesmo padrÃ£o de Follow-ups/Central de LigaÃ§Ãµes); footer "Anterior/
+    PrÃ³xima" no mesmo componente visual jÃ¡ usado em Follow-ups; (b) adicionar 2-3 chips de
+    filtro rÃ¡pido (toggle) para os campos mais Ãºteis do `ViewConfig` jÃ¡ existente (`envio`,
+    `site`, `disparo`), sem criar filtro novo â€” sÃ³ um atalho de UI para valores que o modal
+    "Personalizar" jÃ¡ aceita.
+  - Central de LigaÃ§Ãµes: adicionar busca de texto livre na aba Fila, 100% client-side, sem tocar
+    `lib/fila-ligacoes-view.js` nem seus testes.
+  - **Nenhuma coluna de AÃ§Ãµes, radial, `MenuRadialAcoes` ou `lib/menu-radial.js` serÃ¡ tocada**
+    (tarefa paralela em outra sessÃ£o). Nenhum arquivo de `backend/` tocado. Nenhuma API nova,
+    nenhum limite/contrato de paginaÃ§Ã£o servidor alterado.
+- **Arquivos que pretendo alterar:** `frontend/app/dashboard/banco-leads/page.tsx`,
+  `frontend/app/dashboard/central-ligacoes/page.tsx`. Nenhum arquivo novo (reaproveita
+  `lib/paginacao.js` existente).
+- **ValidaÃ§Ã£o prevista:** `npm run typecheck` (frontend), `npm test` (frontend, `lib/*.test.js`
+  relevantes: `paginacao.test.js`, `fila-ligacoes-view.test.js`), `git diff --check`. Commit
+  Ãºnico + push direto para `master` **se** tudo passar e o diff nÃ£o sair do escopo combinado
+  acima â€” autorizado pelo prÃ³prio pedido.
+
+---
+
+## 2026-08-12 - InÃ­cio de tarefa IA - Follow-ups: "Abrir conversa" vira 4Âª bolinha do radial (zona `baixo`)
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5)
-- **Pedido resumido:** Correção pequena e pontual: no radial de ações de Follow-ups
-  (`MenuRadialAcoes`), quando a linha tem as 4 ações principais (Cancelar/Reagendar/
+- **Pedido resumido:** CorreÃ§Ã£o pequena e pontual: no radial de aÃ§Ãµes de Follow-ups
+  (`MenuRadialAcoes`), quando a linha tem as 4 aÃ§Ãµes principais (Cancelar/Reagendar/
   Concluir/Abrir conversa), "Abrir conversa" aparecia num painel de extras
-  quadrado/lista em vez de virar bolinha como as outras três. Desejado: "Abrir
-  conversa" vira a 4ª bolinha do próprio radial (abaixo/centro), rótulo curto
-  ("Conversa"/"Ligação"), no mesmo padrão visual das demais — sem card/lista nesse caso.
-- **É projeto/tarefa de alteração?** Sim, pequena e de escopo controlado: 100%
-  apresentação, sem schema, sem migration, sem rota, sem handler novo — só a
-  geometria/zona do menu radial compartilhado e o mapeamento de uma ação já existente
+  quadrado/lista em vez de virar bolinha como as outras trÃªs. Desejado: "Abrir
+  conversa" vira a 4Âª bolinha do prÃ³prio radial (abaixo/centro), rÃ³tulo curto
+  ("Conversa"/"LigaÃ§Ã£o"), no mesmo padrÃ£o visual das demais â€” sem card/lista nesse caso.
+- **Ã‰ projeto/tarefa de alteraÃ§Ã£o?** Sim, pequena e de escopo controlado: 100%
+  apresentaÃ§Ã£o, sem schema, sem migration, sem rota, sem handler novo â€” sÃ³ a
+  geometria/zona do menu radial compartilhado e o mapeamento de uma aÃ§Ã£o jÃ¡ existente
   em Follow-ups. Nenhum arquivo de `backend/` tocado.
-- **Workflow padrão consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md:
-  Sim | docs/ui-visual-standard.md: não consultado à parte — o padrão a seguir é o do
-  próprio componente radial já existente (`MenuRadialAcoes`/`menu-radial.js`), que é a
+- **Workflow padrÃ£o consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md:
+  Sim | docs/ui-visual-standard.md: nÃ£o consultado Ã  parte â€” o padrÃ£o a seguir Ã© o do
+  prÃ³prio componente radial jÃ¡ existente (`MenuRadialAcoes`/`menu-radial.js`), que Ã© a
   fonte de verdade visual desta tela | docs/ai-decision-log.md: nada de arquitetural
-  novo a registrar — é extensão pontual de um padrão já aprovado (commits `1271749`,
+  novo a registrar â€” Ã© extensÃ£o pontual de um padrÃ£o jÃ¡ aprovado (commits `1271749`,
   `bdec25a`, `ad29738`).
-- **Causa raiz confirmada no código:** o radial (`frontend/lib/menu-radial.js`,
-  `atribuirZonas`) só reconhece 3 zonas direcionais (`cima`/`direita`/`esquerda`); toda
-  ação sem zona, ou com zona colidida, cai em `extras` (painel quadrado). Em
-  `frontend/app/dashboard/follow-ups/page.tsx`, dentro do bloco `emAberto`, a ação
-  `executar` ("Abrir conversa"/"Ir para a ligação") era empurrada **sem** `zona`
-  (comentário explícito: "Sem zona de propósito"), enquanto Concluir/Reagendar/Cancelar
-  já ocupavam direita/cima/esquerda — por isso ela sempre caía sozinha no quadrado de
-  extras, mesmo sendo uma das 4 ações principais da linha, não uma ação excedente.
-- **Arquivos alterados:** `frontend/lib/menu-radial.js` (+ `.d.ts`/`.test.js`) — nova
-  zona `baixo` em `atribuirZonas`, mesma regra de colisão das demais;
-  `frontend/components/ui/MenuRadialAcoes.tsx` — geometria/posição da 4ª bolinha
-  (abaixo do gatilho, mesmo raio das outras três) e sua renderização;
-  `frontend/app/dashboard/follow-ups/page.tsx` — a ação `executar` passa a usar
-  `zona: 'baixo'` com rótulo curto ("Conversa"/"Ligação"; texto completo preservado em
+- **Causa raiz confirmada no cÃ³digo:** o radial (`frontend/lib/menu-radial.js`,
+  `atribuirZonas`) sÃ³ reconhece 3 zonas direcionais (`cima`/`direita`/`esquerda`); toda
+  aÃ§Ã£o sem zona, ou com zona colidida, cai em `extras` (painel quadrado). Em
+  `frontend/app/dashboard/follow-ups/page.tsx`, dentro do bloco `emAberto`, a aÃ§Ã£o
+  `executar` ("Abrir conversa"/"Ir para a ligaÃ§Ã£o") era empurrada **sem** `zona`
+  (comentÃ¡rio explÃ­cito: "Sem zona de propÃ³sito"), enquanto Concluir/Reagendar/Cancelar
+  jÃ¡ ocupavam direita/cima/esquerda â€” por isso ela sempre caÃ­a sozinha no quadrado de
+  extras, mesmo sendo uma das 4 aÃ§Ãµes principais da linha, nÃ£o uma aÃ§Ã£o excedente.
+- **Arquivos alterados:** `frontend/lib/menu-radial.js` (+ `.d.ts`/`.test.js`) â€” nova
+  zona `baixo` em `atribuirZonas`, mesma regra de colisÃ£o das demais;
+  `frontend/components/ui/MenuRadialAcoes.tsx` â€” geometria/posiÃ§Ã£o da 4Âª bolinha
+  (abaixo do gatilho, mesmo raio das outras trÃªs) e sua renderizaÃ§Ã£o;
+  `frontend/app/dashboard/follow-ups/page.tsx` â€” a aÃ§Ã£o `executar` passa a usar
+  `zona: 'baixo'` com rÃ³tulo curto ("Conversa"/"LigaÃ§Ã£o"; texto completo preservado em
   `descricao`, usado no tooltip e no `aria-label`), sem mudar `onSelecionar`/destino.
-- **Fora de escopo (declarado pelo pedido):** backend, banco, produção/Railway,
-  segurança, roteiro SPIN, regra de negócio das ações, e as demais telas
-  (Aquisição/Banco de Leads/Central de Mensagens) — só verificadas quanto a não quebrar
-  com a zona nova (o componente radial é compartilhado).
-- **Validação prevista:** `npm test` (frontend/lib) e `npm run typecheck` (frontend);
-  verificação de escopo do diff (`git diff --check`); commit único direto em `master`.
+- **Fora de escopo (declarado pelo pedido):** backend, banco, produÃ§Ã£o/Railway,
+  seguranÃ§a, roteiro SPIN, regra de negÃ³cio das aÃ§Ãµes, e as demais telas
+  (AquisiÃ§Ã£o/Banco de Leads/Central de Mensagens) â€” sÃ³ verificadas quanto a nÃ£o quebrar
+  com a zona nova (o componente radial Ã© compartilhado).
+- **ValidaÃ§Ã£o prevista:** `npm test` (frontend/lib) e `npm run typecheck` (frontend);
+  verificaÃ§Ã£o de escopo do diff (`git diff --check`); commit Ãºnico direto em `master`.
 
 ---
 
-## 2026-08-12 - Início de tarefa IA - Padrão radial na Aquisição + Detalhes ao lado da pontuação (Banco de Leads) + radial completo em Follow-ups + Detalhes ao lado do interesse (Central de Mensagens)
+## 2026-08-12 - InÃ­cio de tarefa IA - PadrÃ£o radial na AquisiÃ§Ã£o + Detalhes ao lado da pontuaÃ§Ã£o (Banco de Leads) + radial completo em Follow-ups + Detalhes ao lado do interesse (Central de Mensagens)
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`radial-padrao-listagens`), job em background.
-- **Pedido resumido:** Continuação da série de padronização visual das listagens (radial de
-  `MenuRadialAcoes.tsx`/`lib/menu-radial.js`, já validado em Follow-ups) em 4 frentes, 100%
-  frontend: (1) aplicar o radial na Aquisição para as ações Marcar/Descartar da tabela de
-  prospecção; (2) no Banco de Leads, unificar a coluna "Detalhes" isolada com a coluna
-  "Cadastro" (bolinha + botão pequeno), igual ao padrão já usado na Aquisição; (3) em
-  Follow-ups, dobrar o botão "Abrir conversa"/"Ir para a ligação" para dentro do radial quando
-  isso não quebrar o fluxo, deixando a linha só com o radial como ação compacta; (4) na Central
-  de Mensagens, colocar um botão pequeno de Detalhes ao lado do badge de Interesse, abrindo o
-  painel da conversa já na aba Interesses, se houver suporte técnico claro para o deep-link.
-- **É projeto/tarefa de alteração?** Sim, pequena e 100% de apresentação (frontend): sem
-  schema, sem migration, sem rota nova, sem chamada nova ao backend, sem prompt de produção
-  tocado. Reaproveita `MenuRadialAcoes`/`lib/menu-radial.js` já existentes — nenhum radial
-  paralelo será criado.
+- **Pedido resumido:** ContinuaÃ§Ã£o da sÃ©rie de padronizaÃ§Ã£o visual das listagens (radial de
+  `MenuRadialAcoes.tsx`/`lib/menu-radial.js`, jÃ¡ validado em Follow-ups) em 4 frentes, 100%
+  frontend: (1) aplicar o radial na AquisiÃ§Ã£o para as aÃ§Ãµes Marcar/Descartar da tabela de
+  prospecÃ§Ã£o; (2) no Banco de Leads, unificar a coluna "Detalhes" isolada com a coluna
+  "Cadastro" (bolinha + botÃ£o pequeno), igual ao padrÃ£o jÃ¡ usado na AquisiÃ§Ã£o; (3) em
+  Follow-ups, dobrar o botÃ£o "Abrir conversa"/"Ir para a ligaÃ§Ã£o" para dentro do radial quando
+  isso nÃ£o quebrar o fluxo, deixando a linha sÃ³ com o radial como aÃ§Ã£o compacta; (4) na Central
+  de Mensagens, colocar um botÃ£o pequeno de Detalhes ao lado do badge de Interesse, abrindo o
+  painel da conversa jÃ¡ na aba Interesses, se houver suporte tÃ©cnico claro para o deep-link.
+- **Ã‰ projeto/tarefa de alteraÃ§Ã£o?** Sim, pequena e 100% de apresentaÃ§Ã£o (frontend): sem
+  schema, sem migration, sem rota nova, sem chamada nova ao backend, sem prompt de produÃ§Ã£o
+  tocado. Reaproveita `MenuRadialAcoes`/`lib/menu-radial.js` jÃ¡ existentes â€” nenhum radial
+  paralelo serÃ¡ criado.
 - **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim. `docs/ui-visual-standard.md`
-  não existe como arquivo neste repositório (mesma observação já registrada nas entradas
-  anteriores da série). Entradas anteriores da série (radial em Follow-ups, polimento das
-  bolinhas, Detalhes/BolinhaPontuacao) lidas por completo para não repetir decisões já tomadas.
+  nÃ£o existe como arquivo neste repositÃ³rio (mesma observaÃ§Ã£o jÃ¡ registrada nas entradas
+  anteriores da sÃ©rie). Entradas anteriores da sÃ©rie (radial em Follow-ups, polimento das
+  bolinhas, Detalhes/BolinhaPontuacao) lidas por completo para nÃ£o repetir decisÃµes jÃ¡ tomadas.
 - **Mapeamento feito antes de editar:**
   1. `frontend/app/dashboard/prospeccao/page.tsx:558-581` (reutilizado por
-     `aquisicao/page.tsx`, que não tem JSX próprio para a tabela) — coluna Ações da tabela
-     "Leads encontrados": para `status==='rejeitado'` mostra só "Restaurar" (ícone
-     `IconUndo`, ação única de desfazer); para os demais status mostra "Marcar" (só quando
-     `aguardando`, ícone `IconStar`) e "Descartar" (sempre, ícone `IconTrash`) — o par
-     Marcar/Descartar é exatamente o par de 2 ações que o próprio pedido cita como candidato
+     `aquisicao/page.tsx`, que nÃ£o tem JSX prÃ³prio para a tabela) â€” coluna AÃ§Ãµes da tabela
+     "Leads encontrados": para `status==='rejeitado'` mostra sÃ³ "Restaurar" (Ã­cone
+     `IconUndo`, aÃ§Ã£o Ãºnica de desfazer); para os demais status mostra "Marcar" (sÃ³ quando
+     `aguardando`, Ã­cone `IconStar`) e "Descartar" (sempre, Ã­cone `IconTrash`) â€” o par
+     Marcar/Descartar Ã© exatamente o par de 2 aÃ§Ãµes que o prÃ³prio pedido cita como candidato
      natural ao radial (mesma cardinalidade do Concluir/Cancelar do Follow-ups).
-  2. A coluna "Cadastro" desta MESMA tabela (linhas 540-551) já é o padrão-alvo pedido para o
-     Banco de Leads: `BolinhaCadastro` + botão texto pequeno "Detalhes"
+  2. A coluna "Cadastro" desta MESMA tabela (linhas 540-551) jÃ¡ Ã© o padrÃ£o-alvo pedido para o
+     Banco de Leads: `BolinhaCadastro` + botÃ£o texto pequeno "Detalhes"
      (`text-[11px] text-slate-500 underline-offset-2 hover:text-brand hover:underline`) na
-     mesma célula. Não precisa mudar nada aqui — é a referência a copiar.
-  3. `frontend/app/dashboard/banco-leads/page.tsx` — `TabelaPlacesBanco` (:1625-1689) e
-     `TabelaInstagramBanco` (:1691-1764) têm a coluna "Cadastro" (`cols.pontos`, TOGGLE do
-     "⚙ Personalizar") separada da coluna "Detalhes" (`DetalhesCelula`, SEMPRE renderizada,
-     fora do sistema de toggle). **Risco identificado:** se eu simplesmente mover o botão
+     mesma cÃ©lula. NÃ£o precisa mudar nada aqui â€” Ã© a referÃªncia a copiar.
+  3. `frontend/app/dashboard/banco-leads/page.tsx` â€” `TabelaPlacesBanco` (:1625-1689) e
+     `TabelaInstagramBanco` (:1691-1764) tÃªm a coluna "Cadastro" (`cols.pontos`, TOGGLE do
+     "âš™ Personalizar") separada da coluna "Detalhes" (`DetalhesCelula`, SEMPRE renderizada,
+     fora do sistema de toggle). **Risco identificado:** se eu simplesmente mover o botÃ£o
      Detalhes para dentro do `{cols.pontos && ...}`, quem desligar a coluna "Pontos" no
-     Personalizar perde o acesso a Detalhes — violaria "não remover ação sem garantir caminho
-     equivalente" do AGENTS.md. Decisão: tirar o `<th>`/`<td>` de Detalhes do sistema de
-     toggle (torná-lo permanente, como a coluna Nome já é) e colocar `{cols.pontos &&
-     <BolinhaCadastro .../>}` + o botão Detalhes SEMPRE dentro da mesma célula — a bolinha
+     Personalizar perde o acesso a Detalhes â€” violaria "nÃ£o remover aÃ§Ã£o sem garantir caminho
+     equivalente" do AGENTS.md. DecisÃ£o: tirar o `<th>`/`<td>` de Detalhes do sistema de
+     toggle (tornÃ¡-lo permanente, como a coluna Nome jÃ¡ Ã©) e colocar `{cols.pontos &&
+     <BolinhaCadastro .../>}` + o botÃ£o Detalhes SEMPRE dentro da mesma cÃ©lula â€” a bolinha
      some quando o operador desliga "Pontos", o acesso a Detalhes nunca some. `DetalhesCelula`
-     (função) fica sem uso depois disso nas duas tabelas — será removida (evitar código morto).
-  4. `frontend/lib/pontuacao-indicador.test.js:205-217,269-277` — guardas de regressão que leem
+     (funÃ§Ã£o) fica sem uso depois disso nas duas tabelas â€” serÃ¡ removida (evitar cÃ³digo morto).
+  4. `frontend/lib/pontuacao-indicador.test.js:205-217,269-277` â€” guardas de regressÃ£o que leem
      o fonte de `prospeccao/page.tsx` e `banco-leads/page.tsx` procurando `score_cadastro...
-     text-(red|emerald)` e a coluna "Site" reintroduzida. Nenhuma das duas mudanças mexe nisso;
-     só preciso não reintroduzir esses padrões.
-  5. `frontend/app/dashboard/follow-ups/page.tsx:614-786` (`LinhaFila`) — hoje `emAberto` (3
-     ações já zoneadas: Concluir=direita, Reagendar=cima, Cancelar=esquerda) e
-     `assumir_conversa`/`revisar_proposta` (0 ações no radial) têm CADA UM seu próprio botão
-     separado "Abrir conversa"/"Ir para a ligação" (`bg-brand`, chamando `onExecutar`/
-     `onAbrirHistorico`), fora do `MenuRadialAcoes`. `item.acao` é um campo único (string), então
-     `ligar`/`mensagem_manual`/`copiar_prompt_preview`/`assumir_conversa`/`revisar_proposta` são
-     mutuamente exclusivos entre si — só `emAberto` (que depende de `followup_status`, campo
-     independente) pode coexistir com qualquer um deles num item de fila mesclado (linha única
-     por conversa, conforme regra já documentada no AGENTS.md). Isso já podia produzir dois
-     botões "Abrir conversa" simultâneos hoje (comportamento pré-existente, não introduzido por
-     esta mudança) — decisão: dobrar CADA UM dos dois blocos para dentro do respectivo
-     `acoesSecundarias`, preservando os handlers (`onExecutar`/`onAbrirHistorico`) e o rótulo
-     condicional por `item.destino`, sem reordenar as zonas já validadas (Concluir/Reagendar/
-     Cancelar) — a ação dobrada de `emAberto` entra SEM zona (vai para "extras", não disputa
-     zona com as 3 já estabelecidas); a de `assumir_conversa`/`revisar_proposta` entra com
-     zona `direita`/tom `positivo` (é a única ação daquele estado na maioria dos casos, então
-     vira o próprio botão do fallback de 1 ação do `MenuRadialAcoes` — exatamente "linha só com
-     o radial"). Nenhuma outra ação primária (Registrar/Escrever/Copiar prompt) é tocada — o
-     pedido nomeia literalmente só "Abrir conversa".
-  6. `frontend/components/ConversaPainel.tsx:222-292` — já existe uma aba interna
+     text-(red|emerald)` e a coluna "Site" reintroduzida. Nenhuma das duas mudanÃ§as mexe nisso;
+     sÃ³ preciso nÃ£o reintroduzir esses padrÃµes.
+  5. `frontend/app/dashboard/follow-ups/page.tsx:614-786` (`LinhaFila`) â€” hoje `emAberto` (3
+     aÃ§Ãµes jÃ¡ zoneadas: Concluir=direita, Reagendar=cima, Cancelar=esquerda) e
+     `assumir_conversa`/`revisar_proposta` (0 aÃ§Ãµes no radial) tÃªm CADA UM seu prÃ³prio botÃ£o
+     separado "Abrir conversa"/"Ir para a ligaÃ§Ã£o" (`bg-brand`, chamando `onExecutar`/
+     `onAbrirHistorico`), fora do `MenuRadialAcoes`. `item.acao` Ã© um campo Ãºnico (string), entÃ£o
+     `ligar`/`mensagem_manual`/`copiar_prompt_preview`/`assumir_conversa`/`revisar_proposta` sÃ£o
+     mutuamente exclusivos entre si â€” sÃ³ `emAberto` (que depende de `followup_status`, campo
+     independente) pode coexistir com qualquer um deles num item de fila mesclado (linha Ãºnica
+     por conversa, conforme regra jÃ¡ documentada no AGENTS.md). Isso jÃ¡ podia produzir dois
+     botÃµes "Abrir conversa" simultÃ¢neos hoje (comportamento prÃ©-existente, nÃ£o introduzido por
+     esta mudanÃ§a) â€” decisÃ£o: dobrar CADA UM dos dois blocos para dentro do respectivo
+     `acoesSecundarias`, preservando os handlers (`onExecutar`/`onAbrirHistorico`) e o rÃ³tulo
+     condicional por `item.destino`, sem reordenar as zonas jÃ¡ validadas (Concluir/Reagendar/
+     Cancelar) â€” a aÃ§Ã£o dobrada de `emAberto` entra SEM zona (vai para "extras", nÃ£o disputa
+     zona com as 3 jÃ¡ estabelecidas); a de `assumir_conversa`/`revisar_proposta` entra com
+     zona `direita`/tom `positivo` (Ã© a Ãºnica aÃ§Ã£o daquele estado na maioria dos casos, entÃ£o
+     vira o prÃ³prio botÃ£o do fallback de 1 aÃ§Ã£o do `MenuRadialAcoes` â€” exatamente "linha sÃ³ com
+     o radial"). Nenhuma outra aÃ§Ã£o primÃ¡ria (Registrar/Escrever/Copiar prompt) Ã© tocada â€” o
+     pedido nomeia literalmente sÃ³ "Abrir conversa".
+  6. `frontend/components/ConversaPainel.tsx:222-292` â€” jÃ¡ existe uma aba interna
      `abaModal: 'chat' | 'interesses'` (useState), resetada para `'chat'` a cada
      `carregarConversa()` (troca de `numero`). **Suporte claro para deep-link existe**: vou
      acrescentar uma prop opcional `abaInicial?: 'chat' | 'interesses'` (default `'chat'`,
-     aditiva, não quebra o uso em `follow-ups/page.tsx`, que não passa a prop) e usar
-     `abaInicial` no lugar do literal `'chat'` na linha que reseta a aba — colocando
-     `abaInicial` nas dependências do `useCallback` de `carregarConversa`, para reabrir a MESMA
-     conversa já focando Interesses funcionar mesmo sem trocar de número.
-  7. `frontend/app/dashboard/conversas/page.tsx:296-345` — coluna "Interesse" só tem
-     `<InteresseBadge compact />`; o botão "Histórico" (coluna Ações) chama
+     aditiva, nÃ£o quebra o uso em `follow-ups/page.tsx`, que nÃ£o passa a prop) e usar
+     `abaInicial` no lugar do literal `'chat'` na linha que reseta a aba â€” colocando
+     `abaInicial` nas dependÃªncias do `useCallback` de `carregarConversa`, para reabrir a MESMA
+     conversa jÃ¡ focando Interesses funcionar mesmo sem trocar de nÃºmero.
+  7. `frontend/app/dashboard/conversas/page.tsx:296-345` â€” coluna "Interesse" sÃ³ tem
+     `<InteresseBadge compact />`; o botÃ£o "HistÃ³rico" (coluna AÃ§Ãµes) chama
      `setNumeroAberto(c.numero)`. Vou acrescentar um estado local `abaAberta` (`'chat' |
-     'interesses'`), setado para `'chat'` no clique de "Histórico" e para `'interesses'` no
-     clique do novo botão "Detalhes" ao lado do badge de Interesse — e passar
+     'interesses'`), setado para `'chat'` no clique de "HistÃ³rico" e para `'interesses'` no
+     clique do novo botÃ£o "Detalhes" ao lado do badge de Interesse â€” e passar
      `abaInicial={abaAberta}` para `<ConversaPainel>`. Sem rota nova, sem query string, sem
      estado no servidor.
-- **Fora de escopo declarado (para não repetir depois):** `RotinasAquisicao.tsx` (cards de
-  rotina com Editar/Pausar/Remover) — o pedido nomeia literalmente "marcar e descartar" como o
-  alvo do radial na Aquisição, que é a tabela de prospecção, não o card de rotina; redesenhar
-  os cards de rotina seria além do escopo pedido. `AssistenteOportunidades.tsx` (Aprovar/
-  Descartar de UM lead por vez, fora de tabela) também fica fora — não é uma listagem com
-  linhas, é um fluxo de decisão sequencial. Nenhum arquivo de `backend/` será tocado.
+- **Fora de escopo declarado (para nÃ£o repetir depois):** `RotinasAquisicao.tsx` (cards de
+  rotina com Editar/Pausar/Remover) â€” o pedido nomeia literalmente "marcar e descartar" como o
+  alvo do radial na AquisiÃ§Ã£o, que Ã© a tabela de prospecÃ§Ã£o, nÃ£o o card de rotina; redesenhar
+  os cards de rotina seria alÃ©m do escopo pedido. `AssistenteOportunidades.tsx` (Aprovar/
+  Descartar de UM lead por vez, fora de tabela) tambÃ©m fica fora â€” nÃ£o Ã© uma listagem com
+  linhas, Ã© um fluxo de decisÃ£o sequencial. Nenhum arquivo de `backend/` serÃ¡ tocado.
 - **Arquivos que pretendo alterar:** `frontend/app/dashboard/prospeccao/page.tsx`,
   `frontend/app/dashboard/banco-leads/page.tsx`, `frontend/app/dashboard/follow-ups/page.tsx`,
   `frontend/components/ConversaPainel.tsx`, `frontend/app/dashboard/conversas/page.tsx`.
   Nenhum arquivo novo (reaproveita `MenuRadialAcoes`/`lib/menu-radial.js` existentes).
-- **Validação prevista:** `npm run typecheck` (frontend), `npm test` (frontend, `lib/*.test.js`
+- **ValidaÃ§Ã£o prevista:** `npm run typecheck` (frontend), `npm test` (frontend, `lib/*.test.js`
   relevantes: `menu-radial.test.js`, `pontuacao-indicador.test.js`, `conversa-modo-ia.test.js`),
-  `git diff --check`. Commit único + push para master **só se** tudo passar e o diff não sair
+  `git diff --check`. Commit Ãºnico + push para master **sÃ³ se** tudo passar e o diff nÃ£o sair
   do escopo combinado acima.
 
 ---
@@ -266,11 +360,11 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Pedido resumido:** A 1a entrega do radial (commit `1271749`) foi validada visualmente pelo
   operador e **reprovada**: o menu ainda parece um popover quadrado com uma grade 3x3 de botoes
   retangulares, nao um radial de verdade. Pedido: bolinhas de verdade posicionadas em torno do
-  gatilho "⋯" nas direcoes literais (cima=agendar/remarcar, esquerda=cancelar/descartar,
+  gatilho "â‹¯" nas direcoes literais (cima=agendar/remarcar, esquerda=cancelar/descartar,
   direita=concluir/resolver, centro/fora=fechar), acionamento por clique/toque (sem depender de
   hover), hover pode reforcar/explicar mas nao executar, foco/teclado minimo, Escape/click fora
   fecha. Junto, corrigir a linha do Follow-ups onde a linha secundaria repete o mesmo texto que
-  ja aparece como nome/servico na linha principal (mais cidade colada) — a linha secundaria deve
+  ja aparece como nome/servico na linha principal (mais cidade colada) â€” a linha secundaria deve
   mostrar so a localizacao, sem repetir nicho/descricao.
 - **E projeto/tarefa de alteracao?** Sim, pequena e 100% de apresentacao (frontend): sem schema,
   sem migration, sem rota nova, sem chamada nova ao backend. Reaproveita os mesmos dois arquivos
@@ -280,38 +374,38 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   `docs/ui-visual-standard.md` nao existe como arquivo neste repositorio (mesma observacao ja
   registrada nas entradas anteriores da serie de padronizacao visual).
 - **Mapeamento feito antes de editar:**
-  1. `frontend/components/ui/MenuRadialAcoes.tsx` — o "leque" hoje e' um `<div className="grid
+  1. `frontend/components/ui/MenuRadialAcoes.tsx` â€” o "leque" hoje e' um `<div className="grid
      grid-cols-3 ...">` com botoes `rounded-lg border` (cantos levemente arredondados, NAO
-     circulos) dentro de uma caixa retangular com sombra — daí o "parece caixa quadrada". A
+     circulos) dentro de uma caixa retangular com sombra â€” daÃ­ o "parece caixa quadrada". A
      geometria pura (`lib/menu-radial.js`: `atribuirZonas`, cima/direita/esquerda/extras) esta
      correta e **nao precisa mudar**; so o componente visual precisa ser refeito.
-  2. `frontend/app/dashboard/follow-ups/page.tsx:638-657` — o caso mais comum (`emAberto`) ja
+  2. `frontend/app/dashboard/follow-ups/page.tsx:638-657` â€” o caso mais comum (`emAberto`) ja
      manda EXATAMENTE 3 acoes zoneadas (Concluir=direita, Reagendar=cima, Cancelar=esquerda),
-     sem extras — ou seja, na maioria das linhas o menu pode ser 100% circular, sem nenhuma caixa
+     sem extras â€” ou seja, na maioria das linhas o menu pode ser 100% circular, sem nenhuma caixa
      retangular. Extras (ex.: "Cancelar automatico") so aparecem quando `item.ia_agendada`.
   3. `frontend/lib/followups-fila.js:167-168` (`contextoDoLead`) junta `negocio` + `cidade` com
-     `·`. Nos itens de follow-up registrado (linha ~299/308), `nome` (que vira `rotulo`, a linha
+     `Â·`. Nos itens de follow-up registrado (linha ~299/308), `nome` (que vira `rotulo`, a linha
      principal) e `contexto.negocio` usam a **mesma fonte** (`f.nome`) quando
-     `nomeDeVerdade(f.nome)` da certo — por isso a linha secundaria repete o texto que ja esta
+     `nomeDeVerdade(f.nome)` da certo â€” por isso a linha secundaria repete o texto que ja esta
      em cima, com a cidade colada no fim. Mesmo padrao no bloco humano (linha ~346/354): `h.nome`
      (que e' `COALESCE(apelido, negocio)` no backend) vira `rotulo`, e `contexto` usa `h.negocio`
      de novo.
   4. `item.contexto` tambem alimenta a BUSCA da fila (`followups-fila.js:547`,
-     `${rotuloLead(i)} ${i.nome||''} ${i.contexto||''}`) — nao posso simplesmente apagar negocio
+     `${rotuloLead(i)} ${i.nome||''} ${i.contexto||''}`) â€” nao posso simplesmente apagar negocio
      dali sem perder capacidade de busca por nome de negocio.
 - **Decisao (baixo risco, aditiva):** criar um campo NOVO `localizacao` (so' a cidade, sem
   negocio) para a APRESENTACAO da linha secundaria; o campo `contexto` existente continua intacto
-  e continua alimentando a busca — nenhum dado e' removido, so' o que a LINHA mostra muda. Sem
+  e continua alimentando a busca â€” nenhum dado e' removido, so' o que a LINHA mostra muda. Sem
   coluna de UF no backend (`lead_profiles`/`prospects` so tem `cidade` texto livre), a
-  localizacao mostrada e' a cidade como esta cadastrada — nao inveto abreviacao tipo "SBC" sem
+  localizacao mostrada e' a cidade como esta cadastrada â€” nao inveto abreviacao tipo "SBC" sem
   fonte de dado para isso.
 - **Decisao de arquitetura do radial (autocontida, baixo risco):** manter o MESMO componente
   (`MenuRadialAcoes.tsx`) e a MESMA API (`AcaoRadial[]`, `atribuirZonas`), so' trocar o
   posicionamento de grid-3x3 para bolinhas (`rounded-full`) fixadas em coordenadas de tela ao
-  redor do CENTRO do proprio botao "⋯" (cima/esquerda/direita a uma distancia fixa do centro,
+  redor do CENTRO do proprio botao "â‹¯" (cima/esquerda/direita a uma distancia fixa do centro,
   com clamp nas bordas da viewport), com um anel tracejado decorativo (`aria-hidden`) reforcando
   a leitura radial. Extras (quando existem) continuam num paines retangular pequeno abaixo do
-  anel — nao da' pra encaixar lista de tamanho variavel num circulo. Sem gesto de arrastar nesta
+  anel â€” nao da' pra encaixar lista de tamanho variavel num circulo. Sem gesto de arrastar nesta
   entrega (decisao ja registrada na entrega anterior: acionamento por clique/toque previsivel);
   fica documentado como fase seguinte no proprio componente, como ja estava.
 - **Arquivos que pretendo alterar:** `frontend/components/ui/MenuRadialAcoes.tsx` (redesenho
@@ -332,7 +426,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5)
 - **Pedido resumido:** Implementar a primeira entrega, pequena e incremental, da
-  padronizacao visual descrita no relatorio "Padronizacao visual das listagens —
+  padronizacao visual descrita no relatorio "Padronizacao visual das listagens â€”
   Atendimento Views" (artifact `5823a4a6-8243-4274-9449-ebda5b2a6e58`, gerado apos os
   commits `33bdfbd`/`b019b0b`/`06563f9`/`6b3fff9`), incluindo o prototipo funcional do
   menu radial onde o relatorio recomenda maior ganho e menor risco.
@@ -343,15 +437,15 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   | docs/ai-decision-log.md: a registrar na Fase 8 | relatorio do artifact: Sim (secoes
   1-8 lidas por completo).
 - **Decisoes ja resolvidas pelo PRoprio pedido do operador (nao inventadas agora):**
-  1. **Radial so' em Follow-ups nesta entrega** (D5 do relatorio) — Captacao tem 3-4
+  1. **Radial so' em Follow-ups nesta entrega** (D5 do relatorio) â€” Captacao tem 3-4
      acoes e tambem se beneficiaria, mas juntar as duas telas no mesmo diff excede o
      escopo "pequena/media" pedido; fica documentada como fase seguinte.
   2. **Acionamento no desktop e' por botao/icone previsivel** (nao por "clicar e
-     segurar" puro) — o pedido exige "acionamento previsivel por botao/icone, sem
+     segurar" puro) â€” o pedido exige "acionamento previsivel por botao/icone, sem
      depender apenas de hover fragil", o que resolve a D6 do relatorio a favor da
-     alternativa mais conservadora (popover em leque no clique do gatilho "⋯", sem
+     alternativa mais conservadora (popover em leque no clique do gatilho "â‹¯", sem
      gesto de arrastar obrigatorio).
-  3. **A coluna Acoes NAO e' removida** — o radial so' compacta o excesso de botoes
+  3. **A coluna Acoes NAO e' removida** â€” o radial so' compacta o excesso de botoes
      secundarios que hoje quebra linha (`flex-wrap` em Follow-ups); a acao primaria de
      cada linha continua um botao normal, visivel, sem gesto.
 - **Decisao D1 (`StatusPill.tsx`) permanece EM ABERTO nesta entrega**, por instrucao
@@ -361,7 +455,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Decisoes D2/D3/D4 tambem ficam fora do escopo** desta entrega, por instrucao do
   pedido (nao mexer em paginacao/exportacao/limite do Banco de Leads sem checkpoint;
   D2/D3 sao fase 5 do proprio relatorio, risco medio, condicionadas a decisao de
-  produto ja registrada como pendente em `docs/analise-indicador-pontuacao.md` §7.3).
+  produto ja registrada como pendente em `docs/analise-indicador-pontuacao.md` Â§7.3).
 - **Arquivos que pretendo alterar/criar:**
   - NOVOS `frontend/components/ui/MenuRadialAcoes.tsx` (componente do menu radial,
     reaproveitando o padrao de portal + Escape + medicao de `BolinhaPontuacao.tsx`) e
@@ -371,7 +465,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
     Acoes da fila, mantendo a acao primaria visivel fora do menu),
     `frontend/components/ConversaPainel.tsx` (troca o `confirm()` nativo de "Deletar
     historico" por `ModalConfirmar`), `frontend/components/RotinasAquisicao.tsx` (troca
-    o `window.confirm` de "Remover rotina" por `ModalConfirmar`) — as duas trocas de
+    o `window.confirm` de "Remover rotina" por `ModalConfirmar`) â€” as duas trocas de
     confirmacao sao exatamente as citadas no proprio pedido ("window.confirm
     remanescente em pontos seguros").
   - Docs: `AGENTS.md` (se necessario documentar o componente novo), `docs/ai-decision-log.md`.
@@ -387,189 +481,189 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
-## 2026-08-11 - Início de tarefa IA - Próxima etapa de padronização visual: BolinhaPontuacao, "Detalhes" e Central de Mensagens
+## 2026-08-11 - InÃ­cio de tarefa IA - PrÃ³xima etapa de padronizaÃ§Ã£o visual: BolinhaPontuacao, "Detalhes" e Central de Mensagens
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`listagens-pontuacao-detalhes`).
-- **Pedido resumido:** Continuar a padronização visual das listagens (sequência das entregas de
-  truncamento de nomes e separação nicho/cidade), com foco em: reaproveitar `BolinhaPontuacao`/
-  `BolinhaCadastro` onde ainda há reimplementação própria, revisar a ação "Detalhes" onde houver
-  duplicidade óbvia de nome clicável + botão que faz a mesma coisa, e um ajuste de baixo risco na
+- **Pedido resumido:** Continuar a padronizaÃ§Ã£o visual das listagens (sequÃªncia das entregas de
+  truncamento de nomes e separaÃ§Ã£o nicho/cidade), com foco em: reaproveitar `BolinhaPontuacao`/
+  `BolinhaCadastro` onde ainda hÃ¡ reimplementaÃ§Ã£o prÃ³pria, revisar a aÃ§Ã£o "Detalhes" onde houver
+  duplicidade Ã³bvia de nome clicÃ¡vel + botÃ£o que faz a mesma coisa, e um ajuste de baixo risco na
   Central de Mensagens se algo concreto aparecer. Entrega pequena e segura, sem gesto radial, sem
-  mexer em paginação/exportação do Banco de Leads, sem redesenhar todas as ações de linha.
-- **É projeto/tarefa de alteração?** Sim, pequena e 100% de apresentação (frontend): sem schema,
-  sem migration, sem rota nova, sem chamada nova ao backend, sem prompt de produção tocado.
+  mexer em paginaÃ§Ã£o/exportaÃ§Ã£o do Banco de Leads, sem redesenhar todas as aÃ§Ãµes de linha.
+- **Ã‰ projeto/tarefa de alteraÃ§Ã£o?** Sim, pequena e 100% de apresentaÃ§Ã£o (frontend): sem schema,
+  sem migration, sem rota nova, sem chamada nova ao backend, sem prompt de produÃ§Ã£o tocado.
 - **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim. `docs/ui-visual-standard.md`
-  não existe como arquivo neste repositório (mesma observação já registrada em entradas anteriores).
-  Relatório de padronização anterior (artifact `a2d1196d-ac45-4fc6-b2ed-0ce90c1f5b95`, lido via
-  WebFetch por já ter sido fornecido pelo operador): Sim — é a referência principal desta etapa.
+  nÃ£o existe como arquivo neste repositÃ³rio (mesma observaÃ§Ã£o jÃ¡ registrada em entradas anteriores).
+  RelatÃ³rio de padronizaÃ§Ã£o anterior (artifact `a2d1196d-ac45-4fc6-b2ed-0ce90c1f5b95`, lido via
+  WebFetch por jÃ¡ ter sido fornecido pelo operador): Sim â€” Ã© a referÃªncia principal desta etapa.
 - **Mapeamento feito antes de editar:**
-  1. `BolinhaPontuacao.tsx`/`BolinhaCadastro` (em `LeadDetalhesModal.tsx`) já são reaproveitados em
-     Prospecção, Banco de Leads (as duas tabelas), Central de Ligações (`CirculoPrioridade`) e
-     Central de Mensagens (`InteresseBadge`, linha da tabela **e** painel) — confirmado lendo os 4
-     arquivos. **Não há duplicidade a corrigir nesses pontos.**
-  2. `frontend/app/dashboard/captacao/page.tsx:630-636` reimplementa a bolinha de pontuação à mão
-     (`<span>` com semáforo vermelho/âmbar/verde), em vez de `BolinhaCadastro`. O relatório aponta
-     isso como reintrodução do antipadrão que o próprio AGENTS.md proíbe (paleta de prioridade
-     dentro de completude de cadastro). O tipo `Lead` desta tela já tem `score_cadastro`,
-     `score_cadastro_max` e `json_apresentacao` — os mesmos campos que `BolinhaCadastro` já lê com
+  1. `BolinhaPontuacao.tsx`/`BolinhaCadastro` (em `LeadDetalhesModal.tsx`) jÃ¡ sÃ£o reaproveitados em
+     ProspecÃ§Ã£o, Banco de Leads (as duas tabelas), Central de LigaÃ§Ãµes (`CirculoPrioridade`) e
+     Central de Mensagens (`InteresseBadge`, linha da tabela **e** painel) â€” confirmado lendo os 4
+     arquivos. **NÃ£o hÃ¡ duplicidade a corrigir nesses pontos.**
+  2. `frontend/app/dashboard/captacao/page.tsx:630-636` reimplementa a bolinha de pontuaÃ§Ã£o Ã  mÃ£o
+     (`<span>` com semÃ¡foro vermelho/Ã¢mbar/verde), em vez de `BolinhaCadastro`. O relatÃ³rio aponta
+     isso como reintroduÃ§Ã£o do antipadrÃ£o que o prÃ³prio AGENTS.md proÃ­be (paleta de prioridade
+     dentro de completude de cadastro). O tipo `Lead` desta tela jÃ¡ tem `score_cadastro`,
+     `score_cadastro_max` e `json_apresentacao` â€” os mesmos campos que `BolinhaCadastro` jÃ¡ lÃª com
      sucesso na tabela Instagram do Banco de Leads (`banco-leads/page.tsx:1739`, reuso confirmado,
-     mesmo formato de dado). Baixo risco, sem decisão de produto pendente.
-  3. `frontend/app/dashboard/follow-ups/page.tsx` (`LinhaFila`, dentro de `Ações`): em três estados
-     distintos e mutuamente exclusivos (item registrado não aberto; item "assumir_conversa"/
-     "revisar_proposta"; item sem ação humana/automática) existe um botão ("Ver conversa"/"Abrir
-     conversa") que chama exatamente `onAbrirHistorico(item.numero)` — a MESMA função que o nome do
-     lead já dispara (nome é sempre um botão clicável na coluna Lead, incondicional, linhas
-     651-657). Confirmado lendo `frontend/lib/followups-fila.js:280-420` que os três estados nunca
-     coexistem na mesma linha (cada item nasce de um único laço), então não há risco de remover uma
-     ação que só *parecia* redundante por coincidência de estado.
-  4. Central de Ligações, Prospecção e Banco de Leads: nome vai para o Google Maps (link externo) e
-     "Detalhes" abre o modal — destinos DIFERENTES, sem duplicidade. Central de Mensagens: "Histórico"
-     é a única ação que abre o painel, sem concorrência com o nome (que não é clicável na listagem).
-     **Nenhuma mudança nesses pontos.**
-- **Decisão de escopo (o que fica de fora, registrado para não repetir depois):**
-  - A bolinha de prioridade do Follow-ups (`PRIORIDADE_DOT`, vermelho=urgente) **não será tocada**:
-    já está registrada no AGENTS.md como decisão de produto em aberto (a direção da cor diverge da
-    paleta canônica de propósito, não por descuido). Critério de parada do próprio pedido.
-  - Dentro da redundância do Follow-ups, o botão "Abrir conversa" do estado
-    `assumir_conversa`/`revisar_proposta` (estilo primário, `bg-brand`) **é preservado**: ele
-    funciona como sinal visual de "ação recomendada agora", distinto do nome (link de texto simples)
-    — remover isso seria decisão de produto sobre hierarquia visual, não limpeza óbvia de
-    duplicidade. Só os botões secundários "Ver conversa" (estilo neutro, mesmo peso visual do nome)
-    são removidos, sem alterar destino funcional (o nome continua abrindo a mesma conversa).
-  - Central de Mensagens: nenhuma duplicidade óbvia encontrada na listagem em si; nenhuma mudança
-    visual será feita lá nesta etapa além de eventual polimento textual, se aparecer durante a
-    implementação.
+     mesmo formato de dado). Baixo risco, sem decisÃ£o de produto pendente.
+  3. `frontend/app/dashboard/follow-ups/page.tsx` (`LinhaFila`, dentro de `AÃ§Ãµes`): em trÃªs estados
+     distintos e mutuamente exclusivos (item registrado nÃ£o aberto; item "assumir_conversa"/
+     "revisar_proposta"; item sem aÃ§Ã£o humana/automÃ¡tica) existe um botÃ£o ("Ver conversa"/"Abrir
+     conversa") que chama exatamente `onAbrirHistorico(item.numero)` â€” a MESMA funÃ§Ã£o que o nome do
+     lead jÃ¡ dispara (nome Ã© sempre um botÃ£o clicÃ¡vel na coluna Lead, incondicional, linhas
+     651-657). Confirmado lendo `frontend/lib/followups-fila.js:280-420` que os trÃªs estados nunca
+     coexistem na mesma linha (cada item nasce de um Ãºnico laÃ§o), entÃ£o nÃ£o hÃ¡ risco de remover uma
+     aÃ§Ã£o que sÃ³ *parecia* redundante por coincidÃªncia de estado.
+  4. Central de LigaÃ§Ãµes, ProspecÃ§Ã£o e Banco de Leads: nome vai para o Google Maps (link externo) e
+     "Detalhes" abre o modal â€” destinos DIFERENTES, sem duplicidade. Central de Mensagens: "HistÃ³rico"
+     Ã© a Ãºnica aÃ§Ã£o que abre o painel, sem concorrÃªncia com o nome (que nÃ£o Ã© clicÃ¡vel na listagem).
+     **Nenhuma mudanÃ§a nesses pontos.**
+- **DecisÃ£o de escopo (o que fica de fora, registrado para nÃ£o repetir depois):**
+  - A bolinha de prioridade do Follow-ups (`PRIORIDADE_DOT`, vermelho=urgente) **nÃ£o serÃ¡ tocada**:
+    jÃ¡ estÃ¡ registrada no AGENTS.md como decisÃ£o de produto em aberto (a direÃ§Ã£o da cor diverge da
+    paleta canÃ´nica de propÃ³sito, nÃ£o por descuido). CritÃ©rio de parada do prÃ³prio pedido.
+  - Dentro da redundÃ¢ncia do Follow-ups, o botÃ£o "Abrir conversa" do estado
+    `assumir_conversa`/`revisar_proposta` (estilo primÃ¡rio, `bg-brand`) **Ã© preservado**: ele
+    funciona como sinal visual de "aÃ§Ã£o recomendada agora", distinto do nome (link de texto simples)
+    â€” remover isso seria decisÃ£o de produto sobre hierarquia visual, nÃ£o limpeza Ã³bvia de
+    duplicidade. SÃ³ os botÃµes secundÃ¡rios "Ver conversa" (estilo neutro, mesmo peso visual do nome)
+    sÃ£o removidos, sem alterar destino funcional (o nome continua abrindo a mesma conversa).
+  - Central de Mensagens: nenhuma duplicidade Ã³bvia encontrada na listagem em si; nenhuma mudanÃ§a
+    visual serÃ¡ feita lÃ¡ nesta etapa alÃ©m de eventual polimento textual, se aparecer durante a
+    implementaÃ§Ã£o.
 - **Arquivos que pretendo alterar:** `frontend/app/dashboard/captacao/page.tsx`,
   `frontend/app/dashboard/follow-ups/page.tsx`. Nenhum arquivo de `backend/` tocado.
-- **Validação prevista:** `npm run typecheck` (frontend) e `npm test` do frontend (`lib/*.test.js`).
-  Commit único + push para master **só se** tudo passar e o diff não sair do escopo acima —
+- **ValidaÃ§Ã£o prevista:** `npm run typecheck` (frontend) e `npm test` do frontend (`lib/*.test.js`).
+  Commit Ãºnico + push para master **sÃ³ se** tudo passar e o diff nÃ£o sair do escopo acima â€”
   autorizado pelo operador neste pedido.
 
 ---
 
-## 2026-08-11 - Início de tarefa IA - Separar nicho e cidade nas listagens (1ª etapa da padronização visual)
+## 2026-08-11 - InÃ­cio de tarefa IA - Separar nicho e cidade nas listagens (1Âª etapa da padronizaÃ§Ã£o visual)
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`listagens-nicho-cidade`).
-- **Pedido resumido:** Primeira etapa de um relatório de padronização visual das listagens já
-  concluído (planejamento externo, não implementado ainda): separar nicho e cidade onde hoje
-  aparecem mesclados/inconsistentes (concatenação com `·` ou `/` no mesmo texto) no
-  `LeadDetalhesModal` e nas tabelas de Prospecção/Aquisição Google Places e Banco de Leads
-  Places, trocando por dois nós visuais claros; tornar cidade visível onde só existe em tooltip,
+- **Pedido resumido:** Primeira etapa de um relatÃ³rio de padronizaÃ§Ã£o visual das listagens jÃ¡
+  concluÃ­do (planejamento externo, nÃ£o implementado ainda): separar nicho e cidade onde hoje
+  aparecem mesclados/inconsistentes (concatenaÃ§Ã£o com `Â·` ou `/` no mesmo texto) no
+  `LeadDetalhesModal` e nas tabelas de ProspecÃ§Ã£o/AquisiÃ§Ã£o Google Places e Banco de Leads
+  Places, trocando por dois nÃ³s visuais claros; tornar cidade visÃ­vel onde sÃ³ existe em tooltip,
   se estiver no mesmo caminho e for baixo risco; mais uma varredura curta por pontos
-  equivalentes de baixo risco. Fora de escopo: gesto radial, paginação/exportação, padronizar
-  todas as ações de linha, backend/schema/prompts/produção/credenciais.
-- **É projeto/tarefa de alteração?** Sim, pequena e 100% de apresentação (frontend): sem schema,
-  sem migration, sem rota nova, sem chamada nova ao backend, sem prompt de produção tocado.
+  equivalentes de baixo risco. Fora de escopo: gesto radial, paginaÃ§Ã£o/exportaÃ§Ã£o, padronizar
+  todas as aÃ§Ãµes de linha, backend/schema/prompts/produÃ§Ã£o/credenciais.
+- **Ã‰ projeto/tarefa de alteraÃ§Ã£o?** Sim, pequena e 100% de apresentaÃ§Ã£o (frontend): sem schema,
+  sem migration, sem rota nova, sem chamada nova ao backend, sem prompt de produÃ§Ã£o tocado.
 - **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim. `docs/ui-visual-standard.md`
-  não existe neste repositório (mesma observação já registrada na entrada anterior).
+  nÃ£o existe neste repositÃ³rio (mesma observaÃ§Ã£o jÃ¡ registrada na entrada anterior).
 - **Mapeamento feito antes de editar:**
-  1. `frontend/components/LeadDetalhesModal.tsx:136` — subtítulo do modal concatena
-     `[lead.nicho, lead.cidade].filter(Boolean).join(' · ')` num texto único.
-  2. `frontend/app/dashboard/prospeccao/page.tsx:553` — coluna "Nicho / Cidade" da tabela Google
-     Places (reaproveitada por `aquisicao/page.tsx`, que não tem JSX próprio para isso):
-     `{p.nicho} · {p.cidade}`, sem tratar ausência de um dos dois.
-  3. Mesma tela, dois pontos equivalentes de baixo risco no MESMO arquivo já tocado:
-     `:622` ("Desempenho por mercado", `{m.nicho} · {m.cidade}`) e `:664` ("Recentes",
-     `{r.nicho} / {r.cidade}` — usa **barra**, a inconsistência de separador que o pedido cita
+  1. `frontend/components/LeadDetalhesModal.tsx:136` â€” subtÃ­tulo do modal concatena
+     `[lead.nicho, lead.cidade].filter(Boolean).join(' Â· ')` num texto Ãºnico.
+  2. `frontend/app/dashboard/prospeccao/page.tsx:553` â€” coluna "Nicho / Cidade" da tabela Google
+     Places (reaproveitada por `aquisicao/page.tsx`, que nÃ£o tem JSX prÃ³prio para isso):
+     `{p.nicho} Â· {p.cidade}`, sem tratar ausÃªncia de um dos dois.
+  3. Mesma tela, dois pontos equivalentes de baixo risco no MESMO arquivo jÃ¡ tocado:
+     `:622` ("Desempenho por mercado", `{m.nicho} Â· {m.cidade}`) e `:664` ("Recentes",
+     `{r.nicho} / {r.cidade}` â€” usa **barra**, a inconsistÃªncia de separador que o pedido cita
      explicitamente).
-  4. `frontend/app/dashboard/banco-leads/page.tsx:1675` — coluna "Nicho / Cidade" da tabela
-     Google Places do Banco de Leads: mesma concatenação, já com `.filter(Boolean)` e fallback
-     `'—'`.
-- **Decisão de arquitetura (autocontida, baixo risco):** componente novo
-  `frontend/components/ui/NichoCidade.tsx` (puro, sem hooks/estado) para os 4 pontos acima —
-  evita duplicar a mesma lógica de "nicho em destaque + cidade em texto secundário, separados
-  por um `·` decorativo (`aria-hidden`)" em 3 arquivos. Sem truncamento/tooltip: as células
-  nunca tiveram `max-w`/`truncate` nesse campo (o `<td>` quebra linha normalmente), então não há
-  risco de overflow a mitigar — `flex-wrap` no wrapper preserva esse comportamento.
-- **Decisão de escopo (fora do pedido, registrada para não repetir depois):** NÃO vou tocar as
+  4. `frontend/app/dashboard/banco-leads/page.tsx:1675` â€” coluna "Nicho / Cidade" da tabela
+     Google Places do Banco de Leads: mesma concatenaÃ§Ã£o, jÃ¡ com `.filter(Boolean)` e fallback
+     `'â€”'`.
+- **DecisÃ£o de arquitetura (autocontida, baixo risco):** componente novo
+  `frontend/components/ui/NichoCidade.tsx` (puro, sem hooks/estado) para os 4 pontos acima â€”
+  evita duplicar a mesma lÃ³gica de "nicho em destaque + cidade em texto secundÃ¡rio, separados
+  por um `Â·` decorativo (`aria-hidden`)" em 3 arquivos. Sem truncamento/tooltip: as cÃ©lulas
+  nunca tiveram `max-w`/`truncate` nesse campo (o `<td>` quebra linha normalmente), entÃ£o nÃ£o hÃ¡
+  risco de overflow a mitigar â€” `flex-wrap` no wrapper preserva esse comportamento.
+- **DecisÃ£o de escopo (fora do pedido, registrada para nÃ£o repetir depois):** NÃƒO vou tocar as
   tabelas Instagram/LinkedIn (`banco-leads/page.tsx:1729` e `captacao/page.tsx:619`, onde cidade
-  hoje só existe no `title=`) nem `central-ligacoes/page.tsx` (`:817`, `:875`, mesmo padrão de
-  concatenação). O pedido nomeia literalmente "Google Places" e "Banco de Leads Places" no item
-  4 do escopo permitido — mesmo precedente já registrado na entrada de truncamento (2026-08-11)
+  hoje sÃ³ existe no `title=`) nem `central-ligacoes/page.tsx` (`:817`, `:875`, mesmo padrÃ£o de
+  concatenaÃ§Ã£o). O pedido nomeia literalmente "Google Places" e "Banco de Leads Places" no item
+  4 do escopo permitido â€” mesmo precedente jÃ¡ registrado na entrada de truncamento (2026-08-11)
   para excluir a tabela Instagram do mesmo motivo. Fica como candidato para uma etapa futura.
 - **Arquivos que pretendo criar/alterar:** NOVO `frontend/components/ui/NichoCidade.tsx`;
   ALTERADOS `frontend/components/LeadDetalhesModal.tsx`, `frontend/app/dashboard/prospeccao/page.tsx`
   (3 pontos), `frontend/app/dashboard/banco-leads/page.tsx` (1 ponto). Nenhum arquivo de
   `backend/` tocado.
-- **Validação prevista:** `npm run typecheck` (frontend) e `npm test` do frontend (`lib/*.test.js`
-  — nenhuma lib pura deveria ser tocada, já que a mudança é só JSX/apresentação). Commit único +
-  push para master **só se** tudo passar e o diff não sair do escopo acima — autorizado pelo
+- **ValidaÃ§Ã£o prevista:** `npm run typecheck` (frontend) e `npm test` do frontend (`lib/*.test.js`
+  â€” nenhuma lib pura deveria ser tocada, jÃ¡ que a mudanÃ§a Ã© sÃ³ JSX/apresentaÃ§Ã£o). Commit Ãºnico +
+  push para master **sÃ³ se** tudo passar e o diff nÃ£o sair do escopo acima â€” autorizado pelo
   operador neste pedido.
 
 ---
 
-## 2026-08-11 - Início de tarefa IA - Truncamento visual com tooltip acessível para nomes do Google Maps
+## 2026-08-11 - InÃ­cio de tarefa IA - Truncamento visual com tooltip acessÃ­vel para nomes do Google Maps
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`truncamento-nome-maps`).
 - **Pedido resumido:** Melhoria visual independente: mapear as telas que exibem nomes vindos do
-  Google Maps (especialmente Central de Ligações, Central de Mensagens, Aquisição e Banco de
-  Leads) e aplicar um padrão reutilizável e responsivo de truncamento com reticências, mantendo
-  o nome completo em tooltip acessível por mouse **e** teclado. Dado original nunca cortado — só
-  a apresentação. Sem alteração de regra de negócio, produção, credenciais, commit ou push.
-- **É projeto/tarefa de alteração?** Sim, pequena e 100% de apresentação (frontend): sem schema,
-  sem migration, sem rota nova, sem chamada nova ao backend, sem prompt de produção tocado.
-  **Nota de processo:** este registro foi lançado de forma retroativa — a análise (mapeamento das
-  telas, leitura dos arquivos-alvo) foi feita antes da escrita desta entrada, mas a implementação
-  só começou depois do mapeamento completo, o que preserva o espírito da Fase 0 mesmo com o
-  registro fora de ordem. Fica anotado para não repetir.
+  Google Maps (especialmente Central de LigaÃ§Ãµes, Central de Mensagens, AquisiÃ§Ã£o e Banco de
+  Leads) e aplicar um padrÃ£o reutilizÃ¡vel e responsivo de truncamento com reticÃªncias, mantendo
+  o nome completo em tooltip acessÃ­vel por mouse **e** teclado. Dado original nunca cortado â€” sÃ³
+  a apresentaÃ§Ã£o. Sem alteraÃ§Ã£o de regra de negÃ³cio, produÃ§Ã£o, credenciais, commit ou push.
+- **Ã‰ projeto/tarefa de alteraÃ§Ã£o?** Sim, pequena e 100% de apresentaÃ§Ã£o (frontend): sem schema,
+  sem migration, sem rota nova, sem chamada nova ao backend, sem prompt de produÃ§Ã£o tocado.
+  **Nota de processo:** este registro foi lanÃ§ado de forma retroativa â€” a anÃ¡lise (mapeamento das
+  telas, leitura dos arquivos-alvo) foi feita antes da escrita desta entrada, mas a implementaÃ§Ã£o
+  sÃ³ comeÃ§ou depois do mapeamento completo, o que preserva o espÃ­rito da Fase 0 mesmo com o
+  registro fora de ordem. Fica anotado para nÃ£o repetir.
 - **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim. `docs/ui-visual-standard.md`:
-  **não existe** como arquivo neste repositório (só referenciado no índice do workflow) — não há
-  divergência a registrar ali. `docs/ai-decision-log.md`: decisão de arquitetura resumida abaixo,
+  **nÃ£o existe** como arquivo neste repositÃ³rio (sÃ³ referenciado no Ã­ndice do workflow) â€” nÃ£o hÃ¡
+  divergÃªncia a registrar ali. `docs/ai-decision-log.md`: decisÃ£o de arquitetura resumida abaixo,
   sem necessidade de entrada separada por ser autocontida e de baixo risco.
-- **Telas/colunas mapeadas (nomes com origem no Google Maps ou resolução de lead):**
-  1. **Aquisição** (`frontend/app/dashboard/aquisicao/page.tsx` reaproveita
-     `prospeccao/page.tsx`) — coluna "Nome" da tabela de prospecção (`p.nome`, com/sem
+- **Telas/colunas mapeadas (nomes com origem no Google Maps ou resoluÃ§Ã£o de lead):**
+  1. **AquisiÃ§Ã£o** (`frontend/app/dashboard/aquisicao/page.tsx` reaproveita
+     `prospeccao/page.tsx`) â€” coluna "Nome" da tabela de prospecÃ§Ã£o (`p.nome`, com/sem
      `maps_url`).
-  2. **Banco de Leads** (`banco-leads/page.tsx`) — coluna "Nome" da tabela Google Places
-     (`l.nome`, com/sem `maps_url`). A tabela Instagram (nome NÃO vem do Maps) ficou **fora**
-     de escopo, por decisão de manter o pedido literal (nomes do Google Maps).
-  3. **Central de Ligações** (`central-ligacoes/page.tsx`) — nome na fila de trabalho, na aba
-     Acompanhamento, no topo da tela de ligação em andamento e no card "Lead" da ligação
+  2. **Banco de Leads** (`banco-leads/page.tsx`) â€” coluna "Nome" da tabela Google Places
+     (`l.nome`, com/sem `maps_url`). A tabela Instagram (nome NÃƒO vem do Maps) ficou **fora**
+     de escopo, por decisÃ£o de manter o pedido literal (nomes do Google Maps).
+  3. **Central de LigaÃ§Ãµes** (`central-ligacoes/page.tsx`) â€” nome na fila de trabalho, na aba
+     Acompanhamento, no topo da tela de ligaÃ§Ã£o em andamento e no card "Lead" da ligaÃ§Ã£o
      (todos `l.nome`/`lead.nome`, vindos de `prospectador.prospects`, fonte Google Maps).
-  4. **Central de Mensagens** (`conversas/page.tsx` + `components/ConversaPainel.tsx`) — coluna
-     "Lead" (`nomeColunaLead`) e título do painel (`identidadeConversa().titulo`): nome resolvido
-     pelo backend com prioridade WhatsApp → Google Maps → vazio
-     (`backend/src/services/lead-nome-exibicao.js`), então uma fração desses nomes tem origem no
+  4. **Central de Mensagens** (`conversas/page.tsx` + `components/ConversaPainel.tsx`) â€” coluna
+     "Lead" (`nomeColunaLead`) e tÃ­tulo do painel (`identidadeConversa().titulo`): nome resolvido
+     pelo backend com prioridade WhatsApp â†’ Google Maps â†’ vazio
+     (`backend/src/services/lead-nome-exibicao.js`), entÃ£o uma fraÃ§Ã£o desses nomes tem origem no
      Maps.
-- **Achado que mudou o desenho:** o padrão de truncamento **já existia**, espalhado (`max-w-[…]
-  truncate` + `title=`) em ~10 pontos do repo (endereço, nicho, nome do Instagram, roteiros,
-  sidebar, etc.). Nenhum é alcançável por teclado nem por leitor de tela — `title` nativo não é
-  confiável nos dois casos. Reescrever TODOS esses pontos seria refatoração grande e fora do
-  pedido ("mapeie... especialmente" as 4 áreas de nomes do Maps); por isso criei um componente
-  novo e apliquei **só** onde o nome vem do Maps, sem tocar o padrão antigo em outras colunas
-  (endereço, nicho, Instagram) — decisão de escopo, não de arquitetura.
-- **Decisão de arquitetura (autocontida):** componente único `frontend/components/ui/TextoTruncado.tsx`
-  (client component), reusando a técnica de tooltip em PORTAL já validada em
-  `BolinhaPontuacao.tsx` (mede a própria altura, vira para baixo quando não cabe acima, presa
-  nas bordas laterais — necessário porque estas colunas vivem dentro de `DataTableFrame`, que
-  tem rolagem horizontal/`overflow-hidden`, e um tooltip `position:absolute` seria cortado). Não
-  criei um hook compartilhado extraído da `BolinhaPontuacao` para não tocar um componente já
-  testado em produção por uma tarefa que não pediu isso — duplicação pequena e isolada (~30
+- **Achado que mudou o desenho:** o padrÃ£o de truncamento **jÃ¡ existia**, espalhado (`max-w-[â€¦]
+  truncate` + `title=`) em ~10 pontos do repo (endereÃ§o, nicho, nome do Instagram, roteiros,
+  sidebar, etc.). Nenhum Ã© alcanÃ§Ã¡vel por teclado nem por leitor de tela â€” `title` nativo nÃ£o Ã©
+  confiÃ¡vel nos dois casos. Reescrever TODOS esses pontos seria refatoraÃ§Ã£o grande e fora do
+  pedido ("mapeie... especialmente" as 4 Ã¡reas de nomes do Maps); por isso criei um componente
+  novo e apliquei **sÃ³** onde o nome vem do Maps, sem tocar o padrÃ£o antigo em outras colunas
+  (endereÃ§o, nicho, Instagram) â€” decisÃ£o de escopo, nÃ£o de arquitetura.
+- **DecisÃ£o de arquitetura (autocontida):** componente Ãºnico `frontend/components/ui/TextoTruncado.tsx`
+  (client component), reusando a tÃ©cnica de tooltip em PORTAL jÃ¡ validada em
+  `BolinhaPontuacao.tsx` (mede a prÃ³pria altura, vira para baixo quando nÃ£o cabe acima, presa
+  nas bordas laterais â€” necessÃ¡rio porque estas colunas vivem dentro de `DataTableFrame`, que
+  tem rolagem horizontal/`overflow-hidden`, e um tooltip `position:absolute` seria cortado). NÃ£o
+  criei um hook compartilhado extraÃ­do da `BolinhaPontuacao` para nÃ£o tocar um componente jÃ¡
+  testado em produÃ§Ã£o por uma tarefa que nÃ£o pediu isso â€” duplicaÃ§Ã£o pequena e isolada (~30
   linhas de posicionamento), aceita conscientemente.
-- **Contrato do componente:** `texto` (nunca cortado no dado — só na apresentação), `className`
-  (controla a largura máxima, sempre fornecida pelo chamador), `href`/`dica`/`sufixo` opcionais
-  para o caso de link para a ficha do Google Maps (substitui o padrão antigo
-  `<a title="Ver ficha no Google Maps">{nome} ↗</a>` sem duplicar o link em elemento aninhado),
-  `vazio` (default "—", mas a Central de Mensagens passa `vazio=""` para preservar a regra já
-  registrada no AGENTS.md — "coluna Lead nunca mostra traço, fica vazia sem nome"). O tooltip só
+- **Contrato do componente:** `texto` (nunca cortado no dado â€” sÃ³ na apresentaÃ§Ã£o), `className`
+  (controla a largura mÃ¡xima, sempre fornecida pelo chamador), `href`/`dica`/`sufixo` opcionais
+  para o caso de link para a ficha do Google Maps (substitui o padrÃ£o antigo
+  `<a title="Ver ficha no Google Maps">{nome} â†—</a>` sem duplicar o link em elemento aninhado),
+  `vazio` (default "â€”", mas a Central de Mensagens passa `vazio=""` para preservar a regra jÃ¡
+  registrada no AGENTS.md â€” "coluna Lead nunca mostra traÃ§o, fica vazia sem nome"). O tooltip sÃ³
   aparece quando o texto **realmente transborda** (`ResizeObserver` compara `scrollWidth` vs
-  `clientWidth`), e só então o elemento entra na ordem de tabulação — nome curto não ganha foco
+  `clientWidth`), e sÃ³ entÃ£o o elemento entra na ordem de tabulaÃ§Ã£o â€” nome curto nÃ£o ganha foco
   nem popup redundante.
 - **Arquivos criados:** `frontend/components/ui/TextoTruncado.tsx`.
 - **Arquivos alterados:** `frontend/app/dashboard/prospeccao/page.tsx`,
   `frontend/app/dashboard/banco-leads/page.tsx`, `frontend/app/dashboard/central-ligacoes/page.tsx`
   (4 pontos), `frontend/app/dashboard/conversas/page.tsx`, `frontend/components/ConversaPainel.tsx`.
   Nenhum arquivo de backend, prompt, schema ou config foi tocado.
-- **Validação:** `npm run typecheck` (frontend) limpo; `npm test` (frontend, `lib/*.test.js`)
-  294/294 — nenhum teste de lib pura foi tocado porque a mudança é só de apresentação/JSX.
-  Iniciei o dev server (`next dev -p 3901`) e montei uma página temporária de QA isolada
-  (removida ao final) para exercitar o componente; a extensão Claude in Chrome não estava
-  conectada nesta sessão (job em background), então **não consegui confirmar visualmente no
-  navegador** o posicionamento do balão, o comportamento de foco por Tab/Escape nem a aparência
-  em telas estreitas — fica como pendência explícita para checagem manual do operador.
-- **Fora de escopo (declarado):** os demais ~10 usos do padrão antigo `max-w truncate title=`
-  (endereço, nicho, Instagram, roteiros, sidebar, etc.), qualquer regra de negócio, dados de
-  produção, prompts, credenciais, commit/push.
+- **ValidaÃ§Ã£o:** `npm run typecheck` (frontend) limpo; `npm test` (frontend, `lib/*.test.js`)
+  294/294 â€” nenhum teste de lib pura foi tocado porque a mudanÃ§a Ã© sÃ³ de apresentaÃ§Ã£o/JSX.
+  Iniciei o dev server (`next dev -p 3901`) e montei uma pÃ¡gina temporÃ¡ria de QA isolada
+  (removida ao final) para exercitar o componente; a extensÃ£o Claude in Chrome nÃ£o estava
+  conectada nesta sessÃ£o (job em background), entÃ£o **nÃ£o consegui confirmar visualmente no
+  navegador** o posicionamento do balÃ£o, o comportamento de foco por Tab/Escape nem a aparÃªncia
+  em telas estreitas â€” fica como pendÃªncia explÃ­cita para checagem manual do operador.
+- **Fora de escopo (declarado):** os demais ~10 usos do padrÃ£o antigo `max-w truncate title=`
+  (endereÃ§o, nicho, Instagram, roteiros, sidebar, etc.), qualquer regra de negÃ³cio, dados de
+  produÃ§Ã£o, prompts, credenciais, commit/push.
 
 ---
 
@@ -577,7 +671,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 - **IA/Ferramenta:** Claude Code (Opus 5)
 - **Pedido resumido:** Implementar **somente a Fase 2** do plano de
-  `docs/analise-contexto-instancia.md` (§9): criar uma **regra unica** de resolucao de
+  `docs/analise-contexto-instancia.md` (Â§9): criar uma **regra unica** de resolucao de
   instancia para todo envio Evolution/WhatsApp; **remover os fallbacks inseguros** (instancia
   "mais recentemente atualizada", env global `EVOLUTION_INSTANCE`/`'PJ'`, e nome de instancia
   aceito sem validacao); exigir que o envio use instancia **comprovadamente da mesma empresa,
@@ -597,13 +691,13 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Estado REAL medido no codigo (nao no pedido):**
   1. `whatsapp.js:72` (`instanceNameParaEnvio`) resolve em 3 passos e **dois deles sao
      inseguros**: `getInstanceNameForConversation` (`:51-60`) cai num `LEFT JOIN LATERAL ...
-     ORDER BY atualizado_em DESC LIMIT 1` — "a instancia ativa mais recentemente atualizada" —
+     ORDER BY atualizado_em DESC LIMIT 1` â€” "a instancia ativa mais recentemente atualizada" â€”
      e, na falta dela, `:79` usa `INSTANCE_NAME` = `process.env.EVOLUTION_INSTANCE || 'PJ'`,
      que **ignora a empresa por completo**.
   2. **O mesmo fallback arbitrario esta DUPLICADO** em `services/conversa-manual.js:61-69`.
   3. **O nome explicito nunca e validado.** Todos os chamadores "seguros"
      (`core-funnel.js:1055/1134`, `contexto2-responder.js:195`, `api-conversas.js:261`,
-     `agent.js:7311`) fazem `conversa.evolution_instance ? { instanceName } : {}` — passam o
+     `agent.js:7311`) fazem `conversa.evolution_instance ? { instanceName } : {}` â€” passam o
      TEXTO da coluna sem provar que aquela instancia existe, esta ativa, e' da mesma empresa e
      nao e' Freelandoo; e quando a coluna esta vazia caem exatamente nos passos 2b/3.
   4. **Chamadores que nao passam instancia nenhuma:** `followup-execution.js:386`,
@@ -611,11 +705,11 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      `services/prospecting-daily-report.js:325`, `services/followup-manual.js:126`,
      `handoff-alerts.js:342` (alertas ao operador) e todo o `operator-commands.js`.
   5. **Diagnostico preso ao global:** `GET /dashboard/prospeccao/whatsapp/status`
-     (`prospecting.js:4195`) chama `verificarStatusInstanciaEvolution()` **sem argumento** —
+     (`prospecting.js:4195`) chama `verificarStatusInstanciaEvolution()` **sem argumento** â€”
      responde sobre a instancia do env, nao sobre a da empresa. `numerosSemWhatsapp` tem o
      mesmo default.
   6. **Rotas legadas** `/dashboard/whatsapp/connect|refresh-qr|check-status|disconnect`
-     (`whatsapp-routes.js:66,154,203,288`) operam a instancia do env direto — inclusive um
+     (`whatsapp-routes.js:66,154,203,288`) operam a instancia do env direto â€” inclusive um
      `DELETE /instance/logout/<env>`, que **derruba a conexao de um numero que pode nao ser de
      quem clicou**.
 - **Decisoes levadas ao operador ANTES de implementar (nao decidi sozinho):** (a) empresa com
@@ -632,7 +726,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 - **IA/Ferramenta:** Claude Code (Opus 5)
 - **Pedido resumido:** Padronizar o visual dos controles de ativacao das duas telas num unico
-  padrao compacto — **icone de informacao + toggle + tooltip curto** —, removendo rotulos
+  padrao compacto â€” **icone de informacao + toggle + tooltip curto** â€”, removendo rotulos
   textuais redundantes ("Ativo", "Desativo", "Acompanhando sem responder") e descricoes longas
   que ocupam espaco fixo. **Proibido** pelo proprio pedido: alterar regras de acompanhamento,
   logica de resposta automatica/humana, dados, endpoints, permissoes, automacoes ou o
@@ -641,35 +735,35 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   migration, sem env, sem rota, sem payload novo, sem worker. Nenhum arquivo de `backend/` deve
   ser tocado.
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
-  docs/ui-visual-standard.md: Sim (Fase 5 — o pedido e' 100% interface) |
+  docs/ui-visual-standard.md: Sim (Fase 5 â€” o pedido e' 100% interface) |
   docs/ai-decision-log.md: a registrar na Fase 8.
 - **Estado REAL dos dois controles hoje (medido no codigo, nao no pedido):**
   1. **Central de Mensagens** (`frontend/app/dashboard/conversas/page.tsx:205-224`): card
-     "Modo padrao da IA" com `AlternadorModoIa` — um **`role="radiogroup"` de 2 opcoes**
-     (Conversa | Analise), mais o `estado` por extenso (`descreverModo().estado` →
+     "Modo padrao da IA" com `AlternadorModoIa` â€” um **`role="radiogroup"` de 2 opcoes**
+     (Conversa | Analise), mais o `estado` por extenso (`descreverModo().estado` â†’
      "IA pode responder" / "IA acompanhando, sem responder"), mais DOIS paragrafos fixos
      (`explicarPadraoGlobal` e `AVISO_EXCECOES_PADRAO`). O balao "i" **ja existe** dentro do
      `AlternadorModoIa` (`BalaoAjuda`, em portal no `<body>`, hover/foco/toque, Escape).
   2. **Follow-up Automatico** (`frontend/app/dashboard/follow-ups/page.tsx:352-370`): um
      `<button aria-pressed>` com borda/fundo coloridos, icone, o texto
      "Follow-up automatico: **ativo/desativado**" e uma bolinha de cor. **Nao e' um switch** e
-     nao tem icone de informacao — so' `title=`.
+     nao tem icone de informacao â€” so' `title=`.
   3. **Ja existe padrao de switch no projeto** (`role="switch"` + `aria-checked` + knob que
      translada): `components/InstanciasWhatsApp.tsx:603-612` e
      `components/InstanciasFreelandoo.tsx:216`. E' reuso, nao componente inventado.
 - **Conflito material declarado ANTES de implementar (levado ao operador):** o controle da
-  Central **nao e' booleano hoje** — sao dois modos NOMEADOS. O AGENTS.md registra a escolha
-  do `role="radiogroup"` de proposito ("aqui nada muda na tela — muda o COMPORTAMENTO do
+  Central **nao e' booleano hoje** â€” sao dois modos NOMEADOS. O AGENTS.md registra a escolha
+  do `role="radiogroup"` de proposito ("aqui nada muda na tela â€” muda o COMPORTAMENTO do
   sistema com o cliente"). Transformar em toggle passa a chamar "Analise" de **desligado**, e
   a mesma secao do AGENTS.md avisa que o modo Analise **nao e' pausa de automacao** (follow-up
   e agenda continuam rodando nos dois modos). O pedido, por outro lado, e' explicito ao listar
   "Acompanhando sem responder" como rotulo a remover.
 - **Guarda de regressao que restringe a implementacao:** `frontend/lib/conversa-modo-ia.test.js:288`
   falha se `conversas/page.tsx`, `ConversaPainel.tsx` ou `AlternadorModoIa.tsx` compararem o
-  modo com literal (`=== 'analise'`). Logo, qualquer mapeamento modo↔ligado/desligado tem de
+  modo com literal (`=== 'analise'`). Logo, qualquer mapeamento modoâ†”ligado/desligado tem de
   nascer **puro**, dentro de `frontend/lib/conversa-modo-ia.js`.
 - **Fora de escopo declarado:** o controle **DA CONVERSA** (`ConversaPainel.tsx:560`), que tem
-  **3 opcoes** (Herdar | Conversa | Analise) e nao cabe num booleano — o pedido fala da "area
+  **3 opcoes** (Herdar | Conversa | Analise) e nao cabe num booleano â€” o pedido fala da "area
   superior" da Central; qualquer backend; e o banner de aviso quando o follow-up esta pausado
   (alerta com impacto operacional, que o proprio pedido manda conservar).
 - **Arquivos que pretendo alterar/criar:** NOVO `frontend/components/ui/InterruptorAtivacao.tsx`
@@ -700,14 +794,14 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
   docs/analise-contexto-instancia.md (a analise que produziu esta fase): Sim |
   docs/ui-visual-standard.md: **nao aplicavel** (nenhuma tela) | docs/ai-decision-log.md:
-  nada a registrar — a decisao arquitetural ja esta na analise e nenhuma nova foi tomada.
-- **Padrao reusado (nao inventei outro):** `backend/scripts/medir-isolamento-empresa.js` —
+  nada a registrar â€” a decisao arquitetural ja esta na analise e nenhuma nova foi tomada.
+- **Padrao reusado (nao inventei outro):** `backend/scripts/medir-isolamento-empresa.js` â€”
   `BEGIN TRANSACTION READ ONLY` + `ROLLBACK`, `DATABASE_URL` explicita (o script nunca
   escolhe banco sozinho), ids mascarados, so contagens agregadas, zero chamada externa,
   zero dependencia nova (`pg` ja e' dependencia).
 - **Regra de negocio que o script PRECISA respeitar (e o motivo de ele existir):** conversa
   **sem** `evolution_instance` nao tem, por definicao, vinculo PROVADO com instancia alguma.
-  Agrupar por `c.empresa_id` e' informativo, nunca prova — aquele `empresa_id` pode ter vindo
+  Agrupar por `c.empresa_id` e' informativo, nunca prova â€” aquele `empresa_id` pode ter vindo
   do antigo fallback da PJ (AGENTS.md, secao da quarentena de webhook). Por isso a
   classificacao de atribuibilidade e' explicita e conservadora: empresa com **1** instancia
   ativa = atribuivel; empresa com **2+** = **nao atribuivel**; conversa sem empresa =
@@ -742,7 +836,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
   docs/project-map.md e docs/architecture-rules.md: Sim |
   docs/PENDENCIA_ARQUITETURAL_CENTRAL_LIGACOES_E_MENSAGENS.md: Sim (o item 1 do checklist dele
-  — identidade canonica / `UNIQUE` global de `vendas.conversas.numero` — e' pre-requisito
+  â€” identidade canonica / `UNIQUE` global de `vendas.conversas.numero` â€” e' pre-requisito
   direto deste tema) | docs/ui-visual-standard.md: a consultar SE e quando houver implementacao |
   docs/ai-decision-log.md: a registrar SE e quando houver implementacao.
 - **Fora de escopo declarado pelo pedido:** implementar o seletor, criar migration, alterar
@@ -764,13 +858,13 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   originais preservados (nao sobrescrever nome cadastrado) e testes por prioridade.
 - **E projeto/tarefa de alteracao?** Sim. As prioridades 1, 3 e 4 sao leitura/apresentacao; a
   **prioridade 2 (nome do WhatsApp) nao tem onde ser lida hoje** e so' existe com persistencia
-  nova — o que cai nos gatilhos de confirmacao do CLAUDE.md (schema/banco + escrita no caminho
+  nova â€” o que cai nos gatilhos de confirmacao do CLAUDE.md (schema/banco + escrita no caminho
   de producao do webhook). Por isso esta entrada registra a descoberta e **para antes da Fase 3**.
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
   docs/ui-visual-standard.md: a consultar na Fase 5 | docs/ai-decision-log.md: a registrar na Fase 8.
 - **Fatos confirmados no codigo HOJE (nao sao hipotese):**
   1. **A coluna "Lead" ja e' o `rotuloLead`/`identidadeConversa`** de
-     `frontend/lib/lead-identidade.js` — modulo PURO que ja e' o dono unico da identidade e ja e'
+     `frontend/lib/lead-identidade.js` â€” modulo PURO que ja e' o dono unico da identidade e ja e'
      REEXPORTADO por `followups-fila.js`. O requisito "centralizar num modulo reusavel" **ja esta
      cumprido**; o que muda e' a REGRA dentro dele, nao onde ela mora.
   2. **O fallback para o telefone e' DELIBERADO hoje**, nao descuido: `lead-identidade.js:50` e
@@ -787,14 +881,14 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   4. **A prioridade 2 (nome do WhatsApp) NAO E' PERSISTIDA em lugar nenhum.** Nao existe coluna
      `push_name` no backend (grep em `backend/`: zero ocorrencias em schema). O `msg.pushName`
      chega ao `webhook-handler.js:362`, e' consumido em memoria por `capturarNomeContato`
-     (`agent.js:5820`) e **jogado fora** depois de passar por `nomeDePushName` → `primeiroNome`
+     (`agent.js:5820`) e **jogado fora** depois de passar por `nomeDePushName` â†’ `primeiroNome`
      (`nome-contato.js:25-40`), que (a) fica **so' com o PRIMEIRO token** e (b) **recusa** uma
      lista fechada de palavras genericas que inclui `pizzaria`, `restaurante`, `loja`,
      `barbearia`, `academia`, `clinica` (`nome-contato.js:6-17`). Consequencias medidas na regra:
      um perfil WhatsApp Business chamado "Pizzaria do Ze" e' **descartado por inteiro**; "Joao
      Silva" vira "Joao". O que sobra e' gravado em `apelido` **e so' quando `apelido` esta vazio**.
   5. **Logo, `apelido` mistura a prioridade 1 e a 2 e a origem nao e' recuperavel.**
-     `capturarNomeContato` calcula `fonte` (`'mensagem'` | `'pushName'`) mas **so' loga** — nada
+     `capturarNomeContato` calcula `fonte` (`'mensagem'` | `'pushName'`) mas **so' loga** â€” nada
      e' persistido (`agent.js:5825,5853`). Sem coluna nova, "nome cadastrado" e "nome do WhatsApp"
      sao indistinguiveis no dado, e os leads cujo pushName foi recusado no filtro **nao tem nome
      nenhum para exibir**.
@@ -803,7 +897,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      (`:688`) e ganhou `empresa_id` na migration `005_prospeccao_multiempresa.sql`. O casamento
      por digitos do telefone e' o padrao ja usado no repo
      (`regexp_replace(..., '[^0-9]', '', 'g')` em `db/follow-ups.js:261`, `prospecting.js:2384`).
-     Custo: um LATERAL a mais na listagem — a rota **nao** faz esse join hoje.
+     Custo: um LATERAL a mais na listagem â€” a rota **nao** faz esse join hoje.
   7. **A rota nao devolve fonte de nome nenhuma.** `GET /conversas` seleciona `lp.negocio` e mais
      14 campos do perfil; `GET /:numero` faz `SELECT c.*, lp.*`. O requisito "retornar o nome ja
      resolvido ou nome + fonte" exige tocar `api-conversas.js` nos dois pontos.
@@ -821,19 +915,19 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **IA/Ferramenta:** Claude Code (Opus 5)
 - **Pedido resumido:** O operador observou que a coluna "Site" repete um dado que ja esta dentro
   de "Pontos" (completude de cadastro) e pediu para **remover a coluna** e fazer o site aparecer
-  **so' dentro da pontuacao de cadastro** — no balao que abre ao passar o mouse ou no modal de
+  **so' dentro da pontuacao de cadastro** â€” no balao que abre ao passar o mouse ou no modal de
   detalhes. Em seguida, relatou que **o balao da Central de Mensagens fica "muito pra cima"** e
   nao da' para ler.
 - **E projeto/tarefa de alteracao?** Sim, pequeno e 100% de apresentacao: sem schema, sem
   migration, sem env, sem rota, sem chamada nova ao backend. Nenhuma regra de pontuacao,
   classificacao de site ou elegibilidade muda.
 - **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/ui-visual-standard.md
-  (Fase 5 — e' tela) e docs/analise-indicador-pontuacao.md: Sim.
-- **Conflito declarado ANTES de implementar:** a §5.1 daquela analise decidiu o CONTRARIO
-  (Site "fica visivel de proposito") e a §8 lista "esconder dado decisivo dentro do tooltip"
+  (Fase 5 â€” e' tela) e docs/analise-indicador-pontuacao.md: Sim.
+- **Conflito declarado ANTES de implementar:** a Â§5.1 daquela analise decidiu o CONTRARIO
+  (Site "fica visivel de proposito") e a Â§8 lista "esconder dado decisivo dentro do tooltip"
   como risco. Levei as tres perdas ao operador (Pontos e' lossy; a direcao da escala e'
   invertida; `situacao_site` tem 3 estados e o criterio tem 2); ele **reafirmou a decisao**, que
-  passou a valer. Duas das tres perdas foram ENDERECADAS na implementacao, nao ignoradas — ver
+  passou a valer. Duas das tres perdas foram ENDERECADAS na implementacao, nao ignoradas â€” ver
   `docs/ai-decision-log.md`.
 - **Fatos confirmados no codigo:** `site` e' 1 dos 9 criterios de `calcularScoreCadastroPlaces`
   (**20 de 100**, `lead-score-cadastro.js:66`); a Aquisicao ordena `pontos ASC`
@@ -842,7 +936,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   (`site-classificacao.js:279`); `BolinhaCadastro` e' compartilhada pelas duas telas
   (`LeadDetalhesModal.tsx:71`), entao o enriquecimento foi feito em UM lugar.
 - **Defeito de posicionamento encontrado a partir do relato do operador:** o balao era fixado em
-  `top: rect.top - 8` com `translate(-50%,-100%)` — abria SEMPRE para cima. Nas tabelas sempre ha
+  `top: rect.top - 8` com `translate(-50%,-100%)` â€” abria SEMPRE para cima. Nas tabelas sempre ha
   cabecalho acima; na Central de Mensagens a bolinha vive no cabecalho de um modal colado no topo
   da tela, e o balao (ate 9 criterios) subia para fora da viewport. Passou a MEDIR a propria
   altura e virar para baixo quando nao cabe, alem de ser preso nas bordas laterais.
@@ -850,7 +944,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   `frontend/components/LeadDetalhesModal.tsx`, `frontend/components/ui/BolinhaPontuacao.tsx`,
   `frontend/app/dashboard/prospeccao/page.tsx`, `frontend/app/dashboard/banco-leads/page.tsx`,
   `AGENTS.md`, `docs/analise-indicador-pontuacao.md`, `docs/ai-decision-log.md`.
-- **Validacao:** frontend 261/261 e typecheck limpo. **Verificacao visual do balao pendente** —
+- **Validacao:** frontend 261/261 e typecheck limpo. **Verificacao visual do balao pendente** â€”
   a correcao de posicionamento e' justamente do tipo que so' a tela confirma.
 
 ---
@@ -867,7 +961,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   unificado por contato e estados `aguardando | proxima_acao | concluido | cancelado | falha`.
 - **E projeto/tarefa de alteracao?** Sim, e **ESTRUTURAL**. Cai em todos os gatilhos de
   confirmacao do CLAUDE.md (schema/banco, muitos arquivos, regra de negocio nova, rotas novas).
-- **GATILHO FORMAL DISPARADO — `docs/PENDENCIA_ARQUITETURAL_CENTRAL_LIGACOES_E_MENSAGENS.md`:**
+- **GATILHO FORMAL DISPARADO â€” `docs/PENDENCIA_ARQUITETURAL_CENTRAL_LIGACOES_E_MENSAGENS.md`:**
   aquele documento congela EXATAMENTE esta integracao e instrui, textualmente: *"Quando o projeto
   entrar na fase de integracao entre Ligacoes e Mensagens, **interrompa a implementacao
   inicialmente** e recupere esta documentacao para revisar toda a arquitetura antes de gerar
@@ -884,18 +978,18 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      persistido**) e `listarAgendamentosAuto` (`:29`, le `vendas.followup_auto_agendamentos`, a
      agenda do motor de IA). Nenhuma das duas tem **canal**, **responsavel**, **origem** ou
      **status editavel pelo operador**.
-  2. **"Proxima acao" ja existe — mas no OUTRO mundo e sem estrutura.**
+  2. **"Proxima acao" ja existe â€” mas no OUTRO mundo e sem estrutura.**
      `POST /ligacoes/:id/encerrar` (`routes/api-ligacoes.js:77`) ja aceita `proxima_acao` e
      `data_followup`, e `db/ligacoes.js:250-264` os grava em **`app.campanha_leads`**
      (`proxima_acao` TEXTO LIVRE, `data_followup` TIMESTAMPTZ, `responsavel_id` UUID, `status`
      de oportunidade). No front isso e' um `<input placeholder="Proxima acao">` +
      `<input type="date">` (`central-ligacoes/page.tsx:1466-1469`). **Nenhuma linha de codigo da
-     Central de Follow-ups le `app.campanha_leads`** — a proxima acao criada na ligacao e' hoje
+     Central de Follow-ups le `app.campanha_leads`** â€” a proxima acao criada na ligacao e' hoje
      invisivel para a fila.
   3. **Os dois mundos tem CHAVES DIFERENTES e nao ha identidade canonica.** Ligacoes:
      `prospectador.prospects.id` / `app.campanha_leads.id` (telefone em formato livre).
-     Mensagens/Follow-ups: `vendas.conversas.numero`, o JID `…@s.whatsapp.net`, com
-     **`UNIQUE` GLOBAL** (`sql/init.sql:6`) — nao e' `UNIQUE (empresa_id, numero)`. E' o item 1
+     Mensagens/Follow-ups: `vendas.conversas.numero`, o JID `â€¦@s.whatsapp.net`, com
+     **`UNIQUE` GLOBAL** (`sql/init.sql:6`) â€” nao e' `UNIQUE (empresa_id, numero)`. E' o item 1
      do checklist da pendencia congelada, e e' o que impede casar os dois lados por FK.
   4. **Um lead so' de ligacao pode NAO TER conversa.** `montarCallList` exige
      `jsonb_array_length(c.historico) > 0`; prospect que nunca trocou WhatsApp nao tem linha em
@@ -905,13 +999,13 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      UNIQUE global), **recusa com 409** numero de outra empresa e audita a origem em
      `app.auditoria_eventos`.
   5. **"Concluir / reagendar / cancelar" nao tem onde ser gravado.** Hoje um item humano some da
-     fila por EFEITO COLATERAL: `montarCallList` filtra `NOT EXISTS (followup_ligacoes … ultimas
+     fila por EFEITO COLATERAL: `montarCallList` filtra `NOT EXISTS (followup_ligacoes â€¦ ultimas
      12h)` (`CALLLIST_DEDUP_HORAS`). Nao ha status, nao ha conclusao, nao ha reagendamento.
   6. **Prioridade so' existe de um lado.** `services/followup-call-score.js` pontua o item humano
      (0-100 + temperatura + `janela_quando`); o item do automatico **nao tem** call score e a tela
      ja diz "prioridade nao calculada" (`lib/followups-fila.js:285-288`). `ligacao-prioridade.js`
      pontua a fila da campanha, com OUTRA escala e outro significado.
-  7. **Responsavel nao existe no item da fila** — e ja esta declarado como lacuna no AGENTS.md.
+  7. **Responsavel nao existe no item da fila** â€” e ja esta declarado como lacuna no AGENTS.md.
      `app.campanha_leads.responsavel_id` existe mas nunca e' escrito por nenhuma rota;
      `vendas.followup_ligacoes.usuario_id` so' registra quem ja ligou (fato passado).
   8. **O painel de conversa unico JA FOI ENTREGUE** no commit `38befc4`:
@@ -926,10 +1020,10 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      (`c.empresa_id IS NULL`), que nao foi criado por esta tarefa.
 - **Conclusao da descoberta (respondendo ao `descoberta_obrigatoria` do pedido):** dos 9 campos
   minimos do modelo pedido, **existem hoje** apenas *proxima acao* (texto livre), *data* (sem
-  hora) e *status de oportunidade* — e apenas dentro de `app.campanha_leads`, sem alcance da fila.
+  hora) e *status de oportunidade* â€” e apenas dentro de `app.campanha_leads`, sem alcance da fila.
   **Nao existem:** canal, prioridade do follow-up, responsavel efetivo, status do follow-up,
   origem, referencia ao contato/conversa e referencia ao evento de origem. Portanto **o pedido
-  nao pode ser cumprido sem entidade persistida nova (migration)** — o que o proprio pedido
+  nao pode ser cumprido sem entidade persistida nova (migration)** â€” o que o proprio pedido
   condicionou a "confirmar que os dados necessarios nao existem". Confirmado que nao existem.
 - **Decisoes levadas ao Victor ANTES da Fase 3 (nao decidi sozinho):** (a) criar ou nao
   `app.follow_ups` como entidade unica; (b) qual e' a identidade canonica do contato que liga os
@@ -946,20 +1040,20 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 ## 2026-08-08 - Inicio de tarefa IA - ANALISE (sem implementacao): indicador reusavel de pontuacao (bolinha + explicacao)
 
 - **IA/Ferramenta:** Claude Code (Opus 5)
-- **Pedido resumido:** Analisar onde um indicador visual reusavel de pontuacao — bolinha com
-  explicacao ao foco/clique/hover — pode ser aplicado, em 4 areas: **Central de Ligacoes**
+- **Pedido resumido:** Analisar onde um indicador visual reusavel de pontuacao â€” bolinha com
+  explicacao ao foco/clique/hover â€” pode ser aplicado, em 4 areas: **Central de Ligacoes**
   (referencia visual ja existente), **Central de Mensagens** (interesse comercial da conversa),
   **Aquisicao** (resumir colunas) e **Banco de Leads** (priorizacao). Componente unico e
   consistente; SIGNIFICADO da pontuacao contextual por pagina. Entregar mapa das areas, tabela
   de decisao (aplicar agora / depois / nao aplicar), colunas que podem sair e para onde vao,
   contrato reusavel do componente, lacunas de dados e evidencias de leitura de codigo.
-- **E projeto/tarefa de alteracao?** **Nao nesta etapa** — o proprio pedido poe em
+- **E projeto/tarefa de alteracao?** **Nao nesta etapa** â€” o proprio pedido poe em
   `fora_de_escopo`: "Implementar o componente ou alterar paginas nesta etapa", "Criar pontuacao
   em outras areas", "Modificar regras comerciais, automacoes, dados de producao ou integracoes".
   Registro assim mesmo porque a analise PRECEDE um projeto de alteracao de UI em 4 telas e
   produz o desenho que sera implementado depois. **Nenhum arquivo de codigo foi alterado.**
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
-  docs/ui-visual-standard.md: Sim (Fase 5 — o pedido e' 100% de interface) |
+  docs/ui-visual-standard.md: Sim (Fase 5 â€” o pedido e' 100% de interface) |
   docs/ai-decision-log.md: a registrar SE e quando houver implementacao.
 - **Fatos confirmados no codigo HOJE (nao sao hipotese):**
   1. **A bolinha ja existe DUAS vezes, com a MESMA geometria e implementacoes diferentes.**
@@ -971,27 +1065,27 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      `aria-label` de `descricaoPrioridade`).
   2. **As paletas de faixa ja divergem entre as duas.** Ligacoes: `alta=emerald / media=amber /
      baixa=slate` (`FAIXA_CLS`, page.tsx:173). Mensagens: `alto=emerald / medio=amber /
-     baixo=slate` (`INTERESSE_STYLE`, ConversaPainel.tsx:110) — coincidem. Follow-ups:
-     `alta=red / media=amber / baixa=sky` (`PRIORIDADE_DOT`, page.tsx:76) — **conflita**: o
+     baixo=slate` (`INTERESSE_STYLE`, ConversaPainel.tsx:110) â€” coincidem. Follow-ups:
+     `alta=red / media=amber / baixa=sky` (`PRIORIDADE_DOT`, page.tsx:76) â€” **conflita**: o
      vermelho ali significa "mais urgente", e nas outras duas significaria "pior".
   3. **Os quatro scores do produto sao MESMO diferentes, e nenhum e' substituivel pelo outro:**
      `ligacao-prioridade.calcularPrioridade` (0-100, "quanto vale LIGAR agora nesta campanha";
-     site ausente vale 40) · `lead-interest-score.calcularScoreInteresseLead` (0-100, sinal de
-     compra lido do TEXTO das mensagens do lead; tem deltas negativos) ·
+     site ausente vale 40) Â· `lead-interest-score.calcularScoreInteresseLead` (0-100, sinal de
+     compra lido do TEXTO das mensagens do lead; tem deltas negativos) Â·
      `lead-score-cadastro.calcularScoreCadastroPlaces` (0-100 de COMPLETUDE do cadastro, o
-     "Pontos" das tabelas; Instagram e' 0-60) · `prospecting.calcularScoreProspect` (0-100,
+     "Pontos" das tabelas; Instagram e' 0-60) Â· `prospecting.calcularScoreProspect` (0-100,
      `prospects.score`, o emoji de temperatura da Aquisicao). **Cadastro alto e' oportunidade
-     BAIXA** — a Aquisicao ja ordena por `pontos ASC` por causa disso (`prospeccao/page.tsx:166`).
+     BAIXA** â€” a Aquisicao ja ordena por `pontos ASC` por causa disso (`prospeccao/page.tsx:166`).
   4. **Explicacao auditavel ja existe em todos os quatro:** `prioridade.motivos[]`,
      `score_interesse_criterios[]` (com `delta`/`titulo`/`detalhe`/`tipo`),
-     `score_cadastro_criterios[]` (a rota de prospects ja devolve — `prospecting.js:1422`) e
+     `score_cadastro_criterios[]` (a rota de prospects ja devolve â€” `prospecting.js:1422`) e
      `pontuacao.criterios` dentro de `json_apresentacao` (Banco de Leads,
      `api-banco-leads.js:179`). **Nenhuma regra de pontuacao nova precisa ser inventada.**
   5. **A Aquisicao exibe HOJE duas pontuacoes na mesma linha sem dizer que sao duas:** o emoji
      de temperatura de `p.score` (`page.tsx:494`) e a coluna "Pontos" de `p.score_cadastro`
      (`:521`). Sao escalas com sentidos opostos.
   6. **JSON bruto esta na tabela operacional:** coluna "JSON" com `{ }` abrindo
-     `JsonLeadModal`, que renderiza `JSON.stringify(json, null, 2)` — na Aquisicao
+     `JsonLeadModal`, que renderiza `JSON.stringify(json, null, 2)` â€” na Aquisicao
      (`prospeccao/page.tsx:482,530`) e no Banco de Leads (`banco-leads/page.tsx`, colunas fixas).
   7. **Banco de Leads NAO tem prioridade comercial calculada.** A rota devolve `score`,
      `score_cadastro` e `situacao_site`, mas `montarFilaPriorizada` so' e' chamada em
@@ -1006,10 +1100,10 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      O unico tooltip acessivel e posicionado do projeto e' o inline da Central de Ligacoes.
   10. **Isolamento por empresa esta OK em todas as fontes** (`requireAuth` +
       `requireEmpresaAccess` nas 4 rotas). Ressalva: `api-conversas.js:18` mantem o fallback da
-      PJ (`$1::uuid = $2::uuid AND c.empresa_id IS NULL`) — nao e' criado por esta analise, mas
+      PJ (`$1::uuid = $2::uuid AND c.empresa_id IS NULL`) â€” nao e' criado por esta analise, mas
       e' o universo de onde o score de interesse sairia.
 - **Padrao de modulo PURO a reusar (nao inventar outro):** `lib/site-rotulos.js`,
-  `lib/followups-fila.js`, `lib/pendencias-instancia.js` e `lib/roteiros-lista.js` — o front
+  `lib/followups-fila.js`, `lib/pendencias-instancia.js` e `lib/roteiros-lista.js` â€” o front
   TRADUZ o veredito do backend e nunca recalcula a regra.
 - **Nada foi alterado:** entrega e' analise escrita. Se aprovada, a implementacao exige nova
   passada pelas Fases 3-11 (e Fase 5 obrigatoria: o item 2 acima e' uma divergencia visual real
@@ -1028,9 +1122,9 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   de excluir com confirmacao e PROTECAO contra exclusao destrutiva, e desarquivar.
 - **E projeto/tarefa de alteracao?** Sim. A maior parte e' apresentacao/UX no frontend, mas
   TRES pontos caem nos gatilhos de confirmacao do CLAUDE.md e foram levados ao usuario ANTES de
-  implementar: (a) **nao existe "roteiro arquivado"** — hoje o status e' da VERSAO
+  implementar: (a) **nao existe "roteiro arquivado"** â€” hoje o status e' da VERSAO
   (`app.roteiro_versoes.status`), nao do roteiro; a secao "Arquivados" pedida exige decidir onde
-  esse estado mora; (b) **nao existe rota de exclusao** de roteiro/versao em lugar nenhum —
+  esse estado mora; (b) **nao existe rota de exclusao** de roteiro/versao em lugar nenhum â€”
   criar DELETE numa entidade referenciada por historico de ligacoes e' mudanca estrutural;
   (c) o pedido cita "Atendimento Academias > Novo roteiro", mas **nao existe vinculo entre
   roteiro e instancia/atendimento** no schema.
@@ -1051,7 +1145,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
     e isolamento), `frontend/lib/roteiro-contexto-ia.test.js`.
 - **Achados da Fase 0 que mudam o desenho pedido:**
   1. **Status e' da VERSAO, nao do roteiro.** `app.roteiros` tem apenas `ativo BOOLEAN NOT NULL
-     DEFAULT true` (indexado em `idx_roteiros_empresa (empresa_id, ativo)`) — coluna criada na
+     DEFAULT true` (indexado em `idx_roteiros_empresa (empresa_id, ativo)`) â€” coluna criada na
      033 e **nunca escrita nem exposta** por rota, tela ou motor. `publicarVersao` ARQUIVA
      automaticamente a versao publicada anterior, entao quase todo roteiro saudavel tem versoes
      arquivadas: derivar "roteiro arquivado" do status das versoes daria resultado errado.
@@ -1059,7 +1153,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      versao/etapa com **`ON DELETE SET NULL`** (`app.ligacoes`, `ligacao_etapas`, `ligacao_sinais`,
      `ligacao_objecoes`, `ligacao_perguntas`, `campanhas.roteiro_versao_id`) e as internas com
      `ON DELETE CASCADE` (`roteiro_versoes` -> `roteiro_etapas`). Ou seja: o banco **nao barra** o
-     DELETE — ele apaga silenciosamente o vinculo do historico de ligacoes ja realizadas. A
+     DELETE â€” ele apaga silenciosamente o vinculo do historico de ligacoes ja realizadas. A
      protecao tem de ser na camada de aplicacao.
   3. **Nao existe vinculo roteiro <-> instancia/atendimento.** O unico consumo do roteiro em
      producao e' `app.campanhas.roteiro_versao_id`, lido pela Central de Ligacoes
@@ -1099,7 +1193,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Lacunas confirmadas no codigo (nao sao hipotese):**
   1. **Sem paginacao.** `page.tsx:367` mapeia `visiveis` INTEIRO no `<tbody>`. O modulo PURO
      `frontend/lib/paginacao.js` ja existe e ja e' o dono compartilhado (Aquisicao + Central de
-     Ligacoes) — e' reuso, nao codigo novo.
+     Ligacoes) â€” e' reuso, nao codigo novo.
   2. **Identificador tecnico do Evolution NA TELA.** `followup-listing.js:152` e `:42` fazem
      `COALESCE(NULLIF(p.apelido,''), NULLIF(p.negocio,''), c.numero) AS nome`, e
      `followups-fila.js:225` faz `nome: texto(h.nome) || numero`. Lead sem apelido/negocio
@@ -1107,7 +1201,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      proibe.
   3. **Rotulo solto "Escalado"** existe em `page.tsx:469-473`; o pedido manda nao exibi-lo.
   4. **Follow-up manual nao tem busca assistida:** `page.tsx:780` e um input de telefone cru.
-     Nao existe endpoint de sugestao por NOME — `GET /conversas` (`api-conversas.js:69`) filtra
+     Nao existe endpoint de sugestao por NOME â€” `GET /conversas` (`api-conversas.js:69`) filtra
      so por digitos do numero.
   5. **Numero sem lead existente e' RECUSADO hoje:** `followup-manual.js:56,83,122` chamam
      `buscarConversaEmpresa` e lancam **404** quando nao ha conversa daquela empresa. Nao existe
@@ -1127,7 +1221,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      dono; `usuario_id` so existe em ligacao ja registrada) e "Tipo de falha" (o motor grava
      `motivo_decisao` em texto livre, sem taxonomia). Continuam FORA, por decisao do proprio
      pedido ("exibir somente filtros sustentados por dados reais").
-- **Semantica de estados — ja conforme, verificado:** `SITUACAO_POR_STATUS_IA.falhou` =
+- **Semantica de estados â€” ja conforme, verificado:** `SITUACAO_POR_STATUS_IA.falhou` =
   `FALHA` (`followups-fila.js:63`), nunca `AGUARDANDO`; item humano com falha do automatico fica
   `ABERTO` + `tem_falha`. "Sem resposta" ja vira proxima acao humana pelo `dias_silencio` do
   `montarCallList`. Nada a corrigir aqui.
@@ -1135,7 +1229,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   - **(1) Destino da area de Automacao.** Remove-la sem destino apaga a unica forma de pausar o
     motor de follow-up de uma empresa. O pedido nao autoriza criar a area em Configuracoes agora.
   - **(2) Follow-up manual para numero sem lead.** Atender o pedido ao pe da letra exige CRIAR
-    `vendas.conversas` para aquele numero na empresa — e a partir dai o bot passa a atender
+    `vendas.conversas` para aquele numero na empresa â€” e a partir dai o bot passa a atender
     aquele numero. E decisao de produto, com efeito em producao, nao de implementacao.
 - **Arquivos que pretendo alterar/criar (sujeito as decisoes acima):** ALTERADOS
   `frontend/app/dashboard/follow-ups/page.tsx`, `frontend/lib/followups-fila.js` (+ `.d.ts`/
@@ -1158,36 +1252,36 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   telefone; sem backfill por inferencia. **Nenhum evento real a' Meta nesta tarefa.**
 - **E projeto/tarefa de alteracao?** Sim. Toca **banco** (migration nova), **caminho de escrita de
   producao** (`POST /webhook` roda em toda mensagem recebida) e **leitura da integracao Meta**.
-  Cai nos gatilhos de confirmacao do CLAUDE.md — mas a estrategia veio **declarada no proprio
+  Cai nos gatilhos de confirmacao do CLAUDE.md â€” mas a estrategia veio **declarada no proprio
   pedido** (capturar no webhook, escopar por empresa+instancia, desligar a varredura antiga).
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
   docs/ai-decision-log.md: a registrar na Fase 8 | ui-visual-standard.md: **nao aplicavel**
   (nenhuma tela nova; a API existente so' passa a devolver campo sanitizado).
 - **Fatos reconfirmados no codigo HOJE (nao sao hipotese):**
-  1. `services/meta-attribution.js:73` — `to_regclass('public."Message"')`. A tabela do Evolution
-     esta em `evolution."Message"`; `public` esta vazio ⇒ `messageEvolutionExiste` devolve false e
+  1. `services/meta-attribution.js:73` â€” `to_regclass('public."Message"')`. A tabela do Evolution
+     esta em `evolution."Message"`; `public` esta vazio â‡’ `messageEvolutionExiste` devolve false e
      `sincronizarAtribuicaoMetaAds` etapa 1 e' **no-op silencioso a cada tick**. O mesmo CTE
      neutralizado aparece em `obterResultadosAnunciosMeta:191`.
-  2. `meta-attribution.js:97,106` — o SQL depende de `m.key->>'remoteJidAlt'` e de
+  2. `meta-attribution.js:97,106` â€” o SQL depende de `m.key->>'remoteJidAlt'` e de
      `LIKE '%@s.whatsapp.net'`. Medido em 2026-08-08: `key` guarda so' `{fromMe,id,remoteJid}` e
-     **100%** das 526 mensagens com `externalAdReply` tem `remoteJid` `@lid` ⇒ mesmo com o schema
+     **100%** das 526 mensagens com `externalAdReply` tem `remoteJid` `@lid` â‡’ mesmo com o schema
      certo, o filtro descartaria todas.
-  3. `webhook-handler.js:80` — `canonicoRemoteJidParaConversa(msg.key)` ja resolve o telefone
+  3. `webhook-handler.js:80` â€” `canonicoRemoteJidParaConversa(msg.key)` ja resolve o telefone
      canonico, e `vendas.conversas.numero` e' `@s.whatsapp.net` em 100% das conversas. O telefone
      existe **no webhook**, nao no banco do Evolution.
-  4. `webhook-handler.js:219` — `salvarConversa(..., req.empresaId, req.evolutionInstance)`: a
+  4. `webhook-handler.js:219` â€” `salvarConversa(..., req.empresaId, req.evolutionInstance)`: a
      empresa e a instancia ja chegam resolvidas no handler.
-  5. `middleware/tenant.js:61-88` — `resolveEmpresaFromWebhook` **nao distingue** empresa resolvida
+  5. `middleware/tenant.js:61-88` â€” `resolveEmpresaFromWebhook` **nao distingue** empresa resolvida
      pela instancia de empresa vinda do **fallback PJ**. Hoje os tres caminhos (sem instancia,
      instancia nao mapeada, erro de consulta) produzem exatamente o mesmo `req.empresaId`. Sem
      essa distincao e' impossivel cumprir "fallback nao gera atribuicao elegivel".
   6. `app.empresa_whatsapp_instances.id` (uuid) **existe** e e' identificador confiavel de
-     instancia — a dependencia de Fase B levantada no pedido **nao bloqueia** esta tarefa.
+     instancia â€” a dependencia de Fase B levantada no pedido **nao bloqueia** esta tarefa.
   7. `meta-dispatch.js:295` (`carregarAtribuicoes`) e `:87,145` (joins) leem o `ctwa_clid` de
-     `vendas.lead_profiles.origem_anuncio` — a fonte que a varredura morta deveria ter preenchido.
+     `vendas.lead_profiles.origem_anuncio` â€” a fonte que a varredura morta deveria ter preenchido.
 - **Decisao de arquitetura minha (Fase 6), declarada antes de codar:** a atribuicao ganha **tabela
   propria** (`app.atribuicao_anuncios`), escopada por `empresa_id` + `instancia_id`, e **nao** vira
-  mais uma coluna de `vendas.lead_profiles` (cuja chave e' o telefone GLOBAL — nao comporta duas
+  mais uma coluna de `vendas.lead_profiles` (cuja chave e' o telefone GLOBAL â€” nao comporta duas
   instancias/dois negocios). `lead_profiles.origem_anuncio` continua sendo escrito para nao quebrar
   o painel legado, mas a **fonte de verdade da Meta passa a ser a tabela nova**.
 - **Arquivos que pretendo alterar/criar:** NOVOS `sql/migrations/059_atribuicao_ctwa_webhook.sql`,
@@ -1214,14 +1308,14 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   Fase B, antes de commit/push.**
 - **E projeto/tarefa de alteracao?** Sim. Toca **banco** (migration) e **caminho de escrita de
   producao** (`atualizarPerfil` roda em toda mensagem). Cai nos gatilhos de confirmacao do
-  CLAUDE.md — mas a estrategia ja veio **aprovada no proprio pedido** (fases A/B/C, preservar
+  CLAUDE.md â€” mas a estrategia ja veio **aprovada no proprio pedido** (fases A/B/C, preservar
   fallback PJ, nao migrar UNIQUE(numero), backfill fora do boot).
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
   docs/ai-decision-log.md: a registrar na Fase 8 | ui-visual-standard.md: **nao aplicavel**
   (nenhuma tela e' tocada nesta fase).
 - **Fatos reconfirmados no codigo HOJE (nao sao hipotese):**
-  1. `sql/migrations/006_vendas_empresa_default.sql:28` — `ALTER TABLE vendas.lead_profiles
-     ALTER COLUMN empresa_id SET DEFAULT '…0001'` (PJ). O proprio cabecalho da 006 declara que
+  1. `sql/migrations/006_vendas_empresa_default.sql:28` â€” `ALTER TABLE vendas.lead_profiles
+     ALTER COLUMN empresa_id SET DEFAULT 'â€¦0001'` (PJ). O proprio cabecalho da 006 declara que
      o default sairia "quando o roteamento por instancia for ligado". Ele nunca saiu.
   2. Existem **4** caminhos de INSERT em `vendas.lead_profiles` e **nenhum** informa
      `empresa_id`: `db-crud.js:370` (`atualizarPerfil`, o principal), `learning.js:806`
@@ -1231,9 +1325,9 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      `COALESCE($empresa, PJ)` e `ON CONFLICT` que NUNCA migra dono
      (`COALESCE(vendas.conversas.empresa_id, EXCLUDED.empresa_id)`). E' o molde a seguir.
   4. `vendas.lead_profiles.numero` e' `UNIQUE REFERENCES vendas.conversas(numero)`
-     (`db.js:294`) — **nao existe perfil sem conversa**. Logo a conversa e' fonte sempre
+     (`db.js:294`) â€” **nao existe perfil sem conversa**. Logo a conversa e' fonte sempre
      disponivel no momento do INSERT, e ela ja carrega a empresa resolvida pela instancia.
-  5. `empresa_id` **nao** esta em `LEAD_PROFILE_CAMPOS_PERMITIDOS` (`db-crud.js:13-45`) — a IA
+  5. `empresa_id` **nao** esta em `LEAD_PROFILE_CAMPOS_PERMITIDOS` (`db-crud.js:13-45`) â€” a IA
      e as rotas nunca puderam setar esse campo, e nao vao poder depois desta fase.
   6. Consumidores que ja dependem de `lead_profiles.empresa_id` e sofrem HOJE com o default:
      `meta-attribution.js:227` (`obterResultadosAnunciosMeta`), `meta-dispatch.js:74 e 132`
@@ -1241,18 +1335,18 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      `meta-dispatch.js:288` (`carregarAtribuicoes`), `db/aquisicao-oportunidades.js:79`.
 - **Efeito REAL do defeito, medido no codigo (nao e' vazamento, e' silencio):** como
   `meta-dispatch` casa `lp.empresa_id` com a empresa da REUNIAO/CONVERSA, um lead de anuncio da
-  empresa B fica com `lp.empresa_id = PJ` e o join nao casa ⇒ `temAtribuicao = false` ⇒
+  empresa B fica com `lp.empresa_id = PJ` e o join nao casa â‡’ `temAtribuicao = false` â‡’
   `reconciliarEmpresa` faz `continue` em `sem_atribuicao` e **nem registra o fato**. Ou seja: a
-  conversao CTWA da empresa B nunca sai — e nao ha risco de ela sair no dataset da PJ, porque o
+  conversao CTWA da empresa B nunca sai â€” e nao ha risco de ela sair no dataset da PJ, porque o
   telefone e' unico em `vendas.conversas` e a reuniao da B nao entra na lista da PJ. O prejuizo
   e' **perda de conversao**, nao mistura entre tenants. O painel `obterResultadosAnunciosMeta`,
   esse sim, mostra leads da B dentro da PJ.
 - **Decisao de arquitetura minha (Fase 6), declarada antes de codar:** a fonte de `empresa_id`
   do perfil e' **a CONVERSA, dentro do proprio SQL** (subconsulta em `vendas.conversas`), e nao
   um parametro vindo dos ~20 chamadores. Motivos: (a) e' exatamente a coluna com que os
-  consumidores casam (`lp.empresa_id = c.empresa_id`) — um parametro que discordasse da conversa
+  consumidores casam (`lp.empresa_id = c.empresa_id`) â€” um parametro que discordasse da conversa
   reintroduziria o bug; (b) nenhum chamador consegue poluir o campo (IA/API nao alcancam);
-  (c) diff minimo — zero mudanca de assinatura em caminho de producao.
+  (c) diff minimo â€” zero mudanca de assinatura em caminho de producao.
 - **Marcacao de origem (preparacao da Fase B):** coluna nova `empresa_id_origem`
   (`conversa` | `fallback_pj` | `backfill_conversa`; `NULL` = legado, procedencia desconhecida).
   E' o que permitira a Meta **recusar** o fallback da PJ na Fase B sem remover o fallback agora.
@@ -1283,28 +1377,28 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   producao**, e tela nova. Cai em TODOS os gatilhos de confirmacao do CLAUDE.md (schema/banco,
   segredos, rotas, muitos arquivos).
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
-  docs/analise-integracao-meta-multitenant.md: Sim (analise de 2026-08-06, 20 secoes — este pedido
+  docs/analise-integracao-meta-multitenant.md: Sim (analise de 2026-08-06, 20 secoes â€” este pedido
   e' a implementacao das Fases 2-6 daquele documento) | docs/ui-visual-standard.md: a consultar na
   Fase 5 | docs/ai-decision-log.md: a registrar na Fase 8.
 - **Fatos reconfirmados no codigo HOJE (nao sao hipotese, nao vieram so do relatorio):**
   1. `src/services/meta-capi.js:32-42` le `META_DATASET_ID`/`META_CAPI_TOKEN`/`META_PAGE_ID` do
      `process.env`. A funcao `enviarEventoMetaCAPI(evt, deps)` **nao recebe e nao conhece config**.
-  2. `src/services/meta-attribution.js:198-213` — `dispararEventosMetaPendentes` faz
+  2. `src/services/meta-attribution.js:198-213` â€” `dispararEventosMetaPendentes` faz
      `SELECT ... FROM vendas.lead_profiles WHERE p.origem='meta_ads'` **sem filtro de empresa_id**
      e manda todos os tenants para o mesmo dataset. Chamado por `sincronizarAtribuicaoMetaAds`
      (linha 158), que roda no tick global.
-  3. `meta-attribution.js:225` — `event_id = ${numero}:${event_name}`: **um LeadSubmitted e um
+  3. `meta-attribution.js:225` â€” `event_id = ${numero}:${event_name}`: **um LeadSubmitted e um
      Purchase por telefone, para sempre**. E' exatamente a dedup por telefone que o pedido proibe.
-  4. `meta-attribution.js:204-207` — `eventosDevidos` so pergunta `EXISTS(tipo='reuniao' AND
+  4. `meta-attribution.js:204-207` â€” `eventosDevidos` so pergunta `EXISTS(tipo='reuniao' AND
      excluido_em IS NULL)`: **reuniao cancelada e no-show ja contam como conversao hoje**.
-  5. `vendas.agenda_eventos` (`sql/init.sql:565`) — onde o BOT cria a reuniao — **nao tem
-     `empresa_id`**; e' chaveada por `usuario_id` → `vendas.dashboard_users`. `app.agenda_eventos`
+  5. `vendas.agenda_eventos` (`sql/init.sql:565`) â€” onde o BOT cria a reuniao â€” **nao tem
+     `empresa_id`**; e' chaveada por `usuario_id` â†’ `vendas.dashboard_users`. `app.agenda_eventos`
      (migration 011) tem `empresa_id NOT NULL`. Sao duas agendas com enums diferentes
      (`src/domain-enums.js`), e as duas aceitam `cancelado`/`nao_compareceu`/`concluido`.
   6. **Nao existe campo de VALOR de venda na reuniao.** O unico valor do sistema e'
      `vendas.conversas.venda_valor`, gravado por `PATCH /dashboard/agenda/:id/vendido`
-     (`src/agenda.js:1362-1384`) — rota do **dashboard legado, sem tenant**, que casa por telefone.
-  7. `src/meta-routes.js:13` — `GET /dashboard/meta/anuncios` devolve resultado de anuncios de
+     (`src/agenda.js:1362-1384`) â€” rota do **dashboard legado, sem tenant**, que casa por telefone.
+  7. `src/meta-routes.js:13` â€” `GET /dashboard/meta/anuncios` devolve resultado de anuncios de
      **todos os tenants** para qualquer admin legado.
   8. `frontend/app/dashboard/integracoes/page.tsx` ja existe (entregue ontem) como pagina
      **100% estatica**, com o card "Meta Conversions" em *Em breve* e zero chamada ao backend.
@@ -1321,7 +1415,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
     empresa_id" exige uma regra de resolucao declarada para as reunioes de `vendas.agenda_eventos`.
   - **(C) A Meta so aceita 2 nomes de evento no CTWA.** Com `action_source=business_messaging`,
     `LeadSubmitted` e `Purchase` passam e nomes de pixel sao rejeitados (subcode 2804066, ja
-    documentado no AGENTS.md). O pedido pede **tres** eventos configuraveis independentes —
+    documentado no AGENTS.md). O pedido pede **tres** eventos configuraveis independentes â€”
     o mapeamento dos tres para a taxonomia aceita e' uma decisao de produto, nao de codigo.
 - **Fora de escopo declarado (pelo proprio pedido):** OAuth/Facebook Login, Marketing API/gasto/
   CPA/ROAS, envio de no-show e cancelamento, modulo de vendas independente, coleta de campos novos
@@ -1331,9 +1425,9 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      (`venda_valor`, `venda_moeda`, `venda_registrada_em`) em `app.agenda_eventos`. Sem enum novo,
      sem modulo de vendas. `concluido` = realizada; `concluido` + valor = realizada com venda.
   2. **(B) A reuniao do BOT resolve empresa por `vendas.conversas.empresa_id`** (join por telefone
-     de `metadata->>'lead_numero'`). Sem resolucao ⇒ nenhum evento. Risco residual do fallback da
+     de `metadata->>'lead_numero'`). Sem resolucao â‡’ nenhum evento. Risco residual do fallback da
      PJ (`tenant.js:78`) declarado e aceito.
-  3. **(C) 3 eventos padrao distintos** — `LeadSubmitted` / `QualifiedLead` / `Purchase` —, com
+  3. **(C) 3 eventos padrao distintos** â€” `LeadSubmitted` / `QualifiedLead` / `Purchase` â€”, com
      "Testar conexao" exercitando TODOS os eventos habilitados em modo teste ANTES de a ativacao
      ser liberada (o AGENTS.md registra `QualifiedLead` rejeitado numa taxonomia anterior).
   4. **Superadmin continua passando**, como no resto do sistema; token nao e devolvido nem a ele e
@@ -1355,7 +1449,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Validacao executada:** `npm test` backend **1297/1297** (57 testes novos em 3 arquivos),
   `npm test` frontend **145/145** (17 novos), `npm run typecheck` backend e frontend limpos,
   `npm run smoke:preco` ok, e carga de todos os modulos novos via `require`.
-- **Pendencia declarada:** **verificacao visual nao realizada** — sem MCP de navegador na sessao.
+- **Pendencia declarada:** **verificacao visual nao realizada** â€” sem MCP de navegador na sessao.
   Falta uma passada visual em `dashboard/integracoes/meta` (desktop e mobile) e o **piloto em modo
   teste na PJ** antes de ativar qualquer tenant, que e o que prova o mapeamento `QualifiedLead`.
 
@@ -1375,7 +1469,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   CAPI multitenant (tudo isso esta em `out_of_scope`). O pedido exige entregar PRIMEIRO o mapa
   rotas-atuais x estrutura proposta e **so implementar apos aprovacao explicita**.
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
-  docs/ui-visual-standard.md: Sim (Fase 5 — o pedido mexe em sidebar/menu, caso coberto pela
+  docs/ui-visual-standard.md: Sim (Fase 5 â€” o pedido mexe em sidebar/menu, caso coberto pela
   Regra nova 1) | docs/analise-integracao-meta-multitenant.md: Sim (secao 14 ja PROPOE
   `frontend/app/dashboard/integracoes` admin-only, ainda nao implementada).
 - **Fatos confirmados no codigo (nao sao hipotese):**
@@ -1384,20 +1478,20 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      (`lib/useSession.ts:36`). Nao existe nenhuma nocao de grupo/submenu hoje.
   2. `dashboard/layout.tsx` renderiza `<Sidebar />` como coluna fixa (`sticky`), retratil
      (76px/256px, persistida em `localStorage.dashboard_toolbar_retraido`). **Nao existe
-     navegacao mobile separada** — nao ha `md:hidden`/drawer em lugar nenhum do frontend.
+     navegacao mobile separada** â€” nao ha `md:hidden`/drawer em lugar nenhum do frontend.
   3. Ja existe precedente de redirect de rota aposentada: `app/dashboard/empresa/page.tsx` faz
      `redirect('/dashboard/contextos')`. E o padrao a reusar para links antigos.
   4. `dashboard/aquisicao` **nao e uma pagina propria**: importa e renderiza
      `ProspeccaoPage` e `CaptacaoPage` em abas. Logo `/dashboard/prospeccao` e
      `/dashboard/captacao` existem como rota E como componente de outra rota.
-  5. Nao existe nada de "Integracoes" no frontend (grep vazio) — a area nasce nesta tarefa.
+  5. Nao existe nada de "Integracoes" no frontend (grep vazio) â€” a area nasce nesta tarefa.
   6. Nao existe pagina "Saudacoes" separada: hoje e uma pagina so,
      `/dashboard/prompts` = "Prompts & Saudacoes".
 - **Conflito material encontrado (motivo de parar e perguntar antes da Fase 3):** o criterio de
   aceite diz que o menu principal contem APENAS 5 itens, mas 8 itens de HOJE nao cabem nem nos 5
   nem na lista de filhos de Configuracoes: **Visao Geral, Aquisicao, Banco de Leads, Follow-ups,
   Roteiros, Agenda, Contas** (+ `contextos` aparece como "Instancias" nos filhos). Sao paginas
-  OPERACIONAIS, nao administrativas — enfia-las em Configuracoes contraria a propria regra de
+  OPERACIONAIS, nao administrativas â€” enfia-las em Configuracoes contraria a propria regra de
   produto do pedido, e omiti-las contraria o requisito de UX "nao esconder funcionalidades sem
   rota de acesso clara". Preciso da decisao do Victor antes de desenhar a hierarquia final.
 - **Arquivos que pretendo alterar (se aprovado):** `frontend/components/Sidebar.tsx` (grupos),
@@ -1407,7 +1501,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   `docs/ai-decision-log.md`.
 - **Fora de escopo declarado (pelo proprio pedido):** Meta CAPI multitenant, backend de
   conversoes, tabelas/migrations, leitura de gastos pela Marketing API. Acrescento: nenhuma
-  regra de permissao e afrouxada — `minRole` por item continua sendo a fonte, e a UI nunca
+  regra de permissao e afrouxada â€” `minRole` por item continua sendo a fonte, e a UI nunca
   vira o controle de acesso (o backend ja protege as rotas).
 - **Decisoes travadas com o Victor (Fase 2/6, antes de codar):**
   1. **Dois grupos expansiveis**, nao um. As paginas operacionais viram o grupo **Operacao**
@@ -1420,15 +1514,15 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      maior. Hoje ela nao existe: e comportamento novo, nao ajuste.
   3. **Integracoes** nasce como pagina com card "Meta Conversions" em estado *Em breve*,
      admin-only, **sem nenhuma chamada ao backend e sem campo de credencial**.
-  4. **Nenhuma rota e renomeada.** Muda so o ROTULO (`/conversas` → "Central de Mensagens",
-     `/contextos` → "Instancias", `/llm` → "Modelo e IA", `/uso` → "Uso e custos"). Zero
+  4. **Nenhuma rota e renomeada.** Muda so o ROTULO (`/conversas` â†’ "Central de Mensagens",
+     `/contextos` â†’ "Instancias", `/llm` â†’ "Modelo e IA", `/uso` â†’ "Uso e custos"). Zero
      redirect novo, zero link/bookmark/doc quebrado. Consequencia: `/dashboard/empresa`
      continua sendo o unico redirect do projeto.
-  5. **Saudacoes NAO vira pagina propria** nesta fase — continua em `/dashboard/prompts`
+  5. **Saudacoes NAO vira pagina propria** nesta fase â€” continua em `/dashboard/prompts`
      ("Prompts e Saudacoes"). Separar e trabalho de conteudo, fora do escopo de navegacao.
 - **Ponto de atencao herdado (achado 2 da lista acima):** o alerta de instancia WhatsApp
   desconectada hoje e uma bolinha no item "Instancia". Com esse item dentro de um grupo FECHADO,
-  o alerta ficaria invisivel — ele precisa **propagar para o cabecalho do grupo**, senao a
+  o alerta ficaria invisivel â€” ele precisa **propagar para o cabecalho do grupo**, senao a
   reorganizacao esconde um aviso operacional que existe hoje.
 - **Entregue (apos o "pode implementar" do Victor):** NOVO `frontend/lib/navegacao.js` +
   `.d.ts` + `.test.js` (arvore + regras PURAS, 22 testes), `frontend/components/Sidebar.tsx`
@@ -1443,7 +1537,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   compilando 200 no `next dev`.
 - **`next build` NAO foi rodado de proposito:** havia um `next dev` ativo na maquina e dois
   processos sobre o mesmo `.next` corrompem o cache (problema ja conhecido neste ambiente).
-- **Pendencia declarada:** **verificacao visual nao realizada** — o MCP de navegador nao estava
+- **Pendencia declarada:** **verificacao visual nao realizada** â€” o MCP de navegador nao estava
   disponivel na sessao, entao nao houve captura de tela. Falta uma passada visual em
   desktop/tablet/mobile no drawer, no trilho retraido e no alerta de instancia no cabecalho do
   grupo antes do deploy.
@@ -1464,33 +1558,33 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   sem migration, sem env nova, sem rota nova, **sem chamada nova ao backend**, sem prompt, sem
   autenticacao. Nenhuma regra de coleta, elegibilidade, custo ou pontuacao muda.
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
-  docs/ui-visual-standard.md: Sim (o padrao reusado e o componente `components/ui/Abas.tsx` —
-  pilulas WAI-ARIA em trilho arredondado — ja usado NESTA mesma tela em "Acompanhar resultados").
+  docs/ui-visual-standard.md: Sim (o padrao reusado e o componente `components/ui/Abas.tsx` â€”
+  pilulas WAI-ARIA em trilho arredondado â€” ja usado NESTA mesma tela em "Acompanhar resultados").
 - **Fatos confirmados no codigo (nao sao hipotese):**
   1. `components/RotinasAquisicao.tsx` renderiza HOJE os dois blocos no mesmo componente:
      card "Rotinas de coleta" (L228-332) e card "Busca avulsa" (L334-380). O estado do
      formulario avulso (`avulsa`, L92) e o polling de 20s (L121-124) vivem nesse componente.
   2. O historico de coletas ja e um componente proprio (`HistoricoColetas.tsx`), alimentado por
-     `dadosRotinas.atividade`, que vem do `onDados` de `RotinasAquisicao` — nao ha requisicao
+     `dadosRotinas.atividade`, que vem do `onDados` de `RotinasAquisicao` â€” nao ha requisicao
      dedicada a mover.
   3. Os filtros da tabela de leads (`filtro`, `buscaDados`, `mercado`, `cidadeFiltro`, `ordem`)
-     vivem em `page.tsx`, que permanece montado — alternar modo nao os reinicia.
+     vivem em `page.tsx`, que permanece montado â€” alternar modo nao os reinicia.
   4. `carregar()` depende de `[empresaId, filtro, buscaDados, mercado, cidadeFiltro]` e o
      `carregar` das rotinas depende de `[empresaId, base]`: **nenhum dos dois depende do modo**,
      logo trocar de modo nao gera requisicao nem coleta.
-  5. O projeto NAO usa `useSearchParams` em lugar nenhum (grep) — nao ha padrao de parametro
+  5. O projeto NAO usa `useSearchParams` em lugar nenhum (grep) â€” nao ha padrao de parametro
      de rota estabelecido.
 - **Decisoes (Fase 6/8):**
   1. `RotinasAquisicao` continua **sempre montado**, na mesma posicao da arvore, recebendo
      `modo` como prop e renderizando so o card do modo ativo. E o unico jeito de nao reiniciar
-     o formulario da busca ao ir em Rotinas e voltar — desmontar o componente perderia o estado.
+     o formulario da busca ao ir em Rotinas e voltar â€” desmontar o componente perderia o estado.
   2. **Nenhum componente novo de toggle**: reuso do `Abas`/`PainelAba` existente (teclado,
      `aria-selected`, foco visivel, trilho rolavel no mobile ja resolvidos).
   3. O bloco de `erro` do `RotinasAquisicao` sai de dentro do card de rotinas para o container:
-     hoje um erro de "Buscar agora" so era exibido dentro do card de rotinas — no modo Busca
+     hoje um erro de "Buscar agora" so era exibido dentro do card de rotinas â€” no modo Busca
      ele ficaria invisivel. Correcao necessaria da separacao, sem duplicar a mensagem.
   4. A aba "Historico de coletas" sai de "Acompanhar resultados" (que fica com Desempenho e
-     Respostas, no modo Busca) e vira secao propria do modo Rotinas — e historico operacional
+     Respostas, no modo Busca) e vira secao propria do modo Rotinas â€” e historico operacional
      de rotina, nao revisao de leads.
   5. Persistencia do modo: `sessionStorage` (sessao) + `?modo=` via `history.replaceState`,
      lidos em `useEffect` (nunca no render, para nao quebrar a hidratacao). Sem
@@ -1525,11 +1619,11 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   **Acompanhamento** desta mesma tela, L787-795).
 - **Fatos confirmados no codigo (nao sao hipotese):**
   1. `page.tsx:640` calcula `visiveis = filtrarFila(fila, view)` e `:710` mapeia `visiveis` INTEIRO
-     no `<tbody>` — nao ha recorte de pagina na aba Fila hoje.
+     no `<tbody>` â€” nao ha recorte de pagina na aba Fila hoje.
   2. A fila ja chega ORDENADA por prioridade do servidor (`services/ligacao-prioridade.js`) e
-     `filtrarFila` e um `.filter()` que **preserva a ordem** — logo, paginar depois de filtrar ja
+     `filtrarFila` e um `.filter()` que **preserva a ordem** â€” logo, paginar depois de filtrar ja
      satisfaz "ordenar o conjunto completo antes de paginar". Nada e reordenado no cliente.
-  3. Lead sem telefone discavel nao entra na fila (requisito de ENTRADA do backend) — o total
+  3. Lead sem telefone discavel nao entra na fila (requisito de ENTRADA do backend) â€” o total
      paginado ja e' o de elegiveis + filtrados, sem trabalho novo.
   4. O estado `pagina`/`POR_PAGINA` que existe hoje (`:546-548`) e' **exclusivo da aba
      Acompanhamento**; reusa-lo na Fila acoplaria as duas listas.
@@ -1537,14 +1631,14 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   1. Paginacao **client-side**, como os filtros: a fila ja vem inteira (`fila?limit=500`) e o
      recorte e' de apresentacao. Trocar de pagina **nao faz requisicao**.
   2. Logica PURA (`paginar`, `resumoPaginacao`, `normalizarPorPagina`, `TAMANHOS_PAGINA`) vai para
-     `frontend/lib/fila-ligacoes-view.js` + `.d.ts` + testes — nenhuma aritmetica de pagina no `.tsx`,
+     `frontend/lib/fila-ligacoes-view.js` + `.d.ts` + testes â€” nenhuma aritmetica de pagina no `.tsx`,
      mesma convencao dos filtros.
   3. Tamanho de pagina **nao entra na `FilaView`**: nao e' filtro (nao pode virar chip nem contar
      em `contarFiltrosAtivos`). Persiste em chave propria do localStorage.
   4. "Ligar agora" e o destaque ambar continuam apontando para o **1o do conjunto filtrado
-     inteiro**, nao para o 1o da pagina atual — a fila e priorizada, o topo nao muda por navegacao.
+     inteiro**, nao para o 1o da pagina atual â€” a fila e priorizada, o topo nao muda por navegacao.
   5. Rodape aparece quando `total > porPagina` **ou** quando o operador escolheu um tamanho
-     diferente do padrao — senao, escolher 100 com 40 leads esconderia o seletor e prenderia a
+     diferente do padrao â€” senao, escolher 100 com 40 leads esconderia o seletor e prenderia a
      escolha.
 - **Arquivos alterados:** `frontend/lib/fila-ligacoes-view.js` + `.d.ts` + `.test.js`,
   `frontend/app/dashboard/central-ligacoes/page.tsx`.
@@ -1572,15 +1666,15 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
   docs/project-map.md: Sim | docs/architecture-rules.md: Sim.
 - **Defeito real confirmado no codigo (nao e' hipotese):**
-  1. `src/prospecting.js:1031` — `tem_site: !!place.websiteUri` (qualquer URL do Maps).
-  2. `src/prospecting.js:1065` — `tem_site: !!(pIn.tem_site || pIn.site)` na persistencia.
-  3. `src/services/social-capture.js:284,321` — `site = contato.link_bio || perfil.website` e
+  1. `src/prospecting.js:1031` â€” `tem_site: !!place.websiteUri` (qualquer URL do Maps).
+  2. `src/prospecting.js:1065` â€” `tem_site: !!(pIn.tem_site || pIn.site)` na persistencia.
+  3. `src/services/social-capture.js:284,321` â€” `site = contato.link_bio || perfil.website` e
      `tem_site = Boolean(site)`: o **link da bio do Instagram** (tipicamente Linktree/WhatsApp)
      e' gravado como site proprio. Este e' o produtor mais grave.
-  4. `src/services/ligacao-prioridade.js:95-101` (`situacaoSite`) — `if (site || tem_site === true)
+  4. `src/services/ligacao-prioridade.js:95-101` (`situacaoSite`) â€” `if (site || tem_site === true)
      return 'tem_site'`: qualquer URL derruba o bonus de 40 pontos da fila de ligacoes.
-  5. `src/services/aquisicao-curadoria-ranking.js:54` — `!!(lead.tem_site || texto(lead.site))`.
-  6. `src/services/lead-score-cadastro.js:29,41-42,53` — 20 pontos de "Tem site" por qualquer URL.
+  5. `src/services/aquisicao-curadoria-ranking.js:54` â€” `!!(lead.tem_site || texto(lead.site))`.
+  6. `src/services/lead-score-cadastro.js:29,41-42,53` â€” 20 pontos de "Tem site" por qualquer URL.
   7. Frontend: `banco-leads/page.tsx:263,358` e `prospeccao/page.tsx:136,405-407` decidem
      "tem site" localmente por `site || tem_site` (logica duplicada fora do canonico).
 - **Areas mapeadas (leitura antes de editar):** `src/prospecting.js` (mapearPlace,
@@ -1593,10 +1687,10 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   `frontend/app/dashboard/{banco-leads,prospeccao,central-ligacoes}/page.tsx`,
   `frontend/components/AssistenteOportunidades.tsx`, `frontend/lib/fila-ligacoes-view.js`.
 - **Fora de escopo declarado:** o `tem_site` **conversacional** (o que o LEAD declara no
-  WhatsApp) — `prompts/*.md`, `src/agent.js`, `src/turn-context-reader.js`, `src/core-funnel.js`,
+  WhatsApp) â€” `prompts/*.md`, `src/agent.js`, `src/turn-context-reader.js`, `src/core-funnel.js`,
   `vendas.lead_profiles`. Ali `tem_site` nasce de fala humana, nao de URL; o classificador de URL
   nao se aplica e mexer nisso alteraria prompt de producao sem necessidade.
-- **Proxima etapa:** Fase 1/2 — apresentar entendimento, impacto e as duas decisoes de
+- **Proxima etapa:** Fase 1/2 â€” apresentar entendimento, impacto e as duas decisoes de
   arquitetura (onde o canonico e' persistido; como a correcao historica roda) e aguardar
   confirmacao antes de implementar, conforme CLAUDE.md (schema/banco + mutacao de dados).
 
@@ -1616,30 +1710,30 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   **fila padrao** (nao a uma lista sem criterio). Em telas menores, drawer com rolagem interna.
 - **E projeto/tarefa de alteracao?** Sim. Escopo PEQUENO/MEDIO e **100% de apresentacao**:
   **sem schema, sem migration, sem env nova, sem rota nova, sem chamada nova ao backend, sem
-  prompt, sem autenticacao**. Nenhuma regra de elegibilidade/prioridade da fila muda — quem entra
+  prompt, sem autenticacao**. Nenhuma regra de elegibilidade/prioridade da fila muda â€” quem entra
   e a ordem continuam decididos no backend (`services/ligacao-prioridade.js`).
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
-  docs/ui-visual-standard.md: Sim (o padrao reusado e o `PersonalizarModal` do Banco de Leads —
+  docs/ui-visual-standard.md: Sim (o padrao reusado e o `PersonalizarModal` do Banco de Leads â€”
   painel flutuante sem backdrop escuro, `max-h`, rolagem interna, cabecalho/rodape fixos).
 - **Areas mapeadas (leitura antes de editar):**
   `frontend/app/dashboard/central-ligacoes/page.tsx` (`FiltrosFila`, barra da aba Fila, chips),
   `frontend/lib/fila-ligacoes-view.js` (+ `.d.ts`/`.test.js`),
-  `frontend/app/dashboard/banco-leads/page.tsx` (`PersonalizarModal`, L1762-1881 — referencia).
+  `frontend/app/dashboard/banco-leads/page.tsx` (`PersonalizarModal`, L1762-1881 â€” referencia).
 - **Defeito real confirmado no codigo:** `page.tsx:537` renderiza `<FiltrosFila>` **no fluxo**,
   entre os chips e a tabela; o painel tem 6 grupos e `space-y-5`, entao abrir empurra a tabela
-  centenas de pixels para baixo. Nao e' hipotese — nao ha portal nem posicionamento fixo ali.
+  centenas de pixels para baixo. Nao e' hipotese â€” nao ha portal nem posicionamento fixo ali.
 - **Decisoes (Fase 6/8):**
   1. Painel em `createPortal` no `<body>` com `position:fixed` calculado do
-     `getBoundingClientRect()` do botao — mesma tecnica ja usada no tooltip da Prioridade nesta
-     mesma tela. Portal ⇒ altura zero no fluxo ⇒ a tabela nao se move (criterio de aceite 1).
+     `getBoundingClientRect()` do botao â€” mesma tecnica ja usada no tooltip da Prioridade nesta
+     mesma tela. Portal â‡’ altura zero no fluxo â‡’ a tabela nao se move (criterio de aceite 1).
   2. **Rascunho x aplicado:** o painel edita uma copia local; so "Aplicar filtros" troca a view da
      tela. Fechar (botao, clique fora, Escape) DESCARTA o rascunho e mantem o aplicado.
-  3. "Limpar filtros" do painel volta a **`filaPadrao()`** (nao iniciados), nao ao neutro — o
+  3. "Limpar filtros" do painel volta a **`filaPadrao()`** (nao iniciados), nao ao neutro â€” o
      pedido exige que Limpar restaure o padrao da fila. `limparFiltros()` (fila inteira) continua
      existindo, oferecida no estado vazio como saida explicita.
   4. "Campanha" e "Telefone disponivel" seguem como INDICADORES, nao controles (decisao da tarefa
      anterior, mantida): a campanha ja tem seletor no topo e telefone discavel e' requisito de
-     ENTRADA garantido no backend — o filtro seria no-op. A ordem ("maior prioridade primeiro")
+     ENTRADA garantido no backend â€” o filtro seria no-op. A ordem ("maior prioridade primeiro")
      entra como indicador pelo mesmo motivo: quem ordena e' o servidor.
   5. Novo helper PURO `viewsIguais(a, b)` em `fila-ligacoes-view.js` para saber se o rascunho
      ainda nao foi aplicado e se ja se esta na fila padrao. Nenhuma logica de filtro no `.tsx`.
@@ -1667,16 +1761,16 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   comercial / Perfil do negocio / Presenca digital / Qualidade do dado), nao so "site".
 - **E projeto/tarefa de alteracao?** Sim. Escopo MEDIO, quase todo em apresentacao + 1 peso de
   regra pura. **Sem schema, sem migration, sem env nova, sem rota nova, sem prompt, sem
-  autenticacao, sem coleta nova** — todos os campos usados ja sao lidos hoje do cadastro.
+  autenticacao, sem coleta nova** â€” todos os campos usados ja sao lidos hoje do cadastro.
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
   docs/ui-visual-standard.md: Sim (padrao de filtros/chips do Banco de Leads reusado).
 - **Areas mapeadas (leitura antes de editar):** `src/services/ligacao-prioridade.js`,
   `src/db/campanhas.js` (`filaDeTrabalho`, `listarLeadsDaCampanha`), `src/routes/api-campanhas.js`,
   `frontend/lib/fila-ligacoes-view.js` (+ `.d.ts`/`.test.js`),
   `frontend/app/dashboard/central-ligacoes/page.tsx`,
-  `frontend/app/dashboard/banco-leads/page.tsx` (`PersonalizarModal` — padrao visual dos grupos).
+  `frontend/app/dashboard/banco-leads/page.tsx` (`PersonalizarModal` â€” padrao visual dos grupos).
 - **Defeito real confirmado no codigo (nao e hipotese):** o tooltip do circulo de prioridade e
-  `position:absolute` DENTRO do `<td>`, e o wrapper da tabela e `overflow-hidden` — a bolha da
+  `position:absolute` DENTRO do `<td>`, e o wrapper da tabela e `overflow-hidden` â€” a bolha da
   1a linha e cortada pela borda superior do container. O comentario no codigo afirmava o
   contrario. Correcao: renderizar em PORTAL (`createPortal`) com `position:fixed` calculado do
   `getBoundingClientRect()` do circulo; fecha em scroll/resize.
@@ -1689,12 +1783,12 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
      `PESOS.com_tentativa = 0`. Retentativa passa a ser FILA (filtro), nao bonus.
   2. Chave do localStorage sobe para `filaLigacoesView.v2`: a view salva na versao anterior tem
      `modo` (extinto) e `tentativas:'todas'` (valido no enum novo), e sobreviveria a
-     normalizacao — o operador antigo nao veria a fila padrao "nao iniciados".
+     normalizacao â€” o operador antigo nao veria a fila padrao "nao iniciados".
   3. "Campanha" (grupo Operacao) NAO ganha um segundo seletor dentro do painel: o controle ja
      existe no topo da pagina; duplicar o mesmo estado em dois lugares e o que o AGENTS.md
      proibe. O painel mostra a campanha ativa como indicador com a dica de onde troca-la.
   4. "Telefone disponivel" (grupo Contato) tambem NAO vira controle: telefone discavel e
-     requisito de ENTRADA garantido no backend — o filtro seria sempre no-op. Vira nota fixa.
+     requisito de ENTRADA garantido no backend â€” o filtro seria sempre no-op. Vira nota fixa.
   5. `listarLeadsDaCampanha` passa a trazer os mesmos campos enriquecidos + `situacao_site`
      (reusando a funcao PURA `situacaoSite`, sem reimplementar a regra no front), senao a visao
      detalhada abriria VAZIA quando o atendimento e aberto pela aba Acompanhamento.
@@ -1721,7 +1815,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   (Bright Data/Banco de Leads) e em `app.ligacoes` (tentativas).
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
   docs/project-map.md: Sim | docs/architecture-rules.md: Sim | docs/ui-visual-standard.md: Sim.
-- **Areas mapeadas (leitura):** `src/db/campanhas.js` (`filaDeTrabalho` — unica consumidora e'
+- **Areas mapeadas (leitura):** `src/db/campanhas.js` (`filaDeTrabalho` â€” unica consumidora e'
   `GET /campanhas/:id/fila`), `src/routes/api-campanhas.js`, `src/db/ligacoes.js`,
   `src/routes/api-ligacoes.js`, `src/services/followup-call-score.js` (padrao de PESOS puros),
   `sql/init.sql` + migrations 012/016/021 (colunas de prospects), `frontend/lib/ligacao-fone.js`,
@@ -1731,10 +1825,10 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   - NOVO `backend/src/services/ligacao-prioridade.js` (PURO: PESOS, situacao do site,
     telefone discavel, `calcularPrioridade`, ordenacao da fila).
   - NOVO `backend/test/ligacao-prioridade.test.js`.
-  - EDIT `backend/src/db/campanhas.js` — `filaDeTrabalho` passa a trazer os sinais ja existentes
+  - EDIT `backend/src/db/campanhas.js` â€” `filaDeTrabalho` passa a trazer os sinais ja existentes
     do prospect, excluir telefone nao discavel e devolver `prioridade` (score + faixa + motivos).
-  - NOVO `frontend/lib/fila-ligacoes-view.js` (+ `.d.ts` + `.test.js`) — filtros/chips PUROS.
-  - EDIT `frontend/app/dashboard/central-ligacoes/page.tsx` — circulo de prioridade + tooltip,
+  - NOVO `frontend/lib/fila-ligacoes-view.js` (+ `.d.ts` + `.test.js`) â€” filtros/chips PUROS.
+  - EDIT `frontend/app/dashboard/central-ligacoes/page.tsx` â€” circulo de prioridade + tooltip,
     alternancia simplificada/detalhada, barra de filtros; coluna Lead sem nicho no padrao.
 - **Fora de escopo declarado:** banco/migrations, Operacao da Ligacao (cockpit, roteiro, sinais,
   encerramento), aba Acompanhamento, aba Funil, Banco de Leads, coleta Bright Data (nenhuma
@@ -1770,7 +1864,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   `src/db/auditoria.js`, `src/freelandoo/crypto.js`, `src/domain-enums.js`,
   `sql/init.sql` (vendas.*), migrations `001, 006, 011, 013, 019, 032, 039, 047`,
   `frontend/app/dashboard/*`, `.env.example`.
-- **Achado central (fato verificado no codigo, nao hipotese):** JA EXISTE integracao Meta CAPI —
+- **Achado central (fato verificado no codigo, nao hipotese):** JA EXISTE integracao Meta CAPI â€”
   e ela e **100% single-tenant e global**. `meta-capi.js` le `META_DATASET_ID`/`META_CAPI_TOKEN`/
   `META_PAGE_ID` do PROCESSO; `dispararEventosMetaPendentes` varre `vendas.lead_profiles` **sem
   filtro de empresa_id** e manda TODOS os leads de todos os tenants para o MESMO dataset. Detalhes,
@@ -1790,13 +1884,13 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **IA/Ferramenta:** Claude Code (Opus 5)
 - **Pedido resumido:** O botao premium "Analisar oportunidades" deixa de abrir a sessao de analise
   direto. Ele passa a abrir um **modal curto e guiado** ("O que voce quer fazer agora?") com duas
-  opcoes: (1) **Revisar oportunidades encontradas** — vai direto ao fluxo atual de aprovar/descartar;
-  (2) **Encontrar novas oportunidades** — busca guiada perguntando o que mudar (nicho, localidade ou
+  opcoes: (1) **Revisar oportunidades encontradas** â€” vai direto ao fluxo atual de aprovar/descartar;
+  (2) **Encontrar novas oportunidades** â€” busca guiada perguntando o que mudar (nicho, localidade ou
   ambos). Sem configuracao manual de criterios, preservando o contexto da busca atual.
-- **E projeto/tarefa de alteracao?** Sim — front-end (novo componente + fluxo) e um endpoint
+- **E projeto/tarefa de alteracao?** Sim â€” front-end (novo componente + fluxo) e um endpoint
   read-only novo no back-end. **Sem migration, sem env nova, sem mudanca de schema.**
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
-  docs/ui-visual-standard.md: Sim (modal — Fase 5) | docs/ai-decision-log.md: a registrar na Fase 8.
+  docs/ui-visual-standard.md: Sim (modal â€” Fase 5) | docs/ai-decision-log.md: a registrar na Fase 8.
 - **Areas mapeadas (leitura antes de editar):** `frontend/components/RotinasAquisicao.tsx`
   (Busca avulsa + gatilho), `frontend/components/AssistenteOportunidades.tsx` (sessao),
   `frontend/lib/ligacao-estado.js` (padrao de logica PURA testavel em `lib/*.test.js`),
@@ -1807,7 +1901,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Fatos confirmados no codigo (nao sao hipotese):**
   1. `GET /curadoria` chama `montarEstado`, que **remonta a fila e chama a IA** quando a sessao
      ativa esta com `fila_json` vazio. Usar esse GET so para desenhar o modal de entrada custaria
-     uma chamada de IA por abertura — por isso nasce um `GET /curadoria/resumo` read-only.
+     uma chamada de IA por abertura â€” por isso nasce um `GET /curadoria/resumo` read-only.
   2. `iniciarSessao` devolve a sessao ATIVA existente e **ignora** o mercado pedido
      (`reaproveitada: true`). Hoje isso e' silencioso; o modal passa a mostrar a sessao em
      andamento explicitamente.
@@ -1821,7 +1915,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Areas possivelmente impactadas:** Front-end (novo modal + novo modulo puro em `lib/`),
   Back-end (1 rota GET read-only), Banco: **Nao**, Custos: **reduz** (o modal nao paga IA),
   Permissoes: mantidas (admin-only + `requireEmpresaAccess`), Integracoes: nenhuma nova.
-- **Proxima etapa:** Fases 3-9 — implementar o diff minimo e validar com `npm test` (back e front)
+- **Proxima etapa:** Fases 3-9 â€” implementar o diff minimo e validar com `npm test` (back e front)
   e `npm run typecheck`.
 
 ---
@@ -1835,7 +1929,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   justificativa curta da IA, **Aprovar = importa o lead** (idempotente, so conta lead NOVO) e
   **Descartar = nao importa + vira sinal de aprendizado**. O maximo informado limita os leads
   NOVOS APROVADOS, nao os candidatos avaliados. Criterios passam a ser automaticos/invisiveis.
-- **E projeto/tarefa de alteracao?** Sim — Fase 1 (analise de impacto) obrigatoria antes de codar;
+- **E projeto/tarefa de alteracao?** Sim â€” Fase 1 (analise de impacto) obrigatoria antes de codar;
   o proprio pedido define um `decision_gate`.
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
   docs/ui-visual-standard.md: a consultar na Fase 5 | docs/ai-decision-log.md: a registrar na Fase 8.
@@ -1849,7 +1943,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   `mapearPlace` 1016), migrations `053` e `054`, `sql/init.sql` (prospectador.prospects).
 - **Conflito material encontrado (motivo do decision_gate):** o pedido descreve um assistente
   **POR LEAD** (aprovar importa o lead), mas (1) a Busca avulsa de hoje **ja importa todos** os
-  leads encontrados automaticamente pelo worker — nao existe area de candidatos nao importados; e
+  leads encontrados automaticamente pelo worker â€” nao existe area de candidatos nao importados; e
   (2) o "Assistente de Oportunidades" ja entregue (commit 6e4beed, migration 054) e' **POR
   MERCADO/ROTINA**, com o mesmo nome, o mesmo botao "Analisar oportunidades" e o mesmo lugar na tela.
 - **Decisao pendente do Victor:** onde nasce o candidato (area de espera antes da importacao x
@@ -1864,47 +1958,47 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Pedido resumido:** Transformar a **Busca IA** (que hoje escolhe nicho+cidade sozinha e DISPARA
   coleta paga) em um **Assistente de Oportunidades**: analisa rotinas, resultados de coleta e
   resultado comercial por mercado, e SUGERE (criar rotina, pausar/revisar, variar mercado, ajustar
-  quantidade/intervalo/dias) com motivo, evidências e confiança. O administrador **sempre aprova**;
-  a IA nunca cria/edita/ativa rotina nem inicia coleta. Decisões (aprovar/editar/dispensar) ficam
-  registradas para a mesma sugestão não reaparecer sem motivo novo. A Busca IA legada continua
-  funcional nesta etapa (sem remoção).
-- **E projeto/tarefa de alteracao?** Sim — feature GRANDE e ESTRUTURAL: migration nova, módulo de
-  sinais + geração de sugestões, rotas admin novas, nova seção na tela de Aquisição.
+  quantidade/intervalo/dias) com motivo, evidÃªncias e confianÃ§a. O administrador **sempre aprova**;
+  a IA nunca cria/edita/ativa rotina nem inicia coleta. DecisÃµes (aprovar/editar/dispensar) ficam
+  registradas para a mesma sugestÃ£o nÃ£o reaparecer sem motivo novo. A Busca IA legada continua
+  funcional nesta etapa (sem remoÃ§Ã£o).
+- **E projeto/tarefa de alteracao?** Sim â€” feature GRANDE e ESTRUTURAL: migration nova, mÃ³dulo de
+  sinais + geraÃ§Ã£o de sugestÃµes, rotas admin novas, nova seÃ§Ã£o na tela de AquisiÃ§Ã£o.
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
   docs/architecture-rules.md: Sim | docs/project-map.md: Sim | docs/ui-visual-standard.md: a
   consultar na Fase 5 | docs/project-architecture.md: Sim | docs/ai-decision-log.md: a registrar
   na Fase 8.
 - **Areas mapeadas (leitura, antes de qualquer edicao):**
   - `src/prospecting.js`: `selecionarMercadoDiarioIA` (2596), `resumoMercadosProspeccao` (2561),
-    `verificarAgendaBuscaRecorrenteProspeccao` (2972 — é ELE que chama `pesquisarPlaces` com a
+    `verificarAgendaBuscaRecorrenteProspeccao` (2972 â€” Ã© ELE que chama `pesquisarPlaces` com a
     escolha da IA), `executarRotinasAquisicao` (3039), `pesquisarPlaces` (3710).
-  - `src/services/aquisicao-rotinas-scheduler.js` (lógica pura de tempo/normalização/validação),
+  - `src/services/aquisicao-rotinas-scheduler.js` (lÃ³gica pura de tempo/normalizaÃ§Ã£o/validaÃ§Ã£o),
     `src/db/aquisicao-rotinas.js` (CRUD + `listarAtividadeRecente`), `src/routes/api-aquisicao-rotinas.js`.
-  - `src/services/prospecting-settings.js` (config legada da Busca IA: estratégia, nichos/regiões
+  - `src/services/prospecting-settings.js` (config legada da Busca IA: estratÃ©gia, nichos/regiÃµes
     permitidos, `busca_estado`), migrations `027` e `053`.
-  - `src/routes/api-prospeccao.js` (`/resultados`, `/analytics`, `/metricas`) — fonte de sinal
-    comercial já existente por nicho/cidade.
+  - `src/routes/api-prospeccao.js` (`/resultados`, `/analytics`, `/metricas`) â€” fonte de sinal
+    comercial jÃ¡ existente por nicho/cidade.
   - `index.js:98-99` (montagem admin-only) e `src/agent.js:483-495` (tick de 60s dos workers).
   - Front: `frontend/app/dashboard/prospeccao/page.tsx` e `frontend/components/RotinasAquisicao.tsx`.
 - **Fatos confirmados no codigo (nao sao hipotese):**
-  1. A autonomia de coleta paga da Busca IA está em `verificarAgendaBuscaRecorrenteProspeccao`,
-     não em `selecionarMercadoDiarioIA` (que só devolve `{nicho, cidade, motivo, confianca}`).
-  2. O sinal comercial por mercado JÁ existe: `prospectador.prospects` (status
-     `enviado`/`respondeu`), `prospectador.lead_disparos` e `app.agenda_eventos` (reuniões, casadas
-     por telefone). O sinal de coleta está em `prospectador.busca_snapshots`
+  1. A autonomia de coleta paga da Busca IA estÃ¡ em `verificarAgendaBuscaRecorrenteProspeccao`,
+     nÃ£o em `selecionarMercadoDiarioIA` (que sÃ³ devolve `{nicho, cidade, motivo, confianca}`).
+  2. O sinal comercial por mercado JÃ existe: `prospectador.prospects` (status
+     `enviado`/`respondeu`), `prospectador.lead_disparos` e `app.agenda_eventos` (reuniÃµes, casadas
+     por telefone). O sinal de coleta estÃ¡ em `prospectador.busca_snapshots`
      (`total_prospects`/`novos_prospects`) e nos contadores da rotina.
-  3. Isolamento por empresa já é padrão em todas as tabelas envolvidas.
-- **Areas possivelmente impactadas:** Banco (migration ADITIVA nova para sugestões/decisões),
-  back-end (novo service de sinais + geração, novas rotas admin), front-end (nova seção em
-  Aquisição), custo de IA (1 chamada por análise — rastreada em Uso & Custo por empresa),
-  visual/UX (nova seção), permissões (mantidas: `requireAuth` + `requireRole('admin')` +
-  `requireEmpresaAccess`). SEM impacto em envio de WhatsApp, Banco de Leads, prompts de produção
-  ou segredos. NENHUMA chamada paga à Bright Data é feita por este módulo.
-- **Restricao declarada pelo usuario:** a IA não pode chamar Bright Data nem qualquer função de
-  disparo; não pode alterar rotinas direto no banco; a aprovação passa por rota autenticada de
-  admin com validação de backend. Nenhuma chamada paga real na validação.
-- **Proxima etapa:** Fase 1-6 — entendimento, impacto e **confirmação da arquitetura com o Victor**
-  antes de escrever código (feature estrutural com migration).
+  3. Isolamento por empresa jÃ¡ Ã© padrÃ£o em todas as tabelas envolvidas.
+- **Areas possivelmente impactadas:** Banco (migration ADITIVA nova para sugestÃµes/decisÃµes),
+  back-end (novo service de sinais + geraÃ§Ã£o, novas rotas admin), front-end (nova seÃ§Ã£o em
+  AquisiÃ§Ã£o), custo de IA (1 chamada por anÃ¡lise â€” rastreada em Uso & Custo por empresa),
+  visual/UX (nova seÃ§Ã£o), permissÃµes (mantidas: `requireAuth` + `requireRole('admin')` +
+  `requireEmpresaAccess`). SEM impacto em envio de WhatsApp, Banco de Leads, prompts de produÃ§Ã£o
+  ou segredos. NENHUMA chamada paga Ã  Bright Data Ã© feita por este mÃ³dulo.
+- **Restricao declarada pelo usuario:** a IA nÃ£o pode chamar Bright Data nem qualquer funÃ§Ã£o de
+  disparo; nÃ£o pode alterar rotinas direto no banco; a aprovaÃ§Ã£o passa por rota autenticada de
+  admin com validaÃ§Ã£o de backend. Nenhuma chamada paga real na validaÃ§Ã£o.
+- **Proxima etapa:** Fase 1-6 â€” entendimento, impacto e **confirmaÃ§Ã£o da arquitetura com o Victor**
+  antes de escrever cÃ³digo (feature estrutural com migration).
 
 ---
 
@@ -1917,7 +2011,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   1-2 buscas/dia; expor dias da semana (ja suportados no backend); corrigir a UF ausente na
   busca manual; e endurecer o disparo pago (idempotencia, tentativa persistida ANTES do trigger,
   uma coleta paga por empresa por vez, politica de tentativas/expiracao).
-- **E projeto/tarefa de alteracao?** Sim — feature GRANDE e ESTRUTURAL: migration nova, troca do
+- **E projeto/tarefa de alteracao?** Sim â€” feature GRANDE e ESTRUTURAL: migration nova, troca do
   modelo de agendamento, rotas novas, reescrita do scheduler/worker de busca e da tela.
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | docs/ai-workflow.md: Sim |
   docs/project-map.md: Sim | docs/architecture-rules.md: Sim | docs/ui-visual-standard.md: Sim |
@@ -1936,12 +2030,12 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   - `src/routes/api-prospeccao.js` (rotas `/buscar`, `/buscas`, `/configuracao`).
   - `frontend/app/dashboard/prospeccao/page.tsx` (tela unica de configuracao).
 - **Problemas confirmados no codigo (nao sao hipotese):**
-  1. `api-prospeccao.js` POST `/buscar` envia so `{nicho, cidade}` — a UF (`estado_padrao`) NAO
+  1. `api-prospeccao.js` POST `/buscar` envia so `{nicho, cidade}` â€” a UF (`estado_padrao`) NAO
      entra na geocodificacao; o automatico compoe "Cidade - UF" em `mercadoFixoDaConfig`, o
      manual nao.
   2. `pesquisarPlaces` checa `existeBuscaEmAndamento` e so DEPOIS chama a Bright Data; duas
      requisicoes simultaneas passam pela checagem juntas (TOCTOU) e geram DUAS coletas pagas.
-  3. A linha em `busca_snapshots` e' inserida DEPOIS do trigger pago — se o INSERT falhar, a
+  3. A linha em `busca_snapshots` e' inserida DEPOIS do trigger pago â€” se o INSERT falhar, a
      coleta paga fica orfa (sem registro, sem worker, sem cobranca rastreada).
   4. `processarBuscasPlacesPendentes` re-tenta indefinidamente em erro/estado desconhecido: nao
      ha contador de tentativas nem expiracao por idade.
@@ -1951,7 +2045,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   visual/UX (tela passa de formulario unico para lista de rotinas). Sem impacto em envio de
   WhatsApp, Banco de Leads, campanhas sociais, prompts ou segredos.
 - **Restricao declarada pelo usuario:** nao fazer chamada real paga a Bright Data sem
-  autorizacao explicita — a validacao sera por testes com cliente Bright Data mockado.
+  autorizacao explicita â€” a validacao sera por testes com cliente Bright Data mockado.
 - **Decisoes travadas com o Victor (Fase 2/6, antes de codar):**
   1. Rotinas cobrem SO mercado fixo; a **Busca IA fica como esta** (motor global na config antiga).
   2. A config fixa atual e' convertida na 1a rotina **PAUSADA** (nada dispara cobranca no deploy).
@@ -1962,7 +2056,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Validacao executada:** `npm test` backend 1109/1109 (46 testes novos), `npm test` frontend
   27/27, `npm run typecheck` backend e frontend limpos, `npm run smoke:preco` ok,
   `next build` ok, carga de todos os modulos novos via `require`.
-- **2a etapa (mesma data) — pendencias fechadas:**
+- **2a etapa (mesma data) â€” pendencias fechadas:**
   1. Corrida entre PAUSA e disparo: `marcarDisparo` passou a exigir `ativo = true` no mesmo
      UPDATE atomico; sem linha atualizada, o motor nao chama a Bright Data. +2 testes.
   2. Quantidade comunicada como "Max. de leads a importar" (nao promete volume coletado/custo).
@@ -1972,11 +2066,11 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   4. Validacao visual/operacional: 33 verificacoes e2e contra o backend real com Bright Data
      NEUTRALIZADA + capturas desktop/mobile; os 6 estados observados na tela.
 - **Correcao de diagnostico:** a 1a etapa afirmou ter corrigido um risco de "janela invertida
-  abortar o boot". Esse caso NAO e alcancavel — `prospeccao_configuracoes` ja tem
+  abortar o boot". Esse caso NAO e alcancavel â€” `prospeccao_configuracoes` ja tem
   `CHECK (horario_fim > horario_inicio)` (colunas NOT NULL) e CHECK de cardinalidade nos dias.
   O tratamento defensivo permanece como seguro barato.
 - **Efeito colateral declarado no banco de DEV:** o novo worker expirou um snapshot travado em
-  `processando` desde 28/07 (`sd_ms4jo59...`, 0 leads) — comportamento novo e desejado. Durante a
+  `processando` desde 28/07 (`sd_ms4jo59...`, 0 leads) â€” comportamento novo e desejado. Durante a
   limpeza eu flipei por engano um snapshot concluido (`sd_ms3h3q8...`, 200 leads) para
   `processando`; foi restaurado para `concluido` com os contadores intactos. Nada em producao.
 - **Proxima etapa:** deploy; a migration roda sozinha no boot. Depois, revisar e ATIVAR a rotina
@@ -1990,19 +2084,19 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Pedido resumido:** Recriar em PRODUCAO a campanha e os roteiros que existiam apenas no banco
   LOCAL de desenvolvimento. O deploy do commit `37c1254` levou o SCHEMA para producao, mas os
   DADOS de configuracao do modulo ficaram so no local.
-- **E projeto/tarefa de alteracao?** Nao de CODIGO — nenhum arquivo de `backend/`, `frontend/` ou
+- **E projeto/tarefa de alteracao?** Nao de CODIGO â€” nenhum arquivo de `backend/`, `frontend/` ou
   `sql/` sera alterado. E uma tarefa de DADOS: escrita em producao.
 - **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
 - **Estado verificado antes (somente leitura):** producao com as 17 migrations (033/038-052)
   aplicadas e `app.nichos`, `app.roteiros`, `app.roteiro_versoes`, `app.campanhas`,
   `app.campanha_leads` e `app.ligacoes` TODOS vazios. Empresa PJ Codeworks
-  (`f5f47737-…`) e 2.853 prospects ja existem; os 179 prospect_ids da campanha local
+  (`f5f47737-â€¦`) e 2.853 prospects ja existem; os 179 prospect_ids da campanha local
   foram conferidos um a um e os 179 existem em producao no tenant correto.
 - **Escopo aprovado pelo Victor:** nicho "Funilaria e pintura automotiva" + roteiro
-  "Atendimento a Funileiro" (11 etapas SPIN, publicado) + campanha "Demo — Funileiros" (ativa,
+  "Atendimento a Funileiro" (11 etapas SPIN, publicado) + campanha "Demo â€” Funileiros" (ativa,
   metas 20/5) + os 179 leads, todos zerados em `nao_iniciado`.
 - **Fora de escopo (decisao registrada):** as 18 ligacoes locais (8 encerradas / 10 descartadas)
-  NAO sao recriadas — sao artefatos de teste e contaminariam a analitica que o modulo existe para
+  NAO sao recriadas â€” sao artefatos de teste e contaminariam a analitica que o modulo existe para
   proteger. A versao v1 (arquivada e VAZIA no local) tambem nao e' recriada; em producao o roteiro
   nasce com v1 publicada em vez de v2.
 - **Metodo:** via API REST de producao (`/api/auth/login` + rotas admin), NAO por SQL direto, para
@@ -2021,7 +2115,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   + 59 novos) para garantir consistencia e prontidao, seguida de commit e push. Escopo declarado
   como EXCLUSIVAMENTE validacao/publicacao: sem nova funcionalidade, sem refatoracao, sem mudanca
   de arquitetura.
-- **E projeto/tarefa de alteracao?** Nao no codigo de aplicacao — nenhum arquivo de `backend/src`,
+- **E projeto/tarefa de alteracao?** Nao no codigo de aplicacao â€” nenhum arquivo de `backend/src`,
   `frontend/` ou `sql/` foi tocado por esta tarefa. A unica escrita foi este registro de Fase 0.
   A tarefa PUBLICA trabalho ja concluido e validado em sessoes anteriores.
 - **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
@@ -2030,7 +2124,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   modulos novos via `require`, `node --check index.js`.
 - **Verificacao da pendencia arquitetural:** confirmado que `src/db/ligacoes*.js` e
   `src/routes/api-ligacoes.js` NAO referenciam conversas/WhatsApp/historico-envio. A integracao
-  Ligacoes ↔ Mensagens permanece apenas documentada em
+  Ligacoes â†” Mensagens permanece apenas documentada em
   `docs/PENDENCIA_ARQUITETURAL_CENTRAL_LIGACOES_E_MENSAGENS.md`, sem codigo iniciado.
 - **Risco declarado no push:** as migrations `050` (DELETE) e `052` (UPDATE + troca de CHECK)
   rodam sozinhas no boot em producao (`runMigrations`). Ambas ARQUIVAM antes de mutar
@@ -2047,16 +2141,16 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   entregar a continuidade da negociacao para a Central de Mensagens (WhatsApp): onde termina cada
   dominio, qual o contrato entre eles, o que e compartilhado, o que fica exclusivo, e qual o fluxo
   ideal para o vendedor.
-- **E projeto/tarefa de alteracao?** Nao nesta etapa — e analise/decisao de arquitetura. O pedido
+- **E projeto/tarefa de alteracao?** Nao nesta etapa â€” e analise/decisao de arquitetura. O pedido
   proibe explicitamente implementar, gerar codigo ou criar integracao prematura. Nenhum arquivo de
   `backend/` ou `frontend/` foi tocado.
-- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim (Fase 0 → 2).
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim (Fase 0 â†’ 2).
 - **Areas mapeadas (leitura):** `src/db/ligacoes.js`, `ligacoes-estado.js`, `routes/api-ligacoes.js`,
   `domain-enums.js`, migrations 039/047/049/051, `services/rodar-leads.js`, `conversa-manual.js`,
   `followup-manual.js`, `db/followup-ligacoes.js`, `services/historico-envio.js`,
   `frontend/app/dashboard/central-ligacoes`, `banco-leads`, `components/ConversaHistoricoModal.tsx`.
 - **Confirmacao:** Analise entregue no chat; nenhuma decisao foi aplicada em codigo/banco. Achados
-  estruturais (identidade prospect_id ↔ JID, duplicacao `vendas.followup_ligacoes` × `app.ligacoes`,
+  estruturais (identidade prospect_id â†” JID, duplicacao `vendas.followup_ligacoes` Ã— `app.ligacoes`,
   `proxima_acao` como TEXT livre) precisam de decisao do usuario antes de qualquer implementacao.
 - **Proxima etapa:** Aguardar escolha do usuario sobre a arquitetura recomendada; se aprovada,
   abrir tarefa de implementacao propria (nova Fase 0) com analise de impacto e migration dedicada.
@@ -2112,51 +2206,51 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
-## 2026-07-04 - Início de tarefa IA — Modos Manual/Semi/Auto no Banco de Leads
+## 2026-07-04 - InÃ­cio de tarefa IA â€” Modos Manual/Semi/Auto no Banco de Leads
 
 - **IA/Ferramenta:** Claude Code (Opus 4.8)
-- **Pedido resumido:** Transformar a página **Banco de Leads** em uma central de disparo
-  com **Modo Manual / Semiautomático / Automático** configurável no "Rodar". A listagem se
-  adapta ao modo. Unificar "Saudação — teste e edição" em **um botão** só para verificar
-  envio. Regras: Manual = usuário envia (clicar = aprovação), pode escrever ou gerar por IA;
-  Semi = mensagem já gerada por IA aguardando disparo do usuário (sem aprovação);
-  Automático = janela horária, teto 100/dia, intervalo 15–30 min, sistema dispara sozinho
-  (botão manual ainda existe, mas preferência é do sistema). Adaptar bem transições de status.
-- **É projeto/tarefa de alteração?** Sim (feature grande — front + back + provável migration + worker).
-- **Workflow padrão consultado?**
+- **Pedido resumido:** Transformar a pÃ¡gina **Banco de Leads** em uma central de disparo
+  com **Modo Manual / SemiautomÃ¡tico / AutomÃ¡tico** configurÃ¡vel no "Rodar". A listagem se
+  adapta ao modo. Unificar "SaudaÃ§Ã£o â€” teste e ediÃ§Ã£o" em **um botÃ£o** sÃ³ para verificar
+  envio. Regras: Manual = usuÃ¡rio envia (clicar = aprovaÃ§Ã£o), pode escrever ou gerar por IA;
+  Semi = mensagem jÃ¡ gerada por IA aguardando disparo do usuÃ¡rio (sem aprovaÃ§Ã£o);
+  AutomÃ¡tico = janela horÃ¡ria, teto 100/dia, intervalo 15â€“30 min, sistema dispara sozinho
+  (botÃ£o manual ainda existe, mas preferÃªncia Ã© do sistema). Adaptar bem transiÃ§Ãµes de status.
+- **Ã‰ projeto/tarefa de alteraÃ§Ã£o?** Sim (feature grande â€” front + back + provÃ¡vel migration + worker).
+- **Workflow padrÃ£o consultado?**
   - AGENTS.md: Sim
   - CLAUDE.md: Sim
   - docs/ai-workflow.md: Sim
   - docs/project-change-map.md: A consultar na Fase 7
   - docs/ai-decision-log.md: A registrar na Fase 8
-  - docs/ui-visual-standard.md: Sim (tela/tabela/modal — impacta UX)
+  - docs/ui-visual-standard.md: Sim (tela/tabela/modal â€” impacta UX)
   - docs/project-architecture.md: Sim
   - Spec relacionada: docs/superpowers/specs/2026-07-03-saudacao-analise-e-estagios-design.md
-- **Áreas possivelmente impactadas:**
-  - Front-end: Sim (banco-leads/page.tsx — barra de rodar, modal, tabelas)
-  - Back-end: Sim (api-banco-leads.js, rodar-leads.js, provável novo worker/scheduler)
-  - Banco de dados: Provável (novo estado "gerada/aguardando disparo" + config de modo/agenda)
-  - Financeiro: Não
-  - Dashboards: Não
-  - Assinaturas: Não
-  - Custos: Sim (geração IA por lead — já existe kill-switch por instância)
-  - Permissões: Não (rota já é admin-only)
-  - Integrações: WhatsApp (Evolution) — envio já existente
+- **Ãreas possivelmente impactadas:**
+  - Front-end: Sim (banco-leads/page.tsx â€” barra de rodar, modal, tabelas)
+  - Back-end: Sim (api-banco-leads.js, rodar-leads.js, provÃ¡vel novo worker/scheduler)
+  - Banco de dados: ProvÃ¡vel (novo estado "gerada/aguardando disparo" + config de modo/agenda)
+  - Financeiro: NÃ£o
+  - Dashboards: NÃ£o
+  - Assinaturas: NÃ£o
+  - Custos: Sim (geraÃ§Ã£o IA por lead â€” jÃ¡ existe kill-switch por instÃ¢ncia)
+  - PermissÃµes: NÃ£o (rota jÃ¡ Ã© admin-only)
+  - IntegraÃ§Ãµes: WhatsApp (Evolution) â€” envio jÃ¡ existente
   - Visual/UX: Sim (listagem adapta ao modo)
-  - Arquitetura: Sim (risco de duplicar o motor de modos da Prospecção — decidir reuso)
-- **Confirmação:** A IA confirma que está utilizando o workflow padrão do projeto antes de alterar código.
-- **Próxima etapa:** Fase 1–2 — Entendimento + Confirmação de escopo/arquitetura com o Alex (SEM tocar código ainda).
+  - Arquitetura: Sim (risco de duplicar o motor de modos da ProspecÃ§Ã£o â€” decidir reuso)
+- **ConfirmaÃ§Ã£o:** A IA confirma que estÃ¡ utilizando o workflow padrÃ£o do projeto antes de alterar cÃ³digo.
+- **PrÃ³xima etapa:** Fase 1â€“2 â€” Entendimento + ConfirmaÃ§Ã£o de escopo/arquitetura com o Alex (SEM tocar cÃ³digo ainda).
 
 ---
 
-## 2026-07-04 - Início de tarefa IA
+## 2026-07-04 - InÃ­cio de tarefa IA
 
 - **IA/Ferramenta:** Claude Code (Opus 4.8)
-- **Pedido resumido:** Aplicar o "Workflow Padrão de IA para Projetos v2.0" da PJ Codeworks
-  (documento `Documentacao_Workflow_Padrao_IA_PJ_Codeworks_v2.docx`) — criar/atualizar os
-  arquivos de governança de workflow no repositório.
-- **É projeto/tarefa de alteração?** Sim (documentação de governança).
-- **Workflow padrão consultado?**
+- **Pedido resumido:** Aplicar o "Workflow PadrÃ£o de IA para Projetos v2.0" da PJ Codeworks
+  (documento `Documentacao_Workflow_Padrao_IA_PJ_Codeworks_v2.docx`) â€” criar/atualizar os
+  arquivos de governanÃ§a de workflow no repositÃ³rio.
+- **Ã‰ projeto/tarefa de alteraÃ§Ã£o?** Sim (documentaÃ§Ã£o de governanÃ§a).
+- **Workflow padrÃ£o consultado?**
   - AGENTS.md: Sim
   - CLAUDE.md: Sim
   - docs/ai-workflow.md: Criado nesta tarefa
@@ -2164,20 +2258,20 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   - docs/ai-decision-log.md: Criado nesta tarefa
   - docs/ui-visual-standard.md: Criado nesta tarefa (referencia `GUIA-VISUAL-PJ-CODEWORKS.md`)
   - docs/project-architecture.md: Criado nesta tarefa (referencia `project-map.md` + `architecture-rules.md`)
-- **Áreas possivelmente impactadas:**
-  - Front-end: Não
-  - Back-end: Não
-  - Banco de dados: Não
-  - Financeiro: Não
-  - Dashboards: Não
-  - Assinaturas: Não
-  - Custos: Não
-  - Permissões: Não
-  - Integrações: Não
-  - Visual/UX: Não (apenas documentação de padrão)
-  - Arquitetura: Não altera código; apenas documenta a arquitetura já existente
-- **Confirmação:** A IA confirma que está utilizando o workflow padrão do projeto antes de alterar código.
-- **Próxima etapa:** Documentação criada; código de produção não foi tocado.
+- **Ãreas possivelmente impactadas:**
+  - Front-end: NÃ£o
+  - Back-end: NÃ£o
+  - Banco de dados: NÃ£o
+  - Financeiro: NÃ£o
+  - Dashboards: NÃ£o
+  - Assinaturas: NÃ£o
+  - Custos: NÃ£o
+  - PermissÃµes: NÃ£o
+  - IntegraÃ§Ãµes: NÃ£o
+  - Visual/UX: NÃ£o (apenas documentaÃ§Ã£o de padrÃ£o)
+  - Arquitetura: NÃ£o altera cÃ³digo; apenas documenta a arquitetura jÃ¡ existente
+- **ConfirmaÃ§Ã£o:** A IA confirma que estÃ¡ utilizando o workflow padrÃ£o do projeto antes de alterar cÃ³digo.
+- **PrÃ³xima etapa:** DocumentaÃ§Ã£o criada; cÃ³digo de produÃ§Ã£o nÃ£o foi tocado.
 
 ---
 
@@ -2241,7 +2335,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 - **IA/Ferramenta:** Claude Code (Opus 4.8)
 - **Pedido resumido:** Passar a coleta de dados do Google Maps (prospeccao/Aquisicao) da Places API oficial para a API da Bright Data (reduzir custo / usar fornecedor ja contratado).
-- **E projeto/tarefa de alteracao?** Sim (nova integracao de fonte de dados na prospeccao — estrutural).
+- **E projeto/tarefa de alteracao?** Sim (nova integracao de fonte de dados na prospeccao â€” estrutural).
 - **Workflow padrao consultado?**
   - AGENTS.md: Sim
   - CLAUDE.md: Sim
@@ -2257,7 +2351,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   - Financeiro: Sim (troca de custo de coleta)
   - Dashboards: Aquisicao/Banco de Leads (alimentacao)
   - Permissoes: Nao
-  - Integracoes: Sim (Bright Data — nova rota/produto)
+  - Integracoes: Sim (Bright Data â€” nova rota/produto)
   - Visual/UX: Talvez
   - Arquitetura: Sim (abstracao de provider de busca)
 - **Confirmacao:** A IA confirma que esta utilizando o workflow padrao do projeto e vai CONFIRMAR o escopo (produto Bright Data + substituir vs adicionar) antes de alterar codigo.
@@ -2272,8 +2366,8 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **E projeto/tarefa de alteracao?** Sim (feature front + endpoint backend de clone).
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | ai-workflow: Sim | project-map: Sim | architecture-rules: Sim | ui-visual-standard: Sim | project-architecture: Sim
 - **Areas possivelmente impactadas:**
-  - Front-end: Sim (instancias/[id]/contexto/page.tsx — painel de reuso)
-  - Back-end: Sim (api-whatsapp.js — endpoint /contexto/duplicar + helper duplicarContexto)
+  - Front-end: Sim (instancias/[id]/contexto/page.tsx â€” painel de reuso)
+  - Back-end: Sim (api-whatsapp.js â€” endpoint /contexto/duplicar + helper duplicarContexto)
   - Banco de dados: Nao (reusa app.empresa_contextos; sem migration)
   - Integracoes/Prompts/Permissoes: Nao (rota ja e requireAuth+requireEmpresaAccess)
   - Arquitetura: Baixo (reusa PATCH existente p/ compartilhar; clone isolado por transacao)
@@ -2291,20 +2385,20 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   (gerar/enviar follow-up por IA). Escopo Fase 1 travado; registrar resultado da ligacao e a
   escada de escalonamento sao Fase 2; config editavel de pesos/intervalos e Fase 3. Plano
   completo em scratchpad/follow-ups-plano.md.
-- **E projeto/tarefa de alteracao?** Sim (feature grande — front + back + migration + IA).
+- **E projeto/tarefa de alteracao?** Sim (feature grande â€” front + back + migration + IA).
 - **Workflow padrao consultado?** AGENTS.md: Sim | CLAUDE.md: Sim | ai-workflow: Sim |
   project-map: Sim | architecture-rules: Sim | ui-visual-standard: Sim | project-architecture: Sim
 - **Areas possivelmente impactadas:**
   - Front-end: Sim (nova pagina follow-ups + item no Sidebar)
   - Back-end: Sim (nova rota api-follow-ups + servicos de score/listagem; reusa motor de followup)
   - Banco de dados: Sim (migration aditiva: followup_config; followup_ligacoes so na Fase 2)
-  - Custos: Sim (roteiro de ligacao + follow-up manual usam IA — ja rastreado na pagina Uso & Custo)
+  - Custos: Sim (roteiro de ligacao + follow-up manual usam IA â€” ja rastreado na pagina Uso & Custo)
   - Integracoes: WhatsApp (envio ja existente) + IA (generateAIResponse)
   - Permissoes: rota admin-only
   - Visual/UX: Sim (padrao do Banco de Leads)
   - Arquitetura: Media (REUSAR o motor de follow-up existente, nao recriar envio/agendamento)
 - **Confirmacao:** Workflow padrao seguido; escopo Fase 1 confirmado com o usuario.
-- **Proxima etapa:** Fase 1 passo 1 — migration followup_config + db/followup-config.js.
+- **Proxima etapa:** Fase 1 passo 1 â€” migration followup_config + db/followup-config.js.
 
 ---
 
@@ -2315,9 +2409,9 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   (atendeu / nao_atendeu / agendou / sem_interesse / ligar_depois) com notas + quem registrou;
   (2) efeitos: sem_interesse pausa o auto follow-up do lead, opcao de disparar follow-up no
   WhatsApp quando nao_atendeu, e dedup (lead ligado nas ultimas 12h sai da call-list);
-  (3) METRICAS ligação (total, por resultado, taxa de agendamento); (4) ESCADA de escalonamento
+  (3) METRICAS ligaÃ§Ã£o (total, por resultado, taxa de agendamento); (4) ESCADA de escalonamento
   visivel (lead que ignorou N follow-ups ganha selo "mensagem esgotou, hora de ligar").
-- **E projeto/tarefa de alteracao?** Sim (feature — front + back + migration).
+- **E projeto/tarefa de alteracao?** Sim (feature â€” front + back + migration).
 - **Workflow padrao consultado?** AGENTS.md/CLAUDE.md/ai-workflow/project-map/architecture-rules: Sim.
 - **Areas possivelmente impactadas:**
   - Front-end: Sim (aba Semi da pagina Follow-ups: modal de registro + cards de metricas + selo escalado)
@@ -2326,7 +2420,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   - Custos: eventual disparo de follow-up no WhatsApp reusa o Manual (IA ja rastreada)
   - Integracoes: WhatsApp (envio ja existente via followup-manual), sem novas
   - Permissoes: endpoints admin-only (mesmo mount da pagina)
-  - Arquitetura: Baixa/Media — reusa followup-manual para o disparo; nao mexe no engine.
+  - Arquitetura: Baixa/Media â€” reusa followup-manual para o disparo; nao mexe no engine.
 - **Confirmacao:** Escopo Fase 2 escolhido pelo Victor (AskUserQuestion). Sem env nova.
 - **Proxima etapa:** migration 030 + src/db/followup-ligacoes.js.
 
@@ -2356,23 +2450,23 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 <!-- Modelo para novas entradas (copie o bloco abaixo):
 
-## [DATA] - Início de tarefa IA
+## [DATA] - InÃ­cio de tarefa IA
 
 - **IA/Ferramenta:**
 - **Pedido resumido:**
-- **É projeto/tarefa de alteração?** Sim/Não
-- **Workflow padrão consultado?**
-  - AGENTS.md: Sim/Não/Inexistente
-  - CLAUDE.md: Sim/Não/Inexistente
-  - docs/ai-workflow.md: Sim/Não/Inexistente
-  - docs/project-change-map.md: Sim/Não/Inexistente
-  - docs/ai-decision-log.md: Sim/Não/Inexistente
-  - docs/ui-visual-standard.md: Sim/Não/Inexistente/Não aplicável
-  - docs/project-architecture.md: Sim/Não/Inexistente/Não aplicável
-- **Áreas possivelmente impactadas:**
-  - Front-end / Back-end / Banco / Financeiro / Dashboards / Assinaturas / Custos / Permissões / Integrações / Visual-UX / Arquitetura
-- **Confirmação:** A IA confirma que está utilizando o workflow padrão do projeto antes de alterar código.
-- **Próxima etapa:** Fase 1 - Entendimento do Pedido.
+- **Ã‰ projeto/tarefa de alteraÃ§Ã£o?** Sim/NÃ£o
+- **Workflow padrÃ£o consultado?**
+  - AGENTS.md: Sim/NÃ£o/Inexistente
+  - CLAUDE.md: Sim/NÃ£o/Inexistente
+  - docs/ai-workflow.md: Sim/NÃ£o/Inexistente
+  - docs/project-change-map.md: Sim/NÃ£o/Inexistente
+  - docs/ai-decision-log.md: Sim/NÃ£o/Inexistente
+  - docs/ui-visual-standard.md: Sim/NÃ£o/Inexistente/NÃ£o aplicÃ¡vel
+  - docs/project-architecture.md: Sim/NÃ£o/Inexistente/NÃ£o aplicÃ¡vel
+- **Ãreas possivelmente impactadas:**
+  - Front-end / Back-end / Banco / Financeiro / Dashboards / Assinaturas / Custos / PermissÃµes / IntegraÃ§Ãµes / Visual-UX / Arquitetura
+- **ConfirmaÃ§Ã£o:** A IA confirma que estÃ¡ utilizando o workflow padrÃ£o do projeto antes de alterar cÃ³digo.
+- **PrÃ³xima etapa:** Fase 1 - Entendimento do Pedido.
 
 -->
 
@@ -2465,18 +2559,18 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 ## 2026-07-17 - Inicio de tarefa IA
 
 - **IA/Ferramenta:** Codex
-- **Pedido resumido:** Fazer a Aquisição respeitar o teto efetivo de 200 leads por busca, tornar o agendamento automático rodável, substituir os botões/modais de Agenda por menus operacionais inline em Google Maps e Instagram e planejar o modo Busca IA com indicação de esgotamento de nicho/localização.
-- **E projeto/tarefa de alteracao?** Sim (backend, worker de busca, configuração e UX da Aquisição).
+- **Pedido resumido:** Fazer a AquisiÃ§Ã£o respeitar o teto efetivo de 200 leads por busca, tornar o agendamento automÃ¡tico rodÃ¡vel, substituir os botÃµes/modais de Agenda por menus operacionais inline em Google Maps e Instagram e planejar o modo Busca IA com indicaÃ§Ã£o de esgotamento de nicho/localizaÃ§Ã£o.
+- **E projeto/tarefa de alteracao?** Sim (backend, worker de busca, configuraÃ§Ã£o e UX da AquisiÃ§Ã£o).
 - **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/project-map.md, docs/architecture-rules.md e docs/project-architecture.md: Sim.
-- **Areas possivelmente impactadas:** Front-end, back-end, worker, banco de dados, custos Bright Data e visual/UX; sem mudança em autenticação, segredos, prompts de atendimento ou envio de WhatsApp.
-- **Confirmacao:** O usuário solicitou explicitamente as duas correções. O modo Busca IA será apenas planejado nesta etapa, sem ampliação silenciosa do escopo.
-- **Proxima etapa:** Mapear o contrato da agenda e do snapshot, implementar diff mínimo e validar teto, execução em segundo plano e regressões.
-## 2026-07-17 — Modo Busca IA configurável na Aquisição
+- **Areas possivelmente impactadas:** Front-end, back-end, worker, banco de dados, custos Bright Data e visual/UX; sem mudanÃ§a em autenticaÃ§Ã£o, segredos, prompts de atendimento ou envio de WhatsApp.
+- **Confirmacao:** O usuÃ¡rio solicitou explicitamente as duas correÃ§Ãµes. O modo Busca IA serÃ¡ apenas planejado nesta etapa, sem ampliaÃ§Ã£o silenciosa do escopo.
+- **Proxima etapa:** Mapear o contrato da agenda e do snapshot, implementar diff mÃ­nimo e validar teto, execuÃ§Ã£o em segundo plano e regressÃµes.
+## 2026-07-17 â€” Modo Busca IA configurÃ¡vel na AquisiÃ§Ã£o
 
-- Pedido: implementar o modo Busca IA aprovado, com configuração simples, estratégia equilibrada, limite diário, intervalo seguro, preferências de nicho/localização e mensagens claras de estado/esgotamento.
-- Áreas: configuração multiempresa de prospecção, migration PostgreSQL, scheduler/worker de busca, seletor de mercado por IA, tela `dashboard/prospeccao` e testes.
-- Restrições: reutilizar `selecionarMercadoDiarioIA`; máximo de 200 leads importados por busca; uma busca por vez; nenhum envio de WhatsApp; sem nova dependência ou segredo.
-- Validação prevista: testes de settings/scheduler/rotação/worker, suíte completa, typecheck, boot com migration e verificação visual responsiva.
+- Pedido: implementar o modo Busca IA aprovado, com configuraÃ§Ã£o simples, estratÃ©gia equilibrada, limite diÃ¡rio, intervalo seguro, preferÃªncias de nicho/localizaÃ§Ã£o e mensagens claras de estado/esgotamento.
+- Ãreas: configuraÃ§Ã£o multiempresa de prospecÃ§Ã£o, migration PostgreSQL, scheduler/worker de busca, seletor de mercado por IA, tela `dashboard/prospeccao` e testes.
+- RestriÃ§Ãµes: reutilizar `selecionarMercadoDiarioIA`; mÃ¡ximo de 200 leads importados por busca; uma busca por vez; nenhum envio de WhatsApp; sem nova dependÃªncia ou segredo.
+- ValidaÃ§Ã£o prevista: testes de settings/scheduler/rotaÃ§Ã£o/worker, suÃ­te completa, typecheck, boot com migration e verificaÃ§Ã£o visual responsiva.
 
 ---
 
@@ -2569,7 +2663,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 ## 2026-07-30 - Inicio de tarefa IA
 
 - **IA/Ferramenta:** Claude Code
-- **Pedido resumido:** Refinamento visual das colunas Telefone e Status da Central de Ligacoes — reduzir ruido de texto, transformar avisos de qualidade do numero em indicador + tooltip, validar leitura da coluna Status.
+- **Pedido resumido:** Refinamento visual das colunas Telefone e Status da Central de Ligacoes â€” reduzir ruido de texto, transformar avisos de qualidade do numero em indicador + tooltip, validar leitura da coluna Status.
 - **E projeto/tarefa de alteracao?** Sim, mas de escopo pequeno e seguro (apresentacao). Sem schema, sem autenticacao, sem prompt, sem rota nova.
 - **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
 - **Areas possivelmente impactadas:** frontend/app/dashboard/central-ligacoes/page.tsx (componente Fone + tabelas Fila/Acompanhamento) e frontend/lib/ligacao-fone.js (apenas o texto de aviso; regra de analise do telefone inalterada).
@@ -2622,7 +2716,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Pedido resumido:** UX da listagem de leads da Aquisicao (modo Busca): remover os 6 cards grandes de resumo, levar as contagens para dentro dos proprios filtros de status (Todos/Aguardando/Marcados/Descartados/Enviados/Responderam), criar rodape da tabela com intervalo exibido + total + taxa de resposta e adicionar paginacao (anterior/proxima, pagina X de Y), mantendo filtros, acoes e regras atuais.
 - **E projeto/tarefa de alteracao?** Sim, escopo APRESENTACAO/NAVEGACAO + 1 ajuste ADITIVO de leitura no backend (o endpoint de metricas passa a aceitar os mesmos filtros da listagem, para as contagens dos chips baterem com a busca aplicada). Sem schema, sem migration, sem regra de negocio, sem escrita, sem chamada paga.
 - **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/ui-visual-standard.md: Sim.
-- **Areas possivelmente impactadas:** frontend/app/dashboard/prospeccao/page.tsx (tela), frontend/lib/paginacao.js (+ .d.ts/.test.js — modulo PURO extraido de lib/fila-ligacoes-view.js para nao duplicar paginacao), frontend/lib/fila-ligacoes-view.js (passa a reexportar a paginacao, sem mudanca de comportamento) e backend/src/routes/api-prospeccao.js (GET /metricas aceita busca/mercado/cidade/origem; sem parametro o resultado e' identico ao de hoje).
+- **Areas possivelmente impactadas:** frontend/app/dashboard/prospeccao/page.tsx (tela), frontend/lib/paginacao.js (+ .d.ts/.test.js â€” modulo PURO extraido de lib/fila-ligacoes-view.js para nao duplicar paginacao), frontend/lib/fila-ligacoes-view.js (passa a reexportar a paginacao, sem mudanca de comportamento) e backend/src/routes/api-prospeccao.js (GET /metricas aceita busca/mercado/cidade/origem; sem parametro o resultado e' identico ao de hoje).
 - **Fora de escopo declarado:** status/dados dos leads, regras de coleta e disparo, Banco de Leads, Central de Ligacoes, modo Rotinas, secao "Acompanhar resultados", schema e permissoes.
 - **Proxima etapa:** Aplicar o diff minimo, rodar `npm test` + `npm run typecheck` no frontend e `npm test` no backend, e validar desktop/mobile (foco visivel, teclado, estados vazios).
 
@@ -2632,7 +2726,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 - **IA/Ferramenta:** Claude Code
 - **Pedido resumido:** VERIFICAR se a integracao Meta Conversions recem-implementada isola a configuracao por INSTANCIA (uma instancia = um negocio separado), sem fallback entre instancias, entre empresas ou para credencial global. Commit/push somente se todos os criterios de aceite passarem.
-- **E projeto/tarefa de alteracao?** Nesta fase, NAO: tarefa de AUDITORIA/leitura. Nenhum arquivo de codigo foi alterado. A correcao (se aprovada) sera tarefa separada, com schema/migration e mudanca de modelo — exige confirmacao previa (CLAUDE.md).
+- **E projeto/tarefa de alteracao?** Nesta fase, NAO: tarefa de AUDITORIA/leitura. Nenhum arquivo de codigo foi alterado. A correcao (se aprovada) sera tarefa separada, com schema/migration e mudanca de modelo â€” exige confirmacao previa (CLAUDE.md).
 - **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
 - **Areas inspecionadas:** sql/migrations/057_meta_conversoes.sql, src/db/meta-integracoes.js, src/db/conversao-eventos.js, src/services/meta-dispatch.js, meta-capi.js, meta-crypto.js, meta-attribution.js, src/routes/api-integracoes-meta.js, src/middleware/tenant.js, src/webhook-handler.js, src/meta-routes.js, frontend/app/dashboard/integracoes/meta, test/meta-*.test.js.
 - **Resultado:** REPROVADO nos criterios de isolamento por instancia. O modelo implementado e' por EMPRESA (`app.meta_integracoes.empresa_id UNIQUE`); a dimensao instancia nao existe em schema, backend, rotas, tela nem testes. Ver relatorio no chat.
@@ -2643,7 +2737,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 - **IA/Ferramenta:** Claude Code
 - **Pedido resumido:** Remover o fallback para a PJ em `resolveEmpresaFromWebhook` (instancia ausente, desconhecida ou erro de resolucao) e substituir por QUARENTENA auditavel: o webhook sem dono comprovado nao cria conversa, lead, reuniao, atribuicao CTWA, follow-up, resposta automatica nem evento Meta. Inclui visibilidade administrativa das pendencias e caminho seguro de reprocessamento. Commit + push ao final, se os criterios de aceite passarem.
-- **E projeto/tarefa de alteracao?** Sim, e ESTRUTURAL: muda o contrato de resolucao de tenant do webhook publico, adiciona migration (tabela de quarentena), rota admin nova e tela. Exige confirmacao previa (CLAUDE.md) — pontos ambiguos levados ao usuario antes de implementar.
+- **E projeto/tarefa de alteracao?** Sim, e ESTRUTURAL: muda o contrato de resolucao de tenant do webhook publico, adiciona migration (tabela de quarentena), rota admin nova e tela. Exige confirmacao previa (CLAUDE.md) â€” pontos ambiguos levados ao usuario antes de implementar.
 - **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
 - **Areas mapeadas na Fase 0:** `src/middleware/tenant.js` (unico produtor do fallback), `index.js:134` (unico ponto de montagem), `src/webhook-handler.js` (unico consumidor de `req.empresaId`/`req.empresaOrigem`/`req.whatsappInstanciaId`), `src/services/ctwa-atribuicao.js` (ORIGEM_EMPRESA), `src/db/empresas.js` (`findEmpresaEInstanciaPorEvolution`), `src/db-crud.js:134` e `src/db/lead-profile-empresa.js` (PJ como default de escrita), `src/meta-routes.js` (dashboard legado escopado na PJ).
 - **Fora de escopo declarado:** ativar a Meta, configurar token/Dataset, qualquer chamada a Graph API, deploy manual e alteracao de configuracao de producao.
@@ -2656,7 +2750,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 - **IA/Ferramenta:** Claude Code
 - **Pedido resumido:** ORIGEM AUTORIZADA de instancia. Unica origem valida de um vinculo empresa-instancia e' o fluxo de criacao DENTRO do Atendimento Views. Instancia criada direto no Evolution (API externa, painel da infra) nao pertence a empresa alguma e NAO pode ser regularizada por tela administrativa: remover a adocao na criacao, remover o reprocessamento da quarentena, transformar a tela de pendencias em alerta tecnico/auditoria somente leitura e gravar evidencia persistente de origem autorizada junto do vinculo.
-- **E projeto/tarefa de alteracao?** Sim, e ESTRUTURAL: muda o contrato da criacao de instancia (rota publica do dashboard), remove endpoint existente (`POST /api/webhook-quarentena/:id/reprocessar`), exige migration em `app.empresa_whatsapp_instances` e altera tela. Exige confirmacao previa (CLAUDE.md) — pontos que podem parar atendimento em producao levados ao usuario ANTES de implementar.
+- **E projeto/tarefa de alteracao?** Sim, e ESTRUTURAL: muda o contrato da criacao de instancia (rota publica do dashboard), remove endpoint existente (`POST /api/webhook-quarentena/:id/reprocessar`), exige migration em `app.empresa_whatsapp_instances` e altera tela. Exige confirmacao previa (CLAUDE.md) â€” pontos que podem parar atendimento em producao levados ao usuario ANTES de implementar.
 - **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
 - **Areas mapeadas na Fase 0:** `src/routes/api-whatsapp.js:769-817` (o `alreadyExists` engolido e' HOJE o caminho de adocao de instancia externa), `src/routes/api-webhook-quarentena.js` (rota de reprocessamento a remover), `src/db/webhook-quarentena.js` (`resolverPendencia`/`buscarPendencia`), `sql/migrations/060_webhook_quarentena.sql` (colunas `resolvida_*` e CHECK), `src/services/webhook-quarentena.js` (vocabulario e acoes por motivo), `src/middleware/tenant.js` + `src/db/empresas.js` (`findEmpresaEInstanciaPorEvolution`), `src/routes/api-freelandoo.js:106` e `src/routes/freelandoo-provision.js:207` (os outros dois INSERT de vinculo, tambem autorizados), `frontend/components/PendenciasInstancia.tsx` + `frontend/lib/pendencias-instancia.js`, testes `test/webhook-quarentena*.test.js` e `frontend/lib/pendencias-instancia.test.js`.
 - **Achado colateral (fora do escopo pedido, so registrado):** `src/db/whatsapp-instances.js:33` `resolverEmpresaPorInstance` ainda devolve a PJ como fallback; nao tem NENHUM chamador de producao (so `test/multitenant.test.js`).
@@ -2672,7 +2766,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Pedido resumido:** Fechar a entrega de ORIGEM AUTORIZADA removendo o ultimo fallback legado para a PJ: `resolverEmpresaPorInstance` em `src/db/whatsapp-instances.js`. A funcao passa a devolver AUSENCIA de empresa quando nao existe vinculo valido, jamais a PJ. Depois: proteger contra regressao, validar (testes + typecheck backend e frontend) e publicar TODA a entrega (origem autorizada + quarentena somente leitura + remocao do fallback) em UM commit, com push.
 - **E projeto/tarefa de alteracao?** Sim, mas de escopo PEQUENO e contido: a funcao alterada nao tem NENHUM chamador de producao (auditoria confirmada nesta fase). Sem schema novo, sem migration nova, sem rota, sem chamada externa, sem escrita no banco.
 - **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
-- **Auditoria do fallback (Fase 1 do pedido):** `resolverEmpresaPorInstance` e' importada em UM unico lugar no repositorio inteiro — `test/multitenant.test.js:10`. Os demais consumidores de `src/db/whatsapp-instances.js` importam so `instanciaUsaAgenda` (`src/services/contexto2-runtime.js`), `removerContextoSeOrfao` (`src/routes/api-freelandoo.js`) e os invalidadores de cache (`src/routes/api-whatsapp.js`). O resolvedor de producao e' `findEmpresaEInstanciaPorEvolution` (`src/db/empresas.js`), chamado por `src/middleware/tenant.js`. **Nenhuma dependencia de producao: a remocao do fallback esta liberada** (stop condition do pedido NAO acionada).
+- **Auditoria do fallback (Fase 1 do pedido):** `resolverEmpresaPorInstance` e' importada em UM unico lugar no repositorio inteiro â€” `test/multitenant.test.js:10`. Os demais consumidores de `src/db/whatsapp-instances.js` importam so `instanciaUsaAgenda` (`src/services/contexto2-runtime.js`), `removerContextoSeOrfao` (`src/routes/api-freelandoo.js`) e os invalidadores de cache (`src/routes/api-whatsapp.js`). O resolvedor de producao e' `findEmpresaEInstanciaPorEvolution` (`src/db/empresas.js`), chamado por `src/middleware/tenant.js`. **Nenhuma dependencia de producao: a remocao do fallback esta liberada** (stop condition do pedido NAO acionada).
 - **Areas impactadas:** `src/db/whatsapp-instances.js` (fallback removido) e `test/multitenant.test.js` (os 3 testes que exigiam a PJ viram testes que exigem ausencia de empresa).
 - **Fora de escopo declarado:** credenciais, variaveis de ambiente, Meta e integracoes externas; os demais `PJ_EMPRESA_ID` do repo (dashboard legado single-tenant e defaults de ESCRITA em `db-crud.js`/`lead-profile-empresa.js`), que nao resolvem tenant por instancia; qualquer operacao em dados de producao.
 - **Fora do commit (WIP alheio):** `backend/scripts/seed-campanha-nail-designer.js`.
@@ -2687,7 +2781,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **E projeto/tarefa de alteracao?** Sim, escopo APRESENTACAO/NAVEGACAO no frontend + possivel ajuste ADITIVO de leitura no backend (campo estruturado da janela recomendada, para o filtro "Proxima acao hoje" nao depender de parsing de texto no front). Sem schema, sem migration, sem regra de envio, sem escrita nova, sem chamada paga.
 - **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/ui-visual-standard.md: Sim.
 - **Areas mapeadas na Fase 0:** `frontend/app/dashboard/follow-ups/page.tsx` (unica tela; 3 abas), `backend/src/routes/api-follow-ups.js` (config, /auto, /call-list, /roteiro, /ligacoes, /manual/*), `backend/src/services/followup-listing.js` (montarCallList + timeline do automatico), `backend/src/services/followup-call-score.js` (acao recomendada, score, temperatura, janela), `backend/src/db/followup-config.js` (modo/meta/pausado), padroes a reusar: `frontend/app/dashboard/prospeccao/page.tsx` (chips de filtro com contagem), `frontend/lib/prospeccao-listagem.js` (modulo PURO de apresentacao), `frontend/app/dashboard/banco-leads/page.tsx` (`PersonalizarModal` + persistencia em localStorage), `frontend/components/ui/Abas.tsx`.
-- **Achado relevante da Fase 0:** `app.followup_config.modo` NAO e lido por nenhum motor — `followup-auto.js` le apenas `fc.pausado`. Hoje clicar numa aba GRAVA `modo` na empresa; como filtro de tela isso viraria escrita de configuracao a cada clique. Preferencia de filtro passa a ser local (localStorage), como no Banco de Leads/Aquisicao; o endpoint de config permanece intacto.
+- **Achado relevante da Fase 0:** `app.followup_config.modo` NAO e lido por nenhum motor â€” `followup-auto.js` le apenas `fc.pausado`. Hoje clicar numa aba GRAVA `modo` na empresa; como filtro de tela isso viraria escrita de configuracao a cada clique. Preferencia de filtro passa a ser local (localStorage), como no Banco de Leads/Aquisicao; o endpoint de config permanece intacto.
 - **Fora de escopo declarado:** motor de follow-up automatico (`followup-auto.js`), regras de call score/elegibilidade, envio/throttle, permissoes admin, schema, Central de Ligacoes e Banco de Leads.
 - **Proxima etapa:** Confirmar com o usuario 3 decisoes de produto (destino da aba Manual, universo do filtro "Todos" e o campo aditivo da janela) antes de implementar.
 
@@ -2696,11 +2790,11 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 ## 2026-08-08 - Inicio de tarefa IA
 
 - **IA/Ferramenta:** Claude Code
-- **Pedido resumido:** Validar de ponta a ponta se o "Abrir conversa" da Central de Follow-ups abre a MESMA experiencia de detalhe de conversa do Historico da Central de Mensagens. Havendo divergencia, corrigir reutilizando/extraindo o painel ja usado no Historico — sem alterar regras comerciais, sem disparar WhatsApp e sem tocar dados reais durante a validacao.
+- **Pedido resumido:** Validar de ponta a ponta se o "Abrir conversa" da Central de Follow-ups abre a MESMA experiencia de detalhe de conversa do Historico da Central de Mensagens. Havendo divergencia, corrigir reutilizando/extraindo o painel ja usado no Historico â€” sem alterar regras comerciais, sem disparar WhatsApp e sem tocar dados reais durante a validacao.
 - **E projeto/tarefa de alteracao?** Sim, escopo APRESENTACAO no frontend. Nenhuma rota, schema, migration, prompt, permissao ou regra de negocio muda. Backend NAO e tocado.
 - **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/ui-visual-standard.md: Sim.
-- **Areas mapeadas na Fase 0:** `frontend/app/dashboard/conversas/page.tsx` (painel completo INLINE, ~320 linhas de JSX dentro da pagina), `frontend/components/ConversaHistoricoModal.tsx` (modal enxuto somente-leitura), `frontend/app/dashboard/follow-ups/page.tsx:419` (abre o modal enxuto), `frontend/app/dashboard/banco-leads/page.tsx:1390` (tambem usa o modal enxuto, com props de saudacao/disparo — OUTRA funcao), `backend/src/routes/api-conversas.js` (contrato), `backend/index.js:94,107` (montagem/permissoes), `frontend/lib/followups-fila.js` (dono de `nomeDeVerdade`/`formatarTelefone`/`rotuloLead`).
-- **Achado da validacao (divergencia CONFIRMADA):** os dois pontos de entrada NAO compartilham painel. Historico usa um painel completo (abas Conversa/Interesses, prioridade comercial, feedback por mensagem, compositor do operador, orientar resposta, pausar/retomar agente, reenviar WhatsApp, deletar historico); Follow-ups usa `ConversaHistoricoModal`, que so LE o historico e nao oferece nenhuma acao. Mesmo endpoint (`GET /conversas/:numero`) e mesmas permissoes nos dois caminhos — a divergencia e 100% de apresentacao.
+- **Areas mapeadas na Fase 0:** `frontend/app/dashboard/conversas/page.tsx` (painel completo INLINE, ~320 linhas de JSX dentro da pagina), `frontend/components/ConversaHistoricoModal.tsx` (modal enxuto somente-leitura), `frontend/app/dashboard/follow-ups/page.tsx:419` (abre o modal enxuto), `frontend/app/dashboard/banco-leads/page.tsx:1390` (tambem usa o modal enxuto, com props de saudacao/disparo â€” OUTRA funcao), `backend/src/routes/api-conversas.js` (contrato), `backend/index.js:94,107` (montagem/permissoes), `frontend/lib/followups-fila.js` (dono de `nomeDeVerdade`/`formatarTelefone`/`rotuloLead`).
+- **Achado da validacao (divergencia CONFIRMADA):** os dois pontos de entrada NAO compartilham painel. Historico usa um painel completo (abas Conversa/Interesses, prioridade comercial, feedback por mensagem, compositor do operador, orientar resposta, pausar/retomar agente, reenviar WhatsApp, deletar historico); Follow-ups usa `ConversaHistoricoModal`, que so LE o historico e nao oferece nenhuma acao. Mesmo endpoint (`GET /conversas/:numero`) e mesmas permissoes nos dois caminhos â€” a divergencia e 100% de apresentacao.
 - **Fora de escopo declarado:** backend inteiro; Banco de Leads (segue com `ConversaHistoricoModal`, cujas props de gerar/enviar saudacao pertencem ao "Rodar leads", nao a este painel); regras de envio, cadencia e conteudo de mensagem; exclusao destrutiva alem da ja existente.
 - **Proxima etapa:** Extrair o painel do Historico para `frontend/components/ConversaPainel.tsx` (auto-carregado por `numero`, com token de requisicao, estado de carregando e erro com "Tentar de novo"), extrair a identidade humana do lead para `frontend/lib/lead-identidade.js` (reexportada por `followups-fila.js`, sem duplicar regra) e consumir o painel nas DUAS telas. Validar com `npm test` + `npm run typecheck` no frontend e `npm test` no backend.
 
@@ -2715,11 +2809,11 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Base:** a analise previa (`docs/analise-indicador-pontuacao.md`, 2026-08-08) ja mapeara as 3 implementacoes divergentes da bolinha, as 4 pontuacoes do produto e as colunas das duas tabelas. Esta tarefa IMPLEMENTA aquela analise.
 - **Decisoes de negocio que estavam pendentes na analise e vieram RESOLVIDAS no pedido:** (7.1) NAO criar potencial de abordagem sem fonte -> nao criado; (7.2) manter a direcao numerica de "Pontos" e usar paleta NEUTRA -> feito; (7.4) remover o emoji de temperatura da Aquisicao -> autorizado e feito; (7.5) tirar o JSON cru da tabela preservando o modal -> autorizado e feito. (7.3) paleta de Follow-ups continua pendente: a tela esta FORA do escopo declarado.
 - **Areas alteradas:** `frontend/lib/pontuacao-indicador.js` (+ `.d.ts`/`.test.js`, modulo PURO novo), `frontend/components/ui/BolinhaPontuacao.tsx` (novo), `frontend/components/LeadDetalhesModal.tsx` (novo), `frontend/components/ui/JsonLeadModal.tsx` (tipo `criterios` declarado, aditivo), `frontend/components/ConversaPainel.tsx`, `frontend/app/dashboard/central-ligacoes/page.tsx`, `frontend/app/dashboard/prospeccao/page.tsx`, `frontend/app/dashboard/banco-leads/page.tsx`.
-- **Achado que mudou o desenho:** na Aquisicao e no Banco de Leads a bolinha pintava COMPLETUDE DE CADASTRO com a paleta de PRIORIDADE COMERCIAL (`<=40 vermelho ... >70 esmeralda`). As duas pontuacoes andam em direcoes OPOSTAS — a propria tela ordena por `pontos ASC`. Ou seja, o melhor lead da campanha aparecia em vermelho. Corrigido com uma variante semantica de paleta NEUTRA, nao reusando a de prioridade.
+- **Achado que mudou o desenho:** na Aquisicao e no Banco de Leads a bolinha pintava COMPLETUDE DE CADASTRO com a paleta de PRIORIDADE COMERCIAL (`<=40 vermelho ... >70 esmeralda`). As duas pontuacoes andam em direcoes OPOSTAS â€” a propria tela ordena por `pontos ASC`. Ou seja, o melhor lead da campanha aparecia em vermelho. Corrigido com uma variante semantica de paleta NEUTRA, nao reusando a de prioridade.
 - **Mutacao de dado do operador declarada:** a view do Banco de Leads no `localStorage` (`bancoLeadsView`) ganhou `versao`. Na migracao v1->v2 os FILTROS e a ORDENACAO sao preservados integralmente e apenas o conjunto de COLUNAS passa a ser o novo padrao enxuto (reversivel em um clique no "Personalizar").
 - **Fora de escopo declarado:** backend inteiro; Follow-ups; criacao de qualquer pontuacao nova; automacoes, campanhas, credenciais e integracoes externas.
 - **Validacao:** `npm test` backend 1410/1410, `npm run typecheck` backend OK, `npm test` frontend 229/229 (19 novos), `npm run typecheck` frontend OK, e as 4 rotas alteradas compilaram e responderam 200 no dev server.
-- **Pendencia declarada:** revisao VISUAL em navegador (desktop + rolagem horizontal + leitor de tela) nao foi executada por mim — nao tenho ferramenta de browser nesta sessao. Precisa do operador em `localhost:3001`.
+- **Pendencia declarada:** revisao VISUAL em navegador (desktop + rolagem horizontal + leitor de tela) nao foi executada por mim â€” nao tenho ferramenta de browser nesta sessao. Precisa do operador em `localhost:3001`.
 
 ---
 
@@ -2729,9 +2823,9 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Pedido resumido:** Separar PERMISSAO DE RESPONDER de CAPACIDADE DE ANALISAR, por conversa. Novo campo `modo_ia` em `vendas.conversas` (`conversa` | `analise`), controle no painel de conversa, bloqueio REAL no backend imediatamente antes do envio (nunca um return cedo que mate a analise), follow-up automatico desligado no modo `analise` e auditoria em `app.auditoria_eventos`.
 - **E projeto/tarefa de alteracao?** Sim, e ESTRUTURAL: migration nova (aditiva) + alteracao no caminho de resposta automatica (core-funnel, contexto2-responder, followup-auto) + rota nova + componente novo no frontend. Exige confirmacao antes de implementar (CLAUDE.md item 4).
 - **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/ui-visual-standard.md, docs/project-map.md, docs/architecture-rules.md: Sim.
-- **Areas mapeadas na Fase 0 (leitura antes de editar):** `src/webhook-handler.js` (nao envia nada: enfileira job `webhook_resposta`), `src/agent.js` (`processarRespostaWebhookDebounced`, `processarJob`, wiring de `createCoreFunnel`/`createContexto2Responder`), `src/core-funnel.js:1070 gerarEEnviarRespostaWhatsapp` (gera E envia no mesmo bloco; 7 pontos de envio), `src/services/contexto2-responder.js:165` (envio do playbook), `src/services/contexto2-runtime.js` (`atualizarLeadInsights` — a ANALISE persistida, roda ANTES do envio), `src/followup-auto.js` (elegibilidade SQL + guarda do job), `src/followup-execution.js:381` (ramo `reengajamento`), `src/agenda.js:797` (lembrete de reuniao), `src/db-crud.js` (`buscarConversa` faz `SELECT *` — o modo chega de graca), `src/routes/api-conversas.js` (`GET /:numero` faz `SELECT c.*` — idem), `src/db/auditoria.js`, `sql/migrations/` (ultima: 062), `frontend/components/ConversaPainel.tsx`, `frontend/components/ui/Abas.tsx`.
-- **Achado que decide o desenho:** o webhook NAO e o ponto de envio — ele so enfileira o job. Bloquear o modo no webhook mataria junto a analise (que roda dentro do turno de LLM). O bloqueio precisa viver nos DOIS enviadores (`core-funnel.js` e `contexto2-responder.js`), imediatamente antes do `enviarMensagem`, depois de `atualizarLeadInsights`/`atualizarPerfil` ja terem gravado a analise.
-- **Segundo achado:** extracao (analise) e mensagem saem da MESMA chamada de LLM nos dois motores (`extrairEDecidirBundle` no playbook, `chamarClaudeTurno` no legado). Logo, o modo `analise` NAO reduz custo de IA — ele so nao entrega a mensagem. Separar os dois seria refatoracao grande, fora do escopo declarado.
+- **Areas mapeadas na Fase 0 (leitura antes de editar):** `src/webhook-handler.js` (nao envia nada: enfileira job `webhook_resposta`), `src/agent.js` (`processarRespostaWebhookDebounced`, `processarJob`, wiring de `createCoreFunnel`/`createContexto2Responder`), `src/core-funnel.js:1070 gerarEEnviarRespostaWhatsapp` (gera E envia no mesmo bloco; 7 pontos de envio), `src/services/contexto2-responder.js:165` (envio do playbook), `src/services/contexto2-runtime.js` (`atualizarLeadInsights` â€” a ANALISE persistida, roda ANTES do envio), `src/followup-auto.js` (elegibilidade SQL + guarda do job), `src/followup-execution.js:381` (ramo `reengajamento`), `src/agenda.js:797` (lembrete de reuniao), `src/db-crud.js` (`buscarConversa` faz `SELECT *` â€” o modo chega de graca), `src/routes/api-conversas.js` (`GET /:numero` faz `SELECT c.*` â€” idem), `src/db/auditoria.js`, `sql/migrations/` (ultima: 062), `frontend/components/ConversaPainel.tsx`, `frontend/components/ui/Abas.tsx`.
+- **Achado que decide o desenho:** o webhook NAO e o ponto de envio â€” ele so enfileira o job. Bloquear o modo no webhook mataria junto a analise (que roda dentro do turno de LLM). O bloqueio precisa viver nos DOIS enviadores (`core-funnel.js` e `contexto2-responder.js`), imediatamente antes do `enviarMensagem`, depois de `atualizarLeadInsights`/`atualizarPerfil` ja terem gravado a analise.
+- **Segundo achado:** extracao (analise) e mensagem saem da MESMA chamada de LLM nos dois motores (`extrairEDecidirBundle` no playbook, `chamarClaudeTurno` no legado). Logo, o modo `analise` NAO reduz custo de IA â€” ele so nao entrega a mensagem. Separar os dois seria refatoracao grande, fora do escopo declarado.
 - **Fora de escopo declarado:** novas automacoes comerciais; follow-up automatico no modo Analise; mudancas no motor de inteligencia alem da separacao analisar/responder; perfil 360 do contato; `agente_pausado` (comportamento atual preservado, nao derivado nem reusado).
 - **Proxima etapa:** apresentar a analise de impacto + lista de arquivos e aguardar confirmacao de 4 decisoes de produto (destino da mensagem gerada e nao enviada; comportamento com o agente pausado; envios compostos pela IA e disparados por humano; abrangencia sobre lembrete de reuniao e "Rodar leads"). So entao implementar.
 
@@ -2744,9 +2838,9 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **E projeto/tarefa de alteracao?** Sim, ESTRUTURAL: migration nova que MUTA DADO EXISTENTE (a semantica da coluna `vendas.conversas.modo_ia` muda), leitura nova no caminho de resposta automatica, rota nova de configuracao da empresa e mudanca no contrato de leitura da conversa. Exige confirmacao antes de implementar.
 - **Workflow padrao consultado?** AGENTS.md (incluindo o bloco novo do modo de IA), CLAUDE.md, docs/ai-workflow.md, docs/ai-decision-log.md, docs/ui-visual-standard.md: Sim.
 - **Areas mapeadas na Fase 0:** `src/services/conversa-modo-ia.js` (dono do vocabulario, criado hoje), `sql/migrations/063_conversa_modo_ia.sql` (CHECK e DEFAULT a alterar), `src/db/empresas.js:55-77` (padrao ESTABELECIDO de configuracao global por empresa: `app.empresas.config` JSONB + cache de 30s + invalidacao), `src/routes/api-empresas.js:69-88` (`GET/PATCH /:empresaId/agente`, o molde da rota global), `src/core-funnel.js` (gate de entrega; ja recebe `empresaAgentePausada` por injecao), `src/services/contexto2-responder.js`, `src/routes/api-conversas.js` (`GET /:numero`), `src/services/conversa-manual.js`, `frontend/app/dashboard/conversas/page.tsx` (cabecalho da Central), `frontend/components/ConversaPainel.tsx`, `frontend/components/ui/AlternadorModoIa.tsx`, `frontend/lib/conversa-modo-ia.js`.
-- **Achado que decide o desenho (1):** o global cabe em `app.empresas.config` JSONB, reusando integralmente o padrao de `config.agente_pausado` — **nenhuma migration para o global**, so para a coluna individual.
+- **Achado que decide o desenho (1):** o global cabe em `app.empresas.config` JSONB, reusando integralmente o padrao de `config.agente_pausado` â€” **nenhuma migration para o global**, so para a coluna individual.
 - **Achado que decide o desenho (2):** o modo EFETIVO deve ser calculado no BACKEND e devolvido pelo `GET /conversas/:numero` (que ja faz `SELECT c.*`). Assim a fonte de verdade e unica, a tela nao recalcula prioridade e o painel continua sem requisicao extra.
-- **Risco declarado que precisa de decisao do operador:** a migration precisa converter as linhas existentes de `'conversa'` para `'herdar'`. Sem isso TODA a base nasce com excecao explicita e mudar o global nao afetaria conversa alguma — o 1o criterio de aceite nasceria falso. Linhas em `'analise'` sao preservadas como excecao.
+- **Risco declarado que precisa de decisao do operador:** a migration precisa converter as linhas existentes de `'conversa'` para `'herdar'`. Sem isso TODA a base nasce com excecao explicita e mudar o global nao afetaria conversa alguma â€” o 1o criterio de aceite nasceria falso. Linhas em `'analise'` sao preservadas como excecao.
 - **Fora de escopo declarado:** logica propria de ativacao de follow-up; regras proprias de agenda e lembretes; automacoes novas a partir dos insights; perfil 360.
 - **Proxima etapa:** apresentar a analise de impacto + lista de arquivos e aguardar confirmacao de 2 decisoes (mutacao das linhas existentes e comportamento em caso de falha de leitura do modo global). So entao implementar.
 
@@ -2758,10 +2852,10 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **Pedido resumido:** Coluna "Lead" da Central de Mensagens deve exibir o nome mais util disponivel, com prioridade fixa (1 nome cadastrado do lead -> 2 nome do WhatsApp -> 3 nome do Google Maps -> 4 VAZIO). Telefone NUNCA ocupa o campo de nome; ele fica so na coluna propria. Resolucao centralizada num modulo reutilizavel, backend devolvendo o nome ja resolvido + a fonte, e testes por prioridade.
 - **E projeto/tarefa de alteracao?** Sim, e ESTRUTURAL: a prioridade 2 exige migration nova (o pushName CRU do WhatsApp NAO e persistido hoje) + escrita no caminho do webhook; a prioridade 3 exige join novo entre `vendas.conversas` e `prospectador.prospects` numa listagem paginada sem indice de telefone. Exige confirmacao antes de implementar (CLAUDE.md item 4).
 - **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/ui-visual-standard.md: Sim.
-- **Areas mapeadas na Fase 0 (leitura antes de editar):** `src/services/lead-nome-exibicao.js` (modulo PURO ja escrito por sessao anterior e AINDA NAO LIGADO a nada — grep confirma zero importadores), `src/routes/api-conversas.js:92` (`GET /` da listagem) e `:142` (`GET /:numero`), `src/agent.js:5820 capturarNomeContato` (unico ponto que aproveita o pushName hoje), `src/nome-contato.js` (`nomeDePushName` -> `primeiroNome`), `src/webhook-handler.js:361` (repasse do `msg.pushName`), `sql/init.sql:685` (`prospectador.prospects`: `nome` NOT NULL + `telefone` TEXT), `frontend/lib/lead-identidade.js` (dono de `identidadeConversa`/`rotuloLead`), `frontend/app/dashboard/conversas/page.tsx:236-240` (coluna Lead + coluna Telefone), `frontend/lib/followups-fila.js` (reexporta a identidade).
-- **Achado que decide o desenho (1):** o nome do WhatsApp **nao existe no banco**. `capturarNomeContato` roda `nomeDePushName`, que fica so com o PRIMEIRO TOKEN e recusa palavras de negocio (`pizzaria`, `loja`, `clinica`… em `NAO_NOME`) — "Pizzaria do Ze" e descartado inteiro e nada e gravado. O que sobra em `lead_profiles.apelido` ja e "nome cadastrado" (prioridade 1), nao a prioridade 2. Sem migration nao existe fonte 2.
+- **Areas mapeadas na Fase 0 (leitura antes de editar):** `src/services/lead-nome-exibicao.js` (modulo PURO ja escrito por sessao anterior e AINDA NAO LIGADO a nada â€” grep confirma zero importadores), `src/routes/api-conversas.js:92` (`GET /` da listagem) e `:142` (`GET /:numero`), `src/agent.js:5820 capturarNomeContato` (unico ponto que aproveita o pushName hoje), `src/nome-contato.js` (`nomeDePushName` -> `primeiroNome`), `src/webhook-handler.js:361` (repasse do `msg.pushName`), `sql/init.sql:685` (`prospectador.prospects`: `nome` NOT NULL + `telefone` TEXT), `frontend/lib/lead-identidade.js` (dono de `identidadeConversa`/`rotuloLead`), `frontend/app/dashboard/conversas/page.tsx:236-240` (coluna Lead + coluna Telefone), `frontend/lib/followups-fila.js` (reexporta a identidade).
+- **Achado que decide o desenho (1):** o nome do WhatsApp **nao existe no banco**. `capturarNomeContato` roda `nomeDePushName`, que fica so com o PRIMEIRO TOKEN e recusa palavras de negocio (`pizzaria`, `loja`, `clinica`â€¦ em `NAO_NOME`) â€” "Pizzaria do Ze" e descartado inteiro e nada e gravado. O que sobra em `lead_profiles.apelido` ja e "nome cadastrado" (prioridade 1), nao a prioridade 2. Sem migration nao existe fonte 2.
 - **Achado que decide o desenho (2):** nao ha indice em `prospectador.prospects.telefone` (nem funcional sobre os digitos). O casamento conversa<->prospect e por telefone normalizado (padrao ja usado em `prospecting.js:1925`), entao o join na listagem de 50 conversas por pagina varre a tabela de prospects por linha.
-- **Achado que decide o desenho (3):** hoje `identidadeConversa` usa o TELEFONE como titulo quando nao ha nome — exatamente o que o pedido proibe no campo de nome. A mesma funcao serve o cabecalho do painel de conversa e a fila de Follow-ups, entao mudar a regra sem recortar o escopo muda 3 telas.
+- **Achado que decide o desenho (3):** hoje `identidadeConversa` usa o TELEFONE como titulo quando nao ha nome â€” exatamente o que o pedido proibe no campo de nome. A mesma funcao serve o cabecalho do painel de conversa e a fila de Follow-ups, entao mudar a regra sem recortar o escopo muda 3 telas.
 - **Fora de escopo declarado (do proprio pedido):** sobrescrever nome cadastrado do lead; criar/editar perfil de lead a partir de WhatsApp ou Maps; mexer em aquisicao, follow-up, agenda ou analise da IA.
 - **WIP alheio no working tree (nao entra neste diff):** modo_ia `herdar` (migration 064 + `conversa-modo-ia.js` + `ConversaPainel.tsx` + testes), ainda nao commitado.
 - **Proxima etapa:** apresentar a analise de impacto + lista de arquivos e aguardar confirmacao de 3 decisoes (persistir o pushName cru via migration; custo/forma do join com o Maps; abrangencia do "campo vazio" fora da coluna Lead). So entao implementar.
@@ -2775,13 +2869,13 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 - **E projeto/tarefa de alteracao?** Sim, e ESTRUTURAL: toca caminho de ENVIO em producao (4 chamadores), a regra unica de resolucao de instancia (`src/whatsapp.js`), backfill de dados e, na fase seguinte, leitura filtrada + frontend. Exige confirmacao antes de implementar (CLAUDE.md item 4).
 - **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md, docs/analise-contexto-instancia.md, docs/architecture-rules.md: Sim.
 - **Base:** a analise de impacto completa ja existe (`docs/analise-contexto-instancia.md`, 2026-08-10, somente leitura) e o instrumento de medicao ja foi entregue (`npm run medir:escopo-instancia`). Esta tarefa IMPLEMENTA as Fases 2, 4 e 3 daquele plano.
-- **Areas mapeadas na Fase 0 (leitura antes de editar):** `src/whatsapp.js:45-81` (`getInstanceNameForConversation` + `instanceNameParaEnvio` — a cadeia de fallback defeituosa), `src/services/conversa-manual.js:41-104` (o UNICO caminho que ja recusa envio sem instancia provada, com `409 INSTANCE_UNAVAILABLE` — molde a reusar; mas ele TAMBEM carrega o fallback "mais recentemente atualizada" em :61-69), `src/services/rodar-leads.js:158-167` (`carregarInstancia` com `WHERE id=$1 AND empresa_id=$2` + exclusao do canal freelandoo — molde de validacao), `src/followup-execution.js:386`, `src/agenda.js:803` e `:928`, `src/prospecting.js:2033` (os 4 envios sem `instanceName`), `src/handoff-alerts.js:342` (envio ao operador, risco menor), `src/db-crud.js:154` vs `historico-envio.js:71` vs `conversa-manual.js:144` (precedencia divergente de escrita de `evolution_instance`), `scripts/medir-escopo-instancia.js` + `test/medir-escopo-instancia.test.js` (guarda de somente-leitura).
-- **Achado que decide o desenho (1):** o defeito nao esta nos 4 chamadores — esta na CADEIA de resolucao. Mesmo passando `instanceName`, `instanceNameParaEnvio` nao valida se aquele nome existe, esta ativo, pertence a empresa da conversa e e do canal WhatsApp/Evolution. Corrigir so os chamadores deixaria o passo 2b ("instancia ativa mais recentemente atualizada") e o passo 3 (`process.env.EVOLUTION_INSTANCE`, default literal `'PJ'`) vivos para todo o resto. A correcao tem de ser a REGRA UNICA, no molde da quarentena de webhook: sem origem provada, nao envia.
-- **Achado que decide o desenho (2):** `conversa-manual.js` ja resolve isso corretamente para o operador, com SQL proprio. Centralizar significa aquele arquivo passar a CONSUMIR a regra unica, nao duplica-la — senao o repo fica com duas implementacoes do mesmo julgamento (a licao ja paga com a bolinha de pontuacao e o painel de conversa).
+- **Areas mapeadas na Fase 0 (leitura antes de editar):** `src/whatsapp.js:45-81` (`getInstanceNameForConversation` + `instanceNameParaEnvio` â€” a cadeia de fallback defeituosa), `src/services/conversa-manual.js:41-104` (o UNICO caminho que ja recusa envio sem instancia provada, com `409 INSTANCE_UNAVAILABLE` â€” molde a reusar; mas ele TAMBEM carrega o fallback "mais recentemente atualizada" em :61-69), `src/services/rodar-leads.js:158-167` (`carregarInstancia` com `WHERE id=$1 AND empresa_id=$2` + exclusao do canal freelandoo â€” molde de validacao), `src/followup-execution.js:386`, `src/agenda.js:803` e `:928`, `src/prospecting.js:2033` (os 4 envios sem `instanceName`), `src/handoff-alerts.js:342` (envio ao operador, risco menor), `src/db-crud.js:154` vs `historico-envio.js:71` vs `conversa-manual.js:144` (precedencia divergente de escrita de `evolution_instance`), `scripts/medir-escopo-instancia.js` + `test/medir-escopo-instancia.test.js` (guarda de somente-leitura).
+- **Achado que decide o desenho (1):** o defeito nao esta nos 4 chamadores â€” esta na CADEIA de resolucao. Mesmo passando `instanceName`, `instanceNameParaEnvio` nao valida se aquele nome existe, esta ativo, pertence a empresa da conversa e e do canal WhatsApp/Evolution. Corrigir so os chamadores deixaria o passo 2b ("instancia ativa mais recentemente atualizada") e o passo 3 (`process.env.EVOLUTION_INSTANCE`, default literal `'PJ'`) vivos para todo o resto. A correcao tem de ser a REGRA UNICA, no molde da quarentena de webhook: sem origem provada, nao envia.
+- **Achado que decide o desenho (2):** `conversa-manual.js` ja resolve isso corretamente para o operador, com SQL proprio. Centralizar significa aquele arquivo passar a CONSUMIR a regra unica, nao duplica-la â€” senao o repo fica com duas implementacoes do mesmo julgamento (a licao ja paga com a bolinha de pontuacao e o painel de conversa).
 - **Achado que decide o desenho (3):** o backfill so e seguro onde a atribuicao e DERIVAVEL. `classificarAtribuibilidade` (script de medicao) ja e a regra: empresa com 1 instancia ativa = `atribuivel`; com 2+ = `nao_atribuivel`; conversa sem empresa = `quarentena_analitica`. Escolher "a mais recente" repetiria, em repouso e permanente, o defeito que a Fase 2 remove.
 - **Restricoes declaradas pelo pedido:** nao rotacionar credenciais nesta entrega; nao expor credencial em log/teste/doc/commit; nao atribuir conversa por heuristica; nao usar fallback por instancia mais recente; nao enviar mensagem real durante a validacao; preservar isolamento por empresa e instancia.
 - **Fora de escopo declarado:** rotacao/remocao da credencial de producao exposta (etapa posterior); mudanca no `UNIQUE (numero)` global de `vendas.conversas` (decisao D-1, congelada pela pendencia arquitetural); teto/janela/pausa por instancia (Fase 8); remocao do env `EVOLUTION_INSTANCE` (D-7, so depois da Fase 2 estabilizada).
-- **Bloqueio na Fase 0:** o pedido chegou TRUNCADO — corta em `fase_2_proteger_envios.requisitos` ("Quando evolution_inst...") e as secoes de backfill (Fase 4), seletor (Fase 3) e documentacao nao chegaram. Analise feita; implementacao aguarda o texto completo.
+- **Bloqueio na Fase 0:** o pedido chegou TRUNCADO â€” corta em `fase_2_proteger_envios.requisitos` ("Quando evolution_inst...") e as secoes de backfill (Fase 4), seletor (Fase 3) e documentacao nao chegaram. Analise feita; implementacao aguarda o texto completo.
 - **Proxima etapa:** receber o restante do pedido, apresentar a analise de impacto + lista de arquivos e aguardar confirmacao. So entao implementar.
 
 ---
@@ -2790,7 +2884,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 - **IA/Ferramenta:** Claude Code
 - **Pedido resumido:** Implementar SOMENTE a **Fase 2** do plano de escopo por instancia
-  (`docs/analise-contexto-instancia.md` §9): centralizar em `src/whatsapp.js` uma unica regra
+  (`docs/analise-contexto-instancia.md` Â§9): centralizar em `src/whatsapp.js` uma unica regra
   SEGURA de resolucao da instancia de envio, remover os fallbacks (instancia "mais recentemente
   atualizada", `EVOLUTION_INSTANCE`, literal `'PJ'`, nome explicito sem validacao), fazer
   `services/conversa-manual.js` consumir a regra unica, cobrir os chamadores (follow-up, agenda,
@@ -2811,7 +2905,7 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
   (existe? ativo? da mesma empresa? canal WhatsApp?). Corrigir so os chamadores deixaria o passo
   2b (ordenacao por `atualizado_em`) e o passo 3 (`process.env.EVOLUTION_INSTANCE || 'PJ'`) vivos.
 - **Achado que decide o desenho (2):** `conversa-manual.js` ja recusa envio sem instancia
-  (`409 INSTANCE_UNAVAILABLE`) — mas com SQL PROPRIO, que carrega o mesmo fallback por
+  (`409 INSTANCE_UNAVAILABLE`) â€” mas com SQL PROPRIO, que carrega o mesmo fallback por
   `atualizado_em` (:61-69). Centralizar significa aquele arquivo CONSUMIR a regra unica, nao
   duplicar o julgamento.
 - **Achado que decide o desenho (3):** a instancia carrega o `empresa_id` dela. Entao o cruzamento
