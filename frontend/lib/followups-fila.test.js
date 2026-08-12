@@ -89,6 +89,29 @@ test('acao humana e a proxima acao da conversa; o automatico vira contexto da ME
   assert.equal(aplicarFiltroRapido(itens, 'ia').length, 1)
 })
 
+test('localizacao da fila e SO a cidade, mesmo quando nome e negocio sao o mesmo texto', () => {
+  // Fixture `humano()` tem nome === negocio ('Padaria do Zé') — exatamente o caso relatado:
+  // sem apelido, o rotulo (linha principal) nasce do negocio. A linha secundaria nao pode
+  // repetir esse mesmo texto; so a cidade.
+  const [item] = montarFila({ humanos: [humano()], agora: AGORA })
+  assert.equal(item.rotulo, 'Padaria do Zé')
+  assert.equal(item.localizacao, 'Santo André')
+  assert.ok(!String(item.localizacao).includes('Padaria'), 'localizacao nao repete o negocio')
+  // `contexto` (busca da fila) continua com negocio+cidade — nao foi removido, so deixou de
+  // ser o que a LINHA mostra.
+  assert.equal(item.contexto, 'Padaria do Zé · Santo André')
+})
+
+test('localizacao fica null quando nao ha cidade conhecida (sem inventar dado)', () => {
+  const [item] = montarFila({ humanos: [humano({ cidade: null })], agora: AGORA })
+  assert.equal(item.localizacao, null)
+})
+
+test('item so do automatico nao tem localizacao (fonte nao traz cidade)', () => {
+  const [item] = montarFila({ automaticos: [auto()], agora: AGORA })
+  assert.equal(item.localizacao, null)
+})
+
 test('item so do automatico NAO recebe prioridade inventada', () => {
   const [item] = montarFila({ automaticos: [auto()], agora: AGORA })
   assert.equal(item.prioridade, null)

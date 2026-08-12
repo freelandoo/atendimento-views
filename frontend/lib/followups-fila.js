@@ -168,6 +168,19 @@ function contextoDoLead(fonte) {
   return [texto(fonte.negocio), texto(fonte.cidade)].filter(Boolean).join(' · ') || null
 }
 
+/**
+ * Linha secundária da fila (o que a tela MOSTRA sob o rótulo): só a localização, nunca o
+ * negócio/nicho — este já apareceu na linha principal (`rotulo`), que também nasce do mesmo
+ * `nome`/`negocio` quando não há apelido. Repeti-lo aqui era literalmente o mesmo texto duas
+ * vezes na mesma linha, com a cidade colada no fim. `contextoDoLead` continua existindo (e
+ * continua usado na BUSCA, que precisa achar por negócio) — só a apresentação muda.
+ * Sem coluna de UF na fonte (`lead_profiles`/`prospects` só têm `cidade` texto livre), mostra
+ * a cidade como foi cadastrada — não inventa abreviação sem dado para isso.
+ */
+function localizacaoDoLead(fonte) {
+  return texto(fonte && fonte.cidade) || null
+}
+
 /** Escolhe qual agendamento representa a conversa e resume o grupo inteiro. */
 function resumirAutomaticos(lista) {
   const ordenados = [...lista].sort((a, b) => {
@@ -235,6 +248,7 @@ const CAMPOS_FOLLOWUP_VAZIOS = Object.freeze({
   observacao: null,
   resultado_nota: null,
   destino: null,
+  localizacao: null,
 })
 
 /**
@@ -306,6 +320,7 @@ function montarFila(entrada = {}) {
       nome,
       rotulo: rotuloLead({ nome, telefone_digitos: chave, numero }),
       contexto: contextoDoLead({ negocio: f.nome, cidade: f.cidade }) || contextoDoLead(h || {}),
+      localizacao: localizacaoDoLead({ cidade: f.cidade }) || localizacaoDoLead(h || {}),
       estagio: texto(h && h.estagio) || null,
       humano: true,
       ia_agendada: !!(ia && ia.ia_agendada),
@@ -352,6 +367,7 @@ function montarFila(entrada = {}) {
       nome: nomeHumano,
       rotulo: rotuloLead({ nome: nomeHumano, telefone_digitos: telefoneHumano, numero }),
       contexto: contextoDoLead(h),
+      localizacao: localizacaoDoLead(h),
       estagio: texto(h.estagio) || null,
       humano: true,
       ia_agendada: !!(ia && ia.ia_agendada),

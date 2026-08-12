@@ -6,6 +6,74 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-11 - Inicio de tarefa IA - Radial de verdade em Follow-ups + linha sem duplicidade (2a entrega)
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`followups-radial-polish`).
+- **Pedido resumido:** A 1a entrega do radial (commit `1271749`) foi validada visualmente pelo
+  operador e **reprovada**: o menu ainda parece um popover quadrado com uma grade 3x3 de botoes
+  retangulares, nao um radial de verdade. Pedido: bolinhas de verdade posicionadas em torno do
+  gatilho "⋯" nas direcoes literais (cima=agendar/remarcar, esquerda=cancelar/descartar,
+  direita=concluir/resolver, centro/fora=fechar), acionamento por clique/toque (sem depender de
+  hover), hover pode reforcar/explicar mas nao executar, foco/teclado minimo, Escape/click fora
+  fecha. Junto, corrigir a linha do Follow-ups onde a linha secundaria repete o mesmo texto que
+  ja aparece como nome/servico na linha principal (mais cidade colada) — a linha secundaria deve
+  mostrar so a localizacao, sem repetir nicho/descricao.
+- **E projeto/tarefa de alteracao?** Sim, pequena e 100% de apresentacao (frontend): sem schema,
+  sem migration, sem rota nova, sem chamada nova ao backend. Reaproveita os mesmos dois arquivos
+  criados na entrega anterior (`MenuRadialAcoes.tsx`, `lib/followups-fila.js`) em vez de criar
+  componente novo.
+- **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
+  `docs/ui-visual-standard.md` nao existe como arquivo neste repositorio (mesma observacao ja
+  registrada nas entradas anteriores da serie de padronizacao visual).
+- **Mapeamento feito antes de editar:**
+  1. `frontend/components/ui/MenuRadialAcoes.tsx` — o "leque" hoje e' um `<div className="grid
+     grid-cols-3 ...">` com botoes `rounded-lg border` (cantos levemente arredondados, NAO
+     circulos) dentro de uma caixa retangular com sombra — daí o "parece caixa quadrada". A
+     geometria pura (`lib/menu-radial.js`: `atribuirZonas`, cima/direita/esquerda/extras) esta
+     correta e **nao precisa mudar**; so o componente visual precisa ser refeito.
+  2. `frontend/app/dashboard/follow-ups/page.tsx:638-657` — o caso mais comum (`emAberto`) ja
+     manda EXATAMENTE 3 acoes zoneadas (Concluir=direita, Reagendar=cima, Cancelar=esquerda),
+     sem extras — ou seja, na maioria das linhas o menu pode ser 100% circular, sem nenhuma caixa
+     retangular. Extras (ex.: "Cancelar automatico") so aparecem quando `item.ia_agendada`.
+  3. `frontend/lib/followups-fila.js:167-168` (`contextoDoLead`) junta `negocio` + `cidade` com
+     `·`. Nos itens de follow-up registrado (linha ~299/308), `nome` (que vira `rotulo`, a linha
+     principal) e `contexto.negocio` usam a **mesma fonte** (`f.nome`) quando
+     `nomeDeVerdade(f.nome)` da certo — por isso a linha secundaria repete o texto que ja esta
+     em cima, com a cidade colada no fim. Mesmo padrao no bloco humano (linha ~346/354): `h.nome`
+     (que e' `COALESCE(apelido, negocio)` no backend) vira `rotulo`, e `contexto` usa `h.negocio`
+     de novo.
+  4. `item.contexto` tambem alimenta a BUSCA da fila (`followups-fila.js:547`,
+     `${rotuloLead(i)} ${i.nome||''} ${i.contexto||''}`) — nao posso simplesmente apagar negocio
+     dali sem perder capacidade de busca por nome de negocio.
+- **Decisao (baixo risco, aditiva):** criar um campo NOVO `localizacao` (so' a cidade, sem
+  negocio) para a APRESENTACAO da linha secundaria; o campo `contexto` existente continua intacto
+  e continua alimentando a busca — nenhum dado e' removido, so' o que a LINHA mostra muda. Sem
+  coluna de UF no backend (`lead_profiles`/`prospects` so tem `cidade` texto livre), a
+  localizacao mostrada e' a cidade como esta cadastrada — nao inveto abreviacao tipo "SBC" sem
+  fonte de dado para isso.
+- **Decisao de arquitetura do radial (autocontida, baixo risco):** manter o MESMO componente
+  (`MenuRadialAcoes.tsx`) e a MESMA API (`AcaoRadial[]`, `atribuirZonas`), so' trocar o
+  posicionamento de grid-3x3 para bolinhas (`rounded-full`) fixadas em coordenadas de tela ao
+  redor do CENTRO do proprio botao "⋯" (cima/esquerda/direita a uma distancia fixa do centro,
+  com clamp nas bordas da viewport), com um anel tracejado decorativo (`aria-hidden`) reforcando
+  a leitura radial. Extras (quando existem) continuam num paines retangular pequeno abaixo do
+  anel — nao da' pra encaixar lista de tamanho variavel num circulo. Sem gesto de arrastar nesta
+  entrega (decisao ja registrada na entrega anterior: acionamento por clique/toque previsivel);
+  fica documentado como fase seguinte no proprio componente, como ja estava.
+- **Arquivos que pretendo alterar:** `frontend/components/ui/MenuRadialAcoes.tsx` (redesenho
+  visual, mesma API), `frontend/lib/followups-fila.js` (+ `.d.ts`/`.test.js`, campo `localizacao`
+  novo), `frontend/app/dashboard/follow-ups/page.tsx` (troca `item.contexto` por
+  `item.localizacao` na linha secundaria da coluna Lead). Nenhum arquivo de `backend/` tocado.
+- **Fora de escopo declarado (pelo proprio pedido):** backend, banco, Railway, producao,
+  workers, seguranca de instancia, roteiro SPIN, credenciais; redesenhar outras listagens; mudar
+  regra de negocio das acoes; remover acoes existentes; criar dependencia nova (CSS/React
+  proprio, sem biblioteca de gestos).
+- **Validacao prevista:** `npm run typecheck` (frontend), `npm test` (frontend, `lib/*.test.js`),
+  `git diff --check`, conferencia visual manual do dev server. Commit unico + push para master
+  **so' se** tudo passar e o diff nao sair do escopo combinado.
+
+---
+
 ## 2026-08-11 - Inicio de tarefa IA - Primeira entrega da padronizacao visual: radial em Follow-ups + confirmacoes acessiveis
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5)

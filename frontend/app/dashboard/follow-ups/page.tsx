@@ -684,7 +684,15 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
         >
           {item.rotulo}
         </button>
-        {item.contexto && <div className="text-xs text-slate-400">{item.contexto}</div>}
+        {/* Só a localização (cidade) — negócio/nicho já apareceu no rótulo acima; repeti-lo
+            aqui era o mesmo texto duas vezes na mesma linha. `item.contexto` (negócio+cidade)
+            continua existindo só para a busca da fila, não para esta linha. */}
+        {item.localizacao && (
+          <div className="flex items-center gap-1 text-xs text-slate-400">
+            <span aria-hidden="true">📍</span>
+            {item.localizacao}
+          </div>
+        )}
         {/* Telefone como linha extra só quando o rótulo é um nome — senão seria o mesmo
             dado duas vezes. */}
         {item.nome && (

@@ -69,6 +69,9 @@ export interface ItemFila {
   /** O que a tela mostra: o nome, ou o telefone formatado na falta dele. */
   rotulo: string
   contexto: string | null
+  /** Linha secundária da fila: só a cidade (localização), nunca negócio/nicho — evita repetir o
+   *  que o `rotulo` já mostra. `null` quando não há cidade conhecida. */
+  localizacao: string | null
   estagio: string | null
   humano: boolean
   ia_agendada: boolean
