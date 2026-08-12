@@ -9,6 +9,7 @@ const {
   LIGACAO_RESULTADO, LIGACAO_STATUS, SINAL_TIPO, SINAL_ORIGEM, OBJECAO_ORIGEM,
   PERGUNTA_STATUS, MOTIVO_PERDA,
   FOLLOWUP_CANAL, FOLLOWUP_STATUS, FOLLOWUP_PRIORIDADE, FOLLOWUP_ORIGEM,
+  DISPONIBILIDADE_CANAIS, DISPONIBILIDADE_ORIGEM,
 } = require('../src/domain-enums')
 
 const initSql = fs.readFileSync(path.join(__dirname, '..', 'sql', 'init.sql'), 'utf8')
@@ -23,6 +24,7 @@ const mig045 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '
 const mig043 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '043_ligacao_perguntas.sql'), 'utf8')
 const mig052 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '052_ligacoes_motivo_perda_v2.sql'), 'utf8')
 const mig062 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '062_follow_ups.sql'), 'utf8')
+const mig066 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '066_contato_canal_disponibilidade.sql'), 'utf8')
 
 // Extrai a lista de valores da primeira CHECK (... IN (...)) que segue o nome da constraint.
 function checkIn(sql, constraintName) {
@@ -141,6 +143,20 @@ test('FOLLOWUP_* batem com as CHECK de app.follow_ups (migration 062)', () => {
   mesmoConjunto(FOLLOWUP_STATUS, checkIn(mig062, 'follow_ups_status_chk'), 'follow_up.status')
   mesmoConjunto(FOLLOWUP_PRIORIDADE, checkIn(mig062, 'follow_ups_prioridade_chk'), 'follow_up.prioridade')
   mesmoConjunto(FOLLOWUP_ORIGEM, checkIn(mig062, 'follow_ups_origem_chk'), 'follow_up.origem')
+})
+
+test('DISPONIBILIDADE_* batem com as CHECK de app.contato_canal_disponibilidade (migration 066)', () => {
+  mesmoConjunto(DISPONIBILIDADE_CANAIS, checkIn(mig066, 'contato_canal_disp_canal_chk'), 'disponibilidade.canal')
+  mesmoConjunto(DISPONIBILIDADE_ORIGEM, checkIn(mig066, 'contato_canal_disp_origem_chk'), 'disponibilidade.origem')
+})
+
+test('a origem da marcacao de disponibilidade tem UM valor, e ele e humano', () => {
+  // Nao e' redundancia com o anti-drift: e a regra de negocio. Acrescentar aqui (ou na CHECK)
+  // um valor como 'automatico' seria autorizar falha de envio a decidir que um contato nao
+  // tem WhatsApp — o defeito que a migration 066 existe para impedir.
+  assert.deepEqual([...DISPONIBILIDADE_ORIGEM], ['operador'])
+  assert.doesNotMatch(mig066, /DEFAULT\s+'operador'/i,
+    'origem NAO pode ter DEFAULT: autorizaria em silencio um INSERT que esquecesse a coluna')
 })
 
 test('os enums de follow-up sao REEXPORTADOS do modulo puro, nao copiados', () => {

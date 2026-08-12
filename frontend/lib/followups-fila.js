@@ -61,6 +61,9 @@ const {
   rotuloCanal, iconeCanal, destinoDoCanal, rotuloOrigem, rotuloStatusFollowUp, rotuloEvento,
   formatarQuando, resumoProximaAcao, sugerirProximaAcao, paraInputLocal, deInputLocal,
   validarProximaAcao, montarPayloadProximaAcao, itemDeFollowUp, contextoDeOrigem,
+  MARCAR_SEM_WHATSAPP_LABEL, MARCAR_SEM_WHATSAPP_AJUDA, AVISO_TROCA_PARA_LIGACAO,
+  AVISO_CANAL_DESCARTADO, rotuloDisponibilidadeWhatsapp, canalDescartadoPeloOperador,
+  estadoDisponibilidadeInicial, alternarSemWhatsapp, patchDisponibilidade,
 } = require('./follow-up-acao')
 
 /** Situacao do item na fila. Fechada de proposito — a tela nao inventa estado. */
@@ -249,6 +252,11 @@ const CAMPOS_FOLLOWUP_VAZIOS = Object.freeze({
   resultado_nota: null,
   destino: null,
   localizacao: null,
+  // Disponibilidade de canal do contato (migration 066). `null` = ninguem verificou — e e'
+  // tambem o que um item DERIVADO carrega, porque o veredito acompanha o follow-up
+  // registrado. Presumi-lo `false` num item sem fonte seria inventar a verificacao.
+  whatsapp_disponivel: null,
+  whatsapp_motivo: null,
 })
 
 /**
@@ -693,6 +701,11 @@ module.exports = {
   rotuloCanal, iconeCanal, destinoDoCanal, rotuloOrigem, rotuloStatusFollowUp, rotuloEvento,
   formatarQuando, resumoProximaAcao, sugerirProximaAcao, paraInputLocal, deInputLocal,
   validarProximaAcao, montarPayloadProximaAcao, itemDeFollowUp, contextoDeOrigem,
+  // Disponibilidade de canal do contato (migration 066) — tambem so' REEXPORTADA daqui, para
+  // a tela continuar importando de um lugar so'.
+  MARCAR_SEM_WHATSAPP_LABEL, MARCAR_SEM_WHATSAPP_AJUDA, AVISO_TROCA_PARA_LIGACAO,
+  AVISO_CANAL_DESCARTADO, rotuloDisponibilidadeWhatsapp, canalDescartadoPeloOperador,
+  estadoDisponibilidadeInicial, alternarSemWhatsapp, patchDisponibilidade,
   VIEW_PADRAO,
   montarFila,
   ordenarFila,

@@ -66,6 +66,16 @@ import {
   paraInputLocal,
   deInputLocal,
   contextoDeOrigem,
+  // Disponibilidade de canal do CONTATO (migration 066). Quem DECIDE o canal é o backend;
+  // aqui só há o texto da consequência e o estado do controle.
+  MARCAR_SEM_WHATSAPP_LABEL,
+  MARCAR_SEM_WHATSAPP_AJUDA,
+  AVISO_TROCA_PARA_LIGACAO,
+  AVISO_CANAL_DESCARTADO,
+  rotuloDisponibilidadeWhatsapp,
+  estadoDisponibilidadeInicial,
+  alternarSemWhatsapp,
+  patchDisponibilidade,
   PRIORIDADE_OPCOES,
   ORIGEM_LABEL,
   type ItemFila,
@@ -910,6 +920,16 @@ function ModalReagendar({ item, responsaveis, onFechar, onConfirmar }: {
   const [responsavel, setResponsavel] = useState(item.responsavel_id || '')
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
+  // Veredito HUMANO sobre o WhatsApp do CONTATO (migration 066), tri-estado. O inicial é o
+  // que o backend informou — nunca um palpite da tela.
+  const dispInicial = estadoDisponibilidadeInicial(item)
+  const [disp, setDisp] = useState(dispInicial)
+  const [dispMotivo, setDispMotivo] = useState('')
+  const semWhatsapp = disp === false
+  // Consequência anunciada ANTES do clique: só há troca de canal quando o item ainda é de
+  // WhatsApp. Num item que já é de ligação a marcação continua valendo como fato do contato,
+  // mas não move trabalho nenhum.
+  const vaiTrocarCanal = semWhatsapp && item.canal === 'whatsapp'
 
   const confirmar = async () => {
     const iso = deInputLocal(quando)
@@ -924,6 +944,9 @@ function ModalReagendar({ item, responsaveis, onFechar, onConfirmar }: {
         prioridade,
         // `null` explícito devolve o item para "não atribuído" — é uma escolha, não omissão.
         responsavel_id: responsavel || null,
+        // Só vai quando o operador MUDOU o veredito aqui: reenviar o mesmo valor gravaria uma
+        // marcação nova e uma linha de auditoria a cada mexida na data.
+        ...patchDisponibilidade(dispInicial, disp, dispMotivo),
       })
     } finally { setSalvando(false) }
   }
@@ -932,8 +955,9 @@ function ModalReagendar({ item, responsaveis, onFechar, onConfirmar }: {
     <ModalSimples titulo={`Reagendar — ${item.rotulo}`} onFechar={onFechar}>
       <div className="space-y-3">
         <p className="text-xs text-slate-500">
-          O canal ({rotuloCanal(item.canal) || '—'}) e a origem ({rotuloOrigem(item.origem) || '—'}) não mudam:
-          trocar de canal é outra decisão, tomada onde a ação é executada.
+          A origem ({rotuloOrigem(item.origem) || '—'}) não muda, e o canal ({rotuloCanal(item.canal) || '—'})
+          não é um campo deste formulário: trocar de canal à mão é outra decisão, tomada onde a ação é
+          executada. Ele só muda como consequência do que você declarar sobre o contato, abaixo.
         </p>
         <label className="block text-sm">O que fazer
           <input value={acao} onChange={(e) => setAcao(e.target.value)}
@@ -957,6 +981,45 @@ function ModalReagendar({ item, responsaveis, onFechar, onConfirmar }: {
               {responsaveis.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
             </select>
           </label>
+        </div>
+        {/* Disponibilidade de canal do CONTATO (migration 066). Fala do contato, não deste
+            item — e é sempre uma afirmação de PESSOA: o sistema nunca conclui "não tem
+            WhatsApp" a partir de falha de envio. */}
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={semWhatsapp}
+              onChange={(e) => setDisp(alternarSemWhatsapp(dispInicial, e.target.checked))}
+            />
+            <span>
+              <span className="font-medium text-slate-700">{MARCAR_SEM_WHATSAPP_LABEL}</span>
+              <span className="mt-0.5 block text-xs text-slate-500">{MARCAR_SEM_WHATSAPP_AJUDA}</span>
+            </span>
+          </label>
+          {/* Estado atual em TEXTO — "não verificado" não pode parecer "não tem". */}
+          <p className="mt-2 text-xs text-slate-500">
+            Situação registrada hoje: {rotuloDisponibilidadeWhatsapp(dispInicial)}
+            {dispInicial === false && item.whatsapp_motivo ? ` — ${item.whatsapp_motivo}` : ''}
+            {dispInicial === false ? '. Desmarque para desfazer (Tem WhatsApp).' : ''}
+          </p>
+          {semWhatsapp && (
+            <label className="mt-2 block text-xs text-slate-600">Por quê? (opcional)
+              <input
+                value={dispMotivo}
+                onChange={(e) => setDispMotivo(e.target.value)}
+                placeholder="ex.: número só de telefone fixo"
+                className="mt-1 w-full rounded-lg border px-2 py-1.5 text-sm"
+              />
+            </label>
+          )}
+          {vaiTrocarCanal && (
+            <p className="mt-2 text-xs font-medium text-amber-700">{AVISO_TROCA_PARA_LIGACAO}</p>
+          )}
+          {dispInicial === false && item.canal === 'whatsapp' && (
+            <p className="mt-2 text-xs text-amber-700">{AVISO_CANAL_DESCARTADO}</p>
+          )}
         </div>
         {erro && <p className="text-xs text-red-600" role="alert">{erro}</p>}
         <div className="flex justify-end gap-2">

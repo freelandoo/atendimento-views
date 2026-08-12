@@ -181,8 +181,17 @@ function validarMudancaStatus(statusAtual, p = {}) {
  * Valida o REAGENDAMENTO. Reagendar mantem o mesmo item (mesma origem, mesmo contato, mesma
  * rastreabilidade) e so move a data/prioridade/responsavel — por isso nao e' "cancelar e
  * criar outro": o historico do contato ficaria com um cancelamento que nunca aconteceu.
+ *
+ * O CANAL continua fora do patch, de proposito: trocar de canal a mao segue sendo outra
+ * decisao. O que existe (migration 066) e' a troca como CONSEQUENCIA de um fato declarado
+ * sobre o contato ("nao tem WhatsApp") — quem resolve isso e' a camada de dados, com a
+ * regra de `services/contato-canal-disponibilidade.js`, nunca um campo do formulario.
+ *
+ * `opcoes.permitirPatchVazio` existe para esse caso: marcar disponibilidade sem mexer em
+ * prazo nem prioridade e' uma mudanca legitima, e recusa-la com "Nada para reagendar"
+ * obrigaria o operador a inventar uma alteracao para conseguir salvar o que ele sabe.
  */
-function validarReagendamento(statusAtual, p = {}, agora = new Date()) {
+function validarReagendamento(statusAtual, p = {}, agora = new Date(), opcoes = {}) {
   if (!estaAberto(statusAtual)) throw erroEntrada(`Follow-up ${statusAtual} nao pode ser reagendado.`)
   const patch = {}
   if (p.agendado_para !== undefined) patch.agendado_para = normalizarAgendadoPara(p.agendado_para, agora)
@@ -198,7 +207,7 @@ function validarReagendamento(statusAtual, p = {}, agora = new Date()) {
   }
   // `null` explicito = tirar o dono (voltar para "nao atribuido"), diferente de nao informar.
   if (p.responsavel_id !== undefined) patch.responsavel_id = p.responsavel_id || null
-  if (!Object.keys(patch).length) throw erroEntrada('Nada para reagendar.')
+  if (!Object.keys(patch).length && !opcoes.permitirPatchVazio) throw erroEntrada('Nada para reagendar.')
   return patch
 }
 

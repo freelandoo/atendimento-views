@@ -305,13 +305,41 @@ router.post('/itens/:id/status', requireAuth, requireEmpresaAccess, async (req, 
 })
 
 // POST /itens/:id/reagendar — move prazo/prioridade/texto/responsavel MANTENDO o mesmo item.
+//
+// Aceita tambem `whatsapp_disponivel` (booleano, opcional) + `disponibilidade_motivo`: o
+// operador declarando um fato sobre o CONTATO ("nao tem WhatsApp" / desfazendo isso). Quando
+// declarado, o veredito e gravado em app.contato_canal_disponibilidade e o canal do item e
+// reavaliado — tudo na MESMA transacao (src/db/follow-ups.js).
 router.post('/itens/:id/reagendar', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const item = await F.reagendarFollowUp(pool, req.empresa.id, req.params.id, req.body || {})
+    const b = req.body || {}
+    const item = await F.reagendarFollowUp(pool, req.empresa.id, req.params.id, b, {
+      usuarioId: req.usuario?.id || null,
+    })
+    // A marcacao e um fato sobre o CONTATO, nao sobre o follow-up: entra na auditoria como
+    // evento proprio, para continuar rastreavel mesmo depois de o item ser concluido.
+    // Sem JID e sem texto de mensagem — so' os digitos do telefone, como no resto do modulo.
+    if (item.disponibilidade) {
+      A.registrarAuditoria(pool, req.empresa.id, {
+        usuarioId: req.usuario?.id, entidadeTipo: 'contato', entidadeId: null,
+        acao: 'contato_canal_disponibilidade_alterada',
+        estadoNovo: item.disponibilidade.disponivel ? 'disponivel' : 'indisponivel',
+        contexto: {
+          telefone_digitos: item.telefone_digitos,
+          canal: item.disponibilidade.canal,
+          disponivel: item.disponibilidade.disponivel,
+          origem: item.disponibilidade.origem,
+        },
+      })
+    }
     A.registrarAuditoria(pool, req.empresa.id, {
       usuarioId: req.usuario?.id, entidadeTipo: 'follow_up', entidadeId: item.id,
       acao: 'follow_up_reagendado', estadoAnterior: 'aguardando', estadoNovo: 'aguardando',
-      contexto: { canal: item.canal },
+      contexto: {
+        canal: item.canal,
+        canal_trocado: item.canal_trocado === true,
+        canal_anterior: item.canal_anterior || null,
+      },
     })
     return res.json({ ok: true, data: item })
   } catch (err) { return erro(res, err, 'FOLLOWUP_REAGENDAR_FAILED') }

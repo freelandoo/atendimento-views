@@ -146,6 +146,23 @@ test('responsável nulo explícito devolve o item para "não atribuído"', () =>
   assert.equal('responsavel_id' in patch, true, 'null explícito é uma escolha, não "não informado"')
 })
 
+test('patch vazio é ACEITO quando a mudança é a disponibilidade do contato', () => {
+  // Marcar "este contato não tem WhatsApp" é mudança legítima e não mexe em prazo nem
+  // prioridade. Recusá-la com "Nada para reagendar" obrigaria o operador a inventar uma
+  // alteração para conseguir salvar o que ele sabe. Quem grava o fato é a camada de dados
+  // (migration 066); aqui só se autoriza o patch a ficar vazio.
+  assert.deepEqual(M.validarReagendamento('aguardando', {}, new Date(), { permitirPatchVazio: true }), {})
+  assert.throws(() => M.validarReagendamento('concluido', {}, new Date(), { permitirPatchVazio: true }),
+    /nao pode ser reagendado/, 'item terminal continua recusado — disponibilidade não reabre item fechado')
+})
+
+test('o canal continua FORA do patch de reagendamento, mesmo com disponibilidade', () => {
+  // A troca de canal é CONSEQUÊNCIA de um fato declarado sobre o contato, resolvida em
+  // services/contato-canal-disponibilidade.js — nunca um campo do formulário.
+  const patch = M.validarReagendamento('aguardando', { canal: 'ligacao', prioridade: 'alta' })
+  assert.equal('canal' in patch, false)
+})
+
 // ─── Guardas de regressão sobre o fonte ───────────────────────────────────────
 
 test('o banco — não a aplicação — garante uma ação aberta por contato e canal', () => {

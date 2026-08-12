@@ -52,6 +52,100 @@ const PRIORIDADE_OPCOES = Object.freeze([
   { valor: 'baixa', label: 'Baixa' },
 ])
 
+// ─── Disponibilidade de canal do CONTATO (migration 066) ─────────────────────
+//
+// Três estados, e o terceiro não é o segundo: `true` = o operador verificou e tem WhatsApp;
+// `false` = verificou e não tem; `null` = ninguém verificou. Mostrar "não tem" onde ninguém
+// olhou seria afirmar, na tela, algo que pessoa nenhuma disse.
+//
+// Quem DECIDE o canal é o backend (`services/contato-canal-disponibilidade.js`); o que está
+// aqui é o texto da consequência, no mesmo espírito de `CANAL_OPCOES` — rótulo de formulário,
+// não recálculo de regra. O canal que vale é sempre o que volta na resposta do reagendamento.
+const DISPONIBILIDADE_WHATSAPP_LABEL = Object.freeze({
+  true: 'Tem WhatsApp',
+  false: 'Sem WhatsApp',
+  null: 'WhatsApp não verificado',
+})
+
+/** Texto do checkbox do reagendamento. Fala do CONTATO, não deste follow-up. */
+const MARCAR_SEM_WHATSAPP_LABEL = 'Este contato não tem WhatsApp'
+const MARCAR_SEM_WHATSAPP_AJUDA =
+  'Marque só se você verificou. O sistema nunca conclui isso sozinho por falha de envio.'
+
+/**
+ * Consequência do "sem WhatsApp" no follow-up aberto. E-mail ainda não é canal de follow-up
+ * (não há tela que execute um), então o destino possível hoje é a ligação — o contato sempre
+ * tem telefone, porque o telefone é a identidade dele.
+ */
+const AVISO_TROCA_PARA_LIGACAO =
+  'Ao salvar, este follow-up passa a ser feito por Ligação. E-mail ainda não é um canal de follow-up.'
+
+/** Aviso na fila: item de WhatsApp num contato que o operador marcou como sem WhatsApp. */
+const AVISO_CANAL_DESCARTADO = 'Contato marcado como sem WhatsApp'
+
+function rotuloDisponibilidadeWhatsapp(valor) {
+  if (valor === true) return DISPONIBILIDADE_WHATSAPP_LABEL.true
+  if (valor === false) return DISPONIBILIDADE_WHATSAPP_LABEL.false
+  return DISPONIBILIDADE_WHATSAPP_LABEL.null
+}
+
+/**
+ * "Este item está num canal que o contato não tem?" Só é verdade com marcação EXPLÍCITA de
+ * indisponibilidade — `null`/`undefined` nunca acendem o aviso.
+ */
+function canalDescartadoPeloOperador(item) {
+  return !!item && item.canal === 'whatsapp' && item.whatsapp_disponivel === false
+}
+
+/**
+ * Estado inicial do controle de disponibilidade no reagendamento. Espelha o que o backend
+ * já disse sobre o CONTATO — nunca um palpite da tela.
+ */
+function estadoDisponibilidadeInicial(item) {
+  const v = item && item.whatsapp_disponivel
+  return v === true || v === false ? v : null
+}
+
+/**
+ * O que o veredito vira quando o operador marca/desmarca "Este contato não tem WhatsApp".
+ *
+ * Desmarcar NÃO é sempre a mesma coisa, e é por isso que a regra não fica no componente:
+ *   - se o contato já estava marcado como SEM WhatsApp, desmarcar é DESFAZER — uma afirmação
+ *     nova ("tem WhatsApp"), que precisa ser gravada;
+ *   - se ninguém tinha verificado, desmarcar é só não afirmar nada. Voltar para `null` mantém
+ *     o contato como não verificado, em vez de registrar uma verificação que não houve.
+ *
+ * @param {boolean|null} inicial  o que o backend informou ao abrir o modal.
+ * @param {boolean} marcado  estado do controle agora.
+ * @returns {boolean|null} veredito escolhido.
+ */
+function alternarSemWhatsapp(inicial, marcado) {
+  if (marcado) return false
+  return inicial === false ? true : (inicial === true ? true : null)
+}
+
+/**
+ * Monta a parte de disponibilidade do payload do reagendamento.
+ *
+ * Só envia `whatsapp_disponivel` quando o operador MUDOU o veredito nesta tela. Reenviar o
+ * mesmo valor gravaria uma marcação nova (`marcado_por`/`marcado_em` novos) e uma linha de
+ * auditoria a cada reagendamento — passaria a parecer que alguém reverificou o contato toda
+ * vez que mexeu na data.
+ *
+ * @param {boolean|null} inicial  o que o backend informou ao abrir o modal.
+ * @param {boolean|null} escolhido  o que está selecionado agora.
+ */
+function patchDisponibilidade(inicial, escolhido, motivo) {
+  if (escolhido !== true && escolhido !== false) return {}
+  if (escolhido === inicial) return {}
+  const patch = { whatsapp_disponivel: escolhido }
+  const nota = typeof motivo === 'string' ? motivo.trim() : ''
+  // O motivo só acompanha a marcação de indisponibilidade: explicar por que um contato TEM
+  // WhatsApp não é informação que alguém vá procurar depois.
+  if (escolhido === false && nota) patch.disponibilidade_motivo = nota
+  return patch
+}
+
 /**
  * Opções da etapa "Próxima ação" do encerramento da ligação.
  * `nenhuma` é a PRIMEIRA e é uma resposta legítima — não um default escondido. Sem ela, o
@@ -259,6 +353,13 @@ function itemDeFollowUp(f, agora = new Date()) {
     prioridade: PRIORIDADE_LABEL[f.prioridade] ? f.prioridade : null,
     acao_label: texto(f.proxima_acao) || null,
     destino: destinoDoCanal(f.canal),
+    // Veredito HUMANO sobre o WhatsApp do contato (migration 066). Tri-estado: `null` é
+    // "ninguém verificou" e nunca vira `false` aqui — a coerção que a tela faria seria
+    // exatamente a inferência que este módulo existe para impedir.
+    whatsapp_disponivel: f.whatsapp_disponivel === true || f.whatsapp_disponivel === false
+      ? f.whatsapp_disponivel
+      : null,
+    whatsapp_motivo: texto(f.whatsapp_motivo) || null,
   }
 }
 
@@ -309,6 +410,18 @@ module.exports = {
   PRIORIDADE_OPCOES,
   DESTINO_POR_CANAL,
   EVENTO_LABEL,
+  // Disponibilidade de canal do CONTATO (migration 066). Tradução do veredito HUMANO que o
+  // backend já deu — a tela não recalcula canal nem infere indisponibilidade.
+  DISPONIBILIDADE_WHATSAPP_LABEL,
+  MARCAR_SEM_WHATSAPP_LABEL,
+  MARCAR_SEM_WHATSAPP_AJUDA,
+  AVISO_TROCA_PARA_LIGACAO,
+  AVISO_CANAL_DESCARTADO,
+  rotuloDisponibilidadeWhatsapp,
+  canalDescartadoPeloOperador,
+  estadoDisponibilidadeInicial,
+  alternarSemWhatsapp,
+  patchDisponibilidade,
   rotuloCanal,
   iconeCanal,
   destinoDoCanal,

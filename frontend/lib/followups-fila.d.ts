@@ -8,6 +8,7 @@ export type FiltroRapido =
 
 import type {
   CanalFollowUp, StatusFollowUp, OrigemFollowUp, DestinoFollowUp, FollowUpApi,
+  DisponibilidadeWhatsapp,
 } from './follow-up-acao'
 
 /** Item de `GET /follow-ups/call-list` (fila de atendimento humano). */
@@ -115,6 +116,11 @@ export interface ItemFila {
   observacao: string | null
   resultado_nota: string | null
   destino: DestinoFollowUp | null
+
+  // --- Disponibilidade de canal do CONTATO (migration 066). `null` = ninguém verificou, e é
+  // também o que um item derivado carrega: o veredito acompanha o follow-up registrado.
+  whatsapp_disponivel: DisponibilidadeWhatsapp
+  whatsapp_motivo: string | null
 }
 
 export interface ViewFollowups {
@@ -183,12 +189,17 @@ export declare function rotuloLead(item: { nome?: string | null; telefone_digito
 export type {
   CanalFollowUp, StatusFollowUp, PrioridadeFollowUp, OrigemFollowUp, DestinoFollowUp,
   EscolhaCanal, FollowUpApi, FormProximaAcao, PayloadProximaAcao, ContextoOrigem, EventoContato,
+  DisponibilidadeWhatsapp, PatchDisponibilidade,
 } from './follow-up-acao'
 export {
   CANAL_LABEL, CANAL_ICONE, CANAL_OPCOES, ORIGEM_LABEL, STATUS_FOLLOWUP_LABEL, PRIORIDADE_OPCOES,
   rotuloCanal, iconeCanal, destinoDoCanal, rotuloOrigem, rotuloStatusFollowUp, rotuloEvento,
   formatarQuando, resumoProximaAcao, sugerirProximaAcao, paraInputLocal, deInputLocal,
   validarProximaAcao, montarPayloadProximaAcao, itemDeFollowUp, contextoDeOrigem,
+  // Disponibilidade de canal do contato (migration 066).
+  MARCAR_SEM_WHATSAPP_LABEL, MARCAR_SEM_WHATSAPP_AJUDA, AVISO_TROCA_PARA_LIGACAO,
+  AVISO_CANAL_DESCARTADO, rotuloDisponibilidadeWhatsapp, canalDescartadoPeloOperador,
+  estadoDisponibilidadeInicial, alternarSemWhatsapp, patchDisponibilidade,
 } from './follow-up-acao'
 
 // Paginação — mesma aritmética da Aquisição e da Central de Ligações.

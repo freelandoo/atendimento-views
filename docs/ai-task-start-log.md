@@ -2916,3 +2916,52 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   "empresa -> escolhe instancia". A segunda direcao e justamente a que inventa dono.
 - **Proxima etapa:** implementar o modulo puro de vocabulario, a regra unica em `whatsapp.js`,
   os chamadores, os testes e a documentacao; rodar `npm test` e `npm run typecheck`.
+
+---
+
+## 2026-08-12 - Inicio de tarefa IA
+
+- **IA/Ferramenta:** Claude Code (Opus 5)
+- **Pedido resumido:** Disponibilidade de canal (hoje: WhatsApp) deve virar dado CENTRAL do
+  contato, HUMANO-CURADO. No reagendamento de follow-up o operador marca "Sem WhatsApp"; o
+  follow-up troca de canal automaticamente (e-mail confirmado quando existir; enquanto nao
+  existir, ligacao). Deve ser possivel DESFAZER ("Tem WhatsApp"). O sistema NAO pode concluir
+  sozinho que um contato nao tem WhatsApp a partir de falha tecnica de envio.
+- **Caso observado em producao:** Elite Auto Renovadora reagendada para WhatsApp mesmo depois
+  de o operador saber que o contato nao tem WhatsApp.
+- **E projeto/tarefa de alteracao?** Sim, e ESTRUTURAL: exige migration nova (nao existe hoje
+  nenhuma fonte de disponibilidade de canal por CONTATO) e toca a criacao/reagendamento de
+  follow-up, que e caminho de producao. Migration ADITIVA, sem mutacao de dado existente.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/architecture-rules.md, docs/PENDENCIA_ARQUITETURAL_CENTRAL_LIGACOES_E_MENSAGENS.md: Sim.
+- **Areas mapeadas na Fase 0 (leitura antes de editar):**
+  `src/services/follow-up-modelo.js` (modelo PURO; `validarReagendamento` hoje NAO aceita canal),
+  `src/db/follow-ups.js` (`criarFollowUp` com `ON CONFLICT` sobre o indice parcial
+  `follow_ups_um_aberto_por_canal_uk`; `reagendarFollowUp` sem transacao),
+  `src/routes/api-follow-ups.js:/itens/:id/reagendar`,
+  `sql/migrations/062_follow_ups.sql` (CHECK de canal fechada em whatsapp|ligacao),
+  `src/db/ligacoes.js` (`encerrarLigacao` cria o follow-up DENTRO da transacao),
+  `sql/migrations/021_prospects_tem_whatsapp.sql` + `src/services/rodar-leads.js:275-283`
+  (a unica marcacao de "sem WhatsApp" que existe hoje — e AUTOMATICA),
+  `frontend/lib/follow-up-acao.js` (dono do vocabulario de apresentacao),
+  `frontend/app/dashboard/follow-ups/page.tsx:857 ModalReagendar`,
+  `src/domain-enums.js` + `test/domain-enums.test.js` (anti-drift codigo x CHECK).
+- **Achado que decide o desenho (1):** a unica marcacao de "sem WhatsApp" existente e
+  `prospectador.prospects.tem_whatsapp`, e ela e escrita AUTOMATICAMENTE por
+  `marcarDisparoFalhou(..., semWhatsapp=true)` quando o Evolution devolve `exists:false`.
+  Reusa-la como fonte central colocaria inferencia tecnica e curadoria humana na MESMA coluna
+  — exatamente o que o pedido proibe. Alem disso ela e por PROSPECT, e o follow-up nao tem
+  prospect obrigatorio: a identidade do contato no modulo e `(empresa_id, telefone_digitos)`.
+- **Achado que decide o desenho (2):** nao existe canal `email` em lugar nenhum do follow-up —
+  `FOLLOWUP_CANAL` e a CHECK `follow_ups_canal_chk` sao fechados em `whatsapp|ligacao`. Logo a
+  prioridade "e-mail confirmado" NAO pode ser implementada agora: fica declarada como fase
+  separada e o fallback efetivo e `ligacao` (sempre ha telefone — ele E a identidade).
+- **Achado que decide o desenho (3):** trocar o canal de um follow-up aberto pode colidir com
+  o indice unico parcial `follow_ups_um_aberto_por_canal_uk` (ja existe uma ligacao aguardando
+  para o mesmo contato). Marcacao + troca de canal precisam ser ATOMICAS, com 409 explicativo.
+- **Fora de escopo declarado:** envio real por e-mail; canal `email` no follow-up; backfill de
+  anotacoes livres; mexer em `prospects.tem_whatsapp` ou no fluxo do Banco de Leads; producao;
+  rotacao de credenciais.
+- **Proxima etapa:** implementar migration 066 (aditiva), modulo PURO de disponibilidade,
+  camada de dados, ligacao no criar/reagendar/listar, UI do reagendamento e testes; rodar
+  `npm test` (backend), `npm test` (frontend) e `npm run typecheck` nos dois.

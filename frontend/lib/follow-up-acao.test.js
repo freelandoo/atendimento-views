@@ -305,3 +305,92 @@ test('concluídos e cancelados saem de "Todos" e ficam nos próprios filtros', (
   assert.equal(c.todos, 1, 'trabalho já feito não pode afogar a fila')
   assert.equal(c.concluidos, 1)
 })
+
+// ─── Disponibilidade de canal do CONTATO (migration 066) ─────────────────────
+//
+// A regra que estes testes protegem: "ninguém verificou" (`null`) NÃO é "não tem" (`false`).
+// A tela nunca deduz indisponibilidade, e nunca regrava um veredito que não mudou.
+
+test('o veredito do backend chega ao item da fila em TRÊS estados', () => {
+  const naoVerificado = montarFila({ followups: [followUp()], agora: AGORA })[0]
+  assert.equal(naoVerificado.whatsapp_disponivel, null,
+    'campo ausente na API é "ninguém verificou" — jamais `false`')
+
+  const semWhats = montarFila({
+    followups: [followUp({ canal: 'ligacao', whatsapp_disponivel: false, whatsapp_motivo: 'só fixo' })],
+    agora: AGORA,
+  })[0]
+  assert.equal(semWhats.whatsapp_disponivel, false)
+  assert.equal(semWhats.whatsapp_motivo, 'só fixo')
+
+  const temWhats = montarFila({ followups: [followUp({ whatsapp_disponivel: true })], agora: AGORA })[0]
+  assert.equal(temWhats.whatsapp_disponivel, true)
+})
+
+test('item DERIVADO (sem follow-up registrado) fica sem veredito, nunca com `false`', () => {
+  // Não há fonte: presumir indisponibilidade num item que ninguém marcou seria inventar a
+  // verificação — o mesmo defeito, do outro lado.
+  const fila = montarFila({ humanos: [humano()], agora: AGORA })
+  assert.equal(fila[0].whatsapp_disponivel, null)
+})
+
+test('a tela só acende o aviso com marcação EXPLÍCITA de indisponibilidade', () => {
+  assert.equal(A.canalDescartadoPeloOperador({ canal: 'whatsapp', whatsapp_disponivel: false }), true)
+  assert.equal(A.canalDescartadoPeloOperador({ canal: 'whatsapp', whatsapp_disponivel: null }), false)
+  assert.equal(A.canalDescartadoPeloOperador({ canal: 'whatsapp', whatsapp_disponivel: true }), false)
+  assert.equal(A.canalDescartadoPeloOperador({ canal: 'ligacao', whatsapp_disponivel: false }), false,
+    'item que já é de ligação não está num canal descartado')
+  assert.equal(A.canalDescartadoPeloOperador(null), false)
+})
+
+test('o rótulo distingue os três estados — "não verificado" não vira "não tem"', () => {
+  assert.equal(A.rotuloDisponibilidadeWhatsapp(true), 'Tem WhatsApp')
+  assert.equal(A.rotuloDisponibilidadeWhatsapp(false), 'Sem WhatsApp')
+  assert.equal(A.rotuloDisponibilidadeWhatsapp(null), 'WhatsApp não verificado')
+  assert.equal(A.rotuloDisponibilidadeWhatsapp(undefined), 'WhatsApp não verificado')
+})
+
+test('desmarcar é DESFAZER quando já havia marcação, e silêncio quando não havia', () => {
+  assert.equal(A.alternarSemWhatsapp(null, true), false, 'marcar afirma "não tem"')
+  assert.equal(A.alternarSemWhatsapp(false, false), true,
+    'quem já estava marcado como sem WhatsApp desmarca para DESFAZER — é uma afirmação nova')
+  assert.equal(A.alternarSemWhatsapp(null, false), null,
+    'quem nunca foi verificado volta a "não verificado": desmarcar não registra verificação')
+  assert.equal(A.alternarSemWhatsapp(true, false), true, 'continua o que o operador já afirmara')
+})
+
+test('o payload só carrega disponibilidade quando o veredito MUDOU nesta tela', () => {
+  // Reenviar o mesmo valor gravaria `marcado_por`/`marcado_em` novos e uma linha de auditoria
+  // a cada reagendamento — passaria a parecer que alguém reverificou o contato toda vez que
+  // mexeu na data.
+  assert.deepEqual(A.patchDisponibilidade(null, null), {})
+  assert.deepEqual(A.patchDisponibilidade(false, false, 'só fixo'), {})
+  assert.deepEqual(A.patchDisponibilidade(true, true), {})
+  assert.deepEqual(A.patchDisponibilidade(null, false), { whatsapp_disponivel: false })
+  assert.deepEqual(A.patchDisponibilidade(false, true), { whatsapp_disponivel: true })
+})
+
+test('o motivo acompanha só a marcação de indisponibilidade', () => {
+  assert.deepEqual(A.patchDisponibilidade(null, false, '  só fixo  '),
+    { whatsapp_disponivel: false, disponibilidade_motivo: 'só fixo' })
+  assert.deepEqual(A.patchDisponibilidade(null, false, '   '), { whatsapp_disponivel: false },
+    'motivo em branco não vira nota vazia no banco')
+  assert.deepEqual(A.patchDisponibilidade(false, true, 'ele confirmou'), { whatsapp_disponivel: true },
+    'explicar por que um contato TEM WhatsApp não é informação que alguém vá procurar depois')
+})
+
+test('o estado inicial do controle espelha o backend, sem palpite da tela', () => {
+  assert.equal(A.estadoDisponibilidadeInicial({ whatsapp_disponivel: false }), false)
+  assert.equal(A.estadoDisponibilidadeInicial({ whatsapp_disponivel: true }), true)
+  assert.equal(A.estadoDisponibilidadeInicial({}), null)
+  assert.equal(A.estadoDisponibilidadeInicial(null), null)
+})
+
+test('a tela NAO reimplementa a regra de canal — quem troca é o backend', () => {
+  // Guarda de regressão: o módulo de apresentação não pode decidir canal a partir da
+  // disponibilidade. O canal que vale é sempre o que volta na resposta do reagendamento.
+  const fonte = fs.readFileSync(path.join(__dirname, 'follow-up-acao.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1')
+  assert.doesNotMatch(fonte, /whatsapp_disponivel[\s\S]{0,80}canal\s*=/,
+    'trocar canal no front criaria uma segunda regra, que divergiria da do backend')
+})

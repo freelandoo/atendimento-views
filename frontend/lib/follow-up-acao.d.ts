@@ -32,6 +32,23 @@ export interface FollowUpApi {
   criado_em: string
   nome?: string | null
   cidade?: string | null
+  /**
+   * Veredito HUMANO sobre o WhatsApp do CONTATO (migration 066). Três estados, e o terceiro
+   * não é o segundo: `true` verificado e tem · `false` verificado e não tem · `null`/ausente
+   * ninguém verificou. Nunca vem de falha de envio.
+   */
+  whatsapp_disponivel?: boolean | null
+  whatsapp_motivo?: string | null
+  whatsapp_marcado_em?: string | null
+}
+
+/** `true` | `false` | `null` ("ninguém verificou"). `null` NÃO é `false`. */
+export type DisponibilidadeWhatsapp = boolean | null
+
+/** Parte de disponibilidade do payload de `POST /itens/:id/reagendar`. Vazio = nada mudou. */
+export interface PatchDisponibilidade {
+  whatsapp_disponivel?: boolean
+  disponibilidade_motivo?: string
 }
 
 /** Estado do formulário "Próxima ação" do encerramento da ligação. */
@@ -77,6 +94,31 @@ export declare const PRIORIDADE_LABEL: Record<string, string>
 export declare const PRIORIDADE_OPCOES: readonly { valor: PrioridadeFollowUp; label: string }[]
 export declare const DESTINO_POR_CANAL: Record<string, DestinoFollowUp>
 export declare const EVENTO_LABEL: Record<string, string>
+
+// ─── Disponibilidade de canal do CONTATO (migration 066) ─────────────────────
+export declare const DISPONIBILIDADE_WHATSAPP_LABEL: Record<string, string>
+export declare const MARCAR_SEM_WHATSAPP_LABEL: string
+export declare const MARCAR_SEM_WHATSAPP_AJUDA: string
+export declare const AVISO_TROCA_PARA_LIGACAO: string
+export declare const AVISO_CANAL_DESCARTADO: string
+export declare function rotuloDisponibilidadeWhatsapp(valor: DisponibilidadeWhatsapp | undefined): string
+export declare function canalDescartadoPeloOperador(
+  item: { canal?: string | null; whatsapp_disponivel?: DisponibilidadeWhatsapp } | null | undefined,
+): boolean
+export declare function estadoDisponibilidadeInicial(
+  item: { whatsapp_disponivel?: DisponibilidadeWhatsapp } | null | undefined,
+): DisponibilidadeWhatsapp
+/** Desmarcar é DESFAZER quando já havia marcação; é "não afirmar nada" quando não havia. */
+export declare function alternarSemWhatsapp(
+  inicial: DisponibilidadeWhatsapp,
+  marcado: boolean,
+): DisponibilidadeWhatsapp
+/** Só devolve campo quando o operador MUDOU o veredito nesta tela. */
+export declare function patchDisponibilidade(
+  inicial: DisponibilidadeWhatsapp,
+  escolhido: DisponibilidadeWhatsapp,
+  motivo?: string | null,
+): PatchDisponibilidade
 
 export declare function rotuloCanal(canal: string | null | undefined): string | null
 export declare function iconeCanal(canal: string | null | undefined): string | null

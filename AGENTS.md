@@ -1086,6 +1086,99 @@
   `frontend/lib/follow-up-acao.test.js`.
 - **Nenhuma variável de ambiente nova.**
 
+### Disponibilidade de canal do CONTATO — quem diz que não tem WhatsApp é uma PESSOA
+- **Regra de negócio, em uma frase:** disponibilidade de canal é dado **central do contato** e
+  **humano-curado**. Falha de envio, `exists:false` do Evolution, timeout do provider e
+  instabilidade externa **não são verificação** — são ruído de transporte, e o sistema **nunca**
+  conclui sozinho que um contato não tem WhatsApp.
+- **Defeito corrigido:** no reagendamento o canal ficava congelado no que a ligação havia
+  sugerido. Um contato continuava reagendado para WhatsApp depois de o operador já saber que
+  aquele número não tem WhatsApp (caso observado em produção: Elite Auto Renovadora). O
+  conhecimento existia — na cabeça de quem ligou — e não tinha onde ser gravado.
+- **TRÊS estados, e `null` NÃO é `false`:** `true` verificou e tem · `false` verificou e não
+  tem · **ausência de linha** = ninguém verificou, que **mantém o comportamento histórico**
+  (WhatsApp). Tratar "não sei" como "não tem" mandaria todo contato novo para ligação — o
+  oposto do que o sistema faz hoje, e uma decisão que ninguém tomou.
+- **PROIBIDO reusar `prospectador.prospects.tem_whatsapp` como fonte.** Aquela coluna é escrita
+  AUTOMATICAMENTE por `rodar-leads.js` (`marcarDisparoFalhou(..., semWhatsapp=true)`) quando o
+  Evolution responde `exists:false`: inferência técnica e curadoria humana na mesma coluna
+  tornariam impossível distinguir "o operador verificou" de "o provider errou uma vez". Ela
+  **continua existindo**, continua governando a elegibilidade do Banco de Leads, e **não é lida
+  nem escrita** por este módulo (guarda de regressão lê os dois fontes).
+- **Schema:** migration `066_contato_canal_disponibilidade.sql` → `app.contato_canal_disponibilidade`.
+  **ADITIVA**: não muta, não apaga e não move dado existente; nenhum contato nasce com linha.
+  Identidade = **`empresa_id` + `telefone_digitos`**, a mesma da migration 062, e **sem FK para
+  `vendas.conversas`** (aquele `numero` é UNIQUE **GLOBAL** e não prova empresa). `disponivel` é
+  NOT NULL — "não sei" é a AUSÊNCIA da linha, nunca um NULL. Unicidade por
+  `(empresa_id, telefone_digitos, canal)`: o upsert reescreve a linha, e é isso que torna a
+  marcação **reversível** em vez de empilhar vereditos que se contradizem.
+- **A garantia de "só humano" vive no BANCO:** `origem` é NOT NULL, **SEM DEFAULT** e com CHECK
+  fechada num único valor — `'operador'` (mesmo motivo de `origem_vinculo`, migration 061: um
+  DEFAULT autorizaria em silêncio qualquer INSERT futuro que esquecesse a coluna). Para um job
+  marcar disponibilidade seria preciso **alterar o schema**, o que quebra o anti-drift de
+  `test/domain-enums.test.js`. `canal` é fechado em `whatsapp`: `ligacao` não entra porque o
+  telefone É a identidade (a resposta seria sempre "disponível"), e `email` não entra pelo
+  motivo abaixo.
+- **E-mail é FASE SEPARADA, declarada — não esquecimento.** A prioridade pedida é "sem WhatsApp
+  → e-mail confirmado → ligação", e o primeiro salto **não tem para onde ir**: a CHECK
+  `follow_ups_canal_chk` (migration 062) é fechada em `whatsapp|ligacao` e **nenhuma tela sabe
+  EXECUTAR um follow-up de e-mail**. Criar o valor `email` sem executor produziria itens que
+  entram na fila e nunca saem dela — pior que a ausência do canal. **O salto efetivo é
+  `ligacao`**, e sempre há telefone. E-mail de cadastro ou de anotação livre é **CANDIDATO,
+  nunca confirmado**: promovê-lo sozinho a canal repetiria, do outro lado, o mesmo erro de
+  deduzir disponibilidade sem verificação humana. `EMAIL_FASE_SEPARADA` registra isso no
+  código, com o motivo escrito, e o teste o cobra. Quando o canal nascer, `email` entra nas
+  **duas** CHECKs, numa migration própria.
+- **"Sem e-mail nem telefone" NÃO virou regra nova, de propósito:** não existe contato assim
+  neste modelo (`telefone_digitos` é NOT NULL, 8..15 dígitos). Regra para estado inalcançável é
+  código morto nascendo pronto.
+- **Marcação e troca de canal são ATÔMICAS.** Mover o item pode colidir com o índice único
+  parcial `follow_ups_um_aberto_por_canal_uk` (já existe uma ligação aguardando para o
+  contato); nesse caso a transação **inteira** volta atrás e a rota responde **409
+  explicativo**. Nunca fica o contato marcado com o trabalho no canal errado. Não se funde nem
+  se sobrescreve o item existente — cada um carrega origem e contexto próprios.
+- **DESFAZER reescreve a linha, mas NÃO devolve o item ao WhatsApp.** "Tem WhatsApp" torna o
+  canal possível de novo; quem moveu o trabalho para ligação foi uma decisão registrada, e
+  revogá-la automaticamente mandaria o trabalho de volta a um canal que talvez ninguém queira
+  mais usar naquele contato. Item que **já é de ligação** nunca é tocado pela marcação.
+- **`criarFollowUp` também consulta o veredito:** um follow-up novo por WhatsApp num contato
+  marcado como sem WhatsApp **nasce já no canal possível** — senão a próxima ligação encerrada
+  recriaria, sozinha, exatamente o item que o operador acabou de corrigir. A resposta traz
+  `canal_solicitado`/`canal_ajustado_motivo` (campos calculados em JS, **nunca colunas**) para a
+  tela dizer o que houve em vez de mudar o canal em silêncio.
+- **O canal continua FORA do formulário de reagendamento.** Trocar de canal à mão segue sendo
+  outra decisão, tomada onde a ação é executada; o que existe é a troca como **consequência** de
+  um fato declarado sobre o contato. `validarReagendamento` ganhou só `permitirPatchVazio` —
+  marcar disponibilidade sem mexer em prazo nem prioridade é mudança legítima, e recusá-la com
+  "Nada para reagendar" obrigaria o operador a inventar uma alteração para salvar o que sabe.
+- **Rota:** `POST /follow-ups/itens/:id/reagendar` ganhou **dois campos OPCIONAIS** —
+  `whatsapp_disponivel` (booleano de verdade; `'false'`, `0` e `''` são **recusados**, porque
+  `Boolean('false')` é `true` e o operador teria marcado o oposto do que quis) e
+  `disponibilidade_motivo`. **Nenhuma rota nova**: quem não os envia mantém o comportamento
+  anterior. A marcação vira linha própria em `app.auditoria_eventos`
+  (`contato_canal_disponibilidade_alterada`, entidade `contato`) — é fato sobre o CONTATO, e
+  precisa continuar rastreável depois de o item ser concluído. Sem JID e sem texto de mensagem.
+- **Front:** a tela **só desenha**. Quem decide o canal é o backend; `frontend/lib/follow-up-acao.js`
+  (+ `.d.ts`/`.test.js`) tem apenas o texto da consequência e o estado do controle, e
+  `followups-fila.js` o **reexporta** (padrão de `paginacao.js` / `lead-identidade.js`). O
+  controle vive no `ModalReagendar` de `frontend/app/dashboard/follow-ups/page.tsx`.
+  `patchDisponibilidade` só envia o veredito quando ele **mudou** naquela tela — reenviar o
+  mesmo valor gravaria `marcado_por`/`marcado_em` novos e uma linha de auditoria a cada mexida
+  na data, fazendo parecer que alguém reverificou o contato toda vez. Desmarcar é **desfazer**
+  quando havia marcação e **silêncio** quando não havia (`alternarSemWhatsapp`) — desmarcar não
+  registra uma verificação que não houve.
+- **Consequência declarada e aceita:** enquanto o canal de e-mail não existir, todo contato
+  marcado como sem WhatsApp vai para **ligação**, inclusive quando há e-mail conhecido no
+  cadastro. É o único canal que o produto sabe executar hoje.
+- Código: regras PURAS em `src/services/contato-canal-disponibilidade.js` (dono do vocabulário;
+  reexportado por `domain-enums.js`, **não copiado**), SQL em
+  `src/db/contato-canal-disponibilidade.js` (uma única escrita, e ela **exige `usuarioId`**),
+  ligação no criar/reagendar/listar em `src/db/follow-ups.js`, rota em
+  `src/routes/api-follow-ups.js`. Testes: `test/contato-canal-disponibilidade.test.js` (puro +
+  guardas que leem o fonte e a migration), `test/domain-enums.test.js`,
+  `test/follow-up-modelo.test.js`, `frontend/lib/follow-up-acao.test.js`.
+- **Nenhuma variável de ambiente nova, nenhuma rota nova.**
+
 ### Roteiros — ciclo de vida do ROTEIRO (arquivar) ≠ ciclo de vida da VERSÃO
 - **Dois ciclos de vida convivem na tela `/dashboard/roteiros`, e confundi-los é o erro fácil
   deste módulo.** `app.roteiro_versoes.status` (`rascunho|publicada|arquivada`) descreve **uma

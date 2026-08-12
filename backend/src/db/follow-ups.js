@@ -5,8 +5,12 @@
 //
 // As REGRAS vivem em services/follow-up-modelo.js (modulo PURO). Aqui so' ha SQL.
 const {
-  validarNovoFollowUp, validarMudancaStatus, validarReagendamento,
+  validarNovoFollowUp, validarMudancaStatus, validarReagendamento, acaoPadraoDoCanal,
 } = require('../services/follow-up-modelo')
+const {
+  resolverCanalFollowUp, disponibilidadeInformada,
+} = require('../services/contato-canal-disponibilidade')
+const D = require('./contato-canal-disponibilidade')
 const { assertMesmaEmpresa } = require('./campanhas')
 
 // Colunas devolvidas por todas as leituras de item. `telefone_digitos` e a identidade;
@@ -67,6 +71,19 @@ async function criarFollowUp(exec, empresaId, entrada = {}, { usuarioId = null, 
 
   const conversaNumero = p.conversa_numero || await resolverConversaNumero(exec, empresaId, p.telefone_digitos)
 
+  // DISPONIBILIDADE DE CANAL (migration 066). Se uma PESSOA ja marcou que este contato nao
+  // tem WhatsApp, um follow-up novo por WhatsApp nasce ja no canal possivel — senao a
+  // proxima ligacao encerrada recriaria, sozinha, exatamente o item que o operador acabou de
+  // corrigir. `null` (ninguem verificou) mantem o comportamento historico.
+  const whatsappDisponivel = await D.whatsappDisponivelDoContato(exec, empresaId, p.telefone_digitos)
+  const canalResolvido = resolverCanalFollowUp(p.canal, whatsappDisponivel)
+  const canal = canalResolvido.canal
+  // A acao padrao acompanha o canal: "Retomar por WhatsApp" num item que virou ligacao
+  // mandaria o operador fazer o que acabou de ser declarado impossivel.
+  const proximaAcao = canalResolvido.trocou && p.proxima_acao === acaoPadraoDoCanal(p.canal)
+    ? (acaoPadraoDoCanal(canal) || p.proxima_acao)
+    : p.proxima_acao
+
   const { rows } = await exec.query(
     `INSERT INTO app.follow_ups
        (empresa_id, canal, proxima_acao, agendado_para, prioridade, origem, telefone_digitos,
@@ -86,10 +103,15 @@ async function criarFollowUp(exec, empresaId, entrada = {}, { usuarioId = null, 
        observacao       = COALESCE(EXCLUDED.observacao, app.follow_ups.observacao),
        atualizado_em    = NOW()
      RETURNING ${COLS}, (xmax <> 0) AS substituiu`,
-    [empresaId, p.canal, p.proxima_acao, p.agendado_para, p.prioridade, p.origem, p.telefone_digitos,
+    [empresaId, canal, proximaAcao, p.agendado_para, p.prioridade, p.origem, p.telefone_digitos,
       p.responsavel_id, usuarioId, p.ligacao_id, p.campanha_lead_id, p.prospect_id, conversaNumero, p.observacao]
   )
-  return rows[0]
+  // `canal_solicitado` so' aparece quando houve troca: e o que permite a tela dizer "voce
+  // pediu WhatsApp, mas este contato esta marcado como sem WhatsApp" em vez de mudar o canal
+  // em silencio. Campo calculado em JS, nunca uma coluna.
+  return canalResolvido.trocou
+    ? { ...rows[0], canal_solicitado: p.canal, canal_ajustado_motivo: canalResolvido.motivo }
+    : rows[0]
 }
 
 /** O responsavel precisa ser um usuario ATIVO com vinculo ATIVO nesta empresa. */
@@ -152,8 +174,18 @@ async function listarFollowUps(pool, empresaId, opts = {}) {
             l.resultado AS ligacao_resultado,
             l.encerrada_em AS ligacao_em,
             cl.campanha_id AS campanha_id,
-            cam.nome AS campanha_nome
+            cam.nome AS campanha_nome,
+            -- Veredito HUMANO sobre o WhatsApp deste contato (migration 066).
+            -- NULL = ninguem verificou; nao e' false. O JOIN e' por (empresa, telefone),
+            -- exatamente o par do indice unico contato_canal_disp_uk.
+            d.disponivel AS whatsapp_disponivel,
+            d.marcado_em AS whatsapp_marcado_em,
+            d.motivo     AS whatsapp_motivo
        FROM app.follow_ups f
+       LEFT JOIN app.contato_canal_disponibilidade d
+              ON d.empresa_id = f.empresa_id
+             AND d.telefone_digitos = f.telefone_digitos
+             AND d.canal = 'whatsapp'
        LEFT JOIN prospectador.prospects pr ON pr.id = f.prospect_id
        LEFT JOIN vendas.conversas c ON c.numero = f.conversa_numero AND c.empresa_id = f.empresa_id
        LEFT JOIN vendas.lead_profiles lp ON lp.numero = c.numero
@@ -203,32 +235,105 @@ async function mudarStatusFollowUp(pool, empresaId, id, entrada = {}, { usuarioI
   return rows[0]
 }
 
+/** BEGIN/COMMIT/ROLLBACK local — o mesmo molde de db/ligacoes.js. */
+async function comTransacao(pool, fn) {
+  const client = await pool.connect()
+  try { await client.query('BEGIN'); const r = await fn(client); await client.query('COMMIT'); return r }
+  catch (e) { try { await client.query('ROLLBACK') } catch { /* ignora */ } throw e }
+  finally { client.release() }
+}
+
 /**
  * Reagenda (move prazo/prioridade/texto/responsavel) mantendo o MESMO item — mesma origem,
  * mesmo contexto, mesma rastreabilidade. Nao e' "cancelar e criar outro": o historico do
  * contato ficaria com um cancelamento que nunca aconteceu.
+ *
+ * DISPONIBILIDADE DE CANAL (migration 066). `entrada.whatsapp_disponivel` e' TRI-ESTADO:
+ *   ausente -> o operador nao se pronunciou; nada e' gravado e o canal nao muda;
+ *   false   -> "este contato nao tem WhatsApp": grava o veredito e o item sai do WhatsApp;
+ *   true    -> DESFAZ a marcacao; o item volta a poder usar WhatsApp.
+ *
+ * A marcacao e a troca de canal acontecem na MESMA transacao de proposito. O canal continua
+ * nao sendo um campo livre do formulario — trocar de canal a mao segue sendo "outra decisao";
+ * o que existe agora e uma CONSEQUENCIA de um fato declarado sobre o contato.
+ *
+ * Desfazer NAO devolve o item para WhatsApp sozinho: ele volta a ser POSSIVEL, mas quem
+ * moveu o trabalho para ligacao foi uma decisao registrada, e revoga-la automaticamente
+ * mandaria de volta para um canal que talvez ninguem queira mais usar naquele contato.
  */
-async function reagendarFollowUp(pool, empresaId, id, entrada = {}, { agora } = {}) {
+async function reagendarFollowUp(pool, empresaId, id, entrada = {}, { agora, usuarioId = null } = {}) {
   const atual = await obterFollowUp(pool, empresaId, id)
-  const patch = validarReagendamento(atual.status, entrada, agora || new Date())
+  const disponivel = disponibilidadeInformada(entrada.whatsapp_disponivel)
+  // `validarReagendamento` exige pelo menos um campo. Marcar disponibilidade tambem e' uma
+  // mudanca legitima, entao ela conta como conteudo — senao "so marquei sem WhatsApp"
+  // devolveria "Nada para reagendar".
+  const patch = validarReagendamento(atual.status, entrada, agora || new Date(), {
+    permitirPatchVazio: disponivel !== undefined,
+  })
   if (patch.responsavel_id) await assertResponsavelDaEmpresa(pool, empresaId, patch.responsavel_id)
 
-  const campos = []
-  const params = [id, empresaId]
-  const set = (col, val) => { params.push(val); campos.push(`${col} = $${params.length}`) }
-  if (patch.agendado_para !== undefined) set('agendado_para', patch.agendado_para)
-  if (patch.prioridade !== undefined) set('prioridade', patch.prioridade)
-  if (patch.proxima_acao !== undefined) set('proxima_acao', patch.proxima_acao)
-  if (patch.responsavel_id !== undefined) set('responsavel_id', patch.responsavel_id)
+  return comTransacao(pool, async (client) => {
+    let disponibilidade = null
+    if (disponivel !== undefined) {
+      disponibilidade = await D.marcarDisponibilidade(client, empresaId, {
+        telefone: atual.telefone_digitos, canal: 'whatsapp', disponivel,
+        motivo: entrada.disponibilidade_motivo,
+      }, { usuarioId })
+    }
 
-  const { rows } = await pool.query(
-    `UPDATE app.follow_ups SET ${campos.join(', ')}, atualizado_em = NOW()
-      WHERE id = $1 AND empresa_id = $2 AND status = 'aguardando'
-      RETURNING ${COLS}`,
-    params
-  )
-  if (!rows[0]) throw erroEntrada('Follow-up nao esta mais em aberto.', 409)
-  return rows[0]
+    // O veredito que vale e o do banco depois da marcacao (ou o que ja estava la, se o
+    // operador nao se pronunciou agora).
+    const vereditoWhatsapp = disponibilidade
+      ? disponibilidade.disponivel
+      : await D.whatsappDisponivelDoContato(client, empresaId, atual.telefone_digitos)
+    const canalResolvido = resolverCanalFollowUp(atual.canal, vereditoWhatsapp)
+
+    const campos = []
+    const params = [id, empresaId]
+    const set = (col, val) => { params.push(val); campos.push(`${col} = $${params.length}`) }
+    if (patch.agendado_para !== undefined) set('agendado_para', patch.agendado_para)
+    if (patch.prioridade !== undefined) set('prioridade', patch.prioridade)
+    if (patch.responsavel_id !== undefined) set('responsavel_id', patch.responsavel_id)
+    if (canalResolvido.trocou) set('canal', canalResolvido.canal)
+    // O texto do operador vence o padrao; so' quando ele nao reescreveu e o canal mudou e
+    // que a acao padrao acompanha o canal novo.
+    const acaoPedida = patch.proxima_acao !== undefined ? patch.proxima_acao : atual.proxima_acao
+    const acaoFinal = canalResolvido.trocou && acaoPedida === acaoPadraoDoCanal(atual.canal)
+      ? (acaoPadraoDoCanal(canalResolvido.canal) || acaoPedida)
+      : acaoPedida
+    if (acaoFinal !== atual.proxima_acao) set('proxima_acao', acaoFinal)
+
+    if (!campos.length) return { ...atual, disponibilidade, canal_trocado: false }
+
+    let rows
+    try {
+      ({ rows } = await client.query(
+        `UPDATE app.follow_ups SET ${campos.join(', ')}, atualizado_em = NOW()
+          WHERE id = $1 AND empresa_id = $2 AND status = 'aguardando'
+          RETURNING ${COLS}`,
+        params
+      ))
+    } catch (e) {
+      // Colisao com `follow_ups_um_aberto_por_canal_uk`: ja existe uma acao ABERTA no canal
+      // de destino para este contato. Nao se funde nem se sobrescreve — cada item carrega
+      // origem e contexto proprios, e escolher um deles aqui apagaria o trabalho do outro.
+      // A transacao inteira volta atras: nunca fica o contato marcado com o item no canal
+      // errado. O operador fecha o item existente e repete a acao.
+      if (e && e.code === '23505') {
+        throw erroEntrada(
+          `Este contato ja tem um follow-up de ${canalResolvido.canal} em aberto. `
+          + 'Conclua ou cancele aquele item antes de mover este.', 409)
+      }
+      throw e
+    }
+    if (!rows[0]) throw erroEntrada('Follow-up nao esta mais em aberto.', 409)
+    return {
+      ...rows[0],
+      disponibilidade,
+      canal_trocado: canalResolvido.trocou,
+      canal_anterior: canalResolvido.trocou ? atual.canal : null,
+    }
+  })
 }
 
 /**

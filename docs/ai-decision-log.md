@@ -1591,3 +1591,74 @@ Ajustes sobre a entrega do mesmo dia (logo abaixo), após revisão de UX/operaç
   **Sem migration, sem rota nova, sem variavel de ambiente nova** (uma foi aposentada).
 - **Como validar:** `npm test` no `backend/` (1503/1503) + `npm run typecheck` (limpo).
   Nenhuma mensagem real foi enviada e nada foi executado contra producao.
+
+## 2026-08-12 - Disponibilidade de canal por CONTATO: quem diz que nao tem WhatsApp e uma PESSOA
+
+- **Caso que motivou:** Elite Auto Renovadora foi reagendada para WhatsApp depois de o
+  operador ja saber que aquele contato nao tem WhatsApp. O conhecimento existia — na cabeca
+  de quem ligou — e nao tinha onde ser gravado: o reagendamento move prazo/prioridade/texto e
+  o canal ficava congelado no que a ligacao havia sugerido.
+- **Decisao 1 — tabela NOVA, e nao `prospectador.prospects.tem_whatsapp`.** Aquela coluna e
+  escrita AUTOMATICAMENTE (`rodar-leads.js` chama `marcarDisparoFalhou(..., semWhatsapp=true)`
+  quando o Evolution responde `exists:false`): uma FALHA TECNICA vira, sozinha, veredito sobre
+  o contato. Guardar as duas coisas na mesma coluna tornaria impossivel distinguir "o operador
+  verificou" de "o provider errou uma vez". Alem disso ela e por PROSPECT, e follow-up nao tem
+  prospect obrigatorio. `tem_whatsapp` NAO foi tocada e continua governando o Banco de Leads.
+- **Decisao 2 — a garantia de "so humano" vive no BANCO.** `origem` e NOT NULL, **sem DEFAULT**
+  e com CHECK fechada em `'operador'` (mesmo motivo de `origem_vinculo`, migration 061). Para
+  um job marcar disponibilidade seria preciso alterar o schema, o que quebra o anti-drift de
+  `test/domain-enums.test.js`. Ha guardas que leem o fonte e falham se o modulo passar a
+  conhecer Evolution, `exists:`, timeout ou provider.
+- **Decisao 3 — TRES estados, e `null` nao e `false`.** Ausencia de linha = "ninguem
+  verificou" e MANTEM o comportamento historico (WhatsApp). Tratar "nao sei" como "nao tem"
+  mandaria todo contato novo para ligacao — o oposto do que o sistema faz hoje, e uma decisao
+  que ninguem tomou.
+- **Decisao 4 — e-mail fica para FASE SEPARADA, declarada e nao silenciosa.** A prioridade
+  pedida era "sem WhatsApp -> e-mail confirmado -> ligacao". O primeiro salto nao tem para
+  onde ir: `follow_ups_canal_chk` (migration 062) e fechada em `whatsapp|ligacao` e **nenhuma
+  tela sabe EXECUTAR um follow-up de e-mail**. Criar o valor `email` sem executor produziria
+  itens que entram na fila e nunca saem dela — pior que a ausencia do canal. O salto efetivo e
+  `ligacao`, e sempre ha telefone porque o telefone E a identidade do contato. E-mail de
+  cadastro/anotacao e CANDIDATO, nunca confirmado: promove-lo sozinho repetiria, do outro
+  lado, o erro de deduzir disponibilidade sem verificacao humana. `EMAIL_FASE_SEPARADA`
+  registra isso no codigo, com o motivo escrito e teste que o cobra.
+- **Decisao 5 — "sem e-mail nem telefone" NAO virou regra nova.** Nao existe contato assim
+  neste modelo: `telefone_digitos` e NOT NULL (8..15 digitos) na migration 062. Uma regra para
+  um estado inalcancavel seria codigo morto nascendo pronto.
+- **Decisao 6 — marcacao e troca de canal na MESMA transacao.** Trocar o canal de um item
+  aberto pode colidir com o indice unico parcial `follow_ups_um_aberto_por_canal_uk` (ja
+  existe uma ligacao aguardando para o contato). Nesse caso a transacao INTEIRA volta atras e
+  a rota responde **409 explicativo**: nunca fica o contato marcado com o trabalho no canal
+  errado. Nao se funde nem se sobrescreve o item existente — cada um carrega origem e contexto
+  proprios.
+- **Decisao 7 — DESFAZER reescreve a mesma linha, mas NAO devolve o item ao WhatsApp.**
+  "Tem WhatsApp" torna o canal possivel de novo; quem moveu o trabalho para ligacao foi uma
+  decisao registrada, e revoga-la automaticamente mandaria o trabalho de volta a um canal que
+  talvez ninguem queira mais usar naquele contato.
+- **Decisao 8 — o canal continua FORA do formulario de reagendamento.** Trocar de canal a mao
+  segue sendo outra decisao, tomada onde a acao e executada. O que existe agora e a troca como
+  CONSEQUENCIA de um fato declarado sobre o contato. `validarReagendamento` ganhou apenas
+  `permitirPatchVazio`: marcar disponibilidade sem mexer em prazo nem prioridade e mudanca
+  legitima, e recusa-la com "Nada para reagendar" obrigaria o operador a inventar uma
+  alteracao para salvar o que ele sabe.
+- **Decisao 9 — a tela nao regrava veredito que nao mudou.** `patchDisponibilidade` so envia
+  `whatsapp_disponivel` quando o operador MUDOU o valor no modal; reenviar o mesmo veredito
+  gravaria `marcado_por`/`marcado_em` novos e uma linha de auditoria a cada mexida na data,
+  fazendo parecer que alguem reverificou o contato toda vez.
+- **Consequencia declarada e aceita:** enquanto o canal de e-mail nao existir, todo contato
+  marcado como sem WhatsApp vai para LIGACAO — inclusive quando ha e-mail conhecido no
+  cadastro. E o unico canal que o produto sabe executar hoje.
+- **Impacto:** `sql/migrations/066_contato_canal_disponibilidade.sql` (nova, ADITIVA),
+  `src/services/contato-canal-disponibilidade.js` (novo, PURO),
+  `src/db/contato-canal-disponibilidade.js` (novo), `src/db/follow-ups.js`,
+  `src/services/follow-up-modelo.js`, `src/routes/api-follow-ups.js`, `src/domain-enums.js`,
+  `test/contato-canal-disponibilidade.test.js` (novo), `test/domain-enums.test.js`,
+  `test/follow-up-modelo.test.js`, `frontend/lib/follow-up-acao.js` (+ `.d.ts`/`.test.js`),
+  `frontend/lib/followups-fila.js` (+ `.d.ts`),
+  `frontend/app/dashboard/follow-ups/page.tsx`, `AGENTS.md`.
+  **Nenhuma variavel de ambiente nova, nenhuma rota nova** (o `POST /itens/:id/reagendar`
+  ganhou dois campos OPCIONAIS; quem nao os envia mantem o comportamento anterior).
+- **Como validar:** `npm test` no `backend/` (1505/1505) + `npm run typecheck` (limpo);
+  `npm test` no `frontend/` (316/316) + `npm run typecheck` + `npm run build` (limpos).
+  Nada foi executado contra producao, nenhum banco real foi escrito e nenhuma mensagem foi
+  enviada.

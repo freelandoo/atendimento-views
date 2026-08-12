@@ -123,6 +123,16 @@ const {
   FOLLOWUP_CANAL, FOLLOWUP_STATUS, FOLLOWUP_PRIORIDADE, FOLLOWUP_ORIGEM,
 } = require('./services/follow-up-modelo')
 
+// Disponibilidade de canal por contato (migration 066). Fonte das CHECKs
+// contato_canal_disp_{canal,origem}_chk. Mesmo padrao acima: definidos com comentario em
+// src/services/contato-canal-disponibilidade.js, aqui apenas REEXPORTADOS.
+// ORIGEM_MARCACAO tem UM valor de proposito — e' a garantia, no schema, de que nenhum
+// caminho automatico marca disponibilidade sem antes alterar a CHECK e quebrar o anti-drift.
+const {
+  CANAIS_CURAVEIS: DISPONIBILIDADE_CANAIS,
+  ORIGEM_MARCACAO: DISPONIBILIDADE_ORIGEM,
+} = require('./services/contato-canal-disponibilidade')
+
 module.exports = {
   AGENDA_VENDAS,
   AGENDA_APP,
@@ -130,6 +140,8 @@ module.exports = {
   FOLLOWUP_STATUS,
   FOLLOWUP_PRIORIDADE,
   FOLLOWUP_ORIGEM,
+  DISPONIBILIDADE_CANAIS,
+  DISPONIBILIDADE_ORIGEM,
   EVENTOS_COMERCIAIS_TIPOS,
   JOB_QUEUE_TIPOS,
   ROTEIRO_VERSAO_STATUS,
