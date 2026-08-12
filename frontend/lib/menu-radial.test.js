@@ -83,3 +83,10 @@ test('classeTom: tom desconhecido ou ausente cai no neutro, nunca quebra', () =>
   assert.equal(classeTom(undefined), TOM_CLASSES.neutro)
   assert.equal(classeTom('lixo'), TOM_CLASSES.neutro)
 })
+
+test('classeTom: navegacao tem classe propria, distinta de positivo/negativo/neutro', () => {
+  assert.equal(classeTom('navegacao'), TOM_CLASSES.navegacao)
+  assert.notEqual(TOM_CLASSES.navegacao, TOM_CLASSES.positivo)
+  assert.notEqual(TOM_CLASSES.navegacao, TOM_CLASSES.negativo)
+  assert.notEqual(TOM_CLASSES.navegacao, TOM_CLASSES.neutro)
+})

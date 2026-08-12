@@ -6,6 +6,83 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-12 - Início de tarefa IA - Padronizar a coluna de Ações/radial (largura, centralização, cor "Conversa")
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`padroniza-coluna-acoes-radial`), job em background.
+- **Pedido resumido:** Tarefa pequena de implementação visual: o operador validou visualmente o
+  radial de Follow-ups (commit `e0a8ab8`, "Abrir conversa" virou a 4ª bolinha), mas reportou que
+  a bolinha "Concluir" (zona direita) fica apertada/encostando na bolinha central quando o radial
+  abre, porque a coluna de ações não tem largura/coluna própria suficiente. Pedido: (1) criar/
+  padronizar uma coluna "Ação/Ações" nas listagens com radial; (2) coluna fixa, não removível por
+  personalização; (3) bolinha do radial sempre centralizada na coluna; (4) largura suficiente para
+  o radial abrir sem colar na borda direita nem sobrepor a bolinha central; (5) verificar em todas
+  as telas com radial (mínimo Follow-ups e Aquisição); Banco de Leads/Central de Mensagens não têm
+  radial — só checar alinhamento de ação/detalhes, sem inventar radial lá; (6) a bolinha "Conversa"
+  do radial de Follow-ups ganha cor destacada (azul ou equivalente), para diferenciar navegação/
+  abertura de conclusão/confirmação.
+- **É projeto/tarefa de alteração?** Sim, pequena e 100% de apresentação (frontend): sem schema,
+  sem migration, sem rota nova, sem chamada nova ao backend, sem handler/regra de negócio tocada.
+  Reaproveita `MenuRadialAcoes`/`lib/menu-radial.js` já existentes — nenhum radial novo é criado.
+- **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim. `docs/ui-visual-standard.md`
+  não existe como arquivo neste repositório (mesma observação já registrada nas entradas anteriores
+  da série de padronização visual). Entradas anteriores da série (radial em Follow-ups, Aquisição,
+  Detalhes/BolinhaPontuacao) lidas para não repetir decisões já tomadas.
+- **Causa raiz confirmada no código:**
+  1. `frontend/components/ui/MenuRadialAcoes.tsx` posiciona as bolinhas satélite em coordenadas
+     `position: fixed` (viewport), a `RAIO=56` px do centro do gatilho "⋯", clampadas só nas bordas
+     da VIEWPORT (`calcularGeometria`, `MARGEM=8`). A bolinha "direita" (Concluir) precisa de
+     `RAIO + BOLHA/2 + MARGEM ≈ 90px` livres à direita do centro do gatilho; se o gatilho está perto
+     da borda direita da tabela/página, o clamp de viewport empurra a bolinha para a esquerda,
+     colidindo com o próprio botão central — exatamente o sintoma relatado.
+  2. `frontend/app/dashboard/follow-ups/page.tsx:474` — `<th>` da coluna de ações é
+     `px-4 py-3` com `<span className="sr-only">Ações</span>` (sem largura própria, sem rótulo
+     visível) e a `<td>` (:768) usa `text-right` + `flex justify-end` — o grupo de botões (inclusive
+     o gatilho do radial) fica colado na borda direita da célula/tabela, sem margem de manobra.
+  3. `frontend/app/dashboard/prospeccao/page.tsx:545` (reaproveitada por `aquisicao/page.tsx`) —
+     mesmo padrão: `<th className="text-right px-3 py-2">Ações</th>` sem largura mínima, `<td
+     className="px-3 py-2 text-right whitespace-nowrap">` com o gatilho colado à direita.
+  4. Banco de Leads (`banco-leads/page.tsx`) e Central de Mensagens (`conversas/page.tsx`) **não
+     usam `MenuRadialAcoes`** (confirmado por grep) — Banco de Leads tem `CadastroDetalhesCelula`
+     (bolinha + botão "Detalhes" na mesma célula da coluna "Cadastro") e Central de Mensagens tem
+     "Detalhes" ao lado do badge de Interesse + botões "Histórico"/remover na coluna Ações
+     (`text-right` + `inline-flex gap-2`, já sem radial). Ambas permanecem **fora de escopo** desta
+     tarefa (nenhum radial será criado) — só uma checagem visual de que o alinhamento atual não
+     quebra, sem alteração de código nelas se já estiver correto.
+  5. `frontend/lib/menu-radial.js` (`TOM_CLASSES`) só tem `positivo` (emerald)/`negativo` (red)/
+     `neutro`. A ação "Conversa"/"Ligação" (`id: 'executar'`, zona `baixo`) e "Abrir conversa"
+     (`id: 'abrir_conversa'`, zona `direita`) hoje usam `tom: 'positivo'` — mesma cor de "Concluir",
+     que é confirmação/conclusão, não navegação. É essa mistura de tom que o pedido nomeia no item 6.
+- **Decisão (autocontida, baixo risco):**
+  1. Nenhuma das duas tabelas (Follow-ups, Aquisição/Prospecção) tem sistema de personalização de
+     colunas (`⚙ Personalizar`/toggle) — só o Banco de Leads tem, e ele não usa radial. Logo o
+     requisito "coluna fixa, não removível por personalização" já vale por construção; não crio
+     nenhum mecanismo de toggle novo (evita inventar uma capacidade de remover que hoje não existe).
+  2. Dar à coluna de ações um `min-width` explícito (suficiente para o(s) botão(ões) primário(s) +
+     o gatilho do radial lado a lado, com folga) e trocar o alinhamento de `text-right`/`justify-end`
+     para `text-center`/`justify-center` nas duas tabelas — centralizar dentro de uma coluna mais
+     larga aumenta a distância real entre o centro do gatilho e a borda direita da tabela/página,
+     que é a causa raiz do aperto. Mantém o rótulo do cabeçalho como já estava (sr-only em
+     Follow-ups, visível em Aquisição) — não é o alvo do pedido, só largura/centralização/cor.
+  3. Nova cor no vocabulário do radial: acrescento o tom `navegacao` (azul, mesmo padrão de classes
+     `border-*-300 bg-*-50 text-*-700 hover:bg-*-100` dos tons existentes) em `lib/menu-radial.js` +
+     `.d.ts`, e aplico nas duas ações de abrir conversa/ligação em Follow-ups (`executar` e
+     `abrir_conversa`). Não mexo em `positivo`/`negativo`/`neutro` nem nos usos existentes deles
+     (Concluir continua emerald, Cancelar/Descartar continuam vermelho).
+- **Arquivos que pretendo alterar:** `frontend/lib/menu-radial.js` (+ `.d.ts`/`.test.js` — novo tom
+  `navegacao`), `frontend/app/dashboard/follow-ups/page.tsx` (largura/centralização da coluna Ações
+  + tom `navegacao` nas ações de abrir conversa/ligação), `frontend/app/dashboard/prospeccao/page.tsx`
+  (largura/centralização da coluna Ações). Nenhum arquivo de `backend/` tocado; nenhuma regra de
+  negócio, handler, rota ou dado alterado — só CSS/apresentação e um tom de cor novo no vocabulário
+  puro já existente.
+- **Fora de escopo (declarado pelo pedido):** backend, banco, produção/Railway, segurança, roteiro
+  SPIN; redesenhar todas as listagens; regra geral de busca/filtros/paginação; tornar a coluna de
+  ações personalizável/removível; criar radial em Banco de Leads ou Central de Mensagens.
+- **Validação prevista:** `npm run typecheck` (frontend), `npm test` (frontend, `lib/menu-radial.test.js`
+  e demais `lib/*.test.js` afetados), `git diff --check`. Commit único direto em `master` (via push do
+  worktree) se tudo passar e o diff não sair do escopo combinado acima.
+
+---
+
 ## 2026-08-12 - Início de tarefa IA - Follow-ups: "Abrir conversa" vira 4ª bolinha do radial (zona `baixo`)
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5)

@@ -42,10 +42,14 @@ function rotuloMenu(rotuloContexto) {
 }
 
 // Cor NUNCA é a única informação: cada botão do radial carrega o rótulo em texto. O tom
-// só reforça positivo/negativo/neutro — mesma disciplina de `pontuacao-indicador.js`.
+// só reforça positivo/negativo/navegacao/neutro — mesma disciplina de `pontuacao-indicador.js`.
+// `navegacao` (azul) é para ações que só ABREM/levam a outro lugar (ex.: "Conversa"/"Ligação"
+// em Follow-ups) — distinto de `positivo` (confirma/conclui algo), para a cor não sugerir que
+// abrir a conversa é o mesmo tipo de ação que concluir o follow-up.
 const TOM_CLASSES = Object.freeze({
   positivo: 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
   negativo: 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100',
+  navegacao: 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100',
   neutro: 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
 })
 

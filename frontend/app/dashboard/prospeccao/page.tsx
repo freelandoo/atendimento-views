@@ -542,7 +542,9 @@ export default function ProspeccaoPage() {
             <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={ordenarPor} />
             <ThOrdenavel label="Nicho / Cidade" chave="nicho" ordem={ordem} onOrdenar={ordenarPor} />
             <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={ordenarPor} />
-            <th className="text-right px-3 py-2">Ações</th>
+            {/* Largura própria e fixa: dá folga para o radial (bolinhas satélite a 56px do
+                centro do gatilho "⋯") abrir sem colar na borda direita da tabela. */}
+            <th className="w-32 min-w-[8rem] px-3 py-2 text-center">Ações</th>
           </tr>
         </thead>
         <tbody>
@@ -584,7 +586,7 @@ export default function ProspeccaoPage() {
               <td className="px-3 py-2">
                 <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLE[p.status] || 'bg-gray-100 text-gray-500'}`}>{STATUS_LABEL[p.status] || p.status}</span>
               </td>
-              <td className="px-3 py-2 text-right whitespace-nowrap">
+              <td className="w-32 min-w-[8rem] px-3 py-2 text-center whitespace-nowrap">
                 {p.status === 'rejeitado' ? (
                   <button disabled={agindo === p.id}
                     onClick={() => acao(p.id, 'aprovar', 'Lead restaurado — voltou para a fila de disparo.')}

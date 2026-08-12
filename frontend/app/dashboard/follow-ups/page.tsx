@@ -471,7 +471,11 @@ export default function FollowUpsPage() {
                     <th scope="col" className="px-4 py-3">Prazo</th>
                     <th scope="col" className="px-4 py-3">Por que agora</th>
                     <th scope="col" className="px-4 py-3">Origem</th>
-                    <th scope="col" className="px-4 py-3"><span className="sr-only">Ações</span></th>
+                    {/* Coluna própria e fixa para o radial: largura mínima suficiente para o
+                        gatilho "⋯" abrir sem colar na borda direita da tabela nem sobrepor a
+                        bolinha central (o radial posiciona as bolinhas satélite a 56px do centro
+                        do gatilho, então precisa de espaço à direita dele — não só do texto). */}
+                    <th scope="col" className="w-40 min-w-[10rem] px-4 py-3 text-center"><span className="sr-only">Ações</span></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -649,7 +653,9 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
         id: 'executar',
         rotulo: item.destino === 'central_ligacoes' ? 'Ligação' : 'Conversa',
         zona: 'baixo',
-        tom: 'positivo',
+        // Azul (navegação/abertura) — diferente de "Concluir" (verde, confirmação): abrir a
+        // conversa/ligação não conclui nada, só leva para outra tela.
+        tom: 'navegacao',
         descricao: item.destino === 'central_ligacoes' ? 'Ir para a ligação — ação recomendada agora para este contato.' : 'Abrir conversa — ação recomendada agora para este contato.',
         onSelecionar: () => onExecutar(item),
       },
@@ -662,7 +668,7 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
     acoesSecundarias.push({ id: 'roteiro', rotulo: 'Roteiro', zona: 'cima', onSelecionar: () => onRoteiro(item) })
   }
   if (item.acao === 'assumir_conversa' || item.acao === 'revisar_proposta') {
-    acoesSecundarias.push({ id: 'abrir_conversa', rotulo: 'Abrir conversa', zona: 'direita', tom: 'positivo', onSelecionar: () => onAbrirHistorico(item.numero) })
+    acoesSecundarias.push({ id: 'abrir_conversa', rotulo: 'Abrir conversa', zona: 'direita', tom: 'navegacao', onSelecionar: () => onAbrirHistorico(item.numero) })
   }
   if (item.ia_agendada) {
     // Ação rara e de maior consequência: fica sem zona de propósito, um nível mais
@@ -765,8 +771,10 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
           </div>
         )}
       </td>
-      <td className="px-4 py-3 text-right align-top">
-        <div className="flex flex-wrap items-center justify-end gap-2">
+      <td className="w-40 min-w-[10rem] px-4 py-3 text-center align-top">
+        {/* Centralizado, não colado à borda direita: é o que dá folga para o radial abrir sem
+            a bolinha "direita" (Concluir) encostar no gatilho central. */}
+        <div className="flex flex-wrap items-center justify-center gap-2">
           {/* O nome (coluna Lead) já é um botão que abre a mesma conversa em QUALQUER estado da
               linha — por isso os botões secundários "Ver conversa" que só repetiam
               `onAbrirHistorico` sem nenhum sinal visual próprio já tinham sido removidos daqui.

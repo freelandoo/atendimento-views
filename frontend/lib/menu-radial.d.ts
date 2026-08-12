@@ -1,5 +1,5 @@
 export type ZonaAcaoRadial = 'cima' | 'direita' | 'esquerda' | 'baixo'
-export type TomAcaoRadial = 'positivo' | 'negativo' | 'neutro'
+export type TomAcaoRadial = 'positivo' | 'negativo' | 'navegacao' | 'neutro'
 
 export type AcaoRadial = {
   id: string
