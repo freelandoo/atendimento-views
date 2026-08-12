@@ -6,6 +6,42 @@ de analisar profundamente ou alterar código (Fase 0 do workflow padrão — ver
 
 ---
 
+## 2026-08-12 - Início de tarefa IA - Simplificar "Modo desta conversa" no ConversaPainel (retomada pós troca de conta)
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado
+  (`lucky-tickling-starlight`), job em background.
+- **Pedido resumido:** tarefa pequena de apresentação (frontend), retomada de duas tentativas
+  anteriores que não concluíram (`aca54010` ambígua, `65d67eeb` bloqueada por limite antes de
+  trabalhar). O orquestrador já resolveu a ambiguidade: `modo_ia` é configuração persistente
+  (Padrão/Conversa/Análise), `agente_pausado` é estado temporário (pausar/retomar), e os dois
+  rótulos não podem se confundir. Pedido: (1) simplificar o controle "Modo desta conversa" para
+  as três opções compactas Padrão/Conversa/Análise; (2) tirar o texto explicativo fixo abaixo do
+  controle, movendo explicação para tooltip/aria por opção; (3) manter "Pausar agente"/"Retomar
+  agente" (nunca "Ativar/Desativar agente"); (4) pode compactar visualmente e aproximar do bloco
+  de prioridade comercial, mas sem fundir as duas regras; (5) sem alterar regra de negócio nem
+  decisão de envio na tela.
+- **É projeto/tarefa de alteração?** Sim, pequena e 100% de apresentação: sem schema, sem rota
+  nova, sem regra de negócio tocada. Reaproveita `AlternadorModoIa`/`BalaoAjuda`/
+  `lib/conversa-modo-ia.js` já existentes (commit `4199a3a`, que já padronizou o controle GLOBAL
+  em `dashboard/conversas/page.tsx` e o do Follow-up automático).
+- **Workflow consultado?** AGENTS.md, CLAUDE.md, `docs/ai-workflow.md`: sim.
+- **Achado ao ler o código:** o controle GLOBAL "Modo padrão da IA" (`dashboard/conversas/page.tsx`)
+  já segue o padrão minimalista (rótulo + `AlternadorModoIa` + `ajuda` custom + `ariaLabel`, sem
+  parágrafo fixo). O bloco "Modo desta conversa" dentro de `ConversaPainel.tsx` ainda tem, abaixo
+  do controle, um parágrafo fixo "Agora: {estado} · {explicarOrigem}" e um aviso de pausa que
+  **duplica** o aviso já mostrado no compositor (`avisoDoCompositor`, visível logo acima da caixa
+  de mensagem quando a IA não vai responder). É esse parágrafo + duplicação que a tarefa pede
+  para simplificar; o texto de `avisoDoCompositor` mais abaixo não é tocado.
+- **Plano:** (a) `lib/conversa-modo-ia.js` — encurtar o rótulo do botão HERDAR de "Herdar padrão
+  da Central" para "Padrão"; (b) `ConversaPainel.tsx` — remover o parágrafo fixo "Agora: ..." e o
+  aviso de pausa duplicado desse bloco, passando `ajuda={explicarOrigem(...)}` ao
+  `AlternadorModoIa` (mesmo mecanismo já usado pelo controle global) para a explicação de origem
+  virar tooltip; nenhuma regra de negócio nem comparação de modo nova é introduzida (guarda de
+  regressão em `conversa-modo-ia.test.js` já cobre isso).
+- **Validação:** `npm run typecheck` e `npm test` dentro de `frontend/`.
+
+---
+
 ## 2026-08-12 - Início de tarefa IA - Padronizar a coluna de Ações/radial (largura, centralização, cor "Conversa")
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`padroniza-coluna-acoes-radial`), job em background.

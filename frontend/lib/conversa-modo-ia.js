@@ -57,7 +57,10 @@ const CATALOGO_MODO = {
 const CATALOGO_PREFERENCIA = {
   [PREFERENCIAS.HERDAR]: {
     id: PREFERENCIAS.HERDAR,
-    rotulo: 'Herdar padrão da Central',
+    // Rotulo COMPACTO de proposito (botao do radiogroup): "Padrao" cabe ao lado de "Conversa"
+    // e "Analise" sem alargar o controle. O nome completo ("Herdar padrao da Central") continua
+    // inteiro na `ajuda`, que e' o que o balao e o leitor de tela mostram.
+    rotulo: 'Padrão',
     curto: 'Herdar',
     ajuda: 'Esta conversa segue o Modo padrão da IA configurado na Central de Mensagens. Mudar o padrão muda esta conversa junto.',
   },

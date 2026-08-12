@@ -38,9 +38,7 @@ import TextoTruncado from '@/components/ui/TextoTruncado'
 import { VARIANTES, O_QUE_MEDE, fatoresDeInteresse } from '@/lib/pontuacao-indicador'
 import AlternadorModoIa from '@/components/ui/AlternadorModoIa'
 import {
-  avisoDePausa,
   avisoDoCompositor,
-  descreverModo,
   descreverPreferencia,
   explicarOrigem,
   houveMudancaDePreferencia,
@@ -508,8 +506,6 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
   const avisoModo = aberta
     ? avisoDoCompositor({ modoEfetivo: aberta.modo_ia_efetivo, agentePausado: aberta.agente_pausado })
     : null
-  // A pausa e' dita SEPARADA do modo: e' temporaria e nao mexe na preferencia.
-  const avisoPausa = aberta ? avisoDePausa(aberta.agente_pausado) : null
 
   return (
     <>
@@ -546,9 +542,10 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Prioridade comercial</div>
                 <div className="flex flex-wrap items-center gap-2">
                   <InteresseBadge c={aberta} compact />
-                  {/* O selo "Agente: pausado/ativo" saiu daqui: estado de atuacao da IA
-                      agora vive inteiro no bloco "Modo desta conversa", junto do modo
-                      efetivo. Dois lugares dizendo a mesma coisa se contradizem cedo. */}
+                  {/* O selo "Agente: pausado/ativo" saiu daqui: estado de atuacao da IA vive no
+                      bloco "Modo desta conversa" (escolha + tooltip com o que esta valendo) e,
+                      quando a IA nao vai responder, no aviso do compositor logo acima da caixa
+                      de mensagem. Dois lugares dizendo a mesma coisa se contradizem cedo. */}
                   {scoreValue(aberta.score_lead) != null && (
                     <span className="inline-flex items-center rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600">
                       Fit do lead: <strong className="ml-1 text-gray-900">{scoreValue(aberta.score_lead)}</strong>
@@ -574,31 +571,22 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                   onMudar={(id) => alterarModoIa(id as PreferenciaModoIa)}
                   ocupado={alterandoModo}
                   compacto
+                  // Mesmo mecanismo do controle GLOBAL (`dashboard/conversas/page.tsx`): o
+                  // parágrafo fixo com o modo efetivo e a origem saiu da tela e virou o texto
+                  // do balão — a opção marcada já mostra a escolha, e o balão diz o que está
+                  // valendo agora. A pausa tem aviso próprio no compositor logo abaixo
+                  // (`avisoDoCompositor`); repeti-la aqui duplicaria o mesmo aviso.
+                  ajuda={explicarOrigem({
+                    origem: aberta.modo_ia_origem,
+                    modoEfetivo: aberta.modo_ia_efetivo,
+                    modoPadrao: aberta.modo_ia_padrao,
+                  })}
                   ariaLabel={rotuloAcessivel({
                     modoEfetivo: aberta.modo_ia_efetivo,
                     origem: aberta.modo_ia_origem,
                     modoPadrao: aberta.modo_ia_padrao,
                   })}
                 />
-                {/* Modo EFETIVO e ORIGEM em texto: o controle sozinho mostra a escolha, nao
-                    o que esta valendo — e em "Herdar" as duas coisas sao diferentes. */}
-                <p className="mt-2 text-xs text-slate-600">
-                  <span className="font-semibold text-slate-800">
-                    Agora: {descreverModo(aberta.modo_ia_efetivo).estado}
-                  </span>
-                  {' · '}
-                  {explicarOrigem({
-                    origem: aberta.modo_ia_origem,
-                    modoEfetivo: aberta.modo_ia_efetivo,
-                    modoPadrao: aberta.modo_ia_padrao,
-                  })}
-                </p>
-                {/* A pausa e' OUTRO estado, dito em outra linha de proposito. */}
-                {avisoPausa && (
-                  <p className="mt-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
-                    <span className="font-semibold">{avisoPausa.titulo}.</span> {avisoPausa.texto}
-                  </p>
-                )}
               </div>
             )}
             {contextoOrigem && contextoOrigem.linhas.length > 0 && (
