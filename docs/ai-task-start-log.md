@@ -6,6 +6,55 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-08-12 - Início de tarefa IA - Simplifica controles de modo/IA no ConversaPainel (Central de Mensagens)
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`simplifica-modo-ia-painel`), job em background.
+- **Pedido resumido:** Reduzir ruído visual do bloco "Modo desta conversa" no `ConversaPainel.tsx`:
+  rótulos compactos (Padrão/Conversa/Análise), remover o texto explicativo fixo abaixo do
+  controle (movendo a explicação para tooltip curto por opção) e transformar "Retomar agente"
+  num botão mais compacto/visual, posicionado perto de "Prioridade comercial".
+- **É projeto/tarefa de alteração?** Sim, pequena e 100% de apresentação (frontend): sem schema,
+  sem migration, sem rota nova, sem chamada nova ao backend.
+- **Workflow consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md: Sim.
+  `docs/ui-visual-standard.md` não existe como arquivo neste repositório (mesma observação já
+  registrada em entradas anteriores da série).
+- **Mapeamento feito antes de editar:**
+  1. `frontend/components/ConversaPainel.tsx:566-603` — bloco "Modo desta conversa": usa
+     `AlternadorModoIa` (3 opções, `opcoesDePreferencia()`) + um `<p>` fixo com
+     `descreverModo(...).estado` + `explicarOrigem(...)`, abaixo do controle.
+  2. `frontend/components/ui/AlternadorModoIa.tsx` — já tem UM ícone `BalaoAjuda` (portal,
+     hover/foco/toque, Escape) antes do grupo, mas só explica a opção ATIVA — não cada opção ao
+     passar o mouse. `frontend/components/ui/MenuRadialAcoes.tsx` já usa `title={...}` nativo
+     como padrão leve de tooltip por item nesta base de código (linhas 64/161/240) — é o padrão
+     que darei seguimento em vez de inventar um novo componente.
+  3. `frontend/lib/conversa-modo-ia.js` — `CATALOGO_PREFERENCIA` já tem `rotulo`/`curto`/`ajuda`
+     por opção; `rotulo` de HERDAR é "Herdar padrão da Central" (longo demais pro botão
+     compacto). Nenhuma regra de precedência/decisão de envio vive aqui — é só apresentação.
+  4. `frontend/lib/conversa-modo-ia.test.js:299-319` já tem uma guarda que proíbe
+     `conversas/page.tsx` e `follow-ups/page.tsx` de voltar a escrever o estado por extenso ao
+     lado do controle. `ConversaPainel.tsx` não está na lista — vou adicioná-lo, já que a mudança
+     pedida é exatamente remover essa mesma classe de texto fixo de lá também.
+  5. **Achado que trava a Fase 2 (checkpoint):** o botão "Pausar/Retomar agente" hoje vive no
+     rodapé de ações, DELIBERADAMENTE separado do bloco "Prioridade comercial" — há um comentário
+     no próprio código (`ConversaPainel.tsx:549-551`) dizendo que o selo "Agente: pausado/ativo"
+     foi TIRADO de perto de "Prioridade comercial" porque "dois lugares dizendo a mesma coisa se
+     contradizem cedo", e o estado de atuação da IA passou a viver inteiro no bloco "Modo desta
+     conversa". Além disso, o AGENTS.md documenta que `modo_ia` (persistente) e `agente_pausado`
+     (efêmero) são dimensões DIFERENTES e "PROIBIDO fundi-los" — o envio automático exige os
+     DOIS liberados. Renomear "Retomar/Pausar agente" para "Ativar/Desativar agente" bem ao lado
+     de "Prioridade comercial" (fisicamente longe do bloco "Modo desta conversa") arrisca o
+     operador entender esse botão como o controle mestre de "a IA responde ou não", quando na
+     verdade ele só libera uma condição das duas exigidas. Vou perguntar ao usuário como
+     prosseguir antes de implementar essa parte (rótulo real vs. rótulo pedido).
+- **Arquivos que pretendo alterar:** `frontend/lib/conversa-modo-ia.js` (+ `.test.js`),
+  `frontend/components/ui/AlternadorModoIa.tsx`, `frontend/components/ConversaPainel.tsx`.
+  Nenhum arquivo de `backend/` tocado.
+- **Validação prevista:** `npm run typecheck` (frontend), `npm test` (frontend, `lib/*.test.js`
+  relevantes: `conversa-modo-ia.test.js`), `git diff --check`. Commit único + push direto para
+  master **se** tudo passar — autorizado pelo pedido.
+
+---
+
 ## 2026-08-12 - Início de tarefa IA - Anotações rápidas no radial da Central de Ligações + análise de canal E-mail em Follow-ups
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5)

@@ -86,6 +86,7 @@ export default function AlternadorModoIa({
               role="radio"
               aria-checked={marcada}
               aria-label={`${o.rotulo}. ${o.ajuda}`}
+              title={o.ajuda}
               tabIndex={marcada ? 0 : -1}
               disabled={ocupado}
               onClick={() => onMudar(o.id)}

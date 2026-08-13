@@ -895,7 +895,7 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
           <button
             onClick={() => aberta && alterarPausaAgente(!aberta.agente_pausado)}
             disabled={!aberta || alterandoPausa}
-            className={`text-xs px-3 py-2 rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed ${aberta?.agente_pausado ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'}`}
+            className={`text-[11px] px-2 py-1 rounded-md text-white disabled:opacity-50 disabled:cursor-not-allowed ${aberta?.agente_pausado ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'}`}
           >
             {alterandoPausa ? 'Atualizando...' : aberta?.agente_pausado ? 'Retomar agente' : 'Pausar agente'}
           </button>

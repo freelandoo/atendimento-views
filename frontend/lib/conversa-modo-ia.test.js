@@ -304,6 +304,9 @@ test('guarda: os controles de ativacao nao voltam a escrever o estado ao lado', 
   const alvos = [
     path.join(__dirname, '..', 'app', 'dashboard', 'conversas', 'page.tsx'),
     path.join(__dirname, '..', 'app', 'dashboard', 'follow-ups', 'page.tsx'),
+    // O bloco "Modo desta conversa" tinha o mesmo texto fixo ("Agora: <estado> · <origem>")
+    // logo abaixo do controle; a simplificacao moveu-o para o balao de ajuda (`ajuda=`).
+    path.join(__dirname, '..', 'components', 'ConversaPainel.tsx'),
   ]
   for (const alvo of alvos) {
     const fonte = fs.readFileSync(alvo, 'utf8')
