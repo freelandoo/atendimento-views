@@ -12,6 +12,7 @@ const E = require('../db/ligacao-etapas')
 const Q = require('../db/ligacao-perguntas')
 const A = require('../db/auditoria')
 const AN = require('../db/ligacoes-analitica')
+const ACOMP = require('../services/ligacao-acompanhamento')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -40,7 +41,13 @@ router.post('/iniciar', requireAuth, requireEmpresaAccess, async (req, res) => {
     if (data.retomada === false) { // audita so a criacao real (nao a recuperacao)
       A.registrarAuditoria(pool, req.empresa.id, { usuarioId: req.usuario?.id, entidadeTipo: 'ligacao', entidadeId: data.id, acao: 'ligacao_iniciada', estadoNovo: 'em_andamento', clientEventId: b.client_event_id })
     }
-    return res.status(data.retomada ? 200 : 201).json({ ok: true, data })
+    // `sou_eu` fecha a corrida de dois cliques quase simultaneos: quando esta chamada RETOMA
+    // uma sessao que outra pessoa acabou de iniciar (a fila ainda mostrava o lead livre), o
+    // cliente precisa saber disso para abrir em modo Acompanhar em vez de operar por cima
+    // dela. Campo ADITIVO — quem nao lê continua com o mesmo comportamento.
+    return res.status(data.retomada ? 200 : 201).json({
+      ok: true, data: { ...data, sou_eu: ACOMP.ehDono(data, req.usuario?.id) },
+    })
   } catch (err) { return erro(res, err, 'LIGACAO_INICIAR_FAILED') }
 })
 
@@ -52,6 +59,20 @@ router.get('/ativa', requireAuth, requireEmpresaAccess, async (req, res) => {
     })
     return res.json({ ok: true, data })
   } catch (err) { return erro(res, err, 'LIGACAO_ATIVA_FAILED') }
+})
+
+// GET /ativas?campanha_id= — ligacoes ATIVAS da campanha, em UMA consulta (modo Acompanhar).
+// Existe para a fila marcar "em ligacao agora" sem N+1 (um GET /ativa por linha) e para o
+// polling leve da listagem. Payload SANITIZADO na origem (services/ligacao-acompanhamento.js):
+// sai id, lead, desde quando, quem e `sou_eu` — nunca telefone, notas ou resultado.
+// `sou_eu` e' calculado AQUI porque so' o servidor conhece o usuario autenticado.
+router.get('/ativas', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const rows = await L.listarLigacoesAtivasDaCampanha(pool, req.empresa.id, {
+      campanhaId: req.query.campanha_id,
+    })
+    return res.json({ ok: true, data: ACOMP.resumirLigacoesAtivas(rows, req.usuario?.id) })
+  } catch (err) { return erro(res, err, 'LIGACOES_ATIVAS_FAILED') }
 })
 
 // POST /:id/chamada-encerrada — marca o FIM DA CHAMADA (clique em "Encerrar ligacao"),

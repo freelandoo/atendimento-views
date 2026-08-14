@@ -1364,6 +1364,61 @@
 - Testes: `test/roteiros.test.js`, `test/campanhas.test.js`, `frontend/lib/roteiros-lista.test.js`.
 - Nenhuma variável de ambiente nova foi criada para este módulo.
 
+### Ligação em andamento VISÍVEL na Central de Ligações — modo Acompanhar (somente leitura)
+- **Problema real:** duas pessoas na mesma conta (uma ligando pelo celular, outra olhando pelo
+  computador). A fila não dizia que um lead já estava ao telefone e, pior, quem clicasse
+  "Ligar" **recebia a sessão da outra pessoa** — `iniciarLigacao` é idempotente e retoma a
+  ligação ativa do lead (`src/db/ligacoes.js`). Esta entrega não cria esse comportamento: ela o
+  torna visível e o reduz.
+- **Detecção em LOTE, nunca N+1:** `GET /ligacoes/ativas?campanha_id=` (admin-only pelo mount +
+  `requireEmpresaAccess`) devolve **uma linha por ligação ativa da campanha**.
+  `campanha_id` é **obrigatório** — sem ele a leitura viraria "todas as ligações ativas da
+  empresa", que nenhuma tela pede. A consulta é coberta pelo índice parcial
+  `idx_ligacoes_uma_ativa_por_lead` (migration **048**): **nenhum índice novo, nenhuma
+  migration, nenhuma env**. **PROIBIDO** voltar a um `GET /ativa` por linha da fila.
+- **`sou_eu` é calculado no SERVIDOR** (`services/ligacao-acompanhamento.js`, PURO, dono do
+  vocabulário). O front **não compara id de usuário** e não deduz dono por nome — há guarda de
+  regressão que lê o fonte da tela. O payload sai **sanitizado na origem**, por lista FECHADA
+  de campos: id, lead, `estado_sessao`, desde quando e quem. **Nunca** telefone, notas ou
+  resultado — é uma listagem, não a conversa.
+- **`aguardando_resumo` também OCUPA o lead.** No banco ele é o MESMO `status='em_andamento'`
+  (`db/ligacoes-estado.js`); tratar só a chamada em curso deixaria o lead aparecer livre
+  enquanto outra pessoa grava o resumo, e o segundo clique cairia dentro do resumo alheio.
+- **Um componente só:** o modo Acompanhar é `OperacaoLigacao` com `somenteLeitura` — **não
+  existe uma segunda tela de visualização de ligação, e não deve nascer** (duplicaria roteiro,
+  contadores e a leitura dos mesmos GETs). O interruptor é
+  `ativo = estado === 'em_andamento' && !somenteLeitura`, a MESMA variável de que os chips, a
+  navegação de etapa e os registros já dependiam; `iniciar`/`encerrarChamada`/`salvar`/
+  `descartar`/`salvarNotas` têm early-return como segunda camada. **A coluna direita do modo
+  Acompanhar vem ANTES de qualquer ramo de escrita**, de propósito: se o dono encerrar a chamada
+  com a tela aberta, `estado` vira `aguardando_resumo` e o formulário de resumo (com "Salvar
+  ligação") apareceria sozinho.
+- **Polling com dois passos, porque o custo é diferente:** a listagem reconfere a cada **15s**
+  (1 consulta minúscula, e só os selos — a fila não recarrega); dentro do modo Acompanhar o
+  passo é **8s**, porque cada tique custa ~5 GETs. Os dois pausam com a aba oculta; o da
+  listagem pausa também enquanto a tela de atendimento está aberta. `GET /ligacoes/ativa` é o
+  detector de FIM: quando a ligação encerra ela some dali, o polling para e a tela diz que
+  acabou, em vez de exibir para sempre o cronômetro de uma chamada encerrada.
+- **"Ligar agora" PULA o lead ocupado por outra pessoa** (`proximoLigavel`): é comando de
+  TRABALHO, escolher o próximo é o que ele faz, e ligar para quem já está ao telefone com um
+  colega é o único desfecho que chega ao CLIENTE. Ligação PRÓPRIA não faz pular. O pulo é dito
+  na tela, e o destaque âmbar marca o lead que o botão realmente abre.
+- **Corrida de dois cliques quase simultâneos:** `POST /iniciar` passou a devolver `sou_eu`
+  (campo **ADITIVO**). Quando ele RETOMA sessão alheia, a tela vira somente leitura em vez de
+  operar por cima — nada é criado nesse caminho.
+- **Enforcement declarado: o somente leitura é da INTERFACE.** As rotas de escrita **não**
+  passaram a exigir dono — mudaria permissão de rota (fora do escopo) e quebraria casos
+  legítimos (ligação antiga com `usuario_id` nulo, admin concluindo resumo abandonado). O risco
+  residual é o mesmo de hoje, e menor: antes a tela ENTREGAVA a sessão alheia sem avisar.
+  **Assumir e transferir ligação continuam fora de escopo.**
+- Código: `src/services/ligacao-acompanhamento.js` (PURO), `src/db/ligacoes.js`
+  (`listarLigacoesAtivasDaCampanha`), `src/routes/api-ligacoes.js`. Front:
+  `frontend/lib/ligacao-ativa.js` (+ `.d.ts`/`.test.js`, dono do vocabulário de apresentação:
+  `acaoDoLead`, `seloLigacaoAtiva`, `proximoLigavel`) e
+  `frontend/app/dashboard/central-ligacoes/page.tsx`. Testes:
+  `test/ligacao-acompanhamento.test.js`, `frontend/lib/ligacao-ativa.test.js`.
+- **Nenhuma variável de ambiente nova, nenhuma migration, nenhum índice novo.**
+
 ### Menu radial de ações secundárias (`⋯`) — primeira entrega, só em Follow-ups
 - **Origem:** relatório de padronização visual "Padronização visual das listagens" (após os
   commits `33bdfbd`/`b019b0b`/`06563f9`/`6b3fff9`), que mapeou as 6 telas de listagem e propôs

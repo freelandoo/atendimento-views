@@ -107,6 +107,35 @@ async function obterLigacaoAtiva(pool, empresaId, { campanhaLeadId, prospectId }
   return rows[0] ? comEstado(rows[0]) : null
 }
 
+// Ligacoes ATIVAS de uma campanha, em UMA consulta (modo Acompanhar). Existe para a Central
+// de Ligacoes marcar, na fila inteira, quais leads estao ocupados agora — sem N+1 (uma
+// chamada de /ativa por linha da fila) e sem duplicar o JOIN dentro de `filaDeTrabalho` E de
+// `listarLeadsDaCampanha`, que sao queries diferentes sobre o mesmo conjunto de leads.
+//
+// Barata por construcao: o UNIQUE parcial `idx_ligacoes_uma_ativa_por_lead`
+// (empresa_id, campanha_lead_id) WHERE status = 'em_andamento' (migration 048) cobre
+// exatamente estas linhas, e elas sao poucas — no maximo uma por lead em atendimento.
+// Por isso NAO foi criado indice novo.
+//
+// `campanhaId` e' OBRIGATORIO: sem ele a leitura viraria "todas as ligacoes ativas da
+// empresa", que nenhuma tela pede e que so' cresce. LIMIT como teto de sanidade.
+async function listarLigacoesAtivasDaCampanha(pool, empresaId, { campanhaId, limit = 200 } = {}) {
+  if (!campanhaId) throw erroEntrada('campanha_id obrigatorio.')
+  const lim = Math.min(Math.max(Number.parseInt(limit, 10) || 200, 1), 500)
+  const { rows } = await pool.query(
+    `SELECT l.id, l.status, l.campanha_lead_id, l.prospect_id, l.iniciada_em,
+            l.chamada_encerrada_em, l.usuario_id, u.nome AS usuario_nome
+       FROM app.ligacoes l
+       LEFT JOIN app.usuarios u ON u.id = l.usuario_id
+      WHERE l.empresa_id = $1 AND l.campanha_id = $2 AND l.status = 'em_andamento'
+      ORDER BY l.iniciada_em ASC
+      LIMIT $3`,
+    [empresaId, campanhaId, lim])
+  // `estado_sessao` vem daqui (fonte unica: comEstado) e nao e' re-derivado no front nem no
+  // service — `em_andamento` e `aguardando_resumo` sao o MESMO status no banco.
+  return rows.map(comEstado)
+}
+
 // Persistencia incremental do registro rapido (notas livres). So durante a ligacao ativa;
 // last-write-wins (naturalmente idempotente num campo unico). Recuperavel no refresh.
 async function atualizarNotas(pool, empresaId, id, notas) {
@@ -364,6 +393,6 @@ async function listarLigacoes(pool, empresaId, { campanhaLeadId, prospectId, cam
 module.exports = {
   validarRegistro, derivarEtapasDeSinais, transicaoValida, STATUS_ANALITICO,
   estadoSessao, chamadaAberta,
-  listarLigacoes, obterLigacao, obterLigacaoAtiva,
+  listarLigacoes, obterLigacao, obterLigacaoAtiva, listarLigacoesAtivasDaCampanha,
   iniciarLigacao, marcarChamadaEncerrada, encerrarLigacao, descartarLigacao, atualizarNotas,
 }

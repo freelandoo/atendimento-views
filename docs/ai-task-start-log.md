@@ -6,6 +6,50 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-08-14 - Início de tarefa IA - Visibilidade de ligação em andamento na Central de Ligações (modo Acompanhar)
+
+- **IA/Ferramenta:** Claude Code (Opus 5), rodando em worktree isolado (`central-ligacoes-acompanhar`), job em background.
+- **Pedido resumido:** duas pessoas na mesma conta (uma ligando pelo celular, outra olhando pelo
+  computador) não enxergam que existe ligação em andamento para um lead. Pedido: (1) selo
+  "Em ligação agora" na listagem da fila; (2) o botão "Ligar" da linha vira "Acompanhar" quando a
+  ligação ativa é de OUTRA pessoa, abrindo uma visão SOMENTE LEITURA da operação em andamento,
+  com atualização periódica; (3) se a ligação ativa é do próprio usuário, mantém o comportamento
+  de sempre (a idempotência de `POST /iniciar` já retoma).
+- **É projeto/tarefa de alteração?** Sim, mas de escopo CONTIDO: nenhuma migration, nenhuma
+  mudança de schema, nenhuma alteração de permissão de rota. O que entra é uma leitura nova
+  (em lote) sobre dado que já existe e um modo de apresentação do componente que já existe.
+- **Workflow padrão consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/ai-decision-log.md: Sim.
+- **Áreas mapeadas na Fase 0 (leitura antes de editar):**
+  `sql/migrations/048_ligacoes_uma_ativa_por_lead.sql` (o UNIQUE parcial
+  `(empresa_id, campanha_lead_id) WHERE status='em_andamento'` — é ele que torna a leitura em
+  lote barata e a invariante confiável), `src/db/ligacoes.js` (`obterLigacaoAtiva`,
+  `iniciarLigacao` idempotente, `COLS_SESSAO`), `src/db/ligacoes-estado.js` (`estado_sessao`:
+  `em_andamento` e `aguardando_resumo` são o MESMO `status` no banco),
+  `src/db/campanhas.js` (`filaDeTrabalho`, `listarLeadsDaCampanha`),
+  `src/routes/api-ligacoes.js`, `src/routes/api-campanhas.js`,
+  `frontend/app/dashboard/central-ligacoes/page.tsx` (fila, aba Acompanhamento e
+  `OperacaoLigacao`), `frontend/lib/ligacao-estado.js` / `ligacao-sinais-resumo.js`,
+  `frontend/lib/useSession.ts`.
+- **Achado que decide o desenho (1):** `aguardando_resumo` NÃO é status próprio — continua
+  `status='em_andamento'` no banco (comentário no topo de `ligacoes-estado.js` explica por quê:
+  um status novo tiraria a sessão do índice 048). Logo, lead com resumo pendente de outra pessoa
+  também precisa aparecer como ocupado; tratar só `em_andamento` deixaria o buraco aberto.
+- **Achado que decide o desenho (2):** hoje, quem clica "Ligar" num lead que já tem ligação ativa
+  de outra pessoa **recebe a sessão alheia** (a idempotência de `iniciarLigacao` retoma a ativa) e
+  pode encerrá-la. Não é um risco que esta entrega cria — é o que ela torna visível e reduz.
+- **Achado que decide o desenho (3):** a fila é montada por `filaDeTrabalho` com um teto de 500 e
+  filtros client-side; a aba Acompanhamento usa outra query. Uma leitura em LOTE separada
+  (uma linha por ligação ativa da campanha) serve as duas telas e ainda serve ao polling, sem
+  duplicar JOIN em duas queries diferentes.
+- **Fora de escopo declarado:** não se permite assumir/encerrar ligação alheia, não há
+  transferência de ligação, não se muda atribuição de campanha/lead, nenhum acesso a produção,
+  nenhuma ligação real, nenhum commit/push (não autorizado no pedido).
+- **Próxima etapa:** backend (módulo puro → leitura em lote → rota) → frontend (lib pura → fila,
+  Acompanhamento e modo somente leitura do `OperacaoLigacao`) → testes/typecheck.
+
+---
+
 ## 2026-08-12 - Início de tarefa IA - Simplifica controles de modo/IA no ConversaPainel (Central de Mensagens)
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), rodando em worktree isolado (`simplifica-modo-ia-painel`), job em background.

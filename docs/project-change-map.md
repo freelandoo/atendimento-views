@@ -79,6 +79,31 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
 
 -->
 
+## 2026-08-14 — Central de Ligações — Ligação em andamento visível + modo Acompanhar (somente leitura)
+- Área(s) tocada(s): Ligações (`src/services/ligacao-acompanhamento.js` novo — PURO,
+  `src/db/ligacoes.js`: `listarLigacoesAtivasDaCampanha`, `src/routes/api-ligacoes.js`:
+  `GET /ativas` + campo `sou_eu` no `POST /iniciar`), Front
+  (`frontend/lib/ligacao-ativa.js`/`.d.ts`/`.test.js` novos,
+  `app/dashboard/central-ligacoes/page.tsx`). **Banco: nada** — sem migration e sem índice novo.
+  **Env: nada.**
+- Regras preservadas: a invariante "uma ligação ativa por lead" continua sendo do BANCO
+  (índice parcial da migration 048) — nada foi reimplementado na aplicação; `POST /iniciar`
+  segue idempotente e retomando a própria sessão; `aguardando_resumo` continua sendo estado
+  DERIVADO do mesmo `status='em_andamento'` (`db/ligacoes-estado.js`), e o modo Acompanhar o
+  trata como lead ocupado; nenhuma rota de escrita mudou de permissão; o cálculo de `sou_eu`
+  fica no SERVIDOR (a tela nunca compara id de usuário); `OperacaoLigacao` continua sendo o
+  único componente de operação de ligação — não nasceu uma segunda tela de visualização.
+- O que mudou: a fila e a aba Acompanhamento passaram a exibir o selo "Em ligação agora ·
+  <quem>" (e "Resumo pendente · <quem>"), alimentado por UMA consulta em lote por campanha
+  (`GET /ligacoes/ativas?campanha_id=`, sanitizada na origem) com polling de 15s. O botão da
+  linha vira **Acompanhar** quando a ligação é de outra pessoa e abre `OperacaoLigacao` com
+  `somenteLeitura`: mostra etapa atual, sinais, objeções, perguntas e anotações, atualiza a
+  cada 8s e não permite registrar, trocar de etapa, encerrar nem descartar. Ligação própria
+  vira **Retomar** (comportamento inalterado). "Ligar agora" PULA leads ocupados por outra
+  pessoa. A corrida de dois cliques quase simultâneos passou a ser detectada: se `/iniciar`
+  retoma sessão alheia (`sou_eu === false`), a tela vira somente leitura em vez de operar.
+- Documentos atualizados: `ai-task-start-log.md`, `ai-decision-log.md`, este arquivo, `AGENTS.md`.
+
 ## 2026-08-07 — Front (Aquisição) — Tela dividida em dois modos: Busca e Rotinas
 - Área(s) tocada(s): Front (`app/dashboard/prospeccao/page.tsx`,
   `components/RotinasAquisicao.tsx`, `components/HistoricoColetas.tsx` — só comentário,

@@ -32,6 +32,13 @@ import {
   type FormProximaAcao, type FollowUpApi,
 } from '@/lib/follow-up-acao'
 import { msgErro } from '@/lib/erro-msg'
+// Ligação ATIVA de outra pessoa (modo Acompanhar). A tela não decide nada aqui: `sou_eu` vem
+// do servidor (só ele conhece o usuário autenticado) e o rótulo/ação sai do módulo puro.
+import {
+  indexarAtivasPorLead, acaoDoLead, seloLigacaoAtiva, rotuloOperador,
+  proximoLigavel, contarOcupadosPorOutros,
+  type LigacaoAtiva,
+} from '@/lib/ligacao-ativa'
 import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
 import { VARIANTES, O_QUE_MEDE, fatoresDeMotivos } from '@/lib/pontuacao-indicador'
 import MenuRadialAcoes from '@/components/ui/MenuRadialAcoes'
@@ -200,6 +207,31 @@ const CHAVE_VIEW = 'filaLigacoesView.v2'
 // Tamanho de página fica FORA da view: não é filtro (não vira chip nem conta como filtro ativo),
 // mas continua sendo preferência do operador — por isso, chave própria.
 const CHAVE_POR_PAGINA = 'filaLigacoesPorPagina.v1'
+
+// De quanto em quanto tempo a LISTAGEM reconfere quem está em ligação agora. 15s é o
+// compromisso escolhido: uma consulta só, indexada e minúscula (uma linha por ligação ativa
+// da campanha — no máximo uma por operador), contra o risco de o colega abrir a tela e ver
+// "livre" um lead que já está ao telefone. Não recarrega a fila: só os selos.
+// O polling PARA enquanto a tela de atendimento está aberta (a listagem está atrás do overlay).
+const POLL_ATIVAS_MS = 15000
+// Já DENTRO do modo Acompanhar o passo é mais curto (a pessoa está olhando a conversa
+// acontecer), mas cada tique custa 5 GETs — por isso 8s, e só enquanto a visão está aberta.
+const POLL_ACOMPANHAR_MS = 8000
+
+// Selo "Em ligação agora" da listagem. Cor NUNCA é o único sinal: o texto diz o estado e
+// quem está na ligação. A decisão de texto vive em `lib/ligacao-ativa.js`.
+function SeloEmLigacao({ ativa }: { ativa: LigacaoAtiva | null | undefined }) {
+  const selo = seloLigacaoAtiva(ativa)
+  if (!selo) return null
+  return (
+    <span title={selo.titulo}
+      className={`mt-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
+        selo.proprio ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-amber-300 bg-amber-50 text-amber-800'}`}>
+      <span aria-hidden="true" className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
+      {selo.texto}
+    </span>
+  )
+}
 
 // Círculo de pontuação da coluna Prioridade. O componente (geometria, tooltip em portal,
 // foco por teclado, fechamento em scroll/resize) foi extraído para
@@ -573,7 +605,17 @@ export default function CentralLigacoesPage() {
   const [detalhe, setDetalhe] = useState<CampanhaDetalhe | null>(null)
   const [fila, setFila] = useState<FilaItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [operando, setOperando] = useState<FilaItem | null>(null)
+  // Tela de atendimento aberta. `somenteLeitura` = modo Acompanhar: a ligação é de OUTRA
+  // pessoa e esta sessão só observa. Os dois andam juntos num estado só para nunca existir
+  // "abriu para operar mas ficou marcado como leitura" (ou o contrário).
+  const [operando, setOperando] = useState<{ lead: FilaItem; somenteLeitura: boolean } | null>(null)
+  // Ligações em andamento da campanha, indexadas por lead. Vem de UMA consulta em lote
+  // (`GET /ligacoes/ativas?campanha_id=`) — nunca um GET por linha da fila.
+  const [ativas, setAtivas] = useState<Record<string, LigacaoAtiva>>({})
+  // "Já sei quem está ocupado" ≠ "ninguém está ocupado". Sem esta distinção, a abertura
+  // automática vinda de Follow-ups poderia entrar numa ligação alheia só porque o lote
+  // ainda não tinha chegado.
+  const [ativasCarregadas, setAtivasCarregadas] = useState(false)
   // Anotações rápidas de ligações já encerradas — visualização leve, à parte do registro
   // completo (`operando`/`OperacaoLigacao`). Guarda o lead para o modal buscar e exibir.
   const [verAnotacoes, setVerAnotacoes] = useState<LeadAcomp | null>(null)
@@ -646,8 +688,21 @@ export default function CentralLigacoesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Quem está em ligação AGORA. Separado do carregamento da campanha de propósito: é o único
+  // pedaço que se repete no tempo (polling), e uma falha aqui não pode derrubar a fila —
+  // no pior caso os selos ficam desatualizados e a tela segue trabalhável.
+  const carregarAtivas = useCallback(async (id: string) => {
+    if (!id) { setAtivas({}); setAtivasCarregadas(false); return }
+    try {
+      const r = await apiFetch<LigacaoAtiva[]>(`${base()}/ligacoes/ativas?campanha_id=${id}`)
+      setAtivas(indexarAtivasPorLead(r.data))
+      setAtivasCarregadas(true)
+    } catch { /* selo desatualizado não é motivo para alarmar nem para bloquear a fila */ }
+  }, [])
+
   const carregarCampanha = useCallback(async (id: string) => {
     if (!id) { setDetalhe(null); setFila([]); return }
+    carregarAtivas(id)
     try {
       const [d, f, l, fu] = await Promise.all([
         apiFetch<CampanhaDetalhe>(`${base()}/campanhas/${id}`),
@@ -659,9 +714,19 @@ export default function CentralLigacoesPage() {
       ])
       setDetalhe(d.data); setFila(f.data); setTodosLeads(l.data); setFunil(fu.data)
     } catch (e) { fb.toast(msgErro(e, 'Não foi possível carregar a campanha.'), 'error') }
-  }, [fb])
+  }, [fb, carregarAtivas])
 
   useEffect(() => { carregarCampanha(campanhaId) }, [campanhaId, carregarCampanha])
+
+  // Duas pessoas na mesma conta: a listagem precisa reconferir sozinha quem está em ligação,
+  // senão o selo só apareceria para quem clicasse "Atualizar". Pausa enquanto a tela de
+  // atendimento está aberta (a listagem está atrás do overlay) e quando a aba não está visível.
+  useEffect(() => {
+    if (!campanhaId || operando) return
+    const tique = () => { if (typeof document === 'undefined' || !document.hidden) carregarAtivas(campanhaId) }
+    const t = setInterval(tique, POLL_ATIVAS_MS)
+    return () => clearInterval(t)
+  }, [campanhaId, operando, carregarAtivas])
 
   // Chegada vinda da fila de Follow-ups: `?campanha=<id>&lead=<campanha_lead_id>`.
   // É o que fecha a regra de roteamento — follow-up de ligação é operado pela fila e
@@ -682,22 +747,41 @@ export default function CentralLigacoesPage() {
     } catch { /* sem window/URL: navegação normal */ }
   }, [])
 
+  // Abertura da tela de atendimento. O modo (operar ou só acompanhar) NUNCA é decidido aqui:
+  // vem de `acaoDoLead`, que lê o `sou_eu` calculado no servidor.
+  const abrirLead = useCallback((lead: FilaItem) => {
+    const { somenteLeitura } = acaoDoLead(ativas[lead.campanha_lead_id])
+    setOperando({ lead, somenteLeitura })
+  }, [ativas])
+
   // A fila chega depois da URL. Só quando ela existe dá para achar o lead e abrir a operação.
   // Lead fora da fila (já convertido, descartado ou sem telefone discável) NÃO abre nada e
   // avisa — abrir a operação de um lead que a campanha não trabalha mais seria mentira.
+  // Espera TAMBÉM o lote de ligações ativas: abrir antes dele chegar poderia entregar a
+  // sessão de outra pessoa a quem só veio executar um follow-up.
   useEffect(() => {
     const alvo = alvoRef.current
-    if (!alvo || !fila.length) return
+    if (!alvo || !fila.length || !ativasCarregadas) return
     alvoRef.current = null
     const item = fila.find((f) => f.campanha_lead_id === alvo)
-    if (item) setOperando(item)
+    if (item) abrirLead(item)
     else fb.toast('Este lead não está mais na fila desta campanha.', 'info')
-  }, [fila, fb])
+  }, [fila, ativasCarregadas, abrirLead, fb])
+
+  // O `POST /iniciar` descobriu que a sessão é de outra pessoa (corrida com a fila carregada
+  // segundos antes): a MESMA tela vira somente leitura, sem fechar nada na cara do operador.
+  // O `key` do componente muda junto, então ele remonta limpo em vez de herdar estado de
+  // um modo que não vale mais.
+  const virarAcompanhamento = useCallback(() => {
+    setOperando((o) => (o ? { ...o, somenteLeitura: true } : o))
+    carregarAtivas(campanhaId)
+  }, [campanhaId, carregarAtivas])
 
   const fecharOperacao = useCallback((recarrega: boolean) => {
     setOperando(null)
     if (recarrega) carregarCampanha(campanhaId)
-  }, [campanhaId, carregarCampanha])
+    else carregarAtivas(campanhaId) // ao menos os selos voltam a refletir a realidade
+  }, [campanhaId, carregarCampanha, carregarAtivas])
 
   if (loading) return <div className="flex justify-center py-20"><Spinner /></div>
 
@@ -757,7 +841,12 @@ export default function CentralLigacoesPage() {
             const opcoes = opcoesDaFila(fila)
             // O próximo a ligar é o 1º do conjunto FILTRADO INTEIRO, não o 1º da página aberta:
             // a fila é priorizada pelo servidor e navegar não pode trocar quem vem primeiro.
-            const proximo = visiveisComBusca[0]
+            // Lead que já está em ligação de OUTRA pessoa é PULADO (regra em `lib/ligacao-ativa.js`):
+            // "Ligar agora" é comando de trabalho — escolher o próximo é o que ele faz —, e
+            // ligar para quem já está ao telefone com um colega é o único desfecho que chega
+            // ao cliente. Ligação própria não faz pular: retomá-la é o esperado.
+            const proximo = proximoLigavel(visiveisComBusca, ativas)
+            const pulados = contarOcupadosPorOutros(visiveisComBusca, ativas)
             // Paginar DEPOIS de filtrar: `filtrarFila` preserva a ordem de prioridade, então o
             // recorte sempre sai do conjunto completo já ordenado.
             const pg = paginar(visiveisComBusca, paginaFila, porPaginaFila)
@@ -766,10 +855,20 @@ export default function CentralLigacoesPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     disabled={!proximo}
-                    onClick={() => proximo && setOperando(proximo)}
+                    onClick={() => proximo && abrirLead(proximo)}
+                    title={pulados > 0
+                      ? `${pulados} lead(s) da fila estão em ligação por outra pessoa e foram pulados.`
+                      : undefined}
                     className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
                     ▶ Ligar agora {proximo ? `(${proximo.nome})` : ''}
                   </button>
+                  {/* Pular em silêncio esconderia do operador por que a fila "começa no
+                      segundo". O aviso é discreto e some sozinho quando ninguém está ligando. */}
+                  {pulados > 0 && (
+                    <span className="text-xs text-amber-700">
+                      {pulados} em ligação por outra pessoa · {proximo ? 'pulado(s)' : 'nenhum lead livre agora'}
+                    </span>
+                  )}
                   <button onClick={() => carregarCampanha(campanhaId)} className="rounded-lg border px-3 py-2 text-sm hover:bg-slate-50">Atualizar</button>
                   <input
                     value={buscaFila}
@@ -843,10 +942,15 @@ export default function CentralLigacoesPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {/* Destaque âmbar = o PRÓXIMO da fila (índice global 0), não o 1º da
-                            página atual — senão a 2ª página fingiria ter um "próximo". */}
-                        {pg.itens.map((l, i) => (
-                          <tr key={l.campanha_lead_id} className={pg.offset + i === 0 ? 'bg-amber-50/40' : ''}>
+                        {/* Destaque âmbar = o lead que o "Ligar agora" vai abrir, não o 1º da
+                            página atual (senão a 2ª página fingiria ter um "próximo") e não o
+                            índice global 0: com um lead ocupado no topo, o botão pula para o
+                            seguinte, e a linha destacada tem de ser a mesma. */}
+                        {pg.itens.map((l) => {
+                          const ativa = ativas[l.campanha_lead_id]
+                          const acao = acaoDoLead(ativa)
+                          return (
+                          <tr key={l.campanha_lead_id} className={proximo && l.campanha_lead_id === proximo.campanha_lead_id ? 'bg-amber-50/40' : ''}>
                             <td className="px-4 py-3"><CirculoPrioridade p={l.prioridade} /></td>
                             <td className="px-4 py-3">
                               {/* Só nome + localização. O nicho já é contextualizado pela
@@ -854,13 +958,25 @@ export default function CentralLigacoesPage() {
                                   atendimento — a listagem fica enxuta e rápida de escanear. */}
                               <TextoTruncado texto={l.nome} className="max-w-[200px] font-medium text-slate-800" />
                               <div className="text-xs text-slate-400">{l.cidade || '—'}</div>
+                              {/* Duas pessoas na mesma conta: o selo é o que evita ligar por
+                                  cima de um colega que já está com o cliente na linha. */}
+                              <SeloEmLigacao ativa={ativa} />
                             </td>
                             <td className="px-4 py-3 align-top"><Fone tel={l.telefone} className="text-sm" /></td>
                             <td className="px-4 py-3 align-top"><span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${clsStatus(l.status)}`}>{rotuloStatus(l.status)}</span></td>
                             <td className="px-4 py-3 align-top text-slate-500">{l.tentativas}</td>
-                            <td className="px-4 py-3 text-right align-top"><button onClick={() => setOperando(l)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white">Ligar</button></td>
+                            <td className="px-4 py-3 text-right align-top">
+                              <button onClick={() => abrirLead(l)} title={acao.titulo}
+                                className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                                  acao.somenteLeitura
+                                    ? 'border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                                    : 'bg-brand text-white'}`}>
+                                {acao.somenteLeitura ? '👁 ' : ''}{acao.rotulo}
+                              </button>
+                            </td>
                           </tr>
-                        ))}
+                          )
+                        })}
                       </tbody>
                     </table>
                     </div>
@@ -911,11 +1027,20 @@ export default function CentralLigacoesPage() {
                         <tr><th className="px-4 py-3">Lead</th><th className="px-4 py-3">Telefone</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Próxima ação</th><th className="px-4 py-3">Follow-up</th><th className="px-4 py-3"></th></tr>
                       </thead>
                       <tbody className="divide-y">
-                        {pageItems.map((l) => (
+                        {pageItems.map((l) => {
+                          // A aba Acompanhamento abre a MESMA tela de atendimento; ela precisa
+                          // do mesmo veredito, senão o "Registrar" daqui viraria a porta dos
+                          // fundos para assumir a ligação de outra pessoa. `l.id` é o
+                          // campanha_lead_id — a mesma chave do lote.
+                          const ativa = ativas[l.id]
+                          const acao = acaoDoLead(ativa)
+                          const comoFilaItem = { ...l, campanha_lead_id: l.id, score: null, tentativas: 0 } as FilaItem
+                          return (
                           <tr key={l.id}>
                             <td className="px-4 py-3">
                               <TextoTruncado texto={l.nome} className="max-w-[200px] font-medium text-slate-800" />
                               <div className="text-xs text-slate-400">{[l.nicho, l.cidade].filter(Boolean).join(' · ')}</div>
+                              <SeloEmLigacao ativa={ativa} />
                             </td>
                             <td className="px-4 py-3"><Fone tel={l.telefone} className="text-sm" /></td>
                             <td className="px-4 py-3"><span className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${clsStatus(l.status)}`}>{rotuloStatus(l.status)}</span></td>
@@ -946,15 +1071,19 @@ export default function CentralLigacoesPage() {
                                     onSelecionar: () => setVerAnotacoes(l),
                                   },
                                   {
-                                    id: 'registrar', rotulo: 'Registrar', zona: 'direita', tom: 'positivo',
-                                    descricao: 'Abrir o registro completo desta ligação.',
-                                    onSelecionar: () => setOperando({ ...l, campanha_lead_id: l.id, score: null, tentativas: 0 }),
+                                    id: 'registrar',
+                                    rotulo: acao.somenteLeitura ? 'Acompanhar' : 'Registrar',
+                                    zona: 'direita',
+                                    tom: acao.somenteLeitura ? 'neutro' : 'positivo',
+                                    descricao: acao.somenteLeitura ? acao.titulo : 'Abrir o registro completo desta ligação.',
+                                    onSelecionar: () => setOperando({ lead: comoFilaItem, somenteLeitura: acao.somenteLeitura }),
                                   },
                                 ]}
                               />
                             </td>
                           </tr>
-                        ))}
+                          )
+                        })}
                       </tbody>
                     </table>
                     </div>
@@ -980,7 +1109,16 @@ export default function CentralLigacoesPage() {
       )}
 
       {operando && detalhe && (
-        <OperacaoLigacao lead={operando} campanha={detalhe} onFechar={fecharOperacao} fb={fb} />
+        <OperacaoLigacao
+          key={`${operando.lead.campanha_lead_id}:${operando.somenteLeitura ? 'ro' : 'rw'}`}
+          lead={operando.lead}
+          campanha={detalhe}
+          somenteLeitura={operando.somenteLeitura}
+          ligacaoAtiva={ativas[operando.lead.campanha_lead_id] || null}
+          onFechar={fecharOperacao}
+          onLigacaoAlheia={virarAcompanhamento}
+          fb={fb}
+        />
       )}
       {verAnotacoes && (
         <AnotacoesRapidasModal lead={verAnotacoes} onFechar={() => setVerAnotacoes(null)} fb={fb} />
@@ -1113,8 +1251,18 @@ function AnotacoesRapidasModal({ lead, onFechar, fb }: {
   )
 }
 
-function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
+// Tela de atendimento. Um componente só para os dois modos, de propósito:
+//   - operar (padrão): inicia, registra e encerra a ligação — comportamento de sempre;
+//   - `somenteLeitura` (modo Acompanhar): a ligação é de OUTRA pessoa. Mostra etapa atual,
+//     sinais, objeções, perguntas e notas, atualiza sozinha, e NÃO deixa registrar, trocar de
+//     etapa, encerrar nem descartar. Uma segunda tela de "visualização" duplicaria o roteiro,
+//     os contadores e a leitura dos mesmos GETs.
+// O modo é decidido fora (`acaoDoLead`, a partir do `sou_eu` do servidor) e chega pronto.
+function OperacaoLigacao({ lead, campanha, onFechar, fb, somenteLeitura = false, ligacaoAtiva = null, onLigacaoAlheia }: {
   lead: FilaItem; campanha: CampanhaDetalhe; onFechar: (recarrega: boolean) => void; fb: ReturnType<typeof useFeedback>
+  somenteLeitura?: boolean; ligacaoAtiva?: LigacaoAtiva | null
+  /** O `POST /iniciar` retomou a sessão de OUTRA pessoa: a tela precisa virar somente leitura. */
+  onLigacaoAlheia?: () => void
 }) {
   const [etapas, setEtapas] = useState<EtapaApi[]>([])
   const [historico, setHistorico] = useState<Ligacao[]>([])
@@ -1166,6 +1314,28 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
   // registro rápido incremental (Fatia F): autosave das notas + indicador de sincronização.
   const [notasSync, setNotasSync] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const lastSavedNotasRef = useRef<string | null>(null)
+  // Modo Acompanhar: a ligação observada terminou (o dono encerrou ou descartou). O polling
+  // para e a tela diz o que aconteceu, em vez de congelar num estado que não existe mais.
+  const [acompanhamentoEncerrado, setAcompanhamentoEncerrado] = useState(false)
+  // O lote de ligações ativas pode ainda não ter chegado (ex.: a tela acabou de virar
+  // Acompanhar pela corrida do /iniciar). Sem nome, o texto diz "outro operador" em vez de
+  // sair com um espaço vazio no meio da frase.
+  const quemLiga = rotuloOperador(ligacaoAtiva) || 'outro operador'
+
+  // Estado registrado da ligação (sinais, objeções, perguntas e etapa ativa). É a leitura que
+  // o modo Acompanhar repete no tempo — por isso virou função, em vez de ficar solta no efeito.
+  const recarregarRegistros = useCallback(async (id: string) => {
+    const [s, o, q, e] = await Promise.allSettled([
+      apiFetch<SinalReg[]>(`${base()}/ligacoes/${id}/sinais`),
+      apiFetch<ObjecaoReg[]>(`${base()}/ligacoes/${id}/objecoes`),
+      apiFetch<PerguntaReg[]>(`${base()}/ligacoes/${id}/perguntas`),
+      apiFetch<{ roteiro_etapa_id: string } | null>(`${base()}/ligacoes/${id}/etapas/ativa`),
+    ])
+    if (s.status === 'fulfilled') setSinaisReg(s.value.data || [])
+    if (o.status === 'fulfilled') setObjecoesReg(o.value.data || [])
+    if (q.status === 'fulfilled') setPerguntasReg(q.value.data || [])
+    if (e.status === 'fulfilled' && e.value.data?.roteiro_etapa_id) setEtapaAtivaReId(e.value.data.roteiro_etapa_id)
+  }, [])
 
   useEffect(() => {
     if (campanha.roteiro_versao_id) {
@@ -1175,10 +1345,16 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
     // Responsaveis possiveis. Falha silenciosa de proposito: sem a lista, o campo fica
     // vazio ("Nao atribuido") e o encerramento continua funcionando — atribuir dono nunca
     // pode ser pre-requisito para registrar uma ligacao que ja aconteceu.
-    apiFetch<{ itens: { id: string; nome: string }[] }>(`${base()}/follow-ups/responsaveis`)
-      .then((r) => setResponsaveis(r.data.itens || [])).catch(() => setResponsaveis([]))
+    // No modo Acompanhar o formulário de resumo nunca aparece: buscar responsáveis seria uma
+    // requisição sem destino.
+    if (!somenteLeitura) {
+      apiFetch<{ itens: { id: string; nome: string }[] }>(`${base()}/follow-ups/responsaveis`)
+        .then((r) => setResponsaveis(r.data.itens || [])).catch(() => setResponsaveis([]))
+    }
     // Recuperação: se já existe sessão recuperável deste lead, retoma (não duplica). O
     // `estado_sessao` do servidor decide se voltamos para a conversa ou para o resumo pendente.
+    // No modo Acompanhar a MESMA leitura serve: ela é que traz o id, o instante de início e o
+    // estado da sessão alheia. O que muda é que nada é "retomado" — por isso o toast não sai.
     apiFetch<{ id: string; iniciada_em: string; chamada_encerrada_em: string | null; estado_sessao: string; notas: string | null } | null>(`${base()}/ligacoes/ativa?campanha_lead_id=${lead.campanha_lead_id}`).then((r) => {
       if (r.data && r.data.id) {
         const pendente = r.data.estado_sessao === 'aguardando_resumo'
@@ -1187,7 +1363,12 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
         setEstado(pendente ? 'aguardando_resumo' : 'em_andamento')
         // Recupera o registro rápido já salvo (evita reenviar o mesmo valor no autosave).
         setNotas(r.data.notas || ''); lastSavedNotasRef.current = r.data.notas || ''
-        fb.toast(pendente ? 'Retomando o resumo pendente — a chamada já foi encerrada' : 'Retomando ligação em andamento', 'info')
+        if (!somenteLeitura) {
+          fb.toast(pendente ? 'Retomando o resumo pendente — a chamada já foi encerrada' : 'Retomando ligação em andamento', 'info')
+        }
+      } else if (somenteLeitura) {
+        // Abriu para acompanhar e a ligação já tinha terminado (corrida com o encerramento).
+        setAcompanhamentoEncerrado(true)
       }
     }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1209,21 +1390,49 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
   const segundosChamada = segDesde(iniciadaEm, fimVisual)
 
   // Proteção contra perda: avisa ao atualizar/fechar a aba com chamada ativa OU resumo pendente.
+  // Quem só acompanha não tem nada a perder — o aviso ali seria alarme falso.
   useEffect(() => {
+    if (somenteLeitura) return
     if (estado !== 'em_andamento' && estado !== 'aguardando_resumo') return
     const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
     window.addEventListener('beforeunload', h)
     return () => window.removeEventListener('beforeunload', h)
-  }, [estado])
+  }, [estado, somenteLeitura])
 
   // Sinais + objeções + etapa ativa (reconstrói a seleção/navegação ao iniciar OU retomar).
   useEffect(() => {
     if (!ligacaoId) { setSinaisReg([]); setObjecoesReg([]); setPerguntasReg([]); return }
-    apiFetch<SinalReg[]>(`${base()}/ligacoes/${ligacaoId}/sinais`).then((r) => setSinaisReg(r.data || [])).catch(() => {})
-    apiFetch<ObjecaoReg[]>(`${base()}/ligacoes/${ligacaoId}/objecoes`).then((r) => setObjecoesReg(r.data || [])).catch(() => {})
-    apiFetch<PerguntaReg[]>(`${base()}/ligacoes/${ligacaoId}/perguntas`).then((r) => setPerguntasReg(r.data || [])).catch(() => {})
-    apiFetch<{ roteiro_etapa_id: string } | null>(`${base()}/ligacoes/${ligacaoId}/etapas/ativa`).then((r) => { if (r.data?.roteiro_etapa_id) setEtapaAtivaReId(r.data.roteiro_etapa_id) }).catch(() => {})
-  }, [ligacaoId])
+    recarregarRegistros(ligacaoId)
+  }, [ligacaoId, recarregarRegistros])
+
+  // Modo Acompanhar: a tela precisa acompanhar o que a OUTRA pessoa está fazendo, então
+  // reconsulta periodicamente. Passo de 8s (POLL_ACOMPANHAR_MS) — curto o bastante para a
+  // etapa e os sinais mudarem "ao vivo", longo o bastante para o custo ficar em ~5 GETs a
+  // cada 8s por espectador, e só enquanto esta tela está aberta e visível.
+  //
+  // `GET /ligacoes/ativa` é também o detector de FIM: quando a ligação é encerrada ou
+  // descartada, ela some da consulta de ativa e o polling para. Sem ele a tela ficaria
+  // eternamente mostrando um cronômetro de uma chamada que já acabou.
+  useEffect(() => {
+    if (!somenteLeitura || acompanhamentoEncerrado) return
+    let vivo = true
+    const tique = async () => {
+      if (!vivo || (typeof document !== 'undefined' && document.hidden)) return
+      try {
+        const r = await apiFetch<{ id: string; iniciada_em: string; chamada_encerrada_em: string | null; estado_sessao: string; notas: string | null } | null>(
+          `${base()}/ligacoes/ativa?campanha_lead_id=${lead.campanha_lead_id}`)
+        if (!vivo) return
+        if (!r.data || !r.data.id) { setAcompanhamentoEncerrado(true); return }
+        setLigacaoId(r.data.id); setIniciadaEm(r.data.iniciada_em)
+        setChamadaEncerradaEm(r.data.chamada_encerrada_em || null)
+        setEstado(r.data.estado_sessao === 'aguardando_resumo' ? 'aguardando_resumo' : 'em_andamento')
+        setNotas(r.data.notas || '')
+        await recarregarRegistros(r.data.id)
+      } catch { /* falha de rede num tique não encerra o acompanhamento: tenta no próximo */ }
+    }
+    const t = setInterval(tique, POLL_ACOMPANHAR_MS)
+    return () => { vivo = false; clearInterval(t) }
+  }, [somenteLeitura, acompanhamentoEncerrado, lead.campanha_lead_id, recarregarRegistros])
 
   // Posiciona a navegação na etapa ativa devolvida pelo servidor (após carregar as etapas).
   useEffect(() => {
@@ -1234,6 +1443,7 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
 
   // Autosave do registro rápido (Fatia F): last-write-wins, só durante a ligação; recuperável.
   const salvarNotas = useCallback(async (valor: string) => {
+    if (somenteLeitura) return // quem acompanha não escreve no registro de outra pessoa
     if (!ligacaoId || estado !== 'em_andamento' || lastSavedNotasRef.current === valor) return
     setNotasSync('saving')
     try {
@@ -1241,14 +1451,18 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
       lastSavedNotasRef.current = valor
       setNotasSync('saved')
     } catch { setNotasSync('error') }
-  }, [ligacaoId, estado])
+  }, [ligacaoId, estado, somenteLeitura])
   useEffect(() => {
-    if (estado !== 'em_andamento' || !ligacaoId) return
+    if (somenteLeitura || estado !== 'em_andamento' || !ligacaoId) return
     const t = setTimeout(() => salvarNotas(notas), 800) // debounce
     return () => clearTimeout(t)
-  }, [notas, estado, ligacaoId, salvarNotas])
+  }, [notas, estado, ligacaoId, salvarNotas, somenteLeitura])
 
-  const ativo = estado === 'em_andamento'
+  // `ativo` é o interruptor ÚNICO de escrita da tela: registrarSinal/Objecao/Pergunta,
+  // navegação de etapa e os chips já dependem dele. Desligá-lo no modo Acompanhar é o que
+  // garante que nenhum controle de escrita fique alcançável — os early-returns nas ações
+  // abaixo são a segunda camada, para o caso de um caminho novo esquecer de checar.
+  const ativo = estado === 'em_andamento' && !somenteLeitura
   const etapa = etapas[idx]
   // --- Perguntas estruturadas (marcar = feita; persistência imediata; só do roteiro) -----
   const perguntaAtiva = (indice: number) =>
@@ -1369,18 +1583,28 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
 
   // Início EXPLÍCITO: cria a ligação em_andamento (idempotente por client_event_id).
   const iniciar = useCallback(async () => {
+    if (somenteLeitura) return // acompanhar nunca vira assumir a ligação de outra pessoa
     // Guarda síncrona (ref) contra duplo disparo + estado que DESABILITA o botão no request.
     if (estado !== 'visualizando' || iniciandoRef.current) return
     iniciandoRef.current = true; setIniciando(true)
     if (!clientEventIdRef.current) clientEventIdRef.current = novoClientEventId() // 1 client_event_id por operação
     try {
-      const r = await apiFetch<{ id: string; iniciada_em: string; chamada_encerrada_em: string | null; estado_sessao: string; notas: string | null; etapa_ativa: { roteiro_etapa_id: string } | null }>(`${base()}/ligacoes/iniciar`, {
+      const r = await apiFetch<{ id: string; iniciada_em: string; chamada_encerrada_em: string | null; estado_sessao: string; notas: string | null; etapa_ativa: { roteiro_etapa_id: string } | null; retomada?: boolean; sou_eu?: boolean }>(`${base()}/ligacoes/iniciar`, {
         method: 'POST',
         body: JSON.stringify({
           campanha_id: campanha.id, campanha_lead_id: lead.campanha_lead_id, prospect_id: lead.prospect_id,
           telefone: lead.telefone, roteiro_versao_id: campanha.roteiro_versao_id, client_event_id: clientEventIdRef.current,
         }),
       })
+      // Corrida de dois cliques quase simultâneos: entre carregar a fila e clicar "Ligar",
+      // outra pessoa pode ter iniciado. `/iniciar` é idempotente e RETOMA a sessão dela — sem
+      // esta checagem, quem chegou depois passaria a operar por cima de uma ligação alheia.
+      // `sou_eu === false` (estrito): campo ausente mantém o comportamento anterior.
+      if (r.data.retomada && r.data.sou_eu === false) {
+        fb.toast('Outra pessoa já está nesta ligação. Abrindo em modo somente leitura.', 'info')
+        onLigacaoAlheia?.()
+        return // nada foi criado: /iniciar apenas devolveu a sessão existente
+      }
       // Estado (e cronômetro) só mudam APÓS sucesso real do backend, e seguem o estado_sessao
       // dele: /iniciar é idempotente e pode devolver uma sessão cujo resumo já está pendente —
       // nesse caso abrimos o resumo, não a conversa.
@@ -1394,10 +1618,12 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
       if (typeof console !== 'undefined') console.error('[iniciar ligação]', e)
       fb.toast(msgErro(e, 'Não foi possível iniciar a ligação. Tente novamente.'), 'error')
     } finally { iniciandoRef.current = false; setIniciando(false) }
-  }, [estado, campanha, lead, fb])
+  }, [estado, campanha, lead, fb, somenteLeitura, onLigacaoAlheia])
 
   // Navegação de etapas = troca temporal no servidor (fecha a ativa, abre a destino). Otimista,
   // com guarda contra duplo clique; em erro, restaura a etapa anterior.
+  // `ativo` já é false no modo Acompanhar — trocar de etapa fecharia a etapa temporal de outra
+  // pessoa e falsearia a duração dela.
   const irParaEtapa = useCallback(async (destIdx: number) => {
     if (!ativo || trocandoRef.current || destIdx < 0 || destIdx >= etapas.length || destIdx === idx) return
     const alvo = etapas[destIdx]
@@ -1423,6 +1649,7 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
   // na chamada e o operador pode tentar de novo, em vez de ficar num estado que o servidor
   // desconhece. É idempotente: o servidor mantém o instante do PRIMEIRO clique.
   const encerrarChamada = useCallback(async () => {
+    if (somenteLeitura) return // só quem está na ligação encerra a própria chamada
     if (!ligacaoId || estado !== 'em_andamento' || encerrandoChamada) return
     setEncerrandoChamada(true)
     try {
@@ -1434,10 +1661,11 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
       if (typeof console !== 'undefined') console.error('[fim de chamada]', e)
       fb.toast(msgErro(e, 'Não foi possível encerrar a chamada. Tente novamente.'), 'error')
     } finally { setEncerrandoChamada(false) }
-  }, [ligacaoId, estado, encerrandoChamada, fb])
+  }, [ligacaoId, estado, encerrandoChamada, fb, somenteLeitura])
 
   // Encerramento: idempotente (guard por ref + status no backend). Só fecha em sucesso.
   const salvar = useCallback(async () => {
+    if (somenteLeitura) return // o resumo é de quem fez a ligação, e só ele o salva
     // Só a partir do resumo pendente — a chamada precisa ter sido encerrada antes.
     if (!ligacaoId || estado !== 'aguardando_resumo' || encerrandoRef.current) return
     encerrandoRef.current = true
@@ -1479,21 +1707,25 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
       onFechar(true)
     } catch (e) { fb.toast(msgErro(e, 'Não foi possível encerrar a ligação.'), 'error') }
     finally { encerrandoRef.current = false }
-  }, [ligacaoId, estado, fb, resultado, etapaAlcancada, objecao, objecoesReg, motivo, notas, novoStatus, proxAcao, onFechar])
+  }, [ligacaoId, estado, fb, resultado, etapaAlcancada, objecao, objecoesReg, motivo, notas, novoStatus, proxAcao, onFechar, somenteLeitura])
 
   // Descarte: fica só para auditoria (fora da analítica).
   const descartar = useCallback(async () => {
+    if (somenteLeitura) { onFechar(false); return } // nunca descarta a operação de outra pessoa
     if (!ligacaoId) { onFechar(false); return }
     try { await apiFetch(`${base()}/ligacoes/${ligacaoId}/descartar`, { method: 'POST', body: JSON.stringify({ motivo: 'descartada_pelo_operador' }) }) } catch { /* */ }
     onFechar(true)
-  }, [ligacaoId, onFechar])
+  }, [ligacaoId, onFechar, somenteLeitura])
 
   // X (fechar interface) ≠ Encerrar. Confirma tanto com a chamada rolando quanto com o
   // resumo pendente — nos dois casos há sessão viva que sairia da analítica se descartada.
+  // Quem só acompanha fecha direto: não há nada seu para perder e a confirmação ofereceria
+  // justamente o "Descartar operação" que este modo existe para impedir.
   const tentarFechar = useCallback(() => {
+    if (somenteLeitura) { onFechar(acompanhamentoEncerrado); return }
     if (estado === 'em_andamento' || estado === 'aguardando_resumo') { setConfirmFechar(true); return }
     onFechar(estado === 'encerrada')
-  }, [estado, onFechar])
+  }, [estado, onFechar, somenteLeitura, acompanhamentoEncerrado])
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-100">
@@ -1518,16 +1750,24 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
               ⏱ {fmtCronometro(segundosChamada)} · chamada encerrada · resumo pendente
             </span>
           )}
-          {estado === 'visualizando' && <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-500">Visualizando — a ligação ainda não começou</span>}
+          {estado === 'visualizando' && !somenteLeitura && <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-500">Visualizando — a ligação ainda não começou</span>}
+          {/* Modo Acompanhar: o estado é dito em texto, com o nome de quem está na ligação —
+              é a informação que faltava quando duas pessoas usam a mesma conta. */}
+          {somenteLeitura && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
+              👁 {acompanhamentoEncerrado ? 'Ligação encerrada' : `Acompanhando · ${quemLiga}`} · somente leitura
+            </span>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {estado === 'visualizando' && (
+          {/* Nenhum controle de escrita no modo Acompanhar: nem iniciar, nem encerrar. */}
+          {estado === 'visualizando' && !somenteLeitura && (
             <button onClick={iniciar} disabled={iniciando} className="rounded-lg bg-brand px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50">{iniciando ? 'Iniciando…' : '▶ Iniciar ligação'}</button>
           )}
-          {estado === 'em_andamento' && (
+          {estado === 'em_andamento' && !somenteLeitura && (
             <button onClick={encerrarChamada} disabled={encerrandoChamada} className="rounded-lg bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50">{encerrandoChamada ? 'Encerrando…' : 'Encerrar ligação'}</button>
           )}
-          {estado === 'aguardando_resumo' && (
+          {estado === 'aguardando_resumo' && !somenteLeitura && (
             <span className="rounded-lg bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-800">Conclua o resumo →</span>
           )}
           <button onClick={tentarFechar} aria-label="Fechar" className="shrink-0 text-slate-400 hover:text-slate-600"><IconClose className="h-6 w-6" /></button>
@@ -1616,8 +1856,10 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
               <div className="mt-auto space-y-2 border-t pt-3">
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-semibold uppercase text-slate-400">Registro nesta etapa · {ETAPA_LABEL[etapa?.tipo] || etapa?.tipo}</div>
-                  {estado === 'visualizando' && <span className="text-xs text-amber-600">Inicie a ligação para registrar</span>}
-                  {estado === 'aguardando_resumo' && <span className="text-xs font-medium text-amber-700">🔒 Somente leitura — a chamada foi encerrada</span>}
+                  {estado === 'visualizando' && !somenteLeitura && <span className="text-xs text-amber-600">Inicie a ligação para registrar</span>}
+                  {somenteLeitura
+                    ? <span className="text-xs font-medium text-amber-700">🔒 Somente leitura — quem registra é {quemLiga}</span>
+                    : estado === 'aguardando_resumo' && <span className="text-xs font-medium text-amber-700">🔒 Somente leitura — a chamada foi encerrada</span>}
                 </div>
                 <div className="text-xs text-slate-400">{nInteresse}🟢 interesse · {nResistencia}🔴 resistência · {objecoesReg.length} objeção · {perguntasReg.length} pergunta(s) — tudo salvo na hora</div>
               </div>
@@ -1627,7 +1869,48 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
 
         {/* Registro / Resumo */}
         <div className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm">
-          {estado === 'visualizando' ? (
+          {/* Modo Acompanhar tem coluna PRÓPRIA e ela vem ANTES de qualquer ramo de escrita.
+              Não basta desabilitar campos: se a outra pessoa encerrar a chamada enquanto esta
+              tela está aberta, `estado` vira 'aguardando_resumo' e o ramo do resumo (com
+              "Salvar ligação") apareceria sozinho. */}
+          {somenteLeitura ? (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-semibold uppercase text-slate-400">Acompanhando</div>
+                <span className="text-[11px] font-medium text-amber-700">🔒 somente leitura</span>
+              </div>
+              {acompanhamentoEncerrado ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  A ligação foi finalizada por {quemLiga}. O que ficou registrado aparece no
+                  histórico do lead e nas métricas da campanha.
+                </div>
+              ) : (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  {quemLiga} está conduzindo esta ligação. Você acompanha etapa, sinais, objeções
+                  e anotações em tempo quase real ({Math.round(POLL_ACOMPANHAR_MS / 1000)}s), mas
+                  não pode registrar, encerrar nem descartar.
+                </div>
+              )}
+              <div>
+                <div className="mb-1 text-xs font-semibold uppercase text-slate-400">Anotações da ligação</div>
+                {/* readOnly, não disabled: o texto continua legível e selecionável (copiável). */}
+                <textarea readOnly value={notas} rows={4}
+                  aria-label="Anotações da ligação (somente leitura)"
+                  placeholder="Sem anotações até agora."
+                  className="w-full cursor-default rounded-lg border bg-slate-50 px-2 py-1.5 text-sm text-slate-600" />
+              </div>
+              <div className="space-y-1 rounded-lg bg-slate-50 p-2 text-xs text-slate-500">
+                {nInteresse}🟢 · {nResistencia}🔴 · {objecoesReg.length} objeção · {perguntasReg.length} pergunta(s)
+              </div>
+              <div className="text-xs text-slate-400">
+                Precisa assumir este lead? Combine com {quemLiga} — esta tela não transfere ligação.
+              </div>
+              <button onClick={() => onFechar(acompanhamentoEncerrado)}
+                className="w-full rounded-lg border px-4 py-2 text-sm font-medium hover:bg-slate-50">
+                Fechar acompanhamento
+              </button>
+            </>
+          ) : estado === 'visualizando' ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 py-8 text-center">
               <div className="text-4xl">📞</div>
               <div className="text-sm text-slate-500">Você está <b>visualizando</b> o roteiro.<br />Nada é gravado até iniciar a ligação.</div>

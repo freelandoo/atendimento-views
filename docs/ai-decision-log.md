@@ -11,6 +11,67 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-14 — Central de Ligações: ligação em andamento visível e modo Acompanhar (somente leitura)
+
+- **Gatilho:** duas pessoas na mesma conta (uma ligando pelo celular, outra olhando pelo
+  computador). A fila não dizia que um lead já estava ao telefone, e quem clicasse "Ligar"
+  **recebia a sessão da outra pessoa** — `iniciarLigacao` é idempotente e retoma a ligação ativa
+  do lead. O defeito não é criado aqui: é o que esta entrega torna visível e reduz.
+- **Decisão 1 — leitura em LOTE por campanha, não JOIN na fila e não N+1.**
+  `GET /ligacoes/ativas?campanha_id=` devolve uma linha por ligação ativa. Alternativas
+  descartadas: (a) um `GET /ativa` por linha da fila — N+1 num teto de 500 leads;
+  (b) `LEFT JOIN LATERAL` dentro de `filaDeTrabalho` — teria de ser repetido em
+  `listarLeadsDaCampanha` (a aba Acompanhamento abre a MESMA tela) e não serviria ao polling,
+  que precisa refazer só os selos sem recarregar a fila inteira. A consulta é coberta pelo
+  índice parcial `idx_ligacoes_uma_ativa_por_lead` da migration 048 — **nenhum índice novo,
+  nenhuma migration**.
+- **Decisão 2 — `sou_eu` é calculado no SERVIDOR.** Só ele conhece o usuário autenticado; o
+  front teria de buscar `/auth/me` e comparar ids, e deduzir dono por nome seria adivinhação.
+  O payload sai sanitizado na origem (`services/ligacao-acompanhamento.js`, lista FECHADA de
+  campos): id, lead, desde quando e quem — **nunca** telefone, notas ou resultado. Uma listagem
+  não precisa do conteúdo da conversa.
+- **Decisão 3 — `aguardando_resumo` também OCUPA o lead.** No banco ele é o MESMO
+  `status='em_andamento'` (ver `db/ligacoes-estado.js` e a migration 048): tratar só a chamada
+  em curso deixaria o lead aparecer "livre" enquanto outra pessoa ainda grava o resumo, e o
+  segundo clique cairia dentro do resumo alheio.
+- **Decisão 4 — o modo Acompanhar reusa `OperacaoLigacao`, não uma tela nova.** Uma segunda
+  tela duplicaria roteiro, contadores e a leitura dos mesmos GETs, e as duas divergiriam.
+  O interruptor é `ativo = estado === 'em_andamento' && !somenteLeitura` — a MESMA variável de
+  que os chips, a navegação de etapa e os registros já dependiam —, com early-returns em
+  `iniciar`/`encerrarChamada`/`salvar`/`descartar`/`salvarNotas` como segunda camada. A coluna
+  direita do modo Acompanhar vem **antes** de qualquer ramo de escrita, de propósito: se o dono
+  encerrar a chamada com a tela aberta, `estado` vira `aguardando_resumo` e o formulário de
+  resumo (com "Salvar ligação") apareceria sozinho.
+- **Decisão 5 — polling, e os dois passos são diferentes porque o custo é diferente.** A
+  listagem reconfere a cada **15s** (1 consulta minúscula); dentro do modo Acompanhar o passo é
+  **8s**, porque cada tique custa ~5 GETs. Os dois pausam com a aba oculta, e o da listagem
+  pausa enquanto a tela de atendimento está aberta. `GET /ligacoes/ativa` é também o detector de
+  FIM: quando a ligação encerra, ela some da consulta e o acompanhamento para em vez de exibir
+  para sempre um cronômetro de uma chamada que acabou.
+- **Decisão 6 — "Ligar agora" PULA o lead ocupado por outra pessoa.** É um comando de TRABALHO
+  e escolher o próximo é exatamente o que ele faz; abrir uma tela de observação seria um efeito
+  surpreendente, e ligar para quem já está ao telefone com um colega é o único desfecho que
+  chega ao CLIENTE. Ligação própria não faz pular (retomar é o esperado), o pulo é dito na tela
+  ("N em ligação por outra pessoa") e o destaque âmbar da linha passou a marcar o lead que o
+  botão realmente abre.
+- **Decisão 7 — a corrida de dois cliques quase simultâneos é resolvida no `POST /iniciar`.**
+  Entre carregar a fila e clicar, outra pessoa pode ter iniciado; a rota passou a devolver
+  `sou_eu` (campo **aditivo**) e, quando ela RETOMA sessão alheia, a tela vira somente leitura
+  em vez de operar por cima. Nada é criado nesse caminho — `/iniciar` só devolveu o que existia.
+- **Decisão 8 — não se enforce dono nas rotas de ESCRITA, e isso está declarado.** O modo
+  somente leitura é da INTERFACE. Exigir `usuario_id` igual em `encerrar`/`sinais`/`etapas`
+  mudaria permissão de rota (fora do escopo pedido) e quebraria casos legítimos (ligação antiga
+  com `usuario_id` nulo, admin concluindo um resumo abandonado). O risco residual é o mesmo de
+  hoje, e menor: antes a tela ENTREGAVA a sessão alheia sem avisar; agora ela precisa ser
+  contornada de propósito. Transferir/assumir ligação continua fora de escopo.
+- **Impacto declarado:** nenhuma migration, nenhum índice, nenhuma env, nenhuma rota de escrita
+  nova, nenhuma mudança em atribuição de campanha/lead. Testes:
+  `test/ligacao-acompanhamento.test.js` e `frontend/lib/ligacao-ativa.test.js` (com guardas que
+  leem o fonte: o módulo puro não fala com banco/rede, a listagem não devolve conteúdo da
+  conversa, e a tela não decide ação a partir de `sou_eu`).
+
+---
+
 ## 2026-08-12 — Canal de E-MAIL do follow-up: o valor nasceu JUNTO do executor (migration 067)
 
 - **Gatilho:** a **Decisão 4** da entrada anterior (mesma data) declarou o e-mail como fase
