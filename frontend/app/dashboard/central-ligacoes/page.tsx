@@ -170,8 +170,10 @@ function Fone({ tel, className = '' }: { tel: string | null; className?: string 
         <span tabIndex={0} title={aviso} aria-label={`${alerta.rotulo}: ${aviso}`}
           className="group relative inline-flex rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500">
           <span aria-hidden="true" className={`inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-bold leading-none ${alerta.cls}`}>{alerta.glifo}</span>
-          {/* Abre para CIMA: dentro da tabela (wrapper overflow-hidden) sempre há o cabeçalho
-              acima da 1ª linha, então a bolha nunca é cortada. */}
+          {/* Abre para CIMA: dentro da tabela sempre há o cabeçalho (thead) acima da 1ª
+              linha — o espaço existe dentro do próprio conteúdo rolável, então a bolha
+              nunca é cortada pelo wrapper (`overflow-hidden` no card / `overflow-x-auto`
+              na rolagem horizontal da tabela). */}
           <span role="tooltip"
             className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-1 hidden w-max max-w-[210px] -translate-x-1/2 whitespace-normal rounded-md bg-slate-800 px-2 py-1 text-left text-[11px] font-normal leading-snug text-white shadow-lg group-hover:block group-focus:block">
             {aviso}
@@ -725,10 +727,13 @@ export default function CentralLigacoesPage() {
             <Card label="Roteiro" valor={detalhe.roteiro_nome ? `v${detalhe.roteiro_versao}` : '—'} cor="text-slate-600" sub={detalhe.roteiro_nome || 'sem roteiro'} />
           </div>
 
-          <div className="flex gap-2 border-b">
+          {/* overflow-x-auto + whitespace-nowrap: em telas estreitas as 3 abas (a maior,
+              "Acompanhamento", sozinha já passa de 150px) não cabem lado a lado — sem isso
+              a barra estourava a largura da viewport. */}
+          <div className="flex gap-2 overflow-x-auto border-b">
             {([['fila', `📞 Fila (${fila.length})`], ['acompanhamento', `📋 Acompanhamento (${todosLeads.length})`], ['funil', '📊 Funil']] as ['fila' | 'acompanhamento' | 'funil', string][]).map(([id, label]) => (
               <button key={id} onClick={() => setAba(id)}
-                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition ${aba === id ? 'border-brand text-brand' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>{label}</button>
+                className={`shrink-0 whitespace-nowrap border-b-2 -mb-px px-4 py-2 text-sm font-medium transition ${aba === id ? 'border-brand text-brand' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>{label}</button>
             ))}
           </div>
 
@@ -821,10 +826,16 @@ export default function CentralLigacoesPage() {
                     {visiveisComBusca.length !== fila.length && (
                       <div className="border-b px-4 py-2 text-xs text-slate-500">{visiveisComBusca.length} de {fila.length} lead(s) na fila</div>
                     )}
+                    {/* Rolagem horizontal PRÓPRIA, separada do wrapper que arredonda os cantos
+                        do card (`overflow-hidden` acima) — sem isso a tabela cortava
+                        silenciosamente as colunas fora da largura da tela, em vez de deixar
+                        rolar. `overflow-x-auto` responde a swipe/arraste em qualquer
+                        dispositivo (touch, mouse, trackpad), sem gesto especial. */}
+                    <div className="overflow-x-auto">
                     {/* Estado de carregamento leve: aria-busy + opacidade SÓ na tabela — a
                         troca de página não pisca a tela nem mexe na barra de filtros acima. */}
                     <table aria-busy={trocandoPagina}
-                      className={`w-full text-sm transition-opacity duration-150 ${trocandoPagina ? 'opacity-50' : 'opacity-100'}`}>
+                      className={`w-full min-w-[640px] text-sm transition-opacity duration-150 ${trocandoPagina ? 'opacity-50' : 'opacity-100'}`}>
                       <thead className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                         <tr>
                           <th className="px-4 py-3">Prioridade</th><th className="px-4 py-3">Lead</th><th className="px-4 py-3">Telefone</th>
@@ -852,6 +863,7 @@ export default function CentralLigacoesPage() {
                         ))}
                       </tbody>
                     </table>
+                    </div>
                     {mostrarPaginacao(pg.total, pg.porPagina) && (
                       <PaginacaoFila pg={pg} onPagina={irParaPagina} onPorPagina={trocarPorPagina} />
                     )}
@@ -891,7 +903,10 @@ export default function CentralLigacoesPage() {
                 return (
                   <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
                     <div className="border-b px-4 py-2 text-xs text-slate-500">{filtrados.length}{filtrados.length !== todosLeads.length ? ` de ${todosLeads.length}` : ''} lead(s)</div>
-                    <table className="w-full text-sm">
+                    {/* Mesma rolagem horizontal própria da aba Fila — sem isso as colunas
+                        Próxima ação/Follow-up/Ações ficavam inacessíveis em tela de celular. */}
+                    <div className="overflow-x-auto">
+                    <table className="w-full min-w-[720px] text-sm">
                       <thead className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                         <tr><th className="px-4 py-3">Lead</th><th className="px-4 py-3">Telefone</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Próxima ação</th><th className="px-4 py-3">Follow-up</th><th className="px-4 py-3"></th></tr>
                       </thead>
@@ -942,12 +957,15 @@ export default function CentralLigacoesPage() {
                         ))}
                       </tbody>
                     </table>
+                    </div>
                     {totalPaginas > 1 && (
-                      <div className="flex items-center justify-between border-t px-4 py-2">
+                      // flex-col → sm:flex-row: mesmo padrão de `PaginacaoFila` — em tela
+                      // estreita o resumo e os botões empilham em vez de disputar espaço.
+                      <div className="flex flex-col gap-2 border-t px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
                         <span className="text-xs text-slate-500">Página {p} de {totalPaginas} · {POR_PAGINA}/página</span>
                         <div className="flex gap-1">
-                          <button onClick={() => setPagina(Math.max(1, p - 1))} disabled={p === 1} className="rounded border px-3 py-1 text-xs disabled:opacity-30">◀ Anterior</button>
-                          <button onClick={() => setPagina(Math.min(totalPaginas, p + 1))} disabled={p === totalPaginas} className="rounded border px-3 py-1 text-xs disabled:opacity-30">Próxima ▶</button>
+                          <button onClick={() => setPagina(Math.max(1, p - 1))} disabled={p === 1} className="min-h-[36px] rounded border px-3 py-1 text-xs disabled:opacity-30">◀ Anterior</button>
+                          <button onClick={() => setPagina(Math.min(totalPaginas, p + 1))} disabled={p === totalPaginas} className="min-h-[36px] rounded border px-3 py-1 text-xs disabled:opacity-30">Próxima ▶</button>
                         </div>
                       </div>
                     )}
@@ -1479,11 +1497,15 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-100">
-      <div className="flex items-center justify-between border-b bg-white px-5 py-3">
-        <div className="flex min-w-0 items-center gap-3">
+      {/* flex-wrap: em tela de celular nome + campanha + cronômetro + botões não cabem
+          numa linha só — sem isso o botão Fechar (ou o de Iniciar/Encerrar) saía cortado
+          fora da viewport. O nome encolhe (`max-w` responsivo) e a campanha some abaixo
+          de `sm` (já reaparece no painel do Lead, logo abaixo). */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b bg-white px-3 py-2.5 sm:px-5 sm:py-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
           <div className="flex min-w-0 items-baseline gap-1.5">
-            <TextoTruncado texto={lead.nome} className="max-w-[280px] text-lg font-semibold" />
-            <span className="shrink-0 text-sm text-slate-400">· {campanha.nome}</span>
+            <TextoTruncado texto={lead.nome} className="max-w-[160px] text-lg font-semibold sm:max-w-[280px]" />
+            <span className="hidden shrink-0 text-sm text-slate-400 sm:inline">· {campanha.nome}</span>
           </div>
           {/* Cronômetro: pulsando enquanto a chamada corre; congelado no fim da chamada. */}
           {estado === 'em_andamento' && (
@@ -1498,7 +1520,7 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
           )}
           {estado === 'visualizando' && <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-500">Visualizando — a ligação ainda não começou</span>}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {estado === 'visualizando' && (
             <button onClick={iniciar} disabled={iniciando} className="rounded-lg bg-brand px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50">{iniciando ? 'Iniciando…' : '▶ Iniciar ligação'}</button>
           )}
@@ -1508,11 +1530,11 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
           {estado === 'aguardando_resumo' && (
             <span className="rounded-lg bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-800">Conclua o resumo →</span>
           )}
-          <button onClick={tentarFechar} aria-label="Fechar" className="text-slate-400 hover:text-slate-600"><IconClose className="h-6 w-6" /></button>
+          <button onClick={tentarFechar} aria-label="Fechar" className="shrink-0 text-slate-400 hover:text-slate-600"><IconClose className="h-6 w-6" /></button>
         </div>
       </div>
 
-      <div className="grid flex-1 grid-cols-1 gap-3 overflow-auto p-4 lg:grid-cols-[280px_1fr_320px]">
+      <div className="grid flex-1 grid-cols-1 gap-3 overflow-auto p-3 sm:p-4 lg:grid-cols-[280px_1fr_320px]">
         {/* Lead — é AQUI que vive a alternância de visão (nunca na listagem da fila). */}
         <div className="space-y-3 rounded-2xl border bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between gap-2">
@@ -1549,12 +1571,15 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb }: {
             <div className="flex h-full items-center justify-center text-center text-sm text-slate-400">Esta campanha não tem um roteiro publicado com etapas.<br />Você ainda pode registrar a ligação à direita.</div>
           ) : (
             <div className="flex h-full flex-col">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm font-semibold text-brand">
-                  Etapa {idx + 1}/{etapas.length}: {ETAPA_LABEL[etapa?.tipo] || etapa?.tipo}
-                  {trocando && <span className="text-xs font-normal text-slate-400">salvando…</span>}
+              {/* flex-wrap: em tela estreita "Etapa X/Y: <título da etapa>" + os dois
+                  botões de navegação não cabem numa linha só — sem isso os botões
+                  espremiam ou empurravam o card para uma rolagem horizontal indesejada. */}
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-brand">
+                  <span className="break-words">Etapa {idx + 1}/{etapas.length}: {ETAPA_LABEL[etapa?.tipo] || etapa?.tipo}</span>
+                  {trocando && <span className="shrink-0 text-xs font-normal text-slate-400">salvando…</span>}
                 </div>
-                <div className="flex gap-1">
+                <div className="flex shrink-0 gap-1">
                   <button onClick={() => irParaEtapa(idx - 1)} disabled={!ativo || idx === 0 || trocando} className="rounded border px-2 py-1 text-xs disabled:opacity-30">◀ Voltar</button>
                   <button onClick={() => irParaEtapa(idx + 1)} disabled={!ativo || idx === etapas.length - 1 || trocando} className="rounded bg-brand px-2 py-1 text-xs text-white disabled:opacity-30">Avançar ▶</button>
                 </div>
