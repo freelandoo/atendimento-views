@@ -30,7 +30,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
-import { IconSend, IconStar, IconThumbDown, IconThumbUp } from '@/components/ui/icons'
+import { IconPause, IconPlay, IconSend, IconStar, IconThumbDown, IconThumbUp } from '@/components/ui/icons'
 import { identidadeConversa } from '@/lib/lead-identidade'
 import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
@@ -520,8 +520,8 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
         className="bg-white rounded-2xl shadow-xl max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-6 py-3 border-b flex justify-between items-start gap-4">
-          <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-4 gap-y-2">
+        <div className="px-6 py-2.5 border-b flex justify-between items-start gap-3">
+          <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2">
             <div className="min-w-[220px] max-w-full">
               <h3 className="font-semibold text-base">
                 <TextoTruncado texto={identidade.titulo} className="max-w-full" />
@@ -538,55 +538,85 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
               )}
             </div>
             {aberta && (
-              <div className="min-w-[320px] flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Prioridade comercial</div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <InteresseBadge c={aberta} compact />
-                  {/* O selo "Agente: pausado/ativo" saiu daqui: estado de atuacao da IA vive no
-                      bloco "Modo desta conversa" (escolha + tooltip com o que esta valendo) e,
-                      quando a IA nao vai responder, no aviso do compositor logo acima da caixa
-                      de mensagem. Dois lugares dizendo a mesma coisa se contradizem cedo. */}
-                  {scoreValue(aberta.score_lead) != null && (
-                    <span className="inline-flex items-center rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600">
-                      Fit do lead: <strong className="ml-1 text-gray-900">{scoreValue(aberta.score_lead)}</strong>
-                    </span>
-                  )}
-                  <TempBadge t={aberta.temperatura_lead} />
-                  {aberta.evolution_instance && (
-                    <span className="inline-flex items-center rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-xs text-blue-700">
-                      WhatsApp: <strong className="ml-1">{aberta.evolution_instance}</strong>
-                    </span>
-                  )}
+              <div className="min-w-[380px] flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
+                  <div className="min-w-[200px] flex-1">
+                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Prioridade comercial</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <InteresseBadge c={aberta} compact />
+                      {scoreValue(aberta.score_lead) != null && (
+                        <span className="inline-flex items-center rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-600">
+                          Fit do lead: <strong className="ml-1 text-gray-900">{scoreValue(aberta.score_lead)}</strong>
+                        </span>
+                      )}
+                      <TempBadge t={aberta.temperatura_lead} />
+                      {aberta.evolution_instance && (
+                        <span className="inline-flex items-center rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-xs text-blue-700">
+                          WhatsApp: <strong className="ml-1">{aberta.evolution_instance}</strong>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {/* "Modo desta conversa" dividindo espaco com Prioridade comercial, no mesmo
+                      cartao — decisao de produto (2026-08-14): o controle de pausa do agente
+                      passou a viver ao lado deste bloco (ver "Agente" abaixo), entao os dois
+                      ficaram fisicamente proximos de proposito. `modo_ia` (preferencia
+                      persistente desta conversa) e `agente_pausado` (pausa efemera, escrita
+                      pelo proprio atendimento) continuam sendo DUAS coisas diferentes — a
+                      proximidade visual e so isso, proximidade; o titulo/tooltip de cada
+                      controle segue explicito sobre o que cada um faz, e o aviso no
+                      compositor (`avisoDoCompositor`) e quem fala da combinacao dos dois. */}
+                  <div className="min-w-[220px] shrink-0 border-slate-200 sm:border-l sm:pl-4">
+                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Modo desta conversa
+                    </div>
+                    <AlternadorModoIa
+                      opcoes={opcoesDePreferencia()}
+                      selecionado={normalizarPreferencia(aberta.modo_ia)}
+                      onMudar={(id) => alterarModoIa(id as PreferenciaModoIa)}
+                      ocupado={alterandoModo}
+                      compacto
+                      // Mesmo mecanismo do controle GLOBAL (`dashboard/conversas/page.tsx`): o
+                      // parágrafo fixo com o modo efetivo e a origem saiu da tela e virou o texto
+                      // do balão — a opção marcada já mostra a escolha, e o balão diz o que está
+                      // valendo agora. A pausa tem aviso próprio no compositor logo abaixo
+                      // (`avisoDoCompositor`); repeti-la aqui duplicaria o mesmo aviso.
+                      ajuda={explicarOrigem({
+                        origem: aberta.modo_ia_origem,
+                        modoEfetivo: aberta.modo_ia_efetivo,
+                        modoPadrao: aberta.modo_ia_padrao,
+                      })}
+                      ariaLabel={rotuloAcessivel({
+                        modoEfetivo: aberta.modo_ia_efetivo,
+                        origem: aberta.modo_ia_origem,
+                        modoPadrao: aberta.modo_ia_padrao,
+                      })}
+                    />
+                  </div>
                 </div>
               </div>
             )}
             {aberta && (
-              <div className="min-w-[340px] rounded-lg border border-slate-200 bg-white px-3 py-2">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Modo desta conversa
-                </div>
-                <AlternadorModoIa
-                  opcoes={opcoesDePreferencia()}
-                  selecionado={normalizarPreferencia(aberta.modo_ia)}
-                  onMudar={(id) => alterarModoIa(id as PreferenciaModoIa)}
-                  ocupado={alterandoModo}
-                  compacto
-                  // Mesmo mecanismo do controle GLOBAL (`dashboard/conversas/page.tsx`): o
-                  // parágrafo fixo com o modo efetivo e a origem saiu da tela e virou o texto
-                  // do balão — a opção marcada já mostra a escolha, e o balão diz o que está
-                  // valendo agora. A pausa tem aviso próprio no compositor logo abaixo
-                  // (`avisoDoCompositor`); repeti-la aqui duplicaria o mesmo aviso.
-                  ajuda={explicarOrigem({
-                    origem: aberta.modo_ia_origem,
-                    modoEfetivo: aberta.modo_ia_efetivo,
-                    modoPadrao: aberta.modo_ia_padrao,
-                  })}
-                  ariaLabel={rotuloAcessivel({
-                    modoEfetivo: aberta.modo_ia_efetivo,
-                    origem: aberta.modo_ia_origem,
-                    modoPadrao: aberta.modo_ia_padrao,
-                  })}
-                />
+              <div className="flex shrink-0 items-center gap-2 self-center rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <span className="text-xs text-slate-400">
+                  {alterandoPausa ? 'Atualizando…' : aberta.agente_pausado ? 'Agente pausado' : 'Agente ativo'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => alterarPausaAgente(!aberta.agente_pausado)}
+                  disabled={alterandoPausa}
+                  title={aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente'}
+                  aria-label={aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente'}
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-300 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {alterandoPausa ? (
+                    <Spinner size={12} />
+                  ) : aberta.agente_pausado ? (
+                    <IconPlay className="h-3.5 w-3.5" />
+                  ) : (
+                    <IconPause className="h-3.5 w-3.5" />
+                  )}
+                </button>
               </div>
             )}
             {contextoOrigem && contextoOrigem.linhas.length > 0 && (
@@ -877,28 +907,23 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
           </>
         )}
 
-        <div className="px-5 py-3 border-t flex flex-wrap justify-between items-center gap-3">
-          <button
-            onClick={() => setConfirmarApagar(true)}
-            disabled={!aberta || apagando || !aberta.historico?.length}
-            className="text-xs px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {apagando ? 'Apagando…' : 'Deletar histórico'}
-          </button>
-          <button
-            onClick={reenviarUltimaResposta}
-            disabled={!aberta || reenviando || !podeReenviarUltimaResposta}
-            className="text-xs px-3 py-2 rounded-lg bg-brand text-white hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {reenviando ? 'Reenviando...' : 'Reenviar WhatsApp'}
-          </button>
-          <button
-            onClick={() => aberta && alterarPausaAgente(!aberta.agente_pausado)}
-            disabled={!aberta || alterandoPausa}
-            className={`text-[11px] px-2 py-1 rounded-md text-white disabled:opacity-50 disabled:cursor-not-allowed ${aberta?.agente_pausado ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'}`}
-          >
-            {alterandoPausa ? 'Atualizando...' : aberta?.agente_pausado ? 'Retomar agente' : 'Pausar agente'}
-          </button>
+        <div className="px-5 py-2.5 border-t flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setConfirmarApagar(true)}
+              disabled={!aberta || apagando || !aberta.historico?.length}
+              className="text-xs px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {apagando ? 'Apagando…' : 'Deletar histórico'}
+            </button>
+            <button
+              onClick={reenviarUltimaResposta}
+              disabled={!aberta || reenviando || !podeReenviarUltimaResposta}
+              className="text-xs px-3 py-2 rounded-lg bg-brand text-white hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {reenviando ? 'Reenviando...' : 'Reenviar WhatsApp'}
+            </button>
+          </div>
           <button
             onClick={onFechar}
             className="text-sm px-3 py-2 border rounded-lg"

@@ -28,6 +28,9 @@ export const IconUndo = (p: P) => (
 export const IconPlay = (p: P) => (
   <Svg {...p}><path d="M7 5l11 7-11 7z" /></Svg>
 )
+export const IconPause = (p: P) => (
+  <Svg {...p}><path d="M8 5v14M16 5v14" /></Svg>
+)
 export const IconDownload = (p: P) => (
   <Svg {...p}><path d="M12 3v12" /><path d="M7 11l5 5 5-5" /><path d="M5 21h14" /></Svg>
 )
