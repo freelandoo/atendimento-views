@@ -1747,3 +1747,106 @@ Ajustes sobre a entrega do mesmo dia (logo abaixo), após revisão de UX/operaç
   `npm test` no `frontend/` (316/316) + `npm run typecheck` + `npm run build` (limpos).
   Nada foi executado contra producao, nenhum banco real foi escrito e nenhuma mensagem foi
   enviada.
+
+---
+
+## 2026-08-13 — Fase 2 (fechamento): as rotas que enviam a pedido de uma PESSOA
+
+Complemento da entrega de 2026-08-11 (acima), feito depois de reler o repo inteiro atras de
+envio que ainda escapasse da regra unica.
+
+- **Decisao 8 — bloqueio de instancia e 409, nunca 502, em TODAS as rotas que enviam a pedido
+  de uma pessoa.** Eram tres e so uma cumpria o contrato: envio manual do operador
+  (`services/conversa-manual.js`, ja com `409 INSTANCE_UNAVAILABLE`), reenvio da conversa
+  (`POST /api/empresas/:id/conversas/:numero/reprocessar`) e teste de saudacao
+  (`POST .../whatsapp/:id/saudacao/testar`) — as duas ultimas devolviam 502. A diferenca nao e
+  cosmetica: 502 diz "a Evolution falhou" e manda o operador procurar defeito no transporte,
+  quando o problema esta no CADASTRO (instancia inativa, de outra empresa, de outro canal) e a
+  acao que resolve e dele.
+- **Decisao 9 — as rotas de API declaram `empresaId` mesmo quando ja passam `instanceName`.**
+  A regra unica confere a instancia contra DUAS empresas (a da conversa e a do chamador). Numa
+  conversa ORFA (`empresa_id IS NULL`, alcancavel pela PJ em `conversaEmpresaScope`) a empresa
+  da conversa e nula e sozinha nao prova nada: sem declarar a do chamador, a unica conferencia
+  possivel some e a instancia de outro tenant gravada na conversa passaria. No teste de
+  saudacao a instancia ja vem escopada pelo `SELECT`, mas declarar mantem a conferencia
+  explicita no chamador em vez de implicita numa clausula de SQL que alguem pode afrouxar.
+- **Decisao 10 — `scripts/test-evolution-send.js` exige a instancia como ARGUMENTO, sem
+  default e sem env nova.** Ele manda mensagem REAL e lia `process.env.EVOLUTION_INSTANCE ||
+  'PJ'` — o mesmo fallback global que a Fase 2 removeu do produto, sobrevivendo numa
+  ferramenta que dispara para numero de verdade. Criar `EVOLUTION_TEST_INSTANCE` seria
+  reintroduzir o default por outro nome.
+- **Consequencia (d) declarada, que faltava:** o comando `APRESENTACAO` do operador no
+  WhatsApp "nao requer conversa previa" e, por isso, deixa de funcionar para lead que ainda
+  nao tem conversa. Mantivemos o bloqueio de proposito: usar ali a instancia do OPERADOR
+  escolheria o numero por quem mandou o comando, e nao por quem e dono do lead — a mesma
+  invencao de dono que a fase remove. **Se o operador quiser o comportamento antigo, isso e
+  decisao de produto (esta na pergunta (b) do checkpoint), nao ajuste tecnico.**
+- **Verificacao de que nada novo escapou:** master avancou ate `c80dd91` (canal de e-mail de
+  follow-up) sem criar nenhum envio novo de WhatsApp; os unicos `EVOLUTION_INSTANCE` que
+  restam no repo sao comentarios; todo envio/diagnostico Evolution passa por
+  `instanceNameParaEnvio`, e as unicas chamadas diretas a Evolution fora de `whatsapp.js` sao
+  de ciclo de vida da instancia (create/connect/delete/logout/webhook), nunca de mensagem.
+- **Impacto:** `src/routes/api-conversas.js`, `src/routes/api-whatsapp.js`,
+  `scripts/test-evolution-send.js`, `test/instancia-envio.test.js`, `AGENTS.md`.
+  **Sem migration, sem rota nova, sem variavel de ambiente nova.**
+- **Como validar:** `npm test` no `backend/` + `npm run typecheck`. Nenhuma mensagem real foi
+  enviada e nada foi executado contra producao.
+- **Consequencia (e) descoberta nesta releitura, NAO corrigida de proposito:** o banner
+  "WhatsApp desconectado" do dashboard LEGADO parou de aparecer. `public/dashboard/js/
+  prospeccao.js` e `js/sistema-alertas.js` chamam `GET /dashboard/prospeccao/whatsapp/status`
+  sem `?instancia=`, e os dois so mostram o aviso quando `connected === false`; com
+  `state: 'nao_informada'` o valor e `null` e o alerta nunca dispara. Corrigir exige decidir de
+  QUAL instancia aquele painel fala — ele nao tem vinculo provado com nenhuma (o unico vinculo
+  disponivel ali seria `vendas.whatsapp_connections` do usuario, a mesma fonte que as rotas
+  legadas de QR passaram a usar). E decisao de produto, ligada a pergunta (d) do checkpoint, e
+  nao ajuste tecnico: por isso ficou documentada como pendencia em vez de resolvida sozinha.
+  **RESOLVIDA na entrada seguinte** (decisao (d)): o operador respondeu e o banner foi religado
+  pelo vinculo do proprio usuario.
+
+---
+
+## 2026-08-13 — Fase 2 (fechamento): as 4 decisoes de produto e o banner religado
+
+- **Contexto:** o checkpoint da Fase 2 tinha 4 perguntas de produto em aberto. O operador
+  respondeu as 4 seguindo a recomendacao. Tres delas **confirmam o codigo como esta** e nao
+  geraram nenhuma linha nova; a quarta e implementacao.
+- **Decisao (a) — empresa com exatamente 1 instancia ativa NAO conta como vinculo comprovado.**
+  Sem nome vindo do chamador ou da conversa, o envio segue bloqueado (409
+  `INSTANCIA_NAO_COMPROVADA`). "So tem uma" e um fato de HOJE: a segunda instancia chega sem
+  aviso e transformaria, em silencio, uma regra em heuristica. **Nenhuma mudanca de codigo.**
+- **Decisao (b) — alertas e comandos do operador mantidos como estao.** Alerta sai pela
+  instancia do LEAD que o originou; resposta a comando do operador sai pela instancia que
+  RECEBEU a mensagem dele (`req.evolutionInstance`); `APRESENTACAO` continua exigindo conversa
+  ja existente. **Nenhuma mudanca de codigo.** Nota do operador para o futuro, **nao
+  implementada agora**: se a limitacao do `APRESENTACAO` para lead novo incomodar no dia a dia,
+  a saida sera permitir a instancia do OPERADOR **apenas** quando o lead ainda nao tem conversa.
+- **Decisao (c) — D-8 confirmado:** a instancia ja gravada numa conversa nunca migra sozinha
+  (`COALESCE(NULLIF(BTRIM(existente),''), EXCLUDED)` nos tres writers). **Nenhuma mudanca de
+  codigo.**
+- **Decisao (d) — o banner do painel legado foi RELIGADO pelo vinculo do proprio usuario**
+  (`vendas.whatsapp_connections.instance_name`), a mesma fonte que as rotas de QR
+  `/dashboard/whatsapp/*` ja usam. Alternativas descartadas: (1) voltar ao env — e o defeito da
+  fase; (2) escolher a instancia ativa da empresa — inventa dono; (3) aposentar as rotas
+  legadas agora — e o destino certo, mas e fase propria, e ate la o operador fica sem aviso de
+  desconexao.
+- **A resolucao ficou no BACKEND, na propria rota**, e nao nos dois consumidores. O painel
+  legado nao conhece o nome tecnico da instancia, e passa-lo ao front so para ele devolver na
+  query string exporia um identificador sem necessidade e colocaria regra de negocio no
+  dashboard estatico (proibido pelo `AGENTS.md`). `?instancia=` mantem precedencia; sem ele,
+  vale o vinculo. **`instanciaVinculadaAoUsuario` virou exportada em `src/whatsapp-routes.js` e
+  e reusada** por `prospecting.js` — nao foi copiada: duas consultas ao mesmo vinculo poderiam
+  divergir e o banner falaria de um numero enquanto o botao "Reconectar" mexe em outro.
+- **Consequencia declarada:** sem vinculo (usuario legado sem linha em
+  `vendas.whatsapp_connections`, ou acesso por `x-reprocess-secret`, que nao tem usuario) o
+  diagnostico continua devolvendo `nao_informada` e o banner segue calado. Como o `INSERT` de
+  `connect` foi removido nesta fase, esse vinculo so nasce pelo fluxo autorizado. Calar e
+  melhor que alertar sobre a saude do numero de outra pessoa.
+- **Divida tecnica registrada:** as rotas legadas `/dashboard/whatsapp/*` seguem vivas. O
+  destino combinado e aposenta-las, em fase propria.
+- **Impacto:** `src/prospecting.js` (rota de status), `src/whatsapp-routes.js` (export +
+  guarda `if (!userId) return ''`), `public/dashboard/js/prospeccao.js` (saiu o nome fixo
+  `pj-dashboard-1` do aviso), `test/instancia-envio.test.js` (2 guardas novas), `AGENTS.md`.
+  `js/sistema-alertas.js` **nao precisou mudar**: ele ja lia `connected === false` e volta a
+  receber `false` sozinho. **Sem migration, sem rota nova, sem variavel de ambiente nova.**
+- **Como validar:** `npm test` no `backend/` + `npm run typecheck`. Nenhuma mensagem real foi
+  enviada e nada foi executado contra producao.

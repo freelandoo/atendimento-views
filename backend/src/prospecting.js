@@ -10,6 +10,7 @@ const { classificarUrl, classificarLead } = require('./services/site-classificac
 const { logger } = require('./logger')
 const { candidatosTelefoneBR } = require('./telefone-br')
 const { dashboardAutorizado: dashboardSessionAutorizado } = require('./dashboardAuth')
+const { instanciaVinculadaAoUsuario } = require('./whatsapp-routes')
 const {
   TIMEZONE,
   adicionarDiasLocalEmTimezone,
@@ -4204,7 +4205,19 @@ function registerProspectingRoutes(app) {
       // 'PJ'). Com mais de uma instância ele respondia sobre um número que podia não ser o
       // perguntado — pior que responder "não sei". Agora exige o nome; sem ele, a própria
       // função devolve `state: 'nao_informada'` sem consultar a Evolution.
-      const status = await verificarStatusInstanciaEvolution(req.query?.instancia || '')
+      //
+      // O painel legado não conhece (nem deve conhecer) o nome técnico da instância: quem o
+      // conhece é o VÍNCULO do próprio usuário (`vendas.whatsapp_connections.instance_name`),
+      // a mesma fonte que as rotas de QR (`/dashboard/whatsapp/*`) usam para conectar e
+      // desconectar. Sem `?instancia=`, é por ele que se resolve — nunca por env, por "a
+      // empresa só tem uma" ou por `atualizado_em`. Sem vínculo (ou sem sessão, no caso do
+      // acesso por `x-reprocess-secret`), segue devolvendo `nao_informada`: o diagnóstico
+      // cala em vez de falar da saúde do número de outra pessoa.
+      const instanciaPedida = String(req.query?.instancia || '').trim()
+      const instanciaDoVinculo = instanciaPedida
+        ? ''
+        : await instanciaVinculadaAoUsuario(req.dashboardUser?.id || null)
+      const status = await verificarStatusInstanciaEvolution(instanciaPedida || instanciaDoVinculo)
       res.json(status)
     } catch (err) {
       const e = erroHttp(err)

@@ -742,7 +742,10 @@
       if (!banner) return
       const dados = r?.data || {}
       const conectado = dados.connected === true
-      const instancia = dados.instance || 'pj-dashboard-1'
+      // O nome vem SEMPRE da resposta (o backend o resolve pelo vínculo do próprio usuário,
+      // `vendas.whatsapp_connections.instance_name`). O default fixo que havia aqui nomeava uma
+      // instância que podia não ser a medida — o banner acusaria desconexão do número errado.
+      const instancia = dados.instance || 'não identificada'
       const estado = dados.state || 'unknown'
 
       if (conectado) {

@@ -235,9 +235,82 @@ test('guarda: os 4 envios da §2.4 deixaram de chamar sem contexto de instancia'
   )
 })
 
+test('guarda: o reenvio da rota de conversas declara a empresa do chamador', () => {
+  // A rota e escopada por tenant, mas `conversaEmpresaScope` deixa a PJ alcancar conversa
+  // ORFA (`empresa_id IS NULL`). Sem declarar `empresaId`, a unica empresa conferida seria a
+  // da conversa — que ali e nula —, e o reenvio sairia pela instancia de OUTRO tenant gravada
+  // nela. Mesma disciplina do envio manual do operador.
+  const fonte = lerFonte('src', 'routes', 'api-conversas.js')
+  const corpo = fonte.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
+  assert.match(
+    corpo,
+    /instanceName: conversa\.evolution_instance, empresaId: req\.empresa\.id/,
+    'o reenvio precisa conferir a instancia contra a empresa do chamador'
+  )
+  assert.match(
+    corpo,
+    /instanciaBloqueada[\s\S]{0,400}INSTANCE_UNAVAILABLE/,
+    'bloqueio de instancia e 409 auditavel, nunca 502 de transporte'
+  )
+})
+
+test('guarda: o teste de saudacao trata bloqueio de instancia como 409, nao como 502', () => {
+  // O envio de teste e o unico ponto do modulo de instancias que manda mensagem REAL. Se o
+  // bloqueio da regra unica virar 502, o operador le "falha ao enviar" e vai procurar problema
+  // na Evolution, quando o problema esta no cadastro (instancia inativa, de outra empresa ou
+  // de outro canal) e exige acao dele. Mesmo contrato do reenvio e do envio manual.
+  const fonte = lerFonte('src', 'routes', 'api-whatsapp.js')
+  const corpo = fonte.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
+  assert.match(
+    corpo,
+    /instanciaBloqueada[\s\S]{0,300}INSTANCE_UNAVAILABLE/,
+    'bloqueio de instancia e 409 auditavel, nunca 502 de transporte'
+  )
+  assert.match(
+    corpo,
+    /instanceName: inst\.evolution_instance,\s*empresaId: req\.empresa\.id/,
+    'o envio de teste precisa conferir a instancia contra a empresa do chamador'
+  )
+})
+
 test('guarda: as rotas legadas de QR nao leem mais a instancia do ambiente', () => {
   const fonte = lerFonte('src', 'whatsapp-routes.js')
   const corpo = fonte.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
   assert.doesNotMatch(corpo, /process\.env\.EVOLUTION_INSTANCE/)
   assert.doesNotMatch(corpo, /'PJ'/)
+})
+
+test('guarda: o status do painel legado resolve a instancia pelo VINCULO do usuario', () => {
+  // O banner "WhatsApp desconectado" tinha ficado mudo: os dois consumidores chamam a rota sem
+  // `?instancia=` e a resposta virava `connected: null`. Religar so podia ser feito por uma
+  // fonte PROVADA — o vinculo do proprio usuario, o mesmo que as rotas de QR usam —, nunca
+  // pelo env, por "a empresa so tem uma instancia" ou pela mais recentemente atualizada.
+  const fonte = lerFonte('src', 'prospecting.js')
+  const corpo = fonte.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
+  assert.match(
+    corpo,
+    /instanciaVinculadaAoUsuario\(req\.dashboardUser\?\.id/,
+    'sem `?instancia=`, o status precisa sair do vinculo do usuario logado'
+  )
+  assert.doesNotMatch(
+    corpo,
+    /verificarStatusInstanciaEvolution\(\s*\)/,
+    'o diagnostico nunca volta a medir uma instancia implicita'
+  )
+
+  // A funcao e' UMA so: duas consultas ao mesmo vinculo poderiam divergir e o banner falaria de
+  // um numero enquanto o botao "Reconectar" mexe em outro.
+  const rotasQr = lerFonte('src', 'whatsapp-routes.js')
+  assert.match(
+    rotasQr,
+    /module\.exports = \{[^}]*instanciaVinculadaAoUsuario/,
+    'o resolvedor do vinculo legado tem dono unico e reusado, nunca copiado'
+  )
+})
+
+test('guarda: o banner de desconexao nao carrega nome de instancia fixo no front', () => {
+  // `dados.instance || 'pj-dashboard-1'` nomeava no aviso uma instancia que podia nao ser a
+  // medida — acusar desconexao do numero errado e' pior que nao acusar.
+  const fonte = lerFonte('public', 'dashboard', 'js', 'prospeccao.js')
+  assert.doesNotMatch(fonte, /pj-dashboard-1/)
 })

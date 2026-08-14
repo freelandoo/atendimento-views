@@ -255,10 +255,17 @@ router.post('/:numero/reprocessar', requireAuth, requireEmpresaAccess, async (re
   }
 
   try {
+    // O `empresaId` vai junto pelo mesmo motivo do envio manual do operador
+    // (`conversa-manual.js`): a regra unica confere a instancia contra as DUAS empresas que
+    // podem discordar. Sem ele, uma conversa ORFA (`empresa_id IS NULL`, alcancavel pela PJ
+    // em `conversaEmpresaScope`) que tenha a instancia de OUTRO tenant gravada passaria na
+    // conferencia — o reenvio sairia pelo numero da outra empresa.
     await enviarMensagem(
       conversa.numero,
       texto,
-      conversa.evolution_instance ? { instanceName: conversa.evolution_instance } : {}
+      conversa.evolution_instance
+        ? { instanceName: conversa.evolution_instance, empresaId: req.empresa.id }
+        : { empresaId: req.empresa.id }
     )
     await pool.query(
       `UPDATE vendas.conversas
@@ -272,6 +279,15 @@ router.post('/:numero/reprocessar', requireAuth, requireEmpresaAccess, async (re
     )
     return res.json({ ok: true, data: { numero: conversa.numero, reenviado: true, trecho: texto.slice(0, 200) } })
   } catch (err) {
+    // Bloqueio de instancia NAO e falha de transporte: e estado do cadastro que exige acao
+    // humana. Mesmo contrato (409 `INSTANCE_UNAVAILABLE`) do envio manual do operador.
+    if (err?.instanciaBloqueada) {
+      logger.warn(
+        { numero: conversa.numero, motivo: err.motivo, empresa_id: req.empresa.id },
+        'Reenvio bloqueado por instancia nao comprovada'
+      )
+      return res.status(409).json({ ok: false, error: { code: 'INSTANCE_UNAVAILABLE', message: err.message } })
+    }
     logger.error({ err: err.message, numero: conversa.numero }, 'Reprocessar conversa falhou')
     return res.status(502).json({ ok: false, error: { code: 'WHATSAPP_SEND_FAILED', message: err.message || 'Falha ao reenviar WhatsApp.' } })
   }

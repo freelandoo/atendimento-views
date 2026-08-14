@@ -1096,9 +1096,21 @@ router.post('/:instanceId/saudacao/testar', requireAuth, requireEmpresaAccess, a
   if (!mensagem) return res.status(400).json({ ok: false, error: { code: 'SAUDACAO_VAZIA', message: 'A saudação está vazia.' } })
 
   try {
-    await enviarMensagem(numeroTeste, mensagem, { instanceName: inst.evolution_instance })
+    // `empresaId` vai junto pela mesma razao do envio manual do operador: a regra unica
+    // confere a instancia contra as DUAS empresas que podem discordar (a da conversa do numero
+    // de teste e a do chamador). A instancia daqui ja veio escopada por `empresa_id`, mas
+    // declarar a empresa mantem a conferencia explicita no chamador, e nao implicita no SELECT.
+    await enviarMensagem(numeroTeste, mensagem, {
+      instanceName: inst.evolution_instance,
+      empresaId: req.empresa.id,
+    })
     return res.json({ ok: true, data: { enviado: true, preview: mensagem } })
   } catch (err) {
+    // Instancia bloqueada nao e falha de transporte: e estado do cadastro que exige acao
+    // humana. Mesmo contrato (409 `INSTANCE_UNAVAILABLE`) do envio manual e do reenvio.
+    if (err?.instanciaBloqueada) {
+      return res.status(409).json({ ok: false, error: { code: 'INSTANCE_UNAVAILABLE', message: err.message } })
+    }
     const msg = err.response?.data?.message || err.message || 'Falha ao enviar teste.'
     return res.status(502).json({ ok: false, error: { code: 'ENVIO_TESTE_FALHOU', message: String(msg) } })
   }

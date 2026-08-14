@@ -42,8 +42,14 @@ async function getWhatsappStatus(userId) {
  * do proprio registro do usuario (`vendas.whatsapp_connections.instance_name`), que e o unico
  * vinculo provado disponivel aqui. Sem registro, a rota recusa em vez de agir sobre o numero
  * de alguem.
+ *
+ * E EXPORTADA porque o diagnostico de status do painel legado
+ * (`GET /dashboard/prospeccao/whatsapp/status`, em `prospecting.js`) precisa da MESMA fonte:
+ * duas consultas ao mesmo vinculo poderiam divergir e fazer o banner falar de um numero
+ * enquanto o botao "Reconectar" mexe em outro.
  */
 async function instanciaVinculadaAoUsuario(userId) {
+  if (!userId) return ''
   const { rows } = await pool.query(
     `SELECT instance_name
        FROM vendas.whatsapp_connections
@@ -341,4 +347,4 @@ async function registerWhatsappRoutes(app) {
   })
 }
 
-module.exports = { registerWhatsappRoutes, getWhatsappStatus }
+module.exports = { registerWhatsappRoutes, getWhatsappStatus, instanciaVinculadaAoUsuario }

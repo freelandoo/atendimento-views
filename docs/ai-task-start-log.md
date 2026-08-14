@@ -3065,3 +3065,65 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   commit/push (diff fica pronto para revisao).
 - **Proxima etapa:** implementar backend (migration 067 -> modulo puro -> dados -> executor ->
   rotas), depois frontend (lib pura -> tela), depois testes/typecheck/build.
+
+---
+
+## 2026-08-13 - Inicio de tarefa IA (fechamento da Fase 2: rotas que enviam a pedido de pessoa)
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** Continuar a Fase 2 (instancia de envio) a partir do que ja existe no
+  worktree `fase2-instancia-envio` — sessao anterior interrompida por cota, nao por decisao
+  pendente nem erro.
+- **Estado encontrado (verificado antes de editar):** o nucleo da Fase 2 ja esta **commitado e
+  JA FOI PARA A MASTER** (`b019b0b`, ancestral de `c80dd91`): modulo puro
+  `src/services/instancia-envio.js`, regra unica `resolverInstanciaEnvio` em `src/whatsapp.js`,
+  `conversa-manual.js` consumindo a regra, D-8 em `db-crud.js`, chamadores cobertos, rotas
+  legadas de QR sem `EVOLUTION_INSTANCE`, `test/instancia-envio.test.js` e a secao de AGENTS.md.
+  No worktree restava um delta NAO commitado (reenvio de conversa + script de diagnostico).
+- **E projeto/tarefa de alteracao?** Sim, mas de escopo pequeno: fecha as rotas de envio a
+  pedido de uma PESSOA que ainda nao seguiam o contrato da regra unica.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/analise-contexto-instancia.md, docs/ai-decision-log.md: Sim.
+- **Achado (1):** `POST .../whatsapp/:id/saudacao/testar` (`routes/api-whatsapp.js`) e a UNICA
+  rota do modulo de instancias que manda mensagem REAL, e traduzia o bloqueio da regra unica
+  como `502 ENVIO_TESTE_FALHOU`. 502 manda o operador procurar defeito na Evolution quando o
+  problema esta no cadastro e exige acao dele.
+- **Achado (2):** master avancou (canal de e-mail de follow-up, `c80dd91`) e **nao criou nenhum
+  envio novo de WhatsApp** — `git grep enviarMensagem` nos arquivos novos volta vazio. A regra
+  unica continua sendo o unico chokepoint.
+- **Achado (3):** os unicos usos restantes de `EVOLUTION_INSTANCE` no repo sao COMENTARIOS
+  explicativos; nenhum codigo le a variavel.
+- **Fora de escopo declarado pelo pedido:** backfill, seletor visual de instancias, acesso a
+  producao, rotacao de credencial e envio real de mensagem. **Commit e push nao autorizados**
+  nesta sessao.
+- **Proxima etapa:** validar (`npm test`, `npm run typecheck`) e entregar checkpoint com as 4
+  decisoes de negocio para o operador confirmar.
+
+---
+
+## 2026-08-13 - Inicio de tarefa IA (Fase 2: as 4 decisoes confirmadas + religar o banner legado)
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** O operador confirmou as 4 decisoes de negocio do checkpoint da Fase 2,
+  todas seguindo a recomendacao. Implementar **apenas a (d)**: religar o banner "WhatsApp
+  desconectado" do painel legado usando o vinculo do proprio usuario
+  (`vendas.whatsapp_connections.instance_name`), a mesma fonte que as rotas de QR ja usam.
+- **E projeto/tarefa de alteracao?** Sim, de escopo pequeno e localizado.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-decision-log.md: Sim.
+- **Verificado antes de editar (decisoes a, b, c — NENHUMA mudanca de codigo):**
+  `nomeParaEnvio` tem exatamente duas origens de nome (`explicita`, `conversa`) e nenhuma
+  contagem de instancias; `handoff-alerts.js` resolve por `conversaNumero` e
+  `operator-commands.js` recebe `{ instanceName }` do webhook; os writers preservam a instancia
+  gravada (`db-crud.js:165,181`, `conversa-manual.js:132`, `historico-envio.js:71`).
+- **Achado que decide o desenho:** os dois consumidores do banner
+  (`public/dashboard/js/prospeccao.js`, `js/sistema-alertas.js`) **nao conhecem** o nome tecnico
+  da instancia — passa-lo ao front so para ele devolver na query string exporia um identificador
+  sem necessidade e poria regra no dashboard estatico. Como `app.use('/dashboard',
+  requireDashboardAuth)` garante `req.dashboardUser` na rota, a resolucao ficou no BACKEND.
+- **Achado (2):** o front carregava `dados.instance || 'pj-dashboard-1'` — com o banner de volta,
+  esse default nomearia no aviso uma instancia que pode nao ser a medida.
+- **Fora de escopo declarado:** aposentar as rotas legadas `/dashboard/whatsapp/*` (destino
+  combinado, fase propria), producao, credenciais e envio real de mensagem. **Push nao
+  autorizado**; commit local autorizado.
+- **Proxima etapa:** `npm test`, `npm run typecheck`, leitura do fluxo dos dois consumidores e
+  commit local unico com o delta completo da fase.

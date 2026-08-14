@@ -389,7 +389,8 @@
   o nome. Sem ele, o primeiro devolve `state: 'nao_informada'` sem consultar a Evolution e o
   segundo devolve `null` ("não deu para checar", contrato que já existia) — antes os dois mediam
   a instância do env e respondiam sobre um número que podia não ser o perguntado.
-  `GET /dashboard/prospeccao/whatsapp/status` passou a aceitar `?instancia=`.
+  `GET /dashboard/prospeccao/whatsapp/status` passou a aceitar `?instancia=` e, sem ele, resolve
+  pelo vínculo do usuário logado (ver "Banner ... RELIGADO" abaixo).
 - **Rotas legadas `/dashboard/whatsapp/*`** deixaram de ler `EVOLUTION_INSTANCE`: o nome vem de
   `vendas.whatsapp_connections.instance_name` do próprio usuário; sem vínculo, **409**. O `INSERT`
   de `connect`, que criava o vínculo com o nome do env, foi **removido** (era adoção de instância
@@ -401,6 +402,48 @@
   (c) o **disparo legado de prospecção** (`/dashboard/prospeccao/disparos/enviar`) não abordará
   prospect que ainda não tem conversa — a 1ª mensagem precisa de um número escolhido, e escolher
   por ele era o defeito; o caminho suportado é o "Rodar leads" do Banco de Leads, que já escolhe.
+  (d) o comando **`APRESENTAÇÃO`** do operador no WhatsApp, que "não requer conversa prévia",
+  deixa de abordar lead que ainda não tem conversa: o envio ao LEAD resolve pelo vínculo da
+  conversa dele, e usar ali a instância do OPERADOR seria escolher número por quem mandou o
+  comando, não por quem é dono do lead. O operador recebe "❌ Erro ao enviar apresentação" com
+  o motivo. Lead que já tem conversa continua funcionando normalmente.
+- **Banner "WhatsApp desconectado" do dashboard legado — RELIGADO pelo vínculo do usuário.**
+  Ele havia ficado mudo: `public/dashboard/js/prospeccao.js` e `js/sistema-alertas.js` chamam
+  `GET /dashboard/prospeccao/whatsapp/status` **sem `?instancia=`**, e a resposta virou
+  `{connected: null, state: 'nao_informada'}` — os dois só alertam com `connected === false`,
+  então o aviso nunca disparava. A degradação era correta, mas **silenciosa**. A instância de
+  que aquele painel fala é a do **vínculo do próprio usuário**
+  (`vendas.whatsapp_connections.instance_name`), **a mesma fonte que as rotas de QR
+  `/dashboard/whatsapp/*` já usam** para conectar/desconectar — é o único vínculo provado
+  disponível ali, e usá-lo mantém o aviso e o botão "Reconectar" falando do MESMO número.
+  - **A resolução vive no BACKEND**, na rota: o painel legado não conhece (nem deve conhecer) o
+    nome técnico da instância. `?instancia=` continua tendo precedência quando informado;
+    **sem** ele, o nome sai do vínculo — **nunca** de `EVOLUTION_INSTANCE`, de "a empresa só
+    tem uma instância" ou de `ORDER BY atualizado_em`.
+  - **Dono único do resolvedor:** `instanciaVinculadaAoUsuario`, em `src/whatsapp-routes.js`,
+    agora **exportada** e reusada por `prospecting.js`. Duas consultas ao mesmo vínculo
+    poderiam divergir e fazer o banner falar de um número enquanto o botão mexe em outro.
+  - **Sem vínculo, o diagnóstico continua calado** (`nao_informada`) — inclusive no acesso por
+    `x-reprocess-secret`, que não tem usuário. **Consequência declarada:** o `INSERT` de
+    `connect` foi removido nesta mesma fase, então **usuário legado sem linha em
+    `vendas.whatsapp_connections` não recebe o banner** até a instância ser criada pelo fluxo
+    autorizado. É o comportamento correto: calar é melhor que alertar sobre número alheio.
+  - O front deixou de carregar nome fixo: `dados.instance || 'pj-dashboard-1'` nomeava no aviso
+    uma instância que podia não ser a medida. O nome exibido vem sempre da resposta.
+  - **Aposentar as rotas legadas `/dashboard/whatsapp/*` continua sendo o destino certo** e fica
+    para uma fase própria — nada foi aposentado aqui.
+- **Bloqueio de instância é 409, nunca 502**, nas três rotas que enviam a pedido de uma pessoa:
+  envio manual do operador (`services/conversa-manual.js`), reenvio da conversa
+  (`POST /api/empresas/:id/conversas/:numero/reprocessar`) e teste de saudação
+  (`POST .../whatsapp/:id/saudacao/testar`). Mesmo código (`INSTANCE_UNAVAILABLE`) nos três:
+  502 mandaria o operador procurar defeito na Evolution quando o problema está no cadastro
+  (instância inativa, de outra empresa ou de outro canal) e exige ação dele. As duas rotas de
+  API também **declaram `empresaId`**, porque a conversa pode ser ÓRFÃ (`empresa_id IS NULL`,
+  alcançável pela PJ) e a empresa da conversa sozinha não provaria nada.
+- **`scripts/test-evolution-send.js` exige a instância como ARGUMENTO** (`node
+  scripts/test-evolution-send.js <instancia>`): ele manda mensagem REAL e lia
+  `process.env.EVOLUTION_INSTANCE || 'PJ'` — um default silencioso mandaria pelo número de
+  outra empresa. Não virou variável de ambiente de propósito.
 - **Funções REMOVIDAS de `src/whatsapp.js`:** a constante `INSTANCE_NAME`, `getInstanceNameForUser`
   (sem chamador, e só existia para devolver o env) e `getInstanceNameForConversation` (substituída
   por `resolverInstanciaEnvio`).

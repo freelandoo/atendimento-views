@@ -4,7 +4,12 @@
  * Script de diagnóstico para testar diferentes formatos de payload
  * contra a API Evolution em produção, sem expor credenciais.
  *
- * Uso: EVOLUTION_TEST_NUMBER=5511987654321 node scripts/test-evolution-send.js
+ * Uso: EVOLUTION_TEST_NUMBER=5511987654321 node scripts/test-evolution-send.js <instancia>
+ *
+ * A instância é ARGUMENTO OBRIGATÓRIO, sem default. Ela era lida de
+ * `process.env.EVOLUTION_INSTANCE || 'PJ'` — o mesmo fallback global que a Fase 2 removeu do
+ * envio: este script manda mensagem REAL, e um default silencioso mandaria pelo número de
+ * outra empresa. Não vira variável de ambiente de propósito (seria env nova só para script).
  *
  * Formatos testados:
  * A: { number, text }
@@ -17,11 +22,18 @@ const axios = require('axios')
 
 const EVOLUTION_URL = process.env.EVOLUTION_URL || 'http://evolution-api:8080'
 const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY
-const INSTANCE_NAME = process.env.EVOLUTION_INSTANCE || 'PJ'
+const INSTANCE_NAME = String(process.argv[2] || '').trim()
 const TEST_NUMBER = process.env.EVOLUTION_TEST_NUMBER
 
 if (!EVOLUTION_KEY) {
   console.error('❌ EVOLUTION_API_KEY não configurada')
+  process.exit(1)
+}
+
+if (!INSTANCE_NAME || !/^[a-zA-Z0-9_-]+$/.test(INSTANCE_NAME)) {
+  console.error('❌ Instância não informada (ou inválida).')
+  console.error('Uso: EVOLUTION_TEST_NUMBER=5511987654321 node scripts/test-evolution-send.js <instancia>')
+  console.error('Informe o nome técnico da instância que você quer testar — não há default.')
   process.exit(1)
 }
 
