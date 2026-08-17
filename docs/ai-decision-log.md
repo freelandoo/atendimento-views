@@ -11,6 +11,80 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-08-17 — Central de Ligações: sincronização entre sessões/dispositivos da mesma conta
+
+- **Gatilho:** a mesma conta usada em computador e celular ao mesmo tempo. Início, fim da
+  chamada, encerramento e descarte feitos num aparelho deixavam as outras sessões visualmente
+  atrasadas. Continuação direta da entrega de 2026-08-14, cujas 8 decisões esta entrada
+  **estende, não revoga**.
+- **Decisão 1 — polling focado, não realtime.** Varredura confirmou que **não existe** infra de
+  realtime no repositório (nenhum `EventSource`/`text/event-stream`/`WebSocket`/`socket.io` em
+  `backend/src` ou `frontend/`; nem `ws` nem `socket.io` nos dois `package.json`). Criar um
+  canal SSE/WebSocket só para este módulo seria um segundo mecanismo de atualização convivendo
+  com o que já existe, e teria de sobreviver a múltiplas instâncias no Railway. Mantido o
+  polling, agora **focado** por natureza do que observa e pausado com a aba oculta.
+- **Decisão 2 — o vigia de ciclo de vida roda nos DOIS modos.** É a correção principal: só quem
+  ACOMPANHAVA recebia propagação. Quem operava descobria o encerramento remoto como **409 na
+  hora de salvar**. Alternativa descartada: reusar o tique do Acompanhar (5 GETs) também no modo
+  de operação — custo alto para uma pergunta que cabe numa leitura por PK.
+- **Decisão 3 — endpoint próprio (`GET /ligacoes/:id/sessao`), e não `GET /ativa`.** Aquela
+  consulta filtra `status='em_andamento'`: a ligação **some** dela ao terminar. "Sumiu" não
+  distingue **encerrada** de **descartada** — desfechos com consequências opostas (uma vira
+  registro na analítica e no histórico do lead, a outra não fica em lugar nenhum) — e não diz
+  quem fez. A leitura nova é por PK, responde depois do fim, e sai sanitizada pelo MESMO módulo
+  puro da listagem. Passo de 5s porque o custo é de uma linha; o conteúdo do Acompanhar segue
+  no ritmo próprio (8s).
+- **Decisão 4 — "foi esta tela?" é da TELA, não de `mesma_sessao`.** A chave de origem
+  identifica o **aparelho** (a unidade que o operador reconhece: "foi no celular"), então duas
+  abas do mesmo computador têm a mesma origem. Uma função pura respondendo isso pelo payload
+  deixaria a segunda aba **sem aviso nenhum** — exatamente o defeito a corrigir. Por isso a
+  decisão vive em `fechandoLocalRef` no componente, e `terminouEmOutraSessao()` foi **removido**
+  da lib pura (com teste cobrando a ausência).
+- **Decisão 5 — a tela NÃO se fecha sozinha no desfecho remoto.** Ela desliga a escrita,
+  congela o cronômetro no marco oficial, diz **qual** desfecho foi, de quem e de qual aparelho,
+  e reconcilia a fila **atrás do overlay** — mas quem estava preenchendo o resumo precisa ler o
+  que aconteceu antes de a tela sumir. Fechar automaticamente pareceria perda silenciosa.
+- **Decisão 6 — reconciliar a FILA, não só o selo.** Encerrar também muda status da
+  oportunidade e tentativas do lead. `saidasDaFila` (puro) diz o que saiu entre dois tiques: a
+  fila recarrega **sempre**, mas o **aviso** só sai quando não foi desta sessão — senão todo
+  encerramento próprio geraria ruído logo depois do clique. Por isso `carregarDadosCampanha`
+  foi separado de `carregarCampanha` (evita cascata de consultas de ativas) e `ativasRef` é
+  zerado ao trocar de campanha (evita aviso falso com as ativas da campanha anterior).
+- **Decisão 7 — origem de sessão OPACA, com impressão não reversível.** A chave é gerada no
+  cliente (128 bits, `localStorage`) e **nunca persistida**: o banco guarda um SHA-256 truncado
+  em 12 hex. Ela **não é credencial** (quem autentica é o Bearer token) e **nenhuma rota a
+  devolve** — sai só o booleano `mesma_sessao` e o aparelho, que é lista **fechada** de duas
+  palavras derivada de `matchMedia('(pointer: coarse)')`. Descartado por invasivo: User-Agent,
+  IP, fingerprint de canvas, id de hardware, geolocalização, cookie. Ausência é terceiro estado
+  (`null`), e `mesmaSessao` devolve **`null`** na dúvida — nunca `false`, que faria a tela
+  afirmar "foi em outro aparelho" sem prova.
+- **Decisão 8 — migration 068 é ADITIVA e as colunas guardam a ÚLTIMA transição.** Duas colunas
+  nullable, sem DEFAULT, CHECK fechada no aparelho, **sem mutação de linha existente**. Guardar
+  só a origem do INÍCIO não serviria: o que a tela precisa dizer é de onde veio o **encerramento**.
+  O histórico por ação continua em `app.auditoria_eventos` (`contexto` JSONB — **nenhuma
+  migration de auditoria**). A escrita é `COALESCE($n, coluna)`: requisição sem cabeçalho não
+  apaga origem já registrada. `sessao_origem` ficou **fora de `COLS_SESSAO`** de propósito —
+  aquele bloco sai cru em `/ativa` e `/iniciar`.
+- **Decisão 9 — `ligacao_chamada_encerrada` vira ação de auditoria.** Era a única das quatro
+  transições sem registro nenhum, justamente a que muda o estado da sessão para as outras
+  telas. Auditada **só na transição real** (`ja_marcada`, obtido por `SELECT ... FOR UPDATE` do
+  valor anterior dentro da transação que já existia): repetir o clique, ou dois aparelhos
+  clicando quase juntos, não pode inflar o log.
+- **Decisão 10 — corrida mostra o VENCEDOR; nada foi afrouxado no banco.** UNIQUE parcial,
+  `COALESCE` do fim da chamada, `UPDATE` guardado por status e `ja_encerrada`/`ja_descartada`
+  seguem intactos. O que mudou é a leitura do perdedor: falha em `encerrar`/`chamada-encerrada`
+  **confere a sessão antes de alarmar**, e `ja_encerrada` deixou de dizer "Ligação registrada" —
+  o resumo daquela tela não virou registro.
+- **Impacto declarado:** 1 migration aditiva, 1 rota de LEITURA nova, nenhuma rota de escrita
+  nova, nenhuma env nova, nenhuma mudança de permissão de rota, nenhuma mudança em atribuição
+  de campanha/lead. Assumir/transferir ligação seguem fora de escopo. O modo Acompanhar continua
+  estritamente somente leitura (guarda de regressão lê o fonte da tela).
+- **Risco residual (herdado, declarado de novo):** o somente leitura continua sendo da
+  INTERFACE — as rotas de escrita não exigem dono (Decisão 8 de 2026-08-14). Nada nesta entrega
+  amplia esse risco.
+
+---
+
 ## 2026-08-14 — Central de Ligações: ligação em andamento visível e modo Acompanhar (somente leitura)
 
 - **Gatilho:** duas pessoas na mesma conta (uma ligando pelo celular, outra olhando pelo

@@ -6,6 +6,57 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-08-17 - Início de tarefa IA - Central de Ligações: sincronização entre sessões/dispositivos da mesma conta
+
+- **IA/Ferramenta:** Claude Code (Opus 5), rodando em worktree isolado
+  (`.claude/worktrees/ligacoes-sync-sessoes`, branch `worktree-ligacoes-sync-sessoes`), job em
+  background. **Base deliberada: `worktree-central-ligacoes-acompanhar` (b60935f), NÃO a
+  `master`.** A entrega anterior (ligação ativa + modo Acompanhar somente leitura) vive
+  naquele branch e ainda não foi mesclada; partir da `master` reverteria aquele trabalho.
+- **Pedido resumido:** a mesma conta usada em dois aparelhos (computador e celular) ao mesmo
+  tempo. Quando alguém inicia, marca fim da chamada, encerra ou descarta em um aparelho, as
+  outras sessões podem ficar visualmente atrasadas. Pedido: (1) propagar as quatro transições
+  de ciclo de vida sem recarregar à mão; (2) atraso percebido baixo e previsível enquanto a
+  tela está visível, sem N+1 e sem polling global agressivo; (3) a tela que receber um estado
+  terminal remoto sai com segurança do modo de operação/acompanhar, atualiza a fila e explica
+  o que aconteceu — inclusive quando a operação foi **descartada** em outro aparelho;
+  (4) auditoria distinguindo usuário e, quando seguro, a origem da sessão/dispositivo;
+  (5) o modo Acompanhar continua estritamente somente leitura.
+- **É projeto/tarefa de alteração?** Sim. Escopo contido, mas **com uma migration aditiva**
+  (duas colunas nullable em `app.ligacoes`, sem DEFAULT e sem mutação de linha existente) e
+  um endpoint de leitura novo. Nenhuma mudança de permissão de rota, nenhuma alteração em
+  atribuição de campanha/lead, nenhuma transferência de ligação.
+- **Workflow padrão consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/architecture-rules.md, docs/project-map.md e a entrada de 2026-08-14 do
+  ai-decision-log.md (as 8 decisões do modo Acompanhar, que esta tarefa **estende, não
+  revoga**).
+- **Infraestrutura de realtime existente?** **Não existe.** Varredura por
+  `EventSource`/`text/event-stream`/`WebSocket`/`socket.io` em `backend/src` e `frontend/`
+  não encontrou nada, e nem `ws` nem `socket.io` estão no `package.json` dos dois pacotes.
+  Portanto vale a orientação do próprio pedido: **polling focado**, só enquanto há tela/ligação
+  relevante e aba visível. O passo anterior (15s na listagem, 8s no Acompanhar) já é polling —
+  o que falta é ele cobrir também **quem está operando** e saber **por que** a ligação sumiu.
+- **Fontes de verdade mapeadas (backend):** `app.ligacoes` (status +
+  `chamada_encerrada_em` = 4 estados de sessão derivados em `src/db/ligacoes-estado.js`),
+  `idx_ligacoes_uma_ativa_por_lead` (migration 048, UNIQUE parcial — é ele que impede duas
+  ligações ativas por lead), `app.auditoria_eventos` (migration 047, `acao`/`entidade_tipo`
+  TEXT livres e `contexto` JSONB — cabe origem sem migration).
+- **Endpoints que alteram estado (os quatro do pedido):** `POST /ligacoes/iniciar`,
+  `POST /ligacoes/:id/chamada-encerrada`, `POST /ligacoes/:id/encerrar`,
+  `POST /ligacoes/:id/descartar` — todos em `src/routes/api-ligacoes.js`, todos idempotentes
+  no banco (COALESCE / guard por status no UPDATE / `ja_encerrada`/`ja_descartada`).
+- **Identificação de usuário/sessão existente:** só `req.usuario` (JWT Bearer, `src/auth.js` +
+  `src/middleware/tenant.js`). **Não existe** nenhuma noção de sessão/dispositivo — o JWT não
+  carrega `jti` e nada distingue duas abas ou dois aparelhos do mesmo usuário. É a lacuna que
+  o requisito de auditoria pede para fechar.
+- **Lacunas confirmadas antes de codar:** (a) quem está OPERANDO não recebe propagação alguma
+  — o efeito de polling do Acompanhar tem `if (!somenteLeitura) return`; (b) o detector de fim
+  é `GET /ligacoes/ativa`, que só some — não distingue **encerrada** de **descartada**;
+  (c) a listagem atualiza o selo mas não reconcilia a fila quando uma ligação some;
+  (d) `POST /:id/chamada-encerrada` **não é auditado**; (e) auditoria não distingue aparelho.
+
+---
+
 ## 2026-08-14 - Início de tarefa IA - Visibilidade de ligação em andamento na Central de Ligações (modo Acompanhar)
 
 - **IA/Ferramenta:** Claude Code (Opus 5), rodando em worktree isolado (`central-ligacoes-acompanhar`), job em background.

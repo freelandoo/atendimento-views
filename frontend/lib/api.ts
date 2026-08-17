@@ -1,3 +1,5 @@
+import { cabecalhosOrigem } from '@/lib/sessao-origem'
+
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
 
 function getToken(): string {
@@ -32,6 +34,12 @@ export async function apiFetch<T = unknown>(
   const headers: Record<string, string> = {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    // Origem da SESSAO (aparelho/navegador). Vai daqui, e não só nas chamadas da Central de
+    // Ligações, porque "de qual aparelho isto partiu" é um fato do CLIENTE, não de um módulo:
+    // espalhá-lo por chamador faria a auditoria depender de alguém lembrar de anexá-lo.
+    // Nada aqui identifica a pessoa — ver `lib/sessao-origem.js`. Hoje só as rotas de ligação
+    // leem esses cabeçalhos; as demais simplesmente os ignoram.
+    ...cabecalhosOrigem(),
     ...(options.headers as Record<string, string> | undefined),
   }
 

@@ -145,18 +145,27 @@ function seqTxPool(sequence) {
   return { calls, query, async connect() { return client } }
 }
 
+// A transacao passou a comecar por um SELECT ... FOR UPDATE do valor ANTERIOR, para o
+// chamador distinguir o PRIMEIRO clique do repetido (`ja_marcada`) — e' o que impede a
+// auditoria de registrar uma transicao por clique e o que serializa duas sessoes da mesma
+// conta clicando quase juntas. Por isso a fila destes testes comeca com essa leitura.
+const ANTES_SEM_FIM = [{ chamada_encerrada_em: null }]
+
 test('marcarChamadaEncerrada: em_andamento => grava o instante do fim da chamada', async () => {
   const pool = seqTxPool([
+    ANTES_SEM_FIM,
     [{ id: 'lig1', status: 'em_andamento', iniciada_em: 'T0', chamada_encerrada_em: 'T1' }],
     [{ id: 'etapa1' }],
   ])
   const r = await marcarChamadaEncerrada(pool, 'emp1', 'lig1')
   assert.equal(r.chamada_encerrada_em, 'T1')
+  assert.equal(r.ja_marcada, false)
 })
 
 // A transicao de negocio em_andamento -> aguardando_resumo acontece AQUI, sem mudar o status.
 test('marcarChamadaEncerrada: devolve estado_sessao aguardando_resumo (status segue em_andamento)', async () => {
   const pool = seqTxPool([
+    ANTES_SEM_FIM,
     [{ id: 'lig1', status: 'em_andamento', iniciada_em: 'T0', chamada_encerrada_em: 'T1' }],
     [{ id: 'etapa1' }],
   ])
@@ -169,6 +178,7 @@ test('marcarChamadaEncerrada: devolve estado_sessao aguardando_resumo (status se
 // (senao o tempo de preenchimento do resumo entraria na duracao).
 test('marcarChamadaEncerrada: idempotente por COALESCE (1o clique define o fim da chamada)', async () => {
   const pool = seqTxPool([
+    ANTES_SEM_FIM,
     [{ id: 'lig1', status: 'em_andamento', iniciada_em: 'T0', chamada_encerrada_em: 'T1' }],
     [],
   ])
@@ -181,6 +191,7 @@ test('marcarChamadaEncerrada: idempotente por COALESCE (1o clique define o fim d
 // A etapa ativa tem de fechar no MESMO instante do fim da chamada — nao em NOW().
 test('marcarChamadaEncerrada: fecha a etapa ativa no instante do fim da chamada', async () => {
   const pool = seqTxPool([
+    ANTES_SEM_FIM,
     [{ id: 'lig1', status: 'em_andamento', iniciada_em: 'T0', chamada_encerrada_em: 'T1' }],
     [{ id: 'etapa1' }],
   ])
@@ -191,12 +202,12 @@ test('marcarChamadaEncerrada: fecha a etapa ativa no instante do fim da chamada'
 })
 
 test('marcarChamadaEncerrada: ligacao ja encerrada => 409', async () => {
-  const pool = seqTxPool([[], [{ id: 'lig1', status: 'encerrada' }]]) // UPDATE vazio, depois SELECT
+  const pool = seqTxPool([[], [], [{ id: 'lig1', status: 'encerrada' }]]) // antes, UPDATE vazio, SELECT
   await assert.rejects(() => marcarChamadaEncerrada(pool, 'emp1', 'lig1'),
     (err) => err.statusCode === 409 && /nao aceita marcar fim de chamada/.test(err.message))
 })
 
 test('marcarChamadaEncerrada: ligacao inexistente => 404', async () => {
-  await assert.rejects(() => marcarChamadaEncerrada(seqTxPool([[], []]), 'emp1', 'ligX'),
+  await assert.rejects(() => marcarChamadaEncerrada(seqTxPool([[], [], []]), 'emp1', 'ligX'),
     (err) => err.statusCode === 404)
 })

@@ -13,9 +13,16 @@ const Q = require('../db/ligacao-perguntas')
 const A = require('../db/auditoria')
 const AN = require('../db/ligacoes-analitica')
 const ACOMP = require('../services/ligacao-acompanhamento')
+const SESSAO = require('../services/sessao-origem')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
+
+// Origem da SESSAO que fez a requisicao (aparelho/aba), lida uma unica vez por rota a partir
+// dos cabecalhos. Ver services/sessao-origem.js: o que sai daqui e' uma IMPRESSAO nao
+// reversivel e uma palavra de lista fechada — nunca a chave crua, nunca IP, nunca User-Agent.
+// Ausencia e' estado legitimo: `{ impressao: null, dispositivo: null }`.
+const origem = (req) => SESSAO.lerOrigemSessao(req.headers)
 
 function erro(res, err, code = 'LIGACAO_FAILED', status = err?.statusCode || 500) {
   logger.error({ err: err?.message, code }, '[api-ligacoes] falha')
@@ -33,13 +40,14 @@ function erro(res, err, code = 'LIGACAO_FAILED', status = err?.statusCode || 500
 router.post('/iniciar', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const b = req.body || {}
+    const org = origem(req)
     const data = await L.iniciarLigacao(pool, req.empresa.id, {
       campanhaId: b.campanha_id, campanhaLeadId: b.campanha_lead_id, prospectId: b.prospect_id,
       telefone: b.telefone, roteiroVersaoId: b.roteiro_versao_id, usuarioId: req.usuario?.id,
-      clientEventId: b.client_event_id,
+      clientEventId: b.client_event_id, origemSessao: org,
     })
     if (data.retomada === false) { // audita so a criacao real (nao a recuperacao)
-      A.registrarAuditoria(pool, req.empresa.id, { usuarioId: req.usuario?.id, entidadeTipo: 'ligacao', entidadeId: data.id, acao: 'ligacao_iniciada', estadoNovo: 'em_andamento', clientEventId: b.client_event_id })
+      A.registrarAuditoria(pool, req.empresa.id, { usuarioId: req.usuario?.id, entidadeTipo: 'ligacao', entidadeId: data.id, acao: 'ligacao_iniciada', estadoNovo: 'em_andamento', clientEventId: b.client_event_id, contexto: SESSAO.contextoAuditoria(org) })
     }
     // `sou_eu` fecha a corrida de dois cliques quase simultaneos: quando esta chamada RETOMA
     // uma sessao que outra pessoa acabou de iniciar (a fila ainda mostrava o lead livre), o
@@ -71,15 +79,48 @@ router.get('/ativas', requireAuth, requireEmpresaAccess, async (req, res) => {
     const rows = await L.listarLigacoesAtivasDaCampanha(pool, req.empresa.id, {
       campanhaId: req.query.campanha_id,
     })
-    return res.json({ ok: true, data: ACOMP.resumirLigacoesAtivas(rows, req.usuario?.id) })
+    return res.json({ ok: true, data: ACOMP.resumirLigacoesAtivas(rows, req.usuario?.id, origem(req).impressao) })
   } catch (err) { return erro(res, err, 'LIGACOES_ATIVAS_FAILED') }
+})
+
+// GET /:id/sessao — estado ATUAL de UMA sessao de ligacao. E' a leitura que as telas abertas
+// (operando OU acompanhando) repetem no tempo para descobrir que algo mudou em outro aparelho.
+//
+// Por que ela existe, sendo que ja havia `GET /ativa`: aquela consulta filtra
+// status='em_andamento', entao a ligacao SOME dela ao terminar. "Sumiu" nao distingue
+// ENCERRADA de DESCARTADA — desfechos com consequencias opostas (uma entra na analitica e no
+// historico do lead, a outra nao entra em lugar nenhum) — e nao diz quem fez nem de onde.
+// Esta e' por PK, entao continua respondendo depois do fim.
+//
+// SOMENTE LEITURA: nao cria, nao altera e nao encerra nada. Payload sanitizado na origem pelo
+// mesmo modulo puro da listagem — a impressao da sessao NUNCA sai; o que sai e' o booleano
+// `mesma_sessao` e a palavra do aparelho.
+router.get('/:id/sessao', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const lig = await L.obterSessao(pool, req.empresa.id, req.params.id)
+    return res.json({ ok: true, data: ACOMP.resumirSessao(lig, req.usuario?.id, origem(req).impressao) })
+  } catch (err) { return erro(res, err, 'LIGACAO_SESSAO_FAILED') }
 })
 
 // POST /:id/chamada-encerrada — marca o FIM DA CHAMADA (clique em "Encerrar ligacao"),
 // antes do formulario de resumo. Sem isto, o tempo de preenchimento entra na duracao.
 router.post('/:id/chamada-encerrada', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const data = await L.marcarChamadaEncerrada(pool, req.empresa.id, req.params.id)
+    const org = origem(req)
+    const data = await L.marcarChamadaEncerrada(pool, req.empresa.id, req.params.id, { origemSessao: org })
+    // O fim da chamada e' uma das quatro transicoes de ciclo de vida e ate' aqui era a UNICA
+    // sem registro de auditoria — o que deixava um buraco justamente no evento que muda o
+    // estado da sessao para as outras telas ("resumo pendente"). `acao` e' TEXT livre na
+    // migration 047: nenhuma migration foi necessaria.
+    // So' a transicao REAL e' auditada (`ja_marcada`): a rota e' idempotente e repetir o
+    // clique — ou dois aparelhos clicando quase juntos — nao pode inflar a auditoria.
+    if (!data.ja_marcada) {
+      A.registrarAuditoria(pool, req.empresa.id, {
+        usuarioId: req.usuario?.id, entidadeTipo: 'ligacao', entidadeId: data.id,
+        acao: 'ligacao_chamada_encerrada', estadoAnterior: 'em_andamento', estadoNovo: 'aguardando_resumo',
+        contexto: SESSAO.contextoAuditoria(org),
+      })
+    }
     return res.json({ ok: true, data })
   } catch (err) { return erro(res, err, 'LIGACAO_CHAMADA_ENCERRADA_FAILED') }
 })
@@ -91,7 +132,9 @@ router.post('/:id/chamada-encerrada', requireAuth, requireEmpresaAccess, async (
 router.post('/:id/encerrar', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const b = req.body || {}
+    const org = origem(req)
     const data = await L.encerrarLigacao(pool, req.empresa.id, req.params.id, {
+      origemSessao: org,
       resultado: b.resultado,
       etapaAlcancada: b.etapa_alcancada, objecaoPrincipal: b.objecao_principal,
       motivoPerda: b.motivo_perda, notas: b.notas,
@@ -103,7 +146,7 @@ router.post('/:id/encerrar', requireAuth, requireEmpresaAccess, async (req, res)
       usuarioId: req.usuario?.id,
     })
     if (!data.ja_encerrada) {
-      A.registrarAuditoria(pool, req.empresa.id, { usuarioId: req.usuario?.id, entidadeTipo: 'ligacao', entidadeId: data.id, acao: 'ligacao_encerrada', estadoAnterior: 'em_andamento', estadoNovo: 'encerrada', contexto: { resultado: data.resultado, duracao_seg: data.duracao_seg } })
+      A.registrarAuditoria(pool, req.empresa.id, { usuarioId: req.usuario?.id, entidadeTipo: 'ligacao', entidadeId: data.id, acao: 'ligacao_encerrada', estadoAnterior: 'em_andamento', estadoNovo: 'encerrada', contexto: SESSAO.contextoAuditoria(org, { resultado: data.resultado, duracao_seg: data.duracao_seg }) })
       // Auditoria do follow-up: e o registro de "canal escolhido para continuidade" que a
       // linha do tempo do contato precisa. Sem telefone nem texto — so' o que foi decidido.
       if (data.follow_up) {
@@ -121,9 +164,10 @@ router.post('/:id/encerrar', requireAuth, requireEmpresaAccess, async (req, res)
 // POST /:id/descartar — descarta a operacao (idempotente): fica so para auditoria.
 router.post('/:id/descartar', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const data = await L.descartarLigacao(pool, req.empresa.id, req.params.id, { motivo: (req.body || {}).motivo })
+    const org = origem(req)
+    const data = await L.descartarLigacao(pool, req.empresa.id, req.params.id, { motivo: (req.body || {}).motivo, origemSessao: org })
     if (!data.ja_descartada) {
-      A.registrarAuditoria(pool, req.empresa.id, { usuarioId: req.usuario?.id, entidadeTipo: 'ligacao', entidadeId: data.id, acao: 'ligacao_descartada', estadoAnterior: 'em_andamento', estadoNovo: 'descartada', contexto: { motivo: (req.body || {}).motivo || null } })
+      A.registrarAuditoria(pool, req.empresa.id, { usuarioId: req.usuario?.id, entidadeTipo: 'ligacao', entidadeId: data.id, acao: 'ligacao_descartada', estadoAnterior: 'em_andamento', estadoNovo: 'descartada', contexto: SESSAO.contextoAuditoria(org, { motivo: (req.body || {}).motivo || null }) })
     }
     return res.json({ ok: true, data })
   } catch (err) { return erro(res, err, 'LIGACAO_DESCARTAR_FAILED') }

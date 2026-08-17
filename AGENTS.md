@@ -1393,12 +1393,12 @@
   Acompanhar vem ANTES de qualquer ramo de escrita**, de propósito: se o dono encerrar a chamada
   com a tela aberta, `estado` vira `aguardando_resumo` e o formulário de resumo (com "Salvar
   ligação") apareceria sozinho.
-- **Polling com dois passos, porque o custo é diferente:** a listagem reconfere a cada **15s**
-  (1 consulta minúscula, e só os selos — a fila não recarrega); dentro do modo Acompanhar o
-  passo é **8s**, porque cada tique custa ~5 GETs. Os dois pausam com a aba oculta; o da
-  listagem pausa também enquanto a tela de atendimento está aberta. `GET /ligacoes/ativa` é o
-  detector de FIM: quando a ligação encerra ela some dali, o polling para e a tela diz que
-  acabou, em vez de exibir para sempre o cronômetro de uma chamada encerrada.
+- **Polling com passos diferentes, porque o custo é diferente:** a listagem reconfere a cada
+  **10s** (1 consulta minúscula) e o conteúdo do modo Acompanhar a cada **8s** (4 GETs por
+  tique). Todos pausam com a aba oculta; o da listagem pausa também enquanto a tela de
+  atendimento está aberta. **O detector de FIM mudou** — era "sumiu de `GET /ligacoes/ativa`",
+  hoje é `GET /ligacoes/:id/sessao` (ver a seção de sincronização entre sessões, logo abaixo):
+  aquele "sumiu" não distinguia encerramento de descarte e não dizia quem fez.
 - **"Ligar agora" PULA o lead ocupado por outra pessoa** (`proximoLigavel`): é comando de
   TRABALHO, escolher o próximo é o que ele faz, e ligar para quem já está ao telefone com um
   colega é o único desfecho que chega ao CLIENTE. Ligação PRÓPRIA não faz pular. O pulo é dito
@@ -1418,6 +1418,88 @@
   `frontend/app/dashboard/central-ligacoes/page.tsx`. Testes:
   `test/ligacao-acompanhamento.test.js`, `frontend/lib/ligacao-ativa.test.js`.
 - **Nenhuma variável de ambiente nova, nenhuma migration, nenhum índice novo.**
+
+### Sincronização entre SESSÕES da mesma conta (Central de Ligações) — e a origem da ação
+- **Problema real (continuação do bloco acima):** a mesma conta em dois aparelhos. Quem
+  **acompanhava** já recebia propagação; **quem estava operando não recebia nenhuma**. Encerrar
+  a ligação pelo celular deixava a tela do computador com o cronômetro correndo, e o fato só
+  aparecia como **409 na hora de salvar**. E o único detector de fim era "a ligação sumiu de
+  `GET /ligacoes/ativa`", que não distingue **encerrada** de **descartada** — desfechos com
+  consequências opostas (uma vira registro na analítica e no histórico do lead; a outra não
+  fica em lugar nenhum) — nem diz quem fez.
+- **Sem infraestrutura de realtime neste repositório** (nenhum SSE/WebSocket em `backend/src`
+  nem no `frontend/`, e nenhuma dependência do tipo nos dois `package.json`). A solução é
+  **polling focado**: só enquanto há tela/ligação relevante aberta e a aba está visível.
+  **Não crie um canal de realtime para este módulo sem decidir isso como arquitetura** — seria
+  um segundo mecanismo de atualização convivendo com o que já existe.
+- **`GET /ligacoes/:id/sessao`** (admin-only pelo mount + `requireEmpresaAccess`) — leitura por
+  **PK**, SOMENTE LEITURA, que responde **também depois do fim** (é o ponto: `/ativa` filtra
+  `status='em_andamento'` e a linha some de lá). Devolve, sanitizado por lista fechada:
+  `viva`, `desfecho` (`encerrada|descartada|null`), `estado_sessao`, marcos de tempo, quem, e
+  os dois campos de origem. **Nunca** telefone, notas ou resultado. **É a fonte do fim** — a
+  tela não re-deriva "acabou" a partir de status + `chamada_encerrada_em`.
+- **O vigia roda nos DOIS modos** (`POLL_SESSAO_MS` = 5s). É o que corrige o defeito principal.
+  Quem detecta um desfecho remoto: desliga toda escrita (`ativo` passa a exigir
+  `!desfechoRemoto`), congela o cronômetro no marco oficial, **explica em texto qual desfecho
+  foi, de quem e de qual aparelho**, e manda a página reconciliar a fila atrás do overlay.
+  **A tela NÃO se fecha sozinha:** quem estava preenchendo o resumo precisa ler o que houve.
+- **"Foi esta tela?" é decidido pela PRÓPRIA TELA (`fechandoLocalRef`), nunca por
+  `mesma_sessao`.** A chave de origem identifica o **aparelho** — duas abas no mesmo computador
+  compartilham a mesma origem, e usar `mesma_sessao` deixaria a segunda aba sem aviso nenhum.
+  Por isso **não existe** um `terminouEmOutraSessao()` puro em `lib/ligacao-ativa.js`, e há
+  teste cobrando essa ausência. **Não o reintroduza.**
+- **Reconciliação da FILA, não só do selo** (`saidasDaFila`, puro): ligação que some entre dois
+  tiques terminou, e encerrar também muda o status da oportunidade e as tentativas do lead —
+  sem isso a linha continuaria mostrando o estado velho. A fila recarrega **sempre** que algo
+  sai; o **aviso** ao operador só sai quando a ligação **não era desta sessão**, senão todo
+  encerramento próprio geraria ruído logo após o clique. `carregarDadosCampanha` existe separado
+  de `carregarCampanha` justamente para a reconciliação não disparar outra consulta de ativas em
+  cascata; e o espelho (`ativasRef`) é **zerado ao trocar de campanha**, senão as ativas da
+  campanha anterior virariam "terminaram agora".
+- **Corridas mostram o VENCEDOR, e nada é criado ou sobrescrito.** As garantias do banco não
+  foram tocadas (UNIQUE parcial `idx_ligacoes_uma_ativa_por_lead`, `COALESCE` do fim da chamada,
+  `UPDATE` guardado por status, `ja_encerrada`/`ja_descartada`). O que mudou é a leitura do
+  perdedor: `encerrar`/`chamada-encerrada` que falham **conferem a sessão antes de alarmar** e,
+  se ela terminou, mostram o desfecho em vez de "não foi possível". `encerrar` devolvendo
+  `ja_encerrada` **não diz mais "Ligação registrada"** — o resumo daquela tela não virou
+  registro, e afirmar o contrário seria mentira.
+- **AUDITORIA — origem da sessão/dispositivo.** As quatro transições gravam origem e viram
+  linha em `app.auditoria_eventos` (`contexto` é JSONB livre: **nenhuma migration de auditoria**).
+  **`ligacao_chamada_encerrada` é ação NOVA** — o fim da chamada era a única das quatro sem
+  registro nenhum, e só a transição REAL é auditada (`ja_marcada`), então repetir o clique não
+  infla o log.
+- **A chave de sessão é OPACA e NÃO é credencial** (`src/services/sessao-origem.js`, PURO;
+  cliente em `frontend/lib/sessao-origem.js`). Regras que não se negociam:
+  (a) o cliente gera 128 bits aleatórios no `localStorage` e os envia em `X-Sessao-Origem`;
+  (b) o servidor **nunca persiste a chave** — guarda uma **impressão** (SHA-256 truncado em 12
+  hex), não reversível; (c) **nenhuma rota devolve a impressão** — sai só o booleano
+  `mesma_sessao` e a palavra do aparelho, e há guarda de regressão para isso (por isso
+  `sessao_origem` **fica fora de `COLS_SESSAO`**, que é devolvido cru por `/ativa` e `/iniciar`);
+  (d) o aparelho é uma lista **FECHADA** de duas palavras (`computador|celular`), derivada de
+  `matchMedia('(pointer: coarse)')`; (e) **PROIBIDO** derivar identificação invasiva —
+  User-Agent, IP, fingerprint de canvas, id de hardware, geolocalização ou cookie. Teste lê o
+  fonte e falha se qualquer um aparecer. Origem **ausente** é terceiro estado legítimo
+  (`null`), nunca um valor padrão; `mesmaSessao` devolve **`null`** quando não dá para saber.
+- **Migration `068_ligacao_sessao_origem.sql` — ADITIVA:** duas colunas **nullable, sem DEFAULT**
+  em `app.ligacoes` (`sessao_origem`, `sessao_dispositivo` com CHECK fechada) e **nenhum UPDATE
+  em linha existente**. Elas guardam a **última transição de ciclo de vida** (não só o início) —
+  é o que a tela ao vivo precisa dizer; o histórico por ação fica na auditoria. A escrita é
+  `COALESCE($n, coluna)`: cliente sem cabeçalho **não apaga** a origem já registrada.
+- **A origem sai por UM ponto só: `frontend/lib/api.ts`** (`cabecalhosOrigem()`). Por chamador,
+  alguém esqueceria de anexá-la. Hoje só as rotas de ligação leem esses cabeçalhos.
+- Código: `src/services/sessao-origem.js` (PURO, novo), `src/services/ligacao-acompanhamento.js`
+  (`resumirSessao`, `desfechoSessao`), `src/db/ligacoes.js` (`obterSessao`, `setOrigemSessao`,
+  `ja_marcada`), `src/routes/api-ligacoes.js`. Front: `frontend/lib/sessao-origem.js`
+  (+ `.d.ts`/`.test.js`), `frontend/lib/ligacao-ativa.js` (`sessaoTerminou`,
+  `descreverDesfechoRemoto`, `saidasDaFila`, `rotuloAparelho`), `frontend/lib/api.ts` e
+  `frontend/app/dashboard/central-ligacoes/page.tsx`. Testes:
+  `test/ligacao-sessao-sync.test.js`, `test/ligacao-acompanhamento.test.js`,
+  `test/ligacoes.test.js`, `frontend/lib/sessao-origem.test.js`,
+  `frontend/lib/ligacao-ativa.test.js`.
+- **Nenhuma variável de ambiente nova, nenhuma rota de escrita nova, nenhuma mudança de
+  permissão de rota, nenhuma mudança em atribuição de campanha/lead.** Assumir e transferir
+  ligação continuam **fora de escopo**, e o modo Acompanhar segue **estritamente somente
+  leitura** — há guarda de regressão que lê o fonte da tela.
 
 ### Menu radial de ações secundárias (`⋯`) — primeira entrega, só em Follow-ups
 - **Origem:** relatório de padronização visual "Padronização visual das listagens" (após os

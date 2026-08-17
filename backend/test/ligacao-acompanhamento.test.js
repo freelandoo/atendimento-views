@@ -4,7 +4,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const {
-  ESTADOS_OCUPADO, CAMPOS_PUBLICOS,
+  ESTADOS_OCUPADO, CAMPOS_PUBLICOS, CAMPOS_CALCULADOS,
   ocupaLead, ehDono, resumirLigacaoAtiva, resumirLigacoesAtivas,
 } = require('../src/services/ligacao-acompanhamento')
 const { listarLigacoesAtivasDaCampanha } = require('../src/db/ligacoes')
@@ -51,7 +51,7 @@ test('resumirLigacaoAtiva: marca sou_eu e nao vaza dado da conversa', () => {
   assert.equal(meu.usuario_nome, 'Maria')
   assert.equal(meu.estado_sessao, 'em_andamento')
   // Lista FECHADA de campos: nada de telefone/notas/resultado no payload da listagem.
-  assert.deepEqual(Object.keys(meu).sort(), ['sou_eu', ...CAMPOS_PUBLICOS].sort())
+  assert.deepEqual(Object.keys(meu).sort(), [...CAMPOS_CALCULADOS, ...CAMPOS_PUBLICOS].sort())
   assert.equal('telefone' in meu, false)
   assert.equal('notas' in meu, false)
   assert.equal('resultado' in meu, false)
@@ -111,14 +111,21 @@ test('listarLigacoesAtivasDaCampanha: resumo pendente sai como aguardando_resumo
 // --- guardas de regressao -----------------------------------------------------------
 test('guarda: o modulo de acompanhamento e PURO (sem banco, HTTP, IA ou rede)', () => {
   const fonte = fs.readFileSync(path.join(__dirname, '..', 'src', 'services', 'ligacao-acompanhamento.js'), 'utf8')
-  assert.equal(/require\(/.test(fonte), false, 'modulo puro nao deve importar nada')
   assert.equal(/\bpool\b|axios|fetch\(/.test(fonte), false, 'modulo puro nao fala com banco nem rede')
+  // A guarda original era "nao importa NADA". Ela ficou estreita demais quando a comparacao
+  // "veio desta mesma sessao?" ganhou dono proprio (`sessao-origem.js`, tambem puro):
+  // reimplementa-la aqui criaria uma segunda fonte para a mesma regra. A guarda passou a
+  // cobrar a LISTA de imports permitidos — mais forte que a contagem, porque um `require` de
+  // banco/rede continua quebrando o teste, com nome.
+  const imports = [...fonte.matchAll(/require\('([^']+)'\)/g)].map((m) => m[1])
+  assert.deepEqual(imports, ['./sessao-origem'],
+    'o acompanhamento so pode depender de outro modulo PURO de servico')
 })
 
 test('guarda: /ativas passa pelo sanitizador e /iniciar publica sou_eu', () => {
   const rota = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'api-ligacoes.js'), 'utf8')
   // A listagem NUNCA devolve a linha crua do banco: quem decide o que sai e o modulo puro.
-  assert.match(rota, /ACOMP\.resumirLigacoesAtivas\(rows, req\.usuario\?\.id\)/)
+  assert.match(rota, /ACOMP\.resumirLigacoesAtivas\(rows, req\.usuario\?\.id, origem\(req\)\.impressao\)/)
   // `sou_eu` no /iniciar e o que fecha a corrida de dois cliques quase simultaneos: sem ele o
   // segundo operador passaria a OPERAR a sessao que o primeiro acabou de abrir.
   assert.match(rota, /sou_eu: ACOMP\.ehDono\(data, req\.usuario\?\.id\)/)

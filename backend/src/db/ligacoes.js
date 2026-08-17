@@ -81,6 +81,26 @@ async function withTx(pool, fn) {
 const COLS_SESSAO = `id, empresa_id, status, campanha_id, campanha_lead_id, prospect_id,
   telefone, roteiro_versao_id, usuario_id, iniciada_em, encerrada_em, descartada_em,
   chamada_encerrada_em, duracao_seg, resultado, client_event_id, notas`
+// `sessao_origem` FICA DE FORA de COLS_SESSAO de proposito: este bloco e' devolvido cru por
+// `GET /ativa` e por `POST /iniciar`, e a impressao da sessao nao pode sair em rota nenhuma.
+// Quem precisa dela le por uma consulta propria (obterSessao / listarLigacoesAtivasDaCampanha),
+// que passa pelo sanitizador de services/ligacao-acompanhamento.js.
+
+// Origem da SESSAO que fez a transicao (migration 068). Sempre aplicada como par, e sempre
+// pelo mesmo fragmento, para as quatro transicoes de ciclo de vida (inicio, fim da chamada,
+// encerramento, descarte) nao divergirem no que gravam.
+//
+// COALESCE de propósito: cliente que nao manda a origem (ou consumidor antigo) NAO apaga a
+// origem ja registrada. Perder o "de onde veio" por causa de uma requisicao sem cabecalho
+// seria pior do que nao ter registrado — a tela passaria a nao saber explicar um encerramento
+// que ela mesma acabou de detectar.
+function setOrigemSessao(origem, params) {
+  const o = origem || {}
+  params.push(o.impressao || null); const iImp = params.length
+  params.push(o.dispositivo || null); const iDisp = params.length
+  return `sessao_origem = COALESCE($${iImp}, sessao_origem),
+          sessao_dispositivo = COALESCE($${iDisp}, sessao_dispositivo)`
+}
 
 // Le a ligacao por id GARANTINDO isolamento por empresa (nunca confiar so no id da URL).
 async function obterLigacao(pool, empresaId, id) {
@@ -124,7 +144,8 @@ async function listarLigacoesAtivasDaCampanha(pool, empresaId, { campanhaId, lim
   const lim = Math.min(Math.max(Number.parseInt(limit, 10) || 200, 1), 500)
   const { rows } = await pool.query(
     `SELECT l.id, l.status, l.campanha_lead_id, l.prospect_id, l.iniciada_em,
-            l.chamada_encerrada_em, l.usuario_id, u.nome AS usuario_nome
+            l.chamada_encerrada_em, l.usuario_id, u.nome AS usuario_nome,
+            l.sessao_origem, l.sessao_dispositivo
        FROM app.ligacoes l
        LEFT JOIN app.usuarios u ON u.id = l.usuario_id
       WHERE l.empresa_id = $1 AND l.campanha_id = $2 AND l.status = 'em_andamento'
@@ -134,6 +155,31 @@ async function listarLigacoesAtivasDaCampanha(pool, empresaId, { campanhaId, lim
   // `estado_sessao` vem daqui (fonte unica: comEstado) e nao e' re-derivado no front nem no
   // service — `em_andamento` e `aguardando_resumo` sao o MESMO status no banco.
   return rows.map(comEstado)
+}
+
+// Estado de UMA sessao, por id — a leitura que as telas abertas repetem no tempo para
+// descobrir que algo mudou em OUTRO aparelho.
+//
+// Por que nao serve `obterLigacaoAtiva`: aquela consulta filtra `status = 'em_andamento'`, ou
+// seja, a ligacao SOME dela no instante em que termina. "Sumiu" nao diz se foi encerramento
+// ou descarte, nem quem fez — e sao desfechos com consequencias diferentes (encerrada entra
+// na analitica e no historico do lead; descartada nao entra em lugar nenhum). Esta leitura e'
+// por PK, entao continua respondendo depois do fim.
+//
+// Barata de proposito: uma linha por id (PK) + o nome de quem esta na ligacao. E' o que
+// permite o passo de polling ser curto sem custo relevante — o modo Acompanhar continua
+// recarregando o CONTEUDO (sinais/objecoes/perguntas/etapa) no seu proprio ritmo, mais longo.
+async function obterSessao(pool, empresaId, id) {
+  if (!id) throw erroEntrada('id da ligacao obrigatorio.')
+  const { rows } = await pool.query(
+    `SELECT l.id, l.status, l.campanha_id, l.campanha_lead_id, l.prospect_id,
+            l.iniciada_em, l.chamada_encerrada_em, l.encerrada_em, l.descartada_em,
+            l.usuario_id, u.nome AS usuario_nome, l.sessao_origem, l.sessao_dispositivo
+       FROM app.ligacoes l
+       LEFT JOIN app.usuarios u ON u.id = l.usuario_id
+      WHERE l.id = $1 AND l.empresa_id = $2`, [id, empresaId])
+  if (!rows[0]) throw erroEntrada('Ligacao nao encontrada.', 404)
+  return comEstado(rows[0])
 }
 
 // Persistencia incremental do registro rapido (notas livres). So durante a ligacao ativa;
@@ -178,11 +224,13 @@ async function iniciarLigacao(pool, empresaId, p = {}) {
       const { rows } = await client.query(
         `INSERT INTO app.ligacoes
            (empresa_id, campanha_id, campanha_lead_id, prospect_id, telefone, roteiro_versao_id,
-            usuario_id, status, iniciada_em, client_event_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'em_andamento',NOW(),$8)
+            usuario_id, status, iniciada_em, client_event_id, sessao_origem, sessao_dispositivo)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'em_andamento',NOW(),$8,$9,$10)
          RETURNING ${COLS_SESSAO}`,
         [empresaId, p.campanhaId || null, p.campanhaLeadId || null, p.prospectId || null,
-          p.telefone || null, p.roteiroVersaoId || null, p.usuarioId || null, p.clientEventId || null])
+          p.telefone || null, p.roteiroVersaoId || null, p.usuarioId || null, p.clientEventId || null,
+          (p.origemSessao && p.origemSessao.impressao) || null,
+          (p.origemSessao && p.origemSessao.dispositivo) || null])
       const lig = rows[0]
       const etapa_ativa = await ligacaoEtapas.abrirPrimeiraEtapaTx(client, empresaId, lig.id, p.roteiroVersaoId, p.usuarioId)
       return { ...comEstado(lig), retomada: false, etapa_ativa }
@@ -216,20 +264,31 @@ async function iniciarLigacao(pool, empresaId, p = {}) {
 //      fechada em encerrarLigacao; enquanto o resumo estava aberto ela seguia acumulando, e
 //      uma troca de etapa nesse meio-tempo a fechava com NOW() (trocarEtapa nao passa
 //      `momento`), jogando o tempo do resumo dentro da duracao daquela etapa.
-async function marcarChamadaEncerrada(pool, empresaId, id) {
+async function marcarChamadaEncerrada(pool, empresaId, id, { origemSessao } = {}) {
   if (!id) throw erroEntrada('id da ligacao obrigatorio.')
   return withTx(pool, async (client) => {
+    // Le o valor ANTERIOR (travando a linha) so' para saber se este clique foi o que de fato
+    // marcou o fim. Sem isto o chamador nao consegue distinguir o primeiro clique do segundo:
+    // o COALESCE torna os dois bem-sucedidos e devolve a mesma linha, e a auditoria passaria a
+    // registrar uma transicao por clique. O FOR UPDATE tambem serializa dois cliques
+    // simultaneos (duas sessoes da mesma conta), garantindo que apenas um seja "o primeiro".
+    const { rows: antes } = await client.query(
+      `SELECT chamada_encerrada_em FROM app.ligacoes
+        WHERE id = $1 AND empresa_id = $2 FOR UPDATE`, [id, empresaId])
+    const jaMarcada = !!(antes[0] && antes[0].chamada_encerrada_em)
+    const params = [id, empresaId]
     const { rows } = await client.query(
-      `UPDATE app.ligacoes SET chamada_encerrada_em = COALESCE(chamada_encerrada_em, NOW())
+      `UPDATE app.ligacoes SET chamada_encerrada_em = COALESCE(chamada_encerrada_em, NOW()),
+              ${setOrigemSessao(origemSessao, params)}
         WHERE id = $1 AND empresa_id = $2 AND status = 'em_andamento'
-        RETURNING ${COLS_SESSAO}`, [id, empresaId])
+        RETURNING ${COLS_SESSAO}`, params)
     if (!rows[0]) {
       const atual = await obterLigacao(pool, empresaId, id) // 404 se nao existe / nao e' da empresa
       throw erroEntrada(`Ligacao ${atual.status} nao aceita marcar fim de chamada.`, 409)
     }
     // Idempotente: no 2o clique nao ha ocorrencia aberta e isto devolve null, sem efeito.
     await ligacaoEtapas.fecharEtapaAtiva(client, empresaId, id, rows[0].chamada_encerrada_em)
-    return comEstado(rows[0])
+    return { ...comEstado(rows[0]), ja_marcada: jaMarcada }
   })
 }
 
@@ -254,18 +313,20 @@ async function encerrarLigacao(pool, empresaId, id, p = {}) {
 
     // Guard idempotente tambem no UPDATE: so encerra se ainda estiver em_andamento.
     // duracao_seg mede ate o FIM DA CHAMADA; sem ele (cliente antigo), cai para NOW().
+    const params = [id, empresaId, p.resultado,
+      p.etapaAlcancada || null, etapaMaiorInteresse, etapaPerdaInteresse,
+      p.objecaoPrincipal != null ? String(p.objecaoPrincipal).slice(0, 500) : null,
+      p.motivoPerda || null, p.notas != null ? String(p.notas).slice(0, 4000) : null]
     const { rows } = await client.query(
       `UPDATE app.ligacoes
           SET status = 'encerrada', encerrada_em = NOW(),
               duracao_seg = GREATEST(0, EXTRACT(EPOCH FROM (COALESCE(chamada_encerrada_em, NOW()) - iniciada_em)))::int,
               resultado = $3, etapa_alcancada = $4, etapa_maior_interesse = $5,
-              etapa_perda_interesse = $6, objecao_principal = $7, motivo_perda = $8, notas = $9
+              etapa_perda_interesse = $6, objecao_principal = $7, motivo_perda = $8, notas = $9,
+              ${setOrigemSessao(p.origemSessao, params)}
         WHERE id = $1 AND empresa_id = $2 AND status = 'em_andamento'
         RETURNING ${COLS_SESSAO}`,
-      [id, empresaId, p.resultado,
-        p.etapaAlcancada || null, etapaMaiorInteresse, etapaPerdaInteresse,
-        p.objecaoPrincipal != null ? String(p.objecaoPrincipal).slice(0, 500) : null,
-        p.motivoPerda || null, p.notas != null ? String(p.notas).slice(0, 4000) : null])
+      params)
     if (!rows[0]) { // corrida: outro request encerrou/descartou primeiro => devolve o estado atual
       const cur = await obterLigacao(pool, empresaId, id)
       return { ...cur, ja_encerrada: cur.status === 'encerrada' }
@@ -344,20 +405,22 @@ async function telefoneDoLead(client, empresaId, ligacao) {
 
 // Descarta a operacao (idempotente). Fecha a etapa ativa na MESMA transacao (preserva as
 // ocorrencias para auditoria; fora da analitica por causa do status). Fica so para auditoria.
-async function descartarLigacao(pool, empresaId, id, { motivo } = {}) {
+async function descartarLigacao(pool, empresaId, id, { motivo, origemSessao } = {}) {
   const atual = await obterLigacao(pool, empresaId, id)
   if (atual.status === 'descartada') return { ...atual, ja_descartada: true } // idempotente
   if (!transicaoValida(atual.status, 'descartada')) {
     throw erroEntrada(`Ligacao ${atual.status} nao pode ser descartada.`, 409)
   }
   return withTx(pool, async (client) => {
+    const params = [id, empresaId, motivo != null ? String(motivo).slice(0, 500) : null]
     const { rows } = await client.query(
       `UPDATE app.ligacoes
           SET status = 'descartada', descartada_em = NOW(),
-              motivo_descarte = $3
+              motivo_descarte = $3,
+              ${setOrigemSessao(origemSessao, params)}
         WHERE id = $1 AND empresa_id = $2 AND status = 'em_andamento'
         RETURNING ${COLS_SESSAO}`,
-      [id, empresaId, motivo != null ? String(motivo).slice(0, 500) : null])
+      params)
     if (!rows[0]) { // corrida: outro request ja encerrou/descartou
       const cur = await obterLigacao(pool, empresaId, id)
       return { ...cur, ja_descartada: cur.status === 'descartada' }
@@ -393,6 +456,6 @@ async function listarLigacoes(pool, empresaId, { campanhaLeadId, prospectId, cam
 module.exports = {
   validarRegistro, derivarEtapasDeSinais, transicaoValida, STATUS_ANALITICO,
   estadoSessao, chamadaAberta,
-  listarLigacoes, obterLigacao, obterLigacaoAtiva, listarLigacoesAtivasDaCampanha,
+  listarLigacoes, obterLigacao, obterLigacaoAtiva, listarLigacoesAtivasDaCampanha, obterSessao,
   iniciarLigacao, marcarChamadaEncerrada, encerrarLigacao, descartarLigacao, atualizarNotas,
 }

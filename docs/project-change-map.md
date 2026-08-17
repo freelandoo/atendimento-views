@@ -79,6 +79,37 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
 
 -->
 
+## 2026-08-17 — Central de Ligações — Sincronização entre sessões/dispositivos da mesma conta
+- Área(s) tocada(s): Ligações (`src/services/sessao-origem.js` **novo — PURO**,
+  `src/services/ligacao-acompanhamento.js`: `resumirSessao`/`desfechoSessao`,
+  `src/db/ligacoes.js`: `obterSessao` + `setOrigemSessao` + `ja_marcada`,
+  `src/routes/api-ligacoes.js`: `GET /:id/sessao` e auditoria com origem), Front
+  (`frontend/lib/sessao-origem.js`/`.d.ts`/`.test.js` novos, `frontend/lib/ligacao-ativa.js`,
+  `frontend/lib/api.ts`, `app/dashboard/central-ligacoes/page.tsx`).
+  **Banco: migration `068_ligacao_sessao_origem.sql` — ADITIVA** (2 colunas nullable sem
+  DEFAULT em `app.ligacoes` + CHECK fechada no aparelho; **nenhum UPDATE em linha existente**).
+  **Env: nada.**
+- Regras preservadas: todas as garantias de concorrência do banco continuam intactas (UNIQUE
+  parcial `idx_ligacoes_uma_ativa_por_lead` da 048, `COALESCE` do fim da chamada, `UPDATE`
+  guardado por status, `ja_encerrada`/`ja_descartada`) — nada foi reimplementado na aplicação;
+  nenhuma rota de escrita nova e nenhuma mudança de permissão; o modo **Acompanhar segue
+  estritamente somente leitura** (guarda de regressão lê o fonte da tela e cobra o early-return
+  nas cinco ações e a forma do interruptor `ativo`); `OperacaoLigacao` continua sendo o único
+  componente de operação; a impressão da sessão **nunca sai em rota alguma** (por isso
+  `sessao_origem` ficou fora de `COLS_SESSAO`, que é devolvido cru por `/ativa` e `/iniciar`).
+- O que mudou: as quatro transições (início, fim da chamada, encerramento, descarte) passaram a
+  propagar para as outras sessões da mesma empresa. Nasceu `GET /ligacoes/:id/sessao` (leitura
+  por PK, somente leitura, responde **depois** do fim) e um **vigia de 5s que roda nos DOIS
+  modos** — antes, quem estava operando não recebia propagação nenhuma e descobria o
+  encerramento remoto como 409 ao salvar. A tela que recebe um desfecho remoto desliga a
+  escrita, congela o cronômetro, diz **qual** desfecho foi (encerrada ≠ descartada), de quem e
+  de qual aparelho, e reconcilia a fila atrás do overlay — sem se fechar sozinha. A listagem
+  passou de 15s para 10s e agora **reconcilia a fila**, não só o selo. Auditoria ganhou a origem
+  da sessão/dispositivo nas quatro transições e a ação nova `ligacao_chamada_encerrada` (era a
+  única sem registro). A chave de sessão é opaca, gerada no cliente, e o servidor guarda só uma
+  impressão não reversível; nenhuma identificação invasiva é coletada.
+- Documentos atualizados: `ai-task-start-log.md`, `ai-decision-log.md`, este arquivo, `AGENTS.md`.
+
 ## 2026-08-14 — Central de Ligações — Ligação em andamento visível + modo Acompanhar (somente leitura)
 - Área(s) tocada(s): Ligações (`src/services/ligacao-acompanhamento.js` novo — PURO,
   `src/db/ligacoes.js`: `listarLigacoesAtivasDaCampanha`, `src/routes/api-ligacoes.js`:
