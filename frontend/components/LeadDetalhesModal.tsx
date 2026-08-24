@@ -16,6 +16,7 @@ import JsonLeadModal, { type JsonApresentacao, type CriterioApresentacao } from 
 import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
 import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink, tituloLinkNaoSite } from '@/lib/site-rotulos'
+import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import {
   VARIANTES, O_QUE_MEDE, NOTA_COMPLETUDE, fatoresDeCadastro, leituraCadastro,
 } from '@/lib/pontuacao-indicador'
@@ -51,6 +52,8 @@ export type LeadDetalhavel = {
   score_cadastro_max?: number | null
   score_cadastro_criterios?: CriterioApresentacao[] | null
   json_apresentacao?: JsonApresLead | null
+  /** Rascunho já preparado (Manual/Semi/Automático escrevem no mesmo lugar — texto único). */
+  mensagem_gerada?: string | null
 }
 
 /**
@@ -112,14 +115,31 @@ function Linha({ rotulo, children }: { rotulo: string; children: React.ReactNode
   )
 }
 
-export default function LeadDetalhesModal({ lead, onFechar }: { lead: LeadDetalhavel; onFechar: () => void }) {
+export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectada = false }: {
+  lead: LeadDetalhavel
+  onFechar: () => void
+  /** A instância de envio selecionada na tela está desconectada — só muda o AVISO ao lado do
+      botão Copiar (a mensagem, quando existe, sempre pode ser copiada). */
+  instanciaDesconectada?: boolean
+}) {
   const [jsonAberto, setJsonAberto] = useState(false)
+  const fb = useFeedback()
   const emp = lead.json_apresentacao?.empresa
   const horario = emp?.horario_funcionamento
   const fotos = emp?.fotos
   const criterios = criteriosDoLead(lead)
   const maximo = maximoDoLead(lead)
   const handle = (lead.instagram_handle || '').replace(/^@/, '')
+
+  async function copiarMensagem() {
+    if (!lead.mensagem_gerada) return
+    try {
+      await navigator.clipboard.writeText(lead.mensagem_gerada)
+      fb.toast('Mensagem copiada.')
+    } catch {
+      fb.toast('Não foi possível copiar automaticamente. Selecione o texto manualmente.', 'error')
+    }
+  }
 
   return (
     <>
@@ -161,6 +181,31 @@ export default function LeadDetalhesModal({ lead, onFechar }: { lead: LeadDetalh
               </ul>
             )}
           </div>
+
+          {/* Mensagem já preparada (Manual/Semi/Automático escrevem no mesmo rascunho — texto
+              único reaproveitado pelos três). O botão de copiar existe para o caso em que a
+              instância de envio está desconectada: a mensagem já foi gerada e não precisa
+              esperar a conexão voltar para ser aproveitada manualmente. */}
+          {lead.mensagem_gerada && (
+            <div className="rounded-xl border bg-amber-50/60 px-3 py-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-slate-700">Mensagem gerada</p>
+                <button
+                  type="button"
+                  onClick={copiarMensagem}
+                  className="shrink-0 rounded-lg border bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Copiar
+                </button>
+              </div>
+              <p className="whitespace-pre-wrap text-xs text-slate-700">{lead.mensagem_gerada}</p>
+              {instanciaDesconectada && (
+                <p className="text-[11px] text-amber-700">
+                  Instância desconectada — copie e envie manualmente pelo WhatsApp enquanto ela não volta.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Dados complementares: é para cá que vieram Endereço, Nota, Avaliações e Horário
               quando saíram das colunas da tabela. */}

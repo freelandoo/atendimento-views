@@ -3222,3 +3222,81 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   autorizado**; commit local autorizado.
 - **Proxima etapa:** `npm test`, `npm run typecheck`, leitura do fluxo dos dois consumidores e
   commit local unico com o delta completo da fase.
+
+---
+
+## 2026-08-24 - Retomada de tarefa bloqueada por login: geracao manual em massa (Banco de Leads)
+
+- **IA/Ferramenta:** Claude Code (job em segundo plano, sem sessao de navegador autenticada).
+- **Pedido resumido:** retomar uma tarefa anterior que ficou bloqueada num passo de login
+  (verificacao visual/UX no navegador) e implementar o fluxo de geracao manual EM MASSA de
+  mensagens no Banco de Leads: selecao de leads no modo Manual (pagina atual / todos os
+  filtrados), acao "Gerar mensagens" sem enviar, progresso com contadores reais, reuso da
+  mesma mensagem entre Manual/Semi/Automatico, geracao sem depender de instancia conectada,
+  envio restrito a instancia conectada, e botao de copiar em Detalhes quando desconectada.
+- **E projeto/tarefa de alteracao?** Sim, escopo medio, localizado no FRONTEND (nenhum arquivo
+  de backend, schema, prompt ou rota foi tocado).
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md (indice): Sim.
+- **Verificacao de tentativa anterior:** nao encontrada nenhuma alteracao de codigo pendente
+  para este tema — nem no checkout principal (`git status`/`git diff` so mostravam docs de uma
+  tarefa nao relacionada, "Tenka Tech"), nem em nenhum dos ~20 worktrees existentes (`git
+  worktree list` + `git status` em cada um). A tarefa foi implementada do zero.
+- **Achado que decide o desenho:** o backend (`backend/src/services/rodar-leads.js`,
+  `backend/src/routes/api-banco-leads.js`) ja tinha TODA a infraestrutura necessaria —
+  `/gerar` (gera sem enviar, nao exige instancia conectada), `/geracao-progresso` (contadores
+  reais) e a mesma tabela `prospectador.lead_disparos` para Manual/Semi/Automatico. **Nenhuma
+  mudanca de backend foi necessaria.**
+- **Achado (2):** o FRONTEND ja tinha o esqueleto morto dessa feature desde o commit
+  `731a320` (18/07): `const mostrarSelecao = false` (hardcoded, nunca ligado), `SelCelula`,
+  `gerar()` e `selecionarLote()` existiam mas nunca eram chamados por nenhum botao — o fluxo
+  real sempre foi 1 lead por vez via modal de conversa. A tarefa reaproveitou/ligou esse
+  esqueleto em vez de duplicar codigo.
+- **Decisao de escopo:** sem sessao de navegador autenticada neste job (mesmo bloqueio de
+  login da tarefa anterior), a validacao ficou em `npm run typecheck`, `npm test` (358/358) e
+  `npm run build` do `frontend/` (limpos) + leitura de codigo para confirmar o reuso de dados
+  entre modos. Nao foi possivel clicar o fluxo fim-a-fim com uma empresa/instancia real.
+- **Fora de escopo declarado:** commit, push, deploy, envio real de WhatsApp/Evolution,
+  chamadas pagas/reais de IA em testes, refatoracoes amplas, geracao+envio manual combinados.
+  **Commit/push NAO autorizado.**
+- **Proxima etapa:** o operador revisa o diff no worktree `worktree-banco-leads-geracao-massa`
+  e decide commit/push; QA manual no navegador (login + empresa com leads) fica pendente.
+
+### Retomada (2026-08-24) — commit/push autorizados nesta rodada
+
+- **Pedido resumido:** retomar exatamente este worktree (ele ja existia, com o diff acima
+  pendente) e concluir com commit/push, agora autorizados pelo operador. Instrucao explicita:
+  nao tocar nos arquivos de uma tarefa nao relacionada (Tenka Tech) presentes no checkout
+  principal — `docs/analise-processo-comercial-tenka.md` e as respectivas entradas de log.
+- **Verificacao de estado:** `git status` no worktree so mostrava os 3 arquivos desta tarefa
+  (este log + as duas paginas do frontend). O checkout principal e os demais worktrees tem
+  as mudancas de Tenka; nenhum deles foi tocado por esta sessao.
+- **Gap encontrado no diff herdado:** o "reaproveitamento entre Manual/Semi/Automatico" nao
+  estava de fato implementado — `POST /gerar` (`gerarMensagensSemi` -> `reservarGeracaoSemi`)
+  sempre REGERA a mensagem (zera `mensagem` antes de gerar de novo), mesmo quando o lead ja
+  tinha um rascunho pronto (`aguardando_disparo`) escrito por outro modo. Clicar "Gerar
+  mensagens" em massa sobre leads ja prontos pagaria IA de novo e descartaria texto talvez
+  ja revisado.
+- **Correcao aplicada (so FRONTEND, sem tocar backend):** `gerarSelecionadosEmMassa` agora
+  separa a selecao em `jaProntos` (leads cujo `mensagem_gerada` ja veio preenchido do
+  `GET /leads`, que ja e escopado pela instancia selecionada) e `paraGerar`. Só `paraGerar` e
+  enviado ao backend em lotes de `MAX_LOTE`; `jaProntos` entra direto no contador de
+  "pronta(s)" do progresso, sem chamada de rede nem de IA. Isso fecha o requisito de reuso sem
+  exigir nenhuma mudanca de schema, rota ou logica de geracao no backend.
+- **Por que nao mudar o backend:** `prospectador.lead_disparos` tem indice unico parcial
+  (`idx_lead_disparos_reserva_ativa`, migration 026) que ja garante NO MAXIMO uma reserva ativa
+  por `prospect_id` (independente de instancia) — ou seja, o armazenamento ja e compartilhado
+  entre Manual/Semi/Automatico por construcao. O unico gap era o FRONTEND reenviar para geracao
+  algo que ja estava pronto; resolver ali e a mudanca minima (AGENTS.md: menor mudanca
+  possivel, sem duplicar logica que ja existe em `gerarMensagensSemi`).
+- **Validacao:** `npm install` no `backend/` (node_modules do worktree estava desatualizado,
+  faltava `axios` — ambiental, nao ligado a esta tarefa) + `npm test` (1627/1627) +
+  `npm run typecheck` (limpo, backend e frontend) + `npm run build` do `frontend/` (limpo,
+  27/27 paginas). Nao ha `npm run smoke:preco` aplicavel (nada de precificacao foi tocado).
+  Sem sessao de navegador autenticada nesta rodada tambem — QA visual fim-a-fim continua
+  pendente do operador.
+- **Arquivos alterados nesta rodada:** `frontend/app/dashboard/banco-leads/page.tsx` (fix de
+  reaproveitamento), este log. `frontend/components/LeadDetalhesModal.tsx` do diff herdado foi
+  revisado e mantido sem mudanca adicional.
+- **Commit/push:** autorizados pelo operador nesta rodada — commit local seguido de push do
+  branch do worktree (`worktree-banco-leads-geracao-massa`), sem tocar em `master` nem nos
+  arquivos da tarefa Tenka.

@@ -7,6 +7,7 @@ import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
 import LeadDetalhesModal, { BolinhaCadastro } from '@/components/LeadDetalhesModal'
 import ConversaHistoricoModal from '@/components/ConversaHistoricoModal'
+import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
@@ -92,6 +93,9 @@ type PrevisaoEnvio = {
 }
 // Progresso da preparação das mensagens (barra). A geração roda no worker de fundo.
 type GeracaoProgresso = { eligiveis: number; prontas: number; gerando: number; enviados: number; erros: number }
+// Progresso da geração em massa disparada no modo Manual (seleção de leads, sem worker
+// dedicado): contadores REAIS, acumulados a cada lote de MAX_LOTE devolvido pelo backend.
+type ProgressoLoteManual = { total: number; processados: number; prontas: number; erros: number; pulados: number }
 
 const MAX_LOTE = 15
 const STATUS_RODAVEL = new Set(['coletado', 'contato_encontrado', 'aguardando', 'aprovado'])
@@ -504,7 +508,15 @@ export default function BancoLeadsPage() {
   const [conexoes, setConexoes] = useState<Record<string, StatusConexaoInstancia>>({})
   const [verificandoConexao, setVerificandoConexao] = useState(false)
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
-  const [gerando, setGerando] = useState(false)
+  // Geração em massa (Manual): lote processado em batches de MAX_LOTE via /gerar — os
+  // contadores vêm das respostas REAIS do backend, nunca de uma % simulada. Roda até o fim
+  // mesmo se o operador trocar de tela dentro do sistema (a promessa é só essa: fechar a aba
+  // ou recarregar interrompe, já que não existe worker de fundo para uma SELEÇÃO manual).
+  const [gerandoLote, setGerandoLote] = useState(false)
+  const [progressoLoteManual, setProgressoLoteManual] = useState<ProgressoLoteManual | null>(null)
+  const [confirmarLoteGrande, setConfirmarLoteGrande] = useState(false)
+  const montadoRef = useRef(true)
+  useEffect(() => () => { montadoRef.current = false }, [])
   const [geracaoProgresso, setGeracaoProgresso] = useState<GeracaoProgresso | null>(null)
   const [geracaoProgressoErro, setGeracaoProgressoErro] = useState(false)
   const assinaturaGeracaoRef = useRef<string | null>(null)
@@ -693,8 +705,9 @@ export default function BancoLeadsPage() {
     const t = setInterval(() => setCooldownS((s) => (s && s > 0 ? s - 1 : s)), 1000)
     return () => clearInterval(t)
   }, [])
-  // Limpa a seleção ao trocar de aba/filtro (os ids podem sair da lista).
-  useEffect(() => { setSelecionados(new Set()) }, [aba, origem, mercado, cidadeFiltro, busca])
+  // Limpa a seleção ao trocar de aba/filtro/modo (os ids podem sair da lista, ou a seleção
+  // deixa de fazer sentido fora do Manual — os checkboxes somem junto).
+  useEffect(() => { setSelecionados(new Set()) }, [aba, origem, mercado, cidadeFiltro, busca, config.modo])
   // Qualquer mudança no recorte volta a paginação para a 1ª página — senão o operador pode
   // cair numa página vazia depois de filtrar ou trocar de aba (mesmo padrão de Follow-ups e
   // Central de Ligações).
@@ -787,18 +800,31 @@ export default function BancoLeadsPage() {
   const mercadoOpcoes = useMemo(() => opcoesMercado(filtrosMercado), [filtrosMercado])
   const cidadeOpcoes = filtrosMercado?.cidades || []
 
+  // Sem teto de 15 aqui: a seleção pode cobrir a página inteira ou todo o filtrado — o
+  // envio pra API é que quebra em lotes de MAX_LOTE (ver gerarSelecionadosEmMassa).
   function toggleSel(id: string) {
     setSelecionados((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) { next.delete(id); return next }
-      if (next.size >= MAX_LOTE) { fb.toast(`Máximo de ${MAX_LOTE} leads por rodada.`, 'info'); return prev }
-      next.add(id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
-  function selecionarLote() {
-    const ids = rodaveis.slice(0, MAX_LOTE).map((l) => l.id)
-    setSelecionados(new Set(ids))
+  // "Página atual" = os leads rodáveis visíveis AGORA nas duas tabelas (cada uma pagina
+  // independente). Soma à seleção existente — não substitui, para dar pra somar páginas.
+  function idsPaginaAtual(): string[] {
+    return [...pgPlaces.itens, ...pgIg.itens].filter(isRodavel).map((l) => l.id)
+  }
+  function selecionarPaginaAtual() {
+    setSelecionados((prev) => new Set([...prev, ...idsPaginaAtual()]))
+  }
+  // "Todos os filtrados" = todo o conjunto já carregado que respeita os filtros/abas atuais
+  // (mesmo universo de `rodaveis`, sem fetch novo — o Banco de Leads já traz tudo de uma vez).
+  function selecionarTodosFiltrados() {
+    setSelecionados(new Set(rodaveis.map((l) => l.id)))
+  }
+  function limparSelecao() {
+    setSelecionados(new Set())
   }
 
   async function trocarModo(modo: string) {
@@ -886,28 +912,69 @@ export default function BancoLeadsPage() {
     fb.toast('Rotina automática ligada. A rotina começa no próximo tick.')
   }
 
-  // SEMI — gera as mensagens (IA/fallback) e deixa prontas aguardando disparo.
-  async function gerar() {
+  // MANUAL — gera em massa as mensagens da seleção (IA c/ fallback), sem enviar e sem exigir
+  // instância conectada (mesma regra do /gerar de sempre — só empacota em lotes de MAX_LOTE,
+  // que é o teto por chamada no backend). Os contadores do progresso vêm das respostas REAIS
+  // de cada lote, nunca de uma porcentagem simulada. A mensagem gerada é a MESMA usada por
+  // Semi/Automático (grava em prospectador.lead_disparos) — reaproveitada, não duplicada.
+  //
+  // Reaproveitamento: quem já tem `mensagem_gerada` (rascunho pronto por Manual/Semi/
+  // Automático, na MESMA instância — `carregarLeads` já escopa por `instancia_id`) NÃO entra
+  // no lote enviado ao backend. Sem este filtro, clicar "Gerar mensagens" sobre uma seleção
+  // que já tem rascunhos prontos regeneraria tudo (`gerarMensagensSemi` sempre regera, nunca
+  // reaproveita) — pagando IA de novo e descartando texto que já podia estar revisado.
+  async function gerarSelecionadosEmMassa() {
     if (!instanciaId) { fb.toast('Escolha uma instância.', 'error'); return }
     const ids = [...selecionados]
     if (!ids.length) { fb.toast('Selecione ao menos um lead.', 'error'); return }
-    setGerando(true)
+    setGerandoLote(true)
+    const total = ids.length
+    const jaProntos = ids.filter((id) => !!leads.find((l) => l.id === id)?.mensagem_gerada)
+    const jaProntosSet = new Set(jaProntos)
+    const paraGerar = ids.filter((id) => !jaProntosSet.has(id))
+    let prontas = jaProntos.length, erros = 0, pulados = 0, falhasLote = 0
+    if (montadoRef.current) setProgressoLoteManual({ total, processados: jaProntos.length, prontas, erros, pulados })
     try {
-      const r = await apiFetch<GerarResumo>(`${base}/gerar`, {
-        method: 'POST',
-        body: JSON.stringify({ instancia_id: instanciaId, prospect_ids: ids }),
-      })
-      const d = r.data
-      const okCount = d.gerados.filter((g) => !g.erro_ia).length
-      const erroCount = d.gerados.filter((g) => g.erro_ia).length
-      const puladosTxt = d.pulados.length ? ` · ${d.pulados.length} pulado(s)` : ''
-      const erroTxt = erroCount ? ` · ${erroCount} com erro de IA (veja "↻ Gerar de novo")` : ''
-      fb.sucessoModal('Mensagens geradas', `${okCount} pronta(s) aguardando disparo${erroTxt}${puladosTxt}.`)
+      for (let i = 0; i < paraGerar.length; i += MAX_LOTE) {
+        const parte = paraGerar.slice(i, i + MAX_LOTE)
+        try {
+          const r = await apiFetch<GerarResumo>(`${base}/gerar`, {
+            method: 'POST',
+            body: JSON.stringify({ instancia_id: instanciaId, prospect_ids: parte }),
+          })
+          prontas += r.data.gerados.filter((g) => !g.erro_ia).length
+          erros += r.data.gerados.filter((g) => g.erro_ia).length
+          pulados += r.data.pulados.length
+        } catch {
+          falhasLote += parte.length
+        }
+        if (montadoRef.current) {
+          setProgressoLoteManual({ total, processados: Math.min(jaProntos.length + i + parte.length, total), prontas, erros, pulados })
+        }
+      }
+      const reaproveitadasTxt = jaProntos.length ? ` (${jaProntos.length} já pronta(s), reaproveitada(s))` : ''
+      const erroTxt = erros ? ` · ${erros} com erro de IA` : ''
+      const puladosTxt = pulados ? ` · ${pulados} pulado(s)` : ''
+      const falhasTxt = falhasLote ? ` · ${falhasLote} não processado(s) por falha de conexão` : ''
+      fb.sucessoModal('Mensagens geradas', `${prontas} pronta(s) aguardando disparo${reaproveitadasTxt}${erroTxt}${puladosTxt}${falhasTxt}.`)
       setSelecionados(new Set())
-      await carregarLeads()
     } catch (e) {
-      fb.toast(e instanceof Error ? e.message : 'Falha ao gerar mensagens.', 'error')
-    } finally { setGerando(false) }
+      fb.toast(e instanceof Error ? e.message : 'Falha ao gerar mensagens em massa.', 'error')
+    } finally {
+      if (montadoRef.current) {
+        setGerandoLote(false)
+        setProgressoLoteManual(null)
+        await carregarLeads()
+      }
+    }
+  }
+  // Abaixo de MAX_LOTE roda direto; acima disso confirma antes (várias chamadas, algumas
+  // usando IA — vale avisar antes de disparar um lote grande).
+  function pedirGeracaoEmMassa() {
+    if (!instanciaId) { fb.toast('Escolha uma instância.', 'error'); return }
+    if (!selecionados.size) { fb.toast('Selecione ao menos um lead.', 'error'); return }
+    if (selecionados.size > MAX_LOTE) { setConfirmarLoteGrande(true); return }
+    gerarSelecionadosEmMassa()
   }
 
   // SEMI — re-gera a mensagem de um único lead (após erro de IA).
@@ -1060,8 +1127,10 @@ export default function BancoLeadsPage() {
   }
 
   const mostrarRodar = aba === 'sem_contato'
-  // Sem seleção em lote: envio é 1 a 1 pelo telefone/modal (manual e semi). Sem checkbox.
-  const mostrarSelecao = false
+  // Checkbox de seleção em lote só no Manual: Semi/Automático já geram sozinhos em segundo
+  // plano (worker), então "selecionar e gerar" não se aplica — o envio ali continua 1 a 1
+  // pelo telefone/modal.
+  const mostrarSelecao = mostrarRodar && config.modo === 'manual'
   const modoAtual = MODOS.find((m) => m.valor === config.modo) || MODOS[0]
   // Enviar fica liberado em Manual e Semi: se não houver mensagem gerada, o backend gera na hora.
   const podeEnviarConversa = !!conversaAberta && !!instanciaId && conversaAberta.rodavel
@@ -1216,6 +1285,65 @@ export default function BancoLeadsPage() {
               )}
             </div>
           </div>
+
+          {/* Seleção em massa (Manual) — gera as mensagens dos leads marcados SEM enviar.
+              Não depende de instância conectada (a mesma regra do envio 1 a 1); o envio em
+              si continua exigindo conexão, aqui ou no modal de conversa. */}
+          {mostrarSelecao && (
+            <div className="mt-2 rounded-xl border bg-slate-50/60 p-3 space-y-3" aria-live="polite">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">Seleção em massa</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Marque leads na tabela (checkbox à esquerda) ou use os atalhos abaixo. "Gerar mensagens"
+                    prepara o texto de todos os selecionados sem enviar nada.
+                  </p>
+                </div>
+                <span className="text-sm font-bold tabular-nums text-slate-700">
+                  {selecionados.size} selecionado{selecionados.size === 1 ? '' : 's'}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={selecionarPaginaAtual} disabled={gerandoLote}
+                  className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-slate-50 disabled:opacity-50">
+                  Selecionar página atual ({idsPaginaAtual().length})
+                </button>
+                <button type="button" onClick={selecionarTodosFiltrados} disabled={gerandoLote}
+                  className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-slate-50 disabled:opacity-50">
+                  Selecionar todos os filtrados ({rodaveis.length})
+                </button>
+                <button type="button" onClick={limparSelecao} disabled={gerandoLote || !selecionados.size}
+                  className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-slate-50 disabled:opacity-50">
+                  Limpar seleção
+                </button>
+                <button type="button" onClick={pedirGeracaoEmMassa}
+                  disabled={gerandoLote || !selecionados.size || !instanciaId}
+                  className="ml-auto inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand-dark disabled:opacity-50">
+                  {gerandoLote && <Spinner />}
+                  {gerandoLote ? 'Gerando…' : 'Gerar mensagens (sem enviar)'}
+                </button>
+              </div>
+              {progressoLoteManual && (
+                <div className="space-y-1.5">
+                  <div className="h-2.5 overflow-hidden rounded-full bg-slate-200" role="progressbar"
+                    aria-label="Progresso da geração em massa" aria-valuemin={0} aria-valuemax={progressoLoteManual.total}
+                    aria-valuenow={progressoLoteManual.processados}>
+                    <div className={`h-full rounded-full transition-[width] duration-300 ${progressoLoteManual.erros ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                      style={{ width: `${progressoLoteManual.total ? Math.round((progressoLoteManual.processados / progressoLoteManual.total) * 100) : 0}%` }} />
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                    <span><b className="text-slate-700">{progressoLoteManual.processados}</b> de {progressoLoteManual.total} processado(s)</span>
+                    <span><b className="text-emerald-700">{progressoLoteManual.prontas}</b> pronta(s)</span>
+                    {progressoLoteManual.erros > 0 && <span className="text-amber-700"><b>{progressoLoteManual.erros}</b> com erro de IA</span>}
+                    {progressoLoteManual.pulados > 0 && <span><b>{progressoLoteManual.pulados}</b> pulado(s)</span>}
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Continua rodando se você trocar de aba dentro do sistema — só feche ou recarregue esta página que interrompe.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Progresso do worker Semiautomático — observação apenas; não dispara geração no browser. */}
           {config.modo === 'semi_automatico' && (
@@ -1448,7 +1576,25 @@ export default function BancoLeadsPage() {
       )}
 
       {detalheAberto && (
-        <LeadDetalhesModal lead={detalheAberto} onFechar={() => setDetalheAberto(null)} />
+        <LeadDetalhesModal
+          lead={detalheAberto}
+          onFechar={() => setDetalheAberto(null)}
+          instanciaDesconectada={statusConexao?.connected === false}
+        />
+      )}
+
+      {/* Irmão do painel de seleção, nunca filho de outro modal: confirma antes de disparar
+          várias chamadas (algumas com IA) quando a seleção passa de um lote (MAX_LOTE). */}
+      {confirmarLoteGrande && (
+        <ModalConfirmar
+          titulo="Gerar mensagens em massa"
+          corpo={`${selecionados.size} lead(s) selecionado(s) — o sistema vai preparar as mensagens em ${Math.ceil(selecionados.size / MAX_LOTE)} lote(s) de até ${MAX_LOTE}. Nada é enviado nesta etapa.`}
+          aviso="Pode levar alguns minutos quando a geração por IA está ligada. Continue nesta tela até terminar."
+          rotuloConfirmar="Gerar mensagens"
+          ocupado={gerandoLote}
+          onConfirmar={() => { setConfirmarLoteGrande(false); gerarSelecionadosEmMassa() }}
+          onCancelar={() => setConfirmarLoteGrande(false)}
+        />
       )}
 
       {conversaAberta && (
