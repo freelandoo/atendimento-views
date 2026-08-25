@@ -2,10 +2,11 @@
 const { test } = require('node:test')
 const assert = require('node:assert')
 const {
-  renderSaudacao, rodarLeads, gerarMensagensSemi, dispararGerados, estadoEnvioInstancia,
+  renderSaudacao, rodarLeads, gerarMensagensSemi, gerarPendentesSemi, dispararGerados, estadoEnvioInstancia,
   aguardarStatusEnvioEvolution, afirmarEnvioNaoFalhouNaEvolution, enviarLoteEmBackground,
   reconciliarConfirmacoesPendentes, resolverTabelaMessageUpdate,
   separarElegiveis, exigirInstanciaConectada, carregarInstancia, STATUS_RODAVEL,
+  LIMITE_FALHAS_IA_CONSECUTIVAS,
 } = require('../src/services/rodar-leads')
 
 // Pool mockado por roteamento de SQL: casa a primeira needle contida no texto.
@@ -152,6 +153,134 @@ test('gerarMensagensSemi gera com fallback (gerar_ia off) e grava aguardando_dis
   assert.match(out.gerados[0].mensagem, /Padaria X/) // template renderizado
   assert.match(finalSql, /aguardando_disparo/)       // finaliza a reserva no estado pendente
   assert.match(mensagemInserida, /Padaria X/)
+})
+
+// ─── Semi: geração em massa — falha sistêmica de IA (preflight + circuit breaker) ──────
+const configSemiIA = { ...configSemi, gerar_ia: true }
+function leadsMulti(qtd) {
+  return Array.from({ length: qtd }, (_, i) => ({
+    ...prospectRodavel, id: `p${i + 1}`, nome: `Lead ${i + 1}`, telefone: `551199999${String(i).padStart(2, '0')}0`,
+  }))
+}
+function extrairNomeDoPrompt(userPrompt) {
+  const m = /DADOS DO LEAD \(([^)]+)\)/.exec(String(userPrompt || ''))
+  return m ? m[1] : ''
+}
+
+test('gerarMensagensSemi aborta o lote inteiro no pré-teste, sem marcar erro individual, quando a IA falha já na 1ª tentativa', async () => {
+  const leads = leadsMulti(3)
+  let erroIaGravado = 0
+  let prontosGravados = 0
+  let reservasDesfeitas = 0
+  const pool = makePool([
+    ['app.empresa_whatsapp_instances', () => ({ rows: [instanciaAtiva] })],
+    ['app.banco_leads_config', () => ({ rows: [configSemiIA] })],
+    ['ANY($2::uuid[])', () => ({ rows: leads })],
+    ["erro = 'geracao_expirada'", () => ({ rows: [] })],
+    ["SET status = 'gerando'", () => ({ rows: [] })],
+    ["NULL, 'gerando'", (params) => ({ rows: [{ id: `d-${params[1]}` }] })],
+    ["SET status = 'erro_ia'", () => { erroIaGravado++; return { rows: [] } }],
+    ["SET status = 'aguardando_disparo'", () => { prontosGravados++; return { rows: [] } }],
+    ['DELETE FROM prospectador.lead_disparos', () => { reservasDesfeitas++; return { rows: [] } }],
+  ])
+  const generateAIResponse = async () => { throw new Error('Provider indisponível (simulado)') }
+
+  const out = await gerarMensagensSemi(pool, {
+    empresaId: 'e1', usuarioId: 'u1', instanciaId: 'i1', prospectIds: leads.map((l) => l.id),
+  }, { generateAIResponse })
+
+  assert.strictEqual(out.gerados.length, 0, 'nenhum lead deve aparecer como gerado/erro individual')
+  assert.ok(out.falha_sistemica, 'deve reportar falha sistêmica')
+  assert.strictEqual(out.falha_sistemica.motivo, 'ia_indisponivel')
+  assert.strictEqual(out.falha_sistemica.nao_processados, 3)
+  assert.strictEqual(erroIaGravado, 0, 'nao pode marcar erro_ia individualmente numa falha sistemica')
+  assert.strictEqual(prontosGravados, 0)
+  assert.strictEqual(reservasDesfeitas, 1, 'a reserva do lead testado no pré-teste deve ser desfeita')
+})
+
+test('gerarMensagensSemi interrompe o lote após falhas consecutivas no meio (circuit breaker), preservando o que já foi gerado', async () => {
+  assert.strictEqual(LIMITE_FALHAS_IA_CONSECUTIVAS, 3, 'teste calibrado para o limite atual de falhas consecutivas')
+  const leads = leadsMulti(5)
+  const falhamNomes = new Set(['Lead 2', 'Lead 3', 'Lead 4'])
+  let erroIaGravado = 0
+  let prontosGravados = 0
+  const pool = makePool([
+    ['app.empresa_whatsapp_instances', () => ({ rows: [instanciaAtiva] })],
+    ['app.banco_leads_config', () => ({ rows: [configSemiIA] })],
+    ['ANY($2::uuid[])', () => ({ rows: leads })],
+    ["erro = 'geracao_expirada'", () => ({ rows: [] })],
+    ["SET status = 'gerando'", () => ({ rows: [] })],
+    ["NULL, 'gerando'", (params) => ({ rows: [{ id: `d-${params[1]}` }] })],
+    ["SET status = 'erro_ia'", () => { erroIaGravado++; return { rows: [] } }],
+    ["SET status = 'aguardando_disparo'", () => { prontosGravados++; return { rows: [] } }],
+  ])
+  const generateAIResponse = async (input) => {
+    const nome = extrairNomeDoPrompt(input.userPrompt)
+    if (falhamNomes.has(nome)) throw new Error(`Falha simulada para ${nome}`)
+    return { text: `Oi, ${nome}! Notei uma oportunidade no seu cadastro.` }
+  }
+
+  const out = await gerarMensagensSemi(pool, {
+    empresaId: 'e1', usuarioId: 'u1', instanciaId: 'i1', prospectIds: leads.map((l) => l.id),
+  }, { generateAIResponse })
+
+  // Lead 1 (pré-teste) tem sucesso; Lead 2/3/4 falham 3x seguidas e disparam o circuit
+  // breaker; Lead 5 nunca chega a ser tentado.
+  assert.strictEqual(out.gerados.length, 4)
+  assert.strictEqual(out.gerados.filter((g) => g.erro_ia).length, 3)
+  assert.strictEqual(out.gerados.filter((g) => !g.erro_ia).length, 1)
+  assert.ok(out.falha_sistemica)
+  assert.strictEqual(out.falha_sistemica.nao_processados, 1)
+  assert.strictEqual(out.falha_sistemica.falhas_consecutivas, 3)
+  assert.strictEqual(erroIaGravado, 3)
+  assert.strictEqual(prontosGravados, 1)
+})
+
+test('gerarMensagensSemi NÃO aciona o pré-teste sistêmico para um único lead (retry individual continua igual)', async () => {
+  const leads = leadsMulti(1)
+  let erroIaGravado = 0
+  const pool = makePool([
+    ['app.empresa_whatsapp_instances', () => ({ rows: [instanciaAtiva] })],
+    ['app.banco_leads_config', () => ({ rows: [configSemiIA] })],
+    ['ANY($2::uuid[])', () => ({ rows: leads })],
+    ["erro = 'geracao_expirada'", () => ({ rows: [] })],
+    ["SET status = 'gerando'", () => ({ rows: [] })],
+    ["NULL, 'gerando'", (params) => ({ rows: [{ id: `d-${params[1]}` }] })],
+    ["SET status = 'erro_ia'", () => { erroIaGravado++; return { rows: [] } }],
+  ])
+  const generateAIResponse = async () => { throw new Error('Falha individual simulada') }
+
+  const out = await gerarMensagensSemi(pool, {
+    empresaId: 'e1', usuarioId: 'u1', instanciaId: 'i1', prospectIds: ['p1'],
+  }, { generateAIResponse })
+
+  assert.strictEqual(out.falha_sistemica, null)
+  assert.strictEqual(out.gerados.length, 1)
+  assert.strictEqual(out.gerados[0].erro_ia, true)
+  assert.strictEqual(erroIaGravado, 1)
+})
+
+test('gerarPendentesSemi propaga a falha sistêmica sem tentar o restante das leads', async () => {
+  const leads = leadsMulti(2)
+  const pool = makePool([
+    ['app.empresa_whatsapp_instances', () => ({ rows: [instanciaAtiva] })],
+    ['NOT EXISTS', () => ({ rows: leads.map((l) => ({ id: l.id })) })],
+    ['app.banco_leads_config', () => ({ rows: [configSemiIA] })],
+    ['ANY($2::uuid[])', () => ({ rows: leads })],
+    ["erro = 'geracao_expirada'", () => ({ rows: [] })],
+    ["SET status = 'gerando'", () => ({ rows: [] })],
+    ["NULL, 'gerando'", (params) => ({ rows: [{ id: `d-${params[1]}` }] })],
+    ['DELETE FROM prospectador.lead_disparos', () => ({ rows: [] })],
+  ])
+  const generateAIResponse = async () => { throw new Error('Provider indisponível (simulado)') }
+
+  const out = await gerarPendentesSemi(pool, {
+    empresaId: 'e1', instanciaId: 'i1', limit: 10,
+  }, { generateAIResponse })
+
+  assert.strictEqual(out.gerados.length, 0)
+  assert.ok(out.falha_sistemica)
+  assert.strictEqual(out.falha_sistemica.nao_processados, 2)
 })
 
 // ─── Semi: dispararGerados ─────────────────────────────────────────────────────

@@ -22,6 +22,11 @@ const { montarJsonApresentacaoPlaces, montarJsonApresentacaoInstagram } = requir
 const { canProspectLead } = require('./prospecting-eligibility')
 const { logger } = require('../logger')
 
+// Circuit breaker da geração em massa por IA: nº de falhas CONSECUTIVAS que interrompem
+// o lote (falha sistêmica — provider fora do ar, credencial inválida, quota etc — afeta
+// todos os leads igualmente, então não vale marcar erro_ia em cada um). Ver gerarMensagensSemi.
+const LIMITE_FALHAS_IA_CONSECUTIVAS = 3
+
 const MAX_LOTE = Math.max(1, parseInt(process.env.RODAR_LEADS_MAX_LOTE, 10) || 15)
 const COOLDOWN_MIN = Math.max(0, parseInt(process.env.RODAR_LEADS_COOLDOWN_MIN, 10) || 15)
 const TETO_DIARIO = Math.max(0, parseInt(process.env.RODAR_LEADS_TETO_DIARIO, 10) || 40)
@@ -184,7 +189,7 @@ function montarJsonApresentacaoDoProspect(prospect) {
 //  - gerar_ia ON: a mensagem DEVE ser da IA. Se a IA falhar (após retries em
 //    saudacao-analise), retorna falha_ia=true — o caller marca erro no status e NÃO
 //    envia template silenciosamente.
-async function mensagemFinalDoLead(pool, { prospect, template, gerarIa, instrucoes, contextoId, empresaId }) {
+async function mensagemFinalDoLead(pool, { prospect, template, gerarIa, instrucoes, contextoId, empresaId, _generate }) {
   if (!gerarIa) {
     return { texto: renderSaudacao(template, prospect), gerada_por_ia: false, falha_ia: false }
   }
@@ -192,7 +197,7 @@ async function mensagemFinalDoLead(pool, { prospect, template, gerarIa, instruco
     const jsonApresentacao = montarJsonApresentacaoDoProspect(prospect)
     const textoIa = await gerarSaudacaoAnalise({
       pool, log: logger, empresaId, contextoId, jsonApresentacao,
-      instrucoes, nomeLead: prospect.nome,
+      instrucoes, nomeLead: prospect.nome, _generate,
     })
     if (textoIa) return { texto: textoIa, gerada_por_ia: true, falha_ia: false }
   } catch (e) {
@@ -437,7 +442,81 @@ async function reservarGeracaoSemi(pool, { empresaId, usuarioId, evolutionInstan
   })
 }
 
-async function gerarMensagensSemi(pool, { empresaId, usuarioId, instanciaId, prospectIds }) {
+// Executa a reserva + geração de UM lead (sem decidir o que fazer com o resultado —
+// quem chama confirma sucesso/erro ou desfaz a reserva). Usada tanto pelo pré-teste
+// quanto pelo loop principal de gerarMensagensSemi.
+async function tentarGerarUmLead(pool, { prospect, instancia, saudacao, config, empresaId, usuarioId, deps }) {
+  const disparoId = await reservarGeracaoSemi(pool, {
+    empresaId, usuarioId, evolutionInstance: instancia.evolution_instance, prospectId: prospect.id,
+  })
+  if (!disparoId) return { prospect, ocupado: true }
+  const { texto, gerada_por_ia, falha_ia } = await mensagemFinalDoLead(pool, {
+    prospect, template: saudacao, gerarIa: !!config.gerar_ia,
+    instrucoes: config.instrucoes_ia, contextoId: instancia.contexto_id, empresaId,
+    _generate: deps && deps.generateAIResponse,
+  })
+  return { prospect, disparoId, texto, gerada_por_ia, falha_ia }
+}
+
+async function confirmarSucessoGeracao(pool, disparoId, texto) {
+  await pool.query(
+    `UPDATE prospectador.lead_disparos
+        SET status = 'aguardando_disparo', mensagem = $2, erro = NULL
+      WHERE id = $1 AND status = 'gerando'`,
+    [disparoId, texto]
+  )
+}
+
+async function confirmarErroGeracao(pool, disparoId) {
+  await pool.query(
+    `UPDATE prospectador.lead_disparos
+        SET status = 'erro_ia', erro = 'ia_falhou'
+      WHERE id = $1 AND status = 'gerando'`,
+    [disparoId]
+  )
+}
+
+// Desfaz a reserva feita por tentarGerarUmLead sem deixar rastro de erro — usado quando
+// a falha é classificada como SISTÊMICA (o lote inteiro foi abortado, então este lead
+// específico não deve aparecer como "erro individual" nem para o operador nem no banco).
+async function desfazerReservaGeracao(pool, disparoId) {
+  await pool.query(
+    `DELETE FROM prospectador.lead_disparos WHERE id = $1 AND status = 'gerando'`,
+    [disparoId]
+  ).catch(() => {})
+}
+
+function falhaSistemicaIA(naoProcessados, falhasConsecutivas = null) {
+  return {
+    motivo: 'ia_indisponivel',
+    falhas_consecutivas: falhasConsecutivas,
+    nao_processados: naoProcessados,
+    mensagem: 'A geração de mensagens por IA está indisponível no momento (provider fora do ar, '
+      + 'credencial inválida ou limite de uso atingido). A geração em massa foi interrompida — '
+      + `${naoProcessados} lead(s) não foram processados. Tente novamente em alguns minutos.`,
+  }
+}
+
+/**
+ * SEMI/MANUAL (geração em massa) — gera a mensagem (IA com fallback) e grava como
+ * 'aguardando_disparo', SEM enviar e SEM consumir cooldown/teto.
+ *
+ * Falha SISTÊMICA de IA (provider fora do ar, credencial inválida, quota etc) afeta TODOS
+ * os leads do lote da mesma forma — por isso, quando há mais de um lead selecionado:
+ *   1) PRÉ-TESTE: a 1ª tentativa do lote já esgota os retries/fallback internos de
+ *      gerarSaudacaoAnalise/generateAIResponse. Se mesmo assim falhar, é sinal forte de
+ *      falha sistêmica: o lote inteiro é abortado ANTES de tentar os demais leads, a
+ *      reserva do 1º é desfeita (sem marcar erro_ia) e a resposta traz `falha_sistemica`
+ *      em vez de um erro por lead.
+ *   2) CIRCUIT BREAKER: se o pré-teste passar mas a IA voltar a falhar
+ *      LIMITE_FALHAS_IA_CONSECUTIVAS vezes seguidas no meio do lote, o restante é
+ *      interrompido do mesmo jeito — os leads já processados (sucesso ou erro) são
+ *      preservados em `gerados`, e os que nunca chegaram a ser tentados não geram
+ *      registro de erro nenhum.
+ * Erros específicos de um lead (sem chegar a esse padrão) continuam contabilizados
+ * individualmente em `gerados` (erro_ia: true), como antes.
+ */
+async function gerarMensagensSemi(pool, { empresaId, usuarioId, instanciaId, prospectIds }, deps = {}) {
   const ids = dedupeIds(prospectIds)
   if (!ids.length) { const e = new Error('Selecione ao menos um lead.'); e.statusCode = 400; throw e }
   if (ids.length > MAX_LOTE) { const e = new Error(`Máximo de ${MAX_LOTE} leads por geração.`); e.statusCode = 400; throw e }
@@ -451,46 +530,60 @@ async function gerarMensagensSemi(pool, { empresaId, usuarioId, instanciaId, pro
 
   const config = await obterConfigBancoLeads(pool, empresaId)
   const { elegiveis, pulados } = await separarElegiveis(pool, empresaId, ids)
-  if (!elegiveis.length) return { gerados: [], pulados }
+  if (!elegiveis.length) return { gerados: [], pulados, falha_sistemica: null }
 
+  const gerarIa = !!config.gerar_ia
   const gerados = []
-  for (const p of elegiveis) {
-    const disparoId = await reservarGeracaoSemi(pool, {
-      empresaId,
-      usuarioId,
-      evolutionInstance: instancia.evolution_instance,
-      prospectId: p.id,
-    })
-    if (!disparoId) {
+  let restantes = elegiveis
+
+  if (gerarIa && elegiveis.length > 1) {
+    const [primeiro, ...resto] = elegiveis
+    const r = await tentarGerarUmLead(pool, { prospect: primeiro, instancia, saudacao, config, empresaId, usuarioId, deps })
+    if (r.ocupado) {
+      pulados.push({ id: primeiro.id, motivo: 'ja_em_processamento' })
+    } else if (r.falha_ia) {
+      await desfazerReservaGeracao(pool, r.disparoId)
+      const falhaSistemica = falhaSistemicaIA(elegiveis.length)
+      logger.error({ empresaId, instanciaId, total: elegiveis.length },
+        '[rodar-leads] pre-teste de geracao por IA falhou — lote abortado (falha sistemica)')
+      return { gerados, pulados, falha_sistemica: falhaSistemica }
+    } else {
+      await confirmarSucessoGeracao(pool, r.disparoId, r.texto)
+      gerados.push({ prospect_id: primeiro.id, nome: primeiro.nome, disparo_id: r.disparoId, mensagem: r.texto, gerada_por_ia: r.gerada_por_ia })
+    }
+    restantes = resto
+  }
+
+  let falhasConsecutivas = 0
+  for (let i = 0; i < restantes.length; i++) {
+    const p = restantes[i]
+    const r = await tentarGerarUmLead(pool, { prospect: p, instancia, saudacao, config, empresaId, usuarioId, deps })
+    if (r.ocupado) {
       pulados.push({ id: p.id, motivo: 'ja_em_processamento' })
       continue
     }
-    const { texto, gerada_por_ia, falha_ia } = await mensagemFinalDoLead(pool, {
-      prospect: p, template: saudacao, gerarIa: !!config.gerar_ia,
-      instrucoes: config.instrucoes_ia, contextoId: instancia.contexto_id, empresaId,
-    })
-    if (falha_ia) {
-      await pool.query(
-        `UPDATE prospectador.lead_disparos
-            SET status = 'erro_ia', erro = 'ia_falhou'
-          WHERE id = $1 AND status = 'gerando'`,
-        [disparoId]
-      )
+    if (r.falha_ia) {
+      falhasConsecutivas++
+      await confirmarErroGeracao(pool, r.disparoId)
       gerados.push({ prospect_id: p.id, nome: p.nome, erro_ia: true })
+      if (falhasConsecutivas >= LIMITE_FALHAS_IA_CONSECUTIVAS) {
+        const naoProcessados = restantes.length - i - 1
+        const falhaSistemica = falhaSistemicaIA(naoProcessados, falhasConsecutivas)
+        logger.error({ empresaId, instanciaId, falhasConsecutivas, naoProcessados },
+          '[rodar-leads] falhas consecutivas de IA — geracao em massa interrompida (falha sistemica)')
+        return { gerados, pulados, falha_sistemica: falhaSistemica }
+      }
       continue
     }
-    await pool.query(
-      `UPDATE prospectador.lead_disparos
-          SET status = 'aguardando_disparo', mensagem = $2, erro = NULL
-        WHERE id = $1 AND status = 'gerando'`,
-      [disparoId, texto]
-    )
-    gerados.push({ prospect_id: p.id, nome: p.nome, disparo_id: disparoId, mensagem: texto, gerada_por_ia })
+    falhasConsecutivas = 0
+    await confirmarSucessoGeracao(pool, r.disparoId, r.texto)
+    gerados.push({ prospect_id: p.id, nome: p.nome, disparo_id: r.disparoId, mensagem: r.texto, gerada_por_ia: r.gerada_por_ia })
   }
-  return { gerados, pulados }
+
+  return { gerados, pulados, falha_sistemica: null }
 }
 
-async function gerarPendentesSemi(pool, { empresaId, usuarioId = null, instanciaId, limit = 100 }) {
+async function gerarPendentesSemi(pool, { empresaId, usuarioId = null, instanciaId, limit = 100 }, deps = {}) {
   const instancia = await carregarInstancia(pool, empresaId, instanciaId)
   if (!instancia) { const e = new Error('Instância não encontrada.'); e.statusCode = 404; throw e }
   if (!instancia.ativo) { const e = new Error('Instância está desativada. Ative o número antes de gerar.'); e.statusCode = 409; throw e }
@@ -516,14 +609,24 @@ async function gerarPendentesSemi(pool, { empresaId, usuarioId = null, instancia
     [empresaId, [...STATUS_RODAVEL], instancia.evolution_instance, max]
   )
   const ids = rows.map((r) => r.id).filter(Boolean)
-  if (!ids.length) return { gerados: [], pulados: [], candidatos: 0 }
+  if (!ids.length) return { gerados: [], pulados: [], candidatos: 0, falha_sistemica: null }
 
-  const total = { gerados: [], pulados: [], candidatos: ids.length }
+  const total = { gerados: [], pulados: [], candidatos: ids.length, falha_sistemica: null }
   for (let i = 0; i < ids.length; i += MAX_LOTE) {
     const parte = ids.slice(i, i + MAX_LOTE)
-    const res = await gerarMensagensSemi(pool, { empresaId, usuarioId, instanciaId, prospectIds: parte })
+    const res = await gerarMensagensSemi(pool, { empresaId, usuarioId, instanciaId, prospectIds: parte }, deps)
     total.gerados.push(...res.gerados)
     total.pulados.push(...res.pulados)
+    if (res.falha_sistemica) {
+      // Falha sistêmica: os demais lotes tenderiam a falhar pelo mesmo motivo — para aqui
+      // em vez de repetir o pré-teste (e o custo de IA) a cada bloco de MAX_LOTE.
+      const restantesIds = ids.slice(i + parte.length)
+      total.falha_sistemica = {
+        ...res.falha_sistemica,
+        nao_processados: res.falha_sistemica.nao_processados + restantesIds.length,
+      }
+      break
+    }
   }
   return total
 }
@@ -863,4 +966,5 @@ module.exports = {
   MAX_LOTE,
   COOLDOWN_MIN,
   TETO_DIARIO,
+  LIMITE_FALHAS_IA_CONSECUTIVAS,
 }

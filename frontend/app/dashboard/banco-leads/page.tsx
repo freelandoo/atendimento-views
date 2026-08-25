@@ -81,9 +81,16 @@ type RodarResumo = {
   total_dia?: number
   envios?: { prospect_id: string; disparo_id: string; status: string; erro: string | null }[] | null
 }
+type FalhaSistemicaGeracao = {
+  motivo: string
+  mensagem: string
+  nao_processados: number
+  falhas_consecutivas?: number | null
+}
 type GerarResumo = {
   gerados: { prospect_id: string; nome: string; mensagem?: string; gerada_por_ia?: boolean; erro_ia?: boolean }[]
   pulados: { id: string; motivo: string }[]
+  falha_sistemica?: FalhaSistemicaGeracao | null
 }
 type PrevisaoEnvio = {
   titulo: string
@@ -933,6 +940,7 @@ export default function BancoLeadsPage() {
     const jaProntosSet = new Set(jaProntos)
     const paraGerar = ids.filter((id) => !jaProntosSet.has(id))
     let prontas = jaProntos.length, erros = 0, pulados = 0, falhasLote = 0
+    let falhaSistemica: FalhaSistemicaGeracao | null = null
     if (montadoRef.current) setProgressoLoteManual({ total, processados: jaProntos.length, prontas, erros, pulados })
     try {
       for (let i = 0; i < paraGerar.length; i += MAX_LOTE) {
@@ -945,6 +953,13 @@ export default function BancoLeadsPage() {
           prontas += r.data.gerados.filter((g) => !g.erro_ia).length
           erros += r.data.gerados.filter((g) => g.erro_ia).length
           pulados += r.data.pulados.length
+          if (r.data.falha_sistemica) {
+            // Falha GERAL da ação (IA fora do ar/quota/config): não adianta insistir nos
+            // próximos lotes — todos tenderiam a falhar pelo mesmo motivo. O que já foi
+            // gerado com sucesso neste e nos lotes anteriores é preservado.
+            falhaSistemica = r.data.falha_sistemica
+            break
+          }
         } catch {
           falhasLote += parte.length
         }
@@ -953,10 +968,15 @@ export default function BancoLeadsPage() {
         }
       }
       const reaproveitadasTxt = jaProntos.length ? ` (${jaProntos.length} já pronta(s), reaproveitada(s))` : ''
-      const erroTxt = erros ? ` · ${erros} com erro de IA` : ''
-      const puladosTxt = pulados ? ` · ${pulados} pulado(s)` : ''
-      const falhasTxt = falhasLote ? ` · ${falhasLote} não processado(s) por falha de conexão` : ''
-      fb.sucessoModal('Mensagens geradas', `${prontas} pronta(s) aguardando disparo${reaproveitadasTxt}${erroTxt}${puladosTxt}${falhasTxt}.`)
+      if (falhaSistemica) {
+        const prontasTxt = prontas ? ` ${prontas} mensagem(ns) já gerada(s) foram preservada(s)${reaproveitadasTxt}.` : ''
+        fb.toast(`${falhaSistemica.mensagem}${prontasTxt}`, 'error')
+      } else {
+        const erroTxt = erros ? ` · ${erros} com erro de IA` : ''
+        const puladosTxt = pulados ? ` · ${pulados} pulado(s)` : ''
+        const falhasTxt = falhasLote ? ` · ${falhasLote} não processado(s) por falha de conexão` : ''
+        fb.sucessoModal('Mensagens geradas', `${prontas} pronta(s) aguardando disparo${reaproveitadasTxt}${erroTxt}${puladosTxt}${falhasTxt}.`)
+      }
       setSelecionados(new Set())
     } catch (e) {
       fb.toast(e instanceof Error ? e.message : 'Falha ao gerar mensagens em massa.', 'error')
