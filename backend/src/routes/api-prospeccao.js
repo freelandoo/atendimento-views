@@ -39,6 +39,8 @@ router.get('/prospects', requireAuth, requireEmpresaAccess, async (req, res) => 
       cidade: req.query.cidade,
       busca: req.query.busca,
       origem: req.query.origem,
+      site: req.query.site,
+      social: req.query.social,
       limit: req.query.limit,
       offset: req.query.offset,
       ordenar: req.query.ordenar,

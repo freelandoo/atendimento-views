@@ -63,6 +63,18 @@ test('sem filtro nenhum nao gera WHERE vazio quebrado', () => {
   assert.deepEqual(montarFiltrosProspects({}).params, [])
 })
 
+test('filtros de presenca digital entram no mesmo WHERE da lista e das metricas', () => {
+  const comSiteSemSocial = montarFiltrosProspects({ empresaId: 'e1', site: 'com', social: 'sem' })
+  assert.match(comSiteSemSocial.whereSql, /p\.tem_site = true/)
+  assert.match(comSiteSemSocial.whereSql, /p\.classificacao_url IS DISTINCT FROM 'rede_social'/)
+  assert.deepEqual(comSiteSemSocial.params, ['e1'])
+
+  const semSiteComSocial = montarFiltrosProspects({ empresaId: 'e1', site: 'sem', social: 'com' }, { alias: '', comStatus: false })
+  assert.match(semSiteComSocial.whereSql, /tem_site = false/)
+  assert.match(semSiteComSocial.whereSql, /classificacao_url = 'rede_social'/)
+  assert.deepEqual(semSiteComSocial.params, ['e1'])
+})
+
 // --- Recorte da ordem calculada -----------------------------------------------------------
 
 // Rows minimos: `calcularScoreCadastroPlaces` pontua a completude do cadastro. Aqui o que

@@ -42,7 +42,7 @@ const placesBrightData = require('./services/places-brightdata')
 const {
   canProspectLead,
 } = require('./services/prospecting-eligibility')
-const { adicionarFiltroMercado, termoBuscaProspect, normalizarOrigemFiltro } = require('./services/prospect-filters')
+const { adicionarFiltroMercado, termoBuscaProspect, normalizarOrigemFiltro, normalizarFiltroSite, normalizarFiltroRedeSocial } = require('./services/prospect-filters')
 const { extrairEmailDeUrl } = require('./services/social-contact-extract')
 const {
   criarFilaDiariaSimulada,
@@ -1283,6 +1283,18 @@ function montarFiltrosProspects(filtros = {}, { alias = 'p', comStatus = true } 
   if (origem) {
     params.push(origem)
     where.push(`${a}origem = $${params.length}`)
+  }
+  const site = normalizarFiltroSite(filtros.site)
+  if (site === 'com') {
+    where.push(`${a}tem_site = true`)
+  } else if (site === 'sem') {
+    where.push(`${a}tem_site = false`)
+  }
+  const redeSocial = normalizarFiltroRedeSocial(filtros.social)
+  if (redeSocial === 'com') {
+    where.push(`${a}classificacao_url = 'rede_social'`)
+  } else if (redeSocial === 'sem') {
+    where.push(`${a}classificacao_url IS DISTINCT FROM 'rede_social'`)
   }
   return { where, params, whereSql: where.length ? `WHERE ${where.join(' AND ')}` : '' }
 }

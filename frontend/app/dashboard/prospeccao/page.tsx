@@ -163,6 +163,18 @@ function quando(iso: string | null): string {
 // e ordenar só a página visível daria uma ordem falsa — "o menor cadastro" seria o menor
 // daqueles 25, não o da carteira. O clique no cabeçalho vira parâmetro da requisição.
 
+function chipsFiltrosAquisicao(mercado: string, cidadeFiltro: string, buscaDados: string, siteFiltro: string, socialFiltro: string): string[] {
+  const chips: string[] = []
+  if (mercado) chips.push(`Nicho: ${mercado}`)
+  if (cidadeFiltro) chips.push(`Cidade: ${cidadeFiltro}`)
+  if (buscaDados.trim()) chips.push(`Busca: ${buscaDados.trim()}`)
+  if (siteFiltro === 'com') chips.push('Com site próprio')
+  if (siteFiltro === 'sem') chips.push('Sem site próprio')
+  if (socialFiltro === 'com') chips.push('Com rede social identificada')
+  if (socialFiltro === 'sem') chips.push('Sem rede social identificada')
+  return chips
+}
+
 export default function ProspeccaoPage() {
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [metricas, setMetricas] = useState<Metricas | null>(null)
@@ -175,6 +187,8 @@ export default function ProspeccaoPage() {
   const [buscaDados, setBuscaDados] = useState('')
   const [mercado, setMercado] = useState('')
   const [cidadeFiltro, setCidadeFiltro] = useState('')
+  const [siteFiltro, setSiteFiltro] = useState('')
+  const [socialFiltro, setSocialFiltro] = useState('')
   const [filtrosMercado, setFiltrosMercado] = useState<FiltrosMercado | null>(null)
   const [agindo, setAgindo] = useState<string | null>(null)
   // As rotinas já carregadas pelo painel de rotinas, reaproveitadas pelo histórico de
@@ -246,6 +260,8 @@ export default function ProspeccaoPage() {
     if (buscaDados.trim()) p.set('busca', buscaDados.trim())
     if (mercado) p.set('mercado', mercado)
     if (cidadeFiltro) p.set('cidade', cidadeFiltro)
+    if (siteFiltro) p.set('site', siteFiltro)
+    if (socialFiltro) p.set('social', socialFiltro)
     return p
   }
 
@@ -285,8 +301,8 @@ export default function ProspeccaoPage() {
   // Recarrega tudo: usado quando um lead muda de status ou uma coleta termina.
   function carregar() { carregarLista(); carregarResumo() }
 
-  useEffect(() => { carregarLista() }, [empresaId, filtro, buscaDados, mercado, cidadeFiltro, pagina, ordem.chave, ordem.dir])
-  useEffect(() => { carregarResumo() }, [empresaId, buscaDados, mercado, cidadeFiltro])
+  useEffect(() => { carregarLista() }, [empresaId, filtro, buscaDados, mercado, cidadeFiltro, siteFiltro, socialFiltro, pagina, ordem.chave, ordem.dir])
+  useEffect(() => { carregarResumo() }, [empresaId, buscaDados, mercado, cidadeFiltro, siteFiltro, socialFiltro])
   useEffect(() => {
     if (!empresaId) return
     const p = new URLSearchParams()
@@ -490,6 +506,24 @@ export default function ProspeccaoPage() {
             </select>
           </div>
           <div>
+            <label className="block text-xs text-slate-500 mb-1">Site</label>
+            <select value={siteFiltro} onChange={(e) => comReinicioDePagina(() => setSiteFiltro(e.target.value))}
+              className="border rounded-lg px-3 py-2 text-sm min-w-[150px]">
+              <option value="">Todos</option>
+              <option value="com">Com site próprio</option>
+              <option value="sem">Sem site próprio</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Rede social</label>
+            <select value={socialFiltro} onChange={(e) => comReinicioDePagina(() => setSocialFiltro(e.target.value))}
+              className="border rounded-lg px-3 py-2 text-sm min-w-[190px]">
+              <option value="">Todas</option>
+              <option value="com">Com rede social identificada</option>
+              <option value="sem">Sem rede social identificada</option>
+            </select>
+          </div>
+          <div>
             <label htmlFor="ordem-sem-coluna" className="block text-xs text-slate-500 mb-1">Ordenar por</label>
             <select
               id="ordem-sem-coluna"
@@ -506,14 +540,26 @@ export default function ProspeccaoPage() {
               ))}
             </select>
           </div>
-          {(mercado || cidadeFiltro || buscaDados.trim()) && (
-            <button onClick={() => comReinicioDePagina(() => { setMercado(''); setCidadeFiltro(''); setBuscaDados('') })}
+          {(mercado || cidadeFiltro || buscaDados.trim() || siteFiltro || socialFiltro) && (
+            <button onClick={() => comReinicioDePagina(() => { setMercado(''); setCidadeFiltro(''); setBuscaDados(''); setSiteFiltro(''); setSocialFiltro('') })}
               className="border rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
               Limpar filtros
             </button>
           )}
         </div>
       </div>
+
+      {(() => {
+        const chips = chipsFiltrosAquisicao(mercado, cidadeFiltro, buscaDados, siteFiltro, socialFiltro)
+        return chips.length ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-slate-500">Filtros ativos:</span>
+            {chips.map((chip) => (
+              <span key={chip} className="rounded-full border bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{chip}</span>
+            ))}
+          </div>
+        ) : null
+      })()}
 
       {/* Os cards de resumo (Total/Aguardando/Marcados/Enviados/Responderam/Taxa) saíram daqui:
           cada número foi para onde ele é usado — as contagens, para dentro dos filtros de

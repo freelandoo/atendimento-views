@@ -37,6 +37,16 @@ function normalizarOrigemFiltro(v) {
   return origem === 'automatico' ? 'automatico' : 'manual'
 }
 
+function normalizarFiltroSite(v) {
+  const filtro = String(v || '').trim().toLowerCase()
+  return filtro === 'com' || filtro === 'sem' ? filtro : ''
+}
+
+function normalizarFiltroRedeSocial(v) {
+  const filtro = String(v || '').trim().toLowerCase()
+  return filtro === 'com' || filtro === 'sem' ? filtro : ''
+}
+
 async function listarOpcoesFiltrosMercado(pool, {
   empresaId,
   origem,
@@ -115,5 +125,7 @@ module.exports = {
   adicionarFiltroMercado,
   termoBuscaProspect,
   normalizarOrigemFiltro,
+  normalizarFiltroSite,
+  normalizarFiltroRedeSocial,
   listarOpcoesFiltrosMercado,
 }

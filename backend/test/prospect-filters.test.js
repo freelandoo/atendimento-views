@@ -7,6 +7,8 @@ const {
   adicionarFiltroMercado,
   termoBuscaProspect,
   normalizarOrigemFiltro,
+  normalizarFiltroSite,
+  normalizarFiltroRedeSocial,
   listarOpcoesFiltrosMercado,
 } = require('../src/services/prospect-filters')
 
@@ -85,4 +87,16 @@ test('prospect filters: origem vazia nao filtra nada', () => {
   assert.equal(normalizarOrigemFiltro('   '), '')
   assert.equal(normalizarOrigemFiltro(null), '')
   assert.equal(normalizarOrigemFiltro(undefined), '')
+})
+
+test('prospect filters: filtros de presenca digital aceitam apenas com ou sem', () => {
+  assert.equal(normalizarFiltroSite('com'), 'com')
+  assert.equal(normalizarFiltroSite(' SEM '), 'sem')
+  assert.equal(normalizarFiltroSite('talvez'), '')
+  assert.equal(normalizarFiltroSite(null), '')
+
+  assert.equal(normalizarFiltroRedeSocial('com'), 'com')
+  assert.equal(normalizarFiltroRedeSocial(' SEM '), 'sem')
+  assert.equal(normalizarFiltroRedeSocial('ativa'), '')
+  assert.equal(normalizarFiltroRedeSocial(undefined), '')
 })
