@@ -314,7 +314,7 @@ type Filtro3 = 'todos' | 'com' | 'sem'
 type ViewConfig = {
   versao?: number
   cols: Record<string, boolean>
-  site: Filtro3; email: Filtro3; telefone: Filtro3
+  site: Filtro3; social: Filtro3; email: Filtro3; telefone: Filtro3
   envio: 'todos' | 'possivel' | 'impossivel'
   msgGerada: Filtro3
   disparo: 'todos' | 'disparado' | 'nao_disparado' | 'falha'
@@ -368,7 +368,7 @@ const COLUNAS_PADRAO_DESLIGADAS = new Set(['aval', 'nota', 'horario', 'endereco'
 
 const VIEW_PADRAO: ViewConfig = {
   cols: Object.fromEntries(COLUNAS_TOGGLE.map((c) => [c.key, !COLUNAS_PADRAO_DESLIGADAS.has(c.key)])),
-  site: 'todos', email: 'todos', telefone: 'todos', envio: 'todos',
+  site: 'todos', social: 'todos', email: 'todos', telefone: 'todos', envio: 'todos',
   msgGerada: 'todos', disparo: 'todos', agendamento: 'todos',
   regiao: '', scoreMin: '', scoreMax: '', notaMin: '', notaMax: '',
   avalMin: '', avalMax: '', dataDe: '', dataAte: '', ordenacao: 'padrao',
@@ -398,6 +398,14 @@ function mesmoDia(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 }
 
+function temRedeSocialLead(l: Lead): boolean {
+  const origem = String(l.origem || '').toLowerCase()
+  return l.classificacao_url === 'rede_social'
+    || !!String(l.instagram_handle || '').trim()
+    || origem === 'instagram'
+    || origem === 'linkedin'
+}
+
 // Filtro client-side de um lead segundo a configuração de visualização.
 function passaFiltrosView(l: Lead, v: ViewConfig): boolean {
   // Veredito canônico do backend: um lead cujo único link é Instagram/Linktree responde
@@ -405,6 +413,9 @@ function passaFiltrosView(l: Lead, v: ViewConfig): boolean {
   const temSite = !!l.tem_site
   if (v.site === 'com' && !temSite) return false
   if (v.site === 'sem' && temSite) return false
+  const temSocial = temRedeSocialLead(l)
+  if (v.social === 'com' && !temSocial) return false
+  if (v.social === 'sem' && temSocial) return false
   const temEmail = !!String(l.email || '').trim()
   if (v.email === 'com' && !temEmail) return false
   if (v.email === 'sem' && temEmail) return false
@@ -469,6 +480,7 @@ function ordenarPorView(lista: Lead[], ord: string): Lead[] {
 function chipsDaView(v: ViewConfig): string[] {
   const c: string[] = []
   if (v.site !== 'todos') c.push(v.site === 'com' ? 'Com site próprio' : 'Sem site próprio')
+  if (v.social !== 'todos') c.push(v.social === 'com' ? 'Com rede social' : 'Sem rede social')
   if (v.email !== 'todos') c.push(v.email === 'com' ? 'Com e-mail' : 'Sem e-mail')
   if (v.telefone !== 'todos') c.push(v.telefone === 'com' ? 'Com telefone' : 'Sem telefone')
   if (v.envio === 'possivel') c.push('Envio possível')
@@ -1517,6 +1529,8 @@ export default function BancoLeadsPage() {
         {([
           { chave: 'com_whatsapp', label: 'Com WhatsApp', ativo: view.envio === 'possivel', onClick: () => patchView({ envio: view.envio === 'possivel' ? 'todos' : 'possivel' }) },
           { chave: 'sem_site', label: 'Sem site próprio', ativo: view.site === 'sem', onClick: () => patchView({ site: view.site === 'sem' ? 'todos' : 'sem' }) },
+          { chave: 'com_social', label: 'Com rede social', ativo: view.social === 'com', onClick: () => patchView({ social: view.social === 'com' ? 'todos' : 'com' }) },
+          { chave: 'sem_social', label: 'Sem rede social', ativo: view.social === 'sem', onClick: () => patchView({ social: view.social === 'sem' ? 'todos' : 'sem' }) },
           { chave: 'falha_envio', label: 'Falha no envio', ativo: view.disparo === 'falha', onClick: () => patchView({ disparo: view.disparo === 'falha' ? 'todos' : 'falha' }) },
         ] as const).map((f) => (
           <button key={f.chave} type="button" onClick={f.onClick} aria-pressed={f.ativo}
@@ -2012,7 +2026,8 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
 // ─── Modal Personalizar visualização (colunas + filtros + ordenação + presets) ──
 const PRESETS: { nome: string; dica: string; patch: Partial<ViewConfig>; aba?: string }[] = [
   { nome: 'Oportunidades fortes', dica: 'Boa pontuação, com telefone, sem disparo', patch: { scoreMin: '70', telefone: 'com', disparo: 'nao_disparado', ordenacao: 'pontos_desc' } },
-  { nome: 'Sem presença digital', dica: 'Sem site próprio, com telefone', patch: { site: 'sem', telefone: 'com', disparo: 'nao_disparado' }, aba: 'sem_contato' },
+  { nome: 'Sem presença digital', dica: 'Sem site próprio, sem rede social e com telefone', patch: { site: 'sem', social: 'sem', telefone: 'com', disparo: 'nao_disparado' }, aba: 'sem_contato' },
+  { nome: 'Só rede social', dica: 'Tem rede social, mas não tem site próprio', patch: { site: 'sem', social: 'com', telefone: 'com', disparo: 'nao_disparado' }, aba: 'sem_contato' },
   { nome: 'Baixa autoridade', dica: 'Poucas avaliações', patch: { avalMax: '10', ordenacao: 'aval_asc' } },
   { nome: 'Prontos para disparo', dica: 'Com telefone e mensagem gerada', patch: { telefone: 'com', msgGerada: 'com' } },
   { nome: 'Agendados próximos', dica: 'Agendamento futuro primeiro', patch: { agendamento: 'com', ordenacao: 'agendamento_asc' }, aba: 'agendados' },
@@ -2103,6 +2118,7 @@ function PersonalizarModal({ view, onPatch, onReset, onPreset, onClose }: {
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Filtros</p>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <SelFiltro label="Site próprio" value={view.site} onChange={(v) => onPatch({ site: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com site próprio'], ['sem', 'Sem site próprio']]} />
+              <SelFiltro label="Rede social" value={view.social} onChange={(v) => onPatch({ social: v as Filtro3 })} opcoes={[['todos', 'Todas'], ['com', 'Com rede social'], ['sem', 'Sem rede social']]} />
               <SelFiltro label="E-mail" value={view.email} onChange={(v) => onPatch({ email: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com e-mail'], ['sem', 'Sem e-mail']]} />
               <SelFiltro label="Telefone" value={view.telefone} onChange={(v) => onPatch({ telefone: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com telefone'], ['sem', 'Sem telefone']]} />
               <SelFiltro label="Envio (WhatsApp)" value={view.envio} onChange={(v) => onPatch({ envio: v as ViewConfig['envio'] })} opcoes={[['todos', 'Todos'], ['possivel', 'Envio possível'], ['impossivel', 'Sem WhatsApp']]} />

@@ -1,5 +1,6 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
@@ -12,7 +13,7 @@ import MenuRadialAcoes, { type AcaoRadial } from '@/components/ui/MenuRadialAcoe
 import RotinasAquisicao, { type ModoAquisicao, type RotinasResp } from '@/components/RotinasAquisicao'
 import HistoricoColetas from '@/components/HistoricoColetas'
 import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
-import { IconUndo } from '@/components/ui/icons'
+import { IconGear, IconUndo } from '@/components/ui/icons'
 import { resumoIntervalo, POR_PAGINA_PADRAO } from '@/lib/paginacao'
 import {
   FILTROS_STATUS, contagensDosFiltros, taxaResposta, paginaServidor, type PaginaServidor,
@@ -80,6 +81,52 @@ type FiltrosMercado = {
   nichos: OpcaoFiltroMercado[]
   categorias: OpcaoFiltroMercado[]
   cidades: OpcaoFiltroMercado[]
+}
+type Filtro3 = 'todos' | 'com' | 'sem'
+type ViewAquisicao = {
+  versao?: number
+  cols: Record<string, boolean>
+  site: Filtro3; social: Filtro3; email: Filtro3; telefone: Filtro3
+  regiao: string
+  scoreMin: string; scoreMax: string
+  notaMin: string; notaMax: string
+  avalMin: string; avalMax: string
+  dataDe: string; dataAte: string
+  ordenacao: string
+}
+
+const AQ_COLUNAS_TOGGLE: { key: string; label: string }[] = [
+  { key: 'entrou', label: 'Entrou em' },
+  { key: 'cadastro', label: 'Cadastro' },
+  { key: 'telefone', label: 'Telefone' },
+  { key: 'email', label: 'E-mail' },
+  { key: 'nicho', label: 'Nicho / Cidade' },
+  { key: 'status', label: 'Status' },
+]
+const AQ_ORDENACOES: { valor: string; label: string }[] = [
+  { valor: 'padrao', label: 'Padrão (da tabela)' },
+  { valor: 'pontos_asc', label: 'Menor pontuação primeiro' },
+  { valor: 'pontos_desc', label: 'Maior pontuação primeiro' },
+  { valor: 'entrou_desc', label: 'Mais recentes primeiro' },
+  { valor: 'entrou_asc', label: 'Mais antigos primeiro' },
+  { valor: 'nota_desc', label: 'Maior nota primeiro' },
+  { valor: 'nota_asc', label: 'Menor nota primeiro' },
+  { valor: 'aval_desc', label: 'Mais avaliações primeiro' },
+  { valor: 'aval_asc', label: 'Menos avaliações primeiro' },
+  { valor: 'horario_asc', label: 'Sem horário cadastrado primeiro' },
+  { valor: 'endereco_asc', label: 'Região / endereço (A-Z)' },
+]
+const AQ_VIEW_VERSAO = 1
+const AQ_CHAVE_VIEW = 'prospeccaoView'
+const AQ_VIEW_PADRAO: ViewAquisicao = {
+  cols: Object.fromEntries(AQ_COLUNAS_TOGGLE.map((c) => [c.key, true])),
+  site: 'todos', social: 'todos', email: 'todos', telefone: 'todos',
+  regiao: '', scoreMin: '', scoreMax: '', notaMin: '', notaMax: '',
+  avalMin: '', avalMax: '', dataDe: '', dataAte: '', ordenacao: 'padrao',
+}
+function migrarViewAquisicao(salvo: Partial<ViewAquisicao> & { versao?: number }): ViewAquisicao {
+  const base = { ...AQ_VIEW_PADRAO, ...salvo }
+  return { ...base, cols: { ...AQ_VIEW_PADRAO.cols, ...(salvo.cols || {}) } }
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -163,16 +210,31 @@ function quando(iso: string | null): string {
 // e ordenar só a página visível daria uma ordem falsa — "o menor cadastro" seria o menor
 // daqueles 25, não o da carteira. O clique no cabeçalho vira parâmetro da requisição.
 
-function chipsFiltrosAquisicao(mercado: string, cidadeFiltro: string, buscaDados: string, siteFiltro: string, socialFiltro: string): string[] {
+function chipsFiltrosAquisicao(mercado: string, cidadeFiltro: string, buscaDados: string, view: ViewAquisicao): string[] {
   const chips: string[] = []
   if (mercado) chips.push(`Nicho: ${mercado}`)
   if (cidadeFiltro) chips.push(`Cidade: ${cidadeFiltro}`)
   if (buscaDados.trim()) chips.push(`Busca: ${buscaDados.trim()}`)
-  if (siteFiltro === 'com') chips.push('Com site próprio')
-  if (siteFiltro === 'sem') chips.push('Sem site próprio')
-  if (socialFiltro === 'com') chips.push('Com rede social identificada')
-  if (socialFiltro === 'sem') chips.push('Sem rede social identificada')
+  if (view.site !== 'todos') chips.push(view.site === 'com' ? 'Com site próprio' : 'Sem site próprio')
+  if (view.social !== 'todos') chips.push(view.social === 'com' ? 'Com rede social' : 'Sem rede social')
+  if (view.email !== 'todos') chips.push(view.email === 'com' ? 'Com e-mail' : 'Sem e-mail')
+  if (view.telefone !== 'todos') chips.push(view.telefone === 'com' ? 'Com telefone' : 'Sem telefone')
+  if (view.regiao.trim()) chips.push(`Região: ${view.regiao.trim()}`)
+  if (view.scoreMin || view.scoreMax) chips.push(`Score ${view.scoreMin || '0'}–${view.scoreMax || '∞'}`)
+  if (view.notaMin || view.notaMax) chips.push(`Nota ${view.notaMin || '0'}–${view.notaMax || '∞'}`)
+  if (view.avalMin || view.avalMax) chips.push(`Aval. ${view.avalMin || '0'}–${view.avalMax || '∞'}`)
+  if (view.dataDe) chips.push(`Desde ${view.dataDe}`)
+  if (view.dataAte) chips.push(`Até ${view.dataAte}`)
+  if (view.ordenacao !== 'padrao') {
+    const ord = AQ_ORDENACOES.find((o) => o.valor === view.ordenacao)
+    chips.push(`Ordenação: ${ord?.label || view.ordenacao}`)
+  }
   return chips
+}
+function ordemDaViewAquisicao(valor: string): { chave: string; dir: 'asc' | 'desc' } | null {
+  if (!valor || valor === 'padrao') return null
+  const [chave, dir] = valor.split('_')
+  return chave ? { chave, dir: dir === 'asc' ? 'asc' : 'desc' } : null
 }
 
 export default function ProspeccaoPage() {
@@ -187,8 +249,6 @@ export default function ProspeccaoPage() {
   const [buscaDados, setBuscaDados] = useState('')
   const [mercado, setMercado] = useState('')
   const [cidadeFiltro, setCidadeFiltro] = useState('')
-  const [siteFiltro, setSiteFiltro] = useState('')
-  const [socialFiltro, setSocialFiltro] = useState('')
   const [filtrosMercado, setFiltrosMercado] = useState<FiltrosMercado | null>(null)
   const [agindo, setAgindo] = useState<string | null>(null)
   // As rotinas já carregadas pelo painel de rotinas, reaproveitadas pelo histórico de
@@ -207,6 +267,13 @@ export default function ProspeccaoPage() {
   const [pagina, setPagina] = useState(1)
   const [carregandoLista, setCarregandoLista] = useState(false)
   const listaSeqRef = useRef(0)
+  const [persAberto, setPersAberto] = useState(false)
+  const [view, setView] = useState<ViewAquisicao>(AQ_VIEW_PADRAO)
+  const viewRestauradaRef = useRef(false)
+  const patchView = useCallback((p: Partial<ViewAquisicao>) => {
+    setView((v) => ({ ...v, ...p, cols: p.cols ? { ...v.cols, ...p.cols } : v.cols }))
+    setPagina(1)
+  }, [])
   // Modo da tela (Busca / Rotinas). Começa no padrão e só depois é restaurado, no efeito:
   // ler storage/URL durante o render quebraria a hidratação.
   const [modo, setModo] = useState<ModoAquisicao>(MODO_PADRAO)
@@ -224,6 +291,18 @@ export default function ProspeccaoPage() {
       if (daUrl || daSessao) setModo(daUrl || daSessao!)
     } catch { /* storage indisponível: fica no padrão */ }
   }, [])
+
+  useEffect(() => {
+    try {
+      const salvo = localStorage.getItem(AQ_CHAVE_VIEW)
+      if (salvo) setView(migrarViewAquisicao(JSON.parse(salvo)))
+    } catch { /* localStorage indisponível: mantém o padrão */ }
+    viewRestauradaRef.current = true
+  }, [])
+  useEffect(() => {
+    if (!viewRestauradaRef.current) return
+    try { localStorage.setItem(AQ_CHAVE_VIEW, JSON.stringify({ ...view, versao: AQ_VIEW_VERSAO })) } catch {}
+  }, [view])
 
   // Troca de modo: só apresentação. Nenhuma requisição sai daqui — `carregar`,
   // `carregarBuscas` e o painel de rotinas não dependem de `modo`.
@@ -260,8 +339,19 @@ export default function ProspeccaoPage() {
     if (buscaDados.trim()) p.set('busca', buscaDados.trim())
     if (mercado) p.set('mercado', mercado)
     if (cidadeFiltro) p.set('cidade', cidadeFiltro)
-    if (siteFiltro) p.set('site', siteFiltro)
-    if (socialFiltro) p.set('social', socialFiltro)
+    if (view.site !== 'todos') p.set('site', view.site)
+    if (view.social !== 'todos') p.set('social', view.social)
+    if (view.email !== 'todos') p.set('email', view.email)
+    if (view.telefone !== 'todos') p.set('telefone', view.telefone)
+    if (view.regiao.trim()) p.set('regiao', view.regiao.trim())
+    if (view.notaMin) p.set('notaMin', view.notaMin)
+    if (view.notaMax) p.set('notaMax', view.notaMax)
+    if (view.avalMin) p.set('avalMin', view.avalMin)
+    if (view.avalMax) p.set('avalMax', view.avalMax)
+    if (view.scoreMin) p.set('scoreMin', view.scoreMin)
+    if (view.scoreMax) p.set('scoreMax', view.scoreMax)
+    if (view.dataDe) p.set('dataDe', view.dataDe)
+    if (view.dataAte) p.set('dataAte', view.dataAte)
     return p
   }
 
@@ -272,8 +362,10 @@ export default function ProspeccaoPage() {
     if (filtro) p.set('status', filtro)
     p.set('limit', String(POR_PAGINA_PADRAO))
     p.set('offset', String((pagina - 1) * POR_PAGINA_PADRAO))
-    p.set('ordenar', ordem.chave)
-    p.set('direcao', ordem.dir)
+    const ordemModal = ordemDaViewAquisicao(view.ordenacao)
+    const ordemReq = ordemModal || ordem
+    p.set('ordenar', ordemReq.chave)
+    p.set('direcao', ordemReq.dir)
     // Só a requisição MAIS RECENTE pode escrever na tela: clicar rápido em "Próxima" duas vezes
     // pode fazer a resposta da página 2 chegar depois da 3 e reverter a navegação.
     const seq = ++listaSeqRef.current
@@ -301,8 +393,8 @@ export default function ProspeccaoPage() {
   // Recarrega tudo: usado quando um lead muda de status ou uma coleta termina.
   function carregar() { carregarLista(); carregarResumo() }
 
-  useEffect(() => { carregarLista() }, [empresaId, filtro, buscaDados, mercado, cidadeFiltro, siteFiltro, socialFiltro, pagina, ordem.chave, ordem.dir])
-  useEffect(() => { carregarResumo() }, [empresaId, buscaDados, mercado, cidadeFiltro, siteFiltro, socialFiltro])
+  useEffect(() => { carregarLista() }, [empresaId, filtro, buscaDados, mercado, cidadeFiltro, view, pagina, ordem.chave, ordem.dir])
+  useEffect(() => { carregarResumo() }, [empresaId, buscaDados, mercado, cidadeFiltro, view])
   useEffect(() => {
     if (!empresaId) return
     const p = new URLSearchParams()
@@ -396,6 +488,10 @@ export default function ProspeccaoPage() {
 
   const mercadoOpcoes = opcoesMercado(filtrosMercado)
   const cidadeOpcoes = filtrosMercado?.cidades || []
+  const chips = chipsFiltrosAquisicao(mercado, cidadeFiltro, buscaDados, view)
+  const filtrosAtivos = chips.length
+  const cols = view.cols
+  const colSpanTabela = 2 + AQ_COLUNAS_TOGGLE.filter((c) => cols[c.key] !== false).length
   const atividade = dadosRotinas?.atividade || []
   const porMercado = resultados?.por_mercado || []
   const recentes = resultados?.recentes || []
@@ -505,24 +601,17 @@ export default function ProspeccaoPage() {
               {cidadeOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
             </select>
           </div>
-          <div>
-            <label className="block text-xs text-slate-500 mb-1">Site</label>
-            <select value={siteFiltro} onChange={(e) => comReinicioDePagina(() => setSiteFiltro(e.target.value))}
-              className="border rounded-lg px-3 py-2 text-sm min-w-[150px]">
-              <option value="">Todos</option>
-              <option value="com">Com site próprio</option>
-              <option value="sem">Sem site próprio</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-slate-500 mb-1">Rede social</label>
-            <select value={socialFiltro} onChange={(e) => comReinicioDePagina(() => setSocialFiltro(e.target.value))}
-              className="border rounded-lg px-3 py-2 text-sm min-w-[190px]">
-              <option value="">Todas</option>
-              <option value="com">Com rede social identificada</option>
-              <option value="sem">Sem rede social identificada</option>
-            </select>
-          </div>
+          <button
+            type="button"
+            onClick={() => setPersAberto(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            title="Abrir filtros, ordenação e colunas visíveis"
+          >
+            <span className="inline-flex items-center gap-1.5"><IconGear /> Personalizar</span>
+            {filtrosAtivos > 0 && (
+              <span className="rounded-full bg-brand px-1.5 text-[10px] font-semibold text-white">{filtrosAtivos}</span>
+            )}
+          </button>
           <div>
             <label htmlFor="ordem-sem-coluna" className="block text-xs text-slate-500 mb-1">Ordenar por</label>
             <select
@@ -540,8 +629,8 @@ export default function ProspeccaoPage() {
               ))}
             </select>
           </div>
-          {(mercado || cidadeFiltro || buscaDados.trim() || siteFiltro || socialFiltro) && (
-            <button onClick={() => comReinicioDePagina(() => { setMercado(''); setCidadeFiltro(''); setBuscaDados(''); setSiteFiltro(''); setSocialFiltro('') })}
+          {(mercado || cidadeFiltro || buscaDados.trim() || filtrosAtivos > 0) && (
+            <button onClick={() => comReinicioDePagina(() => { setMercado(''); setCidadeFiltro(''); setBuscaDados(''); setView(AQ_VIEW_PADRAO) })}
               className="border rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
               Limpar filtros
             </button>
@@ -549,17 +638,36 @@ export default function ProspeccaoPage() {
         </div>
       </div>
 
-      {(() => {
-        const chips = chipsFiltrosAquisicao(mercado, cidadeFiltro, buscaDados, siteFiltro, socialFiltro)
-        return chips.length ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-slate-500">Filtros ativos:</span>
-            {chips.map((chip) => (
-              <span key={chip} className="rounded-full border bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{chip}</span>
-            ))}
-          </div>
-        ) : null
-      })()}
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtros rápidos da Aquisição">
+        {[
+          { chave: 'sem_site', label: 'Sem site próprio', ativo: view.site === 'sem', onClick: () => patchView({ site: view.site === 'sem' ? 'todos' : 'sem' }) },
+          { chave: 'com_social', label: 'Com rede social', ativo: view.social === 'com', onClick: () => patchView({ social: view.social === 'com' ? 'todos' : 'com' }) },
+          { chave: 'sem_social', label: 'Sem rede social', ativo: view.social === 'sem', onClick: () => patchView({ social: view.social === 'sem' ? 'todos' : 'sem' }) },
+          { chave: 'com_tel', label: 'Com telefone', ativo: view.telefone === 'com', onClick: () => patchView({ telefone: view.telefone === 'com' ? 'todos' : 'com' }) },
+          { chave: 'sem_tel', label: 'Sem telefone', ativo: view.telefone === 'sem', onClick: () => patchView({ telefone: view.telefone === 'sem' ? 'todos' : 'sem' }) },
+          { chave: 'com_email', label: 'Com e-mail', ativo: view.email === 'com', onClick: () => patchView({ email: view.email === 'com' ? 'todos' : 'com' }) },
+          { chave: 'sem_email', label: 'Sem e-mail', ativo: view.email === 'sem', onClick: () => patchView({ email: view.email === 'sem' ? 'todos' : 'sem' }) },
+        ].map((item) => (
+          <button
+            key={item.chave}
+            type="button"
+            onClick={item.onClick}
+            aria-pressed={item.ativo}
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${item.ativo ? 'border-brand bg-brand text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {chips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-slate-500">Filtros ativos:</span>
+          {chips.map((chip) => (
+            <span key={chip} className="rounded-full border bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{chip}</span>
+          ))}
+        </div>
+      )}
 
       {/* Os cards de resumo (Total/Aguardando/Marcados/Enviados/Responderam/Taxa) saíram daqui:
           cada número foi para onde ele é usado — as contagens, para dentro dos filtros de
@@ -581,13 +689,13 @@ export default function ProspeccaoPage() {
       <table className="w-full min-w-max text-sm">
         <thead className="bg-gray-100">
           <tr>
-            <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={ordenarPor} />
+            {cols.entrou !== false && <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={ordenarPor} />}
             <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={ordenarPor} />
-            <ThOrdenavel label="Cadastro" chave="pontos" ordem={ordem} onOrdenar={ordenarPor} />
-            <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={ordenarPor} />
-            <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={ordenarPor} />
-            <ThOrdenavel label="Nicho / Cidade" chave="nicho" ordem={ordem} onOrdenar={ordenarPor} />
-            <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={ordenarPor} />
+            {cols.cadastro !== false && <ThOrdenavel label="Cadastro" chave="pontos" ordem={ordem} onOrdenar={ordenarPor} />}
+            {cols.telefone !== false && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={ordenarPor} />}
+            {cols.email !== false && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={ordenarPor} />}
+            {cols.nicho !== false && <ThOrdenavel label="Nicho / Cidade" chave="nicho" ordem={ordem} onOrdenar={ordenarPor} />}
+            {cols.status !== false && <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={ordenarPor} />}
             {/* Largura própria e fixa: dá folga para o radial (bolinhas satélite a 56px do
                 centro do gatilho "⋯") abrir sem colar na borda direita da tabela. */}
             <th className="w-32 min-w-[8rem] px-3 py-2 text-center">Ações</th>
@@ -596,7 +704,7 @@ export default function ProspeccaoPage() {
         <tbody>
           {pg.itens.map((p) => (
             <tr key={p.id} className="border-t hover:bg-gray-50">
-              <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{quando(p.created_at)}</td>
+              {cols.entrou !== false && <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{quando(p.created_at)}</td>}
               <td className="px-3 py-2 font-medium">
                 <TextoTruncado
                   texto={p.nome}
@@ -614,7 +722,7 @@ export default function ProspeccaoPage() {
                   saiu (decisão do operador em 2026-08-10). O balão distingue as três
                   situações — tem / não tem / não verificado — e o link fica em "Detalhes",
                   porque o balão é `pointer-events-none` e um link ali seria inalcançável. */}
-              <td className="px-3 py-2">
+              {cols.cadastro !== false && <td className="px-3 py-2">
                 <div className="flex items-center gap-1.5">
                   <BolinhaCadastro l={p} />
                   <button
@@ -625,13 +733,15 @@ export default function ProspeccaoPage() {
                     Detalhes
                   </button>
                 </div>
-              </td>
-              <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{p.telefone || '—'}</td>
-              <td className="px-3 py-2 text-xs"><EmailEditavel value={p.email} onSave={(email) => salvarEmail(p.id, email)} /></td>
-              <td className="px-3 py-2 text-xs"><NichoCidade nicho={p.nicho} cidade={p.cidade} /></td>
-              <td className="px-3 py-2">
-                <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLE[p.status] || 'bg-gray-100 text-gray-500'}`}>{STATUS_LABEL[p.status] || p.status}</span>
-              </td>
+              </td>}
+              {cols.telefone !== false && <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{p.telefone || '—'}</td>}
+              {cols.email !== false && <td className="px-3 py-2 text-xs"><EmailEditavel value={p.email} onSave={(email) => salvarEmail(p.id, email)} /></td>}
+              {cols.nicho !== false && <td className="px-3 py-2 text-xs"><NichoCidade nicho={p.nicho} cidade={p.cidade} /></td>}
+              {cols.status !== false && (
+                <td className="px-3 py-2">
+                  <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLE[p.status] || 'bg-gray-100 text-gray-500'}`}>{STATUS_LABEL[p.status] || p.status}</span>
+                </td>
+              )}
               <td className="w-32 min-w-[8rem] px-3 py-2 text-center whitespace-nowrap">
                 {p.status === 'rejeitado' ? (
                   <button disabled={agindo === p.id}
@@ -649,7 +759,7 @@ export default function ProspeccaoPage() {
             </tr>
           ))}
           {pg.itens.length === 0 && (
-            <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Configure a busca acima e clique em Buscar agora.</td></tr>
+            <tr><td colSpan={colSpanTabela} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Configure a busca acima e clique em Buscar agora.</td></tr>
           )}
         </tbody>
       </table>
@@ -767,9 +877,153 @@ export default function ProspeccaoPage() {
 
       </div>
 
+      {persAberto && (
+        <PersonalizarAquisicaoModal
+          view={view}
+          onPatch={patchView}
+          onReset={() => { setView(AQ_VIEW_PADRAO); setPagina(1) }}
+          onPreset={(patch) => {
+            setView({ ...AQ_VIEW_PADRAO, ...patch, cols: { ...AQ_VIEW_PADRAO.cols, ...(patch.cols || {}) } })
+            setPagina(1)
+            setPersAberto(false)
+          }}
+          onClose={() => setPersAberto(false)}
+        />
+      )}
+
       {detalheAberto && (
         <LeadDetalhesModal lead={detalheAberto} onFechar={() => setDetalheAberto(null)} />
       )}
+    </div>
+  )
+}
+
+
+type PresetAquisicao = {
+  nome: string
+  dica: string
+  patch: Partial<ViewAquisicao>
+}
+const AQ_PRESETS: PresetAquisicao[] = [
+  { nome: 'Sem presença digital', dica: 'Sem site próprio, sem rede social e com telefone.', patch: { site: 'sem', social: 'sem', telefone: 'com', ordenacao: 'pontos_asc' } },
+  { nome: 'Só rede social', dica: 'Tem rede social, mas não tem site próprio.', patch: { site: 'sem', social: 'com', telefone: 'com', ordenacao: 'pontos_asc' } },
+  { nome: 'Com telefone e sem e-mail', dica: 'Bom para completar cadastro antes do contato.', patch: { telefone: 'com', email: 'sem' } },
+  { nome: 'Baixa autoridade', dica: 'Poucas avaliações, útil para oferta de presença digital.', patch: { avalMax: '10', ordenacao: 'aval_asc' } },
+  { nome: 'Melhor nota', dica: 'Boa reputação, prioriza leads com nota alta.', patch: { notaMin: '4', ordenacao: 'nota_desc' } },
+  { nome: 'Mais recentes', dica: 'Ordena pelo que entrou por último na base.', patch: { ordenacao: 'entrou_desc' } },
+]
+
+function SelFiltroAquisicao({ label, value, onChange, opcoes }: { label: string; value: string; onChange: (v: string) => void; opcoes: [string, string][] }) {
+  return (
+    <label className="block text-xs text-slate-500">
+      <span className="mb-1 block">{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-lg border px-2 py-1.5 text-sm text-slate-700">
+        {opcoes.map(([valor, texto]) => <option key={valor} value={valor}>{texto}</option>)}
+      </select>
+    </label>
+  )
+}
+
+function CampoTextoAquisicao({ label, value, onChange, placeholder, type = 'text' }: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  type?: string
+}) {
+  return (
+    <label className="block text-xs text-slate-500">
+      <span className="mb-1 block">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-lg border px-2 py-1.5 text-sm text-slate-700"
+      />
+    </label>
+  )
+}
+
+function PersonalizarAquisicaoModal({ view, onPatch, onReset, onPreset, onClose }: {
+  view: ViewAquisicao
+  onPatch: (patch: Partial<ViewAquisicao>) => void
+  onReset: () => void
+  onPreset: (patch: Partial<ViewAquisicao>) => void
+  onClose: () => void
+}) {
+  const aplicarColuna = (key: string, checked: boolean) => onPatch({ cols: { ...view.cols, [key]: checked } })
+  const pararClique = (e: ReactMouseEvent<HTMLDivElement>) => e.stopPropagation()
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4 py-6" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl" onClick={pararClique}>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold">⠿ Personalizar aquisição</h3>
+            <p className="mt-0.5 text-xs text-slate-500">Filtros, presets, ordenação e colunas visíveis para revisar os leads encontrados.</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg border px-2 py-1 text-sm text-slate-500 hover:bg-slate-50">×</button>
+        </div>
+
+        <div className="space-y-5">
+          <section>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Presets rápidos</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {AQ_PRESETS.map((p) => (
+                <button
+                  key={p.nome}
+                  type="button"
+                  onClick={() => onPreset(p.patch)}
+                  className="rounded-xl border p-3 text-left hover:border-brand hover:bg-brand/5"
+                >
+                  <span className="block text-sm font-medium text-slate-700">{p.nome}</span>
+                  <span className="mt-1 block text-xs text-slate-500">{p.dica}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <SelFiltroAquisicao label="Ordenação" value={view.ordenacao} onChange={(v) => onPatch({ ordenacao: v })} opcoes={AQ_ORDENACOES.map((o): [string, string] => [o.valor, o.label])} />
+            <CampoTextoAquisicao label="Região / endereço contém" value={view.regiao} onChange={(v) => onPatch({ regiao: v })} placeholder="bairro, avenida ou cidade" />
+          </section>
+
+          <section>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Filtros</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <SelFiltroAquisicao label="Site próprio" value={view.site} onChange={(v) => onPatch({ site: v as Filtro3 })} opcoes={[["todos", "Todos"], ["com", "Com site próprio"], ["sem", "Sem site próprio"]]} />
+              <SelFiltroAquisicao label="Rede social" value={view.social} onChange={(v) => onPatch({ social: v as Filtro3 })} opcoes={[["todos", "Todas"], ["com", "Com rede social"], ["sem", "Sem rede social"]]} />
+              <SelFiltroAquisicao label="Telefone" value={view.telefone} onChange={(v) => onPatch({ telefone: v as Filtro3 })} opcoes={[["todos", "Todos"], ["com", "Com telefone"], ["sem", "Sem telefone"]]} />
+              <SelFiltroAquisicao label="E-mail" value={view.email} onChange={(v) => onPatch({ email: v as Filtro3 })} opcoes={[["todos", "Todos"], ["com", "Com e-mail"], ["sem", "Sem e-mail"]]} />
+              <CampoTextoAquisicao label="Score coleta ≥" type="number" value={view.scoreMin} onChange={(v) => onPatch({ scoreMin: v })} placeholder="0" />
+              <CampoTextoAquisicao label="Score coleta ≤" type="number" value={view.scoreMax} onChange={(v) => onPatch({ scoreMax: v })} placeholder="100" />
+              <CampoTextoAquisicao label="Nota ≥" type="number" value={view.notaMin} onChange={(v) => onPatch({ notaMin: v })} placeholder="0" />
+              <CampoTextoAquisicao label="Nota ≤" type="number" value={view.notaMax} onChange={(v) => onPatch({ notaMax: v })} placeholder="5" />
+              <CampoTextoAquisicao label="Avaliações ≥" type="number" value={view.avalMin} onChange={(v) => onPatch({ avalMin: v })} placeholder="0" />
+              <CampoTextoAquisicao label="Avaliações ≤" type="number" value={view.avalMax} onChange={(v) => onPatch({ avalMax: v })} placeholder="100" />
+              <CampoTextoAquisicao label="Entrou desde" type="date" value={view.dataDe} onChange={(v) => onPatch({ dataDe: v })} />
+              <CampoTextoAquisicao label="Entrou até" type="date" value={view.dataAte} onChange={(v) => onPatch({ dataAte: v })} />
+            </div>
+          </section>
+
+          <section>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Colunas visíveis</p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {AQ_COLUNAS_TOGGLE.map((c) => (
+                <label key={c.key} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={view.cols[c.key] !== false} onChange={(e) => aplicarColuna(c.key, e.target.checked)} />
+                  <span>{c.label}</span>
+                </label>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t pt-4">
+          <button type="button" onClick={onReset} className="rounded-lg border px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">↺ Restaurar padrão</button>
+          <button type="button" onClick={onClose} className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90">Aplicar</button>
+        </div>
+      </div>
     </div>
   )
 }

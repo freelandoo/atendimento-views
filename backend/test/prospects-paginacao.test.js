@@ -75,6 +75,20 @@ test('filtros de presenca digital entram no mesmo WHERE da lista e das metricas'
   assert.deepEqual(semSiteComSocial.params, ['e1'])
 })
 
+test('filtros avancados da Aquisicao entram no WHERE compartilhado', () => {
+  const r = montarFiltrosProspects({
+    empresaId: 'e1', email: 'com', telefone: 'sem', regiao: 'Centro',
+    notaMin: '4', notaMax: '5', avalMin: '10', avalMax: '80',
+    scoreMin: '30', scoreMax: '90', dataDe: '2026-09-01', dataAte: '2026-09-04',
+  })
+  assert.match(r.whereSql, /NULLIF\(TRIM\(COALESCE\(p\.email, ''\)\), ''\) IS NOT NULL/)
+  assert.match(r.whereSql, /NULLIF\(TRIM\(COALESCE\(p\.telefone, ''\)\), ''\) IS NULL/)
+  assert.match(r.whereSql, /\(p\.endereco ILIKE \$2 OR p\.cidade ILIKE \$2\)/)
+  assert.match(r.whereSql, /p\.rating >= \$3/)
+  assert.match(r.whereSql, /p\.created_at < \(\$10::date \+ interval '1 day'\)/)
+  assert.deepEqual(r.params, ['e1', '%Centro%', 4, 5, 10, 80, 30, 90, '2026-09-01', '2026-09-04'])
+})
+
 // --- Recorte da ordem calculada -----------------------------------------------------------
 
 // Rows minimos: `calcularScoreCadastroPlaces` pontua a completude do cadastro. Aqui o que

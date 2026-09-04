@@ -113,6 +113,17 @@ function normalizarCategoria(v) {
   return normalizarTexto(v, 160)
 }
 
+function normalizarNumeroFiltro(v) {
+  if (v == null || String(v).trim() === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+function normalizarDataFiltro(v) {
+  const data = normalizarTexto(v, 20)
+  return /^\d{4}-\d{2}-\d{2}$/.test(data) ? data : ''
+}
+
 function obterJanelaSemanal(cfg = {}, now = new Date()) {
   const weekday = normalizarInteiro(cfg.weekday, 1, 0, 6)
   const hour = normalizarInteiro(cfg.hour, 9, 0, 23)
@@ -1296,6 +1307,40 @@ function montarFiltrosProspects(filtros = {}, { alias = 'p', comStatus = true } 
   } else if (redeSocial === 'sem') {
     where.push(`${a}classificacao_url IS DISTINCT FROM 'rede_social'`)
   }
+  const email = normalizarFiltroSite(filtros.email)
+  if (email === 'com') {
+    where.push(`NULLIF(TRIM(COALESCE(${a}email, '')), '') IS NOT NULL`)
+  } else if (email === 'sem') {
+    where.push(`NULLIF(TRIM(COALESCE(${a}email, '')), '') IS NULL`)
+  }
+  const telefone = normalizarFiltroSite(filtros.telefone)
+  if (telefone === 'com') {
+    where.push(`NULLIF(TRIM(COALESCE(${a}telefone, '')), '') IS NOT NULL`)
+  } else if (telefone === 'sem') {
+    where.push(`NULLIF(TRIM(COALESCE(${a}telefone, '')), '') IS NULL`)
+  }
+  const regiao = normalizarTexto(filtros.regiao, 160)
+  if (regiao) {
+    params.push(`%${regiao}%`)
+    const i = params.length
+    where.push(`(${a}endereco ILIKE $${i} OR ${a}cidade ILIKE $${i})`)
+  }
+  const notaMin = normalizarNumeroFiltro(filtros.notaMin || filtros.nota_min)
+  const notaMax = normalizarNumeroFiltro(filtros.notaMax || filtros.nota_max)
+  if (notaMin != null) { params.push(notaMin); where.push(`${a}rating >= $${params.length}`) }
+  if (notaMax != null) { params.push(notaMax); where.push(`${a}rating <= $${params.length}`) }
+  const avalMin = normalizarNumeroFiltro(filtros.avalMin || filtros.avaliacoesMin || filtros.avaliacoes_min)
+  const avalMax = normalizarNumeroFiltro(filtros.avalMax || filtros.avaliacoesMax || filtros.avaliacoes_max)
+  if (avalMin != null) { params.push(avalMin); where.push(`${a}avaliacoes >= $${params.length}`) }
+  if (avalMax != null) { params.push(avalMax); where.push(`${a}avaliacoes <= $${params.length}`) }
+  const scoreMin = normalizarNumeroFiltro(filtros.scoreMin || filtros.score_min)
+  const scoreMax = normalizarNumeroFiltro(filtros.scoreMax || filtros.score_max)
+  if (scoreMin != null) { params.push(scoreMin); where.push(`${a}score >= $${params.length}`) }
+  if (scoreMax != null) { params.push(scoreMax); where.push(`${a}score <= $${params.length}`) }
+  const dataDe = normalizarDataFiltro(filtros.dataDe || filtros.data_de)
+  const dataAte = normalizarDataFiltro(filtros.dataAte || filtros.data_ate)
+  if (dataDe) { params.push(dataDe); where.push(`${a}created_at >= $${params.length}::date`) }
+  if (dataAte) { params.push(dataAte); where.push(`${a}created_at < ($${params.length}::date + interval '1 day')`) }
   return { where, params, whereSql: where.length ? `WHERE ${where.join(' AND ')}` : '' }
 }
 
