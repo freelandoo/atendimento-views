@@ -11,6 +11,73 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-09-11 — CRM em equipe: as TELAS das Etapas 3 a 12 (o front só traduz)
+
+- **Gatilho:** o backend das 12 etapas estava pronto e testado, e **nenhuma tela existia**. Uma
+  regra que só vive na API é uma regra que o operador não vê: a porta de qualificação, o dono do
+  lead e a diferença entre entrega confirmada e declaração do vendedor não tinham como aparecer.
+- **Decisão 1 — três módulos PUROS novos, e nenhuma regra no front.** `lib/lead-operacao.js`
+  (Etapas 3/4/5), `lib/conversa-operacao.js` (Etapa 7) e `lib/equipe-painel.js` (Etapa 12). Eles
+  ordenam, rotulam e explicam; não decidem. Cada um tem guarda de regressão que falha se SQL, a
+  matriz de capacidades ou um recálculo de regra aparecer ali — o mesmo contrato de
+  `lib/site-rotulos.js` e `lib/capacidades.js`.
+- **Decisão 2 — o painel de conversa AVISA, nunca barra.** `avisoDeAtendimento` devolve
+  `podeResponder: true` **sempre**, inclusive na conversa de outra pessoa, e o teste cobra a
+  **ausência** de qualquer função de bloqueio. É a tradução fiel de `avaliarResponder`: travar a
+  resposta deixaria o CLIENTE sem resposta porque o sistema decidiu que a pessoa errada estava na
+  tela. O que a conversa alheia ganha é uma frase acima do compositor, com o nome de quem é.
+- **Decisão 3 — `bloqueio` é prop NOVA em `AlternadorModoIa`, e não um reuso de `ocupado`.**
+  `ocupado` é bloqueio temporário e mostra "Atualizando…"; `bloqueio` é permanente e mostra **o
+  motivo em texto**, também no `aria-label`. Reusar `ocupado` faria o controle afirmar que está
+  salvando quando, na verdade, a pessoa não tem permissão. O mesmo veredito
+  (`conversa_gerenciar_ia`) governa o padrão global, a exceção por conversa e o pausar/retomar
+  agente — deixar um sem gate tornaria os outros decorativos.
+- **Decisão 4 — desabilitar com motivo × sumir, e quando cada um cabe.** O controle de IA fica
+  **visível e desabilitado** (há uma decisão de produto que a pessoa precisa entender);
+  "Deletar histórico" **some** (não há decisão a explicar no lugar, e um botão vermelho inerte só
+  convida ao clique). A regra geral do projeto continua: botão sumido sem explicação é o que faz
+  o operador achar que a tela quebrou — por isso todo lugar onde some há um motivo escrito ao
+  lado (`motivoSemAssumir`).
+- **Decisão 5 — o painel da equipe não vira placar.** As quatro contagens medem coisas
+  diferentes e **não se somam**: cada coluna declara `oQueMede`, e `ligacoes` fica FORA da carga
+  atual porque é acumulado — somá-lo faria quem trabalha há mais tempo parecer sobrecarregado
+  hoje. A linha do tempo de auditoria aparece crua, **sem nenhum agregado**, porque a migration
+  047 declara que auditoria não é fonte de dashboard. Guarda de regressão falha se `ranking`,
+  `produtividade`, `media(`, `percentual` ou `score` aparecerem no módulo.
+- **Decisão 6 — o trabalho SEM DONO é linha própria, e quem foi desativado continua listado.**
+  Ele não é anomalia (lead livre e conversa não atribuída são filas legítimas), mas é o que o
+  admin abre o painel para redistribuir; omiti-lo faria a soma das linhas não fechar com o total.
+  E desativar alguém **revoga o acesso sem redistribuir nada** — sem o aviso de "ainda com X na
+  mão", a carteira ficaria parada sem ninguém notar.
+- **Decisão 7 — recorte do SERVIDOR é sempre DECLARADO na tela.** Conversas, ligações e agenda
+  recortam no backend; a tela diz "só as suas" / "Mostrando as suas e as não atribuídas".
+  Recortar em silêncio faria o vendedor achar que perdeu histórico. Já o atalho **"Meus"** da
+  Central de Follow-ups é o oposto: filtro de TELA, ligado pela pessoa, porque aquela fila tem
+  visibilidade GERAL por decisão de produto (decisão D da especificação).
+- **Decisão 8 — duas mudanças de BACKEND nasceram da tela, e as duas reusam o que existe.**
+  (a) `api-conversas.js` ganhou `LEFT JOIN app.usuarios` na listagem e no detalhe: avisar "está
+  com outra pessoa" sem dizer **quem** não resolve o problema real (dois atendentes sem saber um
+  do outro). (b) `GET /agenda/responsaveis` (`AGENDA_VER_EQUIPE`, declarada **antes** de `/:id`,
+  senão "responsaveis" seria lido como id de evento) **reusa `listarResponsaveis` de
+  `db/follow-ups.js`** — uma consulta própria faria o mesmo colega aparecer num seletor e sumir
+  do outro. Guardas em `test/agenda-equipe.test.js`.
+- **Decisão 9 — os dois conflitos de merge dos logs foram resolvidos MANTENDO as duas entradas.**
+  `ai-decision-log.md` e `ai-task-start-log.md` tinham lados que não competiam: um trazia a Fase 2
+  (2026-08-13), o outro a campanha Tenka (2026-08-18). Escolher um apagaria história de
+  governança. Resultado: 772 inserções, **zero remoções**.
+- **Impacto:** `frontend/lib/{lead-operacao,conversa-operacao,equipe-painel}.{js,d.ts,test.js}`
+  (novos), `frontend/app/dashboard/equipe/page.tsx` (nova), `banco-leads`, `prospeccao`,
+  `conversas`, `central-ligacoes`, `follow-ups`, `agenda`, `components/ConversaPainel.tsx`,
+  `components/InstanciasWhatsApp.tsx`, `components/ui/AlternadorModoIa.tsx`,
+  `backend/src/routes/api-conversas.js`, `backend/src/routes/api-agenda.js`,
+  `backend/test/agenda-equipe.test.js`, `AGENTS.md`, `docs/plano-execucao-crm-equipe.md`.
+  **Nenhuma migration, nenhuma variável de ambiente, nenhuma mudança de gate de rota.**
+- **Como validar:** `npm test` no `backend/` (**1867/1869**; as 2 falhas são os testes que fazem
+  chamada real ao provedor e tomam `429`), `node --test lib/*.test.js` no `frontend/`
+  (**421/421**) e `npx tsc --noEmit` limpo nos dois lados. Nada foi executado contra produção.
+
+---
+
 ## 2026-08-17 — Central de Ligações: sincronização entre sessões/dispositivos da mesma conta
 
 - **Gatilho:** a mesma conta usada em computador e celular ao mesmo tempo. Início, fim da

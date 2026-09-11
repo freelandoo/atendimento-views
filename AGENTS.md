@@ -1501,6 +1501,365 @@
   ligação continuam **fora de escopo**, e o modo Acompanhar segue **estritamente somente
   leitura** — há guarda de regressão que lê o fonte da tela.
 
+### CRM em EQUIPE — autorização por CAPACIDADE, com o papel vindo do VÍNCULO (Etapa 1)
+- **Projeto em andamento, por etapas.** O plano vivo é `docs/plano-execucao-crm-equipe.md` —
+  **leia-o antes de tocar em qualquer coisa deste tema**; o desenho completo está em
+  `docs/especificacao-crm-equipe.md` e a porta de qualificação do lead em
+  `docs/analise-qualificacao-lead-e-multiusuario.md`. **Etapa 1 concluída (2026-09-11); Etapas 2
+  a 12 pendentes.**
+- **Defeito corrigido:** `app.usuarios_empresas.role` (`owner|admin|member`) existe desde a
+  migration `001`, é escrito em 3 lugares e **nunca autorizou nada** — `requireRole` lia
+  `app.usuarios.role`, que é **GLOBAL**. Efeito: quem era `admin` global era admin em **toda**
+  empresa a que pertencesse. Agora o papel que autoriza é o do **VÍNCULO**, e `app.usuarios.role`
+  fica restrito a `superadmin` = operador da **plataforma**.
+- **Fonte de verdade única: `src/services/acesso-capacidades.js`** (PURO — sem banco, HTTP, IA ou
+  rede), dono do vocabulário (`PAPEIS`, `PAPEL_PLATAFORMA`, `CAPACIDADES` com 28 ações, `MATRIZ`,
+  `MOTIVOS`) e do julgamento (`avaliarCapacidade`, `podeCapacidade`, `capacidadesDoVinculo`,
+  `concedeveisPara`). Ele **não** responde "qual o papel?", e sim **"esta capacidade está
+  liberada para este vínculo?"** — a primeira pergunta admite heurística, e foi heurística que
+  produziu o fallback da PJ no webhook e a escolha de instância por `atualizado_em`.
+- **PROIBIDO comparar papel com literal fora deste módulo** (`if (papel === 'admin')` espalhado
+  pelas rotas faz a matriz divergir em silêncio). Guarda de regressão varre `src/**` e falha.
+- **Capacidade é AÇÃO de negócio, não rota e não tela.** Rotas mudam de caminho e telas de nome;
+  "disparar mensagem em lote pela Evolution" continua sendo a mesma decisão.
+- **Autorização por CAPACIDADE, nunca por NÍVEL.** A hierarquia numérica
+  (`user < admin < superadmin`, `frontend/lib/navegacao.js`) é justamente o que impedia o papel
+  comercial de existir: ele precisa de **mais** que `member` (operar ligação) e **menos** que
+  `admin` (não gastar coleta paga). Papel desconhecido **NEGA**; capacidade desconhecida **NEGA**.
+- **Um único papel novo — `comercial`** (migration `070`, CHECK só ALARGA). `manager`, `sdr`,
+  `closer`, `viewer` **não** nascem: papel sem ocupante é coluna de matriz que ninguém valida.
+  `owner` e `admin` são **idênticos na matriz** de propósito — a diferença entre eles é regra de
+  "Contas da empresa" (um `admin` não desativa o `owner`), não capacidade.
+- **`app.usuarios_empresas.permissoes` (JSONB) é SOMENTE ADITIVO.** Concessão pontual **nunca
+  nega** o que o papel permite — senão nasce o estado "o papel diz sim, o override diz não" e a
+  resposta a "por que ele não consegue?" deixa de ser derivável. **Negar = trocar o papel.** Só o
+  booleano `true` concede (`Boolean('false')` é `true`, mesma recusa explícita da migration
+  `066`); chave desconhecida é **ignorada** — typo não abre porta e não quebra o request. Não é
+  tabela `user_permissions` porque a concessão é esparsa (0-2 por pessoa) e uma tabela custaria um
+  `JOIN` em **todo** request para guardar o que cabe na linha que o middleware já carrega.
+- **`requireEmpresaAccess` publica `req.vinculoEmpresa`, `req.papelEmpresa` e `req.capacidades`**
+  (`src/middleware/tenant.js`). `buscarVinculoUsuarioEmpresa` (`src/db/empresas.js`)
+  **SUBSTITUIU** `usuarioPertenceAEmpresa`, que devolvia só um booleano e descartava o papel —
+  mesmo filtro `ativo = true`, mesmo único chamador (o middleware). Vínculo inativo **já era**
+  barrado antes desta etapa.
+- **`requireCapacidade(...)` aceita VÁRIAS capacidades = qualquer uma basta**, e **recusa com 500
+  `ACESSO_MAL_CONFIGURADO` se rodar sem `requireEmpresaAccess` antes**: cair no papel global ali
+  reintroduziria exatamente o defeito. `requireRole` **continua existindo** para o que é de
+  plataforma (`/api/admin`, quarentena global) — os dois convivem.
+- **Etapa 1 é NEUTRA EM COMPORTAMENTO: `requireCapacidade` nasce SEM chamador, de propósito**, e
+  há guarda de regressão que **falha quando ele ganhar o primeiro** — é o sinal de que a Etapa 6
+  (troca dos mounts `requireRole('admin')`) começou. **Ao remover essa guarda, a suíte de
+  autorização POR ROTA precisa existir no lugar dela**; sem isso a matriz passa a valer sem
+  ninguém verificar rota por rota, que é o risco alto declarado daquela etapa.
+- **Migration `070_papel_comercial.sql` — ADITIVA:** alarga a CHECK de `role`, acrescenta
+  `permissoes JSONB NOT NULL DEFAULT '{}'`, `criado_por` (nullable **sem DEFAULT** — vínculo
+  antigo não tem autor conhecido e inventar um seria mentir) e `ultimo_acesso_em` (o
+  "last_access" **por empresa**; `usuarios.ultimo_login_em` é global e não responde "quando ela
+  trabalhou NESTA operação?"), + índice parcial `(empresa_id, role) WHERE ativo`. **Nenhum
+  `UPDATE` de dado.** Nada escreve nas 3 colunas novas na Etapa 1.
+- Código: `src/services/acesso-capacidades.js` (PURO, novo), `src/middleware/tenant.js`,
+  `src/db/empresas.js`, `src/domain-enums.js` (**reexporta** `PAPEIS_EMPRESA`, não copia).
+  Testes: `test/acesso-capacidades.test.js` (matriz + caso negativo do `comercial` + 5 guardas de
+  regressão que leem o fonte), `test/domain-enums.test.js` (anti-drift × CHECK da `070`).
+- **Nenhuma variável de ambiente nova, nenhuma rota nova, nenhuma mudança de gate de rota.**
+
+### Contas da empresa — membros, papel por vínculo e concessões aditivas (Etapa 2)
+- **Continuação da Etapa 1** (bloco acima). Plano vivo: `docs/plano-execucao-crm-equipe.md` §4.
+- **Defeito corrigido:** não existia como adicionar uma segunda pessoa a uma empresa **pelo
+  produto**. `createUsuarioPorAdmin` (`src/db/usuarios.js`) cria a linha em `app.usuarios` e
+  **não cria vínculo** em `app.usuarios_empresas` — a pessoa nascia sem acesso a empresa alguma e
+  `requireEmpresaAccess` respondia 403 em tudo. Montar equipe exigia `INSERT` manual no banco.
+- **Rotas:** `GET/POST /api/empresas/:empresaId/membros`, `GET .../membros/opcoes`,
+  `PATCH .../membros/:vinculoId`. **O `:vinculoId` é o id de `app.usuarios_empresas`, não o do
+  usuário** — é o vínculo que pertence a esta empresa; usar `usuario_id` faria a rota falar de uma
+  entidade global. **PRIMEIRA rota do projeto autorizada por `requireCapacidade`**
+  (`MEMBROS_GERENCIAR`), aplicada em `router.use` — não por rota, para uma rota nova não nascer
+  sem gate.
+- **NÃO é `/api/admin/usuarios`.** Aquela é a lista de **PLATAFORMA** (`superadmin`, todas as
+  contas do sistema) e continua existindo, junto com a tela `/dashboard/contas`. A tela nova é
+  `/dashboard/contas-empresa`. **Não fundir:** escopos e autorizações diferentes; juntá-las daria a
+  um admin de empresa a lista de contas de TODAS as empresas.
+- **NÃO EXISTE EXCLUSÃO DE MEMBRO, de propósito.** Desativar (`ativo = false`) revoga o acesso e
+  preserva o histórico; um `DELETE` no vínculo desligaria em silêncio a autoria de ligações,
+  follow-ups, disparos e auditoria daquela pessoa. Mesma disciplina de "arquivar em vez de
+  excluir" já adotada em Roteiros. Guarda de regressão falha se um `router.delete` aparecer.
+- **As quatro regras que não se negociam** (todas com guarda que lê o fonte):
+  1. **O papel GLOBAL do novo membro é sempre `user`** — `admin`/`superadmin` globais NÃO são
+     criados aqui. Conceder papel global devolveria o defeito da Etapa 1 (papel global valendo
+     dentro de qualquer empresa).
+  2. **E-mail que já existe REUSA o usuário e só acrescenta o vínculo.** Nunca se altera senha,
+     nome ou papel global de um usuário existente: ele pode servir outra empresa. Já ser membro é
+     **409 `MEMBRO_JA_EXISTE`**, nunca um segundo vínculo.
+  3. **`owner` é protegido** (`OWNER_PROTEGIDO`): não é rebaixado nem desativado por esta rota. E
+     **ninguém altera o próprio vínculo** (`AUTO_ALTERACAO`) — impede trancar-se fora da empresa e
+     impede auto-promoção.
+  4. **Toda escrita vira linha em `app.auditoria_eventos`** (`entidade_tipo='membro_empresa'`),
+     **sem senha, sem hash e sem e-mail**. Guarda lê os blocos `contexto:` do fonte.
+- **A auditoria é gravada DENTRO da transação do vínculo** — ao contrário do padrão "auditoria
+  nunca derruba a ação principal" usado em telemetria. Aqui a linha **é parte do fato** (quem
+  adicionou quem à empresa), e um vínculo sem registro de autoria é exatamente o que esta etapa
+  existe para evitar.
+- **Senha e hash NUNCA saem da camada de dados:** `COLS_MEMBRO` não os inclui e há guarda que
+  verifica `password_hash` **linha por linha** — não por região entre `;`, porque este projeto
+  omite ponto-e-vírgula em JS e `[^;]*` atravessaria o arquivo inteiro (falso positivo real,
+  encontrado ao escrever o teste).
+- **Concessões (`permissoes`) são SOMENTE ADITIVAS, e `false` é RECUSADO com 400 — não ignorado.**
+  `permissoes: {x: false}` é quase sempre alguém tentando NEGAR; falhar alto evita a expectativa de
+  que a negação valha. Conceder o que o papel **já inclui** também é 400 (inflaria a coluna e faria
+  a tela mostrar concessão onde não houve decisão). Trocar de papel **descarta** a concessão que o
+  papel novo passou a incluir (`sanearPermissoesExistentes`).
+- **`GET .../membros/opcoes`** existe para a tela montar o formulário **sem conhecer a matriz**:
+  devolve os papéis e, por papel, o que é concedível (`concedeveisPara`). Sem ela o front teria de
+  saber a regra — exatamente a duplicação que a guarda de `frontend/lib/capacidades.js` proíbe.
+- **`GET /api/auth/me` ganhou `papel_empresa` e `capacidades` por empresa** (campos **ADITIVOS**;
+  `role_usuario` já existia). **`permissoes` NÃO é devolvido cru** de propósito: a tela precisa da
+  lista EFETIVA, e expor as concessões separadas convidaria o front a recombiná-las.
+- **`ultimo_acesso_em` é escrito no vínculo** por `requireEmpresaAccess`, **não aguardado**
+  (`void`) e **no máximo 1×/hora**: é telemetria de uso, não fato de negócio, e uma falha nunca
+  pode atrasar um request. Ele existe porque `app.usuarios.ultimo_login_em` é **global** e não
+  responde "quando essa pessoa trabalhou NESTA operação?".
+- **A guarda "requireCapacidade sem consumidor" da Etapa 1 foi SUBSTITUÍDA, não removida.** Entrou
+  no lugar: **"TODA rota autorizada por capacidade está coberta pela suíte de AUTORIZAÇÃO POR
+  ROTA"** — varre `src/**`, acha quem chama `requireCapacidade(`, confere o mount no `index.js` e
+  **exige que ele apareça em `ROTAS_POR_CAPACIDADE` (`test/membros.test.js`)**, que o exercita
+  contra os 4 papéis. **Ao migrar cada rota na Etapa 6, acrescente a linha lá.** A tabela irmã
+  `ROTAS_AINDA_ADMIN_GLOBAL` garante que as 6 rotas não migradas não perdem o gate antigo antes de
+  ganhar o novo.
+- **Front:** `frontend/lib/capacidades.js` (+ `.d.ts`/`.test.js`) **só TRADUZ** o veredito —
+  guarda de regressão falha se `MATRIZ`, `podeCapacidade`, `avaliarCapacidade` ou `concedeveisPara`
+  aparecerem lá. Slug de capacidade desconhecido é exibido **como ele mesmo**, nunca escondido: uma
+  capacidade nova no servidor não pode desaparecer da tela de permissões. Tela:
+  `frontend/app/dashboard/contas-empresa/page.tsx`. **O `minRole: 'admin'` do item de menu em
+  `lib/navegacao.js` é PROVISÓRIO** (está comentado no fonte): o backend já autoriza por capacidade
+  sobre o papel do vínculo e a árvore ainda filtra pelo papel global — converter a árvore é a
+  Etapa 6.3.
+- **Medição somente-leitura:** `npm run medir:qualificacao-lead`
+  (`scripts/medir-qualificacao-lead.js`, migration nenhuma). Mesmo padrão dos dois irmãos:
+  `BEGIN TRANSACTION READ ONLY` + `ROLLBACK`, `DATABASE_URL` explícita (o script **nunca** escolhe
+  banco sozinho), só contagens agregadas, ids mascarados, zero PII, zero chamada externa, zero
+  dependência nova. Guardas em `test/medir-qualificacao-lead.test.js` falham se qualquer verbo de
+  escrita, cliente HTTP, URL de banco embutida ou coluna de PII aparecer — **e se `STATUS_RODAVEL`
+  divergir do de `services/rodar-leads.js`** (o script o duplica de propósito, para não importar o
+  worker; duplicar exige conferir). Resultado da execução autorizada de 2026-09-11 em
+  `docs/plano-execucao-crm-equipe.md` §4-bis.
+- Código: `src/db/membros.js`, `src/routes/api-membros.js`, `src/routes/api-auth.js`,
+  `src/db/usuarios.js`, `src/middleware/tenant.js`, `index.js`,
+  `scripts/medir-qualificacao-lead.js`. Testes: `test/membros.test.js`,
+  `test/acesso-capacidades.test.js`, `test/medir-qualificacao-lead.test.js`,
+  `frontend/lib/capacidades.test.js`, `frontend/lib/navegacao.test.js`.
+- **Nenhuma variável de ambiente nova. Nenhuma migration nova** (usa as colunas da `070`).
+  **Nenhuma outra rota trocou de gate.**
+
+### CRM em EQUIPE — Etapas 3 a 12 (a porta do lead, ownership, `wa.me` e o papel comercial)
+- **Projeto CONCLUÍDO — backend e telas.** Plano vivo e retomável:
+  `docs/plano-execucao-crm-equipe.md` (leia-o antes de mexer em qualquer coisa deste tema).
+  Desenho: `docs/especificacao-crm-equipe.md`. **Migrations `071`-`078`.** Nenhuma variável de
+  ambiente nova.
+
+#### A PORTA da operação comercial (`prospects.qualificacao`, migration 071)
+- **Regra:** encontrar um lead **não** autoriza trabalhá-lo. Ele entra na operação (ligação,
+  WhatsApp, e-mail, campanha) depois de triagem — ou porque já operava antes da regra (`legado`).
+- **Por que coluna NOVA e não reusar `status`:** `rodar-leads.js` grava `status='enviado'` ao
+  abordar, então **`enviado` SOBRESCREVE `aprovado`**. Uma regra "só entra quem está aprovado"
+  expulsaria da operação justamente quem já foi contatado e mais precisa de follow-up. `status`
+  continua INTOCADO (é o funil); `qualificacao` é o eixo que sobrevive à abordagem.
+- **`legado` NÃO é "aprovado": é a ausência de prova, NOMEADA** (mesmo vocabulário de
+  `origem_vinculo`, migration 061). Medido em produção em 2026-09-11: **2.748 dos 3.535 leads
+  elegíveis (77,7%) não têm nenhuma prova de triagem** — a curadoria foi usada 3 vezes na vida.
+  Sem o `DEFAULT 'legado'` a operação pararia no primeiro boot.
+- **AS QUATRO PORTAS**, todas no backend: `db/campanhas.js` (`adicionarLeads`) ·
+  `services/rodar-leads.js` (3 pontos: envio manual, candidatos do Semi, reavaliação no disparo) ·
+  `services/banco-leads-auto.js` (o worker, o único caminho que aborda sem humano) ·
+  `services/email-outreach.js`.
+- **A 2ª barreira em `filaDeTrabalho` é mais FROUXA que a porta, de propósito:** exige apenas
+  "não descartado". Medido: 1.031 leads já vinculados a campanhas nunca foram triados (exigir
+  aprovação esvaziaria a fila), mas **54 estavam DESCARTADOS** — e ligar para quem uma pessoa
+  recusou é o único desfecho que chega ao CLIENTE.
+- **AUTO-APROVAÇÃO REMOVIDA** de `processarFluxoCompleto` (`prospecting.js`): gerar diagnóstico
+  por IA virava aprovação comercial em lote. **PROIBIDO reintroduzir** — há guarda de regressão.
+- **Recoleta NUNCA rebaixa:** `qualificacao` não aparece em nenhum `ON CONFLICT ... DO UPDATE`.
+  É o que impede "lead descartado volta por nova importação".
+- **Lead novo nasce `pendente`, explicitamente** — nunca herdando o `DEFAULT 'legado'`, que existe
+  só para a carência do acervo. Guarda lê o fonte dos 2 coletores.
+- Fonte única: `src/services/lead-qualificacao.js` (PURO). **Proibido comparar `qualificacao` com
+  literal fora dele.** Testes: `test/lead-qualificacao.test.js`.
+
+#### Ownership de LEAD (migration 072) e de CONVERSA (migration 074)
+- **`responsavel_id = NULL` é a FILA (de livres / de não atribuídas)** — estado de primeira classe,
+  não erro. **Nenhum backfill**: inventar dono retroativo é o defeito que as migrations 058 e 060
+  removeram. (Em conversa não haveria nem de onde: `operador_assumiu_em` diz **quando**, nunca
+  **quem** — e essa lacuna é exatamente o que a 074 corrige.)
+- **Claim ATÔMICO, nunca SELECT+UPDATE:** `UPDATE … WHERE responsavel_id IS NULL RETURNING`.
+  0 linhas ⇒ **409 com o nome de quem ganhou**. Mesmo padrão da curadoria (055) e do índice único
+  das ligações (048).
+- **1:1, não N:N.** `lead_assignments` foi recusada: vários responsáveis modelariam o problema que
+  o ownership existe para impedir.
+- ⚠️ **A regra OPOSTA em conversa: RESPONDER NUNCA É BLOQUEADO.** Travar a resposta no meio de um
+  atendimento deixa o CLIENTE sem resposta porque o sistema decidiu que a pessoa errada estava na
+  tela. `avaliarResponder` devolve `{permitido: true, avisar}` — a tela avisa de quem é, e pronto.
+  **Não acrescente gate de ownership na rota de envio manual** (há guarda).
+- **O recorte padrão de conversa é "minhas + NÃO ATRIBUÍDAS"**, nunca "só minhas": conversa que
+  ninguém vê é cliente sem resposta.
+- **Nada disso toca `atualizado_em`** (a Central ordena por ele; assumir não é mensagem nova —
+  mesmo cuidado da migration 065) **nem `modo_ia`/`agente_pausado`** (decisões independentes).
+- Histórico em tabela PRÓPRIA (`app.lead_responsavel_historico`, `app.conversa_responsavel_historico`)
+  e **não** em `auditoria_eventos`: a migration 047 declara que a auditoria *"não deve ser fonte de
+  dashboards"*, e "quantos leads o vendedor X teve" é gestão. As duas convivem. O histórico de
+  conversa **não tem FK para `vendas.conversas`** — aquele `numero` é UNIQUE GLOBAL e não prova
+  empresa (migrations 062/066).
+
+#### Abordagem MANUAL pelo `wa.me` (migration 073) — prova × declaração
+- **Abrir um link `wa.me` NÃO prova que a mensagem foi enviada.** Quem envia é o vendedor, no
+  aparelho dele, fora do alcance de qualquer webhook.
+- **TRÊS fatos distintos, e a separação É a feature:** preparar (`GET`, read-only: não envia, não
+  grava, não chama IA) → **abrir** (`POST …/aberta`, status próprio `aberto`) → **declarar**
+  (`PATCH …{enviado:true}`, `confirmado_por='operador'`).
+- `confirmado_por`: `provider` = a Evolution confirmou (`DELIVERY_ACK|READ|PLAYED`) · `operador` =
+  **declaração humana, não prova** · `NULL` = ninguém confirmou. **Toda tela que exibir abordagem
+  manual é obrigada a rotulá-la como autodeclarada** — somá-la com entregas confirmadas produziria
+  um número que não se sustenta. `forcaDaProva()` devolve o rótulo junto do dado, de propósito.
+- `evolution_instance` deixou de ser obrigatória, com CHECK amarrando ao canal: **Evolution
+  continua exigindo instância**; só o manual pode vir sem (o produto não envia nada ali). Isso
+  **não** afrouxa a regra de instância de envio — aquela rege quem pode enviar PELO produto.
+- **Disparo manual NUNCA conta para o teto anti-ban** (não há número do produto a proteger).
+- **O rascunho é DETERMINÍSTICO — nenhuma IA.** Um canal novo não estreia com custo de LLM por
+  clique. Guarda de regressão impede. E ele **nunca inventa oferta, preço ou elogio ao negócio**.
+- **Nenhum job pode gravar `confirmado_por='operador'`** — guarda varre `src/**`.
+- Código: `services/abordagem-manual.js` (PURO), `db/abordagem-manual.js`, 3 rotas em
+  `api-banco-leads.js`. Testes: `test/abordagem-manual.test.js`.
+
+#### O papel `comercial` e a autorização por CAPACIDADE (Etapa 6)
+- **15 mounts** trocaram `requireRole('admin')` (papel GLOBAL, que valia dentro de qualquer
+  empresa) por `requireCapacidade` sobre o papel do **vínculo**. `requireRole` continua no que é de
+  **PLATAFORMA** (`/api/llm`, `/api/webhook-quarentena`, `/api/admin`) — os dois convivem.
+- ⚠️ **O mount não basta.** Dentro de 4 routers há escritas que a matriz separa, com capacidade
+  **por rota**: `ROTEIRO_GERENCIAR`, `CAMPANHA_GERENCIAR`, `LEAD_DISPARAR_LOTE`,
+  `FOLLOWUP_CONFIG_EMPRESA`. Sem isso, montar `/roteiros` com `ROTEIRO_LER` deixaria o comercial
+  **criar** roteiro, e `/banco-leads` com `LEAD_VER_APROVADOS` deixaria ele **disparar em lote**.
+- ⚠️ **ORDEM DOS MIDDLEWARES:** `requireCapacidade` **depois** de `requireEmpresaAccess`. Antes, ele
+  recusa com **500 `ACESSO_MAL_CONFIGURADO`** e a rota cai para todo mundo, inclusive o admin. Há
+  teste conferindo a ordem em cada mount e em cada rota.
+- **`/conversas`, `/whatsapp` e `/agenda` autorizam POR ROTA, não no mount**: ler/atender/usar a
+  própria agenda é de todo membro, e o que o ownership restringe é o **recorte** (por consulta),
+  não o acesso ao módulo.
+- **SUÍTE DE AUTORIZAÇÃO POR ROTA: `test/autorizacao-rotas.test.js`.** Toda rota autorizada por
+  capacidade precisa estar em `ROTAS_POR_CAPACIDADE`, exercitada contra os **4 papéis**, com o caso
+  NEGATIVO. Uma guarda em `test/acesso-capacidades.test.js` varre `src/**` e **falha se você
+  montar uma rota com `requireCapacidade` sem declará-la lá**. Foi ela que pegou 3 rotas durante
+  esta entrega.
+
+#### Permissão de IA (Etapa 9) — a capacidade sensível
+- **Não é "a IA pode responder"** (isso é `modo_ia`, migration 063). É **quem pode LIGAR a IA**:
+  `PATCH /modo-ia`, `PATCH /agente` e ativar a instância. As duas primeiras diferem em DURAÇÃO, não
+  em efeito sobre o cliente — deixar uma sem gate tornaria a outra decorativa.
+- Bloqueada por padrão para `comercial` e `member`; liberável por **concessão aditiva** no vínculo.
+- **Decisão E:** instância criada por quem não pode ligar a IA **nasce `ativo=false`**, com aviso
+  na resposta. Instância inativa não responde — a regra vale **sem tocar o webhook**. A alternativa
+  (conversas nascerem em `modo_ia='analise'`) mexeria no ponto onde a conversa nasce e ficou como
+  evolução futura.
+- **NENHUM motor de IA foi alterado** — guarda em 6 arquivos (`core-funnel`, `contexto2-responder`,
+  `webhook-handler`, `followup-auto`, `followup-execution`, `agenda`).
+
+#### Instâncias com responsável + CONTEXTO PADRÃO da empresa (migration 075)
+- **`usuario_id` NULL = instância DA EMPRESA (compartilhada)** — o comportamento histórico e o
+  default. "Compartilhada" e "exclusiva" viraram o mesmo modelo.
+- ⚠️ **`usuario_id` NÃO participa da resolução de instância de ENVIO nem do WEBHOOK.** Aquelas
+  continuam olhando **empresa + instância provada**: usar o usuário seria "escolher número por quem
+  mandou o comando", o defeito que a Fase 2 removeu. Guardas em `instancia-envio.js`, `whatsapp.js`
+  e `middleware/tenant.js`.
+- **O contexto NUNCA esteve preso à primeira instância** — `app.empresa_contextos` sempre foi
+  entidade da empresa, já compartilhável, com fluxo de transferência. O que faltava era um PADRÃO.
+- ⚠️ **O padrão é COPIADO na CRIAÇÃO, nunca resolvido na RESPOSTA.** Compartilhar acoplaria duas
+  instâncias ao mesmo registro editável (editar o contexto de um vendedor mudaria como o número do
+  outro responde). Resolver na resposta violaria *"atendimento é 100% por instância"*
+  (`contexto-empresa.js`). **`buscarContexto2Ativo` NÃO foi alterada**, e há guarda que falha se
+  ela passar a ler `contexto_padrao_id`.
+- O provisionamento máquina-a-máquina deixa o responsável **nulo**, de propósito.
+
+#### Agenda em equipe (migrations 076/077)
+- **O conflito de horário virou POR PESSOA.** Antes bloqueava a empresa inteira: a reunião de um
+  vendedor impediria os outros dois de marcar no mesmo horário.
+- ⚠️ **Com responsável, conflita com os eventos DELE *e* com os da EMPRESA (sem responsável).** O
+  segundo termo não é detalhe: evento sem dono pode ser um BLOQUEIO (feriado, treinamento), e
+  ignorá-lo deixaria marcar reunião em cima dele. **Sem responsável informado, o comportamento é
+  IDÊNTICO ao de antes.**
+- `responsavel_id` ≠ `criado_por`: quem marca e quem conduz podem ser pessoas diferentes (o admin
+  marca para o vendedor, o SDR para o closer). **Sem backfill** — afirmar que o criador conduz
+  inventaria responsabilidade sobre reuniões já acontecidas.
+- **A agenda do BOT (`vendas.agenda_eventos`) NÃO foi tocada.** Unificar as duas é projeto próprio.
+- Migration `077` acrescenta `empresa_id` a 5 tabelas `vendas.*`, **sem DEFAULT e sem UPDATE** —
+  preenchimento por `npm run backfill:vendas-empresa`, que **simula por padrão**.
+
+#### Painel da equipe e a remoção dos `DEFAULT = PJ` (Etapa 12)
+- `GET /api/empresas/:id/equipe` — **sem SQL próprio**: reusa as contagens de cada módulo.
+  Reescrevê-las criaria uma segunda definição de "quantos leads o vendedor X tem".
+- `GET /equipe/:usuarioId/atividade` lê `auditoria_eventos` **sem agregação** — rastreabilidade,
+  não métrica (migration 047).
+- **Migration `078` remove os `DEFAULT '<PJ>'`** de 6 tabelas. O DEFAULT autoriza em silêncio
+  qualquer INSERT futuro que esqueça a coluna — foi assim que *"todo lead de toda empresa nascia
+  marcado como PJ"* (migrations 005/006, corrigidas pela 058).
+- **A auditoria exigida encontrou DOIS INSERTs que dependiam do DEFAULT** —
+  `vendas.followup_envios` (`db-crud.js`) e `vendas.analises_pos_conversa` (`learning.js`) —,
+  corrigidos **no mesmo diff**, resolvendo a empresa pela CONVERSA dentro do SQL (padrão da 058).
+  **Conversa inexistente ⇒ `NULL`, nunca PJ.**
+- **O fallback da PJ no CÓDIGO (`COALESCE($n, PJ)`) NÃO foi removido** — é decisão de produto sobre
+  conversa órfã e sai numa fase própria.
+
+#### As TELAS das Etapas 3-12 (entregues em 2026-09-11)
+- **Nenhuma tela recalcula regra.** Todas consomem o veredito que a API já resolveu — mesmo
+  contrato de `lib/site-rotulos.js` e `lib/capacidades.js`. Três módulos PUROS novos, cada um
+  dono de um vocabulário de apresentação, todos com `.d.ts` e `.test.js`:
+  `frontend/lib/lead-operacao.js` (Etapas 3/4/5), `frontend/lib/conversa-operacao.js` (Etapa 7) e
+  `frontend/lib/equipe-painel.js` (Etapa 12).
+- **Telas tocadas:** `banco-leads` (selo de qualificação, responsável, recorte, modal `wa.me`),
+  `prospeccao` ("Marcar" → **"Aprovar"**), `conversas` + `components/ConversaPainel.tsx`
+  (recorte por atendente, coluna Atendente, assumir/devolver, aviso acima do compositor),
+  `components/InstanciasWhatsApp.tsx` (responsável × número da empresa, contexto padrão),
+  `components/ui/AlternadorModoIa.tsx` (prop `bloqueio`), `central-ligacoes` e `follow-ups`
+  (recorte declarado + atalho "Meus"), `agenda` (vendedor) e **`app/dashboard/equipe/page.tsx`
+  (nova)**.
+- ⚠️ **O painel de conversa AVISA, nunca barra.** `avisoDeAtendimento` devolve
+  `podeResponder: true` **sempre** — é a tradução de `avaliarResponder`, e a regra é a mesma:
+  travar a resposta deixaria o CLIENTE sem resposta porque o sistema decidiu que a pessoa errada
+  estava na tela. Guarda de regressão em `lib/conversa-operacao.test.js` falha se alguém escrever
+  `podeResponder: false` ou criar `podeResponder`/`bloquearResposta`/`travarConversa`. **Não
+  acrescente gate de ownership no compositor.**
+- ⚠️ **"Bloqueado" ≠ "ocupado" no `AlternadorModoIa`.** A prop `ocupado` é bloqueio TEMPORÁRIO e
+  mostra "Atualizando…"; a prop **`bloqueio`** (nova, Etapa 9) é permanente e mostra **o motivo em
+  texto**. Reusar `ocupado` para permissão faria o controle dizer que está salvando quando na
+  verdade a pessoa não pode. Cor e opacidade nunca são o único sinal — o motivo entra também no
+  `aria-label` de cada opção. O mesmo veredito (`conversa_gerenciar_ia`) governa o **padrão
+  global**, a **exceção por conversa** e o **pausar/retomar agente**: deixar um sem gate tornaria
+  os outros decorativos.
+- **"Deletar histórico" SOME** para quem não tem `conversa_apagar_historico`, em vez de ficar
+  desabilitado: ali não há decisão a explicar no lugar, e um botão vermelho inerte só convida ao
+  clique. O controle de IA é o oposto (desabilitado **com** motivo) porque ali há uma decisão de
+  produto que a pessoa precisa entender.
+- **O painel da equipe NÃO é placar.** As quatro contagens medem coisas diferentes (carteira,
+  fila, compromisso, histórico) e **não se somam**; cada coluna declara `oQueMede`, pelo mesmo
+  motivo da `BolinhaPontuacao`. `ligacoes` fica FORA de `cargaAtual` — é acumulado, e somá-lo
+  faria quem trabalha há mais tempo parecer sobrecarregado hoje. Guarda de regressão falha se
+  `ranking`, `produtividade`, `media(`, `percentual` ou `score` aparecerem no módulo. A linha do
+  tempo de auditoria aparece **crua, sem agregação** (migration 047: auditoria não é fonte de
+  dashboard).
+- **O trabalho SEM DONO é linha própria** no painel, e só aparece quando existe: não é anomalia
+  (lead livre e conversa não atribuída são filas legítimas), mas é o que o admin veio
+  redistribuir, e sem ele a soma das linhas não fecharia com o total. **Quem foi desativado
+  continua listado com a carga que tem na mão** — desativar revoga acesso e **não** redistribui.
+- **Duas mudanças de BACKEND nasceram das telas:** (a) `api-conversas.js` ganhou
+  `LEFT JOIN app.usuarios` na listagem e no detalhe (`responsavel_nome`) — avisar "está com outra
+  pessoa" sem dizer QUEM não resolve o problema real; (b) **`GET /agenda/responsaveis`**
+  (`AGENDA_VER_EQUIPE`, declarada ANTES de `/:id` senão "responsaveis" viraria um id), que
+  **reusa `listarResponsaveis` de `db/follow-ups.js`** — duas consultas divergentes fariam o mesmo
+  colega aparecer num seletor e sumir do outro. Guardas em `test/agenda-equipe.test.js`.
+- **O atalho "Meus" da Central de Follow-ups é FILTRO DE TELA, não recorte de permissão:** a fila
+  tem visibilidade GERAL (decisão D), então ele é um toggle que a pessoa liga — nunca o estado
+  inicial. Já em Ligações e Conversas o recorte é do SERVIDOR, e a tela só **declara** que ele
+  existe ("só as suas", "Mostrando as suas e as não atribuídas"): recortar em silêncio faria o
+  vendedor achar que perdeu histórico.
+- Testes: `frontend/lib/lead-operacao.test.js` (18), `conversa-operacao.test.js` (12),
+  `equipe-painel.test.js` (11). **Nenhuma variável de ambiente nova, nenhuma migration.**
+
 ### Menu radial de ações secundárias (`⋯`) — primeira entrega, só em Follow-ups
 - **Origem:** relatório de padronização visual "Padronização visual das listagens" (após os
   commits `33bdfbd`/`b019b0b`/`06563f9`/`6b3fff9`), que mapeou as 6 telas de listagem e propôs

@@ -6,6 +6,32 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-11 (6) - Início de tarefa IA - CRM em equipe: as TELAS das Etapas 3 a 12
+
+- **IA/Ferramenta:** Claude Code (Opus 5), na `master`.
+- **Pedido resumido:** *"Resolva primeiro o front end e backend, ao final arrume os docs e
+  push"* — fechar as telas que faltavam das Etapas 3 a 12, resolver os dois conflitos de merge
+  nos logs de governança e publicar.
+- **É projeto/tarefa de alteração?** Sim. Backend das 12 etapas já estava pronto e testado; o
+  que faltava era a UI. Escopo: 8 telas/componentes, 3 módulos puros novos no front, 2 ajustes
+  de backend nascidos da tela e 1 rota nova.
+- **Workflow padrão consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/plano-execucao-crm-equipe.md (§5, §6) e docs/especificacao-crm-equipe.md.
+- **Invariantes que NÃO serão tocados:** os mesmos de §8 do plano, mais um específico desta
+  rodada — **nenhuma tela pode recalcular regra de negócio**. Toda decisão continua vindo do
+  backend; o front apenas traduz (contrato de `lib/site-rotulos.js` e `lib/capacidades.js`).
+- **Duas regras que a UI precisava encarnar sem distorcer:** (a) **responder nunca é bloqueado**
+  — ownership de conversa avisa, não barra; (b) **`legado` não é "aprovado"** — é a ausência de
+  prova, nomeada, e a tela tem de dizer isso.
+- **Fora de escopo declarado:** mudar qualquer gate de rota, tocar motor de IA, aposentar o
+  dashboard legado, convite por e-mail, transferência de `owner`, distribuição automática.
+- **Entregue:** telas das Etapas 3-12; `lib/lead-operacao.js`, `lib/conversa-operacao.js` e
+  `lib/equipe-painel.js` (+ `.d.ts`/`.test.js`); `responsavel_nome` nas consultas de conversa;
+  `GET /agenda/responsaveis`; conflitos de `ai-decision-log.md` e `ai-task-start-log.md`
+  resolvidos **mantendo as duas entradas**; plano e AGENTS.md atualizados.
+
+---
+
 ## 2026-09-11 (5) - Início de tarefa IA - CRM em equipe: EXECUÇÃO das Etapas 3 a 12 (todas as restantes)
 
 - **IA/Ferramenta:** Claude Code (Opus 5), na `master`.
