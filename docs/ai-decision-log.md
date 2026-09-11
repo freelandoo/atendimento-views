@@ -1985,3 +1985,522 @@ envio que ainda escapasse da regra unica.
   receber `false` sozinho. **Sem migration, sem rota nova, sem variavel de ambiente nova.**
 - **Como validar:** `npm test` no `backend/` + `npm run typecheck`. Nenhuma mensagem real foi
   enviada e nada foi executado contra producao.
+
+---
+
+## 2026-08-18 — Campanha de validacao da oferta de entrada Tenka Tech (DADOS, nao codigo)
+
+> **Natureza desta entrada:** nenhuma linha de codigo, prompt, migration, rota ou tela foi
+> alterada. O que mudou foi **DADO DE PRODUCAO**, criado pela API do proprio produto (nunca
+> por SQL direto), dentro da empresa **PJ Codeworks** (`f5f47737-3f48-44fd-a09a-f09e66f7ed85`).
+> Diagnostico que fundamenta tudo: `docs/analise-processo-comercial-tenka.md`.
+
+- **Decisao 1 — a oferta vive so na Central de Ligacoes, dentro da PJ.** Decisao do operador.
+  Nenhum tenant novo, nenhuma instancia de WhatsApp, nenhum contexto/playbook de bot, nenhum
+  prompt de producao tocado. **Consequencia direta e importante:** o bloqueio de pagamento dos
+  validadores (`agent-validators.js:189`, `action-response-validator.js:223`) **nao se aplica**
+  — ele governa mensagem gerada por IA, e aqui quem fala e um vendedor humano ao telefone.
+  Nada a afrouxar, nada a condicionar por empresa.
+
+- **Decisao 2 — escrever pela API, nunca por SQL direto.** As regras deste dominio moram na
+  camada de dados (`src/db/roteiros.js`, `src/db/campanhas.js`, `prospecting.js`): imutabilidade
+  da versao publicada, `assertMesmaEmpresa`, `assertRoteiroVersaoUtilizavel`, e a reserva
+  `busca_snapshots` ANTES da chamada paga a Bright Data. Um `INSERT` a mao pularia todas elas e
+  produziria estrutura que a aplicacao considera invalida.
+
+- **Decisao 3 — roteiro de 6 etapas, com o peso na ABERTURA.** `abertura` → `situacao` →
+  `insight` → `qualificacao` → `objecoes` → `proxima_acao`. Justificativa medida em producao,
+  nao preferencia: das 130 ligacoes encerradas, **119 (92%) pararam na `abertura`**, a duracao
+  media e **37s**, e as etapas 4+ dos roteiros existentes somam 39 ocorrencias historicas.
+  A oferta inteira (site, ate 24h, R$300, 12 meses de hospedagem) e dita **na abertura**, nao
+  depois de descoberta.
+
+- **Decisao 4 — `convite_reuniao` fica FORA da sequencia padrao.** `app.agenda_eventos` esta
+  vazia: a etapa existe nos 5 roteiros anteriores e **nunca produziu uma reuniao** em 145
+  ligacoes. Ela vira orientacao textual dentro de `proxima_acao`, para os tres casos do
+  briefing (duvida importante, escopo fora do padrao, decisor pede demonstracao). O tipo de
+  etapa continua existindo no enum e nos roteiros antigos — nada foi removido.
+
+- **Decisao 5 — UM roteiro com ramificacoes internas, nao nove roteiros.** O schema tem uma
+  `frase_sugerida` por etapa. As 4 variantes por situacao de site entram no corpo da etapa 1
+  e as 5 por comportamento entram como objecoes/ramos nas etapas 1 e 5. Com 145 ligacoes de
+  historico TOTAL, dividir a amostra em dois roteiros atrasaria o aprendizado.
+
+- **Decisao 6 — nada de escassez, urgencia fabricada ou garantia inventada.** O gerador
+  `src/services/geracao-frameworks.js` (que manda "criar escassez e urgencia... inclusive
+  fabricadas", decisao de 2026-06-19) **NAO foi usado**: o roteiro foi escrito a mao. As quatro
+  respostas factuais obrigatorias (Google, clientes, mensalidade, pos-12-meses) estao literais
+  na etapa `objecoes`, incluindo o "Nao" explicito para garantia de posicao e de clientes.
+
+- **Decisao 7 — nome do vendedor fica como marcador `[vendedor]`.** O operador ainda nao
+  definiu quem liga. O texto do roteiro e lido por uma pessoa na tela; marcador e honesto e
+  trocavel numa versao 2. Mesmo criterio para `[nome]`, `[clinica]` e `[procedimento]`.
+
+- **Decisao 8 — a observacao real da clinica e OPCIONAL e vem em duas versoes.** A etapa 1
+  traz a abertura COM observacao e a abertura SEM observacao, com a instrucao explicita de
+  nao inventar. O briefing exige remover a parte quando nao houver dado confiavel.
+
+- **Decisao 9 — registro de venda sem reuniao fica para depois.** Decisao do operador: rodar a
+  campanha primeiro e medir pagamento, prazo de entrega e adesao a Base Tecnica fora do
+  sistema. **Divida tecnica declarada:** `venda_valor` so existe atrelado a reuniao concluida
+  (migration 057) e o ledger da Meta so nasce de reuniao — enquanto isso valer, a receita
+  desta campanha e invisivel para o produto e nao gera `Purchase`.
+
+- **Dados criados em producao (PJ Codeworks):**
+  - nicho `Clinica de estetica` — `517eb58b-880f-48eb-8ae8-aa5830703686`
+  - roteiro `TENKA | Vitrine Google Essencial | Clinicas de estetica` —
+    `98ae97b9-8eb5-4ac4-a578-29ac641d75ac`, versao 1 **publicada**
+    (`ea9d8ae8-bc3b-441b-b93d-3df9dee31471`), 6 etapas
+  - campanha `TENKA | SITE 24H R$300 | CLINICAS DE ESTETICA | VALIDACAO 01` —
+    `cb7e7c1c-a709-47ed-9467-ccd35cc63a45`, status `ativa`
+  - coleta paga Bright Data Maps: `clinica de estetica em Sao Bernardo do Campo - SP`,
+    busca `08f9d4ae-afc8-4af9-93dc-6fe7204fedb3`, snapshot `sd_mszhjupgxuav4f2pd` —
+    **concluida**: 200 prospects importados, 192 com telefone, 127 sem site proprio (64%)
+  - **192 leads vinculados a campanha** (`nao_iniciado`); os 8 sem telefone ficaram fora de
+    proposito — a campanha e de ligacao — e seguem no Banco de Leads
+- **NENHUMA campanha ou roteiro existente foi alterado, arquivado ou excluido.**
+- **Como validar:** abrir `dashboard/roteiros` (roteiro novo, versao 1 publicada),
+  `dashboard/aquisicao` (coleta em andamento/concluida) e a Central de Ligacoes com a campanha
+  nova selecionada. `npm test` nao se aplica: nenhum arquivo de codigo mudou.
+
+### Revisao no mesmo dia — versao 2 do roteiro (ancoragem de valor + SPIN antes da oferta)
+
+Mudanca de direcao do operador. A v1 abria com a oferta na primeira frase; a v2 ancora VALOR,
+percorre o SPIN e so entao apresenta a Vitrine.
+
+- **Decisao 10 — 8 etapas, oferta na quinta.** `abertura` (ancoragem de valor + permissao) →
+  `situacao` (S) → `problema` (P) → `implicacao` (I) → `insight` (N + **a oferta**) →
+  `qualificacao` → `objecoes` (15) → `proxima_acao`. **Reverte parcialmente a Decisao 3**: o
+  peso deixa de estar so na abertura. **Tensao declarada e aceita:** a media historica e de 37s
+  e 92% das ligacoes terminam na abertura; a mitigacao e a instrucao, no proprio texto lido
+  pelo vendedor, de que a ancoragem tem de caber em UMA respiracao. Primeiro numero a vigiar
+  depois de ~30 ligacoes atendidas: `etapa_alcancada` em `app.vw_ligacoes_analiticas`.
+- **Decisao 11 — a etapa `implicacao` proibe explicitamente numero inventado.** E a etapa onde
+  um vendedor escorrega para medo e estatistica fabricada. O objetivo dela veda citar quantas
+  pessoas procuram por mes, afirmar quanto a clinica perde, usar porcentagem, comparar com
+  concorrente nominalmente ou dizer que ela esta "perdendo dinheiro". O movimento autorizado e
+  PERGUNTAR e deixar a pessoa fazer a propria conta. A etapa `problema` autoriza DESISTIR: se a
+  pessoa diz que esta tudo bem, seguir para qualificacao sem forcar dor.
+- **Decisao 12 — a oferta vem com a negativa explicita, dita em voz alta.** "Eu nao vou
+  prometer cliente nem primeiro lugar no Google, porque ninguem consegue garantir isso. O que a
+  vitrine faz e ser a porta de entrada." O enquadramento PORTA DE ENTRADA e o que o operador
+  pediu (a pessoa visualizar o caminho) sem virar promessa de resultado.
+- **Decisao 13 — o plano de evolucao (R$150/mes) e SEMENTE, nao venda desta ligacao.** Plantado
+  na etapa 8; o valor so e dito se a pessoa PERGUNTAR, sempre com a frase que separa os planos
+  (o R$150 e opcional e NAO e necessario para manter o site no ar — para isso basta a Base
+  Tecnica de R$60). Segue o briefing: oferecer depois da entrega ou quando a clinica ja perceber
+  valor. Vender os dois na mesma ligacao seria outra decisao, e virou candidata a v3.
+- **Decisao 14 — `[link do modelo de exemplo]` fica como MARCADOR.** A etapa 5 oferece mandar um
+  modelo para a pessoa visualizar a propria pagina, mas **nao existe modelo da Tenka publicado**.
+  O roteiro instrui a so enviar link REAL e a nunca inventar link ou case; sem modelo, o vendedor
+  descreve a estrutura em uma frase. Inventar URL de portfolio seria prova social falsa.
+- **Dados alterados em producao:** versao 2 do roteiro
+  `205f9195-82c4-4ad5-bc42-869cb34437ef` (**publicada**, 8 etapas); versao 1
+  (`ea9d8ae8…`) **arquivada automaticamente** por `publicarVersao`; campanha
+  `cb7e7c1c…` repontada para a v2 (`assertRoteiroVersaoUtilizavel` so barra roteiro arquivado,
+  nao versao). **Os 192 vinculos de lead nao foram tocados.** Nenhuma ligacao havia sido feita,
+  entao a v1 nao deixou historico orfao.
+
+### 2026-08-20 — versao 3: a narrativa do anuncio ("fachada digital") entra na ligacao
+
+O operador definiu a logica do anuncio em 5 passos (dor -> causa -> solucao -> valor percebido
+-> proximo passo) e pediu o roteiro alinhado a ela, para anuncio e ligacao contarem a MESMA
+historia.
+
+- **Decisao 15 — "fachada digital" vira o vocabulario, e a CAUSA vira DUPLA.** A v2 so tratava
+  "nao te encontram"; o anuncio acrescenta "**ou nao entendem seus servicos**". A etapa
+  `problema` ganhou pergunta propria pra segunda metade ("quem cai no perfil consegue entender
+  rapido, ou precisa perguntar no direct?"). Nao e troca de palavra: e uma causa que o roteiro
+  anterior nao cobria.
+- **Decisao 16 — a copy do anuncio cabe na promessa POR CAUSA DE UMA PALAVRA.** "PODE estar
+  perdendo clientes" e hipotese; "voce esta perdendo" e afirmacao nao verificavel e
+  "voce vai ganhar" e promessa. A etapa 1 traz essa regra escrita no texto que o vendedor le.
+  As proibicoes da Decisao 11 (nada de numero, porcentagem ou "perdendo dinheiro") continuam
+  valendo integralmente na `implicacao`, agora reenquadrada como "oportunidade que passa batido"
+  + a instrucao de perguntar e FICAR QUIETO.
+- **Decisao 17 — objecao nova "o que e fachada digital?".** O termo e forte no anuncio mas nao
+  e autoexplicativo ao telefone. Resposta ancorada no concreto: "o mesmo que a fachada da
+  clinica na rua, so que na internet". Tambem entrou o ramo "ja viu o anuncio" -> nao repetir a
+  ancoragem, pular para `situacao`.
+- **Decisao 18 — o WhatsApp NAO foi tocado, e o risco fica declarado.** Decisao do operador. O
+  anuncio termina em "envie uma mensagem", e hoje quem escreve cai no agente da PJ Codeworks:
+  instancia `pj` ativa, contexto `pj-codeworks` com `runtime_ativo`, **agenda ligada**, catalogo
+  Iniciante/Padrao/Premium (R$200-3.000) e reuniao de 15 min como destino — o agente **nao
+  conhece** a oferta de R$300 em 24h. Some-se: `app.atribuicao_anuncios` tem **0 linhas** (a
+  pendencia do AGENTS.md sobre `externalAdReply` no webhook nunca foi fechada) e nao ha registro
+  de venda sem reuniao (Decisao 9). **Consequencia aceita: custo por venda de trafego pago e
+  hoje impossivel de fechar dentro do produto.** Saidas registradas para quando for a hora:
+  (a) instancia + contexto proprios da Tenka com agenda desligada; (b) trocar o CTA do anuncio
+  para telefone/formulario. **Trocar o contexto da instancia `pj` NAO e saida** — mudaria o
+  atendimento de todos os leads da PJ.
+- **Dados alterados em producao:** versao 3 `6439d439-f1b5-4862-82a9-b70946467a60`
+  (**publicada**, 8 etapas); versao 2 arquivada automaticamente; campanha repontada para a v3.
+  **Os 192 vinculos de lead seguem intactos.** Nenhuma ligacao foi feita ate aqui, entao nenhuma
+  versao deixou historico orfao. Marcadores ainda pendentes: `[vendedor]` e
+  `[link do modelo de exemplo]`.
+
+### 2026-08-24 — versao 4: revisao SPIN sobre 52 ligacoes REAIS
+
+- **Decisao 19 — CORRECAO de um numero que orientou as decisoes 3 e 10.** "92% das ligacoes
+  terminam na abertura" e ENGANOSO: `etapa_alcancada='abertura'` inclui quem nunca atendeu.
+  Medido na campanha: 52 ligacoes, **6 atenderam (11,5%)**, 25 caixa postal (48%), e quem
+  atendeu falou **125s em media** (nao 37s). Das 6, uma chegou na implicacao e outra na oferta;
+  ha 1 lead em `negociacao` e 1 `qualificado`. **O gargalo e o contato, nao o roteiro** — a
+  justificativa do roteiro curto da v1 nao se sustentava.
+- **Decisao 20 — a pergunta de necessidade passa a ser ABERTA.** "Isso ajudaria voces?" e
+  fechada e indutora: produz concordancia sem compromisso e soa manipulativa (Rackham e
+  explicito sobre need-payoff indutora). Vira "o QUE mudaria no atendimento se...". Era o erro
+  mais caro do roteiro anterior.
+- **Decisao 21 — perguntas de situacao cortadas de 4 para 2.** Vendedor de sucesso faz MENOS
+  perguntas de situacao porque pesquisa antes. Evidencia local: numa ligacao real o vendedor
+  perguntou o nome da clinica, que estava na tela. A etapa agora manda LER a ficha (nome,
+  cidade, endereco, nota, avaliacoes, situacao do site) e CONFIRMAR o que foi pesquisado, em vez
+  de perguntar do zero — confirmar constroi credibilidade, perguntar do zero destroi.
+- **Decisao 22 — implicacao passa a ser sobre CUSTO INTERNO.** Quantas duvidas repetidas por
+  dia, quem responde, quanto tempo a pessoa espera. E verificavel pela propria cliente e **nao
+  exige nenhuma estatistica de mercado** — resolve elegantemente a trava da Decisao 11, que
+  continua valendo integralmente.
+- **Decisao 23 — resumo antes da oferta + oferta AMARRADA.** Demonstrar capacidade comeca
+  resumindo as necessidades explicitas. E a oferta deixa de recitar 6 caracteristicas: apresenta
+  2-3 elementos que respondem ao que ELA disse, amarrando cada um a fala dela.
+- **Decisao 24 — a abertura NAO afirma mais a dor. REVERTE PARCIALMENTE a Decisao 16.**
+  Necessidade dita pelo vendedor pesa menos que a dita pela compradora, e afirmar a dor de saida
+  convida defesa (a objecao "minha agenda ja e cheia" existe por isso). Divisao adotada: **o
+  anuncio cria a dor; a ligacao deixa a pessoa dize-la.** O vocabulario "fachada digital"
+  permanece. Aprovado pelo operador em bloco; o texto anterior esta preservado na v3 arquivada.
+- **Decisao 25 — nomear AVANCO vs CONTINUACAO.** Toda ligacao atendida termina com acao
+  DATADA. "Vou pensar" / "me liga depois" e continuacao: a ligacao terminou cordial e fracassou.
+  Sequencia do fechamento passa a ser checar preocupacoes -> resumir -> propor o avanco.
+- **Decisao 26 — roteiro de CAIXA POSTAL, o resultado mais frequente (48%) e que nao tinha uma
+  linha sequer.** Mensagem de ate 15s, **sem preco e sem pitch**: existe so para o numero nao
+  ser desconhecido na proxima tentativa.
+- **Decisao 27 — a escada vira CONDICIONAL.** Rackham: a vantagem do SPIN cresce com o TAMANHO
+  da venda; em venda pequena, feature-benefit funciona. R$300/uma ligacao/uma decisora e venda
+  pequena. Etapas 3 e 4 sao explicitamente pulaveis quando a pessoa ja demonstra interesse —
+  forcar a escada com quem ja quer comprar so cria objecao.
+- **Decisao 28 — qualificar por NECESSIDADE EXPLICITA.** Criterio zero: ela ENUNCIOU a
+  necessidade com as palavras dela, ou so concordou? Concordancia nao e necessidade; se so
+  concordou, voltar uma etapa antes de tentar fechar.
+- **Achado tecnico (nao e decisao):** `validarEtapas` (`src/db/roteiros.js:29`) corta `objetivo`
+  e `frase_sugerida` em **2000 chars SEM AVISAR** — o `PUT` responde 200 e o texto some. A v4 foi
+  gravada com validacao de tamanho ANTES do envio. **v2 e v3 foram conferidas: nao houve corte.**
+  Quem editar roteiro pela tela precisa saber disso.
+- **Dados alterados em producao:** versao 4 `74a2a702-cdaa-422d-8cfc-ae31d7b5d047`
+  (**publicada**, 8 etapas); v3 arquivada; campanha repontada. **192 vinculos intactos.**
+  As 52 ligacoes ja feitas apontam para as versoes que estavam publicadas na epoca — historico
+  preservado, que e exatamente para isso que o versionamento existe.
+- **Fora do roteiro, e o que mais pesa agora (nao implementado — e operacao, nao dado):**
+  44 dos 48 leads discados tiveram UMA tentativa; 72 dos 81 follow-ups de ligacao estao
+  VENCIDOS; so 3 faixas de horario testadas (10h = 17% de atendimento, 15h = 7%, 16h = 0%);
+  e ZERO objecoes e ZERO motivos de perda registrados em 52 ligacoes — sem esse dado, a v5 vira
+  opiniao.
+
+### 2026-08-24 — versao 5: "fachada digital" nunca aparece sozinha
+
+- **Decisao 29 — o enquadramento fica, a palavra SITE anda junto.** "Fachada digital" da a
+  imagem certa e conecta com o anuncio; "site" e a palavra que a pessoa entende. As duas juntas
+  na primeira mencao de cada bloco ("o site de voces, a fachada digital da clinica"). A regra
+  esta escrita no objetivo da etapa 1, valendo para o roteiro inteiro. **Motivo declarado:**
+  termo novo ao telefone custa atencao, e a cliente precisa saber com todas as letras o que esta
+  comprando — o risco fechado aqui e alguem aceitar uma "fachada digital" e descobrir depois que
+  era um site, que e reclamacao de EXPECTATIVA, nao de entrega.
+- **Decisao 30 — conferencia explicita antes do fechamento.** A qualificacao ganhou um item:
+  se a conversa inteira falou so em "fachada digital", dizer uma vez "so pra deixar claro, e um
+  site mesmo, no ar, com endereco proprio". Barato, e elimina a duvida no unico momento em que
+  ela ainda custa pouco.
+- **Guarda automatica:** o script de publicacao **aborta** se alguma etapa mencionar "fachada"
+  sem conter "site". Verificado sobre o que ficou GRAVADO na API: "fachada" 12x, "site" 46x.
+- **Estrutura SPIN da v4 inalterada** — as decisoes 19 a 28 continuam valendo integralmente;
+  esta versao mexeu SO em vocabulario (abertura, caixa postal, oferta, negativa explicita,
+  mensagem de WhatsApp e as 15 objecoes, revisadas uma a uma).
+- **Dados alterados em producao:** versao 5 `a8a2d006-dea9-42d5-9336-1c9a23dd8e4e`
+  (**publicada**); v4 arquivada; campanha repontada. **192 vinculos intactos.**
+
+### 2026-08-24 — versao 6: correcao do PROCESSO (sem modelo, WhatsApp na hora, pagamento no final)
+
+Correcao de fato comercial trazida pelo operador. Estrutura SPIN e vocabulario da v5 preservados.
+
+- **Decisao 31 — NAO existe modelo, e o roteiro parou de prometer um.** O marcador
+  `[link do modelo de exemplo]` foi **REMOVIDO** (nao ficou pendente — foi apagado). Instrucao
+  explicita nas etapas 1 e 5: nao prometer exemplo, portfolio, print ou link de demonstracao em
+  momento nenhum. **Motivo:** prometer o que nao existe queima a confianca no primeiro
+  follow-up, e inventar link/case seria prova social falsa. Entrou a objecao "Tem algum exemplo/
+  me manda um site que voces fizeram", que ADMITE a ausencia e pivota para o pagamento no final.
+- **Decisao 32 — o proximo passo e o WHATSAPP, durante a ligacao.** Nao ha link de pagamento no
+  fechamento. A etapa 8 virou: checar duvida -> resumir -> **confirmar o WhatsApp e mandar a
+  mensagem com a pessoa AINDA NA LINHA** ("acabei de te mandar, chegou?") -> combinar quando o
+  material chega. A mensagem de formalizacao deixa por escrito escopo, valor, prazo, condicao de
+  pagamento e a lista de materiais.
+- **Decisao 33 — pagamento no FINAL, e isso substitui o modelo como argumento central.** Sem
+  pagamento adiantado a cliente nao arrisca nada para comecar. Reescreveu 4 objecoes ("caro",
+  "barato demais", "ja tentei antes", "preciso pensar") e criou duas ("Como funciona o
+  pagamento?", "E se eu nao gostar?"). A frase-sintese autorizada e "a aposta e nossa, nao sua".
+- **Decisao 34 — MUDOU O QUE QUALIFICA: o compromisso real e o MATERIAL, nao o "sim".** Como
+  nao ha pagamento adiantado, dizer sim nao custa nada — todo mundo aceita. O unico sinal de
+  compromisso que sobra e a chegada de logo, fotos, procedimentos e texto, porque da trabalho.
+  O marco de conversao passa a ser o MATERIAL; o avanco e "material com data combinada", e
+  "depois eu mando" sem dia e continuacao. Isto ALTERA o criterio 6 da Decisao 28.
+- **Guardas automaticas de publicacao** (o script aborta): "fachada" sem "site"; marcador
+  `[link do modelo` remanescente; etapa que INSTRUA envio de link de pagamento — distinguindo a
+  instrucao da proibicao, para a frase "nao existe link de pagamento" continuar permitida
+  (a guarda ingenua deu falso positivo nela e foi refinada). Conferido no gravado: modelo 0x,
+  "paga no final" 16x, WhatsApp 19x.
+- **Risco declarado e aceito:** produzir antes de receber, em venda de R$300 vinda de ligacao
+  fria, transfere risco de inadimplencia para a Tenka. Decisao comercial do operador. Se
+  aparecer calote em volume, a alavanca menos custosa e exigir material COMPLETO antes de
+  produzir (o roteiro ja reforca) — **nao** voltar a cobrar adiantado, que devolveria a barreira
+  de entrada que esta versao acabou de remover.
+- **Em aberto:** o MOMENTO exato do pagamento. O roteiro diz "no final, quando estiver pronto e
+  voce tiver visto" — verdadeiro tanto para "na entrega" quanto para "apos aprovacao". Se houver
+  regra mais precisa, e uma linha numa v7.
+- **Dados alterados em producao:** versao 6 `fd946b4a-8b77-4332-8dd3-1557ceefdcf7`
+  (**publicada**); v5 arquivada; campanha repontada. **192 vinculos intactos.**
+
+### 2026-08-24 — versao 7: a PREVIA ja existe (demonstracao antes de explicacao)
+
+Reposicionamento pedido pelo operador: a conversa parte de uma previa visual JA MONTADA para
+aquela clinica e conduz para uma REUNIAO curta de apresentacao e fechamento.
+
+- **Decisao 35 — DOIS roteiros, nao um.** A Central de Ligacoes percorre etapas DURANTE a
+  chamada e mede `etapa_alcancada`/`ligacao_etapas`. Etapas de reuniao dentro do roteiro da
+  abordagem fariam nenhuma ligacao passar da 5a etapa e o funil viraria ruido — o mesmo defeito
+  de leitura que a Decisao 19 corrigiu. Criado o roteiro
+  `TENKA | Reuniao de apresentacao e fechamento` (`1a1117da-b9a7-4649-8517-04a0f5631b00`,
+  versao `9672a30f-17b3-490f-a7a2-6d83b931becb`, 4 etapas). A campanha continua apontando para
+  a ABORDAGEM.
+- **Decisao 36 — a REUNIAO volta ao caminho padrao. REVERTE as Decisoes 4 e 24.** Justificativa
+  do operador: com previa em maos, a reuniao e o mecanismo de demonstracao de valor.
+  **Efeito colateral positivo e nao-obvio:** com reuniao de volta, `app.agenda_eventos` volta a
+  ser usada e o mapeamento existente da Meta passa a funcionar sozinho (`reuniao_agendada ->
+  LeadSubmitted`, `reuniao_realizada -> QualifiedLead`, `reuniao_realizada_com_venda ->
+  Purchase`). **O buraco da Decisao 9 — venda sem reuniao nao tem onde ser registrada — deixa de
+  ser bloqueante, sem migration nova.**
+- **Decisao 37 — TRES verdades que o roteiro nao pode quebrar**, escritas no objetivo da etapa 1:
+  (1) a previa e conceito/mockup, NAO site publicado ou contratado; (2) ela NAO pediu nada;
+  (3) foi feita SEM COMPROMISSO. Quebrar qualquer uma transforma um gesto de atencao em golpe
+  aos olhos dela. Dai nasceram tres objecoes obrigatorias: "Eu nao pedi isso / de onde tiraram
+  meus dados?", "Isso ja esta publicado?" e "Voces usaram minhas fotos/minha marca?" — esta
+  ultima responde OFERECENDO A SAIDA ("se preferir, eu apago agora"). Quem oferece a saida nao
+  parece golpe. **Guarda automatica** na publicacao rejeita afirmacao de site publicado.
+  **REVERTE a Decisao 31** (que proibia prometer exemplo) — agora o exemplo existe; a proibicao
+  vira o pre-requisito abaixo.
+- **Decisao 38 — pre-requisito absoluto: so usar o roteiro A com lead que JA TEM previa.** Sem
+  previa, usar a variante honesta ("posso preparar e te mandar ainda hoje?") e preparar de
+  verdade. **Custo declarado:** a previa e trabalho ANTES da venda, por lead; com 11,5% de
+  atendimento, montar previa para os 192 significa produzir ~170 pecas para quem nunca vai
+  atender. **Mitigacao recomendada:** produzir em lote pequeno, priorizando quem ja atendeu e os
+  de melhor pontuacao — nao a carteira inteira.
+- **Decisao 39 — o fechamento da CONVERSA passa a ser a REUNIAO, nao o material.** Isto ajusta a
+  Decisao 34: o material continua sendo o compromisso real, mas ele e pedido na REUNIAO
+  (roteiro B, etapa 4), nao na abordagem. Na abordagem, o sinal de compromisso e aceitar DIA E
+  HORA — "depois a gente marca" nao e aceite.
+- **Preservado do material anterior** (a instrucao mandava preservar o que ainda serve):
+  vocabulario site+fachada, promessa autorizada e negativas explicitas, pagamento no final,
+  disciplina enxuta de perguntas, ficha lida antes, registro obrigatorio, avanco x continuacao,
+  roteiro de caixa postal e as objecoes de mensalidade/pos-12-meses/escopo/"ja tentei antes".
+- **Dados alterados em producao:** roteiro A versao 7 `cfdd3b9a-cc5f-417b-acf1-08fcc24ee130`
+  (**publicada**, 7 etapas), v6 arquivada, campanha repontada; roteiro B criado e publicado
+  (4 etapas). **192 vinculos intactos.**
+
+### 2026-08-24 — versao 8: o roteiro vira MAPA DE DECISAO
+
+- **Decisao 40 — a queixa tinha causa na TELA, nao so no texto.** `frase_sugerida` e renderizado
+  na Central de Ligacoes entre aspas e em italico (`central-ligacoes/page.tsx:1564`): a interface
+  o trata como A FALA. As versoes anteriores empilhavam ali roteiro de caixa postal, avisos e
+  notas de conduta — a tela exibia ESTRATEGIA COMO SCRIPT. Corrigido: `frase_sugerida` volta a
+  ser so a fala; a orientacao migra para `objetivo`, que a tela renderiza como guia (🎯).
+- **Decisao 41 — a estrutura de 9 campos pedida NAO cabe no schema, e isso fica declarado.**
+  Restricoes reais lidas no codigo: (a) `perguntas_json` e `sinais_*_json` passam por
+  `.map(String)` — nao aceitam objeto — e sao gravados LITERALMENTE em
+  `ligacao_perguntas.texto_no_momento` / `ligacao_sinais.texto`, entao meta-informacao dentro
+  deles poluiria a analitica; (b) `objecoes_json` aceita objeto mas a tela le so
+  `{objecao, resposta}` — chave extra seria invisivel; (c) `objetivo`/`frase_sugerida` cortam em
+  2000 chars em silencio. **Encaixe adotado:** `objetivo` = mapa em blocos rotulados
+  (OBJETIVO · CONDUCAO · OBSERVE · SE..ENTAO · PROXIMO PASSO); `frase_sugerida` = so a fala;
+  perguntas/sinais curtos; camadas da objecao dentro do texto da `resposta`
+  (SIGNIFICA · OBJETIVO · FALA · DEPOIS). **Campos de verdade exigem migration + mudanca de
+  tela** — trabalho separado, nao feito aqui.
+- **Decisao 42 — sinal de interesse deixa de ser rotulo e vira INSTRUCAO.** "Pergunta o preco"
+  virou "Pergunta o preco — responda o numero e volte pro 'posso mostrar?'", com o erro a evitar
+  explicito (continuar perguntando quando o lead ja quer avancar). Vale para os dois roteiros.
+- **Decisao 43 — perguntas sem consequencia foram REMOVIDAS**, conforme a instrucao ("remover
+  perguntas que nao alterem a estrategia"): sairam "Voces atendem so em Sao Bernardo?" e
+  "Faz sentido pra voces?". As que ficaram ganharam proposito e criterio de interpretacao dentro
+  do `objetivo`.
+- **Decisao 44 — redundancia consolidada.** Objecoes repetidas em varias etapas foram reunidas na
+  etapa 6; ficaram nas etapas de origem apenas as que precisam ser respondidas no instante em
+  que surgem ("eu nao pedi isso", "ja esta publicado?", "usaram minhas fotos?").
+- **Guardas automaticas novas** (o script aborta): etapa sem `OBJETIVO:` ou `PROXIMO PASSO:`;
+  etapa sem nenhum caminho `SE …`; objecao sem as camadas `SIGNIFICA:`/`DEPOIS:`; pergunta com
+  mais de 90 chars (vai literalmente para a analitica); "fachada" sem "site".
+  **Quatro violacoes reais foram pegas na 1a execucao** e corrigidas antes de publicar.
+- **Dados alterados em producao:** A v8 `9a6b508b-3013-4c5e-b65a-bbd24e27e64b` (**publicada**,
+  7 etapas, campanha repontada); B v2 `51a8f27e-f416-413e-a809-65b8c4074228` (**publicada**,
+  4 etapas). **192 vinculos intactos.**
+
+### 2026-08-24 — versao 9: LIGACAO PURA + diagnostico das outras campanhas
+
+- **Decisao 45 — a previa e COMUNICADA na ligacao e MOSTRADA na reuniao.** O pedido queria a
+  previa como mecanismo central E canal exclusivo de voz — nao se exibe imagem por telefone.
+  A propria estrutura pedida resolvia ("comunicar que uma estrutura visual ja foi preparada").
+  Isso da a previa um papel MAIS forte: ela deixa de ser o argumento e vira o MOTIVO, porque
+  curiosidade nao satisfeita e o que faz aceitar os 15 minutos. Saiu tudo que dependia de ela
+  ver algo durante a abordagem; guarda de publicacao rejeita `WHATSAPP:`, `LEGENDA DA IMAGEM`,
+  `TOQUE n`, `MENSAGEM n`. **Roteiro B (reuniao) NAO foi tocado** — e reuniao, nao ligacao.
+- **Decisao 46 — 9 etapas com `AVANCAR QUANDO` obrigatorio.** abertura · permissao (contexto) ·
+  insight (a previa) · descoberta (reacao) · situacao (exploracao, CONDICIONAL) · implicacao
+  (valor em 2 frases) · convite_reuniao · objecoes · proxima_acao. Cada etapa declara o criterio
+  objetivo de avanco — sem isso o atendente nao sabe quando parou de qualificar e comecou a
+  enrolar.
+- **Decisao 47 — perguntas sem consequencia PROIBIDAS por escrito.** A etapa 5 lista o que NAO
+  perguntar: quantos clientes, faturamento, numero de funcionarios, tempo de existencia. Nenhuma
+  muda o proximo passo. E incorporada a tecnica do roteiro de Nail Designers (o melhor da casa):
+  **hipotese em vez de pergunta seca**.
+- **Decisao 48 — diagnostico das outras 4 campanhas (nenhuma alterada).** ALTA: Nail Designers
+  (200 leads; o CTA ja promete "abro a tela e a gente olha juntos" — hoje mostra o VAZIO, com
+  previa mostraria o CHEIO; previa indicada: ANTES E DEPOIS conceitual) e Academias-Site
+  (200 leads; o roteiro **ja promete** mostrar "como ficaria uma estrutura adaptada" — a previa
+  so cumpre o que ele diz). MEDIA: Funileiros (179, nicho visual, mas campanha "Demo").
+  **NAO MIGRAR: Academias-Conversao (CRM)** — um "CRM ja montado" sugere que DADOS DELA foram
+  importados, risco maior que o da previa de site, e print de CRM nao gera curiosidade por
+  telefone. Alternativa registrada: desenho do funil tipico do nicho como HIPOTESE, que provoca
+  sem simular posse.
+- **Decisao 49 — critica registrada: a conta nao fecha com previa antes da PRIMEIRA ligacao.**
+  Com 11,5% de atendimento, 192 previas rendem ~22 conversas (~48h de trabalho, a maior parte
+  para quem nunca atende). **Recomendacao: previa para a SEGUNDA conversa** — a 1a ligacao pede
+  permissao ("posso montar uma previa e te mostrar?"), o que ainda e motivo forte, GERA
+  MICRO-COMPROMISSO e corta ~90% do custo. O roteiro v9 suporta as duas rotas (variante na
+  etapa 3). Outros riscos declarados: personalizacao falsa inverte o efeito; expectativa de
+  customizacao vs escopo padronizado; e a previa desloca o gargalo (contato) sem resolve-lo.
+- **Decisao 50 — o que decide a escala e a AUTOMACAO.** `prospectador.prospects.raw_json` ja
+  guarda nome, fotos, avaliacoes, endereco, categoria e horario do Maps. Um gerador de mockup
+  por nicho alimentado por esse JSON transformaria a previa de artesanato em etapa de pipeline.
+  Sem isso, a estrategia nao passa de algumas dezenas de leads. **Nao implementado.**
+- **Metodologia replicavel registrada** (7 regras) em
+  `docs/analise-processo-comercial-tenka.md` §16.5.
+- **Dados alterados em producao:** A v9 `132cb8f5-2fba-4c1c-8501-4356df1c3c84` (**publicada**,
+  9 etapas), v8 arquivada, campanha repontada. **192 vinculos intactos. Nenhuma outra campanha
+  ou roteiro foi alterado** — o diagnostico foi so leitura, como pedido.
+
+## 2026-08-26 — Campanhas de ligacao Pousadas e Advocacia (previa de site)
+
+**Pedido:** criar duas campanhas de prospeccao por LIGACAO (pousadas e advocacia), cada uma com
+roteiro proprio em SPIN Selling, cujo objetivo unico e agendar reuniao para apresentar uma
+**previa de site ja preparada** — o modelo "previa antes da ligacao" que a v9 da TENKA ja usa.
+
+**Decisao 1 — reusar a arquitetura existente, sem nada novo.** Nenhuma migration, rota, tela,
+env ou arquivo de backend. Tudo criado **pela API do proprio produto** (`/api/empresas/:id/
+nichos`, `/roteiros`, `/roteiros/versoes/:id/etapas`, `/publicar`, `/campanhas`), nunca por SQL
+direto — e o que garante `assertMesmaEmpresa`, `assertRoteiroVersaoUtilizavel` e a imutabilidade
+da versao publicada.
+
+**Decisao 2 — estruturas NOVAS, nada reaproveitado.** Roteiro e campanha novos por nicho, como
+manda a secao "SEPARAR" de `analise-processo-comercial-tenka.md`: reusar cabecalho existente
+misturaria duas ofertas na mesma serie analitica. As 5 campanhas e 7 roteiros anteriores nao
+foram tocados (conferido por leitura: `atualizado_em` inalterado).
+
+**Decisao 3 — 10 etapas com ATALHO explicito, e nao um SPIN obrigatorio.** O briefing pede S-P-I-N
+como raciocinio, nao como questionario. A etapa 4 (`descoberta`) classifica o lead em quente /
+morno / frio e manda **pular as etapas 5, 6 e 7** quando ha interesse, indo direto ao convite
+(etapa 8). Isso concilia o pedido com o dado historico da operacao (92% das ligacoes morriam na
+abertura, media de 37s): quem esquenta cedo nao e investigado.
+
+**Decisao 4 — a previa e o ativo de curiosidade, e ela precisa EXISTIR.** A etapa 3 traz o
+pre-requisito escrito e uma variante "posso montar" para quando nao houver previa pronta.
+Prometer previa inexistente queima o lead na reuniao — e a reuniao e o unico fechamento da
+ligacao.
+
+**Decisao 5 — nenhuma condicao comercial foi inventada.** O briefing nao definiu preco, prazo
+nem escopo, entao o texto usa o marcador `[condicoes comerciais]` e manda responder preco
+**direto, sem desviar**, conforme a politica da campanha. Marcadores pendentes, no mesmo padrao
+da TENKA: `[vendedor]`, `[empresa]`, `[pousada]` / `[escritorio]`, `[cidade]`,
+`[observacao real]`, `[condicoes comerciais]`.
+
+**Decisao 6 — travas de honestidade na etapa `implicacao`, nos dois nichos.** E a etapa onde
+vendedor inventa numero. O objetivo proibe, por escrito: estimar busca mensal, afirmar quanto o
+negocio perde, afirmar a comissao que a pousada paga a plataforma (manda PERGUNTAR), comparar
+com concorrente nominal e dizer "esta perdendo dinheiro". Em advocacia soma-se a proibicao de
+prometer resultado de qualquer especie.
+
+**Decisao 7 — compliance de advocacia e parte da OFERTA, nao um aviso legal.** Regras vigentes
+confirmadas por consulta: **Provimento 205/2021 do Conselho Federal da OAB** segue em vigor
+(substituiu o 94/2000; nada o revogou ate 2026). Publicidade da advocacia e informativa e
+moderada; vedadas promessa de resultado, mercantilizacao e captacao de clientela. Isso governa
+duas coisas no roteiro: (a) o **vocabulario proibido** do vendedor — "captar clientes", "trazer
+causas", "gerar demanda", urgencia artificial e desconto por decisao imediata; e (b) o que a
+pagina entregue **nao pode conter** — tabela de honorarios, promocao, caso de exito, depoimento
+de cliente, promessa. A etapa 2 da reuniao diz isso EM VOZ ALTA como diferencial. O roteiro
+tambem PROIBE o vendedor de dar parecer sobre a norma ou garantir ausencia de risco: quem
+responde perante a OAB e o escritorio, e a revisao dele e parte declarada do processo.
+
+**Decisao 8 — roteiro de REUNIAO separado por nicho (4 etapas).** Mesma escolha da TENKA: a
+campanha aponta para o roteiro de LIGACAO; o de reuniao existe como cabecalho proprio e e
+apontado no texto da etapa 10. Fundir os dois num roteiro so poluiria a analitica de etapa
+alcancada da ligacao.
+
+**Decisao 9 — campanhas nasceram em `rascunho`, e nao `ativa`.** **Nao ha um unico lead de
+pousada nem de advocacia na carteira** (medido: 3.359 prospects, zero em ambos os nichos).
+Campanha ativa com fila vazia mentiria sobre o estado da operacao. Ativar e uma chamada
+(`PUT /campanhas/:id {status:'ativa'}`) depois que a coleta trouxer leads.
+
+**Decisao 10 — NENHUMA coleta paga foi disparada.** A Bright Data cobra por registro e o banco
+so admite **uma coleta ativa por empresa** (indice unico parcial). Escolher cidade por conta
+propria gastaria dinheiro do operador num mercado que ele nao escolheu. Fica pendente e
+declarado. Conferido apos a execucao: nenhum `busca_snapshots` pendente/em andamento.
+
+**Dados criados em producao** (empresa PJ Codeworks `f5f47737-3f48-44fd-a09a-f09e66f7ed85`):
+
+| Estrutura | Id |
+| --- | --- |
+| Nicho `Pousada` | `5dfcceb8-9622-40bb-8566-4f1a30e59900` |
+| Nicho `Advocacia` | `2843a207-498f-4ea0-821a-d576ebbe8956` |
+| Roteiro ligacao Pousadas / versao 1 publicada (10 etapas) | `5cf5a95e-8476-4fc0-9d4b-53d0c4a4cb94` / `8e3703ce-8880-42dc-ab39-8cd69d6a6657` |
+| Roteiro reuniao Pousadas / versao 1 publicada (4 etapas) | `7e6d7e1d-f13d-48c5-8b87-bfc31cf75ae4` / `b489deaf-5a67-439c-858b-0eff1a385a6d` |
+| Roteiro ligacao Advocacia / versao 1 publicada (10 etapas) | `a16b95a3-5a1a-41dd-aa0e-e0438b34d43c` / `e10dde9f-a36f-4740-bbf9-625d4d8504e8` |
+| Roteiro reuniao Advocacia / versao 1 publicada (4 etapas) | `c1f51921-7ba7-415f-be46-153518b43263` / `a7580059-5a8d-46dd-baf4-89cb4c5a658a` |
+| Campanha `PREVIA DE SITE \| POUSADAS \| LIGACAO` (rascunho) | `a1d1a18c-b1d0-4b6a-afeb-4947c319c389` |
+| Campanha `PREVIA DE SITE \| ADVOCACIA \| LIGACAO` (rascunho) | `a2cf9ad4-bd67-40d4-9081-511eff8785ed` |
+
+**Nota de acesso:** o admin `alex.rodriguus@gmail.com` e `superadmin` mas **nao tem vinculo em
+`app.usuarios_empresas` com a PJ Codeworks** — `POST /api/auth/login` e `GET /api/empresas` so
+devolvem a empresa seed. `requireEmpresaAccess` deixa superadmin passar
+(`middleware/tenant.js:46`), entao a empresa alvo foi informada explicitamente e **conferida
+pelo nome** antes de qualquer escrita. Vale criar o vinculo — hoje o painel provavelmente nao
+lista a PJ para esse usuario.
+
+**Pendencias declaradas:** (a) coleta de leads dos dois nichos, com cidade a definir;
+(b) preencher os marcadores; (c) ativar as campanhas; (d) nenhum responsavel atribuido
+(`campanha_responsaveis` vazio); (e) `meta_ligacoes`/`meta_reunioes` nulas de proposito —
+inventar meta em campanha de validacao contamina a leitura.
+
+### Adendo (mesma data) — coleta em SBC-SP e vinculo dos leads
+
+- **Coleta feita pelo operador** (nao por mim), pela Busca avulsa da Aquisicao: `POUSADA | SBC - SP`
+  (duas buscas: 200 + 71 novos = **271**) e `ADVOCACIA | SBC - SP` (**200**). Todas `concluido`,
+  sem erro, na PJ Codeworks. Isso encerra a pendencia (a) e revoga a Decisao 10 pelo lado do
+  operador — nenhuma coleta paga partiu deste agente.
+- **Vinculo feito pela API** (`POST /campanhas/:id/leads`), que ja e idempotente: o INSERT filtra
+  `p.empresa_id` (same-tenant) e tem `ON CONFLICT (campanha_id, prospect_id) DO NOTHING`.
+  Simulacao antes de aplicar; duas guardas no script abortavam a execucao se a campanha nao
+  batesse com o nicho alvo ou se a listagem trouxesse prospect de outro nicho (o filtro da rota
+  e `ILIKE %...%`). Vincular pousada na campanha de advocacia e irreversivel na pratica — o
+  operador ligaria com o roteiro errado.
+
+| Campanha | Coletados | **Vinculados** | Fora |
+| --- | --- | --- | --- |
+| `PREVIA DE SITE \| POUSADAS \| LIGACAO` | 271 | **254** (`nao_iniciado`) | 17 sem telefone |
+| `PREVIA DE SITE \| ADVOCACIA \| LIGACAO` | 200 | **192** (`nao_iniciado`) | 8 sem telefone |
+
+- **Lead sem telefone fica de fora de proposito** — e campanha de LIGACAO. Eles continuam no
+  Banco de Leads. Mesmo criterio da campanha TENKA (192 de 200).
+- **A fila da Central de Ligacoes ja prioriza certo:** o topo das duas e ocupado por
+  `situacao_site = sem_site`, que e o publico exato da oferta (`ligacao-prioridade.js` da +40 a
+  quem nao tem site). Sao 114 pousadas e 84 escritorios sem site proprio.
+- **As campanhas seguem em `rascunho`, e isso NAO impede o trabalho:** a Central de Ligacoes
+  lista todas as campanhas no seletor. Nao ativei porque `listarCampanhas` ordena
+  `(status='ativa') DESC, criado_em DESC` e a tela pre-seleciona a PRIMEIRA ativa
+  (`central-ligacoes/page.tsx:641`) — ativar estas duas trocaria, sem aviso, a campanha que abre
+  por padrao na tela de quem liga todo dia. E decisao do operador, nao efeito colateral.
+- **Pendencias que continuam:** preencher os marcadores (`[vendedor]`, `[empresa]`,
+  `[condicoes comerciais]`, `[observacao real]`), **preparar as previas** antes de ligar (a
+  etapa 3 exige que a previa exista), atribuir responsaveis e ativar as campanhas.

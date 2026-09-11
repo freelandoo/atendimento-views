@@ -6,6 +6,155 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-11 (5) - Início de tarefa IA - CRM em equipe: EXECUÇÃO das Etapas 3 a 12 (todas as restantes)
+
+- **IA/Ferramenta:** Claude Code (Opus 5), na `master`.
+- **Pedido resumido:** *"continue todas as etapas"* — executar as Etapas 3 a 12 de
+  `docs/plano-execucao-crm-equipe.md`, na ordem, cada uma validada antes da seguinte.
+- **É projeto/tarefa de alteração?** Sim, e é a maior desta série: ~7 migrations aditivas,
+  ownership de lead e de conversa, abordagem manual `wa.me`, **abertura do papel `comercial`
+  (a etapa de risco alto)**, instâncias com responsável, permissão de IA, recortes por
+  responsável em ligações/follow-ups/agenda e o painel do admin.
+- **Ordem ajustada em relação ao plano, com motivo:** a Etapa 6 migra as **6 rotas hoje
+  `requireRole('admin')`** e **NÃO toca `/conversas`** — o recorte de conversa por responsável só
+  existe a partir da Etapa 7, e abrir `/conversas` antes disso deixaria um `comercial` vendo
+  todas as conversas da empresa. Como as duas etapas saem nesta mesma sequência, a exposição
+  nunca existe na prática (e nenhum usuário `comercial` existe em produção ainda).
+- **Workflow padrão consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/architecture-rules.md, docs/plano-execucao-crm-equipe.md (§2, §5, §6, §8) e
+  docs/especificacao-crm-equipe.md.
+- **Invariantes que NÃO serão tocados** (§8 do plano): quarentena de webhook, instância de envio
+  sem fallback, origem autorizada da instância, "atendimento 100% por instância" (nenhum fallback
+  de contexto em tempo de resposta), empresa do lead vinda da conversa dentro do SQL, identidade
+  `(empresa_id, telefone_digitos)`, fato comprovado ≠ declarado.
+- **Fora de escopo declarado:** commit/push, escrita em produção, aposentadoria do dashboard
+  legado (decisão G), normalização de `vendas.conversas.historico` (decisão I), resolução do
+  `UNIQUE GLOBAL` de `vendas.conversas.numero` (decisão J), convite por e-mail, transferência de
+  `owner`, transferência de ligação, distribuição automática de leads.
+- **Entregue:** Etapas 3 a 12 implementadas e testadas; plano de execução atualizado etapa por
+  etapa; AGENTS.md atualizado.
+
+---
+
+## 2026-09-11 (4) - Início de tarefa IA - CRM em equipe: Etapa 3.0 (medição autorizada em produção) + Etapa 2 (Contas da empresa)
+
+- **IA/Ferramenta:** Claude Code (Opus 5), na `master`.
+- **Pedido resumido:** o operador respondeu as duas perguntas que travavam etapas:
+  **Q1 — "siga como achar melhor"** ⇒ adotada a recomendação: `member` PERDE
+  `conversa_gerenciar_ia` e `conversa_apagar_historico` (a matriz da Etapa 1 já encarna isso;
+  nada a alterar no código, só registrar a decisão). **Q2 — "pode seguir"** ⇒ **leitura de
+  produção AUTORIZADA** para a medição da Etapa 3.0. E "siga como pedido" ⇒ continuar a execução.
+- **É projeto/tarefa de alteração?** Sim, em duas partes:
+  1. **Etapa 3.0 — SOMENTE LEITURA.** Script novo de medição (`BEGIN TRANSACTION READ ONLY` +
+     `ROLLBACK`, `DATABASE_URL` explícita, só contagens agregadas, zero PII), no padrão de
+     `medir:isolamento-empresa` / `medir:escopo-instancia`, + guarda de regressão que falha se
+     qualquer verbo de escrita aparecer no fonte. **Nenhuma escrita em produção.**
+  2. **Etapa 2 — Contas da empresa.** Rotas e tela para o admin criar/gerenciar membros da
+     empresa. É a primeira consumidora de `requireCapacidade`, logo derruba a guarda "sem
+     consumidor" da Etapa 1 de propósito — a suíte de autorização por rota nasce aqui.
+- **Workflow padrão consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/architecture-rules.md, docs/plano-execucao-crm-equipe.md (§0, §4, §5) e
+  docs/especificacao-crm-equipe.md (§5.1, §8/Fase 2).
+- **Credencial de produção:** obtida das variáveis do serviço Postgres no Railway. A que está
+  versionada em `.claude/settings.json` **não autentica mais** e segue como dívida a remover do
+  git (não é tarefa desta entrada).
+- **Fora de escopo desta entrada:** Etapa 3.1+ (a porta de qualificação em si), Etapas 4 a 12,
+  qualquer escrita em produção, commit/push.
+- **Entregue:** medição executada + relatório no plano de execução; Etapa 2 implementada e
+  testada; plano atualizado.
+
+---
+
+## 2026-09-11 (3) - Início de tarefa IA - EXECUÇÃO do CRM em equipe: Etapa 1 (fundação de autorização) + plano retomável
+
+- **IA/Ferramenta:** Claude Code (Opus 5), na `master`.
+- **Pedido resumido:** *"Faça o recomendado, divida em etapas e subetapas, deixe documentado
+  sempre o que fazer e o que estiver dependente para depois caso precise retornar com outra IA."*
+  Interpretado como: (a) as recomendações A..J de `especificacao-crm-equipe.md` e D1..D8 de
+  `analise-qualificacao-lead-e-multiusuario.md` estão **APROVADAS** e passam a ser as decisões
+  do projeto; (b) criar um **plano de execução retomável** com etapas e subetapas, dependências
+  e estado, para outra IA continuar sem reler tudo; (c) **começar a implementar**, etapa por
+  etapa, a partir da primeira.
+- **É projeto/tarefa de alteração?** Sim. Esta entrada cobre **somente a Etapa 1** (fundação de
+  autorização), que é deliberadamente **NEUTRA EM COMPORTAMENTO**: a matriz de capacidades
+  reproduz exatamente o gating de hoje e `requireCapacidade` nasce **sem nenhum consumidor**.
+  Migration `070` apenas ALARGA uma CHECK e acrescenta colunas nullable.
+- **Workflow padrão consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/architecture-rules.md, docs/especificacao-crm-equipe.md (§8 Fase 1) e
+  docs/analise-qualificacao-lead-e-multiusuario.md.
+- **Correção de um achado da especificação, feita na leitura do código:** a §8/Fase 1 dizia que
+  `requireEmpresaAccess` "passa a barrar vínculo inativo". **Ele já barra** —
+  `usuarioPertenceAEmpresa` (`src/db/empresas.js:51-58`) já filtra `ativo = true`. Um item de
+  escopo a menos; registrado no plano de execução.
+- **Fora de escopo desta entrada:** Etapas 2 a 12 (membros, qualificação, ownership, `wa.me`,
+  abertura do papel comercial, conversa, instâncias, IA, ligações, agenda, painel). Nenhuma
+  rota muda de gate nesta etapa. Sem commit/push.
+- **Entregue:** `docs/plano-execucao-crm-equipe.md` (plano retomável, etapas/subetapas/estado) +
+  a Etapa 1 implementada e testada.
+
+---
+
+## 2026-09-11 (2) - Início de tarefa IA - Especificação da nova arquitetura: CRM de atendimento em EQUIPE (empresa como tenant, papéis, ownership)
+
+- **IA/Ferramenta:** Claude Code (Opus 5), na `master` do repositório principal.
+- **Pedido resumido:** ESPECIFICAR, NÃO IMPLEMENTAR. Transformar o sistema em uma versão
+  preparada para operação comercial em EQUIPE: a Empresa como contexto principal; admin que
+  cria/gerencia contas; usuário comercial com acesso restrito; permissões/feature flags (ex.:
+  "IA pode responder automaticamente" bloqueado por padrão para usuário comum); contexto
+  comercial no nível da EMPRESA em vez de preso à primeira instância; ownership explícito de
+  lead, conversa, ligação, follow-up e evento de agenda; Banco de Leads redesenhado para
+  **abordagem MANUAL via `wa.me`** (com a distinção entre fato comprovado e fato declarado pelo
+  vendedor); rastreabilidade de atividades; isolamento entre empresas e entre vendedores no
+  BACKEND; estratégia de migração e plano de implementação por fases.
+- **É projeto/tarefa de alteração?** Sim, e é o maior deste repositório até aqui. **Esta fase é
+  somente leitura/documentação**: o pedido proíbe explicitamente alterar código agora
+  (`critical_instruction` + `final_deliverable.after_documentation`).
+- **Continuidade declarada:** esta tarefa CONSOME a análise anterior de hoje
+  (`docs/analise-qualificacao-lead-e-multiusuario.md`) — em especial os achados C5/C6/I1
+  (papel por empresa nunca lido; operação inteira `requireRole('admin')`; não existe fluxo para
+  adicionar membro) e a porta de qualificação, que é pré-requisito do Banco de Leads em equipe.
+  As decisões pendentes daquele documento (D1..D8) continuam abertas e são referenciadas.
+- **Workflow padrão consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/architecture-rules.md, docs/project-map.md, docs/project-architecture.md,
+  docs/PENDENCIA_ARQUITETURAL_CENTRAL_LIGACOES_E_MENSAGENS.md,
+  docs/analise-contexto-instancia.md e docs/analise-qualificacao-lead-e-multiusuario.md.
+- **Fora de escopo declarado:** qualquer escrita em produção, migration, rota, tela, prompt,
+  role nova, commit/push e coleta paga. Nenhum arquivo de `backend/` ou `frontend/` será tocado.
+- **Entregue:** `docs/especificacao-crm-equipe.md` (9 fases documentais + plano de
+  implementação por fase) e PARAR para aprovação.
+
+---
+
+## 2026-09-11 - Início de tarefa IA - Qualificação do lead (triagem) como porta da operação comercial + multiusuário
+
+- **IA/Ferramenta:** Claude Code (Opus 5), na `master` do repositório principal.
+- **Pedido resumido:** ANÁLISE ANTES DE IMPLEMENTAR. Separar a etapa de coleta/prospecção da
+  etapa de operação comercial: encontrar ou importar um lead **não** autoriza trabalhá-lo. O
+  lead só deve entrar na operação (Central de Ligações, WhatsApp, mensagens, campanhas,
+  follow-ups, automações) depois de triagem manual com aprovação. Em seguida, analisar a
+  arquitetura necessária para múltiplos usuários com níveis de acesso diferentes (admin /
+  qualificador / comercial-SDR), com o comercial vendo **somente** leads aprovados — inclusive
+  contra chamada direta à API, não só na tela.
+- **É projeto/tarefa de alteração?** Sim, mas **esta fase é somente leitura**. O pedido proíbe
+  explicitamente implementar: sem migration, sem rota, sem tela, sem mudança de comportamento
+  de produção. Entregável = diagnóstico + arquitetura recomendada + plano de fases.
+- **Workflow padrão consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/architecture-rules.md, docs/project-map.md,
+  docs/PENDENCIA_ARQUITETURAL_CENTRAL_LIGACOES_E_MENSAGENS.md e
+  docs/analise-processo-comercial-tenka.md.
+- **Pendência do repositório encontrada ANTES de qualquer leitura:** `docs/ai-decision-log.md`
+  e `docs/ai-task-start-log.md` estão em **conflito de merge não resolvido** (`UU`, marcadores
+  `<<<<<<< Updated upstream` / `>>>>>>> Stashed changes` de um `git stash pop`), nas linhas
+  3166-3406 e 1888-2506 respectivamente. **Não resolvi** — resolver o conflito de log de
+  decisões é escolha do operador, não da IA. Esta entrada foi escrita no TOPO do arquivo,
+  fora da região conflitada.
+- **Fora de escopo declarado:** escrever em produção, criar migration/rota/tela/campo, alterar
+  prompts, criar role nova, commit/push, e qualquer coleta paga.
+- **Entregue:** `docs/analise-qualificacao-lead-e-multiusuario.md` (15 seções), e PARAR para
+  aprovação antes da Fase 1.
+
+---
+
 ## 2026-08-17 - Início de tarefa IA - Central de Ligações: sincronização entre sessões/dispositivos da mesma conta
 
 - **IA/Ferramenta:** Claude Code (Opus 5), rodando em worktree isolado
@@ -3300,3 +3449,107 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Commit/push:** autorizados pelo operador nesta rodada — commit local seguido de push do
   branch do worktree (`worktree-banco-leads-geracao-massa`), sem tocar em `master` nem nos
   arquivos da tarefa Tenka.
+
+---
+
+## 2026-08-18 - Inicio de tarefa IA (diagnostico do processo comercial p/ oferta Tenka Tech)
+
+- **IA/Ferramenta:** Claude Code
+- **Pedido resumido:** FASE 1 de um projeto de direcao de produto — diagnosticar, SEM ALTERAR
+  DADOS, o processo comercial de venda de sites que ja existe no sistema (banco, campanhas,
+  roteiros, etapas, objecoes, perguntas, follow-ups, cadencias, integracoes, ligacoes),
+  classificar o que existe em manter / simplificar / separar-ou-desativar e propor a
+  arquitetura de uma NOVA campanha para a oferta de entrada da **Tenka Tech**
+  ("Vitrine Google Essencial" — site em ate 24h, R$300, 12 meses de hospedagem inclusos,
+  publico inicial: clinicas de estetica). Parar e aguardar aprovacao antes de escrever
+  qualquer dado de producao.
+- **E projeto/tarefa de alteracao?** Ainda NAO — esta fase e' de LEITURA. Nenhum arquivo de
+  codigo, prompt, migration ou dado foi alterado. O unico arquivo escrito e' documentacao
+  (`docs/analise-processo-comercial-tenka.md`) mais este registro de Fase 0.
+- **Workflow padrao consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/project-map.md (indice), docs/architecture-rules.md (indice): Sim.
+- **Areas mapeadas na Fase 0 (leitura antes de qualquer proposta):**
+  `prompts/empresa.md`, `system-core.md`, `system-primeiro-contato.md`, `system-fechamento.md`,
+  `followup.md`, `followup_timing.md`; `src/pricing.js`, `src/goal-selector.js`,
+  `src/next-action-orchestrator.js`, `src/core-funnel.js`, `src/agent-validators.js`,
+  `src/action-response-validator.js`, `src/followup-auto.js`, `src/config.js`;
+  `src/services/contexto-estagios.js`, `contexto-empresa.js` (schema
+  `contexto2.playbook.v2`), `contexto2-runtime.js`, `contexto2-responder.js`,
+  `geracao-frameworks.js`, `meta-conversao.js`; `src/db/ligacoes.js`, `src/db/roteiros.js`,
+  `src/domain-enums.js`; migrations `002`, `003`, `008`, `013`, `033_roteiros`, `039`..`045`,
+  `051`, `057`, `062`, `066`, `067`; rotas `api-roteiros.js`, `api-campanhas.js`,
+  `api-ligacoes.js`, `api-follow-ups.js`; telas `frontend/app/dashboard/*`.
+- **Achado que decide o desenho (1):** existem TRES motores de conversa, nao um. (a) funil
+  legado da PJ (`core-funnel` + `prompts/*.md` + `pricing.js` + validadores + agenda);
+  (b) contexto com `estagios_json` (mesma orquestracao legada, textos por empresa/instancia);
+  (c) **Contexto 2 / playbook** (`processarMensagemComPlaybook`), motor proprio, com
+  `usa_agenda` por instancia e uma secao `cadastro_e_onboarding.link_cadastro` ja tratada no
+  runtime. A oferta Tenka cabe em (c) sem tocar em (a).
+- **Achado que decide o desenho (2):** o funil legado tem a REUNIAO como destino terminal
+  (`goal-selector.js` OFFER_MEETING/SCHEDULE_MEETING, `next-action-orchestrator.js`) e
+  BLOQUEIA por validador qualquer mensagem que fale em pagamento/Pix/cartao
+  (`agent-validators.js:189`, `action-response-validator.js:223`, regra "NUNCA peca PIX,
+  cartao ou pagamento (P1)" em `prompts/system-fechamento.md`). A oferta nova fecha em
+  pagamento, sem reuniao obrigatoria — os dois pontos sao incompativeis com reuso direto.
+- **Achado que decide o desenho (3):** a conversao da Meta so nasce de REUNIAO
+  (`meta-conversao.js`: `reuniao_agendada|realizada|realizada_com_venda`) e `venda_valor` so
+  existe em `app.agenda_eventos` (migration 057) e `vendas.conversas`. Venda sem reuniao
+  **nao tem onde ser registrada** e nao gera evento para a Meta — e' a maior lacuna de
+  metrica da oferta nova.
+- **Achado que decide o desenho (4):** `app.banco_leads_config`, `app.followup_config` e
+  `app.meta_integracoes` sao POR EMPRESA (uma linha por empresa). Duas operacoes comerciais
+  com cadencias diferentes dentro da mesma empresa disputam a MESMA configuracao — e' o
+  argumento concreto a favor de a Tenka nascer como empresa/tenant proprio.
+- **Nao verificado (declarado):** contagens reais de producao. A `DATABASE_URL` do
+  `backend/.env` aponta para `postgres.railway.internal` (inalcancavel fora do Railway) e a
+  execucao do script somente-leitura contra o proxy publico foi **bloqueada pelo ambiente**.
+  O script (`BEGIN TRANSACTION READ ONLY` + `ROLLBACK`, sem PII) esta pronto no scratchpad e
+  so roda com autorizacao explicita do operador.
+- **Fora de escopo declarado nesta fase:** criar/alterar campanha, roteiro, etapa, objecao,
+  follow-up, prompt, migration, rota ou tela; tocar na campanha consultiva existente; qualquer
+  escrita em producao; commit/push.
+- **Proxima etapa:** entregar o diagnostico + proposta de arquitetura e PARAR para aprovacao.
+
+### Adendo (mesma data) — escopo CORRIGIDO pelo operador e leitura de producao autorizada
+
+- **Escopo real:** a oferta Tenka roda **somente na Central de Ligacoes**, com **roteiro e
+  campanha novos dentro da conta da propria PJ Codeworks**. Fora de escopo: tenant novo,
+  instancia de WhatsApp, contexto/playbook do bot, prompts de producao, `pricing.js` e o funil
+  automatico. Com isso, o bloqueio de pagamento dos validadores deixa de ser um problema (ele
+  governa mensagem gerada por IA, nao fala humana ao telefone).
+- **Leitura de producao autorizada e executada** (`BEGIN TRANSACTION READ ONLY` + `ROLLBACK`,
+  sem telefone/e-mail/nome/texto). Credencial obtida das variaveis do servico Postgres no
+  Railway — a que estava em `.claude/settings.json` **nao autentica mais** (porta do proxy
+  tambem mudou de 14878 para 53678); a linha versionada no git deve ser removida.
+- **Achado principal do retrato real:** 145 ligacoes registradas, duracao media **37s**, e
+  **119 de 130 encerradas pararam na `abertura`**. `app.agenda_eventos` esta VAZIA (nenhuma
+  reuniao jamais agendada), `venda_valor` = 0, `app.conversao_eventos` = 0, e nenhum lead
+  chegou a `convertido` nas 4 campanhas (779 leads). Os roteiros consultivos de 8 a 11 etapas
+  existem e **nunca foram exercitados** — simplificar para 6 etapas nao remove capacidade em
+  uso.
+- **Segundo achado:** **nao ha nenhum lead de clinica de estetica na carteira** (o mais
+  proximo: nail designer 200, cabeleireiro 24, sobrancelha 22, salao 11). A campanha exige uma
+  rotina de Aquisicao nova ANTES de existir alguem para ligar.
+- **Decisoes do operador:** tenant = contexto dentro da PJ · pagamento = tema de roteiro/
+  campanha na Central de Ligacoes (nao ha mensagem de IA envolvida) · registro de venda sem
+  reuniao = **decidir depois de rodar a campanha** (medir fora do sistema na validacao) ·
+  leitura do banco = autorizada.
+- **Entregue:** `docs/analise-processo-comercial-tenka.md` (reescrito com a evidencia real).
+  **Nenhum dado de producao foi escrito.** Pendente: decisoes A..D do documento (cidade da
+  coleta, um ou dois roteiros, nome do vendedor na abertura, nome final da campanha).
+
+## 2026-08-26 — Campanhas de ligacao: Pousadas e Advocacia (previa de site)
+
+- **Fase 0 registrada.** Seguindo o Workflow Padrao de IA (`docs/ai-workflow.md`), Fase 0 -> 11.
+- **Pedido:** criar DUAS campanhas de prospeccao por LIGACAO na PJ Codeworks — uma para
+  pousadas/hospedagens, outra para advocacia — cada uma com roteiro proprio, SPIN Selling como
+  raciocinio (nao como questionario), objetivo unico da ligacao = **agendar reuniao para
+  apresentar uma previa de site ja preparada**. Objecoes, sinais de interesse e estrutura de
+  reuniao por nicho.
+- **Precedente que este pedido segue:** `docs/analise-processo-comercial-tenka.md` (secoes 8-10)
+  — mesma operacao, mesmas estruturas (`app.nichos`, `app.roteiros`/`roteiro_versoes`/
+  `roteiro_etapas`, `app.campanhas`), tudo criado **pela API do produto**, nunca por SQL direto.
+- **Fase de analise (somente leitura):** mapear campanhas/roteiros/nichos existentes e medir a
+  carteira para pousada e advocacia antes de escrever qualquer linha.
+- **Fora de escopo declarado:** alterar campanha/roteiro existente, migration, rota, tela,
+  prompt de producao, disparo de WhatsApp e qualquer coleta paga nao autorizada.
