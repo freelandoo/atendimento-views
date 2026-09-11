@@ -454,12 +454,16 @@ export default function ProspeccaoPage() {
     if (p.status === 'aguardando') {
       acoes.push({
         id: 'aprovar',
-        rotulo: 'Marcar',
+        rotulo: 'Aprovar',
         zona: 'direita',
         tom: 'positivo',
-        descricao: 'Marca como lead bom (opcional — ele já pode ser disparado sem isso).',
+        // O texto anterior dizia "(opcional — ele já pode ser disparado sem isso)", e era VERDADE:
+        // nenhuma porta exigia aprovação. A Etapa 3 do CRM em equipe fechou as quatro portas
+        // (campanha, WhatsApp manual, WhatsApp automático e e-mail), então aprovar deixou de ser
+        // decoração e passou a ser o que libera o lead para a operação.
+        descricao: 'Libera o lead para a operação comercial: ligação, WhatsApp, e-mail e campanhas.',
         desabilitado: agindo === p.id,
-        onSelecionar: () => acao(p.id, 'aprovar', 'Lead marcado como bom.'),
+        onSelecionar: () => acao(p.id, 'aprovar', 'Lead aprovado — liberado para a operação.'),
       })
     }
     acoes.push({
@@ -467,9 +471,9 @@ export default function ProspeccaoPage() {
       rotulo: 'Descartar',
       zona: 'esquerda',
       tom: 'negativo',
-      descricao: 'Remove o lead do disparo — vai para a aba Descartados no Banco de Leads.',
+      descricao: 'Tira o lead da operação: ele deixa de ser abordado por qualquer canal.',
       desabilitado: agindo === p.id,
-      onSelecionar: () => acao(p.id, 'rejeitar', 'Lead descartado — foi para a aba Descartados.'),
+      onSelecionar: () => acao(p.id, 'rejeitar', 'Lead descartado — não será mais abordado.'),
     })
     return acoes
   }

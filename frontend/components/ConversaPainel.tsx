@@ -48,6 +48,13 @@ import {
   rotuloAcessivel,
 } from '@/lib/conversa-modo-ia'
 import type { PreferenciaModoIa } from '@/lib/conversa-modo-ia'
+import {
+  acoesDeAtendente,
+  atendenteDaConversa,
+  avisoDeAtendimento,
+} from '@/lib/conversa-operacao'
+import { temCapacidade } from '@/lib/capacidades'
+import { useSession } from '@/lib/useSession'
 
 export type ScoreCriterio = {
   delta: number
@@ -80,6 +87,14 @@ export type ConversaResumo = {
   score_interesse_criterios?: ScoreCriterio[]
   score_interesse_mensagens_lead?: number | null
   evolution_instance?: string | null
+  /**
+   * CRM em equipe, Etapa 7: a conversa tem DONO. `null` e' a fila de NAO ATRIBUIDAS — estado de
+   * primeira classe, nao pendencia. O nome chega junto (join em `api-conversas.js`) porque
+   * avisar "esta com outra pessoa" sem dizer quem nao resolve o problema real.
+   */
+  responsavel_id?: string | null
+  responsavel_nome?: string | null
+  responsavel_desde?: string | null
   atualizado_em: string
 }
 
@@ -240,6 +255,10 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
   abaInicial?: 'chat' | 'interesses'
 }) {
   const fb = useFeedback()
+  // Quem esta olhando e o que pode fazer. As capacidades chegam resolvidas pelo backend; a tela
+  // so as consulta para nao oferecer um botao que vai responder 403.
+  const { usuario, capacidades } = useSession(false)
+  const [alterandoResponsavel, setAlterandoResponsavel] = useState(false)
   const [aberta, setAberta] = useState<ConversaDetail | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -331,6 +350,42 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
       } : p)
     } catch { /* erro já exibido pelo feedback */ }
     finally { setReenviando(false) }
+  }
+
+  // ─── Ownership da conversa (Etapa 7) ────────────────────────────────────────────────────
+  //
+  // ATENCAO: nenhuma destas acoes bloqueia o compositor. Assumir ORGANIZA o trabalho; travar a
+  // resposta deixaria o CLIENTE sem resposta porque o sistema decidiu que a pessoa errada estava
+  // na tela. O que a conversa alheia recebe e um AVISO, logo acima do compositor.
+
+  /** Claim atomico: a corrida entre dois atendentes e resolvida pelo BANCO, nao por esta tela. */
+  async function assumirConversa() {
+    setAlterandoResponsavel(true)
+    try {
+      await fb.runTask(
+        () => apiFetch(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(numero)}/assumir`, { method: 'POST' }),
+        { sucesso: 'Conversa assumida.' }
+      )
+      await carregarConversa()
+      onAtualizou?.()
+    } catch { /* o 409 ja diz quem ganhou — o feedback exibe a mensagem do servidor */ }
+    finally { setAlterandoResponsavel(false) }
+  }
+
+  /** Devolve a PROPRIA conversa para a fila de nao atribuidas. Quem pegou pode largar. */
+  async function devolverConversa() {
+    setAlterandoResponsavel(true)
+    try {
+      await fb.runTask(
+        () => apiFetch(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(numero)}/responsavel`, {
+          method: 'PUT', body: JSON.stringify({ usuario_id: null }),
+        }),
+        { sucesso: 'Conversa devolvida para a fila.' }
+      )
+      await carregarConversa()
+      onAtualizou?.()
+    } catch { /* erro ja exibido pelo feedback */ }
+    finally { setAlterandoResponsavel(false) }
   }
 
   async function enviarMensagemOperador() {
@@ -507,6 +562,25 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
     ? avisoDoCompositor({ modoEfetivo: aberta.modo_ia_efetivo, agentePausado: aberta.agente_pausado })
     : null
 
+  // Ownership (Etapa 7). `podeAtender` e' de todo membro; transferir a conversa de OUTRA pessoa
+  // exige a capacidade de ver a Central inteira, porque quem redistribui precisa enxergar o todo.
+  const atendente = atendenteDaConversa(aberta, usuario?.id)
+  const acoesDono = acoesDeAtendente(aberta, {
+    usuarioId: usuario?.id,
+    podeAtender: temCapacidade(capacidades, 'conversa_atender'),
+    podeTransferir: temCapacidade(capacidades, 'conversa_ver_todas'),
+  })
+  const avisoDono = avisoDeAtendimento(aberta, usuario?.id)
+
+  // Etapa 9 — a capacidade SENSÍVEL. Não é "a IA pode responder" (isso é `modo_ia`): é quem pode
+  // LIGAR a IA. `modo-ia` e `agente` diferem em DURAÇÃO, não em efeito sobre o cliente — deixar
+  // uma sem gate tornaria a outra decorativa, então as duas usam o mesmo veredito.
+  const podeGerenciarIa = temCapacidade(capacidades, 'conversa_gerenciar_ia')
+  const bloqueioIa = podeGerenciarIa ? '' : 'Só quem administra a operação pode ligar ou desligar a IA desta conversa.'
+  // Apagar o histórico de um contato é irreversível e some com o registro do atendimento de
+  // outra pessoa — por isso é capacidade própria, e não "quem alcança a conversa".
+  const podeApagarHistorico = temCapacidade(capacidades, 'conversa_apagar_historico')
+
   return (
     <>
     <div
@@ -575,6 +649,7 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                       selecionado={normalizarPreferencia(aberta.modo_ia)}
                       onMudar={(id) => alterarModoIa(id as PreferenciaModoIa)}
                       ocupado={alterandoModo}
+                      bloqueio={bloqueioIa}
                       compacto
                       // Mesmo mecanismo do controle GLOBAL (`dashboard/conversas/page.tsx`): o
                       // parágrafo fixo com o modo efetivo e a origem saiu da tela e virou o texto
@@ -604,9 +679,9 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                 <button
                   type="button"
                   onClick={() => alterarPausaAgente(!aberta.agente_pausado)}
-                  disabled={alterandoPausa}
-                  title={aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente'}
-                  aria-label={aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente'}
+                  disabled={alterandoPausa || !podeGerenciarIa}
+                  title={bloqueioIa || (aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente')}
+                  aria-label={`${aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente'}${bloqueioIa ? `. Indisponível: ${bloqueioIa}` : ''}`}
                   className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-300 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {alterandoPausa ? (
@@ -617,6 +692,37 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                     <IconPause className="h-3.5 w-3.5" />
                   )}
                 </button>
+              </div>
+            )}
+            {/* Atendente desta conversa (Etapa 7). "Sem atendente" e' a FILA — o trabalho que
+                precisa ser puxado —, entao ela aparece em destaque, e nao como um traco apagado. */}
+            {aberta && (
+              <div className="flex shrink-0 flex-col gap-1 self-center rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Atendente</span>
+                <div className="flex items-center gap-2">
+                  <span className={
+                    atendente.estado === 'nao_atribuida' ? 'rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700'
+                      : atendente.meu ? 'rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700'
+                        : 'text-xs text-slate-600'
+                  }>{atendente.rotulo}</span>
+                  {acoesDono.assumir && (
+                    <button type="button" onClick={assumirConversa} disabled={alterandoResponsavel}
+                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">
+                      {alterandoResponsavel ? 'Assumindo…' : 'Assumir'}
+                    </button>
+                  )}
+                  {acoesDono.devolver && (
+                    <button type="button" onClick={devolverConversa} disabled={alterandoResponsavel}
+                      title="Volta para a fila de conversas sem atendente"
+                      className="rounded-lg border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 transition hover:bg-slate-50 disabled:opacity-50">
+                      {alterandoResponsavel ? 'Devolvendo…' : 'Devolver'}
+                    </button>
+                  )}
+                </div>
+                {/* Botao sumido sem explicacao e' o que faz o operador achar que a tela quebrou. */}
+                {!acoesDono.assumir && !acoesDono.devolver && acoesDono.motivoSemAssumir && (
+                  <span className="max-w-[180px] text-[10px] leading-snug text-slate-400">{acoesDono.motivoSemAssumir}</span>
+                )}
               </div>
             )}
             {contextoOrigem && contextoOrigem.linhas.length > 0 && (
@@ -854,6 +960,14 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                       <span>Mensagem do operador</span>
                       <span className="text-slate-400">{composerAberto ? 'Recolher' : 'Escrever'}</span>
                     </button>
+                    {/* A conversa e' de outra pessoa: AVISO, nunca impedimento. Avisar resolve o
+                        problema real (dois atendentes sem saber um do outro) sem criar o problema
+                        pior (cliente sem resposta). */}
+                    {avisoDono.avisar && (
+                      <p className="w-full rounded-lg bg-amber-50 px-3 py-1.5 text-[11px] leading-snug text-amber-800">
+                        {avisoDono.texto}
+                      </p>
+                    )}
                     <button
                       type="button"
                       onClick={orientarResposta}
@@ -909,13 +1023,18 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
 
         <div className="px-5 py-2.5 border-t flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setConfirmarApagar(true)}
-              disabled={!aberta || apagando || !aberta.historico?.length}
-              className="text-xs px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {apagando ? 'Apagando…' : 'Deletar histórico'}
-            </button>
+            {/* Etapa 9: apagar o histórico some com o registro do atendimento de outra pessoa.
+                O botão SOME para quem não pode — ao contrário do controle de IA, aqui não há
+                decisão a explicar no lugar, e um botão vermelho inerte só convida ao clique. */}
+            {podeApagarHistorico && (
+              <button
+                onClick={() => setConfirmarApagar(true)}
+                disabled={!aberta || apagando || !aberta.historico?.length}
+                className="text-xs px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {apagando ? 'Apagando…' : 'Deletar histórico'}
+              </button>
+            )}
             <button
               onClick={reenviarUltimaResposta}
               disabled={!aberta || reenviando || !podeReenviarUltimaResposta}

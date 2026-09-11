@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { apiFetch, apiDownload, getEmpresaId } from '@/lib/api'
+import { useSession } from '@/lib/useSession'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
@@ -13,6 +14,12 @@ import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink } from '@/lib/site-rotulos'
 import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
+import {
+  seloQualificacao, podeAbordar, opcoesEscopo, rotuloEscopoEfetivo,
+  donoDoLead, acoesDeResponsavel, descreverAbordagem, rotuloAcaoManual, contagemMensagem,
+} from '@/lib/lead-operacao'
+import type { Qualificacao, DisparoLead } from '@/lib/lead-operacao'
+import { temCapacidade } from '@/lib/capacidades'
 import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconSend, IconAlert } from '@/components/ui/icons'
 
 // Banco de Leads — central de disparo com Modo Manual / Semiautomático / Automático.
@@ -46,6 +53,13 @@ type Lead = {
   tem_whatsapp: boolean | null
   ultimo_status: string | null; ultimo_erro: string | null
   proximo_agendamento: string | null
+  // CRM em equipe. Etapa 3: a PORTA da operação comercial. Etapa 4: de quem é o lead.
+  // Os dois chegam prontos do backend — a tela só traduz (lib/lead-operacao.js).
+  qualificacao: Qualificacao | null
+  qualificado_em: string | null
+  responsavel_id: string | null
+  responsavel_nome: string | null
+  responsavel_desde: string | null
 }
 type Ordem = { chave: string; dir: 'asc' | 'desc' }
 type Resumo = { abas: Record<string, number>; por_status: Record<string, number> }
@@ -342,6 +356,11 @@ const COLUNAS_TOGGLE: { key: string; label: string }[] = [
   { key: 'links', label: 'Links' },
   { key: 'pontos', label: 'Pontos' },
   { key: 'status', label: 'Status' },
+  // CRM em equipe: a qualificação (Etapa 3) e o responsável (Etapa 4) entram LIGADAS por padrão.
+  // São as duas perguntas que a operação em equipe faz o tempo todo — "posso trabalhar?" e "é
+  // meu?" —, e deixá-las desligadas obrigaria cada pessoa a descobrir o toggle.
+  { key: 'qualificacao', label: 'Qualificação' },
+  { key: 'responsavel', label: 'Responsável' },
 ]
 
 const ORDENACOES: { valor: string; label: string }[] = [
@@ -497,8 +516,174 @@ function chipsDaView(v: ViewConfig): string[] {
   return c.filter(Boolean)
 }
 
+/**
+ * Abordagem MANUAL pelo WhatsApp (CRM em equipe, Etapa 5).
+ *
+ * ─── A REGRA QUE ESTA TELA PRECISA CONTAR ───────────────────────────────────────────────
+ * **Abrir o WhatsApp não é enviar.** O sistema monta o link e abre; quem envia é o vendedor, no
+ * aparelho dele. Por isso são DOIS botões, nunca um: "Abrir WhatsApp" registra a abertura, e
+ * "Marcar como enviado" é a DECLARAÇÃO — que o sistema guarda como declaração, não como prova.
+ *
+ * A tela não decide nada: a URL, o rascunho e o veredito de prova vêm prontos do backend
+ * (`GET .../abordagem-manual`), e `lib/lead-operacao.js` só traduz.
+ */
+function ModalAbordagemManual({ lead, base, onFechar, onMudou }: {
+  lead: Lead
+  base: string
+  onFechar: () => void
+  onMudou: () => void
+}) {
+  const fb = useFeedback()
+  const [carregando, setCarregando] = useState(true)
+  const [erro, setErro] = useState('')
+  const [dados, setDados] = useState<{
+    pode_abordar: boolean
+    motivo: string | null
+    mensagem_sugerida: string
+    wa_me_url: string | null
+    historico: DisparoLead[]
+  } | null>(null)
+  const [mensagem, setMensagem] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  useEffect(() => {
+    let vivo = true
+    setCarregando(true)
+    setErro('')
+    apiFetch<NonNullable<typeof dados>>(`${base}/leads/${lead.id}/abordagem-manual`)
+      .then((r) => {
+        if (!vivo) return
+        setDados(r.data)
+        setMensagem(r.data.mensagem_sugerida || '')
+      })
+      .catch((e) => { if (vivo) setErro(e instanceof Error ? e.message : 'Falha ao preparar a abordagem.') })
+      .finally(() => { if (vivo) setCarregando(false) })
+    return () => { vivo = false }
+  }, [base, lead.id])
+
+  const contagem = contagemMensagem(mensagem)
+  const ultimo = dados?.historico?.[0] || null
+  const rotulos = rotuloAcaoManual(ultimo)
+
+  // A URL é remontada com o texto EDITADO — o que o backend mandou é só o rascunho.
+  const url = useMemo(() => {
+    if (!dados?.wa_me_url) return null
+    const base = dados.wa_me_url.split('?')[0]
+    const texto = mensagem.trim()
+    return texto ? `${base}?text=${encodeURIComponent(texto)}` : base
+  }, [dados, mensagem])
+
+  async function abrir() {
+    if (!url) return
+    // Abre PRIMEIRO (o clique do usuário é o que o navegador aceita como gesto) e registra depois.
+    window.open(url, '_blank', 'noopener,noreferrer')
+    try {
+      await apiFetch(`${base}/leads/${lead.id}/abordagem-manual/aberta`, {
+        method: 'POST', body: JSON.stringify({ mensagem }),
+      })
+      onMudou()
+    } catch { /* registrar a abertura é telemetria: falhar aqui não impede o vendedor de enviar */ }
+  }
+
+  async function confirmar() {
+    setSalvando(true)
+    try {
+      await fb.runTask(
+        () => apiFetch(`${base}/leads/${lead.id}/abordagem-manual`, {
+          method: 'PATCH', body: JSON.stringify({ enviado: true, mensagem }),
+        }),
+        { sucesso: 'Abordagem registrada como enviada por você.' }
+      )
+      onMudou()
+      onFechar()
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setSalvando(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onFechar}>
+      <div role="dialog" aria-modal="true" aria-label={`Abordar ${lead.nome}`}
+        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-sm font-semibold text-slate-800">Abordar {lead.nome}</h2>
+        <p className="mt-0.5 text-xs text-slate-500">{lead.telefone || 'sem telefone'}</p>
+
+        {carregando && <p className="mt-4 text-sm text-slate-500">Preparando…</p>}
+        {erro && <p className="mt-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{erro}</p>}
+
+        {dados && !dados.pode_abordar && (
+          <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {dados.motivo || 'Este lead não pode ser abordado agora.'}
+          </p>
+        )}
+
+        {dados && dados.pode_abordar && (
+          <>
+            <label className="mt-4 block text-xs font-medium text-slate-600">Mensagem</label>
+            <textarea value={mensagem} onChange={(e) => setMensagem(e.target.value)} rows={5}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand"
+              placeholder="Escreva a primeira mensagem…" />
+            <p className={`mt-1 text-[11px] ${contagem.excedeu ? 'text-rose-600' : 'text-slate-400'}`}>
+              {contagem.usados}/{contagem.limite}
+            </p>
+
+            {/* O aviso mais importante da tela: o sistema não envia, e não sabe se você enviou. */}
+            <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-600">
+              O sistema <b>não envia</b> esta mensagem: ele abre o WhatsApp com o texto pronto, e
+              quem envia é você. Depois de enviar, use <b>{rotulos.confirmar}</b> — o registro fica
+              marcado como <b>informado por você</b>, sem confirmação de entrega.
+            </p>
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button onClick={onFechar}
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+                Fechar
+              </button>
+              <button onClick={abrir} disabled={!url || contagem.excedeu}
+                className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50">
+                {rotulos.abrir}
+              </button>
+              <button onClick={confirmar} disabled={salvando || contagem.excedeu}
+                className="rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">
+                {salvando ? 'Registrando…' : rotulos.confirmar}
+              </button>
+            </div>
+          </>
+        )}
+
+        {dados && dados.historico?.length > 0 && (
+          <div className="mt-5 border-t border-slate-100 pt-3">
+            <h3 className="text-xs font-semibold text-slate-500">Abordagens anteriores</h3>
+            <ul className="mt-2 space-y-1.5">
+              {dados.historico.map((d, i) => {
+                const desc = descreverAbordagem(d)
+                return (
+                  <li key={d.id || i} className="flex flex-wrap items-baseline gap-x-2 text-[11px]">
+                    <span className={desc.comprovado ? 'font-medium text-emerald-700' : 'font-medium text-slate-600'}>
+                      {desc.rotulo}
+                    </span>
+                    {/* O aviso vai como TEXTO, nunca só como cor: é o que impede a tela de exibir
+                        uma declaração como se fosse entrega. */}
+                    {desc.aviso && <span className="text-amber-700">{desc.aviso}</span>}
+                    <span className="text-slate-400">
+                      {d.criado_em ? new Date(d.criado_em).toLocaleString('pt-BR') : ''}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function BancoLeadsPage() {
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
+  // CRM em equipe: as capacidades chegam RESOLVIDAS pelo backend (/api/auth/me). A tela não
+  // recalcula nada — quem decide é services/acesso-capacidades.js.
+  const { usuario, capacidades } = useSession()
   const base = `/api/empresas/${empresaId}/banco-leads`
 
   const [aba, setAba] = useState('sem_contato')
@@ -512,6 +697,13 @@ export default function BancoLeadsPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
+  // Etapa 4: recorte por RESPONSÁVEL. `escopo` é o que a tela PEDE; `escopoEfetivo` é o que o
+  // backend DEVOLVEU — divergem quando alguém pede "todos" sem poder, e mostrar a diferença é o
+  // que impede o vendedor de achar que perdeu leads.
+  const [escopo, setEscopo] = useState<string>('')
+  const [escopoEfetivo, setEscopoEfetivo] = useState<string | null>(null)
+  // Etapa 5: o lead cujo modal de abordagem manual está aberto.
+  const [abordando, setAbordando] = useState<Lead | null>(null)
   const [exportando, setExportando] = useState(false)
   const [limpando, setLimpando] = useState(false)
   // Modo de disparo (config por empresa)
@@ -615,11 +807,16 @@ export default function BancoLeadsPage() {
       if (busca.trim()) p.set('busca', busca.trim())
       // Escopa a "Mensagem gerada" pela instância selecionada (modo Semi).
       if (instanciaId) p.set('instancia_id', instanciaId)
-      const r = await apiFetch<Lead[]>(`${base}/leads?${p.toString()}`)
+      // Recorte por RESPONSÁVEL (Etapa 4). Quem decide o que este pedido pode ver é o backend:
+      // pedir `todos` sem poder devolve "meus + livres", e o `meta.escopo` diz o que veio.
+      if (escopo) p.set('escopo', escopo)
+      const r = await apiFetch<Lead[], { escopo?: string; pode_ver_todos?: boolean }>(`${base}/leads?${p.toString()}`)
       setLeads(r.data || [])
+      // Recortar em silêncio faria o vendedor achar que a carteira encolheu.
+      setEscopoEfetivo(r.meta?.escopo || null)
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao carregar leads.') }
     finally { setCarregando(false) }
-  }, [base, empresaId, aba, origem, mercado, cidadeFiltro, busca, instanciaId])
+  }, [base, empresaId, aba, origem, mercado, cidadeFiltro, busca, instanciaId, escopo])
 
   const carregarFiltrosMercado = useCallback(async () => {
     if (!empresaId) return
@@ -1130,6 +1327,42 @@ export default function BancoLeadsPage() {
     setConversaAberta(null)
   }
 
+  // ─── CRM em equipe: ownership do lead (Etapa 4) e abordagem manual (Etapa 5) ──────────────
+  //
+  // As capacidades chegam resolvidas pelo backend; a tela só as consulta para não oferecer um
+  // botão que vai responder 403/422. O servidor continua sendo a autoridade.
+  const podeAssumir = temCapacidade(capacidades, 'lead_assumir')
+  const podeTransferir = temCapacidade(capacidades, 'lead_transferir')
+  const podeVerTodos = temCapacidade(capacidades, 'lead_ver_brutos')
+  const podeAbordarManual = temCapacidade(capacidades, 'lead_abordar_manual')
+
+  /**
+   * Assume um lead LIVRE. A corrida entre dois vendedores é resolvida pelo BANCO (claim atômico):
+   * quem perde recebe 409 com o nome de quem ganhou, e é isso que a mensagem mostra.
+   */
+  async function assumirLead(l: Lead) {
+    try {
+      await fb.runTask(
+        () => apiFetch(`${base}/leads/${l.id}/assumir`, { method: 'POST' }),
+        { sucesso: `${l.nome} agora é seu.` }
+      )
+      carregarLeads()
+    } catch { /* o 409 já explica quem ganhou — o feedback exibe a mensagem do servidor */ }
+  }
+
+  /** Devolve o PRÓPRIO lead para a fila de livres. Não exige capacidade de transferir. */
+  async function devolverLead(l: Lead) {
+    try {
+      await fb.runTask(
+        () => apiFetch(`${base}/leads/${l.id}/responsavel`, {
+          method: 'PUT', body: JSON.stringify({ usuario_id: null }),
+        }),
+        { sucesso: `${l.nome} voltou para a fila de livres.` }
+      )
+      carregarLeads()
+    } catch { /* erro já exibido pelo feedback */ }
+  }
+
   async function salvarEmail(id: string, email: string) {
     await apiFetch(`${base}/leads/${id}/email`, { method: 'PATCH', body: JSON.stringify({ email }) })
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, email: email || null } : l)))
@@ -1481,6 +1714,26 @@ export default function BancoLeadsPage() {
             {ORIGENS.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
           </select>
         </div>
+        {/* Recorte por RESPONSÁVEL (CRM em equipe, Etapa 4).
+            Quem não pode ver a carteira inteira não recebe a opção "Todos" — oferecer uma opção
+            que o servidor rebaixa faria a tela mostrar menos do que prometeu. */}
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">Responsável</label>
+          <select value={escopo} onChange={(e) => setEscopo(e.target.value)}
+            className="border rounded-lg px-3 py-2 text-sm min-w-[140px]">
+            {podeVerTodos && <option value="">Todos</option>}
+            {opcoesEscopo(podeVerTodos).map((o) => (
+              <option key={o.valor} value={o.valor}>{o.rotulo}</option>
+            ))}
+          </select>
+          {/* O que o servidor DEVOLVEU. Recortar em silêncio faria o vendedor achar que a
+              carteira encolheu. Só aparece quando difere do que foi pedido. */}
+          {escopoEfetivo === 'meus_e_livres' && (
+            <p className="mt-1 text-[10px] text-amber-700">
+              Mostrando {rotuloEscopoEfetivo(escopoEfetivo).toLowerCase()}
+            </p>
+          )}
+        </div>
         <div className="flex-1 min-w-[200px]">
           <label className="block text-xs text-slate-500 mb-1">Buscar (nome, telefone, email, @)</label>
           <input value={busca} onChange={(e) => setBusca(e.target.value)}
@@ -1582,6 +1835,12 @@ export default function BancoLeadsPage() {
               onAbrirConversa={abrirConversa}
               onSalvarEmail={salvarEmail}
               onAbrirDetalhes={setDetalheAberto}
+              usuarioId={usuario?.id}
+              podeAssumir={podeAssumir}
+              podeTransferir={podeTransferir}
+              onAssumir={assumirLead}
+              onDevolver={devolverLead}
+              onAbordarManual={podeAbordarManual ? setAbordando : undefined}
             />
           )}
           {mostrarPaginacao(pgPlaces.total, pgPlaces.porPagina) && (
@@ -1601,6 +1860,12 @@ export default function BancoLeadsPage() {
               onAbrirConversa={abrirConversa}
               onSalvarEmail={salvarEmail}
               onAbrirDetalhes={setDetalheAberto}
+              usuarioId={usuario?.id}
+              podeAssumir={podeAssumir}
+              podeTransferir={podeTransferir}
+              onAssumir={assumirLead}
+              onDevolver={devolverLead}
+              onAbordarManual={podeAbordarManual ? setAbordando : undefined}
             />
           )}
           {mostrarPaginacao(pgIg.total, pgIg.porPagina) && (
@@ -1609,6 +1874,15 @@ export default function BancoLeadsPage() {
         </>
       )}
 
+      {/* Abordagem MANUAL (Etapa 5): o sistema abre o wa.me; quem envia é o vendedor. */}
+      {abordando && (
+        <ModalAbordagemManual
+          lead={abordando}
+          base={base}
+          onFechar={() => setAbordando(null)}
+          onMudou={carregarLeads}
+        />
+      )}
       {detalheAberto && (
         <LeadDetalhesModal
           lead={detalheAberto}
@@ -1706,6 +1980,14 @@ type TabelaProps = {
   onAbrirConversa: (l: Lead) => void
   onSalvarEmail: (id: string, email: string) => Promise<void>
   onAbrirDetalhes: (l: Lead) => void
+  // CRM em equipe (Etapas 3, 4 e 5). Tudo opcional: as tabelas que ainda não passam continuam
+  // funcionando, só sem as colunas novas.
+  usuarioId?: string | null
+  podeAssumir?: boolean
+  podeTransferir?: boolean
+  onAssumir?: (l: Lead) => void
+  onDevolver?: (l: Lead) => void
+  onAbordarManual?: (l: Lead) => void
 }
 
 // Rodapé "Anterior/Próxima" com o resumo do intervalo — mesmo padrão visual já validado em
@@ -1849,13 +2131,87 @@ function TelefoneCelula({ l, onAbrirConversa }: { l: Lead; onAbrirConversa: (l: 
 }
 
 
+// ─── CRM em equipe: qualificação e responsável ──────────────────────────────────────────────
+
+/**
+ * Selo de QUALIFICAÇÃO (Etapa 3). É a resposta a "posso trabalhar este lead?".
+ *
+ * `legado` tem rótulo PRÓPRIO ("Sem triagem registrada") e não se confunde com "Aprovado": ele é
+ * a ausência de prova, nomeada, e dizer isso na tela é o que impede o operador de achar que a
+ * carteira inteira foi triada. O texto explicativo vem no `title` — cor nunca é o único sinal.
+ */
+function QualificacaoCelula({ l }: { l: Lead }) {
+  const selo = seloQualificacao(l.qualificacao)
+  const cor = selo.tom === 'positivo' ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    : selo.tom === 'negativo' ? 'bg-rose-50 text-rose-700 border-rose-200'
+      : selo.tom === 'atencao' ? 'bg-amber-50 text-amber-700 border-amber-200'
+        : 'bg-slate-50 text-slate-600 border-slate-200'
+  return (
+    <td className="px-3 py-2">
+      <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] ${cor}`} title={selo.detalhe}>
+        {selo.rotulo}
+      </span>
+    </td>
+  )
+}
+
+/**
+ * RESPONSÁVEL (Etapa 4) + as ações que cabem a quem está olhando.
+ *
+ * "Livre" não é pendência: é a fila de onde qualquer vendedor pode puxar. Quando o botão
+ * "Assumir" não aparece, o MOTIVO aparece no lugar — botão sumido sem explicação é o que faz o
+ * operador achar que a tela quebrou.
+ */
+function ResponsavelCelula({ l, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver }: {
+  l: Lead; usuarioId?: string | null; podeAssumir?: boolean; podeTransferir?: boolean
+  onAssumir?: (l: Lead) => void; onDevolver?: (l: Lead) => void
+}) {
+  const dono = donoDoLead(l, usuarioId)
+  const acoes = acoesDeResponsavel(l, { usuarioId, podeAssumir, podeTransferir })
+  return (
+    <td className="px-3 py-2">
+      <div className="flex flex-col gap-0.5">
+        <span className={dono.meu ? 'text-[12px] font-medium text-brand' : 'text-[12px] text-slate-600'}>
+          {dono.rotulo}
+        </span>
+        {acoes.assumir && onAssumir && (
+          <button onClick={() => onAssumir(l)}
+            className="self-start text-[11px] text-brand underline-offset-2 hover:underline">
+            Assumir
+          </button>
+        )}
+        {acoes.devolver && onDevolver && (
+          <button onClick={() => onDevolver(l)}
+            className="self-start text-[11px] text-slate-500 underline-offset-2 hover:underline"
+            title="Devolve o lead para a fila de livres">
+            Devolver
+          </button>
+        )}
+        {!acoes.assumir && !acoes.devolver && acoes.motivoSemAssumir && (
+          <span className="text-[10px] text-slate-400">{acoes.motivoSemAssumir}</span>
+        )}
+      </div>
+    </td>
+  )
+}
+
 // Cadastro + Detalhes na MESMA célula — mesmo padrão da Aquisição
 // (prospeccao/page.tsx). A célula é SEMPRE renderizada (fora do sistema de toggle "⚙
 // Personalizar"), porque "Detalhes" é a única porta para endereço, nota, avaliações,
 // horário, links e o JSON cru ("Ver dados completos"): desligar a coluna "Pontos" some só
 // com a bolinha, nunca com o acesso a Detalhes — remover essa garantia violaria "não
 // remover ação sem caminho equivalente" (AGENTS.md).
-function CadastroDetalhesCelula({ l, cols, onAbrirDetalhes }: { l: Lead; cols: Record<string, boolean>; onAbrirDetalhes: (l: Lead) => void }) {
+function CadastroDetalhesCelula({ l, cols, onAbrirDetalhes, onAbordarManual }: {
+  l: Lead; cols: Record<string, boolean>; onAbrirDetalhes: (l: Lead) => void
+  onAbordarManual?: (l: Lead) => void
+}) {
+  // "Abordar" fica AO LADO de "Detalhes", na célula que é sempre renderizada — a abordagem
+  // manual é a ação principal do vendedor nesta tela, e escondê-la atrás de um toggle de coluna
+  // a tornaria descobrível só por quem já sabe que existe.
+  //
+  // Ele só aparece quando a pessoa PODE abordar e o lead passou pela porta (Etapa 3): oferecer
+  // um botão que responde 422 é pior que não oferecer.
+  const podeAbordarEste = !!onAbordarManual && podeAbordar(l) && !!l.telefone
   return (
     <td className="px-3 py-2">
       <div className="flex items-center gap-1.5">
@@ -1865,6 +2221,13 @@ function CadastroDetalhesCelula({ l, cols, onAbrirDetalhes }: { l: Lead; cols: R
           title="Endereço, nota, avaliações, horário, links e dados completos do lead">
           Detalhes
         </button>
+        {podeAbordarEste && (
+          <button onClick={() => onAbordarManual!(l)}
+            className="text-[11px] text-emerald-700 underline-offset-2 hover:underline"
+            title="Abre o WhatsApp com a mensagem pronta. Quem envia é você.">
+            Abordar
+          </button>
+        )}
       </div>
     </td>
   )
@@ -1879,7 +2242,7 @@ function SelCelula({ l, selecionados, onToggleSel }: { l: Lead; selecionados: Se
   )
 }
 
-function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onAbrirDetalhes }: TabelaProps) {
+function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onAbrirDetalhes, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver, onAbordarManual }: TabelaProps) {
   const n = total ?? leads.length
   return (
     <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
@@ -1897,6 +2260,8 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
               {cols.telefone && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.envio_previsto && <ThOrdenavel label="Envio" chave="envio" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.status && <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={onOrdenar} />}
+              {cols.qualificacao && <th className="px-3 py-2 text-left font-medium text-slate-500">Qualificação</th>}
+              {cols.responsavel && <th className="px-3 py-2 text-left font-medium text-slate-500">Responsável</th>}
               {cols.email && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.endereco && <ThOrdenavel label="Endereço" chave="endereco" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.nicho && <ThOrdenavel label="Nicho / Cidade" chave="nicho" ordem={ordem} onOrdenar={onOrdenar} />}
@@ -1927,6 +2292,11 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
                   {cols.telefone && <TelefoneCelula l={l} onAbrirConversa={onAbrirConversa} />}
                   {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
                   {cols.status && <StatusCelula l={l} />}
+                  {cols.qualificacao && <QualificacaoCelula l={l} />}
+                  {cols.responsavel && (
+                    <ResponsavelCelula l={l} usuarioId={usuarioId} podeAssumir={podeAssumir}
+                      podeTransferir={podeTransferir} onAssumir={onAssumir} onDevolver={onDevolver} />
+                  )}
                   {cols.email && <td className="px-3 py-2 text-xs"><EmailEditavel value={l.email} onSave={(email) => onSalvarEmail(l.id, email)} /></td>}
                   {cols.endereco && <td className="px-3 py-2 text-xs text-slate-600 max-w-[180px] truncate" title={l.endereco || ''}>{l.endereco || '—'}</td>}
                   {cols.nicho && <td className="px-3 py-2 text-xs"><NichoCidade nicho={l.nicho} cidade={l.cidade} /></td>}
@@ -1935,7 +2305,7 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
                   {cols.horario && <td className="px-3 py-2 text-center">{horario ? '✅' : '❌'}</td>}
                   {/* Completude do cadastro (paleta NEUTRA, mesma régua da Aquisição) + Detalhes
                       na mesma célula — ver CadastroDetalhesCelula. */}
-                  <CadastroDetalhesCelula l={l} cols={cols} onAbrirDetalhes={onAbrirDetalhes} />
+                  <CadastroDetalhesCelula l={l} cols={cols} onAbrirDetalhes={onAbrirDetalhes} onAbordarManual={onAbordarManual} />
                 </tr>
               )
             })}
@@ -1946,7 +2316,7 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
   )
 }
 
-function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onAbrirDetalhes }: TabelaProps) {
+function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onAbrirDetalhes, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver, onAbordarManual }: TabelaProps) {
   const n = total ?? leads.length
   return (
     <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
@@ -1967,6 +2337,8 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
               {cols.telefone && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.envio_previsto && <ThOrdenavel label="Envio" chave="envio" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.status && <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={onOrdenar} />}
+              {cols.qualificacao && <th className="px-3 py-2 text-left font-medium text-slate-500">Qualificação</th>}
+              {cols.responsavel && <th className="px-3 py-2 text-left font-medium text-slate-500">Responsável</th>}
               {cols.email && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.links && <ThOrdenavel label="Links" chave="links" ordem={ordem} onOrdenar={onOrdenar} />}
               {/* Cadastro + Detalhes na mesma coluna (padrão da Aquisição) — permanente,
@@ -1995,6 +2367,11 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
                 {cols.telefone && <TelefoneCelula l={l} onAbrirConversa={onAbrirConversa} />}
                 {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
                 {cols.status && <StatusCelula l={l} />}
+                {cols.qualificacao && <QualificacaoCelula l={l} />}
+                {cols.responsavel && (
+                  <ResponsavelCelula l={l} usuarioId={usuarioId} podeAssumir={podeAssumir}
+                    podeTransferir={podeTransferir} onAssumir={onAssumir} onDevolver={onDevolver} />
+                )}
                 {cols.email && <td className="px-3 py-2 text-xs"><EmailEditavel value={l.email} onSave={(email) => onSalvarEmail(l.id, email)} /></td>}
                 {cols.links && (
                   <td className="px-3 py-2 text-xs whitespace-nowrap">
@@ -2013,7 +2390,7 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
                 {/* Instagram vale até 60 — o máximo vem do backend e é sempre exibido pelo
                     componente, para 30/60 nunca ser lido como 30/100. Detalhes na mesma
                     célula da bolinha, como na Google Places acima — CadastroDetalhesCelula. */}
-                <CadastroDetalhesCelula l={l} cols={cols} onAbrirDetalhes={onAbrirDetalhes} />
+                <CadastroDetalhesCelula l={l} cols={cols} onAbrirDetalhes={onAbrirDetalhes} onAbordarManual={onAbordarManual} />
               </tr>
             ))}
           </tbody>

@@ -10,6 +10,31 @@ const {
 const rotulos = (nos) => nos.map((n) => n.label)
 const hrefs = (itens) => itens.map((i) => i.href)
 
+// ─── CRM em equipe, Etapa 6.3 ───────────────────────────────────────────────────────────
+// O menu passou a filtrar por CAPACIDADE (resolvida pelo backend), nao por escada de papel.
+// Estes ajudantes montam o `acesso` de cada papel, com as capacidades que
+// `services/acesso-capacidades.js` concede a ele — se as duas listas divergirem, o menu passa a
+// mentir sobre o que a API libera.
+const CAP_COMERCIAL = [
+  'lead_ver_aprovados', 'lead_assumir', 'lead_abordar_manual', 'conversa_atender',
+  'ligacao_operar', 'followup_ver_fila', 'followup_operar', 'roteiro_ler',
+  'agenda_operar_propria', 'instancia_gerenciar_propria',
+]
+const CAP_MEMBER = ['conversa_atender', 'conversa_ver_todas', 'agenda_operar_propria', 'instancia_gerenciar_propria']
+// owner/admin alcancam TUDO: a lista e a uniao de todas as capacidades usadas na arvore.
+const CAP_ADMIN = [
+  ...CAP_COMERCIAL, ...CAP_MEMBER,
+  'aquisicao_gerenciar', 'lead_triar', 'lead_ver_brutos', 'lead_disparar_lote', 'lead_transferir',
+  'conversa_gerenciar_ia', 'conversa_apagar_historico', 'ligacao_ver_todas', 'campanha_gerenciar',
+  'followup_reatribuir', 'followup_config_empresa', 'roteiro_gerenciar', 'agenda_ver_equipe',
+  'instancia_gerenciar_empresa', 'instancia_gerenciar_contexto', 'membros_gerenciar',
+  'integracoes_gerenciar', 'relatorios_ver',
+]
+const admin = { role: 'user', capacidades: CAP_ADMIN }
+const comercial = { role: 'user', capacidades: CAP_COMERCIAL }
+const member = { role: 'user', capacidades: CAP_MEMBER }
+const superadmin = { role: 'superadmin', capacidades: [] }
+
 // ---------------------------------------------------------------- papéis
 
 test('podePapel respeita a escada user < admin < superadmin', () => {
@@ -64,21 +89,21 @@ test('aliases acendem o mesmo item: prospeccao e captacao sao Aquisicao', () => 
 })
 
 test('a pagina filha de instancia acende Instancias', () => {
-  const ativo = resolverAtivo('/dashboard/instancias/abc-123/contexto', 'admin')
+  const ativo = resolverAtivo('/dashboard/instancias/abc-123/contexto', admin)
   assert.deepEqual(ativo, { href: '/dashboard/contextos', grupoId: 'configuracoes' })
 })
 
 // ---------------------------------------------------------------- visibilidade
 
 test('o menu principal so tem os itens de topo previstos + os dois grupos', () => {
-  assert.deepEqual(rotulos(navegacaoVisivel('superadmin')), [
+  assert.deepEqual(rotulos(navegacaoVisivel(superadmin)), [
     'Visão Geral', 'Central de Mensagens', 'Central de Ligações', 'Operação',
     'Relatórios', 'Configurações', 'Perfil',
   ])
 })
 
 test('user comum nao ve item de admin nem superadmin', () => {
-  const vistos = hrefs(itensVisiveis('user'))
+  const vistos = hrefs(itensVisiveis({ role: 'user', capacidades: [] }))
   assert.equal(vistos.includes('/dashboard/banco-leads'), false)
   assert.equal(vistos.includes('/dashboard/integracoes'), false)
   assert.equal(vistos.includes('/dashboard/contas'), false)
@@ -92,48 +117,58 @@ test('grupo sem nenhum filho visivel SOME — nao abre vazio', () => {
       { tipo: 'item', href: '/x', label: 'X', icon: 'usage', minRole: 'admin' },
     ] },
   ]
-  assert.equal(navegacaoVisivel('user', arvore).length, 0)
+  assert.equal(navegacaoVisivel({ role: 'user', capacidades: [] }, arvore).length, 0)
   assert.equal(navegacaoVisivel('admin', arvore).length, 1)
 })
 
 test('user comum ainda ve Operacao e Configuracoes (tem filho publico em cada)', () => {
-  const grupos = navegacaoVisivel('user').filter((n) => n.tipo === 'grupo')
+  const grupos = navegacaoVisivel({ role: 'user', capacidades: [] }).filter((n) => n.tipo === 'grupo')
   assert.deepEqual(grupos.map((g) => g.id), ['operacao', 'configuracoes'])
   assert.deepEqual(hrefs(grupos[0].itens), ['/dashboard/agenda'])
   assert.deepEqual(hrefs(grupos[1].itens), ['/dashboard/contextos'])
 })
 
 test('Contas so aparece para superadmin', () => {
-  assert.equal(hrefs(itensVisiveis('admin')).includes('/dashboard/contas'), false)
-  assert.equal(hrefs(itensVisiveis('superadmin')).includes('/dashboard/contas'), true)
+  assert.equal(hrefs(itensVisiveis(admin)).includes('/dashboard/contas'), false)
+  assert.equal(hrefs(itensVisiveis(superadmin)).includes('/dashboard/contas'), true)
 })
 
 test('nenhuma rota foi renomeada nesta reorganizacao', () => {
-  const todas = hrefs(itensVisiveis('superadmin')).sort()
+  const todas = hrefs(itensVisiveis(superadmin)).sort()
   assert.deepEqual(todas, [
     '/dashboard', '/dashboard/agenda', '/dashboard/aquisicao', '/dashboard/banco-leads',
-    '/dashboard/central-ligacoes', '/dashboard/contas', '/dashboard/contextos',
-    '/dashboard/conversas', '/dashboard/follow-ups', '/dashboard/integracoes',
+    '/dashboard/central-ligacoes', '/dashboard/contas', '/dashboard/contas-empresa',
+    '/dashboard/contextos',
+    '/dashboard/conversas', '/dashboard/equipe', '/dashboard/follow-ups', '/dashboard/integracoes',
     '/dashboard/llm', '/dashboard/perfil', '/dashboard/playbook', '/dashboard/prompts',
     '/dashboard/relatorios', '/dashboard/roteiros', '/dashboard/uso',
   ])
 })
 
+test('Contas da empresa e Contas da PLATAFORMA sao telas distintas, com papeis distintos', () => {
+  // `/dashboard/contas-empresa` (CRM em equipe, Etapa 2) lista quem trabalha NESTA empresa;
+  // `/dashboard/contas` e' a lista global da plataforma. Fundir as duas daria a um admin de
+  // empresa a lista de contas de TODAS as empresas — foi por isso que nasceram separadas.
+  assert.ok(hrefs(itensVisiveis(admin)).includes('/dashboard/contas-empresa'))
+  assert.ok(!hrefs(itensVisiveis(admin)).includes('/dashboard/contas'))
+  assert.ok(!hrefs(itensVisiveis(comercial)).includes('/dashboard/contas-empresa'))
+})
+
 // ---------------------------------------------------------------- ativo
 
 test('resolverAtivo devolve o item e o grupo dele', () => {
-  assert.deepEqual(resolverAtivo('/dashboard/uso', 'admin'), { href: '/dashboard/uso', grupoId: 'configuracoes' })
-  assert.deepEqual(resolverAtivo('/dashboard/follow-ups', 'admin'), { href: '/dashboard/follow-ups', grupoId: 'operacao' })
-  assert.deepEqual(resolverAtivo('/dashboard/conversas', 'admin'), { href: '/dashboard/conversas', grupoId: null })
+  assert.deepEqual(resolverAtivo('/dashboard/uso', admin), { href: '/dashboard/uso', grupoId: 'configuracoes' })
+  assert.deepEqual(resolverAtivo('/dashboard/follow-ups', admin), { href: '/dashboard/follow-ups', grupoId: 'operacao' })
+  assert.deepEqual(resolverAtivo('/dashboard/conversas', admin), { href: '/dashboard/conversas', grupoId: null })
 })
 
 test('resolverAtivo nao acende item que o papel nem enxerga', () => {
-  assert.deepEqual(resolverAtivo('/dashboard/contas', 'admin'), { href: null, grupoId: null })
-  assert.deepEqual(resolverAtivo('/dashboard/contas', 'superadmin'), { href: '/dashboard/contas', grupoId: 'configuracoes' })
+  assert.deepEqual(resolverAtivo('/dashboard/contas', admin), { href: null, grupoId: null })
+  assert.deepEqual(resolverAtivo('/dashboard/contas', superadmin), { href: '/dashboard/contas', grupoId: 'configuracoes' })
 })
 
 test('rota fora da arvore nao acende nada', () => {
-  assert.deepEqual(resolverAtivo('/dashboard/inexistente', 'superadmin'), { href: null, grupoId: null })
+  assert.deepEqual(resolverAtivo('/dashboard/inexistente', superadmin), { href: null, grupoId: null })
 })
 
 // ---------------------------------------------------------------- grupos abertos
@@ -169,4 +204,84 @@ test('lerGruposAbertos sobrevive a JSON invalido no localStorage', () => {
 
 test('IDS_GRUPOS reflete a arvore', () => {
   assert.deepEqual(IDS_GRUPOS, ['operacao', 'configuracoes'])
+})
+
+
+// ---------------------------------------------------------------- capacidades (Etapa 6.3)
+
+test('o COMERCIAL ve o trabalho e NAO ve a gestao', () => {
+  const vistos = hrefs(itensVisiveis(comercial))
+  // O que ele trabalha:
+  for (const r of ['/dashboard/central-ligacoes', '/dashboard/banco-leads', '/dashboard/follow-ups',
+    '/dashboard/roteiros', '/dashboard/conversas', '/dashboard/agenda']) {
+    assert.ok(vistos.includes(r), `comercial precisa ver ${r}`)
+  }
+  // O que e' gestao — o caso NEGATIVO, que e' o que da valor ao papel:
+  for (const r of ['/dashboard/aquisicao', '/dashboard/relatorios', '/dashboard/equipe',
+    '/dashboard/contas-empresa', '/dashboard/integracoes', '/dashboard/llm', '/dashboard/uso',
+    '/dashboard/prompts', '/dashboard/playbook', '/dashboard/contas']) {
+    assert.ok(!vistos.includes(r), `comercial NAO pode ver ${r}`)
+  }
+})
+
+test('o MEMBER ve menos que o comercial: nao opera fila nem liga', () => {
+  const vistos = hrefs(itensVisiveis(member))
+  assert.ok(vistos.includes('/dashboard/conversas'))
+  assert.ok(vistos.includes('/dashboard/agenda'))
+  assert.ok(!vistos.includes('/dashboard/central-ligacoes'))
+  assert.ok(!vistos.includes('/dashboard/banco-leads'))
+  assert.ok(!vistos.includes('/dashboard/follow-ups'))
+})
+
+test('sessao CARREGANDO (capacidades null) mostra so o que nao exige nada', () => {
+  // Mostrar um item que vai responder 403 e' pior que mostra-lo um instante depois.
+  const vistos = hrefs(itensVisiveis({ role: 'user', capacidades: null }))
+  assert.deepEqual(vistos.sort(), [
+    '/dashboard', '/dashboard/agenda', '/dashboard/contextos', '/dashboard/conversas', '/dashboard/perfil',
+  ].sort())
+})
+
+test('superadmin enxerga TUDO mesmo sem lista de capacidades', () => {
+  // O backend responde assim (`avaliarCapacidade` devolve `plataforma`). Se o menu escondesse,
+  // a tela mentiria sobre o proprio acesso.
+  const vistos = hrefs(itensVisiveis({ role: 'superadmin', capacidades: null }))
+  assert.ok(vistos.includes('/dashboard/aquisicao'))
+  assert.ok(vistos.includes('/dashboard/equipe'))
+  assert.ok(vistos.includes('/dashboard/contas'))
+})
+
+test('capacidade DESCONHECIDA esconde o item', () => {
+  const arvore = [{ tipo: 'item', href: '/x', label: 'X', capacidade: 'capacidade_que_nao_existe' }]
+  assert.equal(navegacaoVisivel(comercial, arvore).length, 0)
+  assert.equal(navegacaoVisivel(admin, arvore).length, 0)
+  // Mas o superadmin continua passando: ele nao e filtrado por capacidade.
+  assert.equal(navegacaoVisivel(superadmin, arvore).length, 1)
+})
+
+test('a arvore nao usa mais minRole, exceto em /dashboard/contas (plataforma)', () => {
+  const comMinRole = []
+  const visitar = (nos) => {
+    for (const no of nos) {
+      if (no.tipo === 'grupo') { visitar(no.itens); continue }
+      if (no.minRole) comMinRole.push(no.href)
+    }
+  }
+  visitar(NAV)
+  assert.deepEqual(comMinRole, ['/dashboard/contas'],
+    'so a tela de PLATAFORMA pode continuar decidida por papel global')
+})
+
+test('todo item de gestao declara capacidade — nenhum ficou publico por engano', () => {
+  const publicosEsperados = [
+    '/dashboard', '/dashboard/conversas', '/dashboard/agenda', '/dashboard/contextos', '/dashboard/perfil',
+  ]
+  const publicos = []
+  const visitar = (nos) => {
+    for (const no of nos) {
+      if (no.tipo === 'grupo') { visitar(no.itens); continue }
+      if (!no.capacidade && !no.minRole) publicos.push(no.href)
+    }
+  }
+  visitar(NAV)
+  assert.deepEqual(publicos.sort(), publicosEsperados.sort())
 })

@@ -18,15 +18,19 @@ const CHAVE_GRUPOS = 'dashboard_nav_grupos'
 
 export default function Sidebar() {
   const pathname = usePathname()
-  const { role } = useSession()
+  // CRM em equipe, Etapa 6.3: o menu filtra por CAPACIDADE (resolvida pelo backend em
+  // /api/auth/me), nao mais por uma escada de papel global. `role` continua entrando porque
+  // /dashboard/contas e' de PLATAFORMA e segue decidido por `superadmin`.
+  const { role, capacidades } = useSession()
   const [retraido, setRetraido] = useState(true)
   const [abertos, setAbertos] = useState<string[]>([])
   const [drawer, setDrawer] = useState(false)
   // Alerta de instância WhatsApp desconectada.
   const [instAlerta, setInstAlerta] = useState(false)
 
-  const nav = useMemo(() => navegacaoVisivel(role), [role])
-  const ativo = useMemo(() => resolverAtivo(pathname, role), [pathname, role])
+  const acesso = useMemo(() => ({ role, capacidades }), [role, capacidades])
+  const nav = useMemo(() => navegacaoVisivel(acesso), [acesso])
+  const ativo = useMemo(() => resolverAtivo(pathname, acesso), [pathname, acesso])
 
   useEffect(() => {
     if (typeof window === 'undefined') return

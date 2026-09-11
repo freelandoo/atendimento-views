@@ -33,6 +33,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
+import { useSession } from '@/lib/useSession'
 import ConversaPainel from '@/components/ConversaPainel'
 import { IconSend, IconGear, IconAlert, IconClose, IconPlus } from '@/components/ui/icons'
 import InterruptorAtivacao from '@/components/ui/InterruptorAtivacao'
@@ -157,6 +158,9 @@ export default function FollowUpsPage() {
   const [automaticos, setAutomaticos] = useState<AgendamentoAuto[]>([])
   const [followups, setFollowups] = useState<FollowUpApi[]>([])
   const [responsaveis, setResponsaveis] = useState<{ id: string; nome: string }[]>([])
+  // Só para o atalho "Meus": a fila em si não é recortada por quem olha.
+  const { usuario } = useSession(false)
+  const usuarioId = usuario?.id || ''
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -453,6 +457,21 @@ export default function FollowUpsPage() {
               </button>
             )
           })}
+          {/* CRM em equipe, Etapa 10. Atalho para o filtro de responsável que já existe — e não um
+              recorte de permissão: a fila de Follow-ups tem visibilidade GERAL (decisão D), e
+              quem redistribui trabalho precisa continuar vendo o de todo mundo. Por isso ele é um
+              TOGGLE que a pessoa liga, nunca o estado inicial da tela. */}
+          {usuarioId && (
+            <button
+              type="button"
+              onClick={() => setView((v) => ({ ...v, responsavel: v.responsavel === usuarioId ? '' : usuarioId }))}
+              aria-pressed={view.responsavel === usuarioId}
+              title="Mostra só os follow-ups atribuídos a você. A fila continua sendo de todos."
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${view.responsavel === usuarioId ? 'border-brand bg-brand text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+            >
+              Meus
+            </button>
+          )}
           <button
             ref={persBotaoRef}
             type="button"
@@ -1711,6 +1730,7 @@ function PersonalizarFiltros({ view, acoes, responsaveis, onPatch, onLimpar, onF
             Tentativas = follow-ups automáticos já disparados para o lead (ou ignorados por ele, na fila humana).
             Canal, origem da próxima ação e responsável só existem em follow-up <b>registrado</b> — item vindo da
             recomendação ou do motor automático fica de fora desses três filtros, em vez de receber um valor presumido.
+            Responsável é <b>opcional</b>: "Não atribuído" é um estado legítimo, e não uma pendência de cadastro.
           </p>
         </section>
 

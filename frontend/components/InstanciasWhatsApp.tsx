@@ -24,11 +24,28 @@ type WhatsAppInstance = {
   contexto_nome?: string | null
   config_json?: { usa_agenda?: boolean; saudacao?: string } | null
   aviso?: string | null
+  /**
+   * Etapa 9, decisão E: quem NÃO pode ligar a IA cria a instância INATIVA. Instância inativa não
+   * responde — a regra vale sem tocar o webhook. O aviso existe para o número não ficar mudo em
+   * silêncio: alguém precisa saber que falta um administrador ativar.
+   */
+  aviso_ativacao?: string | null
   // Evidência de como o vínculo empresa↔instância nasceu (migration 061).
   // `atendimento_views` = criada por este produto. `legado` = já existia quando a
   // evidência passou a ser exigida; continua atendendo por carência, e é marcada
   // justamente para poder ser auditada.
   origem_vinculo?: 'atendimento_views' | 'legado' | null
+  /**
+   * CRM em equipe, Etapa 8: quem RESPONDE por esta instância. `null` = instância DA EMPRESA
+   * (compartilhada) — o comportamento histórico e o padrão, não uma lacuna de cadastro.
+   *
+   * ⚠️ Ele NÃO participa da resolução de instância de envio nem do webhook: aquelas continuam
+   * olhando empresa + instância provada. Aqui ele é organização, e só.
+   */
+  usuario_id?: string | null
+  responsavel_nome?: string | null
+  /** A instância usa o contexto que a empresa definiu como padrão. */
+  e_contexto_padrao?: boolean | null
 }
 type StatusConexaoInstancia = {
   id: string | null
@@ -98,6 +115,23 @@ export default function InstanciasWhatsApp({ empresaId }: {
   empresaId: string
 }) {
   const [instancias, setInstancias] = useState<WhatsAppInstance[]>([])
+  // `pode_ver_todas` chega resolvido pelo backend (INSTANCIA_GERENCIAR_EMPRESA). Quem não tem vê
+  // as suas + as DA EMPRESA — e a segunda metade não é cortesia: a instância compartilhada é o
+  // número por onde o atendimento acontece.
+  const [podeVerTodas, setPodeVerTodas] = useState(false)
+  // Contexto PADRÃO da empresa (Etapa 8). Ele é COPIADO na criação de uma instância nova, nunca
+  // resolvido em tempo de resposta: "atendimento é 100% por instância" é regra do projeto, e um
+  // fallback ali faria a instância de um vendedor responder com o conhecimento de outro.
+  const [ctxPadrao, setCtxPadrao] = useState<{
+    contexto_padrao_id: string | null
+    contextos: { id: string; nome: string; instancias: number }[]
+  } | null>(null)
+  const [salvandoPadrao, setSalvandoPadrao] = useState(false)
+  // Só quem gerencia as instâncias da empresa pode trocar o responsável (o PUT recusa os demais).
+  // A lista reusa a MESMA rota da agenda: uma segunda consulta de membros faria o mesmo colega
+  // aparecer num seletor e sumir do outro.
+  const [membros, setMembros] = useState<{ id: string; nome: string }[]>([])
+  const [salvandoResp, setSalvandoResp] = useState<string | null>(null)
   // Estado REAL de conexão por instância (open/close na Evolution). true/false/null(desconhecido).
   const [statusConexao, setStatusConexao] = useState<Record<string, StatusConexaoInstancia>>({})
   const [nomeInstance, setNomeInstance] = useState('')
@@ -132,10 +166,11 @@ export default function InstanciasWhatsApp({ empresaId }: {
     if (!empresaId) return
     try {
       const [w, resumo] = await Promise.all([
-        apiFetch<WhatsAppInstance[]>(`/api/empresas/${empresaId}/whatsapp`),
+        apiFetch<WhatsAppInstance[], { pode_ver_todas?: boolean }>(`/api/empresas/${empresaId}/whatsapp`),
         apiFetch<ResumoConexao>(`/api/empresas/${empresaId}/whatsapp/conexao-resumo`).catch(() => null),
       ])
       setInstancias(w.data || [])
+      setPodeVerTodas(w.meta?.pode_ver_todas === true)
       const mapa: Record<string, StatusConexaoInstancia> = {}
       for (const status of resumo?.data?.instancias || []) {
         if (status.id) mapa[status.id] = status
@@ -144,6 +179,58 @@ export default function InstanciasWhatsApp({ empresaId }: {
     } catch (e: unknown) {
       if (!silencioso) setErroForm(e instanceof Error ? e.message : 'Erro ao carregar instancias WhatsApp.')
     }
+  }
+
+  useEffect(() => {
+    if (!empresaId) return
+    apiFetch<NonNullable<typeof ctxPadrao>>(`/api/empresas/${empresaId}/whatsapp/contexto-padrao`)
+      .then((r) => setCtxPadrao(r.data))
+      .catch(() => setCtxPadrao(null))
+  }, [empresaId])
+
+  useEffect(() => {
+    if (!empresaId || !podeVerTodas) { setMembros([]); return }
+    apiFetch<{ itens: { id: string; nome: string }[] }>(`/api/empresas/${empresaId}/agenda/responsaveis`)
+      .then((r) => setMembros(r.data.itens || []))
+      .catch(() => setMembros([]))
+  }, [empresaId, podeVerTodas])
+
+  /** `''` devolve a instância à EMPRESA (compartilhada) — não é "limpar um campo obrigatório". */
+  async function definirResponsavel(inst: WhatsAppInstance, usuarioId: string) {
+    if (!empresaId) return
+    setSalvandoResp(inst.id)
+    setErroForm('')
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/whatsapp/${inst.id}/responsavel`, {
+        method: 'PUT', body: JSON.stringify({ usuario_id: usuarioId || null }),
+      })
+      const nome = membros.find((m) => m.id === usuarioId)?.nome || null
+      setInstancias((prev) => prev.map((x) => (
+        x.id === inst.id ? { ...x, usuario_id: usuarioId || null, responsavel_nome: usuarioId ? nome : null } : x
+      )))
+      setMsg(usuarioId
+        ? `Instância agora responde a ${nome || 'este membro'}. Isso NÃO muda por onde as mensagens saem.`
+        : 'Instância voltou a ser da empresa (compartilhada).')
+    } catch (err: unknown) {
+      setErroForm(err instanceof Error ? err.message : 'Não foi possível trocar o responsável.')
+    } finally { setSalvandoResp(null) }
+  }
+
+  async function definirContextoPadrao(contextoId: string) {
+    if (!empresaId) return
+    setSalvandoPadrao(true)
+    setErroForm('')
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/whatsapp/contexto-padrao`, {
+        method: 'PUT', body: JSON.stringify({ contexto_id: contextoId || null }),
+      })
+      setCtxPadrao((c) => (c ? { ...c, contexto_padrao_id: contextoId || null } : c))
+      setMsg(contextoId
+        ? 'Contexto padrão definido. Ele será COPIADO para cada instância nova — as que já existem não mudam.'
+        : 'Contexto padrão removido. Instâncias novas voltam a nascer com contexto vazio.')
+    } catch (err: unknown) {
+      setErroForm(err instanceof Error ? err.message : 'Não foi possível definir o contexto padrão.')
+    } finally { setSalvandoPadrao(false) }
   }
 
   useEffect(() => {
@@ -245,7 +332,11 @@ export default function InstanciasWhatsApp({ empresaId }: {
       })
       setInstancias((prev) => [r.data, ...prev])
       setNomeInstance('')
-      setMsg('Instância criada e sincronizada. Clique em "Gerar QR Code" para parear.')
+      // O aviso de ativação vem PRIMEIRO quando existe: ele muda o que a pessoa precisa fazer
+      // depois de parear, e diluí-lo no texto de sucesso faria o número ficar mudo em silêncio.
+      setMsg(r.data.aviso_ativacao
+        ? `${r.data.aviso_ativacao} Clique em "Gerar QR Code" para parear.`
+        : 'Instância criada e sincronizada. Clique em "Gerar QR Code" para parear.')
       carregarInstancias({ silencioso: true })
     } catch (err: unknown) {
       setErroForm(err instanceof Error ? err.message : 'Falha ao criar instância.')
@@ -484,6 +575,31 @@ export default function InstanciasWhatsApp({ empresaId }: {
       </form>
       {msg && <p className="text-sm text-brand">{msg}</p>}
       {erroForm && <p className="text-sm text-red-600">{erroForm}</p>}
+      {ctxPadrao && ctxPadrao.contextos.length > 0 && (
+        <div className="rounded-2xl border border-white/10 bg-panel p-4">
+          <label htmlFor="ctx-padrao" className="block text-xs font-semibold uppercase tracking-wide text-mid">
+            Contexto padrão da empresa
+          </label>
+          <select
+            id="ctx-padrao"
+            value={ctxPadrao.contexto_padrao_id || ''}
+            disabled={salvandoPadrao}
+            onChange={(e) => definirContextoPadrao(e.target.value)}
+            className="mt-2 w-full max-w-md rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm disabled:opacity-50"
+          >
+            <option value="">Nenhum — instância nova nasce com contexto vazio</option>
+            {ctxPadrao.contextos.map((c) => (
+              <option key={c.id} value={c.id}>{c.nome} ({c.instancias} instância{c.instancias === 1 ? '' : 's'})</option>
+            ))}
+          </select>
+          {/* A frase que impede o mal-entendido mais caro desta tela. */}
+          <p className="mt-2 max-w-2xl text-[11px] leading-relaxed text-mid">
+            Ele é <b>copiado</b> quando uma instância nova é criada — nunca compartilhado. Editar o
+            contexto de um número <b>não</b> muda como os outros respondem, e as instâncias que já
+            existem continuam com o conhecimento que têm hoje.
+          </p>
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {instancias.map((i) => (
           <div key={i.id} className="overflow-hidden rounded-2xl border border-white/10 bg-panel shadow-sm">
@@ -502,10 +618,36 @@ export default function InstanciasWhatsApp({ empresaId }: {
                   vínculo legado · origem não comprovada
                 </p>
               )}
+              {/* Etapa 8. "Da empresa" é o padrão histórico, e é o número compartilhado por onde
+                  o atendimento acontece — por isso ele é dito, e não deduzido de um campo vazio. */}
+              <p className="mt-1 text-[10px] text-white/50">
+                {i.responsavel_nome
+                  ? <>responsável: <span className="text-white/80">{i.responsavel_nome}</span></>
+                  : 'número da empresa (compartilhado)'}
+              </p>
             </div>
 
             {/* Corpo do card: status + botões sobre o fundo do card */}
             <div className="space-y-3 p-4">
+              {/* Etapa 8: trocar o responsável é GESTÃO, e só aparece para quem pode.
+                  ⚠️ O responsável NÃO participa da resolução de instância de envio nem do
+                  webhook — por isso o rótulo diz o que ele faz, e o que ele não faz. */}
+              {podeVerTodas && membros.length > 0 && (
+                <div>
+                  <label htmlFor={`resp-${i.id}`} className="block text-[10px] uppercase tracking-wide text-mid">Responsável</label>
+                  <select
+                    id={`resp-${i.id}`}
+                    value={i.usuario_id || ''}
+                    disabled={salvandoResp === i.id}
+                    onChange={(e) => definirResponsavel(i, e.target.value)}
+                    title="Organiza quem responde por este número. Não muda por onde as mensagens saem."
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/20 px-2 py-1.5 text-xs disabled:opacity-50"
+                  >
+                    <option value="">Da empresa (compartilhada)</option>
+                    {membros.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
+                  </select>
+                </div>
+              )}
               {/* UM selo só, por prioridade: inativo → desconectado → conectado → (verificando). */}
               <div className="flex justify-center">
                 {!i.ativo ? (

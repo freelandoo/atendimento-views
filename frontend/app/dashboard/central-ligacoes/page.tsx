@@ -1241,14 +1241,16 @@ function AnotacoesRapidasModal({ lead, onFechar, fb }: {
 }) {
   const [carregando, setCarregando] = useState(true)
   const [ligacoes, setLigacoes] = useState<Ligacao[]>([])
+  // Etapa 10: o servidor pode ter devolvido so' as ligacoes de quem esta olhando.
+  const [escopo, setEscopo] = useState<string | null>(null)
   const [copiado, setCopiado] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     let vivo = true
     setCarregando(true)
-    apiFetch<Ligacao[]>(`${base()}/ligacoes?campanha_lead_id=${lead.id}`)
-      .then((r) => { if (vivo) setLigacoes(r.data) })
+    apiFetch<Ligacao[], { escopo?: string }>(`${base()}/ligacoes?campanha_lead_id=${lead.id}`)
+      .then((r) => { if (vivo) { setLigacoes(r.data); setEscopo(r.meta?.escopo || null) } })
       .catch((e) => { if (vivo) fb.toast(msgErro(e, 'Não foi possível carregar as anotações.'), 'error') })
       .finally(() => { if (vivo) setCarregando(false) })
     return () => { vivo = false }
@@ -1287,6 +1289,11 @@ function AnotacoesRapidasModal({ lead, onFechar, fb }: {
           <div>
             <div className="text-sm font-semibold text-slate-800">Anotações rápidas</div>
             <div className="text-xs text-slate-500">{lead.nome}</div>
+            {/* Etapa 10: dizer que o recorte existe. Recortar em silêncio faria o vendedor achar
+                que a anotação do colega sumiu. */}
+            {escopo === 'minhas' && (
+              <div className="mt-0.5 text-[11px] text-slate-400">Mostrando só as ligações feitas por você.</div>
+            )}
           </div>
           <button onClick={onFechar} aria-label="Fechar" className="text-slate-400 hover:text-slate-600"><IconClose className="h-5 w-5" /></button>
         </div>
@@ -1337,6 +1344,8 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb, somenteLeitura = false,
 }) {
   const [etapas, setEtapas] = useState<EtapaApi[]>([])
   const [historico, setHistorico] = useState<Ligacao[]>([])
+  // 'minhas' quando o servidor recortou; 'todas' quando a pessoa ve a operacao inteira.
+  const [historicoEscopo, setHistoricoEscopo] = useState<string | null>(null)
   const [idx, setIdx] = useState(0)
   // Nível de detalhe do bloco do lead. Começa em 'simples': durante a ligação o que importa
   // primeiro é nome/telefone/status. Não é persistido — é escolha do atendimento atual.
@@ -1481,7 +1490,12 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb, somenteLeitura = false,
     if (campanha.roteiro_versao_id) {
       apiFetch<{ roteiro_id: string; etapas: EtapaApi[] }>(`${base()}/roteiros/versoes/${campanha.roteiro_versao_id}`).then((r) => { setEtapas(r.data.etapas || []); setRoteiroId(r.data.roteiro_id || null) }).catch(() => setEtapas([]))
     }
-    apiFetch<Ligacao[]>(`${base()}/ligacoes?campanha_lead_id=${lead.campanha_lead_id}`).then((r) => setHistorico(r.data)).catch(() => {})
+    // CRM em equipe, Etapa 10: quem nao tem LIGACAO_VER_TODAS recebe so' as PROPRIAS ligacoes.
+    // O recorte e' do servidor; a tela so precisa DIZER que ele existe — recortar em silencio
+    // faria o vendedor achar que perdeu historico.
+    apiFetch<Ligacao[], { escopo?: string }>(`${base()}/ligacoes?campanha_lead_id=${lead.campanha_lead_id}`)
+      .then((r) => { setHistorico(r.data); setHistoricoEscopo(r.meta?.escopo || null) })
+      .catch(() => {})
     // Responsaveis possiveis. Falha silenciosa de proposito: sem a lista, o campo fica
     // vazio ("Nao atribuido") e o encerramento continua funcionando — atribuir dono nunca
     // pode ser pre-requisito para registrar uma ligacao que ja aconteceu.
@@ -2007,9 +2021,15 @@ function OperacaoLigacao({ lead, campanha, onFechar, fb, somenteLeitura = false,
               a conversa. Nada é coletado ao abrir — é só reapresentação. */}
           {visao === 'detalhada' && <LeadDetalhes l={lead} />}
           <div className="border-t pt-2">
-            <div className="mb-1 text-xs font-semibold uppercase text-slate-400">Ligações anteriores</div>
-            {historico.length === 0 ? <div className="text-xs text-slate-400">Nenhuma.</div>
-              : historico.map((h) => <div key={h.id} className="text-xs text-slate-500">{new Date(h.criado_em).toLocaleDateString('pt-BR')} — {RESULTADOS.find((r) => r[0] === h.resultado)?.[1] || h.resultado}{h.motivo_perda ? ` (${h.motivo_perda})` : ''}</div>)}
+            <div className="mb-1 text-xs font-semibold uppercase text-slate-400">
+              Ligações anteriores
+              {historicoEscopo === 'minhas' && <span className="ml-1 normal-case text-[10px] font-normal text-slate-400">(só as suas)</span>}
+            </div>
+            {historico.length === 0 ? (
+              <div className="text-xs text-slate-400">
+                {historicoEscopo === 'minhas' ? 'Nenhuma ligação sua. Pode haver ligações de colegas.' : 'Nenhuma.'}
+              </div>
+            ) : historico.map((h) => <div key={h.id} className="text-xs text-slate-500">{new Date(h.criado_em).toLocaleDateString('pt-BR')} — {RESULTADOS.find((r) => r[0] === h.resultado)?.[1] || h.resultado}{h.motivo_perda ? ` (${h.motivo_perda})` : ''}</div>)}
           </div>
         </div>
 

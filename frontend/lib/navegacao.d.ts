@@ -10,10 +10,23 @@ export type NavItem = {
   href: string
   label: string
   icon: NavIcon
+  /** Papel GLOBAL mínimo. Só `/dashboard/contas` (plataforma) ainda usa. */
   minRole?: Role
+  /**
+   * Capacidade exigida (CRM em equipe, Etapa 6.3) — a MESMA que o backend cobra na rota.
+   * String livre de propósito: o vocabulário é do backend, e uma capacidade nova lá não pode
+   * quebrar a compilação do front.
+   */
+  capacidade?: string
   exato?: boolean
   aliases?: string[]
 }
+
+/**
+ * Quem está olhando. `capacidades` chega resolvida por `/api/auth/me`.
+ * Uma STRING é aceita por compatibilidade e tratada como o papel global.
+ */
+export type AcessoNav = { role?: Role; capacidades?: string[] | null } | Role | undefined
 
 export type NavGrupo = {
   tipo: 'grupo'
@@ -36,10 +49,11 @@ export function normalizarRota(valor: unknown): string
 export function mesmaRota(pathname: unknown, destino: unknown, exato?: boolean): boolean
 export function rotasDoItem(item: NavItem): string[]
 export function itemAtivo(pathname: unknown, item: NavItem): boolean
-export function itemVisivel(item: NavItem, role: Role | undefined): boolean
-export function navegacaoVisivel(role: Role | undefined, arvore?: NavNo[]): NavNo[]
-export function itensVisiveis(role: Role | undefined, arvore?: NavNo[]): NavItem[]
-export function resolverAtivo(pathname: unknown, role: Role | undefined, arvore?: NavNo[]): Ativo
+export function itemVisivel(item: NavItem, acesso: AcessoNav): boolean
+export function normalizarAcesso(acesso: AcessoNav): { role?: Role; capacidades: string[] | null }
+export function navegacaoVisivel(acesso: AcessoNav, arvore?: NavNo[]): NavNo[]
+export function itensVisiveis(acesso: AcessoNav, arvore?: NavNo[]): NavItem[]
+export function resolverAtivo(pathname: unknown, acesso: AcessoNav, arvore?: NavNo[]): Ativo
 export function normalizarGruposAbertos(valor: unknown, grupoAtivo?: string | null, ids?: string[]): string[]
 export function alternarGrupo(abertos: string[] | undefined, id: string, ids?: string[]): string[]
 export function lerGruposAbertos(bruto: string | null | undefined): string[]

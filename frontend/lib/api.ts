@@ -24,10 +24,19 @@ type ApiFetchInit = RequestInit & { timeoutMs?: number }
 
 const DEFAULT_TIMEOUT_MS = 180000
 
-export async function apiFetch<T = unknown>(
+/**
+ * Chamada autenticada à API.
+ *
+ * O segundo genérico `M` é o envelope `meta`, que várias rotas usam para dizer algo SOBRE a
+ * resposta — o caso que motivou a tipagem é o **escopo efetivo** do CRM em equipe: quando alguém
+ * pede "todos os leads" sem poder ver todos, o backend rebaixa o recorte e informa isso em
+ * `meta.escopo`. Descartar o `meta` faria a tela recortar em silêncio, e o vendedor acharia que a
+ * carteira encolheu. `M` tem default `undefined`, então nenhum chamador antigo muda.
+ */
+export async function apiFetch<T = unknown, M = undefined>(
   path: string,
   options: ApiFetchInit = {}
-): Promise<{ ok: boolean; data: T; error?: { code: string; message: string } }> {
+): Promise<{ ok: boolean; data: T; meta?: M; error?: { code: string; message: string } }> {
   const token = getToken()
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
 

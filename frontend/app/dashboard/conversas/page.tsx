@@ -23,6 +23,11 @@ import ConversaPainel, {
   type ConversaResumo,
 } from '@/components/ConversaPainel'
 import { identidadeConversa, nomeColunaLead } from '@/lib/lead-identidade'
+import {
+  opcoesEscopoConversa, avisoDeRecorte, atendenteDaConversa,
+} from '@/lib/conversa-operacao'
+import { useSession } from '@/lib/useSession'
+import { temCapacidade } from '@/lib/capacidades'
 import AlternadorModoIa from '@/components/ui/AlternadorModoIa'
 import {
   ajudaPadraoGlobal,
@@ -34,7 +39,12 @@ import {
 } from '@/lib/conversa-modo-ia'
 import type { ModoIa } from '@/lib/conversa-modo-ia'
 
-type Conversa = ConversaResumo
+// CRM em equipe, Etapa 7: a conversa passou a ter DONO. Os dois campos chegam prontos do
+// backend; a tela só traduz.
+type Conversa = ConversaResumo & {
+  responsavel_id?: string | null
+  responsavel_desde?: string | null
+}
 
 function fmtData(s?: string): string {
   if (!s) return ''
@@ -96,6 +106,16 @@ export default function ConversasPage() {
   const fb = useFeedback()
 
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
+  // Quem está olhando — é o que distingue "Você" de "Outro atendente" na coluna Atendente.
+  const { usuario, capacidades } = useSession()
+  const usuarioId = usuario?.id
+
+  // Etapa 7: recorte por ATENDENTE. `escopo` é o que a tela PEDE; `escopoEfetivo` é o que o
+  // backend DEVOLVEU. Quem não pode ver todas recebe "minhas + NÃO ATRIBUÍDAS" — e a segunda
+  // metade não é cortesia: conversa que ninguém vê é cliente sem resposta.
+  const [escopo, setEscopo] = useState('')
+  const [escopoEfetivo, setEscopoEfetivo] = useState<string | null>(null)
+  const [podeVerTodas, setPodeVerTodas] = useState(false)
 
   function carregar(numeroBuscado = buscaNumero) {
     if (!empresaId) return
@@ -103,12 +123,19 @@ export default function ConversasPage() {
     const numero = numeroBuscado.replace(/\D/g, '').slice(0, 20)
     const params = new URLSearchParams({ limit: '100' })
     if (numero) params.set('numero', numero)
+    if (escopo) params.set('escopo', escopo)
 
     setCarregandoLista(true)
     setErro('')
-    apiFetch<Conversa[]>(`/api/empresas/${empresaId}/conversas?${params.toString()}`)
+    apiFetch<Conversa[], { escopo?: string; pode_ver_todas?: boolean }>(
+      `/api/empresas/${empresaId}/conversas?${params.toString()}`
+    )
       .then((r) => {
-        if (requisicao === requisicaoLista.current) setLista(r.data)
+        if (requisicao !== requisicaoLista.current) return
+        setLista(r.data)
+        // Recortar em silêncio faria o atendente achar que a Central esvaziou.
+        setEscopoEfetivo(r.meta?.escopo || null)
+        setPodeVerTodas(r.meta?.pode_ver_todas === true)
       })
       .catch((e) => {
         if (requisicao === requisicaoLista.current) setErro(e.message)
@@ -121,7 +148,7 @@ export default function ConversasPage() {
   useEffect(() => {
     const timer = window.setTimeout(() => carregar(buscaNumero), 300)
     return () => window.clearTimeout(timer)
-  }, [empresaId, buscaNumero])
+  }, [empresaId, buscaNumero, escopo])
 
   // O padrao global e' carregado uma vez, fora do ciclo da busca: ele nao depende de filtro
   // nem de texto digitado. Falha aqui NAO vira erro na tela — a lista de conversas continua
@@ -217,6 +244,9 @@ export default function ConversasPage() {
               selecionado={modoPadrao}
               onMudar={(id) => alterarModoPadrao(id as ModoIa)}
               ocupado={alterandoPadrao}
+              // Etapa 9: o padrão da EMPRESA decide como a IA se comporta em toda conversa nova.
+              // Se a exceção por conversa exige a capacidade, o padrão global exige ainda mais.
+              bloqueio={temCapacidade(capacidades, 'conversa_gerenciar_ia') ? '' : 'Só quem administra a operação pode mudar o padrão da IA.'}
               compacto
               ajuda={ajudaPadraoGlobal(modoPadrao)}
               ariaLabel={rotuloAcessivelPadrao(modoPadrao)}
@@ -241,6 +271,27 @@ export default function ConversasPage() {
 
       <section className="overflow-hidden rounded-2xl border bg-white shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3 border-b px-4 py-4">
+          {/* Recorte por ATENDENTE (CRM em equipe, Etapa 7).
+              "Não atribuídas" é opção de primeira classe: é a fila de quem ainda não tem dono, e
+              é o trabalho que precisa ser puxado. Quem não pode ver todas não recebe "Todas" —
+              oferecer uma opção que o servidor rebaixa faria a tela prometer o que não entrega. */}
+          <div>
+            <label htmlFor="escopo-conversas" className="mb-1 block text-xs font-medium text-slate-500">Atendente</label>
+            <select id="escopo-conversas" value={escopo} onChange={(e) => setEscopo(e.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand">
+              {opcoesEscopoConversa(podeVerTodas).map((o) => (
+                <option key={o.valor || 'padrao'} value={o.valor}>{o.rotulo}</option>
+              ))}
+            </select>
+            {/* O servidor rebaixou o pedido? Recortar em silêncio faria o atendente achar que a
+                Central esvaziou. */}
+            {avisoDeRecorte(escopo, escopoEfetivo) && (
+              <p className="mt-1 max-w-[220px] text-[10px] leading-snug text-amber-700">
+                {avisoDeRecorte(escopo, escopoEfetivo)}
+              </p>
+            )}
+          </div>
+
           <div className="min-w-[240px] flex-1 sm:max-w-xl">
             <label htmlFor="busca-numero" className="mb-1 block text-xs font-medium text-slate-500">Pesquisar número</label>
             <div className="relative">
@@ -302,13 +353,14 @@ export default function ConversasPage() {
             <th className="text-left px-4 py-2">Interesse</th>
             <th className="text-left px-4 py-2">Estágio</th>
             <th className="text-left px-4 py-2">Status</th>
+            <th className="text-left px-4 py-2">Atendente</th>
             <th className="text-right px-4 py-2">Atualizado</th>
             <th className="text-right px-4 py-2">Ações</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {carregandoLista ? (
-            <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">Buscando conversas…</td></tr>
+            <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-400">Buscando conversas…</td></tr>
           ) : visiveis.map(({ c, alerta }) => {
             // Coluna Lead = SÓ nome (resolvido no backend: WhatsApp → Google Maps → vazio).
             // O telefone tem coluna própria ao lado; repeti-lo aqui seria o mesmo dado duas
@@ -346,6 +398,18 @@ export default function ConversasPage() {
                   {c.status}
                 </span>
               </td>
+              <td className="px-4 py-3 text-xs">
+                {(() => {
+                  const dono = atendenteDaConversa(c, usuarioId)
+                  return (
+                    <span className={
+                      dono.estado === 'nao_atribuida' ? 'rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700'
+                        : dono.meu ? 'rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700'
+                          : 'text-slate-600'
+                    }>{dono.rotulo}</span>
+                  )
+                })()}
+              </td>
               <td className="whitespace-nowrap px-4 py-3 text-right text-gray-500">
                 {fmtData(c.atualizado_em)}
               </td>
@@ -371,7 +435,7 @@ export default function ConversasPage() {
             )
           })}
           {!carregandoLista && visiveis.length === 0 && (
-            <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400">
+            <tr><td colSpan={9} className="px-4 py-10 text-center text-gray-400">
               {buscaNumero.replace(/\D/g, '')
                 ? 'Nenhuma conversa encontrada para esse número.'
                 : lista.length === 0 ? 'Nenhuma conversa encontrada.' : 'Nenhuma conversa neste filtro.'}

@@ -14,6 +14,13 @@ type Evento = {
   data_fim: string
   lead_telefone: string | null
   lead_nome: string | null
+  /**
+   * CRM em equipe, Etapa 11: quem CONDUZ o compromisso. `null` = evento da EMPRESA — bloqueio,
+   * feriado, ou qualquer evento anterior à migration 076. Não é pendência de cadastro, e é por
+   * isso que ele conflita com a agenda de todo mundo.
+   */
+  responsavel_id: string | null
+  responsavel_nome: string | null
 }
 type Resumo = { total: number; reunioes: number; pendentes: number; confirmados: number; concluidos: number }
 type AgendaResp = { eventos: Evento[]; resumo: Resumo; periodo: { inicio: string; fim: string } }
@@ -60,11 +67,15 @@ type Form = {
   id?: string
   titulo: string; descricao: string; tipo: string; status: string; prioridade: string
   data_inicio: string; data_fim: string; lead_nome: string; lead_telefone: string
+  responsavel_id: string
 }
 function formVazio(dia: string): Form {
   return {
     titulo: '', descricao: '', tipo: 'reuniao', status: 'pendente', prioridade: 'media',
     data_inicio: `${dia}T09:00`, data_fim: `${dia}T09:30`, lead_nome: '', lead_telefone: '',
+    // Vazio = o próprio (o backend resolve `responsavelId || criadoPor`). Nunca "da empresa":
+    // marcar sem dono é o que um BLOQUEIO faz, e bloqueio é decisão explícita.
+    responsavel_id: '',
   }
 }
 
@@ -78,16 +89,35 @@ export default function AgendaPage() {
   const [salvando, setSalvando] = useState(false)
   const fb = useFeedback()
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
+  // Etapa 11. `filtro` é a agenda de QUEM se quer ver; só quem enxerga a equipe pode trocá-lo —
+  // para os demais o servidor recorta no próprio, e trocar um parâmetro de query não vira acesso
+  // à agenda alheia. `podeVerEquipe` chega no `meta`, resolvido pelo backend.
+  const [filtroResponsavel, setFiltroResponsavel] = useState('')
+  const [podeVerEquipe, setPodeVerEquipe] = useState(false)
+  const [equipe, setEquipe] = useState<{ id: string; nome: string }[]>([])
 
   function carregar() {
     if (!empresaId) return
     setCarregando(true)
-    apiFetch<AgendaResp>(`/api/empresas/${empresaId}/agenda?inicio=${dia}&fim=${dia}`)
-      .then((r) => setResp(r.data))
+    const q = new URLSearchParams({ inicio: dia, fim: dia })
+    if (filtroResponsavel) q.set('responsavel_id', filtroResponsavel)
+    apiFetch<AgendaResp, { escopo?: string; pode_ver_equipe?: boolean }>(
+      `/api/empresas/${empresaId}/agenda?${q.toString()}`
+    )
+      .then((r) => { setResp(r.data); setPodeVerEquipe(r.meta?.pode_ver_equipe === true) })
       .catch((e) => setErro(e.message))
       .finally(() => setCarregando(false))
   }
-  useEffect(() => { carregar() }, [empresaId, dia])
+  useEffect(() => { carregar() }, [empresaId, dia, filtroResponsavel])
+
+  // A lista de colegas só existe para quem vê a equipe — a rota recusa os demais com 403, e é o
+  // mesmo veredito que esconde o seletor. Falha silenciosa: sem a lista, o campo fica no próprio.
+  useEffect(() => {
+    if (!empresaId || !podeVerEquipe) { setEquipe([]); return }
+    apiFetch<{ itens: { id: string; nome: string }[] }>(`/api/empresas/${empresaId}/agenda/responsaveis`)
+      .then((r) => setEquipe(r.data.itens || []))
+      .catch(() => setEquipe([]))
+  }, [empresaId, podeVerEquipe])
 
   function abrirNovo() {
     setForm(formVazio(dia)); setErro(''); setModal(true)
@@ -98,6 +128,7 @@ export default function AgendaPage() {
       status: ev.status, prioridade: ev.prioridade,
       data_inicio: isoParaLocalInput(ev.data_inicio), data_fim: isoParaLocalInput(ev.data_fim),
       lead_nome: ev.lead_nome || '', lead_telefone: ev.lead_telefone || '',
+      responsavel_id: ev.responsavel_id || '',
     })
     setErro(''); setModal(true)
   }
@@ -114,6 +145,7 @@ export default function AgendaPage() {
       data_inicio: new Date(form.data_inicio).toISOString(),
       data_fim: new Date(form.data_fim).toISOString(),
       lead_nome: form.lead_nome || null, lead_telefone: form.lead_telefone || null,
+      responsavel_id: form.responsavel_id || null,
     }
     try {
       await fb.runTask(() => editando
@@ -163,6 +195,16 @@ export default function AgendaPage() {
             <label className="block text-xs text-slate-500 mb-1">Dia</label>
             <input type="date" value={dia} onChange={(e) => setDia(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" />
           </div>
+          {podeVerEquipe && (
+            <div>
+              <label htmlFor="agenda-vendedor" className="block text-xs text-slate-500 mb-1">Vendedor</label>
+              <select id="agenda-vendedor" value={filtroResponsavel} onChange={(e) => setFiltroResponsavel(e.target.value)}
+                className="border rounded-lg px-3 py-2 text-sm">
+                <option value="">Equipe inteira</option>
+                {equipe.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+              </select>
+            </div>
+          )}
           <button onClick={() => setDia(hojeIso())} className="px-3 py-2 rounded-lg border text-sm hover:bg-slate-50">Hoje</button>
           <button onClick={abrirNovo} className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium">+ Novo evento</button>
         </div>
@@ -199,6 +241,13 @@ export default function AgendaPage() {
               {(ev.lead_nome || ev.lead_telefone) && (
                 <p className="text-xs text-slate-500 mt-0.5">{ev.lead_nome || ''}{ev.lead_telefone ? ` · ${ev.lead_telefone}` : ''}</p>
               )}
+              {/* Sem responsável NÃO é lacuna: é evento da empresa (bloqueio, feriado) — e ele
+                  conflita com a agenda de todo mundo, justamente por isso. */}
+              <p className="text-xs mt-0.5">
+                {ev.responsavel_nome
+                  ? <span className="text-slate-500">Responsável: {ev.responsavel_nome}</span>
+                  : <span className="text-amber-700">Compromisso da empresa</span>}
+              </p>
               {ev.descricao && <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">{ev.descricao}</p>}
             </div>
             <div className="flex items-center gap-2 shrink-0 text-xs">
@@ -222,6 +271,17 @@ export default function AgendaPage() {
               <Campo label="Início"><input type="datetime-local" value={form.data_inicio} onChange={(e) => setF('data_inicio', e.target.value)} required className="w-full border rounded-lg px-3 py-2 text-sm" /></Campo>
               <Campo label="Fim"><input type="datetime-local" value={form.data_fim} onChange={(e) => setF('data_fim', e.target.value)} required className="w-full border rounded-lg px-3 py-2 text-sm" /></Campo>
             </div>
+            {podeVerEquipe && (
+              <Campo label="Responsável">
+                <select value={form.responsavel_id} onChange={(e) => setF('responsavel_id', e.target.value)}
+                  className="w-full border rounded-lg px-2 py-2 text-sm">
+                  {/* "Você" é o padrão; "da empresa" é BLOQUEIO — só aparece porque quem enxerga a
+                      equipe é quem marca feriado e treinamento. */}
+                  <option value="">Você</option>
+                  {equipe.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                </select>
+              </Campo>
+            )}
             <div className="grid grid-cols-3 gap-3">
               <Campo label="Tipo">
                 <select value={form.tipo} onChange={(e) => setF('tipo', e.target.value)} className="w-full border rounded-lg px-2 py-2 text-sm">

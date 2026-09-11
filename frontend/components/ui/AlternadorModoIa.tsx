@@ -31,6 +31,7 @@ export default function AlternadorModoIa({
   ariaLabel,
   ajuda,
   ocupado = false,
+  bloqueio = '',
   compacto = false,
 }: {
   opcoes: OpcaoModo[]
@@ -46,6 +47,14 @@ export default function AlternadorModoIa({
   ajuda?: string
   /** Desabilita o controle enquanto o PATCH esta em voo. */
   ocupado?: boolean
+  /**
+   * Por que este controle está indisponível — CRM em equipe, Etapa 9.
+   *
+   * É DIFERENTE de `ocupado`: `ocupado` é um bloqueio temporário ("Atualizando…"), e este é
+   * permanente para quem não pode LIGAR a IA. Um controle que some não explica nada, e um
+   * controle desabilitado sem motivo faz o operador achar que a tela quebrou.
+   */
+  bloqueio?: string
   compacto?: boolean
 }) {
   const refs = useRef<Record<string, HTMLButtonElement | null>>({})
@@ -58,7 +67,7 @@ export default function AlternadorModoIa({
     const passo = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1
     const alvo = opcoes[(indice + passo + opcoes.length) % opcoes.length]
     refs.current[alvo.id]?.focus()
-    if (!ocupado) onMudar(alvo.id)
+    if (!ocupado && !bloqueio) onMudar(alvo.id)
   }
 
   return (
@@ -85,10 +94,10 @@ export default function AlternadorModoIa({
               type="button"
               role="radio"
               aria-checked={marcada}
-              aria-label={`${o.rotulo}. ${o.ajuda}`}
-              title={o.ajuda}
+              aria-label={`${o.rotulo}. ${o.ajuda}${bloqueio ? ` Indisponível: ${bloqueio}` : ''}`}
+              title={bloqueio || o.ajuda}
               tabIndex={marcada ? 0 : -1}
-              disabled={ocupado}
+              disabled={ocupado || !!bloqueio}
               onClick={() => onMudar(o.id)}
               onKeyDown={(e) => aoTeclado(e, i)}
               className={`rounded-md ${compacto ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm'} font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60 ${
@@ -109,6 +118,10 @@ export default function AlternadorModoIa({
         <span className="text-xs text-slate-600" aria-live="polite">
           Atualizando…
         </span>
+      )}
+      {/* O motivo em TEXTO, não só o botão apagado. Cor e opacidade nunca são o único sinal. */}
+      {!ocupado && bloqueio && (
+        <span className="max-w-[220px] text-[11px] leading-snug text-slate-500">{bloqueio}</span>
       )}
     </div>
   )
