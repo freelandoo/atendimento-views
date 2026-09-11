@@ -3,6 +3,7 @@ const { Router } = require('express')
 const { verifyPassword, signJwt, hashPassword } = require('../auth')
 const { findUsuarioByEmail, findUsuarioById, updateUltimoLogin, listEmpresasDoUsuario, existsEmail, signupUsuario } = require('../db/usuarios')
 const { requireAuth } = require('../middleware/tenant')
+const { capacidadesDoVinculo } = require('../services/acesso-capacidades')
 const { validarSignup } = require('../auth-validation')
 const { signupLimiter, loginLimiter } = require('../rate-limit')
 
@@ -71,13 +72,30 @@ router.post('/login', loginLimiter, async (req, res) => {
 })
 
 // GET /api/auth/me
+// GET /me — sessão + empresas do usuário, agora com as CAPACIDADES por empresa.
+//
+// A tela precisa saber o que esconder, e **não pode conhecer a matriz**: quem decide é o módulo
+// PURO `services/acesso-capacidades.js`, e aqui só se traduz o veredito (mesmo contrato de
+// `frontend/lib/site-rotulos.js`). `permissoes` NÃO é devolvido cru de propósito — o que a tela
+// precisa é a lista efetiva, e expor as concessões separadas convidaria o front a recombiná-las.
+//
+// Campos ADITIVOS: `role_usuario` já existia; `papel_empresa` e `capacidades` são novos. Nenhum
+// consumidor anterior muda de comportamento.
 router.get('/me', requireAuth, async (req, res) => {
   const empresas = await listEmpresasDoUsuario(req.usuario.id).catch(() => [])
   return res.json({
     ok: true,
     data: {
       usuario: { id: req.usuario.id, email: req.usuario.email, nome: req.usuario.nome, role: req.usuario.role },
-      empresas,
+      empresas: empresas.map(({ permissoes, ...empresa }) => ({
+        ...empresa,
+        papel_empresa: empresa.role_usuario,
+        capacidades: capacidadesDoVinculo({
+          papel: empresa.role_usuario,
+          permissoes,
+          papelPlataforma: req.usuario.role,
+        }),
+      })),
     },
   })
 })

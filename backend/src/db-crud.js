@@ -439,9 +439,16 @@ function createDbCrud({ pool, logger, serializeError }) {
     try {
       await pool.query(
         `
+        -- A coluna empresa_id vem da CONVERSA, dentro do proprio SQL (CRM em equipe, Etapa 12).
+        -- Antes este INSERT nao informava a coluna e herdava o DEFAULT = PJ da migration 006 --
+        -- o mesmo defeito que a 058 corrigiu em lead_profiles: registro de TODA empresa nascia
+        -- marcado como PJ. A fonte e a conversa pelo mesmo motivo de la: e' com ela que os
+        -- consumidores casam, e um parametro do chamador poderia discordar.
+        -- Conversa inexistente => NULL, nunca PJ: nao se inventa dono.
         INSERT INTO vendas.followup_envios
-          (numero, modo, instrucao_snippet, mensagem_preview, envio_ok, erro)
-        VALUES ($1::text, $2::text, $3::text, $4::text, $5::boolean, $6::text)
+          (numero, modo, instrucao_snippet, mensagem_preview, envio_ok, erro, empresa_id)
+        VALUES ($1::text, $2::text, $3::text, $4::text, $5::boolean, $6::text,
+                (SELECT c.empresa_id FROM vendas.conversas c WHERE c.numero = $1::text))
         `,
         [numero, modo, ins, prev, ok, erro]
       )

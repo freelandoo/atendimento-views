@@ -33,6 +33,10 @@ const TETO_DIARIO = Math.max(0, parseInt(process.env.RODAR_LEADS_TETO_DIARIO, 10
 const DELAY_MIN_MS = Math.max(0, parseInt(process.env.RODAR_LEADS_DELAY_MIN_MS, 10) || 12000)
 const DELAY_MAX_MS = Math.max(DELAY_MIN_MS, parseInt(process.env.RODAR_LEADS_DELAY_MAX_MS, 10) || 20000)
 
+// A PORTA da operacao comercial (CRM em equipe, Etapa 3.4). Quem julga e' o modulo PURO —
+// comparar `qualificacao` com literal aqui e' proibido e tem guarda de regressao.
+const { avaliarAbordagem, rotuloMotivo, sqlAbordavel } = require('../services/lead-qualificacao')
+
 // Status do prospect que ainda podem ser abordados (espelha a aba "sem_contato").
 const STATUS_RODAVEL = new Set(['coletado', 'contato_encontrado', 'aguardando', 'aprovado'])
 // Origens do Google Places (o resto é social — Instagram/LinkedIn).
@@ -55,7 +59,9 @@ async function resolverTabelaMessageUpdate(pool) {
 }
 
 // Colunas do prospect necessárias pro throttle/render/JSON de apresentação (geração IA).
-const COLS_PROSPECT = `id, nome, telefone, status, nicho, cidade, bloqueado_ate, tem_whatsapp,
+// `qualificacao` E' OBRIGATORIA nesta lista: `avaliarAbordagem` NEGA quando a coluna nao vem
+// (um SELECT que a esquece nao pode virar "pode abordar" — seria a porta aberta por omissao).
+const COLS_PROSPECT = `id, nome, telefone, status, qualificacao, nicho, cidade, bloqueado_ate, tem_whatsapp,
   origem, email, endereco, rating, avaliacoes, tem_site, site, maps_url,
   link_bio, bio, categoria_perfil, seguidores, instagram_handle, raw_json`
 
@@ -261,6 +267,9 @@ async function separarElegiveis(pool, empresaId, ids) {
     if (!p) { pulados.push({ id, motivo: 'nao_encontrado' }); continue }
     if (p.bloqueado_ate && new Date(p.bloqueado_ate).getTime() > agora) { pulados.push({ id, motivo: 'bloqueado', bloqueado_ate: p.bloqueado_ate }); continue }
     if (!STATUS_RODAVEL.has(p.status)) { pulados.push({ id, motivo: `status_${p.status}` }); continue }
+    // A PORTA: lead nao triado ou descartado nao e' abordado, nem quando um humano clica.
+    const porta = avaliarAbordagem(p)
+    if (!porta.permitido) { pulados.push({ id, motivo: 'nao_qualificado', detalhe: rotuloMotivo(porta.motivo) }); continue }
     if (!String(p.telefone || '').trim()) { pulados.push({ id, motivo: 'sem_telefone' }); continue }
     if (p.tem_whatsapp === false) { pulados.push({ id, motivo: 'sem_whatsapp' }); continue }
     const compliance = await canProspectLead(pool, p.telefone, {
@@ -594,6 +603,7 @@ async function gerarPendentesSemi(pool, { empresaId, usuarioId = null, instancia
        FROM prospectador.prospects p
       WHERE p.empresa_id = $1
         AND p.status = ANY($2)
+        AND ${sqlAbordavel('p')}
         AND NULLIF(BTRIM(COALESCE(p.telefone, '')), '') IS NOT NULL
         AND (p.tem_whatsapp IS DISTINCT FROM false)
         AND (p.bloqueado_ate IS NULL OR p.bloqueado_ate <= NOW())
@@ -648,7 +658,7 @@ async function dispararGerados(pool, { empresaId, instanciaId, prospectIds }, de
   const filtroIds = dedupeIds(prospectIds)
   const params = [empresaId, instancia.evolution_instance]
   let sql = `SELECT d.id AS disparo_id, d.mensagem, p.id AS prospect_id, p.nome,
-                    p.telefone, p.status, p.bloqueado_ate, p.tem_whatsapp
+                    p.telefone, p.status, p.qualificacao, p.bloqueado_ate, p.tem_whatsapp
                FROM prospectador.lead_disparos d
                JOIN prospectador.prospects p ON p.id = d.prospect_id
               WHERE d.empresa_id = $1 AND d.evolution_instance = $2
@@ -664,6 +674,10 @@ async function dispararGerados(pool, { empresaId, instanciaId, prospectIds }, de
   for (const r of rows) {
     if (r.bloqueado_ate && new Date(r.bloqueado_ate).getTime() > agora) { pulados.push({ id: r.prospect_id, motivo: 'bloqueado' }); continue }
     if (!STATUS_RODAVEL.has(r.status)) { pulados.push({ id: r.prospect_id, motivo: `status_${r.status}` }); continue }
+    // A PORTA, de novo: a mensagem pode ter sido gerada ANTES de alguem descartar o lead. Sem
+    // reavaliar aqui, o Semi enviaria um texto aprovado para um lead ja recusado.
+    const portaEnvio = avaliarAbordagem(r)
+    if (!portaEnvio.permitido) { pulados.push({ id: r.prospect_id, motivo: 'nao_qualificado', detalhe: rotuloMotivo(portaEnvio.motivo) }); continue }
     if (!String(r.telefone || '').trim()) { pulados.push({ id: r.prospect_id, motivo: 'sem_telefone' }); continue }
     if (r.tem_whatsapp === false) {
       await marcarDisparoFalhou(pool, r.disparo_id, 'sem_whatsapp', r.prospect_id, true)

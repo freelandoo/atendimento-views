@@ -13,6 +13,7 @@
 
 const { pool } = require('../db')
 const { logger } = require('../logger')
+const { avaliarAbordagem, rotuloMotivo } = require('./lead-qualificacao')
 
 function emailConfigurado() {
   return Boolean(
@@ -58,12 +59,22 @@ async function enviarViaProvider({ para, assunto, corpo }) {
  */
 async function enviarEmailProspect(empresaId, prospectId, { assunto, corpo } = {}) {
   const { rows } = await pool.query(
-    `SELECT id, email FROM prospectador.prospects WHERE empresa_id = $1 AND id = $2::uuid`,
+    `SELECT id, email, qualificacao FROM prospectador.prospects WHERE empresa_id = $1 AND id = $2::uuid`,
     [empresaId, prospectId]
   )
   const prospect = rows[0]
   if (!prospect) { const e = new Error('Prospect não encontrado.'); e.statusCode = 404; throw e }
   if (!prospect.email) { const e = new Error('Prospect sem e-mail capturado.'); e.statusCode = 422; throw e }
+  // A PORTA (CRM em equipe, Etapa 3.4). Este era o caminho com ZERO verificacao: bastava ter
+  // e-mail. Medido em 2026-09-11: 316 dos 344 leads com e-mail eram abordaveis sem nenhuma
+  // triagem. 422 e nao 403: nao e' falta de permissao do usuario, e' o LEAD que nao esta liberado.
+  const porta = avaliarAbordagem(prospect)
+  if (!porta.permitido) {
+    const e = new Error(`Lead nao liberado para abordagem: ${rotuloMotivo(porta.motivo)}.`)
+    e.statusCode = 422
+    e.code = 'LEAD_NAO_QUALIFICADO'
+    throw e
+  }
 
   if (!emailConfigurado()) {
     await pool.query(

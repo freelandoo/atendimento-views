@@ -1,9 +1,13 @@
 'use strict'
 const { verifyJwt } = require('../auth')
-const { findEmpresaById, findEmpresaEInstanciaPorEvolution, usuarioPertenceAEmpresa } = require('../db/empresas')
+const { findEmpresaById, findEmpresaEInstanciaPorEvolution, buscarVinculoUsuarioEmpresa } = require('../db/empresas')
 const { findUsuarioById } = require('../db/usuarios')
 const { logger } = require('../logger')
 const { resolverTenantWebhook } = require('../services/webhook-quarentena')
+const {
+  PAPEL_PLATAFORMA, avaliarCapacidade, capacidadesDoVinculo,
+} = require('../services/acesso-capacidades')
+const { registrarUltimoAcesso } = require('../db/membros')
 
 // Extrai Bearer token do header Authorization
 function extractToken(req) {
@@ -32,6 +36,25 @@ async function requireAuth(req, res, next) {
 
 // Lê empresa_id do parâmetro de rota (:empresaId) e verifica acesso.
 // Popula req.empresa. Deve ser usado após requireAuth.
+//
+// A PARTIR DA ETAPA 1 DO CRM EM EQUIPE ele também publica o PAPEL EFETIVO do usuário NESTA
+// empresa — antes, o único papel que existia no request era o GLOBAL (`req.usuario.role`), e era
+// ele que `requireRole` lia. Efeito medido do modelo antigo: quem era `admin` global era admin em
+// TODA empresa a que pertencesse. O que o middleware passa a publicar:
+//
+//   - `req.empresa`         — a empresa (inalterado).
+//   - `req.vinculoEmpresa`  — a linha de app.usuarios_empresas, ou null para superadmin (que não
+//                             precisa de vínculo). É a FONTE do papel efetivo.
+//   - `req.papelEmpresa`    — `owner | admin | comercial | member`, ou null.
+//   - `req.capacidades`     — lista já resolvida (papel + concessões aditivas), para a rota
+//                             devolver ao front sem recalcular e sem o front conhecer a matriz.
+//
+// NEUTRO EM COMPORTAMENTO NESTA ETAPA: nenhuma rota lê esses campos ainda, e a decisão de acesso
+// continua sendo tomada por `requireRole` exatamente como antes. A troca é a Etapa 6.
+//
+// O vínculo INATIVO já era barrado antes desta etapa (`usuarioPertenceAEmpresa` filtrava
+// `ativo = true`) e continua sendo — `buscarVinculoUsuarioEmpresa` mantém o mesmo filtro. A
+// mudança é só que agora o middleware guarda a LINHA em vez de descartar tudo menos o booleano.
 async function requireEmpresaAccess(req, res, next) {
   const empresaId = req.params.empresaId || req.body?.empresa_id || req.query?.empresa_id
   if (!empresaId) {
@@ -43,15 +66,38 @@ async function requireEmpresaAccess(req, res, next) {
     return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Empresa não encontrada.' } })
   }
 
+  const ehPlataforma = req.usuario.role === PAPEL_PLATAFORMA
+  let vinculo = null
+
   // superadmin tem acesso a tudo
-  if (req.usuario.role !== 'superadmin') {
-    const temAcesso = await usuarioPertenceAEmpresa(req.usuario.id, empresa.id)
-    if (!temAcesso) {
+  if (!ehPlataforma) {
+    vinculo = await buscarVinculoUsuarioEmpresa(req.usuario.id, empresa.id)
+    if (!vinculo) {
       return res.status(403).json({ ok: false, error: { code: 'FORBIDDEN', message: 'Acesso negado a esta empresa.' } })
     }
   }
 
   req.empresa = empresa
+  req.vinculoEmpresa = vinculo
+  req.papelEmpresa = vinculo ? vinculo.role : null
+  req.capacidades = capacidadesDoVinculo({
+    papel: req.papelEmpresa,
+    permissoes: vinculo ? vinculo.permissoes : null,
+    papelPlataforma: req.usuario.role,
+  })
+
+  // "Último acesso" POR EMPRESA (`app.usuarios_empresas.ultimo_acesso_em`).
+  // `app.usuarios.ultimo_login_em` já existe, mas é GLOBAL: com uma pessoa servindo duas
+  // empresas, ele não responde "quando ela trabalhou NESTA operação?" — que é o que o admin
+  // precisa ver em Contas da empresa.
+  //
+  // Deliberadamente NÃO aguardado (`void`): é telemetria de uso, não fato de negócio, e uma
+  // falha ou lentidão de escrita nunca pode atrasar nem derrubar um request autenticado. A
+  // própria função só grava no máximo uma vez por hora, para não transformar toda requisição
+  // autenticada numa escrita. `superadmin` sem vínculo não tem onde registrar — e não se
+  // inventa um.
+  if (vinculo) void registrarUltimoAcesso(vinculo.id)
+
   next()
 }
 
@@ -122,4 +168,45 @@ function requireRole(...roles) {
   }
 }
 
-module.exports = { requireAuth, requireEmpresaAccess, resolveEmpresaFromWebhook, requireRole }
+// Exige uma CAPACIDADE do CRM em equipe. Deve rodar DEPOIS de requireAuth + requireEmpresaAccess
+// (é de lá que vêm o papel efetivo e as concessões). Quem decide é o módulo PURO
+// `services/acesso-capacidades.js`; este middleware só traduz o veredito em HTTP — mesma divisão
+// de `instancia-envio.js` (regra pura) e `whatsapp.js` (I/O).
+//
+// Diferença deliberada em relação a `requireRole`: aquele recebe PAPÉIS e é aplicado por mount de
+// router; este recebe uma AÇÃO de negócio. Papel muda de nome e ganha irmãos; "disparar mensagem
+// em lote pela Evolution" continua sendo a mesma decisão. Os dois convivem: `requireRole`
+// continua servindo o que é genuinamente de plataforma (`/api/admin`, quarentena global).
+//
+// ETAPA 1: nasce SEM NENHUM CHAMADOR, de propósito. A troca dos mounts `requireRole('admin')` por
+// capacidade é a Etapa 6, uma rota por commit, com teste de permissão (inclusive o caso negativo)
+// antes de cada merge. Ver docs/plano-execucao-crm-equipe.md.
+function requireCapacidade(...capacidades) {
+  return (req, res, next) => {
+    if (!req.usuario) {
+      return res.status(401).json({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Autenticação necessária.' } })
+    }
+    // Sem empresa resolvida não há papel efetivo — e recusar é a única resposta honesta:
+    // cair no papel global aqui reintroduziria exatamente o defeito que esta etapa corrige.
+    if (!req.empresa) {
+      logger.error({ rota: req.originalUrl }, '[acesso] requireCapacidade sem requireEmpresaAccess antes')
+      return res.status(500).json({ ok: false, error: { code: 'ACESSO_MAL_CONFIGURADO', message: 'Não foi possível verificar o acesso.' } })
+    }
+    const vinculo = {
+      papel: req.papelEmpresa,
+      permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
+      papelPlataforma: req.usuario.role,
+    }
+    // Várias capacidades = QUALQUER uma basta (o chamador declara as alternativas que servem).
+    for (const capacidade of capacidades) {
+      if (avaliarCapacidade(vinculo, capacidade).permitido) return next()
+    }
+    // Log sem PII: papel e capacidade são vocabulário fechado; nunca e-mail, nome ou telefone.
+    logger.warn({
+      papel: req.papelEmpresa, capacidades, empresa_id: req.empresa.id,
+    }, '[acesso] capacidade negada')
+    return res.status(403).json({ ok: false, error: { code: 'FORBIDDEN', message: 'Você não tem permissão para esta ação.' } })
+  }
+}
+
+module.exports = { requireAuth, requireEmpresaAccess, resolveEmpresaFromWebhook, requireRole, requireCapacidade }

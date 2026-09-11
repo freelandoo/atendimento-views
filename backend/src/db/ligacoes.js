@@ -434,17 +434,31 @@ async function descartarLigacao(pool, empresaId, id, { motivo, origemSessao } = 
 
 // Historico de ligacoes de um lead da campanha (ou por prospect). So ligacoes REAIS
 // (encerradas): em_andamento/descartada nao aparecem como "ligacao anterior".
-async function listarLigacoes(pool, empresaId, { campanhaLeadId, prospectId, campanhaId, limit = 50 } = {}) {
+/**
+ * Historico de ligacoes ENCERRADAS.
+ *
+ * CRM em equipe, Etapa 10: `usuarioId` recorta por atendente. **Nenhuma migration** — a coluna
+ * `app.ligacoes.usuario_id` existe desde a migration 040 e nunca foi usada para filtrar.
+ *
+ * O recorte e' decidido pela ROTA (que avalia a capacidade LIGACAO_VER_TODAS) e chega aqui como
+ * um id ou `null`. Esta camada nao conhece papel nem capacidade — passar o veredito pronto e' o
+ * que impede a matriz de permissao de vazar para o SQL.
+ */
+async function listarLigacoes(pool, empresaId, { campanhaLeadId, prospectId, campanhaId, usuarioId, limit = 50 } = {}) {
   const params = [empresaId]
   const conds = ['l.empresa_id = $1', `l.status = '${STATUS_ANALITICO}'`]
   if (campanhaLeadId) { params.push(campanhaLeadId); conds.push(`l.campanha_lead_id = $${params.length}`) }
   if (prospectId) { params.push(prospectId); conds.push(`l.prospect_id = $${params.length}`) }
   if (campanhaId) { params.push(campanhaId); conds.push(`l.campanha_id = $${params.length}`) }
+  // Ligacao ANTIGA pode ter `usuario_id` nulo (o campo existia e nem sempre era preenchido).
+  // Ela NAO entra no recorte de ninguem: atribui-la a quem esta olhando seria inventar autoria.
+  if (usuarioId) { params.push(usuarioId); conds.push(`l.usuario_id = $${params.length}::uuid`) }
   params.push(Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 500))
   const { rows } = await pool.query(
     `SELECT l.id, l.resultado, l.etapa_alcancada, l.objecao_principal, l.motivo_perda,
-            l.duracao_seg, l.notas, l.usuario_id, l.criado_em
+            l.duracao_seg, l.notas, l.usuario_id, u.nome AS usuario_nome, l.criado_em
        FROM app.ligacoes l
+       LEFT JOIN app.usuarios u ON u.id = l.usuario_id
       WHERE ${conds.join(' AND ')}
       ORDER BY l.criado_em DESC
       LIMIT $${params.length}`,
@@ -453,9 +467,28 @@ async function listarLigacoes(pool, empresaId, { campanhaLeadId, prospectId, cam
   return rows
 }
 
+/** Quantas ligacoes cada atendente fez. Leitura de GESTAO (painel do admin, Etapa 12). */
+async function contagemPorUsuario(pool, empresaId, { campanhaId } = {}) {
+  const params = [empresaId]
+  let filtro = ''
+  if (campanhaId) { params.push(campanhaId); filtro = `AND l.campanha_id = $${params.length}` }
+  const { rows } = await pool.query(
+    `SELECT l.usuario_id, u.nome, COUNT(*)::int AS ligacoes,
+            COUNT(*) FILTER (WHERE l.resultado = 'atendeu')::int AS atendidas,
+            ROUND(AVG(l.duracao_seg))::int AS duracao_media_seg
+       FROM app.ligacoes l
+       LEFT JOIN app.usuarios u ON u.id = l.usuario_id
+      WHERE l.empresa_id = $1 AND l.status = '${STATUS_ANALITICO}' ${filtro}
+      GROUP BY l.usuario_id, u.nome
+      ORDER BY ligacoes DESC`,
+    params
+  )
+  return rows
+}
+
 module.exports = {
   validarRegistro, derivarEtapasDeSinais, transicaoValida, STATUS_ANALITICO,
   estadoSessao, chamadaAberta,
-  listarLigacoes, obterLigacao, obterLigacaoAtiva, listarLigacoesAtivasDaCampanha, obterSessao,
+  listarLigacoes, contagemPorUsuario, obterLigacao, obterLigacaoAtiva, listarLigacoesAtivasDaCampanha, obterSessao,
   iniciarLigacao, marcarChamadaEncerrada, encerrarLigacao, descartarLigacao, atualizarNotas,
 }

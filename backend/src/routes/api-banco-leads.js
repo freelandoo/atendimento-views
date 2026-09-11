@@ -10,7 +10,7 @@
 // duas transições manuais de status (fechar/reabrir) e export CSV. Isolado por tenant.
 const { Router } = require('express')
 const { pool } = require('../db')
-const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
+const { requireAuth, requireEmpresaAccess, requireCapacidade } = require('../middleware/tenant')
 const { atualizarEmailProspect } = require('../prospecting')
 const { rodarLeads, gerarMensagensSemi, gerarPendentesSemi, dispararGerados, estadoEnvioInstancia, STATUS_RODAVEL } = require('../services/rodar-leads')
 const { obterConfigBancoLeads, salvarConfigBancoLeads } = require('../db/banco-leads-config')
@@ -26,6 +26,12 @@ const {
   montarJsonApresentacaoInstagram,
 } = require('../services/lead-score-cadastro')
 const { classificarLead } = require('../services/site-classificacao')
+// Ownership do lead (Etapa 4): a REGRA e' pura, o SQL e' proprio, a capacidade decide o recorte.
+const { sqlEscopo, escopoEfetivo } = require('../services/lead-responsavel')
+const LR = require('../db/lead-responsavel')
+// Abordagem MANUAL (Etapa 5): o produto NAO envia — abre o wa.me e registra o que o vendedor diz.
+const AM = require('../db/abordagem-manual')
+const { CAPACIDADES: CAP, CAPACIDADES, podeCapacidade } = require('../services/acesso-capacidades')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -75,6 +81,43 @@ const AGENDA_FUTURA_EXISTS = `(EXISTS (
      AND regexp_replace(COALESCE(ae.lead_telefone, ''), '[^0-9]', '', 'g')
          = regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g')
 ) OR ${AGENDA_VENDAS_FUTURA_EXISTS})`
+/**
+ * Resolve o recorte por responsavel de UM request.
+ *
+ * Quem pode ver a carteira inteira e' quem tem `LEAD_VER_BRUTOS` — a mesma capacidade que da
+ * acesso a base nao triada. Nao e' coincidencia: as duas respondem "voce trabalha a carteira ou
+ * so' os seus leads?". Criar uma capacidade separada so' para "ver leads de outros" seria criar
+ * uma terceira resposta para a mesma pergunta.
+ *
+ * O escopo EFETIVO e' devolvido junto do resultado: pedir `todos` sem poder nao devolve erro nem
+ * silencio, devolve o recorte possivel + o rotulo, para a tela dizer "mostrando apenas os seus".
+ */
+function resolverEscopo(req) {
+  const podeVerTodos = podeCapacidade({
+    papel: req.papelEmpresa,
+    permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
+    papelPlataforma: req.usuario?.role,
+  }, CAPACIDADES.LEAD_VER_BRUTOS)
+  const pedido = req.query?.escopo
+  const { sql, usaUsuario } = sqlEscopo(pedido, { podeVerTodos, alias: '', placeholder: '$1' })
+  return {
+    sql,
+    usaUsuario,
+    usuarioId: req.usuario?.id || null,
+    efetivo: escopoEfetivo(pedido, podeVerTodos),
+    podeVerTodos,
+  }
+}
+
+/** Injeta o escopo resolvido na query, para `montarFiltro` aplicar o MESMO recorte em todo lugar. */
+function comEscopo(req) {
+  const escopo = resolverEscopo(req)
+  return {
+    query: { ...req.query, __escopoSql: escopo.sql, __escopoUsaUsuario: escopo.usaUsuario, __usuarioId: escopo.usuarioId },
+    escopo,
+  }
+}
+
 function envelopeErro(res, err, code) {
   const status = err.statusCode || 500
   logger.error(`[api-banco-leads] ${code}:`, err.message)
@@ -114,6 +157,14 @@ function montarFiltro(empresaId, query) {
     where.push(`origem IN ('instagram','linkedin')`)
   }
 
+  // Recorte por RESPONSAVEL (Etapa 4). `escopo` vem da query; o que a pessoa PODE ver vem da
+  // capacidade, resolvida na rota. O mesmo fragmento serve listagem, contagem e export — tres
+  // `if` separados divergiriam no primeiro ajuste.
+  if (query.__escopoSql) {
+    if (query.__escopoUsaUsuario) params.push(query.__usuarioId)
+    where.push(query.__escopoSql.replace('$1', `$${params.length}`))
+  }
+
   adicionarFiltroMercado(where, params, query)
 
   const busca = termoBuscaProspect(query)
@@ -137,7 +188,11 @@ function montarEscopoOpcoes(query) {
   return escopo
 }
 
-const COLUNAS = `id, origem, status, nome, telefone, email, instagram_handle,
+// `qualificacao` e `responsavel_id` entram aqui porque a tela precisa saber se o lead passou pela
+// porta (Etapa 3) e de quem ele e' (Etapa 4). A REGRA de cada um continua no backend — o front
+// so' traduz o veredito.
+const COLUNAS = `id, origem, status, qualificacao, qualificado_em,
+  responsavel_id, responsavel_desde, nome, telefone, email, instagram_handle,
   nicho, cidade, site, seguidores, categoria_perfil, created_at, updated_at,
   bloqueado_ate, bloqueio_motivo, endereco, rating, avaliacoes, tem_site,
   maps_url, link_bio, bio, tem_whatsapp, score, place_id,
@@ -192,7 +247,8 @@ function anexarScoreCadastro(row) {
 // Inclui o último disparo (quem rodou / quando) e o estado da trava (bloqueado_ate).
 router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const { where, params } = montarFiltro(req.empresa.id, req.query)
+    const { query: queryComEscopo, escopo } = comEscopo(req)
+    const { where, params } = montarFiltro(req.empresa.id, queryComEscopo)
     // Aba "Agendados" ordena pelos horários mais próximos; demais por atividade recente.
     const ordemLeads = String(req.query.aba || '').toLowerCase() === 'agendados'
       ? 'proximo_agendamento ASC NULLS LAST'
@@ -272,8 +328,132 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
       params
     )
     const data = rows.map(anexarScoreCadastro)
-    return res.json({ ok: true, data, meta: { total: data.length } })
+    // `escopo` no meta: a tela precisa poder dizer "mostrando apenas os seus" quando o pedido de
+    // ver tudo foi rebaixado. Recortar em silencio faria o vendedor achar que a carteira encolheu.
+    return res.json({
+      ok: true,
+      data,
+      meta: { total: data.length, escopo: escopo.efetivo, pode_ver_todos: escopo.podeVerTodos },
+    })
   } catch (err) { return envelopeErro(res, err, 'LEADS_FAILED') }
+})
+
+// ─── Ownership do lead (CRM em equipe, Etapa 4) ─────────────────────────────────────────────
+// Nenhuma destas rotas decide papel: a capacidade e' avaliada pelo modulo puro
+// services/acesso-capacidades.js e chega como booleano para a camada de dados.
+
+function capacidade(req, cap) {
+  return podeCapacidade({
+    papel: req.papelEmpresa,
+    permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
+    papelPlataforma: req.usuario?.role,
+  }, cap)
+}
+
+// POST /leads/:id/assumir — o vendedor pega um lead LIVRE (claim atomico).
+router.post('/leads/:id/assumir', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const data = await LR.assumirLead(pool, req.empresa.id, req.params.id, req.usuario?.id)
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'LEAD_ASSUMIR_FAILED') }
+})
+
+// PUT /leads/:id/responsavel { usuario_id | null, motivo? } — define, troca ou devolve para a fila.
+// `usuario_id: null` e' a devolucao. O PROPRIO dono sempre pode devolver o que e' seu; trocar o
+// dono de outra pessoa exige LEAD_TRANSFERIR.
+router.put('/leads/:id/responsavel', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const b = req.body || {}
+    const data = await LR.definirResponsavel(pool, req.empresa.id, req.params.id, {
+      destinoId: b.usuario_id || null,
+      usuarioId: req.usuario?.id,
+      podeTransferir: capacidade(req, CAPACIDADES.LEAD_TRANSFERIR),
+      motivo: b.motivo,
+    })
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'LEAD_RESPONSAVEL_FAILED') }
+})
+
+// POST /leads/responsavel-lote { ids: [], usuario_id, motivo? } — distribuicao pelo admin.
+router.post('/leads/responsavel-lote', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    if (!capacidade(req, CAPACIDADES.LEAD_TRANSFERIR)) {
+      return res.status(403).json({ ok: false, error: { code: 'FORBIDDEN', message: 'Você não pode distribuir leads.' } })
+    }
+    const b = req.body || {}
+    const data = await LR.atribuirEmLote(pool, req.empresa.id, b.ids, {
+      destinoId: b.usuario_id, usuarioId: req.usuario?.id, motivo: b.motivo,
+    })
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'LEAD_LOTE_FAILED') }
+})
+
+// ─── Abordagem manual pelo wa.me (CRM em equipe, Etapa 5) ───────────────────────────────────
+// Tres rotas para TRES fatos distintos, e essa separacao e' a feature:
+//   GET  .../abordagem-manual          -> prepara (READ-ONLY: nao envia, nao grava, nao chama IA)
+//   POST .../abordagem-manual/aberta   -> registra a ABERTURA do WhatsApp (nao e' envio)
+//   PATCH .../abordagem-manual         -> o vendedor DECLARA que enviou (declaracao, nao prova)
+
+// GET /leads/:id/abordagem-manual
+router.get('/leads/:id/abordagem-manual', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const data = await AM.prepararAbordagem(pool, req.empresa.id, req.params.id, {
+      usuarioId: req.usuario?.id,
+      remetente: req.usuario?.nome,
+    })
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'ABORDAGEM_PREPARAR_FAILED') }
+})
+
+// POST /leads/:id/abordagem-manual/aberta
+router.post('/leads/:id/abordagem-manual/aberta', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const data = await AM.registrarAbertura(pool, req.empresa.id, req.params.id, {
+      usuarioId: req.usuario?.id,
+      mensagem: (req.body || {}).mensagem,
+    })
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'ABORDAGEM_ABERTURA_FAILED') }
+})
+
+// PATCH /leads/:id/abordagem-manual  { enviado: true, mensagem? }
+// `enviado` precisa ser o booleano `true`: `Boolean('false')` e' `true`, e aceitar string aqui
+// marcaria como enviada uma mensagem que o vendedor disse NAO ter enviado (mesma recusa explicita
+// da migration 066).
+router.patch('/leads/:id/abordagem-manual', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const b = req.body || {}
+    if (b.enviado !== true) {
+      return res.status(400).json({
+        ok: false,
+        error: { code: 'BAD_REQUEST', message: 'Envie enviado: true para marcar a abordagem como enviada.' },
+      })
+    }
+    const data = await AM.marcarEnviadoManualmente(pool, req.empresa.id, req.params.id, {
+      usuarioId: req.usuario?.id,
+      mensagem: b.mensagem,
+    })
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'ABORDAGEM_ENVIO_FAILED') }
+})
+
+// GET /leads/:id/responsavel-historico — a linha do tempo de donos.
+router.get('/leads/:id/responsavel-historico', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const data = await LR.historicoDoLead(pool, req.empresa.id, req.params.id, { limit: req.query.limit })
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'LEAD_HISTORICO_FAILED') }
+})
+
+// GET /carteira — quantos leads cada responsavel tem. Leitura de GESTAO, logo exige a capacidade.
+router.get('/carteira', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    if (!capacidade(req, CAPACIDADES.LEAD_VER_BRUTOS)) {
+      return res.status(403).json({ ok: false, error: { code: 'FORBIDDEN', message: 'Você não pode ver a carteira da equipe.' } })
+    }
+    const data = await LR.contagemPorResponsavel(pool, req.empresa.id)
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'CARTEIRA_FAILED') }
 })
 
 // POST /leads  { origem, nome, whatsapp, instagram } — cadastro manual de um lead.
@@ -355,7 +535,7 @@ router.get('/meus-disparos', requireAuth, requireEmpresaAccess, async (req, res)
 
 // POST /rodar  { instancia_id, prospect_ids: [..] } — dispara a saudação (1ª mensagem)
 // pelos números selecionados via a instância escolhida. Throttle no serviço.
-router.post('/rodar', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/rodar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_DISPARAR_LOTE), async (req, res) => {
   try {
     const { instancia_id, prospect_ids } = req.body || {}
     if (!instancia_id) {
@@ -386,7 +566,7 @@ router.get('/config', requireAuth, requireEmpresaAccess, async (req, res) => {
 // PUT /config — atualiza a config do Banco de Leads (upsert parcial: só os campos
 // presentes no body mudam). Aceita: modo, gerar_ia, instrucoes_ia (Manual/Semi) +
 // auto_ativo, janela_inicio, janela_fim, intervalo_min, intervalo_max (Automático).
-router.put('/config', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.put('/config', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_DISPARAR_LOTE), async (req, res) => {
   try {
     const b = req.body || {}
     const patch = {}
@@ -467,7 +647,7 @@ router.get('/geracao-progresso', requireAuth, requireEmpresaAccess, async (req, 
 
 // POST /gerar { instancia_id, prospect_ids } — SEMI: gera as mensagens (IA c/ fallback) e
 // deixa 'aguardando_disparo' (não envia, não consome teto). Retorna as prévias geradas.
-router.post('/gerar', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/gerar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_DISPARAR_LOTE), async (req, res) => {
   try {
     const { instancia_id, prospect_ids } = req.body || {}
     if (!instancia_id) {
@@ -489,7 +669,7 @@ router.post('/gerar', requireAuth, requireEmpresaAccess, async (req, res) => {
 
 // POST /gerar-pendentes { instancia_id, limit? } — SEMI: gera mensagens para os
 // leads elegíveis que ainda não têm rascunho/erro/envio nesta instância.
-router.post('/gerar-pendentes', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/gerar-pendentes', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_DISPARAR_LOTE), async (req, res) => {
   try {
     const { instancia_id, limit } = req.body || {}
     if (!instancia_id) {
@@ -511,7 +691,7 @@ router.post('/gerar-pendentes', requireAuth, requireEmpresaAccess, async (req, r
 
 // POST /disparar-gerados { instancia_id, prospect_ids? } — envia as mensagens já geradas
 // (aguardando_disparo). Sem prospect_ids, dispara todos os pendentes da instância.
-router.post('/disparar-gerados', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/disparar-gerados', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_DISPARAR_LOTE), async (req, res) => {
   try {
     const { instancia_id, prospect_ids } = req.body || {}
     if (!instancia_id) {
@@ -532,7 +712,7 @@ router.post('/disparar-gerados', requireAuth, requireEmpresaAccess, async (req, 
 
 // POST /limpar — apaga os leads SEM contato (sem email E sem telefone).
 // Protege negócios fechados (status 'fechado' nunca é removido). Irreversível.
-router.post('/limpar', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/limpar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_DISPARAR_LOTE), async (req, res) => {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
@@ -652,7 +832,7 @@ function csvCampo(v) {
 }
 
 // GET /export.csv?aba=&origem=&busca= — baixa a aba atual em CSV (Excel pt-BR).
-router.get('/export.csv', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.get('/export.csv', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_VER_BRUTOS), async (req, res) => {
   try {
     const { where, params } = montarFiltro(req.empresa.id, req.query)
     const { rows } = await pool.query(

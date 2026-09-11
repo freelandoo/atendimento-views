@@ -9,6 +9,11 @@
 // única origem de prospects. O que ele faz é mover um lead que já existe de
 // 'aguardando' para 'aprovado'/'rejeitado' e registrar por quê.
 
+// A traducao decisao -> qualificacao vive no modulo PURO, nunca aqui: sao TRES vocabularios para
+// o mesmo ato (curadoria_decisoes.decisao / prospects.status / prospects.qualificacao) e espalhar
+// a costura recriaria a divergencia.
+const { qualificacaoDaDecisao } = require('../services/lead-qualificacao')
+
 const SESSAO_COLUNAS = `
   id, empresa_id, usuario_id, nicho, cidade, uf, escopo_ampliado,
   meta, aprovados, descartados, fila_json, status,
@@ -197,6 +202,10 @@ async function decidir(pool, {
   if (!empresaId || !sessaoId || !prospectId) throw erro('Decisão incompleta.', 400)
   if (!['aprovado', 'descartado'].includes(decisao)) throw erro('Decisão inválida.', 400)
   const statusNovo = decisao === 'aprovado' ? 'aprovado' : 'rejeitado'
+  // A curadoria e' a fonte ORIGINAL de prova de triagem (migration 055). A partir da Etapa 3 ela
+  // grava tambem o eixo que a operacao consulta: `status` continua sendo o funil (e sera
+  // sobrescrito por `enviado` na primeira abordagem), `qualificacao` e' o que sobrevive a isso.
+  const qualificacaoNova = qualificacaoDaDecisao(decisao)
 
   const client = await pool.connect()
   try {
@@ -212,12 +221,17 @@ async function decidir(pool, {
     if (sessao.status !== 'ativa') throw erro('Esta sessão já foi encerrada.', 409)
 
     // 1. CLAIM: 0 linhas = alguém (ou você mesmo) já decidiu este lead.
+    // O CLAIM continua sendo por `status = 'aguardando'`: e' ele que garante "uma decisao por lead"
+    // desde a migration 055, e trocar a condicao agora mudaria o significado da meta da sessao.
+    // `qualificacao` viaja na MESMA instrucao — gravar em dois passos deixaria uma janela em que o
+    // lead esta decidido num eixo e pendente no outro.
     const { rows: claim } = await client.query(
       `UPDATE prospectador.prospects
-          SET status = $3, updated_at = NOW()
+          SET status = $3, qualificacao = $4, qualificado_em = NOW(), qualificado_por = $5::uuid,
+              updated_at = NOW()
         WHERE empresa_id = $1 AND id = $2::uuid AND status = 'aguardando'
-        RETURNING id, nome, status`,
-      [empresaId, prospectId, statusNovo]
+        RETURNING id, nome, status, qualificacao`,
+      [empresaId, prospectId, statusNovo, qualificacaoNova, usuarioId || null]
     )
     const novo = claim.length > 0
     const contou = novo && decisao === 'aprovado'

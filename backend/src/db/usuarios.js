@@ -25,9 +25,12 @@ async function updateUltimoLogin(id) {
   )
 }
 
+// `role_usuario` é o papel POR EMPRESA (app.usuarios_empresas.role) — o papel EFETIVO desde a
+// Etapa 1 do CRM em equipe. `permissoes` vem junto porque `/api/auth/me` deriva dali as
+// capacidades que a tela usa para se desenhar (a tela nunca conhece a matriz).
 async function listEmpresasDoUsuario(usuario_id) {
   const { rows } = await pool.query(
-    `SELECT e.*, ue.role AS role_usuario
+    `SELECT e.*, ue.role AS role_usuario, ue.permissoes, ue.id AS vinculo_id
      FROM app.empresas e
      JOIN app.usuarios_empresas ue ON ue.empresa_id = e.id
      WHERE ue.usuario_id = $1 AND ue.ativo = true AND e.ativo = true

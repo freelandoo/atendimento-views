@@ -48,13 +48,25 @@ async function findEmpresaEInstanciaPorEvolution(instanceName) {
   return { empresa, instanciaId }
 }
 
-async function usuarioPertenceAEmpresa(usuario_id, empresa_id) {
+// Vínculo ATIVO do usuário com a empresa — a fonte do PAPEL EFETIVO (CRM em equipe, Etapa 1).
+//
+// SUBSTITUI `usuarioPertenceAEmpresa`, que devolvia só um booleano e tinha o middleware como
+// ÚNICO chamador. O mesmo filtro (`ativo = true`) e a mesma resposta a "pertence?" — o que muda é
+// que a LINHA é devolvida, porque o papel e as concessões estão nela e eram descartados.
+// (Mesmo movimento de `findEmpresaEInstanciaPorEvolution`, que substituiu
+// `findEmpresaByEvolutionInstance` quando o chamador passou a precisar da instância também.)
+//
+// `null` = sem vínculo ativo. NÃO existe vínculo padrão: quem não tem vínculo não tem papel, e
+// cair no papel GLOBAL aqui é exatamente o defeito que esta etapa corrige.
+async function buscarVinculoUsuarioEmpresa(usuario_id, empresa_id) {
   const { rows } = await pool.query(
-    `SELECT 1 FROM app.usuarios_empresas
-     WHERE usuario_id = $1 AND empresa_id = $2 AND ativo = true`,
+    `SELECT id, usuario_id, empresa_id, role, permissoes, ativo, criado_em, criado_por
+       FROM app.usuarios_empresas
+      WHERE usuario_id = $1 AND empresa_id = $2 AND ativo = true
+      LIMIT 1`,
     [usuario_id, empresa_id]
   )
-  return rows.length > 0
+  return rows[0] || null
 }
 
 // ─── Pause global do agente por empresa (config.agente_pausado) ────────────────
@@ -207,7 +219,7 @@ module.exports = {
   findEmpresaById,
   findEmpresaBySlug,
   findEmpresaEInstanciaPorEvolution,
-  usuarioPertenceAEmpresa,
+  buscarVinculoUsuarioEmpresa,
   empresaAgentePausada,
   invalidarCachePauseEmpresa,
   modoIaPadraoEmpresa,

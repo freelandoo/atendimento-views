@@ -225,10 +225,35 @@ router.put('/configuracao', requireAuth, requireEmpresaAccess, async (req, res) 
   }
 })
 
+// Auditoria da TRIAGEM (CRM em equipe, Etapa 3.6). Antes desta etapa, `/aprovar` nao gravava
+// rastro nenhum e `/rejeitar` gravava so' no caminho com motivo — duas portas para a mesma decisao,
+// com rastros diferentes. Agora as duas viram linha em `app.auditoria_eventos`, a mesma tabela
+// generica que 8 modulos ja usam (nenhuma tabela nova).
+//
+// Best-effort: uma falha aqui NAO desfaz a decisao. Diferente da auditoria de membros (Etapa 2),
+// que roda dentro da transacao — la a linha e' parte do fato "quem adicionou quem"; aqui a
+// decisao ja esta gravada na propria coluna `qualificado_por`, e a auditoria e' o historico.
+async function auditarTriagem(req, prospect, acao) {
+  try {
+    await pool.query(
+      `INSERT INTO app.auditoria_eventos
+         (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_novo, contexto)
+       VALUES ($1, $2, 'prospect', $3::uuid, $4, $5, $6::jsonb)`,
+      [req.empresa.id, req.usuario?.id || null, prospect?.id || null, acao,
+        prospect?.qualificacao || null,
+        // Sem nome, sem telefone, sem e-mail, sem endereco: o id do prospect ja aponta para tudo.
+        JSON.stringify({ status: prospect?.status || null, origem: prospect?.origem || null })]
+    )
+  } catch (e) {
+    logger.warn(`[api-prospeccao] auditoria de triagem falhou (ignorada): ${e.message}`)
+  }
+}
+
 // POST /api/empresas/:empresaId/prospeccao/prospects/:id/aprovar
 router.post('/prospects/:id/aprovar', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const prospect = await atualizarStatusProspect(req.params.id, 'aprovado', req.empresa.id)
+    const prospect = await atualizarStatusProspect(req.params.id, 'aprovado', req.empresa.id, { usuarioId: req.usuario?.id })
+    await auditarTriagem(req, prospect, 'prospect_aprovado')
     return res.json({ ok: true, data: prospect })
   } catch (err) {
     const status = err.statusCode || 500
@@ -240,7 +265,8 @@ router.post('/prospects/:id/aprovar', requireAuth, requireEmpresaAccess, async (
 // POST /api/empresas/:empresaId/prospeccao/prospects/:id/rejeitar
 router.post('/prospects/:id/rejeitar', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const prospect = await atualizarStatusProspect(req.params.id, 'rejeitado', req.empresa.id)
+    const prospect = await atualizarStatusProspect(req.params.id, 'rejeitado', req.empresa.id, { usuarioId: req.usuario?.id })
+    await auditarTriagem(req, prospect, 'prospect_descartado')
     return res.json({ ok: true, data: prospect })
   } catch (err) {
     const status = err.statusCode || 500
@@ -269,7 +295,11 @@ router.post('/prospects/lote', requireAuth, requireEmpresaAccess, async (req, re
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe ids[] e acao (aprovar|rejeitar).' } })
   }
   try {
-    const prospects = await atualizarStatusProspectsLote(ids, status, req.empresa.id)
+    const prospects = await atualizarStatusProspectsLote(ids, status, req.empresa.id, { usuarioId: req.usuario?.id })
+    const acaoAudit = status === 'aprovado' ? 'prospect_aprovado' : 'prospect_descartado'
+    // Uma linha por lead: "aprovou 40 leads" nao e' um evento, sao 40 decisoes, e e' por lead que
+    // alguem vai querer saber quem decidiu.
+    for (const prospect of prospects) await auditarTriagem(req, prospect, acaoAudit)
     return res.json({ ok: true, data: prospects, meta: { atualizados: prospects.length } })
   } catch (err) {
     const code = err.statusCode || 500

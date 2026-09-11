@@ -12,6 +12,11 @@ const { obterConfigBancoLeads } = require('../db/banco-leads-config')
 const {
   rodarLeads, gerarPendentesSemi, reconciliarConfirmacoesPendentes, STATUS_RODAVEL, MAX_LOTE,
 } = require('./rodar-leads')
+// A PORTA da operacao comercial (Etapa 3.4). Este worker e' o UNICO caminho do produto que
+// aborda um lead SEM humano nenhum no circuito — e era ele que aceitava `aguardando`. Medido em
+// 2026-09-11: modo Automatico desligado em todas as empresas, mas o codigo estava pronto para
+// disparar para 2.748 leads nunca triados.
+const { sqlAbordavel } = require('./lead-qualificacao')
 const { canProspectLead } = require('./prospecting-eligibility')
 const { horaLocal } = require('./captacao-scheduler')
 
@@ -136,6 +141,7 @@ async function buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps = {}
       `SELECT p.id, p.telefone FROM prospectador.prospects p
         WHERE p.empresa_id = $1
           AND p.status = ANY($2)
+          AND ${sqlAbordavel('p')}
           AND NULLIF(BTRIM(COALESCE(p.telefone, '')), '') IS NOT NULL
           AND (p.tem_whatsapp IS DISTINCT FROM false)
           AND (p.bloqueado_ate IS NULL OR p.bloqueado_ate <= NOW())

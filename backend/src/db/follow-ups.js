@@ -193,6 +193,20 @@ async function listarFollowUps(pool, empresaId, opts = {}) {
   if (opts.canal && CANAIS_FILTRAVEIS.has(opts.canal)) {
     params.push(opts.canal); conds.push(`f.canal = $${params.length}`)
   }
+  // Filtro por RESPONSAVEL (CRM em equipe, Etapa 10). **Nenhuma migration**: a coluna
+  // `responsavel_id` existe desde a migration 062, com indice `(empresa_id, responsavel_id,
+  // status)` — e nunca foi usada para filtrar.
+  //
+  // ATENCAO: este e um filtro OPCIONAL de tela ("meus follow-ups"), nao um recorte de
+  // permissao. A fila de Follow-ups tem **visibilidade GERAL** por decisao de produto (decisao D),
+  // e isso e deliberado: a tela e uma FILA DE TRABALHO unica, e recorta-la por pessoa recriaria a
+  // fragmentacao que a unificacao das abas removeu. O que muda com equipe e' que o responsavel
+  // passa a ser VISIVEL e filtravel — nao escondido.
+  if (opts.responsavelId) {
+    params.push(opts.responsavelId); conds.push(`f.responsavel_id = $${params.length}::uuid`)
+  }
+  // "Sem responsavel" e um recorte proprio: e' o trabalho que ninguem pegou.
+  if (opts.semResponsavel === true) conds.push('f.responsavel_id IS NULL')
   params.push(Math.min(Math.max(Number.parseInt(opts.limit, 10) || 300, 1), 500))
   const { rows } = await pool.query(
     `SELECT ${COLS.split(',').map((c) => `f.${c.trim()}`).join(', ')},
@@ -470,7 +484,30 @@ async function followUpDaLigacao(pool, empresaId, ligacaoId) {
   return rows[0] || null
 }
 
+/**
+ * Quantos follow-ups em aberto cada responsavel tem. Alimenta o painel do admin (Etapa 12) e o
+ * filtro da propria fila.
+ *
+ * `responsavel_id` NULL entra como uma linha propria ("sem responsavel"): e' trabalho real, e
+ * omiti-lo faria a soma das colunas nao fechar com o total da fila.
+ */
+async function contagemPorResponsavel(pool, empresaId) {
+  const { rows } = await pool.query(
+    `SELECT f.responsavel_id, u.nome, COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE f.status = 'aguardando')::int AS aguardando,
+            COUNT(*) FILTER (WHERE f.status = 'aguardando' AND f.agendado_para <= NOW())::int AS vencidos
+       FROM app.follow_ups f
+       LEFT JOIN app.usuarios u ON u.id = f.responsavel_id
+      WHERE f.empresa_id = $1
+      GROUP BY f.responsavel_id, u.nome
+      ORDER BY aguardando DESC, total DESC`,
+    [empresaId]
+  )
+  return rows
+}
+
 module.exports = {
+  contagemPorResponsavel,
   criarFollowUp,
   obterFollowUp,
   listarFollowUps,

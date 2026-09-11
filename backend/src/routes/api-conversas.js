@@ -17,6 +17,14 @@ const { modoIaPadraoEmpresa } = require('../db/empresas')
 const { modoEfetivo } = require('../services/conversa-modo-ia')
 const { anexarNomeExibicao } = require('../services/lead-nome-exibicao')
 const { buscarNomesMapsPorTelefone } = require('../db/lead-nome-maps')
+// Ownership da CONVERSA (CRM em equipe, Etapa 7). A regra e' pura; o recorte depende da
+// capacidade, avaliada pelo modulo puro de acesso.
+const CR = require('../db/conversa-responsavel')
+const {
+  sqlEscopo: sqlEscopoConversa, escopoEfetivo: escopoEfetivoConversa, avaliarResponder,
+} = require('../services/conversa-responsavel')
+const { CAPACIDADES: CAP, podeCapacidade } = require('../services/acesso-capacidades')
+const { requireCapacidade } = require('../middleware/tenant')
 
 const router = Router({ mergeParams: true })
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
@@ -24,6 +32,35 @@ const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
 function conversaEmpresaScope(alias = 'c') {
   const prefix = alias ? `${alias}.` : ''
   return `(${prefix}empresa_id = $1 OR ($1::uuid = $2::uuid AND ${prefix}empresa_id IS NULL))`
+}
+
+function capacidade(req, cap) {
+  return podeCapacidade({
+    papel: req.papelEmpresa,
+    permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
+    papelPlataforma: req.usuario?.role,
+  }, cap)
+}
+
+/**
+ * Recorte por ATENDENTE (Etapa 7).
+ *
+ * Quem tem CONVERSA_VER_TODAS ve a empresa inteira. Quem nao tem ve **as suas + as NAO
+ * ATRIBUIDAS** — e a segunda metade nao e' cortesia: esconder a fila sem dono deixaria clientes
+ * sem resposta. O escopo EFETIVO volta no meta para a tela poder dizer o que esta mostrando.
+ */
+function recorteAtendente(req, proximoPlaceholder) {
+  const podeVerTodas = capacidade(req, CAP.CONVERSA_VER_TODAS)
+  const { sql, usaUsuario } = sqlEscopoConversa(req.query?.escopo, {
+    podeVerTodas, alias: 'c', placeholder: `$${proximoPlaceholder}`,
+  })
+  return {
+    sql,
+    usaUsuario,
+    usuarioId: req.usuario?.id || null,
+    efetivo: escopoEfetivoConversa(req.query?.escopo, podeVerTodas),
+    podeVerTodas,
+  }
 }
 
 const LEAD_PROFILE_JOIN = `
@@ -111,6 +148,15 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
     conds.push(`regexp_replace(c.numero, '[^0-9]', '', 'g') LIKE $${vals.push(`%${numero}%`)}`)
   }
 
+  // Recorte por ATENDENTE (Etapa 7). Aplicado na listagem E na contagem, com os MESMOS params —
+  // dois WHERE separados divergiriam e o rodape passaria a contradizer a lista (foi assim que
+  // `montarFiltrosProspects` nasceu, na paginacao do Banco de Leads).
+  const recorte = recorteAtendente(req, vals.length + 1)
+  if (recorte.sql) {
+    if (recorte.usaUsuario) vals.push(recorte.usuarioId)
+    conds.push(recorte.sql)
+  }
+
   const where = conds.join(' AND ')
 
   const limitParam = vals.length + 1
@@ -120,9 +166,10 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
       `SELECT c.*, lp.negocio, lp.cidade, lp.temperatura_lead, lp.score_dor, lp.score_lead,
               lp.dor_principal, lp.ja_aparece_google, lp.precisa_sistema,
               lp.produto_sugerido, lp.intencao_principal, lp.insights_lead,
-              lp.reuniao_proposta
+              lp.reuniao_proposta, ur.nome AS responsavel_nome
        FROM vendas.conversas c
        ${LEAD_PROFILE_JOIN}
+       LEFT JOIN app.usuarios ur ON ur.id = c.responsavel_id
        WHERE ${where}
        ORDER BY c.atualizado_em DESC
        LIMIT $${limitParam} OFFSET $${offsetParam}`,
@@ -137,8 +184,73 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   return res.json({
     ok: true,
     data: await anexarNomesExibicao(rows.map(anexarScoreInteresse), req.empresa.id),
-    meta: { total: parseInt(cnt.total, 10), page, limit },
+    meta: {
+      total: parseInt(cnt.total, 10),
+      page,
+      limit,
+      // A tela precisa poder dizer "mostrando as suas e as nao atribuidas". Recortar em silencio
+      // faria o atendente achar que a Central esvaziou.
+      escopo: recorte.efetivo,
+      pode_ver_todas: recorte.podeVerTodas,
+    },
   })
+})
+
+// ─── Ownership da conversa (CRM em equipe, Etapa 7) ─────────────────────────────────────────
+
+// POST /:numero/assumir — o atendente pega uma conversa SEM responsavel (claim atomico).
+router.post('/:numero/assumir', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CONVERSA_ATENDER), async (req, res) => {
+  try {
+    const data = await CR.assumirConversa(pool, req.empresa.id, req.params.numero, req.usuario?.id)
+    return res.json({ ok: true, data })
+  } catch (err) {
+    const status = err.statusCode || 500
+    logger.error('POST conversas/assumir:', err.message)
+    return res.status(status).json({ ok: false, error: { code: err.code || 'ASSUMIR_FAILED', message: err.message } })
+  }
+})
+
+// PUT /:numero/responsavel { usuario_id | null, motivo? }
+// `usuario_id: null` devolve para a fila de nao atribuidas. O PROPRIO responsavel sempre pode
+// devolver o que e' dele; trocar o atendente de outra pessoa exige CONVERSA_VER_TODAS — a mesma
+// capacidade de ver a Central inteira, porque quem redistribui precisa enxergar o todo.
+router.put('/:numero/responsavel', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CONVERSA_ATENDER), async (req, res) => {
+  try {
+    const b = req.body || {}
+    const data = await CR.definirResponsavel(pool, req.empresa.id, req.params.numero, {
+      destinoId: b.usuario_id || null,
+      usuarioId: req.usuario?.id,
+      podeTransferir: capacidade(req, CAP.CONVERSA_VER_TODAS),
+      motivo: b.motivo,
+    })
+    return res.json({ ok: true, data })
+  } catch (err) {
+    const status = err.statusCode || 500
+    logger.error('PUT conversas/responsavel:', err.message)
+    return res.status(status).json({ ok: false, error: { code: err.code || 'RESPONSAVEL_FAILED', message: err.message } })
+  }
+})
+
+// GET /:numero/responsavel-historico — a linha do tempo de atendentes.
+router.get('/:numero/responsavel-historico', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const data = await CR.historicoDaConversa(pool, req.empresa.id, req.params.numero, { limit: req.query.limit })
+    return res.json({ ok: true, data })
+  } catch (err) {
+    const status = err.statusCode || 500
+    return res.status(status).json({ ok: false, error: { code: 'HISTORICO_FAILED', message: err.message } })
+  }
+})
+
+// GET /atendentes — quantas conversas cada atendente tem. Leitura de GESTAO.
+router.get('/atendentes', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CONVERSA_VER_TODAS), async (req, res) => {
+  try {
+    const data = await CR.contagemPorResponsavel(pool, req.empresa.id)
+    return res.json({ ok: true, data })
+  } catch (err) {
+    const status = err.statusCode || 500
+    return res.status(status).json({ ok: false, error: { code: 'ATENDENTES_FAILED', message: err.message } })
+  }
 })
 
 /**
@@ -167,9 +279,11 @@ async function anexarModoIa(conversa, empresaId) {
 // GET /api/empresas/:empresaId/conversas/:numero
 router.get('/:numero', requireAuth, requireEmpresaAccess, async (req, res) => {
   const { rows: [conversa] } = await pool.query(
-    `SELECT c.*, lp.*, c.numero AS numero, c.empresa_id AS empresa_id, c.atualizado_em AS atualizado_em
+    `SELECT c.*, lp.*, c.numero AS numero, c.empresa_id AS empresa_id, c.atualizado_em AS atualizado_em,
+            ur.nome AS responsavel_nome
      FROM vendas.conversas c
      ${LEAD_PROFILE_JOIN}
+     LEFT JOIN app.usuarios ur ON ur.id = c.responsavel_id
      WHERE ${conversaEmpresaScope('c')} AND c.numero = $3`,
     [req.empresa.id, PJ_EMPRESA_ID, req.params.numero]
   )
@@ -211,7 +325,8 @@ router.delete('/:numero', requireAuth, requireEmpresaAccess, async (req, res) =>
 
 // DELETE /api/empresas/:empresaId/conversas/:numero/historico
 // Limpa o histórico de mensagens da conversa (mantém a linha — reset agente_pausado e estagio).
-router.delete('/:numero/historico', requireAuth, requireEmpresaAccess, async (req, res) => {
+// Apagar historico e DESTRUTIVO e IRREVERSIVEL: fora do alcance do comercial e do member.
+router.delete('/:numero/historico', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CONVERSA_APAGAR_HISTORICO), async (req, res) => {
   const { rows: [c] } = await pool.query(
     `UPDATE vendas.conversas
         SET historico = '[]'::jsonb,
@@ -344,7 +459,10 @@ router.post('/:numero/feedback', requireAuth, requireEmpresaAccess, async (req, 
 
 // PATCH /api/empresas/:empresaId/conversas/:numero/agente
 // Pausa ou retoma as respostas automaticas apenas desta conversa.
-router.patch('/:numero/agente', requireAuth, requireEmpresaAccess, async (req, res) => {
+// Pausar/retomar o agente numa conversa tambem e' ligar/desligar a IA — a diferenca entre esta
+// rota e a de `modo_ia` e' de DURACAO (pausa operacional vs decisao persistente), nao de efeito
+// sobre o cliente. Deixar uma das duas sem gate tornaria a outra decorativa.
+router.patch('/:numero/agente', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CONVERSA_GERENCIAR_IA), async (req, res) => {
   try {
     const out = await alterarPausaAgenteConversa({
       pool,
@@ -366,7 +484,18 @@ router.patch('/:numero/agente', requireAuth, requireEmpresaAccess, async (req, r
 // O estado atual nao tem rota de leitura propria de proposito: `GET /:numero` ja devolve
 // preferencia, padrao global, modo efetivo e origem — o painel nao faz requisicao extra.
 // A resposta deste PATCH traz os MESMOS campos derivados, para a tela nao precisar recarregar.
-router.patch('/:numero/modo-ia', requireAuth, requireEmpresaAccess, async (req, res) => {
+// A CAPACIDADE SENSIVEL (CRM em equipe, Etapa 9).
+//
+// A permissao NAO e' "a IA pode responder" — essa capacidade ja existia no produto, com a
+// granularidade certa (`vendas.conversas.modo_ia`, migration 063). O que a Etapa 9 controla e'
+// **quem pode LIGAR a IA**: mudar o modo para `conversa` e ativar a instancia.
+//
+// Bloqueada por padrao para o `comercial`, liberavel por CONCESSAO ADITIVA no vinculo — e' o caso
+// de uso que motivou o `permissoes JSONB` da Etapa 1.
+//
+// Nenhum motor de IA foi alterado: o gate esta na ROTA, e os enviadores
+// (core-funnel.js / contexto2-responder.js) continuam decidindo pelo `modo_ia` gravado.
+router.patch('/:numero/modo-ia', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CONVERSA_GERENCIAR_IA), async (req, res) => {
   try {
     const out = await alterarModoIaConversa({
       pool,

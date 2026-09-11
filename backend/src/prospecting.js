@@ -7,6 +7,7 @@ const { enviarMensagem, classificarErroEvolution, verificarStatusInstanciaEvolut
 const { registrarEnvioNoHistorico } = require('./services/historico-envio')
 const { calcularScoreCadastroPlaces, montarJsonApresentacaoPlaces } = require('./services/lead-score-cadastro')
 const { classificarUrl, classificarLead } = require('./services/site-classificacao')
+const { qualificacaoInicial, qualificacaoDaDecisao, sqlAbordavel } = require('./services/lead-qualificacao')
 const { logger } = require('./logger')
 const { candidatosTelefoneBR } = require('./telefone-br')
 const { dashboardAutorizado: dashboardSessionAutorizado } = require('./dashboardAuth')
@@ -1105,14 +1106,18 @@ async function salvarProspect(prospect, contexto = {}) {
     INSERT INTO prospectador.prospects (
       nome, telefone, nicho, cidade, endereco, avaliacoes, rating, tem_site,
       site, maps_url, place_id, origem, score, motivo_score, raw_json, empresa_id,
-      link_original, classificacao_url
+      link_original, classificacao_url, qualificacao
     )
     VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8,
       $9, $10, $11, $12, $13, $14, $15::jsonb, $16,
-      $17, $18
+      $17, $18, $19
     )
     ON CONFLICT (empresa_id, place_id) DO UPDATE
+    -- A coluna qualificacao NAO aparece neste SET, de proposito: recoleta NUNCA rebaixa nem
+    -- promove uma decisao humana (ver qualificacaoAoRecoletar em
+    -- services/lead-qualificacao.js). E' o que impede "lead descartado volta por nova
+    -- importacao". Mesma disciplina que ja protegia status — nem ele esta neste SET.
     SET nome = EXCLUDED.nome,
         telefone = COALESCE(EXCLUDED.telefone, prospectador.prospects.telefone),
         nicho = EXCLUDED.nicho,
@@ -1154,6 +1159,10 @@ async function salvarProspect(prospect, contexto = {}) {
       p.empresa_id,
       p.link_original,
       p.classificacao_url,
+      // Lead NOVO nasce `pendente` — explicito, nunca herdando o DEFAULT 'legado' do schema (que
+      // existe so' para a carencia do acervo). Se este argumento cair, um lead nunca visto
+      // entraria na operacao sem triagem; ha guarda de regressao em test/lead-qualificacao.test.js.
+      qualificacaoInicial(),
     ]
   )
   return prospectPersistido(rows[0])
@@ -1471,7 +1480,7 @@ async function consultarProspectsHidratados(whereSql, params, ordemELimite) {
   })
 }
 
-async function atualizarStatusProspect(id, status, empresaId = null) {
+async function atualizarStatusProspect(id, status, empresaId = null, opts = {}) {
   const safeId = normalizarId(id)
   const safeStatus = normalizarStatusProspect(status)
   if (!safeId || !['aprovado', 'rejeitado'].includes(safeStatus)) {
@@ -1482,15 +1491,24 @@ async function atualizarStatusProspect(id, status, empresaId = null) {
   // Isolamento por tenant: quando empresaId é passado, só altera prospect DESTA empresa.
   const filtroEmpresa = empresaId ? ' AND empresa_id = $3' : ''
   const params = empresaId ? [safeId, safeStatus, empresaId] : [safeId, safeStatus]
+  // A decisao humana grava os DOIS eixos na MESMA instrucao (Etapa 3). `status` e' o funil e sera
+  // sobrescrito por `enviado` na primeira abordagem; `qualificacao` e' o que sobrevive e e' o que
+  // as quatro portas consultam. Gravar em dois passos deixaria uma janela em que o lead esta
+  // aprovado num eixo e pendente no outro.
+  // `qualificacaoDaDecisao` traduz o vocabulario de `status` (rejeitado) para o desta coluna
+  // (descartado) — os nomes divergem por historia, e a costura vive num lugar so'.
+  const qualificacao = qualificacaoDaDecisao(safeStatus)
+  const usuarioId = opts.usuarioId || null
   const { rows } = await pool.query(
     `
     UPDATE prospectador.prospects
     SET status = $2,
+        ${qualificacao ? 'qualificacao = $' + (params.length + 1) + ', qualificado_em = NOW(), qualificado_por = $' + (params.length + 2) + '::uuid,' : ''}
         updated_at = NOW()
     WHERE id = $1${filtroEmpresa}
     RETURNING *
     `,
-    params
+    qualificacao ? [...params, qualificacao, usuarioId] : params
   )
   if (!rows[0]) {
     const err = new Error('Prospect nao encontrado.')
@@ -1500,7 +1518,7 @@ async function atualizarStatusProspect(id, status, empresaId = null) {
   return prospectPersistido(rows[0])
 }
 
-async function atualizarStatusProspectsLote(ids, status, empresaId = null) {
+async function atualizarStatusProspectsLote(ids, status, empresaId = null, opts = {}) {
   const safeStatus = normalizarStatusProspect(status)
   const safeIds = normalizarArrayIds(ids)
   if (!safeIds.length || !['aprovado', 'rejeitado'].includes(safeStatus)) {
@@ -1511,15 +1529,18 @@ async function atualizarStatusProspectsLote(ids, status, empresaId = null) {
   // Isolamento por tenant: quando empresaId é passado, só altera prospects DESTA empresa.
   const filtroEmpresa = empresaId ? ' AND empresa_id = $3' : ''
   const params = empresaId ? [safeIds, safeStatus, empresaId] : [safeIds, safeStatus]
+  const qualificacao = qualificacaoDaDecisao(safeStatus)
+  const usuarioId = opts.usuarioId || null
   const { rows } = await pool.query(
     `
     UPDATE prospectador.prospects
     SET status = $2,
+        ${qualificacao ? 'qualificacao = $' + (params.length + 1) + ', qualificado_em = NOW(), qualificado_por = $' + (params.length + 2) + '::uuid,' : ''}
         updated_at = NOW()
     WHERE id = ANY($1::uuid[])${filtroEmpresa}
     RETURNING *
     `,
-    params
+    qualificacao ? [...params, qualificacao, usuarioId] : params
   )
   return rows.map(prospectPersistido)
 }
@@ -2208,9 +2229,23 @@ async function processarFluxoCompleto(prospectIds, limite = null) {
   }
   const diagnosticos = await gerarDiagnosticos({ prospect_ids: ids })
   const idsDiagnosticados = diagnosticos.map((d) => d.prospect_id).filter(Boolean)
-  const aprovados = await atualizarStatusProspectsLote(idsDiagnosticados, 'aprovado')
-  await Promise.all(aprovados.map((p) => registrarProspectEvent(p.id, 'aprovado', { origem: 'fluxo_completo' })))
-  const idsAprovados = aprovados.map((p) => p.id).filter(Boolean)
+  // AUTO-APROVACAO REMOVIDA (CRM em equipe, Etapa 3.5). Este trecho chamava
+  // `atualizarStatusProspectsLote(idsDiagnosticados, 'aprovado')`: gerar um diagnostico por IA
+  // virava aprovacao comercial em lote, sem nenhum humano — exatamente o que a porta existe para
+  // impedir. **PROIBIDO reintroduzir**: ha guarda de regressao em test/lead-qualificacao.test.js.
+  //
+  // Consequencia declarada: este fluxo legado so' agenda envio para quem JA passou pela triagem.
+  // Ele ja estava inerte na pratica — desde a migracao para Bright Data, `pesquisarPlaces` devolve
+  // `prospects: []`, entao o unico chamador (`/dashboard/prospeccao/places-search-completo`)
+  // enfileira lista vazia.
+  const { rows: jaAprovados } = idsDiagnosticados.length
+    ? await pool.query(
+      `SELECT id FROM prospectador.prospects
+        WHERE id = ANY($1::uuid[]) AND ${sqlAbordavel('')}`,
+      [idsDiagnosticados]
+    )
+    : { rows: [] }
+  const idsAprovados = jaAprovados.map((r) => r.id).filter(Boolean)
   const limiteNum = limite == null ? null : normalizarInteiro(limite, idsAprovados.length || 1, 1, 200)
   const idsParaEnviar = limiteNum == null ? idsAprovados : idsAprovados.slice(0, limiteNum)
   const cfg = await obterConfiguracaoProspeccao(pool)

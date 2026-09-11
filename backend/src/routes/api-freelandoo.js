@@ -107,13 +107,17 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
     // da empresa da requisição — este fluxo nunca adota instância que já existia.
     const evidencia = evidenciaDeOrigemAutorizada(req.usuario?.id)
     const { rows: [row] } = await client.query(
+      // `usuario_id` = responsavel pela instancia (CRM em equipe, Etapa 8). Nao participa da
+      // resolucao de envio nem do webhook — serve a visibilidade e a responsabilidade.
       `INSERT INTO app.empresa_whatsapp_instances
          (empresa_id, evolution_instance, nome, config_json, contexto_id,
-          origem_vinculo, origem_vinculo_em, origem_vinculo_usuario_id)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7) RETURNING *`,
+          origem_vinculo, origem_vinculo_em, origem_vinculo_usuario_id,
+          usuario_id, criado_por)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9) RETURNING *`,
       [
         req.empresa.id, evolutionInstance, nomeInstancia, JSON.stringify({ canal: 'freelandoo' }), ctx.id,
         evidencia.origem_vinculo, evidencia.origem_vinculo_usuario_id,
+        req.usuario?.id || null, req.usuario?.id || null,
       ]
     )
     inst = row

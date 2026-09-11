@@ -10,6 +10,7 @@ const {
   PERGUNTA_STATUS, MOTIVO_PERDA,
   FOLLOWUP_CANAL, FOLLOWUP_STATUS, FOLLOWUP_PRIORIDADE, FOLLOWUP_ORIGEM, FOLLOWUP_EMAIL_STATUS,
   DISPONIBILIDADE_CANAIS, DISPONIBILIDADE_ORIGEM,
+  PAPEIS_EMPRESA,
 } = require('../src/domain-enums')
 
 const initSql = fs.readFileSync(path.join(__dirname, '..', 'sql', 'init.sql'), 'utf8')
@@ -26,6 +27,7 @@ const mig052 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '
 const mig062 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '062_follow_ups.sql'), 'utf8')
 const mig066 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '066_contato_canal_disponibilidade.sql'), 'utf8')
 const mig067 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '067_follow_up_canal_email.sql'), 'utf8')
+const mig070 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '070_papel_comercial.sql'), 'utf8')
 
 // Extrai a lista de valores da primeira CHECK (... IN (...)) que segue o nome da constraint.
 function checkIn(sql, constraintName) {
@@ -152,6 +154,15 @@ test('FOLLOWUP_* batem com as CHECK de app.follow_ups (062, canal REDEFINIDO pel
 test('DISPONIBILIDADE_* batem com as CHECK de app.contato_canal_disponibilidade (066, canal REDEFINIDO pela 067)', () => {
   mesmoConjunto(DISPONIBILIDADE_CANAIS, checkIn(mig067, 'contato_canal_disp_canal_chk'), 'disponibilidade.canal')
   mesmoConjunto(DISPONIBILIDADE_ORIGEM, checkIn(mig066, 'contato_canal_disp_origem_chk'), 'disponibilidade.origem')
+})
+
+test('PAPEIS_EMPRESA bate com a CHECK app_usuarios_empresas_role_chk (migration 070)', () => {
+  mesmoConjunto(PAPEIS_EMPRESA, checkIn(mig070, 'app_usuarios_empresas_role_chk'), 'usuarios_empresas.role')
+  // A 070 só ALARGA a CHECK da migration 001: nenhum papel que já existia pode ter saído, senão
+  // um vínculo gravado antes passaria a violar a constraint no primeiro UPDATE da linha.
+  for (const papel of ['owner', 'admin', 'member']) {
+    assert.ok(PAPEIS_EMPRESA.includes(papel), `papel legado '${papel}' desapareceu do enum`)
+  }
 })
 
 test('FOLLOWUP_EMAIL_STATUS bate com a CHECK follow_up_emails_status_chk (migration 067)', () => {

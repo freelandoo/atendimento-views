@@ -41,8 +41,13 @@ const configSemi = {
   auto_ativo: false, janela_inicio: '08:00', janela_fim: '18:00',
   teto_diario: 40, intervalo_min: 15, intervalo_max: 30,
 }
+// `qualificacao` e' OBRIGATORIA a partir da Etapa 3 (a PORTA da operacao comercial): sem ela,
+// `avaliarAbordagem` recebe undefined e NEGA — de proposito, para que um SELECT que esqueca a
+// coluna nunca abra a porta por omissao. `legado` e' o valor do acervo existente em producao, que
+// e' exatamente o caso que estes testes exercitam.
 const prospectRodavel = {
   id: 'p1', nome: 'Padaria X', telefone: '5511999998888', status: 'contato_encontrado',
+  qualificacao: 'legado',
   origem: 'manual', cidade: 'SP', nicho: 'padaria', raw_json: null, bloqueado_ate: null,
   tem_whatsapp: null,
 }
@@ -328,8 +333,8 @@ test('dispararGerados respeita cooldown (429)', async () => {
     ['app.banco_leads_config', () => ({ rows: [configSemi] })],
     ["d.status = 'aguardando_disparo'", () => ({ rows: [{
       disparo_id: 'd1', mensagem: 'Oi', prospect_id: 'p1', nome: 'Lead',
-      telefone: '5511999998888', status: 'contato_encontrado', bloqueado_ate: null,
-      tem_whatsapp: null,
+      telefone: '5511999998888', status: 'contato_encontrado', qualificacao: 'legado',
+      bloqueado_ate: null, tem_whatsapp: null,
     }] })],
     ['FOR UPDATE', () => ({ rows: [{ id: 'i1' }] })],
     ['FROM prospectador.lead_disparos\n      WHERE empresa_id', () => ({ rows: [{ hoje: 1, ultimo: agoraIso }] })],
@@ -438,8 +443,8 @@ test('dispararGerados descarta rascunho de lead sabidamente sem WhatsApp', async
     ['app.banco_leads_config', () => ({ rows: [configSemi] })],
     ["d.status = 'aguardando_disparo'", () => ({ rows: [{
       disparo_id: 'd1', mensagem: 'Oi', prospect_id: 'p1', nome: 'Lead',
-      telefone: '5511999998888', status: 'contato_encontrado', bloqueado_ate: null,
-      tem_whatsapp: false,
+      telefone: '5511999998888', status: 'contato_encontrado', qualificacao: 'legado',
+      bloqueado_ate: null, tem_whatsapp: false,
     }] })],
     ['UPDATE prospectador.prospects SET tem_whatsapp = false', () => ({ rows: [] })],
     ['UPDATE prospectador.lead_disparos', () => ({ rows: [] })],

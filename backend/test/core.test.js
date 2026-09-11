@@ -7053,7 +7053,42 @@ test('atualizarStatusProspect: empresaId restringe o UPDATE ao tenant (isolament
     // Sem empresaId (caller legado): não adiciona filtro de empresa.
     await atualizarStatusProspect('11111111-1111-1111-1111-111111111111', 'aprovado')
     assert.doesNotMatch(capturado.sql, /empresa_id = \$3/)
-    assert.equal(capturado.params.length, 2)
+    // A asserção é sobre a AUSÊNCIA do filtro de empresa, não sobre a contagem de parâmetros:
+    // desde a Etapa 3 (a porta da operação comercial) a decisão humana grava também o eixo de
+    // qualificação e quem decidiu, na mesma instrução — então há 2 parâmetros a mais. Contar
+    // params aqui media outra coisa e quebrava a cada campo novo.
+    assert.doesNotMatch(capturado.sql, /empresa_id/)
+    assert.equal(capturado.params[0], '11111111-1111-1111-1111-111111111111')
+    assert.equal(capturado.params[1], 'aprovado')
+  } finally {
+    pool.query = originalQuery
+  }
+})
+
+test('atualizarStatusProspect: a decisão humana grava o eixo de qualificação e quem decidiu', async () => {
+  // Etapa 3. `status` é o funil (e será sobrescrito por 'enviado' na primeira abordagem);
+  // `qualificacao` é o eixo que as quatro portas consultam e que sobrevive à abordagem.
+  const originalQuery = pool.query
+  let capturado = null
+  pool.query = async (sql, params) => {
+    capturado = { sql: String(sql), params }
+    return { rows: [{ id: params[0], status: params[1] }] }
+  }
+  try {
+    await atualizarStatusProspect('11111111-1111-1111-1111-111111111111', 'aprovado', 'e-123', { usuarioId: 'u-9' })
+    assert.match(capturado.sql, /qualificacao = \$4/)
+    assert.match(capturado.sql, /qualificado_em = NOW\(\)/)
+    assert.equal(capturado.params[3], 'aprovado')
+    assert.equal(capturado.params[4], 'u-9')
+
+    // 'rejeitado' no eixo do funil vira 'descartado' no eixo da qualificação (os nomes divergem
+    // por história; a costura vive em services/lead-qualificacao.js).
+    await atualizarStatusProspect('11111111-1111-1111-1111-111111111111', 'rejeitado', 'e-123', { usuarioId: 'u-9' })
+    assert.equal(capturado.params[3], 'descartado')
+
+    // Sem usuário informado, a coluna de autoria fica NULA — não se inventa quem decidiu.
+    await atualizarStatusProspect('11111111-1111-1111-1111-111111111111', 'aprovado', 'e-123')
+    assert.equal(capturado.params[4], null)
   } finally {
     pool.query = originalQuery
   }

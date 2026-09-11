@@ -6,6 +6,7 @@
 const { CAMPANHA_STATUS, OPORTUNIDADE_STATUS } = require('../domain-enums')
 const { montarFilaPriorizada } = require('../services/ligacao-prioridade')
 const { classificarLead } = require('../services/site-classificacao')
+const { sqlAbordavel, sqlNaoDescartado } = require('../services/lead-qualificacao')
 
 const STATUS_CAMPANHA = new Set(CAMPANHA_STATUS)
 const STATUS_OPORTUNIDADE = new Set(OPORTUNIDADE_STATUS)
@@ -178,15 +179,23 @@ async function adicionarLeads(pool, empresaId, campanhaId, prospectIds = []) {
   await assertMesmaEmpresa(pool, { schema: 'app', table: 'campanhas', id: campanhaId, empresaId, rotulo: 'Campanha' })
   const ids = [...new Set((prospectIds || []).map(String).filter(Boolean))]
   if (!ids.length) return { adicionados: 0 }
+  // A PORTA (CRM em equipe, Etapa 3.4). Antes, o unico recorte era `p.empresa_id` — qualquer id
+  // de prospect da empresa entrava na campanha, em qualquer qualificacao. E' aqui que o defeito
+  // C1/C2 nasce; a 2a barreira em `filaDeTrabalho` so o contem.
+  // A condicao vem do modulo PURO `services/lead-qualificacao.js`, nunca escrita a mao aqui.
   const { rows } = await pool.query(
     `INSERT INTO app.campanha_leads (campanha_id, prospect_id, empresa_id)
      SELECT $1, p.id, $2 FROM prospectador.prospects p
       WHERE p.empresa_id = $2 AND p.id = ANY($3::uuid[])
+        AND ${sqlAbordavel('p')}
      ON CONFLICT (campanha_id, prospect_id) DO NOTHING
      RETURNING id`,
     [campanhaId, empresaId, ids]
   )
-  return { adicionados: rows.length }
+  // `nao_adicionados` distingue "ja estava na campanha" de "nao passou pela porta". Sem isso o
+  // operador veria "0 adicionados" sem saber se falta triar o lead.
+  const recusados = ids.length - rows.length
+  return { adicionados: rows.length, ...(recusados > 0 ? { nao_adicionados: recusados } : {}) }
 }
 
 // Acompanhamento da campanha (TODOS os leads, inclusive finalizados). Traz os mesmos sinais
@@ -244,6 +253,13 @@ async function filaDeTrabalho(pool, empresaId, campanhaId, { limit = 50 } = {}) 
        JOIN prospectador.prospects p ON p.id = cl.prospect_id
       WHERE cl.campanha_id = $1 AND cl.empresa_id = $2
         AND cl.status NOT IN ('convertido', 'descartado')
+        -- 2a BARREIRA (Etapa 3.4). Deliberadamente mais FROUXA que a porta de entrada: exige
+        -- apenas "nao descartado", nao "abordavel". Motivo medido em producao (2026-09-11): 1.031
+        -- leads ja vinculados a campanhas nunca foram triados, e exigir aprovacao aqui esvaziaria
+        -- a fila inteira. Mas 54 estao DESCARTADOS, e ligar para quem uma pessoa recusou e' o
+        -- unico desfecho que chega ao CLIENTE. Defesa em profundidade: vinculo criado antes da
+        -- porta existir nao viaja daqui para a discagem.
+        AND ${sqlNaoDescartado('p')}
       ORDER BY CASE cl.status
                  WHEN 'nao_iniciado' THEN 0 WHEN 'tentativa_contato' THEN 1
                  WHEN 'nao_atendeu' THEN 2 WHEN 'follow_up' THEN 3 ELSE 4 END,

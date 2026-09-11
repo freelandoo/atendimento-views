@@ -238,10 +238,20 @@ test('guarda: a comparacao de modo nao e duplicada fora do modulo dono', () => {
   // O defeito que esta guarda previne: alguem escrever `if (conversa.modo_ia === 'analise')`
   // num fluxo novo. A regra passaria a existir em dois lugares e sairia de sincronia com a
   // precedencia (excecao > global) e com a matriz de capacidades.
+  // COMENTÁRIO NÃO É CÓDIGO: a guarda olha só o que executa.
+  // Acrescentado quando a Etapa 9 do CRM em equipe documentou, em `routes/api-whatsapp.js`, a
+  // alternativa que NÃO foi escolhida (fazer a conversa nascer em modo Análise) — e a guarda
+  // acusou a própria documentação da decisão. Uma guarda que impede explicar a regra empurra o
+  // comentário para fora do código, que é onde ele deixa de ser lido.
   const suspeitos = []
   for (const arquivo of arquivosJs(SRC)) {
     if (arquivo === DONO) continue
-    fs.readFileSync(arquivo, 'utf8').split('\n').forEach((linha, i) => {
+    const semBloco = fs.readFileSync(arquivo, 'utf8').replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    semBloco.split('\n').forEach((linhaBruta, i) => {
+      // `[^\n]*` e nao `.*`: este repositorio tem arquivos em CRLF, e em JS o `.` NAO casa `\r`.
+      // Com `//.*$` o strip falhava silenciosamente nessas linhas (o `\r` barrava o `$`), e a
+      // guarda voltava a acusar comentario como se fosse codigo.
+      const linha = linhaBruta.replace(/\/\/[^\n]*$/, '')
       const comparaComLiteral = /modo_ia[^\n]{0,40}['"](herdar|analise|conversa)['"]/.test(linha)
         || /['"](herdar|analise|conversa)['"][^\n]{0,40}modo_ia/.test(linha)
       if (comparaComLiteral) suspeitos.push(`${path.relative(SRC, arquivo)}:${i + 1}`)

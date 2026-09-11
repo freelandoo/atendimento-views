@@ -18,6 +18,7 @@ const { extrairContato } = require('./social-contact-extract')
 const { descobrirPerfisPorNicho, normalizarSeeds } = require('./social-discovery')
 const { normalizarAgendaCampanha, campanhaDevePreencher } = require('./captacao-scheduler')
 const { classificarMelhorLink } = require('./site-classificacao')
+const { qualificacaoInicial } = require('./lead-qualificacao')
 
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
 const POLL_MS = Number(process.env.CAPTACAO_WORKER_POLL_MS || 60000)
@@ -298,8 +299,8 @@ async function upsertProspectSocial(empresaId, fonte, perfil, campanha = null, o
     `INSERT INTO prospectador.prospects
        (empresa_id, origem, external_ref, nome, telefone, email, instagram_handle,
         nicho, cidade, bio, link_bio, categoria_perfil, seguidores, tem_site, site,
-        status, raw_json, link_original, classificacao_url)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19)
+        status, raw_json, link_original, classificacao_url, qualificacao)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19,$20)
      ON CONFLICT (empresa_id, origem, external_ref) WHERE external_ref IS NOT NULL
      DO UPDATE SET
         telefone = COALESCE(prospectador.prospects.telefone, EXCLUDED.telefone),
@@ -347,6 +348,10 @@ async function upsertProspectSocial(empresaId, fonte, perfil, campanha = null, o
       nicho, cidade, contato.bio, contato.link_bio, categoria, seguidores,
       urlCls.tem_site, site, status, JSON.stringify(raw),
       urlCls.link_original || linkBruto || null, urlCls.classificacao,
+      // Lead social NOVO tambem nasce `pendente`: coletar do Instagram nao e' triar. O
+      // `ON CONFLICT` abaixo NAO toca `qualificacao`, pelo mesmo motivo que preserva os status
+      // terminais — recoleta nao decide de novo o que uma pessoa decidiu.
+      qualificacaoInicial(),
     ]
   )
   return rows[0] || null

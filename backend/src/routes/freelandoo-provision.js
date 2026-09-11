@@ -209,6 +209,10 @@ router.post('/provision', requireProvisionSecret, async (req, res) => {
         // requisição (chamada máquina-a-máquina), daí o `origem_vinculo_usuario_id` nulo.
         const evidencia = evidenciaDeOrigemAutorizada(null)
         const { rows: [row] } = await client.query(
+          // `usuario_id` fica NULO aqui, de proposito: este fluxo e' maquina-a-maquina (nao ha
+          // usuario humano na requisicao, o que ja explica `origem_vinculo_usuario_id` nulo acima).
+          // NULL = instancia DA EMPRESA, que e' exatamente o que ela e'. Inventar um responsavel
+          // seria afirmar que alguem assumiu um numero que ninguem assumiu.
           `INSERT INTO app.empresa_whatsapp_instances
              (empresa_id, evolution_instance, nome, config_json, contexto_id,
               origem_vinculo, origem_vinculo_em, origem_vinculo_usuario_id)

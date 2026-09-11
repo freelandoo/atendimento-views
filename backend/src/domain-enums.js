@@ -140,7 +140,18 @@ const {
 // services/followup-email.js, toca banco e rede — importa-lo daqui criaria ciclo).
 const { FOLLOWUP_EMAIL_STATUS } = require('./services/follow-up-modelo')
 
+// Papéis POR EMPRESA (CRM em equipe, migration 070). Fonte da CHECK
+// app_usuarios_empresas_role_chk. Mesmo padrão dos blocos acima: definidos com comentário no
+// módulo PURO src/services/acesso-capacidades.js — dono do vocabulário de acesso —, aqui apenas
+// REEXPORTADOS para o anti-drift ter um lugar só para olhar.
+//
+// Não confundir com `app.usuarios.role` (superadmin|admin|user), que é o papel de PLATAFORMA e
+// tem CHECK própria em sql/migrations/001_multiempresa.sql. São duas escalas distintas, e foi
+// justamente ler a global no lugar da de empresa que produziu o defeito da Etapa 1.
+const { PAPEIS: PAPEIS_EMPRESA } = require('./services/acesso-capacidades')
+
 module.exports = {
+  PAPEIS_EMPRESA,
   AGENDA_VENDAS,
   AGENDA_APP,
   FOLLOWUP_CANAL,

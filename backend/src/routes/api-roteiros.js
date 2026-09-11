@@ -8,6 +8,8 @@ const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const R = require('../db/roteiros')
 const { logger } = require('../logger')
+const { CAPACIDADES: CAP } = require('../services/acesso-capacidades')
+const { requireCapacidade } = require('../middleware/tenant')
 
 const router = Router({ mergeParams: true })
 
@@ -32,7 +34,7 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
 })
 
 // POST / — cria roteiro + versao 1 (rascunho). { nome, descricao?, nicho? }
-router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.ROTEIRO_GERENCIAR), async (req, res) => {
   try {
     const b = req.body || {}
     const data = await R.criarRoteiro(pool, req.empresa.id, {
@@ -57,7 +59,7 @@ router.get('/:roteiroId', requireAuth, requireEmpresaAccess, async (req, res) =>
 // e campanhas.roteiro_versao_id) sao ON DELETE SET NULL, entao um DELETE nao seria barrado
 // pelo banco: ele desligaria em silencio as ligacoes ja realizadas do roteiro que as gerou.
 // Arquivar e' a operacao segura equivalente. Nao reintroduza exclusao aqui.
-router.post('/:roteiroId/arquivar', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/:roteiroId/arquivar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.ROTEIRO_GERENCIAR), async (req, res) => {
   try {
     const roteiroId = idParam(res, req.params.roteiroId, 'roteiroId'); if (!roteiroId) return
     const data = await R.definirArquivamentoRoteiro(pool, req.empresa.id, roteiroId, true)
@@ -65,7 +67,7 @@ router.post('/:roteiroId/arquivar', requireAuth, requireEmpresaAccess, async (re
   } catch (err) { return erro(res, err, 'ROTEIRO_ARQUIVAR_FAILED') }
 })
 
-router.post('/:roteiroId/desarquivar', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/:roteiroId/desarquivar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.ROTEIRO_GERENCIAR), async (req, res) => {
   try {
     const roteiroId = idParam(res, req.params.roteiroId, 'roteiroId'); if (!roteiroId) return
     const data = await R.definirArquivamentoRoteiro(pool, req.empresa.id, roteiroId, false)
@@ -74,7 +76,7 @@ router.post('/:roteiroId/desarquivar', requireAuth, requireEmpresaAccess, async 
 })
 
 // POST /:roteiroId/versoes — nova versao (rascunho); { basear_em_versao_id? } copia etapas.
-router.post('/:roteiroId/versoes', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/:roteiroId/versoes', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.ROTEIRO_GERENCIAR), async (req, res) => {
   try {
     const roteiroId = idParam(res, req.params.roteiroId, 'roteiroId'); if (!roteiroId) return
     const data = await R.criarNovaVersao(pool, req.empresa.id, roteiroId, {
@@ -95,7 +97,7 @@ router.get('/versoes/:versaoId', requireAuth, requireEmpresaAccess, async (req, 
 })
 
 // PUT /versoes/:versaoId/etapas — substitui as etapas (so em rascunho). { etapas: [...] }
-router.put('/versoes/:versaoId/etapas', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.put('/versoes/:versaoId/etapas', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.ROTEIRO_GERENCIAR), async (req, res) => {
   try {
     const versaoId = idParam(res, req.params.versaoId, 'versaoId'); if (!versaoId) return
     const data = await R.salvarEtapas(pool, req.empresa.id, versaoId, req.body?.etapas)
@@ -103,7 +105,7 @@ router.put('/versoes/:versaoId/etapas', requireAuth, requireEmpresaAccess, async
   } catch (err) { return erro(res, err, 'ETAPAS_SAVE_FAILED') }
 })
 
-router.post('/versoes/:versaoId/publicar', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/versoes/:versaoId/publicar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.ROTEIRO_GERENCIAR), async (req, res) => {
   try {
     const versaoId = idParam(res, req.params.versaoId, 'versaoId'); if (!versaoId) return
     const data = await R.publicarVersao(pool, req.empresa.id, versaoId)
@@ -111,7 +113,7 @@ router.post('/versoes/:versaoId/publicar', requireAuth, requireEmpresaAccess, as
   } catch (err) { return erro(res, err, 'VERSAO_PUBLICAR_FAILED') }
 })
 
-router.post('/versoes/:versaoId/arquivar', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/versoes/:versaoId/arquivar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.ROTEIRO_GERENCIAR), async (req, res) => {
   try {
     const versaoId = idParam(res, req.params.versaoId, 'versaoId'); if (!versaoId) return
     const data = await R.arquivarVersao(pool, req.empresa.id, versaoId)

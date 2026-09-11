@@ -7,6 +7,8 @@ const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const C = require('../db/campanhas')
 const { logger } = require('../logger')
+const { CAPACIDADES: CAP } = require('../services/acesso-capacidades')
+const { requireCapacidade } = require('../middleware/tenant')
 
 const router = Router({ mergeParams: true })
 
@@ -27,7 +29,7 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   catch (err) { return erro(res, err, 'CAMPANHAS_LIST_FAILED') }
 })
 
-router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CAMPANHA_GERENCIAR), async (req, res) => {
   try {
     const b = req.body || {}
     const data = await C.criarCampanha(pool, req.empresa.id, {
@@ -48,14 +50,14 @@ router.get('/:id', requireAuth, requireEmpresaAccess, async (req, res) => {
   } catch (err) { return erro(res, err, 'CAMPANHA_GET_FAILED') }
 })
 
-router.put('/:id', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.put('/:id', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CAMPANHA_GERENCIAR), async (req, res) => {
   try {
     const id = reqId(res, req.params.id, 'id'); if (!id) return
     return res.json({ ok: true, data: await C.atualizarCampanha(pool, req.empresa.id, id, req.body || {}) })
   } catch (err) { return erro(res, err, 'CAMPANHA_UPDATE_FAILED') }
 })
 
-router.put('/:id/responsaveis', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.put('/:id/responsaveis', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CAMPANHA_GERENCIAR), async (req, res) => {
   try {
     const id = reqId(res, req.params.id, 'id'); if (!id) return
     return res.json({ ok: true, data: await C.definirResponsaveis(pool, req.empresa.id, id, req.body?.usuario_ids) })
@@ -63,7 +65,7 @@ router.put('/:id/responsaveis', requireAuth, requireEmpresaAccess, async (req, r
 })
 
 // --- LEADS DA CAMPANHA ------------------------------------------------------------
-router.post('/:id/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/:id/leads', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CAMPANHA_GERENCIAR), async (req, res) => {
   try {
     const id = reqId(res, req.params.id, 'id'); if (!id) return
     return res.json({ ok: true, data: await C.adicionarLeads(pool, req.empresa.id, id, req.body?.prospect_ids) })
@@ -93,14 +95,14 @@ router.get('/:id/funil', requireAuth, requireEmpresaAccess, async (req, res) => 
   } catch (err) { return erro(res, err, 'CAMPANHA_FUNIL_FAILED') }
 })
 
-router.put('/leads/:campanhaLeadId', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.put('/leads/:campanhaLeadId', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CAMPANHA_GERENCIAR), async (req, res) => {
   try {
     const id = reqId(res, req.params.campanhaLeadId, 'campanhaLeadId'); if (!id) return
     return res.json({ ok: true, data: await C.atualizarLead(pool, req.empresa.id, id, req.body || {}) })
   } catch (err) { return erro(res, err, 'CAMPANHA_LEAD_UPDATE_FAILED') }
 })
 
-router.delete('/leads/:campanhaLeadId', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.delete('/leads/:campanhaLeadId', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CAMPANHA_GERENCIAR), async (req, res) => {
   try {
     const id = reqId(res, req.params.campanhaLeadId, 'campanhaLeadId'); if (!id) return
     return res.json({ ok: true, data: await C.removerLead(pool, req.empresa.id, id) })

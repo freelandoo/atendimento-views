@@ -9,6 +9,8 @@
 const { Router } = require('express')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
+const { CAPACIDADES: CAP } = require('../services/acesso-capacidades')
+const { requireCapacidade } = require('../middleware/tenant')
 const {
   obterConfigFollowup,
   salvarConfigFollowup,
@@ -101,7 +103,7 @@ router.get('/config', requireAuth, requireEmpresaAccess, async (req, res) => {
 })
 
 // PUT /config — upsert parcial: { modo, meta_ligacoes_dia, pausado }.
-router.put('/config', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.put('/config', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.FOLLOWUP_CONFIG_EMPRESA), async (req, res) => {
   try {
     const b = req.body || {}
     validarPatchConfig(b)
@@ -126,7 +128,7 @@ router.get('/auto', requireAuth, requireEmpresaAccess, async (req, res) => {
 })
 
 // POST /auto/reprocessar — re-enfileira follow-ups que falharam (todos ou um id).
-router.post('/auto/reprocessar', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/auto/reprocessar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.FOLLOWUP_CONFIG_EMPRESA), async (req, res) => {
   try {
     const out = await reprocessarFalhas(pool, req.empresa.id, { agendamentoId: req.body?.agendamento_id })
     return res.json({ ok: true, data: out })
@@ -262,6 +264,10 @@ router.get('/itens', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const itens = await F.listarFollowUps(pool, req.empresa.id, {
       status: req.query.status, canal: req.query.canal, limit: req.query.limit,
+      // Filtro OPCIONAL de tela ("meus follow-ups"), nao recorte de permissao: a fila tem
+      // visibilidade GERAL por decisao de produto. Ver o comentario em db/follow-ups.js.
+      responsavelId: req.query.responsavel_id || null,
+      semResponsavel: req.query.sem_responsavel === 'true',
     })
     return res.json({ ok: true, data: { itens } })
   } catch (err) { return erro(res, err, 'FOLLOWUPS_LIST_FAILED') }
@@ -443,5 +449,15 @@ router.get('/contatos/:telefone/historico', requireAuth, requireEmpresaAccess, a
 })
 
 router._internals = { validarNumeroEntrada, validarTextoEntrada, validarPatchConfig }
+
+// GET /por-responsavel — quantos follow-ups em aberto cada pessoa tem.
+// Nao exige capacidade de gestao: a fila de Follow-ups tem visibilidade GERAL (decisao D), e saber
+// quem esta com o que e' parte de trabalhar nela em equipe.
+router.get('/por-responsavel', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const data = await F.contagemPorResponsavel(pool, req.empresa.id)
+    return res.json({ ok: true, data })
+  } catch (err) { return erro(res, err, 'FOLLOWUPS_POR_RESPONSAVEL_FAILED') }
+})
 
 module.exports = router

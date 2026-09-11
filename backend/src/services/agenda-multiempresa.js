@@ -111,6 +111,9 @@ function mapEvento(row) {
   if (!row) return null
   const iso = (d) => (d instanceof Date ? d.toISOString() : d)
   return {
+    responsavel_id: row.responsavel_id || null,
+    responsavel_nome: row.responsavel_nome || null,
+    prospect_id: row.prospect_id || null,
     id: row.id,
     empresa_id: row.empresa_id,
     criado_por: row.criado_por || null,
@@ -146,12 +149,34 @@ function montarResumo(eventos = []) {
 }
 
 // Existe evento (não cancelado) DESTA empresa que se sobrepõe a [inicio, fim)?
-async function existeConflito(pool, { empresaId, dataInicio, dataFim, ignorarId = null }) {
+/**
+ * Ja existe compromisso nesse horario?
+ *
+ * CRM EM EQUIPE, ETAPA 11: O CONFLITO PASSOU A SER POR PESSOA.
+ *
+ * Antes, a checagem era da agenda da EMPRESA INTEIRA: qualquer compromisso naquele horario
+ * bloqueava qualquer outro. Com uma pessoa isso estava certo. Com tres vendedores, a reuniao de um
+ * impediria os outros dois de marcar no mesmo horario — o oposto do que uma equipe precisa.
+ *
+ * Regra nova, com a assimetria que importa:
+ *   - com `responsavelId`: conflita com os eventos DAQUELA pessoa **e** com os da empresa (os que
+ *     nao tem responsavel). O segundo termo nao e' detalhe — o evento sem dono pode ser um
+ *     BLOQUEIO da empresa (feriado, treinamento), e ignora-lo deixaria marcar reuniao em cima dele;
+ *   - sem `responsavelId`: comportamento IDENTICO ao de antes (empresa inteira). Nenhum chamador
+ *     que nao informe responsavel muda de comportamento — inclusive os eventos ja existentes, que
+ *     nao tem responsavel e continuam bloqueando todo mundo.
+ */
+async function existeConflito(pool, { empresaId, dataInicio, dataFim, ignorarId = null, responsavelId = null }) {
   const params = [empresaId, dataInicio, dataFim, STATUS_OCUPA]
   let ignoreClause = ''
   if (ignorarId) {
     params.push(ignorarId)
     ignoreClause = `AND id <> $${params.length}`
+  }
+  let escopoPessoa = ''
+  if (responsavelId) {
+    params.push(responsavelId)
+    escopoPessoa = `AND (responsavel_id = $${params.length}::uuid OR responsavel_id IS NULL)`
   }
   const { rows } = await pool.query(
     `SELECT COUNT(*)::int AS n FROM app.agenda_eventos
@@ -160,26 +185,32 @@ async function existeConflito(pool, { empresaId, dataInicio, dataFim, ignorarId 
         AND status = ANY($4::text[])
         AND data_inicio < $3
         AND data_fim > $2
-        ${ignoreClause}`,
+        ${ignoreClause}
+        ${escopoPessoa}`,
     params
   )
   return (rows[0]?.n || 0) > 0
 }
 
 // Lista eventos da empresa numa janela [inicio, fim] (datas YYYY-MM-DD, inclusivas).
-async function listarEventos(pool, { empresaId, inicio, fim, tipo = null, status = null } = {}) {
+async function listarEventos(pool, { empresaId, inicio, fim, tipo = null, status = null, responsavelId = null } = {}) {
   const inicioDia = parseDataDia(inicio, hojeIso())
   const fimDia = parseDataDia(fim, inicioDia)
-  const params = [empresaId, inicioDia, fimDia, TIMEZONE, tipo, status]
+  // Filtro por responsavel (Etapa 11). Inclui os eventos SEM responsavel de proposito: sao os da
+  // empresa (bloqueios, feriados, e todo evento anterior a migration 076) e eles valem para todos.
+  const params = [empresaId, inicioDia, fimDia, TIMEZONE, tipo, status, responsavelId]
   const { rows } = await pool.query(
-    `SELECT * FROM app.agenda_eventos
-      WHERE empresa_id = $1
-        AND excluido_em IS NULL
-        AND data_inicio >= ($2::date::timestamp AT TIME ZONE $4)
-        AND data_inicio < (($3::date + INTERVAL '1 day')::timestamp AT TIME ZONE $4)
-        AND ($5::text IS NULL OR tipo = $5::text)
-        AND ($6::text IS NULL OR status = $6::text)
-      ORDER BY data_inicio ASC, criado_em ASC`,
+    `SELECT ae.*, u.nome AS responsavel_nome
+       FROM app.agenda_eventos ae
+       LEFT JOIN app.usuarios u ON u.id = ae.responsavel_id
+      WHERE ae.empresa_id = $1
+        AND ae.excluido_em IS NULL
+        AND ae.data_inicio >= ($2::date::timestamp AT TIME ZONE $4)
+        AND ae.data_inicio < (($3::date + INTERVAL '1 day')::timestamp AT TIME ZONE $4)
+        AND ($5::text IS NULL OR ae.tipo = $5::text)
+        AND ($6::text IS NULL OR ae.status = $6::text)
+        AND ($7::uuid IS NULL OR ae.responsavel_id = $7::uuid OR ae.responsavel_id IS NULL)
+      ORDER BY ae.data_inicio ASC, ae.criado_em ASC`,
     params
   )
   const eventos = rows.map(mapEvento)
@@ -194,23 +225,34 @@ async function obterEvento(pool, { empresaId, id }) {
   return mapEvento(rows[0] || null)
 }
 
-async function criarEvento(pool, { empresaId, criadoPor = null, ...body } = {}) {
+async function criarEvento(pool, { empresaId, criadoPor = null, responsavelId = null, prospectId = null, ...body } = {}) {
   const parsed = validarEvento(body, { parcial: false })
   if (!parsed.ok) throw erro('VALIDATION', `Dados inválidos: ${parsed.issues.join(', ')}`, 400)
   const v = parsed.value
+  // O responsavel DEFAULT e' quem esta criando: no caso comum (o vendedor marca a propria
+  // reuniao) os dois sao a mesma pessoa, e exigir o campo so' produziria evento sem dono.
+  // Quem marca PARA outra pessoa informa explicitamente.
+  const responsavel = responsavelId || criadoPor || null
   // Bloqueio reserva o horário mas não "conflita" com nada; demais tipos respeitam conflito.
   if (v.tipo !== 'bloqueio' && STATUS_OCUPA.includes(v.status)) {
-    const conflito = await existeConflito(pool, { empresaId, dataInicio: v.data_inicio, dataFim: v.data_fim })
-    if (conflito) throw erro('CONFLICT', 'Já existe um compromisso nesse horário.', 409)
+    const conflito = await existeConflito(pool, {
+      empresaId, dataInicio: v.data_inicio, dataFim: v.data_fim, responsavelId: responsavel,
+    })
+    if (conflito) {
+      throw erro('CONFLICT', responsavel
+        ? 'Já existe um compromisso desta pessoa (ou um bloqueio da empresa) nesse horário.'
+        : 'Já existe um compromisso nesse horário.', 409)
+    }
   }
   const { rows } = await pool.query(
     `INSERT INTO app.agenda_eventos
-       (empresa_id, criado_por, titulo, descricao, tipo, status, prioridade,
+       (empresa_id, criado_por, responsavel_id, prospect_id, titulo, descricao, tipo, status, prioridade,
         data_inicio, data_fim, timezone, lead_telefone, lead_nome, metadata)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)
      RETURNING *`,
     [
-      empresaId, criadoPor, v.titulo, v.descricao, v.tipo, v.status, v.prioridade,
+      empresaId, criadoPor, responsavel, prospectId || null,
+      v.titulo, v.descricao, v.tipo, v.status, v.prioridade,
       v.data_inicio, v.data_fim, TIMEZONE, v.lead_telefone, v.lead_nome, JSON.stringify(v.metadata || {}),
     ]
   )

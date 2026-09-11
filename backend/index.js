@@ -72,7 +72,18 @@ const prompts = require('./src/prompts')
 const { pool, initDB } = require('./src/db')
 const agent = require('./src/agent')
 const { seedAdminUser } = require('./src/auth')
-const { resolveEmpresaFromWebhook, requireAuth, requireRole } = require('./src/middleware/tenant')
+const {
+  resolveEmpresaFromWebhook, requireAuth, requireRole, requireEmpresaAccess, requireCapacidade,
+} = require('./src/middleware/tenant')
+// CRM em equipe, Etapa 6: os mounts da OPERACAO trocaram `requireRole('admin')` (papel GLOBAL, que
+// valia dentro de qualquer empresa) por CAPACIDADE sobre o papel do VINCULO. `requireRole`
+// continua montando o que e' de PLATAFORMA (/api/admin, quarentena global, /api/llm) — os dois
+// convivem de proposito.
+//
+// `requireEmpresaAccess` passa a ser explicito no mount: `requireCapacidade` depende dele (e
+// recusa com 500 ACESSO_MAL_CONFIGURADO se rodar antes). As rotas internas seguem chamando
+// `requireEmpresaAccess` de novo — e' idempotente e mantem cada rota legivel isoladamente.
+const { CAPACIDADES: CAP } = require('./src/services/acesso-capacidades')
 const apiAuthRouter = require('./src/routes/api-auth')
 
 dashboardAuth.registerDashboardAuthRoutes(app)
@@ -83,6 +94,15 @@ app.use('/api/operador', dashboardAuth.requireDashboardAuth)
 app.use('/api/auth', apiAuthRouter)
 app.use('/api/admin', require('./src/routes/api-admin-usuarios').router)
 app.use('/api/empresas', require('./src/routes/api-empresas'))
+// Contas da empresa (CRM em equipe, Etapa 2). A autorização vive DENTRO do router
+// (requireAuth + requireEmpresaAccess + requireCapacidade(MEMBROS_GERENCIAR)) — é a primeira
+// rota do projeto autorizada por CAPACIDADE e pelo papel do VÍNCULO, não pelo papel global.
+// Não confundir com /api/admin/usuarios, que é a lista de PLATAFORMA (superadmin).
+app.use('/api/empresas/:empresaId/membros', require('./src/routes/api-membros'))
+// Painel da EQUIPE (CRM em equipe, Etapa 12): leitura AGREGADA de quem esta com o que. A
+// autorizacao vive dentro do router (MEMBROS_GERENCIAR — quem gerencia contas responde pela
+// distribuicao do trabalho). Nao tem SQL proprio: reusa as contagens de cada modulo.
+app.use('/api/empresas/:empresaId/equipe', require('./src/routes/api-equipe'))
 app.use('/api/empresas/:empresaId/contextos', require('./src/routes/api-contextos'))
 app.use('/api/empresas/:empresaId/contextos/:contextoId', require('./src/routes/api-contexto-estagios'))
 const fontesRouter = require('./src/routes/api-contextos-fontes')
@@ -90,31 +110,31 @@ app.use('/api/empresas/:empresaId/contextos/:contextoId/fontes', fontesRouter)
 app.use('/api/empresas/:empresaId/contextos/:contextoId/sugerir-contexto1', fontesRouter.sugerirRouter)
 app.use('/api/empresas/:empresaId/whatsapp', require('./src/routes/api-whatsapp'))
 app.use('/api/empresas/:empresaId/freelandoo', require('./src/routes/api-freelandoo'))
-app.use('/api/empresas/:empresaId/playbook', requireAuth, requireRole('admin'), require('./src/routes/api-playbook'))
+app.use('/api/empresas/:empresaId/playbook', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.INSTANCIA_GERENCIAR_CONTEXTO), require('./src/routes/api-playbook'))
 app.use('/api/empresas/:empresaId/conversas', require('./src/routes/api-conversas'))
 app.use('/api/empresas/:empresaId/leads-quentes', require('./src/routes/api-leads-quentes'))
 // Aquisição / banco de leads / relatórios / LLM são admin-only (gating de backend SaaS)
 // Rotinas de Aquisição: montadas ANTES da rota mais genérica de prospecção.
-app.use('/api/empresas/:empresaId/prospeccao/rotinas', requireAuth, requireRole('admin'), require('./src/routes/api-aquisicao-rotinas'))
+app.use('/api/empresas/:empresaId/prospeccao/rotinas', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.AQUISICAO_GERENCIAR), require('./src/routes/api-aquisicao-rotinas'))
 // Assistente de Oportunidades por LEAD (curadoria da Busca avulsa).
-app.use('/api/empresas/:empresaId/prospeccao/curadoria', requireAuth, requireRole('admin'), require('./src/routes/api-aquisicao-curadoria'))
+app.use('/api/empresas/:empresaId/prospeccao/curadoria', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_TRIAR), require('./src/routes/api-aquisicao-curadoria'))
 // Sugestões de ROTINA (assistente por mercado): sem UI desde a curadoria por lead, mas
 // a rota segue montada — as sugestões já decididas continuam consultáveis.
-app.use('/api/empresas/:empresaId/prospeccao/oportunidades', requireAuth, requireRole('admin'), require('./src/routes/api-aquisicao-oportunidades'))
-app.use('/api/empresas/:empresaId/prospeccao', requireAuth, requireRole('admin'), require('./src/routes/api-prospeccao'))
-app.use('/api/empresas/:empresaId/captacao', requireAuth, requireRole('admin'), require('./src/routes/api-captacao'))
-app.use('/api/empresas/:empresaId/banco-leads', requireAuth, requireRole('admin'), require('./src/routes/api-banco-leads'))
-app.use('/api/empresas/:empresaId/follow-ups', requireAuth, requireRole('admin'), require('./src/routes/api-follow-ups'))
-app.use('/api/empresas/:empresaId/roteiros', requireAuth, requireRole('admin'), require('./src/routes/api-roteiros'))
-app.use('/api/empresas/:empresaId/nichos', requireAuth, requireRole('admin'), require('./src/routes/api-nichos'))
-app.use('/api/empresas/:empresaId/campanhas', requireAuth, requireRole('admin'), require('./src/routes/api-campanhas'))
-app.use('/api/empresas/:empresaId/ligacoes', requireAuth, requireRole('admin'), require('./src/routes/api-ligacoes'))
+app.use('/api/empresas/:empresaId/prospeccao/oportunidades', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.AQUISICAO_GERENCIAR), require('./src/routes/api-aquisicao-oportunidades'))
+app.use('/api/empresas/:empresaId/prospeccao', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.AQUISICAO_GERENCIAR, CAP.LEAD_TRIAR), require('./src/routes/api-prospeccao'))
+app.use('/api/empresas/:empresaId/captacao', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.AQUISICAO_GERENCIAR), require('./src/routes/api-captacao'))
+app.use('/api/empresas/:empresaId/banco-leads', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_VER_APROVADOS), require('./src/routes/api-banco-leads'))
+app.use('/api/empresas/:empresaId/follow-ups', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.FOLLOWUP_VER_FILA), require('./src/routes/api-follow-ups'))
+app.use('/api/empresas/:empresaId/roteiros', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.ROTEIRO_LER), require('./src/routes/api-roteiros'))
+app.use('/api/empresas/:empresaId/nichos', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.ROTEIRO_GERENCIAR), require('./src/routes/api-nichos'))
+app.use('/api/empresas/:empresaId/campanhas', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LIGACAO_OPERAR), require('./src/routes/api-campanhas'))
+app.use('/api/empresas/:empresaId/ligacoes', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LIGACAO_OPERAR), require('./src/routes/api-ligacoes'))
 app.use('/api/empresas/:empresaId/agenda', require('./src/routes/api-agenda'))
 // Configurações › Integrações › Meta Conversions. Admin-only + requireEmpresaAccess
 // por rota: a credencial da Meta é de terceiro e não pode ser vista/editada por
 // membro comum nem por admin de outra empresa.
-app.use('/api/empresas/:empresaId/integracoes/meta', requireAuth, requireRole('admin'), require('./src/routes/api-integracoes-meta'))
-app.use('/api/empresas/:empresaId/relatorios', requireAuth, requireRole('admin'), require('./src/routes/api-relatorios'))
+app.use('/api/empresas/:empresaId/integracoes/meta', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.INTEGRACOES_GERENCIAR), require('./src/routes/api-integracoes-meta'))
+app.use('/api/empresas/:empresaId/relatorios', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.RELATORIOS_VER), require('./src/routes/api-relatorios'))
 app.use('/api/empresas/:empresaId/agente-pj', require('./src/routes/api-agente-pj'))
 app.use('/api/llm', requireAuth, requireRole('admin'), require('./src/routes/api-llm'))
 // Pendências de instância (webhooks sem dono comprovado). GLOBAL de propósito: a pendência
@@ -122,7 +142,7 @@ app.use('/api/llm', requireAuth, requireRole('admin'), require('./src/routes/api
 // escolher um, que é o fallback removido.
 app.use('/api/webhook-quarentena', requireAuth, requireRole('admin'), require('./src/routes/api-webhook-quarentena'))
 app.use('/api/prompts-catalogo', require('./src/routes/api-prompts-catalogo'))
-app.use('/api/empresas/:empresaId/llm/uso', requireAuth, requireRole('admin'), require('./src/routes/api-llm-uso'))
+app.use('/api/empresas/:empresaId/llm/uso', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.INTEGRACOES_GERENCIAR), require('./src/routes/api-llm-uso'))
 
 // Webhook público da Freelandoo (valida HMAC internamente; sem auth JWT).
 app.use('/freelandoo/webhook', require('./src/routes/freelandoo-webhook'))

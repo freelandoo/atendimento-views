@@ -8,6 +8,8 @@ const { marcarOnboardingCompleto } = require('../db/usuarios')
 const { invalidarCacheEmpresa } = require('../services/contexto-empresa')
 const { enviarMensagem, verificarStatusInstanciaEvolution } = require('../whatsapp')
 const { renderSaudacao, saudacaoDaInstancia } = require('../services/rodar-leads')
+const { CAPACIDADES: CAP, podeCapacidade } = require('../services/acesso-capacidades')
+const { requireCapacidade } = require('../middleware/tenant')
 const {
   invalidarCacheEmpresaInstancia,
   invalidarCacheAgendaInstancia,
@@ -536,16 +538,121 @@ async function duplicarContexto(client, empresaId, origemId) {
 
 // GET /api/empresas/:empresaId/whatsapp
 router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
+  // Recorte por RESPONSAVEL (CRM em equipe, Etapa 8). Quem pode gerenciar as instancias da empresa
+  // ve todas; quem nao pode ve **as suas + as DA EMPRESA (usuario_id NULL)**. A segunda metade nao
+  // e' cortesia: a instancia compartilhada e' o numero por onde o atendimento da empresa acontece,
+  // e esconde-la deixaria o vendedor sem o canal principal.
+  const podeVerTodas = podeCapacidade({
+    papel: req.papelEmpresa,
+    permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
+    papelPlataforma: req.usuario?.role,
+  }, CAP.INSTANCIA_GERENCIAR_EMPRESA)
+
+  const vals = [req.empresa.id]
+  let recorte = ''
+  if (!podeVerTodas) {
+    vals.push(req.usuario?.id || null)
+    recorte = `AND (ewi.usuario_id = $${vals.length}::uuid OR ewi.usuario_id IS NULL)`
+  }
+
   const { rows } = await pool.query(
-    `SELECT ewi.*, c.nome AS contexto_nome
+    `SELECT ewi.*, c.nome AS contexto_nome,
+            u.nome AS responsavel_nome,
+            (e.contexto_padrao_id IS NOT NULL AND e.contexto_padrao_id = ewi.contexto_id) AS e_contexto_padrao
        FROM app.empresa_whatsapp_instances ewi
        LEFT JOIN app.empresa_contextos c ON c.id = ewi.contexto_id
+       LEFT JOIN app.usuarios u ON u.id = ewi.usuario_id
+       LEFT JOIN app.empresas e ON e.id = ewi.empresa_id
       WHERE ewi.empresa_id = $1
         AND COALESCE(ewi.config_json->>'canal', 'whatsapp') <> 'freelandoo'
+        ${recorte}
       ORDER BY ewi.criado_em DESC`,
-    [req.empresa.id]
+    vals
   )
-  return res.json({ ok: true, data: rows })
+  return res.json({ ok: true, data: rows, meta: { pode_ver_todas: podeVerTodas } })
+})
+
+// ─── Contexto PADRAO da empresa (CRM em equipe, Etapa 8) ────────────────────────────────────
+//
+// Ele e' aplicado na CRIACAO de uma instancia nova (copiado, nao compartilhado) e **nunca**
+// resolvido em tempo de resposta: "atendimento e' 100% por instancia" e' regra do projeto, e um
+// fallback ali faria a instancia de um vendedor responder com o conhecimento de outro atendimento.
+
+// GET /whatsapp/contexto-padrao — qual e o padrao, e quais contextos podem ser escolhidos.
+router.get('/contexto-padrao', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const [{ rows: [emp] }, { rows: contextos }] = await Promise.all([
+    pool.query(`SELECT contexto_padrao_id FROM app.empresas WHERE id = $1`, [req.empresa.id]),
+    pool.query(
+      `SELECT c.id, c.nome,
+              (SELECT COUNT(*)::int FROM app.empresa_whatsapp_instances i WHERE i.contexto_id = c.id) AS instancias
+         FROM app.empresa_contextos c
+        WHERE c.empresa_id = $1
+        ORDER BY c.atualizado_em DESC`,
+      [req.empresa.id]
+    ),
+  ])
+  return res.json({ ok: true, data: { contexto_padrao_id: emp?.contexto_padrao_id || null, contextos } })
+})
+
+// PUT /whatsapp/contexto-padrao { contexto_id | null }
+router.put('/contexto-padrao', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.INSTANCIA_GERENCIAR_CONTEXTO), async (req, res) => {
+  const contextoId = (req.body || {}).contexto_id || null
+  if (contextoId) {
+    // Same-tenant: um contexto de outra empresa como padrao faria a instancia nova nascer com o
+    // conhecimento de outro negocio.
+    const { rows } = await pool.query(
+      `SELECT 1 FROM app.empresa_contextos WHERE id = $1::uuid AND empresa_id = $2`,
+      [contextoId, req.empresa.id]
+    )
+    if (!rows[0]) {
+      return res.status(404).json({ ok: false, error: { code: 'CONTEXTO_NAO_ENCONTRADO', message: 'Contexto não encontrado nesta empresa.' } })
+    }
+  }
+  const { rows: [emp] } = await pool.query(
+    `UPDATE app.empresas SET contexto_padrao_id = $2::uuid, atualizado_em = NOW()
+      WHERE id = $1 RETURNING contexto_padrao_id`,
+    [req.empresa.id, contextoId]
+  )
+  await pool.query(
+    `INSERT INTO app.auditoria_eventos
+       (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_novo, contexto)
+     VALUES ($1, $2::uuid, 'empresa', $1, 'contexto_padrao_definido', $3, '{}'::jsonb)`,
+    [req.empresa.id, req.usuario?.id || null, contextoId]
+  ).catch(() => {})
+  return res.json({ ok: true, data: emp })
+})
+
+// PUT /whatsapp/:instanceId/responsavel { usuario_id | null }
+// NULL = instancia DA EMPRESA (compartilhada). Mexer no responsavel de uma instancia e' gestao.
+router.put('/:instanceId/responsavel', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.INSTANCIA_GERENCIAR_EMPRESA), async (req, res) => {
+  const destino = (req.body || {}).usuario_id || null
+  if (destino) {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM app.usuarios_empresas ue JOIN app.usuarios u ON u.id = ue.usuario_id
+        WHERE ue.empresa_id = $1 AND ue.usuario_id = $2::uuid AND ue.ativo = true AND u.ativo = true`,
+      [req.empresa.id, destino]
+    )
+    if (!rows[0]) {
+      return res.status(400).json({ ok: false, error: { code: 'RESPONSAVEL_INVALIDO', message: 'Responsável não é um membro ativo desta empresa.' } })
+    }
+  }
+  const { rows: [inst] } = await pool.query(
+    `UPDATE app.empresa_whatsapp_instances
+        SET usuario_id = $3::uuid, atualizado_em = NOW()
+      WHERE empresa_id = $1 AND id = $2::uuid
+      RETURNING id, usuario_id`,
+    [req.empresa.id, req.params.instanceId, destino]
+  )
+  if (!inst) {
+    return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instância não encontrada nesta empresa.' } })
+  }
+  await pool.query(
+    `INSERT INTO app.auditoria_eventos
+       (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_novo, contexto)
+     VALUES ($1, $2::uuid, 'whatsapp_instancia', $3::uuid, 'instancia_responsavel_alterado', $4, '{}'::jsonb)`,
+    [req.empresa.id, req.usuario?.id || null, inst.id, destino]
+  ).catch(() => {})
+  return res.json({ ok: true, data: inst })
 })
 
 // GET /api/empresas/:empresaId/whatsapp/conexao-resumo — resumo de conexão de TODAS as
@@ -652,7 +759,27 @@ router.post('/:instanceId/webhook/revalidar', requireAuth, requireEmpresaAccess,
 })
 
 // PATCH /api/empresas/:empresaId/whatsapp/:instanceId — atualiza link de contexto (e nome opcional)
-router.patch('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res) => {
+// ATIVAR uma instancia e' ligar o atendimento automatico naquele numero — a instancia inativa nao
+// responde. Por isso este PATCH exige CONVERSA_GERENCIAR_IA quando mexe em `ativo`, e apenas
+// INSTANCIA_GERENCIAR_PROPRIA para o resto (nome, saudacao, contexto, usa_agenda).
+//
+// O gate e' CONDICIONAL de proposito: exigir a capacidade de IA para renomear a propria instancia
+// tiraria do vendedor a configuracao que e' legitimamente dele.
+router.patch('/:instanceId', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.INSTANCIA_GERENCIAR_PROPRIA), async (req, res) => {
+  // Ligar/desligar o atendimento daquele numero e' a capacidade sensivel da Etapa 9.
+  if (typeof req.body?.ativo === 'boolean' && !podeCapacidade({
+    papel: req.papelEmpresa,
+    permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
+    papelPlataforma: req.usuario?.role,
+  }, CAP.CONVERSA_GERENCIAR_IA)) {
+    return res.status(403).json({
+      ok: false,
+      error: {
+        code: 'FORBIDDEN',
+        message: 'Você não pode ativar ou desativar o atendimento automático deste número. Peça a um administrador.',
+      },
+    })
+  }
   const { contexto_id, nome } = req.body || {}
   const sets = []
   const vals = []
@@ -806,24 +933,77 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   // Webhook da instância recém-criada.
   const webhook = await aplicarWebhookEvolution(evolution_instance, { empresaId: req.empresa.id })
 
+  // Quem nao pode LIGAR a IA cria a instancia INATIVA (decisao E). Avaliado antes da transacao,
+  // com o mesmo modulo puro que autoriza o PATCH de `ativo`.
+  const nasceAtiva = podeCapacidade({
+    papel: req.papelEmpresa,
+    permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
+    papelPlataforma: req.usuario?.role,
+  }, CAP.CONVERSA_GERENCIAR_IA)
+
   // Cria a instância + o contexto dela (1:1) na mesma transação — sem contexto órfão se algo falhar.
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
-    const ctx = await criarContextoParaInstancia(client, req.empresa.id, nome || evolution_instance)
+
+    // CONTEXTO PADRAO DA EMPRESA (CRM em equipe, Etapa 8).
+    //
+    // Corrige a premissa de que "o contexto fica preso a primeira instancia": ele NUNCA ficou —
+    // `app.empresa_contextos` sempre foi entidade da EMPRESA. O que faltava era um PADRAO, para a
+    // instancia nova nao nascer com conhecimento VAZIO.
+    //
+    // O padrao e' COPIADO, nao compartilhado, e essa escolha e' deliberada:
+    //   * copiar preserva "atendimento e' 100% por instancia" — cada numero responde por um
+    //     contexto proprio, que alguem pode ajustar sem mexer no atendimento dos outros;
+    //   * compartilhar acoplaria duas instancias ao MESMO registro editavel, e editar o contexto de
+    //     um vendedor mudaria, em silencio, como o numero do outro responde.
+    // `duplicarContexto` ja existia (usado na troca de numero) e ja e' testado.
+    //
+    // Sem padrao definido, o comportamento e' o de sempre: contexto novo e VAZIO. E' seguro — a
+    // instancia simplesmente nao responde ate alguem preencher (regra de contexto-empresa.js).
+    const { rows: [emp] } = await client.query(
+      `SELECT contexto_padrao_id FROM app.empresas WHERE id = $1`,
+      [req.empresa.id]
+    )
+    let ctx = null
+    let contextoVeioDoPadrao = false
+    if (emp?.contexto_padrao_id) {
+      ctx = await duplicarContexto(client, req.empresa.id, emp.contexto_padrao_id)
+      contextoVeioDoPadrao = !!ctx
+    }
+    if (!ctx) ctx = await criarContextoParaInstancia(client, req.empresa.id, nome || evolution_instance)
+
     // A evidência de origem autorizada é gravada na MESMA transação que o vínculo: não
     // existe janela em que a instância esteja vinculada sem prova de como nasceu.
     const evidencia = evidenciaDeOrigemAutorizada(req.usuario?.id)
+    // `usuario_id` = o RESPONSAVEL pela instancia (Etapa 8). Ele NAO participa da resolucao de
+    // instancia de envio nem do webhook — aquelas olham empresa + instancia provada. Serve a
+    // visibilidade ("minhas instancias") e a responsabilidade.
     const { rows: [inst] } = await client.query(
+      // DECISAO E (CRM em equipe, Etapa 9): a instancia criada por quem NAO pode ligar a IA nasce
+      // **INATIVA**. Instancia inativa nao responde, entao "IA nao liberada automaticamente" passa
+      // a valer sem tocar o caminho do webhook — o admin libera depois, no PATCH.
+      //
+      // A alternativa (fazer as conversas dela nascerem em `modo_ia='analise'`) mexeria no ponto
+      // onde a conversa nasce, dentro do motor de atendimento. Ficou como evolucao futura,
+      // justamente por ser mais invasiva.
       `INSERT INTO app.empresa_whatsapp_instances
          (empresa_id, evolution_instance, nome, config_json, contexto_id,
-          origem_vinculo, origem_vinculo_em, origem_vinculo_usuario_id)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7) RETURNING *`,
+          origem_vinculo, origem_vinculo_em, origem_vinculo_usuario_id,
+          usuario_id, criado_por, ativo)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9, $10) RETURNING *`,
       [
         req.empresa.id, evolution_instance, nome || null, JSON.stringify(config_json), ctx.id,
         evidencia.origem_vinculo, evidencia.origem_vinculo_usuario_id,
+        req.usuario?.id || null, req.usuario?.id || null,
+        nasceAtiva,
       ]
     )
+    inst.contexto_veio_do_padrao = contextoVeioDoPadrao
+    // Numero mudo sem explicacao seria pior que a restricao: a tela precisa dizer o que falta.
+    if (!nasceAtiva) {
+      inst.aviso_ativacao = 'Número conectado, mas o atendimento automático está desligado. Um administrador precisa ativá-lo.'
+    }
     await client.query('COMMIT')
     inst.contexto_nome = ctx.nome
     if (webhook?.configured === false) {

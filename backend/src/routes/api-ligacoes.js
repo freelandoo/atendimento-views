@@ -15,6 +15,8 @@ const AN = require('../db/ligacoes-analitica')
 const ACOMP = require('../services/ligacao-acompanhamento')
 const SESSAO = require('../services/sessao-origem')
 const { logger } = require('../logger')
+const { CAPACIDADES: CAP, podeCapacidade } = require('../services/acesso-capacidades')
+const { requireCapacidade } = require('../middleware/tenant')
 
 const router = Router({ mergeParams: true })
 
@@ -338,14 +340,34 @@ router.patch('/:id/notas', requireAuth, requireEmpresaAccess, async (req, res) =
 })
 
 // GET / — historico de ligacoes. Filtros: ?campanha_lead_id | ?prospect_id | ?campanha_id
+// GET / — historico de ligacoes encerradas.
+//
+// CRM em equipe, Etapa 10: quem NAO tem LIGACAO_VER_TODAS ve so' as suas. O recorte e' decidido
+// AQUI e vai pronto para a camada de dados (que nao conhece papel nem capacidade).
 router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
+    const podeVerTodas = podeCapacidade({
+      papel: req.papelEmpresa,
+      permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
+      papelPlataforma: req.usuario?.role,
+    }, CAP.LIGACAO_VER_TODAS)
     const data = await L.listarLigacoes(pool, req.empresa.id, {
       campanhaLeadId: req.query.campanha_lead_id, prospectId: req.query.prospect_id,
       campanhaId: req.query.campanha_id, limit: req.query.limit,
+      usuarioId: podeVerTodas ? null : (req.usuario?.id || null),
     })
-    return res.json({ ok: true, data })
+    // A tela precisa poder dizer "so' as suas": recortar em silencio faria o vendedor achar que
+    // perdeu historico.
+    return res.json({ ok: true, data, meta: { escopo: podeVerTodas ? 'todas' : 'minhas' } })
   } catch (err) { return erro(res, err, 'LIGACOES_LIST_FAILED') }
+})
+
+// GET /por-usuario — quantas ligacoes cada atendente fez. Leitura de GESTAO.
+router.get('/por-usuario', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LIGACAO_VER_TODAS), async (req, res) => {
+  try {
+    const data = await L.contagemPorUsuario(pool, req.empresa.id, { campanhaId: req.query.campanha_id })
+    return res.json({ ok: true, data })
+  } catch (err) { return erro(res, err, 'LIGACOES_POR_USUARIO_FAILED') }
 })
 
 module.exports = router

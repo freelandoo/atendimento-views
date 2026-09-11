@@ -151,9 +151,14 @@ function createLearning(deps = {}) {
     const statusConversa = coach.status_conversa || conversa?.status || null
     const { rows } = await pool.query(
       `
+      -- A coluna empresa_id vem da CONVERSA, dentro do proprio SQL (CRM em equipe, Etapa 12).
+      -- Antes este INSERT herdava o DEFAULT = PJ da migration 006, entao a analise pos-conversa de
+      -- qualquer tenant nascia marcada como PJ. Mesmo padrao da migration 058.
+      -- Conversa inexistente => NULL, nunca PJ.
       INSERT INTO vendas.analises_pos_conversa
-        (numero, etapa, status_conversa, resumo_problema, o_que_faltou_para_vender, melhorias_para_ia, sinais_melhoria_ia, acoes_de_preparo, confianca_analise, payload_coach)
-      VALUES ($1::text, $2::text, $3::text, $4::text, $5::text[], $6::text[], $7::text[], $8::text[], $9::text, $10::jsonb)
+        (numero, etapa, status_conversa, resumo_problema, o_que_faltou_para_vender, melhorias_para_ia, sinais_melhoria_ia, acoes_de_preparo, confianca_analise, payload_coach, empresa_id)
+      VALUES ($1::text, $2::text, $3::text, $4::text, $5::text[], $6::text[], $7::text[], $8::text[], $9::text, $10::jsonb,
+              (SELECT c.empresa_id FROM vendas.conversas c WHERE c.numero = $1::text))
       RETURNING
         id, numero, etapa, status_conversa, resumo_problema, o_que_faltou_para_vender,
         melhorias_para_ia, sinais_melhoria_ia, acoes_de_preparo, confianca_analise,
