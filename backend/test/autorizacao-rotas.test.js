@@ -89,6 +89,15 @@ const ROTAS_POR_CAPACIDADE = [
   // Etapa 12 — painel da EQUIPE: quem gerencia as contas responde pela distribuição do trabalho.
   { mount: '/api/empresas/:empresaId/equipe', capacidade: C.MEMBROS_GERENCIAR, papeisQuePassam: ['owner', 'admin'], noRouter: true },
 
+  // 2026-09-12 — CONHECIMENTO do atendimento. Os 4 routers de contexto estavam montados SEM
+  // capacidade nenhuma: qualquer membro (inclusive o `comercial`) criava, editava e excluía
+  // contexto, ativava versão e ingeria fonte. Contexto é o que o número da empresa DIZ ao
+  // cliente — é decisão da administração.
+  { mount: '/api/empresas/:empresaId/contextos', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner', 'admin'] },
+  { mount: '/api/empresas/:empresaId/contextos/:contextoId', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner', 'admin'] },
+  { mount: '/api/empresas/:empresaId/contextos/:contextoId/fontes', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner', 'admin'] },
+  { mount: '/api/empresas/:empresaId/contextos/:contextoId/sugerir-contexto1', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner', 'admin'] },
+
   // Etapa 6 — credenciais, custo e leitura de gestão.
   { mount: '/api/empresas/:empresaId/relatorios', capacidade: C.RELATORIOS_VER, papeisQuePassam: ['owner', 'admin'] },
   { mount: '/api/empresas/:empresaId/integracoes/meta', capacidade: C.INTEGRACOES_GERENCIAR, papeisQuePassam: ['owner', 'admin'] },

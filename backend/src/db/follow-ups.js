@@ -464,6 +464,33 @@ async function historicoDoContato(pool, empresaId, telefoneDigitos, { limit = 10
        SELECT 'email_' || fe.status, COALESCE(fe.enviado_em, fe.criado_em), fe.assunto, fe.erro, fe.follow_up_id, NULL::int, 'email'
          FROM app.follow_up_emails fe
         WHERE fe.empresa_id = $1 AND fe.telefone_digitos = $2
+
+       -- FOLLOW-UP AUTOMATICO (o motor de IA, vendas.followup_auto_agendamentos).
+       --
+       -- Ele entra aqui porque CONFIGURAR o automatico e' capacidade de gestao
+       -- (FOLLOWUP_CONFIG_EMPRESA) e VER que ele aconteceu nao e': quem atende o cliente precisa
+       -- saber que uma mensagem ja saiu antes de escrever a proxima. Sem isto, o vendedor
+       -- perguntaria de novo o que o sistema ja perguntou.
+       --
+       -- So' o que ACONTECEU: agendado fica de fora, porque a linha do tempo responde "o que ja
+       -- houve", e o que esta agendado a fila de Follow-ups ja mostra.
+       --
+       -- A empresa vem da CONVERSA, dentro do SQL (padrao da migration 058) e nao de
+       -- fa.empresa_id: a coluna existe desde a migration 077 mas e' NULLABLE e so' e' preenchida
+       -- pelo backfill — filtrar por ela esconderia todo o historico ate o script rodar.
+       --
+       -- motivo_decisao e instrucao_ia NAO saem: sao texto livre gerado pela IA sobre a
+       -- conversa, e esta rota nao devolve conteudo de mensagem (a mesma razao pela qual o corpo
+       -- do e-mail fica fora).
+       UNION ALL
+       SELECT 'followup_auto_' || fa.status,
+              COALESCE(fa.executado_em, fa.cancelado_em, fa.agendado_para),
+              'Follow-up automatico', NULL, NULL::uuid, fa.sequencia, 'whatsapp'
+         FROM vendas.followup_auto_agendamentos fa
+         JOIN vendas.conversas c ON c.numero = fa.numero
+        WHERE c.empresa_id = $1
+          AND regexp_replace(c.numero, '[^0-9]', '', 'g') = $2
+          AND fa.status <> 'agendado'
      ) t
      WHERE t.ocorrido_em IS NOT NULL
      ORDER BY t.ocorrido_em DESC

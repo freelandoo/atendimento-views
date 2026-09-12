@@ -151,15 +151,29 @@ test('o modulo e PURO: sem banco, sem HTTP, sem IA, sem env', () => {
 
 // ─── GUARDAS: as quatro portas estão fechadas ────────────────────────────────────────────
 
-test('GUARDA: a entrada da CAMPANHA exige a porta', () => {
+test('GUARDA: a Central de Ligacoes usa a porta ESTRITA, na entrada E na fila', () => {
+  // Decisao do operador em 2026-09-12: "somente apos a aprovacao o lead pode aparecer na fila".
+  // `legado` deixou de bastar AQUI (e so' aqui — os disparos de WhatsApp/e-mail continuam em
+  // `sqlAbordavel`). As DUAS pontas usam a mesma condicao de proposito: entrada mais frouxa que a
+  // fila deixaria o lead dentro da campanha sem nunca poder ser chamado.
   const src = fonte(path.join('src', 'db', 'campanhas.js'))
   assert.ok(src.includes("require('../services/lead-qualificacao')"), 'campanhas.js perdeu o import')
-  // adicionarLeads: o SELECT do INSERT precisa da condicao.
   const bloco = src.slice(src.indexOf('async function adicionarLeads'), src.indexOf('async function listarLeadsDaCampanha'))
-  assert.ok(bloco.includes('sqlAbordavel'), 'adicionarLeads perdeu a porta — qualquer lead entraria na campanha')
-  // filaDeTrabalho: a 2a barreira.
-  const fila = src.slice(src.indexOf('async function filaDeTrabalho'), src.indexOf('async function funilEtapas'))
-  assert.ok(fila.includes('sqlNaoDescartado'), 'filaDeTrabalho perdeu a 2a barreira — lead descartado voltaria a discagem')
+  assert.ok(bloco.includes('sqlAprovado'), 'adicionarLeads perdeu a porta — qualquer lead entraria na campanha')
+  assert.ok(!bloco.includes('sqlAbordavel'), 'a entrada da campanha voltou a aceitar lead legado sem triagem')
+  // Do inicio de filaDeTrabalho ate a PROXIMA declaracao de funcao — ancorar num vizinho pelo
+  // nome faria a guarda medir o codigo errado assim que alguem inserisse algo entre as duas.
+  const iFila = src.indexOf('async function filaDeTrabalho')
+  const fila = src.slice(iFila, src.indexOf(String.fromCharCode(10) + 'async function ', iFila + 1))
+  assert.ok(fila.includes('sqlAprovado'), 'filaDeTrabalho perdeu a porta — lead nao triado voltaria a discagem')
+  assert.ok(!fila.includes('sqlNaoDescartado'), 'a fila voltou a 2a barreira frouxa')
+})
+
+test('sqlAprovado e mais estrito que sqlAbordavel, e nao toca os disparos', () => {
+  assert.match(Q.sqlAprovado('p'), /p\.qualificacao = 'aprovado'/)
+  assert.ok(!Q.sqlAprovado('p').includes('legado'), 'legado nao passa pela porta estrita')
+  // A porta dos DISPAROS nao mudou: mexer nela pararia a operacao inteira.
+  assert.match(Q.sqlAbordavel('p'), /'aprovado', 'legado'/)
 })
 
 test('GUARDA: os TRES pontos de disparo de WhatsApp exigem a porta', () => {

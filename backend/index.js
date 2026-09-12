@@ -103,11 +103,18 @@ app.use('/api/empresas/:empresaId/membros', require('./src/routes/api-membros'))
 // autorizacao vive dentro do router (MEMBROS_GERENCIAR — quem gerencia contas responde pela
 // distribuicao do trabalho). Nao tem SQL proprio: reusa as contagens de cada modulo.
 app.use('/api/empresas/:empresaId/equipe', require('./src/routes/api-equipe'))
-app.use('/api/empresas/:empresaId/contextos', require('./src/routes/api-contextos'))
-app.use('/api/empresas/:empresaId/contextos/:contextoId', require('./src/routes/api-contexto-estagios'))
+// CONHECIMENTO DO ATENDIMENTO — os 4 routers de contexto sao gateados por
+// INSTANCIA_GERENCIAR_CONTEXTO (a capacidade que a matriz ja descreve como "conhecimento = ativo
+// da empresa"). Ate 2026-09-12 eles nao tinham gate NENHUM alem de `requireAuth`: qualquer membro
+// da empresa — inclusive o `comercial` — podia CRIAR, EDITAR, EXCLUIR contexto, ativar versao e
+// ingerir fonte de conhecimento. Contexto e' o que o numero da empresa DIZ ao cliente; e' decisao
+// da administracao, nao do operador. O comercial continua vendo QUAL contexto sua instancia usa
+// (`contexto_nome` vem na listagem de /whatsapp) — o que ele perde e' o direito de mexer.
+app.use('/api/empresas/:empresaId/contextos', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.INSTANCIA_GERENCIAR_CONTEXTO), require('./src/routes/api-contextos'))
+app.use('/api/empresas/:empresaId/contextos/:contextoId', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.INSTANCIA_GERENCIAR_CONTEXTO), require('./src/routes/api-contexto-estagios'))
 const fontesRouter = require('./src/routes/api-contextos-fontes')
-app.use('/api/empresas/:empresaId/contextos/:contextoId/fontes', fontesRouter)
-app.use('/api/empresas/:empresaId/contextos/:contextoId/sugerir-contexto1', fontesRouter.sugerirRouter)
+app.use('/api/empresas/:empresaId/contextos/:contextoId/fontes', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.INSTANCIA_GERENCIAR_CONTEXTO), fontesRouter)
+app.use('/api/empresas/:empresaId/contextos/:contextoId/sugerir-contexto1', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.INSTANCIA_GERENCIAR_CONTEXTO), fontesRouter.sugerirRouter)
 app.use('/api/empresas/:empresaId/whatsapp', require('./src/routes/api-whatsapp'))
 app.use('/api/empresas/:empresaId/freelandoo', require('./src/routes/api-freelandoo'))
 app.use('/api/empresas/:empresaId/playbook', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.INSTANCIA_GERENCIAR_CONTEXTO), require('./src/routes/api-playbook'))

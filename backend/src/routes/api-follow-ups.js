@@ -136,7 +136,12 @@ router.post('/auto/reprocessar', requireAuth, requireEmpresaAccess, requireCapac
 })
 
 // POST /auto/cancelar — cancela os follow-ups agendados de um lead.
-router.post('/auto/cancelar', requireAuth, requireEmpresaAccess, async (req, res) => {
+//
+// Gateado desde 2026-09-12: desligar a automacao de um lead E' exercer controle sobre a
+// automacao, mesmo sendo por lead. Quem nao configura o automatico tambem nao o cancela — e
+// continua VENDO, no historico do contato, que ele aconteceu (db/follow-ups.js,
+// `historicoDoContato`). Ver e mandar sao capacidades diferentes.
+router.post('/auto/cancelar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.FOLLOWUP_CONFIG_EMPRESA), async (req, res) => {
   try {
     const numero = validarNumeroEntrada(req.body?.numero)
     const out = await cancelarPorLead(pool, req.empresa.id, numero)

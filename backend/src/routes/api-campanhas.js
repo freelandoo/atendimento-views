@@ -83,7 +83,14 @@ router.get('/:id/leads', requireAuth, requireEmpresaAccess, async (req, res) => 
 router.get('/:id/fila', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const id = reqId(res, req.params.id, 'id'); if (!id) return
-    return res.json({ ok: true, data: await C.filaDeTrabalho(pool, req.empresa.id, id, { limit: req.query.limit }) })
+    // `aguardando_triagem` e' ADITIVO no meta (o `data` continua sendo a lista). Sem ele, uma
+    // campanha com 300 leads parados na triagem mostraria "fila vazia — todos ja foram
+    // trabalhados", e o operador procuraria o defeito no lugar errado.
+    const [fila, aguardandoTriagem] = await Promise.all([
+      C.filaDeTrabalho(pool, req.empresa.id, id, { limit: req.query.limit }),
+      C.contarAguardandoTriagem(pool, req.empresa.id, id),
+    ])
+    return res.json({ ok: true, data: fila, meta: { aguardando_triagem: aguardandoTriagem } })
   } catch (err) { return erro(res, err, 'CAMPANHA_FILA_FAILED') }
 })
 

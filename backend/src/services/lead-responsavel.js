@@ -138,23 +138,34 @@ const ESCOPO = Object.freeze({
  */
 function sqlEscopo(escopo, { podeVerTodos = false, alias = 'p', placeholder = '$1' } = {}) {
   const a = alias ? `${alias}.` : ''
-  const pedido = ESCOPO[String(escopo || '').toUpperCase()] || (podeVerTodos ? ESCOPO.TODOS : ESCOPO.MEUS)
+  // ⚠️ O PADRÃO DE QUEM NÃO VÊ TODOS É "MEUS + LIVRES", NUNCA "SÓ MEUS".
+  //
+  // Defeito corrigido (2026-09-12): o default era `MEUS`. Como a Etapa 4 deliberadamente NÃO fez
+  // backfill de responsável — todo lead nasce livre —, o Banco de Leads abria **VAZIO** para todo
+  // vendedor, sempre: `responsavel_id = <ele>` não casava com nenhuma linha. A carteira inteira
+  // ficava inalcançável por quem existe para trabalhá-la.
+  //
+  // É a MESMA regra que `services/conversa-responsavel.js` já aplicava ("minhas + não
+  // atribuídas"), e pelo mesmo motivo: esconder a fila SEM DONO de quem trabalha a fila não
+  // organiza nada — só faz o trabalho desaparecer. `meus` continua alcançável, mas como escolha
+  // EXPLÍCITA da tela, nunca como default silencioso.
+  const pedido = ESCOPO[String(escopo || '').toUpperCase()] || (podeVerTodos ? ESCOPO.TODOS : null)
 
   if (pedido === ESCOPO.LIVRES) return { sql: `${a}responsavel_id IS NULL`, usaUsuario: false }
+  if (pedido === ESCOPO.MEUS) return { sql: `${a}responsavel_id = ${placeholder}`, usaUsuario: true }
   if (pedido === ESCOPO.TODOS && podeVerTodos) return { sql: '', usaUsuario: false }
-  if (pedido === ESCOPO.TODOS) {
-    // Pediu tudo e não pode: cai no que pode ver. Silenciosamente NÃO — a rota devolve o escopo
-    // efetivo junto do resultado, para a tela poder dizer "mostrando apenas os seus".
-    return { sql: `(${a}responsavel_id = ${placeholder} OR ${a}responsavel_id IS NULL)`, usaUsuario: true }
-  }
-  return { sql: `${a}responsavel_id = ${placeholder}`, usaUsuario: true }
+  // Pediu tudo e não pode — ou não pediu nada e não pode ver todos: o padrão do vendedor.
+  // Silenciosamente NÃO: a rota devolve o escopo efetivo junto do resultado, para a tela dizer
+  // exatamente o que está mostrando.
+  return { sql: `(${a}responsavel_id = ${placeholder} OR ${a}responsavel_id IS NULL)`, usaUsuario: true }
 }
 
 /** O escopo que a pessoa EFETIVAMENTE recebeu (para a tela ser honesta sobre o recorte). */
 function escopoEfetivo(escopo, podeVerTodos) {
-  const pedido = ESCOPO[String(escopo || '').toUpperCase()] || (podeVerTodos ? ESCOPO.TODOS : ESCOPO.MEUS)
-  if (pedido === ESCOPO.TODOS && !podeVerTodos) return 'meus_e_livres'
-  return pedido
+  const pedido = ESCOPO[String(escopo || '').toUpperCase()] || (podeVerTodos ? ESCOPO.TODOS : null)
+  if (pedido === ESCOPO.MEUS || pedido === ESCOPO.LIVRES) return pedido
+  if (pedido === ESCOPO.TODOS && podeVerTodos) return ESCOPO.TODOS
+  return 'meus_e_livres'
 }
 
 module.exports = {

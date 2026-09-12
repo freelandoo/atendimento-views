@@ -83,10 +83,21 @@ test('transferir para o MESMO dono e recusado (nao infla historico)', () => {
 
 // ─── Escopo de leitura ───────────────────────────────────────────────────────────────────
 
-test('sqlEscopo: quem NAO pode ver todos recebe "meus" por padrao', () => {
+test('sqlEscopo: quem NAO pode ver todos recebe "meus + LIVRES" por padrao', () => {
+  // DEFEITO CORRIGIDO em 2026-09-12. O padrao era "meus", e como a Etapa 4 nao faz backfill de
+  // responsavel (todo lead nasce livre), o Banco de Leads abria VAZIO para todo vendedor. A
+  // mesma regra que `conversa-responsavel.js` ja aplicava: esconder a fila SEM DONO de quem
+  // trabalha a fila nao organiza — faz o trabalho sumir.
   const r = R.sqlEscopo(undefined, { podeVerTodos: false, alias: 'p' })
-  assert.equal(r.sql, 'p.responsavel_id = $1')
+  assert.equal(r.sql, '(p.responsavel_id = $1 OR p.responsavel_id IS NULL)')
   assert.equal(r.usaUsuario, true)
+  assert.equal(R.escopoEfetivo(undefined, false), 'meus_e_livres')
+})
+
+test('sqlEscopo: "meus" continua alcancavel, mas so como escolha EXPLICITA da tela', () => {
+  const r = R.sqlEscopo('meus', { podeVerTodos: false, alias: 'p' })
+  assert.equal(r.sql, 'p.responsavel_id = $1')
+  assert.equal(R.escopoEfetivo('meus', false), ESCOPO.MEUS)
 })
 
 test('sqlEscopo: quem PODE ver todos recebe sem recorte por padrao', () => {
@@ -117,8 +128,11 @@ test('sqlEscopo respeita o placeholder e o alias informados', () => {
 })
 
 test('sqlEscopo: valor invalido cai no padrao do papel, nunca em "sem recorte"', () => {
-  assert.equal(R.sqlEscopo('lixo', { podeVerTodos: false, alias: 'p' }).sql, 'p.responsavel_id = $1')
-  assert.equal(R.sqlEscopo(null, { podeVerTodos: false, alias: 'p' }).sql, 'p.responsavel_id = $1')
+  const padrao = '(p.responsavel_id = $1 OR p.responsavel_id IS NULL)'
+  assert.equal(R.sqlEscopo('lixo', { podeVerTodos: false, alias: 'p' }).sql, padrao)
+  assert.equal(R.sqlEscopo(null, { podeVerTodos: false, alias: 'p' }).sql, padrao)
+  // O que importa da regra: nunca vira string vazia (= sem recorte) para quem nao pode ver todos.
+  assert.notEqual(R.sqlEscopo('lixo', { podeVerTodos: false, alias: 'p' }).sql, '')
 })
 
 // ─── Pureza e guardas ────────────────────────────────────────────────────────────────────

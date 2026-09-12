@@ -28,6 +28,10 @@ const {
 const { classificarLead } = require('../services/site-classificacao')
 // Ownership do lead (Etapa 4): a REGRA e' pura, o SQL e' proprio, a capacidade decide o recorte.
 const { sqlEscopo, escopoEfetivo } = require('../services/lead-responsavel')
+// A PORTA (Etapa 3). Aqui ela recorta a LEITURA: quem nao pode ver a base bruta nao ve o
+// lead que uma pessoa RECUSOU na triagem. Abordar um descartado e' o unico desfecho que
+// chega ao CLIENTE, e a aba "Descartados" desta tela fala de outro eixo (status do funil).
+const { sqlNaoDescartado } = require('../services/lead-qualificacao')
 const LR = require('../db/lead-responsavel')
 // Abordagem MANUAL (Etapa 5): o produto NAO envia — abre o wa.me e registra o que o vendedor diz.
 const AM = require('../db/abordagem-manual')
@@ -113,7 +117,15 @@ function resolverEscopo(req) {
 function comEscopo(req) {
   const escopo = resolverEscopo(req)
   return {
-    query: { ...req.query, __escopoSql: escopo.sql, __escopoUsaUsuario: escopo.usaUsuario, __usuarioId: escopo.usuarioId },
+    query: {
+      ...req.query,
+      __escopoSql: escopo.sql,
+      __escopoUsaUsuario: escopo.usaUsuario,
+      __usuarioId: escopo.usuarioId,
+      // `podeVerTodos` aqui e' LEAD_VER_BRUTOS — a mesma capacidade que da acesso a base nao
+      // triada. Quem nao a tem nao ve o lead descartado, em nenhuma aba.
+      __ocultarDescartados: !escopo.podeVerTodos,
+    },
     escopo,
   }
 }
@@ -164,6 +176,11 @@ function montarFiltro(empresaId, query) {
     if (query.__escopoUsaUsuario) params.push(query.__usuarioId)
     where.push(query.__escopoSql.replace('$1', `$${params.length}`))
   }
+
+  // Recorte pela PORTA (Etapa 3), aplicado na listagem, na contagem e no export pelo mesmo
+  // ponto. Nao filtra por "abordavel" de proposito: a decisao do operador (2026-09-12) foi que o
+  // Comercial ve tudo MENOS o que uma pessoa recusou — inclusive o que ainda nao foi triado.
+  if (query.__ocultarDescartados) where.push(sqlNaoDescartado(''))
 
   adicionarFiltroMercado(where, params, query)
 

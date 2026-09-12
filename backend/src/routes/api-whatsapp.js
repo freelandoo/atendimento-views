@@ -536,6 +536,72 @@ async function duplicarContexto(client, empresaId, origemId) {
   return novo
 }
 
+/** Veredito de capacidade deste request. A matriz vive no modulo puro; aqui so' se pergunta. */
+function capacidade(req, cap) {
+  return podeCapacidade({
+    papel: req.papelEmpresa,
+    permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
+    papelPlataforma: req.usuario?.role,
+  }, cap)
+}
+
+/**
+ * Guarda das rotas por ID de instancia (2026-09-12) — a metade que faltava da Etapa 8.
+ *
+ * A LISTAGEM ja recortava por responsavel; as rotas `/:instanceId` nao repetiam o recorte. Bastava
+ * trocar o id na URL para LER, RENOMEAR, trocar o contexto ou REMOVER a instancia de outro
+ * vendedor. A capacidade se chama `INSTANCIA_GERENCIAR_PROPRIA` e nada verificava que era propria.
+ *
+ * O alcance e' o MESMO da listagem, de proposito: **a sua + as DA EMPRESA** (`usuario_id IS NULL`).
+ * A segunda metade nao e' cortesia — a migration 075 nao fez backfill, entao **toda instancia que
+ * ja existia tem `usuario_id` nulo**; exigir dono aqui trancaria todo mundo para fora do proprio
+ * numero no dia do deploy.
+ *
+ * 404, nao 403: a existencia de um numero de outro vendedor nao e' informacao desta pessoa.
+ *
+ * Publica `req.instanciaAlvo` para quem precisa decidir depois (o destrutivo, abaixo) sem
+ * consultar de novo.
+ */
+async function alcancaInstancia(req, res, next) {
+  try {
+    const { rows: [inst] } = await pool.query(
+      `SELECT id, usuario_id FROM app.empresa_whatsapp_instances WHERE id = $1 AND empresa_id = $2`,
+      [req.params.instanceId, req.empresa.id]
+    )
+    const naoAchou = () => res.status(404).json({
+      ok: false, error: { code: 'NOT_FOUND', message: 'Instância não encontrada.' },
+    })
+    if (!inst) return naoAchou()
+    req.instanciaAlvo = inst
+    if (capacidade(req, CAP.INSTANCIA_GERENCIAR_EMPRESA)) return next()
+    const minha = inst.usuario_id && String(inst.usuario_id) === String(req.usuario?.id || '')
+    const daEmpresa = !inst.usuario_id
+    if (!minha && !daEmpresa) return naoAchou()
+    return next()
+  } catch (err) {
+    logger.error('[api-whatsapp] alcance da instancia:', err.message)
+    return res.status(500).json({ ok: false, error: { code: 'ALCANCE_FAILED', message: 'Não foi possível concluir a operação.' } })
+  }
+}
+
+/**
+ * O destrutivo e' mais estrito que o alcance: remover ou SUBSTITUIR um numero derruba o
+ * atendimento de quem estiver nele. Sobre a instancia COMPARTILHADA da empresa isso e' decisao de
+ * quem responde pela empresa — o vendedor mexe no numero dele, nao no da casa.
+ */
+function soDonoOuGestor(req, res, next) {
+  const inst = req.instanciaAlvo
+  if (capacidade(req, CAP.INSTANCIA_GERENCIAR_EMPRESA)) return next()
+  if (inst && inst.usuario_id && String(inst.usuario_id) === String(req.usuario?.id || '')) return next()
+  return res.status(403).json({
+    ok: false,
+    error: {
+      code: 'FORBIDDEN',
+      message: 'Este é um número da empresa. Só um administrador pode substituí-lo ou removê-lo.',
+    },
+  })
+}
+
 // GET /api/empresas/:empresaId/whatsapp
 router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   // Recorte por RESPONSAVEL (CRM em equipe, Etapa 8). Quem pode gerenciar as instancias da empresa
@@ -624,7 +690,7 @@ router.put('/contexto-padrao', requireAuth, requireEmpresaAccess, requireCapacid
 
 // PUT /whatsapp/:instanceId/responsavel { usuario_id | null }
 // NULL = instancia DA EMPRESA (compartilhada). Mexer no responsavel de uma instancia e' gestao.
-router.put('/:instanceId/responsavel', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.INSTANCIA_GERENCIAR_EMPRESA), async (req, res) => {
+router.put('/:instanceId/responsavel', requireAuth, requireEmpresaAccess, alcancaInstancia, requireCapacidade(CAP.INSTANCIA_GERENCIAR_EMPRESA), async (req, res) => {
   const destino = (req.body || {}).usuario_id || null
   if (destino) {
     const { rows } = await pool.query(
@@ -664,7 +730,7 @@ router.get('/conexao-resumo', requireAuth, requireEmpresaAccess, async (req, res
 
 // GET /api/empresas/:empresaId/whatsapp/:instanceId — instância única (com contexto vinculado).
 // Garante o invariante 1:1: se a instância (legado) ainda não tem contexto, cria um na hora.
-router.get('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.get('/:instanceId', requireAuth, requireEmpresaAccess, alcancaInstancia, async (req, res) => {
   const { rows: [inst] } = await pool.query(
     `SELECT ewi.*, c.nome AS contexto_nome
        FROM app.empresa_whatsapp_instances ewi
@@ -698,7 +764,7 @@ router.get('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res) =
 
 // GET /api/empresas/:empresaId/whatsapp/:instanceId/status — estado de conexão da
 // instância na Evolution (open/close). Reusa verificarStatusInstanciaEvolution; nunca lança.
-router.get('/:instanceId/status', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.get('/:instanceId/status', requireAuth, requireEmpresaAccess, alcancaInstancia, async (req, res) => {
   const inst = await carregarInstanciaEmpresa(req.params.instanceId, req.empresa.id)
   if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instância não encontrada.' } })
   const st = await verificarStatusInstanciaEvolution(inst.evolution_instance)
@@ -720,7 +786,7 @@ router.get('/:instanceId/status', requireAuth, requireEmpresaAccess, async (req,
 // GET /api/empresas/:empresaId/whatsapp/:instanceId/diagnostico — diagnostico operacional.
 // GET /api/empresas/:empresaId/whatsapp/:instanceId/saude - ultimos eventos
 // tecnicos de conexao/risco da instancia, sem payload bruto nem conteudo de mensagem.
-router.get('/:instanceId/saude', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.get('/:instanceId/saude', requireAuth, requireEmpresaAccess, alcancaInstancia, async (req, res) => {
   const inst = await carregarInstanciaEmpresa(req.params.instanceId, req.empresa.id)
   if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instancia nao encontrada.' } })
   const eventos = await listarEventosSaudeInstancia(pool, req.empresa.id, inst.id, req.query?.limit)
@@ -739,7 +805,7 @@ router.get('/:instanceId/saude', requireAuth, requireEmpresaAccess, async (req, 
   })
 })
 
-router.get('/:instanceId/diagnostico', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.get('/:instanceId/diagnostico', requireAuth, requireEmpresaAccess, alcancaInstancia, async (req, res) => {
   const inst = await carregarInstanciaEmpresa(req.params.instanceId, req.empresa.id)
   if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instancia nao encontrada.' } })
   const data = await montarDiagnosticoInstancia(inst)
@@ -747,7 +813,7 @@ router.get('/:instanceId/diagnostico', requireAuth, requireEmpresaAccess, async 
 })
 
 // POST /api/empresas/:empresaId/whatsapp/:instanceId/webhook/revalidar — reaplica webhook Evolution.
-router.post('/:instanceId/webhook/revalidar', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/:instanceId/webhook/revalidar', requireAuth, requireEmpresaAccess, alcancaInstancia, async (req, res) => {
   const inst = await carregarInstanciaEmpresa(req.params.instanceId, req.empresa.id)
   if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instancia nao encontrada.' } })
   const webhook = await aplicarWebhookEvolution(inst.evolution_instance, {
@@ -765,7 +831,7 @@ router.post('/:instanceId/webhook/revalidar', requireAuth, requireEmpresaAccess,
 //
 // O gate e' CONDICIONAL de proposito: exigir a capacidade de IA para renomear a propria instancia
 // tiraria do vendedor a configuracao que e' legitimamente dele.
-router.patch('/:instanceId', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.INSTANCIA_GERENCIAR_PROPRIA), async (req, res) => {
+router.patch('/:instanceId', requireAuth, requireEmpresaAccess, alcancaInstancia, requireCapacidade(CAP.INSTANCIA_GERENCIAR_PROPRIA), async (req, res) => {
   // Ligar/desligar o atendimento daquele numero e' a capacidade sensivel da Etapa 9.
   if (typeof req.body?.ativo === 'boolean' && !podeCapacidade({
     papel: req.papelEmpresa,
@@ -781,6 +847,18 @@ router.patch('/:instanceId', requireAuth, requireEmpresaAccess, requireCapacidad
     })
   }
   const { contexto_id, nome } = req.body || {}
+  // TROCAR O CONTEXTO DE UM NUMERO E' MEXER NO QUE ELE DIZ AO CLIENTE — e' gestao do conhecimento
+  // da empresa, nao configuracao do proprio numero. Mesmo padrao condicional do `ativo` acima:
+  // exigir a capacidade para renomear a propria instancia tiraria do vendedor o que e' dele.
+  if (contexto_id !== undefined && !capacidade(req, CAP.INSTANCIA_GERENCIAR_CONTEXTO)) {
+    return res.status(403).json({
+      ok: false,
+      error: {
+        code: 'FORBIDDEN',
+        message: 'Você não pode trocar o contexto deste número. O conhecimento do atendimento é definido pela administração da empresa.',
+      },
+    })
+  }
   const sets = []
   const vals = []
   if (contexto_id !== undefined) {
@@ -839,7 +917,7 @@ router.patch('/:instanceId', requireAuth, requireEmpresaAccess, requireCapacidad
 // POST /api/empresas/:empresaId/whatsapp/:instanceId/contexto/duplicar { origem_contexto_id }
 // Reutilizar contexto por CÓPIA: clona um contexto existente da empresa e vincula à instância
 // (fica independente). Para reutilizar por COMPARTILHAMENTO, use o PATCH com { contexto_id }.
-router.post('/:instanceId/contexto/duplicar', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/:instanceId/contexto/duplicar', requireAuth, requireEmpresaAccess, alcancaInstancia, async (req, res) => {
   const origemId = req.body?.origem_contexto_id
   if (!origemId) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe o contexto de origem.' } })
@@ -1042,7 +1120,7 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
 })
 
 // GET /api/empresas/:empresaId/whatsapp/:instanceId/qrcode
-router.get('/:instanceId/qrcode', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.get('/:instanceId/qrcode', requireAuth, requireEmpresaAccess, alcancaInstancia, async (req, res) => {
   const { rows: [inst] } = await pool.query(
     'SELECT evolution_instance FROM app.empresa_whatsapp_instances WHERE id = $1 AND empresa_id = $2',
     [req.params.instanceId, req.empresa.id]
@@ -1070,7 +1148,7 @@ router.get('/:instanceId/qrcode', requireAuth, requireEmpresaAccess, async (req,
   }
 })
 
-router.get('/:instanceId/substituicao-impacto', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.get('/:instanceId/substituicao-impacto', requireAuth, requireEmpresaAccess, alcancaInstancia, async (req, res) => {
   const destinoId = String(req.query?.destino_id || '').trim()
   if (!destinoId) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe a instancia destino.' } })
@@ -1089,7 +1167,7 @@ router.get('/:instanceId/substituicao-impacto', requireAuth, requireEmpresaAcces
   return res.json({ ok: true, data })
 })
 
-router.post('/:instanceId/substituir', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/:instanceId/substituir', requireAuth, requireEmpresaAccess, alcancaInstancia, soDonoOuGestor, async (req, res) => {
   const destinoId = String(req.body?.destino_instance_id || '').trim()
   if (!destinoId) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe a instancia destino.' } })
@@ -1164,7 +1242,7 @@ router.post('/:instanceId/substituir', requireAuth, requireEmpresaAccess, async 
   })
 })
 
-router.get('/:instanceId/remocao-impacto', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.get('/:instanceId/remocao-impacto', requireAuth, requireEmpresaAccess, alcancaInstancia, async (req, res) => {
   const inst = await carregarInstanciaEmpresa(req.params.instanceId, req.empresa.id)
   if (!inst) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instancia nao encontrada.' } })
   const data = await calcularImpactoRemocaoInstancia(pool, req.empresa.id, inst)
@@ -1173,7 +1251,7 @@ router.get('/:instanceId/remocao-impacto', requireAuth, requireEmpresaAccess, as
 
 // DELETE /api/empresas/:empresaId/whatsapp/:instanceId
 // Remove do Evolution e apaga do banco (hard delete — sincronia)
-router.delete('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.delete('/:instanceId', requireAuth, requireEmpresaAccess, alcancaInstancia, soDonoOuGestor, async (req, res) => {
   const { rows: [inst] } = await pool.query(
     'SELECT id, evolution_instance, nome, contexto_id FROM app.empresa_whatsapp_instances WHERE id = $1 AND empresa_id = $2',
     [req.params.instanceId, req.empresa.id]
@@ -1257,7 +1335,7 @@ router.delete('/:instanceId', requireAuth, requireEmpresaAccess, async (req, res
 
 // POST /api/empresas/:empresaId/whatsapp/:instanceId/saudacao/testar { numero_teste }
 // Envia a saudação (renderizada com um lead de exemplo) pro número de teste do operador.
-router.post('/:instanceId/saudacao/testar', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/:instanceId/saudacao/testar', requireAuth, requireEmpresaAccess, alcancaInstancia, async (req, res) => {
   const numeroTeste = String(req.body?.numero_teste || '').replace(/\D/g, '')
   if (numeroTeste.length < 10) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe um número de teste válido (com DDD).' } })

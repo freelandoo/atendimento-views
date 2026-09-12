@@ -6,7 +6,7 @@
 const { CAMPANHA_STATUS, OPORTUNIDADE_STATUS } = require('../domain-enums')
 const { montarFilaPriorizada } = require('../services/ligacao-prioridade')
 const { classificarLead } = require('../services/site-classificacao')
-const { sqlAbordavel, sqlNaoDescartado } = require('../services/lead-qualificacao')
+const { sqlAprovado, sqlNaoDescartado } = require('../services/lead-qualificacao')
 
 const STATUS_CAMPANHA = new Set(CAMPANHA_STATUS)
 const STATUS_OPORTUNIDADE = new Set(OPORTUNIDADE_STATUS)
@@ -181,13 +181,19 @@ async function adicionarLeads(pool, empresaId, campanhaId, prospectIds = []) {
   if (!ids.length) return { adicionados: 0 }
   // A PORTA (CRM em equipe, Etapa 3.4). Antes, o unico recorte era `p.empresa_id` — qualquer id
   // de prospect da empresa entrava na campanha, em qualquer qualificacao. E' aqui que o defeito
-  // C1/C2 nasce; a 2a barreira em `filaDeTrabalho` so o contem.
+  // C1/C2 nasce.
+  //
+  // Desde 2026-09-12 a Central de Ligacoes usa a porta ESTRITA: `legado` deixou de bastar aqui
+  // (so' aqui — os disparos de WhatsApp e e-mail seguem na porta larga, que aceita o acervo).
+  // A entrada e a fila usam a MESMA condicao de proposito — se a
+  // entrada fosse mais frouxa, o lead ficaria dentro da campanha sem NUNCA poder ser chamado, e o
+  // operador veria um numero em "Acompanhamento" que a fila nunca confirma.
   // A condicao vem do modulo PURO `services/lead-qualificacao.js`, nunca escrita a mao aqui.
   const { rows } = await pool.query(
     `INSERT INTO app.campanha_leads (campanha_id, prospect_id, empresa_id)
      SELECT $1, p.id, $2 FROM prospectador.prospects p
       WHERE p.empresa_id = $2 AND p.id = ANY($3::uuid[])
-        AND ${sqlAbordavel('p')}
+        AND ${sqlAprovado('p')}
      ON CONFLICT (campanha_id, prospect_id) DO NOTHING
      RETURNING id`,
     [campanhaId, empresaId, ids]
@@ -253,13 +259,16 @@ async function filaDeTrabalho(pool, empresaId, campanhaId, { limit = 50 } = {}) 
        JOIN prospectador.prospects p ON p.id = cl.prospect_id
       WHERE cl.campanha_id = $1 AND cl.empresa_id = $2
         AND cl.status NOT IN ('convertido', 'descartado')
-        -- 2a BARREIRA (Etapa 3.4). Deliberadamente mais FROUXA que a porta de entrada: exige
-        -- apenas "nao descartado", nao "abordavel". Motivo medido em producao (2026-09-11): 1.031
-        -- leads ja vinculados a campanhas nunca foram triados, e exigir aprovacao aqui esvaziaria
-        -- a fila inteira. Mas 54 estao DESCARTADOS, e ligar para quem uma pessoa recusou e' o
-        -- unico desfecho que chega ao CLIENTE. Defesa em profundidade: vinculo criado antes da
-        -- porta existir nao viaja daqui para a discagem.
-        AND ${sqlNaoDescartado('p')}
+        -- A PORTA, agora ESTRITA (decisao do operador, 2026-09-12). Ate aqui esta barreira exigia
+        -- apenas "nao descartado", porque exigir aprovacao esvaziaria a fila: 1.031 leads ja
+        -- vinculados a campanhas nunca foram triados (medicao de 2026-09-11) e o acervo inteiro
+        -- nasce LEGADO. A decisao foi tomada COM essa consequencia declarada: "somente apos a
+        -- aprovacao o lead pode aparecer na fila" so' significa alguma coisa se LEGADO tambem
+        -- for barrado.
+        --
+        -- Consequencia operacional: a fila fica VAZIA ate alguem triar pela curadoria. A tela diz
+        -- isso em texto, em vez de parecer defeito.
+        AND ${sqlAprovado('p')}
       ORDER BY CASE cl.status
                  WHEN 'nao_iniciado' THEN 0 WHEN 'tentativa_contato' THEN 1
                  WHEN 'nao_atendeu' THEN 2 WHEN 'follow_up' THEN 3 ELSE 4 END,
@@ -268,6 +277,32 @@ async function filaDeTrabalho(pool, empresaId, campanhaId, { limit = 50 } = {}) 
     [campanhaId, empresaId, TETO_LEITURA_FILA]
   )
   return montarFilaPriorizada(rows.map(comSiteCanonico)).slice(0, lim)
+}
+
+/**
+ * Quantos leads da campanha estao PRONTOS para trabalhar, mas parados na triagem.
+ *
+ * Existe por causa da porta estrita: sem este numero, a Central de Ligacoes diria "fila vazia —
+ * todos os leads ja foram trabalhados" para uma campanha que na verdade tem 300 leads esperando
+ * alguem aprovar. Uma tela vazia sem explicacao parece defeito, e o operador procuraria o
+ * problema no lugar errado.
+ *
+ * Conta so' o que a porta barrou: mesmo recorte da fila, com a condicao invertida. Leads sem
+ * telefone nao entram na conta porque nao entrariam na fila nem depois de aprovados.
+ */
+async function contarAguardandoTriagem(pool, empresaId, campanhaId) {
+  const { rows: [r] } = await pool.query(
+    `SELECT COUNT(*)::int AS total
+       FROM app.campanha_leads cl
+       JOIN prospectador.prospects p ON p.id = cl.prospect_id
+      WHERE cl.campanha_id = $1 AND cl.empresa_id = $2
+        AND cl.status NOT IN ('convertido', 'descartado')
+        AND NOT (${sqlAprovado('p')})
+        AND ${sqlNaoDescartado('p')}
+        AND NULLIF(BTRIM(COALESCE(p.telefone, '')), '') IS NOT NULL`,
+    [campanhaId, empresaId]
+  )
+  return r ? r.total : 0
 }
 
 // Funil por etapa: onde as ligacoes da campanha ESTAO PARANDO (etapa alcancada ao encerrar)
@@ -328,6 +363,7 @@ async function removerLead(pool, empresaId, campanhaLeadId) {
 }
 
 module.exports = {
+  contarAguardandoTriagem,
   assertMesmaEmpresa,
   assertRoteiroVersaoUtilizavel,
   listarCampanhas, criarCampanha, obterCampanha, atualizarCampanha,

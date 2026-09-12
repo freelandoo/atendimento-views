@@ -154,6 +154,22 @@ function sqlAbordavel(alias = 'p') {
   return `${a}qualificacao IN ('aprovado', 'legado')`
 }
 
+/**
+ * Condição de "APROVADO por uma pessoa" — a porta ESTRITA da Central de Ligações.
+ *
+ * Mais estrita que `sqlAbordavel` de propósito: aqui `legado` **não** passa. Decisão do operador
+ * (2026-09-12), tomada com a consequência declarada e medida: os 4.268 leads do acervo nascem
+ * `legado` na migration 071, então a fila de ligações fica **vazia** até alguém triar. É o que
+ * "somente após a aprovação o lead pode aparecer na fila" significa quando levado a sério.
+ *
+ * Ela vale só na Central de Ligações. Os quatro pontos de DISPARO (WhatsApp e e-mail) continuam
+ * usando `sqlAbordavel` — mudar aqueles pararia a operação inteira, e não foi o que se pediu.
+ */
+function sqlAprovado(alias = 'p') {
+  const a = alias ? `${alias}.` : ''
+  return `${a}qualificacao = 'aprovado'`
+}
+
 /** Condição de "NÃO foi descartado" — a 2ª barreira, mais frouxa que `sqlAbordavel`.
  *  Usada onde o lead JÁ ENTROU na operação antes da regra (ex.: leads já vinculados a campanha):
  *  tirá-los da fila por falta de triagem esvaziaria a fila inteira, mas deixar um DESCARTADO ali
@@ -176,6 +192,7 @@ module.exports = {
   qualificacaoInicial,
   rotuloMotivo,
   sqlAbordavel,
+  sqlAprovado,
   sqlNaoDescartado,
   _ABORDAVEIS,
 }

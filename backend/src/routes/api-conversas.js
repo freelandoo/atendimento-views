@@ -22,6 +22,7 @@ const { buscarNomesMapsPorTelefone } = require('../db/lead-nome-maps')
 const CR = require('../db/conversa-responsavel')
 const {
   sqlEscopo: sqlEscopoConversa, escopoEfetivo: escopoEfetivoConversa, avaliarResponder,
+  sqlAlcance: sqlAlcanceConversa, rotuloAlcance,
 } = require('../services/conversa-responsavel')
 const { CAPACIDADES: CAP, podeCapacidade } = require('../services/acesso-capacidades')
 const { requireCapacidade } = require('../middleware/tenant')
@@ -60,6 +61,55 @@ function recorteAtendente(req, proximoPlaceholder) {
     usuarioId: req.usuario?.id || null,
     efetivo: escopoEfetivoConversa(req.query?.escopo, podeVerTodas),
     podeVerTodas,
+  }
+}
+
+/**
+ * O ALCANCE (2026-09-12), que e' outra pergunta que o escopo.
+ *
+ * O escopo diz o que a tela PEDIU; o alcance diz o que a pessoa PODE ver — e ate aqui ele nao
+ * existia. O recorte por responsavel sozinho nao isola ninguem: nada popula `responsavel_id`
+ * automaticamente, entao "minhas + nao atribuidas" devolvia a empresa inteira. O sinal provavel
+ * e' a INSTANCIA que recebeu a mensagem, cruzada com o responsavel pela instancia (migration
+ * 075). A regra vive no modulo PURO; aqui so' se colam os placeholders.
+ *
+ * `$1` e' a empresa em todas as consultas deste arquivo.
+ */
+function alcanceAtendente(req, proximoPlaceholder) {
+  const podeVerTodas = capacidade(req, CAP.CONVERSA_VER_TODAS)
+  const { sql, usaUsuario } = sqlAlcanceConversa({
+    podeVerTodas, alias: 'c', phUsuario: `$${proximoPlaceholder}`, phEmpresa: '$1',
+  })
+  return { sql, usaUsuario, usuarioId: req.usuario?.id || null, podeVerTodas }
+}
+
+/**
+ * Guarda das rotas por NUMERO — a metade que faltava.
+ *
+ * A listagem recortava e as rotas `/:numero` nao repetiam o recorte: bastava trocar o numero na
+ * URL para ler (e agir sobre) a conversa de outro vendedor. Esconder na lista e liberar por id e'
+ * seguranca por obscuridade, e as duas metades precisam da MESMA regra — por isso as duas chamam
+ * `sqlAlcance`, nunca duas condicoes escritas a mao.
+ *
+ * Devolve **404**, nao 403: dizer "existe, mas nao e' sua" ja entrega que aquele contato fala com
+ * a empresa. Para quem nao alcanca, a conversa simplesmente nao existe.
+ */
+async function alcancaConversa(req, res, next) {
+  try {
+    const alcance = alcanceAtendente(req, 4)
+    if (!alcance.sql) return next()
+    const { rows } = await pool.query(
+      `SELECT 1 FROM vendas.conversas c
+        WHERE ${conversaEmpresaScope('c')} AND c.numero = $3 AND ${alcance.sql}
+        LIMIT 1`,
+      [req.empresa.id, PJ_EMPRESA_ID, req.params.numero, alcance.usuarioId]
+    )
+    if (!rows.length) {
+      return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Conversa não encontrada.' } })
+    }
+    return next()
+  } catch (err) {
+    return erroConversas(res, err, 'ALCANCE_FAILED')
   }
 }
 
@@ -148,14 +198,18 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
     conds.push(`regexp_replace(c.numero, '[^0-9]', '', 'g') LIKE $${vals.push(`%${numero}%`)}`)
   }
 
-  // Recorte por ATENDENTE (Etapa 7). Aplicado na listagem E na contagem, com os MESMOS params —
-  // dois WHERE separados divergiriam e o rodape passaria a contradizer a lista (foi assim que
-  // `montarFiltrosProspects` nasceu, na paginacao do Banco de Leads).
+  // ALCANCE (o limite de quem esta olhando) e RECORTE (o filtro que a tela pediu) — nesta ordem,
+  // e os dois na MESMA lista de condicoes: ela serve a listagem E a contagem, e dois WHERE
+  // separados fariam o rodape contradizer a lista (foi assim que `montarFiltrosProspects` nasceu,
+  // na paginacao do Banco de Leads). Um filtro de tela nunca amplia o alcance.
+  //
+  // Os dois compartilham UM placeholder de usuario: e' sempre o mesmo usuario logado, e dois
+  // parametros com o mesmo valor so' dariam duas chances de divergir.
+  const alcance = alcanceAtendente(req, vals.length + 1)
   const recorte = recorteAtendente(req, vals.length + 1)
-  if (recorte.sql) {
-    if (recorte.usaUsuario) vals.push(recorte.usuarioId)
-    conds.push(recorte.sql)
-  }
+  if (alcance.usaUsuario || recorte.usaUsuario) vals.push(alcance.usuarioId)
+  if (alcance.sql) conds.push(alcance.sql)
+  if (recorte.sql) conds.push(recorte.sql)
 
   const where = conds.join(' AND ')
 
@@ -192,6 +246,9 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
       // faria o atendente achar que a Central esvaziou.
       escopo: recorte.efetivo,
       pode_ver_todas: recorte.podeVerTodas,
+      // A tela DECLARA o limite em vez de encolher em silencio — recortar sem dizer faria o
+      // atendente achar que a Central esvaziou. O texto vem do modulo puro.
+      alcance: rotuloAlcance(recorte.podeVerTodas),
     },
   })
 })
@@ -199,7 +256,7 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
 // ─── Ownership da conversa (CRM em equipe, Etapa 7) ─────────────────────────────────────────
 
 // POST /:numero/assumir — o atendente pega uma conversa SEM responsavel (claim atomico).
-router.post('/:numero/assumir', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CONVERSA_ATENDER), async (req, res) => {
+router.post('/:numero/assumir', requireAuth, requireEmpresaAccess, alcancaConversa, requireCapacidade(CAP.CONVERSA_ATENDER), async (req, res) => {
   try {
     const data = await CR.assumirConversa(pool, req.empresa.id, req.params.numero, req.usuario?.id)
     return res.json({ ok: true, data })
@@ -214,7 +271,7 @@ router.post('/:numero/assumir', requireAuth, requireEmpresaAccess, requireCapaci
 // `usuario_id: null` devolve para a fila de nao atribuidas. O PROPRIO responsavel sempre pode
 // devolver o que e' dele; trocar o atendente de outra pessoa exige CONVERSA_VER_TODAS — a mesma
 // capacidade de ver a Central inteira, porque quem redistribui precisa enxergar o todo.
-router.put('/:numero/responsavel', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CONVERSA_ATENDER), async (req, res) => {
+router.put('/:numero/responsavel', requireAuth, requireEmpresaAccess, alcancaConversa, requireCapacidade(CAP.CONVERSA_ATENDER), async (req, res) => {
   try {
     const b = req.body || {}
     const data = await CR.definirResponsavel(pool, req.empresa.id, req.params.numero, {
@@ -232,7 +289,7 @@ router.put('/:numero/responsavel', requireAuth, requireEmpresaAccess, requireCap
 })
 
 // GET /:numero/responsavel-historico — a linha do tempo de atendentes.
-router.get('/:numero/responsavel-historico', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.get('/:numero/responsavel-historico', requireAuth, requireEmpresaAccess, alcancaConversa, async (req, res) => {
   try {
     const data = await CR.historicoDaConversa(pool, req.empresa.id, req.params.numero, { limit: req.query.limit })
     return res.json({ ok: true, data })
@@ -277,7 +334,7 @@ async function anexarModoIa(conversa, empresaId) {
 }
 
 // GET /api/empresas/:empresaId/conversas/:numero
-router.get('/:numero', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.get('/:numero', requireAuth, requireEmpresaAccess, alcancaConversa, async (req, res) => {
   const { rows: [conversa] } = await pool.query(
     `SELECT c.*, lp.*, c.numero AS numero, c.empresa_id AS empresa_id, c.atualizado_em AS atualizado_em,
             ur.nome AS responsavel_nome
@@ -294,7 +351,7 @@ router.get('/:numero', requireAuth, requireEmpresaAccess, async (req, res) => {
 
 // DELETE /api/empresas/:empresaId/conversas/:numero
 // Remove o contato inteiro (conversa + lead_profile + lead_insights).
-router.delete('/:numero', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.delete('/:numero', requireAuth, requireEmpresaAccess, alcancaConversa, async (req, res) => {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
@@ -326,7 +383,7 @@ router.delete('/:numero', requireAuth, requireEmpresaAccess, async (req, res) =>
 // DELETE /api/empresas/:empresaId/conversas/:numero/historico
 // Limpa o histórico de mensagens da conversa (mantém a linha — reset agente_pausado e estagio).
 // Apagar historico e DESTRUTIVO e IRREVERSIVEL: fora do alcance do comercial e do member.
-router.delete('/:numero/historico', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CONVERSA_APAGAR_HISTORICO), async (req, res) => {
+router.delete('/:numero/historico', requireAuth, requireEmpresaAccess, alcancaConversa, requireCapacidade(CAP.CONVERSA_APAGAR_HISTORICO), async (req, res) => {
   const { rows: [c] } = await pool.query(
     `UPDATE vendas.conversas
         SET historico = '[]'::jsonb,
@@ -350,7 +407,7 @@ router.delete('/:numero/historico', requireAuth, requireEmpresaAccess, requireCa
 
 // POST /api/empresas/:empresaId/conversas/:numero/reprocessar
 // Reenvia a ultima resposta do agente quando ela ja esta no historico, mas nao chegou no WhatsApp.
-router.post('/:numero/reprocessar', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/:numero/reprocessar', requireAuth, requireEmpresaAccess, alcancaConversa, async (req, res) => {
   const { rows: [conversa] } = await pool.query(
     `SELECT numero, historico, evolution_instance
        FROM vendas.conversas
@@ -410,7 +467,7 @@ router.post('/:numero/reprocessar', requireAuth, requireEmpresaAccess, async (re
 
 // POST /api/empresas/:empresaId/conversas/:numero/mensagem
 // Envia uma mensagem escrita pelo operador e registra no historico como role=operator.
-router.post('/:numero/mensagem', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/:numero/mensagem', requireAuth, requireEmpresaAccess, alcancaConversa, async (req, res) => {
   try {
     const out = await enviarMensagemManualOperador({
       pool,
@@ -429,7 +486,7 @@ router.post('/:numero/mensagem', requireAuth, requireEmpresaAccess, async (req, 
 
 // POST /api/empresas/:empresaId/conversas/:numero/feedback
 // Registra avaliacao humana de uma resposta do agente; negativo cria sugestao pendente.
-router.post('/:numero/feedback', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/:numero/feedback', requireAuth, requireEmpresaAccess, alcancaConversa, async (req, res) => {
   try {
     const out = await registrarFeedbackConversa({
       pool,
@@ -462,7 +519,7 @@ router.post('/:numero/feedback', requireAuth, requireEmpresaAccess, async (req, 
 // Pausar/retomar o agente numa conversa tambem e' ligar/desligar a IA — a diferenca entre esta
 // rota e a de `modo_ia` e' de DURACAO (pausa operacional vs decisao persistente), nao de efeito
 // sobre o cliente. Deixar uma das duas sem gate tornaria a outra decorativa.
-router.patch('/:numero/agente', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CONVERSA_GERENCIAR_IA), async (req, res) => {
+router.patch('/:numero/agente', requireAuth, requireEmpresaAccess, alcancaConversa, requireCapacidade(CAP.CONVERSA_GERENCIAR_IA), async (req, res) => {
   try {
     const out = await alterarPausaAgenteConversa({
       pool,
@@ -495,7 +552,7 @@ router.patch('/:numero/agente', requireAuth, requireEmpresaAccess, requireCapaci
 //
 // Nenhum motor de IA foi alterado: o gate esta na ROTA, e os enviadores
 // (core-funnel.js / contexto2-responder.js) continuam decidindo pelo `modo_ia` gravado.
-router.patch('/:numero/modo-ia', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.CONVERSA_GERENCIAR_IA), async (req, res) => {
+router.patch('/:numero/modo-ia', requireAuth, requireEmpresaAccess, alcancaConversa, requireCapacidade(CAP.CONVERSA_GERENCIAR_IA), async (req, res) => {
   try {
     const out = await alterarModoIaConversa({
       pool,
@@ -513,7 +570,7 @@ router.patch('/:numero/modo-ia', requireAuth, requireEmpresaAccess, requireCapac
 
 // POST /api/empresas/:empresaId/conversas/:numero/orientador-resposta
 // Gera uma sugestao editavel e uma explicacao para o operador. Nao envia mensagem.
-router.post('/:numero/orientador-resposta', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/:numero/orientador-resposta', requireAuth, requireEmpresaAccess, alcancaConversa, async (req, res) => {
   try {
     const out = await gerarOrientacaoResposta({
       pool,
@@ -529,7 +586,7 @@ router.post('/:numero/orientador-resposta', requireAuth, requireEmpresaAccess, a
 })
 
 // GET /api/empresas/:empresaId/conversas/:numero/resumo
-router.get('/:numero/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.get('/:numero/resumo', requireAuth, requireEmpresaAccess, alcancaConversa, async (req, res) => {
   const resumo = await buscarUltimoResumo(pool, {
     empresaId: req.empresa.id,
     numero: req.params.numero,
@@ -540,7 +597,7 @@ router.get('/:numero/resumo', requireAuth, requireEmpresaAccess, async (req, res
 
 // POST /api/empresas/:empresaId/conversas/:numero/resumo
 // Body: { historico: [...] }
-router.post('/:numero/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/:numero/resumo', requireAuth, requireEmpresaAccess, alcancaConversa, async (req, res) => {
   const { historico } = req.body || {}
   if (!Array.isArray(historico) || historico.length === 0) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'historico obrigatório.' } })

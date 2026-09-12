@@ -124,6 +124,60 @@ function sqlEscopo(escopo, { podeVerTodas = false, alias = 'c', placeholder = '$
   }
 }
 
+/**
+ * ─── O ALCANCE (o que a pessoa PODE ver), separado do ESCOPO (o filtro que a tela pediu) ────
+ *
+ * Por que dois fragmentos e não um: `sqlEscopo` traduz a ESCOLHA do operador (minhas / não
+ * atribuídas / todas); este traduz o LIMITE de quem ele é. Um filtro de tela nunca pode ampliar
+ * o limite, e o limite não pode virar filtro — foi misturar os dois que fez o recorte de lead
+ * abrir vazio. A rota aplica os dois com `AND`.
+ *
+ * ⚠️ POR QUE A INSTÂNCIA, E NÃO SÓ O RESPONSÁVEL
+ * `responsavel_id` exige claim manual e **nada o popula automaticamente** — na prática toda
+ * conversa está sem dono, e "minhas + não atribuídas" devolve a empresa inteira. O sinal
+ * PROVÁVEL é outro e já está gravado: o webhook resolve a instância que recebeu a mensagem
+ * (`vendas.conversas.evolution_instance`), e a instância tem responsável desde a migration 075.
+ * Conversa que chegou pelo número do vendedor É do vendedor, sem ninguém precisar clicar.
+ *
+ * As três parcelas, e por que nenhuma sobra:
+ *   1. atribuída a mim — decisão explícita de alguém vence qualquer inferência;
+ *   2. chegou pela MINHA instância — o vínculo provado;
+ *   3. sem dono E o número não é de mais ninguém — a fila COMPARTILHADA (instância da empresa,
+ *      `usuario_id IS NULL`) e a conversa órfã, sem instância gravada. Sem esta parcela o número
+ *      principal da empresa ficaria invisível para quem atende, que é o oposto do objetivo:
+ *      conversa que ninguém vê é cliente sem resposta.
+ *
+ * O que ela EXCLUI, e é o ponto: conversa sem dono que chegou pelo número de OUTRO vendedor.
+ *
+ * ⚠️ Isto **não** é resolução de instância de ENVIO. Aqui se pergunta "esta conversa é do
+ * escopo desta pessoa?"; lá se pergunta "por onde sai a mensagem?", e `usuario_id` continua
+ * proibido de participar daquela resposta (`services/instancia-envio.js`, guarda de regressão).
+ *
+ * @returns {{sql: string, usaUsuario: boolean}} `sql` vazio = sem limite (vê todas).
+ */
+function sqlAlcance({ podeVerTodas = false, alias = 'c', phUsuario = '$1', phEmpresa = '$2' } = {}) {
+  if (podeVerTodas) return { sql: '', usaUsuario: false }
+  const a = alias ? `${alias}.` : ''
+  const daInstancia = (n) => `EXISTS (
+        SELECT 1 FROM app.empresa_whatsapp_instances ${n}
+         WHERE ${n}.empresa_id = ${phEmpresa}::uuid
+           AND ${n}.evolution_instance = ${a}evolution_instance
+           AND ${n}.usuario_id ${n === 'ewi_meu' ? `= ${phUsuario}::uuid` : 'IS NOT NULL'})`
+  return {
+    sql: `(${a}responsavel_id = ${phUsuario}::uuid
+       OR ${daInstancia('ewi_meu')}
+       OR (${a}responsavel_id IS NULL AND NOT ${daInstancia('ewi_alheia')}))`,
+    usaUsuario: true,
+  }
+}
+
+/** Rótulo do alcance, para a tela DECLARAR o recorte em vez de encolher em silêncio. */
+function rotuloAlcance(podeVerTodas) {
+  return podeVerTodas
+    ? 'todas as conversas da empresa'
+    : 'as suas, as do seu número e as dos números compartilhados da empresa'
+}
+
 /** O recorte que a pessoa EFETIVAMENTE recebeu, para a tela ser honesta. */
 function escopoEfetivo(escopo, podeVerTodas) {
   const chave = String(escopo || '').toUpperCase().replace('NAO-ATRIBUIDAS', 'NAO_ATRIBUIDAS')
@@ -145,5 +199,7 @@ module.exports = {
   avaliarResponder,
   rotuloMotivo,
   sqlEscopo,
+  sqlAlcance,
+  rotuloAlcance,
   escopoEfetivo,
 }
