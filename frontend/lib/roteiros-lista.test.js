@@ -162,9 +162,23 @@ test('acoesDoRoteiro: arquivado e somente leitura — so desarquivar', () => {
 test('acoesDoRoteiro: carregando desabilita TODAS as acoes', () => {
   for (const statusRoteiro of ['rascunho', 'publicado', 'arquivado']) {
     const a = acoesDoRoteiro({ statusRoteiro, statusVersao: 'rascunho', carregando: true })
-    assert.deepEqual(Object.values(a), [false, false, false, false, false, false],
-      `nenhuma acao pode ficar viva carregando (${statusRoteiro})`)
+    // `podeCriarRoteiro` fica de fora: criar um roteiro NOVO nao age sobre o que esta na tela,
+    // que e o motivo pelo qual carregar zera as outras.
+    for (const chave of ['podeEditar', 'podePublicar', 'podeCriarVersao', 'podeExportar', 'podeArquivar', 'podeDesarquivar']) {
+      assert.equal(a[chave], false, `${chave} ficou viva carregando (${statusRoteiro})`)
+    }
   }
+})
+
+test('acoesDoRoteiro: sem a capacidade de gerenciar, NENHUMA escrita e oferecida', () => {
+  // Quem so CONDUZ a ligacao le o roteiro inteiro e nao cria, edita, publica nem arquiva.
+  const a = acoesDoRoteiro({ statusRoteiro: 'rascunho', statusVersao: 'rascunho', podeGerenciar: false })
+  for (const chave of ['podeEditar', 'podePublicar', 'podeCriarVersao', 'podeArquivar', 'podeDesarquivar', 'podeCriarRoteiro']) {
+    assert.equal(a[chave], false, `${chave} escapou do gate de capacidade`)
+  }
+  // Mas LER continua possivel, e exportar o roteiro publicado tambem — e leitura.
+  assert.ok(a.motivoSomenteLeitura.length > 0, 'a tela precisa dizer de quem e a decisao')
+  assert.equal(acoesDoRoteiro({ statusRoteiro: 'publicado', statusVersao: 'publicada', podeGerenciar: false }).podeExportar, true)
 })
 
 test('acoesDoRoteiro: sem versao carregada nao publica nem edita, mas ainda arquiva', () => {

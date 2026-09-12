@@ -71,7 +71,8 @@ export const LIMITE_MENSAGEM: number
 
 export function seloQualificacao(qualificacao: string | null | undefined): SeloQualificacao
 export function podeAbordar(lead: LeadOperacional | null | undefined): boolean
-export function opcoesEscopo(podeVerTodos: boolean): { valor: EscopoLead; rotulo: string }[]
+/** A primeira opcao e sempre o PADRAO do servidor, com valor `''`. */
+export function opcoesEscopo(podeVerTodos: boolean): { valor: EscopoLead | ''; rotulo: string }[]
 export function rotuloEscopoEfetivo(escopo: string | null | undefined): string
 export function donoDoLead(
   lead: LeadOperacional | null | undefined,

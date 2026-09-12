@@ -155,17 +155,30 @@ function versaoInicial(versoes) {
  * unica leitura possivel do estado, em vez de "arquivado, mas com rascunho editavel dentro".
  * Nenhuma acao destrutiva e' emitida aqui — exclusao de roteiro nao existe no produto.
  */
-function acoesDoRoteiro({ statusRoteiro, statusVersao, carregando = false, temVersao = true } = {}) {
-  const bloqueado = !!carregando || !temVersao
+function acoesDoRoteiro({ statusRoteiro, statusVersao, carregando = false, temVersao = true, podeGerenciar = true } = {}) {
+  // `podeGerenciar` chega RESOLVIDO do backend (capacidade `roteiro_gerenciar`, em /api/auth/me):
+  // a tela nao conhece a matriz papel x capacidade, so' traduz o veredito — mesmo contrato de
+  // `lib/capacidades.js` e `lib/site-rotulos.js`.
+  //
+  // Ele zera toda escrita, e nao so' esconde botao: quem so' CONDUZ a ligacao precisa LER o
+  // roteiro inteiro (`roteiro_ler`) e nao pode criar, editar, publicar nem arquivar. O gate que
+  // vale continua sendo o do servidor (`requireCapacidade(CAP.ROTEIRO_GERENCIAR)`); aqui a tela
+  // apenas deixa de oferecer um botao que responderia 403.
+  const bloqueado = !!carregando || !temVersao || !podeGerenciar
   const arquivado = statusRoteiro === 'arquivado'
   const rascunho = statusVersao === 'rascunho'
+  const gerivel = !carregando && podeGerenciar
   return {
     podeEditar: !bloqueado && !arquivado && rascunho,
     podePublicar: !bloqueado && !arquivado && rascunho,
     podeCriarVersao: !bloqueado && !arquivado && !rascunho,
+    // Exportar e' LEITURA (levar o roteiro para a ligacao), entao nao depende de gerenciar.
     podeExportar: !carregando && !arquivado && statusVersao === 'publicada',
-    podeArquivar: !carregando && !arquivado,
-    podeDesarquivar: !carregando && arquivado,
+    podeArquivar: gerivel && !arquivado,
+    podeDesarquivar: gerivel && arquivado,
+    podeCriarRoteiro: podeGerenciar,
+    /** O que dizer no lugar dos botoes de escrita. Vazio quando ha escrita disponivel. */
+    motivoSomenteLeitura: podeGerenciar ? '' : 'Os roteiros são definidos pela administração da empresa. Você pode consultá-los e usá-los nas ligações.',
   }
 }
 

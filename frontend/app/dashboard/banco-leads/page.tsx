@@ -15,7 +15,7 @@ import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink } from '@/lib/site-rotulos'
 import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
 import {
-  seloQualificacao, podeAbordar, opcoesEscopo, rotuloEscopoEfetivo,
+  seloQualificacao, podeAbordar, opcoesEscopo,
   donoDoLead, acoesDeResponsavel, descreverAbordagem, rotuloAcaoManual, contagemMensagem,
 } from '@/lib/lead-operacao'
 import type { Qualificacao, DisparoLead } from '@/lib/lead-operacao'
@@ -1721,16 +1721,18 @@ export default function BancoLeadsPage() {
           <label className="block text-xs text-slate-500 mb-1">Responsável</label>
           <select value={escopo} onChange={(e) => setEscopo(e.target.value)}
             className="border rounded-lg px-3 py-2 text-sm min-w-[140px]">
-            {podeVerTodos && <option value="">Todos</option>}
+            {/* A 1ª opção é o padrão do servidor (valor ''), e ela precisa existir na lista:
+                sem ela o controle exibia uma coisa e o estado enviava outra, e não havia como
+                voltar ao padrão depois de filtrar. */}
             {opcoesEscopo(podeVerTodos).map((o) => (
-              <option key={o.valor} value={o.valor}>{o.rotulo}</option>
+              <option key={o.valor || 'padrao'} value={o.valor}>{o.rotulo}</option>
             ))}
           </select>
           {/* O que o servidor DEVOLVEU. Recortar em silêncio faria o vendedor achar que a
-              carteira encolheu. Só aparece quando difere do que foi pedido. */}
-          {escopoEfetivo === 'meus_e_livres' && (
+              carteira encolheu. Só aparece quando o recorte não é o total. */}
+          {escopoEfetivo === 'meus_e_livres' && !podeVerTodos && (
             <p className="mt-1 text-[10px] text-amber-700">
-              Mostrando {rotuloEscopoEfetivo(escopoEfetivo).toLowerCase()}
+              Mostrando os seus e os que ainda não têm responsável
             </p>
           )}
         </div>

@@ -91,8 +91,23 @@ test('a PORTA tambem barra o botao de assumir, com motivo', () => {
 
 test('quem nao ve todos NAO recebe a opcao "Todos"', () => {
   // Oferecer uma opcao que o servidor rebaixa faria a tela mostrar menos do que prometeu.
-  assert.deepEqual(L.opcoesEscopo(false).map((o) => o.valor), ['meus', 'livres'])
-  assert.deepEqual(L.opcoesEscopo(true).map((o) => o.valor), ['meus', 'livres', 'todos'])
+  // "Todos" e o PADRAO de quem pode (valor ''), e simplesmente nao existe para quem nao pode.
+  // Duas opcoes com o mesmo significado ('' e 'todos') seriam ruido, entao a comparacao e pelo
+  // rotulo — que e o que o operador le.
+  const rotulos = (p) => L.opcoesEscopo(p).map((o) => o.rotulo)
+  assert.ok(!rotulos(false).includes('Todos'), 'a opcao que o servidor rebaixaria nao pode ser oferecida')
+  assert.ok(rotulos(true).includes('Todos'))
+})
+
+test('a PRIMEIRA opcao e sempre o padrao do servidor (valor vazio)', () => {
+  // Sem ela, o <select> comecava em '' sem nenhuma opcao correspondente: exibia "Meus leads" e
+  // enviava outra coisa, e nao havia como voltar ao padrao depois de filtrar.
+  for (const pode of [false, true]) {
+    assert.equal(L.opcoesEscopo(pode)[0].valor, '', `padrao ausente para podeVerTodos=${pode}`)
+  }
+  // E o rotulo do padrao diz a VERDADE sobre o que o servidor devolve em cada caso.
+  assert.equal(L.opcoesEscopo(false)[0].rotulo, 'Meus e livres')
+  assert.equal(L.opcoesEscopo(true)[0].rotulo, 'Todos')
 })
 
 test('o escopo EFETIVO do servidor tem rotulo proprio', () => {

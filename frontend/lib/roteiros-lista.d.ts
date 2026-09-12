@@ -38,6 +38,9 @@ export type AcoesRoteiro = {
   podeExportar: boolean
   podeArquivar: boolean
   podeDesarquivar: boolean
+  podeCriarRoteiro: boolean
+  /** Texto a mostrar no lugar dos botoes de escrita. Vazio quando ha escrita disponivel. */
+  motivoSomenteLeitura: string
 }
 
 export type TextoConfirmacao = {
@@ -60,6 +63,8 @@ export function acoesDoRoteiro(entrada?: {
   statusVersao?: string
   carregando?: boolean
   temVersao?: boolean
+  /** Capacidade `roteiro_gerenciar`, resolvida pelo backend em /api/auth/me. */
+  podeGerenciar?: boolean
 }): AcoesRoteiro
 export function textoConfirmacao(
   acao: 'arquivar' | 'desarquivar',

@@ -84,16 +84,28 @@ const ESCOPO_ROTULO = {
 
 /**
  * As opções de recorte que esta pessoa pode escolher.
+ *
+ * A PRIMEIRA opção é sempre o PADRÃO do servidor, com valor `''` — e ela precisa existir. Antes
+ * o `<select>` começava em `''` e a lista dele não tinha nenhuma opção com esse valor: o
+ * controle exibia "Meus leads" (a primeira da lista) enquanto o estado enviava outra coisa, e o
+ * operador não tinha como voltar ao padrão depois de escolher um filtro.
+ *
  * Quem não pode ver a carteira inteira não recebe "Todos" — oferecer uma opção que o servidor
  * rebaixa faria a tela mostrar menos do que prometeu.
  */
 function opcoesEscopo(podeVerTodos) {
-  const base = [
+  if (podeVerTodos) {
+    return [
+      { valor: '', rotulo: ESCOPO_ROTULO.todos },
+      { valor: ESCOPO_LEAD.MEUS, rotulo: ESCOPO_ROTULO.meus },
+      { valor: ESCOPO_LEAD.LIVRES, rotulo: ESCOPO_ROTULO.livres },
+    ]
+  }
+  return [
+    { valor: '', rotulo: ESCOPO_ROTULO.meus_e_livres },
     { valor: ESCOPO_LEAD.MEUS, rotulo: ESCOPO_ROTULO.meus },
     { valor: ESCOPO_LEAD.LIVRES, rotulo: ESCOPO_ROTULO.livres },
   ]
-  if (podeVerTodos) base.push({ valor: ESCOPO_LEAD.TODOS, rotulo: ESCOPO_ROTULO.todos })
-  return base
 }
 
 /** O que a tela deve dizer sobre o recorte que RECEBEU (vem no `meta.escopo` da API). */

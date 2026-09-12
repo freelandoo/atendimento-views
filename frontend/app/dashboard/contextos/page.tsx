@@ -5,6 +5,8 @@ import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import InstanciasWhatsApp from '@/components/InstanciasWhatsApp'
 import InstanciasFreelandoo from '@/components/InstanciasFreelandoo'
 import PendenciasInstancia from '@/components/PendenciasInstancia'
+import { useSession } from '@/lib/useSession'
+import { temCapacidade } from '@/lib/capacidades'
 
 type Sugestao = {
   id: string
@@ -51,14 +53,19 @@ export default function ContextosPage() {
   const [sugestoes, setSugestoes] = useState<Sugestao[]>([])
   const [ultimoDiff, setUltimoDiff] = useState<AplicarSugestaoResp | null>(null)
   const fb = useFeedback()
+  // As sugestões mexem no CONTEXTO da empresa: aprovar, rejeitar e aplicar como rascunho são
+  // decisões de quem responde pelo conhecimento do atendimento. Sem a capacidade, a seção some —
+  // e a requisição nem sai, para não gerar um 403 por carregamento de página.
+  const { capacidades } = useSession(false)
+  const podeGerenciarContexto = temCapacidade(capacidades, 'instancia_gerenciar_contexto')
 
   const carregarSugestoes = useCallback(async () => {
-    if (!empresaId) return
+    if (!empresaId || !podeGerenciarContexto) { setSugestoes([]); return }
     try {
       const s = await apiFetch<Sugestao[]>(`/api/empresas/${empresaId}/contextos/sugestoes`)
       setSugestoes(s.data || [])
     } catch {}
-  }, [empresaId])
+  }, [empresaId, podeGerenciarContexto])
 
   useEffect(() => { carregarSugestoes() }, [carregarSugestoes])
 

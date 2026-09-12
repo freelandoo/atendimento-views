@@ -28,6 +28,8 @@ import {
   IconPlus, IconTrash, IconSend, IconClose, IconCopySparkle, IconArchive, IconUndo, IconChevron,
 } from '@/components/ui/icons'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
+import { useSession } from '@/lib/useSession'
+import { temCapacidade } from '@/lib/capacidades'
 import { podeExportarContextoIA, serializarContextoIA } from '@/lib/roteiro-contexto-ia'
 import {
   montarListaRoteiros, statusDoRoteiro, versaoInicial, acoesDoRoteiro, textoConfirmacao,
@@ -207,11 +209,16 @@ export default function RoteirosPage() {
   )
   const nomeSelecionado = sel?.nome || resumoSelecionado?.nome || ''
   const statusRoteiro: StatusRoteiro = statusDoRoteiro(sel || resumoSelecionado)
+  // Quem CONDUZ a ligacao precisa LER o roteiro inteiro; criar, editar, publicar e arquivar sao
+  // da administracao. A lista de capacidades chega resolvida pelo backend — a tela nao recalcula.
+  const { capacidades } = useSession(false)
+  const podeGerenciar = temCapacidade(capacidades, 'roteiro_gerenciar')
   const acoes = acoesDoRoteiro({
     statusRoteiro,
     statusVersao: versaoAtiva?.status,
     carregando: detalheCarregando,
     temVersao: !!versaoAtiva,
+    podeGerenciar,
   })
   const exportavel = acoes.podeExportar && podeExportarContextoIA(versaoAtiva)
 
@@ -314,12 +321,18 @@ export default function RoteirosPage() {
             Roteiros de venda estruturados e versionados. Versão publicada é imutável — para editar, crie uma nova versão.
           </p>
         </div>
-        <button
-          onClick={() => setNovoAberto({ nicho: '' })}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1"
-        >
-          <IconPlus className="h-4 w-4" /> Novo roteiro
-        </button>
+        {acoes.podeCriarRoteiro ? (
+          <button
+            onClick={() => setNovoAberto({ nicho: '' })}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1"
+          >
+            <IconPlus className="h-4 w-4" /> Novo roteiro
+          </button>
+        ) : (
+          /* Nao e' botao desabilitado: aqui nao ha decisao a explicar no lugar, e um botao
+             inerte so' convida ao clique. A frase diz de quem e a decisao. */
+          <p className="max-w-xs text-xs text-slate-500">{acoes.motivoSomenteLeitura}</p>
+        )}
       </div>
 
       <div className="grid gap-4 md:grid-cols-[320px_1fr]">
@@ -352,7 +365,7 @@ export default function RoteirosPage() {
                   </ul>
                   {/* O "Novo roteiro" do grupo já nasce com o nicho dele preenchido — é o
                       "Atendimento X > Novo roteiro" possível com os dados que existem. */}
-                  {g.chave !== '__sem_nicho__' && (
+                  {g.chave !== '__sem_nicho__' && acoes.podeCriarRoteiro && (
                     <button
                       onClick={() => setNovoAberto({ nicho: g.rotulo })}
                       className="mt-1 w-full rounded-lg px-3 py-1.5 text-left text-xs font-medium text-brand transition hover:bg-brand/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
@@ -501,6 +514,10 @@ export default function RoteirosPage() {
                       </>
                     ) : acoes.podeCriarVersao ? (
                       <button onClick={novaVersao} className="rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1">Nova versão para editar</button>
+                    ) : acoes.motivoSomenteLeitura ? (
+                      /* Sem a capacidade de gerenciar, a frase diz DE QUEM e a decisao — "somente
+                         leitura" sozinho pareceria defeito de carregamento. */
+                      <span className="self-center text-sm text-slate-500">{acoes.motivoSomenteLeitura}</span>
                     ) : statusRoteiro === 'arquivado' ? (
                       <span className="self-center text-sm text-slate-500">Roteiro arquivado (somente leitura). Desarquive para voltar a editar.</span>
                     ) : (

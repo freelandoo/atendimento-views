@@ -115,6 +115,11 @@ export default function ConversasPage() {
   // metade não é cortesia: conversa que ninguém vê é cliente sem resposta.
   const [escopo, setEscopo] = useState('')
   const [escopoEfetivo, setEscopoEfetivo] = useState<string | null>(null)
+  // O ALCANCE (frase pronta do backend) é outra coisa que o ESCOPO: o escopo é o filtro que esta
+  // tela pediu; o alcance é o LIMITE de quem está olhando — as suas, as do seu número e as dos
+  // números compartilhados da empresa. Declarar o limite evita o atendente achar que a Central
+  // esvaziou ou que perdeu histórico.
+  const [alcance, setAlcance] = useState<string>('')
   const [podeVerTodas, setPodeVerTodas] = useState(false)
 
   function carregar(numeroBuscado = buscaNumero) {
@@ -127,7 +132,7 @@ export default function ConversasPage() {
 
     setCarregandoLista(true)
     setErro('')
-    apiFetch<Conversa[], { escopo?: string; pode_ver_todas?: boolean }>(
+    apiFetch<Conversa[], { escopo?: string; pode_ver_todas?: boolean; alcance?: string }>(
       `/api/empresas/${empresaId}/conversas?${params.toString()}`
     )
       .then((r) => {
@@ -136,6 +141,7 @@ export default function ConversasPage() {
         // Recortar em silêncio faria o atendente achar que a Central esvaziou.
         setEscopoEfetivo(r.meta?.escopo || null)
         setPodeVerTodas(r.meta?.pode_ver_todas === true)
+        setAlcance(r.meta?.alcance || '')
       })
       .catch((e) => {
         if (requisicao === requisicaoLista.current) setErro(e.message)
@@ -439,6 +445,11 @@ export default function ConversasPage() {
               {buscaNumero.replace(/\D/g, '')
                 ? 'Nenhuma conversa encontrada para esse número.'
                 : lista.length === 0 ? 'Nenhuma conversa encontrada.' : 'Nenhuma conversa neste filtro.'}
+              {/* Tela vazia sem explicação parece defeito. Quem não vê todas precisa saber que
+                  existe um recorte antes de concluir que não há trabalho. */}
+              {lista.length === 0 && !podeVerTodas && alcance && (
+                <span className="mt-2 block text-xs text-gray-400">Você está vendo {alcance}.</span>
+              )}
             </td></tr>
           )}
         </tbody>

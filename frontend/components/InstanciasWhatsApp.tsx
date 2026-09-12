@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { apiFetch } from '@/lib/api'
 import { IconCalendar } from '@/components/ui/icons'
+import { useSession } from '@/lib/useSession'
+import { temCapacidade } from '@/lib/capacidades'
 
 function slugifyInstance(s: string): string {
   return s
@@ -119,6 +121,12 @@ export default function InstanciasWhatsApp({ empresaId }: {
   // as suas + as DA EMPRESA — e a segunda metade não é cortesia: a instância compartilhada é o
   // número por onde o atendimento acontece.
   const [podeVerTodas, setPodeVerTodas] = useState(false)
+  // CONHECIMENTO do atendimento (capacidade `instancia_gerenciar_contexto`). Quem não a tem
+  // conecta o próprio número e o contexto padrão da empresa é aplicado AUTOMATICAMENTE na
+  // criação — não há seletor de contexto para escolher, porque não é escolha dele. O gate que
+  // vale é o do servidor; aqui a tela apenas para de oferecer o que responderia 403.
+  const { capacidades } = useSession(false)
+  const podeGerenciarContexto = temCapacidade(capacidades, 'instancia_gerenciar_contexto')
   // Contexto PADRÃO da empresa (Etapa 8). Ele é COPIADO na criação de uma instância nova, nunca
   // resolvido em tempo de resposta: "atendimento é 100% por instância" é regra do projeto, e um
   // fallback ali faria a instância de um vendedor responder com o conhecimento de outro.
@@ -575,7 +583,7 @@ export default function InstanciasWhatsApp({ empresaId }: {
       </form>
       {msg && <p className="text-sm text-brand">{msg}</p>}
       {erroForm && <p className="text-sm text-red-600">{erroForm}</p>}
-      {ctxPadrao && ctxPadrao.contextos.length > 0 && (
+      {podeGerenciarContexto && ctxPadrao && ctxPadrao.contextos.length > 0 && (
         <div className="rounded-2xl border border-white/10 bg-panel p-4">
           <label htmlFor="ctx-padrao" className="block text-xs font-semibold uppercase tracking-wide text-mid">
             Contexto padrão da empresa
@@ -690,14 +698,19 @@ export default function InstanciasWhatsApp({ empresaId }: {
                   )}
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-2">
-                <Link
-                  href={`/dashboard/instancias/${i.id}/contexto`}
-                  className="flex items-center justify-center gap-1.5 rounded-lg border border-neon-violet/40 px-3 py-2 text-xs font-medium text-neon-violet transition-colors hover:bg-neon-violet/15"
-                  title="Abrir o contexto desta instância (fontes, Contexto 1, playbook, estágios)"
-                >
-                  Contexto
-                </Link>
+              <div className={podeGerenciarContexto ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-1 gap-2'}>
+                {/* Editar o contexto é gestão do conhecimento da empresa. Quem não pode nem
+                    recebe o link: a página inteira responderia 403. O nome do contexto que este
+                    número usa continua visível acima, no cartão — ver não é mexer. */}
+                {podeGerenciarContexto && (
+                  <Link
+                    href={`/dashboard/instancias/${i.id}/contexto`}
+                    className="flex items-center justify-center gap-1.5 rounded-lg border border-neon-violet/40 px-3 py-2 text-xs font-medium text-neon-violet transition-colors hover:bg-neon-violet/15"
+                    title="Abrir o contexto desta instância (fontes, Contexto 1, playbook, estágios)"
+                  >
+                    Contexto
+                  </Link>
+                )}
                 <button
                   type="button"
                   onClick={() => abrirQrCode(i)}
@@ -757,7 +770,22 @@ export default function InstanciasWhatsApp({ empresaId }: {
           </div>
         ))}
         {instancias.length === 0 && (
-          <p className="col-span-full text-sm text-gray-400">Nenhuma instância ainda. Adicione uma acima.</p>
+          /* Estado vazio com CTA, não um aviso seco: para quem não gerencia as instâncias da
+             empresa, esta tela é o caminho de conectar o PRÓPRIO número — e o contexto da
+             empresa é aplicado sozinho na criação, sem nada a escolher. */
+          <div className="col-span-full rounded-2xl border border-white/10 bg-panel p-6 text-center">
+            <p className="text-sm text-mid">
+              {podeVerTodas
+                ? 'Nenhuma instância ainda. Use o formulário acima para conectar o primeiro número da empresa.'
+                : 'Você ainda não tem um WhatsApp conectado.'}
+            </p>
+            {!podeVerTodas && (
+              <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-mid">
+                Conecte o seu número no formulário acima. O conhecimento do atendimento definido
+                pela empresa é aplicado automaticamente — você não precisa escolher nada.
+              </p>
+            )}
+          </div>
         )}
       </div>
 

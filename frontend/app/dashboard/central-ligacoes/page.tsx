@@ -621,6 +621,11 @@ export default function CentralLigacoesPage() {
   const [campanhaId, setCampanhaId] = useState('')
   const [detalhe, setDetalhe] = useState<CampanhaDetalhe | null>(null)
   const [fila, setFila] = useState<FilaItem[]>([])
+  // Quantos leads DESTA campanha estão prontos, mas parados na triagem (a porta estrita da
+  // Central de Ligações: só entra na fila quem foi APROVADO). Sem este número, uma campanha com
+  // leads esperando aprovação diria "todos já foram trabalhados" — e o operador procuraria o
+  // problema no lugar errado. Vem calculado do servidor; a tela não recalcula regra.
+  const [aguardandoTriagem, setAguardandoTriagem] = useState(0)
   const [loading, setLoading] = useState(true)
   // Tela de atendimento aberta. `somenteLeitura` = modo Acompanhar: a ligação é de OUTRA
   // pessoa e esta sessão só observa. Os dois andam juntos num estado só para nunca existir
@@ -716,11 +721,12 @@ export default function CentralLigacoesPage() {
         apiFetch<CampanhaDetalhe>(`${base()}/campanhas/${id}`),
         // Fila inteira de uma vez (teto do servidor): os filtros da tela são client-side,
         // então precisam da lista completa para não esconder lead sem avisar.
-        apiFetch<FilaItem[]>(`${base()}/campanhas/${id}/fila?limit=500`),
+        apiFetch<FilaItem[], { aguardando_triagem?: number }>(`${base()}/campanhas/${id}/fila?limit=500`),
         apiFetch<LeadAcomp[]>(`${base()}/campanhas/${id}/leads`),
         apiFetch<Funil>(`${base()}/campanhas/${id}/funil`),
       ])
       setDetalhe(d.data); setFila(f.data); setTodosLeads(l.data); setFunil(fu.data)
+      setAguardandoTriagem(Number(f.meta?.aguardando_triagem || 0))
     } catch (e) { fb.toast(msgErro(e, 'Não foi possível carregar a campanha.'), 'error') }
   }, [fb])
 
@@ -978,7 +984,23 @@ export default function CentralLigacoesPage() {
                 )}
 
                 {fila.length === 0 ? (
-                  <div className="rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">Fila vazia — todos os leads com telefone válido desta campanha já foram trabalhados. 🎉</div>
+                  aguardandoTriagem > 0 ? (
+                    /* Fila vazia POR TRIAGEM, não por trabalho concluído. São coisas opostas, e
+                       dizer a errada mandaria o operador procurar defeito onde há uma decisão
+                       pendente de outra pessoa. */
+                    <div className="space-y-2 rounded-2xl border border-amber-200 bg-amber-50 p-10 text-center text-amber-900 shadow-sm">
+                      <p className="font-medium">
+                        Ainda não há leads preparados para abordagem nesta campanha.
+                      </p>
+                      <p className="text-sm">
+                        {aguardandoTriagem} lead{aguardandoTriagem === 1 ? '' : 's'} desta campanha
+                        {aguardandoTriagem === 1 ? ' aguarda' : ' aguardam'} a aprovação de um administrador.
+                        Só o lead aprovado entra na fila de ligação.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">Fila vazia — todos os leads com telefone válido desta campanha já foram trabalhados. 🎉</div>
+                  )
                 ) : visiveisComBusca.length === 0 ? (
                   <div className="space-y-2 rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">
                     <p>{buscaNorm ? 'Nenhum lead encontrado com essa busca.' : 'Nenhum lead com esses filtros.'}</p>
