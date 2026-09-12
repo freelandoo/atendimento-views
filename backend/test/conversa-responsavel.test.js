@@ -70,20 +70,19 @@ test('RESPONDER e sempre permitido; o que muda e o AVISO', () => {
 
 // ─── Recorte ─────────────────────────────────────────────────────────────────────────────
 
-test('o padrao de quem NAO ve todas e "minhas + NAO ATRIBUIDAS", nunca "so minhas"', () => {
-  // Esconder a fila sem dono de um atendente deixaria clientes sem resposta. É a diferença
-  // deliberada em relação ao recorte de lead (onde a fila de livres é opcional).
+test('o padrao de quem NAO ve todas deixa o limite para o ALCANCE', () => {
+  // O alcance é quem corta por responsável/instância. O escopo padrão não adiciona
+  // "não atribuídas", para não abrir conversa solta ou compartilhada ao comercial.
   const r = R.sqlEscopo(undefined, { podeVerTodas: false, alias: 'c' })
-  assert.match(r.sql, /responsavel_id = \$1/)
-  assert.match(r.sql, /responsavel_id IS NULL/)
-  assert.equal(r.usaUsuario, true)
-  assert.equal(R.escopoEfetivo(undefined, false), 'minhas_e_nao_atribuidas')
+  assert.equal(r.sql, '')
+  assert.equal(r.usaUsuario, false)
+  assert.equal(R.escopoEfetivo(undefined, false), 'proprias')
 })
 
-test('pedir TODAS sem poder rebaixa para minhas+nao atribuidas', () => {
+test('pedir TODAS sem poder rebaixa para proprias', () => {
   const r = R.sqlEscopo('todas', { podeVerTodas: false, alias: 'c' })
-  assert.match(r.sql, /IS NULL/)
-  assert.equal(R.escopoEfetivo('todas', false), 'minhas_e_nao_atribuidas')
+  assert.equal(r.sql, '')
+  assert.equal(R.escopoEfetivo('todas', false), 'proprias')
   // E quem pode, recebe sem recorte.
   assert.equal(R.sqlEscopo('todas', { podeVerTodas: true }).sql, '')
   assert.equal(R.escopoEfetivo('todas', true), ESCOPO.TODAS)
@@ -98,9 +97,10 @@ test('os escopos explicitos funcionam para quem quer estreitar a propria visao',
   assert.equal(R.sqlEscopo('nao-atribuidas', { podeVerTodas: true, alias: 'c' }).sql, 'c.responsavel_id IS NULL')
 })
 
-test('escopo invalido cai no padrao do papel, nunca em "sem recorte"', () => {
+test('escopo invalido cai no limite de alcance quando nao ve todas', () => {
   const r = R.sqlEscopo('lixo', { podeVerTodas: false, alias: 'c' })
-  assert.ok(r.sql.length > 0, 'nunca pode devolver WHERE vazio para quem nao ve todas')
+  assert.equal(r.sql, '')
+  assert.equal(R.escopoEfetivo('lixo', false), 'proprias')
   assert.equal(R.sqlEscopo('lixo', { podeVerTodas: true }).sql, '')
 })
 

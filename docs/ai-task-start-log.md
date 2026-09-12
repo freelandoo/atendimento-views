@@ -3602,3 +3602,12 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   carteira para pousada e advocacia antes de escrever qualquer linha.
 - **Fora de escopo declarado:** alterar campanha/roteiro existente, migration, rota, tela,
   prompt de producao, disparo de WhatsApp e qualquer coleta paga nao autorizada.
+
+## 2026-09-12 - Inicio de tarefa IA - Comercial focado no proprio trabalho
+
+- **IA/Ferramenta:** Codex, na `master` atual (`3cafc21`).
+- **Pedido resumido:** ajustar o cargo **Comercial** para trabalhar apenas com o que e dele/foi marcado para ele: conversas proprias, follow-ups proprios, instancias proprias, Central de Ligacoes e Banco de Leads com leads marcados/aprovados; remover selecao manual de instancia do fluxo do Comercial; manter Automatico indisponivel e, no maximo, Semi-automatico; adicionar atalho `wa.me` ao lado do telefone no Banco de Leads; deixar Roteiros somente para visualizacao.
+- **E projeto/tarefa de alteracao?** Sim. Continua o projeto CRM em equipe e altera recortes de permissao/UX do cargo Comercial.
+- **Workflow padrao consultado?** Sim: AGENTS.md ja esta no contexto da tarefa; `docs/project-architecture.md` e `docs/ui-visual-standard.md` foram consultados antes das edicoes.
+- **Plano de execucao:** (1) mapear regras atuais de alcance/escopo/capacidades; (2) aplicar recortes no backend onde necessario; (3) simplificar UI para Comercial; (4) atualizar guardas/testes; (5) validar com `npm test`, `typecheck` e smoke existente.
+- **Cuidados:** nao criar migration, nao criar nova variavel de ambiente, nao permitir que regra sensivel exista so no front-end, preservar owner/admin com visao ampla quando a capacidade permitir.

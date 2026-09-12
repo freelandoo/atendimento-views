@@ -64,7 +64,7 @@ const NAV = [
     itens: [
       { tipo: 'item', href: '/dashboard/aquisicao', label: 'Aquisição', icon: 'prospect', capacidade: 'aquisicao_gerenciar', aliases: ['/dashboard/prospeccao', '/dashboard/captacao'] },
       { tipo: 'item', href: '/dashboard/banco-leads', label: 'Banco de Leads', icon: 'leads', capacidade: 'lead_ver_aprovados' },
-      { tipo: 'item', href: '/dashboard/follow-ups', label: 'Follow-ups', icon: 'followup', capacidade: 'followup_ver_fila' },
+      { tipo: 'item', href: '/dashboard/follow-ups', label: 'Follow-ups', icon: 'followup', capacidade: 'followup_operar' },
       { tipo: 'item', href: '/dashboard/roteiros', label: 'Roteiros', icon: 'roteiro', capacidade: 'roteiro_ler' },
       { tipo: 'item', href: '/dashboard/agenda', label: 'Agenda', icon: 'agenda' },
       // Painel da EQUIPE (Etapa 12): quem gerencia as contas responde pela distribuicao do

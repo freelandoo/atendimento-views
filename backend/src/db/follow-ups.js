@@ -193,20 +193,18 @@ async function listarFollowUps(pool, empresaId, opts = {}) {
   if (opts.canal && CANAIS_FILTRAVEIS.has(opts.canal)) {
     params.push(opts.canal); conds.push(`f.canal = $${params.length}`)
   }
-  // Filtro por RESPONSAVEL (CRM em equipe, Etapa 10). **Nenhuma migration**: a coluna
-  // `responsavel_id` existe desde a migration 062, com indice `(empresa_id, responsavel_id,
-  // status)` — e nunca foi usada para filtrar.
-  //
-  // ATENCAO: este e um filtro OPCIONAL de tela ("meus follow-ups"), nao um recorte de
-  // permissao. A fila de Follow-ups tem **visibilidade GERAL** por decisao de produto (decisao D),
-  // e isso e deliberado: a tela e uma FILA DE TRABALHO unica, e recorta-la por pessoa recriaria a
-  // fragmentacao que a unificacao das abas removeu. O que muda com equipe e' que o responsavel
-  // passa a ser VISIVEL e filtravel — nao escondido.
+  // Filtro por RESPONSAVEL (CRM em equipe, Etapa 10).
   if (opts.responsavelId) {
     params.push(opts.responsavelId); conds.push(`f.responsavel_id = $${params.length}::uuid`)
   }
   // "Sem responsavel" e um recorte proprio: e' o trabalho que ninguem pegou.
   if (opts.semResponsavel === true) conds.push('f.responsavel_id IS NULL')
+  // Recorte de permissao do comercial: mostra os itens atribuídos a ele e os itens que ele mesmo
+  // criou enquanto ainda nao havia responsavel. A fila geral fica reservada a FOLLOWUP_VER_FILA.
+  if (opts.propriosUsuarioId) {
+    params.push(opts.propriosUsuarioId)
+    conds.push(`(f.responsavel_id = $${params.length}::uuid OR (f.responsavel_id IS NULL AND f.criado_por = $${params.length}::uuid))`)
+  }
   params.push(Math.min(Math.max(Number.parseInt(opts.limit, 10) || 300, 1), 500))
   const { rows } = await pool.query(
     `SELECT ${COLS.split(',').map((c) => `f.${c.trim()}`).join(', ')},

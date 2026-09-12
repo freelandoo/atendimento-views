@@ -1,6 +1,6 @@
 'use strict'
-// Pagina de Follow-ups (Fase 1) — API multi-tenant. Admin-only (o mount em index.js
-// aplica requireAuth + requireRole('admin')). Aqui cada rota reforca requireEmpresaAccess.
+// Pagina de Follow-ups (Fase 1) — API multi-tenant. O mount em index.js aplica
+// requireAuth + capacidade de operar follow-up; aqui cada rota reforca requireEmpresaAccess.
 //   Config:   GET/PUT /config
 //   Auto:     GET /auto (timeline + resumo), POST /auto/reprocessar, POST /auto/cancelar
 //   Semi:     GET /call-list (fila de Atendimento humano), POST /roteiro de ligacao
@@ -9,7 +9,7 @@
 const { Router } = require('express')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
-const { CAPACIDADES: CAP } = require('../services/acesso-capacidades')
+const { CAPACIDADES: CAP, podeCapacidade } = require('../services/acesso-capacidades')
 const { requireCapacidade } = require('../middleware/tenant')
 const {
   obterConfigFollowup,
@@ -94,6 +94,34 @@ function validarPatchConfig(body = {}) {
   if (body.pausado !== undefined && typeof body.pausado !== 'boolean') throw erroValidacao('pausado deve ser booleano.')
 }
 
+function temCapacidadeReq(req, cap) {
+  return podeCapacidade({
+    papel: req.papelEmpresa,
+    permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
+    papelPlataforma: req.usuario?.role,
+  }, cap)
+}
+
+function recorteFollowUp(req) {
+  const podeVerFila = temCapacidadeReq(req, CAP.FOLLOWUP_VER_FILA)
+  return {
+    podeVerFila,
+    usuarioId: req.usuario?.id || null,
+  }
+}
+
+async function assertFollowUpAlcancavel(req, res, id) {
+  const recorte = recorteFollowUp(req)
+  if (recorte.podeVerFila) return true
+  const item = await F.obterFollowUp(pool, req.empresa.id, id)
+  const uid = String(recorte.usuarioId || '')
+  const responsavel = item.responsavel_id ? String(item.responsavel_id) : ''
+  const criadoPor = item.criado_por ? String(item.criado_por) : ''
+  if (responsavel === uid || (!responsavel && criadoPor === uid)) return true
+  res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Follow-up nao encontrado.' } })
+  return false
+}
+
 // --- CONFIG ----------------------------------------------------------------------
 router.get('/config', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
@@ -119,9 +147,10 @@ router.put('/config', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.F
 // --- AUTOMATICO ------------------------------------------------------------------
 router.get('/auto', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
+    const recorte = recorteFollowUp(req)
     const [itens, resumo] = await Promise.all([
-      listarAgendamentosAuto(pool, req.empresa.id, { status: req.query.status, limit: req.query.limit }),
-      resumoAgendamentosAuto(pool, req.empresa.id),
+      listarAgendamentosAuto(pool, req.empresa.id, { status: req.query.status, limit: req.query.limit, usuarioId: recorte.podeVerFila ? null : recorte.usuarioId }),
+      resumoAgendamentosAuto(pool, req.empresa.id, { usuarioId: recorte.podeVerFila ? null : recorte.usuarioId }),
     ])
     return res.json({ ok: true, data: { itens, resumo } })
   } catch (err) { return erro(res, err, 'AUTO_LIST_FAILED') }
@@ -152,8 +181,9 @@ router.post('/auto/cancelar', requireAuth, requireEmpresaAccess, requireCapacida
 // --- SEMI (fila de proxima acao humana) -----------------------------------------
 router.get('/call-list', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
+    const recorte = recorteFollowUp(req)
     const [lista, config] = await Promise.all([
-      montarCallList(pool, req.empresa.id, { limit: req.query.limit }),
+      montarCallList(pool, req.empresa.id, { limit: req.query.limit, usuarioId: recorte.podeVerFila ? null : recorte.usuarioId }),
       obterConfigFollowup(pool, req.empresa.id),
     ])
     return res.json({ ok: true, data: { lista, meta_ligacoes_dia: config.meta_ligacoes_dia } })
@@ -222,7 +252,12 @@ router.get('/metricas', requireAuth, requireEmpresaAccess, async (req, res) => {
 router.get('/manual/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const q = validarTextoEntrada(req.query.q, 'q', 80)
-    const itens = await buscarLeadsParaFollowup(pool, req.empresa.id, { q, limit: req.query.limit })
+    const recorte = recorteFollowUp(req)
+    const itens = await buscarLeadsParaFollowup(pool, req.empresa.id, {
+      q,
+      limit: req.query.limit,
+      usuarioId: recorte.podeVerFila ? null : recorte.usuarioId,
+    })
     return res.json({ ok: true, data: { itens } })
   } catch (err) { return erro(res, err, 'MANUAL_LEADS_FAILED') }
 })
@@ -267,12 +302,12 @@ router.post('/manual/enviar', requireAuth, requireEmpresaAccess, async (req, res
 // GET /itens?status=&canal=&limit= — a fila persistida.
 router.get('/itens', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
+    const recorte = recorteFollowUp(req)
     const itens = await F.listarFollowUps(pool, req.empresa.id, {
       status: req.query.status, canal: req.query.canal, limit: req.query.limit,
-      // Filtro OPCIONAL de tela ("meus follow-ups"), nao recorte de permissao: a fila tem
-      // visibilidade GERAL por decisao de produto. Ver o comentario em db/follow-ups.js.
-      responsavelId: req.query.responsavel_id || null,
-      semResponsavel: req.query.sem_responsavel === 'true',
+      responsavelId: recorte.podeVerFila ? (req.query.responsavel_id || null) : null,
+      semResponsavel: recorte.podeVerFila && req.query.sem_responsavel === 'true',
+      propriosUsuarioId: recorte.podeVerFila ? null : recorte.usuarioId,
     })
     return res.json({ ok: true, data: { itens } })
   } catch (err) { return erro(res, err, 'FOLLOWUPS_LIST_FAILED') }
@@ -281,6 +316,13 @@ router.get('/itens', requireAuth, requireEmpresaAccess, async (req, res) => {
 // GET /responsaveis — usuarios da empresa que podem receber um follow-up.
 router.get('/responsaveis', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
+    const recorte = recorteFollowUp(req)
+    if (!recorte.podeVerFila) {
+      return res.json({
+        ok: true,
+        data: { itens: [{ id: req.usuario?.id || null, nome: req.usuario?.nome || 'Voce', email: req.usuario?.email || null }].filter((u) => u.id) },
+      })
+    }
     return res.json({ ok: true, data: { itens: await F.listarResponsaveis(pool, req.empresa.id) } })
   } catch (err) { return erro(res, err, 'FOLLOWUPS_RESPONSAVEIS_FAILED') }
 })
@@ -295,7 +337,9 @@ router.post('/itens', requireAuth, requireEmpresaAccess, async (req, res) => {
     if (!ORIGENS_DA_ROTA.has(b.origem)) {
       throw erroValidacao('origem invalida por esta rota (use manual ou mensagem).')
     }
-    const item = await F.criarFollowUp(pool, req.empresa.id, b, { usuarioId: req.usuario?.id || null })
+    const recorte = recorteFollowUp(req)
+    const entrada = recorte.podeVerFila ? b : { ...b, responsavel_id: req.usuario?.id || null }
+    const item = await F.criarFollowUp(pool, req.empresa.id, entrada, { usuarioId: req.usuario?.id || null })
     A.registrarAuditoria(pool, req.empresa.id, {
       usuarioId: req.usuario?.id, entidadeTipo: 'follow_up', entidadeId: item.id,
       acao: 'follow_up_criado', estadoNovo: 'aguardando',
@@ -308,6 +352,7 @@ router.post('/itens', requireAuth, requireEmpresaAccess, async (req, res) => {
 // POST /itens/:id/status — concluir | cancelar | falha. Idempotente.
 router.post('/itens/:id/status', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
+    if (!(await assertFollowUpAlcancavel(req, res, req.params.id))) return
     const b = req.body || {}
     const item = await F.mudarStatusFollowUp(pool, req.empresa.id, req.params.id, b, { usuarioId: req.usuario?.id || null })
     if (!item.ja_estava) {
@@ -333,6 +378,7 @@ router.post('/itens/:id/status', requireAuth, requireEmpresaAccess, async (req, 
 // que sai do WhatsApp vai para o e-mail em vez da ligacao.
 router.post('/itens/:id/reagendar', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
+    if (!(await assertFollowUpAlcancavel(req, res, req.params.id))) return
     const b = req.body || {}
     const item = await F.reagendarFollowUp(pool, req.empresa.id, req.params.id, b, {
       usuarioId: req.usuario?.id || null,
@@ -380,6 +426,7 @@ router.post('/itens/:id/reagendar', requireAuth, requireEmpresaAccess, async (re
 // nao chama IA. Diz tambem POR QUE nao da para enviar, quando for o caso.
 router.get('/itens/:id/email', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
+    if (!(await assertFollowUpAlcancavel(req, res, req.params.id))) return
     const data = await prepararEnvioEmail({ pool, empresaId: req.empresa.id, followUpId: req.params.id })
     return res.json({ ok: true, data })
   } catch (err) { return erro(res, err, 'FOLLOWUP_EMAIL_PREPARAR_FAILED') }
@@ -391,6 +438,7 @@ router.get('/itens/:id/email', requireAuth, requireEmpresaAccess, async (req, re
 // enviar para um destino que ninguem verificou — o oposto da regra deste modulo.
 router.post('/itens/:id/email/enviar', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
+    if (!(await assertFollowUpAlcancavel(req, res, req.params.id))) return
     const b = req.body || {}
     const out = await enviarEmailFollowUp({
       pool,

@@ -34,6 +34,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { useSession } from '@/lib/useSession'
+import { temCapacidade } from '@/lib/capacidades'
 import ConversaPainel from '@/components/ConversaPainel'
 import { IconSend, IconGear, IconAlert, IconClose, IconPlus } from '@/components/ui/icons'
 import InterruptorAtivacao from '@/components/ui/InterruptorAtivacao'
@@ -158,8 +159,8 @@ export default function FollowUpsPage() {
   const [automaticos, setAutomaticos] = useState<AgendamentoAuto[]>([])
   const [followups, setFollowups] = useState<FollowUpApi[]>([])
   const [responsaveis, setResponsaveis] = useState<{ id: string; nome: string }[]>([])
-  // Só para o atalho "Meus": a fila em si não é recortada por quem olha.
-  const { usuario } = useSession(false)
+  const { usuario, capacidades } = useSession(false)
+  const podeVerFilaEquipe = temCapacidade(capacidades, 'followup_ver_fila')
   const usuarioId = usuario?.id || ''
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -169,6 +170,10 @@ export default function FollowUpsPage() {
   const [pagina, setPagina] = useState(1)
   const [persAberto, setPersAberto] = useState(false)
   const persBotaoRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    if (podeVerFilaEquipe || !view.responsavel) return
+    setView((v) => ({ ...v, responsavel: '' }))
+  }, [podeVerFilaEquipe, view.responsavel])
 
   const [numeroHistorico, setNumeroHistorico] = useState<string | null>(null)
   const [contextoAberto, setContextoAberto] = useState<ContextoOrigem | null>(null)
@@ -457,11 +462,7 @@ export default function FollowUpsPage() {
               </button>
             )
           })}
-          {/* CRM em equipe, Etapa 10. Atalho para o filtro de responsável que já existe — e não um
-              recorte de permissão: a fila de Follow-ups tem visibilidade GERAL (decisão D), e
-              quem redistribui trabalho precisa continuar vendo o de todo mundo. Por isso ele é um
-              TOGGLE que a pessoa liga, nunca o estado inicial da tela. */}
-          {usuarioId && (
+          {podeVerFilaEquipe && usuarioId && (
             <button
               type="button"
               onClick={() => setView((v) => ({ ...v, responsavel: v.responsavel === usuarioId ? '' : usuarioId }))}
@@ -634,7 +635,7 @@ export default function FollowUpsPage() {
         <PersonalizarFiltros
           view={view}
           acoes={opcoesDeAcao(fila)}
-          responsaveis={opcoesDeResponsavel(fila)}
+          responsaveis={podeVerFilaEquipe ? opcoesDeResponsavel(fila) : []}
           onPatch={(p) => setView((v) => ({ ...v, ...p }))}
           onLimpar={() => setView(VIEW_PADRAO)}
           onFechar={fecharPersonalizar}
@@ -1701,12 +1702,14 @@ function PersonalizarFiltros({ view, acoes, responsaveis, onPatch, onLimpar, onF
                 {Object.entries(ORIGEM_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </Campo>
-            <Campo label="Responsável">
-              <select value={view.responsavel} onChange={(e) => onPatch({ responsavel: e.target.value })} className="w-full rounded-lg border px-2 py-1.5 text-sm">
-                <option value="">Todos</option>
-                {responsaveis.map((r) => <option key={r.valor} value={r.valor}>{r.label}</option>)}
-              </select>
-            </Campo>
+            {responsaveis.length > 0 && (
+              <Campo label="Responsável">
+                <select value={view.responsavel} onChange={(e) => onPatch({ responsavel: e.target.value })} className="w-full rounded-lg border px-2 py-1.5 text-sm">
+                  <option value="">Todos</option>
+                  {responsaveis.map((r) => <option key={r.valor} value={r.valor}>{r.label}</option>)}
+                </select>
+              </Campo>
+            )}
             <Campo label="Status">
               <select value={view.situacao} onChange={(e) => onPatch({ situacao: e.target.value })} className="w-full rounded-lg border px-2 py-1.5 text-sm">
                 <option value="">Todos</option>

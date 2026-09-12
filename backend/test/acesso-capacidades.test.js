@@ -59,7 +59,7 @@ test('comercial: alcanca o TRABALHO e nao alcanca a COLETA nem a administracao',
   const v = vinculo('comercial')
   for (const c of [
     C.LEAD_VER_APROVADOS, C.LEAD_ASSUMIR, C.LEAD_ABORDAR_MANUAL, C.CONVERSA_ATENDER,
-    C.LIGACAO_OPERAR, C.FOLLOWUP_VER_FILA, C.FOLLOWUP_OPERAR, C.ROTEIRO_LER,
+    C.LEAD_DISPARAR_SEMI, C.LIGACAO_OPERAR, C.FOLLOWUP_OPERAR, C.ROTEIRO_LER,
     C.AGENDA_OPERAR_PROPRIA, C.INSTANCIA_GERENCIAR_PROPRIA,
   ]) assert.ok(A.podeCapacidade(v, c), `comercial deveria alcancar ${c}`)
 
@@ -75,6 +75,7 @@ test('comercial: alcanca o TRABALHO e nao alcanca a COLETA nem a administracao',
     C.CONVERSA_APAGAR_HISTORICO,
     C.LIGACAO_VER_TODAS,
     C.CAMPANHA_GERENCIAR,
+    C.FOLLOWUP_VER_FILA,
     C.FOLLOWUP_REATRIBUIR,
     C.FOLLOWUP_CONFIG_EMPRESA,
     C.ROTEIRO_GERENCIAR,

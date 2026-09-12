@@ -40,28 +40,27 @@ test('guarda: o modulo NAO ganhou uma funcao de bloquear resposta', () => {
 
 // ─── Recorte ─────────────────────────────────────────────────────────────────────────────
 
-test('"Nao atribuidas" e opcao de primeira classe, e "Todas" so aparece para quem pode', () => {
+test('quem nao ve todas recebe apenas o recorte das proprias conversas', () => {
   const semTodas = C.opcoesEscopoConversa(false).map((o) => o.valor)
-  assert.deepEqual(semTodas, ['', 'minhas', 'nao_atribuidas'])
-  // A opcao vazia diz o recorte REAL que o servidor aplica, em vez de prometer "Todas".
-  assert.equal(C.opcoesEscopoConversa(false)[0].rotulo, 'Minhas e não atribuídas')
+  assert.deepEqual(semTodas, [''])
+  assert.equal(C.opcoesEscopoConversa(false)[0].rotulo, 'Minhas conversas')
   assert.deepEqual(C.opcoesEscopoConversa(true).map((o) => o.valor), ['', 'minhas', 'nao_atribuidas', 'todas'])
   assert.equal(C.opcoesEscopoConversa(true)[0].rotulo, 'Todas')
 })
 
 test('o escopo EFETIVO do servidor tem rotulo proprio', () => {
-  assert.equal(C.rotuloEscopoEfetivoConversa('minhas_e_nao_atribuidas'), 'Minhas e não atribuídas')
+  assert.equal(C.rotuloEscopoEfetivoConversa('proprias'), 'Minhas conversas')
   assert.equal(C.rotuloEscopoEfetivoConversa('nao_atribuidas'), 'Não atribuídas')
   assert.equal(C.rotuloEscopoEfetivoConversa('desconhecido'), 'Todas')
 })
 
 test('o aviso de recorte so aparece quando houve REBAIXAMENTO', () => {
   // Recortar em silencio faria o atendente achar que a Central esvaziou.
-  assert.match(C.avisoDeRecorte('todas', 'minhas_e_nao_atribuidas'), /ainda não têm atendente/)
+  assert.match(C.avisoDeRecorte('todas', 'proprias'), /atribuídas a você/)
   assert.equal(C.avisoDeRecorte('minhas', 'minhas'), '')
   assert.equal(C.avisoDeRecorte('', ''), '')
   // Pedir nada e receber o padrao tambem e' rebaixamento: a tela precisa dizer o que mostra.
-  assert.ok(C.avisoDeRecorte('', 'minhas_e_nao_atribuidas').length > 0)
+  assert.ok(C.avisoDeRecorte('', 'proprias').length > 0)
 })
 
 // ─── Atendente ───────────────────────────────────────────────────────────────────────────

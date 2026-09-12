@@ -176,9 +176,9 @@ test('acoesDoRoteiro: sem a capacidade de gerenciar, NENHUMA escrita e oferecida
   for (const chave of ['podeEditar', 'podePublicar', 'podeCriarVersao', 'podeArquivar', 'podeDesarquivar', 'podeCriarRoteiro']) {
     assert.equal(a[chave], false, `${chave} escapou do gate de capacidade`)
   }
-  // Mas LER continua possivel, e exportar o roteiro publicado tambem — e leitura.
+  // Ler continua possivel; copiar contexto para IA fica com a administracao.
   assert.ok(a.motivoSomenteLeitura.length > 0, 'a tela precisa dizer de quem e a decisao')
-  assert.equal(acoesDoRoteiro({ statusRoteiro: 'publicado', statusVersao: 'publicada', podeGerenciar: false }).podeExportar, true)
+  assert.equal(acoesDoRoteiro({ statusRoteiro: 'publicado', statusVersao: 'publicada', podeGerenciar: false }).podeExportar, false)
 })
 
 test('acoesDoRoteiro: sem versao carregada nao publica nem edita, mas ainda arquiva', () => {

@@ -54,11 +54,12 @@ const CAPACIDADES = Object.freeze({
   LEAD_VER_APROVADOS: 'lead_ver_aprovados',
   LEAD_ASSUMIR: 'lead_assumir',                     // pegar lead livre (claim)
   LEAD_ABORDAR_MANUAL: 'lead_abordar_manual',       // wa.me + "marcar como enviado"
+  LEAD_DISPARAR_SEMI: 'lead_disparar_semi',         // preparar/enviar rascunhos do modo semi
   LEAD_DISPARAR_LOTE: 'lead_disparar_lote',         // envio pela Evolution (teto/reputação)
   LEAD_TRANSFERIR: 'lead_transferir',               // mexer no responsável de OUTRA pessoa
 
   // Central de Mensagens
-  CONVERSA_ATENDER: 'conversa_atender',             // ler e responder as suas + não atribuídas
+  CONVERSA_ATENDER: 'conversa_atender',             // ler e responder as suas conversas
   CONVERSA_VER_TODAS: 'conversa_ver_todas',
   CONVERSA_GERENCIAR_IA: 'conversa_gerenciar_ia',   // modo_ia / pausar agente / ativar instância
   CONVERSA_APAGAR_HISTORICO: 'conversa_apagar_historico',
@@ -104,9 +105,9 @@ const COMERCIAL = Object.freeze([
   CAPACIDADES.LEAD_VER_APROVADOS,
   CAPACIDADES.LEAD_ASSUMIR,
   CAPACIDADES.LEAD_ABORDAR_MANUAL,
+  CAPACIDADES.LEAD_DISPARAR_SEMI,
   CAPACIDADES.CONVERSA_ATENDER,
   CAPACIDADES.LIGACAO_OPERAR,
-  CAPACIDADES.FOLLOWUP_VER_FILA,
   CAPACIDADES.FOLLOWUP_OPERAR,
   CAPACIDADES.ROTEIRO_LER,
   CAPACIDADES.AGENDA_OPERAR_PROPRIA,

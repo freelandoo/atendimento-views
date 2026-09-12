@@ -671,3 +671,11 @@ Ajuste sobre a entrega imediatamente abaixo, apos revisao de UX/operacao.
 - Validacao: backend 1444 (2 falhas conhecidas de rede 429 em `core.test.js`) + typecheck;
   frontend 274/274 + typecheck. Revisao visual autenticada em navegador fica com o operador.
 - Documentos atualizados: `AGENTS.md`, `ai-task-start-log.md`, `ai-decision-log.md` e este mapa.
+
+## 2026-09-12 - Comercial restrito ao próprio trabalho marcado
+
+- Areas alteradas: recorte de conversas (`services/conversa-responsavel.js`), instancias WhatsApp (`routes/api-whatsapp.js`), Banco de Leads (`routes/api-banco-leads.js` e tela), Follow-ups (`routes/api-follow-ups.js`, `db/follow-ups.js`, `services/followup-listing.js` e tela), capacidades (`services/acesso-capacidades.js`, `frontend/lib/capacidades.js`) e acoes de roteiros (`frontend/lib/roteiros-lista.js`).
+- Regras novas a preservar: Comercial ve somente conversas proprias ou da propria instancia; nao ve conversas nao atribuidas de outros canais. Comercial ve no Banco de Leads apenas lead aprovado/marcado, nunca lead neutro. Comercial opera no maximo modo semi-automatico; automatico e lote seguem administrativos. Instancia compartilhada/da empresa nao aparece para Comercial.
+- UX: conversas exibem "Minhas conversas" para o recorte limitado; Banco de Leads ganhou link pequeno de WhatsApp ao lado do telefone, removeu seletor de instancia para Comercial e mostra a instancia atual em leitura; Follow-ups esconde filtros de responsavel/equipe quando o usuario nao ve a fila da equipe.
+- Sem migration e sem env nova.
+- Validacao: testes focados do backend 112/112, frontend 432/432, typecheck backend e frontend limpos. Suite completa do backend ainda bate nas 2 falhas conhecidas de rede/429 em `core.test.js`.

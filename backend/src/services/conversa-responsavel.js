@@ -103,9 +103,9 @@ const ESCOPO = Object.freeze({
 /**
  * O fragmento de WHERE do recorte por atendente.
  *
- * **A diferença crítica em relação ao recorte de lead:** o padrão de quem NÃO pode ver todas é
- * "minhas **+ não atribuídas**", nunca "só minhas". Esconder a fila sem dono de um atendente
- * deixaria clientes sem resposta — é o oposto do objetivo.
+ * O recorte de quem NÃO pode ver todas não amplia mais a fila para "não atribuídas". O limite real
+ * vem de `sqlAlcance`: a pessoa vê as conversas atribuídas a ela e as que chegaram pela própria
+ * instância. Isso impede que um vendedor abra conversas soltas, compartilhadas ou de outro usuário.
  *
  * @returns {{sql: string, usaUsuario: boolean}}
  */
@@ -117,11 +117,8 @@ function sqlEscopo(escopo, { podeVerTodas = false, alias = 'c', placeholder = '$
   if (pedido === ESCOPO.NAO_ATRIBUIDAS) return { sql: `${a}responsavel_id IS NULL`, usaUsuario: false }
   if (pedido === ESCOPO.MINHAS) return { sql: `${a}responsavel_id = ${placeholder}`, usaUsuario: true }
   if (pedido === ESCOPO.TODAS && podeVerTodas) return { sql: '', usaUsuario: false }
-  // Pediu todas e não pode — ou não pediu nada e não pode ver todas: o padrão do atendente.
-  return {
-    sql: `(${a}responsavel_id = ${placeholder} OR ${a}responsavel_id IS NULL)`,
-    usaUsuario: true,
-  }
+  // Pediu um recorte que não pode — ou não pediu nada: mantém só o limite de alcance.
+  return { sql: '', usaUsuario: false }
 }
 
 /**
@@ -139,15 +136,12 @@ function sqlEscopo(escopo, { podeVerTodas = false, alias = 'c', placeholder = '$
  * (`vendas.conversas.evolution_instance`), e a instância tem responsável desde a migration 075.
  * Conversa que chegou pelo número do vendedor É do vendedor, sem ninguém precisar clicar.
  *
- * As três parcelas, e por que nenhuma sobra:
+ * As duas parcelas:
  *   1. atribuída a mim — decisão explícita de alguém vence qualquer inferência;
  *   2. chegou pela MINHA instância — o vínculo provado;
- *   3. sem dono E o número não é de mais ninguém — a fila COMPARTILHADA (instância da empresa,
- *      `usuario_id IS NULL`) e a conversa órfã, sem instância gravada. Sem esta parcela o número
- *      principal da empresa ficaria invisível para quem atende, que é o oposto do objetivo:
- *      conversa que ninguém vê é cliente sem resposta.
  *
- * O que ela EXCLUI, e é o ponto: conversa sem dono que chegou pelo número de OUTRO vendedor.
+ * O que ela EXCLUI, e é o ponto: conversa sem dono, conversa compartilhada da empresa e conversa
+ * que chegou pelo número de outro vendedor.
  *
  * ⚠️ Isto **não** é resolução de instância de ENVIO. Aqui se pergunta "esta conversa é do
  * escopo desta pessoa?"; lá se pergunta "por onde sai a mensagem?", e `usuario_id` continua
@@ -158,15 +152,14 @@ function sqlEscopo(escopo, { podeVerTodas = false, alias = 'c', placeholder = '$
 function sqlAlcance({ podeVerTodas = false, alias = 'c', phUsuario = '$1', phEmpresa = '$2' } = {}) {
   if (podeVerTodas) return { sql: '', usaUsuario: false }
   const a = alias ? `${alias}.` : ''
-  const daInstancia = (n) => `EXISTS (
-        SELECT 1 FROM app.empresa_whatsapp_instances ${n}
-         WHERE ${n}.empresa_id = ${phEmpresa}::uuid
-           AND ${n}.evolution_instance = ${a}evolution_instance
-           AND ${n}.usuario_id ${n === 'ewi_meu' ? `= ${phUsuario}::uuid` : 'IS NOT NULL'})`
+  const daMinhaInstancia = `EXISTS (
+        SELECT 1 FROM app.empresa_whatsapp_instances ewi_meu
+         WHERE ewi_meu.empresa_id = ${phEmpresa}::uuid
+           AND ewi_meu.evolution_instance = ${a}evolution_instance
+           AND ewi_meu.usuario_id = ${phUsuario}::uuid)`
   return {
     sql: `(${a}responsavel_id = ${phUsuario}::uuid
-       OR ${daInstancia('ewi_meu')}
-       OR (${a}responsavel_id IS NULL AND NOT ${daInstancia('ewi_alheia')}))`,
+       OR ${daMinhaInstancia})`,
     usaUsuario: true,
   }
 }
@@ -175,7 +168,7 @@ function sqlAlcance({ podeVerTodas = false, alias = 'c', phUsuario = '$1', phEmp
 function rotuloAlcance(podeVerTodas) {
   return podeVerTodas
     ? 'todas as conversas da empresa'
-    : 'as suas, as do seu número e as dos números compartilhados da empresa'
+    : 'as conversas atribuídas a você e as do seu número'
 }
 
 /** O recorte que a pessoa EFETIVAMENTE recebeu, para a tela ser honesta. */
@@ -185,7 +178,7 @@ function escopoEfetivo(escopo, podeVerTodas) {
   if (pedido === ESCOPO.NAO_ATRIBUIDAS) return ESCOPO.NAO_ATRIBUIDAS
   if (pedido === ESCOPO.MINHAS) return ESCOPO.MINHAS
   if (pedido === ESCOPO.TODAS && podeVerTodas) return ESCOPO.TODAS
-  return 'minhas_e_nao_atribuidas'
+  return 'proprias'
 }
 
 module.exports = {

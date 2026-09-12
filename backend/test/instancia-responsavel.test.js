@@ -159,14 +159,14 @@ test('a criacao por QR Code continua RECUSANDO instancia que ja existe no Evolut
 
 // ─── Recorte e rotas novas ───────────────────────────────────────────────────────────────
 
-test('a listagem de instancias recorta por responsavel, incluindo as DA EMPRESA', () => {
+test('a listagem de instancias recorta por responsavel, sem incluir as DA EMPRESA', () => {
   const i = rotaWhatsapp.indexOf("router.get('/', requireAuth")
   const bloco = rotaWhatsapp.slice(i, i + 2200)
   assert.ok(bloco.includes('INSTANCIA_GERENCIAR_EMPRESA'), 'quem ve todas e quem gerencia as da empresa')
-  // A instancia compartilhada e' o numero principal do atendimento: esconde-la deixaria o vendedor
-  // sem canal.
-  assert.ok(/usuario_id IS NULL/.test(bloco),
-    'o recorte precisa incluir as instancias DA EMPRESA (usuario_id NULL)')
+  assert.ok(!/usuario_id IS NULL/.test(bloco),
+    'instancia da empresa nao pode aparecer para o comercial')
+  assert.ok(/ewi\.usuario_id =/.test(bloco),
+    'o recorte do comercial deve ser apenas a propria instancia')
   assert.ok(bloco.includes('pode_ver_todas'), 'o recorte efetivo precisa voltar no meta')
 })
 

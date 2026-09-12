@@ -93,7 +93,7 @@ test('/por-usuario vem ANTES de qualquer rota /:id de um segmento', () => {
   assert.deepEqual(bare, [], 'nao deve existir GET /:id de um segmento (colidiria com /por-usuario e /analiticas)')
 })
 
-// ─── Follow-ups: visibilidade GERAL, filtro de conveniência ──────────────────────────────
+// ─── Follow-ups: gestor vê fila; comercial vê os próprios ────────────────────────────────
 
 test('o filtro de follow-up por responsavel e OPCIONAL, e "sem responsavel" e um recorte proprio', () => {
   const i = dbFollowUps.indexOf('async function listarFollowUps')
@@ -106,20 +106,17 @@ test('o filtro de follow-up por responsavel e OPCIONAL, e "sem responsavel" e um
     'semResponsavel precisa ser comparado com === true (a query string traz string)')
 })
 
-test('a fila de Follow-ups NAO e recortada por permissao — visibilidade GERAL (decisao D)', () => {
-  // Recortar a fila por pessoa recriaria a fragmentacao que a unificacao das abas removeu.
+test('a fila de Follow-ups recorta por permissao para o comercial', () => {
   const linha = rotaFollowUps.split('\n').find((l) => l.includes("router.get('/itens'"))
   assert.ok(linha, 'a rota da fila sumiu')
   assert.ok(!linha.includes('requireCapacidade'),
-    'a fila de follow-ups nao pode ganhar gate de capacidade: a visibilidade e geral por decisao de produto')
-  // E o filtro vem da QUERY (escolha da tela), nao do usuario logado — se viesse do usuario, seria
-  // recorte disfarcado de filtro.
+    'o mount ja exige FOLLOWUP_OPERAR; a rota decide o recorte pelo papel')
   const i = rotaFollowUps.indexOf("router.get('/itens'")
-  const bloco = rotaFollowUps.slice(i, i + 900)
-  assert.ok(/responsavelId: req\.query\.responsavel_id/.test(bloco),
-    'o filtro precisa vir da query, nao do usuario logado')
-  assert.ok(!/responsavelId: req\.usuario/.test(bloco),
-    'forcar o proprio usuario aqui transformaria o filtro num recorte que a decisao D recusou')
+  const bloco = rotaFollowUps.slice(i, i + 1200)
+  assert.ok(/propriosUsuarioId: recorte\.podeVerFila \? null : recorte\.usuarioId/.test(bloco),
+    'quem nao ve a fila da equipe precisa receber so os proprios follow-ups')
+  assert.ok(/responsavelId: recorte\.podeVerFila \? \(req\.query\.responsavel_id \|\| null\) : null/.test(bloco),
+    'o filtro de responsavel fica disponivel so para quem ve a fila da equipe')
 })
 
 test('a contagem de follow-ups inclui "sem responsavel" como linha propria', () => {

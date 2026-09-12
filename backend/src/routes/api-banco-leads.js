@@ -28,10 +28,9 @@ const {
 const { classificarLead } = require('../services/site-classificacao')
 // Ownership do lead (Etapa 4): a REGRA e' pura, o SQL e' proprio, a capacidade decide o recorte.
 const { sqlEscopo, escopoEfetivo } = require('../services/lead-responsavel')
-// A PORTA (Etapa 3). Aqui ela recorta a LEITURA: quem nao pode ver a base bruta nao ve o
-// lead que uma pessoa RECUSOU na triagem. Abordar um descartado e' o unico desfecho que
-// chega ao CLIENTE, e a aba "Descartados" desta tela fala de outro eixo (status do funil).
-const { sqlNaoDescartado } = require('../services/lead-qualificacao')
+// A PORTA (Etapa 3). Aqui ela recorta a LEITURA do Comercial: quem nao pode ver a base bruta
+// ve apenas lead APROVADO/MARCADO por alguem. Lead neutro fica fora da operacao comercial.
+const { sqlAprovado } = require('../services/lead-qualificacao')
 const LR = require('../db/lead-responsavel')
 // Abordagem MANUAL (Etapa 5): o produto NAO envia — abre o wa.me e registra o que o vendedor diz.
 const AM = require('../db/abordagem-manual')
@@ -45,6 +44,14 @@ const ABAS = {
   sem_contato: ['coletado', 'contato_encontrado', 'aguardando', 'aprovado'],
   conversou: ['enviado', 'respondeu'],
   fecharam: ['fechado'],
+}
+
+function temCapacidadeReq(req, cap) {
+  return podeCapacidade({
+    papel: req.papelEmpresa,
+    permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
+    papelPlataforma: req.usuario?.role,
+  }, cap)
 }
 const ORIGENS_VALIDAS = new Set(['manual', 'automatico', 'instagram', 'linkedin'])
 
@@ -123,8 +130,8 @@ function comEscopo(req) {
       __escopoUsaUsuario: escopo.usaUsuario,
       __usuarioId: escopo.usuarioId,
       // `podeVerTodos` aqui e' LEAD_VER_BRUTOS — a mesma capacidade que da acesso a base nao
-      // triada. Quem nao a tem nao ve o lead descartado, em nenhuma aba.
-      __ocultarDescartados: !escopo.podeVerTodos,
+      // triada. Quem nao a tem ve apenas lead marcado/aprovado pelo operador.
+      __somenteAprovados: !escopo.podeVerTodos,
     },
     escopo,
   }
@@ -178,9 +185,8 @@ function montarFiltro(empresaId, query) {
   }
 
   // Recorte pela PORTA (Etapa 3), aplicado na listagem, na contagem e no export pelo mesmo
-  // ponto. Nao filtra por "abordavel" de proposito: a decisao do operador (2026-09-12) foi que o
-  // Comercial ve tudo MENOS o que uma pessoa recusou — inclusive o que ainda nao foi triado.
-  if (query.__ocultarDescartados) where.push(sqlNaoDescartado(''))
+  // ponto. Comercial trabalha só lead marcado/aprovado; lead neutro ainda fica na triagem.
+  if (query.__somenteAprovados) where.push(sqlAprovado(''))
 
   adicionarFiltroMercado(where, params, query)
 
@@ -191,6 +197,36 @@ function montarFiltro(empresaId, query) {
     where.push(`(nome ILIKE $${i} OR telefone ILIKE $${i} OR email ILIKE $${i} OR instagram_handle ILIKE $${i} OR nicho ILIKE $${i} OR categoria_perfil ILIKE $${i} OR cidade ILIKE $${i})`)
   }
   return { where: where.join(' AND '), params }
+}
+
+function montarRecorteOperacao(empresaId, query) {
+  const params = [empresaId]
+  const where = ['empresa_id = $1']
+  if (query.__escopoSql) {
+    if (query.__escopoUsaUsuario) params.push(query.__usuarioId)
+    where.push(query.__escopoSql.replace('$1', `$${params.length}`))
+  }
+  if (query.__somenteAprovados) where.push(sqlAprovado(''))
+  return { where: where.join(' AND '), params }
+}
+
+async function assertInstanciaPermitida(req, res, instanciaId) {
+  if (temCapacidadeReq(req, CAP.INSTANCIA_GERENCIAR_EMPRESA)) return true
+  const usuarioId = req.usuario?.id || null
+  if (!usuarioId) {
+    res.status(403).json({ ok: false, error: { code: 'FORBIDDEN', message: 'Instância indisponível para este usuário.' } })
+    return false
+  }
+  const { rows } = await pool.query(
+    `SELECT id
+       FROM app.empresa_whatsapp_instances
+      WHERE id = $1 AND empresa_id = $2 AND usuario_id = $3
+        AND COALESCE(config_json->>'canal', 'whatsapp') <> 'freelandoo'`,
+    [instanciaId, req.empresa.id, usuarioId]
+  )
+  if (rows[0]) return true
+  res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Instância não encontrada.' } })
+  return false
 }
 
 function montarEscopoOpcoes(query) {
@@ -583,9 +619,20 @@ router.get('/config', requireAuth, requireEmpresaAccess, async (req, res) => {
 // PUT /config — atualiza a config do Banco de Leads (upsert parcial: só os campos
 // presentes no body mudam). Aceita: modo, gerar_ia, instrucoes_ia (Manual/Semi) +
 // auto_ativo, janela_inicio, janela_fim, intervalo_min, intervalo_max (Automático).
-router.put('/config', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_DISPARAR_LOTE), async (req, res) => {
+router.put('/config', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_DISPARAR_SEMI, CAP.LEAD_DISPARAR_LOTE), async (req, res) => {
   try {
     const b = req.body || {}
+    const podeAutomatico = temCapacidadeReq(req, CAP.LEAD_DISPARAR_LOTE)
+    if (!podeAutomatico) {
+      const camposAutomaticos = ['auto_ativo', 'janela_inicio', 'janela_fim', 'intervalo_min', 'intervalo_max', 'auto_proximo_disparo_em']
+      const tentouAutomatico = b.modo === 'automatico' || camposAutomaticos.some((campo) => b[campo] !== undefined)
+      if (tentouAutomatico) {
+        return res.status(403).json({
+          ok: false,
+          error: { code: 'FORBIDDEN', message: 'O modo automático é restrito à administração.' },
+        })
+      }
+    }
     const patch = {}
     for (const campo of ['modo', 'gerar_ia', 'instrucoes_ia', 'auto_ativo', 'auto_instancia_id',
       'janela_inicio', 'janela_fim', 'intervalo_min', 'intervalo_max', 'auto_proximo_disparo_em']) {
@@ -604,6 +651,7 @@ router.get('/cooldown', requireAuth, requireEmpresaAccess, async (req, res) => {
     if (!instId) {
       return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'instancia_id é obrigatório.' } })
     }
+    if (!(await assertInstanciaPermitida(req, res, instId))) return
     const data = await estadoEnvioInstancia(pool, { empresaId: req.empresa.id, instanciaId: instId })
     return res.json({ ok: true, data })
   } catch (err) {
@@ -623,6 +671,7 @@ router.get('/geracao-progresso', requireAuth, requireEmpresaAccess, async (req, 
   try {
     const instId = String(req.query.instancia_id || '').trim()
     if (!instId) return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'instancia_id é obrigatório.' } })
+    if (!(await assertInstanciaPermitida(req, res, instId))) return
     const { rows: [inst] } = await pool.query(
       `SELECT evolution_instance FROM app.empresa_whatsapp_instances WHERE id = $1 AND empresa_id = $2`,
       [instId, req.empresa.id]
@@ -664,12 +713,13 @@ router.get('/geracao-progresso', requireAuth, requireEmpresaAccess, async (req, 
 
 // POST /gerar { instancia_id, prospect_ids } — SEMI: gera as mensagens (IA c/ fallback) e
 // deixa 'aguardando_disparo' (não envia, não consome teto). Retorna as prévias geradas.
-router.post('/gerar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_DISPARAR_LOTE), async (req, res) => {
+router.post('/gerar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_DISPARAR_SEMI, CAP.LEAD_DISPARAR_LOTE), async (req, res) => {
   try {
     const { instancia_id, prospect_ids } = req.body || {}
     if (!instancia_id) {
       return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Escolha uma instância.' } })
     }
+    if (!(await assertInstanciaPermitida(req, res, instancia_id))) return
     const data = await gerarMensagensSemi(pool, {
       empresaId: req.empresa.id,
       usuarioId: req.usuario?.id || null,
@@ -686,12 +736,13 @@ router.post('/gerar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.L
 
 // POST /gerar-pendentes { instancia_id, limit? } — SEMI: gera mensagens para os
 // leads elegíveis que ainda não têm rascunho/erro/envio nesta instância.
-router.post('/gerar-pendentes', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_DISPARAR_LOTE), async (req, res) => {
+router.post('/gerar-pendentes', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_DISPARAR_SEMI, CAP.LEAD_DISPARAR_LOTE), async (req, res) => {
   try {
     const { instancia_id, limit } = req.body || {}
     if (!instancia_id) {
       return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Escolha uma instância.' } })
     }
+    if (!(await assertInstanciaPermitida(req, res, instancia_id))) return
     const data = await gerarPendentesSemi(pool, {
       empresaId: req.empresa.id,
       usuarioId: req.usuario?.id || null,
@@ -708,12 +759,13 @@ router.post('/gerar-pendentes', requireAuth, requireEmpresaAccess, requireCapaci
 
 // POST /disparar-gerados { instancia_id, prospect_ids? } — envia as mensagens já geradas
 // (aguardando_disparo). Sem prospect_ids, dispara todos os pendentes da instância.
-router.post('/disparar-gerados', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_DISPARAR_LOTE), async (req, res) => {
+router.post('/disparar-gerados', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_DISPARAR_SEMI, CAP.LEAD_DISPARAR_LOTE), async (req, res) => {
   try {
     const { instancia_id, prospect_ids } = req.body || {}
     if (!instancia_id) {
       return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Escolha uma instância.' } })
     }
+    if (!(await assertInstanciaPermitida(req, res, instancia_id))) return
     const data = await dispararGerados(pool, {
       empresaId: req.empresa.id,
       instanciaId: instancia_id,
@@ -761,26 +813,32 @@ router.post('/limpar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.
 // GET /resumo — contagem por aba (para os badges das abas).
 router.get('/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
+    const { query: queryComEscopo } = comEscopo(req)
+    const recorte = montarRecorteOperacao(req.empresa.id, queryComEscopo)
+    const paramsAbas = [...recorte.params, ABAS.sem_contato, ABAS.conversou, ABAS.fecharam]
+    const phSemContato = `$${recorte.params.length + 1}`
+    const phConversou = `$${recorte.params.length + 2}`
+    const phFecharam = `$${recorte.params.length + 3}`
     const [{ rows }, { rows: [c] }, { rows: [ag] }] = await Promise.all([
       pool.query(
         `SELECT status, COUNT(*)::int AS total
-           FROM prospectador.prospects WHERE empresa_id = $1 GROUP BY status`,
-        [req.empresa.id]
+           FROM prospectador.prospects WHERE ${recorte.where} GROUP BY status`,
+        recorte.params
       ),
       // Contagem por aba consistente com os filtros (sem WhatsApp conta em Descartados,
       // não em Sem contato).
       pool.query(
         `SELECT
-           COUNT(*) FILTER (WHERE status = ANY($2) AND tem_whatsapp IS DISTINCT FROM false)::int AS sem_contato,
-           COUNT(*) FILTER (WHERE status = ANY($3))::int AS conversou,
-           COUNT(*) FILTER (WHERE status = ANY($4))::int AS fecharam,
+           COUNT(*) FILTER (WHERE status = ANY(${phSemContato}) AND tem_whatsapp IS DISTINCT FROM false)::int AS sem_contato,
+           COUNT(*) FILTER (WHERE status = ANY(${phConversou}))::int AS conversou,
+           COUNT(*) FILTER (WHERE status = ANY(${phFecharam}))::int AS fecharam,
            COUNT(*) FILTER (WHERE status IN ('rejeitado', 'nao_contatar') OR tem_whatsapp = false)::int AS descartados
-         FROM prospectador.prospects WHERE empresa_id = $1`,
-        [req.empresa.id, ABAS.sem_contato, ABAS.conversou, ABAS.fecharam]
+         FROM prospectador.prospects WHERE ${recorte.where}`,
+        paramsAbas
       ),
       pool.query(
-        `SELECT COUNT(*)::int AS total FROM prospectador.prospects WHERE empresa_id = $1 AND ${AGENDA_FUTURA_EXISTS}`,
-        [req.empresa.id]
+        `SELECT COUNT(*)::int AS total FROM prospectador.prospects WHERE ${recorte.where} AND ${AGENDA_FUTURA_EXISTS}`,
+        recorte.params
       ),
     ])
     const porStatus = Object.fromEntries(rows.map((r) => [r.status, r.total]))

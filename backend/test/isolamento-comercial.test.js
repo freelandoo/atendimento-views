@@ -38,7 +38,7 @@ test('sqlAlcance: quem ve todas nao recebe limite nenhum', () => {
   assert.equal(r.usaUsuario, false)
 })
 
-test('sqlAlcance: as TRES parcelas estao presentes, e nenhuma sobra', () => {
+test('sqlAlcance: só entram a conversa atribuída e a da própria instância', () => {
   const { sql, usaUsuario } = CR.sqlAlcance({ podeVerTodas: false, alias: 'c', phUsuario: '$4', phEmpresa: '$1' })
   assert.equal(usaUsuario, true)
   // 1. atribuida a mim — decisao explicita vence qualquer inferencia.
@@ -46,19 +46,18 @@ test('sqlAlcance: as TRES parcelas estao presentes, e nenhuma sobra', () => {
   // 2. chegou pela MINHA instancia — o vinculo provado pelo webhook.
   assert.match(sql, /ewi_meu\.usuario_id = \$4::uuid/)
   assert.match(sql, /ewi_meu\.evolution_instance = c\.evolution_instance/)
-  // 3. sem dono E o numero nao e' de mais ninguem — a fila COMPARTILHADA e a conversa orfa.
-  assert.match(sql, /c\.responsavel_id IS NULL AND NOT EXISTS/)
-  assert.match(sql, /ewi_alheia\.usuario_id IS NOT NULL/)
+  // Sem dono, compartilhada da empresa e órfã não entram.
+  assert.doesNotMatch(sql, /responsavel_id IS NULL/)
+  assert.doesNotMatch(sql, /ewi_alheia/)
   // A instancia e' sempre procurada DENTRO da empresa do request.
   assert.match(sql, /ewi_meu\.empresa_id = \$1::uuid/)
-  assert.match(sql, /ewi_alheia\.empresa_id = \$1::uuid/)
 })
 
-test('sqlAlcance: os dois EXISTS usam apelidos DIFERENTES', () => {
-  // Reusar o mesmo apelido nas duas subconsultas faria a segunda sombrear a primeira e a
-  // condicao passaria a significar outra coisa, em silencio.
+test('sqlAlcance: não consulta instância alheia nem compartilhada', () => {
   const { sql } = CR.sqlAlcance({ podeVerTodas: false })
-  assert.ok(sql.includes('ewi_meu') && sql.includes('ewi_alheia'))
+  assert.ok(sql.includes('ewi_meu'))
+  assert.ok(!sql.includes('ewi_alheia'))
+  assert.ok(!sql.includes('usuario_id IS NULL'))
 })
 
 test('o ALCANCE nao substitui o ESCOPO — sao perguntas diferentes', () => {
@@ -69,7 +68,7 @@ test('o ALCANCE nao substitui o ESCOPO — sao perguntas diferentes', () => {
 })
 
 test('rotuloAlcance descreve o recorte em texto, para a tela nao encolher em silencio', () => {
-  assert.match(CR.rotuloAlcance(false), /compartilhados/)
+  assert.match(CR.rotuloAlcance(false), /seu número/)
   assert.match(CR.rotuloAlcance(true), /todas/)
 })
 
@@ -83,13 +82,31 @@ test('DEFEITO CORRIGIDO: o padrao do vendedor no Banco de Leads inclui os LIVRES
   assert.equal(LR.escopoEfetivo(undefined, false), 'meus_e_livres')
 })
 
-test('GUARDA: o Banco de Leads esconde o lead DESCARTADO de quem nao ve a base bruta', () => {
+test('GUARDA: o Banco de Leads mostra só lead aprovado para quem nao ve a base bruta', () => {
   const src = rota('api-banco-leads.js')
   assert.ok(src.includes("require('../services/lead-qualificacao')"), 'perdeu o import da porta')
-  assert.ok(src.includes('__ocultarDescartados'), 'o recorte pela porta sumiu do Banco de Leads')
+  assert.ok(src.includes('__somenteAprovados'), 'o recorte pela porta sumiu do Banco de Leads')
   // O MESMO ponto serve listagem, contagem e export — tres condicoes separadas divergiriam.
-  assert.ok(/if \(query\.__ocultarDescartados\) where\.push\(sqlNaoDescartado/.test(src),
+  assert.ok(/if \(query\.__somenteAprovados\) where\.push\(sqlAprovado/.test(src),
     'o recorte precisa entrar em montarFiltro, que e o ponto unico')
+})
+
+test('GUARDA: Banco de Leads semi usa somente instancia propria do Comercial', () => {
+  const src = rota('api-banco-leads.js')
+  assert.ok(src.includes('async function assertInstanciaPermitida'), 'faltou a guarda de instancia no Banco de Leads')
+  assert.ok(src.includes('usuario_id = $3'), 'a guarda precisa exigir instancia vinculada ao usuario')
+  for (const trecho of [
+    "router.get('/cooldown'",
+    "router.get('/geracao-progresso'",
+    "router.post('/gerar'",
+    "router.post('/gerar-pendentes'",
+    "router.post('/disparar-gerados'",
+  ]) {
+    const ini = src.indexOf(trecho)
+    assert.ok(ini >= 0, `rota nao encontrada: ${trecho}`)
+    const bloco = src.slice(ini, ini + 900)
+    assert.ok(bloco.includes('assertInstanciaPermitida'), `${trecho} nao valida instancia do usuario`)
+  }
 })
 
 // ─── 3. AS ROTAS POR ID REPETEM O RECORTE DA LISTAGEM ────────────────────────────────────
@@ -144,12 +161,10 @@ test('GUARDA: o DESTRUTIVO de instancia e mais estrito que o alcance', () => {
   }
 })
 
-test('GUARDA: o alcance da instancia aceita a COMPARTILHADA (usuario_id NULL)', () => {
-  // A migration 075 nao fez backfill: toda instancia que ja existia tem usuario_id nulo. Exigir
-  // dono aqui trancaria todo mundo para fora do proprio numero no dia do deploy.
+test('GUARDA: o alcance da instancia nao aceita a COMPARTILHADA (usuario_id NULL)', () => {
   const src = rota('api-whatsapp.js')
   const bloco = src.slice(src.indexOf('async function alcancaInstancia'), src.indexOf('function soDonoOuGestor'))
-  assert.ok(bloco.includes('const daEmpresa = !inst.usuario_id'), 'a instancia da empresa deixou de ser alcancavel')
+  assert.ok(!bloco.includes('const daEmpresa = !inst.usuario_id'), 'a instancia da empresa voltou para o comercial')
   assert.ok(bloco.includes('status(404)'), 'a existencia do numero de outro vendedor nao e informacao desta pessoa')
 })
 

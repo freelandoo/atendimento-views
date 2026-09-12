@@ -552,10 +552,8 @@ function capacidade(req, cap) {
  * trocar o id na URL para LER, RENOMEAR, trocar o contexto ou REMOVER a instancia de outro
  * vendedor. A capacidade se chama `INSTANCIA_GERENCIAR_PROPRIA` e nada verificava que era propria.
  *
- * O alcance e' o MESMO da listagem, de proposito: **a sua + as DA EMPRESA** (`usuario_id IS NULL`).
- * A segunda metade nao e' cortesia — a migration 075 nao fez backfill, entao **toda instancia que
- * ja existia tem `usuario_id` nulo**; exigir dono aqui trancaria todo mundo para fora do proprio
- * numero no dia do deploy.
+ * O alcance e' o MESMO da listagem, de proposito: **a sua instancia**. Instancia da empresa
+ * (`usuario_id IS NULL`) e' canal compartilhado/administrativo e nao entra na tela do comercial.
  *
  * 404, nao 403: a existencia de um numero de outro vendedor nao e' informacao desta pessoa.
  *
@@ -575,8 +573,7 @@ async function alcancaInstancia(req, res, next) {
     req.instanciaAlvo = inst
     if (capacidade(req, CAP.INSTANCIA_GERENCIAR_EMPRESA)) return next()
     const minha = inst.usuario_id && String(inst.usuario_id) === String(req.usuario?.id || '')
-    const daEmpresa = !inst.usuario_id
-    if (!minha && !daEmpresa) return naoAchou()
+    if (!minha) return naoAchou()
     return next()
   } catch (err) {
     logger.error('[api-whatsapp] alcance da instancia:', err.message)
@@ -605,9 +602,8 @@ function soDonoOuGestor(req, res, next) {
 // GET /api/empresas/:empresaId/whatsapp
 router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   // Recorte por RESPONSAVEL (CRM em equipe, Etapa 8). Quem pode gerenciar as instancias da empresa
-  // ve todas; quem nao pode ve **as suas + as DA EMPRESA (usuario_id NULL)**. A segunda metade nao
-  // e' cortesia: a instancia compartilhada e' o numero por onde o atendimento da empresa acontece,
-  // e esconde-la deixaria o vendedor sem o canal principal.
+  // ve todas; quem nao pode ve so a propria instancia. O numero compartilhado da empresa nao aparece
+  // para o comercial.
   const podeVerTodas = podeCapacidade({
     papel: req.papelEmpresa,
     permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
@@ -618,7 +614,7 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   let recorte = ''
   if (!podeVerTodas) {
     vals.push(req.usuario?.id || null)
-    recorte = `AND (ewi.usuario_id = $${vals.length}::uuid OR ewi.usuario_id IS NULL)`
+    recorte = `AND ewi.usuario_id = $${vals.length}::uuid`
   }
 
   const { rows } = await pool.query(

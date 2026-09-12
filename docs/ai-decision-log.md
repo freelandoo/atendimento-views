@@ -2627,3 +2627,12 @@ inventar meta em campanha de validacao contamina a leitura.
 - **Pendencias que continuam:** preencher os marcadores (`[vendedor]`, `[empresa]`,
   `[condicoes comerciais]`, `[observacao real]`), **preparar as previas** antes de ligar (a
   etapa 3 exige que a previa exista), atribuir responsaveis e ativar as campanhas.
+
+## 2026-09-12 — Comercial restrito ao próprio trabalho marcado
+
+- **Decisão:** o cargo Comercial passa a operar apenas o próprio recorte: conversas atribuídas a ele ou vindas da instância dele, follow-ups dele e instâncias vinculadas ao próprio usuário. A antiga leitura de "minhas + não atribuídas" deixa de existir para esse papel.
+- **Lead neutro não entra no trabalho comercial.** No Banco de Leads, quem não tem permissão de base bruta vê somente lead `qualificacao = 'aprovado'`. O lead coletado/neutro continua existindo para triagem/admin, mas não vira lista operacional do Comercial até ser marcado.
+- **Instância do Comercial é pessoal.** Rotas de WhatsApp não expõem nem permitem operar instância compartilhada/da empresa para usuário sem `instancia_gerenciar_empresa`; a tela mostra só a instância própria e remove seletor de instância do Banco de Leads para esse recorte.
+- **Disparo automático fica administrativo.** O Comercial recebe no máximo `lead_disparar_semi`; modo automático, limpeza e operação em lote continuam atrás de `lead_disparar_lote`.
+- **Roteiros para Comercial são leitura.** Copiar conteúdo para IA, criar, editar, publicar ou arquivar continuam restritos a quem gerencia roteiros.
+- **Sem migration e sem env nova.** A mudança é de autorização, filtros SQL e apresentação de interface.

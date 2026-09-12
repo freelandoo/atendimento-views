@@ -77,7 +77,7 @@ const ROTAS_POR_CAPACIDADE = [
 
   // Etapa 6 — o TRABALHO: é o que o comercial alcança.
   { mount: '/api/empresas/:empresaId/banco-leads', capacidade: C.LEAD_VER_APROVADOS, papeisQuePassam: ['owner', 'admin', 'comercial'] },
-  { mount: '/api/empresas/:empresaId/follow-ups', capacidade: C.FOLLOWUP_VER_FILA, papeisQuePassam: ['owner', 'admin', 'comercial'] },
+  { mount: '/api/empresas/:empresaId/follow-ups', capacidade: C.FOLLOWUP_OPERAR, papeisQuePassam: ['owner', 'admin', 'comercial'] },
   { mount: '/api/empresas/:empresaId/roteiros', capacidade: C.ROTEIRO_LER, papeisQuePassam: ['owner', 'admin', 'comercial'] },
   { mount: '/api/empresas/:empresaId/campanhas', capacidade: C.LIGACAO_OPERAR, papeisQuePassam: ['owner', 'admin', 'comercial'] },
   { mount: '/api/empresas/:empresaId/ligacoes', capacidade: C.LIGACAO_OPERAR, papeisQuePassam: ['owner', 'admin', 'comercial'] },
@@ -148,7 +148,7 @@ test('o comercial e recusado em TODA capacidade de gestao', () => {
   for (const cap of [
     C.AQUISICAO_GERENCIAR, C.LEAD_TRIAR, C.LEAD_VER_BRUTOS, C.LEAD_DISPARAR_LOTE,
     C.LEAD_TRANSFERIR, C.CAMPANHA_GERENCIAR, C.ROTEIRO_GERENCIAR, C.FOLLOWUP_CONFIG_EMPRESA,
-    C.FOLLOWUP_REATRIBUIR, C.INTEGRACOES_GERENCIAR, C.RELATORIOS_VER, C.MEMBROS_GERENCIAR,
+    C.FOLLOWUP_VER_FILA, C.FOLLOWUP_REATRIBUIR, C.INTEGRACOES_GERENCIAR, C.RELATORIOS_VER, C.MEMBROS_GERENCIAR,
     C.INSTANCIA_GERENCIAR_CONTEXTO, C.INSTANCIA_GERENCIAR_EMPRESA, C.CONVERSA_GERENCIAR_IA,
     C.CONVERSA_APAGAR_HISTORICO, C.CONVERSA_VER_TODAS, C.LIGACAO_VER_TODAS, C.AGENDA_VER_EQUIPE,
   ]) {
@@ -160,7 +160,7 @@ test('o comercial e recusado em TODA capacidade de gestao', () => {
 test('o comercial PASSA no que e trabalho dele', () => {
   for (const cap of [
     C.LEAD_VER_APROVADOS, C.LEAD_ASSUMIR, C.LEAD_ABORDAR_MANUAL, C.CONVERSA_ATENDER,
-    C.LIGACAO_OPERAR, C.FOLLOWUP_VER_FILA, C.FOLLOWUP_OPERAR, C.ROTEIRO_LER,
+    C.LEAD_DISPARAR_SEMI, C.LIGACAO_OPERAR, C.FOLLOWUP_OPERAR, C.ROTEIRO_LER,
     C.AGENDA_OPERAR_PROPRIA, C.INSTANCIA_GERENCIAR_PROPRIA,
   ]) {
     assert.equal(rodar(requireCapacidade(cap), reqDe('comercial')).chamouNext, true, `comercial precisa poder ${cap}`)
@@ -232,7 +232,7 @@ test('NENHUM mount de empresa ficou sem gate', () => {
 test('as ESCRITAS que a matriz separa tem capacidade propria, na ordem certa', () => {
   for (const { arquivo, capacidade, minimo } of ESCRITAS_COM_CAPACIDADE_PROPRIA) {
     const src = rota(arquivo)
-    const n = (src.match(new RegExp(`requireCapacidade\\(CAP\\.${capacidade}\\)`, 'g')) || []).length
+    const n = src.split('\n').filter((l) => l.includes('requireCapacidade(') && l.includes(`CAP.${capacidade}`)).length
     assert.ok(n >= minimo, `${arquivo}: esperava >= ${minimo} rotas com ${capacidade}, achei ${n}`)
     for (const linha of src.split('\n')) {
       if (!linha.includes('requireCapacidade(CAP.') || !linha.includes('router.')) continue

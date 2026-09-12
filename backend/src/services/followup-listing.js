@@ -25,6 +25,19 @@ function limparNumero(numero) {
   return String(numero || '').replace(/\D/g, '')
 }
 
+function filtroConversasDoUsuario(alias, params, usuarioId) {
+  if (!usuarioId) return ''
+  params.push(usuarioId)
+  const phUsuario = `$${params.length}`
+  return `AND (${alias}.responsavel_id = ${phUsuario}::uuid
+       OR EXISTS (
+            SELECT 1 FROM app.empresa_whatsapp_instances ewi_meu
+             WHERE ewi_meu.empresa_id = ${alias}.empresa_id
+               AND ewi_meu.evolution_instance = ${alias}.evolution_instance
+               AND ewi_meu.usuario_id = ${phUsuario}::uuid
+          ))`
+}
+
 // --- AUTOMATICO: timeline dos agendamentos por empresa ---------------------------
 async function listarAgendamentosAuto(pool, empresaId, opts = {}) {
   const limit = Math.min(Math.max(Number.parseInt(opts.limit, 10) || 100, 1), 500)
@@ -34,6 +47,7 @@ async function listarAgendamentosAuto(pool, empresaId, opts = {}) {
     params.push(opts.status)
     filtroStatus = `AND fa.status = $${params.length}`
   }
+  const filtroUsuario = filtroConversasDoUsuario('c', params, opts.usuarioId)
   params.push(limit)
   const { rows } = await pool.query(
     `SELECT fa.id, fa.numero, fa.sequencia, fa.status, fa.agendado_para,
@@ -47,6 +61,7 @@ async function listarAgendamentosAuto(pool, empresaId, opts = {}) {
        JOIN vendas.conversas c ON c.numero = fa.numero
        LEFT JOIN vendas.lead_profiles p ON p.numero = fa.numero
       WHERE c.empresa_id = $1 ${filtroStatus}
+        ${filtroUsuario}
       ORDER BY COALESCE(fa.agendado_para, fa.detectado_em) DESC
       LIMIT $${params.length}`,
     params
@@ -55,14 +70,17 @@ async function listarAgendamentosAuto(pool, empresaId, opts = {}) {
 }
 
 // Contagem por status (para os cards de "saude do canal").
-async function resumoAgendamentosAuto(pool, empresaId) {
+async function resumoAgendamentosAuto(pool, empresaId, opts = {}) {
+  const params = [empresaId]
+  const filtroUsuario = filtroConversasDoUsuario('c', params, opts.usuarioId)
   const { rows } = await pool.query(
     `SELECT fa.status, COUNT(*)::int AS total
        FROM vendas.followup_auto_agendamentos fa
        JOIN vendas.conversas c ON c.numero = fa.numero
       WHERE c.empresa_id = $1
+        ${filtroUsuario}
       GROUP BY fa.status`,
-    [empresaId]
+    params
   )
   const resumo = { agendado: 0, executado: 0, cancelado: 0, falhou: 0 }
   for (const r of rows) resumo[r.status] = r.total
@@ -147,6 +165,8 @@ async function cancelarPorLead(pool, empresaId, numero, motivo = 'cancelado pelo
 // um prompt textual para o operador copiar e usar fora do projeto.
 async function montarCallList(pool, empresaId, opts = {}) {
   const limit = Math.min(Math.max(Number.parseInt(opts.limit, 10) || 30, 1), 200)
+  const params = [empresaId, CALLLIST_SILENCIO_MIN_MINUTOS, CALLLIST_SCAN_LIMIT, CALLLIST_DEDUP_HORAS]
+  const filtroUsuario = filtroConversasDoUsuario('c', params, opts.usuarioId)
   const { rows } = await pool.query(
     `SELECT c.numero,
             c.estagio,
@@ -194,6 +214,7 @@ async function montarCallList(pool, empresaId, opts = {}) {
        FROM vendas.conversas c
        LEFT JOIN vendas.lead_profiles p ON p.numero = c.numero
       WHERE c.empresa_id = $1
+        ${filtroUsuario}
         AND c.status IN ('ativo', 'aguardando_handoff')
         AND (c.status = 'aguardando_handoff' OR COALESCE(c.agente_pausado, false) = false)
         AND COALESCE(c.arquivado, false) = false
@@ -207,7 +228,7 @@ async function montarCallList(pool, empresaId, opts = {}) {
         )
       ORDER BY c.atualizado_em DESC
       LIMIT $3`,
-    [empresaId, CALLLIST_SILENCIO_MIN_MINUTOS, CALLLIST_SCAN_LIMIT, CALLLIST_DEDUP_HORAS]
+    params
   )
 
   const lista = []
@@ -287,6 +308,9 @@ async function buscarLeadsParaFollowup(pool, empresaId, opts = {}) {
   if (termo.length < BUSCA_MIN_CARACTERES) return []
   const limit = Math.min(Math.max(Number.parseInt(opts.limit, 10) || BUSCA_LIMITE_PADRAO, 1), BUSCA_LIMITE_MAX)
   const dig = limparNumero(termo)
+  const params = [empresaId, `%${escaparLike(termo)}%`, dig, `%${dig}%`]
+  const filtroUsuario = filtroConversasDoUsuario('c', params, opts.usuarioId)
+  params.push(limit)
   const { rows } = await pool.query(
     `SELECT c.numero,
             regexp_replace(c.numero, '[^0-9]', '', 'g') AS telefone_digitos,
@@ -297,6 +321,7 @@ async function buscarLeadsParaFollowup(pool, empresaId, opts = {}) {
        FROM vendas.conversas c
        LEFT JOIN vendas.lead_profiles p ON p.numero = c.numero
       WHERE c.empresa_id = $1
+        ${filtroUsuario}
         AND COALESCE(c.arquivado, false) = false
         AND (
           COALESCE(p.apelido, '') ILIKE $2 ESCAPE '\\'
@@ -304,8 +329,8 @@ async function buscarLeadsParaFollowup(pool, empresaId, opts = {}) {
           OR ($3::text <> '' AND regexp_replace(c.numero, '[^0-9]', '', 'g') LIKE $4)
         )
       ORDER BY c.atualizado_em DESC
-      LIMIT $5`,
-    [empresaId, `%${escaparLike(termo)}%`, dig, `%${dig}%`, limit]
+      LIMIT $${params.length}`,
+    params
   )
   return rows.map((r) => ({
     numero: r.numero,

@@ -172,8 +172,9 @@ function acoesDoRoteiro({ statusRoteiro, statusVersao, carregando = false, temVe
     podeEditar: !bloqueado && !arquivado && rascunho,
     podePublicar: !bloqueado && !arquivado && rascunho,
     podeCriarVersao: !bloqueado && !arquivado && !rascunho,
-    // Exportar e' LEITURA (levar o roteiro para a ligacao), entao nao depende de gerenciar.
-    podeExportar: !carregando && !arquivado && statusVersao === 'publicada',
+    // Copiar contexto para IA fica com a administração: o comercial consulta o roteiro na tela,
+    // mas não leva o conteúdo para uma IA externa.
+    podeExportar: gerivel && !arquivado && statusVersao === 'publicada',
     podeArquivar: gerivel && !arquivado,
     podeDesarquivar: gerivel && arquivado,
     podeCriarRoteiro: podeGerenciar,

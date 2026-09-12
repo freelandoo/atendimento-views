@@ -16,8 +16,7 @@
 
 // ─── Recorte por atendente ───────────────────────────────────────────────────────────────
 
-// Espelha `ESCOPO` de `services/conversa-responsavel.js`. `minhas_e_nao_atribuidas` NÃO é
-// pedível: é o que o servidor DEVOLVE quando rebaixa um pedido de "todas".
+// Espelha `ESCOPO` de `services/conversa-responsavel.js`.
 const ESCOPO_CONVERSA = Object.freeze({
   MINHAS: 'minhas',
   NAO_ATRIBUIDAS: 'nao_atribuidas',
@@ -28,23 +27,22 @@ const ESCOPO_ROTULO = {
   minhas: 'Minhas',
   nao_atribuidas: 'Não atribuídas',
   todas: 'Todas',
-  minhas_e_nao_atribuidas: 'Minhas e não atribuídas',
+  proprias: 'Minhas conversas',
 }
 
 /**
  * As opções de recorte que esta pessoa pode escolher.
  *
- * "Não atribuídas" é opção de PRIMEIRA CLASSE, não um filtro auxiliar: é a fila de quem ainda não
- * tem dono, e é o trabalho que precisa ser puxado. Quem não pode ver todas não recebe "Todas" —
- * oferecer uma opção que o servidor rebaixa faria a tela prometer o que não entrega; no lugar
- * dela, a opção vazia diz o recorte real que o servidor aplica.
+ * Quem não pode ver todas não recebe a fila de "não atribuídas": o servidor já limita a leitura
+ * às conversas atribuídas à pessoa e às que chegaram pela própria instância.
  */
 function opcoesEscopoConversa(podeVerTodas) {
+  if (!podeVerTodas) return [{ valor: '', rotulo: ESCOPO_ROTULO.proprias }]
   return [
-    { valor: '', rotulo: podeVerTodas ? ESCOPO_ROTULO.todas : ESCOPO_ROTULO.minhas_e_nao_atribuidas },
+    { valor: '', rotulo: ESCOPO_ROTULO.todas },
     { valor: ESCOPO_CONVERSA.MINHAS, rotulo: ESCOPO_ROTULO.minhas },
     { valor: ESCOPO_CONVERSA.NAO_ATRIBUIDAS, rotulo: ESCOPO_ROTULO.nao_atribuidas },
-    ...(podeVerTodas ? [{ valor: ESCOPO_CONVERSA.TODAS, rotulo: ESCOPO_ROTULO.todas }] : []),
+    { valor: ESCOPO_CONVERSA.TODAS, rotulo: ESCOPO_ROTULO.todas },
   ]
 }
 
@@ -61,8 +59,8 @@ function avisoDeRecorte(escopoPedido, escopoEfetivo) {
   const pedido = String(escopoPedido || '')
   const efetivo = String(escopoEfetivo || '')
   if (!efetivo || efetivo === pedido) return ''
-  if (efetivo === 'minhas_e_nao_atribuidas') {
-    return 'Mostrando as suas e as que ainda não têm atendente.'
+  if (efetivo === 'proprias') {
+    return 'Mostrando apenas conversas atribuídas a você e as do seu número.'
   }
   return ''
 }

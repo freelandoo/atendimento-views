@@ -758,6 +758,22 @@ export default function BancoLeadsPage() {
   // Ligações. Cada origem tem sua própria página, porque são duas tabelas independentes.
   const [paginaPlaces, setPaginaPlaces] = useState(1)
   const [paginaIg, setPaginaIg] = useState(1)
+  const capacidadesCarregadas = Array.isArray(capacidades)
+  const podeDispararSemi = temCapacidade(capacidades, 'lead_disparar_semi') || temCapacidade(capacidades, 'lead_disparar_lote')
+  const podeDispararAutomatico = temCapacidade(capacidades, 'lead_disparar_lote')
+  const podeEscolherInstancia = temCapacidade(capacidades, 'instancia_gerenciar_empresa')
+  const podeLimparBanco = temCapacidade(capacidades, 'lead_disparar_lote')
+  const podeExportarCsv = temCapacidade(capacidades, 'lead_ver_brutos')
+  const modosDisponiveis = useMemo(() => MODOS.filter((m) => {
+    if (m.valor === 'automatico') return podeDispararAutomatico
+    if (m.valor === 'semi_automatico') return podeDispararSemi
+    return true
+  }), [podeDispararAutomatico, podeDispararSemi])
+
+  useEffect(() => {
+    if (!capacidadesCarregadas || podeDispararAutomatico || config.modo !== 'automatico') return
+    setConfig((c) => ({ ...c, modo: podeDispararSemi ? 'semi_automatico' : 'manual', auto_ativo: false }))
+  }, [capacidadesCarregadas, podeDispararAutomatico, podeDispararSemi, config.modo])
 
   // Abre o histórico de conversa do contato (reusa o modal/endpoint de Conversas) e leva
   // a mensagem gerada + elegibilidade para permitir o envio individual dali.
@@ -1046,6 +1062,14 @@ export default function BancoLeadsPage() {
   async function trocarModo(modo: string) {
     if (modo === config.modo) return
     const modoAnterior = config.modo
+    if (modo === 'automatico' && !podeDispararAutomatico) {
+      fb.toast('O modo automático é restrito à administração.', 'error')
+      return
+    }
+    if (modo === 'semi_automatico' && !podeDispararSemi) {
+      fb.toast('Você não tem acesso ao modo semiautomático.', 'error')
+      return
+    }
     // Trocar para Automático só SELECIONA o modo (fica parado); a rotina só liga no
     // botão "Ligar automático", que aí sim mostra o aviso.
     if (modo === 'automatico' && !instanciaId) {
@@ -1396,7 +1420,7 @@ export default function BancoLeadsPage() {
   // plano (worker), então "selecionar e gerar" não se aplica — o envio ali continua 1 a 1
   // pelo telefone/modal.
   const mostrarSelecao = mostrarRodar && config.modo === 'manual'
-  const modoAtual = MODOS.find((m) => m.valor === config.modo) || MODOS[0]
+  const modoAtual = modosDisponiveis.find((m) => m.valor === config.modo) || modosDisponiveis[0] || MODOS[0]
   // Enviar fica liberado em Manual e Semi: se não houver mensagem gerada, o backend gera na hora.
   const podeEnviarConversa = !!conversaAberta && !!instanciaId && conversaAberta.rodavel
     && config.modo !== 'automatico' && !motivoBloqueioConexao
@@ -1418,17 +1442,21 @@ export default function BancoLeadsPage() {
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand text-white text-sm font-semibold hover:bg-brand-dark">
             <IconPlus /> Adicionar cadastro
           </button>
-          <button onClick={limpar} disabled={limpando}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50 disabled:opacity-50"
-            title="Apaga todos os leads sem e-mail e sem telefone (negócios fechados são preservados)">
-            {limpando && <Spinner />}
-            {limpando ? 'Limpando…' : <span className="inline-flex items-center gap-1.5"><IconBroom /> Limpeza</span>}
-          </button>
-          <button onClick={exportar} disabled={exportando || !leads.length}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
-            {exportando && <Spinner />}
-            {exportando ? 'Gerando…' : <span className="inline-flex items-center gap-1.5"><IconDownload /> Exportar CSV</span>}
-          </button>
+          {podeLimparBanco && (
+            <button onClick={limpar} disabled={limpando}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50 disabled:opacity-50"
+              title="Apaga todos os leads sem e-mail e sem telefone (negócios fechados são preservados)">
+              {limpando && <Spinner />}
+              {limpando ? 'Limpando…' : <span className="inline-flex items-center gap-1.5"><IconBroom /> Limpeza</span>}
+            </button>
+          )}
+          {podeExportarCsv && (
+            <button onClick={exportar} disabled={exportando || !leads.length}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+              {exportando && <Spinner />}
+              {exportando ? 'Gerando…' : <span className="inline-flex items-center gap-1.5"><IconDownload /> Exportar CSV</span>}
+            </button>
+          )}
         </div>
       </div>
 
@@ -1461,22 +1489,28 @@ export default function BancoLeadsPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label className="block text-xs text-slate-500 mb-1">Modo de disparo</label>
-                <select value={config.modo} onChange={(e) => trocarModo(e.target.value)}
+                <select value={modosDisponiveis.some((m) => m.valor === config.modo) ? config.modo : (modosDisponiveis[0]?.valor || 'manual')} onChange={(e) => trocarModo(e.target.value)}
                   className="w-full border rounded-lg px-3 py-2 text-sm">
-                  {MODOS.map((m) => <option key={m.valor} value={m.valor} disabled={m.disabled}>{m.label}</option>)}
+                  {modosDisponiveis.map((m) => <option key={m.valor} value={m.valor} disabled={m.disabled}>{m.label}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs text-slate-500 mb-1">Instância</label>
-                <select value={instanciaId} onChange={(e) => trocarInstancia(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm">
-                  {!instancias.length && <option value="">Nenhuma instância ativa</option>}
-                  {instancias.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.nome || i.evolution_instance}
-                    </option>
-                  ))}
-                </select>
+                {podeEscolherInstancia ? (
+                  <select value={instanciaId} onChange={(e) => trocarInstancia(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 text-sm">
+                    {!instancias.length && <option value="">Nenhuma instância ativa</option>}
+                    {instancias.map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.nome || i.evolution_instance}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">
+                    {instanciaSel ? (instanciaSel.nome || instanciaSel.evolution_instance) : 'Nenhuma instância sua ativa'}
+                  </div>
+                )}
                 <div className={`mt-1 flex items-center gap-1.5 text-[11px] font-medium ${classeConexao}`}>
                   <span className={`h-2 w-2 rounded-full ${statusConexao?.connected === true ? 'bg-emerald-500' : statusConexao?.connected === false ? 'bg-red-500' : 'bg-amber-400'}`} />
                   <span>{rotuloConexao}</span>
@@ -1645,7 +1679,7 @@ export default function BancoLeadsPage() {
           )}
 
           {/* Config do modo Automático */}
-          {config.modo === 'automatico' && (
+          {podeDispararAutomatico && config.modo === 'automatico' && (
             <div className="mt-2 rounded-xl border bg-slate-50/60 p-3 space-y-2">
               {/* Status claro + botão Ligar/Desligar (com aviso ao ligar). */}
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2102,6 +2136,8 @@ function IconeWhatsapp({ className = '' }: { className?: string }) {
 //  selo verde = WhatsApp verificado; aviso = sem conta WhatsApp (disparo não chegou).
 function TelefoneCelula({ l, onAbrirConversa }: { l: Lead; onAbrirConversa: (l: Lead) => void }) {
   const msgPronta = !!l.mensagem_gerada
+  const digitos = String(l.telefone || '').replace(/\D/g, '')
+  const waHref = digitos ? `https://wa.me/${digitos.startsWith('55') ? digitos : `55${digitos}`}` : ''
   return (
     <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
       {l.telefone ? (
@@ -2120,8 +2156,20 @@ function TelefoneCelula({ l, onAbrirConversa }: { l: Lead; onAbrirConversa: (l: 
               Abrir conversa →
             </span>
           </button>
+          {waHref && (
+            <a
+              href={waHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600 transition hover:bg-emerald-100 hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+              title="Abrir no WhatsApp"
+              aria-label={`Abrir ${l.telefone} no WhatsApp`}
+            >
+              <IconeWhatsapp className="h-3.5 w-3.5" />
+            </a>
+          )}
           {l.tem_whatsapp === true && (
-            <IconeWhatsapp className="text-emerald-500 shrink-0" />
+            <span className="h-2 w-2 rounded-full bg-emerald-500" title="WhatsApp verificado" />
           )}
           {l.tem_whatsapp === false && (
             <span className="text-[10px] text-slate-400 whitespace-nowrap" title="Disparo não chegou — número sem conta WhatsApp">sem WhatsApp</span>

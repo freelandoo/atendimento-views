@@ -155,15 +155,16 @@ function sqlAbordavel(alias = 'p') {
 }
 
 /**
- * Condição de "APROVADO por uma pessoa" — a porta ESTRITA da Central de Ligações.
+ * Condição de "APROVADO por uma pessoa" — a porta ESTRITA da operação comercial assistida.
  *
  * Mais estrita que `sqlAbordavel` de propósito: aqui `legado` **não** passa. Decisão do operador
  * (2026-09-12), tomada com a consequência declarada e medida: os 4.268 leads do acervo nascem
  * `legado` na migration 071, então a fila de ligações fica **vazia** até alguém triar. É o que
  * "somente após a aprovação o lead pode aparecer na fila" significa quando levado a sério.
  *
- * Ela vale só na Central de Ligações. Os quatro pontos de DISPARO (WhatsApp e e-mail) continuam
- * usando `sqlAbordavel` — mudar aqueles pararia a operação inteira, e não foi o que se pediu.
+ * Ela vale na Central de Ligações e no recorte comercial do Banco de Leads. Os pontos de DISPARO
+ * que continuam liberados para a operação inteira usam `sqlAbordavel` quando precisam preservar
+ * legado; quando a tela comercial lê fila/base, ela deve preferir este predicado.
  */
 function sqlAprovado(alias = 'p') {
   const a = alias ? `${alias}.` : ''
