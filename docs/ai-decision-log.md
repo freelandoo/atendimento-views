@@ -11,6 +11,62 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-09-12 — Isolamento do Comercial: ALCANCE ≠ ESCOPO (CRM em equipe, Etapa 13)
+
+Contexto: um usuário `comercial` foi criado em produção e o Banco de Leads abriu **vazio**. A
+análise achou o defeito e mais três lacunas da mesma família. Detalhe completo em
+`docs/plano-execucao-crm-equipe.md` §5-bis e no bloco correspondente do `AGENTS.md`.
+
+**Decisão 1 — separar ALCANCE de ESCOPO.** O escopo é o filtro que a TELA pediu; o alcance é o
+LIMITE de quem olha. As Etapas 4 e 7 só tinham escopo, e por isso a Central de Mensagens não
+isolava ninguém. As rotas aplicam os dois com `AND`; um filtro de tela nunca amplia o limite.
+*Alternativa recusada:* endurecer o escopo. Ela confundiria "o operador escolheu ver só os seus"
+com "o operador só pode ver os seus" — e foi essa confusão que zerou o Banco de Leads.
+
+**Decisão 2 — o padrão do vendedor no Banco de Leads é "meus + LIVRES".** A Etapa 4
+deliberadamente não faz backfill de responsável, então `meus` como padrão devolvia zero linha
+para todo comercial. É a mesma regra que `conversa-responsavel.js` já aplicava.
+*Alternativa recusada:* fazer backfill de responsável. Inventaria dono retroativo — exatamente o
+que as migrations 058 e 060 removeram deste repositório.
+
+**Decisão 3 — o recorte de conversa passa a usar a INSTÂNCIA.** `responsavel_id` exige claim
+manual e nada o popula; o webhook, esse sim, grava a instância que recebeu a mensagem, e a
+instância tem responsável desde a migration 075. Três parcelas: atribuída a mim · chegou pelo meu
+número · sem dono e o número não é de mais ninguém.
+*Alternativa recusada:* recorte estrito por instância. Esconderia a fila do número compartilhado
+da empresa, e conversa que ninguém vê é cliente sem resposta.
+⚠️ Isto **não** toca a resolução de instância de ENVIO — invariante 2, com guarda em 3 arquivos.
+
+**Decisão 4 — as rotas por id repetem o recorte da listagem, com 404.** Esconder na lista e
+liberar por id é segurança por obscuridade. 404 e não 403: dizer "existe, mas não é sua" já
+entrega que aquele contato fala com a empresa.
+
+**Decisão 5 — o conhecimento (contexto) é da administração.** Os 4 routers de contexto estavam
+sem gate nenhum além de `requireAuth`. Ganharam `INSTANCIA_GERENCIAR_CONTEXTO`, e o campo
+`contexto_id` do `PATCH /whatsapp/:id` também — gate condicional, para o vendedor não perder o
+direito de renomear o próprio número.
+
+**Decisão 6 (do operador) — a porta da Central de Ligações virou ESTRITA.** Só `aprovado`;
+`legado` não passa mais, nem na entrada da campanha nem na fila.
+⚠️ **Consequência declarada antes e reafirmada: a fila fica VAZIA até alguém triar** — os 4.268
+leads do acervo nascem `legado` na migration 071. A tela explica isso em texto
+(`meta.aguardando_triagem`) em vez de dizer "todos já foram trabalhados".
+Os quatro pontos de **disparo** (WhatsApp/e-mail) continuam em `sqlAbordavel`: mudá-los pararia a
+operação inteira e não foi o que se pediu.
+
+**Decisão 7 (do operador) — no Banco de Leads o Comercial vê tudo MENOS o descartado.** A porta
+da LEITURA é mais frouxa que a da ABORDAGEM, de propósito.
+
+**Decisão 8 — cardinalidade empresa × usuário × instância: 1..N e 0..N, sem constraint.** "Uma
+instância por comercial" é regra operacional correta e constraint errada: zero precisa ser válido
+(a conta nasce antes de conectar), `usuario_id IS NULL` é o número compartilhado e é o caso
+normal, e `/substituir` cria instância nova — durante a troca o vendedor legitimamente tem duas.
+O isolamento vem de `usuario_id` preenchido, e funciona igual para 1 ou N.
+
+**Dívida técnica declarada:** a fila de ligações permanece vazia até a curadoria rodar sobre o
+acervo (consequência aceita da Decisão 6).
+
+
 ## 2026-09-11 — CRM em equipe: as TELAS das Etapas 3 a 12 (o front só traduz)
 
 - **Gatilho:** o backend das 12 etapas estava pronto e testado, e **nenhuma tela existia**. Uma

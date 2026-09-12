@@ -1860,6 +1860,140 @@
 - Testes: `frontend/lib/lead-operacao.test.js` (18), `conversa-operacao.test.js` (12),
   `equipe-painel.test.js` (11). **Nenhuma variável de ambiente nova, nenhuma migration.**
 
+### ISOLAMENTO do Comercial — o ALCANCE, que é outra pergunta que o ESCOPO
+- **Continuação do CRM em EQUIPE** (Etapas 1-12, migrations `070`-`078`). Plano vivo:
+  `docs/plano-execucao-crm-equipe.md`. **Nenhuma migration, nenhuma rota nova, nenhuma capacidade
+  nova, nenhuma variável de ambiente nova.** Entregue em 2026-09-12.
+- **A distinção que governa o módulo:** o **ESCOPO** é o filtro que a TELA pediu (meus / livres /
+  todos); o **ALCANCE** é o LIMITE de quem está olhando. As etapas anteriores só tinham escopo.
+  Um filtro de tela nunca amplia o alcance, e o alcance nunca vira filtro — as rotas aplicam os
+  dois com `AND`. Foi por não distinguir os dois que a Central de Mensagens não isolava ninguém.
+
+#### DEFEITO CORRIGIDO (o relatado): o Banco de Leads abria VAZIO para todo Comercial
+- `sqlEscopo` (`services/lead-responsavel.js`) usava `meus` como padrão de quem não tem
+  `LEAD_VER_BRUTOS`. Como a Etapa 4 **deliberadamente não faz backfill de responsável** (todo
+  lead nasce livre), `responsavel_id = <ele>` não casava com **nenhuma** linha: zero leads,
+  sempre. O padrão passou a ser **"meus + LIVRES"** — a MESMA regra que
+  `conversa-responsavel.js` já aplicava, e pelo mesmo motivo: esconder a fila SEM DONO de quem
+  trabalha a fila não organiza nada, só faz o trabalho sumir. `meus` continua alcançável como
+  escolha **explícita**, nunca como default silencioso.
+- **A tela tinha o defeito irmão:** o `<select>` começava em `''` e a lista não tinha nenhuma
+  opção com esse valor — exibia "Meus leads" enquanto o estado enviava outra coisa, e não havia
+  como voltar ao padrão depois de filtrar. `opcoesEscopo` passou a emitir o **padrão do servidor
+  como 1ª opção**, rotulado com o que o servidor realmente devolve.
+- **O lead DESCARTADO some para quem não vê a base bruta** (`__ocultarDescartados` em
+  `montarFiltro`, ponto único que serve listagem, contagem e export). Decisão do operador
+  (2026-09-12): o Comercial vê tudo **menos** o que uma pessoa recusou — inclusive o ainda não
+  triado. Não é `sqlAbordavel`: a porta da LEITURA é mais frouxa que a da ABORDAGEM, de propósito.
+
+#### As rotas por ID passaram a repetir o recorte da listagem
+- **O buraco:** a listagem recortava e as rotas `/:numero` e `/:instanceId` não. Bastava trocar o
+  id na URL para **ler e agir sobre a conversa** de outro vendedor, e para **ler, renomear, trocar
+  o contexto ou REMOVER a instância** dele. A capacidade se chama `INSTANCIA_GERENCIAR_PROPRIA` e
+  nada verificava que era própria. Esconder na lista e liberar por id é segurança por obscuridade.
+- **`alcancaConversa`** (`routes/api-conversas.js`) em **14** rotas `/:numero` e
+  **`alcancaInstancia`** (`routes/api-whatsapp.js`) em **14** rotas `/:instanceId`. As duas
+  respondem **404, nunca 403**: dizer "existe, mas não é sua" já entrega que aquele contato fala
+  com a empresa / que aquele número existe. Guardas de regressão contam as rotas e conferem a
+  ordem (`requireEmpresaAccess` **antes**).
+- **`soDonoOuGestor`** é mais estrito que o alcance, e só em `DELETE /:instanceId` e
+  `POST /:instanceId/substituir`: remover ou trocar um número derruba o atendimento de quem
+  estiver nele, e sobre o número **compartilhado da empresa** isso é decisão de quem responde pela
+  empresa.
+- **O alcance da instância aceita a COMPARTILHADA (`usuario_id IS NULL`)** — não é cortesia: a
+  migration `075` **não fez backfill**, então toda instância que já existia tem `usuario_id` nulo;
+  exigir dono trancaria todo mundo para fora do próprio número no dia do deploy.
+
+#### Central de Mensagens: o recorte passou a usar o sinal PROVÁVEL (a instância)
+- **Por que o ownership sozinho não isolava:** `responsavel_id` exige claim manual e **nada o
+  popula automaticamente**. Na prática toda conversa está sem dono, e "minhas + não atribuídas"
+  devolvia a empresa inteira. O sinal provável já estava gravado: o webhook resolve a instância
+  que recebeu a mensagem (`vendas.conversas.evolution_instance`), e a instância tem responsável
+  desde a migration `075`.
+- **`sqlAlcance`** (`services/conversa-responsavel.js`, PURO) — três parcelas, nenhuma sobra:
+  (1) atribuída a mim (decisão explícita vence inferência) · (2) chegou pela **MINHA** instância ·
+  (3) **sem dono E o número não é de mais ninguém** — a fila compartilhada (`usuario_id IS NULL`)
+  e a conversa órfã sem instância gravada. Sem a 3ª, o número principal da empresa ficaria
+  invisível para quem atende, e conversa que ninguém vê é cliente sem resposta.
+  **O que ela exclui, e é o ponto: conversa sem dono que chegou pelo número de OUTRO vendedor.**
+- ⚠️ **Isto NÃO é resolução de instância de ENVIO.** Aqui se pergunta "esta conversa é do escopo
+  desta pessoa?"; lá, "por onde sai a mensagem?" — e `usuario_id` continua **proibido** de
+  participar daquela resposta (invariante 2; guarda em `instancia-envio.js`, `whatsapp.js` e
+  `middleware/tenant.js`).
+- **`rotuloAlcance`** volta no `meta` da listagem e a tela **declara** o recorte no estado vazio.
+  Recortar em silêncio faria o atendente achar que a Central esvaziou.
+- **RESPONDER continua NUNCA sendo bloqueado** (invariante da Etapa 7, com guarda).
+
+#### O CONHECIMENTO da empresa não é do operador
+- **Os 4 routers de contexto estavam SEM GATE nenhum** além de `requireAuth`: qualquer membro —
+  inclusive o `comercial` — criava, editava, **excluía** contexto, ativava versão e ingeria fonte
+  de conhecimento. A guarda "nenhum mount sem gate" só conferia `requireAuth`. Agora
+  `/contextos`, `/contextos/:contextoId`, `.../fontes` e `.../sugerir-contexto1` exigem
+  **`INSTANCIA_GERENCIAR_CONTEXTO`**, e os 4 mounts estão em `ROTAS_POR_CAPACIDADE`.
+- **`PATCH /whatsapp/:instanceId` gateia o campo `contexto_id`** por essa mesma capacidade — gate
+  **condicional**, no padrão do `ativo`: exigir a capacidade para renomear a própria instância
+  tiraria do vendedor o que é legitimamente dele; trocar o que o número **diz ao cliente** não é.
+- **O Comercial não perde visibilidade:** o nome do contexto que a instância usa continua vindo em
+  `contexto_nome` na listagem de `/whatsapp`. Ver não é mexer.
+- **O contexto padrão continua COPIADO na criação, nunca resolvido na resposta** (invariante 4),
+  com guarda que falha se `contexto-empresa.js` passar a ler `contexto_padrao_id`.
+
+#### A porta da Central de Ligações virou ESTRITA (decisão do operador, 2026-09-12)
+- `sqlAprovado` (novo em `lead-qualificacao.js`) = `qualificacao = 'aprovado'`. **`legado` não
+  passa mais** — na entrada da campanha (`adicionarLeads`) **e** na fila (`filaDeTrabalho`), com a
+  **mesma** condição: entrada mais frouxa que a fila deixaria o lead dentro da campanha sem nunca
+  poder ser chamado.
+- ⚠️ **Consequência declarada, medida e ACEITA:** os 4.268 leads do acervo nascem `legado` na
+  migration `071`, então **a fila de ligações fica vazia até alguém triar pela curadoria**. É o
+  que "somente após a aprovação o lead pode aparecer na fila" significa quando levado a sério.
+- **Os quatro pontos de DISPARO (WhatsApp e e-mail) continuam em `sqlAbordavel`** (aprovado +
+  legado). Mudar aqueles pararia a operação inteira e não foi o que se pediu.
+- `contarAguardandoTriagem` volta em `meta.aguardando_triagem` de `GET /:id/fila` (**aditivo**: o
+  `data` continua sendo a lista) e a tela distingue **"fila vazia por trabalho concluído"** de
+  **"ainda não há leads preparados para abordagem"**. Dizer a mensagem errada mandaria o operador
+  procurar defeito onde há uma decisão pendente de outra pessoa.
+
+#### VER o follow-up automático ≠ CONFIGURAR o follow-up automático
+- `historicoDoContato` (`db/follow-ups.js`) passou a unir `vendas.followup_auto_agendamentos`:
+  quem atende precisa saber que uma mensagem automática já saiu antes de escrever a próxima.
+  Só o que **aconteceu** (`status <> 'agendado'`); o que está agendado a fila já mostra.
+- A empresa vem da **CONVERSA, dentro do SQL** (padrão da migration `058`) e **não** de
+  `fa.empresa_id`: aquela coluna é nullable até o backfill, e filtrar por ela esconderia todo o
+  histórico. **`motivo_decisao` e `instrucao_ia` não saem** — texto livre gerado pela IA sobre a
+  conversa; esta rota não devolve conteúdo de mensagem (a guarda inspeciona só o SQL, ignorando
+  comentário).
+- **`POST /auto/cancelar` ganhou `FOLLOWUP_CONFIG_EMPRESA`**: desligar a automação de um lead é
+  exercer controle sobre a automação. `GET /config` e `GET /auto` continuam **abertos** — ver o
+  que está agendado é parte de atender.
+
+#### Frontend — as telas pararam de oferecer o que responderia 403
+- **Roteiros:** `acoesDoRoteiro` ganhou `podeGerenciar` (capacidade `roteiro_gerenciar`, resolvida
+  pelo backend) e `motivoSomenteLeitura`. Somem "Novo roteiro" (cabeçalho e por nicho), Editar,
+  Publicar, Nova versão, Arquivar e Desarquivar. **Exportar continua**: é leitura, e é o roteiro
+  indo para a ligação. A frase diz **de quem é a decisão** — "somente leitura" sozinho pareceria
+  defeito de carregamento.
+- **Instâncias:** somem o seletor "Contexto padrão da empresa" e o link "Contexto" por instância
+  (`instancia_gerenciar_contexto`). A seção de **sugestões de contexto** não é nem buscada sem a
+  capacidade — para não gerar um 403 por carregamento de página. O estado vazio virou **CTA**:
+  "Você ainda não tem um WhatsApp conectado" + a frase de que o conhecimento da empresa é aplicado
+  sozinho.
+- **Ausência e cor nunca são o único sinal:** onde há decisão de produto a explicar, o controle
+  fica visível com o motivo em texto; onde não há (criar roteiro), o botão simplesmente não
+  existe — um botão inerte só convida ao clique.
+- Testes: `backend/test/isolamento-comercial.test.js` (**21**, novo, dentro do `npm test`) +
+  atualizações em `lead-qualificacao`, `lead-responsavel`, `autorizacao-rotas`,
+  `frontend/lib/lead-operacao.test.js` e `frontend/lib/roteiros-lista.test.js`.
+
+#### Cardinalidade empresa × usuário × instância — a conclusão, e por que NÃO virou constraint
+- **Empresa: 1..N instâncias. Usuário: 0..N, sem limite no banco.** `usuario_id` nulo = instância
+  DA EMPRESA (compartilhada) e continua sendo o default. "Uma instância por comercial" está certo
+  como **regra operacional** e errado como **constraint**: (a) zero tem de ser válido — a conta
+  nasce antes de conectar, e forçar 1 quebraria o onboarding; (b) `UNIQUE (empresa_id,
+  usuario_id)` parcial trataria o número compartilhado como exceção quando ele é o caso normal;
+  (c) `POST /:id/substituir` cria instância nova, então durante a troca de número o vendedor
+  legitimamente tem duas. **O isolamento não depende da cardinalidade** — vem de `usuario_id`
+  preenchido, e funciona igual para 1 ou N.
+
 ### Menu radial de ações secundárias (`⋯`) — primeira entrega, só em Follow-ups
 - **Origem:** relatório de padronização visual "Padronização visual das listagens" (após os
   commits `33bdfbd`/`b019b0b`/`06563f9`/`6b3fff9`), que mapeou as 6 telas de listagem e propôs

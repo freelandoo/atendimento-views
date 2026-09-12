@@ -5,7 +5,7 @@
 > agora, do que cada coisa depende e o que NÃO pode ser feito.
 >
 > **Protocolo de retomada** → §0.
-> **Última atualização:** 2026-09-11, ao concluir **as 12 etapas**.
+> **Última atualização:** 2026-09-12, ao concluir a **Etapa 13** (isolamento do Comercial — §5-bis).
 
 ## Documentos deste projeto, em ordem de leitura
 
@@ -125,8 +125,13 @@ implicam mudança de comportamento observável.
 | **10** | Ligações e Follow-ups por responsável | ✅ | **sem migration** — os campos já existiam |
 | **11** | Agenda em equipe | ✅ | migrations `076`/`077`, conflito **por pessoa**, backfill |
 | **12** | Painel do admin, auditoria, dívidas | ✅ | `/equipe`, migration `078` (remove os `DEFAULT = PJ`) |
+| **13** | **Isolamento do Comercial (ALCANCE ≠ ESCOPO)** | ✅ | Banco de Leads vazio corrigido, guardas nas rotas por id, recorte por instância, contexto gateado — **§5-bis** |
 
 **Nenhuma etapa pendente.** O que ficou de fora está em §7 (fora de escopo declarado).
+
+> A **Etapa 13** não estava no plano original: nasceu do uso real (um `comercial` criado em
+> produção viu o Banco de Leads vazio) e fechou as lacunas entre listagem recortada e rota por
+> id. Leia **§5-bis** antes de mexer em recorte de leitura em qualquer módulo.
 
 **Estado: tudo implementado e testado. NADA foi commitado nem publicado.**
 
@@ -522,6 +527,91 @@ resolvendo a empresa pela CONVERSA dentro do SQL (padrão da migration `058`). C
 inexistente ⇒ `NULL`, nunca PJ.
 
 ---
+
+---
+
+# 5-bis. ✅ Etapa 13 — ISOLAMENTO do Comercial (CONCLUÍDA 2026-09-12)
+
+**Não estava no plano das 12 etapas.** Nasceu do uso real: o operador criou um usuário
+`comercial` e relatou que **o Banco de Leads abria vazio**. A análise achou o defeito e mais
+três lacunas da mesma família — todas na fronteira entre "o que a listagem mostra" e "o que a
+rota por id entrega".
+
+**Nenhuma migration, nenhuma rota nova, nenhuma capacidade nova, nenhuma variável de ambiente.**
+
+## A distinção que faltava: ALCANCE ≠ ESCOPO
+
+| | O que responde | Quem decide |
+| --- | --- | --- |
+| **ESCOPO** | "qual recorte a TELA pediu?" (meus / livres / todas) | o operador, na query |
+| **ALCANCE** | "o que esta pessoa PODE ver?" | a capacidade + o vínculo provado |
+
+As Etapas 4 e 7 entregaram só o escopo. Um filtro de tela nunca amplia o alcance, e o alcance
+nunca vira filtro — as rotas aplicam os dois com `AND`. **Foi por não distinguir os dois que a
+Central de Mensagens não isolava ninguém.**
+
+## O que mudou
+
+| # | Onde | O quê |
+| :-: | --- | --- |
+| 13.1 | `services/lead-responsavel.js` | padrão de quem não vê todos: `meus` → **"meus + LIVRES"**. Era a causa do Banco de Leads vazio |
+| 13.2 | `routes/api-banco-leads.js` | `__ocultarDescartados` — lead recusado na triagem some para quem não tem `LEAD_VER_BRUTOS` |
+| 13.3 | `services/conversa-responsavel.js` | **`sqlAlcance`** (PURO) + `rotuloAlcance`: recorte pela INSTÂNCIA que recebeu a mensagem |
+| 13.4 | `routes/api-conversas.js` | `alcancaConversa` em **14** rotas `/:numero`; alcance na listagem e no COUNT; `meta.alcance` |
+| 13.5 | `routes/api-whatsapp.js` | `alcancaInstancia` em **14** rotas `/:instanceId`; `soDonoOuGestor` no destrutivo; `contexto_id` gateado no PATCH |
+| 13.6 | `index.js` | os **4 routers de contexto** ganharam `INSTANCIA_GERENCIAR_CONTEXTO` (estavam sem gate nenhum) |
+| 13.7 | `services/lead-qualificacao.js` + `db/campanhas.js` | **`sqlAprovado`**: a porta da Central de Ligações virou estrita, na entrada e na fila |
+| 13.8 | `db/campanhas.js` + `routes/api-campanhas.js` | `contarAguardandoTriagem` → `meta.aguardando_triagem` |
+| 13.9 | `db/follow-ups.js` | follow-up **automático** na linha do tempo do contato |
+| 13.10 | `routes/api-follow-ups.js` | `POST /auto/cancelar` ganhou `FOLLOWUP_CONFIG_EMPRESA` |
+| 13.11 | front | Roteiros, Instâncias, Contextos, Conversas e Central de Ligações: gates de UI, estados vazios com CTA e o recorte **declarado** |
+
+## Validação executada
+
+```
+backend:  npm test          → 1892 testes, 1890 passam (as 2 de sempre: 429 no provedor de IA) ✅
+backend:  npm run typecheck → limpo ✅
+frontend: node --test lib/*.test.js → 432/432 ✅
+frontend: npx tsc --noEmit  → limpo ✅
+```
+
+Baseline anterior: 1867/1869 backend, 421/421 frontend. **+25 testes de backend, +11 de front.**
+
+## As três decisões do operador (2026-09-12)
+
+| # | Pergunta | Decisão | Consequência declarada |
+| :-: | --- | --- | --- |
+| **A** | Isolamento da Central de Mensagens | **instância + responsável + compartilhadas** | conversa sem dono no número de OUTRO vendedor deixa de ser visível para o comercial |
+| **B** | Porta da Central de Ligações | **só `aprovado`, estrito** | ⚠️ **a fila fica VAZIA até alguém triar**: os 4.268 leads do acervo nascem `legado` |
+| **C** | Base bruta no Banco de Leads | **vê tudo menos descartado** | o comercial trabalha lead ainda não triado no Banco de Leads (mas não na fila de ligação) |
+
+A decisão **B** foi tomada com a consequência apresentada antes, e reafirmada. A tela explica o
+estado vazio em texto (`aguardando_triagem`) em vez de parecer defeito.
+
+## Cardinalidade empresa × usuário × instância — conclusão
+
+**Empresa 1..N · usuário 0..N, sem constraint no banco.** "Uma instância por comercial" é regra
+operacional correta e constraint errada: zero precisa ser válido (a conta nasce antes de
+conectar), `usuario_id IS NULL` é o número compartilhado e é o caso normal, e `/substituir` cria
+instância nova — durante a troca o vendedor legitimamente tem duas. O isolamento vem de
+`usuario_id` preenchido e funciona igual para 1 ou N.
+
+## O que NÃO mudou (verificado por guarda)
+
+- `usuario_id` continua **fora** da resolução de instância de ENVIO e do webhook (invariante 2).
+- O contexto padrão continua **copiado na criação**, nunca resolvido na resposta (invariante 4).
+- **Responder conversa continua nunca sendo bloqueado** (Etapa 7).
+- Os quatro pontos de **disparo** (WhatsApp/e-mail) continuam em `sqlAbordavel` — só a Central de
+  Ligações ficou estrita.
+- Nenhum motor de IA foi tocado.
+
+## Dívidas que esta etapa deixa
+
+| Dívida | Por quê |
+| --- | --- |
+| A fila de ligações fica vazia até a triagem rodar | consequência aceita da decisão B; some quando o acervo for triado pela curadoria |
+| `vendas.conversas.evolution_instance` pode estar nulo em conversas antigas | elas caem na 3ª parcela do alcance (visíveis a todos), que é o comportamento seguro |
+| O recorte por instância não tem índice dedicado | `idx_conversas_evolution_instance` já existe e cobre o EXISTS; medir se a Central crescer |
 
 # 6. O que ficou FORA (declarado)
 

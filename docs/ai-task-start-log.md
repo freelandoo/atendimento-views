@@ -6,6 +6,29 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-12 - Início de tarefa IA - Revisão multiusuário: a porta do Comercial
+
+- **IA/Ferramenta:** Claude Code (Opus 5), na `master` (baseline `93bb37a`).
+- **Pedido resumido:** revisão de arquitetura multiusuário/multiempresa com foco no cargo
+  **Comercial** — contexto único da empresa aplicado automaticamente à instância, roteiros
+  somente-leitura, permissão própria para follow-up automático (com o evento ainda visível no
+  histórico do lead), **Banco de Leads vazio para o Comercial (defeito relatado)**, fila da
+  Central de Ligações só com lead aprovado, Central de Mensagens recortada pela instância do
+  usuário, e cardinalidade empresa × usuário × instância de WhatsApp.
+- **É projeto/tarefa de alteração?** Sim, e é **continuação** do projeto "CRM em EQUIPE"
+  (Etapas 1-12, concluídas em 2026-09-11). O plano vivo é `docs/plano-execucao-crm-equipe.md`.
+- **Workflow padrão consultado?** AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/plano-execucao-crm-equipe.md (§0, §5, §6, §8), docs/especificacao-crm-equipe.md.
+- **Fase de análise (somente leitura) executada ANTES de qualquer edição.** Achados principais:
+  (1) o Banco de Leads vazio é `sqlEscopo` defaulting para `meus` — e **nenhum lead tem
+  responsável** (a Etapa 4 não fez backfill, de propósito); (2) `/contextos` está montado
+  **sem capacidade nenhuma**; (3) as rotas por ID de `/conversas` e `/whatsapp` não repetem o
+  recorte que a listagem aplica; (4) o histórico do contato não mostra follow-up automático.
+- **Invariantes que NÃO serão tocados:** os 14 de §8 do plano. Em especial: `usuario_id` da
+  instância **não** entra na resolução de instância de envio nem no webhook; o contexto padrão
+  continua **copiado na criação**, nunca resolvido na resposta; **responder conversa nunca é
+  bloqueado**; nenhuma variável de ambiente nova.
+
 ## 2026-09-11 (6) - Início de tarefa IA - CRM em equipe: as TELAS das Etapas 3 a 12
 
 - **IA/Ferramenta:** Claude Code (Opus 5), na `master`.
