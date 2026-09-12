@@ -87,6 +87,7 @@ type FiltrosMercado = {
   categorias: OpcaoFiltroMercado[]
   cidades: OpcaoFiltroMercado[]
 }
+type AlterarStatusLeadResp = { id: string; status: string; qualificacao?: Qualificacao | null }
 type RodarResumo = {
   rodada: boolean
   aceitos: { id: string; nome: string }[]
@@ -169,7 +170,7 @@ const STATUS_LABEL: Record<string, string> = {
   aguardando: 'Sem contato',
   aprovado: 'Marcado',
   enviado: 'Contatado',
-  respondeu: 'Respondeu',
+  respondeu: 'Respondido',
   fechado: 'Fechado',
   rejeitado: 'Rejeitado',
   nao_contatar: 'Não contatar',
@@ -1147,34 +1148,44 @@ export default function BancoLeadsPage() {
     abrirConversa(prox)
   }
 
+  async function alterarStatusLead(id: string, statusOperacional: string, sucesso?: string) {
+    const r = await fb.runTask(
+      () => apiFetch<AlterarStatusLeadResp>(`${base}/leads/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: statusOperacional }),
+      }),
+      { sucesso: sucesso || 'Status do lead atualizado.' }
+    )
+    const novo = r.data
+    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, status: novo.status, qualificacao: novo.qualificacao ?? l.qualificacao } : l)))
+    setConversaAberta((cur) => (cur && cur.leadId === id ? { ...cur, status: novo.status } : cur))
+    carregarResumo()
+    return novo
+  }
+
   async function fechar(id: string) {
     try {
-      await fb.runTask(() => apiFetch(`${base}/leads/${id}/fechar`, { method: 'POST' }),
-        { sucesso: 'Lead marcado como fechado. 🎉' })
+      await alterarStatusLead(id, 'fechado', 'Lead marcado como fechado. 🎉')
       setLeads((prev) => prev.filter((l) => l.id !== id))
-      carregarResumo()
     } catch { /* erro já exibido pelo feedback */ }
   }
 
   async function reabrir(id: string) {
     try {
-      await fb.runTask(() => apiFetch(`${base}/leads/${id}/reabrir`, { method: 'POST' }),
-        { sucesso: 'Lead reaberto.' })
+      await alterarStatusLead(id, 'respondido', 'Lead reaberto como respondido.')
       setLeads((prev) => prev.filter((l) => l.id !== id))
-      carregarResumo()
     } catch { /* erro já exibido pelo feedback */ }
   }
 
-  async function fecharConversa() {
+  async function alterarStatusConversa(statusOperacional: string) {
     if (!conversaAberta) return
-    await fechar(conversaAberta.leadId)
-    setConversaAberta(null)
-  }
-
-  async function reabrirConversa() {
-    if (!conversaAberta) return
-    await reabrir(conversaAberta.leadId)
-    setConversaAberta(null)
+    const rotulos: Record<string, string> = {
+      marcado: 'Lead marcado.',
+      contatado: 'Lead marcado como contatado.',
+      respondido: 'Lead marcado como respondido.',
+      fechado: 'Lead marcado como fechado.',
+    }
+    await alterarStatusLead(conversaAberta.leadId, statusOperacional, rotulos[statusOperacional] || 'Status do lead atualizado.')
   }
 
   // ─── CRM em equipe: ownership do lead (Etapa 4) ──────────────────────────────────────────
@@ -1749,6 +1760,7 @@ export default function BancoLeadsPage() {
       {conversaAberta && (
         <ConversaHistoricoModal
           empresaId={empresaId}
+          leadId={conversaAberta.leadId}
           numero={conversaAberta.numero}
           titulo={conversaAberta.titulo}
           status={conversaAberta.status}
@@ -1763,8 +1775,7 @@ export default function BancoLeadsPage() {
           gerando={gerandoConversa}
           onEnviar={enviarLeadConversa}
           onGerar={gerarMensagemConversa}
-          onFechar={fecharConversa}
-          onReabrir={reabrirConversa}
+          onAlterarStatus={alterarStatusConversa}
           onClose={() => setConversaAberta(null)}
         />
       )}

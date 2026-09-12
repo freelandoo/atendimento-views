@@ -120,6 +120,8 @@ const ACAO_ROTULO = {
   lead_responsavel_liberou: 'devolveu um lead para a fila',
   lead_responsavel_transferiu: 'transferiu um lead',
   lead_responsavel_atribuiu: 'atribuiu um lead',
+  lead_status_alterado: 'mudou o status de um lead',
+  abordagem_manual_declarada: 'declarou contato manual com um lead',
   membro_empresa_adicionado: 'adicionou alguém à empresa',
   membro_empresa_alterado: 'alterou o vínculo de alguém',
   follow_up_email_enviado: 'enviou um e-mail de follow-up',

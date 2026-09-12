@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 
 // Modal enxuto do Banco de Leads. Reusa o MESMO endpoint da página de Conversas
@@ -16,6 +16,14 @@ import { apiFetch } from '@/lib/api'
 // lugar — nunca inchar este modal até virar um segundo painel de conversa.
 type Mensagem = { role?: string; content?: string; text?: string; timestamp?: string }
 type ConversaDetail = { numero?: string; historico?: Mensagem[]; estagio?: string }
+type StatusEvento = {
+  id: string
+  acao: string
+  estado_anterior?: string | null
+  estado_novo?: string | null
+  contexto?: Record<string, unknown> | null
+  ocorrido_em: string
+}
 
 const STATUS_LEAD: Record<string, { label: string; detalhe: string; classe: string }> = {
   coletado: { label: 'Sem contato', detalhe: 'Ainda não virou conversa.', classe: 'border-slate-200 bg-slate-50 text-slate-700' },
@@ -23,7 +31,7 @@ const STATUS_LEAD: Record<string, { label: string; detalhe: string; classe: stri
   aguardando: { label: 'Sem contato', detalhe: 'Aguardando primeira abordagem.', classe: 'border-slate-200 bg-slate-50 text-slate-700' },
   aprovado: { label: 'Marcado', detalhe: 'Lead aprovado para o Comercial trabalhar.', classe: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
   enviado: { label: 'Contatado', detalhe: 'Mensagem já foi enviada.', classe: 'border-blue-200 bg-blue-50 text-blue-700' },
-  respondeu: { label: 'Respondeu', detalhe: 'Já respondeu em algum momento.', classe: 'border-orange-200 bg-orange-50 text-orange-700' },
+  respondeu: { label: 'Respondido', detalhe: 'Já respondeu em algum momento.', classe: 'border-orange-200 bg-orange-50 text-orange-700' },
   fechado: { label: 'Fechado', detalhe: 'Negócio marcado como fechado.', classe: 'border-violet-200 bg-violet-50 text-violet-700' },
   rejeitado: { label: 'Rejeitado', detalhe: 'Lead descartado na triagem.', classe: 'border-red-200 bg-red-50 text-red-700' },
   nao_contatar: { label: 'Não contatar', detalhe: 'Lead marcado para não receber contato.', classe: 'border-red-200 bg-red-50 text-red-700' },
@@ -37,19 +45,52 @@ function fmtMMSS(s: number): string {
   return `${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
 }
 
+const STATUS_ACOES: { valor: string; label: string }[] = [
+  { valor: 'marcado', label: 'Marcado' },
+  { valor: 'contatado', label: 'Contatado' },
+  { valor: 'respondido', label: 'Respondido' },
+  { valor: 'fechado', label: 'Fechado' },
+]
+const STATUS_POR_ACAO: Record<string, string> = {
+  marcado: 'aprovado',
+  contatado: 'enviado',
+  respondido: 'respondeu',
+  fechado: 'fechado',
+}
+
+function statusLabel(status?: string | null): string {
+  return STATUS_LEAD[String(status || '')]?.label || (status ? String(status) : 'Sem status')
+}
+
+function fmtDataHora(iso?: string | null): string {
+  if (!iso) return ''
+  try {
+    return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso))
+  } catch { return iso }
+}
+
+function rotuloEventoStatus(e: StatusEvento): string {
+  if (e.acao === 'abordagem_manual_declarada') return 'Contatado declarado'
+  if (e.acao === 'lead_status_alterado') return `${statusLabel(e.estado_anterior)} → ${statusLabel(e.estado_novo)}`
+  return e.acao
+}
+
 export default function ConversaHistoricoModal({
-  empresaId, numero, titulo, status, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel, cooldownS, enviando, gerando, onEnviar, onGerar, onFechar, onReabrir, onClose,
+  empresaId, leadId, numero, titulo, status, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel, cooldownS, enviando, gerando, onEnviar, onGerar, onAlterarStatus, onClose,
 }: {
-  empresaId: string; numero: string; titulo?: string; status?: string
+  empresaId: string; leadId?: string; numero: string; titulo?: string; status?: string
   mensagemGerada?: string | null; podeEnviar?: boolean; podeGerar?: boolean
   motivoEnvioIndisponivel?: string | null
   cooldownS?: number | null; enviando?: boolean; gerando?: boolean
   onEnviar?: () => void; onGerar?: () => void
-  onFechar?: () => void; onReabrir?: () => void
+  onAlterarStatus?: (status: string) => void | Promise<void>
   onClose: () => void
 }) {
   const [carregando, setCarregando] = useState(true)
   const [historico, setHistorico] = useState<Mensagem[]>([])
+  const [historicoStatus, setHistoricoStatus] = useState<StatusEvento[]>([])
+  const [carregandoStatus, setCarregandoStatus] = useState(false)
+  const [mudandoStatus, setMudandoStatus] = useState<string | null>(null)
 
   useEffect(() => {
     let vivo = true
@@ -60,6 +101,34 @@ export default function ConversaHistoricoModal({
       .finally(() => { if (vivo) setCarregando(false) })
     return () => { vivo = false }
   }, [empresaId, numero])
+
+  const carregarHistoricoStatus = useCallback(async () => {
+    if (!leadId) { setHistoricoStatus([]); return }
+    setCarregandoStatus(true)
+    try {
+      const r = await apiFetch<StatusEvento[]>(`/api/empresas/${empresaId}/banco-leads/leads/${leadId}/status-historico`)
+      setHistoricoStatus(r.data || [])
+    } catch {
+      setHistoricoStatus([])
+    } finally {
+      setCarregandoStatus(false)
+    }
+  }, [empresaId, leadId])
+
+  useEffect(() => {
+    carregarHistoricoStatus()
+  }, [carregarHistoricoStatus])
+
+  async function alterarStatus(valor: string) {
+    if (!onAlterarStatus) return
+    setMudandoStatus(valor)
+    try {
+      await onAlterarStatus(valor)
+      await carregarHistoricoStatus()
+    } finally {
+      setMudandoStatus(null)
+    }
+  }
 
   const vazio = !carregando && historico.length === 0
   const cooldownAtivo = (cooldownS || 0) > 0
@@ -115,7 +184,7 @@ export default function ConversaHistoricoModal({
           )}
         </div>
 
-        {(mensagemGerada || onEnviar || onGerar || onFechar || onReabrir) && (
+        {(mensagemGerada || onEnviar || onGerar || onAlterarStatus) && (
           <div className="border-t bg-white px-5 py-4 space-y-3">
             {mensagemGerada ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
@@ -164,9 +233,9 @@ export default function ConversaHistoricoModal({
                 </div>
               </div>
             )}
-            {(onFechar || onReabrir) && (
+            {onAlterarStatus && (
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                       Status do lead
@@ -178,20 +247,38 @@ export default function ConversaHistoricoModal({
                       <span className="text-xs text-slate-500">{statusInfo.detalhe}</span>
                     </div>
                   </div>
-                  {status === 'fechado' ? (
-                    <button
-                      onClick={onReabrir}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      Reabrir lead
-                    </button>
+                  <div className="flex flex-wrap gap-1.5" aria-label="Alterar status do lead">
+                    {STATUS_ACOES.map((a) => {
+                      const ativo = STATUS_POR_ACAO[a.valor] === status
+                      return (
+                        <button
+                          key={a.valor}
+                          type="button"
+                          onClick={() => alterarStatus(a.valor)}
+                          disabled={ativo || !!mudandoStatus}
+                          className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition disabled:cursor-default disabled:opacity-60 ${ativo ? statusInfo.classe : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'}`}
+                        >
+                          {mudandoStatus === a.valor ? 'Salvando...' : a.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div className="mt-3 border-t border-slate-200 pt-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Histórico de status</div>
+                  {carregandoStatus ? (
+                    <p className="mt-1 text-xs text-slate-400">Carregando histórico…</p>
+                  ) : historicoStatus.length ? (
+                    <ul className="mt-2 space-y-1.5">
+                      {historicoStatus.slice(0, 5).map((e) => (
+                        <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-2 py-1.5 text-xs text-slate-600">
+                          <span className="font-medium text-slate-700">{rotuloEventoStatus(e)}</span>
+                          <span className="text-slate-400">{fmtDataHora(e.ocorrido_em)}</span>
+                        </li>
+                      ))}
+                    </ul>
                   ) : (
-                    <button
-                      onClick={onFechar}
-                      className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-100"
-                    >
-                      Marcar como fechado
-                    </button>
+                    <p className="mt-1 text-xs text-slate-400">Nenhuma troca registrada ainda.</p>
                   )}
                 </div>
               </div>

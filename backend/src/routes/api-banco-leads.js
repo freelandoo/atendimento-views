@@ -36,6 +36,7 @@ const LR = require('../db/lead-responsavel')
 const AM = require('../db/abordagem-manual')
 const { CAPACIDADES: CAP, CAPACIDADES, podeCapacidade } = require('../services/acesso-capacidades')
 const { logger } = require('../logger')
+const { listarAuditoria } = require('../db/auditoria')
 
 const router = Router({ mergeParams: true })
 
@@ -54,6 +55,17 @@ function temCapacidadeReq(req, cap) {
   }, cap)
 }
 const ORIGENS_VALIDAS = new Set(['manual', 'automatico', 'instagram', 'linkedin'])
+const STATUS_OPERACIONAL = Object.freeze({
+  marcado: { status: 'aprovado', qualificacao: 'aprovado' },
+  aprovado: { status: 'aprovado', qualificacao: 'aprovado' },
+  contatado: { status: 'enviado' },
+  enviado: { status: 'enviado' },
+  respondido: { status: 'respondeu' },
+  respondeu: { status: 'respondeu' },
+  fechado: { status: 'fechado' },
+  contratado: { status: 'fechado' },
+})
+const ACOES_STATUS_LEAD = new Set(['lead_status_alterado', 'abordagem_manual_declarada'])
 
 // Contato "agendado": tem evento FUTURO (pendente/confirmado). Le as DUAS agendas:
 //  - app.agenda_eventos (migration 011): eventos criados manualmente no dashboard,
@@ -208,6 +220,83 @@ function montarRecorteOperacao(empresaId, query) {
   }
   if (query.__somenteAprovados) where.push(sqlAprovado(''))
   return { where: where.join(' AND '), params }
+}
+
+function montarRecorteLeadOperacao(req) {
+  const { query } = comEscopo(req)
+  return montarRecorteOperacao(req.empresa.id, query)
+}
+
+function normalizarStatusOperacional(valor) {
+  const chave = String(valor || '').trim().toLowerCase()
+  return STATUS_OPERACIONAL[chave] ? { chave, ...STATUS_OPERACIONAL[chave] } : null
+}
+
+async function alterarStatusLeadOperacional(req, statusPedido) {
+  const destino = normalizarStatusOperacional(statusPedido)
+  if (!destino) {
+    const e = new Error('Status inválido. Use marcado, contatado, respondido ou fechado.')
+    e.statusCode = 400
+    throw e
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const recorte = montarRecorteLeadOperacao(req)
+    const params = [...recorte.params, req.params.id]
+    const phId = `$${params.length}`
+    const { rows: atuais } = await client.query(
+      `SELECT id, status, qualificacao, qualificado_em, qualificado_por
+         FROM prospectador.prospects
+        WHERE ${recorte.where} AND id = ${phId}::uuid
+        FOR UPDATE`,
+      params
+    )
+    const atual = atuais[0]
+    if (!atual) {
+      const e = new Error('Lead não encontrado para o seu escopo.')
+      e.statusCode = 404
+      throw e
+    }
+
+    const usuarioId = req.usuario?.id || null
+    const precisaQualificacao = destino.qualificacao && atual.qualificacao !== destino.qualificacao
+    const { rows } = await client.query(
+      `UPDATE prospectador.prospects
+          SET status = $3,
+              qualificacao = COALESCE($4, qualificacao),
+              qualificado_em = CASE WHEN $4 = 'aprovado' AND qualificacao IS DISTINCT FROM 'aprovado' THEN NOW() ELSE qualificado_em END,
+              qualificado_por = CASE WHEN $4 = 'aprovado' AND qualificacao IS DISTINCT FROM 'aprovado' THEN $5::uuid ELSE qualificado_por END,
+              updated_at = NOW()
+        WHERE empresa_id = $1 AND id = $2::uuid
+        RETURNING id, status, qualificacao, qualificado_em, qualificado_por`,
+      [req.empresa.id, req.params.id, destino.status, destino.qualificacao || null, usuarioId]
+    )
+
+    await client.query(
+      `INSERT INTO app.auditoria_eventos
+         (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+       VALUES ($1, $2::uuid, 'prospect', $3::uuid, 'lead_status_alterado', $4, $5, $6::jsonb)`,
+      [req.empresa.id, usuarioId, req.params.id, atual.status, rows[0].status, JSON.stringify({
+        origem: 'banco_leads',
+        status_pedido: destino.chave,
+        status_anterior: atual.status,
+        status_novo: rows[0].status,
+        qualificacao_anterior: atual.qualificacao || null,
+        qualificacao_nova: rows[0].qualificacao || null,
+        qualificacao_alterada: !!precisaQualificacao,
+      })]
+    )
+
+    await client.query('COMMIT')
+    return rows[0]
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw e
+  } finally {
+    client.release()
+  }
 }
 
 async function assertInstanciaPermitida(req, res, instanciaId) {
@@ -496,6 +585,25 @@ router.get('/leads/:id/responsavel-historico', requireAuth, requireEmpresaAccess
     const data = await LR.historicoDoLead(pool, req.empresa.id, req.params.id, { limit: req.query.limit })
     return res.json({ ok: true, data })
   } catch (err) { return envelopeErro(res, err, 'LEAD_HISTORICO_FAILED') }
+})
+
+// GET /leads/:id/status-historico — status operacional e declarações de contato daquele lead.
+router.get('/leads/:id/status-historico', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const recorte = montarRecorteLeadOperacao(req)
+    const params = [...recorte.params, req.params.id]
+    const phId = `$${params.length}`
+    const { rows } = await pool.query(
+      `SELECT 1 FROM prospectador.prospects
+        WHERE ${recorte.where} AND id = ${phId}::uuid
+        LIMIT 1`,
+      params
+    )
+    if (!rows[0]) return res.status(404).json({ ok: false, error: { code: 'LEAD_NAO_ENCONTRADO', message: 'Lead não encontrado para o seu escopo.' } })
+
+    const eventos = await listarAuditoria(pool, req.empresa.id, { entidadeTipo: 'prospect', entidadeId: req.params.id, limit: req.query.limit || 30 })
+    return res.json({ ok: true, data: eventos.filter((e) => ACOES_STATUS_LEAD.has(e.acao)) })
+  } catch (err) { return envelopeErro(res, err, 'LEAD_STATUS_HISTORICO_FAILED') }
 })
 
 // GET /carteira — quantos leads cada responsavel tem. Leitura de GESTAO, logo exige a capacidade.
@@ -868,31 +976,27 @@ router.get('/filtros', requireAuth, requireEmpresaAccess, async (req, res) => {
   }
 })
 
-// POST /leads/:id/fechar — marca o lead como fechado (botão manual).
+// PATCH /leads/:id/status — muda o status operacional e registra quem mudou/quando.
+router.patch('/leads/:id/status', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const data = await alterarStatusLeadOperacional(req, (req.body || {}).status)
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'LEAD_STATUS_FAILED') }
+})
+
+// POST /leads/:id/fechar — compatibilidade com o botão antigo.
 router.post('/leads/:id/fechar', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `UPDATE prospectador.prospects SET status = 'fechado', updated_at = NOW()
-        WHERE empresa_id = $1 AND id = $2::uuid AND status <> 'fechado'
-        RETURNING id, status`,
-      [req.empresa.id, req.params.id]
-    )
-    if (!rows[0]) return res.status(404).json({ ok: false, error: { code: 'LEAD_NAO_ENCONTRADO', message: 'Lead não encontrado ou já fechado.' } })
-    return res.json({ ok: true, data: rows[0] })
+    const data = await alterarStatusLeadOperacional(req, 'fechado')
+    return res.json({ ok: true, data })
   } catch (err) { return envelopeErro(res, err, 'FECHAR_FAILED') }
 })
 
-// POST /leads/:id/reabrir — desfaz o fechamento (volta para 'respondeu').
+// POST /leads/:id/reabrir — compatibilidade: fechado volta para respondido.
 router.post('/leads/:id/reabrir', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `UPDATE prospectador.prospects SET status = 'respondeu', updated_at = NOW()
-        WHERE empresa_id = $1 AND id = $2::uuid AND status = 'fechado'
-        RETURNING id, status`,
-      [req.empresa.id, req.params.id]
-    )
-    if (!rows[0]) return res.status(404).json({ ok: false, error: { code: 'LEAD_NAO_ENCONTRADO', message: 'Lead fechado não encontrado.' } })
-    return res.json({ ok: true, data: rows[0] })
+    const data = await alterarStatusLeadOperacional(req, 'respondido')
+    return res.json({ ok: true, data })
   } catch (err) { return envelopeErro(res, err, 'REABRIR_FAILED') }
 })
 

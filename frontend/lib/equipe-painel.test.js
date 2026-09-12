@@ -84,6 +84,7 @@ test('"nunca acessou" e informacao; um traco nao e', () => {
 test('acao de auditoria desconhecida aparece como o slug, nunca como "—"', () => {
   const conhecida = E.descreverAtividade({ acao: 'lead_responsavel_assumiu', entidade_tipo: 'lead' })
   assert.equal(conhecida.rotulo, 'assumiu um lead')
+  assert.equal(E.descreverAtividade({ acao: 'lead_status_alterado' }).rotulo, 'mudou o status de um lead')
   assert.equal(conhecida.conhecida, true)
 
   const nova = E.descreverAtividade({ acao: 'acao_que_o_servidor_acabou_de_criar' })

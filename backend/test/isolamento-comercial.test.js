@@ -109,6 +109,18 @@ test('GUARDA: Banco de Leads semi usa somente instancia propria do Comercial', (
   }
 })
 
+test('GUARDA: mudar status do lead respeita o mesmo recorte e grava historico', () => {
+  const src = rota('api-banco-leads.js')
+  assert.ok(src.includes("router.patch('/leads/:id/status'"), 'faltou a rota dedicada de status')
+  const ini = src.indexOf('async function alterarStatusLeadOperacional')
+  assert.ok(ini > 0, 'faltou helper transacional de status')
+  const bloco = src.slice(ini, src.indexOf('async function assertInstanciaPermitida'))
+  assert.ok(bloco.includes('montarRecorteLeadOperacao(req)'), 'status precisa usar o mesmo recorte de operacao da listagem')
+  assert.ok(bloco.includes('FOR UPDATE'), 'troca de status precisa travar a linha antes de auditar')
+  assert.ok(bloco.includes('lead_status_alterado'), 'troca de status precisa virar linha de auditoria')
+  assert.ok(bloco.includes('estado_anterior') && bloco.includes('estado_novo'), 'historico precisa registrar antes/depois')
+})
+
 // ─── 3. AS ROTAS POR ID REPETEM O RECORTE DA LISTAGEM ────────────────────────────────────
 
 test('GUARDA: TODA rota /:numero de conversas passa pelo alcance', () => {
