@@ -697,11 +697,9 @@ export default function BancoLeadsPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
-  // Etapa 4: recorte por RESPONSÁVEL. `escopo` é o que a tela PEDE; `escopoEfetivo` é o que o
-  // backend DEVOLVEU — divergem quando alguém pede "todos" sem poder, e mostrar a diferença é o
-  // que impede o vendedor de achar que perdeu leads.
+  // Etapa 4: recorte por RESPONSÁVEL. `escopo` é o que a tela pede; quem decide o que este
+  // pedido pode ver é o backend.
   const [escopo, setEscopo] = useState<string>('')
-  const [escopoEfetivo, setEscopoEfetivo] = useState<string | null>(null)
   // Etapa 5: o lead cujo modal de abordagem manual está aberto.
   const [abordando, setAbordando] = useState<Lead | null>(null)
   const [exportando, setExportando] = useState(false)
@@ -821,18 +819,14 @@ export default function BancoLeadsPage() {
       if (mercado) p.set('mercado', mercado)
       if (cidadeFiltro) p.set('cidade', cidadeFiltro)
       if (busca.trim()) p.set('busca', busca.trim())
-      // Escopa a "Mensagem gerada" pela instância selecionada (modo Semi).
-      if (instanciaId) p.set('instancia_id', instanciaId)
       // Recorte por RESPONSÁVEL (Etapa 4). Quem decide o que este pedido pode ver é o backend:
       // pedir `todos` sem poder devolve "meus + livres", e o `meta.escopo` diz o que veio.
       if (escopo) p.set('escopo', escopo)
       const r = await apiFetch<Lead[], { escopo?: string; pode_ver_todos?: boolean }>(`${base}/leads?${p.toString()}`)
       setLeads(r.data || [])
-      // Recortar em silêncio faria o vendedor achar que a carteira encolheu.
-      setEscopoEfetivo(r.meta?.escopo || null)
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao carregar leads.') }
     finally { setCarregando(false) }
-  }, [base, empresaId, aba, origem, mercado, cidadeFiltro, busca, instanciaId, escopo])
+  }, [base, empresaId, aba, origem, mercado, cidadeFiltro, busca, escopo])
 
   const carregarFiltrosMercado = useCallback(async () => {
     if (!empresaId) return
@@ -1159,7 +1153,7 @@ export default function BancoLeadsPage() {
   // Semi/Automático (grava em prospectador.lead_disparos) — reaproveitada, não duplicada.
   //
   // Reaproveitamento: quem já tem `mensagem_gerada` (rascunho pronto por Manual/Semi/
-  // Automático, na MESMA instância — `carregarLeads` já escopa por `instancia_id`) NÃO entra
+  // Automático, na MESMA instância — lead sem mensagem pronta NÃO entra
   // no lote enviado ao backend. Sem este filtro, clicar "Gerar mensagens" sobre uma seleção
   // que já tem rascunhos prontos regeneraria tudo (`gerarMensagensSemi` sempre regera, nunca
   // reaproveita) — pagando IA de novo e descartando texto que já podia estar revisado.
@@ -1486,7 +1480,7 @@ export default function BancoLeadsPage() {
             </div>
           )}
           <div className="grid gap-4 lg:grid-cols-[minmax(0,430px)_minmax(0,1fr)]">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className={`grid gap-3 ${podeEscolherInstancia ? 'sm:grid-cols-2' : ''}`}>
               <div>
                 <label className="block text-xs text-slate-500 mb-1">Modo de disparo</label>
                 <select value={modosDisponiveis.some((m) => m.valor === config.modo) ? config.modo : (modosDisponiveis[0]?.valor || 'manual')} onChange={(e) => trocarModo(e.target.value)}
@@ -1494,9 +1488,9 @@ export default function BancoLeadsPage() {
                   {modosDisponiveis.map((m) => <option key={m.valor} value={m.valor} disabled={m.disabled}>{m.label}</option>)}
                 </select>
               </div>
-              <div>
-                <label className="block text-xs text-slate-500 mb-1">Instância</label>
-                {podeEscolherInstancia ? (
+              {podeEscolherInstancia && (
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Instância</label>
                   <select value={instanciaId} onChange={(e) => trocarInstancia(e.target.value)}
                     className="w-full border rounded-lg px-3 py-2 text-sm">
                     {!instancias.length && <option value="">Nenhuma instância ativa</option>}
@@ -1506,26 +1500,22 @@ export default function BancoLeadsPage() {
                       </option>
                     ))}
                   </select>
-                ) : (
-                  <div className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">
-                    {instanciaSel ? (instanciaSel.nome || instanciaSel.evolution_instance) : 'Nenhuma instância sua ativa'}
+                  <div className={`mt-1 flex items-center gap-1.5 text-[11px] font-medium ${classeConexao}`}>
+                    <span className={`h-2 w-2 rounded-full ${statusConexao?.connected === true ? 'bg-emerald-500' : statusConexao?.connected === false ? 'bg-red-500' : 'bg-amber-400'}`} />
+                    <span>{rotuloConexao}</span>
+                    <button
+                      type="button"
+                      onClick={carregarConexoes}
+                      disabled={!instanciaId || verificandoConexao}
+                      className="ml-0.5 text-slate-400 hover:text-brand disabled:opacity-40"
+                      title="Atualizar status da conexão"
+                      aria-label="Atualizar status da conexão"
+                    >
+                      ↻
+                    </button>
                   </div>
-                )}
-                <div className={`mt-1 flex items-center gap-1.5 text-[11px] font-medium ${classeConexao}`}>
-                  <span className={`h-2 w-2 rounded-full ${statusConexao?.connected === true ? 'bg-emerald-500' : statusConexao?.connected === false ? 'bg-red-500' : 'bg-amber-400'}`} />
-                  <span>{rotuloConexao}</span>
-                  <button
-                    type="button"
-                    onClick={carregarConexoes}
-                    disabled={!instanciaId || verificandoConexao}
-                    className="ml-0.5 text-slate-400 hover:text-brand disabled:opacity-40"
-                    title="Atualizar status da conexão"
-                    aria-label="Atualizar status da conexão"
-                  >
-                    ↻
-                  </button>
                 </div>
-              </div>
+              )}
             </div>
 
             <div className="space-y-2 border-t pt-3 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
@@ -1751,25 +1741,20 @@ export default function BancoLeadsPage() {
         {/* Recorte por RESPONSÁVEL (CRM em equipe, Etapa 4).
             Quem não pode ver a carteira inteira não recebe a opção "Todos" — oferecer uma opção
             que o servidor rebaixa faria a tela mostrar menos do que prometeu. */}
-        <div>
-          <label className="block text-xs text-slate-500 mb-1">Responsável</label>
-          <select value={escopo} onChange={(e) => setEscopo(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm min-w-[140px]">
-            {/* A 1ª opção é o padrão do servidor (valor ''), e ela precisa existir na lista:
-                sem ela o controle exibia uma coisa e o estado enviava outra, e não havia como
-                voltar ao padrão depois de filtrar. */}
-            {opcoesEscopo(podeVerTodos).map((o) => (
-              <option key={o.valor || 'padrao'} value={o.valor}>{o.rotulo}</option>
-            ))}
-          </select>
-          {/* O que o servidor DEVOLVEU. Recortar em silêncio faria o vendedor achar que a
-              carteira encolheu. Só aparece quando o recorte não é o total. */}
-          {escopoEfetivo === 'meus_e_livres' && !podeVerTodos && (
-            <p className="mt-1 text-[10px] text-amber-700">
-              Mostrando os seus e os que ainda não têm responsável
-            </p>
-          )}
-        </div>
+        {podeVerTodos && (
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Carteira</label>
+            <select value={escopo} onChange={(e) => setEscopo(e.target.value)}
+              className="border rounded-lg px-3 py-2 text-sm min-w-[140px]">
+              {/* A 1ª opção é o padrão do servidor (valor ''), e ela precisa existir na lista:
+                  sem ela o controle exibia uma coisa e o estado enviava outra, e não havia como
+                  voltar ao padrão depois de filtrar. */}
+              {opcoesEscopo(podeVerTodos).map((o) => (
+                <option key={o.valor || 'padrao'} value={o.valor}>{o.rotulo}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="flex-1 min-w-[200px]">
           <label className="block text-xs text-slate-500 mb-1">Buscar (nome, telefone, email, @)</label>
           <input value={busca} onChange={(e) => setBusca(e.target.value)}

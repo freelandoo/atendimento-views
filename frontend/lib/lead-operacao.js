@@ -77,9 +77,9 @@ const ESCOPO_LEAD = Object.freeze({
 
 const ESCOPO_ROTULO = {
   meus: 'Meus leads',
-  livres: 'Livres',
-  todos: 'Todos',
-  meus_e_livres: 'Meus e livres',
+  livres: 'Disponíveis',
+  todos: 'Todos os leads',
+  meus_e_livres: 'Leads disponíveis',
 }
 
 /**
@@ -110,7 +110,7 @@ function opcoesEscopo(podeVerTodos) {
 
 /** O que a tela deve dizer sobre o recorte que RECEBEU (vem no `meta.escopo` da API). */
 function rotuloEscopoEfetivo(escopo) {
-  return ESCOPO_ROTULO[String(escopo || '')] || 'Todos'
+  return ESCOPO_ROTULO[String(escopo || '')] || ESCOPO_ROTULO.todos
 }
 
 /**

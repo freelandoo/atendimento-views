@@ -679,3 +679,20 @@ Ajuste sobre a entrega imediatamente abaixo, apos revisao de UX/operacao.
 - UX: conversas exibem "Minhas conversas" para o recorte limitado; Banco de Leads ganhou link pequeno de WhatsApp ao lado do telefone, removeu seletor de instancia para Comercial e mostra a instancia atual em leitura; Follow-ups esconde filtros de responsavel/equipe quando o usuario nao ve a fila da equipe.
 - Sem migration e sem env nova.
 - Validacao: testes focados do backend 112/112, frontend 432/432, typecheck backend e frontend limpos. Suite completa do backend ainda bate nas 2 falhas conhecidas de rede/429 em `core.test.js`.
+
+## 2026-09-12 - Polish visual da tela Contas da empresa
+
+- Area alterada: `frontend/app/dashboard/contas-empresa/page.tsx`.
+- O que mudou: tela saiu do visual escuro/translucido antigo (`glass`) para cards claros com borda/sombra leve, cabecalho em gradiente discreto, resumo de pessoas/ativas/comercial, formulario e modal com inputs brancos, chips de permissao com tons emerald/amber/cyan e tabela com cabecalho claro.
+- Regras preservadas: nenhuma permissao, rota, payload, papel ou capacidade foi alterada. `lib/capacidades.js` continua sendo a traducao pura e o backend segue como fonte de autorizacao.
+- Sem migration e sem env nova.
+- Validacao: frontend `npm test -- --runInBand` 432/432 e `npm run typecheck` limpo.
+
+## 2026-09-12 - Refinos finais da tela Comercial e Banco de Leads
+
+- Complemento do polish: Banco de Leads deixou de enviar `instancia_id` na listagem e removeu o bloco de instancia para quem nao pode escolher instancia; a instancia continua usada apenas nos fluxos reais de envio/geracao onde e obrigatoria.
+- UX final do recorte: para Comercial, o seletor de carteira e o texto explicativo "Mostrando os seus..." nao aparecem; para quem pode ver todos, o filtro virou "Carteira" com rotulos mais claros ("Todos os leads", "Meus leads", "Disponiveis").
+- Central de Mensagens: atendente sem permissao ampla nao ve mais o bloco estatico "Minhas conversas" no topo; o seletor aparece apenas para quem pode operar outros recortes.
+- Backend: `/banco-leads/filtros` passou a usar o mesmo recorte da listagem por responsavel e por lead aprovado. Isso evita opcoes de mercado/nicho desalinhadas com o que o Comercial realmente pode abrir.
+- Observacao operacional: se um nicho marcado, como energia solar termica, ainda nao aparecer depois disso, o proximo ponto e conferir o dado especifico do lead: qualificacao aprovada/marcada e responsavel dentro da carteira do usuario.
+- Validacao adicional: backend focado 67/67, frontend 432/432, typecheck backend e frontend limpos.

@@ -3611,3 +3611,18 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Workflow padrao consultado?** Sim: AGENTS.md ja esta no contexto da tarefa; `docs/project-architecture.md` e `docs/ui-visual-standard.md` foram consultados antes das edicoes.
 - **Plano de execucao:** (1) mapear regras atuais de alcance/escopo/capacidades; (2) aplicar recortes no backend onde necessario; (3) simplificar UI para Comercial; (4) atualizar guardas/testes; (5) validar com `npm test`, `typecheck` e smoke existente.
 - **Cuidados:** nao criar migration, nao criar nova variavel de ambiente, nao permitir que regra sensivel exista so no front-end, preservar owner/admin com visao ampla quando a capacidade permitir.
+
+## 2026-09-12 - Inicio de tarefa IA - Polish visual em Contas da empresa
+
+- **IA/Ferramenta:** Codex, na `master` atual.
+- **Pedido resumido:** melhorar a tela **Contas da empresa**, que estava opaca/escura e visualmente desalinhada das outras telas do painel.
+- **Workflow padrao consultado?** Sim: `docs/ui-visual-standard.md` e skill `impeccable-design-polish` para polish de pagina existente.
+- **Plano de execucao:** (1) identificar rota/componente correto; (2) comparar com telas claras recentes; (3) trocar a apresentacao para cards claros, chips e tabela legivel; (4) manter regras de permissao sem mudanca; (5) validar frontend.
+- **Cuidados:** sem rota nova, sem migration, sem alterar contrato de membros/permissoes, sem criar novo padrao visual divergente.
+
+## 2026-09-12 - Complemento da tarefa IA - Ajustes finais Comercial
+
+- **Pedido complementar:** remover controles/textos redundantes do Banco de Leads e Central de Mensagens para Comercial/Atendente comum; investigar desalinhamento de nicho marcado que nao aparecia para Comercial.
+- **Execucao:** manter regra sensivel no backend, ajustar `/banco-leads/filtros` para o mesmo recorte da listagem, esconder seletor/texto de instancia onde nao ha escolha real e retirar o bloco estatico "Minhas conversas" da Central para quem ja esta limitado ao proprio recorte.
+- **Cuidados:** nao mudar envio/geracao que ainda exigem instancia, nao ampliar acesso do Comercial, nao criar migration/env nova.
+- **Validacao planejada:** testes focados backend, suite frontend e typechecks backend/frontend antes de commit/push.

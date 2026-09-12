@@ -95,8 +95,8 @@ test('quem nao ve todos NAO recebe a opcao "Todos"', () => {
   // Duas opcoes com o mesmo significado ('' e 'todos') seriam ruido, entao a comparacao e pelo
   // rotulo — que e o que o operador le.
   const rotulos = (p) => L.opcoesEscopo(p).map((o) => o.rotulo)
-  assert.ok(!rotulos(false).includes('Todos'), 'a opcao que o servidor rebaixaria nao pode ser oferecida')
-  assert.ok(rotulos(true).includes('Todos'))
+  assert.ok(!rotulos(false).includes('Todos os leads'), 'a opcao que o servidor rebaixaria nao pode ser oferecida')
+  assert.ok(rotulos(true).includes('Todos os leads'))
 })
 
 test('a PRIMEIRA opcao e sempre o padrao do servidor (valor vazio)', () => {
@@ -106,15 +106,15 @@ test('a PRIMEIRA opcao e sempre o padrao do servidor (valor vazio)', () => {
     assert.equal(L.opcoesEscopo(pode)[0].valor, '', `padrao ausente para podeVerTodos=${pode}`)
   }
   // E o rotulo do padrao diz a VERDADE sobre o que o servidor devolve em cada caso.
-  assert.equal(L.opcoesEscopo(false)[0].rotulo, 'Meus e livres')
-  assert.equal(L.opcoesEscopo(true)[0].rotulo, 'Todos')
+  assert.equal(L.opcoesEscopo(false)[0].rotulo, 'Leads disponíveis')
+  assert.equal(L.opcoesEscopo(true)[0].rotulo, 'Todos os leads')
 })
 
 test('o escopo EFETIVO do servidor tem rotulo proprio', () => {
   // `meus_e_livres` e o que a API devolve quando rebaixa um pedido de "todos".
-  assert.equal(L.rotuloEscopoEfetivo('meus_e_livres'), 'Meus e livres')
+  assert.equal(L.rotuloEscopoEfetivo('meus_e_livres'), 'Leads disponíveis')
   assert.equal(L.rotuloEscopoEfetivo('meus'), 'Meus leads')
-  assert.equal(L.rotuloEscopoEfetivo('desconhecido'), 'Todos')
+  assert.equal(L.rotuloEscopoEfetivo('desconhecido'), 'Todos os leads')
 })
 
 // ─── Etapa 5: abordagem manual (prova × declaração) ──────────────────────────────────────

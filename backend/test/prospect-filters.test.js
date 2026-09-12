@@ -72,6 +72,33 @@ test('prospect filters: opcoes de mercado ficam escopadas por empresa, origem e 
   }
 })
 
+test('prospect filters: opcoes de mercado respeitam carteira e porta de aprovados', async () => {
+  const queries = []
+  const pool = {
+    async query(sql, params) {
+      queries.push({ sql, params })
+      return { rows: [] }
+    },
+  }
+
+  await listarOpcoesFiltrosMercado(pool, {
+    empresaId: 'empresa-1',
+    escopoSql: '(responsavel_id = $1 OR responsavel_id IS NULL)',
+    escopoUsaUsuario: true,
+    usuarioId: 'usuario-1',
+    somenteAprovados: true,
+    limit: 5,
+  })
+
+  assert.equal(queries.length, 3)
+  for (const q of queries) {
+    assert.match(q.sql, /empresa_id = \$1/)
+    assert.match(q.sql, /\(responsavel_id = \$2 OR responsavel_id IS NULL\)/)
+    assert.match(q.sql, /qualificacao = 'aprovado'/)
+    assert.deepEqual(q.params, ['empresa-1', 'usuario-1', 5])
+  }
+})
+
 // A origem e' normalizada num lugar so: a listagem (/prospects) e a contagem por status
 // (/metricas) precisam recortar o MESMO universo, senao o numero do filtro nao bate com a lista.
 test('prospect filters: origem so tem dois valores; desconhecido cai em manual', () => {

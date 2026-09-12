@@ -53,6 +53,10 @@ async function listarOpcoesFiltrosMercado(pool, {
   origemIn,
   statusAny,
   status,
+  escopoSql,
+  escopoUsaUsuario = false,
+  usuarioId = null,
+  somenteAprovados = false,
   somenteSociais = false,
   limit = 80,
 } = {}) {
@@ -77,6 +81,15 @@ async function listarOpcoesFiltrosMercado(pool, {
   } else if (status) {
     params.push(status)
     where.push(`status = $${params.length}`)
+  }
+
+  if (escopoSql) {
+    if (escopoUsaUsuario) params.push(usuarioId)
+    where.push(String(escopoSql).replace('$1', `$${params.length}`))
+  }
+
+  if (somenteAprovados) {
+    where.push(`qualificacao = 'aprovado'`)
   }
 
   params.push(Math.min(Math.max(parseInt(limit, 10) || 80, 1), 200))

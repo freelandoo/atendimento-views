@@ -277,28 +277,24 @@ export default function ConversasPage() {
 
       <section className="overflow-hidden rounded-2xl border bg-white shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3 border-b px-4 py-4">
-          <div>
-            <label htmlFor="escopo-conversas" className="mb-1 block text-xs font-medium text-slate-500">Atendente</label>
-            {podeVerTodas ? (
+          {podeVerTodas && (
+            <div>
+              <label htmlFor="escopo-conversas" className="mb-1 block text-xs font-medium text-slate-500">Atendente</label>
               <select id="escopo-conversas" value={escopo} onChange={(e) => setEscopo(e.target.value)}
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand">
                 {opcoesEscopoConversa(podeVerTodas).map((o) => (
                   <option key={o.valor || 'padrao'} value={o.valor}>{o.rotulo}</option>
                 ))}
               </select>
-            ) : (
-              <p id="escopo-conversas" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">
-                Minhas conversas
-              </p>
-            )}
-            {/* O servidor rebaixou o pedido? Recortar em silêncio faria o atendente achar que a
-                Central esvaziou. */}
-            {avisoDeRecorte(escopo, escopoEfetivo) && (
-              <p className="mt-1 max-w-[220px] text-[10px] leading-snug text-amber-700">
-                {avisoDeRecorte(escopo, escopoEfetivo)}
-              </p>
-            )}
-          </div>
+              {/* O servidor rebaixou o pedido? Recortar em silêncio faria o atendente achar que a
+                  Central esvaziou. */}
+              {avisoDeRecorte(escopo, escopoEfetivo) && (
+                <p className="mt-1 max-w-[220px] text-[10px] leading-snug text-amber-700">
+                  {avisoDeRecorte(escopo, escopoEfetivo)}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="min-w-[240px] flex-1 sm:max-w-xl">
             <label htmlFor="busca-numero" className="mb-1 block text-xs font-medium text-slate-500">Pesquisar número</label>

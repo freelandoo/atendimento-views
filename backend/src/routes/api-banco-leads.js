@@ -853,9 +853,14 @@ router.get('/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
 
 router.get('/filtros', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
+    const { query: queryComEscopo } = comEscopo(req)
     const data = await listarOpcoesFiltrosMercado(pool, {
       empresaId: req.empresa.id,
       ...montarEscopoOpcoes(req.query || {}),
+      escopoSql: queryComEscopo.__escopoSql,
+      escopoUsaUsuario: queryComEscopo.__escopoUsaUsuario,
+      usuarioId: queryComEscopo.__usuarioId,
+      somenteAprovados: queryComEscopo.__somenteAprovados,
     })
     return res.json({ ok: true, data })
   } catch (err) {
