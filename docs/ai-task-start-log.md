@@ -3626,3 +3626,9 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Execucao:** manter regra sensivel no backend, ajustar `/banco-leads/filtros` para o mesmo recorte da listagem, esconder seletor/texto de instancia onde nao ha escolha real e retirar o bloco estatico "Minhas conversas" da Central para quem ja esta limitado ao proprio recorte.
 - **Cuidados:** nao mudar envio/geracao que ainda exigem instancia, nao ampliar acesso do Comercial, nao criar migration/env nova.
 - **Validacao planejada:** testes focados backend, suite frontend e typechecks backend/frontend antes de commit/push.
+
+## 2026-09-12 - Inicio de tarefa IA - Refinos do Banco de Leads Comercial
+
+- **Pedido resumido:** simplificar a linha do Banco de Leads para Comercial: remover botao de abordagem, manter cadastro/detalhes, abrir WhatsApp direto com mensagem pronta, transformar "Livre" em assumir rapido e parar de exibir qualificacao como coluna separada quando Status "Marcado" ja comunica aprovado.
+- **Execucao planejada:** alterar apenas a UI do Banco de Leads, preservar backend como fonte de recorte/status e validar frontend.
+- **Decisao tecnica:** nao criar ainda o menu compartilhado de status Banco/Central porque a Central de Mensagens lista conversas sem `prospect_id`; ligar isso por telefone seria frágil e poderia atualizar lead errado.

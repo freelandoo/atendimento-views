@@ -696,3 +696,13 @@ Ajuste sobre a entrega imediatamente abaixo, apos revisao de UX/operacao.
 - Backend: `/banco-leads/filtros` passou a usar o mesmo recorte da listagem por responsavel e por lead aprovado. Isso evita opcoes de mercado/nicho desalinhadas com o que o Comercial realmente pode abrir.
 - Observacao operacional: se um nicho marcado, como energia solar termica, ainda nao aparecer depois disso, o proximo ponto e conferir o dado especifico do lead: qualificacao aprovada/marcada e responsavel dentro da carteira do usuario.
 - Validacao adicional: backend focado 67/67, frontend 432/432, typecheck backend e frontend limpos.
+
+## 2026-09-12 - Banco de Leads comercial mais direto
+
+- Area alterada: `frontend/app/dashboard/banco-leads/page.tsx`.
+- O que mudou: removeu o botao/modal antigo de "Abordar" da coluna Cadastro; o operador fica com Detalhes e com o icone direto do WhatsApp ao lado do telefone.
+- WhatsApp direto: quando existe `mensagem_gerada`, o link `wa.me` passa a abrir com `text=` preenchido pela mensagem pronta. Continua sendo abertura manual pelo operador, sem disparo automatico novo.
+- Responsavel: lead livre virou botao unico "Livre · assumir", evitando a duplicidade visual de mostrar "Livre" e outro link "Assumir" embaixo.
+- Status/qualificacao: a coluna separada "Qualificacao" saiu da tabela e do personalizador; no Banco de Leads, `status=aprovado` continua aparecendo como "Marcado" na coluna Status.
+- Fora de escopo nesta etapa: criar uma acao compartilhada de status entre Banco de Leads e Central de Mensagens. A Central ainda nao recebe `prospect_id` na listagem, entao essa acao precisa de contrato backend proprio para nao virar chute por telefone.
+- Validacao: frontend `npm run typecheck` limpo e `npm test -- --runInBand` 432/432.
