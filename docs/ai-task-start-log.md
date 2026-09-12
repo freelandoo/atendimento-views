@@ -3632,3 +3632,9 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Pedido resumido:** simplificar a linha do Banco de Leads para Comercial: remover botao de abordagem, manter cadastro/detalhes, abrir WhatsApp direto com mensagem pronta, transformar "Livre" em assumir rapido e parar de exibir qualificacao como coluna separada quando Status "Marcado" ja comunica aprovado.
 - **Execucao planejada:** alterar apenas a UI do Banco de Leads, preservar backend como fonte de recorte/status e validar frontend.
 - **Decisao tecnica:** nao criar ainda o menu compartilhado de status Banco/Central porque a Central de Mensagens lista conversas sem `prospect_id`; ligar isso por telefone seria frágil e poderia atualizar lead errado.
+
+## 2026-09-12 - Complemento da tarefa IA - Status claro no Abrir conversa
+
+- **Pedido complementar:** ao clicar em "Abrir conversa" no Banco de Leads, deixar mais clara a alteracao de status para o Comercial, especialmente marcar como fechado rapidamente.
+- **Execucao:** destacar o status atual do lead e a acao de fechar/reabrir dentro do modal de conversa ja existente, usando as rotas atuais do Banco de Leads.
+- **Limite anotado:** Central de Mensagens ainda nao recebeu a mesma acao porque hoje nao carrega `prospect_id`; ligar por telefone poderia alterar o lead errado.

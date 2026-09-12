@@ -706,3 +706,11 @@ Ajuste sobre a entrega imediatamente abaixo, apos revisao de UX/operacao.
 - Status/qualificacao: a coluna separada "Qualificacao" saiu da tabela e do personalizador; no Banco de Leads, `status=aprovado` continua aparecendo como "Marcado" na coluna Status.
 - Fora de escopo nesta etapa: criar uma acao compartilhada de status entre Banco de Leads e Central de Mensagens. A Central ainda nao recebe `prospect_id` na listagem, entao essa acao precisa de contrato backend proprio para nao virar chute por telefone.
 - Validacao: frontend `npm run typecheck` limpo e `npm test -- --runInBand` 432/432.
+
+## 2026-09-12 - Status claro no modal de conversa do Banco de Leads
+
+- Area alterada: `frontend/components/ConversaHistoricoModal.tsx`.
+- O que mudou: o modal aberto pelo telefone/"Abrir conversa" agora tem um bloco explicito "Status do lead", com selo traduzido (`Marcado`, `Contatado`, `Respondeu`, `Fechado` etc.), explicacao curta e acao principal para "Marcar como fechado" ou "Reabrir lead".
+- Regra preservada: a escrita continua usando as rotas existentes do Banco de Leads (`POST /leads/:id/fechar` e `/reabrir`), sem criar status novo e sem mexer no contrato de conversa.
+- Central de Mensagens: ainda nao recebeu a mesma acao de status de lead porque a listagem trabalha com `numero`/conversa e nao traz `prospect_id`. Para evitar atualizar lead errado por telefone, essa expansao deve criar primeiro um contrato backend claro entre conversa e lead.
+- Validacao: frontend `npm run typecheck` limpo e `npm test -- --runInBand` 432/432.

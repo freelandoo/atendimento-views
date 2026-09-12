@@ -17,6 +17,18 @@ import { apiFetch } from '@/lib/api'
 type Mensagem = { role?: string; content?: string; text?: string; timestamp?: string }
 type ConversaDetail = { numero?: string; historico?: Mensagem[]; estagio?: string }
 
+const STATUS_LEAD: Record<string, { label: string; detalhe: string; classe: string }> = {
+  coletado: { label: 'Sem contato', detalhe: 'Ainda não virou conversa.', classe: 'border-slate-200 bg-slate-50 text-slate-700' },
+  contato_encontrado: { label: 'Sem contato', detalhe: 'Telefone encontrado, sem abordagem concluída.', classe: 'border-slate-200 bg-slate-50 text-slate-700' },
+  aguardando: { label: 'Sem contato', detalhe: 'Aguardando primeira abordagem.', classe: 'border-slate-200 bg-slate-50 text-slate-700' },
+  aprovado: { label: 'Marcado', detalhe: 'Lead aprovado para o Comercial trabalhar.', classe: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
+  enviado: { label: 'Contatado', detalhe: 'Mensagem já foi enviada.', classe: 'border-blue-200 bg-blue-50 text-blue-700' },
+  respondeu: { label: 'Respondeu', detalhe: 'Já respondeu em algum momento.', classe: 'border-orange-200 bg-orange-50 text-orange-700' },
+  fechado: { label: 'Fechado', detalhe: 'Negócio marcado como fechado.', classe: 'border-violet-200 bg-violet-50 text-violet-700' },
+  rejeitado: { label: 'Rejeitado', detalhe: 'Lead descartado na triagem.', classe: 'border-red-200 bg-red-50 text-red-700' },
+  nao_contatar: { label: 'Não contatar', detalhe: 'Lead marcado para não receber contato.', classe: 'border-red-200 bg-red-50 text-red-700' },
+}
+
 function fmtNumero(n: string): string {
   return String(n || '').replace('@s.whatsapp.net', '').replace(/^(\d{2})(\d{2})(\d)(\d{4})(\d{4})$/, '+$1 ($2) $3$4-$5')
 }
@@ -53,6 +65,11 @@ export default function ConversaHistoricoModal({
   const cooldownAtivo = (cooldownS || 0) > 0
   const podeAcionarEnvio = !!onEnviar && !!podeEnviar && !cooldownAtivo && !enviando
   const podeAcionarGeracao = !!onGerar && !!podeGerar && !gerando
+  const statusInfo = STATUS_LEAD[String(status || '')] || {
+    label: status || 'Sem status',
+    detalhe: 'Status atual do lead.',
+    classe: 'border-slate-200 bg-slate-50 text-slate-700',
+  }
   const textoBotao = enviando
     ? mensagemGerada ? 'Enviando...' : 'Gerando e enviando...'
     : cooldownAtivo
@@ -148,23 +165,35 @@ export default function ConversaHistoricoModal({
               </div>
             )}
             {(onFechar || onReabrir) && (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-                <span className="text-xs text-slate-500">Status: {status || 'sem status'}</span>
-                {status === 'fechado' ? (
-                  <button
-                    onClick={onReabrir}
-                    className="px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50"
-                  >
-                    Reabrir lead
-                  </button>
-                ) : (
-                  <button
-                    onClick={onFechar}
-                    className="px-3 py-2 rounded-lg border border-violet-300 text-violet-700 text-sm font-medium hover:bg-violet-50"
-                  >
-                    Marcar como fechado
-                  </button>
-                )}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Status do lead
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${statusInfo.classe}`}>
+                        {statusInfo.label}
+                      </span>
+                      <span className="text-xs text-slate-500">{statusInfo.detalhe}</span>
+                    </div>
+                  </div>
+                  {status === 'fechado' ? (
+                    <button
+                      onClick={onReabrir}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      Reabrir lead
+                    </button>
+                  ) : (
+                    <button
+                      onClick={onFechar}
+                      className="rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-100"
+                    >
+                      Marcar como fechado
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
