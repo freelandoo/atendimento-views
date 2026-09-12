@@ -28,6 +28,15 @@ const COLUNAS = Object.freeze([
   { chave: 'ligacoes', rotulo: 'Ligações', oQueMede: 'Ligações já registradas por esta pessoa. É histórico, não carga atual.' },
 ])
 
+const ATIVIDADE_HOJE_COLUNAS = Object.freeze([
+  { chave: 'acoes', rotulo: 'Ações', oQueMede: 'Ações registradas hoje no sistema.' },
+  { chave: 'contatos_registrados', rotulo: 'Contatos', oQueMede: 'Leads marcados como contatados ou contato manual declarado hoje.' },
+  { chave: 'respondidos', rotulo: 'Respondidos', oQueMede: 'Leads marcados como respondidos hoje.' },
+  { chave: 'fechados', rotulo: 'Fechados', oQueMede: 'Leads marcados como fechados hoje.' },
+  { chave: 'ligacoes_encerradas', rotulo: 'Ligações', oQueMede: 'Chamadas encerradas hoje.' },
+  { chave: 'followups_tratados', rotulo: 'Follow-ups', oQueMede: 'Follow-ups tratados hoje por e-mail, conversa manual, conclusão ou cancelamento.' },
+])
+
 const PAPEL_ROTULO = {
   owner: 'Dono',
   admin: 'Administrador',
@@ -104,6 +113,42 @@ function rotuloUltimoAcesso(iso) {
   return d.toLocaleString('pt-BR')
 }
 
+function atividadeHoje(linha) {
+  const a = (linha || {}).atividade_hoje || {}
+  return {
+    acoes: Number(a.acoes) || 0,
+    leads_assumidos: Number(a.leads_assumidos) || 0,
+    leads_marcados: Number(a.leads_marcados) || 0,
+    contatos_registrados: Number(a.contatos_registrados) || 0,
+    respondidos: Number(a.respondidos) || 0,
+    fechados: Number(a.fechados) || 0,
+    ligacoes_encerradas: Number(a.ligacoes_encerradas) || 0,
+    followups_tratados: Number(a.followups_tratados) || 0,
+    primeira_acao_em: a.primeira_acao_em || null,
+    ultima_acao_em: a.ultima_acao_em || null,
+    janela_ativa_min: Number(a.janela_ativa_min) || 0,
+  }
+}
+
+function janelaAtivaRotulo(minutos) {
+  const n = Number(minutos) || 0
+  if (n <= 0) return 'sem janela'
+  if (n < 60) return `${n} min`
+  const h = Math.floor(n / 60)
+  const m = n % 60
+  return m ? `${h}h ${m}min` : `${h}h`
+}
+
+function ordenarPorAtividadeHoje(linhas) {
+  return [...(Array.isArray(linhas) ? linhas : [])].sort((a, b) => {
+    const ah = atividadeHoje(a)
+    const bh = atividadeHoje(b)
+    const d = bh.acoes - ah.acoes
+    if (d !== 0) return d
+    return String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR')
+  })
+}
+
 /**
  * Uma linha da linha do tempo de auditoria, pronta para a tela.
  *
@@ -145,6 +190,7 @@ function descreverAtividade(evento) {
 
 module.exports = {
   COLUNAS,
+  ATIVIDADE_HOJE_COLUNAS,
   PAPEL_ROTULO,
   rotuloPapel,
   cargaAtual,
@@ -152,5 +198,8 @@ module.exports = {
   temTrabalhoSemDono,
   avisoDeInativo,
   rotuloUltimoAcesso,
+  atividadeHoje,
+  janelaAtivaRotulo,
+  ordenarPorAtividadeHoje,
   descreverAtividade,
 }

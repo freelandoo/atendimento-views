@@ -93,12 +93,30 @@ test('acao de auditoria desconhecida aparece como o slug, nunca como "—"', () 
   assert.equal(E.descreverAtividade(null).rotulo, '—')
 })
 
-test('guarda: o painel NAO agrega auditoria e NAO cria placar', () => {
-  // A migration 047 declara que a auditoria nao e fonte de dashboard, e as quatro contagens
-  // medem coisas diferentes: um "total" daria um numero que nao se sustenta.
+test('atividadeHoje normaliza o resumo diário sem inventar presença', () => {
+  const a = E.atividadeHoje({ atividade_hoje: { acoes: '7', contatos_registrados: 2, fechados: 1, janela_ativa_min: 95 } })
+  assert.equal(a.acoes, 7)
+  assert.equal(a.contatos_registrados, 2)
+  assert.equal(a.fechados, 1)
+  assert.equal(E.janelaAtivaRotulo(a.janela_ativa_min), '1h 35min')
+  assert.equal(E.janelaAtivaRotulo(0), 'sem janela')
+  assert.equal(E.atividadeHoje(null).acoes, 0)
+})
+
+test('ordenarPorAtividadeHoje usa ações do dia e empate por nome', () => {
+  const linhas = [
+    { nome: 'Zeca', atividade_hoje: { acoes: 1 } },
+    { nome: 'Ana', atividade_hoje: { acoes: 1 } },
+    { nome: 'Bia', atividade_hoje: { acoes: 4 } },
+  ]
+  assert.deepEqual(E.ordenarPorAtividadeHoje(linhas).map((l) => l.nome), ['Bia', 'Ana', 'Zeca'])
+})
+
+test('guarda: o painel NAO cria placar nem chama janela ativa de horas trabalhadas', () => {
+  // O resumo do dia pode contar fatos registrados, mas nao pode virar score/ranking de gente.
   const fonte = fs.readFileSync(path.join(__dirname, 'equipe-painel.js'), 'utf8')
   const semComentarios = fonte.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*$/gm, '')
-  for (const proibido of ['ranking', 'produtividade', 'media(', 'percentual', 'score']) {
+  for (const proibido of ['produtividade', 'media(', 'percentual', 'score', 'horas trabalhadas']) {
     assert.ok(!semComentarios.toLowerCase().includes(proibido),
       `"${proibido}" transformaria o painel em placar — leia o cabecalho do modulo`)
   }

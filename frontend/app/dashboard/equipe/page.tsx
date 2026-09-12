@@ -19,11 +19,15 @@ import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { Spinner } from '@/components/feedback/FeedbackProvider'
 import {
+  ATIVIDADE_HOJE_COLUNAS,
   COLUNAS,
+  atividadeHoje,
   avisoDeInativo,
   descreverAtividade,
   ordenarEquipe,
+  ordenarPorAtividadeHoje,
   rotuloPapel,
+  janelaAtivaRotulo,
   rotuloUltimoAcesso,
   temTrabalhoSemDono,
 } from '@/lib/equipe-painel'
@@ -55,6 +59,7 @@ export default function EquipePage() {
   useEffect(() => { carregar() }, [carregar])
 
   const linhas = ordenarEquipe(dados?.equipe || [])
+  const linhasPorAtividade = ordenarPorAtividadeHoje(dados?.equipe || [])
   const semDono = dados?.sem_responsavel
   const mostrarSemDono = temTrabalhoSemDono(semDono)
 
@@ -104,6 +109,45 @@ export default function EquipePage() {
               </div>
             </div>
           )}
+
+          <section className="rounded-2xl border border-cyan-100 bg-gradient-to-br from-white via-cyan-50/50 to-slate-50 p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Movimento de hoje</h2>
+                <p className="mt-0.5 max-w-2xl text-xs text-slate-600">
+                  Ações registradas desde o início do dia. A janela ativa é uma estimativa entre a primeira e a última ação registrada, não ponto eletrônico.
+                </p>
+              </div>
+              <span className="rounded-full border border-cyan-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-cyan-700">Hoje</span>
+            </div>
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              {linhasPorAtividade.map((l) => {
+                const a = atividadeHoje(l)
+                return (
+                  <article key={l.usuario_id || l.nome} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-800">{l.nome}</div>
+                        <div className="text-[11px] text-slate-500">{rotuloPapel(l.papel)}</div>
+                      </div>
+                      <div className="text-right" title="Estimativa entre a primeira e a última ação registrada hoje.">
+                        <div className="text-sm font-bold text-slate-800">{janelaAtivaRotulo(a.janela_ativa_min)}</div>
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">janela ativa</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
+                      {ATIVIDADE_HOJE_COLUNAS.map((c) => (
+                        <div key={c.chave} title={c.oQueMede} className="rounded-lg bg-slate-50 px-2 py-1.5 text-center">
+                          <div className="text-base font-semibold tabular-nums text-slate-800">{(a as unknown as Record<string, number>)[c.chave] ?? 0}</div>
+                          <div className="text-[10px] text-slate-500">{c.rotulo}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          </section>
 
           <div className="overflow-x-auto rounded-2xl border bg-white shadow-sm">
             <table className="w-full text-sm">

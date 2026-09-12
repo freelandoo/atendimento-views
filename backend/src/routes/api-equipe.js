@@ -3,11 +3,10 @@
 // Ver docs/plano-execucao-crm-equipe.md §6 (Etapa 12).
 //
 // ─── O QUE ESTA ROTA É ───────────────────────────────────────────────────────────────────
-// Uma LEITURA AGREGADA de quem está com o quê, montada a partir das contagens que cada módulo já
-// sabe fazer. Ela **não tem SQL próprio**: chama `contagemPorResponsavel` de leads, conversas,
-// follow-ups e `contagemPorUsuario` de ligações. Reescrever essas consultas aqui criaria uma
-// segunda definição de "quantos leads o vendedor X tem" — e as duas divergiriam no primeiro
-// ajuste.
+// Uma LEITURA AGREGADA de quem está com o quê agora, montada a partir das contagens que cada
+// módulo já sabe fazer, mais um resumo estreito das ações registradas hoje. A carga atual continua
+// vindo dos módulos donos de leads, conversas, follow-ups e ligações; a auditoria só entra para
+// responder "o que esta pessoa mexeu hoje?".
 //
 // ─── O QUE ELA NÃO É ─────────────────────────────────────────────────────────────────────
 // **Não é analítica comercial.** Aquilo vive em `/relatorios` e na view
@@ -15,11 +14,13 @@
 // carga demais, quem não tem nada, e o que está vencido.
 //
 // ─── AUDITORIA ───────────────────────────────────────────────────────────────────────────
-// `app.auditoria_eventos` é consultável aqui **por pessoa**, mas com um recorte estreito de
-// propósito: a migration 047 declara que a auditoria *"NÃO deve ser fonte de dashboards"*. O que
-// esta rota devolve é a lista das últimas ações de uma pessoa — rastreabilidade, não métrica.
-// As métricas vêm das tabelas de histórico (migrations 072 e 074), que existem justamente para
-// isso.
+// `app.auditoria_eventos` é consultável aqui em DOIS recortes estreitos:
+//  1. linha do tempo de uma pessoa — rastreabilidade, não métrica;
+//  2. resumo operacional DO DIA — contagem de ações concretas para gestão diária.
+//
+// O resumo diário NÃO é placar nem produtividade líquida: ele não soma ações diferentes num score e
+// não chama tempo entre eventos de "horas trabalhadas". A tela rotula como janela ativa estimada,
+// porque só há prova de ações registradas, não de presença contínua.
 
 const { Router } = require('express')
 const { pool } = require('../db')
@@ -51,6 +52,34 @@ function indexarPorUsuario(linhas, chave) {
   return mapa
 }
 
+async function atividadeHojePorUsuario(empresaId) {
+  const { rows } = await pool.query(
+    `WITH eventos AS (
+       SELECT usuario_id, acao, estado_novo, ocorrido_em
+         FROM app.auditoria_eventos
+        WHERE empresa_id = $1
+          AND usuario_id IS NOT NULL
+          AND ocorrido_em >= (date_trunc('day', NOW() AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'America/Sao_Paulo')
+     )
+     SELECT usuario_id,
+            COUNT(*)::int AS acoes,
+            COUNT(*) FILTER (WHERE acao IN ('lead_responsavel_assumiu','lead_responsavel_atribuiu'))::int AS leads_assumidos,
+            COUNT(*) FILTER (WHERE acao = 'lead_status_alterado' AND estado_novo = 'aprovado')::int AS leads_marcados,
+            COUNT(*) FILTER (WHERE (acao = 'lead_status_alterado' AND estado_novo = 'enviado') OR acao = 'abordagem_manual_declarada')::int AS contatos_registrados,
+            COUNT(*) FILTER (WHERE acao = 'lead_status_alterado' AND estado_novo = 'respondeu')::int AS respondidos,
+            COUNT(*) FILTER (WHERE acao = 'lead_status_alterado' AND estado_novo = 'fechado')::int AS fechados,
+            COUNT(*) FILTER (WHERE acao = 'ligacao_chamada_encerrada')::int AS ligacoes_encerradas,
+            COUNT(*) FILTER (WHERE acao IN ('follow_up_concluido','follow_up_cancelado','follow_up_email_enviado','followup_manual_conversa_iniciada'))::int AS followups_tratados,
+            MIN(ocorrido_em) AS primeira_acao_em,
+            MAX(ocorrido_em) AS ultima_acao_em,
+            GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (MAX(ocorrido_em) - MIN(ocorrido_em))) / 60))::int AS janela_ativa_min
+       FROM eventos
+      GROUP BY usuario_id`,
+    [empresaId]
+  )
+  return rows
+}
+
 // GET /equipe — uma linha por membro, com a carga de trabalho de cada um.
 //
 // Exige MEMBROS_GERENCIAR (e não uma capacidade nova): quem gerencia as contas é quem responde
@@ -59,18 +88,20 @@ function indexarPorUsuario(linhas, chave) {
 router.get('/', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.MEMBROS_GERENCIAR), async (req, res) => {
   try {
     const empresaId = req.empresa.id
-    const [membros, leads, conversas, followUps, ligacoes] = await Promise.all([
+    const [membros, leads, conversas, followUps, ligacoes, atividadeHoje] = await Promise.all([
       listarMembros(empresaId),
       LR.contagemPorResponsavel(pool, empresaId),
       CR.contagemPorResponsavel(pool, empresaId),
       FU.contagemPorResponsavel(pool, empresaId),
       LIG.contagemPorUsuario(pool, empresaId),
+      atividadeHojePorUsuario(empresaId),
     ])
 
     const porLead = indexarPorUsuario(leads, 'responsavel_id')
     const porConversa = indexarPorUsuario(conversas, 'responsavel_id')
     const porFollowUp = indexarPorUsuario(followUps, 'responsavel_id')
     const porLigacao = indexarPorUsuario(ligacoes, 'usuario_id')
+    const porAtividadeHoje = indexarPorUsuario(atividadeHoje, 'usuario_id')
 
     const linhas = membros.map((m) => {
       const id = String(m.usuario_id)
@@ -89,6 +120,11 @@ router.get('/', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.MEMBROS
         follow_ups_aguardando: porFollowUp.get(id)?.aguardando || 0,
         follow_ups_vencidos: porFollowUp.get(id)?.vencidos || 0,
         ligacoes: porLigacao.get(id)?.ligacoes || 0,
+        atividade_hoje: porAtividadeHoje.get(id) || {
+          acoes: 0, leads_assumidos: 0, leads_marcados: 0, contatos_registrados: 0, respondidos: 0,
+          fechados: 0, ligacoes_encerradas: 0, followups_tratados: 0, primeira_acao_em: null,
+          ultima_acao_em: null, janela_ativa_min: 0,
+        },
       }
     })
 

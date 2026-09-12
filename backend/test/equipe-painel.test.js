@@ -17,9 +17,9 @@ const indexJs = fonte('index.js')
 
 // ─── O painel ────────────────────────────────────────────────────────────────────────────
 
-test('o painel da equipe NAO tem SQL proprio de contagem — reusa cada modulo', () => {
-  // Reescrever as consultas aqui criaria uma segunda definicao de "quantos leads o vendedor X
-  // tem", e as duas divergiriam no primeiro ajuste.
+test('o painel da equipe reusa os modulos para carga atual e agrega só atividade do dia', () => {
+  // Reescrever as consultas de carga atual criaria uma segunda definicao de "quantos leads o
+  // vendedor X tem". A unica agregacao local permitida e o resumo das acoes registradas hoje.
   const src = semComentarios(rotaEquipe)
   for (const proibido of ['FROM prospectador.prospects', 'FROM vendas.conversas', 'FROM app.follow_ups', 'FROM app.ligacoes']) {
     assert.ok(!src.includes(proibido), `api-equipe.js nao pode consultar diretamente: ${proibido}`)
@@ -29,17 +29,21 @@ test('o painel da equipe NAO tem SQL proprio de contagem — reusa cada modulo',
   }
 })
 
-test('a UNICA consulta propria do painel e a de auditoria, e ela e estreita', () => {
-  // A migration 047 declara que a auditoria "NAO deve ser fonte de dashboards". O que a rota
-  // devolve e' a lista das ultimas acoes de UMA pessoa — rastreabilidade, nao metrica.
+test('as consultas proprias de auditoria sao estreitas: resumo do dia e linha do tempo', () => {
+  // A auditoria entra em dois recortes: uma agregacao do dia para gestao operacional e a lista
+  // das ultimas acoes de UMA pessoa para rastreabilidade.
   const src = semComentarios(rotaEquipe)
   const selects = [...src.matchAll(/FROM\s+([a-z_]+\.[a-z_]+)/g)].map((m) => m[1])
   assert.deepEqual([...new Set(selects)], ['app.auditoria_eventos'])
+  assert.ok(rotaEquipe.includes('async function atividadeHojePorUsuario'), 'faltou o resumo diario')
+  const resumo = rotaEquipe.slice(rotaEquipe.indexOf('async function atividadeHojePorUsuario'), rotaEquipe.indexOf('// GET /equipe'))
+  assert.ok(/GROUP BY usuario_id/.test(resumo), 'o resumo do dia deve ser por pessoa')
+  assert.ok(/janela_ativa_min/.test(resumo), 'deve expor janela ativa estimada')
   const i = rotaEquipe.indexOf("'/:usuarioId/atividade'")
   const bloco = rotaEquipe.slice(i, i + 1400)
   assert.ok(/ORDER BY a\.ocorrido_em DESC/.test(bloco), 'cronologica inversa, nao agregada')
   assert.ok(/LIMIT \$3/.test(bloco))
-  assert.ok(!/COUNT\(|GROUP BY|SUM\(/.test(bloco), 'a auditoria nao pode virar metrica agregada')
+  assert.ok(!/COUNT\(|GROUP BY|SUM\(/.test(bloco), 'a linha do tempo individual nao pode virar metrica agregada')
 })
 
 test('o painel exige MEMBROS_GERENCIAR, nao uma capacidade nova', () => {
