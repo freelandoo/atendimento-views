@@ -183,10 +183,16 @@ test('GUARDA: nao existe rota de EXCLUSAO de membro', () => {
 test('GUARDA: a camada de membros nunca seleciona nem devolve senha/hash', () => {
   // Checagem por LINHA, e nao por regiao entre `;`: este projeto omite ponto-e-virgula em JS,
   // entao `[^;]*` atravessaria o arquivo inteiro e acusaria um falso positivo.
-  const linhas = fonteMembrosDb.split('\n')
+  // O split aceita CRLF e o strip usa uma classe negada no lugar do ponto, de proposito:
+  // com carriage return no fim da linha, um padrao ancorado em fim de string NAO casa (em
+  // JS o ponto nao casa carriage return), o comentario nao e removido, e a guarda acusa a
+  // propria DOCUMENTACAO de membros.js como se fosse codigo. Mesmo defeito ja corrigido em
+  // test/conversa-modo-ia.test.js: volta em toda guarda nova que le fonte por linha, porque
+  // este repo e checado com CRLF no Windows.
+  const linhas = fonteMembrosDb.split(/\r?\n/)
   for (const [i, linha] of linhas.entries()) {
     if (!linha.includes('password_hash')) continue
-    const semComentario = linha.replace(/\/\/.*$/, '')
+    const semComentario = linha.replace(/\/\/[^\n]*$/, '')
     if (!semComentario.includes('password_hash')) continue
     // O UNICO uso legitimo e' ESCREVER o hash no INSERT de um usuario novo.
     const ehEscrita = /INSERT INTO app\.usuarios\b/.test(semComentario)
