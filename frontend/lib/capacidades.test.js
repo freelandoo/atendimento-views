@@ -8,7 +8,7 @@ const path = require('node:path')
 const {
   rotuloPapel, descricaoPapel, rotuloCapacidade, avisoCapacidade, temCapacidade,
   concessoesDoFormulario, corpoPermissoes, situacaoMembro, ultimoAcesso, acoesDoMembro,
-  CAPACIDADE_ROTULO,
+  CAPACIDADE_ROTULO, GRUPOS, grupoDaCapacidade, agruparConcessoes, resumoDoPapel, extrasDoMembro,
 } = require('./capacidades')
 
 test('rotuloPapel traduz os 4 papeis e devolve o slug quando nao conhece', () => {
@@ -145,4 +145,85 @@ test('GUARDA: todo rotulo de capacidade tem texto proprio (nenhum vazio)', () =>
     assert.ok(rotulo && rotulo.trim().length > 3, `rotulo vazio/curto para ${slug}`)
     assert.notEqual(rotulo, slug, `${slug} nao foi traduzido`)
   }
+})
+
+// ─── Agrupamento por area (a tela deixou de ser 18 caixas iguais) ───────────────────────────
+
+test('capacidade DESCONHECIDA cai em "outras" e nunca some da tela', () => {
+  // Mesma disciplina do rotulo: uma capacidade nova no servidor nao pode desaparecer da tela de
+  // permissoes so porque este modulo ainda nao sabe onde ela mora.
+  assert.equal(grupoDaCapacidade('capacidade_que_o_servidor_acabou_de_criar'), 'outras')
+  assert.equal(grupoDaCapacidade(null), 'outras')
+  assert.equal(grupoDaCapacidade('conversa_gerenciar_ia'), 'conversas')
+})
+
+test('agruparConcessoes preserva TODOS os itens e respeita a ordem dos grupos', () => {
+  const itens = concessoesDoFormulario(
+    ['conversa_gerenciar_ia', 'lead_triar', 'relatorios_ver', 'slug_novo'], {}
+  )
+  const grupos = agruparConcessoes(itens)
+  const total = grupos.reduce((n, g) => n + g.itens.length, 0)
+  assert.equal(total, itens.length, 'nenhum item pode ser descartado no agrupamento')
+  // A ordem segue GRUPOS, nao a ordem de chegada.
+  assert.deepEqual(grupos.map((g) => g.id), ['leads', 'conversas', 'gestao', 'outras'])
+})
+
+test('grupo vazio e omitido — cabecalho sem nada embaixo e ruido', () => {
+  const grupos = agruparConcessoes(concessoesDoFormulario(['lead_triar'], {}))
+  assert.equal(grupos.length, 1)
+  assert.equal(grupos[0].id, 'leads')
+})
+
+test('agruparConcessoes aguenta entrada vazia e invalida', () => {
+  assert.deepEqual(agruparConcessoes(null), [])
+  assert.deepEqual(agruparConcessoes([]), [])
+})
+
+// ─── O que o papel JA da ────────────────────────────────────────────────────────────────────
+
+test('resumoDoPapel traduz a lista que o backend mandou, agrupada e ordenada', () => {
+  // Sem esta lista o formulario mostra caixas desmarcadas e nenhuma linha de base: o operador
+  // nao sabe se falta a permissao ou se o papel ja da.
+  const r = resumoDoPapel(['conversa_atender', 'lead_assumir', 'lead_abordar_manual'])
+  assert.deepEqual(r.map((g) => g.id), ['leads', 'conversas'])
+  // Ordem alfabetica DENTRO do grupo, para a lista nao dancar entre papeis.
+  assert.deepEqual(r[0].itens.map((i) => i.rotulo),
+    ['Abordar pelo WhatsApp (manual)', 'Assumir lead livre'])
+  assert.equal(r[1].itens[0].rotulo, 'Atender conversas')
+})
+
+test('resumoDoPapel com lista vazia nao inventa grupo', () => {
+  assert.deepEqual(resumoDoPapel([]), [])
+  assert.deepEqual(resumoDoPapel(undefined), [])
+})
+
+// ─── Liberacoes extras na tabela ────────────────────────────────────────────────────────────
+
+test('extrasDoMembro diz QUAIS sao, nao quantas', () => {
+  // Uma contagem obriga o admin a abrir o editor para saber o que foram — e "quais" e justamente
+  // a pergunta que a coluna existe para responder.
+  const e = extrasDoMembro({ permissoes: { conversa_gerenciar_ia: true, lead_triar: true } })
+  assert.deepEqual(e.map((x) => x.rotulo), ['Aprovar e descartar leads', 'Ligar e desligar a IA'])
+  // O aviso viaja junto: e o que distingue uma liberacao comum de uma que fala com o cliente.
+  assert.match(e[1].aviso, /IA passa a poder responder/)
+  assert.equal(e[0].aviso, null)
+})
+
+test('extrasDoMembro ignora chave que nao seja TRUE', () => {
+  // Somente aditivo: `false` nunca deveria existir na coluna, e se existir nao e uma liberacao.
+  const e = extrasDoMembro({ permissoes: { lead_triar: false, relatorios_ver: true } })
+  assert.deepEqual(e.map((x) => x.capacidade), ['relatorios_ver'])
+  assert.deepEqual(extrasDoMembro({}), [])
+  assert.deepEqual(extrasDoMembro(null), [])
+})
+
+test('GUARDA: os grupos sao de AREA, nunca de severidade', () => {
+  // Severidade ja e dita pelo aviso de cada capacidade, que fala da consequencia. Um grupo
+  // "perigosas" viraria um rotulo de prateleira e esvaziaria o aviso.
+  const ids = GRUPOS.map((g) => g.id).join(' ')
+  for (const proibido of ['perigos', 'critic', 'sensiv', 'risco']) {
+    assert.ok(!ids.includes(proibido), `grupo por severidade (${proibido}) nao e o recorte desta tela`)
+  }
+  // "outras" precisa existir: e o destino de uma capacidade nova ainda sem casa.
+  assert.ok(GRUPOS.some((g) => g.id === 'outras'))
 })

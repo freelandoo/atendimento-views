@@ -21,7 +21,7 @@
 
 const { Router } = require('express')
 const { requireAuth, requireEmpresaAccess, requireCapacidade } = require('../middleware/tenant')
-const { CAPACIDADES, PAPEIS, concedeveisPara } = require('../services/acesso-capacidades')
+const { CAPACIDADES, PAPEIS, concedeveisPara, capacidadesDoVinculo } = require('../services/acesso-capacidades')
 const M = require('../db/membros')
 const { logger } = require('../logger')
 
@@ -54,7 +54,15 @@ router.get('/opcoes', (_req, res) => {
   return res.json({
     ok: true,
     data: {
-      papeis: PAPEIS.map((papel) => ({ papel, concedeveis: concedeveisPara(papel) })),
+      // `incluidas` e' o que o papel JA da, e `concedeveis` o que ainda pode ser acrescentado.
+      // Sem a primeira, a tela mostra 18 caixas vazias e o operador nao tem como saber a linha
+      // de base do papel que escolheu — a decisao vira chute. As duas saem do MESMO modulo puro,
+      // entao a tela continua sem conhecer a matriz (a regra segue no backend).
+      papeis: PAPEIS.map((papel) => ({
+        papel,
+        incluidas: capacidadesDoVinculo({ papel }),
+        concedeveis: concedeveisPara(papel),
+      })),
       senha_minima: M.SENHA_MIN,
     },
   })

@@ -185,6 +185,118 @@ function acoesDoMembro(membro, usuarioLogadoId) {
   return { podeEditar: true, motivo: '' }
 }
 
+// ─── Agrupamento por ÁREA (apresentação) ─────────────────────────────────────────────────
+//
+// 18 caixas iguais em lista plana não se leem: o operador precisa varrer tudo para achar a que
+// interessa, e não percebe que "ligar a IA" e "apagar histórico" são de naturezas diferentes.
+// O agrupamento é POR ÁREA DE TRABALHO — o mesmo recorte do menu lateral —, não por severidade:
+// severidade já é dita pelo aviso de cada capacidade, e um grupo "perigosas" transformaria o
+// aviso num rótulo de prateleira em vez de uma frase sobre a consequência.
+//
+// Isto é APRESENTAÇÃO, e é por isso que vive aqui: o backend continua dono de quem pode o quê
+// (`services/acesso-capacidades.js`); este módulo só decide em que ordem desenhar.
+
+const GRUPOS = Object.freeze([
+  { id: 'leads', rotulo: 'Leads e abordagem' },
+  { id: 'conversas', rotulo: 'Conversas e IA' },
+  { id: 'ligacoes', rotulo: 'Ligações e follow-ups' },
+  { id: 'config', rotulo: 'Configuração da operação' },
+  { id: 'gestao', rotulo: 'Gestão e visibilidade' },
+  { id: 'outras', rotulo: 'Outras' },
+])
+
+const GRUPO_DA_CAPACIDADE = {
+  aquisicao_gerenciar: 'leads',
+  lead_triar: 'leads',
+  lead_ver_brutos: 'leads',
+  lead_ver_aprovados: 'leads',
+  lead_assumir: 'leads',
+  lead_abordar_manual: 'leads',
+  lead_disparar_lote: 'leads',
+  lead_transferir: 'leads',
+
+  conversa_atender: 'conversas',
+  conversa_ver_todas: 'conversas',
+  conversa_gerenciar_ia: 'conversas',
+  conversa_apagar_historico: 'conversas',
+
+  ligacao_operar: 'ligacoes',
+  ligacao_ver_todas: 'ligacoes',
+  followup_ver_fila: 'ligacoes',
+  followup_operar: 'ligacoes',
+  followup_reatribuir: 'ligacoes',
+  followup_config_empresa: 'ligacoes',
+  campanha_gerenciar: 'ligacoes',
+  roteiro_ler: 'ligacoes',
+  roteiro_gerenciar: 'ligacoes',
+
+  instancia_gerenciar_propria: 'config',
+  instancia_gerenciar_empresa: 'config',
+  instancia_gerenciar_contexto: 'config',
+  integracoes_gerenciar: 'config',
+
+  agenda_operar_propria: 'gestao',
+  agenda_ver_equipe: 'gestao',
+  membros_gerenciar: 'gestao',
+  relatorios_ver: 'gestao',
+}
+
+/**
+ * A que área uma capacidade pertence.
+ * Slug desconhecido cai em `outras` — **nunca** desaparece. Uma capacidade nova no servidor
+ * precisa continuar visível na tela de permissões, ainda que sem casa definida aqui.
+ */
+function grupoDaCapacidade(capacidade) {
+  return GRUPO_DA_CAPACIDADE[String(capacidade || '')] || 'outras'
+}
+
+/**
+ * Agrupa itens de `concessoesDoFormulario` por área, na ordem de `GRUPOS`.
+ * Grupo vazio é omitido (um cabeçalho sem nada embaixo é ruído), mas nenhum ITEM é descartado.
+ */
+function agruparConcessoes(itens) {
+  const lista = Array.isArray(itens) ? itens : []
+  return GRUPOS
+    .map((g) => ({ ...g, itens: lista.filter((i) => grupoDaCapacidade(i && i.capacidade) === g.id) }))
+    .filter((g) => g.itens.length > 0)
+}
+
+/**
+ * O que o papel JÁ inclui, em rótulos legíveis e por área.
+ *
+ * Existe porque sem isso o formulário mostra caixas desmarcadas e nenhuma linha de base: o
+ * operador não tem como saber se "Atender conversas" está faltando ou se o papel já dá. A lista
+ * chega pronta do backend (`GET .../membros/opcoes` → `incluidas`), calculada pelo mesmo módulo
+ * que autoriza — este aqui só traduz e ordena.
+ */
+function resumoDoPapel(incluidas) {
+  const lista = (Array.isArray(incluidas) ? incluidas : []).map((capacidade) => ({
+    capacidade,
+    rotulo: rotuloCapacidade(capacidade),
+  }))
+  return GRUPOS
+    .map((g) => ({
+      ...g,
+      itens: lista
+        .filter((i) => grupoDaCapacidade(i.capacidade) === g.id)
+        .sort((a, b) => a.rotulo.localeCompare(b.rotulo, 'pt-BR')),
+    }))
+    .filter((g) => g.itens.length > 0)
+}
+
+/**
+ * As liberações extras de um membro, prontas para a célula da tabela.
+ * Uma contagem ("3 liberação(ões)") obriga o admin a abrir o editor para saber o que foram —
+ * e a pergunta que essa coluna existe para responder é justamente *quais*.
+ */
+function extrasDoMembro(membro) {
+  const permissoes = (membro || {}).permissoes || {}
+  return Object.keys(permissoes)
+    .filter((k) => permissoes[k] === true)
+    .map((capacidade) => ({ capacidade, rotulo: rotuloCapacidade(capacidade), aviso: avisoCapacidade(capacidade) }))
+    .sort((a, b) => a.rotulo.localeCompare(b.rotulo, 'pt-BR'))
+}
+
 module.exports = {
   PAPEL_ROTULO,
   CAPACIDADE_ROTULO,
@@ -195,6 +307,11 @@ module.exports = {
   temCapacidade,
   concessoesDoFormulario,
   corpoPermissoes,
+  GRUPOS,
+  grupoDaCapacidade,
+  agruparConcessoes,
+  resumoDoPapel,
+  extrasDoMembro,
   situacaoMembro,
   ultimoAcesso,
   acoesDoMembro,

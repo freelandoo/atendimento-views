@@ -71,3 +71,25 @@ export function acoesDoMembro(
   membro: MembroEmpresa | null | undefined,
   usuarioLogadoId: string | null | undefined
 ): AcoesMembro
+
+// ─── Agrupamento por área e resumo do papel ──────────────────────────────────────────────
+
+export interface GrupoCapacidade { id: string; rotulo: string }
+export interface GrupoDeConcessoes extends GrupoCapacidade { itens: ConcessaoFormulario[] }
+export interface CapacidadeRotulada { capacidade: Capacidade; rotulo: string }
+export interface GrupoDoPapel extends GrupoCapacidade { itens: CapacidadeRotulada[] }
+export interface ExtraDoMembro extends CapacidadeRotulada { aviso: string | null }
+
+export declare const GRUPOS: readonly GrupoCapacidade[]
+
+/** Slug desconhecido cai em "outras" — nunca some da tela. */
+export function grupoDaCapacidade(capacidade: string | null | undefined): string
+
+/** Agrupa por área na ordem de GRUPOS. Grupo vazio é omitido; nenhum item é descartado. */
+export function agruparConcessoes(itens: ConcessaoFormulario[] | null | undefined): GrupoDeConcessoes[]
+
+/** O que o papel JÁ inclui (vem pronto do backend em `opcoes.papeis[].incluidas`). */
+export function resumoDoPapel(incluidas: Capacidade[] | null | undefined): GrupoDoPapel[]
+
+/** As liberações extras de um membro: QUAIS são, não quantas. */
+export function extrasDoMembro(membro: MembroEmpresa | null | undefined): ExtraDoMembro[]
