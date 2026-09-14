@@ -16,6 +16,7 @@ import { apiFetch } from '@/lib/api'
 // lugar — nunca inchar este modal até virar um segundo painel de conversa.
 type Mensagem = { role?: string; content?: string; text?: string; timestamp?: string }
 type ConversaDetail = { numero?: string; historico?: Mensagem[]; estagio?: string }
+type StatusPayload = { reuniao?: { data: string; horario: string; duracao_minutos: number; observacoes?: string } }
 type StatusEvento = {
   id: string
   acao: string
@@ -49,12 +50,14 @@ const STATUS_ACOES: { valor: string; label: string }[] = [
   { valor: 'marcado', label: 'Marcado' },
   { valor: 'contatado', label: 'Contatado' },
   { valor: 'respondido', label: 'Respondido' },
+  { valor: 'reuniao_agendada', label: 'Reunião' },
   { valor: 'fechado', label: 'Fechado' },
 ]
 const STATUS_POR_ACAO: Record<string, string> = {
   marcado: 'aprovado',
   contatado: 'enviado',
   respondido: 'respondeu',
+  reuniao_agendada: 'respondeu',
   fechado: 'fechado',
 }
 
@@ -69,8 +72,28 @@ function fmtDataHora(iso?: string | null): string {
   } catch { return iso }
 }
 
+
+function hojeInput(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date())
+}
+
+function proximaHoraCheia(): string {
+  const d = new Date(Date.now() + 60 * 60 * 1000)
+  const partes = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d)
+  const h = partes.find((p) => p.type === 'hour')?.value || '09'
+  return `${h}:00`
+}
+
+function rotuloReuniao(e: StatusEvento): string {
+  const c = e.contexto || {}
+  const data = typeof c.data === 'string' ? c.data : ''
+  const horario = typeof c.horario === 'string' ? c.horario : ''
+  return data && horario ? `Reunião agendada · ${data} ${horario}` : 'Reunião agendada'
+}
+
 function rotuloEventoStatus(e: StatusEvento): string {
   if (e.acao === 'abordagem_manual_declarada') return 'Contatado declarado'
+  if (e.acao === 'lead_reuniao_agendada') return rotuloReuniao(e)
   if (e.acao === 'lead_status_alterado') return `${statusLabel(e.estado_anterior)} → ${statusLabel(e.estado_novo)}`
   return e.acao
 }
@@ -83,7 +106,7 @@ export default function ConversaHistoricoModal({
   motivoEnvioIndisponivel?: string | null
   cooldownS?: number | null; enviando?: boolean; gerando?: boolean
   onEnviar?: () => void; onGerar?: () => void
-  onAlterarStatus?: (status: string) => void | Promise<void>
+  onAlterarStatus?: (status: string, payload?: StatusPayload) => void | Promise<void>
   onClose: () => void
 }) {
   const [carregando, setCarregando] = useState(true)
@@ -91,6 +114,11 @@ export default function ConversaHistoricoModal({
   const [historicoStatus, setHistoricoStatus] = useState<StatusEvento[]>([])
   const [carregandoStatus, setCarregandoStatus] = useState(false)
   const [mudandoStatus, setMudandoStatus] = useState<string | null>(null)
+  const [formReuniaoAberto, setFormReuniaoAberto] = useState(false)
+  const [dataReuniao, setDataReuniao] = useState(hojeInput)
+  const [horarioReuniao, setHorarioReuniao] = useState(proximaHoraCheia)
+  const [duracaoReuniao, setDuracaoReuniao] = useState(30)
+  const [observacoesReuniao, setObservacoesReuniao] = useState('')
 
   useEffect(() => {
     let vivo = true
@@ -119,15 +147,31 @@ export default function ConversaHistoricoModal({
     carregarHistoricoStatus()
   }, [carregarHistoricoStatus])
 
-  async function alterarStatus(valor: string) {
+  async function alterarStatus(valor: string, payload?: StatusPayload) {
     if (!onAlterarStatus) return
+    if (valor === 'reuniao_agendada' && !payload) { setFormReuniaoAberto((v) => !v); return }
     setMudandoStatus(valor)
     try {
-      await onAlterarStatus(valor)
+      await onAlterarStatus(valor, payload)
+      if (valor === 'reuniao_agendada') {
+        setFormReuniaoAberto(false)
+        setObservacoesReuniao('')
+      }
       await carregarHistoricoStatus()
     } finally {
       setMudandoStatus(null)
     }
+  }
+
+  async function salvarReuniao() {
+    await alterarStatus('reuniao_agendada', {
+      reuniao: {
+        data: dataReuniao,
+        horario: horarioReuniao,
+        duracao_minutos: duracaoReuniao,
+        observacoes: observacoesReuniao,
+      },
+    })
   }
 
   const vazio = !carregando && historico.length === 0
@@ -249,7 +293,7 @@ export default function ConversaHistoricoModal({
                   </div>
                   <div className="flex flex-wrap gap-1.5" aria-label="Alterar status do lead">
                     {STATUS_ACOES.map((a) => {
-                      const ativo = STATUS_POR_ACAO[a.valor] === status
+                      const ativo = a.valor !== 'reuniao_agendada' && STATUS_POR_ACAO[a.valor] === status
                       return (
                         <button
                           key={a.valor}
@@ -264,6 +308,50 @@ export default function ConversaHistoricoModal({
                     })}
                   </div>
                 </div>
+                {formReuniaoAberto && (
+                  <div className="mt-3 rounded-xl border border-cyan-200 bg-white p-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-cyan-700">Agendar reunião</div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <label className="text-xs text-slate-600">
+                        Dia
+                        <input type="date" value={dataReuniao} onChange={(e) => setDataReuniao(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+                      </label>
+                      <label className="text-xs text-slate-600">
+                        Horário
+                        <input type="time" value={horarioReuniao} onChange={(e) => setHorarioReuniao(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+                      </label>
+                      <label className="text-xs text-slate-600">
+                        Duração
+                        <select value={duracaoReuniao} onChange={(e) => setDuracaoReuniao(Number(e.target.value))}
+                          className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
+                          <option value={15}>15 min</option>
+                          <option value={30}>30 min</option>
+                          <option value={45}>45 min</option>
+                          <option value={60}>1 hora</option>
+                        </select>
+                      </label>
+                      <div className="self-end text-[11px] text-slate-500">
+                        Vai para a agenda de quem está alterando.
+                      </div>
+                    </div>
+                    <label className="mt-2 block text-xs text-slate-600">
+                      Observações rápidas
+                      <textarea value={observacoesReuniao} onChange={(e) => setObservacoesReuniao(e.target.value)} rows={2}
+                        placeholder="Ex.: confirmar orçamento, falar com sócio, enviar proposta antes da reunião…"
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+                    </label>
+                    <div className="mt-2 flex justify-end gap-2">
+                      <button type="button" onClick={() => setFormReuniaoAberto(false)}
+                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
+                      <button type="button" onClick={salvarReuniao} disabled={mudandoStatus === 'reuniao_agendada' || !dataReuniao || !horarioReuniao}
+                        className="rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-50">
+                        {mudandoStatus === 'reuniao_agendada' ? 'Agendando...' : 'Salvar reunião'}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="mt-3 border-t border-slate-200 pt-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Histórico de status</div>
                   {carregandoStatus ? (

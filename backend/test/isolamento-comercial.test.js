@@ -118,6 +118,9 @@ test('GUARDA: mudar status do lead respeita o mesmo recorte e grava historico', 
   assert.ok(bloco.includes('montarRecorteLeadOperacao(req)'), 'status precisa usar o mesmo recorte de operacao da listagem')
   assert.ok(bloco.includes('FOR UPDATE'), 'troca de status precisa travar a linha antes de auditar')
   assert.ok(bloco.includes('lead_status_alterado'), 'troca de status precisa virar linha de auditoria')
+  assert.ok(bloco.includes('lead_reuniao_agendada'), 'reuniao agendada precisa ficar no historico do lead')
+  assert.ok(bloco.includes('autoAssumirLeadLivre'), 'alterar status precisa puxar lead livre para quem alterou')
+  assert.ok(bloco.includes('criarEvento'), 'reuniao agendada precisa criar evento real na agenda')
   assert.ok(bloco.includes('estado_anterior') && bloco.includes('estado_novo'), 'historico precisa registrar antes/depois')
 })
 

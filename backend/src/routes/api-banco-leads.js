@@ -37,6 +37,7 @@ const AM = require('../db/abordagem-manual')
 const { CAPACIDADES: CAP, CAPACIDADES, podeCapacidade } = require('../services/acesso-capacidades')
 const { logger } = require('../logger')
 const { listarAuditoria } = require('../db/auditoria')
+const { criarEvento } = require('../services/agenda-multiempresa')
 
 const router = Router({ mergeParams: true })
 
@@ -64,8 +65,10 @@ const STATUS_OPERACIONAL = Object.freeze({
   respondeu: { status: 'respondeu' },
   fechado: { status: 'fechado' },
   contratado: { status: 'fechado' },
+  reuniao_agendada: { status: 'respondeu', agenda: true },
+  reunião_agendada: { status: 'respondeu', agenda: true },
 })
-const ACOES_STATUS_LEAD = new Set(['lead_status_alterado', 'abordagem_manual_declarada'])
+const ACOES_STATUS_LEAD = new Set(['lead_status_alterado', 'abordagem_manual_declarada', 'lead_reuniao_agendada'])
 
 // Contato "agendado": tem evento FUTURO (pendente/confirmado). Le as DUAS agendas:
 //  - app.agenda_eventos (migration 011): eventos criados manualmente no dashboard,
@@ -232,10 +235,63 @@ function normalizarStatusOperacional(valor) {
   return STATUS_OPERACIONAL[chave] ? { chave, ...STATUS_OPERACIONAL[chave] } : null
 }
 
+function montarDataHoraLocal(data, horario) {
+  const d = String(data || '').trim()
+  const h = String(horario || '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !/^\d{2}:\d{2}$/.test(h)) return null
+  const out = new Date(`${d}T${h}:00-03:00`)
+  return Number.isNaN(out.getTime()) ? null : out
+}
+
+function normalizarPayloadReuniao(body = {}) {
+  const r = body.reuniao && typeof body.reuniao === 'object' ? body.reuniao : body
+  const inicio = montarDataHoraLocal(r.data, r.horario)
+  if (!inicio) {
+    const e = new Error('Informe data e horário da reunião.')
+    e.statusCode = 400
+    throw e
+  }
+  const duracao = Math.min(Math.max(Number.parseInt(r.duracao_minutos, 10) || 30, 15), 240)
+  const fim = new Date(inicio.getTime() + duracao * 60 * 1000)
+  return {
+    data: String(r.data),
+    horario: String(r.horario),
+    inicio,
+    fim,
+    duracaoMinutos: duracao,
+    observacoes: String(r.observacoes || r.observacao || '').trim().slice(0, 1000) || null,
+  }
+}
+
+async function autoAssumirLeadLivre(client, { empresaId, prospectId, usuarioId, atual }) {
+  if (!usuarioId || atual.responsavel_id) return { responsavel_id: atual.responsavel_id || null, assumido: false }
+  const { rows } = await client.query(
+    `UPDATE prospectador.prospects
+        SET responsavel_id = $3::uuid, responsavel_desde = NOW()
+      WHERE empresa_id = $1 AND id = $2::uuid AND responsavel_id IS NULL
+      RETURNING responsavel_id, responsavel_desde`,
+    [empresaId, prospectId, usuarioId]
+  )
+  if (!rows[0]) return { responsavel_id: atual.responsavel_id || null, assumido: false }
+  await client.query(
+    `INSERT INTO app.lead_responsavel_historico
+       (empresa_id, prospect_id, responsavel_anterior_id, responsavel_novo_id, usuario_id, acao, motivo)
+     VALUES ($1, $2::uuid, NULL, $3::uuid, $3::uuid, 'assumiu', $4)`,
+    [empresaId, prospectId, usuarioId, 'Assumido automaticamente ao alterar status do lead.']
+  )
+  await client.query(
+    `INSERT INTO app.auditoria_eventos
+       (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+     VALUES ($1, $2::uuid, 'prospect', $3::uuid, 'lead_responsavel_assumiu', NULL, $2::text, $4::jsonb)`,
+    [empresaId, usuarioId, prospectId, JSON.stringify({ acao: 'assumiu', origem: 'status_lead' })]
+  )
+  return { ...rows[0], assumido: true }
+}
+
 async function alterarStatusLeadOperacional(req, statusPedido) {
   const destino = normalizarStatusOperacional(statusPedido)
   if (!destino) {
-    const e = new Error('Status inválido. Use marcado, contatado, respondido ou fechado.')
+    const e = new Error('Status inválido. Use marcado, contatado, respondido, reunião agendada ou fechado.')
     e.statusCode = 400
     throw e
   }
@@ -247,7 +303,7 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
     const params = [...recorte.params, req.params.id]
     const phId = `$${params.length}`
     const { rows: atuais } = await client.query(
-      `SELECT id, status, qualificacao, qualificado_em, qualificado_por
+      `SELECT id, status, qualificacao, qualificado_em, qualificado_por, responsavel_id, responsavel_desde, nome, telefone
          FROM prospectador.prospects
         WHERE ${recorte.where} AND id = ${phId}::uuid
         FOR UPDATE`,
@@ -261,7 +317,11 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
     }
 
     const usuarioId = req.usuario?.id || null
+    const reuniao = destino.agenda ? normalizarPayloadReuniao(req.body || {}) : null
     const precisaQualificacao = destino.qualificacao && atual.qualificacao !== destino.qualificacao
+    const ownership = await autoAssumirLeadLivre(client, {
+      empresaId: req.empresa.id, prospectId: req.params.id, usuarioId, atual,
+    })
     const { rows } = await client.query(
       `UPDATE prospectador.prospects
           SET status = $3,
@@ -270,9 +330,43 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
               qualificado_por = CASE WHEN $4 = 'aprovado' AND qualificacao IS DISTINCT FROM 'aprovado' THEN $5::uuid ELSE qualificado_por END,
               updated_at = NOW()
         WHERE empresa_id = $1 AND id = $2::uuid
-        RETURNING id, status, qualificacao, qualificado_em, qualificado_por`,
+        RETURNING id, status, qualificacao, qualificado_em, qualificado_por, responsavel_id, responsavel_desde`,
       [req.empresa.id, req.params.id, destino.status, destino.qualificacao || null, usuarioId]
     )
+
+    let eventoAgenda = null
+    if (reuniao) {
+      eventoAgenda = await criarEvento(client, {
+        empresaId: req.empresa.id,
+        criadoPor: usuarioId,
+        responsavelId: rows[0].responsavel_id || usuarioId || null,
+        prospectId: req.params.id,
+        titulo: `Reunião com ${atual.nome || 'lead'}`,
+        descricao: reuniao.observacoes,
+        tipo: 'reuniao',
+        status: 'pendente',
+        prioridade: 'media',
+        data_inicio: reuniao.inicio,
+        data_fim: reuniao.fim,
+        lead_telefone: atual.telefone || null,
+        lead_nome: atual.nome || null,
+        metadata: { origem: 'banco_leads_status', lead_status_anterior: atual.status },
+      })
+      await client.query(
+        `INSERT INTO app.auditoria_eventos
+           (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+         VALUES ($1, $2::uuid, 'prospect', $3::uuid, 'lead_reuniao_agendada', $4, $5, $6::jsonb)`,
+        [req.empresa.id, usuarioId, req.params.id, atual.status, rows[0].status, JSON.stringify({
+          origem: 'banco_leads',
+          agenda_evento_id: eventoAgenda.id,
+          data: reuniao.data,
+          horario: reuniao.horario,
+          duracao_minutos: reuniao.duracaoMinutos,
+          observacoes: reuniao.observacoes,
+          responsavel_id: rows[0].responsavel_id || usuarioId || null,
+        })]
+      )
+    }
 
     await client.query(
       `INSERT INTO app.auditoria_eventos
@@ -286,11 +380,13 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
         qualificacao_anterior: atual.qualificacao || null,
         qualificacao_nova: rows[0].qualificacao || null,
         qualificacao_alterada: !!precisaQualificacao,
+        assumido_automaticamente: !!ownership.assumido,
+        agenda_evento_id: eventoAgenda?.id || null,
       })]
     )
 
     await client.query('COMMIT')
-    return rows[0]
+    return { ...rows[0], assumido_automaticamente: !!ownership.assumido, agenda_evento: eventoAgenda }
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {})
     throw e

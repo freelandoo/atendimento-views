@@ -87,7 +87,16 @@ type FiltrosMercado = {
   categorias: OpcaoFiltroMercado[]
   cidades: OpcaoFiltroMercado[]
 }
-type AlterarStatusLeadResp = { id: string; status: string; qualificacao?: Qualificacao | null }
+type StatusPayload = { reuniao?: { data: string; horario: string; duracao_minutos: number; observacoes?: string } }
+type AlterarStatusLeadResp = {
+  id: string
+  status: string
+  qualificacao?: Qualificacao | null
+  responsavel_id?: string | null
+  responsavel_desde?: string | null
+  assumido_automaticamente?: boolean
+  agenda_evento?: { id: string; data_inicio?: string; data_fim?: string } | null
+}
 type RodarResumo = {
   rodada: boolean
   aceitos: { id: string; nome: string }[]
@@ -1148,16 +1157,22 @@ export default function BancoLeadsPage() {
     abrirConversa(prox)
   }
 
-  async function alterarStatusLead(id: string, statusOperacional: string, sucesso?: string) {
+  async function alterarStatusLead(id: string, statusOperacional: string, sucesso?: string, payload?: StatusPayload) {
     const r = await fb.runTask(
       () => apiFetch<AlterarStatusLeadResp>(`${base}/leads/${id}/status`, {
         method: 'PATCH',
-        body: JSON.stringify({ status: statusOperacional }),
+        body: JSON.stringify({ status: statusOperacional, ...(payload || {}) }),
       }),
       { sucesso: sucesso || 'Status do lead atualizado.' }
     )
     const novo = r.data
-    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, status: novo.status, qualificacao: novo.qualificacao ?? l.qualificacao } : l)))
+    setLeads((prev) => prev.map((l) => (l.id === id ? {
+      ...l,
+      status: novo.status,
+      qualificacao: novo.qualificacao ?? l.qualificacao,
+      responsavel_id: novo.responsavel_id ?? l.responsavel_id,
+      responsavel_desde: novo.responsavel_desde ?? l.responsavel_desde,
+    } : l)))
     setConversaAberta((cur) => (cur && cur.leadId === id ? { ...cur, status: novo.status } : cur))
     carregarResumo()
     return novo
@@ -1177,15 +1192,16 @@ export default function BancoLeadsPage() {
     } catch { /* erro já exibido pelo feedback */ }
   }
 
-  async function alterarStatusConversa(statusOperacional: string) {
+  async function alterarStatusConversa(statusOperacional: string, payload?: StatusPayload) {
     if (!conversaAberta) return
     const rotulos: Record<string, string> = {
       marcado: 'Lead marcado.',
       contatado: 'Lead marcado como contatado.',
       respondido: 'Lead marcado como respondido.',
+      reuniao_agendada: 'Reunião agendada para este lead.',
       fechado: 'Lead marcado como fechado.',
     }
-    await alterarStatusLead(conversaAberta.leadId, statusOperacional, rotulos[statusOperacional] || 'Status do lead atualizado.')
+    await alterarStatusLead(conversaAberta.leadId, statusOperacional, rotulos[statusOperacional] || 'Status do lead atualizado.', payload)
   }
 
   // ─── CRM em equipe: ownership do lead (Etapa 4) ──────────────────────────────────────────
