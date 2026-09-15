@@ -16,7 +16,11 @@ import { apiFetch } from '@/lib/api'
 // lugar — nunca inchar este modal até virar um segundo painel de conversa.
 type Mensagem = { role?: string; content?: string; text?: string; timestamp?: string }
 type ConversaDetail = { numero?: string; historico?: Mensagem[]; estagio?: string }
-type StatusPayload = { reuniao?: { data: string; horario: string; duracao_minutos: number; observacoes?: string } }
+type StatusPayload = {
+  reuniao?: { data: string; horario: string; duracao_minutos: number; observacoes?: string }
+  ligacao?: { resultado: string; duracao_minutos: number; observacoes?: string }
+  descarte?: { motivo: string; observacoes?: string }
+}
 type StatusEvento = {
   id: string
   acao: string
@@ -49,16 +53,20 @@ function fmtMMSS(s: number): string {
 const STATUS_ACOES: { valor: string; label: string }[] = [
   { valor: 'marcado', label: 'Marcado' },
   { valor: 'contatado', label: 'Contatado' },
+  { valor: 'ligacao_realizada', label: 'Ligação feita' },
   { valor: 'respondido', label: 'Respondido' },
   { valor: 'reuniao_agendada', label: 'Reunião' },
   { valor: 'fechado', label: 'Fechado' },
+  { valor: 'descartado', label: 'Descartado' },
 ]
 const STATUS_POR_ACAO: Record<string, string> = {
   marcado: 'aprovado',
   contatado: 'enviado',
+  ligacao_realizada: 'enviado',
   respondido: 'respondeu',
   reuniao_agendada: 'respondeu',
   fechado: 'fechado',
+  descartado: 'rejeitado',
 }
 
 function statusLabel(status?: string | null): string {
@@ -90,10 +98,24 @@ function rotuloReuniao(e: StatusEvento): string {
   const horario = typeof c.horario === 'string' ? c.horario : ''
   return data && horario ? `Reunião agendada · ${data} ${horario}` : 'Reunião agendada'
 }
+function rotuloLigacao(e: StatusEvento): string {
+  const c = e.contexto || {}
+  const resultado = typeof c.resultado === 'string' ? c.resultado.replaceAll('_', ' ') : ''
+  return resultado ? `Ligação realizada · ${resultado}` : 'Ligação realizada'
+}
+
+function rotuloDescarte(e: StatusEvento): string {
+  const c = e.contexto || {}
+  const motivo = typeof c.motivo === 'string' ? c.motivo : ''
+  return motivo ? `Descartado · ${motivo}` : 'Descartado'
+}
+
 
 function rotuloEventoStatus(e: StatusEvento): string {
   if (e.acao === 'abordagem_manual_declarada') return 'Contatado declarado'
   if (e.acao === 'lead_reuniao_agendada') return rotuloReuniao(e)
+  if (e.acao === 'lead_ligacao_realizada') return rotuloLigacao(e)
+  if (e.acao === 'lead_descartado') return rotuloDescarte(e)
   if (e.acao === 'lead_status_alterado') return `${statusLabel(e.estado_anterior)} → ${statusLabel(e.estado_novo)}`
   return e.acao
 }
@@ -114,11 +136,16 @@ export default function ConversaHistoricoModal({
   const [historicoStatus, setHistoricoStatus] = useState<StatusEvento[]>([])
   const [carregandoStatus, setCarregandoStatus] = useState(false)
   const [mudandoStatus, setMudandoStatus] = useState<string | null>(null)
-  const [formReuniaoAberto, setFormReuniaoAberto] = useState(false)
+  const [modalAcao, setModalAcao] = useState<null | 'reuniao' | 'ligacao' | 'descarte'>(null)
   const [dataReuniao, setDataReuniao] = useState(hojeInput)
   const [horarioReuniao, setHorarioReuniao] = useState(proximaHoraCheia)
   const [duracaoReuniao, setDuracaoReuniao] = useState(30)
   const [observacoesReuniao, setObservacoesReuniao] = useState('')
+  const [resultadoLigacao, setResultadoLigacao] = useState('atendeu')
+  const [duracaoLigacao, setDuracaoLigacao] = useState(5)
+  const [observacoesLigacao, setObservacoesLigacao] = useState('')
+  const [motivoDescarte, setMotivoDescarte] = useState('')
+  const [observacoesDescarte, setObservacoesDescarte] = useState('')
 
   useEffect(() => {
     let vivo = true
@@ -149,13 +176,24 @@ export default function ConversaHistoricoModal({
 
   async function alterarStatus(valor: string, payload?: StatusPayload) {
     if (!onAlterarStatus) return
-    if (valor === 'reuniao_agendada' && !payload) { setFormReuniaoAberto((v) => !v); return }
+    if (valor === 'reuniao_agendada' && !payload) { setModalAcao('reuniao'); return }
+    if (valor === 'ligacao_realizada' && !payload) { setModalAcao('ligacao'); return }
+    if (valor === 'descartado' && !payload) { setModalAcao('descarte'); return }
     setMudandoStatus(valor)
     try {
       await onAlterarStatus(valor, payload)
       if (valor === 'reuniao_agendada') {
-        setFormReuniaoAberto(false)
+        setModalAcao(null)
         setObservacoesReuniao('')
+      }
+      if (valor === 'ligacao_realizada') {
+        setModalAcao(null)
+        setObservacoesLigacao('')
+      }
+      if (valor === 'descartado') {
+        setModalAcao(null)
+        setMotivoDescarte('')
+        setObservacoesDescarte('')
       }
       await carregarHistoricoStatus()
     } finally {
@@ -170,6 +208,25 @@ export default function ConversaHistoricoModal({
         horario: horarioReuniao,
         duracao_minutos: duracaoReuniao,
         observacoes: observacoesReuniao,
+      },
+    })
+  }
+
+  async function salvarLigacao() {
+    await alterarStatus('ligacao_realizada', {
+      ligacao: {
+        resultado: resultadoLigacao,
+        duracao_minutos: duracaoLigacao,
+        observacoes: observacoesLigacao,
+      },
+    })
+  }
+
+  async function salvarDescarte() {
+    await alterarStatus('descartado', {
+      descarte: {
+        motivo: motivoDescarte,
+        observacoes: observacoesDescarte,
       },
     })
   }
@@ -191,7 +248,7 @@ export default function ConversaHistoricoModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full flex flex-col max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
+      <div className="relative bg-white rounded-2xl shadow-xl max-w-lg w-full flex flex-col max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between px-5 py-3 border-b">
           <div>
             <h3 className="font-semibold text-lg">Conversa{titulo ? ` — ${titulo}` : ''}</h3>
@@ -293,7 +350,7 @@ export default function ConversaHistoricoModal({
                   </div>
                   <div className="flex flex-wrap gap-1.5" aria-label="Alterar status do lead">
                     {STATUS_ACOES.map((a) => {
-                      const ativo = a.valor !== 'reuniao_agendada' && STATUS_POR_ACAO[a.valor] === status
+                      const ativo = !['reuniao_agendada', 'ligacao_realizada'].includes(a.valor) && STATUS_POR_ACAO[a.valor] === status
                       return (
                         <button
                           key={a.valor}
@@ -308,50 +365,6 @@ export default function ConversaHistoricoModal({
                     })}
                   </div>
                 </div>
-                {formReuniaoAberto && (
-                  <div className="mt-3 rounded-xl border border-cyan-200 bg-white p-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-cyan-700">Agendar reunião</div>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      <label className="text-xs text-slate-600">
-                        Dia
-                        <input type="date" value={dataReuniao} onChange={(e) => setDataReuniao(e.target.value)}
-                          className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
-                      </label>
-                      <label className="text-xs text-slate-600">
-                        Horário
-                        <input type="time" value={horarioReuniao} onChange={(e) => setHorarioReuniao(e.target.value)}
-                          className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
-                      </label>
-                      <label className="text-xs text-slate-600">
-                        Duração
-                        <select value={duracaoReuniao} onChange={(e) => setDuracaoReuniao(Number(e.target.value))}
-                          className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
-                          <option value={15}>15 min</option>
-                          <option value={30}>30 min</option>
-                          <option value={45}>45 min</option>
-                          <option value={60}>1 hora</option>
-                        </select>
-                      </label>
-                      <div className="self-end text-[11px] text-slate-500">
-                        Vai para a agenda de quem está alterando.
-                      </div>
-                    </div>
-                    <label className="mt-2 block text-xs text-slate-600">
-                      Observações rápidas
-                      <textarea value={observacoesReuniao} onChange={(e) => setObservacoesReuniao(e.target.value)} rows={2}
-                        placeholder="Ex.: confirmar orçamento, falar com sócio, enviar proposta antes da reunião…"
-                        className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
-                    </label>
-                    <div className="mt-2 flex justify-end gap-2">
-                      <button type="button" onClick={() => setFormReuniaoAberto(false)}
-                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
-                      <button type="button" onClick={salvarReuniao} disabled={mudandoStatus === 'reuniao_agendada' || !dataReuniao || !horarioReuniao}
-                        className="rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-50">
-                        {mudandoStatus === 'reuniao_agendada' ? 'Agendando...' : 'Salvar reunião'}
-                      </button>
-                    </div>
-                  </div>
-                )}
                 <div className="mt-3 border-t border-slate-200 pt-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Histórico de status</div>
                   {carregandoStatus ? (
@@ -371,6 +384,97 @@ export default function ConversaHistoricoModal({
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {modalAcao === 'reuniao' && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/35 p-4" onClick={() => setModalAcao(null)}>
+            <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">Agendar reunião</div>
+                  <p className="mt-1 text-xs text-slate-500">Só será marcado quando você salvar. Vai para a agenda de quem está alterando.</p>
+                </div>
+                <button type="button" onClick={() => setModalAcao(null)} className="text-xl leading-none text-slate-400 hover:text-slate-700">×</button>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <label className="text-xs text-slate-600">Dia
+                  <input type="date" value={dataReuniao} onChange={(e) => setDataReuniao(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+                </label>
+                <label className="text-xs text-slate-600">Horário
+                  <input type="time" value={horarioReuniao} onChange={(e) => setHorarioReuniao(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+                </label>
+                <label className="col-span-2 text-xs text-slate-600">Duração
+                  <select value={duracaoReuniao} onChange={(e) => setDuracaoReuniao(Number(e.target.value))} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
+                    <option value={15}>15 min</option><option value={30}>30 min</option><option value={45}>45 min</option><option value={60}>1 hora</option>
+                  </select>
+                </label>
+              </div>
+              <label className="mt-2 block text-xs text-slate-600">Observações rápidas
+                <textarea value={observacoesReuniao} onChange={(e) => setObservacoesReuniao(e.target.value)} rows={3} placeholder="Ex.: confirmar orçamento, falar com sócio, enviar proposta antes da reunião…" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+              </label>
+              <div className="mt-3 flex justify-end gap-2">
+                <button type="button" onClick={() => setModalAcao(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
+                <button type="button" onClick={salvarReuniao} disabled={mudandoStatus === 'reuniao_agendada' || !dataReuniao || !horarioReuniao} className="rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-50">{mudandoStatus === 'reuniao_agendada' ? 'Agendando...' : 'Salvar reunião'}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {modalAcao === 'ligacao' && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/35 p-4" onClick={() => setModalAcao(null)}>
+            <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">Registrar ligação realizada</div>
+                  <p className="mt-1 text-xs text-slate-500">Registra a ligação no histórico e marca o lead como contatado.</p>
+                </div>
+                <button type="button" onClick={() => setModalAcao(null)} className="text-xl leading-none text-slate-400 hover:text-slate-700">×</button>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <label className="text-xs text-slate-600">Resultado
+                  <select value={resultadoLigacao} onChange={(e) => setResultadoLigacao(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
+                    <option value="atendeu">Atendeu</option><option value="nao_atendeu">Não atendeu</option><option value="ocupado">Ocupado</option><option value="caixa_postal">Caixa postal</option><option value="numero_invalido">Número inválido</option><option value="reagendou">Reagendou</option>
+                  </select>
+                </label>
+                <label className="text-xs text-slate-600">Duração
+                  <select value={duracaoLigacao} onChange={(e) => setDuracaoLigacao(Number(e.target.value))} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
+                    <option value={1}>1 min</option><option value={3}>3 min</option><option value={5}>5 min</option><option value={10}>10 min</option><option value={15}>15 min</option><option value={30}>30 min</option>
+                  </select>
+                </label>
+              </div>
+              <label className="mt-2 block text-xs text-slate-600">Observações da ligação
+                <textarea value={observacoesLigacao} onChange={(e) => setObservacoesLigacao(e.target.value)} rows={3} placeholder="Ex.: pediu retorno amanhã, não era decisor, demonstrou interesse…" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+              </label>
+              <div className="mt-3 flex justify-end gap-2">
+                <button type="button" onClick={() => setModalAcao(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
+                <button type="button" onClick={salvarLigacao} disabled={mudandoStatus === 'ligacao_realizada'} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{mudandoStatus === 'ligacao_realizada' ? 'Salvando...' : 'Salvar ligação'}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {modalAcao === 'descarte' && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/35 p-4" onClick={() => setModalAcao(null)}>
+            <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">Descartar lead</div>
+                  <p className="mt-1 text-xs text-slate-500">Informe o motivo. Se sair sem salvar, nada será alterado.</p>
+                </div>
+                <button type="button" onClick={() => setModalAcao(null)} className="text-xl leading-none text-slate-400 hover:text-slate-700">×</button>
+              </div>
+              <label className="mt-3 block text-xs text-slate-600">Motivo do descarte
+                <input value={motivoDescarte} onChange={(e) => setMotivoDescarte(e.target.value)} placeholder="Ex.: sem perfil, número inválido, sem interesse…" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+              </label>
+              <label className="mt-2 block text-xs text-slate-600">Observações
+                <textarea value={observacoesDescarte} onChange={(e) => setObservacoesDescarte(e.target.value)} rows={3} placeholder="Detalhe rápido para a equipe entender a decisão." className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+              </label>
+              <div className="mt-3 flex justify-end gap-2">
+                <button type="button" onClick={() => setModalAcao(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
+                <button type="button" onClick={salvarDescarte} disabled={mudandoStatus === 'descartado' || !motivoDescarte.trim()} className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50">{mudandoStatus === 'descartado' ? 'Descartando...' : 'Descartar lead'}</button>
+              </div>
+            </div>
           </div>
         )}
 

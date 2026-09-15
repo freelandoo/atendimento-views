@@ -87,7 +87,11 @@ type FiltrosMercado = {
   categorias: OpcaoFiltroMercado[]
   cidades: OpcaoFiltroMercado[]
 }
-type StatusPayload = { reuniao?: { data: string; horario: string; duracao_minutos: number; observacoes?: string } }
+type StatusPayload = {
+  reuniao?: { data: string; horario: string; duracao_minutos: number; observacoes?: string }
+  ligacao?: { resultado: string; duracao_minutos: number; observacoes?: string }
+  descarte?: { motivo: string; observacoes?: string }
+}
 type AlterarStatusLeadResp = {
   id: string
   status: string
@@ -96,6 +100,7 @@ type AlterarStatusLeadResp = {
   responsavel_desde?: string | null
   assumido_automaticamente?: boolean
   agenda_evento?: { id: string; data_inicio?: string; data_fim?: string } | null
+  ligacao?: { id: string; resultado?: string; duracao_seg?: number } | null
 }
 type RodarResumo = {
   rodada: boolean
@@ -1198,8 +1203,10 @@ export default function BancoLeadsPage() {
       marcado: 'Lead marcado.',
       contatado: 'Lead marcado como contatado.',
       respondido: 'Lead marcado como respondido.',
+      ligacao_realizada: 'Ligação registrada e lead marcado como contatado.',
       reuniao_agendada: 'Reunião agendada para este lead.',
       fechado: 'Lead marcado como fechado.',
+      descartado: 'Lead descartado.',
     }
     await alterarStatusLead(conversaAberta.leadId, statusOperacional, rotulos[statusOperacional] || 'Status do lead atualizado.', payload)
   }

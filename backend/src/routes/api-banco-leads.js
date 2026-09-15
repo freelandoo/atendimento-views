@@ -65,10 +65,16 @@ const STATUS_OPERACIONAL = Object.freeze({
   respondeu: { status: 'respondeu' },
   fechado: { status: 'fechado' },
   contratado: { status: 'fechado' },
+  ligacao_realizada: { status: 'enviado', ligacao: true },
+  ligação_realizada: { status: 'enviado', ligacao: true },
+  ligacao: { status: 'enviado', ligacao: true },
+  ligação: { status: 'enviado', ligacao: true },
   reuniao_agendada: { status: 'respondeu', agenda: true },
   reunião_agendada: { status: 'respondeu', agenda: true },
+  descartado: { status: 'rejeitado', qualificacao: 'descartado', descarte: true },
+  rejeitado: { status: 'rejeitado', qualificacao: 'descartado', descarte: true },
 })
-const ACOES_STATUS_LEAD = new Set(['lead_status_alterado', 'abordagem_manual_declarada', 'lead_reuniao_agendada'])
+const ACOES_STATUS_LEAD = new Set(['lead_status_alterado', 'abordagem_manual_declarada', 'lead_reuniao_agendada', 'lead_ligacao_realizada', 'lead_descartado'])
 
 // Contato "agendado": tem evento FUTURO (pendente/confirmado). Le as DUAS agendas:
 //  - app.agenda_eventos (migration 011): eventos criados manualmente no dashboard,
@@ -262,6 +268,33 @@ function normalizarPayloadReuniao(body = {}) {
     observacoes: String(r.observacoes || r.observacao || '').trim().slice(0, 1000) || null,
   }
 }
+function normalizarPayloadLigacao(body = {}) {
+  const r = body.ligacao && typeof body.ligacao === 'object' ? body.ligacao : body
+  const resultados = new Set(['atendeu', 'nao_atendeu', 'ocupado', 'caixa_postal', 'numero_invalido', 'reagendou'])
+  const resultado = resultados.has(String(r.resultado || '').trim()) ? String(r.resultado).trim() : 'atendeu'
+  const duracaoMinutos = Math.min(Math.max(Number.parseInt(r.duracao_minutos, 10) || 5, 1), 240)
+  return {
+    resultado,
+    duracaoMinutos,
+    duracaoSegundos: duracaoMinutos * 60,
+    observacoes: String(r.observacoes || r.observacao || r.notas || '').trim().slice(0, 4000) || null,
+  }
+}
+
+function normalizarPayloadDescarte(body = {}) {
+  const r = body.descarte && typeof body.descarte === 'object' ? body.descarte : body
+  const motivo = String(r.motivo || '').trim().slice(0, 500)
+  if (!motivo) {
+    const e = new Error('Informe o motivo do descarte.')
+    e.statusCode = 400
+    throw e
+  }
+  return {
+    motivo,
+    observacoes: String(r.observacoes || r.observacao || '').trim().slice(0, 1000) || null,
+  }
+}
+
 
 async function autoAssumirLeadLivre(client, { empresaId, prospectId, usuarioId, atual }) {
   if (!usuarioId || atual.responsavel_id) return { responsavel_id: atual.responsavel_id || null, assumido: false }
@@ -291,7 +324,7 @@ async function autoAssumirLeadLivre(client, { empresaId, prospectId, usuarioId, 
 async function alterarStatusLeadOperacional(req, statusPedido) {
   const destino = normalizarStatusOperacional(statusPedido)
   if (!destino) {
-    const e = new Error('Status inválido. Use marcado, contatado, respondido, reunião agendada ou fechado.')
+    const e = new Error('Status inválido. Use marcado, contatado, ligação realizada, respondido, reunião agendada, fechado ou descartado.')
     e.statusCode = 400
     throw e
   }
@@ -318,6 +351,8 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
 
     const usuarioId = req.usuario?.id || null
     const reuniao = destino.agenda ? normalizarPayloadReuniao(req.body || {}) : null
+    const ligacao = destino.ligacao ? normalizarPayloadLigacao(req.body || {}) : null
+    const descarte = destino.descarte ? normalizarPayloadDescarte(req.body || {}) : null
     const precisaQualificacao = destino.qualificacao && atual.qualificacao !== destino.qualificacao
     const ownership = await autoAssumirLeadLivre(client, {
       empresaId: req.empresa.id, prospectId: req.params.id, usuarioId, atual,
@@ -326,8 +361,8 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
       `UPDATE prospectador.prospects
           SET status = $3,
               qualificacao = COALESCE($4, qualificacao),
-              qualificado_em = CASE WHEN $4 = 'aprovado' AND qualificacao IS DISTINCT FROM 'aprovado' THEN NOW() ELSE qualificado_em END,
-              qualificado_por = CASE WHEN $4 = 'aprovado' AND qualificacao IS DISTINCT FROM 'aprovado' THEN $5::uuid ELSE qualificado_por END,
+              qualificado_em = CASE WHEN $4 IS NOT NULL AND qualificacao IS DISTINCT FROM $4 THEN NOW() ELSE qualificado_em END,
+              qualificado_por = CASE WHEN $4 IS NOT NULL AND qualificacao IS DISTINCT FROM $4 THEN $5::uuid ELSE qualificado_por END,
               updated_at = NOW()
         WHERE empresa_id = $1 AND id = $2::uuid
         RETURNING id, status, qualificacao, qualificado_em, qualificado_por, responsavel_id, responsavel_desde`,
@@ -368,6 +403,45 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
       )
     }
 
+    let registroLigacao = null
+    if (ligacao) {
+      const { rows: ligacoes } = await client.query(
+        `INSERT INTO app.ligacoes
+           (empresa_id, prospect_id, telefone, usuario_id, status, iniciada_em, encerrada_em, duracao_seg, resultado, notas)
+         VALUES ($1, $2::uuid, $3, $4::uuid, 'encerrada', NOW() - ($5::int * INTERVAL '1 second'), NOW(), $5::int, $6, $7)
+         RETURNING id, resultado, duracao_seg`,
+        [req.empresa.id, req.params.id, atual.telefone || null, usuarioId, ligacao.duracaoSegundos, ligacao.resultado, ligacao.observacoes]
+      )
+      registroLigacao = ligacoes[0] || null
+      await client.query(
+        `INSERT INTO app.auditoria_eventos
+           (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+         VALUES ($1, $2::uuid, 'prospect', $3::uuid, 'lead_ligacao_realizada', $4, $5, $6::jsonb)`,
+        [req.empresa.id, usuarioId, req.params.id, atual.status, rows[0].status, JSON.stringify({
+          origem: 'banco_leads',
+          ligacao_id: registroLigacao?.id || null,
+          resultado: ligacao.resultado,
+          duracao_minutos: ligacao.duracaoMinutos,
+          observacoes: ligacao.observacoes,
+          responsavel_id: rows[0].responsavel_id || usuarioId || null,
+        })]
+      )
+    }
+
+    if (descarte) {
+      await client.query(
+        `INSERT INTO app.auditoria_eventos
+           (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+         VALUES ($1, $2::uuid, 'prospect', $3::uuid, 'lead_descartado', $4, $5, $6::jsonb)`,
+        [req.empresa.id, usuarioId, req.params.id, atual.status, rows[0].status, JSON.stringify({
+          origem: 'banco_leads',
+          motivo: descarte.motivo,
+          observacoes: descarte.observacoes,
+          responsavel_id: rows[0].responsavel_id || usuarioId || null,
+        })]
+      )
+    }
+
     await client.query(
       `INSERT INTO app.auditoria_eventos
          (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
@@ -382,11 +456,13 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
         qualificacao_alterada: !!precisaQualificacao,
         assumido_automaticamente: !!ownership.assumido,
         agenda_evento_id: eventoAgenda?.id || null,
+        ligacao_id: registroLigacao?.id || null,
+        motivo_descarte: descarte?.motivo || null,
       })]
     )
 
     await client.query('COMMIT')
-    return { ...rows[0], assumido_automaticamente: !!ownership.assumido, agenda_evento: eventoAgenda }
+    return { ...rows[0], assumido_automaticamente: !!ownership.assumido, agenda_evento: eventoAgenda, ligacao: registroLigacao }
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {})
     throw e
