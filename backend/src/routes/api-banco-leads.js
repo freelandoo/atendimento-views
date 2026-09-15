@@ -38,6 +38,7 @@ const { CAPACIDADES: CAP, CAPACIDADES, podeCapacidade } = require('../services/a
 const { logger } = require('../logger')
 const { listarAuditoria } = require('../db/auditoria')
 const { criarEvento } = require('../services/agenda-multiempresa')
+const { criarFollowUp } = require('../db/follow-ups')
 
 const router = Router({ mergeParams: true })
 
@@ -74,7 +75,7 @@ const STATUS_OPERACIONAL = Object.freeze({
   descartado: { status: 'rejeitado', qualificacao: 'descartado', descarte: true },
   rejeitado: { status: 'rejeitado', qualificacao: 'descartado', descarte: true },
 })
-const ACOES_STATUS_LEAD = new Set(['lead_status_alterado', 'abordagem_manual_declarada', 'lead_reuniao_agendada', 'lead_ligacao_realizada', 'lead_descartado'])
+const ACOES_STATUS_LEAD = new Set(['lead_status_alterado', 'abordagem_manual_declarada', 'lead_reuniao_agendada', 'lead_ligacao_realizada', 'lead_follow_up_criado', 'lead_descartado'])
 
 // Contato "agendado": tem evento FUTURO (pendente/confirmado). Le as DUAS agendas:
 //  - app.agenda_eventos (migration 011): eventos criados manualmente no dashboard,
@@ -273,11 +274,13 @@ function normalizarPayloadLigacao(body = {}) {
   const resultados = new Set(['atendeu', 'nao_atendeu', 'ocupado', 'caixa_postal', 'numero_invalido', 'reagendou'])
   const resultado = resultados.has(String(r.resultado || '').trim()) ? String(r.resultado).trim() : 'atendeu'
   const duracaoMinutos = Math.min(Math.max(Number.parseInt(r.duracao_minutos, 10) || 5, 1), 240)
+  const followUp = r.follow_up === undefined ? null : r.follow_up
   return {
     resultado,
     duracaoMinutos,
     duracaoSegundos: duracaoMinutos * 60,
     observacoes: String(r.observacoes || r.observacao || r.notas || '').trim().slice(0, 4000) || null,
+    followUp: followUp && typeof followUp === 'object' ? followUp : null,
   }
 }
 
@@ -404,6 +407,7 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
     }
 
     let registroLigacao = null
+    let followUp = null
     if (ligacao) {
       const { rows: ligacoes } = await client.query(
         `INSERT INTO app.ligacoes
@@ -413,6 +417,45 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
         [req.empresa.id, req.params.id, atual.telefone || null, usuarioId, ligacao.duracaoSegundos, ligacao.resultado, ligacao.observacoes]
       )
       registroLigacao = ligacoes[0] || null
+
+      if (ligacao.followUp) {
+        followUp = await criarFollowUp(client, req.empresa.id, {
+          ...ligacao.followUp,
+          origem: 'ligacao',
+          telefone: atual.telefone,
+          ligacao_id: registroLigacao?.id || null,
+          prospect_id: req.params.id,
+          responsavel_id: ligacao.followUp.responsavel_id || rows[0].responsavel_id || usuarioId || null,
+          observacao: ligacao.followUp.observacao || ligacao.observacoes || null,
+        }, { usuarioId })
+        await client.query(
+          `INSERT INTO app.auditoria_eventos
+             (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+           VALUES ($1, $2::uuid, 'follow_up', $3::uuid, 'follow_up_criado', NULL, 'aguardando', $4::jsonb)`,
+          [req.empresa.id, usuarioId, followUp.id, JSON.stringify({
+            origem: 'ligacao',
+            canal: followUp.canal,
+            ligacao_id: registroLigacao?.id || null,
+            prospect_id: req.params.id,
+            substituiu_anterior: followUp.substituiu === true,
+          })]
+        )
+        await client.query(
+          `INSERT INTO app.auditoria_eventos
+             (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+           VALUES ($1, $2::uuid, 'prospect', $3::uuid, 'lead_follow_up_criado', $4, $5, $6::jsonb)`,
+          [req.empresa.id, usuarioId, req.params.id, atual.status, rows[0].status, JSON.stringify({
+            origem: 'banco_leads_ligacao',
+            follow_up_id: followUp.id,
+            ligacao_id: registroLigacao?.id || null,
+            canal: followUp.canal,
+            proxima_acao: followUp.proxima_acao,
+            agendado_para: followUp.agendado_para,
+            responsavel_id: followUp.responsavel_id || null,
+          })]
+        )
+      }
+
       await client.query(
         `INSERT INTO app.auditoria_eventos
            (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
@@ -423,6 +466,7 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
           resultado: ligacao.resultado,
           duracao_minutos: ligacao.duracaoMinutos,
           observacoes: ligacao.observacoes,
+          follow_up_id: followUp?.id || null,
           responsavel_id: rows[0].responsavel_id || usuarioId || null,
         })]
       )
@@ -457,12 +501,13 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
         assumido_automaticamente: !!ownership.assumido,
         agenda_evento_id: eventoAgenda?.id || null,
         ligacao_id: registroLigacao?.id || null,
+        follow_up_id: followUp?.id || null,
         motivo_descarte: descarte?.motivo || null,
       })]
     )
 
     await client.query('COMMIT')
-    return { ...rows[0], assumido_automaticamente: !!ownership.assumido, agenda_evento: eventoAgenda, ligacao: registroLigacao }
+    return { ...rows[0], assumido_automaticamente: !!ownership.assumido, agenda_evento: eventoAgenda, ligacao: registroLigacao, follow_up: followUp }
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {})
     throw e

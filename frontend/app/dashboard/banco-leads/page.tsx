@@ -21,6 +21,7 @@ import {
 import type { Qualificacao } from '@/lib/lead-operacao'
 import { temCapacidade } from '@/lib/capacidades'
 import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconSend, IconAlert } from '@/components/ui/icons'
+import type { PayloadProximaAcao } from '@/lib/follow-up-acao'
 
 // Banco de Leads — central de disparo com Modo Manual / Semiautomático / Automático.
 // As duas origens (Google Places e Instagram) em tabelas separadas, com as MESMAS
@@ -89,7 +90,7 @@ type FiltrosMercado = {
 }
 type StatusPayload = {
   reuniao?: { data: string; horario: string; duracao_minutos: number; observacoes?: string }
-  ligacao?: { resultado: string; duracao_minutos: number; observacoes?: string }
+  ligacao?: { resultado: string; duracao_minutos: number; observacoes?: string; follow_up?: PayloadProximaAcao | null }
   descarte?: { motivo: string; observacoes?: string }
 }
 type AlterarStatusLeadResp = {
@@ -101,6 +102,7 @@ type AlterarStatusLeadResp = {
   assumido_automaticamente?: boolean
   agenda_evento?: { id: string; data_inicio?: string; data_fim?: string } | null
   ligacao?: { id: string; resultado?: string; duracao_seg?: number } | null
+  follow_up?: { id: string; canal?: string; proxima_acao?: string } | null
 }
 type RodarResumo = {
   rodada: boolean

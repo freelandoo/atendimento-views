@@ -124,6 +124,8 @@ test('GUARDA: mudar status do lead respeita o mesmo recorte e grava historico', 
   assert.ok(bloco.includes('autoAssumirLeadLivre'), 'alterar status precisa puxar lead livre para quem alterou')
   assert.ok(bloco.includes('criarEvento'), 'reuniao agendada precisa criar evento real na agenda')
   assert.ok(bloco.includes('INSERT INTO app.ligacoes'), 'ligacao realizada precisa criar registro real de ligacao')
+  assert.ok(bloco.includes('criarFollowUp'), 'proxima acao da ligacao rapida precisa usar a entidade oficial de follow-up')
+  assert.ok(bloco.includes('lead_follow_up_criado'), 'follow-up criado pela ligacao precisa aparecer no historico do lead')
   assert.ok(bloco.includes('normalizarPayloadDescarte'), 'descarte precisa passar por payload com motivo')
   assert.ok(bloco.includes('estado_anterior') && bloco.includes('estado_novo'), 'historico precisa registrar antes/depois')
 })

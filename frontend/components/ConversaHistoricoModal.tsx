@@ -1,6 +1,10 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
+import {
+  CANAL_OPCOES, PRIORIDADE_OPCOES, montarPayloadProximaAcao, sugerirProximaAcao, validarProximaAcao,
+  type FormProximaAcao, type PayloadProximaAcao,
+} from '@/lib/follow-up-acao'
 
 // Modal enxuto do Banco de Leads. Reusa o MESMO endpoint da página de Conversas
 // (GET /api/empresas/:id/conversas/:numero) — sem recriar a lógica de conversa.
@@ -18,7 +22,7 @@ type Mensagem = { role?: string; content?: string; text?: string; timestamp?: st
 type ConversaDetail = { numero?: string; historico?: Mensagem[]; estagio?: string }
 type StatusPayload = {
   reuniao?: { data: string; horario: string; duracao_minutos: number; observacoes?: string }
-  ligacao?: { resultado: string; duracao_minutos: number; observacoes?: string }
+  ligacao?: { resultado: string; duracao_minutos: number; observacoes?: string; follow_up?: PayloadProximaAcao | null }
   descarte?: { motivo: string; observacoes?: string }
 }
 type StatusEvento = {
@@ -110,11 +114,18 @@ function rotuloDescarte(e: StatusEvento): string {
   return motivo ? `Descartado · ${motivo}` : 'Descartado'
 }
 
+function rotuloFollowUp(e: StatusEvento): string {
+  const c = e.contexto || {}
+  const acao = typeof c.proxima_acao === 'string' ? c.proxima_acao : ''
+  return acao ? `Follow-up criado · ${acao}` : 'Follow-up criado'
+}
+
 
 function rotuloEventoStatus(e: StatusEvento): string {
   if (e.acao === 'abordagem_manual_declarada') return 'Contatado declarado'
   if (e.acao === 'lead_reuniao_agendada') return rotuloReuniao(e)
   if (e.acao === 'lead_ligacao_realizada') return rotuloLigacao(e)
+  if (e.acao === 'lead_follow_up_criado') return rotuloFollowUp(e)
   if (e.acao === 'lead_descartado') return rotuloDescarte(e)
   if (e.acao === 'lead_status_alterado') return `${statusLabel(e.estado_anterior)} → ${statusLabel(e.estado_novo)}`
   return e.acao
@@ -144,6 +155,8 @@ export default function ConversaHistoricoModal({
   const [resultadoLigacao, setResultadoLigacao] = useState('atendeu')
   const [duracaoLigacao, setDuracaoLigacao] = useState(5)
   const [observacoesLigacao, setObservacoesLigacao] = useState('')
+  const [proxAcaoLigacao, setProxAcaoLigacao] = useState<FormProximaAcao>(() => sugerirProximaAcao('atendeu'))
+  const [errosProxAcao, setErrosProxAcao] = useState<Record<string, string>>({})
   const [motivoDescarte, setMotivoDescarte] = useState('')
   const [observacoesDescarte, setObservacoesDescarte] = useState('')
 
@@ -189,6 +202,8 @@ export default function ConversaHistoricoModal({
       if (valor === 'ligacao_realizada') {
         setModalAcao(null)
         setObservacoesLigacao('')
+        setProxAcaoLigacao(sugerirProximaAcao(resultadoLigacao))
+        setErrosProxAcao({})
       }
       if (valor === 'descartado') {
         setModalAcao(null)
@@ -212,12 +227,21 @@ export default function ConversaHistoricoModal({
     })
   }
 
+  function trocarResultadoLigacao(valor: string) {
+    setResultadoLigacao(valor)
+    setProxAcaoLigacao(sugerirProximaAcao(valor))
+    setErrosProxAcao({})
+  }
+
   async function salvarLigacao() {
+    const validacao = validarProximaAcao(proxAcaoLigacao)
+    if (!validacao.ok) { setErrosProxAcao(validacao.erros); return }
     await alterarStatus('ligacao_realizada', {
       ligacao: {
         resultado: resultadoLigacao,
         duracao_minutos: duracaoLigacao,
         observacoes: observacoesLigacao,
+        follow_up: montarPayloadProximaAcao(proxAcaoLigacao),
       },
     })
   }
@@ -389,7 +413,7 @@ export default function ConversaHistoricoModal({
 
         {modalAcao === 'reuniao' && (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/35 p-4" onClick={() => setModalAcao(null)}>
-            <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="max-h-[calc(85vh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-slate-900">Agendar reunião</div>
@@ -423,7 +447,7 @@ export default function ConversaHistoricoModal({
 
         {modalAcao === 'ligacao' && (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/35 p-4" onClick={() => setModalAcao(null)}>
-            <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="max-h-[calc(85vh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-slate-900">Registrar ligação realizada</div>
@@ -433,7 +457,7 @@ export default function ConversaHistoricoModal({
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <label className="text-xs text-slate-600">Resultado
-                  <select value={resultadoLigacao} onChange={(e) => setResultadoLigacao(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
+                  <select value={resultadoLigacao} onChange={(e) => trocarResultadoLigacao(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
                     <option value="atendeu">Atendeu</option><option value="nao_atendeu">Não atendeu</option><option value="ocupado">Ocupado</option><option value="caixa_postal">Caixa postal</option><option value="numero_invalido">Número inválido</option><option value="reagendou">Reagendou</option>
                   </select>
                 </label>
@@ -446,6 +470,36 @@ export default function ConversaHistoricoModal({
               <label className="mt-2 block text-xs text-slate-600">Observações da ligação
                 <textarea value={observacoesLigacao} onChange={(e) => setObservacoesLigacao(e.target.value)} rows={3} placeholder="Ex.: pediu retorno amanhã, não era decisor, demonstrou interesse…" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
               </label>
+              <div className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Próxima ação</div>
+                <div className="inline-flex w-full rounded-lg border bg-white p-0.5" role="group" aria-label="Canal da próxima ação">
+                  {CANAL_OPCOES.map((o) => (
+                    <button key={o.valor} type="button" onClick={() => { setProxAcaoLigacao((f) => ({ ...f, canal: o.valor })); setErrosProxAcao({}) }} aria-pressed={proxAcaoLigacao.canal === o.valor}
+                      className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition ${proxAcaoLigacao.canal === o.valor ? 'bg-brand text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-slate-500">{CANAL_OPCOES.find((o) => o.valor === proxAcaoLigacao.canal)?.ajuda}</p>
+                {proxAcaoLigacao.canal !== 'nenhuma' && (
+                  <>
+                    <label className="block text-xs text-slate-600">O que fazer
+                      <input value={proxAcaoLigacao.proxima_acao} onChange={(e) => { setProxAcaoLigacao((f) => ({ ...f, proxima_acao: e.target.value })); setErrosProxAcao({}) }} placeholder="Ex.: retomar pelo preço" className={`mt-1 w-full rounded-lg border px-2 py-1.5 text-sm ${errosProxAcao.proxima_acao ? 'border-red-400' : 'border-slate-200'}`} />
+                      {errosProxAcao.proxima_acao && <span className="mt-0.5 block text-[11px] text-red-600">{errosProxAcao.proxima_acao}</span>}
+                    </label>
+                    <label className="block text-xs text-slate-600">Quando
+                      <input type="datetime-local" value={proxAcaoLigacao.agendado_para} onChange={(e) => { setProxAcaoLigacao((f) => ({ ...f, agendado_para: e.target.value })); setErrosProxAcao({}) }} className={`mt-1 w-full rounded-lg border px-2 py-1.5 text-sm ${errosProxAcao.agendado_para ? 'border-red-400' : 'border-slate-200'}`} />
+                      {errosProxAcao.agendado_para && <span className="mt-0.5 block text-[11px] text-red-600">{errosProxAcao.agendado_para}</span>}
+                    </label>
+                    <label className="block text-xs text-slate-600">Prioridade
+                      <select value={proxAcaoLigacao.prioridade || 'media'} onChange={(e) => setProxAcaoLigacao((f) => ({ ...f, prioridade: e.target.value as FormProximaAcao['prioridade'] }))} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
+                        {PRIORIDADE_OPCOES.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+                      </select>
+                    </label>
+                    <p className="text-[11px] text-slate-500">Se salvar, entra na fila de Follow-ups já ligado a esta ligação.</p>
+                  </>
+                )}
+              </div>
               <div className="mt-3 flex justify-end gap-2">
                 <button type="button" onClick={() => setModalAcao(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
                 <button type="button" onClick={salvarLigacao} disabled={mudandoStatus === 'ligacao_realizada'} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{mudandoStatus === 'ligacao_realizada' ? 'Salvando...' : 'Salvar ligação'}</button>
@@ -456,7 +510,7 @@ export default function ConversaHistoricoModal({
 
         {modalAcao === 'descarte' && (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/35 p-4" onClick={() => setModalAcao(null)}>
-            <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="max-h-[calc(85vh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-slate-900">Descartar lead</div>
