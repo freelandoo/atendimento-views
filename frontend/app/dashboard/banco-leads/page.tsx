@@ -625,11 +625,15 @@ export default function BancoLeadsPage() {
 
   // Abre o histórico de conversa do contato (reusa o modal/endpoint de Conversas) e leva
   // a mensagem gerada + elegibilidade para permitir o envio individual dali.
+  //
+  // Lead SEM telefone abre do mesmo jeito, com `numero` vazio: ele continua tendo links,
+  // status e histórico para trabalhar. O modal declara a pendência do telefone em vez de
+  // recusar a abertura — recusar não dizia nada sobre o lead, só travava a porta. O envio
+  // não corre risco: `isRodavel` já exige telefone, então Gerar/Enviar nascem indisponíveis.
   function abrirConversa(l: Lead) {
     const digits = String(l.telefone || '').replace(/\D/g, '')
-    if (!digits) { fb.toast('Este lead não tem telefone.', 'info'); return }
     setConversaAberta({
-      numero: `${digits}@s.whatsapp.net`, titulo: l.nome || '', leadId: l.id,
+      numero: digits ? `${digits}@s.whatsapp.net` : '', titulo: l.nome || '', leadId: l.id,
       mensagemGerada: l.mensagem_gerada, rodavel: isRodavel(l), status: l.status,
       // Acessos rápidos (rede social / site / ficha no Maps) — a regra é pura e vive em
       // lib/lead-acessos.js; aqui só se passa o veredito que o backend já mandou no lead.

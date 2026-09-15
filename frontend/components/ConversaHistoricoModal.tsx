@@ -135,6 +135,9 @@ function rotuloEventoStatus(e: StatusEvento): string {
 export default function ConversaHistoricoModal({
   empresaId, leadId, numero, titulo, status, acessos, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel, cooldownS, enviando, gerando, onEnviar, onGerar, onAlterarStatus, onClose,
 }: {
+  /** JID do contato. Vem VAZIO quando o lead ainda não tem telefone — nesse caso o modal
+      abre assim mesmo (o lead tem links, status e histórico), declarando a pendência em vez
+      de fingir uma conversa que não existe. Ver `telefonePendente`. */
   empresaId: string; leadId?: string; numero: string; titulo?: string; status?: string
   /** Acessos rapidos do lead (rede social, site, ficha no Maps). Chegam PRONTOS de
       `lib/lead-acessos.js` — este modal so desenha, nao decide o que e' site. */
@@ -166,6 +169,9 @@ export default function ConversaHistoricoModal({
 
   useEffect(() => {
     let vivo = true
+    // Sem telefone não há conversa a buscar: pedir `/conversas/` sem número seria uma
+    // requisição que só pode falhar, e o estado de pendência já é a resposta certa.
+    if (!numero) { setHistorico([]); setCarregando(false); return }
     setCarregando(true)
     apiFetch<ConversaDetail>(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(numero)}`)
       .then((r) => { if (vivo) setHistorico(r.data.historico || []) })
@@ -259,7 +265,10 @@ export default function ConversaHistoricoModal({
     })
   }
 
-  const vazio = !carregando && historico.length === 0
+  // Telefone pendente: o lead existe e é trabalhável (links, status, histórico), mas não há
+  // canal de WhatsApp — nem conversa para mostrar, nem mensagem para enviar.
+  const telefonePendente = !numero
+  const vazio = !carregando && !telefonePendente && historico.length === 0
   const cooldownAtivo = (cooldownS || 0) > 0
   const podeAcionarEnvio = !!onEnviar && !!podeEnviar && !cooldownAtivo && !enviando
   const podeAcionarGeracao = !!onGerar && !!podeGerar && !gerando
@@ -279,12 +288,21 @@ export default function ConversaHistoricoModal({
       <div className="relative bg-white rounded-2xl shadow-xl max-w-lg w-full flex flex-col max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-5 py-3 border-b">
           <div className="min-w-0">
-            <h3 className="truncate font-semibold text-lg">Conversa{titulo ? ` — ${titulo}` : ''}</h3>
+            <h3 className="truncate font-semibold text-lg">{telefonePendente ? 'Lead' : 'Conversa'}{titulo ? ` — ${titulo}` : ''}</h3>
             {/* Numero + acessos rapidos na MESMA linha: o operador confere de onde veio o
                 lead (rede social, site, ficha no Maps) sem sair da conversa. Some quando o
                 lead nao tem link nenhum — cabecalho nao desenha estado vazio. */}
             <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-              <span className="font-mono text-xs text-slate-500">{fmtNumero(numero)}</span>
+              {telefonePendente ? (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800"
+                  title="Este lead entrou na base sem telefone. Sem número não há WhatsApp nem conversa."
+                >
+                  Telefone pendente
+                </span>
+              ) : (
+                <span className="font-mono text-xs text-slate-500">{fmtNumero(numero)}</span>
+              )}
               {(acessos || []).map((a) => (
                 <a
                   key={a.href}
@@ -306,8 +324,16 @@ export default function ConversaHistoricoModal({
         {/* Sem historico, esta area encolhe: o aviso curto fica colado no bloco de acoes
             (aviso de conexao + status), em vez de empurra-lo para fora da tela com um
             estado vazio de dez linhas de altura. */}
-        <div className={`flex-1 overflow-y-auto bg-gray-50 px-5 space-y-2 ${vazio && !carregando ? 'py-2 min-h-0' : 'py-4 min-h-[160px]'}`}>
-          {carregando ? (
+        <div className={`flex-1 overflow-y-auto bg-gray-50 px-5 space-y-2 ${telefonePendente || (vazio && !carregando) ? 'py-2 min-h-0' : 'py-4 min-h-[160px]'}`}>
+          {telefonePendente ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2.5">
+              <p className="text-xs font-semibold text-amber-900">Este lead ainda não tem telefone.</p>
+              <p className="mt-1 text-[11px] leading-snug text-amber-800">
+                Sem número não há conversa de WhatsApp para mostrar, nem mensagem para enviar.
+                Os acessos rápidos acima, o status e o histórico abaixo continuam disponíveis.
+              </p>
+            </div>
+          ) : carregando ? (
             <p className="text-sm text-center text-gray-500 py-8">Carregando…</p>
           ) : vazio ? (
             <p className="text-center text-xs text-slate-400">Nenhuma conversa ainda com este contato.</p>
@@ -351,7 +377,14 @@ export default function ConversaHistoricoModal({
                 gerada, caso em que antes ele sumia e sobrava so um botao desabilitado sem
                 explicacao. Enquanto ele estiver de pe, Gerar/Enviar nao sao oferecidos: o
                 proximo passo e' resolver a conexao, e botao inerte so convida ao clique. */}
-            {motivoEnvioIndisponivel ? (
+            {telefonePendente ? (
+              /* A conexão da instância não é o bloqueio aqui: falta o canal. Mostrar o aviso
+                 de instância mandaria o operador reconectar um número que não resolveria nada. */
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Sem telefone cadastrado, este lead não recebe mensagem. Dá para trabalhar por
+                outro canal (rede social ou site, acima) e registrar o resultado no status abaixo.
+              </div>
+            ) : motivoEnvioIndisponivel ? (
               <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
                 {motivoEnvioIndisponivel}{' '}
                 <a href="/dashboard/contextos" className="font-semibold underline underline-offset-2">Ir para Instância</a>
@@ -361,7 +394,7 @@ export default function ConversaHistoricoModal({
                 A saudação será gerada e enviada agora para este lead.
               </div>
             ) : null}
-            {!motivoEnvioIndisponivel && (onGerar || onEnviar) && (
+            {!telefonePendente && !motivoEnvioIndisponivel && (onGerar || onEnviar) && (
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className={`text-xs ${cooldownAtivo ? 'text-amber-700' : podeEnviar ? 'text-emerald-700' : podeGerar ? 'text-slate-600' : 'text-slate-400'}`}>
                   {cooldownAtivo ? `Cooldown ativo: ${fmtMMSS(cooldownS || 0)}` : podeEnviar ? 'Envio liberado' : podeGerar ? 'A mensagem pode ser gerada, mas o envio está indisponível' : 'Envio indisponível para este lead'}

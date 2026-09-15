@@ -747,3 +747,27 @@ Ajuste sobre a entrega imediatamente abaixo, apos revisao de UX/operacao.
 - Sem migration, sem env nova, sem rota nova, nenhum arquivo de backend alterado.
 - Validacao: frontend `npm test` 442/442 (8 novos em `lead-acessos.test.js`) e `npm run typecheck` limpo; backend `npm test`
   1893/1895 (as 2 falhas conhecidas de 429 em `core.test.js`, alheias a esta mudanca).
+
+## 2026-09-15 - Lead SEM telefone abre o modal declarando a pendencia
+
+- Areas alteradas: `frontend/components/ConversaHistoricoModal.tsx` e `abrirConversa` em
+  `frontend/app/dashboard/banco-leads/page.tsx`.
+- O que mudou: clicar no nome de um lead sem telefone abre o modal do mesmo jeito, com `numero`
+  VAZIO. Antes a abertura era recusada com um toast — recusar nao dizia nada sobre o lead, so
+  travava a porta de um lead que continua tendo links, status e historico para trabalhar.
+- Como a pendencia aparece: titulo vira "Lead" (nao "Conversa"), o numero da lugar a um selo
+  ambar "Telefone pendente", o corpo explica que sem numero nao ha conversa nem envio, e o
+  rodape orienta trabalhar por outro canal (rede social/site, nos acessos rapidos) e registrar
+  o resultado no status.
+- Regras preservadas: `isRodavel` JA exige telefone, entao Gerar/Enviar nascem indisponiveis —
+  a tela nao inventou bloqueio novo, so parou de oferecer. Com telefone pendente o modal NAO
+  consulta `GET /conversas/:numero` (requisicao que so poderia falhar) e NAO mostra o aviso de
+  instancia desconectada: a conexao nao e o bloqueio ali, e mandar reconectar o numero nao
+  resolveria nada.
+- O que continua funcionando sem telefone: acessos rapidos, troca de status e historico de
+  status — a rota `PATCH /leads/:id/status` usa `leadId` e grava `lead_telefone` nulo sem erro.
+- Fora de escopo declarado: CADASTRAR o telefone pela tela. Nao existe rota para isso (so
+  `PATCH /leads/:id/email`), e o telefone e a chave de casamento lead<->conversa em varios
+  pontos — criar essa escrita e tarefa propria, com contrato de backend e deduplicacao.
+- Sem migration, sem env nova, sem rota nova, nenhum arquivo de backend alterado.
+- Validacao: frontend `npm test` 442/442 e `npm run typecheck` limpo.
