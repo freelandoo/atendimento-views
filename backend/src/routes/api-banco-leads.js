@@ -31,6 +31,12 @@ const { sqlEscopo, escopoEfetivo } = require('../services/lead-responsavel')
 // A PORTA (Etapa 3). Aqui ela recorta a LEITURA do Comercial: quem nao pode ver a base bruta
 // ve apenas lead APROVADO/MARCADO por alguem. Lead neutro fica fora da operacao comercial.
 const { sqlAprovado } = require('../services/lead-qualificacao')
+// A ORDEM DE TRABALHO (a fila do vendedor). O modulo e' PURO e devolve as expressoes SQL: a
+// classificacao acontece UMA vez, dentro da consulta, e o numero vira rotulo por faixaPorOrdem.
+const { sqlFaixaTrabalho, sqlDesempateTrabalho, faixaPorOrdem } = require('../services/lead-fila-trabalho')
+// Telefone informado por uma PESSOA — regra pura; as consequencias (tem_whatsapp, status) sao
+// aplicadas aqui, com o banco na mao.
+const LT = require('../services/lead-telefone')
 const LR = require('../db/lead-responsavel')
 // Abordagem MANUAL (Etapa 5): o produto NAO envia — abre o wa.me e registra o que o vendedor diz.
 const AM = require('../db/abordagem-manual')
@@ -608,10 +614,19 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const { query: queryComEscopo, escopo } = comEscopo(req)
     const { where, params } = montarFiltro(req.empresa.id, queryComEscopo)
-    // Aba "Agendados" ordena pelos horários mais próximos; demais por atividade recente.
+    // Cópia dos parâmetros do WHERE, ANTES de `params` crescer com o filtro de instância (que
+    // vive só no LATERAL) e com o limite. A contagem usa exatamente os que o WHERE referencia —
+    // mandar parâmetro a mais é erro de bind no Postgres, não um extra ignorado.
+    const paramsFiltro = [...params]
+    // Aba "Agendados" ordena pelos horários mais próximos; demais pela ORDEM DE TRABALHO.
+    //
+    // `updated_at DESC` era o oposto do que a fila precisa: qualquer escrita — inclusive a
+    // automática (recoleta, disparo, script de manutenção) — subia o lead, então o que você
+    // acabou de trabalhar voltava ao topo e o nunca tocado afundava até sair da janela.
+    // A regra de faixas vive em services/lead-fila-trabalho.js (ver o cabeçalho dele).
     const ordemLeads = String(req.query.aba || '').toLowerCase() === 'agendados'
       ? 'proximo_agendamento ASC NULLS LAST'
-      : 'updated_at DESC'
+      : `faixa_trabalho_ordem ASC, ${sqlDesempateTrabalho()}`
     // Escopo da mensagem gerada (Semi): só mostra o rascunho que SERÁ disparado pela
     // instância selecionada — evita mostrar rascunho de outra instância (que ao disparar
     // pela instância atual não seria encontrado). Sem instancia_id, mostra qualquer um.
@@ -628,12 +643,21 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
       }
     }
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 300, 1), 1000)
+    // Total REAL do recorte, contado no banco ANTES do teto. A listagem devolve uma janela
+    // (`limit`) e a tela pagina dentro dela; sem este número o operador não tem como saber que
+    // existe carteira além do que está vendo — e o teto viraria um recorte invisível.
+    // O COUNT não precisa dos LATERAL: nenhum deles entra no WHERE.
+    const { rows: contagem } = await pool.query(
+      `SELECT COUNT(*)::int AS total FROM prospectador.prospects WHERE ${where}`,
+      paramsFiltro
+    )
     params.push(limit)
     const { rows } = await pool.query(
       `SELECT ${COLUNAS}, raw_json,
           ultimo.rodado_em, ultimo.rodado_por, ultimo.ultimo_status, ultimo.ultimo_erro,
           rascunho.mensagem_gerada, rascunho.gerada_em,
-          agenda.proximo_agendamento
+          agenda.proximo_agendamento,
+          ${sqlFaixaTrabalho()} AS faixa_trabalho_ordem
         FROM prospectador.prospects
         LEFT JOIN LATERAL (
           SELECT d.criado_em AS rodado_em,
@@ -686,13 +710,24 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
         WHERE ${where} ORDER BY ${ordemLeads} LIMIT $${params.length}`,
       params
     )
-    const data = rows.map(anexarScoreCadastro)
+    // A faixa foi decidida pelo SQL (uma vez). Aqui ela só vira nome — a tela traduz o nome em
+    // frase (frontend/lib/lead-fila-trabalho.js) e NÃO reclassifica nada.
+    const data = rows.map((row) => {
+      const { faixa_trabalho_ordem: ordem, ...resto } = row
+      return { ...anexarScoreCadastro(resto), faixa_trabalho: faixaPorOrdem(ordem) }
+    })
     // `escopo` no meta: a tela precisa poder dizer "mostrando apenas os seus" quando o pedido de
     // ver tudo foi rebaixado. Recortar em silencio faria o vendedor achar que a carteira encolheu.
     return res.json({
       ok: true,
       data,
-      meta: { total: data.length, escopo: escopo.efetivo, pode_ver_todos: escopo.podeVerTodos },
+      meta: {
+        total: data.length,
+        total_carteira: contagem[0] ? contagem[0].total : data.length,
+        limite: limit,
+        escopo: escopo.efetivo,
+        pode_ver_todos: escopo.podeVerTodos,
+      },
     })
   } catch (err) { return envelopeErro(res, err, 'LEADS_FAILED') }
 })
@@ -1218,11 +1253,129 @@ router.post('/leads/:id/reabrir', requireAuth, requireEmpresaAccess, async (req,
 })
 
 // PATCH /leads/:id/email  { email } — define/edita/limpa o e-mail do lead.
+// O recorte da LISTAGEM é repetido aqui: sem ele bastaria trocar o id na URL para escrever num
+// lead que a tela não mostra. É a mesma disciplina que as rotas por id de conversas e instâncias
+// já aplicam (404, nunca 403 — dizer "existe, mas não é seu" já entrega o lead).
 router.patch('/leads/:id/email', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
+    await exigirLeadNoRecorte(req)
     const data = await atualizarEmailProspect(req.empresa.id, req.params.id, (req.body || {}).email)
     return res.json({ ok: true, data })
   } catch (err) { return envelopeErro(res, err, 'EMAIL_UPDATE_FAILED') }
+})
+
+/** O lead está dentro do recorte de quem pediu? Devolve a linha (com o que a escrita precisa). */
+async function exigirLeadNoRecorte(req, client) {
+  const exec = client || pool
+  const recorte = montarRecorteLeadOperacao(req)
+  const params = [...recorte.params, req.params.id]
+  const { rows } = await exec.query(
+    `SELECT id, nome, status, telefone, tem_whatsapp
+       FROM prospectador.prospects
+      WHERE ${recorte.where} AND id = $${params.length}::uuid`,
+    params
+  )
+  if (!rows[0]) {
+    const e = new Error('Lead não encontrado para o seu escopo.')
+    e.statusCode = 404
+    throw e
+  }
+  return rows[0]
+}
+
+// PATCH /leads/:id/telefone  { telefone } — o "+ telefone" da listagem.
+//
+// Por que NÃO é o `/email` com outro campo: telefone é a IDENTIDADE do contato (follow-up e
+// disponibilidade de canal são chaveados por telefone, a agenda casa reunião por telefone, o
+// wa.me e o disparo saem dele). Trocar o número não é corrigir um campo — é dizer que o contato
+// é outro. Daí as três coisas que esta rota faz além do UPDATE:
+//   1. RECUSA número que já é de outro lead desta empresa (409). Dois leads no mesmo número
+//      apontariam para a MESMA conversa — `vendas.conversas.numero` é UNIQUE global.
+//   2. ZERA `tem_whatsapp`. Ele é veredito sobre um NÚMERO (nasce `false` quando o Evolution
+//      respondeu `exists:false` para o número ANTIGO). Carregá-lo manteria o lead em
+//      "Descartados" e fora da elegibilidade: o operador corrigiria o telefone e o lead
+//      continuaria morto, sem nada na tela explicando por quê.
+//   3. Marca a origem como `operador` no `raw_json`, e é essa marca que faz a recoleta da
+//      Bright Data PRESERVAR o número digitado à mão (ver salvarProspect em prospecting.js).
+router.patch('/leads/:id/telefone', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const atual = await exigirLeadNoRecorte(req, client)
+
+    const { rows: hist } = await client.query(
+      `SELECT 1 FROM prospectador.lead_disparos WHERE prospect_id = $1::uuid LIMIT 1`,
+      [req.params.id]
+    )
+    const veredito = LT.validarTelefoneLead((req.body || {}).telefone, { jaAbordado: !!hist[0] })
+    if (!veredito.ok) {
+      const e = new Error(veredito.mensagem)
+      e.statusCode = 400
+      throw e
+    }
+
+    if (veredito.telefone) {
+      const { rows: donos } = await client.query(
+        `SELECT nome FROM prospectador.prospects
+          WHERE empresa_id = $1 AND id <> $2::uuid
+            AND ${normFone('telefone')} = ${normFone('$3')}
+          LIMIT 1`,
+        [req.empresa.id, req.params.id, veredito.telefone]
+      )
+      if (donos[0]) {
+        const e = new Error(`${LT.MENSAGEM[LT.MOTIVOS.EM_USO]} (${donos[0].nome}).`)
+        e.statusCode = 409
+        throw e
+      }
+    }
+
+    const efeitos = LT.efeitosDaTrocaDeTelefone({
+      telefoneAtual: atual.telefone, telefoneNovo: veredito.telefone, status: atual.status,
+    })
+    const usuarioId = req.usuario?.id || null
+    const { rows } = await client.query(
+      `UPDATE prospectador.prospects
+          SET telefone = $3::text,
+              status = COALESCE($4::text, status),
+              tem_whatsapp = CASE WHEN $5::boolean THEN NULL ELSE tem_whatsapp END,
+              raw_json = CASE
+                WHEN $3::text IS NULL THEN COALESCE(raw_json, '{}'::jsonb) - 'telefone_origem'
+                ELSE jsonb_set(COALESCE(raw_json, '{}'::jsonb), '{telefone_origem}', '"operador"'::jsonb, true)
+              END,
+              updated_at = NOW()
+        WHERE empresa_id = $1 AND id = $2::uuid
+        RETURNING id, telefone, status, tem_whatsapp`,
+      [req.empresa.id, req.params.id, veredito.telefone, efeitos.statusNovo, efeitos.resetarTemWhatsapp]
+    )
+
+    if (efeitos.mudou) {
+      // Fato sobre o CONTATO — precisa continuar rastreável. Só dígitos e o que mudou: nada de
+      // JID, nome de conversa ou texto de mensagem.
+      await client.query(
+        `INSERT INTO app.auditoria_eventos
+           (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+         VALUES ($1, $2::uuid, 'prospect', $3::uuid, 'lead_telefone_alterado', $4, $5, $6::jsonb)`,
+        [req.empresa.id, usuarioId, req.params.id,
+          atual.telefone ? 'com_telefone' : 'sem_telefone',
+          rows[0].telefone ? 'com_telefone' : 'sem_telefone',
+          JSON.stringify({
+            origem: 'banco_leads',
+            telefone_digitos: rows[0].telefone || null,
+            tinha_telefone: !!atual.telefone,
+            tem_whatsapp_resetado: !!efeitos.resetarTemWhatsapp && atual.tem_whatsapp !== null,
+            status_promovido: efeitos.statusNovo || null,
+          })]
+      )
+    }
+
+    await client.query('COMMIT')
+    return res.json({ ok: true, data: rows[0] })
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    return envelopeErro(res, err, 'TELEFONE_UPDATE_FAILED')
+  } finally {
+    client.release()
+  }
 })
 
 // Escapa um campo para CSV pt-BR (separador ';'). Aspas duplicadas; quebra protegida.

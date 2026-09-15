@@ -626,6 +626,82 @@
 - `LEAD_MORTA_DIAS` (default `5`): dias sem resposta para considerar a conversa morta.
 - `LEAD_LOCK_WORKER_MS` (default `3600000`): intervalo do worker de auto-lock.
 
+### Ordem de TRABALHO do Banco de Leads — a fila do vendedor, não o cadastro
+- **Defeito corrigido (relatado pelo operador, 2026-09-15):** a listagem ordenava por
+  `updated_at DESC` no servidor e a tela **reordenava por `pontos ASC`** (cadastro MENOS
+  completo primeiro). As duas juntas produziam o oposto do trabalho: "sem telefone" vale **10
+  dos 100 pontos** de completude (`lead-score-cadastro.js`), então **o lead que não dá para
+  contatar era matematicamente a primeira linha do vendedor**. E `updated_at` sobe a cada
+  escrita — inclusive automática (recoleta, disparo, script de manutenção) —, então o lead que
+  você **acabou de trabalhar** voltava ao topo e o nunca tocado afundava até sair da janela.
+- **"Cadastro fraco primeiro" não é erro: é a régua da AQUISIÇÃO**, onde cadastro fraco é
+  oportunidade (quem não tem site compra site). Ela foi herdada por uma tela cujo trabalho é
+  **falar com gente**. As duas continuam existindo — a antiga virou uma opção em "⚙ Personalizar".
+- **Fonte de verdade única: `src/services/lead-fila-trabalho.js`** (PURO — sem banco, HTTP, IA ou
+  rede). Ele não lê nada: devolve as **expressões SQL** da classificação e o vocabulário. A
+  classificação acontece **UMA vez, dentro da consulta**, e o número volta a ser nome por
+  `faixaPorOrdem`. **Não existe uma segunda implementação em JS, de propósito** — duas réguas
+  divergiriam e a tela passaria a explicar uma ordem diferente da que mostrou.
+- **As 7 faixas, nesta ordem:** `cliente_esperando` (respondeu — a única com alguém do outro
+  lado) · `pronto_enviar` (rascunho gerado) · **`nunca_abordado` (o "ainda não tratado")** ·
+  `abordado_sem_resposta` · `falta_contato` (sem telefone utilizável — trabalho de **completar
+  cadastro**, não de vender) · `em_espera` (reunião marcada ou trava — volta sozinho na data) ·
+  `fora_da_fila` (fechado/recusado).
+- ⚠️ **São DOIS eixos e confundi-los é o erro fácil:** `ordem` é a posição na FILA; a **ordem do
+  array** é a ordem de AVALIAÇÃO do CASE. Quem tem consequência mais forte é testado **antes**,
+  mesmo estando no fim da fila: um lead `fechado` também satisfaz "já foi abordado", e
+  `status='respondeu'` é **grudento** (nada o zera) — sem testar `em_espera` primeiro, todo lead
+  que já respondeu na vida ficaria no topo para sempre, inclusive os que já viraram reunião.
+- **O desempate NÃO é `updated_at`** (foi ele o defeito): é
+  `COALESCE(proximo_agendamento, rodado_em, created_at) ASC` — quem espera há mais tempo primeiro.
+- **`ultimo.rodado_em` cobre as DUAS abordagens** (disparo automático e wa.me manual): as duas
+  gravam em `prospectador.lead_disparos`. Sem isso, o lead abordado na mão voltaria como "não
+  trabalhado".
+- **A janela deixou de ser um recorte invisível.** A listagem devolve no máximo `limit` (300) e a
+  tela pagina DENTRO dela; agora a janela é a dos **mais urgentes** e `meta.total_carteira` traz o
+  total REAL contado no banco, que a tela declara ("Mostrando os 300 mais urgentes de 1.240").
+  **Paginação de servidor continua pendente** (decisão D4): os ~15 filtros do "⚙ Personalizar"
+  são client-side e `score_cadastro` é calculado na LEITURA — movê-los é projeto próprio.
+- **Front:** `frontend/lib/lead-fila-trabalho.js` (+ `.d.ts`/`.test.js`) **só TRADUZ**; guarda de
+  regressão falha se ele passar a ler `status`, `telefone`, `rodado_em`, `mensagem_gerada`,
+  `bloqueado_ate`, `proximo_agendamento` ou `tem_whatsapp`. O padrão das duas tabelas virou
+  `{ chave: 'trabalho' }` = **não reordenar**; clicar num cabeçalho continua reordenando a página
+  e o botão "Voltar à ordem de trabalho" devolve a fila.
+- Testes: `test/lead-fila-trabalho.test.js` (inclui guarda que falha se `updated_at` voltar ao
+  `ORDER BY` da listagem), `frontend/lib/lead-fila-trabalho.test.js`. **Nenhuma variável de
+  ambiente nova, nenhuma migration, nenhuma rota nova.**
+
+### Telefone do lead informado por uma PESSOA ("+ telefone")
+- **Regra:** o "+ telefone" da listagem é o irmão do "+ e-mail" **na aparência**, e outra coisa no
+  conteúdo. E-mail é atributo do cadastro; **telefone é a IDENTIDADE do contato** — follow-up e
+  disponibilidade de canal são chaveados por `empresa_id + telefone_digitos` (migrations 062/066),
+  a agenda casa reunião por telefone, o wa.me e o disparo saem dele, e `vendas.conversas.numero`
+  é UNIQUE **GLOBAL**. Trocar o número não é corrigir um campo: é dizer que o contato é outro.
+- **`PATCH /api/empresas/:empresaId/banco-leads/leads/:id/telefone`** faz três coisas além do
+  UPDATE: (1) **recusa 409** número que já é de outro lead da empresa — dois leads no mesmo
+  número apontariam para a MESMA conversa; (2) **zera `tem_whatsapp`**, que é veredito sobre um
+  NÚMERO (nasce `false` quando o Evolution respondeu `exists:false` para o número **antigo**):
+  carregá-lo manteria o lead em "Descartados" e fora da elegibilidade, e o operador corrigiria o
+  telefone com o lead continuando morto; (3) grava `raw_json.telefone_origem = 'operador'`.
+- **Limpar o telefone é recusado quando o lead JÁ foi abordado** (`ja_abordado`): apagar o número
+  orfanaria a conversa, o follow-up e a reunião criados com ele. Corrigir continua permitido.
+- **O status só PROMOVE** (`coletado` → `contato_encontrado`, a mesma transição de `POST /leads`),
+  nunca rebaixa — rebaixar apagaria trabalho humano.
+- **A recoleta PRESERVA o número digitado** (`prospecting.js`, `salvarProspect`): era
+  `telefone = COALESCE(EXCLUDED.telefone, existente)`, ou seja, o número do Maps vencia a pessoa
+  — mesma classe do defeito D-8. A marca `telefone_origem` **sobrevive ao `raw_json` novo**, senão
+  a coleta seguinte sobrescreveria de novo. O payload do Maps continua guardado para auditoria.
+- **As rotas por id passaram a repetir o recorte da listagem** (`exigirLeadNoRecorte`, **404 nunca
+  403**): `/telefone` e também `/email`, que só conferia `empresa_id` — bastava trocar o id na URL
+  para escrever num lead que a tela não mostra. Mesma disciplina das rotas por id de conversas e
+  instâncias.
+- **Front:** `components/ContatoEditavel.tsx` é a generalização do `EmailEditavel` (que virou um
+  invólucro de vocabulário; as 3 telas que o importavam **não mudaram**). Ele **não valida nada de
+  propósito** — quem tem o banco na mão é o backend, e validar na tela criaria uma segunda régua
+  mais frouxa.
+- Testes: `test/lead-telefone.test.js` (regra pura + guardas que leem o fonte da rota e do
+  upsert). **Nenhuma variável de ambiente nova, nenhuma migration.**
+
 ### Classificação canônica de "site próprio" (transversal — Banco de Leads, Aquisição, Ligações)
 - **Regra de negócio:** `tem_site = true` **somente** quando existe site próprio em **domínio
   independente**. Instagram, Facebook, TikTok, YouTube, WhatsApp/`wa.me`, Google Maps, Perfil da

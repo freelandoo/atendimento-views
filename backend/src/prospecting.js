@@ -1119,7 +1119,16 @@ async function salvarProspect(prospect, contexto = {}) {
     -- services/lead-qualificacao.js). E' o que impede "lead descartado volta por nova
     -- importacao". Mesma disciplina que ja protegia status — nem ele esta neste SET.
     SET nome = EXCLUDED.nome,
-        telefone = COALESCE(EXCLUDED.telefone, prospectador.prospects.telefone),
+        -- Telefone digitado por uma PESSOA vence a coleta automatica (decisao do operador,
+        -- 2026-09-15). Antes a recoleta sobrescrevia com o numero do Maps e o vendedor perdia,
+        -- sem aviso, a correcao que tinha acabado de fazer — mesma classe do defeito D-8
+        -- (COALESCE(EXCLUDED, ...) migrando a instancia gravada na conversa). A marca vem de
+        -- PATCH /leads/:id/telefone; o numero do Maps continua guardado em raw_json.
+        telefone = CASE
+          WHEN COALESCE(prospectador.prospects.raw_json->>'telefone_origem', '') = 'operador'
+            THEN prospectador.prospects.telefone
+          ELSE COALESCE(EXCLUDED.telefone, prospectador.prospects.telefone)
+        END,
         nicho = EXCLUDED.nicho,
         cidade = EXCLUDED.cidade,
         endereco = COALESCE(EXCLUDED.endereco, prospectador.prospects.endereco),
@@ -1136,7 +1145,14 @@ async function salvarProspect(prospect, contexto = {}) {
         END,
         score = COALESCE(EXCLUDED.score, prospectador.prospects.score),
         motivo_score = COALESCE(EXCLUDED.motivo_score, prospectador.prospects.motivo_score),
-        raw_json = EXCLUDED.raw_json,
+        -- A marca telefone_origem sobrevive a recoleta. Sem isto ela seria apagada junto com o
+        -- raw_json antigo e a coleta SEGUINTE voltaria a sobrescrever o numero digitado a mao.
+        -- O payload do Maps (com o telefone que ELE achou) continua guardado para auditoria.
+        raw_json = CASE
+          WHEN COALESCE(prospectador.prospects.raw_json->>'telefone_origem', '') = 'operador'
+            THEN jsonb_set(EXCLUDED.raw_json, '{telefone_origem}', '"operador"'::jsonb, true)
+          ELSE EXCLUDED.raw_json
+        END,
         updated_at = NOW()
     RETURNING *
     `,

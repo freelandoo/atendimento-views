@@ -2636,3 +2636,34 @@ inventar meta em campanha de validacao contamina a leitura.
 - **Disparo automático fica administrativo.** O Comercial recebe no máximo `lead_disparar_semi`; modo automático, limpeza e operação em lote continuam atrás de `lead_disparar_lote`.
 - **Roteiros para Comercial são leitura.** Copiar conteúdo para IA, criar, editar, publicar ou arquivar continuam restritos a quem gerencia roteiros.
 - **Sem migration e sem env nova.** A mudança é de autorização, filtros SQL e apresentação de interface.
+
+## 2026-09-15 — Banco de Leads: ordem de trabalho e telefone editável
+
+- **A ordem passou a ser calculada no BACKEND, sobre o recorte inteiro** (opção A, aprovada pelo
+  operador). Ordenar só no cliente daria uma ordem correta de um recorte errado: a tela recebia
+  os 300 leads escritos mais recentemente e reordenava dentro deles.
+- **A ordem de trabalho é o padrão de TODO MUNDO** (não só do Comercial). As 12 ordenações
+  antigas continuam em "⚙ Personalizar" — ninguém perde capacidade, muda o que aparece primeiro.
+  Duas telas diferentes para o mesmo dado fariam quem gerencia deixar de ver a fila como o
+  vendedor vê.
+- **A classificação vive no SQL, gerada pelo módulo puro** (`sqlFaixaTrabalho`), em vez de uma
+  função JS aplicada depois. Motivo: a ordem precisa valer para a carteira inteira e sobreviver
+  à janela/paginação. O módulo continua sendo o dono da regra — é ele que emite o SQL —, então
+  não existe uma segunda régua. É o mesmo contrato de `ORDEM_SQL_PROSPECTS` (mapa fechado
+  chave→SQL) da Aquisição.
+- **Dívida declarada:** a listagem do Banco de Leads continua devolvendo uma JANELA (300) e
+  paginando no cliente. Com a ordem de trabalho a janela deixou de esconder o urgente, e
+  `meta.total_carteira` passou a declarar o tamanho real. **Paginação de servidor (decisão D4)
+  segue pendente** e não foi feita aqui de propósito: os ~15 filtros do "⚙ Personalizar" são
+  client-side e `score_cadastro` é calculado na LEITURA (o mesmo muro já documentado para
+  `pontos`/`horario` na Aquisição). Movê-los é projeto próprio, e misturá-lo a esta entrega
+  quebraria a regra de não juntar refatoração grande com feature.
+- **Telefone digitado por uma pessoa vence a recoleta** (`raw_json.telefone_origem = 'operador'`).
+  Antes o número do Google Maps sobrescrevia, sem aviso, a correção que o vendedor tinha acabado
+  de fazer — mesma classe do defeito D-8 (a instância gravada na conversa migrando sozinha).
+- **Trocar o telefone ZERA `tem_whatsapp`.** Aquele `false` é veredito sobre o número ANTIGO;
+  carregá-lo faria o lead corrigido continuar em "Descartados" e fora da elegibilidade. É a mesma
+  distinção de `contato_canal_disponibilidade`: "não sei" (NULL) não é "não tem" (false).
+- **`PATCH /leads/:id/email` ganhou o recorte que não tinha.** Estava escopado só por
+  `empresa_id`: bastava trocar o id na URL para escrever num lead fora do escopo de quem pediu.
+  Corrigido junto, por ser a mesma classe e o mesmo helper (404, nunca 403).

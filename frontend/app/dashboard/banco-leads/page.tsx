@@ -4,6 +4,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import { apiFetch, apiDownload, getEmpresaId } from '@/lib/api'
 import { useSession } from '@/lib/useSession'
 import { EmailEditavel } from '@/components/EmailEditavel'
+import { ContatoEditavel } from '@/components/ContatoEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
 import LeadDetalhesModal, { BolinhaCadastro } from '@/components/LeadDetalhesModal'
@@ -15,6 +16,9 @@ import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink } from '@/lib/site-rotulos'
 import { acessosDoLead, type AcessoRapido } from '@/lib/lead-acessos'
 import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
+// A ORDEM DE TRABALHO chega pronta do backend (services/lead-fila-trabalho.js): a lista ja vem
+// ordenada e cada lead traz `faixa_trabalho`. Este modulo so TRADUZ o nome da faixa.
+import { seloFaixa, avisoDeJanela } from '@/lib/lead-fila-trabalho'
 import {
   opcoesEscopo,
   donoDoLead, acoesDeResponsavel,
@@ -33,6 +37,8 @@ type JsonApresLead = JsonApresentacao & {
 }
 type Lead = {
   id: string; origem: string; status: string; nome: string
+  /** Faixa da fila de trabalho, decidida pelo BACKEND. A tela nao reclassifica. */
+  faixa_trabalho?: string | null
   telefone: string | null; email: string | null; instagram_handle: string | null
   nicho: string | null; cidade: string | null; site: string | null
   seguidores: number | null; categoria_perfil: string | null
@@ -324,6 +330,9 @@ function valorColuna(l: Lead, chave: string): number | string {
 }
 
 function ordenarLeads(lista: Lead[], ordem: Ordem, previsoes?: Map<string, PrevisaoEnvio>): Lead[] {
+  // 'trabalho' = a ordem que o servidor já mandou. A tela NÃO reclassifica a fila: fazer isso
+  // aqui a faria divergir da ordem (e da janela) que o backend usou para escolher os leads.
+  if (ordem.chave === 'trabalho') return lista
   return [...lista].sort((a, b) => {
     let cmp: number
     if (ordem.chave === 'envio') {
@@ -379,7 +388,7 @@ const COLUNAS_TOGGLE: { key: string; label: string }[] = [
 ]
 
 const ORDENACOES: { valor: string; label: string }[] = [
-  { valor: 'padrao', label: 'Padrão (da aba / cabeçalho)' },
+  { valor: 'padrao', label: 'Ordem de trabalho (padrão)' },
   { valor: 'pontos_desc', label: 'Maior pontuação primeiro' },
   { valor: 'pontos_asc', label: 'Menor pontuação primeiro' },
   { valor: 'entrou_desc', label: 'Mais recentes primeiro' },
@@ -584,12 +593,18 @@ export default function BancoLeadsPage() {
   const [cooldownS, setCooldownS] = useState<number | null>(null)
   const [flashCron, setFlashCron] = useState(false)
   const cronRef = useRef<HTMLDivElement | null>(null)
+  const [metaLista, setMetaLista] = useState<{ total?: number; total_carteira?: number; limite?: number } | null>(null)
   const [saudacaoOpen, setSaudacaoOpen] = useState(false)
   const [cadastroOpen, setCadastroOpen] = useState(false)
-  // Ordenação independente por tabela — mesmos defaults da Aquisição:
-  // Places = menos pontos no topo; Instagram = mais seguidores no topo.
-  const [ordemPlaces, setOrdemPlaces] = useState<Ordem>({ chave: 'pontos', dir: 'asc' })
-  const [ordemIg, setOrdemIg] = useState<Ordem>({ chave: 'seguidores', dir: 'desc' })
+  // Ordenação independente por tabela. O padrão das duas é 'trabalho' = NÃO reordenar: a lista
+  // já vem do servidor na ordem da fila (respondeu → pronto para enviar → não trabalhado → …).
+  //
+  // O default anterior era 'pontos ASC' (cadastro MENOS completo primeiro), herdado da Aquisição,
+  // onde cadastro fraco é oportunidade. Aqui ele punha na PRIMEIRA linha o lead que não dá para
+  // contatar — "sem telefone" vale -10 pontos. Clicar num cabeçalho continua reordenando a
+  // página; o botão "Ordem de trabalho" devolve a ordem da fila.
+  const [ordemPlaces, setOrdemPlaces] = useState<Ordem>({ chave: 'trabalho', dir: 'asc' })
+  const [ordemIg, setOrdemIg] = useState<Ordem>({ chave: 'trabalho', dir: 'asc' })
   // Detalhes do lead: destino dos campos que saíram das colunas padrão e do JSON, que deixou
   // de ocupar uma coluna da tela de trabalho.
   const [detalheAberto, setDetalheAberto] = useState<Lead | null>(null)
@@ -682,8 +697,11 @@ export default function BancoLeadsPage() {
       // Recorte por RESPONSÁVEL (Etapa 4). Quem decide o que este pedido pode ver é o backend:
       // pedir `todos` sem poder devolve "meus + livres", e o `meta.escopo` diz o que veio.
       if (escopo) p.set('escopo', escopo)
-      const r = await apiFetch<Lead[], { escopo?: string; pode_ver_todos?: boolean }>(`${base}/leads?${p.toString()}`)
+      const r = await apiFetch<Lead[], { escopo?: string; pode_ver_todos?: boolean; total?: number; total_carteira?: number; limite?: number }>(`${base}/leads?${p.toString()}`)
       setLeads(r.data || [])
+      // `total_carteira` é o total REAL do recorte, contado no banco. A listagem devolve uma
+      // janela; sem este número o operador acharia que a carteira tem o tamanho do que veio.
+      setMetaLista(r.meta || null)
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao carregar leads.') }
     finally { setCarregando(false) }
   }, [base, empresaId, aba, origem, mercado, cidadeFiltro, busca, escopo])
@@ -878,6 +896,9 @@ export default function BancoLeadsPage() {
     return view.ordenacao !== 'padrao' ? ordenarPorView(f, view.ordenacao) : ordenarLeads(f, ordemIg, previsoesEnvio)
   }, [leadsCustom, ordemIg, view.ordenacao, previsoesEnvio])
   const totalFiltrado = leadsPlaces.length + leadsIg.length
+  const avisoJanela = useMemo(() => avisoDeJanela(metaLista), [metaLista])
+  // A ordem da fila só vale enquanto ninguém reordenou por cabeçalho ou pelo Personalizar.
+  const ordemManual = view.ordenacao !== 'padrao' || ordemPlaces.chave !== 'trabalho' || ordemIg.chave !== 'trabalho'
   // Recorte de apresentação: pagina DEPOIS de filtrar/ordenar (conjunto completo já pronto).
   const pgPlaces = useMemo(() => paginar(leadsPlaces, paginaPlaces, POR_PAGINA_PADRAO), [leadsPlaces, paginaPlaces])
   const pgIg = useMemo(() => paginar(leadsIg, paginaIg, POR_PAGINA_PADRAO), [leadsIg, paginaIg])
@@ -1263,6 +1284,19 @@ export default function BancoLeadsPage() {
     await apiFetch(`${base}/leads/${id}/email`, { method: 'PATCH', body: JSON.stringify({ email }) })
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, email: email || null } : l)))
     fb.toast(email ? 'E-mail salvo.' : 'E-mail removido.')
+  }
+
+  // "+ telefone" / "editar": quem valida é o backend (formato, duplicidade na empresa) — a
+  // resposta traz o que MUDOU junto (status promovido, `tem_whatsapp` zerado), e o estado local
+  // recebe os três. Atualizar só o telefone deixaria o lead na tela com o selo "sem WhatsApp"
+  // do número ANTIGO, que é justamente o que faz o operador achar que a correção não pegou.
+  async function salvarTelefone(id: string, telefone: string) {
+    const r = await apiFetch<{ id: string; telefone: string | null; status: string; tem_whatsapp: boolean | null }>(
+      `${base}/leads/${id}/telefone`, { method: 'PATCH', body: JSON.stringify({ telefone }) })
+    setLeads((prev) => prev.map((l) => (l.id === id
+      ? { ...l, telefone: r.data.telefone, status: r.data.status, tem_whatsapp: r.data.tem_whatsapp }
+      : l)))
+    fb.toast(r.data.telefone ? 'Telefone salvo.' : 'Telefone removido.')
   }
 
   async function limpar() {
@@ -1692,6 +1726,33 @@ export default function BancoLeadsPage() {
         ))}
       </div>
 
+      {/* A janela da listagem e a ordem em vigor — as duas coisas que o operador não teria como
+          descobrir sozinho. Recortar ou reordenar em silêncio faz a carteira parecer menor do
+          que é e a fila parecer errada. */}
+      {(avisoJanela || ordemManual) && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {avisoJanela && (
+            <span className="px-2 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200">
+              {avisoJanela.texto}
+            </span>
+          )}
+          {ordemManual && (
+            <button
+              onClick={() => {
+                setOrdemPlaces({ chave: 'trabalho', dir: 'asc' })
+                setOrdemIg({ chave: 'trabalho', dir: 'asc' })
+                // A ordenação global do "⚙ Personalizar" também sobrescreve a fila: o botão
+                // precisa desfazer as DUAS, senão ele aparece e não resolve.
+                setView((v) => ({ ...v, ordenacao: 'padrao' }))
+              }}
+              className="px-2 py-1 rounded-lg border border-blue-100 bg-blue-50 text-brand hover:bg-blue-100"
+              title="Volta para a fila: respondeu → pronto para enviar → não trabalhado → sem resposta → falta contato">
+              ↕ Voltar à ordem de trabalho
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Chips de filtros ativos + contagem de resultados */}
       {filtrosAtivos > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -1733,6 +1794,7 @@ export default function BancoLeadsPage() {
               onToggleSel={toggleSel}
               onAbrirConversa={abrirConversa}
               onSalvarEmail={salvarEmail}
+              onSalvarTelefone={salvarTelefone}
               onAbrirDetalhes={setDetalheAberto}
               usuarioId={usuario?.id}
               podeAssumir={podeAssumir}
@@ -1757,6 +1819,7 @@ export default function BancoLeadsPage() {
               onToggleSel={toggleSel}
               onAbrirConversa={abrirConversa}
               onSalvarEmail={salvarEmail}
+              onSalvarTelefone={salvarTelefone}
               onAbrirDetalhes={setDetalheAberto}
               usuarioId={usuario?.id}
               podeAssumir={podeAssumir}
@@ -1868,6 +1931,7 @@ type TabelaProps = {
   onToggleSel: (id: string) => void
   onAbrirConversa: (l: Lead) => void
   onSalvarEmail: (id: string, email: string) => Promise<void>
+  onSalvarTelefone: (id: string, telefone: string) => Promise<void>
   onAbrirDetalhes: (l: Lead) => void
   // CRM em equipe (responsável/carteira). Tudo opcional: as tabelas que ainda não passam continuam
   // funcionando, só sem as colunas novas.
@@ -1908,11 +1972,31 @@ function RodapePaginacaoBanco({ pg, onPagina }: { pg: PaginaLista<Lead>; onPagin
   )
 }
 
-// Célula de status compartilhada (badge + trava + último disparo).
+// Cor é REFORÇO: o rótulo da faixa e a explicação (title) carregam a informação sozinhos.
+const TOM_FAIXA: Record<string, string> = {
+  urgente: 'bg-rose-50 text-rose-700 border-rose-200',
+  pronto: 'bg-amber-50 text-amber-700 border-amber-200',
+  novo: 'bg-blue-50 text-brand border-blue-100',
+  atencao: 'bg-orange-50 text-orange-700 border-orange-200',
+  espera: 'bg-sky-50 text-sky-700 border-sky-200',
+  neutro: 'bg-slate-50 text-slate-600 border-slate-200',
+}
+
+// Célula de status compartilhada (faixa da fila + badge + trava + último disparo).
 function StatusCelula({ l }: { l: Lead }) {
   const locked = isLocked(l)
+  // A faixa explica a POSIÇÃO do lead na fila — sem ela, a ordem nova pareceria arbitrária.
+  // O veredito vem do backend; aqui só se traduz (lib/lead-fila-trabalho.js).
+  const faixa = seloFaixa(l.faixa_trabalho)
   return (
     <td className="px-3 py-2">
+      {faixa && (
+        <div
+          className={`mb-1 inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TOM_FAIXA[faixa.tom] || TOM_FAIXA.neutro}`}
+          title={faixa.dica}>
+          {faixa.rotulo}
+        </div>
+      )}
       <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLE[l.status] || 'bg-slate-100 text-slate-600'}`}>
         {STATUS_LABEL[l.status] || l.status}
       </span>
@@ -1989,7 +2073,7 @@ function IconeWhatsapp({ className = '' }: { className?: string }) {
 // coladas para o mesmo destino. O histórico/conversa do lead abre pelo NOME.
 // Indicadores discretos seguem aqui: ícone de envelope = mensagem aguardando envio;
 // selo verde = WhatsApp verificado; aviso = sem conta WhatsApp (disparo não chegou).
-function TelefoneCelula({ l }: { l: Lead }) {
+function TelefoneCelula({ l, onSalvarTelefone }: { l: Lead; onSalvarTelefone: (id: string, telefone: string) => Promise<void> }) {
   const msgPronta = !!l.mensagem_gerada
   const digitos = String(l.telefone || '').replace(/\D/g, '')
   const textoWa = String(l.mensagem_gerada || '').trim()
@@ -2027,8 +2111,34 @@ function TelefoneCelula({ l }: { l: Lead }) {
           {l.tem_whatsapp === false && (
             <span className="text-[10px] text-slate-400 whitespace-nowrap" title="Disparo não chegou — número sem conta WhatsApp">sem WhatsApp</span>
           )}
+          {/* Corrigir o número: mesmo controle do "+ e-mail". Trocar o telefone ZERA o
+              "sem WhatsApp" no servidor — aquele veredito era sobre o número ANTIGO. */}
+          <ContatoEditavel
+            value={l.telefone}
+            onSave={(telefone) => onSalvarTelefone(l.id, telefone)}
+            rotuloVazio="+ telefone"
+            placeholder="DDD + número"
+            tipo="tel"
+            titulo="Corrigir o telefone deste lead"
+            largura="w-36"
+          >
+            <span className="font-sans text-[10px] text-slate-400 hover:text-blue-700">editar</span>
+          </ContatoEditavel>
         </span>
-      ) : '—'}
+      ) : (
+        /* Sem telefone o lead não entra na fila de abordagem — o "+ telefone" é o trabalho que
+           cabe nele, e é por isso que ele deixou de disputar o topo da lista com quem já pode
+           ser abordado (faixa "Falta contato"). */
+        <ContatoEditavel
+          value={null}
+          onSave={(telefone) => onSalvarTelefone(l.id, telefone)}
+          rotuloVazio="+ telefone"
+          placeholder="DDD + número"
+          tipo="tel"
+          titulo="Adicionar o telefone deste lead"
+          largura="w-36"
+        />
+      )}
     </td>
   )
 }
@@ -2111,7 +2221,7 @@ function SelCelula({ l, selecionados, onToggleSel }: { l: Lead; selecionados: Se
   )
 }
 
-function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onAbrirDetalhes, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver }: TabelaProps) {
+function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onSalvarTelefone, onAbrirDetalhes, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver }: TabelaProps) {
   const n = total ?? leads.length
   return (
     <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
@@ -2158,7 +2268,7 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
                       className="max-w-[220px] text-slate-900 hover:text-brand hover:underline"
                     />
                   </td>
-                  {cols.telefone && <TelefoneCelula l={l} />}
+                  {cols.telefone && <TelefoneCelula l={l} onSalvarTelefone={onSalvarTelefone} />}
                   {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
                   {cols.status && <StatusCelula l={l} />}
                   {cols.responsavel && (
@@ -2184,7 +2294,7 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
   )
 }
 
-function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onAbrirDetalhes, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver }: TabelaProps) {
+function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onSalvarTelefone, onAbrirDetalhes, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver }: TabelaProps) {
   const n = total ?? leads.length
   return (
     <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
@@ -2238,7 +2348,7 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
                   </td>
                 )}
                 {cols.seguidores && <td className="px-3 py-2 text-right text-xs font-semibold">{l.seguidores != null ? l.seguidores.toLocaleString('pt-BR') : '—'}</td>}
-                {cols.telefone && <TelefoneCelula l={l} />}
+                {cols.telefone && <TelefoneCelula l={l} onSalvarTelefone={onSalvarTelefone} />}
                 {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
                 {cols.status && <StatusCelula l={l} />}
                 {cols.responsavel && (
