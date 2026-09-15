@@ -3638,3 +3638,47 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Pedido complementar:** ao clicar em "Abrir conversa" no Banco de Leads, deixar mais clara a alteracao de status para o Comercial, especialmente marcar como fechado rapidamente.
 - **Execucao:** destacar o status atual do lead e a acao de fechar/reabrir dentro do modal de conversa ja existente, usando as rotas atuais do Banco de Leads.
 - **Limite anotado:** Central de Mensagens ainda nao recebeu a mesma acao porque hoje nao carrega `prospect_id`; ligar por telefone poderia alterar o lead errado.
+
+## 2026-09-15 - Inicio de tarefa IA - Banco de Leads: telefone abre WhatsApp, nome abre a conversa
+
+- **IA/Ferramenta:** Claude Code, na `master` atual (`9bbebb8`).
+- **Pedido resumido:** na listagem do Banco de Leads, (1) remover o botao verde de WhatsApp ao
+  lado do telefone; (2) o TELEFONE passa a abrir direto o `wa.me` (o que o botao verde fazia);
+  (3) o NOME passa a abrir o modal de conversa (que hoje abre pelo telefone), deixando de ser
+  link para a ficha do Google Maps; (4) no topo do modal, ao lado do numero, acessos rapidos
+  pequenos (rede social identificada — Instagram/Facebook —, site e ficha no Google Maps);
+  (5) o vazio "Nenhuma conversa encontrada para este contato" fica menor/compacto e junto do
+  aviso de instancia desconectada; (6) os botoes Gerar/Enviar so aparecem depois que o aviso de
+  conexao estiver resolvido.
+- **E projeto/tarefa de alteracao?** Sim — alteracao de UX/apresentacao, sem backend.
+- **Workflow padrao consultado?** Sim: `AGENTS.md`/`CLAUDE.md` no contexto, `docs/ai-workflow.md`
+  e `docs/ui-visual-standard.md` lidos antes de editar.
+- **Plano:** regra PURA nova em `frontend/lib/lead-acessos.js` (+ `.d.ts`/`.test.js`) que monta a
+  lista FECHADA de acessos rapidos a partir do veredito que o backend ja manda; a tela so desenha.
+  Alterar `components/ConversaHistoricoModal.tsx` (cabecalho + vazio compacto + aviso) e
+  `app/dashboard/banco-leads/page.tsx` (celula Telefone e celula Nome).
+- **Cuidados:** nao reimplementar a classificacao de site no front (o botao "Site" so aparece com
+  o veredito `tem_site`+`site` do backend; a marca do link e' so ROTULO); nenhuma rota, migration,
+  variavel de ambiente ou arquivo de backend alterado; nao remover acesso sem caminho equivalente
+  (a ficha do Maps sai do nome e passa a ter acesso no modal e continua em "Detalhes").
+
+## 2026-09-15 - Inicio de tarefa IA - Banco de Leads: ordem de trabalho do vendedor + telefone editavel
+
+- **IA/Ferramenta:** Claude Code, na `master` atual (`9bbebb8`).
+- **Pedido resumido:** (1) ANALISAR como os leads e as informacoes aparecem hoje no Banco de
+  Leads (ordem/prioridade) e por que um lead SEM TELEFONE aparece no topo para o vendedor;
+  (2) propor uma ordem de trabalho que coloque primeiro o que AINDA NAO FOI TRATADO, pensando
+  na rotina de quem abre a tela para trabalhar; (3) permitir ADICIONAR TELEFONE pela listagem,
+  no mesmo padrao do "+ e-mail" ja existente.
+- **E projeto/tarefa de alteracao?** Sim — mas esta etapa e' ANALISE. Nenhum arquivo de codigo
+  foi alterado antes da aprovacao da ordem de prioridade (Fase 6 — arquitetura/regra de negocio).
+- **Workflow padrao consultado?** Sim: `AGENTS.md`/`CLAUDE.md` no contexto, `docs/ai-workflow.md`
+  lido; `docs/ui-visual-standard.md` e `docs/project-architecture.md` a consultar na implementacao.
+- **Achados da analise (resumo):** ordem do backend e' `updated_at DESC` (qualquer escrita, ate
+  automatica, sobe o lead); o front refaz a ordem com `pontos ASC` (cadastro MENOS completo
+  primeiro) sobre uma janela de 300 leads; "sem telefone" vale -10 pontos, entao o lead
+  incontatavel vai para o TOPO. Nao existe nenhum sinal de "ainda nao trabalhado" na ordenacao.
+- **Cuidados declarados:** regra de prioridade e' de NEGOCIO e vai para modulo PURO no backend
+  (a tela so traduz); ordenar so no cliente mantem o teto de 300 e daria ordem falsa; telefone e'
+  a IDENTIDADE do contato (follow-ups, agenda, conversa, wa.me, `contato_canal_disponibilidade`),
+  entao editar telefone nao pode herdar o veredito `tem_whatsapp` do numero antigo.

@@ -13,6 +13,7 @@ import DataTableFrame from '@/components/ui/DataTableFrame'
 import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink } from '@/lib/site-rotulos'
+import { acessosDoLead, type AcessoRapido } from '@/lib/lead-acessos'
 import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
 import {
   opcoesEscopo,
@@ -592,7 +593,7 @@ export default function BancoLeadsPage() {
   // Detalhes do lead: destino dos campos que saíram das colunas padrão e do JSON, que deixou
   // de ocupar uma coluna da tela de trabalho.
   const [detalheAberto, setDetalheAberto] = useState<Lead | null>(null)
-  const [conversaAberta, setConversaAberta] = useState<{ numero: string; titulo: string; leadId: string; mensagemGerada: string | null; rodavel: boolean; status: string } | null>(null)
+  const [conversaAberta, setConversaAberta] = useState<{ numero: string; titulo: string; leadId: string; mensagemGerada: string | null; rodavel: boolean; status: string; acessos: AcessoRapido[] } | null>(null)
   const [enviandoConversa, setEnviandoConversa] = useState(false)
   const [gerandoConversa, setGerandoConversa] = useState(false)
   // Personalizar visualização (colunas + filtros + ordenação; persistida no localStorage)
@@ -627,7 +628,13 @@ export default function BancoLeadsPage() {
   function abrirConversa(l: Lead) {
     const digits = String(l.telefone || '').replace(/\D/g, '')
     if (!digits) { fb.toast('Este lead não tem telefone.', 'info'); return }
-    setConversaAberta({ numero: `${digits}@s.whatsapp.net`, titulo: l.nome || '', leadId: l.id, mensagemGerada: l.mensagem_gerada, rodavel: isRodavel(l), status: l.status })
+    setConversaAberta({
+      numero: `${digits}@s.whatsapp.net`, titulo: l.nome || '', leadId: l.id,
+      mensagemGerada: l.mensagem_gerada, rodavel: isRodavel(l), status: l.status,
+      // Acessos rápidos (rede social / site / ficha no Maps) — a regra é pura e vive em
+      // lib/lead-acessos.js; aqui só se passa o veredito que o backend já mandou no lead.
+      acessos: acessosDoLead(l),
+    })
   }
 
   function query() {
@@ -1789,6 +1796,7 @@ export default function BancoLeadsPage() {
           numero={conversaAberta.numero}
           titulo={conversaAberta.titulo}
           status={conversaAberta.status}
+          acessos={conversaAberta.acessos}
           mensagemGerada={conversaAberta.mensagemGerada}
           podeEnviar={podeEnviarConversa}
           podeGerar={podeGerarConversa}
@@ -1971,10 +1979,13 @@ function IconeWhatsapp({ className = '' }: { className?: string }) {
   )
 }
 
-// Coluna Telefone: número CLICÁVEL (abre a conversa) + indicadores discretos:
-//  ícone de envelope dentro do botão = mensagem gerada aguardando envio;
-//  selo verde = WhatsApp verificado; aviso = sem conta WhatsApp (disparo não chegou).
-function TelefoneCelula({ l, onAbrirConversa }: { l: Lead; onAbrirConversa: (l: Lead) => void }) {
+// Coluna Telefone: número CLICÁVEL que abre DIRETO o WhatsApp (wa.me), levando a mensagem
+// já gerada como rascunho quando ela existe — é o que o antigo botão verde ao lado fazia.
+// O botão saiu: número e botão levavam ao mesmo lugar, e a linha ficava com duas ações
+// coladas para o mesmo destino. O histórico/conversa do lead abre pelo NOME.
+// Indicadores discretos seguem aqui: ícone de envelope = mensagem aguardando envio;
+// selo verde = WhatsApp verificado; aviso = sem conta WhatsApp (disparo não chegou).
+function TelefoneCelula({ l }: { l: Lead }) {
   const msgPronta = !!l.mensagem_gerada
   const digitos = String(l.telefone || '').replace(/\D/g, '')
   const textoWa = String(l.mensagem_gerada || '').trim()
@@ -1985,31 +1996,26 @@ function TelefoneCelula({ l, onAbrirConversa }: { l: Lead; onAbrirConversa: (l: 
     <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
       {l.telefone ? (
         <span className="inline-flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => onAbrirConversa(l)}
-            className={`group -mx-1 inline-flex cursor-pointer flex-col items-start rounded px-1 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${msgPronta ? 'text-amber-700 font-semibold' : 'text-brand'}`}
-            title={msgPronta ? 'Mensagem pronta - clique para abrir a conversa e enviar' : 'Clique para abrir a conversa'}
-            aria-label={`Abrir conversa com ${l.nome} pelo numero ${l.telefone}`}>
-            <span className="inline-flex items-center gap-1">
-              <span className="underline decoration-current underline-offset-2 group-hover:decoration-2">{l.telefone}</span>
-              {msgPronta && <IconSend className="h-3.5 w-3.5 shrink-0 text-brand" aria-hidden="true" />}
-            </span>
-            <span className="font-sans text-[10px] font-medium leading-3 text-slate-500 group-hover:text-brand">
-              Abrir conversa →
-            </span>
-          </button>
-          {waHref && (
+          {waHref ? (
             <a
               href={waHref}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600 transition hover:bg-emerald-100 hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
-              title={textoWa ? 'Abrir no WhatsApp com mensagem pronta' : 'Abrir no WhatsApp'}
-              aria-label={`Abrir ${l.telefone} no WhatsApp${textoWa ? ' com mensagem pronta' : ''}`}
+              className={`group -mx-1 inline-flex flex-col items-start rounded px-1 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${msgPronta ? 'text-amber-700 font-semibold' : 'text-emerald-700'}`}
+              title={textoWa ? 'Abrir no WhatsApp com a mensagem pronta' : 'Abrir no WhatsApp'}
+              aria-label={`Abrir ${l.telefone} no WhatsApp${textoWa ? ' com a mensagem pronta' : ''}`}
             >
-              <IconeWhatsapp className="h-3.5 w-3.5" />
+              <span className="inline-flex items-center gap-1">
+                <IconeWhatsapp className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                <span className="underline decoration-current underline-offset-2 group-hover:decoration-2">{l.telefone}</span>
+                {msgPronta && <IconSend className="h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden="true" />}
+              </span>
+              <span className="font-sans text-[10px] font-medium leading-3 text-slate-500 group-hover:text-emerald-700">
+                {textoWa ? 'Abrir no WhatsApp com a mensagem →' : 'Abrir no WhatsApp →'}
+              </span>
             </a>
+          ) : (
+            <span className="text-slate-600">{l.telefone}</span>
           )}
           {l.tem_whatsapp === true && (
             <span className="h-2 w-2 rounded-full bg-emerald-500" title="WhatsApp verificado" />
@@ -2138,16 +2144,17 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
                 <tr key={l.id} className="hover:bg-slate-50/60 align-top">
                   {mostrarRodar && <SelCelula l={l} selecionados={selecionados} onToggleSel={onToggleSel} />}
                   {cols.entrou && <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{fmtDataHora(l.created_at)}</td>}
+                  {/* O NOME abre a conversa do lead. A ficha do Google Maps não se perdeu:
+                      virou acesso rápido no topo do modal e continua em "Detalhes". */}
                   <td className="px-3 py-2 font-medium">
                     <TextoTruncado
                       texto={l.nome}
-                      href={l.maps_url}
-                      dica={l.maps_url ? 'Ver ficha no Google Maps' : undefined}
-                      className={`max-w-[220px] ${l.maps_url ? 'text-brand hover:underline' : ''}`}
-                      sufixo={l.maps_url ? <span className="text-xs text-slate-400 shrink-0">↗</span> : undefined}
+                      onClick={() => onAbrirConversa(l)}
+                      dica="Abrir a conversa e os acessos rápidos deste lead"
+                      className="max-w-[220px] text-slate-900 hover:text-brand hover:underline"
                     />
                   </td>
-                  {cols.telefone && <TelefoneCelula l={l} onAbrirConversa={onAbrirConversa} />}
+                  {cols.telefone && <TelefoneCelula l={l} />}
                   {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
                   {cols.status && <StatusCelula l={l} />}
                   {cols.responsavel && (
@@ -2207,7 +2214,14 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
               <tr key={l.id} className="hover:bg-slate-50/60 align-top">
                 {mostrarRodar && <SelCelula l={l} selecionados={selecionados} onToggleSel={onToggleSel} />}
                 {cols.entrou && <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{fmtDataHora(l.created_at)}</td>}
-                <td className="px-3 py-2 font-medium text-slate-900 max-w-[200px] truncate" title={l.bio || l.nome}>{l.nome || '—'}</td>
+                <td className="px-3 py-2 font-medium">
+                  <TextoTruncado
+                    texto={l.nome}
+                    onClick={() => onAbrirConversa(l)}
+                    dica="Abrir a conversa e os acessos rápidos deste lead"
+                    className="max-w-[200px] text-slate-900 hover:text-brand hover:underline"
+                  />
+                </td>
                 <td className="px-3 py-2 text-xs">
                   {l.instagram_handle ? (
                     <a href={`https://instagram.com/${l.instagram_handle.replace(/^@/, '')}`} target="_blank" rel="noreferrer"
@@ -2220,7 +2234,7 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
                   </td>
                 )}
                 {cols.seguidores && <td className="px-3 py-2 text-right text-xs font-semibold">{l.seguidores != null ? l.seguidores.toLocaleString('pt-BR') : '—'}</td>}
-                {cols.telefone && <TelefoneCelula l={l} onAbrirConversa={onAbrirConversa} />}
+                {cols.telefone && <TelefoneCelula l={l} />}
                 {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
                 {cols.status && <StatusCelula l={l} />}
                 {cols.responsavel && (

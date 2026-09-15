@@ -5,6 +5,7 @@ import {
   CANAL_OPCOES, PRIORIDADE_OPCOES, montarPayloadProximaAcao, sugerirProximaAcao, validarProximaAcao,
   type FormProximaAcao, type PayloadProximaAcao,
 } from '@/lib/follow-up-acao'
+import type { AcessoRapido } from '@/lib/lead-acessos'
 
 // Modal enxuto do Banco de Leads. Reusa o MESMO endpoint da página de Conversas
 // (GET /api/empresas/:id/conversas/:numero) — sem recriar a lógica de conversa.
@@ -132,9 +133,12 @@ function rotuloEventoStatus(e: StatusEvento): string {
 }
 
 export default function ConversaHistoricoModal({
-  empresaId, leadId, numero, titulo, status, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel, cooldownS, enviando, gerando, onEnviar, onGerar, onAlterarStatus, onClose,
+  empresaId, leadId, numero, titulo, status, acessos, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel, cooldownS, enviando, gerando, onEnviar, onGerar, onAlterarStatus, onClose,
 }: {
   empresaId: string; leadId?: string; numero: string; titulo?: string; status?: string
+  /** Acessos rapidos do lead (rede social, site, ficha no Maps). Chegam PRONTOS de
+      `lib/lead-acessos.js` — este modal so desenha, nao decide o que e' site. */
+  acessos?: AcessoRapido[]
   mensagemGerada?: string | null; podeEnviar?: boolean; podeGerar?: boolean
   motivoEnvioIndisponivel?: string | null
   cooldownS?: number | null; enviando?: boolean; gerando?: boolean
@@ -273,19 +277,40 @@ export default function ConversaHistoricoModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="relative bg-white rounded-2xl shadow-xl max-w-lg w-full flex flex-col max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between px-5 py-3 border-b">
-          <div>
-            <h3 className="font-semibold text-lg">Conversa{titulo ? ` — ${titulo}` : ''}</h3>
-            <p className="text-xs text-slate-500 mt-0.5 font-mono">{fmtNumero(numero)}</p>
+        <div className="flex items-start justify-between gap-3 px-5 py-3 border-b">
+          <div className="min-w-0">
+            <h3 className="truncate font-semibold text-lg">Conversa{titulo ? ` — ${titulo}` : ''}</h3>
+            {/* Numero + acessos rapidos na MESMA linha: o operador confere de onde veio o
+                lead (rede social, site, ficha no Maps) sem sair da conversa. Some quando o
+                lead nao tem link nenhum — cabecalho nao desenha estado vazio. */}
+            <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+              <span className="font-mono text-xs text-slate-500">{fmtNumero(numero)}</span>
+              {(acessos || []).map((a) => (
+                <a
+                  key={a.href}
+                  href={a.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={a.dica}
+                  aria-label={a.dica}
+                  className="inline-flex items-center gap-0.5 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 transition hover:border-brand/40 hover:bg-brand/5 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+                >
+                  {a.rotulo}<span aria-hidden="true" className="text-slate-400">↗</span>
+                </a>
+              ))}
+            </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none" aria-label="Fechar">×</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto bg-gray-50 px-5 py-4 space-y-2 min-h-[160px]">
+        {/* Sem historico, esta area encolhe: o aviso curto fica colado no bloco de acoes
+            (aviso de conexao + status), em vez de empurra-lo para fora da tela com um
+            estado vazio de dez linhas de altura. */}
+        <div className={`flex-1 overflow-y-auto bg-gray-50 px-5 space-y-2 ${vazio && !carregando ? 'py-2 min-h-0' : 'py-4 min-h-[160px]'}`}>
           {carregando ? (
             <p className="text-sm text-center text-gray-500 py-8">Carregando…</p>
           ) : vazio ? (
-            <p className="text-sm text-center text-gray-400 py-10">Nenhuma conversa encontrada para este contato.</p>
+            <p className="text-center text-xs text-slate-400">Nenhuma conversa ainda com este contato.</p>
           ) : (
             historico.map((m, i) => {
               const isUser = m.role === 'user'
@@ -311,7 +336,7 @@ export default function ConversaHistoricoModal({
 
         {(mensagemGerada || onEnviar || onGerar || onAlterarStatus) && (
           <div className="border-t bg-white px-5 py-4 space-y-3">
-            {mensagemGerada ? (
+            {mensagemGerada && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
                 <div className="mb-1 flex items-center justify-between gap-3">
                   <span className="text-xs font-semibold uppercase tracking-wide text-amber-800">Mensagem pronta</span>
@@ -321,20 +346,25 @@ export default function ConversaHistoricoModal({
                   {mensagemGerada}
                 </div>
               </div>
-            ) : motivoEnvioIndisponivel ? (
-              <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            )}
+            {/* O aviso aparece SEMPRE que o envio esta bloqueado — inclusive com a mensagem ja
+                gerada, caso em que antes ele sumia e sobrava so um botao desabilitado sem
+                explicacao. Enquanto ele estiver de pe, Gerar/Enviar nao sao oferecidos: o
+                proximo passo e' resolver a conexao, e botao inerte so convida ao clique. */}
+            {motivoEnvioIndisponivel ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
                 {motivoEnvioIndisponivel}{' '}
                 <a href="/dashboard/contextos" className="font-semibold underline underline-offset-2">Ir para Instância</a>
               </div>
-            ) : podeEnviar ? (
+            ) : !mensagemGerada && podeEnviar ? (
               <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm text-slate-700">
                 A saudação será gerada e enviada agora para este lead.
               </div>
             ) : null}
-            {(onGerar || onEnviar) && (
+            {!motivoEnvioIndisponivel && (onGerar || onEnviar) && (
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className={`text-xs ${motivoEnvioIndisponivel ? 'text-red-700' : cooldownAtivo ? 'text-amber-700' : podeEnviar ? 'text-emerald-700' : podeGerar ? 'text-slate-600' : 'text-slate-400'}`}>
-                  {motivoEnvioIndisponivel || (cooldownAtivo ? `Cooldown ativo: ${fmtMMSS(cooldownS || 0)}` : podeEnviar ? 'Envio liberado' : podeGerar ? 'A mensagem pode ser gerada, mas o envio está indisponível' : 'Envio indisponível para este lead')}
+                <span className={`text-xs ${cooldownAtivo ? 'text-amber-700' : podeEnviar ? 'text-emerald-700' : podeGerar ? 'text-slate-600' : 'text-slate-400'}`}>
+                  {cooldownAtivo ? `Cooldown ativo: ${fmtMMSS(cooldownS || 0)}` : podeEnviar ? 'Envio liberado' : podeGerar ? 'A mensagem pode ser gerada, mas o envio está indisponível' : 'Envio indisponível para este lead'}
                 </span>
                 <div className="inline-flex flex-wrap items-center gap-2">
                   {onGerar && mensagemGerada && (

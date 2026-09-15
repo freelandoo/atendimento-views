@@ -679,8 +679,16 @@
   mandou — não há lista de domínios no front, de propósito. Telas: `banco-leads`, `prospeccao`,
   `central-ligacoes`, `AssistenteOportunidades`. Rótulos: "Tem site próprio" / "Sem site próprio"
   / "Verificar link"; o link não-site continua clicável, rotulado pelo que é.
+- **Acessos rápidos do lead** (`frontend/lib/lead-acessos.js` + `.d.ts`/`.test.js`, PURO):
+  monta a lista FECHADA de links que viram pílula no topo do modal de conversa do Banco de
+  Leads — rede social com a marca reconhecida (Instagram/Facebook), site próprio e ficha no
+  Maps. Ele **também não classifica site**: o botão "Site" só nasce com `tem_site` **e** `site`
+  preenchidos pelo backend (link duvidoso chega com `site` vazio e por isso **não** vira botão
+  de site), e a detecção de marca escolhe apenas a **palavra** do botão de um link que o backend
+  já classificou como não-site. Só `http(s)` vira `href`. Guarda de regressão no teste falha se
+  uma lista de domínios de classificação aparecer no módulo.
 - Nenhuma variável de ambiente nova. Testes: `test/site-classificacao.test.js`,
-  `test/reclassificar-sites.test.js`.
+  `test/reclassificar-sites.test.js`, `frontend/lib/lead-acessos.test.js`.
 
 ### Central de Follow-ups — FILA ÚNICA de ações (as abas viraram filtros)
 - Página admin multiempresa em `frontend/app/dashboard/follow-ups`, exposta pela rota

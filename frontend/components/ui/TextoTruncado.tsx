@@ -31,6 +31,9 @@ export type TextoTruncadoProps = {
   className?: string
   /** Quando presente, renderiza como link (ex.: ficha do Google Maps) em vez de span. */
   href?: string | null
+  /** Quando presente (e sem `href`), renderiza como BOTAO — ex.: o nome do lead que abre a
+      conversa. Mantem o mesmo truncamento e o mesmo tooltip do span/link. */
+  onClick?: () => void
   /** Elemento à direita do texto, fora da área truncada (ex.: ícone "↗"). */
   sufixo?: React.ReactNode
   /** Linha extra no tooltip e no title explicando a ação do link (ex.: "Ver ficha no Google Maps"). */
@@ -40,7 +43,7 @@ export type TextoTruncadoProps = {
 }
 
 export default function TextoTruncado({
-  texto, className = '', href, sufixo, dica, vazio = '—',
+  texto, className = '', href, onClick, sufixo, dica, vazio = '—',
 }: TextoTruncadoProps) {
   const textoRef = useRef<HTMLSpanElement | null>(null)
   const gatilhoRef = useRef<HTMLElement | null>(null)
@@ -136,6 +139,16 @@ export default function TextoTruncado({
         >
           {miolo}
         </a>
+      ) : onClick ? (
+        <button
+          type="button"
+          ref={(el) => { gatilhoRef.current = el }}
+          onClick={onClick}
+          className={`inline-flex min-w-0 items-center gap-1 rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${className}`}
+          {...eventos}
+        >
+          {miolo}
+        </button>
       ) : (
         <span
           ref={(el) => { gatilhoRef.current = el }}

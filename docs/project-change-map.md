@@ -714,3 +714,36 @@ Ajuste sobre a entrega imediatamente abaixo, apos revisao de UX/operacao.
 - Regra preservada: a escrita continua usando as rotas existentes do Banco de Leads (`POST /leads/:id/fechar` e `/reabrir`), sem criar status novo e sem mexer no contrato de conversa.
 - Central de Mensagens: ainda nao recebeu a mesma acao de status de lead porque a listagem trabalha com `numero`/conversa e nao traz `prospect_id`. Para evitar atualizar lead errado por telefone, essa expansao deve criar primeiro um contrato backend claro entre conversa e lead.
 - Validacao: frontend `npm run typecheck` limpo e `npm test -- --runInBand` 432/432.
+
+## 2026-09-15 - Banco de Leads: telefone abre o WhatsApp, nome abre a conversa
+
+- Areas alteradas: `frontend/app/dashboard/banco-leads/page.tsx` (celulas Telefone e Nome das
+  DUAS tabelas), `frontend/components/ConversaHistoricoModal.tsx` (cabecalho, vazio e aviso),
+  `frontend/components/ui/TextoTruncado.tsx` (modo BOTAO, novo `onClick`) e o modulo PURO novo
+  `frontend/lib/lead-acessos.js` (+ `.d.ts`/`.test.js`).
+- O que mudou na linha: o botao verde redondo de WhatsApp SAIU — numero e botao levavam ao mesmo
+  destino. O TELEFONE passou a ser esse link (`wa.me`, com `text=` da mensagem pronta quando
+  existe) e o NOME passou a abrir o modal de conversa, que antes abria pelo telefone. O nome
+  deixou de ser link para a ficha do Google Maps.
+- Nada de acesso foi perdido: a ficha do Maps virou acesso rapido no topo do modal e continua em
+  "Detalhes". Lead sem telefone mostra o numero sem link (antes o botao simplesmente nao existia).
+- Acessos rapidos no topo do modal (pilulas pequenas ao lado do numero): rede social com a MARCA
+  reconhecida (Instagram/Facebook), site proprio e ficha no Maps. A lista e FECHADA e vem pronta
+  de `lib/lead-acessos.js`; o modal so desenha.
+- Regra a preservar: `lead-acessos.js` NAO classifica site. O botao "Site" so nasce com
+  `tem_site` E `site` preenchidos pelo backend (link duvidoso chega com `site` vazio e nao vira
+  botao de site); a deteccao de marca escolhe apenas a PALAVRA do botao de um link que o backend
+  ja classificou como nao-site. Guarda de regressao em `lib/lead-acessos.test.js` falha se uma
+  lista de dominios de classificacao aparecer no modulo. So http(s) vira href.
+- Aviso de conexao: passou a aparecer SEMPRE que o envio esta bloqueado — inclusive com mensagem
+  ja gerada, caso em que antes ele sumia e sobrava um botao desabilitado sem explicacao. Enquanto
+  ele estiver de pe, "Gerar de novo"/"Enviar" NAO sao renderizados (antes apareciam desabilitados).
+- Consequencia declarada e aceita: com a instancia desconectada, "Gerar de novo" tambem deixa de
+  ser oferecido dentro deste modal. Gerar sem conexao continua possivel pelos outros caminhos
+  (Semi/lote) e a mensagem ja gerada segue copiavel em "Detalhes".
+- Vazio da conversa: "Nenhuma conversa encontrada para este contato" virou "Nenhuma conversa ainda
+  com este contato", em texto pequeno, e a area de mensagens encolhe quando nao ha historico — o
+  aviso de conexao e o bloco de status ficam colados, em vez de empurrados para fora da tela.
+- Sem migration, sem env nova, sem rota nova, nenhum arquivo de backend alterado.
+- Validacao: frontend `npm test` 442/442 (8 novos em `lead-acessos.test.js`) e `npm run typecheck` limpo; backend `npm test`
+  1893/1895 (as 2 falhas conhecidas de 429 em `core.test.js`, alheias a esta mudanca).
