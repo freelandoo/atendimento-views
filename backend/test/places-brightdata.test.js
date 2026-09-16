@@ -84,3 +84,41 @@ test('normalizarCidadeParaGeocode limpa "Cidade - UF"', () => {
   assert.equal(normalizarCidadeParaGeocode('São Paulo - SP'), 'São Paulo, SP')
   assert.equal(normalizarCidadeParaGeocode('Rio de Janeiro,RJ'), 'Rio de Janeiro, RJ')
 })
+
+// ─── O registro CRU da fonte e' preservado, e o adaptador nao adivinha mais ───────────────
+
+test('adaptarRegistroParaPlace preserva o registro cru inteiro', () => {
+  const p = adaptarRegistroParaPlace(REGISTRO_SEM_SITE)
+  assert.deepEqual(p.fonte_bruta, REGISTRO_SEM_SITE)
+  // Campo que o adaptador NAO mapeia continua alcancavel pelo bruto — e' exatamente esse o
+  // ponto: descobrir o nome real de um campo depois da coleta, sem pagar a coleta de novo.
+  assert.equal(p.fonte_bruta.cid, '12553704197977609267')
+})
+
+test('o classificador de atividade le o lead adaptado pelo registro cru', () => {
+  const { calcularAtividadeGoogle } = require('../src/services/google-business-activity')
+  const p = adaptarRegistroParaPlace({
+    ...REGISTRO_SEM_SITE,
+    reviews: [{ review_date: '2026-09-01T10:00:00Z' }],
+  })
+
+  const atividade = calcularAtividadeGoogle(p, { agora: '2026-09-16T12:00:00Z' })
+  assert.equal(atividade.faixa, 'ativo_recente')
+})
+
+test('GUARDA: o adaptador nao chuta nome de campo de data', () => {
+  // Ate' 2026-09-16 saia daqui `latestReviewDate: r.latest_review_date || r.last_review_date
+  // || r.reviews_last_updated || r.last_review_at`. Quatro grafias para o mesmo campo e' um
+  // chute, e o chute custava uma coleta PAGA para ser desmentido. Quem sabe o que e' data de
+  // atividade e' services/google-business-activity.js, que le `fonte_bruta`.
+  const fonte = require('node:fs').readFileSync(
+    require.resolve('../src/services/places-brightdata'), 'utf8'
+  )
+  const codigo = fonte.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+
+  assert.ok(!/latestReviewDate/.test(codigo), 'adaptador voltou a inventar latestReviewDate')
+  assert.ok(
+    !/reviews_last_updated|last_review_at|last_review_date/.test(codigo),
+    'adaptador voltou a chutar grafias de campo de data'
+  )
+})

@@ -15,7 +15,38 @@ const CAMPOS_DATA_REVIEW = [
 const CAMPOS_DATA_RAIZ = [
   'latestReviewDate', 'latest_review_date', 'lastReviewDate', 'last_review_date',
   'reviews_last_updated', 'reviewsLastUpdated', 'last_review_at', 'latest_review_at',
+  'last_updated', 'lastUpdated', 'updated_at', 'updatedAt', 'last_seen', 'lastSeen',
 ]
+
+// Nomes possiveis da colecao de avaliacoes. A fonte (Bright Data) nao publica contrato
+// estavel, entao a lista vive AQUI — o dono do vocabulario de atividade — e nao espalhada
+// pelo adaptador, que antes chutava quatro grafias de data por conta propria.
+const CAMPOS_COLECAO_REVIEWS = ['reviews', 'google_reviews', 'reviews_data', 'top_reviews']
+const CAMPOS_COLECAO_FOTOS = ['photos', 'photos_and_videos']
+
+// Onde o registro CRU da fonte fica preservado dentro do lead (ver places-brightdata.js).
+// Guardar o bruto e' o que permite descobrir o nome real de um campo DEPOIS da coleta, sem
+// pagar a coleta de novo.
+const CHAVE_FONTE_BRUTA = 'fonte_bruta'
+
+/**
+ * Todos os objetos onde vale procurar um sinal, do mais especifico para o mais generico.
+ *
+ * Existe porque o mesmo lead chega em tres formas diferentes: o `place` adaptado (coleta), a
+ * linha do banco (`raw_json`) e o registro cru da fonte (`fonte_bruta`). Procurar em um so'
+ * fazia o classificador responder "sem sinal" sobre um lead cujo dado estava a um nivel de
+ * distancia — e "sem sinal" aqui vira descarte.
+ */
+function fontesDeDados(input) {
+  const raw = input && typeof input === 'object' ? input : {}
+  const rj = raw.raw_json && typeof raw.raw_json === 'object' ? raw.raw_json : {}
+  const candidatos = [raw, rj, raw[CHAVE_FONTE_BRUTA], rj[CHAVE_FONTE_BRUTA]]
+  const fontes = []
+  for (const c of candidatos) {
+    if (c && typeof c === 'object' && !fontes.includes(c)) fontes.push(c)
+  }
+  return fontes
+}
 
 function dataValida(valor) {
   if (valor == null || valor === '') return null
@@ -59,15 +90,14 @@ function statusGoogleConhecido(valor) {
 }
 
 function normalizarStatusGoogle(input = {}) {
-  const raw = input && typeof input === 'object' ? input : {}
-  const rj = raw.raw_json && typeof raw.raw_json === 'object' ? raw.raw_json : {}
-  if (raw.permanently_closed === true || rj.permanently_closed === true) return 'fechado_permanente'
-  if (raw.temporarily_closed === true || rj.temporarily_closed === true) return 'fechado_temporario'
+  const fontes = fontesDeDados(input)
+  for (const f of fontes) if (f.permanently_closed === true) return 'fechado_permanente'
+  for (const f of fontes) if (f.temporarily_closed === true) return 'fechado_temporario'
+  // `businessStatus` antes de `status`: `status` no prospect e' o funil interno
+  // ('aguardando', 'enviado'...) e nunca fala do Google.
   const status = primeiroTexto(
-    statusGoogleConhecido(raw.businessStatus),
-    statusGoogleConhecido(rj.businessStatus),
-    statusGoogleConhecido(rj.status),
-    statusGoogleConhecido(raw.status)
+    ...fontes.map((f) => statusGoogleConhecido(f.businessStatus)),
+    ...fontes.map((f) => statusGoogleConhecido(f.status))
   )
   if (status) return status
   return 'desconhecido'
@@ -81,13 +111,6 @@ function datasDeObjeto(obj, campos) {
     if (d) datas.push(d)
   }
   return datas
-}
-
-function arrayEm(...candidatos) {
-  for (const c of candidatos) {
-    if (Array.isArray(c)) return c
-  }
-  return []
 }
 
 function datasDeColecao(itens) {
@@ -114,32 +137,30 @@ function numero(valor) {
 }
 
 function temHorario(input = {}) {
-  const raw = input && typeof input === 'object' ? input : {}
-  const rj = raw.raw_json && typeof raw.raw_json === 'object' ? raw.raw_json : {}
-  return !!(
-    raw.regularOpeningHours || raw.currentOpeningHours || raw.open_hours ||
-    rj.regularOpeningHours || rj.currentOpeningHours || rj.open_hours
+  return fontesDeDados(input).some(
+    (f) => !!(f.regularOpeningHours || f.currentOpeningHours || f.open_hours)
   )
 }
 
+function colecaoEm(input, campos) {
+  for (const f of fontesDeDados(input)) {
+    for (const campo of campos) {
+      if (Array.isArray(f[campo]) && f[campo].length) return f[campo]
+    }
+  }
+  return []
+}
+
 function contarFotos(input = {}) {
-  const raw = input && typeof input === 'object' ? input : {}
-  const rj = raw.raw_json && typeof raw.raw_json === 'object' ? raw.raw_json : {}
-  const fotos = arrayEm(raw.photos, raw.photos_and_videos, rj.photos, rj.photos_and_videos)
-  return fotos.length
+  return colecaoEm(input, CAMPOS_COLECAO_FOTOS).length
 }
 
 function ultimaAtividadeGoogle(input = {}) {
-  const raw = input && typeof input === 'object' ? input : {}
-  const rj = raw.raw_json && typeof raw.raw_json === 'object' ? raw.raw_json : {}
-  const reviews = arrayEm(raw.reviews, raw.google_reviews, rj.reviews, rj.google_reviews)
-  const fotos = arrayEm(raw.photos, raw.photos_and_videos, rj.photos, rj.photos_and_videos)
-  return maiorData([
-    ...datasDeObjeto(raw, CAMPOS_DATA_RAIZ),
-    ...datasDeObjeto(rj, CAMPOS_DATA_RAIZ),
-    ...datasDeColecao(reviews),
-    ...datasDeColecao(fotos),
-  ])
+  const datas = []
+  for (const f of fontesDeDados(input)) datas.push(...datasDeObjeto(f, CAMPOS_DATA_RAIZ))
+  datas.push(...datasDeColecao(colecaoEm(input, CAMPOS_COLECAO_REVIEWS)))
+  datas.push(...datasDeColecao(colecaoEm(input, CAMPOS_COLECAO_FOTOS)))
+  return maiorData(datas)
 }
 
 function calcularAtividadeGoogle(input = {}, opts = {}) {
@@ -147,7 +168,11 @@ function calcularAtividadeGoogle(input = {}, opts = {}) {
   const status = normalizarStatusGoogle(input)
   const ultima = ultimaAtividadeGoogle(input)
   const dias = diasDesde(ultima, agora)
-  const reviews = numero(input.userRatingCount ?? input.avaliacoes ?? input.reviews_count ?? input.raw_json?.userRatingCount ?? input.raw_json?.reviews_count) || 0
+  let reviews = 0
+  for (const f of fontesDeDados(input)) {
+    const n = numero(f.userRatingCount ?? f.avaliacoes ?? f.reviews_count)
+    if (n != null) { reviews = n; break }
+  }
   const fotos = contarFotos(input)
   const horario = temHorario(input)
 
@@ -237,6 +262,9 @@ function calcularAtividadeGoogle(input = {}, opts = {}) {
 module.exports = {
   SEIS_MESES_DIAS,
   UM_ANO_DIAS,
+  CHAVE_FONTE_BRUTA,
+  CAMPOS_COLECAO_REVIEWS,
+  fontesDeDados,
   dataValida,
   normalizarStatusGoogle,
   statusGoogleConhecido,

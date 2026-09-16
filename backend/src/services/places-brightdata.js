@@ -88,6 +88,10 @@ async function estadoBuscaMaps(snapshotId) {
   return status
 }
 
+// A chave vem do classificador de atividade: ele e' o dono do vocabulario e o unico
+// consumidor do registro bruto. Duplicar o literal aqui deixaria os dois divergirem.
+const { CHAVE_FONTE_BRUTA } = require('./google-business-activity')
+
 // Converte 1 registro da Bright Data no shape do Google Places (para reusar mapearPlace).
 function adaptarRegistroParaPlace(r) {
   if (!r || typeof r !== 'object') return null
@@ -111,11 +115,22 @@ function adaptarRegistroParaPlace(r) {
     types: Array.isArray(r.all_categories) ? r.all_categories : [],
     // Campos usados pelo score de cadastro (lead-score-cadastro):
     photos: Array.isArray(r.photos_and_videos) ? r.photos_and_videos : [],
-    reviews: Array.isArray(r.reviews) ? r.reviews : [],
-    latestReviewDate: r.latest_review_date || r.last_review_date || r.reviews_last_updated || r.last_review_at || null,
     permanently_closed: r.permanently_closed === true,
     temporarily_closed: r.temporarily_closed === true,
     regularOpeningHours: r.open_hours && typeof r.open_hours === 'object' ? r.open_hours : null,
+    // O registro CRU da fonte, preservado INTEIRO e sem interpretacao.
+    //
+    // Antes daqui saia `latestReviewDate: r.latest_review_date || r.last_review_date ||
+    // r.reviews_last_updated || r.last_review_at`. Quatro grafias para o mesmo campo e' o
+    // formato de um chute, e o custo do chute errado e' alto: a coleta e' PAGA, o campo nao
+    // mapeado era descartado na hora, e descobrir o nome real exigia pagar tudo de novo.
+    // Medido em 2026-09-16: dos 4.631 leads em producao, ZERO tinham data de atividade — e o
+    // snapshot que os originou ja havia expirado na Bright Data, entao nao havia como conferir.
+    //
+    // Guardar o bruto troca "adivinhar antes" por "descobrir depois, de graca". Quem sabe o
+    // que e' data de atividade e' o classificador (services/google-business-activity.js), que
+    // le esta chave; o adaptador nao decide mais isso.
+    [CHAVE_FONTE_BRUTA]: r,
   }
 }
 

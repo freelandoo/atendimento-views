@@ -2780,3 +2780,47 @@ inventar meta em campanha de validacao contamina a leitura.
   URL vinda de Follow-ups e exigiria tratar campanha inexistente) e a PAGINA tambem nao (um efeito
   ja existente volta para a pagina 1 quando filtro, busca ou aba mudam - restaura-la seria
   desfeito no ciclo seguinte).
+
+## 2026-09-16 - Atividade do lead: guardar o registro CRU em vez de adivinhar o campo
+
+- **Fato medido, nao hipotese.** Medicao read-only em producao (4.631 prospects, 200 de
+  `Energia Solar` coletados em 11/09 em Goiania-GO): **ZERO leads** tem data de atividade no
+  `raw_json` - nem `reviews` com data, nem `latest_review_date`, nem `permanently_closed`.
+  As chaves gravadas sao so as 14 do shape Places antigo. Consequencia direta: a regra de 6
+  meses de `calcularAtividadeGoogle` **nunca e avaliada** (`dias_desde_atividade = null`), e
+  196 dos 200 solares caem em `ativo_sem_data`.
+- **Decisao 1 - o adaptador PAROU de chutar nome de campo.** Ate hoje `places-brightdata.js`
+  fazia `latestReviewDate: r.latest_review_date || r.last_review_date || r.reviews_last_updated
+  || r.last_review_at`. Quatro grafias para o mesmo campo e o formato de um chute, e o chute
+  saia caro: a coleta e PAGA, o campo nao mapeado era descartado na hora, e o snapshot de 11/09
+  (`sd_mtx7x5wu1kp1gxpw5f`) **ja havia expirado** na Bright Data - ou seja, nao havia mais como
+  conferir o contrato sem pagar tudo de novo. O adaptador agora preserva o registro cru inteiro
+  em `fonte_bruta`, sem interpretar.
+- **Decisao 2 - quem sabe o que e data de atividade e o CLASSIFICADOR.** As listas de nomes
+  (`CAMPOS_DATA_RAIZ`, `CAMPOS_COLECAO_REVIEWS`, `CAMPOS_COLECAO_FOTOS`) e a chave
+  `CHAVE_FONTE_BRUTA` vivem em `services/google-business-activity.js`, que e o dono do
+  vocabulario; o adaptador importa a chave em vez de repetir o literal. Espalhar a lista pelos
+  dois faria os dois divergirem - o mesmo padrao de defeito de `!!(lead.site || lead.tem_site)`
+  espalhado por 7 pontos antes da migration 056.
+- **Decisao 3 - fotos como URL em texto NAO viram data.** O registro real da Bright Data traz
+  `photos_and_videos` como array de STRINGS. Se a varredura passasse a extrair data dali, todo
+  lead com foto viraria `ativo_recente` sem nenhuma prova de recencia - um falso positivo que
+  contamina justamente a decisao de descarte. Ha teste cobrando isso.
+- **Decisao 4 - descartar so por FATO DECLARADO, nunca por ausencia de dado.**
+  `scripts/descartar-leads-fechados.js` age exclusivamente sobre `permanently_closed` /
+  `temporarily_closed` / `businessStatus`. Concluir "inativo" a partir de "sem data" repetiria a
+  classe de defeito que este repositorio ja removeu duas vezes (o fallback da PJ no webhook, a
+  escolha de instancia por `atualizado_em`): inventar veredito onde nao ha prova.
+- **Decisao 5 - decisao humana nao e sobreposta em lote.** Lead `aprovado` por uma pessoa e
+  PULADO e apenas relatado (`--incluir-aprovados` existe, mas nao e o padrao). Na execucao de
+  2026-09-16, 1 lead caiu nesse caso. Pelo mesmo motivo `--temporarios` nao e padrao: negocio
+  fechado temporariamente pode reabrir e a recoleta **nunca promove um descartado de volta**
+  (`qualificacaoAoRecoletar`). O operador decidiu incluir os temporarios nesta execucao.
+- **Decisao 6 - o descarte em lote e auditavel.** Cada linha alterada gera um evento em
+  `app.auditoria_eventos` (`lead_descartado_fechado_no_google`) com o estado anterior, dentro da
+  MESMA transacao. Sem migration nova (o `contexto` e JSONB livre) e sem PII. `qualificado_por`
+  fica NULO: nao houve usuario, foi manutencao - inventar um autor seria mentir sobre quem
+  decidiu. **Resultado da execucao:** 40 leads descartados (25 permanentes + 15 temporarios).
+- **Pendencia declarada:** continua sem prova de que a Bright Data devolve data de review. A
+  recoleta paga de Goiania foi autorizada pelo operador; `fonte_bruta` e o que garante que ela
+  respondera a pergunta **mesmo se os nomes de campo forem outros**, sem uma segunda coleta.

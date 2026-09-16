@@ -867,3 +867,19 @@ Ajustes sobre o adendo imediatamente acima, depois de medir o comportamento real
 - **Recorte de trabalho por 30 min:** novo `frontend/lib/filtros-sessao.js` (+ `.d.ts`/`.test.js`),
   consumido por Banco de Leads, Aquisicao, Captacao e Central de Ligacoes. Follow-ups nao precisou:
   os filtros dela ja persistem. Detalhes e motivos em `docs/ai-decision-log.md`.
+
+## 2026-09-16 - Atividade do lead e descarte por fechamento declarado
+
+- `backend/src/services/google-business-activity.js`: dono do vocabulario de atividade. Novos
+  `CHAVE_FONTE_BRUTA`, `CAMPOS_COLECAO_REVIEWS`, `CAMPOS_COLECAO_FOTOS` e `fontesDeDados`, que
+  varre o lead em TRES formas (place adaptado, `raw_json` do banco, `fonte_bruta` crua). Regra a
+  preservar: **nunca concluir recencia sem data**; foto como URL em texto nao e data.
+- `backend/src/services/places-brightdata.js`: o adaptador **nao adivinha mais** nome de campo de
+  data - preserva o registro cru em `fonte_bruta`. Guarda de regressao em
+  `test/places-brightdata.test.js` falha se `latestReviewDate` ou as grafias chutadas voltarem.
+- `backend/scripts/descartar-leads-fechados.js` (novo): correcao historica. Simula por padrao,
+  grava com `--aplicar`, em lotes com keyset e um COMMIT por lote. Sem chamada externa. Reusa
+  `calcularAtividadeGoogle` - **nao tem criterio proprio**, de proposito.
+- Regra a preservar: `qualificacao` so e escrita por decisao humana ou por fato declarado pela
+  fonte. Ausencia de dado nunca vira descarte.
+- Nenhuma migration, nenhuma rota, nenhuma variavel de ambiente nova, nenhum arquivo de frontend.
