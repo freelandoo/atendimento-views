@@ -30,6 +30,7 @@ const HISTORICO_MAX = 400
 // decidida aqui por `site preenchido`: um Instagram no campo derrubava justamente o lead
 // mais qualificado da campanha. Quem decide é o classificador canônico.
 const { temSiteProprio } = require('./site-classificacao')
+const { calcularAtividadeGoogle } = require('./google-business-activity')
 
 // Ausente é ausente: `Number(null)` é 0, e tratar "sem nota" como nota 0 (ou "cadastro
 // desconhecido" como cadastro fraco) inflaria justamente os leads sobre os quais não
@@ -59,6 +60,7 @@ function caracteristicasDoLead(lead = {}) {
   const temSite = temSiteProprio(lead)
   const temTelefone = !!texto(lead.telefone)
   const temEmail = !!texto(lead.email)
+  const atividadeGoogle = calcularAtividadeGoogle(lead)
 
   return {
     site: temSite ? 'com_site' : 'sem_site',
@@ -71,6 +73,7 @@ function caracteristicasDoLead(lead = {}) {
     cadastro: cadastro == null
       ? 'cadastro_desconhecido'
       : cadastro <= 40 ? 'cadastro_fraco' : cadastro <= 70 ? 'cadastro_medio' : 'cadastro_forte',
+    atividade_google: atividadeGoogle.faixa,
     nicho: chaveNicho(lead.nicho) || 'sem_nicho',
   }
 }
@@ -79,6 +82,14 @@ function caracteristicasDoLead(lead = {}) {
 // Pontos e o motivo legível de cada um. O motivo é o que o operador lê quando a IA
 // não responde — por isso ele nasce aqui, não no prompt.
 const REGRAS_BASE = [
+  { quando: (c) => c.atividade_google === 'fechado', pontos: -120, motivo: 'Perfil do Google marcado como fechado — alto risco de energia perdida.' },
+  { quando: (c) => c.atividade_google === 'fechado_temporario', pontos: -80, motivo: 'Perfil do Google marcado como fechado temporariamente.' },
+  { quando: (c) => c.atividade_google === 'abertura_futura', pontos: -35, motivo: 'Perfil ainda aparece como abertura futura no Google.' },
+  { quando: (c) => c.atividade_google === 'atividade_antiga', pontos: -25, motivo: 'Sem atividade pública recente no Google.' },
+  { quando: (c) => c.atividade_google === 'possivelmente_inativo', pontos: -18, motivo: 'Poucos sinais de operação recente no Google.' },
+  { quando: (c) => c.atividade_google === 'ativo_recente', pontos: 18, motivo: 'Perfil teve atividade pública recente no Google.' },
+  { quando: (c) => c.atividade_google === 'atividade_morna', pontos: 4, motivo: 'Teve atividade no Google, mas já passou de 6 meses.' },
+  { quando: (c) => c.atividade_google === 'ativo_sem_data', pontos: 3, motivo: 'Tem sinais públicos de operação no Google.' },
   { quando: (c) => c.contato === 'com_telefone', pontos: 15, motivo: 'Tem telefone para abordagem direta.' },
   { quando: (c) => c.site === 'sem_site', pontos: 30, motivo: 'Não tem site próprio — a dor digital é evidente.' },
   { quando: (c) => c.cadastro === 'cadastro_fraco', pontos: 25, motivo: 'Cadastro fraco no Maps: muito espaço para melhorar.' },

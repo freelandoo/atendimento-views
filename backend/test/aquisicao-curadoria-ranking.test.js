@@ -45,6 +45,7 @@ test('característica é sempre faixa — nunca o valor cru do lead', () => {
   assert.equal(c.nota, 'nota_alta')
   assert.equal(c.avaliacoes, 'muitas_avaliacoes')
   assert.equal(c.cadastro, 'cadastro_fraco')
+  assert.equal(c.atividade_google, 'ativo_sem_data')
   assert.equal(c.nicho, 'dentista')
 
   // Nenhum valor cru vaza para o vetor: é ele que vai para a IA e para o banco.
@@ -64,6 +65,11 @@ test('faixas de borda não escorregam', () => {
   assert.equal(caracteristicasDoLead(lead({ score_cadastro: 41 })).cadastro, 'cadastro_medio')
   assert.equal(caracteristicasDoLead(lead({ score_cadastro: 71 })).cadastro, 'cadastro_forte')
   assert.equal(caracteristicasDoLead(lead({ score_cadastro: null })).cadastro, 'cadastro_desconhecido')
+  assert.equal(caracteristicasDoLead(lead({ businessStatus: 'CLOSED_PERMANENTLY' })).atividade_google, 'fechado')
+  assert.equal(
+    caracteristicasDoLead(lead({ reviews: [{ publishTime: '2026-08-01T10:00:00Z' }] })).atividade_google,
+    'ativo_recente'
+  )
 })
 
 test('site preenchido conta como "com site" mesmo com tem_site falso', () => {
@@ -83,6 +89,16 @@ test('lead sem telefone pontua menos que o mesmo lead com telefone', () => {
   const com = pontuarBase(caracteristicasDoLead(lead()))
   const sem = pontuarBase(caracteristicasDoLead(lead({ telefone: null })))
   assert.ok(com.pontos > sem.pontos)
+})
+
+test('perfil fechado perde prioridade mesmo quando os outros sinais parecem bons', () => {
+  const aberto = pontuarLead(lead({ businessStatus: 'OPERATIONAL', reviews: [{ publishTime: '2026-08-01T10:00:00Z' }] }))
+  const fechado = pontuarLead(lead({ businessStatus: 'CLOSED_PERMANENTLY', reviews: [{ publishTime: '2026-08-01T10:00:00Z' }] }))
+
+  assert.equal(fechado.caracteristicas.atividade_google, 'fechado')
+  assert.ok(aberto.pontos > fechado.pontos)
+  assert.equal(fechado.pontos, 0)
+  assert.ok(fechado.motivos.some((m) => /fechado/i.test(m)))
 })
 
 test('sem histórico não existe aprendizado — a fila é só a base', () => {

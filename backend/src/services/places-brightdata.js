@@ -111,6 +111,10 @@ function adaptarRegistroParaPlace(r) {
     types: Array.isArray(r.all_categories) ? r.all_categories : [],
     // Campos usados pelo score de cadastro (lead-score-cadastro):
     photos: Array.isArray(r.photos_and_videos) ? r.photos_and_videos : [],
+    reviews: Array.isArray(r.reviews) ? r.reviews : [],
+    latestReviewDate: r.latest_review_date || r.last_review_date || r.reviews_last_updated || r.last_review_at || null,
+    permanently_closed: r.permanently_closed === true,
+    temporarily_closed: r.temporarily_closed === true,
     regularOpeningHours: r.open_hours && typeof r.open_hours === 'object' ? r.open_hours : null,
   }
 }

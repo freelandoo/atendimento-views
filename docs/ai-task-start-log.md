@@ -3760,3 +3760,16 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Cuidados:** manter compatibilidade com `tenka-v1-1` ja persistido; trocar rotulos publicos
   para "ICP geral v1.1"; concentrar a leitura da linha em "ICP + cadastro" para evitar selo
   duplicado e confusao entre score de cadastro e score comercial.
+
+## 2026-09-16 - Complemento da tarefa IA - Atividade do Google no score de aquisicao
+
+- **Pedido resumido:** evitar gastar energia com leads provavelmente inativos na busca de leads,
+  usando sinais publicos do Perfil da Empresa/Google Maps: fechado deve derrubar forte; atividade
+  recente deve aquecer; sinais fracos reduzem prioridade sem descartar automaticamente.
+- **E projeto/tarefa de alteracao?** Sim, regra de score/ordem de trabalho. Sem migration, sem
+  rota nova, sem dependencia nova e sem chamada externa nova.
+- **Workflow padrao consultado?** Sim: manter regra sensivel no backend/modulos puros, com
+  explicacao auditavel para a operacao.
+- **Cuidados:** nao prometer prova absoluta de negocio ativo; usar status `CLOSED_*` como
+  penalidade forte; tratar ausencia de data como alerta; preservar decisao humana de aprovar ou
+  descartar no ICP.

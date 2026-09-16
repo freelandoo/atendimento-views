@@ -7,6 +7,7 @@ const { enviarMensagem, classificarErroEvolution, verificarStatusInstanciaEvolut
 const { registrarEnvioNoHistorico } = require('./services/historico-envio')
 const { calcularScoreCadastroPlaces, montarJsonApresentacaoPlaces } = require('./services/lead-score-cadastro')
 const { classificarUrl, classificarLead } = require('./services/site-classificacao')
+const { calcularAtividadeGoogle } = require('./services/google-business-activity')
 const { qualificacaoInicial, qualificacaoDaDecisao, sqlAbordavel } = require('./services/lead-qualificacao')
 const { logger } = require('./logger')
 const { candidatosTelefoneBR } = require('./telefone-br')
@@ -245,6 +246,7 @@ function calcularScoreProspect(place) {
   let score = 50
   const rating = Number(place.rating || 0)
   const reviews = Number(place.userRatingCount || 0)
+  const atividadeGoogle = calcularAtividadeGoogle(place)
   // Regra canonica: um link de Instagram/Linktree na ficha do Maps NAO e' site — este
   // lead continua valendo os 22 pontos de "sem presenca propria".
   const temSite = classificarUrl(place.websiteUri).tem_site
@@ -256,6 +258,7 @@ function calcularScoreProspect(place) {
   if (reviews >= 20) score += 6
   if (reviews >= 100) score += 4
   if (place.businessStatus && place.businessStatus !== 'OPERATIONAL') score -= 30
+  score += atividadeGoogle.pontos
 
   return Math.max(0, Math.min(100, score))
 }
@@ -268,6 +271,7 @@ function motivoScore(place) {
   if (place.userRatingCount) partes.push(`${place.userRatingCount} reviews`)
   if (place.internationalPhoneNumber || place.nationalPhoneNumber) partes.push('telefone disponivel')
   if (place.businessStatus && place.businessStatus !== 'OPERATIONAL') partes.push('status nao operacional')
+  partes.push(...calcularAtividadeGoogle(place).motivos)
   return partes.join(' | ') || 'dados basicos encontrados'
 }
 
@@ -363,6 +367,7 @@ function calcularScoreV2(prospect) {
     (prospect.raw_json && typeof prospect.raw_json === 'object' ? prospect.raw_json.businessStatus : '') ||
     ''
   const operacional = !rawBusinessStatus || rawBusinessStatus === 'OPERATIONAL'
+  const atividadeGoogle = calcularAtividadeGoogle(prospect)
   if (operacional) {
     urgencia += 10
   } else {
@@ -397,7 +402,10 @@ function calcularScoreV2(prospect) {
 
   const score_v2 = Math.max(
     0,
-    Math.min(100, presenca_digital + reputacao + potencial_conversao + urgencia + fit_solucao - penalidade)
+    Math.min(
+      100,
+      presenca_digital + reputacao + potencial_conversao + urgencia + fit_solucao + atividadeGoogle.pontos - penalidade
+    )
   )
 
   let classificacao
@@ -414,9 +422,12 @@ function calcularScoreV2(prospect) {
       potencial_conversao,
       urgencia,
       fit_solucao,
+      atividade_google: atividadeGoogle.pontos,
+      atividade_google_faixa: atividadeGoogle.faixa,
+      ultima_atividade_google_em: atividadeGoogle.ultima_atividade_em,
     },
     classificacao,
-    motivos,
+    motivos: [...motivos, ...atividadeGoogle.motivos],
   }
 }
 
@@ -1031,6 +1042,10 @@ function mapearPlace(place) {
   // link do Perfil da Empresa. `site` so' recebe site PROPRIO; o link cru vai para
   // `link_original` (auditoria) e a categoria para `classificacao_url`.
   const url = classificarUrl(place.websiteUri)
+  const atividadeGoogle = calcularAtividadeGoogle(place)
+  const rawJson = place && typeof place === 'object'
+    ? { ...place, atividade_google: atividadeGoogle }
+    : { atividade_google: atividadeGoogle }
   return {
     place_id: place.id || '',
     nome: textoDisplayName(place.displayName),
@@ -1048,7 +1063,7 @@ function mapearPlace(place) {
     score: calcularScoreProspect(place),
     motivo_score: motivoScore(place),
     tem_site: url.tem_site,
-    raw_json: place && typeof place === 'object' ? place : {},
+    raw_json: rawJson,
   }
 }
 

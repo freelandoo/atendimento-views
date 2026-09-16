@@ -2693,3 +2693,16 @@ inventar meta em campanha de validacao contamina a leitura.
 - **Impacto:** Banco de Leads e Aquisicao concentram a leitura em `ICP + cadastro`; a coluna
   extra de resumo ICP fica fora do padrao visual, e o modal de Detalhes consolida cadastro como
   evidencia da ficha ICP.
+
+### Adendo - atividade do Google como penalidade auditavel
+
+- **Decisao:** atividade recente do Perfil Google entra como dimensao de score, nao como filtro
+  duro. A fila fica mais inteligente, mas o operador ainda pode aprovar excecoes.
+- **Por que:** perfil marcado como fechado ou sem sinal recente tende a consumir energia comercial
+  sem retorno. Ao mesmo tempo, ausencia de data confiavel nao prova fechamento; por isso so reduz
+  prioridade quando nao ha status fechado.
+- **Regra:** `CLOSED_PERMANENTLY` e `CLOSED_TEMPORARILY` geram penalidade forte; review/foto
+  recente aquece; mais de 1 ano esfria; sinais sem data somam pouco; falta total de sinal tira
+  ponto moderado.
+- **Limite assumido:** a regra usa campos publicos ja trazidos pelo provedor de busca. Nao faz
+  scraping extra nem promete confirmar operacao em tempo real.

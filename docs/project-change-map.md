@@ -819,3 +819,18 @@ Ajuste sobre a entrega imediatamente abaixo, apos revisao de UX/operacao.
   de coleta listados como evidencias para a validacao humana.
 - **Personalizacao:** a coluna extra de resumo ICP fica desligada no padrao, porque a coluna
   `ICP + cadastro` ja mostra a leitura principal.
+
+### Adendo score - atividade do Perfil Google
+
+- **Novo modulo puro:** `backend/src/services/google-business-activity.js` classifica atividade
+  publica do Google em faixas (`ativo_recente`, `atividade_morna`, `ativo_sem_data`,
+  `atividade_antiga`, `possivelmente_inativo`, `fechado`, `fechado_temporario`) e devolve pontos,
+  motivos e ultima atividade conhecida.
+- **Busca/Aquisicao:** `calcularScoreProspect`, `motivoScore`, `calcularScoreV2` e `mapearPlace`
+  passam a considerar o sinal de atividade. O snapshot bruto do lead salva `atividade_google`
+  dentro de `raw_json`, para auditoria/explicacao.
+- **Ranking humano:** `aquisicao-curadoria-ranking.js` adiciona `atividade_google` ao vetor de
+  caracteristicas categorizadas. Perfil fechado tira muitos pontos; atividade recente soma; sinais
+  mornos/sem data pesam pouco; atividade antiga/inatividade derrubam a ordem sem impedir aprovacao.
+- **Coleta Bright Data:** o adaptador preserva reviews e datas de review quando o provedor
+  entregar esses campos, permitindo identificar atividade recente sem nova chamada externa.
