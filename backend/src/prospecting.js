@@ -4139,8 +4139,15 @@ async function registrarResultadoBuscaAutomatica(snapshot, novosProspects) {
 
 // Política de desistência do worker: sem isso, uma coleta que nunca fica 'ready' seria
 // consultada para sempre — e, pior, seguraria a trava de "uma coleta por empresa".
-const BUSCA_MAX_TENTATIVAS = 40          // ~40 ticks de 60s acompanhando o mesmo snapshot
-const BUSCA_MAX_IDADE_MIN = 180          // 3h é muito acima do tempo normal (minutos)
+//
+// O limite REAL é a idade. As tentativas são só rede de segurança para um tick que rode
+// mais rápido que o previsto. Medido em 2026-09-16: com `40` (= 40 ticks de 60s ~ 40 min)
+// era sempre ele quem cortava, muito antes dos 180 min que o comentário declarava — uma
+// coleta de `Energia Solar`/Goiânia que ficou pronta em 40,4 min foi encerrada como
+// `falhou` com 262 registros PAGOS e prontos do outro lado. Dois limites para a mesma
+// decisão, e quem cortava não era o que estava escrito.
+const BUSCA_MAX_TENTATIVAS = 200         // ~200 ticks de 60s; folga sobre a idade abaixo
+const BUSCA_MAX_IDADE_MIN = 180          // 3h — este é o limite de desistência de verdade
 const RESERVA_ORFA_MAX_MIN = 10          // reserva sem snapshot_id = trigger que não completou
 
 // Encerra uma busca em falha, liberando a trava da empresa e avisando quem a originou.
@@ -4190,15 +4197,16 @@ async function processarBuscasPlacesPendentes(limit = 5) {
       continue
     }
 
-    // Desistência por idade ou tentativas.
-    if (idadeMin >= BUSCA_MAX_IDADE_MIN || Number(snap.tentativas || 0) >= BUSCA_MAX_TENTATIVAS) {
-      await encerrarBuscaComFalha(
-        snap,
-        `expirada apos ${Math.round(idadeMin)} min e ${snap.tentativas || 0} tentativas`
-      ).catch(() => {})
-      expirados += 1
-      continue
-    }
+    // A desistência é DECIDIDA aqui e APLICADA só depois de perguntar o estado do job.
+    //
+    // Ela ficava antes da consulta, e era o defeito: um snapshot já `ready` é dado PAGO e
+    // pronto do outro lado, e encerrá-lo por idade/tentativas joga fora exatamente o que se
+    // pagou para ter — sem nunca perguntar. Desistir só faz sentido de uma coleta que ainda
+    // NÃO terminou. Uma coleta pronta é materializada por mais velha que seja.
+    const deveDesistir =
+      idadeMin >= BUSCA_MAX_IDADE_MIN || Number(snap.tentativas || 0) >= BUSCA_MAX_TENTATIVAS
+    const motivoDesistencia =
+      `expirada apos ${Math.round(idadeMin)} min e ${snap.tentativas || 0} tentativas`
 
     await pool.query(
       `UPDATE prospectador.busca_snapshots SET tentativas = tentativas + 1, updated_at = NOW() WHERE id = $1`,
@@ -4208,6 +4216,11 @@ async function processarBuscasPlacesPendentes(limit = 5) {
     try {
       const status = await placesBrightData.estadoBuscaMaps(snap.snapshot_id)
       if (status === 'running' || status === 'building' || status === 'collecting' || status === 'pending') {
+        if (deveDesistir) {
+          await encerrarBuscaComFalha(snap, motivoDesistencia).catch(() => {})
+          expirados += 1
+          continue
+        }
         if (snap.status !== 'processando') {
           await pool.query(`UPDATE prospectador.busca_snapshots SET status = 'processando', updated_at = NOW() WHERE id = $1`, [snap.id])
         }
@@ -4217,7 +4230,14 @@ async function processarBuscasPlacesPendentes(limit = 5) {
         await encerrarBuscaComFalha(snap, `bright_data:${status}`)
         continue
       }
-      if (status !== 'ready') continue // estado desconhecido — espera o próximo tick
+      if (status !== 'ready') {
+        // Estado desconhecido — espera o próximo tick, mas sem esperar para sempre.
+        if (deveDesistir) {
+          await encerrarBuscaComFalha(snap, `${motivoDesistencia} (ultimo estado: ${status})`).catch(() => {})
+          expirados += 1
+        }
+        continue
+      }
 
       if (snap.rotina_id) await rotinasDb.marcarImportando(pool, snap.rotina_id).catch(() => {})
 
@@ -4269,6 +4289,14 @@ async function processarBuscasPlacesPendentes(limit = 5) {
       processados += 1
       logger.info({ operation: 'places_brightdata', etapa: 'materializado', snapshotId: snap.snapshot_id, leads: Array.isArray(salvos) ? salvos.length : 0 }, 'busca concluída')
     } catch (e) {
+      // Erro ao consultar/baixar. Também precisa de fim: sem isto, um snapshot cuja consulta
+      // falha SEMPRE nunca alcançaria o ramo de desistência acima e seguraria a trava da
+      // empresa para sempre.
+      if (deveDesistir) {
+        await encerrarBuscaComFalha(snap, `${motivoDesistencia} (ultimo erro: ${String(e.message || '').slice(0, 120)})`).catch(() => {})
+        expirados += 1
+        continue
+      }
       logger.warn({ operation: 'places_brightdata', etapa: 'worker_erro', snapshotId: snap.snapshot_id, erro: e.message }, 'snapshot re-tenta no próximo tick')
     }
   }

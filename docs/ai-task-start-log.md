@@ -3944,3 +3944,23 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Cuidados:** nao sobrescrever handle ja confirmado em recoleta; busca CSE continua acao humana
   por clique; ICP humano pode marcar o criterio, mas a tela explicita que o sistema so verifica o
   que estiver registrado.
+
+## 2026-09-16 - Tarefa IA - Coleta paga perdida pelo teto de tentativas do worker
+
+- **Pedido resumido:** verificar a Busca avulsa de `Energia Solar`/`Goiania - GO` disparada pelo
+  operador. Achado: a coleta CONCLUIU na Bright Data (`ready`, 262 registros, 0 erros, duracao
+  ~40,4 min), mas o worker ja havia encerrado o snapshot como `falhou` ao bater
+  `BUSCA_MAX_TENTATIVAS = 40` (40 ticks de 60s ~ 40 min). Coleta paga coletada e descartada.
+- **E projeto/tarefa de alteracao?** Sim. Duas frentes: (a) recuperar o snapshot ja pago, que
+  segue `ready` na Bright Data; (b) corrigir a incoerencia entre os dois limites de desistencia.
+- **Escopo previsto:** `BUSCA_MAX_TENTATIVAS`/`BUSCA_MAX_IDADE_MIN` em `src/prospecting.js` e o
+  caminho de reabertura de snapshot. NAO inclui nova coleta paga nem mudanca no classificador.
+- **Cuidados:** o snapshot pode expirar (o anterior expirou e virou 404), entao o dado ja foi
+  baixado e preservado em disco antes de qualquer mudanca; reabrir snapshot e' ESCRITA em
+  producao e depende de autorizacao do operador; `BUSCA_MAX_IDADE_MIN` (180 min) e
+  `BUSCA_MAX_TENTATIVAS` (40 ticks = 40 min) se contradizem — o comentario do codigo declara 3h
+  como limite real, mas quem corta e' sempre o de tentativas.
+- **Validado sem escrever nada:** o classificador `calcularAtividadeGoogle` foi rodado contra os
+  262 registros reais pelos tres caminhos (cru, adaptado e linha de banco) com resultado
+  IDENTICO: 205/262 com `dias_desde_atividade`, via `top_reviews[].review_date`. O filtro de 6
+  meses deixou de ser hipotese.
