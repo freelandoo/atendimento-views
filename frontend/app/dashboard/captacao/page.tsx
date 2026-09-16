@@ -8,6 +8,13 @@ import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import { IconEnvelope, IconPlay } from '@/components/ui/icons'
 import { BolinhaCadastro } from '@/components/LeadDetalhesModal'
+import { aplicarRecorte, gravarFiltros, lerFiltros } from '@/lib/filtros-sessao'
+
+// Recorte de TRABALHO desta tela: aba, busca, mercado, cidade e a ordenação escolhida. Vive em
+// sessionStorage por 30 min (lib/filtros-sessao), morre com a aba e não vai a banco. Esta tela
+// não guardava nada — atualizar a página devolvia tudo ao padrão.
+const TELA_RECORTE = 'captacao'
+const RECORTE_PADRAO = { aba: 'entrada', busca: '', mercado: '', cidadeFiltro: '', ordemChave: 'seguidores', ordemDir: 'desc' }
 
 type CampanhaMeta = {
   perfis_semente?: string[]
@@ -136,6 +143,9 @@ export default function CaptacaoPage() {
   const [carregando, setCarregando] = useState(false)
   const [progresso, setProgresso] = useState<number | null>(null)
   const [emailConfigurado, setEmailConfigurado] = useState(false)
+  // Falso até o recorte guardado ser lido: sem isto a tela buscaria com o filtro padrão e logo
+  // depois com o restaurado.
+  const [recortePronto, setRecortePronto] = useState(false)
 
   // Barra neon (mesma do login/Places): sobe enquanto qualquer coleta/processamento
   // roda (carregando) e completa em 100% ao terminar.
@@ -198,7 +208,7 @@ export default function CaptacaoPage() {
   }, [base, empresaId])
 
   const carregarLeads = useCallback(async () => {
-    if (!empresaId) return
+    if (!empresaId || !recortePronto) return
     try {
       const p = new URLSearchParams({ aba })
       if (busca.trim()) p.set('busca', busca.trim())
@@ -207,15 +217,36 @@ export default function CaptacaoPage() {
       const r = await apiFetch<Lead[]>(`${base}/leads?${p.toString()}`)
       setLeads(r.data || [])
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao carregar leads.') }
-  }, [base, aba, busca, mercado, cidadeFiltro, empresaId])
+  }, [base, aba, busca, mercado, cidadeFiltro, empresaId, recortePronto])
 
   const carregarFiltrosMercado = useCallback(async () => {
-    if (!empresaId) return
+    if (!empresaId || !recortePronto) return
     try {
       const r = await apiFetch<FiltrosMercado>(`${base}/filtros?aba=${encodeURIComponent(aba)}`)
       setFiltrosMercado(r.data || null)
     } catch { /* apoio visual; filtros digitados continuam funcionando */ }
-  }, [base, aba, empresaId])
+  }, [base, aba, empresaId, recortePronto])
+
+  // Recorte de trabalho: hidrata UMA vez, em efeito (nunca no valor inicial do estado, que
+  // também roda no servidor, onde não existe sessionStorage).
+  useEffect(() => {
+    const salvo = lerFiltros(TELA_RECORTE, empresaId)
+    if (salvo) {
+      const r = aplicarRecorte(RECORTE_PADRAO, salvo)
+      setAba(r.aba)
+      setBusca(r.busca)
+      setMercado(r.mercado)
+      setCidadeFiltro(r.cidadeFiltro)
+      setOrdem({ chave: r.ordemChave, dir: r.ordemDir === 'asc' ? 'asc' : 'desc' })
+    }
+    setRecortePronto(true)
+  }, [empresaId])
+  useEffect(() => {
+    if (!recortePronto) return
+    gravarFiltros(TELA_RECORTE, empresaId, {
+      aba, busca, mercado, cidadeFiltro, ordemChave: ordem.chave, ordemDir: ordem.dir,
+    })
+  }, [recortePronto, empresaId, aba, busca, mercado, cidadeFiltro, ordem])
 
   useEffect(() => { carregarMeta() }, [carregarMeta])
   useEffect(() => { carregarLeads() }, [carregarLeads])

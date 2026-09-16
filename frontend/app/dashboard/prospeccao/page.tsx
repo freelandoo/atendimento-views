@@ -15,6 +15,7 @@ import HistoricoColetas from '@/components/HistoricoColetas'
 import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
 import { IconGear, IconUndo } from '@/components/ui/icons'
 import { resumoIntervalo, POR_PAGINA_PADRAO } from '@/lib/paginacao'
+import { aplicarRecorte, gravarFiltros, lerFiltros } from '@/lib/filtros-sessao'
 import {
   FILTROS_STATUS, contagensDosFiltros, taxaResposta, paginaServidor, type PaginaServidor,
 } from '@/lib/prospeccao-listagem'
@@ -175,6 +176,17 @@ function opcoesMercado(filtros: FiltrosMercado | null): OpcaoFiltroMercado[] {
 const ID_MODOS = 'modo'
 const MODO_PADRAO: ModoAquisicao = 'busca'
 const CHAVE_MODO = 'prospeccaoModo'
+
+// Recorte de TRABALHO: status, busca, mercado, cidade, ordenação e página. Vive em
+// sessionStorage por 30 min (lib/filtros-sessao), morre com a aba e não vai a banco. É outro
+// eixo que `prospeccaoView` (localStorage, permanente: colunas e filtros do "Personalizar") e
+// que `prospeccaoModo` (Busca × Rotinas, que também está na URL). Três coisas distintas, com
+// durações distintas — juntá-las faria preferência evaporar ou recorte de hoje voltar amanhã.
+const AQ_TELA_RECORTE = 'aquisicao'
+const AQ_RECORTE_PADRAO = {
+  filtro: '', buscaDados: '', mercado: '', cidadeFiltro: '',
+  ordemChave: 'pontos', ordemDir: 'asc', pagina: 1, abaResultado: 'desempenho',
+}
 const ABAS_MODO: Aba[] = [
   { id: 'busca', titulo: 'Busca', descricao: 'Encontrar, configurar e revisar leads de uma coleta.' },
   { id: 'rotinas', titulo: 'Rotinas', descricao: 'Configurar, acompanhar e revisar execuções automáticas.' },
@@ -279,6 +291,9 @@ export default function ProspeccaoPage() {
   // página não refaz requisição, não reordena e não muda filtro nenhum.
   const [pagina, setPagina] = useState(1)
   const [carregandoLista, setCarregandoLista] = useState(false)
+  // Falso até o recorte guardado ser lido. Também é o que evita a lista sair duas vezes quando
+  // a `view` do localStorage é restaurada logo antes.
+  const [recortePronto, setRecortePronto] = useState(false)
   const listaSeqRef = useRef(0)
   const [persAberto, setPersAberto] = useState(false)
   const [view, setView] = useState<ViewAquisicao>(AQ_VIEW_PADRAO)
@@ -316,6 +331,31 @@ export default function ProspeccaoPage() {
     if (!viewRestauradaRef.current) return
     try { localStorage.setItem(AQ_CHAVE_VIEW, JSON.stringify({ ...view, versao: AQ_VIEW_VERSAO })) } catch {}
   }, [view])
+
+  // Recorte de trabalho: hidrata UMA vez, em efeito. Declarado DEPOIS do restore da `view`
+  // de propósito: efeitos rodam na ordem de declaração, então quando `recortePronto` vira
+  // verdadeiro a view já foi restaurada e a lista sai UMA vez, com tudo no lugar.
+  useEffect(() => {
+    const salvo = lerFiltros(AQ_TELA_RECORTE, empresaId)
+    if (salvo) {
+      const r = aplicarRecorte(AQ_RECORTE_PADRAO, salvo)
+      setFiltro(r.filtro)
+      setBuscaDados(r.buscaDados)
+      setMercado(r.mercado)
+      setCidadeFiltro(r.cidadeFiltro)
+      setOrdem({ chave: r.ordemChave, dir: r.ordemDir === 'desc' ? 'desc' : 'asc' })
+      setPagina(r.pagina > 0 ? r.pagina : 1)
+      setAbaResultado(r.abaResultado)
+    }
+    setRecortePronto(true)
+  }, [empresaId])
+  useEffect(() => {
+    if (!recortePronto) return
+    gravarFiltros(AQ_TELA_RECORTE, empresaId, {
+      filtro, buscaDados, mercado, cidadeFiltro,
+      ordemChave: ordem.chave, ordemDir: ordem.dir, pagina, abaResultado,
+    })
+  }, [recortePronto, empresaId, filtro, buscaDados, mercado, cidadeFiltro, ordem, pagina, abaResultado])
 
   // Troca de modo: só apresentação. Nenhuma requisição sai daqui — `carregar`,
   // `carregarBuscas` e o painel de rotinas não dependem de `modo`.
@@ -370,7 +410,7 @@ export default function ProspeccaoPage() {
 
   // A LISTA é uma página do servidor: muda com filtro, ordenação e página.
   function carregarLista() {
-    if (!empresaId) return
+    if (!empresaId || !recortePronto) return
     const p = filtrosAtuais()
     if (filtro) p.set('status', filtro)
     p.set('limit', String(POR_PAGINA_PADRAO))
@@ -392,7 +432,7 @@ export default function ProspeccaoPage() {
   // O RESUMO (contagens, desempenho) não depende da página nem da ordenação — só do recorte.
   // Separado da lista de propósito: virar página não pode disparar quatro requisições.
   function carregarResumo() {
-    if (!empresaId) return
+    if (!empresaId || !recortePronto) return
     // Contagens dos filtros de status: mesmo recorte da lista, MENOS o status — ele escolhe
     // qual contagem olhar, não o universo.
     apiFetch<Metricas>(`/api/empresas/${empresaId}/prospeccao/metricas?${filtrosAtuais().toString()}`)
@@ -406,15 +446,15 @@ export default function ProspeccaoPage() {
   // Recarrega tudo: usado quando um lead muda de status ou uma coleta termina.
   function carregar() { carregarLista(); carregarResumo() }
 
-  useEffect(() => { carregarLista() }, [empresaId, filtro, buscaDados, mercado, cidadeFiltro, view, pagina, ordem.chave, ordem.dir])
-  useEffect(() => { carregarResumo() }, [empresaId, buscaDados, mercado, cidadeFiltro, view])
+  useEffect(() => { carregarLista() }, [empresaId, recortePronto, filtro, buscaDados, mercado, cidadeFiltro, view, pagina, ordem.chave, ordem.dir])
+  useEffect(() => { carregarResumo() }, [empresaId, recortePronto, buscaDados, mercado, cidadeFiltro, view])
   useEffect(() => {
-    if (!empresaId) return
+    if (!empresaId || !recortePronto) return
     const p = new URLSearchParams()
     if (filtro) p.set('status', filtro)
     apiFetch<FiltrosMercado>(`/api/empresas/${empresaId}/prospeccao/filtros?${p.toString()}`)
       .then((r) => setFiltrosMercado(r.data || null)).catch(() => {})
-  }, [empresaId, filtro])
+  }, [empresaId, recortePronto, filtro])
 
   // A busca da Aquisição é ASSÍNCRONA (Bright Data Maps, ~minutos). Aqui acompanhamos o
   // andamento: quando uma busca que estava rodando fica 'concluido'/'falhou', avisa e

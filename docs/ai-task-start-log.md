@@ -3773,3 +3773,83 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Cuidados:** nao prometer prova absoluta de negocio ativo; usar status `CLOSED_*` como
   penalidade forte; tratar ausencia de data como alerta; preservar decisao humana de aprovar ou
   descartar no ICP.
+
+## 2026-09-16 - Complemento da tarefa IA - Autosave do ICP nos Detalhes
+
+- **Pedido resumido:** remover o botao manual de salvar ICP no modal de Detalhes. Ao marcar
+  criterios ou escrever observacao, a ficha deve salvar sozinha, sem exigir um segundo clique.
+- **E projeto/tarefa de alteracao?** Sim, refinamento de UX com escrita existente. Sem migration,
+  sem rota nova, sem dependencia nova e sem mudanca de permissao.
+- **Execucao:** autosave com debounce em `LeadDetalhesModal`, indicador de salvando/salvo/erro,
+  controle de corrida para a ultima alteracao vencer e observacao tambem no snapshot atual
+  `icp_resumo_json`.
+- **Cuidados:** nao disparar salvamento ao apenas abrir o modal; preservar a regra backend de que
+  apenas Lead A autoqualifica; manter o historico append-only da avaliacao.
+
+## 2026-09-16 - Continuacao - Defeitos do autosave do ICP (sessao interrompida)
+
+- **Pedido resumido:** concluir a leva de autosave do ICP que ficou sem validacao final, e
+  antes de fechar, revisar o comportamento real do salvamento automatico.
+- **E projeto/tarefa de alteracao?** Sim, correcao de defeito dentro da leva ja aberta. Sem
+  migration, sem rota nova, sem env nova, sem mudanca de permissao.
+- **Defeitos encontrados na analise (nao eram hipoteses, sao efeitos do codigo atual):**
+  1. `aplicarLeadAtualizado` reescreve o `lead` do modal a cada salvamento; o efeito de reset
+     depende de `lead.icp_avaliado_em`/`lead.icp_score`, entao ele roda logo apos cada save e
+     devolve o estado para o do servidor.
+  2. Consequencia direta: o aviso "ICP salvo" e apagado no mesmo ciclo em que aparece, ou seja,
+     o operador perde o botao e nao recebe confirmacao nenhuma.
+  3. Consequencia mais cara: o que for digitado na observacao durante a ida e volta da
+     requisicao e sobrescrito pela resposta - exatamente o "piscar para tras" que o controle de
+     corrida por sequencia nao cobre, porque a sobrescrita vem do pai, nao da resposta atrasada.
+  4. Fechar o modal dentro da janela do debounce descarta a alteracao pendente, porque a limpeza
+     do efeito cancela o timer. Autosave que perde a ultima edicao ao fechar e pior que o botao.
+- **Cuidados:** manter a regra de backend intacta (apenas Lead A autoqualifica, historico
+  append-only), nao aumentar o escopo para a fila/filtros e nao inflar auditoria sem necessidade.
+
+## 2026-09-16 - Filtro de leads ATIVOS (recencia de 6 meses), comecando por Energia Solar
+
+- **Pedido resumido:** varrer a base de leads, priorizando o nicho Energia Solar, e separar os
+  que estao realmente ativos (algum sinal de interacao nos ultimos 6 meses) dos que nao dao
+  sinal de vida, descartando estes ultimos pela porta de descarte que ja existe na Aquisicao.
+- **E projeto/tarefa de alteracao?** Sim. Envolve leitura de producao, provavel script de
+  correcao historica e escrita de `qualificacao='descartado'` em lote.
+- **Fase 1 - medicao read-only executada em producao (BEGIN TRANSACTION READ ONLY + ROLLBACK,
+  so agregados, sem PII):**
+  1. Base: 4.631 prospects (3.495 na empresa `f5f47737`, 1.136 na PJ). Nicho `Energia Solar`:
+     **200 leads**, todos coletados em 2026-09-11, todos na mesma leva.
+  2. **Nenhum lead da base inteira tem data de atividade no `raw_json`.** Zero com a chave
+     `reviews`, zero com `latest_review_date`, zero com `permanently_closed`, zero com
+     `atividade_google`. As chaves gravadas sao apenas as 14 do shape Places antigo.
+  3. O que existe nos 200 solares: `businessStatus` (196 OPERATIONAL, 4 CLOSED_TEMPORARILY),
+     `photos`, `regularOpeningHours`, `rating`, `userRatingCount` - todos **sem data**.
+  4. Simulacao local de `calcularAtividadeGoogle` sobre a forma exata medida: 196 caem em
+     `ativo_sem_data` (+2) e 4 em `fechado_temporario` (-55). **A regra de 6 meses nunca e
+     avaliada**, porque ela depende de `dias_desde_atividade`, que e `null` para a base toda.
+- **Conclusao da Fase 1:** o filtro de recencia pedido **nao e calculavel sobre a base atual**.
+  Nao e questao de codigo - o dado de data nao foi coletado. Aplicar o classificador hoje nao
+  descartaria ninguem por inatividade; descartaria 4 por status fechado.
+- **Risco adicional identificado:** os campos `reviews` / `latest_review_date` /
+  `permanently_closed` entraram no adaptador Bright Data no commit `7cd99c8` (hoje) **sem
+  nenhum teste que prove que a fonte devolve esses nomes de campo** - o codigo tenta quatro
+  grafias alternativas para a data, padrao tipico de chute. Recoletar 200 leads pagos sem
+  confirmar o contrato da fonte pode gastar a coleta e continuar sem data.
+- **Cuidados:** descarte em lote e escrita irreversivel na pratica (a recoleta nunca promove de
+  volta, por decisao do proprio schema); nao inventar inatividade a partir de ausencia de dado.
+
+## 2026-09-16 - Tarefa IA - Recorte de trabalho sobrevive ao F5 (30 min, na sessao)
+
+- **Pedido resumido:** nao perder aba, mercado, cidade e busca ao atualizar a pagina. Cache
+  valido por ~30 min enquanto a pessoa estiver ativa, sem gravar em banco.
+- **E projeto/tarefa de alteracao?** Sim. Sem migration, sem rota, sem env nova, sem dependencia
+  nova. Frontend apenas.
+- **Escopo decidido com o operador:** todas as listagens.
+- **Descoberta da analise:** as telas ja guardavam PREFERENCIA (colunas, filtros avancados, itens
+  por pagina) em localStorage, permanentemente e por decisao documentada. O que se perdia era
+  outra coisa: o recorte de TRABALHO (onde a pessoa estava agora). Sao dois eixos com duracoes
+  diferentes, e por isso nao foram fundidos.
+- **Follow-ups nao recebeu o cache, e isto e resultado, nao omissao:** la os filtros (inclusive a
+  busca) vivem em `view`, ja persistida em localStorage. A tela ja nao perde nada no F5;
+  acrescentar uma camada de 30 min so faria a preferencia documentada evaporar.
+- **Cuidados:** hidratar em efeito, nunca no valor inicial do estado (as telas tambem renderizam
+  no servidor, onde nao existe sessionStorage); nao deixar a tela buscar duas vezes; nao inventar
+  restauracao de campanha na Central de Ligacoes, que tem precedencia de URL.

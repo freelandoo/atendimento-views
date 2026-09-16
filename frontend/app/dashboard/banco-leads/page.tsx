@@ -18,6 +18,7 @@ import { acessosDoLead, type AcessoRapido } from '@/lib/lead-acessos'
 import { ordemIcp, resumoIcpDoLead, resumoIcpOperacional, seloIcp } from '@/lib/lead-icp'
 import { leituraCadastro } from '@/lib/pontuacao-indicador'
 import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
+import { aplicarRecorte, gravarFiltros, lerFiltros } from '@/lib/filtros-sessao'
 // A ORDEM DE TRABALHO chega pronta do backend (services/lead-fila-trabalho.js): a lista ja vem
 // ordenada e cada lead traz `faixa_trabalho`. Este modulo so TRADUZ o nome da faixa.
 import { seloFaixa, avisoDeJanela } from '@/lib/lead-fila-trabalho'
@@ -435,6 +436,14 @@ const VIEW_PADRAO: ViewConfig = {
   avalMin: '', avalMax: '', dataDe: '', dataAte: '', ordenacao: 'padrao',
 }
 
+// Recorte de TRABALHO: onde a pessoa estava agora. Vive em `sessionStorage` por 30 min
+// (lib/filtros-sessao), morre com a aba e não vai a banco. É deliberadamente SEPARADO de
+// `bancoLeadsView`, logo abaixo: colunas e filtros do "⚙ Personalizar" são PREFERÊNCIA do
+// operador e continuam permanentes no localStorage, por decisão já documentada. Misturar os
+// dois faria a preferência evaporar em 30 min ou o recorte de hoje reaparecer amanhã.
+const TELA_RECORTE = 'banco-leads'
+const RECORTE_PADRAO = { aba: 'sem_contato', origem: '', mercado: '', cidadeFiltro: '', busca: '', escopo: '' }
+
 // Versão da view salva no localStorage. A v1 gravava TODAS as colunas ligadas (era o padrão
 // da época), então um merge simples com o novo padrão faria todo operador existente continuar
 // vendo a tabela larga — a redução não chegaria a ninguém. A migração aplica o novo conjunto
@@ -583,6 +592,9 @@ export default function BancoLeadsPage() {
   // Etapa 4: recorte por RESPONSÁVEL. `escopo` é o que a tela pede; quem decide o que este
   // pedido pode ver é o backend.
   const [escopo, setEscopo] = useState<string>('')
+  // Falso até o recorte guardado ser lido. Sem isto a tela buscaria com o filtro padrão e logo
+  // depois com o restaurado — duas consultas e um piscar de lista errada.
+  const [recortePronto, setRecortePronto] = useState(false)
   const [exportando, setExportando] = useState(false)
   const [limpando, setLimpando] = useState(false)
   // Modo de disparo (config por empresa)
@@ -714,7 +726,7 @@ export default function BancoLeadsPage() {
   }, [base, empresaId])
 
   const carregarLeads = useCallback(async () => {
-    if (!empresaId) return
+    if (!empresaId || !recortePronto) return
     setCarregando(true)
     try {
       const p = new URLSearchParams({ aba })
@@ -732,17 +744,17 @@ export default function BancoLeadsPage() {
       setMetaLista(r.meta || null)
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao carregar leads.') }
     finally { setCarregando(false) }
-  }, [base, empresaId, aba, origem, mercado, cidadeFiltro, busca, escopo])
+  }, [base, empresaId, recortePronto, aba, origem, mercado, cidadeFiltro, busca, escopo])
 
   const carregarFiltrosMercado = useCallback(async () => {
-    if (!empresaId) return
+    if (!empresaId || !recortePronto) return
     try {
       const p = new URLSearchParams({ aba })
       if (origem) p.set('origem', origem)
       const r = await apiFetch<FiltrosMercado>(`${base}/filtros?${p.toString()}`)
       setFiltrosMercado(r.data || null)
     } catch { /* filtros sao apoio de UI; a listagem continua funcionando */ }
-  }, [base, empresaId, aba, origem])
+  }, [base, empresaId, recortePronto, aba, origem])
 
   const carregarInstancias = useCallback(async () => {
     if (!empresaId) return
@@ -844,6 +856,29 @@ export default function BancoLeadsPage() {
   // cair numa página vazia depois de filtrar ou trocar de aba (mesmo padrão de Follow-ups e
   // Central de Ligações).
   useEffect(() => { setPaginaPlaces(1); setPaginaIg(1) }, [aba, origem, mercado, cidadeFiltro, busca, view])
+  // Recorte de trabalho: hidrata UMA vez e só então libera a busca de leads. A hidratação
+  // acontece em efeito (nunca no valor inicial do estado) porque este componente também
+  // renderiza no servidor, onde não existe sessionStorage — semear ali faria o HTML do servidor
+  // divergir do cliente. O preço é a primeira leva ficar esperando um ciclo; `recortePronto` é
+  // o que impede a tela de buscar com o filtro padrão e depois buscar de novo com o restaurado.
+  useEffect(() => {
+    const salvo = lerFiltros(TELA_RECORTE, empresaId)
+    if (salvo) {
+      const r = aplicarRecorte(RECORTE_PADRAO, salvo)
+      setAba(r.aba)
+      setOrigem(r.origem)
+      setMercado(r.mercado)
+      setCidadeFiltro(r.cidadeFiltro)
+      setBusca(r.busca)
+      setEscopo(r.escopo)
+    }
+    setRecortePronto(true)
+  }, [empresaId])
+  useEffect(() => {
+    if (!recortePronto) return
+    gravarFiltros(TELA_RECORTE, empresaId, { aba, origem, mercado, cidadeFiltro, busca, escopo })
+  }, [recortePronto, empresaId, aba, origem, mercado, cidadeFiltro, busca, escopo])
+
   // Personalização: carrega do localStorage (1x) e persiste a cada mudança.
   useEffect(() => {
     try {

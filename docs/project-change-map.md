@@ -834,3 +834,36 @@ Ajuste sobre a entrega imediatamente abaixo, apos revisao de UX/operacao.
   mornos/sem data pesam pouco; atividade antiga/inatividade derrubam a ordem sem impedir aprovacao.
 - **Coleta Bright Data:** o adaptador preserva reviews e datas de review quando o provedor
   entregar esses campos, permitindo identificar atividade recente sem nova chamada externa.
+
+### Adendo UX - autosave do ICP nos Detalhes
+
+- **Detalhes sem botao Salvar ICP:** ao marcar/desmarcar criterios ou editar a observacao, o modal
+  `LeadDetalhesModal` grava automaticamente via `PATCH /banco-leads/leads/:id/icp`.
+- **Feedback discreto:** o rodape da ficha mostra `Autosave ativo`, `Salvando ICP...`,
+  `ICP salvo` ou `ICP nao salvo`. Erro nao fecha o modal nem apaga o que foi digitado.
+- **Corrida controlada:** alteracoes novas cancelam o debounce anterior; se uma resposta antiga
+  voltar depois, ela nao sobrescreve a leitura visual mais recente.
+- **Snapshot:** `backend/src/db/lead-icp.js` passa a incluir `observacao` em `icp_resumo_json`,
+  preservando a ultima observacao para reabrir o lead sem consultar o historico.
+
+### Adendo - correcao do autosave do ICP e recorte de trabalho na sessao
+
+Ajustes sobre o adendo imediatamente acima, depois de medir o comportamento real do autosave.
+
+- **Autosave do ICP corrigido:** o efeito que semeia o checklist passou a depender so de
+  `lead.id`. Antes dependia tambem de `icp_avaliado_em`/`icp_score`, e como o pai devolve o lead
+  salvo para dentro do proprio modal, cada gravacao disparava o reset - o aviso de salvo sumia no
+  ciclo seguinte e o texto digitado durante a requisicao voltava ao valor do servidor.
+- **Fechar o modal nao perde mais a ultima edicao:** existe envio de saida na desmontagem.
+- **Estados do indicador:** `Autosave ativo`, `Alteracoes pendentes...`, `Salvando ICP...`,
+  `ICP salvo`, `ICP nao salvo`. "Pendente" e "salvando" sao distintos porque o indicador
+  substituiu o botao e nao pode afirmar uma gravacao que ainda nao comecou. Espera de 1200 ms.
+- **RASCUNHO x DECISAO na rota:** `PATCH /leads/:id/icp` aceita `finalizar`. Sem ele, grava a
+  avaliacao e mais nada; com ele (enviado UMA vez, ao fechar o modal, sobre o estado FINAL),
+  atravessa a porta da triagem quando a faixa for A e registra a auditoria. Sem essa separacao o
+  autosave aprovaria por estado intermediario um lead que o operador terminaria classificando
+  como B - e, como nada rebaixa, ele ficaria aprovado.
+- **Teste religado:** `test/google-business-activity.test.js` estava fora da lista do `npm test`.
+- **Recorte de trabalho por 30 min:** novo `frontend/lib/filtros-sessao.js` (+ `.d.ts`/`.test.js`),
+  consumido por Banco de Leads, Aquisicao, Captacao e Central de Ligacoes. Follow-ups nao precisou:
+  os filtros dela ja persistem. Detalhes e motivos em `docs/ai-decision-log.md`.

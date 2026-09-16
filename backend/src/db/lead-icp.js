@@ -58,7 +58,7 @@ async function salvarAvaliacaoIcp(exec, {
     ]
   )
 
-  const resumo = resumoIcp(avaliacao)
+  const resumo = { ...resumoIcp(avaliacao), observacao: obs }
   await exec.query(
     `UPDATE prospectador.prospects
         SET icp_modelo_id = $3::uuid,

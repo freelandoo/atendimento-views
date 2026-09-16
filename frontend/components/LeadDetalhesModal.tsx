@@ -11,7 +11,7 @@
 // Um único componente serve as duas telas de propósito: eram elas que já duplicavam colunas,
 // pontuação e JSON. Os campos ausentes simplesmente não aparecem — perfil de Instagram não
 // tem endereço nem nota, e uma linha "—" para cada um só encheria a tela.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import JsonLeadModal, { type JsonApresentacao, type CriterioApresentacao } from '@/components/ui/JsonLeadModal'
 import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
@@ -46,6 +46,11 @@ type ResumoIcp = {
 }
 type IcpPayload = { respostas: Record<string, boolean>; observacao?: string }
 type SinalIcp = { sugerido?: boolean; motivo?: string }
+// `pendente` e `salvando` são estados DIFERENTES de propósito: o indicador substituiu o botão
+// "Salvar ICP", então ele é a única coisa que responde "e agora, já foi?". Dizer "Salvando…"
+// durante a espera do debounce, quando ainda não há requisição alguma, faria o indicador
+// afirmar o que não aconteceu — e é justamente a afirmação em que o operador passou a confiar.
+type EstadoAutosaveIcp = 'idle' | 'pendente' | 'salvando' | 'salvo' | 'erro' | 'bloqueado'
 
 /** O mínimo que as duas telas têm em comum. Tudo é opcional: origens diferentes, campos diferentes. */
 export type LeadDetalhavel = {
@@ -83,6 +88,7 @@ export type LeadDetalhavel = {
     score?: number
     score_maximo?: number
     faixa?: string
+    observacao?: string | null
     criterios?: { id: string; rotulo: string; pontos: number; marcado?: boolean; pontos_obtidos?: number }[]
     sinais_auto?: Record<string, { sugerido?: boolean; motivo?: string }>
     motivos?: string[]
@@ -104,6 +110,31 @@ export function criteriosDoLead(l: LeadDetalhavel): CriterioApresentacao[] {
 export function maximoDoLead(l: LeadDetalhavel): number {
   const m = l.score_cadastro_max ?? l.json_apresentacao?.pontuacao?.maximo
   return typeof m === 'number' && Number.isFinite(m) && m > 0 ? m : 100
+}
+
+/**
+ * Espera antes de gravar, em ms.
+ *
+ * Não é só conforto de digitação: `PATCH /leads/:id/icp` grava uma linha no histórico
+ * append-only (`lead_icp_avaliacoes`) e outra em `app.auditoria_eventos` a CADA chamada. Sem
+ * agrupar, marcar os critérios um a um encheria a auditoria de rascunho — e auditoria neste
+ * repositório existe para registrar decisão, não digitação. A janela é larga o bastante para
+ * juntar uma sequência normal de cliques e curta o bastante para a ficha continuar parecendo
+ * viva; o indicador diz "Alterações pendentes" durante ela, então nada fica sem resposta.
+ */
+const ESPERA_AUTOSAVE_ICP = 1200
+
+function montarPayloadIcp(respostas: Record<string, boolean>, observacao: string): IcpPayload {
+  return {
+    respostas,
+    observacao: observacao.trim(),
+  }
+}
+
+function assinaturaPayloadIcp(payload: IcpPayload): string {
+  const respostas: Record<string, boolean> = {}
+  for (const c of CRITERIOS_ICP_TENKA) respostas[c.id] = payload.respostas?.[c.id] === true
+  return JSON.stringify({ respostas, observacao: String(payload.observacao || '').trim() })
 }
 
 /**
@@ -192,7 +223,22 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
   const [jsonAberto, setJsonAberto] = useState(false)
   const [respostasIcp, setRespostasIcp] = useState<Record<string, boolean>>({})
   const [observacaoIcp, setObservacaoIcp] = useState('')
-  const [salvandoIcp, setSalvandoIcp] = useState(false)
+  const [autosaveIcp, setAutosaveIcp] = useState<EstadoAutosaveIcp>('idle')
+  const [erroAutosaveIcp, setErroAutosaveIcp] = useState('')
+  const icpAlteradoRef = useRef(false)
+  const ultimaAssinaturaSalvaRef = useRef('')
+  const autosaveSeqRef = useRef(0)
+  // O estado que precisa atravessar a porta da triagem quando o modal fechar — e, de quebra, o
+  // que ainda não tinha sido gravado. Ele NÃO é limpo depois de um autosave bem-sucedido: o
+  // autosave grava rascunho, e é o fechamento que submete o veredito FINAL (`finalizar`). Sem
+  // isso, fechar dentro da janela do debounce perderia a última edição — com o botão isso era
+  // impossível, porque nada saía do modal sem um clique. A URL vai junto do payload para o envio
+  // de saída não depender de `lead.id` ainda ser o mesmo no instante da desmontagem.
+  const finalizarIcpRef = useRef<{ url: string; payload: IcpPayload } | null>(null)
+  // O pai sobrevive ao modal: avisá-lo depois do envio de saída é o que mantém a tabela coerente
+  // com o que acabou de ser gravado.
+  const onLeadAtualizadoRef = useRef(onLeadAtualizado)
+  onLeadAtualizadoRef.current = onLeadAtualizado
   const fb = useFeedback()
   const emp = lead.json_apresentacao?.empresa
   const horario = emp?.horario_funcionamento
@@ -211,29 +257,105 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
   const seloEditado = seloIcp(icpEditado.faixa, icpEditado.score)
 
   useEffect(() => {
-    setRespostasIcp(respostasIniciaisIcp(lead) as Record<string, boolean>)
-    setObservacaoIcp('')
-  }, [lead.id, lead.icp_avaliado_em, lead.icp_score])
+    const respostas = respostasIniciaisIcp(lead) as Record<string, boolean>
+    const observacao = String(lead.icp_resumo_json?.observacao || '')
+    setRespostasIcp(respostas)
+    setObservacaoIcp(observacao)
+    ultimaAssinaturaSalvaRef.current = assinaturaPayloadIcp(montarPayloadIcp(respostas, observacao))
+    icpAlteradoRef.current = false
+    finalizarIcpRef.current = null
+    setAutosaveIcp('idle')
+    setErroAutosaveIcp('')
+    // Depende SÓ do lead aberto. `icp_avaliado_em`/`icp_score` mudam a cada salvamento — e o
+    // pai devolve o lead atualizado para dentro deste mesmo modal (`aplicarLeadAtualizado`) —,
+    // então tê-los aqui fazia o autosave provocar o próprio reset: o "ICP salvo" era apagado no
+    // ciclo seguinte ao que aparecia, e o que estivesse sendo digitado durante a ida e volta da
+    // requisição voltava ao valor do servidor. O controle de corrida por sequência não pega
+    // isso, porque a sobrescrita não vem da resposta atrasada: vem do pai.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lead.id])
 
-  async function salvarIcp() {
-    if (!empresaId) {
-      fb.toast('Abra este lead pelo Banco de Leads para salvar o ICP.', 'error')
+  function alterarRespostaIcp(id: string, marcado: boolean) {
+    icpAlteradoRef.current = true
+    setRespostasIcp((r) => ({ ...r, [id]: marcado }))
+  }
+
+  function alterarObservacaoIcp(valor: string) {
+    icpAlteradoRef.current = true
+    setObservacaoIcp(valor)
+  }
+
+  useEffect(() => {
+    if (!icpAlteradoRef.current) return
+
+    const payload = montarPayloadIcp(respostasIcp, observacaoIcp)
+    const assinatura = assinaturaPayloadIcp(payload)
+    if (assinatura === ultimaAssinaturaSalvaRef.current) {
+      setAutosaveIcp('idle')
+      setErroAutosaveIcp('')
       return
     }
-    setSalvandoIcp(true)
+    if (!empresaId) {
+      setAutosaveIcp('bloqueado')
+      setErroAutosaveIcp('Abra este lead pelo Banco de Leads para salvar o ICP.')
+      return
+    }
+
+    const url = `/api/empresas/${empresaId}/banco-leads/leads/${lead.id}/icp`
+    finalizarIcpRef.current = { url, payload }
+    setAutosaveIcp('pendente')
+    setErroAutosaveIcp('')
+    const timer = window.setTimeout(() => {
+      const seq = autosaveSeqRef.current + 1
+      autosaveSeqRef.current = seq
+      salvarIcpAutomatico(url, payload, assinatura, seq)
+    }, ESPERA_AUTOSAVE_ICP)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [respostasIcp, observacaoIcp, empresaId, lead.id])
+
+  // Fechar o modal É a decisão. Este é o ÚNICO envio com `finalizar`, e por isso o único que pode
+  // atravessar a porta da triagem — sobre o estado final, nunca sobre um intermediário. Ele
+  // carrega o payload atual, então também cobre a edição que ainda estava esperando o debounce.
+  // Não toca em estado nenhum (este componente já não existe) e avisa o pai, que continua montado.
+  //
+  // Limite declarado: fechar a ABA do navegador no meio da avaliação não roda esta limpeza. O
+  // rascunho fica gravado (checklist e faixa aparecem ao reabrir) e a qualificação acontece no
+  // próximo fechamento normal do modal. É melhor que o inverso — aprovar por estado intermediário
+  // um lead que o operador terminaria classificando como B.
+  useEffect(() => {
+    return () => {
+      const alvo = finalizarIcpRef.current
+      if (!alvo) return
+      finalizarIcpRef.current = null
+      apiFetch<LeadDetalhavel>(alvo.url, {
+        method: 'PATCH',
+        body: JSON.stringify({ ...alvo.payload, finalizar: true }),
+      })
+        .then((r) => onLeadAtualizadoRef.current?.(r.data))
+        .catch(() => {})
+    }
+  }, [])
+
+  async function salvarIcpAutomatico(url: string, payload: IcpPayload, assinatura: string, seq: number) {
+    setAutosaveIcp('salvando')
     try {
-      const payload: IcpPayload = { respostas: respostasIcp, observacao: observacaoIcp }
-      const r = await apiFetch<LeadDetalhavel>(`/api/empresas/${empresaId}/banco-leads/leads/${lead.id}/icp`, {
+      const r = await apiFetch<LeadDetalhavel>(url, {
         method: 'PATCH',
         body: JSON.stringify(payload),
       })
+      if (seq !== autosaveSeqRef.current) return
+      ultimaAssinaturaSalvaRef.current = assinatura
+      icpAlteradoRef.current = false
+      // `finalizarIcpRef` NÃO é limpo aqui de propósito: o que acabou de ser gravado é rascunho,
+      // e o veredito final continua devendo ser submetido quando o modal fechar.
       onLeadAtualizado?.(r.data)
-      const s = seloIcp(r.data.icp_faixa || r.data.icp_resumo_json?.faixa, r.data.icp_score ?? r.data.icp_resumo_json?.score ?? null)
-      fb.toast(`ICP salvo: ${s.rotulo}${s.score != null ? ` (${s.score}/13)` : ''}.`, 'success')
+      setAutosaveIcp('salvo')
+      setErroAutosaveIcp('')
     } catch (e) {
-      fb.toast(e instanceof Error ? e.message : 'Erro ao salvar ICP.', 'error')
-    } finally {
-      setSalvandoIcp(false)
+      if (seq !== autosaveSeqRef.current) return
+      setAutosaveIcp('erro')
+      setErroAutosaveIcp(e instanceof Error ? e.message : 'Erro ao salvar ICP automaticamente.')
     }
   }
 
@@ -337,7 +459,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                       <input
                         type="checkbox"
                         checked={!!respostasIcp[c.id]}
-                        onChange={(e) => setRespostasIcp((r) => ({ ...r, [c.id]: e.target.checked }))}
+                        onChange={(e) => alterarRespostaIcp(c.id, e.target.checked)}
                         className="mt-0.5"
                       />
                       <span className="min-w-0">
@@ -355,23 +477,42 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
               </div>
               <textarea
                 value={observacaoIcp}
-                onChange={(e) => setObservacaoIcp(e.target.value)}
+                onChange={(e) => alterarObservacaoIcp(e.target.value)}
                 placeholder="Observação opcional sobre o fit comercial"
                 className="mt-2 min-h-[58px] w-full resize-y rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-brand"
               />
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-[11px] text-slate-500">
-                  Ao salvar Lead A, o lead fica marcado/qualificado automaticamente.
+                  As alterações são salvas sozinhas. Se o resultado final for Lead A, ele fica
+                  marcado/qualificado ao fechar esta ficha.
                 </p>
-                <button
-                  type="button"
-                  onClick={salvarIcp}
-                  disabled={salvandoIcp}
-                  className="rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+                <span
+                  role={autosaveIcp === 'erro' || autosaveIcp === 'bloqueado' ? 'alert' : 'status'}
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                    autosaveIcp === 'erro' || autosaveIcp === 'bloqueado'
+                      ? 'bg-red-50 text-red-700'
+                      : autosaveIcp === 'salvando' || autosaveIcp === 'pendente'
+                        ? 'bg-amber-50 text-amber-700'
+                        : autosaveIcp === 'salvo'
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-slate-50 text-slate-500'
+                  }`}
+                  title={erroAutosaveIcp || undefined}
                 >
-                  {salvandoIcp ? 'Salvando...' : 'Salvar ICP'}
-                </button>
+                  {autosaveIcp === 'pendente'
+                    ? 'Alterações pendentes...'
+                    : autosaveIcp === 'salvando'
+                    ? 'Salvando ICP...'
+                    : autosaveIcp === 'salvo'
+                      ? 'ICP salvo'
+                      : autosaveIcp === 'erro' || autosaveIcp === 'bloqueado'
+                        ? 'ICP não salvo'
+                        : 'Autosave ativo'}
+                </span>
               </div>
+              {erroAutosaveIcp && (
+                <p className="mt-1 text-[11px] text-red-600">{erroAutosaveIcp}</p>
+              )}
             </div>
           </div>
 

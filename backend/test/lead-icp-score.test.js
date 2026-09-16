@@ -12,6 +12,7 @@ const {
   respostasSugeridas,
   calcularIcpLead,
 } = require('../src/services/lead-icp-score')
+const { salvarAvaliacaoIcp } = require('../src/db/lead-icp')
 
 test('ICP geral v1.1 soma ate 13 e classifica A/B/C', () => {
   assert.equal(SCORE_MAXIMO, 13)
@@ -73,6 +74,32 @@ test('score final usa o checklist humano, mesmo quando o cadastro e fraco', () =
   assert.ok(icp.criterios.every((c) => c.marcado))
 })
 
+test('avaliacao salva preserva observacao no snapshot atual do ICP', async () => {
+  let updateResumo = null
+  const exec = {
+    async query(sql, params) {
+      if (/INSERT INTO prospectador\.lead_icp_avaliacoes/i.test(sql)) {
+        return { rows: [{ id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', avaliado_em: '2026-09-16T12:00:00.000Z' }] }
+      }
+      if (/UPDATE prospectador\.prospects/i.test(sql)) {
+        updateResumo = JSON.parse(params[7])
+        return { rows: [] }
+      }
+      return { rows: [] }
+    },
+  }
+
+  await salvarAvaliacaoIcp(exec, {
+    empresaId: '11111111-1111-1111-1111-111111111111',
+    prospect: { id: '22222222-2222-2222-2222-222222222222', score_cadastro: 10 },
+    respostas: { operacao_validada: true },
+    observacao: 'Fit bom, mas precisa confirmar decisor.',
+    usuarioId: '33333333-3333-3333-3333-333333333333',
+  })
+
+  assert.equal(updateResumo.observacao, 'Fit bom, mas precisa confirmar decisor.')
+})
+
 // ─── A ROTA que grava a avaliação (guardas que leem o fonte) ─────────────────────────────
 // `PATCH /leads/:id/icp` é o único ponto onde o checklist humano vira dado. Ele encosta em três
 // coisas de consequência (a porta da triagem, o status do funil e a auditoria), e nenhuma delas
@@ -123,4 +150,21 @@ test('a auditoria do ICP registra o veredito, sem PII do lead', () => {
     assert.ok(!new RegExp(`${proibido}\s*:`).test(contexto.slice(0, 400)),
       `a auditoria do ICP nao pode carregar ${proibido}`)
   }
+})
+
+test('rascunho do autosave NAO atravessa a porta da triagem nem vira auditoria', () => {
+  // O modal de Detalhes salva sozinho a cada marcacao. Sem separar rascunho de decisao, o score
+  // cruzaria o corte de Lead A no MEIO do preenchimento, `qualificacao` viraria 'aprovado' e —
+  // como nada rebaixa — o lead continuaria aprovado mesmo terminando em B. So o estado FINAL,
+  // submetido no fechamento do modal com `finalizar`, pode atravessar.
+  assert.ok(/const finalizar = body\.finalizar === true/.test(blocoIcp),
+    'a rota precisa distinguir rascunho de decisao por um campo explicito')
+  assert.ok(/autoQualificado = icp\?\.faixa === 'A' && finalizar/.test(blocoIcp),
+    'a promocao precisa exigir a faixa A E o fechamento; faixa sozinha volta a aprovar rascunho')
+  // Auditoria registra decisao, nao digitacao: uma linha por avaliacao salva encheria o log de
+  // rascunho, e este repositorio trata auditoria como rastro de ato humano.
+  const posAuditoria = blocoIcp.indexOf("'lead_icp_avaliado'")
+  assert.ok(posAuditoria > 0, 'a auditoria do ICP sumiu')
+  assert.ok(/if \(finalizar\) \{[\s\S]{0,200}INSERT INTO app\.auditoria_eventos/.test(blocoIcp),
+    'a auditoria precisa estar sob `finalizar`')
 })

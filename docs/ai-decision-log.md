@@ -2706,3 +2706,77 @@ inventar meta em campanha de validacao contamina a leitura.
   ponto moderado.
 - **Limite assumido:** a regra usa campos publicos ja trazidos pelo provedor de busca. Nao faz
   scraping extra nem promete confirmar operacao em tempo real.
+
+### Adendo - ICP em Detalhes salva automaticamente
+
+- **Decisao:** remover a etapa mental de "Salvar ICP" no modal de Detalhes. O checklist e a
+  observacao passam a ser autosave, porque a decisao operacional real e marcar/descartar o lead.
+- **Por que:** o operador estava revisando fit comercial enquanto decidia o lead; exigir outro
+  botao criava risco de perder a avaliacao e confundia ICP com uma acao separada.
+- **Regra preservada:** a rota continua sendo `PATCH /leads/:id/icp` com `LEAD_TRIAR`; apenas
+  Lead A autoqualifica. B/C continuam como avaliacao registrada sem promover status.
+- **Snapshot:** a ultima observacao entra em `icp_resumo_json`; o historico append-only segue
+  completo em `lead_icp_avaliacoes`.
+
+### Adendo - Correcao dos defeitos do autosave do ICP
+
+- **Defeito 1 (o central):** o efeito que semeia o checklist dependia de `lead.icp_avaliado_em` e
+  `lead.icp_score`. Como `aplicarLeadAtualizado` devolve o lead salvo para dentro do proprio modal,
+  cada salvamento disparava o reset. Efeitos: o aviso "ICP salvo" era apagado no ciclo seguinte ao
+  que aparecia (o operador perdeu o botao e ficou sem confirmacao nenhuma) e o que estivesse sendo
+  digitado na observacao durante a ida e volta da requisicao voltava ao valor do servidor. O
+  controle de corrida por sequencia nao cobria isso, porque a sobrescrita vinha do pai, nao de uma
+  resposta atrasada. **O efeito passou a depender so de `lead.id`.**
+- **Defeito 2:** fechar o modal dentro da janela do debounce descartava a alteracao pendente, porque
+  a limpeza do efeito cancelava o timer. Autosave que perde a ultima edicao ao fechar e pior que o
+  botao que ele substituiu. Agora existe um envio de saida: o pendente e gravado na desmontagem e o
+  pai e avisado, porque ele continua montado.
+- **Defeito 3:** o indicador dizia "Salvando ICP..." durante a espera do debounce, quando ainda nao
+  havia requisicao alguma. Como ele e a unica coisa que substituiu o botao, afirmar o que nao
+  aconteceu corroi justamente a confianca que o operador passou a depositar nele. Estado proprio:
+  "Alteracoes pendentes...".
+- **Espera do autosave: 1200 ms, e a razao nao e conforto de digitacao.** `PATCH /leads/:id/icp`
+  grava uma linha no historico append-only e outra em `app.auditoria_eventos` a CADA chamada.
+  Sem agrupar, marcar os criterios um a um encheria a auditoria de rascunho - e auditoria neste
+  repositorio existe para registrar decisao, nao digitacao.
+- **Consequencia declarada, NAO resolvida nesta leva:** com autosave, a porta da triagem e cruzada
+  por estado intermediario. Marcando os criterios um a um, o score cruza o corte de Lead A no meio
+  do preenchimento; a rota grava `qualificacao='aprovado'` e, como nada rebaixa (regra do repo: o
+  status so PROMOVE), o lead permanece aprovado mesmo que o operador termine em B. Com o botao isso
+  era impossivel, porque so o estado final era submetido. Decisao de produto pendente.
+- **Teste que nao rodava:** `test/google-business-activity.test.js` foi commitado em 7cd99c8 fora da
+  lista do `npm test`. Teste fora da suite para de proteger em silencio; foi ligado.
+
+### Recorte de trabalho na SESSAO - o que sobrevive ao F5 por 30 min
+
+- **Decisao:** o recorte de trabalho (aba, status, mercado, cidade, busca, ordenacao e, onde faz
+  sentido, a pagina) passa a sobreviver ao F5 por 30 minutos, em `sessionStorage`, escopado por
+  EMPRESA. Nada vai a banco.
+- **Fonte de verdade unica:** `frontend/lib/filtros-sessao.js` (+ `.d.ts`/`.test.js`). As telas nao
+  decidem validade nem formato; so declaram o proprio padrao e chamam `aplicarRecorte`.
+- **`sessionStorage`, nunca `localStorage`, e isto e a decisao central.** O recorte descreve uma
+  sessao de trabalho, nao um gosto do operador: morre com a aba. Reabrir o sistema amanha e
+  reencontrar a busca por "energia solar" de ontem seria o defeito oposto - trabalhar dentro de
+  um recorte que ninguem escolheu hoje. Guarda de regressao no teste falha se o modulo passar a
+  usar localStorage.
+- **Validade RENOVADA a cada uso** (leitura ou escrita). Enquanto a pessoa esta ali, o recorte
+  acompanha; parada alem da janela, ele some sozinho.
+- **Escopo por EMPRESA.** Filtro de uma empresa reaparecendo em outra faria o operador olhar uma
+  lista recortada por um criterio que ele nao escolheu - e achar que e a lista inteira.
+- **Dois eixos que NAO foram fundidos:** PREFERENCIA (colunas, filtros do "Personalizar", itens
+  por pagina) continua permanente em localStorage, como ja estava documentado; RECORTE de
+  trabalho e efemero. Juntar os dois faria a preferencia evaporar em 30 min ou o recorte de hoje
+  voltar amanha.
+- **Hidratacao em EFEITO, nunca no valor inicial do estado:** as telas tambem renderizam no
+  servidor, onde nao existe sessionStorage, e semear ali faria o HTML do servidor divergir do
+  cliente. O preco e um ciclo de espera, controlado por `recortePronto` - que existe para a tela
+  nao buscar com o filtro padrao e logo depois buscar de novo com o restaurado.
+- **`aplicarRecorte` so aceita campo que a tela DECLARA, com o tipo que ela declara.** Recorte
+  antigo, de outra versao ou editado a mao no storage nao injeta estado que a tela nao espera.
+- **Telas cobertas:** Banco de Leads, Aquisicao, Captacao e Central de Ligacoes.
+- **Follow-ups NAO foi alterada, de proposito:** os filtros dela (inclusive a busca) ja vivem em
+  `view`, persistida em localStorage por decisao registrada. A tela ja nao perde nada no F5.
+- **Ausencias declaradas na Central de Ligacoes:** a CAMPANHA nao e restaurada (tem precedencia de
+  URL vinda de Follow-ups e exigiria tratar campanha inexistente) e a PAGINA tambem nao (um efeito
+  ja existente volta para a pagina 1 quando filtro, busca ou aba mudam - restaura-la seria
+  desfeito no ciclo seguinte).

@@ -1278,7 +1278,17 @@ router.patch('/leads/:id/icp', requireAuth, requireEmpresaAccess, requireCapacid
       usuarioId,
     })
 
-    const autoQualificado = icp?.faixa === 'A'
+    // RASCUNHO × DECISÃO. O modal de Detalhes salva sozinho a cada marcação, e sem esta separação
+    // a porta da triagem passaria a ser atravessada por estado INTERMEDIÁRIO: marcando os
+    // critérios um a um, o score cruza o corte de Lead A no meio do preenchimento, `qualificacao`
+    // vira 'aprovado' e — como nada rebaixa — o lead continua aprovado mesmo que o operador
+    // termine em B. Com o botão isso era impossível, porque só o estado final era submetido.
+    //
+    // Sem `finalizar`, a avaliação é gravada (histórico + snapshot) e nada mais acontece: não
+    // atravessa a porta e não vira linha de auditoria — auditoria aqui registra decisão, não
+    // digitação. O modal manda `finalizar` uma vez, ao fechar, sobre o estado FINAL.
+    const finalizar = body.finalizar === true
+    const autoQualificado = icp?.faixa === 'A' && finalizar
     if (autoQualificado) {
       await client.query(
         `UPDATE prospectador.prospects
@@ -1295,17 +1305,19 @@ router.patch('/leads/:id/icp', requireAuth, requireEmpresaAccess, requireCapacid
       )
     }
 
-    await client.query(
-      `INSERT INTO app.auditoria_eventos
-         (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
-       VALUES ($1, $2::uuid, 'prospect', $3::uuid, 'lead_icp_avaliado', $4, $5, $6::jsonb)`,
-      [req.empresa.id, usuarioId, req.params.id, atual.icp_faixa || null, icp?.faixa || null, JSON.stringify({
-        origem: 'banco_leads_detalhes',
-        score: icp?.score ?? null,
-        faixa: icp?.faixa ?? null,
-        auto_qualificado: autoQualificado,
-      })]
-    )
+    if (finalizar) {
+      await client.query(
+        `INSERT INTO app.auditoria_eventos
+           (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+         VALUES ($1, $2::uuid, 'prospect', $3::uuid, 'lead_icp_avaliado', $4, $5, $6::jsonb)`,
+        [req.empresa.id, usuarioId, req.params.id, atual.icp_faixa || null, icp?.faixa || null, JSON.stringify({
+          origem: 'banco_leads_detalhes',
+          score: icp?.score ?? null,
+          faixa: icp?.faixa ?? null,
+          auto_qualificado: autoQualificado,
+        })]
+      )
+    }
 
     const { rows } = await client.query(
       `SELECT ${COLUNAS}, raw_json

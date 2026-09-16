@@ -5,7 +5,7 @@
 // resumo estruturado é enviado. Consome /api/empresas/:id/{campanhas,roteiros,ligacoes}.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { apiFetch } from '@/lib/api'
+import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { IconClose, IconSend } from '@/components/ui/icons'
 import TextoTruncado from '@/components/ui/TextoTruncado'
@@ -43,8 +43,13 @@ import {
 import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
 import { VARIANTES, O_QUE_MEDE, fatoresDeMotivos } from '@/lib/pontuacao-indicador'
 import MenuRadialAcoes from '@/components/ui/MenuRadialAcoes'
+import { aplicarRecorte, gravarFiltros, lerFiltros } from '@/lib/filtros-sessao'
 
 const base = () => `/api/empresas/${typeof window !== 'undefined' ? localStorage.getItem('empresa_id') : ''}`
+
+// Recorte de TRABALHO desta tela — ver o efeito que o hidrata, adiante.
+const TELA_RECORTE = 'central-ligacoes'
+const RECORTE_PADRAO = { aba: 'fila', busca: '', statusFiltro: '', buscaFila: '' }
 
 const ETAPA_LABEL: Record<string, string> = {
   abertura: 'Abertura', permissao: 'Permissão', situacao: 'Situação', descoberta: 'Descoberta',
@@ -680,6 +685,9 @@ export default function CentralLigacoesPage() {
     try { localStorage.setItem(CHAVE_POR_PAGINA, String(normalizarPorPagina(n))) } catch { /* quota/privado */ }
   }, [])
   const [painelFiltros, setPainelFiltros] = useState(false)
+  // Só começa a gravar depois de ter lido: gravar antes sobrescreveria o recorte guardado com
+  // os valores padrão, no primeiro render.
+  const [recortePronto, setRecortePronto] = useState(false)
   // Âncora do painel flutuante. Fica aqui (topo do componente) porque a aba Fila é renderizada
   // dentro de uma IIFE — não dá para declarar hook lá dentro.
   const btnFiltrosRef = useRef<HTMLButtonElement | null>(null)
@@ -700,6 +708,36 @@ export default function CentralLigacoesPage() {
   useEffect(() => {
     try { localStorage.setItem(CHAVE_VIEW, JSON.stringify(view)) } catch { /* quota/privado */ }
   }, [view])
+
+  // Recorte de TRABALHO (aba visível, busca da aba Acompanhamento, status e busca DENTRO da
+  // fila): sessionStorage por 30 min, morre com a aba, não vai a banco. Outro eixo que a
+  // `FilaView` acima, que é PREFERÊNCIA e continua permanente no localStorage.
+  //
+  // Duas ausências deliberadas:
+  // · a CAMPANHA não entra. Ela é escolhida pela URL (`?campanha=`, quando se chega de
+  //   Follow-ups) e, na falta dela, pela campanha ativa — restaurá-la da sessão exigiria
+  //   mexer nessa precedência e tratar campanha que já não existe, o que é outro assunto.
+  // · a PÁGINA não entra. Trocar filtro, busca ou aba volta para a página 1 por efeito logo
+  //   acima; restaurá-la aqui seria desfeito no ciclo seguinte, e prometer o que não se
+  //   cumpre é pior que não prometer.
+  useEffect(() => {
+    const salvo = lerFiltros(TELA_RECORTE, getEmpresaId())
+    if (salvo) {
+      const r = aplicarRecorte(RECORTE_PADRAO, salvo)
+      // `aba` é lista fechada: um valor estranho no storage não pode levar a tela a um estado
+      // que ela não sabe renderizar.
+      if (r.aba === 'fila' || r.aba === 'acompanhamento' || r.aba === 'funil') setAba(r.aba)
+      setBusca(r.busca)
+      setStatusFiltro(r.statusFiltro)
+      setBuscaFila(r.buscaFila)
+    }
+    setRecortePronto(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
+    if (!recortePronto) return
+    gravarFiltros(TELA_RECORTE, getEmpresaId(), { aba, busca, statusFiltro, buscaFila })
+  }, [recortePronto, aba, busca, statusFiltro, buscaFila])
 
   useEffect(() => {
     apiFetch<Campanha[]>(`${base()}/campanhas`).then((r) => {
