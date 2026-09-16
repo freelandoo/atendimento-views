@@ -61,9 +61,18 @@ function rotuloEstado(lead) {
   return ROTULO_CONFIANCA[estado.chave]
 }
 
-/** De onde veio o veredito, em uma frase curta; '' quando nao ha' o que dizer. */
+/**
+ * De onde veio o veredito, em uma frase curta; '' quando nao ha' o que dizer.
+ *
+ * `nao_encontrado` com origem `busca` precisa de tratamento proprio: o rotulo da origem diria
+ * "encontrado por busca" sobre um lead em que a busca NAO encontrou nada — o oposto do fato.
+ */
 function rotuloOrigem(lead) {
-  return ROTULO_ORIGEM[texto((lead || {}).instagram_origem)] || ''
+  const l = lead || {}
+  if (texto(l.instagram_confianca) === 'nao_encontrado') {
+    return texto(l.instagram_origem) === 'busca' ? 'a busca nao encontrou perfil confiavel' : ''
+  }
+  return ROTULO_ORIGEM[texto(l.instagram_origem)] || ''
 }
 
 function urlPerfil(handle) {
@@ -98,15 +107,40 @@ function avisoAtividade(lead) {
     : ''
 }
 
-/** O que a pessoa pode fazer agora. A tela so' desenha o que vier daqui. */
+/**
+ * O que a pessoa pode fazer agora. A tela so' desenha o que vier daqui.
+ *
+ * BUSCA E' OFERECIDA UMA VEZ SO'. Depois de `nao_encontrado` o botao NAO volta: cada clique
+ * consome uma query do Google CSE (100/dia no gratuito) e repetir a MESMA busca sobre os MESMOS
+ * dados devolveria o mesmo nada. O caminho depois da tentativa e' informar a mao — e' o unico que
+ * acrescenta informacao que o sistema ainda nao tem.
+ *
+ * (Se o cadastro mudar e passar a trazer um link de Instagram, ele e' aproveitado de graca: a
+ * propria rota de busca confere `handleDeLinkConhecido` antes de gastar query.)
+ */
 function acoesDisponiveis(lead) {
   const estado = estadoInstagram(lead)
   return {
-    podeProcurar: estado.chave === 'nao_verificado' || estado.chave === 'nao_encontrado',
+    podeProcurar: estado.chave === 'nao_verificado',
     podeConfirmar: estado.chave === 'candidato',
     podeRecusar: estado.chave === 'candidato',
     podeTrocar: estado.chave === 'confirmado',
   }
+}
+
+/**
+ * O que dizer quando alguem marca "Instagram ativo" no ICP sem perfil registrado.
+ *
+ * Nao BLOQUEIA a marcacao de proposito: o operador pode ter visto o perfil por fora, e o ICP e'
+ * julgamento humano. Mas o sistema so' consegue verificar o que esta' registrado — entao a tela
+ * pede o registro em vez de deixar o criterio marcado sobre nada.
+ */
+function avisoIcpSemPerfil(lead) {
+  const chave = estadoInstagram(lead).chave
+  if (chave === 'confirmado') return ''
+  if (chave === 'candidato') return 'Ha um perfil candidato aguardando confirmacao. Confirme para o sistema poder verificar.'
+  if (chave === 'nao_encontrado') return 'A busca nao achou o perfil. Informe o Instagram a mao para o sistema poder verificar.'
+  return 'Nenhum Instagram registrado para este lead. Registre para o sistema poder verificar.'
 }
 
 module.exports = {
@@ -120,4 +154,5 @@ module.exports = {
   evidencia,
   avisoAtividade,
   acoesDisponiveis,
+  avisoIcpSemPerfil,
 }

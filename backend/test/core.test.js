@@ -3987,6 +3987,28 @@ test('link de rede social na ficha do Maps NAO conta como site no score', () => 
   assert.equal(semLink - comSiteReal, 22)
 })
 
+test('lead novo do Maps ja nasce com Instagram confirmado quando o GMN trouxe o link', () => {
+  const persistido = normalizarProspectParaPersistencia(
+    {
+      place_id: 'places/ig123',
+      nome: 'Solar Prime',
+      site: 'https://instagram.com/solarprime.go/',
+      raw_json: { websiteUri: 'https://instagram.com/solarprime.go/' },
+    },
+    { nicho: 'energia solar', cidade: 'Goiania', origem: 'manual' }
+  )
+
+  assert.equal(persistido.tem_site, false, 'Instagram continua nao sendo site proprio')
+  assert.equal(persistido.link_original, 'https://instagram.com/solarprime.go/')
+  assert.equal(persistido.instagram_handle, 'solarprime.go')
+  assert.equal(persistido.instagram_origem, 'google_meu_negocio')
+  assert.equal(persistido.instagram_confianca, 'confirmado')
+  assert.deepEqual(persistido.instagram_evidencia, {
+    link: 'https://instagram.com/solarprime.go/',
+    fonte: 'cadastro_maps',
+  })
+})
+
 test('salvarProspect usa upsert por place_id e retorna registro persistido', async () => {
   const originalQuery = pool.query
   const chamadas = []
@@ -4038,6 +4060,11 @@ test('salvarProspect usa upsert por place_id e retorna registro persistido', asy
     assert.equal(chamadas[0].params[10], 'places/abc123')
     // empresa_id ($16) cai na empresa padrão PJ quando o contexto não informa
     assert.equal(chamadas[0].params[15], '00000000-0000-0000-0000-000000000001')
+    // Parametros do Instagram ($20..$23) existem mesmo vazios; se sumirem, o INSERT quebra.
+    assert.equal(chamadas[0].params[19], null)
+    assert.equal(chamadas[0].params[20], null)
+    assert.equal(chamadas[0].params[21], null)
+    assert.equal(chamadas[0].params[22], 'null')
     assert.equal(salvo.id, '11111111-1111-1111-1111-111111111111')
     assert.equal(salvo.status, 'aguardando')
     assert.equal(salvo.tem_site, false)

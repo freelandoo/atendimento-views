@@ -883,3 +883,21 @@ Ajustes sobre o adendo imediatamente acima, depois de medir o comportamento real
 - Regra a preservar: `qualificacao` so e escrita por decisao humana ou por fato declarado pela
   fonte. Ausencia de dado nunca vira descarte.
 - Nenhuma migration, nenhuma rota, nenhuma variavel de ambiente nova, nenhum arquivo de frontend.
+
+## 2026-09-16 - Instagram no cadastro novo e revisao humana do ICP
+
+- `backend/src/prospecting.js`: lead NOVO do Maps/Aquisicao ja grava `instagram_handle`,
+  `instagram_origem=google_meu_negocio`, `instagram_confianca=confirmado` e evidencia quando o
+  link classificado vier de `instagram.com`. Reusa `services/instagram-perfil.js`; nao cria regra
+  paralela. Em recoleta, preenche somente se o registro ainda nao tinha handle, preservando
+  confirmacao humana/captacao social existente.
+- `frontend/lib/instagram-perfil.js`: `nao_encontrado` por busca nao volta a oferecer "Procurar
+  Instagram", porque repetir a mesma busca consome CSE e nao acrescenta dado. O caminho depois
+  disso e informar manualmente. O rotulo tambem deixa de dizer "encontrado por busca" quando a
+  busca nao encontrou perfil confiavel.
+- `frontend/components/LeadDetalhesModal.tsx`: se o operador marcar `instagram_ativo` no ICP sem
+  perfil registrado, a ficha mostra aviso e atalho "Registrar Instagram" para abrir o bloco de
+  Instagram. Nao bloqueia a marcacao humana; apenas torna explicito que o sistema so verifica o
+  perfil registrado.
+- Nenhuma migration, rota, env ou dependencia nova. Continua pendente a etapa paga de checar posts
+  recentes/atividade real do Instagram.

@@ -7,6 +7,11 @@ const { enviarMensagem, classificarErroEvolution, verificarStatusInstanciaEvolut
 const { registrarEnvioNoHistorico } = require('./services/historico-envio')
 const { calcularScoreCadastroPlaces, montarJsonApresentacaoPlaces } = require('./services/lead-score-cadastro')
 const { classificarUrl, classificarLead } = require('./services/site-classificacao')
+const {
+  ORIGEM: IG_ORIGEM,
+  CONFIANCA: IG_CONFIANCA,
+  handleDeLinkConhecido,
+} = require('./services/instagram-perfil')
 const { calcularAtividadeGoogle } = require('./services/google-business-activity')
 const { qualificacaoInicial, qualificacaoDaDecisao, sqlAbordavel } = require('./services/lead-qualificacao')
 const { logger } = require('./logger')
@@ -1096,6 +1101,14 @@ function normalizarProspectParaPersistencia(prospect, contexto = {}) {
   // ser gravado como site proprio, venha de onde vier (coleta, importacao, cadastro
   // manual). `tem_site` deixa de ser "tem algum link" e passa a ser o veredito canonico.
   const url = classificarUrl(pIn.site || pIn.link_original)
+  // ETAPA 1 do perfil de Instagram, na propria coleta e de graca: quando o dono do negocio
+  // declarou o Instagram no Perfil da Empresa, o link ja vem na ficha. Ate 2026-09-16 so o
+  // script em lote aproveitava isso, entao lead NOVO nascia sem o @ mesmo tendo o link.
+  // `handleDeLinkConhecido` exige URL do Instagram — palavra solta num campo de link nao vira @.
+  const ig = handleDeLinkConhecido({
+    link_original: url.link_original || pIn.link_original,
+    site: url.site || pIn.site,
+  })
   return {
     empresa_id: empresaId,
     nome,
@@ -1115,6 +1128,11 @@ function normalizarProspectParaPersistencia(prospect, contexto = {}) {
     score: pIn.score == null ? null : parseInt(pIn.score, 10),
     motivo_score: normalizarTexto(pIn.motivo_score, 1000) || null,
     raw_json: pIn.raw_json && typeof pIn.raw_json === 'object' ? pIn.raw_json : {},
+    // O trio anda junto: sem handle nao existe veredito (a CHECK da migration 080 cobra isso).
+    instagram_handle: ig ? ig.handle : null,
+    instagram_origem: ig ? IG_ORIGEM.GOOGLE_MEU_NEGOCIO : null,
+    instagram_confianca: ig ? IG_CONFIANCA.CONFIRMADO : null,
+    instagram_evidencia: ig ? { link: ig.link, fonte: 'cadastro_maps' } : null,
   }
 }
 
@@ -1126,12 +1144,16 @@ async function salvarProspect(prospect, contexto = {}) {
     INSERT INTO prospectador.prospects (
       nome, telefone, nicho, cidade, endereco, avaliacoes, rating, tem_site,
       site, maps_url, place_id, origem, score, motivo_score, raw_json, empresa_id,
-      link_original, classificacao_url, qualificacao
+      link_original, classificacao_url, qualificacao,
+      instagram_handle, instagram_origem, instagram_confianca, instagram_evidencia,
+      instagram_verificado_em
     )
     VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8,
       $9, $10, $11, $12, $13, $14, $15::jsonb, $16,
-      $17, $18, $19
+      $17, $18, $19,
+      $20, $21, $22, $23::jsonb,
+      CASE WHEN $20::text IS NULL THEN NULL ELSE NOW() END
     )
     ON CONFLICT (empresa_id, place_id) DO UPDATE
     -- A coluna qualificacao NAO aparece neste SET, de proposito: recoleta NUNCA rebaixa nem
@@ -1173,6 +1195,36 @@ async function salvarProspect(prospect, contexto = {}) {
             THEN jsonb_set(EXCLUDED.raw_json, '{telefone_origem}', '"operador"'::jsonb, true)
           ELSE EXCLUDED.raw_json
         END,
+        instagram_handle = CASE
+          WHEN EXCLUDED.instagram_handle IS NOT NULL AND prospectador.prospects.instagram_handle IS NULL
+            THEN EXCLUDED.instagram_handle
+          ELSE prospectador.prospects.instagram_handle
+        END,
+        instagram_candidato = CASE
+          WHEN EXCLUDED.instagram_handle IS NOT NULL AND prospectador.prospects.instagram_handle IS NULL
+            THEN NULL
+          ELSE prospectador.prospects.instagram_candidato
+        END,
+        instagram_origem = CASE
+          WHEN EXCLUDED.instagram_handle IS NOT NULL AND prospectador.prospects.instagram_handle IS NULL
+            THEN EXCLUDED.instagram_origem
+          ELSE prospectador.prospects.instagram_origem
+        END,
+        instagram_confianca = CASE
+          WHEN EXCLUDED.instagram_handle IS NOT NULL AND prospectador.prospects.instagram_handle IS NULL
+            THEN EXCLUDED.instagram_confianca
+          ELSE prospectador.prospects.instagram_confianca
+        END,
+        instagram_evidencia = CASE
+          WHEN EXCLUDED.instagram_handle IS NOT NULL AND prospectador.prospects.instagram_handle IS NULL
+            THEN EXCLUDED.instagram_evidencia
+          ELSE prospectador.prospects.instagram_evidencia
+        END,
+        instagram_verificado_em = CASE
+          WHEN EXCLUDED.instagram_handle IS NOT NULL AND prospectador.prospects.instagram_handle IS NULL
+            THEN COALESCE(EXCLUDED.instagram_verificado_em, NOW())
+          ELSE prospectador.prospects.instagram_verificado_em
+        END,
         updated_at = NOW()
     RETURNING *
     `,
@@ -1199,6 +1251,10 @@ async function salvarProspect(prospect, contexto = {}) {
       // existe so' para a carencia do acervo). Se este argumento cair, um lead nunca visto
       // entraria na operacao sem triagem; ha guarda de regressao em test/lead-qualificacao.test.js.
       qualificacaoInicial(),
+      p.instagram_handle,
+      p.instagram_origem,
+      p.instagram_confianca,
+      JSON.stringify(p.instagram_evidencia),
     ]
   )
   return prospectPersistido(rows[0])

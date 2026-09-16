@@ -42,3 +42,4 @@ export declare function acoesDisponiveis(lead: LeadInstagram | null | undefined)
   podeRecusar: boolean
   podeTrocar: boolean
 }
+export declare function avisoIcpSemPerfil(lead: LeadInstagram | null | undefined): string

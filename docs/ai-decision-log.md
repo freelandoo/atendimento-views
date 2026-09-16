@@ -2916,3 +2916,25 @@ inventar meta em campanha de validacao contamina a leitura.
   para o enriquecimento —, mas REDUZ o volume de coleta atual, o que o operador aprovou.
 - **Validacao:** `npm test` 1984/1986 (as 2 falhas de motor de IA sao ambientais e pre-existentes).
   18 testes novos, incluindo anti-drift entre a lista de scrapers do modulo e o CHECK da migration.
+
+## 2026-09-16 - Instagram do GMN entra na coleta normal, busca nao repete, ICP pede registro
+
+- **Contexto:** depois de aplicar `npm run instagram:handles --aplicar` no acervo, restava fazer
+  lead novo nascer certo e evitar que a interface gastasse CSE repetindo uma busca que ja retornou
+  `nao_encontrado`.
+- **Decisao 1 - a coleta normal tambem extrai o Instagram declarado no GMN.** O script em lote
+  corrigiu o acervo, mas sem alterar `salvarProspect` todo lead novo voltaria a nascer sem
+  `instagram_handle`. A regra foi colocada na normalizacao da persistencia e reusa
+  `services/instagram-perfil.js`, que exige URL do Instagram e devolve o handle.
+- **Decisao 2 - recoleta nao sobrepoe handle existente.** Se o registro ja tinha
+  `instagram_handle`, a coleta preserva o valor atual. Se ainda nao tinha e o GMN trouxe um link
+  comprovado, a recoleta pode preencher, inclusive sobre `nao_encontrado`/candidato sem handle.
+- **Decisao 3 - busca CSE e oferecida uma vez por estado do cadastro.** Depois de
+  `nao_encontrado`, repetir a mesma busca so consome cota e tende a devolver o mesmo nada. O proximo
+  caminho e informacao nova: registrar manualmente o Instagram ou mudar o cadastro.
+- **Decisao 4 - ICP humano nao e bloqueado, mas fica sem ambiguidade.** O operador pode marcar
+  `instagram_ativo` por julgamento proprio; a tela apenas avisa que o sistema so consegue verificar
+  um perfil registrado e oferece o atalho para registrar. Regra critica continua no backend: o sinal
+  automatico do ICP le `perfilConfirmado`, nao o aviso visual.
+- **Validacao:** testes focados de Instagram/backend e front, `npm run typecheck` em backend e
+  frontend. `core.test.js` completo continua com as 2 falhas ambientais conhecidas de OpenAI 429.

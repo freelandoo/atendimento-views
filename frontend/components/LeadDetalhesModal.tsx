@@ -19,7 +19,8 @@ import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink, tituloLinkNaoSite } from '@/lib/site-rotulos'
 // Perfil de Instagram: a tela só desenha o veredito. A prova de vínculo vive no backend.
 import {
-  acoesDisponiveis, avisoAtividade, estadoInstagram, evidencia, rotuloEstado, rotuloOrigem, urlPerfil,
+  acoesDisponiveis, avisoAtividade, avisoIcpSemPerfil, estadoInstagram, evidencia, rotuloEstado,
+  rotuloOrigem, urlPerfil,
 } from '@/lib/instagram-perfil'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import {
@@ -222,16 +223,28 @@ export function BolinhaIcp({ l }: { l: LeadDetalhavel }) {
  * CANDIDATO é um palpite de busca esperando uma pessoa decidir — por isso ele aparece com os
  * sinais que bateram e os que não bateram, e nunca como se fosse o perfil dele.
  */
-function BlocoInstagram({ lead, empresaId, onLeadAtualizado }: {
+function BlocoInstagram({ lead, empresaId, onLeadAtualizado, pedidoRegistro = 0 }: {
   lead: LeadDetalhavel
   empresaId?: string
   onLeadAtualizado?: (lead: LeadDetalhavel) => void
+  /** Incrementado pelo critério do ICP: abre o campo manual e traz o bloco para a vista. */
+  pedidoRegistro?: number
 }) {
   const [ocupado, setOcupado] = useState<'' | 'procurando' | 'salvando'>('')
   const [erro, setErro] = useState('')
   const [editando, setEditando] = useState(false)
   const [digitado, setDigitado] = useState('')
+  const alvoRef = useRef<HTMLDivElement | null>(null)
   const fb = useFeedback()
+
+  // O pedido vem de outro ponto da ficha (o checklist do ICP). Ignora o valor inicial 0: sem
+  // isso o campo abriria sozinho toda vez que a ficha fosse montada.
+  useEffect(() => {
+    if (!pedidoRegistro) return
+    setDigitado('')
+    setEditando(true)
+    alvoRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [pedidoRegistro])
 
   const estado = estadoInstagram(lead)
   const acoes = acoesDisponiveis(lead)
@@ -268,7 +281,7 @@ function BlocoInstagram({ lead, empresaId, onLeadAtualizado }: {
 
   return (
     <Linha rotulo="Instagram">
-      <div className="space-y-1.5">
+      <div className="space-y-1.5" ref={alvoRef}>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
           <span className={
             estado.tom === 'ok' ? 'font-medium text-emerald-700'
@@ -400,6 +413,10 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
   const maximo = maximoDoLead(lead)
   const leituraCad = leituraCadastro(lead.score_cadastro, maximo, criterios)
   const handle = (lead.instagram_handle || '').replace(/^@/, '')
+  // Contador, não booleano: o operador pode clicar "Registrar Instagram" várias vezes, e cada
+  // clique tem de reabrir o campo — um booleano já `true` não dispararia o efeito de novo.
+  const [pedidoRegistroIg, setPedidoRegistroIg] = useState(0)
+  const avisoIcp = avisoIcpSemPerfil(lead)
   const icp = resumoIcpDoLead(lead) as ResumoIcp
   const selo = seloIcp(icp.faixa, icp.score)
   const sinaisAuto = useMemo(
@@ -623,6 +640,22 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                         </span>
                         {criterioDoc.explicacao && <span className="mt-0.5 block text-[11px] text-slate-500">{criterioDoc.explicacao}</span>}
                         {auto?.motivo && <span className="block text-[11px] text-slate-400">{auto.motivo}</span>}
+                        {/* Marcar "Instagram ativo" sem perfil registrado NÃO é bloqueado: o ICP é
+                            julgamento humano e o operador pode ter visto o perfil por fora. Mas o
+                            sistema só verifica o que está registrado — então a tela pede o
+                            registro em vez de deixar o critério marcado sobre nada. */}
+                        {c.id === 'instagram_ativo' && !!respostasIcp[c.id] && avisoIcp && (
+                          <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-amber-700">
+                            {avisoIcp}
+                            <button
+                              type="button"
+                              onClick={(e) => { e.preventDefault(); setPedidoRegistroIg((n) => n + 1) }}
+                              className="rounded border border-amber-300 bg-white px-1.5 py-0.5 font-medium text-amber-800 hover:bg-amber-50"
+                            >
+                              Registrar Instagram
+                            </button>
+                          </span>
+                        )}
                       </span>
                     </label>
                   )
@@ -716,7 +749,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
             {lead.seguidores != null && (
               <Linha rotulo="Seguidores"><span className="text-xs">{lead.seguidores.toLocaleString('pt-BR')}</span></Linha>
             )}
-            <BlocoInstagram lead={lead} empresaId={empresaId} onLeadAtualizado={onLeadAtualizado} />
+            <BlocoInstagram lead={lead} empresaId={empresaId} onLeadAtualizado={onLeadAtualizado} pedidoRegistro={pedidoRegistroIg} />
             {/* O link não-site continua acessível, dito pelo que ele é — nunca como "site". */}
             <Linha rotulo="Presença digital">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">

@@ -178,7 +178,7 @@ Partindo de **200 leads já coletados** (o caso descrito: os leads já vieram do
 |---|---|---|---|---|
 | 1. Maps analysis | 200 | **0** | 0 | dado já em `raw_json`/`fonte_bruta` |
 | — descarte de fechados | −2 (~0,9%) | 0 | 0 | proporção medida: 40 em 4.631 |
-| 2a. IG do GMN | ? | **0** | **0** | **proporção desconhecida — ver §5.1** |
+| 2a. IG do GMN | **≈ 24 (11,9%)** | **0** | **0** | **MEDIDO em 2026-09-16 — ver abaixo** |
 | 2b. busca CSE | 198 − (2a) | **0** | 1 cada | teto de 100/dia |
 | 3. Perfil | ~120 (estimado) | **~120** | 0 | 1 por perfil encontrado |
 | 4. Posts | 0 **ou** ~120 | **0 ou ~600** | 0 | **depende inteiramente da sonda** |
@@ -193,8 +193,17 @@ Partindo de **200 leads já coletados** (o caso descrito: os leads já vieram do
 
 **A sonda de 1 crédito decide entre 39 e 6 rodadas.** É por isso que ela vem primeiro.
 
-> O número de perfis encontrados (~120 de 198) é **estimativa, não medição**. A §5.1 descreve
-> como medi-lo de graça antes de gastar qualquer crédito.
+> **MEDIÇÃO EXECUTADA (2026-09-16, `npm run instagram:handles`, somente leitura).** De **4.604**
+> leads sem handle, apenas **549 (11,9%)** trazem o Instagram no link do Google Meu Negócio —
+> **cinco vezes menos** que os ~60% que este documento estimava. Os outros **4.055** dependem da
+> busca por CSE.
+>
+> **Consequência: o gargalo deixou de ser o crédito da Bright Data e passou a ser a cota do
+> Google CSE.** A 100 queries/dia no gratuito, varrer a base inteira leva **~41 dias**; uma rodada
+> de 200 leads consome ~176 queries, ou **2 dias**. A decisão C (§11) deixou de ser detalhe.
+>
+> O número de perfis efetivamente encontrados (~120 de 198) continua sendo estimativa: depende da
+> taxa de acerto do CSE, que só a primeira rodada real mede.
 
 ---
 
@@ -402,9 +411,11 @@ hoje, e isso é decisão de negócio, não técnica.
 **B. Qual o teto diário de créditos para o enriquecimento?** Sugestão: 150/dia (≈1 rodada de 200
 leads a cada 2 dias, ~31 dias de autonomia com os 4.760).
 
-**C. Teto diário de queries CSE?** A chave está no plano gratuito (100/dia) ou pago? Se gratuito,
-a etapa 2b processa no máximo 100 leads/dia — e uma rodada de 200 leva 2 dias. Não é problema,
-mas muda a expectativa.
+**C. Teto diário de queries CSE? — VIROU A DECISÃO MAIS IMPORTANTE.** Com só 11,9% vindo de
+graça, o CSE deixou de ser complemento e passou a ser o canal principal de descoberta. No
+gratuito (100/dia): 2 dias por rodada de 200, ~41 dias para a base inteira. No pago
+(~US$5/1.000): os 4.055 leads custariam ~US$20 de uma vez. **Esta decisão agora pesa mais que o
+teto de créditos.**
 
 **D. Quantos posts na etapa 4**, se ela existir? Sugestão: 3 (suficiente para a data do mais
 recente, com folga para post fixado no topo).
@@ -425,6 +436,6 @@ com teto diário, o excedente simplesmente espera o dia seguinte.
 3. **O saldo restante é estimativa local**, não leitura da Bright Data (§6.2).
 4. **Raspar Instagram tem risco de bloqueio/ToS** — a Bright Data absorve isso, mas um dataset
    descontinuado derruba as etapas 3 e 4. As etapas 1, 2 e 5 continuam funcionando sem elas.
-5. **A proporção de leads com Instagram no GMN é chute** (~60% na §4). A Fase 1 mede de graça.
+5. ~~A proporção de leads com Instagram no GMN é chute (~60%).~~ **MEDIDO em 2026-09-16: 11,9%** (549 de 4.604). O risco virou outro — a taxa de acerto do CSE sobre os 4.055 restantes segue desconhecida, e é ela que define quantos perfis chegam à etapa 3.
 6. **Perfil confirmado ≠ perfil ativo** enquanto a etapa 4 não existir. O sistema hoje diz isso
    explicitamente e não deve parar de dizer.

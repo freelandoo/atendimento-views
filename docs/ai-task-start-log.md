@@ -3929,3 +3929,18 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Cuidados:** os creditos sao de UMA conta compartilhada (soma global, nao por empresa); o
   ledger precisa ser idempotente por snapshot porque o worker reprocessa; a contabilidade nao pode
   derrubar processamento de lote ja pago; a API nao expoe saldo, entao ele e' informado.
+
+## 2026-09-16 - Tarefa IA - Instagram na coleta e revisao humana do ICP
+
+- **Pedido resumido:** concluir os tres ajustes de baixo custo antes da sonda paga: lead novo da
+  coleta ja nascer com Instagram confirmado quando o Google Meu Negocio trouxe o link; nao
+  reoferecer a mesma busca CSE depois de `nao_encontrado`; e, quando o operador marcar
+  `instagram_ativo` no ICP sem perfil registrado, pedir registro manual em vez de deixar o sinal
+  sem base verificavel.
+- **E projeto/tarefa de alteracao?** Sim. Alteracao pequena em backend, frontend e documentacao,
+  sem migration, sem dependencia nova e sem chamada externa.
+- **Escopo:** `prospecting.js`, helper puro do front `instagram-perfil`, modal de detalhes e
+  testes focados. NAO inclui coleta de posts, verificacao de atividade real nem execucao paga.
+- **Cuidados:** nao sobrescrever handle ja confirmado em recoleta; busca CSE continua acao humana
+  por clique; ICP humano pode marcar o criterio, mas a tela explicita que o sistema so verifica o
+  que estiver registrado.

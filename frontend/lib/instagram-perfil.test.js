@@ -49,8 +49,31 @@ test('as acoes acompanham o estado', () => {
   })
 })
 
-test('procurar de novo continua possivel depois de "nao encontrado"', () => {
-  assert.equal(IG.acoesDisponiveis({ instagram_confianca: 'nao_encontrado' }).podeProcurar, true)
+test('a busca e oferecida UMA vez: depois de "nao encontrado" o botao NAO volta', () => {
+  // Cada clique gasta uma query do Google CSE (100/dia no gratuito) e repetir a MESMA busca
+  // sobre os MESMOS dados devolveria o mesmo nada. Decisao do operador em 2026-09-16.
+  const acoes = IG.acoesDisponiveis({ instagram_confianca: 'nao_encontrado' })
+  assert.equal(acoes.podeProcurar, false)
+  assert.equal(acoes.podeTrocar, false)
+  // Sobra o unico caminho que acrescenta informacao nova: informar a mao.
+  assert.equal(acoes.podeConfirmar, false)
+  assert.equal(acoes.podeRecusar, false)
+})
+
+test('"nao encontrado" NAO e rotulado como "encontrado por busca"', () => {
+  const lead = { instagram_confianca: 'nao_encontrado', instagram_origem: 'busca' }
+  assert.equal(IG.rotuloOrigem(lead), 'a busca nao encontrou perfil confiavel')
+  assert.notEqual(IG.rotuloOrigem(lead), IG.ROTULO_ORIGEM.busca)
+})
+
+test('o ICP pede o registro quando o criterio e marcado sem perfil, e o texto muda por estado', () => {
+  assert.equal(IG.avisoIcpSemPerfil({ instagram_handle: 'loja' }), '', 'com perfil nao ha o que pedir')
+  assert.match(IG.avisoIcpSemPerfil({}), /Nenhum Instagram registrado/)
+  assert.match(
+    IG.avisoIcpSemPerfil({ instagram_confianca: 'candidato', instagram_candidato: 'x' }),
+    /aguardando confirmacao/
+  )
+  assert.match(IG.avisoIcpSemPerfil({ instagram_confianca: 'nao_encontrado' }), /a mao/)
 })
 
 test('separa o que bateu do que nao bateu, sem reavaliar nada', () => {
