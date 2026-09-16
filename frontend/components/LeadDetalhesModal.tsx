@@ -11,7 +11,8 @@
 // Um único componente serve as duas telas de propósito: eram elas que já duplicavam colunas,
 // pontuação e JSON. Os campos ausentes simplesmente não aparecem — perfil de Instagram não
 // tem endereço nem nota, e uma linha "—" para cada um só encheria a tela.
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { apiFetch } from '@/lib/api'
 import JsonLeadModal, { type JsonApresentacao, type CriterioApresentacao } from '@/components/ui/JsonLeadModal'
 import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
 import NichoCidade from '@/components/ui/NichoCidade'
@@ -20,7 +21,14 @@ import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import {
   VARIANTES, O_QUE_MEDE, NOTA_COMPLETUDE, fatoresDeCadastro, leituraCadastro,
 } from '@/lib/pontuacao-indicador'
-import { resumoIcpDoLead, seloIcp } from '@/lib/lead-icp'
+import {
+  CRITERIOS_ICP_TENKA,
+  calcularIcp,
+  respostasIniciaisIcp,
+  resumoIcpDoLead,
+  seloIcp,
+  sinaisAutomaticosDoLead,
+} from '@/lib/lead-icp'
 
 type JsonApresLead = JsonApresentacao & {
   empresa?: { horario_funcionamento?: boolean; fotos?: number }
@@ -35,6 +43,8 @@ type ResumoIcp = {
   motivos: string[]
   avaliado_em: string | null
 }
+type IcpPayload = { respostas: Record<string, boolean>; observacao?: string }
+type SinalIcp = { sugerido?: boolean; motivo?: string }
 
 /** O mínimo que as duas telas têm em comum. Tudo é opcional: origens diferentes, campos diferentes. */
 export type LeadDetalhavel = {
@@ -128,6 +138,27 @@ export function BolinhaCadastro({ l }: { l: LeadDetalhavel }) {
   )
 }
 
+export function BolinhaIcp({ l }: { l: LeadDetalhavel }) {
+  const resumo = resumoIcpDoLead(l) as ResumoIcp
+  const selo = seloIcp(resumo.faixa, resumo.score)
+  const title = `${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}`
+  return (
+    <span
+      tabIndex={0}
+      title={title}
+      aria-label={title}
+      className="inline-flex rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+    >
+      <span
+        aria-hidden="true"
+        className={`inline-flex h-9 w-9 items-center justify-center rounded-full border-2 text-xs font-bold transition hover:scale-105 ${selo.classeBolinha || selo.classe}`}
+      >
+        {selo.score == null ? '—' : selo.score}
+      </span>
+    </span>
+  )
+}
+
 function Linha({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
   return (
     <div className="flex gap-2 py-1 text-sm">
@@ -137,14 +168,19 @@ function Linha({ rotulo, children }: { rotulo: string; children: React.ReactNode
   )
 }
 
-export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectada = false }: {
+export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectada = false, empresaId, onLeadAtualizado }: {
   lead: LeadDetalhavel
   onFechar: () => void
+  empresaId?: string
+  onLeadAtualizado?: (lead: LeadDetalhavel) => void
   /** A instância de envio selecionada na tela está desconectada — só muda o AVISO ao lado do
       botão Copiar (a mensagem, quando existe, sempre pode ser copiada). */
   instanciaDesconectada?: boolean
 }) {
   const [jsonAberto, setJsonAberto] = useState(false)
+  const [respostasIcp, setRespostasIcp] = useState<Record<string, boolean>>({})
+  const [observacaoIcp, setObservacaoIcp] = useState('')
+  const [salvandoIcp, setSalvandoIcp] = useState(false)
   const fb = useFeedback()
   const emp = lead.json_apresentacao?.empresa
   const horario = emp?.horario_funcionamento
@@ -154,6 +190,39 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
   const handle = (lead.instagram_handle || '').replace(/^@/, '')
   const icp = resumoIcpDoLead(lead) as ResumoIcp
   const selo = seloIcp(icp.faixa, icp.score)
+  const sinaisAuto = useMemo(
+    () => ({ ...sinaisAutomaticosDoLead(lead), ...(icp.sinais_auto || {}) }) as Record<string, SinalIcp>,
+    [lead, icp.sinais_auto]
+  )
+  const icpEditado = useMemo(() => calcularIcp(respostasIcp), [respostasIcp])
+  const seloEditado = seloIcp(icpEditado.faixa, icpEditado.score)
+
+  useEffect(() => {
+    setRespostasIcp(respostasIniciaisIcp(lead) as Record<string, boolean>)
+    setObservacaoIcp('')
+  }, [lead.id, lead.icp_avaliado_em, lead.icp_score])
+
+  async function salvarIcp() {
+    if (!empresaId) {
+      fb.toast('Abra este lead pelo Banco de Leads para salvar o ICP.', 'error')
+      return
+    }
+    setSalvandoIcp(true)
+    try {
+      const payload: IcpPayload = { respostas: respostasIcp, observacao: observacaoIcp }
+      const r = await apiFetch<LeadDetalhavel>(`/api/empresas/${empresaId}/banco-leads/leads/${lead.id}/icp`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      })
+      onLeadAtualizado?.(r.data)
+      const s = seloIcp(r.data.icp_faixa || r.data.icp_resumo_json?.faixa, r.data.icp_score ?? r.data.icp_resumo_json?.score ?? null)
+      fb.toast(`ICP salvo: ${s.rotulo}${s.score != null ? ` (${s.score}/13)` : ''}.`, 'success')
+    } catch (e) {
+      fb.toast(e instanceof Error ? e.message : 'Erro ao salvar ICP.', 'error')
+    } finally {
+      setSalvandoIcp(false)
+    }
+  }
 
   async function copiarMensagem() {
     if (!lead.mensagem_gerada) return
@@ -208,32 +277,78 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
 
           <div className="rounded-xl border bg-white px-3 py-3">
             <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">ICP Tenka v1.1</p>
-                <p className="mt-0.5 text-xs text-slate-500">Qualidade comercial separada da completude do cadastro.</p>
+              <div className="flex min-w-0 items-center gap-3">
+                <BolinhaIcp l={{ ...lead, icp_score: icpEditado.score, icp_faixa: icpEditado.faixa, icp_resumo_json: { ...lead.icp_resumo_json, ...icpEditado } }} />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">ICP Tenka v1.1</p>
+                  <p className="mt-0.5 text-xs text-slate-500">Termômetro comercial: frio, morno ou quente.</p>
+                </div>
               </div>
-              <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${selo.classe}`} title={selo.descricao}>
-                {selo.rotulo}{selo.score != null ? ` · ${selo.score}/13` : ''}
+              <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${seloEditado.classe}`} title={seloEditado.descricao}>
+                {seloEditado.rotulo}{seloEditado.score != null ? ` · ${seloEditado.score}/13` : ''}
               </span>
             </div>
-            {icp.criterios.length > 0 ? (
-              <>
-                <p className="mt-2 text-[11px] text-slate-500">Pontuacao feita no checklist de marcacao da Aquisicao.</p>
-                <ul className="mt-3 grid grid-cols-1 gap-1 sm:grid-cols-2">
-                  {icp.criterios.map((c, i) => (
-                    <li key={c.id || i} className={`flex items-center gap-1.5 text-xs ${c.marcado ? 'text-slate-700' : 'text-slate-400'}`}>
-                      <span aria-hidden="true">{c.marcado ? '✓' : '✗'}</span>
-                      <span>{c.rotulo}</span>
-                      <span className="text-[10px] text-slate-400">+{c.pontos}</span>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : (
-              <p className="mt-2 text-xs text-slate-400">
-                Este lead ainda nao passou pelo checklist ICP. Na Aquisicao, clique em Marcar lead para pontuar.
-              </p>
-            )}
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Automático</p>
+              <div className="mt-1 grid gap-1 sm:grid-cols-3">
+                {Object.entries(sinaisAuto).map(([id, sinal]) => {
+                  const criterio = CRITERIOS_ICP_TENKA.find((c) => c.id === id)
+                  if (!criterio) return null
+                  return (
+                    <div key={id} className={`rounded-lg px-2 py-1 text-[11px] ${sinal?.sugerido ? 'bg-white text-slate-700' : 'bg-slate-100 text-slate-400'}`}>
+                      <span className="font-medium">{criterio.rotulo}</span>
+                      <span className="ml-1">{sinal?.sugerido ? 'detectado' : 'não detectado'}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+            <div className="mt-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Validação humana</p>
+              <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                {icpEditado.criterios.map((c) => {
+                  const auto = sinaisAuto[c.id]
+                  const humano = c.tipo !== 'automatico'
+                  return (
+                    <label key={c.id} className={`flex items-start gap-2 rounded-lg border px-2 py-1.5 text-xs ${respostasIcp[c.id] ? 'border-orange-200 bg-orange-50/60 text-slate-800' : 'border-slate-200 bg-white text-slate-600'}`}>
+                      <input
+                        type="checkbox"
+                        checked={!!respostasIcp[c.id]}
+                        onChange={(e) => setRespostasIcp((r) => ({ ...r, [c.id]: e.target.checked }))}
+                        className="mt-0.5"
+                      />
+                      <span className="min-w-0">
+                        <span className="font-medium">{c.rotulo}</span>
+                        <span className="ml-1 text-slate-400">+{c.pontos}</span>
+                        <span className="ml-1 rounded-full bg-white/80 px-1.5 py-0.5 text-[10px] text-slate-500">
+                          {humano ? (auto?.sugerido ? 'auto + humano' : 'humano') : 'automático'}
+                        </span>
+                        {auto?.motivo && <span className="block text-[11px] text-slate-400">{auto.motivo}</span>}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+              <textarea
+                value={observacaoIcp}
+                onChange={(e) => setObservacaoIcp(e.target.value)}
+                placeholder="Observação opcional sobre o fit comercial"
+                className="mt-2 min-h-[58px] w-full resize-y rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-brand"
+              />
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] text-slate-500">
+                  Ao salvar Lead A, o lead fica marcado/qualificado automaticamente.
+                </p>
+                <button
+                  type="button"
+                  onClick={salvarIcp}
+                  disabled={salvandoIcp}
+                  className="rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
+                >
+                  {salvandoIcp ? 'Salvando...' : 'Salvar ICP'}
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Mensagem já preparada (Manual/Semi/Automático escrevem no mesmo rascunho — texto

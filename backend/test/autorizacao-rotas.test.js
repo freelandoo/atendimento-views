@@ -118,6 +118,9 @@ const ESCRITAS_COM_CAPACIDADE_PROPRIA = [
   { arquivo: 'api-roteiros.js', capacidade: 'ROTEIRO_GERENCIAR', minimo: 5 },
   { arquivo: 'api-campanhas.js', capacidade: 'CAMPANHA_GERENCIAR', minimo: 5 },
   { arquivo: 'api-banco-leads.js', capacidade: 'LEAD_DISPARAR_LOTE', minimo: 5 },
+  // 2026-09-16 — avaliar o ICP a partir de Detalhes ATRAVESSA A PORTA da triagem: Lead A grava
+  // `qualificacao='aprovado'`. O mount so exige LEAD_VER_APROVADOS, que o comercial tem.
+  { arquivo: 'api-banco-leads.js', capacidade: 'LEAD_TRIAR', minimo: 1 },
   { arquivo: 'api-follow-ups.js', capacidade: 'FOLLOWUP_CONFIG_EMPRESA', minimo: 1 },
 ]
 
@@ -252,6 +255,21 @@ test('o comercial nao consegue CRIAR roteiro nem DISPARAR em lote, mesmo alcanca
   assert.equal(rodar(requireCapacidade(C.LEAD_DISPARAR_LOTE), reqDe('comercial')).chamouNext, false, 'mas nao dispara em lote')
   assert.equal(rodar(requireCapacidade(C.LIGACAO_OPERAR), reqDe('comercial')).chamouNext, true, 'alcanca /campanhas')
   assert.equal(rodar(requireCapacidade(C.CAMPANHA_GERENCIAR), reqDe('comercial')).chamouNext, false, 'mas nao cria campanha')
+})
+
+test('avaliar ICP em Detalhes exige LEAD_TRIAR — o mount de /banco-leads NAO basta', () => {
+  // A rota grava `qualificacao='aprovado'` quando da Lead A, que e' a MESMA porta de
+  // /prospeccao/curadoria (LEAD_TRIAR). Sob o gate do mount (LEAD_VER_APROVADOS) o comercial
+  // aprovaria pelo modal de Detalhes o que a curadoria lhe recusa.
+  const src = rota('api-banco-leads.js')
+  const linha = src.split('\n').find((l) => l.includes("router.patch('/leads/:id/icp'"))
+  assert.ok(linha, 'a rota de avaliacao de ICP sumiu')
+  assert.ok(linha.includes('requireCapacidade(CAP.LEAD_TRIAR)'),
+    'aprovar lead pelo ICP precisa de LEAD_TRIAR, nunca so do gate do mount')
+  assert.equal(rodar(requireCapacidade(C.LEAD_TRIAR), reqDe('comercial')).chamouNext, false,
+    'o comercial alcanca /banco-leads mas NAO atravessa a porta da triagem')
+  assert.equal(rodar(requireCapacidade(C.LEAD_VER_APROVADOS), reqDe('comercial')).chamouNext, true,
+    'e continua alcancando o modulo')
 })
 
 test('/conversas autoriza POR ROTA, nao no mount — e o mount continua sem capacidade', () => {

@@ -22,25 +22,29 @@ const FAIXAS_ICP = Object.freeze({
     rotulo: 'Lead A',
     descricao: 'Alta aderencia ao ICP Tenka.',
     ordem: 3,
-    classe: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    classe: 'border-orange-300 bg-orange-50 text-orange-800',
+    classeBolinha: 'border-orange-500 bg-orange-100 text-orange-800',
   },
   B: {
     rotulo: 'Lead B',
     descricao: 'Bom fit, abordagem com personalizacao leve.',
     ordem: 2,
-    classe: 'border-blue-200 bg-blue-50 text-blue-700',
+    classe: 'border-amber-300 bg-amber-50 text-amber-800',
+    classeBolinha: 'border-amber-400 bg-amber-50 text-amber-800',
   },
   C: {
     rotulo: 'Lead C',
     descricao: 'Baixa prioridade ou revisar antes de investir tempo.',
     ordem: 1,
-    classe: 'border-amber-200 bg-amber-50 text-amber-700',
+    classe: 'border-sky-200 bg-sky-50 text-sky-700',
+    classeBolinha: 'border-sky-300 bg-sky-50 text-sky-700',
   },
   sem_icp: {
     rotulo: 'Sem ICP',
     descricao: 'Ainda nao avaliado pelo checklist comercial.',
     ordem: 0,
     classe: 'border-dashed border-slate-300 bg-white text-slate-500',
+    classeBolinha: 'border-dashed border-slate-300 bg-white text-slate-400',
   },
 })
 
@@ -108,6 +112,53 @@ function resumoIcpDoLead(lead) {
   }
 }
 
+function temInstagramAtivo(lead = {}) {
+  const origem = String(lead?.origem || '').toLowerCase()
+  const seguidores = Number(lead?.seguidores)
+  return origem === 'instagram'
+    || origem === 'linkedin'
+    || !!String(lead?.instagram_handle || '').trim()
+    || !!String(lead?.bio || '').trim()
+    || !!String(lead?.link_bio || '').trim()
+    || (Number.isFinite(seguidores) && seguidores > 0)
+}
+
+function sinaisAutomaticosDoLead(lead = {}) {
+  const avaliacoes = Number(lead?.avaliacoes)
+  const rating = Number(lead?.rating)
+  const instagramAtivo = temInstagramAtivo(lead)
+  const operacaoValidada = (Number.isFinite(avaliacoes) && avaliacoes >= 5) || (Number.isFinite(rating) && rating >= 4)
+  const semSite = lead?.situacao_site === 'sem_site' || lead?.tem_site === false
+  const lacunaDigital = semSite || (lead?.situacao_site === 'nao_identificado' && (instagramAtivo || !!String(lead?.link_original || '').trim()))
+  return {
+    operacao_validada: {
+      sugerido: operacaoValidada,
+      motivo: operacaoValidada ? 'Sinal automatico: reputacao/atividade publica.' : 'Sem evidencia automatica suficiente.',
+    },
+    instagram_ativo: {
+      sugerido: instagramAtivo,
+      motivo: instagramAtivo ? 'Sinal automatico: presenca social coletada.' : 'Sem sinal social coletado.',
+    },
+    lacuna_digital_clara: {
+      sugerido: lacunaDigital,
+      motivo: lacunaDigital ? 'Sinal automatico: sem site proprio claro.' : 'Lacuna digital nao confirmada automaticamente.',
+    },
+  }
+}
+
+function respostasIniciaisIcp(lead = {}) {
+  const resumo = resumoIcpDoLead(lead)
+  const respostas = {}
+  for (const c of CRITERIOS_ICP_TENKA) respostas[c.id] = false
+  if (Array.isArray(resumo.criterios) && resumo.criterios.length) {
+    for (const c of resumo.criterios) respostas[c.id] = c.marcado === true
+    return respostas
+  }
+  const sinais = sinaisAutomaticosDoLead(lead)
+  for (const [id, sinal] of Object.entries(sinais)) respostas[id] = sinal.sugerido === true
+  return respostas
+}
+
 function ordemIcp(lead) {
   const r = resumoIcpDoLead(lead)
   const selo = seloIcp(r.faixa, r.score)
@@ -124,5 +175,7 @@ module.exports = {
   calcularIcp,
   seloIcp,
   resumoIcpDoLead,
+  sinaisAutomaticosDoLead,
+  respostasIniciaisIcp,
   ordemIcp,
 }

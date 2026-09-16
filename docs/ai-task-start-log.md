@@ -3715,3 +3715,21 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Cuidados:** nao transformar completude de cadastro em chance de venda; nao depender so de cor;
   preservar `qualificacao` como porta de abordagem; manter regra sensivel no backend; registrar
   decisoes humanas com auditoria e usar resultados reais para aprendizado posterior.
+
+## 2026-09-16 - Complemento da tarefa IA - Fechamento das pendencias do ICP
+
+- **Pedido resumido:** fechar as tres pendencias levantadas na revisao do lote de ICP antes do
+  push para `master`: gate de capacidade da rota nova, teste da rota e documentacao do modulo.
+- **E projeto/tarefa de alteracao?** Sim, de escopo pequeno e CORRETIVO: uma linha de middleware,
+  testes e documentacao. Nenhuma migration, nenhuma rota nova, nenhuma variavel de ambiente.
+- **Defeito corrigido:** `PATCH /leads/:id/icp` grava `qualificacao='aprovado'` quando da Lead A,
+  mas estava sob o mount de `/banco-leads`, que exige apenas `LEAD_VER_APROVADOS` — capacidade que
+  o papel `comercial` TEM. Aprovar lead e' `LEAD_TRIAR`, que ele NAO tem: o modal de Detalhes
+  deixava ele atravessar a porta que `/prospeccao/curadoria` lhe recusa.
+- **Execucao:** `requireCapacidade(CAP.LEAD_TRIAR)` na rota (depois de `requireEmpresaAccess`);
+  linha em `ESCRITAS_COM_CAPACIDADE_PROPRIA` + teste dedicado em `test/autorizacao-rotas.test.js`;
+  guardas de comportamento em `test/lead-icp-score.test.js` (so Lead A promove, status so PROMOVE,
+  mesma transacao, recorte por id, auditoria sem PII); secao do modulo em `AGENTS.md`.
+- **Cuidados:** nao afrouxar o gate do mount para o resto do `/banco-leads`; nao mexer na regra de
+  pontuacao; manter a ordem `requireEmpresaAccess` -> `requireCapacidade` (o inverso devolve 500 e
+  derruba a rota para todo mundo).

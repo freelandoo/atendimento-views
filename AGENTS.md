@@ -2138,6 +2138,59 @@
 - Testes: `frontend/lib/menu-radial.test.js`. Nenhuma variável de ambiente nova, nenhuma rota,
   nenhuma migration, nenhum arquivo de backend alterado.
 
+### ICP do lead — fit COMERCIAL, que não é completude de cadastro nem prioridade (migration 079)
+- **Regra que governa o módulo: são TRÊS eixos e eles não se somam.** `score_cadastro` mede
+  **completude de dados** (paleta neutra) · `icp_score`/`icp_faixa` respondem **"este lead parece
+  o cliente certo?"** · a prioridade de `ligacao-prioridade.js` responde **"vale agir agora?"**.
+  Os três andam em direções diferentes sobre o mesmo lead — ter site **soma 20** na completude e
+  **derruba** a prioridade —, e foi confundir dois deles que fez o melhor lead da campanha
+  aparecer em vermelho (ver "Indicador de pontuação"). **PROIBIDO criar um "score geral".**
+- **Modelo `Tenka v1.1` FIXO e VERSIONADO** (`src/services/icp-modelo.js`, semeado pela migration
+  com `empresa_id IS NULL`): 8 critérios, **13 pontos**, cortes **Lead A 10-13 · B 6-9 · C 0-5**.
+  A tabela `prospectador.icp_modelos` já nasce preparada para o ICP por empresa (`empresa_id`
+  nullable + `UNIQUE (slug, versao)` parcial), mas **a Fase 1 não tem tela de configuração**: um
+  segundo ICP (energia solar, estética…) é a Fase 2, não um `if` no código do Tenka.
+- **A pontuação é HUMANA; o automático só SUGERE.** Cada critério declara `tipo`
+  (`humano` · `automatico` · `humano_auto`), e `lead-icp-score.js` (`calcularSinaisAutomaticos` →
+  `respostasSugeridas`) pré-marca só o que o cadastro prova. **O score final sai sempre das
+  respostas**, mesmo quando o cadastro é fraco — cadastro fraco é justamente a oportunidade.
+  Resposta desconhecida **não entra no score** (`normalizarRespostas`).
+- **Histórico append-only + snapshot:** `prospectador.lead_icp_avaliacoes` guarda cada avaliação
+  (respostas, sinais, motivos, quem, quando) e `prospects.icp_*` é **apenas o snapshot atual**,
+  para listagem e filtro. Reavaliar é uma linha nova, nunca a reescrita da anterior.
+- **Dono único da escrita: `src/db/lead-icp.js` (`salvarAvaliacaoIcp`), sempre DENTRO da transação
+  da decisão.** São exatamente **dois** chamadores — a curadoria (`decidirOportunidade`, o
+  Assistente de Oportunidades) e `PATCH /leads/:id/icp` (o modal de Detalhes do Banco de Leads).
+  Um terceiro ponto que grave `icp_*` por conta própria faz a avaliação e a decisão divergirem.
+- ⚠️ **`PATCH /leads/:id/icp` exige `LEAD_TRIAR` POR ROTA — o mount NÃO basta.** `/banco-leads` é
+  montado com `LEAD_VER_APROVADOS`, que o papel `comercial` tem; a rota grava
+  `qualificacao='aprovado'` quando dá Lead A, que é **a mesma porta** de `/prospeccao/curadoria`.
+  Sem o gate por rota, o comercial aprovaria pelo modal de Detalhes o que a curadoria lhe recusa.
+- **Quem aprova é o CORTE, não o clique:** só `faixa === 'A'` atravessa a porta. O status do funil
+  **só PROMOVE**, por lista fechada (`coletado|contato_encontrado|aguardando` → `aprovado`) e
+  `qualificado_em` é `COALESCE`-ado — rebaixar apagaria trabalho humano, e reavaliar não reescreve
+  quando o lead já foi qualificado. B e C viram avaliação registrada e nada mais.
+- **Na Central de Ligações o ICP é REFORÇO de prioridade, não porta:** bônus `A 25 · B 12 · C 0`
+  em `ligacao-prioridade.js`. A porta continua sendo `sqlAprovado` (`qualificacao='aprovado'`) —
+  ICP alto **não** dispensa triagem, e ICP ausente não tira lead aprovado da fila.
+- **Front: `frontend/lib/lead-icp.js` só TRADUZ** o veredito que a API mandou (mesmo contrato de
+  `lib/site-rotulos.js`). A paleta do ICP é **própria de propósito** — A laranja, B âmbar, C azul:
+  `emerald` já significa "melhor" na prioridade comercial e a neutra já é do cadastro; reusar
+  qualquer uma faria duas bolinhas na mesma linha parecerem medir a mesma coisa. `BolinhaIcp` fica
+  **ao lado** da `BolinhaCadastro`, nunca no lugar dela.
+- **Dívida declarada:** filtro e ordenação por ICP no Banco de Leads são **client-side**, sobre os
+  leads já carregados — o `ORDER BY` do servidor não conhece `icp_faixa` (o índice
+  `idx_prospects_empresa_icp` existe e ainda não tem consumidor). Mesma classe da decisão D4.
+- Código: `src/services/icp-modelo.js` (PURO, dono do vocabulário e dos cortes),
+  `src/services/lead-icp-score.js` (PURO), `src/db/lead-icp.js`, `src/routes/api-banco-leads.js`,
+  `src/services/aquisicao-curadoria.js` + `src/db/aquisicao-curadoria.js`,
+  `src/services/ligacao-prioridade.js`. Front: `frontend/lib/lead-icp.js` (+ `.test.js`),
+  `frontend/components/AssistenteOportunidades.tsx` (checklist ao "Marcar lead"),
+  `frontend/components/LeadDetalhesModal.tsx` (ficha + `BolinhaIcp`),
+  `frontend/app/dashboard/banco-leads/page.tsx`. Testes: `test/lead-icp-score.test.js` (regra pura
+  + guardas que leem o fonte da rota), `test/autorizacao-rotas.test.js`,
+  `frontend/lib/lead-icp.test.js`. **Nenhuma variável de ambiente nova.**
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

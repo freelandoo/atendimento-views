@@ -72,3 +72,55 @@ test('score final usa o checklist humano, mesmo quando o cadastro e fraco', () =
   assert.equal(icp.faixa, 'A')
   assert.ok(icp.criterios.every((c) => c.marcado))
 })
+
+// ─── A ROTA que grava a avaliação (guardas que leem o fonte) ─────────────────────────────
+// `PATCH /leads/:id/icp` é o único ponto onde o checklist humano vira dado. Ele encosta em três
+// coisas de consequência (a porta da triagem, o status do funil e a auditoria), e nenhuma delas
+// tem teste de integração aqui — por isso as guardas leem o fonte, no mesmo padrão de
+// test/lead-telefone.test.js.
+
+const fs = require('node:fs')
+const path = require('node:path')
+
+const fonteRota = fs.readFileSync(
+  path.join(__dirname, '..', 'src', 'routes', 'api-banco-leads.js'), 'utf8')
+const blocoIcp = (() => {
+  const i = fonteRota.indexOf("router.patch('/leads/:id/icp'")
+  assert.ok(i > 0, 'a rota de avaliacao de ICP sumiu')
+  const j = fonteRota.indexOf("router.post('/leads/:id/fechar'", i)
+  return fonteRota.slice(i, j > i ? j : i + 4000)
+})()
+
+test('so Lead A atravessa a porta da triagem, e o status do funil so PROMOVE', () => {
+  // O corte do ICP e' quem aprova — nao o clique. B e C viram avaliacao registrada e nada mais.
+  assert.ok(/autoQualificado\s*=\s*icp\?\.faixa === 'A'/.test(blocoIcp),
+    'a promocao precisa depender da faixa A, nunca da decisao do clique')
+  assert.ok(/if \(autoQualificado\)/.test(blocoIcp),
+    'o UPDATE de qualificacao precisa estar sob a faixa A')
+  // Rebaixar apagaria trabalho humano: o CASE so troca status de quem ainda nao andou no funil.
+  assert.ok(/WHEN status IN \('coletado', 'contato_encontrado', 'aguardando'\) THEN 'aprovado'/.test(blocoIcp),
+    'o status precisa promover por lista FECHADA')
+  assert.ok(/ELSE status[\s\S]{0,20}END/.test(blocoIcp), 'fora da lista, o status fica como esta')
+  assert.ok(/COALESCE\(qualificado_em, NOW\(\)\)/.test(blocoIcp),
+    'reavaliar nao pode reescrever quando o lead foi qualificado')
+})
+
+test('a avaliacao e a promocao vivem na MESMA transacao, e o lead passa pelo recorte', () => {
+  // Fora da transacao, um lead ficaria aprovado sem a avaliacao que o aprovou (ou o contrario).
+  assert.ok(blocoIcp.includes("client.query('BEGIN')"), 'faltou abrir transacao')
+  assert.ok(blocoIcp.includes("client.query('COMMIT')"), 'faltou COMMIT')
+  assert.ok(blocoIcp.includes("client.query('ROLLBACK')"), 'faltou ROLLBACK no erro')
+  assert.ok(blocoIcp.includes('FOR UPDATE'), 'o lead precisa ser travado durante a avaliacao')
+  // Mesma disciplina das outras rotas por id: 404 em vez de escrever em lead fora do recorte.
+  assert.ok(blocoIcp.includes('exigirLeadNoRecorte'),
+    'a rota por id precisa repetir o recorte da listagem')
+})
+
+test('a auditoria do ICP registra o veredito, sem PII do lead', () => {
+  assert.ok(blocoIcp.includes("'lead_icp_avaliado'"), 'a avaliacao precisa virar linha de auditoria')
+  const contexto = blocoIcp.slice(blocoIcp.indexOf('JSON.stringify({'))
+  for (const proibido of ['telefone', 'numero', 'email', 'nome', 'endereco']) {
+    assert.ok(!new RegExp(`${proibido}\s*:`).test(contexto.slice(0, 400)),
+      `a auditoria do ICP nao pode carregar ${proibido}`)
+  }
+})

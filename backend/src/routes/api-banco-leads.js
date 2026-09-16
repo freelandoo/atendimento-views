@@ -45,6 +45,7 @@ const { logger } = require('../logger')
 const { listarAuditoria } = require('../db/auditoria')
 const { criarEvento } = require('../services/agenda-multiempresa')
 const { criarFollowUp } = require('../db/follow-ups')
+const { salvarAvaliacaoIcp } = require('../db/lead-icp')
 
 const router = Router({ mergeParams: true })
 
@@ -1235,6 +1236,91 @@ router.patch('/leads/:id/status', requireAuth, requireEmpresaAccess, async (req,
     const data = await alterarStatusLeadOperacional(req, (req.body || {}).status)
     return res.json({ ok: true, data })
   } catch (err) { return envelopeErro(res, err, 'LEAD_STATUS_FAILED') }
+})
+
+// PATCH /leads/:id/icp — salva a avaliação humana do ICP a partir de Detalhes.
+//
+// O cadastro continua sendo completude. Esta rota grava o eixo comercial: critérios humanos,
+// sinais automáticos e faixa Lead A/B/C. Lead A entra automaticamente como marcado/aprovado,
+// porque passou do corte do ICP.
+//
+// Gate por ROTA, não pelo mount: o mount de /banco-leads exige só LEAD_VER_APROVADOS, e esta
+// rota ATRAVESSA A PORTA da triagem (grava `qualificacao='aprovado'` quando dá Lead A). Quem
+// aprova lead é quem tem LEAD_TRIAR — o papel `comercial` NÃO tem, e sem isto ele aprovaria
+// pelo modal de Detalhes o que a curadoria lhe recusa.
+router.patch('/leads/:id/icp', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_TRIAR), async (req, res) => {
+  const client = await pool.connect()
+  try {
+    const usuarioId = req.usuario?.id || null
+    const body = req.body || {}
+    await client.query('BEGIN')
+
+    await exigirLeadNoRecorte(req, client)
+    const { rows: atuais } = await client.query(
+      `SELECT * FROM prospectador.prospects
+        WHERE empresa_id = $1 AND id = $2::uuid
+        FOR UPDATE`,
+      [req.empresa.id, req.params.id]
+    )
+    const atual = atuais[0]
+    if (!atual) {
+      const e = new Error('Lead não encontrado.')
+      e.statusCode = 404
+      throw e
+    }
+
+    const icp = await salvarAvaliacaoIcp(client, {
+      empresaId: req.empresa.id,
+      prospect: atual,
+      decisao: body.decisao || 'aprovado',
+      respostas: body.respostas || null,
+      observacao: body.observacao || null,
+      usuarioId,
+    })
+
+    const autoQualificado = icp?.faixa === 'A'
+    if (autoQualificado) {
+      await client.query(
+        `UPDATE prospectador.prospects
+            SET status = CASE
+                  WHEN status IN ('coletado', 'contato_encontrado', 'aguardando') THEN 'aprovado'
+                  ELSE status
+                END,
+                qualificacao = 'aprovado',
+                qualificado_em = COALESCE(qualificado_em, NOW()),
+                qualificado_por = COALESCE(qualificado_por, $3::uuid),
+                updated_at = NOW()
+          WHERE empresa_id = $1 AND id = $2::uuid`,
+        [req.empresa.id, req.params.id, usuarioId]
+      )
+    }
+
+    await client.query(
+      `INSERT INTO app.auditoria_eventos
+         (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+       VALUES ($1, $2::uuid, 'prospect', $3::uuid, 'lead_icp_avaliado', $4, $5, $6::jsonb)`,
+      [req.empresa.id, usuarioId, req.params.id, atual.icp_faixa || null, icp?.faixa || null, JSON.stringify({
+        origem: 'banco_leads_detalhes',
+        score: icp?.score ?? null,
+        faixa: icp?.faixa ?? null,
+        auto_qualificado: autoQualificado,
+      })]
+    )
+
+    const { rows } = await client.query(
+      `SELECT ${COLUNAS}, raw_json
+         FROM prospectador.prospects
+        WHERE empresa_id = $1 AND id = $2::uuid`,
+      [req.empresa.id, req.params.id]
+    )
+    await client.query('COMMIT')
+    return res.json({ ok: true, data: anexarScoreCadastro(rows[0]) })
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    return envelopeErro(res, err, 'LEAD_ICP_FAILED')
+  } finally {
+    client.release()
+  }
 })
 
 // POST /leads/:id/fechar — compatibilidade com o botão antigo.

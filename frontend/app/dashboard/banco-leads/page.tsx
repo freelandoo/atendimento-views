@@ -7,7 +7,7 @@ import { EmailEditavel } from '@/components/EmailEditavel'
 import { ContatoEditavel } from '@/components/ContatoEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
-import LeadDetalhesModal, { BolinhaCadastro } from '@/components/LeadDetalhesModal'
+import LeadDetalhesModal, { BolinhaCadastro, BolinhaIcp } from '@/components/LeadDetalhesModal'
 import ConversaHistoricoModal from '@/components/ConversaHistoricoModal'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import DataTableFrame from '@/components/ui/DataTableFrame'
@@ -676,6 +676,12 @@ export default function BancoLeadsPage() {
       // lib/lead-acessos.js; aqui só se passa o veredito que o backend já mandou no lead.
       acessos: acessosDoLead(l),
     })
+  }
+
+  function aplicarLeadAtualizado(leadAtualizado: Lead) {
+    setLeads((prev) => prev.map((l) => (l.id === leadAtualizado.id ? { ...l, ...leadAtualizado } : l)))
+    setDetalheAberto((cur) => (cur && cur.id === leadAtualizado.id ? { ...cur, ...leadAtualizado } : cur))
+    setConversaAberta((cur) => (cur && cur.leadId === leadAtualizado.id ? { ...cur, status: leadAtualizado.status } : cur))
   }
 
   function query() {
@@ -1867,6 +1873,8 @@ export default function BancoLeadsPage() {
         <LeadDetalhesModal
           lead={detalheAberto}
           onFechar={() => setDetalheAberto(null)}
+          empresaId={empresaId}
+          onLeadAtualizado={(lead) => aplicarLeadAtualizado(lead as Lead)}
           instanciaDesconectada={statusConexao?.connected === false}
         />
       )}
@@ -2223,9 +2231,10 @@ function CadastroDetalhesCelula({ l, cols, onAbrirDetalhes }: {
     <td className="px-3 py-2">
       <div className="flex items-center gap-1.5">
         {cols.pontos && <BolinhaCadastro l={l} />}
+        <BolinhaIcp l={l} />
         <button onClick={() => onAbrirDetalhes(l)}
           className="text-[11px] text-slate-500 underline-offset-2 hover:text-brand hover:underline"
-          title="Endereço, nota, avaliações, horário, links e dados completos do lead">
+          title="Cadastro, ICP, endereço, nota, avaliações, horário, links e dados completos do lead">
           Detalhes
         </button>
       </div>
@@ -2249,8 +2258,9 @@ function QualidadeIcpCelula({ l }: { l: Lead }) {
 function classeLinhaQualidadeIcp(l: Lead): string {
   const resumo = resumoIcpDoLead(l)
   const faixa = seloIcp(resumo.faixa, resumo.score).chave
-  if (faixa === 'A') return 'bg-emerald-50/45 hover:bg-emerald-50'
-  if (faixa === 'B') return 'bg-blue-50/35 hover:bg-blue-50/70'
+  if (faixa === 'A') return 'bg-orange-50/60 hover:bg-orange-50'
+  if (faixa === 'B') return 'bg-amber-50/45 hover:bg-amber-50/80'
+  if (faixa === 'C') return 'bg-sky-50/25 hover:bg-sky-50/60'
   return 'hover:bg-slate-50/60'
 }
 
