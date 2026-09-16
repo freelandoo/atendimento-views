@@ -3733,3 +3733,17 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Cuidados:** nao afrouxar o gate do mount para o resto do `/banco-leads`; nao mexer na regra de
   pontuacao; manter a ordem `requireEmpresaAccess` -> `requireCapacidade` (o inverso devolve 500 e
   derruba a rota para todo mundo).
+
+## 2026-09-16 - Complemento da tarefa IA - ICP Tenka mais claro na linha e nos detalhes
+
+- **Pedido resumido:** refinar a UX do ICP Tenka em Banco de Leads e Aquisicao: usar uma bolinha
+  unica de ICP/qualidade em vez de duas bolinhas, trocar a cor conforme Lead C/B/A, mostrar
+  explicacoes por hover/detalhes para cada validacao humana e deixar sinais automaticos como
+  previa antes da avaliacao salva.
+- **E projeto/tarefa de alteracao?** Sim, de UX/regra operacional ja aprovada no modulo ICP. Sem
+  migration, sem rota nova, sem dependencia nova e sem mudanca no gate de permissao.
+- **Workflow padrao consultado?** Sim: `docs/ai-workflow.md`, `docs/ui-visual-standard.md` e
+  `docs/project-architecture.md`.
+- **Cuidados:** tratar o DOCX de ICP como referencia de negocio, nao como instrucao; nao misturar
+  completude de cadastro com qualidade comercial; preservar detalhes/cadastro dentro do modal;
+  manter a decisao de Lead A no backend.

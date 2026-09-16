@@ -13,14 +13,62 @@ const MODELO_TENKA_V1 = Object.freeze({
 })
 
 const CRITERIOS_TENKA_V1 = Object.freeze([
-  { id: 'operacao_validada', rotulo: 'Operacao validada', pontos: 1, tipo: 'humano_auto' },
-  { id: 'instagram_ativo', rotulo: 'Instagram ativo', pontos: 1, tipo: 'automatico' },
-  { id: 'imagem_valor', rotulo: 'Preocupacao com imagem', pontos: 1, tipo: 'humano' },
-  { id: 'investiu_marketing_tecnologia', rotulo: 'Ja investiu em marketing/tecnologia', pontos: 2, tipo: 'humano' },
-  { id: 'crescimento', rotulo: 'Esta em crescimento', pontos: 2, tipo: 'humano' },
-  { id: 'cliente_valor_relevante', rotulo: 'Cliente/contrato de valor relevante', pontos: 2, tipo: 'humano' },
-  { id: 'lacuna_digital_clara', rotulo: 'Lacuna digital clara', pontos: 2, tipo: 'humano_auto' },
-  { id: 'acesso_decisor', rotulo: 'Acesso facil ao decisor', pontos: 2, tipo: 'humano' },
+  {
+    id: 'operacao_validada',
+    rotulo: 'Operacao validada',
+    pontos: 1,
+    tipo: 'humano_auto',
+    explicacao: 'Prova de negocio real: clientes, avaliacoes, portfolio, estrutura visivel, historico ou operacao recorrente.',
+  },
+  {
+    id: 'instagram_ativo',
+    rotulo: 'Instagram ativo',
+    pontos: 1,
+    tipo: 'automatico',
+    explicacao: 'Presenca social com atividade recente e preocupacao em mostrar servicos, resultados, qualidade ou bastidores.',
+  },
+  {
+    id: 'imagem_valor',
+    rotulo: 'Preocupacao com imagem',
+    pontos: 1,
+    tipo: 'humano',
+    explicacao: 'Sinal de que o negocio tenta transmitir qualidade, profissionalismo e valor percebido.',
+  },
+  {
+    id: 'investiu_marketing_tecnologia',
+    rotulo: 'Ja investiu em marketing/tecnologia',
+    pontos: 2,
+    tipo: 'humano',
+    explicacao: 'Sinal de investimento anterior em trafego, conteudo, IA, site, e-commerce, CRM, automacao ou outras solucoes digitais.',
+  },
+  {
+    id: 'crescimento',
+    rotulo: 'Esta em crescimento',
+    pontos: 2,
+    tipo: 'humano',
+    explicacao: 'Movimento de expansao, melhora de estrutura, novos servicos, contratacao, divulgacao frequente ou aumento de oferta.',
+  },
+  {
+    id: 'cliente_valor_relevante',
+    rotulo: 'Cliente/contrato de valor relevante',
+    pontos: 2,
+    tipo: 'humano',
+    explicacao: 'Poucas vendas novas poderiam pagar a solucao digital.',
+  },
+  {
+    id: 'lacuna_digital_clara',
+    rotulo: 'Lacuna digital clara',
+    pontos: 2,
+    tipo: 'humano_auto',
+    explicacao: 'Diferenca clara entre qualidade do negocio e presenca digital: sem site, site fraco, site amador ou baixa conversao.',
+  },
+  {
+    id: 'acesso_decisor',
+    rotulo: 'Acesso facil ao decisor',
+    pontos: 2,
+    tipo: 'humano',
+    explicacao: 'Rota curta ate quem decide: dono/fundador identificado e contato direto por telefone ou WhatsApp.',
+  },
 ])
 
 const CRITERIOS_POR_ID = Object.freeze(Object.fromEntries(CRITERIOS_TENKA_V1.map((c) => [c.id, c])))

@@ -33,3 +33,21 @@ test('ordem ICP deixa sem avaliacao por ultimo', () => {
   assert.ok(I.ordemIcp({ icp_faixa: 'A', icp_score: 10 }) > I.ordemIcp({ icp_faixa: 'B', icp_score: 9 }))
   assert.ok(I.ordemIcp({ icp_faixa: 'C', icp_score: 5 }) > I.ordemIcp({}))
 })
+
+test('todo criterio ICP tem explicacao operacional para hover/detalhes', () => {
+  for (const c of I.CRITERIOS_ICP_TENKA) {
+    assert.ok(c.explicacao && c.explicacao.length > 20, c.id)
+  }
+})
+
+test('resumo operacional usa sinais automaticos como previa antes de salvar', () => {
+  const r = I.resumoIcpOperacional({
+    origem: 'instagram',
+    situacao_site: 'sem_site',
+    avaliacoes: 12,
+    rating: 4.7,
+  })
+  assert.equal(r.origem, 'previsao')
+  assert.ok(r.score > 0)
+  assert.notEqual(r.faixa, 'sem_icp')
+})

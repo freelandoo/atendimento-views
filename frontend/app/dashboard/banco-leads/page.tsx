@@ -7,7 +7,7 @@ import { EmailEditavel } from '@/components/EmailEditavel'
 import { ContatoEditavel } from '@/components/ContatoEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
-import LeadDetalhesModal, { BolinhaCadastro, BolinhaIcp } from '@/components/LeadDetalhesModal'
+import LeadDetalhesModal, { BolinhaIcp } from '@/components/LeadDetalhesModal'
 import ConversaHistoricoModal from '@/components/ConversaHistoricoModal'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import DataTableFrame from '@/components/ui/DataTableFrame'
@@ -15,7 +15,7 @@ import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink } from '@/lib/site-rotulos'
 import { acessosDoLead, type AcessoRapido } from '@/lib/lead-acessos'
-import { ordemIcp, resumoIcpDoLead, seloIcp } from '@/lib/lead-icp'
+import { ordemIcp, resumoIcpDoLead, resumoIcpOperacional, seloIcp } from '@/lib/lead-icp'
 import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
 // A ORDEM DE TRABALHO chega pronta do backend (services/lead-fila-trabalho.js): a lista ja vem
 // ordenada e cada lead traz `faixa_trabalho`. Este modulo so TRADUZ o nome da faixa.
@@ -2224,13 +2224,12 @@ function ResponsavelCelula({ l, usuarioId, podeAssumir, podeTransferir, onAssumi
 // horário, links e o JSON cru ("Ver dados completos"): desligar a coluna "Pontos" some só
 // com a bolinha, nunca com o acesso a Detalhes — remover essa garantia violaria "não
 // remover ação sem caminho equivalente" (AGENTS.md).
-function CadastroDetalhesCelula({ l, cols, onAbrirDetalhes }: {
-  l: Lead; cols: Record<string, boolean>; onAbrirDetalhes: (l: Lead) => void
+function CadastroDetalhesCelula({ l, onAbrirDetalhes }: {
+  l: Lead; onAbrirDetalhes: (l: Lead) => void
 }) {
   return (
     <td className="px-3 py-2">
       <div className="flex items-center gap-1.5">
-        {cols.pontos && <BolinhaCadastro l={l} />}
         <BolinhaIcp l={l} />
         <button onClick={() => onAbrirDetalhes(l)}
           className="text-[11px] text-slate-500 underline-offset-2 hover:text-brand hover:underline"
@@ -2243,9 +2242,9 @@ function CadastroDetalhesCelula({ l, cols, onAbrirDetalhes }: {
 }
 
 function QualidadeIcpCelula({ l }: { l: Lead }) {
-  const resumo = resumoIcpDoLead(l)
+  const resumo = resumoIcpOperacional(l)
   const selo = seloIcp(resumo.faixa, resumo.score)
-  const title = `${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}`
+  const title = `${resumo.origem === 'previsao' ? 'Prévia automática' : 'ICP salvo'} — ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}`
   return (
     <td className="px-3 py-2 whitespace-nowrap">
       <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${selo.classe}`} title={title}>
@@ -2256,7 +2255,7 @@ function QualidadeIcpCelula({ l }: { l: Lead }) {
 }
 
 function classeLinhaQualidadeIcp(l: Lead): string {
-  const resumo = resumoIcpDoLead(l)
+  const resumo = resumoIcpOperacional(l)
   const faixa = seloIcp(resumo.faixa, resumo.score).chave
   if (faixa === 'A') return 'bg-orange-50/60 hover:bg-orange-50'
   if (faixa === 'B') return 'bg-amber-50/45 hover:bg-amber-50/80'
@@ -2269,8 +2268,8 @@ function NomeLeadCelula({ l, onAbrirConversa, largura = 'max-w-[220px]' }: {
   onAbrirConversa: (l: Lead) => void
   largura?: string
 }) {
-  const resumo = resumoIcpDoLead(l)
-  const selo = seloIcp(resumo.faixa, resumo.score)
+  const operacional = resumoIcpOperacional(l)
+  const selo = seloIcp(operacional.faixa, operacional.score)
   const temIcp = selo.chave !== 'sem_icp'
   return (
     <td className="px-3 py-2 font-medium">
@@ -2284,7 +2283,7 @@ function NomeLeadCelula({ l, onAbrirConversa, largura = 'max-w-[220px]' }: {
         {temIcp && (
           <span
             className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${selo.classe}`}
-            title={`${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}`}
+            title={`${operacional.origem === 'previsao' ? 'Prévia automática' : 'ICP salvo'} — ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}`}
           >
             {selo.rotulo}{selo.score != null ? ` · ${selo.score}/13` : ''}
           </span>
@@ -2331,7 +2330,7 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
               {cols.horario && <ThOrdenavel label="Horário" chave="horario" ordem={ordem} onOrdenar={onOrdenar} />}
               {/* Cadastro + Detalhes na mesma coluna (padrão da Aquisição) — permanente,
                   fora do toggle: desligar "Pontos" some só com a bolinha, nunca com Detalhes. */}
-              <ThOrdenavel label="Cadastro" chave="pontos" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="ICP" chave="icp" ordem={ordem} onOrdenar={onOrdenar} />
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -2360,7 +2359,7 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
                   {cols.horario && <td className="px-3 py-2 text-center">{horario ? '✅' : '❌'}</td>}
                   {/* Completude do cadastro (paleta NEUTRA, mesma régua da Aquisição) + Detalhes
                       na mesma célula — ver CadastroDetalhesCelula. */}
-                  <CadastroDetalhesCelula l={l} cols={cols} onAbrirDetalhes={onAbrirDetalhes} />
+                  <CadastroDetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
                 </tr>
               )
             })}
@@ -2398,7 +2397,7 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
               {cols.links && <ThOrdenavel label="Links" chave="links" ordem={ordem} onOrdenar={onOrdenar} />}
               {/* Cadastro + Detalhes na mesma coluna (padrão da Aquisição) — permanente,
                   fora do toggle: desligar "Pontos" some só com a bolinha, nunca com Detalhes. */}
-              <ThOrdenavel label="Cadastro" chave="pontos" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="ICP" chave="icp" ordem={ordem} onOrdenar={onOrdenar} />
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -2445,7 +2444,7 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
                 {/* Instagram vale até 60 — o máximo vem do backend e é sempre exibido pelo
                     componente, para 30/60 nunca ser lido como 30/100. Detalhes na mesma
                     célula da bolinha, como na Google Places acima — CadastroDetalhesCelula. */}
-                <CadastroDetalhesCelula l={l} cols={cols} onAbrirDetalhes={onAbrirDetalhes} />
+                <CadastroDetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
               </tr>
             ))}
           </tbody>

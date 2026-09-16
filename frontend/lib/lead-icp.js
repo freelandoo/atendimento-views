@@ -5,14 +5,70 @@
 // qualidade comercial/fit. Este modulo nao busca dados nem decide qualificacao.
 
 const CRITERIOS_ICP_TENKA = Object.freeze([
-  { id: 'operacao_validada', rotulo: 'Operacao validada', pontos: 1, tipo: 'humano_auto' },
-  { id: 'instagram_ativo', rotulo: 'Instagram ativo', pontos: 1, tipo: 'automatico' },
-  { id: 'imagem_valor', rotulo: 'Preocupacao com imagem', pontos: 1, tipo: 'humano' },
-  { id: 'investiu_marketing_tecnologia', rotulo: 'Ja investiu em marketing/tecnologia', pontos: 2, tipo: 'humano' },
-  { id: 'crescimento', rotulo: 'Esta em crescimento', pontos: 2, tipo: 'humano' },
-  { id: 'cliente_valor_relevante', rotulo: 'Cliente/contrato de valor relevante', pontos: 2, tipo: 'humano' },
-  { id: 'lacuna_digital_clara', rotulo: 'Lacuna digital clara', pontos: 2, tipo: 'humano_auto' },
-  { id: 'acesso_decisor', rotulo: 'Acesso facil ao decisor', pontos: 2, tipo: 'humano' },
+  {
+    id: 'operacao_validada',
+    rotulo: 'Operacao validada',
+    pontos: 1,
+    tipo: 'humano_auto',
+    explicacao: 'Marque quando houver prova de negocio real: clientes, avaliacoes, portfolio, estrutura visivel, historico ou operacao recorrente.',
+    exemplo: 'Google com avaliacoes, fotos reais, trabalhos publicados ou unidade/estrutura claramente ativa.',
+  },
+  {
+    id: 'instagram_ativo',
+    rotulo: 'Instagram ativo',
+    pontos: 1,
+    tipo: 'automatico',
+    explicacao: 'Conta quando existe presenca social com atividade recente e preocupacao em mostrar servicos, resultados, qualidade ou bastidores.',
+    exemplo: 'Perfil com posts/reels recentes, antes e depois, bastidores, equipe, servicos ou provas visuais.',
+  },
+  {
+    id: 'imagem_valor',
+    rotulo: 'Preocupacao com imagem',
+    pontos: 1,
+    tipo: 'humano',
+    explicacao: 'Marque quando o negocio tenta transmitir qualidade, profissionalismo e valor percebido.',
+    exemplo: 'Fotos bem cuidadas, identidade visual, uniforme, ambiente organizado, apresentacao premium ou portfolio visual.',
+  },
+  {
+    id: 'investiu_marketing_tecnologia',
+    rotulo: 'Ja investiu em marketing/tecnologia',
+    pontos: 2,
+    tipo: 'humano',
+    explicacao: 'Marque quando ha sinal de que ja tentou ou aceita investir para vender mais ou melhorar presenca digital.',
+    exemplo: 'Trafego pago, conteudo profissional, IA/avatar, site, e-commerce, landing page, CRM, automacao ou ferramentas digitais.',
+  },
+  {
+    id: 'crescimento',
+    rotulo: 'Esta em crescimento',
+    pontos: 2,
+    tipo: 'humano',
+    explicacao: 'Marque quando houver movimento de expansao, melhora de estrutura, novos servicos, contratacao, divulgacao frequente ou aumento de oferta.',
+    exemplo: 'Novos procedimentos, nova unidade, equipe maior, agenda cheia, lancamentos, reforma, ampliacao ou publicacoes de crescimento.',
+  },
+  {
+    id: 'cliente_valor_relevante',
+    rotulo: 'Cliente/contrato de valor relevante',
+    pontos: 2,
+    tipo: 'humano',
+    explicacao: 'Marque quando poucas vendas novas poderiam pagar a solucao digital.',
+    exemplo: 'Ticket medio alto, contrato recorrente, servico especializado, procedimento caro ou venda consultiva com boa margem.',
+  },
+  {
+    id: 'lacuna_digital_clara',
+    rotulo: 'Lacuna digital clara',
+    pontos: 2,
+    tipo: 'humano_auto',
+    explicacao: 'Marque quando existir uma diferenca clara entre a qualidade do negocio e a presenca digital: sem site, site fraco, site amador ou baixa conversao.',
+    exemplo: 'Instagram melhor que o site, Google forte sem pagina propria, site antigo/quebrado, site feito pelo dono ou trafego sem estrutura de conversao.',
+  },
+  {
+    id: 'acesso_decisor',
+    rotulo: 'Acesso facil ao decisor',
+    pontos: 2,
+    tipo: 'humano',
+    explicacao: 'Marque quando a rota ate quem decide parece curta: dono/fundador identificado e contato direto por telefone ou WhatsApp.',
+    exemplo: 'WhatsApp cai no dono, fundador aparece na bio/site, operacao pequena owner-led, pouca burocracia ou so um gatekeeper simples.',
+  },
 ])
 
 const SCORE_MAXIMO_ICP = CRITERIOS_ICP_TENKA.reduce((total, c) => total + c.pontos, 0)
@@ -112,6 +168,20 @@ function resumoIcpDoLead(lead) {
   }
 }
 
+function resumoIcpOperacional(lead) {
+  const salvo = resumoIcpDoLead(lead)
+  if (salvo.score != null) return { ...salvo, origem: 'salvo' }
+  const calculado = calcularIcp(respostasIniciaisIcp(lead))
+  return {
+    ...salvo,
+    score: calculado.score,
+    score_maximo: calculado.score_maximo,
+    faixa: calculado.faixa,
+    criterios: calculado.criterios,
+    origem: 'previsao',
+  }
+}
+
 function temInstagramAtivo(lead = {}) {
   const origem = String(lead?.origem || '').toLowerCase()
   const seguidores = Number(lead?.seguidores)
@@ -175,6 +245,7 @@ module.exports = {
   calcularIcp,
   seloIcp,
   resumoIcpDoLead,
+  resumoIcpOperacional,
   sinaisAutomaticosDoLead,
   respostasIniciaisIcp,
   ordemIcp,

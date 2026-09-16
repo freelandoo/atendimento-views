@@ -793,3 +793,17 @@ Ajuste sobre a entrega imediatamente abaixo, apos revisao de UX/operacao.
   `npm run typecheck`, testes focados de ICP/curadoria/prioridade e `npm run smoke:preco` OK.
   `npm test` backend completo ficou em 1920/1922 por 2 falhas conhecidas de OpenAI 429 em
   `core.test.js`, alheias a esta mudanca.
+
+### Adendo UX - bolinha unica e explicacoes operacionais do ICP
+
+- **Bolinha unica na linha:** Banco de Leads e Aquisicao passam a mostrar uma unica bolinha de ICP
+  na celula operacional da linha. A antiga completude de cadastro continua disponivel nos detalhes
+  e nos dados completos, mas nao compete visualmente com a qualidade comercial.
+- **Cores da qualidade:** Lead C fica frio/azul, Lead B fica morno/ambar e Lead A fica quente/
+  laranja. A cor e sempre acompanhada de tooltip e texto/selo, para nao depender so de cor.
+- **Previa automatica:** quando ainda nao ha ICP salvo, a bolinha usa sinais automaticos
+  explicaveis (ex.: Instagram ativo, operacao validada, lacuna digital por ausencia de site) como
+  previa. Salvar a validacao humana grava o snapshot oficial e atualiza a faixa.
+- **Explicacao dos criterios:** cada criterio do Tenka v1.1 tem explicacao operacional e exemplo
+  para hover/detalhes, especialmente `lacuna_digital_clara`, `acesso_decisor` e
+  `cliente_valor_relevante`.

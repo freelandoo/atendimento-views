@@ -5,7 +5,7 @@ import { apiFetch, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { ThOrdenavel, type JsonApresentacao, type CriterioApresentacao } from '@/components/ui/JsonLeadModal'
-import LeadDetalhesModal, { BolinhaCadastro } from '@/components/LeadDetalhesModal'
+import LeadDetalhesModal, { BolinhaIcp } from '@/components/LeadDetalhesModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
@@ -49,6 +49,17 @@ type Prospect = {
   // estavam declarados aqui. São eles que explicam a bolinha no tooltip e nos detalhes.
   score_cadastro_criterios: CriterioApresentacao[] | null
   json_apresentacao: JsonApresProspect | null
+  icp_score?: number | null
+  icp_faixa?: string | null
+  icp_avaliado_em?: string | null
+  icp_resumo_json?: {
+    score?: number
+    score_maximo?: number
+    faixa?: string
+    criterios?: { id: string; rotulo: string; pontos: number; marcado?: boolean; pontos_obtidos?: number }[]
+    sinais_auto?: Record<string, { sugerido?: boolean; motivo?: string }>
+    motivos?: string[]
+  } | null
   created_at: string | null
 }
 type Metricas = {
@@ -484,6 +495,11 @@ export default function ProspeccaoPage() {
     fb.toast(email ? 'E-mail salvo.' : 'E-mail removido.')
   }
 
+  function aplicarLeadAtualizado(leadAtualizado: Prospect) {
+    setProspects((prev) => prev.map((p) => (p.id === leadAtualizado.id ? { ...p, ...leadAtualizado } : p)))
+    setDetalheAberto((cur) => (cur && cur.id === leadAtualizado.id ? { ...cur, ...leadAtualizado } : cur))
+  }
+
   // A página já vem recortada e ordenada do servidor; o total do filtro vem das métricas.
   const contagens = contagensDosFiltros(metricas)
   const pg = paginaServidor<Prospect>({ itens: prospects, pagina, porPagina: POR_PAGINA_PADRAO, total: contagens[filtro] })
@@ -695,7 +711,7 @@ export default function ProspeccaoPage() {
           <tr>
             {cols.entrou !== false && <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={ordenarPor} />}
             <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={ordenarPor} />
-            {cols.cadastro !== false && <ThOrdenavel label="Cadastro" chave="pontos" ordem={ordem} onOrdenar={ordenarPor} />}
+            {cols.cadastro !== false && <ThOrdenavel label="ICP" chave="pontos" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.telefone !== false && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.email !== false && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.nicho !== false && <ThOrdenavel label="Nicho / Cidade" chave="nicho" ordem={ordem} onOrdenar={ordenarPor} />}
@@ -728,11 +744,11 @@ export default function ProspeccaoPage() {
                   porque o balão é `pointer-events-none` e um link ali seria inalcançável. */}
               {cols.cadastro !== false && <td className="px-3 py-2">
                 <div className="flex items-center gap-1.5">
-                  <BolinhaCadastro l={p} />
+                  <BolinhaIcp l={p} />
                   <button
                     onClick={() => setDetalheAberto(p)}
                     className="text-[11px] text-slate-500 underline-offset-2 hover:text-brand hover:underline"
-                    title="Endereço, nota, avaliações, horário, links e dados completos do lead"
+                    title="ICP, cadastro, endereço, nota, avaliações, horário, links e dados completos do lead"
                   >
                     Detalhes
                   </button>
@@ -896,7 +912,12 @@ export default function ProspeccaoPage() {
       )}
 
       {detalheAberto && (
-        <LeadDetalhesModal lead={detalheAberto} onFechar={() => setDetalheAberto(null)} />
+        <LeadDetalhesModal
+          lead={detalheAberto}
+          onFechar={() => setDetalheAberto(null)}
+          empresaId={empresaId}
+          onLeadAtualizado={(lead) => aplicarLeadAtualizado(lead as Prospect)}
+        />
       )}
     </div>
   )

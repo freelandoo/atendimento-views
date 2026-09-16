@@ -26,6 +26,7 @@ import {
   calcularIcp,
   respostasIniciaisIcp,
   resumoIcpDoLead,
+  resumoIcpOperacional,
   seloIcp,
   sinaisAutomaticosDoLead,
 } from '@/lib/lead-icp'
@@ -139,9 +140,15 @@ export function BolinhaCadastro({ l }: { l: LeadDetalhavel }) {
 }
 
 export function BolinhaIcp({ l }: { l: LeadDetalhavel }) {
-  const resumo = resumoIcpDoLead(l) as ResumoIcp
+  const resumo = resumoIcpOperacional(l) as ResumoIcp & { origem?: string }
   const selo = seloIcp(resumo.faixa, resumo.score)
-  const title = `${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}`
+  const criterios = Array.isArray(resumo.criterios) ? resumo.criterios : []
+  const marcados = criterios
+    .filter((c) => c.marcado)
+    .map((c) => `${c.rotulo} +${c.pontos}`)
+    .join('; ')
+  const prefixo = resumo.origem === 'previsao' ? 'Previa automatica ICP' : 'ICP salvo'
+  const title = `${prefixo}: ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}${marcados ? ` — ${marcados}` : ''}`
   return (
     <span
       tabIndex={0}
@@ -295,9 +302,14 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                   const criterio = CRITERIOS_ICP_TENKA.find((c) => c.id === id)
                   if (!criterio) return null
                   return (
-                    <div key={id} className={`rounded-lg px-2 py-1 text-[11px] ${sinal?.sugerido ? 'bg-white text-slate-700' : 'bg-slate-100 text-slate-400'}`}>
+                    <div
+                      key={id}
+                      title={`${criterio.explicacao || criterio.rotulo}${criterio.exemplo ? ` Exemplo: ${criterio.exemplo}` : ''}`}
+                      className={`rounded-lg px-2 py-1 text-[11px] ${sinal?.sugerido ? 'bg-white text-slate-700' : 'bg-slate-100 text-slate-400'}`}
+                    >
                       <span className="font-medium">{criterio.rotulo}</span>
                       <span className="ml-1">{sinal?.sugerido ? 'detectado' : 'não detectado'}</span>
+                      {sinal?.motivo && <span className="mt-0.5 block text-[10px] opacity-75">{sinal.motivo}</span>}
                     </div>
                   )
                 })}
@@ -309,8 +321,13 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                 {icpEditado.criterios.map((c) => {
                   const auto = sinaisAuto[c.id]
                   const humano = c.tipo !== 'automatico'
+                  const criterioDoc = CRITERIOS_ICP_TENKA.find((item) => item.id === c.id) || c
                   return (
-                    <label key={c.id} className={`flex items-start gap-2 rounded-lg border px-2 py-1.5 text-xs ${respostasIcp[c.id] ? 'border-orange-200 bg-orange-50/60 text-slate-800' : 'border-slate-200 bg-white text-slate-600'}`}>
+                    <label
+                      key={c.id}
+                      title={`${criterioDoc.explicacao || c.rotulo}${criterioDoc.exemplo ? ` Exemplo: ${criterioDoc.exemplo}` : ''}`}
+                      className={`flex items-start gap-2 rounded-lg border px-2 py-1.5 text-xs ${respostasIcp[c.id] ? 'border-orange-200 bg-orange-50/60 text-slate-800' : 'border-slate-200 bg-white text-slate-600'}`}
+                    >
                       <input
                         type="checkbox"
                         checked={!!respostasIcp[c.id]}
@@ -323,6 +340,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                         <span className="ml-1 rounded-full bg-white/80 px-1.5 py-0.5 text-[10px] text-slate-500">
                           {humano ? (auto?.sugerido ? 'auto + humano' : 'humano') : 'automático'}
                         </span>
+                        {criterioDoc.explicacao && <span className="mt-0.5 block text-[11px] text-slate-500">{criterioDoc.explicacao}</span>}
                         {auto?.motivo && <span className="block text-[11px] text-slate-400">{auto.motivo}</span>}
                       </span>
                     </label>
