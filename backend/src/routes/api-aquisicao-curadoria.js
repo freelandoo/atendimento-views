@@ -96,7 +96,8 @@ router.post('/decidir', requireAuth, requireEmpresaAccess, async (req, res) => {
     })
   }
   try {
-    const data = await decidirOportunidade(pool, { ...contexto(req), prospectId, decisao })
+    const icp = corpo.icp && typeof corpo.icp === 'object' ? corpo.icp : null
+    const data = await decidirOportunidade(pool, { ...contexto(req), prospectId, decisao, icp })
     return res.json({ ok: true, data })
   } catch (err) {
     return falhar(res, err, 'CURADORIA_DECIDIR_FAILED')

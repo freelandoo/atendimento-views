@@ -2667,3 +2667,19 @@ inventar meta em campanha de validacao contamina a leitura.
 - **`PATCH /leads/:id/email` ganhou o recorte que não tinha.** Estava escopado só por
   `empresa_id`: bastava trocar o id na URL para escrever num lead fora do escopo de quem pediu.
   Corrigido junto, por ser a mesma classe e o mesmo helper (404, nunca 403).
+
+## 2026-09-16 — ICP Tenka v1.1 separado de cadastro e prioridade
+
+- **Decisao:** implementar a Fase 1 com um modelo ICP fixo (`Tenka v1.1`) e versionado em
+  codigo/schema, sem tela de configuracao ainda. A configuracao de outros ICPs fica para uma fase
+  propria, depois de validar o fluxo comercial.
+- **Tres leituras separadas:** `score_cadastro` continua completude neutra; `icp_score/icp_faixa`
+  vira fit comercial humano com sinais automaticos; prioridade de ligacao continua calculada pela
+  Central, agora com bonus explicavel para Lead A/B.
+- **Transacao unica na curadoria:** aprovar/descartar no Assistente salva `qualificacao`,
+  `curadoria_decisoes`, historico ICP append-only e snapshot em `prospects.icp_*` no mesmo COMMIT.
+- **Lead C nao bloqueia aprovacao:** fica aprovado se o operador decidir, mas com selo `Lead C`
+  e sem bonus de prioridade. Isso evita travar excecoes sem fingir alta qualidade.
+- **Visual:** Banco de Leads ganhou coluna/filtro `Qualidade`; `Cadastro` permanece separado e
+  neutro. Detalhes mostra a ficha ICP completa. A Central de Ligacoes recebe `icp_faixa` para
+  explicar o bonus na prioridade.

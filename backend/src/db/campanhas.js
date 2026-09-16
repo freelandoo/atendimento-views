@@ -218,7 +218,8 @@ async function listarLeadsDaCampanha(pool, empresaId, campanhaId, { status } = {
             p.id AS prospect_id, p.nome, p.telefone, p.cidade, p.nicho,
             p.tem_site, p.site, p.link_original, p.classificacao_url,
             p.maps_url, p.place_id, p.avaliacoes, p.rating,
-            p.email, p.endereco, p.instagram_handle, p.link_bio, p.seguidores, p.categoria_perfil
+            p.email, p.endereco, p.instagram_handle, p.link_bio, p.seguidores, p.categoria_perfil,
+            p.icp_score, p.icp_faixa, p.icp_avaliado_em
        FROM app.campanha_leads cl
        JOIN prospectador.prospects p ON p.id = cl.prospect_id
       WHERE cl.campanha_id = $1 AND cl.empresa_id = $2 ${filtro}
@@ -253,6 +254,7 @@ async function filaDeTrabalho(pool, empresaId, campanhaId, { limit = 50 } = {}) 
             p.tem_site, p.site, p.link_original, p.classificacao_url,
             p.maps_url, p.place_id, p.avaliacoes, p.rating,
             p.email, p.endereco, p.instagram_handle, p.link_bio, p.seguidores, p.categoria_perfil,
+            p.icp_score, p.icp_faixa, p.icp_avaliado_em,
             p.origem, p.created_at,
             (SELECT COUNT(*)::int FROM app.ligacoes l WHERE l.campanha_lead_id = cl.id AND l.status = 'encerrada') AS tentativas
        FROM app.campanha_leads cl

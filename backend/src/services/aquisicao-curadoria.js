@@ -18,6 +18,7 @@ const curadoriaDb = require('../db/aquisicao-curadoria')
 const { aprenderPesos, ordenarCandidatos, pontuarLead } = require('./aquisicao-curadoria-ranking')
 const { calcularScoreCadastroPlaces } = require('./lead-score-cadastro')
 const { classificarLead } = require('./site-classificacao')
+const { calcularIcpLead } = require('./lead-icp-score')
 const { normalizarUf } = require('./aquisicao-rotinas-scheduler')
 const { logger } = require('../logger')
 
@@ -138,6 +139,7 @@ function itemDaFila(lead, avaliacao) {
   // Veredito canônico: `site` só aparece quando é site PRÓPRIO; um Instagram vai para
   // `link_original` e o selo da tela mostra "Sem site próprio", não "Tem site".
   const url = classificarLead(lead)
+  const icp = calcularIcpLead({ ...lead, ...url })
   return {
     prospect_id: lead.id,
     nome: lead.nome,
@@ -157,6 +159,16 @@ function itemDaFila(lead, avaliacao) {
     pontos: avaliacao.pontos,
     caracteristicas: avaliacao.caracteristicas,
     motivos: avaliacao.motivos,
+    icp: {
+      modelo: icp.modelo,
+      score: icp.score,
+      score_maximo: icp.score_maximo,
+      faixa: icp.faixa,
+      respostas: icp.respostas,
+      criterios: icp.criterios,
+      sinais_auto: icp.sinais_auto,
+      motivos: icp.motivos,
+    },
     // Motivo determinístico até a IA responder — a fila nunca fica sem explicação.
     motivo: avaliacao.motivos[0] || 'Lead ainda não avaliado por você.',
     origem_texto: 'regra',
@@ -341,7 +353,7 @@ async function iniciarSessao(pool, { empresaId, usuarioId = null, nicho = null, 
  * A idempotência é garantida no banco: repetir a ação não importa o lead de novo nem
  * consome a meta.
  */
-async function decidirOportunidade(pool, { empresaId, usuarioId = null, prospectId, decisao, deps = {} } = {}) {
+async function decidirOportunidade(pool, { empresaId, usuarioId = null, prospectId, decisao, icp = null, deps = {} } = {}) {
   if (!empresaId || !prospectId) throw erro('Lead não informado.', 400)
   if (!['aprovado', 'descartado'].includes(decisao)) throw erro('Decisão inválida.', 400)
 
@@ -360,6 +372,10 @@ async function decidirOportunidade(pool, { empresaId, usuarioId = null, prospect
     usuarioId,
     justificativa: item?.motivo || null,
     caracteristicas: item?.caracteristicas || {},
+    icpAvaliacao: {
+      respostas: icp?.respostas || item?.icp?.respostas || null,
+      observacao: icp?.observacao || null,
+    },
     filaRestante,
   })
 
@@ -376,6 +392,7 @@ async function decidirOportunidade(pool, { empresaId, usuarioId = null, prospect
       // Já decidido antes (por outra aba, outro operador ou pela lista de leads).
       ja_decidido: !resultado.novo,
       nome: item?.nome || resultado.prospect?.nome || null,
+      icp: resultado.icp || null,
     },
   }
 }

@@ -561,7 +561,8 @@ const COLUNAS = `id, origem, status, qualificacao, qualificado_em,
   nicho, cidade, site, seguidores, categoria_perfil, created_at, updated_at,
   bloqueado_ate, bloqueio_motivo, endereco, rating, avaliacoes, tem_site,
   maps_url, link_bio, bio, tem_whatsapp, score, place_id,
-  link_original, classificacao_url`
+  link_original, classificacao_url,
+  icp_modelo_id, icp_score, icp_faixa, icp_avaliado_em, icp_avaliado_por, icp_resumo_json`
 
 // Origens do Google Places (inclui cadastro manual); o resto é social (IG/LinkedIn).
 const ORIGENS_PLACES = new Set(['manual', 'automatico'])

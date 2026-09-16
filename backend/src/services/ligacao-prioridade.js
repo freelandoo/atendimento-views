@@ -34,6 +34,11 @@ const PESOS = Object.freeze({
   // e' uma FILA propria (filtro "Com tentativa" na tela), nao um lead mais quente que os novos.
   sem_tentativa: 10,
   com_tentativa: 0,
+  // ICP: fit comercial validado na triagem humana. E' bonus, nao porta de entrada — a porta
+  // continua sendo qualificacao=aprovado/legado e telefone discavel.
+  icp_lead_a: 25,
+  icp_lead_b: 12,
+  icp_lead_c: 0,
 })
 
 const CORTES = Object.freeze({
@@ -170,6 +175,11 @@ function calcularPrioridade(lead = {}) {
     score += PESOS.com_tentativa
     motivos.push(tentativas === 1 ? '1 tentativa anterior' : `${tentativas} tentativas anteriores`)
   }
+
+  const faixaIcp = String(lead.icp_faixa || '').trim().toUpperCase()
+  if (faixaIcp === 'A') { score += PESOS.icp_lead_a; motivos.push('Lead A no ICP Tenka') }
+  else if (faixaIcp === 'B') { score += PESOS.icp_lead_b; motivos.push('Lead B no ICP Tenka') }
+  else if (faixaIcp === 'C') { score += PESOS.icp_lead_c; motivos.push('Lead C no ICP Tenka') }
 
   const final = Math.max(0, Math.min(SCORE_MAX, Math.round(score)))
   const faixa = faixaDoScore(final)

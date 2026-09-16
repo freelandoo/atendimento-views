@@ -1,8 +1,9 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { IconCheck, IconTrash, IconSparkle, IconClose } from '@/components/ui/icons'
+import { CRITERIOS_ICP_TENKA, calcularIcp, seloIcp } from '@/lib/lead-icp'
 
 // Assistente de Oportunidades — sessão de análise, UMA oportunidade por vez.
 //
@@ -33,6 +34,15 @@ type Oportunidade = {
   score_cadastro: number | null
   motivo: string
   motivos: string[]
+  icp?: {
+    score: number
+    score_maximo: number
+    faixa: 'A' | 'B' | 'C' | 'sem_icp'
+    respostas: Record<string, boolean>
+    criterios: { id: string; rotulo: string; pontos: number; marcado?: boolean; pontos_obtidos?: number }[]
+    sinais_auto?: Record<string, { sugerido: boolean; motivo?: string }>
+    motivos?: string[]
+  } | null
 }
 type Sessao = {
   id: string
@@ -98,6 +108,8 @@ export default function AssistenteOportunidades({
   const [carregando, setCarregando] = useState(true)
   const [decidindo, setDecidindo] = useState(false)
   const [erro, setErro] = useState('')
+  const [respostasIcp, setRespostasIcp] = useState<Record<string, boolean>>({})
+  const [observacaoIcp, setObservacaoIcp] = useState('')
   const fb = useFeedback()
 
   const base = `/api/empresas/${empresaId}/prospeccao/curadoria`
@@ -129,6 +141,14 @@ export default function AssistenteOportunidades({
 
   useEffect(() => { iniciar() }, [iniciar])
 
+  useEffect(() => {
+    const respostas = dados?.oportunidade?.icp?.respostas
+    const base: Record<string, boolean> = {}
+    for (const c of CRITERIOS_ICP_TENKA) base[c.id] = respostas?.[c.id] === true
+    setRespostasIcp(base)
+    setObservacaoIcp('')
+  }, [dados?.oportunidade?.prospect_id])
+
   // Fechar com Esc: a sessão continua salva e pode ser retomada depois.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onFechar() }
@@ -144,7 +164,11 @@ export default function AssistenteOportunidades({
     try {
       const r = await apiFetch<CuradoriaResp>(`${base}/decidir`, {
         method: 'POST',
-        body: JSON.stringify({ prospect_id: alvo.prospect_id, decisao }),
+        body: JSON.stringify({
+          prospect_id: alvo.prospect_id,
+          decisao,
+          icp: { respostas: respostasIcp, observacao: observacaoIcp },
+        }),
       })
       setDados(r.data)
       onLeadsAlterados?.()
@@ -179,6 +203,7 @@ export default function AssistenteOportunidades({
   const progresso = Math.min(100, Math.round((aprovados / Math.max(1, alvo)) * 100))
   const concluida = dados?.estado === 'concluida'
   const semCandidatos = dados?.estado === 'sem_candidatos'
+  const icpAtual = useMemo(() => calcularIcp(respostasIcp), [respostasIcp])
 
   return (
     <div
@@ -252,6 +277,43 @@ export default function AssistenteOportunidades({
             {/* A explicação da recomendação: é ela que o operador lê antes de decidir. */}
             <div className="rounded-lg bg-orange-50 px-3 py-2 text-sm text-orange-900">
               {oportunidade.motivo}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">ICP Tenka v1.1</p>
+                  <p className="mt-0.5 text-xs text-slate-500">Checklist comercial separado do cadastro.</p>
+                </div>
+                <SeloIcp faixa={icpAtual.faixa} score={icpAtual.score} />
+              </div>
+              <div className="mt-3 grid gap-1.5">
+                {icpAtual.criterios.map((c) => {
+                  const auto = oportunidade.icp?.sinais_auto?.[c.id]
+                  return (
+                    <label key={c.id} className="flex items-start gap-2 rounded-lg bg-white px-2 py-1.5 text-xs text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={!!respostasIcp[c.id]}
+                        onChange={(e) => setRespostasIcp((r) => ({ ...r, [c.id]: e.target.checked }))}
+                        className="mt-0.5"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="font-medium">{c.rotulo}</span>
+                        <span className="ml-1 text-slate-400">+{c.pontos}</span>
+                        {auto?.sugerido && <span className="ml-1 text-[10px] text-emerald-700">sugerido</span>}
+                        {auto?.motivo && <span className="block text-[11px] text-slate-400">{auto.motivo}</span>}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+              <textarea
+                value={observacaoIcp}
+                onChange={(e) => setObservacaoIcp(e.target.value)}
+                placeholder="Observação opcional sobre o fit"
+                className="mt-2 min-h-[58px] w-full resize-y rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-brand"
+              />
             </div>
 
             <div className="flex flex-wrap gap-1.5 text-[11px]">
@@ -332,6 +394,18 @@ function Selo({ ok, texto }: { ok: boolean; texto: string }) {
   return (
     <span className={`rounded-lg px-2 py-1 ${ok ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-500'}`}>
       {texto}
+    </span>
+  )
+}
+
+function SeloIcp({ faixa, score }: { faixa: string; score: number | null }) {
+  const selo = seloIcp(faixa, score)
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${selo.classe}`}
+      title={`${selo.rotulo}: ${selo.descricao}`}
+    >
+      {selo.rotulo}{selo.score != null ? ` · ${selo.score}/13` : ''}
     </span>
   )
 }

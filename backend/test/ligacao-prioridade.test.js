@@ -139,6 +139,19 @@ test('a composicao da pontuacao fica disponivel para a interface', () => {
   }
 })
 
+test('ICP entra como bonus explicavel, sem virar porta de entrada', () => {
+  const baseBaixa = { ...leadBase, avaliacoes: null, rating: null, instagram_handle: null }
+  const semIcp = calcularPrioridade(baseBaixa).score
+  const leadA = calcularPrioridade({ ...baseBaixa, icp_faixa: 'A' })
+  const leadB = calcularPrioridade({ ...baseBaixa, icp_faixa: 'B' })
+  const leadC = calcularPrioridade({ ...baseBaixa, icp_faixa: 'C' })
+  assert.equal(leadA.score - semIcp, PESOS.icp_lead_a)
+  assert.equal(leadB.score - semIcp, PESOS.icp_lead_b)
+  assert.equal(leadC.score - semIcp, PESOS.icp_lead_c)
+  assert.ok(leadA.motivos.includes('Lead A no ICP Tenka'))
+  assert.equal(elegivelParaFila({ ...leadBase, telefone: null, icp_faixa: 'A' }), false)
+})
+
 // --- Montagem da fila ------------------------------------------------------------------
 test('fila exclui quem nao tem telefone discavel e ordena por prioridade', () => {
   const fila = montarFilaPriorizada([

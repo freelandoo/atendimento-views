@@ -75,6 +75,7 @@ function montarPool(estado = {}) {
     prospects: [],
     sessoes: [],
     decisoes: [],
+    icp: [],
     ...estado,
   }
   let seq = 0
@@ -181,13 +182,55 @@ function montarPool(estado = {}) {
       }
     }
 
+    // ── lead_icp_avaliacoes ───────────────────────────────────────────────────
+    if (/INSERT INTO prospectador\.lead_icp_avaliacoes/i.test(texto)) {
+      const [
+        empresaId, prospectId, modeloId, modeloSlug, modeloVersao, score, faixa,
+        decisao, respostasJson, sinaisAutoJson, motivosJson, observacao, usuarioId,
+      ] = params
+      const row = {
+        id: proximoId('icp'),
+        empresa_id: empresaId,
+        prospect_id: prospectId,
+        modelo_id: modeloId,
+        modelo_slug: modeloSlug,
+        modelo_versao: modeloVersao,
+        score,
+        faixa,
+        decisao,
+        respostas_json: JSON.parse(respostasJson),
+        sinais_auto_json: JSON.parse(sinaisAutoJson),
+        motivos_json: JSON.parse(motivosJson),
+        observacao,
+        avaliado_por: usuarioId,
+        avaliado_em: new Date().toISOString(),
+      }
+      dados.icp.push(row)
+      return { rows: [{ id: row.id, avaliado_em: row.avaliado_em }] }
+    }
+
     // ── prospects ──────────────────────────────────────────────────────────────
+    if (/UPDATE prospectador\.prospects SET icp_modelo_id/i.test(texto)) {
+      const [empresaId, id, modeloId, score, faixa, avaliadoEm, usuarioId, resumoJson] = params
+      const p = dados.prospects.find((x) => x.empresa_id === empresaId && x.id === id)
+      if (!p) return { rows: [] }
+      p.icp_modelo_id = modeloId
+      p.icp_score = score
+      p.icp_faixa = faixa
+      p.icp_avaliado_em = avaliadoEm
+      p.icp_avaliado_por = usuarioId
+      p.icp_resumo_json = JSON.parse(resumoJson)
+      return { rows: [{ ...p }] }
+    }
     if (/UPDATE prospectador\.prospects SET status/i.test(texto)) {
-      const [empresaId, id, statusNovo] = params
+      const [empresaId, id, statusNovo, qualificacaoNova, usuarioId] = params
       const p = dados.prospects.find((x) => x.empresa_id === empresaId && x.id === id && x.status === 'aguardando')
       if (!p) return { rows: [] }
       p.status = statusNovo
-      return { rows: [{ id: p.id, nome: p.nome, status: p.status }] }
+      p.qualificacao = qualificacaoNova
+      p.qualificado_por = usuarioId
+      p.qualificado_em = new Date().toISOString()
+      return { rows: [{ ...p }] }
     }
     if (/SELECT COUNT\(\*\)::int AS total FROM prospectador\.prospects/i.test(texto)) {
       const s = sessaoAtiva(params[0], null) || dados.sessoes.find((x) => x.empresa_id === params[0])

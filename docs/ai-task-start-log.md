@@ -3682,3 +3682,36 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   (a tela so traduz); ordenar so no cliente mantem o teto de 300 e daria ordem falsa; telefone e'
   a IDENTIDADE do contato (follow-ups, agenda, conversa, wa.me, `contato_canal_disponibilidade`),
   entao editar telefone nao pode herdar o veredito `tem_whatsapp` do numero antigo.
+
+## 2026-09-15 - Complemento da tarefa IA - Editar telefone dentro da conversa
+
+- **Pedido complementar:** manter o "+ telefone" na COLUNA da listagem (adicionar numero de quem
+  nao tem), mas tirar de la a EDICAO do numero existente, que ocupa espaco na linha. A edicao vai
+  para o cabecalho do modal de conversa ("Conversa — <negocio>", com o numero embaixo): clicar no
+  proprio numero ja abre para escrever, sem botao separado.
+- **Execucao:** nenhuma rota, regra ou validacao nova — a mesma `PATCH /leads/:id/telefone` e o
+  mesmo `ContatoEditavel`. A celula da listagem perde o "editar"; o modal ganha a prop opcional
+  `onSalvarTelefone` e passa a permitir tambem ADICIONAR quando o lead esta com "Telefone
+  pendente" (e o estado do modal e' atualizado junto, senao ele continuaria dizendo pendente
+  depois de o numero ser salvo).
+- **Cuidados:** prop OPCIONAL (o modal e' usado so pelo Banco de Leads hoje, mas quem nao passar
+  o callback nao ganha campo editavel); nao duplicar componente de edicao; nao validar telefone no
+  front (quem decide continua sendo o backend).
+
+## 2026-09-16 - Inicio de tarefa IA - Planejamento de ICP e qualidade de lead
+
+- **Pedido resumido:** planejar de ponta a ponta uma separacao clara entre pontuacoes automaticas,
+  avaliacao humana de ICP e prioridade/chance de venda, usando o ICP Tenka v1.1 como referencia
+  inicial e analisando Aquisição, Banco de Leads, Central de Ligações e telas relacionadas antes
+  de implementar.
+- **E projeto/tarefa de alteracao?** Sim — neste momento e' ANALISE/PLANEJAMENTO. A implementacao
+  futura deve impactar UX, regras de negocio e provavelmente banco; nenhuma migration ou tela nova
+  deve ser criada sem arquitetura aprovada.
+- **Workflow padrao consultado?** Sim: `docs/ai-workflow.md`, `docs/ui-visual-standard.md`,
+  `docs/project-architecture.md`, `docs/project-map.md` e `docs/architecture-rules.md`.
+- **Plano:** mapear scores e decisoes atuais; identificar onde cada tela usa pontuacao/qualificacao;
+  propor arquitetura de ICP versionado, ficha humana e indicadores visuais semanticamente separados;
+  gerar uma especificacao de implementacao validavel antes de codar.
+- **Cuidados:** nao transformar completude de cadastro em chance de venda; nao depender so de cor;
+  preservar `qualificacao` como porta de abordagem; manter regra sensivel no backend; registrar
+  decisoes humanas com auditoria e usar resultados reais para aprendizado posterior.

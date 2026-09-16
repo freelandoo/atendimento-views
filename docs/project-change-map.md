@@ -771,3 +771,25 @@ Ajuste sobre a entrega imediatamente abaixo, apos revisao de UX/operacao.
   pontos — criar essa escrita e tarefa propria, com contrato de backend e deduplicacao.
 - Sem migration, sem env nova, sem rota nova, nenhum arquivo de backend alterado.
 - Validacao: frontend `npm test` 442/442 e `npm run typecheck` limpo.
+
+## 2026-09-16 - ICP Tenka v1.1 e qualidade comercial de lead
+
+- Areas alteradas: `backend/sql/migrations/079_lead_icp.sql`,
+  `backend/src/services/icp-modelo.js`, `backend/src/services/lead-icp-score.js`,
+  `backend/src/db/lead-icp.js`, curadoria de aquisicao, Banco de Leads, Central de Ligacoes,
+  `frontend/components/AssistenteOportunidades.tsx`,
+  `frontend/app/dashboard/banco-leads/page.tsx`, `frontend/components/LeadDetalhesModal.tsx`
+  e `frontend/lib/lead-icp.js`.
+- O que mudou: Assistente de Oportunidades agora mostra checklist ICP Tenka v1.1, calcula Lead
+  A/B/C ao vivo e salva a avaliacao junto com aprovar/descartar. O Banco de Leads mostra
+  `Qualidade` como selo/filtro/ordenacao separado de `Cadastro`. Detalhes mostra a ficha ICP.
+- Backend: novo historico append-only `prospectador.lead_icp_avaliacoes` e snapshot em
+  `prospectador.prospects.icp_*`. A decisao de curadoria grava ICP na mesma transacao da porta
+  comercial (`qualificacao`).
+- Central de Ligacoes: `ligacao-prioridade.js` passa a usar `icp_faixa` como bonus explicavel
+  (`Lead A` +25, `Lead B` +12, `Lead C` +0), sem alterar a porta de entrada nem a exigencia de
+  telefone discavel.
+- Validacao: frontend `npm run typecheck`, `npm test` (451/451) e `npm run build` OK; backend
+  `npm run typecheck`, testes focados de ICP/curadoria/prioridade e `npm run smoke:preco` OK.
+  `npm test` backend completo ficou em 1920/1922 por 2 falhas conhecidas de OpenAI 429 em
+  `core.test.js`, alheias a esta mudanca.

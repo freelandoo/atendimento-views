@@ -20,9 +20,20 @@ import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import {
   VARIANTES, O_QUE_MEDE, NOTA_COMPLETUDE, fatoresDeCadastro, leituraCadastro,
 } from '@/lib/pontuacao-indicador'
+import { resumoIcpDoLead, seloIcp } from '@/lib/lead-icp'
 
 type JsonApresLead = JsonApresentacao & {
   empresa?: { horario_funcionamento?: boolean; fotos?: number }
+}
+type CriterioIcp = { id: string; rotulo: string; pontos: number; marcado?: boolean; pontos_obtidos?: number }
+type ResumoIcp = {
+  score: number | null
+  score_maximo: number
+  faixa: string
+  criterios: CriterioIcp[]
+  sinais_auto: Record<string, { sugerido?: boolean; motivo?: string }>
+  motivos: string[]
+  avaliado_em: string | null
 }
 
 /** O mínimo que as duas telas têm em comum. Tudo é opcional: origens diferentes, campos diferentes. */
@@ -54,6 +65,17 @@ export type LeadDetalhavel = {
   json_apresentacao?: JsonApresLead | null
   /** Rascunho já preparado (Manual/Semi/Automático escrevem no mesmo lugar — texto único). */
   mensagem_gerada?: string | null
+  icp_score?: number | null
+  icp_faixa?: string | null
+  icp_avaliado_em?: string | null
+  icp_resumo_json?: {
+    score?: number
+    score_maximo?: number
+    faixa?: string
+    criterios?: { id: string; rotulo: string; pontos: number; marcado?: boolean; pontos_obtidos?: number }[]
+    sinais_auto?: Record<string, { sugerido?: boolean; motivo?: string }>
+    motivos?: string[]
+  } | null
 }
 
 /**
@@ -130,6 +152,8 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
   const criterios = criteriosDoLead(lead)
   const maximo = maximoDoLead(lead)
   const handle = (lead.instagram_handle || '').replace(/^@/, '')
+  const icp = resumoIcpDoLead(lead) as ResumoIcp
+  const selo = seloIcp(icp.faixa, icp.score)
 
   async function copiarMensagem() {
     if (!lead.mensagem_gerada) return
@@ -179,6 +203,31 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                   </li>
                 ))}
               </ul>
+            )}
+          </div>
+
+          <div className="rounded-xl border bg-white px-3 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">ICP Tenka v1.1</p>
+                <p className="mt-0.5 text-xs text-slate-500">Qualidade comercial separada da completude do cadastro.</p>
+              </div>
+              <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${selo.classe}`} title={selo.descricao}>
+                {selo.rotulo}{selo.score != null ? ` · ${selo.score}/13` : ''}
+              </span>
+            </div>
+            {icp.criterios.length > 0 ? (
+              <ul className="mt-3 grid grid-cols-1 gap-1 sm:grid-cols-2">
+                {icp.criterios.map((c, i) => (
+                  <li key={c.id || i} className={`flex items-center gap-1.5 text-xs ${c.marcado ? 'text-slate-700' : 'text-slate-400'}`}>
+                    <span aria-hidden="true">{c.marcado ? '✓' : '✗'}</span>
+                    <span>{c.rotulo}</span>
+                    <span className="text-[10px] text-slate-400">+{c.pontos}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-xs text-slate-400">Este lead ainda nao passou pelo checklist ICP.</p>
             )}
           </div>
 

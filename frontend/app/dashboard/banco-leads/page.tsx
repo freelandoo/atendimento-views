@@ -15,6 +15,7 @@ import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink } from '@/lib/site-rotulos'
 import { acessosDoLead, type AcessoRapido } from '@/lib/lead-acessos'
+import { ordemIcp, resumoIcpDoLead, seloIcp } from '@/lib/lead-icp'
 import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
 // A ORDEM DE TRABALHO chega pronta do backend (services/lead-fila-trabalho.js): a lista ja vem
 // ordenada e cada lead traz `faixa_trabalho`. Este modulo so TRADUZ o nome da faixa.
@@ -68,6 +69,19 @@ type Lead = {
   responsavel_id: string | null
   responsavel_nome: string | null
   responsavel_desde: string | null
+  icp_modelo_id?: string | null
+  icp_score?: number | null
+  icp_faixa?: 'A' | 'B' | 'C' | 'fora' | null
+  icp_avaliado_em?: string | null
+  icp_avaliado_por?: string | null
+  icp_resumo_json?: {
+    score?: number
+    score_maximo?: number
+    faixa?: string
+    criterios?: { id: string; rotulo: string; pontos: number; marcado?: boolean; pontos_obtidos?: number }[]
+    sinais_auto?: Record<string, { sugerido?: boolean; motivo?: string }>
+    motivos?: string[]
+  } | null
 }
 type Ordem = { chave: string; dir: 'asc' | 'desc' }
 type Resumo = { abas: Record<string, number>; por_status: Record<string, number> }
@@ -323,6 +337,7 @@ function valorColuna(l: Lead, chave: string): number | string {
     case 'horario': return l.json_apresentacao?.empresa?.horario_funcionamento ? 1 : 0
     case 'links': return (l.link_bio || l.site || l.link_original) ? 1 : 0
     case 'envio': return l.gerada_em || l.rodado_em || ''
+    case 'icp': return ordemIcp(l)
     case 'pontos': return l.score_cadastro ?? 0
     case 'status': return l.status || ''
     default: return 0
@@ -358,6 +373,7 @@ type ViewConfig = {
   site: Filtro3; social: Filtro3; email: Filtro3; telefone: Filtro3
   envio: 'todos' | 'possivel' | 'impossivel'
   msgGerada: Filtro3
+  icp: 'todos' | 'A' | 'B' | 'C' | 'sem_icp'
   disparo: 'todos' | 'disparado' | 'nao_disparado' | 'falha'
   agendamento: 'todos' | 'com' | 'sem' | 'hoje' | '7dias'
   regiao: string
@@ -381,6 +397,7 @@ const COLUNAS_TOGGLE: { key: string; label: string }[] = [
   { key: 'nota', label: 'Nota' },
   { key: 'horario', label: 'Horário' },
   { key: 'links', label: 'Links' },
+  { key: 'qualidade', label: 'Qualidade ICP' },
   { key: 'pontos', label: 'Pontos' },
   { key: 'status', label: 'Status' },
   // CRM em equipe: responsável entra ligado por padrão porque é a ação rápida da carteira.
@@ -389,6 +406,7 @@ const COLUNAS_TOGGLE: { key: string; label: string }[] = [
 
 const ORDENACOES: { valor: string; label: string }[] = [
   { valor: 'padrao', label: 'Ordem de trabalho (padrão)' },
+  { valor: 'icp_desc', label: 'Maior qualidade ICP primeiro' },
   { valor: 'pontos_desc', label: 'Maior pontuação primeiro' },
   { valor: 'pontos_asc', label: 'Menor pontuação primeiro' },
   { valor: 'entrou_desc', label: 'Mais recentes primeiro' },
@@ -412,7 +430,7 @@ const COLUNAS_PADRAO_DESLIGADAS = new Set(['aval', 'nota', 'horario', 'endereco'
 const VIEW_PADRAO: ViewConfig = {
   cols: Object.fromEntries(COLUNAS_TOGGLE.map((c) => [c.key, !COLUNAS_PADRAO_DESLIGADAS.has(c.key)])),
   site: 'todos', social: 'todos', email: 'todos', telefone: 'todos', envio: 'todos',
-  msgGerada: 'todos', disparo: 'todos', agendamento: 'todos',
+  msgGerada: 'todos', icp: 'todos', disparo: 'todos', agendamento: 'todos',
   regiao: '', scoreMin: '', scoreMax: '', notaMin: '', notaMax: '',
   avalMin: '', avalMax: '', dataDe: '', dataAte: '', ordenacao: 'padrao',
 }
@@ -422,7 +440,7 @@ const VIEW_PADRAO: ViewConfig = {
 // vendo a tabela larga — a redução não chegaria a ninguém. A migração aplica o novo conjunto
 // de colunas UMA vez e **preserva todos os filtros e a ordenação**, que são trabalho do
 // operador; coluna é layout e volta em um clique.
-const VIEW_VERSAO = 2
+const VIEW_VERSAO = 3
 const CHAVE_VIEW = 'bancoLeadsView'
 
 function migrarView(salvo: Partial<ViewConfig> & { versao?: number }): ViewConfig {
@@ -469,6 +487,8 @@ function passaFiltrosView(l: Lead, v: ViewConfig): boolean {
   if (v.envio === 'impossivel' && l.tem_whatsapp !== false) return false
   if (v.msgGerada === 'com' && !l.mensagem_gerada) return false
   if (v.msgGerada === 'sem' && l.mensagem_gerada) return false
+  const faixaIcp = resumoIcpDoLead(l).faixa
+  if (v.icp !== 'todos' && v.icp !== faixaIcp) return false
   const disparado = !!l.rodado_em || l.status === 'enviado' || l.status === 'respondeu'
   if (v.disparo === 'disparado' && !disparado) return false
   if (v.disparo === 'nao_disparado' && disparado) return false
@@ -508,6 +528,7 @@ function ordenarPorView(lista: Lead[], ord: string): Lead[] {
   const val = (l: Lead): number => {
     switch (campo) {
       case 'pontos': return l.score_cadastro ?? -1
+      case 'icp': return ordemIcp(l)
       case 'nota': return l.rating ?? -1
       case 'aval': return l.avaliacoes ?? -1
       case 'entrou': return l.created_at ? new Date(l.created_at).getTime() : 0
@@ -529,6 +550,7 @@ function chipsDaView(v: ViewConfig): string[] {
   if (v.envio === 'possivel') c.push('Envio possível')
   if (v.envio === 'impossivel') c.push('Sem WhatsApp')
   if (v.msgGerada !== 'todos') c.push(v.msgGerada === 'com' ? 'Com mensagem' : 'Sem mensagem')
+  if (v.icp !== 'todos') c.push(v.icp === 'sem_icp' ? 'Sem ICP' : `Lead ${v.icp}`)
   if (v.disparo !== 'todos') c.push({ disparado: 'Disparado', nao_disparado: 'Não disparado', falha: 'Falha no envio' }[v.disparo] || '')
   if (v.agendamento !== 'todos') c.push({ com: 'Agendados', sem: 'Sem agendamento', hoje: 'Agendados hoje', '7dias': 'Agenda 7 dias' }[v.agendamento] || '')
   if (v.regiao.trim()) c.push(`Região: ${v.regiao.trim()}`)
@@ -1296,6 +1318,13 @@ export default function BancoLeadsPage() {
     setLeads((prev) => prev.map((l) => (l.id === id
       ? { ...l, telefone: r.data.telefone, status: r.data.status, tem_whatsapp: r.data.tem_whatsapp }
       : l)))
+    // O modal aberto é a outra porta desta mesma edição: sem atualizar o `numero` dele, ele
+    // continuaria dizendo "Telefone pendente" depois de o número ter sido salvo.
+    setConversaAberta((c) => {
+      if (!c || c.leadId !== id) return c
+      const digitos = String(r.data.telefone || '').replace(/\D/g, '')
+      return { ...c, numero: digitos ? `${digitos}@s.whatsapp.net` : '', status: r.data.status }
+    })
     fb.toast(r.data.telefone ? 'Telefone salvo.' : 'Telefone removido.')
   }
 
@@ -1876,6 +1905,7 @@ export default function BancoLeadsPage() {
           onEnviar={enviarLeadConversa}
           onGerar={gerarMensagemConversa}
           onAlterarStatus={alterarStatusConversa}
+          onSalvarTelefone={(telefone) => salvarTelefone(conversaAberta.leadId, telefone)}
           onClose={() => setConversaAberta(null)}
         />
       )}
@@ -2111,19 +2141,10 @@ function TelefoneCelula({ l, onSalvarTelefone }: { l: Lead; onSalvarTelefone: (i
           {l.tem_whatsapp === false && (
             <span className="text-[10px] text-slate-400 whitespace-nowrap" title="Disparo não chegou — número sem conta WhatsApp">sem WhatsApp</span>
           )}
-          {/* Corrigir o número: mesmo controle do "+ e-mail". Trocar o telefone ZERA o
-              "sem WhatsApp" no servidor — aquele veredito era sobre o número ANTIGO. */}
-          <ContatoEditavel
-            value={l.telefone}
-            onSave={(telefone) => onSalvarTelefone(l.id, telefone)}
-            rotuloVazio="+ telefone"
-            placeholder="DDD + número"
-            tipo="tel"
-            titulo="Corrigir o telefone deste lead"
-            largura="w-36"
-          >
-            <span className="font-sans text-[10px] text-slate-400 hover:text-blue-700">editar</span>
-          </ContatoEditavel>
+          {/* CORRIGIR o número não mora aqui: a linha já está no limite de espaço e corrigir
+              telefone é raro perto de abrir o WhatsApp. A edição vive no cabeçalho do modal da
+              conversa, onde o número é clicável. O que fica na coluna é a ADIÇÃO (abaixo), que
+              é trabalho que o lead sem telefone exige para entrar na fila. */}
         </span>
       ) : (
         /* Sem telefone o lead não entra na fila de abordagem — o "+ telefone" é o trabalho que
@@ -2212,6 +2233,19 @@ function CadastroDetalhesCelula({ l, cols, onAbrirDetalhes }: {
   )
 }
 
+function QualidadeIcpCelula({ l }: { l: Lead }) {
+  const resumo = resumoIcpDoLead(l)
+  const selo = seloIcp(resumo.faixa, resumo.score)
+  const title = `${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}`
+  return (
+    <td className="px-3 py-2 whitespace-nowrap">
+      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${selo.classe}`} title={title}>
+        {selo.rotulo}{selo.score != null ? ` · ${selo.score}/13` : ''}
+      </span>
+    </td>
+  )
+}
+
 function SelCelula({ l, selecionados, onToggleSel }: { l: Lead; selecionados: Set<string>; onToggleSel: (id: string) => void }) {
   return (
     <td className="px-3 py-2">
@@ -2239,6 +2273,7 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
               {cols.telefone && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.envio_previsto && <ThOrdenavel label="Envio" chave="envio" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.status && <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={onOrdenar} />}
+              {cols.qualidade && <ThOrdenavel label="Qualidade" chave="icp" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.responsavel && <th className="px-3 py-2 text-left font-medium text-slate-500">Responsável</th>}
               {cols.email && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.endereco && <ThOrdenavel label="Endereço" chave="endereco" ordem={ordem} onOrdenar={onOrdenar} />}
@@ -2271,6 +2306,7 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
                   {cols.telefone && <TelefoneCelula l={l} onSalvarTelefone={onSalvarTelefone} />}
                   {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
                   {cols.status && <StatusCelula l={l} />}
+                  {cols.qualidade && <QualidadeIcpCelula l={l} />}
                   {cols.responsavel && (
                     <ResponsavelCelula l={l} usuarioId={usuarioId} podeAssumir={podeAssumir}
                       podeTransferir={podeTransferir} onAssumir={onAssumir} onDevolver={onDevolver} />
@@ -2315,6 +2351,7 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
               {cols.telefone && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.envio_previsto && <ThOrdenavel label="Envio" chave="envio" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.status && <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={onOrdenar} />}
+              {cols.qualidade && <ThOrdenavel label="Qualidade" chave="icp" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.responsavel && <th className="px-3 py-2 text-left font-medium text-slate-500">Responsável</th>}
               {cols.email && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.links && <ThOrdenavel label="Links" chave="links" ordem={ordem} onOrdenar={onOrdenar} />}
@@ -2351,6 +2388,7 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
                 {cols.telefone && <TelefoneCelula l={l} onSalvarTelefone={onSalvarTelefone} />}
                 {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
                 {cols.status && <StatusCelula l={l} />}
+                {cols.qualidade && <QualidadeIcpCelula l={l} />}
                 {cols.responsavel && (
                   <ResponsavelCelula l={l} usuarioId={usuarioId} podeAssumir={podeAssumir}
                     podeTransferir={podeTransferir} onAssumir={onAssumir} onDevolver={onDevolver} />
@@ -2385,7 +2423,9 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
 
 // ─── Modal Personalizar visualização (colunas + filtros + ordenação + presets) ──
 const PRESETS: { nome: string; dica: string; patch: Partial<ViewConfig>; aba?: string }[] = [
-  { nome: 'Oportunidades fortes', dica: 'Boa pontuação, com telefone, sem disparo', patch: { scoreMin: '70', telefone: 'com', disparo: 'nao_disparado', ordenacao: 'pontos_desc' } },
+  { nome: 'Alta chance de venda', dica: 'Lead A, com telefone, sem disparo', patch: { icp: 'A', telefone: 'com', disparo: 'nao_disparado', ordenacao: 'icp_desc' } },
+  { nome: 'Bom fit sem abordagem', dica: 'Lead A/B ainda não disparado', patch: { disparo: 'nao_disparado', ordenacao: 'icp_desc' }, aba: 'sem_contato' },
+  { nome: 'Revisar ICP', dica: 'Leads ainda sem checklist ICP', patch: { icp: 'sem_icp', telefone: 'com' }, aba: 'sem_contato' },
   { nome: 'Sem presença digital', dica: 'Sem site próprio, sem rede social e com telefone', patch: { site: 'sem', social: 'sem', telefone: 'com', disparo: 'nao_disparado' }, aba: 'sem_contato' },
   { nome: 'Só rede social', dica: 'Tem rede social, mas não tem site próprio', patch: { site: 'sem', social: 'com', telefone: 'com', disparo: 'nao_disparado' }, aba: 'sem_contato' },
   { nome: 'Baixa autoridade', dica: 'Poucas avaliações', patch: { avalMax: '10', ordenacao: 'aval_asc' } },
@@ -2483,6 +2523,7 @@ function PersonalizarModal({ view, onPatch, onReset, onPreset, onClose }: {
               <SelFiltro label="Telefone" value={view.telefone} onChange={(v) => onPatch({ telefone: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com telefone'], ['sem', 'Sem telefone']]} />
               <SelFiltro label="Envio (WhatsApp)" value={view.envio} onChange={(v) => onPatch({ envio: v as ViewConfig['envio'] })} opcoes={[['todos', 'Todos'], ['possivel', 'Envio possível'], ['impossivel', 'Sem WhatsApp']]} />
               <SelFiltro label="Mensagem gerada" value={view.msgGerada} onChange={(v) => onPatch({ msgGerada: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com mensagem'], ['sem', 'Sem mensagem']]} />
+              <SelFiltro label="Qualidade ICP" value={view.icp} onChange={(v) => onPatch({ icp: v as ViewConfig['icp'] })} opcoes={[['todos', 'Todas'], ['A', 'Lead A'], ['B', 'Lead B'], ['C', 'Lead C'], ['sem_icp', 'Sem ICP']]} />
               <SelFiltro label="Disparo" value={view.disparo} onChange={(v) => onPatch({ disparo: v as ViewConfig['disparo'] })} opcoes={[['todos', 'Todos'], ['disparado', 'Disparado'], ['nao_disparado', 'Não disparado'], ['falha', 'Falha no envio']]} />
               <SelFiltro label="Agendamento" value={view.agendamento} onChange={(v) => onPatch({ agendamento: v as ViewConfig['agendamento'] })} opcoes={[['todos', 'Todos'], ['com', 'Com agendamento'], ['sem', 'Sem agendamento'], ['hoje', 'Hoje'], ['7dias', 'Próx. 7 dias']]} />
               <div className="col-span-2">

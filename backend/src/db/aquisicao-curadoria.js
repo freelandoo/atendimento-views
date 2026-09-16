@@ -13,6 +13,7 @@
 // o mesmo ato (curadoria_decisoes.decisao / prospects.status / prospects.qualificacao) e espalhar
 // a costura recriaria a divergencia.
 const { qualificacaoDaDecisao } = require('../services/lead-qualificacao')
+const { salvarAvaliacaoIcp } = require('./lead-icp')
 
 const SESSAO_COLUNAS = `
   id, empresa_id, usuario_id, nicho, cidade, uf, escopo_ampliado,
@@ -197,6 +198,7 @@ async function decidir(pool, {
   usuarioId = null,
   justificativa = null,
   caracteristicas = {},
+  icpAvaliacao = null,
   filaRestante = [],
 } = {}) {
   if (!empresaId || !sessaoId || !prospectId) throw erro('Decisão incompleta.', 400)
@@ -230,11 +232,22 @@ async function decidir(pool, {
           SET status = $3, qualificacao = $4, qualificado_em = NOW(), qualificado_por = $5::uuid,
               updated_at = NOW()
         WHERE empresa_id = $1 AND id = $2::uuid AND status = 'aguardando'
-        RETURNING id, nome, status, qualificacao`,
+        RETURNING *`,
       [empresaId, prospectId, statusNovo, qualificacaoNova, usuarioId || null]
     )
     const novo = claim.length > 0
     const contou = novo && decisao === 'aprovado'
+    let icp = null
+    if (novo) {
+      icp = await salvarAvaliacaoIcp(client, {
+        empresaId,
+        prospect: claim[0],
+        decisao,
+        respostas: icpAvaliacao?.respostas || null,
+        observacao: icpAvaliacao?.observacao || null,
+        usuarioId,
+      })
+    }
 
     // 2. Registro (idempotente na sessão).
     const { rows: registro } = await client.query(
@@ -272,7 +285,7 @@ async function decidir(pool, {
     )
 
     await client.query('COMMIT')
-    return { contou: incAprovados === 1, repetida, novo, sessao: atualizada[0], prospect: claim[0] || null }
+    return { contou: incAprovados === 1, repetida, novo, sessao: atualizada[0], prospect: claim[0] || null, icp }
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {})
     throw err
