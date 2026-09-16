@@ -148,7 +148,7 @@ test('ICP entra como bonus explicavel, sem virar porta de entrada', () => {
   assert.equal(leadA.score - semIcp, PESOS.icp_lead_a)
   assert.equal(leadB.score - semIcp, PESOS.icp_lead_b)
   assert.equal(leadC.score - semIcp, PESOS.icp_lead_c)
-  assert.ok(leadA.motivos.includes('Lead A no ICP Tenka'))
+  assert.ok(leadA.motivos.includes('Lead A no ICP geral'))
   assert.equal(elegivelParaFila({ ...leadBase, telefone: null, icp_faixa: 'A' }), false)
 })
 

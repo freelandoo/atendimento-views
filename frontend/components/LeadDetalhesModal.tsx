@@ -142,13 +142,18 @@ export function BolinhaCadastro({ l }: { l: LeadDetalhavel }) {
 export function BolinhaIcp({ l }: { l: LeadDetalhavel }) {
   const resumo = resumoIcpOperacional(l) as ResumoIcp & { origem?: string }
   const selo = seloIcp(resumo.faixa, resumo.score)
+  const maximoCadastro = maximoDoLead(l)
+  const leituraCad = leituraCadastro(l.score_cadastro, maximoCadastro, criteriosDoLead(l))
   const criterios = Array.isArray(resumo.criterios) ? resumo.criterios : []
   const marcados = criterios
     .filter((c) => c.marcado)
     .map((c) => `${c.rotulo} +${c.pontos}`)
     .join('; ')
   const prefixo = resumo.origem === 'previsao' ? 'Previa automatica ICP' : 'ICP salvo'
-  const title = `${prefixo}: ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}${marcados ? ` — ${marcados}` : ''}`
+  const cadastro = typeof l.score_cadastro === 'number'
+    ? `Cadastro/coleta: ${l.score_cadastro}/${maximoCadastro} - ${leituraCad.titulo}.`
+    : 'Cadastro/coleta ainda sem pontuacao.'
+  const title = `${prefixo}: ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}. ${cadastro}${marcados ? ` Criterios ICP: ${marcados}.` : ''}`
   return (
     <span
       tabIndex={0}
@@ -194,6 +199,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
   const fotos = emp?.fotos
   const criterios = criteriosDoLead(lead)
   const maximo = maximoDoLead(lead)
+  const leituraCad = leituraCadastro(lead.score_cadastro, maximo, criterios)
   const handle = (lead.instagram_handle || '').replace(/^@/, '')
   const icp = resumoIcpDoLead(lead) as ResumoIcp
   const selo = seloIcp(icp.faixa, icp.score)
@@ -259,41 +265,41 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
             <button onClick={onFechar} aria-label="Fechar detalhes" className="text-lg leading-none text-slate-400 hover:text-slate-600">×</button>
           </div>
 
-          {/* Pontuação: a MESMA bolinha da tabela, com os critérios abertos em lista — no
-              tooltip eles são um resumo; aqui dá para conferir item a item. */}
-          <div className="rounded-xl border bg-slate-50 px-3 py-3">
-            <div className="flex items-center gap-3">
-              <BolinhaCadastro l={lead} />
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-slate-800">{leituraCadastro(lead.score_cadastro, maximo, criterios).titulo}</div>
-                <div className="text-xs text-slate-500">{NOTA_COMPLETUDE}</div>
-              </div>
-            </div>
-            {criterios.length > 0 && (
-              <ul className="mt-3 grid grid-cols-1 gap-1 sm:grid-cols-2">
-                {criterios.map((c, i) => (
-                  <li key={c.chave || i} className={`flex items-center gap-1.5 text-xs ${c.ok ? 'text-slate-700' : 'text-slate-400'}`}>
-                    <span aria-hidden="true">{c.ok ? '✓' : '✗'}</span>
-                    <span>{c.label}</span>
-                    {!c.ok && <span className="text-[10px] text-slate-400">(+{c.pontos_possiveis ?? 0})</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
           <div className="rounded-xl border bg-white px-3 py-3">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <BolinhaIcp l={{ ...lead, icp_score: icpEditado.score, icp_faixa: icpEditado.faixa, icp_resumo_json: { ...lead.icp_resumo_json, ...icpEditado } }} />
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">ICP Tenka v1.1</p>
-                  <p className="mt-0.5 text-xs text-slate-500">Termômetro comercial: frio, morno ou quente.</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">ICP geral v1.1</p>
+                  <p className="mt-0.5 text-xs text-slate-500">Score comercial geral: cadastro/coleta + validação humana.</p>
                 </div>
               </div>
               <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${seloEditado.classe}`} title={seloEditado.descricao}>
                 {seloEditado.rotulo}{seloEditado.score != null ? ` · ${seloEditado.score}/13` : ''}
               </span>
+            </div>
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cadastro como evidência</p>
+                  <p className="mt-0.5 text-xs font-medium text-slate-700">{leituraCad.titulo}</p>
+                </div>
+                <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                  {typeof lead.score_cadastro === 'number' ? `${lead.score_cadastro}/${maximo}` : 'sem score'}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">{NOTA_COMPLETUDE}</p>
+              {criterios.length > 0 && (
+                <ul className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
+                  {criterios.map((c, i) => (
+                    <li key={c.chave || i} className={`flex items-center gap-1.5 text-xs ${c.ok ? 'text-slate-700' : 'text-slate-400'}`}>
+                      <span aria-hidden="true">{c.ok ? '✓' : '✗'}</span>
+                      <span>{c.label}</span>
+                      {!c.ok && <span className="text-[10px] text-slate-400">(+{c.pontos_possiveis ?? 0})</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Automático</p>

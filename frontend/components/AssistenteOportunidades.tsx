@@ -288,8 +288,8 @@ export default function AssistenteOportunidades({
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">ICP Tenka v1.1</p>
-                  <p className="mt-0.5 text-xs text-slate-500">Qualidade comercial. A bolinha de cadastro mede outra coisa.</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">ICP geral v1.1</p>
+                  <p className="mt-0.5 text-xs text-slate-500">Score comercial geral: cadastro/coleta + validação humana.</p>
                 </div>
                 <SeloIcp faixa={icpAtual.faixa} score={icpAtual.score} />
               </div>

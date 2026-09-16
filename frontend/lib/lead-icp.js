@@ -1,8 +1,8 @@
 'use strict'
 // ICP do lead — apresentacao pura.
 //
-// Separado de `pontuacao-indicador`: Cadastro continua sendo completude neutra; ICP e'
-// qualidade comercial/fit. Este modulo nao busca dados nem decide qualificacao.
+// Cadastro e' evidencia do ICP; o score final continua sendo qualidade comercial/fit.
+// Este modulo nao busca dados nem decide qualificacao.
 
 const CRITERIOS_ICP_TENKA = Object.freeze([
   {
@@ -76,7 +76,7 @@ const SCORE_MAXIMO_ICP = CRITERIOS_ICP_TENKA.reduce((total, c) => total + c.pont
 const FAIXAS_ICP = Object.freeze({
   A: {
     rotulo: 'Lead A',
-    descricao: 'Alta aderencia ao ICP Tenka.',
+    descricao: 'Alta aderencia ao ICP geral.',
     ordem: 3,
     classe: 'border-orange-300 bg-orange-50 text-orange-800',
     classeBolinha: 'border-orange-500 bg-orange-100 text-orange-800',
@@ -97,7 +97,7 @@ const FAIXAS_ICP = Object.freeze({
   },
   sem_icp: {
     rotulo: 'Sem ICP',
-    descricao: 'Ainda nao avaliado pelo checklist comercial.',
+    descricao: 'Ainda nao avaliado pelo checklist comercial geral.',
     ordem: 0,
     classe: 'border-dashed border-slate-300 bg-white text-slate-500',
     classeBolinha: 'border-dashed border-slate-300 bg-white text-slate-400',

@@ -177,9 +177,9 @@ function calcularPrioridade(lead = {}) {
   }
 
   const faixaIcp = String(lead.icp_faixa || '').trim().toUpperCase()
-  if (faixaIcp === 'A') { score += PESOS.icp_lead_a; motivos.push('Lead A no ICP Tenka') }
-  else if (faixaIcp === 'B') { score += PESOS.icp_lead_b; motivos.push('Lead B no ICP Tenka') }
-  else if (faixaIcp === 'C') { score += PESOS.icp_lead_c; motivos.push('Lead C no ICP Tenka') }
+  if (faixaIcp === 'A') { score += PESOS.icp_lead_a; motivos.push('Lead A no ICP geral') }
+  else if (faixaIcp === 'B') { score += PESOS.icp_lead_b; motivos.push('Lead B no ICP geral') }
+  else if (faixaIcp === 'C') { score += PESOS.icp_lead_c; motivos.push('Lead C no ICP geral') }
 
   const final = Math.max(0, Math.min(SCORE_MAX, Math.round(score)))
   const faixa = faixaDoScore(final)

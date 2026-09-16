@@ -1,5 +1,5 @@
 'use strict'
-// Modelo ICP Tenka v1.1 — Fase 1.
+// Modelo ICP geral v1.1 — Fase 1.
 //
 // Este modulo e' PURO: guarda vocabulario, criterios e validacao da ficha.
 // Ele nao sabe nada de SQL nem de tela. A pergunta aqui e':
@@ -8,7 +8,7 @@
 const MODELO_TENKA_V1 = Object.freeze({
   id: '11111111-1111-4111-8111-111111110079',
   slug: 'tenka-v1-1',
-  nome: 'Tenka v1.1',
+  nome: 'ICP geral v1.1',
   versao: 1,
 })
 

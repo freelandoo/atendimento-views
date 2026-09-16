@@ -807,3 +807,15 @@ Ajuste sobre a entrega imediatamente abaixo, apos revisao de UX/operacao.
 - **Explicacao dos criterios:** cada criterio do Tenka v1.1 tem explicacao operacional e exemplo
   para hover/detalhes, especialmente `lacuna_digital_clara`, `acesso_decisor` e
   `cliente_valor_relevante`.
+
+### Adendo UX - ICP geral e cadastro como evidencia
+
+- **Rotulo publico:** a interface passa a chamar o modelo de `ICP geral v1.1`. O slug tecnico
+  `tenka-v1-1` permanece para compatibilidade com snapshots, historico e migration ja aplicada.
+- **Cadastro junto do ICP:** a linha operacional usa `ICP + cadastro`: bolinha/Lead A-B-C +
+  score do ICP, com o cadastro/coleta logo abaixo como evidencia. O cadastro nao fica mais como
+  uma segunda bolinha ou selo concorrente na linha.
+- **Detalhes:** o modal consolida o bloco de cadastro dentro da ficha de ICP, com os criterios
+  de coleta listados como evidencias para a validacao humana.
+- **Personalizacao:** a coluna extra de resumo ICP fica desligada no padrao, porque a coluna
+  `ICP + cadastro` ja mostra a leitura principal.

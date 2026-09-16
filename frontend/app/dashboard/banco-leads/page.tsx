@@ -7,7 +7,7 @@ import { EmailEditavel } from '@/components/EmailEditavel'
 import { ContatoEditavel } from '@/components/ContatoEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
-import LeadDetalhesModal, { BolinhaIcp } from '@/components/LeadDetalhesModal'
+import LeadDetalhesModal, { BolinhaIcp, criteriosDoLead, maximoDoLead } from '@/components/LeadDetalhesModal'
 import ConversaHistoricoModal from '@/components/ConversaHistoricoModal'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import DataTableFrame from '@/components/ui/DataTableFrame'
@@ -16,6 +16,7 @@ import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink } from '@/lib/site-rotulos'
 import { acessosDoLead, type AcessoRapido } from '@/lib/lead-acessos'
 import { ordemIcp, resumoIcpDoLead, resumoIcpOperacional, seloIcp } from '@/lib/lead-icp'
+import { leituraCadastro } from '@/lib/pontuacao-indicador'
 import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
 // A ORDEM DE TRABALHO chega pronta do backend (services/lead-fila-trabalho.js): a lista ja vem
 // ordenada e cada lead traz `faixa_trabalho`. Este modulo so TRADUZ o nome da faixa.
@@ -397,8 +398,7 @@ const COLUNAS_TOGGLE: { key: string; label: string }[] = [
   { key: 'nota', label: 'Nota' },
   { key: 'horario', label: 'Horário' },
   { key: 'links', label: 'Links' },
-  { key: 'qualidade', label: 'Qualidade ICP' },
-  { key: 'pontos', label: 'Pontos' },
+  { key: 'qualidade', label: 'Resumo ICP' },
   { key: 'status', label: 'Status' },
   // CRM em equipe: responsável entra ligado por padrão porque é a ação rápida da carteira.
   { key: 'responsavel', label: 'Responsável' },
@@ -407,8 +407,8 @@ const COLUNAS_TOGGLE: { key: string; label: string }[] = [
 const ORDENACOES: { valor: string; label: string }[] = [
   { valor: 'padrao', label: 'Ordem de trabalho (padrão)' },
   { valor: 'icp_desc', label: 'Maior qualidade ICP primeiro' },
-  { valor: 'pontos_desc', label: 'Maior pontuação primeiro' },
-  { valor: 'pontos_asc', label: 'Menor pontuação primeiro' },
+  { valor: 'pontos_desc', label: 'Cadastro mais completo primeiro' },
+  { valor: 'pontos_asc', label: 'Cadastro menos completo primeiro' },
   { valor: 'entrou_desc', label: 'Mais recentes primeiro' },
   { valor: 'entrou_asc', label: 'Mais antigos primeiro' },
   { valor: 'nota_desc', label: 'Maior nota primeiro' },
@@ -425,7 +425,7 @@ const ORDENACOES: { valor: string; label: string }[] = [
 // continuam a um clique em "⚙ Personalizar", e os valores estão em "Detalhes" e no tooltip da
 // bolinha. Trocar o padrão (em vez de remover a coluna do código) mantém a mudança reversível
 // pelo próprio operador.
-const COLUNAS_PADRAO_DESLIGADAS = new Set(['aval', 'nota', 'horario', 'endereco', 'links'])
+const COLUNAS_PADRAO_DESLIGADAS = new Set(['qualidade', 'aval', 'nota', 'horario', 'endereco', 'links'])
 
 const VIEW_PADRAO: ViewConfig = {
   cols: Object.fromEntries(COLUNAS_TOGGLE.map((c) => [c.key, !COLUNAS_PADRAO_DESLIGADAS.has(c.key)])),
@@ -440,7 +440,7 @@ const VIEW_PADRAO: ViewConfig = {
 // vendo a tabela larga — a redução não chegaria a ninguém. A migração aplica o novo conjunto
 // de colunas UMA vez e **preserva todos os filtros e a ordenação**, que são trabalho do
 // operador; coluna é layout e volta em um clique.
-const VIEW_VERSAO = 3
+const VIEW_VERSAO = 4
 const CHAVE_VIEW = 'bancoLeadsView'
 
 function migrarView(salvo: Partial<ViewConfig> & { versao?: number }): ViewConfig {
@@ -554,7 +554,7 @@ function chipsDaView(v: ViewConfig): string[] {
   if (v.disparo !== 'todos') c.push({ disparado: 'Disparado', nao_disparado: 'Não disparado', falha: 'Falha no envio' }[v.disparo] || '')
   if (v.agendamento !== 'todos') c.push({ com: 'Agendados', sem: 'Sem agendamento', hoje: 'Agendados hoje', '7dias': 'Agenda 7 dias' }[v.agendamento] || '')
   if (v.regiao.trim()) c.push(`Região: ${v.regiao.trim()}`)
-  if (v.scoreMin || v.scoreMax) c.push(`Pontos ${v.scoreMin || '0'}–${v.scoreMax || '∞'}`)
+  if (v.scoreMin || v.scoreMax) c.push(`Cadastro ${v.scoreMin || '0'}–${v.scoreMax || '∞'}`)
   if (v.notaMin || v.notaMax) c.push(`Nota ${v.notaMin || '0'}–${v.notaMax || '∞'}`)
   if (v.avalMin || v.avalMax) c.push(`Aval. ${v.avalMin || '0'}–${v.avalMax || '∞'}`)
   if (v.dataDe) c.push(`Desde ${v.dataDe}`)
@@ -2218,22 +2218,34 @@ function ResponsavelCelula({ l, usuarioId, podeAssumir, podeTransferir, onAssumi
   )
 }
 
-// Cadastro + Detalhes na MESMA célula — mesmo padrão da Aquisição
+// ICP + cadastro na MESMA célula — mesmo padrão da Aquisição
 // (prospeccao/page.tsx). A célula é SEMPRE renderizada (fora do sistema de toggle "⚙
 // Personalizar"), porque "Detalhes" é a única porta para endereço, nota, avaliações,
-// horário, links e o JSON cru ("Ver dados completos"): desligar a coluna "Pontos" some só
-// com a bolinha, nunca com o acesso a Detalhes — remover essa garantia violaria "não
-// remover ação sem caminho equivalente" (AGENTS.md).
+// horário, links e o JSON cru ("Ver dados completos"). O cadastro aparece como evidência
+// do ICP, sem virar uma segunda bolinha concorrente.
 function CadastroDetalhesCelula({ l, onAbrirDetalhes }: {
   l: Lead; onAbrirDetalhes: (l: Lead) => void
 }) {
+  const resumo = resumoIcpOperacional(l)
+  const selo = seloIcp(resumo.faixa, resumo.score)
+  const maximo = maximoDoLead(l)
+  const cadastro = leituraCadastro(l.score_cadastro, maximo, criteriosDoLead(l))
+  const title = `${resumo.origem === 'previsao' ? 'Prévia automática' : 'ICP salvo'} — ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}. Cadastro/coleta: ${typeof l.score_cadastro === 'number' ? `${l.score_cadastro}/${maximo}` : 'sem score'} — ${cadastro.titulo}.`
   return (
     <td className="px-3 py-2">
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-2">
         <BolinhaIcp l={l} />
+        <div className="min-w-[92px] leading-tight" title={title}>
+          <span className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${selo.classe}`}>
+            {selo.rotulo}{selo.score != null ? ` · ${selo.score}/13` : ''}
+          </span>
+          <span className="mt-0.5 block max-w-[150px] truncate text-[10px] text-slate-500">
+            cadastro {typeof l.score_cadastro === 'number' ? `${l.score_cadastro}/${maximo}` : 'sem score'}
+          </span>
+        </div>
         <button onClick={() => onAbrirDetalhes(l)}
           className="text-[11px] text-slate-500 underline-offset-2 hover:text-brand hover:underline"
-          title="Cadastro, ICP, endereço, nota, avaliações, horário, links e dados completos do lead">
+          title="ICP, cadastro como evidência, endereço, nota, avaliações, horário, links e dados completos do lead">
           Detalhes
         </button>
       </div>
@@ -2268,9 +2280,6 @@ function NomeLeadCelula({ l, onAbrirConversa, largura = 'max-w-[220px]' }: {
   onAbrirConversa: (l: Lead) => void
   largura?: string
 }) {
-  const operacional = resumoIcpOperacional(l)
-  const selo = seloIcp(operacional.faixa, operacional.score)
-  const temIcp = selo.chave !== 'sem_icp'
   return (
     <td className="px-3 py-2 font-medium">
       <div className="flex min-w-0 flex-col gap-1">
@@ -2280,14 +2289,6 @@ function NomeLeadCelula({ l, onAbrirConversa, largura = 'max-w-[220px]' }: {
           dica="Abrir a conversa e os acessos rápidos deste lead"
           className={`${largura} text-slate-900 hover:text-brand hover:underline`}
         />
-        {temIcp && (
-          <span
-            className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${selo.classe}`}
-            title={`${operacional.origem === 'previsao' ? 'Prévia automática' : 'ICP salvo'} — ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}`}
-          >
-            {selo.rotulo}{selo.score != null ? ` · ${selo.score}/13` : ''}
-          </span>
-        )}
       </div>
     </td>
   )
@@ -2328,9 +2329,8 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
               {cols.aval && <ThOrdenavel label="Aval." chave="aval" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
               {cols.nota && <ThOrdenavel label="Nota" chave="nota" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
               {cols.horario && <ThOrdenavel label="Horário" chave="horario" ordem={ordem} onOrdenar={onOrdenar} />}
-              {/* Cadastro + Detalhes na mesma coluna (padrão da Aquisição) — permanente,
-                  fora do toggle: desligar "Pontos" some só com a bolinha, nunca com Detalhes. */}
-              <ThOrdenavel label="ICP" chave="icp" ordem={ordem} onOrdenar={onOrdenar} />
+              {/* ICP + cadastro: qualidade comercial e evidência de coleta na mesma célula. */}
+              <ThOrdenavel label="ICP + cadastro" chave="icp" ordem={ordem} onOrdenar={onOrdenar} />
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -2357,8 +2357,7 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
                   {cols.aval && <td className="px-3 py-2 text-right text-xs">{l.avaliacoes ?? '—'}</td>}
                   {cols.nota && <td className="px-3 py-2 text-right text-xs">{l.rating != null ? Number(l.rating).toFixed(1) : '—'}</td>}
                   {cols.horario && <td className="px-3 py-2 text-center">{horario ? '✅' : '❌'}</td>}
-                  {/* Completude do cadastro (paleta NEUTRA, mesma régua da Aquisição) + Detalhes
-                      na mesma célula — ver CadastroDetalhesCelula. */}
+                  {/* ICP + cadastro como evidência — ver CadastroDetalhesCelula. */}
                   <CadastroDetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
                 </tr>
               )
@@ -2395,9 +2394,8 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
               {cols.responsavel && <th className="px-3 py-2 text-left font-medium text-slate-500">Responsável</th>}
               {cols.email && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.links && <ThOrdenavel label="Links" chave="links" ordem={ordem} onOrdenar={onOrdenar} />}
-              {/* Cadastro + Detalhes na mesma coluna (padrão da Aquisição) — permanente,
-                  fora do toggle: desligar "Pontos" some só com a bolinha, nunca com Detalhes. */}
-              <ThOrdenavel label="ICP" chave="icp" ordem={ordem} onOrdenar={onOrdenar} />
+              {/* ICP + cadastro: qualidade comercial e evidência de coleta na mesma célula. */}
+              <ThOrdenavel label="ICP + cadastro" chave="icp" ordem={ordem} onOrdenar={onOrdenar} />
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -2441,9 +2439,7 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
                     {!l.link_bio && !l.site && !l.link_original && '—'}
                   </td>
                 )}
-                {/* Instagram vale até 60 — o máximo vem do backend e é sempre exibido pelo
-                    componente, para 30/60 nunca ser lido como 30/100. Detalhes na mesma
-                    célula da bolinha, como na Google Places acima — CadastroDetalhesCelula. */}
+                {/* Instagram vale até 60 — o máximo vem do backend e entra como evidência do ICP. */}
                 <CadastroDetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
               </tr>
             ))}
@@ -2556,7 +2552,7 @@ function PersonalizarModal({ view, onPatch, onReset, onPreset, onClose }: {
               <SelFiltro label="Telefone" value={view.telefone} onChange={(v) => onPatch({ telefone: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com telefone'], ['sem', 'Sem telefone']]} />
               <SelFiltro label="Envio (WhatsApp)" value={view.envio} onChange={(v) => onPatch({ envio: v as ViewConfig['envio'] })} opcoes={[['todos', 'Todos'], ['possivel', 'Envio possível'], ['impossivel', 'Sem WhatsApp']]} />
               <SelFiltro label="Mensagem gerada" value={view.msgGerada} onChange={(v) => onPatch({ msgGerada: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com mensagem'], ['sem', 'Sem mensagem']]} />
-              <SelFiltro label="Qualidade ICP" value={view.icp} onChange={(v) => onPatch({ icp: v as ViewConfig['icp'] })} opcoes={[['todos', 'Todas'], ['A', 'Lead A'], ['B', 'Lead B'], ['C', 'Lead C'], ['sem_icp', 'Sem ICP']]} />
+              <SelFiltro label="ICP geral" value={view.icp} onChange={(v) => onPatch({ icp: v as ViewConfig['icp'] })} opcoes={[['todos', 'Todos'], ['A', 'Lead A'], ['B', 'Lead B'], ['C', 'Lead C'], ['sem_icp', 'Sem ICP salvo']]} />
               <SelFiltro label="Disparo" value={view.disparo} onChange={(v) => onPatch({ disparo: v as ViewConfig['disparo'] })} opcoes={[['todos', 'Todos'], ['disparado', 'Disparado'], ['nao_disparado', 'Não disparado'], ['falha', 'Falha no envio']]} />
               <SelFiltro label="Agendamento" value={view.agendamento} onChange={(v) => onPatch({ agendamento: v as ViewConfig['agendamento'] })} opcoes={[['todos', 'Todos'], ['com', 'Com agendamento'], ['sem', 'Sem agendamento'], ['hoje', 'Hoje'], ['7dias', 'Próx. 7 dias']]} />
               <div className="col-span-2">
@@ -2565,8 +2561,8 @@ function PersonalizarModal({ view, onPatch, onReset, onPreset, onClose }: {
               </div>
             </div>
             <div className="grid grid-cols-3 gap-3 mt-3">
-              <div><label className="block text-[11px] text-slate-500 mb-1">Pontos ≥</label>{num(view.scoreMin, (s) => onPatch({ scoreMin: s }), '0')}</div>
-              <div><label className="block text-[11px] text-slate-500 mb-1">Pontos ≤</label>{num(view.scoreMax, (s) => onPatch({ scoreMax: s }), '100')}</div>
+              <div><label className="block text-[11px] text-slate-500 mb-1">Cadastro/coleta ≥</label>{num(view.scoreMin, (s) => onPatch({ scoreMin: s }), '0')}</div>
+              <div><label className="block text-[11px] text-slate-500 mb-1">Cadastro/coleta ≤</label>{num(view.scoreMax, (s) => onPatch({ scoreMax: s }), '100')}</div>
               <div />
               <div><label className="block text-[11px] text-slate-500 mb-1">Nota ≥</label>{num(view.notaMin, (s) => onPatch({ notaMin: s }), '0')}</div>
               <div><label className="block text-[11px] text-slate-500 mb-1">Nota ≤</label>{num(view.notaMax, (s) => onPatch({ notaMax: s }), '5')}</div>

@@ -13,7 +13,7 @@ const {
   calcularIcpLead,
 } = require('../src/services/lead-icp-score')
 
-test('ICP Tenka v1.1 soma ate 13 e classifica A/B/C', () => {
+test('ICP geral v1.1 soma ate 13 e classifica A/B/C', () => {
   assert.equal(SCORE_MAXIMO, 13)
   assert.equal(faixaPorScore(13), 'A')
   assert.equal(faixaPorScore(10), 'A')

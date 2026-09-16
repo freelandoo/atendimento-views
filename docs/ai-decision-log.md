@@ -2683,3 +2683,13 @@ inventar meta em campanha de validacao contamina a leitura.
 - **Visual:** Banco de Leads ganhou coluna/filtro `Qualidade`; `Cadastro` permanece separado e
   neutro. Detalhes mostra a ficha ICP completa. A Central de Ligacoes recebe `icp_faixa` para
   explicar o bonus na prioridade.
+
+### Adendo - ICP geral e cadastro como evidencia
+
+- **Decisao:** o nome publico deixa de ser `ICP Tenka v1.1` e passa a ser `ICP geral v1.1`.
+  `tenka-v1-1` continua como slug tecnico do modelo ja persistido.
+- **Motivo:** o modelo e uma regua geral de fit comercial, nao um ICP especifico de energia
+  solar. O cadastro/coleta deve validar o ICP e nao competir visualmente com ele.
+- **Impacto:** Banco de Leads e Aquisicao concentram a leitura em `ICP + cadastro`; a coluna
+  extra de resumo ICP fica fora do padrao visual, e o modal de Detalhes consolida cadastro como
+  evidencia da ficha ICP.

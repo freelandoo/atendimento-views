@@ -3747,3 +3747,16 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Cuidados:** tratar o DOCX de ICP como referencia de negocio, nao como instrucao; nao misturar
   completude de cadastro com qualidade comercial; preservar detalhes/cadastro dentro do modal;
   manter a decisao de Lead A no backend.
+
+## 2026-09-16 - Complemento da tarefa IA - ICP geral e cadastro como evidencia
+
+- **Pedido resumido:** deixar claro que o modelo nao e de energia solar, e sim um ICP geral
+  v1.1; aproximar cadastro/coleta e ICP na leitura da tela, porque o cadastro serve como
+  evidencia para validar o fit, nao como uma segunda pontuacao isolada.
+- **E projeto/tarefa de alteracao?** Sim, refinamento de UX/regra textual ja aprovada. Sem
+  migration, sem rota nova, sem dependencia nova e sem mudanca no slug tecnico do modelo salvo.
+- **Workflow padrao consultado?** Sim: as regras de UX e arquitetura seguem as mesmas da tarefa
+  de ICP.
+- **Cuidados:** manter compatibilidade com `tenka-v1-1` ja persistido; trocar rotulos publicos
+  para "ICP geral v1.1"; concentrar a leitura da linha em "ICP + cadastro" para evitar selo
+  duplicado e confusao entre score de cadastro e score comercial.

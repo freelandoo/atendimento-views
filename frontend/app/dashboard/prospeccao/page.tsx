@@ -5,7 +5,7 @@ import { apiFetch, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { ThOrdenavel, type JsonApresentacao, type CriterioApresentacao } from '@/components/ui/JsonLeadModal'
-import LeadDetalhesModal, { BolinhaIcp } from '@/components/LeadDetalhesModal'
+import LeadDetalhesModal, { BolinhaIcp, criteriosDoLead, maximoDoLead } from '@/components/LeadDetalhesModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
@@ -18,6 +18,8 @@ import { resumoIntervalo, POR_PAGINA_PADRAO } from '@/lib/paginacao'
 import {
   FILTROS_STATUS, contagensDosFiltros, taxaResposta, paginaServidor, type PaginaServidor,
 } from '@/lib/prospeccao-listagem'
+import { resumoIcpOperacional, seloIcp } from '@/lib/lead-icp'
+import { leituraCadastro } from '@/lib/pontuacao-indicador'
 
 type JsonApresProspect = JsonApresentacao & {
   empresa?: { horario_funcionamento?: boolean; fotos?: number }
@@ -108,7 +110,7 @@ type ViewAquisicao = {
 
 const AQ_COLUNAS_TOGGLE: { key: string; label: string }[] = [
   { key: 'entrou', label: 'Entrou em' },
-  { key: 'cadastro', label: 'Cadastro' },
+  { key: 'cadastro', label: 'ICP + cadastro' },
   { key: 'telefone', label: 'Telefone' },
   { key: 'email', label: 'E-mail' },
   { key: 'nicho', label: 'Nicho / Cidade' },
@@ -116,8 +118,8 @@ const AQ_COLUNAS_TOGGLE: { key: string; label: string }[] = [
 ]
 const AQ_ORDENACOES: { valor: string; label: string }[] = [
   { valor: 'padrao', label: 'Padrão (da tabela)' },
-  { valor: 'pontos_asc', label: 'Menor pontuação primeiro' },
-  { valor: 'pontos_desc', label: 'Maior pontuação primeiro' },
+  { valor: 'pontos_asc', label: 'Cadastro menos completo primeiro' },
+  { valor: 'pontos_desc', label: 'Cadastro mais completo primeiro' },
   { valor: 'entrou_desc', label: 'Mais recentes primeiro' },
   { valor: 'entrou_asc', label: 'Mais antigos primeiro' },
   { valor: 'nota_desc', label: 'Maior nota primeiro' },
@@ -231,7 +233,7 @@ function chipsFiltrosAquisicao(mercado: string, cidadeFiltro: string, buscaDados
   if (view.email !== 'todos') chips.push(view.email === 'com' ? 'Com e-mail' : 'Sem e-mail')
   if (view.telefone !== 'todos') chips.push(view.telefone === 'com' ? 'Com telefone' : 'Sem telefone')
   if (view.regiao.trim()) chips.push(`Região: ${view.regiao.trim()}`)
-  if (view.scoreMin || view.scoreMax) chips.push(`Score ${view.scoreMin || '0'}–${view.scoreMax || '∞'}`)
+  if (view.scoreMin || view.scoreMax) chips.push(`Cadastro ${view.scoreMin || '0'}–${view.scoreMax || '∞'}`)
   if (view.notaMin || view.notaMax) chips.push(`Nota ${view.notaMin || '0'}–${view.notaMax || '∞'}`)
   if (view.avalMin || view.avalMax) chips.push(`Aval. ${view.avalMin || '0'}–${view.avalMax || '∞'}`)
   if (view.dataDe) chips.push(`Desde ${view.dataDe}`)
@@ -500,6 +502,20 @@ export default function ProspeccaoPage() {
     setDetalheAberto((cur) => (cur && cur.id === leadAtualizado.id ? { ...cur, ...leadAtualizado } : cur))
   }
 
+  function resumoIcpCadastroLinha(p: Prospect) {
+    const resumo = resumoIcpOperacional(p)
+    const selo = seloIcp(resumo.faixa, resumo.score)
+    const maximo = maximoDoLead(p)
+    const cadastro = leituraCadastro(p.score_cadastro, maximo, criteriosDoLead(p))
+    return {
+      selo,
+      resumo,
+      cadastro,
+      maximo,
+      title: `${resumo.origem === 'previsao' ? 'Prévia automática' : 'ICP salvo'} — ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}. Cadastro/coleta: ${typeof p.score_cadastro === 'number' ? `${p.score_cadastro}/${maximo}` : 'sem score'} — ${cadastro.titulo}.`,
+    }
+  }
+
   // A página já vem recortada e ordenada do servidor; o total do filtro vem das métricas.
   const contagens = contagensDosFiltros(metricas)
   const pg = paginaServidor<Prospect>({ itens: prospects, pagina, porPagina: POR_PAGINA_PADRAO, total: contagens[filtro] })
@@ -711,7 +727,7 @@ export default function ProspeccaoPage() {
           <tr>
             {cols.entrou !== false && <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={ordenarPor} />}
             <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={ordenarPor} />
-            {cols.cadastro !== false && <ThOrdenavel label="ICP" chave="pontos" ordem={ordem} onOrdenar={ordenarPor} />}
+            {cols.cadastro !== false && <ThOrdenavel label="ICP + cadastro" chave="pontos" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.telefone !== false && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.email !== false && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.nicho !== false && <ThOrdenavel label="Nicho / Cidade" chave="nicho" ordem={ordem} onOrdenar={ordenarPor} />}
@@ -722,7 +738,9 @@ export default function ProspeccaoPage() {
           </tr>
         </thead>
         <tbody>
-          {pg.itens.map((p) => (
+          {pg.itens.map((p) => {
+            const icpLinha = resumoIcpCadastroLinha(p)
+            return (
             <tr key={p.id} className="border-t hover:bg-gray-50">
               {cols.entrou !== false && <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{quando(p.created_at)}</td>}
               <td className="px-3 py-2 font-medium">
@@ -734,21 +752,22 @@ export default function ProspeccaoPage() {
                   sufixo={p.maps_url ? <span className="text-xs text-slate-400 shrink-0">↗</span> : undefined}
                 />
               </td>
-              {/* Bolinha de COMPLETUDE — paleta neutra, nunca a de prioridade comercial: aqui
-                  cadastro alto significa MENOS oportunidade, e a ordenação padrão da tela
-                  (`pontos ASC`) já assume isso. Endereço, nota, avaliações e horário viraram
-                  critérios dentro do tooltip; os valores ficam em "Detalhes".
-                  O SITE também mora aqui: ele já valia 20 dos 100 pontos, e a coluna própria
-                  saiu (decisão do operador em 2026-08-10). O balão distingue as três
-                  situações — tem / não tem / não verificado — e o link fica em "Detalhes",
-                  porque o balão é `pointer-events-none` e um link ali seria inalcançável. */}
+              {/* ICP + cadastro: cadastro/coleta e' evidencia para validar o ICP geral. */}
               {cols.cadastro !== false && <td className="px-3 py-2">
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-2">
                   <BolinhaIcp l={p} />
+                  <div className="min-w-[92px] leading-tight" title={icpLinha.title}>
+                    <span className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${icpLinha.selo.classe}`}>
+                      {icpLinha.selo.rotulo}{icpLinha.selo.score != null ? ` · ${icpLinha.selo.score}/13` : ''}
+                    </span>
+                    <span className="mt-0.5 block max-w-[150px] truncate text-[10px] text-slate-500">
+                      cadastro {typeof p.score_cadastro === 'number' ? `${p.score_cadastro}/${icpLinha.maximo}` : 'sem score'}
+                    </span>
+                  </div>
                   <button
                     onClick={() => setDetalheAberto(p)}
                     className="text-[11px] text-slate-500 underline-offset-2 hover:text-brand hover:underline"
-                    title="ICP, cadastro, endereço, nota, avaliações, horário, links e dados completos do lead"
+                    title="ICP, cadastro como evidência, endereço, nota, avaliações, horário, links e dados completos do lead"
                   >
                     Detalhes
                   </button>
@@ -777,7 +796,8 @@ export default function ProspeccaoPage() {
                 )}
               </td>
             </tr>
-          ))}
+            )
+          })}
           {pg.itens.length === 0 && (
             <tr><td colSpan={colSpanTabela} className="px-4 py-6 text-center text-gray-400">Nenhum prospect ainda. Configure a busca acima e clique em Buscar agora.</td></tr>
           )}
@@ -1020,8 +1040,8 @@ function PersonalizarAquisicaoModal({ view, onPatch, onReset, onPreset, onClose 
               <SelFiltroAquisicao label="Rede social" value={view.social} onChange={(v) => onPatch({ social: v as Filtro3 })} opcoes={[["todos", "Todas"], ["com", "Com rede social"], ["sem", "Sem rede social"]]} />
               <SelFiltroAquisicao label="Telefone" value={view.telefone} onChange={(v) => onPatch({ telefone: v as Filtro3 })} opcoes={[["todos", "Todos"], ["com", "Com telefone"], ["sem", "Sem telefone"]]} />
               <SelFiltroAquisicao label="E-mail" value={view.email} onChange={(v) => onPatch({ email: v as Filtro3 })} opcoes={[["todos", "Todos"], ["com", "Com e-mail"], ["sem", "Sem e-mail"]]} />
-              <CampoTextoAquisicao label="Score coleta ≥" type="number" value={view.scoreMin} onChange={(v) => onPatch({ scoreMin: v })} placeholder="0" />
-              <CampoTextoAquisicao label="Score coleta ≤" type="number" value={view.scoreMax} onChange={(v) => onPatch({ scoreMax: v })} placeholder="100" />
+              <CampoTextoAquisicao label="Cadastro/coleta ≥" type="number" value={view.scoreMin} onChange={(v) => onPatch({ scoreMin: v })} placeholder="0" />
+              <CampoTextoAquisicao label="Cadastro/coleta ≤" type="number" value={view.scoreMax} onChange={(v) => onPatch({ scoreMax: v })} placeholder="100" />
               <CampoTextoAquisicao label="Nota ≥" type="number" value={view.notaMin} onChange={(v) => onPatch({ notaMin: v })} placeholder="0" />
               <CampoTextoAquisicao label="Nota ≤" type="number" value={view.notaMax} onChange={(v) => onPatch({ notaMax: v })} placeholder="5" />
               <CampoTextoAquisicao label="Avaliações ≥" type="number" value={view.avalMin} onChange={(v) => onPatch({ avalMin: v })} placeholder="0" />
