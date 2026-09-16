@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { apiFetch } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { IconCheck, IconTrash, IconSparkle, IconClose } from '@/components/ui/icons'
@@ -110,6 +110,7 @@ export default function AssistenteOportunidades({
   const [erro, setErro] = useState('')
   const [respostasIcp, setRespostasIcp] = useState<Record<string, boolean>>({})
   const [observacaoIcp, setObservacaoIcp] = useState('')
+  const [checklistIcpAberto, setChecklistIcpAberto] = useState(false)
   const fb = useFeedback()
 
   const base = `/api/empresas/${empresaId}/prospeccao/curadoria`
@@ -147,6 +148,7 @@ export default function AssistenteOportunidades({
     for (const c of CRITERIOS_ICP_TENKA) base[c.id] = respostas?.[c.id] === true
     setRespostasIcp(base)
     setObservacaoIcp('')
+    setChecklistIcpAberto(false)
   }, [dados?.oportunidade?.prospect_id])
 
   // Fechar com Esc: a sessão continua salva e pode ser retomada depois.
@@ -171,6 +173,7 @@ export default function AssistenteOportunidades({
         }),
       })
       setDados(r.data)
+      setChecklistIcpAberto(false)
       onLeadsAlterados?.()
       const d = r.data.decisao
       if (d?.ja_decidido) fb.toast('Este lead já tinha sido decidido — nada foi duplicado.', 'info')
@@ -283,37 +286,35 @@ export default function AssistenteOportunidades({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">ICP Tenka v1.1</p>
-                  <p className="mt-0.5 text-xs text-slate-500">Checklist comercial separado do cadastro.</p>
+                  <p className="mt-0.5 text-xs text-slate-500">Qualidade comercial. A bolinha de cadastro mede outra coisa.</p>
                 </div>
                 <SeloIcp faixa={icpAtual.faixa} score={icpAtual.score} />
               </div>
-              <div className="mt-3 grid gap-1.5">
-                {icpAtual.criterios.map((c) => {
-                  const auto = oportunidade.icp?.sinais_auto?.[c.id]
-                  return (
-                    <label key={c.id} className="flex items-start gap-2 rounded-lg bg-white px-2 py-1.5 text-xs text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={!!respostasIcp[c.id]}
-                        onChange={(e) => setRespostasIcp((r) => ({ ...r, [c.id]: e.target.checked }))}
-                        className="mt-0.5"
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="font-medium">{c.rotulo}</span>
-                        <span className="ml-1 text-slate-400">+{c.pontos}</span>
-                        {auto?.sugerido && <span className="ml-1 text-[10px] text-emerald-700">sugerido</span>}
-                        {auto?.motivo && <span className="block text-[11px] text-slate-400">{auto.motivo}</span>}
-                      </span>
-                    </label>
-                  )
-                })}
+              <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2">
+                <p className="text-xs font-medium text-slate-700">Antes de marcar, revise o checklist ICP.</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  O sistema sugere alguns sinais, mas a pontuacao final e a sua validacao humana.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {icpAtual.criterios.filter((c) => c.marcado).slice(0, 4).map((c) => (
+                    <span key={c.id} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">
+                      {c.rotulo} +{c.pontos}
+                    </span>
+                  ))}
+                  {icpAtual.criterios.every((c) => !c.marcado) && (
+                    <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[11px] text-slate-500">
+                      Nenhum criterio marcado
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setChecklistIcpAberto(true)}
+                  className="mt-3 rounded-lg border bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Abrir checklist ICP
+                </button>
               </div>
-              <textarea
-                value={observacaoIcp}
-                onChange={(e) => setObservacaoIcp(e.target.value)}
-                placeholder="Observação opcional sobre o fit"
-                className="mt-2 min-h-[58px] w-full resize-y rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-brand"
-              />
             </div>
 
             <div className="flex flex-wrap gap-1.5 text-[11px]">
@@ -331,15 +332,29 @@ export default function AssistenteOportunidades({
             </div>
 
             <div className="flex flex-wrap gap-2 border-t pt-3">
-              <button onClick={() => decidir('aprovado')} disabled={decidindo}
+              <button onClick={() => setChecklistIcpAberto(true)} disabled={decidindo}
                 className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50">
-                {decidindo ? <Spinner /> : <IconCheck />} Aprovar
+                <IconCheck /> Marcar lead
               </button>
               <button onClick={() => decidir('descartado')} disabled={decidindo}
                 className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
                 <IconTrash /> Descartar
               </button>
             </div>
+
+            {checklistIcpAberto && (
+              <ModalChecklistIcp
+                oportunidade={oportunidade}
+                icpAtual={icpAtual}
+                respostasIcp={respostasIcp}
+                setRespostasIcp={setRespostasIcp}
+                observacaoIcp={observacaoIcp}
+                setObservacaoIcp={setObservacaoIcp}
+                decidindo={decidindo}
+                onCancelar={() => setChecklistIcpAberto(false)}
+                onConfirmar={() => decidir('aprovado')}
+              />
+            )}
           </div>
         )}
 
@@ -407,5 +422,113 @@ function SeloIcp({ faixa, score }: { faixa: string; score: number | null }) {
     >
       {selo.rotulo}{selo.score != null ? ` · ${selo.score}/13` : ''}
     </span>
+  )
+}
+
+function ModalChecklistIcp({
+  oportunidade,
+  icpAtual,
+  respostasIcp,
+  setRespostasIcp,
+  observacaoIcp,
+  setObservacaoIcp,
+  decidindo,
+  onCancelar,
+  onConfirmar,
+}: {
+  oportunidade: Oportunidade
+  icpAtual: ReturnType<typeof calcularIcp>
+  respostasIcp: Record<string, boolean>
+  setRespostasIcp: Dispatch<SetStateAction<Record<string, boolean>>>
+  observacaoIcp: string
+  setObservacaoIcp: (valor: string) => void
+  decidindo: boolean
+  onCancelar: () => void
+  onConfirmar: () => void
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/45 p-4 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Checklist ICP do lead"
+      onClick={onCancelar}
+    >
+      <div
+        className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Marcar lead</p>
+            <h4 className="mt-0.5 truncate text-base font-semibold text-slate-900">{oportunidade.nome}</h4>
+            <p className="mt-1 text-xs text-slate-500">
+              Valide o ICP antes de colocar o lead na carteira. Esta pontuacao define Lead A/B/C e influencia prioridade.
+            </p>
+          </div>
+          <SeloIcp faixa={icpAtual.faixa} score={icpAtual.score} />
+        </div>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {icpAtual.criterios.map((c) => {
+            const auto = oportunidade.icp?.sinais_auto?.[c.id]
+            return (
+              <label
+                key={c.id}
+                className={`flex min-h-[72px] items-start gap-2 rounded-xl border px-3 py-2 text-xs transition ${
+                  respostasIcp[c.id] ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-white'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!respostasIcp[c.id]}
+                  onChange={(e) => setRespostasIcp((r) => ({ ...r, [c.id]: e.target.checked }))}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="font-semibold text-slate-800">{c.rotulo}</span>
+                  <span className="ml-1 text-slate-400">+{c.pontos}</span>
+                  <span className="mt-0.5 block text-[11px] text-slate-500">
+                    {auto?.sugerido ? 'Sinal automatico encontrado.' : 'Marque quando voce validar esse criterio.'}
+                  </span>
+                  {auto?.motivo && <span className="mt-0.5 block text-[11px] text-slate-400">{auto.motivo}</span>}
+                </span>
+              </label>
+            )
+          })}
+        </div>
+
+        <textarea
+          value={observacaoIcp}
+          onChange={(e) => setObservacaoIcp(e.target.value)}
+          placeholder="Observacao opcional: por que esse lead e bom, medio ou fraco?"
+          className="mt-3 min-h-[72px] w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-brand"
+        />
+
+        <div className="mt-4 flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-slate-500">
+            Cadastro preenchido ajuda a encontrar contato. ICP mede chance comercial.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onCancelar}
+              disabled={decidindo}
+              className="rounded-lg border px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Voltar
+            </button>
+            <button
+              type="button"
+              onClick={onConfirmar}
+              disabled={decidindo}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {decidindo ? <Spinner /> : <IconCheck />} Confirmar e marcar lead
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

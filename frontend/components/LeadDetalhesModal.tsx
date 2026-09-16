@@ -217,17 +217,22 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
               </span>
             </div>
             {icp.criterios.length > 0 ? (
-              <ul className="mt-3 grid grid-cols-1 gap-1 sm:grid-cols-2">
-                {icp.criterios.map((c, i) => (
-                  <li key={c.id || i} className={`flex items-center gap-1.5 text-xs ${c.marcado ? 'text-slate-700' : 'text-slate-400'}`}>
-                    <span aria-hidden="true">{c.marcado ? '✓' : '✗'}</span>
-                    <span>{c.rotulo}</span>
-                    <span className="text-[10px] text-slate-400">+{c.pontos}</span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <p className="mt-2 text-[11px] text-slate-500">Pontuacao feita no checklist de marcacao da Aquisicao.</p>
+                <ul className="mt-3 grid grid-cols-1 gap-1 sm:grid-cols-2">
+                  {icp.criterios.map((c, i) => (
+                    <li key={c.id || i} className={`flex items-center gap-1.5 text-xs ${c.marcado ? 'text-slate-700' : 'text-slate-400'}`}>
+                      <span aria-hidden="true">{c.marcado ? '✓' : '✗'}</span>
+                      <span>{c.rotulo}</span>
+                      <span className="text-[10px] text-slate-400">+{c.pontos}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
             ) : (
-              <p className="mt-2 text-xs text-slate-400">Este lead ainda nao passou pelo checklist ICP.</p>
+              <p className="mt-2 text-xs text-slate-400">
+                Este lead ainda nao passou pelo checklist ICP. Na Aquisicao, clique em Marcar lead para pontuar.
+              </p>
             )}
           </div>
 
