@@ -2246,6 +2246,44 @@ function QualidadeIcpCelula({ l }: { l: Lead }) {
   )
 }
 
+function classeLinhaQualidadeIcp(l: Lead): string {
+  const resumo = resumoIcpDoLead(l)
+  const faixa = seloIcp(resumo.faixa, resumo.score).chave
+  if (faixa === 'A') return 'bg-emerald-50/45 hover:bg-emerald-50'
+  if (faixa === 'B') return 'bg-blue-50/35 hover:bg-blue-50/70'
+  return 'hover:bg-slate-50/60'
+}
+
+function NomeLeadCelula({ l, onAbrirConversa, largura = 'max-w-[220px]' }: {
+  l: Lead
+  onAbrirConversa: (l: Lead) => void
+  largura?: string
+}) {
+  const resumo = resumoIcpDoLead(l)
+  const selo = seloIcp(resumo.faixa, resumo.score)
+  const temIcp = selo.chave !== 'sem_icp'
+  return (
+    <td className="px-3 py-2 font-medium">
+      <div className="flex min-w-0 flex-col gap-1">
+        <TextoTruncado
+          texto={l.nome}
+          onClick={() => onAbrirConversa(l)}
+          dica="Abrir a conversa e os acessos rápidos deste lead"
+          className={`${largura} text-slate-900 hover:text-brand hover:underline`}
+        />
+        {temIcp && (
+          <span
+            className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${selo.classe}`}
+            title={`${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}`}
+          >
+            {selo.rotulo}{selo.score != null ? ` · ${selo.score}/13` : ''}
+          </span>
+        )}
+      </div>
+    </td>
+  )
+}
+
 function SelCelula({ l, selecionados, onToggleSel }: { l: Lead; selecionados: Set<string>; onToggleSel: (id: string) => void }) {
   return (
     <td className="px-3 py-2">
@@ -2290,19 +2328,12 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
             {leads.map((l) => {
               const horario = !!l.json_apresentacao?.empresa?.horario_funcionamento
               return (
-                <tr key={l.id} className="hover:bg-slate-50/60 align-top">
+                <tr key={l.id} className={`${classeLinhaQualidadeIcp(l)} align-top`}>
                   {mostrarRodar && <SelCelula l={l} selecionados={selecionados} onToggleSel={onToggleSel} />}
                   {cols.entrou && <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{fmtDataHora(l.created_at)}</td>}
                   {/* O NOME abre a conversa do lead. A ficha do Google Maps não se perdeu:
                       virou acesso rápido no topo do modal e continua em "Detalhes". */}
-                  <td className="px-3 py-2 font-medium">
-                    <TextoTruncado
-                      texto={l.nome}
-                      onClick={() => onAbrirConversa(l)}
-                      dica="Abrir a conversa e os acessos rápidos deste lead"
-                      className="max-w-[220px] text-slate-900 hover:text-brand hover:underline"
-                    />
-                  </td>
+                  <NomeLeadCelula l={l} onAbrirConversa={onAbrirConversa} largura="max-w-[220px]" />
                   {cols.telefone && <TelefoneCelula l={l} onSalvarTelefone={onSalvarTelefone} />}
                   {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
                   {cols.status && <StatusCelula l={l} />}
@@ -2362,17 +2393,10 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
           </thead>
           <tbody className="divide-y">
             {leads.map((l) => (
-              <tr key={l.id} className="hover:bg-slate-50/60 align-top">
+              <tr key={l.id} className={`${classeLinhaQualidadeIcp(l)} align-top`}>
                 {mostrarRodar && <SelCelula l={l} selecionados={selecionados} onToggleSel={onToggleSel} />}
                 {cols.entrou && <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{fmtDataHora(l.created_at)}</td>}
-                <td className="px-3 py-2 font-medium">
-                  <TextoTruncado
-                    texto={l.nome}
-                    onClick={() => onAbrirConversa(l)}
-                    dica="Abrir a conversa e os acessos rápidos deste lead"
-                    className="max-w-[200px] text-slate-900 hover:text-brand hover:underline"
-                  />
-                </td>
+                <NomeLeadCelula l={l} onAbrirConversa={onAbrirConversa} largura="max-w-[200px]" />
                 <td className="px-3 py-2 text-xs">
                   {l.instagram_handle ? (
                     <a href={`https://instagram.com/${l.instagram_handle.replace(/^@/, '')}`} target="_blank" rel="noreferrer"

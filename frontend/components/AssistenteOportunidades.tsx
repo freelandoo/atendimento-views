@@ -177,7 +177,10 @@ export default function AssistenteOportunidades({
       onLeadsAlterados?.()
       const d = r.data.decisao
       if (d?.ja_decidido) fb.toast('Este lead já tinha sido decidido — nada foi duplicado.', 'info')
-      else if (decisao === 'aprovado') fb.toast(`${alvo.nome} entrou na sua carteira.`, 'success')
+      else if (decisao === 'aprovado') {
+        const selo = seloIcp(icpAtual.faixa, icpAtual.score)
+        fb.toast(`${alvo.nome} entrou na carteira como ${selo.rotulo}${selo.score != null ? ` (${selo.score}/13)` : ''}.`, 'success')
+      }
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao registrar a decisão.')
     } finally {
