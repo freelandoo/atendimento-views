@@ -17,6 +17,7 @@ export function ContatoEditavel({
   tipo = 'text',
   titulo,
   largura = 'w-44',
+  classeValor,
   children,
 }: {
   value: string | null
@@ -27,6 +28,9 @@ export function ContatoEditavel({
   tipo?: 'email' | 'tel' | 'text'
   titulo: string
   largura?: string
+  /** Aparência do valor preenchido. Existe para o número no cabeçalho da conversa continuar
+      parecendo o número (mono, discreto) em vez de virar um link azul no meio do título. */
+  classeValor?: string
   /** Como o valor preenchido é desenhado. Sem isto, mostra o texto cru. */
   children?: ReactNode
 }) {
@@ -52,7 +56,7 @@ export function ContatoEditavel({
     return value ? (
       <button
         onClick={() => { setTexto(value); setEditando(true) }}
-        className="inline-flex items-center gap-1.5 text-blue-700 hover:underline"
+        className={classeValor ?? 'inline-flex items-center gap-1.5 text-blue-700 hover:underline'}
         title={titulo}
       >
         {children ?? value}

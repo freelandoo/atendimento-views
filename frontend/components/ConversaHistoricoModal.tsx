@@ -6,6 +6,7 @@ import {
   type FormProximaAcao, type PayloadProximaAcao,
 } from '@/lib/follow-up-acao'
 import type { AcessoRapido } from '@/lib/lead-acessos'
+import { ContatoEditavel } from '@/components/ContatoEditavel'
 
 // Modal enxuto do Banco de Leads. Reusa o MESMO endpoint da página de Conversas
 // (GET /api/empresas/:id/conversas/:numero) — sem recriar a lógica de conversa.
@@ -133,7 +134,7 @@ function rotuloEventoStatus(e: StatusEvento): string {
 }
 
 export default function ConversaHistoricoModal({
-  empresaId, leadId, numero, titulo, status, acessos, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel, cooldownS, enviando, gerando, onEnviar, onGerar, onAlterarStatus, onClose,
+  empresaId, leadId, numero, titulo, status, acessos, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel, cooldownS, enviando, gerando, onEnviar, onGerar, onAlterarStatus, onSalvarTelefone, onClose,
 }: {
   /** JID do contato. Vem VAZIO quando o lead ainda não tem telefone — nesse caso o modal
       abre assim mesmo (o lead tem links, status e histórico), declarando a pendência em vez
@@ -147,6 +148,11 @@ export default function ConversaHistoricoModal({
   cooldownS?: number | null; enviando?: boolean; gerando?: boolean
   onEnviar?: () => void; onGerar?: () => void
   onAlterarStatus?: (status: string, payload?: StatusPayload) => void | Promise<void>
+  /** Salva o telefone do lead. OPCIONAL: sem ele o número é só texto, como era antes.
+      É aqui que a EDIÇÃO do número vive — na listagem ela ocupava espaço na linha sem ser o
+      trabalho mais frequente. Quem valida (formato, número já usado por outro lead) é o
+      backend; este modal não conhece a regra. */
+  onSalvarTelefone?: (telefone: string) => Promise<void>
   onClose: () => void
 }) {
   const [carregando, setCarregando] = useState(true)
@@ -294,12 +300,46 @@ export default function ConversaHistoricoModal({
                 lead nao tem link nenhum — cabecalho nao desenha estado vazio. */}
             <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
               {telefonePendente ? (
-                <span
-                  className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800"
-                  title="Este lead entrou na base sem telefone. Sem número não há WhatsApp nem conversa."
+                <>
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800"
+                    title="Este lead entrou na base sem telefone. Sem número não há WhatsApp nem conversa."
+                  >
+                    Telefone pendente
+                  </span>
+                  {/* A pendência é declarada e RESOLVÍVEL no mesmo lugar: sem isto o operador
+                      leria "falta telefone" e teria de voltar à listagem para digitá-lo. */}
+                  {onSalvarTelefone && (
+                    <ContatoEditavel
+                      value={null}
+                      onSave={onSalvarTelefone}
+                      rotuloVazio="+ telefone"
+                      placeholder="DDD + número"
+                      tipo="tel"
+                      titulo="Adicionar o telefone deste lead"
+                      largura="w-36"
+                    />
+                  )}
+                </>
+              ) : onSalvarTelefone ? (
+                /* O número É o controle: clicar nele abre para escrever. Um botão "editar" ao
+                   lado diria a mesma coisa ocupando mais espaço — e na listagem era exatamente
+                   esse espaço que faltava. O `title` é o que revela a ação para quem não
+                   descobriria pelo hover. */
+                <ContatoEditavel
+                  /* Dígitos, nunca o JID: o campo abre com o que a pessoa reconhece como o
+                     número, não com `...@s.whatsapp.net`. */
+                  value={String(numero).replace(/\D/g, '')}
+                  onSave={onSalvarTelefone}
+                  rotuloVazio="+ telefone"
+                  placeholder="DDD + número"
+                  tipo="tel"
+                  titulo="Clique para corrigir o telefone deste lead"
+                  largura="w-36"
+                  classeValor="rounded font-mono text-xs text-slate-500 underline decoration-dotted decoration-slate-300 underline-offset-2 hover:text-brand hover:decoration-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
                 >
-                  Telefone pendente
-                </span>
+                  {fmtNumero(numero)}
+                </ContatoEditavel>
               ) : (
                 <span className="font-mono text-xs text-slate-500">{fmtNumero(numero)}</span>
               )}

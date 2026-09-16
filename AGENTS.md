@@ -699,6 +699,15 @@
   invólucro de vocabulário; as 3 telas que o importavam **não mudaram**). Ele **não valida nada de
   propósito** — quem tem o banco na mão é o backend, e validar na tela criaria uma segunda régua
   mais frouxa.
+- **ADICIONAR e CORRIGIR ficam em lugares diferentes, e isso é decisão de produto** (operador,
+  2026-09-15): a **coluna Telefone** tem só o **"+ telefone"** (o lead sem número não entra na
+  fila de abordagem — é o trabalho que ele exige); a **correção** vive no **cabeçalho do modal da
+  conversa**, onde **o próprio número é o controle** (clicar nele abre para escrever, sublinhado
+  pontilhado + `title`, sem botão separado). Um "editar" na linha diria a mesma coisa ocupando o
+  espaço que a listagem não tem, para a ação mais rara das duas. O modal **também adiciona**
+  quando o lead está com "Telefone pendente" — declarar a pendência sem poder resolvê-la ali
+  mandaria o operador voltar à listagem. `onSalvarTelefone` é prop **opcional**: sem ela o número
+  continua sendo texto.
 - Testes: `test/lead-telefone.test.js` (regra pura + guardas que leem o fonte da rota e do
   upsert). **Nenhuma variável de ambiente nova, nenhuma migration.**
 
