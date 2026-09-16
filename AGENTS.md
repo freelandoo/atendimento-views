@@ -2267,6 +2267,62 @@
   migration), `frontend/lib/instagram-perfil.test.js`. **Nenhuma variável de ambiente nova**
   (a busca reusa `GOOGLE_CSE_KEY`/`GOOGLE_CSE_ID`, que já existiam).
 
+### Orçamento de créditos Bright Data — a Aquisição era o único canal pago SEM teto (migration 081)
+- **Defeito corrigido:** `pesquisarPlaces` **não consultava orçamento nenhum**. Uma rotina de
+  aquisição dispara a cada 6h trazendo até 200 registros — **800 créditos/dia por rotina ativa**,
+  e os créditos são de **UMA conta** Bright Data compartilhada por todos os tenants. Com 4.760
+  créditos gratuitos, uma única rotina esgotava a conta em **~6 dias**. O teto existia só na
+  captação social (`BRIGHTDATA_CAPTACAO_TETO_DIARIO`), justamente o canal que gasta menos.
+- **Fonte de verdade única: `src/services/brightdata-orcamento.js`** (PURO — sem banco, HTTP ou
+  rede). Ele não sabe quanto foi consumido: recebe os números e devolve o veredito. Dono de
+  `SCRAPER` (lista fechada que espelha o CHECK da migration), `MOTIVO` e `avaliarOrcamento`.
+- ⚠️ **São DUAS travas e elas respondem perguntas diferentes.** `BRIGHTDATA_AQUISICAO_TETO_DIARIO`
+  (default 400, `0` desliga) controla a **velocidade** do gasto. `BRIGHTDATA_RESERVA_CREDITOS`
+  (default 1000, `0` desliga) protege o **saldo**. Só a segunda impede a Aquisição de comer o
+  crédito do enriquecimento — um teto diário sozinho não resolve: 400/dia ainda zera a conta em
+  12 dias. O teto é avaliado **antes** da reserva, e o motivo devolvido é o mais imediato.
+- **Saldo desconhecido PULA a reserva, nunca a assume.** Sem saldo informado, bloquear pararia a
+  operação por falta de cadastro e chutar um saldo seria pior — mesma disciplina de "ausência de
+  prova não é prova de ausência". O teto diário continua valendo.
+- **O custo estimado é a quantidade SOLICITADA, não uma média:** orçamento se faz pelo pior caso,
+  porque o custo real só é conhecido quando o snapshot volta — e aí já foi pago.
+- **O ledger grava o número REAL devolvido** (`recebidos`), nunca o solicitado. Guarda de
+  regressão lê o fonte. **Idempotente por `(scraper_type, snapshot_id)`** (índice único parcial):
+  o worker reprocessa snapshots, e somar de novo faria o teto travar a operação por consumo que
+  não aconteceu.
+- **`registrarConsumo` NUNCA lança.** Contabilidade quebrada não pode derrubar o processamento de
+  um lote **já pago** — a falha vai para o log e o único efeito é o teto ficar mais frouxo. O
+  oposto perderia leads comprados.
+- ⚠️ **A soma é GLOBAL, não por empresa** (guarda de regressão em `consumidoHoje`): a conta Bright
+  Data é uma só, e somar por empresa deixaria N empresas gastarem N × o mesmo teto. `empresa_id`
+  fica na linha para auditoria e rateio, não para o recorte da trava.
+- **O saldo é INFORMADO, não lido.** A Dataset API v3 expõe só `/trigger`, `/progress` e
+  `/snapshot` — **nenhum devolve saldo**. `prospectador.brightdata_saldo` é append-only (cada
+  informe é linha nova; sobrescrever apagaria o marco zero das contagens anteriores) e o corrente
+  é aritmética: informado − consumo desde a data. **Quem exibir esse número é obrigado a dizer que
+  é estimativa.** `saldoAtual()` devolve `null` quando ninguém informou — terceiro estado, nunca 0.
+- **Consumo anterior à migration não é retroagido**, de propósito: o saldo informado é o marco
+  zero, e é por isso que ele carrega data.
+- **Corrida declarada e aceita:** duas coletas simultâneas de empresas diferentes podem passar
+  juntas pela checagem e estourar o teto em no máximo um lote. O índice
+  `busca_snapshots_uma_ativa_por_empresa_uk` já serializa por empresa, então o excesso é limitado
+  ao número de empresas com coleta em voo — preferível a segurar transação aberta durante a
+  chamada externa.
+- **A captação social manteve o teto próprio** (`orcamentoRestante`) e **ganhou só o registro no
+  ledger**: sem isso a Aquisição não enxerga o que a captação gastou da MESMA conta.
+- **Gestão por script, não por rota:** `npm run brightdata:creditos` (relatório, não grava) e
+  `-- --informar=4760` (grava o saldo). Não existe "saldo da empresa X", então a operação não
+  pertence a nenhuma rota de `/api/empresas/:id`; enquanto não houver tela de plataforma, o lugar
+  honesto é o script.
+- **Bloqueio é 429 com motivo**, não 500: é limite de orçamento e exige ação do operador
+  (esperar o dia virar, ajustar o teto ou recarregar), não investigação de defeito.
+- Código: `src/services/brightdata-orcamento.js` (PURO), `src/db/brightdata-consumo.js`,
+  ganchos em `src/prospecting.js` (trava no `PASSO 0` de `pesquisarPlaces` + ledger na conclusão do
+  worker) e `src/services/social-capture.js` (só ledger), `scripts/brightdata-creditos.js`.
+  Testes: `test/brightdata-orcamento.test.js` (regra pura + anti-drift contra o CHECK da migration
+  + 6 guardas que leem o fonte). **Duas variáveis de ambiente novas, ambas documentadas no
+  `.env.example`.**
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

@@ -3887,3 +3887,45 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   `situacao_site` e de `contato_canal_disponibilidade`; (b) ausencia de post recente **nao e**
   prova de inatividade (Decisao 4 de 2026-09-16); (c) a coleta e paga e tem teto diario
   (`BRIGHTDATA_CAPTACAO_TETO_DIARIO`, default 166) - 4.631 leads nao cabem num dia.
+
+## 2026-09-16 - Tarefa IA - Pipeline de enriquecimento sob restricao de creditos (analise)
+
+- **Pedido resumido:** reavaliar a arquitetura de integracao com a Bright Data considerando
+  4.760 creditos GRATUITOS (sem plano pago), para qualificar ~200 leads descobrindo: negocio
+  ativo, tem Instagram, perfil existe, perfil ativo/abandonado, data do ultimo post, e revisao
+  humana quando nao houver seguranca. Pipeline em cascata com status por etapa.
+- **E projeto/tarefa de alteracao?** Sim, grande. **Nenhum codigo escrito** — o operador pediu
+  explicitamente analise antes (10 itens). Entregue em `docs/analise-enriquecimento-instagram.md`.
+- **Correcao de premissa 1:** a descoberta de Instagram (commit 44b8721) usa **Google CSE, nao
+  Bright Data**. Nao consome os 4.760 creditos; tem cota propria de 100/dia. Para lead que ja tem
+  o Instagram no Google Meu Negocio, custa ZERO nas duas moedas.
+- **Correcao de premissa 2 (o achado mais grave):** `pesquisarPlaces` **nao consulta orcamento
+  nenhum**. Uma rotina de aquisicao pode gastar 800 creditos/dia (4 execucoes x 200 leads) e
+  esgotar os 4.760 em ~6 dias, antes de o enriquecimento gastar o primeiro credito. O teto existe
+  so na captacao social (`BRIGHTDATA_CAPTACAO_TETO_DIARIO`).
+- **Descoberta:** ~70% da infraestrutura pedida ja existe (cliente agnostico a dataset, fila com
+  custo_registros, orcamento diario, classificador de atividade do Maps, veredito de perfil,
+  ledger com lease/backoff da Meta como padrao de retry). Falta o pipeline POR LEAD, os dois
+  scrapers de Instagram e a contabilidade unificada.
+- **Risco principal:** o contrato do dataset `ig_perfis` e' DESCONHECIDO — nenhum codigo do repo
+  le posts/posts_count/data de publicacao. Escrever o classificador antes de ver o registro real
+  repetiria a Decisao 1 de 2026-09-16 (grafias chutadas, 200 coletas pagas, zero datas). Proposta:
+  SONDA de 1 perfil guardando o cru. Ela decide entre ~120 e ~720 creditos por rodada de 200 leads
+  (39 vs 6 rodadas com o saldo atual).
+- **Cuidados:** `credits_remaining` NAO e' legivel da API da Bright Data (o cliente so fala com
+  trigger/progress/snapshot) — tem de ser saldo informado pelo operador + consumo local, e a tela
+  precisa dizer que e' estimativa. Nao presumir que credito = 1 registro em todo dataset: o ledger
+  grava o numero REAL devolvido.
+- **6 decisoes pendentes** registradas na secao 11 do documento.
+
+## 2026-09-16 - Tarefa IA - Fase 0 do enriquecimento: teto de creditos na Aquisicao
+
+- **Pedido resumido:** "trata sem teto antes" — resposta a Decisao A da analise: tratar a
+  Aquisicao (que roda sem teto) antes de qualquer etapa do enriquecimento.
+- **E projeto/tarefa de alteracao?** Sim. Migration 081 (aditiva), 2 envs novas documentadas,
+  nenhuma rota nova, nenhuma dependencia nova.
+- **Escopo:** trava de orcamento em `pesquisarPlaces`, ledger unificado de consumo, saldo
+  informado, script de gestao. NAO inclui as etapas 3/4 do enriquecimento (dependem da sonda).
+- **Cuidados:** os creditos sao de UMA conta compartilhada (soma global, nao por empresa); o
+  ledger precisa ser idempotente por snapshot porque o worker reprocessa; a contabilidade nao pode
+  derrubar processamento de lote ja pago; a API nao expoe saldo, entao ele e' informado.

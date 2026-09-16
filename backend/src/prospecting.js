@@ -41,6 +41,11 @@ const {
 } = require('./services/aquisicao-rotinas-scheduler')
 const rotinasDb = require('./db/aquisicao-rotinas')
 const placesBrightData = require('./services/places-brightdata')
+// Orçamento de créditos: a REGRA é pura (services), o I/O do ledger fica em db/. A Aquisição era
+// o único canal pago sem teto — ver o comentário do PASSO 0 em `pesquisarPlaces`.
+const ORCAMENTO = require('./services/brightdata-orcamento')
+const { avaliarOrcamento } = ORCAMENTO
+const consumoDb = require('./db/brightdata-consumo')
 const {
   canProspectLead,
 } = require('./services/prospecting-eligibility')
@@ -3934,6 +3939,36 @@ async function pesquisarPlaces({
   }
 
   const alvo = Math.max(1, Math.min(placesBrightData.MAX_LEADS_POR_BUSCA, Number.parseInt(quantidade, 10) || placesBrightData.MAX_LEADS_POR_BUSCA))
+
+  // PASSO 0 — ORÇAMENTO, antes de reservar e antes de pagar.
+  //
+  // Até 2026-09-16 esta função não consultava orçamento nenhum: uma rotina dispara a cada 6h
+  // trazendo até 200 registros (800 créditos/dia por rotina) e os créditos são de UMA conta
+  // Bright Data. O teto existia só na captação social, que é o canal que gasta menos.
+  //
+  // O custo estimado é a quantidade SOLICITADA, não uma média: orçamento se faz pelo pior caso,
+  // porque o custo real só é conhecido quando o snapshot volta — e aí já foi pago.
+  //
+  // Corrida declarada e aceita: duas coletas simultâneas de empresas diferentes podem passar
+  // pela checagem juntas e estourar o teto em no máximo um lote. O índice único parcial
+  // `busca_snapshots_uma_ativa_por_empresa_uk` já serializa por empresa, então o excesso é
+  // limitado ao número de empresas com coleta em voo — preferível a segurar uma transação
+  // aberta durante a chamada externa.
+  const orcamento = avaliarOrcamento({
+    consumidoHoje: await consumoDb.consumidoHoje([ORCAMENTO.SCRAPER.MAPS_DESCOBERTA]),
+    custoEstimado: alvo,
+    saldoEstimado: (await consumoDb.saldoAtual()).saldo,
+  })
+  if (!orcamento.permitido) {
+    logger.warn({ operation: 'places_brightdata', etapa: 'orcamento', motivo: orcamento.motivo, ...orcamento },
+      'coleta bloqueada por orcamento de creditos')
+    const err = new Error(orcamento.mensagem)
+    err.statusCode = 429
+    err.motivo = orcamento.motivo
+    err.orcamento = orcamento
+    throw err
+  }
+
   const textQuery = `${queryNicho} em ${queryLocal}`
   const origemBusca = normalizarOrigemBusca(origem)
   const idempotencyKey = chaveIdempotenciaBusca(
@@ -4157,6 +4192,16 @@ async function processarBuscasPlacesPendentes(limit = 5) {
           WHERE id = $1`,
         [snap.id, Array.isArray(salvos) ? salvos.length : 0, recebidos, novosProspects]
       )
+      // Ledger de créditos: o número REAL de registros devolvidos, nunca o estimado. Idempotente
+      // por (scraper, snapshot) — este worker reprocessa snapshots, e somar de novo faria o teto
+      // diário travar a operação por consumo que não aconteceu.
+      await consumoDb.registrarConsumo({
+        empresaId: snap.empresa_id,
+        scraperType: ORCAMENTO.SCRAPER.MAPS_DESCOBERTA,
+        snapshotId: snap.snapshot_id,
+        registros: recebidos,
+        contexto: { nicho: snap.nicho, cidade: snap.cidade, origem: snap.origem },
+      })
       if (snap.rotina_id) {
         await rotinasDb.marcarConclusao(pool, snap.rotina_id, {
           coletados,

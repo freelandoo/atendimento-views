@@ -2876,3 +2876,43 @@ inventar meta em campanha de validacao contamina a leitura.
 - **Validacao:** `npm test` 1966/1968 - as 2 falhas (`motor de IA: generateAIResponse...`) sao
   ambientais e **pre-existentes**, confirmadas rodando a suite com a arvore limpa via stash.
   Frontend: `tsc --noEmit` limpo e 474/474 em `lib/*.test.js`.
+
+## 2026-09-16 - Fase 0: teto de creditos na Aquisicao + ledger (migration 081)
+
+- **Contexto:** a analise de `docs/analise-enriquecimento-instagram.md` apontou que o maior
+  consumidor de creditos nao era o pipeline novo, e sim a Aquisicao — que rodava SEM teto. O
+  operador decidiu (Decisao A) tratar isso antes de qualquer etapa do enriquecimento.
+- **Defeito corrigido:** `pesquisarPlaces` nao consultava orcamento nenhum. 800 creditos/dia por
+  rotina ativa, contra 4.760 gratuitos: ~6 dias ate zerar. O teto so' existia na captacao social.
+- **Decisao 1 - sao DUAS travas, nao uma.** Teto diario controla VELOCIDADE; reserva protege
+  SALDO. Um teto diario sozinho nao resolve o problema real (400/dia ainda zera a conta em 12
+  dias) e nao impede a coleta automatica de comer o credito do enriquecimento, que depende de
+  decisao humana e por isso gasta depois.
+- **Decisao 2 - saldo desconhecido PULA a reserva.** Bloquear por saldo nao informado pararia a
+  operacao por falta de cadastro; chutar um saldo seria pior. Mesma disciplina de "ausencia de
+  prova nao e' prova de ausencia" ja aplicada em situacao_site e contato_canal_disponibilidade.
+- **Decisao 3 - o custo estimado e a quantidade SOLICITADA.** Orcamento pelo pior caso: o custo
+  real so' e' conhecido quando o snapshot volta, e ai' ja' foi pago.
+- **Decisao 4 - o ledger grava o REAL, e e' idempotente por snapshot.** O worker reprocessa
+  snapshots; sem `ON CONFLICT DO NOTHING` + indice unico parcial, o mesmo lote seria somado a cada
+  passagem e o teto travaria a operacao por consumo que nao existiu.
+- **Decisao 5 - `registrarConsumo` nunca lanca.** Contabilidade quebrada nao pode derrubar o
+  processamento de um lote JA PAGO: perderia leads comprados. O custo aceito e' o teto ficar mais
+  frouxo do que deveria.
+- **Decisao 6 - a soma e GLOBAL.** Os creditos sao de UMA conta compartilhada; somar por empresa
+  deixaria N empresas gastarem N x o mesmo teto. `empresa_id` fica na linha so' para auditoria.
+  Ha guarda de regressao lendo o fonte de `consumidoHoje`.
+- **Decisao 7 - o saldo e INFORMADO, nunca lido.** A Dataset API v3 expoe apenas
+  /trigger, /progress e /snapshot; nenhum devolve saldo (item 9 do pedido: nao presumir). A tabela
+  e append-only e o corrente e' aritmetica sobre o valor digitado — e quem exibe e' obrigado a
+  dizer que e' estimativa.
+- **Decisao 8 - gestao por script, nao por rota.** Nao existe "saldo da empresa X", entao a
+  operacao nao pertence a nenhuma rota de /api/empresas/:id.
+- **Risco declarado e aceito:** corrida entre coletas simultaneas de empresas diferentes pode
+  estourar o teto em no maximo um lote. O indice unico de coleta ativa ja serializa por empresa, e
+  a alternativa (segurar transacao durante a chamada externa) e' pior.
+- **Consequencia operacional:** com os defaults (400/dia, reserva 1000), a coleta automatica passa
+  a parar quando o saldo estimado chegar a ~1.200. E' o comportamento pedido — preservar credito
+  para o enriquecimento —, mas REDUZ o volume de coleta atual, o que o operador aprovou.
+- **Validacao:** `npm test` 1984/1986 (as 2 falhas de motor de IA sao ambientais e pre-existentes).
+  18 testes novos, incluindo anti-drift entre a lista de scrapers do modulo e o CHECK da migration.

@@ -19,6 +19,11 @@ const { descobrirPerfisPorNicho, normalizarSeeds } = require('./social-discovery
 const { normalizarAgendaCampanha, campanhaDevePreencher } = require('./captacao-scheduler')
 const { classificarMelhorLink } = require('./site-classificacao')
 const { qualificacaoInicial } = require('./lead-qualificacao')
+// Ledger de creditos da conta Bright Data (migration 081). O teto DESTE canal continua sendo o
+// seu proprio (`orcamentoRestante`); o ledger existe para a conta inteira ser contabilizada num
+// lugar so' — sem ele, a Aquisicao nao enxerga o que a captacao gastou da MESMA conta.
+const ORCAMENTO = require('./brightdata-orcamento')
+const consumoDb = require('../db/brightdata-consumo')
 
 const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
 const POLL_MS = Number(process.env.CAPTACAO_WORKER_POLL_MS || 60000)
@@ -428,6 +433,13 @@ async function processarUmSnapshot(snap) {
     restante = Math.max(restante - custo, 0)
     const alvos = usernames.slice(0, Math.max(restante, 0))
     await marcarSnapshot(snap.id, { status: 'concluido', custo_registros: custo, total_prospects: 0 })
+    await consumoDb.registrarConsumo({
+      empresaId: snap.empresa_id,
+      scraperType: snap.fonte === 'linkedin' ? ORCAMENTO.SCRAPER.LI_DESCOBERTA : ORCAMENTO.SCRAPER.IG_DESCOBERTA,
+      snapshotId: snap.snapshot_id,
+      registros: custo,
+      contexto: { etapa: 'descoberta', termo: snap.termo || null },
+    })
 
     if (alvos.length === 0) {
       logger.info({ snapshot: snap.snapshot_id }, '[captacao] descoberta sem alvos (ou orçamento esgotado)')
@@ -466,6 +478,13 @@ async function processarUmSnapshot(snap) {
     }
   }
   await marcarSnapshot(snap.id, { status: 'concluido', custo_registros: custo, total_prospects: total })
+  await consumoDb.registrarConsumo({
+    empresaId: snap.empresa_id,
+    scraperType: snap.fonte === 'linkedin' ? ORCAMENTO.SCRAPER.LI_PERFIS : ORCAMENTO.SCRAPER.IG_PERFIS,
+    snapshotId: snap.snapshot_id,
+    registros: custo,
+    contexto: { etapa: 'perfis' },
+  })
   logger.info({ snapshot: snap.snapshot_id, prospects: total, relacionados: relacionados.size }, '[captacao] perfis processados')
 
   // BOLA DE NEVE: expande para related_accounts (mesmo nicho), respeitando nível e orçamento.
