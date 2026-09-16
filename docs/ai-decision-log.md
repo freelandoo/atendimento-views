@@ -2824,3 +2824,55 @@ inventar meta em campanha de validacao contamina a leitura.
 - **Pendencia declarada:** continua sem prova de que a Bright Data devolve data de review. A
   recoleta paga de Goiania foi autorizada pelo operador; `fonte_bruta` e o que garante que ela
   respondera a pergunta **mesmo se os nomes de campo forem outros**, sem uma segunda coleta.
+
+## 2026-09-16 - Perfil de Instagram do lead: PROVA de vinculo, nao semelhanca (migration 080)
+
+- **Contexto:** o operador pediu que o sistema soubesse se o Instagram do lead esta ATIVO, em tres
+  etapas: usar o Instagram declarado no Google Meu Negocio; quando nao houver, procurar pelo nicho
+  e PROVAR que o perfil e daquele negocio; e entao checar postagem ha menos de 6 meses.
+- **Escopo decidido com o operador:** etapas 1 e 2 apenas, **sem coleta paga**. Candidato nao
+  provado vai para revisao humana.
+- **Descoberta que mudou a conversa:** o criterio `instagram_ativo` do ICP ja existia e **nunca
+  ligou**. `temInstagramAtivo` devolvia `true` para qualquer presenca social (bio, link_bio,
+  seguidores), e o caminho do Maps nao grava `instagram_handle` - entao o sinal era falso para a
+  base inteira. Um criterio `tipo: 'automatico'` sem nenhum efeito desde que nasceu.
+- **Decisao 1 - a etapa 1 nao precisava de coleta: o dado ja estava pago e guardado.** O Instagram
+  declarado no Perfil da Empresa chega em `link_original` desde a migration 056, classificado como
+  `rede_social` e ignorado. `npm run instagram:handles` o transforma em handle confirmado, sem
+  nenhuma chamada externa. Foi a parte mais barata e a de maior alcance.
+- **Decisao 2 - nicho e cidade NAO contam como nome.** E a regra que impede o vinculo errado:
+  "Energia Solar Goiania" tem tres tokens e nenhum distingue um lead do outro dentro de uma busca
+  por energia solar em Goiania. Casar por eles faria todo concorrente virar o mesmo negocio.
+  `tokensDistintivos` subtrai nicho, cidade e forma juridica; sobrando zero, o nome perde o direito
+  de sustentar candidato. Ha teste cobrando esse caso exato.
+- **Decisao 3 - so telefone e site PROVAM.** Nome e cidade sustentam candidato e nada mais. Por
+  isso `google_meu_negocio` e `operador` (declaracoes de gente) nascem confirmados e `busca`
+  (inferencia de maquina) nasce candidato, virando confirmado apenas com sinal forte. Mesma
+  disciplina de "nao se inventa dono" que removeu o fallback da PJ no webhook.
+- **Decisao 4 - o script em lote NUNCA grava `nao_encontrado`.** Ele nao procura nada: so le o link
+  que a ficha trouxe. Afirmar uma busca que nao houve faria a tela dizer ao operador que o lead nao
+  tem Instagram sem ninguem ter olhado - a mesma classe da Decisao 4 de 2026-09-16 (descartar so
+  por fato declarado, nunca por ausencia de dado). Guarda de regressao le o fonte do script.
+- **Decisao 5 - campo de LINK nao aceita handle solto.** Encontrado ao escrever o teste: uma palavra
+  solta em `site` (nome de fantasia, cadastro mal preenchido) virava um `@` inventado e o lead
+  ganhava um "Instagram confirmado" que nunca existiu. `handleDeLinkConhecido` passou a exigir URL
+  do Instagram; handle digitado a mao continua valendo na revisao humana, onde ha uma pessoa
+  respondendo.
+- **Decisao 6 - a busca e UMA POR CLIQUE, nao worker.** O Google CSE tem cota diaria (100/dia no
+  gratuito) e varrer a carteira de ~4.600 leads a esgotaria num dia, sem ninguem ter pedido.
+- **Decisao 7 - o sinal do ICP mudou, o MODELO nao.** `instagram_ativo` passou a exigir perfil
+  confirmado; `lacuna_digital_clara` continua lendo a presenca AMPLA, de proposito (ali a pergunta
+  e se ha algum sinal de vida digital contrastando com a falta de site). Ninguem perde
+  pre-marcacao: lead de captacao social ja tem handle, lead do Maps passa a ter. Avaliacoes ja
+  salvas nao mudam - `lead_icp_avaliacoes` e append-only + snapshot.
+- **Consequencia declarada: perfil CONFIRMADO nao e perfil ATIVO**, e o sistema nunca afirma que
+  seja (`situacaoAtividade` devolve `atividade_nao_verificada` e a tela diz isso em texto). A
+  etapa 3 continua **pendente e sem contrato de dados confirmado**: nenhum codigo deste repo le
+  campo de post com data, e os campos de perfil IG conhecidos em `social-capture.js` sao
+  account/followers/biography/category/related_accounts. O caminho e a sonda de 1 perfil guardando
+  o registro bruto, como `fonte_bruta` fez para o Maps - nunca chutar nomes de campo antes.
+- **Nenhuma variavel de ambiente nova** (reusa `GOOGLE_CSE_KEY`/`GOOGLE_CSE_ID`). Migration 080
+  aditiva, sem DEFAULT e sem UPDATE em linha existente.
+- **Validacao:** `npm test` 1966/1968 - as 2 falhas (`motor de IA: generateAIResponse...`) sao
+  ambientais e **pre-existentes**, confirmadas rodando a suite com a arvore limpa via stash.
+  Frontend: `tsc --noEmit` limpo e 474/474 em `lib/*.test.js`.

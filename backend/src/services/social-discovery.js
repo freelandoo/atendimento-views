@@ -34,21 +34,25 @@ function usernameDeUrlInstagram(url) {
 }
 
 /**
- * Descobre usernames de perfis do Instagram por nicho (+cidade) via Google CSE.
- * Nunca lança — devolve [] em erro/indisponível. `limite` limita resultados.
+ * Consulta CRUA ao CSE, restrita a perfis do Instagram.
+ *
+ * Devolve `{handle, url, titulo, resumo}` — o título e o resumo existem porque quem precisa
+ * PROVAR que um perfil pertence a um negócio (services/instagram-perfil.js) não consegue fazer
+ * isso só com o username. Nunca lança: erro vira lista parcial e o chamador decide.
+ *
+ * Um único ponto de acesso ao CSE neste módulo, de propósito — duas chamadas com parâmetros
+ * próprios divergiriam em idioma, região e paginação.
  */
-async function descobrirPerfisPorNicho(nicho, cidade, limite = 20) {
+async function consultarCseInstagram(consulta, limite = 20) {
   const key = process.env.GOOGLE_CSE_KEY
   const cx = process.env.GOOGLE_CSE_ID
-  if (!key || !cx) return []
-  const seg = String(nicho || '').trim()
-  if (!seg) return []
-  const cid = String(cidade || '').trim()
-  const q = `${seg} ${cid} site:instagram.com`.trim()
-  const encontrados = new Set()
+  const q = String(consulta || '').trim()
+  if (!key || !cx || !q) return []
+  const vistos = new Set()
+  const out = []
   try {
     // CSE devolve no máx. 10 por página; pagina via `start` até atingir o limite.
-    for (let start = 1; start <= 31 && encontrados.size < limite; start += 10) {
+    for (let start = 1; start <= 31 && out.length < limite; start += 10) {
       const r = await axios.get(GOOGLE_CSE_ENDPOINT, {
         params: { key, cx, q, num: 10, start, gl: 'br', hl: 'pt-BR', safe: 'active' },
         timeout: 8000,
@@ -57,18 +61,50 @@ async function descobrirPerfisPorNicho(nicho, cidade, limite = 20) {
       if (items.length === 0) break
       for (const it of items) {
         const handle = usernameDeUrlInstagram(it?.link)
-        if (handle) encontrados.add(handle)
-        if (encontrados.size >= limite) break
+        if (!handle || vistos.has(handle)) continue
+        vistos.add(handle)
+        out.push({
+          handle,
+          url: String(it?.link || `https://www.instagram.com/${handle}/`),
+          titulo: String(it?.title || ''),
+          resumo: String(it?.snippet || ''),
+        })
+        if (out.length >= limite) break
       }
     }
-    const out = Array.from(encontrados).slice(0, limite)
-    logger.info(`🔎 CSE perfis "${q}": ${out.length} usernames`)
+    logger.info(`🔎 CSE Instagram "${q}": ${out.length} perfis`)
     return out
   } catch (e) {
     const status = e?.response?.status
-    logger.warn(`⚠️ CSE descoberta perfis falhou (status=${status}): ${e.message}`)
-    return Array.from(encontrados).slice(0, limite)
+    logger.warn(`⚠️ CSE Instagram falhou (status=${status}): ${e.message}`)
+    return out
   }
+}
+
+/**
+ * Busca o Instagram de UM negócio específico (nome + cidade).
+ *
+ * Diferente de `descobrirPerfisPorNicho`, que varre um mercado: aqui procura-se um dono
+ * conhecido. Quem decide se algum resultado realmente é dele é `instagram-perfil.js` — esta
+ * função não julga, só colhe.
+ */
+async function buscarPerfisDeNegocio(nome, cidade, limite = 8) {
+  const negocio = String(nome || '').trim()
+  if (!negocio) return []
+  const cid = String(cidade || '').trim()
+  return consultarCseInstagram(`${negocio} ${cid} site:instagram.com`.trim(), limite)
+}
+
+/**
+ * Descobre usernames de perfis do Instagram por nicho (+cidade) via Google CSE.
+ * Nunca lança — devolve [] em erro/indisponível. `limite` limita resultados.
+ */
+async function descobrirPerfisPorNicho(nicho, cidade, limite = 20) {
+  const seg = String(nicho || '').trim()
+  if (!seg) return []
+  const cid = String(cidade || '').trim()
+  const achados = await consultarCseInstagram(`${seg} ${cid} site:instagram.com`.trim(), limite)
+  return achados.map((a) => a.handle)
 }
 
 /** Normaliza uma lista crua (usernames ou URLs) em handles únicos e válidos. */
@@ -85,4 +121,11 @@ function normalizarSeeds(lista) {
   return Array.from(out)
 }
 
-module.exports = { cseConfigurado, descobrirPerfisPorNicho, usernameDeUrlInstagram, normalizarSeeds }
+module.exports = {
+  cseConfigurado,
+  consultarCseInstagram,
+  buscarPerfisDeNegocio,
+  descobrirPerfisPorNicho,
+  usernameDeUrlInstagram,
+  normalizarSeeds,
+}

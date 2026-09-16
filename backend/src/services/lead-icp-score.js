@@ -7,6 +7,7 @@
 
 const { calcularScoreRespostas, CRITERIOS_TENKA_V1, MODELO_TENKA_V1 } = require('./icp-modelo')
 const { classificarLead } = require('./site-classificacao')
+const { perfilConfirmado } = require('./instagram-perfil')
 
 function texto(valor) {
   return String(valor == null ? '' : valor).trim()
@@ -21,7 +22,14 @@ function sinal(ok, origem, motivo) {
   return { sugerido: !!ok, origem, motivo }
 }
 
-function temInstagramAtivo(lead = {}) {
+/**
+ * Qualquer rastro de presenca social — inclusive fraco (bio, link da bio, seguidores).
+ *
+ * Usada SO' pela lacuna digital, onde a pergunta e' "existe algum sinal de vida digital que
+ * contraste com a ausencia de site?". Ali um rastro fraco serve; para afirmar que o lead TEM
+ * Instagram, nao serve — ver `temPerfilSocialConfirmado`.
+ */
+function temPresencaSocial(lead = {}) {
   const origem = texto(lead.origem).toLowerCase()
   const seguidores = numero(lead.seguidores)
   return origem === 'instagram'
@@ -32,14 +40,38 @@ function temInstagramAtivo(lead = {}) {
     || (seguidores != null && seguidores > 0)
 }
 
+/**
+ * O lead tem perfil social PROVADO?
+ *
+ * Antes, o sinal do criterio `instagram_ativo` era `temPresencaSocial`, e isso tinha dois
+ * defeitos somados: (a) "tem bio" nunca foi "tem Instagram" — muito menos "Instagram ativo"; e
+ * (b) o caminho do Maps NAO grava nenhum daqueles campos, entao o sinal era falso para a base
+ * inteira. Um criterio `tipo: 'automatico'` que nunca liga.
+ *
+ * Agora quem responde e' `instagram-perfil.js`, o dono do vocabulario. Lead de captacao social
+ * continua marcando (o perfil E' o lead, e `instagram_handle` ja' vem preenchido) e lead do Maps
+ * passa a marcar quando o Instagram foi confirmado a partir do Perfil da Empresa ou da revisao
+ * humana. Ninguem perde pre-marcacao; o Maps ganha.
+ *
+ * ATENCAO ao limite do que isto afirma: perfil CONFIRMADO nao e' perfil ATIVO. A recencia de
+ * postagem exige raspar o perfil (coleta paga) e ainda nao existe — por isso o motivo abaixo diz
+ * exatamente isso, em vez de deixar a tela subentender atividade.
+ */
+function temPerfilSocialConfirmado(lead = {}) {
+  return perfilConfirmado(lead)
+}
+
 function calcularSinaisAutomaticos(lead = {}) {
   const url = classificarLead(lead)
   const avaliacoes = numero(lead.avaliacoes)
   const rating = numero(lead.rating)
-  const instagramAtivo = temInstagramAtivo(lead)
+  const perfilSocial = temPerfilSocialConfirmado(lead)
   const operacaoValidada = (avaliacoes != null && avaliacoes >= 5) || (rating != null && rating >= 4)
+  // A lacuna digital continua lendo a presenca AMPLA, de proposito: a pergunta ali e' se ha'
+  // algum sinal de vida digital contrastando com a falta de site, e para isso um rastro fraco
+  // basta. Trocar as duas pela mesma funcao mudaria um segundo criterio sem ninguem ter pedido.
   const lacunaDigital = url.situacao_site === 'sem_site'
-    || (url.situacao_site === 'nao_identificado' && (instagramAtivo || !!texto(url.link_original)))
+    || (url.situacao_site === 'nao_identificado' && (temPresencaSocial(lead) || !!texto(url.link_original)))
 
   return {
     operacao_validada: sinal(
@@ -50,9 +82,11 @@ function calcularSinaisAutomaticos(lead = {}) {
         : 'Sem evidencia automatica suficiente de operacao validada.'
     ),
     instagram_ativo: sinal(
-      instagramAtivo,
+      perfilSocial,
       'cadastro',
-      instagramAtivo ? 'Ha presenca social ou perfil coletado.' : 'Nenhum sinal social coletado.'
+      perfilSocial
+        ? 'Perfil social confirmado — atividade recente ainda nao verificada.'
+        : 'Nenhum perfil social confirmado para este lead.'
     ),
     lacuna_digital_clara: sinal(
       lacunaDigital,

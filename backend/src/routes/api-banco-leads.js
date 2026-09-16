@@ -38,6 +38,10 @@ const { sqlFaixaTrabalho, sqlDesempateTrabalho, faixaPorOrdem } = require('../se
 // aplicadas aqui, com o banco na mao.
 const LT = require('../services/lead-telefone')
 const LR = require('../db/lead-responsavel')
+// Perfil de Instagram: quem JULGA se um perfil e' do lead e' o modulo puro; a busca (CSE) e o
+// banco ficam aqui. `cseConfigurado` evita chamar uma integracao desligada e responder 500.
+const IG = require('../services/instagram-perfil')
+const { buscarPerfisDeNegocio, cseConfigurado } = require('../services/social-discovery')
 // Abordagem MANUAL (Etapa 5): o produto NAO envia — abre o wa.me e registra o que o vendedor diz.
 const AM = require('../db/abordagem-manual')
 const { CAPACIDADES: CAP, CAPACIDADES, podeCapacidade } = require('../services/acesso-capacidades')
@@ -563,7 +567,9 @@ const COLUNAS = `id, origem, status, qualificacao, qualificado_em,
   bloqueado_ate, bloqueio_motivo, endereco, rating, avaliacoes, tem_site,
   maps_url, link_bio, bio, tem_whatsapp, score, place_id,
   link_original, classificacao_url,
-  icp_modelo_id, icp_score, icp_faixa, icp_avaliado_em, icp_avaliado_por, icp_resumo_json`
+  icp_modelo_id, icp_score, icp_faixa, icp_avaliado_em, icp_avaliado_por, icp_resumo_json,
+  instagram_candidato, instagram_origem, instagram_confianca, instagram_evidencia,
+  instagram_verificado_em`
 
 // Origens do Google Places (inclui cadastro manual); o resto é social (IG/LinkedIn).
 const ORIGENS_PLACES = new Set(['manual', 'automatico'])
@@ -1472,6 +1478,184 @@ router.patch('/leads/:id/telefone', requireAuth, requireEmpresaAccess, async (re
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {})
     return envelopeErro(res, err, 'TELEFONE_UPDATE_FAILED')
+  } finally {
+    client.release()
+  }
+})
+
+// ── Instagram do lead ─────────────────────────────────────────────────────────
+// Gate: nenhuma capacidade extra, como `/telefone` e `/email`. Completar o cadastro de um lead
+// que a pessoa já alcança é trabalho de todo membro, e o mount já garante empresa + recorte.
+// Nada aqui atravessa a porta da triagem: `qualificacao` não é tocada.
+
+// POST /leads/:id/instagram/procurar — ETAPA 2: procura o perfil quando o cadastro não tem link.
+//
+// Chamada EXTERNA (Google CSE), uma por clique. Não é worker e não roda em lote de propósito: o
+// CSE tem cota diária e varrer a carteira inteira a esgotaria num dia, sem ninguém ter pedido.
+//
+// O que ela NUNCA faz: confirmar por semelhança. Quem julga é `instagram-perfil.js`, e sem sinal
+// FORTE (telefone ou site do lead aparecendo no resultado) o melhor achado vira `candidato` —
+// que é o estado que produz a revisão humana, não um vínculo.
+router.post('/leads/:id/instagram/procurar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const lead = await exigirLeadNoRecorte(req)
+    const { rows: dados } = await pool.query(
+      `SELECT id, nome, nicho, cidade, telefone, site, link_original, link_bio, instagram_handle
+         FROM prospectador.prospects WHERE empresa_id = $1 AND id = $2::uuid`,
+      [req.empresa.id, req.params.id]
+    )
+    const alvo = dados[0]
+    if (!alvo) {
+      const e = new Error('Lead não encontrado para o seu escopo.')
+      e.statusCode = 404
+      throw e
+    }
+    if (alvo.instagram_handle) {
+      return res.json({ ok: true, data: { ja_confirmado: true, handle: alvo.instagram_handle } })
+    }
+
+    // Antes de gastar a busca: o link pode já estar no cadastro e ninguém ter extraído (é o que o
+    // script `instagram:handles` faz em massa). Buscar aqui seria pagar por algo que já se tem.
+    const doCadastro = IG.handleDeLinkConhecido(alvo)
+    if (doCadastro) {
+      const { rows } = await pool.query(
+        `UPDATE prospectador.prospects
+            SET instagram_handle = $3, instagram_origem = $4, instagram_confianca = $5,
+                instagram_candidato = NULL, instagram_evidencia = $6::jsonb,
+                instagram_verificado_em = NOW(), instagram_verificado_por = $7::uuid,
+                updated_at = NOW()
+          WHERE empresa_id = $1 AND id = $2::uuid
+          RETURNING instagram_handle, instagram_origem, instagram_confianca, instagram_evidencia`,
+        [req.empresa.id, req.params.id, doCadastro.handle, IG.ORIGEM.GOOGLE_MEU_NEGOCIO,
+          IG.CONFIANCA.CONFIRMADO,
+          JSON.stringify({ link: doCadastro.link, fonte: 'cadastro_maps' }),
+          req.usuario?.id || null]
+      )
+      return res.json({ ok: true, data: { ...rows[0], origem_do_achado: 'cadastro' } })
+    }
+
+    if (!cseConfigurado()) {
+      const e = new Error('Busca de perfil indisponível: Google CSE não configurado.')
+      e.statusCode = 503
+      throw e
+    }
+
+    const achados = await buscarPerfisDeNegocio(alvo.nome, alvo.cidade)
+    const melhor = IG.escolherMelhorCandidato(alvo, achados)
+    const veredito = melhor
+      ? IG.vereditoDaOrigem(IG.ORIGEM.BUSCA, { forte: melhor.forte })
+      : IG.CONFIANCA.NAO_ENCONTRADO
+    const confirmado = veredito === IG.CONFIANCA.CONFIRMADO
+
+    // `nao_encontrado` só é gravado AQUI, e é honesto: uma busca realmente aconteceu. O script em
+    // lote não grava esse valor porque ele não procura nada — só lê o link que a ficha trouxe.
+    const { rows } = await pool.query(
+      `UPDATE prospectador.prospects
+          SET instagram_handle    = CASE WHEN $4::boolean THEN $3::text ELSE instagram_handle END,
+              instagram_candidato = CASE WHEN $4::boolean THEN NULL ELSE $3::text END,
+              instagram_origem    = $5,
+              instagram_confianca = $6,
+              instagram_evidencia = $7::jsonb,
+              instagram_verificado_em = NOW(),
+              instagram_verificado_por = $8::uuid,
+              updated_at = NOW()
+        WHERE empresa_id = $1 AND id = $2::uuid
+        RETURNING instagram_handle, instagram_candidato, instagram_origem,
+                  instagram_confianca, instagram_evidencia`,
+      [req.empresa.id, req.params.id, melhor ? melhor.handle : null, confirmado,
+        IG.ORIGEM.BUSCA, veredito,
+        JSON.stringify({
+          fonte: 'busca_cse',
+          consultados: achados.length,
+          url: melhor ? melhor.url : null,
+          sinais: melhor ? melhor.sinais : [],
+        }),
+        req.usuario?.id || null]
+    )
+    return res.json({ ok: true, data: { ...rows[0], origem_do_achado: 'busca', lead_nome: lead.nome } })
+  } catch (err) { return envelopeErro(res, err, 'INSTAGRAM_BUSCA_FAILED') }
+})
+
+// PATCH /leads/:id/instagram  { handle?, confirmar?: boolean }
+//
+// A REVISÃO HUMANA. Três usos: confirmar o candidato que a busca achou, recusá-lo, ou digitar o
+// perfil à mão. Declaração de gente vence inferência de máquina — por isso a origem vira
+// `operador` e o veredito, `confirmado` (ver `vereditoDaOrigem`).
+router.patch('/leads/:id/instagram', requireAuth, requireEmpresaAccess, async (req, res) => {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await exigirLeadNoRecorte(req, client)
+    const { rows: atuais } = await client.query(
+      `SELECT instagram_handle, instagram_candidato, instagram_confianca
+         FROM prospectador.prospects WHERE empresa_id = $1 AND id = $2::uuid FOR UPDATE`,
+      [req.empresa.id, req.params.id]
+    )
+    const atual = atuais[0]
+    const body = req.body || {}
+    const recusando = body.confirmar === false
+
+    // Recusar não é "não tem Instagram": é "não é ESTE". O candidato some, o veredito volta a
+    // `nao_encontrado` (uma busca houve) e o lead pode ser procurado de novo.
+    let handle = null
+    if (!recusando) {
+      handle = IG.normalizarHandle(body.handle != null ? body.handle : atual?.instagram_candidato)
+      if (!handle) {
+        const e = new Error('Informe um perfil do Instagram válido (@usuario ou a URL do perfil).')
+        e.statusCode = 400
+        throw e
+      }
+      const { rows: donos } = await client.query(
+        `SELECT nome FROM prospectador.prospects
+          WHERE empresa_id = $1 AND id <> $2::uuid AND LOWER(instagram_handle) = $3 LIMIT 1`,
+        [req.empresa.id, req.params.id, handle]
+      )
+      if (donos[0]) {
+        const e = new Error(`Este perfil já está vinculado a outro lead desta empresa (${donos[0].nome}).`)
+        e.statusCode = 409
+        throw e
+      }
+    }
+
+    const veredito = recusando ? IG.CONFIANCA.NAO_ENCONTRADO : IG.vereditoDaOrigem(IG.ORIGEM.OPERADOR)
+    const { rows } = await client.query(
+      `UPDATE prospectador.prospects
+          SET instagram_handle    = $3::text,
+              instagram_candidato = NULL,
+              instagram_origem    = $4,
+              instagram_confianca = $5,
+              instagram_evidencia = $6::jsonb,
+              instagram_verificado_em = NOW(),
+              instagram_verificado_por = $7::uuid,
+              updated_at = NOW()
+        WHERE empresa_id = $1 AND id = $2::uuid
+        RETURNING instagram_handle, instagram_candidato, instagram_origem, instagram_confianca`,
+      [req.empresa.id, req.params.id, handle, IG.ORIGEM.OPERADOR, veredito,
+        JSON.stringify({ fonte: 'revisao_humana', recusado: recusando || null }),
+        req.usuario?.id || null]
+    )
+
+    // Fato sobre o CADASTRO decidido por uma pessoa — precisa continuar rastreável. Sem PII: o
+    // handle é público e identifica o perfil, não o contato. Nada de telefone, JID ou mensagem.
+    await client.query(
+      `INSERT INTO app.auditoria_eventos
+         (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+       VALUES ($1, $2::uuid, 'prospect', $3::uuid, 'lead_instagram_revisado', $4, $5, $6::jsonb)`,
+      [req.empresa.id, req.usuario?.id || null, req.params.id,
+        atual?.instagram_confianca || 'sem_veredito', veredito,
+        JSON.stringify({
+          origem: 'banco_leads',
+          recusado: !!recusando,
+          candidato_anterior: atual?.instagram_candidato || null,
+          handle: handle,
+        })]
+    )
+
+    await client.query('COMMIT')
+    return res.json({ ok: true, data: rows[0] })
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    return envelopeErro(res, err, 'INSTAGRAM_UPDATE_FAILED')
   } finally {
     client.release()
   }

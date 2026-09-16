@@ -2191,6 +2191,82 @@
   + guardas que leem o fonte da rota), `test/autorizacao-rotas.test.js`,
   `frontend/lib/lead-icp.test.js`. **Nenhuma variável de ambiente nova.**
 
+### Perfil de Instagram do lead — PROVA de vínculo, não semelhança (migration 080)
+- **Defeito corrigido:** `temInstagramAtivo` (`services/lead-icp-score.js`) não media atividade
+  nenhuma — devolvia `true` para QUALQUER presença social (`instagram_handle`, `bio`, `link_bio`,
+  `seguidores > 0`, origem social). E o caminho do Maps **nunca grava `instagram_handle`** (o
+  INSERT de `salvarProspect` não tem a coluna). Logo o critério `instagram_ativo` do Tenka v1.1 —
+  que é `tipo: 'automatico'` e vale 1 ponto — era **sempre falso para todo lead vindo do Maps**,
+  que é a origem da base inteira. Um critério automático que nunca ligou.
+- **A etapa 1 já estava no banco e saiu de graça:** quando o dono põe o Instagram no Perfil da
+  Empresa, esse link chega na coleta e é preservado em `link_original` (migration 056),
+  classificado como `rede_social` e depois ignorado por todo mundo. `npm run instagram:handles`
+  (simula por padrão; `--aplicar` grava) o transforma em handle confirmado. **Sem chamada externa,
+  sem nada pago**, keyset em lotes, idempotente, e **nunca sobrescreve handle existente**.
+- **Fonte de verdade única: `src/services/instagram-perfil.js`** (PURO — sem banco, HTTP, IA ou
+  rede), dono de `ORIGEM`, `CONFIANCA`, `SINAL` e do julgamento. A pergunta dele **não** é "achei
+  um perfil?", e sim **"dá para PROVAR que este perfil é deste negócio?"** — a primeira admite
+  resposta por semelhança, e semelhança é o que produz vínculo errado.
+- **A regra que impede o vínculo errado:** `tokensDistintivos` **remove nicho e cidade** do nome
+  antes de comparar. "Energia Solar Goiânia" tem três tokens e **nenhum** distingue um lead do
+  outro dentro de uma busca por energia solar em Goiânia — casar por eles faria todo concorrente
+  virar o mesmo negócio. Sobrando zero tokens distintivos, o nome perde o direito de sustentar
+  candidato. Há teste cobrando exatamente esse caso.
+- **Só telefone e site PROVAM** (`SINAIS_FORTES`). Nome e cidade sustentam um candidato e nada
+  mais. Por isso `google_meu_negocio` e `operador` nascem **confirmados** (são declarações de
+  gente — o dono na própria ficha, o vendedor na tela) e `busca` nasce **candidato**, virando
+  confirmado só com sinal forte.
+- **Três estados, e `candidato` NÃO é `false`** — mesmo padrão de `situacao_site` e de
+  `contato_canal_disponibilidade`. `NULL` é o quarto: **ninguém verificou**, que não é
+  `nao_encontrado`. O script em lote **nunca grava `nao_encontrado`** (guarda de regressão): ele
+  não procura nada, só lê o link que a ficha trouxe, e afirmar uma busca que não houve faria a
+  tela dizer ao operador que o lead não tem Instagram sem ninguém ter olhado.
+- **Campo de LINK não aceita handle solto.** `handleDeLinkConhecido` exige URL do Instagram:
+  `site` com uma palavra solta (nome de fantasia, cadastro mal preenchido) viraria um `@`
+  inventado. Handle digitado à mão é outra porta (`normalizarHandle`, na revisão humana), onde há
+  uma pessoa respondendo.
+- **Schema:** migration `080_instagram_perfil.sql`, **aditiva** — nenhuma linha é atualizada e
+  **nenhuma coluna nova tem DEFAULT** (um DEFAULT autorizaria em silêncio qualquer INSERT futuro
+  que esquecesse a coluna; foi assim que todo lead nascia marcado como PJ). `instagram_handle`
+  **já existia** (migration 012) e passa a guardar **só perfil CONFIRMADO**; o palpite vive em
+  `instagram_candidato` — mesmo contrato de `site` vs `link_original` da 056. A CHECK
+  `instagram_confianca IS DISTINCT FROM 'confirmado' OR instagram_handle IS NOT NULL` garante no
+  BANCO que não existe "confirmado" sem dizer QUAL, senão o sinal do ICP valeria sobre nada.
+- **A recoleta preserva o veredito sem nenhuma mudança em `prospecting.js`:** as colunas novas não
+  entram no INSERT nem no `ON CONFLICT DO UPDATE` de `salvarProspect`.
+- **Rotas (sem capacidade extra, como `/telefone` e `/email` — completar cadastro é trabalho de
+  todo membro; o mount já garante empresa + recorte, e `qualificacao` não é tocada):**
+  `POST /leads/:id/instagram/procurar` (etapa 2, **uma busca por clique**; não é worker e não roda
+  em lote de propósito — o Google CSE tem cota diária e varrer a carteira a esgotaria num dia) e
+  `PATCH /leads/:id/instagram` (a revisão humana: confirmar, recusar ou digitar). Recusar **não**
+  é "não tem Instagram": é "não é ESTE" — o candidato some e o lead pode ser procurado de novo.
+  Toda revisão vira linha em `app.auditoria_eventos` (`lead_instagram_revisado`), **sem PII**.
+- **A busca reusa o CSE que já existia.** `social-discovery.js` ganhou `consultarCseInstagram`
+  (ponto ÚNICO de acesso ao CSE no módulo) e `buscarPerfisDeNegocio`; `descobrirPerfisPorNicho`
+  passou a usar o mesmo helper e **não mudou de comportamento**. Título e resumo passaram a vir
+  junto porque quem precisa PROVAR o vínculo não consegue fazer isso só com o username.
+- ⚠️ **Perfil CONFIRMADO não é perfil ATIVO, e o sistema nunca afirma que é.** A recência de
+  postagem (o "postou nos últimos 6 meses") exige raspar o perfil — coleta PAGA — e um contrato de
+  dados que este repositório **ainda não confirmou**: nenhum código aqui lê campo de post com data,
+  e os campos de perfil IG conhecidos em `social-capture.js` são account/followers/biography/
+  category/related_accounts. Escrever o classificador antes de ver o registro real repetiria a
+  Decisão 1 de 2026-09-16 (quatro grafias chutadas de `latest_review_date`, 200 coletas pagas,
+  zero datas). **O caminho é a sonda de 1 perfil guardando o bruto**, como `fonte_bruta` fez para o
+  Maps. `situacaoAtividade` devolve `atividade_nao_verificada` e a tela diz isso em texto.
+- **O sinal do ICP mudou; o MODELO não.** `instagram_ativo` passou a exigir perfil confirmado.
+  Lead de captação social continua marcando (o perfil É o lead) e lead do Maps passa a marcar —
+  **ninguém perde pré-marcação**. Avaliações já salvas não mudam (`lead_icp_avaliacoes` é
+  append-only + snapshot); muda só a sugestão futura. `lacuna_digital_clara` **continua lendo a
+  presença AMPLA** (`temPresencaSocial`), de propósito: ali a pergunta é se há algum sinal de vida
+  digital contrastando com a falta de site, e para isso um rastro fraco basta.
+- **Front:** `frontend/lib/instagram-perfil.js` (+ `.d.ts`/`.test.js`) **só TRADUZ** — guarda de
+  regressão falha se ele passar a ler `telefone`, `nicho` ou nome do lead, ou a fazer chamada de
+  rede. O bloco vive em `components/LeadDetalhesModal.tsx` (`BlocoInstagram`), que mostra os sinais
+  que bateram **e os que não bateram** — o palpite precisa ser auditável por quem vai decidir.
+- Testes: `test/instagram-perfil.test.js` (regra pura + 8 guardas que leem o fonte, o script e a
+  migration), `frontend/lib/instagram-perfil.test.js`. **Nenhuma variável de ambiente nova**
+  (a busca reusa `GOOGLE_CSE_KEY`/`GOOGLE_CSE_ID`, que já existiam).
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

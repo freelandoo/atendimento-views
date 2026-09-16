@@ -3853,3 +3853,37 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Cuidados:** hidratar em efeito, nunca no valor inicial do estado (as telas tambem renderizam
   no servidor, onde nao existe sessionStorage); nao deixar a tela buscar duas vezes; nao inventar
   restauracao de campanha na Central de Ligacoes, que tem precedencia de URL.
+
+## 2026-09-16 - Tarefa IA - Instagram ATIVO como sinal verificado (analise, sem codigo)
+
+- **Pedido resumido:** hoje a verificacao nao sabe se o Instagram do lead esta ativo. Proposta do
+  operador, em 3 etapas: (1) se o Instagram estiver no Google Meu Negocio, usar esse; (2) se nao
+  estiver, tentar descobrir pelo nicho e **provar** que o perfil e daquele negocio; (3) confirmado
+  o perfil, checar se ha postagem ha menos de 6 meses. Se nao conseguir, declarar que tentou e
+  pedir validacao humana.
+- **E projeto/tarefa de alteracao?** Sim, e grande: coleta PAGA nova, worker, migration aditiva,
+  servico novo e mudanca em criterio de ICP. **Nenhum codigo escrito nesta fase.**
+- **Descoberta 1 - o defeito ja existe e tem nome errado.** `temInstagramAtivo` em
+  `services/lead-icp-score.js` nao mede atividade: devolve `true` para QUALQUER presenca social
+  (`instagram_handle`, `bio`, `link_bio`, `seguidores > 0`, `origem` social). E o caminho do Maps
+  **nunca grava `instagram_handle`** (confirmado: o INSERT de `salvarProspect` em
+  `prospecting.js` nao tem a coluna). Logo o criterio `instagram_ativo` do Tenka v1.1 - que e
+  `tipo: 'automatico'` e vale 1 ponto - e **sempre falso para todo lead vindo do Maps**, que e a
+  origem da base inteira. Criterio automatico que nunca liga.
+- **Descoberta 2 - a etapa (1) ja esta no banco e sai de graca.** `site-classificacao.js` ja
+  classifica `instagram.com` como `rede_social` e o link cru ja e preservado em `link_original`
+  (migration 056). Falta so extrair o @ - e `usernameDeUrlInstagram()` ja existe, em
+  `services/social-discovery.js`. Sem rede, sem custo.
+- **Descoberta 3 - a etapa (2) tambem ja tem motor.** `descobrirPerfisPorNicho()` (mesmo arquivo)
+  ja faz `site:instagram.com <nicho> <cidade>` via Google CSE, com as envs que ja existem.
+- **Risco principal, e e a licao desta semana:** a etapa (3) depende de um campo de POST com data
+  que **nenhum codigo deste repo le hoje**. Os campos de perfil IG conhecidos em
+  `social-capture.js` sao account/followers/biography/category/related_accounts - nenhum `posts`,
+  nenhum `timestamp`. Nao ha prova de que o dataset `ig_perfis` devolva recencia de postagem.
+  Escrever o classificador antes de ver o registro real repetiria exatamente a Decisao 1 de
+  2026-09-16 (quatro grafias chutadas de `latest_review_date`, 200 coletas pagas, ZERO datas).
+- **Cuidados declarados:** (a) perfil achado por busca **nao prova** que e do lead - sem evidencia
+  o veredito tem de ser `nao_confirmado`, terceiro estado, nunca `false`, pelo mesmo motivo de
+  `situacao_site` e de `contato_canal_disponibilidade`; (b) ausencia de post recente **nao e**
+  prova de inatividade (Decisao 4 de 2026-09-16); (c) a coleta e paga e tem teto diario
+  (`BRIGHTDATA_CAPTACAO_TETO_DIARIO`, default 166) - 4.631 leads nao cabem num dia.

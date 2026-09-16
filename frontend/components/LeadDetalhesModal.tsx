@@ -17,6 +17,10 @@ import JsonLeadModal, { type JsonApresentacao, type CriterioApresentacao } from 
 import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
 import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink, tituloLinkNaoSite } from '@/lib/site-rotulos'
+// Perfil de Instagram: a tela só desenha o veredito. A prova de vínculo vive no backend.
+import {
+  acoesDisponiveis, avisoAtividade, estadoInstagram, evidencia, rotuloEstado, rotuloOrigem, urlPerfil,
+} from '@/lib/instagram-perfil'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import {
   VARIANTES, O_QUE_MEDE, NOTA_COMPLETUDE, fatoresDeCadastro, leituraCadastro,
@@ -66,6 +70,11 @@ export type LeadDetalhavel = {
   avaliacoes?: number | null
   seguidores?: number | null
   instagram_handle?: string | null
+  /** Perfil achado por busca e NÃO provado. Nunca deve ser exibido como o Instagram do lead. */
+  instagram_candidato?: string | null
+  instagram_origem?: string | null
+  instagram_confianca?: string | null
+  instagram_evidencia?: { sinais?: { chave: string; rotulo: string; ok: boolean; detalhe: string | null }[] } | null
   bio?: string | null
   tem_site?: boolean | null
   site?: string | null
@@ -199,6 +208,150 @@ export function BolinhaIcp({ l }: { l: LeadDetalhavel }) {
         {selo.score == null ? '—' : selo.score}
       </span>
     </span>
+  )
+}
+
+/**
+ * Perfil de Instagram do lead — e o que ainda não se sabe sobre ele.
+ *
+ * O componente NÃO decide nada: quem julga se um perfil é do lead é o backend
+ * (`services/instagram-perfil.js`), e quem traduz o veredito é `lib/instagram-perfil.js`. Aqui
+ * só se desenha o estado e se oferecem as ações que o módulo puro autorizou.
+ *
+ * A distinção que a tela existe para preservar: perfil CONFIRMADO é o Instagram do lead; perfil
+ * CANDIDATO é um palpite de busca esperando uma pessoa decidir — por isso ele aparece com os
+ * sinais que bateram e os que não bateram, e nunca como se fosse o perfil dele.
+ */
+function BlocoInstagram({ lead, empresaId, onLeadAtualizado }: {
+  lead: LeadDetalhavel
+  empresaId?: string
+  onLeadAtualizado?: (lead: LeadDetalhavel) => void
+}) {
+  const [ocupado, setOcupado] = useState<'' | 'procurando' | 'salvando'>('')
+  const [erro, setErro] = useState('')
+  const [editando, setEditando] = useState(false)
+  const [digitado, setDigitado] = useState('')
+  const fb = useFeedback()
+
+  const estado = estadoInstagram(lead)
+  const acoes = acoesDisponiveis(lead)
+  const ev = evidencia(lead)
+  const origem = rotuloOrigem(lead)
+  const aviso = avisoAtividade(lead)
+
+  // Sem `empresaId` o modal está aberto por uma tela que não sabe a empresa (Aquisição): o
+  // estado continua VISÍVEL e só as ações somem. Esconder o bloco inteiro faria a informação
+  // desaparecer sem explicação.
+  const podeAgir = !!empresaId
+
+  async function chamar(caminho: string, init?: RequestInit, rotulo?: string) {
+    if (!empresaId) return
+    setErro('')
+    setOcupado(caminho.endsWith('/procurar') ? 'procurando' : 'salvando')
+    try {
+      const r = await apiFetch<LeadDetalhavel>(
+        `/api/empresas/${empresaId}/banco-leads/leads/${lead.id}/instagram${caminho}`,
+        init
+      )
+      const atualizado = (r as { data?: LeadDetalhavel })?.data ?? r
+      onLeadAtualizado?.({ ...lead, ...atualizado })
+      setEditando(false)
+      if (rotulo) fb.toast(rotulo, 'success')
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não foi possível concluir.')
+    } finally {
+      setOcupado('')
+    }
+  }
+
+  const botao = 'rounded border px-2 py-1 text-xs disabled:opacity-50'
+
+  return (
+    <Linha rotulo="Instagram">
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          <span className={
+            estado.tom === 'ok' ? 'font-medium text-emerald-700'
+              : estado.tom === 'atencao' ? 'font-medium text-amber-700'
+                : 'text-slate-500'
+          }>
+            {rotuloEstado(lead)}
+          </span>
+          {(estado.handle || estado.candidato) && (
+            <a href={urlPerfil(estado.handle || estado.candidato)} target="_blank" rel="noreferrer"
+              className="text-brand hover:underline">
+              @{estado.handle || estado.candidato} ↗
+            </a>
+          )}
+          {origem && <span className="text-slate-400">· {origem}</span>}
+        </div>
+
+        {/* O palpite precisa ser auditável por quem vai decidir: o que bateu e o que não bateu. */}
+        {estado.chave === 'candidato' && ev.total > 0 && (
+          <ul className="space-y-0.5 text-[11px] text-slate-600">
+            {ev.bateram.map((s) => (
+              <li key={s.chave}>✓ {s.rotulo}{s.detalhe ? ` (${s.detalhe})` : ''}</li>
+            ))}
+            {ev.naoBateram.map((s) => (
+              <li key={s.chave} className="text-slate-400">✗ {s.rotulo}{s.detalhe ? ` — ${s.detalhe}` : ''}</li>
+            ))}
+          </ul>
+        )}
+
+        {aviso && <p className="text-[11px] text-slate-400">{aviso}</p>}
+
+        {editando ? (
+          <div className="flex flex-wrap items-center gap-1">
+            <input
+              value={digitado}
+              onChange={(e) => setDigitado(e.target.value)}
+              placeholder="@usuario ou link do perfil"
+              className="w-56 rounded border px-2 py-1 text-xs"
+              autoFocus
+            />
+            <button className={`${botao} border-brand text-brand`} disabled={!!ocupado}
+              onClick={() => chamar('', {
+                method: 'PATCH',
+                body: JSON.stringify({ handle: digitado, confirmar: true }),
+              }, 'Instagram atualizado.')}>
+              Salvar
+            </button>
+            <button className={botao} onClick={() => { setEditando(false); setErro('') }}>Cancelar</button>
+          </div>
+        ) : podeAgir && (
+          <div className="flex flex-wrap gap-1">
+            {acoes.podeProcurar && (
+              <button className={`${botao} border-brand text-brand`} disabled={!!ocupado}
+                onClick={() => chamar('/procurar', { method: 'POST' })}>
+                {ocupado === 'procurando' ? 'Procurando…' : 'Procurar Instagram'}
+              </button>
+            )}
+            {acoes.podeConfirmar && (
+              <button className={`${botao} border-emerald-600 text-emerald-700`} disabled={!!ocupado}
+                onClick={() => chamar('', {
+                  method: 'PATCH', body: JSON.stringify({ confirmar: true }),
+                }, 'Perfil confirmado.')}>
+                É este
+              </button>
+            )}
+            {acoes.podeRecusar && (
+              <button className={`${botao} border-slate-300 text-slate-600`} disabled={!!ocupado}
+                onClick={() => chamar('', {
+                  method: 'PATCH', body: JSON.stringify({ confirmar: false }),
+                }, 'Perfil recusado.')}>
+                Não é este
+              </button>
+            )}
+            <button className={botao} disabled={!!ocupado}
+              onClick={() => { setDigitado(estado.handle || estado.candidato || ''); setEditando(true) }}>
+              {acoes.podeTrocar ? 'Corrigir' : 'Informar à mão'}
+            </button>
+          </div>
+        )}
+
+        {erro && <p className="text-[11px] text-rose-600">{erro}</p>}
+      </div>
+    </Linha>
   )
 }
 
@@ -563,11 +716,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
             {lead.seguidores != null && (
               <Linha rotulo="Seguidores"><span className="text-xs">{lead.seguidores.toLocaleString('pt-BR')}</span></Linha>
             )}
-            {handle && (
-              <Linha rotulo="@username">
-                <a href={`https://instagram.com/${handle}`} target="_blank" rel="noreferrer" className="text-xs text-brand hover:underline">@{handle}</a>
-              </Linha>
-            )}
+            <BlocoInstagram lead={lead} empresaId={empresaId} onLeadAtualizado={onLeadAtualizado} />
             {/* O link não-site continua acessível, dito pelo que ele é — nunca como "site". */}
             <Linha rotulo="Presença digital">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
