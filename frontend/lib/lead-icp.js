@@ -333,6 +333,30 @@ function ordemIcp(lead) {
   return selo.ordem * 100 + (r.score || 0)
 }
 
+function scoreCadastroNormalizado(lead = {}) {
+  const score = Number(lead?.score_cadastro)
+  const maximo = Number(lead?.score_cadastro_max)
+  if (!Number.isFinite(score)) return 0
+  if (Number.isFinite(maximo) && maximo > 0) return Math.max(0, Math.min(100, Math.round((score / maximo) * 100)))
+  return Math.max(0, Math.min(100, Math.round(score)))
+}
+
+function prioridadeComercialLead(lead = {}) {
+  const r = resumoIcpDoLead(lead)
+  const selo = seloIcp(r.faixa, r.score)
+  const qualificacao = qualificacaoDoLead(lead)
+  const qualScore = Number(qualificacao?.score_100)
+  const cadastro = scoreCadastroNormalizado(lead)
+  const scoreIcp = typeof r.score === 'number' && Number.isFinite(r.score) ? r.score : 0
+
+  // A ordenacao comercial privilegia ICP humano/comercial, depois a regua operacional.
+  // Cadastro e' so desempate/evidencia; nao pode virar probabilidade de fechamento.
+  return (selo.ordem * 1_000_000)
+    + (scoreIcp * 10_000)
+    + ((Number.isFinite(qualScore) ? qualScore : 0) * 100)
+    + cadastro
+}
+
 module.exports = {
   CRITERIOS_ICP_TENKA,
   SCORE_MAXIMO_ICP,
@@ -350,4 +374,5 @@ module.exports = {
   sinaisAutomaticosDoLead,
   respostasIniciaisIcp,
   ordemIcp,
+  prioridadeComercialLead,
 }

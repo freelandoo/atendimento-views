@@ -4080,3 +4080,16 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Cuidados:** nao criar regra critica paralela no frontend, nao misturar checklist humano com
   sinais automaticos, preservar autosave/erros/loading/acoes existentes e validar com scripts do
   frontend antes de commitar/pushar.
+
+## 2026-09-17 - Tarefa IA - Ordenar ICP + cadastro por prioridade comercial
+
+- **Pedido resumido:** melhorar a coluna `ICP + cadastro` para que o clique priorize corretamente
+  os melhores leads para fechamento primeiro e, no clique inverso, os piores/menos prioritarios.
+- **E projeto/tarefa de alteracao?** Sim. Ajuste de regra de ordenacao em telas de Banco de Leads
+  e Aquisicao/Prospecção, com impacto pequeno de UX e API de listagem paginada.
+- **Escopo:** criar/reusar uma chave canonica de prioridade comercial que combine ICP, regua de
+  qualificacao e cadastro como desempate; aplicar no Banco de Leads client-side e na listagem de
+  Aquisicao server-side; preservar filtros, paginacao e colunas existentes.
+- **Cuidados:** nao tratar `score_cadastro` como chance de venda, nao duplicar regra critica sem
+  teste, nao alterar banco/migrations e manter `▲` como crescente/piores primeiro e `▼` como
+  decrescente/melhores primeiro.

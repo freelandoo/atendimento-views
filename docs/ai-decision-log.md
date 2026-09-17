@@ -3200,3 +3200,25 @@ e tradutores puros ja existentes.
 **Decisao 3 — sem novo padrao estrutural fora do componente.** A mudanca e local ao modal
 compartilhado. Nao houve rota, schema, dependencia, env ou fluxo paralelo. O autosave e o envio
 `finalizar` ao desmontar o modal foram preservados.
+
+---
+
+## 2026-09-17 — Ordenacao `ICP + cadastro` por prioridade comercial
+
+Contexto: o cabecalho `ICP + cadastro` podia parecer uma ordenacao dos melhores leads para
+fechar, mas Banco de Leads usava apenas ICP e Aquisicao usava `score_cadastro`. Isso misturava
+fit comercial com completude de dados.
+
+**Decisao 1 — a chave `prioridade` ordena por fit, nao por completude.** A coluna passa a usar
+uma prioridade comercial composta por faixa ICP, score ICP, `qualificacao_resumo.score_100` e
+cadastro apenas como desempate. Assim `score_cadastro` continua sendo evidencia/completude, nao
+probabilidade de venda.
+
+**Decisao 2 — Aquisicao ordena no servidor.** Como a tabela mostra uma pagina do conjunto, a
+chave `prioridade` entrou em `ORDEM_CALCULADA_PROSPECTS` e usa o mesmo recorte por ids ja
+existente para `pontos`/`horario`. Clicar no cabecalho ordena a carteira inteira antes da
+paginacao.
+
+**Decisao 3 — sem migration e sem dependencia nova.** A prioridade e calculada na leitura, com as
+colunas ja existentes (`icp_*`, `raw_json`, cadastro e qualificacao). `▼` mostra melhores leads
+primeiro; `▲` mostra piores/menos prioritarios primeiro.

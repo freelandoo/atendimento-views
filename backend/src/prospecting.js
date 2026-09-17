@@ -1361,8 +1361,9 @@ async function atualizarEmailProspect(empresaId, id, emailBruto) {
 // Ordenação da listagem: mapa FECHADO (chave da tela → expressão SQL). Fechado porque o valor
 // vem da URL: só entra aqui coluna conhecida, nunca texto do cliente concatenado no ORDER BY.
 //
-// `pontos` e `horario` NÃO estão aqui de propósito: os dois saem de `calcularScoreCadastroPlaces`
-// /`dadosPlaces`, calculados na LEITURA a partir das colunas + `raw_json`. Traduzi-los para SQL
+// `prioridade`, `pontos` e `horario` NÃO estão aqui de propósito: saem de
+// `avaliarQualificacaoLead`, `calcularScoreCadastroPlaces` e `dadosPlaces`, calculados na
+// LEITURA a partir das colunas + `raw_json`. Traduzi-los para SQL
 // seria duplicar a regra de pontuação em dois lugares — e bastaria alguém acrescentar um critério
 // para a ordem da tela divergir silenciosamente do número que ela mostra. Eles têm caminho
 // próprio (`idsPorOrdemCalculada`), que ordena chamando a MESMA função.
@@ -1378,7 +1379,7 @@ const ORDEM_SQL_PROSPECTS = {
   site: 'p.tem_site',
   status: 'p.status',
 }
-const ORDEM_CALCULADA_PROSPECTS = Object.freeze(['pontos', 'horario'])
+const ORDEM_CALCULADA_PROSPECTS = Object.freeze(['prioridade', 'pontos', 'horario'])
 
 function normalizarOrdemProspects(ordenar, direcao) {
   const chave = String(ordenar || '').trim().toLowerCase()
@@ -1388,11 +1389,39 @@ function normalizarOrdemProspects(ordenar, direcao) {
   return ORDEM_SQL_PROSPECTS[chave] ? { chave, dir, calculada: false } : null
 }
 
-// Valor de ordenação das chaves CALCULADAS. Mesma fonte que a tela exibe: a pontuação vem de
-// calcularScoreCadastroPlaces e o horário, do dado unificado que ela já devolve.
+function ordemFaixaIcp(faixa) {
+  switch (String(faixa || '').trim().toUpperCase()) {
+    case 'A': return 3
+    case 'B': return 2
+    case 'C': return 1
+    default: return 0
+  }
+}
+
+function scoreCadastroNormalizado(cad) {
+  const score = Number(cad?.score)
+  const maximo = Number(cad?.maximo)
+  if (!Number.isFinite(score)) return 0
+  if (Number.isFinite(maximo) && maximo > 0) return Math.max(0, Math.min(100, Math.round((score / maximo) * 100)))
+  return Math.max(0, Math.min(100, Math.round(score)))
+}
+
+// Valor de ordenação das chaves CALCULADAS. Mesma fonte que a tela exibe: a prioridade usa
+// ICP/qualificação/cadastro, a pontuação vem de calcularScoreCadastroPlaces e o horário, do dado
+// unificado que ela já devolve.
 function valorCalculadoProspect(row, chave) {
   const cad = calcularScoreCadastroPlaces(row)
   if (chave === 'horario') return cad.dados.horario_funcionamento ? 1 : 0
+  if (chave === 'prioridade') {
+    const qual = avaliarQualificacaoLead(row)
+    const faixa = ordemFaixaIcp(row?.icp_faixa)
+    const scoreIcp = Number(row?.icp_score)
+    const scoreQual = Number(qual?.score_100)
+    return (faixa * 1_000_000)
+      + ((Number.isFinite(scoreIcp) ? scoreIcp : 0) * 10_000)
+      + ((Number.isFinite(scoreQual) ? scoreQual : 0) * 100)
+      + scoreCadastroNormalizado(cad)
+  }
   return cad.score
 }
 
@@ -1592,7 +1621,8 @@ async function consultarProspectsHidratados(whereSql, params, ordemELimite) {
     `,
     params
   )
-  // Anexa a pontuação de CADASTRO (0-100, completude da presença digital) e o
+  // Anexa a pontuação de CADASTRO (0-100, completude da presença digital), a qualificação
+  // comercial/operacional e o
   // JSON de apresentação (prompt unificado pro bot) — computados na leitura,
   // usando as colunas + raw_json (fotos/horário vêm do Places).
   return rows.map((row) => {
@@ -1603,6 +1633,7 @@ async function consultarProspectsHidratados(whereSql, params, ordemELimite) {
       score_cadastro: cad.score,
       score_cadastro_max: cad.maximo,
       score_cadastro_criterios: cad.criterios,
+      qualificacao_resumo: avaliarQualificacaoLead({ ...row, ...p }),
       json_apresentacao: montarJsonApresentacaoPlaces(row, cad),
     }
   })

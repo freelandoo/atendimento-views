@@ -24,8 +24,9 @@ test('ordenacao aceita as colunas da tabela e normaliza a direcao', () => {
   assert.equal(normalizarOrdemProspects('nota', '').dir, 'desc')
 })
 
-test('pontos e horario sao ordem CALCULADA, nao SQL', () => {
-  // Os dois saem de calcularScoreCadastroPlaces; traduzi-los para SQL duplicaria a regra.
+test('prioridade, pontos e horario sao ordem CALCULADA, nao SQL', () => {
+  // Saem das mesmas regras puras que montam a tela; traduzi-los para SQL duplicaria a regra.
+  assert.equal(normalizarOrdemProspects('prioridade', 'desc').calculada, true)
   assert.equal(normalizarOrdemProspects('pontos', 'asc').calculada, true)
   assert.equal(normalizarOrdemProspects('horario', 'desc').calculada, true)
 })
@@ -108,6 +109,28 @@ test('pontos ASC coloca o cadastro mais fraco primeiro (mais oportunidade)', () 
 test('pontos DESC inverte', () => {
   const ids = recortarIdsCalculados([vazio, cheio, meio], { chave: 'pontos', dir: 'desc' }, 10, 0)
   assert.deepEqual(ids, ['cheio', 'meio', 'vazio'])
+})
+
+test('prioridade DESC coloca melhor ICP e qualificacao comercial primeiro', () => {
+  const leadA = { ...vazio, id: 'a', icp_faixa: 'A', icp_score: 10, telefone: '11999999999' }
+  const leadBCompleto = { ...cheio, id: 'b', icp_faixa: 'B', icp_score: 9, telefone: '11999999999' }
+  const semIcp = { ...cheio, id: 'sem', telefone: '11999999999' }
+
+  assert.deepEqual(
+    recortarIdsCalculados([semIcp, leadBCompleto, leadA], { chave: 'prioridade', dir: 'desc' }, 10, 0),
+    ['a', 'b', 'sem']
+  )
+})
+
+test('prioridade ASC inverte para revisar os piores primeiro', () => {
+  const leadA = { ...vazio, id: 'a', icp_faixa: 'A', icp_score: 10, telefone: '11999999999' }
+  const leadC = { ...meio, id: 'c', icp_faixa: 'C', icp_score: 5, telefone: '11999999999' }
+  const semIcp = { ...cheio, id: 'sem', telefone: '11999999999' }
+
+  assert.deepEqual(
+    recortarIdsCalculados([leadA, semIcp, leadC], { chave: 'prioridade', dir: 'asc' }, 10, 0),
+    ['sem', 'c', 'a']
+  )
 })
 
 test('o recorte anda pela lista inteira: offset alcanca o final', () => {

@@ -59,6 +59,25 @@ test('ordem ICP deixa sem avaliacao por ultimo', () => {
   assert.ok(I.ordemIcp({ icp_faixa: 'C', icp_score: 5 }) > I.ordemIcp({}))
 })
 
+test('prioridade comercial privilegia ICP/qualificacao e usa cadastro como desempate', () => {
+  const leadAIncompleto = {
+    icp_faixa: 'A',
+    icp_score: 10,
+    score_cadastro: 10,
+    qualificacao_resumo: { score_100: 70, validacao: 'apto_automatico' },
+  }
+  const leadBCompleto = {
+    icp_faixa: 'B',
+    icp_score: 9,
+    score_cadastro: 100,
+    qualificacao_resumo: { score_100: 95, validacao: 'apto_automatico' },
+  }
+  const leadAEmpateMelhorCadastro = { ...leadAIncompleto, score_cadastro: 80 }
+
+  assert.ok(I.prioridadeComercialLead(leadAIncompleto) > I.prioridadeComercialLead(leadBCompleto))
+  assert.ok(I.prioridadeComercialLead(leadAEmpateMelhorCadastro) > I.prioridadeComercialLead(leadAIncompleto))
+})
+
 test('todo criterio ICP tem explicacao operacional para hover/detalhes', () => {
   for (const c of I.CRITERIOS_ICP_TENKA) {
     assert.ok(c.explicacao && c.explicacao.length > 20, c.id)

@@ -15,7 +15,7 @@ import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink } from '@/lib/site-rotulos'
 import { acessosDoLead, type AcessoRapido } from '@/lib/lead-acessos'
-import { ordemIcp, qualificacaoDoLead, resumoIcpDoLead, resumoIcpOperacional, seloIcp, seloValidacaoLead } from '@/lib/lead-icp'
+import { ordemIcp, prioridadeComercialLead, qualificacaoDoLead, resumoIcpDoLead, resumoIcpOperacional, seloIcp, seloValidacaoLead } from '@/lib/lead-icp'
 import { leituraCadastro } from '@/lib/pontuacao-indicador'
 import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
 import { aplicarRecorte, gravarFiltros, lerFiltros } from '@/lib/filtros-sessao'
@@ -340,6 +340,7 @@ function valorColuna(l: Lead, chave: string): number | string {
     case 'links': return (l.link_bio || l.site || l.link_original) ? 1 : 0
     case 'envio': return l.gerada_em || l.rodado_em || ''
     case 'icp': return ordemIcp(l)
+    case 'prioridade': return prioridadeComercialLead(l)
     case 'pontos': return l.score_cadastro ?? 0
     case 'status': return l.status || ''
     default: return 0
@@ -407,6 +408,8 @@ const COLUNAS_TOGGLE: { key: string; label: string }[] = [
 
 const ORDENACOES: { valor: string; label: string }[] = [
   { valor: 'padrao', label: 'Ordem de trabalho (padrão)' },
+  { valor: 'prioridade_desc', label: 'Melhores leads primeiro' },
+  { valor: 'prioridade_asc', label: 'Piores leads primeiro' },
   { valor: 'icp_desc', label: 'Maior qualidade ICP primeiro' },
   { valor: 'pontos_desc', label: 'Cadastro mais completo primeiro' },
   { valor: 'pontos_asc', label: 'Cadastro menos completo primeiro' },
@@ -537,6 +540,7 @@ function ordenarPorView(lista: Lead[], ord: string): Lead[] {
   const val = (l: Lead): number => {
     switch (campo) {
       case 'pontos': return l.score_cadastro ?? -1
+      case 'prioridade': return prioridadeComercialLead(l)
       case 'icp': return ordemIcp(l)
       case 'nota': return l.rating ?? -1
       case 'aval': return l.avaliacoes ?? -1
@@ -2371,7 +2375,7 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
               {cols.nota && <ThOrdenavel label="Nota" chave="nota" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
               {cols.horario && <ThOrdenavel label="Horário" chave="horario" ordem={ordem} onOrdenar={onOrdenar} />}
               {/* ICP + cadastro: qualidade comercial e evidência de coleta na mesma célula. */}
-              <ThOrdenavel label="ICP + cadastro" chave="icp" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={onOrdenar} />
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -2436,7 +2440,7 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
               {cols.email && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.links && <ThOrdenavel label="Links" chave="links" ordem={ordem} onOrdenar={onOrdenar} />}
               {/* ICP + cadastro: qualidade comercial e evidência de coleta na mesma célula. */}
-              <ThOrdenavel label="ICP + cadastro" chave="icp" ordem={ordem} onOrdenar={onOrdenar} />
+              <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={onOrdenar} />
             </tr>
           </thead>
           <tbody className="divide-y">

@@ -119,6 +119,8 @@ const AQ_COLUNAS_TOGGLE: { key: string; label: string }[] = [
 ]
 const AQ_ORDENACOES: { valor: string; label: string }[] = [
   { valor: 'padrao', label: 'Padrão (da tabela)' },
+  { valor: 'prioridade_desc', label: 'Melhores leads primeiro' },
+  { valor: 'prioridade_asc', label: 'Piores leads primeiro' },
   { valor: 'pontos_asc', label: 'Cadastro menos completo primeiro' },
   { valor: 'pontos_desc', label: 'Cadastro mais completo primeiro' },
   { valor: 'entrou_desc', label: 'Mais recentes primeiro' },
@@ -185,7 +187,7 @@ const CHAVE_MODO = 'prospeccaoModo'
 const AQ_TELA_RECORTE = 'aquisicao'
 const AQ_RECORTE_PADRAO = {
   filtro: '', buscaDados: '', mercado: '', cidadeFiltro: '',
-  ordemChave: 'pontos', ordemDir: 'asc', pagina: 1, abaResultado: 'desempenho',
+  ordemChave: 'prioridade', ordemDir: 'desc', pagina: 1, abaResultado: 'desempenho',
 }
 const ABAS_MODO: Aba[] = [
   { id: 'busca', titulo: 'Busca', descricao: 'Encontrar, configurar e revisar leads de uma coleta.' },
@@ -279,11 +281,11 @@ export default function ProspeccaoPage() {
   // As rotinas já carregadas pelo painel de rotinas, reaproveitadas pelo histórico de
   // coletas em "Acompanhar resultados" — sem repetir a mesma requisição.
   const [dadosRotinas, setDadosRotinas] = useState<RotinasResp | null>(null)
-  // Ordenação da tabela: default = MENOS pontos de cadastro no topo (mais
-  // oportunidade de venda). Clicar no cabeçalho alterna asc/desc por coluna.
+  // Ordenação da tabela: default = maior prioridade comercial no topo. Cadastro
+  // continua aparecendo na célula, mas é só evidência/desempate, não chance de venda.
   // `site` saiu das colunas: uma ordenação ainda apontada para ela ordenaria por um critério
   // invisível, que o operador não conseguiria explicar nem desfazer pelo cabeçalho.
-  const [ordem, setOrdem] = useState<{ chave: string; dir: 'asc' | 'desc' }>({ chave: 'pontos', dir: 'asc' })
+  const [ordem, setOrdem] = useState<{ chave: string; dir: 'asc' | 'desc' }>({ chave: 'prioridade', dir: 'desc' })
   // Aba visível de "Acompanhar resultados". Trocar de aba só alterna o painel: não
   // recarrega dado nenhum nem toca no filtro/ordenação da tabela de leads.
   const [abaResultado, setAbaResultado] = useState('desempenho')
@@ -773,7 +775,7 @@ export default function ProspeccaoPage() {
           <tr>
             {cols.entrou !== false && <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={ordenarPor} />}
             <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={ordenarPor} />
-            {cols.cadastro !== false && <ThOrdenavel label="ICP + cadastro" chave="pontos" ordem={ordem} onOrdenar={ordenarPor} />}
+            {cols.cadastro !== false && <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.telefone !== false && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.email !== false && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.nicho !== false && <ThOrdenavel label="Nicho / Cidade" chave="nicho" ordem={ordem} onOrdenar={ordenarPor} />}
