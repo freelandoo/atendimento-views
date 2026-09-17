@@ -21,7 +21,7 @@ import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type Pag
 import { aplicarRecorte, gravarFiltros, lerFiltros } from '@/lib/filtros-sessao'
 // A ORDEM DE TRABALHO chega pronta do backend (services/lead-fila-trabalho.js): a lista ja vem
 // ordenada e cada lead traz `faixa_trabalho`. Este modulo so TRADUZ o nome da faixa.
-import { seloFaixa, avisoDeJanela } from '@/lib/lead-fila-trabalho'
+import { ORDEM_FAIXAS, seloFaixa, avisoDeJanela } from '@/lib/lead-fila-trabalho'
 import {
   opcoesEscopo,
   donoDoLead, acoesDeResponsavel,
@@ -190,17 +190,6 @@ function opcoesMercado(filtros: FiltrosMercado | null): OpcaoFiltroMercado[] {
   }
   return [...mapa.values()].sort((a, b) => b.total - a.total || a.valor.localeCompare(b.valor, 'pt-BR'))
 }
-const STATUS_STYLE: Record<string, string> = {
-  coletado: 'bg-slate-100 text-slate-600',
-  contato_encontrado: 'bg-slate-100 text-slate-600',
-  aguardando: 'bg-slate-100 text-slate-600',
-  aprovado: 'bg-emerald-100 text-emerald-700',
-  enviado: 'bg-blue-100 text-blue-700',
-  respondeu: 'bg-orange-100 text-orange-700',
-  fechado: 'bg-violet-100 text-violet-700',
-  rejeitado: 'bg-red-100 text-red-600',
-  nao_contatar: 'bg-red-100 text-red-600',
-}
 // Rótulos amigáveis em PT (o operador nunca vê os códigos internos crus).
 // coletado/contato_encontrado/aguardando = todos "Sem contato" (mesma etapa do funil).
 const STATUS_LABEL: Record<string, string> = {
@@ -213,6 +202,22 @@ const STATUS_LABEL: Record<string, string> = {
   fechado: 'Fechado',
   rejeitado: 'Rejeitado',
   nao_contatar: 'Não contatar',
+}
+// A coluna Status mostra UM selo só: a FAIXA DE TRABALHO (o que fazer com este lead), que é o
+// veredito do backend e o que governa a ordem padrão da lista. O estágio do funil (`status`)
+// dizia quase sempre a MESMA coisa com outro vocabulário — "Respondido"/"Respondeu",
+// "Sem contato"/"Não trabalhado", "Fechado"/"Fora da fila" — e dois selos empilhados faziam a
+// célula parecer se contradizer. O estágio grosso do funil já é a ABA.
+//
+// Lista FECHADA dos dois únicos estágios que acrescentam um fato que a faixa NÃO expressa, e
+// que por isso sobram como linha de detalhe (nunca como segundo selo):
+//   `aprovado`  → alguém triou e aprovou este lead (a faixa continua "Não trabalhado");
+//   `fechado`   → negócio ganho (a faixa diz só "Fora da fila", que soa neutro).
+// Os demais ficam de fora de propósito: `rejeitado`/`nao_contatar` já saem na linha
+// "Descartado: …" e o resto é repetição da faixa.
+const STATUS_COMPLEMENTO: Record<string, string> = {
+  aprovado: 'Aprovado na triagem',
+  fechado: 'Negócio fechado',
 }
 const MOTIVO_LABEL: Record<string, string> = {
   rejeicao: 'rejeição', sem_resposta: 'sem resposta',
@@ -342,7 +347,14 @@ function valorColuna(l: Lead, chave: string): number | string {
     case 'icp': return ordemIcp(l)
     case 'prioridade': return prioridadeComercialLead(l)
     case 'pontos': return l.score_cadastro ?? 0
-    case 'status': return l.status || ''
+    // A coluna Status mostra a FAIXA DE TRABALHO, então é por ela que o cabeçalho ordena —
+    // ordenar pelo `status` cru daria uma ordem que o operador não consegue explicar olhando
+    // a tela. A posição vem de `ORDEM_FAIXAS` (a mesma ordem da fila); faixa desconhecida
+    // vai para o fim em vez de se misturar com a primeira.
+    case 'status': {
+      const i = ORDEM_FAIXAS.indexOf(l.faixa_trabalho as typeof ORDEM_FAIXAS[number])
+      return i === -1 ? ORDEM_FAIXAS.length : i
+    }
     default: return 0
   }
 }
@@ -2067,16 +2079,16 @@ function StatusCelula({ l }: { l: Lead }) {
   const faixa = seloFaixa(l.faixa_trabalho)
   return (
     <td className="px-3 py-2">
-      {faixa && (
-        <div
-          className={`mb-1 inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TOM_FAIXA[faixa.tom] || TOM_FAIXA.neutro}`}
-          title={faixa.dica}>
-          {faixa.rotulo}
-        </div>
+      {/* UM selo só. Faixa desconhecida (backend mais novo que a tela) cai no rótulo do funil
+          em vez de deixar a célula muda. */}
+      <div
+        className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TOM_FAIXA[faixa?.tom || 'neutro'] || TOM_FAIXA.neutro}`}
+        title={faixa ? faixa.dica : undefined}>
+        {faixa ? faixa.rotulo : (STATUS_LABEL[l.status] || l.status)}
+      </div>
+      {faixa && STATUS_COMPLEMENTO[l.status] && (
+        <div className="text-[11px] text-slate-500 mt-0.5">{STATUS_COMPLEMENTO[l.status]}</div>
       )}
-      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLE[l.status] || 'bg-slate-100 text-slate-600'}`}>
-        {STATUS_LABEL[l.status] || l.status}
-      </span>
       {locked && (
         <div className="inline-flex items-center gap-1 text-[11px] text-red-600 mt-1">
           <IconLock className="h-3 w-3" /> travado até {fmtData(l.bloqueado_ate)}{l.bloqueio_motivo ? ` (${MOTIVO_LABEL[l.bloqueio_motivo] || l.bloqueio_motivo})` : ''}
@@ -2363,6 +2375,9 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
               {mostrarRodar && <th className="px-3 py-2 w-8" />}
               {cols.entrou && <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={onOrdenar} />}
               <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={onOrdenar} />
+              {/* ICP + cadastro: qualidade comercial e evidência de coleta na mesma célula.
+                  Fica logo depois do nome porque é o que decide se vale trabalhar o lead. */}
+              <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={onOrdenar} />
               {cols.telefone && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.envio_previsto && <ThOrdenavel label="Envio" chave="envio" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.status && <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={onOrdenar} />}
@@ -2374,8 +2389,6 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
               {cols.aval && <ThOrdenavel label="Aval." chave="aval" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
               {cols.nota && <ThOrdenavel label="Nota" chave="nota" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
               {cols.horario && <ThOrdenavel label="Horário" chave="horario" ordem={ordem} onOrdenar={onOrdenar} />}
-              {/* ICP + cadastro: qualidade comercial e evidência de coleta na mesma célula. */}
-              <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={onOrdenar} />
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -2388,6 +2401,8 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
                   {/* O NOME abre a conversa do lead. A ficha do Google Maps não se perdeu:
                       virou acesso rápido no topo do modal e continua em "Detalhes". */}
                   <NomeLeadCelula l={l} onAbrirConversa={onAbrirConversa} largura="max-w-[220px]" />
+                  {/* ICP + cadastro como evidência — ver CadastroDetalhesCelula. */}
+                  <CadastroDetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
                   {cols.telefone && <TelefoneCelula l={l} onSalvarTelefone={onSalvarTelefone} />}
                   {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
                   {cols.status && <StatusCelula l={l} />}
@@ -2402,8 +2417,6 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
                   {cols.aval && <td className="px-3 py-2 text-right text-xs">{l.avaliacoes ?? '—'}</td>}
                   {cols.nota && <td className="px-3 py-2 text-right text-xs">{l.rating != null ? Number(l.rating).toFixed(1) : '—'}</td>}
                   {cols.horario && <td className="px-3 py-2 text-center">{horario ? '✅' : '❌'}</td>}
-                  {/* ICP + cadastro como evidência — ver CadastroDetalhesCelula. */}
-                  <CadastroDetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
                 </tr>
               )
             })}
@@ -2429,6 +2442,8 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
               {mostrarRodar && <th className="px-3 py-2 w-8" />}
               {cols.entrou && <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={onOrdenar} />}
               <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={onOrdenar} />
+              {/* ICP + cadastro logo depois do nome, como na tabela do Google Places. */}
+              <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={onOrdenar} />
               <ThOrdenavel label="@username" chave="username" ordem={ordem} onOrdenar={onOrdenar} />
               {cols.nicho && <ThOrdenavel label="Nicho" chave="nicho" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.seguidores && <ThOrdenavel label="Seguidores" chave="seguidores" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
@@ -2439,8 +2454,6 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
               {cols.responsavel && <th className="px-3 py-2 text-left font-medium text-slate-500">Responsável</th>}
               {cols.email && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.links && <ThOrdenavel label="Links" chave="links" ordem={ordem} onOrdenar={onOrdenar} />}
-              {/* ICP + cadastro: qualidade comercial e evidência de coleta na mesma célula. */}
-              <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={onOrdenar} />
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -2449,6 +2462,8 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
                 {mostrarRodar && <SelCelula l={l} selecionados={selecionados} onToggleSel={onToggleSel} />}
                 {cols.entrou && <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{fmtDataHora(l.created_at)}</td>}
                 <NomeLeadCelula l={l} onAbrirConversa={onAbrirConversa} largura="max-w-[200px]" />
+                {/* Instagram vale até 60 — o máximo vem do backend e entra como evidência do ICP. */}
+                <CadastroDetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
                 <td className="px-3 py-2 text-xs">
                   {l.instagram_handle ? (
                     <a href={`https://instagram.com/${l.instagram_handle.replace(/^@/, '')}`} target="_blank" rel="noreferrer"
@@ -2484,8 +2499,6 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
                     {!l.link_bio && !l.site && !l.link_original && '—'}
                   </td>
                 )}
-                {/* Instagram vale até 60 — o máximo vem do backend e entra como evidência do ICP. */}
-                <CadastroDetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
               </tr>
             ))}
           </tbody>

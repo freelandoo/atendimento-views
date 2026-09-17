@@ -4115,3 +4115,24 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   env explicita do ambiente. Abrir teto em canal pago sem saldo informado deixa o teto diario como
   unica trava: declarado e aceito pelo operador, que acompanha o saldo (4.200 creditos em
   2026-09-17).
+
+## 2026-09-17 - Tarefa IA - Um status so' na coluna Status + ICP como 3a coluna
+
+- **Pedido resumido:** no Banco de Leads a coluna Status mostra DOIS selos ao mesmo tempo
+  ("Nao trabalhado" + "Marcado"); deve mostrar um so'. E a celula "ICP + cadastro", hoje a
+  ULTIMA coluna, deve virar a terceira, entre o nome e o telefone.
+- **E projeto/tarefa de alteracao?** Sim, de APRESENTACAO. Nenhuma regra de negocio, nenhuma
+  rota, nenhuma migration, nenhum arquivo de backend.
+- **Diagnostico:** `StatusCelula` empilha o selo da FAIXA DE TRABALHO (`faixa_trabalho`, vindo
+  do backend) e o selo do ESTAGIO DO FUNIL (`status`). Os dois sao o mesmo fato em ~90% dos
+  casos ("Respondeu"/"Respondido", "Sem contato"/"Nao trabalhado", "Fora da fila"/"Fechado"),
+  com vocabularios diferentes — o que faz a celula parecer se contradizer.
+- **Escopo:** `frontend/app/dashboard/banco-leads/page.tsx` apenas. A coluna Status passa a ter
+  UM selo, o da faixa de trabalho (e' o veredito que governa a ordem padrao da lista e o unico
+  que diz o que FAZER); o estagio do funil sai do selo e sobra como linha de detalhe SO' nos
+  dois casos em que acrescenta fato que a faixa nao expressa (`aprovado` e `fechado`).
+- **Cuidados:** nao reimplementar a classificacao da fila no front (guarda de regressao em
+  `lead-fila-trabalho.test.js`); o cabecalho "Status" passa a ordenar pela FAIXA, senao a tela
+  ordenaria por um valor que ela nao mostra mais; remover `STATUS_STYLE`, que fica morto;
+  mover a coluna ICP nas DUAS tabelas (Places e Instagram), levando junto a chave de ordenacao
+  `prioridade`.
