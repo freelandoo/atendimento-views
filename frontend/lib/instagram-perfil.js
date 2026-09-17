@@ -95,16 +95,86 @@ function evidencia(lead) {
 }
 
 /**
- * O limite do que o sistema pode afirmar hoje.
+ * Atividade do perfil. Chega PRONTA da API em `instagram_atividade` — a regra (cortes de 30/90
+ * dias, leitura dos posts) vive em `backend/src/services/instagram-atividade.js`.
  *
- * Perfil confirmado NAO e' perfil ativo: a recencia de postagem exige raspar o perfil (coleta
- * paga) e ainda nao existe. A tela precisa dizer isso, senao "Instagram confirmado" e' lido como
- * "Instagram ativo" e o operador decide com uma informacao que ninguem verificou.
+ * `nao_verificado` e AUSENCIA sao coisas diferentes e a tela precisa preservar isso: o primeiro
+ * e' "olhei e nao deu para saber" (perfil privado, fonte sem data); o segundo e' "ninguem olhou".
+ * Nenhum dos dois autoriza dizer que o negocio esta' parado.
+ */
+const ROTULO_ATIVIDADE = Object.freeze({
+  ativo_recente: 'Postou nos ultimos 30 dias',
+  atividade_morna: 'Ultimo post ha 1 a 3 meses',
+  atividade_antiga: 'Sem postar ha mais de 3 meses',
+  sem_posts: 'Perfil sem nenhuma publicacao',
+  nao_verificado: 'Atividade nao verificada',
+})
+
+const TOM_ATIVIDADE = Object.freeze({
+  ativo_recente: 'ok',
+  atividade_morna: 'atencao',
+  atividade_antiga: 'neutro',
+  sem_posts: 'neutro',
+  nao_verificado: 'neutro',
+})
+
+/**
+ * O estado da atividade, com o aviso de CONFIABILIDADE junto.
+ *
+ * `confiavel` e' falso quando a medida saiu de um perfil apenas CANDIDATO: ali a atividade e'
+ * verdade sobre um perfil que talvez nem seja do lead. Serve para priorizar a revisao humana
+ * (vale olhar antes um perfil ativo), nunca para pontuar o lead — foi o que o operador declarou
+ * em 2026-09-16. Por isso o rotulo carrega a ressalva em TEXTO, e nao so' numa cor.
+ */
+function estadoAtividade(lead) {
+  const l = lead || {}
+  const chave = texto(l.instagram_atividade)
+  if (!chave) return { chave: '', rotulo: '', tom: 'neutro', confiavel: false, ressalva: '' }
+  const confiavel = texto(l.instagram_confianca) === 'confirmado'
+  return {
+    chave,
+    rotulo: ROTULO_ATIVIDADE[chave] || chave,
+    tom: confiavel ? (TOM_ATIVIDADE[chave] || 'neutro') : 'neutro',
+    confiavel,
+    ressalva: confiavel ? '' : 'medido num perfil ainda nao confirmado',
+    ultimo_post_em: texto(l.instagram_ultimo_post_em) || null,
+  }
+}
+
+/** Estado do trabalho de enriquecimento em si — complementar, nunca bloqueia a operacao. */
+const ROTULO_ETAPA = Object.freeze({
+  pendente: 'Instagram na fila',
+  processando: 'Verificando o Instagram...',
+  revisao_humana: 'Perfil aguardando sua confirmacao',
+  falhou: 'Nao foi possivel verificar o Instagram',
+})
+
+/**
+ * O que dizer sobre a atividade, em uma frase; '' quando nao ha' o que dizer.
+ *
+ * Antes esta funcao afirmava, para todo perfil confirmado, que atividade "ainda nao e verificada"
+ * — era verdade enquanto nao existia leitura de posts. Desde a sonda de 2026-09-17 ela existe, e
+ * manter a frase antiga faria a tela negar um dado que o sistema tem.
  */
 function avisoAtividade(lead) {
-  return estadoInstagram(lead).chave === 'confirmado'
-    ? 'Atividade recente (postagens) ainda nao e verificada pelo sistema.'
-    : ''
+  const atividade = estadoAtividade(lead)
+  if (atividade.chave && atividade.chave !== 'nao_verificado') {
+    return atividade.confiavel ? '' : `${atividade.rotulo} — ${atividade.ressalva}.`
+  }
+  const etapa = texto((lead || {}).instagram_etapa_status)
+  if (etapa === 'pendente' || etapa === 'processando') return `${ROTULO_ETAPA[etapa]}`
+  if (estadoInstagram(lead).chave === 'confirmado') {
+    return 'Atividade recente (postagens) ainda nao foi verificada neste perfil.'
+  }
+  return ''
+}
+
+/** O rotulo curto do enriquecimento para a linha da listagem; '' quando nao ha' trabalho aberto. */
+function rotuloEnriquecimento(lead) {
+  const l = lead || {}
+  const atividade = estadoAtividade(l)
+  if (atividade.chave && atividade.chave !== 'nao_verificado') return atividade.rotulo
+  return ROTULO_ETAPA[texto(l.instagram_etapa_status)] || ''
 }
 
 /**
@@ -145,6 +215,11 @@ function avisoIcpSemPerfil(lead) {
 
 module.exports = {
   ROTULO_CONFIANCA,
+  ROTULO_ATIVIDADE,
+  ROTULO_ETAPA,
+  TOM_ATIVIDADE,
+  estadoAtividade,
+  rotuloEnriquecimento,
   ROTULO_ORIGEM,
   TOM_CONFIANCA,
   estadoInstagram,

@@ -19,8 +19,8 @@ import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink, tituloLinkNaoSite } from '@/lib/site-rotulos'
 // Perfil de Instagram: a tela só desenha o veredito. A prova de vínculo vive no backend.
 import {
-  acoesDisponiveis, avisoAtividade, avisoIcpSemPerfil, estadoInstagram, evidencia, rotuloEstado,
-  rotuloOrigem, urlPerfil,
+  acoesDisponiveis, avisoAtividade, avisoIcpSemPerfil, estadoAtividade, estadoInstagram,
+  evidencia, rotuloEstado, rotuloOrigem, urlPerfil,
 } from '@/lib/instagram-perfil'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import {
@@ -251,6 +251,7 @@ function BlocoInstagram({ lead, empresaId, onLeadAtualizado, pedidoRegistro = 0 
   const ev = evidencia(lead)
   const origem = rotuloOrigem(lead)
   const aviso = avisoAtividade(lead)
+  const atividade = estadoAtividade(lead)
 
   // Sem `empresaId` o modal está aberto por uma tela que não sabe a empresa (Aquisição): o
   // estado continua VISÍVEL e só as ações somem. Esconder o bloco inteiro faria a informação
@@ -309,6 +310,22 @@ function BlocoInstagram({ lead, empresaId, onLeadAtualizado, pedidoRegistro = 0 
               <li key={s.chave} className="text-slate-400">✗ {s.rotulo}{s.detalhe ? ` — ${s.detalhe}` : ''}</li>
             ))}
           </ul>
+        )}
+
+        {/* ATIVIDADE — complementar, e sempre rotulada em texto. A cor é reforço: o mesmo
+            "Postou nos últimos 30 dias" fica neutro quando o perfil é apenas CANDIDATO, porque
+            ali a medida é verdade sobre um perfil que talvez nem seja deste negócio. */}
+        {atividade.chave && atividade.chave !== 'nao_verificado' && (
+          <p className={`text-[11px] ${atividade.tom === 'ok' ? 'text-emerald-700'
+            : atividade.tom === 'atencao' ? 'text-amber-700' : 'text-slate-500'}`}>
+            {atividade.rotulo}
+            {atividade.ultimo_post_em && (
+              <span className="text-slate-400">
+                {' '}· último post em {new Date(atividade.ultimo_post_em).toLocaleDateString('pt-BR')}
+              </span>
+            )}
+            {atividade.ressalva && <span className="text-amber-700"> · {atividade.ressalva}</span>}
+          </p>
         )}
 
         {aviso && <p className="text-[11px] text-slate-400">{aviso}</p>}

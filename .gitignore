@@ -57,3 +57,7 @@ next-env.d.ts
 
 # Override local de dev (Postgres 5433, etc.) — não versionar
 docker-compose.override.yml
+
+# Registro cru da sonda de contrato de dataset (npm run instagram:sonda). E evidencia de
+# trabalho, nao fonte: guarda payload de perfil publico e nao deve ser versionado.
+sonda-*.json

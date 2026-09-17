@@ -28,6 +28,25 @@ const STATUS_ATIVIDADE: Record<string, { label: string; cor: string }> = {
   falhou: { label: 'Falhou', cor: 'bg-red-100 text-red-600' },
 }
 
+/**
+ * A situação REAL da coleta, que o `status` sozinho não conta.
+ *
+ * Duas distinções que mudam o que o operador faz a seguir, e que antes apareciam iguais:
+ *  - concluída SEM leads novos não é problema nenhum: o mercado já estava na carteira. Mostrá-la
+ *    como "Concluída" ao lado de uma que trouxe 200 faz o operador procurar defeito onde não há.
+ *  - expirada não é "falhou": ninguém errou, a origem demorou mais que o limite. O caminho é
+ *    tentar de novo, não investigar.
+ */
+function situacaoColeta(a: Atividade): { label: string; cor: string } {
+  if (a.status === 'concluido' && Number(a.novos) === 0) {
+    return { label: 'Sem leads novos', cor: 'bg-slate-100 text-slate-600' }
+  }
+  if (a.status === 'falhou' && /expirad/i.test(String(a.erro || ''))) {
+    return { label: 'Expirou', cor: 'bg-amber-100 text-amber-700' }
+  }
+  return STATUS_ATIVIDADE[a.status] || { label: a.status, cor: 'bg-slate-100 text-slate-600' }
+}
+
 function quando(iso: string | null): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -71,7 +90,7 @@ export default function HistoricoColetas({ atividade }: { atividade: Atividade[]
         </thead>
         <tbody>
           {atividade.map((a) => {
-            const s = STATUS_ATIVIDADE[a.status] || { label: a.status, cor: 'bg-slate-100 text-slate-600' }
+            const s = situacaoColeta(a)
             return (
               <tr key={a.id} className="border-t">
                 <td className="py-1.5 pr-4 whitespace-nowrap text-xs text-slate-500">{quando(a.created_at)}</td>

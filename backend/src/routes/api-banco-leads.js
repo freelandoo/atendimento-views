@@ -38,10 +38,11 @@ const { sqlFaixaTrabalho, sqlDesempateTrabalho, faixaPorOrdem } = require('../se
 // aplicadas aqui, com o banco na mao.
 const LT = require('../services/lead-telefone')
 const LR = require('../db/lead-responsavel')
-// Perfil de Instagram: quem JULGA se um perfil e' do lead e' o modulo puro; a busca (CSE) e o
-// banco ficam aqui. `cseConfigurado` evita chamar uma integracao desligada e responder 500.
+// Perfil de Instagram: quem JULGA se um perfil e' do lead e' o modulo puro; a busca (Bright
+// Data SERP) e o banco ficam aqui. `brightDataSerpConfigurado` evita chamar uma integracao
+// desligada e responder 500.
 const IG = require('../services/instagram-perfil')
-const { buscarPerfisDeNegocio, cseConfigurado } = require('../services/social-discovery')
+const { buscarPerfisDeNegocio, brightDataSerpConfigurado } = require('../services/social-discovery')
 // Abordagem MANUAL (Etapa 5): o produto NAO envia — abre o wa.me e registra o que o vendedor diz.
 const AM = require('../db/abordagem-manual')
 const { CAPACIDADES: CAP, CAPACIDADES, podeCapacidade } = require('../services/acesso-capacidades')
@@ -569,7 +570,21 @@ const COLUNAS = `id, origem, status, qualificacao, qualificado_em,
   link_original, classificacao_url,
   icp_modelo_id, icp_score, icp_faixa, icp_avaliado_em, icp_avaliado_por, icp_resumo_json,
   instagram_candidato, instagram_origem, instagram_confianca, instagram_evidencia,
-  instagram_verificado_em`
+  instagram_verificado_em,
+  instagram_atividade, instagram_ultimo_post_em, instagram_seguidores`
+
+// Estado do enriquecimento em andamento. FICA FORA de COLUNAS de proposito: aquela lista tambem
+// e' usada em `RETURNING`, onde uma subconsulta correlacionada nao faz sentido. Aqui ele existe
+// porque a tela precisa distinguir "ainda nao verifiquei" de "nao tem" — sem isso, o lead que
+// esta' na fila pareceria um lead sem Instagram.
+//
+// A etapa de PERFIL vence a de descoberta quando as duas existem: ela e' a mais avancada, e e'
+// dela que sai o veredito final.
+const COLUNA_ENRIQUECIMENTO = `
+  (SELECT e.status FROM prospectador.enriquecimento_etapas e
+    WHERE e.prospect_id = prospectador.prospects.id
+    ORDER BY (e.etapa = 'instagram_perfil') DESC, e.atualizado_em DESC
+    LIMIT 1) AS instagram_etapa_status`
 
 // Origens do Google Places (inclui cadastro manual); o resto é social (IG/LinkedIn).
 const ORIGENS_PLACES = new Set(['manual', 'automatico'])
@@ -661,7 +676,7 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
     )
     params.push(limit)
     const { rows } = await pool.query(
-      `SELECT ${COLUNAS}, raw_json,
+      `SELECT ${COLUNAS}, ${COLUNA_ENRIQUECIMENTO}, raw_json,
           ultimo.rodado_em, ultimo.rodado_por, ultimo.ultimo_status, ultimo.ultimo_erro,
           rascunho.mensagem_gerada, rascunho.gerada_em,
           agenda.proximo_agendamento,
@@ -1326,7 +1341,7 @@ router.patch('/leads/:id/icp', requireAuth, requireEmpresaAccess, requireCapacid
     }
 
     const { rows } = await client.query(
-      `SELECT ${COLUNAS}, raw_json
+      `SELECT ${COLUNAS}, ${COLUNA_ENRIQUECIMENTO}, raw_json
          FROM prospectador.prospects
         WHERE empresa_id = $1 AND id = $2::uuid`,
       [req.empresa.id, req.params.id]
@@ -1490,8 +1505,8 @@ router.patch('/leads/:id/telefone', requireAuth, requireEmpresaAccess, async (re
 
 // POST /leads/:id/instagram/procurar — ETAPA 2: procura o perfil quando o cadastro não tem link.
 //
-// Chamada EXTERNA (Google CSE), uma por clique. Não é worker e não roda em lote de propósito: o
-// CSE tem cota diária e varrer a carteira inteira a esgotaria num dia, sem ninguém ter pedido.
+// Chamada EXTERNA (Bright Data SERP), uma por clique. Não é worker e não roda em lote de
+// propósito: varrer a carteira inteira consumiria a janela diária sem ninguém ter pedido.
 //
 // O que ela NUNCA faz: confirmar por semelhança. Quem julga é `instagram-perfil.js`, e sem sinal
 // FORTE (telefone ou site do lead aparecendo no resultado) o melhor achado vira `candidato` —
@@ -1534,13 +1549,25 @@ router.post('/leads/:id/instagram/procurar', requireAuth, requireEmpresaAccess, 
       return res.json({ ok: true, data: { ...rows[0], origem_do_achado: 'cadastro' } })
     }
 
-    if (!cseConfigurado()) {
-      const e = new Error('Busca de perfil indisponível: Google CSE não configurado.')
+    if (!brightDataSerpConfigurado()) {
+      const e = new Error('Busca de perfil indisponível: Bright Data SERP não configurada.')
       e.statusCode = 503
       throw e
     }
 
-    const achados = await buscarPerfisDeNegocio(alvo.nome, alvo.cidade)
+    const busca = await buscarPerfisDeNegocio(alvo.nome, alvo.cidade)
+
+    // A busca precisa ter ACONTECIDO para virar veredito. Fonte indisponivel que devolve `[]`
+    // gravaria `nao_encontrado` no lead, afirmando que o negócio não tem Instagram sem ninguém
+    // ter olhado. Falha da fonte é 503 e não muda uma linha do lead.
+    if (!busca.ok) {
+      const e = new Error('A busca de perfil não pôde ser feita agora. Nada foi alterado no lead.')
+      e.statusCode = 503
+      e.detalhe = busca.erro
+      throw e
+    }
+
+    const achados = busca.resultados
     const melhor = IG.escolherMelhorCandidato(alvo, achados)
     const veredito = melhor
       ? IG.vereditoDaOrigem(IG.ORIGEM.BUSCA, { forte: melhor.forte })
@@ -1565,7 +1592,7 @@ router.post('/leads/:id/instagram/procurar', requireAuth, requireEmpresaAccess, 
       [req.empresa.id, req.params.id, melhor ? melhor.handle : null, confirmado,
         IG.ORIGEM.BUSCA, veredito,
         JSON.stringify({
-          fonte: 'busca_cse',
+          fonte: 'brightdata_serp',
           consultados: achados.length,
           url: melhor ? melhor.url : null,
           sinais: melhor ? melhor.sinais : [],

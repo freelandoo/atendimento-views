@@ -53,11 +53,52 @@ export type Rotina = {
   falhas_consecutivas: number
   ultimo_erro: string | null
 }
+export type ColetaEmVoo = {
+  nicho: string | null
+  cidade: string | null
+  origem: string | null
+  /** false = a reserva foi gravada e o disparo pago ainda nao completou (expira em minutos). */
+  disparada: boolean
+  desde: string
+  idade_min: number
+  expira_em_min: number
+}
 export type RotinasResp = {
   rotinas: Rotina[]
   atividade: Atividade[]
   coleta_em_andamento: boolean
+  coleta: ColetaEmVoo | null
   limites: { quantidade_min: number; quantidade_max: number; intervalo_min_horas: number }
+}
+
+/**
+ * O relogio da coleta em voo.
+ *
+ * Existe porque "uma coleta esta em andamento" + spinner e' indistinguivel de travamento. Uma
+ * coleta do Maps pode levar 40 min legitimamente, e o worker so' desiste com 3h — sem os dois
+ * numeros, o operador fica olhando um giro sem saber se espera ou se pede socorro. Os prazos vem
+ * do BACKEND (as mesmas constantes que o worker aplica), nunca recalculados aqui.
+ */
+function ColetaEmAndamento({ coleta }: { coleta: ColetaEmVoo | null }) {
+  if (!coleta) return null
+  const mercado = [coleta.nicho, coleta.cidade].filter(Boolean).join(' em ')
+  const ha = coleta.idade_min < 1 ? 'agora há pouco' : `há ${coleta.idade_min} min`
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
+      <Spinner />
+      <div className="space-y-0.5">
+        <p>
+          <b>Coletando{mercado ? ` ${mercado}` : ''}</b> — começou {ha}.
+          {' '}As outras buscas entram na fila e rodam em seguida.
+        </p>
+        <p className="text-xs text-cyan-800">
+          {coleta.disparada
+            ? `Coletas grandes levam dezenas de minutos. Se não terminar em ${coleta.expira_em_min} min, o sistema desiste sozinho e libera a busca.`
+            : `Ainda confirmando o início da coleta. Se não confirmar em ${coleta.expira_em_min} min, a reserva é liberada automaticamente.`}
+        </p>
+      </div>
+    </div>
+  )
 }
 // Cor por estado — o admin identifica o que precisa de ação sem ler texto.
 const ESTADO_STYLE: Record<string, string> = {
@@ -249,12 +290,7 @@ export default function RotinasAquisicao({
             )}
           </div>
 
-          {dados?.coleta_em_andamento && (
-            <div className="flex items-center gap-3 rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
-              <Spinner />
-              <span>Uma coleta está em andamento. As outras rotinas entram na fila e rodam em seguida.</span>
-            </div>
-          )}
+          {dados?.coleta_em_andamento && <ColetaEmAndamento coleta={dados?.coleta ?? null} />}
 
           {rascunho && (
             <div className="space-y-4 rounded-xl border border-brand/40 bg-brand/5 p-4">
@@ -381,11 +417,7 @@ export default function RotinasAquisicao({
           </div>
           {/* A coleta em andamento é global (uma por empresa): quem está no modo Busca
               precisa saber por que o botão está desabilitado sem ir até as Rotinas. */}
-          {dados?.coleta_em_andamento && (
-            <p className="text-xs text-cyan-800">
-              Há uma coleta em andamento. Assim que ela terminar, a busca avulsa fica liberada.
-            </p>
-          )}
+          {dados?.coleta_em_andamento && <ColetaEmAndamento coleta={dados?.coleta ?? null} />}
           <p className="text-xs text-slate-500">
             <b>Buscar agora</b> traz leads novos para a sua carteira. <b>Analisar oportunidades</b> abre o
             assistente: ele pergunta se você quer revisar o que já foi encontrado — um lead por vez, com o

@@ -51,6 +51,7 @@ const placesBrightData = require('./services/places-brightdata')
 const ORCAMENTO = require('./services/brightdata-orcamento')
 const { avaliarOrcamento } = ORCAMENTO
 const consumoDb = require('./db/brightdata-consumo')
+const enriquecimentoDb = require('./db/enriquecimento-etapas')
 const {
   canProspectLead,
 } = require('./services/prospecting-eligibility')
@@ -1272,6 +1273,23 @@ async function salvarProspects(prospects, contexto = {}) {
   }
   // Best-effort: tenta achar o e-mail no site do lead (não bloqueia a coleta se falhar).
   await enriquecerEmailPorSite(salvos).catch(() => {})
+
+  // Enfileira o enriquecimento de Instagram de TODO lead salvo — novo ou reencontrado, venha da
+  // busca avulsa ou de uma rotina (decisão do operador, 2026-09-16: lead é lead, e enriquecer só
+  // o de uma origem deixaria o outro permanentemente sem Instagram).
+  //
+  // Só ENFILEIRA: nada é buscado aqui. Os leads já estão salvos e visíveis neste ponto, e o
+  // funil roda no tique seguinte, com tetos próprios. Pendurar ~176 consultas ao Google CSE
+  // nesta função seguraria leads JÁ PAGOS fora do Banco de Leads enquanto o funil trabalha.
+  //
+  // `enfileirar` nunca lança e faz `ON CONFLICT DO NOTHING`: quem já passou pelo funil não
+  // repete (não se repaga busca nem perfil de lead reencontrado), e uma falha aqui custa um
+  // enriquecimento — jamais a importação de uma coleta que já foi paga.
+  if (salvos.length) {
+    await enriquecimentoDb.enfileirar(salvos.map((s) => s.id), {
+      empresaId: contexto.empresaId || salvos[0].empresa_id || null,
+    }).catch(() => {})
+  }
   return salvos
 }
 
@@ -4821,6 +4839,10 @@ module.exports = {
   obterJanelaSemanal,
   montarAgendaPainelAutoProspeccao,
   pesquisarPlaces,
+  // Exportadas para a rota de status poder DIZER ao operador ate quando esperar. Repetir os
+  // numeros la viraria duas politicas de desistencia divergindo em silencio.
+  BUSCA_MAX_IDADE_MIN,
+  RESERVA_ORFA_MAX_MIN,
   proximoSlotComercial,
   registerProspectingRoutes,
   resolverPlanejamentoBuscaAuto,

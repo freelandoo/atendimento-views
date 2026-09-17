@@ -53,12 +53,39 @@ function temPresencaSocial(lead = {}) {
  * passa a marcar quando o Instagram foi confirmado a partir do Perfil da Empresa ou da revisao
  * humana. Ninguem perde pre-marcacao; o Maps ganha.
  *
- * ATENCAO ao limite do que isto afirma: perfil CONFIRMADO nao e' perfil ATIVO. A recencia de
- * postagem exige raspar o perfil (coleta paga) e ainda nao existe — por isso o motivo abaixo diz
- * exatamente isso, em vez de deixar a tela subentender atividade.
+ * DESDE 2026-09-17 A ATIVIDADE EXISTE (sonda do dataset `ig_perfis`: o perfil traz `posts` com
+ * data). O sinal passou a usa-la, com uma assimetria deliberada:
+ *   - atividade MEDIDA e parada (antiga / sem posts) ⇒ NAO sugere. Agora se SABE que nao esta
+ *     ativo, e continuar sugerindo faria o sistema afirmar o contrario do que mediu.
+ *   - atividade NAO MEDIDA (ninguem raspou ainda, perfil privado, fonte sem data) ⇒ sugere, como
+ *     antes. Ausencia de medida nunca vira negativa: seria tirar pre-marcacao de todo lead que o
+ *     worker ainda nao alcancou — exatamente o que a entrega anterior prometeu nao fazer.
+ *
+ * Atividade de perfil apenas CANDIDATO nao entra aqui de proposito: `perfilConfirmado` ja' a
+ * barra. Medida sobre um perfil que talvez nem seja do lead e' sinal fraco para priorizar
+ * revisao humana, nunca ponto no ICP (regra do operador, 2026-09-16).
  */
+const ATIVIDADE_PARADA = new Set(['atividade_antiga', 'sem_posts'])
+
 function temPerfilSocialConfirmado(lead = {}) {
-  return perfilConfirmado(lead)
+  if (!perfilConfirmado(lead)) return false
+  return !ATIVIDADE_PARADA.has(String(lead.instagram_atividade || ''))
+}
+
+/** O motivo exibido, que precisa dizer se houve medicao — e nao so o veredito. */
+function motivoInstagram(lead = {}, ok) {
+  const atividade = String(lead.instagram_atividade || '')
+  if (!ok) {
+    if (ATIVIDADE_PARADA.has(atividade)) {
+      return atividade === 'sem_posts'
+        ? 'Perfil confirmado, mas sem nenhuma publicacao.'
+        : 'Perfil confirmado, mas sem postar ha mais de 3 meses.'
+    }
+    return 'Nenhum perfil social confirmado para este lead.'
+  }
+  if (atividade === 'ativo_recente') return 'Perfil confirmado e com post nos ultimos 30 dias.'
+  if (atividade === 'atividade_morna') return 'Perfil confirmado, ultimo post ha 1 a 3 meses.'
+  return 'Perfil social confirmado — atividade recente ainda nao verificada.'
 }
 
 function calcularSinaisAutomaticos(lead = {}) {
@@ -81,13 +108,7 @@ function calcularSinaisAutomaticos(lead = {}) {
         ? 'Operacao com sinais publicos de atividade/reputacao.'
         : 'Sem evidencia automatica suficiente de operacao validada.'
     ),
-    instagram_ativo: sinal(
-      perfilSocial,
-      'cadastro',
-      perfilSocial
-        ? 'Perfil social confirmado — atividade recente ainda nao verificada.'
-        : 'Nenhum perfil social confirmado para este lead.'
-    ),
+    instagram_ativo: sinal(perfilSocial, 'cadastro', motivoInstagram(lead, perfilSocial)),
     lacuna_digital_clara: sinal(
       lacunaDigital,
       'site',

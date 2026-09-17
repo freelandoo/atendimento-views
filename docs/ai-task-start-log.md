@@ -3964,3 +3964,36 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   262 registros reais pelos tres caminhos (cru, adaptado e linha de banco) com resultado
   IDENTICO: 205/262 com `dias_desde_atividade`, via `top_reviews[].review_date`. O filtro de 6
   meses deixou de ser hipotese.
+
+## 2026-09-16 - Tarefa IA - Enriquecimento de Instagram na Aquisicao + robustez da busca avulsa
+
+- **Pedido resumido:** pipeline de enriquecimento de Instagram por lead (todo lead novo ou
+  reencontrado na busca avulsa) + melhorar a busca avulsa para nao bloquear a operacao enquanto
+  snapshots/enriquecimentos demorados rodam.
+- **E projeto/tarefa de alteracao?** Sim, e GRANDE: migration nova (pipeline por lead), worker
+  novo, chamada externa PAGA (Bright Data) e chamada externa com cota (Google CSE).
+- **Fases 0 e 1 do plano de `docs/analise-enriquecimento-instagram.md` ja estao feitas**
+  (commits 2c8a394 teto de creditos + 44b8721 veredito de perfil). Esta tarefa cobre as
+  Fases 2 a 5 daquele plano.
+- **Bloqueio declarado ANTES de implementar:** o contrato do dataset `ig_perfis` continua
+  DESCONHECIDO. A §12.1 daquele documento e a Decisao 1 de 2026-09-16 proibem escrever o
+  classificador de atividade antes da SONDA de 1 perfil guardando o registro cru. O proprio
+  pedido repete isso em `pontos_de_atencao`. A sonda e' chamada externa paga e precisa de
+  autorizacao explicita do operador.
+- **Cuidados:** CSE tem cota propria (100/dia gratis) e 88,1% dos leads dependem dela — uma
+  busca de 200 leads estoura a cota do dia; nao criar descarte automatico por inatividade;
+  nao sobrescrever decisao humana na recoleta; nao afirmar inatividade por ausencia de dado.
+
+## 2026-09-16 - Tarefa IA - Descoberta de Instagram somente via Bright Data
+
+- **Pedido resumido:** substituir a descoberta direta via Google CSE por Bright Data SERP,
+  mantendo a aquisicao/enriquecimento de Instagram funcionando sem depender de credenciais
+  Google. Regra confirmada pelo operador: somente Bright Data.
+- **E projeto/tarefa de alteracao?** Sim. Alteracao de integracao externa no backend,
+  documentacao e testes; sem chamada paga real prevista nesta etapa.
+- **Escopo:** `social-discovery`, worker/pipeline de enriquecimento, rota manual do Banco de
+  Leads, envs/documentacao e testes focados. NAO inclui nova coleta paga, deploy, commit ou
+  mudanca destrutiva de schema.
+- **Cuidados:** falha de SERP Bright Data nao pode virar veredito "sem Instagram"; nao
+  sobrescrever Instagram ja confirmado por humano/origem confiavel; nao depender de
+  `GOOGLE_CSE_KEY`/`GOOGLE_CSE_ID` para a Aquisicao; logs sem PII/payload cru.

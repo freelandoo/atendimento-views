@@ -901,3 +901,76 @@ Ajustes sobre o adendo imediatamente acima, depois de medir o comportamento real
   perfil registrado.
 - Nenhuma migration, rota, env ou dependencia nova. Continua pendente a etapa paga de checar posts
   recentes/atividade real do Instagram.
+
+## 2026-09-17 - Pipeline de enriquecimento de Instagram + relogio da busca avulsa
+
+Fecha a pendencia declarada na entrada anterior ("continua pendente a etapa paga de checar posts
+recentes/atividade real do Instagram"). A SONDA (1 credito, snapshot `sd_mu4s0dte1kezq4wylo`)
+mostrou que o dataset de PERFIL ja devolve os posts com data — a etapa paga separada de posts nao
+existe e nao deve nascer.
+
+- `backend/sql/migrations/082_enriquecimento_instagram.sql` (NOVA, aditiva): tabela
+  `prospectador.enriquecimento_etapas` (uma linha por lead+etapa, lease/backoff/tentativas no
+  padrao do ledger da Meta) + colunas de cache em `prospects` (`instagram_perfil_json`,
+  `instagram_perfil_em`, `instagram_atividade`, `instagram_ultimo_post_em`,
+  `instagram_seguidores`). Nenhuma linha atualizada, nenhum DEFAULT novo.
+- `backend/src/services/instagram-atividade.js` (NOVO, PURO): le o registro cru do perfil e
+  devolve a faixa de atividade. Campos VISTOS na sonda, nunca chutados. A data e o MAXIMO dos
+  posts lidos porque o array vem fora de ordem (post fixado).
+- `backend/src/services/enriquecimento-pipeline.js` (NOVO, PURO): vocabulario (ETAPA/STATUS/
+  MOTIVO), cascata, cache TTL, backoff, classificacao de erro e o teto de cota do CSE.
+- `backend/src/db/enriquecimento-etapas.js` (NOVO): dono unico da escrita. As duas funcoes que
+  gravam no lead PRESERVAM decisao humana (`instagram_verificado_por IS NOT NULL`).
+- `backend/src/services/enriquecimento-worker.js` (NOVO): tres fases (descoberta CSE / disparo
+  Bright Data em lote / colheita). Ligado ao tique de `agent.js` DEPOIS da materializacao da
+  coleta. Nunca lanca.
+- `backend/src/services/social-discovery.js`: `buscarPerfisDeNegocio` devolve
+  `{ok, resultados, consultas, erro}` e e travada em 1 pagina. CORRIGE o defeito de erro do CSE
+  virar lista vazia — e, com ela, veredito falso sobre o lead.
+- `backend/src/routes/api-banco-leads.js`: a rota manual de busca tinha o MESMO defeito e agora
+  responde 503 sem alterar o lead. A listagem devolve o estado do enriquecimento.
+- `backend/src/services/lead-icp-score.js`: o sinal `instagram_ativo` usa a atividade MEDIDA.
+  Parada deixa de sugerir; nao medida continua sugerindo. Modelo Tenka v1.1 intacto.
+- `backend/src/prospecting.js`: `salvarProspects` ENFILEIRA o enriquecimento (nunca executa) e
+  exporta os limites de desistencia da coleta.
+- `backend/src/db/aquisicao-rotinas.js` + `routes/api-aquisicao-rotinas.js`: `existeColetaEmVoo`
+  virou `coletaEmVoo`, com mercado, `desde`, `idade_min` e prazo de desistencia.
+- `backend/scripts/sondar-instagram-perfil.js` (NOVO) + `npm run instagram:sonda`.
+- `frontend/lib/instagram-perfil.js` (+ `.d.ts`/`.test.js`): traduz atividade e estado do
+  trabalho. `avisoAtividade` deixou de afirmar que atividade "nunca e verificada".
+- `frontend/components/RotinasAquisicao.tsx`: relogio da coleta em voo.
+- `frontend/components/HistoricoColetas.tsx`: distingue "Sem leads novos" e "Expirou".
+- `frontend/components/LeadDetalhesModal.tsx`: atividade no bloco de Instagram, com a ressalva
+  em TEXTO quando o perfil e apenas candidato.
+- Testes: `backend/test/enriquecimento-instagram.test.js` (45, novo, dentro do `npm test`) e
+  `frontend/lib/instagram-perfil.test.js` (17).
+- DUAS variaveis de ambiente novas, documentadas: `BRIGHTDATA_ENRIQUECIMENTO_TETO_DIARIO` (150)
+  e `INSTAGRAM_CSE_TETO_DIARIO` (90). Nenhuma rota nova, nenhuma dependencia nova.
+
+### Regras a PRESERVAR nesta area
+- Falha da fonte NUNCA vira veredito sobre o lead. `nao_encontrado` so com resposta da fonte.
+- Ausencia de dado nunca vira "inativo". `NULL`, `nao_verificado` e `sem_posts` sao tres estados.
+- Atividade de perfil CANDIDATO nao pontua no ICP e a tela declara a ressalva em texto.
+- A importacao de leads so ENFILEIRA: nada de busca ou coleta paga dentro de `salvarProspects`.
+- Nao criar etapa/dataset de posts: o perfil ja os traz.
+- Nao escrever leitor de campo de fonte externa sem sonda antes.
+
+### Adendo - descoberta de Instagram somente via Bright Data SERP
+
+- `backend/src/services/social-discovery.js`: o ponto unico de descoberta deixou de chamar
+  Google Custom Search direto e passou a usar Bright Data SERP (`POST /request`) com
+  `BRIGHTDATA_API_TOKEN` + `BRIGHTDATA_SERP_ZONE`, `format=raw` e `data_format=parsed_light`.
+  O contrato `{ok, resultados, consultas, erro, statusCode}` foi preservado.
+- `backend/src/services/enriquecimento-worker.js`: a fase `instagram_descoberta` agora verifica
+  `brightDataSerpConfigurado()` e grava evidencias com `fonte=brightdata_serp`.
+- `backend/src/services/enriquecimento-pipeline.js`: o teto preferido virou
+  `INSTAGRAM_SERP_TETO_DIARIO`; `INSTAGRAM_CSE_TETO_DIARIO` fica so como fallback legado.
+- `backend/src/routes/api-banco-leads.js`: a busca manual tambem usa Bright Data SERP. Falha da
+  fonte segue 503 sem alterar o lead; `nao_encontrado` so com resposta real da fonte.
+- `backend/src/services/social-capture.js`: a descoberta por nicho da captacao social reaproveita
+  o mesmo caminho SERP. `usar_cse` permanece alias legado de metadata/payload; `usar_serp` e o
+  nome novo.
+- Env/documentacao: `BRIGHTDATA_SERP_ZONE` e `INSTAGRAM_SERP_TETO_DIARIO` documentadas em
+  `.env.example` e `AGENTS.md`.
+- Regras preservadas: falha da fonte nunca vira veredito, nenhuma chamada paga real em teste,
+  nenhuma migration, nenhuma dependencia nova, nenhuma sobrescrita de decisao humana.

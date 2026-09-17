@@ -1,20 +1,26 @@
 'use strict'
-// Descoberta de PERFIS por nicho — fontes GRÁTIS, sem tocar/raspar o Instagram:
-//   1) Google Custom Search (`site:instagram.com <nicho> <cidade>`) — mesma infra já
-//      usada em agent.js (GOOGLE_CSE_KEY/GOOGLE_CSE_ID). Zero risco de ban.
-//   2) Bola de neve via related_accounts (vem de graça em cada perfil raspado pela
-//      Bright Data) — feita no motor (social-capture), não aqui.
-// Aqui só normalizamos usernames de URLs do Instagram e consultamos o CSE.
+// Descoberta de PERFIS por nicho/lead sem raspar o Instagram diretamente:
+//   1) Bright Data SERP API (`site:instagram.com <nicho|nome> <cidade>`), usando a zona SERP
+//      da conta. Nao usa GOOGLE_CSE_KEY/GOOGLE_CSE_ID.
+//   2) Bola de neve via related_accounts (vem em cada perfil raspado pela Bright Data) — feita
+//      no motor (social-capture), nao aqui.
+// Aqui so normalizamos usernames de URLs do Instagram e consultamos a SERP da Bright Data.
 
 const axios = require('axios')
 const { logger } = require('../logger')
 
-const GOOGLE_CSE_ENDPOINT = 'https://www.googleapis.com/customsearch/v1'
+const BRIGHTDATA_SERP_ENDPOINT = 'https://api.brightdata.com/request'
 // Caminhos do instagram.com que NÃO são perfil.
 const NAO_PERFIL = new Set(['p', 'reel', 'reels', 'explore', 'tags', 'stories', 'tv', 'accounts', 'about', 'directory', 'developer', 'legal', 'privacy'])
 
+function brightDataSerpConfigurado() {
+  return Boolean(process.env.BRIGHTDATA_API_TOKEN && process.env.BRIGHTDATA_SERP_ZONE)
+}
+
+// Alias legado: chamadores antigos perguntavam "CSE configurado?". Para o fluxo de Instagram,
+// a resposta agora significa "SERP da Bright Data configurada".
 function cseConfigurado() {
-  return Boolean(process.env.GOOGLE_CSE_KEY && process.env.GOOGLE_CSE_ID)
+  return brightDataSerpConfigurado()
 }
 
 /** Extrai o @username de uma URL do Instagram; null se não for perfil. */
@@ -33,52 +39,115 @@ function usernameDeUrlInstagram(url) {
   }
 }
 
+function montarUrlBuscaGoogle(consulta) {
+  const q = String(consulta || '').trim()
+  const params = new URLSearchParams({ q, hl: 'pt-BR', gl: 'br' })
+  return `https://www.google.com/search?${params.toString()}`
+}
+
+function jsonSerp(data) {
+  if (typeof data === 'string') {
+    try { return JSON.parse(data) } catch { return {} }
+  }
+  return data && typeof data === 'object' ? data : {}
+}
+
+function resultadosOrganicos(data) {
+  const d = jsonSerp(data)
+  if (Array.isArray(d.organic)) return d.organic
+  if (Array.isArray(d.results)) return d.results
+  if (Array.isArray(d.body?.organic)) return d.body.organic
+  return []
+}
+
+function textoCampo(valor) {
+  return String(valor == null ? '' : valor)
+}
+
 /**
- * Consulta CRUA ao CSE, restrita a perfis do Instagram.
+ * Consulta CRUA a Bright Data SERP, restrita a perfis do Instagram.
  *
  * Devolve `{handle, url, titulo, resumo}` — o título e o resumo existem porque quem precisa
  * PROVAR que um perfil pertence a um negócio (services/instagram-perfil.js) não consegue fazer
- * isso só com o username. Nunca lança: erro vira lista parcial e o chamador decide.
+ * isso só com o username.
  *
- * Um único ponto de acesso ao CSE neste módulo, de propósito — duas chamadas com parâmetros
+ * Nunca lança, e por isso devolve `{ok, resultados, consultas, erro, statusCode}` em vez de uma
+ * lista: quem chama precisa distinguir "a busca respondeu e não achou nada" de "a busca nem
+ * aconteceu". `consultas` é quantas chamadas SERP foram efetivamente tentadas.
+ *
+ * Um único ponto de acesso a SERP neste módulo, de propósito — duas chamadas com parâmetros
  * próprios divergiriam em idioma, região e paginação.
  */
-async function consultarCseInstagram(consulta, limite = 20) {
-  const key = process.env.GOOGLE_CSE_KEY
-  const cx = process.env.GOOGLE_CSE_ID
+async function consultarSerpInstagramDetalhado(consulta, { limite = 20 } = {}) {
+  const token = String(process.env.BRIGHTDATA_API_TOKEN || '').trim()
+  const zone = String(process.env.BRIGHTDATA_SERP_ZONE || '').trim()
   const q = String(consulta || '').trim()
-  if (!key || !cx || !q) return []
+  if (!token || !zone) {
+    return { ok: false, resultados: [], consultas: 0, erro: 'serp_nao_configurada', statusCode: 0 }
+  }
+  if (!q) return { ok: true, resultados: [], consultas: 0, erro: null, statusCode: 0 }
   const vistos = new Set()
   const out = []
+  const consultas = 1
   try {
-    // CSE devolve no máx. 10 por página; pagina via `start` até atingir o limite.
-    for (let start = 1; start <= 31 && out.length < limite; start += 10) {
-      const r = await axios.get(GOOGLE_CSE_ENDPOINT, {
-        params: { key, cx, q, num: 10, start, gl: 'br', hl: 'pt-BR', safe: 'active' },
-        timeout: 8000,
+    const r = await axios.post(BRIGHTDATA_SERP_ENDPOINT, {
+      zone,
+      url: montarUrlBuscaGoogle(q),
+      format: 'raw',
+      data_format: 'parsed_light',
+    }, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: Number(process.env.BRIGHTDATA_SERP_TIMEOUT_MS || 60000),
+    })
+    const items = resultadosOrganicos(r.data)
+    for (const it of items) {
+      const link = textoCampo(it?.link || it?.url)
+      const handle = usernameDeUrlInstagram(link)
+      if (!handle || vistos.has(handle)) continue
+      vistos.add(handle)
+      out.push({
+        handle,
+        url: link || `https://www.instagram.com/${handle}/`,
+        titulo: textoCampo(it?.title || it?.name),
+        resumo: textoCampo(it?.description || it?.snippet || it?.text),
       })
-      const items = Array.isArray(r.data?.items) ? r.data.items : []
-      if (items.length === 0) break
-      for (const it of items) {
-        const handle = usernameDeUrlInstagram(it?.link)
-        if (!handle || vistos.has(handle)) continue
-        vistos.add(handle)
-        out.push({
-          handle,
-          url: String(it?.link || `https://www.instagram.com/${handle}/`),
-          titulo: String(it?.title || ''),
-          resumo: String(it?.snippet || ''),
-        })
-        if (out.length >= limite) break
-      }
+      if (out.length >= limite) break
     }
-    logger.info(`🔎 CSE Instagram "${q}": ${out.length} perfis`)
-    return out
+    logger.info({ operation: 'instagram_discovery', fonte: 'brightdata_serp',
+      resultados: out.length }, 'Bright Data SERP Instagram consultada')
+    return { ok: true, resultados: out, consultas, erro: null, statusCode: 200 }
   } catch (e) {
-    const status = e?.response?.status
-    logger.warn(`⚠️ CSE Instagram falhou (status=${status}): ${e.message}`)
-    return out
+    const status = Number(e?.response?.status || 0)
+    const motivo = String(e?.response?.data?.error || e?.response?.data?.message || e?.code || '')
+    logger.warn({ operation: 'instagram_discovery', fonte: 'brightdata_serp',
+      status, motivo: motivo || null, erro: e.message }, 'Bright Data SERP Instagram falhou')
+    return { ok: false, resultados: out, consultas, erro: motivo || 'erro_serp', statusCode: status }
   }
+}
+
+// Alias legado: mantem compatibilidade com testes/chamadores antigos. Nao consulta Google CSE.
+async function consultarCseInstagramDetalhado(consulta, opcoes = {}) {
+  return consultarSerpInstagramDetalhado(consulta, opcoes)
+}
+
+/**
+ * Contrato ANTIGO, preservado: devolve só a lista e nunca lança.
+ *
+ * Existe para os chamadores que varrem um mercado (`descobrirPerfisPorNicho`), onde "achei
+ * menos" e "falhou" têm a mesma consequência prática — a varredura continua. Quem precisa
+ * DECIDIR sobre um lead nunca deve usar esta função: para ele, confundir "não achei" com "não
+ * perguntei" vira um veredito falso gravado no banco (ver `consultarSerpInstagramDetalhado`).
+ */
+async function consultarSerpInstagram(consulta, limite = 20) {
+  const r = await consultarSerpInstagramDetalhado(consulta, { limite })
+  return r.resultados
+}
+
+async function consultarCseInstagram(consulta, limite = 20) {
+  return consultarSerpInstagram(consulta, limite)
 }
 
 /**
@@ -87,23 +156,31 @@ async function consultarCseInstagram(consulta, limite = 20) {
  * Diferente de `descobrirPerfisPorNicho`, que varre um mercado: aqui procura-se um dono
  * conhecido. Quem decide se algum resultado realmente é dele é `instagram-perfil.js` — esta
  * função não julga, só colhe.
+ *
+ * Devolve o resultado DETALHADO (`{ok, resultados, consultas, erro}`), e não uma lista solta, de
+ * propósito: quem procura o perfil de UM lead vai gravar um veredito sobre ele, e uma lista
+ * vazia não diz se a busca não achou nada ou se nem chegou a acontecer.
+ *
+ * UMA SERP, sempre: o custo tem de ser previsível em 1 consulta por lead, porque é sobre ele
+ * que o teto diário da descoberta é calculado.
  */
 async function buscarPerfisDeNegocio(nome, cidade, limite = 8) {
   const negocio = String(nome || '').trim()
-  if (!negocio) return []
+  if (!negocio) return { ok: true, resultados: [], consultas: 0, erro: null, statusCode: 0 }
   const cid = String(cidade || '').trim()
-  return consultarCseInstagram(`${negocio} ${cid} site:instagram.com`.trim(), limite)
+  return consultarSerpInstagramDetalhado(`${negocio} ${cid} site:instagram.com`.trim(),
+    { limite })
 }
 
 /**
- * Descobre usernames de perfis do Instagram por nicho (+cidade) via Google CSE.
+ * Descobre usernames de perfis do Instagram por nicho (+cidade) via Bright Data SERP.
  * Nunca lança — devolve [] em erro/indisponível. `limite` limita resultados.
  */
 async function descobrirPerfisPorNicho(nicho, cidade, limite = 20) {
   const seg = String(nicho || '').trim()
   if (!seg) return []
   const cid = String(cidade || '').trim()
-  const achados = await consultarCseInstagram(`${seg} ${cid} site:instagram.com`.trim(), limite)
+  const achados = await consultarSerpInstagram(`${seg} ${cid} site:instagram.com`.trim(), limite)
   return achados.map((a) => a.handle)
 }
 
@@ -122,10 +199,15 @@ function normalizarSeeds(lista) {
 }
 
 module.exports = {
+  brightDataSerpConfigurado,
   cseConfigurado,
+  consultarSerpInstagram,
+  consultarSerpInstagramDetalhado,
   consultarCseInstagram,
+  consultarCseInstagramDetalhado,
   buscarPerfisDeNegocio,
   descobrirPerfisPorNicho,
   usernameDeUrlInstagram,
   normalizarSeeds,
+  BRIGHTDATA_SERP_ENDPOINT,
 }

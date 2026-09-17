@@ -36,6 +36,7 @@ const MOTIVO = Object.freeze({
 
 const PADRAO_TETO_DIARIO = 400   // 2 coletas cheias de 200 registros
 const PADRAO_RESERVA = 1000      // creditos que a Aquisicao nao pode tocar
+const PADRAO_TETO_ENRIQUECIMENTO = 150  // ~1 rodada de 200 leads a cada 2 dias
 
 function inteiroNaoNegativo(valor, padrao) {
   const n = Number.parseInt(valor, 10)
@@ -66,6 +67,21 @@ function reservaCreditos() {
 }
 
 /**
+ * Teto diario de creditos do ENRIQUECIMENTO (perfil de Instagram).
+ *
+ * Separado do teto da Aquisicao pelo mesmo motivo que a captacao social tem o dela: os canais
+ * gastam em ritmos diferentes e um numero unico obrigaria a escolher entre travar um demais ou o
+ * outro de menos. 150/dia ≈ uma rodada de 200 leads a cada dois dias.
+ *
+ * ATENCAO: quem gasta pelo enriquecimento roda com `reserva: 0`. A reserva existe para proteger
+ * o enriquecimento DA Aquisicao; aplica-la aqui faria o enriquecimento ser barrado justamente
+ * pelos creditos que foram guardados para ele.
+ */
+function tetoDiarioEnriquecimento() {
+  return inteiroNaoNegativo(process.env.BRIGHTDATA_ENRIQUECIMENTO_TETO_DIARIO, PADRAO_TETO_ENRIQUECIMENTO)
+}
+
+/**
  * Esta coleta paga pode sair?
  *
  * `saldoEstimado` e' `null` quando ninguem informou o saldo da conta (ver db/brightdata-consumo).
@@ -83,6 +99,9 @@ function avaliarOrcamento({
   saldoEstimado = null,
   teto = tetoDiarioAquisicao(),
   reserva = reservaCreditos(),
+  // Como chamar o canal na mensagem ao operador. A trava e' a mesma; o texto nao pode ser, ou
+  // o enriquecimento barrado mandaria mexer na env da Aquisicao.
+  canal = { nome: 'Aquisicao', env: 'BRIGHTDATA_AQUISICAO_TETO_DIARIO' },
 } = {}) {
   const gasto = Math.max(0, Number(consumidoHoje) || 0)
   const custo = Math.max(0, Number(custoEstimado) || 0)
@@ -103,8 +122,8 @@ function avaliarOrcamento({
       ...base,
       permitido: false,
       motivo: MOTIVO.TETO_DIARIO,
-      mensagem: `Teto diario de creditos da Aquisicao atingido (${gasto}/${teto} hoje). `
-        + 'A coleta recomeca amanha, ou ajuste BRIGHTDATA_AQUISICAO_TETO_DIARIO.',
+      mensagem: `Teto diario de creditos da ${canal.nome} atingido (${gasto}/${teto} hoje). `
+        + `A coleta recomeca amanha, ou ajuste ${canal.env}.`,
     }
   }
 
@@ -149,7 +168,9 @@ module.exports = {
   MOTIVO,
   PADRAO_TETO_DIARIO,
   PADRAO_RESERVA,
+  PADRAO_TETO_ENRIQUECIMENTO,
   tetoDiarioAquisicao,
+  tetoDiarioEnriquecimento,
   reservaCreditos,
   avaliarOrcamento,
   saldoEstimado,

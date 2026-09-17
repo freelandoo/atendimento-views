@@ -1,5 +1,38 @@
 # Análise — Enriquecimento de leads (atividade do negócio + Instagram) sob restrição de créditos
 
+> **⚠️ ATUALIZADO EM 2026-09-17 — A SONDA FOI EXECUTADA E ESTE DOCUMENTO TEM PARTES VENCIDAS.**
+>
+> A Fase 2 (§3.1) rodou: `npm run instagram:sonda --handle=magazineluiza --confirmar`, 1 crédito,
+> snapshot `sd_mu4s0dte1kezq4wylo`. **O dataset `ig_perfis` já devolve `posts_count` e um array
+> `posts` com `datetime` em cada um** — além de `external_urls`, `biography`, `followers`,
+> `is_private` e `is_verified`.
+>
+> **O que isso vence neste documento:**
+> - **A etapa 4 (posts) NÃO EXISTE e foi removida do plano.** Vale o cenário otimista da §4:
+>   **~120 créditos por rodada de 200 leads, ~39 rodadas** — não os ~720/6 rodadas.
+>   A decisão **D da §11 está resolvida e encerrada**: não há dataset de posts a escolher.
+> - A §6.3 previa `instagram_posts_json`/`instagram_posts_em`. **Essas colunas não foram criadas:**
+>   os posts vêm dentro do registro de perfil, e `instagram_perfil_json` já os guarda.
+> - A §2 desenha 5 etapas; **a implementação tem 2** (`instagram_descoberta`, `instagram_perfil`).
+>   As etapas 1 e 5 do desenho eram leitura pura de dado já coletado e não precisam de fila.
+> - O risco **§12.1 está encerrado** (o contrato foi visto) e o **§12.6 deixou de valer**: perfil
+>   confirmado agora PODE ser medido quanto a atividade.
+>
+> **Risco NOVO, medido no mesmo dia e não previsto aqui:** a chave `GOOGLE_CSE_KEY` está
+> **inválida** (`API_KEY_INVALID`), e o helper de busca engolia o erro devolvendo `[]` — o funil
+> teria marcado a carteira inteira como "não tem Instagram". Corrigido; ver Decisão 2 de
+> 2026-09-17 em `ai-decision-log.md`.
+>
+> **Atualização posterior, ainda em 2026-09-17:** o operador decidiu que a descoberta de
+> Instagram da Aquisicao/enriquecimento deve usar **somente Bright Data**. As premissas deste
+> documento sobre Google CSE ficam como histórico do risco medido, mas o fluxo atual usa Bright
+> Data SERP (`BRIGHTDATA_SERP_ZONE`) para descoberta e Bright Data Instagram Scraper
+> (`BRIGHTDATA_DATASET_IG_PERFIS`) para perfil. Ver a decisão "Descoberta de Instagram somente
+> via Bright Data SERP" em `docs/ai-decision-log.md`.
+>
+> As §§1, 5, 7, 8 e 9 continuam válidas e foram seguidas. **O que foi implementado está descrito
+> em `AGENTS.md`, seção "Enriquecimento de Instagram por LEAD".**
+
 > **Status: ANÁLISE. Nenhum código foi escrito.** Este documento cumpre os 10 itens pedidos
 > antes da implementação. As decisões pendentes estão na §11 e precisam do operador.
 >

@@ -19,6 +19,9 @@ const {
   INTERVALO_MIN_HORAS,
 } = require('../services/aquisicao-rotinas-scheduler')
 const { logger } = require('../logger')
+// Os limites de desistencia do worker de coleta. Importados, nunca recopiados: a tela promete
+// ao operador exatamente o prazo que o worker aplica.
+const { BUSCA_MAX_IDADE_MIN, RESERVA_ORFA_MAX_MIN } = require('../prospecting')
 
 const router = Router({ mergeParams: true })
 
@@ -64,11 +67,14 @@ function apresentarRotina(rotina, { temColetaEmVoo, agora }) {
 
 async function responderLista(req, res) {
   const agora = new Date()
-  const [rotinas, temColetaEmVoo, atividade] = await Promise.all([
+  const [rotinas, emVoo, atividade] = await Promise.all([
     rotinasDb.listarRotinas(pool, req.empresa.id),
-    rotinasDb.existeColetaEmVoo(pool, req.empresa.id),
+    rotinasDb.coletaEmVoo(pool, req.empresa.id),
     rotinasDb.listarAtividadeRecente(pool, req.empresa.id, req.query.atividade_limite),
   ])
+  // O scheduler PURO continua recebendo o booleano de sempre: quem ganhou detalhe foi a tela,
+  // e a regra de estado da rotina nao muda por causa disso.
+  const temColetaEmVoo = emVoo.em_voo
   return res.json({
     ok: true,
     data: {
@@ -90,6 +96,20 @@ async function responderLista(req, res) {
         updated_at: a.updated_at,
       })),
       coleta_em_andamento: temColetaEmVoo,
+      // O relogio da coleta em voo. Sem `desde` e sem o limite de desistencia, uma espera
+      // legitima de 40 min e' indistinguivel de um travamento para quem olha a tela.
+      coleta: emVoo.em_voo ? {
+        nicho: emVoo.nicho,
+        cidade: emVoo.cidade,
+        origem: emVoo.origem,
+        disparada: emVoo.disparada,
+        desde: emVoo.desde,
+        idade_min: emVoo.idade_min,
+        // Reserva sem disparo morre em 10 min; coleta disparada, em 3h. Sao limites diferentes
+        // porque significam coisas diferentes: uma nem chegou a ser paga, a outra ja foi.
+        expira_em_min: Math.max(0,
+          (emVoo.disparada ? BUSCA_MAX_IDADE_MIN : RESERVA_ORFA_MAX_MIN) - emVoo.idade_min),
+      } : null,
       limites: {
         quantidade_min: QUANTIDADE_MIN,
         quantidade_max: QUANTIDADE_MAX,

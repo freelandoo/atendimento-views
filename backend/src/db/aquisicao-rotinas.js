@@ -244,13 +244,38 @@ async function marcarFalha(pool, id, mensagemErro) {
 
 // A empresa já tem uma coleta paga em voo? Usado só para exibir "na fila" no painel —
 // a garantia de verdade é o índice único parcial em busca_snapshots.
-async function existeColetaEmVoo(pool, empresaId) {
+// A coleta em voo da empresa, COM O RELOGIO JUNTO.
+//
+// Antes isto devolvia so' um booleano, e a tela so' podia dizer "uma coleta esta em andamento"
+// — com um spinner, sem inicio e sem fim. Uma coleta do Maps pode legitimamente levar 40 min, e
+// o worker so' desiste com 3h; sem esses dois numeros na tela, qualquer espera longa parece
+// travamento, e o operador fica olhando para um giro sem saber se deve esperar ou pedir socorro.
+// Trava a busca avulsa o mesmo tanto que antes — o que muda e' o operador saber ate' quando.
+async function coletaEmVoo(pool, empresaId) {
   const { rows } = await pool.query(
-    `SELECT 1 FROM prospectador.busca_snapshots
-      WHERE empresa_id = $1 AND status IN ('pendente', 'processando') LIMIT 1`,
+    `SELECT id, nicho, cidade, origem, status, snapshot_id, created_at,
+            EXTRACT(EPOCH FROM (NOW() - created_at)) / 60 AS idade_min
+       FROM prospectador.busca_snapshots
+      WHERE empresa_id = $1 AND status IN ('pendente', 'processando')
+      ORDER BY created_at ASC
+      LIMIT 1`,
     [empresaId]
   )
-  return !!rows[0]
+  const linha = rows[0]
+  if (!linha) return { em_voo: false }
+  return {
+    em_voo: true,
+    id: linha.id,
+    nicho: linha.nicho,
+    cidade: linha.cidade,
+    origem: linha.origem,
+    status: linha.status,
+    // `false` = a reserva foi gravada e o disparo pago ainda nao completou. Ela expira em 10 min
+    // (RESERVA_ORFA_MAX_MIN), nao em 3h — e a tela precisa poder dizer isso.
+    disparada: !!linha.snapshot_id,
+    desde: linha.created_at,
+    idade_min: Math.max(0, Math.round(Number(linha.idade_min) || 0)),
+  }
 }
 
 // Atividade recente das coletas desta empresa (rotinas + manual), para o painel.
@@ -283,6 +308,6 @@ module.exports = {
   marcarImportando,
   marcarConclusao,
   marcarFalha,
-  existeColetaEmVoo,
+  coletaEmVoo,
   listarAtividadeRecente,
 }

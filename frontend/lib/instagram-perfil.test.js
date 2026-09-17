@@ -32,9 +32,47 @@ test('candidato NUNCA e exibido como o Instagram do lead', () => {
   assert.equal(IG.rotuloEstado(lead), 'Perfil a confirmar')
 })
 
-test('a tela diz o LIMITE: confirmado nao e ativo', () => {
-  assert.ok(IG.avisoAtividade({ instagram_handle: 'loja' }).includes('ainda nao e verificada'))
+test('a tela diz o LIMITE: confirmado nao e ativo enquanto ninguem mediu', () => {
+  assert.ok(IG.avisoAtividade({ instagram_handle: 'loja' }).includes('ainda nao foi verificada'))
   assert.equal(IG.avisoAtividade({}), '', 'sem perfil nao ha o que ressalvar')
+})
+
+// Desde a sonda de 2026-09-17 a atividade EXISTE. O aviso antigo ("nunca e verificada") passaria
+// a negar um dado que o sistema tem.
+test('atividade medida em perfil CONFIRMADO fala por si, sem ressalva', () => {
+  const lead = { instagram_handle: 'loja', instagram_confianca: 'confirmado',
+    instagram_atividade: 'ativo_recente' }
+  const a = IG.estadoAtividade(lead)
+  assert.equal(a.confiavel, true)
+  assert.equal(a.tom, 'ok')
+  assert.equal(IG.avisoAtividade(lead), '')
+  assert.equal(IG.rotuloEnriquecimento(lead), 'Postou nos ultimos 30 dias')
+})
+
+// A regra do operador: atividade de CANDIDATO e sinal fraco, nunca verdade sobre o lead.
+test('atividade medida em CANDIDATO carrega a ressalva em texto, nao so na cor', () => {
+  const lead = { instagram_candidato: 'loja', instagram_confianca: 'candidato',
+    instagram_atividade: 'ativo_recente' }
+  const a = IG.estadoAtividade(lead)
+  assert.equal(a.confiavel, false)
+  assert.equal(a.tom, 'neutro', 'candidato nao ganha o verde de perfil provado')
+  assert.match(IG.avisoAtividade(lead), /nao confirmado/)
+})
+
+test('nao_verificado nunca e apresentado como inatividade', () => {
+  const lead = { instagram_handle: 'loja', instagram_confianca: 'confirmado',
+    instagram_atividade: 'nao_verificado' }
+  assert.match(IG.avisoAtividade(lead), /ainda nao foi verificada/)
+  for (const rotulo of Object.values(IG.ROTULO_ATIVIDADE)) {
+    assert.ok(!/inativ/i.test(rotulo), `"${rotulo}" afirma inatividade`)
+  }
+})
+
+test('o trabalho em andamento aparece como complementar, sem virar veredito', () => {
+  assert.equal(IG.rotuloEnriquecimento({ instagram_etapa_status: 'pendente' }), 'Instagram na fila')
+  assert.match(IG.avisoAtividade({ instagram_etapa_status: 'processando' }), /Verificando/)
+  assert.equal(IG.estadoInstagram({ instagram_etapa_status: 'pendente' }).chave, 'nao_verificado',
+    'estar na fila nao e um veredito sobre o perfil')
 })
 
 test('as acoes acompanham o estado', () => {

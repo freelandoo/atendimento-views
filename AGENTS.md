@@ -455,6 +455,7 @@
 
 ### Captação social (Bright Data — Instagram agora, LinkedIn no mesmo motor)
 - `BRIGHTDATA_API_TOKEN`: token da Bright Data Web Scraper / Dataset API. **Sem ele o canal de captação fica desligado** (worker não roda) e a **Aquisição** (busca de leads via Maps) também. Mesmo token serve Instagram, LinkedIn e Google Maps.
+- `BRIGHTDATA_SERP_ZONE`: zona SERP da Bright Data. **Fonte autorizada para descoberta de Instagram por busca** (`site:instagram.com ...`). O fluxo de Aquisição/enriquecimento não usa mais Google CSE direto para descobrir perfis.
 - `BRIGHTDATA_DATASET_IG_DESCOBERTA` / `BRIGHTDATA_DATASET_IG_PERFIS` / `BRIGHTDATA_DATASET_LI_DESCOBERTA` / `BRIGHTDATA_DATASET_LI_PERFIS`: `dataset_id` de cada coleta (descoberta por hashtag/keyword e perfis por URL). Confirmar no painel Bright Data da conta — o formato de input depende do dataset.
 - `BRIGHTDATA_DATASET_MAPS_DESCOBERTA`: `dataset_id` do "Google Maps full information" (Discover by location). **Fonte de dados da Aquisição** (substituiu o Google Places API). Sem ele, `pesquisarPlaces` lança erro (500). Input: `{country, lat, long, zoom_level, keyword}` — a cidade é geocodificada p/ coordenadas (OSM/Nominatim, grátis). Motor: `src/services/places-brightdata.js`. `BRIGHTDATA_MAPS_ZOOM` (default 12) e `GEOCODE_NOMINATIM_URL`/`GEOCODE_TIMEOUT_MS` são opcionais.
 - `BRIGHTDATA_CAPTACAO_TETO_DIARIO`: teto diário de registros consumidos na conta (free tier 5000/mês ≈ 166/dia; default 166).
@@ -2237,14 +2238,16 @@
 - **Rotas (sem capacidade extra, como `/telefone` e `/email` — completar cadastro é trabalho de
   todo membro; o mount já garante empresa + recorte, e `qualificacao` não é tocada):**
   `POST /leads/:id/instagram/procurar` (etapa 2, **uma busca por clique**; não é worker e não roda
-  em lote de propósito — o Google CSE tem cota diária e varrer a carteira a esgotaria num dia) e
+  em lote de propósito — varrer a carteira consumiria a janela diária de descoberta sem pedido) e
   `PATCH /leads/:id/instagram` (a revisão humana: confirmar, recusar ou digitar). Recusar **não**
   é "não tem Instagram": é "não é ESTE" — o candidato some e o lead pode ser procurado de novo.
   Toda revisão vira linha em `app.auditoria_eventos` (`lead_instagram_revisado`), **sem PII**.
-- **A busca reusa o CSE que já existia.** `social-discovery.js` ganhou `consultarCseInstagram`
-  (ponto ÚNICO de acesso ao CSE no módulo) e `buscarPerfisDeNegocio`; `descobrirPerfisPorNicho`
-  passou a usar o mesmo helper e **não mudou de comportamento**. Título e resumo passaram a vir
-  junto porque quem precisa PROVAR o vínculo não consegue fazer isso só com o username.
+- **A busca usa Bright Data SERP.** `social-discovery.js` é o ponto ÚNICO de descoberta de
+  Instagram por busca; `buscarPerfisDeNegocio` e `descobrirPerfisPorNicho` usam
+  `BRIGHTDATA_API_TOKEN` + `BRIGHTDATA_SERP_ZONE` e não `GOOGLE_CSE_KEY`/`GOOGLE_CSE_ID`. Os
+  aliases `consultarCseInstagram*` ficaram só por compatibilidade e apontam para Bright Data
+  SERP. Título e resumo vêm junto porque quem precisa PROVAR o vínculo não consegue fazer isso só
+  com o username.
 - ⚠️ **Perfil CONFIRMADO não é perfil ATIVO, e o sistema nunca afirma que é.** A recência de
   postagem (o "postou nos últimos 6 meses") exige raspar o perfil — coleta PAGA — e um contrato de
   dados que este repositório **ainda não confirmou**: nenhum código aqui lê campo de post com data,
@@ -2264,8 +2267,8 @@
   rede. O bloco vive em `components/LeadDetalhesModal.tsx` (`BlocoInstagram`), que mostra os sinais
   que bateram **e os que não bateram** — o palpite precisa ser auditável por quem vai decidir.
 - Testes: `test/instagram-perfil.test.js` (regra pura + 8 guardas que leem o fonte, o script e a
-  migration), `frontend/lib/instagram-perfil.test.js`. **Nenhuma variável de ambiente nova**
-  (a busca reusa `GOOGLE_CSE_KEY`/`GOOGLE_CSE_ID`, que já existiam).
+  migration), `frontend/lib/instagram-perfil.test.js`. A descoberta por busca exige
+  `BRIGHTDATA_SERP_ZONE` alem do token Bright Data.
 
 ### Orçamento de créditos Bright Data — a Aquisição era o único canal pago SEM teto (migration 081)
 - **Defeito corrigido:** `pesquisarPlaces` **não consultava orçamento nenhum**. Uma rotina de
@@ -2322,6 +2325,139 @@
   Testes: `test/brightdata-orcamento.test.js` (regra pura + anti-drift contra o CHECK da migration
   + 6 guardas que leem o fonte). **Duas variáveis de ambiente novas, ambas documentadas no
   `.env.example`.**
+
+### Enriquecimento de Instagram por LEAD — o pipeline, e a sonda que o desenhou (migration 082)
+- **Regra de negócio:** todo lead salvo pela coleta (busca avulsa **ou** rotina, novo **ou**
+  reencontrado) entra numa fila de enriquecimento que roda **em segundo plano**. O lead aparece
+  no Banco de Leads assim que a coleta fica pronta; o Instagram chega depois. **Enriquecimento
+  nunca segura lead já pago fora da carteira** — há guarda de regressão que falha se
+  `salvarProspects` passar a chamar busca, trigger ou o worker.
+- **A SONDA veio ANTES do código, e mudou o projeto.** `npm run instagram:sonda --
+  --handle=<perfil> --confirmar` gasta **1 crédito** e guarda o registro cru. Executada em
+  2026-09-17 (snapshot `sd_mu4s0dte1kezq4wylo`), ela mostrou que o dataset `ig_perfis` **já
+  devolve `posts_count` e um array `posts` com `datetime` em cada um**. Consequências:
+  - **A etapa de POSTS não existe e não deve nascer.** Ela custaria ~5 créditos por lead para
+    buscar o que a chamada de perfil já traz: ~720 créditos por rodada de 200 leads contra
+    **~120**. Com o saldo atual, ~39 rodadas em vez de 6. Guarda de regressão falha se
+    `ig_posts`, uma etapa `instagram_posts` ou uma coluna `instagram_posts_json` reaparecerem.
+  - **Os nomes de campo do classificador foram VISTOS, não chutados.** É a lição da Decisão 1 de
+    2026-09-16 (quatro grafias chutadas de `latest_review_date`, 200 coletas pagas, zero datas).
+    `instagram-atividade.js` cita o snapshot que provou o contrato, e há teste que cobra a
+    citação. **Não escreva leitor de campo de fonte externa sem uma sonda antes.**
+  - **O array `posts` NÃO vem ordenado** (no perfil sondado, o índice 8 era mais antigo que o 9 —
+    post fixado). Por isso a data é o **MÁXIMO** dos posts lidos, nunca `posts[0]`. Confiar na
+    ordem daria a data errada justamente nos perfis de negócio, que são os que fixam post.
+- **SÃO DUAS ETAPAS e DUAS MOEDAS.** `instagram_descoberta` gasta **consulta Bright Data SERP**;
+  `instagram_perfil` gasta **crédito de dataset da Bright Data** (conta única, compartilhada por
+  todos os tenants). São contadas e travadas separadas de propósito: uma coluna só faria o teto de
+  uma travar a outra. Regra confirmada em 2026-09-16: **somente Bright Data** para descoberta de
+  Instagram na Aquisição/enriquecimento; `GOOGLE_CSE_KEY`/`GOOGLE_CSE_ID` não participam deste
+  fluxo.
+- ⚠️ **A REGRA QUE NÃO SE NEGOCIA: falha da fonte NUNCA vira veredito sobre o lead.** Medido em
+  2026-09-17: a chave do Google CSE estava **inválida** (`API_KEY_INVALID`) e
+  `consultarCseInstagram` **engolia o erro devolvendo `[]`**. Ligar o funil sobre isso marcaria a
+  carteira inteira como "não tem Instagram" sem ninguém ter olhado — um veredito falso, em massa,
+  indistinguível depois de uma busca honesta. Por isso `nao_encontrado` só é gravado quando a
+  fonte **respondeu**; cota esgotada, token inválido e timeout devolvem o lead à fila e **não
+  escrevem uma linha em `prospects`**. `buscarPerfisDeNegocio` passou a devolver
+  `{ok, resultados, consultas, erro}` em vez de uma lista solta, e **a rota manual
+  `POST /leads/:id/instagram/procurar` tinha o mesmo defeito** — hoje responde 503 e não altera
+  nada. Guardas de regressão nos dois pontos.
+- **Uma consulta por lead, sempre:** `buscarPerfisDeNegocio` é travada em **1 SERP**. O
+  teto diário é calculado sobre isso; paginar até achar 8 perfis gastaria de 1 a 4 consultas sem
+  ninguém saber quantas.
+- **A cascata pula o que é de graça.** Instagram declarado no Google Meu Negócio já nasce
+  CONFIRMADO na própria coleta (o dono escreveu aquele link na ficha) e **salta a descoberta
+  inteira**: 0 créditos e 0 consultas. Medido em 2026-09-16: **11,9%** dos leads — cinco vezes
+  menos que os ~60% estimados, e é por isso que **o gargalo deixou de ser crédito de perfil e
+  passou a ser a janela de descoberta SERP** (os outros 88% dependem dela).
+- **O perfil RODA TAMBÉM PARA CANDIDATO, e isso é contra-intuitivo de propósito.** O registro
+  traz `biography` e `external_urls` — telefone e site, as duas provas FORTES que a busca por
+  texto não tinha. Um crédito que converte "incerto" em "confirmado" ou "descartado" sem ocupar
+  uma pessoa é bom negócio; a ordem ingênua (revisar primeiro, raspar depois) gasta o recurso mais
+  caro que existe, que é atenção humana. **Revisão humana só depois disso** (`revisao_humana`).
+- **`pulado` NÃO é `concluido`**: "não precisei rodar" e "rodei e veio vazio" têm o mesmo efeito
+  na tela e significados opostos na conta de créditos — é o que permite auditar a economia depois.
+- **Ausência de dado nunca vira "inativo".** As cinco faixas: `ativo_recente` (≤30 dias) ·
+  `atividade_morna` (≤90) · `atividade_antiga` (>90) · `sem_posts` (**a fonte declarou
+  `posts_count = 0`** — isso é resposta, não lacuna) · `nao_verificado`. **`NULL` é o quinto
+  estado e não é `nao_verificado`**: NULL = a etapa nunca rodou; `nao_verificado` = rodou e a
+  fonte não deu como saber (**perfil privado**, sem data legível, contrato diferente do sondado).
+  **Perfil privado pode ser muito ativo — só não dá para ver.**
+- **O SINAL DO ICP usa a atividade medida, com assimetria deliberada:** atividade medida e
+  **parada** (`atividade_antiga`/`sem_posts`) deixa de sugerir `instagram_ativo` — agora se SABE
+  que não está ativo, e continuar sugerindo faria o sistema contrariar o que mediu. Atividade
+  **não medida** (worker ainda não chegou, perfil privado) **continua sugerindo**: ausência de
+  medida nunca vira negativa, senão toda a base perderia pré-marcação. **O MODELO Tenka v1.1 não
+  mudou** (mesmos 8 critérios, mesmos 13 pontos, mesmos cortes).
+- **Atividade de CANDIDATO nunca pontua.** `perfilConfirmado` já a barra no ICP, e a tela é
+  obrigada a carregar a ressalva **em texto** ("medido num perfil ainda não confirmado"), nunca
+  só numa cor. Regra do operador, 2026-09-16: sinal fraco serve para priorizar revisão humana,
+  jamais como verdade sobre o lead.
+- **Decisão humana nunca é sobrescrita pelo worker:** as duas escritas em `db/enriquecimento-etapas.js`
+  preservam a linha quando `instagram_verificado_por IS NOT NULL` — mesma disciplina de
+  `qualificacao` e de `telefone_origem = 'operador'`. Guarda de regressão lê as duas funções.
+- **Recoleta não repaga:** `enfileirar` é `ON CONFLICT (prospect_id, etapa) DO NOTHING`. Lead
+  reencontrado numa nova coleta do mesmo mercado **não** refaz busca nem perfil. O que a recoleta
+  aproveita (o handle do Google Meu Negócio) já era preenchido pelo upsert, que também nunca
+  sobrescreve handle existente.
+- **Schema:** migration `082_enriquecimento_instagram.sql`, **aditiva** — nenhuma linha é
+  atualizada e **nenhuma coluna nova em `prospects` tem DEFAULT** (um DEFAULT autorizaria em
+  silêncio um INSERT futuro que esquecesse a coluna). `prospectador.enriquecimento_etapas` é
+  **uma linha por (lead, etapa)**, com `UNIQUE (prospect_id, etapa)` como antiduplicidade **no
+  banco**; lease de 10 min + `FOR UPDATE SKIP LOCKED` + backoff 1/5/25/120/360/720 e teto de 6
+  tentativas — o padrão de `app.conversao_eventos` (ledger da Meta), copiado em vez de reinventado.
+- **`tentativas` sobe na RESERVA, não no fim** (worker que morre no meio deixaria o lead tentando
+  para sempre). E **cota esgotada / orçamento barrado NÃO consomem tentativa**: o lead nem chegou
+  a ser consultado, e contá-la o mataria como `tentativas_esgotadas` sem nunca ter sido buscado.
+- **A contagem de consultas SERP não tem tabela própria:** cada execução gasta exatamente 1 consulta,
+  então `SUM(custo_consultas)` das etapas executadas hoje já responde. Uma segunda tabela seria um
+  segundo lugar para a mesma contagem divergir.
+- **O ledger de créditos é o de sempre** (`prospectador.brightdata_consumo`, migration 081), com
+  o número **REAL** de registros devolvidos e idempotente por `(scraper, snapshot)`.
+- **Snapshot pronto nunca é descartado por idade** — a desistência é decidida **depois** de
+  perguntar o estado do job (mesma correção do commit `7c8ef97` na coleta do Maps). E **snapshot
+  pronto e vazio não vira `perfil_inexistente` em massa**: isso é falha da fonte, não veredito
+  sobre um lote inteiro de leads.
+- Código: regras PURAS em `src/services/instagram-atividade.js` e
+  `src/services/enriquecimento-pipeline.js` (dono do vocabulário: `ETAPA`, `STATUS`, `MOTIVO`),
+  SQL em `src/db/enriquecimento-etapas.js`, motor em `src/services/enriquecimento-worker.js`
+  (tique de `agent.js`, **depois** da materialização da coleta), sonda em
+  `scripts/sondar-instagram-perfil.js`. Front: `frontend/lib/instagram-perfil.js`
+  (+ `.d.ts`/`.test.js`) **só traduz**; blocos em `components/LeadDetalhesModal.tsx`. Testes:
+  `test/enriquecimento-instagram.test.js` (45), `frontend/lib/instagram-perfil.test.js` (17).
+- **Três variáveis de ambiente da área**, no `.env.example`:
+  `BRIGHTDATA_ENRIQUECIMENTO_TETO_DIARIO` (default 150), `BRIGHTDATA_SERP_ZONE` (sem default;
+  configurar com o nome real da zona SERP) e `INSTAGRAM_SERP_TETO_DIARIO` (default 90). O legado
+  `INSTAGRAM_CSE_TETO_DIARIO` ainda é aceito como fallback de leitura, mas não deve ser usado em
+  configuração nova.
+- **Fora de escopo, declarado:** nenhum descarte automático por inatividade, nenhum motivo novo de
+  descarte na tela, e **nenhum disparo de mensagem** para lead enriquecido. Atividade **pontua e
+  prioriza**; quem descarta continua sendo uma pessoa.
+
+### Busca avulsa — o relógio da coleta (a espera deixou de parecer travamento)
+- **Defeito de experiência corrigido:** a tela dizia "uma coleta está em andamento" com um
+  spinner, **sem início e sem fim**. Uma coleta do Maps leva dezenas de minutos legitimamente (uma
+  medida levou 40,4 min) e o worker só desiste com **3h** — sem esses dois números, qualquer espera
+  longa é indistinguível de travamento, e o operador fica olhando um giro sem saber se espera ou
+  pede socorro.
+- `existeColetaEmVoo` (booleano) virou **`coletaEmVoo`** (`db/aquisicao-rotinas.js`), que devolve
+  o mercado, `desde`, `idade_min` e se a coleta **já foi disparada**. `GET .../prospeccao/rotinas`
+  publica isso em `data.coleta` (campo **aditivo**; `coleta_em_andamento` continua igual).
+- **Os prazos vêm do BACKEND, não recalculados na tela:** `BUSCA_MAX_IDADE_MIN` (180) e
+  `RESERVA_ORFA_MAX_MIN` (10) passaram a ser **exportados** de `prospecting.js`. Repetir os
+  números no front viraria duas políticas de desistência divergindo em silêncio — a tela promete
+  exatamente o prazo que o worker aplica.
+- **Reserva sem disparo e coleta disparada têm prazos diferentes de propósito** (10 min × 3h):
+  uma nem chegou a ser paga, a outra já foi, e a frase na tela diz qual é qual.
+- **O histórico distingue dois desfechos que apareciam iguais** (`components/HistoricoColetas.tsx`):
+  concluída **sem leads novos** ("o mercado já estava na carteira" — não é defeito, e mostrá-la
+  como "Concluída" ao lado de uma que trouxe 200 manda o operador procurar problema onde não há) e
+  **"Expirou"**, que não é "Falhou": ninguém errou, a origem demorou mais que o limite, e o
+  caminho é tentar de novo, não investigar.
+- **Nada mudou na trava de coleta paga:** continua uma por empresa (índice único parcial), e a
+  busca avulsa segue desabilitada enquanto houver coleta em voo. O que mudou é o operador **saber
+  até quando**.
 
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.

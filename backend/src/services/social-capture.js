@@ -144,9 +144,14 @@ async function listarCampanhas(empresaId) {
 // Monta o bloco de metadados da campanha (sementes + opções de descoberta).
 function montarMetadata(input = {}, base = {}) {
   const perfis = normalizarSeeds(input.perfis_semente ?? input.perfis ?? base.perfis_semente ?? [])
+  const usarSerp = input.usar_serp != null ? Boolean(input.usar_serp)
+    : (input.usar_cse != null ? Boolean(input.usar_cse) : (base.usar_serp ?? base.usar_cse ?? true))
   return {
     perfis_semente: perfis,
-    usar_cse: input.usar_cse != null ? Boolean(input.usar_cse) : (base.usar_cse ?? true),
+    // `usar_cse` fica como alias legado no metadata; desde 2026-09-16 a descoberta usa
+    // Bright Data SERP, nao Google CSE direto.
+    usar_serp: usarSerp,
+    usar_cse: usarSerp,
     usar_snowball: input.usar_snowball != null ? Boolean(input.usar_snowball) : (base.usar_snowball ?? true),
     seguir_link_bio: input.seguir_link_bio != null ? Boolean(input.seguir_link_bio) : (base.seguir_link_bio ?? true),
     // Agenda de disparo automático (a cada X horas dentro de janela/dias).
@@ -211,7 +216,7 @@ async function removerCampanha(empresaId, campanhaId) {
 
 // ── Disparo de coleta ─────────────────────────────────────────────────────────
 // Modelo real (sem hashtag): monta a lista de @perfis a partir de
-//   (a) sementes informadas/da campanha, e (b) Google CSE por nicho+cidade,
+//   (a) sementes informadas/da campanha, e (b) Bright Data SERP por nicho+cidade,
 // e dispara o scraper de PERFIS. A bola de neve (related_accounts) acontece depois,
 // no worker. Tudo limitado pelo orçamento diário.
 async function iniciarColeta(empresaId, input = {}) {
@@ -233,7 +238,8 @@ async function iniciarColeta(empresaId, input = {}) {
   const meta = (campanha && campanha.metadata_json) || {}
   const nicho = txt(input.nicho, 160) || (campanha && campanha.nicho) || null
   const cidade = txt(input.cidade, 160) || (campanha && campanha.cidade) || null
-  const usarCse = input.usar_cse != null ? Boolean(input.usar_cse) : (meta.usar_cse ?? true)
+  const usarSerp = input.usar_serp != null ? Boolean(input.usar_serp)
+    : (input.usar_cse != null ? Boolean(input.usar_cse) : (meta.usar_serp ?? meta.usar_cse ?? true))
   const usarSnowball = input.usar_snowball != null ? Boolean(input.usar_snowball) : (meta.usar_snowball ?? true)
   const seguirLinkBio = input.seguir_link_bio != null ? Boolean(input.seguir_link_bio) : (meta.seguir_link_bio ?? true)
 
@@ -244,14 +250,14 @@ async function iniciarColeta(empresaId, input = {}) {
   // Sementes = lista informada agora ∪ sementes da campanha.
   const seeds = new Set(normalizarSeeds(input.perfis ?? input.perfis_semente ?? []))
   for (const u of normalizarSeeds(meta.perfis_semente || [])) seeds.add(u)
-  // Descoberta por nicho via Google CSE (grátis, sem tocar o Instagram).
-  if (usarCse && fonte === 'instagram' && nicho && seeds.size < qtd) {
+  // Descoberta por nicho via Bright Data SERP, sem tocar o Instagram diretamente.
+  if (usarSerp && fonte === 'instagram' && nicho && seeds.size < qtd) {
     const achados = await descobrirPerfisPorNicho(nicho, cidade, qtd - seeds.size)
     for (const u of achados) seeds.add(u)
   }
   const alvos = Array.from(seeds).slice(0, qtd)
   if (alvos.length === 0) {
-    const e = new Error('Nenhum perfil para coletar. Informe perfis semente ou um nicho (com Google CSE configurado).')
+    const e = new Error('Nenhum perfil para coletar. Informe perfis semente ou um nicho (com Bright Data SERP configurada).')
     e.statusCode = 400; throw e
   }
 
@@ -268,7 +274,7 @@ async function iniciarColeta(empresaId, input = {}) {
   if (campanha) {
     await pool.query(`UPDATE prospectador.captacao_campanhas SET ultima_coleta_em = NOW(), updated_at = NOW() WHERE id = $1`, [campanha.id])
   }
-  logger.info({ empresaId, fonte, snapshotId, alvos: alvos.length, usarCse, usarSnowball }, '[captacao] coleta de perfis iniciada')
+  logger.info({ empresaId, fonte, snapshotId, alvos: alvos.length, usarSerp, usarSnowball }, '[captacao] coleta de perfis iniciada')
   return rows[0]
 }
 

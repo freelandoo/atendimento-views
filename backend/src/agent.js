@@ -127,6 +127,7 @@ const {
   executarRotinasAquisicao,
   processarBuscasPlacesPendentes,
 } = require('./prospecting')
+const { tickEnriquecimento } = require('./services/enriquecimento-worker')
 
 const {
   sleep,
@@ -500,6 +501,13 @@ async function jobWorkerTick() {
       // Materializa as buscas da Aquisição (Bright Data Maps) que já ficaram prontas.
       await processarBuscasPlacesPendentes().catch((e) =>
         logger.warn({ operation: 'places_brightdata', etapa: 'tick_erro', erro: e.message })
+      )
+      // Enriquecimento de Instagram — SEGUNDO PLANO, por lead. Roda DEPOIS da materialização
+      // e nunca dentro dela: o lead pago tem de aparecer no Banco de Leads primeiro, e um
+      // enriquecimento travado não pode segurar a importação. Ele tem tetos próprios (cota do
+      // Google CSE e créditos da Bright Data) e é no-op enquanto a fila estiver vazia.
+      await tickEnriquecimento().catch((e) =>
+        logger.warn({ operation: 'enriquecimento', etapa: 'tick_erro', erro: e.message })
       )
       // Atribuição Meta (CTWA) + score determinístico — a cada ~10 min (gate próprio).
       if (Date.now() - _ultimaAtribuicaoMetaMs > ATRIBUICAO_META_INTERVALO_MS) {
