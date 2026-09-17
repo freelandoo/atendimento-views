@@ -3997,3 +3997,15 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Cuidados:** falha de SERP Bright Data nao pode virar veredito "sem Instagram"; nao
   sobrescrever Instagram ja confirmado por humano/origem confiavel; nao depender de
   `GOOGLE_CSE_KEY`/`GOOGLE_CSE_ID` para a Aquisicao; logs sem PII/payload cru.
+
+## 2026-09-17 - Tarefa IA - Desligar teto diario da Aquisicao
+
+- **Pedido resumido:** remover, por enquanto, a trava de teto diario de creditos da Aquisicao
+  para permitir busca avulsa/manual sem bloqueio por `BRIGHTDATA_AQUISICAO_TETO_DIARIO`.
+- **E projeto/tarefa de alteracao?** Sim. Preferencia por alteracao minima de ambiente se o
+  codigo ja aceitar `0` como "sem teto"; sem chamada paga Bright Data.
+- **Escopo:** verificar `brightdata-orcamento`, `prospecting.js`, env de Railway e documentacao
+  existente. Preservar ledger de consumo, reserva de creditos, tetos de enriquecimento
+  Instagram/SERP e regras de nao sobrescrever decisao humana.
+- **Cuidados:** nao expor segredos, nao fazer coleta paga para validar, alterar somente a env
+  especifica se necessario, e separar estado de codigo/env/deploy no relatorio.
