@@ -5,7 +5,7 @@
 
 ## Objetivo
 Reescrever `frontend/app/dashboard/captacao/page.tsx` (já existe com campos ANTIGOS de
-"hashtag" — descartar) para o **modelo real**: coleta por **nicho+cidade (Google CSE)**
+"hashtag" — descartar) para o **modelo real**: coleta por **nicho+cidade (Bright Data SERP)**
 e/ou **lista de @perfis semente**, com **bola de neve** (related_accounts) e **seguir
 link da bio**. Hashtag automática NÃO existe na conta Bright Data — não usar.
 
@@ -13,7 +13,7 @@ link da bio**. Hashtag automática NÃO existe na conta Bright Data — não usa
 - Bright Data raspa **perfil de Instagram por @username/URL** (dataset `gd_l1vikfch901nx3by4`).
   Campos: `account, full_name, biography, external_url[], email_address, business_category_name,
   followers, is_business_account, related_accounts[{user_name,...}]`. **Não traz telefone.**
-- Descoberta de perfis: **Google CSE** (`site:instagram.com <nicho> <cidade>`) + **related_accounts**.
+- Descoberta de perfis: **Bright Data SERP** (`site:instagram.com <nicho> <cidade>`) + **related_accounts**.
 - Contato (email/WhatsApp) sai do parse da bio + (opcional) seguir o link da bio.
 
 ## Padrões do frontend (seguir igual ao resto do dashboard)
@@ -72,7 +72,7 @@ menos 1 perfil**. Campanha guarda toggles em `metadata_json`.
 
 ## A tela deve ter
 1. **Cards de orçamento**: teto/dia, consumido hoje, restante hoje. Banner de aviso se `brightdata_configurado=false`.
-2. **Painel "Coletar agora" (ad-hoc)**: inputs **Nicho**, **Cidade**, **textarea de @perfis** (um por linha ou separados por vírgula), **toggles** (Usar Google CSE / Bola de neve / Seguir link da bio), **limite**; botão Coletar → `POST /coletar`.
+2. **Painel "Coletar agora" (ad-hoc)**: inputs **Nicho**, **Cidade**, **textarea de @perfis** (um por linha ou separados por vírgula), **toggles** (Usar SERP / Bola de neve / Seguir link da bio), **limite**; botão Coletar → `POST /coletar`.
 3. **Campanhas salvas**: form de criação (mesmos campos + teto/dia + ativo) → `POST /campanhas`; lista com "Coletar agora" (`POST /coletar {campanha_id}`), editar (PATCH), excluir (DELETE).
 4. **Funil em abas** (Entrada / Coletados / Em andamento / Descartados) com contadores do `/funil`; lista de leads via `/leads?aba=`. Cada lead mostra @handle, nome, nicho/cidade/categoria/seguidores, telefone, email, link da bio. Ações por lead:
    - "Aprovar p/ WhatsApp" (`status=aprovado`) — só se tiver telefone.
