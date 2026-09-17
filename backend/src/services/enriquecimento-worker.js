@@ -35,9 +35,18 @@ const LOTE_PERFIL = 25            // leads por snapshot da Bright Data
 const SNAPSHOT_MAX_MIN = 60       // um snapshot de perfil que passa disso e' desistido
 
 /** Enfileira a proxima etapa da cascata, quando houver. */
-async function seguir(etapaAtual, { prospectId, empresaId }) {
+function idsDaEtapa(item = {}) {
+  return {
+    prospectId: item.prospectId || item.prospect_id || null,
+    empresaId: item.empresaId || item.empresa_id || null,
+  }
+}
+
+async function seguir(etapaAtual, item = {}) {
   const proxima = PIPELINE.proximaEtapa(etapaAtual)
   if (!proxima) return
+  const { prospectId, empresaId } = idsDaEtapa(item)
+  if (!prospectId) return
   await etapasDb.enfileirar([prospectId], { empresaId, etapa: proxima })
 }
 
@@ -397,6 +406,8 @@ module.exports = {
   LOTE_DESCOBERTA,
   LOTE_PERFIL,
   SNAPSHOT_MAX_MIN,
+  idsDaEtapa,
+  seguir,
   indexarPorHandle,
   processarDescobertas,
   dispararPerfis,

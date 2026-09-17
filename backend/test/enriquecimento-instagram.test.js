@@ -9,7 +9,8 @@ const A = require('../src/services/instagram-atividade')
 const P = require('../src/services/enriquecimento-pipeline')
 const IG = require('../src/services/instagram-perfil')
 const SD = require('../src/services/social-discovery')
-const { indexarPorHandle } = require('../src/services/enriquecimento-worker')
+const etapasDb = require('../src/db/enriquecimento-etapas')
+const { idsDaEtapa, indexarPorHandle, seguir } = require('../src/services/enriquecimento-worker')
 
 const SRC = path.join(__dirname, '..', 'src')
 const ler = (...p) => fs.readFileSync(path.join(SRC, ...p), 'utf8')
@@ -269,6 +270,35 @@ test('indexarPorHandle casa pelo account e pelo eco do input', () => {
   ])
   assert.ok(mapa.has('loja_do_ze'))
   assert.ok(mapa.has('outro.perfil'))
+})
+
+test('worker aceita o shape snake_case vindo do banco ao seguir para instagram_perfil', () => {
+  const ids = idsDaEtapa({
+    prospect_id: 'prospect-db',
+    empresa_id: 'empresa-db',
+  })
+  assert.deepEqual(ids, {
+    prospectId: 'prospect-db',
+    empresaId: 'empresa-db',
+  })
+})
+
+test('descoberta concluida enfileira instagram_perfil mesmo com item vindo do banco', async (t) => {
+  let chamada = null
+  t.mock.method(etapasDb, 'enfileirar', async (...args) => {
+    chamada = args
+    return { enfileirados: 1 }
+  })
+
+  await seguir(P.ETAPA.DESCOBERTA, {
+    prospect_id: 'prospect-db',
+    empresa_id: 'empresa-db',
+  })
+
+  assert.deepEqual(chamada, [
+    ['prospect-db'],
+    { empresaId: 'empresa-db', etapa: P.ETAPA.PERFIL },
+  ])
 })
 
 // ── Guardas de regressao: falha da fonte nunca vira veredito ─────────────────

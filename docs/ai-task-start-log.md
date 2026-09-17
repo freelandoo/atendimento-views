@@ -6,6 +6,20 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-17 - Início de tarefa IA - Correção do encadeamento do enriquecimento Instagram
+
+- **IA/Ferramenta:** Codex, no worktree `codex/instagram-brightdata-serp`, com publicação solicitada em `master`.
+- **Pedido resumido:** corrigir bug localizado no pipeline de enriquecimento de Instagram em
+  produção: a descoberta via Bright Data SERP conclui, mas a etapa `instagram_perfil` não é
+  enfileirada porque o worker espera `prospectId`/`empresaId` enquanto a camada de banco retorna
+  `prospect_id`/`empresa_id`.
+- **É projeto/tarefa de alteração?** Sim, de escopo pequeno e corretivo. Inclui teste de regressão,
+  commit/push em `master`, deploy e reenfileiramento controlado dos leads já descobertos sem
+  alterar teto SERP nem disparar coleta paga sem relatório prévio de risco.
+- **Workflow padrão consultado?** AGENTS.md, CLAUDE.md e docs/ai-workflow.md.
+- **Fora de escopo declarado:** migration/schema, tela, prompts, mudança de `INSTAGRAM_SERP_TETO_DIARIO`,
+  nova coleta Maps/SERP, alteração de orçamento ou refatoração do pipeline.
+
 ## 2026-09-12 - Início de tarefa IA - Revisão multiusuário: a porta do Comercial
 
 - **IA/Ferramenta:** Claude Code (Opus 5), na `master` (baseline `93bb37a`).
