@@ -4093,3 +4093,25 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Cuidados:** nao tratar `score_cadastro` como chance de venda, nao duplicar regra critica sem
   teste, nao alterar banco/migrations e manter `▲` como crescente/piores primeiro e `▼` como
   decrescente/melhores primeiro.
+
+## 2026-09-17 - Tarefa IA - Busca avulsa entregando o lead ja validado
+
+- **Pedido resumido:** ao clicar na Busca avulsa, o lead deveria chegar com Google, Instagram e a
+  atividade dos dois ja validados, em vez de o Instagram so ser resolvido dias depois.
+- **E projeto/tarefa de alteracao?** Sim, mas de CONFIGURACAO. Decisao do operador (2026-09-17):
+  abrir os dois tetos diarios do enriquecimento e NAO mexer em codigo.
+- **Diagnostico:** a arquitetura ja fazia o trabalho. O Google (ficha, status e atividade) e
+  validado de forma SINCRONA na materializacao da coleta (`mapearPlace` ->
+  `calcularAtividadeGoogle`). O Instagram e assincrono por desenho, e o que o atrasava eram os
+  tetos: `INSTAGRAM_SERP_TETO_DIARIO=90` contra as ~176 consultas de uma busca de 200 leads, e
+  `BRIGHTDATA_ENRIQUECIMENTO_TETO_DIARIO=150` creditos de perfil. O ritmo do worker (10
+  descobertas/tique de 1 min, 25 perfis por snapshot) nunca foi o gargalo.
+- **Escopo:** `backend/.env` (alinhar o ambiente local com a producao, que ja tem a zona SERP) e
+  o comentario de politica no `backend/.env.example`. Nenhum arquivo de `src/`, nenhuma migration,
+  nenhuma rota, nenhum teste alterado.
+- **Cuidados:** o clique NAO pode validar nada (nada existe ainda: ele so dispara o job do Maps, que
+  leva de minutos a horas); o alvo e o lead chegar validado, nao o clique validar. Os defaults do
+  codigo (90/150) ficam intactos, porque sao politica de seguranca do repositorio — quem abre e a
+  env explicita do ambiente. Abrir teto em canal pago sem saldo informado deixa o teto diario como
+  unica trava: declarado e aceito pelo operador, que acompanha o saldo (4.200 creditos em
+  2026-09-17).
