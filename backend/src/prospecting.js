@@ -1279,14 +1279,17 @@ async function salvarProspects(prospects, contexto = {}) {
   // o de uma origem deixaria o outro permanentemente sem Instagram).
   //
   // Só ENFILEIRA: nada é buscado aqui. Os leads já estão salvos e visíveis neste ponto, e o
-  // funil roda no tique seguinte, com tetos próprios. Pendurar ~176 consultas ao Google CSE
+  // funil roda no tique seguinte, com tetos próprios. Pendurar ~176 consultas SERP
   // nesta função seguraria leads JÁ PAGOS fora do Banco de Leads enquanto o funil trabalha.
   //
-  // `enfileirar` nunca lança e faz `ON CONFLICT DO NOTHING`: quem já passou pelo funil não
-  // repete (não se repaga busca nem perfil de lead reencontrado), e uma falha aqui custa um
-  // enriquecimento — jamais a importação de uma coleta que já foi paga.
+  // `enfileirar` nunca lança. A descoberta segue antiduplicada; o PERFIL pode ser reaberto
+  // quando um lead reencontrado ja tem @ conhecido e o cache de atividade/posts venceu — ter
+  // Instagram não significa ter Instagram ATIVO medido.
   if (salvos.length) {
     await enriquecimentoDb.enfileirar(salvos.map((s) => s.id), {
+      empresaId: contexto.empresaId || salvos[0].empresa_id || null,
+    }).catch(() => {})
+    await enriquecimentoDb.enfileirarPerfisComCacheVencido(salvos.map((s) => s.id), {
       empresaId: contexto.empresaId || salvos[0].empresa_id || null,
     }).catch(() => {})
   }

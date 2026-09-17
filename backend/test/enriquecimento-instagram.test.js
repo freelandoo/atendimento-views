@@ -10,6 +10,7 @@ const P = require('../src/services/enriquecimento-pipeline')
 const IG = require('../src/services/instagram-perfil')
 const SD = require('../src/services/social-discovery')
 const etapasDb = require('../src/db/enriquecimento-etapas')
+const { pool } = require('../src/db')
 const { idsDaEtapa, indexarPorHandle, seguir } = require('../src/services/enriquecimento-worker')
 
 const SRC = path.join(__dirname, '..', 'src')
@@ -301,6 +302,27 @@ test('descoberta concluida enfileira instagram_perfil mesmo com item vindo do ba
   ])
 })
 
+test('lead reencontrado com Instagram conhecido reabre perfil quando cache venceu', async (t) => {
+  let chamada = null
+  t.mock.method(pool, 'query', async (...args) => {
+    chamada = args
+    return { rowCount: 2 }
+  })
+
+  const r = await etapasDb.enfileirarPerfisComCacheVencido(['p1', 'p1', 'p2'], {
+    empresaId: 'empresa-1',
+    ttlDias: 45,
+  })
+
+  assert.equal(r.enfileirados, 2)
+  assert.match(chamada[0], /instagram_perfil/)
+  assert.match(chamada[0], /instagram_perfil_em IS NULL/)
+  assert.match(chamada[0], /ON CONFLICT \(prospect_id, etapa\) DO UPDATE/)
+  assert.match(chamada[0], /status NOT IN/)
+  assert.deepEqual(chamada[1], ['empresa-1', ['p1', 'p2'], P.ETAPA.PERFIL,
+    P.STATUS.PENDENTE, 45, P.STATUS.PENDENTE, P.STATUS.PROCESSANDO])
+})
+
 // ── Guardas de regressao: falha da fonte nunca vira veredito ─────────────────
 
 test('o worker so grava descoberta DEPOIS de conferir que a busca aconteceu', () => {
@@ -409,6 +431,7 @@ test('a importacao so ENFILEIRA: nenhuma busca roda dentro de salvarProspects', 
   const fim = FONTE_PROSPECTING.indexOf('function extrairEmailSiteAtivo')
   const bloco = FONTE_PROSPECTING.slice(ini, fim)
   assert.match(bloco, /enriquecimentoDb\.enfileirar/)
+  assert.match(bloco, /enriquecimentoDb\.enfileirarPerfisComCacheVencido/)
   for (const proibido of ['tickEnriquecimento', 'buscarPerfisDeNegocio', 'dispararPerfis',
     'processarDescobertas', 'brightdata.trigger']) {
     assert.ok(!bloco.includes(proibido),
@@ -418,7 +441,11 @@ test('a importacao so ENFILEIRA: nenhuma busca roda dentro de salvarProspects', 
 
 test('o enfileiramento nunca derruba a importacao', () => {
   assert.match(FONTE_PROSPECTING, /enriquecimentoDb\.enfileirar\([\s\S]{0,200}?\}\)\.catch\(/)
+  assert.match(FONTE_PROSPECTING,
+    /enriquecimentoDb\.enfileirarPerfisComCacheVencido\([\s\S]{0,240}?\}\)\.catch\(/)
   assert.match(FONTE_DB, /async function enfileirar[\s\S]*?catch \(e\) \{[\s\S]*?return \{ enfileirados: 0/)
+  assert.match(FONTE_DB,
+    /async function enfileirarPerfisComCacheVencido[\s\S]*?catch \(e\) \{[\s\S]*?return \{ enfileirados: 0/)
 })
 
 // ── Anti-drift: modulo x migration ───────────────────────────────────────────

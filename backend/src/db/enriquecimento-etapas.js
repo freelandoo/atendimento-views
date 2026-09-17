@@ -45,6 +45,49 @@ async function enfileirar(prospectIds, { empresaId = null, etapa = ETAPA.DESCOBE
 }
 
 /**
+ * Reabre/cria a etapa de PERFIL quando a recoleta encontra lead que JA tem @ conhecido, mas a
+ * atividade do Instagram ainda nao foi medida ou o cache venceu.
+ *
+ * Diferente de `enfileirar`, aqui o conflito pode ser atualizado: uma linha terminal antiga nao
+ * pode impedir que um lead reencontrado hoje valide posts de novo. Linhas ja pendentes ou
+ * processando ficam intactas para nao duplicar snapshot pago.
+ */
+async function enfileirarPerfisComCacheVencido(prospectIds, {
+  empresaId = null, ttlDias = 30,
+} = {}) {
+  const ids = [...new Set((Array.isArray(prospectIds) ? prospectIds : []).filter(Boolean))]
+  const ttl = Math.max(1, Math.min(365, Number.parseInt(ttlDias, 10) || 30))
+  if (!ids.length) return { enfileirados: 0 }
+  try {
+    const { rowCount } = await pool.query(
+      `INSERT INTO prospectador.enriquecimento_etapas
+         (empresa_id, prospect_id, etapa, status, proxima_tentativa_em)
+       SELECT COALESCE($1::uuid, p.empresa_id), p.id, $3, $4, NOW()
+         FROM prospectador.prospects p
+        WHERE p.id = ANY($2::uuid[])
+          AND COALESCE(NULLIF(TRIM(p.instagram_handle), ''),
+                       NULLIF(TRIM(p.instagram_candidato), '')) IS NOT NULL
+          AND (p.instagram_perfil_em IS NULL
+               OR p.instagram_perfil_em < NOW() - ($5::int * INTERVAL '1 day'))
+       ON CONFLICT (prospect_id, etapa) DO UPDATE
+          SET status = EXCLUDED.status,
+              motivo = NULL,
+              proxima_tentativa_em = NOW(),
+              lease_ate = NULL,
+              ultima_execucao_em = NULL,
+              snapshot_id = NULL,
+              atualizado_em = NOW()
+        WHERE prospectador.enriquecimento_etapas.status NOT IN ($6, $7)`,
+      [empresaId, ids, ETAPA.PERFIL, STATUS.PENDENTE, ttl,
+        STATUS.PENDENTE, STATUS.PROCESSANDO]
+    )
+    return { enfileirados: rowCount || 0 }
+  } catch (e) {
+    return { enfileirados: 0, erro: e.message }
+  }
+}
+
+/**
  * Reserva trabalho para ESTE worker.
  *
  * `FOR UPDATE SKIP LOCKED` + lease — o mesmo padrao de `meta-dispatch.js`. Dois processos nunca
@@ -278,6 +321,7 @@ async function resumoPorEmpresa(empresaId) {
 
 module.exports = {
   enfileirar,
+  enfileirarPerfisComCacheVencido,
   reservar,
   finalizar,
   reagendar,

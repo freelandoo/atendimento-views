@@ -4023,3 +4023,18 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   Instagram/SERP e regras de nao sobrescrever decisao humana.
 - **Cuidados:** nao expor segredos, nao fazer coleta paga para validar, alterar somente a env
   especifica se necessario, e separar estado de codigo/env/deploy no relatorio.
+
+## 2026-09-17 - Tarefa IA - Revalidar Instagram em lead reencontrado
+
+- **Pedido resumido:** lead antigo/reencontrado que ja tem Instagram salvo deve poder validar
+  atividade real do perfil/posts, em vez de ficar apenas como "tem Instagram" ou "sem sinal
+  social coletado". Exemplo operacional citado: lead solar com Instagram ativo, mas sem atividade
+  medida no checklist.
+- **E projeto/tarefa de alteracao?** Sim. Ajuste pequeno no enfileiramento do pipeline de
+  Instagram, sem migration, sem dependencia nova e sem chamada paga durante a implementacao.
+- **Escopo:** quando a busca avulsa/recoleta salvar um lead com `instagram_handle` ou candidato
+  ja conhecido e cache de perfil ausente/vencido, reabrir/criar `instagram_perfil` para medir
+  posts/atividade. A descoberta SERP continua antiduplicada; nao repetir busca de @ sem motivo.
+- **Cuidados:** nao sobrescrever decisao humana, nao transformar ausencia de dado em inatividade,
+  nao executar coleta paga real sem autorizacao, manter a importacao apenas enfileirando trabalho
+  de fundo e preservar tetos/orcamento do enriquecimento.
