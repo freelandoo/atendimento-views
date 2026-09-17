@@ -3178,3 +3178,25 @@ antigo, mas nao e a configuracao recomendada.
 generica "consultas da descoberta"; renomear banco agora seria destrutivo e sem ganho operacional.
 Documentacao e testes foram atualizados para impedir volta do endpoint `customsearch/v1` nesse
 fluxo.
+
+---
+
+## 2026-09-17 — Modal de detalhes do lead como ficha operacional
+
+Contexto: Banco de Leads e Aquisicao usam o mesmo `LeadDetalhesModal.tsx` para abrir a ficha do
+lead. Depois da regua de qualificacao, o modal passou a acumular checklist ICP, score de
+cadastro, sinais automaticos, penalidades, contexto e mensagem gerada.
+
+**Decisao 1 — a primeira dobra responde "qual decisao tomar?".** O modal agora abre com nome,
+mercado, selos de ICP/validacao, resumo do checklist, regua operacional e completude de cadastro.
+Detalhes extensos ficam abaixo ou na lateral. Isto segue o guia visual: tela operacional, densa e
+escaneavel, sem hero/marketing.
+
+**Decisao 2 — checklist humano e sinais automaticos continuam separados.** O checklist e a area
+principal editavel; sinais automaticos, penalidades e cadastro ficam em blocos de apoio. O
+frontend nao calcula nova regra critica: apenas apresenta `qualificacao_resumo`, `icp_resumo_json`
+e tradutores puros ja existentes.
+
+**Decisao 3 — sem novo padrao estrutural fora do componente.** A mudanca e local ao modal
+compartilhado. Nao houve rota, schema, dependencia, env ou fluxo paralelo. O autosave e o envio
+`finalizar` ao desmontar o modal foram preservados.

@@ -410,9 +410,80 @@ function BlocoInstagram({ lead, empresaId, onLeadAtualizado, pedidoRegistro = 0 
 
 function Linha({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
   return (
-    <div className="flex gap-2 py-1 text-sm">
-      <dt className="w-32 shrink-0 text-xs text-slate-500">{rotulo}</dt>
-      <dd className="min-w-0 flex-1 break-words text-slate-800">{children}</dd>
+    <div className="grid gap-1 py-2 text-sm sm:grid-cols-[8.5rem_minmax(0,1fr)]">
+      <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{rotulo}</dt>
+      <dd className="min-w-0 break-words text-slate-800">{children}</dd>
+    </div>
+  )
+}
+
+function SecaoModal({ titulo, subtitulo, acao, children }: {
+  titulo: string
+  subtitulo?: string
+  acao?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
+        <div className="min-w-0">
+          <h4 className="text-sm font-semibold text-slate-900">{titulo}</h4>
+          {subtitulo && <p className="mt-0.5 text-xs text-slate-500">{subtitulo}</p>}
+        </div>
+        {acao}
+      </div>
+      <div className="px-4 py-3">{children}</div>
+    </section>
+  )
+}
+
+function CartaoResumo({ rotulo, valor, detalhe, children, classe = '' }: {
+  rotulo: string
+  valor: string
+  detalhe?: string
+  children?: React.ReactNode
+  classe?: string
+}) {
+  return (
+    <div className={`min-h-[116px] rounded-lg border border-slate-200 bg-white px-4 py-3 ${classe}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{rotulo}</p>
+      <div className="mt-2 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-lg font-semibold leading-tight text-slate-900">{valor}</p>
+          {detalhe && <p className="mt-1 text-xs leading-relaxed text-slate-500">{detalhe}</p>}
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function ListaQualificacao({ titulo, itens, tom = 'neutro' }: {
+  titulo: string
+  itens: QualificacaoItem[]
+  tom?: 'neutro' | 'alerta' | 'positivo'
+}) {
+  if (!itens.length) return null
+  const classe = tom === 'alerta'
+    ? 'border-amber-200 bg-amber-50 text-amber-800'
+    : tom === 'positivo'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+      : 'border-slate-200 bg-slate-50 text-slate-700'
+  return (
+    <div>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{titulo}</p>
+      <div className="mt-2 grid gap-1.5">
+        {itens.map((item) => (
+          <div key={item.chave || item.rotulo} className={`rounded-lg border px-2.5 py-2 text-xs ${classe}`}>
+            <span className="font-medium">{item.rotulo}</span>
+            {typeof item.pontos === 'number' && item.pontos !== 0 && (
+              <span className={item.pontos < 0 ? 'ml-1 text-rose-700' : 'ml-1 text-emerald-700'}>
+                {item.pontos > 0 ? '+' : ''}{item.pontos}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -452,13 +523,11 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
   const criterios = criteriosDoLead(lead)
   const maximo = maximoDoLead(lead)
   const leituraCad = leituraCadastro(lead.score_cadastro, maximo, criterios)
-  const handle = (lead.instagram_handle || '').replace(/^@/, '')
   // Contador, não booleano: o operador pode clicar "Registrar Instagram" várias vezes, e cada
   // clique tem de reabrir o campo — um booleano já `true` não dispararia o efeito de novo.
   const [pedidoRegistroIg, setPedidoRegistroIg] = useState(0)
   const avisoIcp = avisoIcpSemPerfil(lead)
   const icp = resumoIcpDoLead(lead) as ResumoIcp
-  const selo = seloIcp(icp.faixa, icp.score)
   const sinaisAuto = useMemo(
     () => ({ ...sinaisAutomaticosDoLead(lead), ...(icp.sinais_auto || {}) }) as Record<string, SinalIcp>,
     [lead, icp.sinais_auto]
@@ -476,6 +545,27 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
     ...(qualificacao.penalidades || []),
     ...(qualificacao.revisoes || []),
   ]
+  const sinaisQualificacao = qualificacao.sinais || []
+  const autosaveTexto = autosaveIcp === 'pendente'
+    ? 'Alterações pendentes'
+    : autosaveIcp === 'salvando'
+      ? 'Salvando ICP'
+      : autosaveIcp === 'salvo'
+        ? 'ICP salvo'
+        : autosaveIcp === 'erro' || autosaveIcp === 'bloqueado'
+          ? 'ICP não salvo'
+          : 'Autosave ativo'
+  const autosaveClasse = autosaveIcp === 'erro' || autosaveIcp === 'bloqueado'
+    ? 'bg-red-50 text-red-700'
+    : autosaveIcp === 'salvando' || autosaveIcp === 'pendente'
+      ? 'bg-amber-50 text-amber-700'
+      : autosaveIcp === 'salvo'
+        ? 'bg-emerald-50 text-emerald-700'
+        : 'bg-slate-50 text-slate-500'
+  const contatos = [
+    lead.telefone ? 'telefone' : '',
+    lead.email ? 'e-mail' : '',
+  ].filter(Boolean)
 
   useEffect(() => {
     const respostas = respostasIniciaisIcp(lead) as Record<string, boolean>
@@ -592,289 +682,292 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onFechar}>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-3 sm:p-4" onClick={onFechar}>
         <div
           role="dialog"
           aria-modal="true"
           aria-label={`Detalhes de ${lead.nome}`}
-          className="max-h-[85vh] w-full max-w-lg space-y-3 overflow-y-auto rounded-2xl bg-white p-5 shadow-xl"
+          className="max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-lg bg-slate-50 shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="truncate text-sm font-semibold">{lead.nome || '—'}</h3>
-              <NichoCidade nicho={lead.nicho} cidade={lead.cidade} className="text-xs" vazio="Sem mercado informado" />
+          <div className="border-b border-slate-200 bg-white px-5 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Ficha do lead</p>
+                <h3 className="mt-1 truncate text-xl font-semibold leading-tight text-slate-950">{lead.nome || '—'}</h3>
+                <NichoCidade nicho={lead.nicho} cidade={lead.cidade} className="mt-1 text-sm" vazio="Sem mercado informado" />
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                  <span className={`rounded-full border px-2.5 py-1 font-semibold ${seloEditado.classe}`} title={seloEditado.descricao}>
+                    {seloEditado.rotulo}{seloEditado.score != null ? ` · ${seloEditado.score}/13` : ''}
+                  </span>
+                  <span className={`rounded-full border px-2.5 py-1 font-semibold ${seloValidacao.classe}`} title={seloValidacao.descricao}>
+                    {seloValidacao.rotulo} · {qualificacao.score_100}/100
+                  </span>
+                  {contatos.length > 0 && (
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-medium text-slate-600">
+                      {contatos.join(' + ')}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {lead.json_apresentacao && (
+                  <button
+                    onClick={() => setJsonAberto(true)}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:border-brand hover:bg-brand/5 hover:text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                    title="Dados unificados + prompt único pro bot gerar a saudação de análise"
+                  >
+                    Ver dados completos
+                  </button>
+                )}
+                <button
+                  onClick={onFechar}
+                  aria-label="Fechar detalhes"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-xl leading-none text-slate-400 hover:bg-slate-50 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                >
+                  ×
+                </button>
+              </div>
             </div>
-            <button onClick={onFechar} aria-label="Fechar detalhes" className="text-lg leading-none text-slate-400 hover:text-slate-600">×</button>
           </div>
 
-          <div className="rounded-xl border bg-white px-3 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-3">
+          <div className="max-h-[calc(92vh-108px)] overflow-y-auto px-5 py-4">
+            <div className="grid gap-3 lg:grid-cols-3">
+              <CartaoResumo
+                rotulo="Decisão ICP"
+                valor={seloEditado.rotulo}
+                detalhe={`Checklist humano em ${seloEditado.score ?? 0}/13 pontos.`}
+              >
                 <BolinhaIcp l={{ ...lead, icp_score: icpEditado.score, icp_faixa: icpEditado.faixa, icp_resumo_json: { ...lead.icp_resumo_json, ...icpEditado } }} />
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">ICP geral v1.1</p>
-                  <p className="mt-0.5 text-xs text-slate-500">Score comercial geral: cadastro/coleta + validação humana.</p>
+              </CartaoResumo>
+              <CartaoResumo
+                rotulo="Validação operacional"
+                valor={`${qualificacao.score_100}/100`}
+                detalhe={alertasQualificacao.length > 0
+                  ? alertasQualificacao.slice(0, 2).map((a) => a.rotulo).join(' · ')
+                  : `Validação ${qualificacao.confianca === 'alta' ? 'com confiança alta' : 'com atenção'}.`}
+              />
+              <CartaoResumo
+                rotulo="Cadastro e coleta"
+                valor={typeof lead.score_cadastro === 'number' ? `${lead.score_cadastro}/${maximo}` : 'sem score'}
+                detalhe={`${leituraCad.titulo}. ${NOTA_COMPLETUDE}`}
+              />
+            </div>
+
+            {/* Mensagem já preparada (Manual/Semi/Automático escrevem no mesmo rascunho — texto
+                único reaproveitado pelos três). O botão de copiar existe para o caso em que a
+                instância de envio está desconectada: a mensagem já foi gerada e não precisa
+                esperar a conexão voltar para ser aproveitada manualmente. */}
+            {lead.mensagem_gerada && (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-800">Mensagem gerada</p>
+                  <button
+                    type="button"
+                    onClick={copiarMensagem}
+                    className="shrink-0 rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-amber-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                  >
+                    Copiar
+                  </button>
                 </div>
-              </div>
-              <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${seloEditado.classe}`} title={seloEditado.descricao}>
-                {seloEditado.rotulo}{seloEditado.score != null ? ` · ${seloEditado.score}/13` : ''}
-              </span>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${seloValidacao.classe}`}
-                title={seloValidacao.descricao}>
-                {seloValidacao.rotulo} · {qualificacao.score_100}/100
-              </span>
-              <span className="text-[11px] text-slate-500">
-                Validação {qualificacao.confianca === 'alta' ? 'com confiança alta' : 'com atenção'}.
-              </span>
-              {alertasQualificacao.length > 0 && (
-                <span className="text-[11px] text-slate-500">
-                  {alertasQualificacao.slice(0, 2).map((a) => a.rotulo).join(' · ')}
-                </span>
-              )}
-            </div>
-            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cadastro como evidência</p>
-                  <p className="mt-0.5 text-xs font-medium text-slate-700">{leituraCad.titulo}</p>
-                </div>
-                <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600">
-                  {typeof lead.score_cadastro === 'number' ? `${lead.score_cadastro}/${maximo}` : 'sem score'}
-                </span>
-              </div>
-              <p className="mt-1 text-[11px] text-slate-500">{NOTA_COMPLETUDE}</p>
-              {criterios.length > 0 && (
-                <ul className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
-                  {criterios.map((c, i) => (
-                    <li key={c.chave || i} className={`flex items-center gap-1.5 text-xs ${c.ok ? 'text-slate-700' : 'text-slate-400'}`}>
-                      <span aria-hidden="true">{c.ok ? '✓' : '✗'}</span>
-                      <span>{c.label}</span>
-                      {!c.ok && <span className="text-[10px] text-slate-400">(+{c.pontos_possiveis ?? 0})</span>}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Automático</p>
-              <div className="mt-1 grid gap-1 sm:grid-cols-3">
-                {Object.entries(sinaisAuto).map(([id, sinal]) => {
-                  const criterio = CRITERIOS_ICP_TENKA.find((c) => c.id === id)
-                  if (!criterio) return null
-                  return (
-                    <div
-                      key={id}
-                      title={`${criterio.explicacao || criterio.rotulo}${criterio.exemplo ? ` Exemplo: ${criterio.exemplo}` : ''}`}
-                      className={`rounded-lg px-2 py-1 text-[11px] ${sinal?.sugerido ? 'bg-white text-slate-700' : 'bg-slate-100 text-slate-400'}`}
-                    >
-                      <span className="font-medium">{criterio.rotulo}</span>
-                      <span className="ml-1">{sinal?.sugerido ? 'detectado' : 'não detectado'}</span>
-                      {sinal?.motivo && <span className="mt-0.5 block text-[10px] opacity-75">{sinal.motivo}</span>}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-            {(alertasQualificacao.length > 0 || (qualificacao.sinais || []).length > 0) && (
-              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Penalidades e validação</p>
-                <div className="mt-1 grid gap-1 sm:grid-cols-2">
-                  {alertasQualificacao.slice(0, 4).map((a) => (
-                    <div key={a.chave || a.rotulo} className="rounded-lg bg-white px-2 py-1 text-[11px] text-slate-600">
-                      <span className="font-medium">{a.rotulo}</span>
-                      {typeof a.pontos === 'number' && a.pontos !== 0 && (
-                        <span className={a.pontos < 0 ? 'ml-1 text-rose-600' : 'ml-1 text-emerald-700'}>
-                          {a.pontos > 0 ? '+' : ''}{a.pontos}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                  {(qualificacao.sinais || []).slice(0, Math.max(0, 4 - alertasQualificacao.length)).map((s) => (
-                    <div key={s.chave || s.rotulo} className="rounded-lg bg-white px-2 py-1 text-[11px] text-slate-600">
-                      <span className="font-medium">{s.rotulo}</span>
-                      {typeof s.pontos === 'number' && s.pontos !== 0 && <span className="ml-1 text-emerald-700">+{s.pontos}</span>}
-                    </div>
-                  ))}
-                </div>
+                <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-white/70 px-3 py-2 text-xs leading-relaxed text-slate-700">
+                  {lead.mensagem_gerada}
+                </p>
+                {instanciaDesconectada && (
+                  <p className="mt-2 text-xs text-amber-800">
+                    Instância desconectada — copie e envie manualmente pelo WhatsApp enquanto ela não volta.
+                  </p>
+                )}
               </div>
             )}
-            <div className="mt-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Validação humana</p>
-              <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                {icpEditado.criterios.map((c) => {
-                  const auto = sinaisAuto[c.id]
-                  const humano = c.tipo !== 'automatico'
-                  const criterioDoc = CRITERIOS_ICP_TENKA.find((item) => item.id === c.id) || c
-                  return (
-                    <label
-                      key={c.id}
-                      title={`${criterioDoc.explicacao || c.rotulo}${criterioDoc.exemplo ? ` Exemplo: ${criterioDoc.exemplo}` : ''}`}
-                      className={`flex items-start gap-2 rounded-lg border px-2 py-1.5 text-xs ${respostasIcp[c.id] ? 'border-orange-200 bg-orange-50/60 text-slate-800' : 'border-slate-200 bg-white text-slate-600'}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={!!respostasIcp[c.id]}
-                        onChange={(e) => alterarRespostaIcp(c.id, e.target.checked)}
-                        className="mt-0.5"
-                      />
-                      <span className="min-w-0">
-                        <span className="font-medium">{c.rotulo}</span>
-                        <span className="ml-1 text-slate-400">+{c.pontos}</span>
-                        <span className="ml-1 rounded-full bg-white/80 px-1.5 py-0.5 text-[10px] text-slate-500">
-                          {humano ? (auto?.sugerido ? 'auto + humano' : 'humano') : 'automático'}
-                        </span>
-                        {criterioDoc.explicacao && <span className="mt-0.5 block text-[11px] text-slate-500">{criterioDoc.explicacao}</span>}
-                        {auto?.motivo && <span className="block text-[11px] text-slate-400">{auto.motivo}</span>}
-                        {/* Marcar "Instagram ativo" sem perfil registrado NÃO é bloqueado: o ICP é
-                            julgamento humano e o operador pode ter visto o perfil por fora. Mas o
-                            sistema só verifica o que está registrado — então a tela pede o
-                            registro em vez de deixar o critério marcado sobre nada. */}
-                        {c.id === 'instagram_ativo' && !!respostasIcp[c.id] && avisoIcp && (
-                          <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-amber-700">
-                            {avisoIcp}
-                            <button
-                              type="button"
-                              onClick={(e) => { e.preventDefault(); setPedidoRegistroIg((n) => n + 1) }}
-                              className="rounded border border-amber-300 bg-white px-1.5 py-0.5 font-medium text-amber-800 hover:bg-amber-50"
-                            >
-                              Registrar Instagram
-                            </button>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+              <SecaoModal
+                titulo="Checklist ICP"
+                subtitulo="Marque o que foi validado por evidência humana; sinais automáticos ficam separados."
+                acao={(
+                  <span
+                    role={autosaveIcp === 'erro' || autosaveIcp === 'bloqueado' ? 'alert' : 'status'}
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${autosaveClasse}`}
+                    title={erroAutosaveIcp || undefined}
+                  >
+                    {autosaveTexto}
+                  </span>
+                )}
+              >
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {icpEditado.criterios.map((c) => {
+                    const auto = sinaisAuto[c.id]
+                    const humano = c.tipo !== 'automatico'
+                    const criterioDoc = CRITERIOS_ICP_TENKA.find((item) => item.id === c.id) || c
+                    return (
+                      <label
+                        key={c.id}
+                        title={`${criterioDoc.explicacao || c.rotulo}${criterioDoc.exemplo ? ` Exemplo: ${criterioDoc.exemplo}` : ''}`}
+                        className={`flex min-h-[104px] items-start gap-3 rounded-lg border px-3 py-2.5 text-sm transition ${
+                          respostasIcp[c.id]
+                            ? 'border-orange-300 bg-orange-50 text-slate-900 shadow-sm'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!respostasIcp[c.id]}
+                          onChange={(e) => alterarRespostaIcp(c.id, e.target.checked)}
+                          className="mt-1 h-4 w-4 shrink-0"
+                        />
+                        <span className="min-w-0">
+                          <span className="font-semibold">{c.rotulo}</span>
+                          <span className="ml-1 text-xs text-slate-400">+{c.pontos}</span>
+                          <span className="ml-1 rounded-full bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                            {humano ? (auto?.sugerido ? 'auto + humano' : 'humano') : 'automático'}
                           </span>
-                        )}
-                      </span>
-                    </label>
-                  )
-                })}
-              </div>
-              <textarea
-                value={observacaoIcp}
-                onChange={(e) => alterarObservacaoIcp(e.target.value)}
-                placeholder="Observação opcional sobre o fit comercial"
-                className="mt-2 min-h-[58px] w-full resize-y rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none focus:border-brand"
-              />
-              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[11px] text-slate-500">
+                          {criterioDoc.explicacao && <span className="mt-1 block text-xs leading-relaxed text-slate-500">{criterioDoc.explicacao}</span>}
+                          {auto?.motivo && <span className="mt-1 block text-[11px] leading-relaxed text-slate-400">{auto.motivo}</span>}
+                          {/* Marcar "Instagram ativo" sem perfil registrado NÃO é bloqueado: o ICP é
+                              julgamento humano e o operador pode ter visto o perfil por fora. Mas o
+                              sistema só verifica o que está registrado — então a tela pede o
+                              registro em vez de deixar o critério marcado sobre nada. */}
+                          {c.id === 'instagram_ativo' && !!respostasIcp[c.id] && avisoIcp && (
+                            <span className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-amber-700">
+                              {avisoIcp}
+                              <button
+                                type="button"
+                                onClick={(e) => { e.preventDefault(); setPedidoRegistroIg((n) => n + 1) }}
+                                className="rounded border border-amber-300 bg-white px-1.5 py-0.5 font-medium text-amber-800 hover:bg-amber-50"
+                              >
+                                Registrar Instagram
+                              </button>
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+                <textarea
+                  value={observacaoIcp}
+                  onChange={(e) => alterarObservacaoIcp(e.target.value)}
+                  placeholder="Observação opcional sobre o fit comercial"
+                  className="mt-3 min-h-[72px] w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/10"
+                />
+                <p className="mt-2 text-xs text-slate-500">
                   As alterações são salvas sozinhas. Se o resultado final for Lead A, ele fica
                   marcado/qualificado ao fechar esta ficha.
                 </p>
-                <span
-                  role={autosaveIcp === 'erro' || autosaveIcp === 'bloqueado' ? 'alert' : 'status'}
-                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                    autosaveIcp === 'erro' || autosaveIcp === 'bloqueado'
-                      ? 'bg-red-50 text-red-700'
-                      : autosaveIcp === 'salvando' || autosaveIcp === 'pendente'
-                        ? 'bg-amber-50 text-amber-700'
-                        : autosaveIcp === 'salvo'
-                          ? 'bg-emerald-50 text-emerald-700'
-                          : 'bg-slate-50 text-slate-500'
-                  }`}
-                  title={erroAutosaveIcp || undefined}
-                >
-                  {autosaveIcp === 'pendente'
-                    ? 'Alterações pendentes...'
-                    : autosaveIcp === 'salvando'
-                    ? 'Salvando ICP...'
-                    : autosaveIcp === 'salvo'
-                      ? 'ICP salvo'
-                      : autosaveIcp === 'erro' || autosaveIcp === 'bloqueado'
-                        ? 'ICP não salvo'
-                        : 'Autosave ativo'}
-                </span>
+                {erroAutosaveIcp && (
+                  <p className="mt-2 text-xs text-red-600">{erroAutosaveIcp}</p>
+                )}
+              </SecaoModal>
+
+              <div className="space-y-4">
+                <SecaoModal titulo="Contexto do lead" subtitulo="Dados que ajudam a decidir a abordagem.">
+                  {/* Dados complementares: é para cá que vieram Endereço, Nota, Avaliações e Horário
+                      quando saíram das colunas da tabela. */}
+                  <dl className="divide-y divide-slate-100">
+                    {lead.telefone && <Linha rotulo="Telefone"><span className="font-mono text-xs">{lead.telefone}</span></Linha>}
+                    {lead.email && <Linha rotulo="E-mail"><span className="text-xs">{lead.email}</span></Linha>}
+                    {lead.endereco && <Linha rotulo="Endereço"><span className="text-xs">{lead.endereco}</span></Linha>}
+                    {(lead.rating != null || lead.avaliacoes != null) && (
+                      <Linha rotulo="Reputação">
+                        <span className="text-xs">
+                          {lead.rating != null ? `Nota ${Number(lead.rating).toFixed(1)}` : 'Sem nota'}
+                          {' · '}
+                          {lead.avaliacoes != null ? `${lead.avaliacoes} avaliações` : 'sem avaliações'}
+                        </span>
+                      </Linha>
+                    )}
+                    {horario != null && (
+                      <Linha rotulo="Horário"><span className="text-xs">{horario ? 'Cadastrado no Google' : 'Não cadastrado'}</span></Linha>
+                    )}
+                    {fotos != null && <Linha rotulo="Fotos"><span className="text-xs">{fotos}</span></Linha>}
+                    {lead.seguidores != null && (
+                      <Linha rotulo="Seguidores"><span className="text-xs">{lead.seguidores.toLocaleString('pt-BR')}</span></Linha>
+                    )}
+                    <BlocoInstagram lead={lead} empresaId={empresaId} onLeadAtualizado={onLeadAtualizado} pedidoRegistro={pedidoRegistroIg} />
+                    {/* O link não-site continua acessível, dito pelo que ele é — nunca como "site". */}
+                    <Linha rotulo="Presença digital">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                        {lead.tem_site && lead.site && (
+                          <a href={lead.site} target="_blank" rel="noreferrer" className="text-brand hover:underline">site próprio ↗</a>
+                        )}
+                        {!lead.tem_site && lead.link_original && (
+                          <a href={lead.link_original} target="_blank" rel="noreferrer" className="text-slate-500 hover:underline"
+                            title={tituloLinkNaoSite(lead.classificacao_url, lead.link_original)}>
+                            {rotuloLink(lead.classificacao_url) || 'link'} ↗
+                          </a>
+                        )}
+                        {lead.link_bio && (
+                          <a href={lead.link_bio} target="_blank" rel="noreferrer" className="text-slate-500 hover:underline">link da bio ↗</a>
+                        )}
+                        {lead.maps_url && (
+                          <a href={lead.maps_url} target="_blank" rel="noreferrer" className="text-slate-500 hover:underline">ficha no Maps ↗</a>
+                        )}
+                        {!lead.site && !lead.link_original && !lead.link_bio && !lead.maps_url && <span className="text-slate-400">Nenhum link</span>}
+                      </div>
+                    </Linha>
+                    {lead.bio && <Linha rotulo="Bio"><span className="text-xs leading-relaxed text-slate-600">{lead.bio}</span></Linha>}
+                  </dl>
+                </SecaoModal>
+
+                <SecaoModal titulo="Sinais automáticos" subtitulo="Sugestões de apoio, não substituem a validação humana.">
+                  <div className="grid gap-2">
+                    {Object.entries(sinaisAuto).map(([id, sinal]) => {
+                      const criterio = CRITERIOS_ICP_TENKA.find((c) => c.id === id)
+                      if (!criterio) return null
+                      return (
+                        <div
+                          key={id}
+                          title={`${criterio.explicacao || criterio.rotulo}${criterio.exemplo ? ` Exemplo: ${criterio.exemplo}` : ''}`}
+                          className={`rounded-lg border px-3 py-2 text-xs ${
+                            sinal?.sugerido ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-50 text-slate-500'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold">{criterio.rotulo}</span>
+                            <span>{sinal?.sugerido ? 'detectado' : 'não detectado'}</span>
+                          </div>
+                          {sinal?.motivo && <p className="mt-1 leading-relaxed opacity-80">{sinal.motivo}</p>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </SecaoModal>
+
+                {(alertasQualificacao.length > 0 || sinaisQualificacao.length > 0 || criterios.length > 0) && (
+                  <SecaoModal titulo="Evidências e alertas" subtitulo="Pontuação de cadastro e régua operacional.">
+                    <div className="space-y-4">
+                      <ListaQualificacao titulo="Penalidades / revisão" itens={alertasQualificacao.slice(0, 5)} tom="alerta" />
+                      <ListaQualificacao titulo="Sinais positivos" itens={sinaisQualificacao.slice(0, 5)} tom="positivo" />
+                      {criterios.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cadastro</p>
+                          <ul className="mt-2 grid gap-1">
+                            {criterios.map((c, i) => (
+                              <li key={c.chave || i} className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${c.ok ? 'border-slate-200 bg-white text-slate-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
+                                <span aria-hidden="true">{c.ok ? '✓' : '✗'}</span>
+                                <span className="min-w-0 flex-1">{c.label}</span>
+                                {!c.ok && <span className="text-[10px] text-slate-400">+{c.pontos_possiveis ?? 0}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </SecaoModal>
+                )}
               </div>
-              {erroAutosaveIcp && (
-                <p className="mt-1 text-[11px] text-red-600">{erroAutosaveIcp}</p>
-              )}
             </div>
-          </div>
 
-          {/* Mensagem já preparada (Manual/Semi/Automático escrevem no mesmo rascunho — texto
-              único reaproveitado pelos três). O botão de copiar existe para o caso em que a
-              instância de envio está desconectada: a mensagem já foi gerada e não precisa
-              esperar a conexão voltar para ser aproveitada manualmente. */}
-          {lead.mensagem_gerada && (
-            <div className="rounded-xl border bg-amber-50/60 px-3 py-3 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-semibold text-slate-700">Mensagem gerada</p>
-                <button
-                  type="button"
-                  onClick={copiarMensagem}
-                  className="shrink-0 rounded-lg border bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
-                >
-                  Copiar
-                </button>
-              </div>
-              <p className="whitespace-pre-wrap text-xs text-slate-700">{lead.mensagem_gerada}</p>
-              {instanciaDesconectada && (
-                <p className="text-[11px] text-amber-700">
-                  Instância desconectada — copie e envie manualmente pelo WhatsApp enquanto ela não volta.
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Dados complementares: é para cá que vieram Endereço, Nota, Avaliações e Horário
-              quando saíram das colunas da tabela. */}
-          <dl className="divide-y">
-            {lead.telefone && <Linha rotulo="Telefone"><span className="font-mono text-xs">{lead.telefone}</span></Linha>}
-            {lead.email && <Linha rotulo="E-mail"><span className="text-xs">{lead.email}</span></Linha>}
-            {lead.endereco && <Linha rotulo="Endereço"><span className="text-xs">{lead.endereco}</span></Linha>}
-            {(lead.rating != null || lead.avaliacoes != null) && (
-              <Linha rotulo="Reputação">
-                <span className="text-xs">
-                  {lead.rating != null ? `Nota ${Number(lead.rating).toFixed(1)}` : 'Sem nota'}
-                  {' · '}
-                  {lead.avaliacoes != null ? `${lead.avaliacoes} avaliações` : 'sem avaliações'}
-                </span>
-              </Linha>
-            )}
-            {horario != null && (
-              <Linha rotulo="Horário"><span className="text-xs">{horario ? 'Cadastrado no Google' : 'Não cadastrado'}</span></Linha>
-            )}
-            {fotos != null && <Linha rotulo="Fotos"><span className="text-xs">{fotos}</span></Linha>}
-            {lead.seguidores != null && (
-              <Linha rotulo="Seguidores"><span className="text-xs">{lead.seguidores.toLocaleString('pt-BR')}</span></Linha>
-            )}
-            <BlocoInstagram lead={lead} empresaId={empresaId} onLeadAtualizado={onLeadAtualizado} pedidoRegistro={pedidoRegistroIg} />
-            {/* O link não-site continua acessível, dito pelo que ele é — nunca como "site". */}
-            <Linha rotulo="Presença digital">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                {lead.tem_site && lead.site && (
-                  <a href={lead.site} target="_blank" rel="noreferrer" className="text-brand hover:underline">site próprio ↗</a>
-                )}
-                {!lead.tem_site && lead.link_original && (
-                  <a href={lead.link_original} target="_blank" rel="noreferrer" className="text-slate-500 hover:underline"
-                    title={tituloLinkNaoSite(lead.classificacao_url, lead.link_original)}>
-                    {rotuloLink(lead.classificacao_url) || 'link'} ↗
-                  </a>
-                )}
-                {lead.link_bio && (
-                  <a href={lead.link_bio} target="_blank" rel="noreferrer" className="text-slate-500 hover:underline">link da bio ↗</a>
-                )}
-                {lead.maps_url && (
-                  <a href={lead.maps_url} target="_blank" rel="noreferrer" className="text-slate-500 hover:underline">ficha no Maps ↗</a>
-                )}
-                {!lead.site && !lead.link_original && !lead.link_bio && !lead.maps_url && <span className="text-slate-400">Nenhum link</span>}
-              </div>
-            </Linha>
-            {lead.bio && <Linha rotulo="Bio"><span className="text-xs text-slate-600">{lead.bio}</span></Linha>}
-          </dl>
-
-          {/* O JSON saiu da tabela e vive aqui: continua a um clique de quem precisa dele,
-              sem ocupar uma coluna da tela de trabalho. */}
-          {lead.json_apresentacao && (
-            <div className="flex justify-end border-t pt-3">
+            <div className="mt-4 flex justify-end">
               <button
-                onClick={() => setJsonAberto(true)}
-                className="rounded-lg border px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
-                title="Dados unificados + prompt único pro bot gerar a saudação de análise"
+                onClick={onFechar}
+                className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
               >
-                Ver dados completos
+                Concluir
               </button>
             </div>
-          )}
+          </div>
         </div>
       </div>
       {jsonAberto && lead.json_apresentacao && (

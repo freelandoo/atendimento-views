@@ -992,3 +992,17 @@ existe e nao deve nascer.
   `.env.example` e `AGENTS.md`.
 - Regras preservadas: falha da fonte nunca vira veredito, nenhuma chamada paga real em teste,
   nenhuma migration, nenhuma dependencia nova, nenhuma sobrescrita de decisao humana.
+
+## 2026-09-17 - Modal operacional de detalhes do lead
+
+- `frontend/components/LeadDetalhesModal.tsx`: o modal de Banco de Leads/Aquisicao foi
+  reorganizado como ficha operacional: identidade e vereditos no topo, resumo ICP/validacao/
+  cadastro na primeira dobra, mensagem gerada com acao de copiar, checklist humano amplo e
+  contexto/sinais/evidencias em coluna lateral.
+- A mudanca e visual/UX: nao cria rota, migration, env, dependencia ou regra critica nova. O
+  front continua traduzindo `qualificacao_resumo`, `icp_resumo_json`, `sinais_auto` e os
+  criterios de completude ja vindos dos modulos/backend existentes.
+- Regras preservadas: checklist humano e sinais automaticos aparecem separados; atividade de
+  Instagram candidato continua com ressalva em texto; autosave/finalizacao do ICP ao fechar o
+  modal foi mantido; "dados completos" continua dentro do modal, nao como coluna nas tabelas.
+- Validacao executada: `npm test`, `npm run typecheck` e `npm run build` em `frontend`.

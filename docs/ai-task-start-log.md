@@ -4066,3 +4066,17 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Cuidados:** nao criar migration sem necessidade/confirmacao, nao fazer chamadas externas ou
   pagas, nao misturar completude de cadastro com prioridade comercial, nao sobrescrever avaliacao
   humana final e manter regras sensiveis no backend/lib pura.
+
+## 2026-09-17 - Tarefa IA - Remodelar modal de detalhes do lead
+
+- **Pedido resumido:** remodelar o modal de detalhes do lead, hoje carregado por Banco de Leads e
+  Aquisicao, para deixar checklist/score/detalhes mais uteis, faceis de usar e visualmente
+  melhores; ao final, fazer commit e push na `master`.
+- **E projeto/tarefa de alteracao?** Sim. Alteracao visual/UX em componente Next.js ja existente,
+  sem intencao de mudar backend, banco, rotas, envs ou integracoes externas.
+- **Escopo inicial:** `frontend/components/LeadDetalhesModal.tsx`, consumidores em Banco de Leads
+  e Prospecção/Aquisicao, helpers de ICP e pontuacao. Preservar a regua de qualificacao exposta
+  pelo backend e manter o front como camada de traducao/apresentacao.
+- **Cuidados:** nao criar regra critica paralela no frontend, nao misturar checklist humano com
+  sinais automaticos, preservar autosave/erros/loading/acoes existentes e validar com scripts do
+  frontend antes de commitar/pushar.
