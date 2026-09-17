@@ -19,7 +19,7 @@ import { aplicarRecorte, gravarFiltros, lerFiltros } from '@/lib/filtros-sessao'
 import {
   FILTROS_STATUS, contagensDosFiltros, taxaResposta, paginaServidor, type PaginaServidor,
 } from '@/lib/prospeccao-listagem'
-import { resumoIcpOperacional, seloIcp } from '@/lib/lead-icp'
+import { qualificacaoDoLead, resumoIcpOperacional, seloIcp, seloValidacaoLead } from '@/lib/lead-icp'
 import { leituraCadastro } from '@/lib/pontuacao-indicador'
 
 type JsonApresProspect = JsonApresentacao & {
@@ -545,14 +545,20 @@ export default function ProspeccaoPage() {
   function resumoIcpCadastroLinha(p: Prospect) {
     const resumo = resumoIcpOperacional(p)
     const selo = seloIcp(resumo.faixa, resumo.score)
+    const qualificacao = qualificacaoDoLead(p)
+    const validacao = seloValidacaoLead(qualificacao.validacao)
     const maximo = maximoDoLead(p)
     const cadastro = leituraCadastro(p.score_cadastro, maximo, criteriosDoLead(p))
+    const alertas = [...(qualificacao.bloqueios || []), ...(qualificacao.penalidades || []), ...(qualificacao.revisoes || [])]
+      .slice(0, 2).map((a: { rotulo: string }) => a.rotulo).join(' · ')
     return {
       selo,
       resumo,
       cadastro,
       maximo,
-      title: `${resumo.origem === 'previsao' ? 'Prévia automática' : 'ICP salvo'} — ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}. Cadastro/coleta: ${typeof p.score_cadastro === 'number' ? `${p.score_cadastro}/${maximo}` : 'sem score'} — ${cadastro.titulo}.`,
+      qualificacao,
+      validacao,
+      title: `${resumo.origem === 'previsao' ? 'Prévia automática' : 'ICP salvo'} — ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}. Régua operacional: ${qualificacao.score_100}/100 — ${validacao.rotulo}. Cadastro/coleta: ${typeof p.score_cadastro === 'number' ? `${p.score_cadastro}/${maximo}` : 'sem score'} — ${cadastro.titulo}.${alertas ? ` Alertas: ${alertas}.` : ''}`,
     }
   }
 
@@ -801,7 +807,7 @@ export default function ProspeccaoPage() {
                       {icpLinha.selo.rotulo}{icpLinha.selo.score != null ? ` · ${icpLinha.selo.score}/13` : ''}
                     </span>
                     <span className="mt-0.5 block max-w-[150px] truncate text-[10px] text-slate-500">
-                      cadastro {typeof p.score_cadastro === 'number' ? `${p.score_cadastro}/${icpLinha.maximo}` : 'sem score'}
+                      {icpLinha.validacao.rotulo} · {icpLinha.qualificacao.score_100}/100
                     </span>
                   </div>
                   <button
@@ -1201,4 +1207,3 @@ function Destaque({ title, rank }: { title: string; rank: Rank | null }) {
     </div>
   )
 }
-

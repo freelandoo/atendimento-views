@@ -79,6 +79,24 @@ em cada uma (Fase 7 do [workflow padrão](ai-workflow.md)). Consulte antes de al
 
 -->
 
+## 2026-09-17 — ICP / Score / Validação operacional — Régua automática com revisão humana
+- Área(s) tocada(s): ICP e cadastro (`backend/src/services/lead-icp-score.js`,
+  `backend/src/services/lead-qualificacao-score.js` **novo**, `api-banco-leads.js`),
+  Prospecção/Aquisição (`backend/src/prospecting.js`), Central de Ligações
+  (`backend/src/services/ligacao-prioridade.js`), Front (`frontend/lib/lead-icp.js`,
+  `LeadDetalhesModal.tsx`, `banco-leads`, `prospeccao`). **Banco: nada. Env: nada.**
+- Regras preservadas: a porta humana de abordagem continua em `lead-qualificacao.js` e não foi
+  substituída; o checklist ICP salvo pelo operador continua sendo fonte do ICP humano; a régua
+  nova é derivada, explicável e recalculável, sem mutation histórica e sem chamada externa/paga.
+- O que mudou: leads agora recebem um resumo operacional `qualificacao`/`qualificacao_resumo`
+  com `score_100`, faixa, validação (`apto_automatico`, `revisar_rapido`,
+  `validacao_humana_obrigatoria`, `automatica_humana`, `bloqueado_automatico`, `baixo_fit`),
+  bloqueios, penalidades, revisões e sinais. Penalidades cobrem Google fechado, opt-out,
+  duplicidade, telefone inválido, baixa atividade Google/Instagram, poucas avaliações, nota
+  baixa, falta de fotos/horário, categoria genérica e conflito entre oferta de site novo e site
+  já identificado. As telas exibem o veredito junto do ICP em Banco de Leads, Aquisição e modal.
+- Documentos atualizados: `ai-task-start-log.md`, `ai-decision-log.md`, este arquivo.
+
 ## 2026-08-17 — Central de Ligações — Sincronização entre sessões/dispositivos da mesma conta
 - Área(s) tocada(s): Ligações (`src/services/sessao-origem.js` **novo — PURO**,
   `src/services/ligacao-acompanhamento.js`: `resumirSessao`/`desfechoSessao`,

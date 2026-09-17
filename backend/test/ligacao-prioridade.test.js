@@ -29,10 +29,11 @@ test('telefone sem DDD, vazio ou irreconhecivel nao e discavel', () => {
   assert.equal(telefoneDiscavel('123'), false)
 })
 
-test('telefone valido nao soma pontos — so deixa entrar na fila', () => {
+test('telefone valido deixa entrar; ausente vira risco de validacao', () => {
   const comFone = calcularPrioridade({ ...leadBase })
   const semFone = calcularPrioridade({ ...leadBase, telefone: null })
-  assert.equal(comFone.score, semFone.score)
+  assert.ok(semFone.score < comFone.score)
+  assert.ok(semFone.motivos.some((m) => /Telefone ausente|invalido/i.test(m)))
   assert.equal(elegivelParaFila({ ...leadBase, telefone: null }), false)
 })
 
@@ -69,7 +70,9 @@ test('faixas de avaliacoes pontuam 20 / 12 / 5 e ausente nao penaliza', () => {
   assert.equal(calcularPrioridade({ ...semAval, avaliacoes: 50 }).score - base, PESOS.avaliacoes_muitas)
   assert.equal(calcularPrioridade({ ...semAval, avaliacoes: 20 }).score - base, PESOS.avaliacoes_medias)
   assert.equal(calcularPrioridade({ ...semAval, avaliacoes: 5 }).score - base, PESOS.avaliacoes_poucas)
-  assert.equal(calcularPrioridade({ ...semAval, avaliacoes: 4 }).score - base, 0)
+  const poucas = calcularPrioridade({ ...semAval, avaliacoes: 4 })
+  assert.ok(poucas.score < base)
+  assert.ok(poucas.motivos.some((m) => /Pouquissimas avaliacoes/i.test(m)))
 })
 
 test('nota alta soma ate 10 e nota ausente nao e nota baixa', () => {
@@ -78,7 +81,7 @@ test('nota alta soma ate 10 e nota ausente nao e nota baixa', () => {
   assert.equal(calcularPrioridade({ ...semNota, rating: 4.8 }).score - base, PESOS.nota_alta)
   assert.equal(calcularPrioridade({ ...semNota, rating: 4.1 }).score - base, PESOS.nota_boa)
   assert.equal(calcularPrioridade({ ...semNota, rating: 3.6 }).score - base, PESOS.nota_regular)
-  assert.equal(calcularPrioridade({ ...semNota, rating: 2.0 }).score - base, 0)
+  assert.equal(calcularPrioridade({ ...semNota, rating: 2.0 }).score - base, -8)
 })
 
 // --- Rede social + tentativas ----------------------------------------------------------

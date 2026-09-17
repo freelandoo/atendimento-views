@@ -6,6 +6,19 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-17 - Início de tarefa IA - Régua de ICP, score e validação de leads
+
+- **IA/Ferramenta:** Codex, na `master`, com commit/push/deploy autorizados pelo operador.
+- **Pedido resumido:** mapear onde ICP/score aparece e evoluir a pontuação dos leads com sinais
+  positivos, penalidades, bloqueios e régua de validação humana/automática para dados de Google,
+  Instagram, telefone, site, duplicidade e opt-out.
+- **É projeto/tarefa de alteração?** Sim. Escopo transversal, mas sem migration: backend calcula
+  a régua derivada e as telas passam a traduzir o mesmo resumo em Aquisição, Banco de Leads,
+  modal de detalhes/ICP e Central de Ligações.
+- **Workflow padrão consultado?** AGENTS.md, CLAUDE.md e docs/ai-workflow.md.
+- **Fora de escopo declarado:** nenhuma chamada paga Bright Data, nenhuma mudança de orçamento,
+  nenhuma coleta real nova, nenhuma alteração na porta humana de qualificação/triagem existente.
+
 ## 2026-09-17 - Início de tarefa IA - Correção do encadeamento do enriquecimento Instagram
 
 - **IA/Ferramenta:** Codex, no worktree `codex/instagram-brightdata-serp`, com publicação solicitada em `master`.
@@ -4038,3 +4051,18 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Cuidados:** nao sobrescrever decisao humana, nao transformar ausencia de dado em inatividade,
   nao executar coleta paga real sem autorizacao, manter a importacao apenas enfileirando trabalho
   de fundo e preservar tetos/orcamento do enriquecimento.
+
+## 2026-09-17 - Tarefa IA - Evoluir ICP, penalidades e validacao de leads
+
+- **Pedido resumido:** mapear e evoluir a pontuacao/ICP dos leads para considerar sinais
+  positivos, penalidades fortes/leves, bloqueios automaticos e casos que exigem validacao humana
+  ou automatica + humana, refletindo isso nas telas que exibem qualidade/prioridade.
+- **E projeto/tarefa de alteracao?** Sim. Toca regras de negocio, backend de score/ICP e UX de
+  Banco de Leads/Aquisicao/detalhes onde esses dados aparecem.
+- **Escopo inicial:** mapear consumidores de `score_v2`, `icp_score`, `icp_resumo_json`,
+  prioridade de ligacao e score de cadastro; criar motor puro de veredito de qualificacao; expor
+  motivos/penalidades sem substituir decisao humana final; ajustar telas para mostrar o novo
+  veredito quando disponivel.
+- **Cuidados:** nao criar migration sem necessidade/confirmacao, nao fazer chamadas externas ou
+  pagas, nao misturar completude de cadastro com prioridade comercial, nao sobrescrever avaliacao
+  humana final e manter regras sensiveis no backend/lib pura.

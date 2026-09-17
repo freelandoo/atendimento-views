@@ -12,6 +12,7 @@ const {
   respostasSugeridas,
   calcularIcpLead,
 } = require('../src/services/lead-icp-score')
+const { avaliarQualificacaoLead, VALIDACAO } = require('../src/services/lead-qualificacao-score')
 const { salvarAvaliacaoIcp } = require('../src/db/lead-icp')
 
 test('ICP geral v1.1 soma ate 13 e classifica A/B/C', () => {
@@ -74,6 +75,40 @@ test('score final usa o checklist humano, mesmo quando o cadastro e fraco', () =
   assert.ok(icp.criterios.every((c) => c.marcado))
 })
 
+test('qualificacao aplica penalidades e exige validacao para Instagram e Google parados', () => {
+  const q = avaliarQualificacaoLead({
+    nome: 'Solar Teste',
+    telefone: '62999998888',
+    nicho: 'energia solar',
+    tem_site: false,
+    rating: 4.6,
+    avaliacoes: 30,
+    instagram_handle: 'solarteste',
+    instagram_confianca: 'confirmado',
+    instagram_atividade: 'atividade_antiga',
+    instagram_ultimo_post_em: '2025-01-01T00:00:00.000Z',
+    raw_json: { latest_review_at: '2024-01-01T00:00:00.000Z', businessStatus: 'OPERATIONAL' },
+  }, { agora: new Date('2026-09-17T12:00:00.000Z') })
+
+  assert.equal(q.validacao, VALIDACAO.AUTOMATICA_HUMANA)
+  assert.ok(q.penalidades.some((p) => p.chave === 'google_instagram_parados'))
+  assert.ok(q.penalidades.some((p) => p.chave === 'instagram_6m'))
+  assert.ok(q.score_100 < 75)
+})
+
+test('qualificacao bloqueia Google fechado e nao confunde ausencia de dado com horario ausente', () => {
+  const q = avaliarQualificacaoLead({
+    nome: 'Loja Fechada',
+    telefone: '62999998888',
+    nicho: 'loja',
+    raw_json: { businessStatus: 'CLOSED_PERMANENTLY' },
+  })
+  assert.equal(q.validacao, VALIDACAO.BLOQUEADO)
+  assert.equal(q.score_100, 0)
+  assert.ok(q.bloqueios.some((p) => p.chave === 'google_fechado'))
+  assert.equal(q.penalidades.some((p) => p.chave === 'sem_horario_google'), false)
+})
+
 test('avaliacao salva preserva observacao no snapshot atual do ICP', async () => {
   let updateResumo = null
   const exec = {
@@ -98,6 +133,8 @@ test('avaliacao salva preserva observacao no snapshot atual do ICP', async () =>
   })
 
   assert.equal(updateResumo.observacao, 'Fit bom, mas precisa confirmar decisor.')
+  assert.ok(updateResumo.qualificacao)
+  assert.equal(typeof updateResumo.qualificacao.score_100, 'number')
 })
 
 // ─── A ROTA que grava a avaliação (guardas que leem o fonte) ─────────────────────────────

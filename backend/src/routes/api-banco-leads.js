@@ -26,6 +26,7 @@ const {
   montarJsonApresentacaoInstagram,
 } = require('../services/lead-score-cadastro')
 const { classificarLead } = require('../services/site-classificacao')
+const { avaliarQualificacaoLead } = require('../services/lead-qualificacao-score')
 // Ownership do lead (Etapa 4): a REGRA e' pura, o SQL e' proprio, a capacidade decide o recorte.
 const { sqlEscopo, escopoEfetivo } = require('../services/lead-responsavel')
 // A PORTA (Etapa 3). Aqui ela recorta a LEITURA do Comercial: quem nao pode ver a base bruta
@@ -615,20 +616,22 @@ function anexarScoreCadastro(row) {
   const { raw_json: _rawJson, ...lead } = row
   if (ORIGENS_PLACES.has(row.origem)) {
     const cad = calcularScoreCadastroPlaces(row)
-    return comSiteCanonico({
+    const out = comSiteCanonico({
       ...lead,
       score_cadastro: cad.score,
       score_cadastro_max: cad.maximo,
       json_apresentacao: montarJsonApresentacaoPlaces(row, cad),
     })
+    return { ...out, qualificacao_resumo: avaliarQualificacaoLead({ ...row, ...out }) }
   }
   const cad = calcularScoreCadastroInstagram(row)
-  return comSiteCanonico({
+  const out = comSiteCanonico({
     ...lead,
     score_cadastro: cad.score,
     score_cadastro_max: cad.maximo,
     json_apresentacao: montarJsonApresentacaoInstagram(row, cad),
   })
+  return { ...out, qualificacao_resumo: avaliarQualificacaoLead({ ...row, ...out }) }
 }
 
 // GET /leads?aba=sem_contato|conversou|fecharam&origem=&busca=

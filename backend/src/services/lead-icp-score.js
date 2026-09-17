@@ -8,6 +8,7 @@
 const { calcularScoreRespostas, CRITERIOS_TENKA_V1, MODELO_TENKA_V1 } = require('./icp-modelo')
 const { classificarLead } = require('./site-classificacao')
 const { perfilConfirmado } = require('./instagram-perfil')
+const { avaliarQualificacaoLead } = require('./lead-qualificacao-score')
 
 function texto(valor) {
   return String(valor == null ? '' : valor).trim()
@@ -131,6 +132,11 @@ function calcularIcpLead(lead = {}, respostas = null) {
   const sinais_auto = calcularSinaisAutomaticos(lead)
   const baseRespostas = respostas == null ? respostasSugeridas(lead) : respostas
   const calculado = calcularScoreRespostas(baseRespostas)
+  const qualificacao = avaliarQualificacaoLead({
+    ...lead,
+    icp_score: calculado.score,
+    icp_faixa: calculado.faixa,
+  })
   const motivos = calculado.criterios
     .filter((c) => c.marcado)
     .map((c) => c.rotulo)
@@ -138,6 +144,7 @@ function calcularIcpLead(lead = {}, respostas = null) {
     ...calculado,
     modelo: MODELO_TENKA_V1,
     sinais_auto,
+    qualificacao,
     motivos,
   }
 }
@@ -151,6 +158,7 @@ function resumoIcp(avaliacao) {
     faixa: avaliacao.faixa,
     criterios: avaliacao.criterios,
     sinais_auto: avaliacao.sinais_auto,
+    qualificacao: avaliacao.qualificacao || null,
     motivos: avaliacao.motivos,
   }
 }

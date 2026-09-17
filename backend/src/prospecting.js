@@ -14,6 +14,7 @@ const {
 } = require('./services/instagram-perfil')
 const { calcularAtividadeGoogle } = require('./services/google-business-activity')
 const { qualificacaoInicial, qualificacaoDaDecisao, sqlAbordavel } = require('./services/lead-qualificacao')
+const { avaliarQualificacaoLead, VALIDACAO } = require('./services/lead-qualificacao-score')
 const { logger } = require('./logger')
 const { candidatosTelefoneBR } = require('./telefone-br')
 const { dashboardAutorizado: dashboardSessionAutorizado } = require('./dashboardAuth')
@@ -411,11 +412,17 @@ function calcularScoreV2(prospect) {
   // ── penalidade global ─────────────────────────────────────────────────────
   const penalidade = operacional ? 0 : 30
 
+  const qualificacaoScore = avaliarQualificacaoLead(prospect)
+  const penalidadeQualificacao = qualificacaoScore.validacao === VALIDACAO.BLOQUEADO
+    ? -100
+    : Math.max(-35, qualificacaoScore.penalidades.reduce((acc, p) => acc + (Number(p.pontos) || 0), 0))
+
   const score_v2 = Math.max(
     0,
     Math.min(
       100,
-      presenca_digital + reputacao + potencial_conversao + urgencia + fit_solucao + atividadeGoogle.pontos - penalidade
+      presenca_digital + reputacao + potencial_conversao + urgencia + fit_solucao
+        + atividadeGoogle.pontos - penalidade + penalidadeQualificacao
     )
   )
 
@@ -436,9 +443,17 @@ function calcularScoreV2(prospect) {
       atividade_google: atividadeGoogle.pontos,
       atividade_google_faixa: atividadeGoogle.faixa,
       ultima_atividade_google_em: atividadeGoogle.ultima_atividade_em,
+      qualificacao_score: qualificacaoScore.score_100,
+      qualificacao_validacao: qualificacaoScore.validacao,
+      qualificacao_penalidade: penalidadeQualificacao,
+      qualificacao_alertas: [
+        ...qualificacaoScore.bloqueios,
+        ...qualificacaoScore.penalidades,
+        ...qualificacaoScore.revisoes,
+      ].slice(0, 5),
     },
     classificacao,
-    motivos: [...motivos, ...atividadeGoogle.motivos],
+    motivos: [...motivos, ...atividadeGoogle.motivos, ...qualificacaoScore.motivos.slice(0, 4)],
   }
 }
 

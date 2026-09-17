@@ -29,10 +29,12 @@ import {
 import {
   CRITERIOS_ICP_TENKA,
   calcularIcp,
+  qualificacaoDoLead,
   respostasIniciaisIcp,
   resumoIcpDoLead,
   resumoIcpOperacional,
   seloIcp,
+  seloValidacaoLead,
   sinaisAutomaticosDoLead,
 } from '@/lib/lead-icp'
 
@@ -46,11 +48,25 @@ type ResumoIcp = {
   faixa: string
   criterios: CriterioIcp[]
   sinais_auto: Record<string, { sugerido?: boolean; motivo?: string }>
+  qualificacao?: QualificacaoResumo | null
   motivos: string[]
   avaliado_em: string | null
 }
 type IcpPayload = { respostas: Record<string, boolean>; observacao?: string }
 type SinalIcp = { sugerido?: boolean; motivo?: string }
+type QualificacaoItem = { tipo?: string; chave?: string; rotulo: string; pontos?: number }
+type QualificacaoResumo = {
+  score_100: number
+  faixa?: string
+  prioridade?: string
+  validacao: string
+  confianca?: string
+  bloqueios?: QualificacaoItem[]
+  penalidades?: QualificacaoItem[]
+  revisoes?: QualificacaoItem[]
+  sinais?: QualificacaoItem[]
+  motivos?: string[]
+}
 // `pendente` e `salvando` são estados DIFERENTES de propósito: o indicador substituiu o botão
 // "Salvar ICP", então ele é a única coisa que responde "e agora, já foi?". Dizer "Salvando…"
 // durante a espera do debounce, quando ainda não há requisição alguma, faria o indicador
@@ -101,8 +117,10 @@ export type LeadDetalhavel = {
     observacao?: string | null
     criterios?: { id: string; rotulo: string; pontos: number; marcado?: boolean; pontos_obtidos?: number }[]
     sinais_auto?: Record<string, { sugerido?: boolean; motivo?: string }>
+    qualificacao?: QualificacaoResumo | null
     motivos?: string[]
   } | null
+  qualificacao_resumo?: QualificacaoResumo | null
 }
 
 /**
@@ -183,6 +201,8 @@ export function BolinhaCadastro({ l }: { l: LeadDetalhavel }) {
 export function BolinhaIcp({ l }: { l: LeadDetalhavel }) {
   const resumo = resumoIcpOperacional(l) as ResumoIcp & { origem?: string }
   const selo = seloIcp(resumo.faixa, resumo.score)
+  const qualificacao = qualificacaoDoLead(l) as QualificacaoResumo
+  const seloValidacao = seloValidacaoLead(qualificacao.validacao)
   const maximoCadastro = maximoDoLead(l)
   const leituraCad = leituraCadastro(l.score_cadastro, maximoCadastro, criteriosDoLead(l))
   const criterios = Array.isArray(resumo.criterios) ? resumo.criterios : []
@@ -194,7 +214,10 @@ export function BolinhaIcp({ l }: { l: LeadDetalhavel }) {
   const cadastro = typeof l.score_cadastro === 'number'
     ? `Cadastro/coleta: ${l.score_cadastro}/${maximoCadastro} - ${leituraCad.titulo}.`
     : 'Cadastro/coleta ainda sem pontuacao.'
-  const title = `${prefixo}: ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}. ${cadastro}${marcados ? ` Criterios ICP: ${marcados}.` : ''}`
+  const validacao = `Regua operacional: ${qualificacao.score_100}/100 - ${seloValidacao.rotulo}.`
+  const alertas = [...(qualificacao.bloqueios || []), ...(qualificacao.penalidades || []), ...(qualificacao.revisoes || [])]
+    .slice(0, 3).map((p) => p.rotulo).join('; ')
+  const title = `${prefixo}: ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}. ${validacao} ${cadastro}${marcados ? ` Criterios ICP: ${marcados}.` : ''}${alertas ? ` Alertas: ${alertas}.` : ''}`
   return (
     <span
       tabIndex={0}
@@ -442,6 +465,17 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
   )
   const icpEditado = useMemo(() => calcularIcp(respostasIcp), [respostasIcp])
   const seloEditado = seloIcp(icpEditado.faixa, icpEditado.score)
+  const qualificacao = useMemo(
+    () => qualificacaoDoLead({ ...lead, icp_score: icpEditado.score, icp_faixa: icpEditado.faixa,
+      icp_resumo_json: { ...lead.icp_resumo_json, ...icpEditado } }) as QualificacaoResumo,
+    [lead, icpEditado]
+  )
+  const seloValidacao = seloValidacaoLead(qualificacao.validacao)
+  const alertasQualificacao = [
+    ...(qualificacao.bloqueios || []),
+    ...(qualificacao.penalidades || []),
+    ...(qualificacao.revisoes || []),
+  ]
 
   useEffect(() => {
     const respostas = respostasIniciaisIcp(lead) as Record<string, boolean>
@@ -587,6 +621,20 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                 {seloEditado.rotulo}{seloEditado.score != null ? ` · ${seloEditado.score}/13` : ''}
               </span>
             </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${seloValidacao.classe}`}
+                title={seloValidacao.descricao}>
+                {seloValidacao.rotulo} · {qualificacao.score_100}/100
+              </span>
+              <span className="text-[11px] text-slate-500">
+                Validação {qualificacao.confianca === 'alta' ? 'com confiança alta' : 'com atenção'}.
+              </span>
+              {alertasQualificacao.length > 0 && (
+                <span className="text-[11px] text-slate-500">
+                  {alertasQualificacao.slice(0, 2).map((a) => a.rotulo).join(' · ')}
+                </span>
+              )}
+            </div>
             <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -630,6 +678,29 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                 })}
               </div>
             </div>
+            {(alertasQualificacao.length > 0 || (qualificacao.sinais || []).length > 0) && (
+              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Penalidades e validação</p>
+                <div className="mt-1 grid gap-1 sm:grid-cols-2">
+                  {alertasQualificacao.slice(0, 4).map((a) => (
+                    <div key={a.chave || a.rotulo} className="rounded-lg bg-white px-2 py-1 text-[11px] text-slate-600">
+                      <span className="font-medium">{a.rotulo}</span>
+                      {typeof a.pontos === 'number' && a.pontos !== 0 && (
+                        <span className={a.pontos < 0 ? 'ml-1 text-rose-600' : 'ml-1 text-emerald-700'}>
+                          {a.pontos > 0 ? '+' : ''}{a.pontos}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                  {(qualificacao.sinais || []).slice(0, Math.max(0, 4 - alertasQualificacao.length)).map((s) => (
+                    <div key={s.chave || s.rotulo} className="rounded-lg bg-white px-2 py-1 text-[11px] text-slate-600">
+                      <span className="font-medium">{s.rotulo}</span>
+                      {typeof s.pontos === 'number' && s.pontos !== 0 && <span className="ml-1 text-emerald-700">+{s.pontos}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="mt-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Validação humana</p>
               <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">

@@ -12,6 +12,7 @@
 // conversoes), no mesmo padrao de services/followup-call-score.js.
 
 const { situacaoSiteDoLead } = require('./site-classificacao')
+const { avaliarQualificacaoLead, VALIDACAO } = require('./lead-qualificacao-score')
 
 // --- Pesos (0-100 no total, com clamp) ------------------------------------------------
 const PESOS = Object.freeze({
@@ -181,9 +182,33 @@ function calcularPrioridade(lead = {}) {
   else if (faixaIcp === 'B') { score += PESOS.icp_lead_b; motivos.push('Lead B no ICP geral') }
   else if (faixaIcp === 'C') { score += PESOS.icp_lead_c; motivos.push('Lead C no ICP geral') }
 
+  const qual = avaliarQualificacaoLead(lead)
+  if (qual.validacao === VALIDACAO.BLOQUEADO) {
+    const finalBloqueado = 0
+    return {
+      score: finalBloqueado,
+      faixa: faixaDoScore(finalBloqueado),
+      faixa_label: FAIXA_LABEL[faixaDoScore(finalBloqueado)],
+      situacao_site: site,
+      motivos: [...qual.bloqueios.map((p) => p.rotulo), ...motivos].slice(0, 6),
+      qualificacao_score: qual,
+    }
+  }
+  const penalidadeQualificacao = Math.max(
+    -30,
+    qual.penalidades.reduce((acc, p) => acc + (Number(p.pontos) || 0), 0)
+  )
+  if (penalidadeQualificacao < 0) {
+    score += penalidadeQualificacao
+    for (const p of qual.penalidades.slice(0, 2)) motivos.push(p.rotulo)
+  }
+  if ([VALIDACAO.VALIDACAO_HUMANA, VALIDACAO.AUTOMATICA_HUMANA].includes(qual.validacao)) {
+    motivos.push('Validar antes de abordar')
+  }
+
   const final = Math.max(0, Math.min(SCORE_MAX, Math.round(score)))
   const faixa = faixaDoScore(final)
-  return { score: final, faixa, faixa_label: FAIXA_LABEL[faixa], situacao_site: site, motivos }
+  return { score: final, faixa, faixa_label: FAIXA_LABEL[faixa], situacao_site: site, motivos, qualificacao_score: qual }
 }
 
 /**

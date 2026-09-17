@@ -11,6 +11,40 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-09-17 — Régua operacional de ICP/score não substitui a porta humana
+
+**Contexto:** o operador quer que sinais de Google Meu Negócio, Instagram, telefone, site,
+duplicidade e opt-out influenciem a qualidade do lead e digam quando a validação precisa ser
+humana, automática ou mista. As mesmas pistas aparecem em Aquisição, Banco de Leads, modal de
+detalhes/ICP e Central de Ligações.
+
+**Decisão 1 — novo módulo derivado, separado da porta de abordagem.**
+`backend/src/services/lead-qualificacao-score.js` calcula `score_100`, validação, bloqueios,
+penalidades, revisões e sinais. Ele **não** altera `backend/src/services/lead-qualificacao.js`,
+que continua sendo o módulo da porta humana/estrita usada para decidir se um lead pode ser
+abordado. Isso evita confundir "lead aprovado por pessoa" com "lead parece bom/ruim pelos
+sinais automáticos".
+
+**Decisão 2 — sem migration e sem backfill.** A régua é derivada dos dados já existentes e é
+anexada nas respostas (`qualificacao`/`qualificacao_resumo`) ou usada em cálculos de prioridade.
+Não há coluna nova, não há mutation histórica e não há coleta paga/external call para pontuar.
+
+**Decisão 3 — penalidade é explicável e pode exigir revisão.** Casos como Google fechado,
+opt-out, bloqueio e duplicidade bloqueiam automaticamente. Casos como telefone inválido,
+Instagram/Google parados juntos, oferta de site novo com site próprio identificado ou atividade
+antiga forte não descartam sozinhos: baixam o score e elevam a régua para validação humana ou
+automática + humana.
+
+**Decisão 4 — front só traduz o veredito.** `frontend/lib/lead-icp.js` centraliza rótulos e
+fallback visual simples, mas prefere sempre o resumo vindo do backend. As telas de Aquisição,
+Banco de Leads e o modal de detalhes mostram o mesmo vocabulário, para não criar scores
+paralelos por tela.
+
+**Decisão 5 — o score existente passa a absorver a régua, sem virar filtro único.**
+`prospecting.js` aplica as penalidades no `score_v2`; `ligacao-prioridade.js` reduz ou bloqueia
+a prioridade de ligação quando a régua aponta risco forte. A elegibilidade final continua
+preservando as travas já existentes de campanha, triagem e contato.
+
 ## 2026-09-12 — Isolamento do Comercial: ALCANCE ≠ ESCOPO (CRM em equipe, Etapa 13)
 
 Contexto: um usuário `comercial` foi criado em produção e o Banco de Leads abriu **vazio**. A

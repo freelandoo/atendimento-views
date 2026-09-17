@@ -15,7 +15,7 @@ import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink } from '@/lib/site-rotulos'
 import { acessosDoLead, type AcessoRapido } from '@/lib/lead-acessos'
-import { ordemIcp, resumoIcpDoLead, resumoIcpOperacional, seloIcp } from '@/lib/lead-icp'
+import { ordemIcp, qualificacaoDoLead, resumoIcpDoLead, resumoIcpOperacional, seloIcp, seloValidacaoLead } from '@/lib/lead-icp'
 import { leituraCadastro } from '@/lib/pontuacao-indicador'
 import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
 import { aplicarRecorte, gravarFiltros, lerFiltros } from '@/lib/filtros-sessao'
@@ -2263,9 +2263,13 @@ function CadastroDetalhesCelula({ l, onAbrirDetalhes }: {
 }) {
   const resumo = resumoIcpOperacional(l)
   const selo = seloIcp(resumo.faixa, resumo.score)
+  const qualificacao = qualificacaoDoLead(l)
+  const validacao = seloValidacaoLead(qualificacao.validacao)
   const maximo = maximoDoLead(l)
   const cadastro = leituraCadastro(l.score_cadastro, maximo, criteriosDoLead(l))
-  const title = `${resumo.origem === 'previsao' ? 'Prévia automática' : 'ICP salvo'} — ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}. Cadastro/coleta: ${typeof l.score_cadastro === 'number' ? `${l.score_cadastro}/${maximo}` : 'sem score'} — ${cadastro.titulo}.`
+  const alertas = [...(qualificacao.bloqueios || []), ...(qualificacao.penalidades || []), ...(qualificacao.revisoes || [])]
+    .slice(0, 2).map((a: { rotulo: string }) => a.rotulo).join(' · ')
+  const title = `${resumo.origem === 'previsao' ? 'Prévia automática' : 'ICP salvo'} — ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}. Régua operacional: ${qualificacao.score_100}/100 — ${validacao.rotulo}. Cadastro/coleta: ${typeof l.score_cadastro === 'number' ? `${l.score_cadastro}/${maximo}` : 'sem score'} — ${cadastro.titulo}.${alertas ? ` Alertas: ${alertas}.` : ''}`
   return (
     <td className="px-3 py-2">
       <div className="flex items-center gap-2">
@@ -2275,7 +2279,7 @@ function CadastroDetalhesCelula({ l, onAbrirDetalhes }: {
             {selo.rotulo}{selo.score != null ? ` · ${selo.score}/13` : ''}
           </span>
           <span className="mt-0.5 block max-w-[150px] truncate text-[10px] text-slate-500">
-            cadastro {typeof l.score_cadastro === 'number' ? `${l.score_cadastro}/${maximo}` : 'sem score'}
+            {validacao.rotulo} · {qualificacao.score_100}/100
           </span>
         </div>
         <button onClick={() => onAbrirDetalhes(l)}
@@ -2291,7 +2295,9 @@ function CadastroDetalhesCelula({ l, onAbrirDetalhes }: {
 function QualidadeIcpCelula({ l }: { l: Lead }) {
   const resumo = resumoIcpOperacional(l)
   const selo = seloIcp(resumo.faixa, resumo.score)
-  const title = `${resumo.origem === 'previsao' ? 'Prévia automática' : 'ICP salvo'} — ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}`
+  const qualificacao = qualificacaoDoLead(l)
+  const validacao = seloValidacaoLead(qualificacao.validacao)
+  const title = `${resumo.origem === 'previsao' ? 'Prévia automática' : 'ICP salvo'} — ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}. Régua operacional: ${qualificacao.score_100}/100 — ${validacao.rotulo}.`
   return (
     <td className="px-3 py-2 whitespace-nowrap">
       <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${selo.classe}`} title={title}>

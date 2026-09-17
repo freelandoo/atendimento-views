@@ -104,6 +104,39 @@ const FAIXAS_ICP = Object.freeze({
   },
 })
 
+const VALIDACAO_LEAD = Object.freeze({
+  apto_automatico: {
+    rotulo: 'Apto',
+    descricao: 'Sem alerta relevante para abordagem automatica ou triagem rapida.',
+    classe: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  },
+  revisar_rapido: {
+    rotulo: 'Revisar rapido',
+    descricao: 'Ha alerta leve ou dado pendente, mas nada bloqueia a abordagem.',
+    classe: 'border-amber-200 bg-amber-50 text-amber-700',
+  },
+  validacao_humana_obrigatoria: {
+    rotulo: 'Validar',
+    descricao: 'Precisa de confirmacao humana antes de investir abordagem.',
+    classe: 'border-orange-200 bg-orange-50 text-orange-700',
+  },
+  automatica_humana: {
+    rotulo: 'Auto + humano',
+    descricao: 'Automacao encontrou sinais, mas ha risco forte para uma pessoa validar.',
+    classe: 'border-orange-200 bg-orange-50 text-orange-700',
+  },
+  bloqueado_automatico: {
+    rotulo: 'Bloqueado',
+    descricao: 'Ha bloqueio operacional ou sinal forte para segurar o lead.',
+    classe: 'border-red-200 bg-red-50 text-red-700',
+  },
+  baixo_fit: {
+    rotulo: 'Baixo fit',
+    descricao: 'Pontuacao baixa para priorizar agora.',
+    classe: 'border-slate-200 bg-slate-50 text-slate-600',
+  },
+})
+
 function normalizarFaixaIcp(faixa) {
   const f = String(faixa || '').trim().toUpperCase()
   return FAIXAS_ICP[f] ? f : 'sem_icp'
@@ -157,12 +190,14 @@ function resumoIcpDoLead(lead) {
     : null
   const score = typeof lead?.icp_score === 'number' ? lead.icp_score : (typeof resumo?.score === 'number' ? resumo.score : null)
   const faixa = normalizarFaixaIcp(lead?.icp_faixa || resumo?.faixa)
+  const qualificacao = qualificacaoDoLead(lead)
   return {
     score,
     score_maximo: typeof resumo?.score_maximo === 'number' ? resumo.score_maximo : SCORE_MAXIMO_ICP,
     faixa,
     criterios: Array.isArray(resumo?.criterios) ? resumo.criterios : [],
     sinais_auto: resumo?.sinais_auto && typeof resumo.sinais_auto === 'object' ? resumo.sinais_auto : {},
+    qualificacao,
     motivos: Array.isArray(resumo?.motivos) ? resumo.motivos : [],
     avaliado_em: lead?.icp_avaliado_em || null,
   }
@@ -191,6 +226,69 @@ function temInstagramAtivo(lead = {}) {
     || !!String(lead?.bio || '').trim()
     || !!String(lead?.link_bio || '').trim()
     || (Number.isFinite(seguidores) && seguidores > 0)
+}
+
+function telefoneValidoSimples(valor) {
+  const digitos = String(valor || '').replace(/\D/g, '')
+  if (!digitos) return false
+  const semDdi = digitos.startsWith('55') && (digitos.length === 12 || digitos.length === 13)
+    ? digitos.slice(2)
+    : digitos
+  return semDdi.length === 10 || semDdi.length === 11
+}
+
+function qualificacaoFallback(lead = {}) {
+  const penalidades = []
+  const sinais = []
+  const revisoes = []
+  let score = 45
+  const atividade = String(lead?.instagram_atividade || '')
+  const semSite = lead?.situacao_site === 'sem_site' || lead?.tem_site === false
+  const rating = Number(lead?.rating)
+  const aval = Number(lead?.avaliacoes)
+  if (semSite) { score += 14; sinais.push({ chave: 'sem_site_proprio', rotulo: 'Sem site proprio.', pontos: 14 }) }
+  if (Number.isFinite(aval) && aval >= 20) { score += 6; sinais.push({ chave: 'avaliacoes', rotulo: 'Boa base de avaliacoes.', pontos: 6 }) }
+  if (Number.isFinite(rating) && rating >= 4) { score += 4; sinais.push({ chave: 'nota_boa', rotulo: 'Boa nota no Google.', pontos: 4 }) }
+  if (atividade === 'ativo_recente') { score += 14; sinais.push({ chave: 'instagram_ativo', rotulo: 'Instagram com post recente.', pontos: 14 }) }
+  if (atividade === 'atividade_morna') { score += 7; sinais.push({ chave: 'instagram_morno', rotulo: 'Instagram com atividade morna.', pontos: 7 }) }
+  if (atividade === 'atividade_antiga') { score -= 8; penalidades.push({ tipo: 'leve', chave: 'instagram_antigo', rotulo: 'Instagram sem atividade ha mais de 3 meses.', pontos: -8 }) }
+  if (atividade === 'sem_posts') { score -= 6; penalidades.push({ tipo: 'leve', chave: 'instagram_sem_posts', rotulo: 'Instagram confirmado, mas sem posts.', pontos: -6 }) }
+  if (!telefoneValidoSimples(lead?.telefone)) {
+    score -= 22
+    penalidades.push({ tipo: 'forte', chave: 'telefone_invalido', rotulo: 'Telefone ausente ou invalido.', pontos: -22 })
+    revisoes.push({ chave: 'validar_contato', rotulo: 'Validar contato antes de abordar.' })
+  }
+  const scoreFinal = Math.max(0, Math.min(100, Math.round(score)))
+  const validacao = penalidades.some((p) => p.tipo === 'forte')
+    ? 'validacao_humana_obrigatoria'
+    : penalidades.length || revisoes.length ? 'revisar_rapido' : 'apto_automatico'
+  return {
+    score_100: scoreFinal,
+    faixa: scoreFinal >= 75 ? 'A' : scoreFinal >= 50 ? 'B' : scoreFinal >= 25 ? 'C' : 'fora',
+    prioridade: scoreFinal >= 75 ? 'alta' : scoreFinal >= 50 ? 'media' : 'baixa',
+    validacao,
+    confianca: penalidades.length || revisoes.length ? 'media' : 'alta',
+    bloqueios: [],
+    penalidades,
+    revisoes,
+    sinais,
+    motivos: [...penalidades.map((p) => p.rotulo), ...sinais.map((s) => s.rotulo)].slice(0, 6),
+    dimensoes: {},
+  }
+}
+
+function qualificacaoDoLead(lead = {}) {
+  const resumo = lead && lead.icp_resumo_json && typeof lead.icp_resumo_json === 'object'
+    ? lead.icp_resumo_json
+    : null
+  const q = resumo?.qualificacao || lead?.qualificacao_resumo
+  if (q && typeof q === 'object' && typeof q.score_100 === 'number') return q
+  return qualificacaoFallback(lead)
+}
+
+function seloValidacaoLead(validacao) {
+  const chave = VALIDACAO_LEAD[validacao] ? validacao : 'revisar_rapido'
+  return { chave, ...VALIDACAO_LEAD[chave] }
 }
 
 function sinaisAutomaticosDoLead(lead = {}) {
@@ -239,11 +337,14 @@ module.exports = {
   CRITERIOS_ICP_TENKA,
   SCORE_MAXIMO_ICP,
   FAIXAS_ICP,
+  VALIDACAO_LEAD,
   normalizarFaixaIcp,
   faixaPorScoreIcp,
   normalizarRespostasIcp,
   calcularIcp,
   seloIcp,
+  qualificacaoDoLead,
+  seloValidacaoLead,
   resumoIcpDoLead,
   resumoIcpOperacional,
   sinaisAutomaticosDoLead,

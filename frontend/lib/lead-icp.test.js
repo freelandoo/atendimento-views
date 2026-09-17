@@ -29,6 +29,31 @@ test('resumo do lead prefere snapshot do banco e nao inventa score', () => {
   assert.equal(com.score, 8)
 })
 
+test('qualificacao usa o veredito do backend quando ele veio no lead', () => {
+  const q = I.qualificacaoDoLead({
+    qualificacao_resumo: {
+      score_100: 31,
+      validacao: 'validacao_humana_obrigatoria',
+      penalidades: [{ chave: 'instagram_6m', rotulo: 'Instagram parado.', pontos: -14 }],
+    },
+  })
+  assert.equal(q.score_100, 31)
+  assert.equal(q.validacao, 'validacao_humana_obrigatoria')
+  assert.equal(I.seloValidacaoLead(q.validacao).rotulo, 'Validar')
+})
+
+test('qualificacao fallback penaliza Instagram parado e telefone ausente sem bloquear tudo', () => {
+  const q = I.qualificacaoDoLead({
+    situacao_site: 'sem_site',
+    instagram_handle: 'loja',
+    instagram_atividade: 'atividade_antiga',
+    telefone: '',
+  })
+  assert.equal(q.validacao, 'validacao_humana_obrigatoria')
+  assert.ok(q.penalidades.some((p) => p.chave === 'telefone_invalido'))
+  assert.ok(q.penalidades.some((p) => p.chave === 'instagram_antigo'))
+})
+
 test('ordem ICP deixa sem avaliacao por ultimo', () => {
   assert.ok(I.ordemIcp({ icp_faixa: 'A', icp_score: 10 }) > I.ordemIcp({ icp_faixa: 'B', icp_score: 9 }))
   assert.ok(I.ordemIcp({ icp_faixa: 'C', icp_score: 5 }) > I.ordemIcp({}))
