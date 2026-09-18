@@ -88,21 +88,38 @@ function montarAchados({ totalLeads, semTexto, casaveis, semCatalogo, criados },
 
 /** O raio-x: cada texto de nicho, quantos leads tem e se ja existe no catalogo. */
 async function levantar(pool, { empresaId }) {
+  // ⚠️ A agregacao vem numa CTE, e a CTE se chama `p` com a coluna `nicho` de proposito.
+  //
+  // A versao anterior agrupava por `TRIM(p.nicho)` e o `EXISTS` referenciava `p.nicho` cru —
+  // Postgres recusa com "subquery uses ungrouped column". Agrupar pela coluna CRUA resolveria o
+  // erro e criaria outro: " Energia Solar" e "Energia Solar" virariam duas linhas do relatorio
+  // para o mesmo nicho.
+  //
+  // Com a CTE, `p.nicho` JA' e' o texto normalizado e e' a chave do grupo, entao o `EXISTS` le
+  // uma coluna legitima — e `CASAMENTO` continua sendo usado LETRA POR LETRA, aqui e no UPDATE.
+  // Reescrever a expressao so' neste ponto faria o relatorio e a gravacao discordarem sobre o
+  // que "casa", que e' exatamente o defeito que este script existe para nao cometer.
   const { rows } = await pool.query(
-    `SELECT p.empresa_id,
-            TRIM(p.nicho) AS texto,
-            COUNT(*)::int AS leads,
+    `WITH p AS (
+       SELECT empresa_id,
+              TRIM(nicho) AS nicho,
+              COUNT(*)::int AS leads
+         FROM prospectador.prospects
+        WHERE nicho_id IS NULL
+          AND empresa_id IS NOT NULL
+          AND NULLIF(TRIM(nicho), '') IS NOT NULL
+          AND ($1::uuid IS NULL OR empresa_id = $1::uuid)
+        GROUP BY empresa_id, TRIM(nicho)
+     )
+     SELECT p.empresa_id,
+            p.nicho AS texto,
+            p.leads,
             EXISTS (
               SELECT 1 FROM app.nichos n
                WHERE n.empresa_id = p.empresa_id AND ${CASAMENTO}
             ) AS no_catalogo
-       FROM prospectador.prospects p
-      WHERE p.nicho_id IS NULL
-        AND p.empresa_id IS NOT NULL
-        AND NULLIF(TRIM(p.nicho), '') IS NOT NULL
-        AND ($1::uuid IS NULL OR p.empresa_id = $1::uuid)
-      GROUP BY p.empresa_id, TRIM(p.nicho)
-      ORDER BY leads DESC`,
+       FROM p
+      ORDER BY p.leads DESC`,
     [empresaId]
   )
   return rows
