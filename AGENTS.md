@@ -2817,6 +2817,63 @@
   `frontend/lib/missao.test.js` (**24**).
 - **Nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhum item de menu novo.**
 
+### "Minha Operação" — `/dashboard` mostra telas DIFERENTES por acesso (sem migration)
+- ⚠️ **DEFEITO CORRIGIDO, e ele era maior que uma decisão de produto:** `/dashboard` chamava
+  `/relatorios/resumo` para todo mundo. Aquela rota é montada com `requireCapacidade(RELATORIOS_VER)`
+  ([index.js:160]) e **nem `comercial` nem `member` têm essa capacidade** — então a **primeira tela
+  depois do login**, e desde a Etapa 1 logo depois de aceitar o termo, era **uma mensagem de erro
+  403**. Não era só "administrativa demais": estava quebrada para quem mais usa o produto.
+- **Regra de produto (operador, 2026-09-18):** o comercial não cai numa Visão Geral administrativa.
+  Ele cai em **Minha Operação**: desafio do mês, progresso até a meta, nível e quanto falta para o
+  próximo, comissão do mês, o que precisa da ação dele agora, carteira e placar.
+  **Não é liberar relatório administrativo para o comercial** — é uma visão recortada, montada
+  sobre os endpoints que ele **já alcança**.
+- **A escolha é por CAPACIDADE, nunca por papel literal** (`visaoDoPainel`, em
+  `frontend/lib/minha-operacao.js`). E a capacidade não é arbitrária: é **exatamente a que a tela
+  administrativa precisa para carregar**. Quem não tem `relatorios_ver` não vê uma tela "menor" —
+  veria um 403. `capacidades` ainda carregando devolve **`null` e não se escolhe tela**: decidir no
+  escuro faria a pessoa ver a visão errada por um instante a cada carregamento.
+- **O MENU acompanha a tela.** O item `/dashboard` vira "Minha Operação" para quem não tem
+  `relatorios_ver` (`ROTULO_ALTERNATIVO` + `rotularItem`, em `lib/navegacao.js`), pela **mesma**
+  capacidade. Sem isso o menu diria "Visão Geral" e a tela diria outra coisa — o menu mentiria
+  sobre o próprio destino. Durante o carregamento mantém o rótulo padrão (trocar o texto duas
+  vezes por carregamento é pior).
+- **A visão administrativa NÃO foi alterada** — é a mesma de antes, agora num componente próprio
+  (`VisaoGeralAdministrativa`, no mesmo arquivo) e servida só a quem pode carregá-la.
+- ⚠️ **AS TRÊS REGRAS DA MENSAGEM DE PROXIMIDADE**, que é a única coisa da tela que pode soar
+  falsa: (1) **nunca inventar número** — sem meta legível não há barra, marco nem frase, a seção
+  some; (2) **nunca soar de deboche** — com 8% do alvo, "falta pouco!" é piada de mau gosto, então
+  o tom sobe junto com o progresso e embaixo a frase é factual; (3) **janela encerrada muda o tempo
+  verbal** — "você consegue" num desafio que acabou ontem é mentira, então depois do prazo a frase
+  fala no passado e o selo some. Há teste para cada uma.
+- **Marcos em 50/75/90/100**, com o selo "Perto da meta" só a partir de 90%. `intensidade` vira cor
+  da barra, mas **nunca é a única informação**: selo e frase sempre acompanham (disciplina da
+  `BolinhaPontuacao`). A barra desenha as marcas como referência visível, não decoração.
+- **O fluxo operacional é ordenado por CONSEQUÊNCIA, não por volume:** prazo vencido → reunião de
+  hoje → lead parado → follow-up de hoje → lead livre. Ordenar por quantidade poria "40 leads
+  livres" acima de "1 follow-up vencido". **Contagem zero não vira linha** — uma lista que sempre
+  mostra "0 vencidos" treina a pessoa a ignorar a lista inteira; lista vazia tem frase própria, que
+  é constatação e não elogio.
+- **`GET /banco-leads/meu-resumo`** (rota nova, sem capacidade extra — o mount já exige
+  `LEAD_VER_APROVADOS`): `{meus, livres, parados}` do **próprio** vendedor, numa consulta.
+  **Não aceita `usuario_id` da query, de propósito** — a carteira do colega não é recorte de
+  ninguém, e um id na URL transformaria esta leitura no relatório de equipe, que já existe em
+  `/equipe` e é admin-only. Rota própria em vez de mais um campo no `meta` da listagem porque
+  contar parados no caminho quente custaria a subconsulta de última ação em toda paginação.
+  O recorte e a condição de "parado" vêm dos **mesmos módulos** do painel da equipe.
+- **Cada bloco carrega e falha SOZINHO.** O `member` não alcança comissão, missão nem leads — ali a
+  tela degrada bloco a bloco e, sem nada, diz o que houve em vez de ficar em branco.
+- **O placar não expõe a comissão de ninguém** (decisão D4): nome e faturamento originado, como a
+  API já devolve. `minhaPosicao` devolve **`null`** para quem não está no ranking — o que **não é**
+  "último lugar"; dizer "3º de 3" inventaria posição.
+- Código: `frontend/lib/minha-operacao.js` (+ `.d.ts`/`.test.js`, PURO),
+  `frontend/components/MinhaOperacao.tsx`, `frontend/app/dashboard/page.tsx`,
+  `frontend/lib/navegacao.js`, `backend/src/routes/api-banco-leads.js`. Testes:
+  `frontend/lib/minha-operacao.test.js` (20, com 3 guardas que leem o fonte — sem recalcular regra,
+  sem papel literal, sem comissão alheia).
+- **Nenhuma migration, nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhuma tela
+  removida.**
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

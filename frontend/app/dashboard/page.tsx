@@ -1,6 +1,25 @@
 'use client'
+// A PORTA DE ENTRADA do painel — e ela mostra telas DIFERENTES para papéis diferentes.
+//
+// ─── O DEFEITO QUE ISTO CORRIGE ─────────────────────────────────────────────────────────
+// Esta rota chamava `/relatorios/resumo` para todo mundo. Aquela rota exige `RELATORIOS_VER`, que
+// nem `comercial` nem `member` têm — então a PRIMEIRA tela depois do login (e, desde o termo, logo
+// depois do aceite) era uma mensagem de erro 403. Não era só "administrativa demais": estava
+// quebrada para quem mais usa o produto.
+//
+// ─── COMO A ESCOLHA É FEITA ─────────────────────────────────────────────────────────────
+// Por CAPACIDADE, nunca por papel literal (`visaoDoPainel`, em `lib/minha-operacao.js`). E a
+// capacidade não é arbitrária: é exatamente a que a tela administrativa precisa para carregar.
+// Enquanto a sessão carrega não se escolhe nada — decidir no escuro faria a pessoa ver a visão
+// errada por um instante a cada carregamento.
+//
+// A visão administrativa abaixo NÃO foi alterada: é a mesma de antes, agora num componente
+// próprio e alcançada por quem de fato pode vê-la.
 import { useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
+import { useSession } from '@/lib/useSession'
+import { visaoDoPainel } from '@/lib/minha-operacao'
+import MinhaOperacao from '@/components/MinhaOperacao'
 
 type Resumo = {
   conversas: { ativas: string; fechadas: string; arquivadas: string; total: string }
@@ -19,6 +38,23 @@ const ESTAGIO_LABEL: Record<string, string> = {
 }
 
 export default function DashboardPage() {
+  // `redirectOnFail = false`: quem cuida de sessão inválida é o AuthGuard do layout. Um segundo
+  // redirecionador aqui competiria com ele.
+  const { capacidades, usuario, loading } = useSession(false)
+  const visao = visaoDoPainel(capacidades)
+
+  if (loading || visao === null) {
+    return <p className="text-sm text-slate-500">Carregando…</p>
+  }
+  if (visao === 'minha_operacao') {
+    return <MinhaOperacao nome={usuario?.nome} />
+  }
+  return <VisaoGeralAdministrativa />
+}
+
+// A Visão Geral de sempre — conteúdo inalterado. Ela vive aqui porque continua sendo o painel de
+// quem administra a empresa; só deixou de ser servida a quem não pode carregá-la.
+function VisaoGeralAdministrativa() {
   const [dados, setDados] = useState<Resumo | null>(null)
   const [erro, setErro] = useState('')
 

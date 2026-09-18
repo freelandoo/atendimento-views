@@ -171,15 +171,38 @@ function itemVisivel(item, acesso) {
  * A árvore que este acesso enxerga. Grupo que ficou SEM filho visível some inteiro —
  * senão alguém veria "Configurações" abrir vazio, o que é pior que não ver o grupo.
  */
+/**
+ * O rótulo do item, que para UM item depende de quem olha.
+ *
+ * `/dashboard` renderiza duas telas diferentes: a Visão Geral administrativa para quem tem
+ * `relatorios_ver` e **Minha Operação** para quem não tem (ver `lib/minha-operacao.js`). Sem esta
+ * substituição o menu diria "Visão Geral" e a tela diria "Minha Operação" — o menu mentiria sobre
+ * o próprio destino.
+ *
+ * A regra é a MESMA capacidade que decide a tela. Duplicá-la como literal noutro lugar faria o
+ * rótulo e o conteúdo divergirem no primeiro ajuste.
+ */
+const ROTULO_ALTERNATIVO = { '/dashboard': { semCapacidade: 'relatorios_ver', label: 'Minha Operação' } }
+
+function rotularItem(item, acesso) {
+  const alt = ROTULO_ALTERNATIVO[item && item.href]
+  if (!alt) return item
+  const { capacidades } = normalizarAcesso(acesso)
+  // Enquanto as capacidades não carregaram, mantém o rótulo padrão: trocar o texto do menu duas
+  // vezes por carregamento é pior que mostrá-lo um instante depois.
+  if (!Array.isArray(capacidades) || capacidades.length === 0) return item
+  return capacidades.includes(alt.semCapacidade) ? item : { ...item, label: alt.label }
+}
+
 function navegacaoVisivel(acesso, arvore = NAV) {
   const saida = []
   for (const no of arvore) {
     if (no.tipo === 'grupo') {
-      const itens = no.itens.filter((item) => itemVisivel(item, acesso))
+      const itens = no.itens.filter((item) => itemVisivel(item, acesso)).map((item) => rotularItem(item, acesso))
       if (itens.length) saida.push({ ...no, itens })
       continue
     }
-    if (itemVisivel(no, acesso)) saida.push(no)
+    if (itemVisivel(no, acesso)) saida.push(rotularItem(no, acesso))
   }
   return saida
 }

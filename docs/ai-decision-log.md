@@ -3525,3 +3525,53 @@ agora, e `ESCRITAS_COM_CAPACIDADE_PROPRIA` subiu de 2 para 3.
 modal. Nenhuma env nova, nenhuma capacidade nova, nenhum mount trocou de gate. Validado: `npm test`
 2176/2178 (as 2 falhas sao as conhecidas de 429 em chamada real de IA), `npm run typecheck` limpo,
 `tsc --noEmit` do frontend limpo, `node --test lib/*.test.js` 543/543.
+
+## 2026-09-18 — "Minha Operacao": a Visao Geral do COMERCIAL (sem migration)
+
+Contexto: decisao de produto do operador — o comercial nao deve cair numa Visao Geral
+administrativa, e sim numa visao do trabalho dele. **A investigacao mostrou que o problema era
+maior:** `/dashboard` chamava `/relatorios/resumo`, montada com `requireCapacidade(RELATORIOS_VER)`,
+capacidade que nem `comercial` nem `member` possuem. A PRIMEIRA tela depois do login — e, desde a
+Etapa 1, logo apos aceitar o termo — era **um erro 403**. Deixou de ser melhoria e virou correcao.
+
+**Decisao 1 (D1) — a escolha da tela e' por CAPACIDADE, e a capacidade nao e' arbitraria.** O
+criterio e' `relatorios_ver`, que e' EXATAMENTE o que a tela administrativa precisa para carregar.
+Quem nao a tem nao esta vendo uma tela "menor": veria um 403. Comparar papel com literal aqui
+repetiria o defeito que a Etapa 1 do CRM em equipe corrigiu. Enquanto a sessao carrega, NAO se
+escolhe tela — decidir no escuro mostraria a visao errada por um instante a cada carregamento.
+
+**Decisao 2 (D2) — o MENU muda junto.** O item `/dashboard` vira "Minha Operacao" pela MESMA
+capacidade. Sem isso o menu diria "Visao Geral" e a tela diria outra coisa — o menu mentiria sobre
+o proprio destino. A substituicao vive no modulo puro de navegacao, nao no Sidebar, para a regra
+existir num lugar so'.
+
+**Decisao 3 (D3) — as tres regras da mensagem de proximidade.** E' a unica coisa da tela que pode
+soar falsa, entao virou regra testada: (a) nunca inventar numero — sem meta legivel nao ha barra,
+marco nem frase; (b) nunca soar de deboche — com 8% do alvo, "falta pouco!" e' piada de mau gosto,
+e o tom sobe junto com o progresso; (c) janela encerrada muda o tempo verbal e tira o selo, porque
+"voce consegue" num desafio que acabou ontem e' mentira. Marcos em 50/75/90/100, selo so' a partir
+de 90%, e cor nunca e' a unica informacao.
+
+**Decisao 4 (D4) — o fluxo operacional e' ordenado por CONSEQUENCIA, nao por volume.** Prazo
+vencido → reuniao de hoje → lead parado → follow-up de hoje → lead livre. Ordenar por quantidade
+poria "40 leads livres" acima de "1 follow-up vencido". Contagem zero NAO vira linha: uma lista que
+sempre mostra "0 vencidos" treina a pessoa a ignorar a lista inteira.
+
+**Decisao 5 (D5) — `GET /banco-leads/meu-resumo`, rota propria e sempre sobre quem pede.** Nao
+aceita `usuario_id` da query: a carteira do colega nao e' recorte de ninguem, e um id na URL
+transformaria esta leitura no relatorio de equipe, que ja existe em `/equipe` e e' admin-only. Rota
+propria em vez de campo no `meta` da listagem porque contar parados no caminho quente custaria a
+subconsulta de ultima acao em toda paginacao. Recorte e condicao de "parado" vem dos MESMOS modulos
+do painel da equipe — numeros diferentes para a mesma pergunta em duas telas seriam pior que nao
+ter a tela.
+
+**Decisao 6 (D6) — cada bloco carrega e falha sozinho.** O `member` nao alcanca comissao, missao
+nem leads; a tela degrada bloco a bloco e, sem nada, DIZ o que houve em vez de ficar em branco.
+Alternativa descartada: uma rota agregadora no backend, que criaria SQL proprio para numeros que
+cada modulo ja sabe contar — o mesmo principio que mantem `/equipe` sem SQL de contagem.
+
+**Impacto:** nenhuma migration, nenhuma env, nenhuma capacidade nova, nenhuma tela removida. Uma
+rota de leitura nova, um modulo puro novo, uma tela nova e o roteamento de `/dashboard`. A visao
+administrativa NAO foi alterada. Validado: `npm test` 2176/2178 (as 2 falhas sao as conhecidas de
+429 em chamada real de IA), `npm run typecheck` limpo, `tsc --noEmit` do frontend limpo,
+`node --test lib/*.test.js` 563/563.

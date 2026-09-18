@@ -29,6 +29,9 @@ const { classificarLead } = require('../services/site-classificacao')
 const { avaliarQualificacaoLead } = require('../services/lead-qualificacao-score')
 // Ownership do lead (Etapa 4): a REGRA e' pura, o SQL e' proprio, a capacidade decide o recorte.
 const { sqlEscopo, escopoEfetivo } = require('../services/lead-responsavel')
+// Lead PARADO (Etapa 3): mesma regra pura que o painel da equipe usa. Contagens diferentes para a
+// mesma pergunta em duas telas seriam pior que nao ter a tela.
+const LP = require('../services/lead-parado')
 // A PORTA (Etapa 3). Aqui ela recorta a LEITURA do Comercial: quem nao pode ver a base bruta
 // ve apenas lead APROVADO/MARCADO por alguem. Lead neutro fica fora da operacao comercial.
 const { sqlAprovado } = require('../services/lead-qualificacao')
@@ -636,6 +639,40 @@ function anexarScoreCadastro(row) {
 
 // GET /leads?aba=sem_contato|conversou|fecharam&origem=&busca=
 // Inclui o último disparo (quem rodou / quando) e o estado da trava (bloqueado_ate).
+/**
+ * GET /meu-resumo — as três contagens que a tela "Minha Operação" mostra sobre a carteira DESTE
+ * vendedor: meus, livres e meus parados.
+ *
+ * Existe como rota PRÓPRIA, e não como mais um campo no `meta` da listagem, por dois motivos: a
+ * listagem é o caminho quente (contar parados nela custaria a subconsulta de última ação em toda
+ * paginação), e a tela inicial precisa das três contagens sem baixar lead nenhum.
+ *
+ * ⚠️ É SEMPRE sobre quem está pedindo. Não aceita `usuario_id` da query — a carteira do colega não
+ * é recorte de ninguém, e um id na URL transformaria esta leitura num relatório de equipe, que já
+ * existe em `/equipe` e é admin-only.
+ *
+ * O recorte de leads (`qualificacao IN ('aprovado','legado')`) e a condição de "parado" vêm dos
+ * MESMOS módulos que o painel da equipe usa — números diferentes para a mesma pergunta em duas
+ * telas seriam pior que não ter a tela.
+ */
+router.get('/meu-resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const prazo = LP.normalizarPrazo(req.query.parado_dias)
+    const { rows } = await pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE p.responsavel_id = $2::uuid)::int AS meus,
+         COUNT(*) FILTER (WHERE p.responsavel_id IS NULL)::int   AS livres,
+         COUNT(*) FILTER (WHERE p.responsavel_id = $2::uuid AND ${LP.sqlEstaParado('p', '$3')})::int AS parados
+       FROM prospectador.prospects p
+      WHERE p.empresa_id = $1
+        AND p.qualificacao IN ('aprovado', 'legado')`,
+      [req.empresa.id, req.usuario.id, prazo]
+    )
+    const r = rows[0] || { meus: 0, livres: 0, parados: 0 }
+    return res.json({ ok: true, data: r, meta: { parado_dias: prazo } })
+  } catch (err) { return envelopeErro(res, err, 'LEADS_RESUMO_FAILED') }
+})
+
 router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const { query: queryComEscopo, escopo } = comEscopo(req)

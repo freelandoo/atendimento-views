@@ -4286,3 +4286,31 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   (missao, pessoa) no BANCO, senao um duplo clique paga o premio duas vezes; e a pessoa precisa
   VER que o premio dela foi registrado, senao o programa vira promessa sem prova — a mesma razao
   pela qual `COMISSAO_VER_PROPRIA` existe.
+
+## 2026-09-18 - Tarefa IA - "Minha Operacao": a Visao Geral do COMERCIAL
+
+- **Pedido resumido (decisao de produto do operador):** o comercial nao deve cair na Visao Geral
+  administrativa. Em `/dashboard`, quem e' comercial ve **Minha Operacao**: desafio do mes,
+  progresso ate a meta, nivel atual e quanto falta para o proximo, comissao do mes, missao ativa,
+  hoje (follow-ups/agenda), leads (meus/livres/parados), fluxo operacional e ranking em placar.
+  **Nao e' liberar relatorio administrativo para o comercial** — e' uma visao recortada, com dados
+  que ele ja pode ver. Admin/dono continua com a visao administrativa.
+- **E projeto/tarefa de alteracao?** Sim. Tela nova + decisao de roteamento por acesso. **Sem
+  migration.**
+- **DIAGNOSTICO QUE MUDA O ENQUADRAMENTO:** a tela atual nao e' so' "administrativa demais" — ela
+  esta **QUEBRADA** para o comercial. `frontend/app/dashboard/page.tsx:29` chama
+  `/relatorios/resumo`, montada com `requireCapacidade(RELATORIOS_VER)` (`index.js:160`), e nem
+  `comercial` nem `member` tem essa capacidade (verificado com o modulo puro). Ou seja: a PRIMEIRA
+  tela depois do login — e, desde a Etapa 1, depois de aceitar o termo — e' um erro 403. Isto
+  deixa de ser melhoria e vira CORRECAO.
+- **Escopo pretendido:** UMA rota nova de leitura (`GET /banco-leads/meu-resumo`, contagens do
+  proprio vendedor reusando `sqlEscopo` e `sqlEstaParado`), um modulo PURO de apresentacao
+  (marcos de proximidade e fluxo operacional) e a tela, com `/dashboard` escolhendo o que
+  renderizar **por CAPACIDADE, nunca por papel literal**.
+- **Fora de escopo:** mudar a visao administrativa, criar relatorio novo, expor comissao alheia.
+- **Cuidados:** o ranking NAO pode expor comissao individual (decisao D4, 2026-09-18 — ele ja
+  devolve so nome e faturamento originado); a mensagem motivadora **nao pode inventar numero nem
+  soar de deboche** com progresso baixo, e precisa mudar de tom quando a janela da missao acabou;
+  `member` nao tem comissao/missao/leads e a tela precisa DEGRADAR com honestidade em vez de
+  mostrar caixa vazia; e nenhuma regra pode ser recalculada no front (nivel, fracao e "alcancou"
+  ja chegam prontos do backend).

@@ -1103,3 +1103,23 @@ existe e nao deve nascer.
   nao existe desfazer; e a propria pessoa ve a baixa dela.
 - Validacao executada: `npm test` (2176/2178 — as 2 falhas sao as conhecidas de 429 em chamada
   real de IA), `npm run typecheck`, `tsc --noEmit` no frontend, `node --test lib/*.test.js` (543).
+
+## 2026-09-18 - "Minha Operacao": a Visao Geral do comercial
+
+- `frontend/app/dashboard/page.tsx`: a rota passou a ESCOLHER a tela por capacidade
+  (`visaoDoPainel`). A Visao Geral administrativa virou `VisaoGeralAdministrativa` no mesmo
+  arquivo, com conteudo INALTERADO.
+- `frontend/lib/minha-operacao.js` (+ `.d.ts`/`.test.js`, NOVOS, PURO): `proximidade` (marcos
+  50/75/90/100, selo, frase), `proximosPassos`, `nadaPendente`, `minhaPosicao`, `visaoDoPainel`.
+- `frontend/components/MinhaOperacao.tsx` (NOVO): a tela do comercial.
+- `frontend/lib/navegacao.js`: `ROTULO_ALTERNATIVO` + `rotularItem` — o item `/dashboard` vira
+  "Minha Operacao" pela MESMA capacidade que decide a tela.
+- `backend/src/routes/api-banco-leads.js`: `GET /meu-resumo` (meus/livres/parados do proprio
+  vendedor), reusando `sqlEstaParado` de `services/lead-parado.js`.
+- Regras a preservar: escolha por CAPACIDADE e nunca por papel literal; menu e tela com o mesmo
+  rotulo; as tres regras da mensagem de proximidade (nao inventar numero, nao debochar, mudar o
+  tempo verbal depois do prazo); fluxo ordenado por consequencia e contagem zero fora da lista;
+  `/meu-resumo` nunca aceita `usuario_id` da query; o placar nao expoe comissao alheia.
+- Fora de escopo: mudar a visao administrativa, criar relatorio novo.
+- Validacao executada: `npm test` (2176/2178 — as 2 falhas sao as conhecidas de 429 em chamada
+  real de IA), `npm run typecheck`, `tsc --noEmit` no frontend, `node --test lib/*.test.js` (563).
