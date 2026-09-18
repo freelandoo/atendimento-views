@@ -130,3 +130,11 @@ mensagem `assistant`; o backend valida tenant, indice e role da mensagem e persi
 `app.empresa_contexto_sugestoes`, vinculada por `feedback_id`. A IA so roda quando o operador
 clica para aplicar a sugestao, e ainda assim cria apenas uma nova versao `rascunho` do Contexto 2,
 com resumo de diff para revisao antes de ativar.
+
+### 2026-09-18 - Equipes comerciais por nicho
+
+Equipes comerciais sao uma camada operacional separada de permissao. `app.usuarios_empresas`
+continua sendo a fonte de papel/capacidade; `app.equipes_comerciais` define o recorte de trabalho
+por `nicho_id`, e `app.equipe_comercial_membros` guarda o historico de participantes. O recorte
+obrigatorio futuro deve consultar essa estrutura por ID e por `empresa_id`, nunca por nome de
+nicho nem por papel literal. A etapa atual nao aplica filtro nas telas operacionais.

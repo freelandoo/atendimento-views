@@ -1123,3 +1123,28 @@ existe e nao deve nascer.
 - Fora de escopo: mudar a visao administrativa, criar relatorio novo.
 - Validacao executada: `npm test` (2176/2178 — as 2 falhas sao as conhecidas de 429 em chamada
   real de IA), `npm run typecheck`, `tsc --noEmit` no frontend, `node --test lib/*.test.js` (563).
+
+## 2026-09-18 - Equipes por Nicho, Etapa 2: fundacao de equipes comerciais
+
+- `backend/sql/migrations/088_equipes_comerciais.sql`: tabelas novas
+  `app.equipes_comerciais` e `app.equipe_comercial_membros`. Uma equipe ativa aponta para UM
+  `nicho_id`; uma pessoa so pode estar em UMA equipe ativa por empresa; FK composta garante
+  nicho e vinculo dentro da mesma empresa.
+- `backend/src/services/equipes-comerciais.js` (NOVO, PURO): normalizacao/validacao de payload.
+- `backend/src/db/equipes-comerciais.js` (NOVO): cria equipe, lista, adiciona participantes e
+  encerra equipe vazia em transacao, com auditoria. Participantes sao validados por
+  `app.usuarios_empresas` ativo da propria empresa. Remocao de participante fica bloqueada ate a
+  etapa de devolucao de leads.
+- `backend/src/routes/api-equipes-comerciais.js` (NOVO) + mount
+  `/api/empresas/:empresaId/equipes-comerciais` em `index.js`. Gate no router:
+  `MEMBROS_GERENCIAR`.
+- `backend/test/equipes-comerciais.test.js` (NOVO) e `backend/test/autorizacao-rotas.test.js`:
+  guardas de schema, permissao e anti-regressao; `backend/package.json` inclui a suite.
+- Regras a preservar: equipe NAO e papel; recorte por nicho usa ID, nunca nome; equipe com um
+  unico nicho; uma pessoa em uma equipe ativa; cadastro de equipes separado do painel `/equipe`.
+- Fora de escopo nesta etapa: aplicar o recorte no Banco de Leads/Central/Follow-ups/Minha
+  Operacao, devolver leads ao remover pessoa, remover participante de equipe ativa, e converter
+  missao para `equipe_id`.
+- Validacao executada: `node --test test/equipes-comerciais.test.js test/autorizacao-rotas.test.js`,
+  `node --test test/acesso-capacidades.test.js test/membros.test.js test/equipe-painel.test.js
+  test/equipes-comerciais.test.js test/autorizacao-rotas.test.js`, `npm run typecheck`.

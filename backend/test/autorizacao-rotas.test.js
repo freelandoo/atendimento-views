@@ -88,6 +88,9 @@ const ROTAS_POR_CAPACIDADE = [
 
   // Etapa 12 — painel da EQUIPE: quem gerencia as contas responde pela distribuição do trabalho.
   { mount: '/api/empresas/:empresaId/equipe', capacidade: C.MEMBROS_GERENCIAR, papeisQuePassam: ['owner', 'admin'], noRouter: true },
+  // 2026-09-18 — cadastro de EQUIPES COMERCIAIS por nicho. Equipe e organizacao operacional,
+  // nao papel; quem gerencia membros tambem gerencia a distribuicao por equipe.
+  { mount: '/api/empresas/:empresaId/equipes-comerciais', capacidade: C.MEMBROS_GERENCIAR, papeisQuePassam: ['owner', 'admin'], noRouter: true },
 
   // 2026-09-12 — CONHECIMENTO do atendimento. Os 4 routers de contexto estavam montados SEM
   // capacidade nenhuma: qualquer membro (inclusive o `comercial`) criava, editava e excluía

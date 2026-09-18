@@ -4336,3 +4336,19 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Fora de escopo declarado:** Agenda ("quando fizer sentido" — vago demais para virar codigo),
   ranking DA missao (o operador escolheu destacar o geral), equipe com mais de um nicho, pessoa
   em mais de uma equipe.
+
+## 2026-09-18 — Equipes por Nicho (Operacao Comercial) — Etapa 2: fundacao de equipes
+
+- **Pedido do operador:** continuar a implementacao depois do pre-requisito `prospects.nicho_id`.
+  A proxima fatia e criar a estrutura operacional de equipes: uma equipe pertence a um nicho,
+  uma pessoa so pode estar em uma equipe ativa, e a gestao fica nas maos de owner/admin.
+- **E projeto/tarefa de alteracao?** Sim. Envolve migration nova, modulo de dados, rota de API e
+  testes. Ainda nao altera o recorte real do Banco de Leads, Central de Ligacoes, Follow-ups ou
+  Minha Operacao.
+- **Escopo pretendido:** `app.equipes_comerciais`, `app.equipe_comercial_membros`, rota
+  administrativa para listar/criar/adicionar participantes e guardas para isolamento por
+  empresa/nicho.
+- **Fora de escopo nesta etapa:** aplicar filtro por equipe/nicho nas telas operacionais, remover
+  membro com devolucao de leads, alterar missoes para `equipe_id`, e qualquer mudanca visual.
+- **Cuidados:** equipe nao e papel de acesso; `usuarios_empresas` continua sendo o vinculo de
+  permissao. O recorte por nicho precisa nascer no banco com FK composta, nao como filtro visual.

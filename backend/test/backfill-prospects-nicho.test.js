@@ -1,0 +1,96 @@
+'use strict'
+// Equipes por Nicho: pre-requisito `prospects.nicho_id`.
+//
+// Esta suite protege a fase estrutural: schema + backfill. Ela nao testa banco real; testa o
+// contrato dos SQLs e das mensagens para impedir que o recorte futuro nasca em cima de palpite.
+
+const test = require('node:test')
+const assert = require('node:assert')
+const fs = require('node:fs')
+const path = require('node:path')
+
+const B = require('../scripts/backfill-prospects-nicho')
+
+const RAIZ = path.join(__dirname, '..')
+const fonte = (rel) => fs.readFileSync(path.join(RAIZ, rel), 'utf8')
+
+test('CASAMENTO e exato por nome dentro da empresa, sem fuzzy', () => {
+  assert.match(B.CASAMENTO, /lower\(TRIM\(n\.nome\)\)\s*=\s*lower\(TRIM\(p\.nicho\)\)/)
+  for (const proibido of ['ILIKE', 'similarity', 'levenshtein', 'soundex', 'LIKE']) {
+    assert.ok(!B.CASAMENTO.toUpperCase().includes(proibido.toUpperCase()), `nao pode usar ${proibido}`)
+  }
+})
+
+test('montarAchados declara simulacao e nao transforma falta de catalogo em erro', () => {
+  const achados = B.montarAchados(
+    { totalLeads: 10, semTexto: 1, casaveis: 6, semCatalogo: 3, criados: 0 },
+    { aplicar: false, criarNichos: false }
+  )
+  assert.ok(achados.some((a) => a.includes('10 lead(s) sem nicho_id')))
+  assert.ok(achados.some((a) => a.includes('SIMULACAO')))
+  assert.ok(achados.some((a) => a.includes('fica em NULL de proposito')))
+  assert.ok(achados.some((a) => a.includes('--criar-nichos')))
+})
+
+test('montarAchados explica criacao opt-in de nichos observados', () => {
+  const simulado = B.montarAchados(
+    { totalLeads: 4, semTexto: 0, casaveis: 0, semCatalogo: 4, criados: 2 },
+    { aplicar: false, criarNichos: true }
+  )
+  assert.ok(simulado.some((a) => a.includes('seriam criados')))
+
+  const aplicado = B.montarAchados(
+    { totalLeads: 4, semTexto: 0, casaveis: 4, semCatalogo: 0, criados: 2 },
+    { aplicar: true, criarNichos: true }
+  )
+  assert.ok(aplicado.some((a) => a.includes('criado(s)')))
+  assert.ok(!aplicado.some((a) => a.includes('SIMULACAO')))
+})
+
+test('script simula por padrao e exige DATABASE_URL so na execucao CLI', () => {
+  const src = fonte('scripts/backfill-prospects-nicho.js')
+  assert.match(src, /const aplicar = argv\.includes\('--aplicar'\)/)
+  assert.match(src, /if \(!url\)/)
+  assert.doesNotThrow(() => require('../scripts/backfill-prospects-nicho'))
+})
+
+test('script nunca vincula lead sem empresa nem sobrescreve nicho_id existente', () => {
+  const src = fonte('scripts/backfill-prospects-nicho.js')
+  assert.match(src, /p\.nicho_id IS NULL/)
+  assert.match(src, /p\.empresa_id IS NOT NULL/)
+  assert.match(src, /n\.empresa_id = p\.empresa_id/)
+  assert.match(src, /alvo\.nicho_id IS NULL/)
+  assert.ok(!/SET\s+nicho\s*=/.test(src), 'texto cru prospects.nicho nao pode ser reescrito')
+})
+
+test('script nao chama rede nem servico pago', () => {
+  const src = fonte('scripts/backfill-prospects-nicho.js')
+  for (const proibido of ['fetch(', 'axios', 'anthropic', 'openai', 'brightdata', 'google']) {
+    assert.ok(!src.toLowerCase().includes(proibido.toLowerCase()), `backfill nao pode conter ${proibido}`)
+  }
+})
+
+test('migration e aditiva: coluna nullable sem default, indice e nenhuma mutacao de dados', () => {
+  const sql = fonte('sql/migrations/087_prospects_nicho_id.sql')
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS nicho_id UUID/)
+  assert.match(sql, /CREATE INDEX IF NOT EXISTS idx_prospects_empresa_nicho/)
+  assert.match(sql, /WHERE nicho_id IS NOT NULL/)
+  const sqlSemComentarios = sql.replace(/--[^\n]*/g, '')
+  assert.ok(!/DEFAULT\s+/.test(sqlSemComentarios), 'nicho_id nao pode ter DEFAULT')
+  assert.ok(!/(^|;)\s*(UPDATE|DELETE|INSERT)\b/i.test(sqlSemComentarios),
+    'migration nao deve mutar dados existentes')
+})
+
+test('migration usa FK composta e ON DELETE limpa so nicho_id, preservando empresa_id', () => {
+  const sql = fonte('sql/migrations/087_prospects_nicho_id.sql')
+  assert.match(sql, /FOREIGN KEY \(nicho_id, empresa_id\)/)
+  assert.match(sql, /REFERENCES app\.nichos \(id, empresa_id\)/)
+  assert.match(sql, /ON DELETE SET NULL \(nicho_id\)/)
+  assert.ok(!/ON DELETE SET NULL\s*;/.test(sql), 'SET NULL sem lista limparia empresa_id tambem')
+})
+
+test('package.json expoe o comando de backfill e inclui esta suite', () => {
+  const pkg = JSON.parse(fonte('package.json'))
+  assert.equal(pkg.scripts['backfill:prospects-nicho'], 'node scripts/backfill-prospects-nicho.js')
+  assert.ok(pkg.scripts.test.includes('test/backfill-prospects-nicho.test.js'))
+})

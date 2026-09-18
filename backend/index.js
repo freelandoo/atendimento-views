@@ -110,6 +110,9 @@ app.use('/api/empresas/:empresaId/programa', require('./src/routes/api-programa'
 // autorizacao vive dentro do router (MEMBROS_GERENCIAR — quem gerencia contas responde pela
 // distribuicao do trabalho). Nao tem SQL proprio: reusa as contagens de cada modulo.
 app.use('/api/empresas/:empresaId/equipe', require('./src/routes/api-equipe'))
+// Equipes Comerciais por Nicho — cadastro operacional. Separado de `/equipe`, que e o painel
+// agregado de carga. A autorizacao vive no router: equipe e organizacao do trabalho, nao papel.
+app.use('/api/empresas/:empresaId/equipes-comerciais', require('./src/routes/api-equipes-comerciais'))
 // CONHECIMENTO DO ATENDIMENTO — os 4 routers de contexto sao gateados por
 // INSTANCIA_GERENCIAR_CONTEXTO (a capacidade que a matriz ja descreve como "conhecimento = ativo
 // da empresa"). Ate 2026-09-12 eles nao tinham gate NENHUM alem de `requireAuth`: qualquer membro

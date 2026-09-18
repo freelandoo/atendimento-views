@@ -3623,3 +3623,33 @@ estreita (`qualificacao = 'aprovado'`).
 
 **Fora de escopo:** Agenda ("quando fizer sentido" — vago demais para virar codigo), ranking DA
 missao (o operador escolheu destacar o geral), equipe multi-nicho, pessoa em mais de uma equipe.
+
+---
+
+## 2026-09-18 — Equipes Comerciais: equipe e entidade operacional, nao papel
+
+**Contexto:** depois do pre-requisito `prospectador.prospects.nicho_id`, a implementacao precisava
+criar onde o dono/admin define "quem trabalha qual nicho". O sistema ja tem
+`app.usuarios_empresas` para papel/capacidade; misturar equipe com papel faria permissao e
+distribuicao de carteira virarem a mesma coisa.
+
+**Decisao 1 — equipe comercial e tabela propria.** Criada `app.equipes_comerciais`, com
+`empresa_id`, `nicho_id`, nome, status e autoria. Equipe organiza trabalho; nao autoriza acesso.
+A autorizacao continua em `app.usuarios_empresas` + `services/acesso-capacidades.js`.
+
+**Decisao 2 — nicho sempre por ID composto com empresa.** A FK e `(nicho_id, empresa_id)` →
+`app.nichos(id, empresa_id)`. Match por nome continua proibido para recorte obrigatorio, porque
+grafia divergente tiraria leads da carteira em silencio.
+
+**Decisao 3 — uma pessoa em uma equipe ativa.** `app.equipe_comercial_membros` guarda historico de
+entrada/saida e o indice parcial `equipe_membros_um_ativo_por_usuario_uk` garante uma ativa por
+`(empresa_id, usuario_id)`. A pessoa pode ter historico em varias equipes, mas uma ativa por vez.
+Remocao de participante fica bloqueada nesta etapa, porque a regra aprovada exige devolver leads
+para livres com aviso e preservacao de compromissos marcados.
+
+**Decisao 4 — uma equipe ativa por nicho por enquanto.** O indice parcial
+`equipes_comerciais_um_nicho_ativo_uk` evita duas equipes ativas disputando a mesma carteira de
+nicho. Se houver squad A/B no mesmo nicho no futuro, isso precisa virar uma decisao explicita.
+
+**Fora de escopo nesta etapa:** aplicar recorte em Banco de Leads/Central/Follow-ups/Minha
+Operacao, devolver leads ao remover pessoa da equipe e converter missoes para `equipe_id`.
