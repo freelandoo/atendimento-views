@@ -4314,3 +4314,25 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   `member` nao tem comissao/missao/leads e a tela precisa DEGRADAR com honestidade em vez de
   mostrar caixa vazia; e nenhuma regra pode ser recalculada no front (nivel, fracao e "alcancou"
   ja chegam prontos do backend).
+
+## 2026-09-18 — Equipes por Nicho (Operacao Comercial) — ANALISE, sem codigo
+
+- **Pedido do operador:** camada de **Equipes por Nicho**. Uma equipe = um nicho; uma pessoa em
+  no maximo uma equipe ativa; o recorte por nicho e' **OBRIGATORIO** (nao filtro visual) em Banco
+  de Leads, Central de Ligacoes, Follow-ups e Minha Operacao; missao passa a ser **por equipe**;
+  ranking exibido continua sendo o **GERAL da operacao**; remover pessoa da equipe **devolve os
+  leads dela para livres**, com aviso previo do numero.
+- **E projeto/tarefa de alteracao?** Sim, e **ESTRUTURAL**: tabela nova, recorte novo em 4 modulos
+  e alteracao de um indice unico ja existente (`missoes_uma_ativa_por_empresa_uk`, 085).
+  Pelo `CLAUDE.md`, exige confirmacao antes de implementar. **Nenhuma linha de codigo escrita.**
+- **ACHADO QUE MUDA O ENQUADRAMENTO:** `app.nichos` **JA EXISTE** (migration 038, catalogo
+  administravel por empresa, `uq_nichos_empresa_nome` case-insensitive) e `app.campanhas.nicho_id`
+  ja o referencia. Mas `prospectador.prospects` **NAO tem `nicho_id`**: guarda `nicho` como
+  **TEXTO LIVRE**, escrito com o termo de busca da Aquisicao (`prospecting.js:1108`,
+  `normalizarTexto(ctx.nicho || pIn.nicho, 160)`) e **sobrescrito pela recoleta**
+  (`nicho = EXCLUDED.nicho`, linha 1190). O cabecalho da propria 038 declara que `nicho_id` nos
+  leads seria "migracao futura" — esta entrega e' essa fase, e ela e' pre-requisito do recorte.
+- **Analise completa:** `docs/analise-equipes-por-nicho.md`.
+- **Fora de escopo declarado:** Agenda ("quando fizer sentido" — vago demais para virar codigo),
+  ranking DA missao (o operador escolheu destacar o geral), equipe com mais de um nicho, pessoa
+  em mais de uma equipe.

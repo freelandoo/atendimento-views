@@ -3575,3 +3575,51 @@ rota de leitura nova, um modulo puro novo, uma tela nova e o roteamento de `/das
 administrativa NAO foi alterada. Validado: `npm test` 2176/2178 (as 2 falhas sao as conhecidas de
 429 em chamada real de IA), `npm run typecheck` limpo, `tsc --noEmit` do frontend limpo,
 `node --test lib/*.test.js` 563/563.
+
+---
+
+## 2026-09-18 — Equipes por Nicho: as 4 decisoes estruturais (ANTES do codigo)
+
+**Contexto:** o operador registrou a camada de **Equipes por Nicho** (uma pessoa em uma equipe
+ativa; uma equipe com um nicho; recorte OBRIGATORIO em Banco de Leads, Central de Ligacoes,
+Follow-ups e Minha Operacao; missao por equipe; ranking exibido continua GERAL; remover pessoa
+devolve os leads dela para livres com aviso). Analise completa em
+`docs/analise-equipes-por-nicho.md`. **Nenhuma linha de codigo escrita** — e' mudanca estrutural
+e o `CLAUDE.md` exige confirmacao.
+
+**Achado que enquadrou tudo:** `app.nichos` JA EXISTE (038), mas `prospectador.prospects` nao tem
+`nicho_id` — guarda `nicho` como TEXTO LIVRE, vindo do termo de busca da Aquisicao
+(`prospecting.js:1108`) e SOBRESCRITO pela recoleta (linha 1190). A 038 ja declarava `nicho_id`
+nos leads como "migracao futura"; o recorte obrigatorio a torna pre-requisito.
+
+**Decisao 1 — `prospects.nicho_id` + backfill; o recorte casa por ID, nunca por nome.**
+Variacao de grafia ("Energia Solar" x "energia solar residencial") tiraria o lead do recorte EM
+SILENCIO, e o vendedor veria menos carteira do que tem sem nada explicando por que. `nicho`
+continua como texto de auditoria (contrato de `site` x `link_original`, 056). Backfill SIMULA por
+padrao; lead que nao casar fica NULL e VISIVEL para revisao — nunca adivinhado. A recoleta nao
+pode sobrescrever `nicho_id` (disciplina de `telefone_origem` e `qualificacao`).
+
+**Decisao 2 — quem nao esta em equipe NAO e' recortado.** Mantem o comportamento de hoje (meus +
+livres). O recorte so existe onde alguem o definiu — mesma disciplina de "nao se inventa dono"
+que governa instancia de envio, quarentena de webhook e ownership. Bloquear criaria um segundo
+lockout como o aceite do termo (084), parando todo comercial no dia do deploy.
+
+**Decisao 3 — o nicho da missao e' ROTULO; a metrica NAO e' recortada.** A missao pertence a
+equipe e usa os participantes dela, mas mede todo o faturamento pago originado por eles no
+periodo. `app.vendas` NAO ganha nicho, e a metrica unica de `app.missoes` (CHECK fechada, 085)
+fica intacta. Recortar exigiria rastrear o nicho do lead ate a venda.
+
+**Decisao 4 — lead com compromisso marcado NAO e' devolvido.** Devolve-lo deixaria a reuniao com
+responsavel que saiu da equipe. A tela separa os dois numeros no aviso ("X voltam para livres, Y
+ficam por terem compromisso marcado"): prometer um numero e devolver outro e' pior que a friccao.
+A devolucao e' ACAO EXPLICITA do dono/admin — nunca um worker —, transacional, com uma linha em
+`app.lead_responsavel_historico` por lead.
+
+**Risco declarado que a implementacao tem de tratar:** recorte obrigatorio reintroduz, por outro
+caminho, o defeito de 2026-09-12 (Banco de Leads abrindo VAZIO para todo comercial). Equipe de
+Energia Solar sem lead aprovado desse nicho = tela vazia. O **estado vazio explicativo e'
+REQUISITO**, nao polimento, nos quatro modulos — e a Central de Ligacoes ja parte de uma fila
+estreita (`qualificacao = 'aprovado'`).
+
+**Fora de escopo:** Agenda ("quando fizer sentido" — vago demais para virar codigo), ranking DA
+missao (o operador escolheu destacar o geral), equipe multi-nicho, pessoa em mais de uma equipe.
