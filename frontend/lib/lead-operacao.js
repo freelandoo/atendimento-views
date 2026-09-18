@@ -199,7 +199,49 @@ function contagemMensagem(texto) {
   return { usados: n, limite: LIMITE_MENSAGEM, excedeu: n > LIMITE_MENSAGEM, restantes: LIMITE_MENSAGEM - n }
 }
 
+// ─── Equipes por Nicho (Etapa 3): DIZER o recorte, nunca aplicá-lo em silêncio ───────────
+//
+// O recorte por nicho é decidido e aplicado pelo BACKEND (`services/equipes-comerciais.js` +
+// `api-banco-leads.js`). Este módulo só TRADUZ o veredito que chegou no `meta.equipe` — mesmo
+// contrato de `lib/site-rotulos.js` e `lib/capacidades.js`. Ele não sabe o que é um nicho, não
+// compara id e não decide quem é recortado.
+//
+// ⚠️ POR QUE ISTO EXISTE: em 2026-09-12 o Banco de Leads abria VAZIO para todo comercial e
+// parecia defeito. O recorte obrigatório por nicho reintroduz essa mesma aparência por outro
+// caminho — equipe de Energia Solar sem lead desse nicho dá tela vazia. A diferença entre "isto
+// está quebrado" e "sua equipe trabalha Energia Solar e ainda não há leads desse nicho" é
+// inteiramente esta frase. Ela é REQUISITO, não polimento.
+
+/** A frase curta que declara o recorte ativo. `null` para quem não está em equipe. */
+function avisoDeEquipe(equipe) {
+  if (!equipe || !equipe.nicho_nome) return null
+  const time = equipe.equipe_nome ? `${equipe.equipe_nome} · ` : ''
+  return `${time}mostrando apenas leads do nicho ${equipe.nicho_nome}`
+}
+
+/**
+ * O texto do estado vazio.
+ *
+ * Distingue os três motivos de uma lista vazia, porque cada um manda a pessoa a um lugar
+ * diferente: recorte de equipe (falar com quem libera leads), aba sem conteúdo (normal) e
+ * filtro (mexer no filtro). Dizer o texto errado manda o vendedor procurar defeito onde há uma
+ * decisão pendente de outra pessoa.
+ */
+function vazioDaCarteira(equipe, aba) {
+  if (equipe && equipe.nicho_nome) {
+    return {
+      titulo: `Sua equipe está vinculada ao nicho ${equipe.nicho_nome}, mas ainda não há leads liberados nesse nicho.`,
+      ajuda: 'Isso não é falta de permissão nem erro: assim que leads desse nicho forem aprovados, eles aparecem aqui.',
+    }
+  }
+  if (aba === 'agendados') return { titulo: 'Nenhum contato agendado no momento.', ajuda: null }
+  if (aba === 'descartados') return { titulo: 'Nenhum lead descartado.', ajuda: null }
+  return { titulo: 'Nenhum lead nesta aba.', ajuda: null }
+}
+
 module.exports = {
+  avisoDeEquipe,
+  vazioDaCarteira,
   QUALIFICACAO_ROTULO,
   ESCOPO_LEAD,
   LIMITE_MENSAGEM,

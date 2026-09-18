@@ -27,6 +27,8 @@ import type { LinhaRanking, PainelComissao } from '@/lib/comissao'
 import { janelaTexto, recompensaTexto, resumoDoProgresso, rotuloSituacao, minhaRecompensa } from '@/lib/missao'
 import type { Missao, ProgressoMissao } from '@/lib/missao'
 import { proximidade, proximosPassos, nadaPendente, minhaPosicao, contagensDeFollowUp } from '@/lib/minha-operacao'
+import { avisoDeEquipe } from '@/lib/lead-operacao'
+import type { EquipeRecorte } from '@/lib/lead-operacao'
 
 type RespostaMissao = {
   missao: Missao | null
@@ -56,6 +58,7 @@ export default function MinhaOperacao({ nome }: { nome?: string }) {
   const [euId, setEuId] = useState('')
   const [leads, setLeads] = useState<ResumoLeads | null>(null)
   const [paradoDias, setParadoDias] = useState(0)
+  const [equipe, setEquipe] = useState<EquipeRecorte | null>(null)
   const [followups, setFollowups] = useState<{ vencidos: number; hoje: number } | null>(null)
   const [reunioesHoje, setReunioesHoje] = useState(0)
   const [carregando, setCarregando] = useState(true)
@@ -72,8 +75,14 @@ export default function MinhaOperacao({ nome }: { nome?: string }) {
     apiFetch<{ ranking: LinhaRanking[] }, { usuario_id: string }>(`${base}/comissao/ranking`)
       .then((r) => { setRanking(r.data.ranking || []); setEuId(r.meta?.usuario_id || '') })
       .catch(() => setRanking([]))
-    apiFetch<ResumoLeads, { parado_dias: number }>(`${base}/banco-leads/meu-resumo`)
-      .then((r) => { setLeads(r.data); setParadoDias(Number(r.meta?.parado_dias) || 0) })
+    apiFetch<ResumoLeads, { parado_dias: number; equipe?: EquipeRecorte | null }>(`${base}/banco-leads/meu-resumo`)
+      .then((r) => {
+        setLeads(r.data)
+        setParadoDias(Number(r.meta?.parado_dias) || 0)
+        // As tres contagens ja vem recortadas pelo nicho da equipe (backend). A tela so' DECLARA
+        // o recorte: sem isso, "0 livres" aqui pareceria carteira vazia em vez de recorte.
+        setEquipe(r.meta?.equipe || null)
+      })
       .catch(() => setLeads(null))
     // As TRES fontes da fila, as mesmas da Central de Follow-ups — e pela mesma razao: o
     // "vencido" so' nasce de um follow-up REGISTRADO (`/itens`), que e' o unico com prazo
@@ -131,6 +140,13 @@ export default function MinhaOperacao({ nome }: { nome?: string }) {
           {nome ? `${nome}, este` : 'Este'} é o seu dia: o desafio do mês, o que precisa da sua ação
           agora e como você está no placar.
         </p>
+        {/* Etapa 3: quem está em equipe trabalha uma carteira recortada por nicho. A tela diz
+            isso porque os números abaixo já vêm recortados — calar faria parecer carteira vazia. */}
+        {avisoDeEquipe(equipe) && (
+          <p className="mt-2 inline-block rounded-lg border border-cyan-200 bg-cyan-50 px-2 py-1 text-xs text-cyan-800">
+            {avisoDeEquipe(equipe)}
+          </p>
+        )}
       </div>
 
       {/* ── O TOPO: desafio, progresso e nível ────────────────────────────────────────── */}

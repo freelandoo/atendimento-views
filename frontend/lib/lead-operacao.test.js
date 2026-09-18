@@ -206,3 +206,55 @@ test('GUARDA: todo rotulo de qualificacao tem texto proprio', () => {
     assert.notEqual(rotulo, slug, `${slug} nao foi traduzido`)
   }
 })
+
+// ─── Equipes por Nicho (Etapa 3): declarar o recorte ─────────────────────────────────────
+
+test('quem nao esta em equipe nao ve aviso de recorte', () => {
+  assert.equal(L.avisoDeEquipe(null), null)
+  assert.equal(L.avisoDeEquipe(undefined), null)
+  // Equipe sem nicho legivel tambem nao declara: a frase ficaria sem o dado que importa.
+  assert.equal(L.avisoDeEquipe({ equipe_nome: 'Time Solar', nicho_nome: null }), null)
+})
+
+test('o aviso nomeia o nicho, e a equipe quando existe', () => {
+  assert.equal(
+    L.avisoDeEquipe({ equipe_nome: 'Time Solar', nicho_nome: 'Energia Solar' }),
+    'Time Solar · mostrando apenas leads do nicho Energia Solar'
+  )
+  assert.equal(
+    L.avisoDeEquipe({ equipe_nome: null, nicho_nome: 'Energia Solar' }),
+    'mostrando apenas leads do nicho Energia Solar'
+  )
+})
+
+test('carteira vazia POR RECORTE nao pode parecer defeito nem falta de permissao', () => {
+  // Foi exatamente essa aparencia que o defeito de 2026-09-12 produziu, e o recorte obrigatorio
+  // a reintroduz por outro caminho.
+  const v = L.vazioDaCarteira({ nicho_nome: 'Energia Solar' }, 'sem_contato')
+  assert.match(v.titulo, /Energia Solar/)
+  assert.match(v.titulo, /ainda não há leads liberados/)
+  assert.ok(v.ajuda && /não é falta de permissão nem erro/.test(v.ajuda))
+})
+
+test('sem equipe, o estado vazio continua sendo o de sempre', () => {
+  assert.equal(L.vazioDaCarteira(null, 'agendados').titulo, 'Nenhum contato agendado no momento.')
+  assert.equal(L.vazioDaCarteira(null, 'descartados').titulo, 'Nenhum lead descartado.')
+  assert.equal(L.vazioDaCarteira(null, 'sem_contato').titulo, 'Nenhum lead nesta aba.')
+  assert.equal(L.vazioDaCarteira(null, 'agendados').ajuda, null)
+})
+
+test('o recorte de equipe VENCE o texto da aba', () => {
+  // Estar numa equipe sem leads do nicho explica a lista vazia melhor que "nenhum lead nesta
+  // aba", que mandaria a pessoa trocar de aba atras de algo que nao existe em aba nenhuma.
+  assert.match(L.vazioDaCarteira({ nicho_nome: 'Solar' }, 'descartados').titulo, /Solar/)
+})
+
+test('GUARDA: o modulo nao decide QUEM e recortado nem compara nicho', () => {
+  // Quem recorta e' o backend (services/equipes-comerciais.js). Uma segunda regra aqui faria a
+  // tela mostrar um recorte diferente do que a consulta aplicou.
+  const fonte = fs.readFileSync(path.join(__dirname, 'lead-operacao.js'), 'utf8')
+  const semComentarios = fonte.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
+  for (const proibido of ['nicho_id ===', 'nicho_id ==', 'equipe_id ===', 'papel', 'capacidade']) {
+    assert.ok(!semComentarios.includes(proibido), `lead-operacao.js nao pode conter '${proibido}'`)
+  }
+})

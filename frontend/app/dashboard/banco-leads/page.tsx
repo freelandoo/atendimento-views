@@ -25,8 +25,9 @@ import { ORDEM_FAIXAS, seloFaixa, avisoDeJanela } from '@/lib/lead-fila-trabalho
 import {
   opcoesEscopo,
   donoDoLead, acoesDeResponsavel,
+  avisoDeEquipe, vazioDaCarteira,
 } from '@/lib/lead-operacao'
-import type { Qualificacao } from '@/lib/lead-operacao'
+import type { Qualificacao, EquipeRecorte } from '@/lib/lead-operacao'
 import { temCapacidade } from '@/lib/capacidades'
 import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconSend, IconAlert } from '@/components/ui/icons'
 import type { PayloadProximaAcao } from '@/lib/follow-up-acao'
@@ -643,7 +644,7 @@ export default function BancoLeadsPage() {
   const [cooldownS, setCooldownS] = useState<number | null>(null)
   const [flashCron, setFlashCron] = useState(false)
   const cronRef = useRef<HTMLDivElement | null>(null)
-  const [metaLista, setMetaLista] = useState<{ total?: number; total_carteira?: number; limite?: number } | null>(null)
+  const [metaLista, setMetaLista] = useState<{ total?: number; total_carteira?: number; limite?: number; equipe?: EquipeRecorte | null } | null>(null)
   const [saudacaoOpen, setSaudacaoOpen] = useState(false)
   const [cadastroOpen, setCadastroOpen] = useState(false)
   // Ordenação independente por tabela. O padrão das duas é 'trabalho' = NÃO reordenar: a lista
@@ -753,7 +754,7 @@ export default function BancoLeadsPage() {
       // Recorte por RESPONSÁVEL (Etapa 4). Quem decide o que este pedido pode ver é o backend:
       // pedir `todos` sem poder devolve "meus + livres", e o `meta.escopo` diz o que veio.
       if (escopo) p.set('escopo', escopo)
-      const r = await apiFetch<Lead[], { escopo?: string; pode_ver_todos?: boolean; total?: number; total_carteira?: number; limite?: number }>(`${base}/leads?${p.toString()}`)
+      const r = await apiFetch<Lead[], { escopo?: string; pode_ver_todos?: boolean; total?: number; total_carteira?: number; limite?: number; equipe?: EquipeRecorte | null }>(`${base}/leads?${p.toString()}`)
       setLeads(r.data || [])
       // `total_carteira` é o total REAL do recorte, contado no banco. A listagem devolve uma
       // janela; sem este número o operador acharia que a carteira tem o tamanho do que veio.
@@ -976,6 +977,7 @@ export default function BancoLeadsPage() {
   }, [leadsCustom, ordemIg, view.ordenacao, previsoesEnvio])
   const totalFiltrado = leadsPlaces.length + leadsIg.length
   const avisoJanela = useMemo(() => avisoDeJanela(metaLista), [metaLista])
+  const avisoEquipe = useMemo(() => avisoDeEquipe(metaLista?.equipe || null), [metaLista])
   // A ordem da fila só vale enquanto ninguém reordenou por cabeçalho ou pelo Personalizar.
   const ordemManual = view.ordenacao !== 'padrao' || ordemPlaces.chave !== 'trabalho' || ordemIg.chave !== 'trabalho'
   // Recorte de apresentação: pagina DEPOIS de filtrar/ordenar (conjunto completo já pronto).
@@ -1815,8 +1817,15 @@ export default function BancoLeadsPage() {
       {/* A janela da listagem e a ordem em vigor — as duas coisas que o operador não teria como
           descobrir sozinho. Recortar ou reordenar em silêncio faz a carteira parecer menor do
           que é e a fila parecer errada. */}
-      {(avisoJanela || ordemManual) && (
+      {(avisoJanela || ordemManual || avisoEquipe) && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
+          {/* Etapa 3: o recorte por nicho e' OBRIGATORIO, entao a tela e' obrigada a DIZE-LO.
+              Recortar em silencio faria o vendedor achar que a carteira encolheu. */}
+          {avisoEquipe && (
+            <span className="px-2 py-1 rounded-lg bg-cyan-50 text-cyan-800 border border-cyan-200">
+              {avisoEquipe}
+            </span>
+          )}
           {avisoJanela && (
             <span className="px-2 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200">
               {avisoJanela.texto}
@@ -1855,11 +1864,17 @@ export default function BancoLeadsPage() {
       {carregando && !leads.length ? (
         <p className="text-sm text-slate-400 text-center py-8">Carregando…</p>
       ) : !leads.length ? (
-        <p className="text-sm text-slate-400 text-center py-8">
-          {aba === 'agendados' ? 'Nenhum contato agendado no momento.'
-            : aba === 'descartados' ? 'Nenhum lead descartado.'
-            : 'Nenhum lead nesta aba.'}
-        </p>
+        // Etapa 3: carteira vazia POR RECORTE DE EQUIPE nao pode parecer defeito nem falta de
+        // permissao. O texto vem do modulo puro, que distingue os tres motivos.
+        (() => {
+          const v = vazioDaCarteira(metaLista?.equipe || null, aba)
+          return (
+            <div className="text-center py-8">
+              <p className="text-sm text-slate-500">{v.titulo}</p>
+              {v.ajuda && <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">{v.ajuda}</p>}
+            </div>
+          )
+        })()
       ) : totalFiltrado === 0 ? (
         <p className="text-sm text-slate-400 text-center py-8">
           Nenhum lead encontrado com esses filtros. Tente remover algum filtro ou{' '}

@@ -29,6 +29,8 @@ const { classificarLead } = require('../services/site-classificacao')
 const { avaliarQualificacaoLead } = require('../services/lead-qualificacao-score')
 // Ownership do lead (Etapa 4): a REGRA e' pura, o SQL e' proprio, a capacidade decide o recorte.
 const { sqlEscopo, escopoEfetivo } = require('../services/lead-responsavel')
+const { sqlNichoDaEquipe, recorteDeNicho } = require('../services/equipes-comerciais')
+const { equipeAtivaDoUsuario } = require('../db/equipes-comerciais')
 // Lead PARADO (Etapa 3): mesma regra pura que o painel da equipe usa. Contagens diferentes para a
 // mesma pergunta em duas telas seriam pior que nao ter a tela.
 const LP = require('../services/lead-parado')
@@ -158,9 +160,20 @@ function resolverEscopo(req) {
   }
 }
 
-/** Injeta o escopo resolvido na query, para `montarFiltro` aplicar o MESMO recorte em todo lugar. */
-function comEscopo(req) {
+/**
+ * Injeta o escopo resolvido na query, para `montarFiltro` aplicar o MESMO recorte em todo lugar.
+ *
+ * ASSINCRONO desde a Etapa 3 porque o recorte por NICHO depende de uma leitura: qual e' a equipe
+ * ativa de quem pediu. Uma consulta por request nas rotas do Banco de Leads — nao em
+ * `requireEmpresaAccess`, que roda em TODO request do produto e pagaria essa leitura para rotas
+ * que nao tem nada com nicho.
+ */
+async function comEscopo(req) {
   const escopo = resolverEscopo(req)
+  // Decisao D2 (2026-09-18): so' quem esta em equipe ativa e' recortado por nicho. Sem equipe,
+  // `nicho` fica null e NADA muda — nunca um lockout por falta de cadastro.
+  const equipe = await equipeAtivaDoUsuario(req.empresa.id, req.usuario?.id || null)
+  const nicho = recorteDeNicho(equipe)
   return {
     query: {
       ...req.query,
@@ -170,8 +183,10 @@ function comEscopo(req) {
       // `podeVerTodos` aqui e' LEAD_VER_BRUTOS — a mesma capacidade que da acesso a base nao
       // triada. Quem nao a tem ve apenas lead marcado/aprovado pelo operador.
       __somenteAprovados: !escopo.podeVerTodos,
+      __nichoEquipeId: nicho ? nicho.nicho_id : null,
     },
     escopo,
+    nicho,
   }
 }
 
@@ -226,6 +241,13 @@ function montarFiltro(empresaId, query) {
   // ponto. Comercial trabalha só lead marcado/aprovado; lead neutro ainda fica na triagem.
   if (query.__somenteAprovados) where.push(sqlAprovado(''))
 
+  // Recorte por NICHO DA EQUIPE. Terceiro eixo, aplicado com AND sobre os outros dois: a equipe
+  // nao amplia o que a pessoa alcanca, so' estreita para a carteira que ela trabalha.
+  if (query.__nichoEquipeId) {
+    params.push(query.__nichoEquipeId)
+    where.push(sqlNichoDaEquipe({ placeholder: `$${params.length}` }))
+  }
+
   adicionarFiltroMercado(where, params, query)
 
   const busca = termoBuscaProspect(query)
@@ -245,11 +267,15 @@ function montarRecorteOperacao(empresaId, query) {
     where.push(query.__escopoSql.replace('$1', `$${params.length}`))
   }
   if (query.__somenteAprovados) where.push(sqlAprovado(''))
+  if (query.__nichoEquipeId) {
+    params.push(query.__nichoEquipeId)
+    where.push(sqlNichoDaEquipe({ placeholder: `$${params.length}` }))
+  }
   return { where: where.join(' AND '), params }
 }
 
-function montarRecorteLeadOperacao(req) {
-  const { query } = comEscopo(req)
+async function montarRecorteLeadOperacao(req) {
+  const { query } = await comEscopo(req)
   return montarRecorteOperacao(req.empresa.id, query)
 }
 
@@ -351,7 +377,7 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
-    const recorte = montarRecorteLeadOperacao(req)
+    const recorte = await montarRecorteLeadOperacao(req)
     const params = [...recorte.params, req.params.id]
     const phId = `$${params.length}`
     const { rows: atuais } = await client.query(
@@ -658,6 +684,17 @@ function anexarScoreCadastro(row) {
 router.get('/meu-resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const prazo = LP.normalizarPrazo(req.query.parado_dias)
+    // Etapa 3: as tres contagens respeitam o nicho da equipe. Sem isso, "12 livres" na Minha
+    // Operacao levaria a um Banco de Leads recortado mostrando 0 — dois numeros para a mesma
+    // pergunta, e o vendedor concluindo que a tela esta quebrada.
+    const equipe = await equipeAtivaDoUsuario(req.empresa.id, req.usuario.id)
+    const nicho = recorteDeNicho(equipe)
+    const params = [req.empresa.id, req.usuario.id, prazo]
+    let filtroNicho = ''
+    if (nicho) {
+      params.push(nicho.nicho_id)
+      filtroNicho = ` AND ${sqlNichoDaEquipe({ alias: 'p', placeholder: `$${params.length}` })}`
+    }
     const { rows } = await pool.query(
       `SELECT
          COUNT(*) FILTER (WHERE p.responsavel_id = $2::uuid)::int AS meus,
@@ -665,17 +702,19 @@ router.get('/meu-resumo', requireAuth, requireEmpresaAccess, async (req, res) =>
          COUNT(*) FILTER (WHERE p.responsavel_id = $2::uuid AND ${LP.sqlEstaParado('p', '$3')})::int AS parados
        FROM prospectador.prospects p
       WHERE p.empresa_id = $1
-        AND p.qualificacao IN ('aprovado', 'legado')`,
-      [req.empresa.id, req.usuario.id, prazo]
+        AND p.qualificacao IN ('aprovado', 'legado')${filtroNicho}`,
+      params
     )
     const r = rows[0] || { meus: 0, livres: 0, parados: 0 }
-    return res.json({ ok: true, data: r, meta: { parado_dias: prazo } })
+    // A equipe vai no meta para a tela DECLARAR o recorte. Recortar em silencio faria o vendedor
+    // achar que perdeu carteira.
+    return res.json({ ok: true, data: r, meta: { parado_dias: prazo, equipe: nicho } })
   } catch (err) { return envelopeErro(res, err, 'LEADS_RESUMO_FAILED') }
 })
 
 router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const { query: queryComEscopo, escopo } = comEscopo(req)
+    const { query: queryComEscopo, escopo, nicho } = await comEscopo(req)
     const { where, params } = montarFiltro(req.empresa.id, queryComEscopo)
     // Cópia dos parâmetros do WHERE, ANTES de `params` crescer com o filtro de instância (que
     // vive só no LATERAL) e com o limite. A contagem usa exatamente os que o WHERE referencia —
@@ -790,6 +829,10 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
         limite: limit,
         escopo: escopo.efetivo,
         pode_ver_todos: escopo.podeVerTodos,
+        // A EQUIPE e o NICHO que recortaram esta lista, ou `null` para quem nao esta em equipe.
+        // E' o que permite a tela distinguir "nao ha lead nenhum" de "nao ha lead DESTE nicho" —
+        // sem isso, uma carteira vazia por recorte pareceria defeito ou falta de permissao.
+        equipe: nicho,
       },
     })
   } catch (err) { return envelopeErro(res, err, 'LEADS_FAILED') }
@@ -905,7 +948,7 @@ router.get('/leads/:id/responsavel-historico', requireAuth, requireEmpresaAccess
 // GET /leads/:id/status-historico — status operacional e declarações de contato daquele lead.
 router.get('/leads/:id/status-historico', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const recorte = montarRecorteLeadOperacao(req)
+    const recorte = await montarRecorteLeadOperacao(req)
     const params = [...recorte.params, req.params.id]
     const phId = `$${params.length}`
     const { rows } = await pool.query(
@@ -1236,7 +1279,7 @@ router.post('/limpar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.
 // GET /resumo — contagem por aba (para os badges das abas).
 router.get('/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const { query: queryComEscopo } = comEscopo(req)
+    const { query: queryComEscopo } = await comEscopo(req)
     const recorte = montarRecorteOperacao(req.empresa.id, queryComEscopo)
     const paramsAbas = [...recorte.params, ABAS.sem_contato, ABAS.conversou, ABAS.fecharam]
     const phSemContato = `$${recorte.params.length + 1}`
@@ -1276,7 +1319,7 @@ router.get('/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
 
 router.get('/filtros', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const { query: queryComEscopo } = comEscopo(req)
+    const { query: queryComEscopo } = await comEscopo(req)
     const data = await listarOpcoesFiltrosMercado(pool, {
       empresaId: req.empresa.id,
       ...montarEscopoOpcoes(req.query || {}),
@@ -1427,7 +1470,7 @@ router.patch('/leads/:id/email', requireAuth, requireEmpresaAccess, async (req, 
 /** O lead está dentro do recorte de quem pediu? Devolve a linha (com o que a escrita precisa). */
 async function exigirLeadNoRecorte(req, client) {
   const exec = client || pool
-  const recorte = montarRecorteLeadOperacao(req)
+  const recorte = await montarRecorteLeadOperacao(req)
   const params = [...recorte.params, req.params.id]
   const { rows } = await exec.query(
     `SELECT id, nome, status, telefone, tem_whatsapp

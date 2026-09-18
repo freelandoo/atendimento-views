@@ -92,3 +92,70 @@ test('package.json inclui esta suite', () => {
   const pkg = JSON.parse(fonte('package.json'))
   assert.ok(pkg.scripts.test.includes('test/equipes-comerciais.test.js'))
 })
+
+// ─── Etapa 3: o recorte por nicho ────────────────────────────────────────────────────────
+
+test('sqlNichoDaEquipe casa por nicho_id, nunca pelo texto do nicho', () => {
+  // E' a decisao D1 inteira: "Energia Solar" e "energia solar residencial" sao o mesmo negocio
+  // para a pessoa e dois valores para o banco. Casar por nome tiraria leads do recorte EM
+  // SILENCIO — e o vendedor veria menos carteira do que tem, sem nada explicando por que.
+  const sql = E.sqlNichoDaEquipe({ placeholder: '$4' })
+  assert.equal(sql, 'nicho_id = $4::uuid')
+  assert.ok(!/\bnicho\s*=/.test(sql), 'nao pode comparar a coluna de TEXTO `nicho`')
+  assert.ok(!/lower\(|ILIKE|LIKE/i.test(sql), 'nao pode casar por texto nem por aproximacao')
+})
+
+test('sqlNichoDaEquipe aceita alias, como os modulos irmaos', () => {
+  assert.equal(E.sqlNichoDaEquipe({ alias: 'p', placeholder: '$2' }), 'p.nicho_id = $2::uuid')
+  assert.equal(E.sqlNichoDaEquipe({ alias: 'p.', placeholder: '$2' }), 'p.nicho_id = $2::uuid')
+})
+
+test('quem NAO esta em equipe nao e recortado (decisao D2)', () => {
+  // Recortar quem nao tem equipe transformaria ausencia de cadastro em bloqueio — o mesmo
+  // lockout que o aceite do termo (084) ja custou caro.
+  assert.equal(E.recorteDeNicho(null), null)
+  assert.equal(E.recorteDeNicho(undefined), null)
+})
+
+test('equipe SEM nicho legivel tambem nao recorta', () => {
+  // Recortar por um nicho que a tela nao consegue nomear produziria carteira vazia que ninguem
+  // sabe explicar — o pior desfecho possivel para um recorte obrigatorio.
+  assert.equal(E.recorteDeNicho({ equipe_id: 'e1', equipe_nome: 'Solar', nicho_id: null }), null)
+})
+
+test('recorteDeNicho carrega o NOME, para a tela poder declarar o recorte', () => {
+  const r = E.recorteDeNicho({ equipe_id: 'e1', equipe_nome: 'Time Solar', nicho_id: 'n1', nicho_nome: 'Energia Solar' })
+  assert.deepEqual(r, { nicho_id: 'n1', nicho_nome: 'Energia Solar', equipe_id: 'e1', equipe_nome: 'Time Solar' })
+})
+
+test('GUARDA: o modulo do recorte nao le banco nem conhece telas', () => {
+  const src = semComentarios(fonte('src/services/equipes-comerciais.js'))
+  for (const proibido of ['require(\'pg\')', 'pool.query', 'axios', 'fetch(']) {
+    assert.ok(!src.includes(proibido), `services/equipes-comerciais.js nao pode conter '${proibido}'`)
+  }
+})
+
+test('GUARDA: o recorte por nicho e aplicado nos DOIS montadores do Banco de Leads', () => {
+  // Listagem, contagem, export e as rotas por id passam por um destes dois. Aplicar em um so'
+  // faria a lista recortar e o export vazar — exatamente o buraco que `exigirLeadNoRecorte`
+  // existe para fechar.
+  const src = fonte('src/routes/api-banco-leads.js')
+  const ocorrencias = (src.match(/sqlNichoDaEquipe\(/g) || []).length
+  assert.ok(ocorrencias >= 3, `esperava o recorte em montarFiltro, montarRecorteOperacao e meu-resumo; achei ${ocorrencias}`)
+  assert.ok(src.includes('__nichoEquipeId'), 'o recorte precisa viajar pela query, como __escopoSql')
+})
+
+test('GUARDA: a equipe do usuario e resolvida no Banco de Leads, nao em requireEmpresaAccess', () => {
+  // `requireEmpresaAccess` roda em TODO request do produto; pendurar esta leitura la' cobraria
+  // uma consulta de rotas que nao tem nada com nicho.
+  const tenant = semComentarios(fonte('src/middleware/tenant.js'))
+  assert.ok(!tenant.includes('equipeAtivaDoUsuario'), 'o middleware global nao deve resolver equipe')
+  assert.ok(fonte('src/routes/api-banco-leads.js').includes('equipeAtivaDoUsuario'), 'a rota deve resolver')
+})
+
+test('GUARDA: meu-resumo e a listagem declaram a equipe no meta', () => {
+  // Numeros diferentes para a mesma pergunta em duas telas seriam pior que nao ter a tela; e
+  // recortar em silencio faria o vendedor achar que perdeu carteira.
+  const src = fonte('src/routes/api-banco-leads.js')
+  assert.ok((src.match(/equipe: nicho/g) || []).length >= 2, 'meta.equipe deve sair na listagem E no meu-resumo')
+})

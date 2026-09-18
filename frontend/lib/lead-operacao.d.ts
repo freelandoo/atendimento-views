@@ -92,3 +92,26 @@ export function contagemMensagem(texto: string | null | undefined): {
   excedeu: boolean
   restantes: number
 }
+
+/**
+ * O recorte por nicho que o BACKEND aplicou, como chega em `meta.equipe`.
+ * `null` para quem não está em equipe ativa — e isso NÃO é erro (decisão D2).
+ */
+export interface EquipeRecorte {
+  nicho_id: string
+  nicho_nome: string | null
+  equipe_id: string | null
+  equipe_nome: string | null
+}
+
+/** A frase que declara o recorte ativo. `null` quando não há recorte a declarar. */
+export declare function avisoDeEquipe(equipe: EquipeRecorte | null | undefined): string | null
+
+/**
+ * O texto do estado vazio, distinguindo recorte de equipe, aba e filtro.
+ * Carteira vazia por recorte não pode parecer defeito nem falta de permissão.
+ */
+export declare function vazioDaCarteira(
+  equipe: EquipeRecorte | null | undefined,
+  aba?: string
+): { titulo: string; ajuda: string | null }

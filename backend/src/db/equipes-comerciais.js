@@ -249,7 +249,45 @@ async function encerrarEquipe(empresaId, equipeId, dados = {}, autorId = null) {
   })
 }
 
+/**
+ * A equipe ATIVA desta pessoa nesta empresa — a fonte do recorte por nicho.
+ *
+ * ⚠️ Devolve `null` quando a pessoa nao esta em equipe nenhuma, e isso NAO e' erro: e' a
+ * decisao D2 (2026-09-18). Quem nao esta em equipe **nao e' recortado** e mantem o
+ * comportamento de sempre. Recortar quem nao tem equipe transformaria a ausencia de cadastro
+ * num bloqueio — o mesmo lockout que o aceite do termo (084) ja custou caro.
+ *
+ * Uma linha no maximo, garantido pelo BANCO (`equipe_membros_um_ativo_por_usuario_uk`,
+ * migration 088): nao ha desempate a fazer aqui, e nao deve haver. Se um dia esse indice cair,
+ * este LIMIT 1 estaria escolhendo equipe por acaso — por isso ele nao tem ORDER BY.
+ *
+ * O nome do nicho vem junto porque a tela precisa DIZER o recorte ("sua equipe trabalha Energia
+ * Solar"). Recortar em silencio faria o vendedor achar que perdeu carteira.
+ */
+async function equipeAtivaDoUsuario(empresaId, usuarioId) {
+  if (!empresaId || !usuarioId) return null
+  const { rows } = await pool.query(
+    `SELECT e.id            AS equipe_id,
+            e.nome          AS equipe_nome,
+            e.nicho_id      AS nicho_id,
+            n.nome          AS nicho_nome
+       FROM app.equipe_comercial_membros m
+       JOIN app.equipes_comerciais e
+         ON e.id = m.equipe_id AND e.empresa_id = m.empresa_id
+       LEFT JOIN app.nichos n
+         ON n.id = e.nicho_id AND n.empresa_id = e.empresa_id
+      WHERE m.empresa_id = $1::uuid
+        AND m.usuario_id = $2::uuid
+        AND m.saiu_em IS NULL
+        AND e.status = 'ativa'
+      LIMIT 1`,
+    [empresaId, usuarioId]
+  )
+  return rows[0] || null
+}
+
 module.exports = {
+  equipeAtivaDoUsuario,
   listarEquipes,
   equipeComMembros,
   criarEquipe,
