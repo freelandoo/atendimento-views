@@ -38,7 +38,11 @@
 //   npm run backfill:prospects-nicho -- --aplicar             # grava os vinculos
 //   npm run backfill:prospects-nicho -- --criar-nichos        # simula, mostrando o que criaria
 //   npm run backfill:prospects-nicho -- --aplicar --criar-nichos
+//   npm run backfill:prospects-nicho -- --criar-nichos --minimo=50   # so' nicho com >= 50 leads
 //   npm run backfill:prospects-nicho -- --empresa=<uuid> --lote=500
+//
+// O `--` ANTES dos argumentos e' obrigatorio. `npm run ... --criar-nichos` (sem o `--`) e'
+// engolido pelo npm e NUNCA chega ao script — o sintoma e' o modo pedido simplesmente nao valer.
 
 const { Pool } = require('pg')
 
@@ -213,7 +217,11 @@ function imprimir(raiox, resumo, opcoes) {
   L()
   L('════ BACKFILL — prospects.nicho_id (Equipes por Nicho, pre-requisito) ════')
   L(opcoes.aplicar ? 'MODO: APLICAR (grava)' : 'MODO: SIMULACAO (nao grava)')
-  if (opcoes.criarNichos) L('       --criar-nichos ligado')
+  if (opcoes.criarNichos) {
+    L(opcoes.minimo
+      ? `       --criar-nichos ligado (so' nicho com >= ${opcoes.minimo} leads)`
+      : '       --criar-nichos ligado (TODOS os textos, inclusive frase de busca)')
+  }
   if (opcoes.empresaId) L(`       empresa: ${String(opcoes.empresaId).slice(0, 8)}…`)
   L()
   if (raiox.length) {
@@ -254,6 +262,8 @@ async function main(argv = process.argv.slice(2)) {
   const criarNichos = argv.includes('--criar-nichos')
   const loteArg = argv.find((a) => a.startsWith('--lote='))
   const empresaArg = argv.find((a) => a.startsWith('--empresa='))
+  const minimoArg = argv.find((a) => a.startsWith('--minimo='))
+  const minimo = Math.max(parseInt((minimoArg || '').split('=')[1], 10) || 0, 0)
   const lote = Math.min(Math.max(parseInt((loteArg || '').split('=')[1], 10) || LOTE_PADRAO, 1), 10000)
   const empresaId = empresaArg ? (empresaArg.split('=')[1] || null) : null
 
@@ -281,7 +291,15 @@ async function main(argv = process.argv.slice(2)) {
     resumo.semCatalogo = raiox.filter((r) => !r.no_catalogo).reduce((s, r) => s + r.leads, 0)
 
     if (criarNichos) {
-      const faltantes = raiox.filter((r) => !r.no_catalogo)
+      // `--minimo=N` e' o que torna `--criar-nichos` seguro nesta base: o texto de nicho vem do
+      // termo digitado na Aquisicao, entao a cauda longa e' cheia de FRASE DE BUSCA ("construcao
+      // civil - gesso drywall, forro, divisorias..."), nao de nicho. Promover tudo encheria o
+      // catalogo — que e' a lista de onde se escolhe o nicho de uma equipe — de itens
+      // inutilizaveis, e remove-los depois exige conferir quem ja os referencia.
+      //
+      // O corte e' por VOLUME, nao por tamanho do texto: "quantos leads dependem disto" e' um
+      // fato; "isto parece um nicho" seria palpite, e palpite foi o que a decisao D1 recusou.
+      const faltantes = raiox.filter((r) => !r.no_catalogo && r.leads >= minimo)
       resumo.criados = await criarNichosFaltantes(pool, faltantes, { aplicar })
       // Depois de criar, o que estava fora do catalogo passou a casar.
       if (aplicar && resumo.criados > 0) {
@@ -297,7 +315,7 @@ async function main(argv = process.argv.slice(2)) {
     await pool.end()
   }
 
-  imprimir(raiox, resumo, { aplicar, criarNichos, empresaId })
+  imprimir(raiox, resumo, { aplicar, criarNichos, empresaId, minimo })
 }
 
 if (require.main === module) {
