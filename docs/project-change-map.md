@@ -1059,3 +1059,26 @@ existe e nao deve nascer.
   entregue.
 - Validacao executada: `npm test` (2147/2149 — as 2 falhas sao as conhecidas de 429 em chamada real
   de IA), `npm run typecheck`, `tsc --noEmit` no frontend, `node --test lib/*.test.js` (527).
+
+## 2026-09-18 - Operacao Comercial, Etapa 3: lead parado + painel do dono
+
+- `backend/src/services/lead-parado.js` (NOVO, PURO): vocabulario (`FONTES`, `MOTIVO`, prazos) +
+  as EXPRESSOES SQL (`sqlUltimaAcao`, `sqlEstaParado`) + `classificar`. Padrao de
+  `lead-fila-trabalho.js`: a classificacao acontece UMA vez, dentro da consulta.
+- `backend/src/db/lead-parado.js` (NOVO): **somente leitura**. `contagemPorResponsavel`.
+- `backend/src/routes/api-equipe.js`: campos ADITIVOS `leads_parados` e
+  `leads_parados_mais_antigo_dias` por pessoa + `meta.parado_dias`; `?parado_dias=` na query.
+- `frontend/lib/lead-parado.js` (+ `.d.ts`/`.test.js`, NOVOS): traducao PURA.
+  `frontend/lib/equipe-painel.js` (+ `.d.ts`): UMA coluna nova.
+  `frontend/app/dashboard/equipe/page.tsx`: consolidacao (missao ativa + faturamento do mes +
+  aviso de parados) e o tom ambar na celula.
+- `backend/package.json`: `npm test` inclui `test/lead-parado.test.js`.
+- Regras a preservar: o sistema MARCA e nao devolve (sem INSERT/UPDATE/DELETE e sem worker);
+  lead sem responsavel nunca esta parado; `leads_parados` e' SUBCONJUNTO de `leads` e nao entra em
+  `cargaAtual`; o recorte de leads e' o mesmo de `contagemPorResponsavel`; o texto diz "sem acao
+  REGISTRADA"; e `GET /equipe` continua sem SQL proprio de contagem.
+- RANKING nao foi reconstruido: ja existia na comissao (083).
+- Fora de escopo: devolucao automatica de lead, ranking novo, lead parado por "sem resposta do
+  cliente" (isso e' `lead-lock.js`).
+- Validacao executada: `npm test` (2163/2165 — as 2 falhas sao as conhecidas de 429 em chamada
+  real de IA), `npm run typecheck`, `tsc --noEmit` no frontend, `node --test lib/*.test.js` (537).

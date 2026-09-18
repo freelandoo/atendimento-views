@@ -2702,6 +2702,66 @@
   `frontend/lib/missao.test.js` (18).
 - **Nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhum item de menu novo.**
 
+### Operação Comercial — Etapa 3: LEAD PARADO e o painel do dono (sem migration)
+- **Continuação das Etapas 1 e 2.** **Ranking NÃO foi reconstruído: ele já existe** desde a
+  comissão (083) — `rankingDoMes`, `GET /comissao/ranking` e a seção "Ranking do mês". **Fora de
+  escopo e não implementados:** devolução automática de lead e ranking novo.
+- **Regra de negócio, em uma frase:** lead **parado** é o que está **na mão de alguém** e não
+  recebe ação há N dias (padrão **7**). O sistema **MARCA e AVISA**; **devolver para a fila
+  continua sendo ato humano**, no botão que já existe (`db/lead-responsavel.js`).
+- ⚠️ **NÃO HÁ MIGRATION, e é consequência direta da decisão acima.** Como o sistema só marca, o
+  estado é **DERIVADO** na leitura — não há coluna, não há worker e não há nada para ficar
+  desatualizado. Persistir "parado" criaria um segundo estado a reconciliar com as vendas.
+- ⚠️ **SÃO TRÊS PERGUNTAS DIFERENTES e o repo já respondia duas:** `lead-lock.js` trata do lead
+  RODADO que **o cliente** não respondeu há `LEAD_MORTA_DIAS` (e bloqueia o disparo);
+  `lead-fila-trabalho.js` tem a faixa `abordado_sem_resposta` (e ordena a fila). Aqui a falta é
+  **do VENDEDOR**. Não unifique os três — os donos do problema são diferentes.
+- **LEAD SEM RESPONSÁVEL NUNCA ESTÁ PARADO.** Ele está na **fila**, que é estado legítimo
+  (migration 072). A condição SQL exige `responsavel_id IS NOT NULL` **antes** de olhar a data, e
+  a linha "Sem responsável" do painel recebe `leads_parados: 0` **explicitamente**. Confundir os
+  dois juntaria o problema de quem assumiu com o de quem distribui.
+- **O que conta como AÇÃO** (lista fechada, as três com `prospect_id`, que é o que torna a medida
+  barata): `prospectador.lead_disparos` (cobre o envio automático **e** o wa.me manual),
+  `app.ligacoes` e `app.follow_ups`. **Ver o lead não conta** — contar visualização transformaria
+  a marca num medidor de presença (guarda de regressão).
+- ⚠️ **LIMITE DECLARADO:** `app.follow_ups.prospect_id` é **nullable** (a identidade lá é
+  `empresa_id + telefone_digitos`), então follow-up de contato avulso **não é visto**. Por isso o
+  texto da tela diz **"sem ação REGISTRADA"** e nunca "não trabalhou": a marca afirma o que o
+  sistema viu, não o que a pessoa fez. Há teste cobrando essa redação.
+- **`nunca_tocado` e `sem_acao_recente` são motivos SEPARADOS:** um lead assumido e nunca tocado
+  (que conta desde `responsavel_desde`) e um trabalho que começou e parou pedem conversas
+  diferentes com a mesma pessoa. `COALESCE(ultima_acao, responsavel_desde)` é o que impede o
+  primeiro de sumir da conta por não ter ação nenhuma.
+- **O prazo vem da QUERY (`?parado_dias=`, 1..90, default 7), não de configuração.** O admin olha
+  com 7 dias e, na conversa seguinte, quer ver com 15 — pedir uma decisão permanente para
+  responder uma pergunta passageira criaria coluna de config para um recorte de leitura.
+  **`0` nunca é aceito** (marcaria a carteira inteira no instante em que alguém assumisse).
+- **`GET /equipe` ganhou `leads_parados` e `leads_parados_mais_antigo_dias`** (campos ADITIVOS) e
+  `meta.parado_dias`. A janela vai no `meta` porque **a tela é obrigada a declará-la**: "3
+  parados" sem dizer "há mais de 7 dias" é número que ninguém consegue conferir. O recorte de
+  leads é o **MESMO** de `contagemPorResponsavel` (`qualificacao IN ('aprovado','legado')`) —
+  universo diferente faria "parados" não fechar com "Leads" na mesma linha.
+- ⚠️ **`leads_parados` é SUBCONJUNTO de `leads` e NÃO entra em `cargaAtual`** — somá-lo contaria o
+  mesmo lead duas vezes. A guarda anti-placar de `equipe-painel.test.js` **continua intacta**.
+- **O painel do dono é a tela `/dashboard/equipe` que JÁ existia**, agora consolidando missão
+  ativa, faturamento originado no mês e leads parados. **Nenhuma rota nova e nenhuma tela nova:**
+  missão e ranking são buscados dos MESMOS endpoints da tela de Comissão (se divergirem, é
+  defeito), e carregam **separado e em silêncio** — falha na consolidação não derruba o painel de
+  carga, que é o dado que o admin vem redistribuir. Os cards **somem** quando não há missão nem
+  ranking.
+- **Tons diferentes para problemas diferentes:** follow-up **vencido** é prazo estourado
+  (vermelho); lead **parado** é falta de ação (âmbar). Nenhum dos dois é só cor — o balão do
+  cabeçalho diz o que a coluna mede, e a idade do mais antigo vai no `title`.
+- Código: `src/services/lead-parado.js` (PURO, dono do vocabulário e das **expressões SQL**, no
+  padrão de `lead-fila-trabalho.js`), `src/db/lead-parado.js` (**só leitura**),
+  `src/routes/api-equipe.js`. Front: `frontend/lib/lead-parado.js` (+ `.d.ts`/`.test.js`),
+  `lib/equipe-painel.js` (uma coluna nova), `app/dashboard/equipe/page.tsx`. Testes:
+  `test/lead-parado.test.js` (16, com 6 guardas que leem o fonte, inclusive uma que falha se
+  qualquer `INSERT`/`UPDATE`/`DELETE` aparecer nos dois módulos e outra que falha se um **worker**
+  passar a importá-los), `frontend/lib/lead-parado.test.js` (10).
+- **Nenhuma migration, nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhuma rota
+  nova, nenhum item de menu novo.**
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

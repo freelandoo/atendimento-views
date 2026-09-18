@@ -27,6 +27,8 @@ const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess, requireCapacidade } = require('../middleware/tenant')
 const { CAPACIDADES: CAP } = require('../services/acesso-capacidades')
 const LR = require('../db/lead-responsavel')
+const PARADO = require('../db/lead-parado')
+const LP = require('../services/lead-parado')
 const CR = require('../db/conversa-responsavel')
 const FU = require('../db/follow-ups')
 const LIG = require('../db/ligacoes')
@@ -88,13 +90,18 @@ async function atividadeHojePorUsuario(empresaId) {
 router.get('/', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.MEMBROS_GERENCIAR), async (req, res) => {
   try {
     const empresaId = req.empresa.id
-    const [membros, leads, conversas, followUps, ligacoes, atividadeHoje] = await Promise.all([
+    // O prazo do "parado" vem da QUERY, não de configuração: o admin olha a carteira com 7 dias
+    // e, na conversa seguinte, quer ver com 15. Criar uma coluna de config para um recorte de
+    // leitura seria pedir uma decisão permanente para responder uma pergunta passageira.
+    const prazoParado = LP.normalizarPrazo(req.query.parado_dias)
+    const [membros, leads, conversas, followUps, ligacoes, atividadeHoje, parados] = await Promise.all([
       listarMembros(empresaId),
       LR.contagemPorResponsavel(pool, empresaId),
       CR.contagemPorResponsavel(pool, empresaId),
       FU.contagemPorResponsavel(pool, empresaId),
       LIG.contagemPorUsuario(pool, empresaId),
       atividadeHojePorUsuario(empresaId),
+      PARADO.contagemPorResponsavel(pool, empresaId, prazoParado),
     ])
 
     const porLead = indexarPorUsuario(leads, 'responsavel_id')
@@ -102,6 +109,7 @@ router.get('/', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.MEMBROS
     const porFollowUp = indexarPorUsuario(followUps, 'responsavel_id')
     const porLigacao = indexarPorUsuario(ligacoes, 'usuario_id')
     const porAtividadeHoje = indexarPorUsuario(atividadeHoje, 'usuario_id')
+    const porParado = indexarPorUsuario(parados, 'responsavel_id')
 
     const linhas = membros.map((m) => {
       const id = String(m.usuario_id)
@@ -116,6 +124,10 @@ router.get('/', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.MEMBROS
         ativo: m.ativo !== false && m.usuario_ativo !== false,
         ultimo_acesso_em: m.ultimo_acesso_em || null,
         leads: porLead.get(id)?.leads || 0,
+        // SUBCONJUNTO de `leads`, nunca uma carga a mais: somar os dois contaria o mesmo lead
+        // duas vezes. É um ALERTA dentro da carteira, não uma carteira paralela.
+        leads_parados: porParado.get(id)?.parados || 0,
+        leads_parados_mais_antigo_dias: porParado.get(id)?.mais_antigo_dias ?? null,
         conversas: porConversa.get(id)?.conversas || 0,
         follow_ups_aguardando: porFollowUp.get(id)?.aguardando || 0,
         follow_ups_vencidos: porFollowUp.get(id)?.vencidos || 0,
@@ -134,6 +146,12 @@ router.get('/', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.MEMBROS
       usuario_id: null,
       nome: 'Sem responsável',
       leads: porLead.get('null')?.leads || 0,
+      // Sempre 0, e o campo existe para a tela não ter de tratar ausência: lead SEM responsável
+      // não está parado — ele está na FILA, que é estado legítimo (migration 072). Confundir os
+      // dois juntaria problemas de donos diferentes: um é de quem assumiu, o outro de quem
+      // distribui.
+      leads_parados: 0,
+      leads_parados_mais_antigo_dias: null,
       conversas: porConversa.get('null')?.conversas || 0,
       follow_ups_aguardando: porFollowUp.get('null')?.aguardando || 0,
       follow_ups_vencidos: porFollowUp.get('null')?.vencidos || 0,
@@ -156,6 +174,9 @@ router.get('/', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.MEMBROS
           })),
         },
       },
+      // A JANELA vai no meta porque a tela é obrigada a DECLARÁ-LA: "3 parados" sem dizer
+      // "há mais de 7 dias" é um número que ninguém consegue conferir nem contestar.
+      meta: { parado_dias: prazoParado },
     })
   } catch (err) { return envelopeErro(res, err, 'EQUIPE_FAILED') }
 })

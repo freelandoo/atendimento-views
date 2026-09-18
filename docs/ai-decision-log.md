@@ -3427,3 +3427,52 @@ Comissao (sem item de menu novo). Nenhuma variavel de ambiente nova, nenhum prom
 mount existente trocou de gate. Validado: `npm test` 2147/2149 (as 2 falhas sao as conhecidas de 429
 em chamada real de IA, `core.test.js`), `npm run typecheck` limpo, `tsc --noEmit` do frontend limpo,
 `node --test lib/*.test.js` 527/527.
+
+## 2026-09-18 — Operacao Comercial, Etapa 3: LEAD PARADO + painel do dono (sem migration)
+
+Contexto: continuar o programa. Das etapas adiadas restavam ranking, lead parado e painel do dono.
+**Ranking JA ESTAVA ENTREGUE** dentro da comissao (083) — `rankingDoMes`, `GET /comissao/ranking` e
+a secao na tela — e nao foi reconstruido. Decisoes do operador nesta data: lead parado = **sem acao
+do VENDEDOR**; o sistema **marca e avisa** (devolver e' humano); e quer o painel do dono
+consolidando missao, ranking, carga e parados.
+
+**Decisao 1 (D1) — "parado" e' falta do VENDEDOR, nao do cliente.** O repositorio ja responde a
+outra pergunta em dois lugares (`lead-lock.js`, cliente que nao respondeu, bloqueia disparo;
+`lead-fila-trabalho.js`, faixa `abordado_sem_resposta`, ordena a fila). Unificar os tres juntaria
+problemas com donos diferentes. Alternativa descartada: um estado unico de "lead frio".
+
+**Decisao 2 (D2) — o sistema MARCA, nao devolve — e e' por isso que NAO HA MIGRATION.** Como o
+efeito e' so' apresentar, o estado e' DERIVADO na leitura: sem coluna, sem worker, sem nada para
+ficar desatualizado. Devolucao automatica foi recusada pelo operador e tem custo declarado (o lead
+so' volta a circular quando alguem olhar); o contrario seria o sistema desfazendo sozinho uma
+atribuicao, a classe de automatismo que este repo ja removeu (fallback da PJ, instancia por
+`atualizado_em`). Guardas de regressao falham em qualquer INSERT/UPDATE/DELETE nos dois modulos e
+se um worker passar a importa-los.
+
+**Decisao 3 (D3) — lead SEM responsavel nunca esta parado.** Ele esta na fila (migration 072,
+`responsavel_id = NULL` e' estado de primeira classe). A condicao SQL exige o responsavel ANTES de
+olhar a data, e a linha "Sem responsavel" do painel recebe `leads_parados: 0` explicitamente.
+
+**Decisao 4 (D4) — o prazo vem da QUERY, nao de configuracao.** `?parado_dias=` (1..90, default 7).
+O admin olha com 7 e, na conversa seguinte, com 15; criar coluna de config para um recorte de
+leitura pediria uma decisao permanente para responder uma pergunta passageira. `0` nunca e' aceito.
+
+**Decisao 5 (D5) — limite declarado na REDACAO, nao escondido.** `app.follow_ups.prospect_id` e'
+nullable (a identidade la' e' telefone), entao follow-up de contato avulso nao e' visto. O texto da
+tela diz "sem acao REGISTRADA" e nunca "nao trabalhou" — a marca afirma o que o sistema viu. Ha
+teste cobrando a redacao. Alternativa descartada: casar por telefone, que exigiria as variacoes de
+formato e deixaria a medida cara e imprecisa.
+
+**Decisao 6 (D6) — `leads_parados` e' SUBCONJUNTO de `leads` e fica FORA de `cargaAtual`.** Soma-lo
+contaria o mesmo lead duas vezes e faria quem tem carteira parada parecer sobrecarregado. A guarda
+anti-placar de `equipe-painel.test.js` continua intacta.
+
+**Decisao 7 (D7) — o painel do dono e' a tela `/dashboard/equipe` que ja existia.** Missao e ranking
+vem dos MESMOS endpoints da tela de Comissao, carregados separado e em silencio (falha na
+consolidacao nao derruba o painel de carga). Uma quarta tela mostrando os mesmos numeros criaria
+mais um lugar para divergir — e `GET /equipe` continua sem SQL proprio de contagem, por principio.
+
+**Impacto:** nenhuma migration, nenhuma rota nova, nenhuma capacidade nova, nenhuma env nova.
+Dois campos ADITIVOS e um `meta` em `GET /equipe`; uma coluna nova no painel. Validado: `npm test`
+2163/2165 (as 2 falhas sao as conhecidas de 429 em chamada real de IA), `npm run typecheck` limpo,
+`tsc --noEmit` do frontend limpo, `node --test lib/*.test.js` 537/537.

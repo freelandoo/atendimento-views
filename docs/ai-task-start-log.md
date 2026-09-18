@@ -4235,3 +4235,30 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   valor, junto do medidor (licao da 067); a conquista deve ser DERIVADA da mesma fonte que a
   comissao usa, para nao criar uma segunda definicao de "resultado"; e o progresso de uma pessoa
   nao pode vazar para outra.
+
+## 2026-09-18 - Tarefa IA - Operacao Comercial, Etapa 3 (lead parado + painel do dono)
+
+- **Pedido resumido:** continuar as etapas do programa. Decisoes do operador nesta data:
+  (1) lead parado = **sem acao do vendedor** ha N dias (nao "sem resposta do cliente");
+  (2) o sistema **MARCA e AVISA** — devolver o lead para a fila continua sendo ato humano;
+  (3) ranking ja esta entregue, mas quer o **painel do dono** consolidando missao, ranking, carga
+  da equipe e leads parados.
+- **E projeto/tarefa de alteracao?** Sim, mas MENOR que as anteriores: sendo "marca e avisa", o
+  lead parado e' DERIVADO e **nao exige migration**. O painel do dono e' consolidacao de LEITURA.
+- **Diagnostico (leitura, sem alterar nada):** RANKING JA EXISTE e esta no ar — `rankingDoMes`
+  (`db/comissao.js:368`), `GET /comissao/ranking` (`api-comissao.js:142`) e a secao "Ranking do
+  mes" na tela, por faturamento pago originado. Nao sera reconstruido. Para lead parado ja
+  existem pecas: `services/lead-lock.js` (bloqueia lead RODADO sem resposta ha `LEAD_MORTA_DIAS`,
+  outra pergunta), `services/lead-fila-trabalho.js` (faixa `abordado_sem_resposta`) e
+  `db/lead-responsavel.js` (devolver a fila JA e' manual). O que falta e' o lead ATRIBUIDO que
+  ninguem toca.
+- **Escopo pretendido:** servico PURO novo dono da regra de inatividade (expressoes SQL, no padrao
+  de `lead-fila-trabalho.js`), SQL de contagem, e a consolidacao dentro da tela `/dashboard/equipe`
+  que JA existe — nao uma quarta tela mostrando os mesmos numeros.
+- **Fora de escopo:** devolucao automatica de lead (o operador decidiu que devolver e' humano),
+  ranking novo, lead parado por "sem resposta do cliente", e qualquer mudanca em `lead-lock.js`.
+- **Cuidados:** o painel da equipe **nao pode virar placar** (guarda em
+  `frontend/lib/equipe-painel.test.js` quebra o build com `ranking`/`produtividade`/`score`);
+  `GET /equipe` **nao tem SQL proprio de proposito** (reusa as contagens de cada modulo) e isso
+  precisa continuar valendo; e "parado" nao pode ser afirmado sobre lead SEM responsavel — lead
+  livre nao esta parado, esta na fila.

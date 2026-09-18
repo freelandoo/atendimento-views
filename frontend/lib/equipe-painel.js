@@ -22,6 +22,10 @@
  */
 const COLUNAS = Object.freeze([
   { chave: 'leads', rotulo: 'Leads', oQueMede: 'Leads da carteira sob responsabilidade desta pessoa agora.' },
+  // ⚠️ SUBCONJUNTO de `leads`, e por isso fica ao lado dele: são os mesmos leads, vistos por um
+  // recorte de inatividade. NÃO entra em `cargaAtual` — somá-lo contaria o mesmo lead duas vezes
+  // e faria quem tem carteira parada parecer sobrecarregado. A tradução vive em `lib/lead-parado.js`.
+  { chave: 'leads_parados', rotulo: 'Parados', oQueMede: 'Leads desta pessoa sem nenhuma ação registrada na janela. Já estão contados em "Leads".' },
   { chave: 'conversas', rotulo: 'Conversas', oQueMede: 'Conversas atribuídas a esta pessoa na Central de Mensagens.' },
   { chave: 'follow_ups_aguardando', rotulo: 'Follow-ups', oQueMede: 'Follow-ups em aberto atribuídos a esta pessoa.' },
   { chave: 'follow_ups_vencidos', rotulo: 'Vencidos', oQueMede: 'Follow-ups desta pessoa cujo prazo já passou.' },

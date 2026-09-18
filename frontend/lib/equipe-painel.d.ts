@@ -22,6 +22,9 @@ export interface LinhaEquipe {
   ativo?: boolean
   ultimo_acesso_em?: string | null
   leads: number
+  /** SUBCONJUNTO de `leads` (Etapa 3). Não entra em `cargaAtual` — seria contagem dupla. */
+  leads_parados?: number
+  leads_parados_mais_antigo_dias?: number | null
   conversas: number
   follow_ups_aguardando: number
   follow_ups_vencidos?: number

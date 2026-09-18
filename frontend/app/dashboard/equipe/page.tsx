@@ -32,6 +32,8 @@ import {
   temTrabalhoSemDono,
 } from '@/lib/equipe-painel'
 import type { EventoAuditoria, LinhaEquipe } from '@/lib/equipe-painel'
+import { detalheMaisAntigo, resumoDaEquipe } from '@/lib/lead-parado'
+import { formatarDinheiro } from '@/lib/comissao'
 
 type Resposta = {
   equipe: LinhaEquipe[]
@@ -39,21 +41,43 @@ type Resposta = {
   avisos: { inativos_com_carga: { usuario_id: string | null; nome: string }[] }
 }
 
+// Missão e ranking são CONSOLIDAÇÃO DE LEITURA: os mesmos endpoints que a tela de Comissão já
+// usa, trazidos para cá porque o dono abre este painel para ter a operação inteira num lugar só.
+// Nenhuma rota nova, nenhuma regra nova — se divergirem daquela tela, é defeito.
+type MissaoAtiva = {
+  missao: { id: string; titulo: string; alvo_valor: string | number } | null
+  situacao?: string
+  alcancaram?: { usuario_id: string; nome: string | null; valor: number }[] | null
+}
+type LinhaRankingDono = { usuario_id: string; nome: string | null; originado: number }
+
 export default function EquipePage() {
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
   const [dados, setDados] = useState<Resposta | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
   const [aberta, setAberta] = useState<LinhaEquipe | null>(null)
+  const [prazoParado, setPrazoParado] = useState<number>(0)
+  const [missao, setMissao] = useState<MissaoAtiva | null>(null)
+  const [ranking, setRanking] = useState<LinhaRankingDono[]>([])
 
   const carregar = useCallback(() => {
     if (!empresaId) return
     setCarregando(true)
     setErro('')
-    apiFetch<Resposta>(`/api/empresas/${empresaId}/equipe`)
-      .then((r) => setDados(r.data))
+    apiFetch<Resposta, { parado_dias: number }>(`/api/empresas/${empresaId}/equipe`)
+      .then((r) => { setDados(r.data); setPrazoParado(Number(r.meta?.parado_dias) || 0) })
       .catch((e) => setErro(e instanceof Error ? e.message : 'Não foi possível carregar a equipe.'))
       .finally(() => setCarregando(false))
+
+    // Missão e ranking carregam SEPARADO e em silêncio: são consolidação, e uma falha neles não
+    // pode derrubar o painel de carga, que é o dado que o admin vem redistribuir.
+    apiFetch<MissaoAtiva>(`/api/empresas/${empresaId}/missoes`)
+      .then((r) => setMissao(r.data))
+      .catch(() => setMissao(null))
+    apiFetch<{ ranking: LinhaRankingDono[] }>(`/api/empresas/${empresaId}/comissao/ranking`)
+      .then((r) => setRanking(r.data.ranking || []))
+      .catch(() => setRanking([]))
   }, [empresaId])
 
   useEffect(() => { carregar() }, [carregar])
@@ -62,6 +86,7 @@ export default function EquipePage() {
   const linhasPorAtividade = ordenarPorAtividadeHoje(dados?.equipe || [])
   const semDono = dados?.sem_responsavel
   const mostrarSemDono = temTrabalhoSemDono(semDono)
+  const parados = resumoDaEquipe(dados?.equipe || [], prazoParado)
 
   return (
     <div className="space-y-6">
@@ -83,6 +108,63 @@ export default function EquipePage() {
 
       {carregando && !dados && (
         <div className="flex justify-center py-16"><Spinner size={22} /></div>
+      )}
+
+      {/* ── Missão ativa e ranking: consolidação de LEITURA ───────────────────────────────
+          Os mesmos dados da tela de Comissão, trazidos para cá porque o dono abre este painel
+          para ver a operação inteira num lugar só. Nenhuma regra nova: se divergir de lá, é
+          defeito. Some quando não há nada publicado — card vazio não informa. */}
+      {(missao?.missao || ranking.length > 0) && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {missao?.missao && (
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="text-sm font-semibold text-slate-900">Missão ativa</h2>
+                <span className="text-xs text-slate-500">
+                  Alvo {formatarDinheiro(missao.missao.alvo_valor)}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-slate-700">{missao.missao.titulo}</p>
+              {/* Quem ALCANÇOU, não quem está em que ponto: o progresso parcial é pessoal, e
+                  esta lista existe para o dono saber a quem pagar a recompensa. */}
+              <p className="mt-2 text-xs text-slate-500">
+                {missao.alcancaram === null || missao.alcancaram === undefined
+                  ? 'Progresso de cada pessoa é pessoal.'
+                  : missao.alcancaram.length === 0
+                    ? 'Ninguém alcançou o alvo ainda.'
+                    : `${missao.alcancaram.length === 1 ? '1 pessoa alcançou' : `${missao.alcancaram.length} pessoas alcançaram`} o alvo: ${missao.alcancaram.map((a) => a.nome || 'Sem nome').join(', ')}.`}
+              </p>
+              <a href="/dashboard/comissao" className="mt-3 inline-block text-xs text-brand underline-offset-2 hover:underline">
+                Ver na Comissão
+              </a>
+            </section>
+          )}
+
+          {ranking.length > 0 && (
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h2 className="text-sm font-semibold text-slate-900">Faturamento originado no mês</h2>
+              {/* Faturamento PAGO originado, nunca a comissão de ninguém: quanto cada um ganha é
+                  assunto dele com a empresa (decisão D4, 18/09). */}
+              <ul className="mt-2 divide-y divide-slate-100">
+                {ranking.slice(0, 5).map((l) => (
+                  <li key={l.usuario_id} className="flex items-center justify-between py-1.5 text-sm">
+                    <span className="text-slate-700">{l.nome || 'Sem nome'}</span>
+                    <span className="font-medium tabular-nums text-slate-900">{formatarDinheiro(l.originado)}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
+      )}
+
+      {/* ── Leads parados: o sistema MARCA e AVISA; devolver é humano ─────────────────── */}
+      {parados && (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <h2 className="text-sm font-semibold text-amber-900">Leads parados</h2>
+          <p className="mt-1 text-sm text-amber-800">{parados.frase}</p>
+          <p className="mt-1 text-xs text-amber-700">{parados.acao}</p>
+        </section>
       )}
 
       {dados && (
@@ -183,9 +265,16 @@ export default function EquipePage() {
                       <td className="px-4 py-3 text-xs text-slate-600">{rotuloPapel(l.papel)}</td>
                       {COLUNAS.map((c) => {
                         const v = (l as unknown as Record<string, number>)[c.chave] ?? 0
-                        const alerta = c.chave === 'follow_ups_vencidos' && v > 0
+                        // Vencido é prazo estourado (vermelho); parado é falta de ação (âmbar).
+                        // Tons diferentes porque são problemas diferentes — e nenhum dos dois é
+                        // só cor: o balão do cabeçalho diz o que a coluna mede.
+                        const vencido = c.chave === 'follow_ups_vencidos' && v > 0
+                        const parado = c.chave === 'leads_parados' && v > 0
+                        const tom = vencido ? 'font-semibold text-rose-600'
+                          : parado ? 'font-semibold text-amber-700' : 'text-slate-700'
+                        const detalhe = parado ? detalheMaisAntigo(l.leads_parados_mais_antigo_dias) : ''
                         return (
-                          <td key={c.chave} className={`px-4 py-3 text-right tabular-nums ${alerta ? 'font-semibold text-rose-600' : 'text-slate-700'}`}>
+                          <td key={c.chave} className={`px-4 py-3 text-right tabular-nums ${tom}`} title={detalhe || undefined}>
                             {v}
                           </td>
                         )
