@@ -73,3 +73,30 @@ export function minhaPosicao(
 export function visaoDoPainel(
   capacidades: string[] | null | undefined
 ): 'administrativa' | 'minha_operacao' | null
+
+/** As três fontes cruas da fila, como a API as devolve. */
+export interface FontesDaFila {
+  /** `GET /follow-ups/call-list` → `data.lista`. */
+  humanos?: unknown[]
+  /** `GET /follow-ups/auto` → `data.itens`. */
+  automaticos?: unknown[]
+  /** `GET /follow-ups/itens` → `data.itens`. A ÚNICA fonte com prazo próprio. */
+  followups?: unknown[]
+  agora?: Date
+}
+
+export interface ContagemFollowUp {
+  vencidos: number
+  hoje: number
+}
+
+/** O prazo que conta como vencido. Vocabulário de `lib/followups-fila.js`. */
+export declare const PRAZO_VENCIDO: string
+/** Os prazos que contam como "para hoje". */
+export declare const PRAZO_DE_HOJE: readonly string[]
+
+/**
+ * `{ vencidos, hoje }` pela MESMA `montarFila` da Central de Follow-ups.
+ * Não reclassifica nada: uma segunda regra faria as duas telas discordarem.
+ */
+export function contagensDeFollowUp(fontes: FontesDaFila | null | undefined): ContagemFollowUp

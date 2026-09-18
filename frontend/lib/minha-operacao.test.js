@@ -168,6 +168,61 @@ test('o MENU acompanha a tela: o item /dashboard muda de rotulo junto', () => {
   assert.equal(rotulo(null), 'Visão Geral')
 })
 
+// ─── Contagem de follow-ups ──────────────────────────────────────────────────────────────
+
+const iso = (s) => new Date(s).toISOString()
+const AGORA = new Date('2026-09-18T15:00:00-03:00')
+
+test('conta vencidos e de hoje pela MESMA regra da Central de Follow-ups', () => {
+  // Um follow-up marcado para as 09h ja' passou das 15h: e' ATRASADO, nao "de hoje". Quem
+  // classifica isso e' `lib/followups-fila.js` — este modulo so' conta o que ela decidiu.
+  const r = O.contagensDeFollowUp({
+    followups: [
+      { id: 'a', telefone_digitos: '5511900000001', status: 'aguardando', agendado_para: iso('2026-09-17T10:00:00-03:00') },
+      { id: 'b', telefone_digitos: '5511900000002', status: 'aguardando', agendado_para: iso('2026-09-18T09:00:00-03:00') },
+      { id: 'c', telefone_digitos: '5511900000003', status: 'aguardando', agendado_para: iso('2026-09-19T10:00:00-03:00') },
+    ],
+    humanos: [{ numero: '5511900000009@s.whatsapp.net', janela_quando: 'agora' }],
+    agora: AGORA,
+  })
+  assert.deepEqual(r, { vencidos: 2, hoje: 1 })
+})
+
+test('follow-up resolvido nao entra em contagem nenhuma', () => {
+  // Concluido e cancelado saem da fila de trabalho: contar o que ja' foi feito faria a home
+  // mandar a pessoa para uma Central que nao tem nada esperando por ela.
+  const r = O.contagensDeFollowUp({
+    followups: [
+      { id: 'd', telefone_digitos: '5511900000004', status: 'concluido', agendado_para: iso('2026-09-17T10:00:00-03:00') },
+      { id: 'e', telefone_digitos: '5511900000005', status: 'cancelado', agendado_para: iso('2026-09-17T10:00:00-03:00') },
+    ],
+    agora: AGORA,
+  })
+  assert.deepEqual(r, { vencidos: 0, hoje: 0 })
+})
+
+test('sem fonte nenhuma devolve zero, nunca NaN', () => {
+  assert.deepEqual(O.contagensDeFollowUp({}), { vencidos: 0, hoje: 0 })
+  assert.deepEqual(O.contagensDeFollowUp(null), { vencidos: 0, hoje: 0 })
+  assert.deepEqual(O.contagensDeFollowUp({ followups: 'nao e array' }), { vencidos: 0, hoje: 0 })
+})
+
+test('GUARDA: o vocabulario de prazo ainda existe em followups-fila', () => {
+  // Este modulo cita 'atrasado'/'agora'/'hoje'. Se aquele vocabulario mudar, a contagem
+  // silenciosamente zera — foi exatamente assim que a versao anterior desta tela quebrou.
+  const fonteFila = fs.readFileSync(path.join(__dirname, 'followups-fila.js'), 'utf8')
+  for (const termo of [O.PRAZO_VENCIDO, ...O.PRAZO_DE_HOJE]) {
+    assert.ok(fonteFila.includes(`'${termo}'`), `followups-fila.js nao conhece mais o prazo '${termo}'`)
+  }
+})
+
+test('GUARDA: a contagem NAO reimplementa a classificacao', () => {
+  // A regra e' de followups-fila.js. Uma segunda implementacao faria a home e a Central
+  // discordarem sobre quantos follow-ups a pessoa tem.
+  assert.ok(SEM_COMENTARIOS.includes('montarFila'), 'deve reusar montarFila')
+  assert.ok(!/classificarPrazo|mesmoDia|getTime\(\)/.test(SEM_COMENTARIOS), 'nao reclassifique prazo aqui')
+})
+
 test('o modulo NAO conhece a comissao de ninguem', () => {
   // O ranking traz nome e faturamento originado; quanto cada um ganha é assunto dele com a
   // empresa (decisão D4).

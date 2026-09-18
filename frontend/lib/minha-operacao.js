@@ -25,6 +25,8 @@
 // ficar mais viva perto da meta SEM que a cor seja a informação — o selo e a frase sempre
 // acompanham (mesma disciplina da BolinhaPontuacao).
 
+const { montarFila, emAberto } = require('./followups-fila')
+
 const MARCOS = Object.freeze([
   { minimo: 1, marco: 100, selo: 'Meta alcançada', intensidade: 'conquista' },
   { minimo: 0.9, marco: 90, selo: 'Perto da meta', intensidade: 'alta' },
@@ -154,6 +156,44 @@ function proximosPassos(contagens) {
     }))
 }
 
+// ─── Contagem de follow-ups: a MESMA fila da Central de Follow-ups ──────────────────────
+//
+// ⚠️ O defeito que isto corrige: a tela lia `data.itens` do `/call-list` (que devolve
+// `data.lista`) e filtrava por `situacao`, campo que o BACKEND NUNCA devolve — ele nasce em
+// `montarFila`. As duas contagens ficavam presas em zero e as linhas mais urgentes do dia nunca
+// apareciam.
+//
+// A contagem vem de `montarFila`, a MESMA função que monta a Central de Follow-ups, e pelas
+// MESMAS três fontes. Contar aqui por conta própria faria a home e a Central discordarem sobre
+// quantos follow-ups a pessoa tem — e a home é onde ela decide se abre a Central.
+//
+// `atrasado` só nasce de um follow-up REGISTRADO (`/itens`), que é o único com prazo próprio;
+// `call-list` é recomendação heurística e classifica no máximo como `agora`. Por isso as três
+// fontes são buscadas: sem `/itens` não existe "vencido" nenhum para contar.
+const PRAZO_VENCIDO = 'atrasado'
+const PRAZO_DE_HOJE = Object.freeze(['agora', 'hoje'])
+
+/**
+ * `{ vencidos, hoje }` a partir das três fontes cruas da fila.
+ *
+ * Recebe as respostas como vieram da API e devolve só os dois números que a tela usa — a
+ * classificação inteira continua sendo de `lib/followups-fila.js`.
+ */
+function contagensDeFollowUp(fontes) {
+  const f = fontes || {}
+  const fila = montarFila({
+    humanos: Array.isArray(f.humanos) ? f.humanos : [],
+    automaticos: Array.isArray(f.automaticos) ? f.automaticos : [],
+    followups: Array.isArray(f.followups) ? f.followups : [],
+    agora: f.agora,
+  })
+  const abertos = fila.filter((i) => emAberto(i))
+  return {
+    vencidos: abertos.filter((i) => i.prazo_quando === PRAZO_VENCIDO).length,
+    hoje: abertos.filter((i) => PRAZO_DE_HOJE.includes(i.prazo_quando)).length,
+  }
+}
+
 /** A frase de quando não há nada pendente. Não é elogio: é constatação, e aponta o próximo lugar. */
 function nadaPendente(temLeadsLivres) {
   return temLeadsLivres
@@ -198,8 +238,11 @@ function visaoDoPainel(capacidades) {
 module.exports = {
   MARCOS,
   PASSOS,
+  PRAZO_VENCIDO,
+  PRAZO_DE_HOJE,
   proximidade,
   proximosPassos,
+  contagensDeFollowUp,
   nadaPendente,
   minhaPosicao,
   visaoDoPainel,

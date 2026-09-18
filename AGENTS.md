@@ -2854,6 +2854,22 @@
   livres" acima de "1 follow-up vencido". **Contagem zero não vira linha** — uma lista que sempre
   mostra "0 vencidos" treina a pessoa a ignorar a lista inteira; lista vazia tem frase própria, que
   é constatação e não elogio.
+- ⚠️ **A contagem de follow-ups vem de `montarFila`, e das TRÊS fontes** (`/call-list`, `/auto`,
+  `/itens`) — as mesmas da Central de Follow-ups. **Defeito corrigido (2026-09-18):** a tela lia
+  `data.itens` do `/call-list` (que devolve **`data.lista`**) e filtrava por `situacao`, campo que
+  o backend **nunca** devolve — ele nasce no front, em `montarFila`. As duas contagens ficavam
+  presas em **zero** e as linhas mais urgentes do dia nunca apareciam. **`atrasado` só nasce de um
+  follow-up REGISTRADO (`/itens`)**, o único com prazo próprio; `call-list` é recomendação
+  heurística e classifica no máximo como `agora` — por isso as três fontes, e por isso
+  `contagensDeFollowUp` (em `lib/minha-operacao.js`) **reusa `montarFila` em vez de contar por
+  conta própria**: uma segunda régua faria a home e a Central discordarem sobre quantos follow-ups
+  a pessoa tem, e a home é onde ela decide se abre a Central. Guardas de regressão em
+  `lib/minha-operacao.test.js`.
+- **A agenda do dia vem de `resumo.reunioes`, não de `eventos.length`.** `GET /agenda` **sem
+  `inicio`/`fim` já devolve só o dia de hoje** no fuso da empresa (`parseDataDia(…, hojeIso())`),
+  então o `?periodo=hoje` que a tela mandava era um parâmetro **inexistente na rota** — funcionava
+  por acidente. Contar `eventos.length` somava **bloqueio e feriado** como se fossem reunião; o
+  `resumo` já vem contado por tipo.
 - **`GET /banco-leads/meu-resumo`** (rota nova, sem capacidade extra — o mount já exige
   `LEAD_VER_APROVADOS`): `{meus, livres, parados}` do **próprio** vendedor, numa consulta.
   **Não aceita `usuario_id` da query, de propósito** — a carteira do colega não é recorte de

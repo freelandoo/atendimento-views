@@ -26,7 +26,7 @@ import { formatarDinheiro, resumoDoNivel, medalhaDaPosicao } from '@/lib/comissa
 import type { LinhaRanking, PainelComissao } from '@/lib/comissao'
 import { janelaTexto, recompensaTexto, resumoDoProgresso, rotuloSituacao, minhaRecompensa } from '@/lib/missao'
 import type { Missao, ProgressoMissao } from '@/lib/missao'
-import { proximidade, proximosPassos, nadaPendente, minhaPosicao } from '@/lib/minha-operacao'
+import { proximidade, proximosPassos, nadaPendente, minhaPosicao, contagensDeFollowUp } from '@/lib/minha-operacao'
 
 type RespostaMissao = {
   missao: Missao | null
@@ -34,6 +34,9 @@ type RespostaMissao = {
   meu_progresso?: ProgressoMissao
 }
 type ResumoLeads = { meus: number; livres: number; parados: number }
+// As linhas cruas das tres fontes. Quem conhece a forma delas e' `montarFila`; aqui elas so'
+// atravessam a tela a caminho dele.
+type FonteFila = Record<string, unknown>
 
 const card = 'rounded-2xl border border-slate-200 bg-white p-5 shadow-sm'
 
@@ -72,20 +75,29 @@ export default function MinhaOperacao({ nome }: { nome?: string }) {
     apiFetch<ResumoLeads, { parado_dias: number }>(`${base}/banco-leads/meu-resumo`)
       .then((r) => { setLeads(r.data); setParadoDias(Number(r.meta?.parado_dias) || 0) })
       .catch(() => setLeads(null))
-    apiFetch<{ itens?: { situacao?: string; janela_quando?: string }[] }>(`${base}/follow-ups/call-list`)
-      .then((r) => {
-        const itens = Array.isArray(r.data) ? r.data : (r.data?.itens || [])
-        setFollowups({
-          vencidos: itens.filter((i) => i?.situacao === 'aberto' || i?.situacao === 'falha').length,
-          hoje: itens.filter((i) => i?.janela_quando === 'hoje' || i?.janela_quando === 'agora').length,
-        })
+    // As TRES fontes da fila, as mesmas da Central de Follow-ups — e pela mesma razao: o
+    // "vencido" so' nasce de um follow-up REGISTRADO (`/itens`), que e' o unico com prazo
+    // proprio. `call-list` e' recomendacao heuristica e nunca classifica como atrasado.
+    // A contagem e' de `lib/minha-operacao.js`, que reusa `montarFila`: contar aqui faria a
+    // home e a Central discordarem sobre quantos follow-ups a pessoa tem.
+    Promise.all([
+      apiFetch<{ lista?: FonteFila[] }>(`${base}/follow-ups/call-list`),
+      apiFetch<{ itens?: FonteFila[] }>(`${base}/follow-ups/auto?limit=300`),
+      apiFetch<{ itens?: FonteFila[] }>(`${base}/follow-ups/itens?limit=300`),
+    ])
+      .then(([humano, auto, registrados]) => {
+        setFollowups(contagensDeFollowUp({
+          humanos: humano.data?.lista || [],
+          automaticos: auto.data?.itens || [],
+          followups: registrados.data?.itens || [],
+        }))
       })
       .catch(() => setFollowups(null))
-    apiFetch<{ eventos?: unknown[] }>(`${base}/agenda?periodo=hoje`)
-      .then((r) => {
-        const lista = Array.isArray(r.data) ? r.data : (r.data?.eventos || [])
-        setReunioesHoje(lista.length)
-      })
+    // Sem `inicio`/`fim` a rota ja' devolve SO' o dia de hoje, no fuso da empresa. E o
+    // `resumo.reunioes` ja' vem contado por tipo: contar `eventos.length` aqui somaria
+    // bloqueio e feriado como se fossem reuniao.
+    apiFetch<{ resumo?: { reunioes?: number } }>(`${base}/agenda`)
+      .then((r) => setReunioesHoje(Number(r.data?.resumo?.reunioes) || 0))
       .catch(() => setReunioesHoje(0))
       .finally(() => setCarregando(false))
   }, [empresaId])
