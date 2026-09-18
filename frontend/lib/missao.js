@@ -139,13 +139,51 @@ function resumoDeQuemAlcancou(lista) {
   return {
     total: lista.length,
     frase: lista.length === 1 ? '1 pessoa alcançou o alvo.' : `${lista.length} pessoas alcançaram o alvo.`,
+    // Quantas pessoas ainda não receberam — é o que resta FAZER, e por isso vem separado do
+    // total: "3 alcançaram" e "3 alcançaram, 1 ainda não recebeu" pedem ações diferentes.
+    pendentes: lista.filter((l) => !l.pago).length,
     // A ordem vem do servidor (alfabética, de propósito). Reordenar por valor aqui criaria o
     // placar que o backend evitou.
     itens: lista.map((l) => ({
       usuario_id: l.usuario_id,
       nome: l.nome || 'Sem nome',
       valor: formatarDinheiro(l.valor),
+      // `pago` chega do backend já resolvido (`juntarBaixas`). `false` e não `null`: quem
+      // alcançou sempre tem resposta para "já recebeu?".
+      pago: !!l.pago,
+      rotuloPagamento: l.pago
+        ? (l.valor_pago === null || l.valor_pago === undefined
+          ? 'Prêmio entregue'
+          : `Prêmio entregue · ${formatarDinheiro(l.valor_pago)}`)
+        : 'Prêmio ainda não registrado',
     })),
+  }
+}
+
+/**
+ * O que dizer à PRÓPRIA pessoa sobre o prêmio dela.
+ *
+ * Existe porque um programa de recompensa que o beneficiário não consegue conferir é promessa sem
+ * prova — a mesma razão pela qual a tela de Comissão mostra o plano ao SDR. Devolve `null` para
+ * quem ainda não alcançou: prometer entrega a quem não bateu o alvo seria pior que não dizer nada.
+ */
+function minhaRecompensa(progresso) {
+  const p = progresso || {}
+  if (!p.alcancado) return null
+  if (!p.recompensa_paga) {
+    return {
+      pago: false,
+      frase: 'Você alcançou o alvo. A entrega do prêmio ainda não foi registrada.',
+      tom: 'espera',
+    }
+  }
+  const valor = p.recompensa_valor_pago
+  return {
+    pago: true,
+    frase: valor === null || valor === undefined
+      ? 'Prêmio registrado como entregue.'
+      : `Prêmio registrado como entregue: ${formatarDinheiro(valor)}.`,
+    tom: 'positivo',
   }
 }
 
@@ -157,4 +195,5 @@ module.exports = {
   recompensaTexto,
   resumoDoProgresso,
   resumoDeQuemAlcancou,
+  minhaRecompensa,
 }

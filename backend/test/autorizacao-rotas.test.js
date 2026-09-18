@@ -140,7 +140,10 @@ const ESCRITAS_COM_CAPACIDADE_PROPRIA = [
   // 2026-09-18 — publicar/encerrar um desafio com recompensa e' definir quanto se paga. Sem este
   // gate por rota, o mount (que e' de LEITURA) deixaria o proprio comercial publicar a missao
   // dele e encerrar a que nao lhe convem.
-  { arquivo: 'api-missoes.js', capacidade: 'COMISSAO_GERENCIAR', minimo: 2 },
+  // 3 desde a Etapa 4: publicar, encerrar e dar BAIXA na recompensa. A baixa e' escrita sobre
+  // dinheiro que saiu — com o gate do mount (leitura), o proprio comercial marcaria o premio
+  // dele como pago.
+  { arquivo: 'api-missoes.js', capacidade: 'COMISSAO_GERENCIAR', minimo: 3 },
 ]
 
 // ─── Os quatro papéis, contra cada rota ──────────────────────────────────────────────────

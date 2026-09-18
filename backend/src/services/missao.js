@@ -242,7 +242,102 @@ function validarMissao(body = {}) {
   }
 }
 
+// ─── A BAIXA DA RECOMPENSA (Etapa 4) ────────────────────────────────────────────────────
+//
+// ⚠️ A REGRA QUE NAO SE NEGOCIA: **NAO SE PAGA QUEM NAO ALCANCOU.** A conquista continua sendo
+// DERIVADA das vendas pagas, e a validacao dela acontece na transacao da baixa, com o numero
+// lido no ato — nunca com um "alcancou: true" vindo do cliente. Aceitar isso do payload deixaria
+// qualquer requisicao pagar premio a quem quisesse.
+//
+// Por isso `validarBaixa` NAO recebe a conquista como parametro, de proposito: ela valida a FORMA
+// do que foi enviado; quem confere o FATO e' a camada de dados, que tem a soma na mao.
+
+const RECUSAS_BAIXA = Object.freeze({
+  USUARIO: 'usuario',
+  VALOR: 'valor',
+  REFERENCIA: 'referencia',
+})
+
+const MENSAGEM_RECUSA_BAIXA = Object.freeze({
+  [RECUSAS_BAIXA.USUARIO]: 'Informe a quem o prêmio foi entregue.',
+  [RECUSAS_BAIXA.VALOR]: 'Quando a recompensa é em dinheiro, o valor pago precisa ser maior que zero.',
+  [RECUSAS_BAIXA.REFERENCIA]: 'A referência do pagamento é longa demais (máx. 120 caracteres).',
+})
+
+const REFERENCIA_MAX = 120
+
+/**
+ * Valida o corpo da baixa.
+ *
+ * `valor_pago` e' OPCIONAL: nem toda recompensa e' dinheiro (a missao aceita premio so' descrito).
+ * Ausente vira `null`, que diz "saiu, e nao era dinheiro" — diferente de `0`, que seria "paguei
+ * nada" com aparencia de pagamento e por isso e' RECUSADO.
+ *
+ * O valor pago pode DIVERGIR do declarado na missao (arredondamento, premio entregue em parte) e
+ * isso nao e' erro: a divergencia fica auditavel na linha, em vez de desaparecer atras do numero
+ * da missao — que continua consultavel porque a missao e' imutavel.
+ */
+function validarBaixa(body = {}) {
+  const b = body || {}
+
+  const usuarioId = textoLimpo(b.usuario_id)
+  if (!usuarioId) {
+    return { ok: false, recusa: RECUSAS_BAIXA.USUARIO, mensagem: MENSAGEM_RECUSA_BAIXA[RECUSAS_BAIXA.USUARIO] }
+  }
+
+  let valor = null
+  if (b.valor_pago !== undefined && b.valor_pago !== null && b.valor_pago !== '') {
+    valor = dinheiro(b.valor_pago)
+    if (valor === null || valor <= 0) {
+      return { ok: false, recusa: RECUSAS_BAIXA.VALOR, mensagem: MENSAGEM_RECUSA_BAIXA[RECUSAS_BAIXA.VALOR] }
+    }
+  }
+
+  const referencia = textoLimpo(b.referencia)
+  if (referencia.length > REFERENCIA_MAX) {
+    return { ok: false, recusa: RECUSAS_BAIXA.REFERENCIA, mensagem: MENSAGEM_RECUSA_BAIXA[RECUSAS_BAIXA.REFERENCIA] }
+  }
+
+  return {
+    ok: true,
+    dados: {
+      usuario_id: usuarioId,
+      valor_pago: valor,
+      referencia: referencia || null,
+      observacao: textoLimpo(b.observacao) || null,
+    },
+  }
+}
+
+/**
+ * Junta a lista de quem ALCANCOU com as baixas ja registradas.
+ *
+ * Existe aqui, e nao na consulta, porque sao dois fatos de naturezas diferentes (um derivado, um
+ * persistido) e a juncao e' apresentacao. `pago` ausente e' `false`, nunca `null`: a pergunta
+ * "ja recebeu?" sempre tem resposta quando a pessoa alcancou.
+ */
+function juntarBaixas(alcancaram, recompensas) {
+  const pagos = new Map()
+  for (const r of Array.isArray(recompensas) ? recompensas : []) {
+    pagos.set(String(r.usuario_id), r)
+  }
+  return (Array.isArray(alcancaram) ? alcancaram : []).map((a) => {
+    const r = pagos.get(String(a.usuario_id)) || null
+    return {
+      ...a,
+      pago: !!r,
+      pago_em: r ? r.pago_em : null,
+      valor_pago: r ? r.valor_pago : null,
+    }
+  })
+}
+
 module.exports = {
+  RECUSAS_BAIXA,
+  MENSAGEM_RECUSA_BAIXA,
+  REFERENCIA_MAX,
+  validarBaixa,
+  juntarBaixas,
   METRICA,
   METRICAS,
   STATUS,

@@ -1082,3 +1082,24 @@ existe e nao deve nascer.
   cliente" (isso e' `lead-lock.js`).
 - Validacao executada: `npm test` (2163/2165 — as 2 falhas sao as conhecidas de 429 em chamada
   real de IA), `npm run typecheck`, `tsc --noEmit` no frontend, `node --test lib/*.test.js` (537).
+
+## 2026-09-18 - Operacao Comercial, Etapa 4: baixa da recompensa da missao
+
+- `backend/sql/migrations/086_missao_recompensa.sql`: tabela NOVA `app.missao_recompensas`,
+  append-only, UMA baixa por (missao, pessoa). Aditiva.
+- `backend/src/services/missao.js`: `validarBaixa` (NAO recebe a conquista, de proposito) e
+  `juntarBaixas`.
+- `backend/src/db/missao.js`: `recompensasDaMissao` (leitura) e `registrarRecompensaPaga`, que
+  RECONFERE a conquista na transacao e recusa 409 quem nao alcancou.
+- `backend/src/routes/api-missoes.js`: `POST /:missaoId/recompensas` (COMISSAO_GERENCIAR por rota)
+  e `meu_progresso.recompensa_paga*` para a propria pessoa.
+- `backend/test/autorizacao-rotas.test.js`: escritas de `api-missoes.js` subiram de 2 para 3.
+- `frontend/lib/missao.js` (+ `.d.ts`/`.test.js`): `minhaRecompensa`, e `resumoDeQuemAlcancou`
+  passou a carregar `pago`, `rotuloPagamento` e `pendentes`.
+  `frontend/app/dashboard/comissao/page.tsx`: `ModalEntregaRecompensa` + estado da entrega em
+  TEXTO na lista e no proprio progresso.
+- Regras a preservar: a baixa NAO e' a conquista (que segue derivada); nao se paga quem nao
+  alcancou e a checagem e' no ato; o retrato e' congelado; `valor_pago` nullable e zero recusado;
+  nao existe desfazer; e a propria pessoa ve a baixa dela.
+- Validacao executada: `npm test` (2176/2178 — as 2 falhas sao as conhecidas de 429 em chamada
+  real de IA), `npm run typecheck`, `tsc --noEmit` no frontend, `node --test lib/*.test.js` (543).

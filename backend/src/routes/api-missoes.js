@@ -59,15 +59,30 @@ router.get('/', async (req, res) => {
     const bruto = await DB.progressoDaPessoa(req.empresa.id, missao, req.usuario.id)
     const meu = M.progresso({ valor: bruto.valor, alvo: missao.alvo_valor })
 
-    // A lista de quem alcançou só existe para quem paga o prêmio.
-    const alcancaram = podeGerenciar(req) ? await DB.alcancaramOAlvo(req.empresa.id, missao) : null
+    // As baixas são lidas sempre: a PRÓPRIA pessoa precisa ver que o prêmio dela foi registrado
+    // como entregue. Um programa de recompensa que o beneficiário não consegue conferir é
+    // promessa sem prova — a mesma razão pela qual `COMISSAO_VER_PROPRIA` existe.
+    const recompensas = await DB.recompensasDaMissao(req.empresa.id, missao.id)
+    const minhaRecompensa = recompensas.find((r) => String(r.usuario_id) === String(req.usuario.id)) || null
+
+    // A lista de quem alcançou só existe para quem paga o prêmio — e já vem dizendo quem recebeu.
+    const alcancaram = podeGerenciar(req)
+      ? M.juntarBaixas(await DB.alcancaramOAlvo(req.empresa.id, missao), recompensas)
+      : null
 
     return res.json({
       ok: true,
       data: {
         missao,
         situacao: M.situacao(missao),
-        meu_progresso: { ...meu, vendas: bruto.vendas },
+        meu_progresso: {
+          ...meu,
+          vendas: bruto.vendas,
+          // `false` e não `null`: quem alcançou sempre tem resposta para "já recebi?".
+          recompensa_paga: !!minhaRecompensa,
+          recompensa_paga_em: minhaRecompensa ? minhaRecompensa.pago_em : null,
+          recompensa_valor_pago: minhaRecompensa ? minhaRecompensa.valor_pago : null,
+        },
         alcancaram,
       },
       meta: { pode_gerenciar: podeGerenciar(req), usuario_id: req.usuario.id },
@@ -127,6 +142,38 @@ router.post('/:missaoId/encerrar', requireAuth, requireEmpresaAccess, requireCap
     }
     return res.json({ ok: true, data: { ...missao, situacao: M.situacao(missao) } })
   } catch (err) { return envelopeErro(res, err, 'MISSAO_CLOSE_FAILED') }
+})
+
+/**
+ * POST /:missaoId/recompensas — registra que o prêmio SAIU para uma pessoa.
+ *
+ * ⚠️ NÃO SE PAGA QUEM NÃO ALCANÇOU: a conquista é reconferida na transação, com a soma lida do
+ * banco no ato — nunca com um "alcançou" vindo do corpo. Quem não alcançou recebe 409 e nada é
+ * gravado.
+ *
+ * NÃO EXISTE DESFAZER (o registro é append-only, como `venda_pagamentos`): dizer "paguei" é um
+ * fato sobre dinheiro que saiu, e um UPDATE apagaria a única prova de que o prêmio foi entregue.
+ * Consequência declarada: baixa errada não se corrige por tela nesta etapa.
+ */
+router.post('/:missaoId/recompensas', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.COMISSAO_GERENCIAR), async (req, res) => {
+  const v = M.validarBaixa(req.body || {})
+  if (!v.ok) {
+    return res.status(400).json({
+      ok: false,
+      error: { code: 'DADOS_INVALIDOS', message: v.mensagem },
+      data: { recusa: v.recusa },
+    })
+  }
+  try {
+    // A missão vem do banco, não do corpo: o alvo e a janela que validam a conquista têm de ser
+    // os da missão real, e ela é imutável justamente para este número não mudar depois.
+    const missao = await DB.obterMissao(req.empresa.id, req.params.missaoId)
+    if (!missao) {
+      return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Missão não encontrada.' } })
+    }
+    const baixa = await DB.registrarRecompensaPaga(req.empresa.id, missao, v.dados, req.usuario.id)
+    return res.status(201).json({ ok: true, data: baixa })
+  } catch (err) { return envelopeErro(res, err, 'MISSAO_RECOMPENSA_FAILED') }
 })
 
 module.exports = router

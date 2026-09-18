@@ -265,6 +265,95 @@ async function encerrarMissao(empresaId, missaoId, usuarioId) {
   }
 }
 
+// ─── A BAIXA DA RECOMPENSA (Etapa 4, migration 086) ──────────────────────────────────────
+
+/** As baixas ja registradas nesta missao. Leitura barata, lida junto de quem alcancou. */
+async function recompensasDaMissao(empresaId, missaoId) {
+  const { rows } = await pool.query(
+    `SELECT usuario_id, valor_pago, moeda, referencia, observacao, pago_por, pago_em
+       FROM app.missao_recompensas
+      WHERE empresa_id = $1 AND missao_id = $2::uuid`,
+    [empresaId, missaoId]
+  )
+  return rows.map((r) => ({ ...r, valor_pago: r.valor_pago === null ? null : Number(r.valor_pago) }))
+}
+
+/**
+ * Registra que o premio SAIU para uma pessoa. Uma transacao so'.
+ *
+ * ⚠️ A CONQUISTA E' RECONFERIDA AQUI, NO ATO, com o numero lido do banco — nunca com um
+ * "alcancou: true" vindo do cliente, que deixaria qualquer requisicao pagar premio a quem
+ * quisesse. Quem nao alcancou recebe 409 e NADA e' gravado.
+ *
+ * O retrato (`originado_no_pagamento`, `alvo_no_pagamento`) e' CONGELADO pelo mesmo motivo do
+ * percentual da comissao (083): a conquista continua sendo recalculada das vendas, e sem o
+ * retrato "por que paguei este valor?" deixaria de ser respondivel se uma venda fosse cancelada
+ * depois da baixa.
+ *
+ * A idempotencia real e' do BANCO (`missao_recompensas_pessoa_uk`): dois cliques simultaneos nao
+ * pagam o premio duas vezes — o segundo quebra no indice e vira 409.
+ */
+async function registrarRecompensaPaga(empresaId, missao, dados, autorId) {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // A MESMA soma de `progressoDaPessoa`, dentro da transacao. Não se aceita o valor de fora.
+    const { rows: somaRows } = await client.query(
+      `SELECT COALESCE(SUM(v.comissao_base), 0) AS valor
+         FROM app.vendas v
+        WHERE v.empresa_id = $1
+          AND v.originador_id = $2::uuid
+          AND v.status = ANY($5::text[])
+          AND ${JANELA_SQL}`,
+      [empresaId, dados.usuario_id, missao.inicio, missao.fim, STATUS_PAGOS]
+    )
+    const originado = Number(somaRows[0].valor)
+    const alvo = Number(missao.alvo_valor)
+
+    if (!(originado >= alvo)) {
+      throw erro(
+        'Esta pessoa ainda não alcançou o alvo desta missão.',
+        409, 'MISSAO_ALVO_NAO_ALCANCADO'
+      )
+    }
+
+    const { rows } = await client.query(
+      `INSERT INTO app.missao_recompensas
+         (empresa_id, missao_id, usuario_id, valor_pago, originado_no_pagamento,
+          alvo_no_pagamento, referencia, observacao, pago_por)
+       VALUES ($1, $2::uuid, $3::uuid, $4::numeric, $5::numeric, $6::numeric, $7, $8, $9)
+       RETURNING usuario_id, valor_pago, pago_em`,
+      [empresaId, missao.id, dados.usuario_id, dados.valor_pago, originado, alvo,
+        dados.referencia, dados.observacao, autorId || null]
+    )
+
+    await auditar(client, {
+      empresaId, usuarioId: autorId, acao: 'missao_recompensa_paga', entidadeId: missao.id,
+      estadoNovo: 'paga',
+      // Sem PII: o id do beneficiario e' chave, nao dado pessoal; nenhum nome, e-mail ou telefone.
+      contexto: {
+        beneficiario_id: dados.usuario_id,
+        valor_pago: dados.valor_pago === null ? null : String(dados.valor_pago),
+        originado_no_pagamento: String(originado),
+        alvo_no_pagamento: String(alvo),
+      },
+    })
+
+    await client.query('COMMIT')
+    logger.info({ empresa_id: empresaId, missao_id: missao.id }, '[missao] recompensa registrada')
+    return { ...rows[0], valor_pago: rows[0].valor_pago === null ? null : Number(rows[0].valor_pago) }
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {})
+    if (e.code === '23505') {
+      throw erro('O prêmio desta missão já foi registrado para esta pessoa.', 409, 'MISSAO_RECOMPENSA_JA_PAGA')
+    }
+    throw e
+  } finally {
+    client.release()
+  }
+}
+
 module.exports = {
   missaoAtiva,
   obterMissao,
@@ -273,4 +362,6 @@ module.exports = {
   alcancaramOAlvo,
   publicarMissao,
   encerrarMissao,
+  recompensasDaMissao,
+  registrarRecompensaPaga,
 }

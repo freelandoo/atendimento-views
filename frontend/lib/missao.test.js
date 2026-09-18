@@ -129,6 +129,59 @@ test('singular e plural, e pessoa sem nome nao vira linha em branco', () => {
   assert.equal(r.itens[0].nome, 'Sem nome')
 })
 
+// ─── A baixa da recompensa (Etapa 4) ─────────────────────────────────────────────────────
+
+test('quem alcancou carrega se JA RECEBEU, e "nao pago" nunca fica mudo', () => {
+  const r = M.resumoDeQuemAlcancou([
+    { usuario_id: 'a', nome: 'Ana', valor: 30000, pago: true, valor_pago: 1000 },
+    { usuario_id: 'b', nome: 'Bruno', valor: 25000 },
+  ])
+  assert.equal(r.itens[0].pago, true)
+  assert.match(r.itens[0].rotuloPagamento, /entregue/i)
+  assert.match(r.itens[0].rotuloPagamento, /1\.000/)
+  assert.equal(r.itens[1].pago, false)
+  assert.ok(r.itens[1].rotuloPagamento, 'quem nao recebeu tambem precisa de rotulo')
+})
+
+test('premio NAO-monetario entregue nao inventa valor', () => {
+  const r = M.resumoDeQuemAlcancou([{ usuario_id: 'a', nome: 'Ana', valor: 30000, pago: true, valor_pago: null }])
+  assert.equal(r.itens[0].rotuloPagamento, 'Prêmio entregue')
+})
+
+test('pendentes conta o que resta FAZER, separado do total', () => {
+  const r = M.resumoDeQuemAlcancou([
+    { usuario_id: 'a', nome: 'Ana', valor: 30000, pago: true },
+    { usuario_id: 'b', nome: 'Bruno', valor: 25000 },
+    { usuario_id: 'c', nome: 'Caio', valor: 22000 },
+  ])
+  assert.equal(r.total, 3)
+  assert.equal(r.pendentes, 2)
+})
+
+test('minhaRecompensa e null para quem NAO alcancou', () => {
+  // Prometer entrega a quem não bateu o alvo seria pior que não dizer nada.
+  assert.equal(M.minhaRecompensa({ alcancado: false, recompensa_paga: false }), null)
+  assert.equal(M.minhaRecompensa(null), null)
+})
+
+test('alcancou e ainda nao recebeu: a tela DIZ isso', () => {
+  const r = M.minhaRecompensa({ alcancado: true, recompensa_paga: false })
+  assert.equal(r.pago, false)
+  assert.match(r.frase, /ainda não foi registrada/i)
+  assert.equal(r.tom, 'espera')
+})
+
+test('recebeu: mostra o valor quando houve, e nao inventa quando nao houve', () => {
+  const comValor = M.minhaRecompensa({ alcancado: true, recompensa_paga: true, recompensa_valor_pago: 1000 })
+  assert.equal(comValor.pago, true)
+  assert.match(comValor.frase, /1\.000/)
+  assert.equal(comValor.tom, 'positivo')
+
+  const semValor = M.minhaRecompensa({ alcancado: true, recompensa_paga: true, recompensa_valor_pago: null })
+  assert.match(semValor.frase, /entregue/i)
+  assert.ok(!/R\$/.test(semValor.frase), 'premio nao-monetario nao pode virar dinheiro na tela')
+})
+
 // ─── Guardas de regressão ────────────────────────────────────────────────────────────────
 
 const FONTE = fs.readFileSync(path.join(__dirname, 'missao.js'), 'utf8')

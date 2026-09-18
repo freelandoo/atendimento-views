@@ -34,6 +34,7 @@ import {
 import type { LinhaRanking, PainelComissao, VendaResumo } from '@/lib/comissao'
 import {
   janelaTexto,
+  minhaRecompensa,
   recompensaTexto,
   resumoDeQuemAlcancou,
   resumoDoProgresso,
@@ -522,6 +523,7 @@ function SecaoMissao({ empresaId }: { empresaId: string }) {
   const [publicando, setPublicando] = useState(false)
   const [encerrando, setEncerrando] = useState(false)
   const [confirmarEncerrar, setConfirmarEncerrar] = useState(false)
+  const [entregar, setEntregar] = useState<{ usuario_id: string; nome: string } | null>(null)
 
   const carregar = useCallback(() => {
     setCarregando(true)
@@ -588,6 +590,7 @@ function SecaoMissao({ empresaId }: { empresaId: string }) {
   const situacao = rotuloSituacao(dados.situacao)
   const meu = resumoDoProgresso(dados.meu_progresso, dados.situacao)
   const alcancaram = resumoDeQuemAlcancou(dados.alcancaram)
+  const minhaEntrega = minhaRecompensa(dados.meu_progresso)
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5">
@@ -634,6 +637,14 @@ function SecaoMissao({ empresaId }: { empresaId: string }) {
           />
         </div>
         <p className={`mt-2 text-sm ${meu.alcancado ? 'text-emerald-700' : 'text-slate-600'}`}>{meu.frase}</p>
+        {/* O beneficiário precisa VER que o prêmio dele foi registrado: programa de recompensa
+            que a pessoa não consegue conferir é promessa sem prova. Some para quem ainda não
+            alcançou — prometer entrega a quem não bateu o alvo seria pior que calar. */}
+        {minhaEntrega && (
+          <p className={`mt-1 text-xs ${minhaEntrega.pago ? 'text-emerald-700' : 'text-amber-700'}`}>
+            {minhaEntrega.frase}
+          </p>
+        )}
       </div>
 
       {/* ── Quem já alcançou: só para quem paga o prêmio ─────────────────────────── */}
@@ -647,14 +658,43 @@ function SecaoMissao({ empresaId }: { empresaId: string }) {
           {alcancaram.itens.length > 0 && (
             <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200">
               {alcancaram.itens.map((i) => (
-                <li key={i.usuario_id} className="flex items-center justify-between px-3 py-2 text-sm">
-                  <span className="text-slate-700">{i.nome}</span>
-                  <span className="font-medium text-slate-900">{i.valor}</span>
+                <li key={i.usuario_id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
+                  <span className="min-w-0">
+                    <span className="text-slate-700">{i.nome}</span>
+                    {/* O estado da entrega em TEXTO, não só na presença do botão. */}
+                    <span className={`ml-2 text-xs ${i.pago ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      {i.rotuloPagamento}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-3">
+                    <span className="font-medium text-slate-900">{i.valor}</span>
+                    {/* Registrar a entrega NÃO tem desfazer (o registro é append-only), por isso
+                        passa por confirmação em vez de sair no primeiro clique. */}
+                    {!i.pago && (
+                      <button
+                        type="button"
+                        onClick={() => setEntregar({ usuario_id: i.usuario_id, nome: i.nome })}
+                        className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                      >
+                        Registrar entrega
+                      </button>
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>
           )}
         </div>
+      )}
+
+      {entregar && (
+        <ModalEntregaRecompensa
+          empresaId={empresaId}
+          missaoId={missao.id}
+          pessoa={entregar}
+          onFechar={() => setEntregar(null)}
+          onSalvo={() => { setEntregar(null); carregar() }}
+        />
       )}
 
       {confirmarEncerrar && (
@@ -752,6 +792,91 @@ function ModalMissao({ empresaId, onFechar, onSalvo }: { empresaId: string; onFe
       </p>
       {erro && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{erro}</p>}
       <Rodape onFechar={onFechar} onConfirmar={salvar} salvando={salvando} rotulo="Publicar missão" />
+    </Modal>
+  )
+}
+
+// ─── A baixa da recompensa (Operação Comercial, Etapa 4) ──────────────────────────────
+//
+// ⚠️ REGISTRAR A ENTREGA NÃO TEM DESFAZER: o registro é append-only, como o ledger de
+// recebimentos da comissão. Dizer "paguei" é um fato sobre dinheiro que saiu, e um UPDATE
+// apagaria a única prova de que o prêmio foi entregue. Por isso o modal AVISA antes, em vez de
+// deixar a ação sair no primeiro clique.
+//
+// O valor é OPCIONAL de propósito: nem todo prêmio é dinheiro. Quando vem, pode divergir do
+// declarado na missão (arredondamento, entrega parcial) — a divergência fica auditável na linha,
+// e a tela não a esconde nem a impede. Quem valida é o backend; validar de novo aqui criaria uma
+// segunda régua, mais frouxa.
+
+function ModalEntregaRecompensa({ empresaId, missaoId, pessoa, onFechar, onSalvo }: {
+  empresaId: string
+  missaoId: string
+  pessoa: { usuario_id: string; nome: string }
+  onFechar: () => void
+  onSalvo: () => void
+}) {
+  const [valor, setValor] = useState('')
+  const [referencia, setReferencia] = useState('')
+  const [observacao, setObservacao] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
+
+  async function salvar() {
+    setSalvando(true)
+    setErro('')
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/missoes/${missaoId}/recompensas`, {
+        method: 'POST',
+        body: JSON.stringify({
+          usuario_id: pessoa.usuario_id,
+          valor_pago: valor || null,
+          referencia: referencia || null,
+          observacao: observacao || null,
+        }),
+      })
+      onSalvo()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não foi possível registrar a entrega.')
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <Modal titulo={`Registrar entrega — ${pessoa.nome}`} onFechar={onFechar}>
+      <p className="text-sm text-slate-600">
+        Isto registra que o prêmio da missão <strong>saiu</strong> para {pessoa.nome}. O sistema
+        não faz o pagamento: ele guarda o fato, com data e autor.
+      </p>
+      <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        Não há como desfazer este registro depois. Confira a pessoa antes de confirmar.
+      </p>
+      <Campo rotulo="Valor pago em R$ (opcional)">
+        <input
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+          inputMode="decimal"
+          placeholder="Deixe vazio se o prêmio não for em dinheiro"
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+        />
+      </Campo>
+      <Campo rotulo="Referência do pagamento (opcional)">
+        <input
+          value={referencia}
+          onChange={(e) => setReferencia(e.target.value)}
+          placeholder="Id do Pix, transferência…"
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+        />
+      </Campo>
+      <Campo rotulo="Observação (opcional)">
+        <textarea
+          value={observacao}
+          onChange={(e) => setObservacao(e.target.value)}
+          rows={2}
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+        />
+      </Campo>
+      {erro && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{erro}</p>}
+      <Rodape onFechar={onFechar} onConfirmar={salvar} salvando={salvando} rotulo="Registrar entrega" />
     </Modal>
   )
 }

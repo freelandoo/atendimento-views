@@ -174,6 +174,113 @@ test('toda recusa tem mensagem legivel — formulario nao pode dizer so "invalid
   }
 })
 
+// ─── A baixa da recompensa (Etapa 4) ─────────────────────────────────────────────────────
+
+const migracaoBaixa = fonte('sql/migrations/086_missao_recompensa.sql')
+
+test('a baixa exige dizer A QUEM o premio foi entregue', () => {
+  assert.equal(M.validarBaixa({}).recusa, M.RECUSAS_BAIXA.USUARIO)
+  assert.equal(M.validarBaixa({ usuario_id: '  ' }).recusa, M.RECUSAS_BAIXA.USUARIO)
+  assert.doesNotThrow(() => M.validarBaixa())
+})
+
+test('valor e OPCIONAL (nem todo premio e dinheiro), mas ZERO e recusado', () => {
+  // Ausente = "saiu, e não era dinheiro". Zero seria "paguei nada" com aparência de pagamento.
+  assert.equal(M.validarBaixa({ usuario_id: 'u1' }).dados.valor_pago, null)
+  assert.equal(M.validarBaixa({ usuario_id: 'u1', valor_pago: '' }).dados.valor_pago, null)
+  assert.equal(M.validarBaixa({ usuario_id: 'u1', valor_pago: 0 }).recusa, M.RECUSAS_BAIXA.VALOR)
+  assert.equal(M.validarBaixa({ usuario_id: 'u1', valor_pago: -10 }).recusa, M.RECUSAS_BAIXA.VALOR)
+  assert.equal(M.validarBaixa({ usuario_id: 'u1', valor_pago: 1000 }).dados.valor_pago, 1000)
+})
+
+test('o valor pago PODE divergir do declarado — e a divergencia e o ponto', () => {
+  // Arredondamento, prêmio entregue em parte, acordo específico. A missão é imutável, então o
+  // declarado continua consultável para comparação.
+  const r = M.validarBaixa({ usuario_id: 'u1', valor_pago: 850 })
+  assert.equal(r.ok, true)
+  assert.equal(r.dados.valor_pago, 850)
+})
+
+test('validarBaixa NAO recebe a conquista como parametro, de proposito', () => {
+  // Aceitar "alcancou: true" do cliente deixaria qualquer requisição pagar prêmio a quem quisesse.
+  // Quem confere o FATO é a camada de dados, que tem a soma na mão.
+  const r = M.validarBaixa({ usuario_id: 'u1', alcancou: true, originado: 999999 })
+  assert.equal(r.ok, true)
+  assert.deepEqual(Object.keys(r.dados).sort(), ['observacao', 'referencia', 'usuario_id', 'valor_pago'])
+})
+
+test('juntarBaixas responde "ja recebeu?" com false, nunca null', () => {
+  const juntado = M.juntarBaixas(
+    [{ usuario_id: 'a', nome: 'Ana', valor: 30000 }, { usuario_id: 'b', nome: 'Bruno', valor: 25000 }],
+    [{ usuario_id: 'a', valor_pago: 1000, pago_em: '2026-09-18T10:00:00Z' }]
+  )
+  assert.equal(juntado[0].pago, true)
+  assert.equal(juntado[0].valor_pago, 1000)
+  assert.equal(juntado[1].pago, false, 'quem alcancou sempre tem resposta para "ja recebi?"')
+  assert.equal(juntado[1].pago_em, null)
+})
+
+test('juntarBaixas preserva a ORDEM do servidor e nao quebra com listas vazias', () => {
+  assert.deepEqual(M.juntarBaixas([], []), [])
+  assert.deepEqual(M.juntarBaixas(null, null), [])
+  const ordem = M.juntarBaixas(
+    [{ usuario_id: 'a', nome: 'Ana' }, { usuario_id: 'b', nome: 'Bruno' }], []
+  ).map((x) => x.nome)
+  assert.deepEqual(ordem, ['Ana', 'Bruno'])
+})
+
+test('a migration 086 e ADITIVA e nao muta dado', () => {
+  assert.ok(!/UPDATE\s+app\./i.test(migracaoBaixa))
+  assert.ok(!/ALTER TABLE app\.(missoes|vendas|usuarios|empresas)\b/i.test(migracaoBaixa))
+})
+
+test('UMA baixa por pessoa por missao e garantia do BANCO', () => {
+  // Duplo clique, retry do navegador ou duas abas não podem pagar o mesmo prêmio duas vezes.
+  assert.match(migracaoBaixa,
+    /CREATE UNIQUE INDEX[\s\S]*missao_recompensas[\s\S]*\(missao_id, usuario_id\)/)
+})
+
+test('o BANCO recusa valor pago ZERO, mas aceita NULL', () => {
+  assert.match(migracaoBaixa, /CHECK \(valor_pago IS NULL OR valor_pago > 0\)/)
+})
+
+test('a conquista e RECONFERIDA na transacao, nunca aceita do cliente', () => {
+  const db = fonte('src/db/missao.js')
+  assert.ok(db.includes('MISSAO_ALVO_NAO_ALCANCADO'), 'quem nao alcancou precisa ser recusado')
+  assert.ok(/SUM\(v\.comissao_base\)[\s\S]*originador_id/.test(db),
+    'a soma precisa ser lida do banco no ato da baixa')
+  const rota = fonte('src/routes/api-missoes.js')
+  assert.ok(!/body[\s\S]{0,60}alcancou/.test(rota), 'a conquista nao pode vir do corpo')
+  assert.ok(rota.includes('DB.obterMissao'), 'o alvo tem de vir da missao real, nao do corpo')
+})
+
+test('NAO existe desfazer a baixa: append-only', () => {
+  const db = fonte('src/db/missao.js')
+  assert.ok(!/UPDATE app\.missao_recompensas/i.test(db))
+  assert.ok(!/DELETE\s+FROM\s+app\.missao_recompensas/i.test(db))
+  const rota = fonte('src/routes/api-missoes.js')
+  assert.ok(!/router\.(delete|put|patch)\(/.test(rota))
+})
+
+test('a PROPRIA pessoa ve que o premio dela foi registrado', () => {
+  // Programa de recompensa que o beneficiário não consegue conferir é promessa sem prova.
+  const rota = fonte('src/routes/api-missoes.js')
+  assert.ok(rota.includes('recompensa_paga'), 'o proprio progresso precisa dizer se ja recebeu')
+  assert.ok(rota.includes('minhaRecompensa'), 'a baixa da propria pessoa e lida sempre')
+  // E a leitura das baixas NÃO pode ficar atrás do gate de gestão.
+  assert.ok(!/podeGerenciar\(req\)[\s\S]{0,40}recompensasDaMissao/.test(rota),
+    'a pessoa precisa ver a PROPRIA baixa mesmo sem gerenciar')
+})
+
+test('a auditoria da baixa nao carrega PII', () => {
+  const db = fonte('src/db/missao.js')
+  const contexto = db.slice(db.indexOf('missao_recompensa_paga'))
+  for (const proibido of ['email', 'telefone', 'nome']) {
+    assert.ok(!new RegExp(`${proibido}`, 'i').test(contexto.slice(0, 600).replace(/\/\/.*$/gm, '')),
+      `a auditoria da baixa nao pode citar '${proibido}'`)
+  }
+})
+
 // ─── Anti-drift com o schema ─────────────────────────────────────────────────────────────
 
 test('METRICA espelha a CHECK da migration 085', () => {
@@ -268,7 +375,7 @@ test('as ESCRITAS exigem COMISSAO_GERENCIAR; o mount libera so a LEITURA', () =>
   const rota = fonte('src/routes/api-missoes.js')
   assert.ok(/router\.use\(requireAuth, requireEmpresaAccess, requireCapacidade\(CAP\.COMISSAO_VER_PROPRIA\)\)/.test(rota))
   const escritas = rota.split('\n').filter((l) => /router\.post\(/.test(l))
-  assert.equal(escritas.length, 2, 'publicar e encerrar — nem mais, nem menos')
+  assert.equal(escritas.length, 3, 'publicar, encerrar e dar baixa na recompensa — nem mais, nem menos')
   for (const l of escritas) {
     assert.ok(l.includes('CAP.COMISSAO_GERENCIAR'), `escrita sem gate proprio: ${l.trim().slice(0, 80)}`)
   }

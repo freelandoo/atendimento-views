@@ -30,6 +30,16 @@ export interface ProgressoMissao {
   fracao: number
   alcancado: boolean
   vendas?: number
+  /** Etapa 4: `false` e não `null` — quem alcançou sempre tem resposta para "já recebi?". */
+  recompensa_paga?: boolean
+  recompensa_paga_em?: string | null
+  recompensa_valor_pago?: number | null
+}
+
+export interface EstadoMinhaRecompensa {
+  pago: boolean
+  frase: string
+  tom: string
 }
 
 export interface QuemAlcancou {
@@ -37,6 +47,10 @@ export interface QuemAlcancou {
   nome: string | null
   valor: number
   vendas: number
+  /** Etapa 4: resolvido pelo backend em `juntarBaixas`. */
+  pago?: boolean
+  pago_em?: string | null
+  valor_pago?: number | null
 }
 
 export interface RotuloSituacao {
@@ -58,8 +72,16 @@ export interface ResumoProgresso {
 
 export interface ResumoAlcancaram {
   total: number
+  /** Quantas pessoas ainda não receberam — o que resta FAZER. */
+  pendentes: number
   frase: string
-  itens: { usuario_id: string; nome: string; valor: string }[]
+  itens: {
+    usuario_id: string
+    nome: string
+    valor: string
+    pago: boolean
+    rotuloPagamento: string
+  }[]
 }
 
 /** Reexportado de `lib/comissao.js` — missão e comissão falam do MESMO dinheiro. */
@@ -77,3 +99,6 @@ export function resumoDoProgresso(
 
 /** `null` quando a lista não veio (quem não gerencia não a recebe). */
 export function resumoDeQuemAlcancou(lista: QuemAlcancou[] | null | undefined): ResumoAlcancaram | null
+
+/** `null` para quem ainda não alcançou: prometer entrega a quem não bateu o alvo seria pior que calar. */
+export function minhaRecompensa(progresso: ProgressoMissao | null | undefined): EstadoMinhaRecompensa | null

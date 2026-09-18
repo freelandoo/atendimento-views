@@ -4262,3 +4262,27 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   `GET /equipe` **nao tem SQL proprio de proposito** (reusa as contagens de cada modulo) e isso
   precisa continuar valendo; e "parado" nao pode ser afirmado sobre lead SEM responsavel — lead
   livre nao esta parado, esta na fila.
+
+## 2026-09-18 - Tarefa IA - Operacao Comercial, Etapa 4 (baixa da recompensa da missao)
+
+- **Pedido resumido:** fechar o ciclo aberto na Etapa 2. A missao declara a recompensa e o sistema
+  ja diz QUEM alcancou o alvo, mas **nao ha onde registrar que o premio foi entregue** — buraco que
+  a comissao nao tem (`comissao_paga_em`/`comissao_paga_por`/`comissao_pagamento_ref`, migration 083).
+- **E projeto/tarefa de alteracao?** Sim, ESTRUTURAL: migration nova + rota de escrita sobre
+  dinheiro. Escopo escolhido pelo operador entre quatro alternativas.
+- **Diagnostico (leitura, sem alterar nada):** a conquista e' DERIVADA de `app.vendas`
+  (`db/missao.js` → `alcancaramOAlvo`), entao **nao existe linha onde pendurar a baixa**. O padrao
+  do repo para "dinheiro que saiu" e' ledger append-only (`app.venda_pagamentos`, 083) ou colunas
+  de baixa na propria entidade — aqui so' o ledger serve, porque a entidade que receberia as
+  colunas nao existe.
+- **Escopo pretendido:** tabela nova `app.missao_recompensas` (uma linha por missao+pessoa,
+  append-only), validacao da conquista DENTRO da transacao da baixa, rota de escrita com
+  `COMISSAO_GERENCIAR`, e o estado "pago" visivel para a PROPRIA pessoa.
+- **Fora de escopo:** desfazer a baixa, recompensa parcial/parcelada, e qualquer mudanca na forma
+  como a conquista e' calculada.
+- **Cuidados:** **nao se paga quem nao alcancou** — a conquista tem de ser reconferida no ato, na
+  mesma transacao, e nao aceita como parametro; o valor REALMENTE pago e' congelado na linha (pode
+  divergir do declarado, e a divergencia precisa ficar auditavel); idempotencia por
+  (missao, pessoa) no BANCO, senao um duplo clique paga o premio duas vezes; e a pessoa precisa
+  VER que o premio dela foi registrado, senao o programa vira promessa sem prova — a mesma razao
+  pela qual `COMISSAO_VER_PROPRIA` existe.

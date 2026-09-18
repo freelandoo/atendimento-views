@@ -2762,6 +2762,61 @@
 - **Nenhuma migration, nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhuma rota
   nova, nenhum item de menu novo.**
 
+### Operação Comercial — Etapa 4: a BAIXA da recompensa da missão (migration 086)
+- **Fecha o ciclo aberto na Etapa 2.** A missão publicava o desafio, media o progresso e dizia
+  **quem alcançou** — e não havia onde registrar que o **prêmio foi entregue**. A comissão já
+  tinha isso (`comissao_paga_em`/`comissao_paga_por`/`comissao_pagamento_ref`, 083); a missão não.
+  Sem a baixa, o dono pagava e o sistema seguia dizendo "3 alcançaram", sem distinguir quem já
+  recebeu.
+- ⚠️ **A BAIXA NÃO É A CONQUISTA.** Alcançar o alvo **continua DERIVADO** de `app.vendas` (ver a
+  085) — persisti-lo criaria uma segunda definição de resultado. `app.missao_recompensas` responde
+  outra pergunta, independente: **"já paguei?"**. É por isso que é tabela e não coluna: não existe
+  linha de "fulano alcançou" onde pendurar a baixa.
+- ⚠️ **NÃO SE PAGA QUEM NÃO ALCANÇOU, e a checagem é no ATO.** `registrarRecompensaPaga` refaz **a
+  mesma soma** de `progressoDaPessoa` dentro da transação e recusa com **409
+  `MISSAO_ALVO_NAO_ALCANCADO`** se o alvo não foi batido. `validarBaixa` **não recebe a conquista
+  como parâmetro, de propósito** — aceitar um `alcancou: true` do corpo deixaria qualquer
+  requisição pagar prêmio a quem quisesse. A missão vem do **banco**, não do corpo: o alvo e a
+  janela que validam a conquista têm de ser os da missão real (que é imutável justamente para esse
+  número não mudar depois).
+- **O RETRATO é congelado** (`originado_no_pagamento`, `alvo_no_pagamento`), pelo mesmo motivo do
+  `comissao_percentual` (083): a conquista segue sendo recalculada das vendas, e sem o retrato
+  *"por que paguei este valor?"* deixaria de ser respondível se uma venda fosse cancelada depois.
+- **`valor_pago` é o que REALMENTE saiu, não o declarado na missão.** É **nullable** porque nem
+  todo prêmio é dinheiro, e **zero é recusado** (CHECK no banco + validação): zero seria "paguei
+  nada" com aparência de pagamento, enquanto `NULL` diz "saiu, e não era dinheiro". Divergir do
+  valor da missão é **permitido e proposital** (arredondamento, entrega parcial) — a divergência
+  fica auditável na linha em vez de sumir atrás do número da missão.
+- **UMA baixa por pessoa por missão, garantida no BANCO** (`missao_recompensas_pessoa_uk`): duplo
+  clique, retry ou duas abas não pagam o mesmo prêmio duas vezes (409 `MISSAO_RECOMPENSA_JA_PAGA`).
+- ⚠️ **NÃO EXISTE DESFAZER.** Append-only, como `app.venda_pagamentos`: dizer "paguei" é fato sobre
+  dinheiro que saiu, e um UPDATE apagaria a única prova de que o prêmio foi entregue.
+  **Consequência declarada e aceita: baixa errada não se corrige por tela nesta etapa.** Por isso o
+  modal avisa antes, em vez de a ação sair no primeiro clique.
+- **A PRÓPRIA pessoa vê que o prêmio dela foi registrado.** As baixas são lidas **sempre**, não só
+  para quem gerencia — programa de recompensa que o beneficiário não consegue conferir é promessa
+  sem prova (a mesma razão de `COMISSAO_VER_PROPRIA`). `meu_progresso.recompensa_paga` é `false`,
+  **nunca `null`**: quem alcançou sempre tem resposta para "já recebi?". Guarda de regressão falha
+  se a leitura das baixas ficar atrás do gate de gestão.
+- **Rota:** `POST /api/empresas/:empresaId/missoes/:missaoId/recompensas`, com
+  **`COMISSAO_GERENCIAR` por rota** — com o gate do mount (que é de leitura), o próprio comercial
+  marcaria o prêmio dele como pago. São **3** escritas no router agora (publicar, encerrar, baixa),
+  declaradas em `ESCRITAS_COM_CAPACIDADE_PROPRIA`. Auditoria em `app.auditoria_eventos`
+  (`missao_recompensa_paga`), **sem PII** — o id do beneficiário é chave, não dado pessoal.
+- **Schema:** migration `086_missao_recompensa.sql`, **aditiva** (uma tabela nova; não altera
+  tabela existente e não muta dado). `valor_pago` **sem DEFAULT**.
+- **Front:** `frontend/lib/missao.js` ganhou `minhaRecompensa` (e `resumoDeQuemAlcancou` passou a
+  carregar `pago`, `rotuloPagamento` e `pendentes` — "3 alcançaram" e "3 alcançaram, 1 ainda não
+  recebeu" pedem ações diferentes). O estado da entrega aparece **em texto**, não só na presença do
+  botão. `minhaRecompensa` devolve `null` para quem **não** alcançou: prometer entrega a quem não
+  bateu o alvo seria pior que calar.
+- Código: `src/services/missao.js` (`validarBaixa`, `juntarBaixas`), `src/db/missao.js`
+  (`recompensasDaMissao`, `registrarRecompensaPaga`), `src/routes/api-missoes.js`. Front:
+  `frontend/lib/missao.js` (+ `.d.ts`/`.test.js`) e `ModalEntregaRecompensa` em
+  `app/dashboard/comissao/page.tsx`. Testes: `test/missao.test.js` (**48**),
+  `frontend/lib/missao.test.js` (**24**).
+- **Nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhum item de menu novo.**
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

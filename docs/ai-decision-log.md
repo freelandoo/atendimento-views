@@ -3476,3 +3476,52 @@ mais um lugar para divergir — e `GET /equipe` continua sem SQL proprio de cont
 Dois campos ADITIVOS e um `meta` em `GET /equipe`; uma coluna nova no painel. Validado: `npm test`
 2163/2165 (as 2 falhas sao as conhecidas de 429 em chamada real de IA), `npm run typecheck` limpo,
 `tsc --noEmit` do frontend limpo, `node --test lib/*.test.js` 537/537.
+
+## 2026-09-18 — Operacao Comercial, Etapa 4: a BAIXA da recompensa da missao — migration 086
+
+Contexto: a Etapa 2 publicava o desafio, media o progresso e dizia QUEM alcancou, mas nao havia
+onde registrar que o PREMIO FOI ENTREGUE — buraco que a comissao nao tem (083). Sem a baixa, o dono
+pagava e o sistema seguia dizendo "3 alcancaram", sem distinguir quem ja recebeu.
+
+**Decisao 1 (D1) — tabela nova, porque a conquista e' DERIVADA e nao tem linha.** `alcancaramOAlvo`
+calcula das vendas pagas; nao existe registro de "fulano alcancou" onde pendurar a baixa. Persistir
+a conquista para ganhar essa linha criaria a segunda definicao de resultado que a 085 recusou. O
+que se persiste e' um fato NOVO e independente: o premio saiu.
+
+**Decisao 2 (D2) — a conquista e' RECONFERIDA na transacao, com a soma lida do banco.**
+`validarBaixa` NAO recebe a conquista como parametro, de proposito: aceitar `alcancou: true` do
+corpo deixaria qualquer requisicao pagar premio a quem quisesse. A missao tambem vem do banco, nao
+do corpo — o alvo e a janela precisam ser os da missao real, e ela e' imutavel justamente para esse
+numero nao mudar. Quem nao alcancou recebe 409 e NADA e' gravado.
+
+**Decisao 3 (D3) — o RETRATO e' congelado.** `originado_no_pagamento` e `alvo_no_pagamento` ficam na
+linha pelo mesmo motivo do `comissao_percentual` (083): a conquista continua sendo recalculada, e
+sem o retrato "por que paguei este valor?" deixaria de ser respondivel se uma venda fosse cancelada
+depois da baixa.
+
+**Decisao 4 (D4) — `valor_pago` e' o que REALMENTE saiu, nullable, e ZERO e' recusado.** Nem todo
+premio e' dinheiro (NULL = "saiu e nao era dinheiro"); zero seria "paguei nada" com aparencia de
+pagamento. Divergir do declarado na missao e' PERMITIDO e proposital (arredondamento, entrega
+parcial): a divergencia fica auditavel na linha em vez de sumir atras do numero da missao, que
+continua consultavel porque a missao e' imutavel.
+
+**Decisao 5 (D5) — NAO existe desfazer.** Append-only, como `app.venda_pagamentos`. Dizer "paguei"
+e' fato sobre dinheiro que saiu, e um UPDATE apagaria a unica prova da entrega. **Consequencia
+declarada e aceita: baixa errada nao se corrige por tela nesta etapa** — por isso o modal avisa
+antes, em vez de a acao sair no primeiro clique. Alternativa descartada: estorno explicito, que
+exigiria um segundo tipo de linha e uma regra de reconciliacao sem nenhum caso real ainda.
+
+**Decisao 6 (D6) — a PROPRIA pessoa ve a baixa dela.** As baixas sao lidas SEMPRE, nao so' para
+quem gerencia: programa de recompensa que o beneficiario nao consegue conferir e' promessa sem
+prova — a mesma razao pela qual `COMISSAO_VER_PROPRIA` existe e pela qual o plano de comissao fica
+visivel ao SDR. `recompensa_paga` e' `false` e nunca `null`: quem alcancou sempre tem resposta.
+Guarda de regressao falha se a leitura das baixas ficar atras do gate de gestao.
+
+**Decisao 7 (D7) — `COMISSAO_GERENCIAR` POR ROTA, sem capacidade nova.** Com o gate do mount (que
+e' de LEITURA), o proprio comercial marcaria o premio dele como pago. Sao 3 escritas no router
+agora, e `ESCRITAS_COM_CAPACIDADE_PROPRIA` subiu de 2 para 3.
+
+**Impacto:** banco (1 tabela nova, aditiva), 1 rota nova, campos ADITIVOS em `GET /missoes`, um
+modal. Nenhuma env nova, nenhuma capacidade nova, nenhum mount trocou de gate. Validado: `npm test`
+2176/2178 (as 2 falhas sao as conhecidas de 429 em chamada real de IA), `npm run typecheck` limpo,
+`tsc --noEmit` do frontend limpo, `node --test lib/*.test.js` 543/543.
