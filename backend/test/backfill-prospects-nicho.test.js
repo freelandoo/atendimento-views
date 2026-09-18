@@ -120,3 +120,26 @@ test('package.json expoe o comando de backfill e inclui esta suite', () => {
   assert.equal(pkg.scripts['backfill:prospects-nicho'], 'node scripts/backfill-prospects-nicho.js')
   assert.ok(pkg.scripts.test.includes('test/backfill-prospects-nicho.test.js'))
 })
+
+test('com --minimo, so os nichos CRIADOS saem da pendencia', () => {
+  // Defeito medido em producao (2026-09-18): o relatorio anunciou "5063 casam, 0 fora do
+  // catalogo" quando o banco tinha 4195 vinculados e 870 pendentes. O UPDATE estava certo — ele
+  // so' casa com o catalogo real —, mas quem lesse o relatorio pararia ali, com 870 leads fora
+  // do recorte por nicho e sem saber.
+  const achados = B.montarAchados(
+    { totalLeads: 5065, semTexto: 2, casaveis: 4193, semCatalogo: 870, criados: 17, vinculados: 4195 },
+    { aplicar: true, criarNichos: true }
+  ).join(' | ')
+  assert.match(achados, /4195 lead\(s\) vinculados/)
+  assert.match(achados, /870 lead\(s\) continuam SEM nicho_id/)
+  assert.match(achados, /fora do recorte por equipe/)
+})
+
+test('sem pendencia restante, o relatorio nao inventa alarme', () => {
+  const achados = B.montarAchados(
+    { totalLeads: 100, semTexto: 0, casaveis: 100, semCatalogo: 0, criados: 3, vinculados: 100 },
+    { aplicar: true, criarNichos: true }
+  ).join(' | ')
+  assert.match(achados, /100 lead\(s\) vinculados/)
+  assert.ok(!/continuam SEM nicho_id/.test(achados))
+})

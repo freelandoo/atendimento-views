@@ -83,9 +83,16 @@ function tabela(cabecalho, linhas) {
  * e precisa aparecer como NUMERO para o operador decidir se cria o nicho ou se aquele termo era
  * lixo de busca.
  */
-function montarAchados({ totalLeads, semTexto, casaveis, semCatalogo, criados }, { aplicar, criarNichos }) {
+function montarAchados({ totalLeads, semTexto, casaveis, semCatalogo, criados, vinculados }, { aplicar, criarNichos }) {
   const achados = []
   achados.push(`${totalLeads} lead(s) sem nicho_id; ${casaveis} casa(m) com o catalogo; ${semCatalogo} com texto fora do catalogo; ${semTexto} sem texto de nicho.`)
+
+  // O numero que o operador precisa: quantos leads SAIRAM da pendencia. Ele nao aparecia no
+  // relatorio, e sem ele "0 com texto fora do catalogo" virava a unica leitura do resultado.
+  if (aplicar) achados.push(`${vinculados || 0} lead(s) vinculados nesta execucao.`)
+  if (aplicar && semCatalogo > 0) {
+    achados.push(`${semCatalogo} lead(s) continuam SEM nicho_id — o texto deles nao esta no catalogo. Eles ficam fora do recorte por equipe ate alguem cadastrar esses nichos (ou rodar de novo com --minimo menor).`)
+  }
 
   if (!aplicar) achados.push('SIMULACAO: nada foi gravado. Rode com -- --aplicar para persistir.')
   if (criarNichos && criados > 0) {
@@ -301,10 +308,17 @@ async function main(argv = process.argv.slice(2)) {
       // fato; "isto parece um nicho" seria palpite, e palpite foi o que a decisao D1 recusou.
       const faltantes = raiox.filter((r) => !r.no_catalogo && r.leads >= minimo)
       resumo.criados = await criarNichosFaltantes(pool, faltantes, { aplicar })
-      // Depois de criar, o que estava fora do catalogo passou a casar.
+      // ⚠️ So' os leads dos nichos EFETIVAMENTE criados passaram a casar.
+      //
+      // A versao anterior zerava `semCatalogo` inteiro assim que criasse UM nicho. Com `--minimo`
+      // isso virou mentira medida: na execucao de 2026-09-18 o relatorio anunciou "5063 casam, 0
+      // fora do catalogo" quando o banco tinha 4195 vinculados e 870 pendentes. O UPDATE estava
+      // certo — ele so' casa com o catalogo real —, mas quem lesse o relatorio concluiria que
+      // nao havia mais nada a fazer e pararia com 870 leads fora do recorte por nicho.
+      const promovidos = faltantes.reduce((s, r) => s + r.leads, 0)
       if (aplicar && resumo.criados > 0) {
-        resumo.casaveis += resumo.semCatalogo
-        resumo.semCatalogo = 0
+        resumo.casaveis += promovidos
+        resumo.semCatalogo -= promovidos
       }
     }
 
