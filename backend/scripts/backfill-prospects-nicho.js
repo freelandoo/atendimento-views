@@ -44,9 +44,24 @@ const { Pool } = require('pg')
 
 const LOTE_PADRAO = 1000
 
+// ⚠️ `TRIM()` do Postgres remove SO' ESPACO — nao quebra de linha, nao CR, nao tab.
+//
+// Medido em producao (2026-09-18): o termo de busca da Aquisicao chega com QUEBRA DE LINHA no
+// fim, e `TRIM(p.nicho)` a preservava. O efeito era invisivel e grave: "funilaria e pintura
+// automotiva" aparecia DUAS vezes no raio-x, uma casando com o catalogo e outra nao — mesmo
+// texto na tela, veredito oposto, porque um dos dois terminava em quebra de linha. Sem isto,
+// milhares de leads ficariam fora do recorte por um caractere que ninguem consegue ver.
+//
+// `chr(32)||chr(9)||chr(10)||chr(13)` (espaco, tab, LF, CR) em vez da forma com barra invertida,
+// de proposito: dentro de template literal do JS uma sequencia dessas vira o caractere real antes
+// de chegar ao Postgres, e uma classe como a de "nao-digito" viraria uma letra solta — e' o mesmo
+// defeito ja registrado no AGENTS.md sobre `regexp_replace`. Com `chr()` nao ha escape a errar.
+const BRANCOS = `chr(32)||chr(9)||chr(10)||chr(13)`
+const limpo = (coluna) => `BTRIM(${coluna}, ${BRANCOS})`
+
 // O casamento. UMA expressao, usada na contagem, no UPDATE e no relatorio — para as tres nunca
 // discordarem sobre o que "casa".
-const CASAMENTO = `lower(TRIM(n.nome)) = lower(TRIM(p.nicho))`
+const CASAMENTO = `lower(${limpo('n.nome')}) = lower(${limpo('p.nicho')})`
 
 // ─── Apresentacao (PURA — testada em test/backfill-prospects-nicho.test.js) ──────────────
 
@@ -102,14 +117,14 @@ async function levantar(pool, { empresaId }) {
   const { rows } = await pool.query(
     `WITH p AS (
        SELECT empresa_id,
-              TRIM(nicho) AS nicho,
+              ${limpo('nicho')} AS nicho,
               COUNT(*)::int AS leads
          FROM prospectador.prospects
         WHERE nicho_id IS NULL
           AND empresa_id IS NOT NULL
-          AND NULLIF(TRIM(nicho), '') IS NOT NULL
+          AND NULLIF(${limpo('nicho')}, '') IS NOT NULL
           AND ($1::uuid IS NULL OR empresa_id = $1::uuid)
-        GROUP BY empresa_id, TRIM(nicho)
+        GROUP BY empresa_id, ${limpo('nicho')}
      )
      SELECT p.empresa_id,
             p.nicho AS texto,
@@ -132,7 +147,7 @@ async function contarSemTexto(pool, { empresaId }) {
        FROM prospectador.prospects p
       WHERE p.nicho_id IS NULL
         AND ($1::uuid IS NULL OR p.empresa_id = $1::uuid)
-        AND (p.empresa_id IS NULL OR NULLIF(TRIM(p.nicho), '') IS NULL)`,
+        AND (p.empresa_id IS NULL OR NULLIF(${limpo('p.nicho')}, '') IS NULL)`,
     [empresaId]
   )
   return r.total
@@ -178,7 +193,7 @@ async function vincular(pool, { empresaId, lote, aplicar }) {
                ON n.empresa_id = p.empresa_id AND ${CASAMENTO}
             WHERE p.nicho_id IS NULL
               AND p.empresa_id IS NOT NULL
-              AND NULLIF(TRIM(p.nicho), '') IS NOT NULL
+              AND NULLIF(${limpo('p.nicho')}, '') IS NOT NULL
               AND ($1::uuid IS NULL OR p.empresa_id = $1::uuid)
             LIMIT $2
          ) AS sub
@@ -202,9 +217,14 @@ function imprimir(raiox, resumo, opcoes) {
   if (opcoes.empresaId) L(`       empresa: ${String(opcoes.empresaId).slice(0, 8)}…`)
   L()
   if (raiox.length) {
+    // A EMPRESA vai na tabela porque o agrupamento e' por (empresa, texto): sem ela, o mesmo
+    // nicho em dois tenants aparece como duas linhas identicas e parece defeito do relatorio.
+    // Mascarada — este relatorio nao imprime id inteiro.
     L(tabela(
-      ['nicho (texto observado)', 'leads', 'no catalogo?'],
-      raiox.slice(0, 40).map((r) => [r.texto, r.leads, r.no_catalogo ? 'sim' : 'NAO'])
+      ['nicho (texto observado)', 'empresa', 'leads', 'no catalogo?'],
+      raiox.slice(0, 40).map((r) => [
+        r.texto, String(r.empresa_id || '').slice(0, 8), r.leads, r.no_catalogo ? 'sim' : 'NAO',
+      ])
     ))
     if (raiox.length > 40) L(`  … e mais ${raiox.length - 40} texto(s).`)
   } else {

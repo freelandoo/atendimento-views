@@ -15,10 +15,36 @@ const RAIZ = path.join(__dirname, '..')
 const fonte = (rel) => fs.readFileSync(path.join(RAIZ, rel), 'utf8')
 
 test('CASAMENTO e exato por nome dentro da empresa, sem fuzzy', () => {
-  assert.match(B.CASAMENTO, /lower\(TRIM\(n\.nome\)\)\s*=\s*lower\(TRIM\(p\.nicho\)\)/)
+  // Dos dois lados: nome do catalogo e texto do lead, ambos limpos e em minusculas.
+  assert.ok(B.CASAMENTO.includes('lower(BTRIM(n.nome,'), 'lado do catalogo')
+  assert.ok(B.CASAMENTO.includes('lower(BTRIM(p.nicho,'), 'lado do lead')
+  assert.match(B.CASAMENTO, /\)\s*=\s*lower\(BTRIM\(p\.nicho,/, 'igualdade exata entre os dois')
   for (const proibido of ['ILIKE', 'similarity', 'levenshtein', 'soundex', 'LIKE']) {
     assert.ok(!B.CASAMENTO.toUpperCase().includes(proibido.toUpperCase()), `nao pode usar ${proibido}`)
   }
+})
+
+test('o casamento limpa QUEBRA DE LINHA, nao so espaco', () => {
+  // Medido em producao (2026-09-18): o termo da Aquisicao chega com quebra de linha no fim, e
+  // `TRIM()` do Postgres remove SO' espaco. O sintoma foi "funilaria e pintura automotiva"
+  // aparecendo duas vezes no raio-x, uma casando com o catalogo e outra nao — mesmo texto na
+  // tela, veredito oposto. Sem isto, milhares de leads ficam fora do recorte por um caractere
+  // invisivel.
+  assert.ok(!/\bTRIM\(/.test(B.CASAMENTO.replace(/BTRIM\(/g, '')), 'TRIM() sozinho nao basta')
+  for (const chr of ['chr(32)', 'chr(9)', 'chr(10)', 'chr(13)']) {
+    assert.ok(B.CASAMENTO.includes(chr), `precisa limpar ${chr}`)
+  }
+})
+
+test('GUARDA: nenhuma consulta do script ficou com TRIM() sozinho', () => {
+  // Uma unica consulta esquecida faria o relatorio prometer um numero e a gravacao entregar
+  // outro — exatamente o que este script existe para nao cometer.
+  const src = fonte('scripts/backfill-prospects-nicho.js')
+    .split('\n')
+    .filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*'))
+    .join('\n')
+  const trimsSozinhos = (src.match(/(?<!B)TRIM\(/g) || []).length
+  assert.equal(trimsSozinhos, 0, 'use limpo(coluna), que remove tab e quebra de linha tambem')
 })
 
 test('montarAchados declara simulacao e nao transforma falta de catalogo em erro', () => {
