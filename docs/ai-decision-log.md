@@ -3222,3 +3222,208 @@ paginacao.
 **Decisao 3 — sem migration e sem dependencia nova.** A prioridade e calculada na leitura, com as
 colunas ja existentes (`icp_*`, `raw_json`, cadastro e qualificacao). `▼` mostra melhores leads
 primeiro; `▲` mostra piores/menos prioritarios primeiro.
+
+---
+
+## 2026-09-18 — Camada de COMISSAO do comercial (SDR) — migration 083
+
+Contexto: o pedido e' sustentar um programa de SDR com comissao escalonada (10/12/15/18% por
+faturamento originado no mes), gatilho no PAGAMENTO real do cliente, painel de progresso e
+ranking mensal. A ATRIBUICAO ja existia (`lead_responsavel_historico`, 072; `agenda_eventos.
+responsavel_id`, 076; papel `comercial`, 070). A camada financeira NAO existia: grep por
+`comiss|commission|remunera` em `src/` e `sql/` nao devolvia nada.
+
+**Reversao declarada.** `docs/analise-processo-comercial-tenka.md` §1.5 registrou em 2026-08-18
+que nao ha estado de pagamento e que vendas/receita seriam MEDIDAS FORA do sistema. Esta entrega
+reverte aquela decisao, a pedido do operador.
+
+**Decisao 1 (D1) — a venda e' entidade PROPRIA, e a Meta continua com UMA fonte.** `app.vendas`
+tem `agenda_evento_id` OPCIONAL, porque muita venda nao vem de reuniao (fechamento por WhatsApp,
+semanas depois). Quando vem, a MESMA transacao grava `agenda_eventos.venda_valor` — que e' o que
+`meta-dispatch` le para emitir o `Purchase`. Um unico caminho de escrita, dois consumidores, sem
+divergencia. Evento aceito pela Meta nao se estorna, entao duplicar a fonte era o risco maior do
+diff. Alternativa descartada: usar so' a agenda, que amarraria a comissao a alguem ter marcado a
+reuniao no lugar certo.
+
+**Decisao 2 (D2) — a comissao integral e' liberada no PRIMEIRO pagamento.** O parcelamento do
+cliente nao reduz o percentual prometido ao SDR. **Risco declarado e aceito:** cliente que para na
+2a parcela deixa a comissao ja liberada. E' coerente com o desenho do programa — o risco do
+projeto e' da operacao e o SDR nao controla inadimplencia. `proporcional` e `acumulado_50` foram
+discutidos e NAO existem: a CHECK `comissao_planos_gatilho_chk` e' fechada em `primeiro_pagamento`,
+porque o valor nasce junto do executor (licao da migration 067).
+
+**Decisao 3 (D3) — o ranking nasce em modulo PROPRIO; a guarda do painel da equipe fica intacta.**
+`frontend/lib/equipe-painel.test.js:119` proibe placar por ATIVIDADE (`ranking`, `produtividade`,
+`percentual`, `score`) e NAO foi tocada. O ranking novo e' por FATURAMENTO PAGO ORIGINADO —
+resultado de negocio verificavel, nao vigilancia de esforco — e vive em `lib/comissao.js`. Por
+faturamento e nao por numero de reunioes, de proposito: ranquear volume de reuniao paga para
+marcar reuniao ruim.
+
+**Decisao 4 (D4) — cada um ve so' o proprio dinheiro.** O ranking devolve nome e faturamento
+originado; NUNCA a comissao de ninguem. Ha teste no backend (`montarRanking` nao emite `comissao`)
+e guarda no front.
+
+**Decisao 5 — o percentual e' CONGELADO na linha da venda, nunca recalculado na leitura.** A regra
+escolhida ("a taxa alcancada vale para as PROXIMAS vendas do mes, sem recalcular para tras")
+depende da ORDEM dos creditos no mes. Recalculado na leitura, a comissao de uma venda antiga
+mudaria quando outra venda fosse paga com atraso — o SDR veria o numero dele cair sem ninguem ter
+feito nada. Guarda de regressao le a camada de leitura de `db/comissao.js`.
+
+**Decisao 6 — o plano e' VERSIONADO** (`slug + versao`, padrao de `prospectador.icp_modelos`), com
+UM ativo por empresa (indice unico parcial). Publicar plano novo arquiva o anterior; venda ja
+creditada continua apontando para a versao sob a qual foi creditada. Editar plano vigente
+reescreveria o que a empresa ja pagou.
+
+**Decisao 7 — competencia = mes do RECEBIMENTO, nao do fechamento.** E' a leitura honesta de
+"faturamento pago no mes": venda fechada em agosto e paga em setembro conta em setembro.
+
+**Decisao 8 — autorizacao em DOIS niveis.** O mount exige `COMISSAO_VER_PROPRIA` (ver o proprio
+dinheiro e' parte do trabalho; programa que a pessoa nao pode auditar e' promessa sem prova); cada
+ESCRITA exige `COMISSAO_GERENCIAR` por rota — quem define quanto se paga nao pode ser quem recebe.
+As duas capacidades entraram em `ROTAS_POR_CAPACIDADE` e `ESCRITAS_COM_CAPACIDADE_PROPRIA`.
+
+**Decisao 9 — nao ha exclusao de venda nem de pagamento.** `venda_pagamentos` e' append-only;
+cancelar venda so' vale ANTES do credito. Depois de liberada, a comissao e' um fato que o SDR ja
+viu no painel. Mesma disciplina de Roteiros (arquivar) e Membros (desativar).
+
+**Divida tecnica declarada:** o acumulado do mes e' recalculado por `SUM` a cada leitura do painel.
+Com o volume atual (dezenas de vendas/mes) e' irrelevante; se incomodar, a saida e' materializar o
+acumulado por (originador, competencia) na escrita — nunca cachear no front.
+
+## 2026-09-18 — Operacao Comercial, Etapa 1: a PORTA do programa (aceite) — migration 084
+
+Contexto: o pedido e' implementar por ETAPAS um programa de "Operacao Comercial". A Etapa 1 e' a
+entrada: o dono cria o login do comercial e, no primeiro acesso, antes de ver lead, missao,
+comissao ou ranking, a pessoa passa por uma tela de aceite (termo, rolagem ate o fim, maioridade,
+leitura das regras), com registro de data, usuario e VERSAO do termo. Nada de aceite/termo existia
+no repositorio.
+
+**Decisao 1 (D1) — o gate vive em `requireEmpresaAccess`, nao nos mounts e nao em
+`requireCapacidade`.** `/conversas`, `/whatsapp` e `/agenda` autorizam POR ROTA, entao um gate por
+mount deixaria buracos e uma rota nova nasceria fora dele — e uma LISTA de mounts bloqueados e'
+exatamente o tipo de coisa que apodrece no primeiro modulo novo. `requireEmpresaAccess` roda em
+TODO request com escopo de empresa: e' o unico ponto onde "antes do aceite, nada da empresa
+responde" e' uma afirmacao verdadeira. Alternativa descartada: middleware aplicado mount a mount.
+
+**Decisao 2 (D2) — UMA excecao, nomeada e contada: `requireEmpresaAccessSemAceite`.** A tela do
+termo precisa ser alcancavel enquanto todo o resto esta barrado; um bloqueio sem macaneta e'
+lockout, nao gate. A variante continua exigindo `requireAuth` e vinculo ativo — dispensar o ACEITE
+nao dispensa a AUTENTICACAO. Guarda de regressao varre `src/routes/**` e falha no SEGUNDO uso.
+
+**Decisao 3 (D3) — sujeitos sao `comercial` e `member`; `owner` e `admin` nao.** Escolha do
+operador. O termo e' o contrato de quem TRABALHA no programa, e quem responde pela empresa e' a
+outra parte do acordo. Torna-los sujeitos trancaria o dono fora do proprio produto no primeiro
+boot depois do deploy, sem ninguem acima dele para destravar.
+
+**Decisao 4 (D4) — aceite NAO e' capacidade.** Sao duas perguntas diferentes: capacidade responde
+"o papel alcanca esta acao?", aceite responde "esta pessoa entrou no programa?". Fundi-las
+deixaria um admin conceder "dispensa de termo" pela concessao ADITIVA de
+`usuarios_empresas.permissoes` — dispensar por tela o consentimento que o programa existe para
+colher. Guarda de regressao falha se `acesso-capacidades.js` ganhar capacidade de aceite/termo.
+Consequencia: o modulo puro do programa NAO barra papel desconhecido (devolve `nao_sujeito`) — ele
+nao autoriza nada, e quem nao tem papel conhecido ja nao alcanca capacidade alguma.
+
+**Decisao 5 (D5) — registro APPEND-ONLY com VERSAO e HASH, nao uma coluna em
+`usuarios_empresas`.** O aceite e' um fato datado sobre um TEXTO. Uma coluna guardaria so' o ultimo
+estado e seria sobrescrita quando o termo mudasse de versao, apagando a prova de que a pessoa
+aceitou a v1 em setembro. A VERSAO diz QUAL termo; o HASH prova que aquele texto nao mudou depois.
+Mesma disciplina do percentual congelado no credito de comissao (083). O hash gravado e' sempre o
+do SERVIDOR: aceitar um hash vindo do corpo faria o registro afirmar que a pessoa concordou com um
+texto que o sistema nunca viu.
+
+**Decisao 6 (D6) — o termo vive VERSIONADO no fonte, nao numa tabela editavel.** Termo editavel por
+tela exige tela de edicao, revisao e publicacao, e nada disso existe nesta etapa; pior, texto que
+muda sem versao faz o registro mentir. Editar o texto passa a exigir subir a VERSAO no mesmo diff,
+e versao nova volta a exigir o aceite de quem ja tinha aceitado. O texto v1.0 e' RASCUNHO redigido
+para ser simples e honesto — nao substitui revisao juridica.
+
+**Decisao 7 (D7) — SEM BACKFILL, consequencia declarada e aceita.** No primeiro boot depois do
+deploy, toda pessoa com vinculo `comercial` ou `member` fica parada na tela de aceite ate assinar.
+Inserir aceite por migration seria o sistema afirmando que alguem leu um texto que nunca viu —
+mesmo raciocinio de `legado`/`origem_vinculo` (061) e de `qualificacao` (071).
+
+**Decisao 8 (D8) — custo de I/O zero: o aceite vem no MESMO SELECT do vinculo.** O gate roda em
+todo request autenticado com escopo de empresa; uma segunda consulta ali dobraria a ida ao banco
+para ler um dado que esta a um `LEFT JOIN LATERAL` de distancia. A camada de dados NAO conhece a
+versao vigente de proposito — comparar e' do modulo puro, senao a regra existiria em dois lugares.
+
+**Decisao 9 (D9) — `403 ACEITE_PENDENTE`, nunca o `FORBIDDEN` generico.** 403 e nao 401 porque a
+sessao e' valida: o que falta e' um ato da pessoa. Codigo PROPRIO porque a tela precisa distinguir
+"voce nao tem permissao" (que nao se resolve sozinho) de "falta aceitar o termo" (que se resolve
+numa tela).
+
+**Decisao 10 (D10) — o front REDIRECIONA, nunca bloqueia.** `AuthGuard` usa o campo aditivo
+`programa_aceite` que `/api/auth/me` passou a devolver (sem request novo). Apagar o modulo do front
+deixa o sistema bloqueado, so' que ilegivel. Veredito AUSENTE nao redireciona: errar para esse lado
+custa um erro visivel; errar para o outro tranca quem podia entrar.
+
+**Impacto:** banco (1 tabela nova, aditiva), autorizacao (1 gate novo em ponto unico), 2 rotas
+novas sem capacidade, 1 tela nova, 2 campos aditivos em respostas existentes (`/me` e o vinculo).
+Nenhuma variavel de ambiente nova, nenhuma capacidade nova, nenhum mount trocou de gate, nenhum
+prompt de producao alterado. Validado: `npm test` 2051/2053 (as 2 falhas sao as conhecidas de 429
+em chamada real de IA, `core.test.js`), `npm run typecheck` limpo, `tsc --noEmit` do frontend limpo,
+`node --test lib/*.test.js` 509/509.
+
+## 2026-09-18 — Operacao Comercial, Etapa 2: MISSAO (desafio com recompensa) — migration 085
+
+Contexto: a Etapa 1 criou a PORTA do programa (aceite do termo) e a camada de comissao (083) ja
+responde "quanto esta pessoa originou de faturamento pago". Faltava o DESAFIO. Decisoes do
+operador nesta data: missao = desafio com recompensa; o DONO cria UMA e ela vale para a equipe;
+so' a propria pessoa ve o progresso dela.
+
+**Decisao 1 (D1) — a missao mede RESULTADO PAGO, com UMA metrica e CHECK fechada.** Premiar
+atividade paga por atividade: recompensar "numero de reunioes" paga para marcar reuniao ruim. E' a
+mesma razao pela qual a Decisao 3 de 2026-09-18 recusou ranking por atividade e pela qual
+`frontend/lib/equipe-painel.test.js` quebra o build se o painel da equipe virar placar — guarda que
+NAO foi tocada. A CHECK fechada em `faturamento_pago_originado` e' a licao da 067 e do gatilho da
+comissao: valor de vocabulario nasce junto do executor, senao nasce missao que entra na tela e
+nunca pode ser cumprida. Alargar a CHECK e implementar o medidor tem de ser o MESMO diff.
+
+**Decisao 2 (D2) — publicada, a missao e' IMUTAVEL.** Alvo, recompensa, metrica e janela nunca sao
+editados. Mudar o alvo em outubro reescreveria o desafio que alguem cumpriu em setembro, e "quem
+alcancou" deixaria de ser fato para virar uma conta que depende do estado atual da tabela. Para
+mudar: encerra e publica outra (padrao de `comissao_planos` e `roteiro_versoes`). Sem trigger: a
+garantia e' que nenhum caminho escreve essas colunas, com guarda de regressao lendo o fonte.
+
+**Decisao 3 (D3) — NAO existe tabela de conquista; quem alcancou e' DERIVADO.** A fonte e' a mesma
+que a comissao ja reconcilia (`app.vendas.comissao_base`, vendas com comissao liberada dentro da
+janela). Persistir a conquista criaria uma SEGUNDA definicao de "resultado", que divergiria da
+primeira no dia em que uma venda fosse cancelada. Como a missao e' imutavel e as vendas nao somem,
+a lista continua reconstruivel para sempre. Alternativa descartada: registrar a conquista dentro da
+transacao do pagamento — acoplaria a missao ao caminho do dinheiro e nao premiaria quem ja tivesse
+batido o alvo antes de a missao ser publicada.
+
+**Decisao 4 (D4) — progresso PESSOAL; o dono ve quem ALCANCOU, nao o extrato de todo mundo.**
+A escolha do operador foi "so' a propria pessoa ve o progresso". Mas uma recompensa que ninguem
+sabe a quem pagar nao e' recompensa: a linha honesta e' FATO CONSUMADO (quem bateu o alvo) para
+quem paga, e progresso parcial so' para a propria pessoa. A consulta do dono filtra com
+`HAVING SUM(...) >= alvo` e ordena por NOME — ordenar por valor seria ranking, que e' outra etapa.
+
+**Decisao 5 (D5) — janela de DATAS, nao competencia mensal.** `vendas.competencia` e' sempre o dia
+1 do mes (083); amarrar a missao a ela proibiria desafio semanal ou quinzenal. O SQL usa
+`comissao_liberada_em >= inicio AND < fim + 1 dia`, porque a coluna e' TIMESTAMPTZ e `fim` e' DATE.
+
+**Decisao 6 (D6) — publicar encerra a anterior VENCIDA, mas nunca a que esta valendo.** Exigir dois
+cliques para uma consequencia inevitavel travaria a empresa numa missao vencida que ninguem fechou.
+Ja encerrar um desafio EM ANDAMENTO e' uma decisao (tem gente contando com a recompensa) e tem de
+ser ato explicito — 409. A unicidade real e' do BANCO (indice unico parcial).
+
+**Decisao 7 (D7) — NENHUMA capacidade nova.** Missao com recompensa e' politica de REMUNERACAO, a
+mesma familia de decisao da comissao: o mount reusa `COMISSAO_VER_PROPRIA` e cada escrita exige
+`COMISSAO_GERENCIAR`. Criar `MISSAO_GERENCIAR` sem uma decisao distinta por tras seria acrescentar
+coluna a uma matriz que ninguem valida — e' assim que matriz de permissao apodrece.
+
+**Decisao 8 (D8) — o sistema NAO paga a recompensa.** Ele publica, mede e diz quem alcancou.
+Marcar a recompensa como entregue exigiria um ledger proprio e fica declarado como etapa seguinte,
+junto de ranking. Preferivel a inventar um estado de pagamento sem quem o alimente.
+
+**Correcao de processo encontrada no caminho:** o script `test` do `package.json` lista os arquivos
+um a um, e `test/comissao.test.js` (da entrega anterior), `test/programa-aceite.test.js` (Etapa 1) e
+`test/missao.test.js` NAO estavam nele — as tres suites nao rodavam no comando oficial. Incluidas
+neste diff: `npm test` foi de 2053 para 2149 testes.
+
+**Impacto:** banco (1 tabela nova, aditiva), 4 rotas novas sem capacidade nova, 1 secao na tela de
+Comissao (sem item de menu novo). Nenhuma variavel de ambiente nova, nenhum prompt alterado, nenhum
+mount existente trocou de gate. Validado: `npm test` 2147/2149 (as 2 falhas sao as conhecidas de 429
+em chamada real de IA, `core.test.js`), `npm run typecheck` limpo, `tsc --noEmit` do frontend limpo,
+`node --test lib/*.test.js` 527/527.

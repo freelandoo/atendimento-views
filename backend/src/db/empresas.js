@@ -5,6 +5,7 @@ const {
   normalizarModo,
   resolverModoGlobal,
 } = require('../services/conversa-modo-ia')
+const { PROGRAMA } = require('../services/programa-aceite')
 
 async function findEmpresaById(id) {
   const { rows } = await pool.query(
@@ -58,13 +59,33 @@ async function findEmpresaEInstanciaPorEvolution(instanceName) {
 //
 // `null` = sem vínculo ativo. NÃO existe vínculo padrão: quem não tem vínculo não tem papel, e
 // cair no papel GLOBAL aqui é exatamente o defeito que esta etapa corrige.
+//
+// ─── O VÍNCULO CARREGA TAMBÉM O ÚLTIMO ACEITE DO TERMO (migration 084) ───────────────────
+// Não é enfeite: este SELECT roda em TODO request com escopo de empresa, e o gate do aceite vive
+// em `requireEmpresaAccess`. Uma segunda consulta ali dobraria a ida ao banco de cada request
+// autenticado para ler um dado que está a um LATERAL de distância.
+//
+// O LATERAL devolve a versão GRAVADA; quem compara com a VIGENTE é o módulo PURO
+// `services/programa-aceite.js`. Esta camada não conhece a versão do termo, de propósito — se
+// conhecesse, a regra passaria a existir em dois lugares.
 async function buscarVinculoUsuarioEmpresa(usuario_id, empresa_id) {
   const { rows } = await pool.query(
-    `SELECT id, usuario_id, empresa_id, role, permissoes, ativo, criado_em, criado_por
-       FROM app.usuarios_empresas
-      WHERE usuario_id = $1 AND empresa_id = $2 AND ativo = true
+    `SELECT ue.id, ue.usuario_id, ue.empresa_id, ue.role, ue.permissoes, ue.ativo,
+            ue.criado_em, ue.criado_por,
+            a.termo_versao AS aceite_versao, a.aceito_em AS aceite_em
+       FROM app.usuarios_empresas ue
+       LEFT JOIN LATERAL (
+         SELECT pa.termo_versao, pa.aceito_em
+           FROM app.programa_aceites pa
+          WHERE pa.empresa_id = ue.empresa_id
+            AND pa.usuario_id = ue.usuario_id
+            AND pa.programa = $3
+          ORDER BY pa.aceito_em DESC
+          LIMIT 1
+       ) a ON true
+      WHERE ue.usuario_id = $1 AND ue.empresa_id = $2 AND ue.ativo = true
       LIMIT 1`,
-    [usuario_id, empresa_id]
+    [usuario_id, empresa_id, PROGRAMA.OPERACAO_COMERCIAL]
   )
   return rows[0] || null
 }

@@ -4,6 +4,8 @@ const { verifyPassword, signJwt, hashPassword } = require('../auth')
 const { findUsuarioByEmail, findUsuarioById, updateUltimoLogin, listEmpresasDoUsuario, existsEmail, signupUsuario } = require('../db/usuarios')
 const { requireAuth } = require('../middleware/tenant')
 const { capacidadesDoVinculo } = require('../services/acesso-capacidades')
+const { avaliarAcesso: avaliarAcessoPrograma } = require('../services/programa-aceite')
+const { VERSAO: TERMO_VERSAO } = require('../services/programa-termo')
 const { validarSignup } = require('../auth-validation')
 const { signupLimiter, loginLimiter } = require('../rate-limit')
 
@@ -87,7 +89,7 @@ router.get('/me', requireAuth, async (req, res) => {
     ok: true,
     data: {
       usuario: { id: req.usuario.id, email: req.usuario.email, nome: req.usuario.nome, role: req.usuario.role },
-      empresas: empresas.map(({ permissoes, ...empresa }) => ({
+      empresas: empresas.map(({ permissoes, aceite_versao, aceite_em, ...empresa }) => ({
         ...empresa,
         papel_empresa: empresa.role_usuario,
         capacidades: capacidadesDoVinculo({
@@ -95,6 +97,15 @@ router.get('/me', requireAuth, async (req, res) => {
           permissoes,
           papelPlataforma: req.usuario.role,
         }),
+        // OPERAÇÃO COMERCIAL, Etapa 1. Campo ADITIVO: nenhum consumidor anterior muda.
+        // Quem compara a versão gravada com a vigente é o módulo PURO — a tela recebe o
+        // veredito pronto, exatamente como recebe `capacidades`, e nunca a versão crua para
+        // recombinar. `aceite_versao` sai do payload de propósito (ver o destructuring acima).
+        programa_aceite: avaliarAcessoPrograma({
+          papel: empresa.role_usuario,
+          papelPlataforma: req.usuario.role,
+          aceite: aceite_versao ? { versao: aceite_versao, em: aceite_em } : null,
+        }, TERMO_VERSAO),
       })),
     },
   })

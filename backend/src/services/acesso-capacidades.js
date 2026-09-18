@@ -88,6 +88,13 @@ const CAPACIDADES = Object.freeze({
   INSTANCIA_GERENCIAR_EMPRESA: 'instancia_gerenciar_empresa',
   INSTANCIA_GERENCIAR_CONTEXTO: 'instancia_gerenciar_contexto', // conhecimento = ativo da empresa
 
+  // Comissão do comercial (migration 083)
+  // Ver a PRÓPRIA comissão é do trabalho: um programa de comissão que a pessoa não consegue
+  // conferir é uma promessa sem prova. Mexer no plano, registrar venda e dar baixa em pagamento
+  // é gestão — quem define quanto se paga não pode ser quem recebe.
+  COMISSAO_VER_PROPRIA: 'comissao_ver_propria',
+  COMISSAO_GERENCIAR: 'comissao_gerenciar',
+
   // Administração da empresa
   MEMBROS_GERENCIAR: 'membros_gerenciar',
   INTEGRACOES_GERENCIAR: 'integracoes_gerenciar',   // Meta, e-mail, modelo de IA, prompts, custos
@@ -112,6 +119,7 @@ const COMERCIAL = Object.freeze([
   CAPACIDADES.ROTEIRO_LER,
   CAPACIDADES.AGENDA_OPERAR_PROPRIA,
   CAPACIDADES.INSTANCIA_GERENCIAR_PROPRIA,
+  CAPACIDADES.COMISSAO_VER_PROPRIA,
 ])
 
 // `member` é o papel LEGADO de compatibilidade (decisão C de docs/especificacao-crm-equipe.md):

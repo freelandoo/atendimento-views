@@ -1,6 +1,7 @@
 'use strict'
 const { pool } = require('../db')
 const { gerarSlugEmpresa } = require('../string-utils')
+const { PROGRAMA } = require('../services/programa-aceite')
 
 async function findUsuarioByEmail(email) {
   const { rows } = await pool.query(
@@ -28,14 +29,30 @@ async function updateUltimoLogin(id) {
 // `role_usuario` é o papel POR EMPRESA (app.usuarios_empresas.role) — o papel EFETIVO desde a
 // Etapa 1 do CRM em equipe. `permissoes` vem junto porque `/api/auth/me` deriva dali as
 // capacidades que a tela usa para se desenhar (a tela nunca conhece a matriz).
+// `aceite_versao` é a VERSÃO do último aceite do termo da Operação Comercial naquela empresa
+// (migration 084), ou NULL. Vem junto por um motivo de experiência: `AuthGuard` já chama
+// `/api/auth/me` uma vez por carregamento, e é dali que a tela descobre que precisa mandar a
+// pessoa para o aceite. Sem isto, ou haveria um request a mais em todo carregamento, ou a
+// primeira tela da operação apareceria e só então tomaria 403.
+// A comparação com a versão vigente NÃO acontece aqui — é do módulo puro.
 async function listEmpresasDoUsuario(usuario_id) {
   const { rows } = await pool.query(
-    `SELECT e.*, ue.role AS role_usuario, ue.permissoes, ue.id AS vinculo_id
+    `SELECT e.*, ue.role AS role_usuario, ue.permissoes, ue.id AS vinculo_id,
+            a.termo_versao AS aceite_versao, a.aceito_em AS aceite_em
      FROM app.empresas e
      JOIN app.usuarios_empresas ue ON ue.empresa_id = e.id
+     LEFT JOIN LATERAL (
+       SELECT pa.termo_versao, pa.aceito_em
+         FROM app.programa_aceites pa
+        WHERE pa.empresa_id = ue.empresa_id
+          AND pa.usuario_id = ue.usuario_id
+          AND pa.programa = $2
+        ORDER BY pa.aceito_em DESC
+        LIMIT 1
+     ) a ON true
      WHERE ue.usuario_id = $1 AND ue.ativo = true AND e.ativo = true
      ORDER BY e.nome`,
-    [usuario_id]
+    [usuario_id, PROGRAMA.OPERACAO_COMERCIAL]
   )
   return rows
 }

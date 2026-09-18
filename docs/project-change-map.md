@@ -1006,3 +1006,56 @@ existe e nao deve nascer.
   Instagram candidato continua com ressalva em texto; autosave/finalizacao do ICP ao fechar o
   modal foi mantido; "dados completos" continua dentro do modal, nao como coluna nas tabelas.
 - Validacao executada: `npm test`, `npm run typecheck` e `npm run build` em `frontend`.
+
+## 2026-09-18 - Operacao Comercial, Etapa 1: porta do programa (aceite do termo)
+
+- `backend/sql/migrations/084_programa_aceite.sql`: tabela NOVA `app.programa_aceites`
+  (append-only). Aditiva: nao altera tabela existente, nao muta dado, **sem backfill**.
+- `backend/src/services/programa-aceite.js` (NOVO, PURO): dono do vocabulario (`PROGRAMA`,
+  `PAPEIS_SUJEITOS`, `MOTIVOS`, `RECUSAS`) e do julgamento. Nao autoriza nada — responde so'
+  "esta pessoa entrou no programa?".
+- `backend/src/services/programa-termo.js` (NOVO): termo VERSIONADO no fonte (v1.0) + hash.
+- `backend/src/db/programa-aceite.js` (NOVO): leitura e INSERT idempotente + auditoria na mesma
+  transacao. Sem UPDATE e sem DELETE.
+- `backend/src/middleware/tenant.js`: **o gate**. `requireEmpresaAccess` passa a barrar com
+  `403 ACEITE_PENDENTE`; nasce `requireEmpresaAccessSemAceite`, com UM unico consumidor.
+- `backend/src/db/empresas.js` e `db/usuarios.js`: o ultimo aceite passa a vir no MESMO SELECT
+  (LEFT JOIN LATERAL) — nenhuma consulta nova por request.
+- `backend/src/routes/api-programa.js` (NOVO) + mount em `index.js`; `routes/api-auth.js` devolve
+  o campo ADITIVO `programa_aceite` por empresa em `/me`.
+- `frontend/lib/programa-aceite.js` (+ `.d.ts`/`.test.js`, NOVOS): traducao PURA (rolagem, estado
+  do botao, textos). `frontend/app/dashboard/aceite/page.tsx` (NOVA) e `components/AuthGuard.tsx`
+  (redireciona; nao bloqueia).
+- Regras a preservar: capacidade e aceite sao DUAS portas independentes; `owner`/`admin` nao sao
+  sujeitos; o termo so' muda junto com a VERSAO; o hash gravado e' o do servidor; so' o booleano
+  `true` confirma; nao existe revogacao de aceite por rota; a excecao ao gate e' UMA e e' contada
+  por teste.
+- Fora de escopo (nao implementado): missao comercial, ranking, lead parado, painel do dono.
+- Validacao executada: `npm test` (2051/2053 — as 2 falhas sao as conhecidas de 429 em chamada
+  real de IA), `npm run typecheck`, `tsc --noEmit` no frontend, `node --test lib/*.test.js` (509).
+
+## 2026-09-18 - Operacao Comercial, Etapa 2: missao (desafio com recompensa)
+
+- `backend/sql/migrations/085_missao.sql`: tabela NOVA `app.missoes`. Aditiva, sem backfill, sem
+  alterar tabela existente. UMA ativa por empresa (indice unico parcial).
+- `backend/src/services/missao.js` (NOVO, PURO): vocabulario (`METRICA`, `STATUS`, `SITUACAO`,
+  `MOTIVO_ENCERRAMENTO`, `RECUSAS`) + julgamento (`situacao`, `progresso`, `avaliarPublicacao`,
+  `validarMissao`). Nunca compara duas pessoas.
+- `backend/src/db/missao.js` (NOVO): a MEDIDA e' emprestada de `services/comissao.js`
+  (`VENDA_STATUS` + `comissao_base`), nunca reescrita. Sem UPDATE de alvo/recompensa/janela.
+- `backend/src/routes/api-missoes.js` (NOVO) + mount em `index.js`. Mount = `COMISSAO_VER_PROPRIA`;
+  as duas escritas = `COMISSAO_GERENCIAR` por rota.
+- `backend/test/autorizacao-rotas.test.js`: mount declarado em `ROTAS_POR_CAPACIDADE` e as escritas
+  em `ESCRITAS_COM_CAPACIDADE_PROPRIA`.
+- `backend/package.json`: `npm test` passou a incluir `comissao`, `programa-aceite` e `missao` —
+  as tres suites existiam e NAO rodavam no comando oficial.
+- `frontend/lib/missao.js` (+ `.d.ts`/`.test.js`, NOVOS): traducao PURA; `formatarDinheiro` e'
+  REEXPORTADO de `lib/comissao.js`. `frontend/app/dashboard/comissao/page.tsx`: secao `SecaoMissao`
+  + `ModalMissao` (sem item de menu novo).
+- Regras a preservar: missao publicada e' IMUTAVEL; conquista e' DERIVADA (nao criar tabela);
+  metrica so' cresce junto do medidor; progresso e' pessoal e a lista do dono e' so' quem ALCANCOU,
+  ordenada por nome; nenhuma capacidade nova; o sistema nao paga a recompensa.
+- Fora de escopo (nao implementado): ranking, lead parado, painel do dono, marcar recompensa como
+  entregue.
+- Validacao executada: `npm test` (2147/2149 — as 2 falhas sao as conhecidas de 429 em chamada real
+  de IA), `npm run typecheck`, `tsc --noEmit` no frontend, `node --test lib/*.test.js` (527).

@@ -95,6 +95,8 @@ export default function AgendaPage() {
   const [filtroResponsavel, setFiltroResponsavel] = useState('')
   const [podeVerEquipe, setPodeVerEquipe] = useState(false)
   const [equipe, setEquipe] = useState<{ id: string; nome: string }[]>([])
+  // Venda a partir da reuniao concluida (migration 083).
+  const [vendaDe, setVendaDe] = useState<Evento | null>(null)
 
   function carregar() {
     if (!empresaId) return
@@ -253,6 +255,12 @@ export default function AgendaPage() {
             <div className="flex items-center gap-2 shrink-0 text-xs">
               {ev.status === 'pendente' && <button onClick={() => mudarStatus(ev, 'confirmado')} className="text-emerald-600 hover:underline">Confirmar</button>}
               {['pendente', 'confirmado'].includes(ev.status) && <button onClick={() => mudarStatus(ev, 'concluido')} className="text-blue-600 hover:underline">Concluir</button>}
+              {/* A venda so' e' oferecida na REUNIAO CONCLUIDA: e o unico momento em que ela e
+                  um fato. Registrar aqui mantem UMA fonte de valor — a mesma transacao grava
+                  `agenda_eventos.venda_valor`, que o meta-dispatch le para emitir o Purchase. */}
+              {ev.tipo === 'reuniao' && ev.status === 'concluido' && (
+                <button onClick={() => setVendaDe(ev)} className="text-emerald-700 hover:underline">Registrar venda</button>
+              )}
               <button onClick={() => abrirEdicao(ev)} className="text-slate-600 hover:underline">Editar</button>
               <button onClick={() => excluir(ev)} className="text-red-600 hover:underline">Excluir</button>
             </div>
@@ -314,6 +322,80 @@ export default function AgendaPage() {
           </form>
         </div>
       )}
+
+      {vendaDe && (
+        <ModalVendaDaReuniao
+          evento={vendaDe}
+          onFechar={() => setVendaDe(null)}
+          onSalvo={() => { setVendaDe(null); carregar() }}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Registrar a venda de uma reuniao concluida.
+ *
+ * O ORIGINADOR nao e' campo: ele e' resolvido pelo historico do lead, no backend. Deixar escolher
+ * aqui abriria a porta para creditar comissao a quem nao originou — e o responsavel pela REUNIAO
+ * nao e' necessariamente quem originou o lead (o SDR marca para o closer, migration 076).
+ */
+function ModalVendaDaReuniao({ evento, onFechar, onSalvo }: { evento: Evento; onFechar: () => void; onSalvo: () => void }) {
+  const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
+  const [valor, setValor] = useState('')
+  const [descricao, setDescricao] = useState(evento.titulo || '')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
+
+  async function salvar() {
+    setSalvando(true)
+    setErro('')
+    try {
+      await apiFetch(`/api/empresas/${empresaId}/comissao/vendas`, {
+        method: 'POST',
+        body: JSON.stringify({
+          valor: Number(valor),
+          descricao,
+          agenda_evento_id: evento.id,
+          telefone: evento.lead_telefone || '',
+        }),
+      })
+      onSalvo()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Nao foi possivel registrar a venda.')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onFechar}>
+      <div role="dialog" aria-modal="true" aria-label="Registrar venda da reuniao"
+        className="w-full max-w-md space-y-3 rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-semibold">Registrar venda</h3>
+        <p className="text-xs text-slate-500">{evento.titulo}{evento.lead_nome ? ` · ${evento.lead_nome}` : ''}</p>
+        <Campo label="Valor da venda (R$)">
+          <input type="number" min="0" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)}
+            className="w-full border rounded-lg px-2 py-2 text-sm" />
+        </Campo>
+        <Campo label="Descricao">
+          <input value={descricao} onChange={(e) => setDescricao(e.target.value)}
+            className="w-full border rounded-lg px-2 py-2 text-sm" />
+        </Campo>
+        <p className="text-xs text-slate-500">
+          A comissao so' e' liberada quando o primeiro pagamento do cliente for registrado, em
+          Comissao. O responsavel pela comissao vem do historico do lead.
+        </p>
+        {erro && <p className="text-sm text-red-600">{erro}</p>}
+        <div className="flex justify-end gap-2 pt-1">
+          <button onClick={onFechar} className="rounded-lg px-3 py-2 text-sm text-slate-600">Cancelar</button>
+          <button onClick={salvar} disabled={salvando || !(Number(valor) > 0)}
+            className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
+            {salvando ? 'Salvando…' : 'Registrar venda'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

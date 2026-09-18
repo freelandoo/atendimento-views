@@ -18,7 +18,7 @@ const hrefs = (itens) => itens.map((i) => i.href)
 const CAP_COMERCIAL = [
   'lead_ver_aprovados', 'lead_assumir', 'lead_abordar_manual', 'conversa_atender',
   'ligacao_operar', 'followup_ver_fila', 'followup_operar', 'roteiro_ler',
-  'agenda_operar_propria', 'instancia_gerenciar_propria',
+  'agenda_operar_propria', 'instancia_gerenciar_propria', 'comissao_ver_propria',
 ]
 const CAP_MEMBER = ['conversa_atender', 'conversa_ver_todas', 'agenda_operar_propria', 'instancia_gerenciar_propria']
 // owner/admin alcancam TUDO: a lista e a uniao de todas as capacidades usadas na arvore.
@@ -137,7 +137,8 @@ test('nenhuma rota foi renomeada nesta reorganizacao', () => {
   const todas = hrefs(itensVisiveis(superadmin)).sort()
   assert.deepEqual(todas, [
     '/dashboard', '/dashboard/agenda', '/dashboard/aquisicao', '/dashboard/banco-leads',
-    '/dashboard/central-ligacoes', '/dashboard/contas', '/dashboard/contas-empresa',
+    '/dashboard/central-ligacoes', '/dashboard/comissao', '/dashboard/contas',
+    '/dashboard/contas-empresa',
     '/dashboard/contextos',
     '/dashboard/conversas', '/dashboard/equipe', '/dashboard/follow-ups', '/dashboard/integracoes',
     '/dashboard/llm', '/dashboard/perfil', '/dashboard/playbook', '/dashboard/prompts',

@@ -8,6 +8,8 @@ const {
   PAPEL_PLATAFORMA, avaliarCapacidade, capacidadesDoVinculo,
 } = require('../services/acesso-capacidades')
 const { registrarUltimoAcesso } = require('../db/membros')
+const { avaliarAcesso: avaliarAcessoPrograma, barra: aceiteBarra } = require('../services/programa-aceite')
+const { VERSAO: TERMO_VERSAO } = require('../services/programa-termo')
 
 // Extrai Bearer token do header Authorization
 function extractToken(req) {
@@ -55,7 +57,21 @@ async function requireAuth(req, res, next) {
 // O vínculo INATIVO já era barrado antes desta etapa (`usuarioPertenceAEmpresa` filtrava
 // `ativo = true`) e continua sendo — `buscarVinculoUsuarioEmpresa` mantém o mesmo filtro. A
 // mudança é só que agora o middleware guarda a LINHA em vez de descartar tudo menos o booleano.
-async function requireEmpresaAccess(req, res, next) {
+//
+// ─── A PARTIR DA ETAPA 1 DA OPERAÇÃO COMERCIAL, ELE TAMBÉM APLICA O ACEITE DO TERMO ──────
+// O gate do aceite vive AQUI, e não nos mounts nem em `requireCapacidade`, por um motivo
+// concreto: `/conversas`, `/whatsapp` e `/agenda` autorizam POR ROTA, então um gate por mount
+// deixaria buracos, e uma rota nova nasceria fora dele. `requireEmpresaAccess` roda em TODO
+// request com escopo de empresa — é o único ponto onde "antes do aceite, nada da empresa
+// responde" é uma afirmação verdadeira em vez de uma lista que alguém precisa lembrar de manter.
+//
+// A ÚNICA exceção é o próprio router do aceite, que monta `requireEmpresaAccessSemAceite`. Há
+// guarda de regressão (test/programa-aceite.test.js) que lê o `index.js` e FALHA se aparecer um
+// segundo uso dessa variante — uma exceção nomeada e contada, nunca uma porta aberta.
+//
+// Quem decide é o módulo PURO `services/programa-aceite.js`; aqui só se traduz o veredito em
+// HTTP. Custo de I/O: ZERO — o aceite vem no mesmo SELECT do vínculo (db/empresas.js).
+async function resolverEmpresaAccess(req, res, next, { exigirAceite } = {}) {
   const empresaId = req.params.empresaId || req.body?.empresa_id || req.query?.empresa_id
   if (!empresaId) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'empresa_id ausente.' } })
@@ -98,8 +114,48 @@ async function requireEmpresaAccess(req, res, next) {
   // inventa um.
   if (vinculo) void registrarUltimoAcesso(vinculo.id)
 
+  // ─── ACEITE DO TERMO DA OPERAÇÃO COMERCIAL ────────────────────────────────────────────
+  // `req.aceitePrograma` é publicado SEMPRE, inclusive para quem não é sujeito do programa e
+  // inclusive na variante que não exige — é o que permite ao router do aceite dizer à tela o
+  // estado atual sem uma consulta própria, e ao `/me` informar a pendência.
+  const veredito = avaliarAcessoPrograma({
+    papel: req.papelEmpresa,
+    papelPlataforma: req.usuario.role,
+    aceite: vinculo && vinculo.aceite_versao
+      ? { versao: vinculo.aceite_versao, em: vinculo.aceite_em }
+      : null,
+  }, TERMO_VERSAO)
+  req.aceitePrograma = veredito
+
+  if (exigirAceite && aceiteBarra(veredito.motivo)) {
+    // 403, não 401: a sessão é válida e a pessoa existe — o que falta é um ato dela. E o código
+    // é PRÓPRIO (`ACEITE_PENDENTE`), nunca o `FORBIDDEN` genérico: a tela precisa distinguir
+    // "você não tem permissão" (que não se resolve sozinho) de "falta aceitar o termo" (que se
+    // resolve numa tela). Log sem PII — papel e motivo são vocabulário fechado.
+    logger.warn({
+      papel: req.papelEmpresa, motivo: veredito.motivo, empresa_id: empresa.id,
+    }, '[programa] acesso barrado: aceite pendente')
+    return res.status(403).json({
+      ok: false,
+      error: {
+        code: 'ACEITE_PENDENTE',
+        message: 'Você precisa aceitar o termo da Operação Comercial para continuar.',
+      },
+      data: { motivo: veredito.motivo, versao_exigida: veredito.versao_exigida },
+    })
+  }
+
   next()
 }
+
+// O middleware de sempre: exige o aceite. É este que todos os mounts usam.
+const requireEmpresaAccess = (req, res, next) => resolverEmpresaAccess(req, res, next, { exigirAceite: true })
+
+// A ÚNICA exceção, e ela existe porque a tela de aceite precisa ser alcançável enquanto o resto
+// está barrado — sem isso o bloqueio seria uma porta trancada sem maçaneta. Continua exigindo
+// `requireAuth` e vínculo ativo com a empresa: quem não é da empresa não vê nem o termo dela.
+// PROIBIDO um segundo uso (guarda de regressão em test/programa-aceite.test.js).
+const requireEmpresaAccessSemAceite = (req, res, next) => resolverEmpresaAccess(req, res, next, { exigirAceite: false })
 
 // Resolve a empresa a partir da evolution_instance no corpo do webhook.
 //
@@ -209,4 +265,11 @@ function requireCapacidade(...capacidades) {
   }
 }
 
-module.exports = { requireAuth, requireEmpresaAccess, resolveEmpresaFromWebhook, requireRole, requireCapacidade }
+module.exports = {
+  requireAuth,
+  requireEmpresaAccess,
+  requireEmpresaAccessSemAceite,
+  resolveEmpresaFromWebhook,
+  requireRole,
+  requireCapacidade,
+}

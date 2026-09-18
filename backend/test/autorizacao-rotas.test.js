@@ -103,6 +103,18 @@ const ROTAS_POR_CAPACIDADE = [
   { mount: '/api/empresas/:empresaId/integracoes/meta', capacidade: C.INTEGRACOES_GERENCIAR, papeisQuePassam: ['owner', 'admin'] },
   { mount: '/api/empresas/:empresaId/playbook', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner', 'admin'] },
   { mount: '/api/empresas/:empresaId/llm/uso', capacidade: C.INTEGRACOES_GERENCIAR, papeisQuePassam: ['owner', 'admin'] },
+
+  // 2026-09-18 — COMISSAO. O mount libera a LEITURA (o comercial precisa conferir o proprio
+  // dinheiro: programa de comissao que a pessoa nao consegue auditar e promessa sem prova), e
+  // cada ESCRITA exige COMISSAO_GERENCIAR por rota — ver ESCRITAS_COM_CAPACIDADE_PROPRIA.
+  { mount: '/api/empresas/:empresaId/comissao', capacidade: C.COMISSAO_VER_PROPRIA, papeisQuePassam: ['owner', 'admin', 'comercial'] },
+
+  // 2026-09-18 — MISSAO (Operacao Comercial, Etapa 2). Mesma capacidade da comissao, de
+  // proposito: missao com recompensa e' politica de REMUNERACAO, a mesma familia de decisao.
+  // Uma capacidade nova sem uma decisao distinta por tras seria coluna de matriz que ninguem
+  // valida. O mount libera a LEITURA; publicar e encerrar exigem COMISSAO_GERENCIAR por rota
+  // (ver ESCRITAS_COM_CAPACIDADE_PROPRIA).
+  { mount: '/api/empresas/:empresaId/missoes', capacidade: C.COMISSAO_VER_PROPRIA, papeisQuePassam: ['owner', 'admin', 'comercial'], noRouter: true },
 ]
 
 // Rotas de PLATAFORMA: continuam com `requireRole`, de propósito. Não são de uma empresa —
@@ -122,6 +134,13 @@ const ESCRITAS_COM_CAPACIDADE_PROPRIA = [
   // `qualificacao='aprovado'`. O mount so exige LEAD_VER_APROVADOS, que o comercial tem.
   { arquivo: 'api-banco-leads.js', capacidade: 'LEAD_TRIAR', minimo: 1 },
   { arquivo: 'api-follow-ups.js', capacidade: 'FOLLOWUP_CONFIG_EMPRESA', minimo: 1 },
+  // 2026-09-18 — quem define quanto se paga nao pode ser quem recebe. Sem este gate por rota, o
+  // proprio SDR registraria a venda dele e daria baixa no pagamento.
+  { arquivo: 'api-comissao.js', capacidade: 'COMISSAO_GERENCIAR', minimo: 5 },
+  // 2026-09-18 — publicar/encerrar um desafio com recompensa e' definir quanto se paga. Sem este
+  // gate por rota, o mount (que e' de LEITURA) deixaria o proprio comercial publicar a missao
+  // dele e encerrar a que nao lhe convem.
+  { arquivo: 'api-missoes.js', capacidade: 'COMISSAO_GERENCIAR', minimo: 2 },
 ]
 
 // ─── Os quatro papéis, contra cada rota ──────────────────────────────────────────────────

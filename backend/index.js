@@ -99,6 +99,13 @@ app.use('/api/empresas', require('./src/routes/api-empresas'))
 // rota do projeto autorizada por CAPACIDADE e pelo papel do VÍNCULO, não pelo papel global.
 // Não confundir com /api/admin/usuarios, que é a lista de PLATAFORMA (superadmin).
 app.use('/api/empresas/:empresaId/membros', require('./src/routes/api-membros'))
+// OPERAÇÃO COMERCIAL — Etapa 1 (Base do Programa e Aceite). A autorização vive DENTRO do router
+// e é a ÚNICA do projeto que usa `requireEmpresaAccessSemAceite`: a tela do termo precisa ser
+// alcançável enquanto TODO o resto da empresa está barrado para quem ainda não aceitou (o gate
+// vive em `requireEmpresaAccess`, em src/middleware/tenant.js). Sem capacidade, de propósito —
+// ler o próprio termo e declarar o próprio aceite são atos da pessoa sobre ela mesma.
+// Guarda de regressão em test/programa-aceite.test.js falha se um segundo mount usar a variante.
+app.use('/api/empresas/:empresaId/programa', require('./src/routes/api-programa'))
 // Painel da EQUIPE (CRM em equipe, Etapa 12): leitura AGREGADA de quem esta com o que. A
 // autorizacao vive dentro do router (MEMBROS_GERENCIAR — quem gerencia contas responde pela
 // distribuicao do trabalho). Nao tem SQL proprio: reusa as contagens de cada modulo.
@@ -137,6 +144,15 @@ app.use('/api/empresas/:empresaId/nichos', requireAuth, requireEmpresaAccess, re
 app.use('/api/empresas/:empresaId/campanhas', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LIGACAO_OPERAR), require('./src/routes/api-campanhas'))
 app.use('/api/empresas/:empresaId/ligacoes', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LIGACAO_OPERAR), require('./src/routes/api-ligacoes'))
 app.use('/api/empresas/:empresaId/agenda', require('./src/routes/api-agenda'))
+// Comissão do comercial (migration 083). O mount libera a LEITURA do próprio dinheiro; toda
+// escrita exige COMISSAO_GERENCIAR por rota — quem define quanto se paga não pode ser quem recebe.
+app.use('/api/empresas/:empresaId/comissao', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.COMISSAO_VER_PROPRIA), require('./src/routes/api-comissao'))
+// MISSÃO — Operação Comercial, Etapa 2 (desafio com recompensa). A autorização vive DENTRO do
+// router e é a mesma da comissão, de propósito: missão com recompensa é política de REMUNERAÇÃO,
+// a mesma família de decisão. O mount libera a LEITURA (ver o próprio desafio e o próprio
+// progresso é parte do trabalho) e cada ESCRITA exige COMISSAO_GERENCIAR por rota — quem define
+// quanto se paga não pode ser quem recebe.
+app.use('/api/empresas/:empresaId/missoes', require('./src/routes/api-missoes'))
 // Configurações › Integrações › Meta Conversions. Admin-only + requireEmpresaAccess
 // por rota: a credencial da Meta é de terceiro e não pode ser vista/editada por
 // membro comum nem por admin de outra empresa.

@@ -2435,6 +2435,78 @@
   descarte na tela, e **nenhum disparo de mensagem** para lead enriquecido. Atividade **pontua e
   prioriza**; quem descarta continua sendo uma pessoa.
 
+### Comissão do comercial (SDR) — plano versionado, venda, recebimento e crédito (migration 083)
+- **Regra de negócio, em uma frase:** a comissão existe quando o **cliente paga**, é de quem
+  **originou** o lead, e o percentual com que uma venda entra é **congelado** no momento do
+  crédito. Faixas iniciais (PJ Codeworks): **10% até 4.999 · 12% até 9.999 · 15% até 14.999 ·
+  18% de 15.000** sobre faturamento **pago** no mês.
+- **A ATRIBUIÇÃO já existia e é a parte difícil:** `app.lead_responsavel_historico` (072) é
+  append-only e prova quem originou o lead mesmo depois de ele trocar de mão. O que não existia
+  era dinheiro. `docs/analise-processo-comercial-tenka.md` §1.5 declarava em 2026-08-18 que **não
+  há estado de pagamento** e que receita seria medida FORA do sistema — esta entrega **reverte**
+  aquela decisão, a pedido do operador.
+- ⚠️ **SÃO DUAS PERGUNTAS DIFERENTES e confundi-las é o erro fácil deste módulo.**
+  `nivelAtual(acumulado)` = "que faixa ele JÁ desbloqueou?" (o painel). `percentualDaVenda(...)` =
+  "com que percentual ESTA venda entra?" (o crédito). Dão respostas **diferentes para o mesmo SDR
+  no mesmo instante**: com R$ 4.000 acumulados, uma venda de R$ 3.000 entra a **10%** e o painel
+  passa a mostrar **12%**. É a regra do operador — *"a taxa alcançada vale para as PRÓXIMAS vendas
+  do mês, sem recalcular para trás"*.
+- **O percentual é COLUNA, não cálculo** (`vendas.comissao_percentual`). A regra depende da ORDEM
+  dos créditos no mês; recalculado na leitura, a comissão de uma venda antiga **mudaria** quando
+  outra venda fosse paga com atraso — o SDR veria o número dele cair sem ninguém ter feito nada.
+  Guarda de regressão lê a camada de LEITURA de `db/comissao.js`.
+- **O plano é VERSIONADO** (`app.comissao_planos`, `slug + versao`, padrão de
+  `prospectador.icp_modelos`), com **UM ativo por empresa** (índice único parcial — dois ativos
+  tornariam "qual é a minha faixa?" ambígua). `PUT /plano` **publica versão nova e arquiva a
+  anterior**; nunca edita a vigente. Venda já creditada continua apontando para a versão sob a
+  qual foi creditada — comissão paga é FATO, não cálculo.
+- **VENDA ≠ PAGAMENTO.** `app.venda_pagamentos` é ledger **append-only** (sem UPDATE/DELETE por
+  rota), com idempotência opcional por `referencia` (índice único parcial): lançar o mesmo Pix
+  duas vezes liberaria comissão sobre dinheiro que entrou uma vez só.
+- **Gatilho: `primeiro_pagamento`, e a CHECK é fechada NESSE único valor.** Parcelamento **não**
+  reduz o percentual prometido. **Risco declarado e aceito:** cliente que para na 2ª parcela deixa
+  a comissão já liberada. `proporcional`/`acumulado_50` foram discutidos e **não existem** — o
+  valor nasce junto do executor (lição da migration 067). Alargar a CHECK e implementar o gatilho
+  têm de ser o **mesmo diff**; há teste anti-drift contra `GATILHO`.
+- **Competência = mês do RECEBIMENTO, nunca do fechamento.** Venda fechada em agosto e paga em
+  setembro conta em **setembro** — é a leitura honesta de "faturamento pago no mês".
+- **O crédito é SERIALIZADO no banco** (`pg_advisory_xact_lock` por empresa+originador+
+  competência): dois pagamentos simultâneos leriam o mesmo acumulado e as duas vendas entrariam na
+  faixa antiga. `FOR UPDATE` nas vendas do mês **não serve** — não tranca o GAP, que é onde a
+  segunda venda entra.
+- **D1 — a Meta continua com UMA fonte de valor.** `agenda_evento_id` é OPCIONAL (muita venda não
+  vem de reunião). Quando vem, a **mesma transação** grava `agenda_eventos.venda_valor`, que
+  `meta-dispatch` lê para emitir o `Purchase`. Evento aceito pela Meta **não se estorna** — duas
+  fontes aqui era o risco maior do diff. Guarda de regressão.
+- **`sem_originador` é a ausência de prova, NOMEADA** (vocabulário de `legado`/`origem_vinculo`):
+  venda sem SDR é legítima, o operador também vende. **O originador NÃO é campo de formulário** —
+  vem do histórico do lead; digitá-lo abriria a porta para creditar comissão a quem não originou.
+  Decisão humana explícita (`originador_id` no corpo) vence a inferência, e fica marcada como
+  `operador`.
+- **NÃO EXISTE EXCLUSÃO.** Cancelar venda só vale **antes** do crédito; depois de liberada a
+  comissão é um fato que o SDR já viu no painel. Mesma disciplina de Roteiros (arquivar) e Membros
+  (desativar). Guarda falha se um `router.delete` aparecer.
+- **Autorização em DOIS níveis:** o mount exige **`COMISSAO_VER_PROPRIA`** (ver o próprio dinheiro
+  é parte do trabalho — programa que a pessoa não pode auditar é promessa sem prova); **cada
+  ESCRITA exige `COMISSAO_GERENCIAR` por rota** — quem define quanto se paga não pode ser quem
+  recebe. Sem plano ativo o painel **não inventa faixa**: diz que o programa não está configurado
+  (mostrar 0% afirmaria uma regra que ninguém combinou).
+- **O RANKING é por FATURAMENTO PAGO ORIGINADO, nunca por atividade.** A guarda de
+  `frontend/lib/equipe-painel.test.js:119` (que proíbe placar por ações/dia e horas) **continua
+  valendo e não foi tocada** — o ranking novo vive em módulo próprio. Por faturamento e não por
+  número de reuniões, de propósito: ranquear volume de reunião paga para marcar reunião ruim.
+  **Ele nunca devolve a comissão de ninguém** (decisão D4): nome e faturamento, só.
+- **Front:** `frontend/lib/comissao.js` (+ `.d.ts`/`.test.js`) **só TRADUZ** — guarda falha se
+  `faixaPara`, `percentualDaVenda`, `calcularCredito` ou `liberaComissao` aparecerem lá.
+  `formatarDinheiro(null)` devolve **"—", nunca "R$ 0,00"**: comissão ainda não creditada exibida
+  como zero diria ao SDR que ele ganhou zero, quando o certo é "ainda não". Telas:
+  `frontend/app/dashboard/comissao` (painel + ranking + gestão) e o botão **"Registrar venda"** na
+  reunião concluída de `dashboard/agenda`.
+- Código: regras PURAS em `src/services/comissao.js`, SQL em `src/db/comissao.js`, rotas em
+  `src/routes/api-comissao.js`. Testes: `test/comissao.test.js` (31, com anti-drift contra as
+  CHECKs da migration), `frontend/lib/comissao.test.js` (14). **Nenhuma variável de ambiente
+  nova.**
+
 ### Busca avulsa — o relógio da coleta (a espera deixou de parecer travamento)
 - **Defeito de experiência corrigido:** a tela dizia "uma coleta está em andamento" com um
   spinner, **sem início e sem fim**. Uma coleta do Maps leva dezenas de minutos legitimamente (uma
@@ -2458,6 +2530,177 @@
 - **Nada mudou na trava de coleta paga:** continua uma por empresa (índice único parcial), e a
   busca avulsa segue desabilitada enquanto houver coleta em voo. O que mudou é o operador **saber
   até quando**.
+
+### Operação Comercial — Etapa 1: a PORTA do programa (aceite do termo, migration 084)
+- **Programa em andamento, por etapas.** Esta é a **Etapa 1 (Base do Programa e Aceite)**, a
+  única entregue. **Fora de escopo e não implementados:** missão comercial, ranking, lead
+  parado e painel do dono.
+- **Regra de negócio, em uma frase:** ter login **não** é estar no programa. Quem é sujeito ao
+  termo só alcança a Operação Comercial depois de **ler o termo até o fim**, declarar
+  **18 anos ou mais** e declarar que **leu e aceita as regras** — e esse ato fica registrado
+  com data, pessoa e **versão do termo**.
+- ⚠️ **SÃO DUAS PORTAS INDEPENDENTES, e confundi-las é o erro fácil deste módulo:**
+  **capacidade** (“o papel alcança esta ação?”, `acesso-capacidades.js`) × **aceite** (“esta
+  pessoa entrou no programa?”, `programa-aceite.js`). As duas precisam estar abertas. Fundi-las
+  deixaria um admin conceder “dispensa de termo” pela concessão aditiva de
+  `usuarios_empresas.permissoes` — dispensar por tela justamente o consentimento que o programa
+  existe para colher. **PROIBIDO** criar capacidade de aceite (guarda de regressão lê o fonte de
+  `acesso-capacidades.js`).
+- **Sujeitos: `comercial` e `member`** (decisão do operador, 2026-09-18). **`owner` e `admin`
+  NÃO são**, e isso não é cortesia: o termo é o contrato de quem **trabalha** no programa, e
+  quem responde pela empresa é a outra parte do acordo. Torná-los sujeitos trancaria o dono fora
+  do próprio produto no primeiro boot depois do deploy — e não há ninguém acima dele para
+  destravar. `superadmin` (plataforma) passa sempre.
+- **O GATE VIVE EM `requireEmpresaAccess`**, não nos mounts e não em `requireCapacidade`.
+  `/conversas`, `/whatsapp` e `/agenda` autorizam **por rota**, então um gate por mount deixaria
+  buracos e uma rota nova nasceria fora dele. `requireEmpresaAccess` roda em **todo** request com
+  escopo de empresa — é o único ponto em que “antes do aceite, nada da empresa responde” é uma
+  afirmação verdadeira em vez de uma lista que alguém precisa lembrar de manter.
+- **Existe UMA exceção, nomeada e contada:** `requireEmpresaAccessSemAceite`, usada **só** por
+  `src/routes/api-programa.js`. Um bloqueio sem maçaneta seria um lockout. Ela **continua
+  exigindo `requireAuth` e vínculo ativo** — dispensar o aceite não dispensa a autenticação.
+  Guarda de regressão em `test/programa-aceite.test.js` falha no **segundo** uso.
+- **Resposta é `403 ACEITE_PENDENTE`, nunca o `FORBIDDEN` genérico:** a tela precisa distinguir
+  “você não tem permissão” (que não se resolve sozinho) de “falta aceitar o termo” (que se
+  resolve numa tela). O corpo traz `motivo` e `versao_exigida`, vocabulário fechado, sem PII.
+- **Custo de I/O: ZERO.** O último aceite vem no **mesmo SELECT do vínculo**
+  (`buscarVinculoUsuarioEmpresa`, `LEFT JOIN LATERAL`), que já rodava em todo request. A camada
+  de dados **não conhece a versão vigente** de propósito — comparar é do módulo puro, senão a
+  regra passaria a existir em dois lugares.
+- **O termo é VERSIONADO no fonte** (`src/services/programa-termo.js`, v1.0), não numa tabela
+  editável: termo editável por tela exige tela de edição, revisão e publicação, e nada disso
+  existe nesta etapa. **Editar o texto exige subir a VERSÃO no mesmo diff** — e versão nova volta
+  a exigir o aceite de quem já havia aceitado.
+- **A versão diz QUAL termo; o HASH prova que aquele texto não mudou depois.** O hash gravado é
+  sempre o **do servidor**: aceitar um hash vindo do corpo faria o registro afirmar que a pessoa
+  concordou com um texto que o sistema nunca viu. A versão vai no corpo **só para ser conferida**
+  (detecta o termo ter mudado com a página aberta ⇒ 400 `VERSAO_DIVERGENTE`, e a tela recarrega).
+- **Schema:** migration `084_programa_aceite.sql` → `app.programa_aceites`, **aditiva**: cria uma
+  tabela nova, não altera tabela existente e **não muta dado**. Append-only (uma linha por versão
+  aceita) porque o aceite é um **fato datado sobre um texto** — uma coluna `aceitou_em` em
+  `usuarios_empresas` seria sobrescrita na versão seguinte, apagando a prova da anterior.
+  `programa` tem CHECK fechada (anti-drift com o vocabulário, testado). **`termo_versao` e
+  `termo_hash` não têm DEFAULT**, pelo mesmo motivo de `origem_vinculo` (061).
+- **O BANCO recusa aceite parcial:** CHECK exige `maioridade_confirmada = true AND
+  regras_confirmadas = true`. Se um caminho futuro esquecer a validação, o INSERT falha em vez de
+  gravar consentimento que não houve. **Idempotência também é do banco**, por
+  `(empresa_id, usuario_id, programa, termo_versao)`: dois cliques ou um retry não viram dois
+  consentimentos.
+- ⚠️ **NÃO HÁ BACKFILL, e não deve haver.** No primeiro boot depois deste deploy, **toda pessoa
+  com vínculo `comercial` ou `member` fica parada na tela de aceite até assinar** — consequência
+  declarada e aceita. Um aceite inserido por migration seria o sistema afirmando que alguém leu
+  um texto que nunca viu.
+- **Só o booleano `true` confirma.** `'false'`, `0`, `''` e `'on'` são **recusados** — `Boolean('false')`
+  é `true`, e um formulário mal serializado gravaria o oposto do que a pessoa marcou (mesma
+  recusa explícita da 066 e de `permissoes`).
+- **NÃO EXISTE REVOGAÇÃO DE ACEITE por rota** (o registro é append-only, e não há `DELETE`/`PUT`).
+  Tirar alguém do programa é **desativar o vínculo** em Contas da empresa, que já existe — mesma
+  disciplina de “arquivar em vez de excluir” de Roteiros e Membros.
+- **Rotas:** `GET /api/empresas/:empresaId/programa/termo` (read-only: não grava, não registra
+  aceite, **não chama IA**) e `POST .../programa/aceite`. **Sem capacidade, de propósito:** ler o
+  próprio termo e declarar o próprio aceite são atos da pessoa sobre ela mesma; exigir capacidade
+  criaria o absurdo de um comercial sem permissão para entrar no programa que veio cumprir. Cada
+  aceite **criado** vira linha em `app.auditoria_eventos`
+  (`programa_aceite_registrado`, **nenhuma tabela nova**), sem e-mail, nome ou telefone; reenviar
+  não infla o log.
+- **Front:** `frontend/lib/programa-aceite.js` (+ `.d.ts`/`.test.js`) **só TRADUZ** — guarda de
+  regressão falha se ele citar papel (`comercial`, `member`…) ou comparar versão de termo. A tela
+  é `frontend/app/dashboard/aceite/page.tsx`; `components/AuthGuard.tsx` redireciona usando o
+  campo **aditivo** `programa_aceite` que `/api/auth/me` passou a devolver por empresa (sem
+  request novo). **O redirecionamento é conveniência, não segurança:** quem barra é a API — apagar
+  o arquivo do front deixa o sistema bloqueado, só que ilegível. Veredito ausente **não**
+  redireciona: errar para esse lado custa um erro visível; errar para o outro tranca quem podia
+  entrar.
+- **Acessibilidade que é regra, não estética:** a caixa do termo é `tabIndex={0}`; sem isso quem
+  navega por teclado não consegue rolar e o botão **nunca** libera. A medição de rolagem tem
+  **folga de 24px** (alturas fracionadas por zoom/densidade travariam o botão para sempre) e
+  texto que cabe inteiro na tela conta como lido. Rolar de volta ao topo **não** desfaz a leitura.
+  Botão desabilitado nunca fica mudo — o motivo vem do módulo puro.
+- Código: `src/services/programa-aceite.js` (PURO, dono do vocabulário),
+  `src/services/programa-termo.js`, `src/db/programa-aceite.js`, `src/routes/api-programa.js`,
+  `src/middleware/tenant.js`, `src/db/empresas.js`, `src/db/usuarios.js`, `src/routes/api-auth.js`.
+  Testes: `test/programa-aceite.test.js` (30, com anti-drift contra as CHECKs da migration e 11
+  guardas que leem o fonte), `frontend/lib/programa-aceite.test.js` (12).
+- **Nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhum mount trocou de gate.**
+
+### Operação Comercial — Etapa 2: MISSÃO, o desafio com recompensa (migration 085)
+- **Continuação da Etapa 1** (aceite do termo, 084). **Fora de escopo e não implementados:**
+  ranking, lead parado, painel do dono e **marcar a recompensa como entregue** — o sistema
+  publica o desafio, mede o progresso e diz quem alcançou; **ele não paga**.
+- **Regra de negócio, em uma frase:** o dono publica **UMA missão ativa por empresa**, válida
+  para toda a equipe por uma janela de datas, com um **alvo** e uma **recompensa declarada**;
+  cada pessoa vê o **próprio** progresso; quem gerencia vê **quem já alcançou**.
+- ⚠️ **PUBLICADA, A MISSÃO É IMUTÁVEL.** Alvo, recompensa, métrica e janela nunca são editados:
+  mudar o alvo em outubro reescreveria o desafio que alguém cumpriu em setembro, e "quem
+  alcançou" deixaria de ser fato para virar uma conta que depende do estado atual da tabela.
+  Para mudar: **encerra e publica outra**. Mesma disciplina de `comissao_planos` (083) e de
+  `roteiro_versoes`. Não há trigger — a garantia é que nenhum caminho escreve essas colunas
+  depois do INSERT (guarda de regressão lê `src/db/missao.js` e falha em `SET alvo_valor`,
+  `SET recompensa…`, `SET inicio`, `SET fim`, `SET titulo`, `SET metrica`).
+- ⚠️ **NÃO EXISTE TABELA DE CONQUISTA, de propósito.** Quem alcançou é **DERIVADO** da mesma
+  fonte que a comissão já reconcilia (`app.vendas.comissao_base`, das vendas com comissão
+  liberada dentro da janela). Persistir a conquista criaria uma **segunda definição de
+  resultado**, que divergiria da primeira no dia em que uma venda fosse cancelada. Como a missão
+  é imutável e as vendas não somem, a lista continua reconstruível para sempre — inclusive
+  depois do encerramento.
+- **UMA métrica só, com CHECK fechada** (`faturamento_pago_originado`). É a lição do canal de
+  e-mail do follow-up (067) e do gatilho da comissão (083): **valor de vocabulário nasce JUNTO
+  do executor**. Métrica sem medidor produz missão que entra na tela e nunca pode ser cumprida.
+  **Alargar a CHECK e implementar o medidor têm de ser o MESMO diff** (teste anti-drift).
+- **Resultado PAGO, nunca atividade.** Premiar "número de reuniões" paga para marcar reunião
+  ruim — a mesma razão da Decisão 3 de 2026-09-18 e da guarda que impede
+  `frontend/lib/equipe-painel.js` de virar placar. Essa guarda **não foi tocada**.
+- ⚠️ **O PROGRESSO É PESSOAL, e não existe rota que devolva o progresso parcial de outra
+  pessoa — nem para o dono.** O que ele recebe é **quem JÁ ALCANÇOU** (fato consumado, sem o
+  qual não há como pagar o prêmio), com `HAVING SUM(...) >= alvo` e **`ORDER BY nome`**:
+  ordenar por valor seria ranking, que é outra etapa e outra decisão. O front também não
+  reordena (guarda de regressão em `frontend/lib/missao.test.js` proíbe `sort(`, `ranking`,
+  `posicao`, `medalha`, `score`).
+- **A MEDIDA é emprestada, não reescrita:** o status da venda vem de `VENDA_STATUS`
+  (`services/comissao.js`), nunca de literal na camada de dados. Uma consulta própria de
+  "resultado" faria o painel da comissão e o da missão discordarem sobre quanto a pessoa fez.
+- **A janela é de DATAS, não competência mensal:** `vendas.competencia` é sempre o dia 1 do mês
+  (083), e amarrar a missão a ela proibiria qualquer desafio semanal ou quinzenal. O SQL usa
+  `comissao_liberada_em >= inicio AND < fim + 1 dia` — `comissao_liberada_em` é TIMESTAMPTZ e
+  `fim` é DATE; comparar direto deixaria de fora o último dia inteiro.
+- **Publicar com uma missão ativa:** se a janela dela **já acabou**, ela é encerrada por `prazo`
+  na mesma transação (mesmo movimento de `publicarPlano`, que arquiva o plano anterior) —
+  exigir dois cliques para uma consequência inevitável travaria a empresa numa missão vencida
+  que ninguém lembrou de fechar. Se ela ainda está **valendo**, é **409**: encerrar um desafio
+  antes da hora é uma decisão (tem gente contando com a recompensa), não efeito colateral.
+- **Schema:** migration `085_missao.sql` → `app.missoes`, **aditiva** (cria uma tabela; não
+  altera tabela existente e não muta dado). `alvo_valor` **sem DEFAULT**. UMA ativa por empresa
+  por **índice único parcial** (`WHERE status = 'ativa'`), como `comissao_planos` e
+  `busca_snapshots` — duas ativas tornariam "a missão ativa" ambíguo. CHECK impede missão
+  `encerrada` sem `encerrada_em` e sem motivo (`prazo` | `decisao`, que são coisas diferentes
+  para quem lê o histórico: uma é rotina, a outra é escolha).
+- **Rotas:** `GET /api/empresas/:empresaId/missoes` (a ativa + o MEU progresso + quem alcançou,
+  este só para quem gerencia), `GET .../missoes/historico`, `POST .../missoes`,
+  `POST .../missoes/:missaoId/encerrar`. **Não há PUT, PATCH nem DELETE** — missão publicada não
+  se edita e não se apaga.
+- **Autorização: NENHUMA capacidade nova.** Missão com recompensa é política de **REMUNERAÇÃO**,
+  a mesma família de decisão da comissão — criar `MISSAO_GERENCIAR` sem uma decisão distinta por
+  trás seria acrescentar coluna a uma matriz que ninguém valida. O mount exige
+  `COMISSAO_VER_PROPRIA` (ver o próprio desafio é parte do trabalho) e **cada escrita exige
+  `COMISSAO_GERENCIAR` por rota** — sem isso o próprio comercial publicaria a missão dele.
+  Declarada em `ROTAS_POR_CAPACIDADE` e em `ESCRITAS_COM_CAPACIDADE_PROPRIA`
+  (`test/autorizacao-rotas.test.js`).
+- **Front:** `frontend/lib/missao.js` (+ `.d.ts`/`.test.js`) **só TRADUZ** — `formatarDinheiro`
+  é **reexportado** de `lib/comissao.js`, nunca reescrito (as duas aparecem na MESMA tela).
+  A seção vive em `frontend/app/dashboard/comissao/page.tsx` (`SecaoMissao`), **sem item novo de
+  menu**: missão e comissão são o mesmo assunto. Ela **carrega sozinha**, para uma falha no
+  desafio não derrubar o painel de dinheiro. Sem missão publicada, quem não gerencia **não vê
+  caixa nenhuma** — ausência de desafio é estado legítimo. `prazo_vencido` **não** é lido como
+  "encerrada": a janela acabou e ninguém fechou, e dizer "encerrada" afirmaria uma decisão que
+  não houve.
+- **`npm test` passou a incluir `test/missao.test.js`, `test/programa-aceite.test.js` e
+  `test/comissao.test.js`** — o script do `package.json` lista os arquivos um a um, e as três
+  suítes não estavam nele (não rodavam no comando oficial).
+- Código: `src/services/missao.js` (PURO, dono do vocabulário), `src/db/missao.js`,
+  `src/routes/api-missoes.js`, mount em `index.js`. Testes: `test/missao.test.js` (35, com
+  anti-drift contra as CHECKs da 085 e 8 guardas que leem o fonte),
+  `frontend/lib/missao.test.js` (18).
+- **Nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhum item de menu novo.**
 
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.

@@ -67,6 +67,9 @@ const NAV = [
       { tipo: 'item', href: '/dashboard/follow-ups', label: 'Follow-ups', icon: 'followup', capacidade: 'followup_operar' },
       { tipo: 'item', href: '/dashboard/roteiros', label: 'Roteiros', icon: 'roteiro', capacidade: 'roteiro_ler' },
       { tipo: 'item', href: '/dashboard/agenda', label: 'Agenda', icon: 'agenda' },
+      // Comissao (migration 083). A capacidade e a de LEITURA: o comercial precisa conferir o
+      // proprio dinheiro. Gerir plano/venda/pagamento exige `comissao_gerenciar`, checado na rota.
+      { tipo: 'item', href: '/dashboard/comissao', label: 'Comissão', icon: 'report', capacidade: 'comissao_ver_propria' },
       // Painel da EQUIPE (Etapa 12): quem gerencia as contas responde pela distribuicao do
       // trabalho, entao e a MESMA capacidade de "Contas da empresa" — nao uma terceira.
       { tipo: 'item', href: '/dashboard/equipe', label: 'Equipe', icon: 'accounts', capacidade: 'membros_gerenciar' },

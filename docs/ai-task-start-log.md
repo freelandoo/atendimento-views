@@ -4136,3 +4136,102 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   ordenaria por um valor que ela nao mostra mais; remover `STATUS_STYLE`, que fica morto;
   mover a coluna ICP nas DUAS tabelas (Places e Instagram), levando junto a chave de ordenacao
   `prioridade`.
+
+## 2026-09-18 - Tarefa IA - Camada de COMISSAO do SDR (faixas, pagamento recebido, ranking)
+
+- **Pedido resumido:** o app precisa sustentar um programa de SDR com comissao escalonada
+  (10% -> 12% -> 15% -> 18% por faturamento originado no mes), gatilho de comissao no
+  PAGAMENTO REAL do cliente, pagamento das comissoes toda semana, painel do SDR ("faltam
+  R$ X para o proximo nivel"), ranking mensal por faturamento pago originado e bonus do
+  campeao. O SDR agenda sozinho na agenda do operador.
+- **E projeto/tarefa de alteracao?** Sim, e e' ESTRUTURAL: banco (migration nova), regra de
+  negocio financeira, rotas novas, telas novas. Exige aprovacao explicita (Fase 2 e Fase 6).
+- **Diagnostico (leitura, sem alterar nada):** a ATRIBUICAO ja existe e e' a parte dificil —
+  `app.lead_responsavel_historico` (072) e' append-only e prova quem ORIGINOU o lead mesmo
+  depois de ele trocar de mao; `app.agenda_eventos.responsavel_id` (076) ja separa quem marca
+  de quem conduz ("o SDR marca para o closer", no proprio comentario da migration); o papel
+  `comercial` (070) ja isola o SDR por capacidade. **A camada financeira nao existe:** grep por
+  `comiss|commission|remunera` em `src/` e `sql/` nao devolve nada financeiro.
+- **Tres lacunas medidas:** (1) `venda_valor` existe no schema (057) e na API
+  (`agenda-multiempresa.js:92`) mas **nao tem tela** — `frontend/app/dashboard/agenda/page.tsx`
+  so' tem "Concluir"; (2) **nao existe estado de pagamento** — ja declarado em
+  `analise-processo-comercial-tenka.md` §1.5 linha 155 ("`OPORTUNIDADE_STATUS` vai ate
+  `convertido`. Nao ha estado de pagamento") e §5 ("pagamentos iniciados e aprovados · vendas e
+  receita" = medir fora, por decisao do operador em 2026-08-18). Este pedido REVERTE aquela
+  decisao; (3) o painel da equipe **recusa placar de proposito** — guarda de regressao em
+  `frontend/lib/equipe-painel.test.js:119` quebra o build se aparecer `ranking`,
+  `produtividade`, `percentual` ou `score`.
+- **Escopo pretendido:** migration nova (plano de comissao versionado + ledger de recebimento +
+  credito de comissao), servico PURO dono das faixas, rotas novas sob `/api/empresas/:id`,
+  campo de valor da venda na agenda, painel do SDR e ranking. **Fora de escopo:** prompts de
+  producao, funil automatico de WhatsApp, agenda do bot (`vendas.agenda_eventos`), e qualquer
+  mexida na resolucao de instancia de envio.
+- **Cuidados:** comissao paga e' FATO, nao calculo — o plano precisa ser VERSIONADO (padrao de
+  `prospectador.icp_modelos`, `slug + versao`), senao ajustar a faixa em novembro reescreve o
+  que foi pago em setembro; a regra escolhida pelo operador ("a taxa alcancada vale para as
+  PROXIMAS vendas do mes, sem recalcular para tras") depende da ORDEM das vendas no mes, entao
+  o percentual precisa ser CONGELADO na linha do credito, nunca recalculado na leitura; o
+  ranking reabre uma decisao registrada e precisa ser por RESULTADO pago, nunca por atividade.
+
+## 2026-09-18 - Tarefa IA - Operacao Comercial, Etapa 1 (Base do Programa e Aceite)
+
+- **Pedido resumido:** implementar por ETAPAS um programa de "Operacao Comercial". A Etapa 1 e'
+  a PORTA DE ENTRADA: o dono cria o login do comercial e, no primeiro acesso, antes de ver lead,
+  missao, comissao ou ranking, a pessoa passa por uma tela de aceite (termo simples, botao so'
+  libera depois de rolar ate o fim, confirmacao de maioridade, confirmacao de leitura). O aceite
+  e' registrado com data, usuario e VERSAO do termo. Antes do aceite, a Operacao Comercial fica
+  bloqueada; depois, o acesso e' direto, sem nova aprovacao.
+- **E projeto/tarefa de alteracao?** Sim, e e' ESTRUTURAL e SENSIVEL: banco (migration nova),
+  camada de AUTORIZACAO (o gate roda em todo request de tenant), rotas novas e tela nova.
+  Exige confirmacao explicita (Fase 2 e Fase 6 do ai-workflow.md).
+- **Diagnostico (leitura, sem alterar nada):** nao existe NADA de aceite/termo/consentimento no
+  repositorio (grep por `aceite|termo|consent|onboard|maioridade` em `backend/src`, `backend/sql`,
+  `frontend/` so' devolve `aceite_reuniao` do funil de WhatsApp, que e' outro dominio). O que ja
+  existe e serve de fundacao: `app.usuarios_empresas` com papel por VINCULO e o papel `comercial`
+  (070); `requireEmpresaAccess` publicando `req.papelEmpresa`/`req.capacidades`;
+  `requireCapacidade` como chokepoint unico de 20+ mounts; `app.auditoria_eventos` (047) para o
+  rastro; a suite de autorizacao por rota (`test/autorizacao-rotas.test.js`) para nao deixar rota
+  nova nascer sem gate.
+- **Escopo pretendido:** migration nova (registro de aceite append-only), servico PURO dono do
+  vocabulario e do julgamento ("esta pessoa pode entrar na Operacao Comercial?"), o termo
+  VERSIONADO no fonte, gate aplicado na camada de autorizacao, 2-3 rotas novas e uma tela de
+  aceite no frontend. **Fora de escopo:** missao comercial, ranking, lead parado, painel do dono,
+  qualquer mudanca em prompts, funil de WhatsApp, instancia de envio ou comissao.
+- **Cuidados:** (1) o gate nao pode trancar o dono/admin fora do proprio produto — quem esta
+  sujeito ao programa e' o VINCULO `comercial`; (2) o bloqueio precisa viver no BACKEND, nunca so'
+  na tela (regra permanente do ai-workflow.md); (3) a rota do proprio aceite tem de continuar
+  alcancavel enquanto o resto esta bloqueado, sem abrir buraco; (4) versao do termo tem de ser
+  FATO congelado no registro (mesma disciplina do percentual de comissao na 083), senao editar o
+  texto amanha reescreve o que a pessoa aceitou ontem; (5) nenhuma consulta extra por request —
+  o veredito deve sair do vinculo que o middleware ja carrega.
+
+## 2026-09-18 - Tarefa IA - Operacao Comercial, Etapa 2 (Missao: desafio com recompensa)
+
+- **Pedido resumido:** seguir para a Etapa 2 do programa. Decisoes do operador nesta data:
+  (1) missao = **desafio com recompensa** por periodo, ligado a camada de comissao que ja existe;
+  (2) **o dono cria UMA missao e ela vale para a equipe** ("a missao ativa" da Etapa 1);
+  (3) **so' a propria pessoa ve o progresso** dela.
+- **E projeto/tarefa de alteracao?** Sim, ESTRUTURAL: migration nova, regra de negocio financeira
+  (recompensa), rotas novas e tela. Escopo confirmado com o operador antes de comecar.
+- **Diagnostico (leitura, sem alterar nada):** o conceito de "missao" NAO existe no repositorio
+  (grep por `missao|meta_diaria|objetivo_dia` em `backend/src`, `backend/sql` e `frontend/` nao
+  devolve nada). O que existe e serve de base: `app.vendas` + `app.venda_pagamentos` (083), que ja
+  reconciliam faturamento PAGO por originador (`comissao_base`, `comissao_liberada_em`, status
+  `comissao_liberada|comissao_paga`); `app.comissao_planos`, que e' o padrao de "politica
+  VERSIONADA e imutavel depois de publicada"; `app.followup_config.meta_ligacoes_dia` (029/031) e
+  `app.campanhas.meta_ligacoes` (039), que sao metas de ATIVIDADE ja existentes em outros escopos.
+- **Obstaculo declarado:** `frontend/lib/equipe-painel.test.js` tem guarda que QUEBRA o build se o
+  painel da equipe virar placar (`produtividade`, `percentual`, `score`, `media(`). A decisao 3 da
+  entrega de comissao (2026-09-18) tambem recusa ranking por ATIVIDADE. A missao respeita as duas:
+  o progresso e' PESSOAL e a metrica e' RESULTADO PAGO, nunca atividade.
+- **Escopo pretendido:** migration nova (`app.missoes`), servico PURO dono do vocabulario e do
+  julgamento, SQL proprio que REUSA a medida ja reconciliada da comissao, rotas novas sob
+  `/api/empresas/:id/missoes` e uma secao na tela de Comissao. **Sem capacidade nova**: missao com
+  recompensa e' politica de remuneracao, mesma familia de `COMISSAO_VER_PROPRIA`/`COMISSAO_GERENCIAR`.
+- **Fora de escopo, declarado:** ranking, lead parado, painel do dono, e **marcar a recompensa como
+  entregue/paga** (o sistema mede e diz quem alcancou; nao paga).
+- **Cuidados:** missao publicada tem de ser IMUTAVEL (senao mudar o alvo em outubro reescreve o
+  desafio que alguem ja cumpriu em setembro); a metrica precisa nascer com CHECK fechada em UM
+  valor, junto do medidor (licao da 067); a conquista deve ser DERIVADA da mesma fonte que a
+  comissao usa, para nao criar uma segunda definicao de "resultado"; e o progresso de uma pessoa
+  nao pode vazar para outra.
