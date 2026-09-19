@@ -133,6 +133,24 @@ test('a fila de Follow-ups recorta por permissao para o comercial', () => {
     'o filtro de responsavel fica disponivel so para quem ve a fila da equipe')
 })
 
+test('follow-ups tambem declaram e aplicam o recorte por nicho da equipe', () => {
+  assert.ok(rotaFollowUps.includes('equipeAtivaDoUsuario'), 'a rota precisa resolver a equipe ativa')
+  assert.ok(rotaFollowUps.includes('recorteDeNicho'), 'a rota precisa publicar o mesmo meta.equipe das outras centrais')
+  assert.ok(/meta: \{[^}]*equipe: recorte\.equipe/.test(rotaFollowUps),
+    'a tela precisa saber qual recorte recebeu para explicar a fila')
+  assert.ok(/listarFollowUps\(pool[\s\S]*equipe: recorte\.equipe/.test(rotaFollowUps),
+    'a fila persistida precisa receber o recorte')
+  assert.ok(/montarCallList\(pool[\s\S]*equipe: recorte\.equipe/.test(rotaFollowUps),
+    'a fila humana derivada de conversas precisa receber o recorte')
+  assert.ok(/buscarLeadsParaFollowup\(pool[\s\S]*equipe: recorte\.equipe/.test(rotaFollowUps),
+    'a busca manual de leads precisa respeitar o recorte')
+  assert.ok(dbFollowUps.includes('condicaoRecorteEquipeFollowUp'), 'a camada de dados precisa centralizar o filtro de nicho')
+  assert.ok(dbFollowUps.includes('assertFollowUpNoRecorteEquipe'), 'criar item fora do nicho precisa ser bloqueado')
+  assert.ok(/FROM app\.follow_ups f WHERE/.test(dbFollowUps), 'obter por id precisa conseguir filtrar com alias')
+  assert.ok(/EXISTS \([\s\S]*app\.campanha_leads cl_recorte/.test(dbFollowUps),
+    'follow-up ligado a campanha precisa achar o nicho pelo prospect da linha')
+})
+
 test('a contagem de follow-ups inclui "sem responsavel" como linha propria', () => {
   const i = dbFollowUps.indexOf('async function contagemPorResponsavel')
   assert.ok(i > 0, 'contagemPorResponsavel nao existe')

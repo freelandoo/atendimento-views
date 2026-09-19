@@ -110,6 +110,38 @@ test('busca assistida e escopada na empresa e casa por nome OU telefone', async 
   assert.equal(itens[0].telefone_digitos, '5511999990001')
 })
 
+test('listagens de follow-up respeitam o nicho da equipe sem duplicar linhas', async () => {
+  const equipe = { nicho_id: '11111111-1111-4111-8111-111111111111' }
+  let sqlAuto = ''
+  let paramsAuto = []
+  let sqlCallList = ''
+  let paramsCallList = []
+  let sqlBusca = ''
+  let paramsBusca = []
+
+  await listarAgendamentosAuto({
+    async query(q, p) { sqlAuto = String(q); paramsAuto = p; return { rows: [] } },
+  }, 'empresa-1', { equipe })
+  await montarCallList({
+    async query(q, p) { sqlCallList = String(q); paramsCallList = p; return { rows: [] } },
+  }, 'empresa-1', { equipe })
+  await buscarLeadsParaFollowup({
+    async query(q, p) { sqlBusca = String(q); paramsBusca = p; return { rows: [] } },
+  }, 'empresa-1', { q: 'Padaria', equipe })
+
+  for (const sql of [sqlAuto, sqlCallList, sqlBusca]) {
+    assert.match(sql, /EXISTS \(\s*SELECT 1\s+FROM prospectador\.prospects p_recorte/s)
+    assert.match(sql, /p_recorte\.nicho_id = \$\d+::uuid/)
+    assert.match(sql, /regexp_replace\(COALESCE\(p_recorte\.telefone/)
+    assert.match(sql, /regexp_replace\(COALESCE\(c\.numero/)
+    assert.equal(/JOIN prospectador\.prospects p_recorte/.test(sql), false,
+      'o recorte por nicho deve usar EXISTS para nao multiplicar conversa')
+  }
+  assert.equal(paramsAuto[1], equipe.nicho_id)
+  assert.equal(paramsCallList[4], equipe.nicho_id)
+  assert.equal(paramsBusca[4], equipe.nicho_id)
+})
+
 test('curinga do LIKE digitado pelo operador e escapado (nao vira "qualquer coisa")', async () => {
   let params = []
   const pool = { async query(_q, p) { params = p; return { rows: [] } } }

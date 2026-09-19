@@ -38,6 +38,23 @@ function filtroConversasDoUsuario(alias, params, usuarioId) {
           ))`
 }
 
+const soDigitosSql = (col) => `regexp_replace(COALESCE(${col}, ''), '[^0-9]', '', 'g')`
+const telefoneCanonicoSql = (col) => `(CASE WHEN length(${soDigitosSql(col)}) >= 12 AND left(${soDigitosSql(col)}, 2) = '55' THEN substr(${soDigitosSql(col)}, 3) ELSE ${soDigitosSql(col)} END)`
+
+function filtroConversasDoNicho(alias, params, equipe) {
+  if (!equipe?.nicho_id) return ''
+  params.push(equipe.nicho_id)
+  const phNicho = `$${params.length}`
+  return `AND EXISTS (
+        SELECT 1
+          FROM prospectador.prospects p_recorte
+         WHERE p_recorte.empresa_id = ${alias}.empresa_id
+           AND p_recorte.nicho_id = ${phNicho}::uuid
+           AND NULLIF(${telefoneCanonicoSql('p_recorte.telefone')}, '') IS NOT NULL
+           AND ${telefoneCanonicoSql('p_recorte.telefone')} = ${telefoneCanonicoSql(`${alias}.numero`)}
+      )`
+}
+
 // --- AUTOMATICO: timeline dos agendamentos por empresa ---------------------------
 async function listarAgendamentosAuto(pool, empresaId, opts = {}) {
   const limit = Math.min(Math.max(Number.parseInt(opts.limit, 10) || 100, 1), 500)
@@ -48,6 +65,7 @@ async function listarAgendamentosAuto(pool, empresaId, opts = {}) {
     filtroStatus = `AND fa.status = $${params.length}`
   }
   const filtroUsuario = filtroConversasDoUsuario('c', params, opts.usuarioId)
+  const filtroNicho = filtroConversasDoNicho('c', params, opts.equipe)
   params.push(limit)
   const { rows } = await pool.query(
     `SELECT fa.id, fa.numero, fa.sequencia, fa.status, fa.agendado_para,
@@ -62,6 +80,7 @@ async function listarAgendamentosAuto(pool, empresaId, opts = {}) {
        LEFT JOIN vendas.lead_profiles p ON p.numero = fa.numero
       WHERE c.empresa_id = $1 ${filtroStatus}
         ${filtroUsuario}
+        ${filtroNicho}
       ORDER BY COALESCE(fa.agendado_para, fa.detectado_em) DESC
       LIMIT $${params.length}`,
     params
@@ -73,12 +92,14 @@ async function listarAgendamentosAuto(pool, empresaId, opts = {}) {
 async function resumoAgendamentosAuto(pool, empresaId, opts = {}) {
   const params = [empresaId]
   const filtroUsuario = filtroConversasDoUsuario('c', params, opts.usuarioId)
+  const filtroNicho = filtroConversasDoNicho('c', params, opts.equipe)
   const { rows } = await pool.query(
     `SELECT fa.status, COUNT(*)::int AS total
        FROM vendas.followup_auto_agendamentos fa
        JOIN vendas.conversas c ON c.numero = fa.numero
       WHERE c.empresa_id = $1
         ${filtroUsuario}
+        ${filtroNicho}
       GROUP BY fa.status`,
     params
   )
@@ -167,6 +188,7 @@ async function montarCallList(pool, empresaId, opts = {}) {
   const limit = Math.min(Math.max(Number.parseInt(opts.limit, 10) || 30, 1), 200)
   const params = [empresaId, CALLLIST_SILENCIO_MIN_MINUTOS, CALLLIST_SCAN_LIMIT, CALLLIST_DEDUP_HORAS]
   const filtroUsuario = filtroConversasDoUsuario('c', params, opts.usuarioId)
+  const filtroNicho = filtroConversasDoNicho('c', params, opts.equipe)
   const { rows } = await pool.query(
     `SELECT c.numero,
             c.estagio,
@@ -215,6 +237,7 @@ async function montarCallList(pool, empresaId, opts = {}) {
        LEFT JOIN vendas.lead_profiles p ON p.numero = c.numero
       WHERE c.empresa_id = $1
         ${filtroUsuario}
+        ${filtroNicho}
         AND c.status IN ('ativo', 'aguardando_handoff')
         AND (c.status = 'aguardando_handoff' OR COALESCE(c.agente_pausado, false) = false)
         AND COALESCE(c.arquivado, false) = false
@@ -310,6 +333,7 @@ async function buscarLeadsParaFollowup(pool, empresaId, opts = {}) {
   const dig = limparNumero(termo)
   const params = [empresaId, `%${escaparLike(termo)}%`, dig, `%${dig}%`]
   const filtroUsuario = filtroConversasDoUsuario('c', params, opts.usuarioId)
+  const filtroNicho = filtroConversasDoNicho('c', params, opts.equipe)
   params.push(limit)
   const { rows } = await pool.query(
     `SELECT c.numero,
@@ -322,6 +346,7 @@ async function buscarLeadsParaFollowup(pool, empresaId, opts = {}) {
        LEFT JOIN vendas.lead_profiles p ON p.numero = c.numero
       WHERE c.empresa_id = $1
         ${filtroUsuario}
+        ${filtroNicho}
         AND COALESCE(c.arquivado, false) = false
         AND (
           COALESCE(p.apelido, '') ILIKE $2 ESCAPE '\\'

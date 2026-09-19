@@ -20,10 +20,89 @@ const COLS = `id, empresa_id, canal, proxima_acao, agendado_para, prioridade, st
   telefone_digitos, responsavel_id, criado_por, ligacao_id, campanha_lead_id, prospect_id,
   conversa_numero, observacao, resultado_nota, concluido_em, concluido_por, criado_em, atualizado_em`
 
+const colsComAlias = (alias) => COLS.split(',').map((c) => `${alias}.${c.trim()}`).join(', ')
+
 function erroEntrada(message, statusCode = 400) {
   const err = new Error(message)
   err.statusCode = statusCode
   return err
+}
+
+const soDigitosSql = (col) => `regexp_replace(COALESCE(${col}, ''), '[^0-9]', '', 'g')`
+const telefoneCanonicoSql = (col) => `(CASE WHEN length(${soDigitosSql(col)}) >= 12 AND left(${soDigitosSql(col)}, 2) = '55' THEN substr(${soDigitosSql(col)}, 3) ELSE ${soDigitosSql(col)} END)`
+
+function nichoEquipeId(equipe) {
+  return equipe && equipe.nicho_id ? equipe.nicho_id : null
+}
+
+function condicaoRecorteEquipeFollowUp(alias, placeholder) {
+  const a = alias || 'f'
+  return `(
+    EXISTS (
+      SELECT 1
+        FROM prospectador.prospects p_recorte
+       WHERE p_recorte.empresa_id = ${a}.empresa_id
+         AND p_recorte.nicho_id = ${placeholder}::uuid
+         AND p_recorte.id = ${a}.prospect_id
+    )
+    OR EXISTS (
+      SELECT 1
+        FROM app.campanha_leads cl_recorte
+        JOIN prospectador.prospects p_recorte
+          ON p_recorte.id = cl_recorte.prospect_id
+         AND p_recorte.empresa_id = cl_recorte.empresa_id
+       WHERE cl_recorte.empresa_id = ${a}.empresa_id
+         AND cl_recorte.id = ${a}.campanha_lead_id
+         AND p_recorte.nicho_id = ${placeholder}::uuid
+    )
+    OR EXISTS (
+      SELECT 1
+        FROM prospectador.prospects p_recorte
+       WHERE p_recorte.empresa_id = ${a}.empresa_id
+         AND p_recorte.nicho_id = ${placeholder}::uuid
+         AND NULLIF(${telefoneCanonicoSql('p_recorte.telefone')}, '') IS NOT NULL
+         AND ${telefoneCanonicoSql('p_recorte.telefone')} = ${telefoneCanonicoSql(`${a}.telefone_digitos`)}
+    )
+  )`
+}
+
+async function assertFollowUpNoRecorteEquipe(exec, empresaId, p = {}, equipe = null) {
+  const nichoId = nichoEquipeId(equipe)
+  if (!nichoId) return
+  const telefoneDigitos = p.telefone_digitos || telefoneDigitosOuNulo(p.telefone)
+  const params = [empresaId, nichoId, p.prospect_id || null, p.campanha_lead_id || null, telefoneDigitos || null]
+  const { rows } = await exec.query(
+    `SELECT 1
+       WHERE EXISTS (
+        SELECT 1
+          FROM prospectador.prospects p_recorte
+         WHERE p_recorte.empresa_id = $1
+           AND p_recorte.nicho_id = $2::uuid
+           AND p_recorte.id = $3::uuid
+       )
+       OR EXISTS (
+        SELECT 1
+          FROM app.campanha_leads cl_recorte
+          JOIN prospectador.prospects p_recorte
+            ON p_recorte.id = cl_recorte.prospect_id
+           AND p_recorte.empresa_id = cl_recorte.empresa_id
+         WHERE cl_recorte.empresa_id = $1
+           AND cl_recorte.id = $4::uuid
+           AND p_recorte.nicho_id = $2::uuid
+       )
+       OR EXISTS (
+        SELECT 1
+          FROM prospectador.prospects p_recorte
+         WHERE p_recorte.empresa_id = $1
+           AND p_recorte.nicho_id = $2::uuid
+           AND $5::text IS NOT NULL
+           AND NULLIF(${telefoneCanonicoSql('p_recorte.telefone')}, '') IS NOT NULL
+           AND ${telefoneCanonicoSql('p_recorte.telefone')} = ${telefoneCanonicoSql('$5::text')}
+       )
+      LIMIT 1`,
+    params
+  )
+  if (!rows[0]) throw erroEntrada('Follow-up fora do recorte da equipe.', 403)
 }
 
 /** So para MENSAGEM de erro ao operador — a apresentacao da fila vive no front. */
@@ -91,6 +170,7 @@ async function criarFollowUp(exec, empresaId, entrada = {}, { usuarioId = null, 
   await assertMesmaEmpresa(exec, { schema: 'app', table: 'ligacoes', id: p.ligacao_id, empresaId, rotulo: 'Ligacao' })
   await assertMesmaEmpresa(exec, { schema: 'app', table: 'campanha_leads', id: p.campanha_lead_id, empresaId, rotulo: 'Lead da campanha' })
   await assertMesmaEmpresa(exec, { schema: 'prospectador', table: 'prospects', id: p.prospect_id, empresaId, rotulo: 'Lead' })
+  await assertFollowUpNoRecorteEquipe(exec, empresaId, p, entrada.equipe)
   if (p.responsavel_id) await assertResponsavelDaEmpresa(exec, empresaId, p.responsavel_id)
 
   const conversaNumero = p.conversa_numero || await resolverConversaNumero(exec, empresaId, p.telefone_digitos)
@@ -164,10 +244,17 @@ async function listarResponsaveis(pool, empresaId) {
   return rows
 }
 
-async function obterFollowUp(pool, empresaId, id) {
+async function obterFollowUp(pool, empresaId, id, { equipe } = {}) {
   if (!id) throw erroEntrada('id do follow-up obrigatorio.')
+  const params = [id, empresaId]
+  const conds = ['f.id = $1', 'f.empresa_id = $2']
+  const nichoId = nichoEquipeId(equipe)
+  if (nichoId) {
+    params.push(nichoId)
+    conds.push(condicaoRecorteEquipeFollowUp('f', `$${params.length}`))
+  }
   const { rows } = await pool.query(
-    `SELECT ${COLS} FROM app.follow_ups WHERE id = $1 AND empresa_id = $2`, [id, empresaId])
+    `SELECT ${colsComAlias('f')} FROM app.follow_ups f WHERE ${conds.join(' AND ')}`, params)
   if (!rows[0]) throw erroEntrada('Follow-up nao encontrado.', 404)
   return rows[0]
 }
@@ -205,9 +292,14 @@ async function listarFollowUps(pool, empresaId, opts = {}) {
     params.push(opts.propriosUsuarioId)
     conds.push(`(f.responsavel_id = $${params.length}::uuid OR (f.responsavel_id IS NULL AND f.criado_por = $${params.length}::uuid))`)
   }
+  const nichoId = nichoEquipeId(opts.equipe)
+  if (nichoId) {
+    params.push(nichoId)
+    conds.push(condicaoRecorteEquipeFollowUp('f', `$${params.length}`))
+  }
   params.push(Math.min(Math.max(Number.parseInt(opts.limit, 10) || 300, 1), 500))
   const { rows } = await pool.query(
-    `SELECT ${COLS.split(',').map((c) => `f.${c.trim()}`).join(', ')},
+    `SELECT ${colsComAlias('f')},
             COALESCE(NULLIF(pr.nome, ''), NULLIF(lp.apelido, ''), NULLIF(lp.negocio, '')) AS nome,
             COALESCE(NULLIF(pr.cidade, ''), NULLIF(lp.cidade, '')) AS cidade,
             u.nome AS responsavel_nome,

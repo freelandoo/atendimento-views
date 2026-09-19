@@ -35,6 +35,8 @@ import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { useSession } from '@/lib/useSession'
 import { temCapacidade } from '@/lib/capacidades'
+import { avisoDeEquipe } from '@/lib/lead-operacao'
+import type { EquipeRecorte } from '@/lib/lead-operacao'
 import ConversaPainel from '@/components/ConversaPainel'
 import { IconSend, IconGear, IconAlert, IconClose, IconPlus } from '@/components/ui/icons'
 import InterruptorAtivacao from '@/components/ui/InterruptorAtivacao'
@@ -158,6 +160,7 @@ export default function FollowUpsPage() {
   const [humanos, setHumanos] = useState<AtendimentoHumano[]>([])
   const [automaticos, setAutomaticos] = useState<AgendamentoAuto[]>([])
   const [followups, setFollowups] = useState<FollowUpApi[]>([])
+  const [equipeRecorte, setEquipeRecorte] = useState<EquipeRecorte | null>(null)
   const [responsaveis, setResponsaveis] = useState<{ id: string; nome: string }[]>([])
   const { usuario, capacidades } = useSession(false)
   const podeVerFilaEquipe = temCapacidade(capacidades, 'followup_ver_fila')
@@ -226,13 +229,14 @@ export default function FollowUpsPage() {
     setErro(null)
     try {
       const [humano, auto, registrados] = await Promise.all([
-        apiFetch<{ lista: AtendimentoHumano[] }>(`${base}/call-list`),
-        apiFetch<{ itens: AgendamentoAuto[] }>(`${base}/auto?limit=300`),
-        apiFetch<{ itens: FollowUpApi[] }>(`${base}/itens?limit=300`),
+        apiFetch<{ lista: AtendimentoHumano[] }, { equipe?: EquipeRecorte | null }>(`${base}/call-list`),
+        apiFetch<{ itens: AgendamentoAuto[] }, { equipe?: EquipeRecorte | null }>(`${base}/auto?limit=300`),
+        apiFetch<{ itens: FollowUpApi[] }, { equipe?: EquipeRecorte | null }>(`${base}/itens?limit=300`),
       ])
       setHumanos(humano.data.lista || [])
       setAutomaticos(auto.data.itens || [])
       setFollowups(registrados.data.itens || [])
+      setEquipeRecorte(humano.meta?.equipe || auto.meta?.equipe || registrados.meta?.equipe || null)
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não foi possível carregar a fila de follow-ups.')
     } finally { setCarregando(false) }
@@ -386,6 +390,7 @@ export default function FollowUpsPage() {
   }
 
   const pausado = config?.pausado === true
+  const avisoEquipe = avisoDeEquipe(equipeRecorte)
 
   return (
     <div className="space-y-5">
@@ -421,6 +426,12 @@ export default function FollowUpsPage() {
             continuam disponíveis normalmente.
           </span>
         </p>
+      )}
+
+      {avisoEquipe && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+          {avisoEquipe}
+        </div>
       )}
 
       <div className="space-y-4">

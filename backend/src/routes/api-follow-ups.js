@@ -11,6 +11,8 @@ const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { CAPACIDADES: CAP, podeCapacidade } = require('../services/acesso-capacidades')
 const { requireCapacidade } = require('../middleware/tenant')
+const { equipeAtivaDoUsuario } = require('../db/equipes-comerciais')
+const { recorteDeNicho } = require('../services/equipes-comerciais')
 const {
   obterConfigFollowup,
   salvarConfigFollowup,
@@ -102,18 +104,23 @@ function temCapacidadeReq(req, cap) {
   }, cap)
 }
 
-function recorteFollowUp(req) {
+async function recorteFollowUp(req) {
   const podeVerFila = temCapacidadeReq(req, CAP.FOLLOWUP_VER_FILA)
+  let equipe = null
+  if (!podeVerFila && req.usuario?.id) {
+    equipe = recorteDeNicho(await equipeAtivaDoUsuario(req.empresa.id, req.usuario.id))
+  }
   return {
     podeVerFila,
     usuarioId: req.usuario?.id || null,
+    equipe,
   }
 }
 
 async function assertFollowUpAlcancavel(req, res, id) {
-  const recorte = recorteFollowUp(req)
+  const recorte = await recorteFollowUp(req)
   if (recorte.podeVerFila) return true
-  const item = await F.obterFollowUp(pool, req.empresa.id, id)
+  const item = await F.obterFollowUp(pool, req.empresa.id, id, { equipe: recorte.equipe })
   const uid = String(recorte.usuarioId || '')
   const responsavel = item.responsavel_id ? String(item.responsavel_id) : ''
   const criadoPor = item.criado_por ? String(item.criado_por) : ''
@@ -147,12 +154,12 @@ router.put('/config', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.F
 // --- AUTOMATICO ------------------------------------------------------------------
 router.get('/auto', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const recorte = recorteFollowUp(req)
+    const recorte = await recorteFollowUp(req)
     const [itens, resumo] = await Promise.all([
-      listarAgendamentosAuto(pool, req.empresa.id, { status: req.query.status, limit: req.query.limit, usuarioId: recorte.podeVerFila ? null : recorte.usuarioId }),
-      resumoAgendamentosAuto(pool, req.empresa.id, { usuarioId: recorte.podeVerFila ? null : recorte.usuarioId }),
+      listarAgendamentosAuto(pool, req.empresa.id, { status: req.query.status, limit: req.query.limit, usuarioId: recorte.podeVerFila ? null : recorte.usuarioId, equipe: recorte.equipe }),
+      resumoAgendamentosAuto(pool, req.empresa.id, { usuarioId: recorte.podeVerFila ? null : recorte.usuarioId, equipe: recorte.equipe }),
     ])
-    return res.json({ ok: true, data: { itens, resumo } })
+    return res.json({ ok: true, data: { itens, resumo }, meta: { equipe: recorte.equipe } })
   } catch (err) { return erro(res, err, 'AUTO_LIST_FAILED') }
 })
 
@@ -181,12 +188,12 @@ router.post('/auto/cancelar', requireAuth, requireEmpresaAccess, requireCapacida
 // --- SEMI (fila de proxima acao humana) -----------------------------------------
 router.get('/call-list', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const recorte = recorteFollowUp(req)
+    const recorte = await recorteFollowUp(req)
     const [lista, config] = await Promise.all([
-      montarCallList(pool, req.empresa.id, { limit: req.query.limit, usuarioId: recorte.podeVerFila ? null : recorte.usuarioId }),
+      montarCallList(pool, req.empresa.id, { limit: req.query.limit, usuarioId: recorte.podeVerFila ? null : recorte.usuarioId, equipe: recorte.equipe }),
       obterConfigFollowup(pool, req.empresa.id),
     ])
-    return res.json({ ok: true, data: { lista, meta_ligacoes_dia: config.meta_ligacoes_dia } })
+    return res.json({ ok: true, data: { lista, meta_ligacoes_dia: config.meta_ligacoes_dia }, meta: { equipe: recorte.equipe } })
   } catch (err) { return erro(res, err, 'CALLLIST_FAILED') }
 })
 
@@ -252,13 +259,14 @@ router.get('/metricas', requireAuth, requireEmpresaAccess, async (req, res) => {
 router.get('/manual/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const q = validarTextoEntrada(req.query.q, 'q', 80)
-    const recorte = recorteFollowUp(req)
+    const recorte = await recorteFollowUp(req)
     const itens = await buscarLeadsParaFollowup(pool, req.empresa.id, {
       q,
       limit: req.query.limit,
       usuarioId: recorte.podeVerFila ? null : recorte.usuarioId,
+      equipe: recorte.equipe,
     })
-    return res.json({ ok: true, data: { itens } })
+    return res.json({ ok: true, data: { itens }, meta: { equipe: recorte.equipe } })
   } catch (err) { return erro(res, err, 'MANUAL_LEADS_FAILED') }
 })
 
@@ -302,21 +310,22 @@ router.post('/manual/enviar', requireAuth, requireEmpresaAccess, async (req, res
 // GET /itens?status=&canal=&limit= — a fila persistida.
 router.get('/itens', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const recorte = recorteFollowUp(req)
+    const recorte = await recorteFollowUp(req)
     const itens = await F.listarFollowUps(pool, req.empresa.id, {
       status: req.query.status, canal: req.query.canal, limit: req.query.limit,
       responsavelId: recorte.podeVerFila ? (req.query.responsavel_id || null) : null,
       semResponsavel: recorte.podeVerFila && req.query.sem_responsavel === 'true',
       propriosUsuarioId: recorte.podeVerFila ? null : recorte.usuarioId,
+      equipe: recorte.equipe,
     })
-    return res.json({ ok: true, data: { itens } })
+    return res.json({ ok: true, data: { itens }, meta: { equipe: recorte.equipe } })
   } catch (err) { return erro(res, err, 'FOLLOWUPS_LIST_FAILED') }
 })
 
 // GET /responsaveis — usuarios da empresa que podem receber um follow-up.
 router.get('/responsaveis', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const recorte = recorteFollowUp(req)
+    const recorte = await recorteFollowUp(req)
     if (!recorte.podeVerFila) {
       return res.json({
         ok: true,
@@ -337,9 +346,9 @@ router.post('/itens', requireAuth, requireEmpresaAccess, async (req, res) => {
     if (!ORIGENS_DA_ROTA.has(b.origem)) {
       throw erroValidacao('origem invalida por esta rota (use manual ou mensagem).')
     }
-    const recorte = recorteFollowUp(req)
+    const recorte = await recorteFollowUp(req)
     const entrada = recorte.podeVerFila ? b : { ...b, responsavel_id: req.usuario?.id || null }
-    const item = await F.criarFollowUp(pool, req.empresa.id, entrada, { usuarioId: req.usuario?.id || null })
+    const item = await F.criarFollowUp(pool, req.empresa.id, { ...entrada, equipe: recorte.equipe }, { usuarioId: req.usuario?.id || null })
     A.registrarAuditoria(pool, req.empresa.id, {
       usuarioId: req.usuario?.id, entidadeTipo: 'follow_up', entidadeId: item.id,
       acao: 'follow_up_criado', estadoNovo: 'aguardando',

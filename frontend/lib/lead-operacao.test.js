@@ -266,3 +266,14 @@ test('GUARDA: a Central de Ligacoes tambem declara o recorte da equipe', () => {
   assert.match(tela, /setEquipeRecorte\(r\.meta\?\.equipe \|\| null\)/)
   assert.match(tela, /const avisoEquipe = avisoDeEquipe\(equipeRecorte\)/)
 })
+
+test('GUARDA: Follow-ups tambem declara o recorte da equipe', () => {
+  const tela = fs.readFileSync(path.join(__dirname, '..', 'app', 'dashboard', 'follow-ups', 'page.tsx'), 'utf8')
+  assert.match(tela, /import \{ avisoDeEquipe \} from '@\/lib\/lead-operacao'/)
+  assert.match(tela, /import type \{ EquipeRecorte \} from '@\/lib\/lead-operacao'/)
+  assert.match(tela, /apiFetch<\{ lista: AtendimentoHumano\[\] \}, \{ equipe\?: EquipeRecorte \| null \}>/)
+  assert.match(tela, /apiFetch<\{ itens: AgendamentoAuto\[\] \}, \{ equipe\?: EquipeRecorte \| null \}>/)
+  assert.match(tela, /apiFetch<\{ itens: FollowUpApi\[\] \}, \{ equipe\?: EquipeRecorte \| null \}>/)
+  assert.match(tela, /setEquipeRecorte\(humano\.meta\?\.equipe \|\| auto\.meta\?\.equipe \|\| registrados\.meta\?\.equipe \|\| null\)/)
+  assert.match(tela, /const avisoEquipe = avisoDeEquipe\(equipeRecorte\)/)
+})
