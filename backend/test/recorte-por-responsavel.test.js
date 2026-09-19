@@ -146,7 +146,7 @@ test('follow-ups tambem declaram e aplicam o recorte por nicho da equipe', () =>
     'a busca manual de leads precisa respeitar o recorte')
   assert.ok(dbFollowUps.includes('condicaoRecorteEquipeFollowUp'), 'a camada de dados precisa centralizar o filtro de nicho')
   assert.ok(dbFollowUps.includes('assertFollowUpNoRecorteEquipe'), 'criar item fora do nicho precisa ser bloqueado')
-  assert.ok(/FROM app\.follow_ups f WHERE/.test(dbFollowUps), 'obter por id precisa conseguir filtrar com alias')
+  assert.ok(/FROM app\.follow_ups f\s+WHERE/.test(dbFollowUps), 'obter por id precisa conseguir filtrar com alias')
   assert.ok(/EXISTS \([\s\S]*app\.campanha_leads cl_recorte/.test(dbFollowUps),
     'follow-up ligado a campanha precisa achar o nicho pelo prospect da linha')
 })

@@ -247,14 +247,18 @@ async function listarResponsaveis(pool, empresaId) {
 async function obterFollowUp(pool, empresaId, id, { equipe } = {}) {
   if (!id) throw erroEntrada('id do follow-up obrigatorio.')
   const params = [id, empresaId]
-  const conds = ['f.id = $1', 'f.empresa_id = $2']
+  // O filtro de tenant fica FIXO no SQL, nunca no array de condicoes opcionais: escopo de
+  // empresa nao e' um filtro a mais, e' a condicao sem a qual a consulta nao pode existir.
+  const conds = []
   const nichoId = nichoEquipeId(equipe)
   if (nichoId) {
     params.push(nichoId)
     conds.push(condicaoRecorteEquipeFollowUp('f', `$${params.length}`))
   }
+  const extras = conds.length ? ` AND ${conds.join(' AND ')}` : ''
   const { rows } = await pool.query(
-    `SELECT ${colsComAlias('f')} FROM app.follow_ups f WHERE ${conds.join(' AND ')}`, params)
+    `SELECT ${colsComAlias('f')} FROM app.follow_ups f
+      WHERE f.empresa_id = $2 AND f.id = $1${extras}`, params)
   if (!rows[0]) throw erroEntrada('Follow-up nao encontrado.', 404)
   return rows[0]
 }
@@ -273,7 +277,8 @@ const CANAIS_FILTRAVEIS = new Set(FOLLOWUP_CANAL)
  */
 async function listarFollowUps(pool, empresaId, opts = {}) {
   const params = [empresaId]
-  const conds = ['f.empresa_id = $1']
+  // Idem obterFollowUp: `f.empresa_id = $1` vive no proprio WHERE do template.
+  const conds = []
   if (opts.status && STATUS_FILTRAVEIS.has(opts.status)) {
     params.push(opts.status); conds.push(`f.status = $${params.length}`)
   }
@@ -337,7 +342,7 @@ async function listarFollowUps(pool, empresaId, opts = {}) {
        LEFT JOIN app.ligacoes l ON l.id = f.ligacao_id AND l.empresa_id = f.empresa_id
        LEFT JOIN app.campanha_leads cl ON cl.id = f.campanha_lead_id AND cl.empresa_id = f.empresa_id
        LEFT JOIN app.campanhas cam ON cam.id = cl.campanha_id AND cam.empresa_id = f.empresa_id
-      WHERE ${conds.join(' AND ')}
+      WHERE f.empresa_id = $1${conds.length ? ` AND ${conds.join(' AND ')}` : ''}
       -- Em aberto primeiro, na ordem do prazo; depois o historico, do mais recente para o
       -- mais antigo. Sem isso, um teto de leitura cortaria justamente o trabalho pendente
       -- para caber follow-ups concluidos ha meses.
