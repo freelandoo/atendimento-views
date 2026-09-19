@@ -49,6 +49,34 @@
   Índice dos demais documentos de governança: `ai-task-start-log.md`, `ai-decision-log.md`,
   `project-change-map.md`, `ui-visual-standard.md`, `project-architecture.md`.
 
+## Padrão visual — obrigatório em qualquer tarefa de TELA
+> Vale para **Codex, Claude e Cursor**. Fonte única: **[docs/GUIA-VISUAL-PJ-CODEWORKS.md](docs/GUIA-VISUAL-PJ-CODEWORKS.md)**
+> (tokens, escalas, componentes). Checklist e log de divergências aprovadas:
+> `docs/ui-visual-standard.md`. **Leia o guia antes de escrever a primeira linha de `.tsx`.**
+
+- **Duas superfícies, padrões diferentes:** o produto é o app SaaS (`frontend/`, Next.js —
+  coluna lateral + conteúdo). O dashboard legado (`backend/public/dashboard/`) tem header com
+  navegação horizontal e **não é referência para tela nova**.
+- **Dois temas, fronteira fixa** (decisão do operador, 2026-09-18): **claro** em toda a área de
+  trabalho (`app/dashboard/layout.tsx` força `[color-scheme:light]` no `<main>`); **neon** só em
+  `login`, `signup` e na `Sidebar`. **Não leve neon para dentro do dashboard** e não clareie a
+  coluna.
+- **Use o TOKEN, nunca o literal:** `surface`/`surface-2`/`surface-3`, `line`/`line-strong`,
+  `ink`/`ink-2`/`ink-3`, `brand`, `estado-{ok,warn,danger,info}` — todos em
+  `frontend/tailwind.config.ts`. Eles valem exatamente o que os literais `slate-*` já valiam, então
+  adotá-los não muda pixel. `slate-*`/`gray-*` em tela nova é legado.
+- **Cor NUNCA é o único sinal.** Todo estado carrega rótulo em texto (regra já cumprida por
+  `BolinhaPontuacao` e `AlternadorModoIa`).
+- **Raio `md`/`lg`; sombra `shadow-card`.** `rounded-xl`/`2xl` é legado e sai junto com a
+  repaginação de cada tela — **não faça passe global**, porque isso muda aparência sem
+  verificação visual.
+- **Procure em `frontend/components/ui/` antes de criar componente.** `window.confirm` é
+  proibido: use `ModalConfirmar`.
+- **A tela só TRADUZ o veredito** que a API já resolveu (mesmo contrato de `lib/site-rotulos.js`
+  e `lib/capacidades.js`). Regra de negócio no front quebra em silêncio.
+- **Validação do front:** `npx tsc --noEmit` + `node --test lib/*.test.js` dentro de `frontend/`.
+  **Não existe ESLint aqui** — `npm run lint` abre prompt interativo e trava.
+
 ## Como executar e validar
 - Instalar dependências: `npm install`
 - Rodar testes: `npm test`

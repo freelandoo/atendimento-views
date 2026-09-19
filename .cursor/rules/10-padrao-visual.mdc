@@ -1,0 +1,20 @@
+---
+description: Padrão visual obrigatório do app SaaS (tokens, temas, escalas) antes de criar ou alterar qualquer tela.
+globs: frontend/**/*.tsx,frontend/**/*.css,frontend/tailwind.config.ts
+alwaysApply: false
+---
+
+# Padrão visual — leia antes de mexer em tela
+
+A fonte única é `docs/GUIA-VISUAL-PJ-CODEWORKS.md`. O resumo operacional está no bloco
+**"Padrão visual — obrigatório em qualquer tarefa de TELA"** do `AGENTS.md`. O checklist de
+verificação e o log de divergências aprovadas estão em `docs/ui-visual-standard.md`.
+
+Não repita o conteúdo desses arquivos aqui — leia-os. O essencial:
+
+- **Tema claro** em toda a área de trabalho; **neon** só em `login`, `signup` e `Sidebar`.
+- Use os **tokens** (`surface`, `line`, `ink`, `brand`, `estado-*`), não literais `slate-*`.
+- **Cor nunca é o único sinal** — todo estado leva rótulo em texto.
+- Raio `md`/`lg`, sombra `shadow-card`. Nada de passe global em tela existente.
+- Procure em `frontend/components/ui/` antes de criar componente. `window.confirm` é proibido.
+- Valide com `npx tsc --noEmit` + `node --test lib/*.test.js`. **Não há ESLint.**

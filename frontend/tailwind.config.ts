@@ -11,6 +11,36 @@ const config: Config = {
       colors: {
         // brand azul original — usado pelas páginas claras (a coluna/login usam tokens neon diretamente).
         brand: { DEFAULT: '#2563eb', dark: '#1d4ed8' },
+
+        // ── Tema CLARO (área de trabalho) ────────────────────────────────────
+        // Tokens SEMÂNTICOS: dizem o PAPEL, não a cor. Os valores são exatamente
+        // os literais que as telas já usam hoje (família `slate`), medidos em
+        // 2026-09-18 — adotá-los não muda um pixel, só passa a nomear o que existe.
+        // Regra: em tela nova, use o token; literal `slate-*`/`gray-*` é legado.
+        surface: {
+          DEFAULT: '#ffffff', // card, modal, linha de tabela      (era bg-white, 253 usos)
+          2: '#f8fafc', //       fundo de página, zebra, cabeçalho  (era bg-slate-50, 187)
+          3: '#f1f5f9', //       hover, input, faixa neutra         (era bg-slate-100, 65)
+        },
+        line: {
+          DEFAULT: '#e2e8f0', // borda padrão                       (era border-slate-200, 127)
+          strong: '#cbd5e1', //  divisor com ênfase                 (era border-slate-300, 32)
+        },
+        ink: {
+          DEFAULT: '#0f172a', // texto principal                    (era text-slate-900, 60)
+          2: '#475569', //       texto secundário                   (era text-slate-600, 206)
+          3: '#64748b', //       texto de apoio, rótulo             (era text-slate-500, 406)
+        },
+        // Estados. Cor NUNCA é o único sinal — sempre acompanhe de rótulo em texto
+        // (mesma regra que `BolinhaPontuacao` e `AlternadorModoIa` já cumprem).
+        estado: {
+          ok: '#059669', //     emerald-600
+          warn: '#d97706', //   amber-600
+          danger: '#dc2626', // red-600
+          info: '#2563eb', //   = brand
+        },
+
+        // ── Tema NEON (login, signup e a Sidebar — a porta de entrada) ───────
         void: '#060912',
         panel: { DEFAULT: '#0d1322', 2: '#111a2e' },
         neon: {
@@ -31,6 +61,9 @@ const config: Config = {
         mono: ['var(--font-mono)', 'ui-monospace', 'monospace'],
       },
       boxShadow: {
+        // Elevação do tema claro. `card` é o mesmo valor de `shadow-sm` (104 usos):
+        // nomear não muda nada hoje e evita a próxima tela escolher outra sombra.
+        card: '0 1px 2px 0 rgb(15 23 42 / 0.05)',
         'glow-cyan': '0 0 24px rgba(34,227,255,.45)',
         'glow-magenta': '0 0 24px rgba(255,61,240,.40)',
         'glow-lime': '0 0 24px rgba(124,255,107,.40)',

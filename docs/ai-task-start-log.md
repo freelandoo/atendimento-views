@@ -4352,3 +4352,36 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   membro com devolucao de leads, alterar missoes para `equipe_id`, e qualquer mudanca visual.
 - **Cuidados:** equipe nao e papel de acesso; `usuarios_empresas` continua sendo o vinculo de
   permissao. O recorte por nicho precisa nascer no banco com FK composta, nao como filtro visual.
+
+## 2026-09-18 — Repaginacao visual das telas — Etapa 1: fundacao do padrao
+
+- **Pedido do operador:** deixar o padrao visual disponivel para uso do Codex e do Claude e
+  planejar uma repaginacao das telas, para melhorar uso e visual.
+- **E projeto/tarefa de alteracao?** Sim, e **ESTRUTURAL no front-end**: mexe na camada de
+  estilo que 25 telas consomem e no guia visual canonico. Pelo `CLAUDE.md`, exige confirmacao
+  antes de implementar. **Nenhuma linha de codigo escrita.**
+- **MEDICAO QUE MUDA O ENQUADRAMENTO:** nao ha empate entre dois padroes visuais.
+  `app/dashboard/layout.tsx:15` ja forca o conteudo em tema claro
+  (`bg-gray-50 text-slate-900 [color-scheme:light]`); **22 das 25 telas** do dashboard sao
+  claras; o token `brand` aparece **295** vezes contra **15** literais `blue-600`. O neon esta
+  confinado a `login`, `signup`, `contas` e a `Sidebar`. Quem esta desatualizado e o
+  `docs/GUIA-VISUAL-PJ-CODEWORKS.md`, que declara `#0f66f5` e fundo `#f5f7fb` enquanto o codigo
+  usa `brand #2563eb` e `gray-50`. A repaginacao NAO e escolher um padrao: e consolidar o que
+  ja venceu e remover a inconsistencia que sobrou.
+- **Codigo morto encontrado:** `NeonCard`, `NeonButton`, `KpiCounter` e `StatusPill` (este ja
+  declarado como pendencia D1 no `AGENTS.md`) tem **zero** consumidores em `app/` e `components/`.
+- **Decisoes do operador (2026-09-18):**
+  1. O neon fica **so na porta de entrada** (`login`, `signup`) e na **Sidebar**; a tela
+     `contas` e convertida para claro por ser tela de trabalho.
+  2. **Fundacao primeiro, sem mexer em tela** — nenhuma tela muda de aparencia na Etapa 1.
+- **Escopo pretendido (Etapa 1):** camada de tokens semanticos para o tema claro, padronizacao
+  de raio/sombra/espacamento, atualizacao do guia visual para a realidade medida, remocao dos
+  componentes mortos e disponibilizacao do padrao para Codex/Claude/Cursor a partir de **uma
+  unica fonte de verdade** (`AGENTS.md` -> guia visual), sem duplicar conteudo.
+- **Fora de escopo nesta etapa:** redesenhar qualquer tela, mexer em backend, rota, schema,
+  permissao ou regra de negocio; as pendencias D1-D5 do relatorio de padronizacao de listagens;
+  paginacao de servidor; e qualquer alteracao de comportamento.
+- **Cuidados:** nenhuma mudanca visual pode alterar comportamento; `cor nunca e o unico sinal`
+  (regra ja vigente em `BolinhaPontuacao` e `AlternadorModoIa`) vale para tudo que for criado;
+  componente morto so sai depois de confirmado que nao ha import; validacao por
+  `tsc --noEmit` + `node --test lib/*.test.js` (o front **nao tem** ESLint configurado).

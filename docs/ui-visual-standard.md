@@ -59,6 +59,41 @@ Registre aqui toda divergência visual autorizada pelo usuário.
 
 -->
 
+### 2026-09-18 — Fronteira dos dois temas + tokens semânticos do tema claro (fundação)
+
+- **Divergência aprovada:** o produto passa a declarar **dois temas com fronteira fixa** —
+  **claro** em toda a área de trabalho e **neon** apenas em `login`, `signup` e na `Sidebar`.
+  Não é mudança de rumo: é o reconhecimento do que já estava no código. `dashboard/contas`
+  fica **pendente** de conversão para claro (é tela de trabalho e está escura).
+- **Motivo:** medição de 2026-09-18 mostrou que não havia empate entre dois padrões —
+  `app/dashboard/layout.tsx:14` já forçava `[color-scheme:light]` no `<main>`, **22 das 25
+  telas** do dashboard já eram claras, e o token `brand` aparecia **295** vezes contra **15**
+  literais `blue-600`. Quem divergia era o próprio guia visual, que declarava `#0f66f5` e fundo
+  `#f5f7fb` — valores que não existiam no produto.
+- **Impacto:** **nenhuma tela mudou de aparência.** Foram criados tokens SEMÂNTICOS em
+  `frontend/tailwind.config.ts` (`surface`/`surface-2`/`surface-3`, `line`/`line-strong`,
+  `ink`/`ink-2`/`ink-3`, `estado-{ok,warn,danger,info}` e `shadow-card`) com **exatamente os
+  valores dos literais `slate-*` que as telas já usavam**, medidos um a um. Adotar o token não
+  muda pixel; ele apenas passa a nomear o que existe, para a próxima tela não divergir.
+  O guia visual foi reescrito a partir da medição, e o padrão passou a ser entregue a
+  **Codex, Claude e Cursor** por uma fonte única (`AGENTS.md` → guia), sem duplicar conteúdo.
+- **Código morto removido:** `NeonCard`, `NeonButton`, `KpiCounter` e `StatusPill` — todos com
+  zero consumidores e todos escritos em neon puro (`glass`, `text-mid`, `neon-*`), portanto
+  inúteis para a área clara. Isso **fecha a decisão D1** que o `AGENTS.md` deixara em aberto: o
+  badge de status unificado nascerá claro, na Etapa 2, e não do aproveitamento do `StatusPill`.
+- **NÃO foi feito, de propósito:** a normalização dos **222** `rounded-xl`/`2xl` e a migração
+  dos literais `slate-*` para token. As duas mudam aparência, e mudança de aparência sem
+  verificação visual tela a tela é exatamente o que a Fase 5 proíbe. Elas acontecem junto com a
+  repaginação de cada tela. **Não faça passe global.**
+- **Divergência menor registrada:** o `<main>` usa `bg-gray-50` (`#f9fafb`) enquanto as telas
+  usam `bg-slate-50` (`#f8fafc`). Um tom de diferença, imperceptível, deixado como está — trocar
+  agora seria mudança visual sem ganho.
+- **Como validar:** `cd frontend && npx tsc --noEmit` e `node --test lib/*.test.js`; abrir
+  qualquer tela do dashboard e confirmar que nada mudou; conferir que
+  `grep -r "NeonCard\|NeonButton\|KpiCounter\|StatusPill" frontend/app frontend/components`
+  não retorna nada.
+
+
 ### 2026-08-10 — Controle de ativação padronizado (Central de Mensagens + Follow-up Automático)
 
 - **Padrão aprovado:** todo controle de ativação da área superior de uma tela tem a mesma
