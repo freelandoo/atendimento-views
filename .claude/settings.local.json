@@ -11,10 +11,12 @@
       "Bash(npm test *)",
       "Read(//tmp/**)",
       "mcp__railway__list_variables",
-      "mcp__railway__set_variables"
+      "mcp__railway__set_variables",
+      "Bash(cat >> *)"
     ],
     "additionalDirectories": [
-      "\\tmp"
+      "\\tmp",
+      "C:\\Users\\Victor\\Downloads\\Projetos\\atendimento-views\\docs"
     ]
   }
 }
