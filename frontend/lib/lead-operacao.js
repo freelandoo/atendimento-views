@@ -216,7 +216,9 @@ function contagemMensagem(texto) {
 function avisoDeEquipe(equipe) {
   if (!equipe || !equipe.nicho_nome) return null
   const time = equipe.equipe_nome ? `${equipe.equipe_nome} · ` : ''
-  return `${time}mostrando apenas leads do nicho ${equipe.nicho_nome}`
+  // A frase fala com o vendedor ("voce esta vendo"), nao descreve o sistema ("mostrando"). E' uma
+  // central de trabalho, nao um relatorio.
+  return `${time}você está vendo leads do nicho ${equipe.nicho_nome}`
 }
 
 /**

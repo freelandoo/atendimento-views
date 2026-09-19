@@ -25,6 +25,18 @@ router.get('/', async (req, res) => {
   } catch (err) { return envelopeErro(res, err, 'EQUIPES_LIST_FAILED') }
 })
 
+// ⚠️ DECLARADA ANTES de `/:equipeId`, senao "elegiveis" viraria um id de equipe — o mesmo cuidado
+// de `GET /agenda/responsaveis`.
+//
+// Somente leitura: nao cria equipe, nao move ninguem e nao chama IA. Serve o seletor de membros,
+// que precisa avisar "esta pessoa ja' esta no Time Solar" ANTES de submeter. Sem isso o gestor so'
+// descobre no 409, cuja mensagem fala de "uma das pessoas" sem dizer qual.
+router.get('/elegiveis', async (req, res) => {
+  try {
+    return res.json({ ok: true, data: await DB.membrosElegiveis(req.empresa.id) })
+  } catch (err) { return envelopeErro(res, err, 'EQUIPES_ELEGIVEIS_FAILED') }
+})
+
 router.get('/:equipeId', async (req, res) => {
   try {
     const equipe = await DB.equipeComMembros(req.empresa.id, req.params.equipeId)

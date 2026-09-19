@@ -286,8 +286,53 @@ async function equipeAtivaDoUsuario(empresaId, usuarioId) {
   return rows[0] || null
 }
 
+/**
+ * Quem pode entrar numa equipe, JA' com a equipe atual de cada pessoa.
+ *
+ * Existe para o seletor poder avisar "esta pessoa ja' esta no Time Solar" ANTES de submeter. O
+ * banco recusa o segundo vinculo (`equipe_membros_um_ativo_por_usuario_uk` -> 409), mas descobrir
+ * isso no POST obriga o gestor a montar a selecao duas vezes sem saber qual das pessoas causou o
+ * conflito — a mensagem de erro fala de "uma das pessoas".
+ *
+ * Nao inclui quem tem vinculo INATIVO na empresa: quem perdeu acesso nao entra em equipe.
+ * `equipe_atual` nulo = livre.
+ */
+async function membrosElegiveis(empresaId) {
+  const { rows } = await pool.query(
+    `SELECT u.id            AS usuario_id,
+            u.nome          AS nome,
+            ue.role         AS papel,
+            eq.id           AS equipe_id,
+            eq.nome         AS equipe_nome,
+            n.nome          AS nicho_nome
+       FROM app.usuarios_empresas ue
+       JOIN app.usuarios u ON u.id = ue.usuario_id
+       LEFT JOIN app.equipe_comercial_membros m
+         ON m.empresa_id = ue.empresa_id AND m.usuario_id = ue.usuario_id AND m.saiu_em IS NULL
+       LEFT JOIN app.equipes_comerciais eq
+         ON eq.id = m.equipe_id AND eq.empresa_id = m.empresa_id AND eq.status = 'ativa'
+       LEFT JOIN app.nichos n
+         ON n.id = eq.nicho_id AND n.empresa_id = eq.empresa_id
+      WHERE ue.empresa_id = $1::uuid
+        AND ue.ativo = true
+      ORDER BY u.nome ASC`,
+    [empresaId]
+  )
+  return rows.map((r) => ({
+    usuario_id: r.usuario_id,
+    nome: r.nome,
+    papel: r.papel,
+    // Um objeto so' quando ha' equipe DE VERDADE: o LEFT JOIN devolve as tres colunas nulas para
+    // quem esta livre, e montar `{id: null}` faria a tela precisar conferir campo por campo.
+    equipe_atual: r.equipe_id
+      ? { id: r.equipe_id, nome: r.equipe_nome, nicho_nome: r.nicho_nome }
+      : null,
+  }))
+}
+
 module.exports = {
   equipeAtivaDoUsuario,
+  membrosElegiveis,
   listarEquipes,
   equipeComMembros,
   criarEquipe,

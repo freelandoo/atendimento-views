@@ -219,11 +219,11 @@ test('quem nao esta em equipe nao ve aviso de recorte', () => {
 test('o aviso nomeia o nicho, e a equipe quando existe', () => {
   assert.equal(
     L.avisoDeEquipe({ equipe_nome: 'Time Solar', nicho_nome: 'Energia Solar' }),
-    'Time Solar · mostrando apenas leads do nicho Energia Solar'
+    'Time Solar · você está vendo leads do nicho Energia Solar'
   )
   assert.equal(
     L.avisoDeEquipe({ equipe_nome: null, nicho_nome: 'Energia Solar' }),
-    'mostrando apenas leads do nicho Energia Solar'
+    'você está vendo leads do nicho Energia Solar'
   )
 })
 

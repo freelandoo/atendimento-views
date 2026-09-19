@@ -91,6 +91,10 @@ const NAV = [
       // Contas da EMPRESA (Etapa 2). Desde a Etapa 6.3 o item filtra pela MESMA capacidade que
       // o backend exige na rota — os dois passaram a falar a mesma língua.
       { tipo: 'item', href: '/dashboard/contas-empresa', label: 'Contas da empresa', icon: 'accounts', capacidade: 'membros_gerenciar' },
+      // Equipes por Nicho. MESMA capacidade que o backend exige no mount de
+      // `/equipes-comerciais` — e a MESMA de "Contas da empresa", de proposito: as duas decidem
+      // como a operacao e' organizada. Acesso (papel) fica la'; carteira (nicho) fica aqui.
+      { tipo: 'item', href: '/dashboard/equipes-comerciais', label: 'Equipes comerciais', icon: 'accounts', capacidade: 'membros_gerenciar' },
       { tipo: 'item', href: '/dashboard/contas', label: 'Contas', icon: 'accounts', minRole: 'superadmin' },
     ],
   },
