@@ -68,8 +68,9 @@ Definidos em `frontend/tailwind.config.ts`. São **semânticos**: dizem o papel,
   que saem junto com a repaginação de cada tela — não num passe global).
 - **Sombra:** `shadow-card` para card/superfície (mesmo valor de `shadow-sm`). Sombra forte
   (`shadow-xl`/`2xl`) só em modal e popover, que flutuam sobre o conteúdo.
-- **Espaçamento:** múltiplos de 4. Padding de card `p-4`, de página `p-5`/`sm:p-8` (já no
-  layout). Densidade de tabela: `py-2` por linha — a tabela é para varrer, não para respirar.
+- **Espaçamento:** múltiplos de 4. Padding de card `p-5` (`p-4` em listagem densa — é o que
+  `Card` já faz com `compacto`), de página `p-5`/`sm:p-8` (já no layout). Densidade de tabela:
+  `py-2` por linha — a tabela é para varrer, não para respirar.
 
 ## Princípios
 
@@ -89,15 +90,31 @@ Definidos em `frontend/tailwind.config.ts`. São **semânticos**: dizem o papel,
 
 ## Componentes
 
-Antes de criar, procure em `frontend/components/ui/`. Existem hoje: `Abas`, `BalaoAjuda`,
-`BolinhaPontuacao`, `DataTableFrame`, `InterruptorAtivacao`, `MenuRadialAcoes`, `ModalConfirmar`,
-`ModalAgenda`, `NeonProgress`, `NichoCidade`, `TextoTruncado`, `JsonLeadModal`, `icons`.
+Antes de criar, procure em `frontend/components/ui/`.
 
-- **Botões:** primária (`bg-brand`, texto branco), secundária (`bg-surface` + `border-line`),
-  perigosa (`estado-danger`) e neutra (fantasma). **Ainda não existe componente** — cada tela
-  escreve à mão. É a Etapa 2 da repaginação.
+**Primitivos — use sempre que couber:** `Botao`, `Card`, `Campo`, `EstadoVazio`, `Carregando`,
+`CabecalhoPagina`. As classes deles vivem em `frontend/lib/ui-primitivos.js` (puro e testado) e
+o componente só desenha. **Não escreva botão, card ou input à mão em tela nova.**
+
+**Específicos:** `Abas`, `BalaoAjuda`, `BolinhaPontuacao`, `DataTableFrame`, `InterruptorAtivacao`,
+`MenuRadialAcoes`, `ModalConfirmar`, `ModalAgenda`, `NeonProgress`, `NichoCidade`, `TextoTruncado`,
+`JsonLeadModal`, `icons`.
+
+- **Botões:** `<Botao variante="primaria|secundaria|perigosa|neutra" tamanho="sm|md">`. Ele já
+  traz foco visível, `disabled`, `type="button"` (o padrão do HTML dentro de `<form>` é `submit`,
+  e envio acidental é defeito clássico) e o estado `carregando`, que **desabilita** — o segundo
+  clique durante um envio é a origem do disparo em duplicidade. Use `motivoDesabilitado` quando
+  houver decisão de produto a explicar.
 - **Badges:** pill, cor semântica + rótulo em texto.
-- **Campos:** `bg-surface`, `border-line`, foco com outline visível em `brand`.
+- **Campos:** `<Campo etiqueta="…" erro="…" ajuda="…">` em volta do controle. Ele liga
+  `label`/`id`, `aria-describedby` e `aria-invalid`, e aplica as classes da entrada — fiação que
+  ninguém faz à mão, e por isso rótulo que não clica e erro que o leitor de tela nunca anuncia.
+  **Ele não valida nada**: a regra é de quem a tem.
+- **Estado vazio:** `<EstadoVazio>`. Vazio por **filtro** e vazio por **ausência** pedem saídas
+  diferentes — "nenhum lead" manda procurar defeito, "nenhum lead com estes filtros" manda
+  limpar o filtro. Quem chama é obrigado a dizer qual é.
+- **Espera:** `<Carregando>` (`role="status"`). Diga o que carrega quando souber.
+- **Cabeçalho de página:** `<CabecalhoPagina>` — um `<h1>` por tela, nunca dois.
 - **Tabelas:** cabeçalho fixo quando houver rolagem, linhas finas, `DataTableFrame` como moldura.
 - **Modais:** `bg-surface`, backdrop escuro translúcido, ações no fim. Confirmação destrutiva
   usa `ModalConfirmar` — **`window.confirm` é proibido**.

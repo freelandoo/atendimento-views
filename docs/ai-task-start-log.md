@@ -4385,3 +4385,18 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   (regra ja vigente em `BolinhaPontuacao` e `AlternadorModoIa`) vale para tudo que for criado;
   componente morto so sai depois de confirmado que nao ha import; validacao por
   `tsc --noEmit` + `node --test lib/*.test.js` (o front **nao tem** ESLint configurado).
+
+## 2026-09-18 — Repaginacao visual das telas — Etapa 2: primitivos de tela
+
+- **Pedido do operador:** seguir para a Etapa 2 depois da fundacao (commit `c9b4abf`).
+- **E projeto/tarefa de alteracao?** Sim. Cria componentes novos em `frontend/components/ui/`.
+  **Nenhuma tela existente e alterada nesta etapa** — adocao e' Etapa 3 em diante.
+- **Escopo pretendido:** `Botao` (primaria/secundaria/perigosa/neutra — as 4 variantes que o
+  guia visual exige e que nenhum componente implementa hoje), `Card`, `Campo`, `EstadoVazio`,
+  `Carregando` e `CabecalhoPagina`.
+- **Metodo (o mesmo dos tokens):** os primitivos nascem com a GEOMETRIA e as CLASSES que as
+  telas ja usam, medidas no codigo — para que adotar um primitivo depois nao mude aparencia.
+- **Fora de escopo:** adotar os primitivos em qualquer tela, mexer em backend, e a normalizacao
+  de raio/literais (que muda aparencia e vai junto com a repaginacao de cada tela).
+- **Cuidado de concorrencia:** ha OUTRA sessao trabalhando neste repo (commits `bf0a324`,
+  `1d5958d` e WIP de "missao por equipe"). Esta etapa so cria arquivos novos, entao nao colide.

@@ -59,6 +59,37 @@ Registre aqui toda divergência visual autorizada pelo usuário.
 
 -->
 
+### 2026-09-18 — Primitivos de tela (`Botao`, `Card`, `Campo`, `EstadoVazio`, `Carregando`, `CabecalhoPagina`)
+
+- **Padrão aprovado:** tela nova **não escreve botão, card ou input à mão**. Os primitivos vivem
+  em `frontend/components/ui/` e as classes deles em `frontend/lib/ui-primitivos.js` (puro e
+  testado, 12 testes) — mesmo contrato de `lib/pontuacao-indicador.js`: o módulo decide as
+  classes, o componente só desenha.
+- **Motivo (medido em 2026-09-18):** **155 botões** escritos à mão nas telas, **nenhum igual ao
+  outro**; **metade sem qualquer tratamento de `disabled`**; e quase nenhum com anel de foco.
+  O guia exigia quatro variantes de botão desde sempre e não havia componente que as
+  implementasse.
+- **A geometria não foi inventada, foi medida:** `rounded-lg` (111 dos botões com raio),
+  dois tamanhos reais (`px-3 py-1.5` / `px-4 py-2`), `font-medium`, card `p-5`. Por isso
+  adotar um primitivo numa tela **tende a não mudar aparência**.
+- **O que os primitivos passam a garantir de graça, e que hoje falta:** foco visível em todos
+  os estados, `disabled` com opacidade e cursor, `type="button"` por padrão (o padrão do HTML
+  dentro de `<form>` é `submit` — envio acidental é defeito clássico), `carregando` que
+  **desabilita** (o segundo clique durante um envio é a origem do disparo em duplicidade) e o
+  estado entrando no **nome acessível**, não só na cor.
+- **Ressalva declarada — a única adoção que MUDA aparência:** existem hoje 4 botões destrutivos
+  escritos como *texto vermelho* e 1 como *sólido*. O primitivo `perigosa` é **sólido**, que é
+  o padrão para ação destrutiva. Migrar aqueles 4 muda o visual deles — é mudança legítima, mas
+  acontece na etapa da tela correspondente, **com verificação visual**, nunca num passe global.
+- **`Campo` clona o filho de propósito:** `label`/`id`, `aria-describedby` e `aria-invalid`
+  precisam casar, e casar isso à mão em cada tela é justamente o que ninguém faz — o resultado
+  são rótulos que não clicam e erros que o leitor de tela nunca anuncia. Ele **não valida nada**:
+  validar aqui criaria uma segunda régua, mais frouxa que a do backend.
+- **`EstadoVazio` obriga quem chama a distinguir vazio por FILTRO de vazio por AUSÊNCIA.** As
+  saídas são opostas: uma manda limpar o filtro, a outra manda procurar defeito.
+- **Nenhuma tela foi alterada nesta etapa.** A adoção é a Etapa 3 em diante, tela a tela.
+- **Como validar:** `cd frontend && npx tsc --noEmit`, `node --test lib/*.test.js`, `npm run build`.
+
 ### 2026-09-18 — Fronteira dos dois temas + tokens semânticos do tema claro (fundação)
 
 - **Divergência aprovada:** o produto passa a declarar **dois temas com fronteira fixa** —
