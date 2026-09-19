@@ -35,9 +35,10 @@ function erro(mensagem, statusCode = 400, code = 'BAD_REQUEST') {
 }
 
 const COLS = `
-  id, empresa_id, titulo, descricao, metrica, alvo_valor, moeda, inicio, fim,
-  recompensa_descricao, recompensa_valor, status,
-  encerrada_em, encerrada_por, encerrada_motivo, criado_por, criado_em`
+  m.id, m.empresa_id, m.equipe_id, eq.nome AS equipe_nome, n.nome AS nicho_nome,
+  m.titulo, m.descricao, m.metrica, m.alvo_valor, m.moeda, m.inicio, m.fim,
+  m.recompensa_descricao, m.recompensa_valor, m.status,
+  m.encerrada_em, m.encerrada_por, m.encerrada_motivo, m.criado_por, m.criado_em`
 
 // Os dois status em que o dinheiro ja foi confirmado. `cancelada` e `aguardando_pagamento` ficam
 // de fora: a missao mede o que o cliente PAGOU.
@@ -45,31 +46,62 @@ const STATUS_PAGOS = [VENDA_STATUS.COMISSAO_LIBERADA, VENDA_STATUS.COMISSAO_PAGA
 
 // ─── Leitura ─────────────────────────────────────────────────────────────────────────────
 
-async function missaoAtiva(empresaId, client = pool) {
-  const { rows } = await client.query(
-    `SELECT ${COLS} FROM app.missoes
-      WHERE empresa_id = $1 AND status = $2
-      LIMIT 1`,
-    [empresaId, M.STATUS.ATIVA]
-  )
-  return rows[0] || null
+function joinEquipe() {
+  return `LEFT JOIN app.equipes_comerciais eq ON eq.id = m.equipe_id AND eq.empresa_id = m.empresa_id
+          LEFT JOIN app.nichos n ON n.id = eq.nicho_id AND n.empresa_id = eq.empresa_id`
 }
 
-async function obterMissao(empresaId, missaoId) {
-  const { rows } = await pool.query(
-    `SELECT ${COLS} FROM app.missoes WHERE empresa_id = $1 AND id = $2::uuid LIMIT 1`,
+async function buscarMissao(client, empresaId, missaoId) {
+  const { rows } = await client.query(
+    `SELECT ${COLS}
+       FROM app.missoes m
+       ${joinEquipe()}
+      WHERE m.empresa_id = $1 AND m.id = $2::uuid
+      LIMIT 1`,
     [empresaId, missaoId]
   )
   return rows[0] || null
 }
 
-async function listarMissoes(empresaId, { limite = 20 } = {}) {
+async function missaoAtiva(empresaId, { equipeId = null } = {}, client = pool) {
+  const params = [empresaId, M.STATUS.ATIVA]
+  const condEquipe = equipeId
+    ? (params.push(equipeId), `AND m.equipe_id = $${params.length}::uuid`)
+    : 'AND m.equipe_id IS NULL'
+  const { rows } = await client.query(
+    `SELECT ${COLS}
+       FROM app.missoes m
+       ${joinEquipe()}
+      WHERE m.empresa_id = $1 AND m.status = $2
+        ${condEquipe}
+      LIMIT 1`,
+    params
+  )
+  return rows[0] || null
+}
+
+async function obterMissao(empresaId, missaoId) {
+  return buscarMissao(pool, empresaId, missaoId)
+}
+
+async function listarMissoes(empresaId, { limite = 20, equipeId = null } = {}) {
+  const params = [empresaId]
+  const conds = ['m.empresa_id = $1']
+  if (equipeId) {
+    params.push(equipeId)
+    // As missoes GERAIS legadas (equipe_id nulo) valiam para a empresa inteira, entao continuam
+    // no historico de quem hoje esta numa equipe: elas fazem parte do programa que essa pessoa viveu.
+    conds.push(`(m.equipe_id = $${params.length}::uuid OR m.equipe_id IS NULL)`)
+  }
+  params.push(Math.min(Math.max(Number(limite) || 20, 1), 100))
   const { rows } = await pool.query(
-    `SELECT ${COLS} FROM app.missoes
-      WHERE empresa_id = $1
-      ORDER BY inicio DESC, criado_em DESC
-      LIMIT $2`,
-    [empresaId, Math.min(Math.max(Number(limite) || 20, 1), 100)]
+    `SELECT ${COLS}
+       FROM app.missoes m
+       ${joinEquipe()}
+      WHERE ${conds.join(' AND ')}
+      ORDER BY m.inicio DESC, m.criado_em DESC
+      LIMIT $${params.length}`,
+    params
   )
   return rows
 }
@@ -109,6 +141,17 @@ async function progressoDaPessoa(empresaId, missao, usuarioId) {
  * ordenar gente por resultado e' ranking, que e' outra etapa e outra decisao.
  */
 async function alcancaramOAlvo(empresaId, missao) {
+  const params = [empresaId, missao.alvo_valor, missao.inicio, missao.fim, STATUS_PAGOS]
+  const filtroEquipe = missao.equipe_id
+    ? (params.push(missao.equipe_id), `AND EXISTS (
+          SELECT 1
+            FROM app.equipe_comercial_membros em
+           WHERE em.empresa_id = v.empresa_id
+             AND em.equipe_id = $${params.length}::uuid
+             AND em.usuario_id = v.originador_id
+             AND em.saiu_em IS NULL
+        )`)
+    : ''
   const { rows } = await pool.query(
     `SELECT v.originador_id AS usuario_id, u.nome,
             SUM(v.comissao_base) AS valor, COUNT(*)::int AS vendas
@@ -118,10 +161,11 @@ async function alcancaramOAlvo(empresaId, missao) {
         AND v.originador_id IS NOT NULL
         AND v.status = ANY($5::text[])
         AND ${JANELA_SQL}
+        ${filtroEquipe}
       GROUP BY v.originador_id, u.nome
      HAVING SUM(v.comissao_base) >= $2::numeric
       ORDER BY u.nome ASC`,
-    [empresaId, missao.alvo_valor, missao.inicio, missao.fim, STATUS_PAGOS]
+    params
   )
   return rows.map((r) => ({
     usuario_id: r.usuario_id,
@@ -163,7 +207,7 @@ async function publicarMissao(empresaId, dados, autorId) {
   try {
     await client.query('BEGIN')
 
-    const ativa = await missaoAtiva(empresaId, client)
+    const ativa = await missaoAtiva(empresaId, { equipeId: dados.equipe_id }, client)
     const veredito = M.avaliarPublicacao(ativa)
     if (!veredito.permitido) {
       throw erro(
@@ -189,15 +233,15 @@ async function publicarMissao(empresaId, dados, autorId) {
 
     const { rows } = await client.query(
       `INSERT INTO app.missoes
-         (empresa_id, titulo, descricao, metrica, alvo_valor, inicio, fim,
+         (empresa_id, equipe_id, titulo, descricao, metrica, alvo_valor, inicio, fim,
           recompensa_descricao, recompensa_valor, status, criado_por)
-       VALUES ($1, $2, $3, $4, $5::numeric, $6::date, $7::date, $8, $9::numeric, $10, $11)
-       RETURNING ${COLS}`,
-      [empresaId, dados.titulo, dados.descricao, dados.metrica, dados.alvo_valor,
+       VALUES ($1, $2::uuid, $3, $4, $5, $6::numeric, $7::date, $8::date, $9, $10::numeric, $11, $12)
+       RETURNING id`,
+      [empresaId, dados.equipe_id, dados.titulo, dados.descricao, dados.metrica, dados.alvo_valor,
         dados.inicio, dados.fim, dados.recompensa_descricao, dados.recompensa_valor,
         M.STATUS.ATIVA, autorId || null]
     )
-    const missao = rows[0]
+    const missao = await buscarMissao(client, empresaId, rows[0].id)
 
     await auditar(client, {
       empresaId, usuarioId: autorId, acao: 'missao_publicada', entidadeId: missao.id,
@@ -206,6 +250,8 @@ async function publicarMissao(empresaId, dados, autorId) {
       // uma pessoa. Nenhum nome, e-mail ou telefone entra aqui.
       contexto: {
         metrica: missao.metrica,
+        equipe_id: missao.equipe_id,
+        equipe_nome: missao.equipe_nome || null,
         alvo_valor: String(missao.alvo_valor),
         inicio: dados.inicio,
         fim: dados.fim,
@@ -219,7 +265,7 @@ async function publicarMissao(empresaId, dados, autorId) {
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {})
     if (e.code === '23505') {
-      throw erro('Já existe uma missão ativa nesta empresa.', 409, 'MISSAO_ATIVA_EM_ANDAMENTO')
+      throw erro('Já existe uma missão ativa para esta equipe.', 409, 'MISSAO_ATIVA_EM_ANDAMENTO')
     }
     throw e
   } finally {
@@ -242,7 +288,7 @@ async function encerrarMissao(empresaId, missaoId, usuarioId) {
       `UPDATE app.missoes
           SET status = $3, encerrada_em = NOW(), encerrada_por = $4, encerrada_motivo = $5
         WHERE id = $1::uuid AND empresa_id = $2 AND status = $6
-        RETURNING ${COLS}`,
+        RETURNING id`,
       [missaoId, empresaId, M.STATUS.ENCERRADA, usuarioId || null,
         M.MOTIVO_ENCERRAMENTO.DECISAO, M.STATUS.ATIVA]
     )
@@ -250,13 +296,14 @@ async function encerrarMissao(empresaId, missaoId, usuarioId) {
       await client.query('ROLLBACK')
       return null
     }
+    const missao = await buscarMissao(client, empresaId, rows[0].id)
     await auditar(client, {
       empresaId, usuarioId, acao: 'missao_encerrada', entidadeId: missaoId,
       estadoAnterior: M.STATUS.ATIVA, estadoNovo: M.STATUS.ENCERRADA,
       contexto: { motivo: M.MOTIVO_ENCERRAMENTO.DECISAO },
     })
     await client.query('COMMIT')
-    return rows[0]
+    return missao
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {})
     throw e

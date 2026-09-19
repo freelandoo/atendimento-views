@@ -207,3 +207,12 @@ test('formatarDinheiro e REEXPORTADO da comissao, nao reescrito', () => {
   assert.ok(!/function formatarDinheiro/.test(FONTE))
   assert.equal(M.formatarDinheiro, require('./comissao').formatarDinheiro)
 })
+
+test('GUARDA: tela de Comissao publica missao sempre com equipe', () => {
+  const tela = fs.readFileSync(path.join(__dirname, '..', 'app', 'dashboard', 'comissao', 'page.tsx'), 'utf8')
+  assert.match(tela, /type EquipeMissao =/)
+  assert.match(tela, /apiFetch<EquipeMissao\[\]>\(`\/api\/empresas\/\$\{empresaId\}\/equipes-comerciais`\)/)
+  assert.match(tela, /equipe_id: equipeId/)
+  assert.match(tela, /desabilitado=\{!equipeId\}/)
+  assert.match(tela, /Missão da equipe/)
+})

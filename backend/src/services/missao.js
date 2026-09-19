@@ -164,6 +164,7 @@ function avaliarPublicacao(missaoAtiva, agora) {
 // ─── Validacao da entrada ───────────────────────────────────────────────────────────────
 
 const RECUSAS = Object.freeze({
+  EQUIPE: 'equipe',
   TITULO: 'titulo',
   METRICA: 'metrica',
   ALVO: 'alvo',
@@ -173,6 +174,7 @@ const RECUSAS = Object.freeze({
 })
 
 const MENSAGEM_RECUSA = Object.freeze({
+  [RECUSAS.EQUIPE]: 'Selecione a equipe desta missão.',
   [RECUSAS.TITULO]: `O título da missão precisa ter entre ${TITULO_MIN} e ${TITULO_MAX} caracteres.`,
   [RECUSAS.METRICA]: 'Métrica desconhecida.',
   [RECUSAS.ALVO]: 'O alvo precisa ser um valor maior que zero.',
@@ -190,6 +192,11 @@ const MENSAGEM_RECUSA = Object.freeze({
  */
 function validarMissao(body = {}) {
   const b = body || {}
+
+  const equipeId = textoLimpo(b.equipe_id)
+  if (!equipeId) {
+    return { ok: false, recusa: RECUSAS.EQUIPE, mensagem: MENSAGEM_RECUSA[RECUSAS.EQUIPE] }
+  }
 
   const titulo = textoLimpo(b.titulo)
   if (titulo.length < TITULO_MIN || titulo.length > TITULO_MAX) {
@@ -231,6 +238,7 @@ function validarMissao(body = {}) {
     ok: true,
     dados: {
       titulo,
+      equipe_id: equipeId,
       descricao: textoLimpo(b.descricao) || null,
       metrica,
       alvo_valor: alvo,

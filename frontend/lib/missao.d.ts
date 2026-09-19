@@ -3,6 +3,9 @@ export type SituacaoMissao = 'agendada' | 'vigente' | 'prazo_vencido' | 'encerra
 
 export interface Missao {
   id: string
+  equipe_id?: string | null
+  equipe_nome?: string | null
+  nicho_nome?: string | null
   titulo: string
   descricao: string | null
   metrica: string

@@ -109,6 +109,7 @@ test('missao AGENDADA tambem bloqueia: ela ainda vai valer', () => {
 // ─── Validação ───────────────────────────────────────────────────────────────────────────
 
 const VALIDA = Object.freeze({
+  equipe_id: '11111111-1111-4111-8111-111111111111',
   titulo: 'Desafio de setembro',
   alvo_valor: 20000,
   inicio: '2026-09-01',
@@ -119,9 +120,16 @@ const VALIDA = Object.freeze({
 test('missao valida passa e a metrica tem padrao (a unica que existe)', () => {
   const r = M.validarMissao(VALIDA)
   assert.equal(r.ok, true)
+  assert.equal(r.dados.equipe_id, VALIDA.equipe_id)
   assert.equal(r.dados.metrica, M.METRICA.FATURAMENTO_PAGO_ORIGINADO)
   assert.equal(r.dados.alvo_valor, 20000)
   assert.equal(r.dados.recompensa_valor, null, 'recompensa em dinheiro e opcional')
+})
+
+test('missao nova exige equipe', () => {
+  const r = M.validarMissao({ ...VALIDA, equipe_id: '' })
+  assert.equal(r.ok, false)
+  assert.equal(r.recusa, M.RECUSAS.EQUIPE)
 })
 
 test('metrica DESCONHECIDA e recusada, nunca trocada pelo padrao em silencio', () => {
@@ -303,8 +311,13 @@ test('a migration e ADITIVA e nao muta dado', () => {
   assert.ok(!/ALTER TABLE app\.(vendas|comissao_planos|usuarios|empresas)\b/i.test(migration))
 })
 
-test('UMA missao ativa por empresa e garantia do BANCO', () => {
-  assert.match(migration, /CREATE UNIQUE INDEX[\s\S]*missoes[\s\S]*\(empresa_id\)[\s\S]*WHERE status = 'ativa'/)
+test('a etapa por equipe troca a unicidade para UMA missao ativa por equipe', () => {
+  const migracaoEquipe = fonte('sql/migrations/089_missao_por_equipe.sql')
+  assert.match(migracaoEquipe, /ADD COLUMN IF NOT EXISTS equipe_id UUID REFERENCES app\.equipes_comerciais/)
+  assert.match(migracaoEquipe, /DROP INDEX IF EXISTS missoes_uma_ativa_por_empresa_uk/)
+  assert.match(migracaoEquipe, /missoes_uma_ativa_por_equipe_uk[\s\S]*\(empresa_id, equipe_id\)[\s\S]*WHERE status = 'ativa' AND equipe_id IS NOT NULL/)
+  assert.match(migracaoEquipe, /missoes_uma_ativa_geral_por_empresa_uk[\s\S]*WHERE status = 'ativa' AND equipe_id IS NULL/,
+    'missoes legadas sem equipe continuam com unicidade propria')
 })
 
 test('o BANCO recusa encerramento sem data e sem motivo', () => {
@@ -369,6 +382,46 @@ test('NAO existe rota que devolva o progresso PARCIAL de outra pessoa', () => {
     'a lista do dono e filtrada por quem bateu o alvo, nao um extrato de todo mundo')
   assert.ok(/ORDER BY u\.nome ASC/.test(db),
     'ordenar por VALOR seria ranking; a ordem e alfabetica de proposito')
+})
+
+test('missao ativa e publicada por equipe, nao pela empresa inteira', () => {
+  const db = fonte('src/db/missao.js')
+  assert.ok(/missaoAtiva\(empresaId, \{ equipeId = null \}/.test(db))
+  assert.ok(/m\.equipe_id = \$\$\{params\.length\}::uuid/.test(db) || /m\.equipe_id = \$\d+::uuid/.test(db))
+  assert.ok(db.includes('dados.equipe_id'), 'publicarMissao precisa gravar equipe_id')
+  assert.ok(db.includes('missoes_uma_ativa_por_equipe_uk') || fonte('sql/migrations/089_missao_por_equipe.sql').includes('missoes_uma_ativa_por_equipe_uk'))
+})
+
+test('a missao GERAL legada (085) continua visivel depois da missao por equipe', () => {
+  // A 089 deixou `equipe_id` nullable de proposito: uma empresa que ja tinha desafio publicado
+  // pela 085 nao pode ve-lo sumir da tela no deploy. Quem garante isso e' a rota — a missao da
+  // equipe tem precedencia, e na falta dela cai para a geral.
+  const rota = fonte('src/routes/api-missoes.js')
+  assert.ok(/\|\| await DB\.missaoAtiva\(req\.empresa\.id\)/.test(rota),
+    'sem missao da equipe, a geral legada precisa aparecer')
+  assert.ok(/: await DB\.missaoAtiva\(req\.empresa\.id\)/.test(rota),
+    'quem nao tem equipe nenhuma ainda ve a missao geral')
+
+  const db = fonte('src/db/missao.js')
+  assert.ok(/m\.equipe_id IS NULL/.test(db),
+    'a consulta precisa saber alcancar a missao sem equipe')
+  // E o filtro por equipe nao pode APAGAR o historico geral de quem hoje esta numa equipe.
+  assert.ok(/m\.equipe_id = \$\$\{params\.length\}::uuid OR m\.equipe_id IS NULL/.test(db),
+    'o historico da equipe inclui os desafios gerais que a pessoa viveu')
+
+  const sql = fonte('sql/migrations/089_missao_por_equipe.sql')
+  assert.ok(/ADD COLUMN IF NOT EXISTS equipe_id UUID/.test(sql))
+  assert.ok(!/NOT NULL/.test(sql.split('ADD COLUMN')[1].split(';')[0]),
+    'tornar equipe_id obrigatorio no banco quebraria as missoes ja publicadas')
+  assert.ok(/missoes_uma_ativa_geral_por_empresa_uk/.test(sql),
+    'duas missoes gerais ativas continuariam sendo ambiguidade')
+})
+
+test('lista de quem alcancou fica dentro dos membros ativos da equipe da missao', () => {
+  const db = fonte('src/db/missao.js')
+  assert.ok(/app\.equipe_comercial_membros em/.test(db), 'alcancaramOAlvo precisa consultar membros da equipe')
+  assert.ok(/em\.equipe_id = \$\$\{params\.length\}::uuid/.test(db) || /em\.equipe_id = \$\d+::uuid/.test(db))
+  assert.ok(/em\.saiu_em IS NULL/.test(db), 'membro que saiu da equipe nao entra na conquista da missao')
 })
 
 test('as ESCRITAS exigem COMISSAO_GERENCIAR; o mount libera so a LEITURA', () => {

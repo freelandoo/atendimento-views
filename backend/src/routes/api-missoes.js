@@ -21,6 +21,8 @@ const { requireAuth, requireEmpresaAccess, requireCapacidade } = require('../mid
 const { CAPACIDADES: CAP, podeCapacidade } = require('../services/acesso-capacidades')
 const M = require('../services/missao')
 const DB = require('../db/missao')
+const EQ = require('../db/equipes-comerciais')
+const { recorteDeNicho } = require('../services/equipes-comerciais')
 const { logger } = require('../logger')
 
 const router = express.Router({ mergeParams: true })
@@ -42,6 +44,41 @@ const podeGerenciar = (req) => podeCapacidade({
   papelPlataforma: req.usuario?.role,
 }, CAP.COMISSAO_GERENCIAR)
 
+async function equipeDaMissao(req) {
+  if (podeGerenciar(req) && req.query.equipe_id) {
+    const equipe = await EQ.equipeComMembros(req.empresa.id, req.query.equipe_id)
+    return equipe && equipe.status === 'ativa'
+      ? {
+        equipe_id: equipe.id,
+        equipe_nome: equipe.nome,
+        nicho_id: equipe.nicho_id,
+        nicho_nome: equipe.nicho_nome,
+      }
+      : null
+  }
+  const equipe = await EQ.equipeAtivaDoUsuario(req.empresa.id, req.usuario.id)
+  const recorte = recorteDeNicho(equipe)
+  return recorte
+    ? {
+      equipe_id: recorte.equipe_id,
+      equipe_nome: recorte.equipe_nome,
+      nicho_id: recorte.nicho_id,
+      nicho_nome: recorte.nicho_nome,
+    }
+    : null
+}
+
+async function assertEquipeAtiva(req, equipeId) {
+  const equipe = await EQ.equipeComMembros(req.empresa.id, equipeId)
+  if (!equipe || equipe.status !== 'ativa') {
+    const err = new Error('Equipe não encontrada ou inativa nesta empresa.')
+    err.statusCode = 400
+    err.code = 'EQUIPE_INVALIDA'
+    throw err
+  }
+  return equipe
+}
+
 /**
  * GET / — a missão ativa, o MEU progresso e (para quem gerencia) quem já alcançou.
  *
@@ -51,9 +88,16 @@ const podeGerenciar = (req) => podeCapacidade({
  */
 router.get('/', async (req, res) => {
   try {
-    const missao = await DB.missaoAtiva(req.empresa.id)
+    const equipe = await equipeDaMissao(req)
+    // A missao da EQUIPE tem precedencia. Na falta dela, cai para a missao GERAL legada (085):
+    // a 089 deixou `equipe_id` nullable justamente para nao apagar da tela um desafio que ja
+    // estava valendo, e ignora-lo aqui anularia esse cuidado.
+    const missao = equipe
+      ? (await DB.missaoAtiva(req.empresa.id, { equipeId: equipe.equipe_id })
+         || await DB.missaoAtiva(req.empresa.id))
+      : await DB.missaoAtiva(req.empresa.id)
     if (!missao) {
-      return res.json({ ok: true, data: { missao: null }, meta: { pode_gerenciar: podeGerenciar(req) } })
+      return res.json({ ok: true, data: { missao: null }, meta: { pode_gerenciar: podeGerenciar(req), equipe } })
     }
 
     const bruto = await DB.progressoDaPessoa(req.empresa.id, missao, req.usuario.id)
@@ -85,7 +129,7 @@ router.get('/', async (req, res) => {
         },
         alcancaram,
       },
-      meta: { pode_gerenciar: podeGerenciar(req), usuario_id: req.usuario.id },
+      meta: { pode_gerenciar: podeGerenciar(req), usuario_id: req.usuario.id, equipe },
     })
   } catch (err) { return envelopeErro(res, err, 'MISSAO_LOAD_FAILED') }
 })
@@ -93,11 +137,22 @@ router.get('/', async (req, res) => {
 /** GET /historico — as missões já publicadas. Leitura de todos: o histórico do programa é do time. */
 router.get('/historico', async (req, res) => {
   try {
-    const missoes = await DB.listarMissoes(req.empresa.id, { limite: req.query.limite })
+    const gerencia = podeGerenciar(req)
+    const equipe = await equipeDaMissao(req)
+    // Quem gerencia enxerga o programa inteiro; so recorta quando PEDE uma equipe no seletor.
+    // Filtrar pela equipe a que o proprio admin pertence esconderia dele o resto do historico.
+    const recorte = gerencia ? (req.query.equipe_id ? equipe : null) : equipe
+    if (!gerencia && !equipe) {
+      return res.json({ ok: true, data: [], meta: { pode_gerenciar: false, equipe: null } })
+    }
+    const missoes = await DB.listarMissoes(req.empresa.id, {
+      limite: req.query.limite,
+      equipeId: recorte ? recorte.equipe_id : null,
+    })
     return res.json({
       ok: true,
       data: missoes.map((m) => ({ ...m, situacao: M.situacao(m) })),
-      meta: { pode_gerenciar: podeGerenciar(req) },
+      meta: { pode_gerenciar: gerencia, equipe },
     })
   } catch (err) { return envelopeErro(res, err, 'MISSAO_LIST_FAILED') }
 })
@@ -116,6 +171,7 @@ router.post('/', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.COMISS
     })
   }
   try {
+    await assertEquipeAtiva(req, v.dados.equipe_id)
     const missao = await DB.publicarMissao(req.empresa.id, v.dados, req.usuario.id)
     return res.status(201).json({ ok: true, data: { ...missao, situacao: M.situacao(missao) } })
   } catch (err) { return envelopeErro(res, err, 'MISSAO_CREATE_FAILED') }

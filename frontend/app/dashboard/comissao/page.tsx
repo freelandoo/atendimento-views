@@ -515,6 +515,12 @@ type RespostaMissao = {
   alcancaram?: QuemAlcancou[] | null
 }
 
+type EquipeMissao = { id: string; nome: string; nicho_nome?: string | null; status?: string }
+// O recorte que o SERVIDOR resolveu (meta.equipe). A tela declara qual equipe esta vendo em vez
+// de deixar o operador supor — mesma disciplina do recorte declarado nas outras centrais.
+type EquipeRecorte = { equipe_id: string; equipe_nome: string; nicho_nome?: string | null }
+type MetaMissao = { pode_gerenciar: boolean; equipe?: EquipeRecorte | null }
+
 function SecaoMissao({ empresaId }: { empresaId: string }) {
   const [dados, setDados] = useState<RespostaMissao | null>(null)
   const [podeGerenciar, setPodeGerenciar] = useState(false)
@@ -524,17 +530,35 @@ function SecaoMissao({ empresaId }: { empresaId: string }) {
   const [encerrando, setEncerrando] = useState(false)
   const [confirmarEncerrar, setConfirmarEncerrar] = useState(false)
   const [entregar, setEntregar] = useState<{ usuario_id: string; nome: string } | null>(null)
+  const [equipes, setEquipes] = useState<EquipeMissao[]>([])
+  const [equipeId, setEquipeId] = useState('')
+  const [recorte, setRecorte] = useState<EquipeRecorte | null>(null)
 
   const carregar = useCallback(() => {
     setCarregando(true)
     setErro('')
-    apiFetch<RespostaMissao, { pode_gerenciar: boolean }>(`/api/empresas/${empresaId}/missoes`)
-      .then((r) => { setDados(r.data); setPodeGerenciar(Boolean(r.meta?.pode_gerenciar)) })
+    const query = equipeId ? `?equipe_id=${encodeURIComponent(equipeId)}` : ''
+    apiFetch<RespostaMissao, MetaMissao>(`/api/empresas/${empresaId}/missoes${query}`)
+      .then((r) => {
+        setDados(r.data)
+        setPodeGerenciar(Boolean(r.meta?.pode_gerenciar))
+        setRecorte(r.meta?.equipe || null)
+      })
       .catch((e) => setErro(e instanceof Error ? e.message : 'Não foi possível carregar a missão.'))
       .finally(() => setCarregando(false))
-  }, [empresaId])
+  }, [empresaId, equipeId])
+
+  // So' quem gerencia escolhe a equipe — buscar a lista para todo mundo geraria um 403 a cada
+  // carregamento de pagina, do mesmo jeito que as sugestoes de contexto evitam em Instancias.
+  const carregarEquipes = useCallback(() => {
+    if (!podeGerenciar) return
+    apiFetch<EquipeMissao[]>(`/api/empresas/${empresaId}/equipes-comerciais`)
+      .then((r) => setEquipes((r.data || []).filter((e) => e.status !== 'encerrada')))
+      .catch(() => setEquipes([]))
+  }, [empresaId, podeGerenciar])
 
   useEffect(() => { carregar() }, [carregar])
+  useEffect(() => { carregarEquipes() }, [carregarEquipes])
 
   async function encerrar() {
     if (!dados?.missao) return
@@ -569,15 +593,42 @@ function SecaoMissao({ empresaId }: { empresaId: string }) {
           Uma missão é um desafio com recompensa, válido para a equipe por um período. O progresso
           é medido pelo faturamento pago que cada pessoa originou.
         </p>
+        {equipes.length > 0 && (
+          <label className="mt-4 block max-w-md">
+            <span className="text-xs font-medium uppercase tracking-wide text-ink-3">Equipe</span>
+            <select
+              value={equipeId}
+              onChange={(e) => setEquipeId(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-line px-3 py-2 text-sm"
+            >
+              <option value="">
+                {recorte ? `${recorte.equipe_nome} (sua equipe)` : 'Missão geral da empresa'}
+              </option>
+              {equipes.filter((e) => e.id !== recorte?.equipe_id).map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.nome}{e.nicho_nome ? ` · ${e.nicho_nome}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <button
           onClick={() => setPublicando(true)}
-          className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          disabled={equipes.length === 0}
+          className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
         >
           Publicar missão
         </button>
+        {equipes.length === 0 && (
+          <p className="mt-2 text-xs text-ink-3">
+            Crie uma equipe comercial antes de publicar missão. A missão nova sempre pertence a uma equipe.
+          </p>
+        )}
         {publicando && (
           <ModalMissao
             empresaId={empresaId}
+            equipes={equipes}
+            equipeIdInicial={equipeId}
             onFechar={() => setPublicando(false)}
             onSalvo={() => { setPublicando(false); carregar() }}
           />
@@ -605,14 +656,42 @@ function SecaoMissao({ empresaId }: { empresaId: string }) {
           </div>
           <p className="mt-1 text-sm text-slate-600">{situacao.explicacao}</p>
           {missao.descricao && <p className="mt-2 text-sm text-slate-600">{missao.descricao}</p>}
+          {missao.equipe_nome && (
+            <p className="mt-2 inline-block rounded-lg border border-line bg-surface-3 px-2 py-1 text-xs text-ink-2">
+              Missão da equipe {missao.equipe_nome}{missao.nicho_nome ? ` · nicho ${missao.nicho_nome}` : ''}
+            </p>
+          )}
         </div>
         {podeGerenciar && (
-          <button
-            onClick={() => setConfirmarEncerrar(true)}
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
-          >
-            Encerrar missão
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {equipes.length > 1 && (
+              <select
+                value={equipeId}
+                onChange={(e) => setEquipeId(e.target.value)}
+                className="rounded-lg border border-line px-3 py-2 text-sm"
+                aria-label="Escolher equipe da missão"
+              >
+                <option value="">
+                  {missao.equipe_nome
+                    ? `${missao.equipe_nome} (atual)`
+                    : recorte
+                      ? `${recorte.equipe_nome} (sua equipe)`
+                      : 'Missão geral da empresa'}
+                </option>
+                {equipes.filter((e) => e.id !== missao.equipe_id).map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.nome}{e.nicho_nome ? ` · ${e.nicho_nome}` : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              onClick={() => setConfirmarEncerrar(true)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              Encerrar missão
+            </button>
+          </div>
         )}
       </div>
 
@@ -713,7 +792,14 @@ function SecaoMissao({ empresaId }: { empresaId: string }) {
   )
 }
 
-function ModalMissao({ empresaId, onFechar, onSalvo }: { empresaId: string; onFechar: () => void; onSalvo: () => void }) {
+function ModalMissao({ empresaId, equipes, equipeIdInicial, onFechar, onSalvo }: {
+  empresaId: string
+  equipes: EquipeMissao[]
+  equipeIdInicial: string
+  onFechar: () => void
+  onSalvo: () => void
+}) {
+  const [equipeId, setEquipeId] = useState(equipeIdInicial || equipes[0]?.id || '')
   const [titulo, setTitulo] = useState('')
   const [descricao, setDescricao] = useState('')
   const [alvo, setAlvo] = useState('')
@@ -732,6 +818,7 @@ function ModalMissao({ empresaId, onFechar, onSalvo }: { empresaId: string; onFe
         method: 'POST',
         body: JSON.stringify({
           titulo,
+          equipe_id: equipeId,
           descricao: descricao || null,
           alvo_valor: alvo,
           inicio,
@@ -752,10 +839,23 @@ function ModalMissao({ empresaId, onFechar, onSalvo }: { empresaId: string; onFe
   return (
     <Modal titulo="Publicar missão" onFechar={onFechar}>
       <p className="text-sm text-slate-600">
-        A missão vale para toda a equipe comercial e mede o <strong>faturamento pago</strong> que
-        cada pessoa originou no período. Depois de publicada ela não pode ser editada — para
-        mudar, encerre e publique outra.
+        A missão vale para uma equipe comercial e mede o <strong>faturamento pago</strong> que cada
+        pessoa daquela equipe originou no período. Depois de publicada ela não pode ser editada —
+        para mudar, encerre e publique outra.
       </p>
+      <Campo rotulo="Equipe">
+        <select
+          value={equipeId}
+          onChange={(e) => setEquipeId(e.target.value)}
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+        >
+          {equipes.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.nome}{e.nicho_nome ? ` · ${e.nicho_nome}` : ''}
+            </option>
+          ))}
+        </select>
+      </Campo>
       <Campo rotulo="Título">
         <input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Desafio de setembro"
           className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
@@ -791,7 +891,7 @@ function ModalMissao({ empresaId, onFechar, onSalvo }: { empresaId: string; onFe
         dele.
       </p>
       {erro && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{erro}</p>}
-      <Rodape onFechar={onFechar} onConfirmar={salvar} salvando={salvando} rotulo="Publicar missão" />
+      <Rodape onFechar={onFechar} onConfirmar={salvar} salvando={salvando} desabilitado={!equipeId} rotulo="Publicar missão" />
     </Modal>
   )
 }
