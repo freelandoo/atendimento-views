@@ -3789,3 +3789,49 @@ automatico, sincronizacao com Google Calendar e bloqueio por pessoa.
 single-tenant hoje (`dashboard_users`), entao o bloqueio de uma empresa vale para o bot inteiro.
 O `empresa_id` e gravado no espelho para que o dia em que aquela leitura passar a recortar por
 empresa o dado ja esteja la.
+
+---
+
+## 2026-09-19 — Liberar um NICHO inteiro: aprovacao em lote, por script
+
+**Contexto:** o operador pediu para "deixar todos marcados" os leads de **energia solar**, para a
+equipe com foco nesse nicho ter acesso rapido a eles. Decidido no chat: **vincular ao nicho +
+aprovar**, como **execucao unica por script** — nao virou botao de tela.
+
+**O achado que enquadrou o pedido: sao DOIS cadeados, e so' um estava faltando.** `nicho_id` abre o
+**Banco de Leads** para quem esta em equipe (o recorte de `services/equipes-comerciais.js` exclui
+`nicho_id IS NULL` de proposito) e ja foi aplicado em producao pelo backfill de 2026-09-18.
+`qualificacao = 'aprovado'` abre a **Central de Ligacoes**, que e' ESTRITA (`sqlAprovado`: `legado`
+nao passa) — e para isso **nao existia acao em lote em lugar nenhum**: so' "Marcar lead" 1 a 1 no
+Assistente de Oportunidades. E' exatamente o risco que o decision log de 2026-09-18 declarou:
+"Equipe de Energia Solar sem lead aprovado desse nicho = tela vazia".
+
+**Decisao 1 — script, nao rota nem botao.** Escolha do operador. Consequencia aceita: liberar o
+proximo nicho depende de alguem com acesso ao banco. Se isso repetir, a saida e' uma rota com
+`LEAD_TRIAR`, nao copiar o script.
+
+**Decisao 2 — o script SO' PROMOVE: `pendente` e `legado`.** Lead `descartado` NUNCA e'
+ressuscitado — alguem o recusou, e decidir de novo o que uma pessoa ja decidiu e' o defeito R9
+("lead descartado volta por nova importacao"). Lead ja `aprovado` nao e' tocado: `qualificado_em`
+e `qualificado_por` sao `COALESCE`-ados, porque sao a prova de quem triou PRIMEIRO. `status` so'
+sobe, pela MESMA lista fechada de `PATCH /leads/:id/icp` — e ha' guarda que le o fonte da rota e
+falha se as duas divergirem.
+
+**Decisao 3 — aprovar e' ATO HUMANO: `--usuario` e' obrigatorio para gravar.** O script confere
+vinculo ATIVO na empresa e a capacidade `LEAD_TRIAR`, a mesma que a rota de ICP exige por rota.
+Sem isso ele seria uma porta lateral para aprovar em lote o que a tela recusa. Gravar
+`qualificado_por = NULL` afirmaria que ninguem aprovou; inventar um id seria pior.
+
+**Decisao 4 — a auditoria e' gravada DENTRO da transacao do lote**, e nao best-effort como a
+telemetria. Aqui a linha nao e' metrica: e' a prova de quem aprovou e de qual era o estado
+anterior de cada lead — e e' dela que sai o **rollback exato**, que o script imprime. Acao
+propria (`lead_qualificacao_aprovada_em_lote`), distinta de `lead_icp_avaliado`: uma e' decisao
+sobre um lead, a outra sobre um nicho inteiro, e um nome so' as fundiria no historico.
+
+**Consequencia declarada e aceita:** a aprovacao em lote **pula a triagem 1 a 1** daqueles leads e
+abre para eles o disparo e a fila de ligacoes. O aviso aparece no relatorio **inclusive em
+simulacao** — quem simula esta justamente decidindo se vai aplicar.
+
+**Nenhuma migration, nenhuma rota, nenhuma variavel de ambiente, nenhum arquivo de `src/`
+alterado.** Codigo: `scripts/aprovar-leads-por-nicho.js` (+ npm `aprovar:leads-nicho`). Testes:
+`test/aprovar-leads-por-nicho.test.js` (16, sendo 9 guardas que leem o fonte).

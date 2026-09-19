@@ -4465,3 +4465,34 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   `lib/lead-fila-trabalho.js`, `lib/lead-icp.js`, `lib/pontuacao-indicador.js`) — nenhuma
   regra pode migrar para o front; a ordem de trabalho e as duas bolinhas (ICP x cadastro) nao
   podem ser fundidas; e a mudanca de aparencia exige verificacao visual, nunca passe global.
+
+
+## 2026-09-19 — Liberar um NICHO inteiro para a equipe (aprovacao em lote)
+
+- **Pedido do operador:** deixar "todos marcados" os leads do nicho **energia solar**, para que a
+  equipe comercial com foco nesse nicho tenha acesso rapido a todos eles. Decidido no chat:
+  **vincular ao nicho + aprovar**, executado **uma vez, por script** (nao virou botao de tela).
+- **Analise de impacto (o que foi lido antes):** migrations `071_lead_qualificacao.sql`,
+  `087_prospects_nicho_id.sql`, `088_equipes_comerciais.sql`, `047` (auditoria);
+  `src/services/lead-qualificacao.js`, `src/services/equipes-comerciais.js`,
+  `src/services/acesso-capacidades.js`, `src/routes/api-banco-leads.js` (a escrita de aprovacao
+  do ICP, linha ~1403), `scripts/backfill-prospects-nicho.js` e `test/backfill-prospects-nicho.test.js`.
+- **Os DOIS cadeados, que sao distintos:** `nicho_id` abre o **Banco de Leads** para quem esta em
+  equipe (o recorte exclui `nicho_id IS NULL` de proposito); `qualificacao = 'aprovado'` abre a
+  **Central de Ligacoes**, que e' estrita (`sqlAprovado` — `legado` NAO passa). O risco desta
+  combinacao ja estava declarado no decision log de 2026-09-18: "Equipe de Energia Solar sem lead
+  aprovado desse nicho = tela vazia".
+- **Estado encontrado:** o backfill de `nicho_id` JA foi aplicado em producao (o proprio script
+  registra 4.195 vinculados e 870 pendentes em 2026-09-18). Falta so' a aprovacao em lote, que
+  **nao existe em lugar nenhum** — hoje so' ha "Marcar lead" 1 a 1 no Assistente de Oportunidades.
+- **Escopo:** um script novo (`scripts/aprovar-leads-por-nicho.js`), o npm script correspondente e
+  a suite `test/aprovar-leads-por-nicho.test.js`. **Nenhuma migration, nenhuma rota, nenhuma
+  variavel de ambiente, nenhum arquivo de `src/` alterado.**
+- **Cuidados que a implementacao tem de respeitar:** so' PROMOVE `pendente` e `legado` — lead
+  `descartado` NUNCA e' ressuscitado (e' o defeito R9, "lead descartado volta por nova
+  importacao"); `status` so' promove pela lista fechada da rota de ICP; simula por padrao;
+  `DATABASE_URL` explicita; um COMMIT por lote; `qualificado_por` exige uma PESSOA real com a
+  capacidade `LEAD_TRIAR` (aprovar e' ato humano — inventar autor seria afirmar que alguem triou);
+  uma linha de auditoria por lead, sem PII; SQL de rollback impresso.
+- **Consequencia declarada:** aprovar um nicho inteiro PULA a triagem 1 a 1 daqueles leads. E'
+  decisao do operador, tomada no chat, e fica rastreavel em `app.auditoria_eventos`.
