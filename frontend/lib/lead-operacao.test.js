@@ -258,3 +258,11 @@ test('GUARDA: o modulo nao decide QUEM e recortado nem compara nicho', () => {
     assert.ok(!semComentarios.includes(proibido), `lead-operacao.js nao pode conter '${proibido}'`)
   }
 })
+
+test('GUARDA: a Central de Ligacoes tambem declara o recorte da equipe', () => {
+  const tela = fs.readFileSync(path.join(__dirname, '..', 'app', 'dashboard', 'central-ligacoes', 'page.tsx'), 'utf8')
+  assert.match(tela, /import \{ avisoDeEquipe \} from '@\/lib\/lead-operacao'/)
+  assert.match(tela, /apiFetch<LigacaoAtiva\[\], \{ equipe\?: EquipeRecorte \| null \}>/)
+  assert.match(tela, /setEquipeRecorte\(r\.meta\?\.equipe \|\| null\)/)
+  assert.match(tela, /const avisoEquipe = avisoDeEquipe\(equipeRecorte\)/)
+})

@@ -101,6 +101,19 @@ test('listarLigacoesAtivasDaCampanha: UMA consulta, escopada por empresa+campanh
   assert.equal(out[0].estado_sessao, 'em_andamento')
 })
 
+test('listarLigacoesAtivasDaCampanha: recorte de equipe filtra pelo nicho do prospect', async () => {
+  const pool = fakePool([])
+  await listarLigacoesAtivasDaCampanha(pool, 'emp1', {
+    campanhaId: 'camp-1',
+    equipe: { nicho_id: '00000000-0000-0000-0000-000000000123' },
+  })
+  const { sql, params } = pool.calls[0]
+  assert.match(sql, /LEFT JOIN app\.campanha_leads cl_recorte/)
+  assert.match(sql, /p\.id = COALESCE\(l\.prospect_id, cl_recorte\.prospect_id\)/)
+  assert.match(sql, /p\.nicho_id = \$3::uuid/)
+  assert.deepEqual(params, ['emp1', 'camp-1', '00000000-0000-0000-0000-000000000123', 200])
+})
+
 test('listarLigacoesAtivasDaCampanha: resumo pendente sai como aguardando_resumo', async () => {
   const pool = fakePool([{ ...ATIVA, estado_sessao: undefined, chamada_encerrada_em: '2026-08-14T12:05:00.000Z' }])
   const [row] = await listarLigacoesAtivasDaCampanha(pool, 'emp1', { campanhaId: 'camp-1' })

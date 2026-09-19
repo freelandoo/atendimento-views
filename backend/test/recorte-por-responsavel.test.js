@@ -67,6 +67,20 @@ test('a ROTA de ligacoes decide o recorte por LIGACAO_VER_TODAS e diz o escopo',
     'recortar em silencio faria o vendedor achar que perdeu historico')
 })
 
+test('ligacoes tambem declaram e aplicam o recorte por nicho da equipe', () => {
+  assert.ok(rotaLigacoes.includes('equipeAtivaDoUsuario'), 'a rota precisa resolver a equipe ativa')
+  assert.ok(rotaLigacoes.includes('recorteDeNicho'), 'a rota precisa publicar o mesmo meta.equipe do Banco de Leads')
+  assert.ok(/meta: \{[^}]*equipe/.test(rotaLigacoes), 'a Central precisa saber dizer qual recorte recebeu')
+  assert.ok(/iniciarLigacao\(pool[\s\S]*equipe/.test(rotaLigacoes), 'iniciar ligacao precisa receber o recorte')
+  assert.ok(dbLigacoes.includes('assertProspectNoRecorteEquipe'), 'o clique de iniciar precisa bloquear lead fora do nicho')
+  assert.ok(dbLigacoes.includes('LEFT JOIN app.campanha_leads cl_recorte'),
+    'listagens antigas precisam conseguir achar o prospect pela linha da campanha')
+  assert.ok(/p\.id = COALESCE\(l\.prospect_id, cl_recorte\.prospect_id\)/.test(dbLigacoes),
+    'listagens de ligacao precisam filtrar pelo nicho real do prospect')
+  assert.ok(/p\.nicho_id = \$\$\{params\.length\}::uuid/.test(dbLigacoes),
+    'o filtro por nicho precisa ser parametrizado')
+})
+
 test('ligacao ANTIGA sem usuario_id nao entra no recorte de ninguem', () => {
   // Atribui-la a quem esta olhando seria inventar autoria.
   const i = dbLigacoes.indexOf('async function listarLigacoes')

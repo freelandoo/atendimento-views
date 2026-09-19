@@ -17,6 +17,8 @@ const SESSAO = require('../services/sessao-origem')
 const { logger } = require('../logger')
 const { CAPACIDADES: CAP, podeCapacidade } = require('../services/acesso-capacidades')
 const { requireCapacidade } = require('../middleware/tenant')
+const { equipeAtivaDoUsuario } = require('../db/equipes-comerciais')
+const { recorteDeNicho } = require('../services/equipes-comerciais')
 
 const router = Router({ mergeParams: true })
 
@@ -32,6 +34,20 @@ function erro(res, err, code = 'LIGACAO_FAILED', status = err?.statusCode || 500
   return res.status(status).json({ ok: false, error: { code, message } })
 }
 
+function podeVerTodasLigacoes(req) {
+  return podeCapacidade({
+    papel: req.papelEmpresa,
+    permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
+    papelPlataforma: req.usuario?.role,
+  }, CAP.LIGACAO_VER_TODAS)
+}
+
+async function recorteEquipeLigacoes(req, { podeVerTodas } = {}) {
+  if (podeVerTodas || !req.usuario?.id) return null
+  const equipe = await equipeAtivaDoUsuario(req.empresa.id, req.usuario.id)
+  return recorteDeNicho(equipe)
+}
+
 // NOTA: nao existe mais `POST /` (registro direto de ligacao encerrada). Aquele caminho
 // gravava status='encerrada' com duracao vinda do CLIENTE e sem nenhuma ocorrencia de etapa,
 // contaminando app.vw_ligacoes_analiticas. Toda ligacao agora nasce em /iniciar e morre em
@@ -43,10 +59,12 @@ router.post('/iniciar', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const b = req.body || {}
     const org = origem(req)
+    const podeVerTodas = podeVerTodasLigacoes(req)
+    const equipe = await recorteEquipeLigacoes(req, { podeVerTodas })
     const data = await L.iniciarLigacao(pool, req.empresa.id, {
       campanhaId: b.campanha_id, campanhaLeadId: b.campanha_lead_id, prospectId: b.prospect_id,
       telefone: b.telefone, roteiroVersaoId: b.roteiro_versao_id, usuarioId: req.usuario?.id,
-      clientEventId: b.client_event_id, origemSessao: org,
+      clientEventId: b.client_event_id, origemSessao: org, equipe,
     })
     if (data.retomada === false) { // audita so a criacao real (nao a recuperacao)
       A.registrarAuditoria(pool, req.empresa.id, { usuarioId: req.usuario?.id, entidadeTipo: 'ligacao', entidadeId: data.id, acao: 'ligacao_iniciada', estadoNovo: 'em_andamento', clientEventId: b.client_event_id, contexto: SESSAO.contextoAuditoria(org) })
@@ -64,10 +82,13 @@ router.post('/iniciar', requireAuth, requireEmpresaAccess, async (req, res) => {
 // GET /ativa — recuperacao: devolve a ligacao em_andamento do lead/prospect (ou null).
 router.get('/ativa', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
+    const podeVerTodas = podeVerTodasLigacoes(req)
+    const equipe = await recorteEquipeLigacoes(req, { podeVerTodas })
     const data = await L.obterLigacaoAtiva(pool, req.empresa.id, {
       campanhaLeadId: req.query.campanha_lead_id, prospectId: req.query.prospect_id,
+      equipe,
     })
-    return res.json({ ok: true, data })
+    return res.json({ ok: true, data, meta: { equipe } })
   } catch (err) { return erro(res, err, 'LIGACAO_ATIVA_FAILED') }
 })
 
@@ -78,10 +99,12 @@ router.get('/ativa', requireAuth, requireEmpresaAccess, async (req, res) => {
 // `sou_eu` e' calculado AQUI porque so' o servidor conhece o usuario autenticado.
 router.get('/ativas', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
+    const podeVerTodas = podeVerTodasLigacoes(req)
+    const equipe = await recorteEquipeLigacoes(req, { podeVerTodas })
     const rows = await L.listarLigacoesAtivasDaCampanha(pool, req.empresa.id, {
-      campanhaId: req.query.campanha_id,
+      campanhaId: req.query.campanha_id, equipe,
     })
-    return res.json({ ok: true, data: ACOMP.resumirLigacoesAtivas(rows, req.usuario?.id, origem(req).impressao) })
+    return res.json({ ok: true, data: ACOMP.resumirLigacoesAtivas(rows, req.usuario?.id, origem(req).impressao), meta: { equipe } })
   } catch (err) { return erro(res, err, 'LIGACOES_ATIVAS_FAILED') }
 })
 
@@ -346,19 +369,16 @@ router.patch('/:id/notas', requireAuth, requireEmpresaAccess, async (req, res) =
 // AQUI e vai pronto para a camada de dados (que nao conhece papel nem capacidade).
 router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const podeVerTodas = podeCapacidade({
-      papel: req.papelEmpresa,
-      permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
-      papelPlataforma: req.usuario?.role,
-    }, CAP.LIGACAO_VER_TODAS)
+    const podeVerTodas = podeVerTodasLigacoes(req)
+    const equipe = await recorteEquipeLigacoes(req, { podeVerTodas })
     const data = await L.listarLigacoes(pool, req.empresa.id, {
       campanhaLeadId: req.query.campanha_lead_id, prospectId: req.query.prospect_id,
       campanhaId: req.query.campanha_id, limit: req.query.limit,
-      usuarioId: podeVerTodas ? null : (req.usuario?.id || null),
+      usuarioId: podeVerTodas ? null : (req.usuario?.id || null), equipe,
     })
     // A tela precisa poder dizer "so' as suas": recortar em silencio faria o vendedor achar que
     // perdeu historico.
-    return res.json({ ok: true, data, meta: { escopo: podeVerTodas ? 'todas' : 'minhas' } })
+    return res.json({ ok: true, data, meta: { escopo: podeVerTodas ? 'todas' : 'minhas', equipe } })
   } catch (err) { return erro(res, err, 'LIGACOES_LIST_FAILED') }
 })
 

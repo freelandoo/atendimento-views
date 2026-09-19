@@ -44,6 +44,38 @@ function erroEntrada(message, statusCode = 400) {
   return err
 }
 
+function nichoEquipeId(equipe) {
+  return equipe && equipe.nicho_id ? equipe.nicho_id : null
+}
+
+function joinProspectDaLigacao() {
+  return `LEFT JOIN app.campanha_leads cl_recorte
+          ON cl_recorte.id = l.campanha_lead_id AND cl_recorte.empresa_id = l.empresa_id
+          JOIN prospectador.prospects p
+          ON p.id = COALESCE(l.prospect_id, cl_recorte.prospect_id)
+         AND p.empresa_id = l.empresa_id`
+}
+
+async function assertProspectNoRecorteEquipe(pool, empresaId, { prospectId, campanhaLeadId, equipe } = {}) {
+  const nichoId = nichoEquipeId(equipe)
+  if (!nichoId) return
+  const params = [empresaId, nichoId]
+  let origem
+  if (prospectId) {
+    params.push(prospectId)
+    origem = `prospectador.prospects p WHERE p.empresa_id = $1 AND p.nicho_id = $2::uuid AND p.id = $3::uuid`
+  } else if (campanhaLeadId) {
+    params.push(campanhaLeadId)
+    origem = `app.campanha_leads cl
+      JOIN prospectador.prospects p ON p.id = cl.prospect_id AND p.empresa_id = cl.empresa_id
+      WHERE cl.empresa_id = $1 AND p.nicho_id = $2::uuid AND cl.id = $3::uuid`
+  } else {
+    throw erroEntrada('Lead fora do recorte da equipe.', 403)
+  }
+  const { rows } = await pool.query(`SELECT 1 FROM ${origem} LIMIT 1`, params)
+  if (!rows[0]) throw erroEntrada('Lead fora do recorte da equipe.', 403)
+}
+
 // Validacao PURA (testavel sem banco) do resumo enviado no encerramento.
 function validarRegistro(p = {}) {
   if (!RES.has(p.resultado)) throw erroEntrada('resultado invalido.')
@@ -78,9 +110,14 @@ async function withTx(pool, fn) {
 
 // --- Ciclo de vida da SESSAO (Fatia A) ------------------------------------------------
 // Colunas devolvidas ao cockpit da Operacao (o cronometro do front usa iniciada_em).
-const COLS_SESSAO = `id, empresa_id, status, campanha_id, campanha_lead_id, prospect_id,
-  telefone, roteiro_versao_id, usuario_id, iniciada_em, encerrada_em, descartada_em,
-  chamada_encerrada_em, duracao_seg, resultado, client_event_id, notas`
+const COLS_SESSAO_LISTA = [
+  'id', 'empresa_id', 'status', 'campanha_id', 'campanha_lead_id', 'prospect_id',
+  'telefone', 'roteiro_versao_id', 'usuario_id', 'iniciada_em', 'encerrada_em',
+  'descartada_em', 'chamada_encerrada_em', 'duracao_seg', 'resultado', 'client_event_id',
+  'notas',
+]
+const COLS_SESSAO = COLS_SESSAO_LISTA.join(', ')
+const COLS_SESSAO_LIGACAO = COLS_SESSAO_LISTA.map((c) => `l.${c}`).join(', ')
 // `sessao_origem` FICA DE FORA de COLS_SESSAO de proposito: este bloco e' devolvido cru por
 // `GET /ativa` e por `POST /iniciar`, e a impressao da sessao nao pode sair em rota nenhuma.
 // Quem precisa dela le por uma consulta propria (obterSessao / listarLigacoesAtivasDaCampanha),
@@ -112,14 +149,23 @@ async function obterLigacao(pool, empresaId, id) {
 }
 
 // Recuperacao: existe uma ligacao em_andamento deste lead/prospect? (nao cria nada)
-async function obterLigacaoAtiva(pool, empresaId, { campanhaLeadId, prospectId } = {}) {
+async function obterLigacaoAtiva(pool, empresaId, { campanhaLeadId, prospectId, equipe } = {}) {
   const chave = campanhaLeadId ? ['campanha_lead_id', campanhaLeadId]
     : (prospectId ? ['prospect_id', prospectId] : null)
   if (!chave) return null
+  const params = [empresaId, chave[1]]
+  const conds = [`l.empresa_id = $1`, `l.${chave[0]} = $2`, `l.status = 'em_andamento'`]
+  const nichoId = nichoEquipeId(equipe)
+  const joinNicho = nichoId ? joinProspectDaLigacao() : ''
+  if (nichoId) {
+    params.push(nichoId)
+    conds.push(`p.nicho_id = $${params.length}::uuid`)
+  }
   const { rows } = await pool.query(
-    `SELECT ${COLS_SESSAO} FROM app.ligacoes
-      WHERE empresa_id = $1 AND ${chave[0]} = $2 AND status = 'em_andamento'
-      ORDER BY iniciada_em DESC LIMIT 1`, [empresaId, chave[1]])
+    `SELECT ${COLS_SESSAO_LIGACAO} FROM app.ligacoes l
+      ${joinNicho}
+      WHERE ${conds.join(' AND ')}
+      ORDER BY l.iniciada_em DESC LIMIT 1`, params)
   // Devolve TAMBEM a sessao com resumo pendente (chamada_encerrada_em preenchido). Ela e'
   // recuperavel — o que muda e' o estado_sessao, que diz ao cockpit se abre o roteiro
   // (Retomar) ou o formulario de resumo (Continuar resumo). Nao filtrar aqui e' proposital:
@@ -139,19 +185,29 @@ async function obterLigacaoAtiva(pool, empresaId, { campanhaLeadId, prospectId }
 //
 // `campanhaId` e' OBRIGATORIO: sem ele a leitura viraria "todas as ligacoes ativas da
 // empresa", que nenhuma tela pede e que so' cresce. LIMIT como teto de sanidade.
-async function listarLigacoesAtivasDaCampanha(pool, empresaId, { campanhaId, limit = 200 } = {}) {
+async function listarLigacoesAtivasDaCampanha(pool, empresaId, { campanhaId, limit = 200, equipe } = {}) {
   if (!campanhaId) throw erroEntrada('campanha_id obrigatorio.')
   const lim = Math.min(Math.max(Number.parseInt(limit, 10) || 200, 1), 500)
+  const params = [empresaId, campanhaId]
+  const conds = [`l.empresa_id = $1`, `l.campanha_id = $2`, `l.status = 'em_andamento'`]
+  const nichoId = nichoEquipeId(equipe)
+  const joinNicho = nichoId ? joinProspectDaLigacao() : ''
+  if (nichoId) {
+    params.push(nichoId)
+    conds.push(`p.nicho_id = $${params.length}::uuid`)
+  }
+  params.push(lim)
   const { rows } = await pool.query(
     `SELECT l.id, l.status, l.campanha_lead_id, l.prospect_id, l.iniciada_em,
             l.chamada_encerrada_em, l.usuario_id, u.nome AS usuario_nome,
             l.sessao_origem, l.sessao_dispositivo
        FROM app.ligacoes l
+       ${joinNicho}
        LEFT JOIN app.usuarios u ON u.id = l.usuario_id
-      WHERE l.empresa_id = $1 AND l.campanha_id = $2 AND l.status = 'em_andamento'
+      WHERE ${conds.join(' AND ')}
       ORDER BY l.iniciada_em ASC
-      LIMIT $3`,
-    [empresaId, campanhaId, lim])
+      LIMIT $${params.length}`,
+    params)
   // `estado_sessao` vem daqui (fonte unica: comEstado) e nao e' re-derivado no front nem no
   // service — `em_andamento` e `aguardando_resumo` sao o MESMO status no banco.
   return rows.map(comEstado)
@@ -205,6 +261,7 @@ async function iniciarLigacao(pool, empresaId, p = {}) {
   await assertMesmaEmpresa(pool, { schema: 'app', table: 'campanha_leads', id: p.campanhaLeadId, empresaId, rotulo: 'Lead da campanha' })
   await assertMesmaEmpresa(pool, { schema: 'app', table: 'roteiro_versoes', id: p.roteiroVersaoId, empresaId, rotulo: 'Versao do roteiro' })
   await assertMesmaEmpresa(pool, { schema: 'prospectador', table: 'prospects', id: p.prospectId, empresaId, rotulo: 'Lead' })
+  await assertProspectNoRecorteEquipe(pool, empresaId, { prospectId: p.prospectId, campanhaLeadId: p.campanhaLeadId, equipe: p.equipe })
 
   // 1) Idempotencia: mesmo client_event_id ja gravado => devolve a mesma ligacao (+ etapa ativa).
   if (p.clientEventId) {
@@ -214,7 +271,7 @@ async function iniciarLigacao(pool, empresaId, p = {}) {
     if (rows[0]) return { ...comEstado(rows[0]), retomada: true, etapa_ativa: await ligacaoEtapas.obterEtapaAtiva(pool, empresaId, rows[0].id) }
   }
   // 2) Recuperacao: ja existe ligacao ativa deste lead => retoma (nao duplica).
-  const ativa = await obterLigacaoAtiva(pool, empresaId, { campanhaLeadId: p.campanhaLeadId, prospectId: p.prospectId })
+  const ativa = await obterLigacaoAtiva(pool, empresaId, { campanhaLeadId: p.campanhaLeadId, prospectId: p.prospectId, equipe: p.equipe })
   if (ativa) return { ...ativa, retomada: true, etapa_ativa: await ligacaoEtapas.obterEtapaAtiva(pool, empresaId, ativa.id) }
 
   // 3) Cria em_andamento (iniciada_em = agora) E abre a primeira etapa na MESMA transacao
@@ -246,7 +303,7 @@ async function iniciarLigacao(pool, empresaId, p = {}) {
           [empresaId, p.clientEventId])
         if (rows[0]) return { ...comEstado(rows[0]), retomada: true, etapa_ativa: await ligacaoEtapas.obterEtapaAtiva(pool, empresaId, rows[0].id) }
       }
-      const jaAtiva = await obterLigacaoAtiva(pool, empresaId, { campanhaLeadId: p.campanhaLeadId, prospectId: p.prospectId })
+      const jaAtiva = await obterLigacaoAtiva(pool, empresaId, { campanhaLeadId: p.campanhaLeadId, prospectId: p.prospectId, equipe: p.equipe })
       if (jaAtiva) return { ...jaAtiva, retomada: true, etapa_ativa: await ligacaoEtapas.obterEtapaAtiva(pool, empresaId, jaAtiva.id) }
     }
     throw e
@@ -444,20 +501,24 @@ async function descartarLigacao(pool, empresaId, id, { motivo, origemSessao } = 
  * um id ou `null`. Esta camada nao conhece papel nem capacidade — passar o veredito pronto e' o
  * que impede a matriz de permissao de vazar para o SQL.
  */
-async function listarLigacoes(pool, empresaId, { campanhaLeadId, prospectId, campanhaId, usuarioId, limit = 50 } = {}) {
+async function listarLigacoes(pool, empresaId, { campanhaLeadId, prospectId, campanhaId, usuarioId, equipe, limit = 50 } = {}) {
   const params = [empresaId]
   const conds = ['l.empresa_id = $1', `l.status = '${STATUS_ANALITICO}'`]
+  const nichoId = nichoEquipeId(equipe)
+  const joinNicho = nichoId ? joinProspectDaLigacao() : ''
   if (campanhaLeadId) { params.push(campanhaLeadId); conds.push(`l.campanha_lead_id = $${params.length}`) }
   if (prospectId) { params.push(prospectId); conds.push(`l.prospect_id = $${params.length}`) }
   if (campanhaId) { params.push(campanhaId); conds.push(`l.campanha_id = $${params.length}`) }
   // Ligacao ANTIGA pode ter `usuario_id` nulo (o campo existia e nem sempre era preenchido).
   // Ela NAO entra no recorte de ninguem: atribui-la a quem esta olhando seria inventar autoria.
   if (usuarioId) { params.push(usuarioId); conds.push(`l.usuario_id = $${params.length}::uuid`) }
+  if (nichoId) { params.push(nichoId); conds.push(`p.nicho_id = $${params.length}::uuid`) }
   params.push(Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 500))
   const { rows } = await pool.query(
     `SELECT l.id, l.resultado, l.etapa_alcancada, l.objecao_principal, l.motivo_perda,
             l.duracao_seg, l.notas, l.usuario_id, u.nome AS usuario_nome, l.criado_em
        FROM app.ligacoes l
+       ${joinNicho}
        LEFT JOIN app.usuarios u ON u.id = l.usuario_id
       WHERE ${conds.join(' AND ')}
       ORDER BY l.criado_em DESC

@@ -44,6 +44,8 @@ import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
 import { VARIANTES, O_QUE_MEDE, fatoresDeMotivos } from '@/lib/pontuacao-indicador'
 import MenuRadialAcoes from '@/components/ui/MenuRadialAcoes'
 import { aplicarRecorte, gravarFiltros, lerFiltros } from '@/lib/filtros-sessao'
+import { avisoDeEquipe } from '@/lib/lead-operacao'
+import type { EquipeRecorte } from '@/lib/lead-operacao'
 
 const base = () => `/api/empresas/${typeof window !== 'undefined' ? localStorage.getItem('empresa_id') : ''}`
 
@@ -639,6 +641,7 @@ export default function CentralLigacoesPage() {
   // Ligações em andamento da campanha, indexadas por lead. Vem de UMA consulta em lote
   // (`GET /ligacoes/ativas?campanha_id=`) — nunca um GET por linha da fila.
   const [ativas, setAtivas] = useState<Record<string, LigacaoAtiva>>({})
+  const [equipeRecorte, setEquipeRecorte] = useState<EquipeRecorte | null>(null)
   // "Já sei quem está ocupado" ≠ "ninguém está ocupado". Sem esta distinção, a abertura
   // automática vinda de Follow-ups poderia entrar numa ligação alheia só porque o lote
   // ainda não tinha chegado.
@@ -777,9 +780,10 @@ export default function CentralLigacoesPage() {
   // pedaço que se repete no tempo (polling), e uma falha aqui não pode derrubar a fila —
   // no pior caso os selos ficam desatualizados e a tela segue trabalhável.
   const carregarAtivas = useCallback(async (id: string) => {
-    if (!id) { ativasRef.current = {}; setAtivas({}); setAtivasCarregadas(false); return }
+    if (!id) { ativasRef.current = {}; setAtivas({}); setAtivasCarregadas(false); setEquipeRecorte(null); return }
     try {
-      const r = await apiFetch<LigacaoAtiva[]>(`${base()}/ligacoes/ativas?campanha_id=${id}`)
+      const r = await apiFetch<LigacaoAtiva[], { equipe?: EquipeRecorte | null }>(`${base()}/ligacoes/ativas?campanha_id=${id}`)
+      setEquipeRecorte(r.meta?.equipe || null)
       const mapa = indexarAtivasPorLead(r.data)
       // Ligações que SUMIRAM entre dois tiques terminaram (encerradas ou descartadas) — e
       // encerrar muda também o status da oportunidade e as tentativas do lead. Sem isto, o
@@ -896,6 +900,7 @@ export default function CentralLigacoesPage() {
   }, [campanhaId, carregarDadosCampanha, carregarAtivas])
 
   if (loading) return <div className="flex justify-center py-20"><Spinner /></div>
+  const avisoEquipe = avisoDeEquipe(equipeRecorte)
 
   return (
     <div className="space-y-5">
@@ -909,6 +914,12 @@ export default function CentralLigacoesPage() {
           {campanhas.map((c) => <option key={c.id} value={c.id}>{c.nome} {c.status === 'ativa' ? '• ativa' : ''}</option>)}
         </select>
       </div>
+
+      {avisoEquipe && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+          {avisoEquipe}
+        </div>
+      )}
 
       {!detalhe ? (
         <div className="rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">
