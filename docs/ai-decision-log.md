@@ -3835,3 +3835,68 @@ simulacao** — quem simula esta justamente decidindo se vai aplicar.
 **Nenhuma migration, nenhuma rota, nenhuma variavel de ambiente, nenhum arquivo de `src/`
 alterado.** Codigo: `scripts/aprovar-leads-por-nicho.js` (+ npm `aprovar:leads-nicho`). Testes:
 `test/aprovar-leads-por-nicho.test.js` (16, sendo 9 guardas que leem o fonte).
+
+
+## 2026-09-19 — "Equipe" e "Equipes comerciais" viraram UMA area
+
+**Contexto.** Eram duas paginas para o MESMO fluxo de trabalho — montar a equipe
+(`/dashboard/equipes-comerciais`, em Configuracoes) e depois olhar o resultado
+(`/dashboard/equipe`, em Operacao) —, com a MESMA capacidade (`MEMBROS_GERENCIAR`). O gestor
+trocava de pagina no meio do proprio trabalho. Unificadas em `/dashboard/equipe`, com tres abas:
+Visao geral, Equipes (lista + detalhe, sem trocar de pagina) e Pessoas.
+
+**Decisao 1 — a unificacao e' de APRESENTACAO.** Nenhuma rota de leitura mudou, nenhuma regra de
+negocio migrou para o front e **nenhuma permissao foi alterada**: as duas telas ja exigiam
+`MEMBROS_GERENCIAR`, entao ninguem ganhou nem perdeu acesso. A juncao das fontes
+(`/equipe` + `/equipes-comerciais` + `/elegiveis` + `/comissao/ranking`) acontece num modulo PURO
+novo, `frontend/lib/equipe-area.js`, que **so junta e traduz**.
+
+**Decisao 2 — a tela NAO promete o que o backend recusa.** Foram tres conflitos entre a
+referencia visual e o produto real, e os tres foram resolvidos a favor do produto:
+
+  1. **Remover membro.** `db/equipes-comerciais.js` lanca 409 `REMOCAO_EXIGE_DEVOLUCAO` porque a
+     devolucao de leads nao existe. A referencia desenhava caixas que se desmarcam para remover;
+     aqui quem ja e' membro aparece **marcado e BLOQUEADO, com o motivo em texto** (a regra do
+     guia visual para controle que a pessoa nao pode usar). Desenhar a remocao faria o gestor
+     descobrir no erro.
+  2. **Encerrar equipe.** `encerrarEquipe` recusa equipe com gente (409 `EQUIPE_COM_MEMBROS`).
+     `podeEncerrar` antecipa isso: o botao fica visivel e desabilitado COM o motivo, em vez de
+     oferecer um clique que vira erro e manda o gestor procurar defeito onde ha uma etapa do
+     produto que ainda nao nasceu.
+  3. **Metrica de "Reunioes" por pessoa.** Nao existe em rota alguma. Nao foi inventada — ha
+     guarda de regressao em `lib/equipe-area.test.js` que falha se ela aparecer. As metricas sao
+     as REAIS: leads, parados, conversas, follow-ups, vencidos, ligacoes, contatos/fechados do
+     dia e faturamento originado.
+
+**Decisao 3 — renomear equipe passou a existir; trocar o NICHO, nao.** Nasceu
+`PATCH /api/empresas/:empresaId/equipes-comerciais/:equipeId`, aceitando **so nome e descricao**.
+O `nicho_id` e' **recusado com 400 `NICHO_NAO_EDITAVEL`, nunca ignorado em silencio**: e' ele que
+recorta o Banco de Leads de todos os membros (`sqlNichoDaEquipe`), e troca-lo por um PATCH moveria
+a carteira de varias pessoas de uma vez, sem devolver nada — a mesma classe de problema que fez a
+remocao de participante exigir a etapa de devolucao. Ignorar faria a tela achar que salvou.
+Trocar de nicho continua sendo encerrar e criar outra, que e' o caminho que deixa rastro.
+**Equipe ENCERRADA nao se renomeia**: e' historico, e as decisoes tomadas sob aquele nome estao na
+auditoria. O UPDATE e' condicionado (`IS DISTINCT FROM`) e a auditoria so' e' gravada quando algo
+mudou — repetir a acao nao infla `app.auditoria_eventos`.
+
+**Decisao 4 — a rota antiga foi APAGADA, nao redirecionada** (escolha do operador). Diff menor e
+nenhum codigo morto; o custo aceito e' que link salvo para `/dashboard/equipes-comerciais` passa a
+dar 404. Guarda em `lib/navegacao.test.js` falha se o item voltar ao menu.
+
+**Decisao 5 — a area continua NAO sendo placar.** As contagens medem coisas diferentes e nao se
+somam num total: `metricasDaEquipe` soma a MESMA metrica entre pessoas (o total de leads da
+equipe) e jamais metricas diferentes entre si. A guarda anti-placar de `lib/equipe-painel.js`
+**nao foi tocada**, e o modulo novo ganhou a sua: nada de `score`, `produtividade`, `media(`,
+`percentual`, `posicao` ou `medalha`, e **ninguem e' ordenado por faturamento** — a ordem das
+pessoas continua sendo a carga de trabalho, que e' o que o gestor veio redistribuir. A palavra
+`ranking` e' permitida no fonte porque e' o NOME do payload de `/comissao/ranking`, um endpoint
+que ja existia e mede faturamento PAGO originado (resultado verificavel, nao esforco).
+
+**Decisao 6 — `membros_ocultos` e' declarado, nao escondido.** `total_membros` vem do banco e
+conta todo vinculo com `saiu_em IS NULL`; `/elegiveis` so devolve quem tem vinculo ATIVO. Quem foi
+desativado continua na equipe e some da tabela. Sem esse numero a tela diria "4 membros" e
+mostraria 3, e ninguem saberia por que.
+
+**Validacao:** `npm test` no backend (2258/2260 — as 2 falhas sao os flaky conhecidos de
+`core.test.js`, que fazem chamada REAL ao provedor de IA e tomam 429, sem relacao com esta
+mudanca), `npx tsc --noEmit` limpo e `node --test lib/*.test.js` (663) no frontend.

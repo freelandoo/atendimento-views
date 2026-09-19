@@ -58,6 +58,32 @@ router.post('/', async (req, res) => {
   } catch (err) { return envelopeErro(res, err, 'EQUIPE_CREATE_FAILED') }
 })
 
+// PATCH /:equipeId — renomear a equipe. SO' nome e descricao.
+//
+// ⚠️ `nicho_id` e' RECUSADO explicitamente, nao ignorado em silencio: e' o nicho que recorta o
+// Banco de Leads dos membros, entao trocá-lo aqui moveria a carteira de varias pessoas de uma
+// vez. Recusar diz ao chamador o que aconteceu; ignorar faria a tela achar que salvou.
+// Trocar de nicho e' encerrar a equipe e criar outra — o caminho que deixa rastro.
+router.patch('/:equipeId', async (req, res) => {
+  try {
+    const b = req.body || {}
+    if (b.nicho_id !== undefined) {
+      return res.status(400).json({
+        ok: false,
+        error: {
+          code: 'NICHO_NAO_EDITAVEL',
+          message: 'O nicho de uma equipe não pode ser trocado: ele recorta a carteira de todos os membros. Encerre esta equipe e crie outra.',
+        },
+      })
+    }
+    const data = await DB.atualizarEquipe(req.empresa.id, req.params.equipeId, {
+      nome: b.nome,
+      descricao: b.descricao,
+    }, req.usuario.id)
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'EQUIPE_UPDATE_FAILED') }
+})
+
 router.put('/:equipeId/participantes', async (req, res) => {
   try {
     const data = await DB.definirParticipantes(req.empresa.id, req.params.equipeId, {

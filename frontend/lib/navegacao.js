@@ -70,8 +70,10 @@ const NAV = [
       // Comissao (migration 083). A capacidade e a de LEITURA: o comercial precisa conferir o
       // proprio dinheiro. Gerir plano/venda/pagamento exige `comissao_gerenciar`, checado na rota.
       { tipo: 'item', href: '/dashboard/comissao', label: 'Comissão', icon: 'report', capacidade: 'comissao_ver_propria' },
-      // Painel da EQUIPE (Etapa 12): quem gerencia as contas responde pela distribuicao do
-      // trabalho, entao e a MESMA capacidade de "Contas da empresa" — nao uma terceira.
+      // AREA DE EQUIPE. Quem gerencia as contas responde pela distribuicao do trabalho, entao
+      // e' a MESMA capacidade de "Contas da empresa" — nao uma terceira. Desde 2026-09-19 esta
+      // area tambem contem a gestao das EQUIPES COMERCIAIS (aba "Equipes"), que era uma pagina
+      // separada em Configuracoes.
       { tipo: 'item', href: '/dashboard/equipe', label: 'Equipe', icon: 'accounts', capacidade: 'membros_gerenciar' },
     ],
   },
@@ -91,10 +93,10 @@ const NAV = [
       // Contas da EMPRESA (Etapa 2). Desde a Etapa 6.3 o item filtra pela MESMA capacidade que
       // o backend exige na rota — os dois passaram a falar a mesma língua.
       { tipo: 'item', href: '/dashboard/contas-empresa', label: 'Contas da empresa', icon: 'accounts', capacidade: 'membros_gerenciar' },
-      // Equipes por Nicho. MESMA capacidade que o backend exige no mount de
-      // `/equipes-comerciais` — e a MESMA de "Contas da empresa", de proposito: as duas decidem
-      // como a operacao e' organizada. Acesso (papel) fica la'; carteira (nicho) fica aqui.
-      { tipo: 'item', href: '/dashboard/equipes-comerciais', label: 'Equipes comerciais', icon: 'accounts', capacidade: 'membros_gerenciar' },
+      // ⚠️ "Equipes comerciais" NAO e' mais um item aqui (2026-09-19). Ela e as Equipes eram
+      // partes do MESMO fluxo — montar a equipe e olhar o resultado — separadas em duas paginas,
+      // com a MESMA capacidade. Foram unificadas em `/dashboard/equipe` (aba "Equipes"), que ja
+      // aparece no grupo Operacao. Recriar o item aqui devolveria a viagem no meio do trabalho.
       { tipo: 'item', href: '/dashboard/contas', label: 'Contas', icon: 'accounts', minRole: 'superadmin' },
     ],
   },

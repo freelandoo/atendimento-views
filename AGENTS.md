@@ -3043,6 +3043,66 @@
   `frontend/lib/agenda-slots.test.js` (10). **Nenhuma variável de ambiente nova, nenhuma
   capacidade nova.**
 
+### Área de EQUIPE — as duas telas viraram UMA (sem migration)
+
+- **Regra de produto, em uma frase:** montar a equipe e olhar o resultado dela são o **mesmo
+  trabalho**, então vivem na mesma área. `/dashboard/equipe` tem três abas: **Visão geral**
+  (missão, faturamento originado, trabalho sem dono, movimento de hoje), **Equipes** (lista à
+  esquerda, detalhe à direita) e **Pessoas** (todo mundo, com filtros).
+- **Defeito corrigido:** `/dashboard/equipes-comerciais` vivia em **Configurações** e
+  `/dashboard/equipe` em **Operação**, com a **MESMA capacidade** (`MEMBROS_GERENCIAR`) — o gestor
+  criava a equipe numa página e ia para outra ver o efeito. A rota antiga **foi REMOVIDA**
+  (decisão do operador: sem redirect; link salvo passa a dar 404) e há guarda em
+  `frontend/lib/navegacao.test.js` que falha se o item voltar ao menu.
+- ⚠️ **A unificação é de APRESENTAÇÃO.** Nenhuma rota de leitura mudou, **nenhuma permissão mudou**
+  (as duas já exigiam `MEMBROS_GERENCIAR`) e nenhuma regra migrou para o front. A única mudança de
+  backend foi o `PATCH` abaixo.
+- **Fonte de verdade única: `frontend/lib/equipe-area.js`** (PURO — sem React, rede ou DOM). Ele
+  **junta e traduz** o que quatro rotas já responderam (`/equipe`, `/equipes-comerciais`,
+  `/equipes-comerciais/elegiveis`, `/comissao/ranking`) e **REEXPORTA** `equipe-painel.js`,
+  `equipes-comerciais.js`, `comissao.js` e `lead-parado.js` — nunca reimplementa (padrão de
+  `paginacao.js` / `lead-identidade.js`). Guarda de regressão falha se uma regra herdada for
+  redefinida ali.
+- ⚠️ **TRÊS COISAS QUE A TELA NÃO PODE PROMETER, porque o backend recusa:**
+  1. **Remover membro.** `substituirParticipantes` lança **409 `REMOCAO_EXIGE_DEVOLUCAO`** — a
+     devolução de leads não existe. No modal, quem já é membro fica **marcado e BLOQUEADO com o
+     motivo em texto**. **PROIBIDO** desenhar a remoção antes de a devolução existir.
+  2. **Encerrar equipe com gente.** `encerrarEquipe` lança **409 `EQUIPE_COM_MEMBROS`**.
+     `podeEncerrar` antecipa: o botão fica **visível e desabilitado com o motivo**, nunca
+     oferecendo um clique que vira erro.
+  3. **"Reuniões" por pessoa.** **Não existe em rota alguma** e não pode ser inventada — há guarda
+     em `lib/equipe-area.test.js` que falha se aparecer. As métricas são as reais: leads, parados,
+     conversas, follow-ups, vencidos, ligações, contatos/fechados do dia e faturamento originado.
+- **`PATCH /api/empresas/:empresaId/equipes-comerciais/:equipeId` (ÚNICA adição de backend):**
+  renomeia a equipe, aceitando **só `nome` e `descricao`**. ⚠️ **`nicho_id` é RECUSADO com 400
+  `NICHO_NAO_EDITAVEL`, nunca ignorado em silêncio:** é ele que recorta o Banco de Leads de todos
+  os membros (`sqlNichoDaEquipe`), e trocá-lo por um PATCH moveria a carteira de várias pessoas de
+  uma vez — a mesma classe de problema que fez a remoção de participante exigir devolução. Trocar
+  de nicho continua sendo **encerrar e criar outra**, que é o caminho que deixa rastro. **Equipe
+  encerrada não se renomeia** (409): é histórico. O `UPDATE` é condicionado (`IS DISTINCT FROM`) e
+  só audita quando algo mudou — repetir o clique não infla `app.auditoria_eventos`. **Não existe
+  `DELETE` de equipe**, e não deve nascer (guarda no teste): encerrar preserva o histórico.
+- **A área continua NÃO sendo placar.** `metricasDaEquipe` soma a **MESMA** métrica entre pessoas
+  (o total de leads da equipe) e **jamais métricas diferentes entre si**. A guarda anti-placar de
+  `lib/equipe-painel.js` **não foi tocada**; o módulo novo tem a sua (`score`, `produtividade`,
+  `media(`, `percentual`, `posicao`, `medalha`) e **ninguém é ordenado por faturamento** — a ordem
+  é a carga de trabalho, que é o que o gestor veio redistribuir. A palavra `ranking` é permitida
+  no fonte por ser o **nome do payload** de `/comissao/ranking`, que mede faturamento **pago**
+  originado (resultado verificável, não esforço).
+- **`membros_ocultos` é declarado, não escondido:** `total_membros` conta todo vínculo com
+  `saiu_em IS NULL`, e `/elegiveis` só devolve vínculo **ativo** — quem foi desativado continua na
+  equipe e some da tabela. Sem esse número a tela diria "4 membros" e mostraria 3.
+- **Equipe NÃO é papel.** Acesso (papel e capacidades) continua em **Contas da empresa**
+  (`/dashboard/contas-empresa`); aqui se decide **carteira** (que nicho se trabalha). Não fundir.
+- Código: `frontend/app/dashboard/equipe/page.tsx`, `frontend/lib/equipe-area.js`
+  (+ `.d.ts`/`.test.js`), `frontend/components/ModalGerenciarMembros.tsx` e `ModalEquipe.tsx`
+  (reusam `ui/FolhaModal`, `ui/Botao`, `ui/Campo`, `ui/EstadoVazio`), `frontend/lib/navegacao.js`,
+  `backend/src/routes/api-equipes-comerciais.js`, `backend/src/db/equipes-comerciais.js`. Testes:
+  `backend/test/equipes-comerciais.test.js` (24), `frontend/lib/equipe-area.test.js` (31),
+  `frontend/lib/navegacao.test.js` (32).
+- **Nenhuma migration, nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhuma
+  mudança de gate de rota.**
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

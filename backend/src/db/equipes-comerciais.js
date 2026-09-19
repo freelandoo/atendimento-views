@@ -201,6 +201,82 @@ async function criarEquipe(empresaId, dados = {}, autorId = null) {
   })
 }
 
+/**
+ * Renomear a equipe (nome e descricao). NADA MAIS, de proposito.
+ *
+ * ⚠️ O NICHO fica de fora, e nao e' esquecimento: e' ele que RECORTA o Banco de Leads de todo
+ * mundo da equipe (`sqlNichoDaEquipe`). Trocar o nicho por um PATCH mudaria a carteira de
+ * varias pessoas de uma vez, em silencio e sem devolver nada — a mesma classe de problema que
+ * fez a remocao de participante exigir a etapa de devolucao de leads. Para mudar de nicho,
+ * encerra-se a equipe e cria-se outra, que e' o caminho que deixa rastro.
+ *
+ * ⚠️ Equipe ENCERRADA nao se renomeia: ela e' historico, e as decisoes tomadas sob aquele nome
+ * continuam registradas na auditoria. Renomear reescreveria o que as pessoas viram.
+ *
+ * O UPDATE e' condicionado (`IS DISTINCT FROM`) e a auditoria so' e' gravada quando algo mudou
+ * de verdade — repetir a acao nao infla `app.auditoria_eventos` (mesmo contrato de
+ * `PATCH /conversas/:numero/modo-ia`).
+ */
+async function atualizarEquipe(empresaId, equipeId, dados = {}, autorId = null) {
+  const v = E.normalizarEquipe(dados, { criar: false })
+  const nome = v.nome === undefined ? null : v.nome
+  const descricao = dados.descricao === undefined ? undefined : (v.descricao || null)
+  if (nome == null && descricao === undefined) {
+    throw erro('Nada para alterar: informe o nome ou a descricao.', 400, 'NADA_A_ALTERAR')
+  }
+
+  return withTx(async (client) => {
+    const equipe = await obterEquipe(client, empresaId, equipeId, { forUpdate: true })
+    if (!equipe) throw erro('Equipe não encontrada nesta empresa.', 404, 'NOT_FOUND')
+    if (equipe.status !== 'ativa') {
+      throw erro('Equipe encerrada não pode ser renomeada — ela é histórico.', 409, 'EQUIPE_ENCERRADA')
+    }
+
+    let linha
+    try {
+      const { rows } = await client.query(
+        `UPDATE app.equipes_comerciais
+            SET nome = COALESCE($3, nome),
+                descricao = CASE WHEN $5::boolean THEN $4 ELSE descricao END
+          WHERE empresa_id = $1 AND id = $2::uuid
+            AND (nome IS DISTINCT FROM COALESCE($3, nome)
+                 OR ($5::boolean AND descricao IS DISTINCT FROM $4))
+          RETURNING id, empresa_id, nicho_id, nome, descricao, status, criado_por, criado_em`,
+        [empresaId, equipeId, nome, descricao === undefined ? null : descricao, descricao !== undefined]
+      )
+      linha = rows[0] || null
+    } catch (err) {
+      if (err?.code === '23505') {
+        throw erro('Já existe uma equipe ativa com esse nome.', 409, 'EQUIPE_DUPLICADA')
+      }
+      throw err
+    }
+
+    // Nada mudou: devolve o estado atual sem auditar. Repetir o clique nao e' um fato novo.
+    if (!linha) {
+      return { ...equipe, alterado: false, membros: await membrosDaEquipe(client, empresaId, equipeId) }
+    }
+
+    await auditar(client, {
+      empresaId,
+      usuarioId: autorId,
+      acao: 'equipe_comercial_atualizada',
+      entidadeId: equipeId,
+      estadoAnterior: equipe.nome,
+      estadoNovo: linha.nome,
+      // Sem PII: nome de EQUIPE e' rotulo de organizacao, nao dado de pessoa.
+      contexto: { campos: [nome != null ? 'nome' : null, descricao !== undefined ? 'descricao' : null].filter(Boolean) },
+    })
+    logger.info({ empresa_id: empresaId, equipe_id: equipeId }, '[equipes-comerciais] equipe atualizada')
+    return {
+      ...linha,
+      nicho_nome: equipe.nicho_nome,
+      alterado: true,
+      membros: await membrosDaEquipe(client, empresaId, equipeId),
+    }
+  })
+}
+
 async function definirParticipantes(empresaId, equipeId, dados = {}, autorId = null) {
   const v = E.normalizarParticipantes(dados)
   return withTx(async (client) => {
@@ -336,6 +412,7 @@ module.exports = {
   listarEquipes,
   equipeComMembros,
   criarEquipe,
+  atualizarEquipe,
   definirParticipantes,
   encerrarEquipe,
 }

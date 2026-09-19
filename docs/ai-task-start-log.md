@@ -4496,3 +4496,37 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   uma linha de auditoria por lead, sem PII; SQL de rollback impresso.
 - **Consequencia declarada:** aprovar um nicho inteiro PULA a triagem 1 a 1 daqueles leads. E'
   decisao do operador, tomada no chat, e fica rastreavel em `app.auditoria_eventos`.
+
+
+## 2026-09-19 — Unificar "Equipe" e "Equipes comerciais" numa area so
+
+- **Pedido do operador:** juntar as duas telas numa unica area **Equipe**, com abas
+  (Visao geral / Equipes / Pessoas), visao master-detail das equipes (lista a esquerda,
+  detalhe a direita) e um modal amplo de **Gerenciar membros**. Referencias visuais
+  anexadas no chat; a instrucao explicita e' **adaptar** as referencias ao design system
+  existente, nunca copiar pixel a pixel nem criar identidade paralela.
+- **Analise de impacto (o que foi lido antes):** `frontend/app/dashboard/equipe/page.tsx`,
+  `frontend/app/dashboard/equipes-comerciais/page.tsx`, `frontend/lib/equipe-painel.js`
+  (+ `.test.js`), `frontend/lib/equipes-comerciais.js` (+ `.test.js`),
+  `frontend/lib/navegacao.js` (+ `.test.js`), `frontend/lib/lead-parado.js`,
+  `backend/src/routes/api-equipe.js`, `backend/src/routes/api-equipes-comerciais.js`,
+  `backend/src/db/equipes-comerciais.js`, `backend/src/services/acesso-capacidades.js`,
+  `docs/GUIA-VISUAL-PJ-CODEWORKS.md`, `frontend/lib/ui-primitivos.js` e os primitivos de
+  `frontend/components/ui/`.
+- **Restricoes DESCOBERTAS na analise, que a tela e' obrigada a respeitar:**
+  1. **Remover participante e' RECUSADO pelo backend** (`substituirParticipantes` lanca
+     409 `REMOCAO_EXIGE_DEVOLUCAO`): a devolucao transacional de leads nao existe. O modal
+     da referencia, que desmarca para remover, **nao pode** prometer isso.
+  2. **Nao existe rota de EDICAO de equipe** (nome/nicho/status). Ha' apenas criar,
+     `PUT /participantes` (so' adiciona) e `POST /encerrar`.
+  3. **"Reunioes" nao existe por pessoa** em rota alguma — nao sera inventada.
+  4. As duas telas usam a MESMA capacidade (`MEMBROS_GERENCIAR`), entao a unificacao **nao
+     muda permissao de ninguem**.
+- **Escopo pretendido:** camada de APRESENTACAO. Uma area so em `/dashboard/equipe`, um
+  modulo PURO novo (`frontend/lib/equipe-area.js` + `.d.ts`/`.test.js`) que junta as duas
+  fontes que ja existem, o modal de membros e a rota antiga virando redirect.
+- **Fora de escopo:** migration, contrato de API, regra de negocio nova, capacidade nova e
+  redesenho da Sidebar.
+- **Cuidados:** a tela so' TRADUZ (mesmo contrato de `lib/capacidades.js`); a guarda
+  anti-placar de `lib/equipe-painel.test.js` continua valendo e nao pode ser contornada no
+  modulo novo; metrica sem fonte real nao entra; cor nunca e' o unico sinal.

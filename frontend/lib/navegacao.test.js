@@ -140,19 +140,26 @@ test('nenhuma rota foi renomeada nesta reorganizacao', () => {
     '/dashboard/central-ligacoes', '/dashboard/comissao', '/dashboard/contas',
     '/dashboard/contas-empresa',
     '/dashboard/contextos',
-    '/dashboard/conversas', '/dashboard/equipe', '/dashboard/equipes-comerciais',
+    '/dashboard/conversas', '/dashboard/equipe',
     '/dashboard/follow-ups', '/dashboard/integracoes',
     '/dashboard/llm', '/dashboard/perfil', '/dashboard/playbook', '/dashboard/prompts',
     '/dashboard/relatorios', '/dashboard/roteiros', '/dashboard/uso',
   ])
 })
 
-test('Equipes comerciais e' + "'" + ' de gestao: comercial NAO ve o item', () => {
+test('a area de Equipe e' + "'" + ' de gestao: comercial NAO ve o item', () => {
   // Equipe organiza CARTEIRA (que nicho se trabalha), nao acesso — mas quem MONTA a equipe e' o
   // dono. O item filtra pela MESMA capacidade do mount do backend (`MEMBROS_GERENCIAR`), senao o
   // menu ofereceria uma tela que responde 403.
-  assert.ok(hrefs(itensVisiveis(admin)).includes('/dashboard/equipes-comerciais'))
-  assert.ok(!hrefs(itensVisiveis(comercial)).includes('/dashboard/equipes-comerciais'))
+  assert.ok(hrefs(itensVisiveis(admin)).includes('/dashboard/equipe'))
+  assert.ok(!hrefs(itensVisiveis(comercial)).includes('/dashboard/equipe'))
+})
+
+test('GUARDA: "Equipes comerciais" nao volta como item separado', () => {
+  // As duas telas eram partes do MESMO fluxo, com a MESMA capacidade, e foram unificadas em
+  // `/dashboard/equipe` (aba "Equipes") em 2026-09-19. Recriar o item aqui devolveria a viagem
+  // no meio do trabalho — e apontaria para uma rota que nao existe mais.
+  assert.ok(!hrefs(itensVisiveis(superadmin)).includes('/dashboard/equipes-comerciais'))
 })
 
 test('Contas da empresa e Contas da PLATAFORMA sao telas distintas, com papeis distintos', () => {

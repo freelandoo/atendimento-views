@@ -1148,3 +1148,35 @@ existe e nao deve nascer.
 - Validacao executada: `node --test test/equipes-comerciais.test.js test/autorizacao-rotas.test.js`,
   `node --test test/acesso-capacidades.test.js test/membros.test.js test/equipe-painel.test.js
   test/equipes-comerciais.test.js test/autorizacao-rotas.test.js`, `npm run typecheck`.
+
+
+## Area de Equipe unificada (2026-09-19)
+
+- `frontend/app/dashboard/equipe/page.tsx` (REESCRITO): area unica com tres abas — Visao geral,
+  Equipes (lista a esquerda + detalhe a direita) e Pessoas. A aba persiste em `sessionStorage` e
+  em `?aba=` (via `history.replaceState`, sem `useSearchParams`).
+- `frontend/app/dashboard/equipes-comerciais/` (REMOVIDO): a pagina virou a aba "Equipes". Link
+  salvo para a rota antiga passa a dar 404 — consequencia declarada e aceita.
+- `frontend/lib/equipe-area.js` (+ `.d.ts`/`.test.js`) (NOVO, PURO): junta as quatro fontes que ja
+  existiam e traduz. **Reexporta** `equipe-painel.js`, `equipes-comerciais.js`, `comissao.js` e
+  `lead-parado.js` — nunca reimplementa (padrao de `paginacao.js`/`lead-identidade.js`), e ha
+  guarda que falha se alguma regra for redefinida ali.
+- `frontend/components/ModalGerenciarMembros.tsx` (NOVO) e `ModalEquipe.tsx` (NOVO): reusam
+  `ui/FolhaModal`, `ui/Botao`, `ui/Campo` e `ui/EstadoVazio`.
+- `frontend/lib/navegacao.js` (+ `.test.js`): o item "Equipes comerciais" saiu de Configuracoes.
+  Guarda de regressao falha se ele voltar.
+- `backend/src/routes/api-equipes-comerciais.js` + `backend/src/db/equipes-comerciais.js`:
+  **um unico acrescimo** — `PATCH /:equipeId` (renomear). So nome e descricao; `nicho_id` e'
+  recusado com 400 `NICHO_NAO_EDITAVEL`; equipe encerrada e' recusada com 409.
+- Regras a preservar: **remover participante continua bloqueado** (409
+  `REMOCAO_EXIGE_DEVOLUCAO`) e a tela diz isso ANTES do clique; **encerrar equipe com gente
+  continua recusado** (409 `EQUIPE_COM_MEMBROS`) e o botao fica desabilitado com o motivo; o
+  **nicho e' imutavel** depois de criado; equipe NAO e' papel (acesso vive em Contas da empresa);
+  a area **nao e' placar** e nao soma metricas de natureza diferente; **nao existe metrica de
+  reunioes por pessoa** e ela nao pode ser inventada.
+- Fora de escopo: devolver leads ao remover pessoa, remover participante de equipe ativa, trocar
+  o nicho de uma equipe existente, e qualquer mudanca de permissao (as duas telas ja usavam
+  `MEMBROS_GERENCIAR`).
+- Validacao executada: `npm test` (backend, 2258/2260 — 2 flaky de IA por 429, pre-existentes),
+  `npx tsc --noEmit` e `node --test lib/*.test.js` (663) no frontend, e `next dev` compilando
+  `/dashboard/equipe` (HTTP 200).

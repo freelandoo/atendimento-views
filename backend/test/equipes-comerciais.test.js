@@ -159,3 +159,42 @@ test('GUARDA: meu-resumo e a listagem declaram a equipe no meta', () => {
   const src = fonte('src/routes/api-banco-leads.js')
   assert.ok((src.match(/equipe: nicho/g) || []).length >= 2, 'meta.equipe deve sair na listagem E no meu-resumo')
 })
+
+// ─── Renomear equipe (PATCH) ─────────────────────────────────────────────────────────────
+//
+// A tela unificada de Equipe precisa corrigir o nome de uma equipe sem encerrar e recriar. O que
+// ela NAO pode fazer e' trocar o nicho: e' ele que recorta o Banco de Leads de todos os membros.
+
+test('normalizarEquipe aceita alteracao PARCIAL (so nome) fora da criacao', () => {
+  assert.deepEqual(E.normalizarEquipe({ nome: ' Time Solar ' }, { criar: false }), { nome: 'Time Solar' })
+  assert.deepEqual(E.normalizarEquipe({ descricao: '  ' }, { criar: false }), { descricao: null })
+  // Nome curto continua sendo recusado mesmo fora da criacao.
+  assert.throws(() => E.normalizarEquipe({ nome: 'A' }, { criar: false }), /2 caracteres/)
+})
+
+test('GUARDA: o PATCH recusa nicho_id em vez de ignorar em silencio', () => {
+  // Ignorar faria a tela achar que salvou uma troca de nicho que nunca aconteceu — e a carteira
+  // dos membros continuaria recortada pelo nicho antigo, sem ninguem saber.
+  const rota = fonte('src/routes/api-equipes-comerciais.js')
+  assert.match(rota, /router\.patch\('\/:equipeId'/, 'a rota de renomear precisa existir')
+  assert.match(rota, /NICHO_NAO_EDITAVEL/)
+  assert.match(rota, /b\.nicho_id !== undefined/)
+})
+
+test('GUARDA: atualizarEquipe nao escreve nicho_id nem status', () => {
+  const src = fonte('src/db/equipes-comerciais.js')
+  const corpo = src.slice(src.indexOf('async function atualizarEquipe'), src.indexOf('async function definirParticipantes'))
+  assert.ok(corpo.length > 200, 'atualizarEquipe precisa existir')
+  assert.ok(!/SET[\s\S]*nicho_id\s*=/.test(corpo), 'trocar o nicho moveria a carteira de todos os membros')
+  assert.ok(!/SET[\s\S]*status\s*=/.test(corpo), 'encerrar equipe tem rota propria (POST /encerrar)')
+  assert.match(corpo, /EQUIPE_ENCERRADA/, 'equipe encerrada e historico e nao se renomeia')
+  assert.match(corpo, /IS DISTINCT FROM/, 'repetir a acao nao pode inflar a auditoria')
+  assert.match(corpo, /equipe_comercial_atualizada/, 'a alteracao precisa virar linha de auditoria')
+})
+
+test('GUARDA: nao existe exclusao de equipe por rota', () => {
+  // Mesma disciplina de Roteiros (arquivar) e Membros (desativar): encerrar preserva o historico;
+  // um DELETE desligaria em silencio a autoria das decisoes tomadas sob aquela equipe.
+  const rota = fonte('src/routes/api-equipes-comerciais.js')
+  assert.ok(!/router\.delete\(/.test(rota), 'equipe se ENCERRA, nunca se apaga')
+})

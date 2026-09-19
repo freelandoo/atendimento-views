@@ -270,3 +270,31 @@ Registre aqui toda divergência visual autorizada pelo usuário.
   responsável e situação do site continuam vindo dos mesmos módulos de sempre.
 - **Como validar:** `cd frontend && npx tsc --noEmit` (limpo), `node --test lib/*.test.js`
   (631 testes) e `npm run build` (passou). Nenhum arquivo de backend foi alterado.
+
+
+## 2026-09-19 — Area de Equipe unificada (nova tela, padrao seguido)
+
+- **Fase 5 do workflow: nao houve divergencia a aprovar.** A tela nasceu dentro do guia —
+  primitivos (`CabecalhoPagina`, `Botao`, `Card`, `Campo`, `EstadoVazio`, `Carregando`, `Abas`,
+  `ModalConfirmar`, `FolhaModal`), tokens semanticos (`surface`/`line`/`ink`/`brand`/`estado-*`,
+  **nenhum literal `slate-*`**), raio `lg`, sombra `shadow-card` e um `<h1>` por pagina.
+- **As referencias visuais foram ADAPTADAS, nao copiadas.** O layout (mestre-detalhe na aba
+  Equipes, modal amplo de membros, cartoes compactos no topo) veio delas; cor, tipografia,
+  geometria e componentes vieram do produto. Nenhuma identidade paralela foi criada e a Sidebar
+  nao foi tocada.
+- **Cor nunca e o unico sinal, e isso decidiu tres detalhes:** o selo de estado da equipe carrega
+  o rotulo em texto ao lado da bolinha; a celula de uma metrica so ganha cor quando o valor e'
+  maior que zero (`tomDaColuna`); e **vencido (vermelho) e parado (ambar) usam tons diferentes de
+  proposito** — sao problemas diferentes, e o `title` de cada cabecalho diz o que a coluna mede.
+- **Controle que a pessoa nao pode usar fica VISIVEL e desabilitado COM o motivo** (a regra do
+  guia): "Encerrar" quando a equipe tem gente, a caixa de quem ja e' membro no modal, e o campo
+  Nicho no modo edicao. Em nenhum dos tres o controle some — sumir mandaria o gestor procurar
+  onde se faz aquilo.
+- **Vazio por FILTRO e vazio por AUSENCIA tem saidas diferentes** em todas as listagens
+  (`EstadoVazio` + `resumoDoRecorte`), como o componente exige de quem o chama.
+- **Responsivo:** a coluna dupla da aba Equipes vira uma coluna abaixo de `lg`; a tabela rola na
+  horizontal com largura minima; os dois modais sao folha inferior no celular e modal centrado a
+  partir de `sm` (geometria do `FolhaModal`, ja padronizada em 2026-09-19).
+- **Pendente de verificacao visual com o operador:** a aparencia da area mudou de proposito
+  (duas paginas viraram uma, com abas e mestre-detalhe). Typecheck, testes e compilacao passaram,
+  mas **ninguem olhou a tela rodando ainda**.
