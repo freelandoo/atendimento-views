@@ -219,3 +219,54 @@ Registre aqui toda divergência visual autorizada pelo usuário.
 - **Regra que ficou protegida:** a árvore e as regras de visibilidade vivem em
   `frontend/lib/navegacao.js` (puro, testado). O desktop e o mobile desenham a MESMA árvore —
   não existe segunda lista de itens que possa divergir.
+
+### 2026-09-19 — Banco de Leads: repaginação (celular + computador)
+
+- **Decisão do operador:** repaginação **completa** da tela, **mantendo o modal centrado** no
+  computador (o painel lateral foi proposto e **recusado**). Desenho aprovado antes do código,
+  em artboards de celular e desktop.
+- **Motivo (medido em 2026-09-19, não estimado):** `app/dashboard/banco-leads/page.tsx` tinha
+  **7 `sm:`, 5 `md:` e 5 `lg:` em 2.881 linhas** — sete decisões responsivas na tela mais usada
+  do produto. **Zero** uso dos primitivos, **131** literais `slate-*`, **10** `rounded-xl/2xl`
+  e **33** usos de `text-[10px]`/`text-[11px]`. O shell (`Sidebar` + drawer, `layout.tsx`) **já
+  era responsivo**: quem não acompanhou foi o conteúdo.
+- **O que mudou, e o que NÃO mudou:**
+  - **Celular (`< md`): a fila vira CARTÃO.** A tabela tem até 15 colunas com `min-w-max` e
+    nenhuma congelada — no telefone vira rolagem lateral sem fim e o nome do lead sai da tela.
+    O cartão mostra o que decide a próxima ação (faixa, nome, mercado, as duas pontuações,
+    telefone) e o resto continua em "Detalhes", a mesma porta do computador.
+  - **A ação principal deixou de ser um GESTO.** Era clicar no telefone dentro da célula, e a
+    própria tela precisava ensiná-lo por escrito. Virou botão com nome, decidido por
+    `lib/banco-leads-acao.js` (PURO, 10 testes), que **recebe** os vereditos (`isRodavel`,
+    `isLocked`) em vez de recalculá-los — guarda de regressão falha se um campo cru do lead
+    aparecer no módulo.
+  - **Computador: a tabela continua sendo a tabela**, com a **coluna de identidade congelada**
+    (`sticky left-0`). "Entrou em" saiu da frente do nome: a coluna fixa tem de ser a que diz
+    de quem é a linha. O fundo da célula fixa é a versão **opaca** da tinta do ICP
+    (`fundoCelulaFixa`) — a tinta da linha é semitransparente e deixaria o conteúdo passar por
+    baixo ao rolar.
+  - **Os três modais passaram a ser folha inferior no celular e modal centrado a partir de
+    `sm`**, pela MESMA geometria: `classesFundoFolha`/`classesFolha` em `lib/ui-primitivos.js`
+    (+ 5 testes). Altura em **`dvh`, nunca `vh`** — com `vh` a barra do navegador do celular
+    corta o rodapé, que é onde mora a ação principal. `ConversaHistoricoModal` era `max-w-lg`
+    (estreito demais para uma conversa) e passou a `sm:max-w-2xl`; `LeadDetalhesModal` trocou
+    `max-h-[calc(92vh-108px)]` (altura de cabeçalho chutada) por `flex-1 min-h-0`.
+  - **`components/ui/FolhaModal.tsx` (novo):** shell acessível — `role="dialog"`, Escape, trava
+    de rolagem, **foco preso e devolvido a quem abriu**, fecha no `mousedown` do fundo (com
+    `click`, arrastar seleção de dentro para fora fechava e perdia o texto). Usado hoje pela
+    folha de filtros; os três modais reusam só as CLASSES porque têm submodais internos.
+  - **Filtros:** no celular, busca visível + o resto atrás de "Filtros" (folha, com a ação
+    presa no rodapé). **No computador a barra continua inteira, como sempre foi** — não se
+    criou um segundo painel de filtros ao lado do "⚙ Personalizar".
+  - **Tokens e raio:** só as substituições de **valor idêntico** medidas no guia
+    (`slate-50`→`surface-2`, `slate-100`→`surface-3`, `slate-200`→`line`, `slate-300`→
+    `line-strong`, `slate-500`→`ink-3`, `slate-600`→`ink-2`, `slate-900`→`ink`,
+    `white`→`surface`) — **não muda pixel**. `rounded-xl/2xl` → `rounded-lg` **muda** aparência
+    e é parte declarada da repaginação. **Nenhuma outra tela foi tocada.**
+- **Resíduo declarado:** sobraram **24** literais sem token de valor equivalente
+  (`text-slate-400`, `-700`, `-800`). Convertê-los mudaria a cor, então ficam para quando o
+  guia tiver o token correspondente.
+- **Nenhuma regra de negócio migrou para o front.** Faixa, ICP, cadastro, elegibilidade,
+  responsável e situação do site continuam vindo dos mesmos módulos de sempre.
+- **Como validar:** `cd frontend && npx tsc --noEmit` (limpo), `node --test lib/*.test.js`
+  (631 testes) e `npm run build` (passou). Nenhum arquivo de backend foi alterado.

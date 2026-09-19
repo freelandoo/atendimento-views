@@ -46,3 +46,15 @@ export function classesCard(opcoes?: {
   semPadding?: boolean
   extra?: string
 }): string
+
+export type TamanhoFolha = 'sm' | 'md' | 'lg' | 'xl'
+
+export const TAMANHOS_FOLHA: readonly TamanhoFolha[]
+export const TAMANHO_FOLHA_PADRAO: TamanhoFolha
+export function normalizarTamanhoFolha(t: unknown): TamanhoFolha
+
+/** Fundo escurecido: folha ancorada embaixo no celular, modal centrado a partir de `sm`. */
+export function classesFundoFolha(opcoes?: { extra?: string }): string
+
+/** Superfície flutuante: folha inferior no celular, modal centrado a partir de `sm`. */
+export function classesFolha(opcoes?: { tamanho?: TamanhoFolha; extra?: string }): string

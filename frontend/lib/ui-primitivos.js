@@ -119,6 +119,52 @@ function classesCard(opcoes = {}) {
   )
 }
 
+// --- Superficie flutuante (modal no computador, folha inferior no celular) --------------
+// UMA superficie para os dois tamanhos de tela, de proposito. Medicao de 2026-09-19: os tres
+// modais do Banco de Leads eram `fixed inset-0 flex items-center justify-center p-4` com
+// `max-h-[85vh]`/`[92vh]` — ou seja, um retangulo centrado com o botao de fechar no canto
+// superior DIREITO, que no telefone fica fora do alcance do polegar. No celular a folha sobe
+// de baixo (onde a mao ja esta) e a acao primaria fica presa no rodape; a partir de `sm` ela
+// volta a ser o modal centrado de sempre.
+//
+// `dvh` e nao `vh`: com `vh` a barra do navegador do celular corta o rodape da folha, que e'
+// exatamente onde mora a acao principal.
+const TAMANHOS_FOLHA = Object.freeze(['sm', 'md', 'lg', 'xl'])
+const TAMANHO_FOLHA_PADRAO = 'md'
+
+const LARGURA_FOLHA = Object.freeze({
+  sm: 'sm:max-w-md',
+  md: 'sm:max-w-2xl',
+  lg: 'sm:max-w-4xl',
+  xl: 'sm:max-w-5xl',
+})
+
+function normalizarTamanhoFolha(t) {
+  return TAMANHOS_FOLHA.includes(t) ? t : TAMANHO_FOLHA_PADRAO
+}
+
+/** Fundo escurecido. `items-end` no celular e `items-center` a partir de `sm` e' a chave. */
+function classesFundoFolha(opcoes = {}) {
+  const { extra = '' } = opcoes
+  return juntar(
+    'fixed inset-0 z-50 flex items-end justify-center bg-ink/50',
+    'sm:items-center sm:p-4',
+    extra,
+  )
+}
+
+/** A superficie em si. Raio so no topo enquanto e' folha; raio inteiro quando vira modal. */
+function classesFolha(opcoes = {}) {
+  const { tamanho, extra = '' } = opcoes
+  return juntar(
+    'flex w-full min-h-0 flex-col overflow-hidden bg-surface shadow-xl',
+    'max-h-[92dvh] rounded-t-lg',
+    'sm:max-h-[90dvh] sm:rounded-lg',
+    LARGURA_FOLHA[normalizarTamanhoFolha(tamanho)],
+    extra,
+  )
+}
+
 module.exports = {
   VARIANTES_BOTAO,
   TAMANHOS_BOTAO,
@@ -131,4 +177,9 @@ module.exports = {
   rotuloBotaoAcessivel,
   classesEntrada,
   classesCard,
+  TAMANHOS_FOLHA,
+  TAMANHO_FOLHA_PADRAO,
+  normalizarTamanhoFolha,
+  classesFundoFolha,
+  classesFolha,
 }

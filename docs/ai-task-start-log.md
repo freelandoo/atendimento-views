@@ -4400,3 +4400,68 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   de raio/literais (que muda aparencia e vai junto com a repaginacao de cada tela).
 - **Cuidado de concorrencia:** ha OUTRA sessao trabalhando neste repo (commits `bf0a324`,
   `1d5958d` e WIP de "missao por equipe"). Esta etapa so cria arquivos novos, entao nao colide.
+
+## 2026-09-18 — Missao comercial por EQUIPE (migration 089)
+
+- **Pedido do operador:** "faca proximo passo" apos o recorte de Follow-ups por equipe
+  (`1d5958d`). O proximo passo natural era a pendencia declarada no fim da entrega de Equipes
+  Comerciais: **"converter missoes para `equipe_id`"**.
+- **E projeto/tarefa de alteracao?** Sim. Toca schema (migration aditiva), camada de dados,
+  rota e tela — por isso entrou pelo workflow, com analise antes de editar.
+- **Analise de impacto (o que foi lido antes):** `src/services/missao.js`, `src/db/missao.js`,
+  `src/routes/api-missoes.js`, `sql/migrations/085_missao.sql`, `088_equipes_comerciais.sql`,
+  `src/db/equipes-comerciais.js` e `frontend/app/dashboard/comissao/page.tsx`. Constatacao que
+  guiou a solucao: a missao ja existia inteira e era **por empresa** (indice unico parcial
+  `missoes_uma_ativa_por_empresa_uk`) — a tarefa era converter, nao criar do zero.
+- **Escopo pretendido:** `equipe_id` na missao; unicidade passa a ser por equipe; "quem
+  alcancou" e a baixa da recompensa recortados pelos membros ativos da equipe; seletor de
+  equipe e recorte declarado na tela.
+- **Fora de escopo:** ranking da missao (o operador ja escolheu destacar o geral), equipe
+  multi-nicho, pessoa em mais de uma equipe, devolucao de leads ao remover participante e
+  qualquer mudanca na comissao (083), de onde a missao empresta a medida.
+- **Cuidados:** a 085 ja pode ter missao publicada em producao — a conversao **nao pode**
+  apagar da tela um desafio que ja estava valendo; e nenhum caminho pode passar a editar missao
+  publicada, que e imutavel por decisao anterior.
+
+## 2026-09-19 — Bloqueios e Slots na Agenda — Fase 1: UI de Agendamento
+
+- **Pedido do operador:** implementar bloqueios de agenda (feriados, reuniões internas, intervalo de almoço) com recorrência diária/semanal, e mostrar na tela de agendamento apenas os slots disponíveis de forma visual. Facilita marcar reunião rapidamente.
+- **E projeto/tarefa de alteração?** Sim, **multi-camada**: rotas de API novas, componente React de seletor visual, integração com tela de agenda existente. Não altera schema (bloqueios já existem como eventos com `tipo='bloqueio'` e `responsavel_id=null`).
+- **Estado atual:**
+  - ✅ Backend: lógica de bloqueios 100% pronta (`slotsLivresDoDia`, `validarSlotReuniao`, `buscarDisponibilidadeSemana`)
+  - ❌ Frontend: tela de agenda existe mas NÃO mostra slots, NÃO tem UI para criar bloqueios com recorrência
+- **Escopo Fase 1 (esta entrega):**
+  1. Rotas de API: `GET /disponibilidade` (slots por dia) + `GET /slots` (slots do dia)
+  2. Componente `SeletorSlots`: grid visual de horários, só os livres clicáveis, com motivo de indisponibilidade
+  3. Modal rápido "Bloquear horário": data, hora inicial/final, recorrência (nenhuma/diária/semanal), motivo
+  4. Integração com `/dashboard/agenda` (criar bloqueios e usar seletor ao agendar reunião)
+- **Fora de escopo:** remover bloqueios, editar bloqueios existentes, recorrência complexa (mensal, intervalo fixo), validações administrativas de feriado nacional, sincronização com Google Calendar
+- **Cuidados:** recorrência semanal precisa escolher dia da semana (seg/ter/qua…), intervalo de almoço é recorrência diária com horário específico, bloqueios da empresa (sem responsável) não devem aparecer em `responsaveis` seletor
+
+
+## 2026-09-19 — Banco de Leads — repaginacao de UX/UI (mobile + desktop)
+
+- **Pedido do operador:** melhorar a tela do Banco de Leads e seus modais/drawers para
+  funcionar bem no celular E no computador; pesquisar referencia externa e propor um desenho
+  novo antes de codar.
+- **E projeto/tarefa de alteracao?** Sim, de TELA. Fase atual: **0/analise + proposta visual**.
+  Nenhum `.tsx` foi alterado nesta etapa.
+- **Analise de impacto (o que foi lido antes):** `docs/GUIA-VISUAL-PJ-CODEWORKS.md`,
+  `docs/ui-visual-standard.md`, `frontend/app/dashboard/banco-leads/page.tsx` (2.881 linhas),
+  `components/LeadDetalhesModal.tsx`, `components/ConversaHistoricoModal.tsx`,
+  `components/ConversaPainel.tsx`, `components/ui/DataTableFrame.tsx`,
+  `app/dashboard/layout.tsx` e `components/Sidebar.tsx`.
+- **Medicao que guia a proposta:** a pagina tem **7 `sm:`, 5 `md:`, 5 `lg:`** em 2.881 linhas
+  (praticamente nenhuma decisao responsiva), **zero** uso dos primitivos `Botao`/`Card`/
+  `Campo`/`EstadoVazio`, **131** literais `slate-*`, **10** `rounded-xl`/`2xl` (fora da escala
+  fechada) e **33** usos de `text-[10px]`/`text-[11px]`. O shell (Sidebar + drawer) JA e
+  responsivo — quem nao e e o conteudo.
+- **Escopo pretendido (a decidir com o operador):** camada de apresentacao apenas — lista em
+  cartao no mobile, coluna de identidade congelada no desktop, filtros recolhidos em painel,
+  modais viram bottom sheet no mobile, adocao dos primitivos e dos tokens.
+- **Fora de escopo:** regra de negocio, rota, migration, contrato de API, ordenacao/filtro
+  server-side (decisao D4 segue pendente) e passe global de estilo em outras telas.
+- **Cuidados:** a tela TRADUZ vereditos que a API ja resolveu (`lib/site-rotulos.js`,
+  `lib/lead-fila-trabalho.js`, `lib/lead-icp.js`, `lib/pontuacao-indicador.js`) — nenhuma
+  regra pode migrar para o front; a ordem de trabalho e as duas bolinhas (ICP x cadastro) nao
+  podem ser fundidas; e a mudanca de aparencia exige verificacao visual, nunca passe global.

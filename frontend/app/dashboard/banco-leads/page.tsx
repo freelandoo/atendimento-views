@@ -10,6 +10,9 @@ import { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModa
 import LeadDetalhesModal, { BolinhaIcp, criteriosDoLead, maximoDoLead } from '@/components/LeadDetalhesModal'
 import ConversaHistoricoModal from '@/components/ConversaHistoricoModal'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
+import FolhaModal from '@/components/ui/FolhaModal'
+import Botao from '@/components/ui/Botao'
+import { classesEntrada } from '@/lib/ui-primitivos'
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
@@ -22,6 +25,9 @@ import { aplicarRecorte, gravarFiltros, lerFiltros } from '@/lib/filtros-sessao'
 // A ORDEM DE TRABALHO chega pronta do backend (services/lead-fila-trabalho.js): a lista ja vem
 // ordenada e cada lead traz `faixa_trabalho`. Este modulo so TRADUZ o nome da faixa.
 import { ORDEM_FAIXAS, seloFaixa, avisoDeJanela } from '@/lib/lead-fila-trabalho'
+// A ACAO PRINCIPAL do lead (qual botao, com que rotulo). O modulo RECEBE os vereditos que a
+// tela ja tem (`isRodavel`, `isLocked`) — ele nao recalcula elegibilidade.
+import { ACOES, acaoPrincipalDoLead } from '@/lib/banco-leads-acao'
 import {
   opcoesEscopo,
   donoDoLead, acoesDeResponsavel,
@@ -664,6 +670,8 @@ export default function BancoLeadsPage() {
   const [gerandoConversa, setGerandoConversa] = useState(false)
   // Personalizar visualização (colunas + filtros + ordenação; persistida no localStorage)
   const [persAberto, setPersAberto] = useState(false)
+  /** Folha de filtros do CELULAR. No computador os mesmos campos ficam na barra. */
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false)
   const [view, setView] = useState<ViewConfig>(VIEW_PADRAO)
   const patchView = useCallback((p: Partial<ViewConfig>) => setView((v) => ({ ...v, ...p })), [])
   const fb = useFeedback()
@@ -1421,12 +1429,118 @@ export default function BancoLeadsPage() {
   const podeGerarConversa = !!conversaAberta && !!instanciaId && conversaAberta.rodavel
     && config.modo !== 'automatico'
 
+  // Por que o disparo esta indisponivel AGORA — a mesma pergunta que o cronometro ja responde
+  // no topo, dita tambem no botao de cada lead. No celular o topo sai da tela assim que a
+  // fila rola, e um botao apagado sem motivo faz o operador clicar de novo achando que falhou.
+  const motivoEnvioBloqueado = config.modo === 'automatico'
+    ? 'No modo Automático o envio é controlado pela rotina configurada.'
+    : motivoBloqueioConexao
+      || (cooldownAtivo ? `Próximo envio em ${fmtMMSS(cooldownS as number)}` : '')
+  const envioBloqueado = Boolean(motivoEnvioBloqueado)
+
+  // Quantos recortes de CARTEIRA estao ligados. Não se confunde com `filtrosAtivos`, que conta
+  // os do "⚙ Personalizar" — são dois painéis diferentes e cada um diz o seu número.
+  const filtrosDeCarteira = [escopo, mercado, cidadeFiltro].filter(Boolean).length
+
+  /**
+   * Os campos de recorte da carteira. Renderizados em DOIS lugares — a barra do computador e a
+   * folha do celular — e por isso recebem um prefixo de id: a barra fica `hidden`, não
+   * desmontada, então os dois existem no DOM ao mesmo tempo e um `htmlFor` repetido faria o
+   * rótulo de um apontar para o campo do outro.
+   */
+  const camposFiltro = (p: string) => (
+    <>
+      <div>
+        <label htmlFor={`${p}-origem`} className="mb-1 block text-xs text-ink-3">Origem</label>
+        <select id={`${p}-origem`} value={origem} onChange={(e) => setOrigem(e.target.value)}
+          className={classesEntrada({ extra: 'min-h-11 md:min-h-0 md:w-auto' })}>
+          {ORIGENS.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+        </select>
+      </div>
+      {/* Recorte por RESPONSÁVEL (CRM em equipe, Etapa 4).
+          Quem não pode ver a carteira inteira não recebe a opção "Todos" — oferecer uma opção
+          que o servidor rebaixa faria a tela mostrar menos do que prometeu. */}
+      {podeVerTodos && (
+        <div>
+          <label htmlFor={`${p}-carteira`} className="mb-1 block text-xs text-ink-3">Carteira</label>
+          <select id={`${p}-carteira`} value={escopo} onChange={(e) => setEscopo(e.target.value)}
+            className={classesEntrada({ extra: 'min-h-11 md:min-h-0 md:w-auto md:min-w-[140px]' })}>
+            {/* A 1ª opção é o padrão do servidor (valor ''), e ela precisa existir na lista:
+                sem ela o controle exibia uma coisa e o estado enviava outra, e não havia como
+                voltar ao padrão depois de filtrar. */}
+            {opcoesEscopo(podeVerTodos).map((o) => (
+              <option key={o.valor || 'padrao'} value={o.valor}>{o.rotulo}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div className="md:min-w-[200px] md:flex-1">
+        <label htmlFor={`${p}-busca`} className="mb-1 block text-xs text-ink-3">Buscar (nome, telefone, email, @)</label>
+        <input id={`${p}-busca`} type="search" value={busca} onChange={(e) => setBusca(e.target.value)}
+          placeholder="digite para filtrar…" className={classesEntrada({ extra: 'min-h-11 md:min-h-0' })} />
+      </div>
+      <div>
+        <label htmlFor={`${p}-nicho`} className="mb-1 block text-xs text-ink-3">Nicho/Categoria</label>
+        <select id={`${p}-nicho`} value={mercado} onChange={(e) => setMercado(e.target.value)}
+          className={classesEntrada({ extra: 'min-h-11 md:min-h-0 md:w-auto md:min-w-[180px]' })}>
+          <option value="">Todos os nichos</option>
+          {mercadoOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
+        </select>
+      </div>
+      <div>
+        <label htmlFor={`${p}-cidade`} className="mb-1 block text-xs text-ink-3">Cidade</label>
+        <select id={`${p}-cidade`} value={cidadeFiltro} onChange={(e) => setCidadeFiltro(e.target.value)}
+          className={classesEntrada({ extra: 'min-h-11 md:min-h-0 md:w-auto md:min-w-[150px]' })}>
+          <option value="">Todas</option>
+          {cidadeOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
+        </select>
+      </div>
+      {(mercado || cidadeFiltro) && (
+        <div>
+          <label className="mb-1 hidden text-xs text-ink-3 md:block">&nbsp;</label>
+          <Botao variante="secundaria" onClick={() => { setMercado(''); setCidadeFiltro('') }} className="min-h-11 md:min-h-0">
+            Limpar mercado
+          </Botao>
+        </div>
+      )}
+    </>
+  )
+
+  /** Atalhos de 1 clique. Não são filtros novos: escrevem os mesmos valores de `view`. */
+  const chipsRapidos = ([
+    { chave: 'com_whatsapp', label: 'Com WhatsApp', ativo: view.envio === 'possivel', onClick: () => patchView({ envio: view.envio === 'possivel' ? 'todos' : 'possivel' }) },
+    { chave: 'sem_site', label: 'Sem site próprio', ativo: view.site === 'sem', onClick: () => patchView({ site: view.site === 'sem' ? 'todos' : 'sem' }) },
+    { chave: 'com_social', label: 'Com rede social', ativo: view.social === 'com', onClick: () => patchView({ social: view.social === 'com' ? 'todos' : 'com' }) },
+    { chave: 'sem_social', label: 'Sem rede social', ativo: view.social === 'sem', onClick: () => patchView({ social: view.social === 'sem' ? 'todos' : 'sem' }) },
+    { chave: 'falha_envio', label: 'Falha no envio', ativo: view.disparo === 'falha', onClick: () => patchView({ disparo: view.disparo === 'falha' ? 'todos' : 'falha' }) },
+  ] as const).map((f) => (
+    <button key={f.chave} type="button" onClick={f.onClick} aria-pressed={f.ativo}
+      className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${f.ativo ? 'border-brand bg-brand text-white' : 'border-line bg-surface text-ink-2 hover:bg-surface-3'}`}>
+      {f.label}
+    </button>
+  ))
+
+  const propsCartao = {
+    mostrarRodar: mostrarSelecao,
+    selecionados,
+    onToggleSel: toggleSel,
+    onAbrirConversa: abrirConversa,
+    onAbrirDetalhes: setDetalheAberto,
+    envioBloqueado,
+    motivoEnvioBloqueado,
+    usuarioId: usuario?.id,
+    podeAssumir,
+    podeTransferir,
+    onAssumir: assumirLead,
+    onDevolver: devolverLead,
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Banco de Leads</h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm text-ink-3 mt-1">
             Central de disparo dos leads das duas origens. Escolha o modo (Manual, Semiautomático
             ou Automático), selecione os leads e dispare a saudação pela instância escolhida.
           </p>
@@ -1446,7 +1560,7 @@ export default function BancoLeadsPage() {
           )}
           {podeExportarCsv && (
             <button onClick={exportar} disabled={exportando || !leads.length}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-surface-2 disabled:opacity-50">
               {exportando && <Spinner />}
               {exportando ? 'Gerando…' : <span className="inline-flex items-center gap-1.5"><IconDownload /> Exportar CSV</span>}
             </button>
@@ -1462,7 +1576,7 @@ export default function BancoLeadsPage() {
         {ABAS.map((a) => (
           <button key={a.valor} onClick={() => setAba(a.valor)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition ${
-              aba === a.valor ? 'bg-brand text-white border-brand' : 'bg-white text-slate-600 hover:bg-slate-50'
+              aba === a.valor ? 'bg-brand text-white border-brand' : 'bg-surface text-ink-2 hover:bg-surface-2'
             }`}>
             {a.label}
             {resumo && <span className="ml-2 opacity-70">{resumo.abas[a.valor] ?? 0}</span>}
@@ -1472,7 +1586,7 @@ export default function BancoLeadsPage() {
 
       {/* Barra "Rodar leads" — adapta ao modo. Só na aba Sem contato. */}
       {mostrarRodar && (
-        <div className="bg-white border rounded-2xl shadow-sm p-4 space-y-3">
+        <div className="bg-surface border rounded-lg shadow-sm p-4 space-y-3">
           {saudacaoFaltando && (
             <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               <IconAlert className="h-4 w-4 shrink-0" />
@@ -1482,7 +1596,7 @@ export default function BancoLeadsPage() {
           <div className="grid gap-4 lg:grid-cols-[minmax(0,430px)_minmax(0,1fr)]">
             <div className={`grid gap-3 ${podeEscolherInstancia ? 'sm:grid-cols-2' : ''}`}>
               <div>
-                <label className="block text-xs text-slate-500 mb-1">Modo de disparo</label>
+                <label className="block text-xs text-ink-3 mb-1">Modo de disparo</label>
                 <select value={modosDisponiveis.some((m) => m.valor === config.modo) ? config.modo : (modosDisponiveis[0]?.valor || 'manual')} onChange={(e) => trocarModo(e.target.value)}
                   className="w-full border rounded-lg px-3 py-2 text-sm">
                   {modosDisponiveis.map((m) => <option key={m.valor} value={m.valor} disabled={m.disabled}>{m.label}</option>)}
@@ -1490,7 +1604,7 @@ export default function BancoLeadsPage() {
               </div>
               {podeEscolherInstancia && (
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1">Instância</label>
+                  <label className="block text-xs text-ink-3 mb-1">Instância</label>
                   <select value={instanciaId} onChange={(e) => trocarInstancia(e.target.value)}
                     className="w-full border rounded-lg px-3 py-2 text-sm">
                     {!instancias.length && <option value="">Nenhuma instância ativa</option>}
@@ -1537,7 +1651,7 @@ export default function BancoLeadsPage() {
                           ? <>Próximo envio em <span className="tabular-nums">{fmtMMSS(cooldownS as number)}</span></>
                           : 'Envio liberado'}
                       </p>
-                      <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
+                      <p className="mt-0.5 text-xs leading-relaxed text-ink-3">
                         {motivoBloqueioConexao
                           || (cooldownAtivo
                             ? 'Aguarde o intervalo de segurança antes do próximo envio.'
@@ -1550,7 +1664,7 @@ export default function BancoLeadsPage() {
                 ) : (
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-700">Automático</p>
-                    <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
+                    <p className="mt-0.5 text-xs leading-relaxed text-ink-3">
                       Envia 1 lead por vez na janela configurada.
                     </p>
                   </div>
@@ -1560,7 +1674,7 @@ export default function BancoLeadsPage() {
                   className={`shrink-0 px-3 py-2 rounded-lg border text-sm font-medium disabled:opacity-50 ${
                     saudacaoFaltando
                       ? 'border-red-500 text-red-600 ring-2 ring-red-400 ring-offset-1 animate-pulse hover:bg-red-50'
-                      : 'hover:bg-slate-50'
+                      : 'hover:bg-surface-2'
                   }`}
                   title={saudacaoFaltando
                     ? 'Configure a saudação (mensagem-base) desta instância antes de disparar'
@@ -1570,7 +1684,7 @@ export default function BancoLeadsPage() {
               </div>
 
               {config.modo !== 'automatico' && (
-                <p className="border-t pt-2 text-xs leading-relaxed text-slate-500">{modoAtual.hint}</p>
+                <p className="border-t pt-2 text-xs leading-relaxed text-ink-3">{modoAtual.hint}</p>
               )}
             </div>
           </div>
@@ -1579,11 +1693,11 @@ export default function BancoLeadsPage() {
               Não depende de instância conectada (a mesma regra do envio 1 a 1); o envio em
               si continua exigindo conexão, aqui ou no modal de conversa. */}
           {mostrarSelecao && (
-            <div className="mt-2 rounded-xl border bg-slate-50/60 p-3 space-y-3" aria-live="polite">
+            <div className="mt-2 rounded-lg border bg-surface-2/60 p-3 space-y-3" aria-live="polite">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-semibold text-slate-700">Seleção em massa</p>
-                  <p className="mt-0.5 text-xs text-slate-500">
+                  <p className="mt-0.5 text-xs text-ink-3">
                     Marque leads na tabela (checkbox à esquerda) ou use os atalhos abaixo. "Gerar mensagens"
                     prepara o texto de todos os selecionados sem enviar nada.
                   </p>
@@ -1594,15 +1708,15 @@ export default function BancoLeadsPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={selecionarPaginaAtual} disabled={gerandoLote}
-                  className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-slate-50 disabled:opacity-50">
+                  className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-surface-2 disabled:opacity-50">
                   Selecionar página atual ({idsPaginaAtual().length})
                 </button>
                 <button type="button" onClick={selecionarTodosFiltrados} disabled={gerandoLote}
-                  className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-slate-50 disabled:opacity-50">
+                  className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-surface-2 disabled:opacity-50">
                   Selecionar todos os filtrados ({rodaveis.length})
                 </button>
                 <button type="button" onClick={limparSelecao} disabled={gerandoLote || !selecionados.size}
-                  className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-slate-50 disabled:opacity-50">
+                  className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-surface-2 disabled:opacity-50">
                   Limpar seleção
                 </button>
                 <button type="button" onClick={pedirGeracaoEmMassa}
@@ -1614,13 +1728,13 @@ export default function BancoLeadsPage() {
               </div>
               {progressoLoteManual && (
                 <div className="space-y-1.5">
-                  <div className="h-2.5 overflow-hidden rounded-full bg-slate-200" role="progressbar"
+                  <div className="h-2.5 overflow-hidden rounded-full bg-line" role="progressbar"
                     aria-label="Progresso da geração em massa" aria-valuemin={0} aria-valuemax={progressoLoteManual.total}
                     aria-valuenow={progressoLoteManual.processados}>
                     <div className={`h-full rounded-full transition-[width] duration-300 ${progressoLoteManual.erros ? 'bg-amber-500' : 'bg-emerald-500'}`}
                       style={{ width: `${progressoLoteManual.total ? Math.round((progressoLoteManual.processados / progressoLoteManual.total) * 100) : 0}%` }} />
                   </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-3">
                     <span><b className="text-slate-700">{progressoLoteManual.processados}</b> de {progressoLoteManual.total} processado(s)</span>
                     <span><b className="text-emerald-700">{progressoLoteManual.prontas}</b> pronta(s)</span>
                     {progressoLoteManual.erros > 0 && <span className="text-amber-700"><b>{progressoLoteManual.erros}</b> com erro de IA</span>}
@@ -1636,11 +1750,11 @@ export default function BancoLeadsPage() {
 
           {/* Progresso do worker Semiautomático — observação apenas; não dispara geração no browser. */}
           {config.modo === 'semi_automatico' && (
-            <div className="mt-2 rounded-xl border bg-slate-50/60 p-3 space-y-2" aria-live="polite">
+            <div className="mt-2 rounded-lg border bg-surface-2/60 p-3 space-y-2" aria-live="polite">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-semibold text-slate-700">Preparando mensagens em segundo plano</p>
-                  <p className="mt-0.5 text-xs text-slate-500">
+                  <p className="mt-0.5 text-xs text-ink-3">
                     Pode sair desta tela. O sistema continua trabalhando e inclui automaticamente os leads novos.
                   </p>
                 </div>
@@ -1648,14 +1762,14 @@ export default function BancoLeadsPage() {
                   {geracaoProgresso ? `${percentualGeracao}%` : geracaoProgressoErro ? 'Indisponível' : 'Lendo…'}
                 </span>
               </div>
-              <div className="h-2.5 overflow-hidden rounded-full bg-slate-200" role="progressbar"
+              <div className="h-2.5 overflow-hidden rounded-full bg-line" role="progressbar"
                 aria-label="Progresso da geração das mensagens" aria-valuemin={0} aria-valuemax={100}
                 aria-valuenow={geracaoProgresso ? percentualGeracao : undefined}>
                 <div className={`h-full rounded-full transition-[width] duration-500 ${geracaoProgresso?.erros ? 'bg-amber-500' : 'bg-emerald-500'}`}
                   style={{ width: `${percentualGeracao}%` }} />
               </div>
               {geracaoProgresso && (
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-3">
                   <span><b className="text-emerald-700">{geracaoProgresso.prontas}</b> pronta(s)</span>
                   <span><b className="text-blue-700">{geracaoProgresso.gerando}</b> gerando agora</span>
                   <span><b className="text-slate-700">{geracaoProgresso.eligiveis}</b> pendente(s)</span>
@@ -1670,11 +1784,11 @@ export default function BancoLeadsPage() {
 
           {/* Config do modo Automático */}
           {podeDispararAutomatico && config.modo === 'automatico' && (
-            <div className="mt-2 rounded-xl border bg-slate-50/60 p-3 space-y-2">
+            <div className="mt-2 rounded-lg border bg-surface-2/60 p-3 space-y-2">
               {/* Status claro + botão Ligar/Desligar (com aviso ao ligar). */}
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className={`inline-flex items-center gap-2 text-sm font-bold ${config.auto_ativo ? (motivoBloqueioConexao ? 'text-red-700' : 'text-emerald-700') : 'text-slate-500'}`}>
-                  <span className={`h-2.5 w-2.5 rounded-full ${config.auto_ativo ? (motivoBloqueioConexao ? 'bg-red-500' : 'bg-emerald-500 animate-pulse') : 'bg-slate-300'}`}></span>
+                <span className={`inline-flex items-center gap-2 text-sm font-bold ${config.auto_ativo ? (motivoBloqueioConexao ? 'text-red-700' : 'text-emerald-700') : 'text-ink-3'}`}>
+                  <span className={`h-2.5 w-2.5 rounded-full ${config.auto_ativo ? (motivoBloqueioConexao ? 'bg-red-500' : 'bg-emerald-500 animate-pulse') : 'bg-line-strong'}`}></span>
                   {config.auto_ativo ? (motivoBloqueioConexao ? 'Aguardando conexão' : 'Rodando') : 'Parado'}
                 </span>
                 <div className="flex items-center gap-2">
@@ -1690,37 +1804,37 @@ export default function BancoLeadsPage() {
               </div>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1">Início</label>
+                  <label className="block text-xs text-ink-3 mb-1">Início</label>
                   <input type="time" value={config.janela_inicio} disabled={salvandoAuto}
                     onChange={(e) => setConfig((c) => ({ ...c, janela_inicio: e.target.value }))}
                     onBlur={(e) => salvarAutoConfig({ janela_inicio: e.target.value })}
                     className="w-full border rounded-lg px-2 py-1.5 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1">Fim</label>
+                  <label className="block text-xs text-ink-3 mb-1">Fim</label>
                   <input type="time" value={config.janela_fim} disabled={salvandoAuto}
                     onChange={(e) => setConfig((c) => ({ ...c, janela_fim: e.target.value }))}
                     onBlur={(e) => salvarAutoConfig({ janela_fim: e.target.value })}
                     className="w-full border rounded-lg px-2 py-1.5 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1">Mín. (min)</label>
+                  <label className="block text-xs text-ink-3 mb-1">Mín. (min)</label>
                   <input type="number" min={15} max={30} value={config.intervalo_min} disabled={salvandoAuto}
                     onChange={(e) => setConfig((c) => ({ ...c, intervalo_min: Number(e.target.value) }))}
                     onBlur={(e) => salvarAutoConfig({ intervalo_min: Number(e.target.value) })}
                     className="w-full border rounded-lg px-2 py-1.5 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1">Máx. (min)</label>
+                  <label className="block text-xs text-ink-3 mb-1">Máx. (min)</label>
                   <input type="number" min={15} max={30} value={config.intervalo_max} disabled={salvandoAuto}
                     onChange={(e) => setConfig((c) => ({ ...c, intervalo_max: Number(e.target.value) }))}
                     onBlur={(e) => salvarAutoConfig({ intervalo_max: Number(e.target.value) })}
                     className="w-full border rounded-lg px-2 py-1.5 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1">Teto/dia</label>
+                  <label className="block text-xs text-ink-3 mb-1">Teto/dia</label>
                   <input type="text" value={`${config.teto_diario} (fixo)`} disabled readOnly
-                    className="w-full border rounded-lg px-2 py-1.5 text-sm bg-slate-100 text-slate-500"
+                    className="w-full border rounded-lg px-2 py-1.5 text-sm bg-surface-3 text-ink-3"
                     title="Limite de segurança anti-ban. O volume real é limitado pelo intervalo × janela." />
                 </div>
               </div>
@@ -1729,69 +1843,36 @@ export default function BancoLeadsPage() {
         </div>
       )}
 
-      {/* Filtros */}
-      <div className="flex flex-wrap items-end gap-3">
-        <div>
-          <label className="block text-xs text-slate-500 mb-1">Origem</label>
-          <select value={origem} onChange={(e) => setOrigem(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm">
-            {ORIGENS.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
-          </select>
+      {/* CELULAR — busca sempre visivel e o resto atras de "Filtros". Os seis controles lado a
+          lado empilhavam no telefone e empurravam o primeiro lead para fora da tela: a pessoa
+          abria a carteira e via formulario, nao lead. */}
+      <div className="flex items-center gap-2 md:hidden">
+        <div className="min-w-0 flex-1">
+          {/* Id próprio: `camposFiltro('m')` também tem um campo de busca dentro da folha, e
+              dois `id` iguais fariam o rótulo de um apontar para o campo do outro. */}
+          <label htmlFor="busca-topo" className="sr-only">Buscar (nome, telefone, email, @)</label>
+          <input id="busca-topo" type="search" value={busca} onChange={(e) => setBusca(e.target.value)}
+            placeholder="Nome, telefone, e-mail, @perfil"
+            className={classesEntrada({ extra: 'min-h-11' })} />
         </div>
-        {/* Recorte por RESPONSÁVEL (CRM em equipe, Etapa 4).
-            Quem não pode ver a carteira inteira não recebe a opção "Todos" — oferecer uma opção
-            que o servidor rebaixa faria a tela mostrar menos do que prometeu. */}
-        {podeVerTodos && (
-          <div>
-            <label className="block text-xs text-slate-500 mb-1">Carteira</label>
-            <select value={escopo} onChange={(e) => setEscopo(e.target.value)}
-              className="border rounded-lg px-3 py-2 text-sm min-w-[140px]">
-              {/* A 1ª opção é o padrão do servidor (valor ''), e ela precisa existir na lista:
-                  sem ela o controle exibia uma coisa e o estado enviava outra, e não havia como
-                  voltar ao padrão depois de filtrar. */}
-              {opcoesEscopo(podeVerTodos).map((o) => (
-                <option key={o.valor || 'padrao'} value={o.valor}>{o.rotulo}</option>
-              ))}
-            </select>
-          </div>
-        )}
-        <div className="flex-1 min-w-[200px]">
-          <label className="block text-xs text-slate-500 mb-1">Buscar (nome, telefone, email, @)</label>
-          <input value={busca} onChange={(e) => setBusca(e.target.value)}
-            placeholder="digite para filtrar…" className="w-full border rounded-lg px-3 py-2 text-sm" />
-        </div>
+        <Botao variante={filtrosDeCarteira > 0 ? 'primaria' : 'secundaria'}
+          onClick={() => setFiltrosAbertos(true)}
+          className="min-h-11 shrink-0"
+          iconeInicio={<IconGear />}>
+          {filtrosDeCarteira > 0 ? `Filtros · ${filtrosDeCarteira}` : 'Filtros'}
+        </Botao>
+      </div>
+
+      {/* COMPUTADOR — a barra inteira, como sempre foi. */}
+      <div className="hidden flex-wrap items-end gap-3 md:flex">
+        {camposFiltro('d')}
         <div>
-          <label className="block text-xs text-slate-500 mb-1">Nicho/Categoria</label>
-          <select value={mercado} onChange={(e) => setMercado(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm min-w-[180px]">
-            <option value="">Todos os nichos</option>
-            {mercadoOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs text-slate-500 mb-1">Cidade</label>
-          <select value={cidadeFiltro} onChange={(e) => setCidadeFiltro(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm min-w-[150px]">
-            <option value="">Todas</option>
-            {cidadeOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
-          </select>
-        </div>
-        {(mercado || cidadeFiltro) && (
-          <div>
-            <label className="block text-xs text-slate-500 mb-1">&nbsp;</label>
-            <button onClick={() => { setMercado(''); setCidadeFiltro('') }}
-              className="border rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
-              Limpar mercado
-            </button>
-          </div>
-        )}
-        <div>
-          <label className="block text-xs text-slate-500 mb-1">&nbsp;</label>
-          <button onClick={() => setPersAberto(true)}
-            className={`inline-flex items-center gap-1.5 border rounded-lg px-3 py-2 text-sm hover:bg-slate-50 ${filtrosAtivos ? 'border-brand text-brand' : ''}`}>
-            <span className="inline-flex items-center gap-1.5"><IconGear /> Personalizar</span>
-            {filtrosAtivos > 0 && <span className="text-[10px] bg-brand text-white rounded-full px-1.5 py-0.5">{filtrosAtivos}</span>}
-          </button>
+          <label className="mb-1 block text-xs text-ink-3">&nbsp;</label>
+          <Botao variante="secundaria" onClick={() => setPersAberto(true)} iconeInicio={<IconGear />}
+            className={filtrosAtivos ? 'border-brand text-brand' : ''}>
+            Personalizar
+            {filtrosAtivos > 0 && <span className="rounded-full bg-brand px-1.5 py-0.5 text-[10px] text-white">{filtrosAtivos}</span>}
+          </Botao>
         </div>
       </div>
 
@@ -1799,20 +1880,41 @@ export default function BancoLeadsPage() {
           (mesmo padrão de pill com estado ativo da Aquisição/Central de Ligações). Não é um
           filtro novo — só um atalho de UI para valores que `view` (client-side) já aceita;
           um 2º clique no mesmo chip desliga o filtro. */}
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtros rápidos">
-        {([
-          { chave: 'com_whatsapp', label: 'Com WhatsApp', ativo: view.envio === 'possivel', onClick: () => patchView({ envio: view.envio === 'possivel' ? 'todos' : 'possivel' }) },
-          { chave: 'sem_site', label: 'Sem site próprio', ativo: view.site === 'sem', onClick: () => patchView({ site: view.site === 'sem' ? 'todos' : 'sem' }) },
-          { chave: 'com_social', label: 'Com rede social', ativo: view.social === 'com', onClick: () => patchView({ social: view.social === 'com' ? 'todos' : 'com' }) },
-          { chave: 'sem_social', label: 'Sem rede social', ativo: view.social === 'sem', onClick: () => patchView({ social: view.social === 'sem' ? 'todos' : 'sem' }) },
-          { chave: 'falha_envio', label: 'Falha no envio', ativo: view.disparo === 'falha', onClick: () => patchView({ disparo: view.disparo === 'falha' ? 'todos' : 'falha' }) },
-        ] as const).map((f) => (
-          <button key={f.chave} type="button" onClick={f.onClick} aria-pressed={f.ativo}
-            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${f.ativo ? 'border-brand bg-brand text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
-            {f.label}
-          </button>
-        ))}
+      {/* No celular eles vivem dentro da folha de filtros, junto do resto do recorte. */}
+      <div className="hidden flex-wrap gap-1.5 md:flex" role="group" aria-label="Filtros rápidos">
+        {chipsRapidos}
       </div>
+
+      {/* A folha de filtros do CELULAR. A ação primária ("Ver N leads") fica presa no rodapé,
+          ao alcance do polegar — não no topo, onde o X dos modais centrados morava. */}
+      <FolhaModal
+        aberto={filtrosAbertos}
+        titulo="Filtros"
+        descricao="Recorte da carteira. Colunas e presets continuam em “Personalizar”, no computador."
+        onFechar={() => setFiltrosAbertos(false)}
+        tamanho="sm"
+        rodape={
+          <>
+            <Botao variante="neutra" onClick={() => { setMercado(''); setCidadeFiltro(''); setEscopo(''); setBusca('') }}
+              className="min-h-11">
+              Limpar
+            </Botao>
+            <Botao variante="primaria" onClick={() => setFiltrosAbertos(false)} className="min-h-11 flex-1 sm:flex-none">
+              Ver {totalFiltrado} lead{totalFiltrado === 1 ? '' : 's'}
+            </Botao>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3">Atalhos</p>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtros rápidos">
+              {chipsRapidos}
+            </div>
+          </div>
+          <div className="space-y-3">{camposFiltro('m')}</div>
+        </div>
+      </FolhaModal>
 
       {/* A janela da listagem e a ordem em vigor — as duas coisas que o operador não teria como
           descobrir sozinho. Recortar ou reordenar em silêncio faz a carteira parecer menor do
@@ -1851,8 +1953,8 @@ export default function BancoLeadsPage() {
       {/* Chips de filtros ativos + contagem de resultados */}
       {filtrosAtivos > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-slate-500 font-medium">{totalFiltrado} lead(s) encontrado(s)</span>
-          {chips.map((ch) => <span key={ch} className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border">{ch}</span>)}
+          <span className="text-ink-3 font-medium">{totalFiltrado} lead(s) encontrado(s)</span>
+          {chips.map((ch) => <span key={ch} className="px-2 py-0.5 rounded-full bg-surface-3 text-ink-2 border">{ch}</span>)}
           {view.ordenacao !== 'padrao' && (
             <span className="px-2 py-0.5 rounded-full bg-blue-50 text-brand border border-blue-100">↕ {ORDENACOES.find((o) => o.valor === view.ordenacao)?.label}</span>
           )}
@@ -1870,7 +1972,7 @@ export default function BancoLeadsPage() {
           const v = vazioDaCarteira(metaLista?.equipe || null, aba)
           return (
             <div className="text-center py-8">
-              <p className="text-sm text-slate-500">{v.titulo}</p>
+              <p className="text-sm text-ink-3">{v.titulo}</p>
               {v.ajuda && <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">{v.ajuda}</p>}
             </div>
           )
@@ -1882,6 +1984,22 @@ export default function BancoLeadsPage() {
         </p>
       ) : (
         <>
+          {/* CELULAR — a fila em cartoes. A tabela nao encolhe bem: sao ate 15 colunas com
+              `min-w-max` e nenhuma congelada, entao no telefone ela vira rolagem lateral sem
+              fim e o nome do lead sai da tela. */}
+          <div className="space-y-6 md:hidden">
+            <ListaCartoesBanco titulo="Google Places" leads={pgPlaces.itens} {...propsCartao} />
+            {mostrarPaginacao(pgPlaces.total, pgPlaces.porPagina) && (
+              <RodapePaginacaoBanco pg={pgPlaces} onPagina={setPaginaPlaces} />
+            )}
+            <ListaCartoesBanco titulo="Instagram" leads={pgIg.itens} {...propsCartao} />
+            {mostrarPaginacao(pgIg.total, pgIg.porPagina) && (
+              <RodapePaginacaoBanco pg={pgIg} onPagina={setPaginaIg} />
+            )}
+          </div>
+
+          {/* COMPUTADOR — a tabela continua sendo a forma certa para COMPARAR leads. */}
+          <div className="hidden space-y-6 md:block">
           {leadsPlaces.length > 0 && (
             <TabelaPlacesBanco
               leads={pgPlaces.itens}
@@ -1932,6 +2050,7 @@ export default function BancoLeadsPage() {
           {mostrarPaginacao(pgIg.total, pgIg.porPagina) && (
             <RodapePaginacaoBanco pg={pgIg} onPagina={setPaginaIg} />
           )}
+          </div>
         </>
       )}
 
@@ -2051,23 +2170,23 @@ type TabelaProps = {
 // duas tabelas (Places/Instagram): cada uma tem sua própria página, mas o rodapé é o mesmo.
 function RodapePaginacaoBanco({ pg, onPagina }: { pg: PaginaLista<Lead>; onPagina: (p: number) => void }) {
   return (
-    <div className="flex flex-col gap-2 rounded-2xl border bg-white px-3 py-2 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-xs text-slate-500" aria-live="polite">
+    <div className="flex flex-col gap-2 rounded-lg border bg-surface px-3 py-2 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-xs text-ink-3" aria-live="polite">
         <span className="tabular-nums">{resumoIntervalo(pg)}</span>
       </p>
       {(pg.temAnterior || pg.temProxima) && (
         <div className="flex items-center gap-1 self-end sm:self-auto">
           <button type="button" onClick={() => onPagina(pg.pagina - 1)} disabled={!pg.temAnterior}
             aria-label="Página anterior"
-            className="min-h-[36px] rounded-lg border px-3 py-1 text-xs hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-30 disabled:hover:bg-transparent">
+            className="min-h-[36px] rounded-lg border px-3 py-1 text-xs hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-30 disabled:hover:bg-transparent">
             ◀ <span className="hidden sm:inline">Anterior</span>
           </button>
-          <span className="px-1 text-xs text-slate-500">
+          <span className="px-1 text-xs text-ink-3">
             Página <b className="tabular-nums text-slate-700">{pg.pagina}</b> de <span className="tabular-nums">{pg.totalPaginas}</span>
           </span>
           <button type="button" onClick={() => onPagina(pg.pagina + 1)} disabled={!pg.temProxima}
             aria-label="Próxima página"
-            className="min-h-[36px] rounded-lg border px-3 py-1 text-xs hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-30 disabled:hover:bg-transparent">
+            className="min-h-[36px] rounded-lg border px-3 py-1 text-xs hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-30 disabled:hover:bg-transparent">
             <span className="hidden sm:inline">Próxima</span> ▶
           </button>
         </div>
@@ -2083,7 +2202,7 @@ const TOM_FAIXA: Record<string, string> = {
   novo: 'bg-blue-50 text-brand border-blue-100',
   atencao: 'bg-orange-50 text-orange-700 border-orange-200',
   espera: 'bg-sky-50 text-sky-700 border-sky-200',
-  neutro: 'bg-slate-50 text-slate-600 border-slate-200',
+  neutro: 'bg-surface-2 text-ink-2 border-line',
 }
 
 // Célula de status compartilhada (faixa da fila + badge + trava + último disparo).
@@ -2102,7 +2221,7 @@ function StatusCelula({ l }: { l: Lead }) {
         {faixa ? faixa.rotulo : (STATUS_LABEL[l.status] || l.status)}
       </div>
       {faixa && STATUS_COMPLEMENTO[l.status] && (
-        <div className="text-[11px] text-slate-500 mt-0.5">{STATUS_COMPLEMENTO[l.status]}</div>
+        <div className="text-[11px] text-ink-3 mt-0.5">{STATUS_COMPLEMENTO[l.status]}</div>
       )}
       {locked && (
         <div className="inline-flex items-center gap-1 text-[11px] text-red-600 mt-1">
@@ -2150,7 +2269,7 @@ function EnvioCelula({ l, previsoesEnvio }: { l: Lead; previsoesEnvio: Map<strin
     pronto: 'bg-amber-50 text-amber-700 border-amber-200',
     enviado: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     erro: 'bg-red-50 text-red-700 border-red-200',
-    neutro: 'bg-slate-50 text-slate-600 border-slate-200',
+    neutro: 'bg-surface-2 text-ink-2 border-line',
   }[info.tom]
   return (
     <td className="px-3 py-2 min-w-[150px]">
@@ -2202,12 +2321,12 @@ function TelefoneCelula({ l, onSalvarTelefone }: { l: Lead; onSalvarTelefone: (i
                 <span className="underline decoration-current underline-offset-2 group-hover:decoration-2">{l.telefone}</span>
                 {msgPronta && <IconSend className="h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden="true" />}
               </span>
-              <span className="font-sans text-[10px] font-medium leading-3 text-slate-500 group-hover:text-emerald-700">
+              <span className="font-sans text-[10px] font-medium leading-3 text-ink-3 group-hover:text-emerald-700">
                 {textoWa ? 'Abrir no WhatsApp com a mensagem →' : 'Abrir no WhatsApp →'}
               </span>
             </a>
           ) : (
-            <span className="text-slate-600">{l.telefone}</span>
+            <span className="text-ink-2">{l.telefone}</span>
           )}
           {l.tem_whatsapp === true && (
             <span className="h-2 w-2 rounded-full bg-emerald-500" title="WhatsApp verificado" />
@@ -2265,13 +2384,13 @@ function ResponsavelCelula({ l, usuarioId, podeAssumir, podeTransferir, onAssumi
           </button>
         )}
         {!acoes.assumir && (
-          <span className={dono.meu ? 'text-[12px] font-medium text-brand' : 'text-[12px] text-slate-600'}>
+          <span className={dono.meu ? 'text-[12px] font-medium text-brand' : 'text-[12px] text-ink-2'}>
             {dono.rotulo}
           </span>
         )}
         {acoes.devolver && onDevolver && (
           <button onClick={() => onDevolver(l)}
-            className="self-start text-[11px] text-slate-500 underline-offset-2 hover:underline"
+            className="self-start text-[11px] text-ink-3 underline-offset-2 hover:underline"
             title="Devolve o lead para a fila de livres">
             Devolver
           </button>
@@ -2309,12 +2428,12 @@ function CadastroDetalhesCelula({ l, onAbrirDetalhes }: {
           <span className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${selo.classe}`}>
             {selo.rotulo}{selo.score != null ? ` · ${selo.score}/13` : ''}
           </span>
-          <span className="mt-0.5 block max-w-[150px] truncate text-[10px] text-slate-500">
+          <span className="mt-0.5 block max-w-[150px] truncate text-[10px] text-ink-3">
             {validacao.rotulo} · {qualificacao.score_100}/100
           </span>
         </div>
         <button onClick={() => onAbrirDetalhes(l)}
-          className="text-[11px] text-slate-500 underline-offset-2 hover:text-brand hover:underline"
+          className="text-[11px] text-ink-3 underline-offset-2 hover:text-brand hover:underline"
           title="ICP, cadastro como evidência, endereço, nota, avaliações, horário, links e dados completos do lead">
           Detalhes
         </button>
@@ -2344,52 +2463,262 @@ function classeLinhaQualidadeIcp(l: Lead): string {
   if (faixa === 'A') return 'bg-orange-50/60 hover:bg-orange-50'
   if (faixa === 'B') return 'bg-amber-50/45 hover:bg-amber-50/80'
   if (faixa === 'C') return 'bg-sky-50/25 hover:bg-sky-50/60'
-  return 'hover:bg-slate-50/60'
+  return 'hover:bg-surface-2/60'
 }
 
-function NomeLeadCelula({ l, onAbrirConversa, largura = 'max-w-[220px]' }: {
+/**
+ * COLUNA CONGELADA — o fundo OPACO da célula de identidade.
+ *
+ * A tinta da linha é semitransparente (`/60`, `/45`, `/25`), o que é certo sobre a página e
+ * errado numa célula `sticky`: o conteúdo das outras colunas passaria por baixo e apareceria
+ * através dela ao rolar. Aqui a mesma faixa vira a versão opaca.
+ */
+function fundoCelulaFixa(l: Lead): string {
+  const resumo = resumoIcpOperacional(l)
+  const faixa = seloIcp(resumo.faixa, resumo.score).chave
+  if (faixa === 'A') return 'bg-orange-50'
+  if (faixa === 'B') return 'bg-amber-50'
+  if (faixa === 'C') return 'bg-sky-50'
+  return 'bg-surface'
+}
+
+/** Sombra que revela que há mais coluna à direita — sem ela a parada parece corte. */
+const CELULA_FIXA = 'sticky left-0 z-10 shadow-[6px_0_8px_-8px_rgb(15_23_42_/_0.35)]'
+const CABECALHO_FIXO = 'sticky left-0 z-30 bg-surface-2 shadow-[6px_0_8px_-8px_rgb(15_23_42_/_0.35)]'
+
+function NomeLeadCelula({ l, onAbrirConversa, largura = 'max-w-[220px]', className = '' }: {
   l: Lead
   onAbrirConversa: (l: Lead) => void
   largura?: string
+  /** Layout do chamador (coluna congelada). Aditivo. */
+  className?: string
 }) {
   return (
-    <td className="px-3 py-2 font-medium">
+    <td className={`px-3 py-2 font-medium ${className}`}>
       <div className="flex min-w-0 flex-col gap-1">
         <TextoTruncado
           texto={l.nome}
           onClick={() => onAbrirConversa(l)}
           dica="Abrir a conversa e os acessos rápidos deste lead"
-          className={`${largura} text-slate-900 hover:text-brand hover:underline`}
+          className={`${largura} text-ink hover:text-brand hover:underline`}
         />
       </div>
     </td>
   )
 }
 
-function SelCelula({ l, selecionados, onToggleSel }: { l: Lead; selecionados: Set<string>; onToggleSel: (id: string) => void }) {
+function SelCelula({ l, selecionados, onToggleSel, className = '' }: { l: Lead; selecionados: Set<string>; onToggleSel: (id: string) => void; className?: string }) {
   return (
-    <td className="px-3 py-2">
+    <td className={`px-3 py-2 ${className}`}>
       <input type="checkbox" checked={selecionados.has(l.id)} disabled={!isRodavel(l)}
         onChange={() => onToggleSel(l.id)} aria-label={`Selecionar ${l.nome}`} />
     </td>
   )
 }
 
+/**
+ * CARTAO DO LEAD — a forma da fila no CELULAR.
+ *
+ * Por que cartao e nao a tabela encolhida: a tabela tem ate 15 colunas e `min-w-max`, entao no
+ * telefone ela vira rolagem horizontal sem fim — e como nenhuma coluna e' congelada, ao chegar
+ * em "Responsavel" o operador ja nao sabe de quem e' a linha. Cartao e' o padrao certo quando
+ * se le UM registro por vez; a tabela continua sendo a certa para COMPARAR, e por isso ela
+ * permanece intacta a partir de `md`.
+ *
+ * O cartao nao mostra menos informacao por preguica: mostra as que decidem a proxima acao
+ * (faixa da fila, nome, mercado, as duas pontuacoes, telefone). O resto continua em "Detalhes",
+ * que e' a mesma porta do desktop.
+ *
+ * ⚠️ Ele NAO reclassifica nada: faixa, ICP, cadastro e elegibilidade vem exatamente das mesmas
+ * funcoes que a tabela usa.
+ */
+function LeadCartao({ l, mostrarRodar, selecionados, onToggleSel, onAbrirConversa, onAbrirDetalhes, envioBloqueado, motivoEnvioBloqueado, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver }: {
+  l: Lead
+  mostrarRodar: boolean
+  selecionados: Set<string>
+  onToggleSel: (id: string) => void
+  onAbrirConversa: (l: Lead) => void
+  onAbrirDetalhes: (l: Lead) => void
+  envioBloqueado: boolean
+  motivoEnvioBloqueado: string
+  usuarioId?: string | null
+  podeAssumir?: boolean
+  podeTransferir?: boolean
+  onAssumir?: (l: Lead) => void
+  onDevolver?: (l: Lead) => void
+}) {
+  const faixa = seloFaixa(l.faixa_trabalho)
+  const resumo = resumoIcpOperacional(l)
+  const selo = seloIcp(resumo.faixa, resumo.score)
+  const maximo = maximoDoLead(l)
+  const cadastro = leituraCadastro(l.score_cadastro, maximo, criteriosDoLead(l))
+  const dono = donoDoLead(l, usuarioId)
+  const acoesDono = acoesDeResponsavel(l, { usuarioId, podeAssumir, podeTransferir })
+
+  // Os vereditos vem de quem ja os tinha. Recalcula-los aqui criaria uma segunda regra de
+  // elegibilidade, mais frouxa que a do backend.
+  const acao = acaoPrincipalDoLead({
+    temTelefone: Boolean(l.telefone),
+    rodavel: isRodavel(l),
+    travado: isLocked(l),
+    motivoTravado: l.bloqueio_motivo ? (MOTIVO_LABEL[l.bloqueio_motivo] || l.bloqueio_motivo) : '',
+    mensagemPronta: Boolean(l.mensagem_gerada),
+    respondeu: l.status === 'respondeu',
+    erroIa: temErroIa(l),
+    envioBloqueado,
+    motivoEnvioBloqueado,
+  })
+  const acaoEDisparo = acao.chave === ACOES.ENVIAR || acao.chave === ACOES.REVISAR
+  const descarte = motivoDescarte(l)
+  const falha = falhaEnvio(l)
+
+  return (
+    <article className="rounded-lg border border-line bg-surface p-3 shadow-card">
+      <div className="flex items-start gap-2.5">
+        {mostrarRodar && (
+          <input type="checkbox" checked={selecionados.has(l.id)} disabled={!isRodavel(l)}
+            onChange={() => onToggleSel(l.id)} aria-label={`Selecionar ${l.nome}`}
+            className="mt-1 h-4 w-4 shrink-0" />
+        )}
+        <div className="min-w-0 flex-1">
+          <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TOM_FAIXA[faixa?.tom || 'neutro'] || TOM_FAIXA.neutro}`}>
+            {faixa ? faixa.rotulo : (STATUS_LABEL[l.status] || l.status)}
+          </span>
+          <h3 className="mt-1 truncate text-[15px] font-bold leading-tight text-ink">{l.nome}</h3>
+          <p className="mt-0.5 truncate text-xs text-ink-3">
+            {[l.nicho, l.cidade].filter(Boolean).join(' · ') || 'Mercado não informado'}
+          </p>
+        </div>
+        <button type="button" onClick={() => onAbrirDetalhes(l)}
+          className="-mr-1 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-ink-3 hover:bg-surface-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+          aria-label={`Detalhes de ${l.nome}`} title="ICP, cadastro, endereço, nota, links e dados completos">
+          <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+            <circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" />
+          </svg>
+        </button>
+      </div>
+
+      {/* As DUAS pontuacoes lado a lado, cada uma com o que mede escrito em texto. Elas medem
+          coisas diferentes e andam em direcoes opostas sobre o mesmo lead — juntar as duas num
+          numero so e' o defeito que ja fez o melhor lead da campanha aparecer em vermelho. */}
+      <div className="mt-2.5 flex items-center gap-3 rounded-md border border-line bg-surface-2 px-2.5 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <BolinhaIcp l={l} />
+          <span className="min-w-0 text-[11px] leading-tight text-ink-2">
+            Perfil<br />
+            <strong className="font-semibold text-ink">{selo.rotulo}{selo.score != null ? ` · ${selo.score}/13` : ''}</strong>
+          </span>
+        </div>
+        <span className="h-7 w-px shrink-0 bg-line" aria-hidden="true" />
+        <span className="min-w-0 text-[11px] leading-tight text-ink-2">
+          Cadastro<br />
+          <strong className="font-semibold text-ink">
+            {typeof l.score_cadastro === 'number' ? `${cadastro.titulo} · ${l.score_cadastro}/${maximo}` : 'sem pontuação'}
+          </strong>
+        </span>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+        <span className="font-mono text-ink-2">{l.telefone || 'Telefone pendente'}</span>
+        {l.tem_whatsapp === true && (
+          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800">Tem WhatsApp</span>
+        )}
+        {l.tem_whatsapp === false && (
+          <span className="rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-medium text-ink-2">Sem WhatsApp</span>
+        )}
+        {l.proximo_agendamento && (
+          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-700">
+            <IconCalendar className="h-3 w-3" /> {fmtDataHora(l.proximo_agendamento)}
+          </span>
+        )}
+      </div>
+
+      {(falha || descarte) && (
+        <p className="mt-1.5 text-[11px] font-medium text-estado-danger">
+          {falha ? `Falha no envio: ${falha}` : `Descartado: ${descarte}`}
+        </p>
+      )}
+      {acao.chave === ACOES.TRAVADO && (
+        <p className="mt-1.5 text-[11px] font-medium text-estado-warn">{acao.dica}</p>
+      )}
+
+      <div className="mt-3 flex items-center gap-2">
+        <Botao
+          variante={acao.variante}
+          onClick={() => onAbrirConversa(l)}
+          motivoDesabilitado={acaoEDisparo ? acao.motivoDesabilitado : ''}
+          disabled={acaoEDisparo && Boolean(acao.motivoDesabilitado)}
+          title={acao.dica}
+          className="min-h-11 flex-1"
+        >
+          {acao.rotulo}
+        </Botao>
+        {acoesDono.assumir && onAssumir && (
+          <Botao variante="secundaria" onClick={() => onAssumir(l)} className="min-h-11 shrink-0"
+            title="Lead livre: clique para assumir agora">
+            Assumir
+          </Botao>
+        )}
+        {!acoesDono.assumir && (
+          <span className={`shrink-0 text-[11px] ${dono.meu ? 'font-medium text-brand' : 'text-ink-3'}`}>
+            {dono.rotulo}
+          </span>
+        )}
+      </div>
+      {acoesDono.devolver && onDevolver && (
+        <button type="button" onClick={() => onDevolver(l)}
+          className="mt-1.5 text-[11px] text-ink-3 underline-offset-2 hover:underline">
+          Devolver para a fila
+        </button>
+      )}
+    </article>
+  )
+}
+
+/** A fila em cartoes — so no celular. A partir de `md` quem manda e' a tabela. */
+function ListaCartoesBanco({ titulo, leads, ...resto }: {
+  titulo: string
+  leads: Lead[]
+  mostrarRodar: boolean
+  selecionados: Set<string>
+  onToggleSel: (id: string) => void
+  onAbrirConversa: (l: Lead) => void
+  onAbrirDetalhes: (l: Lead) => void
+  envioBloqueado: boolean
+  motivoEnvioBloqueado: string
+  usuarioId?: string | null
+  podeAssumir?: boolean
+  podeTransferir?: boolean
+  onAssumir?: (l: Lead) => void
+  onDevolver?: (l: Lead) => void
+}) {
+  if (!leads.length) return null
+  return (
+    <section aria-label={titulo} className="space-y-2">
+      <h2 className="px-0.5 text-xs font-semibold uppercase tracking-wide text-ink-3">{titulo}</h2>
+      {leads.map((l) => <LeadCartao key={l.id} l={l} {...resto} />)}
+    </section>
+  )
+}
+
 function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onSalvarTelefone, onAbrirDetalhes, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver }: TabelaProps) {
   const n = total ?? leads.length
   return (
-    <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
+    <div className="bg-surface rounded-lg shadow-sm border overflow-hidden">
       <div className="px-4 py-3 border-b flex items-center gap-2">
         <h2 className="text-sm font-semibold">Google Places</h2>
         <span className="text-xs text-slate-400">{n} lead{n === 1 ? '' : 's'}</span>
       </div>
       <DataTableFrame>
         <table className="w-full min-w-max text-sm">
-          <thead className="sticky top-0 z-20 bg-slate-50 shadow-[0_1px_0_0_#e2e8f0]">
+          <thead className="sticky top-0 z-20 bg-surface-2 shadow-[0_1px_0_0_#e2e8f0]">
             <tr>
-              {mostrarRodar && <th className="px-3 py-2 w-8" />}
+              {/* IDENTIDADE CONGELADA. "Entrou em" saiu da frente do nome: a coluna fixa tem
+                  de ser a que diz DE QUEM é a linha, e ela precisa ser a primeira. */}
+              {mostrarRodar && <th className={`w-8 px-3 py-2 ${CABECALHO_FIXO}`} />}
+              <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={onOrdenar}
+                className={`${CABECALHO_FIXO} ${mostrarRodar ? 'left-8' : 'left-0'}`} />
               {cols.entrou && <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={onOrdenar} />}
-              <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={onOrdenar} />
               {/* ICP + cadastro: qualidade comercial e evidência de coleta na mesma célula.
                   Fica logo depois do nome porque é o que decide se vale trabalhar o lead. */}
               <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={onOrdenar} />
@@ -2397,7 +2726,7 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
               {cols.envio_previsto && <ThOrdenavel label="Envio" chave="envio" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.status && <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.qualidade && <ThOrdenavel label="Qualidade" chave="icp" ordem={ordem} onOrdenar={onOrdenar} />}
-              {cols.responsavel && <th className="px-3 py-2 text-left font-medium text-slate-500">Responsável</th>}
+              {cols.responsavel && <th className="px-3 py-2 text-left font-medium text-ink-3">Responsável</th>}
               {cols.email && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.endereco && <ThOrdenavel label="Endereço" chave="endereco" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.nicho && <ThOrdenavel label="Nicho / Cidade" chave="nicho" ordem={ordem} onOrdenar={onOrdenar} />}
@@ -2411,11 +2740,12 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
               const horario = !!l.json_apresentacao?.empresa?.horario_funcionamento
               return (
                 <tr key={l.id} className={`${classeLinhaQualidadeIcp(l)} align-top`}>
-                  {mostrarRodar && <SelCelula l={l} selecionados={selecionados} onToggleSel={onToggleSel} />}
-                  {cols.entrou && <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{fmtDataHora(l.created_at)}</td>}
+                  {mostrarRodar && <SelCelula l={l} selecionados={selecionados} onToggleSel={onToggleSel} className={`${CELULA_FIXA} ${fundoCelulaFixa(l)}`} />}
                   {/* O NOME abre a conversa do lead. A ficha do Google Maps não se perdeu:
                       virou acesso rápido no topo do modal e continua em "Detalhes". */}
-                  <NomeLeadCelula l={l} onAbrirConversa={onAbrirConversa} largura="max-w-[220px]" />
+                  <NomeLeadCelula l={l} onAbrirConversa={onAbrirConversa} largura="max-w-[220px]"
+                    className={`${CELULA_FIXA} ${fundoCelulaFixa(l)} ${mostrarRodar ? 'left-8' : 'left-0'}`} />
+                  {cols.entrou && <td className="px-3 py-2 whitespace-nowrap text-xs text-ink-3">{fmtDataHora(l.created_at)}</td>}
                   {/* ICP + cadastro como evidência — ver CadastroDetalhesCelula. */}
                   <CadastroDetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
                   {cols.telefone && <TelefoneCelula l={l} onSalvarTelefone={onSalvarTelefone} />}
@@ -2427,7 +2757,7 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
                       podeTransferir={podeTransferir} onAssumir={onAssumir} onDevolver={onDevolver} />
                   )}
                   {cols.email && <td className="px-3 py-2 text-xs"><EmailEditavel value={l.email} onSave={(email) => onSalvarEmail(l.id, email)} /></td>}
-                  {cols.endereco && <td className="px-3 py-2 text-xs text-slate-600 max-w-[180px] truncate" title={l.endereco || ''}>{l.endereco || '—'}</td>}
+                  {cols.endereco && <td className="px-3 py-2 text-xs text-ink-2 max-w-[180px] truncate" title={l.endereco || ''}>{l.endereco || '—'}</td>}
                   {cols.nicho && <td className="px-3 py-2 text-xs"><NichoCidade nicho={l.nicho} cidade={l.cidade} /></td>}
                   {cols.aval && <td className="px-3 py-2 text-right text-xs">{l.avaliacoes ?? '—'}</td>}
                   {cols.nota && <td className="px-3 py-2 text-right text-xs">{l.rating != null ? Number(l.rating).toFixed(1) : '—'}</td>}
@@ -2445,18 +2775,20 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
 function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onSalvarTelefone, onAbrirDetalhes, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver }: TabelaProps) {
   const n = total ?? leads.length
   return (
-    <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
+    <div className="bg-surface rounded-lg shadow-sm border overflow-hidden">
       <div className="px-4 py-3 border-b flex items-center gap-2">
         <h2 className="text-sm font-semibold">Instagram</h2>
         <span className="text-xs text-slate-400">{n} lead{n === 1 ? '' : 's'}</span>
       </div>
       <DataTableFrame>
         <table className="w-full min-w-max text-sm">
-          <thead className="sticky top-0 z-20 bg-slate-50 shadow-[0_1px_0_0_#e2e8f0]">
+          <thead className="sticky top-0 z-20 bg-surface-2 shadow-[0_1px_0_0_#e2e8f0]">
             <tr>
-              {mostrarRodar && <th className="px-3 py-2 w-8" />}
+              {/* IDENTIDADE CONGELADA — mesma regra da tabela do Google Places. */}
+              {mostrarRodar && <th className={`w-8 px-3 py-2 ${CABECALHO_FIXO}`} />}
+              <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={onOrdenar}
+                className={`${CABECALHO_FIXO} ${mostrarRodar ? 'left-8' : 'left-0'}`} />
               {cols.entrou && <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={onOrdenar} />}
-              <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={onOrdenar} />
               {/* ICP + cadastro logo depois do nome, como na tabela do Google Places. */}
               <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={onOrdenar} />
               <ThOrdenavel label="@username" chave="username" ordem={ordem} onOrdenar={onOrdenar} />
@@ -2466,7 +2798,7 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
               {cols.envio_previsto && <ThOrdenavel label="Envio" chave="envio" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.status && <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.qualidade && <ThOrdenavel label="Qualidade" chave="icp" ordem={ordem} onOrdenar={onOrdenar} />}
-              {cols.responsavel && <th className="px-3 py-2 text-left font-medium text-slate-500">Responsável</th>}
+              {cols.responsavel && <th className="px-3 py-2 text-left font-medium text-ink-3">Responsável</th>}
               {cols.email && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.links && <ThOrdenavel label="Links" chave="links" ordem={ordem} onOrdenar={onOrdenar} />}
             </tr>
@@ -2474,9 +2806,10 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
           <tbody className="divide-y">
             {leads.map((l) => (
               <tr key={l.id} className={`${classeLinhaQualidadeIcp(l)} align-top`}>
-                {mostrarRodar && <SelCelula l={l} selecionados={selecionados} onToggleSel={onToggleSel} />}
-                {cols.entrou && <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{fmtDataHora(l.created_at)}</td>}
-                <NomeLeadCelula l={l} onAbrirConversa={onAbrirConversa} largura="max-w-[200px]" />
+                {mostrarRodar && <SelCelula l={l} selecionados={selecionados} onToggleSel={onToggleSel} className={`${CELULA_FIXA} ${fundoCelulaFixa(l)}`} />}
+                <NomeLeadCelula l={l} onAbrirConversa={onAbrirConversa} largura="max-w-[200px]"
+                  className={`${CELULA_FIXA} ${fundoCelulaFixa(l)} ${mostrarRodar ? 'left-8' : 'left-0'}`} />
+                {cols.entrou && <td className="px-3 py-2 whitespace-nowrap text-xs text-ink-3">{fmtDataHora(l.created_at)}</td>}
                 {/* Instagram vale até 60 — o máximo vem do backend e entra como evidência do ICP. */}
                 <CadastroDetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
                 <td className="px-3 py-2 text-xs">
@@ -2486,7 +2819,7 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
                   ) : '—'}
                 </td>
                 {cols.nicho && (
-                  <td className="px-3 py-2 text-xs text-slate-600 max-w-[160px] truncate" title={[l.nicho, l.categoria_perfil, l.cidade].filter(Boolean).join(' · ')}>
+                  <td className="px-3 py-2 text-xs text-ink-2 max-w-[160px] truncate" title={[l.nicho, l.categoria_perfil, l.cidade].filter(Boolean).join(' · ')}>
                     {l.nicho || l.categoria_perfil || '—'}
                   </td>
                 )}
@@ -2502,11 +2835,11 @@ function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, co
                 {cols.email && <td className="px-3 py-2 text-xs"><EmailEditavel value={l.email} onSave={(email) => onSalvarEmail(l.id, email)} /></td>}
                 {cols.links && (
                   <td className="px-3 py-2 text-xs whitespace-nowrap">
-                    {l.link_bio && <a href={l.link_bio} target="_blank" rel="noreferrer" className="text-slate-500 underline mr-2">bio</a>}
-                    {l.tem_site && l.site && <a href={l.site} target="_blank" rel="noreferrer" className="text-slate-500 underline mr-2">site</a>}
+                    {l.link_bio && <a href={l.link_bio} target="_blank" rel="noreferrer" className="text-ink-3 underline mr-2">bio</a>}
+                    {l.tem_site && l.site && <a href={l.site} target="_blank" rel="noreferrer" className="text-ink-3 underline mr-2">site</a>}
                     {/* Link que existe mas NÃO é site: aparece pelo que é, nunca como "site". */}
                     {!l.tem_site && l.link_original && l.link_original !== l.link_bio && (
-                      <a href={l.link_original} target="_blank" rel="noreferrer" className="text-slate-500 underline"
+                      <a href={l.link_original} target="_blank" rel="noreferrer" className="text-ink-3 underline"
                         title={`Não é site próprio: ${l.link_original}`}>
                         {rotuloLink(l.classificacao_url) || 'link'}
                       </a>
@@ -2541,7 +2874,7 @@ const PRESETS: { nome: string; dica: string; patch: Partial<ViewConfig>; aba?: s
 function SelFiltro({ label, value, onChange, opcoes }: { label: string; value: string; onChange: (v: string) => void; opcoes: [string, string][] }) {
   return (
     <div>
-      <label className="block text-[11px] text-slate-500 mb-1">{label}</label>
+      <label className="block text-[11px] text-ink-3 mb-1">{label}</label>
       <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full border rounded-lg px-2 py-1.5 text-sm">
         {opcoes.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
@@ -2588,16 +2921,16 @@ function PersonalizarModal({ view, onPatch, onReset, onPreset, onClose }: {
   return (
     <div ref={panelRef}
       style={pos ? { position: 'fixed', left: pos.x, top: pos.y } : undefined}
-      className={`z-50 bg-white rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] w-[640px] max-w-[95vw] ${pos ? '' : 'fixed left-1/2 top-12 -translate-x-1/2'}`}>
+      className={`z-50 bg-surface rounded-lg shadow-2xl border flex flex-col max-h-[85vh] w-[640px] max-w-[95vw] ${pos ? '' : 'fixed left-1/2 top-12 -translate-x-1/2'}`}>
         <div onMouseDown={startDrag}
-          className="flex items-center justify-between px-5 py-3 border-b cursor-move select-none bg-slate-50 rounded-t-2xl">
+          className="flex items-center justify-between px-5 py-3 border-b cursor-move select-none bg-surface-2 rounded-t-2xl">
           <h3 className="font-semibold text-lg">⠿ Personalizar visualização</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none cursor-pointer" aria-label="Fechar">×</button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
           <section>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Presets rápidos</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-3 mb-2">Presets rápidos</p>
             <div className="flex flex-wrap gap-2">
               {PRESETS.map((p) => (
                 <button key={p.nome} onClick={() => onPreset(p.patch, p.aba)} title={p.dica}
@@ -2609,7 +2942,7 @@ function PersonalizarModal({ view, onPatch, onReset, onPreset, onClose }: {
           </section>
 
           <section>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Ordenação e priorização</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-3 mb-2">Ordenação e priorização</p>
             <select value={view.ordenacao} onChange={(e) => onPatch({ ordenacao: e.target.value })}
               className="w-full md:w-2/3 border rounded-lg px-2 py-1.5 text-sm">
               {ORDENACOES.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
@@ -2617,7 +2950,7 @@ function PersonalizarModal({ view, onPatch, onReset, onPreset, onClose }: {
           </section>
 
           <section>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Filtros</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-3 mb-2">Filtros</p>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <SelFiltro label="Site próprio" value={view.site} onChange={(v) => onPatch({ site: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com site próprio'], ['sem', 'Sem site próprio']]} />
               <SelFiltro label="Rede social" value={view.social} onChange={(v) => onPatch({ social: v as Filtro3 })} opcoes={[['todos', 'Todas'], ['com', 'Com rede social'], ['sem', 'Sem rede social']]} />
@@ -2629,27 +2962,27 @@ function PersonalizarModal({ view, onPatch, onReset, onPreset, onClose }: {
               <SelFiltro label="Disparo" value={view.disparo} onChange={(v) => onPatch({ disparo: v as ViewConfig['disparo'] })} opcoes={[['todos', 'Todos'], ['disparado', 'Disparado'], ['nao_disparado', 'Não disparado'], ['falha', 'Falha no envio']]} />
               <SelFiltro label="Agendamento" value={view.agendamento} onChange={(v) => onPatch({ agendamento: v as ViewConfig['agendamento'] })} opcoes={[['todos', 'Todos'], ['com', 'Com agendamento'], ['sem', 'Sem agendamento'], ['hoje', 'Hoje'], ['7dias', 'Próx. 7 dias']]} />
               <div className="col-span-2">
-                <label className="block text-[11px] text-slate-500 mb-1">Região (endereço/cidade contém)</label>
+                <label className="block text-[11px] text-ink-3 mb-1">Região (endereço/cidade contém)</label>
                 <input value={view.regiao} onChange={(e) => onPatch({ regiao: e.target.value })} placeholder="ex: São Bernardo, Centro" className="w-full border rounded-lg px-2 py-1.5 text-sm" />
               </div>
             </div>
             <div className="grid grid-cols-3 gap-3 mt-3">
-              <div><label className="block text-[11px] text-slate-500 mb-1">Cadastro/coleta ≥</label>{num(view.scoreMin, (s) => onPatch({ scoreMin: s }), '0')}</div>
-              <div><label className="block text-[11px] text-slate-500 mb-1">Cadastro/coleta ≤</label>{num(view.scoreMax, (s) => onPatch({ scoreMax: s }), '100')}</div>
+              <div><label className="block text-[11px] text-ink-3 mb-1">Cadastro/coleta ≥</label>{num(view.scoreMin, (s) => onPatch({ scoreMin: s }), '0')}</div>
+              <div><label className="block text-[11px] text-ink-3 mb-1">Cadastro/coleta ≤</label>{num(view.scoreMax, (s) => onPatch({ scoreMax: s }), '100')}</div>
               <div />
-              <div><label className="block text-[11px] text-slate-500 mb-1">Nota ≥</label>{num(view.notaMin, (s) => onPatch({ notaMin: s }), '0')}</div>
-              <div><label className="block text-[11px] text-slate-500 mb-1">Nota ≤</label>{num(view.notaMax, (s) => onPatch({ notaMax: s }), '5')}</div>
+              <div><label className="block text-[11px] text-ink-3 mb-1">Nota ≥</label>{num(view.notaMin, (s) => onPatch({ notaMin: s }), '0')}</div>
+              <div><label className="block text-[11px] text-ink-3 mb-1">Nota ≤</label>{num(view.notaMax, (s) => onPatch({ notaMax: s }), '5')}</div>
               <div />
-              <div><label className="block text-[11px] text-slate-500 mb-1">Avaliações ≥</label>{num(view.avalMin, (s) => onPatch({ avalMin: s }), '0')}</div>
-              <div><label className="block text-[11px] text-slate-500 mb-1">Avaliações ≤</label>{num(view.avalMax, (s) => onPatch({ avalMax: s }), '∞')}</div>
+              <div><label className="block text-[11px] text-ink-3 mb-1">Avaliações ≥</label>{num(view.avalMin, (s) => onPatch({ avalMin: s }), '0')}</div>
+              <div><label className="block text-[11px] text-ink-3 mb-1">Avaliações ≤</label>{num(view.avalMax, (s) => onPatch({ avalMax: s }), '∞')}</div>
               <div />
-              <div><label className="block text-[11px] text-slate-500 mb-1">Entrou de</label><input type="date" value={view.dataDe} onChange={(e) => onPatch({ dataDe: e.target.value })} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></div>
-              <div><label className="block text-[11px] text-slate-500 mb-1">Entrou até</label><input type="date" value={view.dataAte} onChange={(e) => onPatch({ dataAte: e.target.value })} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></div>
+              <div><label className="block text-[11px] text-ink-3 mb-1">Entrou de</label><input type="date" value={view.dataDe} onChange={(e) => onPatch({ dataDe: e.target.value })} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></div>
+              <div><label className="block text-[11px] text-ink-3 mb-1">Entrou até</label><input type="date" value={view.dataAte} onChange={(e) => onPatch({ dataAte: e.target.value })} className="w-full border rounded-lg px-2 py-1.5 text-sm" /></div>
             </div>
           </section>
 
           <section>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Colunas visíveis</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-3 mb-2">Colunas visíveis</p>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
               {COLUNAS_TOGGLE.map((c) => (
                 <label key={c.key} className="flex items-center gap-2 text-sm">
@@ -2664,7 +2997,7 @@ function PersonalizarModal({ view, onPatch, onReset, onPreset, onClose }: {
         </div>
 
         <div className="px-5 py-3 border-t flex items-center justify-between gap-3">
-          <button onClick={onReset} className="text-sm text-slate-500 hover:text-slate-800">↺ Restaurar padrão</button>
+          <button onClick={onReset} className="text-sm text-ink-3 hover:text-slate-800">↺ Restaurar padrão</button>
           <span className="hidden md:inline text-xs text-slate-400">Aplica em tempo real · salvo neste navegador · arraste pelo topo</span>
           <button onClick={onClose} className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-semibold hover:bg-brand-dark">Concluir</button>
         </div>
@@ -2708,17 +3041,17 @@ function CadastroModal({ base, onClose, onSaved }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-surface rounded-lg shadow-xl max-w-md w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div>
             <h3 className="font-semibold text-lg">Adicionar cadastro</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Cria um lead manualmente no banco. Informe ao menos WhatsApp ou Instagram.</p>
+            <p className="text-xs text-ink-3 mt-0.5">Cria um lead manualmente no banco. Informe ao menos WhatsApp ou Instagram.</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none" aria-label="Fechar">×</button>
         </div>
 
         <div>
-          <label className="block text-xs text-slate-500 mb-1">Origem</label>
+          <label className="block text-xs text-ink-3 mb-1">Origem</label>
           <select value={origem} onChange={(e) => setOrigem(e.target.value)}
             className="w-full border rounded-lg px-3 py-2 text-sm">
             {ORIGENS_CADASTRO.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
@@ -2726,19 +3059,19 @@ function CadastroModal({ base, onClose, onSaved }: {
         </div>
 
         <div>
-          <label className="block text-xs text-slate-500 mb-1">Nome</label>
+          <label className="block text-xs text-ink-3 mb-1">Nome</label>
           <input value={nome} onChange={(e) => setNome(e.target.value)}
             placeholder="Nome do lead ou empresa" className="w-full border rounded-lg px-3 py-2 text-sm" />
         </div>
 
         <div>
-          <label className="block text-xs text-slate-500 mb-1">WhatsApp</label>
+          <label className="block text-xs text-ink-3 mb-1">WhatsApp</label>
           <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)}
             placeholder="ex: 5521999998888" className="w-full border rounded-lg px-3 py-2 text-sm" />
         </div>
 
         <div>
-          <label className="block text-xs text-slate-500 mb-1">Instagram</label>
+          <label className="block text-xs text-ink-3 mb-1">Instagram</label>
           <input value={instagram} onChange={(e) => setInstagram(e.target.value)}
             placeholder="@usuario" className="w-full border rounded-lg px-3 py-2 text-sm" />
         </div>
@@ -2809,19 +3142,19 @@ function TestarEnvioModal({ empresaId, base, instancia, config, motivoTesteIndis
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-surface rounded-lg shadow-xl max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div>
             <h3 className="font-semibold text-lg">Testar envio — {instancia.nome || instancia.evolution_instance}</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Mande uma mensagem de teste pro seu número pra confirmar que a instância envia normalmente.</p>
+            <p className="text-xs text-ink-3 mt-0.5">Mande uma mensagem de teste pro seu número pra confirmar que a instância envia normalmente.</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none" aria-label="Fechar">×</button>
         </div>
 
         {/* Teste de envio — ação principal */}
-        <div className="flex items-end gap-2 rounded-lg bg-slate-50 border p-3">
+        <div className="flex items-end gap-2 rounded-lg bg-surface-2 border p-3">
           <div className="flex-1">
-            <label className="block text-xs text-slate-500 mb-1">Seu número (teste)</label>
+            <label className="block text-xs text-ink-3 mb-1">Seu número (teste)</label>
             <input value={numeroTeste} onChange={(e) => setNumeroTeste(e.target.value)}
               placeholder="ex: 5511999998888" className="w-full border rounded-lg px-3 py-2 text-sm" />
           </div>
@@ -2840,19 +3173,19 @@ function TestarEnvioModal({ empresaId, base, instancia, config, motivoTesteIndis
 
         {/* Ajustes de geração (IA) — usados nos modos Semi e Automático */}
         <div className="border-t pt-3 space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Ajustes de geração</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">Ajustes de geração</p>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={gerarIa} onChange={(e) => setGerarIa(e.target.checked)} />
             Gerar a mensagem por IA com análise do lead
           </label>
           <div>
-            <label className="block text-xs text-slate-500 mb-1">Instruções extras para a IA (tom, oferta, CTA)</label>
+            <label className="block text-xs text-ink-3 mb-1">Instruções extras para a IA (tom, oferta, CTA)</label>
             <textarea value={instrucoes} onChange={(e) => setInstrucoes(e.target.value)} rows={3}
               placeholder="Ex.: tom informal, oferta de site profissional, sempre convidar para uma conversa rápida."
               className="w-full border rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-xs text-slate-500 mb-1">Saudação de fallback (usada se a IA falhar ou estiver desligada)</label>
+            <label className="block text-xs text-ink-3 mb-1">Saudação de fallback (usada se a IA falhar ou estiver desligada)</label>
             <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={4}
               placeholder="Oi {nome}, tudo bem? Vi a {empresa} aqui em {cidade}…"
               className="w-full border rounded-lg px-3 py-2 text-sm" />
@@ -2861,7 +3194,7 @@ function TestarEnvioModal({ empresaId, base, instancia, config, motivoTesteIndis
             </p>
           </div>
           {preview && (
-            <div className="rounded-lg bg-slate-50 border px-3 py-2 text-xs text-slate-600">
+            <div className="rounded-lg bg-surface-2 border px-3 py-2 text-xs text-ink-2">
               <span className="text-slate-400">Preview do fallback: </span>{preview}
             </div>
           )}

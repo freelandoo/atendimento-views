@@ -7,6 +7,7 @@ import {
 } from '@/lib/follow-up-acao'
 import type { AcessoRapido } from '@/lib/lead-acessos'
 import { ContatoEditavel } from '@/components/ContatoEditavel'
+import { classesFolha, classesFundoFolha } from '@/lib/ui-primitivos'
 
 // Modal enxuto do Banco de Leads. Reusa o MESMO endpoint da página de Conversas
 // (GET /api/empresas/:id/conversas/:numero) — sem recriar a lógica de conversa.
@@ -290,9 +291,17 @@ export default function ConversaHistoricoModal({
       : mensagemGerada ? 'Enviar mensagem' : 'Gerar e enviar'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="relative bg-white rounded-2xl shadow-xl max-w-lg w-full flex flex-col max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between gap-3 px-5 py-3 border-b">
+    /* A geometria vem do PRIMITIVO (`lib/ui-primitivos.js`): folha inferior no celular, modal
+       centrado a partir de `sm`. Escrevê-la à mão aqui criaria uma segunda régua — foi assim
+       que os três modais desta tela acabaram com três alturas e três larguras diferentes.
+       O `max-w-lg` anterior também era estreito demais para uma conversa no computador. */
+    <div className={classesFundoFolha()} onClick={onClose}>
+      <div className={classesFolha({ tamanho: 'md', extra: 'relative' })} onClick={(e) => e.stopPropagation()}>
+        {/* Alça: só no celular, onde a folha sobe de baixo. */}
+        <div className="flex shrink-0 justify-center pt-2 sm:hidden" aria-hidden="true">
+          <span className="h-1 w-10 rounded-full bg-line-strong" />
+        </div>
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3 sm:px-5">
           <div className="min-w-0">
             <h3 className="truncate font-semibold text-lg">{telefonePendente ? 'Lead' : 'Conversa'}{titulo ? ` — ${titulo}` : ''}</h3>
             {/* Numero + acessos rapidos na MESMA linha: o operador confere de onde veio o
@@ -358,7 +367,9 @@ export default function ConversaHistoricoModal({
               ))}
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none" aria-label="Fechar">×</button>
+          {/* Alvo de 44px: o × de 12px era, no telefone, o menor alvo da tela inteira. */}
+          <button onClick={onClose} aria-label="Fechar"
+            className="-mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-xl leading-none text-ink-3 hover:bg-surface-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40">×</button>
         </div>
 
         {/* Sem historico, esta area encolhe: o aviso curto fica colado no bloco de acoes
@@ -516,7 +527,7 @@ export default function ConversaHistoricoModal({
 
         {modalAcao === 'reuniao' && (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/35 p-4" onClick={() => setModalAcao(null)}>
-            <div className="max-h-[calc(85vh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="max-h-[calc(92dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-slate-900">Agendar reunião</div>
@@ -550,7 +561,7 @@ export default function ConversaHistoricoModal({
 
         {modalAcao === 'ligacao' && (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/35 p-4" onClick={() => setModalAcao(null)}>
-            <div className="max-h-[calc(85vh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="max-h-[calc(92dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-slate-900">Registrar ligação realizada</div>
@@ -613,7 +624,7 @@ export default function ConversaHistoricoModal({
 
         {modalAcao === 'descarte' && (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/35 p-4" onClick={() => setModalAcao(null)}>
-            <div className="max-h-[calc(85vh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="max-h-[calc(92dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-slate-900">Descartar lead</div>

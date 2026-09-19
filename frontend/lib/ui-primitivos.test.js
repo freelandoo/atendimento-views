@@ -6,6 +6,8 @@ const {
   VARIANTES_BOTAO, TAMANHOS_BOTAO, VARIANTE_BOTAO_PADRAO, TAMANHO_BOTAO_PADRAO,
   normalizarVarianteBotao, normalizarTamanhoBotao,
   classesBotao, estadoBotao, rotuloBotaoAcessivel, classesEntrada, classesCard,
+  TAMANHOS_FOLHA, TAMANHO_FOLHA_PADRAO, normalizarTamanhoFolha,
+  classesFundoFolha, classesFolha,
 } = require('./ui-primitivos')
 
 test('as quatro variantes que o guia visual exige existem', () => {
@@ -102,4 +104,40 @@ test('guarda: o primitivo nao carrega tema neon (ele e do tema claro)', () => {
   for (const neon of ['neon-', 'bg-panel', 'text-hi', 'text-mid', 'glass', 'shadow-glow']) {
     assert.ok(!fonte.includes(neon), `token neon vazou para o primitivo claro: ${neon}`)
   }
+})
+
+// --- Superficie flutuante --------------------------------------------------------------
+
+test('a folha ancora EMBAIXO no celular e vira modal centrado a partir de sm', () => {
+  const fundo = classesFundoFolha()
+  assert.ok(fundo.includes('items-end'), 'no celular a folha sobe de baixo')
+  assert.ok(fundo.includes('sm:items-center'), 'a partir de sm volta a ser modal centrado')
+  assert.ok(fundo.includes('fixed inset-0'))
+})
+
+test('o raio so e do topo enquanto e folha, e fecha quando vira modal', () => {
+  const c = classesFolha()
+  assert.ok(c.includes('rounded-t-lg'))
+  assert.ok(c.includes('sm:rounded-lg'))
+})
+
+test('a altura usa dvh, nunca vh: com vh a barra do navegador come o rodape', () => {
+  const c = classesFolha()
+  assert.ok(c.includes('dvh'), 'altura deve ser em dvh')
+  assert.ok(!/\[\d+vh\]/.test(c), 'vh corta o rodape da folha no celular')
+})
+
+test('tamanho desconhecido cai no padrao em vez de quebrar a tela', () => {
+  assert.equal(TAMANHO_FOLHA_PADRAO, 'md')
+  assert.deepEqual([...TAMANHOS_FOLHA], ['sm', 'md', 'lg', 'xl'])
+  assert.equal(normalizarTamanhoFolha('gigante'), 'md')
+  assert.equal(normalizarTamanhoFolha(undefined), 'md')
+  assert.equal(normalizarTamanhoFolha('lg'), 'lg')
+})
+
+test('a largura maxima so vale a partir de sm: no celular a folha ocupa a tela toda', () => {
+  const c = classesFolha({ tamanho: 'lg' })
+  assert.ok(c.includes('w-full'))
+  assert.ok(c.includes('sm:max-w-4xl'))
+  assert.ok(!/(^|\s)max-w-/.test(c), 'largura maxima sem prefixo sm: estreitaria a folha no celular')
 })
