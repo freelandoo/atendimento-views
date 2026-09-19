@@ -8,6 +8,11 @@ const TIMEZONE = 'America/Sao_Paulo'
 // Enums do banco vêm da fonte única — espelham a CHECK de app.agenda_eventos
 // (sql/migrations/011_agenda_multiempresa.sql). Ver src/domain-enums.js.
 const { AGENDA_APP } = require('../domain-enums')
+// Espelho do BLOQUEIO na agenda do bot. A vertical continua autocontida para tudo que e' dela;
+// o espelho existe porque o bot oferece horario lendo OUTRA tabela, e sem ele um bloqueio criado
+// aqui nao teria efeito nenhum sobre quem marca pelo WhatsApp. Ver migration 090.
+const espelho = require('./agenda-espelho')
+const { logger } = require('../logger')
 const TIPOS = new Set(AGENDA_APP.TIPOS)
 const STATUS = new Set(AGENDA_APP.STATUS)
 const PRIORIDADES = new Set(AGENDA_APP.PRIORIDADES)
@@ -113,6 +118,12 @@ function mapEvento(row) {
   return {
     responsavel_id: row.responsavel_id || null,
     responsavel_nome: row.responsavel_nome || null,
+    // Migration 090. Vem como BOOLEANO, nao como o id: a tela precisa dizer "este bloqueio
+    // tambem vale para o WhatsApp", e o id de uma linha da agenda legada nao significa nada
+    // para ela. `false` num bloqueio e' informacao de verdade — quer dizer que o espelho nao
+    // pode ser criado, e que o bot AINDA vai oferecer aquele horario.
+    vale_para_bot: Boolean(row.espelho_vendas_id),
+    espelho_vendas_id: row.espelho_vendas_id || null,
     prospect_id: row.prospect_id || null,
     id: row.id,
     empresa_id: row.empresa_id,
@@ -189,7 +200,18 @@ async function existeConflito(pool, { empresaId, dataInicio, dataFim, ignorarId 
         ${escopoPessoa}`,
     params
   )
-  return (rows[0]?.n || 0) > 0
+  if ((rows[0]?.n || 0) > 0) return true
+
+  // A agenda do BOT tambem ocupa horario. A reuniao que o bot marcou com um cliente vive so' em
+  // `vendas.agenda_eventos`; sem esta segunda consulta a tela deixaria o operador marcar em cima
+  // dela — o mesmo descompasso do bloqueio, na direcao inversa.
+  //
+  // NAO e' recortada por `responsavelId` de proposito: `vendas` identifica o dono por BIGINT e
+  // nao ha traducao para o UUID de `app`. Tratar o evento do bot como "de outra pessoa" o
+  // ignoraria, que e' justamente o erro que esta consulta existe para impedir. Na pratica a
+  // reuniao do bot e' compromisso da operacao, e vale para todos — como um bloqueio da empresa.
+  const doBot = await espelho.ocupacaoDoBot(pool, { empresaId, dataInicio, dataFim })
+  return doBot.length > 0
 }
 
 // Lista eventos da empresa numa janela [inicio, fim] (datas YYYY-MM-DD, inclusivas).
@@ -244,18 +266,46 @@ async function criarEvento(pool, { empresaId, criadoPor = null, responsavelId = 
         : 'Já existe um compromisso nesse horário.', 409)
     }
   }
-  const { rows } = await pool.query(
-    `INSERT INTO app.agenda_eventos
-       (empresa_id, criado_por, responsavel_id, prospect_id, titulo, descricao, tipo, status, prioridade,
-        data_inicio, data_fim, timezone, lead_telefone, lead_nome, metadata)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)
-     RETURNING *`,
-    [
-      empresaId, criadoPor, responsavel, prospectId || null,
-      v.titulo, v.descricao, v.tipo, v.status, v.prioridade,
-      v.data_inicio, v.data_fim, TIMEZONE, v.lead_telefone, v.lead_nome, JSON.stringify(v.metadata || {}),
-    ]
-  )
+  // ── ESPELHO DO BLOQUEIO (migration 090) ──────────────────────────────────────────────
+  // O espelho nasce ANTES do evento, e o evento ja' nasce apontando para ele. E' o padrao de
+  // COMPENSACAO que este repo ja usa quando duas fontes precisam concordar e nao cabem na mesma
+  // transacao (ver o vinculo de instancia do Evolution, em routes/api-whatsapp.js).
+  //
+  // A ordem importa: criar o evento primeiro e espelhar depois deixaria uma janela em que o
+  // bloqueio existe na tela e nao existe para o bot — e e' exatamente nessa janela que o bot
+  // ofereceria o horario que a pessoa acabou de bloquear. Falhando o INSERT, o espelho e'
+  // desfeito logo abaixo; um espelho orfao bloquearia o bot num horario que ninguem mais ve.
+  let espelhoId = null
+  if (espelho.deveEspelhar({ tipo: v.tipo, status: v.status })) {
+    espelhoId = await espelho.criarEspelho(pool, {
+      empresaId,
+      titulo: v.titulo,
+      descricao: v.descricao,
+      dataInicio: v.data_inicio,
+      dataFim: v.data_fim,
+      timezone: TIMEZONE,
+    })
+  }
+
+  let rows
+  try {
+    ({ rows } = await pool.query(
+      `INSERT INTO app.agenda_eventos
+         (empresa_id, criado_por, responsavel_id, prospect_id, titulo, descricao, tipo, status, prioridade,
+          data_inicio, data_fim, timezone, lead_telefone, lead_nome, metadata, espelho_vendas_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16)
+       RETURNING *`,
+      [
+        empresaId, criadoPor, responsavel, prospectId || null,
+        v.titulo, v.descricao, v.tipo, v.status, v.prioridade,
+        v.data_inicio, v.data_fim, TIMEZONE, v.lead_telefone, v.lead_nome, JSON.stringify(v.metadata || {}),
+        espelhoId,
+      ]
+    ))
+  } catch (err) {
+    if (espelhoId) await espelho.removerEspelho(pool, espelhoId).catch(() => {})
+    throw err
+  }
   return mapEvento(rows[0])
 }
 
@@ -313,7 +363,50 @@ async function atualizarEvento(pool, { empresaId, id, ...body } = {}) {
       RETURNING *`,
     params
   )
-  return mapEvento(rows[0] || null)
+  const atualizado = mapEvento(rows[0] || null)
+  if (!atualizado) return atualizado
+
+  // ── ESPELHO: reconcilia o estado FINAL, nao o que foi enviado no PATCH ────────────────
+  // Sao quatro transicoes possiveis e todas precisam valer, porque o que o operador ve na tela
+  // tem de ser o que o bot recusa. Reconciliar pelo estado final (e nao por "mudou o tipo?")
+  // cobre as quatro sem enumerar caminho:
+  //   deixou de ser bloqueio ativo  -> espelho sai   (senao o bot fica preso num horario livre)
+  //   virou bloqueio ativo          -> espelho entra (senao o bloqueio novo nao vale para o bot)
+  //   continua bloqueio, horario mudou -> espelho acompanha
+  const espelhoAtual = rows[0].espelho_vendas_id || null
+  const deveTer = espelho.deveEspelhar({ tipo: atualizado.tipo, status: atualizado.status })
+  try {
+    if (deveTer && !espelhoAtual) {
+      const novoId = await espelho.criarEspelho(pool, {
+        empresaId,
+        titulo: atualizado.titulo,
+        descricao: atualizado.descricao,
+        dataInicio: new Date(atualizado.data_inicio),
+        dataFim: new Date(atualizado.data_fim),
+        timezone: TIMEZONE,
+      })
+      if (novoId) {
+        await pool.query(`UPDATE app.agenda_eventos SET espelho_vendas_id = $1 WHERE id = $2 AND empresa_id = $3`, [novoId, id, empresaId])
+        atualizado.espelho_vendas_id = novoId
+      }
+    } else if (!deveTer && espelhoAtual) {
+      await espelho.removerEspelho(pool, espelhoAtual)
+      await pool.query(`UPDATE app.agenda_eventos SET espelho_vendas_id = NULL WHERE id = $1 AND empresa_id = $2`, [id, empresaId])
+      atualizado.espelho_vendas_id = null
+    } else if (deveTer && espelhoAtual) {
+      await espelho.atualizarEspelho(pool, espelhoAtual, {
+        titulo: atualizado.titulo,
+        descricao: atualizado.descricao,
+        dataInicio: new Date(atualizado.data_inicio),
+        dataFim: new Date(atualizado.data_fim),
+      })
+    }
+  } catch (err) {
+    // O evento da tela JA foi salvo. Derrubar a resposta agora faria a pessoa repetir uma edicao
+    // que ja valeu. O que nao se pode e' calar: o bloqueio pode ter ficado sem efeito no bot.
+    logger.warn('[agenda] espelho do bloqueio nao pode ser reconciliado:', err.message)
+  }
+  return atualizado
 }
 
 // Soft delete escopado por empresa.
@@ -321,10 +414,17 @@ async function removerEvento(pool, { empresaId, id }) {
   const { rows } = await pool.query(
     `UPDATE app.agenda_eventos SET excluido_em = NOW(), atualizado_em = NOW()
       WHERE id = $1 AND empresa_id = $2 AND excluido_em IS NULL
-      RETURNING id`,
+      RETURNING id, espelho_vendas_id`,
     [id, empresaId]
   )
   if (!rows[0]) throw erro('NOT_FOUND', 'Evento não encontrado.', 404)
+  // Sem isto, apagar o bloqueio na tela deixaria o bot recusando um horario que ninguem mais ve
+  // em lugar nenhum: um bloqueio fantasma, permanente e sem maçaneta.
+  if (rows[0].espelho_vendas_id) {
+    await espelho.removerEspelho(pool, rows[0].espelho_vendas_id).catch((err) => {
+      logger.warn('[agenda] espelho do bloqueio nao pode ser removido:', err.message)
+    })
+  }
   return { id: rows[0].id, removido: true }
 }
 

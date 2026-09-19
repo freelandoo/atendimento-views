@@ -147,6 +147,12 @@ const ESCRITAS_COM_CAPACIDADE_PROPRIA = [
   // dinheiro que saiu — com o gate do mount (leitura), o proprio comercial marcaria o premio
   // dele como pago.
   { arquivo: 'api-missoes.js', capacidade: 'COMISSAO_GERENCIAR', minimo: 3 },
+  // 2026-09-19 — BLOQUEAR a agenda é decisão sobre a empresa inteira, não sobre o próprio dia:
+  // o bloqueio nasce SEM responsável e por isso conflita com a agenda de todo mundo (e, pelo
+  // espelho da migration 090, também tira o horário da oferta do bot no WhatsApp). O mount de
+  // `/agenda` é AGENDA_OPERAR_PROPRIA, que todo membro tem — sem este gate por rota, qualquer
+  // pessoa bloquearia o dia da equipe inteira. São 2: GET /responsaveis e POST /bloqueios.
+  { arquivo: 'api-agenda.js', capacidade: 'AGENDA_VER_EQUIPE', minimo: 2 },
 ]
 
 // ─── Os quatro papéis, contra cada rota ──────────────────────────────────────────────────

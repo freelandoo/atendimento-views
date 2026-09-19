@@ -3653,3 +3653,139 @@ nicho. Se houver squad A/B no mesmo nicho no futuro, isso precisa virar uma deci
 
 **Fora de escopo nesta etapa:** aplicar recorte em Banco de Leads/Central/Follow-ups/Minha
 Operacao, devolver leads ao remover pessoa da equipe e converter missoes para `equipe_id`.
+
+---
+
+## 2026-09-18 — Missao por EQUIPE: a carencia da missao legada e o recorte nos dois lados
+
+**Contexto:** a entrega de Equipes Comerciais fechou declarando "converter missoes para
+`equipe_id`" como fora de escopo. A 085 tinha **uma missao ativa por EMPRESA**, o que ficou
+insuficiente depois que cada equipe passou a trabalhar um nicho: o desafio precisa apontar para a
+equipe que o executa.
+
+**Decisao 1 — a unicidade muda de dono, e a migration e aditiva.**
+`missoes_uma_ativa_por_empresa_uk` da lugar a `missoes_uma_ativa_por_equipe_uk` (parcial,
+`equipe_id IS NOT NULL`). Equipes diferentes podem operar desafios diferentes ao mesmo tempo; duas
+ativas na MESMA equipe continuariam tornando "a missao ativa" ambigua. Nenhum dado e mutado.
+
+**Decisao 2 — `equipe_id` e NULLABLE, e isso e CARENCIA, nao "ausencia de prova".**
+Ao contrario de `origem_vinculo` (061) ou `qualificacao` (071), aqui o nulo nao nomeia uma duvida:
+ele preserva um desafio que **ja estava valendo**, com gente contando com a recompensa. Tornar a
+coluna `NOT NULL` faria a missao publicada pela 085 sumir da tela no deploy. A obrigatoriedade vive
+na APLICACAO — missao NOVA exige equipe, e a rota confere que ela existe e esta **ativa**.
+Um segundo indice parcial (`missoes_uma_ativa_geral_por_empresa_uk`) impede duas gerais ativas.
+
+**Decisao 3 — precedencia declarada: missao da EQUIPE vence a GERAL legada.** So uma das duas
+aparece. O **historico** de quem esta numa equipe inclui os desafios gerais
+(`m.equipe_id = $n OR m.equipe_id IS NULL`): eles valiam para a empresa inteira, e apaga-los
+reescreveria o programa que aquela pessoa viveu.
+
+**Decisao 4 — quem gerencia ve o programa INTEIRO e so recorta quando PEDE.** Filtrar o historico
+pela equipe a que o proprio admin pertence esconderia dele o resto — e admin tambem pode ser membro
+de uma equipe.
+
+**Decisao 5 (corrigida no mesmo dia, `7f4005e`) — o recorte da equipe vale nos DOIS lados.**
+Na primeira versao so `alcancaramOAlvo` (a lista do dono) filtrava por membro ativo; a baixa
+continuava validando apenas `originou >= alvo`. Como a rota recebe `usuario_id` no corpo, o premio
+da missao da equipe A sairia para alguem da equipe B que tambem bateu o alvo — pessoa que nem
+aparece na lista. A conferencia de vinculo passou a rodar **antes do INSERT, dentro da transacao**
+(`409 MISSAO_PESSOA_FORA_DA_EQUIPE`). E o mesmo principio de `validarBaixa`, que de proposito nao
+aceita a conquista como parametro: **quem paga nao pode ser quem afirma o direito**. Missao legada,
+sem equipe, segue sem filtro — com ele ficaria impagavel.
+
+**Decisao 6 — a tela DECLARA o recorte que recebeu.** `meta.equipe` vem do servidor e o seletor
+emite o **padrao do servidor como 1a opcao**, rotulado com a equipe realmente devolvida. Um
+`<select>` com `value=''` sem opcao correspondente exibiria uma equipe enquanto consultava outra,
+sem caminho de volta ao padrao — o defeito ja corrigido no Banco de Leads. A lista de equipes so e
+buscada por quem gerencia, para nao produzir 403 a cada carregamento de pagina.
+
+**Fora de escopo:** ranking da missao, equipe multi-nicho, pessoa em mais de uma equipe e qualquer
+alteracao na comissao (083), de onde a missao empresta a medida.
+
+**Divida tecnica registrada (regressao propria, corrigida em `edb1636`):** ao montar o `WHERE` em
+array para aplicar o recorte por nicho em Follow-ups (`1d5958d`), `f.empresa_id` saiu do template
+literal. O escopo seguia correto em execucao, mas a guarda de `follow-up-modelo.test.js` deixou de
+poder prova-lo pelo fonte. **Licao:** filtro de tenant nao e "mais uma condicao" — fica FIXO no
+`WHERE` do template, e so o que e opcional entra no array.
+
+## 2026-09-19 — Bloqueio de agenda que alcanca o BOT + grade de horarios (migration 090)
+
+**Pedido do operador:** poder bloquear a agenda (feriado, reuniao interna, intervalo de almoco,
+com repeticao diaria e semanal) e, em todo lugar onde se marca reuniao, mostrar apenas os
+horarios disponiveis, em slots clicaveis.
+
+**ACHADO QUE MUDOU O ENQUADRAMENTO (antes de qualquer codigo).** O pedido supunha que bloquear na
+tela ja tivesse algum efeito. Nao tinha. Existem **duas agendas que nao se enxergam**:
+`app.agenda_eventos` (tela) e `vendas.agenda_eventos` (bot). O bot oferece horario em
+`eventosDoDia` e valida a escolha em `validarSlotReuniao` — **as duas lendo so `vendas`**. A tela
+grava em `app`. Ou seja: **o bloqueio da tela nunca teve efeito sobre quem marca pelo WhatsApp**,
+e a reuniao marcada pelo bot nunca contou como conflito na tela. O pedido nao era uma tela nova:
+era um defeito de integridade entre dois calendarios.
+
+**Decisao 1 — ESPELHAR o bloqueio, nao unificar as agendas.** Unificar continua sendo projeto
+proprio (ja declarado no `AGENTS.md`) e **nao foi feito**. A alternativa considerada era fazer o
+bot ler as duas tabelas (UNION em `eventosDoDia`/`slotEstaOcupado`): mais limpa em teoria, porque
+nao duplica dado, e recusada porque mexeria no caminho que decide **todo horario oferecido a
+cliente** — o mais quente do funil de vendas. O espelho deixa aquela leitura intacta: para o bot,
+o bloqueio simplesmente passa a existir. **Custo aceito e declarado:** o mesmo fato vive em dois
+lugares, ligados por `espelho_vendas_id`.
+
+**Decisao 2 — o bloqueio e da EMPRESA INTEIRA.** Nao e preferencia de produto: `vendas` identifica
+dono por BIGINT (`dashboard_users`) e `app` por UUID (`usuarios`), e **nao existe traducao entre
+os dois**. Bloqueio por pessoa nao atravessaria o espelho — valeria so na tela, reintroduzindo
+exatamente o descompasso que esta entrega remove. Os tres casos pedidos (feriado, almoco, reuniao
+interna) sao naturalmente da empresa toda. Ele nasce **sem `responsavel_id`**, que e a condicao
+que ja fazia um evento conflitar com a agenda de todos (`existeConflito`).
+
+**Decisao 3 — so BLOQUEIO e espelhado.** Espelhar reuniao criaria a MESMA reuniao em duas tabelas,
+e a linha de `vendas` carrega lembrete ao cliente, follow-up e conversao da Meta. Duplicar isso
+mandaria **mensagem repetida ao lead** e **conversao repetida a Meta, que nao se estorna**. A
+reuniao da tela ficou protegida pela direcao inversa: `existeConflito` passou a consultar tambem
+a agenda do bot (`ocupacaoDoBot`), que **exclui o proprio espelho** — sem isso todo bloqueio
+conflitaria consigo mesmo pelo reflexo e nao poderia ser editado.
+
+**Decisao 4 — compensacao, nao transacao entre schemas.** O espelho nasce ANTES do evento e o
+evento ja nasce apontando para ele; se o INSERT falhar, o espelho e desfeito. E o padrao que o
+repo ja usa quando duas fontes precisam concordar fora de uma transacao (vinculo de instancia do
+Evolution). A ordem e deliberada: criar o evento primeiro deixaria uma janela em que o bloqueio
+existe na tela e nao existe para o bot — e e nela que o bot ofereceria o horario recem-bloqueado.
+A remocao tambem propaga: sem isso, apagar o bloqueio na tela deixaria o bot recusando para sempre
+um horario que ninguem mais ve — bloqueio fantasma, sem macaneta.
+
+**Decisao 5 — grade PROPRIA, sem reusar `buscarDisponibilidadeSemana`.** Aquela funcao responde a
+pergunta do BOT: le so `vendas`, usa a janela do funil (19:30–21:15) e aplica buffer de 30 min.
+Tres decisoes certas para oferecer horario a um cliente no WhatsApp e erradas para o operador, que
+trabalha em horario comercial e precisa enxergar slot colado numa reuniao existente. Reusa-la
+obrigaria a parametrizar as tres coisas e faria uma funcao servir a dois donos com regras opostas.
+As duas coexistem, cada uma com o seu dono.
+
+**Decisao 6 — o horario ocupado NAO some da grade.** Aparece apagado, com o motivo em texto
+(vocabulario fechado: `bloqueio | compromisso | agenda_bot | passado`). Um slot que desaparece faz
+o operador achar que a agenda quebrou; um que diz "Feriado" encerra a duvida sem abrir nada.
+E **indisponivel nunca e vermelho** — agenda cheia nao e tela cheia de erro (guarda no teste).
+
+**Decisao 7 — `repetir_ate` e OBRIGATORIO.** Repeticao sem fim produz bloqueio eterno, que so se
+desfaz dia a dia, e cada dia tem um espelho na outra agenda. Teto de 180 ocorrencias para um erro
+de digitacao ("repetir ate 2030") nao virar milhares de linhas em duas tabelas; a resposta traz
+`truncado`. Um dia que falha por conflito **nao derruba os outros** — senao um feriado prolongado
+viraria "nenhum dia bloqueado" por causa de um unico choque.
+
+**Decisao 8 — a resposta diz `vale_para_bot`, e `false` e informacao de verdade.** Quando nao ha
+usuario ativo em `vendas.dashboard_users` para ancorar o espelho, o bloqueio vale na tela e o
+WhatsApp **continua oferecendo** o horario. A tela avisa isso em texto. Fingir sucesso total
+deixaria a pessoa achar que bloqueou quando nao bloqueou — que e o defeito de origem desta
+entrega, so que silencioso.
+
+**Decisao 9 — `AGENDA_VER_EQUIPE` por ROTA no `POST /bloqueios`.** O mount de `/agenda` e
+`AGENDA_OPERAR_PROPRIA`, que todo membro tem; sem gate por rota, qualquer pessoa bloquearia o dia
+da equipe inteira. Rota propria (e nao `POST /` com `tipo: 'bloqueio'`) porque o bloqueio nasce sem
+responsavel, repete, e exige outra capacidade.
+
+**Fora de escopo, declarado:** unificar as duas agendas, recorrencia mensal, feriado nacional
+automatico, sincronizacao com Google Calendar e bloqueio por pessoa.
+
+**Risco residual aceito:** o espelho vive em `vendas.agenda_eventos`, cujo `empresa_id` e NULLABLE
+(a 077 nao fez backfill) e cuja leitura pelo bot **nao filtra por empresa**. Na pratica o bot e
+single-tenant hoje (`dashboard_users`), entao o bloqueio de uma empresa vale para o bot inteiro.
+O `empresa_id` e gravado no espelho para que o dia em que aquela leitura passar a recortar por
+empresa o dado ja esteja la.

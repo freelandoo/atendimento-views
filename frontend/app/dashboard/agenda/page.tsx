@@ -2,6 +2,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
+import SeletorSlots from '@/components/SeletorSlots'
+import ModalBloqueio from '@/components/ModalBloqueio'
 
 type Evento = {
   id: string
@@ -97,6 +99,12 @@ export default function AgendaPage() {
   const [equipe, setEquipe] = useState<{ id: string; nome: string }[]>([])
   // Venda a partir da reuniao concluida (migration 083).
   const [vendaDe, setVendaDe] = useState<Evento | null>(null)
+  // Grade de horarios livres + bloqueio (migration 090). `chaveSlots` sobe a cada escrita na
+  // agenda para a grade reconferir: marcar ou bloquear muda o que esta livre, e uma grade
+  // desatualizada ofereceria o horario que a pessoa acabou de ocupar.
+  const [modalBloqueio, setModalBloqueio] = useState(false)
+  const [chaveSlots, setChaveSlots] = useState(0)
+  const [verSlots, setVerSlots] = useState(true)
 
   function carregar() {
     if (!empresaId) return
@@ -136,6 +144,25 @@ export default function AgendaPage() {
   }
   function setF<K extends keyof Form>(k: K, v: Form[K]) { setForm((p) => ({ ...p, [k]: v })) }
 
+  // Depois de QUALQUER escrita na agenda: a lista e a grade de horários precisam concordar.
+  // Sem isto a grade continuaria oferecendo o horário que a pessoa acabou de ocupar.
+  function recarregarTudo() { carregar(); setChaveSlots((k) => k + 1) }
+
+  // Clique num horário livre da grade: abre o formulário JÁ preenchido, em vez de pedir data e
+  // hora digitadas. O evento ainda passa pelo mesmo POST e pela mesma checagem de conflito —
+  // escolher na grade é um atalho de preenchimento, não um caminho de gravação paralelo.
+  function escolherSlot(data: string, horario: string) {
+    const [hh, mm] = horario.split(':').map(Number)
+    const fim = new Date(Date.UTC(2000, 0, 1, hh, mm + 30))
+    setForm({
+      ...formVazio(data),
+      data_inicio: `${data}T${horario}`,
+      data_fim: `${data}T${String(fim.getUTCHours()).padStart(2, '0')}:${String(fim.getUTCMinutes()).padStart(2, '0')}`,
+    })
+    setErro('')
+    setModal(true)
+  }
+
   async function salvar(e: React.FormEvent) {
     e.preventDefault()
     if (!empresaId) return
@@ -155,7 +182,7 @@ export default function AgendaPage() {
         : apiFetch(`/api/empresas/${empresaId}/agenda`, { method: 'POST', body: JSON.stringify(payload) }),
         { sucesso: editando ? 'Evento atualizado.' : 'Evento criado.' })
       setModal(false)
-      carregar()
+      recarregarTudo()
     } catch { /* erro já exibido pelo feedback */ }
     finally { setSalvando(false) }
   }
@@ -165,7 +192,7 @@ export default function AgendaPage() {
     try {
       await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/agenda/${ev.id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
         { sucesso: 'Status atualizado.' })
-      carregar()
+      recarregarTudo()
     } catch { /* erro já exibido pelo feedback */ }
   }
   async function excluir(ev: Evento) {
@@ -174,7 +201,7 @@ export default function AgendaPage() {
     try {
       await fb.runTask(() => apiFetch(`/api/empresas/${empresaId}/agenda/${ev.id}`, { method: 'DELETE' }),
         { sucesso: 'Evento excluído.' })
-      carregar()
+      recarregarTudo()
     } catch { /* erro já exibido pelo feedback */ }
   }
 
@@ -208,11 +235,45 @@ export default function AgendaPage() {
             </div>
           )}
           <button onClick={() => setDia(hojeIso())} className="px-3 py-2 rounded-lg border text-sm hover:bg-slate-50">Hoje</button>
+          {/* Bloquear é decisão sobre a empresa inteira, e o botão só aparece para quem pode
+              tomá-la — a rota exige AGENDA_VER_EQUIPE e responderia 403 aos demais. */}
+          {podeVerEquipe && (
+            <button onClick={() => setModalBloqueio(true)}
+              className="px-4 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 text-sm font-medium hover:bg-amber-100">
+              Bloquear horário
+            </button>
+          )}
           <button onClick={abrirNovo} className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-medium">+ Novo evento</button>
         </div>
       </div>
 
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
+
+      {/* Horários LIVRES a partir do dia escolhido. Marca no clique, em vez de digitar data e
+          hora. A API lê as DUAS agendas (a da tela e a do bot do WhatsApp) — por isso um horário
+          que o bot já combinou com um cliente aparece aqui como ocupado. */}
+      <section className="rounded-2xl border bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">Horários livres</h2>
+            <p className="text-xs text-ink-3">Clique em um horário para marcar.</p>
+          </div>
+          <button type="button" onClick={() => setVerSlots((v) => !v)}
+            className="text-xs font-medium text-brand hover:underline">
+            {verSlots ? 'Ocultar' : 'Mostrar'}
+          </button>
+        </div>
+        {verSlots && empresaId && (
+          <SeletorSlots
+            empresaId={empresaId}
+            dataInicial={dia}
+            dias={5}
+            valor={null}
+            onEscolher={escolherSlot}
+            chaveAtualizacao={chaveSlots}
+          />
+        )}
+      </section>
 
       {resumo && (
         <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
@@ -330,6 +391,20 @@ export default function AgendaPage() {
           onSalvo={() => { setVendaDe(null); carregar() }}
         />
       )}
+
+      <ModalBloqueio
+        aberto={modalBloqueio}
+        empresaId={empresaId}
+        dataSugerida={dia}
+        onFechar={() => setModalBloqueio(false)}
+        onCriado={(mensagem, alerta) => {
+          // O alerta é informação de verdade, não ruído: ele aparece quando algum dia ficou de
+          // fora por conflito, quando a repetição foi cortada, ou quando o bloqueio NÃO alcançou
+          // o bot do WhatsApp — caso em que o horário continua sendo oferecido ao cliente.
+          fb.toast(alerta ? `${mensagem} ${alerta}` : mensagem, alerta ? 'info' : 'success')
+          recarregarTudo()
+        }}
+      />
     </div>
   )
 }

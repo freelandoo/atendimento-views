@@ -2953,6 +2953,96 @@
 - **Nenhuma migration, nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhuma tela
   removida.**
 
+### Bloqueio de agenda que vale para o BOT + grade de horários livres (migration 090)
+- **Regra de negócio, em uma frase:** bloquear a agenda pela tela tira o horário da oferta **em
+  todos os lugares onde se marca reunião** — inclusive no atendimento pelo WhatsApp. E quem marca
+  escolhe um **slot livre**, em vez de digitar data e hora e descobrir o conflito depois.
+- ⚠️ **DEFEITO CORRIGIDO, e ele era maior que o pedido.** Existem **DUAS agendas** que não se
+  enxergam: `app.agenda_eventos` (a da TELA, multiempresa, dono por `responsavel_id` UUID) e
+  `vendas.agenda_eventos` (a do BOT, dono por `usuario_id` BIGINT). O bot oferece horário lendo
+  `eventosDoDia` e valida a escolha em `validarSlotReuniao` — **as duas sobre `vendas`**. A tela
+  grava em `app`. Consequência medida no código: **o bloqueio criado na tela não tinha efeito
+  nenhum sobre quem marcava pelo WhatsApp.** O dono bloqueava o feriado, o bot oferecia o horário
+  assim mesmo, a validação aprovava, e a reunião caía em cima do bloqueio. A direção inversa
+  também falhava: reunião marcada pelo bot não contava como conflito na tela.
+- **A decisão (operador, 2026-09-19): ESPELHAR, não unificar.** Unificar as duas agendas continua
+  sendo **projeto próprio** (declarado abaixo, em "Agenda em equipe") e **não foi feito**. Mudar
+  a leitura do bot mexeria no caminho que decide TODO horário oferecido a cliente — o mais quente
+  do funil. Espelhar deixa aquela leitura **intacta**: para o bot, o bloqueio simplesmente passa
+  a existir.
+- **O bloqueio é da EMPRESA INTEIRA** (nasce **sem `responsavel_id`**), e isso não é preferência:
+  `vendas` identifica dono por BIGINT e `app` por UUID, e **não existe tradução entre os dois**.
+  Bloqueio por pessoa não atravessaria o espelho — valeria só na tela, que é exatamente o
+  descompasso que esta entrega remove. Feriado, almoço e reunião interna (os três casos pedidos)
+  são naturalmente da empresa toda. Guarda de regressão falha se a rota deixar de mandar
+  `responsavelId: null`.
+- **SÓ BLOQUEIO É ESPELHADO, de propósito.** Espelhar reunião criaria a MESMA reunião em dois
+  lugares, e a linha de `vendas` carrega lembrete ao cliente, follow-up e conversão da Meta —
+  duplicar isso mandaria mensagem repetida ao lead e conversão repetida à Meta, **que não se
+  estorna**. A reunião da tela é protegida por outro caminho: `existeConflito` passou a consultar
+  **também** a agenda do bot (`ocupacaoDoBot`), que é a direção inversa do espelho.
+- **`ocupacaoDoBot` EXCLUI o próprio espelho** (`origem IS DISTINCT FROM 'espelho_app'`). Sem
+  isso todo bloqueio conflitaria consigo mesmo pelo próprio reflexo, e seria impossível editá-lo.
+- **Compensação em vez de transação entre schemas:** o espelho nasce **ANTES** do evento e o
+  evento já nasce apontando para ele; se o INSERT falhar, o espelho é desfeito. É o padrão que o
+  repo já usa quando duas fontes precisam concordar e não cabem na mesma transação (o vínculo de
+  instância do Evolution). A ordem importa: criar o evento primeiro e espelhar depois deixaria
+  uma janela em que o bloqueio existe na tela e não existe para o bot — e é nela que o bot
+  ofereceria o horário recém-bloqueado.
+- **Apagar o bloqueio apaga o espelho.** Não é opcional: sem isso o bot recusaria para sempre um
+  horário que ninguém mais vê em lugar nenhum — um bloqueio fantasma, permanente e sem maçaneta.
+  `atualizarEvento` **reconcilia pelo estado FINAL**, não pelo que veio no PATCH, o que cobre as
+  quatro transições (virou bloqueio / deixou de ser / mudou de horário / cancelou) sem enumerar
+  caminho.
+- **Schema:** migration `090_agenda_bloqueio_espelho.sql`, **aditiva** — acrescenta UMA coluna
+  nullable (`app.agenda_eventos.espelho_vendas_id BIGINT`) + índice parcial. Nenhum dado é
+  mutado; bloqueio que já existia fica sem espelho (`NULL` = a ausência de espelho, nomeada).
+  **Sem DEFAULT** (um DEFAULT autorizaria um INSERT futuro que esquecesse a coluna) e **sem FK**
+  (os dois schemas são desacoplados por decisão de arquitetura; uma FK faria um `ON DELETE
+  CASCADE` de `vendas.dashboard_users` derrubar evento da tela). **Coluna, e não `metadata`:** o
+  vínculo precisa sobreviver a edição e exclusão, e um id dentro de JSONB não tem tipo, não tem
+  índice e some quando um PATCH troca o objeto — que é o que `validarEvento` faz hoje.
+- **A grade de horários é um módulo PURO** (`src/services/agenda-slots.js`): recebe os eventos já
+  lidos e devolve o veredito. **Não reusa `buscarDisponibilidadeSemana`** (src/agenda.js) de
+  propósito — aquela responde a pergunta do BOT: lê só `vendas`, usa a janela fixa do funil
+  (19:30–21:15) e aplica o buffer de 30 min entre reuniões. Três decisões certas para oferecer
+  horário a um cliente no WhatsApp e erradas para o operador, que trabalha em horário comercial e
+  precisa enxergar slot colado numa reunião existente. **As duas continuam existindo.**
+- **O horário ocupado NÃO some da grade:** aparece apagado, com o motivo em texto. Vocabulário
+  FECHADO (`bloqueio | compromisso | agenda_bot | passado`) — um slot que desaparece faz o
+  operador achar que a agenda quebrou; um que diz "Feriado" resolve a dúvida sem abrir nada.
+  **Indisponível nunca é vermelho:** agenda cheia não é tela cheia de erro (guarda no teste).
+- **Rotas:** `GET /agenda/disponibilidade` (read-only: não cria evento, não grava, não chama IA;
+  lê as duas agendas) e `POST /agenda/bloqueios`. A segunda exige **`AGENDA_VER_EQUIPE` POR ROTA**
+  — o mount de `/agenda` é `AGENDA_OPERAR_PROPRIA`, que todo membro tem, e sem o gate por rota
+  qualquer pessoa bloquearia o dia da equipe inteira. Declarada em
+  `ESCRITAS_COM_CAPACIDADE_PROPRIA` (`test/autorizacao-rotas.test.js`).
+- **Rota própria e não `POST /` com `tipo: 'bloqueio'`**, por três razões: o bloqueio nasce **sem
+  responsável** (o POST comum usa quem cria como dono por default), ele **repete** (o POST comum
+  cria um por chamada), e ele exige **outra capacidade**.
+- **Recorrência diária e semanal**, com **`repetir_ate` OBRIGATÓRIO**: repetição sem fim produz
+  bloqueio eterno, que só se desfaz dia a dia — e cada dia tem um espelho na outra agenda. Teto de
+  **180 ocorrências** para um erro de digitação não virar milhares de linhas em duas tabelas; a
+  resposta traz `truncado` para a tela avisar. **Um dia que falha não derruba os outros** (um
+  feriado prolongado viraria "nenhum dia bloqueado" por causa de um único conflito) — os que
+  ficaram de fora voltam em `falhas`.
+- **A resposta diz `vale_para_bot`, e `false` é informação de verdade:** significa que o bloqueio
+  vale na tela e o WhatsApp **ainda vai oferecer** aquele horário (acontece quando não há usuário
+  ativo em `vendas.dashboard_users` para ancorar o espelho). Fingir sucesso total ali deixaria a
+  pessoa achar que bloqueou quando não bloqueou — o defeito que esta entrega existe para corrigir.
+- **Front:** `frontend/lib/agenda-slots.js` (+ `.d.ts`/`.test.js`) **só TRADUZ** o veredito da API
+  — guarda de regressão falha se ele passar a ler `data_inicio`/`data_fim` ou a calcular
+  sobreposição. `components/SeletorSlots.tsx` (grade clicável) e `components/ModalBloqueio.tsx`
+  (que **reusa o shell `ui/ModalAgenda.tsx`**, até então sem consumidor, em vez de criar um
+  terceiro modal). Clicar num slot **abre o formulário já preenchido** — é atalho de
+  preenchimento, não caminho de gravação paralelo: o evento passa pelo mesmo POST e pela mesma
+  checagem de conflito.
+- **Fora de escopo, declarado:** unificar as duas agendas, recorrência mensal, feriado nacional
+  automático, sincronização com Google Calendar, e bloqueio por pessoa.
+- Testes: `test/agenda-bloqueio-slots.test.js` (20, com 5 guardas que leem o fonte),
+  `frontend/lib/agenda-slots.test.js` (10). **Nenhuma variável de ambiente nova, nenhuma
+  capacidade nova.**
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.
