@@ -345,6 +345,29 @@ async function registrarRecompensaPaga(empresaId, missao, dados, autorId) {
   try {
     await client.query('BEGIN')
 
+    // ⚠️ A recompensa e' da EQUIPE dona da missao. `alcancaramOAlvo` ja recorta a lista por
+    // membro ativo; sem o MESMO recorte aqui, a rota (que recebe `usuario_id` no corpo) pagaria
+    // o premio da missao da equipe A para alguem da equipe B que tambem bateu o alvo — pessoa
+    // que nem aparece na lista de quem alcancou. Missao sem equipe (legada) segue sem filtro.
+    if (missao.equipe_id) {
+      const { rows: membroRows } = await client.query(
+        `SELECT 1
+           FROM app.equipe_comercial_membros em
+          WHERE em.empresa_id = $1
+            AND em.equipe_id = $2::uuid
+            AND em.usuario_id = $3::uuid
+            AND em.saiu_em IS NULL
+          LIMIT 1`,
+        [empresaId, missao.equipe_id, dados.usuario_id]
+      )
+      if (!membroRows[0]) {
+        throw erro(
+          'Esta pessoa não está na equipe desta missão.',
+          409, 'MISSAO_PESSOA_FORA_DA_EQUIPE'
+        )
+      }
+    }
+
     // A MESMA soma de `progressoDaPessoa`, dentro da transacao. Não se aceita o valor de fora.
     const { rows: somaRows } = await client.query(
       `SELECT COALESCE(SUM(v.comissao_base), 0) AS valor

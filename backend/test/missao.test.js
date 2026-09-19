@@ -424,6 +424,26 @@ test('lista de quem alcancou fica dentro dos membros ativos da equipe da missao'
   assert.ok(/em\.saiu_em IS NULL/.test(db), 'membro que saiu da equipe nao entra na conquista da missao')
 })
 
+test('a baixa da recompensa e recortada pela MESMA equipe que a lista de quem alcancou', () => {
+  // A rota recebe `usuario_id` no corpo. Sem este recorte, o premio da missao da equipe A sairia
+  // para alguem da equipe B que tambem bateu o alvo — pessoa que nem aparece na lista do dono.
+  const db = fonte('src/db/missao.js')
+  const i = db.indexOf('async function registrarRecompensaPaga')
+  assert.ok(i > 0)
+  const bloco = db.slice(i, i + 2600)
+  assert.ok(/app\.equipe_comercial_membros em/.test(bloco),
+    'a baixa precisa conferir o vinculo com a equipe da missao')
+  assert.ok(/em\.saiu_em IS NULL/.test(bloco),
+    'quem saiu da equipe nao recebe a recompensa dela')
+  assert.ok(/MISSAO_PESSOA_FORA_DA_EQUIPE/.test(bloco))
+  // E a conferencia acontece ANTES do INSERT, dentro da mesma transacao.
+  assert.ok(bloco.indexOf('MISSAO_PESSOA_FORA_DA_EQUIPE') < bloco.indexOf('INSERT INTO app.missao_recompensas'),
+    'conferir depois de gravar nao impede nada')
+  // Missao legada (sem equipe) nao pode ficar impagavel.
+  assert.ok(/if \(missao\.equipe_id\)/.test(bloco),
+    'missao sem equipe mantem o comportamento anterior')
+})
+
 test('as ESCRITAS exigem COMISSAO_GERENCIAR; o mount libera so a LEITURA', () => {
   const rota = fonte('src/routes/api-missoes.js')
   assert.ok(/router\.use\(requireAuth, requireEmpresaAccess, requireCapacidade\(CAP\.COMISSAO_VER_PROPRIA\)\)/.test(rota))

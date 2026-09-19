@@ -2655,8 +2655,9 @@
 - **Continuação da Etapa 1** (aceite do termo, 084). **Fora de escopo e não implementados:**
   ranking, lead parado, painel do dono e **marcar a recompensa como entregue** — o sistema
   publica o desafio, mede o progresso e diz quem alcançou; **ele não paga**.
-- **Regra de negócio, em uma frase:** o dono publica **UMA missão ativa por empresa**, válida
-  para toda a equipe por uma janela de datas, com um **alvo** e uma **recompensa declarada**;
+- **Regra de negócio, em uma frase:** o dono publica uma missão ativa — **por EQUIPE desde a
+  migration 089**, ver a seção "Missão por EQUIPE" abaixo; nesta etapa ela era **por empresa** —,
+  válida por uma janela de datas, com um **alvo** e uma **recompensa declarada**;
   cada pessoa vê o **próprio** progresso; quem gerencia vê **quem já alcançou**.
 - ⚠️ **PUBLICADA, A MISSÃO É IMUTÁVEL.** Alvo, recompensa, métrica e janela nunca são editados:
   mudar o alvo em outubro reescreveria o desafio que alguém cumpriu em setembro, e "quem
@@ -2844,6 +2845,40 @@
   `app/dashboard/comissao/page.tsx`. Testes: `test/missao.test.js` (**48**),
   `frontend/lib/missao.test.js` (**24**).
 - **Nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhum item de menu novo.**
+
+### Operação Comercial — Missão por EQUIPE (migration 089)
+
+- **O que mudou:** a 085 nasceu com **uma missão ativa por EMPRESA**. Depois das Equipes
+  Comerciais (088), cada equipe trabalha um nicho — então o desafio também precisa apontar para
+  a equipe que o executa. Agora é **uma ativa por EQUIPE**, e equipes diferentes podem operar
+  desafios diferentes ao mesmo tempo.
+- **Schema:** `089_missao_por_equipe.sql`, **aditiva** (não muta dado): `equipe_id` em
+  `app.missoes`, o índice `missoes_uma_ativa_por_empresa_uk` dá lugar a
+  `missoes_uma_ativa_por_equipe_uk` (parcial, `equipe_id IS NOT NULL`) **mais**
+  `missoes_uma_ativa_geral_por_empresa_uk` (parcial, `equipe_id IS NULL`).
+- ⚠️ **`equipe_id` é NULLABLE de propósito, e isso NÃO é "sem prova de dono".** É carência: uma
+  missão já publicada pela 085 não pode sumir da tela no deploy. **Missão NOVA exige equipe** —
+  a validação recusa sem ela e a rota confere que a equipe existe e está **ativa** naquela
+  empresa. Tornar a coluna `NOT NULL` quebraria o desafio que já estava valendo.
+- **Precedência declarada:** missão da **equipe** > missão **geral legada**. Só uma das duas
+  aparece, e a da equipe ganha. O **histórico** de quem está numa equipe inclui os desafios
+  gerais que a pessoa viveu (`m.equipe_id = $n OR m.equipe_id IS NULL`) — eles valiam para a
+  empresa inteira, então apagá-los reescreveria o programa que ela participou.
+- **Quem gerencia vê o programa INTEIRO e só recorta quando PEDE** (`?equipe_id=`). Filtrar o
+  histórico pela equipe a que o próprio admin pertence esconderia dele o resto.
+- ⚠️ **A recompensa é da equipe dona da missão, e o recorte vale nos DOIS lados.**
+  `alcancaramOAlvo` já limita a lista aos **membros ativos** (`em.saiu_em IS NULL`); a baixa
+  (`registrarRecompensaPaga`) repete o MESMO recorte **antes do INSERT, dentro da transação** —
+  a rota recebe `usuario_id` no corpo, e sem isso o prêmio da missão da equipe A sairia para
+  alguém da equipe B que também bateu o alvo, pessoa que nem aparece na lista do dono
+  (`409 MISSAO_PESSOA_FORA_DA_EQUIPE`). Missão legada, sem equipe, segue sem filtro — senão
+  ficaria impagável.
+- **Front:** a tela **declara o recorte que recebeu** (`meta.equipe`), e o seletor emite o
+  **padrão do servidor como 1ª opção**, rotulado com a equipe que ele realmente devolveu — um
+  `<select>` com `value=''` sem opção correspondente exibiria uma equipe enquanto consultava
+  outra, e não haveria como voltar ao padrão (o mesmo defeito já corrigido no Banco de Leads).
+  A lista de equipes **só é buscada por quem gerencia**, para não gerar 403 a cada carregamento.
+- **Nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhuma rota nova.**
 
 ### "Minha Operação" — `/dashboard` mostra telas DIFERENTES por acesso (sem migration)
 - ⚠️ **DEFEITO CORRIGIDO, e ele era maior que uma decisão de produto:** `/dashboard` chamava
