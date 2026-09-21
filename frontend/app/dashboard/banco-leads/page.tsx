@@ -24,7 +24,7 @@ import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type Pag
 import { aplicarRecorte, gravarFiltros, lerFiltros } from '@/lib/filtros-sessao'
 // A ORDEM DE TRABALHO chega pronta do backend (services/lead-fila-trabalho.js): a lista ja vem
 // ordenada e cada lead traz `faixa_trabalho`. Este modulo so TRADUZ o nome da faixa.
-import { ORDEM_FAIXAS, seloFaixa, avisoDeJanela } from '@/lib/lead-fila-trabalho'
+import { seloFaixa, avisoDeJanela } from '@/lib/lead-fila-trabalho'
 // A ACAO PRINCIPAL do lead (qual botao, com que rotulo). O modulo RECEBE os vereditos que a
 // tela ja tem (`isRodavel`, `isLocked`) — ele nao recalcula elegibilidade.
 import { ACOES, acaoPrincipalDoLead } from '@/lib/banco-leads-acao'
@@ -77,6 +77,9 @@ type Lead = {
   tem_whatsapp: boolean | null
   ultimo_status: string | null; ultimo_erro: string | null
   proximo_agendamento: string | null
+  ultimo_status_acao?: string | null
+  ultimo_status_estado?: string | null
+  ultimo_status_em?: string | null
   // CRM em equipe. Etapa 3: a PORTA da operação comercial. Etapa 4: de quem é o lead.
   // Os dois chegam prontos do backend — a tela só traduz (lib/lead-operacao.js).
   qualificacao: Qualificacao | null
@@ -206,34 +209,88 @@ function opcoesMercado(filtros: FiltrosMercado | null): OpcaoFiltroMercado[] {
   }
   return [...mapa.values()].sort((a, b) => b.total - a.total || a.valor.localeCompare(b.valor, 'pt-BR'))
 }
-// Rótulos amigáveis em PT (o operador nunca vê os códigos internos crus).
-// coletado/contato_encontrado/aguardando = todos "Sem contato" (mesma etapa do funil).
-const STATUS_LABEL: Record<string, string> = {
-  coletado: 'Sem contato',
-  contato_encontrado: 'Sem contato',
-  aguardando: 'Sem contato',
-  aprovado: 'Marcado',
-  enviado: 'Contatado',
-  respondeu: 'Respondido',
-  fechado: 'Fechado',
-  rejeitado: 'Rejeitado',
-  nao_contatar: 'Não contatar',
+// Rótulos amigáveis em PT (o operador nunca vê os códigos internos crus). A coluna usa a ação
+// operacional mais recente quando ela existe, porque "ligação feita" e "contatado" compartilham
+// o mesmo `prospects.status` técnico.
+const STATUS_LEAD_VISUAL: Record<string, { rotulo: string; detalhe: string; classe: string; ordem: number }> = {
+  sem_contato: {
+    rotulo: 'Sem contato',
+    detalhe: 'Ainda sem abordagem registrada.',
+    classe: 'border-line bg-surface-2 text-ink-2',
+    ordem: 10,
+  },
+  marcado: {
+    rotulo: 'Marcado',
+    detalhe: 'Lead liberado para o Comercial trabalhar.',
+    classe: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    ordem: 20,
+  },
+  contatado: {
+    rotulo: 'Contatado',
+    detalhe: 'Primeiro contato registrado.',
+    classe: 'border-blue-200 bg-blue-50 text-blue-700',
+    ordem: 30,
+  },
+  ligacao_feita: {
+    rotulo: 'Ligação feita',
+    detalhe: 'Ligação comercial registrada no lead.',
+    classe: 'border-sky-200 bg-sky-50 text-sky-700',
+    ordem: 40,
+  },
+  respondido: {
+    rotulo: 'Respondido',
+    detalhe: 'Lead respondeu ou avançou na conversa.',
+    classe: 'border-orange-200 bg-orange-50 text-orange-700',
+    ordem: 50,
+  },
+  reuniao: {
+    rotulo: 'Reunião marcada',
+    detalhe: 'Há reunião vinculada a este lead.',
+    classe: 'border-violet-200 bg-violet-50 text-violet-700',
+    ordem: 60,
+  },
+  fechado: {
+    rotulo: 'Fechado',
+    detalhe: 'Negócio marcado como fechado por gestão/triagem.',
+    classe: 'border-emerald-300 bg-emerald-50 text-emerald-800',
+    ordem: 70,
+  },
+  descartado: {
+    rotulo: 'Descartado',
+    detalhe: 'Lead descartado ou marcado para não contatar.',
+    classe: 'border-red-200 bg-red-50 text-red-700',
+    ordem: 80,
+  },
 }
-// A coluna Status mostra UM selo só: a FAIXA DE TRABALHO (o que fazer com este lead), que é o
-// veredito do backend e o que governa a ordem padrão da lista. O estágio do funil (`status`)
-// dizia quase sempre a MESMA coisa com outro vocabulário — "Respondido"/"Respondeu",
-// "Sem contato"/"Não trabalhado", "Fechado"/"Fora da fila" — e dois selos empilhados faziam a
-// célula parecer se contradizer. O estágio grosso do funil já é a ABA.
-//
-// Lista FECHADA dos dois únicos estágios que acrescentam um fato que a faixa NÃO expressa, e
-// que por isso sobram como linha de detalhe (nunca como segundo selo):
-//   `aprovado`  → alguém triou e aprovou este lead (a faixa continua "Não trabalhado");
-//   `fechado`   → negócio ganho (a faixa diz só "Fora da fila", que soa neutro).
-// Os demais ficam de fora de propósito: `rejeitado`/`nao_contatar` já saem na linha
-// "Descartado: …" e o resto é repetição da faixa.
-const STATUS_COMPLEMENTO: Record<string, string> = {
-  aprovado: 'Aprovado na triagem',
-  fechado: 'Negócio fechado',
+const FILTROS_STATUS_LEAD: { valor: string; label: string }[] = [
+  { valor: 'todos', label: 'Todos' },
+  { valor: 'sem_contato', label: 'Sem contato' },
+  { valor: 'marcado', label: 'Marcado' },
+  { valor: 'contatado', label: 'Contatado' },
+  { valor: 'ligacao_feita', label: 'Ligação feita' },
+  { valor: 'respondido', label: 'Respondido' },
+  { valor: 'reuniao', label: 'Reunião marcada' },
+  { valor: 'descartado', label: 'Descartado' },
+]
+function statusOperacionalDoLead(l: Lead): { chave: string; rotulo: string; detalhe: string; classe: string; ordem: number } {
+  let chave = 'sem_contato'
+  if (l.status === 'fechado') chave = 'fechado'
+  else if (l.status === 'rejeitado' || l.status === 'nao_contatar' || l.ultimo_status_acao === 'lead_descartado') chave = 'descartado'
+  else if (l.proximo_agendamento || l.ultimo_status_acao === 'lead_reuniao_agendada') chave = 'reuniao'
+  else if (l.ultimo_status_acao === 'lead_ligacao_realizada') chave = 'ligacao_feita'
+  else if (l.status === 'respondeu') chave = 'respondido'
+  else if (l.status === 'enviado' || l.ultimo_status_acao === 'abordagem_manual_declarada') chave = 'contatado'
+  else if (l.status === 'aprovado') chave = 'marcado'
+  const info = STATUS_LEAD_VISUAL[chave] || STATUS_LEAD_VISUAL.sem_contato
+  return { chave, ...info }
+}
+function acaoOperacionalAuditavel(statusOperacional: string): string {
+  switch (statusOperacional) {
+    case 'ligacao_realizada': return 'lead_ligacao_realizada'
+    case 'reuniao_agendada': return 'lead_reuniao_agendada'
+    case 'descartado': return 'lead_descartado'
+    default: return 'lead_status_alterado'
+  }
 }
 const MOTIVO_LABEL: Record<string, string> = {
   rejeicao: 'rejeição', sem_resposta: 'sem resposta',
@@ -363,14 +420,7 @@ function valorColuna(l: Lead, chave: string): number | string {
     case 'icp': return ordemIcp(l)
     case 'prioridade': return prioridadeComercialLead(l)
     case 'pontos': return l.score_cadastro ?? 0
-    // A coluna Status mostra a FAIXA DE TRABALHO, então é por ela que o cabeçalho ordena —
-    // ordenar pelo `status` cru daria uma ordem que o operador não consegue explicar olhando
-    // a tela. A posição vem de `ORDEM_FAIXAS` (a mesma ordem da fila); faixa desconhecida
-    // vai para o fim em vez de se misturar com a primeira.
-    case 'status': {
-      const i = ORDEM_FAIXAS.indexOf(l.faixa_trabalho as typeof ORDEM_FAIXAS[number])
-      return i === -1 ? ORDEM_FAIXAS.length : i
-    }
+    case 'status': return statusOperacionalDoLead(l).ordem
     default: return 0
   }
 }
@@ -403,6 +453,7 @@ type ViewConfig = {
   cols: Record<string, boolean>
   site: Filtro3; social: Filtro3; email: Filtro3; telefone: Filtro3
   envio: 'todos' | 'possivel' | 'impossivel'
+  statusLead: string
   msgGerada: Filtro3
   icp: 'todos' | 'A' | 'B' | 'C' | 'sem_icp'
   disparo: 'todos' | 'disparado' | 'nao_disparado' | 'falha'
@@ -463,7 +514,7 @@ const COLUNAS_PADRAO_DESLIGADAS = new Set(['qualidade', 'aval', 'nota', 'horario
 const VIEW_PADRAO: ViewConfig = {
   cols: Object.fromEntries(COLUNAS_TOGGLE.map((c) => [c.key, !COLUNAS_PADRAO_DESLIGADAS.has(c.key)])),
   site: 'todos', social: 'todos', email: 'todos', telefone: 'todos', envio: 'todos',
-  msgGerada: 'todos', icp: 'todos', disparo: 'todos', agendamento: 'todos',
+  statusLead: 'todos', msgGerada: 'todos', icp: 'todos', disparo: 'todos', agendamento: 'todos',
   regiao: '', scoreMin: '', scoreMax: '', notaMin: '', notaMax: '',
   avalMin: '', avalMax: '', dataDe: '', dataAte: '', ordenacao: 'padrao',
 }
@@ -526,6 +577,7 @@ function passaFiltrosView(l: Lead, v: ViewConfig): boolean {
   if (v.telefone === 'sem' && temTel) return false
   if (v.envio === 'possivel' && l.tem_whatsapp !== true) return false
   if (v.envio === 'impossivel' && l.tem_whatsapp !== false) return false
+  if (v.statusLead !== 'todos' && statusOperacionalDoLead(l).chave !== v.statusLead) return false
   if (v.msgGerada === 'com' && !l.mensagem_gerada) return false
   if (v.msgGerada === 'sem' && l.mensagem_gerada) return false
   const faixaIcp = resumoIcpDoLead(l).faixa
@@ -591,6 +643,7 @@ function chipsDaView(v: ViewConfig): string[] {
   if (v.telefone !== 'todos') c.push(v.telefone === 'com' ? 'Com telefone' : 'Sem telefone')
   if (v.envio === 'possivel') c.push('Envio possível')
   if (v.envio === 'impossivel') c.push('Sem WhatsApp')
+  if (v.statusLead !== 'todos') c.push(`Status: ${STATUS_LEAD_VISUAL[v.statusLead]?.rotulo || v.statusLead}`)
   if (v.msgGerada !== 'todos') c.push(v.msgGerada === 'com' ? 'Com mensagem' : 'Sem mensagem')
   if (v.icp !== 'todos') c.push(v.icp === 'sem_icp' ? 'Sem ICP' : `Lead ${v.icp}`)
   if (v.disparo !== 'todos') c.push({ disparado: 'Disparado', nao_disparado: 'Não disparado', falha: 'Falha no envio' }[v.disparo] || '')
@@ -1316,6 +1369,10 @@ export default function BancoLeadsPage() {
       qualificacao: novo.qualificacao ?? l.qualificacao,
       responsavel_id: novo.responsavel_id ?? l.responsavel_id,
       responsavel_desde: novo.responsavel_desde ?? l.responsavel_desde,
+      ultimo_status_acao: acaoOperacionalAuditavel(statusOperacional),
+      ultimo_status_estado: novo.status,
+      ultimo_status_em: new Date().toISOString(),
+      proximo_agendamento: novo.agenda_evento?.data_inicio ?? l.proximo_agendamento,
     } : l)))
     setConversaAberta((cur) => (cur && cur.leadId === id ? { ...cur, status: novo.status } : cur))
     carregarResumo()
@@ -2554,33 +2611,23 @@ function RodapePaginacaoBanco({ pg, onPagina }: { pg: PaginaLista<Lead>; onPagin
   )
 }
 
-// Cor é REFORÇO: o rótulo da faixa e a explicação (title) carregam a informação sozinhos.
-const TOM_FAIXA: Record<string, string> = {
-  urgente: 'bg-rose-50 text-rose-700 border-rose-200',
-  pronto: 'bg-amber-50 text-amber-700 border-amber-200',
-  novo: 'bg-blue-50 text-brand border-blue-100',
-  atencao: 'bg-orange-50 text-orange-700 border-orange-200',
-  espera: 'bg-sky-50 text-sky-700 border-sky-200',
-  neutro: 'bg-surface-2 text-ink-2 border-line',
-}
-
-// Célula de status compartilhada (faixa da fila + badge + trava + último disparo).
+// Célula de status compartilhada: o selo principal é o STATUS DO LEAD (o que foi marcado na
+// conversa); a faixa de trabalho aparece só como apoio para explicar por que a fila ordenou assim.
 function StatusCelula({ l }: { l: Lead }) {
   const locked = isLocked(l)
-  // A faixa explica a POSIÇÃO do lead na fila — sem ela, a ordem nova pareceria arbitrária.
-  // O veredito vem do backend; aqui só se traduz (lib/lead-fila-trabalho.js).
+  const status = statusOperacionalDoLead(l)
   const faixa = seloFaixa(l.faixa_trabalho)
   return (
     <td className="px-3 py-2">
-      {/* UM selo só. Faixa desconhecida (backend mais novo que a tela) cai no rótulo do funil
-          em vez de deixar a célula muda. */}
       <div
-        className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TOM_FAIXA[faixa?.tom || 'neutro'] || TOM_FAIXA.neutro}`}
-        title={faixa ? faixa.dica : undefined}>
-        {faixa ? faixa.rotulo : (STATUS_LABEL[l.status] || l.status)}
+        className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${status.classe}`}
+        title={status.detalhe}>
+        {status.rotulo}
       </div>
-      {faixa && STATUS_COMPLEMENTO[l.status] && (
-        <div className="text-[11px] text-ink-3 mt-0.5">{STATUS_COMPLEMENTO[l.status]}</div>
+      {faixa && (
+        <div className="mt-0.5 text-[11px] text-ink-3" title={faixa.dica}>
+          Fila: {faixa.rotulo}
+        </div>
       )}
       {locked && (
         <div className="inline-flex items-center gap-1 text-[11px] text-red-600 mt-1">
@@ -2621,7 +2668,7 @@ function EnvioCelula({ l, previsoesEnvio }: { l: Lead; previsoesEnvio: Map<strin
       : falhaEnvio(l) ? { titulo: 'Falhou', detalhe: `${falhaEnvio(l)}${isRodavel(l) ? ' — tentará de novo' : ''}`, tom: 'erro' }
       : l.mensagem_gerada ? { titulo: 'Pronta', detalhe: `Gerada em ${fmtDataHora(l.gerada_em)}`, tom: 'pronto' }
       : isRodavel(l) ? { titulo: 'Aguardando geração', detalhe: 'Semi gera automaticamente', tom: 'neutro' }
-      : { titulo: 'Sem previsão', detalhe: motivoDescarte(l) || STATUS_LABEL[l.status] || l.status, tom: 'neutro' }
+      : { titulo: 'Sem previsão', detalhe: motivoDescarte(l) || statusOperacionalDoLead(l).rotulo || l.status, tom: 'neutro' }
   )
   const cls = {
     auto: 'bg-sky-50 text-sky-700 border-sky-200',
@@ -2907,6 +2954,7 @@ function LeadCartao({ l, mostrarRodar, selecionados, onToggleSel, onAbrirConvers
   onDevolver?: (l: Lead) => void
 }) {
   const faixa = seloFaixa(l.faixa_trabalho)
+  const statusLead = statusOperacionalDoLead(l)
   const resumo = resumoIcpOperacional(l)
   const selo = seloIcp(resumo.faixa, resumo.score)
   const maximo = maximoDoLead(l)
@@ -2940,9 +2988,10 @@ function LeadCartao({ l, mostrarRodar, selecionados, onToggleSel, onAbrirConvers
             className="mt-1 h-4 w-4 shrink-0" />
         )}
         <div className="min-w-0 flex-1">
-          <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TOM_FAIXA[faixa?.tom || 'neutro'] || TOM_FAIXA.neutro}`}>
-            {faixa ? faixa.rotulo : (STATUS_LABEL[l.status] || l.status)}
+          <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusLead.classe}`} title={statusLead.detalhe}>
+            {statusLead.rotulo}
           </span>
+          {faixa && <span className="ml-1 align-middle text-[11px] text-ink-3">Fila: {faixa.rotulo}</span>}
           <h3 className="mt-1 truncate text-[15px] font-bold leading-tight text-ink">{l.nome}</h3>
           <p className="mt-0.5 truncate text-xs text-ink-3">
             {[l.nicho, l.cidade].filter(Boolean).join(' · ') || 'Mercado não informado'}
@@ -3316,6 +3365,7 @@ function PersonalizarModal({ view, onPatch, onReset, onPreset, onClose }: {
               <SelFiltro label="E-mail" value={view.email} onChange={(v) => onPatch({ email: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com e-mail'], ['sem', 'Sem e-mail']]} />
               <SelFiltro label="Telefone" value={view.telefone} onChange={(v) => onPatch({ telefone: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com telefone'], ['sem', 'Sem telefone']]} />
               <SelFiltro label="Envio (WhatsApp)" value={view.envio} onChange={(v) => onPatch({ envio: v as ViewConfig['envio'] })} opcoes={[['todos', 'Todos'], ['possivel', 'Envio possível'], ['impossivel', 'Sem WhatsApp']]} />
+              <SelFiltro label="Status do lead" value={view.statusLead} onChange={(v) => onPatch({ statusLead: v })} opcoes={FILTROS_STATUS_LEAD.map((o) => [o.valor, o.label] as [string, string])} />
               <SelFiltro label="Mensagem gerada" value={view.msgGerada} onChange={(v) => onPatch({ msgGerada: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com mensagem'], ['sem', 'Sem mensagem']]} />
               <SelFiltro label="ICP geral" value={view.icp} onChange={(v) => onPatch({ icp: v as ViewConfig['icp'] })} opcoes={[['todos', 'Todos'], ['A', 'Lead A'], ['B', 'Lead B'], ['C', 'Lead C'], ['sem_icp', 'Sem ICP salvo']]} />
               <SelFiltro label="Disparo" value={view.disparo} onChange={(v) => onPatch({ disparo: v as ViewConfig['disparo'] })} opcoes={[['todos', 'Todos'], ['disparado', 'Disparado'], ['nao_disparado', 'Não disparado'], ['falha', 'Falha no envio']]} />

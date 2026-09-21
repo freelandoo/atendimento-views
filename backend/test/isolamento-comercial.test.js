@@ -89,6 +89,8 @@ test('GUARDA: o Banco de Leads mostra só lead aprovado para quem nao ve a base 
   // O MESMO ponto serve listagem, contagem e export — tres condicoes separadas divergiriam.
   assert.ok(/if \(query\.__somenteAprovados\) where\.push\(sqlAprovado/.test(src),
     'o recorte precisa entrar em montarFiltro, que e o ponto unico')
+  assert.ok(src.includes('status_op.ultimo_status_acao') && src.includes('FROM app.auditoria_eventos ae'),
+    'a listagem precisa levar a ultima acao operacional para a coluna Status do lead')
 })
 
 test('GUARDA: Banco de Leads semi usa somente instancia propria do Comercial', () => {

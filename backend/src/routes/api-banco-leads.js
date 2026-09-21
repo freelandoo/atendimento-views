@@ -99,7 +99,9 @@ const STATUS_OPERACIONAL = Object.freeze({
   descartado: { status: 'rejeitado', qualificacao: 'descartado', descarte: true },
   rejeitado: { status: 'rejeitado', qualificacao: 'descartado', descarte: true },
 })
-const ACOES_STATUS_LEAD = new Set(['lead_status_alterado', 'abordagem_manual_declarada', 'lead_reuniao_agendada', 'lead_ligacao_realizada', 'lead_follow_up_criado', 'lead_descartado'])
+const ACOES_STATUS_LEAD = Object.freeze(['lead_status_alterado', 'abordagem_manual_declarada', 'lead_reuniao_agendada', 'lead_ligacao_realizada', 'lead_follow_up_criado', 'lead_descartado'])
+const ACOES_STATUS_LEAD_SET = new Set(ACOES_STATUS_LEAD)
+const ACOES_STATUS_LEAD_SQL = ACOES_STATUS_LEAD.map((a) => `'${a}'`).join(', ')
 
 // Contato "agendado": tem evento FUTURO (pendente/confirmado). Le as DUAS agendas:
 //  - app.agenda_eventos (migration 011): eventos criados manualmente no dashboard,
@@ -773,6 +775,7 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
           ultimo.rodado_em, ultimo.rodado_por, ultimo.ultimo_status, ultimo.ultimo_erro,
           rascunho.mensagem_gerada, rascunho.gerada_em,
           agenda.proximo_agendamento,
+          status_op.ultimo_status_acao, status_op.ultimo_status_estado, status_op.ultimo_status_em,
           ${sqlFaixaTrabalho()} AS faixa_trabalho_ordem
         FROM prospectador.prospects
         LEFT JOIN LATERAL (
@@ -823,6 +826,27 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
                )
           ) u
         ) agenda ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT ae.acao AS ultimo_status_acao,
+                 ae.estado_novo AS ultimo_status_estado,
+                 ae.ocorrido_em AS ultimo_status_em
+            FROM app.auditoria_eventos ae
+           WHERE ae.empresa_id = prospects.empresa_id
+             AND ae.entidade_tipo = 'prospect'
+             AND ae.entidade_id = prospects.id
+             AND ae.acao IN (${ACOES_STATUS_LEAD_SQL})
+           ORDER BY ae.ocorrido_em DESC,
+             CASE ae.acao
+               WHEN 'lead_reuniao_agendada' THEN 0
+               WHEN 'lead_ligacao_realizada' THEN 1
+               WHEN 'lead_descartado' THEN 2
+               WHEN 'abordagem_manual_declarada' THEN 3
+               WHEN 'lead_status_alterado' THEN 4
+               ELSE 9
+             END,
+             ae.id DESC
+           LIMIT 1
+        ) status_op ON TRUE
         WHERE ${where} ORDER BY ${ordemLeads} LIMIT $${params.length}`,
       params
     )
@@ -974,7 +998,7 @@ router.get('/leads/:id/status-historico', requireAuth, requireEmpresaAccess, asy
     if (!rows[0]) return res.status(404).json({ ok: false, error: { code: 'LEAD_NAO_ENCONTRADO', message: 'Lead não encontrado para o seu escopo.' } })
 
     const eventos = await listarAuditoria(pool, req.empresa.id, { entidadeTipo: 'prospect', entidadeId: req.params.id, limit: req.query.limit || 30 })
-    return res.json({ ok: true, data: eventos.filter((e) => ACOES_STATUS_LEAD.has(e.acao)) })
+    return res.json({ ok: true, data: eventos.filter((e) => ACOES_STATUS_LEAD_SET.has(e.acao)) })
   } catch (err) { return envelopeErro(res, err, 'LEAD_STATUS_HISTORICO_FAILED') }
 })
 
