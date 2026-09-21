@@ -13,8 +13,15 @@ const {
   handleDeLinkConhecido,
 } = require('./services/instagram-perfil')
 const { calcularAtividadeGoogle } = require('./services/google-business-activity')
-const { qualificacaoInicial, qualificacaoDaDecisao, sqlAbordavel } = require('./services/lead-qualificacao')
+const { qualificacaoInicial, qualificacaoDaDecisao, sqlAbordavel, QUALIFICACAO } = require('./services/lead-qualificacao')
 const { avaliarQualificacaoLead, VALIDACAO } = require('./services/lead-qualificacao-score')
+const { sqlResolverNichoId } = require('./services/nicho-resolucao')
+
+// Ao APROVAR um lead, resolve `nicho_id` pelo texto (se ainda estiver NULL) — sem isso o lead
+// aprovado nunca aparece como redistribuivel para a equipe do nicho (`sqlRedistribuivel`,
+// `classificarLote`), mesmo depois de triado. So' correspondencia EXATA (decisao D1, mesma regra
+// do backfill); `COALESCE` nunca sobrescreve um vinculo ja gravado a mao ou por outra aprovacao.
+const SQL_RESOLVER_NICHO_AO_APROVAR = `, nicho_id = COALESCE(nicho_id, ${sqlResolverNichoId({ empresaCol: 'empresa_id', nichoCol: 'nicho' })})`
 const { logger } = require('./logger')
 const { candidatosTelefoneBR } = require('./telefone-br')
 const { dashboardAutorizado: dashboardSessionAutorizado } = require('./dashboardAuth')
@@ -1664,6 +1671,7 @@ async function atualizarStatusProspect(id, status, empresaId = null, opts = {}) 
     SET status = $2,
         ${qualificacao ? 'qualificacao = $' + (params.length + 1) + ', qualificado_em = NOW(), qualificado_por = $' + (params.length + 2) + '::uuid,' : ''}
         updated_at = NOW()
+        ${qualificacao === QUALIFICACAO.APROVADO ? SQL_RESOLVER_NICHO_AO_APROVAR : ''}
     WHERE id = $1${filtroEmpresa}
     RETURNING *
     `,
@@ -1696,6 +1704,7 @@ async function atualizarStatusProspectsLote(ids, status, empresaId = null, opts 
     SET status = $2,
         ${qualificacao ? 'qualificacao = $' + (params.length + 1) + ', qualificado_em = NOW(), qualificado_por = $' + (params.length + 2) + '::uuid,' : ''}
         updated_at = NOW()
+        ${qualificacao === QUALIFICACAO.APROVADO ? SQL_RESOLVER_NICHO_AO_APROVAR : ''}
     WHERE id = ANY($1::uuid[])${filtroEmpresa}
     RETURNING *
     `,

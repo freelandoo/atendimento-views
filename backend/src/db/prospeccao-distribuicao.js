@@ -13,6 +13,7 @@ const D = require('../services/lead-distribuicao')
 const Q = require('../services/lead-qualificacao')
 const { ACOES } = require('../services/lead-responsavel')
 const { registrarMudancasEmLote } = require('./lead-responsavel')
+const { sqlResolverNichoId } = require('../services/nicho-resolucao')
 const { logger } = require('../logger')
 
 const MOTIVO = Object.freeze({
@@ -219,7 +220,12 @@ async function aprovarPendentes(client, empresaId, ids, usuarioId) {
             qualificacao = 'aprovado',
             qualificado_em = NOW(),
             qualificado_por = $3::uuid,
-            updated_at = NOW()
+            updated_at = NOW(),
+            -- Resolve nicho_id pelo texto ao aprovar (so' quando ainda NULL, so' correspondencia
+            -- EXATA - decisao D1). Sem isto, "Aprovar e distribuir" aprovava o lead e ele
+            -- continuava invisivel para a propria distribuicao que acabou de rodar, porque
+            -- classificarLote exige nicho_id. Mesma regra de services/nicho-resolucao.js.
+            nicho_id = COALESCE(nicho_id, ${sqlResolverNichoId({ empresaCol: 'empresa_id', nichoCol: 'nicho' })})
       WHERE empresa_id = $1
         AND id = ANY($2::uuid[])
         AND status = ANY($4::text[])

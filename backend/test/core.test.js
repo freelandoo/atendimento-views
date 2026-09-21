@@ -7084,7 +7084,14 @@ test('atualizarStatusProspect: empresaId restringe o UPDATE ao tenant (isolament
     // desde a Etapa 3 (a porta da operação comercial) a decisão humana grava também o eixo de
     // qualificação e quem decidiu, na mesma instrução — então há 2 parâmetros a mais. Contar
     // params aqui media outra coisa e quebrava a cada campo novo.
-    assert.doesNotMatch(capturado.sql, /empresa_id/)
+    //
+    // ⚠️ NÃO é mais "a palavra empresa_id não aparece em lugar nenhum": ao aprovar, a resolução
+    // automática de nicho_id (services/nicho-resolucao.js) referencia `empresa_id` da PRÓPRIA
+    // linha numa subquery — não é filtro de isolamento, é escopo do casamento de nicho (nunca
+    // casa nicho de um tenant com catálogo de outro). O que este teste precisa continuar provando
+    // é a ausência do FILTRO ($3 de isolamento), que já está coberto acima.
+    assert.doesNotMatch(capturado.sql, /AND empresa_id = \$/)
+    assert.match(capturado.sql, /nicho_id = COALESCE\(nicho_id,/, 'a resolução de nicho continua presente mesmo sem filtro de tenant')
     assert.equal(capturado.params[0], '11111111-1111-1111-1111-111111111111')
     assert.equal(capturado.params[1], 'aprovado')
   } finally {

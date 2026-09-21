@@ -6,7 +6,28 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
-## 2026-09-21 - UX de aprovacao/distribuicao na Aquisicao, distribuicao ponderada por desempenho e devolucao de leads na saida de membro da equipe
+## 2026-09-21 (2) - Diagnostico: leads aprovados nao ficam disponiveis para "Puxar mais leads"
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5), na `master`, apos push dos commits `0620fc9`/`0ef8bdb`.
+- **Pedido resumido:** usuario fez teste ao vivo com o nicho "Energia Solar" e reportou que leads
+  aprovados ("marcados") nao ficam disponiveis para distribuicao ("Puxar mais leads"). Pediu para
+  investigar e fazer com que aprovar/marcar torne o lead imediatamente distribuivel.
+- **Causa raiz encontrada (leitura de codigo, sem alterar nada ainda):**
+  `prospectador.prospects.nicho_id` (a coluna ESTRUTURADA que toda a familia de recursos "Equipes
+  por Nicho" usa — carteira, redistribuivel, "Puxar mais leads", "Aprovar e distribuir") **nunca e
+  preenchida automaticamente**. `salvarProspect` (prospecting.js:1155) nao grava `nicho_id` no
+  INSERT nem no upsert; o unico jeito de preenche-la hoje e rodar manualmente
+  `npm run backfill:prospects-nicho -- --aplicar` (script existente, `scripts/backfill-prospects-nicho.js`).
+  Sem isso, `classificarLote` (db/prospeccao-distribuicao.js:132-155) classifica TODO lead como
+  `sem_nicho` e ele nunca fica elegivel, e `sqlRedistribuivel`/`livresRedistribuiveis`
+  (services|db/lead-distribuicao.js) tambem exigem `nicho_id = <equipe.nicho_id>`.
+- **E projeto/tarefa de alteracao?** Sim, e toca 3+ pontos de escrita (aprovacao individual, em
+  lote e "aprovar e distribuir", em `prospecting.js`/`db/prospeccao-distribuicao.js`) mais,
+  possivelmente, o caminho de coleta (`prospecting.js:salvarProspect`, hot path pago). Pelo
+  CLAUDE.md, ESPERA CONFIRMACAO do escopo exato antes de implementar.
+- **Fora de escopo ate decisao do operador:** rodar o backfill contra producao (acao em banco,
+  precisa autorizacao explicita antes de cada execucao) e qualquer alteracao no matching por
+  aproximacao (a regra D1 documentada — "nao se adivinha nicho" — continua valendo).
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), na `master`, repositorio limpo no inicio da tarefa.
 - **Pedido resumido (mensagem de voz, varios itens):** (1) UX da barra de acoes em massa da

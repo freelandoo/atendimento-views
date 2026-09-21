@@ -45,6 +45,11 @@
 // engolido pelo npm e NUNCA chega ao script — o sintoma e' o modo pedido simplesmente nao valer.
 
 const { Pool } = require('pg')
+// Dono UNICO da expressao de casamento (`services/nicho-resolucao.js`) — reusada tambem pelas
+// escritas AUTOMATICAS de nicho_id nos pontos de aprovacao (`prospecting.js`,
+// `db/prospeccao-distribuicao.js`). Duas copias divergiriam na primeira mudanca, o mesmo defeito
+// que o comentario historico abaixo documenta.
+const { BRANCOS, limpo, sqlCasamentoNicho } = require('../src/services/nicho-resolucao')
 
 const LOTE_PADRAO = 1000
 
@@ -60,12 +65,10 @@ const LOTE_PADRAO = 1000
 // de proposito: dentro de template literal do JS uma sequencia dessas vira o caractere real antes
 // de chegar ao Postgres, e uma classe como a de "nao-digito" viraria uma letra solta — e' o mesmo
 // defeito ja registrado no AGENTS.md sobre `regexp_replace`. Com `chr()` nao ha escape a errar.
-const BRANCOS = `chr(32)||chr(9)||chr(10)||chr(13)`
-const limpo = (coluna) => `BTRIM(${coluna}, ${BRANCOS})`
 
 // O casamento. UMA expressao, usada na contagem, no UPDATE e no relatorio — para as tres nunca
 // discordarem sobre o que "casa".
-const CASAMENTO = `lower(${limpo('n.nome')}) = lower(${limpo('p.nicho')})`
+const CASAMENTO = sqlCasamentoNicho('p.nicho', 'n.nome')
 
 // ─── Apresentacao (PURA — testada em test/backfill-prospects-nicho.test.js) ──────────────
 
