@@ -1,9 +1,29 @@
 {
+  // ─── O QUE ESTE TYPECHECK VERIFICA, E O QUE ELE DELIBERADAMENTE NAO EXIGE ───────────────
+  //
+  // `checkJs: false` + pragma `// @ts-check` no topo do arquivo: a verificacao e' OPT-IN,
+  // arquivo a arquivo. Ligar `checkJs` global hoje produz 13.060 erros em 249 dos 252 arquivos
+  // — nao seria um portao, seria ruido permanente que todo mundo aprende a ignorar.
+  //
+  // `noImplicitAny` e `strictNullChecks` estao DESLIGADOS de proposito. Eles respondiam por
+  // 52% daqueles erros ("Parameter 'res' implicitly has an 'any' type"), que nao sao defeito:
+  // sao ausencia de anotacao. Exigi-los transformaria a adocao numa reescrita de 82 mil linhas.
+  //
+  // O que SOBRA e' exatamente o que pega defeito de verdade num codigo JavaScript: propriedade
+  // que nao existe no objeto (TS2339 — tipo de erro mais comum aqui), argumento do tipo errado
+  // (TS2345), numero errado de argumentos, atribuicao incompativel. Foi assim que a régua saiu
+  // de 3 arquivos verificaveis para 79.
+  //
+  // Para incluir mais um arquivo: ponha `// @ts-check` na PRIMEIRA linha (antes do
+  // 'use strict') e rode `npm run typecheck`. `test/typecheck-cobertura.test.js` garante que o
+  // numero de arquivos anotados so' sobe.
   "compilerOptions": {
     "allowJs": true,
     "checkJs": false,
     "noEmit": true,
     "strict": true,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
     "target": "ES2022",
     "module": "Node16",
     "moduleResolution": "Node16",

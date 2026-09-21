@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Config do Banco de Leads por EMPRESA (modo de disparo + geração por IA + agenda
 // do Automático). Acesso a banco isolado, como manda a arquitetura. A tabela é

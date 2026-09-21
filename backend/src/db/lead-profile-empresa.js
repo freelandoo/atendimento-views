@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 // Fonte UNICA de como `vendas.lead_profiles.empresa_id` é escrito.

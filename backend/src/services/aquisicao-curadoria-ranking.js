@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Assistente de Oportunidades (por lead) — REGRAS PURAS de fila e aprendizado.
 //

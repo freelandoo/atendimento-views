@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 const REUNIAO_PROPOSTA_HORARIOS_PADRAO = [

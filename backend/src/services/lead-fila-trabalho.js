@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Ordem de TRABALHO do Banco de Leads — a fila de quem abre a tela para trabalhar.
 //

@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 const { parsearRespostaJsonClaude } = require('../string-utils')

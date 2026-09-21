@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Config da pagina de Follow-ups por EMPRESA (modo + meta de ligacoes + pausa).
 // Acesso a banco isolado, como manda a arquitetura. A tabela e criada pela migration

@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 // Cifragem em repouso de segredos de terceiros (AES-256-GCM), genérica por DOMÍNIO.

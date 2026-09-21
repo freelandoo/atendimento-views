@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Atividade do Instagram do lead — o negocio ainda da' sinal de vida naquele perfil?
 //

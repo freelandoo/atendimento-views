@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 async function cancelarFollowupsAutoPendentes(pool, numero, motivo = 'lead_respondeu') {

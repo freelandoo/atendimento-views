@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Campanhas comerciais — API multi-tenant, admin-only (mount em index.js aplica
 // requireAuth + requireRole('admin')). Cada rota reforca requireEmpresaAccess; o db

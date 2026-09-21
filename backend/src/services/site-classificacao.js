@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // CLASSIFICADOR CANONICO DE URL — "isto e' um site proprio ou so um link?"
 //

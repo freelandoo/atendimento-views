@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Pontuação de CADASTRO do lead (completude da presença digital) + JSON de
 // apresentação (dados unificados num prompt único pro bot gerar a saudação

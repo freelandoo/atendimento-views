@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 /**
  * Interface PUBLICA do orquestrador do agente.

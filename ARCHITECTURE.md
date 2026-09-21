@@ -279,6 +279,11 @@ Quatro guardas estruturais quebram o build de propósito:
 | `legado-cercado.test.js` | a geração legada só encolhe |
 | `migrations-integridade.test.js` | numeração, ordem e transacionalidade das migrations |
 | `env-documentadas.test.js` | toda variável de ambiente documentada |
+| `typecheck-cobertura.test.js` | a cobertura do typecheck só sobe (79 de 252 arquivos) |
+
+**O typecheck do backend é opt-in por arquivo:** `// @ts-check` na primeira linha, com
+`noImplicitAny` e `strictNullChecks` desligados de propósito — o alvo é propriedade inexistente
+e argumento errado, não completude de anotação. Arquivo novo deve **nascer com o pragma**.
 
 Além delas, dezenas de testes **leem o próprio fonte** para impedir que um defeito já corrigido
 volte. Quando um deles falhar, leia a mensagem: ela costuma explicar o incidente que originou a

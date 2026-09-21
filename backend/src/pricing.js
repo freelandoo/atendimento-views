@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 /** Faixas de preço por plano (min-max em R$). */

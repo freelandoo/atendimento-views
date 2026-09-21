@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Listagem/controle da pagina de Follow-ups (Fase 1). Acesso a banco isolado.
 //   - Automatico: timeline de agendamentos (agendado/executado/falhou/cancelado)

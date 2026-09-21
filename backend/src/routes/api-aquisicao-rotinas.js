@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Rotinas de Aquisição — CRUD + acompanhamento.
 // Montada sob /api/empresas/:empresaId/prospeccao/rotinas com requireAuth +

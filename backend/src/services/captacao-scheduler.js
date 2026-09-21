@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Agendamento automático das campanhas de captação (Instagram).
 // Espelha o padrão de prospecting-scheduler.js: lógica PURA (sem I/O), testável.

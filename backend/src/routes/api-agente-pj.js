@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // API JWT para editar o agente PJ Codeworks (single-tenant): contexto (empresa.md)
 // e estágios de resposta (system-*.md). Ponte sobre src/prompts.js (vendas.prompt_overlays),

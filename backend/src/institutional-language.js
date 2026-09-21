@@ -1,3 +1,4 @@
+// @ts-check
 function sanitizarMencoesPessoaParaEquipe(texto) {
   if (typeof texto !== 'string' || !texto) return texto
   return texto

@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 const MODOS_VALIDOS = new Set(['manual', 'semi_automatico', 'automatico'])

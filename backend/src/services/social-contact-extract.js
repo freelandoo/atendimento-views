@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Extração de CONTATO a partir de um perfil social (bio + link da bio).
 // Saída: { email, telefone, link_bio, site, sinais } — telefone já normalizado p/ WhatsApp.

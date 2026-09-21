@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // ORIGEM DA SESSAO — de qual aparelho/sessao partiu uma acao. Modulo PURO: sem banco, HTTP,
 // IA ou rede (usa apenas `node:crypto`, que e' calculo local).

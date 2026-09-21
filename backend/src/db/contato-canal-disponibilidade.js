@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Acesso a banco da DISPONIBILIDADE DE CANAL por contato (migration 066).
 // Isolado por empresa: TODA query filtra `empresa_id`.

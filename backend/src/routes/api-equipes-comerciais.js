@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Equipes Comerciais — gestao operacional por nicho.
 // Autorizacao: MEMBROS_GERENCIAR. Equipe nao e papel; e organizacao de carteira.

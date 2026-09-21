@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Abordagem MANUAL pelo WhatsApp — módulo PURO. CRM em equipe, Etapa 5.
 // Sem banco, sem HTTP, sem IA, sem rede. **Este módulo não envia nada, e nunca deve.**

@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Score ICP do lead — Fase 1.
 //

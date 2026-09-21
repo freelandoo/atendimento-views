@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Estado de NEGOCIO da sessao de ligacao — logica PURA, sem banco e sem dependencias.
 // Modulo folha de proposito: e' consumido por src/db/ligacoes.js E por

@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/

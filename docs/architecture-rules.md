@@ -140,6 +140,19 @@ npx tsc --noEmit && npm test && npm run build
 `npm test` do backend **tem de sair com exit 0** — não há falha tolerada. Se um teste novo não
 aparecer na suíte, verifique o nome: o glob é `test/*.test.js`.
 
+**O `typecheck` do backend é opt-in por arquivo.** `checkJs` fica `false` e cada arquivo entra
+na verificação com `// @ts-check` na **primeira linha** (antes do `'use strict'` — fora dali o
+TypeScript ignora o pragma em silêncio). Hoje são **79 de 252**, e `test/typecheck-cobertura.test.js`
+impede que esse número caia: apagar o pragma faz o erro sumir sem corrigir o defeito.
+
+`noImplicitAny` e `strictNullChecks` estão desligados **de propósito** — respondiam por 52% dos
+13.060 erros que `checkJs` global produziria, e "faltou anotação" não é defeito. O que se checa
+é o que pega bug em JavaScript: propriedade inexistente, argumento do tipo errado, atribuição
+incompatível.
+
+Ao criar arquivo novo, **nasça com o pragma**: arquivo novo costuma passar limpo, e o custo de
+adicionar depois é muito maior.
+
 O CI (`.github/workflows/ci.yml`) roda exatamente estes comandos em todo push e PR, mais um job
 que carrega a aplicação no Node 20 (o runtime do Docker). **Ele não tem segredo configurado, e
 isso é regra, não circunstância:** teste que precisa de credencial não é teste de unidade — é de

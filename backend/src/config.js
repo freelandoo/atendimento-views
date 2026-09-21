@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_KEY

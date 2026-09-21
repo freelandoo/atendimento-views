@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Modelo ICP geral v1.1 — Fase 1.
 //

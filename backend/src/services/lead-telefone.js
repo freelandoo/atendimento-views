@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Telefone do lead informado por uma PESSOA (o "+ telefone" da listagem do Banco de Leads).
 //

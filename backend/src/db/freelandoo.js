@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 // Acesso a dados da conexão Freelandoo (token/segredo cifrados) e da fila de
