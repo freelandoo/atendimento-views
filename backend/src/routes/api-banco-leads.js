@@ -381,6 +381,12 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
     e.statusCode = 400
     throw e
   }
+  if (destino.status === 'fechado' && !temCapacidadeReq(req, CAP.LEAD_TRIAR)) {
+    const e = new Error('Fechar negócio exige permissão de triagem/gestão. O comercial deve marcar reunião, ligação, contato, resposta ou descarte.')
+    e.statusCode = 403
+    e.code = 'FECHAR_NAO_PERMITIDO'
+    throw e
+  }
 
   const client = await pool.connect()
   try {

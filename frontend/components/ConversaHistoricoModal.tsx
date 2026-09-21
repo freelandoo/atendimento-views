@@ -65,7 +65,6 @@ const STATUS_ACOES: { valor: string; label: string }[] = [
   { valor: 'ligacao_realizada', label: 'Ligação feita' },
   { valor: 'respondido', label: 'Respondido' },
   { valor: 'reuniao_agendada', label: 'Reunião' },
-  { valor: 'fechado', label: 'Fechado' },
   { valor: 'descartado', label: 'Descartado' },
 ]
 const STATUS_POR_ACAO: Record<string, string> = {
@@ -74,7 +73,6 @@ const STATUS_POR_ACAO: Record<string, string> = {
   ligacao_realizada: 'enviado',
   respondido: 'respondeu',
   reuniao_agendada: 'respondeu',
-  fechado: 'fechado',
   descartado: 'rejeitado',
 }
 
@@ -137,10 +135,9 @@ function rotuloEventoStatus(e: StatusEvento): string {
 }
 
 /**
- * Casca compartilhada dos 3 sub-modais de ação (reunião/ligação/descarte). Os três eram a
- * MESMA moldura copiada três vezes (overlay, cartão flutuante, cabeçalho com × e rodapé com
- * Cancelar/Salvar) — só o formulário do meio mudava. Nenhuma lógica de envio saiu daqui: cada
- * chamador continua decidindo o próprio payload e quando fechar.
+ * Casca compartilhada dos 3 sub-modais de ação (reunião/ligação/descarte). Ela fica presa ao
+ * viewport, não ao miolo rolável do modal de conversa; quando era `absolute` dentro do painel,
+ * formulários maiores ficavam cortados pelo `overflow-hidden` da moldura principal.
  */
 function PainelAcaoConversa({ titulo, descricao, onFechar, rodape, children }: {
   titulo: string
@@ -150,8 +147,8 @@ function PainelAcaoConversa({ titulo, descricao, onFechar, rodape, children }: {
   children: React.ReactNode
 }) {
   return (
-    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-ink/50 p-4" onClick={onFechar}>
-      <div className="max-h-[calc(92dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl bg-surface p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-ink/45 px-4 py-6" onClick={onFechar}>
+      <div className="max-h-[min(86dvh,760px)] w-full max-w-md overflow-y-auto rounded-lg bg-surface p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-ink">{titulo}</div>
@@ -327,7 +324,7 @@ export default function ConversaHistoricoModal({
       : mensagemGerada ? 'Enviar mensagem' : 'Gerar e enviar'
   const acoesStatusVisiveis = podeTriarLead
     ? STATUS_ACOES
-    : STATUS_ACOES.filter((a) => a.valor !== 'marcado' && a.valor !== 'fechado')
+    : STATUS_ACOES.filter((a) => a.valor !== 'marcado')
 
   return (
     /* A geometria vem do PRIMITIVO (`lib/ui-primitivos.js`): folha inferior no celular, modal

@@ -121,6 +121,8 @@ test('GUARDA: mudar status do lead respeita o mesmo recorte e grava historico', 
   assert.ok(bloco.includes('lead_reuniao_agendada'), 'reuniao agendada precisa ficar no historico do lead')
   assert.ok(bloco.includes('lead_ligacao_realizada'), 'ligacao realizada precisa ficar no historico do lead')
   assert.ok(bloco.includes('lead_descartado'), 'descarte precisa ficar no historico do lead')
+  assert.ok(bloco.includes("destino.status === 'fechado'") && bloco.includes('CAP.LEAD_TRIAR'),
+    'fechar negocio nao pode ficar liberado para o comercial pelo endpoint operacional')
   assert.ok(bloco.includes('autoAssumirLeadLivre'), 'alterar status precisa puxar lead livre para quem alterou')
   assert.ok(bloco.includes('criarEvento'), 'reuniao agendada precisa criar evento real na agenda')
   assert.ok(bloco.includes('INSERT INTO app.ligacoes'), 'ligacao realizada precisa criar registro real de ligacao')
