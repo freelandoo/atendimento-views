@@ -887,28 +887,28 @@ export default function ProspeccaoPage() {
               Limpar filtros
             </button>
           )}
-          <Botao
-            variante="secundaria"
-            tamanho="md"
-            iconeInicio={<IconCheck />}
-            carregando={agindo === 'lote-aprovar'}
-            onClick={() => acaoLote('aprovar')}
-            disabled={selecionados.size === 0}
-            motivoDesabilitado={selecionados.size === 0 ? 'Marque ao menos um lead na tabela.' : ''}
-          >
-            Aprovar selecionados
-          </Botao>
-          <Botao
-            variante="perigosa"
-            tamanho="md"
-            iconeInicio={<IconTrash />}
-            carregando={agindo === 'lote-rejeitar'}
-            onClick={() => acaoLote('rejeitar')}
-            disabled={selecionados.size === 0}
-            motivoDesabilitado={selecionados.size === 0 ? 'Marque ao menos um lead na tabela.' : ''}
-          >
-            Descartar selecionados
-          </Botao>
+          {selecionados.size > 0 && (
+            <Botao
+              variante="secundaria"
+              tamanho="md"
+              iconeInicio={<IconCheck />}
+              carregando={agindo === 'lote-aprovar'}
+              onClick={() => acaoLote('aprovar')}
+            >
+              Aprovar selecionados
+            </Botao>
+          )}
+          {selecionados.size > 0 && (
+            <Botao
+              variante="perigosa"
+              tamanho="md"
+              iconeInicio={<IconTrash />}
+              carregando={agindo === 'lote-rejeitar'}
+              onClick={() => acaoLote('rejeitar')}
+            >
+              Descartar selecionados
+            </Botao>
+          )}
           {selecionados.size > 0 && (
             <Botao
               variante="neutra"

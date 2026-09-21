@@ -407,10 +407,17 @@ export default function RotinasAquisicao({
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
               {buscandoAvulsa ? <Spinner /> : <IconPlay />}{buscandoAvulsa ? 'Iniciando…' : 'Buscar agora'}
             </button>
-            {/* Gatilho MANUAL da análise: buscar não analisa, analisar não busca. */}
+            {/* Gatilho MANUAL da análise: buscar não analisa, analisar não busca. Continua
+                clicável mesmo vazio (também serve para revisar leads já encontrados), mas só
+                ganha destaque visual — de forma suave — quando o operador começa a preencher
+                nicho ou estado, para não competir de igual para igual com "Buscar agora". */}
             <button onClick={() => setEntradaAberta(true)} disabled={entradaAberta || assistenteAberto}
               title="Revisa os leads que ainda não foram decididos, um por vez, com uma explicação curta."
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:from-orange-600 hover:to-amber-600 disabled:opacity-50">
+              className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-all duration-300 disabled:opacity-50 ${
+                avulsa.nicho.trim() || avulsa.uf
+                  ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:from-orange-600 hover:to-amber-600'
+                  : 'border bg-white text-slate-500 hover:bg-slate-50'
+              }`}>
               <IconSparkle /> Analisar oportunidades
             </button>
           </div>

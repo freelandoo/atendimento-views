@@ -6,6 +6,41 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-21 - UX de aprovacao/distribuicao na Aquisicao, distribuicao ponderada por desempenho e devolucao de leads na saida de membro da equipe
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5), na `master`, repositorio limpo no inicio da tarefa.
+- **Pedido resumido (mensagem de voz, varios itens):** (1) UX da barra de acoes em massa da
+  Aquisicao — botoes "Aprovar selecionados/Descartar selecionados/Desaprovar/Distribuir" so
+  aparecerem quando ha selecao, e "Analisar oportunidades" aparecer de forma sutil quando o
+  operador comeca a digitar nicho/selecionar estado; (2) entender por que leads aprovados (ex.:
+  lote de Energia Solar) nao aparecem todos distribuidos na carteira da equipe; (3) distribuir
+  ponderando por desempenho/esforco do vendedor, nao so por tamanho de carteira; (4) o que
+  acontece hoje ao remover um membro da equipe — leads em tratamento devem ir para outra pessoa
+  com um historico simples e visivel (ex.: aba "Historico" no modal do lead / acessos rapidos).
+- **E projeto/tarefa de alteracao?** Sim, e sao QUATRO itens de tamanho e risco diferentes:
+  (1) e (2, resposta) sao pequenos/baixo risco (UX + explicacao); (3) muda regra de negocio de
+  distribuicao (services/lead-distribuicao.js, ja existente) e exige decisao de produto sobre a
+  metrica de desempenho; (4) e GRANDE/ESTRUTURAL — implementa a devolucao de leads na remocao de
+  membro que `db/equipes-comerciais.js:140` bloqueia hoje com 409 `REMOCAO_EXIGE_DEVOLUCAO`, e
+  cria a primeira superficie de UI para `GET /leads/:id/responsavel-historico`
+  (`api-banco-leads.js:979`), que existe no backend e HOJE NAO E CONSUMIDO por nenhuma tela.
+  Pelo CLAUDE.md, os itens (3) e (4) ESPERAM CONFIRMACAO antes da implementacao.
+- **Workflow padrao consultado?** Sim: AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/project-map.md. Li tambem `frontend/app/dashboard/prospeccao/page.tsx`,
+  `backend/src/services/lead-distribuicao.js`, `backend/src/routes/api-equipes-comerciais.js` e
+  `backend/src/db/equipes-comerciais.js` antes de responder.
+- **Achado principal (item 2):** ja existe um fluxo "Aprovar e distribuir" na Aquisicao
+  (commit `c11969e`) que aprova + distribui pelo criterio `menor_carteira`/`melhores`. O botao
+  "Aprovar selecionados" (mais antigo, isolado) SO aprova — nao distribui. O rebalanceamento
+  automatico so dispara quando alguem ENTRA na equipe (`services/lead-distribuicao.js`), nunca
+  quando um lead novo e aprovado depois. Por isso ha leads aprovados "sem equipe": foram
+  aprovados pelo botao que nao distribui, ou aprovados depois da ultima distribuicao/entrada.
+- **Fora de escopo declarado ate decisao do operador:** metrica de "desempenho do vendedor" para
+  ponderar distribuicao (nenhuma foi escolhida ainda), granularidade exata da tela de historico,
+  e qualquer migration nova (a devolucao de leads deve caber no schema/tabelas ja existentes:
+  `prospectador.prospects.responsavel_id` + `app.lead_responsavel_historico`, migrations
+  071/072, mesmo padrao de `db/lead-distribuicao.js`).
+
 ## 2026-09-21 - Aprovar e distribuir lote da Aquisicao
 
 - **Pedido resumido:** criar fluxo explicito para o gestor liberar um lote de leads da
