@@ -6,6 +6,22 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-21 - Aprovar e distribuir lote da Aquisicao
+
+- **Pedido resumido:** criar fluxo explicito para o gestor liberar um lote de leads da
+  Aquisicao, por exemplo 200 leads de Energia Solar, e distribuir esse lote para a equipe
+  comercial do nicho.
+- **Decisao de produto confirmada em voz:** nao e um gatilho automatico da busca; e uma acao
+  consciente depois da coleta/aprovacao, com previa do que sera distribuido e do que ficara fora.
+- **Areas impactadas:** API de Prospeccao/Aquisicao, regra de distribuicao por equipe e tela
+  `frontend/app/dashboard/prospeccao/page.tsx`.
+- **Regras a preservar:** distribuir somente lead da mesma empresa, com `nicho_id` estruturado da
+  equipe, livre, intocado e aprovado; nao casar por texto livre de nicho; nao mover lead com
+  conversa, reuniao, follow-up, ligacao, disparo, bloqueio ou status avancado; manter historico
+  por lead e auditoria; exigir capacidade de triagem e transferencia.
+- **Fora de escopo:** worker automatico pos-busca, migration nova, inferir `nicho_id` a partir de
+  texto da busca e distribuicao para Comercial sem permissao.
+
 ## 2026-09-21 - Inicio de tarefa IA - Distribuicao automatica e balanceada de leads por equipe comercial
 
 - **IA/Ferramenta:** Claude Code (Opus 5), na `master`, repositorio limpo no inicio da tarefa.

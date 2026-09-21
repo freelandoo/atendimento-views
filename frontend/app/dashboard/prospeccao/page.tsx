@@ -14,6 +14,8 @@ import RotinasAquisicao, { type ModoAquisicao, type RotinasResp } from '@/compon
 import HistoricoColetas from '@/components/HistoricoColetas'
 import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
 import { IconGear, IconUndo } from '@/components/ui/icons'
+import Botao from '@/components/ui/Botao'
+import Campo from '@/components/ui/Campo'
 import { resumoIntervalo, POR_PAGINA_PADRAO } from '@/lib/paginacao'
 import { aplicarRecorte, gravarFiltros, lerFiltros } from '@/lib/filtros-sessao'
 import {
@@ -95,6 +97,27 @@ type FiltrosMercado = {
   nichos: OpcaoFiltroMercado[]
   categorias: OpcaoFiltroMercado[]
   cidades: OpcaoFiltroMercado[]
+}
+type EquipeDistribuicao = {
+  id: string
+  nome: string
+  nicho_nome: string
+  status: string
+  total_membros: number
+}
+type PreviaDistribuicao = {
+  equipe: { id: string; nome: string; nicho_nome: string }
+  selecionados: number
+  encontrados: number
+  nao_encontrados: number
+  elegiveis: number
+  nao_elegiveis: number
+  motivos: { motivo: string; total: number }[]
+  destinos: { usuario_id: string; nome: string }[]
+  previsao: { total: number; por_pessoa: { usuario_id: string; nome: string; receber: number }[] }
+  executado?: boolean
+  aprovados?: number
+  distribuidos?: number
 }
 type Filtro3 = 'todos' | 'com' | 'sem'
 type ViewAquisicao = {
@@ -310,6 +333,14 @@ export default function ProspeccaoPage() {
   // Detalhes do lead: destino dos campos que saíram da tabela (endereço, nota, avaliações,
   // horário) e do JSON, que deixou de ser uma coluna da tela de trabalho.
   const [detalheAberto, setDetalheAberto] = useState<Prospect | null>(null)
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
+  const [distAberta, setDistAberta] = useState(false)
+  const [distEquipes, setDistEquipes] = useState<EquipeDistribuicao[]>([])
+  const [distEquipeId, setDistEquipeId] = useState('')
+  const [distPrevia, setDistPrevia] = useState<PreviaDistribuicao | null>(null)
+  const [distIds, setDistIds] = useState<string[]>([])
+  const [distCarregando, setDistCarregando] = useState(false)
+  const [distExecutando, setDistExecutando] = useState(false)
   const fb = useFeedback()
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
 
@@ -381,6 +412,7 @@ export default function ProspeccaoPage() {
   function comReinicioDePagina(muda: () => void) {
     muda()
     setPagina(1)
+    setSelecionados(new Set())
   }
 
   function ordenarPor(chave: string) {
@@ -501,6 +533,116 @@ export default function ProspeccaoPage() {
     finally { setAgindo(null) }
   }
 
+  function alternarSelecionado(id: string, marcado: boolean) {
+    setSelecionados((atual) => {
+      const prox = new Set(atual)
+      if (marcado) prox.add(id)
+      else prox.delete(id)
+      return prox
+    })
+  }
+
+  function alternarPagina(marcado: boolean) {
+    setSelecionados((atual) => {
+      const prox = new Set(atual)
+      for (const p of pg.itens) {
+        if (marcado) prox.add(p.id)
+        else prox.delete(p.id)
+      }
+      return prox
+    })
+  }
+
+  async function idsParaDistribuicao(): Promise<string[]> {
+    const marcados = [...selecionados]
+    if (marcados.length) return marcados
+    const p = filtrosAtuais()
+    if (filtro) p.set('status', filtro)
+    p.set('limit', '200')
+    p.set('offset', '0')
+    const ordemModal = ordemDaViewAquisicao(view.ordenacao)
+    const ordemReq = ordemModal || ordem
+    p.set('ordenar', ordemReq.chave)
+    p.set('direcao', ordemReq.dir)
+    const r = await apiFetch<Prospect[]>(`/api/empresas/${empresaId}/prospeccao/prospects?${p.toString()}`)
+    return (r.data || []).map((lead) => lead.id)
+  }
+
+  async function carregarEquipesDistribuicao(): Promise<EquipeDistribuicao[]> {
+    if (distEquipes.length) return distEquipes
+    const r = await apiFetch<EquipeDistribuicao[]>(`/api/empresas/${empresaId}/equipes-comerciais`)
+    const equipes = (r.data || []).filter((e) => e.status === 'ativa')
+    setDistEquipes(equipes)
+    return equipes
+  }
+
+  async function carregarPreviaDistribuicao(ids: string[], equipeId: string) {
+    if (!ids.length || !equipeId) return
+    setDistCarregando(true)
+    try {
+      const r = await apiFetch<PreviaDistribuicao>(`/api/empresas/${empresaId}/prospeccao/prospects/lote/distribuicao/prever`, {
+        method: 'POST',
+        body: JSON.stringify({ ids, equipe_id: equipeId, entre: 'menor_carteira', criterio: 'melhores' }),
+      })
+      setDistPrevia(r.data)
+    } finally {
+      setDistCarregando(false)
+    }
+  }
+
+  async function abrirDistribuicao() {
+    if (!empresaId) return
+    setDistCarregando(true)
+    try {
+      const [ids, equipes] = await Promise.all([idsParaDistribuicao(), carregarEquipesDistribuicao()])
+      if (!ids.length) {
+        fb.toast('Nenhum lead no recorte atual para aprovar e distribuir.', 'error')
+        return
+      }
+      if (!equipes.length) {
+        fb.toast('Crie uma equipe comercial ativa antes de distribuir leads.', 'error')
+        return
+      }
+      const equipeId = distEquipeId || equipes[0].id
+      setDistIds(ids)
+      setDistEquipeId(equipeId)
+      setDistAberta(true)
+      await carregarPreviaDistribuicao(ids, equipeId)
+    } catch (e: unknown) {
+      fb.toast((e as Error)?.message || 'Nao foi possivel montar a previa.', 'error')
+    } finally {
+      setDistCarregando(false)
+    }
+  }
+
+  async function trocarEquipeDistribuicao(equipeId: string) {
+    setDistEquipeId(equipeId)
+    setDistPrevia(null)
+    await carregarPreviaDistribuicao(distIds, equipeId)
+  }
+
+  async function confirmarDistribuicao() {
+    if (!empresaId || !distEquipeId || !distIds.length) return
+    setDistExecutando(true)
+    try {
+      const r = await fb.runTask(
+        () => apiFetch<PreviaDistribuicao>(`/api/empresas/${empresaId}/prospeccao/prospects/lote/distribuicao`, {
+          method: 'POST',
+          body: JSON.stringify({ ids: distIds, equipe_id: distEquipeId, entre: 'menor_carteira', criterio: 'melhores' }),
+        }),
+        { sucesso: null }
+      )
+      const data = r.data
+      fb.toast(`${data.distribuidos || 0} lead${data.distribuidos === 1 ? '' : 's'} distribuído${data.distribuidos === 1 ? '' : 's'}; ${data.aprovados || 0} aprovado${data.aprovados === 1 ? '' : 's'} agora.`, 'success')
+      setDistAberta(false)
+      setDistPrevia(null)
+      setDistIds([])
+      setSelecionados(new Set())
+      carregar()
+    } catch { /* erro ja exibido */ }
+    finally { setDistExecutando(false) }
+  }
+
   // Ações da linha (fora de "rejeitado") no radial: Marcar (só quando aguardando, mesma
   // cardinalidade do par Concluir/Cancelar em Follow-ups) e Descartar (sempre). Mesmos
   // handlers/destinos de antes — só a apresentação virou o menu radial.
@@ -575,7 +717,10 @@ export default function ProspeccaoPage() {
   const chips = chipsFiltrosAquisicao(mercado, cidadeFiltro, buscaDados, view)
   const filtrosAtivos = chips.length
   const cols = view.cols
-  const colSpanTabela = 2 + AQ_COLUNAS_TOGGLE.filter((c) => cols[c.key] !== false).length
+  const idsPagina = pg.itens.map((p) => p.id)
+  const selecionadosPagina = idsPagina.filter((id) => selecionados.has(id)).length
+  const paginaTodaSelecionada = idsPagina.length > 0 && selecionadosPagina === idsPagina.length
+  const colSpanTabela = 3 + AQ_COLUNAS_TOGGLE.filter((c) => cols[c.key] !== false).length
   const atividade = dadosRotinas?.atividade || []
   const porMercado = resultados?.por_mercado || []
   const recentes = resultados?.recentes || []
@@ -719,7 +864,21 @@ export default function ProspeccaoPage() {
               Limpar filtros
             </button>
           )}
+          <Botao
+            variante="primaria"
+            tamanho="md"
+            carregando={distCarregando && !distAberta}
+            onClick={abrirDistribuicao}
+            motivoDesabilitado={!empresaId ? 'Empresa nao identificada.' : ''}
+          >
+            Aprovar e distribuir
+          </Botao>
         </div>
+        <p className="mt-2 text-xs text-ink-3">
+          {selecionados.size > 0
+            ? `${selecionados.size} lead${selecionados.size === 1 ? '' : 's'} marcado${selecionados.size === 1 ? '' : 's'} para a acao em lote.`
+            : 'Sem linhas marcadas, a acao usa ate 200 primeiros leads do recorte atual.'}
+        </p>
       </div>
 
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtros rápidos da Aquisição">
@@ -773,6 +932,15 @@ export default function ProspeccaoPage() {
       <table className="w-full min-w-max text-sm">
         <thead className="bg-gray-100">
           <tr>
+            <th className="w-10 px-3 py-2 text-left">
+              <input
+                type="checkbox"
+                checked={paginaTodaSelecionada}
+                onChange={(e) => alternarPagina(e.target.checked)}
+                aria-label="Selecionar todos os leads desta pagina"
+                className="h-4 w-4 rounded border-line text-brand focus:ring-brand"
+              />
+            </th>
             {cols.entrou !== false && <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={ordenarPor} />}
             <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={ordenarPor} />
             {cols.cadastro !== false && <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={ordenarPor} />}
@@ -790,6 +958,15 @@ export default function ProspeccaoPage() {
             const icpLinha = resumoIcpCadastroLinha(p)
             return (
             <tr key={p.id} className="border-t hover:bg-gray-50">
+              <td className="px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={selecionados.has(p.id)}
+                  onChange={(e) => alternarSelecionado(p.id, e.target.checked)}
+                  aria-label={`Selecionar ${p.nome}`}
+                  className="h-4 w-4 rounded border-line text-brand focus:ring-brand"
+                />
+              </td>
               {cols.entrou !== false && <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{quando(p.created_at)}</td>}
               <td className="px-3 py-2 font-medium">
                 <TextoTruncado
@@ -979,6 +1156,23 @@ export default function ProspeccaoPage() {
         />
       )}
 
+      {distAberta && (
+        <ModalAprovarDistribuir
+          equipes={distEquipes}
+          equipeId={distEquipeId}
+          previa={distPrevia}
+          carregando={distCarregando}
+          executando={distExecutando}
+          onEquipe={trocarEquipeDistribuicao}
+          onConfirmar={confirmarDistribuicao}
+          onClose={() => {
+            if (distExecutando) return
+            setDistAberta(false)
+            setDistPrevia(null)
+          }}
+        />
+      )}
+
       {detalheAberto && (
         <LeadDetalhesModal
           lead={detalheAberto}
@@ -987,6 +1181,144 @@ export default function ProspeccaoPage() {
           onLeadAtualizado={(lead) => aplicarLeadAtualizado(lead as Prospect)}
         />
       )}
+    </div>
+  )
+}
+
+const MOTIVOS_DISTRIBUICAO: Record<string, string> = {
+  elegivel: 'Elegiveis',
+  nao_encontrado: 'Nao encontrados',
+  sem_nicho: 'Sem nicho estruturado',
+  fora_do_nicho: 'Fora do nicho da equipe',
+  ja_tem_responsavel: 'Ja tinham responsavel',
+  nao_abordavel: 'Ainda sem aprovação operacional',
+  status_avancado: 'Status avancado',
+  bloqueado: 'Bloqueados',
+  ja_trabalhado: 'Ja trabalhados',
+  follow_up_aberto: 'Com follow-up',
+  reuniao_marcada: 'Com reuniao',
+  conversa_aberta: 'Com conversa',
+}
+
+function ModalAprovarDistribuir({
+  equipes,
+  equipeId,
+  previa,
+  carregando,
+  executando,
+  onEquipe,
+  onConfirmar,
+  onClose,
+}: {
+  equipes: EquipeDistribuicao[]
+  equipeId: string
+  previa: PreviaDistribuicao | null
+  carregando: boolean
+  executando: boolean
+  onEquipe: (id: string) => void
+  onConfirmar: () => void
+  onClose: () => void
+}) {
+  const semElegiveis = !previa || previa.previsao.total <= 0
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-ink">Aprovar e distribuir</h3>
+            <p className="mt-0.5 text-xs text-ink-3">
+              Aprova o lote e distribui somente leads livres, intocados e vinculados ao nicho da equipe.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-md border border-line px-2 py-1 text-sm text-ink-3 hover:bg-surface-3">x</button>
+        </div>
+
+        <div className="space-y-4">
+          <Campo etiqueta="Equipe que receberá o lote" ajuda="A distribuição usa o nicho estruturado desta equipe. Lead sem nicho_id não entra.">
+            <select value={equipeId} onChange={(e) => onEquipe(e.target.value)} disabled={carregando || executando}>
+              {equipes.map((e) => (
+                <option key={e.id} value={e.id}>{e.nome} - {e.nicho_nome}</option>
+              ))}
+            </select>
+          </Campo>
+
+          {carregando && (
+            <div className="rounded-lg border border-line bg-surface-2 px-4 py-5 text-sm text-ink-2">
+              Calculando prévia do lote...
+            </div>
+          )}
+
+          {previa && !carregando && (
+            <>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <ResumoDistribuicao rotulo="Selecionados" valor={previa.selecionados} />
+                <ResumoDistribuicao rotulo="Elegíveis" valor={previa.elegiveis} destaque />
+                <ResumoDistribuicao rotulo="Previstos" valor={previa.previsao.total} destaque />
+                <ResumoDistribuicao rotulo="Fora" valor={previa.nao_elegiveis} />
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.75fr)]">
+                <section>
+                  <h4 className="text-sm font-semibold text-ink">Por que alguns ficam fora</h4>
+                  <div className="mt-2 divide-y divide-line rounded-lg border border-line">
+                    {previa.motivos.map((m) => (
+                      <div key={m.motivo} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                        <span className="text-ink-2">{MOTIVOS_DISTRIBUICAO[m.motivo] || m.motivo}</span>
+                        <span className="font-semibold tabular-nums text-ink">{m.total}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section>
+                  <h4 className="text-sm font-semibold text-ink">Distribuição prevista</h4>
+                  <div className="mt-2 divide-y divide-line rounded-lg border border-line">
+                    {previa.previsao.por_pessoa.length > 0 ? previa.previsao.por_pessoa.map((p) => (
+                      <div key={p.usuario_id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                        <span className="truncate text-ink-2">{p.nome}</span>
+                        <span className="font-semibold tabular-nums text-ink">{p.receber}</span>
+                      </div>
+                    )) : (
+                      <p className="px-3 py-4 text-sm text-ink-3">Nenhum lead elegível para distribuir nesta prévia.</p>
+                    )}
+                  </div>
+                </section>
+              </div>
+
+              {previa.nao_encontrados > 0 && (
+                <p className="rounded-lg border border-estado-warn/30 bg-estado-warn/10 px-3 py-2 text-xs text-ink-2">
+                  {previa.nao_encontrados} lead{previa.nao_encontrados === 1 ? '' : 's'} não foram encontrados nesta empresa e foram ignorados.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
+          <p className="text-xs text-ink-3">Busca não dispara isso sozinha; esta confirmação é o ato de distribuição.</p>
+          <div className="flex gap-2">
+            <Botao variante="secundaria" onClick={onClose} disabled={executando}>Cancelar</Botao>
+            <Botao
+              variante="primaria"
+              onClick={onConfirmar}
+              carregando={executando}
+              disabled={semElegiveis || carregando}
+              motivoDesabilitado={semElegiveis ? 'Não há leads elegíveis nesta prévia.' : ''}
+            >
+              Confirmar distribuição
+            </Botao>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ResumoDistribuicao({ rotulo, valor, destaque = false }: { rotulo: string; valor: number; destaque?: boolean }) {
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${destaque ? 'border-brand/30 bg-brand/5' : 'border-line bg-surface-2'}`}>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-3">{rotulo}</p>
+      <p className="mt-0.5 text-xl font-semibold tabular-nums text-ink">{valor}</p>
     </div>
   )
 }

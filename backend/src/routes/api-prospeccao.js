@@ -1,7 +1,8 @@
 'use strict'
 const { Router } = require('express')
 const { pool } = require('../db')
-const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
+const { requireAuth, requireEmpresaAccess, requireCapacidade } = require('../middleware/tenant')
+const { CAPACIDADES: CAP } = require('../services/acesso-capacidades')
 const {
   listarProspects,
   montarFiltrosProspects,
@@ -18,6 +19,7 @@ const {
 } = require('../services/prospecting-settings')
 const { obterDashboardEstrategicoProspeccao } = require('../services/prospecting-performance-analytics')
 const { listarOpcoesFiltrosMercado } = require('../services/prospect-filters')
+const DIST_AQ = require('../db/prospeccao-distribuicao')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -307,5 +309,47 @@ router.post('/prospects/lote', requireAuth, requireEmpresaAccess, async (req, re
     return res.status(code).json({ ok: false, error: { code: 'LOTE_FAILED', message: err.message } })
   }
 })
+
+// POST /api/empresas/:empresaId/prospeccao/prospects/lote/distribuicao/prever
+// Previa da acao explicita "Aprovar e distribuir": nao grava nada, so mostra quantos do lote
+// selecionado ficariam elegiveis para a equipe do nicho estruturado.
+router.post(
+  '/prospects/lote/distribuicao/prever',
+  requireAuth,
+  requireEmpresaAccess,
+  requireCapacidade(CAP.LEAD_TRIAR),
+  requireCapacidade(CAP.LEAD_TRANSFERIR),
+  async (req, res) => {
+    try {
+      const data = await DIST_AQ.previaAprovarEDistribuir(req.empresa.id, req.body || {})
+      return res.json({ ok: true, data })
+    } catch (err) {
+      const code = err.statusCode || 500
+      logger.error('POST prospeccao/lote/distribuicao/prever:', err.message)
+      return res.status(code).json({ ok: false, error: { code: err.code || 'DISTRIBUICAO_PREVIEW_FAILED', message: err.message } })
+    }
+  }
+)
+
+// POST /api/empresas/:empresaId/prospeccao/prospects/lote/distribuicao
+// Executa a mesma previa confirmada: aprova pendentes/rejeitados do lote e distribui somente os
+// que continuarem livres e intocados. Busca/coleta continuam sem gatilho automatico.
+router.post(
+  '/prospects/lote/distribuicao',
+  requireAuth,
+  requireEmpresaAccess,
+  requireCapacidade(CAP.LEAD_TRIAR),
+  requireCapacidade(CAP.LEAD_TRANSFERIR),
+  async (req, res) => {
+    try {
+      const data = await DIST_AQ.executarAprovarEDistribuir(req.empresa.id, req.body || {}, req.usuario?.id)
+      return res.json({ ok: true, data })
+    } catch (err) {
+      const code = err.statusCode || 500
+      logger.error('POST prospeccao/lote/distribuicao:', err.message)
+      return res.status(code).json({ ok: false, error: { code: err.code || 'DISTRIBUICAO_LOTE_FAILED', message: err.message } })
+    }
+  }
+)
 
 module.exports = router

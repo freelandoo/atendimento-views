@@ -11,6 +11,30 @@ cronológica inversa (mais recente no topo).
 
 ---
 
+## 2026-09-21 — Aprovar e distribuir lote da Aquisição
+
+**Contexto:** a busca da Aquisição continua sendo coleta/triagem. O operador pediu uma ação
+explícita para liberar um lote recém-triado, como "200 leads de energia solar", e distribuir
+esses leads para a equipe certa sem criar gatilho automático em toda busca.
+
+**Decisão 1 — sem redistribuição automática na busca.** A busca não dispara redistribuição.
+A nova ação vive na tela de Aquisição como "Aprovar e distribuir", com prévia e confirmação
+humana. Assim o operador decide quando um lote está pronto para entrar no Comercial.
+
+**Decisão 2 — lote fechado por IDs, não por consulta aberta.** A execução recebe IDs
+selecionados ou o recorte atual da tela. Ela não puxa qualquer lead livre do nicho no momento
+da confirmação, evitando misturar leads antigos com o lote recém-liberado.
+
+**Decisão 3 — mesmo critério conservador da distribuição existente.** A elegibilidade usa
+`nicho_id` estruturado, equipe ativa, participantes ativos, lead sem responsável, sem conversa
+aberta, sem reunião futura, sem follow-up aberto e sem trabalho anterior. A aprovação em lote
+só altera prospects ainda em status iniciais (`coletado`, `contato_encontrado`, `aguardando` ou
+`rejeitado`); status avançado não é rebaixado.
+
+**Decisão 4 — permissão combinada.** As novas rotas exigem triagem e transferência de lead:
+`LEAD_TRIAR` + `LEAD_TRANSFERIR`. Isso mantém o fluxo fora do perfil comercial operacional e
+preserva o responsável no backend; a mudança visual não remove a regra de ownership.
+
 ## 2026-09-17 — Régua operacional de ICP/score não substitui a porta humana
 
 **Contexto:** o operador quer que sinais de Google Meu Negócio, Instagram, telefone, site,
