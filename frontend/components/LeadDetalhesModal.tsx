@@ -440,27 +440,6 @@ function SecaoModal({ titulo, subtitulo, acao, children }: {
   )
 }
 
-function CartaoResumo({ rotulo, valor, detalhe, children, classe = '' }: {
-  rotulo: string
-  valor: string
-  detalhe?: string
-  children?: React.ReactNode
-  classe?: string
-}) {
-  return (
-    <div className={`min-h-[116px] rounded-lg border border-line bg-surface px-4 py-3 ${classe}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{rotulo}</p>
-      <div className="mt-2 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-lg font-semibold leading-tight text-ink">{valor}</p>
-          {detalhe && <p className="mt-1 text-xs leading-relaxed text-ink-3">{detalhe}</p>}
-        </div>
-        {children}
-      </div>
-    </div>
-  )
-}
-
 function ListaQualificacao({ titulo, itens, tom = 'neutro' }: {
   titulo: string
   itens: QualificacaoItem[]
@@ -491,11 +470,58 @@ function ListaQualificacao({ titulo, itens, tom = 'neutro' }: {
   )
 }
 
-export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectada = false, empresaId, onLeadAtualizado }: {
+function ResumoIcpCompacto({ selo, score, maximo, validacao, qualificacao, cadastro, contatos, marcados, total }: {
+  selo: ReturnType<typeof seloIcp>
+  score: number | null
+  maximo: number
+  validacao: ReturnType<typeof seloValidacaoLead>
+  qualificacao: QualificacaoResumo
+  cadastro: string
+  contatos: string[]
+  marcados: number
+  total: number
+}) {
+  const percentual = maximo > 0 ? Math.max(0, Math.min(100, Math.round(((score || 0) / maximo) * 100))) : 0
+  return (
+    <div className="rounded-lg border border-line bg-surface px-4 py-3 shadow-card">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">CP/ICP do lead</p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${selo.classe}`} title={selo.descricao}>
+              {selo.rotulo}{score != null ? ` · ${score}/${maximo}` : ''}
+            </span>
+            <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${validacao.classe}`} title={validacao.descricao}>
+              {validacao.rotulo} · {qualificacao.score_100}/100
+            </span>
+            {contatos.length > 0 && (
+              <span className="rounded-full border border-line bg-surface-2 px-2.5 py-1 text-xs font-medium text-ink-2">
+                {contatos.join(' + ')}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="w-full min-w-[220px] lg:max-w-xs">
+          <div className="flex items-center justify-between text-[11px] text-ink-3">
+            <span>{marcados}/{total} critérios marcados</span>
+            <span>{percentual}%</span>
+          </div>
+          <div className="mt-1 h-2 rounded-full bg-surface-3">
+            <div className="h-2 rounded-full bg-brand" style={{ width: `${percentual}%` }} />
+          </div>
+          <p className="mt-1 truncate text-[11px] text-ink-3" title={cadastro}>{cadastro}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectada = false, empresaId, onLeadAtualizado, podeEditarIcp = true }: {
   lead: LeadDetalhavel
   onFechar: () => void
   empresaId?: string
   onLeadAtualizado?: (lead: LeadDetalhavel) => void
+  podeEditarIcp?: boolean
   /** A instância de envio selecionada na tela está desconectada — só muda o AVISO ao lado do
       botão Copiar (a mensagem, quando existe, sempre pode ser copiada). */
   instanciaDesconectada?: boolean
@@ -549,6 +575,9 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
     ...(qualificacao.revisoes || []),
   ]
   const sinaisQualificacao = qualificacao.sinais || []
+  const criteriosMarcados = icpEditado.criterios.filter((c) => respostasIcp[c.id]).length
+  const sinaisDetectados = Object.entries(sinaisAuto).filter(([, sinal]) => sinal?.sugerido)
+  const sinaisNaoDetectados = Object.entries(sinaisAuto).filter(([, sinal]) => !sinal?.sugerido).length
   const autosaveTexto = autosaveIcp === 'pendente'
     ? 'Alterações pendentes'
     : autosaveIcp === 'salvando'
@@ -590,16 +619,19 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
   }, [lead.id])
 
   function alterarRespostaIcp(id: string, marcado: boolean) {
+    if (!podeEditarIcp) return
     icpAlteradoRef.current = true
     setRespostasIcp((r) => ({ ...r, [id]: marcado }))
   }
 
   function alterarObservacaoIcp(valor: string) {
+    if (!podeEditarIcp) return
     icpAlteradoRef.current = true
     setObservacaoIcp(valor)
   }
 
   useEffect(() => {
+    if (!podeEditarIcp) return
     if (!icpAlteradoRef.current) return
 
     const payload = montarPayloadIcp(respostasIcp, observacaoIcp)
@@ -626,7 +658,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
     }, ESPERA_AUTOSAVE_ICP)
     return () => window.clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [respostasIcp, observacaoIcp, empresaId, lead.id])
+  }, [respostasIcp, observacaoIcp, empresaId, lead.id, podeEditarIcp])
 
   // Fechar o modal É a decisão. Este é o ÚNICO envio com `finalizar`, e por isso o único que pode
   // atravessar a porta da triagem — sobre o estado final, nunca sobre um intermediário. Ele
@@ -738,27 +770,17 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
               cabeçalho chutada — o cabeçalho quebra em mais linhas no celular e o `-108px`
               passava a mentir justamente ali. */}
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
-            <div className="grid gap-3 lg:grid-cols-3">
-              <CartaoResumo
-                rotulo="Decisão ICP"
-                valor={seloEditado.rotulo}
-                detalhe={`Checklist humano em ${seloEditado.score ?? 0}/13 pontos.`}
-              >
-                <BolinhaIcp l={{ ...lead, icp_score: icpEditado.score, icp_faixa: icpEditado.faixa, icp_resumo_json: { ...lead.icp_resumo_json, ...icpEditado } }} />
-              </CartaoResumo>
-              <CartaoResumo
-                rotulo="Validação operacional"
-                valor={`${qualificacao.score_100}/100`}
-                detalhe={alertasQualificacao.length > 0
-                  ? alertasQualificacao.slice(0, 2).map((a) => a.rotulo).join(' · ')
-                  : `Validação ${qualificacao.confianca === 'alta' ? 'com confiança alta' : 'com atenção'}.`}
-              />
-              <CartaoResumo
-                rotulo="Cadastro e coleta"
-                valor={typeof lead.score_cadastro === 'number' ? `${lead.score_cadastro}/${maximo}` : 'sem score'}
-                detalhe={`${leituraCad.titulo}. ${NOTA_COMPLETUDE}`}
-              />
-            </div>
+            <ResumoIcpCompacto
+              selo={seloEditado}
+              score={seloEditado.score}
+              maximo={icpEditado.score_maximo}
+              validacao={seloValidacao}
+              qualificacao={qualificacao}
+              cadastro={typeof lead.score_cadastro === 'number' ? `Cadastro/coleta ${lead.score_cadastro}/${maximo} · ${leituraCad.titulo}` : 'Cadastro/coleta sem score'}
+              contatos={contatos}
+              marcados={criteriosMarcados}
+              total={icpEditado.criterios.length}
+            />
 
             {/* Mensagem já preparada (Manual/Semi/Automático escrevem no mesmo rascunho — texto
                 único reaproveitado pelos três). O botão de copiar existe para o caso em que a
@@ -787,10 +809,11 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
               </div>
             )}
 
-            <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
-              <SecaoModal
-                titulo="Checklist ICP"
-                subtitulo="Marque o que foi validado por evidência humana; sinais automáticos ficam separados."
+            <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.46fr)]">
+              {podeEditarIcp ? (
+                <SecaoModal
+                titulo="Marcação CP/ICP"
+                subtitulo="Marque somente o que foi validado; sinais automáticos aparecem como apoio."
                 acao={(
                   <span
                     role={autosaveIcp === 'erro' || autosaveIcp === 'bloqueado' ? 'alert' : 'status'}
@@ -801,7 +824,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                   </span>
                 )}
               >
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
                   {icpEditado.criterios.map((c) => {
                     const auto = sinaisAuto[c.id]
                     const humano = c.tipo !== 'automatico'
@@ -810,7 +833,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                       <label
                         key={c.id}
                         title={`${criterioDoc.explicacao || c.rotulo}${criterioDoc.exemplo ? ` Exemplo: ${criterioDoc.exemplo}` : ''}`}
-                        className={`flex min-h-[104px] items-start gap-3 rounded-lg border px-3 py-2.5 text-sm transition ${
+                        className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 text-sm transition ${
                           respostasIcp[c.id]
                             ? 'border-orange-300 bg-orange-50 text-ink shadow-sm'
                             : 'border-line bg-surface text-ink-2 hover:border-line-strong'
@@ -822,14 +845,19 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                           onChange={(e) => alterarRespostaIcp(c.id, e.target.checked)}
                           className="mt-1 h-4 w-4 shrink-0"
                         />
-                        <span className="min-w-0">
-                          <span className="font-semibold">{c.rotulo}</span>
-                          <span className="ml-1 text-xs text-ink-3">+{c.pontos}</span>
-                          <span className="ml-1 rounded-full bg-surface px-1.5 py-0.5 text-[10px] font-medium text-ink-3">
-                            {humano ? (auto?.sugerido ? 'auto + humano' : 'humano') : 'automático'}
+                          <span className="min-w-0">
+                          <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                            <span className="font-semibold">{c.rotulo}</span>
+                            <span className="text-xs text-ink-3">+{c.pontos}</span>
+                            <span className="rounded-full bg-surface px-1.5 py-0.5 text-[10px] font-medium text-ink-3">
+                              {humano ? 'humano' : 'automático'}
+                            </span>
+                            {auto?.sugerido && (
+                              <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700" title={auto.motivo || undefined}>
+                                sugerido
+                              </span>
+                            )}
                           </span>
-                          {criterioDoc.explicacao && <span className="mt-1 block text-xs leading-relaxed text-ink-3">{criterioDoc.explicacao}</span>}
-                          {auto?.motivo && <span className="mt-1 block text-[11px] leading-relaxed text-ink-3">{auto.motivo}</span>}
                           {/* Marcar "Instagram ativo" sem perfil registrado NÃO é bloqueado: o ICP é
                               julgamento humano e o operador pode ter visto o perfil por fora. Mas o
                               sistema só verifica o que está registrado — então a tela pede o
@@ -858,13 +886,43 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                   className="mt-3 min-h-[72px] w-full resize-y rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/10"
                 />
                 <p className="mt-2 text-xs text-ink-3">
-                  As alterações são salvas sozinhas. Se o resultado final for Lead A, ele fica
-                  marcado/qualificado ao fechar esta ficha.
+                  Salva sozinho. Ao fechar, Lead A atravessa a triagem e fica marcado para a operação.
                 </p>
                 {erroAutosaveIcp && (
                   <p className="mt-2 text-xs text-red-600">{erroAutosaveIcp}</p>
                 )}
-              </SecaoModal>
+                </SecaoModal>
+              ) : (
+                <SecaoModal
+                  titulo="Perfil comercial"
+                  subtitulo="Leitura rápida para abordagem; a validação ICP fica com quem faz triagem."
+                >
+                  <div className="grid gap-2">
+                    <div className="rounded-lg border border-line bg-surface-2 px-3 py-2">
+                      <p className="text-sm font-semibold text-ink">
+                        {seloEditado.rotulo}{seloEditado.score != null ? ` · ${seloEditado.score}/13` : ''}
+                      </p>
+                      <p className="mt-1 text-xs leading-relaxed text-ink-3">{seloEditado.descricao}</p>
+                    </div>
+                    {icpEditado.criterios.filter((c) => c.marcado).slice(0, 4).map((c) => (
+                      <div key={c.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-surface px-3 py-2 text-xs text-ink-2">
+                        <span className="font-medium text-ink">{c.rotulo}</span>
+                        <span className="text-ink-3">+{c.pontos}</span>
+                      </div>
+                    ))}
+                    {icpEditado.criterios.every((c) => !c.marcado) && (
+                      <p className="rounded-lg border border-line bg-surface px-3 py-2 text-xs text-ink-3">
+                        Nenhum critério ICP humano foi marcado ainda.
+                      </p>
+                    )}
+                    {observacaoIcp && (
+                      <p className="rounded-lg border border-line bg-surface px-3 py-2 text-xs leading-relaxed text-ink-2">
+                        {observacaoIcp}
+                      </p>
+                    )}
+                  </div>
+                </SecaoModal>
+              )}
 
               <div className="space-y-4">
                 <SecaoModal titulo="Contexto do lead" subtitulo="Dados que ajudam a decidir a abordagem.">
@@ -916,9 +974,9 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                   </dl>
                 </SecaoModal>
 
-                <SecaoModal titulo="Sinais automáticos" subtitulo="Sugestões de apoio, não substituem a validação humana.">
+                <SecaoModal titulo="Sinais automáticos" subtitulo="Apoio detectado pelo cadastro, sem substituir a validação humana.">
                   <div className="grid gap-2">
-                    {Object.entries(sinaisAuto).map(([id, sinal]) => {
+                    {sinaisDetectados.map(([id, sinal]) => {
                       const criterio = CRITERIOS_ICP_TENKA.find((c) => c.id === id)
                       if (!criterio) return null
                       return (
@@ -937,6 +995,14 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                         </div>
                       )
                     })}
+                    {sinaisDetectados.length === 0 && (
+                      <p className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-xs text-ink-3">
+                        Nenhum sinal automático forte detectado.
+                      </p>
+                    )}
+                    {sinaisDetectados.length > 0 && sinaisNaoDetectados > 0 && (
+                      <p className="text-[11px] text-ink-3">{sinaisNaoDetectados} sinal(is) sem detecção automática.</p>
+                    )}
                   </div>
                 </SecaoModal>
 

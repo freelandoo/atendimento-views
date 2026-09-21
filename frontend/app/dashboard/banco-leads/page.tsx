@@ -430,7 +430,8 @@ const COLUNAS_TOGGLE: { key: string; label: string }[] = [
   { key: 'links', label: 'Links' },
   { key: 'qualidade', label: 'Resumo ICP' },
   { key: 'status', label: 'Status' },
-  // CRM em equipe: responsável entra ligado por padrão porque é a ação rápida da carteira.
+  // CRM em equipe: continua disponível em "Personalizar", mas desligado por padrão para a
+  // listagem ficar focada na próxima ação. A regra de carteira segue no backend.
   { key: 'responsavel', label: 'Responsável' },
 ]
 
@@ -457,7 +458,7 @@ const ORDENACOES: { valor: string; label: string }[] = [
 // continuam a um clique em "⚙ Personalizar", e os valores estão em "Detalhes" e no tooltip da
 // bolinha. Trocar o padrão (em vez de remover a coluna do código) mantém a mudança reversível
 // pelo próprio operador.
-const COLUNAS_PADRAO_DESLIGADAS = new Set(['qualidade', 'aval', 'nota', 'horario', 'endereco', 'links'])
+const COLUNAS_PADRAO_DESLIGADAS = new Set(['qualidade', 'aval', 'nota', 'horario', 'endereco', 'links', 'responsavel'])
 
 const VIEW_PADRAO: ViewConfig = {
   cols: Object.fromEntries(COLUNAS_TOGGLE.map((c) => [c.key, !COLUNAS_PADRAO_DESLIGADAS.has(c.key)])),
@@ -480,7 +481,7 @@ const RECORTE_PADRAO = { aba: 'sem_contato', origem: '', mercado: '', cidadeFilt
 // vendo a tabela larga — a redução não chegaria a ninguém. A migração aplica o novo conjunto
 // de colunas UMA vez e **preserva todos os filtros e a ordenação**, que são trabalho do
 // operador; coluna é layout e volta em um clique.
-const VIEW_VERSAO = 4
+const VIEW_VERSAO = 5
 const CHAVE_VIEW = 'bancoLeadsView'
 
 function migrarView(salvo: Partial<ViewConfig> & { versao?: number }): ViewConfig {
@@ -700,6 +701,7 @@ export default function BancoLeadsPage() {
   const podeEscolherInstancia = temCapacidade(capacidades, 'instancia_gerenciar_empresa')
   const podeLimparBanco = temCapacidade(capacidades, 'lead_disparar_lote')
   const podeExportarCsv = temCapacidade(capacidades, 'lead_ver_brutos')
+  const podeTriarLead = temCapacidade(capacidades, 'lead_triar')
   const modosDisponiveis = useMemo(() => MODOS.filter((m) => {
     if (m.valor === 'automatico') return podeDispararAutomatico
     if (m.valor === 'semi_automatico') return podeDispararSemi
@@ -2119,6 +2121,7 @@ export default function BancoLeadsPage() {
           empresaId={empresaId}
           onLeadAtualizado={(lead) => aplicarLeadAtualizado(lead as Lead)}
           instanciaDesconectada={statusConexao?.connected === false}
+          podeEditarIcp={podeTriarLead}
         />
       )}
 
@@ -2153,6 +2156,7 @@ export default function BancoLeadsPage() {
           cooldownS={cooldownS}
           enviando={enviandoConversa}
           gerando={gerandoConversa}
+          podeTriarLead={podeTriarLead}
           onEnviar={enviarLeadConversa}
           onGerar={gerarMensagemConversa}
           onAlterarStatus={alterarStatusConversa}

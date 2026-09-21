@@ -4620,3 +4620,24 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   hoje o botão está solto dentro do corpo que rola.
 - **Fora de escopo:** qualquer mudança em endpoints, no autosave do ICP, na lógica de
   agendamento/ligação/descarte, ou em `lib/lead-icp.js`/`lib/follow-up-acao.js`.
+
+## 2026-09-21 — Ajuste visual do Banco de Leads para Comercial
+
+- **Pedido do operador:** revisar o Banco de Leads após o push recente de melhoria de modais e
+  redistribuição de leads. O foco é visual/UX: ao clicar no nome do lead, o modal de conversa
+  mostra informações e ações demais para o Comercial, incluindo status genéricos e "Fechado";
+  ao clicar em "Detalhes", a marcação de ICP/CP está grande e difícil de mexer. A parte de
+  "responsável" continua existindo no backend e no recorte de carteira; o incômodo declarado é
+  de apresentação visual.
+- **Análise de impacto:** manter intocados o ownership do lead, a distribuição por equipe, o
+  recorte por responsável e os endpoints. O papel Comercial não tem `lead_triar`, então a ficha
+  de ICP não deve parecer editável para ele. Para quem pode triar, preservar o autosave/finalize
+  já existente e apenas compactar a apresentação.
+- **Escopo desta rodada:** (1) passar a capacidade `lead_triar` da página para os modais; (2)
+  deixar o ICP editável apenas para quem pode triar; (3) mostrar para Comercial uma leitura
+  operacional compacta do ICP/cadastro; (4) ocultar do modal de conversa, para Comercial, ações
+  de triagem genérica como "Marcado" e "Fechado", mantendo ações comerciais úteis como contato,
+  ligação, reunião e descarte.
+- **Fora de escopo:** banco de dados, rotas novas, alteração de permissões/capacidades, remoção
+  da regra de responsável, remoção da distribuição por equipe ou mudança estrutural grande nos
+  componentes.

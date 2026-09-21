@@ -170,7 +170,7 @@ function PainelAcaoConversa({ titulo, descricao, onFechar, rodape, children }: {
 }
 
 export default function ConversaHistoricoModal({
-  empresaId, leadId, numero, titulo, status, acessos, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel, cooldownS, enviando, gerando, onEnviar, onGerar, onAlterarStatus, onSalvarTelefone, onClose,
+  empresaId, leadId, numero, titulo, status, acessos, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel, cooldownS, enviando, gerando, podeTriarLead = true, onEnviar, onGerar, onAlterarStatus, onSalvarTelefone, onClose,
 }: {
   /** JID do contato. Vem VAZIO quando o lead ainda não tem telefone — nesse caso o modal
       abre assim mesmo (o lead tem links, status e histórico), declarando a pendência em vez
@@ -182,6 +182,7 @@ export default function ConversaHistoricoModal({
   mensagemGerada?: string | null; podeEnviar?: boolean; podeGerar?: boolean
   motivoEnvioIndisponivel?: string | null
   cooldownS?: number | null; enviando?: boolean; gerando?: boolean
+  podeTriarLead?: boolean
   onEnviar?: () => void; onGerar?: () => void
   onAlterarStatus?: (status: string, payload?: StatusPayload) => void | Promise<void>
   /** Salva o telefone do lead. OPCIONAL: sem ele o número é só texto, como era antes.
@@ -324,6 +325,9 @@ export default function ConversaHistoricoModal({
     : cooldownAtivo
       ? `${mensagemGerada ? 'Enviar' : 'Gerar e enviar'} em ${fmtMMSS(cooldownS || 0)}`
       : mensagemGerada ? 'Enviar mensagem' : 'Gerar e enviar'
+  const acoesStatusVisiveis = podeTriarLead
+    ? STATUS_ACOES
+    : STATUS_ACOES.filter((a) => a.valor !== 'marcado' && a.valor !== 'fechado')
 
   return (
     /* A geometria vem do PRIMITIVO (`lib/ui-primitivos.js`): folha inferior no celular, modal
@@ -506,7 +510,7 @@ export default function ConversaHistoricoModal({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">
-                      Status do lead
+                      {podeTriarLead ? 'Status do lead' : 'Ações comerciais'}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${statusInfo.classe}`}>
@@ -516,7 +520,7 @@ export default function ConversaHistoricoModal({
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-1.5" aria-label="Alterar status do lead">
-                    {STATUS_ACOES.map((a) => {
+                    {acoesStatusVisiveis.map((a) => {
                       const ativo = !['reuniao_agendada', 'ligacao_realizada'].includes(a.valor) && STATUS_POR_ACAO[a.valor] === status
                       return (
                         <button
