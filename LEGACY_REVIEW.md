@@ -69,18 +69,27 @@ Regra que governa este arquivo: quando a dúvida é entre **apagar** e **manter 
 
 ---
 
-## 3. Itens de **CERTEZA ALTA** que aguardam a Fase 5 (remoção)
+## 3. Itens de **CERTEZA ALTA** — ✅ REMOVIDOS na Fase 5 (2026-09-21)
 
-Listados aqui só para não se perderem. **Não foram removidos ainda** — a Fase 5 é o momento, e cada um exige reconfirmação na hora.
+Cada um foi **reconferido no momento da remoção** (`git grep` por import estático, import
+dinâmico, referência por string e menção em docs) e o portão de validação rodou depois.
 
-| Item | Evidência resumida |
-|---|---|
-| `frontend/components/charts/Chart3D.tsx` + `Bars3DScene.tsx` | Só referenciam um ao outro; zero imports em `app/` e `components/`; zero menções em docs |
-| Dependências `three`, `@react-three/fiber`, `@react-three/drei` | Existem exclusivamente para o par acima |
-| `backend/tools/build-split.cjs` | Gera `src/*.js` a partir de `index.monolith.js`, que **não existe** no repositório, usando ranges de linha fixos. Já declarado como dívida técnica em `docs/ai-decision-log.md:1979` |
-| `package-lock.json` da raiz | Lockfile vazio (`"packages": {}`) de um workspace que não existe |
-| `GOOGLE_PLACES_API_KEY` no `.env.example` e no `docker-compose.yml` | Nenhum código a lê (só aparece na lista de redação de log em `src/logger.js:15`); a Aquisição migrou para Bright Data |
-| `EVOLUTION_INSTANCE: "PJ"` no `docker-compose.yml` | Variável **aposentada**; só sobrevive em comentários e em testes de guarda que falham se voltar ao código |
+| Item | Evidência na reconferência | Situação |
+|---|---|---|
+| `frontend/components/charts/Chart3D.tsx` + `Bars3DScene.tsx` (158 linhas) | Só referenciavam um ao outro; nenhuma menção fora dos próprios documentos de auditoria | **removidos** |
+| Dependências `three`, `@react-three/fiber`, `@react-three/drei` | Existiam exclusivamente para o par acima. O `First Load JS` do build **não mudou** (87,3 kB) — prova de que nunca estiveram em bundle nenhum; eram peso só em `node_modules` (−855 linhas de lockfile) | **removidas** |
+| `backend/tools/build-split.cjs` | Gerava `src/*.js` a partir de `index.monolith.js`, que não existe, com ranges de linha fixos. Só era citado por documentos | **removido** (a pasta `tools/` ficou vazia e saiu junto; a entrada órfã de `index.monolith.js` saiu do `.gitignore`) |
+| `package-lock.json` da raiz | Lockfile vazio (`"packages": {}`); nenhum `package.json` declara `workspaces` | **removido** |
+| `GOOGLE_PLACES_API_KEY` | Nenhum código a lê — só aparece na lista de redação de log de `src/logger.js:15`. A Aquisição migrou para Bright Data Maps | **virou lápide** no `.env.example` e saiu do `docker-compose.yml` |
+| `EVOLUTION_INSTANCE: "PJ"` no `docker-compose.yml` | Injetava no container uma variável formalmente aposentada, que nenhum código lê | **virou comentário explicativo** |
+
+> Duas dessas remoções viraram **lápide** em vez de exclusão: uma variável de ambiente
+> aposentada que some sem explicação é uma variável que alguém readiciona seis meses depois. O
+> comentário custa duas linhas e impede o retrabalho — é o mesmo motivo pelo qual o
+> `.env.example` já mantinha o bloco de `EVOLUTION_INSTANCE`.
+
+**Continua fora da remoção automática**, por decisão registrada: o ramo morto do Playwright em
+`preview-site.js` (§2.3) — a escolha entre PNG e SVG é de produto, não técnica.
 
 ---
 
