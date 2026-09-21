@@ -1,5 +1,6 @@
 'use client'
 import type { ReactNode } from 'react'
+import SeletorLocalidade from '@/components/SeletorLocalidade'
 
 // Campos de uma rotina de coleta (mercado + agenda), usados por quem cria e edita a
 // rotina em RotinasAquisicao. Um formulário só, para criação e edição nunca divergirem
@@ -90,16 +91,14 @@ export default function RotinaCampos({
             onChange={(e) => onChange({ ...rascunho, nicho: e.target.value })}
             className="w-full rounded-lg border px-3 py-2 text-sm" />
         </Campo>
-        <Campo label="Cidade">
-          <input value={rascunho.cidade} placeholder="ex: Campinas"
-            onChange={(e) => onChange({ ...rascunho, cidade: e.target.value })}
-            className="w-full rounded-lg border px-3 py-2 text-sm" />
-        </Campo>
-        <Campo label="Estado (UF)">
-          <input value={rascunho.uf} maxLength={2} placeholder="SP"
-            onChange={(e) => onChange({ ...rascunho, uf: e.target.value.toUpperCase() })}
-            className="w-full rounded-lg border px-3 py-2 text-sm uppercase" />
-        </Campo>
+        <SeletorLocalidade
+          cidade={rascunho.cidade}
+          uf={rascunho.uf}
+          onChange={(local) => onChange({ ...rascunho, cidade: local.cidade, uf: local.uf })}
+          className="sm:col-span-2 lg:col-span-2"
+          rotuloUf="Estado"
+          rotuloCidade="Cidade"
+        />
         {/* A quantidade corta a IMPORTAÇÃO, não a coleta na origem: a fonte pode devolver
             mais registros antes desse corte. O rótulo não promete volume nem custo. */}
         <Campo label={`Máx. de leads a importar (1 a ${limites.quantidade_max})`}>

@@ -6,6 +6,7 @@ import { IconTrash, IconPlay, IconSparkle } from '@/components/ui/icons'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import AssistenteOportunidades from '@/components/AssistenteOportunidades'
 import AssistenteEntrada from '@/components/AssistenteEntrada'
+import SeletorLocalidade from '@/components/SeletorLocalidade'
 import type { Mercado } from '@/lib/assistente-entrada'
 import RotinaCampos, {
   Campo,
@@ -385,16 +386,14 @@ export default function RotinasAquisicao({
                 onChange={(e) => setAvulsa({ ...avulsa, nicho: e.target.value })}
                 className="w-full rounded-lg border px-3 py-2 text-sm" />
             </Campo>
-            <Campo label="Cidade">
-              <input value={avulsa.cidade} placeholder="ex: Campinas"
-                onChange={(e) => setAvulsa({ ...avulsa, cidade: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm" />
-            </Campo>
-            <Campo label="Estado (UF)">
-              <input value={avulsa.uf} maxLength={2} placeholder="SP"
-                onChange={(e) => setAvulsa({ ...avulsa, uf: e.target.value.toUpperCase() })}
-                className="w-full rounded-lg border px-3 py-2 text-sm uppercase" />
-            </Campo>
+            <SeletorLocalidade
+              cidade={avulsa.cidade}
+              uf={avulsa.uf}
+              onChange={(local) => setAvulsa({ ...avulsa, cidade: local.cidade, uf: local.uf })}
+              className="sm:col-span-2 lg:col-span-2"
+              rotuloUf="Estado"
+              rotuloCidade="Cidade"
+            />
             <Campo label={`Máx. de leads novos (1 a ${limites.quantidade_max})`}>
               <input type="number" min={limites.quantidade_min} max={limites.quantidade_max} value={avulsa.quantidade}
                 title="Vale para os dois botões: quantos leads esta busca importa e, no assistente, quantos você quer aprovar. A origem pode encontrar mais registros do que isso."
