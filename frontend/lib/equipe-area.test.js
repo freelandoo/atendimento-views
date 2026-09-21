@@ -257,23 +257,23 @@ test('resumoDoRecorte distingue vazio por AUSENCIA de vazio por FILTRO', () => {
 // ─── Encerrar ───────────────────────────────────────────────────────────────────────────
 
 test('podeEncerrar antecipa o 409 do backend em vez de deixar o gestor descobrir no erro', () => {
-  // `encerrarEquipe` recusa com EQUIPE_COM_MEMBROS enquanto a devolucao de leads nao existir.
+  // `encerrarEquipe` recusa com EQUIPE_COM_MEMBROS enquanto houver gente na equipe.
   const comGente = E.podeEncerrar({ status: 'ativa', total_membros: 3 })
   assert.equal(comGente.pode, false)
-  assert.match(comGente.motivo, /devolução de leads/)
+  assert.match(comGente.motivo, /Gerenciar membros/)
   assert.equal(E.podeEncerrar({ status: 'ativa', total_membros: 0 }).pode, true)
   assert.equal(E.podeEncerrar({ status: 'encerrada', total_membros: 0 }).pode, false)
 })
 
 // ─── Modal de membros ───────────────────────────────────────────────────────────────────
 
-test('MODAL: quem ja e membro fica MARCADO e BLOQUEADO, com o motivo em texto', () => {
-  // Desmarcar para remover e' justamente o que o backend recusa (409 REMOCAO_EXIGE_DEVOLUCAO).
+test('MODAL: quem ja e membro fica MARCADO e SELECIONAVEL, com o aviso de consequencia em texto', () => {
+  // Desmarcar agora REMOVE de verdade (2026-09-21): o backend devolve os leads dela para a fila.
   const st = E.situacaoNoModal({ usuario_id: 'u1', equipe_atual: { id: 'e1', nome: 'Solar' } }, 'e1')
   assert.equal(st.situacao, 'nesta_equipe')
   assert.equal(st.marcado, true)
-  assert.equal(st.selecionavel, false)
-  assert.equal(st.motivo, E.MOTIVO_REMOCAO_BLOQUEADA)
+  assert.equal(st.selecionavel, true)
+  assert.equal(st.motivo, E.AVISO_DEVOLUCAO_LEADS)
   assert.ok(st.rotulo, 'o estado tem rotulo em texto — cor nunca e o unico sinal')
 })
 
@@ -310,29 +310,57 @@ test('MODAL: contagens e filtros batem com as tres situacoes', () => {
   )
 })
 
-test('MODAL: o rodape conta ADICOES, nao selecionados', () => {
-  // Dizer "4 selecionadas" quando 4 ja eram membros faria o botao prometer o que nao vai mudar.
-  const vazio = E.resumoSelecaoModal([])
-  assert.equal(vazio.podeSalvar, false)
-  assert.ok(vazio.motivo, 'botao desabilitado nunca fica mudo')
-  const um = E.resumoSelecaoModal(['u3'])
-  assert.equal(um.texto, '1 pessoa será adicionada')
-  assert.equal(um.podeSalvar, true)
-  assert.equal(E.resumoSelecaoModal(['u3', 'u4']).texto, '2 pessoas serão adicionadas')
+test('MODAL: participantesIniciais semeia a selecao com quem ja esta na equipe', () => {
+  const pessoas = [
+    { usuario_id: 'u1', nome: 'Ana', equipe_atual: { id: 'e1' } },
+    { usuario_id: 'u2', nome: 'Bia', equipe_atual: { id: 'e2' } },
+    { usuario_id: 'u3', nome: 'Caio', equipe_atual: null },
+  ]
+  assert.deepEqual(E.participantesIniciais(pessoas, 'e1'), ['u1'])
 })
 
-test('corpoDeParticipantes INCLUI os membros atuais — o PUT e substituicao', () => {
-  // Mandar so os novos removeria todo mundo, e o backend recusaria a operacao inteira.
+test('MODAL: diffParticipantes separa quem ENTRA de quem SAI, e remover carrega o nome', () => {
   const pessoas = [
-    { usuario_id: 'u1', equipe_atual: { id: 'e1' } },
-    { usuario_id: 'u2', equipe_atual: { id: 'e2' } },
-    { usuario_id: 'u3', equipe_atual: null },
+    { usuario_id: 'u1', nome: 'Ana', equipe_atual: { id: 'e1' } },
+    { usuario_id: 'u2', nome: 'Bia', equipe_atual: { id: 'e1' } },
+    { usuario_id: 'u3', nome: 'Caio', equipe_atual: null },
   ]
-  assert.deepEqual(E.corpoDeParticipantes(pessoas, 'e1', ['u3']).sort(), ['u1', 'u3'])
-  // Sem escolher ninguem, o corpo preserva quem ja esta.
-  assert.deepEqual(E.corpoDeParticipantes(pessoas, 'e1', []), ['u1'])
+  // u1 continua, u2 sai, u3 entra.
+  const diff = E.diffParticipantes(pessoas, 'e1', ['u1', 'u3'])
+  assert.deepEqual(diff.adicionar, ['u3'])
+  assert.deepEqual(diff.remover, [{ usuario_id: 'u2', nome: 'Bia' }])
+})
+
+test('MODAL: o rodape conta ENTRADAS e SAIDAS separadamente', () => {
+  // Dizer "4 selecionadas" quando 4 ja eram membros faria o botao prometer o que nao vai mudar.
+  const vazio = E.resumoSelecaoModal({ adicionar: [], remover: [] })
+  assert.equal(vazio.podeSalvar, false)
+  assert.ok(vazio.motivo, 'botao desabilitado nunca fica mudo')
+  const soAdiciona = E.resumoSelecaoModal({ adicionar: ['u3'], remover: [] })
+  assert.equal(soAdiciona.texto, '1 pessoa entra')
+  assert.equal(soAdiciona.podeSalvar, true)
+  const soRemove = E.resumoSelecaoModal({ adicionar: [], remover: [{ usuario_id: 'u2', nome: 'Bia' }] })
+  assert.equal(soRemove.texto, '1 pessoa sai')
+  assert.equal(soRemove.podeSalvar, true)
+  const osDois = E.resumoSelecaoModal({ adicionar: ['u3', 'u4'], remover: [{ usuario_id: 'u2', nome: 'Bia' }] })
+  assert.equal(osDois.texto, '2 pessoas entram · 1 pessoa sai')
+})
+
+test('MODAL: textoConfirmarRemocao nomeia quem sai e repete a consequencia', () => {
+  assert.equal(E.textoConfirmarRemocao([]), '')
+  const um = E.textoConfirmarRemocao([{ usuario_id: 'u2', nome: 'Bia' }])
+  assert.match(um, /Bia/)
+  assert.match(um, /voltam para a fila/)
+  const dois = E.textoConfirmarRemocao([{ usuario_id: 'u2', nome: 'Bia' }, { usuario_id: 'u4', nome: 'Duda' }])
+  assert.match(dois, /Bia, Duda/)
+  assert.match(dois, /saem da equipe/)
+})
+
+test('corpoDeParticipantes e a lista final de selecionados — o PUT e substituicao', () => {
+  assert.deepEqual(E.corpoDeParticipantes(['u1', 'u3']).sort(), ['u1', 'u3'])
+  assert.deepEqual(E.corpoDeParticipantes([]), [])
   // Repetir um id nao duplica.
-  assert.deepEqual(E.corpoDeParticipantes(pessoas, 'e1', ['u3', 'u3']).sort(), ['u1', 'u3'])
+  assert.deepEqual(E.corpoDeParticipantes(['u3', 'u3']), ['u3'])
 })
 
 // ─── Guardas de regressao ───────────────────────────────────────────────────────────────

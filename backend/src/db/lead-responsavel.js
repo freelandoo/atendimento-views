@@ -12,6 +12,12 @@
 const {
   ACOES, acaoDaMudanca, avaliarAssumir, avaliarLiberar, avaliarTransferir, rotuloMotivo,
 } = require('../services/lead-responsavel')
+// So' para LER os dois sinais de risco (reuniao futura / conversa aberta) na devolucao em lote —
+// nunca para gatear nada aqui. `services/lead-distribuicao.js` continua sendo quem decide se um
+// lead pode ser movido AUTOMATICAMENTE; a devolucao por saida de equipe e' ato humano explicito e
+// devolve TODOS os leads da pessoa, de proposito (decisao do operador, 2026-09-21).
+const D = require('../services/lead-distribuicao')
+const { candidatosTelefoneBR } = require('../telefone-br')
 const { logger } = require('../logger')
 
 function erro(mensagem, statusCode = 400, code = 'BAD_REQUEST') {
@@ -251,6 +257,79 @@ async function atribuirEmLote(pool, empresaId, prospectIds, { destinoId, usuario
   })
 }
 
+/**
+ * Devolve para a fila de LIVRES todos os leads do nicho que estao com `origemId`.
+ *
+ * ⚠️ NAO filtra por "protegido" (`services/lead-distribuicao.js`) — de proposito. O rebalanceamento
+ * AUTOMATICO so' toca em lead intocado; esta funcao roda quando uma PESSOA sai da equipe, decisao
+ * humana explicita, e o operador decidiu (2026-09-21) que TODOS os leads dela voltam, inclusive os
+ * ja' trabalhados — senao carteira ficaria presa com quem nao esta mais no time. Os dois contadores
+ * de risco sao so' INFORMACAO para a tela avisar, nunca bloqueio.
+ *
+ * Roda dentro da transacao de quem chama (`db/equipes-comerciais.js`, saida de participante).
+ */
+async function liberarLeadsDoMembro(client, { empresaId, nichoId, origemId, usuarioId, motivo } = {}) {
+  const vazio = { liberados: 0, com_reuniao_futura: 0, com_conversa_aberta: 0 }
+  if (!empresaId || !nichoId || !origemId) return vazio
+
+  const { rows: candidatos } = await client.query(
+    `SELECT p.id,
+            ${D.sqlReuniaoFutura('p')}  AS tem_reuniao_futura,
+            ${D.sqlConversaAberta('p')} AS tem_conversa_aberta
+       FROM prospectador.prospects p
+      WHERE p.empresa_id = $1 AND p.nicho_id = $2::uuid AND p.responsavel_id = $3::uuid
+        AND p.qualificacao IN ('aprovado', 'legado')`,
+    [empresaId, nichoId, origemId]
+  )
+  if (!candidatos.length) return vazio
+
+  const ids = candidatos.map((c) => c.id)
+  await client.query(
+    `UPDATE prospectador.prospects
+        SET responsavel_id = NULL, responsavel_desde = NULL
+      WHERE empresa_id = $1 AND id = ANY($2::uuid[]) AND responsavel_id = $3::uuid`,
+    [empresaId, ids, origemId]
+  )
+  await registrarMudancasEmLote(client, {
+    empresaId, prospectIds: ids, anterior: origemId, novo: null,
+    usuarioId, acao: ACOES.LIBEROU, motivo,
+  })
+  return {
+    liberados: ids.length,
+    com_reuniao_futura: candidatos.filter((c) => c.tem_reuniao_futura).length,
+    com_conversa_aberta: candidatos.filter((c) => c.tem_conversa_aberta).length,
+  }
+}
+
+/**
+ * Resolve o prospect pelo TELEFONE da conversa e devolve a linha do tempo de donos dele.
+ *
+ * Mesma identidade de `db/lead-nome-maps.js` (empresa + digitos do telefone, sem FK entre
+ * `vendas.conversas` e `prospectador.prospects`) e a MESMA expressao indexada
+ * (`idx_prospects_empresa_telefone_digitos`, migration 065) — mudar uma sem a outra faz o indice
+ * parar de ser usado em silencio.
+ *
+ * Sem prospect correspondente, devolve historico VAZIO — nao e' erro, e' contato que a Aquisicao
+ * nunca coletou (conversa pode existir sem lead algum no Banco de Leads).
+ */
+async function historicoPorTelefone(pool, empresaId, numero, { limit = 50 } = {}) {
+  const vazio = { prospect_id: null, itens: [] }
+  const candidatos = candidatosTelefoneBR(numero)
+  if (!empresaId || !candidatos.length) return vazio
+
+  const { rows } = await pool.query(
+    `SELECT id FROM prospectador.prospects
+      WHERE empresa_id = $1
+        AND regexp_replace(COALESCE(telefone, ''), '\\D', '', 'g') = ANY($2::text[])
+      ORDER BY updated_at DESC NULLS LAST
+      LIMIT 1`,
+    [empresaId, candidatos]
+  )
+  const prospectId = rows[0]?.id || null
+  if (!prospectId) return vazio
+  return { prospect_id: prospectId, itens: await historicoDoLead(pool, empresaId, prospectId, { limit }) }
+}
+
 /** A linha do tempo de donos de um lead, com nomes resolvidos. Nunca e-mail. */
 async function historicoDoLead(pool, empresaId, prospectId, { limit = 50 } = {}) {
   const { rows } = await pool.query(
@@ -291,7 +370,9 @@ module.exports = {
   assumirLead,
   definirResponsavel,
   atribuirEmLote,
+  liberarLeadsDoMembro,
   historicoDoLead,
+  historicoPorTelefone,
   contagemPorResponsavel,
   assertResponsavelDaEmpresa,
 }

@@ -6,6 +6,7 @@ const { pool } = require('../db')
 const E = require('../services/equipes-comerciais')
 const DIST = require('./lead-distribuicao')
 const D = require('../services/lead-distribuicao')
+const LR = require('./lead-responsavel')
 const { logger } = require('../logger')
 
 function erro(mensagem, statusCode = 400, code = 'BAD_REQUEST') {
@@ -133,11 +134,28 @@ async function substituirParticipantes(client, empresaId, equipe, usuarioIds, au
   const remover = atuais.filter((p) => !desejados.has(String(p.usuario_id)))
   const adicionar = participantes.filter((p) => !atuaisSet.has(String(p.usuario_id)))
 
+  // ─── SAIDA: fecha o vinculo e devolve TODOS os leads da pessoa para a fila ─────────────
+  //
+  // Decisao do operador (2026-09-21): a devolucao NAO filtra por "protegido" — mesmo lead com
+  // reuniao marcada ou conversa aberta volta, porque a pessoa deixou de fazer parte da equipe
+  // que responde por aquele nicho. `liberarLeadsDoMembro` (db/lead-responsavel.js, dono unico
+  // de `app.lead_responsavel_historico`) grava uma linha por lead e devolve os dois contadores
+  // de RISCO (reuniao futura / conversa aberta) — informacao para a tela avisar, nunca bloqueio.
+  const devolucao = []
   if (remover.length) {
-    // Decisao de produto: ao sair da equipe, os leads daquele recorte voltam para livres, com
-    // aviso previo e preservando compromisso marcado. Enquanto essa devolucao transacional nao
-    // existe, remover o membro aqui deixaria carteira presa com alguem fora da equipe.
-    throw erro('Remover participante exige a etapa de devolução de leads. Por enquanto, adicione participantes sem retirar os atuais.', 409, 'REMOCAO_EXIGE_DEVOLUCAO')
+    await client.query(
+      `UPDATE app.equipe_comercial_membros
+          SET saiu_em = NOW(), removido_por = $3::uuid, motivo_saida = $4
+        WHERE empresa_id = $1 AND equipe_id = $2::uuid
+          AND usuario_id = ANY($5::uuid[]) AND saiu_em IS NULL`,
+      [empresaId, equipe.id, autorId || null, motivo, remover.map((p) => p.usuario_id)]
+    )
+    for (const p of remover) {
+      const resultado = await LR.liberarLeadsDoMembro(client, {
+        empresaId, nichoId: equipe.nicho_id, origemId: p.usuario_id, usuarioId: autorId, motivo,
+      })
+      devolucao.push({ usuario_id: p.usuario_id, nome: p.nome, ...resultado })
+    }
   }
 
   for (const p of adicionar) {
@@ -165,6 +183,7 @@ async function substituirParticipantes(client, empresaId, equipe, usuarioIds, au
       contexto: {
         adicionados: adicionar.map((p) => p.usuario_id),
         removidos: remover.map((p) => p.usuario_id),
+        leads_devolvidos: devolucao.reduce((t, d) => t + (d.liberados || 0), 0),
       },
     })
   }
@@ -181,15 +200,16 @@ async function substituirParticipantes(client, empresaId, equipe, usuarioIds, au
   // botao "Puxar mais leads" / o rebalanceamento pedido, nunca um efeito colateral de salvar.
   // Lead PROTEGIDO (reuniao, conversa, follow-up, ligacao, disparo) nunca entra nesta conta —
   // ver o cabecalho de `services/lead-distribuicao.js`.
-  if (!adicionar.length) return null
+  if (!adicionar.length) return { distribuicao: null, devolucao }
   const membrosFinais = await membrosDaEquipe(client, empresaId, equipe.id)
-  return DIST.rebalancearEquipe(client, {
+  const distribuicao = await DIST.rebalancearEquipe(client, {
     empresaId,
     equipeId: equipe.id,
     nichoId: equipe.nicho_id,
     usuarioIds: membrosFinais.map((m) => m.usuario_id),
     autorId,
   })
+  return { distribuicao, devolucao }
 }
 
 async function criarEquipe(empresaId, dados = {}, autorId = null) {
@@ -219,15 +239,16 @@ async function criarEquipe(empresaId, dados = {}, autorId = null) {
       estadoNovo: equipe.nome,
       contexto: { nicho_id: equipe.nicho_id },
     })
-    const distribuicao = v.usuario_ids
+    // Equipe recem-criada nunca tem quem remover: `devolucao` sai sempre vazia aqui.
+    const resultado = v.usuario_ids
       ? await substituirParticipantes(client, empresaId, equipe, v.usuario_ids, autorId)
-      : null
+      : { distribuicao: null, devolucao: [] }
     logger.info({ empresa_id: empresaId, equipe_id: equipe.id }, '[equipes-comerciais] equipe criada')
     return {
       ...equipe,
       nicho_nome: nicho.nome,
       membros: await membrosDaEquipe(client, empresaId, equipe.id),
-      distribuicao,
+      distribuicao: resultado.distribuicao,
     }
   })
 }
@@ -314,8 +335,13 @@ async function definirParticipantes(empresaId, equipeId, dados = {}, autorId = n
     const equipe = await obterEquipe(client, empresaId, equipeId, { forUpdate: true })
     if (!equipe) throw erro('Equipe não encontrada nesta empresa.', 404, 'NOT_FOUND')
     if (equipe.status !== 'ativa') throw erro('Equipe encerrada não recebe participantes.', 409, 'EQUIPE_ENCERRADA')
-    const distribuicao = await substituirParticipantes(client, empresaId, equipe, v.usuario_ids, autorId)
-    return { ...equipe, membros: await membrosDaEquipe(client, empresaId, equipe.id), distribuicao }
+    const resultado = await substituirParticipantes(client, empresaId, equipe, v.usuario_ids, autorId)
+    return {
+      ...equipe,
+      membros: await membrosDaEquipe(client, empresaId, equipe.id),
+      distribuicao: resultado.distribuicao,
+      devolucao: resultado.devolucao,
+    }
   })
 }
 

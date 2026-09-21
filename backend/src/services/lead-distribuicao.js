@@ -261,23 +261,108 @@ function porMenorCarteira(a, b) {
   return d !== 0 ? d : chave(a.usuario_id).localeCompare(chave(b.usuario_id))
 }
 
+// ─── PESO de desempenho (ajuste sobre a base igualitaria) ───────────────────────────────
+//
+// Decisao do operador (2026-09-21): a base do rebalanceamento continua sendo igualitaria
+// (`menor_carteira` — ninguem fica a zero), mas quem esta indo melhor recebe um pouco mais da
+// SOBRA, e quem tem muito lead PARADO recebe um pouco menos, ate dar conta do que ja tem. Os
+// multiplicadores sao MODESTOS de proposito: isto e' um AJUSTE sobre a base igualitaria, nao uma
+// realocacao proporcional ao resultado — quem quer ver o resultado em si tem o ranking
+// (GET /comissao/ranking, `services/comissao.js`), que este modulo nao reimplementa.
+const FATOR_ACIMA_MEDIANA = 1.25
+const FATOR_PARADOS_ALTO = 0.75
+// 30% ou mais da carteira sem nenhuma acao registrada na janela (`lead-parado.js`).
+const PROPORCAO_PARADOS_ALTA = 0.3
+
+/**
+ * O peso desta pessoa para a distribuicao AUTOMATICA.
+ *
+ * ⚠️ Sem faturamento REGISTRADO ainda e' NEUTRO (peso 1), nunca penalizado — `originado` so' e'
+ * comparado a mediana quando a pessoa TEM venda no mes; do contrario, quem acabou de entrar na
+ * equipe teria peso reduzido so' por nao ter tido tempo de vender, o oposto do que o ajuste quer.
+ * Pelo mesmo motivo a mediana e' calculada so' entre quem TEM faturamento (`medianaOriginado`) —
+ * incluir quem nao vendeu enviesaria a mediana para baixo e inflaria artificialmente quem vendeu
+ * pouco.
+ */
+function pesoDesempenho({ originado, medianaOriginado, parados, leads } = {}) {
+  let peso = 1
+  const valor = Number(originado)
+  const mediana = Number(medianaOriginado) || 0
+  if (Number.isFinite(valor) && valor > 0 && mediana > 0 && valor > mediana) peso *= FATOR_ACIMA_MEDIANA
+
+  const totalLeads = Math.max(0, Number(leads) || 0)
+  const totalParados = Math.max(0, Number(parados) || 0)
+  if (totalLeads > 0 && (totalParados / totalLeads) >= PROPORCAO_PARADOS_ALTA) peso *= FATOR_PARADOS_ALTO
+
+  return peso
+}
+
+/** A mediana dos valores POSITIVOS (quem nao vendeu nao entra na conta — ver `pesoDesempenho`). */
+function medianaOriginado(valores) {
+  const nums = (Array.isArray(valores) ? valores : [])
+    .map(Number)
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b)
+  if (!nums.length) return 0
+  const meio = Math.floor(nums.length / 2)
+  return nums.length % 2 ? nums[meio] : (nums[meio - 1] + nums[meio]) / 2
+}
+
+/** Peso saneado: nunca zero, negativo ou NaN — cai no neutro (1). */
+function pesoValido(peso) {
+  const p = Number(peso)
+  return Number.isFinite(p) && p > 0 ? p : 1
+}
+
+/**
+ * As METAS ponderadas pelo PESO de cada pessoa, pelo metodo dos RESTOS MAIORES (Hare quota):
+ * cada um recebe o PISO da cota proporcional ao peso, e as unidades que sobram vao, uma a uma,
+ * para quem tem o MAIOR resto — e' o metodo padrao de apportionment (o mesmo tipo de conta usado
+ * para distribuir cadeiras parlamentares por votos): conserva o total EXATAMENTE e respeita a
+ * proporcao pedida, sem favorecer sistematicamente quem vem primeiro na lista.
+ *
+ * Empate no resto desempata por MENOR carteira atual primeiro (a sobra vai para quem tem menos,
+ * a mesma regra de sempre) e, persistindo o empate, pelo id — para o plano ser DETERMINISTICO.
+ */
+function metasPonderadas(gente, pool) {
+  const somaPesos = gente.reduce((t, m) => t + m.peso, 0)
+  const cotas = gente.map((m) => {
+    const cota = somaPesos > 0 ? (pool * m.peso) / somaPesos : pool / gente.length
+    const piso = Math.floor(cota)
+    return { usuario_id: m.usuario_id, atual: m.atual, piso, resto: cota - piso }
+  })
+  const atribuido = cotas.reduce((t, c) => t + c.piso, 0)
+  let falta = pool - atribuido
+
+  const metaPorId = new Map(cotas.map((c) => [chave(c.usuario_id), c.piso]))
+  const porResto = [...cotas].sort((a, b) =>
+    (b.resto - a.resto) || (a.atual - b.atual) || chave(a.usuario_id).localeCompare(chave(b.usuario_id)))
+  for (let i = 0; i < porResto.length && falta > 0; i += 1) {
+    const id = chave(porResto[i].usuario_id)
+    metaPorId.set(id, (metaPorId.get(id) || 0) + 1)
+    falta -= 1
+  }
+  return metaPorId
+}
+
 /**
  * O plano do REBALANCEAMENTO (gatilho: alguem entrou na equipe).
  *
- * Divisao inteira da carteira REDISTRIBUIVEL total (livres + intocados que ja' tem dono) entre os
- * membros; a sobra vai para quem tem MENOS. Quem esta acima da meta cede; quem esta abaixo recebe
- * — primeiro dos livres, depois do excedente dos colegas.
+ * Divisao da carteira REDISTRIBUIVEL total (livres + intocados que ja' tem dono) entre os
+ * membros, ponderada pelo PESO de cada um (`pesoDesempenho`; sem peso informado = 1, a base
+ * igualitaria de sempre). Quem esta acima da meta cede; quem esta abaixo recebe — primeiro dos
+ * livres, depois do excedente dos colegas.
  *
  * ⚠️ `atual` e' a carteira REDISTRIBUIVEL da pessoa, nunca a carteira inteira dela. Usar o total
  * faria o plano prometer mover leads que o predicado protege, e a execucao entregaria menos que o
  * previsto — a tela mentiria antes mesmo de alguem clicar.
  *
- * @param {Array<{usuario_id: string, atual: number}>} membros
+ * @param {Array<{usuario_id: string, atual: number, peso?: number}>} membros
  * @param {number} livres  leads redistribuiveis SEM dono no nicho.
  */
 function planoRebalanceamento({ membros, livres = 0 } = {}) {
   const gente = (Array.isArray(membros) ? membros : [])
-    .map((m) => ({ usuario_id: m.usuario_id, atual: Math.max(0, Number(m.atual) || 0) }))
+    .map((m) => ({ usuario_id: m.usuario_id, atual: Math.max(0, Number(m.atual) || 0), peso: pesoValido(m.peso) }))
     .sort(porMenorCarteira)
 
   const disponiveis = Math.max(0, Number(livres) || 0)
@@ -286,14 +371,13 @@ function planoRebalanceamento({ membros, livres = 0 } = {}) {
   }
 
   const pool = gente.reduce((t, m) => t + m.atual, 0) + disponiveis
+  // `meta_base` e' so' INFORMATIVA (a media, "se fosse igual para todos") — com peso 1 em todo
+  // mundo ela volta a ser a meta de cada um, exatamente o comportamento de antes desta mudanca.
   const metaBase = Math.floor(pool / gente.length)
-  let sobra = pool % gente.length
+  const metaPorId = metasPonderadas(gente, pool)
 
-  // A sobra vai para quem tem menos (a lista ja' esta nessa ordem): dar a quem ja' tem mais
-  // aumentaria justamente a diferenca que o rebalanceamento existe para fechar.
   const plano = gente.map((m) => {
-    const meta = metaBase + (sobra > 0 ? 1 : 0)
-    if (sobra > 0) sobra -= 1
+    const meta = metaPorId.get(chave(m.usuario_id)) || 0
     const diff = meta - m.atual
     return {
       usuario_id: m.usuario_id,
@@ -402,6 +486,11 @@ module.exports = {
   sqlConversaAberta,
   sqlRedistribuivel,
   sqlMotivoProtegido,
+  FATOR_ACIMA_MEDIANA,
+  FATOR_PARADOS_ALTO,
+  PROPORCAO_PARADOS_ALTA,
+  pesoDesempenho,
+  medianaOriginado,
   planoRebalanceamento,
   planoPuxada,
   rotuloMotivoProtegido,

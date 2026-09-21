@@ -52,6 +52,7 @@ import {
   acoesDeAtendente,
   atendenteDaConversa,
   avisoDeAtendimento,
+  descreverMudancaDeAtendente,
 } from '@/lib/conversa-operacao'
 import { temCapacidade } from '@/lib/capacidades'
 import { useSession } from '@/lib/useSession'
@@ -148,6 +149,26 @@ type FeedbackResponse = {
   criou_sugestao: boolean
   sugestao_id: string | null
   contexto_versao_id: string | null
+}
+
+// Uma linha do histórico de DONO DO LEAD (Banco de Leads / equipe comercial) — diferente do
+// histórico de atendente da conversa. Mesmo vocabulário de ação (`ACOES`, migration 072/074),
+// por isso a tradução reusa `descreverMudancaDeAtendente` (lib/conversa-operacao.js) em vez de
+// reimplementar: duas traduções da mesma palavra divergiriam na primeira mudança.
+type HistoricoLeadItem = {
+  id: string
+  acao: string
+  motivo?: string | null
+  ocorrido_em: string
+  responsavel_anterior_nome?: string | null
+  responsavel_novo_nome?: string | null
+  usuario_nome?: string | null
+}
+
+function formatarDataHistorico(iso?: string | null) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return Number.isNaN(d.valueOf()) ? '—' : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 }
 
 const FEEDBACK_TAGS = [
@@ -274,9 +295,16 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
   const [composerAberto, setComposerAberto] = useState(false)
   const [orientandoResposta, setOrientandoResposta] = useState(false)
   const [orientacaoResposta, setOrientacaoResposta] = useState<OrientacaoResposta | null>(null)
-  const [abaModal, setAbaModal] = useState<'chat' | 'interesses'>('chat')
+  const [abaModal, setAbaModal] = useState<'chat' | 'interesses' | 'historico'>('chat')
   const [feedbacksMensagem, setFeedbacksMensagem] = useState<Record<number, FeedbackState>>({})
   const [feedbackNegativo, setFeedbackNegativo] = useState<{ index: number; observacao: string; tags: string[] } | null>(null)
+
+  // Histórico de DONO DO LEAD (Banco de Leads/equipe) — carregado só quando a aba abre, para não
+  // gastar uma requisição extra em toda conversa aberta. `null` = ainda não pedido para este
+  // número; `prospect_id: null` dentro do resultado = contato sem lead correspondente (não é erro).
+  const [historicoLead, setHistoricoLead] = useState<{ prospect_id: string | null; itens: HistoricoLeadItem[] } | null>(null)
+  const [carregandoHistorico, setCarregandoHistorico] = useState(false)
+  const [erroHistorico, setErroHistorico] = useState<string | null>(null)
 
   // Token de requisicao: so a resposta do ULTIMO numero pedido escreve na tela. Sem isso,
   // trocar de conversa rapido deixaria a resposta atrasada da anterior aparecer como se
@@ -297,6 +325,10 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
     setAbaModal(abaInicial || 'chat')
     setFeedbacksMensagem({})
     setFeedbackNegativo(null)
+    // Troca de conversa invalida o histórico de dono carregado — senão a aba mostraria, por um
+    // instante, o histórico do lead ANTERIOR como se fosse da seleção nova.
+    setHistoricoLead(null)
+    setErroHistorico(null)
     try {
       const r = await apiFetch<ConversaDetail>(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(numero)}`)
       if (meu !== requisicao.current) return
@@ -313,6 +345,24 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
   }, [empresaId, numero, abaInicial])
 
   useEffect(() => { carregarConversa() }, [carregarConversa])
+
+  // Aba "Histórico" (dono do lead) — carrega SOB DEMANDA, na primeira vez que a aba abre para
+  // este número. `historicoLead` já preenchido (mesmo com `itens: []`) não repete a requisição.
+  useEffect(() => {
+    if (abaModal !== 'historico' || historicoLead || carregandoHistorico || !empresaId || !numero) return
+    const meu = requisicao.current
+    setCarregandoHistorico(true)
+    setErroHistorico(null)
+    apiFetch<{ prospect_id: string | null; itens: HistoricoLeadItem[] }>(
+      `/api/empresas/${empresaId}/conversas/${encodeURIComponent(numero)}/lead-responsavel-historico`
+    )
+      .then((r) => { if (meu === requisicao.current) setHistoricoLead(r.data) })
+      .catch((e: unknown) => {
+        if (meu !== requisicao.current) return
+        setErroHistorico(e instanceof Error ? e.message : 'Não foi possível carregar o histórico.')
+      })
+      .finally(() => { if (meu === requisicao.current) setCarregandoHistorico(false) })
+  }, [abaModal, historicoLead, carregandoHistorico, empresaId, numero])
 
   // Escape fecha o painel, como nos demais modais da aplicacao.
   useEffect(() => {
@@ -788,8 +838,57 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                 >
                   Interesses
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setAbaModal('historico')}
+                  className={`rounded-md px-4 py-2 text-sm font-medium transition ${abaModal === 'historico' ? 'bg-white text-brand shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                >
+                  Histórico
+                </button>
               </div>
             </div>
+
+            {abaModal === 'historico' && (
+              <div className="flex-1 overflow-y-auto bg-gray-50 px-7 py-6">
+                <div className="mb-3">
+                  <h4 className="text-sm font-semibold text-slate-900">Histórico do lead</h4>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Quem já foi responsável por este lead no Banco de Leads/equipe comercial — inclusive quando ele saiu de uma equipe e voltou para a fila.
+                  </p>
+                </div>
+                {carregandoHistorico ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-500"><Spinner /> Carregando histórico…</div>
+                ) : erroHistorico ? (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{erroHistorico}</div>
+                ) : !historicoLead || historicoLead.prospect_id === null ? (
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-12 text-center text-sm text-slate-400">
+                    Este contato não tem um lead correspondente no Banco de Leads — não há histórico de dono para mostrar.
+                  </div>
+                ) : historicoLead.itens.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-12 text-center text-sm text-slate-400">
+                    Nenhuma mudança de responsável registrada para este lead ainda.
+                  </div>
+                ) : (
+                  <ul className="space-y-2">
+                    {historicoLead.itens.map((item) => {
+                      const desc = descreverMudancaDeAtendente(item)
+                      return (
+                        <li key={item.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-sm font-semibold text-gray-900">{desc.rotulo}</span>
+                            <span className="text-xs text-gray-400">{formatarDataHistorico(item.ocorrido_em)}</span>
+                          </div>
+                          <div className="mt-1 text-xs text-gray-500">
+                            {item.usuario_nome ? `Por ${item.usuario_nome}` : 'Automático'}
+                            {item.motivo ? ` · ${item.motivo}` : ''}
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
 
             {abaModal === 'interesses' && (
               <div className="flex-1 overflow-y-auto bg-gray-50 px-7 py-6">

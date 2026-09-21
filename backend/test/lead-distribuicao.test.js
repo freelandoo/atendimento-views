@@ -93,6 +93,96 @@ test('o TETO limita o movimento e AVISA, em vez de mover em silencio', () => {
   assert.equal(p.truncado, true)
 })
 
+// ─── PESO de desempenho (ajuste sobre a base igualitaria, 2026-09-21) ───────────────────
+
+test('pesoDesempenho: sem faturamento registrado e NEUTRO, nunca penalizado', () => {
+  assert.equal(D.pesoDesempenho({ originado: undefined, medianaOriginado: 5000, parados: 0, leads: 10 }), 1)
+  assert.equal(D.pesoDesempenho({ originado: 0, medianaOriginado: 5000, parados: 0, leads: 10 }), 1)
+})
+
+test('pesoDesempenho: acima da mediana ganha o fator de bonus', () => {
+  const p = D.pesoDesempenho({ originado: 8000, medianaOriginado: 5000, parados: 0, leads: 10 })
+  assert.equal(p, D.FATOR_ACIMA_MEDIANA)
+})
+
+test('pesoDesempenho: abaixo ou igual a mediana fica no peso base', () => {
+  assert.equal(D.pesoDesempenho({ originado: 5000, medianaOriginado: 5000, parados: 0, leads: 10 }), 1)
+  assert.equal(D.pesoDesempenho({ originado: 2000, medianaOriginado: 5000, parados: 0, leads: 10 }), 1)
+})
+
+test('pesoDesempenho: muitos leads parados (>=30% da carteira) reduz o peso', () => {
+  const p = D.pesoDesempenho({ originado: 0, medianaOriginado: 0, parados: 3, leads: 10 })
+  assert.equal(p, D.FATOR_PARADOS_ALTO)
+  // Abaixo do corte, nao penaliza.
+  assert.equal(D.pesoDesempenho({ originado: 0, medianaOriginado: 0, parados: 2, leads: 10 }), 1)
+})
+
+test('pesoDesempenho: os dois fatores se COMBINAM (multiplicam)', () => {
+  const p = D.pesoDesempenho({ originado: 8000, medianaOriginado: 5000, parados: 5, leads: 10 })
+  assert.equal(p, D.FATOR_ACIMA_MEDIANA * D.FATOR_PARADOS_ALTO)
+})
+
+test('medianaOriginado: ignora quem nao vendeu (so conta valores POSITIVOS)', () => {
+  assert.equal(D.medianaOriginado([0, 0, 5000]), 5000)
+  assert.equal(D.medianaOriginado([]), 0)
+  assert.equal(D.medianaOriginado([1000, 3000]), 2000)
+  assert.equal(D.medianaOriginado([1000, 2000, 3000]), 2000)
+})
+
+test('planoRebalanceamento: SEM peso informado, o resultado e IDENTICO ao igualitario de sempre', () => {
+  // Compatibilidade: `puxarLeads` e testes antigos nunca passam `peso` — peso ausente vira 1 em
+  // todo mundo, e a divisao volta a ser a igualitaria original.
+  const semPeso = D.planoRebalanceamento({
+    membros: [{ usuario_id: 'a', atual: 4 }, { usuario_id: 'b', atual: 0 }], livres: 3,
+  })
+  const pesoUm = D.planoRebalanceamento({
+    membros: [{ usuario_id: 'a', atual: 4, peso: 1 }, { usuario_id: 'b', atual: 0, peso: 1 }], livres: 3,
+  })
+  assert.deepEqual(semPeso.membros, pesoUm.membros)
+})
+
+test('planoRebalanceamento: quem tem PESO maior recebe mais da sobra e do pool', () => {
+  const p = D.planoRebalanceamento({
+    membros: [
+      { usuario_id: 'top', atual: 0, peso: D.FATOR_ACIMA_MEDIANA },
+      { usuario_id: 'base', atual: 0, peso: 1 },
+    ],
+    livres: 9,
+  })
+  const porId = new Map(p.membros.map((m) => [m.usuario_id, m.meta]))
+  assert.ok(porId.get('top') > porId.get('base'), 'quem tem peso maior deve receber meta maior')
+  // O total continua batendo com o pool — o peso AJUSTA a divisao, nunca inventa lead.
+  assert.equal(porId.get('top') + porId.get('base'), 9)
+})
+
+test('planoRebalanceamento: peso invalido (0, negativo, NaN) cai no NEUTRO — nunca lanca', () => {
+  const p = D.planoRebalanceamento({
+    membros: [
+      { usuario_id: 'a', atual: 0, peso: 0 },
+      { usuario_id: 'b', atual: 0, peso: -5 },
+      { usuario_id: 'c', atual: 0, peso: NaN },
+    ],
+    livres: 9,
+  })
+  // Os tres viram peso 1 -> divisao igualitaria, 3 cada.
+  assert.deepEqual(p.membros.map((m) => m.meta).sort(), [3, 3, 3])
+})
+
+test('planoRebalanceamento: o metodo dos RESTOS MAIORES conserva o total exatamente', () => {
+  // 3 pessoas com pesos desiguais, pool que nao divide exato — a soma das metas TEM que bater
+  // com o pool, sempre (e' a garantia do apportionment, nao um acidente de arredondamento).
+  const p = D.planoRebalanceamento({
+    membros: [
+      { usuario_id: 'a', atual: 0, peso: 2 },
+      { usuario_id: 'b', atual: 0, peso: 1 },
+      { usuario_id: 'c', atual: 0, peso: 1 },
+    ],
+    livres: 10,
+  })
+  const soma = p.membros.reduce((t, m) => t + m.meta, 0)
+  assert.equal(soma, 10)
+})
+
 // ─── A PUXADA MANUAL ────────────────────────────────────────────────────────────────────
 
 test('puxada "todos" divide em partes iguais, a sobra para quem tem menos', () => {
@@ -203,6 +293,28 @@ test('GUARDA: a distribuicao NAO devolve lead para a fila', () => {
   }
 })
 
+test('GUARDA: o peso de desempenho so LE o ranking, nunca escreve em comissao', () => {
+  const src = semComentarios(DADOS)
+  assert.match(src, /require\('\.\/comissao'\)/, 'precisa reusar rankingDoMes, nao duplicar a leitura')
+  for (const proibido of ['registrarVenda', 'registrarPagamento', 'marcarComissaoPaga', 'cancelarVenda', 'publicarPlano']) {
+    assert.ok(!src.includes(proibido), `distribuicao de lead nao pode escrever em comissao ('${proibido}')`)
+  }
+})
+
+test('GUARDA: falha ao ler o ranking do mes NAO impede a entrada na equipe (fica neutro)', () => {
+  const bloco = DADOS.slice(DADOS.indexOf('async function pesosDeDesempenho'), DADOS.indexOf('async function rebalancearEquipe'))
+  assert.match(bloco, /try\s*{/, 'a leitura do ranking precisa estar protegida')
+  assert.match(bloco, /catch/, 'falha no ranking cai para peso neutro, nunca lanca')
+})
+
+test('GUARDA: a puxada manual (planoPuxada) continua SEM peso de desempenho, de proposito', () => {
+  // Escopo desta rodada (2026-09-21): so o rebalanceamento AUTOMATICO (entrada na equipe) usa
+  // peso. "Puxar mais leads" e a distribuicao em lote da Aquisicao continuam com os criterios
+  // explicitos que ja tinham (todos/menor_carteira/selecionados, melhores/mais_antigos/sem_contato).
+  const bloco = SERVICO.slice(SERVICO.indexOf('function planoPuxada'), SERVICO.indexOf('/** Rotulo curto'))
+  assert.ok(!/\.peso\b/.test(bloco), 'planoPuxada nao deve ler peso de desempenho nesta etapa')
+})
+
 test('GUARDA: nenhum WORKER importa a distribuicao', () => {
   // Os gatilhos sao a ENTRADA na equipe e o comando do gestor. Um job que redistribui carteira
   // sozinho e' a automacao que services/lead-parado.js recusou no cabecalho dele.
@@ -229,7 +341,7 @@ test('GUARDA: o historico por lead e gravado pelo DONO da tabela, sem segunda co
 
 test('GUARDA: o rebalanceamento automatico so dispara quando alguem ENTRA', () => {
   const src = semComentarios(EQUIPES)
-  assert.ok(src.includes('if (!adicionar.length) return null'),
+  assert.ok(src.includes("if (!adicionar.length) return { distribuicao: null, devolucao }"),
     'salvar a mesma lista de participantes nao pode remexer carteira')
   assert.ok(src.includes('DIST.rebalancearEquipe'), 'o gatilho vive na transacao dos participantes')
 })

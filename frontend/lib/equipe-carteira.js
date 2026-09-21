@@ -271,6 +271,36 @@ function resumoDoRebalanceamento(distribuicao) {
   return `${movidos} lead${movidos === 1 ? '' : 's'} intocado${movidos === 1 ? '' : 's'} redistribuído${movidos === 1 ? '' : 's'}${detalhe}.${corte}`
 }
 
+/**
+ * O que aconteceu na DEVOLUCAO de leads (ao tirar alguem da equipe).
+ *
+ * ⚠️ A devolucao NAO filtra por "protegido" (decisao do operador, 2026-09-21): mesmo lead com
+ * reuniao marcada ou conversa aberta volta para a fila quando a pessoa sai da equipe. Os dois
+ * contadores de risco existem para a tela AVISAR depois do fato — nunca para bloquear a saida.
+ *
+ * Devolve `null` quando ninguem foi removido nesta operacao — nao se ocupa espaco pra dizer que
+ * nada mudou.
+ */
+function resumoDaDevolucao(devolucao) {
+  const lista = (Array.isArray(devolucao) ? devolucao : []).filter((d) => d && d.usuario_id)
+  if (!lista.length) return null
+  const liberados = lista.reduce((t, d) => t + (Number(d.liberados) || 0), 0)
+  const pessoas = lista.length === 1 ? '1 pessoa' : `${lista.length} pessoas`
+  if (!liberados) {
+    return `${pessoas} retirada${lista.length === 1 ? '' : 's'} da equipe — sem leads na carteira para devolver.`
+  }
+  const comReuniao = lista.reduce((t, d) => t + (Number(d.com_reuniao_futura) || 0), 0)
+  const comConversa = lista.reduce((t, d) => t + (Number(d.com_conversa_aberta) || 0), 0)
+  const riscos = []
+  if (comReuniao) riscos.push(`${comReuniao} com reunião marcada`)
+  if (comConversa) riscos.push(`${comConversa} com conversa em andamento`)
+  const aviso = riscos.length
+    ? ` Atenção: ${riscos.join(' e ')} — combine a reatribuição o quanto antes.`
+    : ''
+  const verbo = liberados === 1 ? 'voltou' : 'voltaram'
+  return `${pessoas} retirada${lista.length === 1 ? '' : 's'} da equipe: ${liberados} lead${liberados === 1 ? '' : 's'} ${verbo} para a fila.${aviso}`
+}
+
 module.exports = {
   COLUNAS_CARTEIRA,
   valorDaCarteira,
@@ -288,4 +318,5 @@ module.exports = {
   previaDaPuxada,
   resumoDaPuxada,
   resumoDoRebalanceamento,
+  resumoDaDevolucao,
 }

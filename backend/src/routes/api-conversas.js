@@ -17,6 +17,7 @@ const { modoIaPadraoEmpresa } = require('../db/empresas')
 const { modoEfetivo } = require('../services/conversa-modo-ia')
 const { anexarNomeExibicao } = require('../services/lead-nome-exibicao')
 const { buscarNomesMapsPorTelefone } = require('../db/lead-nome-maps')
+const { historicoPorTelefone } = require('../db/lead-responsavel')
 // Ownership da CONVERSA (CRM em equipe, Etapa 7). A regra e' pura; o recorte depende da
 // capacidade, avaliada pelo modulo puro de acesso.
 const CR = require('../db/conversa-responsavel')
@@ -296,6 +297,21 @@ router.get('/:numero/responsavel-historico', requireAuth, requireEmpresaAccess, 
   } catch (err) {
     const status = err.statusCode || 500
     return res.status(status).json({ ok: false, error: { code: 'HISTORICO_FAILED', message: err.message } })
+  }
+})
+
+// GET /:numero/lead-responsavel-historico — a linha do tempo de DONOS DO LEAD (Banco de Leads /
+// equipe comercial), nao a de atendente da conversa (essa e' a rota acima). Resolve o prospect
+// pelo TELEFONE (mesma identidade de `db/lead-nome-maps.js`; nao ha FK entre os dois mundos).
+// Sem prospect correspondente, `itens` vem vazio — nao e' erro, e' contato que a Aquisicao nunca
+// coletou.
+router.get('/:numero/lead-responsavel-historico', requireAuth, requireEmpresaAccess, alcancaConversa, async (req, res) => {
+  try {
+    const data = await historicoPorTelefone(pool, req.empresa.id, req.params.numero, { limit: req.query.limit })
+    return res.json({ ok: true, data })
+  } catch (err) {
+    const status = err.statusCode || 500
+    return res.status(status).json({ ok: false, error: { code: 'LEAD_HISTORICO_FAILED', message: err.message } })
   }
 })
 

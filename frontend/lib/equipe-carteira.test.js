@@ -190,6 +190,37 @@ test('GUARDA: a tela nao reimplementa a regra de "intocado" nem de "protegido"',
   }
 })
 
+// ─── resumoDaDevolucao (saida de equipe, 2026-09-21) ────────────────────────────────────
+
+test('resumoDaDevolucao: null quando ninguem foi removido', () => {
+  assert.equal(C.resumoDaDevolucao([]), null)
+  assert.equal(C.resumoDaDevolucao(null), null)
+  assert.equal(C.resumoDaDevolucao(undefined), null)
+})
+
+test('resumoDaDevolucao: pessoa removida sem carteira ainda e reportada', () => {
+  const texto = C.resumoDaDevolucao([{ usuario_id: 'u1', nome: 'Ana', liberados: 0, com_reuniao_futura: 0, com_conversa_aberta: 0 }])
+  assert.match(texto, /1 pessoa retirada/)
+  assert.match(texto, /sem leads na carteira/)
+})
+
+test('resumoDaDevolucao: soma leads liberados de todas as pessoas da operacao', () => {
+  const texto = C.resumoDaDevolucao([
+    { usuario_id: 'u1', nome: 'Ana', liberados: 5, com_reuniao_futura: 0, com_conversa_aberta: 0 },
+    { usuario_id: 'u2', nome: 'Bia', liberados: 3, com_reuniao_futura: 0, com_conversa_aberta: 0 },
+  ])
+  assert.match(texto, /2 pessoas retiradas/)
+  assert.match(texto, /8 leads voltaram/)
+})
+
+test('resumoDaDevolucao: avisa quando ha reuniao marcada ou conversa aberta, nunca bloqueia', () => {
+  const texto = C.resumoDaDevolucao([
+    { usuario_id: 'u1', nome: 'Ana', liberados: 4, com_reuniao_futura: 2, com_conversa_aberta: 1 },
+  ])
+  assert.match(texto, /2 com reunião marcada/)
+  assert.match(texto, /1 com conversa em andamento/)
+})
+
 test('GUARDA: o modulo e PURO — sem rede, sem DOM, sem React', () => {
   for (const proibido of ['fetch(', 'apiFetch', 'document.', 'window.', 'useState', 'require(\'react']) {
     assert.ok(!FONTE.includes(proibido), `"${proibido}" nao pertence a um modulo puro`)

@@ -63,6 +63,7 @@ import {
   ordenarPorAtividadeHoje,
   papeisPresentes,
   podeEncerrar,
+  resumoDaDevolucao,
   resumoDaPuxada,
   resumoDeMembros,
   resumoDoRebalanceamento,
@@ -88,6 +89,7 @@ import type {
   MotivoProtegido,
   PessoaArea,
   PessoaElegivel,
+  ResultadoDevolucao,
   ResultadoPuxada,
   ResultadoRebalanceamento,
 } from '@/lib/equipe-area'
@@ -310,15 +312,21 @@ export default function EquipePage() {
   async function salvarMembros(usuarioIds: string[]) {
     if (!membrosDe) return
     const alvo = membrosDe
-    // Entrar na equipe REDISTRIBUI a carteira intocada do nicho, na mesma transação. O resumo
-    // vem do servidor: `null` quando nada se moveu, que é comum e legítimo (carteira já
-    // equilibrada, ou tudo protegido) — anunciar "0 leads movidos" mandaria procurar defeito.
+    // Entrar na equipe REDISTRIBUI a carteira intocada do nicho; sair DEVOLVE toda a carteira da
+    // pessoa para a fila. As duas rodam na mesma transação de `PUT /participantes`, e os dois
+    // resumos vêm do servidor. `null` em cada um é comum e legítimo (ninguém entrou/ninguém
+    // saiu, ou nada havia para mover) — anunciar "0" mandaria procurar defeito onde não há.
     await fb.runTask(
-      () => apiFetch<{ distribuicao?: ResultadoRebalanceamento | null }>(
+      () => apiFetch<{ distribuicao?: ResultadoRebalanceamento | null; devolucao?: ResultadoDevolucao[] | null }>(
         `${base}/${alvo.id}/participantes`,
         { method: 'PUT', body: JSON.stringify({ usuario_ids: usuarioIds }) },
       ),
-      { sucesso: (r) => resumoDoRebalanceamento(r?.data?.distribuicao ?? null) || 'Equipe atualizada.' },
+      {
+        sucesso: (r) => [
+          resumoDoRebalanceamento(r?.data?.distribuicao ?? null),
+          resumoDaDevolucao(r?.data?.devolucao ?? null),
+        ].filter(Boolean).join(' ') || 'Equipe atualizada.',
+      },
     )
     setMembrosDe(null)
     await carregar()

@@ -174,8 +174,8 @@ export interface EstadoNoModal {
   motivo: string
 }
 
-/** Remover membro é RECUSADO pelo backend enquanto não existir devolução de leads. */
-export declare const MOTIVO_REMOCAO_BLOQUEADA: string
+/** Desmarcar quem já é membro REMOVE de verdade: o backend devolve os leads dela para a fila. */
+export declare const AVISO_DEVOLUCAO_LEADS: string
 export declare const FILTROS_MODAL: readonly { id: string; rotulo: string }[]
 
 export declare function situacaoNoModal(
@@ -193,17 +193,31 @@ export declare function filtrarPessoasDoModal(
   opcoes?: { busca?: string; filtro?: string; equipeId?: string | null }
 ): PessoaArea[]
 
-/** Conta só as ADIÇÕES: são as únicas que serão enviadas. */
-export declare function resumoSelecaoModal(
-  novos: string[] | null | undefined
-): { quantidade: number; texto: string; podeSalvar: boolean; motivo: string }
+/** Quem já está na equipe agora — semeia a seleção do modal ao abrir. */
+export declare function participantesIniciais(
+  pessoas: PessoaSelecionavel[] | null | undefined,
+  equipeId: string | null
+): string[]
 
-/** `PUT /participantes` é SUBSTITUIÇÃO: os membros atuais entram sempre. */
-export declare function corpoDeParticipantes(
+export interface PessoaRemovida { usuario_id: string; nome: string }
+
+/** O que muda entre quem está na equipe agora e o conjunto selecionado no modal. */
+export declare function diffParticipantes(
   pessoas: PessoaSelecionavel[] | null | undefined,
   equipeId: string | null,
-  novos: string[] | null | undefined
-): string[]
+  selecionados: string[] | null | undefined
+): { adicionar: string[]; remover: PessoaRemovida[] }
+
+/** Conta entradas e saídas separadamente. `podeSalvar` exige que algo mude. */
+export declare function resumoSelecaoModal(
+  diff: { adicionar?: string[]; remover?: PessoaRemovida[] } | null | undefined
+): { podeSalvar: boolean; texto: string; motivo: string }
+
+/** Texto de confirmação antes de salvar remoções. `''` quando não há ninguém saindo. */
+export declare function textoConfirmarRemocao(remover: PessoaRemovida[] | null | undefined): string
+
+/** `PUT /participantes` é SUBSTITUIÇÃO: sempre a lista final de selecionados. */
+export declare function corpoDeParticipantes(selecionados: string[] | null | undefined): string[]
 
 // ─── Reexports (nunca reimplementados) ──────────────────────────────────────────────────
 

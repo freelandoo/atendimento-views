@@ -200,6 +200,38 @@ test('GUARDA: nenhuma rota de ownership decide papel por literal', () => {
   assert.ok(src.includes('podeCapacidade'), 'a capacidade precisa ser avaliada pelo modulo puro')
 })
 
+// ─── Devolucao por saida de equipe (2026-09-21) ─────────────────────────────────────────
+
+test('GUARDA: liberarLeadsDoMembro NAO filtra por protegido — devolve TUDO da pessoa', () => {
+  // Diferente do rebalanceamento automatico (services/lead-distribuicao.js), que so toca em lead
+  // intocado. Aqui e ato humano explicito: a pessoa saiu da equipe, e o operador decidiu
+  // (2026-09-21) que ate lead com reuniao marcada/conversa aberta volta para a fila.
+  const src = fonte(path.join('src', 'db', 'lead-responsavel.js'))
+  const bloco = src.slice(src.indexOf('async function liberarLeadsDoMembro'), src.indexOf('async function historicoPorTelefone'))
+  assert.ok(!/sqlRedistribuivel/.test(bloco), 'a devolucao por saida de equipe nao filtra por protegido')
+  assert.ok(/responsavel_id = NULL/.test(bloco), 'devolver precisa setar responsavel_id NULL')
+  assert.ok(/registrarMudancasEmLote/.test(bloco), 'toda devolucao precisa virar historico')
+  assert.ok(/ACOES\.LIBEROU/.test(bloco))
+})
+
+test('GUARDA: liberarLeadsDoMembro devolve contadores de RISCO, informativos, nunca bloqueio', () => {
+  const src = fonte(path.join('src', 'db', 'lead-responsavel.js'))
+  const bloco = src.slice(src.indexOf('async function liberarLeadsDoMembro'), src.indexOf('async function historicoPorTelefone'))
+  assert.ok(bloco.includes('com_reuniao_futura'))
+  assert.ok(bloco.includes('com_conversa_aberta'))
+  assert.ok(!/if[^{]*reuniao_futura[^{]*throw/.test(bloco), 'os contadores nao podem barrar a devolucao')
+})
+
+test('GUARDA: historicoPorTelefone usa a MESMA expressao indexada de lead-nome-maps.js', () => {
+  // idx_prospects_empresa_telefone_digitos (migration 065): mudar uma sem a outra faz o indice
+  // parar de ser usado em silencio.
+  const dono = fonte(path.join('src', 'db', 'lead-nome-maps.js'))
+  const aqui = fonte(path.join('src', 'db', 'lead-responsavel.js'))
+  const expressao = "regexp_replace(COALESCE(telefone, ''), '\\\\D', '', 'g')"
+  assert.ok(dono.includes("regexp_replace(COALESCE(p.telefone, ''), '\\\\D', '', 'g')"))
+  assert.ok(aqui.includes(expressao), 'historicoPorTelefone precisa usar a expressao indexada')
+})
+
 test('GUARDA: a migration 072 e ADITIVA, 1:1, e nao faz backfill de dono', () => {
   const mig = fonte(path.join('sql', 'migrations', '072_lead_responsavel.sql'))
   const sql = mig.replace(/^--.*$/gm, ' ')

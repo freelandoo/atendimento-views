@@ -440,7 +440,7 @@ function podeEncerrar(equipe) {
   if (n > 0) {
     return {
       pode: false,
-      motivo: `Tire ${n === 1 ? 'a pessoa' : `as ${n} pessoas`} da equipe antes de encerrar. Hoje isso depende da etapa de devolução de leads, que ainda não existe.`,
+      motivo: `Tire ${n === 1 ? 'a pessoa' : `as ${n} pessoas`} da equipe antes de encerrar — desmarque no modal "Gerenciar membros".`,
     }
   }
   return { pode: true, motivo: '' }
@@ -448,15 +448,14 @@ function podeEncerrar(equipe) {
 
 // ─── O modal de membros ─────────────────────────────────────────────────────────────────
 //
-// ⚠️ A REGRA MAIS IMPORTANTE DESTE MÓDULO: **este produto ainda não sabe REMOVER alguém de uma
-// equipe.** `db/equipes-comerciais.js` lança 409 `REMOCAO_EXIGE_DEVOLUCAO` porque os leads que a
-// pessoa assumiu ficariam presos com quem saiu do recorte. A referência visual desta tela mostra
-// caixas que se desmarcam para remover — desenhar isso aqui prometeria uma ação que o servidor
-// recusa, e o gestor descobriria no erro. Quem já é membro aparece MARCADO E BLOQUEADO, com o
-// motivo em texto (a regra do guia visual para controle que a pessoa não pode usar).
+// ⚠️ Desde 2026-09-21 este produto SABE remover: `db/equipes-comerciais.js` fecha o vínculo
+// (`saiu_em`) e devolve, na MESMA transação, TODOS os leads da pessoa naquele nicho para a fila
+// de livres — decisão do operador: sem filtrar por "protegido", inclusive lead com reunião
+// marcada ou conversa aberta. Por isso desmarcar quem já é membro agora REMOVE de verdade, e a
+// tela precisa avisar a consequência ANTES do clique — nunca só depois, no toast.
 
-const MOTIVO_REMOCAO_BLOQUEADA =
-  'Tirar alguém da equipe depende da etapa de devolução de leads, que ainda não existe. Enquanto isso, só dá para adicionar pessoas.'
+const AVISO_DEVOLUCAO_LEADS =
+  'Desmarcar alguém tira essa pessoa da equipe. Todos os leads que ela tem agora — inclusive em negociação — voltam para a fila de livres, com o histórico de quem cuidava antes.'
 
 const FILTROS_MODAL = Object.freeze([
   { id: 'todos', rotulo: 'Todos' },
@@ -478,9 +477,9 @@ function situacaoNoModal(pessoa, equipeId) {
       situacao: 'nesta_equipe',
       rotulo: 'Nesta equipe',
       tom: 'ok',
-      selecionavel: false,
+      selecionavel: true,
       marcado: true,
-      motivo: MOTIVO_REMOCAO_BLOQUEADA,
+      motivo: AVISO_DEVOLUCAO_LEADS,
     }
   }
   if (!st.disponivel) {
@@ -519,42 +518,69 @@ function filtrarPessoasDoModal(pessoas, { busca, filtro, equipeId } = {}) {
   })
 }
 
+/** Quem JÁ está na equipe agora — usado para semear a seleção do modal ao abrir. */
+function participantesIniciais(pessoas, equipeId) {
+  return (Array.isArray(pessoas) ? pessoas : [])
+    .filter((p) => situacaoNoModal(p, equipeId).situacao === 'nesta_equipe')
+    .map((p) => chave(p.usuario_id))
+}
+
 /**
- * O rodapé do modal: quantas pessoas ENTRAM de fato.
+ * O que MUDA entre quem está na equipe agora e o que foi selecionado no modal.
  *
- * Conta só as adições, porque só elas serão enviadas. Dizer "4 selecionadas" quando 4 já eram
- * membros faria o botão prometer uma mudança que não vai acontecer.
+ * O modal trabalha com um conjunto ÚNICO de selecionados (entrar e sair viraram o mesmo gesto:
+ * marcar/desmarcar). `adicionar` e `remover` nunca se sobrepõem — um id está num dos dois, ou em
+ * nenhum. `remover` carrega o NOME de cada pessoa, porque é isso que a confirmação e o resumo
+ * pós-salvar precisam mostrar (a API só devolve `usuario_id`).
  */
-function resumoSelecaoModal(novos) {
-  const n = (Array.isArray(novos) ? novos : []).length
-  if (n === 0) {
-    return {
-      quantidade: 0,
-      texto: 'Nenhuma pessoa nova selecionada',
-      podeSalvar: false,
-      motivo: 'Escolha ao menos uma pessoa para adicionar.',
-    }
-  }
+function diffParticipantes(pessoas, equipeId, selecionados) {
+  const lista = Array.isArray(pessoas) ? pessoas : []
+  const atuais = new Set(participantesIniciais(lista, equipeId))
+  const escolhidos = new Set((Array.isArray(selecionados) ? selecionados : []).map(chave))
+  const porId = new Map(lista.map((p) => [chave(p.usuario_id), p]))
   return {
-    quantidade: n,
-    texto: n === 1 ? '1 pessoa será adicionada' : `${n} pessoas serão adicionadas`,
-    podeSalvar: true,
-    motivo: '',
+    adicionar: [...escolhidos].filter((id) => !atuais.has(id)),
+    remover: [...atuais]
+      .filter((id) => !escolhidos.has(id))
+      .map((id) => ({ usuario_id: id, nome: porId.get(id)?.nome || 'sem nome' })),
   }
 }
 
 /**
- * O corpo do PUT: quem JÁ está mais quem foi escolhido.
+ * O rodapé do modal: o que vai mudar de verdade quando salvar.
  *
- * ⚠️ `PUT /participantes` é SUBSTITUIÇÃO — mandar só os novos removeria todo mundo, e o backend
- * recusaria a operação inteira com 409. Os membros atuais entram sempre.
+ * Conta ENTRADAS e SAÍDAS separadamente — são consequências diferentes (uma soma carteira, a
+ * outra tira e devolve). `podeSalvar` só exige que ALGO mude; nenhuma alteração é o único caso
+ * que desabilita o botão.
  */
-function corpoDeParticipantes(pessoas, equipeId, novos) {
-  const atuais = (Array.isArray(pessoas) ? pessoas : [])
-    .filter((p) => situacaoNoModal(p, equipeId).situacao === 'nesta_equipe')
-    .map((p) => chave(p.usuario_id))
-  const escolhidos = (Array.isArray(novos) ? novos : []).map(chave)
-  return [...new Set([...atuais, ...escolhidos])].filter(Boolean)
+function resumoSelecaoModal({ adicionar, remover } = {}) {
+  const nAdd = (Array.isArray(adicionar) ? adicionar : []).length
+  const nDel = (Array.isArray(remover) ? remover : []).length
+  if (!nAdd && !nDel) {
+    return { podeSalvar: false, texto: 'Nenhuma alteração ainda', motivo: 'Marque ou desmarque alguém para salvar.' }
+  }
+  const partes = []
+  if (nAdd) partes.push(nAdd === 1 ? '1 pessoa entra' : `${nAdd} pessoas entram`)
+  if (nDel) partes.push(nDel === 1 ? '1 pessoa sai' : `${nDel} pessoas saem`)
+  return { podeSalvar: true, texto: partes.join(' · '), motivo: '' }
+}
+
+/**
+ * O texto de confirmação ANTES de salvar, só quando há saída. Precisa nomear quem sai e repetir
+ * a consequência (leads voltam para a fila) — é a última chance de o gestor recuar de um clique
+ * em massa.
+ */
+function textoConfirmarRemocao(remover) {
+  const lista = Array.isArray(remover) ? remover : []
+  if (!lista.length) return ''
+  const nomes = lista.map((p) => p.nome || 'sem nome').join(', ')
+  const singular = lista.length === 1
+  return `${nomes} ${singular ? 'sai' : 'saem'} da equipe. Todos os leads que ${singular ? 'ela tem' : 'elas têm'} agora — inclusive em negociação — voltam para a fila de livres, com histórico de quem cuidava antes.`
+}
+
+/** O corpo do PUT: sempre a lista final de selecionados (o endpoint substitui). */
+function corpoDeParticipantes(selecionados) {
+  return [...new Set((Array.isArray(selecionados) ? selecionados : []).map(chave))].filter(Boolean)
 }
 
 module.exports = {
@@ -587,12 +613,15 @@ module.exports = {
   // Encerrar
   podeEncerrar,
   // Modal de membros
-  MOTIVO_REMOCAO_BLOQUEADA,
+  AVISO_DEVOLUCAO_LEADS,
   FILTROS_MODAL,
   situacaoNoModal,
   contagensDoModal,
   filtrarPessoasDoModal,
+  participantesIniciais,
+  diffParticipantes,
   resumoSelecaoModal,
+  textoConfirmarRemocao,
   corpoDeParticipantes,
   // ─── REEXPORTS ────────────────────────────────────────────────────────────────────────
   // Reexportados, NUNCA copiados (padrão de `paginacao.js` e `lead-identidade.js`): duas

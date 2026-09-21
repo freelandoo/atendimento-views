@@ -23,6 +23,9 @@ const D = require('../services/lead-distribuicao')
 const LP = require('../services/lead-parado')
 const { registrarMudancasEmLote, assertResponsavelDaEmpresa } = require('./lead-responsavel')
 const { ACOES } = require('../services/lead-responsavel')
+// So' para o PESO de desempenho do rebalanceamento automatico (D.pesoDesempenho) — nunca para
+// escrever nada de comissao. Ver o cabecalho de `pesoDesempenho` em services/lead-distribuicao.js.
+const { rankingDoMes } = require('./comissao')
 const { logger } = require('../logger')
 
 function erro(mensagem, statusCode = 400, code = 'BAD_REQUEST') {
@@ -122,15 +125,58 @@ async function livresRedistribuiveis(exec, empresaId, nichoId) {
   return rows[0]?.total || 0
 }
 
-/** As contagens que o PLANO precisa: intocados por membro (zero para quem nao tem linha) + livres. */
+/**
+ * As contagens que o PLANO precisa: intocados por membro (zero para quem nao tem linha) + livres.
+ *
+ * `leads`/`parados` viajam junto (nao so' `atual`) porque `rebalancearEquipe` usa os dois para
+ * calcular o PESO de desempenho (proporcao de leads parados na carteira). `puxarLeads` tambem
+ * chama esta funcao e simplesmente ignora os dois campos extras — `planoPuxada` reconstroi os
+ * objetos que le, entao um campo a mais aqui nao vaza pra ele.
+ */
 async function contagensParaPlano(client, empresaId, nichoId, usuarioIds) {
   const carteira = await carteiraDaEquipe(client, empresaId, nichoId)
   const porUsuario = new Map(carteira.map((c) => [String(c.responsavel_id), c]))
-  const membros = (usuarioIds || []).map((id) => ({
-    usuario_id: id,
-    atual: porUsuario.get(String(id))?.intocados || 0,
-  }))
+  const membros = (usuarioIds || []).map((id) => {
+    const c = porUsuario.get(String(id))
+    return {
+      usuario_id: id,
+      atual: c?.intocados || 0,
+      leads: c?.leads || 0,
+      parados: c?.parados || 0,
+    }
+  })
   return { membros, livres: porUsuario.get('null')?.intocados || 0 }
+}
+
+/**
+ * O peso de desempenho de cada membro, pronto para `D.planoRebalanceamento`.
+ *
+ * Falha ao ler o ranking do mes (ex.: sem plano de comissao configurado para a empresa) NAO pode
+ * impedir a entrada na equipe — a pessoa cai para peso NEUTRO (1) em todo mundo, que e' o
+ * comportamento de ANTES desta mudanca. `rankingDoMes` so' lista quem TEM faturamento
+ * (`services/comissao.js`, `montarRanking`), entao quem nao vendeu simplesmente nao aparece — e
+ * e' assim que `pesoDesempenho` reconhece "sem faturamento ainda" e mantem o peso neutro.
+ */
+async function pesosDeDesempenho(empresaId, membros) {
+  let ranking = []
+  try {
+    const hoje = new Date()
+    const competencia = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-01`
+    ranking = await rankingDoMes(empresaId, competencia)
+  } catch (e) {
+    logger.warn(
+      { empresa_id: empresaId, err: e?.message },
+      '[lead-distribuicao] nao foi possivel ler o ranking do mes; peso neutro para todos'
+    )
+  }
+  const originadoPorId = new Map((ranking || []).map((r) => [String(r.usuario_id), r.originado]))
+  const mediana = D.medianaOriginado((ranking || []).map((r) => r.originado))
+  return membros.map((m) => D.pesoDesempenho({
+    originado: originadoPorId.get(String(m.usuario_id)),
+    medianaOriginado: mediana,
+    parados: m.parados,
+    leads: m.leads,
+  }))
 }
 
 // ─── ESCRITA: os dois movimentos possiveis ──────────────────────────────────────────────
@@ -224,7 +270,13 @@ async function rebalancearEquipe(client, { empresaId, equipeId, nichoId, usuario
 
   await travarEquipe(client, empresaId, equipeId)
   const { membros, livres } = await contagensParaPlano(client, empresaId, nichoId, ids)
-  const plano = D.planoRebalanceamento({ membros, livres })
+  // Ajuste MODESTO por desempenho (2026-09-21): quem fatura acima da mediana da equipe recebe um
+  // pouco mais da sobra; quem tem muito lead parado recebe um pouco menos. Ver o cabecalho de
+  // `pesoDesempenho` em services/lead-distribuicao.js — a base continua sendo a divisao
+  // igualitaria de sempre.
+  const pesos = await pesosDeDesempenho(empresaId, membros)
+  const membrosComPeso = membros.map((m, i) => ({ ...m, peso: pesos[i] }))
+  const plano = D.planoRebalanceamento({ membros: membrosComPeso, livres })
   if (!plano.total_movimentos) return { ...vazio, truncado: plano.truncado }
 
   const motivo = origem || D.ORIGEM.ENTRADA_NA_EQUIPE
@@ -379,6 +431,7 @@ module.exports = {
   resumoProtegidos,
   livresRedistribuiveis,
   contagensParaPlano,
+  pesosDeDesempenho,
   rebalancearEquipe,
   puxarLeads,
   assertResponsavelDaEmpresa,

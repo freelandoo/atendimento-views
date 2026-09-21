@@ -122,3 +122,17 @@ export declare function resumoDaPuxada(
 
 /** `null` quando nada se moveu — é comum e legítimo; anunciar "0" mandaria procurar defeito. */
 export declare function resumoDoRebalanceamento(d: ResultadoRebalanceamento | null | undefined): string | null
+
+export interface ResultadoDevolucao {
+  usuario_id: string
+  nome?: string | null
+  liberados: number
+  com_reuniao_futura: number
+  com_conversa_aberta: number
+}
+
+/**
+ * O que aconteceu na devolução de leads ao tirar alguém da equipe. NÃO filtra por "protegido" —
+ * mesmo lead com reunião marcada ou conversa aberta volta. `null` quando ninguém foi removido.
+ */
+export declare function resumoDaDevolucao(devolucao: ResultadoDevolucao[] | null | undefined): string | null

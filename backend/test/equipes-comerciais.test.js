@@ -61,11 +61,25 @@ test('db valida participantes pelo vinculo ativo da propria empresa', () => {
   assert.match(src, /u\.ativo = true/)
 })
 
-test('db bloqueia remocao de participantes ate existir devolucao de leads', () => {
+test('db PERMITE remocao de participantes e devolve os leads deles para a fila', () => {
+  // Ate 2026-09-21 a saida era bloqueada com 409 REMOCAO_EXIGE_DEVOLUCAO. A devolucao existe:
+  // fecha o vinculo (saiu_em) e libera TODOS os leads da pessoa naquele nicho, sem filtrar por
+  // "protegido" — decisao do operador (2026-09-21).
   const src = fonte('src/db/equipes-comerciais.js')
-  assert.match(src, /REMOCAO_EXIGE_DEVOLUCAO/)
-  assert.match(src, /EQUIPE_COM_MEMBROS/)
-  assert.match(src, /devolução de leads/)
+  assert.ok(!/REMOCAO_EXIGE_DEVOLUCAO/.test(src), 'a remocao nao deve mais ser recusada')
+  assert.match(src, /SET saiu_em = NOW\(\)/)
+  assert.match(src, /removido_por/)
+  assert.match(src, /LR\.liberarLeadsDoMembro/)
+  assert.match(src, /EQUIPE_COM_MEMBROS/, 'encerrar equipe com gente continua recusado — encerrar so remove ninguem')
+})
+
+test('db devolve TODOS os leads da pessoa, sem filtrar por protegido', () => {
+  // A distribuicao AUTOMATICA (services/lead-distribuicao.js) so toca em lead intocado. A saida
+  // de equipe e ato humano explicito e devolve tudo, inclusive reuniao marcada/conversa aberta —
+  // por isso NAO chama sqlRedistribuivel aqui.
+  const src = fonte('src/db/equipes-comerciais.js')
+  const bloco = src.slice(src.indexOf('async function substituirParticipantes'), src.indexOf('async function criarEquipe'))
+  assert.ok(!/sqlRedistribuivel/.test(bloco), 'a devolucao por saida de equipe nao filtra por protegido')
 })
 
 test('db nunca decide equipe por nome de nicho nem por papel literal', () => {
