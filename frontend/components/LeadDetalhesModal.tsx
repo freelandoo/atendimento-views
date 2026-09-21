@@ -717,27 +717,26 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
 
   return (
     <>
-      {/* Geometria do PRIMITIVO: folha inferior no celular, modal centrado a partir de `sm`.
-          A ficha tem grade de 2-3 colunas — espremida numa coluna de 358px ela vira uma pilha
-          sem fim, e o `92vh` fazia a barra do navegador do telefone cortar o rodapé. */}
+      {/* Mesmo porte do modal de conversa: ficha flutuante no meio, menor que uma tela inteira.
+          O conteúdo continua completo, mas rola dentro do painel em vez de tomar a página. */}
       <div className={classesFundoFolha()} onClick={onFechar}>
         <div
           role="dialog"
           aria-modal="true"
           aria-label={`Detalhes de ${lead.nome}`}
-          className={classesFolha({ tamanho: 'xl', extra: 'bg-surface-2' })}
+          className={classesFolha({ tamanho: 'md', extra: 'bg-surface-2 sm:max-h-[86dvh]' })}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex shrink-0 justify-center pt-2 sm:hidden" aria-hidden="true">
             <span className="h-1 w-10 rounded-full bg-line-strong" />
           </div>
-          <div className="shrink-0 border-b border-line bg-surface px-4 py-4 sm:px-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="shrink-0 border-b border-line bg-surface px-4 py-3 sm:px-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Ficha do lead</p>
-                <h3 className="mt-1 truncate text-xl font-semibold leading-tight text-ink">{lead.nome || '—'}</h3>
+                <h3 className="mt-1 truncate text-lg font-semibold leading-tight text-ink">{lead.nome || '—'}</h3>
                 <NichoCidade nicho={lead.nicho} cidade={lead.cidade} className="mt-1 text-sm" vazio="Sem mercado informado" />
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                   <span className={`rounded-full border px-2.5 py-1 font-semibold ${seloEditado.classe}`} title={seloEditado.descricao}>
                     {seloEditado.rotulo}{seloEditado.score != null ? ` · ${seloEditado.score}/13` : ''}
                   </span>
@@ -769,7 +768,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
           {/* O corpo rola; a altura vem do flex do painel, não de um `calc` com a altura do
               cabeçalho chutada — o cabeçalho quebra em mais linhas no celular e o `-108px`
               passava a mentir justamente ali. */}
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5">
             <ResumoIcpCompacto
               selo={seloEditado}
               score={seloEditado.score}
@@ -809,7 +808,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
               </div>
             )}
 
-            <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.46fr)]">
+            <div className="mt-4 grid gap-3">
               {podeEditarIcp ? (
                 <SecaoModal
                 titulo="Marcação CP/ICP"
@@ -824,7 +823,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                   </span>
                 )}
               >
-                <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {icpEditado.criterios.map((c) => {
                     const auto = sinaisAuto[c.id]
                     const humano = c.tipo !== 'automatico'
@@ -924,7 +923,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                 </SecaoModal>
               )}
 
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <SecaoModal titulo="Contexto do lead" subtitulo="Dados que ajudam a decidir a abordagem.">
                   {/* Dados complementares: é para cá que vieram Endereço, Nota, Avaliações e Horário
                       quando saíram das colunas da tabela. */}
