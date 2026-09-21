@@ -8,6 +8,8 @@ import {
 import type { AcessoRapido } from '@/lib/lead-acessos'
 import { ContatoEditavel } from '@/components/ContatoEditavel'
 import { classesFolha, classesFundoFolha } from '@/lib/ui-primitivos'
+import Botao from '@/components/ui/Botao'
+import { IconClose } from '@/components/ui/icons'
 
 // Modal enxuto do Banco de Leads. Reusa o MESMO endpoint da página de Conversas
 // (GET /api/empresas/:id/conversas/:numero) — sem recriar a lógica de conversa.
@@ -38,9 +40,9 @@ type StatusEvento = {
 }
 
 const STATUS_LEAD: Record<string, { label: string; detalhe: string; classe: string }> = {
-  coletado: { label: 'Sem contato', detalhe: 'Ainda não virou conversa.', classe: 'border-slate-200 bg-slate-50 text-slate-700' },
-  contato_encontrado: { label: 'Sem contato', detalhe: 'Telefone encontrado, sem abordagem concluída.', classe: 'border-slate-200 bg-slate-50 text-slate-700' },
-  aguardando: { label: 'Sem contato', detalhe: 'Aguardando primeira abordagem.', classe: 'border-slate-200 bg-slate-50 text-slate-700' },
+  coletado: { label: 'Sem contato', detalhe: 'Ainda não virou conversa.', classe: 'border-line bg-surface-2 text-ink-2' },
+  contato_encontrado: { label: 'Sem contato', detalhe: 'Telefone encontrado, sem abordagem concluída.', classe: 'border-line bg-surface-2 text-ink-2' },
+  aguardando: { label: 'Sem contato', detalhe: 'Aguardando primeira abordagem.', classe: 'border-line bg-surface-2 text-ink-2' },
   aprovado: { label: 'Marcado', detalhe: 'Lead aprovado para o Comercial trabalhar.', classe: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
   enviado: { label: 'Contatado', detalhe: 'Mensagem já foi enviada.', classe: 'border-blue-200 bg-blue-50 text-blue-700' },
   respondeu: { label: 'Respondido', detalhe: 'Já respondeu em algum momento.', classe: 'border-orange-200 bg-orange-50 text-orange-700' },
@@ -132,6 +134,39 @@ function rotuloEventoStatus(e: StatusEvento): string {
   if (e.acao === 'lead_descartado') return rotuloDescarte(e)
   if (e.acao === 'lead_status_alterado') return `${statusLabel(e.estado_anterior)} → ${statusLabel(e.estado_novo)}`
   return e.acao
+}
+
+/**
+ * Casca compartilhada dos 3 sub-modais de ação (reunião/ligação/descarte). Os três eram a
+ * MESMA moldura copiada três vezes (overlay, cartão flutuante, cabeçalho com × e rodapé com
+ * Cancelar/Salvar) — só o formulário do meio mudava. Nenhuma lógica de envio saiu daqui: cada
+ * chamador continua decidindo o próprio payload e quando fechar.
+ */
+function PainelAcaoConversa({ titulo, descricao, onFechar, rodape, children }: {
+  titulo: string
+  descricao: string
+  onFechar: () => void
+  rodape: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-ink/50 p-4" onClick={onFechar}>
+      <div className="max-h-[calc(92dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl bg-surface p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-ink">{titulo}</div>
+            <p className="mt-1 text-xs text-ink-3">{descricao}</p>
+          </div>
+          <button type="button" onClick={onFechar} aria-label="Fechar"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-surface-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
+            <IconClose />
+          </button>
+        </div>
+        {children}
+        <div className="mt-3 flex justify-end gap-2">{rodape}</div>
+      </div>
+    </div>
+  )
 }
 
 export default function ConversaHistoricoModal({
@@ -282,7 +317,7 @@ export default function ConversaHistoricoModal({
   const statusInfo = STATUS_LEAD[String(status || '')] || {
     label: status || 'Sem status',
     detalhe: 'Status atual do lead.',
-    classe: 'border-slate-200 bg-slate-50 text-slate-700',
+    classe: 'border-line bg-surface-2 text-ink-2',
   }
   const textoBotao = enviando
     ? mensagemGerada ? 'Enviando...' : 'Gerando e enviando...'
@@ -345,12 +380,12 @@ export default function ConversaHistoricoModal({
                   tipo="tel"
                   titulo="Clique para corrigir o telefone deste lead"
                   largura="w-36"
-                  classeValor="rounded font-mono text-xs text-slate-500 underline decoration-dotted decoration-slate-300 underline-offset-2 hover:text-brand hover:decoration-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+                  classeValor="rounded font-mono text-xs text-ink-3 underline decoration-dotted decoration-slate-300 underline-offset-2 hover:text-brand hover:decoration-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
                 >
                   {fmtNumero(numero)}
                 </ContatoEditavel>
               ) : (
-                <span className="font-mono text-xs text-slate-500">{fmtNumero(numero)}</span>
+                <span className="font-mono text-xs text-ink-3">{fmtNumero(numero)}</span>
               )}
               {(acessos || []).map((a) => (
                 <a
@@ -360,16 +395,18 @@ export default function ConversaHistoricoModal({
                   rel="noreferrer"
                   title={a.dica}
                   aria-label={a.dica}
-                  className="inline-flex items-center gap-0.5 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 transition hover:border-brand/40 hover:bg-brand/5 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+                  className="inline-flex items-center gap-0.5 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-ink-2 transition hover:border-brand/40 hover:bg-brand/5 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
                 >
-                  {a.rotulo}<span aria-hidden="true" className="text-slate-400">↗</span>
+                  {a.rotulo}<span aria-hidden="true" className="text-ink-3">↗</span>
                 </a>
               ))}
             </div>
           </div>
           {/* Alvo de 44px: o × de 12px era, no telefone, o menor alvo da tela inteira. */}
-          <button onClick={onClose} aria-label="Fechar"
-            className="-mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-xl leading-none text-ink-3 hover:bg-surface-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40">×</button>
+          <button type="button" onClick={onClose} aria-label="Fechar"
+            className="-mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-ink-3 hover:bg-surface-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
+            <IconClose />
+          </button>
         </div>
 
         {/* Sem historico, esta area encolhe: o aviso curto fica colado no bloco de acoes
@@ -387,14 +424,14 @@ export default function ConversaHistoricoModal({
           ) : carregando ? (
             <p className="text-sm text-center text-gray-500 py-8">Carregando…</p>
           ) : vazio ? (
-            <p className="text-center text-xs text-slate-400">Nenhuma conversa ainda com este contato.</p>
+            <p className="text-center text-xs text-ink-3">Nenhuma conversa ainda com este contato.</p>
           ) : (
             historico.map((m, i) => {
               const isUser = m.role === 'user'
               const isAssistant = m.role === 'assistant'
               const isOperator = m.role === 'operator'
               const bubble = isUser
-                ? 'bg-white border border-gray-200 mr-auto'
+                ? 'bg-surface border border-gray-200 mr-auto'
                 : isAssistant
                   ? 'bg-brand text-white ml-auto'
                   : isOperator
@@ -412,14 +449,14 @@ export default function ConversaHistoricoModal({
         </div>
 
         {(mensagemGerada || onEnviar || onGerar || onAlterarStatus) && (
-          <div className="border-t bg-white px-5 py-4 space-y-3">
+          <div className="border-t bg-surface px-5 py-4 space-y-3">
             {mensagemGerada && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
                 <div className="mb-1 flex items-center justify-between gap-3">
                   <span className="text-xs font-semibold uppercase tracking-wide text-amber-800">Mensagem pronta</span>
                   <span className="text-[11px] text-amber-700">aguardando envio</span>
                 </div>
-                <div className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-sm text-slate-800">
+                <div className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-sm text-ink">
                   {mensagemGerada}
                 </div>
               </div>
@@ -441,49 +478,41 @@ export default function ConversaHistoricoModal({
                 <a href="/dashboard/contextos" className="font-semibold underline underline-offset-2">Ir para Instância</a>
               </div>
             ) : !mensagemGerada && podeEnviar ? (
-              <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm text-slate-700">
+              <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm text-ink-2">
                 A saudação será gerada e enviada agora para este lead.
               </div>
             ) : null}
             {!telefonePendente && !motivoEnvioIndisponivel && (onGerar || onEnviar) && (
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className={`text-xs ${cooldownAtivo ? 'text-amber-700' : podeEnviar ? 'text-emerald-700' : podeGerar ? 'text-slate-600' : 'text-slate-400'}`}>
+                <span className={`text-xs ${cooldownAtivo ? 'text-amber-700' : podeEnviar ? 'text-emerald-700' : podeGerar ? 'text-ink-2' : 'text-ink-3'}`}>
                   {cooldownAtivo ? `Cooldown ativo: ${fmtMMSS(cooldownS || 0)}` : podeEnviar ? 'Envio liberado' : podeGerar ? 'A mensagem pode ser gerada, mas o envio está indisponível' : 'Envio indisponível para este lead'}
                 </span>
                 <div className="inline-flex flex-wrap items-center gap-2">
                   {onGerar && mensagemGerada && (
-                    <button
-                      onClick={onGerar}
-                      disabled={!podeAcionarGeracao}
-                      className="px-3 py-2 rounded-lg border border-brand text-brand text-sm font-semibold hover:bg-blue-50 disabled:opacity-50"
-                    >
-                      {gerando ? 'Gerando...' : 'Gerar de novo'}
-                    </button>
+                    <Botao variante="secundaria" onClick={onGerar} disabled={!podeAcionarGeracao} carregando={gerando}>
+                      Gerar de novo
+                    </Botao>
                   )}
                   {onEnviar && (
-                    <button
-                      onClick={onEnviar}
-                      disabled={!podeAcionarEnvio}
-                      className="px-4 py-2 rounded-lg bg-brand text-white text-sm font-semibold hover:bg-brand-dark disabled:opacity-50 disabled:hover:bg-brand"
-                    >
+                    <Botao variante="primaria" onClick={onEnviar} disabled={!podeAcionarEnvio} carregando={enviando}>
                       {textoBotao}
-                    </button>
+                    </Botao>
                   )}
                 </div>
               </div>
             )}
             {onAlterarStatus && (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="rounded-xl border border-line bg-surface-2 p-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">
                       Status do lead
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${statusInfo.classe}`}>
                         {statusInfo.label}
                       </span>
-                      <span className="text-xs text-slate-500">{statusInfo.detalhe}</span>
+                      <span className="text-xs text-ink-3">{statusInfo.detalhe}</span>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-1.5" aria-label="Alterar status do lead">
@@ -495,7 +524,7 @@ export default function ConversaHistoricoModal({
                           type="button"
                           onClick={() => alterarStatus(a.valor)}
                           disabled={ativo || !!mudandoStatus}
-                          className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition disabled:cursor-default disabled:opacity-60 ${ativo ? statusInfo.classe : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'}`}
+                          className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition disabled:cursor-default disabled:opacity-60 ${ativo ? statusInfo.classe : 'border-line bg-surface text-ink-2 hover:bg-surface-3'}`}
                         >
                           {mudandoStatus === a.valor ? 'Salvando...' : a.label}
                         </button>
@@ -503,21 +532,21 @@ export default function ConversaHistoricoModal({
                     })}
                   </div>
                 </div>
-                <div className="mt-3 border-t border-slate-200 pt-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Histórico de status</div>
+                <div className="mt-3 border-t border-line pt-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Histórico de status</div>
                   {carregandoStatus ? (
-                    <p className="mt-1 text-xs text-slate-400">Carregando histórico…</p>
+                    <p className="mt-1 text-xs text-ink-3">Carregando histórico…</p>
                   ) : historicoStatus.length ? (
                     <ul className="mt-2 space-y-1.5">
                       {historicoStatus.slice(0, 5).map((e) => (
-                        <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-2 py-1.5 text-xs text-slate-600">
-                          <span className="font-medium text-slate-700">{rotuloEventoStatus(e)}</span>
-                          <span className="text-slate-400">{fmtDataHora(e.ocorrido_em)}</span>
+                        <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-surface px-2 py-1.5 text-xs text-ink-2">
+                          <span className="font-medium text-ink-2">{rotuloEventoStatus(e)}</span>
+                          <span className="text-ink-3">{fmtDataHora(e.ocorrido_em)}</span>
                         </li>
                       ))}
                     </ul>
                   ) : (
-                    <p className="mt-1 text-xs text-slate-400">Nenhuma troca registrada ainda.</p>
+                    <p className="mt-1 text-xs text-ink-3">Nenhuma troca registrada ainda.</p>
                   )}
                 </div>
               </div>
@@ -526,128 +555,128 @@ export default function ConversaHistoricoModal({
         )}
 
         {modalAcao === 'reuniao' && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/35 p-4" onClick={() => setModalAcao(null)}>
-            <div className="max-h-[calc(92dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-slate-900">Agendar reunião</div>
-                  <p className="mt-1 text-xs text-slate-500">Só será marcado quando você salvar. Vai para a agenda de quem está alterando.</p>
-                </div>
-                <button type="button" onClick={() => setModalAcao(null)} className="text-xl leading-none text-slate-400 hover:text-slate-700">×</button>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <label className="text-xs text-slate-600">Dia
-                  <input type="date" value={dataReuniao} onChange={(e) => setDataReuniao(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
-                </label>
-                <label className="text-xs text-slate-600">Horário
-                  <input type="time" value={horarioReuniao} onChange={(e) => setHorarioReuniao(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
-                </label>
-                <label className="col-span-2 text-xs text-slate-600">Duração
-                  <select value={duracaoReuniao} onChange={(e) => setDuracaoReuniao(Number(e.target.value))} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
-                    <option value={15}>15 min</option><option value={30}>30 min</option><option value={45}>45 min</option><option value={60}>1 hora</option>
-                  </select>
-                </label>
-              </div>
-              <label className="mt-2 block text-xs text-slate-600">Observações rápidas
-                <textarea value={observacoesReuniao} onChange={(e) => setObservacoesReuniao(e.target.value)} rows={3} placeholder="Ex.: confirmar orçamento, falar com sócio, enviar proposta antes da reunião…" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+          <PainelAcaoConversa
+            titulo="Agendar reunião"
+            descricao="Só será marcado quando você salvar. Vai para a agenda de quem está alterando."
+            onFechar={() => setModalAcao(null)}
+            rodape={
+              <>
+                <Botao variante="neutra" tamanho="sm" onClick={() => setModalAcao(null)}>Cancelar</Botao>
+                <Botao variante="primaria" tamanho="sm" onClick={salvarReuniao}
+                  disabled={!dataReuniao || !horarioReuniao} carregando={mudandoStatus === 'reuniao_agendada'}>
+                  Salvar reunião
+                </Botao>
+              </>
+            }
+          >
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <label className="text-xs text-ink-2">Dia
+                <input type="date" value={dataReuniao} onChange={(e) => setDataReuniao(e.target.value)} className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm" />
               </label>
-              <div className="mt-3 flex justify-end gap-2">
-                <button type="button" onClick={() => setModalAcao(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
-                <button type="button" onClick={salvarReuniao} disabled={mudandoStatus === 'reuniao_agendada' || !dataReuniao || !horarioReuniao} className="rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-50">{mudandoStatus === 'reuniao_agendada' ? 'Agendando...' : 'Salvar reunião'}</button>
-              </div>
+              <label className="text-xs text-ink-2">Horário
+                <input type="time" value={horarioReuniao} onChange={(e) => setHorarioReuniao(e.target.value)} className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm" />
+              </label>
+              <label className="col-span-2 text-xs text-ink-2">Duração
+                <select value={duracaoReuniao} onChange={(e) => setDuracaoReuniao(Number(e.target.value))} className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm">
+                  <option value={15}>15 min</option><option value={30}>30 min</option><option value={45}>45 min</option><option value={60}>1 hora</option>
+                </select>
+              </label>
             </div>
-          </div>
+            <label className="mt-2 block text-xs text-ink-2">Observações rápidas
+              <textarea value={observacoesReuniao} onChange={(e) => setObservacoesReuniao(e.target.value)} rows={3} placeholder="Ex.: confirmar orçamento, falar com sócio, enviar proposta antes da reunião…" className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm" />
+            </label>
+          </PainelAcaoConversa>
         )}
 
         {modalAcao === 'ligacao' && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/35 p-4" onClick={() => setModalAcao(null)}>
-            <div className="max-h-[calc(92dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-slate-900">Registrar ligação realizada</div>
-                  <p className="mt-1 text-xs text-slate-500">Registra a ligação no histórico e marca o lead como contatado.</p>
-                </div>
-                <button type="button" onClick={() => setModalAcao(null)} className="text-xl leading-none text-slate-400 hover:text-slate-700">×</button>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <label className="text-xs text-slate-600">Resultado
-                  <select value={resultadoLigacao} onChange={(e) => trocarResultadoLigacao(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
-                    <option value="atendeu">Atendeu</option><option value="nao_atendeu">Não atendeu</option><option value="ocupado">Ocupado</option><option value="caixa_postal">Caixa postal</option><option value="numero_invalido">Número inválido</option><option value="reagendou">Reagendou</option>
-                  </select>
-                </label>
-                <label className="text-xs text-slate-600">Duração
-                  <select value={duracaoLigacao} onChange={(e) => setDuracaoLigacao(Number(e.target.value))} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
-                    <option value={1}>1 min</option><option value={3}>3 min</option><option value={5}>5 min</option><option value={10}>10 min</option><option value={15}>15 min</option><option value={30}>30 min</option>
-                  </select>
-                </label>
-              </div>
-              <label className="mt-2 block text-xs text-slate-600">Observações da ligação
-                <textarea value={observacoesLigacao} onChange={(e) => setObservacoesLigacao(e.target.value)} rows={3} placeholder="Ex.: pediu retorno amanhã, não era decisor, demonstrou interesse…" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+          <PainelAcaoConversa
+            titulo="Registrar ligação realizada"
+            descricao="Registra a ligação no histórico e marca o lead como contatado."
+            onFechar={() => setModalAcao(null)}
+            rodape={
+              <>
+                <Botao variante="neutra" tamanho="sm" onClick={() => setModalAcao(null)}>Cancelar</Botao>
+                <Botao variante="primaria" tamanho="sm" onClick={salvarLigacao}
+                  carregando={mudandoStatus === 'ligacao_realizada'}>
+                  Salvar ligação
+                </Botao>
+              </>
+            }
+          >
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <label className="text-xs text-ink-2">Resultado
+                <select value={resultadoLigacao} onChange={(e) => trocarResultadoLigacao(e.target.value)} className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm">
+                  <option value="atendeu">Atendeu</option><option value="nao_atendeu">Não atendeu</option><option value="ocupado">Ocupado</option><option value="caixa_postal">Caixa postal</option><option value="numero_invalido">Número inválido</option><option value="reagendou">Reagendou</option>
+                </select>
               </label>
-              <div className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Próxima ação</div>
-                <div className="inline-flex w-full rounded-lg border bg-white p-0.5" role="group" aria-label="Canal da próxima ação">
-                  {CANAL_OPCOES.map((o) => (
-                    <button key={o.valor} type="button" onClick={() => { setProxAcaoLigacao((f) => ({ ...f, canal: o.valor })); setErrosProxAcao({}) }} aria-pressed={proxAcaoLigacao.canal === o.valor}
-                      className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition ${proxAcaoLigacao.canal === o.valor ? 'bg-brand text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
-                      {o.label}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[11px] text-slate-500">{CANAL_OPCOES.find((o) => o.valor === proxAcaoLigacao.canal)?.ajuda}</p>
-                {proxAcaoLigacao.canal !== 'nenhuma' && (
-                  <>
-                    <label className="block text-xs text-slate-600">O que fazer
-                      <input value={proxAcaoLigacao.proxima_acao} onChange={(e) => { setProxAcaoLigacao((f) => ({ ...f, proxima_acao: e.target.value })); setErrosProxAcao({}) }} placeholder="Ex.: retomar pelo preço" className={`mt-1 w-full rounded-lg border px-2 py-1.5 text-sm ${errosProxAcao.proxima_acao ? 'border-red-400' : 'border-slate-200'}`} />
-                      {errosProxAcao.proxima_acao && <span className="mt-0.5 block text-[11px] text-red-600">{errosProxAcao.proxima_acao}</span>}
-                    </label>
-                    <label className="block text-xs text-slate-600">Quando
-                      <input type="datetime-local" value={proxAcaoLigacao.agendado_para} onChange={(e) => { setProxAcaoLigacao((f) => ({ ...f, agendado_para: e.target.value })); setErrosProxAcao({}) }} className={`mt-1 w-full rounded-lg border px-2 py-1.5 text-sm ${errosProxAcao.agendado_para ? 'border-red-400' : 'border-slate-200'}`} />
-                      {errosProxAcao.agendado_para && <span className="mt-0.5 block text-[11px] text-red-600">{errosProxAcao.agendado_para}</span>}
-                    </label>
-                    <label className="block text-xs text-slate-600">Prioridade
-                      <select value={proxAcaoLigacao.prioridade || 'media'} onChange={(e) => setProxAcaoLigacao((f) => ({ ...f, prioridade: e.target.value as FormProximaAcao['prioridade'] }))} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
-                        {PRIORIDADE_OPCOES.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
-                      </select>
-                    </label>
-                    <p className="text-[11px] text-slate-500">Se salvar, entra na fila de Follow-ups já ligado a esta ligação.</p>
-                  </>
-                )}
-              </div>
-              <div className="mt-3 flex justify-end gap-2">
-                <button type="button" onClick={() => setModalAcao(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
-                <button type="button" onClick={salvarLigacao} disabled={mudandoStatus === 'ligacao_realizada'} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{mudandoStatus === 'ligacao_realizada' ? 'Salvando...' : 'Salvar ligação'}</button>
-              </div>
+              <label className="text-xs text-ink-2">Duração
+                <select value={duracaoLigacao} onChange={(e) => setDuracaoLigacao(Number(e.target.value))} className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm">
+                  <option value={1}>1 min</option><option value={3}>3 min</option><option value={5}>5 min</option><option value={10}>10 min</option><option value={15}>15 min</option><option value={30}>30 min</option>
+                </select>
+              </label>
             </div>
-          </div>
+            <label className="mt-2 block text-xs text-ink-2">Observações da ligação
+              <textarea value={observacoesLigacao} onChange={(e) => setObservacoesLigacao(e.target.value)} rows={3} placeholder="Ex.: pediu retorno amanhã, não era decisor, demonstrou interesse…" className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm" />
+            </label>
+            <div className="mt-3 space-y-2 rounded-xl border border-line bg-surface-2/70 p-3">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Próxima ação</div>
+              <div className="inline-flex w-full rounded-lg border bg-surface p-0.5" role="group" aria-label="Canal da próxima ação">
+                {CANAL_OPCOES.map((o) => (
+                  <button key={o.valor} type="button" onClick={() => { setProxAcaoLigacao((f) => ({ ...f, canal: o.valor })); setErrosProxAcao({}) }} aria-pressed={proxAcaoLigacao.canal === o.valor}
+                    className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition ${proxAcaoLigacao.canal === o.valor ? 'bg-brand text-white' : 'text-ink-2 hover:bg-surface-2'}`}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-ink-3">{CANAL_OPCOES.find((o) => o.valor === proxAcaoLigacao.canal)?.ajuda}</p>
+              {proxAcaoLigacao.canal !== 'nenhuma' && (
+                <>
+                  <label className="block text-xs text-ink-2">O que fazer
+                    <input value={proxAcaoLigacao.proxima_acao} onChange={(e) => { setProxAcaoLigacao((f) => ({ ...f, proxima_acao: e.target.value })); setErrosProxAcao({}) }} placeholder="Ex.: retomar pelo preço" className={`mt-1 w-full rounded-lg border px-2 py-1.5 text-sm ${errosProxAcao.proxima_acao ? 'border-red-400' : 'border-line'}`} />
+                    {errosProxAcao.proxima_acao && <span className="mt-0.5 block text-[11px] text-red-600">{errosProxAcao.proxima_acao}</span>}
+                  </label>
+                  <label className="block text-xs text-ink-2">Quando
+                    <input type="datetime-local" value={proxAcaoLigacao.agendado_para} onChange={(e) => { setProxAcaoLigacao((f) => ({ ...f, agendado_para: e.target.value })); setErrosProxAcao({}) }} className={`mt-1 w-full rounded-lg border px-2 py-1.5 text-sm ${errosProxAcao.agendado_para ? 'border-red-400' : 'border-line'}`} />
+                    {errosProxAcao.agendado_para && <span className="mt-0.5 block text-[11px] text-red-600">{errosProxAcao.agendado_para}</span>}
+                  </label>
+                  <label className="block text-xs text-ink-2">Prioridade
+                    <select value={proxAcaoLigacao.prioridade || 'media'} onChange={(e) => setProxAcaoLigacao((f) => ({ ...f, prioridade: e.target.value as FormProximaAcao['prioridade'] }))} className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm">
+                      {PRIORIDADE_OPCOES.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+                    </select>
+                  </label>
+                  <p className="text-[11px] text-ink-3">Se salvar, entra na fila de Follow-ups já ligado a esta ligação.</p>
+                </>
+              )}
+            </div>
+          </PainelAcaoConversa>
         )}
 
         {modalAcao === 'descarte' && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/35 p-4" onClick={() => setModalAcao(null)}>
-            <div className="max-h-[calc(92dvh-2rem)] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-slate-900">Descartar lead</div>
-                  <p className="mt-1 text-xs text-slate-500">Informe o motivo. Se sair sem salvar, nada será alterado.</p>
-                </div>
-                <button type="button" onClick={() => setModalAcao(null)} className="text-xl leading-none text-slate-400 hover:text-slate-700">×</button>
-              </div>
-              <label className="mt-3 block text-xs text-slate-600">Motivo do descarte
-                <input value={motivoDescarte} onChange={(e) => setMotivoDescarte(e.target.value)} placeholder="Ex.: sem perfil, número inválido, sem interesse…" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
-              </label>
-              <label className="mt-2 block text-xs text-slate-600">Observações
-                <textarea value={observacoesDescarte} onChange={(e) => setObservacoesDescarte(e.target.value)} rows={3} placeholder="Detalhe rápido para a equipe entender a decisão." className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
-              </label>
-              <div className="mt-3 flex justify-end gap-2">
-                <button type="button" onClick={() => setModalAcao(null)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
-                <button type="button" onClick={salvarDescarte} disabled={mudandoStatus === 'descartado' || !motivoDescarte.trim()} className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50">{mudandoStatus === 'descartado' ? 'Descartando...' : 'Descartar lead'}</button>
-              </div>
-            </div>
-          </div>
+          <PainelAcaoConversa
+            titulo="Descartar lead"
+            descricao="Informe o motivo. Se sair sem salvar, nada será alterado."
+            onFechar={() => setModalAcao(null)}
+            rodape={
+              <>
+                <Botao variante="neutra" tamanho="sm" onClick={() => setModalAcao(null)}>Cancelar</Botao>
+                <Botao variante="perigosa" tamanho="sm" onClick={salvarDescarte}
+                  disabled={!motivoDescarte.trim()} carregando={mudandoStatus === 'descartado'}>
+                  Descartar lead
+                </Botao>
+              </>
+            }
+          >
+            <label className="mt-3 block text-xs text-ink-2">Motivo do descarte
+              <input value={motivoDescarte} onChange={(e) => setMotivoDescarte(e.target.value)} placeholder="Ex.: sem perfil, número inválido, sem interesse…" className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm" />
+            </label>
+            <label className="mt-2 block text-xs text-ink-2">Observações
+              <textarea value={observacoesDescarte} onChange={(e) => setObservacoesDescarte(e.target.value)} rows={3} placeholder="Detalhe rápido para a equipe entender a decisão." className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm" />
+            </label>
+          </PainelAcaoConversa>
         )}
 
-        <div className="px-5 py-3 border-t flex justify-end">
-          <button onClick={onClose} className="px-3 py-2 rounded-lg border text-sm">Fechar</button>
+        <div className="px-5 py-3 border-t border-line flex justify-end">
+          <Botao variante="neutra" onClick={onClose}>Fechar</Botao>
         </div>
       </div>
     </div>

@@ -24,6 +24,8 @@ import {
   evidencia, rotuloEstado, rotuloOrigem, urlPerfil,
 } from '@/lib/instagram-perfil'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
+import Botao from '@/components/ui/Botao'
+import { IconClose } from '@/components/ui/icons'
 import {
   VARIANTES, O_QUE_MEDE, NOTA_COMPLETUDE, fatoresDeCadastro, leituraCadastro,
 } from '@/lib/pontuacao-indicador'
@@ -311,7 +313,7 @@ function BlocoInstagram({ lead, empresaId, onLeadAtualizado, pedidoRegistro = 0 
           <span className={
             estado.tom === 'ok' ? 'font-medium text-emerald-700'
               : estado.tom === 'atencao' ? 'font-medium text-amber-700'
-                : 'text-slate-500'
+                : 'text-ink-3'
           }>
             {rotuloEstado(lead)}
           </span>
@@ -321,17 +323,17 @@ function BlocoInstagram({ lead, empresaId, onLeadAtualizado, pedidoRegistro = 0 
               @{estado.handle || estado.candidato} ↗
             </a>
           )}
-          {origem && <span className="text-slate-400">· {origem}</span>}
+          {origem && <span className="text-ink-3">· {origem}</span>}
         </div>
 
         {/* O palpite precisa ser auditável por quem vai decidir: o que bateu e o que não bateu. */}
         {estado.chave === 'candidato' && ev.total > 0 && (
-          <ul className="space-y-0.5 text-[11px] text-slate-600">
+          <ul className="space-y-0.5 text-[11px] text-ink-2">
             {ev.bateram.map((s) => (
               <li key={s.chave}>✓ {s.rotulo}{s.detalhe ? ` (${s.detalhe})` : ''}</li>
             ))}
             {ev.naoBateram.map((s) => (
-              <li key={s.chave} className="text-slate-400">✗ {s.rotulo}{s.detalhe ? ` — ${s.detalhe}` : ''}</li>
+              <li key={s.chave} className="text-ink-3">✗ {s.rotulo}{s.detalhe ? ` — ${s.detalhe}` : ''}</li>
             ))}
           </ul>
         )}
@@ -341,10 +343,10 @@ function BlocoInstagram({ lead, empresaId, onLeadAtualizado, pedidoRegistro = 0 
             ali a medida é verdade sobre um perfil que talvez nem seja deste negócio. */}
         {atividade.chave && atividade.chave !== 'nao_verificado' && (
           <p className={`text-[11px] ${atividade.tom === 'ok' ? 'text-emerald-700'
-            : atividade.tom === 'atencao' ? 'text-amber-700' : 'text-slate-500'}`}>
+            : atividade.tom === 'atencao' ? 'text-amber-700' : 'text-ink-3'}`}>
             {atividade.rotulo}
             {atividade.ultimo_post_em && (
-              <span className="text-slate-400">
+              <span className="text-ink-3">
                 {' '}· último post em {new Date(atividade.ultimo_post_em).toLocaleDateString('pt-BR')}
               </span>
             )}
@@ -352,7 +354,7 @@ function BlocoInstagram({ lead, empresaId, onLeadAtualizado, pedidoRegistro = 0 
           </p>
         )}
 
-        {aviso && <p className="text-[11px] text-slate-400">{aviso}</p>}
+        {aviso && <p className="text-[11px] text-ink-3">{aviso}</p>}
 
         {editando ? (
           <div className="flex flex-wrap items-center gap-1">
@@ -389,7 +391,7 @@ function BlocoInstagram({ lead, empresaId, onLeadAtualizado, pedidoRegistro = 0 
               </button>
             )}
             {acoes.podeRecusar && (
-              <button className={`${botao} border-slate-300 text-slate-600`} disabled={!!ocupado}
+              <button className={`${botao} border-line-strong text-ink-2`} disabled={!!ocupado}
                 onClick={() => chamar('', {
                   method: 'PATCH', body: JSON.stringify({ confirmar: false }),
                 }, 'Perfil recusado.')}>
@@ -412,8 +414,8 @@ function BlocoInstagram({ lead, empresaId, onLeadAtualizado, pedidoRegistro = 0 
 function Linha({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
   return (
     <div className="grid gap-1 py-2 text-sm sm:grid-cols-[8.5rem_minmax(0,1fr)]">
-      <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{rotulo}</dt>
-      <dd className="min-w-0 break-words text-slate-800">{children}</dd>
+      <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{rotulo}</dt>
+      <dd className="min-w-0 break-words text-ink">{children}</dd>
     </div>
   )
 }
@@ -425,11 +427,11 @@ function SecaoModal({ titulo, subtitulo, acao, children }: {
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
+    <section className="rounded-lg border border-line bg-surface">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-4 py-3">
         <div className="min-w-0">
-          <h4 className="text-sm font-semibold text-slate-900">{titulo}</h4>
-          {subtitulo && <p className="mt-0.5 text-xs text-slate-500">{subtitulo}</p>}
+          <h4 className="text-sm font-semibold text-ink">{titulo}</h4>
+          {subtitulo && <p className="mt-0.5 text-xs text-ink-3">{subtitulo}</p>}
         </div>
         {acao}
       </div>
@@ -446,12 +448,12 @@ function CartaoResumo({ rotulo, valor, detalhe, children, classe = '' }: {
   classe?: string
 }) {
   return (
-    <div className={`min-h-[116px] rounded-lg border border-slate-200 bg-white px-4 py-3 ${classe}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{rotulo}</p>
+    <div className={`min-h-[116px] rounded-lg border border-line bg-surface px-4 py-3 ${classe}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{rotulo}</p>
       <div className="mt-2 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-lg font-semibold leading-tight text-slate-900">{valor}</p>
-          {detalhe && <p className="mt-1 text-xs leading-relaxed text-slate-500">{detalhe}</p>}
+          <p className="text-lg font-semibold leading-tight text-ink">{valor}</p>
+          {detalhe && <p className="mt-1 text-xs leading-relaxed text-ink-3">{detalhe}</p>}
         </div>
         {children}
       </div>
@@ -469,10 +471,10 @@ function ListaQualificacao({ titulo, itens, tom = 'neutro' }: {
     ? 'border-amber-200 bg-amber-50 text-amber-800'
     : tom === 'positivo'
       ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-      : 'border-slate-200 bg-slate-50 text-slate-700'
+      : 'border-line bg-surface-2 text-ink-2'
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{titulo}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{titulo}</p>
       <div className="mt-2 grid gap-1.5">
         {itens.map((item) => (
           <div key={item.chave || item.rotulo} className={`rounded-lg border px-2.5 py-2 text-xs ${classe}`}>
@@ -562,7 +564,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
       ? 'bg-amber-50 text-amber-700'
       : autosaveIcp === 'salvo'
         ? 'bg-emerald-50 text-emerald-700'
-        : 'bg-slate-50 text-slate-500'
+        : 'bg-surface-2 text-ink-3'
   const contatos = [
     lead.telefone ? 'telefone' : '',
     lead.email ? 'e-mail' : '',
@@ -697,11 +699,11 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
           <div className="flex shrink-0 justify-center pt-2 sm:hidden" aria-hidden="true">
             <span className="h-1 w-10 rounded-full bg-line-strong" />
           </div>
-          <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-4 sm:px-5">
+          <div className="shrink-0 border-b border-line bg-surface px-4 py-4 sm:px-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Ficha do lead</p>
-                <h3 className="mt-1 truncate text-xl font-semibold leading-tight text-slate-950">{lead.nome || '—'}</h3>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Ficha do lead</p>
+                <h3 className="mt-1 truncate text-xl font-semibold leading-tight text-ink">{lead.nome || '—'}</h3>
                 <NichoCidade nicho={lead.nicho} cidade={lead.cidade} className="mt-1 text-sm" vazio="Sem mercado informado" />
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
                   <span className={`rounded-full border px-2.5 py-1 font-semibold ${seloEditado.classe}`} title={seloEditado.descricao}>
@@ -711,7 +713,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                     {seloValidacao.rotulo} · {qualificacao.score_100}/100
                   </span>
                   {contatos.length > 0 && (
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-medium text-slate-600">
+                    <span className="rounded-full border border-line bg-surface-2 px-2.5 py-1 font-medium text-ink-2">
                       {contatos.join(' + ')}
                     </span>
                   )}
@@ -719,20 +721,14 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 {lead.json_apresentacao && (
-                  <button
-                    onClick={() => setJsonAberto(true)}
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:border-brand hover:bg-brand/5 hover:text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                    title="Dados unificados + prompt único pro bot gerar a saudação de análise"
-                  >
+                  <Botao variante="secundaria" onClick={() => setJsonAberto(true)}
+                    title="Dados unificados + prompt único pro bot gerar a saudação de análise">
                     Ver dados completos
-                  </button>
+                  </Botao>
                 )}
-                <button
-                  onClick={onFechar}
-                  aria-label="Fechar detalhes"
-                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-xl leading-none text-slate-400 hover:bg-slate-50 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                >
-                  ×
+                <button type="button" onClick={onFechar} aria-label="Fechar detalhes"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-line text-ink-3 hover:bg-surface-2 hover:text-ink-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand">
+                  <IconClose />
                 </button>
               </div>
             </div>
@@ -771,16 +767,16 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
             {lead.mensagem_gerada && (
               <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-slate-800">Mensagem gerada</p>
+                  <p className="text-sm font-semibold text-ink">Mensagem gerada</p>
                   <button
                     type="button"
                     onClick={copiarMensagem}
-                    className="shrink-0 rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-amber-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                    className="shrink-0 rounded-lg border border-amber-200 bg-surface px-3 py-1.5 text-xs font-medium text-ink-2 hover:bg-amber-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                   >
                     Copiar
                   </button>
                 </div>
-                <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-white/70 px-3 py-2 text-xs leading-relaxed text-slate-700">
+                <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface/70 px-3 py-2 text-xs leading-relaxed text-ink-2">
                   {lead.mensagem_gerada}
                 </p>
                 {instanciaDesconectada && (
@@ -816,8 +812,8 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                         title={`${criterioDoc.explicacao || c.rotulo}${criterioDoc.exemplo ? ` Exemplo: ${criterioDoc.exemplo}` : ''}`}
                         className={`flex min-h-[104px] items-start gap-3 rounded-lg border px-3 py-2.5 text-sm transition ${
                           respostasIcp[c.id]
-                            ? 'border-orange-300 bg-orange-50 text-slate-900 shadow-sm'
-                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                            ? 'border-orange-300 bg-orange-50 text-ink shadow-sm'
+                            : 'border-line bg-surface text-ink-2 hover:border-line-strong'
                         }`}
                       >
                         <input
@@ -828,12 +824,12 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                         />
                         <span className="min-w-0">
                           <span className="font-semibold">{c.rotulo}</span>
-                          <span className="ml-1 text-xs text-slate-400">+{c.pontos}</span>
-                          <span className="ml-1 rounded-full bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                          <span className="ml-1 text-xs text-ink-3">+{c.pontos}</span>
+                          <span className="ml-1 rounded-full bg-surface px-1.5 py-0.5 text-[10px] font-medium text-ink-3">
                             {humano ? (auto?.sugerido ? 'auto + humano' : 'humano') : 'automático'}
                           </span>
-                          {criterioDoc.explicacao && <span className="mt-1 block text-xs leading-relaxed text-slate-500">{criterioDoc.explicacao}</span>}
-                          {auto?.motivo && <span className="mt-1 block text-[11px] leading-relaxed text-slate-400">{auto.motivo}</span>}
+                          {criterioDoc.explicacao && <span className="mt-1 block text-xs leading-relaxed text-ink-3">{criterioDoc.explicacao}</span>}
+                          {auto?.motivo && <span className="mt-1 block text-[11px] leading-relaxed text-ink-3">{auto.motivo}</span>}
                           {/* Marcar "Instagram ativo" sem perfil registrado NÃO é bloqueado: o ICP é
                               julgamento humano e o operador pode ter visto o perfil por fora. Mas o
                               sistema só verifica o que está registrado — então a tela pede o
@@ -844,7 +840,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                               <button
                                 type="button"
                                 onClick={(e) => { e.preventDefault(); setPedidoRegistroIg((n) => n + 1) }}
-                                className="rounded border border-amber-300 bg-white px-1.5 py-0.5 font-medium text-amber-800 hover:bg-amber-50"
+                                className="rounded border border-amber-300 bg-surface px-1.5 py-0.5 font-medium text-amber-800 hover:bg-amber-50"
                               >
                                 Registrar Instagram
                               </button>
@@ -859,9 +855,9 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                   value={observacaoIcp}
                   onChange={(e) => alterarObservacaoIcp(e.target.value)}
                   placeholder="Observação opcional sobre o fit comercial"
-                  className="mt-3 min-h-[72px] w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/10"
+                  className="mt-3 min-h-[72px] w-full resize-y rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/10"
                 />
-                <p className="mt-2 text-xs text-slate-500">
+                <p className="mt-2 text-xs text-ink-3">
                   As alterações são salvas sozinhas. Se o resultado final for Lead A, ele fica
                   marcado/qualificado ao fechar esta ficha.
                 </p>
@@ -874,7 +870,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                 <SecaoModal titulo="Contexto do lead" subtitulo="Dados que ajudam a decidir a abordagem.">
                   {/* Dados complementares: é para cá que vieram Endereço, Nota, Avaliações e Horário
                       quando saíram das colunas da tabela. */}
-                  <dl className="divide-y divide-slate-100">
+                  <dl className="divide-y divide-line">
                     {lead.telefone && <Linha rotulo="Telefone"><span className="font-mono text-xs">{lead.telefone}</span></Linha>}
                     {lead.email && <Linha rotulo="E-mail"><span className="text-xs">{lead.email}</span></Linha>}
                     {lead.endereco && <Linha rotulo="Endereço"><span className="text-xs">{lead.endereco}</span></Linha>}
@@ -902,21 +898,21 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                           <a href={lead.site} target="_blank" rel="noreferrer" className="text-brand hover:underline">site próprio ↗</a>
                         )}
                         {!lead.tem_site && lead.link_original && (
-                          <a href={lead.link_original} target="_blank" rel="noreferrer" className="text-slate-500 hover:underline"
+                          <a href={lead.link_original} target="_blank" rel="noreferrer" className="text-ink-3 hover:underline"
                             title={tituloLinkNaoSite(lead.classificacao_url, lead.link_original)}>
                             {rotuloLink(lead.classificacao_url) || 'link'} ↗
                           </a>
                         )}
                         {lead.link_bio && (
-                          <a href={lead.link_bio} target="_blank" rel="noreferrer" className="text-slate-500 hover:underline">link da bio ↗</a>
+                          <a href={lead.link_bio} target="_blank" rel="noreferrer" className="text-ink-3 hover:underline">link da bio ↗</a>
                         )}
                         {lead.maps_url && (
-                          <a href={lead.maps_url} target="_blank" rel="noreferrer" className="text-slate-500 hover:underline">ficha no Maps ↗</a>
+                          <a href={lead.maps_url} target="_blank" rel="noreferrer" className="text-ink-3 hover:underline">ficha no Maps ↗</a>
                         )}
-                        {!lead.site && !lead.link_original && !lead.link_bio && !lead.maps_url && <span className="text-slate-400">Nenhum link</span>}
+                        {!lead.site && !lead.link_original && !lead.link_bio && !lead.maps_url && <span className="text-ink-3">Nenhum link</span>}
                       </div>
                     </Linha>
-                    {lead.bio && <Linha rotulo="Bio"><span className="text-xs leading-relaxed text-slate-600">{lead.bio}</span></Linha>}
+                    {lead.bio && <Linha rotulo="Bio"><span className="text-xs leading-relaxed text-ink-2">{lead.bio}</span></Linha>}
                   </dl>
                 </SecaoModal>
 
@@ -930,7 +926,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                           key={id}
                           title={`${criterio.explicacao || criterio.rotulo}${criterio.exemplo ? ` Exemplo: ${criterio.exemplo}` : ''}`}
                           className={`rounded-lg border px-3 py-2 text-xs ${
-                            sinal?.sugerido ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-50 text-slate-500'
+                            sinal?.sugerido ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-line bg-surface-2 text-ink-3'
                           }`}
                         >
                           <div className="flex items-center justify-between gap-2">
@@ -951,13 +947,13 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                       <ListaQualificacao titulo="Sinais positivos" itens={sinaisQualificacao.slice(0, 5)} tom="positivo" />
                       {criterios.length > 0 && (
                         <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cadastro</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Cadastro</p>
                           <ul className="mt-2 grid gap-1">
                             {criterios.map((c, i) => (
-                              <li key={c.chave || i} className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${c.ok ? 'border-slate-200 bg-white text-slate-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
+                              <li key={c.chave || i} className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs ${c.ok ? 'border-line bg-surface text-ink-2' : 'border-line bg-surface-2 text-ink-3'}`}>
                                 <span aria-hidden="true">{c.ok ? '✓' : '✗'}</span>
                                 <span className="min-w-0 flex-1">{c.label}</span>
-                                {!c.ok && <span className="text-[10px] text-slate-400">+{c.pontos_possiveis ?? 0}</span>}
+                                {!c.ok && <span className="text-[10px] text-ink-3">+{c.pontos_possiveis ?? 0}</span>}
                               </li>
                             ))}
                           </ul>
@@ -968,14 +964,16 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                 )}
               </div>
             </div>
+          </div>
 
-            <div className="mt-4 flex justify-end">
-              <button
-                onClick={onFechar}
-                className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
-              >
-                Concluir
-              </button>
+          {/* Rodapé PRESO, fora da área que rola — a mesma regra que o `FolhaModal` documenta
+              ("a ação primária não pode depender de rolar até o fim"). A ficha tem 2-3 colunas
+              de conteúdo, e antes "Concluir" ficava solto no fim do corpo: rolar até ele era o
+              próprio trabalho de decidir o ICP, e ninguém devia precisar disso para fechar. */}
+          <div className="shrink-0 border-t border-line bg-surface px-4 py-3 sm:px-5">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-ink-3">{autosaveTexto}</span>
+              <Botao variante="primaria" onClick={onFechar}>Concluir</Botao>
             </div>
           </div>
         </div>
