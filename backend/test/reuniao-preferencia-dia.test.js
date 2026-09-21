@@ -103,11 +103,24 @@ test('re-oferta apos "So amanha" NAO e barrada como repeticao', () => {
   assert.equal(out.bloqueado, false)
   assert.match(out.resultado.mensagem_pro_lead, /19:30/)
   assert.match(out.resultado.mensagem_pro_lead, /amanh/i)
+  // `bloqueado: false` sozinho nao prova nada desde que guardrail de conteudo virou aviso:
+  // TUDO passa. O que prova e a AUSENCIA do sinal de repeticao (compare com o controle abaixo).
+  const sinais = [...out.erros, ...(out.avisos || [])].map((e) => String(e.erro || e))
+  assert.ok(!sinais.some((e) => e.startsWith('mensagem_repetida')),
+    `preferencia de dia nao pode virar repeticao, obtido: ${sinais.join(', ')}`)
 })
 
-test('controle: mesma re-oferta repetida SEM preferencia de dia E barrada', () => {
+// Controle do teste acima: o que discrimina os dois casos e' a PREFERENCIA DE DIA do lead.
+// Sem ela, repetir a mesma oferta e' repeticao e tem de ser reconhecida como tal.
+//
+// A repeticao e' erro de CONTEUDO, entao desde d31f8b6 ela AVISA em vez de bloquear (so os 3
+// erros tecnicos bloqueiam — ver action-response-validator.js:12). O que este teste protege e'
+// a DISCRIMINACAO: "So amanha" nao gera aviso nenhum, "ok" gera `mensagem_repetida`.
+test('controle: mesma re-oferta repetida SEM preferencia de dia E reconhecida como repeticao', () => {
   const { resultado, contexto } = contextoReoferta('ok')
   const out = validarRespostaPorAcao(resultado, contexto)
-  assert.equal(out.bloqueado, true)
-  assert.ok(out.erros.some((e) => String(e.erro || e).startsWith('mensagem_repetida')))
+  const sinais = [...out.erros, ...(out.avisos || [])].map((e) => String(e.erro || e))
+  assert.ok(sinais.some((e) => e.startsWith('mensagem_repetida')),
+    `esperava mensagem_repetida, obtido: ${sinais.join(', ') || '(nenhum)'}`)
+  assert.equal(out.bloqueado, false, 'guardrail de conteudo avisa, nao bloqueia')
 })

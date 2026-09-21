@@ -5594,10 +5594,18 @@ test('motor de IA: generateAIResponse usa provedor configurado no banco', async 
       return { rows: [] }
     },
   }
+  // `ai-provider` resolve a chave por DOIS nomes (`OPENAI_API_KEY || OPENAI_KEY`, linha 293).
+  // Zerar so' um deixava a chave real do `.env` sobreviver — e este teste, que existe para
+  // exercitar o erro de chave AUSENTE, fazia uma chamada HTTP paga de verdade e falhava com 429
+  // na maquina de quem tem `.env` configurado. Os quatro nomes saem do ambiente.
   const prevA = process.env.ANTHROPIC_KEY
+  const prevAA = process.env.ANTHROPIC_API_KEY
   const prevO = process.env.OPENAI_KEY
+  const prevOA = process.env.OPENAI_API_KEY
   process.env.OPENAI_KEY = ''
+  delete process.env.OPENAI_API_KEY
   process.env.ANTHROPIC_KEY = 'fake-anthropic-key'
+  delete process.env.ANTHROPIC_API_KEY
   try {
     await aiProvider.generateAIResponse({
       systemPrompt: 'sys',
@@ -5610,7 +5618,9 @@ test('motor de IA: generateAIResponse usa provedor configurado no banco', async 
     assert.match(e.message, /OPENAI_KEY/i, `mensagem deveria mencionar OpenAI: ${e.message}`)
   } finally {
     if (prevA != null) process.env.ANTHROPIC_KEY = prevA; else delete process.env.ANTHROPIC_KEY
+    if (prevAA != null) process.env.ANTHROPIC_API_KEY = prevAA; else delete process.env.ANTHROPIC_API_KEY
     if (prevO != null) process.env.OPENAI_KEY = prevO; else delete process.env.OPENAI_KEY
+    if (prevOA != null) process.env.OPENAI_API_KEY = prevOA; else delete process.env.OPENAI_API_KEY
     aiProvider.invalidateCache()
   }
 })
@@ -5637,8 +5647,12 @@ test('motor de IA: disableFallback impede fallback mesmo quando habilitado', asy
       return { rows: [] }
     },
   }
+  // Mesmo motivo do teste acima: sem limpar `OPENAI_API_KEY` a chave real do `.env` sobrevive e
+  // o teste sai para a rede em vez de exercitar a regra de fallback.
   const prevO = process.env.OPENAI_KEY
+  const prevOA = process.env.OPENAI_API_KEY
   process.env.OPENAI_KEY = ''
+  delete process.env.OPENAI_API_KEY
   try {
     await aiProvider.generateAIResponse({
       systemPrompt: 'sys',
@@ -5651,6 +5665,7 @@ test('motor de IA: disableFallback impede fallback mesmo quando habilitado', asy
     assert.doesNotMatch(e.message, /primary.*fallback/i)
   } finally {
     if (prevO != null) process.env.OPENAI_KEY = prevO; else delete process.env.OPENAI_KEY
+    if (prevOA != null) process.env.OPENAI_API_KEY = prevOA; else delete process.env.OPENAI_API_KEY
     aiProvider.invalidateCache()
   }
 })

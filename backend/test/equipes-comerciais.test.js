@@ -88,9 +88,13 @@ test('index monta equipes-comerciais separado do painel /equipe', () => {
   assert.ok(src.includes("api-equipes-comerciais"))
 })
 
-test('package.json inclui esta suite', () => {
+test('package.json roda esta suite', () => {
   const pkg = JSON.parse(fonte('package.json'))
-  assert.ok(pkg.scripts.test.includes('test/equipes-comerciais.test.js'))
+  // Ver a nota em test/backfill-prospects-nicho.test.js: o `npm test` deixou de ser lista manual
+  // (que esquecia arquivos em silencio) e passou a rodar o diretorio por glob.
+  assert.match(pkg.scripts.test, /node --test\s+"?test\/\*\.test\.js"?/)
+  assert.ok(!/test\/[a-z0-9-]+\.test\.js\s+test\//.test(pkg.scripts.test),
+    'lista manual de arquivos nao pode voltar ao `npm test`')
 })
 
 // ─── Etapa 3: o recorte por nicho ────────────────────────────────────────────────────────

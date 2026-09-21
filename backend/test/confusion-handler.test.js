@@ -173,7 +173,11 @@ test('AI_CHATBOT: explica diferença entre agente de IA e chatbot simples', () =
 
 test('tipo desconhecido retorna texto genérico', () => {
   const text = buildClarificationResponse('tipo_inventado')
-  assert.ok(text.includes('PJ Codeworks'))
+  // O texto generico NAO cita empresa nenhuma pelo nome: o produto e multiempresa desde a fusao
+  // do core na base SaaS (d31f8b6), e quem resolve `{{empresa}}` e o runtime, com o nome do
+  // tenant dono da instancia. Um nome fixo aqui apareceria para o cliente de outra empresa.
+  assert.ok(text.includes('{{empresa}}'))
+  assert.ok(!/PJ Codeworks/i.test(text))
 })
 
 test('null retorna texto genérico', () => {

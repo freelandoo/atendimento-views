@@ -115,10 +115,17 @@ test('migration usa FK composta e ON DELETE limpa so nicho_id, preservando empre
   assert.ok(!/ON DELETE SET NULL\s*;/.test(sql), 'SET NULL sem lista limparia empresa_id tambem')
 })
 
-test('package.json expoe o comando de backfill e inclui esta suite', () => {
+test('package.json expoe o comando de backfill e roda esta suite', () => {
   const pkg = JSON.parse(fonte('package.json'))
   assert.equal(pkg.scripts['backfill:prospects-nicho'], 'node scripts/backfill-prospects-nicho.js')
-  assert.ok(pkg.scripts.test.includes('test/backfill-prospects-nicho.test.js'))
+  // A garantia continua sendo "esta suite entra no comando oficial" — mudou COMO ela se prova.
+  // Enquanto o `npm test` era uma lista manual de arquivos, cada suite nova precisava ser
+  // lembrada a mao, e 24 arquivos (incluindo guardas de regressao) ficaram de fora sem ninguem
+  // perceber. Hoje o script roda o diretorio por glob, entao o que se protege e' o PADRAO: se
+  // a lista manual voltar, este teste cai.
+  assert.match(pkg.scripts.test, /node --test\s+"?test\/\*\.test\.js"?/)
+  assert.ok(!/test\/[a-z0-9-]+\.test\.js\s+test\//.test(pkg.scripts.test),
+    'lista manual de arquivos nao pode voltar ao `npm test`')
 })
 
 test('com --minimo, so os nichos CRIADOS saem da pendencia', () => {
