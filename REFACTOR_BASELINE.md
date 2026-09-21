@@ -161,6 +161,25 @@ npm run build          # deve continuar Compiled successfully, 30 rotas, 0 warni
 
 **Critério de regressão:** qualquer número diferente dos acima. As 2 falhas do 429 são toleradas **apenas** enquanto forem exatamente aquelas duas, em `core.test.js:5575` e `:5618`, com erro 429.
 
+### 4.1 ⚠️ Portão ATUALIZADO na Fase 1 (2026-09-21, commit `a023a68`)
+
+As seções acima continuam valendo como **registro histórico** do que foi medido antes de qualquer mudança. O portão em vigor, porém, mudou — e ficou mais forte:
+
+| Comando | Baseline (Fase 0) | **Em vigor (desde a Fase 1)** |
+|---|---|---|
+| backend `npm test` | 2309 testes · 141 arquivos · **exit 1** (2 falhas) | **2925 testes · 165 arquivos · 2925 pass · exit 0** |
+| backend `npm run typecheck` | exit 0 | exit 0 |
+| backend `npm run smoke:preco` | ok | ok |
+| frontend `npx tsc --noEmit` | exit 0 | exit 0 |
+| frontend `npm test` | 704/704 | 704/704 |
+| frontend `npm run build` | Compiled successfully, 30 rotas | Compiled successfully, 30 rotas |
+
+**A partir daqui, `npm test` do backend DEVE sair com exit 0.** As 2 falhas de 429 não eram ambientais: eram bug de teste (ver commit `a023a68`). Nenhuma falha é mais tolerada.
+
+⚠️ **Nunca rode `node --test` sem argumento neste repositório.** O padrão de descoberta do Node inclui `test-*.js` e ele captura `scripts/test-evolution-send.js`, que **envia mensagem real de WhatsApp** pela Evolution API. O `npm test` usa o glob `test/*.test.js` justamente para não alcançá-lo.
+
+⚠️ **O `npm test` depende do globbing do próprio Node** (o script passa o padrão entre aspas). Isso exige **Node ≥ 22** — que é o que a máquina de desenvolvimento usa. O `Dockerfile` (Node 20) **não roda testes**, então produção não é afetada.
+
 ---
 
 ## 5. Riscos e condições do ambiente registrados agora
