@@ -3900,3 +3900,66 @@ mostraria 3, e ninguem saberia por que.
 **Validacao:** `npm test` no backend (2258/2260 — as 2 falhas sao os flaky conhecidos de
 `core.test.js`, que fazem chamada REAL ao provedor de IA e tomam 429, sem relacao com esta
 mudanca), `npx tsc --noEmit` limpo e `node --test lib/*.test.js` (663) no frontend.
+
+
+## 2026-09-20 — Reorganizacao do Banco de Leads (2ª rodada) e o que a tela NAO pode prometer
+
+Pedido do operador: JSON de especificacao + 6 telas conceito para reconstruir o conteudo
+principal do Banco de Leads. Tres decisoes foram tomadas NO CHAT, antes de qualquer codigo,
+porque as referencias visuais descreviam comportamento que o produto nao tem.
+
+**Decisao 1 — reorganizacao DENTRO da arquitetura atual, nao quebra em ~20 componentes.** A
+`suggested_component_architecture` do JSON (LeadBankHeader, LeadMetrics, DeliveryModeSelector…
+cada um em arquivo proprio) foi **recusada pelo operador** em favor do padrao que o repositorio
+ja usa nesta tela: pagina grande + subcomponentes locais + modulos PUROS em `lib/`. Razao
+declarada: a mesma tela foi repaginada em **2026-09-19 (commit `723a3af`)** e **ainda nao foi
+vista rodando** — uma segunda reescrita ampla por cima de trabalho nao verificado troca risco
+por arrumacao de arquivo. O proprio JSON marcava aquela lista como referencia, nao requisito.
+
+**Decisao 2 — "Limpar leads" MANTEVE a regra atual; so a UI mudou.** O modal-conceito descrevia
+**exclusao em massa real** (leads filtrados / selecionados / todos, com "digite LIMPAR"). O
+backend de hoje (`POST /limpar`) apaga **apenas os leads sem e-mail E sem telefone**, preservando
+negocio fechado. Construir o conceito exigiria uma rota de exclusao em massa NOVA, contra o
+padrao do produto inteiro (Roteiros arquiva, Membros desativa, Missao/Venda nao apagam). O que
+mudou foi o que estava errado de verdade: o `window.confirm` — **proibido pelo `AGENTS.md`** —
+virou `ModalConfirmar` com tom `perigo`. O texto vive em `LIMPEZA`, no modulo puro, com guarda de
+regressao que **falha se a tela passar a dizer "todos os leads", "leads filtrados" ou "leads
+selecionados"**: a frase e' o que impede a interface de prometer o que o backend nao executa.
+
+**Decisao 3 — "Exportar CSV" ganhou COLUNAS e nome de arquivo; nao ganhou escopo por selecao.**
+As quatro opcoes do conceito (selecionados / filtrados / pagina atual / todos) exigiriam o
+endpoint aceitar lista de ids, que ele nao aceita. O escopo continua sendo o **conjunto
+FILTRADO**, e agora a tela **declara isso em texto** dentro do modal, com o numero de leads.
+Para a escolha de colunas nao ser decorativa, o backend recebeu **um parametro OPCIONAL e
+ADITIVO** (`?colunas=`) sobre a MESMA rota, a MESMA capacidade e o MESMO `WHERE`: sem ele, o
+arquivo sai exatamente como sempre saiu. O campo SQL vem de um catalogo FECHADO
+(`services/banco-leads-export.js`), nunca da requisicao — ha guarda que falha se
+`SELECT ${req.query…}` aparecer, e outra que falha se o `WHERE` deixar de ser o da listagem.
+
+**Decisao 4 — "Visao por status" e "Mapa" NAO foram implementadas.** As abas aparecem na tela
+conceito e nao tem fonte: nenhuma rota devolve lead agrupado por status para essa visao, e nao ha
+coordenada para mapa. E' a propria regra do JSON ("so implementar visualizacao alternativa se ja
+existir suporte") e a mesma disciplina de "Reunioes por pessoa" de 2026-09-19: metrica sem fonte
+real nao entra.
+
+**Decisao 5 — permissao continua sendo CAPACIDADE, nao "dono".** O conceito marca Exportar e
+Limpar com um selo "Somente Dono". O produto nao tem esse conceito: quem autoriza e'
+`lead_ver_brutos` (exportar) e `lead_disparar_lote` (limpar), resolvidas pelo backend e ja
+aplicadas nas rotas. `itensMaisAcoes` apenas TRADUZ esses vereditos, e quem nao tem nenhuma das
+duas **nao recebe o menu** — a regra do guia para controle sem decisao de produto a explicar.
+
+**O que mudou de aparencia** (e por que): o cabecalho passou a ter **uma** acao primaria, com
+Exportar/Limpar recolhidas em "Mais acoes" (as tres soltas davam o mesmo peso a cadastrar,
+exportar e APAGAR); as pilulas do funil viraram **cartoes** com contagem e participacao, e
+continuam sendo o seletor de aba (`aria-pressed` + "Em exibicao" em texto — cor nunca e' o unico
+sinal); o `<select>` de modo de disparo virou **tres cartoes** em `radiogroup` (a escolha muda
+quem envia, quando e com que aprovacao, e a lista fechada escondia as outras duas); e
+"Personalizar" saiu da barra de filtros para uma **barra da lista**, junto de "Ordenar por" —
+recorte da CARTEIRA e aparencia da TABELA sao decisoes diferentes.
+
+**Validacao:** backend `npm test` **2270/2272** (as 2 falhas sao os flaky conhecidos de
+`core.test.js`, que fazem chamada REAL ao provedor e tomam 429 — confirmadas identicas em
+`master` limpo, 2258/2260); frontend `npx tsc --noEmit` limpo, `node --test lib/*.test.js` 679 e
+`npm run build` OK. **Verificacao visual ao vivo NAO foi feita** (exige backend + banco + login;
+o dev server sobe e a pagina compila, mas a area logada nao abre sem sessao) — a mesma pendencia
+declarada na repaginacao de 2026-09-19.

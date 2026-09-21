@@ -35,7 +35,13 @@ import {
 } from '@/lib/lead-operacao'
 import type { Qualificacao, EquipeRecorte } from '@/lib/lead-operacao'
 import { temCapacidade } from '@/lib/capacidades'
-import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconSend, IconAlert } from '@/components/ui/icons'
+// Apresentacao do painel (cartoes do funil, menu de acoes secundarias, pedido de exportacao e
+// o texto do que a limpeza REALMENTE faz). PURO e testado — a tela so desenha.
+import {
+  cartoesDeFunil, itensMaisAcoes, validarExportacao,
+  COLUNAS_CSV, COLUNAS_CSV_PADRAO, LIMPEZA,
+} from '@/lib/banco-leads-painel'
+import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconSend, IconAlert, IconChevron, IconCheck } from '@/components/ui/icons'
 import type { PayloadProximaAcao } from '@/lib/follow-up-acao'
 
 // Banco de Leads — central de disparo com Modo Manual / Semiautomático / Automático.
@@ -169,10 +175,13 @@ const MAX_LOTE = 15
 const STATUS_RODAVEL = new Set(['coletado', 'contato_encontrado', 'aguardando', 'aprovado'])
 
 // Modos de disparo do Banco de Leads.
-const MODOS: { valor: string; label: string; hint: string; disabled?: boolean }[] = [
-  { valor: 'manual', label: 'Manual', hint: 'Você seleciona os leads e envia. Clicar em Enviar já é a aprovação.' },
-  { valor: 'semi_automatico', label: 'Semiautomático', hint: 'A IA gera a mensagem e deixa pronta; você dispara quando quiser (sem aprovação).' },
-  { valor: 'automatico', label: 'Automático', hint: 'O sistema dispara sozinho na janela e intervalo abaixo. O botão manual continua disponível.' },
+// `resumo` é a linha que cabe dentro do cartão de escolha; `hint` continua sendo a explicação
+// completa do modo ATIVO, logo abaixo. São textos diferentes de propósito: o primeiro ajuda a
+// escolher, o segundo diz o que passa a valer depois de escolhido.
+const MODOS: { valor: string; label: string; resumo: string; hint: string; disabled?: boolean }[] = [
+  { valor: 'manual', label: 'Manual', resumo: 'Você envia quando quiser', hint: 'Você seleciona os leads e envia. Clicar em Enviar já é a aprovação.' },
+  { valor: 'semi_automatico', label: 'Semiautomático', resumo: 'O sistema prepara, você revisa', hint: 'A IA gera a mensagem e deixa pronta; você dispara quando quiser (sem aprovação).' },
+  { valor: 'automatico', label: 'Automático', resumo: 'Envia 1 lead por vez', hint: 'O sistema dispara sozinho na janela e intervalo abaixo. O botão manual continua disponível.' },
 ]
 
 const ABAS: { valor: string; label: string }[] = [
@@ -653,6 +662,11 @@ export default function BancoLeadsPage() {
   const [metaLista, setMetaLista] = useState<{ total?: number; total_carteira?: number; limite?: number; equipe?: EquipeRecorte | null } | null>(null)
   const [saudacaoOpen, setSaudacaoOpen] = useState(false)
   const [cadastroOpen, setCadastroOpen] = useState(false)
+  // Ações SECUNDÁRIAS do cabeçalho. Exportar e limpar viraram itens de "Mais ações": as duas
+  // disputavam espaço com "Adicionar cadastro", que é a ação primária da tela.
+  const [exportOpen, setExportOpen] = useState(false)
+  const [confirmarLimpeza, setConfirmarLimpeza] = useState(false)
+  const [ajudaOpen, setAjudaOpen] = useState(false)
   // Ordenação independente por tabela. O padrão das duas é 'trabalho' = NÃO reordenar: a lista
   // já vem do servidor na ordem da fila (respondeu → pronto para enviar → não trabalhado → …).
   //
@@ -1395,8 +1409,12 @@ export default function BancoLeadsPage() {
     fb.toast(r.data.telefone ? 'Telefone salvo.' : 'Telefone removido.')
   }
 
+  // A confirmação vive em `ModalConfirmar` (o `window.confirm` é proibido pelo guia visual: não
+  // separa aviso de corpo, não rotula o botão com o verbo da ação e some do fluxo de foco do
+  // teclado). O texto do que ela apaga vem do módulo puro — é o que impede a tela de prometer
+  // uma exclusão em massa por filtro/seleção, que o backend não faz.
   async function limpar() {
-    if (!confirm('Apagar TODOS os leads sem e-mail E sem telefone?\n\nIsso remove os leads sem nenhuma forma de contato (negócios fechados são preservados). Ação irreversível.')) return
+    setConfirmarLimpeza(false)
     setLimpando(true)
     try {
       const r = await apiFetch<{ removidos: number }>(`${base}/limpar`, { method: 'POST' })
@@ -1408,11 +1426,19 @@ export default function BancoLeadsPage() {
     } finally { setLimpando(false) }
   }
 
-  async function exportar() {
+  // O ESCOPO da exportação continua sendo o conjunto FILTRADO (o mesmo `query()` da listagem) —
+  // o modal escolhe quais COLUNAS entram, nunca quais leads. Selecionados e "página atual"
+  // exigiriam o servidor aceitar lista de ids, o que ele não faz; prometer isso na tela daria
+  // um arquivo diferente do que a pessoa pediu.
+  async function exportar(colunas: string[], nomeArquivo: string) {
+    const padrao = `banco-leads-${aba}-${new Date().toISOString().slice(0, 10)}`
+    const pedido = validarExportacao({ colunas, nomeArquivo, padrao })
+    if (!pedido.ok) { fb.toast(pedido.motivo, 'error'); return }
     setExportando(true)
     try {
-      const nome = `banco-leads-${aba}-${new Date().toISOString().slice(0, 10)}.csv`
-      await fb.runTask(() => apiDownload(`${base}/export.csv?${query()}`, nome), { sucesso: 'CSV exportado.' })
+      const url = `${base}/export.csv?${query()}&colunas=${encodeURIComponent(pedido.colunas.join(','))}`
+      await fb.runTask(() => apiDownload(url, pedido.nome), { sucesso: 'CSV exportado.' })
+      setExportOpen(false)
     } catch { /* erro já exibido pelo feedback */ }
     finally { setExportando(false) }
   }
@@ -1423,6 +1449,11 @@ export default function BancoLeadsPage() {
   // pelo telefone/modal.
   const mostrarSelecao = mostrarRodar && config.modo === 'manual'
   const modoAtual = modosDisponiveis.find((m) => m.valor === config.modo) || modosDisponiveis[0] || MODOS[0]
+  // Qual cartão aparece marcado. Modo salvo que a pessoa não pode operar (capacidade) cai no
+  // primeiro disponível — a mesma regra que o <select> aplicava.
+  const modoSelecionado = modosDisponiveis.some((m) => m.valor === config.modo)
+    ? config.modo
+    : (modosDisponiveis[0]?.valor || 'manual')
   // Enviar fica liberado em Manual e Semi: se não houver mensagem gerada, o backend gera na hora.
   const podeEnviarConversa = !!conversaAberta && !!instanciaId && conversaAberta.rodavel
     && config.modo !== 'automatico' && !motivoBloqueioConexao
@@ -1537,50 +1568,45 @@ export default function BancoLeadsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
+      {/* CABEÇALHO — uma ação primária ("Adicionar cadastro"), o resto recolhido. As três ações
+          soltas lado a lado davam o mesmo peso visual a cadastrar, exportar e APAGAR. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold">Banco de Leads</h1>
           <p className="text-sm text-ink-3 mt-1">
-            Central de disparo dos leads das duas origens. Escolha o modo (Manual, Semiautomático
-            ou Automático), selecione os leads e dispare a saudação pela instância escolhida.
+            Gerencie, filtre e trabalhe seus leads das duas origens em um único lugar.
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <button onClick={() => setCadastroOpen(true)}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-brand text-white text-sm font-semibold hover:bg-brand-dark">
-            <IconPlus /> Adicionar cadastro
-          </button>
-          {podeLimparBanco && (
-            <button onClick={limpar} disabled={limpando}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-300 text-red-600 text-sm font-medium hover:bg-red-50 disabled:opacity-50"
-              title="Apaga todos os leads sem e-mail e sem telefone (negócios fechados são preservados)">
-              {limpando && <Spinner />}
-              {limpando ? 'Limpando…' : <span className="inline-flex items-center gap-1.5"><IconBroom /> Limpeza</span>}
-            </button>
-          )}
-          {podeExportarCsv && (
-            <button onClick={exportar} disabled={exportando || !leads.length}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium hover:bg-surface-2 disabled:opacity-50">
-              {exportando && <Spinner />}
-              {exportando ? 'Gerando…' : <span className="inline-flex items-center gap-1.5"><IconDownload /> Exportar CSV</span>}
-            </button>
-          )}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Botao variante="secundaria" onClick={() => setAjudaOpen(true)} className="min-h-11 sm:min-h-0">
+            Como funciona?
+          </Botao>
+          <Botao variante="primaria" onClick={() => setCadastroOpen(true)} iconeInicio={<IconPlus />}
+            className="min-h-11 sm:min-h-0">
+            Adicionar cadastro
+          </Botao>
+          {/* O menu não nasce quando a pessoa não tem nenhuma das duas capacidades — o módulo
+              puro decide, e botão inerte só convida ao clique. */}
+          <MenuMaisAcoes
+            itens={itensMaisAcoes({ podeExportar: podeExportarCsv, podeLimpar: podeLimparBanco })}
+            ocupado={exportando || limpando}
+            onEscolher={(chave) => {
+              if (chave === 'exportar') setExportOpen(true)
+              if (chave === 'limpar') setConfirmarLimpeza(true)
+            }}
+          />
         </div>
       </div>
 
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
       {msg && <p className="text-emerald-600 text-sm">{msg}</p>}
 
-      {/* Abas do funil */}
-      <div className="flex flex-wrap gap-2">
-        {ABAS.map((a) => (
-          <button key={a.valor} onClick={() => setAba(a.valor)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition ${
-              aba === a.valor ? 'bg-brand text-white border-brand' : 'bg-surface text-ink-2 hover:bg-surface-2'
-            }`}>
-            {a.label}
-            {resumo && <span className="ml-2 opacity-70">{resumo.abas[a.valor] ?? 0}</span>}
-          </button>
+      {/* O FUNIL — os mesmos estágios que eram pílulas, agora dizendo o tamanho de cada um.
+          Continua sendo o seletor de aba (um clique troca o recorte), não um painel novo: a
+          pílula mostrava a contagem sem dizer o peso do estágio na carteira. */}
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-5" role="group" aria-label="Estágio do funil">
+        {cartoesDeFunil(ABAS, resumo).map((c) => (
+          <CartaoFunil key={c.valor} cartao={c} ativo={aba === c.valor} onEscolher={() => setAba(c.valor)} />
         ))}
       </div>
 
@@ -1593,14 +1619,19 @@ export default function BancoLeadsPage() {
               <span>Você precisa configurar a saudação primeiro — clique em <b>Testar envio</b>.</span>
             </div>
           )}
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,430px)_minmax(0,1fr)]">
-            <div className={`grid gap-3 ${podeEscolherInstancia ? 'sm:grid-cols-2' : ''}`}>
+          <div className="space-y-4">
+            <div className={`grid gap-3 ${podeEscolherInstancia ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,240px)]' : ''}`}>
               <div>
-                <label className="block text-xs text-ink-3 mb-1">Modo de disparo</label>
-                <select value={modosDisponiveis.some((m) => m.valor === config.modo) ? config.modo : (modosDisponiveis[0]?.valor || 'manual')} onChange={(e) => trocarModo(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm">
-                  {modosDisponiveis.map((m) => <option key={m.valor} value={m.valor} disabled={m.disabled}>{m.label}</option>)}
-                </select>
+                {/* Os três modos deixaram de ser um <select>: a escolha muda o que o sistema faz
+                    com o lead (quem envia, quando e com que aprovação), e uma lista fechada
+                    escondia as outras duas opções e a diferença entre elas. */}
+                <p id="modo-disparo-rotulo" className="mb-1.5 text-xs text-ink-3">Modo de disparo</p>
+                <div role="radiogroup" aria-labelledby="modo-disparo-rotulo" className="grid gap-2 sm:grid-cols-3">
+                  {modosDisponiveis.map((m) => (
+                    <CartaoModo key={m.valor} modo={m} ativo={modoSelecionado === m.valor}
+                      onEscolher={() => trocarModo(m.valor)} />
+                  ))}
+                </div>
               </div>
               {podeEscolherInstancia && (
                 <div>
@@ -1632,7 +1663,7 @@ export default function BancoLeadsPage() {
               )}
             </div>
 
-            <div className="space-y-2 border-t pt-3 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
+            <div className="space-y-2 border-t border-line pt-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 {config.modo !== 'automatico' ? (
                   <div ref={cronRef}
@@ -1863,17 +1894,19 @@ export default function BancoLeadsPage() {
         </Botao>
       </div>
 
-      {/* COMPUTADOR — a barra inteira, como sempre foi. */}
+      {/* COMPUTADOR — a barra inteira, como sempre foi. "Personalizar" saiu daqui e foi para a
+          barra da lista, junto de "Ordenar por": recorte da CARTEIRA e aparência da TABELA são
+          decisões diferentes, e ficavam no mesmo lugar. */}
       <div className="hidden flex-wrap items-end gap-3 md:flex">
         {camposFiltro('d')}
-        <div>
-          <label className="mb-1 block text-xs text-ink-3">&nbsp;</label>
-          <Botao variante="secundaria" onClick={() => setPersAberto(true)} iconeInicio={<IconGear />}
-            className={filtrosAtivos ? 'border-brand text-brand' : ''}>
-            Personalizar
-            {filtrosAtivos > 0 && <span className="rounded-full bg-brand px-1.5 py-0.5 text-[10px] text-white">{filtrosAtivos}</span>}
-          </Botao>
-        </div>
+        {(filtrosDeCarteira > 0 || busca.trim()) && (
+          <div>
+            <label className="mb-1 block text-xs text-ink-3">&nbsp;</label>
+            <Botao variante="neutra" onClick={() => { setMercado(''); setCidadeFiltro(''); setEscopo(''); setBusca('') }}>
+              Limpar filtros
+            </Botao>
+          </div>
+        )}
       </div>
 
       {/* Filtros rápidos: atalho de 1 clique para os recortes mais usados do "Personalizar"
@@ -1984,6 +2017,31 @@ export default function BancoLeadsPage() {
         </p>
       ) : (
         <>
+          {/* A BARRA DA LISTA (computador) — o que está na tela, em que ordem, e como mudar as
+              duas coisas. A ordenação global já existia dentro do "Personalizar"; aqui ela fica
+              onde a pessoa olha a lista, sem abrir modal para trocar de ordem. */}
+          <div className="hidden flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface px-3 py-2 shadow-card md:flex">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-ink">Lista de leads</h2>
+              <p className="text-xs text-ink-3" aria-live="polite">
+                <span className="tabular-nums">{totalFiltrado}</span> lead{totalFiltrado === 1 ? '' : 's'} nesta visualização
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor="ordenar-lista" className="text-xs text-ink-3">Ordenar por</label>
+              <select id="ordenar-lista" value={view.ordenacao}
+                onChange={(e) => patchView({ ordenacao: e.target.value })}
+                className={classesEntrada({ extra: 'w-auto min-w-[200px]' })}>
+                {ORDENACOES.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+              </select>
+              <Botao variante="secundaria" onClick={() => setPersAberto(true)} iconeInicio={<IconGear />}
+                className={filtrosAtivos ? 'border-brand text-brand' : ''}>
+                Personalizar colunas
+                {filtrosAtivos > 0 && <span className="rounded-full bg-brand px-1.5 py-0.5 text-[10px] text-white">{filtrosAtivos}</span>}
+              </Botao>
+            </div>
+          </div>
+
           {/* CELULAR — a fila em cartoes. A tabela nao encolhe bem: sao ate 15 colunas com
               `min-w-max` e nenhuma congelada, entao no telefone ela vira rolagem lateral sem
               fim e o nome do lead sai da tela. */}
@@ -2135,7 +2193,304 @@ export default function BancoLeadsPage() {
           onSavedConfig={(c) => setConfig(c)}
         />
       )}
+
+      {/* A confirmação da limpeza. O texto é o do módulo puro: ele diz o que o backend REALMENTE
+          apaga (leads sem e-mail e sem telefone), e não o que a tela poderia sugerir. */}
+      {confirmarLimpeza && (
+        <ModalConfirmar
+          titulo={LIMPEZA.titulo}
+          corpo={LIMPEZA.corpo}
+          aviso={LIMPEZA.aviso}
+          rotuloConfirmar={LIMPEZA.rotuloConfirmar}
+          tom="perigo"
+          ocupado={limpando}
+          onConfirmar={limpar}
+          onCancelar={() => setConfirmarLimpeza(false)}
+        />
+      )}
+
+      {exportOpen && (
+        <ExportarCsvModal
+          aba={ABAS.find((a) => a.valor === aba)?.label || ''}
+          totalFiltrado={totalFiltrado}
+          filtrosAtivos={filtrosDeCarteira > 0 || !!busca.trim()}
+          exportando={exportando}
+          onExportar={exportar}
+          onClose={() => setExportOpen(false)}
+        />
+      )}
+
+      {ajudaOpen && (
+        <ComoFuncionaModal modos={modosDisponiveis} onClose={() => setAjudaOpen(false)} />
+      )}
     </div>
+  )
+}
+
+// ─── Cabeçalho: cartões do funil, cartões de modo e o menu de ações secundárias ──
+
+/**
+ * Um estágio do funil. Continua sendo o seletor de aba — por isso `aria-pressed`, e não um
+ * cartão decorativo. A seleção NÃO é dita só pela cor: o cartão ativo declara "em exibição".
+ */
+function CartaoFunil({ cartao, ativo, onEscolher }: {
+  cartao: { valor: string; label: string; total: number | null; percentual: number | null; tom: string }
+  ativo: boolean
+  onEscolher: () => void
+}) {
+  const barra = cartao.tom === 'ok' ? 'bg-estado-ok'
+    : cartao.tom === 'danger' ? 'bg-estado-danger'
+    : cartao.tom === 'neutro' ? 'bg-line-strong'
+    : 'bg-brand'
+  return (
+    <button type="button" onClick={onEscolher} aria-pressed={ativo}
+      className={`flex flex-col gap-1.5 rounded-lg border p-3 text-left shadow-card transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${
+        ativo ? 'border-brand bg-brand/5' : 'border-line bg-surface hover:bg-surface-2'
+      }`}>
+      <span className="text-xs font-medium text-ink-3">{cartao.label}</span>
+      <span className="flex items-baseline gap-2">
+        <span className="text-xl font-bold tabular-nums text-ink sm:text-2xl">
+          {cartao.total === null ? '—' : cartao.total}
+        </span>
+        {cartao.percentual !== null && (
+          <span className="text-[11px] tabular-nums text-ink-3">{cartao.percentual}%</span>
+        )}
+      </span>
+      <span className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3" aria-hidden="true">
+        <span className={`block h-full rounded-full ${barra}`}
+          style={{ width: `${cartao.percentual === null ? 0 : cartao.percentual}%` }} />
+      </span>
+      <span className={`text-[11px] ${ativo ? 'font-medium text-brand' : 'text-transparent'}`}>
+        {ativo ? 'Em exibição' : '—'}
+      </span>
+    </button>
+  )
+}
+
+/** Um modo de disparo. `radio` de verdade: setas do teclado e leitor de tela funcionam. */
+function CartaoModo({ modo, ativo, onEscolher }: {
+  modo: { valor: string; label: string; resumo: string }
+  ativo: boolean
+  onEscolher: () => void
+}) {
+  return (
+    <button type="button" role="radio" aria-checked={ativo} onClick={onEscolher}
+      className={`flex items-start gap-2 rounded-lg border p-2.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${
+        ativo ? 'border-brand bg-brand/5' : 'border-line bg-surface hover:bg-surface-2'
+      }`}>
+      {/* A marca de seleção é forma + cor, nunca só cor. */}
+      <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+        ativo ? 'border-brand bg-brand text-white' : 'border-line-strong bg-surface'
+      }`} aria-hidden="true">
+        {ativo && <IconCheck className="h-3 w-3" />}
+      </span>
+      <span className="min-w-0">
+        <span className={`block text-sm font-semibold ${ativo ? 'text-brand' : 'text-ink'}`}>{modo.label}</span>
+        <span className="block text-[11px] leading-snug text-ink-3">{modo.resumo}</span>
+      </span>
+    </button>
+  )
+}
+
+/**
+ * Menu das ações secundárias do cabeçalho. Abre por CLIQUE (não por hover): no toque não existe
+ * hover, e uma ação que apaga dado não pode depender de um gesto que metade dos aparelhos não
+ * tem. Fecha em Escape, clique fora e rolagem — a âncora se moveria.
+ *
+ * Lista vazia não renderiza nada; UM item vira botão comum, porque menu de uma opção é fricção
+ * pura (mesma decisão do `MenuRadialAcoes` de Follow-ups).
+ */
+function MenuMaisAcoes({ itens, ocupado, onEscolher }: {
+  itens: { chave: 'exportar' | 'limpar'; rotulo: string; tom: 'neutro' | 'perigo' }[]
+  ocupado: boolean
+  onEscolher: (chave: 'exportar' | 'limpar') => void
+}) {
+  const [aberto, setAberto] = useState(false)
+  const caixa = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!aberto) return
+    const aoClicar = (e: globalThis.MouseEvent) => {
+      if (caixa.current && !caixa.current.contains(e.target as Node)) setAberto(false)
+    }
+    const aoTeclar = (e: KeyboardEvent) => { if (e.key === 'Escape') setAberto(false) }
+    const aoRolar = () => setAberto(false)
+    document.addEventListener('mousedown', aoClicar)
+    document.addEventListener('keydown', aoTeclar)
+    window.addEventListener('scroll', aoRolar, true)
+    window.addEventListener('resize', aoRolar)
+    return () => {
+      document.removeEventListener('mousedown', aoClicar)
+      document.removeEventListener('keydown', aoTeclar)
+      window.removeEventListener('scroll', aoRolar, true)
+      window.removeEventListener('resize', aoRolar)
+    }
+  }, [aberto])
+
+  if (!itens.length) return null
+  if (itens.length === 1) {
+    const unico = itens[0]
+    return (
+      <Botao variante={unico.tom === 'perigo' ? 'perigosa' : 'secundaria'} carregando={ocupado}
+        onClick={() => onEscolher(unico.chave)}
+        iconeInicio={unico.chave === 'limpar' ? <IconBroom /> : <IconDownload />}
+        className="min-h-11 sm:min-h-0">
+        {unico.rotulo}
+      </Botao>
+    )
+  }
+
+  return (
+    <div className="relative" ref={caixa}>
+      <Botao variante="secundaria" carregando={ocupado} onClick={() => setAberto((a) => !a)}
+        aria-haspopup="menu" aria-expanded={aberto} className="min-h-11 sm:min-h-0">
+        Mais ações <IconChevron className={`h-3.5 w-3.5 transition ${aberto ? 'rotate-180' : ''}`} />
+      </Botao>
+      {aberto && (
+        <div role="menu" aria-label="Mais ações"
+          className="absolute right-0 z-30 mt-1 min-w-[200px] overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-xl">
+          {itens.map((i) => (
+            <button key={i.chave} type="button" role="menuitem"
+              onClick={() => { setAberto(false); onEscolher(i.chave) }}
+              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition hover:bg-surface-2 focus:outline-none focus-visible:bg-surface-2 ${
+                i.tom === 'perigo' ? 'text-estado-danger' : 'text-ink-2'
+              }`}>
+              {i.chave === 'limpar' ? <IconBroom /> : <IconDownload />}
+              {i.rotulo}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Modal Exportar CSV — escolhe COLUNAS, nunca quais leads ───────────────────
+/**
+ * O escopo é declarado, não escolhido: o arquivo sai com o conjunto FILTRADO, que é o que o
+ * servidor sabe montar. "Selecionados" e "página atual" exigiriam o endpoint aceitar lista de
+ * ids — oferecer as opções aqui entregaria um arquivo diferente do pedido.
+ */
+function ExportarCsvModal({ aba, totalFiltrado, filtrosAtivos, exportando, onExportar, onClose }: {
+  aba: string
+  totalFiltrado: number
+  filtrosAtivos: boolean
+  exportando: boolean
+  onExportar: (colunas: string[], nomeArquivo: string) => Promise<void>
+  onClose: () => void
+}) {
+  const [colunas, setColunas] = useState<string[]>(COLUNAS_CSV_PADRAO)
+  const [nome, setNome] = useState('')
+  const pedido = validarExportacao({ colunas, nomeArquivo: nome })
+  const alternar = (chave: string) => setColunas((c) => (
+    c.includes(chave) ? c.filter((x) => x !== chave) : [...c, chave]))
+
+  return (
+    <FolhaModal
+      aberto
+      titulo="Exportar CSV"
+      descricao="Escolha as colunas do arquivo. Os leads exportados são os do recorte atual."
+      onFechar={onClose}
+      tamanho="md"
+      rodape={
+        <>
+          <Botao variante="neutra" onClick={onClose} className="min-h-11 sm:min-h-0">Cancelar</Botao>
+          <Botao variante="primaria" carregando={exportando}
+            motivoDesabilitado={pedido.ok ? '' : pedido.motivo}
+            disabled={!pedido.ok}
+            onClick={() => onExportar(colunas, nome)}
+            iconeInicio={<IconDownload />} className="min-h-11 flex-1 sm:min-h-0 sm:flex-none">
+            Exportar CSV
+          </Botao>
+        </>
+      }
+    >
+      <div className="space-y-5">
+        <div className="rounded-lg border border-line bg-surface-2 p-3 text-sm text-ink-2">
+          <p className="font-medium text-ink">O que vai no arquivo</p>
+          <p className="mt-1 text-xs leading-relaxed text-ink-3">
+            <span className="tabular-nums">{totalFiltrado}</span> lead{totalFiltrado === 1 ? '' : 's'} do
+            estágio <b className="text-ink-2">{aba}</b>
+            {filtrosAtivos ? ', com os filtros que estão aplicados agora.' : ' (sem filtro de carteira aplicado).'}
+            {' '}A seleção da tabela não muda este recorte.
+          </p>
+        </div>
+
+        <div>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">Colunas</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setColunas(COLUNAS_CSV_PADRAO)}
+                className="text-xs text-brand hover:underline">Todas</button>
+              <button type="button" onClick={() => setColunas([])}
+                className="text-xs text-brand hover:underline">Nenhuma</button>
+            </div>
+          </div>
+          <div className="grid gap-1.5 sm:grid-cols-2">
+            {COLUNAS_CSV.map((c) => (
+              <label key={c.chave}
+                className="flex cursor-pointer items-center gap-2 rounded-lg border border-line px-2.5 py-2 text-sm text-ink-2 hover:bg-surface-2">
+                <input type="checkbox" checked={colunas.includes(c.chave)} onChange={() => alternar(c.chave)} />
+                {c.rotulo}
+              </label>
+            ))}
+          </div>
+          {!pedido.ok && <p className="mt-2 text-xs text-estado-danger">{pedido.motivo}</p>}
+        </div>
+
+        <div>
+          <label htmlFor="csv-nome" className="mb-1 block text-xs text-ink-3">Nome do arquivo</label>
+          <input id="csv-nome" value={nome} onChange={(e) => setNome(e.target.value)}
+            placeholder={`banco-leads-${new Date().toISOString().slice(0, 10)}.csv`}
+            className={classesEntrada({ extra: 'min-h-11 sm:min-h-0' })} />
+          <p className="mt-1 text-xs text-ink-3">Deixe em branco para usar o nome padrão.</p>
+        </div>
+      </div>
+    </FolhaModal>
+  )
+}
+
+// ─── Modal "Como funciona?" ────────────────────────────────────────────────────
+/** Explica o que a tela decide. Texto curto e orientado à ação — não é manual da interface. */
+function ComoFuncionaModal({ modos, onClose }: {
+  modos: { valor: string; label: string; resumo: string; hint: string }[]
+  onClose: () => void
+}) {
+  return (
+    <FolhaModal aberto titulo="Como funciona o Banco de Leads"
+      descricao="A carteira inteira num lugar só: encontrar o lead, decidir a abordagem e disparar."
+      onFechar={onClose} tamanho="md"
+      rodape={<Botao variante="primaria" onClick={onClose} className="min-h-11 flex-1 sm:min-h-0 sm:flex-none">Entendi</Botao>}
+    >
+      <div className="space-y-5 text-sm text-ink-2">
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3">Os três modos de disparo</p>
+          <ul className="space-y-2">
+            {modos.map((m) => (
+              <li key={m.valor} className="rounded-lg border border-line bg-surface-2 p-3">
+                <p className="font-semibold text-ink">{m.label}</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-ink-3">{m.hint}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3">O caminho de sempre</p>
+          <ol className="list-decimal space-y-1.5 pl-5 text-xs leading-relaxed text-ink-3">
+            <li>Escolha o estágio do funil nos cartões do topo.</li>
+            <li>Recorte a carteira nos filtros (origem, nicho, cidade, responsável).</li>
+            <li>Abra o lead pelo nome para ver conversa, pontuação e evidências.</li>
+            <li>Dispare a saudação — pelo botão do lead, ou em massa no modo Manual.</li>
+          </ol>
+        </div>
+        <p className="rounded-lg border border-line bg-surface-2 p-3 text-xs leading-relaxed text-ink-3">
+          A ordem da lista já vem pronta do sistema (a fila de trabalho: quem respondeu primeiro,
+          depois quem tem mensagem pronta, depois quem nunca foi abordado). Clicar num cabeçalho
+          ou escolher outra ordenação sobrescreve a fila — e o aviso “Voltar à ordem de trabalho”
+          aparece para desfazer.
+        </p>
+      </div>
+    </FolhaModal>
   )
 }
 

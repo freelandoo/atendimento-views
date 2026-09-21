@@ -4530,3 +4530,49 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Cuidados:** a tela so' TRADUZ (mesmo contrato de `lib/capacidades.js`); a guarda
   anti-placar de `lib/equipe-painel.test.js` continua valendo e nao pode ser contornada no
   modulo novo; metrica sem fonte real nao entra; cor nunca e' o unico sinal.
+
+
+## 2026-09-20 — Repaginacao ampla do Banco de Leads (2ª rodada, spec detalhada + telas conceito)
+
+- **Pedido do operador:** JSON de especificacao completo (papel Product Designer + UX +
+  Front-end) + 6 screenshots do sistema ATUAL e 6 telas CONCEITO, pedindo reconstrucao do
+  conteudo principal do Banco de Leads (header, metricas, modo de disparo, filtros, tabela,
+  selecao em massa, e os modais Adicionar cadastro / Conversa e status / Limpar leads /
+  Exportar CSV / Personalizar visualizacao). O proprio JSON manda mapear a implementacao
+  atual ANTES de codar e nao inventar endpoint quando ja existir equivalente.
+- **Analise de impacto (o que foi lido antes):** `frontend/app/dashboard/banco-leads/page.tsx`
+  (3214 linhas), `components/LeadDetalhesModal.tsx`, `components/ConversaHistoricoModal.tsx`,
+  `lib/banco-leads-acao.js`, `lib/ui-primitivos.js`, `backend/src/routes/api-banco-leads.js`
+  (rotas `/limpar` e `/export.csv`), historico de `docs/ai-task-start-log.md` (entrada de
+  2026-09-19) e `docs/ui-visual-standard.md`.
+- **Achado critico nº1:** a mesma tela (mobile + desktop) **JA foi repaginada ontem**
+  (commit `723a3af`, 2026-09-19) — cartao no celular, coluna de identidade congelada no
+  desktop, modais como FolhaModal, tokens do guia — e **segundo a memoria do projeto ainda
+  sem verificacao visual ao vivo**. Fazer agora uma 2ª reconstrucao ampla (a spec sugere ~20
+  componentes novos) por cima de um trabalho de ontem nunca visto rodando e' o tipo de
+  "muitos arquivos de uma vez" que o CLAUDE.md manda confirmar antes.
+- **Achado critico nº2 (risco de seguranca/dado):** o modal-conceito "Limpar leads" descreve
+  **exclusao em massa real** (filtrados / selecionados / todos, com "digite LIMPAR") — o
+  backend de HOJE (`POST /limpar`) so' apaga leads **sem e-mail E sem telefone** (contato
+  zero), gated por `LEAD_DISPARAR_LOTE`, e usa `window.confirm` (proibido pelo AGENTS.md,
+  que manda `ModalConfirmar`). Implementar a versao do concept exigiria um endpoint de
+  exclusao em massa NOVO — o padrao do projeto inteiro (Roteiros, Membros, Missoes, Vendas)
+  e' "arquivar/desativar, nunca excluir" pela dificuldade de reverter. Decisao de
+  arquitetura/seguranca, exige confirmacao explicita antes de tocar backend.
+- **Achado nº3:** "Exportar CSV" hoje e' `GET /export.csv?<filtros>` (sem selecao de colunas,
+  sem escopo por selecionados/pagina, sem nome de arquivo) — o modal-conceito pede as
+  quatro coisas; dar as duas ultimas (selecionados/pagina) exigiria endpoint aceitando lista
+  de ids, que nao existe.
+- **Achado nº4:** as vistas "Visao por status" e "Mapa" do concept nao tem NENHUM suporte
+  de backend hoje — pela propria regra do JSON ("so implementar visualizacao alternativa se
+  ja existir suporte") ficam **fora de escopo**, decisao ja tomada, sem precisar perguntar.
+- **Escopo perguntado ao operador (aguardando resposta):** (1) profundidade do refactor —
+  reorganizacao de apresentacao dentro da arquitetura atual (pagina grande + subcomponentes,
+  como ja e' o padrao do repositorio) vs. quebra em ~20 arquivos de componente; (2) o que
+  "Limpar leads" deve fazer — so' trocar `window.confirm` por `ModalConfirmar` mantendo a
+  regra atual (sem contato) vs. construir exclusao em massa real (endpoint novo); (3) se
+  "Exportar CSV" ganha selecao de colunas/nome de arquivo mantendo o escopo atual por filtro,
+  ou se tambem precisa de "selecionados"/"pagina atual" (endpoint novo).
+- **Fora de escopo ja declarado:** Visao por status, Mapa, qualquer mudanca de banco/rota
+  sem decisao explicita, alteracao de capacidades/permissoes, qualquer coisa fora de
+  `frontend/app/dashboard/banco-leads/**` e dos 2-3 modais relacionados.

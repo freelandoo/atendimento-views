@@ -27,6 +27,11 @@ const {
 } = require('../services/lead-score-cadastro')
 const { classificarLead } = require('../services/site-classificacao')
 const { avaliarQualificacaoLead } = require('../services/lead-qualificacao-score')
+// Catalogo FECHADO das colunas do CSV. O parametro `colunas` manda chaves; o campo SQL sai
+// daqui, nunca da requisicao.
+const {
+  selecionarColunasExport, camposSqlExport, cabecalhoExport, linhaExport,
+} = require('../services/banco-leads-export')
 // Ownership do lead (Etapa 4): a REGRA e' pura, o SQL e' proprio, a capacidade decide o recorte.
 const { sqlEscopo, escopoEfetivo } = require('../services/lead-responsavel')
 const { sqlNichoDaEquipe, recorteDeNicho } = require('../services/equipes-comerciais')
@@ -1778,25 +1783,24 @@ function csvCampo(v) {
   return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
-// GET /export.csv?aba=&origem=&busca= — baixa a aba atual em CSV (Excel pt-BR).
+// GET /export.csv?aba=&origem=&busca=&colunas= — baixa a aba atual em CSV (Excel pt-BR).
+//
+// `colunas` e' OPCIONAL e ADITIVO: sem ele, o arquivo sai exatamente como sempre saiu (as 12
+// colunas do catalogo). O escopo continua sendo o CONJUNTO FILTRADO — o parametro escolhe
+// quais colunas entram, nunca quais leads.
 router.get('/export.csv', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_VER_BRUTOS), async (req, res) => {
   try {
     const { where, params } = montarFiltro(req.empresa.id, req.query)
+    // Os campos saem do catalogo fechado (`services/banco-leads-export.js`), nunca da query.
+    const colunas = selecionarColunasExport(req.query.colunas)
     const { rows } = await pool.query(
-      `SELECT origem, status, nome, telefone, email, instagram_handle,
-              nicho, cidade, site, seguidores, created_at, updated_at
+      `SELECT ${camposSqlExport(colunas).join(', ')}
          FROM prospectador.prospects
         WHERE ${where} ORDER BY updated_at DESC LIMIT 5000`,
       params
     )
-    const cabecalho = ['Origem', 'Status', 'Nome', 'Telefone', 'Email', 'Instagram',
-      'Nicho', 'Cidade', 'Site', 'Seguidores', 'Criado em', 'Atualizado em']
-    const linhas = rows.map((r) => [
-      r.origem, r.status, r.nome, r.telefone, r.email, r.instagram_handle,
-      r.nicho, r.cidade, r.site, r.seguidores,
-      r.created_at && new Date(r.created_at).toISOString(),
-      r.updated_at && new Date(r.updated_at).toISOString(),
-    ].map(csvCampo).join(';'))
+    const cabecalho = cabecalhoExport(colunas)
+    const linhas = rows.map((r) => linhaExport(r, colunas).map(csvCampo).join(';'))
     // BOM (﻿) faz o Excel reconhecer UTF-8 e mostrar acentos corretamente.
     const csv = '﻿' + [cabecalho.join(';'), ...linhas].join('\r\n')
     const aba = ABAS[String(req.query.aba || '').toLowerCase()] ? String(req.query.aba).toLowerCase() : 'leads'
