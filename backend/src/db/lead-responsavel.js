@@ -83,6 +83,40 @@ async function registrarMudanca(client, { empresaId, prospectId, anterior, novo,
 }
 
 /**
+ * A MESMA gravacao, para VARIOS leads que sofreram a MESMA mudanca — em duas instrucoes.
+ *
+ * Existe porque a distribuicao por equipe move ate' `TETO_MOVIMENTOS` leads dentro da transacao
+ * que adiciona a pessoa a equipe: duas consultas por lead seriam mil idas ao banco segurando
+ * aquela transacao aberta. O conteudo gravado e' identico ao de `registrarMudanca` — e e' por isso
+ * que mora AQUI, e nao no modulo de distribuicao: `app.lead_responsavel_historico` tem um dono so'.
+ *
+ * Uma linha por LEAD, nunca uma por operacao: "distribuiu 40 leads" nao e' um evento, sao 40
+ * mudancas de dono, e e' por lead que alguem vai querer saber quem decidiu (cabecalho da 072).
+ */
+async function registrarMudancasEmLote(client, { empresaId, prospectIds, anterior, novo, usuarioId, acao, motivo }) {
+  const ids = [...new Set((prospectIds || []).map(String).filter(Boolean))]
+  if (!ids.length) return 0
+  const texto = motivo ? String(motivo).slice(0, 500) : null
+  await client.query(
+    `INSERT INTO app.lead_responsavel_historico
+       (empresa_id, prospect_id, responsavel_anterior_id, responsavel_novo_id, usuario_id, acao, motivo)
+     SELECT $1::uuid, x.id, $3::uuid, $4::uuid, $5::uuid, $6::text, $7::text
+       FROM UNNEST($2::uuid[]) AS x(id)`,
+    [empresaId, ids, anterior || null, novo || null, usuarioId || null, acao, texto]
+  )
+  await client.query(
+    `INSERT INTO app.auditoria_eventos
+       (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+     SELECT $1::uuid, $2::uuid, 'prospect', x.id, $3::text, $4::text, $5::text, $6::jsonb
+       FROM UNNEST($7::uuid[]) AS x(id)`,
+    // Sem nome e sem telefone: o id do prospect ja aponta para tudo.
+    [empresaId, usuarioId || null, `lead_responsavel_${acao}`, anterior || null, novo || null,
+      JSON.stringify({ acao, motivo: texto }), ids]
+  )
+  return ids.length
+}
+
+/**
  * O vendedor pega um lead LIVRE.
  *
  * A porta de qualificação é conferida NO `WHERE`, não antes: um lead pode ser descartado entre a
@@ -253,6 +287,7 @@ async function contagemPorResponsavel(pool, empresaId) {
 }
 
 module.exports = {
+  registrarMudancasEmLote,
   assumirLead,
   definirResponsavel,
   atribuirEmLote,

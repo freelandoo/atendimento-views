@@ -3963,3 +3963,145 @@ recorte da CARTEIRA e aparencia da TABELA sao decisoes diferentes.
 `npm run build` OK. **Verificacao visual ao vivo NAO foi feita** (exige backend + banco + login;
 o dev server sobe e a pagina compila, mas a area logada nao abre sem sessao) — a mesma pendencia
 declarada na repaginacao de 2026-09-19.
+
+---
+
+## 2026-09-21 — Distribuicao automatica e balanceada de leads por EQUIPE
+
+**Contexto:** o operador pediu um modelo HIBRIDO: rebalanceamento automatico da carteira quando
+alguem entra numa equipe, visao da carteira por pessoa dentro da area de Equipe, e uma acao
+manual ("Puxar mais leads") para o gestor aumentar volume. As quatro decisoes abaixo foram
+levadas ao chat ANTES de qualquer linha de codigo, com os conflitos a vista, e aprovadas.
+
+**O achado que enquadrou o pedido: NENHUMA MIGRATION E NECESSARIA.** Tudo ja existia —
+`prospects.responsavel_id`/`responsavel_desde`/`nicho_id`/`qualificacao`/`status`/`bloqueado_ate`
+(migrations 071/072/087), `app.lead_responsavel_historico` com a CHECK de acao ja cobrindo
+`atribuiu`/`transferiu`, e `app.auditoria_eventos` com `contexto` JSONB livre. O que faltava era
+a REGRA de quando mover, nao lugar para guardar.
+
+**Decisao 1 — o rebalanceamento PODE tirar lead de quem esta acima da meta, mas SO' intocado.**
+E' a unica escrita do produto que tira trabalho da mao de alguem sem essa pessoa pedir, e ela
+contraria a disciplina que `services/lead-parado.js` declara no cabecalho ("o sistema MARCA, nao
+devolve"). A diferenca que a torna aceitavel: la' o lead ja tem trabalho comecado; aqui ninguem
+encostou nele. Sem isso, "balanceado" nao significaria nada — pessoa nova entrando numa equipe
+onde tudo ja esta distribuido ficaria com carteira zerada. A guarda de `lead-parado.js` NAO foi
+tocada.
+
+**Decisao 2 — dois gatilhos, e NENHUM worker.** Entrada de gente na equipe (na mesma transacao
+que grava o participante) e o botao do gestor. A terceira opcao do pedido ("quando leads novos
+forem liberados, se houver politica ativa") exigiria um job que muda dono de lead sozinho e uma
+politica que nao existe no banco — foi recusada. Ha guarda de regressao que varre
+`src/services/*worker*|*auto*|*scheduler*` e falha se algum importar o modulo.
+
+**Decisao 3 — a carteira da tela e recortada pelo NICHO da equipe, e a tela declara isso.**
+`GET /equipe` (`contagemPorResponsavel`) conta a carteira da pessoa na EMPRESA INTEIRA, sem
+filtro de nicho — e continua contando. Sao dois numeros verdadeiros com o mesmo nome na mesma
+tela, entao cada coluna carrega `oQueMede`, pelo mesmo motivo da `BolinhaPontuacao`. A alternativa
+(duas colunas, "no nicho" e "total") foi recusada por exigir que a pessoa leia o rotulo para nao
+confundir.
+
+**Decisao 4 — "Com reuniao" entra como recorte da CARTEIRA, e a guarda foi ATUALIZADA, nao
+contornada.** `lib/equipe-area.test.js` proibia a palavra `reunio` com a justificativa "nenhuma
+metrica de reuniao tem fonte real hoje". Isso continua verdade para "quantas reunioes a pessoa
+conduziu" (`agenda_eventos.responsavel_id` existe desde a 076 e NUNCA teve backfill: viria quase
+tudo zero) e continua proibido la'. "Quantos leads desta pessoa tem reuniao marcada" tem fonte
+real — a mesma subconsulta por telefone do Banco de Leads, que a distribuicao calcula de qualquer
+forma para PROTEGER o lead —, e vive em `lib/equipe-carteira.js` com o rotulo declarando a
+diferenca. Rotear em volta da guarda em silencio teria sido o caminho errado.
+
+**Decisao 5 — na duvida, PROTEGIDO.** Os dois erros possiveis nao custam a mesma coisa: nao mover
+um lead intocado deixa a carteira um pouco desigual (visivel e corrigivel com um clique); mover um
+lead com reuniao marcada deixa um cliente falando com uma pessoa e um compromisso na agenda de
+outra. Por isso `sqlConversaAberta` protege QUALQUER conversa nao arquivada, e nao so' "atendimento
+humano": distinguir exigiria ler `responsavel_id`/`operador_assumiu_em`/`agente_pausado`, tres
+sinais que mudam por conta propria durante o atendimento.
+
+**Decisao 6 — o predicado e MAIS ESTRITO que o de "lead parado", de proposito.** Ele reusa
+`LP.sqlUltimaAcao` (dono unico das tres fontes de acao) e ACRESCENTA follow-up casado por
+TELEFONE, porque `app.follow_ups.prospect_id` e' nullable (migration 062). Para MARCAR um lead
+como parado, nao ver aquele follow-up custa um rotulo errado; para MOVER o lead de dono, custa
+tira-lo da mao de quem combinou o retorno com o cliente.
+
+**Decisao 7 — `LEAD_TRANSFERIR` por ROTA, nao o mount.** `/equipes-comerciais` e' montado com
+`MEMBROS_GERENCIAR`. Mexer em quem e' dono de lead e' outra decisao que administrar contas, e
+`LEAD_TRANSFERIR` e' exatamente a capacidade que o papel `comercial` nao tem. Sem o gate por rota,
+quem administra contas passaria a redistribuir carteira sem ninguem ter decidido isso.
+
+**Decisao 8 — o historico e' gravado pelo DONO da tabela, em lote.** `registrarMudancasEmLote`
+nasceu em `db/lead-responsavel.js` (nao no modulo de distribuicao) porque
+`app.lead_responsavel_historico` tem um dono so'. Em lote (duas instrucoes) porque a operacao roda
+dentro da transacao que adiciona o participante — mil idas ao banco a segurariam aberta. Uma linha
+por LEAD, mais UMA linha agregada por operacao em `app.auditoria_eventos`.
+
+**Decisao 9 — `sqlTelefoneNormalizado` ganhou um dono (`src/telefone-br.js`).** A expressao era
+identica, caractere a caractere, em `routes/api-banco-leads.js` (`normFone`) e `db/follow-ups.js`
+(`telefoneCanonicoSql`). MOVIDA, nao duplicada — mesmo precedente de `candidatosTelefoneBR`. Uma
+terceira copia faria a distribuicao proteger o lead errado enquanto a listagem continuaria certa.
+
+**Decisao 10 — o criterio "Sem contato" NAO e' "nunca abordado".** No universo redistribuivel todo
+lead e' intocado por construcao, entao esse criterio seria um controle que nao muda nada — um
+controle que mente. Ele virou a faixa `falta_contato` de `lead-fila-trabalho.js` (sem telefone nem
+e-mail, trabalho de completar cadastro), e a tela rotula exatamente isso. Ha teste cobrando que os
+tres criterios produzam ordens DIFERENTES.
+
+**Consequencia declarada e aceita:** um lead intocado pode mudar de responsavel sem a pessoa
+pedir, e ela so' descobre pela carteira. O rastro existe (historico por lead + auditoria agregada),
+e o motivo gravado e' vocabulario fechado (`rebalanceamento_automatico_equipe`), justamente para
+"por que este lead saiu de mim?" ter resposta.
+
+**Fora de escopo, declarado:** devolucao de leads na REMOCAO de participante (segue recusada com
+409 `REMOCAO_EXIGE_DEVOLUCAO`), rebalanceamento sob demanda sem entrada de gente, worker de
+distribuicao ao aprovar lead novo, e qualquer mudanca em envio de WhatsApp, follow-up, agenda ou
+coleta paga.
+
+**Nenhuma migration, nenhuma variavel de ambiente, nenhuma capacidade nova.** Codigo:
+`src/services/lead-distribuicao.js` (PURO), `src/db/lead-distribuicao.js`,
+`src/db/equipes-comerciais.js`, `src/db/lead-responsavel.js`, `src/routes/api-equipes-comerciais.js`,
+`src/telefone-br.js`; front `frontend/lib/equipe-carteira.js` (+ `.d.ts`/`.test.js`),
+`components/ModalPuxarLeads.tsx`, `app/dashboard/equipe/page.tsx`. Testes:
+`test/lead-distribuicao.test.js` (28, sendo 8 guardas que leem o fonte) e
+`frontend/lib/equipe-carteira.test.js` (25).
+
+
+## 2026-09-20 (2) — Repaginação de LeadDetalhesModal e ConversaHistoricoModal
+
+Continuação da reorganização do Banco de Leads, a pedido do operador: "estrutura melhor
+parecida com o que você fez" aplicada nas duas telas que abrem de lá — a ficha do lead
+(ICP, `components/LeadDetalhesModal.tsx`) e a conversa (`components/ConversaHistoricoModal.tsx`,
+aberta ao clicar no nome). Sem fotos de referência desta vez; escopo confirmado em texto pelo
+operador ("Nos modais").
+
+**Zero mudança de regra de negócio.** Nenhum endpoint, payload, validação ou efeito colateral
+foi tocado — nem o autosave do ICP (debounce, `finalizarIcpRef` no unmount), nem o envio dos
+sub-modais de reunião/ligação/descarte. A mudança é inteiramente de apresentação.
+
+**Migração mecânica para os tokens do guia visual** (`slate-*`/`white` → `surface`/`line`/
+`ink*`) nos dois arquivos — mapeamento por correspondência EXATA de hex (`900→ink`, `600→ink-2`,
+`500→ink-3`, `200→line`, `300→line-strong`, `50→surface-2`, `white→surface`), então "não muda
+um pixel" como o próprio guia garante. `slate-800`/`700`/`400`/`950`, que não têm correspondência
+exata, foram dobrados no vizinho mais próximo (`800/700→ink-2` ou `ink`, `400→ink-3`) — a única
+mudança real é texto muito claro (`slate-400`) ficando um tom mais escuro, o que soma para
+legibilidade em vez de tirar.
+
+**Botões escritos à mão viraram o componente `Botao`** nos pontos de ação clara (cabeçalhos,
+rodapés, Enviar/Gerar, os três sub-modais de status) — ganham foco visível, `disabled` real e
+`carregando` que desabilita contra duplo clique, que os `<button>` originais não tinham de forma
+consistente. Os micro-botões de contexto (ações do bloco de Instagram, chips de reação) foram
+**deixados como estavam**: são ações pequenas dentro de um fluxo com lógica própria, e
+convertê-los não trazia ganho que justificasse o risco de mexer perto daquele código.
+
+**Os 3 sub-modais de ação do `ConversaHistoricoModal` (reunião/ligação/descarte) eram a MESMA
+moldura copiada três vezes** (~90 linhas de overlay+cartão+cabeçalho+rodapé repetidas). Viraram
+um wrapper único, `PainelAcaoConversa` — extração pura, cada chamador continua com seu próprio
+formulário e sua própria função de salvar; nada do que cada um valida ou envia mudou.
+
+**O botão "Concluir" da ficha do lead ganhou rodapé PRESO**, fora da área que rola. Antes ele
+vivia solto no fim do corpo — numa ficha com grade de 2-3 colunas, "rolar até o fim" era o
+próprio trabalho de avaliar o ICP. A regra já estava documentada no cabeçalho do `FolhaModal`
+("a ação primária não pode depender de rolar até o fim"); esta tela só passou a segui-la. O
+rodapé também passou a mostrar o texto de autosave ao lado do botão, reaproveitando o estado que
+já existia (`autosaveTexto`) — nenhum estado novo foi criado.
+
+**Validação:** `npx tsc --noEmit` limpo, `node --test lib/*.test.js` (704, nenhum novo teste —
+mudança é só de apresentação em componentes `.tsx`, sem módulo `lib/` tocado) e `npm run build`
+OK. **Verificação visual ao vivo não foi feita** — mesma pendência das duas rodadas anteriores.

@@ -54,6 +54,7 @@ const {
 
 const { formatarDinheiro } = require('./comissao')
 const { detalheMaisAntigo, resumoDaEquipe } = require('./lead-parado')
+const carteira = require('./equipe-carteira')
 
 // ─── Abas ───────────────────────────────────────────────────────────────────────────────
 //
@@ -622,4 +623,8 @@ module.exports = {
   formatarDinheiro,
   detalheMaisAntigo,
   resumoDaEquipe,
+  // A CARTEIRA DO NICHO (lib/equipe-carteira.js), reexportada pelo mesmo motivo das de cima: a
+  // tela importa de UM lugar so'. Ela mora em modulo proprio porque responde outra pergunta —
+  // aqui a carteira e' da EMPRESA INTEIRA, la' e' do nicho de uma equipe.
+  ...carteira,
 }

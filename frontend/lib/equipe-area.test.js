@@ -394,9 +394,20 @@ test('GUARDA: as regras herdadas sao REEXPORTADAS, nunca reimplementadas', () =>
 })
 
 test('GUARDA: a metrica de REUNIOES nao e inventada', () => {
-  // Nao existe contagem de reunioes por pessoa em rota alguma deste produto. A referencia
-  // visual pedia a coluna; inventa-la produziria um numero que ninguem consegue conferir.
-  assert.ok(!SEM_COMENTARIOS.includes('reunio'), 'nenhuma metrica de reuniao tem fonte real hoje')
+  // ⚠️ ATUALIZADA em 2026-09-21, e o motivo importa: sao DUAS metricas com o mesmo nome.
+  //
+  //  • "quantas reunioes esta pessoa CONDUZIU" continua SEM FONTE e continua proibida aqui.
+  //    `app.agenda_eventos.responsavel_id` existe desde a migration 076 e NUNCA teve backfill,
+  //    entao viria quase tudo zero — um numero que ninguem consegue conferir nem contestar.
+  //
+  //  • "quantos leads desta pessoa TEM reuniao marcada" TEM fonte real (a mesma subconsulta por
+  //    telefone que o Banco de Leads ja usa, e que a distribuicao por equipe calcula de qualquer
+  //    forma para proteger o lead). Ela e' um recorte da CARTEIRA, nao producao da pessoa, e por
+  //    isso vive em `lib/equipe-carteira.js` — junto das outras contagens de lead do nicho —,
+  //    com o rotulo declarando a diferenca. Ver a guarda irma em `lib/equipe-carteira.test.js`.
+  //
+  // Este modulo continua sendo o painel da EMPRESA INTEIRA, onde a segunda metrica nao cabe.
+  assert.ok(!SEM_COMENTARIOS.includes('reunio'), 'producao de reuniao por pessoa nao tem fonte real')
   const chaves = E.METRICAS_EQUIPE.map((m) => m.chave).concat(E.COLUNAS_MEMBRO.map((c) => c.chave))
   for (const c of chaves) assert.ok(!/reuni/i.test(c))
 })

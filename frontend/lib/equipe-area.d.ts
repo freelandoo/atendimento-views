@@ -271,3 +271,9 @@ export declare function resumoDaEquipe(
   linhas: Partial<LinhaEquipe>[] | null | undefined,
   prazoDias?: number | null
 ): { total: number; pessoas: number; frase: string; acao: string } | null
+
+// ─── A CARTEIRA DO NICHO ────────────────────────────────────────────────────────────────
+// Reexportada de `./equipe-carteira` (nunca redefinida): a tela importa de um lugar só. Vive em
+// módulo próprio porque responde outra pergunta — aqui a carteira é da EMPRESA INTEIRA, lá é do
+// nicho de uma equipe, e os dois números aparecem na mesma tela.
+export * from './equipe-carteira'

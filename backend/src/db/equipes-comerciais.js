@@ -4,6 +4,8 @@
 
 const { pool } = require('../db')
 const E = require('../services/equipes-comerciais')
+const DIST = require('./lead-distribuicao')
+const D = require('../services/lead-distribuicao')
 const { logger } = require('../logger')
 
 function erro(mensagem, statusCode = 400, code = 'BAD_REQUEST') {
@@ -166,12 +168,34 @@ async function substituirParticipantes(client, empresaId, equipe, usuarioIds, au
       },
     })
   }
+
+  // ─── O GATILHO DO REBALANCEAMENTO ──────────────────────────────────────────────────────
+  //
+  // Entrou gente na equipe: a carteira INTOCADA do nicho e' redividida entre os membros. Roda na
+  // MESMA transacao de proposito — "entrou na equipe e recebeu carteira" e' um fato so', e uma
+  // entrada que promete carteira e nao entrega deixaria a pessoa olhando uma tela vazia sem
+  // ninguem saber por que.
+  //
+  // ⚠️ SO' QUANDO ALGUEM ENTRA. Salvar a mesma lista de participantes de novo nao redistribui
+  // nada: repetir a acao nao pode remexer carteira, e reequilibrar por vontade propria e' o
+  // botao "Puxar mais leads" / o rebalanceamento pedido, nunca um efeito colateral de salvar.
+  // Lead PROTEGIDO (reuniao, conversa, follow-up, ligacao, disparo) nunca entra nesta conta —
+  // ver o cabecalho de `services/lead-distribuicao.js`.
+  if (!adicionar.length) return null
+  const membrosFinais = await membrosDaEquipe(client, empresaId, equipe.id)
+  return DIST.rebalancearEquipe(client, {
+    empresaId,
+    equipeId: equipe.id,
+    nichoId: equipe.nicho_id,
+    usuarioIds: membrosFinais.map((m) => m.usuario_id),
+    autorId,
+  })
 }
 
 async function criarEquipe(empresaId, dados = {}, autorId = null) {
   const v = E.normalizarEquipe(dados, { criar: true })
   return withTx(async (client) => {
-    await assertNichoAtivo(client, empresaId, v.nicho_id)
+    const nicho = await assertNichoAtivo(client, empresaId, v.nicho_id)
     let equipe
     try {
       const { rows } = await client.query(
@@ -195,9 +219,16 @@ async function criarEquipe(empresaId, dados = {}, autorId = null) {
       estadoNovo: equipe.nome,
       contexto: { nicho_id: equipe.nicho_id },
     })
-    if (v.usuario_ids) await substituirParticipantes(client, empresaId, equipe, v.usuario_ids, autorId)
+    const distribuicao = v.usuario_ids
+      ? await substituirParticipantes(client, empresaId, equipe, v.usuario_ids, autorId)
+      : null
     logger.info({ empresa_id: empresaId, equipe_id: equipe.id }, '[equipes-comerciais] equipe criada')
-    return { ...equipe, membros: await membrosDaEquipe(client, empresaId, equipe.id) }
+    return {
+      ...equipe,
+      nicho_nome: nicho.nome,
+      membros: await membrosDaEquipe(client, empresaId, equipe.id),
+      distribuicao,
+    }
   })
 }
 
@@ -283,8 +314,8 @@ async function definirParticipantes(empresaId, equipeId, dados = {}, autorId = n
     const equipe = await obterEquipe(client, empresaId, equipeId, { forUpdate: true })
     if (!equipe) throw erro('Equipe não encontrada nesta empresa.', 404, 'NOT_FOUND')
     if (equipe.status !== 'ativa') throw erro('Equipe encerrada não recebe participantes.', 409, 'EQUIPE_ENCERRADA')
-    await substituirParticipantes(client, empresaId, equipe, v.usuario_ids, autorId)
-    return { ...equipe, membros: await membrosDaEquipe(client, empresaId, equipe.id) }
+    const distribuicao = await substituirParticipantes(client, empresaId, equipe, v.usuario_ids, autorId)
+    return { ...equipe, membros: await membrosDaEquipe(client, empresaId, equipe.id), distribuicao }
   })
 }
 
@@ -406,7 +437,96 @@ async function membrosElegiveis(empresaId) {
   }))
 }
 
+// ─── A CARTEIRA DA EQUIPE (leitura) ─────────────────────────────────────────────────────
+
+/**
+ * A carteira do nicho da equipe, ja' com o nome de cada pessoa.
+ *
+ * SOMENTE LEITURA: nao move lead, nao grava e nao chama IA. O gestor precisa poder abrir o
+ * painel sem que nada mude — distribuir e' sempre um clique explicito.
+ *
+ * ⚠️ Os numeros aqui sao do NICHO desta equipe, nao da empresa inteira. O painel geral
+ * (`GET /equipe`) continua contando a carteira total de cada pessoa, e os dois convivem porque
+ * respondem perguntas diferentes. Quem exibe e' obrigado a dizer qual esta mostrando.
+ */
+async function carteiraDaEquipe(empresaId, equipeId, { prazoParado } = {}) {
+  const equipe = await obterEquipe(pool, empresaId, equipeId)
+  if (!equipe) return null
+  const membros = await membrosDaEquipe(pool, empresaId, equipeId)
+  const [carteira, protegidos, disponiveis] = await Promise.all([
+    DIST.carteiraDaEquipe(pool, empresaId, equipe.nicho_id, { prazoParado }),
+    DIST.resumoProtegidos(pool, empresaId, equipe.nicho_id),
+    DIST.livresRedistribuiveis(pool, empresaId, equipe.nicho_id),
+  ])
+  const porUsuario = new Map(carteira.map((c) => [String(c.responsavel_id), c]))
+  const zero = { leads: 0, intocados: 0, em_andamento: 0, parados: 0, com_follow_up: 0, com_reuniao: 0 }
+
+  return {
+    equipe: {
+      id: equipe.id, nome: equipe.nome, status: equipe.status,
+      nicho_id: equipe.nicho_id, nicho_nome: equipe.nicho_nome,
+    },
+    membros: membros.map((m) => ({
+      usuario_id: m.usuario_id,
+      nome: m.nome,
+      papel: m.role,
+      // Membro sem linha na carteira NAO e' ausencia de dado: e' carteira vazia neste nicho, que
+      // e' exatamente quem o rebalanceamento existe para atender.
+      ...zero,
+      ...(porUsuario.get(String(m.usuario_id)) || {}),
+    })),
+    livres: { ...zero, ...(porUsuario.get('null') || {}) },
+    disponiveis_para_puxar: disponiveis,
+    protegidos,
+  }
+}
+
+/**
+ * PUXAR MAIS LEADS para a equipe. Transacao propria, equipe conferida antes.
+ *
+ * `usuario_ids` so' e' aceito com `entre = 'selecionados'`, e cada um precisa ser membro ATIVO
+ * DESTA equipe: aceitar um id de fora transformaria a acao numa porta lateral para dar carteira
+ * a quem o recorte por nicho nem alcanca.
+ */
+async function puxarLeadsParaEquipe(empresaId, equipeId, dados = {}, autorId = null) {
+  return withTx(async (client) => {
+    const equipe = await obterEquipe(client, empresaId, equipeId, { forUpdate: true })
+    if (!equipe) throw erro('Equipe não encontrada nesta empresa.', 404, 'NOT_FOUND')
+    if (equipe.status !== 'ativa') throw erro('Equipe encerrada não recebe leads.', 409, 'EQUIPE_ENCERRADA')
+
+    const membros = await membrosDaEquipe(client, empresaId, equipeId)
+    if (!membros.length) throw erro('Esta equipe ainda não tem participantes.', 409, 'EQUIPE_SEM_MEMBROS')
+
+    const entre = D.entreValido(dados.entre)
+    const todos = membros.map((m) => String(m.usuario_id))
+    let destinos = todos
+    if (entre === D.DISTRIBUIR_ENTRE.SELECIONADOS) {
+      const pedidos = E.normalizarUsuarioIds(dados.usuario_ids)
+      if (!pedidos.length) throw erro('Selecione as pessoas que vão receber os leads.', 400, 'SEM_DESTINO')
+      const fora = pedidos.filter((id) => !todos.includes(String(id)))
+      if (fora.length) {
+        throw erro('Só é possível distribuir entre participantes desta equipe.', 400, 'DESTINO_FORA_DA_EQUIPE')
+      }
+      destinos = pedidos
+    }
+
+    const resultado = await DIST.puxarLeads(client, {
+      empresaId,
+      equipeId,
+      nichoId: equipe.nicho_id,
+      usuarioIds: destinos,
+      quantidade: dados.quantidade,
+      criterio: dados.criterio,
+      entre,
+      autorId,
+    })
+    return { ...resultado, equipe: { id: equipe.id, nome: equipe.nome, nicho_nome: equipe.nicho_nome } }
+  })
+}
+
 module.exports = {
+  carteiraDaEquipe,
+  puxarLeadsParaEquipe,
   equipeAtivaDoUsuario,
   membrosElegiveis,
   listarEquipes,

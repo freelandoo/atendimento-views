@@ -32,4 +32,24 @@ function candidatosTelefoneBR(numero) {
   return [...set].filter(Boolean)
 }
 
-module.exports = { somenteDigitos, candidatosTelefoneBR }
+/**
+ * A expressao SQL que normaliza uma coluna de telefone para COMPARACAO.
+ *
+ * So' digitos, removendo o DDI `55` quando presente (`length >= 12`) — e' o que casa
+ * `prospectador.prospects.telefone` (em geral sem 55) com `vendas.conversas.numero` (JID com 55)
+ * sem corromper numero de DDD 55.
+ *
+ * MOVIDA de `src/routes/api-banco-leads.js` (onde se chamava `normFone`), pelo mesmo motivo de
+ * `candidatosTelefoneBR`: o casamento lead<->conversa/agenda por telefone passou a ser necessario
+ * fora daquela rota (`db/lead-distribuicao.js`), e uma segunda copia da expressao divergiria em
+ * silencio — a listagem continuaria certa e a distribuicao passaria a proteger o lead errado.
+ * **Movida, nao duplicada**: comportamento identico, e `api-banco-leads.js` a consome daqui.
+ *
+ * @param {string} col  a coluna/expressao SQL (ja' qualificada pelo chamador).
+ */
+function sqlTelefoneNormalizado(col) {
+  const digitos = `regexp_replace(COALESCE(${col}, ''), '[^0-9]', '', 'g')`
+  return `(CASE WHEN length(${digitos}) >= 12 AND left(${digitos}, 2) = '55' THEN substr(${digitos}, 3) ELSE ${digitos} END)`
+}
+
+module.exports = { somenteDigitos, candidatosTelefoneBR, sqlTelefoneNormalizado }

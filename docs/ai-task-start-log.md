@@ -6,6 +6,24 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-21 - Inicio de tarefa IA - Distribuicao automatica e balanceada de leads por equipe comercial
+
+- **IA/Ferramenta:** Claude Code (Opus 5), na `master`, repositorio limpo no inicio da tarefa.
+- **Pedido resumido:** sistema hibrido de distribuicao de leads por equipe comercial —
+  rebalanceamento AUTOMATICO somente de leads ainda nao trabalhados (intocados), visao da
+  carteira por pessoa dentro da area de Equipe, e acao manual "Puxar mais leads" do nicho da
+  equipe. Leads em andamento nunca mudam de dono automaticamente.
+- **E projeto/tarefa de alteracao?** Sim, e e GRANDE/ESTRUTURAL: cria servico e camada de dados
+  novos, escreve em massa em `prospectador.prospects.responsavel_id`, grava historico em
+  `app.lead_responsavel_historico`, acrescenta rota de escrita com capacidade, e muda a area de
+  Equipe. Pelo CLAUDE.md, ESPERA CONFIRMACAO antes da implementacao.
+- **Workflow padrao consultado?** Sim: AGENTS.md, CLAUDE.md, docs/ai-workflow.md,
+  docs/project-map.md, docs/architecture-rules.md, docs/analise-equipes-por-nicho.md.
+- **Fase 0 concluida; segue para Fase 1 (Entendimento) e Fase 4 (Impacto) antes de qualquer codigo.**
+- **Fora de escopo declarado desde ja:** devolucao/redistribuicao de leads na REMOCAO de
+  participante (que hoje e recusada com 409 `REMOCAO_EXIGE_DEVOLUCAO`) nao entra sem decisao
+  propria; nenhuma alteracao em envio de WhatsApp, follow-up, agenda ou coleta paga.
+
 ## 2026-09-17 - Início de tarefa IA - Régua de ICP, score e validação de leads
 
 - **IA/Ferramenta:** Codex, na `master`, com commit/push/deploy autorizados pelo operador.
@@ -4576,3 +4594,29 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Fora de escopo ja declarado:** Visao por status, Mapa, qualquer mudanca de banco/rota
   sem decisao explicita, alteracao de capacidades/permissoes, qualquer coisa fora de
   `frontend/app/dashboard/banco-leads/**` e dos 2-3 modais relacionados.
+
+
+## 2026-09-20 (2) — Repaginação de LeadDetalhesModal e ConversaHistoricoModal
+
+- **Pedido do operador:** "estrutura melhor parecida com o que você fez" (a reorganização do
+  Banco de Leads) aplicada nas DUAS telas que abrem de lá: a que abre ao clicar em "ICP"
+  (`components/LeadDetalhesModal.tsx`, a ficha do lead com o checklist ICP) e a que abre ao
+  clicar no nome do lead (`components/ConversaHistoricoModal.tsx`, conversa + status +
+  agendar reunião/ligação/descarte). Sem fotos de referência desta vez (confirmado pelo
+  operador — segue pela descrição em texto).
+- **Análise de impacto:** os dois arquivos foram lidos por completo (988 + 655 linhas).
+  `LeadDetalhesModal.tsx` tem lógica sensível de AUTOSAVE do ICP (debounce, `finalizarIcpRef`
+  no `useEffect` de desmontagem, que envia o veredito final ao fechar) — **não será tocada**.
+  `ConversaHistoricoModal.tsx` tem 3 sub-modais quase idênticos (reunião/ligação/descarte) que
+  disparam `PATCH` no status do lead com efeitos reais (agenda, follow-up) — **a lógica de
+  envio não será tocada**, só a casca visual repetida.
+- **Escopo desta rodada, decidido a partir do padrão já aprovado no Banco de Leads:**
+  (1) migrar cores neutras `slate-*`/`white` para os tokens do guia (`surface`/`line`/`ink*`) —
+  mudança mecânica, mesmo valor de pixel, documentada como segura pelo próprio guia visual;
+  (2) trocar botões escritos à mão pelo componente `Botao`; (3) extrair a casca duplicada dos
+  3 sub-modais de ação em um wrapper único (`PainelAcaoConversa`), sem mudar o que cada um
+  salva; (4) prender o botão "Concluir" da ficha do lead num rodapé fixo — o próprio
+  `FolhaModal` documenta essa regra ("a ação primária não pode depender de rolar até o fim") e
+  hoje o botão está solto dentro do corpo que rola.
+- **Fora de escopo:** qualquer mudança em endpoints, no autosave do ICP, na lógica de
+  agendamento/ligação/descarte, ou em `lib/lead-icp.js`/`lib/follow-up-acao.js`.

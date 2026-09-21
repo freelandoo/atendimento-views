@@ -13,6 +13,7 @@ const {
 } = require('../services/contato-canal-disponibilidade')
 const D = require('./contato-canal-disponibilidade')
 const { assertMesmaEmpresa } = require('./campanhas')
+const { sqlTelefoneNormalizado } = require('../telefone-br')
 
 // Colunas devolvidas por todas as leituras de item. `telefone_digitos` e a identidade;
 // `conversa_numero` e cache de conveniencia (ver cabecalho da migration 062).
@@ -28,8 +29,11 @@ function erroEntrada(message, statusCode = 400) {
   return err
 }
 
-const soDigitosSql = (col) => `regexp_replace(COALESCE(${col}, ''), '[^0-9]', '', 'g')`
-const telefoneCanonicoSql = (col) => `(CASE WHEN length(${soDigitosSql(col)}) >= 12 AND left(${soDigitosSql(col)}, 2) = '55' THEN substr(${soDigitosSql(col)}, 3) ELSE ${soDigitosSql(col)} END)`
+// Repontada para `src/telefone-br.js` (2026-09-21): a expressao era identica, caractere a
+// caractere, a `normFone` de `routes/api-banco-leads.js`. Duas copias do MESMO casamento por
+// telefone divergiriam em silencio — e a distribuicao por equipe passou a depender dele para
+// saber se um lead ja tem follow-up combinado.
+const telefoneCanonicoSql = sqlTelefoneNormalizado
 
 function nichoEquipeId(equipe) {
   return equipe && equipe.nicho_id ? equipe.nicho_id : null

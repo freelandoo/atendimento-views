@@ -1180,3 +1180,40 @@ existe e nao deve nascer.
 - Validacao executada: `npm test` (backend, 2258/2260 — 2 flaky de IA por 429, pre-existentes),
   `npx tsc --noEmit` e `node --test lib/*.test.js` (663) no frontend, e `next dev` compilando
   `/dashboard/equipe` (HTTP 200).
+
+### Distribuicao de leads por EQUIPE (2026-09-21)
+
+- **Arquivos:** `backend/src/services/lead-distribuicao.js` (**fonte de verdade unica**, PURO),
+  `backend/src/db/lead-distribuicao.js`, `backend/src/db/equipes-comerciais.js` (gatilho),
+  `backend/src/db/lead-responsavel.js` (`registrarMudancasEmLote`),
+  `backend/src/routes/api-equipes-comerciais.js` (2 rotas novas),
+  `backend/src/telefone-br.js` (`sqlTelefoneNormalizado`),
+  `frontend/lib/equipe-carteira.js`, `frontend/components/ModalPuxarLeads.tsx`,
+  `frontend/app/dashboard/equipe/page.tsx`.
+- **Nenhuma migration, nenhuma variavel de ambiente, nenhuma capacidade nova.**
+- **Regras a preservar:**
+  - **Na duvida, PROTEGIDO.** `sqlRedistribuivel` exige AUSENCIA de sinal de trabalho, nunca
+    presenca de permissao. Afrouxar qualquer um dos cinco sinais (disparo/ligacao/follow-up,
+    follow-up por telefone, reuniao futura, conversa aberta, bloqueio/status/qualificacao) move
+    lead de quem esta negociando.
+  - **Nao existe worker.** Os gatilhos sao a ENTRADA de alguem na equipe e o botao do gestor.
+    Guarda de regressao varre `src/services/*worker*|*auto*|*scheduler*`.
+  - **A distribuicao nao DEVOLVE lead para a fila.** Nenhum `responsavel_id = NULL` em
+    `db/lead-distribuicao.js` — devolver continua sendo `definirResponsavel(..., null)`, humano.
+  - **Todo UPDATE e condicionado ao dono esperado** + `pg_advisory_xact_lock` por (empresa,
+    equipe). Trocar por SELECT seguido de UPDATE reabre a corrida.
+  - **Historico por LEAD, sempre**, gravado pelo dono da tabela (`db/lead-responsavel.js`).
+  - **`LEAD_TRANSFERIR` por ROTA** em `POST /:equipeId/distribuicao` — o mount
+    (`MEMBROS_GERENCIAR`) nao basta, e `requireEmpresaAccess` vem ANTES.
+  - **Duas carteiras com o mesmo nome:** `GET /equipe` conta a EMPRESA INTEIRA; `GET
+    /:id/carteira` conta o NICHO. Cada coluna declara `oQueMede`; nenhuma se soma com outra.
+  - **"Com reuniao" e recorte da CARTEIRA**, nunca producao da pessoa — a guarda de
+    `lib/equipe-area.test.js` continua proibindo a segunda no painel da empresa.
+  - A tela **so traduz**: guarda falha se `equipe-carteira.js` citar coluna de banco ou ordenar
+    pessoas.
+- **Fora de escopo:** devolucao de leads na remocao de participante (segue 409
+  `REMOCAO_EXIGE_DEVOLUCAO`), rebalanceamento sob demanda sem entrada de gente, worker ao
+  aprovar lead novo, e qualquer mudanca em envio de WhatsApp, follow-up, agenda ou coleta paga.
+- **Validacao executada:** `npm test` (backend, 2298/2300 — os 2 flaky de IA por 429,
+  pre-existentes), `npm run typecheck` (backend, limpo), `npx tsc --noEmit` e
+  `node --test lib/*.test.js` (704) no frontend. **Verificacao visual ao vivo NAO foi feita.**

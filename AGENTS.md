@@ -3103,6 +3103,133 @@
 - **Nenhuma migration, nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhuma
   mudança de gate de rota.**
 
+### Distribuição de leads por EQUIPE — o sistema MOVE só o que ninguém tocou (sem migration)
+
+- **Continuação da Área de EQUIPE** (bloco acima) e das Equipes Comerciais (migration 088).
+  **Nenhuma migration, nenhuma variável de ambiente nova, nenhuma capacidade nova.** Tudo o que
+  o módulo precisa já existia: `prospects.responsavel_id`/`responsavel_desde`/`nicho_id`/
+  `qualificacao`/`status`/`bloqueado_ate`, `app.lead_responsavel_historico` (migration 072) e
+  `app.auditoria_eventos`. Entregue em 2026-09-21.
+- **Regra de negócio, em uma frase:** quando alguém entra numa equipe, a carteira **INTOCADA**
+  daquele nicho é redividida entre os membros; lead com trabalho começado **nunca** muda de dono
+  automaticamente; e o gestor pode **puxar mais leads livres** do nicho quando quiser volume.
+- ⚠️ **A REGRA QUE NÃO SE NEGOCIA: na dúvida, PROTEGIDO.** Não mover um lead intocado custa uma
+  carteira um pouco desigual — visível na tela e corrigível com um clique. Mover um lead que já
+  tem reunião marcada custa um cliente falando com uma pessoa e um compromisso na agenda de
+  outra. Os dois erros **não custam a mesma coisa**, então `sqlRedistribuivel` exige **AUSÊNCIA
+  de sinal**, nunca presença de permissão.
+- **Fonte de verdade única: `src/services/lead-distribuicao.js`** (PURO — sem banco, HTTP, IA ou
+  rede; só importa outros módulos puros). Ele não LÊ nada: devolve as **expressões SQL** e o
+  **plano**, no padrão de `lead-fila-trabalho.js` e `lead-parado.js`. A pergunta dele não é "de
+  quem é este lead?" nem "quem pode trocar o dono?" (isso é `lead-responsavel.js`), e sim
+  **"este lead pode ser MOVIDO sem atrapalhar trabalho que já começou?"**.
+- **Os oito motivos de proteção** (vocabulário FECHADO, sem PII): `fora_do_nicho` ·
+  `nao_abordavel` (a porta da 071) · `status_avancado` (respondeu/enviado/fechado/rejeitado/
+  `nao_contatar`) · `bloqueado` (`bloqueado_ate`, a trava de 15 dias) · `ja_trabalhado` ·
+  `follow_up_aberto` · `reuniao_marcada` · `conversa_aberta`. A tela mostra a contagem por
+  motivo — "movi 3 de 15" sem dizer por quê mandaria o gestor procurar defeito onde há
+  negociação em andamento.
+- ⚠️ **O sinal de "já trabalhado" é EMPRESTADO, não reescrito:** `LP.sqlUltimaAcao`
+  (`services/lead-parado.js`) é o dono único das três fontes de ação (disparos — que cobrem a
+  Evolution **e** o wa.me manual —, ligações e follow-ups por `prospect_id`). Uma segunda régua
+  faria "parado" e "intocado" discordarem sobre o mesmo lead, **na mesma tela**.
+- **Mas o predicado daqui é MAIS ESTRITO, de propósito:** ele acrescenta `sqlFollowUpPorTelefone`,
+  porque `app.follow_ups.prospect_id` é NULLABLE (a identidade lá é `empresa_id +
+  telefone_digitos`, migration 062) e o limite está declarado no cabeçalho de `lead-parado.js`.
+  Para **marcar** um lead como parado, não ver esse follow-up custa um rótulo errado; para
+  **mover** o lead de dono, custa tirá-lo da mão de quem combinou o retorno com o cliente.
+- **`sqlConversaAberta` é deliberadamente mais largo que "em atendimento humano":** qualquer
+  conversa não arquivada protege. Distinguir "humano" de "o bot respondeu" exigiria ler
+  `responsavel_id`/`operador_assumiu_em`/`agente_pausado`, três sinais que mudam por conta
+  própria durante o atendimento — e errar para o lado de mover deixaria um cliente conversando
+  com uma pessoa enquanto o lead passa para outra.
+- ⚠️ **A ÚNICA escrita do sistema que tira um lead da mão de alguém sem essa pessoa pedir** é
+  `moverEntreMembros`, e ela só existe porque o operador a autorizou explicitamente
+  (2026-09-21) e **apenas para lead que ninguém tocou**. `services/lead-parado.js` continua
+  proibindo o oposto (devolver lead parado sozinho), e essa guarda **não foi tocada**. Cede
+  primeiro o lead recebido **mais recentemente** — o com menos chance de já estar no plano de
+  trabalho da pessoa.
+- **SÃO DOIS GATILHOS, e não existe worker.** (1) alguém **entra** na equipe (`criarEquipe` e
+  `definirParticipantes`, na **mesma transação** — "entrou na equipe e recebeu carteira" é um
+  fato só); (2) o botão **"Puxar mais leads"**. Um job que redistribui carteira sozinho é a
+  automação que `lead-parado.js` recusou no cabeçalho dele; há guarda de regressão que varre
+  `src/services/*worker*|*auto*|*scheduler*` e falha se algum importar este módulo.
+- **Salvar a MESMA lista de participantes não redistribui nada** (`if (!adicionar.length) return
+  null`): repetir a ação não pode remexer carteira. Reequilibrar por vontade própria é o botão,
+  nunca efeito colateral de salvar.
+- **"Puxar mais leads" só mexe em lead LIVRE.** Puxar é aumentar o volume da equipe; remexer o
+  que já está distribuído é o rebalanceamento, que tem outro gatilho e outra explicação na tela.
+- **As três garantias de concorrência, todas no BANCO:** (a) todo UPDATE é **condicionado ao
+  dono esperado** (`responsavel_id IS NULL` / `= <cedente>`) e devolve as linhas que realmente
+  mudaram — o mesmo claim de `db/lead-responsavel.js` (072) e da curadoria (055); (b)
+  `pg_advisory_xact_lock(empresa, equipe)` serializa dois gestores clicando juntos, senão os dois
+  leriam o mesmo "antes" e cada um moveria o lote inteiro; (c) **histórico por LEAD, sempre**,
+  via `registrarMudancasEmLote` — que vive em `db/lead-responsavel.js`, o **dono único** de
+  `app.lead_responsavel_historico`. Em lote (duas instruções) porque a operação roda dentro da
+  transação que adiciona o participante, e mil idas ao banco a segurariam aberta.
+- **`motivo` do histórico é vocabulário FECHADO:** `rebalanceamento_automatico_equipe` ou
+  `puxar_mais_leads`. Texto livre ali viraria um campo que ninguém consegue agrupar. Há também
+  **uma linha AGREGADA** por operação em `app.auditoria_eventos`
+  (`equipe_comercial_leads_rebalanceados` / `equipe_comercial_leads_puxados`), com nicho,
+  totais e participantes — **sem PII**.
+- **`TETO_MOVIMENTOS = 500` por operação**, e o que passou **não some**: volta como
+  `truncado: true` e a tela diz como terminar. Uma transação que move milhares de linhas
+  seguraria o cadastro do participante por tempo indeterminado.
+- ⚠️ **A rota de distribuição exige `LEAD_TRANSFERIR` POR ROTA — o mount NÃO basta.**
+  `/equipes-comerciais` é montado com `MEMBROS_GERENCIAR`; mexer em quem é dono de lead é outra
+  decisão, e `LEAD_TRANSFERIR` é exatamente a capacidade que o `comercial` **não** tem.
+  Declarada em `ESCRITAS_COM_CAPACIDADE_PROPRIA` (`test/autorizacao-rotas.test.js`).
+- **Rotas:** `GET /api/empresas/:empresaId/equipes-comerciais/:equipeId/carteira` (**read-only**:
+  não move lead, não grava e não chama IA — abrir o painel não pode mudar de quem é nada) e
+  `POST .../:equipeId/distribuicao`. **Não existe rota de devolução aqui**: devolver lead para a
+  fila continua sendo `definirResponsavel(..., destinoId: null)`, acionado por uma pessoa.
+  Guarda de regressão falha se um `responsavel_id = NULL` aparecer em `db/lead-distribuicao.js`.
+- ⚠️ **SÃO DUAS CARTEIRAS COM O MESMO NOME, e confundi-las é o erro fácil desta tela.**
+  `GET /equipe` conta a carteira de cada pessoa na **EMPRESA INTEIRA** (`contagemPorResponsavel`,
+  sem filtro de nicho); `GET .../carteira` conta a dela **naquele nicho**. Os dois são verdadeiros
+  e aparecem na mesma tela — por isso cada coluna carrega `oQueMede`, pelo mesmo motivo da
+  `BolinhaPontuacao`.
+- **Todas as colunas contam LEADS (a mesma unidade) e NÃO se somam:** `intocados` +
+  `em_andamento` particionam `leads`; `parados`, `com_follow_up` e `com_reuniao` são recortes que
+  cruzam os dois (um lead intocado há 30 dias é intocado **e** parado). A linha **"Na fila (sem
+  responsável)"** existe porque sem ela a soma não fecharia com a carteira do nicho — e lead
+  livre **não está parado**, está na fila (migration 072), por isso a célula de parados dela é
+  `—`.
+- ⚠️ **"Com reunião" é um recorte da CARTEIRA, não produção da pessoa.** A guarda de
+  `lib/equipe-area.test.js` continua valendo e foi **atualizada, não contornada**: "quantas
+  reuniões esta pessoa conduziu" continua **sem fonte** (`agenda_eventos.responsavel_id` existe
+  desde a 076 e **nunca teve backfill** — viria quase tudo zero) e continua proibida lá. "Quantos
+  leads desta pessoa têm reunião marcada" tem fonte real (a mesma subconsulta por telefone do
+  Banco de Leads) e vive em `lib/equipe-carteira.js`, com o rótulo declarando a diferença.
+- **A expressão de telefone ganhou um DONO:** `sqlTelefoneNormalizado` em `src/telefone-br.js`.
+  Ela era idêntica, caractere a caractere, em `routes/api-banco-leads.js` (`normFone`) e
+  `db/follow-ups.js` (`telefoneCanonicoSql`); as duas foram **repontadas, não duplicadas** —
+  mesmo precedente de `candidatosTelefoneBR`. Duas cópias divergiriam em silêncio, e a
+  distribuição passaria a proteger o lead errado enquanto a listagem continuaria certa.
+- **Front:** `frontend/lib/equipe-carteira.js` (+ `.d.ts`/`.test.js`) **só TRADUZ** — guarda de
+  regressão falha se ele citar `lead_disparos`, `agenda_eventos`, `qualificacao`,
+  `bloqueado_ate`, `responsavel_desde` ou `nicho_id`, e outra falha se ele ordenar pessoas
+  (`.sort(`), que seria classificar gente por carteira. `equipe-area.js` o **reexporta** (padrão
+  de `paginacao.js` / `lead-identidade.js`). Componentes: `CarteiraDoNicho` em
+  `app/dashboard/equipe/page.tsx` e `components/ModalPuxarLeads.tsx` (reusa `ui/FolhaModal`,
+  `ui/Botao`, `ui/Campo`).
+- **O critério "Sem contato" NÃO é "nunca abordado"** — nesse universo todo lead é intocado por
+  construção, e um controle que não muda nada seria um controle que mente. Ele é a faixa
+  `falta_contato` de `lead-fila-trabalho.js`: lead **sem telefone nem e-mail**, cujo trabalho é
+  completar cadastro, não vender. A tela rotula exatamente isso.
+- **A tela nunca promete o que o banco não fez:** a prévia é estimativa declarada, e o toast do
+  resultado usa o número **REAL** devolvido (`resumoDaPuxada`). `movidos < solicitados` não é
+  erro — alguém pode ter assumido o lead entre a leitura e a escrita.
+- **Fora de escopo, declarado:** devolução de leads na **remoção** de participante (que continua
+  recusada com 409 `REMOCAO_EXIGE_DEVOLUCAO`), rebalanceamento **sob demanda** sem entrada de
+  gente, worker de distribuição ao aprovar leads novos, e qualquer mudança em envio de WhatsApp,
+  follow-up, agenda ou coleta paga.
+- Código: `src/services/lead-distribuicao.js` (PURO), `src/db/lead-distribuicao.js`,
+  `src/db/equipes-comerciais.js`, `src/db/lead-responsavel.js` (`registrarMudancasEmLote`),
+  `src/routes/api-equipes-comerciais.js`, `src/telefone-br.js`. Testes:
+  `test/lead-distribuicao.test.js` (28, sendo 8 guardas que leem o fonte),
+  `test/autorizacao-rotas.test.js`, `frontend/lib/equipe-carteira.test.js` (25).
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

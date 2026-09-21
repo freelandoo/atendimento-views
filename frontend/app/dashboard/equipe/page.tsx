@@ -23,7 +23,7 @@
 //
 // Toda a tradução (ordem, rótulos, avisos, filtros, métricas) vive em `lib/equipe-area.js`; esta
 // tela só desenha.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import CabecalhoPagina from '@/components/ui/CabecalhoPagina'
@@ -35,10 +35,12 @@ import Abas, { PainelAba } from '@/components/ui/Abas'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import ModalGerenciarMembros from '@/components/ModalGerenciarMembros'
 import ModalEquipe, { type DadosEquipe, type Nicho } from '@/components/ModalEquipe'
+import ModalPuxarLeads, { type DadosPuxada } from '@/components/ModalPuxarLeads'
 import {
   ABAS,
   ATIVIDADE_HOJE_COLUNAS,
   AVISO_ENCERRAR,
+  COLUNAS_CARTEIRA,
   COLUNAS_MEMBRO,
   METRICAS_EQUIPE,
   OPCOES_STATUS_PESSOA,
@@ -47,7 +49,9 @@ import {
   alertasGerais,
   atividadeHoje,
   avisoDeInativo,
+  avisoDesequilibrio,
   avisoMembrosOcultos,
+  avisoSemDisponiveis,
   descreverAtividade,
   estadoDaEquipe,
   filtrarEquipes,
@@ -59,13 +63,18 @@ import {
   ordenarPorAtividadeHoje,
   papeisPresentes,
   podeEncerrar,
+  resumoDaPuxada,
   resumoDeMembros,
+  resumoDoRebalanceamento,
   resumoDoRecorte,
   resumoGeral,
+  resumoProtegidos,
   rotuloPapel,
   rotuloUltimoAcesso,
   temTrabalhoSemDono,
+  tomDaCarteira,
   tomDaColuna,
+  valorDaCarteira,
   valorDaColuna,
 } from '@/lib/equipe-area'
 import type {
@@ -74,9 +83,13 @@ import type {
   EquipeArea,
   EquipeResumo,
   EventoAuditoria,
+  LinhaCarteira,
   LinhaEquipe,
+  MotivoProtegido,
   PessoaArea,
   PessoaElegivel,
+  ResultadoPuxada,
+  ResultadoRebalanceamento,
 } from '@/lib/equipe-area'
 
 type RespostaEquipe = {
@@ -92,6 +105,16 @@ type MissaoAtiva = {
   alcancaram?: { usuario_id: string; nome: string | null; valor: number }[] | null
 }
 type LinhaRanking = { usuario_id: string; nome: string | null; originado: number }
+
+// A carteira do NICHO da equipe — recorte diferente do de `RespostaEquipe`, que conta a carteira
+// de cada pessoa na EMPRESA INTEIRA. Os dois convivem na tela, e cada um declara o que mede.
+type RespostaCarteira = {
+  equipe: { id: string; nome: string; status: string; nicho_id: string; nicho_nome: string | null }
+  membros: LinhaCarteira[]
+  livres: LinhaCarteira
+  disponiveis_para_puxar: number
+  protegidos: MotivoProtegido[]
+}
 
 const CHAVE_ABA = 'equipeArea.aba'
 
@@ -143,6 +166,14 @@ export default function EquipePage() {
   const [editando, setEditando] = useState<EquipeArea | null>(null)
   const [criando, setCriando] = useState(false)
   const [encerrando, setEncerrando] = useState<EquipeArea | null>(null)
+  const [puxandoDe, setPuxandoDe] = useState<EquipeArea | null>(null)
+
+  // A carteira do nicho é carregada SÓ para a equipe aberta: são contagens sobre a carteira
+  // inteira do nicho, caras demais para virem junto da lista de equipes.
+  const [carteira, setCarteira] = useState<RespostaCarteira | null>(null)
+  const [carregandoCarteira, setCarregandoCarteira] = useState(false)
+  const [erroCarteira, setErroCarteira] = useState('')
+  const pedidoCarteira = useRef(0)
 
   // A aba sobrevive ao recarregamento e é compartilhável pela URL — mesmo padrão da Aquisição
   // (`history.replaceState`, sem `useSearchParams`, que forçaria Suspense na página inteira).
@@ -230,6 +261,31 @@ export default function EquipePage() {
     [pessoas, buscaPessoa, filtroEquipe, filtroPapel, filtroStatus],
   )
 
+  // ── A carteira do nicho da equipe aberta ─────────────────────────────────────────────
+  //
+  // Token de requisição + limpeza a cada troca (mesmo contrato de `ConversaPainel`): clicar
+  // rápido de uma equipe para outra nunca pode mostrar a carteira da anterior como se fosse a
+  // desta. Falha aqui NÃO derruba o detalhe — o resto da tela continua servindo.
+  const carregarCarteira = useCallback(async (equipeId: string | null) => {
+    if (!empresaId || !equipeId) { setCarteira(null); setErroCarteira(''); return }
+    const meu = ++pedidoCarteira.current
+    setCarregandoCarteira(true)
+    setErroCarteira('')
+    setCarteira(null)
+    try {
+      const r = await apiFetch<RespostaCarteira>(`${base}/${equipeId}/carteira`)
+      if (meu !== pedidoCarteira.current) return
+      setCarteira(r.data)
+    } catch (e) {
+      if (meu !== pedidoCarteira.current) return
+      setErroCarteira(e instanceof Error ? e.message : 'Não foi possível carregar a carteira do nicho.')
+    } finally {
+      if (meu === pedidoCarteira.current) setCarregandoCarteira(false)
+    }
+  }, [empresaId, base])
+
+  useEffect(() => { void carregarCarteira(selecionada) }, [selecionada, carregarCarteira])
+
   // ── Escritas ──────────────────────────────────────────────────────────────────────────
   async function criarEquipe(d: DadosEquipe) {
     await fb.runTask(
@@ -253,12 +309,37 @@ export default function EquipePage() {
 
   async function salvarMembros(usuarioIds: string[]) {
     if (!membrosDe) return
+    const alvo = membrosDe
+    // Entrar na equipe REDISTRIBUI a carteira intocada do nicho, na mesma transação. O resumo
+    // vem do servidor: `null` quando nada se moveu, que é comum e legítimo (carteira já
+    // equilibrada, ou tudo protegido) — anunciar "0 leads movidos" mandaria procurar defeito.
     await fb.runTask(
-      () => apiFetch(`${base}/${membrosDe.id}/participantes`, { method: 'PUT', body: JSON.stringify({ usuario_ids: usuarioIds }) }),
-      { sucesso: 'Equipe atualizada.' },
+      () => apiFetch<{ distribuicao?: ResultadoRebalanceamento | null }>(
+        `${base}/${alvo.id}/participantes`,
+        { method: 'PUT', body: JSON.stringify({ usuario_ids: usuarioIds }) },
+      ),
+      { sucesso: (r) => resumoDoRebalanceamento(r?.data?.distribuicao ?? null) || 'Equipe atualizada.' },
     )
     setMembrosDe(null)
     await carregar()
+    await carregarCarteira(alvo.id)
+  }
+
+  async function confirmarPuxada(d: DadosPuxada) {
+    if (!puxandoDe) return
+    const alvo = puxandoDe
+    const nomePorId: Record<string, string> = {}
+    for (const m of carteira?.membros || []) nomePorId[String(m.usuario_id)] = m.nome || 'sem nome'
+    await fb.runTask(
+      () => apiFetch<ResultadoPuxada>(`${base}/${alvo.id}/distribuicao`, { method: 'POST', body: JSON.stringify(d) }),
+      // ⚠️ Sem mensagem fixa: quem diz o que aconteceu é o número REAL devolvido, que pode ser
+      // menor que o pedido (alguém assumiu o lead entre a leitura e a escrita, ou os livres
+      // acabaram). Um "Leads distribuídos." fixo afirmaria o que o banco não fez.
+      { sucesso: (r) => resumoDaPuxada(r?.data, nomePorId).texto },
+    )
+    setPuxandoDe(null)
+    await carregar()
+    await carregarCarteira(alvo.id)
   }
 
   async function confirmarEncerramento() {
@@ -317,12 +398,17 @@ export default function EquipePage() {
               aberta={equipeAberta}
               busca={buscaEquipe}
               prazoParado={prazoParado}
+              carteira={carteira}
+              carregandoCarteira={carregandoCarteira}
+              erroCarteira={erroCarteira}
               onBuscar={setBuscaEquipe}
               onSelecionar={setSelecionada}
               onNova={() => setCriando(true)}
               onEditar={setEditando}
               onMembros={setMembrosDe}
               onEncerrar={setEncerrando}
+              onPuxar={setPuxandoDe}
+              onRecarregarCarteira={() => void carregarCarteira(selecionada)}
               onVerAtividade={setAtividadeDe}
             />
           </PainelAba>
@@ -384,6 +470,18 @@ export default function EquipePage() {
         ocupado={fb.ocupado}
         onFechar={() => setMembrosDe(null)}
         onSalvar={salvarMembros}
+      />
+
+      <ModalPuxarLeads
+        aberto={Boolean(puxandoDe) && Boolean(carteira)}
+        nomeEquipe={puxandoDe?.nome || ''}
+        nomeNicho={carteira?.equipe.nicho_nome || puxandoDe?.nicho_nome || 'este nicho'}
+        membros={carteira?.membros || []}
+        disponiveis={carteira?.disponiveis_para_puxar || 0}
+        protegidos={carteira?.protegidos || []}
+        ocupado={fb.ocupado}
+        onFechar={() => setPuxandoDe(null)}
+        onConfirmar={confirmarPuxada}
       />
 
       {encerrando && (
@@ -548,20 +646,26 @@ function VisaoGeral({
 // ─── Aba: Equipes (lista à esquerda, detalhe à direita) ───────────────────────────────────
 
 function ListaEDetalhe({
-  equipes, total, aberta, busca, prazoParado,
-  onBuscar, onSelecionar, onNova, onEditar, onMembros, onEncerrar, onVerAtividade,
+  equipes, total, aberta, busca, prazoParado, carteira, carregandoCarteira, erroCarteira,
+  onBuscar, onSelecionar, onNova, onEditar, onMembros, onEncerrar, onPuxar,
+  onRecarregarCarteira, onVerAtividade,
 }: {
   equipes: EquipeArea[]
   total: number
   aberta: EquipeArea | null
   busca: string
   prazoParado: number
+  carteira: RespostaCarteira | null
+  carregandoCarteira: boolean
+  erroCarteira: string
   onBuscar: (v: string) => void
   onSelecionar: (id: string) => void
   onNova: () => void
   onEditar: (e: EquipeArea) => void
   onMembros: (e: EquipeArea) => void
   onEncerrar: (e: EquipeArea) => void
+  onPuxar: (e: EquipeArea) => void
+  onRecarregarCarteira: () => void
   onVerAtividade: (p: PessoaArea) => void
 }) {
   if (total === 0) {
@@ -651,9 +755,14 @@ function ListaEDetalhe({
         <DetalheEquipe
           equipe={aberta}
           prazoParado={prazoParado}
+          carteira={carteira}
+          carregandoCarteira={carregandoCarteira}
+          erroCarteira={erroCarteira}
           onEditar={onEditar}
           onMembros={onMembros}
           onEncerrar={onEncerrar}
+          onPuxar={onPuxar}
+          onRecarregarCarteira={onRecarregarCarteira}
           onVerAtividade={onVerAtividade}
         />
       ) : (
@@ -666,13 +775,19 @@ function ListaEDetalhe({
 }
 
 function DetalheEquipe({
-  equipe, prazoParado, onEditar, onMembros, onEncerrar, onVerAtividade,
+  equipe, prazoParado, carteira, carregandoCarteira, erroCarteira,
+  onEditar, onMembros, onEncerrar, onPuxar, onRecarregarCarteira, onVerAtividade,
 }: {
   equipe: EquipeArea
   prazoParado: number
+  carteira: RespostaCarteira | null
+  carregandoCarteira: boolean
+  erroCarteira: string
   onEditar: (e: EquipeArea) => void
   onMembros: (e: EquipeArea) => void
   onEncerrar: (e: EquipeArea) => void
+  onPuxar: (e: EquipeArea) => void
+  onRecarregarCarteira: () => void
   onVerAtividade: (p: PessoaArea) => void
 }) {
   const estado = estadoDaEquipe(equipe)
@@ -712,6 +827,21 @@ function DetalheEquipe({
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {equipe.status === 'ativa' && (
               <>
+                {/* A ação primária desta tela: é por ela que a equipe ganha volume. Desabilitada
+                    COM MOTIVO quando não há o que distribuir — botão inerte só convida ao clique. */}
+                <Botao
+                  tamanho="sm"
+                  variante="primaria"
+                  onClick={() => onPuxar(equipe)}
+                  disabled={!carteira || carteira.disponiveis_para_puxar <= 0 || carteira.membros.length === 0}
+                  motivoDesabilitado={
+                    !carteira ? 'Carregando a carteira do nicho…'
+                      : carteira.membros.length === 0 ? 'Adicione pessoas à equipe antes de distribuir leads.'
+                        : 'Não há lead livre e sem trabalho começado neste nicho.'
+                  }
+                >
+                  Puxar mais leads
+                </Botao>
                 <Botao tamanho="sm" onClick={() => onMembros(equipe)}>Gerenciar membros</Botao>
                 <Botao tamanho="sm" onClick={() => onEditar(equipe)}>Editar equipe</Botao>
               </>
@@ -748,6 +878,16 @@ function DetalheEquipe({
         })}
       </div>
 
+      {/* ── Carteira do nicho ─────────────────────────────────────────────────────────── */}
+      <CarteiraDoNicho
+        equipe={equipe}
+        carteira={carteira}
+        carregando={carregandoCarteira}
+        erro={erroCarteira}
+        onRecarregar={onRecarregarCarteira}
+        onPuxar={() => onPuxar(equipe)}
+      />
+
       {/* ── Membros ───────────────────────────────────────────────────────────────────── */}
       <Card
         titulo="Membros da equipe"
@@ -774,6 +914,121 @@ function DetalheEquipe({
         </Card>
       )}
     </div>
+  )
+}
+
+// ─── A carteira do NICHO da equipe ────────────────────────────────────────────────────────
+//
+// ⚠️ NÃO é a mesma carteira da tabela "Membros da equipe" logo abaixo. Ali os números são da
+// EMPRESA INTEIRA (`GET /equipe`); aqui são só do nicho desta equipe. Os dois são verdadeiros e
+// diferentes, e é por isso que cada coluna carrega `oQueMede` no cabeçalho.
+//
+// A tela não decide nada: "intocado", "protegido" e as contagens vêm resolvidas do servidor
+// (`backend/src/services/lead-distribuicao.js`). Aqui só se traduz.
+function CarteiraDoNicho({
+  equipe, carteira, carregando, erro, onRecarregar, onPuxar,
+}: {
+  equipe: EquipeArea
+  carteira: RespostaCarteira | null
+  carregando: boolean
+  erro: string
+  onRecarregar: () => void
+  onPuxar: () => void
+}) {
+  const membros = carteira?.membros || []
+  const protegido = resumoProtegidos(carteira?.protegidos || [])
+  const desequilibrio = avisoDesequilibrio(membros)
+  const semLivres = carteira ? avisoSemDisponiveis(carteira.disponiveis_para_puxar, carteira.protegidos) : null
+  const nicho = carteira?.equipe.nicho_nome || equipe.nicho_nome || 'este nicho'
+
+  return (
+    <Card
+      titulo={`Carteira de ${nicho}`}
+      descricao="Só os leads deste nicho. Todas as colunas contam leads e NÃO se somam: intocados e em andamento dividem o total; parados, follow-ups e reuniões são recortes que cruzam os dois."
+      semPadding
+    >
+      {/* Falha aqui não derruba o detalhe da equipe — o resto da tela continua servindo. */}
+      {erro && (
+        <div className="mx-4 mb-3 rounded-lg border border-estado-danger/30 bg-estado-danger/5 px-3 py-2 text-sm text-estado-danger">
+          {erro}{' '}
+          <button onClick={onRecarregar} className="underline underline-offset-2">Tentar de novo</button>
+        </div>
+      )}
+
+      {carregando && !carteira && (
+        <div className="px-4 pb-4"><Carregando variante="bloco" texto="Carregando a carteira do nicho…" /></div>
+      )}
+
+      {carteira && membros.length === 0 && (
+        <EstadoVazio
+          titulo="Ninguém nesta equipe ainda"
+          descricao={`Há ${carteira.disponiveis_para_puxar} lead${carteira.disponiveis_para_puxar === 1 ? '' : 's'} livre${carteira.disponiveis_para_puxar === 1 ? '' : 's'} em ${nicho} esperando alguém para trabalhar.`}
+        />
+      )}
+
+      {carteira && membros.length > 0 && (
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-y border-line bg-surface-2 text-left text-xs text-ink-3">
+                  <th scope="col" className="px-4 py-2 font-medium">Pessoa</th>
+                  {COLUNAS_CARTEIRA.map((c) => (
+                    <th key={c.chave} scope="col" className="px-3 py-2 text-right font-medium" title={c.oQueMede}>
+                      {c.rotulo}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {membros.map((m) => (
+                  <tr key={m.usuario_id} className="hover:bg-surface-3">
+                    <td className="px-4 py-2 text-ink">{m.nome || 'sem nome'}</td>
+                    {COLUNAS_CARTEIRA.map((c) => {
+                      const v = valorDaCarteira(m, c)
+                      return (
+                        <td key={c.chave} className={`px-3 py-2 text-right tabular-nums ${TOM_CELULA[tomDaCarteira(c, v)]}`}>
+                          {v}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+                {/* A fila de LIVRES é linha própria: é o que a equipe ainda pode puxar, e sem ela
+                    a soma das linhas não fecharia com a carteira do nicho. */}
+                <tr className="bg-surface-2 text-ink-2">
+                  <td className="px-4 py-2 font-medium" title="Leads deste nicho sem responsável. Não estão parados — estão na fila, disponíveis para a equipe.">
+                    Na fila (sem responsável)
+                  </td>
+                  {COLUNAS_CARTEIRA.map((c) => (
+                    <td key={c.chave} className="px-3 py-2 text-right tabular-nums">
+                      {c.chave === 'parados' ? '—' : valorDaCarteira(carteira.livres, c)}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div className="space-y-3 border-t border-line px-4 py-3">
+            <p className="text-sm text-ink-2">
+              <span className="font-semibold tabular-nums text-ink">{carteira.disponiveis_para_puxar}</span>{' '}
+              {carteira.disponiveis_para_puxar === 1 ? 'lead livre e intocado' : 'leads livres e intocados'} para distribuir.{' '}
+              {protegido && (
+                <span className="text-ink-3">
+                  {protegido.titulo} não entram: {protegido.itens.map((i) => `${i.total} ${i.rotulo}`).join(' · ')}.
+                </span>
+              )}
+            </p>
+            {desequilibrio && <Aviso alerta={desequilibrio} />}
+            {semLivres && <Aviso alerta={semLivres} />}
+            {equipe.status === 'ativa' && carteira.disponiveis_para_puxar > 0 && (
+              <Botao tamanho="sm" onClick={onPuxar}>Puxar mais leads</Botao>
+            )}
+          </div>
+        </>
+      )}
+    </Card>
   )
 }
 

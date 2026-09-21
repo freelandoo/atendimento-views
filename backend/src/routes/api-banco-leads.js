@@ -57,6 +57,7 @@ const { buscarPerfisDeNegocio, brightDataSerpConfigurado } = require('../service
 // Abordagem MANUAL (Etapa 5): o produto NAO envia — abre o wa.me e registra o que o vendedor diz.
 const AM = require('../db/abordagem-manual')
 const { CAPACIDADES: CAP, CAPACIDADES, podeCapacidade } = require('../services/acesso-capacidades')
+const { sqlTelefoneNormalizado } = require('../telefone-br')
 const { logger } = require('../logger')
 const { listarAuditoria } = require('../db/auditoria')
 const { criarEvento } = require('../services/agenda-multiempresa')
@@ -109,8 +110,10 @@ const ACOES_STATUS_LEAD = new Set(['lead_status_alterado', 'abordagem_manual_dec
 // normFone: so digitos, removendo o DDI 55 quando presente (length>=12) — casa o
 // prospects.telefone (geralmente sem 55) com vendas.conversas.numero (JID com 55) sem
 // corromper numeros de DDD 55.
-const _foneDig = (col) => `regexp_replace(COALESCE(${col}, ''), '[^0-9]', '', 'g')`
-const normFone = (col) => `(CASE WHEN length(${_foneDig(col)}) >= 12 AND left(${_foneDig(col)}, 2) = '55' THEN substr(${_foneDig(col)}, 3) ELSE ${_foneDig(col)} END)`
+// A expressao MUDOU DE CASA (src/telefone-br.js) sem mudar de comportamento: a distribuicao por
+// equipe precisa do MESMO casamento por telefone para proteger o lead que ja tem reuniao ou
+// conversa, e duas copias divergiriam em silencio.
+const normFone = sqlTelefoneNormalizado
 const AGENDA_VENDAS_FUTURA_EXISTS = `EXISTS (
   SELECT 1 FROM vendas.agenda_eventos ve
    WHERE ve.excluido_em IS NULL

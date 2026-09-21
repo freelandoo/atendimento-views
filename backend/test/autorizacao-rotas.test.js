@@ -153,6 +153,11 @@ const ESCRITAS_COM_CAPACIDADE_PROPRIA = [
   // `/agenda` é AGENDA_OPERAR_PROPRIA, que todo membro tem — sem este gate por rota, qualquer
   // pessoa bloquearia o dia da equipe inteira. São 2: GET /responsaveis e POST /bloqueios.
   { arquivo: 'api-agenda.js', capacidade: 'AGENDA_VER_EQUIPE', minimo: 2 },
+  // 2026-09-21 — DISTRIBUIR carteira ("Puxar mais leads") mexe em quem e' dono de lead, que e'
+  // outra decisao que administrar contas. O mount de `/equipes-comerciais` e' MEMBROS_GERENCIAR;
+  // sem este gate por rota, quem administra contas passaria a redistribuir carteira sem ninguem
+  // ter decidido isso — e `LEAD_TRANSFERIR` e' exatamente a capacidade que o `comercial` NAO tem.
+  { arquivo: 'api-equipes-comerciais.js', capacidade: 'LEAD_TRANSFERIR', minimo: 1 },
 ]
 
 // ─── Os quatro papéis, contra cada rota ──────────────────────────────────────────────────

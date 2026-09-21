@@ -6,6 +6,7 @@ const { Router } = require('express')
 const { requireAuth, requireEmpresaAccess, requireCapacidade } = require('../middleware/tenant')
 const { CAPACIDADES: CAP } = require('../services/acesso-capacidades')
 const DB = require('../db/equipes-comerciais')
+const LP = require('../services/lead-parado')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -43,6 +44,46 @@ router.get('/:equipeId', async (req, res) => {
     if (!equipe) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Equipe não encontrada.' } })
     return res.json({ ok: true, data: equipe })
   } catch (err) { return envelopeErro(res, err, 'EQUIPE_GET_FAILED') }
+})
+
+// GET /:equipeId/carteira — a carteira do NICHO desta equipe, pessoa por pessoa.
+//
+// SOMENTE LEITURA: nao distribui, nao move lead, nao grava e nao chama IA. Abrir o painel nao
+// pode mudar de quem e' nada — distribuir e' sempre um clique explicito.
+//
+// ⚠️ Recortada pelo nicho da equipe. `GET /equipe` continua contando a carteira de cada pessoa na
+// EMPRESA INTEIRA; sao perguntas diferentes, e cada tela declara qual esta mostrando.
+router.get('/:equipeId/carteira', async (req, res) => {
+  try {
+    // O prazo do "parado" vem da QUERY, nao de configuracao — mesma razao de `GET /equipe`: e'
+    // um recorte de leitura passageiro, nao uma decisao permanente da empresa.
+    const prazoParado = LP.normalizarPrazo(req.query.parado_dias)
+    const data = await DB.carteiraDaEquipe(req.empresa.id, req.params.equipeId, { prazoParado })
+    if (!data) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Equipe não encontrada.' } })
+    return res.json({ ok: true, data, meta: { parado_dias: prazoParado } })
+  } catch (err) { return envelopeErro(res, err, 'EQUIPE_CARTEIRA_FAILED') }
+})
+
+// POST /:equipeId/distribuicao — "Puxar mais leads": entrega leads LIVRES do nicho a equipe.
+//
+// ⚠️ EXIGE `LEAD_TRANSFERIR` POR ROTA — o mount NAO basta. `MEMBROS_GERENCIAR` autoriza montar
+// equipe; mexer em quem e' dono de lead e' outra decisao, e e' a capacidade que o `comercial`
+// nao tem. Sem o gate por rota, quem administra contas passaria a distribuir carteira sem
+// ninguem ter decidido isso.
+//
+// So' mexe em lead LIVRE e INTOCADO. Lead com reuniao, conversa, follow-up, ligacao ou disparo
+// registrado nunca e' tocado — ver `services/lead-distribuicao.js`.
+router.post('/:equipeId/distribuicao', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_TRANSFERIR), async (req, res) => {
+  try {
+    const b = req.body || {}
+    const data = await DB.puxarLeadsParaEquipe(req.empresa.id, req.params.equipeId, {
+      quantidade: b.quantidade,
+      criterio: b.criterio,
+      entre: b.entre,
+      usuario_ids: b.usuario_ids,
+    }, req.usuario.id)
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'EQUIPE_DISTRIBUICAO_FAILED') }
 })
 
 router.post('/', async (req, res) => {
