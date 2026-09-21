@@ -4685,3 +4685,21 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Fora de escopo desta rodada:** qualquer movimentação de arquivo, remoção de código legado,
   remoção de dependência, mudança de rota, de schema, de prompt de produção ou de
   comportamento. Isso começa a partir da Fase 1, e só com o baseline registrado.
+
+## 2026-09-21 — Aquisição: seleção de localidade e ações em massa
+
+- **Pedido do operador:** melhorar a tela de Aquisição para que cidade/estado sejam escolhidos
+  por seleção em vez de escrita livre, e analisar/implementar ações em massa para leads
+  selecionados: aprovar vários, descartar vários e aprovar/distribuir.
+- **Entendimento inicial:** a tela já possui checkbox por linha e o backend já expõe endpoints
+  de lote para aprovar/rejeitar e para "aprovar e distribuir". A mudança deve integrar melhor
+  esses controles na experiência do Comercial, sem criar regra paralela no front.
+- **Escopo desta rodada:** (1) adicionar seleção encadeada UF -> cidade nos formulários de busca
+  avulsa, busca guiada e rotina; (2) expor ações de lote claras para selecionados; (3) manter
+  "Aprovar e distribuir" usando a prévia/execução de backend já existente; (4) validar helpers
+  puros e typecheck do frontend.
+- **Análise de impacto:** front-end de Aquisição e componentes relacionados. Sem migration,
+  sem rota nova, sem alteração de capacidade/permissão, sem envio real a clientes e sem coleta
+  paga durante validação.
+- **Fora de escopo:** reescrever a tela inteira, mudar regra de distribuição segura, alterar
+  ownership (`responsavel_id`), criar nova fonte de cidade no banco ou iniciar/pagar coletas.

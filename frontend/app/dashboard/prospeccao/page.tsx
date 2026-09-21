@@ -13,7 +13,7 @@ import MenuRadialAcoes, { type AcaoRadial } from '@/components/ui/MenuRadialAcoe
 import RotinasAquisicao, { type ModoAquisicao, type RotinasResp } from '@/components/RotinasAquisicao'
 import HistoricoColetas from '@/components/HistoricoColetas'
 import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
-import { IconGear, IconUndo } from '@/components/ui/icons'
+import { IconCheck, IconGear, IconTrash, IconUndo } from '@/components/ui/icons'
 import Botao from '@/components/ui/Botao'
 import Campo from '@/components/ui/Campo'
 import { resumoIntervalo, POR_PAGINA_PADRAO } from '@/lib/paginacao'
@@ -119,6 +119,7 @@ type PreviaDistribuicao = {
   aprovados?: number
   distribuidos?: number
 }
+type MetaLoteProspects = { atualizados: number }
 type Filtro3 = 'todos' | 'com' | 'sem'
 type ViewAquisicao = {
   versao?: number
@@ -533,6 +534,28 @@ export default function ProspeccaoPage() {
     finally { setAgindo(null) }
   }
 
+  async function acaoLote(acaoTipo: 'aprovar' | 'rejeitar') {
+    if (!empresaId || selecionados.size === 0) return
+    const ids = [...selecionados]
+    const chave = `lote-${acaoTipo}`
+    const rotulo = acaoTipo === 'aprovar' ? 'aprovado' : 'descartado'
+    setAgindo(chave)
+    try {
+      const r = await fb.runTask(
+        () => apiFetch<Prospect[], MetaLoteProspects>(`/api/empresas/${empresaId}/prospeccao/prospects/lote`, {
+          method: 'POST',
+          body: JSON.stringify({ ids, acao: acaoTipo }),
+        }),
+        { sucesso: null }
+      )
+      const total = r.meta?.atualizados ?? r.data?.length ?? ids.length
+      fb.toast(`${total} lead${total === 1 ? '' : 's'} ${rotulo}${total === 1 ? '' : 's'} em lote.`, 'success')
+      setSelecionados(new Set())
+      carregar()
+    } catch { /* erro já exibido pelo feedback */ }
+    finally { setAgindo(null) }
+  }
+
   function alternarSelecionado(id: string, marcado: boolean) {
     setSelecionados((atual) => {
       const prox = new Set(atual)
@@ -863,6 +886,38 @@ export default function ProspeccaoPage() {
               className="border rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
               Limpar filtros
             </button>
+          )}
+          <Botao
+            variante="secundaria"
+            tamanho="md"
+            iconeInicio={<IconCheck />}
+            carregando={agindo === 'lote-aprovar'}
+            onClick={() => acaoLote('aprovar')}
+            disabled={selecionados.size === 0}
+            motivoDesabilitado={selecionados.size === 0 ? 'Marque ao menos um lead na tabela.' : ''}
+          >
+            Aprovar selecionados
+          </Botao>
+          <Botao
+            variante="perigosa"
+            tamanho="md"
+            iconeInicio={<IconTrash />}
+            carregando={agindo === 'lote-rejeitar'}
+            onClick={() => acaoLote('rejeitar')}
+            disabled={selecionados.size === 0}
+            motivoDesabilitado={selecionados.size === 0 ? 'Marque ao menos um lead na tabela.' : ''}
+          >
+            Descartar selecionados
+          </Botao>
+          {selecionados.size > 0 && (
+            <Botao
+              variante="neutra"
+              tamanho="md"
+              onClick={() => setSelecionados(new Set())}
+              disabled={agindo?.startsWith('lote-') || distCarregando || distExecutando}
+            >
+              Limpar seleção
+            </Botao>
           )}
           <Botao
             variante="primaria"
