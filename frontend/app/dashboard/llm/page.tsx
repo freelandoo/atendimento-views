@@ -82,22 +82,13 @@ export default function LLMPage() {
     if (!apiKey) { fb.toast('Cole a API key antes de rodar.', 'error'); return }
     setRodando(true)
     try {
-      const json = await fb.runTask(async () => {
-        const r = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/llm/test`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
-            },
-            body: JSON.stringify({ provider, api_key: apiKey }),
-          }
-        )
-        const j = await r.json()
-        if (!j.ok) throw new Error(j.error?.message || 'Erro desconhecido.')
-        return j
-      }, { sucesso: 'Chave validada.' })
+      const json = await fb.runTask(
+        () => apiFetch<{ models?: ModelInfo[] }>('/api/llm/test', {
+          method: 'POST',
+          body: JSON.stringify({ provider, api_key: apiKey }),
+        }),
+        { sucesso: 'Chave validada.' }
+      )
       setModels(json.data.models || [])
       if (json.data.models?.length === 1) setModelSelecionado(json.data.models[0].id)
     } catch { /* erro já exibido pelo feedback */ }
@@ -109,22 +100,13 @@ export default function LLMPage() {
     if (!apiKey || !modelSelecionado) { fb.toast('Selecione um modelo antes de conectar.', 'error'); return }
     setConectando(true)
     try {
-      const json = await fb.runTask(async () => {
-        const r = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/llm/activate`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
-            },
-            body: JSON.stringify({ provider, api_key: apiKey, model: modelSelecionado }),
-          }
-        )
-        const j = await r.json()
-        if (!j.ok) throw new Error(j.error?.message || 'Erro ao ativar.')
-        return j
-      }, { pesada: true, sucesso: (j) => `Conectado: ${j.data.provider}/${j.data.model}` })
+      const json = await fb.runTask(
+        () => apiFetch<{ provider: string; model: string }>('/api/llm/activate', {
+          method: 'POST',
+          body: JSON.stringify({ provider, api_key: apiKey, model: modelSelecionado }),
+        }),
+        { pesada: true, sucesso: (j) => `Conectado: ${j.data.provider}/${j.data.model}` }
+      )
       setOk(`Conectado: ${json.data.provider}/${json.data.model}`)
       setApiKey('')
       await carregarStatus()
