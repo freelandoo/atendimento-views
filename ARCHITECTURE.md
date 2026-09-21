@@ -284,6 +284,10 @@ Além delas, dezenas de testes **leem o próprio fonte** para impedir que um def
 volte. Quando um deles falhar, leia a mensagem: ela costuma explicar o incidente que originou a
 regra.
 
+O CI (`.github/workflows/ci.yml`) executa esse mesmo portão em todo push e PR, **sem segredo
+algum** — a suíte é hermética por construção. Um job adicional carrega a aplicação no Node 20,
+o runtime do Docker, já que os testes rodam no 22.
+
 ## 16. Como realizar build
 
 - **Frontend:** `npm run build` (Next). Deploy Vercel, Root Directory `frontend`.

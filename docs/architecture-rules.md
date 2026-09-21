@@ -139,3 +139,8 @@ npx tsc --noEmit && npm test && npm run build
 
 `npm test` do backend **tem de sair com exit 0** — não há falha tolerada. Se um teste novo não
 aparecer na suíte, verifique o nome: o glob é `test/*.test.js`.
+
+O CI (`.github/workflows/ci.yml`) roda exatamente estes comandos em todo push e PR, mais um job
+que carrega a aplicação no Node 20 (o runtime do Docker). **Ele não tem segredo configurado, e
+isso é regra, não circunstância:** teste que precisa de credencial não é teste de unidade — é de
+integração, e não entra nessa suíte.

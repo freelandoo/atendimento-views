@@ -151,7 +151,7 @@ Detalhe e evidência em **`LEGACY_REVIEW.md`**.
 
 | # | Risco | Mitigação atual |
 |---|---|---|
-| R1 | **Sem CI/CD.** Nada impede deploy com teste quebrado | o portão existe e é executável, mas roda à mão. **É a maior lacuna que resta** |
+| R1 | ~~Sem CI/CD~~ — **resolvido** em `.github/workflows/ci.yml` | typecheck + testes + smoke (backend), typecheck + testes + build (frontend), em todo push e PR. Sem segredo nenhum: verificado rodando a suíte com o `.env` removido. Um job extra carrega a aplicação no **Node 20** (o runtime do Docker), para incompatibilidade com produção aparecer no CI e não na subida do container |
 | R2 | `npm test` depende do globbing do Node ⇒ exige **Node ≥22** | o Dockerfile (Node 20) não roda testes; documentado no README |
 | R3 | `node --test` sem argumento executa `scripts/test-evolution-send.js`, que **envia WhatsApp real** | avisado em README, ARCHITECTURE e project-map. Renomear o script removeria a armadilha |
 | R4 | Migrations aplicadas no boot, sem dry-run contra banco real | agora atômicas + 12 guardas estruturais; **falta** smoke contra Postgres limpo |
@@ -180,8 +180,9 @@ Registrado porque o relatório perde valor se só contar acertos:
 
 ## 10. Ordem sugerida para continuar
 
-1. **CI mínimo** (R1) — `npm test` + `typecheck` nos dois lados em push/PR. Sem isso, todo o
-   resto depende de disciplina individual.
+1. ~~CI mínimo~~ — **feito** (`.github/workflows/ci.yml`). Falta só o primeiro run confirmar no
+   GitHub: o pipeline foi verificado localmente (`npm ci` limpo nos dois apps, suíte sem `.env`,
+   varredura de caixa de arquivo para o Linux), mas nunca executou no runner.
 2. **Decidir os 8 itens de `LEGACY_REVIEW.md`** — a maioria é uma resposta sua, não trabalho.
 3. **Smoke de migrations contra Postgres limpo** (R4).
 4. **Paginação de servidor** no Banco de Leads (R7) — a última fronteira frontend/backend real.

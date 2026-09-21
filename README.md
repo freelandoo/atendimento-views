@@ -96,6 +96,11 @@ Além dos testes de regra, a suíte tem guardas estruturais que quebram o build 
 o **contrato das 418 rotas** montadas, a **cerca da geração legada**, a **integridade das
 migrations** e a **autorização por capacidade** rota a rota.
 
+**Tudo isso roda automaticamente** em todo push e pull request
+(`.github/workflows/ci.yml`) — sem nenhum segredo configurado, porque a suíte é hermética. Há
+ainda um job que carrega a aplicação no **Node 20**, o runtime do Docker, para incompatibilidade
+com produção aparecer no CI e não na subida do container.
+
 ## Onde ler o quê
 
 | Documento | Para quê |
