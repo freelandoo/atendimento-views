@@ -31,12 +31,14 @@ type Props = {
   onCarregou?: (dias: DiaDisponibilidade[]) => void
   /** Muda para forçar recarga (ex.: depois de criar um bloqueio). */
   chaveAtualizacao?: number
+  /** Versão para modal: um dia só, botões em grade curta, sem virar uma coluna gigante. */
+  compacto?: boolean
 }
 
 export default function SeletorSlots({
   empresaId, dataInicial, dias = 5, duracaoMin = 30,
   horaInicio = '08:00', horaFim = '18:00',
-  valor = null, onEscolher, onCarregou, chaveAtualizacao = 0,
+  valor = null, onEscolher, onCarregou, chaveAtualizacao = 0, compacto = false,
 }: Props) {
   const [lista, setLista] = useState<DiaDisponibilidade[]>([])
   const [carregando, setCarregando] = useState(true)
@@ -97,7 +99,10 @@ export default function SeletorSlots({
   }
 
   return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(lista.length || 1, 5)}, minmax(0, 1fr))` }}>
+    <div
+      className={compacto ? 'space-y-3' : 'grid gap-3'}
+      style={compacto ? undefined : { gridTemplateColumns: `repeat(${Math.min(lista.length || 1, 5)}, minmax(0, 1fr))` }}
+    >
       {lista.map((dia) => {
         const rotulo = rotuloDoDia(dia.data, hoje)
         const resumo = resumoDoDia(dia)
@@ -107,7 +112,7 @@ export default function SeletorSlots({
               <p className="truncate text-sm font-semibold text-ink">{rotulo.titulo}</p>
               <p className="text-xs text-ink-3">{rotulo.subtitulo} · {resumo.texto}</p>
             </div>
-            <div className="flex flex-col gap-1">
+            <div className={compacto ? 'grid grid-cols-3 gap-1.5 sm:grid-cols-4' : 'flex flex-col gap-1'}>
               {dia.horarios.map((slot: Slot) => {
                 const chave = `${dia.data} ${slot.horario}`
                 const selecionado = valor === chave
@@ -122,7 +127,7 @@ export default function SeletorSlots({
                     // saber POR QUE o horário está indisponível, não só que ele está.
                     aria-label={ap.descricao}
                     title={ap.descricao}
-                    className={`rounded-md border px-2 py-1.5 text-center text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${ap.classe}`}
+                    className={`rounded-md border text-center transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${compacto ? 'px-2 py-1 text-xs' : 'px-2 py-1.5 text-sm'} ${ap.classe}`}
                   >
                     <span className="font-medium">{slot.horario}</span>
                     {/* Cor nunca é o único sinal: o estado vem escrito embaixo do horário. */}

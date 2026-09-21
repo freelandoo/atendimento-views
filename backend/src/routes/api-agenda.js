@@ -127,7 +127,13 @@ router.get('/disponibilidade', requireAuth, requireEmpresaAccess, async (req, re
     let dia = dataInicial
     for (let i = 0; i < dias; i += 1) {
       const horarios = slots.marcarDisponibilidade({
-        data: dia, candidatos: grade, eventos: ocupantes, duracaoMin, paraInstante, agora,
+        data: dia,
+        candidatos: grade,
+        eventos: ocupantes,
+        duracaoMin,
+        paraInstante,
+        agora,
+        bufferReuniaoMin: slots.REUNIAO_BUFFER_MINUTOS,
       })
       out.push({
         data: dia,

@@ -64,6 +64,26 @@ function isoParaLocalInput(iso: string): string {
   const off = d.getTimezoneOffset() * 60000
   return new Date(d.getTime() - off).toISOString().slice(0, 16)
 }
+function dataLocalDoCampo(valor: string): string {
+  return /^\d{4}-\d{2}-\d{2}/.test(valor) ? valor.slice(0, 10) : hojeIso()
+}
+function horaLocalDoCampo(valor: string, fallback = '09:00'): string {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(valor) ? valor.slice(11, 16) : fallback
+}
+function somarMinutosLocal(data: string, horario: string, minutos: number): string {
+  const [hh, mm] = horario.split(':').map(Number)
+  const total = Math.max(0, (Number(hh) || 0) * 60 + (Number(mm) || 0) + minutos)
+  const h = Math.floor((total % (24 * 60)) / 60)
+  const m = total % 60
+  return `${data}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+function duracaoDoForm(form: Pick<Form, 'data_inicio' | 'data_fim'>): number {
+  const inicio = new Date(form.data_inicio)
+  const fim = new Date(form.data_fim)
+  const min = Math.round((fim.getTime() - inicio.getTime()) / 60000)
+  if (!Number.isFinite(min) || min <= 0) return 30
+  return Math.min(Math.max(min, 15), 240)
+}
 
 type Form = {
   id?: string
@@ -104,7 +124,6 @@ export default function AgendaPage() {
   // desatualizada ofereceria o horario que a pessoa acabou de ocupar.
   const [modalBloqueio, setModalBloqueio] = useState(false)
   const [chaveSlots, setChaveSlots] = useState(0)
-  const [verSlots, setVerSlots] = useState(true)
 
   function carregar() {
     if (!empresaId) return
@@ -148,19 +167,30 @@ export default function AgendaPage() {
   // Sem isto a grade continuaria oferecendo o horário que a pessoa acabou de ocupar.
   function recarregarTudo() { carregar(); setChaveSlots((k) => k + 1) }
 
-  // Clique num horário livre da grade: abre o formulário JÁ preenchido, em vez de pedir data e
-  // hora digitadas. O evento ainda passa pelo mesmo POST e pela mesma checagem de conflito —
-  // escolher na grade é um atalho de preenchimento, não um caminho de gravação paralelo.
-  function escolherSlot(data: string, horario: string) {
-    const [hh, mm] = horario.split(':').map(Number)
-    const fim = new Date(Date.UTC(2000, 0, 1, hh, mm + 30))
-    setForm({
-      ...formVazio(data),
-      data_inicio: `${data}T${horario}`,
-      data_fim: `${data}T${String(fim.getUTCHours()).padStart(2, '0')}:${String(fim.getUTCMinutes()).padStart(2, '0')}`,
+  function mudarDiaDoForm(data: string) {
+    setForm((p) => ({
+      ...p,
+      data_inicio: `${data}T${horaLocalDoCampo(p.data_inicio, '09:00')}`,
+      data_fim: `${data}T${horaLocalDoCampo(p.data_fim, '09:30')}`,
+    }))
+  }
+  function mudarDuracaoDoForm(minutos: number) {
+    setForm((p) => {
+      const data = dataLocalDoCampo(p.data_inicio)
+      const horario = horaLocalDoCampo(p.data_inicio, '09:00')
+      return { ...p, data_fim: somarMinutosLocal(data, horario, minutos) }
     })
+  }
+
+  // Clique num horário livre dentro do modal: preenche a reunião, mas ainda salva pelo mesmo POST
+  // e pela mesma checagem de conflito. A grade é atalho de preenchimento, não gravação paralela.
+  function escolherSlot(data: string, horario: string) {
+    setForm((p) => ({
+      ...p,
+      data_inicio: `${data}T${horario}`,
+      data_fim: somarMinutosLocal(data, horario, duracaoDoForm(p)),
+    }))
     setErro('')
-    setModal(true)
   }
 
   async function salvar(e: React.FormEvent) {
@@ -207,6 +237,9 @@ export default function AgendaPage() {
 
   const eventos = resp?.eventos || []
   const resumo = resp?.resumo
+  const diaDoForm = dataLocalDoCampo(form.data_inicio)
+  const duracaoEvento = duracaoDoForm(form)
+  const slotSelecionado = `${diaDoForm} ${horaLocalDoCampo(form.data_inicio)}`
   const diaLabel = useMemo(
     () => new Date(`${dia}T12:00:00`).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }),
     [dia]
@@ -248,32 +281,6 @@ export default function AgendaPage() {
       </div>
 
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
-
-      {/* Horários LIVRES a partir do dia escolhido. Marca no clique, em vez de digitar data e
-          hora. A API lê as DUAS agendas (a da tela e a do bot do WhatsApp) — por isso um horário
-          que o bot já combinou com um cliente aparece aqui como ocupado. */}
-      <section className="rounded-2xl border bg-white p-4 shadow-sm">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold text-ink">Horários livres</h2>
-            <p className="text-xs text-ink-3">Clique em um horário para marcar.</p>
-          </div>
-          <button type="button" onClick={() => setVerSlots((v) => !v)}
-            className="text-xs font-medium text-brand hover:underline">
-            {verSlots ? 'Ocultar' : 'Mostrar'}
-          </button>
-        </div>
-        {verSlots && empresaId && (
-          <SeletorSlots
-            empresaId={empresaId}
-            dataInicial={dia}
-            dias={5}
-            valor={null}
-            onEscolher={escolherSlot}
-            chaveAtualizacao={chaveSlots}
-          />
-        )}
-      </section>
 
       {resumo && (
         <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
@@ -331,15 +338,50 @@ export default function AgendaPage() {
 
       {modal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 p-4" onClick={() => setModal(false)}>
-          <form onSubmit={salvar} onClick={(e) => e.stopPropagation()} className="w-full max-w-lg space-y-3 rounded-2xl bg-white p-6 shadow-xl">
+          <form onSubmit={salvar} onClick={(e) => e.stopPropagation()} className="max-h-[90dvh] w-full max-w-2xl space-y-3 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
             <h3 className="text-lg font-semibold">{form.id ? 'Editar evento' : 'Novo evento'}</h3>
             <Campo label="Título">
               <input value={form.titulo} onChange={(e) => setF('titulo', e.target.value)} required className="w-full border rounded-lg px-3 py-2 text-sm" />
             </Campo>
-            <div className="grid grid-cols-2 gap-3">
-              <Campo label="Início"><input type="datetime-local" value={form.data_inicio} onChange={(e) => setF('data_inicio', e.target.value)} required className="w-full border rounded-lg px-3 py-2 text-sm" /></Campo>
-              <Campo label="Fim"><input type="datetime-local" value={form.data_fim} onChange={(e) => setF('data_fim', e.target.value)} required className="w-full border rounded-lg px-3 py-2 text-sm" /></Campo>
-            </div>
+            {form.tipo === 'reuniao' && !form.id ? (
+              <div className="space-y-3 rounded-lg border border-line bg-surface-2 p-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <Campo label="Dia da reunião">
+                    <input type="date" value={diaDoForm} onChange={(e) => mudarDiaDoForm(e.target.value)} className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm" />
+                  </Campo>
+                  <Campo label="Duração">
+                    <select value={duracaoEvento} onChange={(e) => mudarDuracaoDoForm(Number(e.target.value))}
+                      className="w-full rounded-lg border border-line bg-white px-2 py-2 text-sm">
+                      <option value={15}>15 min</option>
+                      <option value={30}>30 min</option>
+                      <option value={45}>45 min</option>
+                      <option value={60}>1 hora</option>
+                    </select>
+                  </Campo>
+                </div>
+                {empresaId && (
+                  <SeletorSlots
+                    empresaId={empresaId}
+                    dataInicial={diaDoForm}
+                    dias={1}
+                    duracaoMin={duracaoEvento}
+                    valor={slotSelecionado}
+                    onEscolher={escolherSlot}
+                    chaveAtualizacao={chaveSlots}
+                    compacto
+                  />
+                )}
+                <div className="grid grid-cols-2 gap-3">
+                  <Campo label="Início selecionado"><input type="datetime-local" value={form.data_inicio} onChange={(e) => setF('data_inicio', e.target.value)} required className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm" /></Campo>
+                  <Campo label="Fim"><input type="datetime-local" value={form.data_fim} onChange={(e) => setF('data_fim', e.target.value)} required className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm" /></Campo>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <Campo label="Início"><input type="datetime-local" value={form.data_inicio} onChange={(e) => setF('data_inicio', e.target.value)} required className="w-full border rounded-lg px-3 py-2 text-sm" /></Campo>
+                <Campo label="Fim"><input type="datetime-local" value={form.data_fim} onChange={(e) => setF('data_fim', e.target.value)} required className="w-full border rounded-lg px-3 py-2 text-sm" /></Campo>
+              </div>
+            )}
             {podeVerEquipe && (
               <Campo label="Responsável">
                 <select value={form.responsavel_id} onChange={(e) => setF('responsavel_id', e.target.value)}

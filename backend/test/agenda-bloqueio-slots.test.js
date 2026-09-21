@@ -45,7 +45,7 @@ test('slot sem evento fica livre; slot sobreposto fica ocupado', () => {
   const r = slots.marcarDisponibilidade({
     data: '2026-10-05',
     candidatos: ['08:00', '08:30', '09:00'],
-    eventos: [{ data_inicio: '2026-10-05T08:30:00Z', data_fim: '2026-10-05T09:00:00Z', tipo: 'reuniao', titulo: 'Cliente' }],
+    eventos: [{ data_inicio: '2026-10-05T08:30:00Z', data_fim: '2026-10-05T09:00:00Z', tipo: 'tarefa', titulo: 'Tarefa interna' }],
     duracaoMin: 30,
     paraInstante,
   })
@@ -53,6 +53,21 @@ test('slot sem evento fica livre; slot sobreposto fica ocupado', () => {
   assert.equal(r[1].livre, false)
   assert.equal(r[1].motivo, slots.MOTIVO.COMPROMISSO)
   assert.equal(r[2].livre, true, 'o slot seguinte encosta mas nao sobrepoe')
+})
+
+test('reuniao aplica buffer operacional de 2h antes e depois', () => {
+  assert.equal(slots.REUNIAO_BUFFER_MINUTOS, 120)
+  const r = slots.marcarDisponibilidade({
+    data: '2026-10-05',
+    candidatos: ['06:30', '07:00', '11:00', '11:30'],
+    eventos: [{ data_inicio: '2026-10-05T09:00:00Z', data_fim: '2026-10-05T09:30:00Z', tipo: 'reuniao', titulo: 'Cliente' }],
+    duracaoMin: 30,
+    paraInstante,
+  })
+  assert.equal(r[0].livre, true, 'terminar exatamente no inicio da folga ainda cabe')
+  assert.equal(r[1].livre, false, 'duas horas antes da reuniao ficam reservadas')
+  assert.equal(r[2].livre, false, 'duas horas depois da reuniao ficam reservadas')
+  assert.equal(r[3].livre, true, 'comecar exatamente no fim da folga volta a caber')
 })
 
 test('bloqueio aparece como BLOQUEIO, nao como compromisso generico', () => {

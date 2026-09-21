@@ -29,16 +29,22 @@ function criarPoolFake(seed = []) {
         // CRM em equipe, Etapa 11: o conflito virou POR PESSOA. `ignorarId` e `responsavelId` sao
         // ambos opcionais e entram na MESMA posicao seguinte, na ordem em que o SQL os acrescenta —
         // por isso o fake precisa distinguir pelo texto da query, e nao pela posicao.
+        const usaBufferReuniao = /tipo = 'reuniao'/.test(sql)
+        const bufferIni = usaBufferReuniao ? params[4] : null
+        const bufferFim = usaBufferReuniao ? params[5] : null
+        const base = usaBufferReuniao ? 6 : 4
         const usaIgnorar = /AND id <> \$/.test(sql)
         const usaResponsavel = /responsavel_id = \$/.test(sql)
-        const ignorar = usaIgnorar ? (params[4] || null) : null
-        const responsavel = usaResponsavel ? (params[usaIgnorar ? 5 : 4] || null) : null
+        const ignorar = usaIgnorar ? (params[base] || null) : null
+        const responsavel = usaResponsavel ? (params[base + (usaIgnorar ? 1 : 0)] || null) : null
         const n = linhas.filter((r) =>
           r.empresa_id === empresaId &&
           !r.excluido_em &&
           statusOcupa.includes(r.status) &&
-          new Date(r.data_inicio) < new Date(fim) &&
-          new Date(r.data_fim) > new Date(ini) &&
+          (
+            (new Date(r.data_inicio) < new Date(fim) && new Date(r.data_fim) > new Date(ini)) ||
+            (usaBufferReuniao && r.tipo === 'reuniao' && new Date(r.data_inicio) < new Date(bufferFim) && new Date(r.data_fim) > new Date(bufferIni))
+          ) &&
           (!ignorar || r.id !== ignorar) &&
           // Sem responsavel informado: empresa inteira (comportamento anterior).
           // Com responsavel: os eventos DELE + os da EMPRESA (sem responsavel), porque o evento
@@ -161,6 +167,26 @@ test('criarEvento bloqueia conflito de horário na mesma empresa', async () => {
     () => criarEvento(pool, { empresaId: EMP, titulo: 'B', data_inicio: '2026-06-20T10:30:00Z', data_fim: '2026-06-20T11:30:00Z' }),
     (e) => e.code === 'CONFLICT' && e.statusCode === 409
   )
+})
+
+test('reuniao respeita buffer operacional de 2h na criacao', async () => {
+  const pool = criarPoolFake()
+  await criarEvento(pool, {
+    empresaId: EMP, criadoPor: 'vendedor-A', titulo: 'Primeira reuniao',
+    data_inicio: '2026-06-20T10:00:00Z', data_fim: '2026-06-20T10:30:00Z',
+  })
+  await assert.rejects(
+    () => criarEvento(pool, {
+      empresaId: EMP, criadoPor: 'vendedor-A', titulo: 'Colada demais',
+      data_inicio: '2026-06-20T12:00:00Z', data_fim: '2026-06-20T12:30:00Z',
+    }),
+    (e) => e.code === 'CONFLICT' && e.statusCode === 409
+  )
+  const liberada = await criarEvento(pool, {
+    empresaId: EMP, criadoPor: 'vendedor-A', titulo: 'Depois da folga',
+    data_inicio: '2026-06-20T12:30:00Z', data_fim: '2026-06-20T13:00:00Z',
+  })
+  assert.equal(liberada.titulo, 'Depois da folga')
 })
 
 test('conflito é isolado por empresa: outra empresa pode usar o mesmo horário', async () => {

@@ -12,6 +12,7 @@ const { AGENDA_APP } = require('../domain-enums')
 // o espelho existe porque o bot oferece horario lendo OUTRA tabela, e sem ele um bloqueio criado
 // aqui nao teria efeito nenhum sobre quem marca pelo WhatsApp. Ver migration 090.
 const espelho = require('./agenda-espelho')
+const agendaSlots = require('./agenda-slots')
 const { logger } = require('../logger')
 const TIPOS = new Set(AGENDA_APP.TIPOS)
 const STATUS = new Set(AGENDA_APP.STATUS)
@@ -177,8 +178,18 @@ function montarResumo(eventos = []) {
  *     que nao informe responsavel muda de comportamento — inclusive os eventos ja existentes, que
  *     nao tem responsavel e continuam bloqueando todo mundo.
  */
-async function existeConflito(pool, { empresaId, dataInicio, dataFim, ignorarId = null, responsavelId = null }) {
+async function existeConflito(pool, { empresaId, dataInicio, dataFim, ignorarId = null, responsavelId = null, bufferMin = 0 }) {
+  const buffer = Math.max(0, Number(bufferMin) || 0)
   const params = [empresaId, dataInicio, dataFim, STATUS_OCUPA]
+  let clausulaTempo = 'AND data_inicio < $3 AND data_fim > $2'
+  if (buffer > 0) {
+    const janela = agendaSlots.janelaComBufferReuniao(dataInicio, dataFim, buffer)
+    params.push(janela.inicio, janela.fim)
+    clausulaTempo = `AND (
+          (data_inicio < $3 AND data_fim > $2)
+          OR (tipo = 'reuniao' AND data_inicio < $${params.length} AND data_fim > $${params.length - 1})
+        )`
+  }
   let ignoreClause = ''
   if (ignorarId) {
     params.push(ignorarId)
@@ -194,8 +205,7 @@ async function existeConflito(pool, { empresaId, dataInicio, dataFim, ignorarId 
       WHERE empresa_id = $1
         AND excluido_em IS NULL
         AND status = ANY($4::text[])
-        AND data_inicio < $3
-        AND data_fim > $2
+        ${clausulaTempo}
         ${ignoreClause}
         ${escopoPessoa}`,
     params
@@ -210,7 +220,8 @@ async function existeConflito(pool, { empresaId, dataInicio, dataFim, ignorarId 
   // nao ha traducao para o UUID de `app`. Tratar o evento do bot como "de outra pessoa" o
   // ignoraria, que e' justamente o erro que esta consulta existe para impedir. Na pratica a
   // reuniao do bot e' compromisso da operacao, e vale para todos — como um bloqueio da empresa.
-  const doBot = await espelho.ocupacaoDoBot(pool, { empresaId, dataInicio, dataFim })
+  const janelaBot = buffer > 0 ? agendaSlots.janelaComBufferReuniao(dataInicio, dataFim, buffer) : { inicio: dataInicio, fim: dataFim }
+  const doBot = await espelho.ocupacaoDoBot(pool, { empresaId, dataInicio: janelaBot.inicio, dataFim: janelaBot.fim })
   return doBot.length > 0
 }
 
@@ -258,7 +269,11 @@ async function criarEvento(pool, { empresaId, criadoPor = null, responsavelId = 
   // Bloqueio reserva o horário mas não "conflita" com nada; demais tipos respeitam conflito.
   if (v.tipo !== 'bloqueio' && STATUS_OCUPA.includes(v.status)) {
     const conflito = await existeConflito(pool, {
-      empresaId, dataInicio: v.data_inicio, dataFim: v.data_fim, responsavelId: responsavel,
+      empresaId,
+      dataInicio: v.data_inicio,
+      dataFim: v.data_fim,
+      responsavelId: responsavel,
+      bufferMin: v.tipo === 'reuniao' ? agendaSlots.REUNIAO_BUFFER_MINUTOS : 0,
     })
     if (conflito) {
       throw erro('CONFLICT', responsavel
@@ -328,7 +343,14 @@ async function atualizarEvento(pool, { empresaId, id, ...body } = {}) {
     throw erro('VALIDATION', 'Só é possível registrar venda em um evento do tipo reunião.', 400)
   }
   if (tipoFinal !== 'bloqueio' && STATUS_OCUPA.includes(statusFinal)) {
-    const conflito = await existeConflito(pool, { empresaId, dataInicio: inicioFinal, dataFim: fimFinal, ignorarId: id })
+    const conflito = await existeConflito(pool, {
+      empresaId,
+      dataInicio: inicioFinal,
+      dataFim: fimFinal,
+      ignorarId: id,
+      responsavelId: atual.responsavel_id || null,
+      bufferMin: tipoFinal === 'reuniao' ? agendaSlots.REUNIAO_BUFFER_MINUTOS : 0,
+    })
     if (conflito) throw erro('CONFLICT', 'Já existe um compromisso nesse horário.', 409)
   }
 

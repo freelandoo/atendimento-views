@@ -10,6 +10,7 @@ import { ContatoEditavel } from '@/components/ContatoEditavel'
 import { classesFolha, classesFundoFolha } from '@/lib/ui-primitivos'
 import Botao from '@/components/ui/Botao'
 import { IconClose } from '@/components/ui/icons'
+import SeletorSlots from '@/components/SeletorSlots'
 
 // Modal enxuto do Banco de Leads. Reusa o MESMO endpoint da página de Conversas
 // (GET /api/empresas/:id/conversas/:numero) — sem recriar a lógica de conversa.
@@ -325,6 +326,7 @@ export default function ConversaHistoricoModal({
   const acoesStatusVisiveis = podeTriarLead
     ? STATUS_ACOES
     : STATUS_ACOES.filter((a) => a.valor !== 'marcado')
+  const valorSlotReuniao = dataReuniao && horarioReuniao ? `${dataReuniao} ${horarioReuniao}` : null
 
   return (
     /* A geometria vem do PRIMITIVO (`lib/ui-primitivos.js`): folha inferior no celular, modal
@@ -574,15 +576,35 @@ export default function ConversaHistoricoModal({
               <label className="text-xs text-ink-2">Dia
                 <input type="date" value={dataReuniao} onChange={(e) => setDataReuniao(e.target.value)} className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm" />
               </label>
-              <label className="text-xs text-ink-2">Horário
-                <input type="time" value={horarioReuniao} onChange={(e) => setHorarioReuniao(e.target.value)} className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm" />
-              </label>
-              <label className="col-span-2 text-xs text-ink-2">Duração
+              <label className="text-xs text-ink-2">Duração
                 <select value={duracaoReuniao} onChange={(e) => setDuracaoReuniao(Number(e.target.value))} className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm">
                   <option value={15}>15 min</option><option value={30}>30 min</option><option value={45}>45 min</option><option value={60}>1 hora</option>
                 </select>
               </label>
             </div>
+            <div className="mt-3 rounded-lg border border-line bg-surface-2 p-3">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold text-ink">Horários disponíveis</div>
+                  <p className="text-[11px] text-ink-3">Clique em um horário livre para preencher a reunião.</p>
+                </div>
+                <span className="shrink-0 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-ink-2">
+                  {horarioReuniao || '--:--'}
+                </span>
+              </div>
+              <SeletorSlots
+                empresaId={empresaId}
+                dataInicial={dataReuniao}
+                dias={1}
+                duracaoMin={duracaoReuniao}
+                valor={valorSlotReuniao}
+                onEscolher={(data, horario) => { setDataReuniao(data); setHorarioReuniao(horario) }}
+                compacto
+              />
+            </div>
+            <label className="mt-2 block text-xs text-ink-2">Horário selecionado
+              <input type="time" value={horarioReuniao} onChange={(e) => setHorarioReuniao(e.target.value)} className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm" />
+            </label>
             <label className="mt-2 block text-xs text-ink-2">Observações rápidas
               <textarea value={observacoesReuniao} onChange={(e) => setObservacoesReuniao(e.target.value)} rows={3} placeholder="Ex.: confirmar orçamento, falar com sócio, enviar proposta antes da reunião…" className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm" />
             </label>

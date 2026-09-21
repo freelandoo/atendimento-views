@@ -11,15 +11,20 @@
 // achar que a agenda quebrou; um slot que diz "Feriado" resolve a duvida sem abrir nada.
 //
 // ─── POR QUE NAO REUSAR `buscarDisponibilidadeSemana` (src/agenda.js) ──────────────────
-// Aquela funcao responde a pergunta do BOT: ela le so' `vendas.agenda_eventos`, usa a janela fixa
-// de atendimento do funil (19:30–21:15 nos uteis) e aplica o buffer de 30 min entre reunioes.
-// Sao tres decisoes corretas para oferecer horario a um cliente no WhatsApp e erradas para o
-// operador marcar na tela, que trabalha em horario comercial e precisa enxergar slot colado numa
-// reuniao existente. As duas continuam existindo, cada uma com o seu dono.
+// Aquela funcao responde a pergunta do BOT: ela le so' `vendas.agenda_eventos` e usa a janela fixa
+// de atendimento do funil (19:30–21:15 nos uteis). Aqui a janela e' da tela, mas a folga entre
+// reunioes continua sendo regra de agenda: o operador nao deve marcar uma reuniao colada na outra.
 
 // Grade padrao da tela: horario comercial, passo de 30 min. Sao defaults, nao regra — a rota
 // aceita outros valores. O passo e' o mesmo da duracao para a grade nao ter buraco entre slots.
 const GRADE_PADRAO = Object.freeze({ horaInicio: '08:00', horaFim: '18:00', duracaoMin: 30 })
+
+// Folga operacional entre reunioes. O padrao da agenda da tela e' 2h, conforme a rotina comercial
+// combinada; `REUNIAO_BUFFER_MIN=0` desliga em ambientes que precisem de agenda colada.
+const REUNIAO_BUFFER_MINUTOS = (() => {
+  const n = parseInt(process.env.REUNIAO_BUFFER_MIN, 10)
+  return Number.isFinite(n) && n >= 0 ? n : 120
+})()
 
 // Vocabulario FECHADO do motivo de um slot indisponivel. A tela traduz estas chaves; texto livre
 // aqui faria a tela ter de interpretar frase, que quebra em silencio quando a frase muda.
@@ -67,6 +72,19 @@ function sobrepoe(inicioA, fimA, inicioB, fimB) {
   return inicioA < fimB && fimA > inicioB
 }
 
+function janelaComBufferReuniao(inicio, fim, bufferMin = REUNIAO_BUFFER_MINUTOS) {
+  const dataInicio = inicio instanceof Date ? inicio : new Date(inicio)
+  const dataFim = fim instanceof Date ? fim : new Date(fim)
+  if (Number.isNaN(dataInicio.getTime()) || Number.isNaN(dataFim.getTime())) {
+    return { inicio, fim }
+  }
+  const ms = Math.max(0, Number(bufferMin) || 0) * 60 * 1000
+  return {
+    inicio: new Date(dataInicio.getTime() - ms),
+    fim: new Date(dataFim.getTime() + ms),
+  }
+}
+
 /**
  * Classifica o motivo pelo qual um evento ocupa o horario.
  * A ordem importa: BLOQUEIO vence COMPROMISSO porque e' a informacao que o operador precisa ver
@@ -76,6 +94,10 @@ function motivoDoEvento(evento) {
   if (!evento) return MOTIVO.COMPROMISSO
   if (evento.__origem === 'bot') return MOTIVO.AGENDA_BOT
   return evento.tipo === 'bloqueio' ? MOTIVO.BLOQUEIO : MOTIVO.COMPROMISSO
+}
+
+function eventoUsaBufferReuniao(evento) {
+  return evento && (evento.__origem === 'bot' || evento.tipo === 'reuniao')
 }
 
 /**
@@ -91,17 +113,25 @@ function motivoDoEvento(evento) {
  *                               (INJETADO: fuso e' responsabilidade de quem chama, e e' o que
  *                               mantem este modulo puro e testavel sem depender de Intl)
  * @param {Date|null} p.agora    se informado, slot que ja passou vira indisponivel
+ * @param {number} p.bufferReuniaoMin folga antes/depois de reunioes ja marcadas
  * @returns {Array<{horario:string,livre:boolean,motivo:string|null,titulo:string|null}>}
  */
-function marcarDisponibilidade({ data, candidatos, eventos = [], duracaoMin = 30, paraInstante, agora = null }) {
+function marcarDisponibilidade({ data, candidatos, eventos = [], duracaoMin = 30, paraInstante, agora = null, bufferReuniaoMin = REUNIAO_BUFFER_MINUTOS }) {
   const ms = Math.max(1, Number(duracaoMin) || 30) * 60 * 1000
   const normalizados = eventos
-    .map((ev) => ({
-      inicio: ev.data_inicio instanceof Date ? ev.data_inicio : new Date(ev.data_inicio),
-      fim: ev.data_fim instanceof Date ? ev.data_fim : new Date(ev.data_fim),
-      motivo: motivoDoEvento(ev),
-      titulo: ev.titulo || null,
-    }))
+    .map((ev) => {
+      const inicio = ev.data_inicio instanceof Date ? ev.data_inicio : new Date(ev.data_inicio)
+      const fim = ev.data_fim instanceof Date ? ev.data_fim : new Date(ev.data_fim)
+      const janela = eventoUsaBufferReuniao(ev)
+        ? janelaComBufferReuniao(inicio, fim, bufferReuniaoMin)
+        : { inicio, fim }
+      return {
+        inicio: janela.inicio,
+        fim: janela.fim,
+        motivo: motivoDoEvento(ev),
+        titulo: ev.titulo || null,
+      }
+    })
     .filter((ev) => !Number.isNaN(ev.inicio.getTime()) && !Number.isNaN(ev.fim.getTime()))
 
   return candidatos.map((horario) => {
@@ -191,12 +221,14 @@ function expandirRecorrencia({ dataInicial, tipo = RECORRENCIA.NENHUMA, ate = nu
 
 module.exports = {
   GRADE_PADRAO,
+  REUNIAO_BUFFER_MINUTOS,
   MOTIVO,
   RECORRENCIA,
   RECORRENCIAS_VALIDAS,
   MAX_OCORRENCIAS,
   gerarGrade,
   marcarDisponibilidade,
+  janelaComBufferReuniao,
   expandirRecorrencia,
   minutosDeHora,
   horaDeMinutos,
