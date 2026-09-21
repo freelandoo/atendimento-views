@@ -93,7 +93,7 @@ type Form = {
 }
 function formVazio(dia: string): Form {
   return {
-    titulo: '', descricao: '', tipo: 'reuniao', status: 'pendente', prioridade: 'media',
+    titulo: 'Reunião', descricao: '', tipo: 'reuniao', status: 'pendente', prioridade: 'media',
     data_inicio: `${dia}T09:00`, data_fim: `${dia}T09:30`, lead_nome: '', lead_telefone: '',
     // Vazio = o próprio (o backend resolve `responsavelId || criadoPor`). Nunca "da empresa":
     // marcar sem dono é o que um BLOQUEIO faz, e bloqueio é decisão explícita.
@@ -199,7 +199,7 @@ export default function AgendaPage() {
     setSalvando(true)
     const editando = !!form.id
     const payload = {
-      titulo: form.titulo, descricao: form.descricao, tipo: form.tipo, status: form.status,
+      titulo: form.titulo || 'Reunião', descricao: form.descricao, tipo: form.tipo, status: form.status,
       prioridade: form.prioridade,
       data_inicio: new Date(form.data_inicio).toISOString(),
       data_fim: new Date(form.data_fim).toISOString(),
@@ -237,6 +237,7 @@ export default function AgendaPage() {
 
   const eventos = resp?.eventos || []
   const resumo = resp?.resumo
+  const reuniaoNova = form.tipo === 'reuniao' && !form.id
   const diaDoForm = dataLocalDoCampo(form.data_inicio)
   const duracaoEvento = duracaoDoForm(form)
   const slotSelecionado = `${diaDoForm} ${horaLocalDoCampo(form.data_inicio)}`
@@ -340,10 +341,12 @@ export default function AgendaPage() {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 p-4" onClick={() => setModal(false)}>
           <form onSubmit={salvar} onClick={(e) => e.stopPropagation()} className="max-h-[90dvh] w-full max-w-2xl space-y-3 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
             <h3 className="text-lg font-semibold">{form.id ? 'Editar evento' : 'Novo evento'}</h3>
-            <Campo label="Título">
-              <input value={form.titulo} onChange={(e) => setF('titulo', e.target.value)} required className="w-full border rounded-lg px-3 py-2 text-sm" />
-            </Campo>
-            {form.tipo === 'reuniao' && !form.id ? (
+            {!reuniaoNova && (
+              <Campo label="Título">
+                <input value={form.titulo} onChange={(e) => setF('titulo', e.target.value)} required className="w-full border rounded-lg px-3 py-2 text-sm" />
+              </Campo>
+            )}
+            {reuniaoNova ? (
               <div className="space-y-3 rounded-lg border border-line bg-surface-2 p-3">
                 <div className="grid grid-cols-2 gap-3">
                   <Campo label="Dia da reunião">
@@ -371,10 +374,6 @@ export default function AgendaPage() {
                     compacto
                   />
                 )}
-                <div className="grid grid-cols-2 gap-3">
-                  <Campo label="Início selecionado"><input type="datetime-local" value={form.data_inicio} onChange={(e) => setF('data_inicio', e.target.value)} required className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm" /></Campo>
-                  <Campo label="Fim"><input type="datetime-local" value={form.data_fim} onChange={(e) => setF('data_fim', e.target.value)} required className="w-full rounded-lg border border-line bg-white px-3 py-2 text-sm" /></Campo>
-                </div>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3">
@@ -382,7 +381,7 @@ export default function AgendaPage() {
                 <Campo label="Fim"><input type="datetime-local" value={form.data_fim} onChange={(e) => setF('data_fim', e.target.value)} required className="w-full border rounded-lg px-3 py-2 text-sm" /></Campo>
               </div>
             )}
-            {podeVerEquipe && (
+            {podeVerEquipe && !reuniaoNova && (
               <Campo label="Responsável">
                 <select value={form.responsavel_id} onChange={(e) => setF('responsavel_id', e.target.value)}
                   className="w-full border rounded-lg px-2 py-2 text-sm">
@@ -393,23 +392,25 @@ export default function AgendaPage() {
                 </select>
               </Campo>
             )}
-            <div className="grid grid-cols-3 gap-3">
-              <Campo label="Tipo">
-                <select value={form.tipo} onChange={(e) => setF('tipo', e.target.value)} className="w-full border rounded-lg px-2 py-2 text-sm">
-                  {TIPOS.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}
-                </select>
-              </Campo>
-              <Campo label="Status">
-                <select value={form.status} onChange={(e) => setF('status', e.target.value)} className="w-full border rounded-lg px-2 py-2 text-sm">
-                  {Object.entries(STATUS_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-              </Campo>
-              <Campo label="Prioridade">
-                <select value={form.prioridade} onChange={(e) => setF('prioridade', e.target.value)} className="w-full border rounded-lg px-2 py-2 text-sm">
-                  {['baixa', 'normal', 'media', 'alta', 'urgente'].map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </Campo>
-            </div>
+            {!reuniaoNova && (
+              <div className="grid grid-cols-3 gap-3">
+                <Campo label="Tipo">
+                  <select value={form.tipo} onChange={(e) => setF('tipo', e.target.value)} className="w-full border rounded-lg px-2 py-2 text-sm">
+                    {TIPOS.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}
+                  </select>
+                </Campo>
+                <Campo label="Status">
+                  <select value={form.status} onChange={(e) => setF('status', e.target.value)} className="w-full border rounded-lg px-2 py-2 text-sm">
+                    {Object.entries(STATUS_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </Campo>
+                <Campo label="Prioridade">
+                  <select value={form.prioridade} onChange={(e) => setF('prioridade', e.target.value)} className="w-full border rounded-lg px-2 py-2 text-sm">
+                    {['baixa', 'normal', 'media', 'alta', 'urgente'].map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </Campo>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <Campo label="Lead (nome)"><input value={form.lead_nome} onChange={(e) => setF('lead_nome', e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" /></Campo>
               <Campo label="Lead (telefone)"><input value={form.lead_telefone} onChange={(e) => setF('lead_telefone', e.target.value)} placeholder="5511999999999" className="w-full border rounded-lg px-3 py-2 text-sm" /></Campo>
