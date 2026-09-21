@@ -46,19 +46,36 @@ async function runMigrations(pool) {
     const sql = fs.readFileSync(sqlPath, 'utf8')
 
     logger.info({ migration: file }, 'Aplicando migration...')
+    // A transacao exige um CLIENT dedicado, nunca `pool.query`. Cada `pool.query` pega uma
+    // conexao do pool, roda e devolve — entao BEGIN, a migration e o COMMIT podiam cair em
+    // conexoes DIFERENTES (o pool tem `max: 4`). Quando isso acontece a migration roda em
+    // autocommit e o ROLLBACK nao desfaz nada: o schema fica pela metade, o arquivo nao entra
+    // em `schema_migrations`, e o boot seguinte tenta aplica-lo do zero sobre o estado sujo.
+    const client = await pool.connect()
     try {
-      await pool.query('BEGIN')
-      await pool.query(sql)
-      await pool.query(
+      await client.query('BEGIN')
+      await client.query(sql)
+      await client.query(
         'INSERT INTO app.schema_migrations (nome) VALUES ($1) ON CONFLICT (nome) DO NOTHING',
         [file]
       )
-      await pool.query('COMMIT')
+      await client.query('COMMIT')
       logger.info({ migration: file }, '✅ Migration aplicada com sucesso.')
     } catch (err) {
-      await pool.query('ROLLBACK')
+      // O ROLLBACK pode falhar por conta propria (conexao derrubada, por exemplo). Se falhar,
+      // quem tem de chegar ao operador e' o erro ORIGINAL da migration, nao o do rollback.
+      try {
+        await client.query('ROLLBACK')
+      } catch (errRollback) {
+        logger.error(
+          { migration: file, err: errRollback.message },
+          '⚠️ ROLLBACK tambem falhou — o estado do schema precisa ser conferido a mao.'
+        )
+      }
       logger.error({ migration: file, err: err.message }, '❌ Falha na migration — rollback efetuado.')
       throw err
+    } finally {
+      client.release()
     }
   }
 }

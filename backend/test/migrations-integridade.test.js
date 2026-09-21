@@ -73,17 +73,42 @@ test('migration NOVA nao pode nascer com DEFAULT = empresa PJ', () => {
 
 function poolFalso({ aplicadas = [], falharEm = null } = {}) {
   const chamadas = []
+  const clients = []
+  let seq = 0
+
+  function responder(sql) {
+    if (/SELECT nome FROM app\.schema_migrations/.test(sql)) {
+      return { rows: aplicadas.map((nome) => ({ nome })) }
+    }
+    if (falharEm && String(sql).includes(falharEm)) {
+      throw new Error('erro proposital na migration')
+    }
+    return { rows: [] }
+  }
+
   return {
     chamadas,
+    clients,
     async query(sql, params) {
-      chamadas.push({ sql: String(sql), params })
-      if (/SELECT nome FROM app\.schema_migrations/.test(sql)) {
-        return { rows: aplicadas.map((nome) => ({ nome })) }
+      chamadas.push({ origem: 'pool', sql: String(sql), params })
+      return responder(sql)
+    },
+    async connect() {
+      const id = ++seq
+      const client = {
+        id,
+        liberado: false,
+        queries: [],
+        async query(sql, params) {
+          assert.equal(client.liberado, false, `client ${id} recebeu query depois de devolvido`)
+          client.queries.push(String(sql))
+          chamadas.push({ origem: `client:${id}`, sql: String(sql), params })
+          return responder(sql)
+        },
+        release() { client.liberado = true },
       }
-      if (falharEm && String(sql).includes(falharEm)) {
-        throw new Error('erro proposital na migration')
-      }
-      return { rows: [] }
+      clients.push(client)
+      return client
     },
   }
 }
@@ -131,4 +156,53 @@ test('runner garante o schema app e a tabela de controle antes de tudo', async (
   await runMigrations(pool)
   assert.match(pool.chamadas[0].sql, /CREATE SCHEMA IF NOT EXISTS app/)
   assert.match(pool.chamadas[1].sql, /CREATE TABLE IF NOT EXISTS app\.schema_migrations/)
+})
+
+// ─── A transacao e' de VERDADE ───────────────────────────────────────────────────────────
+// `pool.query` pega uma conexao, roda e devolve. Com BEGIN, migration e COMMIT em `pool.query`
+// os tres podiam cair em conexoes diferentes (pool com `max: 4`): a migration rodaria em
+// autocommit e o ROLLBACK nao desfaria nada. Estes testes existem para que isso nao volte.
+
+test('cada migration roda inteira no MESMO client, e o client sempre volta ao pool', async () => {
+  const pool = poolFalso()
+  await runMigrations(pool)
+
+  assert.equal(pool.clients.length, ARQUIVOS.length, 'um client dedicado por migration')
+  for (const client of pool.clients) {
+    assert.equal(client.queries.length, 4, 'BEGIN + migration + INSERT de controle + COMMIT')
+    assert.equal(client.queries[0], 'BEGIN')
+    assert.match(client.queries[2], /INSERT INTO app\.schema_migrations/)
+    assert.equal(client.queries[3], 'COMMIT')
+    assert.equal(client.liberado, true, 'client nao devolvido vaza conexao do pool')
+  }
+
+  const noPool = pool.chamadas.filter((c) => c.origem === 'pool').map((c) => c.sql)
+  assert.ok(!noPool.some((s) => /^(BEGIN|COMMIT|ROLLBACK)$/.test(s.trim())),
+    'controle de transacao nunca pode sair por pool.query')
+})
+
+test('quando a migration falha, o ROLLBACK sai no MESMO client e ele e devolvido', async () => {
+  const alvo = ARQUIVOS[0]
+  const sqlDoAlvo = fs.readFileSync(path.join(DIR, alvo), 'utf8').split(/\r?\n/)
+    .find((l) => l.trim() && !/^\s*--/.test(l))
+  const pool = poolFalso({ falharEm: sqlDoAlvo.trim().slice(0, 20) })
+
+  await assert.rejects(() => runMigrations(pool), /erro proposital/)
+
+  assert.equal(pool.clients.length, 1, 'para no primeiro erro')
+  const client = pool.clients[0]
+  assert.equal(client.queries[0], 'BEGIN')
+  assert.equal(client.queries[client.queries.length - 1], 'ROLLBACK')
+  assert.ok(!client.queries.includes('COMMIT'))
+  assert.equal(client.liberado, true, 'client tem de voltar ao pool mesmo no caminho de erro')
+})
+
+test('o fonte do runner nao volta a usar pool.query para transacao', () => {
+  const fonte = fs.readFileSync(path.join(__dirname, '..', 'src', 'db', 'migrations.js'), 'utf8')
+  assert.ok(/pool\.connect\(\)/.test(fonte), 'a transacao exige client dedicado')
+  assert.ok(/client\.release\(\)/.test(fonte), 'client nao devolvido vaza conexao')
+  for (const verbo of ['BEGIN', 'COMMIT', 'ROLLBACK']) {
+    assert.ok(!new RegExp(`pool\\.query\\(\\s*['"\`]${verbo}`).test(fonte),
+      `${verbo} por pool.query nao garante a mesma conexao`)
+  }
 })
