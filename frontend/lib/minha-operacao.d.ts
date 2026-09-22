@@ -100,3 +100,6 @@ export declare const PRAZO_DE_HOJE: readonly string[]
  * Não reclassifica nada: uma segunda regra faria as duas telas discordarem.
  */
 export function contagensDeFollowUp(fontes: FontesDaFila | null | undefined): ContagemFollowUp
+
+/** Reexportado de `lib/plano-dia` — a MESMA contagem que o Quadro do Dia mostra. */
+export { resumoDoDia } from './plano-dia'

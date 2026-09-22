@@ -143,19 +143,41 @@ function normalizarTamanhoFolha(t) {
   return TAMANHOS_FOLHA.includes(t) ? t : TAMANHO_FOLHA_PADRAO
 }
 
-/** Fundo escurecido. `items-end` no celular e `items-center` a partir de `sm` e' a chave. */
+/**
+ * Fundo escurecido. `items-end` no celular e `items-center` a partir de `sm` e' a chave.
+ *
+ * `lateral: true` ancora a superficie na DIREITA e a deixa da altura inteira — e' a ficha do
+ * lead, que precisa preservar o contexto da lista atras dela. No CELULAR nada muda: continua
+ * sendo folha inferior, porque la nao existe "ao lado".
+ */
 function classesFundoFolha(opcoes = {}) {
-  const { extra = '' } = opcoes
+  const { extra = '', lateral = false } = opcoes
   return juntar(
     'fixed inset-0 z-50 flex items-end justify-center bg-ink/50',
-    'sm:items-center sm:p-4',
+    lateral ? 'sm:items-stretch sm:justify-end sm:p-0' : 'sm:items-center sm:p-4',
     extra,
   )
 }
 
-/** A superficie em si. Raio so no topo enquanto e' folha; raio inteiro quando vira modal. */
+/**
+ * A superficie em si. Raio so no topo enquanto e' folha; raio inteiro quando vira modal.
+ *
+ * `lateral: true` = painel colado na borda direita, altura inteira e SEM raio (ele encosta em
+ * tres bordas da janela; arredondar ali deixa cantos de fundo escuro que parecem defeito).
+ * `tamanho` e' ignorado no modo lateral: a largura de um painel lateral e' a mesma sempre —
+ * variar de 448px a 1024px conforme a tela faria a ficha cobrir a lista que ela existe para
+ * preservar.
+ */
 function classesFolha(opcoes = {}) {
-  const { tamanho, extra = '' } = opcoes
+  const { tamanho, extra = '', lateral = false } = opcoes
+  if (lateral) {
+    return juntar(
+      'flex w-full min-h-0 flex-col overflow-hidden bg-surface shadow-xl',
+      'max-h-[92dvh] rounded-t-lg',
+      'sm:h-full sm:max-h-none sm:w-[560px] sm:max-w-[92vw] sm:rounded-none sm:border-l sm:border-line',
+      extra,
+    )
+  }
   return juntar(
     'flex w-full min-h-0 flex-col overflow-hidden bg-surface shadow-xl',
     'max-h-[92dvh] rounded-t-lg',

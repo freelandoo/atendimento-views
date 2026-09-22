@@ -149,7 +149,10 @@ function PainelAcaoConversa({ titulo, descricao, onFechar, rodape, children }: {
 }) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-ink/45 px-4 py-6" onClick={onFechar}>
-      <div className="max-h-[min(86dvh,760px)] w-full max-w-md overflow-y-auto rounded-lg bg-surface p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      {/* `role="dialog"` nao e' enfeite: e' por ele que a ficha do lead sabe que ha um
+          formulario aberto DENTRO dela e nao fecha tudo no primeiro Escape. */}
+      <div role="dialog" aria-modal="true" aria-label={titulo}
+        className="max-h-[min(86dvh,760px)] w-full max-w-md overflow-y-auto rounded-lg bg-surface p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-ink">{titulo}</div>
@@ -168,7 +171,7 @@ function PainelAcaoConversa({ titulo, descricao, onFechar, rodape, children }: {
 }
 
 export default function ConversaHistoricoModal({
-  empresaId, leadId, numero, titulo, status, acessos, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel, cooldownS, enviando, gerando, podeTriarLead = true, onEnviar, onGerar, onAlterarStatus, onSalvarTelefone, onClose,
+  empresaId, leadId, numero, titulo, status, acessos, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel, cooldownS, enviando, gerando, podeTriarLead = true, onEnviar, onGerar, onAlterarStatus, onSalvarTelefone, onClose, variante = 'modal',
 }: {
   /** JID do contato. Vem VAZIO quando o lead ainda não tem telefone — nesse caso o modal
       abre assim mesmo (o lead tem links, status e histórico), declarando a pendência em vez
@@ -189,6 +192,15 @@ export default function ConversaHistoricoModal({
       backend; este modal não conhece a regra. */
   onSalvarTelefone?: (telefone: string) => Promise<void>
   onClose: () => void
+  /**
+   * `'modal'` (padrao) = a folha flutuante de sempre, com fundo proprio.
+   *
+   * `'embutido'` = so o CONTEUDO, para viver como a aba "Conversa" da ficha lateral
+   * (`components/FichaLead.tsx`), que ja fornece a moldura, o cabecalho do lead e o fechar.
+   * Nao existe um SEGUNDO componente de conversa no Banco de Leads — seria a duplicacao que
+   * `ConversaPainel` (Central de Mensagens / Follow-ups) ja documenta como proibida.
+   */
+  variante?: 'modal' | 'embutido'
 }) {
   const [carregando, setCarregando] = useState(true)
   const [historico, setHistorico] = useState<Mensagem[]>([])
@@ -328,17 +340,8 @@ export default function ConversaHistoricoModal({
     : STATUS_ACOES.filter((a) => a.valor !== 'marcado')
   const valorSlotReuniao = dataReuniao && horarioReuniao ? `${dataReuniao} ${horarioReuniao}` : null
 
-  return (
-    /* A geometria vem do PRIMITIVO (`lib/ui-primitivos.js`): folha inferior no celular, modal
-       centrado a partir de `sm`. Escrevê-la à mão aqui criaria uma segunda régua — foi assim
-       que os três modais desta tela acabaram com três alturas e três larguras diferentes.
-       O `max-w-lg` anterior também era estreito demais para uma conversa no computador. */
-    <div className={classesFundoFolha()} onClick={onClose}>
-      <div className={classesFolha({ tamanho: 'md', extra: 'relative' })} onClick={(e) => e.stopPropagation()}>
-        {/* Alça: só no celular, onde a folha sobe de baixo. */}
-        <div className="flex shrink-0 justify-center pt-2 sm:hidden" aria-hidden="true">
-          <span className="h-1 w-10 rounded-full bg-line-strong" />
-        </div>
+  const conteudo = (
+      <>
         <div className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3 sm:px-5">
           <div className="min-w-0">
             <h3 className="truncate font-semibold text-lg">{telefonePendente ? 'Lead' : 'Conversa'}{titulo ? ` — ${titulo}` : ''}</h3>
@@ -405,11 +408,15 @@ export default function ConversaHistoricoModal({
               ))}
             </div>
           </div>
-          {/* Alvo de 44px: o × de 12px era, no telefone, o menor alvo da tela inteira. */}
-          <button type="button" onClick={onClose} aria-label="Fechar"
-            className="-mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-ink-3 hover:bg-surface-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
-            <IconClose />
-          </button>
+          {/* Alvo de 44px: o × de 12px era, no telefone, o menor alvo da tela inteira.
+              No modo embutido o × e' o da ficha — dois no mesmo canto seriam dois controles
+              para a mesma acao. */}
+          {variante === 'modal' && (
+            <button type="button" onClick={onClose} aria-label="Fechar"
+              className="-mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-ink-3 hover:bg-surface-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
+              <IconClose />
+            </button>
+          )}
         </div>
 
         {/* Sem historico, esta area encolhe: o aviso curto fica colado no bloco de acoes
@@ -698,9 +705,35 @@ export default function ConversaHistoricoModal({
           </PainelAcaoConversa>
         )}
 
-        <div className="px-5 py-3 border-t border-line flex justify-end">
-          <Botao variante="neutra" onClick={onClose}>Fechar</Botao>
+        {/* No modo embutido quem fecha e' a ficha: um segundo "Fechar" dentro dela fecharia a
+            mesma coisa duas vezes e ocuparia a linha onde as acoes do lead moram. */}
+        {variante === 'modal' && (
+          <div className="px-5 py-3 border-t border-line flex justify-end">
+            <Botao variante="neutra" onClick={onClose}>Fechar</Botao>
+          </div>
+        )}
+      </>
+  )
+
+  if (variante === 'embutido') {
+    // `min-h-0 flex-1 flex-col`: a area de mensagens usa `flex-1 overflow-y-auto`, entao ela
+    // precisa de um pai com altura limitada — sem `min-h-0` o flex nao deixa o filho encolher
+    // e a conversa empurra o rodape da ficha para fora da tela.
+    return <div className="flex min-h-0 flex-1 flex-col">{conteudo}</div>
+  }
+
+  return (
+    /* A geometria vem do PRIMITIVO (`lib/ui-primitivos.js`): folha inferior no celular, modal
+       centrado a partir de `sm`. Escrevê-la à mão aqui criaria uma segunda régua — foi assim
+       que os três modais desta tela acabaram com três alturas e três larguras diferentes.
+       O `max-w-lg` anterior também era estreito demais para uma conversa no computador. */
+    <div className={classesFundoFolha()} onClick={onClose}>
+      <div className={classesFolha({ tamanho: 'md', extra: 'relative' })} onClick={(e) => e.stopPropagation()}>
+        {/* Alça: só no celular, onde a folha sobe de baixo. */}
+        <div className="flex shrink-0 justify-center pt-2 sm:hidden" aria-hidden="true">
+          <span className="h-1 w-10 rounded-full bg-line-strong" />
         </div>
+        {conteudo}
       </div>
     </div>
   )

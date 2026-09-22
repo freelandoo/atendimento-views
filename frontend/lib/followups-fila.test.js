@@ -4,6 +4,7 @@ const test = require('node:test')
 const assert = require('node:assert')
 
 const {
+  motivoDaLinha,
   montarFila,
   aplicarFiltroRapido,
   aplicarAvancado,
@@ -372,4 +373,49 @@ test('a fila pagina de 25 em 25 sobre o conjunto JA filtrado', () => {
   const encolhida = paginar(fila.slice(0, 3), 3, POR_PAGINA_PADRAO)
   assert.equal(encolhida.pagina, 1)
   assert.equal(encolhida.itens.length, 3)
+})
+
+// ─── motivoDaLinha ────────────────────────────────────────────────────────────
+// A coluna "Por que agora" renderizava `motivo` MAIS `orientacao` embaixo, em toda linha.
+// Numa fila de 25 itens isso vira um paragrafo por linha e o operador para de varrer.
+test('motivoDaLinha corta na PRIMEIRA FRASE e preserva o texto inteiro', () => {
+  const r = motivoDaLinha({
+    motivo: 'Lead respondeu ha 2 dias. Ninguem retomou desde entao.',
+    orientacao: 'Assuma a conversa antes do fim do dia.',
+  })
+  assert.equal(r.curto, 'Lead respondeu ha 2 dias.')
+  assert.ok(r.completo.includes('Ninguem retomou'))
+  assert.ok(r.completo.includes('Assuma a conversa'), 'a orientacao nao pode se perder')
+  assert.equal(r.temMais, true)
+})
+
+test('motivoDaLinha NAO resume nem reescreve — o curto e um RECORTE do que veio', () => {
+  const motivo = 'Cliente pediu proposta.'
+  const r = motivoDaLinha({ motivo })
+  assert.ok(motivo.startsWith(r.curto), 'o curto tem de ser um prefixo literal do motivo')
+})
+
+test('motivo sem pontuacao nao e cortado no meio de uma palavra', () => {
+  const r = motivoDaLinha({ motivo: 'Sem pontuacao nenhuma neste motivo' })
+  assert.equal(r.curto, 'Sem pontuacao nenhuma neste motivo')
+  assert.equal(r.temMais, false)
+})
+
+test('sem motivo, nada e inventado', () => {
+  for (const item of [null, undefined, {}, { motivo: '   ' }]) {
+    const r = motivoDaLinha(item)
+    assert.equal(r.curto, '', 'linha sem motivo mostra "—", nunca uma frase de enfeite')
+  }
+})
+
+test('orientacao sozinha nao vira o texto da linha, mas nao se perde', () => {
+  const r = motivoDaLinha({ orientacao: 'Ligue depois das 14h.' })
+  assert.equal(r.curto, '')
+  assert.equal(r.completo, 'Ligue depois das 14h.')
+})
+
+test('motivoDaLinha NAO conhece falha — diagnostico de envio nao e contexto', () => {
+  const r = motivoDaLinha({ motivo: 'X.', tem_falha: true, falha_motivo: 'timeout' })
+  assert.ok(!r.curto.includes('timeout'))
+  assert.ok(!r.completo.includes('timeout'))
 })

@@ -106,7 +106,7 @@
 - `AI_AUX_MODEL`: modelo das chamadas AUXILIARES/leves (ex.: `classificar_intencao` em `agent.js`). Sem ela, usa um modelo PEQUENO do provider ATIVO (`AI_PROVIDER`): `openai`→`gpt-4o-mini`, `anthropic`→`claude-haiku-4-5-20251001`. Antes o modelo era fixo em Haiku, que o `generateAIResponse` roteia sempre p/ Anthropic — então com `AI_PROVIDER=openai` toda chamada auxiliar tomava 400/timeout na Anthropic e caía no fallback heurístico. Defina só para forçar um modelo específico (o valor precisa começar com o prefixo do provider ativo: `gpt-`/`claude-`).
 - `AI_AUX_CAPABLE_MODEL`: modelo das chamadas auxiliares que exigem um modelo CAPAZ/grande (ex.: `aplicar_overlay_aprendizado` — reescrita de prompt). Sem ela, usa o modelo GRANDE do provider ATIVO: `openai`→`gpt-4o`, `anthropic`→`claude-sonnet-4-6`. Mesma motivação do `AI_AUX_MODEL` (antes fixava Sonnet e tomava 400 na Anthropic com `AI_PROVIDER=openai`).
 - `AI_REPAIR_MAX_RETRIES`: nº máximo de retries de reparo quando a IA não emite `reuniao_escolha` em turno de agenda (default `1`; `0` desliga). Cada retry é +1 chamada LLM e é logado como `[ai-repair]`.
-- `REUNIAO_BUFFER_MIN`: folga em minutos exigida ENTRE reuniões (default `30`; `0` desliga). Reflete em 3 pontos da agenda: oferta de horários (`slotsLivresDoDia`), validação da escolha (`validarSlotReuniao`) e criação do evento (`criarEventoAgenda`, só tipo `reuniao`). A reunião gravada mantém a duração real (15 min); o buffer só afeta o espaçamento.
+- `REUNIAO_BUFFER_MIN`: folga em minutos exigida ENTRE reuniões — o **preparo** que cada reunião reserva **antes e depois** de si (default `120`; `0` desliga). **Fonte ÚNICA: `src/services/agenda-slots.js`**; `agenda.js` (o bot) **importa** de lá. Até 2026-09-22 cada lado tinha a sua cópia lendo a MESMA variável com defaults diferentes (30 no bot, 120 na tela) e, como a variável não está definida em produção, as duas portas de agendamento ofereciam horário por réguas diferentes — o lead marcava pelo WhatsApp um horário que a tela nunca ofereceria. Reflete em 4 pontos: grade da tela (`marcarDisponibilidade`, agenda **e** Banco de Leads), oferta do bot (`slotsLivresDoDia`), validação da escolha (`validarSlotReuniao`) e criação do evento (`criarEventoAgenda` e `agenda-multiempresa.criarEvento`, só tipo `reuniao`). A reunião gravada mantém a duração real; a folga só afeta o espaçamento. ⚠️ **Consequência declarada e aceita (operador, 2026-09-22):** a janela do funil é 19:30–21:15 com reuniões de 15 min, então com 120 o bot oferece **no máximo uma reunião por dia útil** (o sábado, de janela ampla, continua com várias). Baixar a variável é o caminho para afrouxar — não crie um segundo buffer.
 - Seletor autônomo de mercado da **Busca IA** (`selecionarMercadoDiarioIA` em `prospecting.js`): só roda quando `modo_busca='ia'`. A IA recebe o raio-x dos mercados já prospectados e as preferências simples do operador, então escolhe um `{nicho, cidade}` fresco (gpt-4o-mini); a busca no Maps segue programática. **Sem fallback para rotação heurística**: tem RETRY (`PROSPEC_MERCADO_IA_RETRIES`, default 3); se todas as tentativas falharem, o erro é registrado com `logger.error`, o estado vira `sem_mercados`/`erro` e o ciclo fica pausado até o operador ajustar ou tentar novamente.
 - `PROSPEC_MERCADO_IA_RETRIES`: nº de tentativas da IA ao escolher o mercado do dia (default `3`).
 - `src/services/meta-attribution.js`, chamado a cada ~10 min pelo worker (`sincronizarAtribuicaoMetaAds`): hoje faz **só** o recálculo determinístico de `score_lead` (`calcularScoreLeadDeterministico`) dos leads ativos. **Não envia nada à Meta e não captura mais atribuição** (bloco abaixo).
@@ -1967,7 +1967,9 @@
 - **O trabalho SEM DONO é linha própria** no painel, e só aparece quando existe: não é anomalia
   (lead livre e conversa não atribuída são filas legítimas), mas é o que o admin veio
   redistribuir, e sem ele a soma das linhas não fecharia com o total. **Quem foi desativado
-  continua listado com a carga que tem na mão** — desativar revoga acesso e **não** redistribui.
+  continua listado com a carga que tem na mão** — ⚠️ **SUPERADO em 2026-09-22**: desativar passou
+  a DEVOLVER o trabalho pendente para a fila (ver "DESATIVAR um membro DEVOLVE o trabalho dele").
+  Quem foi desativado continua aparecendo no painel, mas com a carga já zerada.
 - **Duas mudanças de BACKEND nasceram das telas:** (a) `api-conversas.js` ganhou
   `LEFT JOIN app.usuarios` na listagem e no detalhe (`responsavel_nome`) — avisar "está com outra
   pessoa" sem dizer QUEM não resolve o problema real; (b) **`GET /agenda/responsaveis`**
@@ -3004,14 +3006,24 @@
   índice e some quando um PATCH troca o objeto — que é o que `validarEvento` faz hoje.
 - **A grade de horários é um módulo PURO** (`src/services/agenda-slots.js`): recebe os eventos já
   lidos e devolve o veredito. **Não reusa `buscarDisponibilidadeSemana`** (src/agenda.js) de
-  propósito — aquela responde a pergunta do BOT: lê só `vendas`, usa a janela fixa do funil
-  (19:30–21:15) e aplica o buffer de 30 min entre reuniões. Três decisões certas para oferecer
-  horário a um cliente no WhatsApp e erradas para o operador, que trabalha em horário comercial e
-  precisa enxergar slot colado numa reunião existente. **As duas continuam existindo.**
+  propósito — aquela responde a pergunta do BOT: lê só `vendas` e usa a janela fixa do funil
+  (19:30–21:15). Duas decisões certas para oferecer horário a um cliente no WhatsApp e erradas
+  para o operador, que trabalha em horário comercial. **As duas continuam existindo.** A
+  **folga entre reuniões, porém, é a MESMA nas duas** desde 2026-09-22: `agenda.js` importa
+  `REUNIAO_BUFFER_MINUTOS` daqui em vez de manter a cópia dele (ver a variável, acima).
 - **O horário ocupado NÃO some da grade:** aparece apagado, com o motivo em texto. Vocabulário
-  FECHADO (`bloqueio | compromisso | agenda_bot | passado`) — um slot que desaparece faz o
-  operador achar que a agenda quebrou; um que diz "Feriado" resolve a dúvida sem abrir nada.
+  FECHADO (`bloqueio | compromisso | agenda_bot | passado | preparo`) — um slot que desaparece faz
+  o operador achar que a agenda quebrou; um que diz "Feriado" resolve a dúvida sem abrir nada.
   **Indisponível nunca é vermelho:** agenda cheia não é tela cheia de erro (guarda no teste).
+- ⚠️ **`preparo` é a FOLGA, e não um compromisso.** O horário está VAZIO: o que o reserva é a
+  folga de uma reunião vizinha. Antes ele vinha como `compromisso` com o título da reunião, então
+  às 14:00 a tela afirmava *"já há um compromisso: Reunião com Fulano"* por causa de uma reunião
+  das **16:00** — o operador lê isso como defeito da agenda. O slot carrega `referencia` (o
+  `HH:MM` da reunião), que a tela usa para dizer "preparo da reunião das 16:00". A hora vem
+  **pronta do backend** (`formatarHora`, injetada na rota como `paraInstante`): o módulo é puro e
+  não conhece fuso, e `frontend/lib/agenda-slots.js` só traduz. Sem `formatarHora` a folga
+  continua valendo — só não nomeia a reunião; faltar apresentação nunca libera horário reservado.
+  A ocupação REAL vence o preparo, e o bloqueio vence os dois.
 - **Rotas:** `GET /agenda/disponibilidade` (read-only: não cria evento, não grava, não chama IA;
   lê as duas agendas) e `POST /agenda/bloqueios`. A segunda exige **`AGENDA_VER_EQUIPE` POR ROTA**
   — o mount de `/agenda` é `AGENDA_OPERAR_PROPRIA`, que todo membro tem, e sem o gate por rota
@@ -3390,6 +3402,303 @@
   única obrigatória — sem ela o canal fica desligado), `APIFY_FACEBOOK_ADS_ACTOR_ID` (default o
   ator confirmado) e `APIFY_META_ADS_TETO_DIARIO` (default `0` = sem teto). `APIFY_TIMEOUT_MS`
   também documentada (timeout HTTP do lado de cá).
+
+### ORIGEM do lead — UMA lista, e a fonte é DADO da linha (sem migration)
+- **Regra de produto, em uma frase:** o Banco de Leads tem **uma** listagem; a origem
+  (Google Places · Instagram · Anúncios Meta) identifica cada linha e recorta por filtro —
+  ela **não** divide a carteira em tabelas.
+- ⚠️ **Defeito corrigido, e ele não era estético.** `banco-leads/page.tsx` separava com
+  `ORIGENS_PLACES.has(l.origem)` e mandava **todo o resto** para uma tabela de título FIXO
+  "Instagram": lead vindo de anúncio (`origem='meta_ads'`, migration 091) era apresentado ao
+  operador como lead de Instagram. Em paralelo, `ORIGENS_VALIDAS` em `api-banco-leads.js` não
+  conhecia `meta_ads` — `?origem=meta_ads` **não casava com nada e era ignorado em silêncio**,
+  devolvendo a carteira inteira como se o filtro não existisse.
+- **Fonte de verdade única: `src/services/lead-origem.js`** (PURO — sem banco, HTTP, IA ou
+  rede). `ORIGENS` espelha a CHECK `prospects_origem_chk`, e `test/lead-origem.test.js` **lê a
+  migration 091** e falha se os dois divergirem: origem nova exige os dois lados no MESMO diff.
+  A rota deixou de guardar `ORIGENS_VALIDAS` e `ORIGENS_PLACES` (guarda lê o fonte).
+- ⚠️ **`services/rodar-leads.js` mantém a cópia dele de `ORIGENS_PLACES`, de propósito:** é o
+  caminho de disparo em produção, e uma troca de import ali não vale o risco dentro de um diff
+  de apresentação. O drift é impedido por TESTE, não por refatoração.
+- **ELE NÃO CLASSIFICA NADA.** A origem já está em `prospects.origem`, escrita por quem coletou.
+  Deduzi-la de `instagram_handle`, `place_id` ou da URL do site seria inventar procedência — o
+  mesmo erro que `site-classificacao.js` existe para não cometer com link. Guardas nos dois lados.
+- **Ausência de filtro é `null`, NUNCA lista vazia.** `origensDoFiltro` devolve `null` para valor
+  desconhecido e a cláusula não entra no `WHERE`. Lista vazia viraria `origem = ANY('{}')`, que
+  não casa com lead nenhum: um valor errado na URL **esvaziaria a carteira** em vez de ser
+  ignorado.
+- **Origem desconhecida aparece COMO ELA MESMA** — nunca escondida, nunca trocada por outra
+  fonte (mesma disciplina de `lib/capacidades.js` com capacidade desconhecida). Foi o `else`
+  silencioso que produziu o defeito; trocar de `else` só mudaria a fonte errada.
+- **`linkedin` é rotulado mas NÃO tem opção no seletor:** o motor existe e nenhuma coleta o usa,
+  e filtro que devolve zero sempre treina o operador a desconfiar do filtro. Aparecendo um lead
+  `linkedin`, a coluna Origem o nomeia certo. Alias legado `social` (= instagram+linkedin)
+  continua aceito — link salvo e filtro em sessão não podem quebrar.
+- **Dívida declarada: a régua de cadastro do lead de anúncio continua a de Instagram (0–60).**
+  `anexarScoreCadastro` não foi alterado — criar uma terceira régua é decisão de produto própria,
+  e trocá-la num diff de apresentação mudaria a ordenação da carteira sem ninguém pedir. A
+  bolinha exibe o máximo (`30/60` × `50/100`), então as duas continuam distinguíveis na lista.
+- **Uma paginação e uma ordenação, porque o servidor já era um só:** `GET /leads` ordena pela
+  fila de trabalho (`lead-fila-trabalho.js`) e devolve `meta.total_carteira`. Duas paginações no
+  cliente partiam essa fila ao meio. **Nenhuma rota mudou.**
+- **A seleção em massa não promete além do que alcança.** "Selecionar todos os filtrados"
+  selecionava o conjunto **carregado** (janela de 300 sobre carteira maior). O texto vem de
+  `escopoDaSelecao` (`frontend/lib/banco-leads-painel.js`, puro), que DIZ a diferença quando ela
+  existe; guarda de regressão proíbe as frases "todos os resultados", "toda a carteira" e
+  "todos os filtrados".
+- **O painel de disparo foi RECOLHIDO, não simplificado.** Os três cartões de modo continuam
+  `radiogroup` com a descrição de cada um — a decisão de não voltar ao `<select>` segue valendo.
+  O que nasce fechado é a CONFIGURAÇÃO; o ESTADO fica na faixa de uma linha (`faixaDeEnvio`,
+  puro). **O motivo de um bloqueio de envio nunca entra no que se recolhe e nunca depende de
+  hover** — há teste de que todo estado tem rótulo em texto.
+- **O menu lateral (`components/Sidebar.tsx`) NÃO é alterado** por nenhuma etapa da repaginação.
+- Código: `src/services/lead-origem.js`, `src/routes/api-banco-leads.js`. Front:
+  `frontend/lib/lead-origem.{js,d.ts,test.js}` (só TRADUZ),
+  `frontend/lib/banco-leads-painel.js` (`escopoDaSelecao`, `faixaDeEnvio`),
+  `frontend/app/dashboard/banco-leads/page.tsx`. Testes: `test/lead-origem.test.js` (12),
+  `frontend/lib/lead-origem.test.js` (13), `banco-leads-painel.test.js` (27).
+- **Nenhuma variável de ambiente nova, nenhuma migration, nenhuma rota nova, nenhuma capacidade
+  nova.**
+
+### QUADRO DO DIA — planejamento pessoal dentro do Banco de Leads (migration 095)
+- **Regra de produto, em uma frase:** cada comercial escolhe os leads que pretende trabalhar
+  numa DATA e organiza a execução arrastando cards. O Quadro é a segunda vista da MESMA
+  carteira — alternância **Lista | Quadro do dia** dentro de `/dashboard/banco-leads`,
+  **sem item novo no menu lateral**.
+- ⚠️ **A REGRA QUE GOVERNA O MÓDULO: `etapa` é o ESTADO DO DIA, nunca o ciclo comercial.**
+  Mover um card **não** escreve `prospects.status`, `qualificacao`, `responsavel_id` nem
+  `icp_*`, não assume lead de ninguém e **não envia nada**. Cada coluna declara isso em TEXTO
+  (`lib/plano-dia.js` → `consequencia`), porque um quadro com "Feito" ao lado de um CRM é lido
+  como "fechei a venda" se ninguém disser o contrário. Guarda de regressão lê
+  `db/plano-dia.js` e falha se qualquer `UPDATE`/`INSERT`/`DELETE` sair de `plano_dia_itens`.
+- **POR QUE UMA TABELA PRÓPRIA, e não `app.follow_ups` (062):** aquela é COMPROMISSO COM UM
+  CONTATO (canal + prazo + telefone) e alimenta a fila oficial da Central de Follow-ups.
+  Despejar ali cada lead arrastado encheria a fila de TODA a equipe com planejamento pessoal —
+  e exigiria alargar `follow_ups_canal_chk` para um valor que nenhuma tela sabe EXECUTAR, que é
+  o defeito da Decisão 4 de 2026-08-12. As duas convivem: quando o card vira compromisso de
+  verdade, o follow-up nasce pelo fluxo OFICIAL e o card guarda só o `follow_up_id`.
+- **As quatro colunas:** `para_hoje` · `em_trabalho` · `aguardando_retorno` · `feito`.
+  ⚠️ **NÃO existe máquina de estados entre elas, de propósito:** proibir "voltar" transformaria
+  um erro de arraste num estado do qual não se sai. A única transição com consequência é a
+  ENTRADA em `feito`.
+- **"Feito hoje" EXIGE evidência, com saída honesta** (decisão do operador, 2026-09-22): o
+  servidor procura ação REGISTRADA hoje para o lead e, achando, grava `atividade_registrada`;
+  não achando, responde **422** e a tela pede a NOTA — gravada como **`autodeclarada`**.
+  **Autodeclaração nunca é apresentada como evidência** (mesma disciplina de `confirmado_por`
+  na abordagem manual, migration 073): o card mostra o rótulo e a nota entre aspas.
+- ⚠️ **O que conta como AÇÃO é EMPRESTADO de `services/lead-parado.js`** (`sqlUltimaAcao`:
+  disparos — que cobrem a Evolution **e** o wa.me manual —, ligações e follow-ups por
+  `prospect_id`). Escrever uma segunda lista faria "você trabalhou este lead" significar uma
+  coisa no Quadro e outra no painel da equipe.
+- **ANTIDUPLICIDADE no BANCO:** `UNIQUE (empresa_id, usuario_id, dia, prospect_id)`. Arrastar
+  duas vezes, um retry ou duas abas não produzem dois cards do mesmo lead.
+- **O plano é PESSOAL.** Todo SELECT e todo UPDATE são escopados por `empresa_id` **e**
+  `req.usuario.id`; **não existe parâmetro de usuário** — um id na URL transformaria isto no
+  relatório de equipe, que já existe em `/equipe` e é admin-only. Guarda de regressão lê o
+  bloco das rotas e falha se `usuario_id` vier de query/body.
+- **NENHUMA capacidade nova.** Pôr um lead no PRÓPRIO dia não assume, não transfere e não
+  dispara — o mount (`LEAD_VER_APROVADOS`) e o recorte por responsável/nicho continuam sendo a
+  porta. Guarda falha se `requireCapacidade` aparecer no bloco do Quadro.
+- **"Planejar meu dia" NÃO despeja a carteira.** O modal recebe os leads que a **Lista já
+  carregou** (na ordem de trabalho do servidor) — o Quadro não faz uma segunda listagem — mais
+  as SUGESTÕES que o backend consegue provar: follow-up **meu** vencido e compromisso **meu**
+  na agenda daquela data. Sugestão vazia é resposta, não falha.
+- **O replanejamento é ATO EXPLÍCITO e não existe worker.** Pendência não some à meia-noite e
+  não se move sozinha: o `GET` devolve `pendentes_anteriores` (a prévia) e o operador manda.
+  Card `feito` **não** é replanejável — ele é o registro do dia em que aconteceu. Guarda de
+  regressão varre `src/**` e falha se algo com `setInterval` importar o módulo.
+- **`dia` é DATE, resolvido no BACKEND em `APP_TIMEZONE`** (`diaOperacional`). Data malformada
+  cai em HOJE, nunca num dia qualquer — inclusive `2026-02-31`, que `new Date` normalizaria em
+  silêncio para março.
+- **Arrastar é ATALHO, nunca o único caminho:** todo card tem **"Mover para"**, um `<select>`
+  de verdade (teclado e toque). O arrastar nativo do HTML não existe em leitor de tela e é ruim
+  em tela sensível; oferecer só ele deixaria parte da equipe sem o Quadro.
+- **A movimentação é OTIMISTA com reversão** (mesmo contrato do `AlternadorModoIa`): o card
+  anda na hora e volta ao lugar se o servidor recusar — e é essa reversão que abre o pedido de
+  nota no 422.
+- **`GET /leads/:id` (rota nova) existe por causa do Quadro:** um lead planejado ontem pode ter
+  mudado de aba e sair da janela que a Lista carregou. Ela repete o recorte
+  (`exigirLeadNoRecorte`, **404 nunca 403**) e hidrata com a MESMA `anexarScoreCadastro` — um
+  lead parcial faria a ficha mostrar pontuação diferente da mesma ficha aberta pela Lista.
+- **Trocar de vista é só apresentação:** não dispara busca, não move card, não salva nada e não
+  altera filtro (mesma regra dos dois modos da Aquisição). O valor vive em `sessionStorage` +
+  `?vista=`, via `history.replaceState`.
+- **Rotas** (todas no mount de `/banco-leads`): `GET /plano-dia?dia=` (**read-only**: não cria
+  card, não move e não chama IA — abrir o quadro não pode mudar o quadro; guarda de regressão),
+  `POST /plano-dia`, `PATCH /plano-dia/:itemId`, `DELETE /plano-dia/:itemId`,
+  `POST /plano-dia/replanejar`.
+- Código: `src/services/plano-dia.js` (PURO, dono do vocabulário), `src/db/plano-dia.js`,
+  rotas em `src/routes/api-banco-leads.js`, migration `sql/migrations/095_plano_dia.sql`.
+  Front: `frontend/lib/plano-dia.{js,d.ts,test.js}` (só TRADUZ),
+  `frontend/components/QuadroDoDia.tsx`, `frontend/components/ModalPlanejarDia.tsx`,
+  `frontend/app/dashboard/banco-leads/page.tsx`. Testes: `test/plano-dia.test.js` (23, com
+  anti-drift contra as 3 CHECKs da 095 e 7 guardas que leem o fonte),
+  `frontend/lib/plano-dia.test.js` (18).
+- **Fora de escopo, declarado:** quadro de EQUIPE (o plano é pessoal), devolução/transferência
+  de lead pelo Quadro, worker de replanejamento, e qualquer mudança em envio, coleta paga,
+  follow-up automático ou agenda.
+- **Nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhum item de menu novo.**
+
+### AQUISIÇÃO — UMA área, três trabalhos: Resultados · Buscas · Rotinas (sem migration)
+- **Regra de produto, em uma frase:** a Aquisição deixou de ter uma tela por FONTE. A fonte vira
+  **filtro** e **coluna** na lista de Resultados; o **formulário** de cada fonte continua
+  existindo, dentro de **Buscas**.
+- ⚠️ **Defeito corrigido no BACKEND, e ele era silencioso:** `normalizarOrigemFiltro`
+  (`services/prospect-filters.js`) mandava **qualquer valor não vazio que não fosse
+  `meta_ads`/`automatico` para `'manual'`**. Ou seja, `?origem=instagram` virava
+  `WHERE origem = 'manual'` e a Aquisição devolvia leads do **Google Places** para quem pediu
+  Instagram. Mesma classe do defeito que `ORIGENS_VALIDAS` tinha no Banco de Leads, e some pelo
+  mesmo caminho: o normalizador **delega a `services/lead-origem.js`**, o dono do vocabulário,
+  travado contra a CHECK `prospects_origem_chk`. O `WHERE` virou `origem = ANY($n)`.
+  ⚠️ **Dois testes em `test/prospect-filters.test.js` afirmavam o defeito** ("desconhecido cai em
+  manual") e foram REESCRITOS — o comentário no arquivo diz por quê. Origem desconhecida agora é
+  **`null` = sem filtro**, nunca outra origem e nunca lista vazia (`ANY('{}')` esvaziaria a tela).
+- **A lista unificada SÓ é honesta porque a paginação é do SERVIDOR.** Todas as origens vivem em
+  `prospectador.prospects` e `GET /prospeccao/prospects` pagina e ordena lá. **PROIBIDO** juntar
+  no navegador uma página de cada endpoint e chamar isso de lista global.
+- **Os três modos** (`ModoAquisicao = 'resultados' | 'busca' | 'rotinas'`): **Resultados** (a
+  lista + "Acompanhar resultados") · **Buscas** (o formulário da fonte escolhida + estado da
+  coleta) · **Rotinas** (coleta contínua + histórico). O padrão passou a ser **Resultados**:
+  quem abre a Aquisição chega para ver o que já tem, não para preencher formulário.
+  ⚠️ **O id do modo de busca continua `busca` (e não `buscas`)**, de propósito: ele já está em
+  `sessionStorage` e em links compartilhados, e renomear a chave só para casar com o rótulo
+  jogaria fora o recorte de quem estava trabalhando.
+- ⚠️ **Fonte do FORMULÁRIO e recorte da LISTA são EIXOS DIFERENTES.** Era
+  `fonteBusca === 'meta_ads'` cravado na consulta (`filtrosAtuais` e o efeito de `/filtros`) —
+  foi isso que fez cada fonte ter a própria tela de resultados. Hoje a consulta usa
+  `origemFiltro`, e `metaAds` (colunas e rótulos específicos da Meta) passou a significar
+  "o operador **recortou** por Meta", não "o operador escolheu o formulário da Meta".
+- **A tela DECLARA o recorte** ("Mostrando só: Anúncios Meta · ver todas"). Recortar em silêncio
+  faria o operador achar que a carteira encolheu.
+- **A coluna Origem NÃO é ordenável**, de propósito: ordenar por fonte devolveria a lista
+  agrupada por origem — exatamente a separação que esta tela deixou de fazer.
+- ⚠️ **META NÃO TEM ROTINA, e a ausência é DITA.** Places tem rotina de coleta e Instagram tem
+  campanhas agendadas; a Biblioteca de Anúncios é **sob demanda** (todo gasto tem um clique
+  humano atrás). O seletor do modo Rotinas só oferece as duas fontes que têm rotina e explica em
+  texto onde a Meta fica. **PROIBIDO** criar "rotina Meta" por analogia visual — prometeria uma
+  automação que o backend não executa.
+- **A coleta de Instagram NÃO foi reimplementada.** Ela tem endpoints, campanhas e cotas próprios
+  e entra por SLOT (`conteudoBuscas`/`conteudoRotinas`) — duplicar aquele fluxo criaria duas
+  regras de cota sobre a MESMA conta paga. Com a fonte em Instagram, `RotinasAquisicao` recebe
+  `modo='resultados'` e **não renderiza card nenhum**, continuando MONTADO (preserva o formulário
+  de Places/Meta e o acompanhamento da coleta, que é global — uma por empresa).
+- **"X leads de Y anúncios analisados"** já era o texto do resultado da busca Meta e **continua**:
+  anúncio lido e lead importado são números diferentes, e a busca também declara `fundidos`
+  (evidência somada a lead que já existia) e `sem_telefone`.
+- **Dois rótulos ERRADOS na Captação foram corrigidos** (não era só jargão): a tela dizia
+  **"Google CSE"**, provedor que este fluxo **não usa mais** — a descoberta de Instagram migrou
+  para a busca da Bright Data. "worker" e "bola de neve" viraram o que de fato acontece.
+  **Nenhum provedor, teto, retry ou política de coleta foi alterado.**
+- **Nada de coleta mudou:** nenhuma chamada paga nova, nenhum teto tocado, nenhuma rotina criada
+  ou removida. Trocar de modo ou de fonte **não dispara busca, não salva rotina e não chama a
+  origem paga** (regra que a tela já tinha, mantida).
+- Código: `src/services/prospect-filters.js`, `src/prospecting.js` (`montarFiltrosProspects`).
+  Front: `frontend/app/dashboard/aquisicao/page.tsx`, `components/ProspeccaoPainel.tsx`,
+  `components/RotinasAquisicao.tsx` (só o tipo), `app/dashboard/captacao/page.tsx` (rótulos).
+  Testes: `test/prospect-filters.test.js` (3 testes reescritos/novos), `test/lead-origem.test.js`.
+- **Nenhuma migration, nenhuma variável de ambiente nova, nenhuma rota nova, nenhuma capacidade
+  nova, nenhum item de menu novo.**
+
+### Follow-ups e Minha Operação — a varredura da fila e o plano do dia (sem migration)
+- **A coluna "Por que agora" deixou de ser um parágrafo por linha.** Ela renderizava `motivo`
+  (texto livre do backend) **mais** `orientacao` logo abaixo, em TODA linha. Numa fila de 25
+  itens isso é um parágrafo por linha — e o que o operador precisa varrer é **prazo, lead,
+  canal e próxima ação**.
+- **`motivoDaLinha` (`frontend/lib/followups-fila.js`, PURO) RECORTA, não resume.** `curto` é a
+  **primeira frase** e é sempre um **prefixo literal** do que o backend mandou (há teste que o
+  cobra); `completo` carrega motivo + orientação inteiros e vai para o tooltip via
+  `TextoTruncado` — que só mostra a dica quando o texto **realmente** transborda. Sem motivo,
+  os dois voltam vazios e a linha mostra "—": **nunca uma frase de enfeite**.
+- ⚠️ **A FALHA NÃO PASSA POR ELE, de propósito.** `item.tem_falha` continua sendo linha própria e
+  visível na célula: diagnóstico de envio não é contexto, é bloqueio — e bloqueio não se recolhe.
+  Guarda de regressão: `motivoDaLinha` não conhece `falha_motivo`.
+- **O cabeçalho "Origem" virou "Origem da tarefa".** Desde que o Banco de Leads e a Aquisição
+  ganharam uma coluna **Origem** com a fonte de AQUISIÇÃO (Places/Instagram/Meta), o mesmo
+  rótulo em duas telas passou a nomear duas coisas. Aqui ele diz de onde veio o **trabalho**
+  (ligação, mensagem, automação, manual), e a célula carrega essa distinção no `title`.
+- **O Quadro do Dia aparece em "Minha Operação" como BLOCO PRÓPRIO, nunca como mais um item da
+  lista de pendências.** Aquela lista é o que **cobra** ação (prazo vencido, reunião de hoje); o
+  plano é o que a pessoa **escolheu**, e os follow-ups dela provavelmente já estão lá dentro.
+  Somar os dois contaria o mesmo trabalho duas vezes — é o "integrar sem duplicar retornos".
+- **A contagem do plano é REEXPORTADA** (`resumoDoDia`, de `lib/plano-dia.js`, via
+  `lib/minha-operacao.js` — padrão de `paginacao.js`/`lead-identidade.js`). Uma segunda contagem
+  faria a home e o Quadro discordarem sobre o que a pessoa planejou, e a home é onde ela decide
+  se abre o Quadro.
+- **Dia sem plano é estado legítimo:** o bloco diz que planejar é opcional e que a fila de
+  trabalho continua valendo — não vira pendência. O bloco some quando a leitura falha.
+- **A Central de Mensagens NÃO foi alterada nesta rodada** (avaliação registrada em
+  `docs/ai-decision-log.md`, 2026-09-22 — Etapa 5): as 9 colunas têm **quatro julgamentos sobre
+  o mesmo lead lado a lado** (Temperatura · Interesse · Estágio · Status), o mesmo padrão que a
+  `BolinhaPontuacao` já corrigiu em outras telas. Reduzi-las é decisão de produto **com
+  verificação visual**, não efeito colateral de repaginação — e o pedido desta área era
+  preservar o modelo de atendimento e as permissões.
+- **A Área de EQUIPE já havia sido unificada** (seção própria acima, 2026-09-22): não há segundo
+  centro administrativo a criar nem a remover.
+- Código: `frontend/lib/followups-fila.{js,d.ts,test.js}`,
+  `frontend/app/dashboard/follow-ups/page.tsx`, `frontend/lib/minha-operacao.{js,d.ts}`,
+  `frontend/lib/plano-dia.d.ts`, `frontend/components/MinhaOperacao.tsx`. Testes:
+  `frontend/lib/followups-fila.test.js` (34, 6 novos). **Nenhum arquivo de backend alterado.**
+- **Nenhuma migration, nenhuma rota nova, nenhuma variável de ambiente nova, nenhuma capacidade
+  nova.**
+
+### DESATIVAR um membro DEVOLVE o trabalho dele (sem migration)
+
+- **Regra de negócio, em uma frase:** quando alguém perde o acesso à empresa, tudo o que estava
+  **pendente** na mão dessa pessoa volta para a fila — leads, conversas, follow-ups em aberto e os
+  vínculos de equipe. **Histórico não se mexe.**
+- ⚠️ **DEFEITO CORRIGIDO, e ele estava declarado neste guia como se fosse escolha.** A Etapa 12
+  dizia *"quem foi desativado continua listado com a carga que tem na mão — desativar revoga acesso
+  e não redistribui"*. Medido em produção em 2026-09-22: uma conta desativada segurava **184 leads
+  trabalháveis** e outras duas, **7 follow-ups em aberto**. Esse trabalho fica **INVISÍVEL** — o
+  recorte do comercial é "meus + livres", e lead de um colega desativado não é nem uma coisa nem
+  outra —, e continua inflando a carteira dela no painel de equipe e no cálculo da distribuição.
+  Ninguém vê, ninguém trabalha, e o número da equipe mente.
+- **O ponto único é `devolverTrabalhoDoMembro` (`src/db/membros.js`)**, chamado por
+  `atualizarMembro` **dentro da transação do vínculo**: se a desativação voltar atrás, a devolução
+  volta junto. Metade feito seria o pior dos mundos — pessoa com acesso e sem carteira, ou o
+  inverso.
+- ⚠️ **Só na TRANSIÇÃO real de ativo → inativo** (`vinculo.ativo === true`, o mesmo cuidado de
+  `modo_ia`). Repetir o `PATCH` numa pessoa já desativada **não** libera de novo: a carteira dela já
+  voltou para a fila e pode ter sido assumida por outra pessoa nesse meio tempo.
+- **DEVOLVE PARA A FILA, nunca redistribui para um substituto.** Escolher quem recebe seria inventar
+  dono — o mesmo erro que a quarentena de webhook (060) e a instância de envio (Fase 2) removeram
+  de outros pontos. A fila é estado legítimo nos três módulos, e quem decide o próximo dono é a
+  equipe (rebalanceamento, "Puxar mais leads") ou uma pessoa.
+- **A ORDEM importa:** a pessoa sai das equipes **antes** de a carteira ser devolvida. Com o vínculo
+  de equipe ainda aberto, ela conta como membro ativo e um rebalanceamento concorrente devolveria
+  para ela exatamente o que se acabou de tirar.
+- **`membros.js` NÃO escreve direto em `prospects`, `vendas.conversas` nem `follow_ups`** — cada um
+  é dono do próprio histórico (migrations 072, 074, 062) e um `UPDATE` solto apagaria a autoria sem
+  deixar rastro. Guarda de regressão lê o fonte.
+- ⚠️ **`liberarLeadsDoMembro` (`db/lead-responsavel.js`) deixou de filtrar por `qualificacao`.** Até
+  2026-09-22 ela filtrava `IN ('aprovado','legado')`, e o efeito medido foi lead **`descartado`**
+  grudado para sempre em quem saiu de uma equipe (43 leads em duas pessoas). Descartado não aparece
+  na tela de ninguém, então o dono errado **nunca é visto** — e continua contando. Liberar é o único
+  estado honesto: ninguém trabalha aquele lead.
+- **`nichoId` virou OPCIONAL na mesma função, e a ausência não é descuido: é o outro caso de uso.**
+  Com nicho, a pessoa saiu de UMA equipe e só aquela carteira volta (ela pode seguir na empresa com
+  outro nicho). Sem nicho, ela perdeu a EMPRESA inteira e não há carteira a preservar.
+- **Follow-up só é liberado EM ABERTO** (`status = 'aguardando'`). Concluído, cancelado e falhado
+  são HISTÓRICO: quem executou continua tendo sido aquela pessoa.
+- **Liberar conversa não toca `atualizado_em`, `modo_ia` nem `agente_pausado`** — a Central ordena
+  por `atualizado_em` e liberar o dono não é mensagem nova; os outros dois são decisões
+  independentes sobre a IA (063).
+- **A REATIVAÇÃO não desfaz nada**, de propósito: não dá para saber quais itens eram dela sem
+  recriar o estado de um instante passado, e devolver o lote errado é pior — a carteira pode já ter
+  sido trabalhada por outra pessoa. O histórico de cada item diz de quem era; reatribuir é ato
+  humano.
+- **A resposta do `PATCH` ganhou `devolucao`** (campo **ADITIVO**, `null` para quem não desativou
+  ninguém) e o resumo entra na MESMA linha de `app.auditoria_eventos` da desativação — é a resposta
+  a "por que a carteira dela zerou?", e separá-la em outro evento faria procurar em dois lugares.
+- **Correção histórica aplicada em produção (2026-09-22):** 203 leads, 7 follow-ups e 1 vínculo de
+  equipe devolvidos de 3 contas desativadas, mais 25 descartados de resíduo de nicho anterior. Feito
+  pelas MESMAS funções, nunca por SQL à mão.
+- Código: `src/db/membros.js` (`devolverTrabalhoDoMembro`), `src/db/lead-responsavel.js`
+  (`liberarLeadsDoMembro`), `src/db/conversa-responsavel.js` (`liberarConversasDoMembro`),
+  `src/db/follow-ups.js` (`liberarFollowUpsDoMembro`). Testes: `test/membros.test.js` (32, com 6
+  guardas que leem o fonte).
+- **Nenhuma migration, nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhuma rota
+  nova.**
 
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.

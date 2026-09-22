@@ -42,6 +42,8 @@ const LP = require('../services/lead-parado')
 // A PORTA (Etapa 3). Aqui ela recorta a LEITURA do Comercial: quem nao pode ver a base bruta
 // ve apenas lead APROVADO/MARCADO por alguem. Lead neutro fica fora da operacao comercial.
 const { sqlAprovado } = require('../services/lead-qualificacao')
+const { origensDoFiltro, usaReguaPlaces } = require('../services/lead-origem')
+const PLANO = require('../db/plano-dia')
 // A ORDEM DE TRABALHO (a fila do vendedor). O modulo e' PURO e devolve as expressoes SQL: a
 // classificacao acontece UMA vez, dentro da consulta, e o numero vira rotulo por faixaPorOrdem.
 const { sqlFaixaTrabalho, sqlDesempateTrabalho, faixaPorOrdem } = require('../services/lead-fila-trabalho')
@@ -80,7 +82,6 @@ function temCapacidadeReq(req, cap) {
     papelPlataforma: req.usuario?.role,
   }, cap)
 }
-const ORIGENS_VALIDAS = new Set(['manual', 'automatico', 'instagram', 'linkedin'])
 const STATUS_OPERACIONAL = Object.freeze({
   marcado: { status: 'aprovado', qualificacao: 'aprovado' },
   aprovado: { status: 'aprovado', qualificacao: 'aprovado' },
@@ -229,14 +230,14 @@ function montarFiltro(empresaId, query) {
     where.push(`status = ANY($${params.length})`)
   }
 
-  const origem = String(query.origem || '').toLowerCase()
-  if (ORIGENS_VALIDAS.has(origem)) {
-    params.push(origem)
-    where.push(`origem = $${params.length}`)
-  } else if (origem === 'places') {
-    where.push(`origem IN ('manual','automatico')`)
-  } else if (origem === 'social') {
-    where.push(`origem IN ('instagram','linkedin')`)
+  // Grupo OU origem isolada — quem decide o que cada valor alcanca e' services/lead-origem.js.
+  // Valor desconhecido devolve `null` e o filtro simplesmente nao entra: uma lista VAZIA viraria
+  // `origem = ANY('{}')`, que nao casa com lead nenhum e esvaziaria a carteira em vez de ignorar
+  // o filtro. Ate aqui `meta_ads` caia neste caso — era aceito pela tela e ignorado pelo SQL.
+  const origensFiltro = origensDoFiltro(query.origem)
+  if (origensFiltro) {
+    params.push(origensFiltro)
+    where.push(`origem = ANY($${params.length})`)
   }
 
   // Recorte por RESPONSAVEL (Etapa 4). `escopo` vem da query; o que a pessoa PODE ver vem da
@@ -595,13 +596,13 @@ async function assertInstanciaPermitida(req, res, instanciaId) {
 
 function montarEscopoOpcoes(query) {
   const aba = String(query.aba || '').toLowerCase()
-  const origem = String(query.origem || '').toLowerCase()
   const escopo = {}
   if (aba === 'descartados') escopo.statusAny = ['rejeitado', 'nao_contatar']
   else if (ABAS[aba]) escopo.statusAny = ABAS[aba]
-  if (ORIGENS_VALIDAS.has(origem)) escopo.origem = origem
-  else if (origem === 'places') escopo.origemIn = ['manual', 'automatico']
-  else if (origem === 'social') escopo.origemIn = ['instagram', 'linkedin']
+  // Mesmo vocabulario da listagem: as opcoes de mercado precisam sair do MESMO recorte que a
+  // tabela, senao o seletor oferece cidade que o filtro em vigor nao tem.
+  const origensFiltro = origensDoFiltro(query.origem)
+  if (origensFiltro) escopo.origemIn = origensFiltro
   return escopo
 }
 
@@ -632,8 +633,6 @@ const COLUNA_ENRIQUECIMENTO = `
     ORDER BY (e.etapa = 'instagram_perfil') DESC, e.atualizado_em DESC
     LIMIT 1) AS instagram_etapa_status`
 
-// Origens do Google Places (inclui cadastro manual); o resto é social (IG/LinkedIn).
-const ORIGENS_PLACES = new Set(['manual', 'automatico'])
 
 // Anexa a pontuação de cadastro + JSON de apresentação conforme a origem do lead
 // (mesma régua da Aquisição: Places 0-100, Instagram 0-60). Remove o raw_json do
@@ -659,7 +658,7 @@ function comSiteCanonico(lead) {
 
 function anexarScoreCadastro(row) {
   const { raw_json: _rawJson, ...lead } = row
-  if (ORIGENS_PLACES.has(row.origem)) {
+  if (usaReguaPlaces(row.origem)) {
     const cad = calcularScoreCadastroPlaces(row)
     const out = comSiteCanonico({
       ...lead,
@@ -726,6 +725,170 @@ router.get('/meu-resumo', requireAuth, requireEmpresaAccess, async (req, res) =>
     // achar que perdeu carteira.
     return res.json({ ok: true, data: r, meta: { parado_dias: prazo, equipe: nicho } })
   } catch (err) { return envelopeErro(res, err, 'LEADS_RESUMO_FAILED') }
+})
+
+// ─── QUADRO DO DIA (migration 095) ────────────────────────────────────────────────────────
+//
+// O planejamento diário do comercial, dentro do Banco de Leads. Regras puras em
+// `services/plano-dia.js`; SQL em `db/plano-dia.js`.
+//
+// ⚠️ NENHUMA capacidade nova. Pôr um lead no PRÓPRIO dia não assume lead de ninguém, não
+// transfere, não dispara abordagem e não muda o funil — é organizar o próprio trabalho sobre a
+// carteira que a pessoa já alcança. O mount (`LEAD_VER_APROVADOS`) e o recorte por
+// responsável/nicho continuam sendo a porta.
+//
+// ⚠️ O plano é PESSOAL: todas as consultas são escopadas por `empresa_id` + `req.usuario.id`.
+// Não existe parâmetro de usuário — um id na URL transformaria isto no relatório da equipe, que
+// é outra coisa, com outra autorização (`/equipe`, admin-only).
+
+/** Os ids que estão DENTRO do recorte de quem pediu. O que sobrar é recusado, nunca ignorado. */
+async function filtrarIdsNoRecorte(req, ids) {
+  const limpos = [...new Set((ids || []).map((x) => String(x || '').trim()).filter(Boolean))]
+  if (!limpos.length) return { permitidos: [], recusados: [] }
+  const recorte = await montarRecorteLeadOperacao(req)
+  const params = [...recorte.params, limpos]
+  const { rows } = await pool.query(
+    `SELECT id FROM prospectador.prospects
+      WHERE ${recorte.where} AND id = ANY($${params.length}::uuid[])`,
+    params
+  )
+  const permitidos = rows.map((r) => r.id)
+  const set = new Set(permitidos)
+  return { permitidos, recusados: limpos.filter((id) => !set.has(id)) }
+}
+
+/** O dia pedido, ou hoje. Data malformada NÃO vira uma data qualquer: cai em hoje. */
+function diaDoPedido(valor) {
+  return PLANO.PD.diaValido(valor) || PLANO.PD.diaOperacional()
+}
+
+/**
+ * GET /plano-dia?dia=YYYY-MM-DD — o quadro, as sugestões e o que ficou pendente.
+ *
+ * READ-ONLY de verdade: não cria card, não move nada, não chama IA e não registra atividade.
+ * Abrir o quadro não pode mudar o quadro.
+ */
+router.get('/plano-dia', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const dia = diaDoPedido(req.query.dia)
+    const usuarioId = req.usuario.id
+    const [itens, pendentes, candidatas] = await Promise.all([
+      PLANO.quadroDoDia(req.empresa.id, usuarioId, dia),
+      PLANO.pendentesAnteriores({ empresaId: req.empresa.id, usuarioId, dia }),
+      PLANO.sugestoesDoDia({ empresaId: req.empresa.id, usuarioId, dia }),
+    ])
+    // As sugestões passam pelo MESMO recorte da listagem antes de aparecerem: um follow-up
+    // antigo pode apontar para um lead que hoje é de outra pessoa ou de outro nicho.
+    const { permitidos } = await filtrarIdsNoRecorte(req, candidatas.map((c) => c.prospect_id))
+    const set = new Set(permitidos)
+    return res.json({
+      ok: true,
+      data: {
+        itens,
+        sugestoes: candidatas.filter((c) => set.has(c.prospect_id)),
+        pendentes_anteriores: pendentes,
+      },
+      meta: { dia, hoje: PLANO.PD.diaOperacional(), etapas: PLANO.PD.ETAPAS },
+    })
+  } catch (err) { return envelopeErro(res, err, 'PLANO_DIA_LIST_FAILED') }
+})
+
+/** POST /plano-dia  { dia?, prospect_ids[], origem? } — põe leads no dia. */
+router.post('/plano-dia', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const b = req.body || {}
+    const dia = diaDoPedido(b.dia)
+    const origem = PLANO.PD.origemValida(b.origem) || 'escolha_manual'
+    const ids = Array.isArray(b.prospect_ids) ? b.prospect_ids : []
+    if (!ids.length) {
+      return res.status(400).json({ ok: false, error: { code: 'SEM_LEADS', message: 'Escolha ao menos um lead.' } })
+    }
+    const { permitidos, recusados } = await filtrarIdsNoRecorte(req, ids)
+    const r = await PLANO.adicionarItens({
+      empresaId: req.empresa.id, usuarioId: req.usuario.id, dia, prospectIds: permitidos, origem,
+    })
+    // `ja_no_dia` e `fora_do_recorte` são DITOS, não somados ao sucesso: "5 adicionados" quando
+    // 2 já estavam lá faria a pessoa procurar cards que nunca foram criados.
+    return res.json({
+      ok: true,
+      data: { adicionados: r.adicionados.length, ja_no_dia: r.ignorados, fora_do_recorte: recusados.length },
+      meta: { dia },
+    })
+  } catch (err) { return envelopeErro(res, err, 'PLANO_DIA_ADD_FAILED') }
+})
+
+/**
+ * PATCH /plano-dia/:itemId  { etapa?, ordem?, objetivo?, nota?, follow_up_id? }
+ *
+ * Move, reordena, anota e conclui. A entrada em "Feito hoje" exige evidência: o servidor procura
+ * atividade REGISTRADA hoje para o lead (a mesma definição de `services/lead-parado.js`) e, não
+ * achando, aceita a conclusão apenas com NOTA — gravando-a como `autodeclarada`. A tela é
+ * obrigada a exibir essa distinção; somar as duas produziria um número que não se sustenta.
+ */
+router.patch('/plano-dia/:itemId', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const b = req.body || {}
+    const atual = await PLANO.itemDoUsuario({
+      empresaId: req.empresa.id, usuarioId: req.usuario.id, itemId: req.params.itemId,
+    })
+    if (!atual) {
+      return res.status(404).json({ ok: false, error: { code: 'ITEM_NAO_ENCONTRADO', message: 'Card não encontrado no seu quadro.' } })
+    }
+    const etapaPedida = b.etapa === undefined ? atual.etapa : b.etapa
+    let temAtividade = false
+    if (PLANO.PD.etapaValida(etapaPedida) === 'feito') {
+      temAtividade = await PLANO.temAtividadeNoDia({
+        empresaId: req.empresa.id, prospectId: atual.prospect_id, dia: atual.dia,
+      })
+    }
+    const veredito = PLANO.PD.validarMovimento({
+      etapaDestino: etapaPedida,
+      conclusao: { temAtividadeRegistrada: temAtividade, nota: b.nota },
+    })
+    if (!veredito.ok) {
+      return res.status(veredito.code === 'ETAPA_INVALIDA' ? 400 : 422)
+        .json({ ok: false, error: { code: veredito.code, message: veredito.motivo } })
+    }
+    const item = await PLANO.moverItem({
+      empresaId: req.empresa.id, usuarioId: req.usuario.id, itemId: req.params.itemId,
+      etapa: veredito.etapa, ordem: b.ordem, objetivo: b.objetivo,
+      conclusao: veredito.conclusao, followUpId: b.follow_up_id,
+    })
+    if (!item) {
+      return res.status(404).json({ ok: false, error: { code: 'ITEM_NAO_ENCONTRADO', message: 'Card não encontrado no seu quadro.' } })
+    }
+    return res.json({ ok: true, data: item })
+  } catch (err) { return envelopeErro(res, err, 'PLANO_DIA_MOVE_FAILED') }
+})
+
+/** DELETE /plano-dia/:itemId — tira do dia. O lead continua na carteira, com o mesmo dono. */
+router.delete('/plano-dia/:itemId', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const item = await PLANO.removerItem({
+      empresaId: req.empresa.id, usuarioId: req.usuario.id, itemId: req.params.itemId,
+    })
+    if (!item) {
+      return res.status(404).json({ ok: false, error: { code: 'ITEM_NAO_ENCONTRADO', message: 'Card não encontrado no seu quadro.' } })
+    }
+    return res.json({ ok: true, data: { id: item.id } })
+  } catch (err) { return envelopeErro(res, err, 'PLANO_DIA_DEL_FAILED') }
+})
+
+/**
+ * POST /plano-dia/replanejar  { dia? } — traz o que ficou em aberto nos dias anteriores.
+ *
+ * ⚠️ Ação EXPLÍCITA. Nada é movido à meia-noite e não existe worker: pendência que se move
+ * sozinha some do dia em que foi planejada sem ninguém decidir. A prévia é o `GET`
+ * (`pendentes_anteriores`), e é ela que a tela mostra antes de perguntar.
+ */
+router.post('/plano-dia/replanejar', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const dia = diaDoPedido((req.body || {}).dia)
+    const r = await PLANO.replanejarPendentes({
+      empresaId: req.empresa.id, usuarioId: req.usuario.id, para: dia,
+    })
+    return res.json({ ok: true, data: r, meta: { dia } })
+  } catch (err) { return envelopeErro(res, err, 'PLANO_DIA_REPLAN_FAILED') }
 })
 
 router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
@@ -933,6 +1096,51 @@ router.post('/leads/responsavel-lote', requireAuth, requireEmpresaAccess, async 
 //   PATCH .../abordagem-manual         -> o vendedor DECLARA que enviou (declaracao, nao prova)
 
 // GET /leads/:id/abordagem-manual
+/**
+ * GET /leads/:id — UM lead, hidratado exatamente como a listagem o entrega.
+ *
+ * Existe porque o Quadro do Dia guarda os cards por conta própria: um lead planejado ontem pode
+ * ter mudado de aba (foi contatado, respondeu) e sair da janela que a Lista carregou. Sem esta
+ * rota, clicar no card abriria uma ficha sem pontuação de cadastro nem ICP — ou um beco sem
+ * saída.
+ *
+ * ⚠️ MESMO RECORTE da listagem (`exigirLeadNoRecorte`, **404 nunca 403**): um id trocado na URL
+ * não alcança lead fora da carteira de quem pediu. E a hidratação é a MESMA função
+ * (`anexarScoreCadastro`) — uma segunda montagem faria a ficha aberta pelo Quadro mostrar
+ * pontuação diferente da mesma ficha aberta pela Lista.
+ */
+router.get('/leads/:id', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    await exigirLeadNoRecorte(req)
+    const { rows } = await pool.query(
+      `SELECT ${COLUNAS}, ${COLUNA_ENRIQUECIMENTO}, raw_json,
+              ultimo.rodado_em, ultimo.rodado_por, ultimo.ultimo_status, ultimo.ultimo_erro,
+              rascunho.mensagem_gerada, rascunho.gerada_em
+         FROM prospectador.prospects
+         LEFT JOIN LATERAL (
+           SELECT d.criado_em AS rodado_em, COALESCE(u.nome, u.email) AS rodado_por,
+                  d.status AS ultimo_status, d.erro AS ultimo_erro
+             FROM prospectador.lead_disparos d
+             LEFT JOIN app.usuarios u ON u.id = d.usuario_id
+            WHERE d.prospect_id = prospects.id
+            ORDER BY d.criado_em DESC LIMIT 1
+         ) ultimo ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT d.mensagem AS mensagem_gerada, d.criado_em AS gerada_em
+             FROM prospectador.lead_disparos d
+            WHERE d.prospect_id = prospects.id AND d.status = 'aguardando_disparo'
+            ORDER BY d.criado_em DESC LIMIT 1
+         ) rascunho ON TRUE
+        WHERE empresa_id = $1 AND id = $2::uuid`,
+      [req.empresa.id, req.params.id]
+    )
+    if (!rows[0]) {
+      return res.status(404).json({ ok: false, error: { code: 'LEAD_NAO_ENCONTRADO', message: 'Lead não encontrado para o seu escopo.' } })
+    }
+    return res.json({ ok: true, data: anexarScoreCadastro(rows[0]) })
+  } catch (err) { return envelopeErro(res, err, 'LEAD_GET_FAILED') }
+})
+
 router.get('/leads/:id/abordagem-manual', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const data = await AM.prepararAbordagem(pool, req.empresa.id, req.params.id, {

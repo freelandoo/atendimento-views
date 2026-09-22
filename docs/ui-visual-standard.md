@@ -298,3 +298,95 @@ Registre aqui toda divergência visual autorizada pelo usuário.
 - **Pendente de verificacao visual com o operador:** a aparencia da area mudou de proposito
   (duas paginas viraram uma, com abas e mestre-detalhe). Typecheck, testes e compilacao passaram,
   mas **ninguem olhou a tela rodando ainda**.
+
+### 2026-09-22 — Banco de Leads: lista unificada, funil compacto e barra contextual de seleção
+
+- **Divergência aprovada pelo operador (2026-09-22, opção 2 da Fase 5):** variação visual
+  controlada na ÁREA DE TRABALHO, documentada tela a tela. Reusa tokens e primitivos do guia
+  canônico; nenhum passe global de estilo. **O menu lateral (`components/Sidebar.tsx`) não foi
+  tocado** — restrição principal do pedido, verificada por `git status`.
+- **Três padrões novos, todos nesta tela primeiro:**
+  1. **Coluna "Origem" com pílula neutra.** Texto + `title`, nunca só cor, e as quatro fontes
+     usam o MESMO tom: origem não é qualidade nem estado. Pintar cada fonte de uma cor faria a
+     linha sugerir que uma delas é melhor — e essa linha já tem três pontuações disputando
+     significado (ICP, cadastro, prioridade). A pílula é um BOTÃO que abre os detalhes do lead.
+  2. **Faixa de envio (36px) + painel de configuração recolhido.** O que é decisão do dia fica
+     na faixa; o que é ajuste fica atrás de "Configurar envio". **Nada que bloqueie o envio foi
+     recolhido:** motivo do bloqueio e aviso de saudação faltando continuam fora do painel, em
+     texto, sem depender de hover.
+  3. **Barra contextual de seleção.** Aparece só quando há seleção, a partir do checkbox do
+     cabeçalho da tabela (padrão de data table). Substitui o bloco permanente "Seleção em massa".
+- **Estágios do funil: cartão alto → aba compacta.** Os cinco cartões de ~110px somavam com o
+  cabeçalho e a barra de envio e empurravam o primeiro lead para fora da primeira dobra em
+  1366×768. A contagem continua no próprio botão; a participação do estágio foi para o `title`,
+  porque é leitura, não decisão.
+- **`rounded-xl`/`2xl`:** nenhum foi introduzido; os blocos novos usam `rounded-lg` + `shadow-card`
+  e tokens (`surface`, `line`, `ink*`, `brand`, `estado-*`).
+- **Como validar:** `cd frontend && npx tsc --noEmit`, `node --test lib/*.test.js`, `npx next build`.
+- ⚠️ **Verificação visual ao vivo NÃO foi feita nesta rodada** — a sessão não tem ferramenta de
+  navegador, e subir o backend local apontaria para o banco de PRODUÇÃO e ligaria os workers
+  (coleta paga, disparo automático), o que os limites operacionais do pedido proíbem.
+
+### 2026-09-22 — Ficha do lead: UMA superfície lateral, quatro seções (Etapa 2)
+
+- **Divergência aprovada (mesma decisão de 2026-09-22, opção 2):** a ficha do lead deixa de ser
+  dois modais centrados e passa a ser **um painel lateral** no computador, com abas
+  Resumo · Conversa · Qualificação · Fontes. No celular continua folha inferior — ali não existe
+  "ao lado".
+- **A geometria vem do PRIMITIVO, não de classe escrita à mão:** `classesFolha`/
+  `classesFundoFolha` (`lib/ui-primitivos.js`) ganharam a opção `lateral`. Escrever o painel à
+  mão criaria a segunda régua que aquele módulo existe para impedir.
+  - `tamanho` é **ignorado** no modo lateral, de propósito: variar de 448px a 1024px conforme a
+    tela faria a ficha cobrir justamente a lista que ela existe para preservar. Largura fixa de
+    560px (`max-w-[92vw]`).
+  - **Sem raio** no lateral: ele encosta em três bordas da janela, e arredondar ali deixa cantos
+    de fundo escuro que parecem defeito.
+- **Um cabeçalho só.** Cada modal tinha o seu resumo do lead no topo — era ele que aparecia
+  duplicado. Agora: nome + pílula de origem + a **ação principal**, que fica no cabeçalho e não
+  no fim do corpo (mesma regra que o `FolhaModal` já documenta).
+- **Aba indisponível fica VISÍVEL, desabilitada e com o motivo em texto** (hoje só a Conversa,
+  num lead sem telefone). Escondê-la faria a ficha ter três abas num lead e quatro em outro.
+- **`role="tablist"` de verdade:** setas do teclado, `aria-selected`, foco devolvido ao gatilho e
+  Escape. A aba ativa carrega peso de fonte além da cor.
+- **Escape respeita diálogo aninhado.** `PainelAcaoConversa` (agendar reunião, registrar ligação,
+  descartar) e `JsonLeadModal` ganharam `role="dialog"` + `aria-modal` + `aria-label` — eles não
+  tinham. Sem isso, um Escape fecharia o formulário e a ficha juntos, perdendo o que estava
+  sendo preenchido.
+- **Mudança de comportamento declarada:** clicar no **nome** do lead passa a abrir o **Resumo**,
+  não a conversa. A conversa continua a um clique (é a 2ª aba) e o **botão de ação da linha**
+  (Enviar / Responder / Revisar) e a fila do Semiautomático abrem **direto nela**.
+- **Como validar:** `cd frontend && npx tsc --noEmit`, `node --test lib/*.test.js`, `npx next build`.
+- ⚠️ **Verificação visual ao vivo ainda NÃO foi feita** (mesma limitação da Etapa 1).
+
+### 2026-09-22 — Quadro do Dia: colunas que declaram a consequência (Etapa 3)
+
+- **Divergência aprovada (mesma decisão de 2026-09-22, opção 2):** o Banco de Leads passa a ter
+  **duas vistas da mesma carteira** — `Lista | Quadro do dia` —, num `radiogroup` (e não
+  `tablist`: não se troca um painel equivalente, escolhe-se entre o acervo e o recorte de hoje).
+  **Nenhum item novo no menu lateral.**
+- **Toda coluna carrega a CONSEQUÊNCIA em texto**, abaixo do título: "Só planejamento — não
+  assume lead de ninguém e não envia nada", "Não significa venda fechada…". Sem isso, um quadro
+  ao lado de um CRM é lido como funil. Cor é reforço (`neutro`/`info`/`warn`/`ok` na borda), o
+  rótulo é a informação.
+- **"Mover para" é um `<select>` de verdade em todo card**, além do arrastar. O arrastar nativo
+  não existe em leitor de tela e é ruim em toque — oferecer só ele deixaria parte da equipe sem
+  o Quadro.
+- **A conclusão sem evidência tem modal próprio**, que explica por que está pedindo e avisa que
+  o card ficará **autodeclarado**. Negar sem oferecer saída seria travar o trabalho; aceitar sem
+  rotular seria mentir.
+- **Colunas em `md:grid-cols-2` e `xl:grid-cols-4`**: quatro colunas em 1366px espremem o card a
+  ponto de o nome do lead truncar sempre.
+- ⚠️ **Verificação visual ao vivo ainda NÃO foi feita** (mesma limitação das Etapas 1 e 2).
+
+### 2026-09-22 — Aquisição: três modos no lugar de três telas por fonte (Etapa 4)
+
+- **Divergência aprovada (mesma decisão de 2026-09-22, opção 2):** a Aquisição deixa de ter uma
+  sessão por FONTE e passa a ter **Resultados · Buscas · Rotinas**. A fonte vira **filtro** e
+  **coluna** (pílula neutra, o mesmo tratamento do Banco de Leads — origem não é qualidade).
+- **O recorte em vigor é declarado** numa pílula com "ver todas" ao lado. Recortar em silêncio
+  faz o operador achar que a carteira encolheu.
+- **O seletor de fonte vive DENTRO de Buscas** (e de Rotinas, só com as fontes que têm rotina),
+  como `radiogroup` — não como abas de página, que é o que fazia cada fonte parecer um produto.
+- **A ausência da rotina da Meta é texto**, não lacuna: sem a frase, o operador procuraria um
+  botão que não existe.
+- ⚠️ **Verificação visual ao vivo ainda NÃO foi feita** (mesma limitação das Etapas 1-3).

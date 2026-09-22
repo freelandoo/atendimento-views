@@ -27,7 +27,13 @@ import type { Atividade } from '@/components/HistoricoColetas'
 // card de um deles por vez, conforme a prop `modo`. Ele fica SEMPRE montado: é o que
 // preserva o formulário da busca avulsa e o polling ao alternar de modo. Desmontar por
 // modo reiniciaria o formulário — exatamente o que a separação não pode causar.
-export type ModoAquisicao = 'busca' | 'rotinas'
+/**
+ * Os TRÊS modos da Aquisição. `resultados` foi acrescentado em 2026-09-22 e este componente
+ * **não renderiza nada** nele, de propósito: os dois blocos daqui são o formulário de busca e o
+ * painel de rotinas, e no modo Resultados nenhum dos dois é o trabalho. Ele continua MONTADO —
+ * é o que preserva o formulário da busca avulsa e o acompanhamento da coleta ao alternar.
+ */
+export type ModoAquisicao = 'resultados' | 'busca' | 'rotinas'
 
 // Padrão do campo de quantidade na aba Meta, e ele é MENOR que o do Places de propósito.
 //

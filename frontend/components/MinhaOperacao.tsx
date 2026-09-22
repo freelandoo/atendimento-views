@@ -26,7 +26,7 @@ import { formatarDinheiro, resumoDoNivel, medalhaDaPosicao } from '@/lib/comissa
 import type { LinhaRanking, PainelComissao } from '@/lib/comissao'
 import { janelaTexto, recompensaTexto, resumoDoProgresso, rotuloSituacao, minhaRecompensa } from '@/lib/missao'
 import type { Missao, ProgressoMissao } from '@/lib/missao'
-import { proximidade, proximosPassos, nadaPendente, minhaPosicao, contagensDeFollowUp } from '@/lib/minha-operacao'
+import { proximidade, proximosPassos, nadaPendente, minhaPosicao, contagensDeFollowUp, resumoDoDia } from '@/lib/minha-operacao'
 import { avisoDeEquipe } from '@/lib/lead-operacao'
 import type { EquipeRecorte } from '@/lib/lead-operacao'
 
@@ -51,6 +51,8 @@ const BARRA_POR_INTENSIDADE: Record<string, string> = {
 }
 
 export default function MinhaOperacao({ nome }: { nome?: string }) {
+  /** Cards do plano de hoje. `null` = não deu para ler (bloco some, sem alarme). */
+  const [plano, setPlano] = useState<{ etapa: string }[] | null>(null)
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
   const [missao, setMissao] = useState<RespostaMissao | null>(null)
   const [painel, setPainel] = useState<PainelComissao | null>(null)
@@ -105,6 +107,13 @@ export default function MinhaOperacao({ nome }: { nome?: string }) {
     // Sem `inicio`/`fim` a rota ja' devolve SO' o dia de hoje, no fuso da empresa. E o
     // `resumo.reunioes` ja' vem contado por tipo: contar `eventos.length` aqui somaria
     // bloqueio e feriado como se fossem reuniao.
+    // O PLANO DO DIA. Carrega e falha sozinho, como os demais blocos.
+    // ⚠️ Ele NÃO entra na lista "precisa da sua ação agora": o plano é o que a pessoa escolheu
+    // trabalhar, e os follow-ups dela provavelmente já estão lá dentro. Somar os dois contaria
+    // o mesmo trabalho duas vezes — que é exatamente o "sem duplicar retornos".
+    apiFetch<{ itens?: { etapa: string }[] }>(`${base}/banco-leads/plano-dia`)
+      .then((r) => setPlano(r.data?.itens || [])).catch(() => setPlano(null))
+
     apiFetch<{ resumo?: { reunioes?: number } }>(`${base}/agenda`)
       .then((r) => setReunioesHoje(Number(r.data?.resumo?.reunioes) || 0))
       .catch(() => setReunioesHoje(0))
@@ -255,6 +264,37 @@ export default function MinhaOperacao({ nome }: { nome?: string }) {
           </ul>
         )}
       </section>
+
+      {/* ── Meu plano de hoje ─────────────────────────────────────────────────────────── */}
+      {/* Bloco PRÓPRIO, e não mais uma linha do fluxo acima: aquela lista é o que COBRA ação
+          (prazo vencido, reunião de hoje); esta é a escolha que a pessoa fez. Misturá-las
+          contaria o mesmo trabalho duas vezes. Some quando não há plano — dia sem plano é
+          estado legítimo, não pendência. */}
+      {plano && plano.length > 0 && (
+        <section className={card}>
+          <h2 className="text-lg font-semibold text-slate-900">Meu plano de hoje</h2>
+          {/* A MESMA contagem do Quadro (reexportada de lib/plano-dia) — duas contas fariam a
+              home e o Quadro discordarem sobre o que a pessoa planejou. */}
+          <p className="mt-0.5 text-sm text-slate-600">{resumoDoDia(plano).texto}</p>
+          <a href="/dashboard/banco-leads?vista=quadro"
+            className="mt-3 inline-block text-xs text-brand underline-offset-2 hover:underline">
+            Abrir o Quadro do dia
+          </a>
+        </section>
+      )}
+      {plano !== null && plano.length === 0 && (
+        <section className={card}>
+          <h2 className="text-lg font-semibold text-slate-900">Meu plano de hoje</h2>
+          <p className="mt-0.5 text-sm text-slate-600">
+            Você ainda não escolheu os leads de hoje. Planejar é opcional — a fila de trabalho
+            continua valendo do jeito que está.
+          </p>
+          <a href="/dashboard/banco-leads?vista=quadro"
+            className="mt-3 inline-block text-xs text-brand underline-offset-2 hover:underline">
+            Planejar meu dia
+          </a>
+        </section>
+      )}
 
       {/* ── Minha carteira ────────────────────────────────────────────────────────────── */}
       {leads && (

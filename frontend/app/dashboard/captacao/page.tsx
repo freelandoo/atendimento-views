@@ -410,7 +410,9 @@ export default function CaptacaoPage() {
         <div>
           <h1 className="text-2xl font-bold">Captação (Instagram)</h1>
           <p className="text-sm text-slate-500 mt-1">
-            O Google encontra perfis do nicho e o worker do Instagram expande a coleta em segundo plano.
+            A busca encontra perfis do nicho e a coleta continua sozinha, em segundo plano, a
+            partir dos perfis parecidos.{/* "worker" e "bola de neve" eram nome de implementação,
+            não de trabalho: quem lê a tela precisa saber o QUE acontece, não como se chama. */}
           </p>
         </div>
         <button onClick={processar} disabled={carregando}
@@ -433,7 +435,7 @@ export default function CaptacaoPage() {
             <div className={`mt-2 flex items-start gap-2 text-xs ${agAgenda.agendamento_ativo ? 'text-emerald-700' : 'text-slate-500'}`}>
               <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${agAgenda.agendamento_ativo ? 'bg-emerald-500' : 'bg-slate-300'}`} />
               <span>{agAgenda.agendamento_ativo
-                ? 'Ao iniciar, a campanha fica salva e o worker repete a coleta.'
+                ? 'Ao iniciar, a campanha fica salva e a coleta se repete sozinha.'
                 : 'A coleta acontece somente quando você clicar em Coletar agora.'}</span>
             </div>
           </div>
@@ -462,7 +464,10 @@ export default function CaptacaoPage() {
         )}
 
         <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-slate-500">Google CSE e bola de neve usam o orçamento diário disponível; nenhum WhatsApp é enviado nesta página.</p>
+          {/* ⚠️ Dizia "Google CSE", e isso estava ERRADO, não só técnico: a descoberta de perfis
+              migrou para a busca da Bright Data (ver AGENTS.md — "somente Bright Data para
+              descoberta de Instagram"). O texto nomeava um provedor que este fluxo não usa. */}
+          <p className="text-xs text-slate-500">A busca de perfis e a expansão consomem o orçamento diário de coleta; nenhum WhatsApp é enviado nesta página.</p>
           <button onClick={rodarAgenda} disabled={carregando || !podeColetar}
             className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
             {carregando ? <Spinner /> : <IconPlay />}{carregando ? 'Iniciando coleta…' : 'Coletar agora'}

@@ -61,3 +61,44 @@ export const LIMPEZA: {
   readonly aviso: string
   readonly rotuloConfirmar: string
 }
+
+
+export interface EscopoSelecao {
+  ativo: boolean
+  rotulo: string
+  podeAmpliar: boolean
+  rotuloAmpliar: string
+  podeSelecionarPagina: boolean
+  rotuloPagina: string
+  /** Vazio quando a janela carregada ja cobre a carteira filtrada. */
+  aviso: string
+}
+
+/** O escopo REAL da selecao em massa, em texto. Nunca promete alem do que esta carregado. */
+export function escopoDaSelecao(entrada?: {
+  selecionados?: number
+  naPagina?: number
+  carregados?: number
+  totalCarteira?: number | null
+}): EscopoSelecao
+
+export type EstadoEnvio = 'liberado' | 'aguardando' | 'bloqueado' | 'parado'
+
+export interface FaixaEnvio {
+  estado: EstadoEnvio
+  rotulo: string
+  detalhe: string
+  tom: 'ok' | 'warn' | 'danger' | 'neutro'
+  resumo: string[]
+}
+
+/** O resumo de uma linha da barra de envio. O motivo do bloqueio nunca fica recolhido. */
+export function faixaDeEnvio(entrada?: {
+  modoLabel?: string
+  instanciaLabel?: string
+  conexao?: string
+  motivoBloqueio?: string
+  cooldown?: string
+  automatico?: boolean
+  autoAtivo?: boolean
+}): FaixaEnvio

@@ -516,7 +516,9 @@ function ResumoIcpCompacto({ selo, score, maximo, validacao, qualificacao, cadas
   )
 }
 
-export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectada = false, empresaId, onLeadAtualizado, podeEditarIcp = true }: {
+export type SecaoFicha = 'tudo' | 'resumo' | 'qualificacao' | 'fontes'
+
+export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectada = false, empresaId, onLeadAtualizado, podeEditarIcp = true, variante = 'modal', secao = 'tudo' }: {
   lead: LeadDetalhavel
   onFechar: () => void
   empresaId?: string
@@ -525,6 +527,21 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
   /** A instância de envio selecionada na tela está desconectada — só muda o AVISO ao lado do
       botão Copiar (a mensagem, quando existe, sempre pode ser copiada). */
   instanciaDesconectada?: boolean
+  /**
+   * `'modal'` (padrão) = a ficha flutuante de sempre, com fundo, cabeçalho e rodapé próprios.
+   * É o que a Aquisição usa, e por isso o padrão não mudou.
+   *
+   * `'embutido'` = só o CONTEÚDO, para viver dentro da ficha lateral do Banco de Leads
+   * (`components/FichaLead.tsx`), que fornece a moldura, o cabeçalho e as abas.
+   */
+  variante?: 'modal' | 'embutido'
+  /**
+   * Quais blocos aparecer. ⚠️ É uma troca de VISIBILIDADE, não de montagem: a ficha mantém
+   * UMA instância deste componente montada e só muda `secao`. Desmontar a cada troca de aba
+   * dispararia a limpeza que submete o veredito FINAL do ICP (ver o `useEffect` de saída) a
+   * cada clique numa aba — o envio com `finalizar` tem de acontecer quando a ficha FECHA.
+   */
+  secao?: SecaoFicha
 }) {
   const [jsonAberto, setJsonAberto] = useState(false)
   const [respostasIcp, setRespostasIcp] = useState<Record<string, boolean>>({})
@@ -715,61 +732,12 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
     }
   }
 
-  return (
-    <>
-      {/* Mesmo porte do modal de conversa: ficha flutuante no meio, menor que uma tela inteira.
-          O conteúdo continua completo, mas rola dentro do painel em vez de tomar a página. */}
-      <div className={classesFundoFolha()} onClick={onFechar}>
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={`Detalhes de ${lead.nome}`}
-          className={classesFolha({ tamanho: 'md', extra: 'bg-surface-2 sm:max-h-[86dvh]' })}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex shrink-0 justify-center pt-2 sm:hidden" aria-hidden="true">
-            <span className="h-1 w-10 rounded-full bg-line-strong" />
-          </div>
-          <div className="shrink-0 border-b border-line bg-surface px-4 py-3 sm:px-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Ficha do lead</p>
-                <h3 className="mt-1 truncate text-lg font-semibold leading-tight text-ink">{lead.nome || '—'}</h3>
-                <NichoCidade nicho={lead.nicho} cidade={lead.cidade} className="mt-1 text-sm" vazio="Sem mercado informado" />
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                  <span className={`rounded-full border px-2.5 py-1 font-semibold ${seloEditado.classe}`} title={seloEditado.descricao}>
-                    {seloEditado.rotulo}{seloEditado.score != null ? ` · ${seloEditado.score}/13` : ''}
-                  </span>
-                  <span className={`rounded-full border px-2.5 py-1 font-semibold ${seloValidacao.classe}`} title={seloValidacao.descricao}>
-                    {seloValidacao.rotulo} · {qualificacao.score_100}/100
-                  </span>
-                  {contatos.length > 0 && (
-                    <span className="rounded-full border border-line bg-surface-2 px-2.5 py-1 font-medium text-ink-2">
-                      {contatos.join(' + ')}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {lead.json_apresentacao && (
-                  <Botao variante="secundaria" onClick={() => setJsonAberto(true)}
-                    title="Dados unificados + prompt único pro bot gerar a saudação de análise">
-                    Ver dados completos
-                  </Botao>
-                )}
-                <button type="button" onClick={onFechar} aria-label="Fechar detalhes"
-                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-line text-ink-3 hover:bg-surface-2 hover:text-ink-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand">
-                  <IconClose />
-                </button>
-              </div>
-            </div>
-          </div>
+  // Troca de VISIBILIDADE (ver o comentário de `secao`). No modo modal tudo aparece.
+  const ver = (alvo: SecaoFicha) => secao === 'tudo' || secao === alvo
 
-          {/* O corpo rola; a altura vem do flex do painel, não de um `calc` com a altura do
-              cabeçalho chutada — o cabeçalho quebra em mais linhas no celular e o `-108px`
-              passava a mentir justamente ali. */}
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5">
-            <ResumoIcpCompacto
+  const corpo = (
+    <>
+            {ver('resumo') && <ResumoIcpCompacto
               selo={seloEditado}
               score={seloEditado.score}
               maximo={icpEditado.score_maximo}
@@ -779,13 +747,13 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
               contatos={contatos}
               marcados={criteriosMarcados}
               total={icpEditado.criterios.length}
-            />
+            />}
 
             {/* Mensagem já preparada (Manual/Semi/Automático escrevem no mesmo rascunho — texto
                 único reaproveitado pelos três). O botão de copiar existe para o caso em que a
                 instância de envio está desconectada: a mensagem já foi gerada e não precisa
                 esperar a conexão voltar para ser aproveitada manualmente. */}
-            {lead.mensagem_gerada && (
+            {ver('resumo') && lead.mensagem_gerada && (
               <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-semibold text-ink">Mensagem gerada</p>
@@ -808,8 +776,8 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
               </div>
             )}
 
-            <div className="mt-4 grid gap-3">
-              {podeEditarIcp ? (
+            <div className={variante === 'modal' ? 'mt-4 grid gap-3' : 'grid gap-3'}>
+              {ver('qualificacao') && (podeEditarIcp ? (
                 <SecaoModal
                 titulo="Marcação CP/ICP"
                 subtitulo="Marque somente o que foi validado; sinais automáticos aparecem como apoio."
@@ -921,10 +889,10 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                     )}
                   </div>
                 </SecaoModal>
-              )}
+              ))}
 
               <div className="space-y-3">
-                <SecaoModal titulo="Contexto do lead" subtitulo="Dados que ajudam a decidir a abordagem.">
+                {ver('fontes') && <SecaoModal titulo="Contexto do lead" subtitulo="Dados que ajudam a decidir a abordagem.">
                   {/* Dados complementares: é para cá que vieram Endereço, Nota, Avaliações e Horário
                       quando saíram das colunas da tabela. */}
                   <dl className="divide-y divide-line">
@@ -971,9 +939,9 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                     </Linha>
                     {lead.bio && <Linha rotulo="Bio"><span className="text-xs leading-relaxed text-ink-2">{lead.bio}</span></Linha>}
                   </dl>
-                </SecaoModal>
+                </SecaoModal>}
 
-                <SecaoModal titulo="Sinais automáticos" subtitulo="Apoio detectado pelo cadastro, sem substituir a validação humana.">
+                {ver('qualificacao') && <SecaoModal titulo="Sinais automáticos" subtitulo="Apoio detectado pelo cadastro, sem substituir a validação humana.">
                   <div className="grid gap-2">
                     {sinaisDetectados.map(([id, sinal]) => {
                       const criterio = CRITERIOS_ICP_TENKA.find((c) => c.id === id)
@@ -1003,9 +971,9 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                       <p className="text-[11px] text-ink-3">{sinaisNaoDetectados} sinal(is) sem detecção automática.</p>
                     )}
                   </div>
-                </SecaoModal>
+                </SecaoModal>}
 
-                {(alertasQualificacao.length > 0 || sinaisQualificacao.length > 0 || criterios.length > 0) && (
+                {ver('qualificacao') && (alertasQualificacao.length > 0 || sinaisQualificacao.length > 0 || criterios.length > 0) && (
                   <SecaoModal titulo="Evidências e alertas" subtitulo="Pontuação de cadastro e régua operacional.">
                     <div className="space-y-4">
                       <ListaQualificacao titulo="Penalidades / revisão" itens={alertasQualificacao.slice(0, 5)} tom="alerta" />
@@ -1029,6 +997,75 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                 )}
               </div>
             </div>
+    </>
+  )
+
+  if (variante === 'embutido') {
+    return (
+      <>
+        {corpo}
+        {jsonAberto && lead.json_apresentacao && (
+          <JsonLeadModal titulo={lead.nome} json={lead.json_apresentacao} onFechar={() => setJsonAberto(false)} />
+        )}
+      </>
+    )
+  }
+
+  return (
+    <>
+      {/* Mesmo porte do modal de conversa: ficha flutuante no meio, menor que uma tela inteira.
+          O conteúdo continua completo, mas rola dentro do painel em vez de tomar a página. */}
+      <div className={classesFundoFolha()} onClick={onFechar}>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Detalhes de ${lead.nome}`}
+          className={classesFolha({ tamanho: 'md', extra: 'bg-surface-2 sm:max-h-[86dvh]' })}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex shrink-0 justify-center pt-2 sm:hidden" aria-hidden="true">
+            <span className="h-1 w-10 rounded-full bg-line-strong" />
+          </div>
+          <div className="shrink-0 border-b border-line bg-surface px-4 py-3 sm:px-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Ficha do lead</p>
+                <h3 className="mt-1 truncate text-lg font-semibold leading-tight text-ink">{lead.nome || '—'}</h3>
+                <NichoCidade nicho={lead.nicho} cidade={lead.cidade} className="mt-1 text-sm" vazio="Sem mercado informado" />
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                  <span className={`rounded-full border px-2.5 py-1 font-semibold ${seloEditado.classe}`} title={seloEditado.descricao}>
+                    {seloEditado.rotulo}{seloEditado.score != null ? ` · ${seloEditado.score}/13` : ''}
+                  </span>
+                  <span className={`rounded-full border px-2.5 py-1 font-semibold ${seloValidacao.classe}`} title={seloValidacao.descricao}>
+                    {seloValidacao.rotulo} · {qualificacao.score_100}/100
+                  </span>
+                  {contatos.length > 0 && (
+                    <span className="rounded-full border border-line bg-surface-2 px-2.5 py-1 font-medium text-ink-2">
+                      {contatos.join(' + ')}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {lead.json_apresentacao && (
+                  <Botao variante="secundaria" onClick={() => setJsonAberto(true)}
+                    title="Dados unificados + prompt único pro bot gerar a saudação de análise">
+                    Ver dados completos
+                  </Botao>
+                )}
+                <button type="button" onClick={onFechar} aria-label="Fechar detalhes"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-line text-ink-3 hover:bg-surface-2 hover:text-ink-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand">
+                  <IconClose />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* O corpo rola; a altura vem do flex do painel, não de um `calc` com a altura do
+              cabeçalho chutada — o cabeçalho quebra em mais linhas no celular e o `-108px`
+              passava a mentir justamente ali. */}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5">
+            {corpo}
           </div>
 
           {/* Rodapé PRESO, fora da área que rola — a mesma regra que o `FolhaModal` documenta

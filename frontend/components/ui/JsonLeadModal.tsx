@@ -42,7 +42,10 @@ export default function JsonLeadModal({ titulo, json, onFechar }: {
   return (
     /* Mesma geometria dos demais (lib/ui-primitivos.js): folha no celular, modal no computador. */
     <div className={classesFundoFolha()} onClick={onFechar}>
-      <div className={classesFolha({ tamanho: 'md', extra: 'p-4 sm:p-5' })} onClick={(e) => e.stopPropagation()}>
+      {/* `role="dialog"`: alem do leitor de tela, e' por ele que a ficha do lead sabe que ha
+          um dialogo aberto DENTRO dela e nao fecha os dois no primeiro Escape. */}
+      <div role="dialog" aria-modal="true" aria-label={titulo || 'Dados completos do lead'}
+        className={classesFolha({ tamanho: 'md', extra: 'p-4 sm:p-5' })} onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold">{titulo}</h3>

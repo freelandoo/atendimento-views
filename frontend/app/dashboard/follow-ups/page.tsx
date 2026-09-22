@@ -38,6 +38,7 @@ import { temCapacidade } from '@/lib/capacidades'
 import { avisoDeEquipe } from '@/lib/lead-operacao'
 import type { EquipeRecorte } from '@/lib/lead-operacao'
 import ConversaPainel from '@/components/ConversaPainel'
+import TextoTruncado from '@/components/ui/TextoTruncado'
 import { IconSend, IconGear, IconAlert, IconClose, IconPlus } from '@/components/ui/icons'
 import InterruptorAtivacao from '@/components/ui/InterruptorAtivacao'
 import MenuRadialAcoes, { type AcaoRadial } from '@/components/ui/MenuRadialAcoes'
@@ -45,6 +46,7 @@ import {
   FILTROS_RAPIDOS,
   VIEW_PADRAO,
   SITUACAO_LABEL,
+  motivoDaLinha,
   POR_PAGINA_PADRAO,
   montarFila,
   aplicarFiltroRapido,
@@ -539,7 +541,12 @@ export default function FollowUpsPage() {
                     <th scope="col" className="px-4 py-3">Próxima ação</th>
                     <th scope="col" className="px-4 py-3">Prazo</th>
                     <th scope="col" className="px-4 py-3">Por que agora</th>
-                    <th scope="col" className="px-4 py-3">Origem</th>
+                    {/* "Origem da tarefa" e NAO "Origem": desde que o Banco de Leads e a
+                        Aquisicao passaram a ter uma coluna "Origem" com a fonte de AQUISICAO
+                        (Google Places / Instagram / Anuncios Meta), o mesmo cabecalho em duas
+                        telas passou a nomear duas coisas diferentes. Aqui ele diz de onde veio
+                        o TRABALHO (ligacao, mensagem, automacao, manual). */}
+                    <th scope="col" className="px-4 py-3">Origem da tarefa</th>
                     {/* Coluna própria e fixa para o radial: largura mínima suficiente para o
                         gatilho "⋯" abrir sem colar na borda direita da tabela nem sobrepor a
                         bolinha central (o radial posiciona as bolinhas satélite a 56px do centro
@@ -716,6 +723,8 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
   const registrado = !!item.followup_id
   const emAberto = registrado && item.followup_status === 'aguardando'
   const descricao = descricaoPrioridade(item)
+  // Recorte do "Por que agora" — regra pura, testada (`lib/followups-fila.js`).
+  const motivoLinha = motivoDaLinha(item)
 
   // Ações desta linha, absorvidas pelo menu radial (⋯) para não quebrar linha —
   // Follow-ups é a tela com mais botões simultâneos do produto (relatório de
@@ -837,9 +846,16 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
         {item.prazo_label || '—'}
         {item.prazo_quando === 'atrasado' && <span className="sr-only"> (atrasado)</span>}
       </td>
-      <td className="max-w-sm px-4 py-3 align-top text-slate-600">
-        <div>{item.motivo || '—'}</div>
-        {item.orientacao && <div className="mt-1 text-xs text-slate-400">{item.orientacao}</div>}
+      <td className="max-w-[16rem] px-4 py-3 align-top text-slate-600">
+        {/* UMA linha, curta. A coluna renderizava `motivo` MAIS `orientacao` embaixo, em toda
+            linha — numa fila de 25 itens isso vira um parágrafo por linha, e o operador para
+            de varrer. O texto inteiro continua alcançável no tooltip (só aparece quando
+            realmente transborda: `TextoTruncado` mede) e nada foi reescrito: `curto` é um
+            RECORTE do que o backend mandou. */}
+        {motivoLinha.curto ? (
+          <TextoTruncado texto={motivoLinha.curto} dica={motivoLinha.completo} className="max-w-[15rem]" />
+        ) : '—'}
+        {/* A FALHA continua linha própria e visível: diagnóstico de envio não é contexto. */}
         {item.tem_falha && (
           <div className="mt-1 text-xs text-red-500" title={item.falha_motivo || undefined}>
             Falha no envio automático{item.falha_motivo ? `: ${item.falha_motivo}` : ''}
@@ -847,7 +863,10 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
         )}
       </td>
       <td className="px-4 py-3 align-top">
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{item.origem_label}</span>
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600"
+          title="De onde veio esta TAREFA (ligação, mensagem, automação ou manual) — não é a fonte de aquisição do lead.">
+          {item.origem_label}
+        </span>
         {registrado && (
           <div className="mt-1 space-y-0.5 text-[11px] text-slate-400">
             <div>{item.responsavel_nome ? `Responsável: ${item.responsavel_nome}` : 'Não atribuído'}</div>

@@ -4129,3 +4129,300 @@ já existia (`autosaveTexto`) — nenhum estado novo foi criado.
 **Validação:** `npx tsc --noEmit` limpo, `node --test lib/*.test.js` (704, nenhum novo teste —
 mudança é só de apresentação em componentes `.tsx`, sem módulo `lib/` tocado) e `npm run build`
 OK. **Verificação visual ao vivo não foi feita** — mesma pendência das duas rodadas anteriores.
+
+## 2026-09-22 — Banco de Leads: uma lista, com a origem como dado da linha (Etapa 1 da repaginação)
+
+**Contexto.** Pedido de repaginação da área de trabalho, com o menu lateral PRESERVADO. Estudo
+documental em `docs/propostas/2026-09-22-repaginacao/`, revalidado contra o código antes de
+qualquer edição.
+
+**O defeito principal não era estético.** `banco-leads/page.tsx` dividia a carteira com
+`ORIGENS_PLACES.has(l.origem)` e mandava **todo o resto** para uma tabela de título fixo
+"Instagram". Lead de anúncio (`origem='meta_ads'`, migration 091) era apresentado ao operador
+como lead de Instagram. Em paralelo, `ORIGENS_VALIDAS` (`api-banco-leads.js:83`) não conhecia
+`meta_ads`: o filtro `?origem=meta_ads` não casava com nada e era **ignorado em silêncio**,
+devolvendo a carteira inteira como se o filtro não existisse.
+
+**Decisão 1 — o vocabulário de origem ganhou DONO, nos dois lados.**
+`backend/src/services/lead-origem.js` (PURO) é a fonte única: `ORIGENS` espelha a CHECK
+`prospects_origem_chk` e há teste anti-drift que lê a migration 091 e falha se as duas
+divergirem. A rota deixou de guardar `ORIGENS_VALIDAS` e `ORIGENS_PLACES` (guarda de regressão
+lê o fonte). `frontend/lib/lead-origem.js` só TRADUZ — mesmo contrato de `lib/site-rotulos.js`.
+**Alternativa descartada:** acrescentar `'meta_ads'` ao `Set` existente. Resolveria o sintoma e
+deixaria a lista em quatro lugares que não se conhecem — foi exatamente isso que produziu o bug.
+
+**Decisão 2 — ausência de filtro é `null`, nunca lista vazia.** `origensDoFiltro` devolve `null`
+para valor desconhecido, e o `WHERE` simplesmente não recebe a cláusula. Uma lista vazia viraria
+`origem = ANY('{}')`, que não casa com lead nenhum: um valor errado na URL esvaziaria a carteira
+em vez de ser ignorado.
+
+**Decisão 3 — origem desconhecida aparece COMO ELA MESMA.** Nunca escondida e nunca trocada por
+outra fonte (mesma disciplina de `lib/capacidades.js` com capacidade desconhecida). Foi o `else`
+silencioso que produziu o defeito; trocar de `else` só mudaria a fonte errada.
+
+**Decisão 4 — `linkedin` é ROTULADO mas não tem opção no seletor.** O motor existe e nenhuma
+coleta o usa; um filtro que devolve zero sempre treina o operador a desconfiar do filtro. Se um
+lead `linkedin` aparecer, a coluna Origem o nomeia corretamente.
+
+**Decisão 5 — a régua de cadastro do lead de anúncio NÃO foi alterada.** `meta_ads` continua
+pontuando pela régua de Instagram (0–60), como já fazia. Mudar isso é criar uma terceira régua —
+decisão de produto própria, e trocá-la dentro de um diff de apresentação alteraria a ordenação
+da carteira sem ninguém pedir. **Dívida declarada.** A bolinha já exibe o máximo (`30/60` ×
+`50/100`), então as duas réguas continuam distinguíveis na mesma lista.
+
+**Decisão 6 — a paginação e a ordenação viraram uma só.** Já eram uma só no servidor: `GET
+/leads` ordena pela fila de trabalho e devolve `meta.total_carteira`. Duas paginações no cliente
+partiam essa fila ao meio, e o 1º lead de cada metade disputava o topo sem nada dizer qual era o
+mais urgente. **Nenhuma rota mudou** — a unificação é de apresentação.
+
+**Decisão 7 — o escopo da seleção passou a ser DITO.** "Selecionar todos os filtrados"
+selecionava o conjunto **carregado** (janela de 300 sobre carteira maior). O texto agora vem de
+`escopoDaSelecao` (puro, testado), que declara a diferença quando ela existe e tem guarda de
+regressão contra as frases "todos os resultados" / "toda a carteira" / "todos os filtrados".
+
+**Decisão 8 — o painel de disparo foi RECOLHIDO, não simplificado.** Os três cartões de modo
+continuam sendo `radiogroup` com a descrição de cada modo — a decisão de 2026-09 de não voltar
+ao `<select>` segue valendo. O que mudou é que a CONFIGURAÇÃO nasce fechada e o ESTADO fica numa
+faixa de uma linha. O motivo de um bloqueio nunca entra no que se recolhe (`faixaDeEnvio`, puro,
+com teste de que todo estado tem rótulo em texto).
+
+**O que NÃO foi tocado, de propósito:** `services/rodar-leads.js` (tem a sua própria cópia de
+`ORIGENS_PLACES`, no caminho de disparo em produção — o drift é impedido por teste, não por
+refatoração), regra de envio, teto, cooldown, capacidades, recorte por responsável/equipe e
+qualquer rota.
+
+**Validação:** `npx tsc --noEmit` limpo, `node --test lib/*.test.js` 747/747, `npx next build` OK,
+e no backend `node --test` nas 5 suítes afetadas (85/85). ⚠️ **Verificação visual ao vivo não foi
+feita** — sem navegador na sessão, e subir o backend local apontaria para o banco de produção.
+
+## 2026-09-22 — Ficha do lead: uma superfície com quatro seções (Etapa 2 da repaginação)
+
+**O defeito.** Eram DOIS modais para o MESMO lead, abertos por gatilhos diferentes da MESMA
+linha: `ConversaHistoricoModal` (conversa, status, registro de reunião/ligação/descarte) e
+`LeadDetalhesModal` (ICP, cadastro, evidências). Cada um repetia o resumo do lead no topo, e
+quem estava na conversa e precisava do ICP fechava um para abrir o outro — perdendo o que estava
+lendo e a posição na lista.
+
+**Decisão 1 — NADA foi reimplementado.** Os dois componentes continuam donos do que fazem e
+viraram o conteúdo de duas seções, por uma prop `variante="embutido"` que só tira a moldura.
+`FichaLead.tsx` é a moldura e o vocabulário; ele não sabe enviar mensagem nem marcar ICP.
+Reescrever a conversa dentro da ficha seria a duplicação que `ConversaPainel` já proíbe na
+Central de Mensagens.
+
+**Decisão 2 — as seções NÃO DESMONTAM ao trocar de aba, e isto não é otimização.**
+`LeadDetalhesModal` submete o veredito FINAL do ICP (`finalizar: true`) na limpeza do efeito de
+saída — é assim que Lead A atravessa a porta da triagem. Desmontá-lo a cada clique numa aba
+mandaria um `finalizar` **por clique**. As duas seções pesadas ficam montadas enquanto a ficha
+está aberta e apenas mudam de visibilidade, pelo mesmo motivo que `RotinasAquisicao` fica sempre
+montado ao alternar Busca/Rotinas. **O autosave, a proteção contra resposta atrasada
+(`autosaveSeqRef`) e o envio de saída não foram tocados.**
+
+**Decisão 3 — `LeadDetalhesModal` continua servindo a Aquisição sem mudar.** `variante` e `secao`
+têm default (`'modal'`, `'tudo'`), então `ProspeccaoPainel` renderiza exatamente o que
+renderizava. A alternativa (extrair um `LeadDetalhesConteudo` novo) obrigaria a hoistar o estado
+do autosave para fora do componente que o criou — mais diff, no arquivo mais delicado dos dois.
+
+**Decisão 4 — o lead da ficha é VIVO, com fotografia de segurança.** Ele sai de `leads` (para
+acompanhar o autosave e a edição de telefone), com fallback para a cópia do instante da abertura.
+Sem o fallback, marcar "respondeu" ou "descartado" move o lead para outra aba, ele sai de `leads`
+no `carregarLeads` seguinte e **a ficha sumiria da tela logo depois da ação que o operador acabou
+de registrar**.
+
+**Decisão 5 — clicar no NOME passa a abrir o Resumo.** É mudança de comportamento numa
+interação muito frequente, e foi tomada a pedido: o nome é a leitura de decisão, não o atalho da
+conversa. O que compensa: a conversa é a 2ª aba, e o **botão de ação da linha** (Enviar /
+Responder / Revisar) e a fila do Semiautomático abrem **direto nela** — quem quer falar com o
+lead continua a um clique. O mapa gatilho→seção vive em `lib/ficha-lead.js`, não espalhado na
+tela.
+
+**Decisão 6 — diálogo aninhado passou a ser anunciado.** `PainelAcaoConversa` e `JsonLeadModal`
+não tinham `role="dialog"`. Ganharam, e a ficha usa isso para não fechar no Escape quando há um
+formulário aberto dentro dela. Corrige de passagem uma lacuna de acessibilidade que já existia.
+
+**Decisão 7 — o painel lateral usa o PRIMITIVO.** `classesFolha`/`classesFundoFolha` ganharam
+`lateral`. Largura fixa (560px): variar com o tamanho da tela faria a ficha cobrir a lista que
+ela existe para preservar.
+
+**Validação:** `npx tsc --noEmit` limpo, `node --test lib/*.test.js` 759/759 (12 novos em
+`ficha-lead.test.js`), `npx next build` OK. ⚠️ **Verificação visual ao vivo não foi feita.**
+
+## 2026-09-22 — Quadro do Dia (Etapa 3 da repaginação, migration 095)
+
+**Aprovação.** O operador aprovou a migration 095 como proposta, e a regra de conclusão
+"exigir evidência, com saída honesta" (AskUserQuestion de 2026-09-22).
+
+**Decisão 1 — tabela própria, não `app.follow_ups`.** Aquela tabela é compromisso com um
+CONTATO e alimenta a fila oficial de toda a equipe. O planejamento pessoal do dia ali dentro
+encheria a fila dos outros e exigiria um valor de `canal` que nenhuma tela executa — a Decisão 4
+de 2026-08-12. Descartado também JSONB em `usuarios_empresas`: sem unicidade (dois arrastes
+simultâneos se sobrescrevem), sem ordem por item e sem como consultar o que foi fechado ontem.
+
+**Decisão 2 — `etapa` é o estado do DIA e não escreve no funil.** Nenhuma instrução da camada
+de dados sai de `plano_dia_itens`; há guarda de regressão que lê o fonte. Cada coluna carrega a
+frase do que o movimento NÃO faz, porque "Feito" ao lado de um CRM é lido como venda fechada.
+
+**Decisão 3 — não existe máquina de estados entre colunas.** Proibir "voltar" transformaria um
+erro de arraste num estado sem saída. A única transição com consequência é a entrada em `feito`.
+
+**Decisão 4 — "Feito hoje" exige evidência, e a evidência é EMPRESTADA.** O servidor consulta
+`LP.sqlUltimaAcao` (`services/lead-parado.js`), dono único de "o que conta como ação". Sem
+evidência, 422 + nota → `autodeclarada`, rotulada como tal no card. Duas réguas de "trabalhou o
+lead" fariam o Quadro e o painel da equipe discordarem sobre a mesma pessoa.
+
+**Decisão 5 — o plano é pessoal, e isso é enforcement, não preferência.** Nenhuma rota aceita
+`usuario_id`; o escopo sai sempre de `req.usuario.id`. Guarda de regressão lê o bloco das rotas.
+
+**Decisão 6 — nenhuma capacidade nova.** Pôr um lead no próprio dia não assume, não transfere e
+não dispara. Criar `PLANO_DIA_*` acrescentaria coluna a uma matriz que ninguém valida.
+
+**Decisão 7 — replanejar é ato humano.** Pendência que se move à meia-noite some do dia em que
+foi planejada sem ninguém decidir. Guarda varre `src/**` e falha se algo com `setInterval`
+importar o módulo. (Mesma disciplina de `lead-parado.js`, que proíbe devolução automática.)
+
+**Decisão 8 — arrastar é atalho, "Mover para" é o caminho.** O arrastar nativo do HTML não
+existe em leitor de tela e é ruim em toque. Todo card tem um `<select>` de verdade.
+
+**Decisão 9 — `GET /leads/:id` nasceu por necessidade, não por simetria.** Um lead planejado
+ontem pode ter mudado de aba e sair da janela da Lista; sem a rota, o card seria um beco sem
+saída ou abriria uma ficha com pontuação parcial. Ela repete o recorte (404, nunca 403) e usa a
+MESMA hidratação da listagem.
+
+**Validação:** backend `npm test` **2443/2445** (as 2 falhas são as de IA que fazem chamada real
+e tomam 429 — ambientais e pré-existentes, registradas na memória do projeto) e
+`npm run typecheck` limpo; frontend `npx tsc --noEmit` limpo, `node --test lib/*.test.js`
+**777/777**, `npx next build` OK. ⚠️ **A migration 095 NÃO foi aplicada** (ela roda no boot) e
+**nenhuma verificação visual ao vivo foi feita.**
+
+## 2026-09-22 — Leads de Pousada invisíveis para o Time Pousada
+
+**Contexto:** o operador relatou que o time de Pousada "não recebeu os leads dividido certinho".
+Diagnóstico somente-leitura em produção mostrou que a distribuição tinha funcionado (131/132 na
+mão dos dois membros) e que o problema era de **visibilidade**.
+
+**Decisão 1 — a causa é a PORTA, não a distribuição.** Os 268 leads do nicho estavam em
+`qualificacao = 'legado'`. O Banco de Leads aplica `sqlAprovado('')` para quem não tem
+`LEAD_VER_BRUTOS` (`__somenteAprovados`, `routes/api-banco-leads.js`), e `sqlAprovado` é ESTRITO —
+`legado` não passa. Vínculo `comercial` com `permissoes = {}` ⇒ zero leads na tela apesar de 131
+atribuídos. **Nenhum defeito de código novo:** é a consequência declarada da migration 071, e o
+caminho de correção (`scripts/aprovar-leads-por-nicho.js`) já existia.
+
+**Decisão 2 — aprovar em lote, com a consequência declarada ao operador ANTES.** A aprovação abre
+também o disparo e a fila de ligações para os 268. A escolha foi confirmada no chat antes de
+gravar; a simulação (padrão do script) rodou primeiro. **Os 3 descartados não foram tocados** —
+reaprová-los desfaria decisão humana.
+
+**Decisão 3 — NÃO forçar a distribuição dos 5 leads que sobraram livres.** `sqlRedistribuivel` os
+protege (4 `follow_up_aberto`, 1 `ja_trabalhado`). A regra "na dúvida, protegido" vale também
+quando o resultado é uma carteira com sobra: mover lead de quem combinou retorno com o cliente
+custa mais que 5 leads na fila.
+
+**Regra que esta sessão confirma, para a próxima:** quando um operador disser "a equipe não
+recebeu os leads", são DUAS perguntas distintas e a ordem importa — (1) os leads têm
+`nicho_id` do nicho da equipe? (2) eles estão `qualificacao='aprovado'`? A primeira foi a causa em
+2026-09-21 (Energia Solar); **esta foi a segunda**. Atribuição sem aprovação é carteira invisível.
+
+## 2026-09-22 — Aquisição: a fonte virou filtro, não tela (Etapa 4 da repaginação)
+
+**Decisão 1 — corrigir o backend ANTES de unificar a tela.** `normalizarOrigemFiltro` mandava
+todo valor desconhecido para `'manual'`: `?origem=instagram` devolvia leads do Google Places, em
+silêncio. Uma lista unificada com filtro de origem sobre esse normalizador mentiria a cada
+recorte. O normalizador passou a delegar ao dono do vocabulário (`services/lead-origem.js`), e o
+`WHERE` virou `origem = ANY($n)`.
+
+**Decisão 2 — dois testes que afirmavam o defeito foram reescritos.**
+`test/prospect-filters.test.js` cobrava literalmente "desconhecido cai em manual". Mantê-los
+seria preservar o bug por ter teste. O arquivo registra, no lugar, por que a regra mudou.
+
+**Decisão 3 — unificar Resultados é legítimo porque a paginação é do servidor.** Todas as
+origens vivem em `prospectador.prospects` e a rota pagina e ordena lá. Se fossem endpoints
+diferentes, juntar uma página de cada no navegador produziria um recorte que ninguém consegue
+explicar — e o pedido proíbe isso explicitamente.
+
+**Decisão 4 — fonte do formulário ≠ recorte da lista.** Era `fonteBusca === 'meta_ads'` cravado
+na consulta; foi isso que produziu três telas. `metaAds` passou a significar "recortou por Meta".
+
+**Decisão 5 — Meta continua sem rotina, e a tela diz isso.** O seletor do modo Rotinas só oferece
+Places e Instagram, com a frase que explica onde a Meta fica. Criar uma rotina Meta por analogia
+visual prometeria automação que o backend não executa.
+
+**Decisão 6 — Instagram entra por SLOT, não reimplementado.** Campanhas, cotas e sementes têm
+endpoints próprios; duplicá-los criaria duas regras de cota sobre a mesma conta paga.
+
+**Decisão 7 — o id do modo de busca continua `busca`.** Renomear para `buscas` só para casar com
+o rótulo invalidaria `sessionStorage` e links já compartilhados.
+
+**Decisão 8 — "Google CSE" saiu por estar ERRADO, não por ser técnico.** A descoberta de
+Instagram migrou para a busca da Bright Data; a tela nomeava um provedor que o fluxo não usa.
+
+**Validação:** backend `npm test` **2444/2446** (as 2 de sempre, IA com 429) e `npm run typecheck`
+limpo; frontend `npx tsc --noEmit` limpo, `node --test lib/*.test.js` **777/777**,
+`npx next build` OK. ⚠️ **Verificação visual ao vivo não foi feita.**
+
+## 2026-09-22 — Follow-ups, Minha Operação e a avaliação da Central de Mensagens (Etapa 5)
+
+**Decisão 1 — a instrução longa saiu da varredura, não do produto.** A coluna "Por que agora"
+mostrava `motivo` + `orientacao` em toda linha. `motivoDaLinha` recorta a PRIMEIRA FRASE e o
+texto inteiro vai para o tooltip (`TextoTruncado`, que só mostra a dica quando há transbordo).
+O `curto` é sempre um **prefixo literal** do que o backend mandou — resumir com outras palavras
+seria a tela reescrevendo o veredito do servidor.
+
+**Decisão 2 — a falha continua fora do recorte.** `tem_falha` é linha própria e visível.
+Bloqueio não se recolhe, e o módulo puro nem conhece `falha_motivo` (há guarda).
+
+**Decisão 3 — "Origem" virou "Origem da tarefa".** Com a coluna Origem (fonte de aquisição)
+nascendo no Banco de Leads e na Aquisição nesta mesma rodada, o rótulo antigo passou a nomear
+duas coisas diferentes em telas vizinhas.
+
+**Decisão 4 — o plano do dia entra em Minha Operação como bloco PRÓPRIO.** Pô-lo dentro da lista
+"precisa da sua ação agora" contaria o mesmo trabalho duas vezes: aquela lista cobra, o plano é
+escolha, e os follow-ups da pessoa provavelmente já estão dentro do plano. É o "integrar o
+Quadro do Dia sem duplicar retornos".
+
+**Decisão 5 — a contagem do plano é reexportada, não recontada.** Duas contas fariam a home e o
+Quadro discordarem sobre o que a pessoa planejou.
+
+**Decisão 6 (a que NÃO foi implementada) — a Central de Mensagens fica como está.** A listagem
+tem 9 colunas, e quatro delas são julgamentos sobre o MESMO lead lado a lado (Temperatura,
+Interesse, Estágio, Status) — o mesmo padrão que a `BolinhaPontuacao` corrigiu em outras telas,
+onde pontuações diferentes na mesma linha sugeriam medir a mesma coisa. **Não reduzi as colunas**
+por três razões: (a) o pedido desta área era *preservar* o modelo de atendimento e as permissões;
+(b) reduzir coluna de uma tela de atendimento sem verificação visual é exatamente o que a Fase 5
+do workflow proíbe; (c) o caminho correto já existe no repositório e é uma **preferência de
+colunas** (o "⚙ Personalizar" do Banco de Leads), que é feature própria, não repaginação.
+**Fica como decisão aberta para o operador.**
+
+**Validação:** frontend `npx tsc --noEmit` limpo, `node --test lib/*.test.js` **783/783**,
+`npx next build` OK. Nenhum arquivo de backend foi tocado nesta etapa.
+⚠️ **Verificação visual ao vivo não foi feita.**
+
+## 2026-09-22 — Desativar membro devolve o trabalho dele
+
+**Gatilho:** o operador, ao resolver o resíduo de Energia Solar, declarou: *"Desativei alguns
+membros, o aplicativo precisa estar preparado para esse tipo de situação."*
+
+**Decisão 1 — desativar DEVOLVE, e isso REVERTE uma regra declarada.** A Etapa 12 do CRM em equipe
+afirmava que desativar "revoga acesso e não redistribui". A medição mostrou o custo: 184 leads
+trabalháveis e 7 follow-ups em aberto presos em contas desativadas, invisíveis para toda a equipe
+(o recorte do comercial é "meus + livres", e lead de um desativado não é nem um nem outro).
+`AGENTS.md` foi corrigido nos dois pontos — a regra antiga está marcada como SUPERADA, não apagada.
+
+**Decisão 2 — devolve para a FILA, nunca redistribui.** Escolher um substituto seria inventar dono,
+o mesmo erro que a quarentena de webhook (060) e a instância de envio (Fase 2) removeram. A fila é
+estado legítimo em leads (072), conversas (074) e follow-ups (062).
+
+**Decisão 3 — histórico não se mexe.** Só o trabalho PENDENTE volta: follow-up concluído,
+cancelado e falhado continua com a autoria de quem o executou. Reescrever o responsável ali apagaria
+a autoria de um trabalho que aconteceu de verdade.
+
+**Decisão 4 — `liberarLeadsDoMembro` deixou de filtrar por `qualificacao`.** Era ela que produzia o
+resíduo relatado: lead `descartado` ficava grudado para sempre em quem saiu da equipe (43 leads
+medidos). Descartado não aparece na tela de ninguém, então o dono errado nunca é visto — e continua
+contando na carteira dela.
+
+**Decisão 5 — a reativação NÃO desfaz.** Não há como saber quais itens eram dela sem recriar o
+estado de um instante passado, e devolver o lote errado é pior: a carteira pode já ter sido
+trabalhada por outra pessoa. Reatribuir é ato humano, e o histórico de cada item diz de quem era.
+
+**Decisão 6 — a ordem é: sai das equipes ANTES de devolver a carteira.** Com o vínculo de equipe
+ainda aberto, a pessoa conta como membro ativo e um rebalanceamento concorrente devolveria para ela
+exatamente o que se acabou de tirar.

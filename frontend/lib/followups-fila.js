@@ -703,6 +703,33 @@ function opcoesDeResponsavel(itens) {
   return temSemDono ? [{ valor: 'sem', label: 'Não atribuído' }, ...lista] : lista
 }
 
+/**
+ * O "Por que agora" da LINHA — curto — e o texto INTEIRO, para o tooltip/ficha.
+ *
+ * ⚠️ O que isto corrige: a coluna renderizava `motivo` (texto livre do backend) MAIS
+ * `orientacao` logo abaixo, em toda linha. Numa fila de 25 itens isso vira um parágrafo por
+ * linha, e o operador para de ler os 25 — o que ele precisa varrer é prazo, lead, canal e
+ * próxima ação. A explicação longa continua existindo; ela sai da varredura.
+ *
+ * ⚠️ NADA É INVENTADO E NADA É PERDIDO. `curto` é um RECORTE do que o backend mandou (primeira
+ * frase), nunca um resumo reescrito; `completo` carrega motivo + orientação inteiros. Sem
+ * motivo, os dois voltam vazios e a tela mostra "—" — nunca uma frase de enfeite.
+ *
+ * A FALHA NÃO PASSA POR AQUI, de propósito: `item.tem_falha` continua sendo uma linha própria
+ * e visível na célula. Diagnóstico de envio não é contexto, é bloqueio.
+ */
+function motivoDaLinha(item) {
+  const motivo = String((item && item.motivo) || '').trim()
+  const orientacao = String((item && item.orientacao) || '').trim()
+  const completo = [motivo, orientacao].filter(Boolean).join(' ')
+  if (!motivo) return { curto: '', completo, temMais: !!completo }
+  // Primeira frase: corta no primeiro `.`/`!`/`?` seguido de espaco ou fim. Sem pontuacao, o
+  // motivo inteiro e' a frase — nao se corta no meio de uma palavra so' para caber.
+  const m = motivo.match(/^[\s\S]*?[.!?](?=\s|$)/)
+  const curto = (m ? m[0] : motivo).trim()
+  return { curto, completo, temMais: completo.length > curto.length }
+}
+
 module.exports = {
   SITUACOES,
   SITUACAO_LABEL,
@@ -726,6 +753,7 @@ module.exports = {
   estadoEmailInicial, alternarTemEmail, patchEmailDisponibilidade,
   LIMITE_ASSUNTO_EMAIL, LIMITE_CORPO_EMAIL, EMAIL_DESTINO_AJUDA, EMAIL_CANDIDATOS_AJUDA,
   VIEW_PADRAO,
+  motivoDaLinha,
   montarFila,
   ordenarFila,
   emAberto,

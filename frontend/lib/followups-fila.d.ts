@@ -219,3 +219,14 @@ export {
   TAMANHOS_PAGINA, POR_PAGINA_PADRAO,
   normalizarPorPagina, paginar, resumoIntervalo, mostrarPaginacao,
 } from './paginacao'
+
+export interface MotivoDaLinha {
+  /** A primeira frase do motivo — o que a linha mostra. Vazio quando não há motivo. */
+  curto: string
+  /** Motivo + orientação, inteiros. Vai para o tooltip; nunca para a varredura. */
+  completo: string
+  temMais: boolean
+}
+
+/** Recorta o "Por que agora" para a linha. Não resume, não inventa e não esconde falha. */
+export function motivoDaLinha(item: { motivo?: string | null; orientacao?: string | null } | null | undefined): MotivoDaLinha

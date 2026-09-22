@@ -54,7 +54,7 @@ export const TAMANHO_FOLHA_PADRAO: TamanhoFolha
 export function normalizarTamanhoFolha(t: unknown): TamanhoFolha
 
 /** Fundo escurecido: folha ancorada embaixo no celular, modal centrado a partir de `sm`. */
-export function classesFundoFolha(opcoes?: { extra?: string }): string
+export function classesFundoFolha(opcoes?: { extra?: string; lateral?: boolean }): string
 
 /** Superfície flutuante: folha inferior no celular, modal centrado a partir de `sm`. */
-export function classesFolha(opcoes?: { tamanho?: TamanhoFolha; extra?: string }): string
+export function classesFolha(opcoes?: { tamanho?: TamanhoFolha; extra?: string; lateral?: boolean }): string

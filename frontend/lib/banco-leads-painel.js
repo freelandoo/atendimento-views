@@ -128,3 +128,84 @@ export const LIMPEZA = Object.freeze({
     + 'toda a carteira desta empresa.',
   rotuloConfirmar: 'Limpar leads sem contato',
 })
+
+
+/**
+ * O ESCOPO da selecao em massa, em texto. Existe para a tela nao PROMETER mais do que ela
+ * alcanca.
+ *
+ * O defeito que ele fecha: o atalho se chamava "Selecionar todos os filtrados" e selecionava o
+ * conjunto **ja carregado** — a listagem devolve uma JANELA (300 por padrao) sobre uma carteira
+ * que costuma ser maior. Quem tem 1.240 leads no filtro e le "todos os filtrados" conclui que
+ * mandou gerar mensagem para os 1.240.
+ *
+ * Regras que sao contrato:
+ *   • nunca usar "todos os resultados" / "toda a carteira" para uma selecao limitada ao que
+ *     esta carregado;
+ *   • quando a carteira e' maior que a janela, a diferenca e' DITA, nao escondida;
+ *   • `null` em `totalCarteira` = ninguem contou. Nesse caso nao se afirma nem que alcanca
+ *     tudo nem que falta algo.
+ */
+export function escopoDaSelecao({ selecionados = 0, naPagina = 0, carregados = 0, totalCarteira = null } = {}) {
+  const sel = Math.max(0, Number(selecionados) || 0)
+  const pag = Math.max(0, Number(naPagina) || 0)
+  const car = Math.max(0, Number(carregados) || 0)
+  const total = Number.isFinite(Number(totalCarteira)) && totalCarteira !== null
+    ? Math.max(0, Number(totalCarteira))
+    : null
+  const janelaParcial = total !== null && car > 0 && total > car
+  return {
+    ativo: sel > 0,
+    rotulo: `${sel} lead${sel === 1 ? '' : 's'} selecionado${sel === 1 ? '' : 's'}`,
+    // Ampliar so' faz sentido enquanto sobra lead carregado fora da selecao.
+    podeAmpliar: car > sel,
+    rotuloAmpliar: `Selecionar os ${car} carregados`,
+    podeSelecionarPagina: pag > 0,
+    rotuloPagina: `Selecionar esta página (${pag})`,
+    // A frase que impede a promessa. Vazia quando a janela ja cobre a carteira inteira.
+    aviso: janelaParcial
+      ? `A seleção alcança apenas os ${car} leads carregados nesta tela — a carteira filtrada tem ${total}.`
+      : '',
+  }
+}
+
+/**
+ * A FAIXA DE ENVIO — o resumo de uma linha que fica sempre visivel enquanto a configuracao do
+ * disparo vai para dentro de um painel recolhido.
+ *
+ * O que NUNCA pode ser recolhido: o motivo de o envio estar bloqueado. Esconder isso atras de
+ * um botao faria o operador clicar em "Enviar" e nao entender por que nada acontece. Por isso
+ * `estado` e `detalhe` saem prontos daqui, e o painel guarda so' o que e' CONFIGURACAO.
+ *
+ * `tom` e' reforco: o rotulo em texto ("Envio bloqueado", "Aguardando") vai junto, sempre.
+ */
+export function faixaDeEnvio({ modoLabel = '', instanciaLabel = '', conexao = '', motivoBloqueio = '', cooldown = '', automatico = false, autoAtivo = false } = {}) {
+  const bloqueio = String(motivoBloqueio || '').trim()
+  const espera = String(cooldown || '').trim()
+  let estado = 'liberado'
+  let rotulo = 'Envio liberado'
+  let detalhe = automatico
+    ? 'A rotina envia 1 lead por vez na janela configurada.'
+    : 'Clique no telefone do lead para revisar e enviar.'
+  if (bloqueio) {
+    estado = 'bloqueado'
+    rotulo = 'Envio bloqueado'
+    detalhe = bloqueio
+  } else if (espera) {
+    estado = 'aguardando'
+    rotulo = `Próximo envio em ${espera}`
+    detalhe = 'Intervalo de segurança entre disparos.'
+  } else if (automatico && !autoAtivo) {
+    estado = 'parado'
+    rotulo = 'Rotina parada'
+    detalhe = 'O modo Automático está desligado.'
+  }
+  return {
+    estado,
+    rotulo,
+    detalhe,
+    tom: estado === 'bloqueado' ? 'danger' : estado === 'aguardando' ? 'warn' : estado === 'parado' ? 'neutro' : 'ok',
+    // Resumo do que esta configurado, para o painel poder ficar fechado sem esconder o essencial.
+    resumo: [modoLabel, instanciaLabel, conexao].map((x) => String(x || '').trim()).filter(Boolean),
+  }
+}

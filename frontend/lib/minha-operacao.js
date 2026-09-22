@@ -1,4 +1,8 @@
 'use strict'
+// O resumo do plano do dia é REEXPORTADO de `lib/plano-dia.js` (padrão de `paginacao.js` /
+// `lead-identidade.js`): uma segunda contagem aqui faria a home e o Quadro discordarem sobre
+// quantos leads a pessoa planejou hoje — e a home é onde ela decide se abre o Quadro.
+const { resumoDoDia } = require('./plano-dia')
 // "Minha Operação" — a Visão Geral do COMERCIAL. APRESENTAÇÃO PURA.
 //
 // ─── POR QUE ESTA TELA EXISTE ───────────────────────────────────────────────────────────
@@ -236,6 +240,7 @@ function visaoDoPainel(capacidades) {
 }
 
 module.exports = {
+  resumoDoDia,
   MARCOS,
   PASSOS,
   PRAZO_VENCIDO,

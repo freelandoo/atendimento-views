@@ -1,4 +1,5 @@
 'use strict'
+const { origensDoFiltro } = require('./lead-origem')
 
 function normalizarTexto(valor, max = 160) {
   return String(valor == null ? '' : valor).trim().slice(0, max)
@@ -26,17 +27,24 @@ function termoBuscaProspect(query = {}) {
 }
 
 /**
- * Origem do prospect no recorte da listagem. `meta_ads` é uma origem própria porque a aba Meta
- * da Aquisição precisa recortar só os anunciantes descobertos por anúncio. Qualquer outro valor
- * não vazio cai em 'manual' (o mundo pré-automação). Vazio = sem filtro.
+ * Origem do prospect no recorte da listagem — delega ao DONO do vocabulário
+ * (`services/lead-origem.js`, travado contra a CHECK `prospects_origem_chk`).
+ *
+ * ⚠️ DEFEITO CORRIGIDO (2026-09-22): a versão anterior mandava **qualquer valor não vazio que
+ * não fosse `meta_ads`/`automatico` para `'manual'`**. Ou seja, `?origem=instagram` virava
+ * `WHERE origem = 'manual'` — a Aquisição respondia com leads do Google Places para quem pediu
+ * Instagram, em silêncio. É a MESMA classe do defeito que `ORIGENS_VALIDAS` tinha no Banco de
+ * Leads, e some pelo mesmo caminho: o vocabulário tem um dono só.
+ *
+ * Devolve uma LISTA de origens (grupo ou origem isolada), ou `null` para "sem filtro". `null`
+ * e nunca lista vazia: `origem = ANY('{}')` não casa com lead nenhum e esvaziaria a tela em vez
+ * de ignorar um valor desconhecido.
+ *
  * Vive aqui, junto dos demais filtros, porque a listagem e a contagem por status precisam
  * recortar exatamente o mesmo universo — duas normalizações diferentes dariam dois números.
  */
 function normalizarOrigemFiltro(v) {
-  const origem = String(v || '').trim().toLowerCase()
-  if (!origem) return ''
-  if (origem === 'meta_ads') return 'meta_ads'
-  return origem === 'automatico' ? 'automatico' : 'manual'
+  return origensDoFiltro(v)
 }
 
 function normalizarFiltroSite(v) {

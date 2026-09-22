@@ -1217,3 +1217,126 @@ existe e nao deve nascer.
 - **Validacao executada:** `npm test` (backend, 2298/2300 — os 2 flaky de IA por 429,
   pre-existentes), `npm run typecheck` (backend, limpo), `npx tsc --noEmit` e
   `node --test lib/*.test.js` (704) no frontend. **Verificacao visual ao vivo NAO foi feita.**
+
+## 2026-09-22 — Banco de Leads: lista unificada por origem (Etapa 1 da repaginação)
+
+- **Arquivos:** `backend/src/services/lead-origem.js` (novo, PURO),
+  `backend/src/routes/api-banco-leads.js`, `backend/test/lead-origem.test.js` (novo),
+  `backend/package.json` (registra a suíte), `frontend/lib/lead-origem.{js,d.ts,test.js}`
+  (novos), `frontend/lib/banco-leads-painel.{js,d.ts,test.js}`,
+  `frontend/app/dashboard/banco-leads/page.tsx`.
+- **Regras a preservar:**
+  - **A origem é o que o COLETOR gravou.** Nada a deduz de `instagram_handle`, `place_id`,
+    `site` ou `link_original` — guardas de regressão nos dois módulos.
+  - **Origem desconhecida aparece como ela mesma**, nunca como outra fonte e nunca escondida.
+  - **`meta_ads` não é Instagram.** Guarda no teste do front e no do back.
+  - **Filtro desconhecido = sem filtro (`null`)**, nunca `ANY('{}')` (que esvaziaria a carteira).
+  - **Anti-drift com a CHECK `prospects_origem_chk`** (migration 091): origem nova exige os dois
+    lados no mesmo diff.
+  - **A rota não guarda lista própria de origens** (`ORIGENS_VALIDAS`/`ORIGENS_PLACES` removidos).
+  - **A seleção em massa não promete além da janela carregada** — texto vem de `escopoDaSelecao`,
+    com guarda contra "todos os resultados"/"toda a carteira"/"todos os filtrados".
+  - **O motivo de um bloqueio de envio nunca é recolhido** nem depende de hover (`faixaDeEnvio`).
+  - **O menu lateral não é alterado** por nenhuma etapa desta repaginação.
+- **Fora de escopo:** régua de cadastro do lead de anúncio (continua a de Instagram, dívida
+  declarada), `services/rodar-leads.js`, regra de envio/teto/cooldown, capacidades, recorte por
+  responsável e qualquer rota nova.
+- **Validação executada:** frontend `npx tsc --noEmit` limpo, `node --test lib/*.test.js` 747/747,
+  `npx next build` OK; backend `node --test` nas suítes afetadas (85/85). **Verificação visual ao
+  vivo NÃO foi feita** (sem navegador na sessão; subir o backend local usaria o banco de produção).
+
+## 2026-09-22 — Ficha do lead unificada (Etapa 2 da repaginação)
+
+- **Arquivos:** `frontend/components/FichaLead.tsx` (novo),
+  `frontend/lib/ficha-lead.{js,d.ts,test.js}` (novos),
+  `frontend/lib/ui-primitivos.{js,d.ts}` (opção `lateral`),
+  `frontend/components/LeadDetalhesModal.tsx` (props `variante`/`secao`),
+  `frontend/components/ConversaHistoricoModal.tsx` (prop `variante`),
+  `frontend/components/ui/JsonLeadModal.tsx` (`role="dialog"`),
+  `frontend/app/dashboard/banco-leads/page.tsx`. **Nenhum arquivo de backend.**
+- **Regras a preservar:**
+  - **As seções da ficha NÃO desmontam ao trocar de aba.** `LeadDetalhesModal` submete o
+    `finalizar` do ICP na limpeza do efeito de saída; desmontar por aba mandaria um por clique.
+  - **`LeadDetalhesModal` e `ConversaHistoricoModal` continuam donos do que fazem.** Proibido
+    criar dentro da ficha um segundo motor de conversa ou uma segunda marcação de ICP.
+  - **Defaults preservam a Aquisição:** `variante='modal'`, `secao='tudo'`.
+  - **O lead da ficha tem fallback para a fotografia da abertura** — sem ele a ficha some da
+    tela depois de um status que tira o lead da aba atual.
+  - **Aba indisponível fica visível, desabilitada, com motivo em texto.**
+  - **Escape não fecha a ficha quando há `[role="dialog"]` aninhado.**
+  - **O mapa gatilho→seção vive em `lib/ficha-lead.js`** (nome→resumo, telefone/ação→conversa,
+    pontuação→qualificação, origem→fontes), nunca espalhado na tela.
+- **Mudança de comportamento declarada:** clicar no nome abre o Resumo (antes abria a conversa).
+- **Validação:** `npx tsc --noEmit` limpo, `node --test lib/*.test.js` 759/759, `npx next build` OK.
+  **Verificação visual ao vivo NÃO foi feita.**
+
+## 2026-09-22 — Quadro do Dia (Etapa 3 da repaginação, migration 095)
+
+- **Arquivos:** `backend/sql/migrations/095_plano_dia.sql` (novo),
+  `backend/src/services/plano-dia.js` (novo, PURO), `backend/src/db/plano-dia.js` (novo),
+  `backend/src/routes/api-banco-leads.js` (5 rotas do Quadro + `GET /leads/:id`),
+  `backend/test/plano-dia.test.js` (novo), `backend/package.json`,
+  `frontend/lib/plano-dia.{js,d.ts,test.js}` (novos),
+  `frontend/components/QuadroDoDia.tsx` e `ModalPlanejarDia.tsx` (novos),
+  `frontend/app/dashboard/banco-leads/page.tsx`.
+- **Regras a preservar:**
+  - **`etapa` é o estado do DIA.** A camada de dados não escreve fora de `plano_dia_itens`
+    (guarda de regressão), não toca `status`/`qualificacao`/`responsavel_id`/`icp_*` e não
+    dispara abordagem.
+  - **Toda coluna declara em TEXTO o que o movimento não faz.**
+  - **"Feito hoje" exige evidência**; sem ela, só com nota, e marcado `autodeclarada`.
+    **Autodeclaração nunca é exibida como evidência.**
+  - **"O que conta como ação" é emprestado de `services/lead-parado.js`** — nunca reescrito.
+  - **O plano é pessoal:** nenhuma rota aceita `usuario_id` (guarda lê o fonte).
+  - **`GET /plano-dia` é read-only** (guarda lê o fonte).
+  - **Replanejar é ato humano** — nenhum worker pode importar o módulo (guarda varre `src/**`).
+  - **Antiduplicidade no banco** (`UNIQUE empresa+usuario+dia+prospect`), nunca na aplicação.
+  - **"Mover para" (teclado/toque) nunca pode sumir** — arrastar é só atalho.
+  - **Anti-drift** das 3 CHECKs da migration 095 com o vocabulário do módulo puro.
+- **Fora de escopo:** quadro de equipe, devolução/transferência de lead pelo Quadro, worker de
+  replanejamento, e qualquer mudança em envio, coleta paga, follow-up automático ou agenda.
+- **Validação:** backend `npm test` 2443/2445 (2 flaky de IA por 429, pré-existentes),
+  `npm run typecheck` limpo; frontend `npx tsc --noEmit` limpo, `node --test lib/*.test.js`
+  777/777, `npx next build` OK. **Migration não aplicada; verificação visual não feita.**
+
+## 2026-09-22 — Aquisição: Resultados · Buscas · Rotinas (Etapa 4 da repaginação)
+
+- **Arquivos:** `backend/src/services/prospect-filters.js`, `backend/src/prospecting.js`,
+  `backend/test/prospect-filters.test.js`, `frontend/app/dashboard/aquisicao/page.tsx`,
+  `frontend/components/ProspeccaoPainel.tsx`, `frontend/components/RotinasAquisicao.tsx`,
+  `frontend/app/dashboard/captacao/page.tsx`.
+- **Regras a preservar:**
+  - **O filtro de origem delega a `services/lead-origem.js`** — origem desconhecida é `null`
+    (sem filtro), nunca outra origem e nunca lista vazia.
+  - **A lista unificada depende da paginação do SERVIDOR.** Proibido juntar páginas de
+    endpoints diferentes no navegador.
+  - **Fonte do formulário ≠ recorte da lista.** `metaAds` = "recortou por Meta".
+  - **A tela declara o recorte de origem em vigor.**
+  - **Coluna Origem não é ordenável** (voltaria a agrupar por fonte).
+  - **Meta não tem rotina**, e a ausência é dita em texto.
+  - **A coleta de Instagram entra por slot, nunca reimplementada.**
+  - **O id do modo de busca é `busca`** (sessionStorage + links).
+  - **Nada de provedor, teto, retry ou política de coleta foi alterado.**
+- **Validação:** backend `npm test` 2444/2446 (2 flaky de IA por 429) e `npm run typecheck`
+  limpo; frontend `npx tsc --noEmit` limpo, `node --test lib/*.test.js` 777/777,
+  `npx next build` OK. **Verificação visual ao vivo NÃO foi feita.**
+
+## 2026-09-22 — Follow-ups + Minha Operação (Etapa 5 da repaginação)
+
+- **Arquivos:** `frontend/lib/followups-fila.{js,d.ts,test.js}`,
+  `frontend/app/dashboard/follow-ups/page.tsx`, `frontend/lib/minha-operacao.{js,d.ts}`,
+  `frontend/lib/plano-dia.d.ts`, `frontend/components/MinhaOperacao.tsx`.
+  **Nenhum arquivo de backend.**
+- **Regras a preservar:**
+  - **`motivoDaLinha` RECORTA, não resume** — `curto` é prefixo literal do motivo do backend.
+  - **A falha do envio automático nunca entra no recorte** e continua visível na linha.
+  - **"Origem da tarefa" ≠ "Origem" (aquisição)** — dois eixos, dois rótulos.
+  - **O plano do dia é bloco próprio em Minha Operação**, nunca mais um item da lista de
+    pendências (duplicaria retornos).
+  - **A contagem do plano é reexportada de `lib/plano-dia.js`**, nunca recontada.
+  - **Dia sem plano é estado legítimo**, não pendência.
+- **Decisão aberta declarada:** reduzir as 9 colunas da Central de Mensagens (quatro julgamentos
+  sobre o mesmo lead lado a lado) — não feito, por exigir verificação visual e ser feature de
+  preferência de colunas, não repaginação.
+- **Validação:** frontend `npx tsc --noEmit` limpo, `node --test lib/*.test.js` 783/783,
+  `npx next build` OK. **Verificação visual ao vivo NÃO foi feita.**

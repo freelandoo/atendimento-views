@@ -7,8 +7,15 @@ import { EmailEditavel } from '@/components/EmailEditavel'
 import { ContatoEditavel } from '@/components/ContatoEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
-import LeadDetalhesModal, { BolinhaIcp, criteriosDoLead, maximoDoLead } from '@/components/LeadDetalhesModal'
-import ConversaHistoricoModal from '@/components/ConversaHistoricoModal'
+import { BolinhaIcp, criteriosDoLead, maximoDoLead } from '@/components/LeadDetalhesModal'
+// UMA ficha por lead, com quatro seções. Ela não reimplementa nada: `LeadDetalhesModal` e
+// `ConversaHistoricoModal` continuam donos do que fazem e viram o conteúdo de duas seções.
+import FichaLead from '@/components/FichaLead'
+import { secaoDoGatilho, type SecaoFicha } from '@/lib/ficha-lead'
+// O QUADRO DO DIA vive DENTRO do Banco de Leads, como segunda vista da mesma carteira — sem
+// item novo no menu lateral. Ele nao faz uma segunda listagem: recebe os leads que a Lista ja
+// carregou e guarda o planejamento no servidor (migration 095).
+import QuadroDoDia from '@/components/QuadroDoDia'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import FolhaModal from '@/components/ui/FolhaModal'
 import Botao from '@/components/ui/Botao'
@@ -17,6 +24,9 @@ import DataTableFrame from '@/components/ui/DataTableFrame'
 import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink } from '@/lib/site-rotulos'
+// A ORIGEM do lead chega pronta do backend (`prospects.origem`, vocabulario travado em
+// services/lead-origem.js). Este modulo so TRADUZ — a tela nao deduz procedencia.
+import { celulaOrigem, OPCOES_FILTRO_ORIGEM, rotuloFiltroOrigem } from '@/lib/lead-origem'
 import { acessosDoLead, type AcessoRapido } from '@/lib/lead-acessos'
 import { ordemIcp, prioridadeComercialLead, qualificacaoDoLead, resumoIcpDoLead, resumoIcpOperacional, seloIcp, seloValidacaoLead } from '@/lib/lead-icp'
 import { leituraCadastro } from '@/lib/pontuacao-indicador'
@@ -38,15 +48,17 @@ import { temCapacidade } from '@/lib/capacidades'
 // Apresentacao do painel (cartoes do funil, menu de acoes secundarias, pedido de exportacao e
 // o texto do que a limpeza REALMENTE faz). PURO e testado — a tela so desenha.
 import {
-  cartoesDeFunil, itensMaisAcoes, validarExportacao,
+  cartoesDeFunil, itensMaisAcoes, validarExportacao, escopoDaSelecao, faixaDeEnvio,
   COLUNAS_CSV, COLUNAS_CSV_PADRAO, LIMPEZA,
 } from '@/lib/banco-leads-painel'
 import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconSend, IconAlert, IconChevron, IconCheck } from '@/components/ui/icons'
 import type { PayloadProximaAcao } from '@/lib/follow-up-acao'
 
 // Banco de Leads — central de disparo com Modo Manual / Semiautomático / Automático.
-// As duas origens (Google Places e Instagram) em tabelas separadas, com as MESMAS
-// colunas/pontuação/ordenação/JSON da Aquisição, agrupadas nos 3 estágios do funil.
+// UMA lista, com a ORIGEM como coluna e como filtro. Eram duas tabelas (Places x "o resto"),
+// e o "resto" tinha titulo fixo "Instagram": lead de anuncio da Meta aparecia sob a fonte
+// errada, e a fila de trabalho que o servidor ordena chegava partida em duas paginacoes
+// independentes — a prioridade global se perdia entre elas.
 // Consome /api/empresas/:id/banco-leads.
 type JsonApresLead = JsonApresentacao & {
   empresa?: { horario_funcionamento?: boolean; fotos?: number }
@@ -193,11 +205,6 @@ const ABAS: { valor: string; label: string }[] = [
   { valor: 'fecharam', label: 'Fecharam' },
   { valor: 'agendados', label: 'Agendados' },
   { valor: 'descartados', label: 'Descartados' },
-]
-const ORIGENS: { valor: string; label: string }[] = [
-  { valor: '', label: 'Todas as origens' },
-  { valor: 'places', label: 'Google Places' },
-  { valor: 'social', label: 'Instagram' },
 ]
 function opcoesMercado(filtros: FiltrosMercado | null): OpcaoFiltroMercado[] {
   const mapa = new Map<string, OpcaoFiltroMercado>()
@@ -399,8 +406,6 @@ function montarPrevisoesAutomaticas(lista: Lead[], config: Config): Map<string, 
   return mapa
 }
 
-const ORIGENS_PLACES = new Set(['manual', 'automatico'])
-
 // Valor de cada coluna pra ordenação — mesma régua das tabelas de Aquisição.
 function valorColuna(l: Lead, chave: string): number | string {
   switch (chave) {
@@ -474,6 +479,7 @@ const COLUNAS_TOGGLE: { key: string; label: string }[] = [
   { key: 'email', label: 'E-mail' },
   { key: 'endereco', label: 'Endereço' },
   { key: 'nicho', label: 'Nicho / Cidade' },
+  { key: 'username', label: '@username' },
   { key: 'seguidores', label: 'Seguidores' },
   { key: 'aval', label: 'Avaliações' },
   { key: 'nota', label: 'Nota' },
@@ -509,7 +515,10 @@ const ORDENACOES: { valor: string; label: string }[] = [
 // continuam a um clique em "⚙ Personalizar", e os valores estão em "Detalhes" e no tooltip da
 // bolinha. Trocar o padrão (em vez de remover a coluna do código) mantém a mudança reversível
 // pelo próprio operador.
-const COLUNAS_PADRAO_DESLIGADAS = new Set(['qualidade', 'aval', 'nota', 'horario', 'endereco', 'links', 'responsavel'])
+// `username` e `seguidores` entram DESLIGADOS: numa lista unica eles so' tem valor para uma das
+// fontes, e ligados por padrao virariam uma coluna majoritariamente "—". O @ do Instagram nao se
+// perde — ele aparece como detalhe DENTRO da coluna Origem, que e' onde identifica a fonte.
+const COLUNAS_PADRAO_DESLIGADAS = new Set(['qualidade', 'aval', 'nota', 'horario', 'endereco', 'links', 'responsavel', 'username', 'seguidores'])
 
 const VIEW_PADRAO: ViewConfig = {
   cols: Object.fromEntries(COLUNAS_TOGGLE.map((c) => [c.key, !COLUNAS_PADRAO_DESLIGADAS.has(c.key)])),
@@ -529,10 +538,11 @@ const RECORTE_PADRAO = { aba: 'sem_contato', origem: '', mercado: '', cidadeFilt
 
 // Versão da view salva no localStorage. A v1 gravava TODAS as colunas ligadas (era o padrão
 // da época), então um merge simples com o novo padrão faria todo operador existente continuar
-// vendo a tabela larga — a redução não chegaria a ninguém. A migração aplica o novo conjunto
+// vendo a tabela larga — a redução não chegaria a ninguém. A v6 é a lista UNIFICADA: `seguidores`
+// sai do padrão porque, com as fontes na mesma tabela, ela ficaria vazia na maioria das linhas. A migração aplica o novo conjunto
 // de colunas UMA vez e **preserva todos os filtros e a ordenação**, que são trabalho do
 // operador; coluna é layout e volta em um clique.
-const VIEW_VERSAO = 5
+const VIEW_VERSAO = 6
 const CHAVE_VIEW = 'bancoLeadsView'
 
 function migrarView(salvo: Partial<ViewConfig> & { versao?: number }): ViewConfig {
@@ -721,33 +731,95 @@ export default function BancoLeadsPage() {
   const [exportOpen, setExportOpen] = useState(false)
   const [confirmarLimpeza, setConfirmarLimpeza] = useState(false)
   const [ajudaOpen, setAjudaOpen] = useState(false)
-  // Ordenação independente por tabela. O padrão das duas é 'trabalho' = NÃO reordenar: a lista
-  // já vem do servidor na ordem da fila (respondeu → pronto para enviar → não trabalhado → …).
+  // UMA ordenação, porque agora é UMA lista. O padrão é 'trabalho' = NÃO reordenar: a lista já
+  // vem do servidor na ordem da fila (respondeu → pronto para enviar → não trabalhado → …).
+  //
+  // Duas ordenações independentes eram a consequência de duas tabelas: a fila que o servidor
+  // calcula é GLOBAL, e parti-la em duas fazia o 1º lead de cada metade disputar o topo sem que
+  // nada dissesse qual dos dois era o mais urgente.
   //
   // O default anterior era 'pontos ASC' (cadastro MENOS completo primeiro), herdado da Aquisição,
   // onde cadastro fraco é oportunidade. Aqui ele punha na PRIMEIRA linha o lead que não dá para
   // contatar — "sem telefone" vale -10 pontos. Clicar num cabeçalho continua reordenando a
   // página; o botão "Ordem de trabalho" devolve a ordem da fila.
-  const [ordemPlaces, setOrdemPlaces] = useState<Ordem>({ chave: 'trabalho', dir: 'asc' })
-  const [ordemIg, setOrdemIg] = useState<Ordem>({ chave: 'trabalho', dir: 'asc' })
+  const [ordem, setOrdem] = useState<Ordem>({ chave: 'trabalho', dir: 'asc' })
   // Detalhes do lead: destino dos campos que saíram das colunas padrão e do JSON, que deixou
   // de ocupar uma coluna da tela de trabalho.
-  const [detalheAberto, setDetalheAberto] = useState<Lead | null>(null)
-  const [conversaAberta, setConversaAberta] = useState<{ numero: string; titulo: string; leadId: string; mensagemGerada: string | null; rodavel: boolean; status: string; acessos: AcessoRapido[] } | null>(null)
+  /**
+   * A ficha ABERTA, e em que seção. Eram DOIS estados (`detalheAberto` e `ficha`) para
+   * o mesmo lead, abertos por gatilhos diferentes da mesma linha — dois modais, dois resumos e
+   * a posição na lista perdida a cada troca.
+   *
+   * `secao` é do estado da TELA (e não interno da ficha) porque é ela que decide qual seção
+   * cada gatilho abre: o nome abre o Resumo, a pontuação abre a Qualificação, a origem abre as
+   * Fontes e o telefone continua abrindo a Conversa.
+   */
+  const [ficha, setFicha] = useState<{
+    secao: SecaoFicha
+    numero: string; titulo: string; leadId: string; mensagemGerada: string | null
+    rodavel: boolean; status: string; acessos: AcessoRapido[]
+    /** Fotografia do lead no instante da abertura. Ver `leadDaFicha`. */
+    leadAberto: Lead
+  } | null>(null)
+  /**
+   * O lead vivo da ficha sai da lista carregada — assim ele acompanha o que o autosave do ICP e
+   * a edição de telefone já devolveram para `leads`, em vez de congelar no clique.
+   *
+   * ⚠️ Com fallback para a FOTOGRAFIA da abertura, e isso não é preciosismo: marcar o status
+   * ("respondeu", "descartado") move o lead para outra aba, ele sai de `leads` no `carregarLeads`
+   * seguinte e a ficha sumiria da tela no meio do trabalho — justamente depois da ação que o
+   * operador acabou de registrar.
+   */
+  const leadDaFicha = useMemo(
+    () => (ficha ? leads.find((l) => l.id === ficha.leadId) || ficha.leadAberto : null),
+    [ficha, leads]
+  )
   const [enviandoConversa, setEnviandoConversa] = useState(false)
   const [gerandoConversa, setGerandoConversa] = useState(false)
   // Personalizar visualização (colunas + filtros + ordenação; persistida no localStorage)
   const [persAberto, setPersAberto] = useState(false)
   /** Folha de filtros do CELULAR. No computador os mesmos campos ficam na barra. */
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
+  /**
+   * O painel de CONFIGURACAO do disparo (modos, instancia, janela do automatico) nasce
+   * recolhido. Ele ocupava ~260px da primeira dobra para responder a uma pergunta que o
+   * operador faz uma vez por dia — "em que modo eu estou?" —, enquanto o trabalho dele, que e'
+   * a lista, comecava abaixo da tela. O que NAO foi recolhido: o estado do envio e o motivo de
+   * um bloqueio, que continuam na faixa sempre visivel.
+   */
+  const [painelEnvioAberto, setPainelEnvioAberto] = useState(false)
+  /**
+   * Lista x Quadro do dia. É a MESMA carteira, vista de dois jeitos: a Lista é o acervo
+   * ordenado pela fila de trabalho; o Quadro é o recorte que a pessoa escolheu para HOJE.
+   *
+   * Trocar de vista é só apresentação: não dispara busca, não move card, não salva nada e não
+   * altera filtro (mesma regra dos dois modos da Aquisição). O valor vive em `sessionStorage`
+   * + `?vista=`, para um F5 não jogar a pessoa de volta na vista que ela não estava usando.
+   */
+  const [vista, setVista] = useState<'lista' | 'quadro'>('lista')
+  useEffect(() => {
+    const daUrl = new URLSearchParams(window.location.search).get('vista')
+    const salvo = (() => { try { return sessionStorage.getItem('bancoLeadsVista') } catch { return null } })()
+    const alvo = daUrl === 'quadro' || daUrl === 'lista' ? daUrl : (salvo === 'quadro' ? 'quadro' : 'lista')
+    setVista(alvo as 'lista' | 'quadro')
+  }, [])
+  const trocarVista = useCallback((v: 'lista' | 'quadro') => {
+    setVista(v)
+    try { sessionStorage.setItem('bancoLeadsVista', v) } catch { /* aba anônima */ }
+    try {
+      const url = new URL(window.location.href)
+      url.searchParams.set('vista', v)
+      window.history.replaceState(null, '', url.toString())
+    } catch { /* sem history */ }
+  }, [])
   const [view, setView] = useState<ViewConfig>(VIEW_PADRAO)
   const patchView = useCallback((p: Partial<ViewConfig>) => setView((v) => ({ ...v, ...p })), [])
   const fb = useFeedback()
-  // Paginação client-side das duas tabelas (Places/Instagram), sobre a lista já carregada e já
-  // filtrada — mesmo módulo puro (`lib/paginacao.js`) usado por Follow-ups e Central de
-  // Ligações. Cada origem tem sua própria página, porque são duas tabelas independentes.
-  const [paginaPlaces, setPaginaPlaces] = useState(1)
-  const [paginaIg, setPaginaIg] = useState(1)
+  // Paginação client-side da lista, sobre o conjunto já carregado e já filtrado — mesmo módulo
+  // puro (`lib/paginacao.js`) usado por Follow-ups e Central de Ligações. UMA página, porque a
+  // ordem de trabalho é uma só: duas paginações independentes deixavam metade da fila numa
+  // página 1 e metade em outra.
+  const [pagina, setPagina] = useState(1)
   const capacidadesCarregadas = Array.isArray(capacidades)
   const podeDispararSemi = temCapacidade(capacidades, 'lead_disparar_semi') || temCapacidade(capacidades, 'lead_disparar_lote')
   const podeDispararAutomatico = temCapacidade(capacidades, 'lead_disparar_lote')
@@ -773,21 +845,48 @@ export default function BancoLeadsPage() {
   // status e histórico para trabalhar. O modal declara a pendência do telefone em vez de
   // recusar a abertura — recusar não dizia nada sobre o lead, só travava a porta. O envio
   // não corre risco: `isRodavel` já exige telefone, então Gerar/Enviar nascem indisponíveis.
-  function abrirConversa(l: Lead) {
+  /**
+   * Abre a ficha a partir de um id — o caminho do Quadro do Dia, onde o card pode ser de um lead
+   * que NÃO está na janela carregada pela Lista (ele mudou de aba desde que foi planejado, ou o
+   * filtro em vigor é outro).
+   *
+   * Busca primeiro no que já está em memória; só então pede ao servidor. A rota devolve o lead
+   * hidratado pela MESMA função da listagem — montar um lead parcial aqui faria a ficha mostrar
+   * pontuação de cadastro e ICP diferentes das da mesma ficha aberta pela Lista.
+   */
+  async function abrirLeadPorId(prospectId: string, gatilho: string) {
+    const emMemoria = leads.find((l) => l.id === prospectId)
+    if (emMemoria) { abrirFicha(emMemoria, gatilho); return }
+    try {
+      const r = await apiFetch<Lead>(`${base}/leads/${prospectId}`)
+      abrirFicha(r.data, gatilho)
+    } catch (e) {
+      fb.toast(e instanceof Error ? e.message : 'Não foi possível abrir este lead.', 'error')
+    }
+  }
+
+  /**
+   * Abre a ficha do lead na seção que o GATILHO promete (`lib/ficha-lead.js` é o dono desse
+   * mapa). Substitui `abrirConversa` + `setDetalheAberto`: era o mesmo lead em dois modais.
+   */
+  function abrirFicha(l: Lead, gatilho: string) {
     const digits = String(l.telefone || '').replace(/\D/g, '')
-    setConversaAberta({
+    setFicha({
+      secao: secaoDoGatilho(gatilho),
       numero: digits ? `${digits}@s.whatsapp.net` : '', titulo: l.nome || '', leadId: l.id,
       mensagemGerada: l.mensagem_gerada, rodavel: isRodavel(l), status: l.status,
       // Acessos rápidos (rede social / site / ficha no Maps) — a regra é pura e vive em
       // lib/lead-acessos.js; aqui só se passa o veredito que o backend já mandou no lead.
       acessos: acessosDoLead(l),
+      leadAberto: l,
     })
   }
 
   function aplicarLeadAtualizado(leadAtualizado: Lead) {
     setLeads((prev) => prev.map((l) => (l.id === leadAtualizado.id ? { ...l, ...leadAtualizado } : l)))
-    setDetalheAberto((cur) => (cur && cur.id === leadAtualizado.id ? { ...cur, ...leadAtualizado } : cur))
-    setConversaAberta((cur) => (cur && cur.leadId === leadAtualizado.id ? { ...cur, status: leadAtualizado.status } : cur))
+    // O lead da ficha sai de `leads` (ver `leadDaFicha`), então ele já acompanha esta
+    // atualização. Aqui só o que a ficha guarda por conta própria: o status usado pelas ações.
+    setFicha((cur) => (cur && cur.leadId === leadAtualizado.id ? { ...cur, status: leadAtualizado.status } : cur))
   }
 
   function query() {
@@ -949,7 +1048,7 @@ export default function BancoLeadsPage() {
   // Qualquer mudança no recorte volta a paginação para a 1ª página — senão o operador pode
   // cair numa página vazia depois de filtrar ou trocar de aba (mesmo padrão de Follow-ups e
   // Central de Ligações).
-  useEffect(() => { setPaginaPlaces(1); setPaginaIg(1) }, [aba, origem, mercado, cidadeFiltro, busca, view])
+  useEffect(() => { setPagina(1) }, [aba, origem, mercado, cidadeFiltro, busca, view])
   // Recorte de trabalho: hidrata UMA vez e só então libera a busca de leads. A hidratação
   // acontece em efeito (nunca no valor inicial do estado) porque este componente também
   // renderiza no servidor, onde não existe sessionStorage — semear ali faria o HTML do servidor
@@ -1043,23 +1142,20 @@ export default function BancoLeadsPage() {
   const percentualGeracao = geracaoProgresso
     ? (totalGeracao === 0 ? 100 : Math.round((processadasGeracao / totalGeracao) * 100))
     : 0
-  // Divisão por origem: Places × Instagram. Ordenação do modal sobrescreve o cabeçalho.
-  const leadsPlaces = useMemo(() => {
-    const f = leadsCustom.filter((l) => ORIGENS_PLACES.has(l.origem))
-    return view.ordenacao !== 'padrao' ? ordenarPorView(f, view.ordenacao) : ordenarLeads(f, ordemPlaces, previsoesEnvio)
-  }, [leadsCustom, ordemPlaces, view.ordenacao, previsoesEnvio])
-  const leadsIg = useMemo(() => {
-    const f = leadsCustom.filter((l) => !ORIGENS_PLACES.has(l.origem))
-    return view.ordenacao !== 'padrao' ? ordenarPorView(f, view.ordenacao) : ordenarLeads(f, ordemIg, previsoesEnvio)
-  }, [leadsCustom, ordemIg, view.ordenacao, previsoesEnvio])
-  const totalFiltrado = leadsPlaces.length + leadsIg.length
+  // UMA lista, na ordem que o servidor decidiu. A origem virou COLUNA e FILTRO — ela identifica
+  // a linha, não a separa em tabelas. Ordenação do "Personalizar" sobrescreve a do cabeçalho.
+  const leadsOrdenados = useMemo(() => (
+    view.ordenacao !== 'padrao'
+      ? ordenarPorView(leadsCustom, view.ordenacao)
+      : ordenarLeads(leadsCustom, ordem, previsoesEnvio)
+  ), [leadsCustom, ordem, view.ordenacao, previsoesEnvio])
+  const totalFiltrado = leadsOrdenados.length
   const avisoJanela = useMemo(() => avisoDeJanela(metaLista), [metaLista])
   const avisoEquipe = useMemo(() => avisoDeEquipe(metaLista?.equipe || null), [metaLista])
   // A ordem da fila só vale enquanto ninguém reordenou por cabeçalho ou pelo Personalizar.
-  const ordemManual = view.ordenacao !== 'padrao' || ordemPlaces.chave !== 'trabalho' || ordemIg.chave !== 'trabalho'
+  const ordemManual = view.ordenacao !== 'padrao' || ordem.chave !== 'trabalho'
   // Recorte de apresentação: pagina DEPOIS de filtrar/ordenar (conjunto completo já pronto).
-  const pgPlaces = useMemo(() => paginar(leadsPlaces, paginaPlaces, POR_PAGINA_PADRAO), [leadsPlaces, paginaPlaces])
-  const pgIg = useMemo(() => paginar(leadsIg, paginaIg, POR_PAGINA_PADRAO), [leadsIg, paginaIg])
+  const pgLeads = useMemo(() => paginar(leadsOrdenados, pagina, POR_PAGINA_PADRAO), [leadsOrdenados, pagina])
   const chips = chipsDaView(view)
   const filtrosAtivos = chips.length + (view.ordenacao !== 'padrao' ? 1 : 0)
   const mercadoOpcoes = useMemo(() => opcoesMercado(filtrosMercado), [filtrosMercado])
@@ -1075,16 +1171,18 @@ export default function BancoLeadsPage() {
       return next
     })
   }
-  // "Página atual" = os leads rodáveis visíveis AGORA nas duas tabelas (cada uma pagina
-  // independente). Soma à seleção existente — não substitui, para dar pra somar páginas.
+  // "Página atual" = os leads rodáveis visíveis AGORA. Soma à seleção existente — não
+  // substitui, para dar pra somar páginas.
   function idsPaginaAtual(): string[] {
-    return [...pgPlaces.itens, ...pgIg.itens].filter(isRodavel).map((l) => l.id)
+    return pgLeads.itens.filter(isRodavel).map((l) => l.id)
   }
   function selecionarPaginaAtual() {
     setSelecionados((prev) => new Set([...prev, ...idsPaginaAtual()]))
   }
-  // "Todos os filtrados" = todo o conjunto já carregado que respeita os filtros/abas atuais
-  // (mesmo universo de `rodaveis`, sem fetch novo — o Banco de Leads já traz tudo de uma vez).
+  // Amplia a seleção para todo o conjunto já CARREGADO que respeita os filtros/abas atuais
+  // (mesmo universo de `rodaveis`, sem fetch novo). O rótulo do botão diz exatamente isso —
+  // "todos os filtrados" prometia a carteira inteira e entregava a janela da listagem, e a
+  // barra de seleção declara a diferença quando ela existe (`escopoDaSelecao`).
   function selecionarTodosFiltrados() {
     setSelecionados(new Set(rodaveis.map((l) => l.id)))
   }
@@ -1280,13 +1378,13 @@ export default function BancoLeadsPage() {
   }
 
   async function gerarMensagemConversa() {
-    if (!conversaAberta || !instanciaId) return
-    if (!conversaAberta.rodavel) { fb.toast('Este lead nao esta elegivel para gerar mensagem.', 'info'); return }
+    if (!ficha || !instanciaId) return
+    if (!ficha.rodavel) { fb.toast('Este lead nao esta elegivel para gerar mensagem.', 'info'); return }
     if (config.modo === 'automatico') { fb.toast('No Automatico, a geracao acontece pela rotina configurada.', 'info'); return }
     setGerandoConversa(true)
     try {
-      const texto = await gerarUm(conversaAberta.leadId)
-      if (texto) setConversaAberta((cur) => cur ? { ...cur, mensagemGerada: texto } : cur)
+      const texto = await gerarUm(ficha.leadId)
+      if (texto) setFicha((cur) => cur ? { ...cur, mensagemGerada: texto } : cur)
     } finally {
       setGerandoConversa(false)
     }
@@ -1296,12 +1394,12 @@ export default function BancoLeadsPage() {
   // 1 lead por vez, respeitando o cooldown. Semi usa a mensagem já gerada
   // (/disparar-gerados); manual gera na hora (/rodar).
   async function enviarLeadConversa() {
-    if (!conversaAberta || !instanciaId) return
-    if (!conversaAberta.rodavel) { fb.toast('Este lead nao esta elegivel para envio.', 'info'); return }
+    if (!ficha || !instanciaId) return
+    if (!ficha.rodavel) { fb.toast('Este lead nao esta elegivel para envio.', 'info'); return }
     if (config.modo === 'automatico') { fb.toast('No Automatico, os envios saem pela rotina configurada.', 'info'); return }
     if (motivoBloqueioConexao) { fb.toast(motivoBloqueioConexao, 'error'); return }
     if (bloquearPorCooldown()) return
-    const { leadId, mensagemGerada } = conversaAberta
+    const { leadId, mensagemGerada } = ficha
     setEnviandoConversa(true)
     try {
       const endpoint = mensagemGerada ? `${base}/disparar-gerados` : `${base}/rodar`
@@ -1312,7 +1410,7 @@ export default function BancoLeadsPage() {
       if (envio?.status === 'enviado') {
         fb.toast('Mensagem enviada.')
         carregarCooldown()
-        setConversaAberta(null)
+        setFicha(null)
         setTimeout(() => { carregarLeads(); carregarResumo() }, 800)
         return
       }
@@ -1330,7 +1428,7 @@ export default function BancoLeadsPage() {
       if (r.data.rodada && r.data.aceitos.length) {
         fb.toast('Mensagem na fila de envio.')
         carregarCooldown()
-        setConversaAberta(null)
+        setFicha(null)
         setTimeout(() => { carregarLeads(); carregarResumo() }, 2500)
       } else {
         const motivo = r.data.pulados?.[0]?.motivo
@@ -1341,7 +1439,7 @@ export default function BancoLeadsPage() {
           telefone_ja_contatado: 'Esse telefone já recebeu contato por outro cadastro (duplicado).',
         }
         fb.toast(motivo ? (MOTIVOS[motivo] || `Não enviado (${motivo}).`) : 'Nada para enviar.', motivo === 'sem_whatsapp' ? 'error' : 'info')
-        if (motivo === 'sem_whatsapp') { setConversaAberta(null); setTimeout(() => { carregarLeads(); carregarResumo() }, 1200) }
+        if (motivo === 'sem_whatsapp') { setFicha(null); setTimeout(() => { carregarLeads(); carregarResumo() }, 1200) }
       }
     } catch (e) { fb.toast(e instanceof Error ? e.message : 'Falha ao enviar.', 'error') }
     finally { setEnviandoConversa(false) }
@@ -1351,7 +1449,8 @@ export default function BancoLeadsPage() {
   function abrirProximoParaEnviar() {
     const prox = gerados[0]
     if (!prox) { fb.toast('Nenhuma mensagem pendente para enviar.', 'info'); return }
-    abrirConversa(prox)
+    // Aqui o trabalho É a conversa (revisar a mensagem e enviar): abre direto nela.
+    abrirFicha(prox, 'conversa')
   }
 
   async function alterarStatusLead(id: string, statusOperacional: string, sucesso?: string, payload?: StatusPayload) {
@@ -1374,7 +1473,7 @@ export default function BancoLeadsPage() {
       ultimo_status_em: new Date().toISOString(),
       proximo_agendamento: novo.agenda_evento?.data_inicio ?? l.proximo_agendamento,
     } : l)))
-    setConversaAberta((cur) => (cur && cur.leadId === id ? { ...cur, status: novo.status } : cur))
+    setFicha((cur) => (cur && cur.leadId === id ? { ...cur, status: novo.status } : cur))
     carregarResumo()
     return novo
   }
@@ -1394,7 +1493,7 @@ export default function BancoLeadsPage() {
   }
 
   async function alterarStatusConversa(statusOperacional: string, payload?: StatusPayload) {
-    if (!conversaAberta) return
+    if (!ficha) return
     const rotulos: Record<string, string> = {
       marcado: 'Lead marcado.',
       contatado: 'Lead marcado como contatado.',
@@ -1404,7 +1503,7 @@ export default function BancoLeadsPage() {
       fechado: 'Lead marcado como fechado.',
       descartado: 'Lead descartado.',
     }
-    await alterarStatusLead(conversaAberta.leadId, statusOperacional, rotulos[statusOperacional] || 'Status do lead atualizado.', payload)
+    await alterarStatusLead(ficha.leadId, statusOperacional, rotulos[statusOperacional] || 'Status do lead atualizado.', payload)
   }
 
   // ─── CRM em equipe: ownership do lead (Etapa 4) ──────────────────────────────────────────
@@ -1460,7 +1559,7 @@ export default function BancoLeadsPage() {
       : l)))
     // O modal aberto é a outra porta desta mesma edição: sem atualizar o `numero` dele, ele
     // continuaria dizendo "Telefone pendente" depois de o número ter sido salvo.
-    setConversaAberta((c) => {
+    setFicha((c) => {
       if (!c || c.leadId !== id) return c
       const digitos = String(r.data.telefone || '').replace(/\D/g, '')
       return { ...c, numero: digitos ? `${digitos}@s.whatsapp.net` : '', status: r.data.status }
@@ -1514,9 +1613,9 @@ export default function BancoLeadsPage() {
     ? config.modo
     : (modosDisponiveis[0]?.valor || 'manual')
   // Enviar fica liberado em Manual e Semi: se não houver mensagem gerada, o backend gera na hora.
-  const podeEnviarConversa = !!conversaAberta && !!instanciaId && conversaAberta.rodavel
+  const podeEnviarConversa = !!ficha && !!instanciaId && ficha.rodavel
     && config.modo !== 'automatico' && !motivoBloqueioConexao
-  const podeGerarConversa = !!conversaAberta && !!instanciaId && conversaAberta.rodavel
+  const podeGerarConversa = !!ficha && !!instanciaId && ficha.rodavel
     && config.modo !== 'automatico'
 
   // Por que o disparo esta indisponivel AGORA — a mesma pergunta que o cronometro ja responde
@@ -1527,6 +1626,96 @@ export default function BancoLeadsPage() {
     : motivoBloqueioConexao
       || (cooldownAtivo ? `Próximo envio em ${fmtMMSS(cooldownS as number)}` : '')
   const envioBloqueado = Boolean(motivoEnvioBloqueado)
+
+  /**
+   * A ação principal do lead ABERTO na ficha. É a MESMA função que decide o botão de cada linha
+   * (`lib/banco-leads-acao.js`) — uma segunda régua aqui faria a lista prometer "Enviar" e a
+   * ficha oferecer outra coisa para o mesmo lead.
+   */
+  const acaoDaFicha = useMemo(() => {
+    if (!leadDaFicha) return null
+    return acaoPrincipalDoLead({
+      temTelefone: Boolean(leadDaFicha.telefone),
+      rodavel: isRodavel(leadDaFicha),
+      travado: isLocked(leadDaFicha),
+      motivoTravado: leadDaFicha.bloqueio_motivo ? (MOTIVO_LABEL[leadDaFicha.bloqueio_motivo] || leadDaFicha.bloqueio_motivo) : '',
+      mensagemPronta: Boolean(leadDaFicha.mensagem_gerada),
+      respondeu: leadDaFicha.status === 'respondeu',
+      erroIa: temErroIa(leadDaFicha),
+      envioBloqueado,
+      motivoEnvioBloqueado,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leadDaFicha, envioBloqueado, motivoEnvioBloqueado])
+
+  /**
+   * O RESUMO da ficha: o que a tela sabe e a ficha não — faixa de trabalho, contato e dono.
+   * Nada aqui é recalculado: `faixa_trabalho` vem do servidor e `donoDoLead` é o módulo puro
+   * que a listagem já usa na coluna Responsável.
+   */
+  const resumoDaFicha = useMemo(() => {
+    if (!leadDaFicha) return null
+    const faixa = seloFaixa(leadDaFicha.faixa_trabalho)
+    const dono = donoDoLead(leadDaFicha, usuario?.id)
+    const contatos = [
+      leadDaFicha.telefone ? `Telefone ${leadDaFicha.telefone}` : 'Sem telefone',
+      leadDaFicha.email ? `E-mail ${leadDaFicha.email}` : 'Sem e-mail',
+    ]
+    return (
+      <div className="mb-3 rounded-lg border border-line bg-surface p-4 shadow-card">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Próxima ação</p>
+        {faixa ? (
+          <>
+            <p className="mt-1 text-sm font-semibold text-ink">{faixa.rotulo}</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-ink-3">{faixa.dica}</p>
+          </>
+        ) : (
+          /* Faixa desconhecida não vira rótulo inventado — o mesmo contrato de `seloFaixa`. */
+          <p className="mt-1 text-sm text-ink-3">A fila de trabalho ainda não classificou este lead.</p>
+        )}
+        <dl className="mt-3 grid gap-1.5 border-t border-line pt-3 text-xs">
+          <div className="flex gap-2">
+            <dt className="w-24 shrink-0 text-ink-3">Contato</dt>
+            <dd className="min-w-0 text-ink-2">{contatos.join(' · ')}</dd>
+          </div>
+          <div className="flex gap-2">
+            <dt className="w-24 shrink-0 text-ink-3">Responsável</dt>
+            <dd className="min-w-0 text-ink-2">{dono.rotulo}</dd>
+          </div>
+          {leadDaFicha.bloqueio_motivo && (
+            <div className="flex gap-2">
+              <dt className="w-24 shrink-0 text-ink-3">Trava</dt>
+              <dd className="min-w-0 text-amber-800">
+                {MOTIVO_LABEL[leadDaFicha.bloqueio_motivo] || leadDaFicha.bloqueio_motivo}
+                {leadDaFicha.bloqueado_ate ? ` · até ${fmtData(leadDaFicha.bloqueado_ate)}` : ''}
+              </dd>
+            </div>
+          )}
+        </dl>
+      </div>
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leadDaFicha, usuario?.id])
+  // O ESCOPO REAL da selecao, em texto — inclusive o aviso de que ela alcanca so' a janela
+  // carregada. A regra vive no modulo puro; a tela nao pode prometer alem do que o servidor
+  // devolveu.
+  const escopoSelecao = escopoDaSelecao({
+    selecionados: selecionados.size,
+    naPagina: idsPaginaAtual().length,
+    carregados: rodaveis.length,
+    totalCarteira: metaLista?.total_carteira ?? null,
+  })
+  // O resumo de UMA LINHA que fica sempre visivel. A regra de qual estado mostrar vive no
+  // modulo puro — a tela so desenha (mesmo contrato de `lib/site-rotulos.js`).
+  const faixaEnvio = useMemo(() => faixaDeEnvio({
+    modoLabel: modoAtual.label,
+    instanciaLabel: instanciaSel ? (instanciaSel.nome || instanciaSel.evolution_instance) : '',
+    conexao: podeEscolherInstancia || instanciaSel ? rotuloConexao : '',
+    motivoBloqueio: motivoBloqueioConexao || '',
+    cooldown: cooldownAtivo ? fmtMMSS(cooldownS as number) : '',
+    automatico: config.modo === 'automatico',
+    autoAtivo: !!config.auto_ativo,
+  }), [modoAtual.label, instanciaSel, podeEscolherInstancia, rotuloConexao, motivoBloqueioConexao, cooldownAtivo, cooldownS, config.modo, config.auto_ativo])
 
   // Quantos recortes de CARTEIRA estao ligados. Não se confunde com `filtrosAtivos`, que conta
   // os do "⚙ Personalizar" — são dois painéis diferentes e cada um diz o seu número.
@@ -1544,7 +1733,7 @@ export default function BancoLeadsPage() {
         <label htmlFor={`${p}-origem`} className="mb-1 block text-xs text-ink-3">Origem</label>
         <select id={`${p}-origem`} value={origem} onChange={(e) => setOrigem(e.target.value)}
           className={classesEntrada({ extra: 'min-h-11 md:min-h-0 md:w-auto' })}>
-          {ORIGENS.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+          {OPCOES_FILTRO_ORIGEM.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
         </select>
       </div>
       {/* Recorte por RESPONSÁVEL (CRM em equipe, Etapa 4).
@@ -1614,8 +1803,8 @@ export default function BancoLeadsPage() {
     mostrarRodar: mostrarSelecao,
     selecionados,
     onToggleSel: toggleSel,
-    onAbrirConversa: abrirConversa,
-    onAbrirDetalhes: setDetalheAberto,
+    onAbrirFicha: abrirFicha,
+    onAbrirDetalhes: (l: Lead) => abrirFicha(l, 'detalhes'),
     envioBloqueado,
     motivoEnvioBloqueado,
     usuarioId: usuario?.id,
@@ -1660,24 +1849,66 @@ export default function BancoLeadsPage() {
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
       {msg && <p className="text-emerald-600 text-sm">{msg}</p>}
 
-      {/* O FUNIL — os mesmos estágios que eram pílulas, agora dizendo o tamanho de cada um.
-          Continua sendo o seletor de aba (um clique troca o recorte), não um painel novo: a
-          pílula mostrava a contagem sem dizer o peso do estágio na carteira. */}
-      <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-5" role="group" aria-label="Estágio do funil">
-        {cartoesDeFunil(ABAS, resumo).map((c) => (
-          <CartaoFunil key={c.valor} cartao={c} ativo={aba === c.valor} onEscolher={() => setAba(c.valor)} />
+      {/* LISTA × QUADRO DO DIA — duas vistas da MESMA carteira, sem item novo no menu lateral.
+          `radiogroup` e não `tablist`: aqui não se troca um painel de conteúdo equivalente, se
+          escolhe entre o acervo inteiro e o recorte de hoje. O estado vai no rótulo, não só na
+          cor. */}
+      <div role="radiogroup" aria-label="Como ver a carteira" className="inline-flex gap-1 rounded-lg border border-line bg-surface-2 p-1">
+        {([['lista', 'Lista', 'Toda a carteira, na ordem de trabalho.'],
+           ['quadro', 'Quadro do dia', 'Só os leads que você escolheu trabalhar nesta data.']] as const).map(([v, rotulo, dica]) => (
+          <button
+            key={v}
+            type="button"
+            role="radio"
+            aria-checked={vista === v}
+            title={dica}
+            onClick={() => trocarVista(v)}
+            className={`inline-flex h-9 items-center rounded-md px-3 text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+              vista === v ? 'bg-surface font-semibold text-brand shadow-card' : 'text-ink-2 hover:bg-surface-3'
+            }`}
+          >
+            {rotulo}
+          </button>
         ))}
       </div>
 
-      {/* Barra "Rodar leads" — adapta ao modo. Só na aba Sem contato. */}
+      {vista === 'lista' && (
+      <>
+      {/* O FUNIL — seletor de aba, agora em UMA linha. Eram cinco cartoes de ~110px de altura
+          que, junto do cabecalho e da barra de envio, empurravam o primeiro lead para fora da
+          primeira dobra em 1366x768: a pessoa abria a carteira e via painel, nao lead.
+          O que cada cartao dizia continua dito — a contagem no proprio botao e a participacao
+          do estagio no `title`, que e' informacao de leitura, nao de decisao. */}
+      <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5" role="group" aria-label="Estágio do funil">
+        {cartoesDeFunil(ABAS, resumo).map((c) => (
+          <AbaFunil key={c.valor} cartao={c} ativo={aba === c.valor} onEscolher={() => setAba(c.valor)} />
+        ))}
+      </div>
+
+      {/* ENVIO — uma faixa sempre visivel + a CONFIGURACAO recolhida. Só na aba Sem contato.
+          O painel inteiro (tres cartoes de modo + instancia + cronometro + janela do
+          automatico) ocupava ~260px acima da lista o tempo todo. O que dele e' decisao do dia
+          ficou na faixa; o que e' ajuste ficou atras de "Configurar envio".
+          NADA que bloqueia o envio foi recolhido: o motivo do bloqueio e o aviso de saudacao
+          faltando continuam fora do painel. */}
       {mostrarRodar && (
-        <div className="bg-surface border rounded-lg shadow-sm p-4 space-y-3">
+        <div className="space-y-2">
+          <FaixaEnvio
+            faixa={faixaEnvio}
+            aberto={painelEnvioAberto}
+            onAlternar={() => setPainelEnvioAberto((v) => !v)}
+            onTestar={() => setSaudacaoOpen(true)}
+            podeTestar={!!instanciaId}
+            saudacaoFaltando={saudacaoFaltando}
+          />
           {saudacaoFaltando && (
-            <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="flex items-center gap-2 rounded-lg border border-estado-danger/30 bg-red-50 px-3 py-2 text-sm text-red-700">
               <IconAlert className="h-4 w-4 shrink-0" />
               <span>Você precisa configurar a saudação primeiro — clique em <b>Testar envio</b>.</span>
             </div>
           )}
+          {painelEnvioAberto && (
+          <div className="rounded-lg border border-line bg-surface p-4 shadow-card space-y-3">
           <div className="space-y-4">
             <div className={`grid gap-3 ${podeEscolherInstancia ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,240px)]' : ''}`}>
               <div>
@@ -1779,99 +2010,6 @@ export default function BancoLeadsPage() {
             </div>
           </div>
 
-          {/* Seleção em massa (Manual) — gera as mensagens dos leads marcados SEM enviar.
-              Não depende de instância conectada (a mesma regra do envio 1 a 1); o envio em
-              si continua exigindo conexão, aqui ou no modal de conversa. */}
-          {mostrarSelecao && (
-            <div className="mt-2 rounded-lg border bg-surface-2/60 p-3 space-y-3" aria-live="polite">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-semibold text-slate-700">Seleção em massa</p>
-                  <p className="mt-0.5 text-xs text-ink-3">
-                    Marque leads na tabela (checkbox à esquerda) ou use os atalhos abaixo. "Gerar mensagens"
-                    prepara o texto de todos os selecionados sem enviar nada.
-                  </p>
-                </div>
-                <span className="text-sm font-bold tabular-nums text-slate-700">
-                  {selecionados.size} selecionado{selecionados.size === 1 ? '' : 's'}
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={selecionarPaginaAtual} disabled={gerandoLote}
-                  className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-surface-2 disabled:opacity-50">
-                  Selecionar página atual ({idsPaginaAtual().length})
-                </button>
-                <button type="button" onClick={selecionarTodosFiltrados} disabled={gerandoLote}
-                  className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-surface-2 disabled:opacity-50">
-                  Selecionar todos os filtrados ({rodaveis.length})
-                </button>
-                <button type="button" onClick={limparSelecao} disabled={gerandoLote || !selecionados.size}
-                  className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-surface-2 disabled:opacity-50">
-                  Limpar seleção
-                </button>
-                <button type="button" onClick={pedirGeracaoEmMassa}
-                  disabled={gerandoLote || !selecionados.size || !instanciaId}
-                  className="ml-auto inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand-dark disabled:opacity-50">
-                  {gerandoLote && <Spinner />}
-                  {gerandoLote ? 'Gerando…' : 'Gerar mensagens (sem enviar)'}
-                </button>
-              </div>
-              {progressoLoteManual && (
-                <div className="space-y-1.5">
-                  <div className="h-2.5 overflow-hidden rounded-full bg-line" role="progressbar"
-                    aria-label="Progresso da geração em massa" aria-valuemin={0} aria-valuemax={progressoLoteManual.total}
-                    aria-valuenow={progressoLoteManual.processados}>
-                    <div className={`h-full rounded-full transition-[width] duration-300 ${progressoLoteManual.erros ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                      style={{ width: `${progressoLoteManual.total ? Math.round((progressoLoteManual.processados / progressoLoteManual.total) * 100) : 0}%` }} />
-                  </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-3">
-                    <span><b className="text-slate-700">{progressoLoteManual.processados}</b> de {progressoLoteManual.total} processado(s)</span>
-                    <span><b className="text-emerald-700">{progressoLoteManual.prontas}</b> pronta(s)</span>
-                    {progressoLoteManual.erros > 0 && <span className="text-amber-700"><b>{progressoLoteManual.erros}</b> com erro de IA</span>}
-                    {progressoLoteManual.pulados > 0 && <span><b>{progressoLoteManual.pulados}</b> pulado(s)</span>}
-                  </div>
-                  <p className="text-[11px] text-slate-400">
-                    Continua rodando se você trocar de aba dentro do sistema — só feche ou recarregue esta página que interrompe.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Progresso do worker Semiautomático — observação apenas; não dispara geração no browser. */}
-          {config.modo === 'semi_automatico' && (
-            <div className="mt-2 rounded-lg border bg-surface-2/60 p-3 space-y-2" aria-live="polite">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-semibold text-slate-700">Preparando mensagens em segundo plano</p>
-                  <p className="mt-0.5 text-xs text-ink-3">
-                    Pode sair desta tela. O sistema continua trabalhando e inclui automaticamente os leads novos.
-                  </p>
-                </div>
-                <span className="text-sm font-bold tabular-nums text-slate-700">
-                  {geracaoProgresso ? `${percentualGeracao}%` : geracaoProgressoErro ? 'Indisponível' : 'Lendo…'}
-                </span>
-              </div>
-              <div className="h-2.5 overflow-hidden rounded-full bg-line" role="progressbar"
-                aria-label="Progresso da geração das mensagens" aria-valuemin={0} aria-valuemax={100}
-                aria-valuenow={geracaoProgresso ? percentualGeracao : undefined}>
-                <div className={`h-full rounded-full transition-[width] duration-500 ${geracaoProgresso?.erros ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                  style={{ width: `${percentualGeracao}%` }} />
-              </div>
-              {geracaoProgresso && (
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-3">
-                  <span><b className="text-emerald-700">{geracaoProgresso.prontas}</b> pronta(s)</span>
-                  <span><b className="text-blue-700">{geracaoProgresso.gerando}</b> gerando agora</span>
-                  <span><b className="text-slate-700">{geracaoProgresso.eligiveis}</b> pendente(s)</span>
-                  {geracaoProgresso.erros > 0 && <span className="text-amber-700"><b>{geracaoProgresso.erros}</b> com erro de IA</span>}
-                </div>
-              )}
-              {!geracaoProgresso && geracaoProgressoErro && (
-                <p className="text-xs text-amber-700">Não foi possível atualizar o progresso agora. Tentando novamente…</p>
-              )}
-            </div>
-          )}
-
           {/* Config do modo Automático */}
           {podeDispararAutomatico && config.modo === 'automatico' && (
             <div className="mt-2 rounded-lg border bg-surface-2/60 p-3 space-y-2">
@@ -1929,6 +2067,8 @@ export default function BancoLeadsPage() {
                 </div>
               </div>
             </div>
+          )}
+          </div>
           )}
         </div>
       )}
@@ -2028,8 +2168,7 @@ export default function BancoLeadsPage() {
           {ordemManual && (
             <button
               onClick={() => {
-                setOrdemPlaces({ chave: 'trabalho', dir: 'asc' })
-                setOrdemIg({ chave: 'trabalho', dir: 'asc' })
+                setOrdem({ chave: 'trabalho', dir: 'asc' })
                 // A ordenação global do "⚙ Personalizar" também sobrescreve a fila: o botão
                 // precisa desfazer as DUAS, senão ele aparece e não resolve.
                 setView((v) => ({ ...v, ordenacao: 'padrao' }))
@@ -2054,7 +2193,93 @@ export default function BancoLeadsPage() {
         </div>
       )}
 
-      {/* Tabelas por origem — mesmas colunas/pontuação/ordenação/JSON da Aquisição */}
+      {/* PROGRESSO DO SEMIAUTOMÁTICO — uma linha, não um card. É observação (o worker prepara
+          as mensagens em segundo plano), não decisão: o card de 3 blocos ocupava primeira dobra
+          para dizer um número. Continua com `aria-live` e continua distinguindo "lendo",
+          "indisponível" e o progresso real. */}
+      {mostrarRodar && config.modo === 'semi_automatico' && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-surface px-3 py-2 text-xs shadow-card" aria-live="polite">
+          <span className="font-semibold text-ink-2">Preparando mensagens em segundo plano</span>
+          <span className="h-1.5 w-28 shrink-0 overflow-hidden rounded-full bg-surface-3" role="progressbar"
+            aria-label="Progresso da geração das mensagens" aria-valuemin={0} aria-valuemax={100}
+            aria-valuenow={geracaoProgresso ? percentualGeracao : undefined}>
+            <span className={`block h-full rounded-full transition-[width] duration-500 ${geracaoProgresso?.erros ? 'bg-estado-warn' : 'bg-estado-ok'}`}
+              style={{ width: `${percentualGeracao}%` }} />
+          </span>
+          <span className="font-bold tabular-nums text-ink-2">
+            {geracaoProgresso ? `${percentualGeracao}%` : geracaoProgressoErro ? 'Indisponível' : 'Lendo…'}
+          </span>
+          {geracaoProgresso && (
+            <span className="flex flex-wrap gap-x-3 text-ink-3">
+              <span><b className="text-emerald-700">{geracaoProgresso.prontas}</b> pronta(s)</span>
+              <span><b className="text-brand">{geracaoProgresso.gerando}</b> gerando</span>
+              <span><b className="text-ink-2">{geracaoProgresso.eligiveis}</b> pendente(s)</span>
+              {geracaoProgresso.erros > 0 && <span className="text-amber-700"><b>{geracaoProgresso.erros}</b> com erro de IA</span>}
+            </span>
+          )}
+          {!geracaoProgresso && geracaoProgressoErro && (
+            <span className="text-amber-700">Não foi possível atualizar o progresso agora. Tentando novamente…</span>
+          )}
+          <span className="basis-full text-[11px] text-slate-400">
+            Pode sair desta tela — o sistema continua trabalhando e inclui os leads novos sozinho.
+          </span>
+        </div>
+      )}
+
+      {/* BARRA CONTEXTUAL DE SELEÇÃO — só existe quando há algo selecionado.
+          Era um bloco PERMANENTE ("Seleção em massa"), acima da lista, com dois atalhos de
+          texto e uma explicação de três linhas, ocupando primeira dobra para uma ação
+          eventual. A seleção agora começa no checkbox do cabeçalho da tabela, e esta barra
+          aparece como CONSEQUÊNCIA dela (padrão de barra contextual de data table).
+
+          O texto do escopo vem do módulo puro: o atalho se chamava "Selecionar todos os
+          filtrados" e selecionava apenas o conjunto CARREGADO — quem tem 1.240 leads no filtro
+          lia aquilo e concluía que mandara gerar mensagem para os 1.240. */}
+      {mostrarSelecao && escopoSelecao.ativo && (
+        <div className="sticky top-2 z-30 space-y-2 rounded-lg border border-brand bg-brand/5 px-3 py-2 shadow-card" aria-live="polite">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span className="text-sm font-bold tabular-nums text-brand">{escopoSelecao.rotulo}</span>
+            {escopoSelecao.podeAmpliar && (
+              <button type="button" onClick={selecionarTodosFiltrados} disabled={gerandoLote}
+                className="h-8 rounded-lg border border-line bg-surface px-2.5 text-xs font-medium hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50">
+                {escopoSelecao.rotuloAmpliar}
+              </button>
+            )}
+            <button type="button" onClick={limparSelecao} disabled={gerandoLote}
+              className="h-8 rounded-lg border border-line bg-surface px-2.5 text-xs font-medium hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50">
+              Limpar seleção
+            </button>
+            <button type="button" onClick={pedirGeracaoEmMassa}
+              disabled={gerandoLote || !instanciaId}
+              title={!instanciaId ? 'Escolha uma instância em "Configurar envio" antes de gerar.' : undefined}
+              className="ml-auto inline-flex h-8 items-center gap-2 rounded-lg bg-brand px-3 text-xs font-semibold text-white hover:bg-brand-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 disabled:opacity-50">
+              {gerandoLote && <Spinner />}
+              {gerandoLote ? 'Gerando…' : 'Gerar mensagens (sem enviar)'}
+            </button>
+          </div>
+          {/* A diferença entre a janela carregada e a carteira filtrada é DITA, não escondida. */}
+          {escopoSelecao.aviso && <p className="text-[11px] text-ink-3">{escopoSelecao.aviso}</p>}
+          {progressoLoteManual && (
+            <div className="space-y-1.5">
+              <div className="h-2 overflow-hidden rounded-full bg-surface-3" role="progressbar"
+                aria-label="Progresso da geração em massa" aria-valuemin={0} aria-valuemax={progressoLoteManual.total}
+                aria-valuenow={progressoLoteManual.processados}>
+                <div className={`h-full rounded-full transition-[width] duration-300 ${progressoLoteManual.erros ? 'bg-estado-warn' : 'bg-estado-ok'}`}
+                  style={{ width: `${progressoLoteManual.total ? Math.round((progressoLoteManual.processados / progressoLoteManual.total) * 100) : 0}%` }} />
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-ink-3">
+                <span><b className="text-ink-2">{progressoLoteManual.processados}</b> de {progressoLoteManual.total} processado(s)</span>
+                <span><b className="text-emerald-700">{progressoLoteManual.prontas}</b> pronta(s)</span>
+                {progressoLoteManual.erros > 0 && <span className="text-amber-700"><b>{progressoLoteManual.erros}</b> com erro de IA</span>}
+                {progressoLoteManual.pulados > 0 && <span><b>{progressoLoteManual.pulados}</b> pulado(s)</span>}
+                <span className="text-slate-400">Continua rodando se você trocar de aba — só fechar ou recarregar a página interrompe.</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* A LISTA — uma só, com a origem identificando cada linha. */}
       {carregando && !leads.length ? (
         <p className="text-sm text-slate-400 text-center py-8">Carregando…</p>
       ) : !leads.length ? (
@@ -2101,84 +2326,56 @@ export default function BancoLeadsPage() {
             </div>
           </div>
 
-          {/* CELULAR — a fila em cartoes. A tabela nao encolhe bem: sao ate 15 colunas com
+          {/* CELULAR — a fila em cartoes. A tabela nao encolhe bem: sao ate 16 colunas com
               `min-w-max` e nenhuma congelada, entao no telefone ela vira rolagem lateral sem
               fim e o nome do lead sai da tela. */}
-          <div className="space-y-6 md:hidden">
-            <ListaCartoesBanco titulo="Google Places" leads={pgPlaces.itens} {...propsCartao} />
-            {mostrarPaginacao(pgPlaces.total, pgPlaces.porPagina) && (
-              <RodapePaginacaoBanco pg={pgPlaces} onPagina={setPaginaPlaces} />
-            )}
-            <ListaCartoesBanco titulo="Instagram" leads={pgIg.itens} {...propsCartao} />
-            {mostrarPaginacao(pgIg.total, pgIg.porPagina) && (
-              <RodapePaginacaoBanco pg={pgIg} onPagina={setPaginaIg} />
-            )}
+          <div className="space-y-3 md:hidden">
+            <ListaCartoesBanco leads={pgLeads.itens} {...propsCartao} />
           </div>
 
           {/* COMPUTADOR — a tabela continua sendo a forma certa para COMPARAR leads. */}
-          <div className="hidden space-y-6 md:block">
-          {leadsPlaces.length > 0 && (
-            <TabelaPlacesBanco
-              leads={pgPlaces.itens}
-              total={leadsPlaces.length}
-              ordem={ordemPlaces}
-              onOrdenar={(chave) => setOrdemPlaces((o) => (o.chave === chave ? { chave, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { chave, dir: 'desc' }))}
-              mostrarRodar={mostrarSelecao}
-              cols={view.cols}
-              previsoesEnvio={previsoesEnvio}
-              selecionados={selecionados}
-              onToggleSel={toggleSel}
-              onAbrirConversa={abrirConversa}
-              onSalvarEmail={salvarEmail}
-              onSalvarTelefone={salvarTelefone}
-              onAbrirDetalhes={setDetalheAberto}
-              usuarioId={usuario?.id}
-              podeAssumir={podeAssumir}
-              podeTransferir={podeTransferir}
-              onAssumir={assumirLead}
-              onDevolver={devolverLead}
-            />
-          )}
-          {mostrarPaginacao(pgPlaces.total, pgPlaces.porPagina) && (
-            <RodapePaginacaoBanco pg={pgPlaces} onPagina={setPaginaPlaces} />
-          )}
-          {leadsIg.length > 0 && (
-            <TabelaInstagramBanco
-              leads={pgIg.itens}
-              total={leadsIg.length}
-              ordem={ordemIg}
-              onOrdenar={(chave) => setOrdemIg((o) => (o.chave === chave ? { chave, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { chave, dir: 'desc' }))}
-              mostrarRodar={mostrarSelecao}
-              cols={view.cols}
-              previsoesEnvio={previsoesEnvio}
-              selecionados={selecionados}
-              onToggleSel={toggleSel}
-              onAbrirConversa={abrirConversa}
-              onSalvarEmail={salvarEmail}
-              onSalvarTelefone={salvarTelefone}
-              onAbrirDetalhes={setDetalheAberto}
-              usuarioId={usuario?.id}
-              podeAssumir={podeAssumir}
-              podeTransferir={podeTransferir}
-              onAssumir={assumirLead}
-              onDevolver={devolverLead}
-            />
-          )}
-          {mostrarPaginacao(pgIg.total, pgIg.porPagina) && (
-            <RodapePaginacaoBanco pg={pgIg} onPagina={setPaginaIg} />
-          )}
+          <div className="hidden md:block">
+          <TabelaBanco
+            leads={pgLeads.itens}
+            total={totalFiltrado}
+            ordem={ordem}
+            onOrdenar={(chave) => setOrdem((o) => (o.chave === chave ? { chave, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { chave, dir: 'desc' }))}
+            mostrarRodar={mostrarSelecao}
+            cols={view.cols}
+            previsoesEnvio={previsoesEnvio}
+            selecionados={selecionados}
+            onToggleSel={toggleSel}
+            onSelecionarPagina={selecionarPaginaAtual}
+            onLimparSelecao={limparSelecao}
+            idsPagina={idsPaginaAtual()}
+            onAbrirFicha={abrirFicha}
+            onSalvarEmail={salvarEmail}
+            onSalvarTelefone={salvarTelefone}
+            onAbrirDetalhes={(l) => abrirFicha(l, 'detalhes')}
+            usuarioId={usuario?.id}
+            podeAssumir={podeAssumir}
+            podeTransferir={podeTransferir}
+            onAssumir={assumirLead}
+            onDevolver={devolverLead}
+          />
           </div>
+
+          {mostrarPaginacao(pgLeads.total, pgLeads.porPagina) && (
+            <RodapePaginacaoBanco pg={pgLeads} onPagina={setPagina} />
+          )}
         </>
       )}
+      </>
+      )}
 
-      {detalheAberto && (
-        <LeadDetalhesModal
-          lead={detalheAberto}
-          onFechar={() => setDetalheAberto(null)}
+      {/* O QUADRO DO DIA. Ele NÃO faz uma segunda listagem: recebe a carteira que a Lista já
+          carregou (na ordem de trabalho do servidor) e guarda o planejamento no banco. Abrir um
+          card usa a MESMA ficha da Lista. */}
+      {vista === 'quadro' && (
+        <QuadroDoDia
           empresaId={empresaId}
-          onLeadAtualizado={(lead) => aplicarLeadAtualizado(lead as Lead)}
-          instanciaDesconectada={statusConexao?.connected === false}
-          podeEditarIcp={podeTriarLead}
+          candidatos={leads}
+          onAbrirLead={abrirLeadPorId}
         />
       )}
 
@@ -2196,15 +2393,31 @@ export default function BancoLeadsPage() {
         />
       )}
 
-      {conversaAberta && (
-        <ConversaHistoricoModal
+      {/* A FICHA DO LEAD — uma superfície, quatro seções. Eram dois modais para o mesmo lead
+          (conversa e detalhes/ICP), cada um com o seu resumo no topo e cada um custando a
+          posição na lista ao ser trocado pelo outro. Ver o cabeçalho de `FichaLead.tsx`. */}
+      {ficha && leadDaFicha && (
+        <FichaLead
+          lead={leadDaFicha}
+          conversa={{
+            numero: ficha.numero,
+            titulo: ficha.titulo,
+            leadId: ficha.leadId,
+            mensagemGerada: ficha.mensagemGerada,
+            rodavel: ficha.rodavel,
+            status: ficha.status,
+            acessos: ficha.acessos,
+          }}
+          secao={ficha.secao}
+          onTrocarSecao={(secao) => setFicha((c) => (c ? { ...c, secao } : c))}
+          onFechar={() => setFicha(null)}
           empresaId={empresaId}
-          leadId={conversaAberta.leadId}
-          numero={conversaAberta.numero}
-          titulo={conversaAberta.titulo}
-          status={conversaAberta.status}
-          acessos={conversaAberta.acessos}
-          mensagemGerada={conversaAberta.mensagemGerada}
+          onLeadAtualizado={(lead) => aplicarLeadAtualizado(lead as Lead)}
+          podeEditarIcp={podeTriarLead}
+          instanciaDesconectada={statusConexao?.connected === false}
+          acaoPrincipal={acaoDaFicha}
+          onAcaoPrincipal={acaoDaFicha && acaoDaFicha.chave !== 'travado' ? () => setFicha((c) => (c ? { ...c, secao: 'conversa' } : c)) : undefined}
+          mensagemGerada={ficha.mensagemGerada}
           podeEnviar={podeEnviarConversa}
           podeGerar={podeGerarConversa}
           motivoEnvioIndisponivel={config.modo === 'automatico'
@@ -2217,8 +2430,8 @@ export default function BancoLeadsPage() {
           onEnviar={enviarLeadConversa}
           onGerar={gerarMensagemConversa}
           onAlterarStatus={alterarStatusConversa}
-          onSalvarTelefone={(telefone) => salvarTelefone(conversaAberta.leadId, telefone)}
-          onClose={() => setConversaAberta(null)}
+          onSalvarTelefone={(telefone) => salvarTelefone(ficha.leadId, telefone)}
+          resumoExtra={resumoDaFicha}
         />
       )}
 
@@ -2294,37 +2507,93 @@ export default function BancoLeadsPage() {
  * Um estágio do funil. Continua sendo o seletor de aba — por isso `aria-pressed`, e não um
  * cartão decorativo. A seleção NÃO é dita só pela cor: o cartão ativo declara "em exibição".
  */
-function CartaoFunil({ cartao, ativo, onEscolher }: {
+function AbaFunil({ cartao, ativo, onEscolher }: {
   cartao: { valor: string; label: string; total: number | null; percentual: number | null; tom: string }
   ativo: boolean
   onEscolher: () => void
 }) {
-  const barra = cartao.tom === 'ok' ? 'bg-estado-ok'
-    : cartao.tom === 'danger' ? 'bg-estado-danger'
-    : cartao.tom === 'neutro' ? 'bg-line-strong'
-    : 'bg-brand'
+  const detalhe = cartao.percentual === null
+    ? `${cartao.label}: contagem ainda nao carregada`
+    : `${cartao.label}: ${cartao.total} lead(s), ${cartao.percentual}% da carteira nas abas`
   return (
-    <button type="button" onClick={onEscolher} aria-pressed={ativo}
-      className={`flex flex-col gap-1.5 rounded-lg border p-3 text-left shadow-card transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${
-        ativo ? 'border-brand bg-brand/5' : 'border-line bg-surface hover:bg-surface-2'
+    <button type="button" onClick={onEscolher} aria-pressed={ativo} title={detalhe}
+      className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border px-3 text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${
+        ativo ? 'border-brand bg-brand/5 font-semibold text-brand' : 'border-line bg-surface text-ink-2 hover:bg-surface-2'
       }`}>
-      <span className="text-xs font-medium text-ink-3">{cartao.label}</span>
-      <span className="flex items-baseline gap-2">
-        <span className="text-xl font-bold tabular-nums text-ink sm:text-2xl">
-          {cartao.total === null ? '—' : cartao.total}
-        </span>
-        {cartao.percentual !== null && (
-          <span className="text-[11px] tabular-nums text-ink-3">{cartao.percentual}%</span>
-        )}
-      </span>
-      <span className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3" aria-hidden="true">
-        <span className={`block h-full rounded-full ${barra}`}
-          style={{ width: `${cartao.percentual === null ? 0 : cartao.percentual}%` }} />
-      </span>
-      <span className={`text-[11px] ${ativo ? 'font-medium text-brand' : 'text-transparent'}`}>
-        {ativo ? 'Em exibição' : '—'}
+      <span className="whitespace-nowrap">{cartao.label}</span>
+      {/* A contagem nunca some: ela e' o que faz o seletor valer mais que uma aba. `—` quando
+          ninguem contou ainda — "0" afirmaria que o estagio esta vazio. */}
+      <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${
+        ativo ? 'bg-brand text-white' : 'bg-surface-3 text-ink-3'
+      }`}>
+        {cartao.total === null ? '—' : cartao.total}
       </span>
     </button>
+  )
+}
+
+/**
+ * FAIXA DE ENVIO — a linha que substitui o painel permanente de disparo na primeira dobra.
+ *
+ * O que ela carrega e' o que o operador precisa saber SEM abrir nada: em que modo esta, por
+ * qual numero, se o WhatsApp esta conectado e se o envio esta liberado. O que ela esconde e'
+ * ajuste (janela, intervalo, escolha do modo) — e nada que bloqueie o envio.
+ *
+ * O estado NUNCA e' so' cor: o rotulo em texto ("Envio bloqueado", "Próximo envio em 04:12")
+ * vem junto da bolinha, e o motivo fica ao lado, nao atras de um hover.
+ */
+function FaixaEnvio({ faixa, aberto, onAlternar, onTestar, podeTestar, saudacaoFaltando }: {
+  faixa: { estado: string; rotulo: string; detalhe: string; tom: string; resumo: string[] }
+  aberto: boolean
+  onAlternar: () => void
+  onTestar: () => void
+  podeTestar: boolean
+  saudacaoFaltando: boolean
+}) {
+  const bolinha = faixa.tom === 'danger' ? 'bg-estado-danger'
+    : faixa.tom === 'warn' ? 'bg-estado-warn'
+    : faixa.tom === 'neutro' ? 'bg-line-strong'
+    : 'bg-estado-ok'
+  const texto = faixa.tom === 'danger' ? 'text-red-700'
+    : faixa.tom === 'warn' ? 'text-amber-700'
+    : faixa.tom === 'neutro' ? 'text-ink-2'
+    : 'text-emerald-700'
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line bg-surface px-3 py-2 shadow-card">
+      <span className="flex min-w-0 items-center gap-2">
+        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${bolinha}`} aria-hidden="true" />
+        <span className={`text-sm font-semibold ${texto}`}>{faixa.rotulo}</span>
+      </span>
+      {/* Bloqueio NAO trunca e NAO depende de hover: ele diz o que impede o envio e o que
+          fazer. Truncar aqui devolveria o defeito que esta faixa existe para corrigir. */}
+      <span className={faixa.tom === 'danger'
+        ? 'order-last min-w-0 basis-full text-xs text-red-700 sm:order-none sm:basis-auto sm:flex-1'
+        : 'min-w-0 flex-1 truncate text-xs text-ink-3'} title={faixa.detalhe}>{faixa.detalhe}</span>
+      {/* O que esta configurado, em texto curto: e' o que permite o painel ficar fechado. */}
+      {faixa.resumo.length > 0 && (
+        <span className="hidden min-w-0 shrink-0 items-center gap-1.5 text-xs text-ink-3 lg:flex">
+          {faixa.resumo.map((r, i) => (
+            <span key={r + i} className="max-w-[160px] truncate rounded-md bg-surface-3 px-1.5 py-0.5">{r}</span>
+          ))}
+        </span>
+      )}
+      <span className="ml-auto flex shrink-0 items-center gap-2">
+        <button type="button" onClick={onTestar} disabled={!podeTestar}
+          className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50 ${
+            saudacaoFaltando ? 'border-estado-danger text-red-600 hover:bg-red-50' : 'border-line hover:bg-surface-2'
+          }`}
+          title={saudacaoFaltando
+            ? 'Configure a saudação (mensagem-base) desta instância antes de disparar'
+            : 'Envia uma mensagem de teste pro seu número e ajusta a saudação/IA'}>
+          <IconFlask /> <span className="hidden sm:inline">Testar envio</span>
+        </button>
+        <button type="button" onClick={onAlternar} aria-expanded={aberto}
+          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line px-3 text-sm font-medium hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand">
+          <IconGear /> <span className="hidden sm:inline">Configurar envio</span>
+          <IconChevron className={`h-3.5 w-3.5 transition ${aberto ? 'rotate-180' : ''}`} />
+        </button>
+      </span>
+    </div>
   )
 }
 
@@ -2568,7 +2837,12 @@ type TabelaProps = {
   previsoesEnvio: Map<string, PrevisaoEnvio>
   selecionados: Set<string>
   onToggleSel: (id: string) => void
-  onAbrirConversa: (l: Lead) => void
+  // Selecao da PAGINA, pelo checkbox do cabecalho. Opcionais porque a tabela continua
+  // renderizavel sem selecao (abas que nao permitem disparo).
+  idsPagina?: string[]
+  onSelecionarPagina?: () => void
+  onLimparSelecao?: () => void
+  onAbrirFicha: (l: Lead, gatilho: string) => void
   onSalvarEmail: (id: string, email: string) => Promise<void>
   onSalvarTelefone: (id: string, telefone: string) => Promise<void>
   onAbrirDetalhes: (l: Lead) => void
@@ -2892,9 +3166,9 @@ function fundoCelulaFixa(l: Lead): string {
 const CELULA_FIXA = 'sticky left-0 z-10 shadow-[6px_0_8px_-8px_rgb(15_23_42_/_0.35)]'
 const CABECALHO_FIXO = 'sticky left-0 z-30 bg-surface-2 shadow-[6px_0_8px_-8px_rgb(15_23_42_/_0.35)]'
 
-function NomeLeadCelula({ l, onAbrirConversa, largura = 'max-w-[220px]', className = '' }: {
+function NomeLeadCelula({ l, onAbrirFicha, largura = 'max-w-[220px]', className = '' }: {
   l: Lead
-  onAbrirConversa: (l: Lead) => void
+  onAbrirFicha: (l: Lead, gatilho: string) => void
   largura?: string
   /** Layout do chamador (coluna congelada). Aditivo. */
   className?: string
@@ -2902,10 +3176,13 @@ function NomeLeadCelula({ l, onAbrirConversa, largura = 'max-w-[220px]', classNa
   return (
     <td className={`px-3 py-2 font-medium ${className}`}>
       <div className="flex min-w-0 flex-col gap-1">
+        {/* O NOME abre o RESUMO da ficha — a leitura que decide se vale trabalhar agora.
+            A conversa continua a um clique: é a segunda aba, e o botão de ação da linha
+            (Enviar / Responder / Revisar) abre direto nela. */}
         <TextoTruncado
           texto={l.nome}
-          onClick={() => onAbrirConversa(l)}
-          dica="Abrir a conversa e os acessos rápidos deste lead"
+          onClick={() => onAbrirFicha(l, 'nome')}
+          dica="Abrir a ficha deste lead"
           className={`${largura} text-ink hover:text-brand hover:underline`}
         />
       </div>
@@ -2938,12 +3215,12 @@ function SelCelula({ l, selecionados, onToggleSel, className = '' }: { l: Lead; 
  * ⚠️ Ele NAO reclassifica nada: faixa, ICP, cadastro e elegibilidade vem exatamente das mesmas
  * funcoes que a tabela usa.
  */
-function LeadCartao({ l, mostrarRodar, selecionados, onToggleSel, onAbrirConversa, onAbrirDetalhes, envioBloqueado, motivoEnvioBloqueado, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver }: {
+function LeadCartao({ l, mostrarRodar, selecionados, onToggleSel, onAbrirFicha, onAbrirDetalhes, envioBloqueado, motivoEnvioBloqueado, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver }: {
   l: Lead
   mostrarRodar: boolean
   selecionados: Set<string>
   onToggleSel: (id: string) => void
-  onAbrirConversa: (l: Lead) => void
+  onAbrirFicha: (l: Lead, gatilho: string) => void
   onAbrirDetalhes: (l: Lead) => void
   envioBloqueado: boolean
   motivoEnvioBloqueado: string
@@ -3053,7 +3330,7 @@ function LeadCartao({ l, mostrarRodar, selecionados, onToggleSel, onAbrirConvers
       <div className="mt-3 flex items-center gap-2">
         <Botao
           variante={acao.variante}
-          onClick={() => onAbrirConversa(l)}
+          onClick={() => onAbrirFicha(l, 'acao')}
           motivoDesabilitado={acaoEDisparo ? acao.motivoDesabilitado : ''}
           disabled={acaoEDisparo && Boolean(acao.motivoDesabilitado)}
           title={acao.dica}
@@ -3084,13 +3361,12 @@ function LeadCartao({ l, mostrarRodar, selecionados, onToggleSel, onAbrirConvers
 }
 
 /** A fila em cartoes — so no celular. A partir de `md` quem manda e' a tabela. */
-function ListaCartoesBanco({ titulo, leads, ...resto }: {
-  titulo: string
+function ListaCartoesBanco({ leads, ...resto }: {
   leads: Lead[]
   mostrarRodar: boolean
   selecionados: Set<string>
   onToggleSel: (id: string) => void
-  onAbrirConversa: (l: Lead) => void
+  onAbrirFicha: (l: Lead, gatilho: string) => void
   onAbrirDetalhes: (l: Lead) => void
   envioBloqueado: boolean
   motivoEnvioBloqueado: string
@@ -3101,61 +3377,153 @@ function ListaCartoesBanco({ titulo, leads, ...resto }: {
   onDevolver?: (l: Lead) => void
 }) {
   if (!leads.length) return null
+  // Sem titulo de fonte: a origem vive DENTRO do cartao, como vive dentro da linha da tabela.
+  // Agrupar por fonte aqui quebraria a ordem de trabalho exatamente como quebrava no computador.
   return (
-    <section aria-label={titulo} className="space-y-2">
-      <h2 className="px-0.5 text-xs font-semibold uppercase tracking-wide text-ink-3">{titulo}</h2>
+    <section aria-label="Leads" className="space-y-2">
       {leads.map((l) => <LeadCartao key={l.id} l={l} {...resto} />)}
     </section>
   )
 }
 
-function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onSalvarTelefone, onAbrirDetalhes, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver }: TabelaProps) {
+/**
+ * Cabecalho de selecao da pagina. Substitui os botoes soltos "Selecionar pagina atual" /
+ * "Selecionar todos os filtrados" que viviam num bloco permanente acima da lista (padrao de
+ * data table: a selecao mora na tabela, nao num painel a parte).
+ *
+ * O estado INDETERMINADO existe porque "parte da pagina marcada" e' diferente de "nenhum
+ * marcado": sem ele, o operador que marcou 3 de 25 ve a caixa vazia e o clique seguinte marca
+ * tudo sem aviso.
+ */
+function CheckboxPagina({ idsPagina, selecionados, onSelecionarPagina, onLimparSelecao }: {
+  idsPagina: string[]
+  selecionados: Set<string>
+  onSelecionarPagina: () => void
+  onLimparSelecao: () => void
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  const marcados = idsPagina.filter((id) => selecionados.has(id)).length
+  const todos = idsPagina.length > 0 && marcados === idsPagina.length
+  const parcial = marcados > 0 && !todos
+  useEffect(() => { if (ref.current) ref.current.indeterminate = parcial }, [parcial])
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={todos}
+      disabled={!idsPagina.length}
+      onChange={() => (todos || parcial ? onLimparSelecao() : onSelecionarPagina())}
+      className="h-4 w-4 cursor-pointer accent-brand disabled:cursor-not-allowed disabled:opacity-40"
+      aria-label={todos || parcial
+        ? `Limpar seleção (${marcados} de ${idsPagina.length} nesta página)`
+        : `Selecionar os ${idsPagina.length} leads desta página`}
+      title={todos || parcial ? 'Limpar seleção' : 'Selecionar esta página'}
+    />
+  )
+}
+
+/**
+ * A ORIGEM na linha. Texto + pilula neutra, nunca so' cor — e a pilula e' um BOTAO que abre os
+ * detalhes do lead, onde as evidencias daquela fonte ficam.
+ *
+ * O rotulo vem de `lib/lead-origem.js`, por lista fechada. Antes a fonte nao era um dado da
+ * linha: ela era o TITULO da tabela em que a linha tinha caido, e o "resto" (tudo que nao fosse
+ * Google Places) caia sob o titulo "Instagram" — entao lead de anuncio da Meta era apresentado
+ * ao operador como lead de Instagram.
+ */
+function OrigemCelula({ l, onAbrirFicha }: { l: Lead; onAbrirFicha: (l: Lead, gatilho: string) => void }) {
+  const o = celulaOrigem(l)
+  return (
+    <td className="px-3 py-2 align-top">
+      <button
+        type="button"
+        onClick={() => onAbrirFicha(l, 'origem')}
+        className={`${o.classe} max-w-full hover:border-line-strong hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand`}
+        title={`${o.rotulo} — ${o.dica} Clique para ver as evidências desta fonte.`}
+      >
+        <span className="truncate">{o.curto}</span>
+      </button>
+      {o.detalhe && (
+        <p className="mt-0.5 max-w-[140px] truncate text-[11px] text-ink-3" title={o.detalhe}>{o.detalhe}</p>
+      )}
+    </td>
+  )
+}
+
+/**
+ * A LISTA — uma so'. Eram duas tabelas ("Google Places" x o resto), com paginacao e ordenacao
+ * independentes: a fila de trabalho que o servidor calcula e' GLOBAL, e parti-la fazia o 1o lead
+ * de cada metade disputar o topo sem nada dizer qual dos dois era o mais urgente.
+ *
+ * As colunas sao a UNIAO das duas tabelas antigas. Coluna que nao se aplica aquela fonte mostra
+ * "—" — e isso e' informacao, nao lacuna: lead de anuncio nao tem nota do Maps porque ele nao
+ * veio do Maps. Quem escolhe o que fica visivel continua sendo o "Personalizar colunas".
+ */
+function TabelaBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, idsPagina, onSelecionarPagina, onLimparSelecao, onAbrirFicha, onSalvarEmail, onSalvarTelefone, onAbrirDetalhes, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver }: TabelaProps) {
   const n = total ?? leads.length
   return (
-    <div className="bg-surface rounded-lg shadow-sm border overflow-hidden">
-      <div className="px-4 py-3 border-b flex items-center gap-2">
-        <h2 className="text-sm font-semibold">Google Places</h2>
-        <span className="text-xs text-slate-400">{n} lead{n === 1 ? '' : 's'}</span>
-      </div>
+    <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-card">
       <DataTableFrame>
         <table className="w-full min-w-max text-sm">
+          <caption className="sr-only">{n} lead{n === 1 ? '' : 's'} na ordem de trabalho</caption>
           <thead className="sticky top-0 z-20 bg-surface-2 shadow-[0_1px_0_0_#e2e8f0]">
             <tr>
               {/* IDENTIDADE CONGELADA. "Entrou em" saiu da frente do nome: a coluna fixa tem
                   de ser a que diz DE QUEM é a linha, e ela precisa ser a primeira. */}
-              {mostrarRodar && <th className={`w-8 px-3 py-2 ${CABECALHO_FIXO}`} />}
-              <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={onOrdenar}
-                className={`${CABECALHO_FIXO} ${mostrarRodar ? 'left-8' : 'left-0'}`} />
-              {cols.entrou && <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={onOrdenar} />}
+              {mostrarRodar && (
+                <th className={`w-9 px-3 py-2 ${CABECALHO_FIXO}`}>
+                  <CheckboxPagina idsPagina={idsPagina || []} selecionados={selecionados}
+                    onSelecionarPagina={onSelecionarPagina || (() => {})}
+                    onLimparSelecao={onLimparSelecao || (() => {})} />
+                </th>
+              )}
+              <ThOrdenavel label="Lead" chave="nome" ordem={ordem} onOrdenar={onOrdenar}
+                className={`${CABECALHO_FIXO} ${mostrarRodar ? 'left-9' : 'left-0'}`} />
+              {/* Origem nao e ordenavel de proposito: ordenar por fonte devolveria a lista
+                  agrupada por origem, que e' exatamente a separacao que esta tela deixou de
+                  fazer. Quem quer ver uma fonte so' usa o FILTRO de origem. */}
+              <th className="px-3 py-2 text-left font-medium text-ink-3">Origem</th>
               {/* ICP + cadastro: qualidade comercial e evidência de coleta na mesma célula.
-                  Fica logo depois do nome porque é o que decide se vale trabalhar o lead. */}
+                  Fica logo depois da identidade porque é o que decide se vale trabalhar. */}
               <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={onOrdenar} />
+              {cols.entrou && <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={onOrdenar} />}
+              {cols.username && <ThOrdenavel label="@username" chave="username" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.telefone && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.envio_previsto && <ThOrdenavel label="Envio" chave="envio" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.status && <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.qualidade && <ThOrdenavel label="Qualidade" chave="icp" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.responsavel && <th className="px-3 py-2 text-left font-medium text-ink-3">Responsável</th>}
               {cols.email && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />}
-              {cols.endereco && <ThOrdenavel label="Endereço" chave="endereco" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.nicho && <ThOrdenavel label="Nicho / Cidade" chave="nicho" ordem={ordem} onOrdenar={onOrdenar} />}
+              {cols.seguidores && <ThOrdenavel label="Seguidores" chave="seguidores" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
+              {cols.endereco && <ThOrdenavel label="Endereço" chave="endereco" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.aval && <ThOrdenavel label="Aval." chave="aval" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
               {cols.nota && <ThOrdenavel label="Nota" chave="nota" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
               {cols.horario && <ThOrdenavel label="Horário" chave="horario" ordem={ordem} onOrdenar={onOrdenar} />}
+              {cols.links && <ThOrdenavel label="Links" chave="links" ordem={ordem} onOrdenar={onOrdenar} />}
             </tr>
           </thead>
           <tbody className="divide-y">
             {leads.map((l) => {
               const horario = !!l.json_apresentacao?.empresa?.horario_funcionamento
+              const handle = String(l.instagram_handle || '').replace(/^@/, '')
               return (
                 <tr key={l.id} className={`${classeLinhaQualidadeIcp(l)} align-top`}>
                   {mostrarRodar && <SelCelula l={l} selecionados={selecionados} onToggleSel={onToggleSel} className={`${CELULA_FIXA} ${fundoCelulaFixa(l)}`} />}
-                  {/* O NOME abre a conversa do lead. A ficha do Google Maps não se perdeu:
+                  {/* O NOME abre a conversa do lead. A ficha da fonte não se perdeu:
                       virou acesso rápido no topo do modal e continua em "Detalhes". */}
-                  <NomeLeadCelula l={l} onAbrirConversa={onAbrirConversa} largura="max-w-[220px]"
-                    className={`${CELULA_FIXA} ${fundoCelulaFixa(l)} ${mostrarRodar ? 'left-8' : 'left-0'}`} />
-                  {cols.entrou && <td className="px-3 py-2 whitespace-nowrap text-xs text-ink-3">{fmtDataHora(l.created_at)}</td>}
-                  {/* ICP + cadastro como evidência — ver CadastroDetalhesCelula. */}
+                  <NomeLeadCelula l={l} onAbrirFicha={onAbrirFicha} largura="max-w-[220px]"
+                    className={`${CELULA_FIXA} ${fundoCelulaFixa(l)} ${mostrarRodar ? 'left-9' : 'left-0'}`} />
+                  <OrigemCelula l={l} onAbrirFicha={onAbrirFicha} />
                   <CadastroDetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
+                  {cols.entrou && <td className="px-3 py-2 whitespace-nowrap text-xs text-ink-3">{fmtDataHora(l.created_at)}</td>}
+                  {cols.username && (
+                    <td className="px-3 py-2 text-xs">
+                      {handle
+                        ? <a href={`https://instagram.com/${handle}`} target="_blank" rel="noreferrer" className="text-brand hover:underline">@{handle}</a>
+                        : '—'}
+                    </td>
+                  )}
                   {cols.telefone && <TelefoneCelula l={l} onSalvarTelefone={onSalvarTelefone} />}
                   {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
                   {cols.status && <StatusCelula l={l} />}
@@ -3165,98 +3533,39 @@ function TabelaPlacesBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols,
                       podeTransferir={podeTransferir} onAssumir={onAssumir} onDevolver={onDevolver} />
                   )}
                   {cols.email && <td className="px-3 py-2 text-xs"><EmailEditavel value={l.email} onSave={(email) => onSalvarEmail(l.id, email)} /></td>}
+                  {cols.nicho && (
+                    <td className="px-3 py-2 text-xs">
+                      <NichoCidade nicho={l.nicho || l.categoria_perfil} cidade={l.cidade} />
+                    </td>
+                  )}
+                  {cols.seguidores && <td className="px-3 py-2 text-right text-xs font-semibold">{l.seguidores != null ? l.seguidores.toLocaleString('pt-BR') : '—'}</td>}
                   {cols.endereco && <td className="px-3 py-2 text-xs text-ink-2 max-w-[180px] truncate" title={l.endereco || ''}>{l.endereco || '—'}</td>}
-                  {cols.nicho && <td className="px-3 py-2 text-xs"><NichoCidade nicho={l.nicho} cidade={l.cidade} /></td>}
                   {cols.aval && <td className="px-3 py-2 text-right text-xs">{l.avaliacoes ?? '—'}</td>}
                   {cols.nota && <td className="px-3 py-2 text-right text-xs">{l.rating != null ? Number(l.rating).toFixed(1) : '—'}</td>}
-                  {cols.horario && <td className="px-3 py-2 text-center">{horario ? '✅' : '❌'}</td>}
+                  {/* Horário só existe na ficha do Maps. Em lead de outra fonte a resposta é
+                      "não se aplica", que NÃO é o mesmo que "não tem horário" (❌). */}
+                  {cols.horario && (
+                    <td className="px-3 py-2 text-center">
+                      {celulaOrigem(l).chave === 'places' ? (horario ? '✅' : '❌') : <span className="text-ink-3">—</span>}
+                    </td>
+                  )}
+                  {cols.links && (
+                    <td className="px-3 py-2 text-xs whitespace-nowrap">
+                      {l.link_bio && <a href={l.link_bio} target="_blank" rel="noreferrer" className="text-ink-3 underline mr-2">bio</a>}
+                      {l.tem_site && l.site && <a href={l.site} target="_blank" rel="noreferrer" className="text-ink-3 underline mr-2">site</a>}
+                      {/* Link que existe mas NÃO é site: aparece pelo que é, nunca como "site". */}
+                      {!l.tem_site && l.link_original && l.link_original !== l.link_bio && (
+                        <a href={l.link_original} target="_blank" rel="noreferrer" className="text-ink-3 underline"
+                          title={`Não é site próprio: ${l.link_original}`}>
+                          {rotuloLink(l.classificacao_url) || 'link'}
+                        </a>
+                      )}
+                      {!l.link_bio && !l.site && !l.link_original && '—'}
+                    </td>
+                  )}
                 </tr>
               )
             })}
-          </tbody>
-        </table>
-      </DataTableFrame>
-    </div>
-  )
-}
-
-function TabelaInstagramBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, onAbrirConversa, onSalvarEmail, onSalvarTelefone, onAbrirDetalhes, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver }: TabelaProps) {
-  const n = total ?? leads.length
-  return (
-    <div className="bg-surface rounded-lg shadow-sm border overflow-hidden">
-      <div className="px-4 py-3 border-b flex items-center gap-2">
-        <h2 className="text-sm font-semibold">Instagram</h2>
-        <span className="text-xs text-slate-400">{n} lead{n === 1 ? '' : 's'}</span>
-      </div>
-      <DataTableFrame>
-        <table className="w-full min-w-max text-sm">
-          <thead className="sticky top-0 z-20 bg-surface-2 shadow-[0_1px_0_0_#e2e8f0]">
-            <tr>
-              {/* IDENTIDADE CONGELADA — mesma regra da tabela do Google Places. */}
-              {mostrarRodar && <th className={`w-8 px-3 py-2 ${CABECALHO_FIXO}`} />}
-              <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={onOrdenar}
-                className={`${CABECALHO_FIXO} ${mostrarRodar ? 'left-8' : 'left-0'}`} />
-              {cols.entrou && <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={onOrdenar} />}
-              {/* ICP + cadastro logo depois do nome, como na tabela do Google Places. */}
-              <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={onOrdenar} />
-              <ThOrdenavel label="@username" chave="username" ordem={ordem} onOrdenar={onOrdenar} />
-              {cols.nicho && <ThOrdenavel label="Nicho" chave="nicho" ordem={ordem} onOrdenar={onOrdenar} />}
-              {cols.seguidores && <ThOrdenavel label="Seguidores" chave="seguidores" ordem={ordem} onOrdenar={onOrdenar} align="right" />}
-              {cols.telefone && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={onOrdenar} />}
-              {cols.envio_previsto && <ThOrdenavel label="Envio" chave="envio" ordem={ordem} onOrdenar={onOrdenar} />}
-              {cols.status && <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={onOrdenar} />}
-              {cols.qualidade && <ThOrdenavel label="Qualidade" chave="icp" ordem={ordem} onOrdenar={onOrdenar} />}
-              {cols.responsavel && <th className="px-3 py-2 text-left font-medium text-ink-3">Responsável</th>}
-              {cols.email && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={onOrdenar} />}
-              {cols.links && <ThOrdenavel label="Links" chave="links" ordem={ordem} onOrdenar={onOrdenar} />}
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {leads.map((l) => (
-              <tr key={l.id} className={`${classeLinhaQualidadeIcp(l)} align-top`}>
-                {mostrarRodar && <SelCelula l={l} selecionados={selecionados} onToggleSel={onToggleSel} className={`${CELULA_FIXA} ${fundoCelulaFixa(l)}`} />}
-                <NomeLeadCelula l={l} onAbrirConversa={onAbrirConversa} largura="max-w-[200px]"
-                  className={`${CELULA_FIXA} ${fundoCelulaFixa(l)} ${mostrarRodar ? 'left-8' : 'left-0'}`} />
-                {cols.entrou && <td className="px-3 py-2 whitespace-nowrap text-xs text-ink-3">{fmtDataHora(l.created_at)}</td>}
-                {/* Instagram vale até 60 — o máximo vem do backend e entra como evidência do ICP. */}
-                <CadastroDetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
-                <td className="px-3 py-2 text-xs">
-                  {l.instagram_handle ? (
-                    <a href={`https://instagram.com/${l.instagram_handle.replace(/^@/, '')}`} target="_blank" rel="noreferrer"
-                      className="text-brand hover:underline">@{l.instagram_handle.replace(/^@/, '')}</a>
-                  ) : '—'}
-                </td>
-                {cols.nicho && (
-                  <td className="px-3 py-2 text-xs text-ink-2 max-w-[160px] truncate" title={[l.nicho, l.categoria_perfil, l.cidade].filter(Boolean).join(' · ')}>
-                    {l.nicho || l.categoria_perfil || '—'}
-                  </td>
-                )}
-                {cols.seguidores && <td className="px-3 py-2 text-right text-xs font-semibold">{l.seguidores != null ? l.seguidores.toLocaleString('pt-BR') : '—'}</td>}
-                {cols.telefone && <TelefoneCelula l={l} onSalvarTelefone={onSalvarTelefone} />}
-                {cols.envio_previsto && <EnvioCelula l={l} previsoesEnvio={previsoesEnvio} />}
-                {cols.status && <StatusCelula l={l} />}
-                {cols.qualidade && <QualidadeIcpCelula l={l} />}
-                {cols.responsavel && (
-                  <ResponsavelCelula l={l} usuarioId={usuarioId} podeAssumir={podeAssumir}
-                    podeTransferir={podeTransferir} onAssumir={onAssumir} onDevolver={onDevolver} />
-                )}
-                {cols.email && <td className="px-3 py-2 text-xs"><EmailEditavel value={l.email} onSave={(email) => onSalvarEmail(l.id, email)} /></td>}
-                {cols.links && (
-                  <td className="px-3 py-2 text-xs whitespace-nowrap">
-                    {l.link_bio && <a href={l.link_bio} target="_blank" rel="noreferrer" className="text-ink-3 underline mr-2">bio</a>}
-                    {l.tem_site && l.site && <a href={l.site} target="_blank" rel="noreferrer" className="text-ink-3 underline mr-2">site</a>}
-                    {/* Link que existe mas NÃO é site: aparece pelo que é, nunca como "site". */}
-                    {!l.tem_site && l.link_original && l.link_original !== l.link_bio && (
-                      <a href={l.link_original} target="_blank" rel="noreferrer" className="text-ink-3 underline"
-                        title={`Não é site próprio: ${l.link_original}`}>
-                        {rotuloLink(l.classificacao_url) || 'link'}
-                      </a>
-                    )}
-                    {!l.link_bio && !l.site && !l.link_original && '—'}
-                  </td>
-                )}
-              </tr>
-            ))}
           </tbody>
         </table>
       </DataTableFrame>

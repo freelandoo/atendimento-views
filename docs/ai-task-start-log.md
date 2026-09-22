@@ -4863,3 +4863,232 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   `.d.ts` e cobrir o caminho inteiro com teste de regressão.
 - **Fora de escopo:** qualquer mudança de backend, de rota, de permissão, de migration ou da
   regra de devolução de leads. Nenhum arquivo de `backend/` é tocado.
+
+## 2026-09-22 (3) — Grade de horários livres: folga de 2h entre reuniões "passando errado"
+
+- **Pedido do operador:** na tela de agenda (novo evento) e no agendamento a partir do Banco de
+  Leads, a tabela de horários livres está oferecendo horário errado. A regra pretendida é ter
+  **2h de intervalo entre uma reunião e outra** (período de preparo), valendo nas duas telas.
+- **Estado atual medido (sem alterar nada):**
+  - a folga **já existe e está no ar** (`backend/src/services/agenda-slots.js`, commit `fcdec91`,
+    deploy `f11cae9`), com default **120 min** e aplicada dos DOIS lados do evento;
+  - `REUNIAO_BUFFER_MIN` **não está setada** em produção (conferido no Railway), então a tela
+    usa 120 e o bot usa 30 — **dois defaults diferentes sob o mesmo nome de variável**
+    (`agenda.js` = 30, `agenda-slots.js` = 120);
+  - simulação local da regra atual, reunião de 1h às 16:00 (janela 08:00–20:00, passo 60):
+    livres = 08,09,10,11,12,13 e **19:00** — o "19:00" que o operador citou.
+- **Três causas candidatas para o que aparece errado na tela (nenhuma corrigida ainda):**
+  1. **a folga só vale para `tipo = 'reuniao'`** (`eventoUsaBufferReuniao`). Um evento de
+     "Retorno", "Follow-up" ou "Tarefa" às 16:00 não reserva nada, e a grade volta a oferecer
+     15:00 e 16:30 — simulação confirma;
+  2. **o slot dentro da folga é rotulado como "Ocupado — Já há um compromisso: <título>"**
+     (`frontend/lib/agenda-slots.js`), então às 14:00 a tela afirma que existe um compromisso
+     que não existe naquele horário. Parece defeito mesmo quando a regra está certa;
+  3. **o bot do WhatsApp oferece com folga de 30 min**, não 2h — as duas portas de agendamento
+     não combinam entre si.
+- **Aguardando decisão do operador** (registrada antes de escrever qualquer código): escopo da
+  folga (só reunião × qualquer compromisso), se o bot passa a usar a mesma folga, e confirmação
+  do lado "antes" da regra (hoje a folga é simétrica).
+- **Fora de escopo desta rodada:** unificar as duas agendas (`app` × `vendas`), mudar janela de
+  atendimento do funil, migration ou variável de ambiente nova.
+
+**Decisões do operador (2026-09-22) e entrega:**
+1. **Escopo da folga: só reuniões** — mantido como já era (`eventoUsaBufferReuniao`). Nada mudou aqui.
+2. **O bot passa a usar a MESMA folga de 2h.** `agenda.js` deixou de ter a cópia dele da constante
+   e importa de `services/agenda-slots.js`. ⚠️ **Consequência declarada, medida e aceita:** com a
+   janela do funil em 19:30–21:15, o bot passa a oferecer **no máximo uma reunião por dia útil**
+   (o sábado, de janela ampla, segue com várias). Afrouxar = baixar `REUNIAO_BUFFER_MIN`.
+3. **Motivo `preparo`**, com o horário da reunião de origem (`referencia`). O slot da folga
+   deixou de afirmar "já há um compromisso" num horário vazio.
+- **Validação:** `npm test` 2408/2410 (as 2 falhas são as de IA que fazem chamada real e tomam
+  429 — ambientais, já conhecidas); `npx tsc --noEmit` limpo; `node --test lib/*.test.js` 723/723.
+- **Não verificado ao vivo:** nenhuma reunião real foi marcada pelo WhatsApp depois da mudança.
+
+## 2026-09-22 (4) — Repaginação da área de trabalho + Quadro do Dia (Fase 0)
+
+- **Pedido do operador:** deixar a operação comercial mais compacta e organizada (Banco de Leads,
+  ficha do lead, Aquisição, Follow-ups, Mensagens, Equipe/Minha Operação) e implementar um
+  **Quadro do Dia** com cards arrastáveis dentro do Banco de Leads.
+- **Restrição principal confirmada:** **o menu lateral (`components/Sidebar.tsx`) NÃO é alterado.**
+  Estrutura, largura, cores, ícones, nomes, ordem, agrupamentos, permissões e expansão
+  preservados. As laterais desenhadas nas imagens de IA da rodada anterior são ignoradas.
+- **Base:** estudo documental de 2026-09-22 em `docs/propostas/2026-09-22-repaginacao/`
+  (sem implementação no produto). Esta rodada é a **implementação**, revalidada contra o código.
+- **Estado do Git no início:** `master`, 12 arquivos modificados **da tarefa anterior**
+  (folga de 2h da agenda: `backend/src/agenda.js`, `agenda-slots.js`, `api-agenda.js`, testes,
+  `frontend/lib/agenda-slots.*`, `AGENTS.md`, `.env.example`, este log) + `docs/propostas/`
+  não rastreado. **Nada disso é revertido, sobrescrito ou commitado por esta tarefa.**
+- **Revalidação no código (medida, não presumida):**
+  1. `banco-leads/page.tsx:402` — `ORIGENS_PLACES = {manual, automatico}`; a linha 1052 manda
+     **todo o resto** para a tabela rotulada **"Instagram"**. Lead `origem='meta_ads'`
+     (migration 091) aparece hoje **sob o título Instagram**. Defeito confirmado.
+  2. `api-banco-leads.js:83` — `ORIGENS_VALIDAS = {manual, automatico, instagram, linkedin}`.
+     `?origem=meta_ads` **não casa com nada e é ignorado em silêncio** (devolve tudo).
+  3. `api-banco-leads.js:662` — `anexarScoreCadastro` pontua todo lead não-Places pela régua
+     de **Instagram (0–60)**, inclusive o de anúncio. Régua emprestada, não decidida.
+  4. `GET /leads` já ordena no **servidor** pela fila de trabalho e devolve janela de 300 com
+     `meta.total_carteira`. A lista unificada é mudança de **apresentação**: não exige rota nova.
+  5. Seleção em massa: bloco permanente (`page.tsx:1782`), e
+     "Selecionar todos os filtrados" (`:1088`) seleciona o **conjunto carregado**, não a carteira.
+  6. Não existe entidade de **planejamento do dia** no schema. `app.follow_ups` (migration 062)
+     é compromisso com um CONTATO (canal + prazo + telefone), não plano de um DIA de uma PESSOA.
+- **Aguardando aprovação antes de escrever código de banco** (Fase 6 / Regra 4): a persistência
+  do Quadro do Dia exige tabela nova (`app.plano_dia_itens`, migration `095`). Proposta revisável
+  entregue no chat.
+- **Fora de escopo declarado:** Sidebar; regra de negócio de envio, coleta paga, tetos, retries,
+  provedores; redistribuição de carteira; fusão automática de cadastros; qualquer deploy.
+
+**Decisões do operador (2026-09-22) e Etapa 1 entregue:**
+1. **Migration 095 (`app.plano_dia_itens`) APROVADA** como proposta — tabela própria, UNIQUE de
+   antiduplicidade, etapa do dia separada do status comercial, sem capacidade nova. **Ainda não
+   escrita:** ela é a Etapa 3.
+2. **Padrão visual: variação controlada e documentada**, tela a tela (registrada em
+   `docs/ui-visual-standard.md`).
+3. **Entrega por etapas, com revisão entre elas.**
+4. **"Feito hoje" exige evidência com saída honesta:** fluxo oficial quando ele existe;
+   conclusão com nota, rotulada como autodeclarada, quando não existe.
+
+**Etapa 1 — Banco de Leads compacto + origens corrigidas: IMPLEMENTADA.** Detalhe das decisões
+em `docs/ai-decision-log.md` (2026-09-22) e das regras a preservar em
+`docs/project-change-map.md`. Validação: frontend `npx tsc --noEmit` limpo,
+`node --test lib/*.test.js` 747/747, `npx next build` OK; backend `node --test` nas 5 suítes
+afetadas 85/85 (a suíte nova `test/lead-origem.test.js` foi registrada no `npm test`).
+⚠️ **Verificação visual ao vivo NÃO foi feita:** esta sessão não tem ferramenta de navegador, e
+subir o backend local apontaria para o banco de PRODUÇÃO e ligaria os workers (coleta paga,
+disparo automático) — proibido pelos limites operacionais do pedido. **`Sidebar.tsx` não aparece
+no `git status`: menu lateral preservado.**
+
+**Etapa 2 — Ficha do lead: IMPLEMENTADA.** Um painel lateral com quatro seções
+(Resumo · Conversa · Qualificação · Fontes) no lugar dos dois modais centrados. Decisões em
+`docs/ai-decision-log.md` (2026-09-22, Etapa 2) e regras a preservar em
+`docs/project-change-map.md`. Nenhum arquivo de backend foi tocado. Validação: `npx tsc --noEmit`
+limpo, `node --test lib/*.test.js` 759/759, `npx next build` OK.
+⚠️ **Verificação visual das Etapas 1 e 2 fica para uma rodada única** (decisão do operador).
+
+---
+
+## 2026-09-22 (4) — Leads de Pousada invisíveis para o Time Pousada (Tutu e Rhyan)
+
+**Pedido do operador:** "tem duas equipes; o Tutu e o Rian estão no time de pousada, mas não
+receberam no banco de leads deles a informação das pousadas dividido certinho. A ideia seria
+repassar esses leads pra eles. Eu tinha mudado ele de um time pro outro."
+
+**Fase 0 — diagnóstico SOMENTE LEITURA contra o Postgres de produção** (Railway, projeto
+"atendimento views"; URL pública obtida por `mcp__railway__list_variables`, nunca digitada pelo
+operador no chat). `BEGIN TRANSACTION READ ONLY` + `ROLLBACK`, nenhuma escrita.
+
+**A distribuição NÃO falhou — ela funcionou.** Medido:
+- `Time Pousada` (nicho `Pousada`, `5dfcceb8…`) tem 2 membros ativos, ambos entraram em
+  2026-09-22 19:18:40 vindos do `Time 1` (Energia Solar).
+- O rebalanceamento automático rodou na entrada: **tutu_zz com 131 leads e Rhyan_moraes com 132**
+  do nicho Pousada na mão (263 de 268; 5 seguem livres).
+
+**A causa real é OUTRA, e é de VISIBILIDADE, não de atribuição.** Os 268 leads de Pousada estão
+todos em `qualificacao = 'legado'` / `status = 'aguardando'`. O Banco de Leads aplica, para quem
+**não** tem `LEAD_VER_BRUTOS`, o recorte `sqlAprovado('')`
+(`routes/api-banco-leads.js:250`, `__somenteAprovados`), que é **ESTRITO**: `legado` não passa.
+Os dois vínculos são `papel_empresa = 'comercial'`, `permissoes = {}` ⇒ `LEAD_VER_BRUTOS = false`.
+Confirmado por consulta: para cada um, `visiveis_hoje = 0` e `invisiveis_legado = 131/132`.
+
+É exatamente a consequência já declarada em `AGENTS.md` ("os leads do acervo nascem `legado` na
+migration 071, então a fila fica vazia até alguém triar") — aqui ela apareceu no Banco de Leads,
+não só na Central de Ligações. **Não há defeito de código novo:** o caminho de correção já existe
+e é `npm run aprovar:leads-nicho`.
+
+**Contraste que prova a leitura:** `Energia Solar` tem 553 leads `qualificacao='aprovado'`, e os
+comerciais do `Time 1` enxergam a carteira deles normalmente.
+
+**Pendência SEPARADA, encontrada no mesmo diagnóstico (não corrigida aqui):** ao saírem do
+`Time 1`, sobraram na mão deles leads de **Energia Solar** com `qualificacao='descartado'`
+(tutu_zz 18, Rhyan 25). Não aparecem em tela (descartado não passa em `sqlAprovado`), mas contam
+na carteira do painel de equipe. Requer olhar `db/lead-responsavel.js:liberarLeadsDoMembro`.
+
+**Etapa 3 — Quadro do Dia: IMPLEMENTADA** (migration `095_plano_dia.sql`, aprovada pelo
+operador). Backend: `services/plano-dia.js` (PURO), `db/plano-dia.js`, 5 rotas no mount de
+`/banco-leads` + `GET /leads/:id`. Front: `lib/plano-dia.js`, `components/QuadroDoDia.tsx`,
+`components/ModalPlanejarDia.tsx` e a alternância `Lista | Quadro do dia` na tela.
+Decisões em `docs/ai-decision-log.md` (2026-09-22, Etapa 3); regras a preservar em
+`docs/project-change-map.md`. Validação: backend `npm test` 2443/2445 (as 2 falhas são as de IA
+que fazem chamada real e tomam 429 — ambientais e já conhecidas) e `npm run typecheck` limpo;
+frontend `npx tsc --noEmit` limpo, `node --test lib/*.test.js` 777/777, `npx next build` OK.
+⚠️ **A migration 095 NÃO foi aplicada** (ela roda no boot do Railway) e **nenhuma verificação
+visual ao vivo foi feita**. **`Sidebar.tsx` continua fora do `git status`.**
+
+**AÇÃO APLICADA (autorizada pelo operador no chat):**
+`npm run aprovar:leads-nicho -- --nicho="Pousada" --empresa=f5f47737… --usuario=pjcodeworks@gmail.com --aplicar`
+Simulação rodada primeiro. Resultado: **268 leads promovidos de `legado` para `aprovado`**
+(`status` `aguardando` → `aprovado`), **268 linhas em `app.auditoria_eventos`**
+(`lead_qualificacao_aprovada_em_lote`), **3 descartados preservados**. SQL de rollback exato
+impresso pelo script no momento da execução. **Nenhuma linha de código alterada** — a correção
+era de DADO, pelo caminho que já existia.
+
+**⚠️ A composição da equipe MUDOU durante a sessão (o operador mexeu na tela ao vivo):** às
+22:32:36 `tutu_zz` SAIU do Time Pousada (a devolução liberou os 131 leads dele para a fila) e às
+22:33:26 entraram `guiflx033` e `hahazk_`. Com os leads já aprovados, o rebalanceamento
+automático distribuiu a carteira inteira.
+
+**Estado final verificado (leitura pós-execução):** nicho Pousada com 271 leads —
+`guiflx033` 88, `hahazk_` 88, `Rhyan_moraes` 87, **5 livres** e 3 descartados. Cada membro
+enxerga ~93 leads no Banco de Leads (os seus + os 5 livres). **`tutu_zz` está fora da equipe** e,
+portanto, sem carteira de Pousada — decisão do operador, não efeito da correção.
+
+**Os 5 livres não são falha:** o predicado `sqlRedistribuivel` os protege — 4 com
+`follow_up_aberto` e 1 `ja_trabalhado`. Distribuí-los automaticamente tiraria lead de quem já
+combinou retorno com o cliente.
+
+**Fora de escopo (não tocado):** os 10 leads com texto `nicho='Pousada'` e `nicho_id IS NULL`,
+`qualificacao='pendente'` — nunca triados, continuam na curadoria. E o resíduo de Energia Solar
+descartado na mão do tutu_zz (18) e do Rhyan (25).
+
+**Etapa 4 — Aquisição: IMPLEMENTADA.** Três modos (Resultados · Buscas · Rotinas) no lugar das
+três sessões por fonte; origem virou filtro + coluna. **Defeito de backend corrigido no caminho:**
+`normalizarOrigemFiltro` mandava origem desconhecida para `'manual'`, então `?origem=instagram`
+devolvia leads do Google Places em silêncio — dois testes que afirmavam esse comportamento foram
+reescritos. Também corrigidos dois rótulos ERRADOS na Captação ("Google CSE", provedor que o
+fluxo não usa mais). Decisões em `docs/ai-decision-log.md` (2026-09-22, Etapa 4). Validação:
+backend `npm test` 2444/2446 (as 2 de IA com 429) e `npm run typecheck` limpo; frontend
+`npx tsc --noEmit` limpo, `node --test lib/*.test.js` 777/777, `npx next build` OK.
+⚠️ **Verificação visual ao vivo não feita. `Sidebar.tsx` continua fora do `git status`.**
+
+**Etapa 5 — Follow-ups + Minha Operação: IMPLEMENTADA.** A coluna "Por que agora" deixou de ser
+um parágrafo por linha (`motivoDaLinha`, puro e testado); "Origem" virou "Origem da tarefa" para
+não colidir com a coluna Origem (aquisição) nascida nas Etapas 1 e 4; o Quadro do Dia entrou em
+Minha Operação como bloco próprio, com a contagem REEXPORTADA de `lib/plano-dia.js`.
+**A Central de Mensagens NÃO foi alterada** — a avaliação e o motivo estão em
+`docs/ai-decision-log.md` (Etapa 5, Decisão 6), e a redução das colunas fica como decisão aberta.
+A Área de Equipe já havia sido unificada numa rodada anterior. Validação: frontend
+`npx tsc --noEmit` limpo, `node --test lib/*.test.js` 783/783, `npx next build` OK.
+⚠️ **Verificação visual ao vivo não feita. `Sidebar.tsx` continua fora do `git status`.**
+
+**As cinco etapas da repaginação estão implementadas.** Pendências declaradas: verificação visual
+ao vivo (todas as etapas), aplicação da migration `095` (roda no boot) e commit/push/deploy —
+nada foi commitado.
+
+**Continuação (mesma sessão) — "Resolva os leads" + "o aplicativo precisa estar preparado".**
+
+**Defeito medido em produção:** `atualizarMembro` (`db/membros.js`) só trocava `ativo` e auditava —
+não tocava em lead, conversa, follow-up nem vínculo de equipe. Contas desativadas seguravam
+**184 leads trabalháveis** (Arhur fresco, que ainda constava como membro ativo de 1 equipe) e
+**7 follow-ups em aberto** (tutu_zz 3, gabs098953 4). E `liberarLeadsDoMembro` filtrava
+`qualificacao IN ('aprovado','legado')`, o que deixava lead **descartado** grudado em quem saía de
+uma equipe — a origem exata do resíduo relatado (tutu_zz 18, Rhyan 25).
+
+**CÓDIGO (4 arquivos, nenhuma migration):** `devolverTrabalhoDoMembro` em `src/db/membros.js`
+(dentro da transação do vínculo, só na transição ativo→inativo);
+`liberarLeadsDoMembro` generalizada (`nichoId` opcional, sem filtro de qualificação);
+`liberarConversasDoMembro` (novo, em `db/conversa-responsavel.js`);
+`liberarFollowUpsDoMembro` (novo, em `db/follow-ups.js`, só `aguardando`).
+Decisões em `docs/ai-decision-log.md`; regra em `AGENTS.md` (e a afirmação contrária da Etapa 12
+marcada como SUPERADA).
+
+**Validação:** `npm test` 2456 testes, **2454 passam**. As 2 falhas (`motor de IA: …`) são as
+mesmas ANTES das alterações — confirmado com `git stash` — e são os testes que fazem chamada real
+ao provedor (429 ambiental). 10 testes novos em `test/membros.test.js` (32 no total), sendo 6
+guardas que leem o fonte; validei que a guarda principal FALHA quando o filtro de qualificação é
+reintroduzido.
+
+**DADOS corrigidos em produção**, pelas MESMAS funções (nunca SQL à mão), simulação antes:
+Arhur fresco 184 leads + 1 equipe · gabs098953 1 lead + 4 follow-ups · tutu_zz 18 leads +
+3 follow-ups · Rhyan 25 descartados de resíduo. **Releitura confirma `leads_presos = 0`.**
+Sobraram 20 descartados na mão do próprio PJ Codeworks (vínculo ATIVO) — não é resíduo de saída,
+são decisões dele, e não foram tocados.

@@ -101,21 +101,34 @@ test('prospect filters: opcoes de mercado respeitam carteira e porta de aprovado
 
 // A origem e' normalizada num lugar so: a listagem (/prospects) e a contagem por status
 // (/metricas) precisam recortar o MESMO universo, senao o numero do filtro nao bate com a lista.
-test('prospect filters: origem preserva meta_ads; desconhecido cai em manual', () => {
-  assert.equal(normalizarOrigemFiltro('automatico'), 'automatico')
-  assert.equal(normalizarOrigemFiltro('  AUTOMATICO '), 'automatico')
-  assert.equal(normalizarOrigemFiltro('manual'), 'manual')
-  assert.equal(normalizarOrigemFiltro('meta_ads'), 'meta_ads')
-  assert.equal(normalizarOrigemFiltro('  META_ADS '), 'meta_ads')
-  assert.equal(normalizarOrigemFiltro('rotina'), 'manual')
-  assert.equal(normalizarOrigemFiltro('qualquer-coisa'), 'manual')
+// ⚠️ ESTES DOIS TESTES FORAM REESCRITOS EM 2026-09-22, e o que eles afirmavam antes era o
+// DEFEITO: "desconhecido cai em manual". Com aquela regra, `?origem=instagram` virava
+// `WHERE origem = 'manual'` e a Aquisicao devolvia leads do Google Places para quem pediu
+// Instagram — em silencio. O normalizador passou a delegar ao dono do vocabulario
+// (`services/lead-origem.js`), que e' travado contra a CHECK `prospects_origem_chk`.
+test('prospect filters: cada origem alcanca o que ela promete', () => {
+  assert.deepEqual(normalizarOrigemFiltro('automatico'), ['automatico'])
+  assert.deepEqual(normalizarOrigemFiltro('  AUTOMATICO '), ['automatico'])
+  assert.deepEqual(normalizarOrigemFiltro('manual'), ['manual'])
+  assert.deepEqual(normalizarOrigemFiltro('meta_ads'), ['meta_ads'])
+  assert.deepEqual(normalizarOrigemFiltro('  META_ADS '), ['meta_ads'])
+  // O que o defeito escondia: as duas origens sociais agora recortam de verdade.
+  assert.deepEqual(normalizarOrigemFiltro('instagram'), ['instagram'])
+  assert.deepEqual(normalizarOrigemFiltro('places'), ['manual', 'automatico'])
 })
 
-test('prospect filters: origem vazia nao filtra nada', () => {
-  assert.equal(normalizarOrigemFiltro(''), '')
-  assert.equal(normalizarOrigemFiltro('   '), '')
-  assert.equal(normalizarOrigemFiltro(null), '')
-  assert.equal(normalizarOrigemFiltro(undefined), '')
+test('prospect filters: origem desconhecida NAO vira outra origem', () => {
+  // Antes, "rotina" e "qualquer-coisa" viravam `manual` e a tela mostrava lead de Places
+  // afirmando ser outra coisa. Hoje o filtro simplesmente nao entra no WHERE.
+  assert.equal(normalizarOrigemFiltro('rotina'), null)
+  assert.equal(normalizarOrigemFiltro('qualquer-coisa'), null)
+})
+
+test('prospect filters: origem vazia nao filtra nada — e nunca devolve lista vazia', () => {
+  // `null` e nao `[]`: `origem = ANY('{}')` nao casa com lead nenhum e esvaziaria a tela.
+  for (const v of ['', '   ', null, undefined]) {
+    assert.equal(normalizarOrigemFiltro(v), null, `"${v}" deveria significar "sem filtro"`)
+  }
 })
 
 test('prospect filters: filtros de presenca digital aceitam apenas com ou sem', () => {

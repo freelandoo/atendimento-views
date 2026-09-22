@@ -5,7 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
-  cartoesDeFunil, itensMaisAcoes, validarExportacao,
+  cartoesDeFunil, itensMaisAcoes, validarExportacao, escopoDaSelecao, faixaDeEnvio,
   COLUNAS_CSV, COLUNAS_CSV_PADRAO, LIMPEZA,
 } from './banco-leads-painel.js'
 
@@ -130,4 +130,78 @@ test('guarda: o texto da limpeza não promete exclusão por filtro ou por seleç
   assert.match(texto, /sem e-mail e sem telefone|não têm e-mail nem telefone/i)
   assert.match(LIMPEZA.aviso, /irreversível/i)
   assert.doesNotMatch(texto, /todos os leads|leads filtrados|leads selecionados/i)
+})
+
+// ─── escopoDaSelecao ──────────────────────────────────────────────────────────
+// O defeito: "Selecionar todos os filtrados" selecionava o conjunto CARREGADO. Com 300 de
+// 1.240, o operador lia "todos os filtrados" e concluia que mandara gerar mensagem para 1.240.
+test('escopoDaSelecao DIZ que a selecao alcanca so a janela carregada', () => {
+  const e = escopoDaSelecao({ selecionados: 3, naPagina: 25, carregados: 300, totalCarteira: 1240 })
+  assert.ok(e.aviso.includes('300'))
+  assert.ok(e.aviso.includes('1240'))
+})
+
+test('escopoDaSelecao NAO promete a carteira inteira', () => {
+  const e = escopoDaSelecao({ selecionados: 300, naPagina: 25, carregados: 300, totalCarteira: 1240 })
+  const textos = [e.rotulo, e.rotuloAmpliar, e.rotuloPagina, e.aviso].join(' ').toLowerCase()
+  for (const proibido of ['todos os resultados', 'toda a carteira', 'todos os filtrados']) {
+    assert.ok(!textos.includes(proibido), `a barra prometeu "${proibido}" para uma selecao limitada a janela`)
+  }
+})
+
+test('sem janela parcial nao ha aviso (nao se inventa ressalva)', () => {
+  assert.equal(escopoDaSelecao({ selecionados: 1, naPagina: 25, carregados: 40, totalCarteira: 40 }).aviso, '')
+  assert.equal(escopoDaSelecao({ selecionados: 1, naPagina: 25, carregados: 40, totalCarteira: null }).aviso, '',
+    'carteira nao contada nao vira afirmacao sobre o que falta')
+})
+
+test('a barra so existe quando ha selecao, e ampliar some quando ja cobre o carregado', () => {
+  assert.equal(escopoDaSelecao({ selecionados: 0, carregados: 300 }).ativo, false)
+  assert.equal(escopoDaSelecao({ selecionados: 300, carregados: 300 }).podeAmpliar, false)
+  assert.equal(escopoDaSelecao({ selecionados: 3, carregados: 300 }).podeAmpliar, true)
+})
+
+test('singular e plural do contador', () => {
+  assert.equal(escopoDaSelecao({ selecionados: 1 }).rotulo, '1 lead selecionado')
+  assert.equal(escopoDaSelecao({ selecionados: 2 }).rotulo, '2 leads selecionados')
+})
+
+test('escopoDaSelecao aguenta chamada vazia', () => {
+  const e = escopoDaSelecao()
+  assert.equal(e.ativo, false)
+  assert.equal(e.aviso, '')
+})
+
+// ─── faixaDeEnvio ─────────────────────────────────────────────────────────────
+// O painel de disparo foi recolhido. A regra que nao se negocia: o MOTIVO de o envio estar
+// bloqueado nunca fica dentro do que se recolhe.
+test('bloqueio vence cooldown e traz o motivo em texto', () => {
+  const f = faixaDeEnvio({ motivoBloqueio: 'WhatsApp desconectado', cooldown: '04:12' })
+  assert.equal(f.estado, 'bloqueado')
+  assert.equal(f.detalhe, 'WhatsApp desconectado')
+  assert.equal(f.tom, 'danger')
+})
+
+test('o estado sempre tem rotulo em texto — nunca so cor', () => {
+  for (const entrada of [{}, { motivoBloqueio: 'x' }, { cooldown: '01:00' }, { automatico: true }]) {
+    const f = faixaDeEnvio(entrada)
+    assert.ok(f.rotulo && f.rotulo.trim().length > 0, 'faixa sem rotulo em texto')
+    assert.ok(f.detalhe && f.detalhe.trim().length > 0, 'faixa sem explicacao em texto')
+  }
+})
+
+test('cooldown aparece com o tempo restante', () => {
+  const f = faixaDeEnvio({ cooldown: '04:12' })
+  assert.equal(f.estado, 'aguardando')
+  assert.ok(f.rotulo.includes('04:12'))
+})
+
+test('automatico desligado nao e "liberado"', () => {
+  assert.equal(faixaDeEnvio({ automatico: true, autoAtivo: false }).estado, 'parado')
+  assert.equal(faixaDeEnvio({ automatico: true, autoAtivo: true }).estado, 'liberado')
+})
+
+test('o resumo recolhido descarta vazios e preserva a ordem', () => {
+  assert.deepEqual(faixaDeEnvio({ modoLabel: 'Manual', instanciaLabel: '', conexao: 'Conectada' }).resumo,
+    ['Manual', 'Conectada'])
 })

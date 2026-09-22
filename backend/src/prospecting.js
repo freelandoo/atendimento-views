@@ -1463,10 +1463,11 @@ function montarFiltrosProspects(filtros = {}, { alias = 'p', comStatus = true } 
     const i = params.length
     where.push(`(${a}nome ILIKE $${i} OR ${a}telefone ILIKE $${i} OR ${a}endereco ILIKE $${i} OR ${a}nicho ILIKE $${i} OR ${a}categoria_perfil ILIKE $${i} OR ${a}cidade ILIKE $${i})`)
   }
-  const origem = normalizarOrigemFiltro(filtros.origem)
-  if (origem) {
-    params.push(origem)
-    where.push(`${a}origem = $${params.length}`)
+  // Lista de origens (grupo ou origem isolada) — ver normalizarOrigemFiltro. `null` = sem filtro.
+  const origens = normalizarOrigemFiltro(filtros.origem)
+  if (origens) {
+    params.push(origens)
+    where.push(`${a}origem = ANY($${params.length})`)
   }
   const site = normalizarFiltroSite(filtros.site)
   if (site === 'com') {

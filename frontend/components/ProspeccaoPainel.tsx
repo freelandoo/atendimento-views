@@ -11,6 +11,9 @@ import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
 import MenuRadialAcoes, { type AcaoRadial } from '@/components/ui/MenuRadialAcoes'
 import RotinasAquisicao, { type ModoAquisicao, type RotinasResp } from '@/components/RotinasAquisicao'
+// A ORIGEM do lead chega pronta do backend; este módulo só TRADUZ (mesmo contrato do Banco de
+// Leads). Aqui ela é FILTRO e COLUNA — nunca uma tela por fonte.
+import { celulaOrigem, OPCOES_FILTRO_ORIGEM, rotuloFiltroOrigem } from '@/lib/lead-origem'
 import HistoricoColetas from '@/components/HistoricoColetas'
 import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
 import { IconCheck, IconGear, IconTrash, IconUndo } from '@/components/ui/icons'
@@ -219,7 +222,9 @@ function opcoesMercado(filtros: FiltrosMercado | null): OpcaoFiltroMercado[] {
 // automações — e exibi-las juntas era a densidade que este controle resolve. Trocar de modo
 // só troca o conteúdo: não busca, não salva rotina, não chama a origem paga.
 const ID_MODOS = 'modo'
-const MODO_PADRAO: ModoAquisicao = 'busca'
+// O padrão passou a ser RESULTADOS: quem abre a Aquisição chega para ver o que já tem, não
+// para preencher um formulário de busca. Buscar e configurar rotina são decisões mais raras.
+const MODO_PADRAO: ModoAquisicao = 'resultados'
 const CHAVE_MODO = 'prospeccaoModo'
 
 // Recorte de TRABALHO: status, busca, mercado, cidade, ordenação e página. Vive em
@@ -229,16 +234,27 @@ const CHAVE_MODO = 'prospeccaoModo'
 // durações distintas — juntá-las faria preferência evaporar ou recorte de hoje voltar amanhã.
 const AQ_TELA_RECORTE = 'aquisicao'
 const AQ_RECORTE_PADRAO = {
-  filtro: '', buscaDados: '', mercado: '', cidadeFiltro: '',
+  filtro: '', buscaDados: '', mercado: '', cidadeFiltro: '', origem: '',
   ordemChave: 'prioridade', ordemDir: 'desc', pagina: 1, abaResultado: 'desempenho',
 }
+// TRÊS modos, cada um com um trabalho: ver o que veio · procurar mais · deixar rodando.
+// O id do modo de busca continua `busca` (e não `buscas`) de propósito: ele já está gravado em
+// `sessionStorage` e em links compartilhados, e renomear a chave só para casar com o rótulo
+// jogaria fora o recorte de quem estava trabalhando.
 const ABAS_MODO: Aba[] = [
-  { id: 'busca', titulo: 'Busca', descricao: 'Encontrar, configurar e revisar leads de uma coleta.' },
-  { id: 'rotinas', titulo: 'Rotinas', descricao: 'Configurar, acompanhar e revisar execuções automáticas.' },
+  { id: 'resultados', titulo: 'Resultados', descricao: 'Os leads que as buscas e as rotinas trouxeram, de todas as origens.' },
+  { id: 'busca', titulo: 'Buscas', descricao: 'Procurar leads novos numa fonte — cada fonte tem o seu formulário.' },
+  { id: 'rotinas', titulo: 'Rotinas', descricao: 'Coleta contínua por mercado, e o histórico do que cada execução rendeu.' },
 ]
-type FonteBuscaAquisicao = 'places' | 'meta_ads'
+/**
+ * A fonte do FORMULÁRIO de busca. `instagram` entra aqui só para SUPRIMIR o formulário de
+ * Places/Meta: a coleta de Instagram tem tela própria (campanhas, cotas, sementes) e é
+ * injetada pelo slot `conteudoBuscas`. Ela NÃO recorta a lista de Resultados — quem faz isso é
+ * o filtro de origem, que é outro eixo.
+ */
+type FonteBuscaAquisicao = 'places' | 'meta_ads' | 'instagram'
 function normalizarModo(valor: string | null | undefined): ModoAquisicao | null {
-  return valor === 'busca' || valor === 'rotinas' ? valor : null
+  return valor === 'resultados' || valor === 'busca' || valor === 'rotinas' ? valor : null
 }
 
 // Seção "Acompanhar resultados": consulta secundária, abaixo da lista de leads. As abas
@@ -311,9 +327,16 @@ function ordemDaViewAquisicao(valor: string): { chave: string; dir: 'asc' | 'des
 export default function ProspeccaoPainel({
   fonteBusca = 'places',
   embutida = false,
+  conteudoBuscas,
+  conteudoRotinas,
 }: {
   fonteBusca?: FonteBuscaAquisicao
   embutida?: boolean
+  /** Renderizado no TOPO do modo Buscas — é por onde entra o seletor de fonte e, quando a
+      fonte é Instagram, a tela de coleta dela. */
+  conteudoBuscas?: React.ReactNode
+  /** Idem, no modo Rotinas (campanhas do Instagram). */
+  conteudoRotinas?: React.ReactNode
 } = {}) {
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [metricas, setMetricas] = useState<Metricas | null>(null)
@@ -357,6 +380,12 @@ export default function ProspeccaoPainel({
   // Modo da tela (Busca / Rotinas). Começa no padrão e só depois é restaurado, no efeito:
   // ler storage/URL durante o render quebraria a hidratação.
   const [modo, setModo] = useState<ModoAquisicao>(MODO_PADRAO)
+  /**
+   * O recorte por ORIGEM da lista de Resultados. Substitui o antigo `fonteBusca === 'meta_ads'`
+   * cravado na consulta: a fonte do FORMULÁRIO e o recorte da LISTA são eixos diferentes, e
+   * amarrá-los fazia cada fonte ter a sua própria tela de resultados.
+   */
+  const [origemFiltro, setOrigemFiltro] = useState('')
   // Detalhes do lead: destino dos campos que saíram da tabela (endereço, nota, avaliações,
   // horário) e do JSON, que deixou de ser uma coluna da tela de trabalho.
   const [detalheAberto, setDetalheAberto] = useState<Prospect | null>(null)
@@ -403,6 +432,7 @@ export default function ProspeccaoPainel({
       setBuscaDados(r.buscaDados)
       setMercado(r.mercado)
       setCidadeFiltro(r.cidadeFiltro)
+      setOrigemFiltro(r.origem)
       setOrdem({ chave: r.ordemChave, dir: r.ordemDir === 'desc' ? 'desc' : 'asc' })
       setPagina(r.pagina > 0 ? r.pagina : 1)
       setAbaResultado(r.abaResultado)
@@ -412,10 +442,10 @@ export default function ProspeccaoPainel({
   useEffect(() => {
     if (!recortePronto) return
     gravarFiltros(AQ_TELA_RECORTE, empresaId, {
-      filtro, buscaDados, mercado, cidadeFiltro,
+      filtro, buscaDados, mercado, cidadeFiltro, origem: origemFiltro,
       ordemChave: ordem.chave, ordemDir: ordem.dir, pagina, abaResultado,
     })
-  }, [recortePronto, empresaId, filtro, buscaDados, mercado, cidadeFiltro, ordem, pagina, abaResultado])
+  }, [recortePronto, empresaId, filtro, buscaDados, mercado, cidadeFiltro, origemFiltro, ordem, pagina, abaResultado])
 
   // Troca de modo: só apresentação. Nenhuma requisição sai daqui — `carregar`,
   // `carregarBuscas` e o painel de rotinas não dependem de `modo`.
@@ -450,7 +480,10 @@ export default function ProspeccaoPainel({
   // Filtros de recorte, compartilhados pela lista e pelas contagens.
   function filtrosAtuais() {
     const p = new URLSearchParams()
-    if (fonteBusca === 'meta_ads') p.set('origem', 'meta_ads')
+    // A ORIGEM vem do filtro que o operador escolheu, não da fonte do formulário de busca.
+    // Antes era `fonteBusca === 'meta_ads'` cravado aqui: cada fonte tinha a sua própria tela
+    // de resultados, e não havia como ver a carteira inteira.
+    if (origemFiltro) p.set('origem', origemFiltro)
     if (buscaDados.trim()) p.set('busca', buscaDados.trim())
     if (mercado) p.set('mercado', mercado)
     if (cidadeFiltro) p.set('cidade', cidadeFiltro)
@@ -508,16 +541,18 @@ export default function ProspeccaoPainel({
   // Recarrega tudo: usado quando um lead muda de status ou uma coleta termina.
   function carregar() { carregarLista(); carregarResumo() }
 
-  useEffect(() => { carregarLista() }, [empresaId, recortePronto, filtro, buscaDados, mercado, cidadeFiltro, view, pagina, ordem.chave, ordem.dir])
-  useEffect(() => { carregarResumo() }, [empresaId, recortePronto, buscaDados, mercado, cidadeFiltro, view])
+  useEffect(() => { carregarLista() }, [empresaId, recortePronto, filtro, buscaDados, mercado, cidadeFiltro, origemFiltro, view, pagina, ordem.chave, ordem.dir])
+  useEffect(() => { carregarResumo() }, [empresaId, recortePronto, buscaDados, mercado, cidadeFiltro, origemFiltro, view])
   useEffect(() => {
     if (!empresaId || !recortePronto) return
     const p = new URLSearchParams()
-    if (fonteBusca === 'meta_ads') p.set('origem', 'meta_ads')
+    // Mesmo recorte da lista: as opções de mercado precisam sair do MESMO universo, senão o
+    // seletor oferece nicho que o filtro em vigor não tem.
+    if (origemFiltro) p.set('origem', origemFiltro)
     if (filtro) p.set('status', filtro)
     apiFetch<FiltrosMercado>(`/api/empresas/${empresaId}/prospeccao/filtros?${p.toString()}`)
       .then((r) => setFiltrosMercado(r.data || null)).catch(() => {})
-  }, [empresaId, recortePronto, filtro, fonteBusca])
+  }, [empresaId, recortePronto, filtro, origemFiltro])
 
   // A busca da Aquisição é ASSÍNCRONA (Bright Data Maps, ~minutos). Aqui acompanhamos o
   // andamento: quando uma busca que estava rodando fica 'concluido'/'falhou', avisa e
@@ -762,7 +797,10 @@ export default function ProspeccaoPainel({
   const pg = paginaServidor<Prospect>({ itens: prospects, pagina, porPagina: POR_PAGINA_PADRAO, total: contagens[filtro] })
   const rodape = resumoIntervalo(pg, { vazio: 'Nenhum lead nesta lista' })
   const taxa = taxaResposta(metricas)
-  const metaAds = fonteBusca === 'meta_ads'
+  // As colunas e os rótulos específicos da Meta aparecem quando o operador RECORTA por Meta —
+  // não quando ele escolheu o formulário de busca da Meta. Com "Todas as origens" a lista usa os
+  // rótulos genéricos e a coluna Origem identifica cada linha.
+  const metaAds = origemFiltro === 'meta_ads'
 
   const mercadoOpcoes = opcoesMercado(filtrosMercado)
   const cidadeOpcoes = filtrosMercado?.cidades || []
@@ -772,7 +810,7 @@ export default function ProspeccaoPainel({
   const idsPagina = pg.itens.map((p) => p.id)
   const selecionadosPagina = idsPagina.filter((id) => selecionados.has(id)).length
   const paginaTodaSelecionada = idsPagina.length > 0 && selecionadosPagina === idsPagina.length
-  const colSpanTabela = 3 + AQ_COLUNAS_TOGGLE.filter((c) => cols[c.key] !== false).length + (metaAds ? 1 : 0)
+  const colSpanTabela = 4 + AQ_COLUNAS_TOGGLE.filter((c) => cols[c.key] !== false).length + (metaAds ? 1 : 0)
   const atividade = dadosRotinas?.atividade || []
   const porMercado = resultados?.por_mercado || []
   const recentes = resultados?.recentes || []
@@ -807,12 +845,22 @@ export default function ProspeccaoPainel({
         className="space-y-6 focus:outline-none"
       >
 
+      {/* O seletor de FONTE e, quando a fonte é Instagram, a tela de coleta dela. Vive num
+          slot porque a coleta de Instagram tem endpoints, campanhas e cotas próprios — e
+          reimplementá-la aqui seria a duplicação que esta unificação existe para evitar. */}
+      {modo === 'busca' && conteudoBuscas}
+      {modo === 'rotinas' && conteudoRotinas}
+
       {/* Fica SEMPRE montado (só o card interno muda com o modo): é o que preserva o
           formulário da busca avulsa e o acompanhamento da coleta ao alternar. */}
       <RotinasAquisicao
         empresaId={empresaId}
-        modo={modo}
-        fonteBusca={fonteBusca}
+        /* Fonte Instagram: o formulário e as campanhas dela são outra tela, injetada pelos
+           slots. Passar `resultados` faz este componente não renderizar card nenhum — e ele
+           continua MONTADO, preservando o formulário de Places/Meta e o acompanhamento da
+           coleta em andamento, que é global (uma por empresa). */
+        modo={fonteBusca === 'instagram' ? 'resultados' : modo}
+        fonteBusca={fonteBusca === 'instagram' ? 'places' : fonteBusca}
         onColetaIniciada={carregarBuscas}
         onDados={setDadosRotinas}
         onLeadsAlterados={carregar}
@@ -820,7 +868,10 @@ export default function ProspeccaoPainel({
 
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
 
-      {modo === 'busca' && (
+      {/* RESULTADOS — a lista e o acompanhamento. Eles viviam dentro do modo "Busca", junto do
+          formulário de coleta: quem entrava para ver a carteira encontrada topava primeiro com
+          um formulário, e quem vinha buscar rolava a lista inteira até o formulário. */}
+      {modo === 'resultados' && (
       <div className="painel-troca space-y-6">
       <section className="space-y-3">
         <div>
@@ -828,8 +879,16 @@ export default function ProspeccaoPainel({
           <p className="mt-0.5 text-xs text-slate-500">
             {metaAds
               ? 'Páginas que apareceram em anúncios ativos e ainda não mostraram site próprio no anúncio.'
-              : 'Tudo o que as rotinas e as buscas avulsas trouxeram. Marque ou descarte por aqui.'}
+              : 'Tudo o que as rotinas e as buscas avulsas trouxeram, de todas as origens. Marque ou descarte por aqui.'}
           </p>
+          {/* Recortar em silêncio faria o operador achar que a carteira encolheu. */}
+          {rotuloFiltroOrigem(origemFiltro) && (
+            <p className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-brand/20 bg-brand/5 px-2 py-0.5 text-[11px] font-medium text-brand">
+              Mostrando só: {rotuloFiltroOrigem(origemFiltro)}
+              <button type="button" onClick={() => comReinicioDePagina(() => setOrigemFiltro(''))}
+                className="underline hover:no-underline">ver todas</button>
+            </p>
+          )}
         </div>
 
       {/* Filtros de status COM a contagem dentro do próprio rótulo: o número passou a viver
@@ -864,6 +923,17 @@ export default function ProspeccaoPainel({
       <div className="rounded-xl border bg-white px-3 py-3 shadow-sm">
         <div className="mb-2 text-xs font-medium text-slate-500">Filtrar leads encontrados</div>
         <div className="flex flex-wrap items-end gap-3">
+          {/* ORIGEM — o recorte que substituiu as três telas por fonte. Ela identifica cada
+              linha na coluna Origem e recorta aqui; o formulário de busca de cada fonte
+              continua existindo, no modo Buscas. */}
+          <div>
+            <label htmlFor="aq-origem" className="block text-xs text-slate-500 mb-1">Origem</label>
+            <select id="aq-origem" value={origemFiltro}
+              onChange={(e) => comReinicioDePagina(() => setOrigemFiltro(e.target.value))}
+              className="border rounded-lg px-3 py-2 text-sm">
+              {OPCOES_FILTRO_ORIGEM.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+            </select>
+          </div>
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs text-slate-500 mb-1">Buscar dados</label>
             <input value={buscaDados} onChange={(e) => comReinicioDePagina(() => setBuscaDados(e.target.value))}
@@ -1030,6 +1100,10 @@ export default function ProspeccaoPainel({
             </th>
             {cols.entrou !== false && <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={ordenarPor} />}
             <ThOrdenavel label={metaAds ? 'Página / anúncio' : 'Nome'} chave="nome" ordem={ordem} onOrdenar={ordenarPor} />
+            {/* Origem NÃO é ordenável, de propósito: ordenar por fonte devolveria a lista
+                agrupada por origem — exatamente a separação que esta tela deixou de fazer.
+                Quem quer uma fonte só usa o FILTRO. */}
+            <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">Origem</th>
             {metaAds && <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">Evidência Meta</th>}
             {cols.cadastro !== false && <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.telefone !== false && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={ordenarPor} />}
@@ -1072,6 +1146,23 @@ export default function ProspeccaoPainel({
                 {metaAds && p.anuncio_meta_page_id && (
                   <span className="mt-0.5 block font-mono text-[10px] text-slate-400">page {p.anuncio_meta_page_id}</span>
                 )}
+              </td>
+              {/* A ORIGEM como DADO da linha. Com "Todas as origens" é ela que diz de onde cada
+                  lead veio — sem ela, a lista unificada seria uma lista sem procedência. O
+                  rótulo vem de `lib/lead-origem.js`; origem desconhecida aparece como ela
+                  mesma, nunca trocada por outra fonte. */}
+              <td className="px-3 py-2 align-top">
+                {(() => {
+                  const o = celulaOrigem(p)
+                  return (
+                    <>
+                      <span className={o.classe} title={`${o.rotulo} — ${o.dica}`}>{o.curto}</span>
+                      {o.detalhe && (
+                        <span className="mt-0.5 block max-w-[130px] truncate text-[11px] text-slate-500" title={o.detalhe}>{o.detalhe}</span>
+                      )}
+                    </>
+                  )
+                })()}
               </td>
               {metaAds && <td className="px-3 py-2 text-xs">
                 <EvidenciaMeta lead={p} />
