@@ -31,11 +31,15 @@ async function salvarLeadDeAnuncio(lead, contexto = {}) {
        (empresa_id, origem, external_ref, nome, nicho, cidade, tem_site, site,
         link_original, classificacao_url, categoria_perfil, bio, status, raw_json,
         qualificacao, anuncio_meta_ativo, anuncio_meta_inicio_em, anuncio_meta_page_id,
-        anuncio_meta_verificado_em)
+        anuncio_meta_verificado_em,
+        instagram_handle, instagram_origem, instagram_confianca, instagram_evidencia,
+        instagram_verificado_em)
      VALUES ($1,'meta_ads',$2,$3,$4,$5,false,$6,
              $7,$8,$9,$10,'coletado',$11::jsonb,
              $12,$13,$14,$15,
-             NOW())
+             NOW(),
+             $16,$17,$18,$19::jsonb,
+             CASE WHEN $16::text IS NULL THEN NULL ELSE NOW() END)
      ON CONFLICT (empresa_id, origem, external_ref) WHERE external_ref IS NOT NULL
      DO UPDATE SET
         nome = EXCLUDED.nome,
@@ -58,6 +62,18 @@ async function salvarLeadDeAnuncio(lead, contexto = {}) {
           COALESCE(prospectador.prospects.anuncio_meta_inicio_em, EXCLUDED.anuncio_meta_inicio_em)
         ),
         anuncio_meta_verificado_em = NOW(),
+        -- O @ so' entra quando o lead ainda nao tem nenhum: recoleta nao sobrescreve vinculo
+        -- ja provado (mesma disciplina de salvarProspect).
+        instagram_handle = COALESCE(prospectador.prospects.instagram_handle, EXCLUDED.instagram_handle),
+        instagram_origem = CASE
+          WHEN prospectador.prospects.instagram_handle IS NULL AND EXCLUDED.instagram_handle IS NOT NULL
+            THEN EXCLUDED.instagram_origem ELSE prospectador.prospects.instagram_origem END,
+        instagram_confianca = CASE
+          WHEN prospectador.prospects.instagram_handle IS NULL AND EXCLUDED.instagram_handle IS NOT NULL
+            THEN EXCLUDED.instagram_confianca ELSE prospectador.prospects.instagram_confianca END,
+        instagram_evidencia = CASE
+          WHEN prospectador.prospects.instagram_handle IS NULL AND EXCLUDED.instagram_handle IS NOT NULL
+            THEN EXCLUDED.instagram_evidencia ELSE prospectador.prospects.instagram_evidencia END,
         updated_at = NOW()
      RETURNING id, (xmax = 0) AS inserido`,
     [
@@ -66,6 +82,8 @@ async function salvarLeadDeAnuncio(lead, contexto = {}) {
       JSON.stringify(lead.raw_json || {}),
       qualificacaoInicial(),
       lead.anuncio_meta_ativo === true, lead.anuncio_meta_inicio_em || null, lead.anuncio_meta_page_id,
+      lead.instagram_handle || null, lead.instagram_origem || null, lead.instagram_confianca || null,
+      lead.instagram_evidencia ? JSON.stringify(lead.instagram_evidencia) : null,
     ]
   )
   const linha = rows[0] || null
@@ -77,6 +95,63 @@ async function salvarLeadDeAnuncio(lead, contexto = {}) {
     await enriquecimentoDb.enfileirar([linha.id], { empresaId, etapa: 'meta_ads_pagina' }).catch(() => {})
   }
   return linha
+}
+
+/**
+ * Leads que a empresa JA tem na mesma cidade — candidatos a serem o mesmo negocio do anuncio.
+ *
+ * Recorte barato de proposito (cidade por prefixo, poucas colunas): quem decide se e' o mesmo
+ * negocio e' `meta-ads-descoberta.js#mesmoNegocio`, que e' PURO e conservador. Esta consulta so'
+ * entrega o conjunto onde vale a pena procurar. Exclui o proprio canal: dois anuncios da mesma
+ * pagina ja sao deduplicados pela chave `(empresa, origem, external_ref)`.
+ */
+async function candidatosParaFusao(empresaId, cidade, limite = 60) {
+  const cid = String(cidade || '').trim()
+  if (!empresaId || !cid) return []
+  const { rows } = await pool.query(
+    `SELECT id, nome, cidade, telefone, instagram_handle
+       FROM prospectador.prospects
+      WHERE empresa_id = $1::uuid
+        AND origem <> 'meta_ads'
+        AND cidade ILIKE $2
+      ORDER BY updated_at DESC
+      LIMIT $3`,
+    [empresaId, `${cid.split(/[,\-]/)[0].trim()}%`, Math.max(1, Math.min(200, limite))]
+  )
+  return rows
+}
+
+/**
+ * O lead que JA existia absorve a evidencia do anuncio — nenhuma linha nova e' criada.
+ *
+ * SO' ACRESCENTA: nao toca nome, telefone, nicho, status, qualificacao nem responsavel do lead
+ * existente. O anuncio e' informacao NOVA sobre um negocio que a operacao ja conhece; deixar
+ * este caminho reescrever o cadastro faria uma busca de anuncios mexer em lead que alguem ja
+ * estava trabalhando. O @ do Instagram entra so' se o lead ainda nao tiver nenhum.
+ */
+async function absorverAnuncioEmLeadExistente(prospectId, lead) {
+  const { rows } = await pool.query(
+    `UPDATE prospectador.prospects
+        SET anuncio_meta_ativo = $2,
+            anuncio_meta_inicio_em = LEAST(
+              COALESCE($3::timestamptz, anuncio_meta_inicio_em),
+              COALESCE(anuncio_meta_inicio_em, $3::timestamptz)
+            ),
+            anuncio_meta_page_id = COALESCE(anuncio_meta_page_id, $4),
+            anuncio_meta_verificado_em = NOW(),
+            instagram_handle = COALESCE(instagram_handle, $5),
+            instagram_origem = CASE
+              WHEN instagram_handle IS NULL AND $5::text IS NOT NULL THEN $6 ELSE instagram_origem END,
+            instagram_confianca = CASE
+              WHEN instagram_handle IS NULL AND $5::text IS NOT NULL THEN $7 ELSE instagram_confianca END,
+            updated_at = NOW()
+      WHERE id = $1::uuid
+      RETURNING id, (false) AS inserido`,
+    [prospectId, lead.anuncio_meta_ativo === true, lead.anuncio_meta_inicio_em || null,
+      lead.anuncio_meta_page_id, lead.instagram_handle || null,
+      lead.instagram_origem || null, lead.instagram_confianca || null]
+  )
+  return rows[0] || null
 }
 
 /**
@@ -121,5 +196,7 @@ async function gravarResultadoPagina(prospectId, {
 
 module.exports = {
   salvarLeadDeAnuncio,
+  candidatosParaFusao,
+  absorverAnuncioEmLeadExistente,
   gravarResultadoPagina,
 }

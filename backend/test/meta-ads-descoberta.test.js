@@ -140,6 +140,65 @@ test('montarLeadDeAnuncio: usa a categoria especifica como categoria_perfil quan
   assert.equal(lead.categoria_perfil, 'Solar Energy Company')
 })
 
+// ── Instagram declarado na própria página do anunciante (vem de graça no registro) ──
+
+test('montarLeadDeAnuncio: aproveita o @ declarado na pagina, como CONFIRMADO', () => {
+  const v = D.avaliarAnuncio(registro())
+  const lead = D.montarLeadDeAnuncio(v, { nicho: 'Energia Solar', cidade: 'Goiania' })
+  assert.equal(lead.instagram_handle, 'infasolar')
+  assert.equal(lead.instagram_origem, 'pagina_facebook')
+  assert.equal(lead.instagram_confianca, 'confirmado')
+})
+
+test('montarLeadDeAnuncio: sem @ na pagina, nao inventa vinculo de Instagram', () => {
+  const r = registro()
+  r.ad_details.advertiser.ad_library_page_info.page_info.ig_username = ''
+  const lead = D.montarLeadDeAnuncio(D.avaliarAnuncio(r), { nicho: 'x', cidade: 'y' })
+  assert.equal(lead.instagram_handle, null)
+  assert.equal(lead.instagram_confianca, null)
+})
+
+// ── Dedup entre canais: o anunciante já está na carteira? ───────────────────
+
+test('mesmoNegocio: funde quando o nome de um lado cabe dentro do outro, na mesma cidade', () => {
+  const anuncio = { pageName: 'CMD SOLAR' }
+  const existente = { nome: 'CMD Solar Energia Ltda', cidade: 'Goiania - GO' }
+  assert.equal(D.mesmoNegocio(anuncio, existente, { nicho: 'Energia Solar', cidade: 'Goiania, GO' }), true)
+})
+
+test('mesmoNegocio: NAO funde concorrentes que so compartilham nicho e cidade', () => {
+  const anuncio = { pageName: 'Energia Solar Goiania' }
+  const existente = { nome: 'Solar Energia Goiania', cidade: 'Goiania' }
+  // Tirando nicho e cidade nao sobra token distintivo nenhum — e' exatamente o caso que
+  // casaria todo mundo do mercado.
+  assert.equal(D.mesmoNegocio(anuncio, existente, { nicho: 'Energia Solar', cidade: 'Goiania' }), false)
+})
+
+test('mesmoNegocio: NAO funde por UM token generico em comum quando os dois nomes tem mais', () => {
+  const anuncio = { pageName: 'Brasil Solar Pantanal' }
+  const existente = { nome: 'Brasil Solar Araguaia', cidade: 'Goiania' }
+  assert.equal(D.mesmoNegocio(anuncio, existente, { nicho: 'Energia Solar', cidade: 'Goiania' }), false)
+})
+
+test('mesmoNegocio: cidade diferente nunca funde, mesmo com o nome igual', () => {
+  const anuncio = { pageName: 'Infasolar' }
+  const existente = { nome: 'Infasolar', cidade: 'Campinas - SP' }
+  assert.equal(D.mesmoNegocio(anuncio, existente, { nicho: 'Energia Solar', cidade: 'Goiania' }), false)
+})
+
+test('mesmoNegocio: cidade desconhecida de um dos lados nao autoriza fusao', () => {
+  const anuncio = { pageName: 'Infasolar' }
+  assert.equal(D.mesmoNegocio(anuncio, { nome: 'Infasolar', cidade: '' }, { nicho: 'Energia Solar', cidade: 'Goiania' }), false)
+})
+
+test('escolherLeadExistente: devolve o primeiro que realmente bate, ou null', () => {
+  const anuncio = { pageName: 'Infasolar' }
+  const ctx = { nicho: 'Energia Solar', cidade: 'Goiania' }
+  const lista = [{ id: 'a', nome: 'Outra Empresa', cidade: 'Goiania' }, { id: 'b', nome: 'Infasolar Energia', cidade: 'Goiania' }]
+  assert.equal(D.escolherLeadExistente(anuncio, lista, ctx).id, 'b')
+  assert.equal(D.escolherLeadExistente(anuncio, [], ctx), null)
+})
+
 // ── decidirCrossReferencePagina ─────────────────────────────────────────────
 
 test('decidirCrossReferencePagina: sem page_id nunca roda (nao ha pagina pra buscar)', () => {

@@ -3280,6 +3280,38 @@
 - **O lead entra no MESMO enriquecimento de Instagram que qualquer outro** (decisão do
   operador, 2026-09-16, "lead é lead"): `db/meta-ads-leads.js` enfileira em
   `enriquecimento-etapas.js` depois de salvar — sem código novo para isso.
+- ⚠️ **"Nicho" e "termo do anúncio" são campos DIFERENTES, e confundi-los quebra a equipe.** O
+  `nicho` é o que o lead É — é dele que `nicho-resolucao.js` resolve `nicho_id` na aprovação, e
+  `nicho_id` é o que recorta o Banco de Leads por equipe **e** o que a distribuição exige
+  (`sqlRedistribuivel`: `nicho_id = $equipe`, senão `FORA_DO_NICHO`). O `termo` é só o texto
+  procurado na Biblioteca. Até 2026-09-22 eram o mesmo campo, então buscar "energia solar
+  goiania" gravava isso como nicho, o texto não casava com o catálogo, `nicho_id` ficava nulo e
+  **o lead não chegava a equipe nenhuma**. Sem `termo`, a busca usa o nicho.
+- **Dedup ENTRE CANAIS, no momento de salvar:** se o anunciante já está na carteira vindo do
+  Maps, a evidência do anúncio é gravada **no lead que já existe** e nenhuma linha nova é criada
+  (`escolherLeadExistente` + `absorverAnuncioEmLeadExistente`). Isso resolve duas coisas de uma
+  vez: não põe dois vendedores no mesmo negócio, e o lead passa a ter o **telefone** que o
+  anúncio não traz. A regra é **conservadora de propósito** (`mesmoNegocio`): exige cidade
+  compatível **e** tokens distintivos em comum — reusando `tokensDistintivos`, que remove nicho e
+  cidade justamente porque "Energia Solar Goiânia" não distingue um concorrente do outro. Na
+  dúvida não funde: uma linha a mais custa retrabalho, fundir errado costura dois negócios.
+- ⚠️ **Lead de anúncio nasce SEM TELEFONE** quando não houve fusão — o anúncio não traz, e a
+  página só às vezes (na sonda, a página do Atlantis veio com `phones: []`). Sem telefone ele cai
+  em `falta_contato` na fila de trabalho: é trabalho de **completar cadastro**, não de vender, e
+  não entra em disparo nem em ligação. Por isso a busca devolve `fundidos` e `sem_telefone`, e a
+  tela os declara — dizer só "X leads salvos" prometeria venda onde há cadastro a completar.
+- **O @ do Instagram vem de graça** no registro do anúncio (`ig_username` declarado pelo próprio
+  anunciante na página dele) e é gravado como `instagram_origem = 'pagina_facebook'`, confiança
+  **confirmado** (migration 093) — mesma classe de evidência de `google_meu_negocio`, não
+  inferência de máquina. Com isso o lead **pula a etapa de descoberta** (`perfilConfirmado`), o
+  que economiza uma consulta SERP por lead e tira esse canal da disputa pela cota diária que os
+  leads do Maps usam.
+- **A triagem guiada passou a enxergar este canal.** `db/aquisicao-curadoria.js` filtrava
+  `status = 'aguardando'`, e lead de Instagram/LinkedIn (012) e da Meta (091) nasce `'coletado'`
+  — o Assistente de Oportunidades atendia, na prática, só o Maps. Agora as três consultas (fila,
+  contagem e **CLAIM**) usam a mesma lista `STATUS_SEM_DECISAO`; elas precisam andar juntas, senão
+  o lead apareceria na tela e toda decisão falharia como "já decidido". `rejeitado` fica de fora:
+  redecidir o que uma pessoa recusou quebraria a meta da sessão.
 - **`anuncio_meta_inicio_em` guarda o início mais ANTIGO conhecido**, não o mais recente: uma
   campanha pode ter vários criativos, e o primeiro anúncio visto é o que diz há quanto tempo a
   empresa está investindo — reavaliar só promove, nunca troca por uma data mais nova.
@@ -3303,10 +3335,13 @@
   aprender uma segunda fonte de verdade. `db/meta-ads-leads.js#gravarResultadoPagina` só
   PROMOVE (`COALESCE`) e respeita `telefone_origem = 'operador'`, mesma disciplina de
   `salvarProspect`.
-- **`fb_paginas` é um SCRAPER novo no MESMO ledger e MESMO teto** que já trava a Aquisição e o
-  perfil de Instagram (`BRIGHTDATA_ENRIQUECIMENTO_TETO_DIARIO`, reserva ZERO — pelo mesmo
-  motivo do perfil de Instagram: a reserva protege o enriquecimento DA Aquisição, e este
-  cross-reference JÁ é enriquecimento). **Nenhuma env nova** para isso.
+- **`fb_paginas` é um SCRAPER novo no mesmo ledger, mas com TETO PRÓPRIO**
+  (`BRIGHTDATA_META_PAGINAS_TETO_DIARIO`, default 150, reserva ZERO — pelo mesmo motivo do perfil
+  de Instagram: a reserva protege o enriquecimento DA Aquisição, e este cross-reference JÁ é
+  enriquecimento). Teto próprio e não o de `BRIGHTDATA_ENRIQUECIMENTO_TETO_DIARIO` porque,
+  dividindo o mesmo balde, uma varredura grande na Biblioteca de Anúncios atrasaria **em
+  silêncio** o enriquecimento dos leads do Maps — dois canais competindo por uma cota que nenhum
+  dos dois declarou dividir.
 - **`anuncio_meta_pagina_verificada_em`** (quando o cross-reference rodou) é coluna **separada**
   de `anuncio_meta_verificado_em` (quando a evidência do ANÚNCIO foi vista, migration 091) —
   são dois fatos verificados em momentos diferentes; confundi-los faria o worker achar que já

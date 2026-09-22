@@ -69,9 +69,25 @@ function avaliarOrcamento({
   return { ...base, permitido: true, motivo: MOTIVO.LIBERADO, mensagem: null }
 }
 
+const PADRAO_TETO_PAGINAS = 150
+
+/**
+ * Teto diario de CREDITOS Bright Data do cross-reference de paginas do Facebook.
+ *
+ * Existe separado de `BRIGHTDATA_ENRIQUECIMENTO_TETO_DIARIO` porque, dividindo o mesmo balde
+ * com o perfil de Instagram, uma varredura grande na Biblioteca de Anuncios atrasaria em
+ * silencio o enriquecimento dos leads do Maps — dois canais competindo por uma cota que nenhum
+ * dos dois declarou dividir. `0` desliga.
+ */
+function tetoDiarioPaginasFacebook() {
+  return inteiroNaoNegativo(process.env.BRIGHTDATA_META_PAGINAS_TETO_DIARIO, PADRAO_TETO_PAGINAS)
+}
+
 module.exports = {
   MOTIVO,
   PADRAO_TETO_DIARIO,
+  PADRAO_TETO_PAGINAS,
   tetoDiarioMetaAds,
+  tetoDiarioPaginasFacebook,
   avaliarOrcamento,
 }

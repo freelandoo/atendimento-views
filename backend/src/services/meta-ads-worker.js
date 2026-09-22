@@ -30,9 +30,17 @@ const LOTE_PAGINA = 10
 // real sem herdar o teto de 60min do perfil de Instagram, que e' um dataset diferente.
 const SNAPSHOT_MAX_MIN_PAGINA = 20
 
-/** Monta a URL de busca da Biblioteca de Anuncios: pais fixo BR, categoria "todos os anuncios". */
-function montarUrlBusca({ nicho, cidade }) {
-  const termo = [nicho, cidade].filter(Boolean).join(' ').trim()
+/**
+ * Monta a URL de busca da Biblioteca de Anuncios: pais fixo BR, categoria "todos os anuncios".
+ *
+ * O `termo` e' o que se PROCURA na Biblioteca (palavra-chave do anuncio); o `nicho` e' o que o
+ * lead E' (e e' ele que resolve `nicho_id` e leva o lead para a equipe certa). Os dois eram o
+ * mesmo campo ate' 2026-09-22, e por isso buscar "energia solar goiania" gravava esse texto como
+ * nicho — que nao casa com o catalogo, deixa `nicho_id` nulo e faz o lead nao chegar a equipe
+ * nenhuma. Sem `termo`, a busca cai no nicho, que e' o comportamento util por padrao.
+ */
+function montarUrlBusca({ termo: termoBusca, nicho, cidade }) {
+  const termo = [String(termoBusca || '').trim() || nicho, cidade].filter(Boolean).join(' ').trim()
   const params = new URLSearchParams({
     active_status: 'active',
     ad_type: 'all',
@@ -49,7 +57,7 @@ function montarUrlBusca({ nicho, cidade }) {
  * O orcamento e' conferido ANTES do disparo pago, com o TETO do pedido como custo estimado
  * (pior caso) — mesma disciplina de `pesquisarPlaces` e do enriquecimento de Instagram.
  */
-async function buscarAnunciantes({ nicho, cidade, empresaId = null, limite = LIMITE_PADRAO } = {}) {
+async function buscarAnunciantes({ nicho, termo = null, cidade, empresaId = null, limite = LIMITE_PADRAO } = {}) {
   const termoNicho = String(nicho || '').trim()
   if (!termoNicho) {
     const e = new Error('Informe um nicho para buscar na Biblioteca de Anuncios.')
@@ -71,7 +79,7 @@ async function buscarAnunciantes({ nicho, cidade, empresaId = null, limite = LIM
     return { ok: false, motivo: 'apify_indisponivel', mensagem: 'APIFY_API_TOKEN ausente.', salvos: [] }
   }
 
-  const url = montarUrlBusca({ nicho: termoNicho, cidade })
+  const url = montarUrlBusca({ termo, nicho: termoNicho, cidade })
   const input = {
     startUrls: [{ url }],
     resultsLimit: lim,
@@ -102,6 +110,12 @@ async function buscarAnunciantes({ nicho, cidade, empresaId = null, limite = LIM
   const vistos = new Set()
   const salvos = []
   const descartados = { [DESCOBERTA.MOTIVO.SEM_PAGE_ID]: 0, [DESCOBERTA.MOTIVO.CATEGORIA_NAO_NEGOCIO]: 0, [DESCOBERTA.MOTIVO.TEM_SITE_PROPRIO]: 0 }
+  let fundidos = 0
+  let semTelefone = 0
+
+  // Carteira da mesma cidade, lida UMA vez: a dedup entre canais compara em memoria (regra PURA
+  // e conservadora em `mesmoNegocio`), em vez de uma consulta por anuncio.
+  const existentes = await leadsDb.candidatosParaFusao(empresaId, cidade).catch(() => [])
 
   for (const registro of registros) {
     const avaliado = DESCOBERTA.avaliarAnuncio(registro)
@@ -114,17 +128,34 @@ async function buscarAnunciantes({ nicho, cidade, empresaId = null, limite = LIM
 
     const lead = DESCOBERTA.montarLeadDeAnuncio(avaliado, { nicho: termoNicho, cidade, empresaId }, registro)
     try {
+      // Este anunciante ja esta na carteira (veio do Maps)? Entao a evidencia do anuncio vai
+      // para o lead que JA existe — e o telefone que faltava ao lead de anuncio ja esta la'.
+      // Criar a segunda linha poria dois vendedores no mesmo negocio.
+      const existente = DESCOBERTA.escolherLeadExistente(avaliado, existentes, { nicho: termoNicho, cidade })
+      if (existente) {
+        const fundido = await leadsDb.absorverAnuncioEmLeadExistente(existente.id, lead)
+        if (fundido) { fundidos += 1; salvos.push({ ...fundido, fundido: true }) }
+        continue
+      }
+
       const salvo = await leadsDb.salvarLeadDeAnuncio(lead, { empresaId })
-      if (salvo) salvos.push(salvo)
+      if (salvo) {
+        salvos.push(salvo)
+        // Lead de anuncio nasce SEM telefone (o anuncio nao traz, e a pagina so' as vezes). Sem
+        // telefone ele cai em `falta_contato` na fila de trabalho — trabalho de completar
+        // cadastro, nao de vender. Contar isso e' o que impede a tela de prometer venda.
+        semTelefone += 1
+      }
     } catch (e) {
       logger.warn({ operation: 'meta_ads', pageId: avaliado.pageId, erro: e.message }, 'falha ao salvar lead de anuncio')
     }
   }
 
   logger.info({ operation: 'meta_ads', nicho: termoNicho, cidade: cidade || null,
-    registros: registros.length, salvos: salvos.length, descartados }, 'busca de anuncios concluida')
+    registros: registros.length, salvos: salvos.length, fundidos, descartados },
+  'busca de anuncios concluida')
 
-  return { ok: true, registros: registros.length, salvos, descartados }
+  return { ok: true, registros: registros.length, salvos, descartados, fundidos, sem_telefone: semTelefone }
 }
 
 // ── Cross-reference com fb_paginas (Bright Data) ────────────────────────────────────────────
@@ -154,11 +185,14 @@ async function dispararPaginasFacebook({ limite = LOTE_PAGINA, agora = new Date(
     consumidoHoje: await bdConsumoDb.consumidoHoje([BD_ORCAMENTO.SCRAPER.FB_PAGINAS]),
     custoEstimado: alvos.length,
     saldoEstimado: (await bdConsumoDb.saldoAtual()).saldo,
-    teto: BD_ORCAMENTO.tetoDiarioEnriquecimento(),
+    // Teto PROPRIO, nao o do enriquecimento de Instagram: dividindo o mesmo balde, uma
+    // varredura grande na Biblioteca de Anuncios atrasaria em silencio o enriquecimento dos
+    // leads do Maps.
+    teto: ORCAMENTO.tetoDiarioPaginasFacebook(),
     // reserva ZERO: mesmo motivo do perfil de Instagram — a reserva existe pra proteger o
     // ENRIQUECIMENTO da Aquisicao, e este cross-reference JA e' enriquecimento.
     reserva: 0,
-    canal: { nome: 'Paginas do Facebook (Meta Ads)', env: 'BRIGHTDATA_ENRIQUECIMENTO_TETO_DIARIO' },
+    canal: { nome: 'Paginas do Facebook (Meta Ads)', env: 'BRIGHTDATA_META_PAGINAS_TETO_DIARIO' },
   })
   if (!orcamento.permitido) {
     const { proximaTentativaEm } = PIPELINE.adiar({ agora, minutos: 6 * 60 })

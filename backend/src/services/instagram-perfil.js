@@ -21,6 +21,10 @@ const ORIGEM = Object.freeze({
   GOOGLE_MEU_NEGOCIO: 'google_meu_negocio',
   BUSCA: 'busca',
   OPERADOR: 'operador',
+  // O @ declarado pelo anunciante na PROPRIA pagina do Facebook, que vem junto do registro da
+  // Biblioteca de Anuncios (migration 093). Mesma classe de evidencia do Perfil da Empresa: quem
+  // escreveu foi o dono, na ficha dele. Nao e' inferencia da maquina, entao nao e' `busca`.
+  PAGINA_FACEBOOK: 'pagina_facebook',
 })
 const ORIGENS = Object.freeze(Object.values(ORIGEM))
 
@@ -236,7 +240,8 @@ function escolherMelhorCandidato(lead = {}, candidatos = []) {
  * compartilha.
  */
 function vereditoDaOrigem(origem, { forte = false } = {}) {
-  if (origem === ORIGEM.GOOGLE_MEU_NEGOCIO || origem === ORIGEM.OPERADOR) return CONFIANCA.CONFIRMADO
+  if (origem === ORIGEM.GOOGLE_MEU_NEGOCIO || origem === ORIGEM.OPERADOR
+      || origem === ORIGEM.PAGINA_FACEBOOK) return CONFIANCA.CONFIRMADO
   if (origem === ORIGEM.BUSCA) return forte ? CONFIANCA.CONFIRMADO : CONFIANCA.CANDIDATO
   return CONFIANCA.NAO_ENCONTRADO
 }

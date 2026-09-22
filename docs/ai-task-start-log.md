@@ -6,6 +6,31 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-22 — Canal da Biblioteca de Anúncios: consequências no resto do app
+
+- **Pedido do operador:** "como isso reflete no restante do aplicativo para equipe e até o
+  restante, pense melhor" → e, na sequência, "resolva tudo".
+- **Análise de impacto (feita lendo o código, não de memória), com 6 achados:**
+  1. A triagem guiada (`db/aquisicao-curadoria.js`) filtrava `status = 'aguardando'`; lead de
+     Instagram/LinkedIn (012) e da Meta (091) nasce `'coletado'` — o Assistente de Oportunidades
+     atendia só o Maps, sem ninguém ter decidido isso.
+  2. A aba Meta gravava o TERMO da busca na coluna `nicho`, que é de onde sai `nicho_id` — e é
+     `nicho_id` que recorta o Banco de Leads por equipe e que a distribuição exige. Termo fora do
+     catálogo ⇒ `nicho_id` nulo ⇒ lead não chega a equipe nenhuma.
+  3. Lead de anúncio nasce sem telefone ⇒ cai em `falta_contato`, fora de disparo e de ligação.
+  4. O cross-reference `fb_paginas` dividia o teto de créditos com o enriquecimento de Instagram
+     ⇒ varredura na Meta atrasaria, em silêncio, os leads do Maps.
+  5. O `ig_username` já vinha no registro do anúncio e era ignorado ⇒ o lead pagava uma consulta
+     SERP para descobrir o que já estava na mão.
+  6. Mesma empresa achada no Maps e na Meta virava duas linhas, sem dedup cruzada.
+- **Escopo desta rodada:** resolver os 6. Migration 093 (aditiva: alarga o CHECK de
+  `instagram_origem`), dedup entre canais no momento de salvar (sem linha nova, a evidência vai
+  para o lead existente — o que também dá o telefone que faltava), `nicho` e `termo` como campos
+  distintos, teto próprio para `fb_paginas`, e `STATUS_SEM_DECISAO` nas três consultas da
+  curadoria (fila, contagem e CLAIM juntos).
+- **Fora de escopo:** rotina agendada para o canal, e qualquer mudança no modelo de ICP (ligar
+  `investiu_marketing_tecnologia` automaticamente exigiria versão nova do Tenka).
+
 ## 2026-09-21 (3) — Fase 0/análise: Descoberta de leads via Meta Ad Library (Bright Data)
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), na `master`, com alterações locais não commitadas em

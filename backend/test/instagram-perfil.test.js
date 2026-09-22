@@ -223,6 +223,20 @@ test('GUARDA: a migration exige handle para marcar confirmado', () => {
 
 test('GUARDA: a migration e ADITIVA — nao muta dado existente', () => {
   assert.ok(!/^\s*UPDATE\s/im.test(MIGRATION), 'a migration 080 nao pode atualizar linha existente')
+})
+
+// A 093 alarga o CHECK de `instagram_origem` (+pagina_facebook, o @ que o anunciante declarou na
+// propria pagina). E' a definicao CORRENTE do vocabulario aceito pelo banco — a da 080 sozinha
+// ja nao descreve o que existe.
+test('GUARDA: as origens do modulo batem com o CHECK corrente do banco (080 alargado pela 093)', () => {
+  const migration093 = fs.readFileSync(
+    path.join(__dirname, '..', 'sql', 'migrations', '093_meta_ads_ajustes.sql'), 'utf8'
+  )
+  const m = migration093.match(/instagram_origem IN \(([^)]+)\)/s)
+  assert.ok(m, 'a migration 093 precisa ter o CHECK de instagram_origem')
+  const noBanco = m[1].match(/'([a-z_]+)'/g).map((s) => s.replace(/'/g, '')).sort()
+  assert.deepEqual(noBanco, [...IG.ORIGENS].sort(),
+    'vocabulario divergente entre o modulo e o banco — um dos dois aceitaria valor que o outro recusa')
   assert.ok(!/DEFAULT/i.test(MIGRATION.replace(/--.*$/gm, '')),
     'nenhuma coluna nova pode ter DEFAULT: ele autorizaria em silencio um INSERT futuro que esquecesse a coluna')
 })

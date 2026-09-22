@@ -17,6 +17,11 @@ const { classificarUrl } = require('./site-classificacao')
 // nao especifico de Instagram — reusado aqui para o cross-reference com `fb_paginas` em vez de
 // duplicar o mesmo vocabulario com nomes diferentes.
 const { STATUS, MOTIVO: MOTIVO_FILA } = require('./enriquecimento-pipeline')
+// O @ vem do registro do anuncio; quem sabe sanear e' o dono do vocabulario de Instagram.
+const {
+  normalizarHandle, normalizar, tokensDistintivos,
+  ORIGEM: IG_ORIGEM, CONFIANCA: IG_CONFIANCA,
+} = require('./instagram-perfil')
 
 const MOTIVO = Object.freeze({
   SEM_PAGE_ID: 'sem_page_id',
@@ -131,11 +136,21 @@ function avaliarAnuncio(registroBruto) {
  */
 function montarLeadDeAnuncio(avaliado, { nicho, cidade, empresaId } = {}, registroBruto = null) {
   if (!avaliado || !avaliado.aproveitavel) return null
+  // O @ que o proprio anunciante declarou na pagina dele — ja vem no registro do anuncio, de
+  // graca. Sem isto o lead pagaria uma consulta SERP para descobrir o que ja estava na mao, e
+  // ainda concorreria pela cota diaria com os leads do Maps.
+  const handle = normalizarHandle(avaliado.igUsernameDeclarado)
   return {
     empresa_id: empresaId || null,
     nome: avaliado.pageName || avaliado.pageId,
     nicho: texto(nicho),
     cidade: texto(cidade),
+    instagram_handle: handle,
+    instagram_origem: handle ? IG_ORIGEM.PAGINA_FACEBOOK : null,
+    instagram_confianca: handle ? IG_CONFIANCA.CONFIRMADO : null,
+    instagram_evidencia: handle
+      ? { fonte: 'pagina_facebook', page_id: avaliado.pageId, declarado_em: 'ad_library_page_info' }
+      : null,
     site: avaliado.site,
     link_original: avaliado.link_original,
     classificacao_url: avaliado.classificacao_url,
@@ -147,6 +162,60 @@ function montarLeadDeAnuncio(avaliado, { nicho, cidade, empresaId } = {}, regist
     anuncio_meta_page_id: avaliado.pageId,
     raw_json: { fonte: 'meta_ads', anuncio: avaliado, registro: registroBruto || null },
   }
+}
+
+// ── Dedup ENTRE CANAIS: este anunciante ja esta na carteira, vindo do Maps? ─────────────────
+//
+// POR QUE. As chaves de identidade sao diferentes por canal (`place_id` no Maps,
+// `(empresa, 'meta_ads', page_id)` aqui), entao a MESMA empresa achada nos dois vira duas
+// linhas — dois vendedores trabalhando o mesmo negocio e risco de duas abordagens ao mesmo
+// cliente. E o lead do Maps ja tem telefone, que e' exatamente o que falta ao lead de anuncio.
+//
+// A REGRA E' CONSERVADORA DE PROPOSITO: casar por semelhanca de nome e' o que faz todo
+// concorrente virar "o mesmo negocio" (a licao de `tokensDistintivos`, que remove nicho e
+// cidade justamente porque "Energia Solar Goiania" nao distingue ninguem). Na duvida, NAO funde:
+// uma linha a mais custa retrabalho; fundir errado costura dois negocios num lead so'.
+
+/** Primeiro segmento da cidade, normalizado — "Goiania - GO" e "Goiania, GO" viram "goiania". */
+function cidadeBase(valor) {
+  const n = normalizar(valor)
+  if (!n) return ''
+  return n.split(' ').filter(Boolean)[0] || ''
+}
+
+function cidadeCompativel(a, b) {
+  const x = cidadeBase(a)
+  const y = cidadeBase(b)
+  // Cidade desconhecida dos dois lados nao autoriza fusao: sem ela sobra so' o nome, e nome
+  // sozinho e' o criterio que junta concorrentes.
+  return !!x && !!y && x === y
+}
+
+/**
+ * O anunciante e o lead existente sao o MESMO negocio?
+ *
+ * Exige, junto: cidade compativel E tokens distintivos em comum onde a intersecao ou cobre um
+ * dos lados por inteiro ("CMD" dentro de "CMD Solar Energia") ou tem pelo menos dois tokens.
+ * Um unico token generico em comum ("Brasil" em dois nomes diferentes) NAO funde.
+ */
+function mesmoNegocio(anuncio = {}, existente = {}, { nicho = '', cidade = '' } = {}) {
+  if (!cidadeCompativel(existente.cidade, cidade || anuncio.cidade)) return false
+  const contexto = { nicho, cidade: cidade || existente.cidade }
+  const a = tokensDistintivos({ nome: anuncio.pageName || anuncio.nome, ...contexto })
+  const b = tokensDistintivos({ nome: existente.nome, ...contexto })
+  if (!a.length || !b.length) return false
+  const comuns = a.filter((t) => b.includes(t))
+  if (!comuns.length) return false
+  const cobreUmLado = comuns.length === a.length || comuns.length === b.length
+  return cobreUmLado || comuns.length >= 2
+}
+
+/** O melhor candidato a fusao entre os leads que a empresa ja tem, ou null. */
+function escolherLeadExistente(anuncio = {}, existentes = [], contexto = {}) {
+  for (const cand of Array.isArray(existentes) ? existentes : []) {
+    if (mesmoNegocio(anuncio, cand, contexto)) return cand
+  }
+  return null
 }
 
 // ── Cross-reference com a PAGINA do anunciante (fb_paginas da Bright Data, migration 092) ──
@@ -224,4 +293,7 @@ module.exports = {
   montarLeadDeAnuncio,
   decidirCrossReferencePagina,
   avaliarResultadoPagina,
+  cidadeCompativel,
+  mesmoNegocio,
+  escolherLeadExistente,
 }

@@ -145,14 +145,17 @@ router.post('/buscar', requireAuth, requireEmpresaAccess, async (req, res) => {
 // Busca síncrona e PAGA no Apify (Biblioteca de Anúncios). Fica separada de `/buscar` porque
 // Places é assíncrono e materializa depois; Meta Ads já devolve quantos leads foram salvos.
 router.post('/meta-ads/buscar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.AQUISICAO_GERENCIAR), async (req, res) => {
-  const { nicho, cidade, uf, estado, quantidade, limite } = req.body || {}
+  const { nicho, termo, cidade, uf, estado, quantidade, limite } = req.body || {}
   if (!nicho) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe nicho para buscar anúncios.' } })
   }
   try {
     const cidadeBusca = [cidade, uf || estado].filter(Boolean).join(', ')
     const resultado = await buscarAnunciantes({
+      // `nicho` é o que o lead É (resolve `nicho_id` e leva o lead para a equipe certa);
+      // `termo` é só o que se procura na Biblioteca. Sem `termo`, a busca usa o nicho.
       nicho,
+      termo: termo || null,
       cidade: cidadeBusca || null,
       empresaId: req.empresa.id,
       limite: quantidade || limite,

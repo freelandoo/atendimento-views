@@ -85,8 +85,13 @@ export type RotinasResp = {
 type MetaAdsResultado = {
   ok: boolean
   registros?: number
-  salvos?: { id: string; inserido?: boolean }[]
+  salvos?: { id: string; inserido?: boolean; fundido?: boolean }[]
   descartados?: Record<string, number>
+  // Anunciantes que a carteira já tinha (vindos do Maps): a evidência do anúncio foi somada ao
+  // lead existente em vez de criar uma segunda linha para o mesmo negócio.
+  fundidos?: number
+  // Leads que entraram sem telefone — trabalho de completar cadastro, não de vender.
+  sem_telefone?: number
 }
 
 /**
@@ -163,7 +168,7 @@ export default function RotinasAquisicao({
   const [confirmarRemocao, setConfirmarRemocao] = useState<Rotina | null>(null)
   const [erro, setErro] = useState('')
   const [avulsa, setAvulsa] = useState({
-    nicho: '', cidade: '', uf: '',
+    nicho: '', termo: '', cidade: '', uf: '',
     quantidade: fonteBusca === 'meta_ads' ? QUANTIDADE_META_PADRAO : QUANTIDADE_MAX,
   })
   const [buscandoAvulsa, setBuscandoAvulsa] = useState(false)
@@ -277,7 +282,7 @@ export default function RotinasAquisicao({
 
   async function buscarAgora() {
     if (!avulsa.nicho.trim() || (!metaAds && !avulsa.cidade.trim())) {
-      setErro(metaAds ? 'Informe o termo do anúncio para buscar na Meta.' : 'Informe nicho e cidade para a busca avulsa.')
+      setErro(metaAds ? 'Informe o nicho para buscar na Meta.' : 'Informe nicho e cidade para a busca avulsa.')
       return
     }
     setErro('')
@@ -288,6 +293,7 @@ export default function RotinasAquisicao({
           method: 'POST',
           body: JSON.stringify({
             nicho: avulsa.nicho.trim(),
+            termo: avulsa.termo.trim() || null,
             cidade: avulsa.cidade.trim() || null,
             uf: avulsa.uf.trim().toUpperCase() || null,
             quantidade: avulsa.quantidade,
@@ -296,7 +302,16 @@ export default function RotinasAquisicao({
         })
         const salvos = r.data?.salvos?.length ?? 0
         const registros = r.data?.registros ?? 0
-        fb.toast(`Busca Meta concluída: ${salvos} lead${salvos === 1 ? '' : 's'} salvo${salvos === 1 ? '' : 's'} de ${registros} anúncio${registros === 1 ? '' : 's'} analisado${registros === 1 ? '' : 's'}.`, salvos > 0 ? 'success' : 'info')
+        const fundidos = r.data?.fundidos ?? 0
+        const semTelefone = r.data?.sem_telefone ?? 0
+        // O resumo diz as três coisas que mudam o que o operador faz a seguir: quantos leads
+        // entraram, quantos já existiam (anunciante que a carteira tinha do Maps — esses vêm
+        // COM telefone) e quantos chegaram sem telefone (trabalho de completar cadastro, não
+        // de vender). Dizer só "X salvos" prometeria venda onde há cadastro a completar.
+        const partes = [`${salvos} lead${salvos === 1 ? '' : 's'} de ${registros} anúncio${registros === 1 ? '' : 's'} analisado${registros === 1 ? '' : 's'}`]
+        if (fundidos > 0) partes.push(`${fundidos} já na carteira (evidência do anúncio somada ao lead existente)`)
+        if (semTelefone > 0) partes.push(`${semTelefone} sem telefone ainda`)
+        fb.toast(`Busca Meta concluída: ${partes.join(' · ')}.`, salvos > 0 ? 'success' : 'info')
         onLeadsAlterados?.()
       } else {
         await dispararBusca(avulsa)
@@ -426,16 +441,27 @@ export default function RotinasAquisicao({
             </h2>
             <p className="mt-0.5 text-xs text-slate-500">
               {metaAds
-                ? 'Busque pelo termo do anúncio. Cidade e estado não são obrigatórios nesta fonte.'
+                ? 'O nicho é o que o lead é — é ele que leva o lead para a equipe certa. O termo é só o que se procura na Biblioteca de Anúncios. Cidade e estado não são obrigatórios nesta fonte.'
                 : 'Uma coleta única, agora, sem criar rotina.'}
             </p>
           </div>
-          <div className={`grid gap-3 sm:grid-cols-2 ${metaAds ? 'lg:grid-cols-[minmax(0,1fr)_220px]' : 'lg:grid-cols-4'}`}>
-            <Campo label={metaAds ? 'Termo do anúncio' : 'Nicho'}>
-              <input value={avulsa.nicho} placeholder={metaAds ? 'ex: energia solar, estética, restaurante japonês' : 'ex: dentista'}
+          <div className={`grid gap-3 sm:grid-cols-2 ${metaAds ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px]' : 'lg:grid-cols-4'}`}>
+            <Campo label="Nicho">
+              <input value={avulsa.nicho} placeholder="ex: energia solar"
+                title={metaAds
+                  ? 'O que o lead é. Use o mesmo nome do catálogo de nichos: é ele que define de qual equipe este lead será.'
+                  : undefined}
                 onChange={(e) => setAvulsa({ ...avulsa, nicho: e.target.value })}
                 className="w-full rounded-lg border px-3 py-2 text-sm" />
             </Campo>
+            {metaAds && (
+              <Campo label="Termo do anúncio (opcional)">
+                <input value={avulsa.termo} placeholder="vazio = busca pelo nicho"
+                  title="O que procurar na Biblioteca de Anúncios. Serve para buscar mais amplo ou mais específico que o nicho, sem mudar de qual equipe o lead será."
+                  onChange={(e) => setAvulsa({ ...avulsa, termo: e.target.value })}
+                  className="w-full rounded-lg border px-3 py-2 text-sm" />
+              </Campo>
+            )}
             {!metaAds && (
               <SeletorLocalidade
                 cidade={avulsa.cidade}

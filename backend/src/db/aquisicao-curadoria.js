@@ -24,6 +24,26 @@ const SESSAO_COLUNAS = `
 // Decisões antigas descrevem uma operação que talvez não exista mais.
 const APRENDIZADO_JANELA_DIAS = 180
 
+/**
+ * Os status que significam "ninguem decidiu este lead ainda".
+ *
+ * ERA so' `aguardando`, e isso escondia canais inteiros da triagem guiada: lead do Maps nasce
+ * `aguardando` (default da coluna), mas lead de Instagram/LinkedIn (migration 012) e da
+ * Biblioteca de Anuncios do Meta (migration 091) nasce `coletado`. Na pratica o Assistente de
+ * Oportunidades — o unico caminho que monta ficha de ICP e aprende com as decisoes — atendia
+ * apenas o Maps, sem ninguem ter decidido isso.
+ *
+ * `rejeitado` fica de FORA de proposito: a curadoria promete "uma decisao por lead", e
+ * redecidir o que uma pessoa ja recusou quebraria a meta da sessao (e o R9 "lead descartado
+ * nao volta"). Reabrir lead recusado continua sendo acao explicita de outra tela.
+ *
+ * As TRES consultas abaixo (fila, contagem e CLAIM) usam esta mesma lista: se a fila enxergasse
+ * mais do que o CLAIM aceita, o lead apareceria na tela e toda decisao falharia como "ja
+ * decidido".
+ */
+const STATUS_SEM_DECISAO = Object.freeze(['aguardando', 'coletado', 'contato_encontrado'])
+const SQL_SEM_DECISAO = `('${STATUS_SEM_DECISAO.join("', '")}')`
+
 function erro(mensagem, statusCode = 400) {
   const e = new Error(mensagem)
   e.statusCode = statusCode
@@ -117,7 +137,7 @@ async function encerrarSessao(pool, empresaId, sessaoId, status = 'encerrada') {
  * coleta grava "Campinas - SP" quando há UF e "Campinas" quando não há.
  */
 async function listarCandidatos(pool, empresaId, { nicho = null, cidade = null, ampliado = false, excluirIds = [], limite = 40 } = {}) {
-  const where = [`p.empresa_id = $1`, `p.status = 'aguardando'`]
+  const where = [`p.empresa_id = $1`, `p.status IN ${SQL_SEM_DECISAO}`]
   const params = [empresaId]
 
   if (!ampliado && nicho) {
@@ -149,7 +169,7 @@ async function listarCandidatos(pool, empresaId, { nicho = null, cidade = null, 
 // Quantos leads ainda restam para avaliar (usado para dizer "acabaram as opções"
 // sem prometer mais do que existe).
 async function contarCandidatos(pool, empresaId, { nicho = null, cidade = null, ampliado = false } = {}) {
-  const where = [`empresa_id = $1`, `status = 'aguardando'`]
+  const where = [`empresa_id = $1`, `status IN ${SQL_SEM_DECISAO}`]
   const params = [empresaId]
   if (!ampliado && nicho) {
     params.push(nicho)
@@ -223,15 +243,16 @@ async function decidir(pool, {
     if (sessao.status !== 'ativa') throw erro('Esta sessão já foi encerrada.', 409)
 
     // 1. CLAIM: 0 linhas = alguém (ou você mesmo) já decidiu este lead.
-    // O CLAIM continua sendo por `status = 'aguardando'`: e' ele que garante "uma decisao por lead"
-    // desde a migration 055, e trocar a condicao agora mudaria o significado da meta da sessao.
+    // O CLAIM usa a MESMA lista da fila (`STATUS_SEM_DECISAO`): e' ele que garante "uma decisao
+    // por lead" desde a migration 055. As duas condicoes precisam andar juntas — fila mais larga
+    // que CLAIM faria o lead aparecer na tela e toda decisao falhar como "ja decidido".
     // `qualificacao` viaja na MESMA instrucao — gravar em dois passos deixaria uma janela em que o
     // lead esta decidido num eixo e pendente no outro.
     const { rows: claim } = await client.query(
       `UPDATE prospectador.prospects
           SET status = $3, qualificacao = $4, qualificado_em = NOW(), qualificado_por = $5::uuid,
               updated_at = NOW()
-        WHERE empresa_id = $1 AND id = $2::uuid AND status = 'aguardando'
+        WHERE empresa_id = $1 AND id = $2::uuid AND status IN ${SQL_SEM_DECISAO}
         RETURNING *`,
       [empresaId, prospectId, statusNovo, qualificacaoNova, usuarioId || null]
     )
