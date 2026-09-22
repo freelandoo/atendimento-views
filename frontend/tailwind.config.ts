@@ -4,7 +4,12 @@ const config: Config = {
   content: [
     './app/**/*.{ts,tsx}',
     './components/**/*.{ts,tsx}',
-    './lib/**/*.{ts,tsx}',
+    // `.js` NAO e' detalhe: os modulos PUROS que decidem classe (`lib/ui-primitivos.js`,
+    // `lib/pontuacao-indicador.js`, `lib/lead-icp.js`...) sao `.js`. Sem esta extensao o
+    // Tailwind nunca os le, e toda classe que so existe la dentro simplesmente NAO e' gerada.
+    // Foi assim que o shell de modal (`sm:max-w-4xl`, `sm:max-h-[...]`, `sm:w-[560px]`) ficou
+    // sem largura e sem altura maxima: o modal passou a ocupar a tela inteira.
+    './lib/**/*.{ts,tsx,js}',
   ],
   theme: {
     extend: {

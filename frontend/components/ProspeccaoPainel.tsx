@@ -1418,8 +1418,8 @@ function ModalAprovarDistribuir({
 }) {
   const semElegiveis = !previa || previa.previsao.total <= 0
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 sm:p-6 lg:p-10" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="max-h-[min(44rem,82dvh)] w-full max-w-[min(44rem,84vw)] overflow-y-auto rounded-lg bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold text-ink">Aprovar e distribuir</h3>
@@ -1651,8 +1651,8 @@ function PersonalizarAquisicaoModal({ view, onPatch, onReset, onPreset, onClose 
   const aplicarColuna = (key: string, checked: boolean) => onPatch({ cols: { ...view.cols, [key]: checked } })
   const pararClique = (e: ReactMouseEvent<HTMLDivElement>) => e.stopPropagation()
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4 py-6" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl" onClick={pararClique}>
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4 sm:p-6 lg:p-10" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="max-h-[min(44rem,82dvh)] w-full max-w-[min(44rem,84vw)] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl" onClick={pararClique}>
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold">⠿ Personalizar aquisição</h3>

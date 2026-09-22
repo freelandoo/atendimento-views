@@ -58,3 +58,12 @@ test('o modulo NAO reimplementa a classificacao da fila', () => {
   assert.ok(!/\.status\b/.test(corpo), 'lib nao le status do lead')
   assert.ok(!/\btelefone\b/.test(corpo.replace(/'[^']*'/g, '')), 'lib nao le telefone do lead')
 })
+
+// O aviso da janela mora na BARRA da lista, e barra nao comporta paragrafo. `curto` existe
+// para isso — e `texto` continua inteiro porque e' ele que diz o que fazer.
+test('o aviso de janela tem forma curta E completa', () => {
+  const a = F.avisoDeJanela({ total: 300, total_carteira: 1240, limite: 300 })
+  assert.equal(a.curto, '300 de 1240')
+  assert.ok(a.texto.length > a.curto.length)
+  assert.ok(/busca|filtro/i.test(a.texto), 'a forma completa precisa dizer o que fazer')
+})

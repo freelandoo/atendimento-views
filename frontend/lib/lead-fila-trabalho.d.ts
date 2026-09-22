@@ -25,6 +25,9 @@ export interface MetaListagem {
 export interface AvisoJanela {
   total: number
   mostrando: number
+  /** "300 de 1240" — cabe num selo de barra. */
+  curto: string
+  /** A frase inteira, com a orientação. Vai para o `title`, nunca some. */
   texto: string
 }
 

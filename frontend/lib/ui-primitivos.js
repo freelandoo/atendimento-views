@@ -132,12 +132,23 @@ function classesCard(opcoes = {}) {
 const TAMANHOS_FOLHA = Object.freeze(['sm', 'md', 'lg', 'xl'])
 const TAMANHO_FOLHA_PADRAO = 'md'
 
+// Teto DUPLO, e os dois termos existem por motivos diferentes: o `rem` e' o tamanho
+// confortavel de leitura; o `vw` garante que SEMPRE sobre moldura escura, inclusive numa
+// janela estreita de notebook, onde o teto em `rem` sozinho nao segura nada. Sem o segundo
+// termo, `max-w-4xl` (896px) numa janela de 950px vira 94% da tela — o modal "gigante"
+// relatado pelo operador em 2026-09-22.
 const LARGURA_FOLHA = Object.freeze({
-  sm: 'sm:max-w-md',
-  md: 'sm:max-w-2xl',
-  lg: 'sm:max-w-4xl',
-  xl: 'sm:max-w-5xl',
+  sm: 'sm:max-w-[min(28rem,84vw)]',
+  md: 'sm:max-w-[min(40rem,84vw)]',
+  lg: 'sm:max-w-[min(52rem,84vw)]',
+  xl: 'sm:max-w-[min(60rem,84vw)]',
 })
+
+// A ALTURA segue a mesma ideia e por isso nao e' por tamanho: `min(44rem, 82dvh)`. Numa tela
+// de 1080px o modal para em ~65% da altura (a moldura aparece em cima E embaixo); numa de
+// 800px o teto proporcional assume e ele continua utilizavel. Um `dvh` sozinho daria 82% em
+// qualquer tela — que e' o que o operador leu como "ocupa a tela inteirinha".
+const ALTURA_FOLHA = 'sm:max-h-[min(44rem,82dvh)]'
 
 function normalizarTamanhoFolha(t) {
   return TAMANHOS_FOLHA.includes(t) ? t : TAMANHO_FOLHA_PADRAO
@@ -154,7 +165,9 @@ function classesFundoFolha(opcoes = {}) {
   const { extra = '', lateral = false } = opcoes
   return juntar(
     'fixed inset-0 z-50 flex items-end justify-center bg-ink/50',
-    lateral ? 'sm:items-stretch sm:justify-end sm:p-0' : 'sm:items-center sm:p-4',
+    // A moldura CRESCE com a tela. `p-4` fixo dava 16px de fundo visivel em qualquer
+    // monitor — insuficiente para a pessoa perceber que a lista continua atras do modal.
+    lateral ? 'sm:items-stretch sm:justify-end sm:p-0' : 'sm:items-center sm:p-6 lg:p-10',
     extra,
   )
 }
@@ -174,14 +187,15 @@ function classesFolha(opcoes = {}) {
     return juntar(
       'flex w-full min-h-0 flex-col overflow-hidden bg-surface shadow-xl',
       'max-h-[92dvh] rounded-t-lg',
-      'sm:h-full sm:max-h-none sm:w-[560px] sm:max-w-[92vw] sm:rounded-none sm:border-l sm:border-line',
+      'sm:h-full sm:max-h-none sm:w-[34rem] sm:max-w-[88vw] sm:rounded-none sm:border-l sm:border-line',
       extra,
     )
   }
   return juntar(
     'flex w-full min-h-0 flex-col overflow-hidden bg-surface shadow-xl',
     'max-h-[92dvh] rounded-t-lg',
-    'sm:max-h-[90dvh] sm:rounded-lg',
+    'sm:rounded-lg',
+    ALTURA_FOLHA,
     LARGURA_FOLHA[normalizarTamanhoFolha(tamanho)],
     extra,
   )

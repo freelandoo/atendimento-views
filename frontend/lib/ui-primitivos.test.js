@@ -138,6 +138,59 @@ test('tamanho desconhecido cai no padrao em vez de quebrar a tela', () => {
 test('a largura maxima so vale a partir de sm: no celular a folha ocupa a tela toda', () => {
   const c = classesFolha({ tamanho: 'lg' })
   assert.ok(c.includes('w-full'))
-  assert.ok(c.includes('sm:max-w-4xl'))
+  assert.ok(c.includes('sm:max-w-['), 'a partir de sm existe teto de largura')
   assert.ok(!/(^|\s)max-w-/.test(c), 'largura maxima sem prefixo sm: estreitaria a folha no celular')
+})
+
+// ⚠️ O MODAL NUNCA OCUPA A TELA INTEIRA. Relatado pelo operador em 2026-09-22 ("parece que a
+// pagina fica ocupando a tela inteirinha"): a pessoa precisa VER que a lista continua atras.
+// O teto e' duplo de proposito — o `rem` da o tamanho confortavel, o `vw`/`dvh` garante a
+// moldura em qualquer janela. Um teto so em `rem` nao segura janela estreita; um so em
+// viewport da a mesma proporcao gigante em todo monitor.
+test('o modal tem teto em REM e em VIEWPORT, nos dois eixos', () => {
+  for (const tamanho of [...TAMANHOS_FOLHA]) {
+    const c = classesFolha({ tamanho })
+    const largura = c.match(/sm:max-w-\[min\((\d+)rem,(\d+)vw\)\]/)
+    assert.ok(largura, `${tamanho}: largura precisa de teto rem + vw`)
+    assert.ok(Number(largura[2]) <= 88, `${tamanho}: ${largura[2]}vw nao deixa moldura visivel`)
+    const altura = c.match(/sm:max-h-\[min\((\d+)rem,(\d+)dvh\)\]/)
+    assert.ok(altura, `${tamanho}: altura precisa de teto rem + dvh`)
+    assert.ok(Number(altura[2]) <= 85, `${tamanho}: ${altura[2]}dvh e' a tela inteira`)
+  }
+})
+
+test('a moldura escura CRESCE com a tela — 16px fixos nao se percebe', () => {
+  const fundo = classesFundoFolha()
+  assert.ok(/sm:p-[6-9]|sm:p-1\d/.test(fundo), 'a partir de sm a moldura passa de 16px')
+  assert.ok(/lg:p-\d+/.test(fundo), 'em tela grande a moldura cresce de novo')
+})
+
+// A ficha do lead e' painel LATERAL justamente para preservar a lista atras dela; se ela
+// ocupar a largura toda, nao preserva nada — vira o modal que ela existe para nao ser.
+test('a ficha lateral tem largura fixa e teto de viewport', () => {
+  const c = classesFolha({ lateral: true })
+  assert.ok(/sm:w-\[\d+rem\]/.test(c), 'painel lateral tem largura propria')
+  const teto = c.match(/sm:max-w-\[(\d+)vw\]/)
+  assert.ok(teto && Number(teto[1]) <= 90, 'no celular deitado o painel nao pode cobrir tudo')
+})
+
+// ⚠️ A GUARDA MAIS IMPORTANTE DESTE ARQUIVO, e ela nao e' sobre estilo.
+//
+// Defeito medido em 2026-09-22: `tailwind.config.ts` varria `./lib/**/*.{ts,tsx}` e este
+// modulo e' `.js`. Resultado — `sm:max-w-4xl`, `sm:max-h-[90dvh]` e `sm:w-[560px]` NUNCA
+// foram gerados no CSS, entao TODO modal do produto renderizava sem largura e sem altura
+// maxima e ocupava a tela inteira. O bug nao estava na medida: estava na extensao do glob.
+//
+// Vale para todos os modulos PUROS que decidem classe (`lead-icp.js`, `pontuacao-indicador.js`,
+// `menu-radial.js`, `plano-dia.js`...), nao so para este.
+test('o Tailwind VARRE os modulos puros .js de lib/ — senao as classes deles nao existem', () => {
+  const cfg = fs.readFileSync(require('node:path').join(__dirname, '..', 'tailwind.config.ts'), 'utf8')
+  const globs = [...cfg.matchAll(/'(\.\/[^']+)'/g)].map((m) => m[1])
+  const daLib = globs.filter((g) => g.includes('lib/'))
+  assert.ok(daLib.length, 'o content do Tailwind precisa cobrir lib/')
+  assert.ok(
+    daLib.some((g) => /\{[^}]*\bjs\b[^}]*\}|\.js$/.test(g)),
+    `o glob de lib/ nao cobre .js (${daLib.join(', ')}) — as classes de ui-primitivos.js nao ` +
+      'serao geradas e todo modal volta a ocupar a tela inteira',
+  )
 })

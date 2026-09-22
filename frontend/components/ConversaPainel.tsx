@@ -634,14 +634,17 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
   return (
     <>
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 sm:p-6 lg:p-10"
       onClick={onFechar}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`Conversa com ${identidade.titulo}`}
-        className="bg-white rounded-2xl shadow-xl max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden"
+        // Mesmo teto do shell (`lib/ui-primitivos.js`): `rem` para o tamanho confortavel e
+        // `vw`/`dvh` para garantir que SEMPRE sobre moldura — o painel ocupava 92vh e a largura
+        // quase inteira, e a pessoa perdia a nocao de que a lista continua atras.
+        className="bg-white rounded-2xl shadow-xl w-full max-w-[min(60rem,84vw)] max-h-[min(48rem,84dvh)] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-6 py-2.5 border-b flex justify-between items-start gap-3">

@@ -84,9 +84,15 @@ function avisoDeJanela(meta) {
   const total = Number(meta && meta.total_carteira)
   const mostrando = Number(meta && meta.total)
   if (!Number.isFinite(total) || !Number.isFinite(mostrando) || total <= mostrando) return null
+  // DUAS formas do MESMO aviso, e as duas precisam existir. `curto` e' o que cabe na barra da
+  // lista sem virar um paragrafo amarelo na primeira dobra (relatado pelo operador em
+  // 2026-09-22: "esse aviso gigante"); `texto` continua inteiro e vai para o `title`, porque a
+  // frase que diz O QUE FAZER ("use a busca ou os filtros") e' a parte util — some-la seria
+  // trocar um aviso grande por um numero que ninguem entende.
   return {
     total,
     mostrando,
+    curto: `${mostrando} de ${total}`,
     texto: `Mostrando os ${mostrando} leads mais urgentes de ${total}. Use a busca ou os filtros para alcançar o resto.`,
   }
 }
