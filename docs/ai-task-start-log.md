@@ -4839,3 +4839,27 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - Escopo autorizado: auditoria de código e interface, pesquisa de referências de design e artefatos locais de proposta. Sem implementação no produto, migração, coleta paga, envio, commit/push ou publicação nesta rodada.
 - Direção: manter guia visual canônico; avaliar lista com origem identificada e detalhes progressivos, compactar seleção em massa e conexão, preservar permissões/ownership e distinguir gestão de Comercial.
 - Validação: rastrear propostas até componentes/contratos atuais, inspecionar imagens geradas, documentar limitações das capturas e pendências para implementação.
+
+## 2026-09-22 (2) — Modal de membros: interruptor nascia sempre desligado
+
+- **Pedido do operador:** no modal "Gerenciar membros da equipe", o interruptor de cada pessoa
+  aparece sempre desativado, inclusive para quem já está na equipe. Corrigir.
+- **Causa raiz (uma linha):** `montarPessoas` (`frontend/lib/equipe-area.js`) batiza o vínculo de
+  equipe como **`equipe`**, enquanto `estadoDaPessoa` (`lib/equipes-comerciais.js`, dono da regra
+  e reexportado) lê **`equipe_atual`**. A página passa a saída de `montarPessoas` aos dois modais,
+  então `jaNesta` é sempre `false` e `disponivel` é sempre `true` para todo mundo.
+- **Análise de impacto — o sintoma visual é o menor dos efeitos:**
+  1. interruptor sempre desligado e selo sempre "Fora da equipe";
+  2. contadores dos filtros errados ("Já nesta equipe (0)"), e esse filtro sempre vazio;
+  3. `participantesIniciais` devolve `[]`, então `diffParticipantes` **nunca** produz `remover`;
+  4. como `PUT .../participantes` é SUBSTITUIÇÃO (`substituirParticipantes`), salvar uma única
+     adição enviaria só ela e o backend **removeria todos os membros atuais**, devolvendo os
+     leads deles para a fila de livres — **sem passar pela confirmação**, que só dispara quando
+     `diff.remover` tem gente. Perda de trabalho silenciosa, não só tela errada;
+  5. `ModalEquipe` (criar/editar equipe) tem o mesmo defeito: ninguém aparece bloqueado por já
+     estar em outra equipe, e o gestor só descobre pelo 409 `PARTICIPANTE_JA_TEM_EQUIPE`.
+- **Escopo desta rodada:** unificar o nome do campo em `equipe_atual` (o nome da API `/elegiveis`
+  e o que os módulos puros já leem), repontando os três leitores de apresentação; atualizar o
+  `.d.ts` e cobrir o caminho inteiro com teste de regressão.
+- **Fora de escopo:** qualquer mudança de backend, de rota, de permissão, de migration ou da
+  regra de devolução de leads. Nenhum arquivo de `backend/` é tocado.

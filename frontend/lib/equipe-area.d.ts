@@ -24,8 +24,13 @@ export declare function abaValida(id: string | null | undefined): IdAba
 // ─── Pessoas e equipes, já juntas ───────────────────────────────────────────────────────
 
 export interface PessoaArea extends LinhaEquipe {
-  /** `null` = não está em equipe nenhuma. Estado legítimo: quem não está em equipe vê tudo. */
-  equipe: EquipeDaPessoa | null
+  /**
+   * `null` = não está em equipe nenhuma. Estado legítimo: quem não está em equipe vê tudo.
+   *
+   * O nome é o de `/elegiveis` e o que `PessoaSelecionavel` exige — é ele que faz a linha juntada
+   * servir direto às regras de seleção, sem conversão e sem um segundo nome para o mesmo fato.
+   */
+  equipe_atual: EquipeDaPessoa | null
   /** `null` ≠ `0`: não há faturamento REGISTRADO, e não "faturou zero". */
   originado: number | null
 }

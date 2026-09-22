@@ -1172,7 +1172,7 @@ function TabelaPessoas({
                 </td>
                 {comEquipe && (
                   <td className="px-4 py-2.5 text-xs text-ink-2">
-                    {p.equipe ? p.equipe.nome : <span className="text-ink-3">Sem equipe</span>}
+                    {p.equipe_atual ? p.equipe_atual.nome : <span className="text-ink-3">Sem equipe</span>}
                   </td>
                 )}
                 {COLUNAS_MEMBRO.map((c) => {

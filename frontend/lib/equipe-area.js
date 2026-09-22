@@ -91,6 +91,16 @@ function chave(valor) {
  * A junção é pela ESQUERDA, a partir de `/equipe`: `elegiveis` só lista vínculo ATIVO, e alguém
  * desativado com carteira na mão precisa continuar visível — desativar revoga acesso e **não**
  * redistribui trabalho.
+ *
+ * ⚠️ O vínculo sai com o nome `equipe_atual`, o MESMO de `/elegiveis`, e isso não é preferência
+ * de estilo: `estadoDaPessoa` (dono da regra de seleção, em `lib/equipes-comerciais.js`) lê esse
+ * campo, e toda a família do modal de membros depende dele. Até 2026-09-22 a junção chamava o
+ * campo de `equipe` — e como nenhuma leitura falha quando um campo não existe, o defeito era
+ * silencioso: TODA pessoa aparecia como "sem equipe", o interruptor de quem já era membro nascia
+ * desligado, e `participantesIniciais` devolvia `[]`. Como o PUT de participantes é SUBSTITUIÇÃO,
+ * salvar uma única adição mandaria só ela e o backend removeria os membros atuais, devolvendo os
+ * leads deles para a fila — sem passar pela confirmação, que só dispara quando o diff acusa saída.
+ * **Não reintroduza um segundo nome para este mesmo fato.**
  */
 function montarPessoas({ linhas, elegiveis, ranking } = {}) {
   const porElegivel = new Map((Array.isArray(elegiveis) ? elegiveis : []).map((e) => [chave(e.usuario_id), e]))
@@ -101,7 +111,7 @@ function montarPessoas({ linhas, elegiveis, ranking } = {}) {
     const el = porElegivel.get(id) || null
     return {
       ...l,
-      equipe: el && el.equipe_atual ? el.equipe_atual : null,
+      equipe_atual: el && el.equipe_atual ? el.equipe_atual : null,
       // `null` ≠ `0`: ninguém originou zero — é que não há faturamento registrado para a pessoa
       // nesta competência. `formatarDinheiro(null)` devolve "—", nunca "R$ 0,00".
       originado: porRanking.has(id) ? Number(porRanking.get(id).originado) || 0 : null,
@@ -158,7 +168,7 @@ function metricasDaEquipe(membros) {
 function montarEquipes({ equipes, pessoas } = {}) {
   const lista = Array.isArray(pessoas) ? pessoas : []
   return (Array.isArray(equipes) ? equipes : []).map((eq) => {
-    const membros = lista.filter((p) => p.equipe && chave(p.equipe.id) === chave(eq.id))
+    const membros = lista.filter((p) => p.equipe_atual && chave(p.equipe_atual.id) === chave(eq.id))
     const total = Number(eq.total_membros) || 0
     return {
       ...eq,
@@ -397,8 +407,8 @@ function filtrarPessoas(pessoas, { busca, equipeId, papel, status } = {}) {
   return (Array.isArray(pessoas) ? pessoas : []).filter((p) => {
     if (t && !normalizarTermo(p.nome).includes(t) && !normalizarTermo(p.email).includes(t)) return false
     if (eq === FILTRO_SEM_EQUIPE) {
-      if (p.equipe) return false
-    } else if (eq && (!p.equipe || chave(p.equipe.id) !== eq)) return false
+      if (p.equipe_atual) return false
+    } else if (eq && (!p.equipe_atual || chave(p.equipe_atual.id) !== eq)) return false
     if (pap && chave(p.papel) !== pap) return false
     if (st === 'ativos' && p.ativo === false) return false
     if (st === 'inativos' && p.ativo !== false) return false

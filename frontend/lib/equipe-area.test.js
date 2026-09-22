@@ -41,12 +41,59 @@ test('montarPessoas junta carga, equipe e faturamento pela ESQUERDA', () => {
 
   const saida = E.montarPessoas({ linhas, elegiveis, ranking })
   assert.equal(saida.length, 2)
-  assert.equal(saida[0].equipe.nome, 'Solar')
+  assert.equal(saida[0].equipe_atual.nome, 'Solar')
   assert.equal(saida[0].originado, 1500)
   assert.equal(saida[0].leads, 5, 'a carga da rota /equipe e preservada')
   // Quem nao esta em equipe e nao tem faturamento: ausencia explicita, nao zero inventado.
-  assert.equal(saida[1].equipe, null)
+  assert.equal(saida[1].equipe_atual, null)
   assert.equal(saida[1].originado, null)
+})
+
+// GUARDA DE REGRESSAO (2026-09-22). O defeito nao estava no modal: `montarPessoas` batizava o
+// vinculo de `equipe` e `estadoDaPessoa` lia `equipe_atual`. Nenhuma leitura falha quando um campo
+// nao existe, entao TODA pessoa virava "sem equipe": interruptor desligado para quem ja era
+// membro, filtro "Ja nesta equipe" sempre vazio e — o pior — `participantesIniciais` vazio, o que
+// faria o PUT (que SUBSTITUI) remover os membros atuais ao salvar uma unica adicao, devolvendo os
+// leads deles para a fila sem passar pela confirmacao. Este teste percorre o caminho INTEIRO, da
+// juncao ate a linha do modal; testar as funcoes do modal com objetos escritos a mao nao pegava
+// nada, porque eram escritos ja com o nome certo.
+test('a juncao alimenta o modal: quem ja e membro chega MARCADO', () => {
+  const pessoas = E.montarPessoas({
+    linhas: [
+      pessoa({ usuario_id: 'u1', nome: 'Ana' }),
+      pessoa({ usuario_id: 'u2', nome: 'Bia' }),
+      pessoa({ usuario_id: 'u3', nome: 'Caio' }),
+    ],
+    elegiveis: [
+      { usuario_id: 'u1', equipe_atual: { id: 'e1', nome: 'Solar' } },
+      { usuario_id: 'u2', equipe_atual: { id: 'e2', nome: 'Advocacia' } },
+    ],
+  })
+
+  assert.deepEqual(E.participantesIniciais(pessoas, 'e1'), ['u1'], 'a selecao nasce com quem ja e membro')
+  assert.deepEqual(E.contagensDoModal(pessoas, 'e1'), { todos: 3, sem_equipe: 1, nesta_equipe: 1 })
+
+  const porId = (id) => pessoas.find((p) => p.usuario_id === id)
+  const dentro = E.estadoLinhaModal(porId('u1'), 'e1', true)
+  assert.equal(dentro.dentro, true, 'o interruptor de quem ja e membro nasce LIGADO')
+  assert.equal(dentro.rotuloEstado, 'Na equipe')
+  assert.equal(dentro.mudanca, null, 'abrir o modal nao e uma alteracao pendente')
+
+  const bloqueado = E.estadoLinhaModal(porId('u2'), 'e1', true)
+  assert.equal(bloqueado.selecionavel, false, 'quem esta em OUTRA equipe continua bloqueado')
+  assert.match(bloqueado.motivo, /Advocacia/)
+
+  // Sem nenhum gesto, nada muda — e o botao de salvar fica desabilitado.
+  const diff = E.diffParticipantes(pessoas, 'e1', E.participantesIniciais(pessoas, 'e1'))
+  assert.deepEqual(diff.adicionar, [])
+  assert.deepEqual(diff.remover, [])
+  assert.equal(E.resumoSelecaoModal(diff).podeSalvar, false)
+
+  // Adicionar alguem NAO pode virar remocao de quem ja estava: o corpo do PUT leva os dois.
+  const comCaio = E.diffParticipantes(pessoas, 'e1', ['u1', 'u3'])
+  assert.deepEqual(comCaio.adicionar, ['u3'])
+  assert.deepEqual(comCaio.remover, [])
+  assert.deepEqual(E.corpoDeParticipantes(['u1', 'u3']), ['u1', 'u3'])
 })
 
 test('montarPessoas mantem quem esta com o acesso REVOGADO', () => {
