@@ -38,6 +38,10 @@ export type ModoAquisicao = 'busca' | 'rotinas'
 // 25 é o mesmo `LIMITE_PADRAO` que o worker do backend usa; quem quer varrer o mercado aumenta
 // no campo.
 const QUANTIDADE_META_PADRAO = 25
+// Teto por busca na aba Meta. A AUTORIDADE é o backend (`LIMITE_MAX` em meta-ads-worker.js, que
+// faz o clamp de verdade — a rota aceita chamada direta). Este número aqui só faz o formulário
+// refletir aquele; se um dia mudar lá, muda aqui.
+const QUANTIDADE_META_MAX = 100
 export type FonteBuscaAquisicao = 'places' | 'meta_ads'
 
 export type Rotina = {
@@ -472,12 +476,20 @@ export default function RotinasAquisicao({
                 rotuloCidade="Cidade"
               />
             )}
-            <Campo label={metaAds ? 'Máx. de anúncios analisados' : `Máx. de leads novos (1 a ${limites.quantidade_max})`}>
-              <input type="number" min={limites.quantidade_min} max={limites.quantidade_max} value={avulsa.quantidade}
+            <Campo label={metaAds
+              ? `Máx. de anúncios analisados (1 a ${QUANTIDADE_META_MAX})`
+              : `Máx. de leads novos (1 a ${limites.quantidade_max})`}>
+              <input type="number" min={limites.quantidade_min}
+                max={metaAds ? QUANTIDADE_META_MAX : limites.quantidade_max} value={avulsa.quantidade}
                 title={metaAds
                   ? 'Limite de anúncios lidos na Biblioteca. Cada anúncio lido é pago por resultado, e só viram lead os anunciantes sem site próprio no anúncio.'
                   : 'Vale para os dois botões: quantos leads esta busca importa e, no assistente, quantos você quer aprovar. A origem pode encontrar mais registros do que isso.'}
-                onChange={(e) => setAvulsa({ ...avulsa, quantidade: Number(e.target.value) || limites.quantidade_max })}
+                onChange={(e) => setAvulsa({
+                  ...avulsa,
+                  // Campo vazio/inválido volta ao padrão da fonte — na Meta, cair no máximo
+                  // seria o clique mais caro possível por acidente.
+                  quantidade: Number(e.target.value) || (metaAds ? QUANTIDADE_META_PADRAO : limites.quantidade_max),
+                })}
                 className="w-full rounded-lg border px-3 py-2 text-sm" />
             </Campo>
           </div>

@@ -14,19 +14,19 @@
 //   npm run meta-ads:buscar -- --nicho="Energia Solar" --cidade="Goiania, GO" --confirmar
 //   npm run meta-ads:buscar -- --nicho="..." --cidade="..." --limite=50 --empresa=<uuid> --confirmar
 
-const { buscarAnunciantes } = require('../src/services/meta-ads-worker')
+const { buscarAnunciantes, LIMITE_PADRAO, LIMITE_MAX } = require('../src/services/meta-ads-worker')
 
 const EMPRESA_PJ = '00000000-0000-0000-0000-000000000001'
 
 function lerArgs(argv) {
-  const args = { nicho: null, cidade: null, limite: 25, empresa: EMPRESA_PJ, confirmar: false }
+  const args = { nicho: null, cidade: null, limite: LIMITE_PADRAO, empresa: EMPRESA_PJ, confirmar: false }
   for (const bruto of argv.slice(2)) {
     const arg = String(bruto)
     if (arg.startsWith('--nicho=')) args.nicho = arg.slice(8).trim()
     else if (arg.startsWith('--cidade=')) args.cidade = arg.slice(9).trim()
     else if (arg.startsWith('--limite=')) {
       const n = Number.parseInt(arg.slice(9), 10)
-      args.limite = Number.isFinite(n) ? Math.max(1, Math.min(200, n)) : 25
+      args.limite = Number.isFinite(n) ? Math.max(1, Math.min(LIMITE_MAX, n)) : LIMITE_PADRAO
     } else if (arg.startsWith('--empresa=')) args.empresa = arg.slice(10).trim()
     else if (arg === '--confirmar') args.confirmar = true
     else throw new Error(`argumento desconhecido: ${arg}`)

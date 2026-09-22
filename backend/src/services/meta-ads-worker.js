@@ -24,6 +24,10 @@ const PIPELINE = require('./enriquecimento-pipeline')
 const etapasDb = require('../db/enriquecimento-etapas')
 
 const LIMITE_PADRAO = 25
+// Teto POR BUSCA (decisao do operador, 2026-09-22). O clamp vive aqui, e nao so' na tela: a rota
+// e' publica para quem tem a capacidade, e uma chamada direta pediria mais do que o formulario
+// deixa. A tela apenas reflete este numero.
+const LIMITE_MAX = 100
 const ETAPA_PAGINA = 'meta_ads_pagina'
 const LOTE_PAGINA = 10
 // Medido na sonda de 2026-09-22: fb_paginas levou ~5min (00:02:04 -> 00:06:45). 20min da folga
@@ -64,7 +68,7 @@ async function buscarAnunciantes({ nicho, termo = null, cidade, empresaId = null
     e.statusCode = 400
     throw e
   }
-  const lim = Math.max(1, Math.min(200, Number.parseInt(limite, 10) || LIMITE_PADRAO))
+  const lim = Math.max(1, Math.min(LIMITE_MAX, Number.parseInt(limite, 10) || LIMITE_PADRAO))
 
   const orcamento = ORCAMENTO.avaliarOrcamento({
     consumidoHoje: await consumoDb.consumidoHoje(apify.atorFacebookAds()),
@@ -332,6 +336,8 @@ async function tickMetaAdsPagina(opcoes = {}) {
 }
 
 module.exports = {
+  LIMITE_PADRAO,
+  LIMITE_MAX,
   montarUrlBusca,
   buscarAnunciantes,
   dispararPaginasFacebook,
