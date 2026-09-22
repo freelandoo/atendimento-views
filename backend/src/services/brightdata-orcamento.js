@@ -24,6 +24,9 @@ const SCRAPER = Object.freeze({
   IG_POSTS: 'ig_posts',
   LI_DESCOBERTA: 'li_descoberta',
   LI_PERFIS: 'li_perfis',
+  // Cross-reference da pagina do anunciante achado na Biblioteca de Anuncios do Meta
+  // (migration 092) — mesma moeda, mesmo ledger, teto proprio de ENRIQUECIMENTO (reserva 0).
+  FB_PAGINAS: 'fb_paginas',
 })
 const SCRAPERS = Object.freeze(Object.values(SCRAPER))
 

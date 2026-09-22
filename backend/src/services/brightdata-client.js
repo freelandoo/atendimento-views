@@ -9,6 +9,12 @@
 //   BRIGHTDATA_DATASET_IG_PERFIS      dataset de perfis do Instagram (input por URL)
 //   BRIGHTDATA_DATASET_LI_PERFIS      dataset de perfis do LinkedIn (input por URL)
 //   BRIGHTDATA_DATASET_LI_DESCOBERTA  (opcional) descoberta LinkedIn por palavra-chave
+//   BRIGHTDATA_DATASET_FB_ADS         dataset da Biblioteca de Anúncios do Facebook/Meta
+//                                     — EM SONDA (2026-09-21): dataset_id e formato de input
+//                                     ainda não confirmados na conta. Não usar fora da sonda
+//                                     (scripts/sondar-facebook-ads.js) até a Fase 0 concluir.
+//   BRIGHTDATA_DATASET_FB_PAGINAS     dataset de Facebook Pages (input por URL da página)
+//                                     — mesmo estado de sonda que o acima.
 //
 // Os dataset_id e o formato exato de input devem ser confirmados no painel Bright Data
 // da conta (cada dataset lista seus campos e o "discover by"). O motor abaixo é agnóstico
@@ -30,6 +36,9 @@ function datasetId(chave) {
     li_perfis: process.env.BRIGHTDATA_DATASET_LI_PERFIS,
     // Google Maps "full information" — Discover by location (nicho+coordenadas).
     maps_descoberta: process.env.BRIGHTDATA_DATASET_MAPS_DESCOBERTA,
+    // EM SONDA — ver comentário no topo do arquivo. Não tem worker/pipeline ainda.
+    fb_ads: process.env.BRIGHTDATA_DATASET_FB_ADS,
+    fb_paginas: process.env.BRIGHTDATA_DATASET_FB_PAGINAS,
   }
   return String(map[chave] || '').trim()
 }

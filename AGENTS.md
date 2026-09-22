@@ -3230,6 +3230,95 @@
   `test/lead-distribuicao.test.js` (28, sendo 8 guardas que leem o fonte),
   `test/autorizacao-rotas.test.js`, `frontend/lib/equipe-carteira.test.js` (25).
 
+### Descoberta de leads pela Biblioteca de Anúncios do Meta (ator Apify) — dois incrementos
+- **Projeto em andamento, por incrementos.** Fase 0/análise completa em
+  `docs/ai-task-start-log.md` (2026-09-21 (3)). **Incremento 1:** descoberta sob demanda via
+  Apify (migration 091). **Incremento 2:** cross-reference com a página do Facebook do
+  anunciante via `fb_paginas` da Bright Data (migration 092), rodando em segundo plano.
+  **Fora de escopo e não implementados:** rotina agendada, tela na Aquisição, e uso do
+  `ig_username` já declarado na página do anunciante para confirmar Instagram sem gastar a
+  etapa de descoberta (o dado já vem no registro do Apify — ver `normalizarAnuncio`, campo
+  `igUsernameDeclarado` — mas nada ainda o promove a `instagram_handle` confirmado).
+- **Regra de negócio, em uma frase:** empresa que está anunciando ativamente no Meta É sinal
+  de intenção de investir em aquisição; se o próprio anúncio não leva a um site próprio, é
+  lacuna digital clara — vira lead.
+- **Por que Apify, e não a Meta oficial nem a Bright Data.** Medido em 2026-09-22
+  (`docs/ai-task-start-log.md`): a API oficial da Meta (`ads_archive`) só devolve anúncio
+  comercial fora de UE/Reino Unido quando é político/de interesse social — inútil para o
+  Brasil comercial. A Bright Data, nesta conta, **não tem** dataset de Ad Library (nem pronto
+  nem sob demanda) — só "Pages and Profiles" (`fb_paginas`, já sondado, sem consumidor no
+  código ainda). O site público da Ad Library mostra todo anúncio comercial livremente; o
+  ator Apify `facebook-ads-scraper` (`JJghSZmShuco4j9gJ`) automatiza essa busca por
+  nicho/cidade — validado com dado real (8 anúncios de "energia solar" em Goiânia, nenhum dos
+  4 negócios reais tinha site próprio no anúncio).
+- **NÃO usa `place_id`.** Este canal não tem Google Place ID. Migration 091 reusa o mecanismo
+  que a 012 já criou para Instagram/LinkedIn: identidade por `(empresa_id, origem,
+  external_ref)`, com `external_ref` = `page_id` do Facebook. `origem='meta_ads'` só ALARGA o
+  `CHECK`, nunca remove valor existente.
+- **O critério eliminatório é o MESMO classificador de domínio de sempre**
+  (`site-classificacao.js`, sem duplicar): landing page do anúncio classificada como
+  `site_proprio` descarta o lead ali mesmo — a empresa já resolveu, não é lacuna. Validado com
+  dado real: `fb.me` e `api.whatsapp.com` (subdomínio de `whatsapp.com`) corretamente NÃO
+  contam como site próprio.
+- **Categoria de página filtra RUÍDO antes de olhar o link** (`CATEGORIA_NAO_NEGOCIO` em
+  `meta-ads-descoberta.js`, lista de BLOQUEIO — mesmo raciocínio do classificador de domínio,
+  que também bloqueia em vez de permitir). Medido: buscar "energia solar goiania" trouxe
+  também a página de um político e de um "empreendedor" pessoa física, junto das 4 empresas
+  reais — sem esse filtro a carteira nasceria suja.
+- **Duas moedas de orçamento, travas separadas de propósito** (mesma disciplina do
+  enriquecimento de Instagram): Apify é pay-per-resultado (`services/apify-orcamento.js`,
+  `prospectador.apify_consumo`, migration 091), Bright Data é crédito de dataset — misturar as
+  duas faria o teto de uma travar a outra por engano.
+- **O lead entra no MESMO enriquecimento de Instagram que qualquer outro** (decisão do
+  operador, 2026-09-16, "lead é lead"): `db/meta-ads-leads.js` enfileira em
+  `enriquecimento-etapas.js` depois de salvar — sem código novo para isso.
+- **`anuncio_meta_inicio_em` guarda o início mais ANTIGO conhecido**, não o mais recente: uma
+  campanha pode ter vários criativos, e o primeiro anúncio visto é o que diz há quanto tempo a
+  empresa está investindo — reavaliar só promove, nunca troca por uma data mais nova.
+- **A entrada da descoberta é SOB DEMANDA.** A única porta é
+  `npm run meta-ads:buscar -- --nicho="..." --cidade="..." --confirmar` (gasta crédito real do
+  Apify, por isso exige `--confirmar`, mesma disciplina das sondas). `services/meta-ads-worker.js`
+  é a orquestração; nada além do script chama `buscarAnunciantes` ainda.
+- **Sem `run_id` de idempotência na descoberta:** o endpoint síncrono do Apify usado
+  (`run-sync-get-dataset-items`) não devolve id de execução — `prospectador.apify_consumo.run_id`
+  fica `NULL` por enquanto (a UNIQUE parcial existe para quando isso for resolvido).
+- **O cross-reference com `fb_paginas` (Incremento 2, migration 092) roda em SEGUNDO PLANO**,
+  no tique do `agent.js` (`tickMetaAdsPagina`, ao lado de `tickEnriquecimento`) — não precisa
+  de comando manual. **Não criou tabela nova**: reusa a MESMA fila genérica por (lead, etapa)
+  do enriquecimento de Instagram (`prospectador.enriquecimento_etapas`, migration 082), com
+  etapa própria (`meta_ads_pagina`) e o mesmo retry/backoff/lease — só `COLS_LEAD`
+  (`db/enriquecimento-etapas.js`) precisou aprender a ler `anuncio_meta_page_id`.
+- **O cross-reference escreve em colunas GENÉRICAS de `prospects`** (`tem_site`, `site`,
+  `telefone`, `email`, `endereco`, `seguidores` — as mesmas que a Aquisição via Maps já usa),
+  nunca em colunas próprias do canal. É isso que faz ICP, prioridade de ligação e filtros de
+  site enxergarem um lead de anúncio exatamente como enxergariam um lead do Maps, sem
+  aprender uma segunda fonte de verdade. `db/meta-ads-leads.js#gravarResultadoPagina` só
+  PROMOVE (`COALESCE`) e respeita `telefone_origem = 'operador'`, mesma disciplina de
+  `salvarProspect`.
+- **`fb_paginas` é um SCRAPER novo no MESMO ledger e MESMO teto** que já trava a Aquisição e o
+  perfil de Instagram (`BRIGHTDATA_ENRIQUECIMENTO_TETO_DIARIO`, reserva ZERO — pelo mesmo
+  motivo do perfil de Instagram: a reserva protege o enriquecimento DA Aquisição, e este
+  cross-reference JÁ é enriquecimento). **Nenhuma env nova** para isso.
+- **`anuncio_meta_pagina_verificada_em`** (quando o cross-reference rodou) é coluna **separada**
+  de `anuncio_meta_verificado_em` (quando a evidência do ANÚNCIO foi vista, migration 091) —
+  são dois fatos verificados em momentos diferentes; confundi-los faria o worker achar que já
+  cruzou a página só porque salvou o anúncio.
+- **Medido na sonda de 2026-09-22:** o snapshot de `fb_paginas` levou ~5 min para ficar pronto
+  — `SNAPSHOT_MAX_MIN_PAGINA = 20` dá folga real, **não herda** o teto de 60 min do perfil de
+  Instagram (dataset diferente, tempo diferente).
+- Código: `src/services/apify-client.js`, `src/services/apify-orcamento.js`,
+  `src/services/meta-ads-descoberta.js` (PURO, dono do vocabulário — descoberta **e**
+  cross-reference de página), `src/services/meta-ads-worker.js`, `src/db/apify-consumo.js`,
+  `src/db/meta-ads-leads.js`, `src/services/brightdata-orcamento.js` (`SCRAPER.FB_PAGINAS`),
+  `src/db/enriquecimento-etapas.js` (`COLS_LEAD` alargado), `src/agent.js`
+  (`tickMetaAdsPagina`), `scripts/buscar-anuncios-meta.js`, `scripts/sondar-facebook-ads.js`
+  (sonda genérica de datasets Bright Data de Facebook). Testes:
+  `test/meta-ads-descoberta.test.js`, `test/apify-orcamento.test.js`,
+  `test/brightdata-orcamento.test.js` (anti-drift atualizado para ler 081+092).
+- **Três variáveis de ambiente novas**, documentadas no `.env.example`: `APIFY_API_TOKEN`,
+  `APIFY_FACEBOOK_ADS_ACTOR_ID` (default o ator confirmado), `APIFY_META_ADS_TETO_DIARIO`
+  (default 200). `APIFY_TIMEOUT_MS` também documentada (timeout HTTP do lado de cá).
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

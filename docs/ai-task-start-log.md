@@ -6,6 +6,35 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-21 (3) — Fase 0/análise: Descoberta de leads via Meta Ad Library (Bright Data)
+
+- **IA/Ferramenta:** Claude Code (Sonnet 5), na `master`, com alterações locais não commitadas em
+  `backend/scripts/backfill-prospects-nicho.js`, `backend/src/db/prospeccao-distribuicao.js`,
+  `backend/src/prospecting.js`, `backend/test/core.test.js`, `backend/src/services/nicho-resolucao.js`
+  (novo, não rastreado) e `backend/test/nicho-resolucao.test.js` (novo, não rastreado) — não tocados
+  nesta tarefa.
+- **Pedido do operador:** desenhar (e, se aprovado, implementar) um funil de descoberta/qualificação
+  de leads que usa a Biblioteca de Anúncios da Meta como fonte primária — "empresa está anunciando
+  agora" como sinal de intenção — em cascata com classificação de domínio (site próprio vs.
+  rede social/agregador), cruzamento com Facebook Page/Google Maps/Instagram, e registro do motivo
+  de qualificação. Fonte de dados escolhida pelo operador: **dataset de Facebook Ads/Pages da Bright
+  Data** (reusa `BRIGHTDATA_API_TOKEN` já configurado), não a Graph API oficial da Meta.
+- **Entendimento inicial:** é uma FEATURE NOVA (novo canal de aquisição), não uma correção. Não
+  existe hoje nenhuma leitura de anúncios/páginas do Facebook no repositório (confirmado por busca
+  em `backend/src`). O padrão de cascata "gastar crédito só quando a etapa anterior não decidiu" já
+  existe e está maduro no pipeline de enriquecimento de Instagram (migration 082,
+  `services/enriquecimento-pipeline.js` + `enriquecimento-worker.js` + `db/enriquecimento-etapas.js`)
+  e deve ser reaproveitado como padrão de implementação, não reinventado. O classificador de domínio
+  "link ≠ site" que o operador descreveu **já existe** (`services/site-classificacao.js`) e deve ser
+  reusado, nunca duplicado. Qualquer chamada paga nova precisa entrar no orçamento único de créditos
+  Bright Data (`services/brightdata-orcamento.js` + `prospectador.brightdata_consumo`, migration 081),
+  cujo enum `SCRAPER` hoje não tem `fb_ads`/`fb_paginas`.
+- **Escopo desta rodada:** SOMENTE análise de impacto (Fase 1-4 do workflow) e proposta de
+  arquitetura — nenhum código, schema ou rota implementados ainda. Implementação só após
+  confirmação explícita do operador sobre a arquitetura proposta (regra do `ai-workflow.md`).
+- **Fora de escopo:** qualquer alteração em banco, orçamento de créditos, ICP, rotas ou frontend
+  nesta etapa; qualquer coleta paga real.
+
 ## 2026-09-21 (2) - Diagnostico: leads aprovados nao ficam disponiveis para "Puxar mais leads"
 
 - **IA/Ferramenta:** Claude Code (Sonnet 5), na `master`, apos push dos commits `0620fc9`/`0ef8bdb`.

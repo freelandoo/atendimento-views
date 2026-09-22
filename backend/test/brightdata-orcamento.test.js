@@ -13,6 +13,11 @@ const FONTE_DB = fs.readFileSync(path.join(SRC, 'db', 'brightdata-consumo.js'), 
 const MIGRATION = fs.readFileSync(
   path.join(__dirname, '..', 'sql', 'migrations', '081_brightdata_consumo.sql'), 'utf8'
 )
+// A 092 alarga o MESMO CHECK (fb_paginas, cross-reference da Biblioteca de Anuncios do Meta) —
+// e' a definicao CORRENTE do vocabulario aceito pelo banco, nao mais a da 081 sozinha.
+const MIGRATION_SCRAPER_ATUAL = fs.readFileSync(
+  path.join(__dirname, '..', 'sql', 'migrations', '092_meta_ads_pagina.sql'), 'utf8'
+)
 
 // ── As duas travas respondem perguntas diferentes ─────────────────────────────
 
@@ -89,9 +94,9 @@ test('scraper fora da lista fechada e recusado antes do banco', () => {
   assert.equal(O.scraperConhecido(''), false)
 })
 
-test('a lista de scrapers do modulo bate com o CHECK da migration', () => {
-  const m = MIGRATION.match(/scraper_type IN \(([^)]+)\)/s)
-  assert.ok(m, 'a migration precisa ter o CHECK de scraper_type')
+test('a lista de scrapers do modulo bate com o CHECK CORRENTE do banco (081 alargado pela 092)', () => {
+  const m = MIGRATION_SCRAPER_ATUAL.match(/scraper_type IN \(([^)]+)\)/s)
+  assert.ok(m, 'a migration 092 precisa ter o CHECK de scraper_type (ela alarga o da 081)')
   const noBanco = m[1].match(/'([a-z_]+)'/g).map((s) => s.replace(/'/g, '')).sort()
   assert.deepEqual(noBanco, [...O.SCRAPERS].sort(),
     'vocabulario divergente entre o modulo e o banco — um dos dois aceitaria valor que o outro recusa')

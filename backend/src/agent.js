@@ -128,6 +128,7 @@ const {
   processarBuscasPlacesPendentes,
 } = require('./prospecting')
 const { tickEnriquecimento } = require('./services/enriquecimento-worker')
+const { tickMetaAdsPagina } = require('./services/meta-ads-worker')
 
 const {
   sleep,
@@ -508,6 +509,11 @@ async function jobWorkerTick() {
       // Google CSE e créditos da Bright Data) e é no-op enquanto a fila estiver vazia.
       await tickEnriquecimento().catch((e) =>
         logger.warn({ operation: 'enriquecimento', etapa: 'tick_erro', erro: e.message })
+      )
+      // Cross-reference da pagina do Facebook do anunciante achado pela Biblioteca de
+      // Anuncios — mesmo cuidado: nao pode segurar nenhum outro tique.
+      await tickMetaAdsPagina().catch((e) =>
+        logger.warn({ operation: 'meta_ads_pagina', etapa: 'tick_erro', erro: e.message })
       )
       // Atribuição Meta (CTWA) + score determinístico — a cada ~10 min (gate próprio).
       if (Date.now() - _ultimaAtribuicaoMetaMs > ATRIBUICAO_META_INTERVALO_MS) {
