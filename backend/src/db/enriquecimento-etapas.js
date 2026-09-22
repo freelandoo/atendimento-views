@@ -15,7 +15,7 @@ const COLS_LEAD = `
   p.id, p.empresa_id, p.nome, p.cidade, p.nicho, p.telefone, p.site, p.link_original,
   p.instagram_handle, p.instagram_candidato, p.instagram_confianca, p.instagram_origem,
   p.instagram_perfil_em,
-  p.anuncio_meta_page_id, p.anuncio_meta_pagina_verificada_em`
+  p.anuncio_meta_page_id, p.anuncio_meta_pagina_verificada_em, p.anuncio_meta_pagina_url`
 
 /**
  * Enfileira uma etapa para um lote de leads.

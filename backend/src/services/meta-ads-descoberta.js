@@ -73,6 +73,43 @@ function pareceNegocio(registro) {
   return !cats.some((c) => CATEGORIA_NAO_NEGOCIO.has(c.toLowerCase()))
 }
 
+/**
+ * O destino do anuncio leva a ALGUM lugar?
+ *
+ * Medido na sonda de 2026-09-22: 5 dos 8 anuncios traziam `http://fb.me/` — a raiz NUA do
+ * encurtador, sem caminho — e outro trazia `https://api.whatsapp.com/send` sem `phone`. Sao
+ * anuncios de clique-para-conversa: a Biblioteca nao expoe o destino, e o que ela devolve e' um
+ * carimbo do canal, nao um endereco. Abrir isso nao leva a lugar nenhum.
+ *
+ * A regra e' estrutural, nao uma lista de dominios: link sem caminho e sem query nao e' destino.
+ * Assim ela vale para qualquer encurtador que a Meta use amanha.
+ */
+function destinoUtilizavel(url) {
+  const bruto = texto(url)
+  if (!bruto) return false
+  let u
+  try {
+    u = new URL(/^https?:/i.test(bruto) ? bruto : `https://${bruto}`)
+  } catch {
+    return false
+  }
+  const caminho = u.pathname.replace(/\/+$/, '')
+  const temCaminho = caminho !== '' && caminho !== '/'
+  const temQuery = u.search.length > 1
+  // O compositor VAZIO do WhatsApp (`api.whatsapp.com/send` sem `phone`) tem caminho e mesmo
+  // assim nao leva a ninguem — abre a janela de "para quem?". E' o segundo formato de stub que a
+  // sonda encontrou, e a excecao e' nomeada por isso, nao por ser uma lista de dominios:
+  // `m.me/<pagina>` e `wa.me/<numero>` carregam o destinatario e continuam validos.
+  if (/(^|\.)whatsapp\.com$/i.test(u.hostname) && caminho === '/send' && !temQuery) return false
+  return temCaminho || temQuery
+}
+
+/** O anuncio na propria Biblioteca — sempre navegavel, ao contrario do destino. */
+function permalinkDoAnuncio(registro) {
+  const id = texto(registro && (registro.adArchiveID || registro.adArchiveId))
+  return id ? `https://www.facebook.com/ads/library/?id=${encodeURIComponent(id)}` : null
+}
+
 /** Extrai os campos que interessam do registro cru, sem julgar nada ainda. */
 function normalizarAnuncio(registro) {
   const snap = (registro && registro.snapshot) || {}
@@ -92,9 +129,11 @@ function normalizarAnuncio(registro) {
     categorias: categoriasDoAnuncio(registro),
     categoriaEspecifica: categoriaEspecifica(registro),
     pageLikeCount: Number.isFinite(snap.pageLikeCount) ? snap.pageLikeCount : null,
-    // Usavel como input futuro do cross-reference com `fb_paginas` da Bright Data (nao
-    // consumido nesta rodada — ver docs/ai-task-start-log.md, proximos passos).
+    // A URL NAVEGAVEL da pagina — e' ela que o cross-reference com `fb_paginas` consulta.
+    // NAO e' derivavel do `pageId`: medido na sonda, em 2 de 5 casos ela aponta para outro
+    // identificador (o do perfil), e montar `facebook.com/<pageId>/` consultava pagina errada.
     pageProfileUri: info ? texto(info.page_profile_uri) : '',
+    permalink: permalinkDoAnuncio(registro),
     igUsernameDeclarado: info ? texto(info.ig_username) : '',
     sobre: about ? texto(about.text) : '',
     publisherPlatform: Array.isArray(registro && registro.publisherPlatform) ? registro.publisherPlatform : [],
@@ -115,16 +154,22 @@ function avaliarAnuncio(registroBruto) {
   if (!pareceNegocio(registroBruto)) {
     return { ...a, aproveitavel: false, motivo: MOTIVO.CATEGORIA_NAO_NEGOCIO, site: null }
   }
+  const destinoUtil = destinoUtilizavel(a.linkUrl)
   const cls = classificarUrl(a.linkUrl)
   if (cls.tem_site) {
-    return { ...a, aproveitavel: false, motivo: MOTIVO.TEM_SITE_PROPRIO, site: cls.site }
+    return { ...a, aproveitavel: false, motivo: MOTIVO.TEM_SITE_PROPRIO, site: cls.site, destinoUtil }
   }
   return {
     ...a,
     aproveitavel: true,
     motivo: MOTIVO.OK,
     site: null,
-    link_original: cls.link_original || a.linkUrl || null,
+    destinoUtil,
+    // Destino que nao leva a lugar nenhum NAO e' gravado como link do lead: a tela o ofereceria
+    // como "abrir destino" e o operador cairia numa pagina vazia. A classificacao da URL
+    // continua valendo (um `fb.me` segue sendo rede social, e nao site proprio) — o que muda e'
+    // so' o link que a tela pode oferecer.
+    link_original: destinoUtil ? (cls.link_original || a.linkUrl || null) : null,
     classificacao_url: cls.classificacao,
   }
 }
@@ -134,7 +179,7 @@ function avaliarAnuncio(registroBruto) {
  * `nicho`/`cidade` vem sempre do CONTEXTO DA BUSCA (o que o operador pediu) — nunca inventados
  * da categoria da pagina, que e' informacao SOBRE o negocio, nao sobre o que foi pesquisado.
  */
-function montarLeadDeAnuncio(avaliado, { nicho, cidade, empresaId } = {}, registroBruto = null) {
+function montarLeadDeAnuncio(avaliado, { nicho, cidade, empresaId, totalAtivos = null } = {}, registroBruto = null) {
   if (!avaliado || !avaliado.aproveitavel) return null
   // O @ que o proprio anunciante declarou na pagina dele — ja vem no registro do anuncio, de
   // graca. Sem isto o lead pagaria uma consulta SERP para descobrir o que ja estava na mao, e
@@ -160,8 +205,56 @@ function montarLeadDeAnuncio(avaliado, { nicho, cidade, empresaId } = {}, regist
     anuncio_meta_ativo: avaliado.isActive,
     anuncio_meta_inicio_em: avaliado.inicioEm,
     anuncio_meta_page_id: avaliado.pageId,
+    // `null` quando ninguem contou — nunca 0, que afirmaria "nao tem anuncio ativo".
+    anuncio_meta_total_ativos: Number.isFinite(totalAtivos) ? totalAtivos : null,
+    // Os dois links que FUNCIONAM, ao contrario do destino (ver `destinoUtilizavel`).
+    anuncio_meta_permalink: avaliado.permalink || null,
+    anuncio_meta_pagina_url: avaliado.pageProfileUri || null,
     raw_json: { fonte: 'meta_ads', anuncio: avaliado, registro: registroBruto || null },
   }
+}
+
+/**
+ * UMA entrada por PAGINA, com a contagem de anuncios ativos dela.
+ *
+ * A busca devolve uma linha por ANUNCIO, e o mesmo negocio costuma ter varios ("CMD SOLAR" veio
+ * 3x na sonda). Uma linha por anuncio na carteira seria o mesmo negocio repetido, e quem trabalha
+ * a lista liga para a mesma pessoa tres vezes. O que interessa ao vendedor nao e' qual anuncio, e
+ * sim QUANTOS — e' a medida de quanto aquele negocio esta investindo agora.
+ *
+ * O anuncio ESCOLHIDO como representante e' o mais ANTIGO com destino utilizavel (ou o mais
+ * antigo, se nenhum tiver): o inicio mais antigo diz ha quanto tempo a empresa investe, e um
+ * destino que abre vale mais que um stub.
+ */
+function agruparPorPagina(registros) {
+  const porPagina = new Map()
+  for (const registro of Array.isArray(registros) ? registros : []) {
+    const avaliado = avaliarAnuncio(registro)
+    if (!avaliado.pageId) continue
+    const atual = porPagina.get(avaliado.pageId)
+    if (!atual) {
+      porPagina.set(avaliado.pageId, {
+        avaliado,
+        registro,
+        totalAtivos: avaliado.isActive ? 1 : 0,
+        anuncios: 1,
+      })
+      continue
+    }
+    atual.anuncios += 1
+    if (avaliado.isActive) atual.totalAtivos += 1
+    // Promove o representante quando o novo tem destino utilizavel e o atual nao, ou quando
+    // comecou antes (com a mesma qualidade de destino).
+    const melhorDestino = !!avaliado.destinoUtil && !atual.avaliado.destinoUtil
+    const maisAntigo = !!avaliado.inicioEm && !!atual.avaliado.inicioEm
+      && avaliado.inicioEm < atual.avaliado.inicioEm
+      && (!!avaliado.destinoUtil === !!atual.avaliado.destinoUtil)
+    if (melhorDestino || maisAntigo) {
+      atual.avaliado = avaliado
+      atual.registro = registro
+    }
+  }
+  return [...porPagina.values()]
 }
 
 // ── Dedup ENTRE CANAIS: este anunciante ja esta na carteira, vindo do Maps? ─────────────────
@@ -199,6 +292,14 @@ function cidadeCompativel(a, b) {
  * Um unico token generico em comum ("Brasil" em dois nomes diferentes) NAO funde.
  */
 function mesmoNegocio(anuncio = {}, existente = {}, { nicho = '', cidade = '' } = {}) {
+  // PROVA FORTE, e ela dispensa a cidade: o @ do Instagram e' identificador UNICO. Dois
+  // negocios diferentes nao compartilham handle, entao aqui nao ha' o risco de semelhanca que
+  // torna o nome perigoso. E' tambem o que faz a dedup funcionar na busca SEM cidade — que a
+  // aba Meta permite, e onde a comparacao por nome+cidade simplesmente nao roda.
+  const handleAnuncio = normalizarHandle(anuncio.igUsernameDeclarado || anuncio.instagram_handle)
+  const handleExistente = normalizarHandle(existente.instagram_handle)
+  if (handleAnuncio && handleExistente && handleAnuncio === handleExistente) return true
+
   if (!cidadeCompativel(existente.cidade, cidade || anuncio.cidade)) return false
   const contexto = { nicho, cidade: cidade || existente.cidade }
   const a = tokensDistintivos({ nome: anuncio.pageName || anuncio.nome, ...contexto })
@@ -288,8 +389,11 @@ module.exports = {
   categoriasDoAnuncio,
   categoriaEspecifica,
   pareceNegocio,
+  destinoUtilizavel,
+  permalinkDoAnuncio,
   normalizarAnuncio,
   avaliarAnuncio,
+  agruparPorPagina,
   montarLeadDeAnuncio,
   decidirCrossReferencePagina,
   avaliarResultadoPagina,

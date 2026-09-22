@@ -9,6 +9,8 @@ const D = require('../src/services/meta-ads-descoberta')
 function registro(overrides = {}) {
   const base = {
     pageId: '364711310049980',
+    // Veio em 8/8 na sonda — é dele que sai o permalink, o único link sempre navegável.
+    adArchiveID: '1096413629561344',
     isActive: true,
     startDate: 1788332400, // 2026-09-02T07:00:00.000Z
     snapshot: {
@@ -140,6 +142,93 @@ test('montarLeadDeAnuncio: usa a categoria especifica como categoria_perfil quan
   assert.equal(lead.categoria_perfil, 'Solar Energy Company')
 })
 
+// ── O destino do anúncio costuma ser um stub que não leva a lugar nenhum ────────────
+
+test('destinoUtilizavel: a raiz nua do encurtador NAO e destino (fb.me/ veio em 5 de 8 na sonda)', () => {
+  assert.equal(D.destinoUtilizavel('http://fb.me/'), false)
+  assert.equal(D.destinoUtilizavel('http://fb.me'), false)
+})
+
+test('destinoUtilizavel: WhatsApp sem numero NAO e destino', () => {
+  assert.equal(D.destinoUtilizavel('https://api.whatsapp.com/send'), false)
+  assert.equal(D.destinoUtilizavel('https://api.whatsapp.com/send?phone=5562999999999'), true)
+})
+
+test('destinoUtilizavel: link com caminho e destino de verdade', () => {
+  assert.equal(D.destinoUtilizavel('https://www.instagram.com/simeyzon'), true)
+  assert.equal(D.destinoUtilizavel('https://minhaempresa.com.br/promo'), true)
+})
+
+test('destinoUtilizavel: vazio ou ilegivel nao e destino', () => {
+  assert.equal(D.destinoUtilizavel(''), false)
+  assert.equal(D.destinoUtilizavel('nao é url'), false)
+})
+
+test('avaliarAnuncio: destino stub NAO vira link do lead (a tela ofereceria um link quebrado)', () => {
+  const v = D.avaliarAnuncio(registro({ snapshot: { pageCategories: ['Business'], linkUrl: 'http://fb.me/' } }))
+  assert.equal(v.destinoUtil, false)
+  assert.equal(v.link_original, null)
+  // ...mas a classificação da URL continua valendo: fb.me segue sendo rede social, não site.
+  assert.equal(v.aproveitavel, true)
+})
+
+test('avaliarAnuncio: destino REAL continua virando link do lead', () => {
+  const v = D.avaliarAnuncio(registro({ snapshot: { pageCategories: ['Business'], linkUrl: 'https://www.instagram.com/infasolar' } }))
+  assert.equal(v.destinoUtil, true)
+  assert.match(v.link_original, /instagram\.com\/infasolar/)
+})
+
+test('permalinkDoAnuncio: sempre navegavel, a partir do adArchiveID', () => {
+  assert.match(D.permalinkDoAnuncio({ adArchiveID: '123' }), /ads\/library\/\?id=123$/)
+  assert.equal(D.permalinkDoAnuncio({}), null)
+})
+
+// ── Uma linha por PÁGINA, com a contagem de anúncios ativos ─────────────────
+
+test('agruparPorPagina: 3 anuncios da mesma pagina viram UMA entrada com total 3', () => {
+  const lote = [
+    registro({ adArchiveID: 'a1' }),
+    registro({ adArchiveID: 'a2' }),
+    registro({ adArchiveID: 'a3' }),
+  ]
+  const grupos = D.agruparPorPagina(lote)
+  assert.equal(grupos.length, 1)
+  assert.equal(grupos[0].totalAtivos, 3)
+  assert.equal(grupos[0].anuncios, 3)
+})
+
+test('agruparPorPagina: paginas diferentes continuam separadas', () => {
+  const grupos = D.agruparPorPagina([registro(), registro({ pageId: '999' })])
+  assert.equal(grupos.length, 2)
+})
+
+test('agruparPorPagina: anuncio INATIVO nao entra na contagem de ativos', () => {
+  const grupos = D.agruparPorPagina([registro({ isActive: false }), registro({ adArchiveID: 'x' })])
+  assert.equal(grupos.length, 1)
+  assert.equal(grupos[0].totalAtivos, 1)
+  assert.equal(grupos[0].anuncios, 2)
+})
+
+test('agruparPorPagina: o representante preferido e o que tem destino que ABRE', () => {
+  const stub = registro({ adArchiveID: 'stub', snapshot: { pageCategories: ['Business'], linkUrl: 'http://fb.me/' } })
+  const bom = registro({ adArchiveID: 'bom', snapshot: { pageCategories: ['Business'], linkUrl: 'https://instagram.com/infasolar' } })
+  const grupos = D.agruparPorPagina([stub, bom])
+  assert.equal(grupos[0].avaliado.destinoUtil, true)
+})
+
+test('montarLeadDeAnuncio: leva a contagem e os dois links que funcionam', () => {
+  const v = D.avaliarAnuncio(registro())
+  const lead = D.montarLeadDeAnuncio(v, { nicho: 'x', cidade: 'y', totalAtivos: 3 }, registro())
+  assert.equal(lead.anuncio_meta_total_ativos, 3)
+  assert.match(lead.anuncio_meta_permalink, /ads\/library/)
+  assert.match(lead.anuncio_meta_pagina_url, /facebook\.com/)
+})
+
+test('montarLeadDeAnuncio: sem contagem grava NULL, nunca 0 (0 afirmaria "sem anuncio ativo")', () => {
+  const lead = D.montarLeadDeAnuncio(D.avaliarAnuncio(registro()), { nicho: 'x', cidade: 'y' })
+  assert.equal(lead.anuncio_meta_total_ativos, null)
+})
+
 // ── Instagram declarado na própria página do anunciante (vem de graça no registro) ──
 
 test('montarLeadDeAnuncio: aproveita o @ declarado na pagina, como CONFIRMADO', () => {
@@ -189,6 +278,19 @@ test('mesmoNegocio: cidade diferente nunca funde, mesmo com o nome igual', () =>
 test('mesmoNegocio: cidade desconhecida de um dos lados nao autoriza fusao', () => {
   const anuncio = { pageName: 'Infasolar' }
   assert.equal(D.mesmoNegocio(anuncio, { nome: 'Infasolar', cidade: '' }, { nicho: 'Energia Solar', cidade: 'Goiania' }), false)
+})
+
+test('mesmoNegocio: o @ do Instagram e PROVA FORTE e funde SEM cidade (busca Meta pode nao ter)', () => {
+  // É o caso que produzia a duplicação: sem cidade, nome+cidade não compara nada.
+  const anuncio = { pageName: 'Qualquer Nome', igUsernameDeclarado: 'infasolar' }
+  const existente = { nome: 'Outro Nome Totalmente Diferente', cidade: '', instagram_handle: 'infasolar' }
+  assert.equal(D.mesmoNegocio(anuncio, existente, { nicho: 'Energia Solar', cidade: '' }), true)
+})
+
+test('mesmoNegocio: @ DIFERENTE nao funde (e nao cai na regra de nome por acidente)', () => {
+  const anuncio = { pageName: 'Infasolar', igUsernameDeclarado: 'infasolar' }
+  const existente = { nome: 'Infasolar', cidade: '', instagram_handle: 'outraempresa' }
+  assert.equal(D.mesmoNegocio(anuncio, existente, { nicho: 'Energia Solar', cidade: '' }), false)
 })
 
 test('escolherLeadExistente: devolve o primeiro que realmente bate, ou null', () => {

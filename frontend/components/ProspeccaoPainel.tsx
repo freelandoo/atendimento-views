@@ -64,6 +64,15 @@ type Prospect = {
   anuncio_meta_page_id?: string | null
   anuncio_meta_verificado_em?: string | null
   anuncio_meta_pagina_verificada_em?: string | null
+  // Quantos anúncios ativos a página tem. `null` = ninguém contou (nunca 0, que diria "sem
+  // anúncio ativo"). Uma linha por PÁGINA — a contagem é que diz o tamanho do investimento.
+  anuncio_meta_total_ativos?: number | null
+  // Os dois links que SEMPRE funcionam. O destino do anúncio (`link_original`) costuma vir
+  // como stub e por isso só aparece quando é de verdade.
+  anuncio_meta_permalink?: string | null
+  anuncio_meta_pagina_url?: string | null
+  /** O @ que o próprio anunciante declarou na página dele — vem de graça no registro do anúncio. */
+  instagram_handle?: string | null
   icp_score?: number | null
   icp_faixa?: string | null
   icp_avaliado_em?: string | null
@@ -1048,12 +1057,17 @@ export default function ProspeccaoPainel({
               </td>
               {cols.entrou !== false && <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{quando(p.created_at)}</td>}
               <td className="px-3 py-2 font-medium">
+                {/* Na aba Meta o nome abre a PÁGINA do anunciante, não o "destino do anúncio":
+                    aquele vem como stub na maioria dos anúncios (clique-para-conversa) e abria
+                    uma página vazia. A página do Facebook sempre existe e sempre abre. */}
                 <TextoTruncado
                   texto={p.nome}
-                  href={metaAds ? (p.link_original || undefined) : p.maps_url}
-                  dica={metaAds ? (p.link_original ? 'Abrir destino do anúncio' : undefined) : (p.maps_url ? 'Ver ficha no Google Maps' : undefined)}
-                  className={`max-w-[220px] ${(metaAds ? p.link_original : p.maps_url) ? 'text-brand hover:underline' : ''}`}
-                  sufixo={(metaAds ? p.link_original : p.maps_url) ? <span className="text-xs text-slate-400 shrink-0">↗</span> : undefined}
+                  href={metaAds ? (p.anuncio_meta_pagina_url || undefined) : p.maps_url}
+                  dica={metaAds
+                    ? (p.anuncio_meta_pagina_url ? 'Abrir página no Facebook' : undefined)
+                    : (p.maps_url ? 'Ver ficha no Google Maps' : undefined)}
+                  className={`max-w-[220px] ${(metaAds ? p.anuncio_meta_pagina_url : p.maps_url) ? 'text-brand hover:underline' : ''}`}
+                  sufixo={(metaAds ? p.anuncio_meta_pagina_url : p.maps_url) ? <span className="text-xs text-slate-400 shrink-0">↗</span> : undefined}
                 />
                 {metaAds && p.anuncio_meta_page_id && (
                   <span className="mt-0.5 block font-mono text-[10px] text-slate-400">page {p.anuncio_meta_page_id}</span>
@@ -1415,23 +1429,76 @@ function ResumoDistribuicao({ rotulo, valor, destaque = false }: { rotulo: strin
   )
 }
 
+/**
+ * As evidências do anunciante, numa linha só por PÁGINA.
+ *
+ * O que o vendedor precisa saber antes de abordar, em ordem de peso: quanto o negócio está
+ * investindo AGORA (quantos anúncios no ar), há quanto tempo, e o que ele já tem de presença —
+ * porque a lacuna é o argumento. Cada sinal carrega rótulo em texto: cor nunca é a informação.
+ */
 function EvidenciaMeta({ lead }: { lead: Prospect }) {
   const ativo = lead.anuncio_meta_ativo === true
   const inativo = lead.anuncio_meta_ativo === false
   const categoria = lead.categoria_perfil || lead.categoria || ''
   const verificado = lead.anuncio_meta_pagina_verificada_em || lead.anuncio_meta_verificado_em
+  const total = Number.isFinite(lead.anuncio_meta_total_ativos as number)
+    ? (lead.anuncio_meta_total_ativos as number) : null
+  // A página já foi cruzada? Só depois disso "sem site"/"sem telefone" significam ausência
+  // verificada; antes, significam apenas que ninguém olhou — e dizer o contrário seria mentira.
+  const paginaLida = !!lead.anuncio_meta_pagina_verificada_em
+  const semSite = paginaLida && !lead.tem_site
+  const temTelefone = !!(lead.telefone && String(lead.telefone).trim())
+  const temInstagram = !!(lead.instagram_handle && String(lead.instagram_handle).trim())
+
   return (
-    <div className="max-w-[220px] leading-tight">
-      <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-        ativo ? 'bg-emerald-100 text-emerald-700' : inativo ? 'bg-slate-100 text-slate-600' : 'bg-amber-100 text-amber-700'
-      }`}>
-        {ativo ? 'Anúncio ativo' : inativo ? 'Anúncio inativo' : 'Anúncio sem estado'}
-      </span>
+    <div className="max-w-[240px] leading-tight">
+      <div className="flex flex-wrap items-center gap-1">
+        <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+          ativo ? 'bg-emerald-100 text-emerald-700' : inativo ? 'bg-slate-100 text-slate-600' : 'bg-amber-100 text-amber-700'
+        }`}>
+          {/* A CONTAGEM é a evidência principal: "3 anúncios ativos" diz o tamanho do
+              investimento. Uma linha por anúncio faria o vendedor ligar 3x para a mesma pessoa. */}
+          {ativo
+            ? (total && total > 1 ? `${total} anúncios ativos` : 'Anúncio ativo')
+            : inativo ? 'Anúncio inativo' : 'Anúncio sem estado'}
+        </span>
+        {semSite && (
+          <span
+            className="inline-flex w-fit rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-brand"
+            title="A página do Facebook não declara site próprio — é a lacuna que sustenta a abordagem."
+          >
+            Sem site
+          </span>
+        )}
+      </div>
+
       <span className="mt-1 block truncate text-slate-600">{categoria || 'Categoria não informada'}</span>
       <span className="block text-[10px] text-slate-400">
-        {lead.anuncio_meta_inicio_em ? `desde ${quando(lead.anuncio_meta_inicio_em)}` : 'sem data de início'}
+        {lead.anuncio_meta_inicio_em ? `anuncia desde ${quando(lead.anuncio_meta_inicio_em)}` : 'sem data de início'}
       </span>
-      {verificado && <span className="block text-[10px] text-slate-400">verificado {quando(verificado)}</span>}
+
+      {/* Contato já disponível: é o que decide se dá para abordar agora ou se falta cadastro. */}
+      <span className="mt-0.5 block text-[10px] text-slate-500">
+        {temTelefone ? '☎ telefone' : '☎ sem telefone'}
+        {temInstagram ? ` · @${lead.instagram_handle}` : ' · sem Instagram'}
+      </span>
+
+      <span className="mt-0.5 flex flex-wrap items-center gap-2 text-[10px]">
+        {lead.anuncio_meta_permalink && (
+          <a href={lead.anuncio_meta_permalink} target="_blank" rel="noreferrer"
+            className="text-brand hover:underline" title="Ver este anúncio na Biblioteca da Meta">
+            ver anúncio ↗
+          </a>
+        )}
+        {lead.link_original && (
+          <a href={lead.link_original} target="_blank" rel="noreferrer"
+            className="text-brand hover:underline" title="Destino para onde o anúncio leva">
+            destino ↗
+          </a>
+        )}
+        {!paginaLida && <span className="text-slate-400">página ainda não lida</span>}
+        {verificado && paginaLida && <span className="text-slate-400">verificado {quando(verificado)}</span>}
+      </span>
     </div>
   )
 }

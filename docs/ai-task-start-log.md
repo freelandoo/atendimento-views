@@ -6,6 +6,35 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-22 (2) — Canal da Meta: destino inútil, duplicação e evidências
+
+- **Pedido do operador (uso real da aba Meta):** (1) "abrir destino do anúncio" às vezes não leva
+  a lugar nenhum; (2) está duplicando — o que ele quer é **uma linha por PÁGINA** com "tem N
+  anúncios ativos" como evidência ao lado; (3) se a página tem Instagram, já verificar na hora;
+  (4) se achar telefone no Facebook, deixar disponível para mandar mensagem; (5) os mesmos filtros
+  de evidência das outras telas (ex.: sem site no perfil = mais qualificado).
+- **Diagnóstico feito no DADO da sonda (não por suposição):**
+  - **D1 — o destino é um stub.** 5 dos 8 anúncios têm `snapshot.linkUrl = "http://fb.me/"` (a
+    raiz nua do encurtador, sem caminho) e 1 tem `"https://api.whatsapp.com/send"` sem `phone`.
+    São anúncios de clique-para-conversa: a Biblioteca **não expõe** o destino. O link é gravado
+    em `link_original` e a tela o oferece como "Abrir destino do anúncio" — por isso abre e não vai
+    a lugar nenhum. O que SEMPRE existe e funciona: `adArchiveID` (permalink do anúncio na
+    Biblioteca, 8/8) e `page_profile_uri` (página do anunciante, 8/8).
+  - **D2 — a contagem de anúncios é jogada fora.** "CMD SOLAR" aparece 3× no mesmo lote (3
+    `adArchiveID`, mesmo `page_id`). O worker deduplica por página, o que está certo, mas descarta
+    o número — que é exatamente a evidência pedida.
+  - **D3 — o cross-reference consulta a URL errada.** O worker monta
+    `facebook.com/<page_id>/`, e em 2 dos 5 casos a URL navegável é OUTRA
+    (`page_profile_uri` aponta para outro id). Provável causa de o telefone nunca chegar.
+  - **D4 — a dedup entre canais não roda sem cidade.** A aba Meta não exige cidade, e
+    `candidatosParaFusao` retorna vazio sem ela — então o lead do Maps e o do anúncio viram duas
+    linhas. É a duplicação que o operador vê.
+  - **Achado bom:** `ig_username` veio em **5/5** — o Instagram do anunciante é quase sempre
+    declarado, e já vira handle confirmado desde a migration 093.
+- **Escopo desta rodada:** corrigir D1-D4 (migration 094, aditiva) e expor as evidências na aba
+  Meta (anúncios ativos, links que funcionam, site/telefone/Instagram).
+- **Fora de escopo:** rotina agendada para o canal, e mudar o modelo de ICP.
+
 ## 2026-09-22 — Canal da Biblioteca de Anúncios: consequências no resto do app
 
 - **Pedido do operador:** "como isso reflete no restante do aplicativo para equipe e até o
@@ -4803,3 +4832,10 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   durante validação.
 - **Fora de escopo:** configurar `APIFY_API_TOKEN` em produção, rodar coleta real, criar agenda
   recorrente de Meta Ads ou unificar a tela de Instagram/captação social nesta rodada.
+
+## 2026-09-22 — Estudo visual integrado de Aquisição e operação comercial
+
+- Pedido: analisar as telas de Aquisição (Places, Instagram, Meta, Busca e Rotinas), Banco de Leads, conversa/ICP, Mensagens, Follow-ups e Equipe; registrar capturas reais quando houver sessão acessível e gerar propostas de telas com IA.
+- Escopo autorizado: auditoria de código e interface, pesquisa de referências de design e artefatos locais de proposta. Sem implementação no produto, migração, coleta paga, envio, commit/push ou publicação nesta rodada.
+- Direção: manter guia visual canônico; avaliar lista com origem identificada e detalhes progressivos, compactar seleção em massa e conexão, preservar permissões/ownership e distinguir gestão de Comercial.
+- Validação: rastrear propostas até componentes/contratos atuais, inspecionar imagens geradas, documentar limitações das capturas e pendências para implementação.

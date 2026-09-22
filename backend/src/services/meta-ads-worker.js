@@ -111,26 +111,27 @@ async function buscarAnunciantes({ nicho, termo = null, cidade, empresaId = null
 
   // Dedup por page_id DENTRO do lote: a mesma pagina pode aparecer varias vezes (criativos
   // diferentes da mesma campanha) — salvar so' o primeiro visto evita upsert redundante.
-  const vistos = new Set()
   const salvos = []
   const descartados = { [DESCOBERTA.MOTIVO.SEM_PAGE_ID]: 0, [DESCOBERTA.MOTIVO.CATEGORIA_NAO_NEGOCIO]: 0, [DESCOBERTA.MOTIVO.TEM_SITE_PROPRIO]: 0 }
   let fundidos = 0
   let semTelefone = 0
 
-  // Carteira da mesma cidade, lida UMA vez: a dedup entre canais compara em memoria (regra PURA
-  // e conservadora em `mesmoNegocio`), em vez de uma consulta por anuncio.
+  // Carteira lida UMA vez: a dedup entre canais compara em memoria (regra PURA e conservadora em
+  // `mesmoNegocio`), em vez de uma consulta por anuncio.
   const existentes = await leadsDb.candidatosParaFusao(empresaId, cidade).catch(() => [])
 
-  for (const registro of registros) {
-    const avaliado = DESCOBERTA.avaliarAnuncio(registro)
+  // UMA entrada por PAGINA, com quantos anuncios ativos ela tem. A busca devolve uma linha por
+  // ANUNCIO e o mesmo negocio costuma ter varios — uma linha por anuncio faria o vendedor ligar
+  // tres vezes para a mesma pessoa.
+  for (const grupo of DESCOBERTA.agruparPorPagina(registros)) {
+    const { avaliado, registro, totalAtivos } = grupo
     if (!avaliado.aproveitavel) {
       descartados[avaliado.motivo] = (descartados[avaliado.motivo] || 0) + 1
       continue
     }
-    if (vistos.has(avaliado.pageId)) continue
-    vistos.add(avaliado.pageId)
 
-    const lead = DESCOBERTA.montarLeadDeAnuncio(avaliado, { nicho: termoNicho, cidade, empresaId }, registro)
+    const lead = DESCOBERTA.montarLeadDeAnuncio(
+      avaliado, { nicho: termoNicho, cidade, empresaId, totalAtivos }, registro)
     try {
       // Este anunciante ja esta na carteira (veio do Maps)? Entao a evidencia do anuncio vai
       // para o lead que JA existe — e o telefone que faltava ao lead de anuncio ja esta la'.
@@ -209,7 +210,13 @@ async function dispararPaginasFacebook({ limite = LOTE_PAGINA, agora = new Date(
     return { ok: true, disparados: 0, motivo: PIPELINE.MOTIVO.ORCAMENTO }
   }
 
-  const input = alvos.map((a) => ({ url: `https://www.facebook.com/${a.pageId}/` }))
+  // A URL NAVEGAVEL da pagina, quando a Biblioteca a declarou — e' o que a Bright Data consegue
+  // abrir. Medido na sonda de 2026-09-22: em 2 de 5 casos `page_profile_uri` aponta para um
+  // identificador DIFERENTE do `page_id`, entao montar `facebook.com/<pageId>/` consultava uma
+  // pagina que nao existe — e o lead ficava sem telefone, sem site e sem endereco para sempre.
+  const input = alvos.map((a) => ({
+    url: String(a.lead.anuncio_meta_pagina_url || '').trim() || `https://www.facebook.com/${a.pageId}/`,
+  }))
   try {
     const { snapshotId } = await brightdata.trigger('fb_paginas', input)
     await etapasDb.marcarSnapshot(alvos.map((a) => a.etapa_id), snapshotId, {

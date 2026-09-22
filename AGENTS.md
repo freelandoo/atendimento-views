@@ -3315,6 +3315,34 @@
 - **`anuncio_meta_inicio_em` guarda o início mais ANTIGO conhecido**, não o mais recente: uma
   campanha pode ter vários criativos, e o primeiro anúncio visto é o que diz há quanto tempo a
   empresa está investindo — reavaliar só promove, nunca troca por uma data mais nova.
+- ⚠️ **O "destino do anúncio" quase sempre é um STUB, e oferecê-lo como link era um defeito**
+  (corrigido em 2026-09-22, migration 094). Medido na sonda: `snapshot.linkUrl` veio como
+  `http://fb.me/` — **a raiz nua do encurtador, sem caminho** — em **5 dos 8** anúncios, e como
+  `https://api.whatsapp.com/send` **sem `phone`** em outro. São anúncios de clique-para-conversa:
+  a Biblioteca **não expõe** o destino. `destinoUtilizavel` recusa link sem caminho e sem query
+  (regra **estrutural**, não lista de domínios, para valer com qualquer encurtador futuro), com
+  **uma exceção nomeada**: o compositor vazio do WhatsApp, que tem caminho e mesmo assim não leva
+  a ninguém. Destino recusado **não vira `link_original`** — a tela ofereceria um link quebrado.
+  A classificação da URL continua valendo (`fb.me` segue sendo rede social, não site).
+- **Os dois links que SEMPRE funcionam** (8/8 na sonda) passaram a ser guardados:
+  `anuncio_meta_permalink` (o anúncio na própria Biblioteca, via `adArchiveID`) e
+  `anuncio_meta_pagina_url` (`page_profile_uri`). Na aba Meta o **nome do lead abre a página do
+  Facebook**, não o destino.
+- ⚠️ **`page_profile_uri` NÃO é derivável do `page_id`** — em **2 de 5** casos ela aponta para
+  outro identificador. O cross-reference montava `facebook.com/<page_id>/` e consultava uma página
+  que não existe, e o lead ficava **sem telefone, sem site e sem endereço para sempre**. Agora ele
+  usa a URL declarada, caindo no `page_id` só quando não houver.
+- **UMA linha por PÁGINA, com a CONTAGEM de anúncios** (`agruparPorPagina` +
+  `anuncio_meta_total_ativos`). A busca devolve uma linha por ANÚNCIO e o mesmo negócio costuma ter
+  vários ("CMD SOLAR" veio 3× no mesmo lote): uma linha por anúncio faria o vendedor ligar três
+  vezes para a mesma pessoa. O número não se perde — é a evidência mais direta de quanto o negócio
+  investe agora, e é **retrato da última busca** (o upsert sobrescreve; somar faria 3 virar 6 na
+  busca seguinte). `NULL` ≠ `0`: zero afirmaria "sem anúncio ativo".
+- **O @ do Instagram é PROVA FORTE na dedup entre canais, e dispensa a cidade.** A aba Meta
+  permite buscar sem cidade, e aí `mesmoNegocio` (nome + cidade) não comparava nada — era assim
+  que o mesmo negócio virava duas linhas, uma do Maps e uma do anúncio. Handle é identificador
+  único: dois negócios não o compartilham, então aqui não existe o risco de semelhança que torna
+  o nome perigoso. Sem cidade, `candidatosParaFusao` passa a trazer quem **tem** handle.
 - **A entrada da descoberta é SOB DEMANDA.** A única porta é
   `npm run meta-ads:buscar -- --nicho="..." --cidade="..." --confirmar` (gasta crédito real do
   Apify, por isso exige `--confirmar`, mesma disciplina das sondas). `services/meta-ads-worker.js`
