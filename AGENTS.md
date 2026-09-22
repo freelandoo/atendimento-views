@@ -3269,6 +3269,14 @@
   enriquecimento de Instagram): Apify é pay-per-resultado (`services/apify-orcamento.js`,
   `prospectador.apify_consumo`, migration 091), Bright Data é crédito de dataset — misturar as
   duas faria o teto de uma travar a outra por engano.
+- ⚠️ **O teto diário do Apify está DESLIGADO por padrão** (`PADRAO_TETO_DIARIO = 0`, decisão do
+  operador em 2026-09-22). Motivo: o orçamento reserva o pedido **inteiro** pelo pior caso, então
+  um teto de 200 recusava qualquer busca de 200 assim que houvesse 1 crédito gasto no dia — o
+  canal ficava inutilizável em vez de protegido. **O que ainda segura o gasto:** cada busca é
+  limitada a 200 resultados no worker, o canal é **sob demanda** (não há rotina agendada aqui, todo
+  gasto tem um clique humano atrás) e o ledger continua registrando tudo, então o consumo segue
+  auditável. **O mecanismo não foi removido** — `APIFY_META_ADS_TETO_DIARIO=<n>` religa a trava
+  sem tocar em código, e há teste cobrando as duas pontas.
 - **O lead entra no MESMO enriquecimento de Instagram que qualquer outro** (decisão do
   operador, 2026-09-16, "lead é lead"): `db/meta-ads-leads.js` enfileira em
   `enriquecimento-etapas.js` depois de salvar — sem código novo para isso.
@@ -3315,9 +3323,10 @@
   (sonda genérica de datasets Bright Data de Facebook). Testes:
   `test/meta-ads-descoberta.test.js`, `test/apify-orcamento.test.js`,
   `test/brightdata-orcamento.test.js` (anti-drift atualizado para ler 081+092).
-- **Três variáveis de ambiente novas**, documentadas no `.env.example`: `APIFY_API_TOKEN`,
-  `APIFY_FACEBOOK_ADS_ACTOR_ID` (default o ator confirmado), `APIFY_META_ADS_TETO_DIARIO`
-  (default 200). `APIFY_TIMEOUT_MS` também documentada (timeout HTTP do lado de cá).
+- **Três variáveis de ambiente novas**, documentadas no `.env.example`: `APIFY_API_TOKEN` (a
+  única obrigatória — sem ela o canal fica desligado), `APIFY_FACEBOOK_ADS_ACTOR_ID` (default o
+  ator confirmado) e `APIFY_META_ADS_TETO_DIARIO` (default `0` = sem teto). `APIFY_TIMEOUT_MS`
+  também documentada (timeout HTTP do lado de cá).
 
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.

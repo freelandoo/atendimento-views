@@ -28,6 +28,16 @@ import type { Atividade } from '@/components/HistoricoColetas'
 // preserva o formulário da busca avulsa e o polling ao alternar de modo. Desmontar por
 // modo reiniciaria o formulário — exatamente o que a separação não pode causar.
 export type ModoAquisicao = 'busca' | 'rotinas'
+
+// Padrão do campo de quantidade na aba Meta, e ele é MENOR que o do Places de propósito.
+//
+// As duas abas medem coisas diferentes na mesma caixa: no Places é "máx. de leads novos" de uma
+// coleta cujo custo já está no pacote; na Meta é "máx. de anúncios LIDOS", e cada anúncio lido é
+// pago por resultado no Apify. Herdar o 200 do Places fazia todo clique nascer pedindo o lote
+// mais caro possível, para um resultado que na prática vem em dezenas (a sonda real devolveu 8).
+// 25 é o mesmo `LIMITE_PADRAO` que o worker do backend usa; quem quer varrer o mercado aumenta
+// no campo.
+const QUANTIDADE_META_PADRAO = 25
 export type FonteBuscaAquisicao = 'places' | 'meta_ads'
 
 export type Rotina = {
@@ -152,7 +162,10 @@ export default function RotinasAquisicao({
   const [agindo, setAgindo] = useState<string | null>(null)
   const [confirmarRemocao, setConfirmarRemocao] = useState<Rotina | null>(null)
   const [erro, setErro] = useState('')
-  const [avulsa, setAvulsa] = useState({ nicho: '', cidade: '', uf: '', quantidade: QUANTIDADE_MAX })
+  const [avulsa, setAvulsa] = useState({
+    nicho: '', cidade: '', uf: '',
+    quantidade: fonteBusca === 'meta_ads' ? QUANTIDADE_META_PADRAO : QUANTIDADE_MAX,
+  })
   const [buscandoAvulsa, setBuscandoAvulsa] = useState(false)
   // Assistente de Oportunidades. Só abre no clique — a análise NUNCA começa sozinha
   // depois de uma busca. O clique cai primeiro no menu guiado (`entrada`), que decide
@@ -436,7 +449,7 @@ export default function RotinasAquisicao({
             <Campo label={metaAds ? 'Máx. de anúncios analisados' : `Máx. de leads novos (1 a ${limites.quantidade_max})`}>
               <input type="number" min={limites.quantidade_min} max={limites.quantidade_max} value={avulsa.quantidade}
                 title={metaAds
-                  ? 'Limite de anúncios lidos na Biblioteca. Só viram lead os anunciantes sem site próprio no anúncio.'
+                  ? 'Limite de anúncios lidos na Biblioteca. Cada anúncio lido é pago por resultado, e só viram lead os anunciantes sem site próprio no anúncio.'
                   : 'Vale para os dois botões: quantos leads esta busca importa e, no assistente, quantos você quer aprovar. A origem pode encontrar mais registros do que isso.'}
                 onChange={(e) => setAvulsa({ ...avulsa, quantidade: Number(e.target.value) || limites.quantidade_max })}
                 className="w-full rounded-lg border px-3 py-2 text-sm" />

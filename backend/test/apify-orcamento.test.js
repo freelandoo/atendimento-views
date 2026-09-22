@@ -29,6 +29,35 @@ test('exatamente no limite ainda libera (so estoura quando ULTRAPASSA)', () => {
   assert.equal(v.permitido, true)
 })
 
+test('o PADRAO e SEM teto (decisao do operador, 2026-09-22) — o freio e o clamp por busca', () => {
+  assert.equal(O.PADRAO_TETO_DIARIO, 0)
+  const antigo = process.env.APIFY_META_ADS_TETO_DIARIO
+  try {
+    delete process.env.APIFY_META_ADS_TETO_DIARIO
+    // Sem env e sem teto: nenhuma busca e recusada por orcamento, por maior que seja o gasto.
+    const v = O.avaliarOrcamento({ consumidoHoje: 10000, custoEstimado: 200, teto: O.tetoDiarioMetaAds() })
+    assert.equal(v.permitido, true)
+    assert.equal(v.restante_hoje, null)
+  } finally {
+    if (antigo === undefined) delete process.env.APIFY_META_ADS_TETO_DIARIO
+    else process.env.APIFY_META_ADS_TETO_DIARIO = antigo
+  }
+})
+
+test('a trava RELIGA so com a env — o mecanismo nao foi removido', () => {
+  const antigo = process.env.APIFY_META_ADS_TETO_DIARIO
+  try {
+    process.env.APIFY_META_ADS_TETO_DIARIO = '200'
+    assert.equal(O.tetoDiarioMetaAds(), 200)
+    const v = O.avaliarOrcamento({ consumidoHoje: 5, custoEstimado: 200, teto: O.tetoDiarioMetaAds() })
+    assert.equal(v.permitido, false)
+    assert.equal(v.motivo, O.MOTIVO.TETO_DIARIO)
+  } finally {
+    if (antigo === undefined) delete process.env.APIFY_META_ADS_TETO_DIARIO
+    else process.env.APIFY_META_ADS_TETO_DIARIO = antigo
+  }
+})
+
 test('tetoDiarioMetaAds le a env, com o padrao quando ausente/invalida', () => {
   const antigo = process.env.APIFY_META_ADS_TETO_DIARIO
   try {

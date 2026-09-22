@@ -13,14 +13,27 @@ const MOTIVO = Object.freeze({
   TETO_DIARIO: 'teto_diario',
 })
 
-const PADRAO_TETO_DIARIO = 200 // ~2 buscas de nicho por dia, no volume tipico da sonda
+// SEM TETO por padrao — decisao do operador (2026-09-22), depois de o teto de 200 recusar a
+// primeira busca do dia: o orcamento reserva o pedido INTEIRO pelo pior caso, entao uma busca
+// pedindo 200 nunca caberia num teto de 200 com qualquer credito ja gasto.
+//
+// O QUE AINDA PROTEGE, e por isso tirar o teto nao deixa o canal sem freio nenhum:
+//   * `buscarAnunciantes` limita CADA busca a 200 resultados (clamp no worker);
+//   * a busca e' SOB DEMANDA — nao ha' rotina agendada neste canal, cada gasto tem um clique;
+//   * o ledger (`prospectador.apify_consumo`) continua registrando tudo, entao o gasto
+//     permanece auditavel mesmo sem trava.
+// O mecanismo NAO foi removido: basta `APIFY_META_ADS_TETO_DIARIO=<n>` para religar a trava.
+const PADRAO_TETO_DIARIO = 0
 
 function inteiroNaoNegativo(valor, padrao) {
   const n = Number.parseInt(valor, 10)
   return Number.isFinite(n) && n >= 0 ? n : padrao
 }
 
-/** Teto diario de RESULTADOS de anuncio consumidos do Apify. `0` desliga a trava. */
+/**
+ * Teto diario de RESULTADOS de anuncio consumidos do Apify. `0` desliga a trava — e' o PADRAO
+ * hoje (ver `PADRAO_TETO_DIARIO`). Definir um numero na env religa o teto sem mexer em codigo.
+ */
 function tetoDiarioMetaAds() {
   return inteiroNaoNegativo(process.env.APIFY_META_ADS_TETO_DIARIO, PADRAO_TETO_DIARIO)
 }
