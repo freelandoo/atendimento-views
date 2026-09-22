@@ -16,6 +16,53 @@
 // permissao e persistencia continuam de quem o usa.
 import BalaoAjuda from '@/components/ui/BalaoAjuda'
 
+/**
+ * O interruptor NU — trilho + botao, sem rotulo nem caixa.
+ *
+ * Extraido para quem precisa do MESMO gesto dentro de uma lista (uma linha por pessoa), onde a
+ * caixa com borda, sombra, rotulo e balao de ajuda do `InterruptorAtivacao` pesaria a cada
+ * linha. E' o mesmo desenho, num lugar so': duas versoes do interruptor divergiriam no primeiro
+ * ajuste — que e' exatamente a queixa registrada no topo deste arquivo.
+ *
+ * Quem usa E' OBRIGADO a dar `ariaLabel` com acao + estado: aqui nao ha rotulo ao lado para o
+ * leitor de tela se apoiar.
+ */
+export function Interruptor({
+  ligado,
+  onMudar,
+  ariaLabel,
+  desabilitado = false,
+  title,
+}: {
+  ligado: boolean
+  onMudar: (novo: boolean) => void
+  ariaLabel: string
+  desabilitado?: boolean
+  title?: string
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={ligado}
+      aria-label={ariaLabel}
+      title={title}
+      disabled={desabilitado}
+      onClick={() => onMudar(!ligado)}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${
+        ligado ? 'bg-emerald-600' : 'bg-slate-300'
+      }`}
+    >
+      <span
+        aria-hidden="true"
+        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${
+          ligado ? 'translate-x-6' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  )
+}
+
 export default function InterruptorAtivacao({
   rotulo,
   ligado,
@@ -39,24 +86,7 @@ export default function InterruptorAtivacao({
     <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
       <span className="text-sm font-medium text-slate-700">{rotulo}</span>
       <BalaoAjuda texto={ajuda} rotuloAcessivelBotao={`O que faz ${rotulo}`} />
-      <button
-        type="button"
-        role="switch"
-        aria-checked={ligado}
-        aria-label={ariaLabel}
-        disabled={desabilitado}
-        onClick={() => onMudar(!ligado)}
-        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 ${
-          ligado ? 'bg-emerald-600' : 'bg-slate-300'
-        }`}
-      >
-        <span
-          aria-hidden="true"
-          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${
-            ligado ? 'translate-x-6' : 'translate-x-1'
-          }`}
-        />
-      </button>
+      <Interruptor ligado={ligado} onMudar={onMudar} ariaLabel={ariaLabel} desabilitado={desabilitado} />
     </div>
   )
 }

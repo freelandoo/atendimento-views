@@ -293,6 +293,40 @@ test('MODAL: quem esta livre e selecionavel', () => {
   assert.equal(st.motivo, '')
 })
 
+// ─── Estado EFETIVO da linha (o que o interruptor mostra) ───────────────────────────────
+
+test('LINHA: membro que continua marcado fica DENTRO, sem mudanca pendente', () => {
+  const st = E.estadoLinhaModal({ usuario_id: 'u1', equipe_atual: { id: 'e1', nome: 'Solar' } }, 'e1', true)
+  assert.equal(st.dentro, true)
+  assert.equal(st.mudanca, null)
+  assert.equal(st.rotuloEstado, 'Na equipe')
+  assert.equal(st.avisoMudanca, '')
+})
+
+test('LINHA: membro DESLIGADO nesta sessao sai ao salvar, e isso e dito por escrito', () => {
+  const st = E.estadoLinhaModal({ usuario_id: 'u1', equipe_atual: { id: 'e1', nome: 'Solar' } }, 'e1', false)
+  assert.equal(st.dentro, false)
+  assert.equal(st.mudanca, 'sai')
+  assert.match(st.avisoMudanca, /voltam para a fila/)
+  assert.equal(st.rotuloEstado, 'Fora da equipe')
+})
+
+test('LINHA: quem estava livre e foi LIGADO entra ao salvar', () => {
+  const st = E.estadoLinhaModal({ usuario_id: 'u3', equipe_atual: null }, 'e1', true)
+  assert.equal(st.dentro, true)
+  assert.equal(st.mudanca, 'entra')
+  assert.equal(st.avisoMudanca, 'Entra ao salvar')
+})
+
+test('LINHA: quem esta em outra equipe nunca aparece DENTRO, nem se vier marcado', () => {
+  // Nao ha gesto possivel ali: mostrar o interruptor ligado prometeria o contrario do que o
+  // backend faria, e o rotulo continua sendo o do bloqueio, que e o que explica o porque.
+  const st = E.estadoLinhaModal({ usuario_id: 'u2', equipe_atual: { id: 'e2', nome: 'Advocacia' } }, 'e1', true)
+  assert.equal(st.dentro, false)
+  assert.equal(st.mudanca, null)
+  assert.equal(st.rotuloEstado, 'Em outra equipe')
+})
+
 test('MODAL: contagens e filtros batem com as tres situacoes', () => {
   const pessoas = [
     { usuario_id: 'u1', nome: 'Ana', email: 'ana@x.com', equipe_atual: { id: 'e1' } },

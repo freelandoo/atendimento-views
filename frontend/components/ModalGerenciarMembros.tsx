@@ -8,10 +8,18 @@
 // pessoa naquele nicho para a fila de livres — decisão do operador: sem filtrar por "protegido",
 // inclusive lead com reunião marcada ou conversa aberta.
 //
-// Por isso desmarcar quem já é membro agora REMOVE de verdade. Duas coisas garantem que ninguém
+// Por isso desligar quem já é membro agora REMOVE de verdade. Duas coisas garantem que ninguém
 // seja pego de surpresa: (1) o aviso da consequência fica visível no topo o tempo todo, não só
 // no clique; (2) salvar com alguém saindo passa por uma CONFIRMAÇÃO nomeando quem sai, antes de
 // qualquer requisição.
+//
+// ─── O QUE MUDOU (2026-09-22) ────────────────────────────────────────────────────────────
+// A folha era `lg` (4xl) com uma tabela de quatro colunas e crescia até 90% da tela conforme o
+// tamanho da equipe — o mesmo modal tinha tamanho diferente em cada empresa. Agora é `md`, a
+// lista tem altura limitada e rola por dentro, e cada pessoa virou UMA linha com interruptor:
+// a decisão ali é binária (dentro/fora), e a tabela obrigava a esconder "Cargo" no celular e a
+// espalhar o estado por duas células. O interruptor é o MESMO de `InterruptorAtivacao` — a
+// caixa com rótulo e balão pesaria por linha, então só o controle nu é reusado.
 //
 // ─── O QUE ESTE COMPONENTE NÃO SABE ─────────────────────────────────────────────────────
 // Nenhuma regra. Situação, contagem, filtro, diff (quem entra/quem sai), texto do rodapé, texto
@@ -22,6 +30,7 @@ import FolhaModal from '@/components/ui/FolhaModal'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import Botao from '@/components/ui/Botao'
 import EstadoVazio from '@/components/ui/EstadoVazio'
+import { Interruptor } from '@/components/ui/InterruptorAtivacao'
 import {
   AVISO_DEVOLUCAO_LEADS,
   FILTROS_MODAL,
@@ -29,11 +38,11 @@ import {
   corpoDeParticipantes,
   diffParticipantes,
   estadoDaEquipe,
+  estadoLinhaModal,
   filtrarPessoasDoModal,
   participantesIniciais,
   resumoSelecaoModal,
   rotuloPapel,
-  situacaoNoModal,
   textoConfirmarRemocao,
 } from '@/lib/equipe-area'
 import type { EquipeArea, PessoaArea } from '@/lib/equipe-area'
@@ -129,8 +138,10 @@ export default function ModalGerenciarMembros({
       <FolhaModal
         aberto={aberto}
         titulo="Gerenciar membros da equipe"
-        descricao="Marque para adicionar, desmarque para retirar. As alterações valem assim que você salvar."
-        tamanho="lg"
+        descricao="Ligue para adicionar, desligue para retirar. As alterações valem assim que você salvar."
+        // `md` e não `lg`: com o interruptor no lugar da tabela de quatro colunas, 4xl deixava a
+        // folha ocupando a tela inteira sem usar a largura para nada.
+        tamanho="md"
         onFechar={fechar}
         rodape={
           <>
@@ -203,8 +214,15 @@ export default function ModalGerenciarMembros({
           })}
         </div>
 
-        {/* ── A lista ───────────────────────────────────────────────────────────────────── */}
-        <div className="mt-3 overflow-hidden rounded-lg border border-line">
+        {/* ── A lista ───────────────────────────────────────────────────────────────────────
+            Lista, e não tabela: a decisão aqui é binária POR PESSOA (dentro/fora), e uma tabela
+            de quatro colunas obrigava a esconder "Cargo" no celular e a espalhar o estado por
+            duas células. Numa linha só, o interruptor fica sempre no mesmo lugar e a linha
+            inteira muda de aparência conforme o estado.
+
+            A ALTURA É LIMITADA de propósito: sem isto a folha crescia até 90% da tela conforme
+            o tamanho da equipe, e o mesmo modal tinha tamanhos diferentes em cada empresa. */}
+        <div className="mt-3 max-h-[min(24rem,45dvh)] overflow-y-auto overscroll-contain rounded-lg border border-line">
           {visiveis.length === 0 ? (
             <EstadoVazio
               titulo={busca ? 'Ninguém com esse nome ou e-mail' : 'Nenhuma pessoa neste filtro'}
@@ -216,82 +234,77 @@ export default function ModalGerenciarMembros({
               acao={busca ? <Botao tamanho="sm" onClick={() => setBusca('')}>Limpar busca</Botao> : undefined}
             />
           ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-surface-2 text-[11px] uppercase tracking-wide text-ink-3">
-                <tr>
-                  <th scope="col" className="w-10 px-3 py-2 text-left">
-                    <span className="sr-only">Selecionar</span>
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">Pessoa</th>
-                  <th scope="col" className="hidden px-3 py-2 text-left font-medium sm:table-cell">Cargo</th>
-                  <th scope="col" className="px-3 py-2 text-left font-medium">Situação</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {visiveis.map((p) => {
-                  const st = situacaoNoModal(p, equipeId)
-                  const id = String(p.usuario_id)
-                  const marcado = selecionados.includes(id)
-                  // Já era membro e foi DESMARCADO nesta sessão: vai sair ao salvar. É a única
-                  // situação em que "nesta_equipe" e a seleção discordam.
-                  const saiAoSalvar = st.situacao === 'nesta_equipe' && !marcado
-                  return (
-                    <tr key={id} className={st.selecionavel ? 'hover:bg-surface-2' : 'bg-surface-2/50'}>
-                      <td className="px-3 py-2">
-                        <input
-                          type="checkbox"
-                          checked={marcado}
-                          disabled={!st.selecionavel}
-                          onChange={() => alternar(id)}
-                          title={st.motivo || undefined}
-                          aria-label={
-                            !st.selecionavel
-                              ? `${p.nome || 'Pessoa'} — ${st.rotulo}. ${st.motivo}`
-                              : st.situacao === 'nesta_equipe'
-                                ? `${p.nome || 'Pessoa'} já está na equipe. Desmarcar retira e devolve os leads dela para a fila.`
-                                : `Adicionar ${p.nome || 'pessoa'} à equipe`
-                          }
-                          className="h-4 w-4 rounded border-line-strong text-brand focus-visible:ring-2 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-60"
-                        />
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-2.5">
-                          <span
-                            aria-hidden="true"
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-3 text-[11px] font-semibold text-ink-2"
-                          >
-                            {iniciais(p.nome)}
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block truncate font-medium text-ink">{p.nome || 'Sem nome'}</span>
-                            {p.email && <span className="block truncate text-xs text-ink-3">{p.email}</span>}
-                            {/* No celular a coluna Cargo some; o papel continua legível aqui. */}
-                            <span className="block text-xs text-ink-3 sm:hidden">{rotuloPapel(p.papel)}</span>
-                          </span>
-                        </div>
-                      </td>
-                      <td className="hidden px-3 py-2 text-xs text-ink-2 sm:table-cell">{rotuloPapel(p.papel)}</td>
-                      <td className="px-3 py-2">
-                        <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-medium ${TOM_SELO[st.tom]}`}>
-                          {st.rotulo}
-                        </span>
-                        {/* O motivo do bloqueio fica na LINHA quando ele é específico daquela
-                            pessoa ("já está no Time Solar") — é a informação que o 409 do backend
-                            não dá. O aviso genérico de devolução já está no topo. */}
-                        {st.situacao === 'outra_equipe' && (
-                          <span className="mt-0.5 block max-w-[22rem] text-[11px] leading-snug text-ink-3">{st.motivo}</span>
-                        )}
-                        {saiAoSalvar && (
-                          <span className="mt-0.5 block text-[11px] font-medium leading-snug text-red-600">
-                            Sai ao salvar — leads dela voltam para a fila
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+            <ul className="divide-y divide-line">
+              {visiveis.map((p) => {
+                const id = String(p.usuario_id)
+                // O veredito da linha vem PRONTO do módulo puro: estado efetivo (o que o
+                // interruptor mostra) e a mudança pendente, quando o marcado discorda do gravado.
+                const st = estadoLinhaModal(p, equipeId, selecionados.includes(id))
+                const nome = p.nome || 'Sem nome'
+                return (
+                  <li
+                    key={id}
+                    className={`flex items-center gap-3 px-3 py-2.5 transition-colors ${
+                      !st.selecionavel
+                        ? 'bg-surface-2/60'
+                        : st.dentro
+                          ? 'bg-estado-ok/5 hover:bg-estado-ok/10'
+                          : 'hover:bg-surface-2'
+                    }`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
+                        st.dentro ? 'bg-estado-ok/15 text-estado-ok' : 'bg-surface-3 text-ink-2'
+                      }`}
+                    >
+                      {iniciais(p.nome)}
+                    </span>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-ink">{nome}</p>
+                      <p className="truncate text-xs text-ink-3">
+                        {rotuloPapel(p.papel)}{p.email ? ` · ${p.email}` : ''}
+                      </p>
+                      {/* O motivo do bloqueio é específico daquela pessoa ("já está no Time
+                          Solar") — é a informação que o 409 do backend não dá. */}
+                      {!st.selecionavel && st.motivo && (
+                        <p className="mt-0.5 text-[11px] leading-snug text-ink-3">{st.motivo}</p>
+                      )}
+                      {/* A mudança pendente é dita por ESCRITO: a posição do interruptor mostra
+                          como VAI ficar, não que algo mudou em relação ao que está gravado. */}
+                      {st.mudanca && (
+                        <p className={`mt-0.5 text-[11px] font-medium leading-snug ${
+                          st.mudanca === 'sai' ? 'text-estado-danger' : 'text-estado-ok'
+                        }`}>
+                          {st.avisoMudanca}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Estado em TEXTO ao lado do interruptor: cor e posição nunca são o único
+                        sinal. No celular o rótulo sai e o `aria-label` do interruptor sustenta. */}
+                    <span className={`hidden shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium sm:inline-block ${TOM_SELO[st.tomEstado]}`}>
+                      {st.rotuloEstado}
+                    </span>
+
+                    <Interruptor
+                      ligado={st.dentro}
+                      desabilitado={!st.selecionavel}
+                      onMudar={() => alternar(id)}
+                      title={st.selecionavel ? undefined : st.motivo}
+                      ariaLabel={
+                        !st.selecionavel
+                          ? `${nome} — ${st.rotulo}. ${st.motivo}`
+                          : st.dentro
+                            ? `${nome} está na equipe. Desligar retira e devolve os leads dela para a fila.`
+                            : `${nome} está fora da equipe. Ligar adiciona à equipe.`
+                      }
+                    />
+                  </li>
+                )
+              })}
+            </ul>
           )}
         </div>
       </FolhaModal>

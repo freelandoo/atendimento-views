@@ -183,6 +183,19 @@ export declare function situacaoNoModal(
   equipeId: string | null
 ): EstadoNoModal
 
+/** O estado EFETIVO da linha (já com o que foi marcado nesta sessão) + a mudança pendente. */
+export declare function estadoLinhaModal(
+  pessoa: PessoaSelecionavel | null | undefined,
+  equipeId: string | null,
+  marcado: boolean
+): EstadoNoModal & {
+  dentro: boolean
+  mudanca: 'entra' | 'sai' | null
+  rotuloEstado: string
+  tomEstado: string
+  avisoMudanca: string
+}
+
 export declare function contagensDoModal(
   pessoas: PessoaSelecionavel[] | null | undefined,
   equipeId: string | null

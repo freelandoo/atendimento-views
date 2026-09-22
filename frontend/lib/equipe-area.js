@@ -495,6 +495,38 @@ function situacaoNoModal(pessoa, equipeId) {
   return { situacao: 'sem_equipe', rotulo: 'Sem equipe', tom: 'neutro', selecionavel: true, marcado: false, motivo: '' }
 }
 
+/**
+ * O estado de UMA linha do modal, já considerando o que a pessoa marcou nesta sessão.
+ *
+ * `situacaoNoModal` responde "como está GRAVADO"; esta responde "como VAI FICAR quando salvar",
+ * que é o que o interruptor da linha mostra. As duas juntas dão a terceira informação, a que
+ * mais importa: quando elas DISCORDAM, houve uma mudança pendente — e ela precisa estar escrita,
+ * não só implícita na posição do botão.
+ *
+ * `dentro` é o veredito do interruptor. Para quem está bloqueado (já em outra equipe) ele é
+ * sempre `false`: não há gesto possível ali, e mostrar o controle ligado prometeria o contrário.
+ */
+function estadoLinhaModal(pessoa, equipeId, marcado) {
+  const st = situacaoNoModal(pessoa, equipeId)
+  const dentro = st.selecionavel ? !!marcado : false
+  const jaEra = st.situacao === 'nesta_equipe'
+  let mudanca = null
+  if (st.selecionavel && jaEra && !dentro) mudanca = 'sai'
+  else if (st.selecionavel && !jaEra && dentro) mudanca = 'entra'
+  return {
+    ...st,
+    dentro,
+    mudanca,
+    // O rótulo do estado EFETIVO. Quem está em outra equipe mantém o rótulo do bloqueio: dizer
+    // "fora da equipe" ali esconderia o motivo de não dar para adicionar.
+    rotuloEstado: st.selecionavel ? (dentro ? 'Na equipe' : 'Fora da equipe') : st.rotulo,
+    tomEstado: st.selecionavel ? (dentro ? 'ok' : 'neutro') : st.tom,
+    avisoMudanca: mudanca === 'sai'
+      ? 'Sai ao salvar — os leads dela voltam para a fila'
+      : mudanca === 'entra' ? 'Entra ao salvar' : '',
+  }
+}
+
 /** Contagem de cada filtro do modal — o número entra no próprio botão, como na referência. */
 function contagensDoModal(pessoas, equipeId) {
   const lista = Array.isArray(pessoas) ? pessoas : []
@@ -616,6 +648,7 @@ module.exports = {
   AVISO_DEVOLUCAO_LEADS,
   FILTROS_MODAL,
   situacaoNoModal,
+  estadoLinhaModal,
   contagensDoModal,
   filtrarPessoasDoModal,
   participantesIniciais,
