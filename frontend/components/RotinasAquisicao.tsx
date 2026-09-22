@@ -28,6 +28,7 @@ import type { Atividade } from '@/components/HistoricoColetas'
 // preserva o formulário da busca avulsa e o polling ao alternar de modo. Desmontar por
 // modo reiniciaria o formulário — exatamente o que a separação não pode causar.
 export type ModoAquisicao = 'busca' | 'rotinas'
+export type FonteBuscaAquisicao = 'places' | 'meta_ads'
 
 export type Rotina = {
   id: string
@@ -70,6 +71,12 @@ export type RotinasResp = {
   coleta_em_andamento: boolean
   coleta: ColetaEmVoo | null
   limites: { quantidade_min: number; quantidade_max: number; intervalo_min_horas: number }
+}
+type MetaAdsResultado = {
+  ok: boolean
+  registros?: number
+  salvos?: { id: string; inserido?: boolean }[]
+  descartados?: Record<string, number>
 }
 
 /**
@@ -122,6 +129,7 @@ function quando(iso: string | null): string {
 export default function RotinasAquisicao({
   empresaId,
   modo,
+  fonteBusca = 'places',
   onColetaIniciada,
   onDados,
   onLeadsAlterados,
@@ -129,6 +137,8 @@ export default function RotinasAquisicao({
   empresaId: string
   // Qual card aparece. Só um por vez — os dois juntos era a densidade que a separação resolve.
   modo: ModoAquisicao
+  // Fonte da busca avulsa quando esta tela está embutida em Aquisição.
+  fonteBusca?: FonteBuscaAquisicao
   onColetaIniciada?: () => void
   // Cada decisão do assistente muda o status de um lead: a lista da página recarrega.
   onLeadsAlterados?: () => void
@@ -256,8 +266,25 @@ export default function RotinasAquisicao({
     setErro('')
     setBuscandoAvulsa(true)
     try {
-      await dispararBusca(avulsa)
-      fb.toast('Busca iniciada. Os leads aparecem em alguns minutos — a lista atualiza sozinha.', 'info')
+      if (fonteBusca === 'meta_ads') {
+        const r = await apiFetch<MetaAdsResultado>(`/api/empresas/${empresaId}/prospeccao/meta-ads/buscar`, {
+          method: 'POST',
+          body: JSON.stringify({
+            nicho: avulsa.nicho.trim(),
+            cidade: avulsa.cidade.trim(),
+            uf: avulsa.uf.trim().toUpperCase() || null,
+            quantidade: avulsa.quantidade,
+          }),
+          timeoutMs: 180000,
+        })
+        const salvos = r.data?.salvos?.length ?? 0
+        const registros = r.data?.registros ?? 0
+        fb.toast(`Busca Meta concluída: ${salvos} lead${salvos === 1 ? '' : 's'} salvo${salvos === 1 ? '' : 's'} de ${registros} anúncio${registros === 1 ? '' : 's'} analisado${registros === 1 ? '' : 's'}.`, salvos > 0 ? 'success' : 'info')
+        onLeadsAlterados?.()
+      } else {
+        await dispararBusca(avulsa)
+        fb.toast('Busca iniciada. Os leads aparecem em alguns minutos — a lista atualiza sozinha.', 'info')
+      }
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao iniciar a busca.')
     } finally { setBuscandoAvulsa(false) }
@@ -377,8 +404,14 @@ export default function RotinasAquisicao({
       {modo === 'busca' && (
         <div className="painel-troca space-y-3 rounded-2xl border bg-white p-4 shadow-sm">
           <div>
-            <h2 className="text-base font-semibold">Busca avulsa</h2>
-            <p className="mt-0.5 text-xs text-slate-500">Uma coleta única, agora, sem criar rotina.</p>
+            <h2 className="text-base font-semibold">
+              {fonteBusca === 'meta_ads' ? 'Busca Meta' : 'Busca avulsa'}
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {fonteBusca === 'meta_ads'
+                ? 'Anunciantes ativos por nicho e cidade. O sistema descarta anúncios com site próprio antes de salvar.'
+                : 'Uma coleta única, agora, sem criar rotina.'}
+            </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Campo label="Nicho">
@@ -394,24 +427,29 @@ export default function RotinasAquisicao({
               rotuloUf="Estado"
               rotuloCidade="Cidade"
             />
-            <Campo label={`Máx. de leads novos (1 a ${limites.quantidade_max})`}>
+            <Campo label={fonteBusca === 'meta_ads' ? 'Máx. de anúncios analisados' : `Máx. de leads novos (1 a ${limites.quantidade_max})`}>
               <input type="number" min={limites.quantidade_min} max={limites.quantidade_max} value={avulsa.quantidade}
-                title="Vale para os dois botões: quantos leads esta busca importa e, no assistente, quantos você quer aprovar. A origem pode encontrar mais registros do que isso."
+                title={fonteBusca === 'meta_ads'
+                  ? 'Limite de anúncios lidos na Biblioteca. Só viram lead os anunciantes sem site próprio no anúncio.'
+                  : 'Vale para os dois botões: quantos leads esta busca importa e, no assistente, quantos você quer aprovar. A origem pode encontrar mais registros do que isso.'}
                 onChange={(e) => setAvulsa({ ...avulsa, quantidade: Number(e.target.value) || limites.quantidade_max })}
                 className="w-full rounded-lg border px-3 py-2 text-sm" />
             </Campo>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button onClick={buscarAgora} disabled={buscandoAvulsa || dados?.coleta_em_andamento}
-              title={dados?.coleta_em_andamento ? 'Aguarde a coleta em andamento terminar.' : undefined}
+            <button onClick={buscarAgora} disabled={buscandoAvulsa || (fonteBusca !== 'meta_ads' && dados?.coleta_em_andamento)}
+              title={dados?.coleta_em_andamento && fonteBusca !== 'meta_ads' ? 'Aguarde a coleta em andamento terminar.' : undefined}
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-              {buscandoAvulsa ? <Spinner /> : <IconPlay />}{buscandoAvulsa ? 'Iniciando…' : 'Buscar agora'}
+              {buscandoAvulsa ? <Spinner /> : <IconPlay />}
+              {buscandoAvulsa
+                ? (fonteBusca === 'meta_ads' ? 'Buscando…' : 'Iniciando…')
+                : (fonteBusca === 'meta_ads' ? 'Buscar anúncios' : 'Buscar agora')}
             </button>
             {/* Gatilho MANUAL da análise: buscar não analisa, analisar não busca. Continua
                 clicável mesmo vazio (também serve para revisar leads já encontrados), mas só
                 ganha destaque visual — de forma suave — quando o operador começa a preencher
                 nicho ou estado, para não competir de igual para igual com "Buscar agora". */}
-            <button onClick={() => setEntradaAberta(true)} disabled={entradaAberta || assistenteAberto}
+            {fonteBusca !== 'meta_ads' && <button onClick={() => setEntradaAberta(true)} disabled={entradaAberta || assistenteAberto}
               title="Revisa os leads que ainda não foram decididos, um por vez, com uma explicação curta."
               className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-all duration-300 disabled:opacity-50 ${
                 avulsa.nicho.trim() || avulsa.uf
@@ -419,15 +457,23 @@ export default function RotinasAquisicao({
                   : 'border bg-white text-slate-500 hover:bg-slate-50'
               }`}>
               <IconSparkle /> Analisar oportunidades
-            </button>
+            </button>}
           </div>
           {/* A coleta em andamento é global (uma por empresa): quem está no modo Busca
               precisa saber por que o botão está desabilitado sem ir até as Rotinas. */}
           {dados?.coleta_em_andamento && <ColetaEmAndamento coleta={dados?.coleta ?? null} />}
           <p className="text-xs text-slate-500">
-            <b>Buscar agora</b> traz leads novos para a sua carteira. <b>Analisar oportunidades</b> abre o
-            assistente: ele pergunta se você quer revisar o que já foi encontrado — um lead por vez, com o
-            motivo — ou procurar em outro nicho ou cidade.
+            {fonteBusca === 'meta_ads' ? (
+              <>
+                <b>Buscar anúncios</b> traz anunciantes ativos para a carteira e enfileira o enriquecimento da página do Facebook em segundo plano.
+              </>
+            ) : (
+              <>
+                <b>Buscar agora</b> traz leads novos para a sua carteira. <b>Analisar oportunidades</b> abre o
+                assistente: ele pergunta se você quer revisar o que já foi encontrado — um lead por vez, com o
+                motivo — ou procurar em outro nicho ou cidade.
+              </>
+            )}
           </p>
         </div>
       )}

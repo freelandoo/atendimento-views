@@ -19,6 +19,7 @@ const {
 } = require('../services/prospecting-settings')
 const { obterDashboardEstrategicoProspeccao } = require('../services/prospecting-performance-analytics')
 const { listarOpcoesFiltrosMercado } = require('../services/prospect-filters')
+const { buscarAnunciantes } = require('../services/meta-ads-worker')
 const DIST_AQ = require('../db/prospeccao-distribuicao')
 const { logger } = require('../logger')
 
@@ -137,6 +138,38 @@ router.post('/buscar', requireAuth, requireEmpresaAccess, async (req, res) => {
     // 409 é fluxo normal (coleta em andamento / clique duplicado), não erro de servidor.
     if (status >= 500) logger.error('POST prospeccao/buscar:', err.message)
     return res.status(status).json({ ok: false, error: { code: 'BUSCA_FAILED', message: err.message } })
+  }
+})
+
+// POST /api/empresas/:empresaId/prospeccao/meta-ads/buscar  { nicho, cidade?, uf?, quantidade? }
+// Busca síncrona e PAGA no Apify (Biblioteca de Anúncios). Fica separada de `/buscar` porque
+// Places é assíncrono e materializa depois; Meta Ads já devolve quantos leads foram salvos.
+router.post('/meta-ads/buscar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.AQUISICAO_GERENCIAR), async (req, res) => {
+  const { nicho, cidade, uf, estado, quantidade, limite } = req.body || {}
+  if (!nicho) {
+    return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe nicho para buscar anúncios.' } })
+  }
+  try {
+    const cidadeBusca = [cidade, uf || estado].filter(Boolean).join(', ')
+    const resultado = await buscarAnunciantes({
+      nicho,
+      cidade: cidadeBusca || null,
+      empresaId: req.empresa.id,
+      limite: quantidade || limite,
+    })
+    if (resultado && resultado.ok === false) {
+      const status = resultado.motivo === 'apify_indisponivel' ? 503 : 409
+      return res.status(status).json({
+        ok: false,
+        error: { code: 'META_ADS_BUSCA_BLOQUEADA', message: resultado.mensagem || 'Busca de anúncios indisponível.' },
+        meta: { motivo: resultado.motivo || null },
+      })
+    }
+    return res.json({ ok: true, data: resultado })
+  } catch (err) {
+    const status = err.statusCode || 500
+    if (status >= 500) logger.error('POST prospeccao/meta-ads/buscar:', err.message)
+    return res.status(status).json({ ok: false, error: { code: 'META_ADS_BUSCA_FAILED', message: err.message } })
   }
 })
 

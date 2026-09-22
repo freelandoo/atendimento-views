@@ -4760,3 +4760,21 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   paga durante validação.
 - **Fora de escopo:** reescrever a tela inteira, mudar regra de distribuição segura, alterar
   ownership (`responsavel_id`), criar nova fonte de cidade no banco ou iniciar/pagar coletas.
+
+## 2026-09-21 (2) — Aquisição: aba Meta usando busca de anúncios já implementada
+
+- **Pedido/continuação:** continuar a entrega anterior de Meta Ads na Aquisição. O backend de
+  descoberta por anúncios já estava em `master`, mas a experiência operacional ainda não
+  expunha a fonte Meta na tela principal.
+- **Entendimento inicial:** não criar rotina automática nova nem nova migration. A ação deve ser
+  manual/sob demanda, usando o motor `meta-ads-worker.js`, e os leads devem continuar caindo no
+  mesmo Banco de Leads/curadoria.
+- **Escopo desta rodada:** (1) expor rota autenticada para disparar a busca Meta Ads; (2) incluir
+  a sessão Meta em `dashboard/aquisicao`; (3) reaproveitar a tela de Busca com fonte inicial
+  `meta_ads`; (4) recortar listagem, métricas e filtros por origem `meta_ads` no backend, não só
+  no front.
+- **Análise de impacto:** rota SaaS de prospecção, normalizador de filtros de prospects e UI de
+  Aquisição. Sem nova tabela, sem rotina agendada, sem envio real a clientes e sem chamada paga
+  durante validação.
+- **Fora de escopo:** configurar `APIFY_API_TOKEN` em produção, rodar coleta real, criar agenda
+  recorrente de Meta Ads ou unificar a tela de Instagram/captação social nesta rodada.

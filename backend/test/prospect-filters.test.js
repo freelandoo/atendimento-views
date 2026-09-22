@@ -101,10 +101,12 @@ test('prospect filters: opcoes de mercado respeitam carteira e porta de aprovado
 
 // A origem e' normalizada num lugar so: a listagem (/prospects) e a contagem por status
 // (/metricas) precisam recortar o MESMO universo, senao o numero do filtro nao bate com a lista.
-test('prospect filters: origem so tem dois valores; desconhecido cai em manual', () => {
+test('prospect filters: origem preserva meta_ads; desconhecido cai em manual', () => {
   assert.equal(normalizarOrigemFiltro('automatico'), 'automatico')
   assert.equal(normalizarOrigemFiltro('  AUTOMATICO '), 'automatico')
   assert.equal(normalizarOrigemFiltro('manual'), 'manual')
+  assert.equal(normalizarOrigemFiltro('meta_ads'), 'meta_ads')
+  assert.equal(normalizarOrigemFiltro('  META_ADS '), 'meta_ads')
   assert.equal(normalizarOrigemFiltro('rotina'), 'manual')
   assert.equal(normalizarOrigemFiltro('qualquer-coisa'), 'manual')
 })

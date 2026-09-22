@@ -3,13 +3,14 @@ import { useState } from 'react'
 import ProspeccaoPage from '../prospeccao/page'
 import CaptacaoPage from '../captacao/page'
 
-// Aquisição — reúne as duas frentes de geração de leads em sessões.
+// Aquisição — reúne as frentes de geração de leads em sessões.
 // Cada sessão reaproveita INTEGRALMENTE a tela existente (pesquisar / programar /
 // deixar o worker rodando), sem duplicar lógica. O Banco de Leads (página própria)
-// consolida o que as duas sessões coletam.
+// consolida o que todas as sessões coletam.
 const SESSOES: { valor: string; label: string; desc: string }[] = [
   { valor: 'places', label: 'Google Places', desc: 'Empresas por nicho e cidade no mapa' },
   { valor: 'instagram', label: 'Instagram', desc: 'Perfis por hashtag, nicho ou @semente' },
+  { valor: 'meta', label: 'Meta', desc: 'Anunciantes ativos sem site próprio no anúncio' },
 ]
 
 export default function AquisicaoPage() {
@@ -20,7 +21,7 @@ export default function AquisicaoPage() {
       <div>
         <h1 className="text-2xl font-bold">Aquisição</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Pesquise, programe e deixe o robô trabalhando. Duas fontes, o mesmo funil —
+          Pesquise, programe e deixe o robô trabalhando. Três fontes, o mesmo funil —
           tudo cai no Banco de Leads.
         </p>
       </div>
@@ -38,7 +39,9 @@ export default function AquisicaoPage() {
       </div>
 
       <div>
-        {sessao === 'places' ? <ProspeccaoPage /> : <CaptacaoPage />}
+        {sessao === 'places' && <ProspeccaoPage fonteBusca="places" embutida />}
+        {sessao === 'instagram' && <CaptacaoPage />}
+        {sessao === 'meta' && <ProspeccaoPage fonteBusca="meta_ads" embutida />}
       </div>
     </div>
   )

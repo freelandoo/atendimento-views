@@ -217,6 +217,7 @@ const ABAS_MODO: Aba[] = [
   { id: 'busca', titulo: 'Busca', descricao: 'Encontrar, configurar e revisar leads de uma coleta.' },
   { id: 'rotinas', titulo: 'Rotinas', descricao: 'Configurar, acompanhar e revisar execuções automáticas.' },
 ]
+type FonteBuscaAquisicao = 'places' | 'meta_ads'
 function normalizarModo(valor: string | null | undefined): ModoAquisicao | null {
   return valor === 'busca' || valor === 'rotinas' ? valor : null
 }
@@ -288,7 +289,13 @@ function ordemDaViewAquisicao(valor: string): { chave: string; dir: 'asc' | 'des
   return chave ? { chave, dir: dir === 'asc' ? 'asc' : 'desc' } : null
 }
 
-export default function ProspeccaoPage() {
+export default function ProspeccaoPage({
+  fonteBusca = 'places',
+  embutida = false,
+}: {
+  fonteBusca?: FonteBuscaAquisicao
+  embutida?: boolean
+} = {}) {
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [metricas, setMetricas] = useState<Metricas | null>(null)
   const [resultados, setResultados] = useState<ResultadosResp | null>(null)
@@ -424,6 +431,7 @@ export default function ProspeccaoPage() {
   // Filtros de recorte, compartilhados pela lista e pelas contagens.
   function filtrosAtuais() {
     const p = new URLSearchParams()
+    if (fonteBusca === 'meta_ads') p.set('origem', 'meta_ads')
     if (buscaDados.trim()) p.set('busca', buscaDados.trim())
     if (mercado) p.set('mercado', mercado)
     if (cidadeFiltro) p.set('cidade', cidadeFiltro)
@@ -486,10 +494,11 @@ export default function ProspeccaoPage() {
   useEffect(() => {
     if (!empresaId || !recortePronto) return
     const p = new URLSearchParams()
+    if (fonteBusca === 'meta_ads') p.set('origem', 'meta_ads')
     if (filtro) p.set('status', filtro)
     apiFetch<FiltrosMercado>(`/api/empresas/${empresaId}/prospeccao/filtros?${p.toString()}`)
       .then((r) => setFiltrosMercado(r.data || null)).catch(() => {})
-  }, [empresaId, recortePronto, filtro])
+  }, [empresaId, recortePronto, filtro, fonteBusca])
 
   // A busca da Aquisição é ASSÍNCRONA (Bright Data Maps, ~minutos). Aqui acompanhamos o
   // andamento: quando uma busca que estava rodando fica 'concluido'/'falhou', avisa e
@@ -752,13 +761,13 @@ export default function ProspeccaoPage() {
 
   return (
     <div className="space-y-6">
-      <div>
+      {!embutida && <div>
         <h1 className="text-2xl font-bold">Prospecção</h1>
         <p className="text-sm text-slate-500 mt-1">
           Configure a origem da busca: os leads continuam chegando ao Banco de Leads mesmo
           com esta tela fechada.
         </p>
-      </div>
+      </div>}
 
       <Abas
         abas={ABAS_MODO}
@@ -783,6 +792,7 @@ export default function ProspeccaoPage() {
       <RotinasAquisicao
         empresaId={empresaId}
         modo={modo}
+        fonteBusca={fonteBusca}
         onColetaIniciada={carregarBuscas}
         onDados={setDadosRotinas}
         onLeadsAlterados={carregar}

@@ -26,14 +26,16 @@ function termoBuscaProspect(query = {}) {
 }
 
 /**
- * Origem do prospect no recorte da listagem: só existem duas ('automatico' e 'manual'), e
- * qualquer outro valor não vazio cai em 'manual' (o mundo pré-automação). Vazio = sem filtro.
+ * Origem do prospect no recorte da listagem. `meta_ads` é uma origem própria porque a aba Meta
+ * da Aquisição precisa recortar só os anunciantes descobertos por anúncio. Qualquer outro valor
+ * não vazio cai em 'manual' (o mundo pré-automação). Vazio = sem filtro.
  * Vive aqui, junto dos demais filtros, porque a listagem e a contagem por status precisam
  * recortar exatamente o mesmo universo — duas normalizações diferentes dariam dois números.
  */
 function normalizarOrigemFiltro(v) {
   const origem = String(v || '').trim().toLowerCase()
   if (!origem) return ''
+  if (origem === 'meta_ads') return 'meta_ads'
   return origem === 'automatico' ? 'automatico' : 'manual'
 }
 
