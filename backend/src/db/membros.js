@@ -31,6 +31,12 @@ const {
   PAPEIS, papelConhecido, capacidadeConhecida, concedeveisPara,
 } = require('../services/acesso-capacidades')
 const { logger } = require('../logger')
+// Os tres donos do trabalho que fica PRESO quando alguem perde o acesso. Importados, nunca
+// reimplementados: cada um e' o dono do proprio historico (migrations 072, 074 e 062), e um
+// UPDATE solto aqui apagaria a autoria sem deixar rastro.
+const LR = require('./lead-responsavel')
+const CR = require('./conversa-responsavel')
+const FU = require('./follow-ups')
 
 function erro(mensagem, statusCode = 400, code = 'BAD_REQUEST') {
   const e = new Error(mensagem)
@@ -228,6 +234,75 @@ async function criarMembro(empresaId, dados = {}, autorId = null) {
   })
 }
 
+/** Motivo gravado no historico de cada item devolvido. Texto unico: a leitura e' a mesma nos 4. */
+const MOTIVO_DESATIVACAO = 'Acesso do membro desativado na empresa.'
+
+/**
+ * Devolve para a fila TODO o trabalho que estava na mao de quem acabou de perder o acesso.
+ *
+ * ─── O DEFEITO QUE ISTO CORRIGE ───────────────────────────────────────────────
+ * Desativar o vinculo revogava o acesso e **nao mexia em nada do que a pessoa tinha na mao**. O
+ * comportamento estava ate' declarado no `AGENTS.md` ("desativar revoga acesso e nao redistribui"),
+ * como se fosse escolha — mas medido em producao em 2026-09-22 ele produziu **184 leads
+ * trabalhaveis presos numa pessoa desativada** e **7 follow-ups em aberto** em outras duas. Esse
+ * trabalho fica INVISIVEL: o recorte do comercial e' "meus + livres", e lead de um colega
+ * desativado nao e' nem uma coisa nem outra. Ninguem o ve, ninguem o trabalha, e ele continua
+ * contando na carteira dela no painel de equipe e no calculo da proxima distribuicao.
+ *
+ * ─── A REGRA ──────────────────────────────────────────────────────────────────
+ * **Devolve para a FILA, nunca redistribui para outra pessoa.** Escolher um substituto aqui seria
+ * inventar dono — o mesmo erro que a quarentena de webhook (060) e a instancia de envio (Fase 2)
+ * removeram de outros pontos do produto. A fila e' estado legitimo nos tres modulos, e quem decide
+ * o proximo dono e' a equipe (rebalanceamento, "Puxar mais leads") ou uma pessoa.
+ *
+ * ─── O QUE ELA NAO FAZ, DE PROPOSITO ────────────────────────────────────────────
+ *  1. **Nao desfaz nada na REATIVACAO.** Nao da' para saber quais itens eram dela sem recriar o
+ *     estado de um instante passado, e devolver o lote errado seria pior que nao devolver: a
+ *     carteira ja' pode ter sido trabalhada por outra pessoa nesse meio tempo. O historico de cada
+ *     item diz de quem era — reatribuir e' ato humano.
+ *  2. **Nao toca HISTORICO.** Ligacao realizada, follow-up concluido e venda continuam com a
+ *     autoria de quem as fez. Quem sai perde o trabalho PENDENTE, nunca o que ja' aconteceu.
+ *  3. **Nao apaga o vinculo nem o usuario.** Continua valendo "desativar em vez de excluir".
+ *
+ * Roda DENTRO da transacao do vinculo: se a desativacao voltar atras, a devolucao volta junto.
+ * Metade feito aqui seria o pior dos mundos — pessoa com acesso e sem carteira, ou o inverso.
+ */
+async function devolverTrabalhoDoMembro(client, { empresaId, usuarioId, autorId } = {}) {
+  const motivo = MOTIVO_DESATIVACAO
+
+  // A pessoa sai das equipes ANTES de a carteira ser devolvida. A ordem importa: enquanto o
+  // vinculo de equipe estiver aberto, ela conta como membro ativo e um rebalanceamento
+  // concorrente poderia devolver para ela o que acabamos de tirar.
+  const { rows: equipes } = await client.query(
+    `UPDATE app.equipe_comercial_membros
+        SET saiu_em = NOW(), removido_por = $3::uuid, motivo_saida = $4
+      WHERE empresa_id = $1 AND usuario_id = $2::uuid AND saiu_em IS NULL
+      RETURNING equipe_id`,
+    [empresaId, usuarioId, autorId || null, motivo]
+  )
+
+  // `nichoId` ausente de proposito: aqui a pessoa perdeu a EMPRESA, nao uma equipe. Ver o
+  // cabecalho de `liberarLeadsDoMembro`.
+  const leads = await LR.liberarLeadsDoMembro(client, {
+    empresaId, origemId: usuarioId, usuarioId: autorId, motivo,
+  })
+  const conversas = await CR.liberarConversasDoMembro(client, {
+    empresaId, origemId: usuarioId, usuarioId: autorId, motivo,
+  })
+  const followUps = await FU.liberarFollowUpsDoMembro(client, {
+    empresaId, origemId: usuarioId, usuarioId: autorId, motivo,
+  })
+
+  return {
+    equipes_encerradas: equipes.length,
+    leads_liberados: leads.liberados,
+    leads_com_reuniao_futura: leads.com_reuniao_futura,
+    leads_com_conversa_aberta: leads.com_conversa_aberta,
+    conversas_liberadas: conversas.liberadas,
+    follow_ups_liberados: followUps.liberados,
+  }
+}
+
 /**
  * Atualiza papel, concessões e/ou ativo de um vínculo.
  * `patch` = { role?, permissoes?, ativo? }
@@ -278,6 +353,18 @@ async function atualizarMembro(empresaId, vinculoId, patch = {}, autorId = null)
         temAtivo ? patch.ativo : vinculo.ativo]
     )
 
+    // ⚠️ So' na TRANSICAO real de ativo -> inativo (`IS DISTINCT FROM`, o mesmo cuidado de
+    // `modo_ia` e da auditoria de membro). Repetir o PATCH com `ativo: false` numa pessoa ja'
+    // desativada nao pode devolver nada: a carteira dela ja voltou para a fila e pode ter sido
+    // assumida por outra pessoa nesse meio tempo — liberar de novo tiraria lead de quem esta
+    // trabalhando. Reativar tambem nao desfaz nada (ver `devolverTrabalhoDoMembro`).
+    const desativouAgora = temAtivo && patch.ativo === false && vinculo.ativo === true
+    const devolucao = desativouAgora
+      ? await devolverTrabalhoDoMembro(client, {
+        empresaId, usuarioId: vinculo.usuario_id, autorId,
+      })
+      : null
+
     await auditar(client, {
       empresaId,
       usuarioId: autorId,
@@ -293,10 +380,16 @@ async function atualizarMembro(empresaId, vinculoId, patch = {}, autorId = null)
         ativo_novo: temAtivo ? patch.ativo : vinculo.ativo,
         permissoes_anteriores: Object.keys(vinculo.permissoes || {}),
         permissoes_novas: Object.keys(permissoesFinal),
+        // O que foi devolvido entra na MESMA linha da desativacao: e' a resposta a "por que a
+        // carteira dela zerou?", e separa-la em outro evento faria procurar em dois lugares.
+        ...(devolucao ? { devolucao } : {}),
       },
     })
 
-    return rows[0]
+    // `devolucao` e' campo ADITIVO na resposta: quem nao desativou ninguem recebe `null`, e os
+    // consumidores anteriores nao mudam. E' o que permite a tela DIZER o que aconteceu com o
+    // trabalho em vez de a carteira sumir em silencio.
+    return { ...rows[0], devolucao }
   })
 }
 
@@ -342,6 +435,10 @@ module.exports = {
   atualizarMembro,
   registrarUltimoAcesso,
   // exportados para teste (regras puras de entrada)
+  // `__devolverTrabalhoDoMembro` nao e API publica: so' `atualizarMembro` a chama, e sempre
+  // dentro da transacao do vinculo. Exposta para o teste poder exercitar a devolucao com um
+  // client falso, sem banco.
+  __devolverTrabalhoDoMembro: devolverTrabalhoDoMembro,
   sanearPermissoes,
   sanearPermissoesExistentes,
   normalizarEmail,

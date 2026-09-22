@@ -79,6 +79,38 @@ async function registrarMudanca(client, { empresaId, numero, anterior, novo, usu
 }
 
 /**
+ * Devolve para a fila de NAO ATRIBUIDAS todas as conversas que estao com `origemId`.
+ *
+ * Roda quando a pessoa perde o acesso a empresa (`db/membros.js`), dentro da transacao de quem
+ * chama. Conversa atribuida a quem nao entra mais no sistema e' pior que conversa sem dono: o
+ * recorte padrao da Central de Mensagens e' "minhas + NAO ATRIBUIDAS" (migration 074), entao ela
+ * some da tela de todo atendente e o cliente fica sem resposta — exatamente o desfecho que aquele
+ * recorte existe para evitar.
+ *
+ * ⚠️ **Nao toca `atualizado_em`, `modo_ia` nem `agente_pausado`.** A Central ordena por
+ * `atualizado_em`, e liberar o dono nao e' mensagem nova; os outros dois sao decisoes
+ * independentes sobre a IA (migration 063) e nao mudam porque o atendente saiu.
+ */
+async function liberarConversasDoMembro(client, { empresaId, origemId, usuarioId, motivo } = {}) {
+  if (!empresaId || !origemId) return { liberadas: 0 }
+
+  const { rows } = await client.query(
+    `UPDATE vendas.conversas
+        SET responsavel_id = NULL
+      WHERE empresa_id = $1 AND responsavel_id = $2::uuid
+      RETURNING numero`,
+    [empresaId, origemId]
+  )
+  for (const linha of rows) {
+    await registrarMudanca(client, {
+      empresaId, numero: linha.numero, anterior: origemId, novo: null,
+      usuarioId, acao: ACOES.LIBEROU, motivo,
+    })
+  }
+  return { liberadas: rows.length }
+}
+
+/**
  * O atendente assume uma conversa SEM dono (claim atômico).
  *
  * Escreve `operador_assumiu_em` junto — a coluna que existia desde sempre e registrava só o
@@ -203,6 +235,7 @@ async function contagemPorResponsavel(pool, empresaId) {
 
 module.exports = {
   assumirConversa,
+  liberarConversasDoMembro,
   definirResponsavel,
   historicoDaConversa,
   contagemPorResponsavel,

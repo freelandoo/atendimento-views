@@ -18,6 +18,9 @@ const SRC = path.join(__dirname, '..', 'src')
 const fonteMembrosDb = fs.readFileSync(path.join(SRC, 'db', 'membros.js'), 'utf8')
 const fonteMembrosRota = fs.readFileSync(path.join(SRC, 'routes', 'api-membros.js'), 'utf8')
 const fonteIndex = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8')
+const fonteLeadResp = fs.readFileSync(path.join(SRC, 'db', 'lead-responsavel.js'), 'utf8')
+const fonteConversaResp = fs.readFileSync(path.join(SRC, 'db', 'conversa-responsavel.js'), 'utf8')
+const fonteFollowUps = fs.readFileSync(path.join(SRC, 'db', 'follow-ups.js'), 'utf8')
 
 // ─── Ajudas para exercitar o middleware sem HTTP ───────────────────────────────────────────
 
@@ -254,4 +257,124 @@ test('a rota de membros esta declarada na suite de autorizacao por rota', () => 
   const suite = fs.readFileSync(path.join(__dirname, 'autorizacao-rotas.test.js'), 'utf8')
   assert.ok(suite.includes('/api/empresas/:empresaId/membros'),
     'o mount de membros saiu de ROTAS_POR_CAPACIDADE — ele precisa continuar exercitado contra os 4 papeis')
+})
+
+// ─── DESATIVAR UM MEMBRO DEVOLVE O TRABALHO DELE (2026-09-22) ──────────────────────────────
+//
+// O defeito medido em producao: desativar o vinculo revogava o acesso e deixava TUDO na mao da
+// pessoa. Uma conta desativada segurava 184 leads trabalhaveis; outras duas, 7 follow-ups em
+// aberto. Esse trabalho fica invisivel (o recorte do comercial e "meus + livres", e lead de um
+// desativado nao e nem um nem outro) e continua contando na carteira dela.
+
+/** Client falso: grava as queries e devolve o que o teste mandar, na ordem. */
+function clientFalso(respostas = []) {
+  const chamadas = []
+  let i = 0
+  return {
+    chamadas,
+    query: async (sql, params) => {
+      chamadas.push({ sql: String(sql), params })
+      const r = respostas[i]
+      i += 1
+      return r || { rows: [] }
+    },
+  }
+}
+
+test('desativar devolve leads, conversas, follow-ups e fecha as equipes', async () => {
+  const c = clientFalso([
+    { rows: [{ equipe_id: 'e9' }] },                                     // fecha equipe
+    { rows: [{ id: 'l1', tem_reuniao_futura: true, tem_conversa_aberta: false }, { id: 'l2' }] }, // candidatos
+    { rows: [] }, { rows: [] }, { rows: [] },                            // update + 2 historicos
+    { rows: [{ numero: '5511999990001@s.whatsapp.net' }] },              // conversas liberadas
+    { rows: [] }, { rows: [] },                                          // historico + auditoria conversa
+    { rows: [{ id: 'f1' }, { id: 'f2' }] },                              // follow-ups liberados
+    { rows: [] },                                                        // auditoria follow-up
+  ])
+
+  const r = await M.__devolverTrabalhoDoMembro(c, { empresaId: 'emp1', usuarioId: 'u9', autorId: 'admin1' })
+
+  assert.equal(r.equipes_encerradas, 1)
+  assert.equal(r.leads_liberados, 2)
+  assert.equal(r.leads_com_reuniao_futura, 1, 'o risco e informado, nunca bloqueia')
+  assert.equal(r.conversas_liberadas, 1)
+  assert.equal(r.follow_ups_liberados, 2)
+})
+
+test('a pessoa sai das equipes ANTES de a carteira ser devolvida', async () => {
+  const c = clientFalso([{ rows: [] }, { rows: [] }, { rows: [] }, { rows: [] }])
+  await M.__devolverTrabalhoDoMembro(c, { empresaId: 'emp1', usuarioId: 'u9', autorId: 'a1' })
+  // Enquanto o vinculo de equipe estiver aberto, um rebalanceamento concorrente devolveria para
+  // ela o que acabamos de tirar.
+  assert.match(c.chamadas[0].sql, /equipe_comercial_membros[\s\S]*saiu_em/)
+})
+
+test('a devolucao NAO escolhe um substituto — tudo vai para a FILA', async () => {
+  const c = clientFalso([
+    { rows: [] },
+    { rows: [{ id: 'l1' }] }, { rows: [] }, { rows: [] }, { rows: [] },
+    { rows: [] }, { rows: [] },
+  ])
+  await M.__devolverTrabalhoDoMembro(c, { empresaId: 'emp1', usuarioId: 'u9', autorId: 'a1' })
+  const updates = c.chamadas.filter((x) => /UPDATE/i.test(x.sql) && /responsavel_id/.test(x.sql))
+  assert.ok(updates.length > 0)
+  for (const u of updates) {
+    assert.match(u.sql, /responsavel_id\s*=\s*NULL/,
+      'escolher um substituto aqui seria inventar dono — quem decide e a equipe ou uma pessoa')
+  }
+})
+
+test('GUARDA: a devolucao roda so na TRANSICAO de ativo para inativo', () => {
+  // Repetir o PATCH numa pessoa ja desativada nao pode liberar de novo: a carteira ja voltou para
+  // a fila e pode ter sido assumida por outra pessoa nesse meio tempo.
+  assert.match(fonteMembrosDb, /desativouAgora\s*=\s*temAtivo\s*&&\s*patch\.ativo === false\s*&&\s*vinculo\.ativo === true/)
+})
+
+test('GUARDA: a devolucao roda DENTRO da transacao do vinculo', () => {
+  const i = fonteMembrosDb.indexOf('return withTx(async (client) => {')
+  const j = fonteMembrosDb.indexOf('devolverTrabalhoDoMembro(client', i)
+  assert.ok(i >= 0 && j > i, 'metade feito seria pessoa com acesso e sem carteira, ou o inverso')
+})
+
+test('GUARDA: membros.js nao escreve direto em prospects, conversas ou follow_ups', () => {
+  // Cada um desses e dono do proprio historico (migrations 072, 074, 062). Um UPDATE solto aqui
+  // apagaria a autoria sem deixar rastro.
+  for (const tabela of ['prospectador.prospects', 'vendas.conversas', 'app.follow_ups']) {
+    assert.ok(!new RegExp(`(UPDATE|INSERT INTO|DELETE FROM)\s+${tabela.replace('.', '\.')}`, 'i').test(fonteMembrosDb),
+      `membros.js nao pode escrever direto em ${tabela} — use o dono do modulo`)
+  }
+})
+
+test('GUARDA: liberarLeadsDoMembro nao filtra por qualificacao', () => {
+  // Ate 2026-09-22 filtrava por IN ('aprovado','legado') e deixava lead DESCARTADO grudado para
+  // sempre em quem saiu (43 leads medidos em producao). Descartado nao aparece na tela de
+  // ninguem, entao o dono errado nunca e visto — mas continua inflando a carteira dela.
+  const i = fonteLeadResp.indexOf('async function liberarLeadsDoMembro')
+  const trecho = fonteLeadResp.slice(i, i + 1600)
+  assert.ok(!/qualificacao\s+IN/i.test(trecho), 'liberar deve devolver TODOS os leads da pessoa')
+})
+
+test('GUARDA: liberarLeadsDoMembro aceita nichoId ausente (a pessoa perdeu a EMPRESA)', () => {
+  const i = fonteLeadResp.indexOf('async function liberarLeadsDoMembro')
+  const trecho = fonteLeadResp.slice(i, i + 700)
+  assert.match(trecho, /nichoId\s*=\s*null/)
+  assert.ok(!/if\s*\(!empresaId\s*\|\|\s*!nichoId/.test(trecho),
+    'exigir nicho aqui devolveria menos do que deveria, em silencio')
+})
+
+test('GUARDA: follow-up so e liberado quando esta EM ABERTO', () => {
+  const i = fonteFollowUps.indexOf('async function liberarFollowUpsDoMembro')
+  const trecho = fonteFollowUps.slice(i, i + 900)
+  assert.match(trecho, /status\s*=\s*'aguardando'/,
+    'follow-up concluido e HISTORICO: reescrever o responsavel apagaria a autoria de um trabalho real')
+})
+
+test('GUARDA: liberar conversa nao mexe em atualizado_em, modo_ia nem agente_pausado', () => {
+  const i = fonteConversaResp.indexOf('async function liberarConversasDoMembro')
+  const trecho = fonteConversaResp.slice(i, i + 900)
+  const update = trecho.slice(trecho.indexOf('UPDATE vendas.conversas'), trecho.indexOf('RETURNING'))
+  for (const proibido of ['atualizado_em', 'modo_ia', 'agente_pausado']) {
+    assert.ok(!update.includes(proibido),
+      `liberar o dono nao e mensagem nova nem decisao sobre a IA (${proibido})`)
+  }
 })

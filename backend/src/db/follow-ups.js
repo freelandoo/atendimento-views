@@ -632,8 +632,48 @@ async function contagemPorResponsavel(pool, empresaId) {
   return rows
 }
 
+/**
+ * Tira `origemId` dos follow-ups EM ABERTO dele, devolvendo-os a fila de nao atribuidos.
+ *
+ * Roda quando a pessoa perde o acesso a empresa (`db/membros.js`), dentro da transacao de quem
+ * chama. `responsavel_id` NULL e' estado de PRIMEIRA CLASSE aqui ("nao atribuido", migration 062)
+ * e ja' e' filtravel na Central de Follow-ups — nao estamos inventando estado, estamos devolvendo
+ * o item ao unico dono honesto que ele pode ter agora.
+ *
+ * ⚠️ **So' mexe no que esta EM ABERTO** (`aguardando`). Follow-up concluido, cancelado ou
+ * falhado e' HISTORICO: quem o executou continua tendo sido aquela pessoa, e reescrever o
+ * responsavel apagaria a autoria de um trabalho que aconteceu de verdade.
+ *
+ * ⚠️ **Nao muda prazo, canal, prioridade nem status.** O compromisso com o cliente continua de
+ * pe' — o que mudou foi quem responde por ele.
+ */
+async function liberarFollowUpsDoMembro(client, { empresaId, origemId, usuarioId, motivo } = {}) {
+  if (!empresaId || !origemId) return { liberados: 0 }
+
+  const { rows } = await client.query(
+    `UPDATE app.follow_ups
+        SET responsavel_id = NULL, atualizado_em = NOW()
+      WHERE empresa_id = $1 AND responsavel_id = $2::uuid AND status = 'aguardando'
+      RETURNING id`,
+    [empresaId, origemId]
+  )
+  if (!rows.length) return { liberados: 0 }
+
+  await client.query(
+    `INSERT INTO app.auditoria_eventos
+       (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+     SELECT $1::uuid, $2::uuid, 'follow_up', x.id, 'follow_up_responsavel_liberado', $3::text, NULL, $4::jsonb
+       FROM UNNEST($5::uuid[]) AS x(id)`,
+    // Sem telefone e sem texto: o id do follow-up ja aponta para tudo.
+    [empresaId, usuarioId || null, origemId,
+      JSON.stringify({ motivo: motivo ? String(motivo).slice(0, 500) : null }), rows.map((r) => r.id)]
+  )
+  return { liberados: rows.length }
+}
+
 module.exports = {
   contagemPorResponsavel,
+  liberarFollowUpsDoMembro,
   criarFollowUp,
   obterFollowUp,
   listarFollowUps,

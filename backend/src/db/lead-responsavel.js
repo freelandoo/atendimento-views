@@ -258,28 +258,48 @@ async function atribuirEmLote(pool, empresaId, prospectIds, { destinoId, usuario
 }
 
 /**
- * Devolve para a fila de LIVRES todos os leads do nicho que estao com `origemId`.
+ * Devolve para a fila de LIVRES os leads que estao com `origemId`.
  *
  * ⚠️ NAO filtra por "protegido" (`services/lead-distribuicao.js`) — de proposito. O rebalanceamento
- * AUTOMATICO so' toca em lead intocado; esta funcao roda quando uma PESSOA sai da equipe, decisao
- * humana explicita, e o operador decidiu (2026-09-21) que TODOS os leads dela voltam, inclusive os
- * ja' trabalhados — senao carteira ficaria presa com quem nao esta mais no time. Os dois contadores
- * de risco sao so' INFORMACAO para a tela avisar, nunca bloqueio.
+ * AUTOMATICO so' toca em lead intocado; esta funcao roda quando uma PESSOA sai da equipe ou perde o
+ * acesso a empresa, decisao humana explicita, e o operador decidiu (2026-09-21) que TODOS os leads
+ * dela voltam, inclusive os ja' trabalhados — senao a carteira ficaria presa com quem nao esta
+ * mais no time. Os dois contadores de risco sao so' INFORMACAO para a tela avisar, nunca bloqueio.
  *
- * Roda dentro da transacao de quem chama (`db/equipes-comerciais.js`, saida de participante).
+ * ⚠️ **`nichoId` e' OPCIONAL, e a ausencia dele NAO e' um descuido: e' o outro caso de uso.**
+ * Com nicho, a pessoa saiu de UMA equipe e so' aquela carteira volta — ela pode continuar na
+ * empresa trabalhando outro nicho. Sem nicho (`null`), a pessoa perdeu o acesso a EMPRESA inteira
+ * (`db/membros.js`, desativacao do vinculo), e nao existe carteira dela para preservar em lugar
+ * nenhum. Passar um nicho errado aqui devolveria menos do que deveria, em silencio.
+ *
+ * ⚠️ **Tambem NAO filtra por `qualificacao`.** Ate 2026-09-22 filtrava por
+ * `IN ('aprovado','legado')`, e o efeito medido em producao foi lead **`descartado`** grudado para
+ * sempre em quem saiu (43 leads de Energia Solar em duas pessoas). Descartado nao aparece na tela
+ * de ninguem, entao o dono errado nunca e' visto — mas continua inflando a carteira dela no painel
+ * de equipe e no calculo de distribuicao. Liberar e' o unico estado honesto: ninguem trabalha
+ * aquele lead.
+ *
+ * Roda dentro da transacao de quem chama (`db/equipes-comerciais.js`, saida de participante;
+ * `db/membros.js`, desativacao do vinculo).
  */
-async function liberarLeadsDoMembro(client, { empresaId, nichoId, origemId, usuarioId, motivo } = {}) {
+async function liberarLeadsDoMembro(client, { empresaId, nichoId = null, origemId, usuarioId, motivo } = {}) {
   const vazio = { liberados: 0, com_reuniao_futura: 0, com_conversa_aberta: 0 }
-  if (!empresaId || !nichoId || !origemId) return vazio
+  if (!empresaId || !origemId) return vazio
+
+  const params = [empresaId, origemId]
+  let filtroNicho = ''
+  if (nichoId) {
+    params.push(nichoId)
+    filtroNicho = ` AND p.nicho_id = $${params.length}::uuid`
+  }
 
   const { rows: candidatos } = await client.query(
     `SELECT p.id,
             ${D.sqlReuniaoFutura('p')}  AS tem_reuniao_futura,
             ${D.sqlConversaAberta('p')} AS tem_conversa_aberta
        FROM prospectador.prospects p
-      WHERE p.empresa_id = $1 AND p.nicho_id = $2::uuid AND p.responsavel_id = $3::uuid
-        AND p.qualificacao IN ('aprovado', 'legado')`,
-    [empresaId, nichoId, origemId]
+      WHERE p.empresa_id = $1 AND p.responsavel_id = $2::uuid${filtroNicho}`,
+    params
   )
   if (!candidatos.length) return vazio
 
