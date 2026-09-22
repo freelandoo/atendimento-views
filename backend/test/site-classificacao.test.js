@@ -280,6 +280,30 @@ test('INTEGRACAO: lead com site proprio continua "Com site" em TODOS os consumid
   assert.equal(normalizarProspectPersistido(LEAD_SITE_REAL).tem_site, true, 'normalizador de persistencia')
 })
 
+test('normalizarProspectPersistido preserva campos da fonte Meta Ads para a listagem', () => {
+  const lead = normalizarProspectPersistido({
+    ...LEAD_INSTAGRAM,
+    origem: 'meta_ads',
+    categoria_perfil: 'Solar Energy Company',
+    bio: 'Instalacao fotovoltaica',
+    external_ref: '364711310049980',
+    anuncio_meta_ativo: true,
+    anuncio_meta_inicio_em: '2026-09-01T12:00:00.000Z',
+    anuncio_meta_page_id: '364711310049980',
+    anuncio_meta_verificado_em: '2026-09-22T12:00:00.000Z',
+    anuncio_meta_pagina_verificada_em: '2026-09-22T12:05:00.000Z',
+  })
+  assert.equal(lead.origem, 'meta_ads')
+  assert.equal(lead.categoria_perfil, 'Solar Energy Company')
+  assert.equal(lead.bio, 'Instalacao fotovoltaica')
+  assert.equal(lead.external_ref, '364711310049980')
+  assert.equal(lead.anuncio_meta_ativo, true)
+  assert.equal(lead.anuncio_meta_page_id, '364711310049980')
+  assert.equal(lead.anuncio_meta_inicio_em, '2026-09-01T12:00:00.000Z')
+  assert.equal(lead.anuncio_meta_verificado_em, '2026-09-22T12:00:00.000Z')
+  assert.equal(lead.anuncio_meta_pagina_verificada_em, '2026-09-22T12:05:00.000Z')
+})
+
 test('INTEGRACAO: a prioridade da fila e recalculada — Instagram ganha o bonus de "sem site"', () => {
   const comInstagram = calcularPrioridade(LEAD_INSTAGRAM)
   const comSiteReal = calcularPrioridade(LEAD_SITE_REAL)

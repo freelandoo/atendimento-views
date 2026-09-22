@@ -188,6 +188,7 @@ export default function RotinasAquisicao({
 
   const rotinas = dados?.rotinas || []
   const limites = dados?.limites || { quantidade_min: 1, quantidade_max: QUANTIDADE_MAX, intervalo_min_horas: INTERVALO_MIN }
+  const metaAds = fonteBusca === 'meta_ads'
 
   function editar(r: Rotina) {
     setErro('')
@@ -262,16 +263,19 @@ export default function RotinasAquisicao({
   }, [empresaId, avulsa.quantidade, carregar])
 
   async function buscarAgora() {
-    if (!avulsa.nicho.trim() || !avulsa.cidade.trim()) { setErro('Informe nicho e cidade para a busca avulsa.'); return }
+    if (!avulsa.nicho.trim() || (!metaAds && !avulsa.cidade.trim())) {
+      setErro(metaAds ? 'Informe o termo do anúncio para buscar na Meta.' : 'Informe nicho e cidade para a busca avulsa.')
+      return
+    }
     setErro('')
     setBuscandoAvulsa(true)
     try {
-      if (fonteBusca === 'meta_ads') {
+      if (metaAds) {
         const r = await apiFetch<MetaAdsResultado>(`/api/empresas/${empresaId}/prospeccao/meta-ads/buscar`, {
           method: 'POST',
           body: JSON.stringify({
             nicho: avulsa.nicho.trim(),
-            cidade: avulsa.cidade.trim(),
+            cidade: avulsa.cidade.trim() || null,
             uf: avulsa.uf.trim().toUpperCase() || null,
             quantidade: avulsa.quantidade,
           }),
@@ -405,31 +409,33 @@ export default function RotinasAquisicao({
         <div className="painel-troca space-y-3 rounded-2xl border bg-white p-4 shadow-sm">
           <div>
             <h2 className="text-base font-semibold">
-              {fonteBusca === 'meta_ads' ? 'Busca Meta' : 'Busca avulsa'}
+              {metaAds ? 'Busca Meta' : 'Busca avulsa'}
             </h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              {fonteBusca === 'meta_ads'
-                ? 'Anunciantes ativos por nicho e cidade. O sistema descarta anúncios com site próprio antes de salvar.'
+              {metaAds
+                ? 'Busque pelo termo do anúncio. Cidade e estado não são obrigatórios nesta fonte.'
                 : 'Uma coleta única, agora, sem criar rotina.'}
             </p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Campo label="Nicho">
-              <input value={avulsa.nicho} placeholder="ex: dentista"
+          <div className={`grid gap-3 sm:grid-cols-2 ${metaAds ? 'lg:grid-cols-[minmax(0,1fr)_220px]' : 'lg:grid-cols-4'}`}>
+            <Campo label={metaAds ? 'Termo do anúncio' : 'Nicho'}>
+              <input value={avulsa.nicho} placeholder={metaAds ? 'ex: energia solar, estética, restaurante japonês' : 'ex: dentista'}
                 onChange={(e) => setAvulsa({ ...avulsa, nicho: e.target.value })}
                 className="w-full rounded-lg border px-3 py-2 text-sm" />
             </Campo>
-            <SeletorLocalidade
-              cidade={avulsa.cidade}
-              uf={avulsa.uf}
-              onChange={(local) => setAvulsa({ ...avulsa, cidade: local.cidade, uf: local.uf })}
-              className="sm:col-span-2 lg:col-span-2"
-              rotuloUf="Estado"
-              rotuloCidade="Cidade"
-            />
-            <Campo label={fonteBusca === 'meta_ads' ? 'Máx. de anúncios analisados' : `Máx. de leads novos (1 a ${limites.quantidade_max})`}>
+            {!metaAds && (
+              <SeletorLocalidade
+                cidade={avulsa.cidade}
+                uf={avulsa.uf}
+                onChange={(local) => setAvulsa({ ...avulsa, cidade: local.cidade, uf: local.uf })}
+                className="sm:col-span-2 lg:col-span-2"
+                rotuloUf="Estado"
+                rotuloCidade="Cidade"
+              />
+            )}
+            <Campo label={metaAds ? 'Máx. de anúncios analisados' : `Máx. de leads novos (1 a ${limites.quantidade_max})`}>
               <input type="number" min={limites.quantidade_min} max={limites.quantidade_max} value={avulsa.quantidade}
-                title={fonteBusca === 'meta_ads'
+                title={metaAds
                   ? 'Limite de anúncios lidos na Biblioteca. Só viram lead os anunciantes sem site próprio no anúncio.'
                   : 'Vale para os dois botões: quantos leads esta busca importa e, no assistente, quantos você quer aprovar. A origem pode encontrar mais registros do que isso.'}
                 onChange={(e) => setAvulsa({ ...avulsa, quantidade: Number(e.target.value) || limites.quantidade_max })}
@@ -463,7 +469,7 @@ export default function RotinasAquisicao({
               precisa saber por que o botão está desabilitado sem ir até as Rotinas. */}
           {dados?.coleta_em_andamento && <ColetaEmAndamento coleta={dados?.coleta ?? null} />}
           <p className="text-xs text-slate-500">
-            {fonteBusca === 'meta_ads' ? (
+            {metaAds ? (
               <>
                 <b>Buscar anúncios</b> traz anunciantes ativos para a carteira e enfileira o enriquecimento da página do Facebook em segundo plano.
               </>

@@ -10,7 +10,7 @@ import CaptacaoPage from '../captacao/page'
 const SESSOES: { valor: string; label: string; desc: string }[] = [
   { valor: 'places', label: 'Google Places', desc: 'Empresas por nicho e cidade no mapa' },
   { valor: 'instagram', label: 'Instagram', desc: 'Perfis por hashtag, nicho ou @semente' },
-  { valor: 'meta', label: 'Meta', desc: 'Anunciantes ativos sem site próprio no anúncio' },
+  { valor: 'meta', label: 'Meta', desc: 'Anunciantes ativos por termo de anúncio' },
 ]
 
 export default function AquisicaoPage() {

@@ -54,6 +54,16 @@ type Prospect = {
   // estavam declarados aqui. São eles que explicam a bolinha no tooltip e nos detalhes.
   score_cadastro_criterios: CriterioApresentacao[] | null
   json_apresentacao: JsonApresProspect | null
+  origem?: string
+  categoria?: string | null
+  categoria_perfil?: string | null
+  bio?: string | null
+  external_ref?: string | null
+  anuncio_meta_ativo?: boolean | null
+  anuncio_meta_inicio_em?: string | null
+  anuncio_meta_page_id?: string | null
+  anuncio_meta_verificado_em?: string | null
+  anuncio_meta_pagina_verificada_em?: string | null
   icp_score?: number | null
   icp_faixa?: string | null
   icp_avaliado_em?: string | null
@@ -743,6 +753,7 @@ export default function ProspeccaoPainel({
   const pg = paginaServidor<Prospect>({ itens: prospects, pagina, porPagina: POR_PAGINA_PADRAO, total: contagens[filtro] })
   const rodape = resumoIntervalo(pg, { vazio: 'Nenhum lead nesta lista' })
   const taxa = taxaResposta(metricas)
+  const metaAds = fonteBusca === 'meta_ads'
 
   const mercadoOpcoes = opcoesMercado(filtrosMercado)
   const cidadeOpcoes = filtrosMercado?.cidades || []
@@ -752,7 +763,7 @@ export default function ProspeccaoPainel({
   const idsPagina = pg.itens.map((p) => p.id)
   const selecionadosPagina = idsPagina.filter((id) => selecionados.has(id)).length
   const paginaTodaSelecionada = idsPagina.length > 0 && selecionadosPagina === idsPagina.length
-  const colSpanTabela = 3 + AQ_COLUNAS_TOGGLE.filter((c) => cols[c.key] !== false).length
+  const colSpanTabela = 3 + AQ_COLUNAS_TOGGLE.filter((c) => cols[c.key] !== false).length + (metaAds ? 1 : 0)
   const atividade = dadosRotinas?.atividade || []
   const porMercado = resultados?.por_mercado || []
   const recentes = resultados?.recentes || []
@@ -806,7 +817,9 @@ export default function ProspeccaoPainel({
         <div>
           <h2 className="text-base font-semibold">Leads encontrados</h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            Tudo o que as rotinas e as buscas avulsas trouxeram. Marque ou descarte por aqui.
+            {metaAds
+              ? 'Páginas que apareceram em anúncios ativos e ainda não mostraram site próprio no anúncio.'
+              : 'Tudo o que as rotinas e as buscas avulsas trouxeram. Marque ou descarte por aqui.'}
           </p>
         </div>
 
@@ -845,24 +858,24 @@ export default function ProspeccaoPainel({
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs text-slate-500 mb-1">Buscar dados</label>
             <input value={buscaDados} onChange={(e) => comReinicioDePagina(() => setBuscaDados(e.target.value))}
-              placeholder="nome, telefone, endereço ou mercado" className="w-full border rounded-lg px-3 py-2 text-sm" />
+              placeholder={metaAds ? 'página, categoria, termo ou telefone' : 'nome, telefone, endereço ou mercado'} className="w-full border rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-xs text-slate-500 mb-1">Nicho/Categoria</label>
+            <label className="block text-xs text-slate-500 mb-1">{metaAds ? 'Termo/Categoria' : 'Nicho/Categoria'}</label>
             <select value={mercado} onChange={(e) => comReinicioDePagina(() => setMercado(e.target.value))}
               className="border rounded-lg px-3 py-2 text-sm min-w-[180px]">
-              <option value="">Todos os nichos</option>
+              <option value="">{metaAds ? 'Todos os termos' : 'Todos os nichos'}</option>
               {mercadoOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
             </select>
           </div>
-          <div>
+          {!metaAds && <div>
             <label className="block text-xs text-slate-500 mb-1">Cidade</label>
             <select value={cidadeFiltro} onChange={(e) => comReinicioDePagina(() => setCidadeFiltro(e.target.value))}
               className="border rounded-lg px-3 py-2 text-sm min-w-[150px]">
               <option value="">Todas</option>
               {cidadeOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
             </select>
-          </div>
+          </div>}
           <button
             type="button"
             onClick={() => setPersAberto(true)}
@@ -1007,11 +1020,12 @@ export default function ProspeccaoPainel({
               />
             </th>
             {cols.entrou !== false && <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={ordenarPor} />}
-            <ThOrdenavel label="Nome" chave="nome" ordem={ordem} onOrdenar={ordenarPor} />
+            <ThOrdenavel label={metaAds ? 'Página / anúncio' : 'Nome'} chave="nome" ordem={ordem} onOrdenar={ordenarPor} />
+            {metaAds && <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">Evidência Meta</th>}
             {cols.cadastro !== false && <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.telefone !== false && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.email !== false && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={ordenarPor} />}
-            {cols.nicho !== false && <ThOrdenavel label="Nicho / Cidade" chave="nicho" ordem={ordem} onOrdenar={ordenarPor} />}
+            {cols.nicho !== false && <ThOrdenavel label={metaAds ? 'Termo / categoria' : 'Nicho / Cidade'} chave="nicho" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.status !== false && <ThOrdenavel label="Status" chave="status" ordem={ordem} onOrdenar={ordenarPor} />}
             {/* Largura própria e fixa: dá folga para o radial (bolinhas satélite a 56px do
                 centro do gatilho "⋯") abrir sem colar na borda direita da tabela. */}
@@ -1036,12 +1050,18 @@ export default function ProspeccaoPainel({
               <td className="px-3 py-2 font-medium">
                 <TextoTruncado
                   texto={p.nome}
-                  href={p.maps_url}
-                  dica={p.maps_url ? 'Ver ficha no Google Maps' : undefined}
-                  className={`max-w-[220px] ${p.maps_url ? 'text-brand hover:underline' : ''}`}
-                  sufixo={p.maps_url ? <span className="text-xs text-slate-400 shrink-0">↗</span> : undefined}
+                  href={metaAds ? (p.link_original || undefined) : p.maps_url}
+                  dica={metaAds ? (p.link_original ? 'Abrir destino do anúncio' : undefined) : (p.maps_url ? 'Ver ficha no Google Maps' : undefined)}
+                  className={`max-w-[220px] ${(metaAds ? p.link_original : p.maps_url) ? 'text-brand hover:underline' : ''}`}
+                  sufixo={(metaAds ? p.link_original : p.maps_url) ? <span className="text-xs text-slate-400 shrink-0">↗</span> : undefined}
                 />
+                {metaAds && p.anuncio_meta_page_id && (
+                  <span className="mt-0.5 block font-mono text-[10px] text-slate-400">page {p.anuncio_meta_page_id}</span>
+                )}
               </td>
+              {metaAds && <td className="px-3 py-2 text-xs">
+                <EvidenciaMeta lead={p} />
+              </td>}
               {/* ICP + cadastro: cadastro/coleta e' evidencia para validar o ICP geral. */}
               {cols.cadastro !== false && <td className="px-3 py-2">
                 <div className="flex items-center gap-2">
@@ -1065,7 +1085,14 @@ export default function ProspeccaoPainel({
               </td>}
               {cols.telefone !== false && <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{p.telefone || '—'}</td>}
               {cols.email !== false && <td className="px-3 py-2 text-xs"><EmailEditavel value={p.email} onSave={(email) => salvarEmail(p.id, email)} /></td>}
-              {cols.nicho !== false && <td className="px-3 py-2 text-xs"><NichoCidade nicho={p.nicho} cidade={p.cidade} /></td>}
+              {cols.nicho !== false && <td className="px-3 py-2 text-xs">
+                {metaAds ? (
+                  <div className="max-w-[200px] leading-tight">
+                    <span className="block truncate font-medium text-slate-700">{p.nicho || 'Sem termo'}</span>
+                    <span className="block truncate text-slate-500">{p.categoria_perfil || p.categoria || p.cidade || 'Categoria não informada'}</span>
+                  </div>
+                ) : <NichoCidade nicho={p.nicho} cidade={p.cidade} />}
+              </td>}
               {cols.status !== false && (
                 <td className="px-3 py-2">
                   <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_STYLE[p.status] || 'bg-gray-100 text-gray-500'}`}>{STATUS_LABEL[p.status] || p.status}</span>
@@ -1384,6 +1411,27 @@ function ResumoDistribuicao({ rotulo, valor, destaque = false }: { rotulo: strin
     <div className={`rounded-lg border px-3 py-2 ${destaque ? 'border-brand/30 bg-brand/5' : 'border-line bg-surface-2'}`}>
       <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-3">{rotulo}</p>
       <p className="mt-0.5 text-xl font-semibold tabular-nums text-ink">{valor}</p>
+    </div>
+  )
+}
+
+function EvidenciaMeta({ lead }: { lead: Prospect }) {
+  const ativo = lead.anuncio_meta_ativo === true
+  const inativo = lead.anuncio_meta_ativo === false
+  const categoria = lead.categoria_perfil || lead.categoria || ''
+  const verificado = lead.anuncio_meta_pagina_verificada_em || lead.anuncio_meta_verificado_em
+  return (
+    <div className="max-w-[220px] leading-tight">
+      <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+        ativo ? 'bg-emerald-100 text-emerald-700' : inativo ? 'bg-slate-100 text-slate-600' : 'bg-amber-100 text-amber-700'
+      }`}>
+        {ativo ? 'Anúncio ativo' : inativo ? 'Anúncio inativo' : 'Anúncio sem estado'}
+      </span>
+      <span className="mt-1 block truncate text-slate-600">{categoria || 'Categoria não informada'}</span>
+      <span className="block text-[10px] text-slate-400">
+        {lead.anuncio_meta_inicio_em ? `desde ${quando(lead.anuncio_meta_inicio_em)}` : 'sem data de início'}
+      </span>
+      {verificado && <span className="block text-[10px] text-slate-400">verificado {quando(verificado)}</span>}
     </div>
   )
 }
