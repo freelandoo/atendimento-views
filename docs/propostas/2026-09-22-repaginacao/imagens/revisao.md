@@ -1,0 +1,12 @@
+# Revisão dos rascunhos de IA
+
+Quatro arquivos gerados com a ferramenta integrada image_gen e copiados para esta pasta. Todos são **rascunhos exploratórios, não aprovados para implementar literalmente**. A geração de correções de 03 e 04 falhou com HTTP 429 / usage_limit_reached. Não houve contorno com outra API.
+
+**Regra posterior do usuário que prevalece sobre TODAS as imagens:** não alterar o menu lateral atual. Ignorar Sidebar, ícones, monogramas, marca e nomes de navegação inventados nas imagens. Alterar só a área de trabalho.
+
+1. **01-banco-proposta.png:** direção aproveitável de lista única, origem por linha e ficha lateral. Corrigir “Modo de conexão” para “Modo de envio”; compactar mais os cards de estágio; mostrar apenas linhas compatíveis com o filtro ativo. Não usar “Alta” vermelha como se prioridade fosse erro. A nota “criado via Google Places” em linha Instagram é inconsistente e deve ser descartada. Preserve marca real.
+2. **02-aquisicao-rascunho.png:** direção aproveitável de Resultados/Buscas/Rotinas e painel de fontes. Filtro “Aguardando” conflita com linhas aprovadas/descartadas: corrigir para “Todas” ou filtrar linhas. Aprovar não deve usar verde como ação primária fora do padrão. O formulário miniatura ilustra a abertura de Nova busca, não deve ficar dentro da ficha do lead. Telefones, emails, links e anúncio são fictícios, não evidência real.
+3. **03-follow-ups-rascunho.png:** direção aproveitável de prazo/ação e motivo curto. A imagem trouxe Relatórios/Contatos/Configurações para um Comercial: inválido, ignorar a lateral inteira e manter a existente. Não adicionar canal de mensagens Instagram por causa do desenho; usar canais oficiais. Trocar Enviar e-mail por Revisar e-mail antes de qualquer envio. A seleção Hoje precisa explicar se inclui atrasados.
+4. **04-demais-telas-rascunho.png:** apenas composição espacial. A marca Solara é invenção e não se aplica. O checklist residencial solar não é o ICP do produto: manter os oito critérios B2B reais. Prioridade é leitura do servidor, não radio editável. Não criar “Converter em cliente”. Remover frases motivacionais decorativas. Comissão/missão são próprias e dados de exemplo; não equivalem a cálculo financeiro.
+
+O quadro diário solicitado depois foi tratado em demonstração interativa separada, limitada à área de trabalho e sem menu lateral. Ele é mais preciso para discutir o comportamento do arrastar do que estas imagens estáticas.
