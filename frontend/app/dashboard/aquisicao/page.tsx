@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import ProspeccaoPage from '../prospeccao/page'
+import ProspeccaoPainel from '@/components/ProspeccaoPainel'
 import CaptacaoPage from '../captacao/page'
 
 // Aquisição — reúne as frentes de geração de leads em sessões.
@@ -39,9 +39,9 @@ export default function AquisicaoPage() {
       </div>
 
       <div>
-        {sessao === 'places' && <ProspeccaoPage fonteBusca="places" embutida />}
+        {sessao === 'places' && <ProspeccaoPainel fonteBusca="places" embutida />}
         {sessao === 'instagram' && <CaptacaoPage />}
-        {sessao === 'meta' && <ProspeccaoPage fonteBusca="meta_ads" embutida />}
+        {sessao === 'meta' && <ProspeccaoPainel fonteBusca="meta_ads" embutida />}
       </div>
     </div>
   )
