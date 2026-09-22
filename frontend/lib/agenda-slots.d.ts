@@ -1,10 +1,12 @@
-export type MotivoSlot = 'bloqueio' | 'compromisso' | 'agenda_bot' | 'passado'
+export type MotivoSlot = 'bloqueio' | 'compromisso' | 'agenda_bot' | 'passado' | 'preparo'
 
 export type Slot = {
   horario: string
   livre: boolean
   motivo: MotivoSlot | null
   titulo: string | null
+  /** Só em `preparo`: o horário ('HH:MM') da reunião de que este slot é a folga. */
+  referencia?: string | null
 }
 
 export type DiaDisponibilidade = {
@@ -36,7 +38,7 @@ export type RespostaBloqueio = {
   truncado: boolean
 }
 
-export const MOTIVO: Record<'BLOQUEIO' | 'COMPROMISSO' | 'AGENDA_BOT' | 'PASSADO', MotivoSlot>
+export const MOTIVO: Record<'BLOQUEIO' | 'COMPROMISSO' | 'AGENDA_BOT' | 'PASSADO' | 'PREPARO', MotivoSlot>
 export const RECORRENCIA: Record<'NENHUMA' | 'DIARIA' | 'SEMANAL', TipoRecorrencia>
 export const OPCOES_RECORRENCIA: ReadonlyArray<{ valor: TipoRecorrencia; rotulo: string }>
 export const DIAS_SEMANA: ReadonlyArray<{ valor: number; curto: string; nome: string }>

@@ -11,6 +11,7 @@ const MOTIVO = Object.freeze({
   COMPROMISSO: 'compromisso',
   AGENDA_BOT: 'agenda_bot',
   PASSADO: 'passado',
+  PREPARO: 'preparo',
 })
 
 // Cor NUNCA e' o unico sinal (regra do guia visual, ja cumprida por BolinhaPontuacao e
@@ -21,6 +22,9 @@ const ROTULOS = Object.freeze({
   [MOTIVO.COMPROMISSO]: { curto: 'Ocupado', descricao: 'Já há um compromisso' },
   [MOTIVO.AGENDA_BOT]: { curto: 'Ocupado', descricao: 'Reunião marcada pelo WhatsApp' },
   [MOTIVO.PASSADO]: { curto: 'Passou', descricao: 'Este horário já passou' },
+  // O horário está VAZIO: o que o ocupa é a folga de uma reunião vizinha. Dizer "já há um
+  // compromisso" aqui afirmaria um compromisso que não existe neste horário.
+  [MOTIVO.PREPARO]: { curto: 'Preparo', descricao: 'Reservado para o preparo da reunião' },
 })
 
 const CLASSES = Object.freeze({
@@ -46,8 +50,13 @@ function aparenciaDoSlot(slot, selecionado = false) {
     return { classe: CLASSES.livre, rotulo: 'Livre', descricao: `${slot.horario} — disponível`, clicavel: true }
   }
   const info = ROTULOS[slot.motivo] || { curto: 'Indisponível', descricao: 'Indisponível' }
+  // A folga so' se explica junto da reuniao que a criou: sem o horario, "preparo da reuniao" nao
+  // diz de qual. `referencia` vem pronta do backend (o fuso e' dele), a tela nao calcula hora.
+  const base = slot.motivo === MOTIVO.PREPARO && slot.referencia
+    ? `${info.descricao} das ${slot.referencia}`
+    : info.descricao
   // O titulo do evento explica o sumico melhor que o motivo generico ("Feriado" > "Bloqueado").
-  const detalhe = slot.titulo ? `${info.descricao}: ${slot.titulo}` : info.descricao
+  const detalhe = slot.titulo ? `${base}: ${slot.titulo}` : base
   return {
     classe: slot.motivo === MOTIVO.BLOQUEIO ? CLASSES.bloqueado : CLASSES.ocupado,
     rotulo: info.curto,

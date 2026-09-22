@@ -33,6 +33,10 @@ const MOTIVO = Object.freeze({
   COMPROMISSO: 'compromisso',
   AGENDA_BOT: 'agenda_bot',
   PASSADO: 'passado',
+  // O horario esta VAZIO — o que o ocupa e' a folga de uma reuniao vizinha. Motivo PROPRIO de
+  // proposito: dizer "ja ha um compromisso" as 14:00 por causa de uma reuniao das 16:00 afirma um
+  // compromisso que nao existe naquele horario, e o operador le isso como defeito da agenda.
+  PREPARO: 'preparo',
 })
 
 function pad2(n) {
@@ -114,20 +118,29 @@ function eventoUsaBufferReuniao(evento) {
  *                               mantem este modulo puro e testavel sem depender de Intl)
  * @param {Date|null} p.agora    se informado, slot que ja passou vira indisponivel
  * @param {number} p.bufferReuniaoMin folga antes/depois de reunioes ja marcadas
- * @returns {Array<{horario:string,livre:boolean,motivo:string|null,titulo:string|null}>}
+ * @param {((d:Date)=>string)|null} p.formatarHora converte o instante do evento em 'HH:MM' local
+ *                               (INJETADA, pelo mesmo motivo de `paraInstante`). Sem ela o slot de
+ *                               PREPARO nao carrega o horario da reuniao — a tela diz o motivo,
+ *                               so' nao diz de qual reuniao.
+ * @returns {Array<{horario:string,livre:boolean,motivo:string|null,titulo:string|null,referencia:string|null}>}
  */
-function marcarDisponibilidade({ data, candidatos, eventos = [], duracaoMin = 30, paraInstante, agora = null, bufferReuniaoMin = REUNIAO_BUFFER_MINUTOS }) {
+function marcarDisponibilidade({ data, candidatos, eventos = [], duracaoMin = 30, paraInstante, agora = null, bufferReuniaoMin = REUNIAO_BUFFER_MINUTOS, formatarHora = null }) {
   const ms = Math.max(1, Number(duracaoMin) || 30) * 60 * 1000
   const normalizados = eventos
     .map((ev) => {
       const inicio = ev.data_inicio instanceof Date ? ev.data_inicio : new Date(ev.data_inicio)
       const fim = ev.data_fim instanceof Date ? ev.data_fim : new Date(ev.data_fim)
+      // As DUAS janelas sao guardadas: a real (onde o compromisso acontece) e a com folga (onde
+      // ele nao acontece, mas nada pode ser marcado). As duas bloqueiam; so' a primeira permite
+      // dizer que EXISTE um compromisso ali.
       const janela = eventoUsaBufferReuniao(ev)
         ? janelaComBufferReuniao(inicio, fim, bufferReuniaoMin)
         : { inicio, fim }
       return {
-        inicio: janela.inicio,
-        fim: janela.fim,
+        inicio,
+        fim,
+        folgaInicio: janela.inicio,
+        folgaFim: janela.fim,
         motivo: motivoDoEvento(ev),
         titulo: ev.titulo || null,
       }
@@ -141,7 +154,7 @@ function marcarDisponibilidade({ data, candidatos, eventos = [], duracaoMin = 30
     // Horario que ja passou nao e' oferta: marcar reuniao no passado nao existe como intencao.
     // Vem antes da ocupacao porque e' a explicacao mais util — "ja passou" encerra a duvida.
     if (agora && inicio <= agora) {
-      return { horario, livre: false, motivo: MOTIVO.PASSADO, titulo: null }
+      return { horario, livre: false, motivo: MOTIVO.PASSADO, titulo: null, referencia: null }
     }
 
     // Entre varios eventos sobrepostos, o BLOQUEIO e' o que a tela mostra (ver motivoDoEvento).
@@ -152,8 +165,23 @@ function marcarDisponibilidade({ data, candidatos, eventos = [], duracaoMin = 30
         escolhido = ev
       }
     }
-    if (escolhido) return { horario, livre: false, motivo: escolhido.motivo, titulo: escolhido.titulo }
-    return { horario, livre: true, motivo: null, titulo: null }
+    if (escolhido) {
+      return { horario, livre: false, motivo: escolhido.motivo, titulo: escolhido.titulo, referencia: null }
+    }
+
+    // Nenhum compromisso ocupa o horario — mas ele pode estar dentro da FOLGA de uma reuniao.
+    // Testado DEPOIS da ocupacao real de proposito: ocupacao de verdade e' a explicacao mais forte.
+    const naFolga = normalizados.find((ev) => sobrepoe(inicio, fim, ev.folgaInicio, ev.folgaFim))
+    if (naFolga) {
+      return {
+        horario,
+        livre: false,
+        motivo: MOTIVO.PREPARO,
+        titulo: naFolga.titulo,
+        referencia: formatarHora ? formatarHora(naFolga.inicio) : null,
+      }
+    }
+    return { horario, livre: true, motivo: null, titulo: null, referencia: null }
   })
 }
 

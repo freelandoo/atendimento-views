@@ -31,22 +31,17 @@ const STATUS_OCUPA_HORARIO = new Set(['pendente', 'confirmado', 'bloqueado'])
 const RECORRENCIAS = new Set(['nenhuma', 'diaria', 'semanal', 'mensal'])
 const LEMBRETE_15_MIN_MS = 15 * 60 * 1000
 
-// Buffer (minutos) exigido ENTRE reuniões: se uma estender, não atropela a próxima.
-// Configurável por REUNIAO_BUFFER_MIN (default 30). Aplicado expandindo a janela do
-// horário candidato ao checar conflito — a reunião gravada continua com a duração real.
-const REUNIAO_BUFFER_MINUTOS = (() => {
-  const n = parseInt(process.env.REUNIAO_BUFFER_MIN, 10)
-  return Number.isFinite(n) && n >= 0 ? n : 30
-})()
-
-// Expande [inicio, fim] pelo buffer dos dois lados (garante folga antes E depois).
-function janelaComBufferReuniao(inicio, fim, bufferMin = REUNIAO_BUFFER_MINUTOS) {
-  const ms = Math.max(0, bufferMin) * 60 * 1000
-  return {
-    inicio: new Date(new Date(inicio).getTime() - ms),
-    fim: new Date(new Date(fim).getTime() + ms),
-  }
-}
+// Buffer (minutos) exigido ENTRE reuniões: o horário de preparo que uma reunião reserva antes e
+// depois de si. IMPORTADO de services/agenda-slots.js, que é o dono ÚNICO da folga.
+//
+// Antes cada lado tinha a sua cópia, lendo a MESMA variável com defaults diferentes (30 aqui,
+// 120 na tela). Como REUNIAO_BUFFER_MIN não está definida em produção, a agenda da tela e o bot
+// do WhatsApp ofereciam horário por réguas diferentes — o lead marcava pelo WhatsApp um horário
+// que a tela nunca teria oferecido. Duas fontes para a mesma regra divergem em silêncio.
+//
+// Aplicado expandindo a janela do horário candidato ao checar conflito — a reunião gravada
+// continua com a duração real.
+const { REUNIAO_BUFFER_MINUTOS, janelaComBufferReuniao } = require('./services/agenda-slots')
 
 function jsonErro(res, status, erro, detalhe) {
   const body = { ok: false, erro }

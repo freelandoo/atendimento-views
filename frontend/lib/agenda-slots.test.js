@@ -26,6 +26,21 @@ test('reuniao do WhatsApp e nomeada como tal', () => {
   assert.match(a.descricao, /WhatsApp/)
 })
 
+test('preparo nao e compromisso: o texto diz de qual reuniao e a folga', () => {
+  const a = aparenciaDoSlot({ horario: '14:00', livre: false, motivo: MOTIVO.PREPARO, titulo: 'Reunião com Fulano', referencia: '16:00' })
+  assert.equal(a.rotulo, 'Preparo')
+  assert.equal(a.clicavel, false)
+  assert.match(a.descricao, /preparo da reunião das 16:00/i)
+  assert.ok(!/já há um compromisso/i.test(a.descricao), 'as 14:00 nao existe compromisso nenhum')
+})
+
+test('preparo sem referencia ainda se explica', () => {
+  const a = aparenciaDoSlot({ horario: '14:00', livre: false, motivo: MOTIVO.PREPARO, titulo: null, referencia: null })
+  assert.equal(a.rotulo, 'Preparo')
+  assert.match(a.descricao, /preparo da reunião/i)
+  assert.ok(!/das (undefined|null)/.test(a.descricao))
+})
+
 test('indisponivel NAO usa vermelho', () => {
   // Agenda cheia nao e' tela cheia de erro.
   const a = aparenciaDoSlot({ horario: '09:00', livre: false, motivo: MOTIVO.COMPROMISSO })

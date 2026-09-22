@@ -34,6 +34,16 @@ function paraInstante(dia, hhmm) {
   return utcParaDataLocalEmTimezone({ year, month, day, hour, minute }, TIMEZONE)
 }
 
+// Instante -> 'HH:MM' no fuso da operacao. Injetada na grade pelo mesmo motivo de `paraInstante`:
+// o modulo de slots e' PURO e nao conhece fuso. Serve para o horario de PREPARO dizer de qual
+// reuniao ele e' a folga — "Preparo da reuniao das 16:00" em vez de um "Ocupado" sem dono.
+const HORA_LOCAL = new Intl.DateTimeFormat('pt-BR', {
+  timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit',
+})
+function formatarHora(instante) {
+  return HORA_LOCAL.format(instante)
+}
+
 function diaSeguinte(iso) {
   const d = new Date(`${iso}T12:00:00.000Z`)
   d.setUTCDate(d.getUTCDate() + 1)
@@ -134,6 +144,7 @@ router.get('/disponibilidade', requireAuth, requireEmpresaAccess, async (req, re
         paraInstante,
         agora,
         bufferReuniaoMin: slots.REUNIAO_BUFFER_MINUTOS,
+        formatarHora,
       })
       out.push({
         data: dia,

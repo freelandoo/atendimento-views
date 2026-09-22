@@ -106,15 +106,21 @@ test('dias candidatos: tarde da noite sem antecedencia rola para o proximo dia u
 const { slotsLivresDoDia, REUNIAO_BUFFER_MINUTOS } = require('../src/agenda')
 const { utcParaDataLocalEmTimezone } = require('../src/date-utils')
 
-test('buffer de 30min entre reuniões: bloqueia slots a menos de 30min de uma reunião', () => {
-  assert.equal(REUNIAO_BUFFER_MINUTOS, 30)
+test('buffer entre reuniões: bloqueia slots a menos da folga de uma reunião', () => {
+  // A folga passou a ser a MESMA da agenda da tela (services/agenda-slots.js). Com 2h, uma
+  // reunião marcada apaga o resto da janela da noite (19:30–21:15) — consequência declarada e
+  // aceita pelo operador em 2026-09-22: no máximo uma reunião por dia útil pelo WhatsApp.
+  assert.equal(REUNIAO_BUFFER_MINUTOS, 120)
   const di = utcParaDataLocalEmTimezone({ year: 2026, month: 6, day: 8, hour: 20, minute: 0 }, 'America/Sao_Paulo')
   const df = new Date(di.getTime() + 15 * 60 * 1000)
   const eventos = [{ data_inicio: di, data_fim: df }]
   const cands = ['19:30', '19:45', '20:00', '20:15', '20:30', '20:45', '21:00', '21:15']
   const livres = slotsLivresDoDia('2026-06-08', cands, eventos, 15)
-  // Reunião 20:00–20:15 + buffer 30 → livre só a partir de 20:45 (e nada perto antes).
-  assert.deepEqual(livres, ['20:45', '21:00', '21:15'])
+  // Reunião 20:00–20:15 + folga de 2h → nada mais cabe na janela da noite daquele dia.
+  assert.deepEqual(livres, [])
+
+  // O dia SEGUINTE continua inteiro: a folga não atravessa dias.
+  assert.deepEqual(slotsLivresDoDia('2026-06-09', cands, eventos, 15), cands)
 })
 
 const { mesclarInsightsLead } = require('../src/core-funnel')

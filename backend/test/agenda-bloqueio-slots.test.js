@@ -68,6 +68,40 @@ test('reuniao aplica buffer operacional de 2h antes e depois', () => {
   assert.equal(r[1].livre, false, 'duas horas antes da reuniao ficam reservadas')
   assert.equal(r[2].livre, false, 'duas horas depois da reuniao ficam reservadas')
   assert.equal(r[3].livre, true, 'comecar exatamente no fim da folga volta a caber')
+  assert.equal(r[1].motivo, slots.MOTIVO.PREPARO, 'a folga NAO e um compromisso: o horario esta vazio')
+  assert.equal(r[2].motivo, slots.MOTIVO.PREPARO)
+})
+
+test('o slot dentro da folga diz de QUAL reuniao ele e o preparo', () => {
+  // Dizer "ja ha um compromisso" as 07:00 por causa de uma reuniao das 09:00 afirma um
+  // compromisso que nao existe naquele horario — e o operador le isso como defeito da agenda.
+  const r = slots.marcarDisponibilidade({
+    data: '2026-10-05',
+    candidatos: ['07:00', '09:00'],
+    eventos: [{ data_inicio: '2026-10-05T09:00:00Z', data_fim: '2026-10-05T09:30:00Z', tipo: 'reuniao', titulo: 'Cliente' }],
+    duracaoMin: 30,
+    paraInstante,
+    formatarHora: (d) => d.toISOString().slice(11, 16),
+  })
+  assert.equal(r[0].motivo, slots.MOTIVO.PREPARO)
+  assert.equal(r[0].referencia, '09:00', 'a folga so se explica junto do horario da reuniao')
+  assert.equal(r[0].titulo, 'Cliente')
+  assert.equal(r[1].motivo, slots.MOTIVO.COMPROMISSO, 'a ocupacao REAL vence o preparo')
+  assert.equal(r[1].referencia, null)
+})
+
+test('sem formatarHora o preparo continua valendo, so nao nomeia a reuniao', () => {
+  // A folga e' regra de agenda; o horario e' apresentacao. Faltar a segunda nao pode liberar
+  // um horario que a primeira reservou.
+  const r = slots.marcarDisponibilidade({
+    data: '2026-10-05',
+    candidatos: ['07:00'],
+    eventos: [{ data_inicio: '2026-10-05T09:00:00Z', data_fim: '2026-10-05T09:30:00Z', tipo: 'reuniao', titulo: 'Cliente' }],
+    duracaoMin: 30,
+    paraInstante,
+  })
+  assert.equal(r[0].livre, false)
+  assert.equal(r[0].referencia, null)
 })
 
 test('bloqueio aparece como BLOQUEIO, nao como compromisso generico', () => {
@@ -176,6 +210,23 @@ test('so BLOQUEIO ativo e espelhado na agenda do bot', () => {
 })
 
 // ─── Guardas de regressao ────────────────────────────────────────────────────────────────
+
+test('GUARDA: o bot do WhatsApp usa a MESMA folga da tela, e nao uma copia', () => {
+  // Cada lado tinha a sua constante lendo a MESMA variavel com defaults diferentes (30 no bot,
+  // 120 na tela). Sem REUNIAO_BUFFER_MIN definida, as duas portas de agendamento ofereciam
+  // horario por reguas diferentes: o lead marcava pelo WhatsApp o que a tela nunca ofereceria.
+  const bot = fonte('agenda.js')
+  assert.ok(
+    bot.includes("require('./services/agenda-slots')"),
+    'o bot precisa IMPORTAR a folga da tela, nao redefinir a dele'
+  )
+  assert.ok(
+    !bot.includes('process.env.REUNIAO_BUFFER_MIN'),
+    'agenda.js nao pode voltar a ler REUNIAO_BUFFER_MIN por conta propria'
+  )
+  const { REUNIAO_BUFFER_MINUTOS: doBot } = require('../src/agenda')
+  assert.equal(doBot, slots.REUNIAO_BUFFER_MINUTOS, 'a folga do bot e a da tela sao a mesma')
+})
 
 test('GUARDA: o modulo de slots e PURO (sem banco, HTTP ou rede)', () => {
   const src = fonte('services/agenda-slots.js')

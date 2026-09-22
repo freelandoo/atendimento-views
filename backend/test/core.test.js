@@ -1299,9 +1299,10 @@ test('agenda criarEventoAgenda nao cria reuniao em horario bloqueado', async () 
   pool.query = async (sql, params) => {
     if (/SELECT \*/.test(sql) && /agenda_eventos/.test(sql)) return { rows: [] }
     if (/SELECT COUNT\(\*\) AS n/.test(sql) && /status = ANY/.test(sql)) {
-      // Reunião 23:15–23:30 + buffer 30min → janela de conflito expandida (22:45–00:00).
-      assert.equal(params[0].toISOString(), '2026-05-12T22:45:00.000Z')
-      assert.equal(params[1].toISOString(), '2026-05-13T00:00:00.000Z')
+      // Reunião 23:15–23:30 + folga de 2h → janela de conflito expandida (21:15–01:30).
+      // A folga é a MESMA da agenda da tela (services/agenda-slots.js), desde 2026-09-22.
+      assert.equal(params[0].toISOString(), '2026-05-12T21:15:00.000Z')
+      assert.equal(params[1].toISOString(), '2026-05-13T01:30:00.000Z')
       assert.ok(params[2].includes('bloqueado'))
       return { rows: [{ n: '1' }] }
     }
@@ -3151,6 +3152,9 @@ test('sugestaoReuniaoProposta oferece mesmo dia quando ha dois horarios disponiv
     pool.query = async (sql, params) => {
       assert.match(sql, /status = ANY\(\$3::text\[\]\)/)
       assert.ok(params[2].includes('bloqueado'))
+      // Só o dia 11 tem o horário ocupado; os demais estão livres. Sem esse recorte o mock
+      // devolveria o mesmo evento para TODO dia consultado, e nenhuma data teria vaga.
+      if (params[0] !== '2026-05-11') return { rows: [] }
       return {
         rows: [
           {
@@ -3165,11 +3169,11 @@ test('sugestaoReuniaoProposta oferece mesmo dia quando ha dois horarios disponiv
         dataInicial: new Date('2026-05-11T22:00:00.000Z'),
         quantidade: 5,
       })
-      assert.equal(slots.data_sugerida, '2026-05-11')
-      assert.ok(!slots.horarios_sugeridos.includes('20:15'))
-      // Buffer de 30min também bloqueia os adjacentes (20:00, 20:30, 20:45); 21:00 livre.
-      assert.ok(!slots.horarios_sugeridos.includes('20:30'))
-      assert.ok(slots.horarios_sugeridos.includes('21:00'))
+      // 20:15 está ocupado e, com a folga de 2h, o RESTO da janela da noite (19:30–21:15) sai
+      // junto: pelo WhatsApp cabe no máximo uma reunião por dia útil. Consequência declarada e
+      // aceita pelo operador em 2026-09-22, ao unificar a folga com a da agenda da tela.
+      assert.notEqual(slots.data_sugerida, '2026-05-11', 'o dia da reunião deixa de ter vaga')
+      assert.ok(slots.horarios_sugeridos.includes('20:15'), 'o dia seguinte continua inteiro')
     } finally {
       pool.query = originalQuery
     }
