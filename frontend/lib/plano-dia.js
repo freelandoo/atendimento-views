@@ -234,9 +234,22 @@ function rotuloDia(dia, hoje) {
  * tem em mãos (mesmo espírito do Quadro, que não faz uma segunda listagem).
  */
 function opcoesNicho(candidatos) {
+  return opcoesCampoCarteira(candidatos, 'nicho')
+}
+
+function valorRegiao(c) {
+  return String(c?.regiao || c?.regiao_comercial || c?.estado || c?.uf || c?.bairro || '').trim()
+}
+
+function valorCampoCarteira(c, campo) {
+  if (campo === 'regiao') return valorRegiao(c)
+  return String(c?.[campo] || '').trim()
+}
+
+function opcoesCampoCarteira(candidatos, campo) {
   const contagem = new Map()
   for (const c of Array.isArray(candidatos) ? candidatos : []) {
-    const valor = String(c?.nicho || '').trim()
+    const valor = valorCampoCarteira(c, campo)
     if (!valor) continue
     contagem.set(valor, (contagem.get(valor) || 0) + 1)
   }
@@ -244,25 +257,37 @@ function opcoesNicho(candidatos) {
     .sort((a, b) => b.total - a.total || a.valor.localeCompare(b.valor, 'pt-BR'))
 }
 
+function opcoesCidade(candidatos) {
+  return opcoesCampoCarteira(candidatos, 'cidade')
+}
+
+function opcoesRegiao(candidatos) {
+  return opcoesCampoCarteira(candidatos, 'regiao')
+}
+
 /**
- * Filtra a carteira já carregada por busca (nome/telefone/cidade) e por nicho, excluindo quem já
- * está no dia. `limite` recorta a lista exibida — escolher o dia é decidir sobre um punhado, não
- * varrer a base (mesmo teto que o modal já aplicava, agora explícito aqui).
+ * Filtra a carteira já carregada por busca (nome/telefone) e por nicho/cidade/região,
+ * excluindo quem já está no dia. `limite` recorta a lista exibida — escolher o dia é decidir
+ * sobre um punhado, não varrer a base (mesmo teto que o modal já aplicava, agora explícito aqui).
  */
-function filtrarCarteira(candidatos, { busca, nicho, jaNoDia, limite } = {}) {
+function filtrarCarteira(candidatos, { busca, nicho, cidade, regiao, jaNoDia, limite } = {}) {
   const q = String(busca || '').trim().toLowerCase()
   const n = String(nicho || '').trim()
+  const cid = String(cidade || '').trim()
+  const reg = String(regiao || '').trim()
   const excluir = jaNoDia instanceof Set ? jaNoDia : new Set()
   const teto = Number.isFinite(limite) ? limite : 60
   const base = (Array.isArray(candidatos) ? candidatos : []).filter((l) => l && !excluir.has(l.id))
   const porNicho = n ? base.filter((l) => String(l.nicho || '').trim() === n) : base
+  const porCidade = cid ? porNicho.filter((l) => String(l.cidade || '').trim() === cid) : porNicho
+  const porRegiao = reg ? porCidade.filter((l) => valorRegiao(l) === reg) : porCidade
   const porBusca = q
-    ? porNicho.filter((l) => (
+    ? porRegiao.filter((l) => (
       String(l.nome || '').toLowerCase().includes(q)
       || String(l.telefone || '').includes(q)
-      || String(l.cidade || '').toLowerCase().includes(q)
+      || String(l.instagram_handle || '').toLowerCase().includes(q)
     ))
-    : porNicho
+    : porRegiao
   return porBusca.slice(0, teto)
 }
 
@@ -270,5 +295,5 @@ module.exports = {
   COLUNAS, CHAVES, coluna, montarColunas, aoMoverPara,
   seloConclusao, seloOrigemEntrada, horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia,
   somarDias, diasDaSemana, rotuloDiaCurto, rotuloSemana, resumoDoPeriodo,
-  opcoesNicho, filtrarCarteira,
+  opcoesNicho, opcoesCidade, opcoesRegiao, filtrarCarteira,
 }
