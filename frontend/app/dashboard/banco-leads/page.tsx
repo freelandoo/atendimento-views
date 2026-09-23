@@ -3207,7 +3207,7 @@ function NomeLeadCelula({ l, onAbrirFicha, largura = 'max-w-[220px]', className 
           texto={l.nome}
           onClick={() => onAbrirFicha(l, 'nome')}
           dica="Abrir a ficha deste lead"
-          className={`${largura} text-ink hover:text-brand hover:underline`}
+          className={`${largura} text-brand hover:underline`}
         />
       </div>
     </td>

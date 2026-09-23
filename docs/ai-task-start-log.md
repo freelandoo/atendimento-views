@@ -5132,6 +5132,20 @@ cadastro, não probabilidade de venda.
 
 ---
 
+## 2026-09-22 22:38 — Aquisição: nome abre o mesmo drawer do Banco de Leads
+
+**Pedido:** corrigir a listagem da Aquisição para que clicar no nome abra a mesma ficha lateral
+do Banco de Leads, sem link `abrir Maps`/`abrir página` embaixo do nome. No Banco de Leads, deixar
+o nome azul para declarar que é clicável.
+
+**Áreas prováveis:** `frontend/components/ProspeccaoPainel.tsx`,
+`frontend/app/dashboard/banco-leads/page.tsx` e nota visual em `docs/ui-visual-standard.md`.
+
+**Riscos a preservar:** os acessos externos continuam existindo dentro da ficha, não na linha da
+tabela; a Aquisição não ganha envio/disparo por esse drawer; o Banco mantém a ficha atual.
+
+---
+
 ## 2026-09-22 21:14:21 -03:00 — Banco de Leads: Quadro do dia e ficha lateral
 
 **Pedido:** melhorar a experiência do Quadro do Dia e da ficha lateral do lead:

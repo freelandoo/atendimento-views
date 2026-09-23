@@ -5,7 +5,8 @@ import { apiFetch, getEmpresaId } from '@/lib/api'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { ThOrdenavel, type JsonApresentacao, type CriterioApresentacao } from '@/components/ui/JsonLeadModal'
-import LeadDetalhesModal, { BolinhaIcp, criteriosDoLead, maximoDoLead } from '@/components/LeadDetalhesModal'
+import { BolinhaIcp, criteriosDoLead, maximoDoLead } from '@/components/LeadDetalhesModal'
+import FichaLead from '@/components/FichaLead'
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
@@ -26,6 +27,8 @@ import {
 } from '@/lib/prospeccao-listagem'
 import { qualificacaoDoLead, resumoIcpOperacional, seloIcp, seloValidacaoLead } from '@/lib/lead-icp'
 import { leituraCadastro } from '@/lib/pontuacao-indicador'
+import { acessosDoLead, normalizarLink, type AcessoRapido } from '@/lib/lead-acessos'
+import { secaoDoGatilho, type SecaoFicha } from '@/lib/ficha-lead'
 
 type JsonApresProspect = JsonApresentacao & {
   empresa?: { horario_funcionamento?: boolean; fotos?: number }
@@ -88,6 +91,18 @@ type Prospect = {
     motivos?: string[]
   } | null
   created_at: string | null
+}
+
+type FichaAquisicao = {
+  secao: SecaoFicha
+  leadId: string
+  numero: string
+  titulo: string
+  mensagemGerada: string | null
+  rodavel: boolean
+  status: string
+  acessos: AcessoRapido[]
+  leadAberto: Prospect
 }
 type Metricas = {
   total: string; aguardando: string; aprovados: string; rejeitados: string
@@ -319,6 +334,20 @@ function chipsFiltrosAquisicao(mercado: string, cidadeFiltro: string, buscaDados
   }
   return chips
 }
+
+function acessosDaFichaAquisicao(p: Prospect): AcessoRapido[] {
+  const acessos = [...acessosDoLead(p)]
+  const vistos = new Set(acessos.map((a) => a.href))
+  const adicionar = (tipo: AcessoRapido['tipo'], rotulo: string, url: string | null | undefined, dica: string) => {
+    const info = normalizarLink(url)
+    if (!info || vistos.has(info.href)) return
+    vistos.add(info.href)
+    acessos.push({ tipo, rotulo, href: info.href, dica })
+  }
+  adicionar('facebook', 'Página', p.anuncio_meta_pagina_url, 'Abrir página do anunciante no Facebook')
+  adicionar('link', 'Anúncio', p.anuncio_meta_permalink, 'Abrir anúncio na Biblioteca da Meta')
+  return acessos
+}
 function ordemDaViewAquisicao(valor: string): { chave: string; dir: 'asc' | 'desc' } | null {
   if (!valor || valor === 'padrao') return null
   const [chave, dir] = valor.split('_')
@@ -387,9 +416,9 @@ export default function ProspeccaoPainel({
    * amarrá-los fazia cada fonte ter a sua própria tela de resultados.
    */
   const [origemFiltro, setOrigemFiltro] = useState('')
-  // Detalhes do lead: destino dos campos que saíram da tabela (endereço, nota, avaliações,
-  // horário) e do JSON, que deixou de ser uma coluna da tela de trabalho.
-  const [detalheAberto, setDetalheAberto] = useState<Prospect | null>(null)
+  // Ficha lateral: mesma superfície usada no Banco de Leads. A lista só decide o gatilho
+  // (nome, detalhes/ICP, origem); a ficha resolve seção, abas e atalhos de fonte.
+  const [ficha, setFicha] = useState<FichaAquisicao | null>(null)
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [distAberta, setDistAberta] = useState(false)
   const [distEquipes, setDistEquipes] = useState<EquipeDistribuicao[]>([])
@@ -768,9 +797,28 @@ export default function ProspeccaoPainel({
     fb.toast(email ? 'E-mail salvo.' : 'E-mail removido.')
   }
 
+  function abrirFicha(p: Prospect, gatilho: string) {
+    const digits = String(p.telefone || '').replace(/\D/g, '')
+    setFicha({
+      secao: secaoDoGatilho(gatilho),
+      leadId: p.id,
+      numero: digits ? `${digits}@s.whatsapp.net` : '',
+      titulo: p.nome || '',
+      mensagemGerada: null,
+      rodavel: Boolean(digits),
+      status: p.status,
+      acessos: acessosDaFichaAquisicao(p),
+      leadAberto: p,
+    })
+  }
+
   function aplicarLeadAtualizado(leadAtualizado: Prospect) {
     setProspects((prev) => prev.map((p) => (p.id === leadAtualizado.id ? { ...p, ...leadAtualizado } : p)))
-    setDetalheAberto((cur) => (cur && cur.id === leadAtualizado.id ? { ...cur, ...leadAtualizado } : cur))
+    setFicha((cur) => {
+      if (!cur || cur.leadId !== leadAtualizado.id) return cur
+      const leadAberto = { ...cur.leadAberto, ...leadAtualizado }
+      return { ...cur, status: leadAtualizado.status, acessos: acessosDaFichaAquisicao(leadAberto), leadAberto }
+    })
   }
 
   function resumoIcpCadastroLinha(p: Prospect) {
@@ -802,6 +850,7 @@ export default function ProspeccaoPainel({
   // não quando ele escolheu o formulário de busca da Meta. Com "Todas as origens" a lista usa os
   // rótulos genéricos e a coluna Origem identifica cada linha.
   const metaAds = origemFiltro === 'meta_ads'
+  const leadDaFicha = ficha ? prospects.find((p) => p.id === ficha.leadId) || ficha.leadAberto : null
 
   const mercadoOpcoes = opcoesMercado(filtrosMercado)
   const cidadeOpcoes = filtrosMercado?.cidades || []
@@ -1115,25 +1164,10 @@ export default function ProspeccaoPainel({
               <td className="px-3 py-2 font-medium">
                 <TextoTruncado
                   texto={p.nome}
-                  onClick={() => setDetalheAberto(p)}
-                  dica="Abrir detalhes do lead"
+                  onClick={() => abrirFicha(p, 'nome')}
+                  dica="Abrir a ficha deste lead"
                   className="max-w-[220px] text-brand hover:underline"
                 />
-                {(() => {
-                  const urlFonte = metaAds ? p.anuncio_meta_pagina_url : p.maps_url
-                  const rotuloFonte = metaAds ? 'abrir página' : 'abrir Maps'
-                  if (!urlFonte) return null
-                  return (
-                    <a
-                      href={urlFonte}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-0.5 block w-fit text-[10px] font-normal text-slate-400 underline-offset-2 hover:text-brand hover:underline"
-                    >
-                      {rotuloFonte} ↗
-                    </a>
-                  )
-                })()}
                 {metaAds && p.anuncio_meta_page_id && (
                   <span className="mt-0.5 block font-mono text-[10px] text-slate-400">page {p.anuncio_meta_page_id}</span>
                 )}
@@ -1164,7 +1198,7 @@ export default function ProspeccaoPainel({
                   <BolinhaIcp l={p} />
                   <button
                     type="button"
-                    onClick={() => setDetalheAberto(p)}
+                    onClick={() => abrirFicha(p, 'detalhes')}
                     className="text-[11px] text-slate-500 underline-offset-2 hover:text-brand hover:underline"
                     title="ICP, cadastro como evidência, endereço, nota, avaliações, horário, links e dados completos do lead"
                     aria-label={`Abrir detalhes de ICP e cadastro de ${p.nome || 'lead'}`}
@@ -1357,12 +1391,27 @@ export default function ProspeccaoPainel({
         />
       )}
 
-      {detalheAberto && (
-        <LeadDetalhesModal
-          lead={detalheAberto}
-          onFechar={() => setDetalheAberto(null)}
+      {ficha && leadDaFicha && (
+        <FichaLead
+          lead={leadDaFicha}
+          conversa={{
+            numero: ficha.numero,
+            titulo: ficha.titulo,
+            leadId: ficha.leadId,
+            mensagemGerada: ficha.mensagemGerada,
+            rodavel: ficha.rodavel,
+            status: leadDaFicha.status || ficha.status,
+            acessos: ficha.acessos,
+          }}
+          secao={ficha.secao}
+          onTrocarSecao={(secao) => setFicha((cur) => (cur ? { ...cur, secao } : cur))}
+          onFechar={() => setFicha(null)}
           empresaId={empresaId}
           onLeadAtualizado={(lead) => aplicarLeadAtualizado(lead as Prospect)}
+          mensagemGerada={ficha.mensagemGerada}
+          podeEnviar={false}
+          podeGerar={false}
+          motivoEnvioIndisponivel="A abordagem deste lead é feita pelo Banco de Leads."
         />
       )}
     </div>

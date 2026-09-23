@@ -406,9 +406,9 @@ Registre aqui toda divergência visual autorizada pelo usuário.
   filtros ativos da listagem, junto de busca, nicho/cidade e filtros rápidos.
 - **A coluna `ICP + cadastro` vira `ICP`:** a tabela mostra só a bolinha e o comando
   `Detalhes`; cadastro/coleta, evidências, endereço, nota e links ficam na ficha do lead.
-- **O nome do lead abre a ficha lateral**, não mais a fonte externa. Google Maps/Facebook ficam
-  como link secundário em texto pequeno, preservando acesso à fonte sem tirar o operador da
-  revisão do lead.
+- **O nome do lead abre a mesma ficha lateral do Banco de Leads**, não mais a fonte externa nem
+  um modal centrado. Google Maps/Facebook/Biblioteca da Meta ficam como atalhos no cabeçalho da
+  ficha, preservando acesso à fonte sem poluir a linha da tabela.
 - **Ações da linha usam linguagem operacional:** `Marcar` e `Descartar`; restaurar continua
   disponível para leads já descartados.
 - **O seletor de fonte vive DENTRO de Buscas** (e de Rotinas, só com as fontes que têm rotina),
