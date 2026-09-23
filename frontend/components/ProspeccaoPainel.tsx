@@ -157,7 +157,7 @@ type ViewAquisicao = {
 
 const AQ_COLUNAS_TOGGLE: { key: string; label: string }[] = [
   { key: 'entrou', label: 'Entrou em' },
-  { key: 'cadastro', label: 'ICP + cadastro' },
+  { key: 'cadastro', label: 'ICP' },
   { key: 'telefone', label: 'Telefone' },
   { key: 'email', label: 'E-mail' },
   { key: 'nicho', label: 'Nicho / Cidade' },
@@ -297,8 +297,9 @@ function quando(iso: string | null): string {
 // e ordenar só a página visível daria uma ordem falsa — "o menor cadastro" seria o menor
 // daqueles 25, não o da carteira. O clique no cabeçalho vira parâmetro da requisição.
 
-function chipsFiltrosAquisicao(mercado: string, cidadeFiltro: string, buscaDados: string, view: ViewAquisicao): string[] {
+function chipsFiltrosAquisicao(mercado: string, cidadeFiltro: string, buscaDados: string, origem: string, view: ViewAquisicao): string[] {
   const chips: string[] = []
+  if (origem) chips.push(`Origem: ${rotuloFiltroOrigem(origem) || origem}`)
   if (mercado) chips.push(`Nicho: ${mercado}`)
   if (cidadeFiltro) chips.push(`Cidade: ${cidadeFiltro}`)
   if (buscaDados.trim()) chips.push(`Busca: ${buscaDados.trim()}`)
@@ -737,7 +738,7 @@ export default function ProspeccaoPainel({
     if (p.status === 'aguardando') {
       acoes.push({
         id: 'aprovar',
-        rotulo: 'Aprovar',
+        rotulo: 'Marcar',
         zona: 'direita',
         tom: 'positivo',
         // O texto anterior dizia "(opcional — ele já pode ser disparado sem isso)", e era VERDADE:
@@ -746,7 +747,7 @@ export default function ProspeccaoPainel({
         // decoração e passou a ser o que libera o lead para a operação.
         descricao: 'Libera o lead para a operação comercial: ligação, WhatsApp, e-mail e campanhas.',
         desabilitado: agindo === p.id,
-        onSelecionar: () => acao(p.id, 'aprovar', 'Lead aprovado — liberado para a operação.'),
+        onSelecionar: () => acao(p.id, 'aprovar', 'Lead marcado — liberado para a operação.'),
       })
     }
     acoes.push({
@@ -804,7 +805,7 @@ export default function ProspeccaoPainel({
 
   const mercadoOpcoes = opcoesMercado(filtrosMercado)
   const cidadeOpcoes = filtrosMercado?.cidades || []
-  const chips = chipsFiltrosAquisicao(mercado, cidadeFiltro, buscaDados, view)
+  const chips = chipsFiltrosAquisicao(mercado, cidadeFiltro, buscaDados, origemFiltro, view)
   const filtrosAtivos = chips.length
   const cols = view.cols
   const idsPagina = pg.itens.map((p) => p.id)
@@ -881,14 +882,6 @@ export default function ProspeccaoPainel({
               ? 'Páginas que apareceram em anúncios ativos e ainda não mostraram site próprio no anúncio.'
               : 'Tudo o que as rotinas e as buscas avulsas trouxeram, de todas as origens. Marque ou descarte por aqui.'}
           </p>
-          {/* Recortar em silêncio faria o operador achar que a carteira encolheu. */}
-          {rotuloFiltroOrigem(origemFiltro) && (
-            <p className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-brand/20 bg-brand/5 px-2 py-0.5 text-[11px] font-medium text-brand">
-              Mostrando só: {rotuloFiltroOrigem(origemFiltro)}
-              <button type="button" onClick={() => comReinicioDePagina(() => setOrigemFiltro(''))}
-                className="underline hover:no-underline">ver todas</button>
-            </p>
-          )}
         </div>
 
       {/* Filtros de status COM a contagem dentro do próprio rótulo: o número passou a viver
@@ -923,17 +916,6 @@ export default function ProspeccaoPainel({
       <div className="rounded-xl border bg-white px-3 py-3 shadow-sm">
         <div className="mb-2 text-xs font-medium text-slate-500">Filtrar leads encontrados</div>
         <div className="flex flex-wrap items-end gap-3">
-          {/* ORIGEM — o recorte que substituiu as três telas por fonte. Ela identifica cada
-              linha na coluna Origem e recorta aqui; o formulário de busca de cada fonte
-              continua existindo, no modo Buscas. */}
-          <div>
-            <label htmlFor="aq-origem" className="block text-xs text-slate-500 mb-1">Origem</label>
-            <select id="aq-origem" value={origemFiltro}
-              onChange={(e) => comReinicioDePagina(() => setOrigemFiltro(e.target.value))}
-              className="border rounded-lg px-3 py-2 text-sm">
-              {OPCOES_FILTRO_ORIGEM.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
-            </select>
-          </div>
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs text-slate-500 mb-1">Buscar dados</label>
             <input value={buscaDados} onChange={(e) => comReinicioDePagina(() => setBuscaDados(e.target.value))}
@@ -959,9 +941,9 @@ export default function ProspeccaoPainel({
             type="button"
             onClick={() => setPersAberto(true)}
             className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
-            title="Abrir filtros, ordenação e colunas visíveis"
+            title="Abrir origem, filtros, ordenação e colunas visíveis"
           >
-            <span className="inline-flex items-center gap-1.5"><IconGear /> Personalizar</span>
+            <span className="inline-flex items-center gap-1.5"><IconGear /> Colunas</span>
             {filtrosAtivos > 0 && (
               <span className="rounded-full bg-brand px-1.5 text-[10px] font-semibold text-white">{filtrosAtivos}</span>
             )}
@@ -984,7 +966,7 @@ export default function ProspeccaoPainel({
             </select>
           </div>
           {(mercado || cidadeFiltro || buscaDados.trim() || filtrosAtivos > 0) && (
-            <button onClick={() => comReinicioDePagina(() => { setMercado(''); setCidadeFiltro(''); setBuscaDados(''); setView(AQ_VIEW_PADRAO) })}
+            <button onClick={() => comReinicioDePagina(() => { setOrigemFiltro(''); setMercado(''); setCidadeFiltro(''); setBuscaDados(''); setView(AQ_VIEW_PADRAO) })}
               className="border rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
               Limpar filtros
             </button>
@@ -997,7 +979,7 @@ export default function ProspeccaoPainel({
               carregando={agindo === 'lote-aprovar'}
               onClick={() => acaoLote('aprovar')}
             >
-              Aprovar selecionados
+              Marcar selecionados
             </Botao>
           )}
           {selecionados.size > 0 && (
@@ -1028,7 +1010,7 @@ export default function ProspeccaoPainel({
             onClick={abrirDistribuicao}
             motivoDesabilitado={!empresaId ? 'Empresa nao identificada.' : ''}
           >
-            Aprovar e distribuir
+            Marcar e distribuir
           </Botao>
         </div>
         <p className="mt-2 text-xs text-ink-3">
@@ -1105,7 +1087,7 @@ export default function ProspeccaoPainel({
                 Quem quer uma fonte só usa o FILTRO. */}
             <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">Origem</th>
             {metaAds && <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600">Evidência Meta</th>}
-            {cols.cadastro !== false && <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={ordenarPor} />}
+            {cols.cadastro !== false && <ThOrdenavel label="ICP" chave="prioridade" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.telefone !== false && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.email !== false && <ThOrdenavel label="E-mail" chave="email" ordem={ordem} onOrdenar={ordenarPor} />}
             {cols.nicho !== false && <ThOrdenavel label={metaAds ? 'Termo / categoria' : 'Nicho / Cidade'} chave="nicho" ordem={ordem} onOrdenar={ordenarPor} />}
@@ -1131,18 +1113,27 @@ export default function ProspeccaoPainel({
               </td>
               {cols.entrou !== false && <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{quando(p.created_at)}</td>}
               <td className="px-3 py-2 font-medium">
-                {/* Na aba Meta o nome abre a PÁGINA do anunciante, não o "destino do anúncio":
-                    aquele vem como stub na maioria dos anúncios (clique-para-conversa) e abria
-                    uma página vazia. A página do Facebook sempre existe e sempre abre. */}
                 <TextoTruncado
                   texto={p.nome}
-                  href={metaAds ? (p.anuncio_meta_pagina_url || undefined) : p.maps_url}
-                  dica={metaAds
-                    ? (p.anuncio_meta_pagina_url ? 'Abrir página no Facebook' : undefined)
-                    : (p.maps_url ? 'Ver ficha no Google Maps' : undefined)}
-                  className={`max-w-[220px] ${(metaAds ? p.anuncio_meta_pagina_url : p.maps_url) ? 'text-brand hover:underline' : ''}`}
-                  sufixo={(metaAds ? p.anuncio_meta_pagina_url : p.maps_url) ? <span className="text-xs text-slate-400 shrink-0">↗</span> : undefined}
+                  onClick={() => setDetalheAberto(p)}
+                  dica="Abrir detalhes do lead"
+                  className="max-w-[220px] text-brand hover:underline"
                 />
+                {(() => {
+                  const urlFonte = metaAds ? p.anuncio_meta_pagina_url : p.maps_url
+                  const rotuloFonte = metaAds ? 'abrir página' : 'abrir Maps'
+                  if (!urlFonte) return null
+                  return (
+                    <a
+                      href={urlFonte}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-0.5 block w-fit text-[10px] font-normal text-slate-400 underline-offset-2 hover:text-brand hover:underline"
+                    >
+                      {rotuloFonte} ↗
+                    </a>
+                  )
+                })()}
                 {metaAds && p.anuncio_meta_page_id && (
                   <span className="mt-0.5 block font-mono text-[10px] text-slate-400">page {p.anuncio_meta_page_id}</span>
                 )}
@@ -1168,21 +1159,15 @@ export default function ProspeccaoPainel({
                 <EvidenciaMeta lead={p} />
               </td>}
               {/* ICP + cadastro: cadastro/coleta e' evidencia para validar o ICP geral. */}
-              {cols.cadastro !== false && <td className="px-3 py-2">
-                <div className="flex items-center gap-2">
+              {cols.cadastro !== false && <td className="px-3 py-2 text-center">
+                <div className="flex min-w-[62px] flex-col items-center gap-1" title={icpLinha.title}>
                   <BolinhaIcp l={p} />
-                  <div className="min-w-[92px] leading-tight" title={icpLinha.title}>
-                    <span className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${icpLinha.selo.classe}`}>
-                      {icpLinha.selo.rotulo}{icpLinha.selo.score != null ? ` · ${icpLinha.selo.score}/13` : ''}
-                    </span>
-                    <span className="mt-0.5 block max-w-[150px] truncate text-[10px] text-slate-500">
-                      {icpLinha.validacao.rotulo} · {icpLinha.qualificacao.score_100}/100
-                    </span>
-                  </div>
                   <button
+                    type="button"
                     onClick={() => setDetalheAberto(p)}
                     className="text-[11px] text-slate-500 underline-offset-2 hover:text-brand hover:underline"
                     title="ICP, cadastro como evidência, endereço, nota, avaliações, horário, links e dados completos do lead"
+                    aria-label={`Abrir detalhes de ICP e cadastro de ${p.nome || 'lead'}`}
                   >
                     Detalhes
                   </button>
@@ -1342,8 +1327,10 @@ export default function ProspeccaoPainel({
       {persAberto && (
         <PersonalizarAquisicaoModal
           view={view}
+          origem={origemFiltro}
+          onOrigemChange={(origem) => comReinicioDePagina(() => setOrigemFiltro(origem))}
           onPatch={patchView}
-          onReset={() => { setView(AQ_VIEW_PADRAO); setPagina(1) }}
+          onReset={() => { setOrigemFiltro(''); setView(AQ_VIEW_PADRAO); setPagina(1) }}
           onPreset={(patch) => {
             setView({ ...AQ_VIEW_PADRAO, ...patch, cols: { ...AQ_VIEW_PADRAO.cols, ...(patch.cols || {}) } })
             setPagina(1)
@@ -1422,9 +1409,9 @@ function ModalAprovarDistribuir({
       <div className="max-h-[min(44rem,82dvh)] w-full max-w-[min(44rem,84vw)] overflow-y-auto rounded-lg bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-lg font-semibold text-ink">Aprovar e distribuir</h3>
+            <h3 className="text-lg font-semibold text-ink">Marcar e distribuir</h3>
             <p className="mt-0.5 text-xs text-ink-3">
-              Aprova o lote e distribui somente leads livres, intocados e vinculados ao nicho da equipe.
+              Marca o lote e distribui somente leads livres, intocados e vinculados ao nicho da equipe.
             </p>
           </div>
           <button type="button" onClick={onClose} className="rounded-md border border-line px-2 py-1 text-sm text-ink-3 hover:bg-surface-3">x</button>
@@ -1641,8 +1628,10 @@ function CampoTextoAquisicao({ label, value, onChange, placeholder, type = 'text
   )
 }
 
-function PersonalizarAquisicaoModal({ view, onPatch, onReset, onPreset, onClose }: {
+function PersonalizarAquisicaoModal({ view, origem, onOrigemChange, onPatch, onReset, onPreset, onClose }: {
   view: ViewAquisicao
+  origem: string
+  onOrigemChange: (origem: string) => void
   onPatch: (patch: Partial<ViewAquisicao>) => void
   onReset: () => void
   onPreset: (patch: Partial<ViewAquisicao>) => void
@@ -1655,8 +1644,8 @@ function PersonalizarAquisicaoModal({ view, onPatch, onReset, onPreset, onClose 
       <div className="max-h-[min(44rem,82dvh)] w-full max-w-[min(44rem,84vw)] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl" onClick={pararClique}>
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-lg font-semibold">⠿ Personalizar aquisição</h3>
-            <p className="mt-0.5 text-xs text-slate-500">Filtros, presets, ordenação e colunas visíveis para revisar os leads encontrados.</p>
+            <h3 className="text-lg font-semibold">⠿ Colunas e filtros</h3>
+            <p className="mt-0.5 text-xs text-slate-500">Origem, filtros, presets, ordenação e colunas visíveis para revisar os leads encontrados.</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg border px-2 py-1 text-sm text-slate-500 hover:bg-slate-50">×</button>
         </div>
@@ -1681,6 +1670,7 @@ function PersonalizarAquisicaoModal({ view, onPatch, onReset, onPreset, onClose 
 
           <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <SelFiltroAquisicao label="Ordenação" value={view.ordenacao} onChange={(v) => onPatch({ ordenacao: v })} opcoes={AQ_ORDENACOES.map((o): [string, string] => [o.valor, o.label])} />
+            <SelFiltroAquisicao label="Origem dos leads" value={origem} onChange={onOrigemChange} opcoes={OPCOES_FILTRO_ORIGEM.map((o): [string, string] => [o.valor, o.label])} />
             <CampoTextoAquisicao label="Região / endereço contém" value={view.regiao} onChange={(v) => onPatch({ regiao: v })} placeholder="bairro, avenida ou cidade" />
           </section>
 

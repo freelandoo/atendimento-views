@@ -401,8 +401,16 @@ Registre aqui toda divergência visual autorizada pelo usuário.
 - **Divergência aprovada (mesma decisão de 2026-09-22, opção 2):** a Aquisição deixa de ter uma
   sessão por FONTE e passa a ter **Resultados · Buscas · Rotinas**. A fonte vira **filtro** e
   **coluna** (pílula neutra, o mesmo tratamento do Banco de Leads — origem não é qualidade).
-- **O recorte em vigor é declarado** numa pílula com "ver todas" ao lado. Recortar em silêncio
-  faz o operador achar que a carteira encolheu.
+- **Atualização aprovada pelo operador:** o filtro de **Origem** também passa a viver dentro do
+  modal **Colunas e filtros**, espelhando o Banco de Leads. O recorte ativo aparece nos chips de
+  filtros ativos da listagem, junto de busca, nicho/cidade e filtros rápidos.
+- **A coluna `ICP + cadastro` vira `ICP`:** a tabela mostra só a bolinha e o comando
+  `Detalhes`; cadastro/coleta, evidências, endereço, nota e links ficam na ficha do lead.
+- **O nome do lead abre a ficha lateral**, não mais a fonte externa. Google Maps/Facebook ficam
+  como link secundário em texto pequeno, preservando acesso à fonte sem tirar o operador da
+  revisão do lead.
+- **Ações da linha usam linguagem operacional:** `Marcar` e `Descartar`; restaurar continua
+  disponível para leads já descartados.
 - **O seletor de fonte vive DENTRO de Buscas** (e de Rotinas, só com as fontes que têm rotina),
   como `radiogroup` — não como abas de página, que é o que fazia cada fonte parecer um produto.
 - **A ausência da rotina da Meta é texto**, não lacuna: sem a frase, o operador procuraria um

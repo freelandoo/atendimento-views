@@ -5114,6 +5114,24 @@ permissões, banco, disparo real ou API.
 
 ---
 
+## 2026-09-22 22:02 — Aquisição: replicar padrão da lista do Banco de Leads
+
+Identifiquei que este pedido é uma tarefa/projeto de alteração. Consultei o workflow padrão do
+projeto e registrei o início da tarefa em `docs/ai-task-start-log.md`.
+
+**Pedido:** replicar na tela de Aquisição os ajustes da Lista de Leads: origem dentro do modal de
+colunas/filtros, coluna ICP compacta com `Detalhes`, nome abrindo os detalhes do lead em vez de ir
+direto ao Google Maps, e ações da linha focadas em marcar/descartar.
+
+**Áreas prováveis:** `frontend/components/ProspeccaoPainel.tsx`, com validação por
+`cd frontend && npx tsc --noEmit` e `node --test lib/*.test.js`.
+
+**Riscos a preservar:** a origem segue sendo o valor gravado pelo backend; aquisição não dispara
+coleta paga nem distribuição sem ação explícita; `score_cadastro` continua sendo evidência de
+cadastro, não probabilidade de venda.
+
+---
+
 ## 2026-09-22 21:14:21 -03:00 — Banco de Leads: Quadro do dia e ficha lateral
 
 **Pedido:** melhorar a experiência do Quadro do Dia e da ficha lateral do lead:
