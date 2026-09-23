@@ -1907,7 +1907,10 @@ export default function BancoLeadsPage() {
           NADA que bloqueia o envio foi recolhido: o motivo do bloqueio e o aviso de saudacao
           faltando continuam fora do painel. */}
       {mostrarRodar && (
-        <div className="space-y-2">
+        <div
+          ref={cronRef}
+          className={`space-y-2 transition-all ${flashCron ? 'rounded-lg bg-amber-50 p-2 ring-2 ring-amber-400' : ''}`}
+        >
           <FaixaEnvio
             faixa={faixaEnvio}
             aberto={painelEnvioAberto}
@@ -1968,61 +1971,9 @@ export default function BancoLeadsPage() {
               )}
             </div>
 
-            <div className="space-y-2 border-t border-line pt-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                {config.modo !== 'automatico' ? (
-                  <div ref={cronRef}
-                    className={`flex min-w-0 items-start gap-2 transition-all ${flashCron ? 'rounded-lg bg-amber-50 p-2 ring-2 ring-amber-400' : ''}`}
-                    title={motivoBloqueioConexao || 'Tempo até o próximo envio ficar liberado (cooldown anti-bloqueio)'}>
-                    <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${
-                      motivoBloqueioConexao ? 'bg-red-500' : cooldownAtivo ? 'bg-amber-400' : 'bg-emerald-500'
-                    }`} />
-                    <div className="min-w-0">
-                      <p className={`text-sm font-semibold ${
-                        motivoBloqueioConexao ? 'text-red-700' : cooldownAtivo ? 'text-amber-700' : 'text-emerald-700'
-                      }`}>
-                        {motivoBloqueioConexao
-                          ? 'Envio indisponível'
-                          : cooldownAtivo
-                          ? <>Próximo envio em <span className="tabular-nums">{fmtMMSS(cooldownS as number)}</span></>
-                          : 'Envio liberado'}
-                      </p>
-                      <p className="mt-0.5 text-xs leading-relaxed text-ink-3">
-                        {motivoBloqueioConexao
-                          || (cooldownAtivo
-                            ? 'Aguarde o intervalo de segurança antes do próximo envio.'
-                            : config.modo === 'semi_automatico'
-                            ? 'Clique no telefone do lead para revisar a mensagem e enviar.'
-                            : 'Clique no telefone do lead para gerar e enviar a saudação.')}
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-700">Automático</p>
-                    <p className="mt-0.5 text-xs leading-relaxed text-ink-3">
-                      Envia 1 lead por vez na janela configurada.
-                    </p>
-                  </div>
-                )}
-
-                <button onClick={() => setSaudacaoOpen(true)} disabled={!instanciaId}
-                  className={`shrink-0 px-3 py-2 rounded-lg border text-sm font-medium disabled:opacity-50 ${
-                    saudacaoFaltando
-                      ? 'border-red-500 text-red-600 ring-2 ring-red-400 ring-offset-1 animate-pulse hover:bg-red-50'
-                      : 'hover:bg-surface-2'
-                  }`}
-                  title={saudacaoFaltando
-                    ? 'Configure a saudação (mensagem-base) desta instância antes de disparar'
-                    : 'Envia uma mensagem de teste pro seu número e ajusta a saudação/IA'}>
-                  <span className="inline-flex items-center gap-1.5"><IconFlask /> Testar envio</span>
-                </button>
-              </div>
-
-              {config.modo !== 'automatico' && (
-                <p className="border-t pt-2 text-xs leading-relaxed text-ink-3">{modoAtual.hint}</p>
-              )}
-            </div>
+            {config.modo !== 'automatico' && (
+              <p className="border-t border-line pt-3 text-xs leading-relaxed text-ink-3">{modoAtual.hint}</p>
+            )}
           </div>
 
           {/* Config do modo Automático */}

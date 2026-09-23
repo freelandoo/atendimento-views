@@ -313,7 +313,8 @@ Registre aqui toda divergência visual autorizada pelo usuário.
   2. **Faixa de envio (36px) + painel de configuração recolhido.** O que é decisão do dia fica
      na faixa; o que é ajuste fica atrás de "Configurar envio". **Nada que bloqueie o envio foi
      recolhido:** motivo do bloqueio e aviso de saudação faltando continuam fora do painel, em
-     texto, sem depender de hover.
+     texto, sem depender de hover. O painel de configuração não repete `Envio indisponível` nem
+     `Testar envio`; esses comandos pertencem à faixa superior.
   3. **Barra contextual de seleção.** Aparece só quando há seleção, a partir do checkbox do
      cabeçalho da tabela (padrão de data table). Substitui o bloco permanente "Seleção em massa".
 - **Estágios do funil: cartão alto → aba compacta.** Os cinco cartões de ~110px somavam com o

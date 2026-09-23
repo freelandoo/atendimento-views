@@ -5132,6 +5132,21 @@ cadastro, não probabilidade de venda.
 
 ---
 
+## 2026-09-23 — Banco de Leads: alerta de envio sem duplicidade
+
+**Pedido:** quando a instância WhatsApp estiver desconectada, mostrar `Envio bloqueado`/`Envio
+indisponível` e o botão `Testar envio` apenas na faixa superior de envio, sem repetir os mesmos
+elementos dentro de `Configurar envio`.
+
+**Áreas prováveis:** `frontend/app/dashboard/banco-leads/page.tsx` e nota visual em
+`docs/ui-visual-standard.md`.
+
+**Riscos a preservar:** a faixa superior continua sempre visível e carrega o motivo do bloqueio;
+o painel recolhido continua responsável por modo, instância e ajustes. O destaque usado ao bloquear
+por cooldown deve apontar para a faixa superior, não para um bloco duplicado no painel.
+
+---
+
 ## 2026-09-23 — Banco de Leads: Status e Envio em uma linha
 
 **Pedido:** remover textos secundários rotineiros nas colunas `Envio` e `Status` do Banco de Leads:
