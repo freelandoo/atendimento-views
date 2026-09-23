@@ -2915,11 +2915,10 @@ function RodapePaginacaoBanco({ pg, total, onPagina }: { pg: PaginaLista<Lead>; 
 }
 
 // Célula de status compartilhada: o selo principal é o STATUS DO LEAD (o que foi marcado na
-// conversa); a faixa de trabalho aparece só como apoio para explicar por que a fila ordenou assim.
+// conversa). A faixa de trabalho fica implícita na ordenação e nos filtros, não como segunda linha.
 function StatusCelula({ l }: { l: Lead }) {
   const locked = isLocked(l)
   const status = statusOperacionalDoLead(l)
-  const faixa = seloFaixa(l.faixa_trabalho)
   return (
     <td className="px-3 py-2">
       <div
@@ -2927,11 +2926,6 @@ function StatusCelula({ l }: { l: Lead }) {
         title={status.detalhe}>
         {status.rotulo}
       </div>
-      {faixa && (
-        <div className="mt-0.5 text-[11px] text-ink-3" title={faixa.dica}>
-          Fila: {faixa.rotulo}
-        </div>
-      )}
       {locked && (
         <div className="inline-flex items-center gap-1 text-[11px] text-red-600 mt-1">
           <IconLock className="h-3 w-3" /> travado até {fmtData(l.bloqueado_ate)}{l.bloqueio_motivo ? ` (${MOTIVO_LABEL[l.bloqueio_motivo] || l.bloqueio_motivo})` : ''}
@@ -2970,7 +2964,7 @@ function EnvioCelula({ l, previsoesEnvio }: { l: Lead; previsoesEnvio: Map<strin
       : temErroIa(l) ? { titulo: 'Erro IA', detalhe: 'Gerar de novo na conversa', tom: 'erro' }
       : falhaEnvio(l) ? { titulo: 'Falhou', detalhe: `${falhaEnvio(l)}${isRodavel(l) ? ' — tentará de novo' : ''}`, tom: 'erro' }
       : l.mensagem_gerada ? { titulo: 'Pronta', detalhe: `Gerada em ${fmtDataHora(l.gerada_em)}`, tom: 'pronto' }
-      : isRodavel(l) ? { titulo: 'Aguardando geração', detalhe: 'Semi gera automaticamente', tom: 'neutro' }
+      : isRodavel(l) ? { titulo: 'Aguardando geração', detalhe: '', tom: 'neutro' }
       : { titulo: 'Sem previsão', detalhe: motivoDescarte(l) || statusOperacionalDoLead(l).rotulo || l.status, tom: 'neutro' }
   )
   const cls = {
@@ -2982,9 +2976,8 @@ function EnvioCelula({ l, previsoesEnvio }: { l: Lead; previsoesEnvio: Map<strin
   }[info.tom]
   return (
     <td className="px-3 py-2 min-w-[150px]">
-      <div className={`inline-flex flex-col rounded-lg border px-2 py-1 ${cls}`}>
+      <div className={`inline-flex rounded-lg border px-2 py-1 ${cls}`} title={info.detalhe || info.titulo}>
         <span className="text-xs font-semibold leading-tight">{info.titulo}</span>
-        {info.detalhe && <span className="text-[11px] leading-tight opacity-80">{info.detalhe}</span>}
       </div>
     </td>
   )
@@ -3232,7 +3225,6 @@ function LeadCartao({ l, mostrarRodar, selecionados, onToggleSel, onAbrirFicha, 
   onAssumir?: (l: Lead) => void
   onDevolver?: (l: Lead) => void
 }) {
-  const faixa = seloFaixa(l.faixa_trabalho)
   const statusLead = statusOperacionalDoLead(l)
   const resumo = resumoIcpOperacional(l)
   const selo = seloIcp(resumo.faixa, resumo.score)
@@ -3270,7 +3262,6 @@ function LeadCartao({ l, mostrarRodar, selecionados, onToggleSel, onAbrirFicha, 
           <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusLead.classe}`} title={statusLead.detalhe}>
             {statusLead.rotulo}
           </span>
-          {faixa && <span className="ml-1 align-middle text-[11px] text-ink-3">Fila: {faixa.rotulo}</span>}
           <h3 className="mt-1 truncate text-[15px] font-bold leading-tight text-ink">{l.nome}</h3>
           <p className="mt-0.5 truncate text-xs text-ink-3">
             {[l.nicho, l.cidade].filter(Boolean).join(' · ') || 'Mercado não informado'}

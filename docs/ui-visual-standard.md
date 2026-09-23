@@ -417,6 +417,10 @@ Registre aqui toda divergência visual autorizada pelo usuário.
   ficha, preservando acesso à fonte sem poluir a linha da tabela.
 - **Telefone usa o mesmo atalho compacto do Banco de Leads:** número verde sublinhado abre
   WhatsApp em nova aba; sem telefone continua como ausência, não como botão falso.
+- **`Status` e `Envio` são pílulas de uma linha na tabela do Banco de Leads:** textos auxiliares
+  rotineiros como `Fila: ...` ou detalhe de geração automática não devem ficar abaixo do selo.
+  Alertas de exceção (falha, trava, descarte, erro de IA, agendamento) podem continuar em texto,
+  porque explicam impedimento ou consequência operacional.
 - **Ações da linha usam linguagem operacional:** `Marcar` e `Descartar`; restaurar continua
   disponível para leads já descartados.
 - **O seletor de fonte vive DENTRO de Buscas** (e de Rotinas, só com as fontes que têm rotina),

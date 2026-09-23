@@ -5132,6 +5132,21 @@ cadastro, não probabilidade de venda.
 
 ---
 
+## 2026-09-23 — Banco de Leads: Status e Envio em uma linha
+
+**Pedido:** remover textos secundários rotineiros nas colunas `Envio` e `Status` do Banco de Leads:
+sem `Sem gerar automaticamente`/variante abaixo de `Aguardando geração` e sem `Fila: não trabalhado`
+abaixo do status.
+
+**Áreas prováveis:** `frontend/app/dashboard/banco-leads/page.tsx` e nota visual em
+`docs/ui-visual-standard.md`.
+
+**Riscos a preservar:** manter o status operacional principal visível; não remover avisos de exceção
+como falha de envio, trava, descarte, erro de IA ou agendamento, porque eles explicam impedimentos
+reais da operação.
+
+---
+
 ## 2026-09-22 22:38 — Aquisição: nome abre o mesmo drawer do Banco de Leads
 
 **Pedido:** corrigir a listagem da Aquisição para que clicar no nome abra a mesma ficha lateral
