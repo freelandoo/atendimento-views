@@ -3289,6 +3289,47 @@
   `test/lead-distribuicao.test.js` (28, sendo 8 guardas que leem o fonte),
   `test/autorizacao-rotas.test.js`, `frontend/lib/equipe-carteira.test.js` (25).
 
+### Transferência ENTRE membros + PONTOS DE ATENÇÃO no topo da equipe (sem migration)
+- **Regra de produto, em uma frase:** dentro da área de Equipe o gestor move leads de UMA pessoa
+  para OUTRA (`POST /api/empresas/:empresaId/equipes-comerciais/:equipeId/transferencia`), e tudo
+  o que impede a distribuição de sair certa aparece **no topo** do detalhe, antes das métricas.
+- ⚠️ **Decisão do operador (2026-09-23): o padrão move SÓ lead INTOCADO** — o MESMO
+  `sqlRedistribuivel` do rebalanceamento (há teste de identidade). `incluir_protegidos: true`
+  **amplia o conjunto, nunca o prefere**: os intocados saem primeiro (`sqlOrdemTransferencia`) e os
+  em andamento só entram quando eles acabam. Só o **booleano** `true` inclui — a string `'true'`
+  cai no lado seguro. Com lead em andamento no lote, a tela passa por `ModalConfirmar` nomeando
+  reuniões, conversas e follow-ups; o resultado anuncia o número **REAL** que mudou de mão.
+- **`LEAD_TRANSFERIR` POR ROTA** (o mount `MEMBROS_GERENCIAR` não basta), origem **e** destino
+  precisam ser membros ativos DESTA equipe (400 `FORA_DA_EQUIPE`), equipe encerrada não
+  movimenta (409). Mesmas garantias de toda escrita de dono: `pg_advisory_xact_lock`, `UPDATE`
+  condicionado ao cedente, histórico por lead (`ACOES.TRANSFERIU`, motivo fechado
+  `transferencia_entre_membros`) e linha agregada `equipe_comercial_leads_transferidos`, sem PII.
+- **O rebalanceamento AUTOMÁTICO NÃO mudou** — `moverEntreMembros` ganhou `incluirProtegidos`
+  com padrão `false`, e há guarda que falha se `rebalancearEquipe` passar a usá-lo.
+- **Pontos de atenção** (`GET .../carteira`, campos ADITIVOS; `frontend/lib/equipe-carteira.js` →
+  `pontosDeAtencao`, só traduz): (1) **lead que a pessoa NÃO enxerga** — `legado` na mão de quem
+  não tem `LEAD_VER_BRUTOS` (a Pousada, 2026-09-22), com `ve_base_bruta` decidido no BACKEND por
+  `podeCapacidade`; (2) **aguardando triagem** no nicho; (3) **lead do nicho com quem não é da
+  equipe** (a soma da tabela não fechava); (4) **aprovado sem nicho** (número da EMPRESA, dito
+  como tal); (5) desequilíbrio (agora oferece "Mover leads"); (6) sem livres. Ordem por
+  gravidade, em baldes (a guarda do módulo proíbe ordenar gente).
+- ⚠️ **`membrosDaEquipe` NÃO ganhou `permissoes`**: ela alimenta respostas de API
+  (`equipeComMembros`) e vazaria as concessões de cada pessoa. A visibilidade vem de
+  `quemVeBaseBruta`, que só devolve o booleano (guarda de regressão).
+- **Validação real (não só leitura do SQL):** `npm run medir:distribuicao-equipes`
+  (`scripts/medir-distribuicao-equipes.js`) — READ ONLY + ROLLBACK, `DATABASE_URL` explícita, só
+  contagens e ids mascarados, e **importa os predicados da produção** em vez de copiá-los. Confere
+  seis invariantes por equipe ativa (visibilidade, fora da equipe, triagem, equilíbrio, soma que
+  fecha, rastro no histórico) e quantas distribuições foram registradas em 30 dias.
+- Código: `src/services/lead-distribuicao.js` (`validarTransferencia`, `sqlTransferivel`,
+  `sqlOrdemTransferencia`), `src/db/lead-distribuicao.js` (`transferirLeads`,
+  `pontosDeAtencaoDoNicho`), `src/db/equipes-comerciais.js` (`transferirLeadsNaEquipe`,
+  `quemVeBaseBruta`), `src/routes/api-equipes-comerciais.js`. Front:
+  `frontend/components/ModalMoverLeads.tsx`, `frontend/lib/equipe-carteira.{js,d.ts,test.js}`,
+  `frontend/app/dashboard/equipe/page.tsx`. Testes: `test/lead-distribuicao.test.js` (+14),
+  `test/medir-distribuicao-equipes.test.js` (14), `frontend/lib/equipe-carteira.test.js` (+15).
+- **Nenhuma migration, nenhuma variável de ambiente nova, nenhuma capacidade nova.**
+
 ### Descoberta de leads pela Biblioteca de Anúncios do Meta (ator Apify) — dois incrementos
 - **Projeto em andamento, por incrementos.** Fase 0/análise completa em
   `docs/ai-task-start-log.md` (2026-09-21 (3)). **Incremento 1:** descoberta sob demanda via
