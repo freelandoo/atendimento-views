@@ -346,6 +346,27 @@ async function definirParticipantes(empresaId, equipeId, dados = {}, autorId = n
   })
 }
 
+/**
+ * Põe UMA pessoa numa equipe, DENTRO da transação do chamador — o cadastro de membro (direto ou
+ * por convite). "Entrou na empresa e entrou na equipe" é um fato só: se a equipe recusar, a conta
+ * também não nasce, e ninguém fica com acesso e sem equipe.
+ *
+ * Não reimplementa nada: soma a pessoa à lista atual e passa por `substituirParticipantes`, o
+ * MESMO caminho do modal — mesma checagem de "já está em outra equipe" (409), mesma auditoria e
+ * o MESMO rebalanceamento automático da carteira intocada do nicho.
+ */
+async function adicionarParticipanteEmTx(client, empresaId, equipeId, usuarioId, autorId = null) {
+  const equipe = await obterEquipe(client, empresaId, equipeId, { forUpdate: true })
+  if (!equipe) throw erro('Equipe não encontrada nesta empresa.', 404, 'EQUIPE_NAO_ENCONTRADA')
+  if (equipe.status !== 'ativa') throw erro('Esta equipe foi encerrada e não recebe participantes.', 409, 'EQUIPE_ENCERRADA')
+  const atuais = await membrosDaEquipe(client, empresaId, equipe.id)
+  const ids = [...new Set([...atuais.map((m) => String(m.usuario_id)), String(usuarioId)])]
+  const resultado = await substituirParticipantes(client, empresaId, equipe, ids, autorId, {
+    motivo: 'Entrada na empresa já dentro da equipe.',
+  })
+  return { equipe_id: equipe.id, equipe_nome: equipe.nome, distribuicao: resultado.distribuicao }
+}
+
 async function encerrarEquipe(empresaId, equipeId, dados = {}, autorId = null) {
   const v = E.normalizarEncerramento(dados)
   return withTx(async (client) => {
@@ -656,5 +677,6 @@ module.exports = {
   criarEquipe,
   atualizarEquipe,
   definirParticipantes,
+  adicionarParticipanteEmTx,
   encerrarEquipe,
 }
