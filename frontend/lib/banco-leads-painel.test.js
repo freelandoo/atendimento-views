@@ -5,7 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
-  cartoesDeFunil, itensMaisAcoes, validarExportacao, escopoDaSelecao, faixaDeEnvio,
+  cartoesDeFunil, leadPermaneceNaAbaBanco, itensMaisAcoes, validarExportacao, escopoDaSelecao, faixaDeEnvio,
   COLUNAS_CSV, COLUNAS_CSV_PADRAO, LIMPEZA,
 } from './banco-leads-painel.js'
 
@@ -57,6 +57,25 @@ test('aba desconhecida não quebra e nasce neutra', () => {
   const [c] = cartoesDeFunil([{ valor: 'novissima', label: 'Nova' }], { abas: { novissima: 3 } })
   assert.equal(c.tom, 'neutro')
   assert.equal(c.percentual, 100)
+})
+
+// ─── Lead dentro da aba atual ────────────────────────────────────────────────
+
+test('lead descartado sai imediatamente da aba sem contato', () => {
+  assert.equal(leadPermaneceNaAbaBanco({ status: 'rejeitado', tem_whatsapp: true }, 'sem_contato'), false)
+  assert.equal(leadPermaneceNaAbaBanco({ status: 'aprovado', tem_whatsapp: true }, 'sem_contato'), true)
+})
+
+test('aba descartados recebe rejeitados, nao contatar e leads sem WhatsApp', () => {
+  assert.equal(leadPermaneceNaAbaBanco({ status: 'rejeitado', tem_whatsapp: true }, 'descartados'), true)
+  assert.equal(leadPermaneceNaAbaBanco({ status: 'nao_contatar', tem_whatsapp: true }, 'descartados'), true)
+  assert.equal(leadPermaneceNaAbaBanco({ status: 'coletado', tem_whatsapp: false }, 'descartados'), true)
+  assert.equal(leadPermaneceNaAbaBanco({ status: 'coletado', tem_whatsapp: true }, 'descartados'), false)
+})
+
+test('aba agendados depende de agendamento futuro carregado no lead', () => {
+  assert.equal(leadPermaneceNaAbaBanco({ status: 'enviado', proximo_agendamento: '2026-09-23T10:00:00.000Z' }, 'agendados'), true)
+  assert.equal(leadPermaneceNaAbaBanco({ status: 'enviado', proximo_agendamento: null }, 'agendados'), false)
 })
 
 // ─── Menu "Mais ações" ───────────────────────────────────────────────────────

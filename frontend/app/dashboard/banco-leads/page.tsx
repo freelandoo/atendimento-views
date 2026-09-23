@@ -48,7 +48,7 @@ import { temCapacidade } from '@/lib/capacidades'
 // Apresentacao do painel (cartoes do funil, menu de acoes secundarias, pedido de exportacao e
 // o texto do que a limpeza REALMENTE faz). PURO e testado — a tela so desenha.
 import {
-  cartoesDeFunil, itensMaisAcoes, validarExportacao, escopoDaSelecao, faixaDeEnvio,
+  cartoesDeFunil, leadPermaneceNaAbaBanco, itensMaisAcoes, validarExportacao, escopoDaSelecao, faixaDeEnvio,
   COLUNAS_CSV, COLUNAS_CSV_PADRAO, LIMPEZA,
 } from '@/lib/banco-leads-painel'
 import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconSend, IconAlert, IconChevron, IconCheck } from '@/components/ui/icons'
@@ -1464,7 +1464,8 @@ export default function BancoLeadsPage() {
       { sucesso: sucesso || 'Status do lead atualizado.' }
     )
     const novo = r.data
-    setLeads((prev) => prev.map((l) => (l.id === id ? {
+    const statusEm = new Date().toISOString()
+    const atualizarLeadNaLista = (l: Lead): Lead => ({
       ...l,
       status: novo.status,
       qualificacao: novo.qualificacao ?? l.qualificacao,
@@ -1472,10 +1473,26 @@ export default function BancoLeadsPage() {
       responsavel_desde: novo.responsavel_desde ?? l.responsavel_desde,
       ultimo_status_acao: acaoOperacionalAuditavel(statusOperacional),
       ultimo_status_estado: novo.status,
-      ultimo_status_em: new Date().toISOString(),
+      ultimo_status_em: statusEm,
       proximo_agendamento: novo.agenda_evento?.data_inicio ?? l.proximo_agendamento,
-    } : l)))
-    setFicha((cur) => (cur && cur.leadId === id ? { ...cur, status: novo.status } : cur))
+    })
+    setLeads((prev) => prev.flatMap((l) => {
+      if (l.id !== id) return [l]
+      const atualizado = atualizarLeadNaLista(l)
+      return leadPermaneceNaAbaBanco(atualizado, aba) ? [atualizado] : []
+    }))
+    setSelecionados((prev) => {
+      if (!prev.has(id)) return prev
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+    setFicha((cur) => {
+      if (!cur || cur.leadId !== id) return cur
+      const leadAberto = atualizarLeadNaLista(cur.leadAberto)
+      if (!leadPermaneceNaAbaBanco(leadAberto, aba)) return null
+      return { ...cur, status: novo.status, leadAberto }
+    })
     carregarResumo()
     return novo
   }

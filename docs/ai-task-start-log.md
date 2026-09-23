@@ -5131,3 +5131,18 @@ planejamento do dia, validado pelo backend, e que a ficha só desenha vereditos/
 
 **Validação prevista:** `cd frontend && npx tsc --noEmit` e `node --test lib/*.test.js`, além de
 checagem manual visual quando possível.
+
+---
+
+## 2026-09-22 21:24:42 -03:00 — Banco de Leads: descarte remove lead da lista atual
+
+**Pedido:** ao descartar um lead pela ficha/drawer do Banco de Leads, o lead descartado deve sumir
+imediatamente da listagem atual e o próximo lead deve subir para ocupar a posição, sem exigir
+reload manual.
+
+**Entendimento inicial:** ajuste de estado local no frontend. A rota de status já grava
+`status='rejeitado'`/`qualificacao='descartado'`; o problema está na tela, que atualiza o lead com
+`map` mas não remove da lista quando a ação o tira da aba atual.
+
+**Áreas prováveis:** `frontend/app/dashboard/banco-leads/page.tsx`; validações previstas:
+`cd frontend && npx tsc --noEmit`, `node --test lib/*.test.js` e `git diff --check`.

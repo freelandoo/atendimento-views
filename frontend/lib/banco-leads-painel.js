@@ -45,6 +45,28 @@ const TOM_POR_ABA = {
   descartados: 'danger',
 }
 
+const STATUS_POR_ABA = Object.freeze({
+  sem_contato: ['coletado', 'contato_encontrado', 'aguardando', 'aprovado'],
+  conversou: ['enviado', 'respondeu'],
+  fecharam: ['fechado'],
+})
+
+/**
+ * Depois de uma acao dentro da ficha, a lista local precisa acompanhar a MESMA aba que o
+ * servidor entregaria num recarregamento. Ex.: ao descartar em "Sem contato", o lead vira
+ * `rejeitado`; ele pertence a "Descartados", entao sai da listagem atual imediatamente.
+ */
+export function leadPermaneceNaAbaBanco(lead = {}, aba = '') {
+  const status = String(lead.status || '')
+  if (aba === 'descartados') {
+    return status === 'rejeitado' || status === 'nao_contatar' || lead.tem_whatsapp === false
+  }
+  if (aba === 'agendados') return Boolean(lead.proximo_agendamento)
+  if (aba === 'sem_contato' && lead.tem_whatsapp === false) return false
+  const permitidos = STATUS_POR_ABA[aba]
+  return permitidos ? permitidos.includes(status) : true
+}
+
 /**
  * O menu "Mais acoes" do cabecalho. Guarda a regra do guia visual: **controle que a pessoa nao
  * pode usar e nao tem decisao de produto a explicar simplesmente nao e' renderizado** — botao

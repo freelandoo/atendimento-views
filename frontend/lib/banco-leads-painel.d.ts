@@ -22,6 +22,15 @@ export interface CartaoFunil {
 
 export function cartoesDeFunil(abas: AbaFunil[], resumo: ResumoFunil | null): CartaoFunil[]
 
+export function leadPermaneceNaAbaBanco(
+  lead?: {
+    status?: string | null
+    tem_whatsapp?: boolean | null
+    proximo_agendamento?: string | null
+  },
+  aba?: string
+): boolean
+
 export interface ItemMaisAcoes {
   chave: 'exportar' | 'limpar'
   rotulo: string
