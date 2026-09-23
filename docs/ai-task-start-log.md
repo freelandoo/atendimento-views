@@ -5263,3 +5263,23 @@ ICP e qualificação.
 **Validação prevista:** `cd backend && node --test test/site-classificacao.test.js
 test/lead-qualificacao.test.js test/ligacao-prioridade.test.js`, `cd frontend &&
 npx tsc --noEmit`, `node --test lib/*.test.js` e `git diff --check`.
+
+---
+
+## 2026-09-23 — Quadro do Dia: navegação e contexto semanal
+
+**Pedido:** melhorar o Quadro do Dia para facilitar a visão relacionada aos outros dias, sem
+transformar em quadro semanal/mensal. Manter o foco no dia selecionado, mas mostrar contexto dos
+dias próximos e facilitar trocar entre hoje, ontem, amanhã e dias da semana.
+
+**Entendimento inicial:** alteração de UX + rota read-only de resumo. Não deve mexer em
+responsável, distribuição, funil, envio, follow-ups ou no significado das colunas. A semana é
+navegação/contexto; os cards continuam carregados e movimentados para um dia por vez.
+
+**Áreas prováveis:** `backend/src/db/plano-dia.js`, `backend/src/routes/api-banco-leads.js`,
+`backend/test/plano-dia.test.js`, `frontend/lib/plano-dia.js`,
+`frontend/lib/plano-dia.d.ts`, `frontend/lib/plano-dia.test.js`,
+`frontend/components/QuadroDoDia.tsx` e docs do workflow.
+
+**Validação prevista:** `cd backend && node --test test/plano-dia.test.js`,
+`cd frontend && npx tsc --noEmit`, `node --test lib/plano-dia.test.js` e `git diff --check`.

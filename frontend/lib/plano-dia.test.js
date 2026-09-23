@@ -5,7 +5,8 @@ const assert = require('node:assert/strict')
 
 const {
   COLUNAS, CHAVES, montarColunas, aoMoverPara, seloConclusao, seloOrigemEntrada,
-  horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia,
+  horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia, somarDias, diasDaSemana,
+  rotuloDiaCurto, rotuloSemana, resumoDoPeriodo,
 } = require('./plano-dia')
 
 const fonte = fs.readFileSync(path.join(__dirname, 'plano-dia.js'), 'utf8')
@@ -119,6 +120,43 @@ test('rotuloDia diz "Hoje" so quando e hoje', () => {
   assert.equal(rotuloDia('2026-09-22', '2026-09-22'), 'Hoje')
   assert.equal(rotuloDia('2026-09-21', '2026-09-22'), '21/09/2026')
   assert.equal(rotuloDia(null, '2026-09-22'), '')
+})
+
+test('diasDaSemana monta contexto de segunda a domingo', () => {
+  assert.deepEqual(diasDaSemana('2026-09-23'), [
+    '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24',
+    '2026-09-25', '2026-09-26', '2026-09-27',
+  ])
+  assert.deepEqual(diasDaSemana('2026-09-27'), [
+    '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24',
+    '2026-09-25', '2026-09-26', '2026-09-27',
+  ])
+  assert.deepEqual(diasDaSemana('data'), [])
+})
+
+test('rotulos curtos destacam ontem, hoje e amanha', () => {
+  assert.equal(somarDias('2026-09-23', -1), '2026-09-22')
+  assert.equal(rotuloDiaCurto('2026-09-22', '2026-09-23'), 'Ontem')
+  assert.equal(rotuloDiaCurto('2026-09-23', '2026-09-23'), 'Hoje')
+  assert.equal(rotuloDiaCurto('2026-09-24', '2026-09-23'), 'Amanhã')
+  assert.equal(rotuloDiaCurto('2026-09-25', '2026-09-23'), 'sex 25/09')
+})
+
+test('resumoDoPeriodo preenche dias sem linha e preserva contagens', () => {
+  const dias = ['2026-09-21', '2026-09-22', '2026-09-23']
+  const r = resumoDoPeriodo([
+    { dia: '2026-09-22', total: '3', feitos: '1', abertos: '2', para_hoje: '2', em_trabalho: '1' },
+  ], dias)
+  assert.equal(r.length, 3)
+  assert.equal(r[0].total, 0)
+  assert.equal(r[1].feitos, 1)
+  assert.equal(r[1].abertos, 2)
+  assert.equal(r[2].total, 0)
+})
+
+test('rotuloSemana descreve a faixa sem virar quadro semanal', () => {
+  assert.equal(rotuloSemana(['2026-09-21', '2026-09-27']), 'Semana de 21/09 a 27/09')
+  assert.equal(rotuloSemana([]), '')
 })
 
 // ── Guardas de regressao ─────────────────────────────────────────────────────

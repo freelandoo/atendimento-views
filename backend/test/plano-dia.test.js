@@ -139,6 +139,15 @@ test('a camada de dados nao mexe em status, qualificacao, responsavel nem ICP', 
   }
 })
 
+test('resumoPeriodo e contagem read-only, pessoal e agrupada por dia', () => {
+  assert.ok(/async function resumoPeriodo/.test(fonteDb), 'faltou o resumo de navegacao por periodo')
+  assert.ok(/i\.empresa_id = \$1/.test(fonteDb), 'resumo precisa escopar por empresa')
+  assert.ok(/i\.usuario_id = \$2/.test(fonteDb), 'resumo precisa ser pessoal')
+  assert.ok(/GROUP BY i\.dia/.test(fonteDb), 'resumo deve agregar por dia, nao listar cards')
+  assert.ok(/COUNT\(\*\) FILTER \(WHERE i\.etapa = 'feito'\)/.test(fonteDb),
+    'resumo precisa separar feitos de abertos')
+})
+
 test('o Quadro nao dispara abordagem', () => {
   for (const proibido of ['rodarLeads', 'enviarMensagem', 'whatsapp', 'gerarMensagens']) {
     assert.ok(!codigoDb.includes(proibido) && !codigoSvc.includes(proibido),
@@ -188,6 +197,16 @@ test('o GET do Quadro e READ-ONLY', () => {
   for (const proibido of ['adicionarItens', 'moverItem', 'removerItem', 'replanejarPendentes', 'generateAIResponse']) {
     assert.ok(!bloco.includes(proibido), `abrir o quadro nao pode ${proibido}`)
   }
+})
+
+test('o resumo do Quadro nao aceita usuario_id externo', () => {
+  const ini = fonteRota.indexOf("router.get('/plano-dia/resumo'")
+  const fim = fonteRota.indexOf("router.get('/plano-dia'", ini + 1)
+  const bloco = fonteRota.slice(ini, fim)
+  assert.ok(bloco.includes('PLANO.resumoPeriodo'), 'rota de resumo deve usar a consulta agregada')
+  assert.ok(!/query\.usuario_id|body\.usuario_id|b\.usuario_id/.test(bloco),
+    'resumo do quadro tambem e pessoal; usuario_id externo viraria relatorio de equipe')
+  assert.ok(/usuarioId:\s*req\.usuario\.id/.test(bloco), 'resumo precisa usar o usuario logado')
 })
 
 test('nenhuma capacidade nova foi criada para o Quadro', () => {

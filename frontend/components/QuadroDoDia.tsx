@@ -29,7 +29,8 @@ import { classesEntrada } from '@/lib/ui-primitivos'
 import { celulaOrigem } from '@/lib/lead-origem'
 import {
   COLUNAS, montarColunas, aoMoverPara, seloConclusao, seloOrigemEntrada,
-  horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia,
+  horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia, somarDias, diasDaSemana,
+  rotuloDiaCurto, rotuloSemana, resumoDoPeriodo,
   type CardDia, type EtapaDia,
 } from '@/lib/plano-dia'
 import ModalPlanejarDia, { type CandidatoDia } from '@/components/ModalPlanejarDia'
@@ -38,6 +39,16 @@ type RespostaQuadro = {
   itens: CardDia[]
   sugestoes: { prospect_id: string; nome: string | null; origem_entrada: string; origem?: string | null; telefone?: string | null; cidade?: string | null; quando?: string | null }[]
   pendentes_anteriores: CardDia[]
+}
+
+type ResumoDiaFaixa = {
+  dia: string
+  total: number
+  feitos: number
+  abertos: number
+  para_hoje: number
+  em_trabalho: number
+  aguardando_retorno: number
 }
 
 function fmtHora(iso: string): string {
@@ -72,6 +83,8 @@ export default function QuadroDoDia({
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
   const [ocupado, setOcupado] = useState(false)
+  const [resumoFaixa, setResumoFaixa] = useState<ResumoDiaFaixa[]>([])
+  const [carregandoFaixa, setCarregandoFaixa] = useState(false)
   const [planejarAberto, setPlanejarAberto] = useState(false)
   const [arrastando, setArrastando] = useState<string | null>(null)
   const [alvo, setAlvo] = useState<EtapaDia | null>(null)
@@ -81,7 +94,26 @@ export default function QuadroDoDia({
   // Token de requisição: trocar de dia rápido nunca pode pintar a tela com o dia anterior
   // (mesmo contrato de `ConversaPainel`).
   const pedidoRef = useRef(0)
+  const pedidoResumoRef = useRef(0)
   const ignorarCliqueAposArrasteRef = useRef(false)
+
+  const carregarResumo = useCallback(async (diaBase: string) => {
+    const dias = diasDaSemana(diaBase)
+    if (!dias.length) return
+    const token = ++pedidoResumoRef.current
+    setCarregandoFaixa(true)
+    try {
+      const qs = `?inicio=${encodeURIComponent(dias[0])}&fim=${encodeURIComponent(dias[dias.length - 1])}`
+      const r = await apiFetch<ResumoDiaFaixa[]>(`${base}/plano-dia/resumo${qs}`)
+      if (token !== pedidoResumoRef.current) return
+      setResumoFaixa(resumoDoPeriodo(r.data || [], dias))
+    } catch {
+      if (token !== pedidoResumoRef.current) return
+      setResumoFaixa(resumoDoPeriodo([], dias))
+    } finally {
+      if (token === pedidoResumoRef.current) setCarregandoFaixa(false)
+    }
+  }, [base])
 
   const carregar = useCallback(async (diaPedido?: string) => {
     const token = ++pedidoRef.current
@@ -95,7 +127,11 @@ export default function QuadroDoDia({
       setSugestoes(r.data.sugestoes || [])
       setPendentes(r.data.pendentes_anteriores || [])
       const meta = (r as { meta?: { dia?: string; hoje?: string } }).meta
-      if (meta?.dia) setDia(meta.dia)
+      const diaMeta = meta?.dia || diaPedido || ''
+      if (diaMeta) {
+        setDia(diaMeta)
+        void carregarResumo(diaMeta)
+      }
       if (meta?.hoje) setHoje(meta.hoje)
     } catch (e) {
       if (token !== pedidoRef.current) return
@@ -103,7 +139,7 @@ export default function QuadroDoDia({
     } finally {
       if (token === pedidoRef.current) setCarregando(false)
     }
-  }, [base])
+  }, [base, carregarResumo])
 
   useEffect(() => { carregar() }, [carregar])
 
@@ -111,6 +147,17 @@ export default function QuadroDoDia({
   const resumo = useMemo(() => resumoDoDia(itens), [itens])
   const aviso = useMemo(() => avisoPendentes(pendentes), [pendentes])
   const jaNoDia = useMemo(() => new Set(itens.map((i) => i.prospect_id)), [itens])
+  const diasContexto = useMemo(() => diasDaSemana(dia || hoje), [dia, hoje])
+  const resumoContexto = useMemo(() => resumoDoPeriodo(resumoFaixa, diasContexto), [resumoFaixa, diasContexto])
+  const diaAnterior = useMemo(() => somarDias(dia || hoje, -1), [dia, hoje])
+  const diaSeguinte = useMemo(() => somarDias(dia || hoje, 1), [dia, hoje])
+  const planoDeHoje = !!dia && dia === hoje
+
+  function irParaDia(proximoDia: string) {
+    if (!proximoDia) return
+    setDia(proximoDia)
+    carregar(proximoDia)
+  }
 
   /**
    * Move um card. OTIMISTA com reversão — e a reversão é o ponto: quando o servidor recusa
@@ -127,6 +174,7 @@ export default function QuadroDoDia({
         body: JSON.stringify({ etapa: destino, nota: notaConclusao }),
       })
       setItens((prev) => prev.map((i) => (i.id === item.id ? { ...i, ...r.data } : i)))
+      if (dia) void carregarResumo(dia)
       setPedirNota(null)
       setNota('')
     } catch (e) {
@@ -168,6 +216,7 @@ export default function QuadroDoDia({
     setItens((prev) => prev.filter((i) => i.id !== item.id))
     try {
       await apiFetch(`${base}/plano-dia/${item.id}`, { method: 'DELETE' })
+      if (dia) void carregarResumo(dia)
     } catch (e) {
       fb.toast(e instanceof Error ? e.message : 'Não foi possível tirar o lead do dia.', 'error')
       carregar(dia)
@@ -197,23 +246,98 @@ export default function QuadroDoDia({
     <div className="space-y-3">
       {/* CABEÇALHO — a data, o resumo do dia e a porta de entrada. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line bg-surface px-3 py-2 shadow-card">
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-ink">
-            Quadro do dia · <span className="text-brand">{rotuloDia(dia, hoje)}</span>
-          </h2>
-          <p className="text-xs text-ink-3" aria-live="polite">{resumo.texto}</p>
+        <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="min-w-[180px] flex-1">
+            <h2 className="text-sm font-semibold text-ink">
+              Quadro do dia · <span className="text-brand">{rotuloDia(dia, hoje)}</span>
+            </h2>
+            <p className="text-xs text-ink-3" aria-live="polite">{resumo.texto}</p>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1" aria-label="Navegar entre dias">
+            <Botao
+              variante="neutra"
+              tamanho="sm"
+              onClick={() => irParaDia(diaAnterior)}
+              aria-label="Dia anterior"
+              title="Dia anterior"
+            >
+              ‹
+            </Botao>
+            <Botao
+              variante={planoDeHoje ? 'secundaria' : 'neutra'}
+              tamanho="sm"
+              onClick={() => irParaDia(hoje)}
+              disabled={!hoje || planoDeHoje}
+            >
+              Hoje
+            </Botao>
+            <Botao
+              variante="neutra"
+              tamanho="sm"
+              onClick={() => irParaDia(diaSeguinte)}
+              aria-label="Próximo dia"
+              title="Próximo dia"
+            >
+              ›
+            </Botao>
+          </div>
+
+          <label htmlFor="quadro-dia" className="sr-only">Data do planejamento</label>
+          <input
+            id="quadro-dia"
+            type="date"
+            value={dia}
+            onChange={(e) => irParaDia(e.target.value)}
+            className={classesEntrada({ extra: 'h-9 w-auto' })}
+          />
+          <Botao variante="primaria" onClick={() => setPlanejarAberto(true)}>
+            {planoDeHoje ? 'Planejar meu dia' : 'Planejar este dia'}
+          </Botao>
         </div>
-        <label htmlFor="quadro-dia" className="sr-only">Data do planejamento</label>
-        <input
-          id="quadro-dia"
-          type="date"
-          value={dia}
-          onChange={(e) => { setDia(e.target.value); carregar(e.target.value) }}
-          className={classesEntrada({ extra: 'h-9 w-auto' })}
-        />
-        <span className="ml-auto flex shrink-0 items-center gap-2">
-          <Botao variante="primaria" onClick={() => setPlanejarAberto(true)}>Planejar meu dia</Botao>
-        </span>
+
+        {diasContexto.length > 0 && (
+          <div className="w-full border-t border-line pt-2">
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-ink-3">{rotuloSemana(diasContexto)}</p>
+              <p className="text-[11px] text-ink-3">
+                {carregandoFaixa ? 'Atualizando dias próximos…' : 'Toque em um dia para trocar o foco.'}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-7">
+              {resumoContexto.map((r) => {
+                const selecionado = r.dia === dia
+                const hojeNaFaixa = r.dia === hoje
+                return (
+                  <button
+                    key={r.dia}
+                    type="button"
+                    onClick={() => irParaDia(r.dia)}
+                    aria-current={selecionado ? 'date' : undefined}
+                    className={`min-h-[64px] rounded-lg border px-2 py-1.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${
+                      selecionado
+                        ? 'border-brand bg-brand/10 text-brand shadow-card'
+                        : 'border-line bg-surface-2 text-ink hover:border-brand/40 hover:bg-surface-3'
+                    }`}
+                  >
+                    <span className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-semibold">{rotuloDiaCurto(r.dia, hoje)}</span>
+                      {hojeNaFaixa && !selecionado && (
+                        <span className="rounded-md bg-brand/10 px-1 py-0.5 text-[10px] font-semibold text-brand">hoje</span>
+                      )}
+                    </span>
+                    <span className="mt-1 block text-[11px] text-ink-3">
+                      {r.total ? `${r.feitos}/${r.total} feitos` : 'sem cards'}
+                    </span>
+                    {!!r.abertos && (
+                      <span className="mt-0.5 block text-[11px] text-estado-warn">{r.abertos} em aberto</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* PENDÊNCIAS — prévia, nunca movimento automático. Nada se move à meia-noite. */}

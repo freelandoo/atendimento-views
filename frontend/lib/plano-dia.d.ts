@@ -56,3 +56,27 @@ export function resumoDoDia(itens: { etapa?: string | null }[] | null | undefine
 /** A prévia das pendências. Nunca move nada. */
 export function avisoPendentes(pendentes: unknown[] | null | undefined): { total: number; texto: string; acao: string } | null
 export function rotuloDia(dia: string | null | undefined, hoje: string | null | undefined): string
+export function somarDias(dia: string | null | undefined, quantidade: number): string
+export function diasDaSemana(dia: string | null | undefined): string[]
+export function rotuloDiaCurto(dia: string | null | undefined, hoje: string | null | undefined): string
+export function rotuloSemana(dias: string[] | null | undefined): string
+export function resumoDoPeriodo(
+  linhas: {
+    dia?: string | null
+    total?: number | string | null
+    feitos?: number | string | null
+    abertos?: number | string | null
+    para_hoje?: number | string | null
+    em_trabalho?: number | string | null
+    aguardando_retorno?: number | string | null
+  }[] | null | undefined,
+  dias: string[] | null | undefined,
+): {
+  dia: string
+  total: number
+  feitos: number
+  abertos: number
+  para_hoje: number
+  em_trabalho: number
+  aguardando_retorno: number
+}[]

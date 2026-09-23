@@ -47,9 +47,88 @@ const COLUNAS = [
 ]
 
 const CHAVES = COLUNAS.map((c) => c.chave)
+const MS_DIA = 86400000
+const DIAS_CURTOS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab']
 
 function coluna(chave) {
   return COLUNAS.find((c) => c.chave === chave) || null
+}
+
+function dataDoDia(dia) {
+  const v = String(dia || '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null
+  const d = new Date(`${v}T12:00:00.000Z`)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toISOString().slice(0, 10) === v ? d : null
+}
+
+function formatarDiaISO(data) {
+  return data.toISOString().slice(0, 10)
+}
+
+function formatarDataCurta(dia) {
+  const partes = String(dia || '').split('-')
+  if (partes.length !== 3) return ''
+  return `${partes[2]}/${partes[1]}`
+}
+
+function somarDias(dia, quantidade) {
+  const d = dataDoDia(dia)
+  if (!d) return ''
+  d.setUTCDate(d.getUTCDate() + Number(quantidade || 0))
+  return formatarDiaISO(d)
+}
+
+/** Dias da semana operacional, sempre de segunda a domingo. */
+function diasDaSemana(dia) {
+  const base = dataDoDia(dia)
+  if (!base) return []
+  const diaSemana = base.getUTCDay()
+  const voltaParaSegunda = diaSemana === 0 ? -6 : 1 - diaSemana
+  const inicio = new Date(base.getTime() + voltaParaSegunda * MS_DIA)
+  return Array.from({ length: 7 }, (_, i) => formatarDiaISO(new Date(inicio.getTime() + i * MS_DIA)))
+}
+
+function rotuloDiaCurto(dia, hoje) {
+  if (!dia) return ''
+  if (dia === hoje) return 'Hoje'
+  if (hoje && dia === somarDias(hoje, -1)) return 'Ontem'
+  if (hoje && dia === somarDias(hoje, 1)) return 'Amanhã'
+  const d = dataDoDia(dia)
+  if (!d) return ''
+  return `${DIAS_CURTOS[d.getUTCDay()]} ${formatarDataCurta(dia)}`
+}
+
+function rotuloSemana(dias) {
+  const lista = Array.isArray(dias) ? dias.filter(Boolean) : []
+  if (!lista.length) return ''
+  return `Semana de ${formatarDataCurta(lista[0])} a ${formatarDataCurta(lista[lista.length - 1])}`
+}
+
+/**
+ * Normaliza o resumo da faixa. Dia sem linha no banco vira contagem zero, para a tela poder
+ * manter a semana estável e não "sumir" botão quando não há cards.
+ */
+function resumoDoPeriodo(linhas, dias) {
+  const porDia = new Map()
+  for (const linha of Array.isArray(linhas) ? linhas : []) {
+    if (linha && linha.dia) porDia.set(linha.dia, linha)
+  }
+  return (Array.isArray(dias) ? dias : []).map((dia) => {
+    const linha = porDia.get(dia) || {}
+    const total = Number(linha.total || 0)
+    const feitos = Number(linha.feitos || 0)
+    const abertos = Number(linha.abertos || Math.max(0, total - feitos))
+    return {
+      dia,
+      total,
+      feitos,
+      abertos,
+      para_hoje: Number(linha.para_hoje || 0),
+      em_trabalho: Number(linha.em_trabalho || 0),
+      aguardando_retorno: Number(linha.aguardando_retorno || 0),
+    }
+  })
 }
 
 /** Distribui os cards nas colunas, preservando a ordem que o servidor mandou. */
@@ -152,4 +231,5 @@ function rotuloDia(dia, hoje) {
 module.exports = {
   COLUNAS, CHAVES, coluna, montarColunas, aoMoverPara,
   seloConclusao, seloOrigemEntrada, horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia,
+  somarDias, diasDaSemana, rotuloDiaCurto, rotuloSemana, resumoDoPeriodo,
 }

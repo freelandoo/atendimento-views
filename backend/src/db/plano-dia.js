@@ -56,6 +56,32 @@ async function quadroDoDia(empresaId, usuarioId, dia) {
 }
 
 /**
+ * Resumo read-only de um intervalo curto para navegação visual do Quadro.
+ *
+ * Continua PESSOAL: empresa + usuario. Não lista cards de outro dia e não move nada; a tela usa
+ * isto só para dizer "este dia tem 4 itens, 2 feitos" antes de trocar o foco diário.
+ */
+async function resumoPeriodo({ empresaId, usuarioId, inicio, fim }) {
+  const { rows } = await pool.query(
+    `SELECT to_char(i.dia, 'YYYY-MM-DD') AS dia,
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE i.etapa = 'feito')::int AS feitos,
+            COUNT(*) FILTER (WHERE i.etapa <> 'feito')::int AS abertos,
+            COUNT(*) FILTER (WHERE i.etapa = 'para_hoje')::int AS para_hoje,
+            COUNT(*) FILTER (WHERE i.etapa = 'em_trabalho')::int AS em_trabalho,
+            COUNT(*) FILTER (WHERE i.etapa = 'aguardando_retorno')::int AS aguardando_retorno
+       FROM app.plano_dia_itens i
+      WHERE i.empresa_id = $1
+        AND i.usuario_id = $2
+        AND i.dia BETWEEN $3::date AND $4::date
+      GROUP BY i.dia
+      ORDER BY i.dia`,
+    [empresaId, usuarioId, inicio, fim]
+  )
+  return rows
+}
+
+/**
  * Acrescenta leads ao dia. **`ON CONFLICT DO NOTHING`**: o índice único
  * (`empresa, usuario, dia, prospect`) é quem garante que arrastar duas vezes, um retry ou duas
  * abas abertas não produzam dois cards do mesmo lead. Devolve só o que REALMENTE entrou — a
@@ -273,6 +299,7 @@ async function sugestoesDoDia({ empresaId, usuarioId, dia }) {
 module.exports = {
   PD,
   quadroDoDia,
+  resumoPeriodo,
   itemDoUsuario,
   adicionarItens,
   moverItem,

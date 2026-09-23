@@ -763,6 +763,48 @@ function diaDoPedido(valor) {
   return PLANO.PD.diaValido(valor) || PLANO.PD.diaOperacional()
 }
 
+function somarDiasPlano(dia, dias) {
+  const d = new Date(`${dia}T12:00:00.000Z`)
+  d.setUTCDate(d.getUTCDate() + dias)
+  return d.toISOString().slice(0, 10)
+}
+
+function diasEntrePlano(inicio, fim) {
+  const a = new Date(`${inicio}T12:00:00.000Z`)
+  const b = new Date(`${fim}T12:00:00.000Z`)
+  return Math.floor((b.getTime() - a.getTime()) / 86400000) + 1
+}
+
+/** Janela read-only curta para a faixa de dias do Quadro. */
+function periodoResumoPedido(q) {
+  const base = diaDoPedido(q && q.dia)
+  const inicio = PLANO.PD.diaValido(q && q.inicio) || base
+  let fim = PLANO.PD.diaValido(q && q.fim) || inicio
+  if (fim < inicio) fim = inicio
+  if (diasEntrePlano(inicio, fim) > 31) fim = somarDiasPlano(inicio, 30)
+  return { inicio, fim }
+}
+
+/**
+ * GET /plano-dia/resumo?inicio=YYYY-MM-DD&fim=YYYY-MM-DD — contagem para navegar pelos dias.
+ *
+ * READ-ONLY e PESSOAL: não lista cards de outro dia, não muda etapa e não aceita `usuario_id`.
+ * A tela usa isto como faixa de contexto; o quadro carregado continua sendo de UMA data.
+ */
+router.get('/plano-dia/resumo', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const { inicio, fim } = periodoResumoPedido(req.query)
+    const data = await PLANO.resumoPeriodo({
+      empresaId: req.empresa.id, usuarioId: req.usuario.id, inicio, fim,
+    })
+    return res.json({
+      ok: true,
+      data,
+      meta: { inicio, fim, hoje: PLANO.PD.diaOperacional() },
+    })
+  } catch (err) { return envelopeErro(res, err, 'PLANO_DIA_RESUMO_FAILED') }
+})
+
 /**
  * GET /plano-dia?dia=YYYY-MM-DD — o quadro, as sugestões e o que ficou pendente.
  *
