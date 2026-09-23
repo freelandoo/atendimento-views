@@ -109,6 +109,28 @@ test('qualificacao bloqueia Google fechado e nao confunde ausencia de dado com h
   assert.equal(q.penalidades.some((p) => p.chave === 'sem_horario_google'), false)
 })
 
+test('site de construtor pontua como oportunidade pendente, acima de link duvidoso', () => {
+  const base = { nome: 'Loja X', telefone: '62999998888', nicho: 'loja' }
+  const construtor = avaliarQualificacaoLead({ ...base, site: 'https://lojax.wixsite.com/site' })
+  const proprio = avaliarQualificacaoLead({ ...base, site: 'https://lojax.com.br' })
+  const duvidoso = avaliarQualificacaoLead({ ...base, site: 'https://bit.ly/site' })
+
+  assert.ok(construtor.sinais.some((p) => p.chave === 'site_construtor' && p.pontos === 8))
+  assert.ok(construtor.revisoes.some((p) => p.chave === 'verificar_site_site_construtor'))
+  assert.equal(construtor.validacao, VALIDACAO.REVISAR_RAPIDO)
+  assert.ok(construtor.score_100 > proprio.score_100)
+  assert.ok(construtor.score_100 > duvidoso.score_100)
+  assert.equal(construtor.dimensoes.site_oportunidade, 'site_construtor')
+  assert.equal(construtor.dimensoes.site_verificacao, 'pendente')
+})
+
+test('sinal automatico de lacuna reconhece site de construtor sem chamar de sem site', () => {
+  const lead = { site: 'https://lojax.wixsite.com/site', telefone: '62999998888', nicho: 'loja' }
+  const sinais = calcularSinaisAutomaticos(lead)
+  assert.equal(sinais.lacuna_digital_clara.sugerido, true)
+  assert.match(sinais.lacuna_digital_clara.motivo, /site de construtor/i)
+})
+
 test('avaliacao salva preserva observacao no snapshot atual do ICP', async () => {
   let updateResumo = null
   const exec = {

@@ -1340,3 +1340,24 @@ existe e nao deve nascer.
   preferência de colunas, não repaginação.
 - **Validação:** frontend `npx tsc --noEmit` limpo, `node --test lib/*.test.js` 783/783,
   `npx next build` OK. **Verificação visual ao vivo NÃO foi feita.**
+
+## 2026-09-23 — Qualificação: evidência de site no drawer
+
+- **Arquivos:** `backend/src/services/site-classificacao.js`,
+  `backend/src/services/lead-qualificacao-score.js`, `backend/src/services/lead-icp-score.js`,
+  `backend/src/domainSchemas.js`, `backend/src/db/campanhas.js`,
+  `backend/src/routes/api-banco-leads.js`, `frontend/lib/lead-icp.js`,
+  `frontend/components/LeadDetalhesModal.tsx`,
+  `frontend/app/dashboard/banco-leads/page.tsx`, `frontend/components/ProspeccaoPainel.tsx`.
+- **Regras a preservar:**
+  - **`classificacao_url` não ganha valor novo sem migration.** Site de construtor continua
+    persistido como `desconhecido`; o subtipo e a oportunidade são derivados na leitura.
+  - **O front não classifica domínio.** Ele mostra `site_oportunidade` vindo do backend; o fallback
+    só traduz snapshots antigos.
+  - **Distribuição de leads não muda.** A nova pontuação informa qualificação/prioridade, não
+    troca responsável nem mexe nos predicados de protegido/intocado.
+  - **Link cru continua preservado.** Construtor/link duvidoso aparecem na ficha como link a
+    verificar, sem serem chamados de site próprio funcional.
+- **Validação:** backend `node --test test/site-classificacao.test.js test/lead-icp-score.test.js
+  test/ligacao-prioridade.test.js` limpo; frontend `npx tsc --noEmit` limpo e
+  `node --test lib/*.test.js` 794/794. **Verificação visual ao vivo NÃO foi feita.**

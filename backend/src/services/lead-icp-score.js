@@ -95,10 +95,12 @@ function calcularSinaisAutomaticos(lead = {}) {
   const rating = numero(lead.rating)
   const perfilSocial = temPerfilSocialConfirmado(lead)
   const operacaoValidada = (avaliacoes != null && avaliacoes >= 5) || (rating != null && rating >= 4)
+  const siteOp = url.site_oportunidade || {}
   // A lacuna digital continua lendo a presenca AMPLA, de proposito: a pergunta ali e' se ha'
   // algum sinal de vida digital contrastando com a falta de site, e para isso um rastro fraco
   // basta. Trocar as duas pela mesma funcao mudaria um segundo criterio sem ninguem ter pedido.
   const lacunaDigital = url.situacao_site === 'sem_site'
+    || (Number(url.site_oportunidade?.pontos_qualificacao) || 0) >= 8
     || (url.situacao_site === 'nao_identificado' && (temPresencaSocial(lead) || !!texto(url.link_original)))
 
   return {
@@ -114,7 +116,7 @@ function calcularSinaisAutomaticos(lead = {}) {
       lacunaDigital,
       'site',
       lacunaDigital
-        ? 'Nao ha site proprio confirmado ou o link precisa de revisao.'
+        ? `Ha lacuna ou oportunidade de site: ${siteOp.rotulo || 'revisar site'}.`
         : 'Site proprio identificado ou lacuna digital nao confirmada.'
     ),
   }

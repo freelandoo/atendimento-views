@@ -131,6 +131,10 @@ function dedupePorChave(lista) {
   })
 }
 
+function pendenciaExigeHumano(p) {
+  return p && p.chave !== 'validar_site' && !String(p.chave || '').startsWith('verificar_site_')
+}
+
 function avaliarQualificacaoLead(lead = {}, opts = {}) {
   const agora = opts.agora ? new Date(opts.agora) : new Date()
   const sinais = []
@@ -182,17 +186,20 @@ function avaliarQualificacaoLead(lead = {}, opts = {}) {
     revisoes.push(item(TIPO.REVISAO, 'validar_contato', 'Validar contato antes de abordar.', 0))
   }
 
-  if (url.situacao_site === 'sem_site') {
-    sinais.push(item('positivo', 'sem_site_proprio', 'Sem site proprio: dor digital clara.', 14))
-  } else if (url.situacao_site === 'tem_site') {
-    sinais.push(item('positivo', 'site_proprio', 'Site proprio identificado.', 4))
-    if (lead.oferta_recomendada === 'site_profissional') {
-      penalidades.push(item(TIPO.FORTE, 'oferta_site_conflita', 'Oferta de site novo conflita com site proprio identificado.', -16))
-      revisoes.push(item(TIPO.REVISAO, 'revisar_oferta_site', 'Revisar oferta: talvez seja redesign, SEO ou automacao.', 0))
+  const siteOp = url.site_oportunidade || {}
+  const pontosSite = Number(siteOp.pontos_qualificacao) || 0
+  if (pontosSite > 0) {
+    sinais.push(item('positivo', siteOp.tipo || 'site_oportunidade', `${siteOp.rotulo || 'Site'}: ${siteOp.motivo || 'evidencia comercial de site.'}`, pontosSite))
+  }
+  if (siteOp.verificacao === 'pendente') {
+    revisoes.push(item(TIPO.REVISAO, `verificar_site_${siteOp.tipo || 'pendente'}`, siteOp.motivo || 'Validar site antes de usar como evidencia forte.', 0))
+    if (siteOp.tipo === 'link_duvidoso' || siteOp.tipo === 'nao_identificado') {
+      penalidades.push(item(TIPO.LEVE, 'site_nao_verificado', 'Site ainda sem verificacao suficiente.', -3))
     }
-  } else {
-    revisoes.push(item(TIPO.REVISAO, 'validar_site', 'Link/site precisa de validacao humana.', 0))
-    penalidades.push(item(TIPO.LEVE, 'site_nao_identificado', 'Site proprio ainda nao confirmado.', -3))
+  }
+  if (url.situacao_site === 'tem_site' && siteOp.tipo === 'site_proprio_pendente' && lead.oferta_recomendada === 'site_profissional') {
+    penalidades.push(item(TIPO.FORTE, 'oferta_site_conflita', 'Oferta de site novo conflita com site proprio identificado.', -16))
+    revisoes.push(item(TIPO.REVISAO, 'revisar_oferta_site', 'Revisar oferta: talvez seja redesign, SEO ou automacao.', 0))
   }
 
   if (atividadeGoogle.faixa === 'ativo_recente') sinais.push(item('positivo', 'google_ativo_recente', 'Google com atividade publica recente.', 12))
@@ -262,7 +269,7 @@ function avaliarQualificacaoLead(lead = {}, opts = {}) {
   let validacao = VALIDACAO.APTO_AUTOMATICO
   if (travas.length) validacao = VALIDACAO.BLOQUEADO
   else if (riscos.some((p) => p.tipo === TIPO.FORTE) && pendencias.length) validacao = VALIDACAO.AUTOMATICA_HUMANA
-  else if (riscos.some((p) => p.tipo === TIPO.FORTE) || pendencias.some((p) => p.chave !== 'validar_site')) validacao = VALIDACAO.VALIDACAO_HUMANA
+  else if (riscos.some((p) => p.tipo === TIPO.FORTE) || pendencias.some(pendenciaExigeHumano)) validacao = VALIDACAO.VALIDACAO_HUMANA
   else if (score < 25) validacao = VALIDACAO.BAIXO_FIT
   else if (riscos.length || pendencias.length) validacao = VALIDACAO.REVISAR_RAPIDO
 
@@ -286,6 +293,8 @@ function avaliarQualificacaoLead(lead = {}, opts = {}) {
       google_atividade: atividadeGoogle.faixa,
       instagram_atividade: ig.estado,
       situacao_site: url.situacao_site,
+      site_oportunidade: siteOp.tipo || null,
+      site_verificacao: siteOp.verificacao || null,
       telefone_discavel: telefoneOk,
       icp_score_100: icp100,
     },

@@ -49,6 +49,21 @@ const SITUACAO_LABEL = Object.freeze({
   nao_identificado: 'Verificar link',
 })
 
+const SITE_OPORTUNIDADE_LABEL = Object.freeze({
+  sem_site_confirmado: 'Sem site confirmado',
+  perfil_ou_diretorio: 'So perfil ou diretorio',
+  site_construtor: 'Site de construtor',
+  link_duvidoso: 'Link duvidoso',
+  site_proprio_pendente: 'Site proprio a verificar',
+  site_informado_sem_url: 'Site informado sem URL',
+  nao_identificado: 'Site nao identificado',
+})
+
+const SITE_VERIFICACAO_LABEL = Object.freeze({
+  confirmado: 'Verificado',
+  pendente: 'Precisa verificar',
+})
+
 // ── Dominios conhecidos ────────────────────────────────────────────────────────────────
 // A chave e' o dominio (sem `www.`). A busca casa o host EXATO e qualquer subdominio dele,
 // do mais especifico para o menos especifico — por isso `maps.app.goo.gl` (mapa) e
@@ -127,14 +142,14 @@ const ENCURTADOR = [
 
 function montarIndice() {
   const idx = new Map()
-  const add = (lista, categoria, motivo) => {
-    for (const dominio of lista) idx.set(dominio, { categoria, motivo })
+  const add = (lista, categoria, motivo, subtipo = null) => {
+    for (const dominio of lista) idx.set(dominio, { categoria, motivo, subtipo })
   }
   add(REDE_SOCIAL, 'rede_social', 'perfil de rede social, nao e site proprio')
   add(AGREGADOR, 'agregador', 'agregador de links, nao e site proprio')
   add(PERFIL_OU_DIRETORIO, 'perfil_ou_diretorio', 'perfil em mapa, marketplace ou diretorio')
-  add(CONSTRUTOR_COMPARTILHADO, 'desconhecido', 'pagina em dominio compartilhado de construtor: revisar')
-  add(ENCURTADOR, 'desconhecido', 'link encurtado esconde o destino: revisar')
+  add(CONSTRUTOR_COMPARTILHADO, 'desconhecido', 'pagina em dominio compartilhado de construtor: revisar', 'construtor_compartilhado')
+  add(ENCURTADOR, 'desconhecido', 'link encurtado esconde o destino: revisar', 'encurtador')
   return idx
 }
 
@@ -197,9 +212,10 @@ function ehHostSuspeito(host) {
 
 // ── Classificacao ──────────────────────────────────────────────────────────────────────
 
-function resultado({ classificacao, motivo, linkOriginal, host = null, site = null }) {
+function resultado({ classificacao, motivo, linkOriginal, host = null, site = null, subtipo = null }) {
   return {
     classificacao,
+    subtipo,
     tem_site: classificacao === 'site_proprio',
     site,
     link_original: linkOriginal || null,
@@ -222,18 +238,18 @@ function classificarUrl(bruta) {
 
   if (!norm) {
     if (!linkOriginal) return resultado({ classificacao: 'sem_link', motivo: 'nenhum link informado', linkOriginal: null })
-    return resultado({ classificacao: 'desconhecido', motivo: 'link ilegivel ou fora do padrao http(s)', linkOriginal })
+    return resultado({ classificacao: 'desconhecido', motivo: 'link ilegivel ou fora do padrao http(s)', linkOriginal, subtipo: 'link_ilegivel' })
   }
 
   const { host, path } = norm
 
   if (ehHostSuspeito(host)) {
-    return resultado({ classificacao: 'desconhecido', motivo: 'dominio invalido, local ou de exemplo', linkOriginal, host })
+    return resultado({ classificacao: 'desconhecido', motivo: 'dominio invalido, local ou de exemplo', linkOriginal, host, subtipo: 'dominio_suspeito' })
   }
 
   const conhecido = dominioConhecido(host)
   if (conhecido) {
-    return resultado({ classificacao: conhecido.categoria, motivo: conhecido.motivo, linkOriginal, host })
+    return resultado({ classificacao: conhecido.categoria, motivo: conhecido.motivo, linkOriginal, host, subtipo: conhecido.subtipo || null })
   }
 
   // Caminho de mapa em dominio nao listado (ex.: `*.google.<tld>/maps`) — defensivo.
@@ -248,6 +264,85 @@ function classificarUrl(bruta) {
     linkOriginal,
     host,
     site: norm.href,
+  })
+}
+
+function oportunidade({ tipo, verificacao, pontos, motivo, linkOriginal = null }) {
+  return {
+    tipo,
+    rotulo: SITE_OPORTUNIDADE_LABEL[tipo],
+    verificacao,
+    verificacao_label: SITE_VERIFICACAO_LABEL[verificacao],
+    pontos_qualificacao: pontos,
+    motivo,
+    link_original: linkOriginal || null,
+  }
+}
+
+function oportunidadeSite({ cls, situacao, lead = {} }) {
+  if (situacao === 'sem_site') {
+    if (cls.classificacao === 'perfil_ou_diretorio') {
+      return oportunidade({
+        tipo: 'perfil_ou_diretorio',
+        verificacao: 'confirmado',
+        pontos: 10,
+        motivo: 'ha somente perfil, mapa, marketplace ou diretorio; site proprio nao foi confirmado',
+        linkOriginal: cls.link_original,
+      })
+    }
+    return oportunidade({
+      tipo: 'sem_site_confirmado',
+      verificacao: 'confirmado',
+      pontos: 14,
+      motivo: 'sem site proprio confirmado pelos dados coletados',
+      linkOriginal: cls.link_original,
+    })
+  }
+
+  if (cls.classificacao === 'desconhecido') {
+    if (cls.subtipo === 'construtor_compartilhado') {
+      return oportunidade({
+        tipo: 'site_construtor',
+        verificacao: 'pendente',
+        pontos: 8,
+        motivo: 'pagina em provedor/construtor indica interesse em site, mas ainda precisa verificacao',
+        linkOriginal: cls.link_original,
+      })
+    }
+    return oportunidade({
+      tipo: 'link_duvidoso',
+      verificacao: 'pendente',
+      pontos: 2,
+      motivo: 'link nao permite afirmar se existe site proprio funcional',
+      linkOriginal: cls.link_original,
+    })
+  }
+
+  if (cls.classificacao === 'site_proprio') {
+    return oportunidade({
+      tipo: 'site_proprio_pendente',
+      verificacao: 'pendente',
+      pontos: 2,
+      motivo: 'dominio proprio encontrado; verificar se o site funciona antes de priorizar ou descartar',
+      linkOriginal: cls.site || cls.link_original,
+    })
+  }
+
+  if (lead.tem_site === true && cls.classificacao === 'sem_link') {
+    return oportunidade({
+      tipo: 'site_informado_sem_url',
+      verificacao: 'pendente',
+      pontos: 1,
+      motivo: 'cadastro antigo informa site, mas a URL nao esta disponivel para verificacao',
+    })
+  }
+
+  return oportunidade({
+    tipo: 'nao_identificado',
+    verificacao: 'pendente',
+    pontos: 0,
+    motivo: 'nenhuma evidencia suficiente de site foi coletada ainda',
+    linkOriginal: cls.link_original,
   })
 }
 
@@ -312,6 +407,7 @@ function classificarLead(lead = {}) {
     tem_site: situacao === 'tem_site',
     situacao_site: situacao,
     situacao_label: SITUACAO_LABEL[situacao],
+    site_oportunidade: oportunidadeSite({ cls, situacao, lead }),
   }
 }
 
@@ -329,6 +425,8 @@ module.exports = {
   CLASSIFICACOES,
   CLASSIFICACAO_LABEL,
   SITUACAO_LABEL,
+  SITE_OPORTUNIDADE_LABEL,
+  SITE_VERIFICACAO_LABEL,
   normalizarUrl,
   classificarUrl,
   classificarMelhorLink,

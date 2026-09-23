@@ -145,6 +145,15 @@ test('URL duvidosa => desconhecido, NUNCA promovida a site proprio', () => {
   }
 })
 
+test('subtipo separa construtor de link duvidoso sem mudar a categoria persistida', () => {
+  const wix = classificarUrl('https://lojax.wixsite.com/site')
+  const bitly = classificarUrl('https://bit.ly/3xYz')
+  assert.equal(wix.classificacao, 'desconhecido')
+  assert.equal(wix.subtipo, 'construtor_compartilhado')
+  assert.equal(bitly.classificacao, 'desconhecido')
+  assert.equal(bitly.subtipo, 'encurtador')
+})
+
 test('link original e sempre preservado para auditoria', () => {
   assert.equal(classificarUrl('  https://instagram.com/lojax  ').link_original, 'https://instagram.com/lojax')
   assert.equal(classificarUrl('bit.ly/3xYz').link_original, 'bit.ly/3xYz')
@@ -216,6 +225,33 @@ test('link a verificar conta como com site, nunca como sem site', () => {
   assert.equal(temSiteProprio({ site: 'https://lojax.wixsite.com/x' }), true)
   // o que importa para a campanha: ele NAO cai no balde de "sem site"
   assert.notEqual(situacaoSiteDoLead({ site: 'https://bit.ly/3x', place_id: 'ChIJ_x' }), 'sem_site')
+})
+
+test('oportunidade de site separa confirmado, construtor e dominio proprio pendente', () => {
+  assert.deepEqual(
+    {
+      tipo: classificarLead({ place_id: 'ChIJ_x', tem_site: false }).site_oportunidade.tipo,
+      verificacao: classificarLead({ place_id: 'ChIJ_x', tem_site: false }).site_oportunidade.verificacao,
+      pontos: classificarLead({ place_id: 'ChIJ_x', tem_site: false }).site_oportunidade.pontos_qualificacao,
+    },
+    { tipo: 'sem_site_confirmado', verificacao: 'confirmado', pontos: 14 }
+  )
+  assert.deepEqual(
+    {
+      tipo: classificarLead({ site: 'https://lojax.wixsite.com/x' }).site_oportunidade.tipo,
+      verificacao: classificarLead({ site: 'https://lojax.wixsite.com/x' }).site_oportunidade.verificacao,
+      pontos: classificarLead({ site: 'https://lojax.wixsite.com/x' }).site_oportunidade.pontos_qualificacao,
+    },
+    { tipo: 'site_construtor', verificacao: 'pendente', pontos: 8 }
+  )
+  assert.deepEqual(
+    {
+      tipo: classificarLead({ site: 'https://lojax.com.br' }).site_oportunidade.tipo,
+      verificacao: classificarLead({ site: 'https://lojax.com.br' }).site_oportunidade.verificacao,
+      pontos: classificarLead({ site: 'https://lojax.com.br' }).site_oportunidade.pontos_qualificacao,
+    },
+    { tipo: 'site_proprio_pendente', verificacao: 'pendente', pontos: 2 }
+  )
 })
 
 // `nao_identificado` continua existindo — so' deixou de ser o destino do link duvidoso.

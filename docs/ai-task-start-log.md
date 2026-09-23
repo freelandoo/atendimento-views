@@ -5238,3 +5238,28 @@ reload manual.
 
 **Áreas prováveis:** `frontend/app/dashboard/banco-leads/page.tsx`; validações previstas:
 `cd frontend && npx tsc --noEmit`, `node --test lib/*.test.js` e `git diff --check`.
+
+---
+
+## 2026-09-23 — Qualificação: evidência de site separada no ICP
+
+**Pedido:** separar melhor, na ficha/drawer de qualificação do lead, a informação de site:
+site próprio ainda pendente de verificação, site de construtor/provedor, perfil/diretório,
+link duvidoso e ausência confirmada. A informação deve aparecer de forma simples, junto da
+qualificação, e influenciar a régua operacional/ICP para que evidências verificadas pesem mais
+do que links pendentes.
+
+**Entendimento inicial:** mudança de regra pura e apresentação no app SaaS, sem migration
+inicial. O backend continua fonte da verdade: a leitura canônica de site deve derivar um resumo
+de oportunidade/validação a partir dos links existentes; o frontend apenas exibe esse veredito
+e os pontos. A distribuição de leads não deve mudar nesta etapa.
+
+**Áreas prováveis:** `backend/src/services/site-classificacao.js`,
+`backend/src/services/lead-qualificacao-score.js`, `backend/src/domainSchemas.js`,
+`backend/src/db/campanhas.js`, `frontend/lib/site-rotulos.js`,
+`frontend/lib/lead-icp.js`, `frontend/components/LeadDetalhesModal.tsx` e testes puros de site,
+ICP e qualificação.
+
+**Validação prevista:** `cd backend && node --test test/site-classificacao.test.js
+test/lead-qualificacao.test.js test/ligacao-prioridade.test.js`, `cd frontend &&
+npx tsc --noEmit`, `node --test lib/*.test.js` e `git diff --check`.

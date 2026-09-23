@@ -54,6 +54,34 @@ test('qualificacao fallback penaliza Instagram parado e telefone ausente sem blo
   assert.ok(q.penalidades.some((p) => p.chave === 'instagram_antigo'))
 })
 
+test('fallback de site usa oportunidade vinda do backend para pontuar a régua', () => {
+  const q = I.qualificacaoDoLead({
+    telefone: '62999998888',
+    site_oportunidade: {
+      tipo: 'site_construtor',
+      rotulo: 'Site de construtor',
+      verificacao: 'pendente',
+      verificacao_label: 'Precisa verificar',
+      pontos_qualificacao: 8,
+      motivo: 'Pagina em provedor precisa verificacao.',
+    },
+  })
+  assert.ok(q.sinais.some((p) => p.chave === 'site_construtor' && p.pontos === 8))
+  assert.ok(q.revisoes.some((p) => p.chave === 'verificar_site_site_construtor'))
+})
+
+test('sinal automatico de lacuna digital reconhece site de construtor', () => {
+  const sinais = I.sinaisAutomaticosDoLead({
+    site_oportunidade: {
+      tipo: 'site_construtor',
+      rotulo: 'Site de construtor',
+      verificacao: 'pendente',
+      pontos_qualificacao: 8,
+    },
+  })
+  assert.equal(sinais.lacuna_digital_clara.sugerido, true)
+})
+
 test('ordem ICP deixa sem avaliacao por ultimo', () => {
   assert.ok(I.ordemIcp({ icp_faixa: 'A', icp_score: 10 }) > I.ordemIcp({ icp_faixa: 'B', icp_score: 9 }))
   assert.ok(I.ordemIcp({ icp_faixa: 'C', icp_score: 5 }) > I.ordemIcp({}))

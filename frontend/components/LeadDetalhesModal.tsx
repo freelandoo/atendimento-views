@@ -33,6 +33,7 @@ import {
   CRITERIOS_ICP_TENKA,
   calcularIcp,
   qualificacaoDoLead,
+  oportunidadeSiteDoLead,
   respostasIniciaisIcp,
   resumoIcpDoLead,
   resumoIcpOperacional,
@@ -70,6 +71,15 @@ type QualificacaoResumo = {
   sinais?: QualificacaoItem[]
   motivos?: string[]
 }
+type SiteOportunidade = {
+  tipo?: string
+  rotulo?: string
+  verificacao?: 'confirmado' | 'pendente' | string
+  verificacao_label?: string
+  pontos_qualificacao?: number
+  motivo?: string
+  link_original?: string | null
+}
 // `pendente` e `salvando` são estados DIFERENTES de propósito: o indicador substituiu o botão
 // "Salvar ICP", então ele é a única coisa que responde "e agora, já foi?". Dizer "Salvando…"
 // durante a espera do debounce, quando ainda não há requisição alguma, faria o indicador
@@ -103,6 +113,7 @@ export type LeadDetalhavel = {
   classificacao_url?: string | null
   /** Veredito de 3 estados do backend. É ele que a bolinha de cadastro passou a dizer. */
   situacao_site?: 'tem_site' | 'sem_site' | 'nao_identificado' | null
+  site_oportunidade?: SiteOportunidade | null
   maps_url?: string | null
   score_cadastro?: number | null
   score_cadastro_max?: number | null
@@ -467,6 +478,55 @@ function ListaQualificacao({ titulo, itens, tom = 'neutro' }: {
         ))}
       </div>
     </div>
+  )
+}
+
+function BlocoSiteQualificacao({ lead, itens }: { lead: LeadDetalhavel; itens: QualificacaoItem[] }) {
+  const siteOp = oportunidadeSiteDoLead(lead) as SiteOportunidade
+  const pontos = Number(siteOp.pontos_qualificacao) || 0
+  const pendente = siteOp.verificacao === 'pendente'
+  const link = siteOp.link_original || lead.site || lead.link_original || lead.link_bio || ''
+  const itensSite = itens.filter((i) => /site|link/.test(String(i.chave || ''))).slice(0, 4)
+  return (
+    <SecaoModal titulo="Site / presença digital" subtitulo="Evidência separada para qualificação e priorização.">
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+        <div className="rounded-lg border border-line bg-surface-2 px-3 py-2">
+          <p className="text-sm font-semibold text-ink">{siteOp.rotulo || 'Site não identificado'}</p>
+          <p className="mt-1 text-xs leading-relaxed text-ink-3">
+            {siteOp.motivo || 'Situação de site recebida do backend.'}
+          </p>
+          {link && (
+            <a href={link} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-medium text-brand hover:underline">
+              abrir link ↗
+            </a>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:w-56">
+          <div className={`rounded-lg border px-3 py-2 ${pendente ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+            <p className="text-[11px] font-semibold uppercase tracking-wide">Verificação</p>
+            <p className="mt-1 text-sm font-semibold">{siteOp.verificacao_label || (pendente ? 'Precisa verificar' : 'Verificado')}</p>
+          </div>
+          <div className="rounded-lg border border-line bg-surface px-3 py-2 text-ink">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Régua</p>
+            <p className="mt-1 text-sm font-semibold">{pontos > 0 ? `+${pontos}` : '+0'}</p>
+          </div>
+        </div>
+      </div>
+      {itensSite.length > 0 && (
+        <ul className="mt-3 grid gap-1">
+          {itensSite.map((i) => (
+            <li key={i.chave || i.rotulo} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs text-ink-2">
+              <span className="min-w-0 flex-1">{i.rotulo}</span>
+              {typeof i.pontos === 'number' && (
+                <span className={i.pontos >= 0 ? 'text-emerald-700' : 'text-amber-700'}>
+                  {i.pontos > 0 ? `+${i.pontos}` : i.pontos}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </SecaoModal>
   )
 }
 
@@ -891,6 +951,10 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                 </SecaoModal>
               ))}
 
+              {ver('qualificacao') && (
+                <BlocoSiteQualificacao lead={lead} itens={[...sinaisQualificacao, ...alertasQualificacao]} />
+              )}
+
               <div className="space-y-3">
                 {ver('fontes') && <SecaoModal titulo="Contexto do lead" subtitulo="Dados que ajudam a decidir a abordagem.">
                   {/* Dados complementares: é para cá que vieram Endereço, Nota, Avaliações e Horário
@@ -922,9 +986,9 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                         {lead.tem_site && lead.site && (
                           <a href={lead.site} target="_blank" rel="noreferrer" className="text-brand hover:underline">site próprio ↗</a>
                         )}
-                        {!lead.tem_site && lead.link_original && (
+                        {!lead.site && lead.link_original && (
                           <a href={lead.link_original} target="_blank" rel="noreferrer" className="text-ink-3 hover:underline"
-                            title={tituloLinkNaoSite(lead.classificacao_url, lead.link_original)}>
+                            title={lead.tem_site ? `Link a verificar: ${lead.link_original}` : tituloLinkNaoSite(lead.classificacao_url, lead.link_original)}>
                             {rotuloLink(lead.classificacao_url) || 'link'} ↗
                           </a>
                         )}

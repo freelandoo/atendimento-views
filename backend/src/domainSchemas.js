@@ -318,6 +318,7 @@ function normalizarProspectPersistido(row) {
     link_original: row.link_original || row.site || '',
     classificacao_url: row.classificacao_url || urlCls.classificacao,
     situacao_site: urlCls.situacao_site,
+    site_oportunidade: urlCls.site_oportunidade,
     maps_url: row.maps_url || '',
     place_id: row.place_id,
     origem: row.origem,

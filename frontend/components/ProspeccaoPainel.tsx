@@ -51,6 +51,15 @@ type Prospect = {
   link_original: string | null
   classificacao_url: string | null
   situacao_site: 'tem_site' | 'sem_site' | 'nao_identificado' | null
+  site_oportunidade?: {
+    tipo?: string
+    rotulo?: string
+    verificacao?: string
+    verificacao_label?: string
+    pontos_qualificacao?: number
+    motivo?: string
+    link_original?: string | null
+  } | null
   maps_url: string | null
   status: string
   score: number | null

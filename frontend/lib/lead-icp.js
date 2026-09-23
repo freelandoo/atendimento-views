@@ -237,16 +237,83 @@ function telefoneValidoSimples(valor) {
   return semDdi.length === 10 || semDdi.length === 11
 }
 
+function oportunidadeSiteDoLead(lead = {}) {
+  const op = lead?.site_oportunidade && typeof lead.site_oportunidade === 'object'
+    ? lead.site_oportunidade
+    : null
+  if (op && op.tipo) return op
+  const semSite = lead?.situacao_site === 'sem_site' || lead?.tem_site === false
+  if (semSite) {
+    if (lead?.classificacao_url === 'perfil_ou_diretorio') {
+      return {
+        tipo: 'perfil_ou_diretorio',
+        rotulo: 'So perfil ou diretorio',
+        verificacao: 'confirmado',
+        verificacao_label: 'Verificado',
+        pontos_qualificacao: 10,
+        motivo: 'Ha somente perfil, mapa, marketplace ou diretorio; site proprio nao foi confirmado.',
+      }
+    }
+    return {
+      tipo: 'sem_site_confirmado',
+      rotulo: 'Sem site confirmado',
+      verificacao: 'confirmado',
+      verificacao_label: 'Verificado',
+      pontos_qualificacao: 14,
+      motivo: 'Sem site proprio confirmado pelos dados coletados.',
+    }
+  }
+  if (lead?.classificacao_url === 'desconhecido') {
+    return {
+      tipo: 'link_duvidoso',
+      rotulo: 'Link duvidoso',
+      verificacao: 'pendente',
+      verificacao_label: 'Precisa verificar',
+      pontos_qualificacao: 2,
+      motivo: 'Link nao permite afirmar se existe site proprio funcional.',
+    }
+  }
+  if (lead?.situacao_site === 'tem_site') {
+    return {
+      tipo: 'site_proprio_pendente',
+      rotulo: 'Site proprio a verificar',
+      verificacao: 'pendente',
+      verificacao_label: 'Precisa verificar',
+      pontos_qualificacao: 2,
+      motivo: 'Dominio proprio encontrado; verificar funcionamento antes de priorizar.',
+    }
+  }
+  return {
+    tipo: 'nao_identificado',
+    rotulo: 'Site nao identificado',
+    verificacao: 'pendente',
+    verificacao_label: 'Precisa verificar',
+    pontos_qualificacao: 0,
+    motivo: 'Nenhuma evidencia suficiente de site foi coletada ainda.',
+  }
+}
+
 function qualificacaoFallback(lead = {}) {
   const penalidades = []
   const sinais = []
   const revisoes = []
   let score = 45
   const atividade = String(lead?.instagram_atividade || '')
-  const semSite = lead?.situacao_site === 'sem_site' || lead?.tem_site === false
+  const siteOp = oportunidadeSiteDoLead(lead)
+  const pontosSite = Number(siteOp.pontos_qualificacao) || 0
   const rating = Number(lead?.rating)
   const aval = Number(lead?.avaliacoes)
-  if (semSite) { score += 14; sinais.push({ chave: 'sem_site_proprio', rotulo: 'Sem site proprio.', pontos: 14 }) }
+  if (pontosSite > 0) {
+    score += pontosSite
+    sinais.push({ chave: siteOp.tipo, rotulo: `${siteOp.rotulo}.`, pontos: pontosSite })
+  }
+  if (siteOp.verificacao === 'pendente') {
+    revisoes.push({ chave: `verificar_site_${siteOp.tipo}`, rotulo: siteOp.motivo || 'Verificar site antes de usar como evidencia forte.' })
+    if (siteOp.tipo === 'link_duvidoso' || siteOp.tipo === 'nao_identificado') {
+      score -= 3
+      penalidades.push({ tipo: 'leve', chave: 'site_nao_verificado', rotulo: 'Site ainda sem verificacao suficiente.', pontos: -3 })
+    }
+  }
   if (Number.isFinite(aval) && aval >= 20) { score += 6; sinais.push({ chave: 'avaliacoes', rotulo: 'Boa base de avaliacoes.', pontos: 6 }) }
   if (Number.isFinite(rating) && rating >= 4) { score += 4; sinais.push({ chave: 'nota_boa', rotulo: 'Boa nota no Google.', pontos: 4 }) }
   if (atividade === 'ativo_recente') { score += 14; sinais.push({ chave: 'instagram_ativo', rotulo: 'Instagram com post recente.', pontos: 14 }) }
@@ -296,8 +363,10 @@ function sinaisAutomaticosDoLead(lead = {}) {
   const rating = Number(lead?.rating)
   const instagramAtivo = temInstagramAtivo(lead)
   const operacaoValidada = (Number.isFinite(avaliacoes) && avaliacoes >= 5) || (Number.isFinite(rating) && rating >= 4)
-  const semSite = lead?.situacao_site === 'sem_site' || lead?.tem_site === false
-  const lacunaDigital = semSite || (lead?.situacao_site === 'nao_identificado' && (instagramAtivo || !!String(lead?.link_original || '').trim()))
+  const siteOp = oportunidadeSiteDoLead(lead)
+  const lacunaDigital = siteOp.verificacao === 'confirmado'
+    || (Number(siteOp.pontos_qualificacao) || 0) >= 8
+    || (lead?.situacao_site === 'nao_identificado' && (instagramAtivo || !!String(lead?.link_original || '').trim()))
   return {
     operacao_validada: {
       sugerido: operacaoValidada,
@@ -309,7 +378,7 @@ function sinaisAutomaticosDoLead(lead = {}) {
     },
     lacuna_digital_clara: {
       sugerido: lacunaDigital,
-      motivo: lacunaDigital ? 'Sinal automatico: sem site proprio claro.' : 'Lacuna digital nao confirmada automaticamente.',
+      motivo: lacunaDigital ? `Sinal automatico: ${siteOp.rotulo || 'oportunidade de site'}.` : 'Lacuna digital nao confirmada automaticamente.',
     },
   }
 }
@@ -375,4 +444,5 @@ module.exports = {
   respostasIniciaisIcp,
   ordemIcp,
   prioridadeComercialLead,
+  oportunidadeSiteDoLead,
 }

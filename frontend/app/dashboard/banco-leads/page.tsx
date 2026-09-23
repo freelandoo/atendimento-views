@@ -79,6 +79,15 @@ type Lead = {
   classificacao_url: string | null
   situacao_site: 'tem_site' | 'sem_site' | 'nao_identificado' | null
   situacao_site_label: string | null
+  site_oportunidade?: {
+    tipo?: string
+    rotulo?: string
+    verificacao?: string
+    verificacao_label?: string
+    pontos_qualificacao?: number
+    motivo?: string
+    link_original?: string | null
+  } | null
   score: number | null
   score_cadastro: number | null; score_cadastro_max: number | null
   json_apresentacao: JsonApresLead | null

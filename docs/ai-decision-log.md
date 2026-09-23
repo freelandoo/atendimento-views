@@ -4426,3 +4426,23 @@ trabalhada por outra pessoa. Reatribuir é ato humano, e o histórico de cada it
 **Decisão 6 — a ordem é: sai das equipes ANTES de devolver a carteira.** Com o vínculo de equipe
 ainda aberto, a pessoa conta como membro ativo e um rebalanceamento concorrente devolveria para ela
 exatamente o que se acabou de tirar.
+
+## 2026-09-23 — Qualificação separa oportunidade de site da categoria de URL
+
+**Decisão 1 — `classificacao_url` continua com o vocabulário da migration 056.** `site_construtor`
+não virou valor persistido: a coluna tem CHECK fechado e `desconhecido` segue sendo a categoria
+segura para link que não prova domínio próprio. O refinamento nasce como `site_oportunidade`,
+derivado na leitura por `services/site-classificacao.js`.
+
+**Decisão 2 — verificado vale mais que presumido.** A régua operacional agora pontua o bloco de
+site por evidência: sem site confirmado (+14), perfil/diretório (+10), site de construtor (+8),
+link duvidoso (+2), domínio próprio ainda pendente (+2) e não identificado (+0). Pontos pendentes
+sempre carregam revisão de site, mas essa revisão sozinha mantém o lead em revisão rápida, não em
+validação humana obrigatória.
+
+**Decisão 3 — o front só exibe o veredito.** `LeadDetalhesModal` mostra um bloco “Site / presença
+digital” com tipo, verificação e pontos, lendo `site_oportunidade` do backend. O fallback de
+`frontend/lib/lead-icp.js` existe para snapshots antigos, mas não reimplementa lista de domínios.
+
+**Fora de escopo:** migration para salvar status manual de verificação do site, automação que abre
+URLs, e qualquer mudança na distribuição de leads.

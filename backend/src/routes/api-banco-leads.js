@@ -653,6 +653,7 @@ function comSiteCanonico(lead) {
     classificacao_url: url.classificacao,
     situacao_site: url.situacao_site,
     situacao_site_label: url.situacao_label,
+    site_oportunidade: url.site_oportunidade,
   }
 }
 
