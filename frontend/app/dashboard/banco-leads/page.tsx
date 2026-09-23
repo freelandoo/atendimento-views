@@ -2249,9 +2249,25 @@ export default function BancoLeadsPage() {
           {/* COMPUTADOR — recorte da carteira dentro da propria area da lista. Origem ficou no
               modal "Colunas": ela e' uma preferencia de visualizacao/fonte, nao um atalho solto
               na linha. */}
-          <div className="hidden border-b border-line bg-surface px-3 py-3 md:block">
-            <div className="flex flex-wrap items-end gap-3">
+          <div className="hidden border-b border-line bg-surface px-3 py-2 md:block">
+            <div className="flex flex-wrap items-end gap-2">
               {camposFiltro('d')}
+              <div>
+                <label htmlFor="ordenar-lista" className="mb-1 block text-xs text-ink-3">Ordenar por</label>
+                <select id="ordenar-lista" value={view.ordenacao}
+                  onChange={(e) => patchView({ ordenacao: e.target.value })}
+                  className={classesEntrada({ extra: 'min-h-11 md:min-h-0 md:w-auto md:min-w-[180px]' })}>
+                  {ORDENACOES.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-ink-3">&nbsp;</label>
+                <Botao variante="secundaria" onClick={() => setPersAberto(true)} iconeInicio={<IconGear />}
+                  className={filtrosAtivos ? 'border-brand text-brand' : ''}>
+                  Colunas
+                  {filtrosAtivos > 0 && <span className="rounded-full bg-brand px-1.5 py-0.5 text-[10px] text-white">{filtrosAtivos}</span>}
+                </Botao>
+              </div>
               {(filtrosDeCarteira > 0 || busca.trim()) && (
                 <div>
                   <label className="mb-1 block text-xs text-ink-3">&nbsp;</label>
@@ -2260,21 +2276,24 @@ export default function BancoLeadsPage() {
                   </Botao>
                 </div>
               )}
+              {(ordemManual || filtrosAtivos > 0) && (
+                <div>
+                  <label className="mb-1 block text-xs text-ink-3">&nbsp;</label>
+                  <Botao variante="neutra"
+                    onClick={() => { setOrdem({ chave: 'trabalho', dir: 'asc' }); setView(VIEW_PADRAO); setOrigem('') }}
+                    title="Volta para a fila de trabalho (respondeu → pronto para enviar → não trabalhado → sem resposta → falta contato) e desfaz os filtros de visualização">
+                    Restaurar padrão
+                  </Botao>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* A BARRA DA LISTA (computador) — o que está na tela, em que ordem, e como mudar as
-              duas coisas. A ordenação global já existia dentro do "Personalizar"; aqui ela fica
-              onde a pessoa olha a lista, sem abrir modal para trocar de ordem. */}
-          <div className="hidden flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line bg-surface-2 px-3 py-2 md:flex">
-            {/* ESQUERDA — o que esta na tela. Contagem, recorte da janela e filtros em vigor
-                na MESMA linha: sao tres frases sobre a mesma lista, e empilhadas viravam tres
-                tarjas coloridas na primeira dobra. */}
+          {/* A BARRA DA LISTA (computador) agora só declara o contexto. Controles de coluna e
+              ordenação subiram para a mesma linha de filtros, para a tabela aparecer antes. */}
+          <div className="hidden flex-wrap items-center gap-x-2 gap-y-1 border-b border-line bg-surface-2 px-3 py-1.5 md:flex">
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
               <h2 className="text-sm font-semibold text-ink">Lista de leads</h2>
-              <span className="text-xs text-ink-3" aria-live="polite">
-                <span className="tabular-nums">{totalFiltrado}</span> lead{totalFiltrado === 1 ? '' : 's'} nesta visualização
-              </span>
 
               {/* A janela vira SELO, com a frase inteira no `title`: o numero cabe na barra,
                   a orientacao ("use a busca ou os filtros") continua alcancavel. */}
@@ -2294,33 +2313,6 @@ export default function BancoLeadsPage() {
               {chipsLista.map((ch) => (
                 <span key={ch} className="rounded-full border border-line bg-surface-3 px-2 py-0.5 text-[11px] text-ink-2">{ch}</span>
               ))}
-            </div>
-
-            {/* DIREITA — como mudar as duas coisas. */}
-            <div className="flex flex-wrap items-center gap-2">
-              <label htmlFor="ordenar-lista" className="text-xs text-ink-3">Ordenar por</label>
-              <select id="ordenar-lista" value={view.ordenacao}
-                onChange={(e) => patchView({ ordenacao: e.target.value })}
-                className={classesEntrada({ extra: 'w-auto min-w-[180px]' })}>
-                {ORDENACOES.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
-              </select>
-              <Botao variante="secundaria" onClick={() => setPersAberto(true)} iconeInicio={<IconGear />}
-                className={filtrosAtivos ? 'border-brand text-brand' : ''}>
-                Colunas
-                {filtrosAtivos > 0 && <span className="rounded-full bg-brand px-1.5 py-0.5 text-[10px] text-white">{filtrosAtivos}</span>}
-              </Botao>
-
-              {/* UM reset so'. Eram dois botoes ("↕ Voltar a ordem de trabalho" e "Limpar
-                  tudo") desfazendo pedacos diferentes do mesmo estado, e cada um aparecia por
-                  um motivo. Aqui ele desfaz ordem E filtros de visualizacao de uma vez — o
-                  `title` diz para onde a lista volta, porque "restaurar" sozinho nao diz. */}
-              {(ordemManual || filtrosAtivos > 0) && (
-                <Botao variante="neutra"
-                  onClick={() => { setOrdem({ chave: 'trabalho', dir: 'asc' }); setView(VIEW_PADRAO); setOrigem('') }}
-                  title="Volta para a fila de trabalho (respondeu → pronto para enviar → não trabalhado → sem resposta → falta contato) e desfaz os filtros de visualização">
-                  Restaurar padrão
-                </Botao>
-              )}
             </div>
           </div>
 
@@ -2382,11 +2374,9 @@ export default function BancoLeadsPage() {
           />
           </div>
 
-          {mostrarPaginacao(pgLeads.total, pgLeads.porPagina) && (
-            <div className="border-t border-line px-3 py-2">
-              <RodapePaginacaoBanco pg={pgLeads} onPagina={setPagina} />
-            </div>
-          )}
+          <div className="border-t border-line px-3 py-2">
+            <RodapePaginacaoBanco pg={pgLeads} total={totalFiltrado} onPagina={setPagina} />
+          </div>
           </>
           )}
 
@@ -2892,14 +2882,15 @@ type TabelaProps = {
 // Rodapé "Anterior/Próxima" com o resumo do intervalo — mesmo padrão visual já validado em
 // Follow-ups (`RodapeFila`), sobre o recorte PURO de `lib/paginacao.js`. Compartilhado pelas
 // duas tabelas (Places/Instagram): cada uma tem sua própria página, mas o rodapé é o mesmo.
-function RodapePaginacaoBanco({ pg, onPagina }: { pg: PaginaLista<Lead>; onPagina: (p: number) => void }) {
+function RodapePaginacaoBanco({ pg, total, onPagina }: { pg: PaginaLista<Lead>; total: number; onPagina: (p: number) => void }) {
   return (
-    <div className="flex flex-col gap-2 rounded-lg border bg-surface px-3 py-2 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <p className="text-xs text-ink-3" aria-live="polite">
         <span className="tabular-nums">{resumoIntervalo(pg)}</span>
       </p>
-      {(pg.temAnterior || pg.temProxima) && (
-        <div className="flex items-center gap-1 self-end sm:self-auto">
+      <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 self-end sm:self-auto">
+        {(pg.temAnterior || pg.temProxima) && (
+          <div className="flex items-center gap-1">
           <button type="button" onClick={() => onPagina(pg.pagina - 1)} disabled={!pg.temAnterior}
             aria-label="Página anterior"
             className="min-h-[36px] rounded-lg border px-3 py-1 text-xs hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-30 disabled:hover:bg-transparent">
@@ -2913,8 +2904,12 @@ function RodapePaginacaoBanco({ pg, onPagina }: { pg: PaginaLista<Lead>; onPagin
             className="min-h-[36px] rounded-lg border px-3 py-1 text-xs hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-30 disabled:hover:bg-transparent">
             <span className="hidden sm:inline">Próxima</span> ▶
           </button>
-        </div>
-      )}
+          </div>
+        )}
+        <span className="text-xs text-ink-3">
+          Total: <b className="tabular-nums text-ink-2">{total}</b> lead{total === 1 ? '' : 's'}
+        </span>
+      </div>
     </div>
   )
 }

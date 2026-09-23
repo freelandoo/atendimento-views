@@ -5161,6 +5161,21 @@ atual de cada tela.
 
 ---
 
+## 2026-09-23 — Banco de Leads: filtros e rodapé mais compactos
+
+**Pedido:** compactar a área superior da lista do Banco de Leads: mover `Colunas` e `Ordenar por`
+para a mesma linha de carteira/busca/nicho/cidade, retirar o contador de leads do topo e mostrar
+o total no canto inferior direito da lista.
+
+**Áreas prováveis:** `frontend/app/dashboard/banco-leads/page.tsx` e nota visual em
+`docs/ui-visual-standard.md`.
+
+**Riscos a preservar:** não mudar a semântica dos filtros nem a paginação; o total exibido deve
+continuar sendo o total da visualização atual, não promessa de carteira inteira quando a janela
+do servidor estiver limitada.
+
+---
+
 ## 2026-09-22 21:14:21 -03:00 — Banco de Leads: Quadro do dia e ficha lateral
 
 **Pedido:** melhorar a experiência do Quadro do Dia e da ficha lateral do lead:

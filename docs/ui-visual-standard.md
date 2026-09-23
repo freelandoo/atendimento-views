@@ -342,6 +342,9 @@ Registre aqui toda divergência visual autorizada pelo usuário.
 - **Telefone é atalho compacto para WhatsApp:** quando há número, ele aparece verde e sublinhado
   na própria coluna. Sem ícone e sem segunda linha de instrução; o `title`/rótulo acessível
   explica a ação e o link externo não envia nada sozinho.
+- **Controles da lista ficam em uma faixa só:** carteira, busca, nicho/categoria, cidade,
+  `Ordenar por` e `Colunas` vivem na mesma linha desktop. O total da visualização sai do topo e
+  aparece no canto inferior direito do rodapé da tabela.
 - **Vazio continua operável:** a moldura da lista aparece mesmo quando o recorte não retorna
   leads, para que o operador ainda consiga trocar filtros e abrir Colunas sem procurar controles
   fora do bloco.
