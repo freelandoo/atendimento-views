@@ -56,7 +56,8 @@ Obrigatórias no boot (sem elas o processo aborta, por `validarSecretsBoot` em `
 | `DASHBOARD_ADMIN_EMAIL` e `DASHBOARD_ADMIN_PASSWORD` | primeiro admin (senha mín. 12) |
 | `JWT_SECRET` | obrigatória **em produção** — assina o login do SaaS |
 
-⚠️ **O boot aplica as 91 migrations** no banco apontado por `DATABASE_URL`. Confira para onde
+⚠️ **O boot aplica TODAS as migrations de `backend/sql/migrations/`** no banco apontado por
+`DATABASE_URL`, em ordem numérica e cada uma em sua transação. Confira para onde
 seu `.env` aponta antes de rodar `npm start`.
 
 **3. Frontend:**

@@ -5,21 +5,21 @@ Fila de **revisão manual**. Nada aqui foi removido, alterado ou corrigido.
 Regra que governa este arquivo: quando a dúvida é entre **apagar** e **manter temporariamente**, mantém-se e registra-se aqui. Só sai desta fila por decisão explícita do operador.
 
 - **Origem das classificações:** `ARCHITECTURE_AUDIT.md` (auditoria de 2026-09-21)
-- **Última atualização:** 2026-09-21 (Fase 1)
+- **Última atualização:** 2026-09-23 (§1.1 e §2.5 resolvidos)
 
 ---
 
 ## 1. Pendências de SCHEMA
 
-### 1.1 `DEFAULT '<uuid da PJ>'` sobrou em 3 tabelas — **decidido: registrar, não corrigir agora**
+### 1.1 `DEFAULT '<uuid da PJ>'` sobrou em 3 tabelas — ✅ RESOLVIDO (migration `099`, 2026-09-23)
 
-- **Onde:** `prospectador.captacao_campanhas`, `prospectador.captacao_snapshots`, `prospectador.email_outreach` — criadas na migration `012_captacao_social.sql` (linhas 80, 106 e 135) com `empresa_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001'`.
-- **Por que é problema:** a migration `078` removeu exatamente esse DEFAULT de **6** tabelas (`prospectador.prospects`, `vendas.conversas`, `vendas.lead_profiles`, `vendas.followup_envios`, `vendas.analises_pos_conversa`, `vendas.ai_logs`) e **não alcançou estas 3**. Pela regra do próprio `AGENTS.md`, um DEFAULT assim *"autorizaria silenciosamente qualquer INSERT futuro que esquecesse a coluna"* — foi exatamente assim que todo lead de toda empresa nasceu marcado como PJ (migrations 005/006).
-- **Risco atual:** qualquer INSERT nessas 3 tabelas que omita `empresa_id` grava o dado **sob a PJ**, sem erro e sem rastro.
-- **Correção quando autorizada:** migration `091`, no mesmo padrão da `078` (bloco `DO $$`, condicional à existência da coluna, idempotente, sem mutar dado) fazendo `ALTER TABLE ... ALTER COLUMN empresa_id DROP DEFAULT`.
-- ⚠️ **Verificar ANTES de aplicar:** se algum caminho de código insere nessas tabelas sem informar `empresa_id`, remover o DEFAULT quebra a inserção — a coluna é `NOT NULL`. Essa varredura **não foi feita**.
-- **Já protegido:** `test/migrations-integridade.test.js` impede que uma migration **nova** (> 078) nasça com esse DEFAULT. A pendência histórica não é alcançada por essa guarda, de propósito — migration aplicada é história e não se reescreve.
-- **Decisão (operador, 2026-09-21):** registrar agora, corrigir em rodada própria.
+- **Onde estava:** `prospectador.captacao_campanhas`, `prospectador.captacao_snapshots`, `prospectador.email_outreach` — criadas na migration `012_captacao_social.sql` (linhas 80, 106 e 135) com `empresa_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001'`.
+- **Por que era problema:** a migration `078` removeu esse DEFAULT de 6 tabelas e não alcançou estas 3. Pela regra do `AGENTS.md`, um DEFAULT assim *"autorizaria silenciosamente qualquer INSERT futuro que esquecesse a coluna"* — foi exatamente assim que todo lead de toda empresa nasceu marcado como PJ (migrations 005/006).
+- **A varredura obrigatória foi feita** (2026-09-23, repositório inteiro). São **7 INSERTs** e os **7 nomeiam `empresa_id`**: `captacao_campanhas` 1 (`social-capture.js:176`), `captacao_snapshots` 3 (`social-capture.js:267/456/512`), `email_outreach` 3 (`email-outreach.js:81/91/99`). As demais referências são SELECT/UPDATE ou comentário; nenhum script, teste ou migration insere.
+- **Consequência que a varredura revelou:** o DEFAULT **já era código morto** para todos os caminhos de hoje — ele só dispara quando a coluna é OMITIDA. A migration não muda o comportamento de nenhum INSERT existente; fecha a porta para o INSERT de amanhã.
+- **Corrigido por:** `sql/migrations/099_remover_default_pj_captacao.sql`, no mesmo padrão da `078` (bloco `DO $$`, condicional à existência da coluna, idempotente, **sem mutar dado**), + `COMMENT ON COLUMN` nas três.
+- ⚠️ **Numeração:** o registro original previa "migration 091". Aquele número foi usado pelos leads da Meta em 2026-09-21; a correção saiu como **099**.
+- **Continua protegido:** `test/migrations-integridade.test.js` impede que uma migration nova nasça com esse DEFAULT.
 
 ---
 
@@ -55,10 +55,11 @@ Regra que governa este arquivo: quando a dúvida é entre **apagar** e **manter 
 
 ⚠️ **`scripts/test-evolution-send.js` tem um problema à parte:** o nome casa com o padrão de descoberta de testes do Node (`test-*.js`), então `node --test` **sem argumento** o executa — e ele **envia mensagem real de WhatsApp**. O `npm test` usa o glob `test/*.test.js` justamente para não alcançá-lo. Renomeá-lo (ex.: `enviar-teste-evolution.js`) removeria a armadilha, mas muda um comando que o operador pode ter em anotação.
 
-### 2.5 `backend/sql/migracao_analise_estruturada.sql` — **histórico, CERTEZA ALTA / apagar: BAIXA**
+### 2.5 `backend/sql/migracao_analise_estruturada.sql` — ✅ RESOLVIDO (movido, 2026-09-23)
 
-- **Fato verificado:** `src/db.js` carrega `sql/init.sql` e `sql/prospeccao_orquestracao.sql` no boot; **nunca** este arquivo. `docs/historico/*` mostra que era aplicado à mão via `psql`.
-- **Recomendação:** mover para `sql/historico/` (seguro). **Não apagar** — o schema que ele criou provavelmente está vivo em produção, e o arquivo é o único registro do que foi aplicado.
+- **Fato verificado:** `src/db.js` carrega `sql/init.sql` e `sql/prospeccao_orquestracao.sql` no boot; **nunca** este arquivo. Reconferido em 2026-09-23: **nenhuma** referência a ele em código, teste, script, doc ou compose.
+- **O que foi feito:** movido para `sql/historico/` (com um `README.md` explicando o critério da pasta). **Não foi apagado** — o schema que ele criou provavelmente está vivo em produção, e o arquivo é o único registro do que foi aplicado à mão via `psql`.
+- **Efeito colateral bom:** a raiz de `sql/` passou a conter exatamente os dois arquivos que o boot lê.
 
 ### 2.6 `src/ai-structured-analysis.js` — **CERTEZA MÉDIA (descoberto na Fase 1)**
 
