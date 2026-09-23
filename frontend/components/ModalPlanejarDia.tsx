@@ -11,12 +11,12 @@
  * abordagem**: é planejamento. A regra vive no backend (`services/plano-dia.js` + a rota);
  * aqui só se escolhe.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import FolhaModal from '@/components/ui/FolhaModal'
 import Botao from '@/components/ui/Botao'
 import { classesEntrada } from '@/lib/ui-primitivos'
 import { celulaOrigem } from '@/lib/lead-origem'
-import { seloOrigemEntrada } from '@/lib/plano-dia'
+import { seloOrigemEntrada, opcoesNicho, filtrarCarteira } from '@/lib/plano-dia'
 
 export type CandidatoDia = {
   id: string
@@ -25,6 +25,7 @@ export type CandidatoDia = {
   origem?: string | null
   instagram_handle?: string | null
   cidade?: string | null
+  nicho?: string | null
 }
 
 export type SugestaoDia = {
@@ -52,18 +53,31 @@ export default function ModalPlanejarDia({
   rotuloDia: string
 }) {
   const [busca, setBusca] = useState('')
+  const [nicho, setNicho] = useState('')
   const [marcados, setMarcados] = useState<Set<string>>(new Set())
 
-  const filtrados = useMemo(() => {
-    const q = busca.trim().toLowerCase()
-    const base = candidatos.filter((l) => !jaNoDia.has(l.id))
-    if (!q) return base.slice(0, 60)
-    return base.filter((l) => (
-      String(l.nome || '').toLowerCase().includes(q)
-      || String(l.telefone || '').includes(q)
-      || String(l.cidade || '').toLowerCase().includes(q)
-    )).slice(0, 60)
-  }, [candidatos, busca, jaNoDia])
+  // O seletor conta só quem AINDA pode entrar no dia — contar quem já está lá prometeria
+  // leads que a lista não vai mostrar.
+  const disponiveis = useMemo(() => candidatos.filter((l) => !jaNoDia.has(l.id)), [candidatos, jaNoDia])
+  const nichos = useMemo(() => opcoesNicho(disponiveis), [disponiveis])
+  const filtrados = useMemo(
+    () => filtrarCarteira(candidatos, { busca, nicho, jaNoDia }),
+    [candidatos, busca, nicho, jaNoDia]
+  )
+
+  // Nicho que esvaziou (todos foram para o dia) volta para "Todos": um <select> com valor sem
+  // <option> correspondente exibe uma coisa e filtra outra.
+  useEffect(() => {
+    if (nicho && !nichos.some((o) => o.valor === nicho)) setNicho('')
+  }, [nicho, nichos])
+
+  function marcarFiltrados() {
+    setMarcados((prev) => {
+      const next = new Set(prev)
+      for (const l of filtrados) next.add(l.id)
+      return next
+    })
+  }
 
   const sugeridos = useMemo(
     () => sugestoes.filter((s) => !jaNoDia.has(s.prospect_id)),
@@ -159,23 +173,51 @@ export default function ModalPlanejarDia({
         {/* A CARTEIRA — a mesma lista que está na aba Lista, na ordem de trabalho do servidor.
             Teto de 60 na tela: escolher o dia é decidir sobre um punhado, não varrer a base. */}
         <section>
-          <h3 className="text-sm font-semibold text-ink">Da sua carteira</h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-ink">Da sua carteira</h3>
+            {filtrados.length > 1 && (
+              <Botao variante="secundaria" tamanho="sm" onClick={marcarFiltrados}>
+                Marcar os {filtrados.length} da lista
+              </Botao>
+            )}
+          </div>
           <p className="mt-0.5 text-xs text-ink-3">
-            Na ordem de trabalho. Use a busca para encontrar um lead específico.
+            Na ordem de trabalho. Separe por nicho ou busque um lead específico.
           </p>
-          <label htmlFor="planejar-busca" className="sr-only">Buscar lead pelo nome, telefone ou cidade</label>
-          <input
-            id="planejar-busca"
-            type="search"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            placeholder="Nome, telefone ou cidade"
-            className={classesEntrada({ extra: 'mt-2' })}
-          />
+
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+            <label htmlFor="planejar-busca" className="sr-only">Buscar lead pelo nome, telefone ou cidade</label>
+            <input
+              id="planejar-busca"
+              type="search"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por nome, telefone ou cidade"
+              className={classesEntrada({ extra: 'sm:flex-1' })}
+            />
+            {/* Com um nicho só (ou nenhum) o seletor não separa nada — não aparece. */}
+            {nichos.length > 1 && (
+              <>
+                <label htmlFor="planejar-nicho" className="sr-only">Filtrar por nicho</label>
+                <select
+                  id="planejar-nicho"
+                  value={nicho}
+                  onChange={(e) => setNicho(e.target.value)}
+                  className={classesEntrada({ extra: 'sm:w-56' })}
+                >
+                  <option value="">Todos os nichos ({disponiveis.length})</option>
+                  {nichos.map((o) => (
+                    <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>
+                  ))}
+                </select>
+              </>
+            )}
+          </div>
+
           {filtrados.length === 0 ? (
             <p className="mt-3 rounded-lg border border-line bg-surface-2 px-3 py-4 text-center text-xs text-ink-3">
-              {busca.trim()
-                ? 'Nenhum lead da carteira carregada bate com essa busca.'
+              {busca.trim() || nicho
+                ? 'Nenhum lead da carteira carregada bate com esse filtro.'
                 : 'Todos os leads carregados já estão no plano deste dia.'}
             </p>
           ) : (
@@ -195,6 +237,9 @@ export default function ModalPlanejarDia({
                         <span className="block truncate font-medium text-ink">{l.nome || 'Sem nome'}</span>
                         <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-3">
                           <span className={o.classe} title={`${o.rotulo} — ${o.dica}`}>{o.curto}</span>
+                          {l.nicho && (
+                            <span className="truncate rounded-md bg-surface-3 px-1.5 py-0.5 text-ink-2">{l.nicho}</span>
+                          )}
                           {l.cidade && <span className="truncate">{l.cidade}</span>}
                           {!l.telefone && <span className="text-amber-700">sem telefone</span>}
                         </span>

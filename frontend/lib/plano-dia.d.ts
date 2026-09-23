@@ -80,3 +80,20 @@ export function resumoDoPeriodo(
   em_trabalho: number
   aguardando_retorno: number
 }[]
+
+export interface CandidatoCarteira {
+  id: string
+  nome?: string | null
+  telefone?: string | null
+  cidade?: string | null
+  nicho?: string | null
+}
+
+/** Nichos presentes na carteira já carregada, com contagem — para o seletor de "Planejar meu dia". */
+export function opcoesNicho(candidatos: { nicho?: string | null }[] | null | undefined): { valor: string; total: number }[]
+
+/** Filtra a carteira já carregada por busca + nicho, excluindo quem já está no dia. */
+export function filtrarCarteira<T extends CandidatoCarteira>(
+  candidatos: T[] | null | undefined,
+  opcoes?: { busca?: string; nicho?: string; jaNoDia?: Set<string>; limite?: number },
+): T[]

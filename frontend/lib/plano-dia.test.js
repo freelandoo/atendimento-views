@@ -6,7 +6,7 @@ const assert = require('node:assert/strict')
 const {
   COLUNAS, CHAVES, montarColunas, aoMoverPara, seloConclusao, seloOrigemEntrada,
   horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia, somarDias, diasDaSemana,
-  rotuloDiaCurto, rotuloSemana, resumoDoPeriodo,
+  rotuloDiaCurto, rotuloSemana, resumoDoPeriodo, opcoesNicho, filtrarCarteira,
 } = require('./plano-dia')
 
 const fonte = fs.readFileSync(path.join(__dirname, 'plano-dia.js'), 'utf8')
@@ -157,6 +157,44 @@ test('resumoDoPeriodo preenche dias sem linha e preserva contagens', () => {
 test('rotuloSemana descreve a faixa sem virar quadro semanal', () => {
   assert.equal(rotuloSemana(['2026-09-21', '2026-09-27']), 'Semana de 21/09 a 27/09')
   assert.equal(rotuloSemana([]), '')
+})
+
+// ── Planejar meu dia: nicho + busca ──────────────────────────────────────────
+test('opcoesNicho agrupa, conta e ordena por frequencia (depois alfabetica)', () => {
+  const r = opcoesNicho([
+    { nicho: 'Estetica' }, { nicho: 'Energia Solar' }, { nicho: 'Energia Solar' },
+    { nicho: '  ' }, { nicho: null }, {},
+  ])
+  assert.deepEqual(r, [
+    { valor: 'Energia Solar', total: 2 },
+    { valor: 'Estetica', total: 1 },
+  ])
+  assert.deepEqual(opcoesNicho(null), [])
+})
+
+test('filtrarCarteira exclui quem ja esta no dia', () => {
+  const r = filtrarCarteira([{ id: '1' }, { id: '2' }], { jaNoDia: new Set(['1']) })
+  assert.deepEqual(r.map((c) => c.id), ['2'])
+})
+
+test('filtrarCarteira recorta por nicho e combina com a busca', () => {
+  const c = [
+    { id: '1', nome: 'Sol Forte', nicho: 'Energia Solar', cidade: 'Goiânia' },
+    { id: '2', nome: 'Sol Nascente', nicho: 'Estetica', cidade: 'Goiânia' },
+    { id: '3', nome: 'Luz Verde', nicho: 'Energia Solar', telefone: '5562999990000' },
+  ]
+  assert.deepEqual(filtrarCarteira(c, { nicho: 'Energia Solar' }).map((l) => l.id), ['1', '3'])
+  assert.deepEqual(filtrarCarteira(c, { nicho: 'Energia Solar', busca: 'sol' }).map((l) => l.id), ['1'])
+  assert.deepEqual(filtrarCarteira(c, { busca: '99999' }).map((l) => l.id), ['3'])
+  assert.deepEqual(filtrarCarteira(c, { busca: 'goiânia' }).map((l) => l.id), ['1', '2'])
+})
+
+test('filtrarCarteira preserva a ordem de trabalho e aplica o teto (padrao 60)', () => {
+  const c = Array.from({ length: 70 }, (_, i) => ({ id: String(i) }))
+  const r = filtrarCarteira(c)
+  assert.equal(r.length, 60)
+  assert.equal(r[0].id, '0')
+  assert.equal(filtrarCarteira(c, { limite: 5 }).length, 5)
 })
 
 // ── Guardas de regressao ─────────────────────────────────────────────────────

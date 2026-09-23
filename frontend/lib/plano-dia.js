@@ -228,8 +228,47 @@ function rotuloDia(dia, hoje) {
   return `${d}/${m}/${a}`
 }
 
+/**
+ * Nichos presentes na carteira JÁ CARREGADA, com contagem — para o seletor "separar por nicho"
+ * do modal de planejamento. Não busca nada: é um agrupamento sobre os candidatos que a tela já
+ * tem em mãos (mesmo espírito do Quadro, que não faz uma segunda listagem).
+ */
+function opcoesNicho(candidatos) {
+  const contagem = new Map()
+  for (const c of Array.isArray(candidatos) ? candidatos : []) {
+    const valor = String(c?.nicho || '').trim()
+    if (!valor) continue
+    contagem.set(valor, (contagem.get(valor) || 0) + 1)
+  }
+  return Array.from(contagem, ([valor, total]) => ({ valor, total }))
+    .sort((a, b) => b.total - a.total || a.valor.localeCompare(b.valor, 'pt-BR'))
+}
+
+/**
+ * Filtra a carteira já carregada por busca (nome/telefone/cidade) e por nicho, excluindo quem já
+ * está no dia. `limite` recorta a lista exibida — escolher o dia é decidir sobre um punhado, não
+ * varrer a base (mesmo teto que o modal já aplicava, agora explícito aqui).
+ */
+function filtrarCarteira(candidatos, { busca, nicho, jaNoDia, limite } = {}) {
+  const q = String(busca || '').trim().toLowerCase()
+  const n = String(nicho || '').trim()
+  const excluir = jaNoDia instanceof Set ? jaNoDia : new Set()
+  const teto = Number.isFinite(limite) ? limite : 60
+  const base = (Array.isArray(candidatos) ? candidatos : []).filter((l) => l && !excluir.has(l.id))
+  const porNicho = n ? base.filter((l) => String(l.nicho || '').trim() === n) : base
+  const porBusca = q
+    ? porNicho.filter((l) => (
+      String(l.nome || '').toLowerCase().includes(q)
+      || String(l.telefone || '').includes(q)
+      || String(l.cidade || '').toLowerCase().includes(q)
+    ))
+    : porNicho
+  return porBusca.slice(0, teto)
+}
+
 module.exports = {
   COLUNAS, CHAVES, coluna, montarColunas, aoMoverPara,
   seloConclusao, seloOrigemEntrada, horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia,
   somarDias, diasDaSemana, rotuloDiaCurto, rotuloSemana, resumoDoPeriodo,
+  opcoesNicho, filtrarCarteira,
 }
