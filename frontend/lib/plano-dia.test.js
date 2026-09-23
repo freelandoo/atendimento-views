@@ -209,10 +209,10 @@ test('filtrarCarteira recorta por nicho e combina com a busca', () => {
   assert.deepEqual(filtrarCarteira(c, { regiao: 'GO' }).map((l) => l.id), ['3'])
 })
 
-test('filtrarCarteira preserva a ordem de trabalho e aplica o teto (padrao 60)', () => {
+test('filtrarCarteira preserva a ordem de trabalho e nao corta a carteira por padrao', () => {
   const c = Array.from({ length: 70 }, (_, i) => ({ id: String(i) }))
   const r = filtrarCarteira(c)
-  assert.equal(r.length, 60)
+  assert.equal(r.length, 70)
   assert.equal(r[0].id, '0')
   assert.equal(filtrarCarteira(c, { limite: 5 }).length, 5)
 })

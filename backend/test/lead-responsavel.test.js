@@ -192,6 +192,7 @@ test('GUARDA: a rota do Banco de Leads aplica o MESMO recorte na listagem', () =
   assert.ok(src.includes('escopo.efetivo'), 'o escopo efetivo precisa voltar no meta — recortar em silencio engana o vendedor')
   assert.ok(/qualificacao/.test(src.match(/const COLUNAS = `[\s\S]*?`/)[0]), 'COLUNAS precisa trazer qualificacao')
   assert.ok(/responsavel_id/.test(src.match(/const COLUNAS = `[\s\S]*?`/)[0]), 'COLUNAS precisa trazer responsavel_id')
+  assert.ok(src.includes('AS responsavel_nome'), 'a ficha precisa dizer o nome do responsavel quando o lead e de outra pessoa')
 })
 
 test('GUARDA: nenhuma rota de ownership decide papel por literal', () => {

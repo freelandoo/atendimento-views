@@ -267,8 +267,9 @@ function opcoesRegiao(candidatos) {
 
 /**
  * Filtra a carteira já carregada por busca (nome/telefone) e por nicho/cidade/região,
- * excluindo quem já está no dia. `limite` recorta a lista exibida — escolher o dia é decidir
- * sobre um punhado, não varrer a base (mesmo teto que o modal já aplicava, agora explícito aqui).
+ * excluindo quem já está no dia. `limite`, quando informado, recorta a lista exibida; sem ele
+ * o planejamento mostra todo o recorte carregado, para o seletor de nicho/cidade não esconder
+ * trabalho que já está disponível na carteira.
  */
 function filtrarCarteira(candidatos, { busca, nicho, cidade, regiao, jaNoDia, limite } = {}) {
   const q = String(busca || '').trim().toLowerCase()
@@ -276,7 +277,7 @@ function filtrarCarteira(candidatos, { busca, nicho, cidade, regiao, jaNoDia, li
   const cid = String(cidade || '').trim()
   const reg = String(regiao || '').trim()
   const excluir = jaNoDia instanceof Set ? jaNoDia : new Set()
-  const teto = Number.isFinite(limite) ? limite : 60
+  const teto = Number.isFinite(limite) && limite > 0 ? limite : null
   const base = (Array.isArray(candidatos) ? candidatos : []).filter((l) => l && !excluir.has(l.id))
   const porNicho = n ? base.filter((l) => String(l.nicho || '').trim() === n) : base
   const porCidade = cid ? porNicho.filter((l) => String(l.cidade || '').trim() === cid) : porNicho
@@ -288,7 +289,7 @@ function filtrarCarteira(candidatos, { busca, nicho, cidade, regiao, jaNoDia, li
       || String(l.instagram_handle || '').toLowerCase().includes(q)
     ))
     : porRegiao
-  return porBusca.slice(0, teto)
+  return teto ? porBusca.slice(0, teto) : porBusca
 }
 
 module.exports = {

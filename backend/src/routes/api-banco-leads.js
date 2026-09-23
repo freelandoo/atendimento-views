@@ -678,6 +678,11 @@ const COLUNAS = `id, origem, status, qualificacao, qualificado_em,
   instagram_verificado_em,
   instagram_atividade, instagram_ultimo_post_em, instagram_seguidores`
 
+const RESPONSAVEL_NOME_SELECT = `(SELECT COALESCE(u.nome, u.email)
+    FROM app.usuarios u
+   WHERE u.id = prospectador.prospects.responsavel_id
+   LIMIT 1) AS responsavel_nome`
+
 // Estado do enriquecimento em andamento. FICA FORA de COLUNAS de proposito: aquela lista tambem
 // e' usada em `RETURNING`, onde uma subconsulta correlacionada nao faz sentido. Aqui ele existe
 // porque a tela precisa distinguir "ainda nao verifiquei" de "nao tem" — sem isso, o lead que
@@ -1035,7 +1040,7 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
     )
     params.push(limit)
     const { rows } = await pool.query(
-      `SELECT ${COLUNAS}, ${COLUNA_ENRIQUECIMENTO}, raw_json,
+      `SELECT ${COLUNAS}, ${RESPONSAVEL_NOME_SELECT}, ${COLUNA_ENRIQUECIMENTO}, raw_json,
           ultimo.rodado_em, ultimo.rodado_por, ultimo.ultimo_status, ultimo.ultimo_erro,
           rascunho.mensagem_gerada, rascunho.gerada_em,
           agenda.proximo_agendamento,
@@ -1215,7 +1220,7 @@ router.get('/leads/:id', requireAuth, requireEmpresaAccess, async (req, res) => 
   try {
     await exigirLeadNoRecorte(req)
     const { rows } = await pool.query(
-      `SELECT ${COLUNAS}, ${COLUNA_ENRIQUECIMENTO}, raw_json,
+      `SELECT ${COLUNAS}, ${RESPONSAVEL_NOME_SELECT}, ${COLUNA_ENRIQUECIMENTO}, raw_json,
               ultimo.rodado_em, ultimo.rodado_por, ultimo.ultimo_status, ultimo.ultimo_erro,
               rascunho.mensagem_gerada, rascunho.gerada_em
          FROM prospectador.prospects
@@ -1785,7 +1790,7 @@ router.patch('/leads/:id/icp', requireAuth, requireEmpresaAccess, requireCapacid
     }
 
     const { rows } = await client.query(
-      `SELECT ${COLUNAS}, ${COLUNA_ENRIQUECIMENTO}, raw_json
+      `SELECT ${COLUNAS}, ${RESPONSAVEL_NOME_SELECT}, ${COLUNA_ENRIQUECIMENTO}, raw_json
          FROM prospectador.prospects
         WHERE empresa_id = $1 AND id = $2::uuid`,
       [req.empresa.id, req.params.id]
