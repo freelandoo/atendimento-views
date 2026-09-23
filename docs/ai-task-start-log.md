@@ -5431,3 +5431,6 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   ⚠️ Outra sessao commitou e publicou parte deste trabalho no meio do caminho (`20d9345`,
   `ab0ef19`: migration 096, `cadastro-membro.js`, `acesso-capacidades.js`, modal). O restante
   segue nao commitado.
+- **2a rodada (mesmo dia):** cadastro na tela passa a ser SO por convite; "Gerar link" abre um
+  painel lateral com nome, papel, equipe e liberacoes alem do papel; o convite carrega
+  `permissoes` (migration 098). Formulario direto removido da tela; `POST /membros` fica na API.

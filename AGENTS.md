@@ -1813,6 +1813,15 @@
 - **Front:** `frontend/lib/convite-membro.js` (+ `.d.ts`/`.test.js`) **só traduz** (`situacao`,
   `convidavel`, `exige_equipe` vêm da API); `components/ConvitesMembro.tsx` (seção de Contas da
   empresa); página pública `app/convite/[token]/page.tsx` (tema **neon**, como `signup`).
+- **Desde 2026-09-23 (2ª rodada) o cadastro na TELA é SÓ por convite.** O formulário direto
+  saiu de Contas da empresa; o botão **"Gerar link"** abre um **painel lateral** (`FolhaModal`
+  com a prop nova `lateral`) com nome da pessoa, papel, equipe e as **liberações além do papel**.
+  O convite passou a carregar `permissoes` (migration **`098_convite_permissoes.sql`**, aditiva,
+  `DEFAULT '{}'`), saneadas com `sanearPermissoes` na criação e **revalidadas** com
+  `sanearPermissoesExistentes` no aceite. O nome digitado vem **preenchido** no formulário da
+  pessoa (`nome_sugerido`). ⚠️ **`POST /membros` continua na API, sem botão:** é o único caminho
+  que REAPROVEITA conta existente, e o convite recusa e-mail que já tem conta — **lacuna
+  declarada**: hoje quem já tem conta em outra empresa não entra pela tela.
 - **Modal "Gerenciar membros":** quem teve o **acesso revogado não aparece** (`pessoasDoModal`,
   só apresentação — o diff de participantes continua vendo a lista inteira); o aviso fixo
   "Desmarcar remove" saiu (a linha e a confirmação de saída continuam dizendo a consequência).

@@ -10,7 +10,9 @@
 //     simultâneos no mesmo link não criam duas contas — o segundo encontra `usado_em` preenchido.
 //  2. **E-mail que já tem conta é recusado (409).** O convite nunca reaproveita conta existente:
 //     reaproveitar exigiria provar que quem abriu o link é o dono daquela conta, e o link não é
-//     preso a e-mail. O caminho para essa pessoa é o "Adicionar pessoa" direto.
+//     preso a e-mail. ⚠️ Desde 2026-09-23 a TELA só cadastra por convite; a rota direta
+//     `POST /membros` (que reaproveita conta) continua na API, mas sem botão. Quem já tem conta
+//     em outra empresa hoje não entra por aqui — lacuna declarada ao operador.
 //  3. **Falhou qualquer passo, o convite NÃO é consumido.** Equipe encerrada, e-mail repetido ou
 //     menor de idade devolvem erro e o link continua valendo (até vencer).
 //  4. **O banco só vê o hash do token.** Nenhuma leitura devolve `token_hash`.
@@ -45,7 +47,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Nunca seleciona `token_hash`.
 const COLS_CONVITE = `
   c.id, c.empresa_id, c.role, c.equipe_id, c.rotulo, c.criado_por, c.criado_em, c.expira_em,
-  c.usado_em, c.usado_por_usuario_id, c.revogado_em, c.revogado_por,
+  c.usado_em, c.usado_por_usuario_id, c.revogado_em, c.revogado_por, c.permissoes,
   e.nome AS equipe_nome, uc.nome AS criado_por_nome, uu.nome AS usado_por_nome`
 
 const FROM_CONVITE = `
@@ -64,6 +66,9 @@ function comSituacao(row, agora) {
  */
 async function criarConvite(empresaId, dados, autorId, agora = new Date()) {
   const v = CM.validarNovoConvite(dados, { papeisConvidaveis, papelExigeEquipe })
+  // Liberações além do papel (migration 098): a MESMA régua do vínculo — só `true`, só
+  // capacidade conhecida e só o que o papel ainda não dá. Recusa alto em vez de ignorar.
+  const permissoes = M.sanearPermissoes((dados || {}).permissoes, v.role)
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
@@ -78,15 +83,16 @@ async function criarConvite(empresaId, dados, autorId, agora = new Date()) {
     const token = CM.gerarTokenConvite()
     const { rows } = await client.query(
       `INSERT INTO app.membro_convites
-         (empresa_id, token_hash, role, equipe_id, rotulo, criado_por, expira_em)
-       VALUES ($1, $2, $3, $4::uuid, $5, $6::uuid, $7)
+         (empresa_id, token_hash, role, equipe_id, rotulo, criado_por, expira_em, permissoes)
+       VALUES ($1, $2, $3, $4::uuid, $5, $6::uuid, $7, $8::jsonb)
        RETURNING id`,
-      [empresaId, CM.hashTokenConvite(token), v.role, v.equipeId, v.rotulo, autorId || null, CM.expiracaoConvite(agora)]
+      [empresaId, CM.hashTokenConvite(token), v.role, v.equipeId, v.rotulo, autorId || null,
+        CM.expiracaoConvite(agora), JSON.stringify(permissoes)]
     )
     const id = rows[0].id
     await auditar(client, {
       empresaId, usuarioId: autorId, acao: 'membro_convite_criado', entidadeId: id,
-      contexto: { papel: v.role, equipe_id: v.equipeId },
+      contexto: { papel: v.role, equipe_id: v.equipeId, permissoes_concedidas: Object.keys(permissoes) },
     })
     await client.query('COMMIT')
     const convite = await obterConvite(empresaId, id, agora)
@@ -162,7 +168,7 @@ async function lerConvitePublico(token, agora = new Date()) {
   const hash = CM.hashTokenConvite(token)
   if (!hash) return { situacao: 'inexistente' }
   const { rows } = await pool.query(
-    `SELECT c.role, c.expira_em, c.usado_em, c.revogado_em,
+    `SELECT c.role, c.rotulo, c.expira_em, c.usado_em, c.revogado_em,
             emp.nome AS empresa_nome, e.nome AS equipe_nome
        FROM app.membro_convites c
        JOIN app.empresas emp ON emp.id = c.empresa_id
@@ -180,6 +186,9 @@ async function lerConvitePublico(token, agora = new Date()) {
     empresa_nome: c.empresa_nome,
     papel: c.role,
     equipe_nome: c.equipe_nome || null,
+    // O nome que o gestor digitou ao gerar o link — vem PREENCHIDO no formulário, e a pessoa
+    // corrige se quiser. É o nome dela, entregue a quem tem o link dela.
+    nome_sugerido: c.rotulo || '',
     expira_em: c.expira_em,
   }
 }
@@ -204,7 +213,7 @@ async function aceitarConvite(token, dados, { agora = new Date(), hojeIso }) {
     // FOR UPDATE: dois envios simultâneos do mesmo link serializam aqui, e o segundo encontra
     // o convite já usado.
     const { rows } = await client.query(
-      `SELECT id, empresa_id, role, equipe_id, criado_por, expira_em, usado_em, revogado_em
+      `SELECT id, empresa_id, role, equipe_id, criado_por, expira_em, usado_em, revogado_em, permissoes
          FROM app.membro_convites WHERE token_hash = $1 FOR UPDATE`,
       [hash]
     )
@@ -220,7 +229,7 @@ async function aceitarConvite(token, dados, { agora = new Date(), hojeIso }) {
     )
     if (existe[0]) {
       throw erro(
-        'Este e-mail já tem uma conta. Use outro e-mail, ou peça a quem te convidou para adicionar sua conta existente pela tela de Contas da empresa.',
+        'Este e-mail já tem uma conta no sistema. Use outro e-mail, ou avise quem te convidou.',
         409, 'EMAIL_EXISTS'
       )
     }
@@ -246,7 +255,9 @@ async function aceitarConvite(token, dados, { agora = new Date(), hojeIso }) {
       empresaId: convite.empresa_id,
       usuario,
       role: convite.role,
-      permissoes: {},
+      // Revalidadas contra o papel AGORA: a matriz pode ter mudado desde que o link foi gerado,
+      // e uma concessão que o papel passou a incluir seria só ruído no vínculo.
+      permissoes: M.sanearPermissoesExistentes(convite.permissoes, convite.role),
       autorId: convite.criado_por,
       reusou: false,
       contextoExtra: { origem: 'convite', convite_id: convite.id },

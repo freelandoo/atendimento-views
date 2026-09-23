@@ -39,6 +39,9 @@ export type FolhaModalProps = {
   acoesCabecalho?: React.ReactNode
   /** O corpo controla o proprio padding (lista colada na borda, por exemplo). */
   semPaddingCorpo?: boolean
+  /** Painel colado na DIREITA, altura inteira (no celular continua folha inferior). Mesma
+   *  superfície da ficha do lead — para formulários que não devem esconder a lista atrás. */
+  lateral?: boolean
   className?: string
   children?: React.ReactNode
 }
@@ -54,6 +57,7 @@ export default function FolhaModal({
   rodape,
   acoesCabecalho,
   semPaddingCorpo = false,
+  lateral = false,
   className = '',
   children,
 }: FolhaModalProps) {
@@ -116,7 +120,7 @@ export default function FolhaModal({
 
   return (
     <div
-      className={classesFundoFolha()}
+      className={classesFundoFolha({ lateral })}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) fechar()
       }}
@@ -128,7 +132,7 @@ export default function FolhaModal({
         aria-labelledby={`${idRef.current}-titulo`}
         aria-describedby={descricao ? `${idRef.current}-descricao` : undefined}
         tabIndex={-1}
-        className={classesFolha({ tamanho, extra: className })}
+        className={classesFolha({ tamanho, extra: className, lateral })}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Alca de arraste: so no celular, onde a folha sobe de baixo. Decorativa — quem

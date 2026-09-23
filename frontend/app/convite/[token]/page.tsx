@@ -23,6 +23,8 @@ type ConvitePublico = {
   empresa_nome: string
   papel: string
   equipe_nome: string | null
+  /** O nome que o gestor digitou ao gerar o link — vem preenchido, e a pessoa corrige. */
+  nome_sugerido?: string
   expira_em: string
   senha_regra: string
   idade_minima: number
@@ -52,7 +54,11 @@ export default function ConvitePage() {
     if (!token) return
     let vivo = true
     apiFetch<ConvitePublico>(`/api/convites/${encodeURIComponent(token)}`)
-      .then((r) => { if (vivo) setConvite(r.data) })
+      .then((r) => {
+        if (!vivo) return
+        setConvite(r.data)
+        if (r.data?.nome_sugerido) setNome(r.data.nome_sugerido)
+      })
       .catch((e: unknown) => {
         if (vivo) setIndisponivel(e instanceof Error ? e.message : 'Não foi possível abrir o convite.')
       })

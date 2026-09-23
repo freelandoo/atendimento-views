@@ -129,3 +129,12 @@ test('GUARDA: cadastro direto e convite usam a MESMA regra de senha e idade', ()
   assert.ok(!/SENHA_MIN = 12/.test(membros), 'o piso antigo de 12 nao pode voltar')
   assert.ok(membros.includes('EQ.adicionarParticipanteEmTx'), 'comercial entra na equipe no cadastro')
 })
+
+test('GUARDA: o convite carrega as liberacoes alem do papel, saneadas na criacao e no aceite', () => {
+  const src = fonte(path.join('db', 'membro-convites.js'))
+  assert.ok(src.includes('M.sanearPermissoes((dados || {}).permissoes, v.role)'), 'criacao saneia contra o papel')
+  assert.ok(src.includes('M.sanearPermissoesExistentes(convite.permissoes, convite.role)'), 'aceite revalida contra o papel')
+  assert.ok(fonte(path.join('routes', 'api-membros.js')).includes('permissoes: b.permissoes'))
+  const sql = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '098_convite_permissoes.sql'), 'utf8')
+  assert.ok(/jsonb_typeof\(permissoes\) = 'object'/.test(sql))
+})

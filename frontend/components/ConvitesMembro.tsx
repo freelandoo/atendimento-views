@@ -1,25 +1,36 @@
 'use client'
-// Link de cadastro — a seção de Contas da empresa que gera, lista e cancela convites.
+// Convites — a ÚNICA porta de cadastro de pessoas em Contas da empresa (operador, 2026-09-23).
 //
-// O convite carrega PAPEL e, para o comercial, EQUIPE. Quem abre o link cria a própria conta e
-// entra já no papel e na equipe. O link vale 24 horas, é de uso único e NÃO é preso a um e-mail
-// (decisão do operador, 2026-09-23) — por isso a tela deixa claro que ele deve ir para UMA pessoa
-// e oferece "Cancelar" enquanto ninguém o usou.
+// A página mostra só a lista de convites recentes e o botão "Gerar link". O botão abre um PAINEL
+// LATERAL (drawer) com tudo o que o convite decide: papel, equipe, nome da pessoa e as
+// liberações além do papel. Depois de gerar, o mesmo painel mostra o link para copiar.
 //
-// ⚠️ O LINK SÓ PODE SER COPIADO AGORA. O servidor guarda apenas o hash do token; depois de fechar
-// o aviso, o convite continua na lista, mas o link não volta. A tela diz isso em texto.
+// O convite vale 24 horas, é de uso único e NÃO é preso a um e-mail — por isso ele deve ir para
+// UMA pessoa, e pode ser cancelado enquanto pendente.
 //
-// NENHUMA REGRA AQUI: quais papéis podem ser convidados, qual exige equipe e em que pé está cada
-// convite vêm prontos da API. `lib/convite-membro.js` só traduz.
+// ⚠️ O LINK SÓ PODE SER COPIADO NA HORA. O servidor guarda apenas o hash do token; fechado o
+// painel, o convite continua na lista, mas o link não volta. A tela diz isso em texto.
+//
+// NENHUMA REGRA AQUI: quais papéis podem ser convidados, qual exige equipe, o que cada papel já
+// dá e o que ainda pode ser liberado vêm prontos da API (`/membros/opcoes`). `lib/convite-membro.js`
+// e `lib/capacidades.js` só traduzem.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import Card from '@/components/ui/Card'
 import Campo from '@/components/ui/Campo'
 import Botao from '@/components/ui/Botao'
+import FolhaModal from '@/components/ui/FolhaModal'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
-import { rotuloPapel } from '@/lib/capacidades'
-import type { PapelEmpresa } from '@/lib/capacidades'
+import {
+  agruparConcessoes,
+  concessoesDoFormulario,
+  corpoPermissoes,
+  descricaoPapel,
+  resumoDoPapel,
+  rotuloPapel,
+} from '@/lib/capacidades'
+import type { Capacidade, PapelEmpresa } from '@/lib/capacidades'
 import {
   contarPendentes,
   equipesQueRecebem,
@@ -29,7 +40,18 @@ import {
   rotuloSituacao,
   tempoRestante,
 } from '@/lib/convite-membro'
-import type { ConviteMembro, EquipeParaConvite, OpcaoPapelEntrada } from '@/lib/convite-membro'
+import type { ConviteMembro, EquipeParaConvite } from '@/lib/convite-membro'
+
+export type OpcoesConvite = {
+  papeis: {
+    papel: PapelEmpresa
+    incluidas?: Capacidade[]
+    concedeveis: Capacidade[]
+    convidavel?: boolean
+    exige_equipe?: boolean
+  }[]
+  convite_validade_horas?: number
+}
 
 const TOM: Record<string, string> = {
   ok: 'border-estado-ok/30 bg-estado-ok/10 text-estado-ok',
@@ -49,34 +71,44 @@ export default function ConvitesMembro({
   base,
   opcoes,
   equipes,
-  validadeHoras = 24,
 }: {
   /** `/api/empresas/:id/membros` */
   base: string
-  opcoes: { papeis?: OpcaoPapelEntrada[] } | null
+  opcoes: OpcoesConvite | null
   equipes: EquipeParaConvite[]
-  validadeHoras?: number
 }) {
   const fb = useFeedback()
+  const validadeHoras = opcoes?.convite_validade_horas ?? 24
   const papeis = useMemo(() => papeisDoConvite(opcoes), [opcoes])
   const equipesAtivas = useMemo(() => equipesQueRecebem(equipes), [equipes])
-
-  const [papel, setPapel] = useState('comercial')
-  const [equipeId, setEquipeId] = useState('')
-  const [rotulo, setRotulo] = useState('')
-  const [gerando, setGerando] = useState(false)
-  const [linkGerado, setLinkGerado] = useState('')
-  const [copiado, setCopiado] = useState(false)
 
   const [convites, setConvites] = useState<ConviteMembro[]>([])
   const [cancelando, setCancelando] = useState<ConviteMembro | null>(null)
 
-  // Papel inicial: o primeiro que a API oferece, caso "comercial" não esteja na lista.
+  // ── Estado do painel ──
+  const [aberto, setAberto] = useState(false)
+  const [papel, setPapel] = useState<string>('comercial')
+  const [equipeId, setEquipeId] = useState('')
+  const [nome, setNome] = useState('')
+  const [concessoes, setConcessoes] = useState<Capacidade[]>([])
+  const [gerando, setGerando] = useState(false)
+  const [linkGerado, setLinkGerado] = useState('')
+  const [nomeGerado, setNomeGerado] = useState('')
+  const [copiado, setCopiado] = useState(false)
+
   useEffect(() => {
     if (papeis.length && !papeis.includes(papel)) setPapel(papeis[0])
   }, [papeis, papel])
 
+  const opcaoDoPapel = opcoes?.papeis.find((p) => p.papel === papel)
   const exigeEquipe = papelExigeEquipe(opcoes, papel)
+  // O que o papel JÁ dá e o que ainda pode ser liberado — os dois vêm do backend.
+  const jaIncluso = useMemo(() => resumoDoPapel(opcaoDoPapel?.incluidas || []), [opcaoDoPapel])
+  const totalIncluso = jaIncluso.reduce((n, g) => n + g.itens.length, 0)
+  const gruposConcessoes = useMemo(
+    () => agruparConcessoes(concessoesDoFormulario(opcaoDoPapel?.concedeveis || [], corpoPermissoes(concessoes))),
+    [opcaoDoPapel, concessoes],
+  )
 
   const carregar = useCallback(async () => {
     try {
@@ -89,6 +121,28 @@ export default function ConvitesMembro({
 
   useEffect(() => { carregar() }, [carregar])
 
+  function abrir() {
+    setEquipeId('')
+    setNome('')
+    setConcessoes([])
+    setLinkGerado('')
+    setNomeGerado('')
+    setCopiado(false)
+    setAberto(true)
+  }
+
+  // Trocar de papel descarta liberações que o papel novo já inclui — senão o servidor recusaria
+  // com "já está incluída no papel".
+  function trocarPapel(novo: string) {
+    setPapel(novo)
+    const permitidas = new Set(opcoes?.papeis.find((p) => p.papel === novo)?.concedeveis || [])
+    setConcessoes((prev) => prev.filter((c) => permitidas.has(c)))
+  }
+
+  function alternarConcessao(c: Capacidade) {
+    setConcessoes((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))
+  }
+
   async function gerar() {
     setGerando(true)
     setCopiado(false)
@@ -96,12 +150,17 @@ export default function ConvitesMembro({
       const r = await fb.runTask(
         () => apiFetch<{ convite: ConviteMembro; token: string }>(`${base}/convites`, {
           method: 'POST',
-          body: JSON.stringify({ role: papel, equipe_id: equipeId || null, rotulo }),
+          body: JSON.stringify({
+            role: papel,
+            equipe_id: equipeId || null,
+            rotulo: nome,
+            permissoes: corpoPermissoes(concessoes),
+          }),
         }),
         { sucesso: 'Link de cadastro gerado.' },
       )
       setLinkGerado(linkDoConvite(window.location.origin, r.data.token))
-      setRotulo('')
+      setNomeGerado(nome.trim())
       carregar()
     } catch {
       /* erro já exibido pelo feedback */
@@ -137,86 +196,22 @@ export default function ConvitesMembro({
 
   const motivoBloqueio = !papeis.length
     ? 'Carregando os papéis…'
-    : exigeEquipe && !equipesAtivas.length
-      ? 'Não há equipe ativa. Crie uma equipe em Equipe › Equipes antes de convidar um comercial.'
-      : exigeEquipe && !equipeId
-        ? 'Escolha a equipe: quem entra como comercial precisa começar numa equipe.'
-        : ''
+    : nome.trim().length < 2
+      ? 'Digite o nome da pessoa.'
+      : exigeEquipe && !equipesAtivas.length
+        ? 'Não há equipe ativa. Crie uma equipe em Equipe › Equipes antes de convidar um comercial.'
+        : exigeEquipe && !equipeId
+          ? 'Escolha a equipe: quem entra como comercial precisa começar numa equipe.'
+          : ''
 
   const pendentes = contarPendentes(convites)
 
   return (
     <>
       <Card
-        titulo="Convidar por link"
-        descricao={`A pessoa abre o link, preenche os próprios dados e já entra no papel e na equipe escolhidos. O link vale ${validadeHoras} horas e só pode ser usado uma vez.`}
-      >
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Campo etiqueta="Papel" obrigatorio>
-            <select value={papel} onChange={(e) => { setPapel(e.target.value); setLinkGerado('') }}>
-              {papeis.map((p) => (
-                <option key={p} value={p}>{rotuloPapel(p as PapelEmpresa)}</option>
-              ))}
-            </select>
-          </Campo>
-          <Campo
-            etiqueta={exigeEquipe ? 'Equipe' : 'Equipe (opcional)'}
-            obrigatorio={exigeEquipe}
-            ajuda={exigeEquipe ? 'Obrigatória para o comercial.' : ''}
-          >
-            <select value={equipeId} onChange={(e) => setEquipeId(e.target.value)}>
-              <option value="">{exigeEquipe ? 'Escolha a equipe…' : 'Sem equipe'}</option>
-              {equipesAtivas.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.nome}{e.nicho_nome ? ` — ${e.nicho_nome}` : ''}
-                </option>
-              ))}
-            </select>
-          </Campo>
-          <Campo etiqueta="Para quem é (opcional)" ajuda="Só para você reconhecer o convite na lista.">
-            <input value={rotulo} onChange={(e) => setRotulo(e.target.value)} maxLength={120} placeholder="Ex.: Ana, vaga de SDR" />
-          </Campo>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Botao
-            variante="primaria"
-            onClick={gerar}
-            carregando={gerando}
-            disabled={!!motivoBloqueio}
-            motivoDesabilitado={motivoBloqueio}
-          >
-            Gerar link
-          </Botao>
-          {motivoBloqueio && papeis.length > 0 && (
-            <span className="text-xs text-ink-3">{motivoBloqueio}</span>
-          )}
-        </div>
-
-        {linkGerado && (
-          <div className="mt-4 rounded-lg border border-estado-info/30 bg-estado-info/10 p-4">
-            <p className="text-sm font-medium text-ink">Link pronto. Copie agora.</p>
-            <p className="mt-1 text-xs text-ink-2">
-              Por segurança o sistema não guarda o link: depois de sair desta tela ele não pode ser
-              mostrado de novo. Mande para UMA pessoa — qualquer um que abrir primeiro se cadastra com ele.
-            </p>
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              <input
-                readOnly
-                value={linkGerado}
-                onFocus={(e) => e.currentTarget.select()}
-                aria-label="Link de cadastro"
-                className="min-w-0 flex-1 rounded-md border border-line-strong bg-surface px-3 py-2 font-mono text-xs text-ink"
-              />
-              <Botao variante="secundaria" onClick={copiar}>{copiado ? 'Copiado' : 'Copiar link'}</Botao>
-            </div>
-          </div>
-        )}
-      </Card>
-
-      <Card
-        titulo={`Convites recentes${pendentes ? ` · ${pendentes} aguardando cadastro` : ''}`}
-        descricao="Os 50 mais recentes. Um convite pendente pode ser cancelado enquanto ninguém o usou."
+        titulo={`Convites${pendentes ? ` · ${pendentes} aguardando cadastro` : ''}`}
+        descricao={`Pessoas entram na empresa só por convite. O link vale ${validadeHoras} horas e só pode ser usado uma vez.`}
+        acoes={<Botao variante="primaria" onClick={abrir} disabled={!papeis.length}>Gerar link</Botao>}
         semPadding
       >
         {convites.length === 0 ? (
@@ -233,9 +228,7 @@ export default function ConvitesMembro({
               return (
                 <li key={c.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-ink">
-                      {c.rotulo || 'Sem identificação'}
-                    </p>
+                    <p className="truncate text-sm font-medium text-ink">{c.rotulo || 'Sem nome'}</p>
                     <p className="truncate text-xs text-ink-3">
                       {rotuloPapel(c.role as PapelEmpresa)}
                       {c.equipe_nome ? ` · ${c.equipe_nome}` : ''}
@@ -255,10 +248,164 @@ export default function ConvitesMembro({
         )}
       </Card>
 
+      <FolhaModal
+        aberto={aberto}
+        lateral
+        titulo={linkGerado ? 'Link pronto' : 'Gerar link de cadastro'}
+        descricao={linkGerado
+          ? 'Copie agora e mande para a pessoa.'
+          : 'A pessoa abre o link, preenche os próprios dados e já entra com o que você escolher aqui.'}
+        onFechar={() => setAberto(false)}
+        rodape={linkGerado ? (
+          <>
+            <Botao variante="secundaria" onClick={abrir}>Gerar outro</Botao>
+            <Botao variante="primaria" onClick={() => setAberto(false)}>Concluir</Botao>
+          </>
+        ) : (
+          <>
+            {motivoBloqueio && papeis.length > 0 && (
+              <span className="mr-auto text-xs text-ink-3">{motivoBloqueio}</span>
+            )}
+            <Botao variante="secundaria" onClick={() => setAberto(false)}>Cancelar</Botao>
+            <Botao
+              variante="primaria"
+              onClick={gerar}
+              carregando={gerando}
+              disabled={!!motivoBloqueio}
+              motivoDesabilitado={motivoBloqueio}
+            >
+              Gerar link
+            </Botao>
+          </>
+        )}
+      >
+        {linkGerado ? (
+          <div className="space-y-4">
+            <p className="text-sm text-ink-2">
+              Convite{nomeGerado ? <> para <span className="font-medium text-ink">{nomeGerado}</span></> : null}{' '}
+              como <span className="font-medium text-ink">{rotuloPapel(papel as PapelEmpresa)}</span>.
+            </p>
+            <div className="flex flex-col gap-2">
+              <input
+                readOnly
+                value={linkGerado}
+                onFocus={(e) => e.currentTarget.select()}
+                aria-label="Link de cadastro"
+                className="w-full rounded-md border border-line-strong bg-surface-2 px-3 py-2 font-mono text-xs text-ink"
+              />
+              <Botao variante="primaria" onClick={copiar}>{copiado ? 'Copiado' : 'Copiar link'}</Botao>
+            </div>
+            <p className="rounded-lg border border-estado-warn/30 bg-estado-warn/10 px-3 py-2 text-xs text-ink-2">
+              Por segurança o sistema não guarda o link: depois de fechar este painel ele não pode
+              ser mostrado de novo. Mande para uma pessoa só — quem abrir primeiro se cadastra com ele.
+              Ele vence em {validadeHoras} horas.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Campo etiqueta="Nome da pessoa" obrigatorio ajuda="Já vem preenchido no cadastro dela; ela pode corrigir.">
+              <input value={nome} onChange={(e) => setNome(e.target.value)} maxLength={120} placeholder="Ex.: Ana Lima" />
+            </Campo>
+
+            <Campo etiqueta="Papel" obrigatorio>
+              <select value={papel} onChange={(e) => trocarPapel(e.target.value)}>
+                {papeis.map((p) => (
+                  <option key={p} value={p}>{rotuloPapel(p as PapelEmpresa)}</option>
+                ))}
+              </select>
+            </Campo>
+
+            <Campo
+              etiqueta={exigeEquipe ? 'Equipe' : 'Equipe (opcional)'}
+              obrigatorio={exigeEquipe}
+              ajuda={exigeEquipe ? 'Obrigatória para o comercial.' : ''}
+            >
+              <select value={equipeId} onChange={(e) => setEquipeId(e.target.value)}>
+                <option value="">{exigeEquipe ? 'Escolha a equipe…' : 'Sem equipe'}</option>
+                {equipesAtivas.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.nome}{e.nicho_nome ? ` — ${e.nicho_nome}` : ''}
+                  </option>
+                ))}
+              </select>
+            </Campo>
+
+            {/* O papel por extenso, com a LINHA DE BASE dele: é o que transforma as caixas abaixo
+                em decisão em vez de chute. */}
+            <div className="rounded-lg border border-line bg-surface-2 p-3">
+              <p className="text-sm font-medium text-ink">{rotuloPapel(papel as PapelEmpresa)}</p>
+              {descricaoPapel(papel as PapelEmpresa) && (
+                <p className="mt-0.5 text-xs text-ink-3">{descricaoPapel(papel as PapelEmpresa)}</p>
+              )}
+              {totalIncluso > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">
+                    Este papel já dá {totalIncluso} permiss{totalIncluso === 1 ? 'ão' : 'ões'}
+                  </p>
+                  {jaIncluso.map((g) => (
+                    <div key={g.id}>
+                      <p className="text-[10px] uppercase tracking-wide text-ink-3">{g.rotulo}</p>
+                      <ul className="mt-1 flex flex-wrap gap-1">
+                        {g.itens.map((i) => (
+                          <li key={i.capacidade} className="rounded-md border border-estado-ok/30 bg-estado-ok/10 px-1.5 py-0.5 text-[11px] font-medium text-estado-ok">
+                            {i.rotulo}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {gruposConcessoes.length > 0 && (
+              <fieldset className="space-y-3">
+                <legend className="text-sm font-medium text-ink">Liberar além do papel (opcional)</legend>
+                <p className="text-xs text-ink-3">
+                  Só se acrescenta permissão. Para restringir alguém, troque o papel.
+                  {concessoes.length > 0 && (
+                    <span className="ml-1 font-medium text-brand">
+                      {concessoes.length} marcada{concessoes.length === 1 ? '' : 's'}.
+                    </span>
+                  )}
+                </p>
+                {gruposConcessoes.map((g) => (
+                  <div key={g.id} className="space-y-1.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">{g.rotulo}</p>
+                    {g.itens.map((c) => (
+                      <label
+                        key={c.capacidade}
+                        className={`flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-sm transition ${
+                          c.marcada
+                            ? 'border-brand/40 bg-brand/5 text-ink'
+                            : 'border-line bg-surface text-ink-2 hover:bg-surface-2'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={c.marcada}
+                          onChange={() => alternarConcessao(c.capacidade)}
+                          className="mt-0.5 accent-brand"
+                        />
+                        <span>
+                          {c.rotulo}
+                          {/* A consequência (fala com o cliente, gasta dinheiro) fica sempre visível. */}
+                          {c.aviso && <span className="mt-0.5 block text-xs text-estado-warn">{c.aviso}</span>}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ))}
+              </fieldset>
+            )}
+          </div>
+        )}
+      </FolhaModal>
+
       {cancelando && (
         <ModalConfirmar
           titulo="Cancelar convite"
-          corpo={`O link ${cancelando.rotulo ? `"${cancelando.rotulo}" ` : ''}deixa de funcionar agora. Quem já tiver o link não conseguirá se cadastrar com ele.`}
+          corpo={`O link ${cancelando.rotulo ? `de "${cancelando.rotulo}" ` : ''}deixa de funcionar agora. Quem já tiver o link não conseguirá se cadastrar com ele.`}
           rotuloConfirmar="Cancelar convite"
           tom="perigo"
           onConfirmar={cancelar}

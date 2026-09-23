@@ -80,6 +80,9 @@ router.get('/opcoes', (_req, res) => {
 })
 
 // POST / — cria (ou reusa) o usuário e vincula à empresa.
+// ⚠️ Sem botão na tela desde 2026-09-23: o cadastro passou a ser SÓ por convite. A rota fica na
+// API porque é o único caminho que REAPROVEITA uma conta já existente (o convite recusa e-mail
+// que já tem conta). Removê-la é decisão própria, junto de uma saída para esse caso.
 router.post('/', async (req, res) => {
   try {
     const b = req.body || {}
@@ -108,7 +111,7 @@ router.post('/convites', async (req, res) => {
   try {
     const b = req.body || {}
     const { convite, token } = await CONV.criarConvite(req.empresa.id, {
-      role: b.role, equipe_id: b.equipe_id, rotulo: b.rotulo,
+      role: b.role, equipe_id: b.equipe_id, rotulo: b.rotulo, permissoes: b.permissoes,
     }, req.usuario.id)
     return res.status(201).json({ ok: true, data: { convite, token } })
   } catch (err) { return envelopeErro(res, err, 'CONVITE_CREATE_FAILED') }

@@ -20,19 +20,14 @@ import {
   useEffect,
   useMemo,
   useState,
-  type FormEvent,
 } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, getEmpresaId } from "@/lib/api";
-import { useFeedback, Spinner } from "@/components/feedback/FeedbackProvider";
+import { useFeedback } from "@/components/feedback/FeedbackProvider";
 import { useSession } from "@/lib/useSession";
 import DataTableFrame from "@/components/ui/DataTableFrame";
 import ModalConfirmar from "@/components/ui/ModalConfirmar";
 import ConvitesMembro from "@/components/ConvitesMembro";
-import {
-  equipesQueRecebem,
-  papelExigeEquipe,
-} from "@/lib/convite-membro";
 import type { EquipeParaConvite } from "@/lib/convite-membro";
 import {
   rotuloPapel,
@@ -77,8 +72,6 @@ const botaoCls =
 const botaoSecundarioCls =
   "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50";
 const cardCls = "rounded-2xl border border-slate-200 bg-white shadow-sm";
-const chipInclusoCls =
-  "rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700";
 
 export default function ContasEmpresaPage() {
   const router = useRouter();
@@ -94,16 +87,8 @@ export default function ContasEmpresaPage() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
 
-  // Formulário de convite
-  const [nome, setNome] = useState("");
-  const [email, setEmail] = useState("");
-  const [senha, setSenha] = useState("");
-  const [nascimento, setNascimento] = useState("");
-  const [equipeId, setEquipeId] = useState("");
+  // Equipes para o convite (o comercial entra numa equipe).
   const [equipes, setEquipes] = useState<EquipeParaConvite[]>([]);
-  const [papel, setPapel] = useState<PapelEmpresa>("comercial");
-  const [concessoes, setConcessoes] = useState<Capacidade[]>([]);
-  const [criando, setCriando] = useState(false);
 
   const [editando, setEditando] = useState<MembroEmpresa | null>(null);
   const [confirmando, setConfirmando] = useState<MembroEmpresa | null>(null);
@@ -167,35 +152,6 @@ export default function ContasEmpresaPage() {
     if (podeGerenciar) carregar();
   }, [podeGerenciar, carregar]);
 
-  // Concedíveis dependem do PAPEL escolhido: trocar de papel muda o que sobrou para conceder.
-  // Quem decide isso é o backend (`concedeveisPara`), que já mandou a lista por papel.
-  const concedeveisDoPapel = useMemo(
-    () => opcoes?.papeis.find((p) => p.papel === papel)?.concedeveis || [],
-    [opcoes, papel],
-  );
-  const listaConcessoes = useMemo(
-    () =>
-      concessoesDoFormulario(concedeveisDoPapel, corpoPermissoes(concessoes)),
-    [concedeveisDoPapel, concessoes],
-  );
-  // Agrupado por AREA: 18 caixas iguais em lista plana obrigam a varrer tudo para achar uma.
-  const gruposConcessoes = useMemo(
-    () => agruparConcessoes(listaConcessoes),
-    [listaConcessoes],
-  );
-  // O que o papel JA inclui. Sem isso, o formulario mostra caixas vazias e nenhuma linha de base:
-  // o operador nao tem como saber se falta a permissao ou se o papel ja da.
-  const jaIncluso = useMemo(
-    () =>
-      resumoDoPapel(
-        opcoes?.papeis.find((p) => p.papel === papel)?.incluidas || [],
-      ),
-    [opcoes, papel],
-  );
-  const totalIncluso = useMemo(
-    () => jaIncluso.reduce((n, g) => n + g.itens.length, 0),
-    [jaIncluso],
-  );
   const resumoContas = useMemo(() => {
     const total = membros.length;
     const ativas = membros.filter(
@@ -204,58 +160,6 @@ export default function ContasEmpresaPage() {
     const comerciais = membros.filter((m) => m.role === "comercial").length;
     return { total, ativas, comerciais };
   }, [membros]);
-
-  // Trocar de papel descarta concessões que o papel novo já inclui — senão o formulário enviaria
-  // algo que a rota recusa com "já está incluída no papel".
-  function trocarPapel(novo: PapelEmpresa) {
-    setPapel(novo);
-    const permitidas = new Set(
-      opcoes?.papeis.find((p) => p.papel === novo)?.concedeveis || [],
-    );
-    setConcessoes((prev) => prev.filter((c) => permitidas.has(c)));
-  }
-
-  function alternarConcessao(capacidade: Capacidade) {
-    setConcessoes((prev) =>
-      prev.includes(capacidade)
-        ? prev.filter((c) => c !== capacidade)
-        : [...prev, capacidade],
-    );
-  }
-
-  async function criar(e: FormEvent) {
-    e.preventDefault();
-    setCriando(true);
-    try {
-      await fb.runTask(
-        () =>
-          apiFetch(base, {
-            method: "POST",
-            body: JSON.stringify({
-              nome,
-              email,
-              senha,
-              data_nascimento: nascimento,
-              equipe_id: equipeId || null,
-              role: papel,
-              permissoes: corpoPermissoes(concessoes),
-            }),
-          }),
-        { sucesso: "Pessoa adicionada à empresa." },
-      );
-      setNome("");
-      setEmail("");
-      setSenha("");
-      setNascimento("");
-      setEquipeId("");
-      setConcessoes([]);
-      carregar();
-    } catch {
-      /* erro já exibido pelo feedback */
-    } finally {
-      setCriando(false);
-    }
-  }
 
   async function salvarEdicao(
     membro: MembroEmpresa,
@@ -277,10 +181,6 @@ export default function ContasEmpresaPage() {
       /* erro já exibido pelo feedback */
     }
   }
-
-  const exigeEquipe = papelExigeEquipe(opcoes, papel);
-  const equipesAtivas = equipesQueRecebem(equipes);
-  const faltaEquipe = exigeEquipe && !equipeId;
 
   if (loadingSessao || capacidades === null) {
     return <p className="text-sm text-slate-500">Carregando…</p>;
@@ -330,215 +230,13 @@ export default function ContasEmpresaPage() {
         </p>
       )}
 
-      {/* ── Convite ─────────────────────────────────────────────────────────────── */}
-      <form onSubmit={criar} className={cardCls + " space-y-4 p-5"}>
-        <h2 className="text-sm font-semibold text-slate-900">
-          Adicionar pessoa
-        </h2>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <input
-            value={nome}
-            onChange={(e) => setNome(e.target.value)}
-            required
-            minLength={2}
-            placeholder="Nome"
-            className={inputCls}
-          />
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            type="email"
-            placeholder="E-mail"
-            className={inputCls}
-          />
-          <input
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-            type="password"
-            minLength={opcoes?.senha_minima ?? 8}
-            placeholder={`Senha inicial (≥${opcoes?.senha_minima ?? 8}, letra e número)`}
-            title={opcoes?.senha_regra}
-            className={inputCls}
-          />
-          <label className="flex flex-col gap-1 text-xs text-slate-600">
-            <span>Data de nascimento</span>
-            <input
-              value={nascimento}
-              onChange={(e) => setNascimento(e.target.value)}
-              type="date"
-              className={inputCls}
-            />
-          </label>
-          <select
-            value={papel}
-            onChange={(e) => trocarPapel(e.target.value as PapelEmpresa)}
-            className={inputCls}
-          >
-            {(opcoes?.papeis || []).map(({ papel: p }) => (
-              <option key={p} value={p}>
-                {rotuloPapel(p)}
-              </option>
-            ))}
-          </select>
-          <select
-            value={equipeId}
-            onChange={(e) => setEquipeId(e.target.value)}
-            aria-label={exigeEquipe ? "Equipe (obrigatória)" : "Equipe (opcional)"}
-            className={inputCls}
-          >
-            <option value="">
-              {exigeEquipe ? "Equipe (obrigatória)…" : "Sem equipe"}
-            </option>
-            {equipesAtivas.map((eq) => (
-              <option key={eq.id} value={eq.id}>
-                {eq.nome}
-                {eq.nicho_nome ? ` — ${eq.nicho_nome}` : ""}
-              </option>
-            ))}
-          </select>
-        </div>
 
-        {/* O papel escolhido, dito por extenso e com a LINHA DE BASE dele. Trocar o papel troca
-            esta lista inteira — e e' ela que transforma as caixas abaixo em decisao em vez de
-            chute. */}
-        <div className="rounded-xl border border-cyan-100 bg-cyan-50/60 p-4">
-          <div className="flex flex-wrap items-baseline gap-x-2">
-            <span className="text-sm font-semibold text-slate-900">
-              {rotuloPapel(papel)}
-            </span>
-            <span className="text-xs text-slate-600">
-              {descricaoPapel(papel)}
-            </span>
-          </div>
-
-          {totalIncluso > 0 && (
-            <div className="mt-3 space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                Este papel já dá {totalIncluso} permiss
-                {totalIncluso === 1 ? "ão" : "ões"}
-              </p>
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                {jaIncluso.map((g) => (
-                  <div key={g.id} className="min-w-[180px] flex-1">
-                    <div className="text-[10px] uppercase tracking-wide text-slate-600">
-                      {g.rotulo}
-                    </div>
-                    <ul className="mt-1 flex flex-wrap gap-1">
-                      {g.itens.map((i) => (
-                        <li
-                          key={i.capacidade}
-                          className="rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700"
-                        >
-                          {i.rotulo}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {listaConcessoes.length === 0 && totalIncluso > 0 && (
-            <p className="mt-3 text-xs text-slate-600">
-              Não há o que liberar além disso — este papel já alcança tudo.
-            </p>
-          )}
-        </div>
-
-        <p className="text-xs text-slate-600">
-          Conta nova exige data de nascimento (maiores de{" "}
-          {opcoes?.idade_minima ?? 18} anos) e senha com{" "}
-          {opcoes?.senha_minima ?? 8}+ caracteres, letra e número. Se o e-mail
-          já tiver conta no sistema, ela é reaproveitada e só o acesso a esta
-          empresa é criado — a senha e a data existentes não mudam, e esses
-          campos podem ficar vazios.
-        </p>
-
-        {listaConcessoes.length > 0 && (
-          <fieldset className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-            <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Liberar além do papel (opcional)
-            </legend>
-            <p className="text-xs text-slate-600">
-              Só se acrescenta permissão. Para restringir alguém,{" "}
-              <b>troque o papel</b> — negar não existe neste modelo.
-              {concessoes.length > 0 && (
-                <span className="ml-1 text-cyan-700">
-                  {concessoes.length} marcada
-                  {concessoes.length === 1 ? "" : "s"}.
-                </span>
-              )}
-            </p>
-            {/* Por AREA, na ordem do menu lateral. A marcada ganha contorno proprio: com 19 caixas,
-                cor de acento sozinha no quadradinho nao se acha varrendo a lista. */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              {gruposConcessoes.map((g) => (
-                <div key={g.id} className="space-y-1.5">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                    {g.rotulo}
-                  </div>
-                  {g.itens.map((c) => (
-                    <label
-                      key={c.capacidade}
-                      className={`flex cursor-pointer items-start gap-2 rounded-lg border px-2.5 py-2 text-sm transition ${
-                        c.marcada
-                          ? "border-cyan-300 bg-white text-slate-900 shadow-sm ring-1 ring-cyan-100"
-                          : "border-slate-200 bg-white text-slate-600 hover:border-cyan-200 hover:bg-cyan-50/50"
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={c.marcada}
-                        onChange={() => alternarConcessao(c.capacidade)}
-                        className="mt-0.5 accent-cyan-600"
-                      />
-                      <span>
-                        {c.rotulo}
-                        {/* O aviso e' sobre a CONSEQUENCIA (fala com o cliente, gasta dinheiro, e
-                            irreversivel) — por isso fica sempre visivel, nunca em tooltip. */}
-                        {c.aviso && (
-                          <span className="mt-0.5 block text-xs text-amber-700">
-                            {c.aviso}
-                          </span>
-                        )}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </fieldset>
-        )}
-
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="submit"
-            disabled={criando || faltaEquipe}
-            title={faltaEquipe ? "Escolha a equipe: quem entra como comercial precisa começar numa equipe." : undefined}
-            className={botaoCls}
-          >
-            {criando && <Spinner />}
-            {criando ? "Adicionando…" : "Adicionar à empresa"}
-          </button>
-          {/* O motivo do botão travado em TEXTO, nunca só no `title`. */}
-          {faltaEquipe && (
-            <span className="text-xs text-slate-600">
-              {equipesAtivas.length
-                ? "Escolha a equipe: quem entra como comercial precisa começar numa equipe."
-                : "Não há equipe ativa. Crie uma equipe em Equipe › Equipes antes de cadastrar um comercial."}
-            </span>
-          )}
-        </div>
-      </form>
-
-      {/* ── Convite por link (migration 096) ─────────────────────────────────────── */}
+      {/* ── Convites: a ÚNICA porta de cadastro (operador, 2026-09-23). O formulário direto
+          saiu; papel, equipe, nome e liberações vivem no painel lateral do convite. ── */}
       <ConvitesMembro
         base={base}
         opcoes={opcoes}
         equipes={equipes}
-        validadeHoras={opcoes?.convite_validade_horas ?? 24}
       />
 
       {/* ── Lista ───────────────────────────────────────────────────────────────── */}
