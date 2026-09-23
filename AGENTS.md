@@ -1772,6 +1772,53 @@
 - **Nenhuma variável de ambiente nova. Nenhuma migration nova** (usa as colunas da `070`).
   **Nenhuma outra rota trocou de gate.**
 
+### Cadastro de membro e CONVITE POR LINK (migration 096)
+- **Regra de negócio (operador, 2026-09-23):** além do cadastro direto em Contas da empresa, o
+  gestor gera um **link de cadastro** que carrega o **papel** e, para o comercial, a **equipe**.
+  Quem abre o link cria a própria conta e já entra na empresa, no papel e na equipe; sai logado e
+  cai em `/dashboard` (o `AuthGuard` leva ao aceite do termo quando o papel exige).
+- **As duas portas usam a MESMA régua** (`src/services/cadastro-membro.js`, PURO): senha com
+  **8+ caracteres, letra e número** (o piso antigo de 12 do cadastro direto **caiu**); **data de
+  nascimento obrigatória** para conta nova e **recusa de menores de 18** — a mesma régua da
+  declaração de maioridade do termo (084), que continua sendo pedida depois. Data impossível
+  (`2000-02-31`) é recusada, nunca normalizada. Conta **reusada** no cadastro direto não é tocada.
+- **O comercial SEMPRE nasce numa equipe** (`papelExigeEquipe`, em `acesso-capacidades.js` — dono
+  do vocabulário de papel; ninguém compara `'comercial'` com literal fora dele). A entrada passa
+  por `adicionarParticipanteEmTx` (`db/equipes-comerciais.js`), que soma a pessoa à lista e usa
+  `substituirParticipantes` — **o mesmo caminho do modal**, com o mesmo 409 de "já está em outra
+  equipe" e o **mesmo rebalanceamento automático** da carteira intocada do nicho. Tudo na
+  transação do vínculo: se a equipe recusar, a conta não nasce.
+- **O convite:** vale **24 h**, é de **uso único** e **NÃO é preso a e-mail** (decisão do
+  operador) — quem abrir primeiro se cadastra; por isso ele pode ser **cancelado** enquanto
+  pendente. `owner` **nunca** é convidável (`papeisConvidaveis`; um link vazado não pode fazer
+  nascer outro dono). E-mail que **já tem conta** é **recusado (409)** — o convite nunca
+  reaproveita conta, porque o link não prova que quem o abriu é o dono dela; o caminho é o
+  "Adicionar pessoa" direto.
+- **O banco guarda só o SHA-256 do token** (`app.membro_convites.token_hash`); nenhuma leitura o
+  devolve (guarda de regressão). **Consequência declarada:** o link só pode ser copiado no momento
+  em que é gerado. A aceitação lê o convite com `FOR UPDATE` (dois envios não criam duas contas) e
+  **qualquer recusa deixa o link valendo**.
+- **Schema:** `096_convite_membro.sql`, **aditiva** — `app.membro_convites` + coluna nullable
+  `app.usuarios.data_nascimento` (contas antigas ficam `NULL`; não se inventa idade). CHECKs: papel
+  fechado em `admin|comercial|member`, comercial exige equipe, usado × revogado excludentes, e **FK
+  composta `(equipe_id, empresa_id)`** — equipe de outro tenant falha no banco.
+- **Rotas:** do gestor, dentro do mount `MEMBROS_GERENCIAR` de `/membros`: `GET /convites`,
+  `POST /convites` (o token volta **uma vez**), `POST /convites/:conviteId/revogar`.
+  **PÚBLICAS** (sem login) em `/api/convites`: `GET /:token` e `POST /:token/aceitar`, com limite
+  por IP (60 leituras/15 min, 20 aceites/h). **Papel, equipe e empresa vêm do convite, nunca do
+  corpo** (guarda de regressão). Link que não serve responde sem dizer de qual empresa era.
+- **Auditoria:** `membro_convite_criado|revogado|usado` (entidade `membro_convite`) e o
+  `membro_adicionado` de sempre, com `contexto.origem='convite'` — sem e-mail, nome, senha ou token.
+  O autor do vínculo é **quem gerou o convite**.
+- **Front:** `frontend/lib/convite-membro.js` (+ `.d.ts`/`.test.js`) **só traduz** (`situacao`,
+  `convidavel`, `exige_equipe` vêm da API); `components/ConvitesMembro.tsx` (seção de Contas da
+  empresa); página pública `app/convite/[token]/page.tsx` (tema **neon**, como `signup`).
+- **Modal "Gerenciar membros":** quem teve o **acesso revogado não aparece** (`pessoasDoModal`,
+  só apresentação — o diff de participantes continua vendo a lista inteira); o aviso fixo
+  "Desmarcar remove" saiu (a linha e a confirmação de saída continuam dizendo a consequência).
+- Testes: `test/cadastro-membro.test.js` (anti-drift contra a CHECK da 096 + guardas),
+  `frontend/lib/convite-membro.test.js`. **Nenhuma variável de ambiente nova.**
+
 ### CRM em EQUIPE — Etapas 3 a 12 (a porta do lead, ownership, `wa.me` e o papel comercial)
 - **Projeto CONCLUÍDO — backend e telas.** Plano vivo e retomável:
   `docs/plano-execucao-crm-equipe.md` (leia-o antes de mexer em qualquer coisa deste tema).
@@ -3241,47 +3288,6 @@
   `src/routes/api-equipes-comerciais.js`, `src/telefone-br.js`. Testes:
   `test/lead-distribuicao.test.js` (28, sendo 8 guardas que leem o fonte),
   `test/autorizacao-rotas.test.js`, `frontend/lib/equipe-carteira.test.js` (25).
-
-### Transferência ENTRE membros + PONTOS DE ATENÇÃO no topo da equipe (sem migration)
-- **Regra de produto, em uma frase:** dentro da área de Equipe o gestor move leads de UMA pessoa
-  para OUTRA (`POST /api/empresas/:empresaId/equipes-comerciais/:equipeId/transferencia`), e tudo
-  o que impede a distribuição de sair certa aparece **no topo** do detalhe, antes das métricas.
-- ⚠️ **Decisão do operador (2026-09-23): o padrão move SÓ lead INTOCADO** — o MESMO
-  `sqlRedistribuivel` do rebalanceamento (há teste de identidade). `incluir_protegidos: true`
-  **amplia o conjunto, nunca o prefere**: os intocados saem primeiro (`sqlOrdemTransferencia`) e os
-  em andamento só entram quando eles acabam. Só o **booleano** `true` inclui — a string `'true'`
-  cai no lado seguro. Com lead em andamento no lote, a tela passa por `ModalConfirmar` nomeando
-  reuniões, conversas e follow-ups; o resultado anuncia o número **REAL** que mudou de mão.
-- **`LEAD_TRANSFERIR` POR ROTA** (o mount `MEMBROS_GERENCIAR` não basta), origem **e** destino
-  precisam ser membros ativos DESTA equipe (400 `FORA_DA_EQUIPE`), equipe encerrada não
-  movimenta (409). Mesmas garantias de toda escrita de dono: `pg_advisory_xact_lock`, `UPDATE`
-  condicionado ao cedente, histórico por lead (`ACOES.TRANSFERIU`, motivo fechado
-  `transferencia_entre_membros`) e linha agregada `equipe_comercial_leads_transferidos`, sem PII.
-- **O rebalanceamento AUTOMÁTICO NÃO mudou** — `moverEntreMembros` ganhou `incluirProtegidos`
-  com padrão `false`, e há guarda que falha se `rebalancearEquipe` passar a usá-lo.
-- **Pontos de atenção** (`GET .../carteira`, campos ADITIVOS; `frontend/lib/equipe-carteira.js` →
-  `pontosDeAtencao`, só traduz): (1) **lead que a pessoa NÃO enxerga** — `legado` na mão de quem
-  não tem `LEAD_VER_BRUTOS` (a Pousada, 2026-09-22), com `ve_base_bruta` decidido no BACKEND por
-  `podeCapacidade`; (2) **aguardando triagem** no nicho; (3) **lead do nicho com quem não é da
-  equipe** (a soma da tabela não fechava); (4) **aprovado sem nicho** (número da EMPRESA, dito
-  como tal); (5) desequilíbrio (agora oferece "Mover leads"); (6) sem livres. Ordem por
-  gravidade, em baldes (a guarda do módulo proíbe ordenar gente).
-- ⚠️ **`membrosDaEquipe` NÃO ganhou `permissoes`**: ela alimenta respostas de API
-  (`equipeComMembros`) e vazaria as concessões de cada pessoa. A visibilidade vem de
-  `quemVeBaseBruta`, que só devolve o booleano (guarda de regressão).
-- **Validação real (não só leitura do SQL):** `npm run medir:distribuicao-equipes`
-  (`scripts/medir-distribuicao-equipes.js`) — READ ONLY + ROLLBACK, `DATABASE_URL` explícita, só
-  contagens e ids mascarados, e **importa os predicados da produção** em vez de copiá-los. Confere
-  seis invariantes por equipe ativa (visibilidade, fora da equipe, triagem, equilíbrio, soma que
-  fecha, rastro no histórico) e quantas distribuições foram registradas em 30 dias.
-- Código: `src/services/lead-distribuicao.js` (`validarTransferencia`, `sqlTransferivel`,
-  `sqlOrdemTransferencia`), `src/db/lead-distribuicao.js` (`transferirLeads`,
-  `pontosDeAtencaoDoNicho`), `src/db/equipes-comerciais.js` (`transferirLeadsNaEquipe`,
-  `quemVeBaseBruta`), `src/routes/api-equipes-comerciais.js`. Front:
-  `frontend/components/ModalMoverLeads.tsx`, `frontend/lib/equipe-carteira.{js,d.ts,test.js}`,
-  `frontend/app/dashboard/equipe/page.tsx`. Testes: `test/lead-distribuicao.test.js` (+14),
-  `test/medir-distribuicao-equipes.test.js` (14), `frontend/lib/equipe-carteira.test.js` (+15).
-- **Nenhuma migration, nenhuma variável de ambiente nova, nenhuma capacidade nova.**
 
 ### Descoberta de leads pela Biblioteca de Anúncios do Meta (ator Apify) — dois incrementos
 - **Projeto em andamento, por incrementos.** Fase 0/análise completa em

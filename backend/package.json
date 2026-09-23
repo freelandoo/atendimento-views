@@ -39,7 +39,6 @@
     "medir:isolamento-empresa": "node scripts/medir-isolamento-empresa.js",
     "medir:escopo-instancia": "node scripts/medir-escopo-instancia.js",
     "medir:qualificacao-lead": "node scripts/medir-qualificacao-lead.js",
-    "medir:distribuicao-equipes": "node scripts/medir-distribuicao-equipes.js",
     "descartar:inativos": "node scripts/descartar-leads-inativos.js",
     "aprovar:leads-nicho": "node scripts/aprovar-leads-por-nicho.js",
     "meta-ads:reabrir-paginas": "node scripts/reabrir-cross-reference-meta.js"

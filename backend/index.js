@@ -93,6 +93,10 @@ app.use('/api/operador', dashboardAuth.requireDashboardAuth)
 
 // Rotas JWT SaaS multiempresa (Bearer token — consumidas pelo frontend Next.js)
 app.use('/api/auth', apiAuthRouter)
+// Link de cadastro (migration 096) — PÚBLICO, sem login: quem protege é o token de uso único e
+// 24h, mais o limite por IP. O papel e a equipe vêm do convite, nunca do corpo. Gerar e revogar
+// convites vive em /api/empresas/:empresaId/membros/convites (MEMBROS_GERENCIAR).
+app.use('/api/convites', require('./src/routes/api-convites'))
 app.use('/api/admin', require('./src/routes/api-admin-usuarios').router)
 app.use('/api/empresas', require('./src/routes/api-empresas'))
 // Contas da empresa (CRM em equipe, Etapa 2). A autorização vive DENTRO do router

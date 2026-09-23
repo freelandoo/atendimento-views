@@ -200,7 +200,8 @@ test('GUARDA: a camada de membros nunca seleciona nem devolve senha/hash', () =>
     // O UNICO uso legitimo e' ESCREVER o hash no INSERT de um usuario novo.
     const ehEscrita = /INSERT INTO app\.usuarios\b/.test(semComentario)
       || /const password_hash = await hashPassword/.test(semComentario)
-      || /^\s*\[email, nome, password_hash\]/.test(semComentario)
+      // A data de nascimento (migration 096) entra DEPOIS do hash — continua sendo a escrita.
+      || /^\s*\[email, nome, password_hash(, \w+)*\]/.test(semComentario)
     assert.ok(ehEscrita, `linha ${i + 1}: password_hash so pode ser ESCRITO, nunca lido/retornado: ${linha.trim()}`)
     assert.ok(!/\bSELECT\b|\bRETURNING\b/i.test(semComentario),
       `linha ${i + 1}: password_hash nao pode aparecer em SELECT/RETURNING`)

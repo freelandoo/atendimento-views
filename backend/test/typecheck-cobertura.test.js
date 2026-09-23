@@ -21,7 +21,7 @@ const path = require('node:path')
 const SRC = path.join(__dirname, '..', 'src')
 
 // Estado congelado em 2026-09-23: 80 arquivos de src/ verificados.
-const PISO_ARQUIVOS_VERIFICADOS = 80
+const PISO_ARQUIVOS_VERIFICADOS = 81
 
 function arquivosJs(dir, acc = []) {
   for (const entrada of fs.readdirSync(dir, { withFileTypes: true })) {

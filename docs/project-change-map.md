@@ -1361,14 +1361,3 @@ existe e nao deve nascer.
 - **Validação:** backend `node --test test/site-classificacao.test.js test/lead-icp-score.test.js
   test/ligacao-prioridade.test.js` limpo; frontend `npx tsc --noEmit` limpo e
   `node --test lib/*.test.js` 794/794. **Verificação visual ao vivo NÃO foi feita.**
-
-
-## Transferência entre membros + pontos de atenção (2026-09-23)
-
-- Backend: `services/lead-distribuicao.js`, `db/lead-distribuicao.js`, `db/equipes-comerciais.js`,
-  rota `POST /equipes-comerciais/:equipeId/transferencia` (`LEAD_TRANSFERIR`), fixture de rotas.
-- Front: `components/ModalMoverLeads.tsx`, `lib/equipe-carteira.*`, `app/dashboard/equipe/page.tsx`
-  (bloco "pontos de atenção" no topo; o card "Alertas da equipe" do fim da página saiu).
-- Diagnóstico: `scripts/medir-distribuicao-equipes.js` + npm `medir:distribuicao-equipes`.
-- Regras a preservar: padrão só intocado; rebalanceamento automático sem `incluirProtegidos`;
-  origem e destino membros da equipe; `permissoes` nunca na resposta.

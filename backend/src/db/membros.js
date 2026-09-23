@@ -28,8 +28,11 @@
 const { pool } = require('../db')
 const { hashPassword } = require('../auth')
 const {
-  PAPEIS, papelConhecido, capacidadeConhecida, concedeveisPara,
+  PAPEIS, papelConhecido, capacidadeConhecida, concedeveisPara, papelExigeEquipe,
 } = require('../services/acesso-capacidades')
+// Regra ÚNICA de senha e de idade, compartilhada com o link de convite.
+const CM = require('../services/cadastro-membro')
+const { diaOperacional } = require('../services/plano-dia')
 const { logger } = require('../logger')
 // Os tres donos do trabalho que fica PRESO quando alguem perde o acesso. Importados, nunca
 // reimplementados: cada um e' o dono do proprio historico (migrations 072, 074 e 062), e um
@@ -37,6 +40,8 @@ const { logger } = require('../logger')
 const LR = require('./lead-responsavel')
 const CR = require('./conversa-responsavel')
 const FU = require('./follow-ups')
+// A entrada na equipe no cadastro passa pelo MESMO caminho do modal (rebalanceamento incluso).
+const EQ = require('./equipes-comerciais')
 
 function erro(mensagem, statusCode = 400, code = 'BAD_REQUEST') {
   const e = new Error(mensagem)
@@ -48,7 +53,8 @@ function erro(mensagem, statusCode = 400, code = 'BAD_REQUEST') {
 // ─── Validação de entrada ────────────────────────────────────────────────────────────────
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const SENHA_MIN = 12 // mesmo piso do DASHBOARD_ADMIN_PASSWORD documentado no AGENTS.md
+// Desde 2026-09-23 a senha de membro segue `services/cadastro-membro.js` (8+, letra e número).
+const SENHA_MIN = CM.SENHA_MIN
 
 function normalizarEmail(v) {
   return String(v == null ? '' : v).trim().toLowerCase()
@@ -156,21 +162,82 @@ async function withTx(fn) {
 }
 
 /**
+ * Grava o vínculo pessoa↔empresa e a linha de auditoria dele, DENTRO da transação do chamador.
+ *
+ * Existe separado porque há DUAS portas de entrada — o cadastro direto (`criarMembro`) e o link
+ * de convite (`db/membro-convites.js`) — e as duas precisam deixar o MESMO rastro: `criado_por`
+ * gravado junto do vínculo (mesmo raciocínio de `origem_vinculo`, migration 061) e uma linha
+ * `membro_adicionado` sem senha, sem hash e sem e-mail.
+ *
+ * @param {object} client  conexão com transação aberta
+ * @param {object} p  { empresaId, usuario, role, permissoes, autorId, reusou, contextoExtra? }
+ */
+async function inserirVinculoEmTx(client, { empresaId, usuario, role, permissoes = {}, autorId = null, reusou = false, contextoExtra = {} }) {
+  let vinculo
+  try {
+    const { rows } = await client.query(
+      `INSERT INTO app.usuarios_empresas (usuario_id, empresa_id, role, permissoes, criado_por)
+       VALUES ($1, $2, $3, $4::jsonb, $5)
+       RETURNING id, usuario_id, role, ativo, permissoes, criado_em, criado_por`,
+      [usuario.id, empresaId, role, JSON.stringify(permissoes), autorId || null]
+    )
+    vinculo = rows[0]
+  } catch (e) {
+    // UNIQUE (usuario_id, empresa_id): a pessoa já é membro. 409, e não um segundo vínculo.
+    if (e && e.code === '23505') {
+      throw erro('Esta pessoa já é membro desta empresa.', 409, 'MEMBRO_JA_EXISTE')
+    }
+    throw e
+  }
+
+  await auditar(client, {
+    empresaId,
+    usuarioId: autorId,
+    acao: 'membro_adicionado',
+    entidadeId: vinculo.id,
+    estadoNovo: role,
+    // Sem senha, sem hash, sem e-mail: o e-mail é dado de pessoa e o vínculo já aponta para o
+    // usuário. `usuario_reusado` é o que importa auditar — diz se a conta nasceu aqui.
+    contexto: {
+      usuario_id: usuario.id,
+      usuario_reusado: reusou,
+      permissoes_concedidas: Object.keys(permissoes),
+      ...contextoExtra,
+    },
+  })
+  return vinculo
+}
+
+/**
  * Cria (ou reusa) o usuário e o vincula à empresa. Uma transação só.
  *
+ * Conta NOVA exige data de nascimento (maior de 18) e a senha da regra única
+ * (`services/cadastro-membro.js`: 8+ caracteres, letra e número). Conta REUSADA não é tocada
+ * (regra 2), então nada disso é pedido para ela.
+ *
+ * Papel que exige equipe (`papelExigeEquipe`, hoje o comercial) entra JÁ na equipe, na mesma
+ * transação — ninguém nasce comercial sem carteira para trabalhar.
+ *
  * @param {string} empresaId
- * @param {object} dados  { nome, email, senha, role, permissoes? }
+ * @param {object} dados  { nome, email, senha, data_nascimento, role, permissoes?, equipe_id? }
  * @param {string} autorId  quem está adicionando (req.usuario.id)
  */
-async function criarMembro(empresaId, dados = {}, autorId = null) {
+async function criarMembro(empresaId, dados = {}, autorId = null, { hojeIso } = {}) {
   const nome = String(dados.nome == null ? '' : dados.nome).trim()
   const email = normalizarEmail(dados.email)
   const senha = String(dados.senha == null ? '' : dados.senha)
   const role = validarPapel(dados.role)
   const permissoes = sanearPermissoes(dados.permissoes, role)
+  const equipeId = dados.equipe_id == null || dados.equipe_id === '' ? null : String(dados.equipe_id)
 
   if (nome.length < 2) throw erro('Nome obrigatório (mínimo 2 caracteres).')
   if (!EMAIL_RE.test(email)) throw erro('E-mail inválido.')
+  if (equipeId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(equipeId)) {
+    throw erro('Equipe inválida.')
+  }
+  if (papelExigeEquipe(role) && !equipeId) {
+    throw erro('Escolha a equipe: quem entra como comercial precisa começar numa equipe.', 400, 'EQUIPE_OBRIGATORIA')
+  }
 
   return withTx(async (client) => {
     // Reuso: a mesma pessoa pode trabalhar em duas empresas. Nada do usuário existente é
@@ -183,54 +250,40 @@ async function criarMembro(empresaId, dados = {}, autorId = null) {
     let reusou = true
 
     if (!usuario) {
-      if (senha.length < SENHA_MIN) {
-        throw erro(`Senha inicial obrigatória, com no mínimo ${SENHA_MIN} caracteres.`)
-      }
+      const problema = CM.problemaDaSenha(senha)
+      if (problema) throw erro(problema, 400, 'SENHA_FRACA')
+      const { data: dataNascimento } = CM.validarDataNascimento(dados.data_nascimento, hojeIso || diaOperacional())
       const password_hash = await hashPassword(senha)
       // `role` GLOBAL é sempre 'user' (regra 1). Não vem do payload de propósito.
       const { rows } = await client.query(
-        `INSERT INTO app.usuarios (email, nome, password_hash, role)
-         VALUES ($1, $2, $3, 'user')
+        `INSERT INTO app.usuarios (email, nome, password_hash, role, data_nascimento)
+         VALUES ($1, $2, $3, 'user', $4::date)
          RETURNING id, nome, email, ativo`,
-        [email, nome, password_hash]
+        [email, nome, password_hash, dataNascimento]
       )
       usuario = rows[0]
       reusou = false
     }
 
-    // `criado_por` é gravado na MESMA transação do vínculo — a evidência de autoria não pode
-    // sobreviver a um rollback nem ser preenchida depois (mesmo raciocínio de `origem_vinculo`,
-    // migration 061).
-    let vinculo
-    try {
-      const { rows } = await client.query(
-        `INSERT INTO app.usuarios_empresas (usuario_id, empresa_id, role, permissoes, criado_por)
-         VALUES ($1, $2, $3, $4::jsonb, $5)
-         RETURNING id, usuario_id, role, ativo, permissoes, criado_em, criado_por`,
-        [usuario.id, empresaId, role, JSON.stringify(permissoes), autorId || null]
-      )
-      vinculo = rows[0]
-    } catch (e) {
-      // UNIQUE (usuario_id, empresa_id): a pessoa já é membro. 409, e não um segundo vínculo.
-      if (e && e.code === '23505') {
-        throw erro('Esta pessoa já é membro desta empresa.', 409, 'MEMBRO_JA_EXISTE')
-      }
-      throw e
-    }
-
-    await auditar(client, {
-      empresaId,
-      usuarioId: autorId,
-      acao: 'membro_adicionado',
-      entidadeId: vinculo.id,
-      estadoNovo: role,
-      // Sem senha, sem hash, sem e-mail: o e-mail é dado de pessoa e o vínculo já aponta para o
-      // usuário. `usuario_reusado` é o que importa auditar — diz se a conta nasceu aqui.
-      contexto: { usuario_id: usuario.id, usuario_reusado: reusou, permissoes_concedidas: Object.keys(permissoes) },
+    const vinculo = await inserirVinculoEmTx(client, {
+      empresaId, usuario, role, permissoes, autorId, reusou,
     })
 
-    logger.info({ empresa_id: empresaId, papel: role, reusou }, '[membros] membro adicionado')
-    return { ...vinculo, nome: usuario.nome, email: usuario.email, usuario_ativo: usuario.ativo, usuario_reusado: reusou }
+    // Entra na equipe DEPOIS do vínculo (a equipe só aceita membro ativo da empresa) e na MESMA
+    // transação: se a equipe recusar, a conta também não nasce.
+    const equipe = equipeId
+      ? await EQ.adicionarParticipanteEmTx(client, empresaId, equipeId, usuario.id, autorId)
+      : null
+
+    logger.info({ empresa_id: empresaId, papel: role, reusou, com_equipe: !!equipe }, '[membros] membro adicionado')
+    return {
+      ...vinculo,
+      nome: usuario.nome,
+      email: usuario.email,
+      usuario_ativo: usuario.ativo,
+      usuario_reusado: reusou,
+      equipe: equipe ? { id: equipe.equipe_id, nome: equipe.equipe_nome } : null,
+    }
   })
 }
 
@@ -434,6 +487,8 @@ module.exports = {
   criarMembro,
   atualizarMembro,
   registrarUltimoAcesso,
+  inserirVinculoEmTx,
+  withTx,
   // exportados para teste (regras puras de entrada)
   // `__devolverTrabalhoDoMembro` nao e API publica: so' `atualizarMembro` a chama, e sempre
   // dentro da transacao do vinculo. Exposta para o teste poder exercitar a devolucao com um

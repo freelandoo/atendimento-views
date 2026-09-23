@@ -4446,26 +4446,3 @@ digital” com tipo, verificação e pontos, lendo `site_oportunidade` do backen
 
 **Fora de escopo:** migration para salvar status manual de verificação do site, automação que abre
 URLs, e qualquer mudança na distribuição de leads.
-
-
-## 2026-09-23 — Transferência de leads ENTRE membros + pontos de atenção no topo
-
-**Decisão 1 (operador) — padrão só INTOCADO, com caixa explícita para os em andamento.** A caixa
-AMPLIA o conjunto e nunca o prefere: os intocados saem primeiro. Cobre férias/desligamento sem
-tornar o uso diário um jeito fácil de tirar negociação da mão de alguém. Só o booleano `true`
-liga a caixa.
-
-**Decisão 2 — validação por diagnóstico SOMENTE LEITURA, com os predicados da produção
-importados** (`npm run medir:distribuicao-equipes`), em vez de uma cópia do SQL — copiar mediria
-uma regra parecida e não provaria nada.
-
-**Decisão 3 — visibilidade decidida no backend e só o booleano sai.** `membrosDaEquipe` não foi
-alargada porque alimenta respostas de API e vazaria `permissoes`.
-
-**Defeitos encontrados:** lead com `nicho_id` nulo e lead `pendente` não apareciam de forma útil
-na tela; `fora_do_nicho` era ramo morto em `resumoProtegidos` (a consulta já filtra pelo nicho) —
-este último registrado, não alterado.
-
-**Incidente de processo:** outra sessão commitou estas mudanças (`20d9345`, `ab0ef19`) e deu push
-antes da validação final. A validação foi refeita numa worktree isolada do `HEAD`: backend
-3154/3154, typecheck limpo, frontend 824/824.

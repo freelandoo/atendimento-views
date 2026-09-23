@@ -5424,3 +5424,10 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Arquivos lidos:** `frontend/components/ModalGerenciarMembros.tsx`, `frontend/lib/equipe-area.js`,
   `backend/src/routes/api-membros.js`, `backend/src/db/membros.js`, `backend/src/routes/api-auth.js`,
   `backend/src/db/equipes-comerciais.js`.
+- **Atualizacao (mesmo dia):** o operador decidiu — link NAO preso a e-mail; e-mail existente e'
+  recusado; menor de 18 recusado; senha 8+ com letra e numero nas DUAS portas; equipe obrigatoria
+  para o comercial. Implementado (migration 096, `services/cadastro-membro.js`,
+  `db/membro-convites.js`, `routes/api-convites.js`, `ConvitesMembro.tsx`, `/convite/[token]`).
+  ⚠️ Outra sessao commitou e publicou parte deste trabalho no meio do caminho (`20d9345`,
+  `ab0ef19`: migration 096, `cadastro-membro.js`, `acesso-capacidades.js`, modal). O restante
+  segue nao commitado.

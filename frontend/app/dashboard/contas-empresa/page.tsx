@@ -28,6 +28,12 @@ import { useFeedback, Spinner } from "@/components/feedback/FeedbackProvider";
 import { useSession } from "@/lib/useSession";
 import DataTableFrame from "@/components/ui/DataTableFrame";
 import ModalConfirmar from "@/components/ui/ModalConfirmar";
+import ConvitesMembro from "@/components/ConvitesMembro";
+import {
+  equipesQueRecebem,
+  papelExigeEquipe,
+} from "@/lib/convite-membro";
+import type { EquipeParaConvite } from "@/lib/convite-membro";
 import {
   rotuloPapel,
   descricaoPapel,
@@ -55,8 +61,13 @@ type Opcoes = {
     papel: PapelEmpresa;
     incluidas?: Capacidade[];
     concedeveis: Capacidade[];
+    convidavel?: boolean;
+    exige_equipe?: boolean;
   }[];
   senha_minima: number;
+  senha_regra?: string;
+  idade_minima?: number;
+  convite_validade_horas?: number;
 };
 
 const inputCls =
@@ -87,6 +98,9 @@ export default function ContasEmpresaPage() {
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
+  const [nascimento, setNascimento] = useState("");
+  const [equipeId, setEquipeId] = useState("");
+  const [equipes, setEquipes] = useState<EquipeParaConvite[]>([]);
   const [papel, setPapel] = useState<PapelEmpresa>("comercial");
   const [concessoes, setConcessoes] = useState<Capacidade[]>([]);
   const [criando, setCriando] = useState(false);
@@ -133,6 +147,11 @@ export default function ContasEmpresaPage() {
       ]);
       setMembros(m.data || []);
       setOpcoes(o.data);
+      // Equipes para o cadastro e o convite. Falhar aqui não derruba a tela: sem a lista, o
+      // comercial não pode ser cadastrado (o botão diz por quê), e o resto continua.
+      apiFetch<EquipeParaConvite[]>(`/api/empresas/${empresaId}/equipes-comerciais`)
+        .then((r) => setEquipes(r.data || []))
+        .catch(() => setEquipes([]));
     } catch (err: unknown) {
       setErro(
         err instanceof Error
@@ -142,7 +161,7 @@ export default function ContasEmpresaPage() {
     } finally {
       setCarregando(false);
     }
-  }, [base]);
+  }, [base, empresaId]);
 
   useEffect(() => {
     if (podeGerenciar) carregar();
@@ -216,6 +235,8 @@ export default function ContasEmpresaPage() {
               nome,
               email,
               senha,
+              data_nascimento: nascimento,
+              equipe_id: equipeId || null,
               role: papel,
               permissoes: corpoPermissoes(concessoes),
             }),
@@ -225,6 +246,8 @@ export default function ContasEmpresaPage() {
       setNome("");
       setEmail("");
       setSenha("");
+      setNascimento("");
+      setEquipeId("");
       setConcessoes([]);
       carregar();
     } catch {
@@ -254,6 +277,10 @@ export default function ContasEmpresaPage() {
       /* erro já exibido pelo feedback */
     }
   }
+
+  const exigeEquipe = papelExigeEquipe(opcoes, papel);
+  const equipesAtivas = equipesQueRecebem(equipes);
+  const faltaEquipe = exigeEquipe && !equipeId;
 
   if (loadingSessao || capacidades === null) {
     return <p className="text-sm text-slate-500">Carregando…</p>;
@@ -308,7 +335,7 @@ export default function ContasEmpresaPage() {
         <h2 className="text-sm font-semibold text-slate-900">
           Adicionar pessoa
         </h2>
-        <div className="grid gap-3 sm:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-3">
           <input
             value={nome}
             onChange={(e) => setNome(e.target.value)}
@@ -329,10 +356,20 @@ export default function ContasEmpresaPage() {
             value={senha}
             onChange={(e) => setSenha(e.target.value)}
             type="password"
-            minLength={opcoes?.senha_minima ?? 12}
-            placeholder={`Senha inicial (≥${opcoes?.senha_minima ?? 12})`}
+            minLength={opcoes?.senha_minima ?? 8}
+            placeholder={`Senha inicial (≥${opcoes?.senha_minima ?? 8}, letra e número)`}
+            title={opcoes?.senha_regra}
             className={inputCls}
           />
+          <label className="flex flex-col gap-1 text-xs text-slate-600">
+            <span>Data de nascimento</span>
+            <input
+              value={nascimento}
+              onChange={(e) => setNascimento(e.target.value)}
+              type="date"
+              className={inputCls}
+            />
+          </label>
           <select
             value={papel}
             onChange={(e) => trocarPapel(e.target.value as PapelEmpresa)}
@@ -341,6 +378,22 @@ export default function ContasEmpresaPage() {
             {(opcoes?.papeis || []).map(({ papel: p }) => (
               <option key={p} value={p}>
                 {rotuloPapel(p)}
+              </option>
+            ))}
+          </select>
+          <select
+            value={equipeId}
+            onChange={(e) => setEquipeId(e.target.value)}
+            aria-label={exigeEquipe ? "Equipe (obrigatória)" : "Equipe (opcional)"}
+            className={inputCls}
+          >
+            <option value="">
+              {exigeEquipe ? "Equipe (obrigatória)…" : "Sem equipe"}
+            </option>
+            {equipesAtivas.map((eq) => (
+              <option key={eq.id} value={eq.id}>
+                {eq.nome}
+                {eq.nicho_nome ? ` — ${eq.nicho_nome}` : ""}
               </option>
             ))}
           </select>
@@ -395,9 +448,12 @@ export default function ContasEmpresaPage() {
         </div>
 
         <p className="text-xs text-slate-600">
-          Se o e-mail já tiver conta no sistema, ela é reaproveitada e só o
-          acesso a esta empresa é criado — a senha existente não muda, e o campo
-          de senha pode ficar vazio.
+          Conta nova exige data de nascimento (maiores de{" "}
+          {opcoes?.idade_minima ?? 18} anos) e senha com{" "}
+          {opcoes?.senha_minima ?? 8}+ caracteres, letra e número. Se o e-mail
+          já tiver conta no sistema, ela é reaproveitada e só o acesso a esta
+          empresa é criado — a senha e a data existentes não mudam, e esses
+          campos podem ficar vazios.
         </p>
 
         {listaConcessoes.length > 0 && (
@@ -456,11 +512,34 @@ export default function ContasEmpresaPage() {
           </fieldset>
         )}
 
-        <button type="submit" disabled={criando} className={botaoCls}>
-          {criando && <Spinner />}
-          {criando ? "Adicionando…" : "Adicionar à empresa"}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="submit"
+            disabled={criando || faltaEquipe}
+            title={faltaEquipe ? "Escolha a equipe: quem entra como comercial precisa começar numa equipe." : undefined}
+            className={botaoCls}
+          >
+            {criando && <Spinner />}
+            {criando ? "Adicionando…" : "Adicionar à empresa"}
+          </button>
+          {/* O motivo do botão travado em TEXTO, nunca só no `title`. */}
+          {faltaEquipe && (
+            <span className="text-xs text-slate-600">
+              {equipesAtivas.length
+                ? "Escolha a equipe: quem entra como comercial precisa começar numa equipe."
+                : "Não há equipe ativa. Crie uma equipe em Equipe › Equipes antes de cadastrar um comercial."}
+            </span>
+          )}
+        </div>
       </form>
+
+      {/* ── Convite por link (migration 096) ─────────────────────────────────────── */}
+      <ConvitesMembro
+        base={base}
+        opcoes={opcoes}
+        equipes={equipes}
+        validadeHoras={opcoes?.convite_validade_horas ?? 24}
+      />
 
       {/* ── Lista ───────────────────────────────────────────────────────────────── */}
       <DataTableFrame

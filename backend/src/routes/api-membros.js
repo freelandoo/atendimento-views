@@ -22,8 +22,12 @@
 
 const { Router } = require('express')
 const { requireAuth, requireEmpresaAccess, requireCapacidade } = require('../middleware/tenant')
-const { CAPACIDADES, PAPEIS, concedeveisPara, capacidadesDoVinculo } = require('../services/acesso-capacidades')
+const {
+  CAPACIDADES, PAPEIS, concedeveisPara, capacidadesDoVinculo, papeisConvidaveis, papelExigeEquipe,
+} = require('../services/acesso-capacidades')
 const M = require('../db/membros')
+const CONV = require('../db/membro-convites')
+const CM = require('../services/cadastro-membro')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -63,8 +67,14 @@ router.get('/opcoes', (_req, res) => {
         papel,
         incluidas: capacidadesDoVinculo({ papel }),
         concedeveis: concedeveisPara(papel),
+        // Regras de ENTRADA, ditas pelo servidor para a tela não deduzir (2026-09-23).
+        convidavel: papeisConvidaveis().includes(papel),
+        exige_equipe: papelExigeEquipe(papel),
       })),
       senha_minima: M.SENHA_MIN,
+      senha_regra: CM.REGRA_SENHA,
+      idade_minima: CM.IDADE_MINIMA,
+      convite_validade_horas: CM.CONVITE_VALIDADE_HORAS,
     },
   })
 })
@@ -75,9 +85,41 @@ router.post('/', async (req, res) => {
     const b = req.body || {}
     const data = await M.criarMembro(req.empresa.id, {
       nome: b.nome, email: b.email, senha: b.senha, role: b.role, permissoes: b.permissoes,
+      data_nascimento: b.data_nascimento, equipe_id: b.equipe_id,
     }, req.usuario.id)
     return res.status(201).json({ ok: true, data })
   } catch (err) { return envelopeErro(res, err, 'MEMBRO_CREATE_FAILED') }
+})
+
+// ─── Convites por link (migration 096) ────────────────────────────────────────────────────
+// Declaradas ANTES de `/:vinculoId`. Mesmo gate do router (MEMBROS_GERENCIAR): gerar um link que
+// dá papel na empresa é o mesmo poder de cadastrar a pessoa direto.
+
+// GET /convites — os convites recentes, com a situação calculada. Nunca devolve token nem hash.
+router.get('/convites', async (req, res) => {
+  try {
+    return res.json({ ok: true, data: await CONV.listarConvites(req.empresa.id) })
+  } catch (err) { return envelopeErro(res, err, 'CONVITES_LIST_FAILED') }
+})
+
+// POST /convites — gera o link. O TOKEN volta UMA vez, nesta resposta: o banco só guarda o hash,
+// então depois disso o link não pode ser mostrado de novo (a tela avisa).
+router.post('/convites', async (req, res) => {
+  try {
+    const b = req.body || {}
+    const { convite, token } = await CONV.criarConvite(req.empresa.id, {
+      role: b.role, equipe_id: b.equipe_id, rotulo: b.rotulo,
+    }, req.usuario.id)
+    return res.status(201).json({ ok: true, data: { convite, token } })
+  } catch (err) { return envelopeErro(res, err, 'CONVITE_CREATE_FAILED') }
+})
+
+// POST /convites/:conviteId/revogar — cancela um convite ainda pendente.
+router.post('/convites/:conviteId/revogar', async (req, res) => {
+  try {
+    const data = await CONV.revogarConvite(req.empresa.id, req.params.conviteId, req.usuario.id)
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'CONVITE_REVOKE_FAILED') }
 })
 
 // PATCH /:vinculoId — papel, concessões e/ou ativo.
