@@ -339,6 +339,9 @@ Registre aqui toda divergência visual autorizada pelo usuário.
 - **A coluna `ICP + cadastro` vira `ICP`:** a tabela mostra apenas a bolinha de ICP e o comando
   `Detalhes`; cadastro/coleta, score, evidências e dados completos ficam no drawer lateral. Isso
   preserva a distinção entre ICP comercial e completude de cadastro.
+- **Telefone é atalho compacto para WhatsApp:** quando há número, ele aparece verde e sublinhado
+  na própria coluna. Sem ícone e sem segunda linha de instrução; o `title`/rótulo acessível
+  explica a ação e o link externo não envia nada sozinho.
 - **Vazio continua operável:** a moldura da lista aparece mesmo quando o recorte não retorna
   leads, para que o operador ainda consiga trocar filtros e abrir Colunas sem procurar controles
   fora do bloco.
@@ -409,6 +412,8 @@ Registre aqui toda divergência visual autorizada pelo usuário.
 - **O nome do lead abre a mesma ficha lateral do Banco de Leads**, não mais a fonte externa nem
   um modal centrado. Google Maps/Facebook/Biblioteca da Meta ficam como atalhos no cabeçalho da
   ficha, preservando acesso à fonte sem poluir a linha da tabela.
+- **Telefone usa o mesmo atalho compacto do Banco de Leads:** número verde sublinhado abre
+  WhatsApp em nova aba; sem telefone continua como ausência, não como botão falso.
 - **Ações da linha usam linguagem operacional:** `Marcar` e `Descartar`; restaurar continua
   disponível para leads já descartados.
 - **O seletor de fonte vive DENTRO de Buscas** (e de Rotinas, só com as fontes que têm rotina),

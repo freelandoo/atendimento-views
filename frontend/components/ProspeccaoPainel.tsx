@@ -348,6 +348,30 @@ function acessosDaFichaAquisicao(p: Prospect): AcessoRapido[] {
   adicionar('link', 'Anúncio', p.anuncio_meta_permalink, 'Abrir anúncio na Biblioteca da Meta')
   return acessos
 }
+
+function linkWhatsappTelefone(telefone: string | null | undefined): string {
+  const digitos = String(telefone || '').replace(/\D/g, '')
+  if (!digitos) return ''
+  return `https://wa.me/${digitos.startsWith('55') ? digitos : `55${digitos}`}`
+}
+
+function TelefoneWhatsappLink({ telefone }: { telefone: string | null | undefined }) {
+  const href = linkWhatsappTelefone(telefone)
+  if (!telefone || !href) return <>—</>
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="-mx-1 rounded px-1 py-0.5 text-emerald-700 underline decoration-current underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+      title="Abrir no WhatsApp"
+      aria-label={`Abrir ${telefone} no WhatsApp`}
+    >
+      {telefone}
+    </a>
+  )
+}
+
 function ordemDaViewAquisicao(valor: string): { chave: string; dir: 'asc' | 'desc' } | null {
   if (!valor || valor === 'padrao') return null
   const [chave, dir] = valor.split('_')
@@ -1207,7 +1231,7 @@ export default function ProspeccaoPainel({
                   </button>
                 </div>
               </td>}
-              {cols.telefone !== false && <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{p.telefone || '—'}</td>}
+              {cols.telefone !== false && <td className="px-3 py-2 font-mono text-xs whitespace-nowrap"><TelefoneWhatsappLink telefone={p.telefone} /></td>}
               {cols.email !== false && <td className="px-3 py-2 text-xs"><EmailEditavel value={p.email} onSave={(email) => salvarEmail(p.id, email)} /></td>}
               {cols.nicho !== false && <td className="px-3 py-2 text-xs">
                 {metaAds ? (

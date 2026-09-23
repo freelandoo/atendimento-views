@@ -5146,6 +5146,21 @@ tabela; a Aquisição não ganha envio/disparo por esse drawer; o Banco mantém 
 
 ---
 
+## 2026-09-23 — Telefone clicável nas listagens
+
+**Pedido:** nas colunas de telefone da Aquisição e do Banco de Leads, transformar o número em
+atalho rápido para WhatsApp com apresentação compacta: número verde e sublinhado, sem ícone de
+chat e sem texto auxiliar `Abrir no WhatsApp`.
+
+**Áreas prováveis:** `frontend/components/ProspeccaoPainel.tsx` e
+`frontend/app/dashboard/banco-leads/page.tsx`.
+
+**Riscos a preservar:** o atalho abre WhatsApp externo e não envia nada sozinho; Banco mantém o
+rascunho de mensagem no link quando ele existir; lead sem telefone continua com o tratamento
+atual de cada tela.
+
+---
+
 ## 2026-09-22 21:14:21 -03:00 — Banco de Leads: Quadro do dia e ficha lateral
 
 **Pedido:** melhorar a experiência do Quadro do Dia e da ficha lateral do lead:

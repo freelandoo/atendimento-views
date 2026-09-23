@@ -51,7 +51,7 @@ import {
   cartoesDeFunil, leadPermaneceNaAbaBanco, itensMaisAcoes, validarExportacao, escopoDaSelecao, faixaDeEnvio,
   COLUNAS_CSV, COLUNAS_CSV_PADRAO, LIMPEZA,
 } from '@/lib/banco-leads-painel'
-import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconSend, IconAlert, IconChevron, IconCheck } from '@/components/ui/icons'
+import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconAlert, IconChevron, IconCheck } from '@/components/ui/icons'
 import type { PayloadProximaAcao } from '@/lib/follow-up-acao'
 
 // Banco de Leads — central de disparo com Modo Manual / Semiautomático / Automático.
@@ -2995,23 +2995,13 @@ function EnvioCelula({ l, previsoesEnvio }: { l: Lead; previsoesEnvio: Map<strin
   )
 }
 
-// Glifo do WhatsApp (SVG inline — sem depender de asset externo).
-function IconeWhatsapp({ className = '' }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" className={className} fill="currentColor" aria-hidden="true">
-      <path d="M17.47 14.38c-.3-.15-1.75-.86-2.02-.96-.27-.1-.47-.15-.67.15-.2.3-.77.96-.94 1.16-.17.2-.35.22-.65.07-.3-.15-1.25-.46-2.38-1.47-.88-.78-1.47-1.75-1.64-2.05-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.67-1.6-.92-2.2-.24-.58-.49-.5-.67-.5h-.57c-.2 0-.52.07-.8.37-.27.3-1.05 1.02-1.05 2.48 0 1.46 1.07 2.87 1.22 3.07.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.69.62.71.23 1.36.2 1.87.12.57-.09 1.75-.72 2-1.41.25-.69.25-1.28.17-1.41-.07-.13-.27-.2-.57-.35zM12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.78 1.22h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2z"/>
-    </svg>
-  )
-}
-
 // Coluna Telefone: número CLICÁVEL que abre DIRETO o WhatsApp (wa.me), levando a mensagem
 // já gerada como rascunho quando ela existe — é o que o antigo botão verde ao lado fazia.
-// O botão saiu: número e botão levavam ao mesmo lugar, e a linha ficava com duas ações
-// coladas para o mesmo destino. O histórico/conversa do lead abre pelo NOME.
-// Indicadores discretos seguem aqui: ícone de envelope = mensagem aguardando envio;
-// selo verde = WhatsApp verificado; aviso = sem conta WhatsApp (disparo não chegou).
+// O botão/ícone saiu: número e botão levavam ao mesmo lugar, e a linha ficava com duas ações
+// coladas para o mesmo destino. O número verde sublinhado declara a ação sem ocupar outra linha.
+// Indicadores discretos seguem aqui: selo verde = WhatsApp verificado;
+// aviso = sem conta WhatsApp (disparo não chegou).
 function TelefoneCelula({ l, onSalvarTelefone }: { l: Lead; onSalvarTelefone: (id: string, telefone: string) => Promise<void> }) {
-  const msgPronta = !!l.mensagem_gerada
   const digitos = String(l.telefone || '').replace(/\D/g, '')
   const textoWa = String(l.mensagem_gerada || '').trim()
   const waHref = digitos
@@ -3026,18 +3016,11 @@ function TelefoneCelula({ l, onSalvarTelefone }: { l: Lead; onSalvarTelefone: (i
               href={waHref}
               target="_blank"
               rel="noopener noreferrer"
-              className={`group -mx-1 inline-flex flex-col items-start rounded px-1 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${msgPronta ? 'text-amber-700 font-semibold' : 'text-emerald-700'}`}
+              className="group -mx-1 inline-flex items-center rounded px-1 py-0.5 text-left text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
               title={textoWa ? 'Abrir no WhatsApp com a mensagem pronta' : 'Abrir no WhatsApp'}
               aria-label={`Abrir ${l.telefone} no WhatsApp${textoWa ? ' com a mensagem pronta' : ''}`}
             >
-              <span className="inline-flex items-center gap-1">
-                <IconeWhatsapp className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                <span className="underline decoration-current underline-offset-2 group-hover:decoration-2">{l.telefone}</span>
-                {msgPronta && <IconSend className="h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden="true" />}
-              </span>
-              <span className="font-sans text-[10px] font-medium leading-3 text-ink-3 group-hover:text-emerald-700">
-                {textoWa ? 'Abrir no WhatsApp com a mensagem →' : 'Abrir no WhatsApp →'}
-              </span>
+              <span className="underline decoration-current underline-offset-2 group-hover:decoration-2">{l.telefone}</span>
             </a>
           ) : (
             <span className="text-ink-2">{l.telefone}</span>
