@@ -7,9 +7,22 @@ name: CI
 # docs/architecture-rules.md — se o portao local passa, este aqui passa. Nao ha comando
 # inventado e nao ha etapa que so' existe no CI.
 #
-# ⚠️ NENHUM SEGREDO E' NECESSARIO. A suite e' hermetica: foi verificada rodando com o `.env`
-# removido (2.957 testes, exit 0). Se um teste novo precisar de credencial, ele nao e' teste
-# de unidade — e' de integracao, e o lugar dele nao e' aqui.
+# ⚠️ NENHUM SEGREDO E' NECESSARIO. A suite e' hermetica quanto a CREDENCIAL: foi verificada
+# rodando com o `.env` removido. Se um teste novo precisar de credencial, ele nao e' teste de
+# unidade — e' de integracao, e o lugar dele nao e' aqui.
+#
+# Hermetica quanto a credencial NAO quer dizer independente do AMBIENTE: ela depende do fuso
+# horario (ver o bloco `env` abaixo).
+
+# ⚠️ FUSO: a suite ASSUME que o processo roda em America/Sao_Paulo, e isso nao e' descuido —
+# e' o fuso de PRODUCAO (o docker-compose.yml define `TZ: America/Sao_Paulo` no servico do
+# backend). Varios testes constroem datas com `new Date(ano, mes, dia, hora)`, que usa o fuso do
+# PROCESSO, e as comparam com codigo que le a hora em `APP_TIMEZONE` (default America/Sao_Paulo).
+# O runner do GitHub roda em UTC, entao sem esta linha 6 testes de backend e 2 de frontend falham
+# por exatamente 3 horas — e um CI vermelho por ambiente e' um CI que todo mundo aprende a
+# ignorar. Medido em 2026-09-23, run 35934875400.
+env:
+  TZ: America/Sao_Paulo
 
 on:
   push:

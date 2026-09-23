@@ -157,3 +157,9 @@ O CI (`.github/workflows/ci.yml`) roda exatamente estes comandos em todo push e 
 que carrega a aplicação no Node 20 (o runtime do Docker). **Ele não tem segredo configurado, e
 isso é regra, não circunstância:** teste que precisa de credencial não é teste de unidade — é de
 integração, e não entra nessa suíte.
+
+⚠️ **A suíte depende do FUSO do processo, e o CI declara `TZ: America/Sao_Paulo`.** Vários testes
+constroem datas com `new Date(ano, mês, dia, hora)` — que usa o fuso do processo — e as comparam
+com código que lê a hora em `APP_TIMEZONE`. É o fuso de produção (o `docker-compose.yml` o define
+no serviço do backend). Rodar a suíte em UTC faz 6 testes de backend e 2 de frontend falharem por
+exatamente 3 horas. Se for rodar fora do Brasil, exporte `TZ=America/Sao_Paulo`.
