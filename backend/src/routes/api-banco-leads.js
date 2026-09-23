@@ -65,6 +65,7 @@ const { listarAuditoria } = require('../db/auditoria')
 const { criarEvento } = require('../services/agenda-multiempresa')
 const { criarFollowUp } = require('../db/follow-ups')
 const { salvarAvaliacaoIcp } = require('../db/lead-icp')
+const { proximaAcaoDoLead } = require('../db/lead-proxima-acao')
 
 const router = Router({ mergeParams: true })
 
@@ -97,10 +98,16 @@ const STATUS_OPERACIONAL = Object.freeze({
   ligação: { status: 'enviado', ligacao: true },
   reuniao_agendada: { status: 'respondeu', agenda: true },
   reunião_agendada: { status: 'respondeu', agenda: true },
+  // Proposta enviada: o lead está em NEGOCIAÇÃO, então o funil técnico é `respondeu` (não há
+  // valor próprio na CHECK de `prospects.status`, e alargá-la exigiria migration). O que
+  // distingue "proposta" de "respondido" é o evento `lead_proposta_enviada`, gravado na mesma
+  // transação — é ele que a tela lê e que torna o envio auditável (quem, quando, quanto, como).
+  proposta_enviada: { status: 'respondeu', proposta: true },
+  proposta: { status: 'respondeu', proposta: true },
   descartado: { status: 'rejeitado', qualificacao: 'descartado', descarte: true },
   rejeitado: { status: 'rejeitado', qualificacao: 'descartado', descarte: true },
 })
-const ACOES_STATUS_LEAD = Object.freeze(['lead_status_alterado', 'abordagem_manual_declarada', 'lead_reuniao_agendada', 'lead_ligacao_realizada', 'lead_follow_up_criado', 'lead_descartado'])
+const ACOES_STATUS_LEAD = Object.freeze(['lead_status_alterado', 'abordagem_manual_declarada', 'lead_reuniao_agendada', 'lead_ligacao_realizada', 'lead_follow_up_criado', 'lead_descartado', 'lead_proposta_enviada'])
 const ACOES_STATUS_LEAD_SET = new Set(ACOES_STATUS_LEAD)
 const ACOES_STATUS_LEAD_SQL = ACOES_STATUS_LEAD.map((a) => `'${a}'`).join(', ')
 
@@ -337,6 +344,40 @@ function normalizarPayloadLigacao(body = {}) {
   }
 }
 
+// Forma de envio: lista FECHADA — texto livre aqui viraria um campo que ninguém agrupa.
+const PROPOSTA_FORMAS = new Set(['whatsapp', 'email', 'presencial', 'reuniao', 'outro'])
+
+function normalizarPayloadProposta(body = {}) {
+  const r = body.proposta && typeof body.proposta === 'object' ? body.proposta : body
+  const forma = String(r.forma_envio || r.forma || '').trim().toLowerCase()
+  if (!PROPOSTA_FORMAS.has(forma)) {
+    const e = new Error('Informe como a proposta foi enviada (WhatsApp, e-mail, presencial, reunião ou outro).')
+    e.statusCode = 400
+    throw e
+  }
+  // Valor é OPCIONAL, mas quando vem precisa ser dinheiro de verdade: zero ou negativo seria
+  // "proposta de nada" com cara de proposta (mesma recusa de `valor_pago` na migration 086).
+  let valor = null
+  const bruto = r.valor
+  if (bruto !== undefined && bruto !== null && String(bruto).trim() !== '') {
+    // Número JSON vem pronto; texto vem no formato brasileiro ("1.500,00").
+    const n = typeof bruto === 'number'
+      ? bruto
+      : Number(String(bruto).trim().replace(/\./g, '').replace(',', '.'))
+    if (!Number.isFinite(n) || n <= 0 || n > 100_000_000) {
+      const e = new Error('Valor da proposta inválido.')
+      e.statusCode = 400
+      throw e
+    }
+    valor = Math.round(n * 100) / 100
+  }
+  return {
+    forma,
+    valor,
+    observacoes: String(r.observacoes || r.observacao || '').trim().slice(0, 1000) || null,
+  }
+}
+
 function normalizarPayloadDescarte(body = {}) {
   const r = body.descarte && typeof body.descarte === 'object' ? body.descarte : body
   const motivo = String(r.motivo || '').trim().slice(0, 500)
@@ -380,7 +421,7 @@ async function autoAssumirLeadLivre(client, { empresaId, prospectId, usuarioId, 
 async function alterarStatusLeadOperacional(req, statusPedido) {
   const destino = normalizarStatusOperacional(statusPedido)
   if (!destino) {
-    const e = new Error('Status inválido. Use marcado, contatado, ligação realizada, respondido, reunião agendada, fechado ou descartado.')
+    const e = new Error('Status inválido. Use marcado, contatado, ligação realizada, respondido, reunião agendada, proposta enviada, fechado ou descartado.')
     e.statusCode = 400
     throw e
   }
@@ -415,6 +456,7 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
     const reuniao = destino.agenda ? normalizarPayloadReuniao(req.body || {}) : null
     const ligacao = destino.ligacao ? normalizarPayloadLigacao(req.body || {}) : null
     const descarte = destino.descarte ? normalizarPayloadDescarte(req.body || {}) : null
+    const proposta = destino.proposta ? normalizarPayloadProposta(req.body || {}) : null
     const precisaQualificacao = destino.qualificacao && atual.qualificacao !== destino.qualificacao
     const ownership = await autoAssumirLeadLivre(client, {
       empresaId: req.empresa.id, prospectId: req.params.id, usuarioId, atual,
@@ -531,6 +573,21 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
       )
     }
 
+    if (proposta) {
+      await client.query(
+        `INSERT INTO app.auditoria_eventos
+           (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+         VALUES ($1, $2::uuid, 'prospect', $3::uuid, 'lead_proposta_enviada', $4, $5, $6::jsonb)`,
+        [req.empresa.id, usuarioId, req.params.id, atual.status, rows[0].status, JSON.stringify({
+          origem: 'banco_leads',
+          forma_envio: proposta.forma,
+          valor: proposta.valor,
+          observacoes: proposta.observacoes,
+          responsavel_id: rows[0].responsavel_id || usuarioId || null,
+        })]
+      )
+    }
+
     if (descarte) {
       await client.query(
         `INSERT INTO app.auditoria_eventos
@@ -562,6 +619,7 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
         ligacao_id: registroLigacao?.id || null,
         follow_up_id: followUp?.id || null,
         motivo_descarte: descarte?.motivo || null,
+        proposta_valor: proposta?.valor ?? null,
       })]
     )
 
@@ -1046,6 +1104,7 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
                WHEN 'lead_reuniao_agendada' THEN 0
                WHEN 'lead_ligacao_realizada' THEN 1
                WHEN 'lead_descartado' THEN 2
+               WHEN 'lead_proposta_enviada' THEN 2
                WHEN 'abordagem_manual_declarada' THEN 3
                WHEN 'lead_status_alterado' THEN 4
                ELSE 9
@@ -1182,6 +1241,19 @@ router.get('/leads/:id', requireAuth, requireEmpresaAccess, async (req, res) => 
     }
     return res.json({ ok: true, data: anexarScoreCadastro(rows[0]) })
   } catch (err) { return envelopeErro(res, err, 'LEAD_GET_FAILED') }
+})
+
+// GET /leads/:id/proxima-acao — o que já foi COMBINADO com o lead: follow-up em aberto, reunião
+// ou retorno na agenda e a última ligação. É a "Próxima ação" da ficha.
+// SOMENTE LEITURA (não cria, conclui nem reagenda nada) e com o MESMO recorte do lead (404 fora
+// dele). Sem capacidade extra: ver o que foi combinado com um lead que a pessoa já alcança é parte
+// de trabalhá-lo. A regra de ordem vive em `services/lead-proxima-acao.js`.
+router.get('/leads/:id/proxima-acao', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const lead = await exigirLeadNoRecorte(req)
+    const data = await proximaAcaoDoLead(pool, req.empresa.id, lead)
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'LEAD_PROXIMA_ACAO_FAILED') }
 })
 
 router.get('/leads/:id/abordagem-manual', requireAuth, requireEmpresaAccess, async (req, res) => {

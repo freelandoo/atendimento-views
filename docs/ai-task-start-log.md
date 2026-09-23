@@ -5331,3 +5331,39 @@ montar JID divergente.
 **Validação prevista:** `cd backend && node --test test/lead-telefone.test.js`,
 `cd frontend && node --test lib/lead-acessos.test.js`, `npx tsc --noEmit`,
 `node --test lib/*.test.js` e `git diff --check`.
+
+## 2026-09-23 — Ficha do lead: "Próxima ação" com follow-up, reunião e ligação
+
+**Pedido:** ao abrir o resumo do lead no Banco de Leads, a caixa "Próxima ação" deve mostrar o
+que foi combinado com o lead — follow-up em aberto (retorno, canal, prazo), reunião marcada e a
+última ligação registrada — para o operador saber o que fazer sem procurar em outra tela.
+
+**Entendimento inicial:** hoje a caixa mostra só a faixa da fila de trabalho. Os dados já existem
+(`app.follow_ups`, `app.agenda_eventos`/`vendas.agenda_eventos`, `app.ligacoes`). Mudança
+aditiva: rota read-only `GET /banco-leads/leads/:id/proxima-acao` (mesmo recorte do lead, 404
+fora dele), regra pura no backend e tradução no front. Não cria, move nem conclui nada.
+
+**Áreas prováveis:** `backend/src/services/lead-proxima-acao.js` (novo),
+`backend/src/db/lead-proxima-acao.js` (novo), `backend/src/routes/api-banco-leads.js`,
+`backend/test/lead-proxima-acao.test.js` (novo), `frontend/lib/lead-proxima-acao.{js,d.ts,test.js}`
+(novo), `frontend/app/dashboard/banco-leads/page.tsx`.
+
+**Validação prevista:** `node --test test/lead-proxima-acao.test.js` (backend),
+`npx tsc --noEmit` + `node --test lib/lead-proxima-acao.test.js` (frontend), `git diff --check`.
+
+## 2026-09-23 — Ficha do lead: status "Proposta enviada", auditável
+
+**Pedido:** na ficha do lead, marcar que a proposta foi enviada, deixando registro auditável.
+
+**Entendimento inicial:** o status operacional já segue o padrão "status + evento próprio em
+`app.auditoria_eventos` na mesma transação" (ligação, reunião, descarte). Novo destino
+`proposta_enviada` → `prospects.status='respondeu'` (sem migration: não alarga CHECK) + evento
+`lead_proposta_enviada` com valor opcional, forma de envio e observação. Sem rota nova, sem
+capacidade nova, não cria venda nem comissão (proposta não é pagamento).
+
+**Áreas prováveis:** `backend/src/routes/api-banco-leads.js`,
+`backend/test/isolamento-comercial.test.js`, `frontend/components/ConversaHistoricoModal.tsx`,
+`frontend/app/dashboard/banco-leads/page.tsx`.
+
+**Validação prevista:** `npm test` (backend), `npx tsc --noEmit` + `node --test lib/*.test.js`
+(frontend), `git diff --check`.

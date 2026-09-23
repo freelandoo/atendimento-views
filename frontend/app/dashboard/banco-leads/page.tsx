@@ -53,6 +53,9 @@ import {
 } from '@/lib/banco-leads-painel'
 import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconAlert, IconChevron, IconCheck } from '@/components/ui/icons'
 import type { PayloadProximaAcao } from '@/lib/follow-up-acao'
+// O que já foi COMBINADO com o lead (follow-up, agenda, última ligação). A ordem e a situação do
+// prazo vêm do backend; o módulo só escreve.
+import { cartaoCompromisso, resumoUltimaLigacao, type ProximaAcaoLead } from '@/lib/lead-proxima-acao'
 
 // Banco de Leads — central de disparo com Modo Manual / Semiautomático / Automático.
 // UMA lista, com a ORIGEM como coluna e como filtro. Eram duas tabelas (Places x "o resto"),
@@ -152,6 +155,7 @@ type StatusPayload = {
   reuniao?: { data: string; horario: string; duracao_minutos: number; observacoes?: string }
   ligacao?: { resultado: string; duracao_minutos: number; observacoes?: string; follow_up?: PayloadProximaAcao | null }
   descarte?: { motivo: string; observacoes?: string }
+  proposta?: { forma_envio: string; valor?: number | null; observacoes?: string }
 }
 type AlterarStatusLeadResp = {
   id: string
@@ -265,6 +269,12 @@ const STATUS_LEAD_VISUAL: Record<string, { rotulo: string; detalhe: string; clas
     classe: 'border-violet-200 bg-violet-50 text-violet-700',
     ordem: 60,
   },
+  proposta: {
+    rotulo: 'Proposta enviada',
+    detalhe: 'Proposta registrada na ficha; aguardando decisão do lead.',
+    classe: 'border-amber-200 bg-amber-50 text-amber-800',
+    ordem: 65,
+  },
   fechado: {
     rotulo: 'Fechado',
     detalhe: 'Negócio marcado como fechado por gestão/triagem.',
@@ -286,12 +296,16 @@ const FILTROS_STATUS_LEAD: { valor: string; label: string }[] = [
   { valor: 'ligacao_feita', label: 'Ligação feita' },
   { valor: 'respondido', label: 'Respondido' },
   { valor: 'reuniao', label: 'Reunião marcada' },
+  { valor: 'proposta', label: 'Proposta enviada' },
   { valor: 'descartado', label: 'Descartado' },
 ]
 function statusOperacionalDoLead(l: Lead): { chave: string; rotulo: string; detalhe: string; classe: string; ordem: number } {
   let chave = 'sem_contato'
   if (l.status === 'fechado') chave = 'fechado'
   else if (l.status === 'rejeitado' || l.status === 'nao_contatar' || l.ultimo_status_acao === 'lead_descartado') chave = 'descartado'
+  // Proposta é a última ação registrada: vem antes da reunião futura (a proposta costuma sair
+  // depois da reunião, e a reunião marcada continua visível na coluna de agenda).
+  else if (l.ultimo_status_acao === 'lead_proposta_enviada') chave = 'proposta'
   else if (l.proximo_agendamento || l.ultimo_status_acao === 'lead_reuniao_agendada') chave = 'reuniao'
   else if (l.ultimo_status_acao === 'lead_ligacao_realizada') chave = 'ligacao_feita'
   else if (l.status === 'respondeu') chave = 'respondido'
@@ -305,6 +319,7 @@ function acaoOperacionalAuditavel(statusOperacional: string): string {
     case 'ligacao_realizada': return 'lead_ligacao_realizada'
     case 'reuniao_agendada': return 'lead_reuniao_agendada'
     case 'descartado': return 'lead_descartado'
+    case 'proposta_enviada': return 'lead_proposta_enviada'
     default: return 'lead_status_alterado'
   }
 }
@@ -783,6 +798,26 @@ export default function BancoLeadsPage() {
     () => (ficha ? leads.find((l) => l.id === ficha.leadId) || ficha.leadAberto : null),
     [ficha, leads]
   )
+  /**
+   * "Próxima ação" da ficha: follow-up em aberto, compromisso na agenda e última ligação do lead.
+   * Leitura própria (`GET /leads/:id/proxima-acao`) porque a listagem não carrega follow-ups — e
+   * pendurar três subconsultas em cada linha da carteira custaria em toda paginação o que só a
+   * ficha aberta precisa. `versaoProximaAcao` sobe depois de registrar ligação/reunião/follow-up
+   * pela ficha, para o compromisso recém-criado aparecer sem reabrir.
+   */
+  const [proximaAcao, setProximaAcao] = useState<{ leadId: string; data: ProximaAcaoLead | null; erro: boolean } | null>(null)
+  const [versaoProximaAcao, setVersaoProximaAcao] = useState(0)
+  const fichaLeadId = ficha?.leadId || null
+  useEffect(() => {
+    if (!fichaLeadId) { setProximaAcao(null); return }
+    let vivo = true
+    // Troca de lead limpa na hora: a ficha nunca mostra o compromisso do lead anterior.
+    setProximaAcao((cur) => (cur && cur.leadId === fichaLeadId ? cur : null))
+    apiFetch<ProximaAcaoLead>(`${base}/leads/${fichaLeadId}/proxima-acao`)
+      .then((r) => { if (vivo) setProximaAcao({ leadId: fichaLeadId, data: r.data, erro: false }) })
+      .catch(() => { if (vivo) setProximaAcao({ leadId: fichaLeadId, data: null, erro: true }) })
+    return () => { vivo = false }
+  }, [fichaLeadId, versaoProximaAcao, base])
   const [enviandoConversa, setEnviandoConversa] = useState(false)
   const [gerandoConversa, setGerandoConversa] = useState(false)
   // Colunas e filtros da visualizacao (colunas + filtros + ordenação; persistida no localStorage)
@@ -1502,6 +1537,8 @@ export default function BancoLeadsPage() {
       if (!leadPermaneceNaAbaBanco(leadAberto, aba)) return null
       return { ...cur, status: novo.status, leadAberto }
     })
+    // Ligação, reunião ou follow-up registrados agora precisam aparecer na "Próxima ação".
+    setVersaoProximaAcao((v) => v + 1)
     carregarResumo()
     return novo
   }
@@ -1528,6 +1565,7 @@ export default function BancoLeadsPage() {
       respondido: 'Lead marcado como respondido.',
       ligacao_realizada: 'Ligação registrada e lead marcado como contatado.',
       reuniao_agendada: 'Reunião agendada para este lead.',
+      proposta_enviada: 'Proposta registrada no histórico do lead.',
       fechado: 'Lead marcado como fechado.',
       descartado: 'Lead descartado.',
     }
@@ -1703,17 +1741,57 @@ export default function BancoLeadsPage() {
       leadDaFicha.telefone ? `Telefone ${leadDaFicha.telefone}` : 'Sem telefone',
       leadDaFicha.email ? `E-mail ${leadDaFicha.email}` : 'Sem e-mail',
     ]
+    const agora = new Date()
+    const pa = proximaAcao && proximaAcao.leadId === leadDaFicha.id ? proximaAcao : null
+    const cartoes = (pa?.data?.compromissos || []).map((c) => cartaoCompromisso(c, agora))
+    const [principal, ...outros] = cartoes
+    const ligacao = resumoUltimaLigacao(pa?.data?.ultima_ligacao || null, agora)
     return (
       <div className="mb-3 rounded-lg border border-line bg-surface p-4 shadow-card">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Próxima ação</p>
+        {/* O que alguém COMBINOU com o lead vem primeiro — decisão de pessoa vence a faixa
+            calculada da fila, que continua logo abaixo como contexto. */}
+        {principal ? (
+          <div className={`mt-2 rounded-md border px-3 py-2.5 ${principal.classe}`}>
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-medium">
+              {principal.selo && <span className="rounded-full bg-surface px-2 py-0.5 font-semibold">{principal.selo}</span>}
+              <span>{principal.tipo}</span>
+              <span aria-hidden>·</span>
+              <span>{principal.quando}</span>
+            </p>
+            <p className="mt-1 text-sm font-semibold text-ink">{principal.titulo}</p>
+            {principal.observacao && <p className="mt-0.5 text-xs leading-relaxed text-ink-2">“{principal.observacao}”</p>}
+            {principal.detalhe && <p className="mt-0.5 text-[11px] text-ink-3">{principal.detalhe}</p>}
+          </div>
+        ) : !pa ? (
+          <p className="mt-1 text-xs text-ink-3">Carregando follow-ups e reuniões…</p>
+        ) : pa.erro ? (
+          <p className="mt-1 text-xs text-amber-800">Não foi possível carregar follow-ups e reuniões deste lead.</p>
+        ) : (
+          <p className="mt-1 text-xs text-ink-3">Nenhum follow-up, retorno ou reunião combinado com este lead.</p>
+        )}
+        {outros.length > 0 && (
+          <ul className="mt-2 grid gap-1 text-xs">
+            {outros.map((c) => (
+              <li key={c.chave} className="flex flex-wrap items-baseline gap-x-1.5 text-ink-2">
+                {c.selo && <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${c.classe}`}>{c.selo}</span>}
+                <span className="text-ink-3">{c.tipo} · {c.quando}:</span>
+                <span className="font-medium text-ink">{c.titulo}</span>
+              </li>
+            ))}
+          </ul>
+        )}
         {faixa ? (
+
           <>
-            <p className="mt-1 text-sm font-semibold text-ink">{faixa.rotulo}</p>
-            <p className="mt-0.5 text-xs leading-relaxed text-ink-3">{faixa.dica}</p>
+            <p className={principal ? 'mt-2 text-xs text-ink-2' : 'mt-2 text-sm font-semibold text-ink'}>
+              {principal && <span className="text-ink-3">Fila de trabalho: </span>}{faixa.rotulo}
+            </p>
+            {!principal && <p className="mt-0.5 text-xs leading-relaxed text-ink-3">{faixa.dica}</p>}
           </>
         ) : (
           /* Faixa desconhecida não vira rótulo inventado — o mesmo contrato de `seloFaixa`. */
-          <p className="mt-1 text-sm text-ink-3">A fila de trabalho ainda não classificou este lead.</p>
+          !principal && <p className="mt-2 text-sm text-ink-3">A fila de trabalho ainda não classificou este lead.</p>
         )}
         <dl className="mt-3 grid gap-1.5 border-t border-line pt-3 text-xs">
           <div className="flex gap-2">
@@ -1724,6 +1802,15 @@ export default function BancoLeadsPage() {
             <dt className="w-24 shrink-0 text-ink-3">Responsável</dt>
             <dd className="min-w-0 text-ink-2">{dono.rotulo}</dd>
           </div>
+          {ligacao && (
+            <div className="flex gap-2">
+              <dt className="w-24 shrink-0 text-ink-3">Última ligação</dt>
+              <dd className="min-w-0 text-ink-2">
+                {ligacao.texto}
+                {ligacao.notas && <span className="block text-ink-3">“{ligacao.notas}”</span>}
+              </dd>
+            </div>
+          )}
           {leadDaFicha.bloqueio_motivo && (
             <div className="flex gap-2">
               <dt className="w-24 shrink-0 text-ink-3">Trava</dt>
@@ -1737,7 +1824,7 @@ export default function BancoLeadsPage() {
       </div>
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leadDaFicha, usuario?.id])
+  }, [leadDaFicha, usuario?.id, proximaAcao])
   // O ESCOPO REAL da selecao, em texto — inclusive o aviso de que ela alcanca so' a janela
   // carregada. A regra vive no modulo puro; a tela nao pode prometer alem do que o servidor
   // devolveu.

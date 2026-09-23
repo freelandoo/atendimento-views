@@ -131,6 +131,10 @@ test('GUARDA: mudar status do lead respeita o mesmo recorte e grava historico', 
   assert.ok(bloco.includes('criarFollowUp'), 'proxima acao da ligacao rapida precisa usar a entidade oficial de follow-up')
   assert.ok(bloco.includes('lead_follow_up_criado'), 'follow-up criado pela ligacao precisa aparecer no historico do lead')
   assert.ok(bloco.includes('normalizarPayloadDescarte'), 'descarte precisa passar por payload com motivo')
+  assert.ok(bloco.includes('normalizarPayloadProposta') && bloco.includes('lead_proposta_enviada'),
+    'proposta enviada precisa passar por payload validado e virar evento proprio no historico do lead')
+  assert.match(src, /ACOES_STATUS_LEAD = Object\.freeze\(\[[^\]]*'lead_proposta_enviada'/,
+    'proposta enviada precisa aparecer no historico de status da ficha')
   assert.ok(bloco.includes('estado_anterior') && bloco.includes('estado_novo'), 'historico precisa registrar antes/depois')
 })
 

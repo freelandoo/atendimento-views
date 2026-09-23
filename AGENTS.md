@@ -3700,6 +3700,38 @@
 - **Nenhuma migration, nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhuma rota
   nova.**
 
+### "Próxima ação" da ficha do lead — o que foi COMBINADO vem antes da faixa (sem migration)
+- **Regra de produto:** ao abrir o resumo do lead no Banco de Leads, a caixa "Próxima ação" mostra
+  primeiro o que alguém **combinou** com ele — follow-up em aberto (canal, prazo, responsável,
+  observação), reunião/retorno/tarefa na agenda (da tela **e** do bot) — e a **última ligação**
+  encerrada (resultado, quando, quem, nota). A faixa da fila de trabalho continua, como contexto.
+  Decisão de pessoa vence recomendação calculada (mesma precedência da Central de Follow-ups).
+- **`GET /api/empresas/:empresaId/banco-leads/leads/:id/proxima-acao`** — **somente leitura** (não
+  cria, conclui nem reagenda nada), mesmo recorte do lead (`exigirLeadNoRecorte`, **404 nunca
+  403**), sem capacidade extra. Casa por `prospect_id` **ou** telefone normalizado
+  (`sqlTelefoneNormalizado`): `follow_ups.prospect_id` e `agenda_eventos.prospect_id` são nullable.
+- **Ordem = prazo**, decidida no backend (`src/services/lead-proxima-acao.js`, PURO, com a
+  situação `atrasado | em_curso | futuro | sem_prazo`). Compromisso sem data vai para o fim.
+  `frontend/lib/lead-proxima-acao.js` só escreve ("Hoje, 14:30", selo em texto) — não decide atraso.
+- A ficha recarrega essa leitura depois de registrar ligação/reunião/follow-up pelo status do lead.
+- Código: `src/services/lead-proxima-acao.js`, `src/db/lead-proxima-acao.js`, rota em
+  `src/routes/api-banco-leads.js`; front `frontend/lib/lead-proxima-acao.{js,d.ts,test.js}` e
+  `resumoDaFicha` em `app/dashboard/banco-leads/page.tsx`. Testes: `test/lead-proxima-acao.test.js`,
+  `frontend/lib/lead-proxima-acao.test.js`. **Nenhuma migration, env ou capacidade nova.**
+
+### "Proposta enviada" na ficha do lead — status auditável (sem migration)
+- **Regra:** o botão **Proposta** da ficha registra que a proposta saiu. `PATCH /leads/:id/status`
+  com `status: 'proposta_enviada'` grava `prospects.status='respondeu'` (lead em negociação — não
+  há valor próprio na CHECK, e alargá-la exigiria migration) **e**, na mesma transação, o evento
+  `lead_proposta_enviada` em `app.auditoria_eventos` com `forma_envio` (lista FECHADA:
+  whatsapp/email/presencial/reuniao/outro), `valor` (opcional; zero/negativo recusado) e
+  observação. É o evento, não o status, que a tela lê para mostrar "Proposta enviada".
+- **Proposta NÃO é venda:** não cria `app.vendas`, não libera comissão e não emite evento à Meta.
+- Pode ser registrada mais de uma vez (proposta revisada): cada envio vira linha própria.
+- Código: `src/routes/api-banco-leads.js` (`normalizarPayloadProposta`), front em
+  `components/ConversaHistoricoModal.tsx` e `app/dashboard/banco-leads/page.tsx`. Guarda em
+  `test/isolamento-comercial.test.js`. **Nenhuma rota, capacidade ou env nova.**
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

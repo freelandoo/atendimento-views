@@ -30,6 +30,7 @@ type StatusPayload = {
   reuniao?: { data: string; horario: string; duracao_minutos: number; observacoes?: string }
   ligacao?: { resultado: string; duracao_minutos: number; observacoes?: string; follow_up?: PayloadProximaAcao | null }
   descarte?: { motivo: string; observacoes?: string }
+  proposta?: { forma_envio: string; valor?: number | null; observacoes?: string }
 }
 type StatusEvento = {
   id: string
@@ -66,6 +67,7 @@ const STATUS_ACOES: { valor: string; label: string }[] = [
   { valor: 'ligacao_realizada', label: 'Ligação feita' },
   { valor: 'respondido', label: 'Respondido' },
   { valor: 'reuniao_agendada', label: 'Reunião' },
+  { valor: 'proposta_enviada', label: 'Proposta' },
   { valor: 'descartado', label: 'Descartado' },
 ]
 const STATUS_POR_ACAO: Record<string, string> = {
@@ -74,6 +76,7 @@ const STATUS_POR_ACAO: Record<string, string> = {
   ligacao_realizada: 'enviado',
   respondido: 'respondeu',
   reuniao_agendada: 'respondeu',
+  proposta_enviada: 'respondeu',
   descartado: 'rejeitado',
 }
 
@@ -112,6 +115,25 @@ function rotuloLigacao(e: StatusEvento): string {
   return resultado ? `Ligação realizada · ${resultado}` : 'Ligação realizada'
 }
 
+// Espelha a lista FECHADA do backend (`PROPOSTA_FORMAS`); aqui é só rótulo, nenhuma regra.
+const FORMAS_PROPOSTA: { valor: string; label: string }[] = [
+  { valor: 'whatsapp', label: 'WhatsApp' },
+  { valor: 'email', label: 'E-mail' },
+  { valor: 'reuniao', label: 'Na reunião' },
+  { valor: 'presencial', label: 'Presencial' },
+  { valor: 'outro', label: 'Outro' },
+]
+const fmtBRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
+
+function rotuloProposta(e: StatusEvento): string {
+  const c = e.contexto || {}
+  const partes = ['Proposta enviada']
+  const forma = FORMAS_PROPOSTA.find((f) => f.valor === c.forma_envio)?.label
+  if (forma) partes.push(forma)
+  if (typeof c.valor === 'number') partes.push(fmtBRL.format(c.valor))
+  return partes.join(' · ')
+}
+
 function rotuloDescarte(e: StatusEvento): string {
   const c = e.contexto || {}
   const motivo = typeof c.motivo === 'string' ? c.motivo : ''
@@ -131,6 +153,7 @@ function rotuloEventoStatus(e: StatusEvento): string {
   if (e.acao === 'lead_ligacao_realizada') return rotuloLigacao(e)
   if (e.acao === 'lead_follow_up_criado') return rotuloFollowUp(e)
   if (e.acao === 'lead_descartado') return rotuloDescarte(e)
+  if (e.acao === 'lead_proposta_enviada') return rotuloProposta(e)
   if (e.acao === 'lead_status_alterado') return `${statusLabel(e.estado_anterior)} → ${statusLabel(e.estado_novo)}`
   return e.acao
 }
@@ -207,7 +230,7 @@ export default function ConversaHistoricoModal({
   const [historicoStatus, setHistoricoStatus] = useState<StatusEvento[]>([])
   const [carregandoStatus, setCarregandoStatus] = useState(false)
   const [mudandoStatus, setMudandoStatus] = useState<string | null>(null)
-  const [modalAcao, setModalAcao] = useState<null | 'reuniao' | 'ligacao' | 'descarte'>(null)
+  const [modalAcao, setModalAcao] = useState<null | 'reuniao' | 'ligacao' | 'descarte' | 'proposta'>(null)
   const [dataReuniao, setDataReuniao] = useState(hojeInput)
   const [horarioReuniao, setHorarioReuniao] = useState(proximaHoraCheia)
   const [duracaoReuniao, setDuracaoReuniao] = useState(30)
@@ -219,6 +242,9 @@ export default function ConversaHistoricoModal({
   const [errosProxAcao, setErrosProxAcao] = useState<Record<string, string>>({})
   const [motivoDescarte, setMotivoDescarte] = useState('')
   const [observacoesDescarte, setObservacoesDescarte] = useState('')
+  const [formaProposta, setFormaProposta] = useState('whatsapp')
+  const [valorProposta, setValorProposta] = useState('')
+  const [observacoesProposta, setObservacoesProposta] = useState('')
 
   useEffect(() => {
     let vivo = true
@@ -255,6 +281,7 @@ export default function ConversaHistoricoModal({
     if (valor === 'reuniao_agendada' && !payload) { setModalAcao('reuniao'); return }
     if (valor === 'ligacao_realizada' && !payload) { setModalAcao('ligacao'); return }
     if (valor === 'descartado' && !payload) { setModalAcao('descarte'); return }
+    if (valor === 'proposta_enviada' && !payload) { setModalAcao('proposta'); return }
     setMudandoStatus(valor)
     try {
       await onAlterarStatus(valor, payload)
@@ -267,6 +294,11 @@ export default function ConversaHistoricoModal({
         setObservacoesLigacao('')
         setProxAcaoLigacao(sugerirProximaAcao(resultadoLigacao))
         setErrosProxAcao({})
+      }
+      if (valor === 'proposta_enviada') {
+        setModalAcao(null)
+        setValorProposta('')
+        setObservacoesProposta('')
       }
       if (valor === 'descartado') {
         setModalAcao(null)
@@ -305,6 +337,27 @@ export default function ConversaHistoricoModal({
         duracao_minutos: duracaoLigacao,
         observacoes: observacoesLigacao,
         follow_up: montarPayloadProximaAcao(proxAcaoLigacao),
+      },
+    })
+  }
+
+  // Valor digitado no formato brasileiro ("1.500,00"). Vazio = sem valor (é opcional);
+  // quem valida de verdade é o backend, aqui só convertemos o texto.
+  const valorPropostaNumero = (() => {
+    const t = valorProposta.trim()
+    if (!t) return null
+    const n = Number(t.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.'))
+    return Number.isFinite(n) ? n : NaN
+  })()
+  const valorPropostaInvalido = valorPropostaNumero !== null && (Number.isNaN(valorPropostaNumero) || valorPropostaNumero <= 0)
+
+  async function salvarProposta() {
+    if (valorPropostaInvalido) return
+    await alterarStatus('proposta_enviada', {
+      proposta: {
+        forma_envio: formaProposta,
+        valor: valorPropostaNumero,
+        observacoes: observacoesProposta,
       },
     })
   }
@@ -527,7 +580,7 @@ export default function ConversaHistoricoModal({
                   </div>
                   <div className="flex flex-wrap gap-1.5" aria-label="Alterar status do lead">
                     {acoesStatusVisiveis.map((a) => {
-                      const ativo = !['reuniao_agendada', 'ligacao_realizada'].includes(a.valor) && STATUS_POR_ACAO[a.valor] === status
+                      const ativo = !['reuniao_agendada', 'ligacao_realizada', 'proposta_enviada'].includes(a.valor) && STATUS_POR_ACAO[a.valor] === status
                       return (
                         <button
                           key={a.valor}
@@ -678,6 +731,40 @@ export default function ConversaHistoricoModal({
                 </>
               )}
             </div>
+          </PainelAcaoConversa>
+        )}
+
+        {modalAcao === 'proposta' && (
+          <PainelAcaoConversa
+            titulo="Registrar proposta enviada"
+            descricao="Fica no histórico do lead com quem registrou, quando, como e o valor. Não cria venda nem comissão."
+            onFechar={() => setModalAcao(null)}
+            rodape={
+              <>
+                <Botao variante="neutra" tamanho="sm" onClick={() => setModalAcao(null)}>Cancelar</Botao>
+                <Botao variante="primaria" tamanho="sm" onClick={salvarProposta}
+                  disabled={valorPropostaInvalido} carregando={mudandoStatus === 'proposta_enviada'}>
+                  Salvar proposta
+                </Botao>
+              </>
+            }
+          >
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <label className="text-xs text-ink-2">Enviada por
+                <select value={formaProposta} onChange={(e) => setFormaProposta(e.target.value)} className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm">
+                  {FORMAS_PROPOSTA.map((f) => <option key={f.valor} value={f.valor}>{f.label}</option>)}
+                </select>
+              </label>
+              <label className="text-xs text-ink-2">Valor (opcional)
+                <input value={valorProposta} onChange={(e) => setValorProposta(e.target.value)} inputMode="decimal" placeholder="Ex.: 2.500,00"
+                  aria-invalid={valorPropostaInvalido}
+                  className={`mt-1 w-full rounded-lg border px-2 py-1.5 text-sm ${valorPropostaInvalido ? 'border-red-400' : 'border-line'}`} />
+                {valorPropostaInvalido && <span className="mt-0.5 block text-[11px] text-red-600">Valor inválido.</span>}
+              </label>
+            </div>
+            <label className="mt-2 block text-xs text-ink-2">Observações
+              <textarea value={observacoesProposta} onChange={(e) => setObservacoesProposta(e.target.value)} rows={3} placeholder="Ex.: plano anual, validade até sexta, aguardando sócio…" className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm" />
+            </label>
           </PainelAcaoConversa>
         )}
 

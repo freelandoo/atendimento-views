@@ -40,6 +40,7 @@
     "GET /api/empresas/:empresaId/banco-leads/leads",
     "GET /api/empresas/:empresaId/banco-leads/leads/:id",
     "GET /api/empresas/:empresaId/banco-leads/leads/:id/abordagem-manual",
+    "GET /api/empresas/:empresaId/banco-leads/leads/:id/proxima-acao",
     "GET /api/empresas/:empresaId/banco-leads/leads/:id/responsavel-historico",
     "GET /api/empresas/:empresaId/banco-leads/leads/:id/status-historico",
     "GET /api/empresas/:empresaId/banco-leads/meu-resumo",
