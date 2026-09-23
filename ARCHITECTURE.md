@@ -130,7 +130,7 @@ Invariantes que o repositório aprendeu na prática:
 | **Bright Data** | `services/brightdata-client.js` (Datasets), `services/social-discovery.js` (SERP) | **gasta crédito real de uma conta única compartilhada** — passa por `brightdata-orcamento.js` |
 | **Meta Conversions** | `services/meta-capi.js`, `meta-dispatch.js` | evento aceito **não se estorna**; ledger idempotente por entidade |
 | **Freelandoo** | `src/freelandoo/` | canal por token (não QR) + API de dados para o playbook |
-| **OpenAI Whisper** (áudio) | `src/media-processing.js` | API hospedada. `whisper-service/` (local) está órfão |
+| **OpenAI Whisper** (áudio) | `src/media-processing.js` | API hospedada (`whisper-1`). Não há transcrição local |
 
 Segredo de terceiro é cifrado em repouso (`segredos-crypto.js`) e **nenhuma rota o devolve** —
 só dica mascarada.

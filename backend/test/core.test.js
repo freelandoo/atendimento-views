@@ -4759,82 +4759,6 @@ test('prompt dinamico inclui correcoes aprendidas quando flags trazem aprendizad
   assert.match(texto, /CORRECOES APRENDIDAS/)
   assert.match(texto, /Teste de regra aprendida/)
 })
-
-const {
-  buildProjectHandoff,
-  slugifySegment,
-  formatarMensagemHandoffEnriquecida,
-  gerarPromptImagemEstruturaSiteHandoff,
-} = require('../src/project-handoff-build')
-const { gerarBriefingDocx } = require('../src/project-handoff-docx')
-
-test('slugifySegment normaliza acentos e caracteres especiais', () => {
-  assert.equal(slugifySegment('Eletricista — residencial'), 'eletricista-residencial')
-  assert.equal(slugifySegment('Anápolis'), 'anapolis')
-})
-
-test('buildProjectHandoff monta pacote e nome de arquivo padronizado', () => {
-  const { handoff, fileBase } = buildProjectHandoff({
-    numero: '556294908696@s.whatsapp.net',
-    perfil: {
-      negocio: 'Eletricista',
-      cidade: 'Anápolis - GO',
-      reuniao_proposta: { data_sugerida: '2026-05-10', horario_confirmado: '20:00' },
-      ja_aparece_google: false,
-    },
-    preco: { total: 812, entrada: 300, parcela: 170 },
-    motivo: 'agendou_reuniao_proposta',
-    resumoHandoff: 'Lead agendou reunião.',
-    resultado: {},
-  })
-  assert.equal(handoff.lead.phone, '556294908696')
-  assert.match(fileBase, /^briefing-eletricista-anapolis-556294908696$/)
-  assert.equal(handoff.meeting.time, '20:00')
-})
-
-test('formatarMensagemHandoffEnriquecida inclui blocos principais e não inclui arquivos', () => {
-  const { handoff } = buildProjectHandoff({
-    numero: '5511999999999@s.whatsapp.net',
-    perfil: { negocio: 'Barbearia', cidade: 'São Paulo - SP' },
-    preco: {},
-    motivo: 'lead_pediu_humano',
-    resumoHandoff: null,
-    resultado: {},
-  })
-  const txt = formatarMensagemHandoffEnriquecida(handoff, { motivo: 'lead_pediu_humano' })
-  assert.match(txt, /HANDOFF — {{empresa}}/)
-  assert.match(txt, /Estrutura sugerida da página/)
-  assert.match(txt, /Prompt para gerar imagem/)
-  assert.match(txt, /Como falar na ligação/)
-  assert.doesNotMatch(txt, /Arquivos gerados/)
-  assert.doesNotMatch(txt, /\.docx/)
-  assert.doesNotMatch(txt, /\.png/)
-  assert.doesNotMatch(txt, /Prévia visual do site/)
-  assert.doesNotMatch(txt, /Prompt prévia visual da estrutura/)
-})
-
-test('formatarMensagemHandoffEnriquecida agendou_reuniao_proposta não menciona arquivos nem caminhos', () => {
-  const { handoff } = buildProjectHandoff({
-    numero: '5562999000111@s.whatsapp.net',
-    perfil: {
-      negocio: 'Eletricista',
-      cidade: 'Goiânia - GO',
-      reuniao_proposta: { data_sugerida: '2026-05-15', horario_confirmado: '10:00' },
-    },
-    preco: { total: 812, entrada: 300, parcela: 170 },
-    motivo: 'agendou_reuniao_proposta',
-    resumoHandoff: 'Lead agendou para sexta.',
-    resultado: {},
-  })
-  const txt = formatarMensagemHandoffEnriquecida(handoff, { motivo: 'agendou_reuniao_proposta' })
-  assert.doesNotMatch(txt, /Arquivos gerados/)
-  assert.doesNotMatch(txt, /briefings/)
-  assert.doesNotMatch(txt, /\.docx/)
-  assert.doesNotMatch(txt, /\.png/)
-  assert.match(txt, /Estrutura sugerida da página/)
-  assert.match(txt, /Prompt para gerar imagem/)
-})
-
 test('createHandoffAlerts alertarHandoff não chama gerarBriefingDocx nem gerarImagemOpenAiPorPrompt', async () => {
   const { createHandoffAlerts } = require('../src/handoff-alerts')
   let docxChamado = false
@@ -4951,21 +4875,6 @@ test('montarPingOperador: DASHBOARD_URL sobrepõe o padrão', () => {
   }
 })
 
-test('gerarPromptImagemEstruturaSiteHandoff pede landing pronta e proíbe wireframe', () => {
-  const { handoff } = buildProjectHandoff({
-    numero: '5562999999999@s.whatsapp.net',
-    perfil: { negocio: 'Eletricista residencial', cidade: 'Anápolis - GO' },
-    preco: {},
-    motivo: 'agendou_reuniao_proposta',
-    resumoHandoff: '',
-    resultado: {},
-  })
-  const p = gerarPromptImagemEstruturaSiteHandoff(handoff)
-  assert.match(p, /não um wireframe/i)
-  assert.match(p, /#0168FF/)
-  assert.match(p, /eletric/i)
-})
-
 test('resultadoParseadoParaObjeto preserva project_handoff quando informado', () => {
   const r = resultadoParseadoParaObjeto(
     {
@@ -4981,25 +4890,6 @@ test('resultadoParseadoParaObjeto preserva project_handoff quando informado', ()
     'proposta'
   )
   assert.equal(r.project_handoff.briefing.mainPain, 'Poucos contatos pelo WhatsApp')
-})
-
-test('gerarBriefingDocx grava docx valido em disco', async () => {
-  const fs = require('fs/promises')
-  const path = require('path')
-  const os = require('os')
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pj-brief-'))
-  const outPath = path.join(dir, 'briefing-test.docx')
-  const { handoff } = buildProjectHandoff({
-    numero: '559988776655@s.whatsapp.net',
-    perfil: { negocio: 'Pizzaria', cidade: 'Goiânia - GO' },
-    preco: { total: 900, entrada: 360, parcela: 180 },
-    motivo: 'agendou_reuniao_proposta',
-    resumoHandoff: 'Teste',
-    resultado: {},
-  })
-  await gerarBriefingDocx(handoff, outPath)
-  const st = await fs.stat(outPath)
-  assert.ok(st.size > 1500)
 })
 
 // ─── parsearHorarioReuniao ────────────────────────────────────────────────────

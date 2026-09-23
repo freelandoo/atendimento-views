@@ -717,64 +717,20 @@ function createPreviewSite(deps = {}) {
   
   
   
-  function carregarPlaywrightOpcional() {
-  
-    try {
-  
-      return require('playwright')
-  
-    } catch (_) {
-  
-      return null
-  
+  // A previa do site sai como SVG. Ate 2026-09-23 havia aqui um ramo que tentava
+  // `require('playwright')` para renderizar PNG; o pacote nunca esteve no package.json, entao o
+  // require SEMPRE falhava e TODA previa ja saia por este caminho. Ramo removido por decisao do
+  // operador: SVG basta, e declarar o Playwright custaria ~300 MB de Chromium na imagem Docker.
+  // Se um dia o PNG for desejado, a volta e' instalar o pacote e renderizar `html` aqui — o
+  // parametro continua sendo montado por quem chama.
+  async function renderizarPreviewSiteImagem(_html, svgFallback) {
+    return {
+      b64: Buffer.from(svgFallback, 'utf8').toString('base64'),
+      mimetype: 'image/svg+xml',
+      renderer: 'svg-fallback',
     }
-  
   }
-  
-  
-  
-  async function renderizarPreviewSiteImagem(html, svgFallback) {
-  
-    const pw = carregarPlaywrightOpcional()
-  
-    if (!pw || !pw.chromium) {
-  
-      return {
-  
-        b64: Buffer.from(svgFallback, 'utf8').toString('base64'),
-  
-        mimetype: 'image/svg+xml',
-  
-        renderer: 'svg-fallback',
-  
-      }
-  
-    }
-  
-    let browser = null
-  
-    try {
-  
-      browser = await pw.chromium.launch({ headless: true })
-  
-      const page = await browser.newPage({ viewport: { width: 1080, height: 1350 }, deviceScaleFactor: 1 })
-  
-      await page.setContent(html, { waitUntil: 'networkidle' })
-  
-      const buf = await page.screenshot({ type: 'png', fullPage: false })
-  
-      return { b64: buf.toString('base64'), mimetype: 'image/png', renderer: 'playwright' }
-  
-    } finally {
-  
-      if (browser) await browser.close().catch(() => {})
-  
-    }
-  
-  }
-  
-  
-  
+
   /**
    * Gera imagem via mesma rota OpenAI usada na prévia de site (gpt-image-2).
    * @param {string} prompt
@@ -1020,7 +976,6 @@ function createPreviewSite(deps = {}) {
     montarPreviewSiteHtml,
     quebrarLinhaSvg,
     montarPreviewSiteSvg,
-    carregarPlaywrightOpcional,
     renderizarPreviewSiteImagem,
     gerarImagemOpenAiPorPrompt,
     gerarWireframeComGPT,

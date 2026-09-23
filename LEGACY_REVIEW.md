@@ -5,7 +5,7 @@ Fila de **revisão manual**. Nada aqui foi removido, alterado ou corrigido.
 Regra que governa este arquivo: quando a dúvida é entre **apagar** e **manter temporariamente**, mantém-se e registra-se aqui. Só sai desta fila por decisão explícita do operador.
 
 - **Origem das classificações:** `ARCHITECTURE_AUDIT.md` (auditoria de 2026-09-21)
-- **Última atualização:** 2026-09-23 (§1.1 e §2.5 resolvidos)
+- **Última atualização:** 2026-09-23 — **fila zerada.** Todos os itens de §1 e §2 foram decididos pelo operador e executados.
 
 ---
 
@@ -23,37 +23,59 @@ Regra que governa este arquivo: quando a dúvida é entre **apagar** e **manter 
 
 ---
 
-## 2. Código que parece morto e **não deve ser removido sem decisão**
+## 2. Código que parecia morto — ✅ TODOS DECIDIDOS E REMOVIDOS (2026-09-23)
 
-### 2.1 `backend/whisper-service/` — **CERTEZA BAIXA para remoção**
+Decisão do operador em 2026-09-23: **remover os quatro**. Cada remoção foi **reconferida no
+momento de executar** (import estático, import dinâmico, referência por string e menção em
+documento), e o portão inteiro rodou depois.
 
-- **Fato verificado:** microserviço Python completo (FastAPI + `faster-whisper`, modelo `medium`, CPU/int8, `POST /transcribe`, Dockerfile próprio). **Nenhum arquivo de `backend/src/` faz chamada HTTP para ele**; não existe `WHISPER_URL`; não aparece no `docker-compose.yml`. A transcrição real de áudio do WhatsApp usa a **API hospedada da OpenAI** (`whisper-1`) em `src/media-processing.js:44`.
-- **Por que não remover:** está documentado como parte da arquitetura em 6 documentos (`docs/project-map.md`, `docs/project-architecture.md`, `docs/IMPLEMENTATION_SLICES.md`, `AGENTS.md`, `VLAEG_*`). Pode ser uma alternativa de custo deliberadamente guardada (transcrever local × pagar por minuto na OpenAI).
-- **Pergunta para o operador:** a transcrição local ainda é um plano? Se não, sai o diretório **e** as menções nos 6 documentos, no mesmo movimento.
+### 2.1 `backend/whisper-service/` — ✅ REMOVIDO
 
-### 2.2 `src/project-handoff-build.js` + `project-handoff-docx.js` + `project-handoff-types.ts` — **CERTEZA MÉDIA**
+- **Reconferência (2026-09-23):** nenhuma referência em código, teste, script, `.env.example` ou
+  `docker-compose.yml`. Só menções em documentação. A transcrição real continua sendo a API
+  hospedada da OpenAI (`whisper-1`, `src/media-processing.js`).
+- **O que saiu junto:** a linha de `AGENTS.md` que listava o diretório, a seção de
+  `docs/project-map.md`, o "deploy separado" de `docs/project-architecture.md`, a linha de
+  `ARCHITECTURE.md` e a variável fantasma `WHISPER_SERVICE_URL` do catálogo
+  `docs/VLAEG_ENVIRONMENT.md` — que nenhum código jamais leu.
+- **Não foram tocados** os registros datados (`ARCHITECTURE_AUDIT.md`, `REFACTOR_REPORT.md`,
+  `docs/VLAEG_*_LOG.md`): eles descrevem o que era verdade na data, e não se reescrevem.
 
-- **Fato verificado:** ~570 + 246 linhas + tipos. **O único consumidor é `test/core.test.js:4762`**. Não existe rota com "handoff" no path (`agent.js` importa `handoff-alerts.js`, que é outro módulo). É a **única razão de existir da dependência `docx`** (9.6.1).
-- **Por que não remover:** documentado em `docs/IMPLEMENTATION_SLICES.md:35-37` e `docs/project-map.md:68` como parte da arquitetura. Tem cara de **feature construída e nunca ligada**, não de resto de código apagado.
-- **Pergunta para o operador:** o briefing em `.docx` era para ter sido ligado a alguma tela/rota? Se foi abandonado, saem os 3 arquivos, a dependência `docx` e as menções nos 2 documentos.
+### 2.2 `project-handoff-build.js` + `-docx.js` + `-types.ts` — ✅ REMOVIDOS (+ dependência `docx`)
 
-### 2.3 Caminho do Playwright em `src/preview-site.js:720-770` — **CERTEZA ALTA de que nunca executa**
+- ⚠️ **A reconferência achou uma distinção que o registro original não tinha, e ela importa:**
+  o **campo** `project_handoff` é parte VIVA do contrato com a LLM — `agent.js:3149` o preserva
+  quando a IA o emite, `core-funnel.js:248` o inicializa e `public-message-guard.js:21` impede
+  que ele vaze na mensagem ao cliente. **Só os construtores** é que não tinham consumidor.
+- **O que saiu:** os 3 módulos, a dependência `docx` (`package.json` + lockfile), 6 blocos de
+  teste em `test/core.test.js` e as 3 linhas de `docs/IMPLEMENTATION_SLICES.md`.
+- **O que FICOU, de propósito:** todo o tratamento do campo `project_handoff` nos 3 arquivos de
+  produção acima, e o teste `createHandoffAlerts ... não chama gerarBriefingDocx`, que usa
+  espiões (não importava os módulos) e hoje é uma guarda ainda mais forte.
 
-- **Fato verificado:** `carregarPlaywrightOpcional()` faz `require('playwright')` dentro de `try/catch`. O pacote **não está no `package.json` nem em `node_modules`** — logo a função sempre devolve `null` e **todo preview de site sai como `svg-fallback`**, nunca como PNG.
-- **Por que está aqui e não na remoção direta:** a decisão não é técnica, é de produto — *o preview em PNG era desejado?* Declarar a dependência custa ~300 MB de Chromium na imagem Docker; remover o ramo assume que SVG basta.
-- **Pergunta para o operador:** PNG ou SVG?
+### 2.3 Ramo do Playwright em `src/preview-site.js` — ✅ REMOVIDO
 
-### 2.4 Scripts sem entrada no `package.json` — **CERTEZA BAIXA a MÉDIA**
+- **Decisão:** SVG basta. O ramo PNG **nunca executou** — `require('playwright')` sempre falhava
+  porque o pacote nunca esteve no `package.json`, então toda prévia já saía como `svg-fallback`.
+- **Efeito no comportamento: ZERO.** `renderizarPreviewSiteImagem` passou a devolver diretamente
+  o que já devolvia; saíram `carregarPlaywrightOpcional`, o `launch`/`screenshot` e a entrada nos
+  exports.
+- **Ficou uma lápide** de 5 linhas explicando por que o ramo saiu e como voltar, no mesmo padrão
+  das variáveis aposentadas do `.env.example` — uma remoção sem explicação é uma remoção que
+  alguém refaz em seis meses.
 
-12 dos 24 scripts não têm entrada em `npm scripts`. A maioria é operacional legítima e **deve ficar** (`run-migration.js`, `clonar-prod-para-local.sh`, `dump-prompts.js`/`push-overlay.js`, `test-evolution-send.js`, `agendar-reuniao.js`, `update-ai-model.js`). Candidatos históricos:
+### 2.4 Scripts históricos — ✅ REMOVIDOS
 
-| Script | Evidência | Certeza |
-|---|---|---|
-| `cleanup-prospeccao-legado.js` | **zero** menções em `docs/` ou `AGENTS.md`; limpava backlog do sistema antigo de prospecção | MÉDIA |
-| `seed-campanha-nail-designer.js` | seed de conteúdo de um nicho específico; citado só em `docs/ai-task-start-log.md` | MÉDIA |
-| `init-whatsapp.js` | setup manual de tabela; hoje a criação de instância passa por `api-whatsapp.js`; citado só em `docs/historico/` | MÉDIA |
+`cleanup-prospeccao-legado.js`, `seed-campanha-nail-designer.js` e `init-whatsapp.js`. Nenhum
+tinha entrada em `npm scripts` e nenhum era citado por código. Os scripts operacionais legítimos
+(`run-migration.js`, `clonar-prod-para-local.sh`, `dump-prompts.js`, `push-overlay.js`,
+`test-evolution-send.js`, `agendar-reuniao.js`, `update-ai-model.js`) **continuam**.
 
-⚠️ **`scripts/test-evolution-send.js` tem um problema à parte:** o nome casa com o padrão de descoberta de testes do Node (`test-*.js`), então `node --test` **sem argumento** o executa — e ele **envia mensagem real de WhatsApp**. O `npm test` usa o glob `test/*.test.js` justamente para não alcançá-lo. Renomeá-lo (ex.: `enviar-teste-evolution.js`) removeria a armadilha, mas muda um comando que o operador pode ter em anotação.
+⚠️ **Continua valendo o aviso sobre `scripts/test-evolution-send.js`:** o nome casa com o padrão
+de descoberta de testes do Node, então `node --test` **sem argumento** o executa — e ele **envia
+mensagem real de WhatsApp**. O `npm test` usa o glob `test/*.test.js` justamente para não
+alcançá-lo. Renomeá-lo removeria a armadilha, mas mudaria um comando que pode estar anotado; não
+foi feito.
 
 ### 2.5 `backend/sql/migracao_analise_estruturada.sql` — ✅ RESOLVIDO (movido, 2026-09-23)
 
@@ -61,12 +83,13 @@ Regra que governa este arquivo: quando a dúvida é entre **apagar** e **manter 
 - **O que foi feito:** movido para `sql/historico/` (com um `README.md` explicando o critério da pasta). **Não foi apagado** — o schema que ele criou provavelmente está vivo em produção, e o arquivo é o único registro do que foi aplicado à mão via `psql`.
 - **Efeito colateral bom:** a raiz de `sql/` passou a conter exatamente os dois arquivos que o boot lê.
 
-### 2.6 `src/ai-structured-analysis.js` — **CERTEZA MÉDIA (descoberto na Fase 1)**
+### 2.6 `src/ai-structured-analysis.js` — ✅ REMOVIDO
 
-- **Fato verificado:** **nenhum consumidor de produção** (grep em todo o repositório: só o próprio módulo e seu teste). O teste, por sua vez, **nunca havia executado** — usava `describe`/`it` sem importar de `node:test`, corrigido no commit `a023a68`.
-- **Contexto:** é remanescente da "Atividade A", iniciativa cujos documentos estão em `docs/historico/ATIVIDADE_A_*.md`.
-- **Estado agora:** o módulo continua no lugar e seus 9 testes passam — ou seja, ele **funciona**, só não é chamado por ninguém.
-- **Pergunta para o operador:** a análise estruturada (JSON com `analise`/`decisoes`/`restricoes`) foi substituída pelo caminho atual de Structured Outputs do `ai-provider.js`, ou ficou pendente de ligar?
+Nenhum consumidor de produção; o único importador era o próprio teste (`test/ai-structured-analysis.test.js`,
+removido junto). Era remanescente da "Atividade A" (`docs/historico/ATIVIDADE_A_*.md`) e foi
+substituído na prática pelo caminho de Structured Outputs do `ai-provider.js`.
+
+---
 
 ---
 

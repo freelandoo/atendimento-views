@@ -135,12 +135,6 @@ mantinha 24 arquivos fora da suíte). Além dos testes de regra, há três guard
 em `BEGIN TRANSACTION READ ONLY`). Os outros 12 são operacionais manuais; 3 são candidatos a
 histórico (ver `LEGACY_REVIEW.md`).
 
-## `backend/whisper-service/` — Python (FastAPI + faster-whisper)
-⚠️ **Órfão**: nenhum código de `src/` o chama. A transcrição real usa a API hospedada da OpenAI
-(`media-processing.js`). Ver `LEGACY_REVIEW.md` §2.1.
-
----
-
 ## `frontend/` — Next.js 14 (App Router, TypeScript, Tailwind)
 
 - **`app/`** — 29 rotas. `login`/`signup` (tema neon) e `dashboard/*` (tema claro).

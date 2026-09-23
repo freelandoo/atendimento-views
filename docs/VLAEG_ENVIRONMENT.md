@@ -59,7 +59,6 @@
 
 | Variável | Exemplo | Descrição |
 |----------|---------|-----------|
-| `WHISPER_SERVICE_URL` | `http://whisper-service:9000` | Transcrição de áudio |
 | `GOOGLE_PLACES_API_KEY` | `AIza...` | Prospecção automática |
 | `GOOGLE_CSE_KEY` | `...` | Busca de concorrentes |
 | `GOOGLE_CSE_ID` | `...` | ID do Custom Search Engine |

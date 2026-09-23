@@ -32,9 +32,6 @@ src/
   string-utils.js           ← Parsing JSON Claude, normalização
   institutional-language.js ← Sanitização de termos internos
   domainSchemas.js          ← Validação de schemas
-  project-handoff-build.js  ← Compilação de handoff
-  project-handoff-docx.js   ← Geração DOCX
-  project-handoff-types.ts  ← Tipos TypeScript
 
 prompts/                    ← Templates por etapa do funil
 knowledge/cases.json        ← 7 cases de referência (PJ Codeworks)

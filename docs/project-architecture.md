@@ -21,7 +21,6 @@ confirmação** antes de implementar (ver [ai-workflow.md](ai-workflow.md) → R
 - **Autenticação:** JWT (SaaS multiempresa, `src/auth.js` + `src/middleware/tenant.js`) e
   segredos de admin/webhook para o dashboard estático (`src/dashboardAuth.js`).
 - **Deploy:** Railway (Root Directory `backend/`) + Vercel (Root Directory `frontend`).
-  Serviço auxiliar Python de transcrição (`whisper-service/`) com deploy separado.
 - **Integrações:** Anthropic/OpenAI (LLM), Evolution API (WhatsApp), Freelandoo
   (canal + API de dados), Meta CTWA/CAPI, Bright Data (captação social), Google Places/CSE.
 

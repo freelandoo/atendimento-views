@@ -19,7 +19,7 @@
 
 ## Estrutura física do repositório (split backend/frontend)
 - `backend/` — API Node/Express. Contém `index.js`, `src/`, `prompts/`, `knowledge/`,
-  `sql/`, `scripts/`, `tools/`, `test/`, `public/` (dashboard estático), `whisper-service/`,
+  `sql/`, `scripts/`, `test/`, `public/` (dashboard estático),
   `package.json`, `Dockerfile`, `tsconfig.json`. **Todos os caminhos `src/…`, `prompts/…`,
   `sql/…` etc. citados neste guia são relativos a `backend/`.** Rode `npm test`/`npm start`
   de dentro de `backend/`.
