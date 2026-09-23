@@ -48,9 +48,10 @@ test('marca nao reconhecida cai no rotulo do que o backend disse que o link e', 
 
 test('whatsapp nasce primeiro quando ha telefone navegavel', () => {
   assert.equal(telefoneWhatsapp('+55 (11) 99999-0001'), '5511999990001')
+  assert.equal(telefoneWhatsapp('(11) 99999-0001'), '5511999990001')
   assert.equal(telefoneWhatsapp('123'), null)
   const r = acessosDoLead({
-    telefone: '+55 (11) 99999-0001',
+    telefone: '(11) 99999-0001',
     instagram_handle: '@loja',
     maps_url: 'https://maps.google.com/?cid=1',
   })

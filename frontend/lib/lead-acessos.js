@@ -66,8 +66,9 @@ function acesso(tipo, rotulo, href, dica) {
 }
 
 function telefoneWhatsapp(telefone) {
-  const digitos = String(telefone || '').replace(/\D/g, '')
+  let digitos = String(telefone || '').replace(/\D/g, '')
   if (digitos.length < 10) return null
+  if (digitos.length >= 10 && digitos.length <= 11 && !digitos.startsWith('55')) digitos = `55${digitos}`
   return digitos
 }
 

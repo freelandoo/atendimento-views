@@ -5283,3 +5283,23 @@ navegação/contexto; os cards continuam carregados e movimentados para um dia p
 
 **Validação prevista:** `cd backend && node --test test/plano-dia.test.js`,
 `cd frontend && npx tsc --noEmit`, `node --test lib/plano-dia.test.js` e `git diff --check`.
+
+## 2026-09-23 — Correção de telefone refletindo na ficha/conversa rápida
+
+**Pedido:** quando o operador corrigir o telefone dentro da ficha/conversa do lead, a correção
+deve refletir imediatamente nos atalhos e no WhatsApp/conversa rápida. A mudança pode ficar
+apenas auditável no banco, sem exigir uma nova área de interface.
+
+**Entendimento inicial:** a rota atual já atualiza `prospectador.prospects.telefone` e registra
+auditoria, mas a ficha aberta guarda um snapshot de `acessos` e pode manter o WhatsApp antigo
+até reabrir. Também vale devolver do backend o `numero_whatsapp` normalizado para a tela não
+montar JID divergente.
+
+**Áreas prováveis:** `backend/src/services/lead-telefone.js`,
+`backend/src/routes/api-banco-leads.js`, `backend/test/lead-telefone.test.js`,
+`frontend/lib/lead-acessos.js`, `frontend/lib/lead-acessos.test.js` e
+`frontend/app/dashboard/banco-leads/page.tsx`.
+
+**Validação prevista:** `cd backend && node --test test/lead-telefone.test.js`,
+`cd frontend && node --test lib/lead-acessos.test.js`, `npx tsc --noEmit`,
+`node --test lib/*.test.js` e `git diff --check`.

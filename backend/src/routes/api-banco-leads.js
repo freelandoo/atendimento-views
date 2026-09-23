@@ -1852,6 +1852,8 @@ router.patch('/leads/:id/telefone', requireAuth, requireEmpresaAccess, async (re
           rows[0].telefone ? 'com_telefone' : 'sem_telefone',
           JSON.stringify({
             origem: 'banco_leads',
+            telefone_anterior_digitos: atual.telefone || null,
+            telefone_novo_digitos: rows[0].telefone || null,
             telefone_digitos: rows[0].telefone || null,
             tinha_telefone: !!atual.telefone,
             tem_whatsapp_resetado: !!efeitos.resetarTemWhatsapp && atual.tem_whatsapp !== null,
@@ -1861,7 +1863,7 @@ router.patch('/leads/:id/telefone', requireAuth, requireEmpresaAccess, async (re
     }
 
     await client.query('COMMIT')
-    return res.json({ ok: true, data: rows[0] })
+    return res.json({ ok: true, data: { ...rows[0], numero_whatsapp: LT.numeroWhatsappLead(rows[0].telefone) } })
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {})
     return envelopeErro(res, err, 'TELEFONE_UPDATE_FAILED')

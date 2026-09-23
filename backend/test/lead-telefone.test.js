@@ -18,6 +18,12 @@ test('normaliza para digitos e aceita DDD + numero', () => {
   assert.equal(LT.validarTelefoneLead('(11) 98888-7777').telefone, '11988887777')
 })
 
+test('numeroWhatsappLead devolve o JID que a conversa rapida usa', () => {
+  assert.equal(LT.numeroWhatsappLead('(11) 98888-7777'), '5511988887777@s.whatsapp.net')
+  assert.equal(LT.numeroWhatsappLead('+55 11 98888 7777'), '5511988887777@s.whatsapp.net')
+  assert.equal(LT.numeroWhatsappLead('123'), null)
+})
+
 test('recusa numero curto e numero longo demais, com motivo proprio', () => {
   assert.equal(LT.validarTelefoneLead('11988').motivo, LT.MOTIVOS.CURTO)
   assert.equal(LT.validarTelefoneLead('1'.repeat(16)).motivo, LT.MOTIVOS.LONGO)
@@ -106,5 +112,14 @@ test('a escrita do telefone vira linha de auditoria, sem PII alem dos digitos', 
   const rota = fonte.slice(fonte.indexOf("router.patch('/leads/:id/telefone'"))
   assert.ok(rota.includes("'lead_telefone_alterado'"))
   assert.ok(rota.includes('telefone_digitos'))
+  assert.ok(rota.includes('telefone_anterior_digitos'))
+  assert.ok(rota.includes('telefone_novo_digitos'))
   assert.ok(!rota.includes('nome_lead'), 'auditoria de contato nao carrega nome nem texto')
+})
+
+test('a rota devolve numero_whatsapp ja normalizado para a ficha', () => {
+  const fonte = SRC('routes/api-banco-leads.js')
+  const rota = fonte.slice(fonte.indexOf("router.patch('/leads/:id/telefone'"))
+  assert.ok(rota.includes('numero_whatsapp: LT.numeroWhatsappLead(rows[0].telefone)'),
+    'a tela nao deve remontar o JID da conversa com uma regra diferente')
 })

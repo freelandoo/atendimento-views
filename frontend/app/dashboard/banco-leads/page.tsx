@@ -27,7 +27,7 @@ import { rotuloLink } from '@/lib/site-rotulos'
 // A ORIGEM do lead chega pronta do backend (`prospects.origem`, vocabulario travado em
 // services/lead-origem.js). Este modulo so TRADUZ — a tela nao deduz procedencia.
 import { celulaOrigem, OPCOES_FILTRO_ORIGEM, rotuloFiltroOrigem } from '@/lib/lead-origem'
-import { acessosDoLead, type AcessoRapido } from '@/lib/lead-acessos'
+import { acessosDoLead, telefoneWhatsapp, type AcessoRapido } from '@/lib/lead-acessos'
 import { ordemIcp, prioridadeComercialLead, qualificacaoDoLead, resumoIcpDoLead, resumoIcpOperacional, seloIcp, seloValidacaoLead } from '@/lib/lead-icp'
 import { leituraCadastro } from '@/lib/pontuacao-indicador'
 import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
@@ -879,10 +879,10 @@ export default function BancoLeadsPage() {
    * mapa). Substitui `abrirConversa` + `setDetalheAberto`: era o mesmo lead em dois modais.
    */
   function abrirFicha(l: Lead, gatilho: string) {
-    const digits = String(l.telefone || '').replace(/\D/g, '')
+    const whatsapp = telefoneWhatsapp(l.telefone)
     setFicha({
       secao: secaoDoGatilho(gatilho),
-      numero: digits ? `${digits}@s.whatsapp.net` : '', titulo: l.nome || '', leadId: l.id,
+      numero: whatsapp ? `${whatsapp}@s.whatsapp.net` : '', titulo: l.nome || '', leadId: l.id,
       mensagemGerada: l.mensagem_gerada, rodavel: isRodavel(l), status: l.status,
       // Acessos rápidos (rede social / site / ficha no Maps) — a regra é pura e vive em
       // lib/lead-acessos.js; aqui só se passa o veredito que o backend já mandou no lead.
@@ -1580,17 +1580,31 @@ export default function BancoLeadsPage() {
   // recebe os três. Atualizar só o telefone deixaria o lead na tela com o selo "sem WhatsApp"
   // do número ANTIGO, que é justamente o que faz o operador achar que a correção não pegou.
   async function salvarTelefone(id: string, telefone: string) {
-    const r = await apiFetch<{ id: string; telefone: string | null; status: string; tem_whatsapp: boolean | null }>(
+    const r = await apiFetch<{ id: string; telefone: string | null; status: string; tem_whatsapp: boolean | null; numero_whatsapp?: string | null }>(
       `${base}/leads/${id}/telefone`, { method: 'PATCH', body: JSON.stringify({ telefone }) })
+    const aplicarTelefone = (l: Lead): Lead => ({
+      ...l,
+      telefone: r.data.telefone,
+      status: r.data.status,
+      tem_whatsapp: r.data.tem_whatsapp,
+    })
     setLeads((prev) => prev.map((l) => (l.id === id
-      ? { ...l, telefone: r.data.telefone, status: r.data.status, tem_whatsapp: r.data.tem_whatsapp }
+      ? aplicarTelefone(l)
       : l)))
     // O modal aberto é a outra porta desta mesma edição: sem atualizar o `numero` dele, ele
-    // continuaria dizendo "Telefone pendente" depois de o número ter sido salvo.
+    // continuaria dizendo "Telefone pendente" depois de o número ter sido salvo. Os acessos
+    // rápidos também são snapshot da ficha: recomputar aqui faz o WhatsApp apontar para o
+    // número corrigido imediatamente.
     setFicha((c) => {
       if (!c || c.leadId !== id) return c
-      const digitos = String(r.data.telefone || '').replace(/\D/g, '')
-      return { ...c, numero: digitos ? `${digitos}@s.whatsapp.net` : '', status: r.data.status }
+      const leadAberto = aplicarTelefone(c.leadAberto)
+      return {
+        ...c,
+        numero: r.data.numero_whatsapp || '',
+        status: r.data.status,
+        acessos: acessosDoLead(leadAberto),
+        leadAberto,
+      }
     })
     fb.toast(r.data.telefone ? 'Telefone salvo.' : 'Telefone removido.')
   }

@@ -31,6 +31,17 @@ function normalizarTelefoneLead(valor) {
 }
 
 /**
+ * Destino técnico do WhatsApp/conversa rápida. Para telefone BR digitado como DDD+número,
+ * acrescenta o DDI `55`; número internacional já em E.164 segue como veio.
+ */
+function numeroWhatsappLead(valor) {
+  let d = normalizarTelefoneLead(valor)
+  if (!d || d.length < 10) return null
+  if (d.length >= 10 && d.length <= 11 && !d.startsWith('55')) d = `55${d}`
+  return `${d}@s.whatsapp.net`
+}
+
+/**
  * O numero digitado serve?
  *
  * Os limites sao os mesmos que o cadastro manual ja aplicava (`POST /leads`): 10 digitos e' DDD +
@@ -79,6 +90,7 @@ module.exports = {
   MOTIVOS,
   MENSAGEM,
   normalizarTelefoneLead,
+  numeroWhatsappLead,
   validarTelefoneLead,
   efeitosDaTrocaDeTelefone,
 }

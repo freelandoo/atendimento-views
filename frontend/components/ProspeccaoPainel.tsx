@@ -27,7 +27,7 @@ import {
 } from '@/lib/prospeccao-listagem'
 import { qualificacaoDoLead, resumoIcpOperacional, seloIcp, seloValidacaoLead } from '@/lib/lead-icp'
 import { leituraCadastro } from '@/lib/pontuacao-indicador'
-import { acessosDoLead, normalizarLink, type AcessoRapido } from '@/lib/lead-acessos'
+import { acessosDoLead, normalizarLink, telefoneWhatsapp, type AcessoRapido } from '@/lib/lead-acessos'
 import { secaoDoGatilho, type SecaoFicha } from '@/lib/ficha-lead'
 
 type JsonApresProspect = JsonApresentacao & {
@@ -831,14 +831,14 @@ export default function ProspeccaoPainel({
   }
 
   function abrirFicha(p: Prospect, gatilho: string) {
-    const digits = String(p.telefone || '').replace(/\D/g, '')
+    const whatsapp = telefoneWhatsapp(p.telefone)
     setFicha({
       secao: secaoDoGatilho(gatilho),
       leadId: p.id,
-      numero: digits ? `${digits}@s.whatsapp.net` : '',
+      numero: whatsapp ? `${whatsapp}@s.whatsapp.net` : '',
       titulo: p.nome || '',
       mensagemGerada: null,
-      rodavel: Boolean(digits),
+      rodavel: Boolean(whatsapp),
       status: p.status,
       acessos: acessosDaFichaAquisicao(p),
       leadAberto: p,
