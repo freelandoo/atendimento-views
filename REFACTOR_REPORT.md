@@ -177,13 +177,20 @@ Registrado porque o relatório perde valor se só contar acertos:
 5. **Quebrei o portão duas vezes** durante a sessão — um apóstrofo dentro de string e uma
    invariante de pureza que eu não havia encontrado. Nos dois casos o portão pegou antes do
    commit, que é exatamente para isso que ele existe.
+6. **Escrevi o CI sem declarar o fuso, e ele nasceu vermelho** (descoberto em 2026-09-23). Eu
+   verifiquei o pipeline localmente e concluí que "se o portão local passa, este aqui passa" —
+   mas o runner do GitHub roda em **UTC** e a suíte assume `America/Sao_Paulo`, o fuso de
+   produção. Resultado: 6 testes de backend e 2 de frontend falhando por exatamente 3 horas, em
+   **todas** as execuções. A lição não é sobre fuso: eu chamei a suíte de "hermética" tendo
+   verificado só a ausência de **credencial**, e generalizei para ambiente.
 
 ## 10. Ordem sugerida para continuar
 
-1. ~~CI mínimo~~ — **feito** (`.github/workflows/ci.yml`). Falta só o primeiro run confirmar no
-   GitHub: o pipeline foi verificado localmente (`npm ci` limpo nos dois apps, suíte sem `.env`,
-   varredura de caixa de arquivo para o Linux), mas nunca executou no runner.
-2. **Decidir os 8 itens de `LEGACY_REVIEW.md`** — a maioria é uma resposta sua, não trabalho.
+1. ~~CI mínimo~~ — **feito e VERDE** em 2026-09-23. O primeiro run revelou que o workflow não
+   declarava `TZ` e a suíte assume o fuso de produção; corrigido com `env: TZ: America/Sao_Paulo`
+   (ver §9.6). Os três jobs passam.
+2. ~~Decidir os itens de `LEGACY_REVIEW.md`~~ — **feito**: fila zerada em 2026-09-23. O schema
+   saiu na migration `099` e os 4 dormentes foram removidos por decisão do operador.
 3. **Smoke de migrations contra Postgres limpo** (R4).
 4. **Paginação de servidor** no Banco de Leads (R7) — a última fronteira frontend/backend real.
 5. **Atualizar o catálogo de modelos de IA** (R8).
