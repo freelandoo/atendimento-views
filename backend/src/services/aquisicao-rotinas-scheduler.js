@@ -19,6 +19,7 @@
 //      uma coleta que trava não pode reabrir o intervalo e gerar cobrança nova.
 
 const { horaLocal, horaParaMinutos, normalizarDias } = require('./captacao-scheduler')
+const { normalizarPais } = require('./paises')
 
 const TZ = process.env.PROSPEC_SCHEDULER_TZ || process.env.CAPTACAO_SCHEDULER_TZ || 'America/Sao_Paulo'
 
@@ -64,10 +65,12 @@ function normalizarUf(valor) {
 // "Cidade" + "UF" -> localização usada na geocodificação e na coleta.
 // Sem isso, "Santana" sozinha pode geocodificar em qualquer estado — era o bug do
 // fluxo manual, que mandava só a cidade.
-function localizacaoRotina(cidade, uf) {
+function localizacaoRotina(cidade, uf, pais = 'BR') {
   const c = texto(cidade, 80)
   if (!c) return null
+  const p = normalizarPais(pais)
   const u = normalizarUf(uf)
+  if (p !== 'BR') return c
   if (!u) return c
   // Não duplica a UF quando o operador já digitou "Campinas - SP".
   return new RegExp(`[-,/\\s]${u}$`, 'i').test(c) ? c : `${c} - ${u}`
@@ -84,6 +87,7 @@ function normalizarRotina(payload = {}, base = {}) {
 
   const nicho = texto(get('nicho'), 80)
   const cidade = texto(get('cidade'), 80)
+  const pais = normalizarPais(get('pais', 'country'))
   const inicio = normalizarHora(get('janela_inicio', 'janelaInicio'), '08:00')
   let fim = normalizarHora(get('janela_fim', 'janelaFim'), '18:00')
   // Janela invertida ou vazia cairia num CHECK do banco; corrigimos aqui com um padrão
@@ -95,6 +99,7 @@ function normalizarRotina(payload = {}, base = {}) {
   return {
     nicho,
     cidade,
+    pais,
     uf: normalizarUf(get('uf', 'estado')),
     dias_semana: normalizarDias(get('dias_semana', 'diasSemana')),
     janela_inicio: inicio,

@@ -10,7 +10,7 @@ const {
 } = require('../services/aquisicao-rotinas-scheduler')
 
 const COLUNAS = `
-  id, empresa_id, nicho, cidade, uf, dias_semana,
+  id, empresa_id, nicho, cidade, pais, uf, dias_semana,
   to_char(janela_inicio, 'HH24:MI') AS janela_inicio,
   to_char(janela_fim, 'HH24:MI')    AS janela_fim,
   intervalo_horas, quantidade, ativo, estado, mensagem,
@@ -68,19 +68,19 @@ async function criarRotina(pool, empresaId, payload = {}) {
   try {
     const { rows } = await pool.query(
       `INSERT INTO prospectador.aquisicao_rotinas (
-         empresa_id, nicho, cidade, uf, dias_semana,
+         empresa_id, nicho, cidade, pais, uf, dias_semana,
          janela_inicio, janela_fim, intervalo_horas, quantidade, ativo, estado
-       ) VALUES ($1, $2, $3, $4, $5::smallint[], $6::time, $7::time, $8, $9, $10, $11)
+       ) VALUES ($1, $2, $3, $4, $5, $6::smallint[], $7::time, $8::time, $9, $10, $11, $12)
        RETURNING ${COLUNAS}`,
       [
-        empresaId, rotina.nicho, rotina.cidade, rotina.uf, rotina.dias_semana,
+        empresaId, rotina.nicho, rotina.cidade, rotina.pais, rotina.uf, rotina.dias_semana,
         rotina.janela_inicio, rotina.janela_fim, rotina.intervalo_horas,
         rotina.quantidade, rotina.ativo, rotina.ativo ? 'aguardando' : 'pausada',
       ]
     )
     return rows[0]
   } catch (err) {
-    if (ehConflitoDeMercado(err)) throw erro('Já existe uma rotina para este nicho, cidade e UF.', 409)
+    if (ehConflitoDeMercado(err)) throw erro('Já existe uma rotina para este nicho, país, cidade e UF.', 409)
     throw err
   }
 }
@@ -103,25 +103,25 @@ async function atualizarRotina(pool, empresaId, id, payload = {}) {
   try {
     const { rows } = await pool.query(
       `UPDATE prospectador.aquisicao_rotinas
-          SET nicho = $3, cidade = $4, uf = $5, dias_semana = $6::smallint[],
-              janela_inicio = $7::time, janela_fim = $8::time,
-              intervalo_horas = $9, quantidade = $10, ativo = $11,
-              estado = $12,
-              falhas_consecutivas = CASE WHEN $13 THEN 0 ELSE falhas_consecutivas END,
-              ultimo_erro = CASE WHEN $13 THEN NULL ELSE ultimo_erro END,
-              mensagem = CASE WHEN $13 THEN NULL ELSE mensagem END,
+          SET nicho = $3, cidade = $4, pais = $5, uf = $6, dias_semana = $7::smallint[],
+              janela_inicio = $8::time, janela_fim = $9::time,
+              intervalo_horas = $10, quantidade = $11, ativo = $12,
+              estado = $13,
+              falhas_consecutivas = CASE WHEN $14 THEN 0 ELSE falhas_consecutivas END,
+              ultimo_erro = CASE WHEN $14 THEN NULL ELSE ultimo_erro END,
+              mensagem = CASE WHEN $14 THEN NULL ELSE mensagem END,
               atualizado_em = NOW()
         WHERE empresa_id = $1 AND id = $2::uuid
         RETURNING ${COLUNAS}`,
       [
-        empresaId, id, rotina.nicho, rotina.cidade, rotina.uf, rotina.dias_semana,
+        empresaId, id, rotina.nicho, rotina.cidade, rotina.pais, rotina.uf, rotina.dias_semana,
         rotina.janela_inicio, rotina.janela_fim, rotina.intervalo_horas,
         rotina.quantidade, rotina.ativo, estadoNovo, saiuDeAtencao,
       ]
     )
     return rows[0]
   } catch (err) {
-    if (ehConflitoDeMercado(err)) throw erro('Já existe uma rotina para este nicho, cidade e UF.', 409)
+    if (ehConflitoDeMercado(err)) throw erro('Já existe uma rotina para este nicho, país, cidade e UF.', 409)
     throw err
   }
 }
@@ -253,7 +253,7 @@ async function marcarFalha(pool, id, mensagemErro) {
 // Trava a busca avulsa o mesmo tanto que antes — o que muda e' o operador saber ate' quando.
 async function coletaEmVoo(pool, empresaId) {
   const { rows } = await pool.query(
-    `SELECT id, nicho, cidade, origem, status, snapshot_id, created_at,
+    `SELECT id, nicho, cidade, pais, origem, status, snapshot_id, created_at,
             EXTRACT(EPOCH FROM (NOW() - created_at)) / 60 AS idade_min
        FROM prospectador.busca_snapshots
       WHERE empresa_id = $1 AND status IN ('pendente', 'processando')
@@ -268,6 +268,7 @@ async function coletaEmVoo(pool, empresaId) {
     id: linha.id,
     nicho: linha.nicho,
     cidade: linha.cidade,
+    pais: linha.pais,
     origem: linha.origem,
     status: linha.status,
     // `false` = a reserva foi gravada e o disparo pago ainda nao completou. Ela expira em 10 min
@@ -281,7 +282,7 @@ async function coletaEmVoo(pool, empresaId) {
 // Atividade recente das coletas desta empresa (rotinas + manual), para o painel.
 async function listarAtividadeRecente(pool, empresaId, limite = 15) {
   const { rows } = await pool.query(
-    `SELECT s.id, s.rotina_id, s.nicho, s.cidade, s.origem, s.status,
+    `SELECT s.id, s.rotina_id, s.nicho, s.cidade, s.pais, s.origem, s.status,
             s.total_prospects, s.novos_prospects, s.custo_registros,
             s.quantidade_solicitada, s.erro, s.created_at, s.updated_at,
             r.uf

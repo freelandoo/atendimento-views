@@ -96,12 +96,12 @@ export interface CandidatoCarteira {
   instagram_handle?: string | null
 }
 
-/** Nichos presentes na carteira já carregada, com contagem — para o seletor de "Planejar meu dia". */
+/** Nichos presentes nos candidatos de planejamento, com contagem — para o seletor de "Planejar meu dia". */
 export function opcoesNicho(candidatos: { nicho?: string | null }[] | null | undefined): { valor: string; total: number }[]
 export function opcoesCidade(candidatos: { cidade?: string | null }[] | null | undefined): { valor: string; total: number }[]
 export function opcoesRegiao(candidatos: CandidatoCarteira[] | null | undefined): { valor: string; total: number }[]
 
-/** Filtra a carteira já carregada por busca + nicho/cidade/região, excluindo quem já está no dia. */
+/** Filtra candidatos de planejamento por busca + nicho/cidade/região, excluindo quem já está no dia. */
 export function filtrarCarteira<T extends CandidatoCarteira>(
   candidatos: T[] | null | undefined,
   opcoes?: { busca?: string; nicho?: string; cidade?: string; regiao?: string; jaNoDia?: Set<string>; limite?: number },

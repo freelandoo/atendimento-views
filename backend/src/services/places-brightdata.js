@@ -11,6 +11,7 @@
 // -> [worker] progress/snapshot -> snapshotParaPlaces() -> mapearPlace -> salvarProspects.
 const { trigger, progress, snapshot, brightDataConfigurado, datasetId } = require('./brightdata-client')
 const { logger } = require('../logger')
+const { normalizarPais, paisParaNominatim } = require('./paises')
 
 const NOMINATIM_URL = process.env.GEOCODE_NOMINATIM_URL || 'https://nominatim.openstreetmap.org/search'
 const GEOCODE_TIMEOUT_MS = Math.max(2000, parseInt(process.env.GEOCODE_TIMEOUT_MS, 10) || 8000)
@@ -29,14 +30,16 @@ function normalizarCidadeParaGeocode(cidade) {
   return String(cidade || '').replace(/\s*[-,]\s*/g, ', ').trim()
 }
 
-// Geocodifica a cidade -> { lat, long, country_code } via OpenStreetMap (grátis).
-// País default Brasil, mas respeita o country_code que o Nominatim devolver.
-async function geocodeCidade(cidade) {
-  const chave = normalizarCidadeParaGeocode(cidade).toLowerCase()
-  if (!chave) throw new Error('cidade vazia para geocoding')
+// Geocodifica a cidade -> { lat, long, country_code } via OpenStreetMap (gratis).
+// Pais default Brasil, mas o caller pode recortar por outro ISO-2.
+async function geocodeCidade(cidade, pais = 'BR') {
+  const paisNormalizado = normalizarPais(pais)
+  const cidadeNormalizada = normalizarCidadeParaGeocode(cidade)
+  if (!cidadeNormalizada) throw new Error('cidade vazia para geocoding')
+  const chave = `${paisNormalizado}:${cidadeNormalizada.toLowerCase()}`
   if (_geoCache.has(chave)) return _geoCache.get(chave)
 
-  const url = `${NOMINATIM_URL}?format=json&limit=1&addressdetails=1&countrycodes=br&q=${encodeURIComponent(normalizarCidadeParaGeocode(cidade))}`
+  const url = `${NOMINATIM_URL}?format=json&limit=1&addressdetails=1&countrycodes=${encodeURIComponent(paisParaNominatim(paisNormalizado))}&q=${encodeURIComponent(cidadeNormalizada)}`
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), GEOCODE_TIMEOUT_MS)
   try {
@@ -51,7 +54,7 @@ async function geocodeCidade(cidade) {
     const geo = {
       lat: Number(hit.lat),
       long: Number(hit.lon),
-      country_code: String(hit.address?.country_code || 'br').toUpperCase(),
+      country_code: String(hit.address?.country_code || paisNormalizado).toUpperCase(),
     }
     _geoCache.set(chave, geo)
     return geo
@@ -61,7 +64,7 @@ async function geocodeCidade(cidade) {
 }
 
 // Dispara a coleta (assíncrona). Retorna { snapshotId } para o worker acompanhar.
-async function dispararBuscaMaps({ nicho, cidade }) {
+async function dispararBuscaMaps({ nicho, cidade, pais = 'BR' }) {
   const keyword = String(nicho || '').trim()
   if (!keyword) throw new Error('nicho (keyword) obrigatório para a busca do Maps')
   if (!brightDataMapsConfigurado()) {
@@ -69,7 +72,8 @@ async function dispararBuscaMaps({ nicho, cidade }) {
     err.code = 'MAPS_OFF'
     throw err
   }
-  const geo = await geocodeCidade(cidade)
+  const paisNormalizado = normalizarPais(pais)
+  const geo = await geocodeCidade(cidade, paisNormalizado)
   const input = {
     country: geo.country_code,
     lat: geo.lat,
@@ -78,7 +82,7 @@ async function dispararBuscaMaps({ nicho, cidade }) {
     keyword,
   }
   const { snapshotId } = await trigger('maps_descoberta', input, { discoverBy: 'location' })
-  logger.info({ operation: 'places_brightdata', etapa: 'trigger', nicho: keyword, cidade, snapshotId }, 'busca Maps disparada')
+  logger.info({ operation: 'places_brightdata', etapa: 'trigger', nicho: keyword, cidade, pais: paisNormalizado, snapshotId }, 'busca Maps disparada')
   return { snapshotId, geo }
 }
 

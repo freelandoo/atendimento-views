@@ -201,6 +201,11 @@ export declare function estadoLinhaModal(
   avisoMudanca: string
 }
 
+/** Quem o modal oferece: acesso revogado fica de fora (só apresentação). */
+export declare function pessoasDoModal<T extends { ativo?: boolean | null }>(
+  pessoas: T[] | null | undefined
+): T[]
+
 export declare function contagensDoModal(
   pessoas: PessoaSelecionavel[] | null | undefined,
   equipeId: string | null

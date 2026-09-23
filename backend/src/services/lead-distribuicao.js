@@ -58,6 +58,9 @@ const STATUS_INICIAIS = Object.freeze(['coletado', 'contato_encontrado', 'aguard
 const ORIGEM = Object.freeze({
   ENTRADA_NA_EQUIPE: 'rebalanceamento_automatico_equipe',
   PUXADA_MANUAL: 'puxar_mais_leads',
+  // O gestor escolheu DE QUEM e PARA QUEM. Motivo proprio, e nao `puxar_mais_leads`: puxar tira
+  // da FILA, transferir tira da MAO de alguem — o historico precisa dizer qual das duas houve.
+  TRANSFERENCIA_ENTRE_MEMBROS: 'transferencia_entre_membros',
 })
 
 /** Qual lead entra primeiro quando o gestor puxa uma quantidade. */
@@ -246,6 +249,85 @@ function sqlMotivoProtegido(alias = 'p', placeholderNicho = '$2') {
     WHEN ${sqlJaTrabalhado(a)} THEN '${MOTIVO_PROTEGIDO.JA_TRABALHADO}'
     ELSE NULL
   END`
+}
+
+// ─── TRANSFERENCIA ENTRE MEMBROS ─────────────────────────────────────────────────────────
+//
+// O gestor escolhe DE QUEM sai, PARA QUEM vai e QUANTOS. E' a unica escrita manual que tira lead
+// da mao de alguem — por isso duas decisoes do operador (2026-09-23) ficam escritas aqui:
+//
+//   1. **O padrao e' so' INTOCADO** — o MESMO `sqlRedistribuivel` do rebalanceamento automatico.
+//      Um lead com reuniao marcada, conversa aberta ou follow-up nao muda de dono por engano.
+//   2. **"Incluir os em andamento" AMPLIA o conjunto, nunca o PREFERE.** Com a caixa marcada, os
+//      intocados continuam saindo PRIMEIRO (`sqlOrdemTransferencia`); os em andamento so' entram
+//      quando os intocados acabam. E' o que cobre ferias e desligamento sem fazer o uso do dia a
+//      dia mexer em negociacao a toa.
+//
+// O universo "em andamento" e' exatamente o da coluna "Leads" da carteira (`qualificacao`
+// abordavel, no nicho): mover "todos os leads da Ana" move o numero que a tela mostrou.
+
+/**
+ * Que lead desta pessoa pode ser transferido.
+ *
+ * Sem `incluirProtegidos`, e' IDENTICO ao predicado do rebalanceamento — ha' teste cobrando.
+ * Com ele, entra todo lead abordavel do nicho; `descartado`/`pendente` continuam fora (nao sao
+ * carteira de ninguem: um nao pode ser trabalhado, o outro ainda nem foi triado).
+ */
+function sqlTransferivel(alias = 'p', placeholderNicho = '$2', { incluirProtegidos = false } = {}) {
+  if (!incluirProtegidos) return sqlRedistribuivel(alias, placeholderNicho)
+  const a = alias
+  return `(
+    ${a}.nicho_id = ${placeholderNicho}::uuid
+    AND ${Q.sqlAbordavel(a)}
+  )`
+}
+
+/**
+ * A ORDEM de saida: intocados primeiro, e dentro de cada grupo o lead recebido mais RECENTEMENTE
+ * (o que menos provavelmente ja' esta' no plano de trabalho da pessoa) — a mesma escolha de
+ * `moverEntreMembros` no rebalanceamento.
+ */
+function sqlOrdemTransferencia(alias = 'p', placeholderNicho = '$2') {
+  const a = alias
+  return `CASE WHEN ${sqlRedistribuivel(a, placeholderNicho)} THEN 0 ELSE 1 END,
+          ${a}.responsavel_desde DESC NULLS LAST, ${a}.created_at DESC`
+}
+
+/**
+ * Valida o pedido ANTES de abrir transacao.
+ *
+ * ⚠️ `incluirProtegidos` so' e' verdadeiro com o BOOLEANO `true`. `Boolean('false')` e' `true`, e
+ * um formulario mal serializado moveria negociacao em andamento sem ninguem ter pedido — mesma
+ * recusa explicita da migration 066 e das `permissoes`. Na duvida, o lado SEGURO (so' intocado).
+ */
+function validarTransferencia({ origemId, destinoId, quantidade, incluirProtegidos } = {}) {
+  const origem = chave(origemId).trim()
+  const destino = chave(destinoId).trim()
+  if (!origem) return { ok: false, motivo: 'Escolha de quem os leads vão sair.', code: 'SEM_ORIGEM' }
+  if (!destino) return { ok: false, motivo: 'Escolha para quem os leads vão.', code: 'SEM_DESTINO' }
+  if (origem === destino) {
+    return { ok: false, motivo: 'A origem e o destino são a mesma pessoa.', code: 'MESMA_PESSOA' }
+  }
+  const n = Math.trunc(Number(quantidade))
+  if (!Number.isFinite(n) || n < 1) {
+    return { ok: false, motivo: 'Informe quantos leads mover (ao menos 1).', code: 'QUANTIDADE_INVALIDA' }
+  }
+  if (n > TETO_MOVIMENTOS) {
+    return {
+      ok: false,
+      motivo: `Cada transferência move no máximo ${TETO_MOVIMENTOS} leads. Repita a operação para o restante.`,
+      code: 'QUANTIDADE_ACIMA_DO_TETO',
+    }
+  }
+  return {
+    ok: true,
+    motivo: null,
+    code: null,
+    origemId: origem,
+    destinoId: destino,
+    quantidade: n,
+    incluirProtegidos: incluirProtegidos === true,
+  }
 }
 
 // ─── O PLANO ────────────────────────────────────────────────────────────────────────────
@@ -486,6 +568,9 @@ module.exports = {
   sqlConversaAberta,
   sqlRedistribuivel,
   sqlMotivoProtegido,
+  sqlTransferivel,
+  sqlOrdemTransferencia,
+  validarTransferencia,
   FATOR_ACIMA_MEDIANA,
   FATOR_PARADOS_ALTO,
   PROPORCAO_PARADOS_ALTA,

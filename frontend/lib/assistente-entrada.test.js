@@ -23,7 +23,7 @@ const {
   proximoPasso,
 } = require('./assistente-entrada')
 
-const BASE = { nicho: 'Dentista', cidade: 'Campinas', uf: 'SP' }
+const BASE = { nicho: 'Dentista', cidade: 'Campinas', pais: 'BR', uf: 'SP' }
 
 test('normalizarUf aceita só duas letras e sempre em maiúscula', () => {
   assert.equal(normalizarUf('sp'), 'SP')
@@ -36,8 +36,8 @@ test('normalizarUf aceita só duas letras e sempre em maiúscula', () => {
 
 test('normalizarMercado limpa espaços e não inventa campo', () => {
   assert.deepEqual(normalizarMercado({ nicho: '  Padaria ', cidade: ' Santos', uf: 'sp' }),
-    { nicho: 'Padaria', cidade: 'Santos', uf: 'SP' })
-  assert.deepEqual(normalizarMercado(), { nicho: '', cidade: '', uf: '' })
+    { nicho: 'Padaria', cidade: 'Santos', pais: 'BR', uf: 'SP' })
+  assert.deepEqual(normalizarMercado(), { nicho: '', cidade: '', pais: 'BR', uf: '' })
 })
 
 test('as três opções de mudança são exatamente as pedidas', () => {
@@ -46,8 +46,8 @@ test('as três opções de mudança são exatamente as pedidas', () => {
 
 test('camposVisiveis abre só o que a pessoa escolheu mudar', () => {
   assert.deepEqual(camposVisiveis('nicho', BASE), ['nicho'])
-  assert.deepEqual(camposVisiveis('localidade', BASE), ['cidade', 'uf'])
-  assert.deepEqual(camposVisiveis('ambos', BASE), ['nicho', 'cidade', 'uf'])
+  assert.deepEqual(camposVisiveis('localidade', BASE), ['pais', 'cidade', 'uf'])
+  assert.deepEqual(camposVisiveis('ambos', BASE), ['nicho', 'pais', 'cidade', 'uf'])
   assert.deepEqual(camposVisiveis('inexistente', BASE), [])
 })
 
@@ -55,24 +55,24 @@ test('camposVisiveis também pede o que falta — sem beco sem saída', () => {
   // Quer trocar só o nicho, mas a cidade nunca foi preenchida: a cidade entra junto,
   // senão a validação barraria com um campo que a tela nem mostrou.
   assert.deepEqual(camposVisiveis('nicho', { nicho: 'Dentista', cidade: '', uf: '' }),
-    ['nicho', 'cidade', 'uf'])
+    ['nicho', 'pais', 'cidade', 'uf'])
   assert.deepEqual(camposVisiveis('localidade', { nicho: '', cidade: 'Campinas', uf: 'SP' }),
-    ['nicho', 'cidade', 'uf'])
+    ['nicho', 'pais', 'cidade', 'uf'])
 })
 
 test('mercadoResultante preserva o que não foi editado', () => {
   assert.deepEqual(mercadoResultante(BASE, { nicho: 'Padaria' }, 'nicho'),
-    { nicho: 'Padaria', cidade: 'Campinas', uf: 'SP' })
-  assert.deepEqual(mercadoResultante(BASE, { cidade: 'Santos', uf: 'SP' }, 'localidade'),
-    { nicho: 'Dentista', cidade: 'Santos', uf: 'SP' })
-  assert.deepEqual(mercadoResultante(BASE, { nicho: 'Padaria', cidade: 'Santos', uf: 'RJ' }, 'ambos'),
-    { nicho: 'Padaria', cidade: 'Santos', uf: 'RJ' })
+    { nicho: 'Padaria', cidade: 'Campinas', pais: 'BR', uf: 'SP' })
+  assert.deepEqual(mercadoResultante(BASE, { cidade: 'Santos', pais: 'BR', uf: 'SP' }, 'localidade'),
+    { nicho: 'Dentista', cidade: 'Santos', pais: 'BR', uf: 'SP' })
+  assert.deepEqual(mercadoResultante(BASE, { nicho: 'Padaria', cidade: 'Santos', pais: 'BR', uf: 'RJ' }, 'ambos'),
+    { nicho: 'Padaria', cidade: 'Santos', pais: 'BR', uf: 'RJ' })
 })
 
 test('mercadoResultante ignora campo que a tela não mostrou', () => {
   // Só o nicho está em jogo: uma cidade que ficou pendurada no rascunho não vaza.
   assert.deepEqual(mercadoResultante(BASE, { nicho: 'Padaria', cidade: 'Lixo' }, 'nicho'),
-    { nicho: 'Padaria', cidade: 'Campinas', uf: 'SP' })
+    { nicho: 'Padaria', cidade: 'Campinas', pais: 'BR', uf: 'SP' })
 })
 
 test('validarMercado espelha a exigência do backend (nicho + cidade)', () => {
@@ -87,11 +87,13 @@ test('mercadoMudou reconhece repetição (não gasta coleta à toa)', () => {
   assert.equal(mercadoMudou(BASE, { nicho: 'dentista', cidade: 'campinas', uf: 'SP' }), false)
   assert.equal(mercadoMudou(BASE, { nicho: 'Padaria', cidade: 'Campinas', uf: 'SP' }), true)
   assert.equal(mercadoMudou(BASE, { nicho: 'Dentista', cidade: 'Campinas', uf: 'RJ' }), true)
+  assert.equal(mercadoMudou(BASE, { nicho: 'Dentista', cidade: 'Campinas', pais: 'PT', uf: 'SP' }), true)
 })
 
 test('rotuloMercado fala a língua do operador', () => {
   assert.equal(rotuloMercado(BASE), 'Dentista · Campinas - SP')
   assert.equal(rotuloMercado({ nicho: 'Dentista', cidade: 'Campinas' }), 'Dentista · Campinas')
+  assert.equal(rotuloMercado({ nicho: 'Dentista', cidade: 'Lisboa', pais: 'PT' }), 'Dentista · Lisboa · PT')
   assert.equal(rotuloMercado({ nicho: 'Dentista' }), 'Dentista')
   assert.equal(rotuloMercado({}), 'toda a sua carteira')
 })

@@ -157,7 +157,10 @@ const ESCRITAS_COM_CAPACIDADE_PROPRIA = [
   // outra decisao que administrar contas. O mount de `/equipes-comerciais` e' MEMBROS_GERENCIAR;
   // sem este gate por rota, quem administra contas passaria a redistribuir carteira sem ninguem
   // ter decidido isso — e `LEAD_TRANSFERIR` e' exatamente a capacidade que o `comercial` NAO tem.
-  { arquivo: 'api-equipes-comerciais.js', capacidade: 'LEAD_TRANSFERIR', minimo: 1 },
+  // 2026-09-23 — agora sao 2: a TRANSFERENCIA entre membros tira lead da mao de uma pessoa para
+  // dar a outra. Mesmo motivo, mesma capacidade — e o minimo sobe para que remover o gate de
+  // qualquer uma das duas rotas quebre este teste.
+  { arquivo: 'api-equipes-comerciais.js', capacidade: 'LEAD_TRANSFERIR', minimo: 2 },
 ]
 
 // ─── Os quatro papéis, contra cada rota ──────────────────────────────────────────────────

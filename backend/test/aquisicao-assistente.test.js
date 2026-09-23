@@ -140,10 +140,10 @@ function montarPool(estado = {}) {
     }
 
     if (/INSERT INTO prospectador\.aquisicao_rotinas/i.test(texto)) {
-      const [empresa_id, nicho, cidade, uf, dias_semana, janela_inicio, janela_fim,
+      const [empresa_id, nicho, cidade, pais, uf, dias_semana, janela_inicio, janela_fim,
         intervalo_horas, quantidade, ativo, estadoRotina] = params
       const linha = {
-        id: `rot-nova-${++seq}`, empresa_id, nicho, cidade, uf, dias_semana,
+        id: `rot-nova-${++seq}`, empresa_id, nicho, cidade, pais, uf, dias_semana,
         janela_inicio, janela_fim, intervalo_horas, quantidade, ativo, estado: estadoRotina,
       }
       dados.rotinas.push(linha)
@@ -157,9 +157,9 @@ function montarPool(estado = {}) {
       if (/SET ativo = \$3/i.test(texto)) Object.assign(alvo, { ativo: params[2] })
       else {
         Object.assign(alvo, {
-          nicho: params[2], cidade: params[3], uf: params[4], dias_semana: params[5],
-          janela_inicio: params[6], janela_fim: params[7], intervalo_horas: params[8],
-          quantidade: params[9], ativo: params[10],
+          nicho: params[2], cidade: params[3], pais: params[4], uf: params[5], dias_semana: params[6],
+          janela_inicio: params[7], janela_fim: params[8], intervalo_horas: params[9],
+          quantidade: params[10], ativo: params[11],
         })
       }
       return { rows: [alvo] }

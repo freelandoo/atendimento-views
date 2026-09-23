@@ -229,9 +229,9 @@ function rotuloDia(dia, hoje) {
 }
 
 /**
- * Nichos presentes na carteira JÁ CARREGADA, com contagem — para o seletor "separar por nicho"
- * do modal de planejamento. Não busca nada: é um agrupamento sobre os candidatos que a tela já
- * tem em mãos (mesmo espírito do Quadro, que não faz uma segunda listagem).
+ * Nichos presentes nos candidatos de planejamento, com contagem — para o seletor "separar por
+ * nicho" do modal. Não busca nada: é um agrupamento sobre os candidatos que a rota do Quadro
+ * já entregou para a tela.
  */
 function opcoesNicho(candidatos) {
   return opcoesCampoCarteira(candidatos, 'nicho')
@@ -266,7 +266,7 @@ function opcoesRegiao(candidatos) {
 }
 
 /**
- * Filtra a carteira já carregada por busca (nome/telefone) e por nicho/cidade/região,
+ * Filtra os candidatos de planejamento por busca (nome/telefone) e por nicho/cidade/região,
  * excluindo quem já está no dia. `limite`, quando informado, recorta a lista exibida; sem ele
  * o planejamento mostra todo o recorte carregado, para o seletor de nicho/cidade não esconder
  * trabalho que já está disponível na carteira.

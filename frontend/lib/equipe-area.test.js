@@ -520,3 +520,19 @@ test('GUARDA: a metrica de REUNIOES nao e inventada', () => {
   const chaves = E.METRICAS_EQUIPE.map((m) => m.chave).concat(E.COLUNAS_MEMBRO.map((c) => c.chave))
   for (const c of chaves) assert.ok(!/reuni/i.test(c))
 })
+
+test('MODAL: acesso revogado nao aparece nem conta, mas continua no diff', () => {
+  const pessoas = [
+    { usuario_id: 'u1', nome: 'Ana', ativo: true, equipe_atual: { id: 'e1', nome: 'Solar' } },
+    { usuario_id: 'u2', nome: 'Bia', ativo: false, equipe_atual: null },
+    { usuario_id: 'u3', nome: 'Caio', equipe_atual: null },
+  ]
+  assert.deepEqual(E.pessoasDoModal(pessoas).map((p) => p.usuario_id), ['u1', 'u3'])
+  assert.deepEqual(E.contagensDoModal(pessoas, 'e1'), { todos: 2, sem_equipe: 1, nesta_equipe: 1 })
+  assert.deepEqual(
+    E.filtrarPessoasDoModal(pessoas, { filtro: 'todos', equipeId: 'e1' }).map((p) => p.usuario_id),
+    ['u1', 'u3'],
+  )
+  // A aba Pessoas continua vendo quem foi revogado — ela tem o filtro "Só acesso revogado".
+  assert.equal(E.filtrarPessoas(pessoas, { status: 'inativos' }).length, 1)
+})

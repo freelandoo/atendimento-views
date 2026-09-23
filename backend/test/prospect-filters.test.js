@@ -16,13 +16,15 @@ test('prospect filters: mercado consulta nicho ou categoria_perfil com SQL param
   const where = ['p.empresa_id = $1']
   const params = ['empresa-1']
 
-  adicionarFiltroMercado(where, params, { mercado: 'barbearia', cidade: 'Santo Andre' }, { alias: 'p' })
+  adicionarFiltroMercado(where, params, { mercado: 'barbearia', cidade: 'Santo Andre', pais: 'pt' }, { alias: 'p' })
 
-  assert.equal(params.length, 3)
+  assert.equal(params.length, 4)
   assert.equal(params[1], '%barbearia%')
   assert.equal(params[2], '%Santo Andre%')
+  assert.equal(params[3], 'PT')
   assert.match(where.join(' AND '), /\(p\.nicho ILIKE \$2 OR p\.categoria_perfil ILIKE \$2\)/)
   assert.match(where.join(' AND '), /p\.cidade ILIKE \$3/)
+  assert.match(where.join(' AND '), /UPPER\(p\.pais\) = \$4/)
 })
 
 test('prospect filters: aceita nicho ou categoria como aliases de mercado', () => {
@@ -63,7 +65,7 @@ test('prospect filters: opcoes de mercado ficam escopadas por empresa, origem e 
   })
 
   assert.equal(out.nichos[0].valor, 'barbearia')
-  assert.equal(queries.length, 3)
+  assert.equal(queries.length, 4)
   for (const q of queries) {
     assert.match(q.sql, /empresa_id = \$1/)
     assert.match(q.sql, /origem = ANY\(\$2\)/)
@@ -90,7 +92,7 @@ test('prospect filters: opcoes de mercado respeitam carteira e porta de aprovado
     limit: 5,
   })
 
-  assert.equal(queries.length, 3)
+  assert.equal(queries.length, 4)
   for (const q of queries) {
     assert.match(q.sql, /empresa_id = \$1/)
     assert.match(q.sql, /\(responsavel_id = \$2 OR responsavel_id IS NULL\)/)

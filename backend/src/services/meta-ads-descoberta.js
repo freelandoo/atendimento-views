@@ -179,7 +179,7 @@ function avaliarAnuncio(registroBruto) {
  * `nicho`/`cidade` vem sempre do CONTEXTO DA BUSCA (o que o operador pediu) — nunca inventados
  * da categoria da pagina, que e' informacao SOBRE o negocio, nao sobre o que foi pesquisado.
  */
-function montarLeadDeAnuncio(avaliado, { nicho, cidade, empresaId, totalAtivos = null } = {}, registroBruto = null) {
+function montarLeadDeAnuncio(avaliado, { nicho, cidade, pais = 'BR', empresaId, totalAtivos = null } = {}, registroBruto = null) {
   if (!avaliado || !avaliado.aproveitavel) return null
   // O @ que o proprio anunciante declarou na pagina dele — ja vem no registro do anuncio, de
   // graca. Sem isto o lead pagaria uma consulta SERP para descobrir o que ja estava na mao, e
@@ -190,6 +190,7 @@ function montarLeadDeAnuncio(avaliado, { nicho, cidade, empresaId, totalAtivos =
     nome: avaliado.pageName || avaliado.pageId,
     nicho: texto(nicho),
     cidade: texto(cidade),
+    pais: texto(pais) || 'BR',
     instagram_handle: handle,
     instagram_origem: handle ? IG_ORIGEM.PAGINA_FACEBOOK : null,
     instagram_confianca: handle ? IG_CONFIANCA.CONFIRMADO : null,
@@ -210,7 +211,7 @@ function montarLeadDeAnuncio(avaliado, { nicho, cidade, empresaId, totalAtivos =
     // Os dois links que FUNCIONAM, ao contrario do destino (ver `destinoUtilizavel`).
     anuncio_meta_permalink: avaliado.permalink || null,
     anuncio_meta_pagina_url: avaliado.pageProfileUri || null,
-    raw_json: { fonte: 'meta_ads', anuncio: avaliado, registro: registroBruto || null },
+    raw_json: { fonte: 'meta_ads', pais: texto(pais) || 'BR', anuncio: avaliado, registro: registroBruto || null },
   }
 }
 

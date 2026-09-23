@@ -5367,3 +5367,60 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 
 **Validação prevista:** `npm test` (backend), `npx tsc --noEmit` + `node --test lib/*.test.js`
 (frontend), `git diff --check`.
+
+
+## 2026-09-23 — Redistribuir lead ENTRE pessoas na area de Equipe + avisos no topo
+
+- **Pedido do operador (voz):** dentro da equipe, alem de "Editar equipe", poder **mudar o lead
+  de pessoa / redistribuir entre as pessoas**; fazer uma **validacao geral** de que a
+  redistribuicao funciona; e ter **avisos no TOPO** sempre que houver ponto de atencao que
+  atrapalhe a distribuicao correta.
+- **Analise de impacto (o que foi lido antes):** `backend/src/services/lead-distribuicao.js`
+  (vocabulario, `sqlRedistribuivel`, `sqlMotivoProtegido`, planos), `backend/src/db/lead-
+  distribuicao.js` (`carteiraDaEquipe`, `resumoProtegidos`, `livresRedistribuiveis`,
+  `moverEntreMembros`, `rebalancearEquipe`, `puxarLeads`),
+  `backend/src/routes/api-equipes-comerciais.js`, `backend/src/db/lead-responsavel.js`,
+  `frontend/lib/equipe-carteira.js`, `frontend/lib/equipe-area.js`,
+  `frontend/components/ModalPuxarLeads.tsx`, `frontend/app/dashboard/equipe/page.tsx`
+  (`CarteiraDoNicho`), e a secao "Distribuicao de leads por EQUIPE" do `AGENTS.md`.
+- **O que JA existe:** carteira do nicho por pessoa; "Puxar mais leads" (livres -> equipe);
+  rebalanceamento AUTOMATICO ao alguem entrar (ponderado por desempenho); devolucao ao sair;
+  e tres avisos (`avisoDesequilibrio`, `avisoSemDisponiveis`, `resumoProtegidos`) — que hoje
+  ficam ABAIXO da tabela, no rodape do card.
+- **O que FALTA, e e' o pedido:**
+  1. **Mover lead de UMA pessoa para OUTRA.** `moverEntreMembros` existe em
+     `db/lead-distribuicao.js` mas so' e' chamada por `rebalancearEquipe`; nao ha rota nem tela.
+  2. **Avisos no TOPO**, antes das metricas e da tabela.
+  3. **Validacao** da redistribuicao — a memoria do projeto declara que ela **nunca foi rodada
+     contra banco real**, so' lida.
+- **DEFEITOS ENCONTRADOS na analise (nao pedidos, mas do mesmo assunto):**
+  1. `resumoProtegidos` consulta `WHERE p.nicho_id = $2`, entao o ramo `fora_do_nicho` do
+     `sqlMotivoProtegido` e' **inalcancavel** naquela query — ramo morto.
+  2. **Lead com `nicho_id` NULO nao e' contado em lugar nenhum desta tela.** E' a causa-raiz ja'
+     registrada em memoria ("nicho_id nunca era preenchido") e o lead fica invisivel para a
+     equipe inteira.
+  3. Lead `pendente` (aguardando triagem) e' contado sob o rotulo generico `nao_abordavel`, que
+     nao diz ao gestor o que fazer — e' a outra armadilha ja' vivida
+     ("carteira invisivel por falta de aprovacao").
+- **Cuidados que a implementacao tem de respeitar:** a regra "na duvida, PROTEGIDO" de
+  `lead-distribuicao.js`; `LEAD_TRANSFERIR` POR ROTA (o mount `MEMBROS_GERENCIAR` nao basta);
+  claim condicionado ao dono esperado + `pg_advisory_xact_lock`; historico por lead via
+  `registrarMudancasEmLote` (dono unico em `db/lead-responsavel.js`); `motivo` de vocabulario
+  FECHADO; auditoria agregada sem PII; a tela so' TRADUZ; e a guarda anti-placar de
+  `equipe-carteira.js` (nao ordenar gente).
+- **Fora de escopo:** migration, worker de distribuicao, mudanca em envio/coleta paga/agenda, e
+  qualquer alteracao no rebalanceamento automatico ou na devolucao ao sair.
+- **Atencao operacional:** a arvore tem trabalho NAO COMMITADO de outra sessao
+  (`lead-proxima-acao`, `api-banco-leads.js`, `ConversaHistoricoModal.tsx`) — nao tocar.
+
+## 2026-09-23 — Convite de cadastro por link + ajustes no modal "Gerenciar membros"
+- **Pedido:** (1) cadastro de membro com data de nascimento, senha de 8 caracteres e nome;
+  (2) LINK de cadastro de uso unico, valido 24h, preso a UMA pessoa e a UM papel, que ja coloca
+  a pessoa numa equipe e a leva direto para a tela do papel; (3) no modal "Gerenciar membros",
+  esconder quem teve acesso revogado, dar mais espaco a lista e tirar o aviso "Desmarcar remove".
+- **Fatiamento:** a parte (3) e' so' apresentacao (frontend) e foi feita agora. As partes (1) e
+  (2) mexem em autenticacao, criam rota PUBLICA e exigem migration — ficam para depois da
+  confirmacao do operador, conforme CLAUDE.md.
+- **Arquivos lidos:** `frontend/components/ModalGerenciarMembros.tsx`, `frontend/lib/equipe-area.js`,
+  `backend/src/routes/api-membros.js`, `backend/src/db/membros.js`, `backend/src/routes/api-auth.js`,
+  `backend/src/db/equipes-comerciais.js`.

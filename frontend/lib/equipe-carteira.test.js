@@ -87,7 +87,7 @@ test('desequilibrio aponta quem esta MUITO abaixo da media', () => {
   assert.ok(a)
   assert.deepEqual(a.pessoas, ['Bia'])
   assert.equal(a.tom, 'alerta')
-  assert.ok(/Puxe mais leads/.test(a.descricao), 'o aviso diz o que fazer')
+  assert.ok(/Mova leads/.test(a.descricao) && /puxe mais leads/i.test(a.descricao), 'o aviso diz o que fazer, com os dois gestos')
 })
 
 test('carteira parelha NAO gera aviso', () => {
@@ -239,4 +239,161 @@ test('GUARDA: a carteira do nicho nao vira PLACAR', () => {
 test('GUARDA: o modulo nao ordena gente por numero de leads', () => {
   // Ordenar por carteira seria classificar pessoas. A tabela segue a ordem que a API mandou.
   assert.ok(!/\.sort\(/.test(SEM_COMENTARIOS), 'a ordem das pessoas nao se decide aqui')
+})
+
+// ─── PONTOS DE ATENCAO (2026-09-23) ─────────────────────────────────────────────────────
+
+const carteiraPousada = (over = {}) => ({
+  equipe: { nicho_nome: 'Pousada' },
+  membros: [
+    pessoa({ usuario_id: 'u1', nome: 'Ana', leads: 131, intocados: 100, em_andamento: 31, legado: 131, ve_base_bruta: false }),
+    pessoa({ usuario_id: 'u2', nome: 'Bia', leads: 120, intocados: 90, em_andamento: 30, legado: 0, ve_base_bruta: true }),
+  ],
+  disponiveis_para_puxar: 20,
+  protegidos: [],
+  aguardando_triagem: 0,
+  sem_nicho: 0,
+  fora_da_equipe: { leads: 0, pessoas: 0 },
+  ...over,
+})
+
+test('POUSADA: lead atribuido que a pessoa NAO enxerga vira aviso de PERIGO, com o nome', () => {
+  // O caso real de 2026-09-22: 131 leads na mao de alguem e o Banco de Leads dela vazio.
+  const avisos = C.pontosDeAtencao(carteiraPousada())
+  assert.equal(avisos[0].chave, 'leads_invisiveis', 'e o primeiro da lista: e o que mais custa')
+  assert.equal(avisos[0].tom, 'perigo')
+  assert.match(avisos[0].titulo, /Ana/)
+  assert.match(avisos[0].titulo, /131/)
+  assert.deepEqual(avisos[0].pessoas, ['Ana'])
+  assert.equal(avisos[0].acao.tipo, 'banco_leads')
+})
+
+test('lead legado de quem ENXERGA a base bruta nao e aviso', () => {
+  // Dono e admin veem legado: para eles, atribuido e visivel sao a mesma coisa.
+  const car = carteiraPousada({
+    membros: [pessoa({ usuario_id: 'u1', nome: 'Ana', legado: 50, ve_base_bruta: true })],
+  })
+  assert.equal(C.avisoLeadsInvisiveis(car.membros), null)
+})
+
+test('visibilidade DESCONHECIDA nao dispara o aviso (a tela nunca deduz pelo papel)', () => {
+  // Sem `ve_base_bruta` a API nao disse; afirmar "nao enxerga" seria inventar.
+  assert.equal(C.avisoLeadsInvisiveis([pessoa({ legado: 9 })]), null)
+})
+
+test('aguardando triagem, fora da equipe e sem nicho: cada um diz o numero e o que fazer', () => {
+  const avisos = C.pontosDeAtencao(carteiraPousada({
+    membros: [pessoa({ usuario_id: 'u1', nome: 'Ana', legado: 0, ve_base_bruta: false })],
+    aguardando_triagem: 12,
+    fora_da_equipe: { leads: 5, pessoas: 2 },
+    sem_nicho: 40,
+  }))
+  const porChave = Object.fromEntries(avisos.map((a) => [a.chave, a]))
+  assert.match(porChave.aguardando_triagem.titulo, /12 leads de Pousada aguardam triagem/)
+  assert.equal(porChave.aguardando_triagem.acao.tipo, 'triagem')
+  assert.match(porChave.fora_da_equipe.titulo, /5 leads de Pousada estão com 2 pessoas de fora/)
+  assert.match(porChave.sem_nicho.titulo, /40 leads aprovados/)
+  assert.match(porChave.sem_nicho.descricao, /empresa inteira/, 'numero da empresa precisa dizer que e da empresa')
+})
+
+test('singular e plural sem erro de concordancia', () => {
+  assert.match(C.avisoAguardandoTriagem(1, 'Pousada').titulo, /^1 lead de Pousada aguarda triagem$/)
+  assert.match(C.avisoForaDaEquipe({ leads: 1, pessoas: 1 }, 'Pousada').titulo, /1 lead de Pousada está com 1 pessoa/)
+  assert.match(C.avisoSemNicho(1).titulo, /^1 lead aprovado está sem nicho/)
+})
+
+test('zero nao vira aviso — lista limpa quando nada precisa de acao', () => {
+  assert.equal(C.avisoAguardandoTriagem(0), null)
+  assert.equal(C.avisoForaDaEquipe({ leads: 0, pessoas: 0 }), null)
+  assert.equal(C.avisoSemNicho(0), null)
+  assert.deepEqual(C.pontosDeAtencao(carteiraPousada({
+    membros: [pessoa({ usuario_id: 'u1', leads: 10, legado: 0 }), pessoa({ usuario_id: 'u2', leads: 9, legado: 0 })],
+  })), [])
+  assert.deepEqual(C.pontosDeAtencao(null), [], 'sem carteira nao ha o que avisar')
+})
+
+test('o desequilibrio no topo oferece MOVER leads', () => {
+  const avisos = C.pontosDeAtencao(carteiraPousada({
+    membros: [pessoa({ usuario_id: 'u1', nome: 'Ana', leads: 100 }), pessoa({ usuario_id: 'u2', nome: 'Bia', leads: 2 })],
+  }))
+  const d = avisos.find((a) => a.chave === 'carteira_desequilibrada')
+  assert.ok(d)
+  assert.equal(d.acao.tipo, 'mover')
+})
+
+test('juntarAvisos: perigo antes de alerta antes de neutro, estavel, sem repetir chave', () => {
+  const lista = C.juntarAvisos(
+    [{ chave: 'a', tom: 'neutro' }, { chave: 'b', tom: 'alerta' }, null],
+    [{ chave: 'c', tom: 'perigo' }, { chave: 'b', tom: 'perigo' }, { chave: 'd', tom: 'alerta' }],
+  )
+  assert.deepEqual(lista.map((a) => a.chave), ['c', 'b', 'd', 'a'])
+  assert.equal(lista.find((a) => a.chave === 'b').tom, 'alerta', 'a primeira ocorrencia de uma chave vence')
+})
+
+// ─── TRANSFERENCIA ENTRE MEMBROS (2026-09-23) ───────────────────────────────────────────
+
+test('origens: so quem tem lead no nicho pode ceder; destinos: todos menos a origem', () => {
+  const membros = [
+    pessoa({ usuario_id: 'u1', nome: 'Ana', leads: 42, intocados: 29 }),
+    pessoa({ usuario_id: 'u2', nome: 'Bia', leads: 0, intocados: 0 }),
+    pessoa({ usuario_id: 'u3', nome: 'Caio', leads: 5, intocados: 5 }),
+  ]
+  assert.deepEqual(C.origensDaTransferencia(membros).map((o) => o.id), ['u1', 'u3'])
+  assert.match(C.origensDaTransferencia(membros)[0].rotulo, /Ana — 42 leads \(29 intocados\)/)
+  assert.deepEqual(C.destinosDaTransferencia(membros, 'u1').map((o) => o.id), ['u2', 'u3'])
+})
+
+test('previa SEM a caixa: o maximo sao os intocados, e nenhum risco e citado', () => {
+  const origem = pessoa({ nome: 'Ana', intocados: 29, em_andamento: 13, com_reuniao: 3, com_conversa: 5 })
+  const p = C.previaTransferencia({ origem, destinoNome: 'Bia', quantidade: 40, incluirProtegidos: false })
+  assert.equal(p.maximo, 29)
+  assert.equal(p.efetiva, 29)
+  assert.equal(p.dosEmAndamento, 0)
+  assert.deepEqual(p.riscos, [])
+  assert.equal(p.aviso, '')
+})
+
+test('previa COM a caixa: os intocados saem PRIMEIRO; so o excedente vem dos em andamento', () => {
+  const origem = pessoa({ nome: 'Ana', intocados: 29, em_andamento: 13, com_reuniao: 3, com_conversa: 5, com_follow_up: 0 })
+  const pouco = C.previaTransferencia({ origem, destinoNome: 'Bia', quantidade: 10, incluirProtegidos: true })
+  assert.equal(pouco.dosEmAndamento, 0, 'pedido que cabe nos intocados nao mexe em negociacao')
+  assert.equal(pouco.aviso, '', 'e por isso nao ha risco a anunciar')
+
+  const muito = C.previaTransferencia({ origem, destinoNome: 'Bia', quantidade: 35, incluirProtegidos: true })
+  assert.equal(muito.maximo, 42)
+  assert.equal(muito.dosEmAndamento, 6)
+  assert.match(muito.aviso, /3 com reunião marcada/)
+  assert.match(muito.aviso, /5 com conversa aberta/)
+  assert.match(muito.aviso, /passam para Bia/)
+})
+
+test('a caixa so conta com o BOOLEANO true (mesma regra do backend)', () => {
+  const origem = pessoa({ intocados: 1, em_andamento: 9 })
+  assert.equal(C.previaTransferencia({ origem, quantidade: 5, incluirProtegidos: 'true' }).maximo, 1)
+})
+
+test('validarTransferenciaTela: cada bloqueio diz o motivo', () => {
+  assert.match(C.validarTransferenciaTela({}).motivo, /de quem/)
+  assert.match(C.validarTransferenciaTela({ origemId: 'a' }).motivo, /para quem/)
+  assert.match(C.validarTransferenciaTela({ origemId: 'a', destinoId: 'a', quantidade: 1, maximo: 5 }).motivo, /mesma pessoa/)
+  assert.match(C.validarTransferenciaTela({ origemId: 'a', destinoId: 'b', quantidade: 0, maximo: 5 }).motivo, /quantos/)
+  assert.match(C.validarTransferenciaTela({ origemId: 'a', destinoId: 'b', quantidade: 1, maximo: 0 }).motivo, /incluir os em andamento/,
+    'sem intocado, a tela aponta a caixa que resolve')
+  assert.match(C.validarTransferenciaTela({ origemId: 'a', destinoId: 'b', quantidade: 9, maximo: 5 }).motivo, /só 5/)
+  assert.deepEqual(C.validarTransferenciaTela({ origemId: 'a', destinoId: 'b', quantidade: 5, maximo: 5 }), { pode: true, motivo: '' })
+})
+
+test('resumoDaTransferencia usa o numero REAL e avisa quem recebeu compromisso', () => {
+  const nomes = { u1: 'Ana', u2: 'Bia' }
+  const r = C.resumoDaTransferencia({
+    movidos: 7, solicitados: 10, origem_id: 'u1', destino_id: 'u2', incluir_protegidos: true, com_reuniao: 2,
+  }, nomes)
+  assert.equal(r.tom, 'ok')
+  assert.match(r.texto, /^7 leads passaram de Ana para Bia\./)
+  assert.match(r.texto, /pediu 10; só 7/)
+  assert.match(r.texto, /2 com reunião marcada — avise Bia/)
+
+  const nada = C.resumoDaTransferencia({ movidos: 0, origem_id: 'u1', destino_id: 'u2' }, nomes)
+  assert.equal(nada.tom, 'neutro')
+  assert.match(nada.texto, /Ana não tinha lead intocado/)
 })

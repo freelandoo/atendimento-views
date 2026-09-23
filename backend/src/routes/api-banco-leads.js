@@ -869,6 +869,54 @@ router.get('/plano-dia/resumo', requireAuth, requireEmpresaAccess, async (req, r
 })
 
 /**
+ * GET /plano-dia/candidatos — carteira alcançável para escolher o plano.
+ *
+ * READ-ONLY e com o MESMO recorte de operação (responsável + nicho da equipe), mas sem herdar
+ * aba, busca, mercado ou cidade da Lista. O planejamento precisa mostrar a carteira alcançável
+ * para o dia; usar a janela visível da tabela esconderia nichos e leads só porque a Lista está
+ * filtrada ou paginada.
+ */
+router.get('/plano-dia/candidatos', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    // Só preserva o recorte explícito por responsável. Filtros de apresentação da Lista ficam
+    // fora de propósito: "Planejar meu dia" é a porta para escolher trabalho, não uma cópia da
+    // página carregada atrás do modal.
+    const reqPlanejamento = { ...req, query: { escopo: req.query?.escopo } }
+    const { query: queryComEscopo, escopo, nicho } = await comEscopo(reqPlanejamento)
+    const { where, params } = montarFiltro(req.empresa.id, queryComEscopo)
+    const paramsFiltro = [...params]
+    const limite = Math.min(Math.max(parseInt(req.query.limit, 10) || 5000, 1), 5000)
+    const { rows: contagem } = await pool.query(
+      `SELECT COUNT(*)::int AS total FROM prospectador.prospects WHERE ${where}`,
+      paramsFiltro
+    )
+    params.push(limite)
+    const { rows } = await pool.query(
+      `SELECT id, origem, responsavel_id, nome, telefone, instagram_handle,
+              nicho, cidade, endereco, ${RESPONSAVEL_NOME_SELECT},
+              ${sqlFaixaTrabalho()} AS faixa_trabalho_ordem
+         FROM prospectador.prospects
+        WHERE ${where}
+        ORDER BY faixa_trabalho_ordem ASC, ${sqlDesempateTrabalho()}
+        LIMIT $${params.length}`,
+      params
+    )
+    return res.json({
+      ok: true,
+      data: rows.map(({ faixa_trabalho_ordem: _ordem, ...r }) => r),
+      meta: {
+        total: rows.length,
+        total_carteira: contagem[0] ? contagem[0].total : rows.length,
+        limite,
+        escopo: escopo.efetivo,
+        pode_ver_todos: escopo.podeVerTodos,
+        equipe: nicho,
+      },
+    })
+  } catch (err) { return envelopeErro(res, err, 'PLANO_DIA_CANDIDATOS_FAILED') }
+})
+
+/**
  * GET /plano-dia?dia=YYYY-MM-DD — o quadro, as sugestões e o que ficou pendente.
  *
  * READ-ONLY de verdade: não cria card, não move nada, não chama IA e não registra atividade.

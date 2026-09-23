@@ -64,6 +64,7 @@ const {
   canProspectLead,
 } = require('./services/prospecting-eligibility')
 const { adicionarFiltroMercado, termoBuscaProspect, normalizarOrigemFiltro, normalizarFiltroSite, normalizarFiltroRedeSocial } = require('./services/prospect-filters')
+const { normalizarPais } = require('./services/paises')
 const { extrairEmailDeUrl } = require('./services/social-contact-extract')
 const {
   criarFilaDiariaSimulada,
@@ -1114,6 +1115,7 @@ function normalizarProspectParaPersistencia(prospect, contexto = {}) {
   const ctx = schema.value.contexto
   const nicho = normalizarTexto(ctx.nicho || pIn.nicho, 160)
   const cidade = normalizarTexto(ctx.cidade || ctx.local || pIn.cidade, 160)
+  const pais = normalizarPais(ctx.pais || ctx.country || pIn.pais || pIn.country)
   const placeId = normalizarTexto(pIn.place_id, 240)
   const nome = normalizarTexto(pIn.nome, 240)
   if (!placeId || !nome || !nicho || !cidade) return null
@@ -1138,6 +1140,7 @@ function normalizarProspectParaPersistencia(prospect, contexto = {}) {
     telefone: normalizarTexto(pIn.telefone, 80) || null,
     nicho,
     cidade,
+    pais,
     endereco: normalizarTexto(pIn.endereco, 500) || null,
     avaliacoes: pIn.reviews == null ? null : parseInt(pIn.reviews, 10),
     rating: pIn.rating == null ? null : Number(pIn.rating),
@@ -1165,18 +1168,18 @@ async function salvarProspect(prospect, contexto = {}) {
   const { rows } = await pool.query(
     `
     INSERT INTO prospectador.prospects (
-      nome, telefone, nicho, cidade, endereco, avaliacoes, rating, tem_site,
+      nome, telefone, nicho, cidade, pais, endereco, avaliacoes, rating, tem_site,
       site, maps_url, place_id, origem, score, motivo_score, raw_json, empresa_id,
       link_original, classificacao_url, qualificacao,
       instagram_handle, instagram_origem, instagram_confianca, instagram_evidencia,
       instagram_verificado_em
     )
     VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8,
-      $9, $10, $11, $12, $13, $14, $15::jsonb, $16,
-      $17, $18, $19,
-      $20, $21, $22, $23::jsonb,
-      CASE WHEN $20::text IS NULL THEN NULL ELSE NOW() END
+      $1, $2, $3, $4, $5, $6, $7, $8, $9,
+      $10, $11, $12, $13, $14, $15, $16::jsonb, $17,
+      $18, $19, $20,
+      $21, $22, $23, $24::jsonb,
+      CASE WHEN $21::text IS NULL THEN NULL ELSE NOW() END
     )
     ON CONFLICT (empresa_id, place_id) DO UPDATE
     -- A coluna qualificacao NAO aparece neste SET, de proposito: recoleta NUNCA rebaixa nem
@@ -1196,6 +1199,7 @@ async function salvarProspect(prospect, contexto = {}) {
         END,
         nicho = EXCLUDED.nicho,
         cidade = EXCLUDED.cidade,
+        pais = EXCLUDED.pais,
         endereco = COALESCE(EXCLUDED.endereco, prospectador.prospects.endereco),
         avaliacoes = COALESCE(EXCLUDED.avaliacoes, prospectador.prospects.avaliacoes),
         rating = COALESCE(EXCLUDED.rating, prospectador.prospects.rating),
@@ -1256,6 +1260,7 @@ async function salvarProspect(prospect, contexto = {}) {
       p.telefone,
       p.nicho,
       p.cidade,
+      p.pais,
       p.endereco,
       Number.isFinite(p.avaliacoes) ? p.avaliacoes : null,
       Number.isFinite(p.rating) ? p.rating : null,
@@ -1461,7 +1466,7 @@ function montarFiltrosProspects(filtros = {}, { alias = 'p', comStatus = true } 
   if (busca) {
     params.push(`%${busca}%`)
     const i = params.length
-    where.push(`(${a}nome ILIKE $${i} OR ${a}telefone ILIKE $${i} OR ${a}endereco ILIKE $${i} OR ${a}nicho ILIKE $${i} OR ${a}categoria_perfil ILIKE $${i} OR ${a}cidade ILIKE $${i})`)
+    where.push(`(${a}nome ILIKE $${i} OR ${a}telefone ILIKE $${i} OR ${a}endereco ILIKE $${i} OR ${a}nicho ILIKE $${i} OR ${a}categoria_perfil ILIKE $${i} OR ${a}cidade ILIKE $${i} OR ${a}pais ILIKE $${i})`)
   }
   // Lista de origens (grupo ou origem isolada) — ver normalizarOrigemFiltro. `null` = sem filtro.
   const origens = normalizarOrigemFiltro(filtros.origem)
@@ -3406,6 +3411,7 @@ async function executarRotinasAquisicao(now = new Date()) {
         nicho: escolhida.nicho,
         cidade: escolhida.cidade,
         uf: escolhida.uf,
+        pais: escolhida.pais,
         origem: 'rotina',
         empresaId,
         rotinaId: escolhida.id,
@@ -4038,10 +4044,10 @@ async function alterarOfertaProspect(id, payload = {}) {
 // Chave de idempotência de um disparo. Duas requisições iguais no mesmo minuto (duplo
 // clique, retry de rede, dois ticks concorrentes) colidem no índice único e a segunda
 // NÃO vira coleta paga.
-function chaveIdempotenciaBusca({ empresaId, rotinaId, nicho, local, origem }, agora = new Date()) {
+function chaveIdempotenciaBusca({ empresaId, rotinaId, nicho, local, pais, origem }, agora = new Date()) {
   const minuto = new Date(agora).toISOString().slice(0, 16) // YYYY-MM-DDTHH:mm
   if (rotinaId) return `rotina:${rotinaId}:${minuto}`
-  return `${origem}:${empresaId || 'sem-empresa'}:${String(nicho).toLowerCase()}:${String(local).toLowerCase()}:${minuto}`
+  return `${origem}:${empresaId || 'sem-empresa'}:${normalizarPais(pais)}:${String(nicho).toLowerCase()}:${String(local).toLowerCase()}:${minuto}`
 }
 
 async function pesquisarPlaces({
@@ -4049,6 +4055,7 @@ async function pesquisarPlaces({
   local,
   cidade = null,
   uf = null,
+  pais = 'BR',
   origem = 'manual',
   empresaId = null,
   decisao = null,
@@ -4057,6 +4064,7 @@ async function pesquisarPlaces({
   agora = new Date(),
 }) {
   const queryNicho = normalizarTexto(nicho)
+  const queryPais = normalizarPais(pais)
   // Cidade + UF compõem a localização usada na geocodificação e na coleta. O fluxo
   // manual mandava só a cidade — "Santana" sem UF geocodifica em qualquer estado.
   const queryLocal = normalizarTexto(local || localizacaoRotina(cidade, uf) || cidade)
@@ -4105,7 +4113,7 @@ async function pesquisarPlaces({
   const textQuery = `${queryNicho} em ${queryLocal}`
   const origemBusca = normalizarOrigemBusca(origem)
   const idempotencyKey = chaveIdempotenciaBusca(
-    { empresaId, rotinaId, nicho: queryNicho, local: queryLocal, origem: origemBusca },
+    { empresaId, rotinaId, nicho: queryNicho, local: queryLocal, pais: queryPais, origem: origemBusca },
     agora
   )
 
@@ -4119,12 +4127,12 @@ async function pesquisarPlaces({
   try {
     const { rows } = await pool.query(
       `INSERT INTO prospectador.busca_snapshots (
-         empresa_id, nicho, cidade, origem, snapshot_id, status, decisao_json,
+         empresa_id, nicho, cidade, pais, origem, snapshot_id, status, decisao_json,
          rotina_id, quantidade_solicitada, idempotency_key
-       ) VALUES ($1, $2, $3, $4, NULL, 'pendente', $5::jsonb, $6::uuid, $7, $8)
+       ) VALUES ($1, $2, $3, $4, $5, NULL, 'pendente', $6::jsonb, $7::uuid, $8, $9)
        RETURNING id`,
       [
-        empresaId, queryNicho, queryLocal, origemBusca,
+        empresaId, queryNicho, queryLocal, queryPais, origemBusca,
         decisao ? JSON.stringify(decisao) : null,
         rotinaId, alvo, idempotencyKey,
       ]
@@ -4153,6 +4161,7 @@ async function pesquisarPlaces({
     ;({ snapshotId } = await placesBrightData.dispararBuscaMaps({
       nicho: queryNicho,
       cidade: queryLocal,
+      pais: queryPais,
     }))
   } catch (err) {
     // Libera a trava da empresa: sem isso um erro de trigger bloquearia toda coleta futura.
@@ -4171,9 +4180,10 @@ async function pesquisarPlaces({
     [reservaId, snapshotId]
   )
 
-  logger.info({ operation: 'places_brightdata', etapa: 'enfileirado', nicho: queryNicho, cidade: queryLocal, snapshotId }, 'busca enfileirada')
+  logger.info({ operation: 'places_brightdata', etapa: 'enfileirado', nicho: queryNicho, cidade: queryLocal, pais: queryPais, snapshotId }, 'busca enfileirada')
   return {
     consulta: textQuery,
+    pais: queryPais,
     quantidade_solicitada: alvo,
     prospects: [],            // materializados pelo worker (assíncrono)
     status: 'em_andamento',
@@ -4246,7 +4256,7 @@ async function processarBuscasPlacesPendentes(limit = 5) {
   let pendentes
   try {
     const { rows } = await pool.query(
-      `SELECT id, empresa_id, nicho, cidade, origem, snapshot_id, status, created_at,
+      `SELECT id, empresa_id, nicho, cidade, pais, origem, snapshot_id, status, created_at,
               rotina_id, quantidade_solicitada, tentativas
          FROM prospectador.busca_snapshots
         WHERE status IN ('pendente', 'processando')
@@ -4335,7 +4345,7 @@ async function processarBuscasPlacesPendentes(limit = 5) {
       const novosProspects = await contarPlaceIdsNovos(snap.empresa_id, places)
       const prospects = places.map(mapearPlace)
       const salvos = await salvarProspects(prospects, {
-        nicho: snap.nicho, cidade: snap.cidade, origem: snap.origem, empresaId: snap.empresa_id,
+        nicho: snap.nicho, cidade: snap.cidade, pais: snap.pais, origem: snap.origem, empresaId: snap.empresa_id,
       })
       const coletados = places.length
       await pool.query(
@@ -4353,7 +4363,7 @@ async function processarBuscasPlacesPendentes(limit = 5) {
         scraperType: ORCAMENTO.SCRAPER.MAPS_DESCOBERTA,
         snapshotId: snap.snapshot_id,
         registros: recebidos,
-        contexto: { nicho: snap.nicho, cidade: snap.cidade, origem: snap.origem },
+        contexto: { nicho: snap.nicho, cidade: snap.cidade, pais: snap.pais, origem: snap.origem },
       })
       if (snap.rotina_id) {
         await rotinasDb.marcarConclusao(pool, snap.rotina_id, {
@@ -4383,7 +4393,7 @@ async function processarBuscasPlacesPendentes(limit = 5) {
 // Lista as buscas recentes da Aquisição (para o painel acompanhar o andamento async).
 async function listarBuscasRecentes(empresaId, limit = 10) {
   const { rows } = await pool.query(
-    `SELECT id, nicho, cidade, origem, status, total_prospects, novos_prospects, erro,
+    `SELECT id, nicho, cidade, pais, origem, status, total_prospects, novos_prospects, erro,
             created_at, updated_at
        FROM prospectador.busca_snapshots
       WHERE empresa_id = $1

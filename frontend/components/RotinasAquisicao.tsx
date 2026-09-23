@@ -6,7 +6,8 @@ import { IconTrash, IconPlay, IconSparkle } from '@/components/ui/icons'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import AssistenteOportunidades from '@/components/AssistenteOportunidades'
 import AssistenteEntrada from '@/components/AssistenteEntrada'
-import SeletorLocalidade from '@/components/SeletorLocalidade'
+import SeletorPaisLocalidade from '@/components/SeletorPaisLocalidade'
+import { nomePais } from '@/lib/paises'
 import type { Mercado } from '@/lib/assistente-entrada'
 import RotinaCampos, {
   Campo,
@@ -54,6 +55,7 @@ export type Rotina = {
   id: string
   nicho: string
   cidade: string
+  pais: string
   uf: string | null
   localizacao: string | null
   dias_semana: number[]
@@ -78,6 +80,7 @@ export type Rotina = {
 export type ColetaEmVoo = {
   nicho: string | null
   cidade: string | null
+  pais: string | null
   origem: string | null
   /** false = a reserva foi gravada e o disparo pago ainda nao completou (expira em minutos). */
   disparada: boolean
@@ -114,6 +117,7 @@ type MetaAdsResultado = {
  */
 function ColetaEmAndamento({ coleta }: { coleta: ColetaEmVoo | null }) {
   if (!coleta) return null
+  const pais = coleta.pais && coleta.pais !== 'BR' ? ` · ${nomePais(coleta.pais)}` : ''
   const mercado = [coleta.nicho, coleta.cidade].filter(Boolean).join(' em ')
   const ha = coleta.idade_min < 1 ? 'agora há pouco' : `há ${coleta.idade_min} min`
   return (
@@ -121,7 +125,7 @@ function ColetaEmAndamento({ coleta }: { coleta: ColetaEmVoo | null }) {
       <Spinner />
       <div className="space-y-0.5">
         <p>
-          <b>Coletando{mercado ? ` ${mercado}` : ''}</b> — começou {ha}.
+          <b>Coletando{mercado ? ` ${mercado}${pais}` : ''}</b> — começou {ha}.
           {' '}As outras buscas entram na fila e rodam em seguida.
         </p>
         <p className="text-xs text-cyan-800">
@@ -178,7 +182,7 @@ export default function RotinasAquisicao({
   const [confirmarRemocao, setConfirmarRemocao] = useState<Rotina | null>(null)
   const [erro, setErro] = useState('')
   const [avulsa, setAvulsa] = useState({
-    nicho: '', termo: '', cidade: '', uf: '',
+    nicho: '', termo: '', cidade: '', pais: 'BR', uf: '',
     quantidade: fonteBusca === 'meta_ads' ? QUANTIDADE_META_PADRAO : QUANTIDADE_MAX,
   })
   const [buscandoAvulsa, setBuscandoAvulsa] = useState(false)
@@ -221,7 +225,7 @@ export default function RotinasAquisicao({
   function editar(r: Rotina) {
     setErro('')
     setRascunho({
-      id: r.id, nicho: r.nicho, cidade: r.cidade, uf: r.uf || '',
+      id: r.id, nicho: r.nicho, cidade: r.cidade, pais: r.pais || 'BR', uf: r.uf || '',
       dias_semana: r.dias_semana, janela_inicio: r.janela_inicio, janela_fim: r.janela_fim,
       intervalo_horas: r.intervalo_horas, quantidade: r.quantidade, ativo: r.ativo,
     })
@@ -234,7 +238,7 @@ export default function RotinasAquisicao({
     setErro('')
     setSalvando(true)
     try {
-      const corpo = JSON.stringify({ ...rascunho, uf: rascunho.uf.trim().toUpperCase() || null })
+      const corpo = JSON.stringify({ ...rascunho, pais: rascunho.pais || 'BR', uf: rascunho.uf.trim().toUpperCase() || null })
       const r = rascunho.id
         ? await apiFetch<RotinasResp>(`${base}/${rascunho.id}`, { method: 'PUT', body: corpo })
         : await apiFetch<RotinasResp>(base, { method: 'POST', body: corpo })
@@ -281,6 +285,7 @@ export default function RotinasAquisicao({
       body: JSON.stringify({
         nicho: destino.nicho.trim(),
         cidade: destino.cidade.trim(),
+        pais: destino.pais || 'BR',
         uf: destino.uf.trim().toUpperCase() || null,
         quantidade: avulsa.quantidade,
       }),
@@ -305,6 +310,7 @@ export default function RotinasAquisicao({
             nicho: avulsa.nicho.trim(),
             termo: avulsa.termo.trim() || null,
             cidade: avulsa.cidade.trim() || null,
+            pais: avulsa.pais || 'BR',
             uf: avulsa.uf.trim().toUpperCase() || null,
             quantidade: avulsa.quantidade,
           }),
@@ -336,7 +342,7 @@ export default function RotinasAquisicao({
   // mercado escolhido, para a tela continuar coerente com o que foi pedido.
   async function buscarPeloAssistente(destino: Mercado) {
     await dispararBusca(destino)
-    setAvulsa((a) => ({ ...a, nicho: destino.nicho, cidade: destino.cidade, uf: destino.uf }))
+    setAvulsa((a) => ({ ...a, nicho: destino.nicho, cidade: destino.cidade, pais: destino.pais || 'BR', uf: destino.uf }))
     fb.toast('Busca iniciada. Os leads aparecem em alguns minutos — a lista atualiza sozinha.', 'info')
   }
 
@@ -396,6 +402,7 @@ export default function RotinasAquisicao({
                         <span className="font-semibold">{r.nicho}</span>
                         <span className="text-slate-400">·</span>
                         <span className="text-slate-600">{r.localizacao || r.cidade}</span>
+                        {r.pais && r.pais !== 'BR' && <span className="text-xs text-ink-3">{nomePais(r.pais)}</span>}
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_STYLE[r.estado] || 'bg-slate-100 text-slate-600'}`}>
                           {r.estado_label}
                         </span>
@@ -455,7 +462,7 @@ export default function RotinasAquisicao({
                 : 'Uma coleta única, agora, sem criar rotina.'}
             </p>
           </div>
-          <div className={`grid gap-3 sm:grid-cols-2 ${metaAds ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px]' : 'lg:grid-cols-4'}`}>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Campo label="Nicho">
               <input value={avulsa.nicho} placeholder="ex: energia solar"
                 title={metaAds
@@ -472,16 +479,14 @@ export default function RotinasAquisicao({
                   className="w-full rounded-lg border px-3 py-2 text-sm" />
               </Campo>
             )}
-            {!metaAds && (
-              <SeletorLocalidade
-                cidade={avulsa.cidade}
-                uf={avulsa.uf}
-                onChange={(local) => setAvulsa({ ...avulsa, cidade: local.cidade, uf: local.uf })}
-                className="sm:col-span-2 lg:col-span-2"
-                rotuloUf="Estado"
-                rotuloCidade="Cidade"
-              />
-            )}
+            <SeletorPaisLocalidade
+              pais={avulsa.pais || 'BR'}
+              cidade={avulsa.cidade}
+              uf={avulsa.uf}
+              onChange={(local) => setAvulsa({ ...avulsa, pais: local.pais, cidade: local.cidade, uf: local.uf })}
+              className="sm:col-span-2 lg:col-span-2"
+              rotuloCidade={metaAds ? 'Cidade/região (opcional)' : 'Cidade/região'}
+            />
             <Campo label={metaAds
               ? `Máx. de anúncios analisados (1 a ${QUANTIDADE_META_MAX})`
               : `Máx. de leads novos (1 a ${limites.quantidade_max})`}>
@@ -515,7 +520,7 @@ export default function RotinasAquisicao({
             {fonteBusca !== 'meta_ads' && <button onClick={() => setEntradaAberta(true)} disabled={entradaAberta || assistenteAberto}
               title="Revisa os leads que ainda não foram decididos, um por vez, com uma explicação curta."
               className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition-all duration-300 disabled:opacity-50 ${
-                avulsa.nicho.trim() || avulsa.uf
+                avulsa.nicho.trim() || avulsa.uf || avulsa.pais !== 'BR'
                   ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:from-orange-600 hover:to-amber-600'
                   : 'border bg-white text-slate-500 hover:bg-slate-50'
               }`}>
@@ -548,7 +553,7 @@ export default function RotinasAquisicao({
       {entradaAberta && (
         <AssistenteEntrada
           empresaId={empresaId}
-          mercado={{ nicho: avulsa.nicho, cidade: avulsa.cidade, uf: avulsa.uf }}
+          mercado={{ nicho: avulsa.nicho, cidade: avulsa.cidade, pais: avulsa.pais || 'BR', uf: avulsa.uf }}
           meta={avulsa.quantidade}
           coletaEmAndamento={!!dados?.coleta_em_andamento}
           onRevisar={() => { setEntradaAberta(false); setAssistenteAberto(true) }}
@@ -560,7 +565,7 @@ export default function RotinasAquisicao({
       {assistenteAberto && (
         <AssistenteOportunidades
           empresaId={empresaId}
-          mercado={{ nicho: avulsa.nicho, cidade: avulsa.cidade, uf: avulsa.uf }}
+          mercado={{ nicho: avulsa.nicho, cidade: avulsa.cidade, pais: avulsa.pais || 'BR', uf: avulsa.uf }}
           meta={avulsa.quantidade}
           onFechar={() => setAssistenteAberto(false)}
           onLeadsAlterados={onLeadsAlterados}

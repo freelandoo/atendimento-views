@@ -1,6 +1,6 @@
 'use client'
 import type { ReactNode } from 'react'
-import SeletorLocalidade from '@/components/SeletorLocalidade'
+import SeletorPaisLocalidade from '@/components/SeletorPaisLocalidade'
 
 // Campos de uma rotina de coleta (mercado + agenda), usados por quem cria e edita a
 // rotina em RotinasAquisicao. Um formulário só, para criação e edição nunca divergirem
@@ -10,6 +10,7 @@ export type Rascunho = {
   id?: string
   nicho: string
   cidade: string
+  pais: string
   uf: string
   dias_semana: number[]
   janela_inicio: string
@@ -38,7 +39,7 @@ export const DIAS = [
 ]
 
 export const RASCUNHO_VAZIO: Rascunho = {
-  nicho: '', cidade: '', uf: '', dias_semana: [1, 2, 3, 4, 5],
+  nicho: '', cidade: '', pais: 'BR', uf: '', dias_semana: [1, 2, 3, 4, 5],
   janela_inicio: '08:00', janela_fim: '18:00',
   intervalo_horas: INTERVALO_MIN, quantidade: QUANTIDADE_MAX, ativo: true,
 }
@@ -91,13 +92,12 @@ export default function RotinaCampos({
             onChange={(e) => onChange({ ...rascunho, nicho: e.target.value })}
             className="w-full rounded-lg border px-3 py-2 text-sm" />
         </Campo>
-        <SeletorLocalidade
+        <SeletorPaisLocalidade
+          pais={rascunho.pais || 'BR'}
           cidade={rascunho.cidade}
           uf={rascunho.uf}
-          onChange={(local) => onChange({ ...rascunho, cidade: local.cidade, uf: local.uf })}
+          onChange={(local) => onChange({ ...rascunho, pais: local.pais, cidade: local.cidade, uf: local.uf })}
           className="sm:col-span-2 lg:col-span-2"
-          rotuloUf="Estado"
-          rotuloCidade="Cidade"
         />
         {/* A quantidade corta a IMPORTAÇÃO, não a coleta na origem: a fonte pode devolver
             mais registros antes desse corte. O rótulo não promete volume nem custo. */}

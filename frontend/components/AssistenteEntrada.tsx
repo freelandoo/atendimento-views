@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { Spinner } from '@/components/feedback/FeedbackProvider'
 import { IconSparkle, IconClose, IconPlay, IconCheck } from '@/components/ui/icons'
-import SeletorLocalidade from '@/components/SeletorLocalidade'
+import SeletorPaisLocalidade from '@/components/SeletorPaisLocalidade'
 import {
   OPCOES_AJUSTE,
   camposVisiveis,
@@ -53,7 +53,7 @@ export default function AssistenteEntrada({
 }) {
   const [passo, setPasso] = useState<string>('escolha')
   const [ajuste, setAjuste] = useState<AjusteBusca>('ambos')
-  const [rascunho, setRascunho] = useState<Mercado>({ nicho: '', cidade: '', uf: '' })
+  const [rascunho, setRascunho] = useState<Mercado>({ nicho: '', cidade: '', pais: 'BR', uf: '' })
   const [resumo, setResumo] = useState<Resumo | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [buscando, setBuscando] = useState(false)
@@ -208,14 +208,13 @@ export default function AssistenteEntrada({
                 <CampoTexto label="Nicho" placeholder="ex: dentista" className="sm:col-span-2"
                   valor={rascunho.nicho} onChange={(v) => setRascunho({ ...rascunho, nicho: v })} />
               )}
-              {(campos.includes('cidade') || campos.includes('uf')) && (
-                <SeletorLocalidade
+              {(campos.includes('pais') || campos.includes('cidade') || campos.includes('uf')) && (
+                <SeletorPaisLocalidade
+                  pais={rascunho.pais || 'BR'}
                   cidade={rascunho.cidade}
                   uf={rascunho.uf}
-                  onChange={(local) => setRascunho({ ...rascunho, cidade: local.cidade, uf: local.uf })}
+                  onChange={(local) => setRascunho({ ...rascunho, pais: local.pais, cidade: local.cidade, uf: local.uf })}
                   className="sm:col-span-2"
-                  rotuloUf="Estado"
-                  rotuloCidade="Cidade"
                 />
               )}
             </div>

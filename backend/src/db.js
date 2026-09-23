@@ -72,6 +72,7 @@ async function initProspectadorDB() {
       telefone TEXT,
       nicho TEXT NOT NULL,
       cidade TEXT NOT NULL,
+      pais TEXT NOT NULL DEFAULT 'BR',
       endereco TEXT,
       avaliacoes INT,
       rating NUMERIC,
@@ -131,6 +132,7 @@ async function initProspectadorDB() {
   // ── Fase 1: esteira inteligente de prospecção ─────────────────────────────
   // Colunas novas em prospects (score por dimensão, oferta, controle de imagem, log de decisão)
   await pool.query(`ALTER TABLE prospectador.prospects ADD COLUMN IF NOT EXISTS score_v2 INT`)
+  await pool.query(`ALTER TABLE prospectador.prospects ADD COLUMN IF NOT EXISTS pais TEXT NOT NULL DEFAULT 'BR'`)
   await pool.query(`ALTER TABLE prospectador.prospects ADD COLUMN IF NOT EXISTS score_dimensoes JSONB`)
   await pool.query(`ALTER TABLE prospectador.prospects ADD COLUMN IF NOT EXISTS oferta_recomendada TEXT`)
   await pool.query(`ALTER TABLE prospectador.prospects ADD COLUMN IF NOT EXISTS imagem_gerada BOOLEAN NOT NULL DEFAULT false`)

@@ -537,9 +537,20 @@ function estadoLinhaModal(pessoa, equipeId, marcado) {
   }
 }
 
+/**
+ * Quem o modal OFERECE. Acesso revogado não aparece (operador, 2026-09-23): desativar já devolve
+ * o trabalho e fecha o vínculo de equipe (`db/membros.js`), então essa pessoa não tem o que
+ * fazer aqui — listá-la só confundia quem monta a equipe. A exclusão é só de APRESENTAÇÃO:
+ * `participantesIniciais` e `diffParticipantes` continuam vendo a lista inteira, para um vínculo
+ * antigo nunca sair da equipe em silêncio por ter sumido da tela.
+ */
+function pessoasDoModal(pessoas) {
+  return (Array.isArray(pessoas) ? pessoas : []).filter((p) => p && p.ativo !== false)
+}
+
 /** Contagem de cada filtro do modal — o número entra no próprio botão, como na referência. */
 function contagensDoModal(pessoas, equipeId) {
-  const lista = Array.isArray(pessoas) ? pessoas : []
+  const lista = pessoasDoModal(pessoas)
   const conta = { todos: lista.length, sem_equipe: 0, nesta_equipe: 0 }
   for (const p of lista) {
     const s = situacaoNoModal(p, equipeId).situacao
@@ -553,7 +564,7 @@ function contagensDoModal(pessoas, equipeId) {
 function filtrarPessoasDoModal(pessoas, { busca, filtro, equipeId } = {}) {
   const t = normalizarTermo(busca)
   const f = String(filtro || 'todos')
-  return (Array.isArray(pessoas) ? pessoas : []).filter((p) => {
+  return pessoasDoModal(pessoas).filter((p) => {
     if (t && !normalizarTermo(p.nome).includes(t) && !normalizarTermo(p.email).includes(t)) return false
     if (f === 'todos') return true
     return situacaoNoModal(p, equipeId).situacao === f
@@ -656,6 +667,7 @@ module.exports = {
   podeEncerrar,
   // Modal de membros
   AVISO_DEVOLUCAO_LEADS,
+  pessoasDoModal,
   FILTROS_MODAL,
   situacaoNoModal,
   estadoLinhaModal,

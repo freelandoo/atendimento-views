@@ -20,8 +20,8 @@ const PASSOS = ['escolha', 'o_que_mudar', 'campos', 'iniciada']
 // As três opções de mudança, na ordem em que aparecem. `campos` é o que cada uma abre.
 const OPCOES_AJUSTE = [
   { id: 'nicho', label: 'Alterar nicho', descricao: 'Mesma cidade, outro tipo de negócio.', campos: ['nicho'] },
-  { id: 'localidade', label: 'Alterar localidade', descricao: 'Mesmo nicho, outra cidade.', campos: ['cidade', 'uf'] },
-  { id: 'ambos', label: 'Alterar nicho e localidade', descricao: 'Um mercado totalmente novo.', campos: ['nicho', 'cidade', 'uf'] },
+  { id: 'localidade', label: 'Alterar localidade', descricao: 'Mesmo nicho, outro país ou cidade.', campos: ['pais', 'cidade', 'uf'] },
+  { id: 'ambos', label: 'Alterar nicho e localidade', descricao: 'Um mercado totalmente novo.', campos: ['nicho', 'pais', 'cidade', 'uf'] },
 ]
 
 function texto(valor) {
@@ -34,11 +34,17 @@ function normalizarUf(valor) {
   return /^[A-Z]{2}$/.test(t) ? t : ''
 }
 
+function normalizarPais(valor) {
+  const t = texto(valor).toUpperCase()
+  return /^[A-Z]{2}$/.test(t) ? t : 'BR'
+}
+
 /** Mercado no formato que a Busca avulsa usa, já limpo. */
 function normalizarMercado(mercado = {}) {
   return {
     nicho: texto(mercado.nicho),
     cidade: texto(mercado.cidade),
+    pais: normalizarPais(mercado.pais),
     uf: normalizarUf(mercado.uf),
   }
 }
@@ -56,8 +62,8 @@ function camposVisiveis(ajuste, base = {}) {
   const atual = normalizarMercado(base)
   const campos = new Set(opcao.campos)
   if (!atual.nicho) campos.add('nicho')
-  if (!atual.cidade) { campos.add('cidade'); campos.add('uf') }
-  return ['nicho', 'cidade', 'uf'].filter((c) => campos.has(c))
+  if (!atual.cidade) { campos.add('pais'); campos.add('cidade'); campos.add('uf') }
+  return ['nicho', 'pais', 'cidade', 'uf'].filter((c) => campos.has(c))
 }
 
 /**
@@ -70,6 +76,7 @@ function mercadoResultante(base = {}, alteracoes = {}, ajuste = 'ambos') {
   const visiveis = camposVisiveis(ajuste, base)
   return {
     nicho: visiveis.includes('nicho') ? novo.nicho : atual.nicho,
+    pais: visiveis.includes('pais') ? novo.pais : atual.pais,
     cidade: visiveis.includes('cidade') ? novo.cidade : atual.cidade,
     uf: visiveis.includes('uf') ? novo.uf : atual.uf,
   }
@@ -92,6 +99,7 @@ function mercadoMudou(base = {}, destino = {}) {
   const b = normalizarMercado(destino)
   return a.nicho.toLowerCase() !== b.nicho.toLowerCase()
     || a.cidade.toLowerCase() !== b.cidade.toLowerCase()
+    || a.pais !== b.pais
     || a.uf !== b.uf
 }
 
@@ -100,7 +108,8 @@ function rotuloMercado(mercado = {}, vazio = 'toda a sua carteira') {
   const m = normalizarMercado(mercado)
   if (!m.nicho && !m.cidade) return vazio
   const local = m.cidade ? `${m.cidade}${m.uf ? ` - ${m.uf}` : ''}` : ''
-  return [m.nicho, local].filter(Boolean).join(' · ')
+  const pais = m.pais && m.pais !== 'BR' ? m.pais : ''
+  return [m.nicho, local, pais].filter(Boolean).join(' · ')
 }
 
 /**

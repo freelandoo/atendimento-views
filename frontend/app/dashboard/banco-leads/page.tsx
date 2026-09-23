@@ -13,8 +13,8 @@ import { BolinhaIcp, criteriosDoLead, maximoDoLead } from '@/components/LeadDeta
 import FichaLead from '@/components/FichaLead'
 import { secaoDoGatilho, type SecaoFicha } from '@/lib/ficha-lead'
 // O QUADRO DO DIA vive DENTRO do Banco de Leads, como segunda vista da mesma carteira — sem
-// item novo no menu lateral. Ele nao faz uma segunda listagem: recebe os leads que a Lista ja
-// carregou e guarda o planejamento no servidor (migration 095).
+// item novo no menu lateral. Ele guarda o planejamento no servidor (migration 095); a escolha
+// de novos cards tem leitura própria para não herdar filtros ou janela da Lista.
 import QuadroDoDia from '@/components/QuadroDoDia'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import FolhaModal from '@/components/ui/FolhaModal'
@@ -2451,13 +2451,12 @@ export default function BancoLeadsPage() {
       </>
       )}
 
-      {/* O QUADRO DO DIA. Ele NÃO faz uma segunda listagem: recebe a carteira que a Lista já
-          carregou (na ordem de trabalho do servidor) e guarda o planejamento no banco. Abrir um
+      {/* O QUADRO DO DIA. Ele guarda o planejamento no banco; a escolha de novos cards lê uma
+          carteira própria de planejamento, para não herdar filtros/janela da Lista. Abrir um
           card usa a MESMA ficha da Lista. */}
       {vista === 'quadro' && (
         <QuadroDoDia
           empresaId={empresaId}
-          candidatos={leads}
           onAbrirLead={abrirLeadPorId}
         />
       )}

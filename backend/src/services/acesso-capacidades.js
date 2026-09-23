@@ -245,6 +245,28 @@ function concedeveisPara(papel) {
   return TODAS_CAPACIDADES.filter((c) => !_MATRIZ_SET[papel].has(c))
 }
 
+/**
+ * Papéis que um CONVITE (link de cadastro) ou o cadastro direto podem dar.
+ *
+ * `owner` fica de fora: o dono é quem criou a empresa, e um link que fizesse nascer outro dono
+ * seria a forma mais barata de perder a empresa — basta o link vazar. Trocar o dono é outra
+ * operação, que não existe.
+ */
+function papeisConvidaveis() {
+  return PAPEIS.filter((p) => p !== 'owner')
+}
+
+/**
+ * O papel exige EQUIPE na entrada? (operador, 2026-09-23)
+ *
+ * Só o `comercial`: ele trabalha uma carteira recortada pelo nicho da equipe
+ * (`sqlNichoDaEquipe`), e entrar sem equipe deixava a pessoa sem recorte nenhum — sem saber o
+ * que trabalhar. Os outros papéis não trabalham carteira por nicho.
+ */
+function papelExigeEquipe(papel) {
+  return papel === 'comercial'
+}
+
 module.exports = {
   PAPEIS,
   PAPEL_PLATAFORMA,
@@ -259,4 +281,6 @@ module.exports = {
   podeCapacidade,
   capacidadesDoVinculo,
   concedeveisPara,
+  papeisConvidaveis,
+  papelExigeEquipe,
 }

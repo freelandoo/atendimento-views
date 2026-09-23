@@ -209,6 +209,18 @@ test('o resumo do Quadro nao aceita usuario_id externo', () => {
   assert.ok(/usuarioId:\s*req\.usuario\.id/.test(bloco), 'resumo precisa usar o usuario logado')
 })
 
+test('os candidatos do planejamento nao herdam filtros da Lista', () => {
+  const ini = fonteRota.indexOf("router.get('/plano-dia/candidatos'")
+  const fim = fonteRota.indexOf("router.get('/plano-dia'", ini + 1)
+  const bloco = fonteRota.slice(ini, fim)
+  assert.ok(bloco.includes('montarFiltro'), 'candidatos precisam usar o mesmo recorte operacional')
+  assert.ok(bloco.includes('sqlFaixaTrabalho'), 'candidatos precisam vir na ordem de trabalho')
+  assert.ok(bloco.includes("query: { escopo: req.query?.escopo }"),
+    'planejamento so deve preservar o recorte de responsavel, nao os filtros da Lista')
+  assert.ok(!/req\.query\?\.(aba|origem|mercado|cidade|busca)/.test(bloco),
+    'aba/busca/mercado/cidade da Lista nao podem esconder categorias no planejamento')
+})
+
 test('nenhuma capacidade nova foi criada para o Quadro', () => {
   const bloco = fonteRota.slice(fonteRota.indexOf('QUADRO DO DIA'), fonteRota.indexOf("router.get('/leads'"))
   assert.ok(!/requireCapacidade/.test(bloco),

@@ -1,8 +1,8 @@
 export type PassoEntrada = 'escolha' | 'o_que_mudar' | 'campos' | 'iniciada'
 export type AjusteBusca = 'nicho' | 'localidade' | 'ambos'
-export type CampoMercado = 'nicho' | 'cidade' | 'uf'
+export type CampoMercado = 'nicho' | 'pais' | 'cidade' | 'uf'
 
-export type Mercado = { nicho: string; cidade: string; uf: string }
+export type Mercado = { nicho: string; cidade: string; pais: string; uf: string }
 
 export type OpcaoAjuste = {
   id: AjusteBusca

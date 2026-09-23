@@ -7,6 +7,7 @@ const E = require('../services/equipes-comerciais')
 const DIST = require('./lead-distribuicao')
 const D = require('../services/lead-distribuicao')
 const LR = require('./lead-responsavel')
+const { podeCapacidade, CAPACIDADES: CAP } = require('../services/acesso-capacidades')
 const { logger } = require('../logger')
 
 function erro(mensagem, statusCode = 400, code = 'BAD_REQUEST') {
@@ -479,13 +480,28 @@ async function carteiraDaEquipe(empresaId, equipeId, { prazoParado } = {}) {
   const equipe = await obterEquipe(pool, empresaId, equipeId)
   if (!equipe) return null
   const membros = await membrosDaEquipe(pool, empresaId, equipeId)
-  const [carteira, protegidos, disponiveis] = await Promise.all([
+  const [carteira, protegidos, disponiveis, atencao, veBaseBruta] = await Promise.all([
     DIST.carteiraDaEquipe(pool, empresaId, equipe.nicho_id, { prazoParado }),
     DIST.resumoProtegidos(pool, empresaId, equipe.nicho_id),
     DIST.livresRedistribuiveis(pool, empresaId, equipe.nicho_id),
+    DIST.pontosDeAtencaoDoNicho(pool, empresaId, equipe.nicho_id),
+    quemVeBaseBruta(pool, empresaId, membros.map((m) => m.usuario_id)),
   ])
   const porUsuario = new Map(carteira.map((c) => [String(c.responsavel_id), c]))
-  const zero = { leads: 0, intocados: 0, em_andamento: 0, parados: 0, com_follow_up: 0, com_reuniao: 0 }
+  const zero = {
+    leads: 0, intocados: 0, em_andamento: 0, parados: 0, com_follow_up: 0, com_reuniao: 0,
+    legado: 0, com_conversa: 0,
+  }
+
+  // Lead DESTE nicho na mao de quem NAO e' da equipe. A tabela so' lista membros e a fila, entao
+  // sem este numero a soma das linhas nao fecharia com a carteira do nicho — e esses leads
+  // ficariam invisiveis justamente para quem veio redistribuir.
+  const idsMembros = new Set(membros.map((m) => String(m.usuario_id)))
+  const deFora = carteira.filter((c) => c.responsavel_id != null && !idsMembros.has(String(c.responsavel_id)))
+  const foraDaEquipe = {
+    leads: deFora.reduce((t, c) => t + (Number(c.leads) || 0), 0),
+    pessoas: deFora.length,
+  }
 
   return {
     equipe: {
@@ -500,11 +516,47 @@ async function carteiraDaEquipe(empresaId, equipeId, { prazoParado } = {}) {
       // e' exatamente quem o rebalanceamento existe para atender.
       ...zero,
       ...(porUsuario.get(String(m.usuario_id)) || {}),
+      // Decidido AQUI, pela regra de capacidade, e nunca na tela: comparar papel com literal no
+      // front faria a matriz divergir em silencio. So' o booleano sai — as concessoes da pessoa
+      // (`permissoes`) nao vao para a resposta.
+      ve_base_bruta: veBaseBruta.get(String(m.usuario_id)) === true,
     })),
     livres: { ...zero, ...(porUsuario.get('null') || {}) },
     disponiveis_para_puxar: disponiveis,
     protegidos,
+    // Pontos de atencao que a tabela por pessoa nao mostra. Todos sao CONTAGENS; a tela so'
+    // traduz (`frontend/lib/equipe-carteira.js` -> `pontosDeAtencao`).
+    aguardando_triagem: atencao.aguardando_triagem,
+    sem_nicho: atencao.sem_nicho,
+    fora_da_equipe: foraDaEquipe,
   }
+}
+
+/**
+ * Quem, entre estes usuarios, enxerga lead `legado` no Banco de Leads (`LEAD_VER_BRUTOS`).
+ *
+ * ⚠️ Consulta PROPRIA, e nao mais colunas em `membrosDaEquipe`: aquela funcao alimenta respostas
+ * de API (`equipeComMembros`, `criarEquipe`) e acrescentar `permissoes` ali vazaria as concessoes
+ * de cada pessoa. Daqui so' sai um Map usuario -> booleano.
+ */
+async function quemVeBaseBruta(exec, empresaId, usuarioIds) {
+  const ids = [...new Set((usuarioIds || []).map(String).filter(Boolean))]
+  const saida = new Map()
+  if (!ids.length) return saida
+  const { rows } = await exec.query(
+    `SELECT ue.usuario_id, ue.role, ue.permissoes, u.role AS papel_plataforma
+       FROM app.usuarios_empresas ue
+       JOIN app.usuarios u ON u.id = ue.usuario_id
+      WHERE ue.empresa_id = $1 AND ue.usuario_id = ANY($2::uuid[]) AND ue.ativo = true`,
+    [empresaId, ids]
+  )
+  for (const r of rows) {
+    saida.set(String(r.usuario_id), podeCapacidade(
+      { papel: r.role, permissoes: r.permissoes, papelPlataforma: r.papel_plataforma },
+      CAP.LEAD_VER_BRUTOS
+    ))
+  }
+  return saida
 }
 
 /**
@@ -550,9 +602,53 @@ async function puxarLeadsParaEquipe(empresaId, equipeId, dados = {}, autorId = n
   })
 }
 
+/**
+ * TRANSFERIR leads entre duas pessoas DA MESMA EQUIPE. Transacao propria, equipe conferida antes.
+ *
+ * ⚠️ Origem E destino precisam ser membros ATIVOS desta equipe, pelo mesmo motivo de
+ * `puxarLeadsParaEquipe`: aceitar um id de fora faria da acao uma porta lateral para dar carteira
+ * a quem o recorte por nicho nem alcanca — ou tirar de quem a equipe nao gerencia.
+ *
+ * A validacao do pedido vive na regra pura (`D.validarTransferencia`); aqui so' se confere o que
+ * depende do banco. So' o booleano `true` inclui os leads em andamento.
+ */
+async function transferirLeadsNaEquipe(empresaId, equipeId, dados = {}, autorId = null) {
+  const v = D.validarTransferencia({
+    origemId: dados.origem_id,
+    destinoId: dados.destino_id,
+    quantidade: dados.quantidade,
+    incluirProtegidos: dados.incluir_protegidos,
+  })
+  if (!v.ok) throw erro(v.motivo, 400, v.code)
+
+  return withTx(async (client) => {
+    const equipe = await obterEquipe(client, empresaId, equipeId, { forUpdate: true })
+    if (!equipe) throw erro('Equipe não encontrada nesta empresa.', 404, 'NOT_FOUND')
+    if (equipe.status !== 'ativa') throw erro('Equipe encerrada não movimenta leads.', 409, 'EQUIPE_ENCERRADA')
+
+    const membros = await membrosDaEquipe(client, empresaId, equipeId)
+    const ids = new Set(membros.map((m) => String(m.usuario_id)))
+    if (!ids.has(v.origemId) || !ids.has(v.destinoId)) {
+      throw erro('Só é possível mover leads entre participantes desta equipe.', 400, 'FORA_DA_EQUIPE')
+    }
+
+    return DIST.transferirLeads(client, {
+      empresaId,
+      equipeId,
+      nichoId: equipe.nicho_id,
+      origemId: v.origemId,
+      destinoId: v.destinoId,
+      quantidade: v.quantidade,
+      incluirProtegidos: v.incluirProtegidos,
+      autorId,
+    })
+  })
+}
+
 module.exports = {
   carteiraDaEquipe,
   puxarLeadsParaEquipe,
+  transferirLeadsNaEquipe,
   equipeAtivaDoUsuario,
   membrosElegiveis,
   listarEquipes,

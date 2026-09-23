@@ -40,6 +40,7 @@ router.get('/prospects', requireAuth, requireEmpresaAccess, async (req, res) => 
       nicho: req.query.nicho,
       categoria: req.query.categoria,
       cidade: req.query.cidade,
+      pais: req.query.pais,
       busca: req.query.busca,
       origem: req.query.origem,
       site: req.query.site,
@@ -115,11 +116,11 @@ router.get('/metricas', requireAuth, requireEmpresaAccess, async (req, res) => {
   }
 })
 
-// POST /api/empresas/:empresaId/prospeccao/buscar  { nicho, cidade, uf }
+// POST /api/empresas/:empresaId/prospeccao/buscar  { nicho, cidade, uf, pais }
 // Busca manual (uma execução avulsa). A UF entra junto com a cidade: sem ela a
 // geocodificação resolve o nome em qualquer estado ("Santana" existe em vários).
 router.post('/buscar', requireAuth, requireEmpresaAccess, async (req, res) => {
-  const { nicho, cidade, local, uf, estado } = req.body || {}
+  const { nicho, cidade, local, uf, estado, pais, country } = req.body || {}
   if (!nicho || !(cidade || local)) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe nicho e cidade.' } })
   }
@@ -128,6 +129,7 @@ router.post('/buscar', requireAuth, requireEmpresaAccess, async (req, res) => {
       nicho,
       cidade: cidade || local,
       uf: uf || estado || null,
+      pais: pais || country || 'BR',
       quantidade: req.body?.quantidade,
       origem: 'manual',
       empresaId: req.empresa.id,
@@ -141,11 +143,11 @@ router.post('/buscar', requireAuth, requireEmpresaAccess, async (req, res) => {
   }
 })
 
-// POST /api/empresas/:empresaId/prospeccao/meta-ads/buscar  { nicho, cidade?, uf?, quantidade? }
+// POST /api/empresas/:empresaId/prospeccao/meta-ads/buscar  { nicho, cidade?, uf?, pais?, quantidade? }
 // Busca síncrona e PAGA no Apify (Biblioteca de Anúncios). Fica separada de `/buscar` porque
 // Places é assíncrono e materializa depois; Meta Ads já devolve quantos leads foram salvos.
 router.post('/meta-ads/buscar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.AQUISICAO_GERENCIAR), async (req, res) => {
-  const { nicho, termo, cidade, uf, estado, quantidade, limite } = req.body || {}
+  const { nicho, termo, cidade, uf, estado, pais, country, quantidade, limite } = req.body || {}
   if (!nicho) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe nicho para buscar anúncios.' } })
   }
@@ -157,6 +159,7 @@ router.post('/meta-ads/buscar', requireAuth, requireEmpresaAccess, requireCapaci
       nicho,
       termo: termo || null,
       cidade: cidadeBusca || null,
+      pais: pais || country || 'BR',
       empresaId: req.empresa.id,
       limite: quantidade || limite,
     })
@@ -195,19 +198,19 @@ router.get('/buscas', requireAuth, requireEmpresaAccess, async (req, res) => {
 router.get('/resultados', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const { rows: porMercado } = await pool.query(
-      `SELECT nicho, cidade,
+      `SELECT nicho, cidade, COALESCE(pais, 'BR') AS pais,
               COUNT(*)                                          AS total,
               COUNT(*) FILTER (WHERE status IN ('enviado','respondeu')) AS enviados,
               COUNT(*) FILTER (WHERE status='respondeu')        AS responderam
          FROM prospectador.prospects
         WHERE empresa_id = $1
-        GROUP BY nicho, cidade
+        GROUP BY nicho, cidade, COALESCE(pais, 'BR')
         ORDER BY responderam DESC, total DESC
         LIMIT 12`,
       [req.empresa.id]
     )
     const { rows: recentes } = await pool.query(
-      `SELECT nome, telefone, nicho, cidade, score, updated_at
+      `SELECT nome, telefone, nicho, cidade, COALESCE(pais, 'BR') AS pais, score, updated_at
          FROM prospectador.prospects
         WHERE empresa_id = $1 AND status = 'respondeu'
         ORDER BY updated_at DESC

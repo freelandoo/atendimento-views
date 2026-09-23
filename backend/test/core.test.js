@@ -4026,17 +4026,18 @@ test('salvarProspect usa upsert por place_id e retorna registro persistido', asy
           telefone: params[1],
           nicho: params[2],
           cidade: params[3],
-          endereco: params[4],
-          avaliacoes: params[5],
-          rating: params[6],
-          tem_site: params[7],
-          site: params[8],
-          maps_url: params[9],
-          place_id: params[10],
-          origem: params[11],
+          pais: params[4],
+          endereco: params[5],
+          avaliacoes: params[6],
+          rating: params[7],
+          tem_site: params[8],
+          site: params[9],
+          maps_url: params[10],
+          place_id: params[11],
+          origem: params[12],
           status: 'aguardando',
-          score: params[12],
-          motivo_score: params[13],
+          score: params[13],
+          motivo_score: params[14],
           created_at: '2026-04-30T10:00:00.000Z',
           updated_at: '2026-04-30T10:00:00.000Z',
         },
@@ -4061,14 +4062,15 @@ test('salvarProspect usa upsert por place_id e retorna registro persistido', asy
     )
     assert.equal(chamadas.length, 1)
     assert.match(chamadas[0].sql, /ON CONFLICT \(empresa_id, place_id\) DO UPDATE/)
-    assert.equal(chamadas[0].params[10], 'places/abc123')
-    // empresa_id ($16) cai na empresa padrão PJ quando o contexto não informa
-    assert.equal(chamadas[0].params[15], '00000000-0000-0000-0000-000000000001')
-    // Parametros do Instagram ($20..$23) existem mesmo vazios; se sumirem, o INSERT quebra.
-    assert.equal(chamadas[0].params[19], null)
+    assert.equal(chamadas[0].params[4], 'BR')
+    assert.equal(chamadas[0].params[11], 'places/abc123')
+    // empresa_id ($17) cai na empresa padrão PJ quando o contexto não informa
+    assert.equal(chamadas[0].params[16], '00000000-0000-0000-0000-000000000001')
+    // Parametros do Instagram ($21..$24) existem mesmo vazios; se sumirem, o INSERT quebra.
     assert.equal(chamadas[0].params[20], null)
     assert.equal(chamadas[0].params[21], null)
-    assert.equal(chamadas[0].params[22], 'null')
+    assert.equal(chamadas[0].params[22], null)
+    assert.equal(chamadas[0].params[23], 'null')
     assert.equal(salvo.id, '11111111-1111-1111-1111-111111111111')
     assert.equal(salvo.status, 'aguardando')
     assert.equal(salvo.tem_site, false)

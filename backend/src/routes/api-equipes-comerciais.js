@@ -87,6 +87,26 @@ router.post('/:equipeId/distribuicao', requireAuth, requireEmpresaAccess, requir
   } catch (err) { return envelopeErro(res, err, 'EQUIPE_DISTRIBUICAO_FAILED') }
 })
 
+// POST /:equipeId/transferencia — mover leads de UMA pessoa para OUTRA, dentro da equipe.
+//
+// ⚠️ EXIGE `LEAD_TRANSFERIR` POR ROTA, pelo mesmo motivo da distribuicao: tirar lead da mao de
+// alguem e' decisao sobre carteira, nao sobre contas.
+//
+// Por padrao so' move lead INTOCADO. `incluir_protegidos: true` (o BOOLEANO — a string 'true'
+// cai no lado seguro) amplia para os leads em andamento, que so' saem depois dos intocados.
+router.post('/:equipeId/transferencia', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_TRANSFERIR), async (req, res) => {
+  try {
+    const b = req.body || {}
+    const data = await DB.transferirLeadsNaEquipe(req.empresa.id, req.params.equipeId, {
+      origem_id: b.origem_id,
+      destino_id: b.destino_id,
+      quantidade: b.quantidade,
+      incluir_protegidos: b.incluir_protegidos,
+    }, req.usuario.id)
+    return res.json({ ok: true, data })
+  } catch (err) { return envelopeErro(res, err, 'EQUIPE_TRANSFERENCIA_FAILED') }
+})
+
 router.post('/', async (req, res) => {
   try {
     const b = req.body || {}

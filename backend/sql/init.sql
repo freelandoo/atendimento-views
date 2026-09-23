@@ -688,6 +688,7 @@ CREATE TABLE IF NOT EXISTS prospectador.prospects (
   telefone    TEXT,
   nicho       TEXT NOT NULL,
   cidade      TEXT NOT NULL,
+  pais        TEXT NOT NULL DEFAULT 'BR',
   endereco    TEXT,
   avaliacoes  INT,
   rating      NUMERIC,

@@ -30,6 +30,7 @@ const rotina = (over = {}) => ({
   empresa_id: 'e1',
   nicho: 'dentista',
   cidade: 'Campinas',
+  pais: 'BR',
   uf: 'SP',
   dias_semana: [1, 2, 3, 4, 5],
   janela_inicio: '08:00',
@@ -78,6 +79,12 @@ test('UF só aceita duas letras; lixo vira null', () => {
   assert.equal(normalizarRotina({ uf: '' }).uf, null)
 })
 
+test('país normaliza para ISO-2 e Brasil é o padrão', () => {
+  assert.equal(normalizarRotina({ pais: 'pt' }).pais, 'PT')
+  assert.equal(normalizarRotina({ country: 'us' }).pais, 'US')
+  assert.equal(normalizarRotina({}).pais, 'BR')
+})
+
 test('validação exige nicho, cidade e ao menos um dia', () => {
   assert.deepEqual(validarRotina(normalizarRotina({ cidade: 'Campinas' })), ['Informe o nicho.'])
   assert.deepEqual(validarRotina(normalizarRotina({ nicho: 'dentista' })), ['Informe a cidade.'])
@@ -100,6 +107,7 @@ test('localização junta cidade e UF (correção do fluxo manual)', () => {
   assert.equal(localizacaoRotina('Santana', 'AP'), 'Santana - AP')
   assert.equal(localizacaoRotina('Campinas', null), 'Campinas')
   assert.equal(localizacaoRotina(null, 'SP'), null)
+  assert.equal(localizacaoRotina('Lisboa', 'SP', 'PT'), 'Lisboa')
 })
 
 test('não duplica a UF quando o operador já digitou junto', () => {

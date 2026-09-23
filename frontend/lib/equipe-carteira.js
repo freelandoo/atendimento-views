@@ -139,7 +139,7 @@ function avisoDesequilibrio(membros) {
     titulo: abaixo.length === 1
       ? `${nomes[0]} está com bem menos carteira que a equipe`
       : `${abaixo.length} pessoas estão com bem menos carteira que a equipe`,
-    descricao: 'Puxe mais leads do nicho ou adicione alguém à equipe para redistribuir o que ninguém tocou.',
+    descricao: 'Mova leads de quem tem mais para quem tem menos, ou puxe mais leads livres do nicho.',
     pessoas: nomes,
   }
 }
@@ -301,6 +301,258 @@ function resumoDaDevolucao(devolucao) {
   return `${pessoas} retirada${lista.length === 1 ? '' : 's'} da equipe: ${liberados} lead${liberados === 1 ? '' : 's'} ${verbo} para a fila.${aviso}`
 }
 
+// ─── PONTOS DE ATENCAO (2026-09-23) ─────────────────────────────────────────────────────
+//
+// Tudo o que impede a distribuicao de sair CERTA, no TOPO do detalhe da equipe — antes das
+// metricas. Tres deles ja' custaram caro em producao e nao apareciam em lugar nenhum desta tela:
+//   • lead na mao de alguem que NAO o enxerga (a Pousada, 2026-09-22: 131 leads e tela vazia);
+//   • lead do nicho aguardando triagem (nao distribui ate alguem aprovar);
+//   • lead aprovado SEM nicho (nao chega a equipe nenhuma — a causa de 2026-09-21).
+//
+// ⚠️ Nada aqui decide: as contagens chegam prontas da API, inclusive `ve_base_bruta`, que o
+// backend resolve pela regra de capacidade. Este modulo so' escolhe o texto e a ordem.
+//
+// A ORDEM e' por CONSEQUENCIA, em baldes (perigo, alerta, neutro), e estavel dentro de cada um.
+// Nao usa ordenacao de lista de proposito: o que se ordena aqui e' AVISO, e a guarda deste modulo
+// proibe ordenar gente — baldes deixam as duas coisas impossiveis de confundir.
+
+const TONS_EM_ORDEM = Object.freeze(['perigo', 'alerta', 'neutro'])
+
+/** Tipos de acao que um aviso pode oferecer. A tela liga cada um a um gesto; nenhum escreve. */
+const ACAO_AVISO = Object.freeze({
+  MOVER: 'mover',
+  PUXAR: 'puxar',
+  BANCO_LEADS: 'banco_leads',
+  TRIAGEM: 'triagem',
+})
+
+function n(v) { return Number(v) || 0 }
+function plural(qtd, um, varios) { return qtd === 1 ? um : varios }
+
+/**
+ * Leads que estao na mao de uma pessoa da equipe, mas NAO aparecem no Banco de Leads dela.
+ *
+ * Sao os leads em "legado" (anteriores a triagem obrigatoria) na mao de quem so' enxerga lead
+ * aprovado. Atribuir e aprovar sao portas independentes: o sistema pode ter dado o lead a pessoa
+ * e ainda assim esconde-lo dela — e quem olha so' a distribuicao procura defeito no lugar errado.
+ */
+function avisoLeadsInvisiveis(membros) {
+  const afetados = (Array.isArray(membros) ? membros : [])
+    .filter((m) => n(m.legado) > 0 && m.ve_base_bruta === false)
+  if (!afetados.length) return null
+  const total = afetados.reduce((t, m) => t + n(m.legado), 0)
+  const nomes = afetados.map((m) => m.nome || 'sem nome')
+  return {
+    chave: 'leads_invisiveis',
+    tom: 'perigo',
+    titulo: afetados.length === 1
+      ? `${nomes[0]} tem ${total} ${plural(total, 'lead que não aparece', 'leads que não aparecem')} no Banco de Leads`
+      : `${total} leads da equipe não aparecem no Banco de Leads de quem cuida deles`,
+    descricao: 'Esses leads ainda não foram aprovados na triagem, e o acesso dessas pessoas só mostra lead aprovado. Estão atribuídos, mas ninguém vai trabalhá-los até serem aprovados.',
+    pessoas: nomes,
+    acao: { tipo: ACAO_AVISO.BANCO_LEADS, rotulo: 'Abrir no Banco de Leads' },
+  }
+}
+
+/** Leads DESTE nicho que ainda nao passaram pela triagem: nao distribuem ate alguem aprovar. */
+function avisoAguardandoTriagem(total, nicho) {
+  const qtd = n(total)
+  if (!qtd) return null
+  return {
+    chave: 'aguardando_triagem',
+    tom: 'alerta',
+    titulo: `${qtd} ${plural(qtd, 'lead', 'leads')} de ${nicho || 'este nicho'} ${plural(qtd, 'aguarda', 'aguardam')} triagem`,
+    descricao: 'Enquanto ninguém aprovar, eles não podem ser distribuídos para a equipe nem abordados.',
+    acao: { tipo: ACAO_AVISO.TRIAGEM, rotulo: 'Ir para a triagem' },
+  }
+}
+
+/**
+ * Leads DESTE nicho na mao de quem nao e' da equipe. A tabela so' lista membros e a fila; sem
+ * este aviso a soma das linhas nao fecha com a carteira do nicho e ninguem sabe por que.
+ */
+function avisoForaDaEquipe(fora, nicho) {
+  const leads = n(fora && fora.leads)
+  const pessoas = n(fora && fora.pessoas)
+  if (!leads) return null
+  return {
+    chave: 'fora_da_equipe',
+    tom: 'alerta',
+    titulo: `${leads} ${plural(leads, 'lead', 'leads')} de ${nicho || 'este nicho'} ${plural(leads, 'está', 'estão')} com ${pessoas} ${plural(pessoas, 'pessoa', 'pessoas')} de fora desta equipe`,
+    descricao: 'Eles não aparecem na carteira abaixo e não entram na distribuição. Adicione essas pessoas à equipe ou transfira os leads pelo Banco de Leads.',
+    acao: { tipo: ACAO_AVISO.BANCO_LEADS, rotulo: 'Abrir no Banco de Leads' },
+  }
+}
+
+/** Leads prontos para trabalho, mas sem nicho — nao chegam a equipe nenhuma. Numero da EMPRESA. */
+function avisoSemNicho(total) {
+  const qtd = n(total)
+  if (!qtd) return null
+  return {
+    chave: 'sem_nicho',
+    tom: 'alerta',
+    titulo: `${qtd} ${plural(qtd, 'lead aprovado está', 'leads aprovados estão')} sem nicho na empresa`,
+    descricao: 'Não pertencem a nenhuma equipe, então não aparecem em nenhuma carteira. É um número da empresa inteira, não só desta equipe. O nicho é definido na aprovação da Aquisição.',
+  }
+}
+
+/**
+ * Todos os pontos de atencao da carteira do nicho, na ordem em que precisam de acao.
+ *
+ * `carteira` e' a resposta de `GET /equipes-comerciais/:id/carteira`. Sem carteira (carregando ou
+ * falhou), nao ha' o que avisar — a tela mostra o proprio estado de carga.
+ */
+function pontosDeAtencao(carteira) {
+  if (!carteira) return []
+  const membros = Array.isArray(carteira.membros) ? carteira.membros : []
+  const nicho = (carteira.equipe && carteira.equipe.nicho_nome) || null
+  const deseq = avisoDesequilibrio(membros)
+  const semLivres = membros.length ? avisoSemDisponiveis(carteira.disponiveis_para_puxar, carteira.protegidos) : null
+  return juntarAvisos([
+    avisoLeadsInvisiveis(membros),
+    avisoAguardandoTriagem(carteira.aguardando_triagem, nicho),
+    avisoForaDaEquipe(carteira.fora_da_equipe, nicho),
+    avisoSemNicho(carteira.sem_nicho),
+    deseq && { ...deseq, acao: { tipo: ACAO_AVISO.MOVER, rotulo: 'Mover leads' } },
+    semLivres,
+  ])
+}
+
+/**
+ * Junta listas de avisos (da carteira do nicho e dos alertas da equipe), tira os nulos e as
+ * repeticoes pela `chave`, e devolve em baldes de gravidade. O primeiro com uma chave vence.
+ */
+function juntarAvisos(...listas) {
+  const vistos = new Set()
+  const todos = []
+  for (const lista of listas) {
+    for (const a of (Array.isArray(lista) ? lista : [lista])) {
+      if (!a || !a.chave || vistos.has(a.chave)) continue
+      vistos.add(a.chave)
+      todos.push(a)
+    }
+  }
+  const baldes = TONS_EM_ORDEM.map((tom) => todos.filter((a) => (a.tom || 'neutro') === tom))
+  const semTom = todos.filter((a) => !TONS_EM_ORDEM.includes(a.tom || 'neutro'))
+  return [...baldes.flat(), ...semTom]
+}
+
+// ─── A TRANSFERENCIA ENTRE MEMBROS (2026-09-23) ─────────────────────────────────────────
+//
+// Mover leads de UMA pessoa para OUTRA, dentro da equipe. Quem decide o que e' "intocado" e o
+// que pode mover e' o backend (`sqlTransferivel`); daqui so' saem a previa, o motivo de um botao
+// desabilitado e o texto do resultado. O teto por operacao tambem e' do backend: esta tela nao
+// repete o numero — ela deixa o servidor recusar com a mensagem dele.
+
+/** Quem pode CEDER: membros com algum lead neste nicho. A ordem e' a que a API mandou. */
+function origensDaTransferencia(membros) {
+  return (Array.isArray(membros) ? membros : [])
+    .filter((m) => n(m.leads) > 0)
+    .map((m) => ({
+      id: String(m.usuario_id),
+      rotulo: `${m.nome || 'sem nome'} — ${n(m.leads)} ${plural(n(m.leads), 'lead', 'leads')} (${n(m.intocados)} ${plural(n(m.intocados), 'intocado', 'intocados')})`,
+    }))
+}
+
+/** Quem pode RECEBER: qualquer outro membro da equipe. */
+function destinosDaTransferencia(membros, origemId) {
+  return (Array.isArray(membros) ? membros : [])
+    .filter((m) => String(m.usuario_id) !== String(origemId || ''))
+    .map((m) => ({
+      id: String(m.usuario_id),
+      rotulo: `${m.nome || 'sem nome'} — ${n(m.leads)} ${plural(n(m.leads), 'lead', 'leads')}`,
+    }))
+}
+
+/**
+ * A previa, a partir da linha da carteira de quem CEDE.
+ *
+ * Os intocados saem primeiro; os em andamento so' entram com a caixa marcada E quando os
+ * intocados acabam — a mesma ordem que o backend aplica. Os riscos citam a carteira INTEIRA da
+ * pessoa ("entre os 13 em andamento, 3 tem reuniao"), porque quais deles saem depende da ordem;
+ * o numero real que mudou de mao vem no resultado.
+ */
+function previaTransferencia({ origem, destinoNome, quantidade, incluirProtegidos } = {}) {
+  const o = origem || {}
+  const intocados = n(o.intocados)
+  const emAndamento = n(o.em_andamento)
+  const incluir = incluirProtegidos === true
+  const maximo = incluir ? intocados + emAndamento : intocados
+  const pedido = Math.max(0, Math.trunc(Number(quantidade)) || 0)
+  const efetiva = Math.min(pedido, maximo)
+  const dosEmAndamento = incluir ? Math.max(0, efetiva - intocados) : 0
+
+  const riscos = []
+  if (dosEmAndamento > 0) {
+    if (n(o.com_reuniao)) riscos.push(`${n(o.com_reuniao)} com reunião marcada`)
+    if (n(o.com_conversa)) riscos.push(`${n(o.com_conversa)} com conversa aberta`)
+    if (n(o.com_follow_up)) riscos.push(`${n(o.com_follow_up)} com follow-up em aberto`)
+  }
+  const quem = o.nome || 'essa pessoa'
+  const para = destinoNome || 'quem recebe'
+  const aviso = riscos.length
+    ? `Entre os ${emAndamento} leads em andamento de ${quem}, ${riscos.join(', ')}. Os que forem movidos passam para ${para} junto com esses compromissos.`
+    : ''
+
+  return { maximo, efetiva, intocados, emAndamento, dosEmAndamento, riscos, aviso }
+}
+
+/**
+ * O motivo de o botao "Mover" estar desabilitado. Nao e' a validacao de verdade — a do backend
+ * manda —, so' evita um POST que ja' se sabe que falharia. Botao desabilitado nunca fica mudo.
+ */
+function validarTransferenciaTela({ origemId, destinoId, quantidade, maximo, incluirProtegidos } = {}) {
+  if (!String(origemId || '').trim()) return { pode: false, motivo: 'Escolha de quem os leads vão sair.' }
+  if (!String(destinoId || '').trim()) return { pode: false, motivo: 'Escolha para quem os leads vão.' }
+  if (String(origemId) === String(destinoId)) return { pode: false, motivo: 'A origem e o destino são a mesma pessoa.' }
+  const qtd = Math.trunc(Number(quantidade))
+  if (!Number.isFinite(qtd) || qtd < 1) return { pode: false, motivo: 'Informe quantos leads mover.' }
+  const max = n(maximo)
+  if (!max) {
+    return {
+      pode: false,
+      motivo: incluirProtegidos === true
+        ? 'Essa pessoa não tem leads neste nicho.'
+        : 'Essa pessoa não tem lead intocado. Marque “incluir os em andamento” para mover os outros.',
+    }
+  }
+  if (qtd > max) {
+    return { pode: false, motivo: `Há só ${max} ${plural(max, 'lead disponível', 'leads disponíveis')} para mover com essa escolha.` }
+  }
+  return { pode: true, motivo: '' }
+}
+
+/**
+ * O que aconteceu, com o numero REAL devolvido pelo banco. `movidos < solicitados` nao e' erro:
+ * alguem pode ter assumido, devolvido ou recebido um lead entre a tela e o clique.
+ */
+function resumoDaTransferencia(resultado, nomePorId) {
+  const r = resultado || {}
+  const nome = (id) => (nomePorId && nomePorId[String(id)]) || 'sem nome'
+  const movidos = n(r.movidos)
+  const de = nome(r.origem_id)
+  const para = nome(r.destino_id)
+  if (!movidos) {
+    return {
+      tom: 'neutro',
+      texto: r.incluir_protegidos
+        ? `Nenhum lead foi movido — ${de} não tinha leads neste nicho no momento do envio.`
+        : `Nenhum lead foi movido — ${de} não tinha lead intocado neste nicho no momento do envio.`,
+    }
+  }
+  const pedido = n(r.solicitados)
+  const faltou = pedido > movidos ? ` Você pediu ${pedido}; só ${movidos} estavam disponíveis.` : ''
+  const riscos = []
+  if (n(r.com_reuniao)) riscos.push(`${n(r.com_reuniao)} com reunião marcada`)
+  if (n(r.com_conversa)) riscos.push(`${n(r.com_conversa)} com conversa aberta`)
+  if (n(r.com_follow_up)) riscos.push(`${n(r.com_follow_up)} com follow-up em aberto`)
+  const aviso = riscos.length ? ` Entre eles: ${riscos.join(', ')} — avise ${para} sobre esses compromissos.` : ''
+  return {
+    tom: 'ok',
+    texto: `${movidos} ${plural(movidos, 'lead passou', 'leads passaram')} de ${de} para ${para}.${faltou}${aviso}`,
+  }
+}
+
 module.exports = {
   COLUNAS_CARTEIRA,
   valorDaCarteira,
@@ -319,4 +571,17 @@ module.exports = {
   resumoDaPuxada,
   resumoDoRebalanceamento,
   resumoDaDevolucao,
+  // Pontos de atencao e transferencia (2026-09-23)
+  ACAO_AVISO,
+  avisoLeadsInvisiveis,
+  avisoAguardandoTriagem,
+  avisoForaDaEquipe,
+  avisoSemNicho,
+  pontosDeAtencao,
+  juntarAvisos,
+  origensDaTransferencia,
+  destinosDaTransferencia,
+  previaTransferencia,
+  validarTransferenciaTela,
+  resumoDaTransferencia,
 }

@@ -14,6 +14,7 @@ const ORCAMENTO = require('./apify-orcamento')
 const consumoDb = require('../db/apify-consumo')
 const DESCOBERTA = require('./meta-ads-descoberta')
 const leadsDb = require('../db/meta-ads-leads')
+const { normalizarPais, paisParaMeta } = require('./paises')
 
 // Cross-reference com a PAGINA do anunciante (fb_paginas da Bright Data, migration 092) —
 // MESMA fila generica do enriquecimento de Instagram, etapa propria.
@@ -35,7 +36,8 @@ const LOTE_PAGINA = 10
 const SNAPSHOT_MAX_MIN_PAGINA = 20
 
 /**
- * Monta a URL de busca da Biblioteca de Anuncios: pais fixo BR, categoria "todos os anuncios".
+ * Monta a URL de busca da Biblioteca de Anuncios para o pais escolhido,
+ * categoria "todos os anuncios".
  *
  * O `termo` e' o que se PROCURA na Biblioteca (palavra-chave do anuncio); o `nicho` e' o que o
  * lead E' (e e' ele que resolve `nicho_id` e leva o lead para a equipe certa). Os dois eram o
@@ -43,12 +45,13 @@ const SNAPSHOT_MAX_MIN_PAGINA = 20
  * nicho — que nao casa com o catalogo, deixa `nicho_id` nulo e faz o lead nao chegar a equipe
  * nenhuma. Sem `termo`, a busca cai no nicho, que e' o comportamento util por padrao.
  */
-function montarUrlBusca({ termo: termoBusca, nicho, cidade }) {
+function montarUrlBusca({ termo: termoBusca, nicho, cidade, pais = 'BR' }) {
   const termo = [String(termoBusca || '').trim() || nicho, cidade].filter(Boolean).join(' ').trim()
+  const paisNormalizado = normalizarPais(pais)
   const params = new URLSearchParams({
     active_status: 'active',
     ad_type: 'all',
-    country: 'BR',
+    country: paisParaMeta(paisNormalizado),
     q: termo,
     search_type: 'keyword_unordered',
   })
@@ -61,8 +64,9 @@ function montarUrlBusca({ termo: termoBusca, nicho, cidade }) {
  * O orcamento e' conferido ANTES do disparo pago, com o TETO do pedido como custo estimado
  * (pior caso) — mesma disciplina de `pesquisarPlaces` e do enriquecimento de Instagram.
  */
-async function buscarAnunciantes({ nicho, termo = null, cidade, empresaId = null, limite = LIMITE_PADRAO } = {}) {
+async function buscarAnunciantes({ nicho, termo = null, cidade, pais = 'BR', empresaId = null, limite = LIMITE_PADRAO } = {}) {
   const termoNicho = String(nicho || '').trim()
+  const paisNormalizado = normalizarPais(pais)
   if (!termoNicho) {
     const e = new Error('Informe um nicho para buscar na Biblioteca de Anuncios.')
     e.statusCode = 400
@@ -83,7 +87,7 @@ async function buscarAnunciantes({ nicho, termo = null, cidade, empresaId = null
     return { ok: false, motivo: 'apify_indisponivel', mensagem: 'APIFY_API_TOKEN ausente.', salvos: [] }
   }
 
-  const url = montarUrlBusca({ termo, nicho: termoNicho, cidade })
+  const url = montarUrlBusca({ termo, nicho: termoNicho, cidade, pais: paisNormalizado })
   const input = {
     startUrls: [{ url }],
     resultsLimit: lim,
@@ -106,7 +110,7 @@ async function buscarAnunciantes({ nicho, termo = null, cidade, empresaId = null
   // usado aqui nao devolve um): nao ha' idempotencia por chamada ainda nesta primeira rodada.
   await consumoDb.registrarConsumo({
     empresaId, actorId: apify.atorFacebookAds(), resultados: registros.length,
-    contexto: { nicho: termoNicho, cidade: cidade || null },
+    contexto: { nicho: termoNicho, cidade: cidade || null, pais: paisNormalizado },
   })
 
   // Dedup por page_id DENTRO do lote: a mesma pagina pode aparecer varias vezes (criativos
@@ -118,7 +122,7 @@ async function buscarAnunciantes({ nicho, termo = null, cidade, empresaId = null
 
   // Carteira lida UMA vez: a dedup entre canais compara em memoria (regra PURA e conservadora em
   // `mesmoNegocio`), em vez de uma consulta por anuncio.
-  const existentes = await leadsDb.candidatosParaFusao(empresaId, cidade).catch(() => [])
+  const existentes = await leadsDb.candidatosParaFusao(empresaId, cidade, paisNormalizado).catch(() => [])
 
   // UMA entrada por PAGINA, com quantos anuncios ativos ela tem. A busca devolve uma linha por
   // ANUNCIO e o mesmo negocio costuma ter varios — uma linha por anuncio faria o vendedor ligar
@@ -131,12 +135,12 @@ async function buscarAnunciantes({ nicho, termo = null, cidade, empresaId = null
     }
 
     const lead = DESCOBERTA.montarLeadDeAnuncio(
-      avaliado, { nicho: termoNicho, cidade, empresaId, totalAtivos }, registro)
+      avaliado, { nicho: termoNicho, cidade, pais: paisNormalizado, empresaId, totalAtivos }, registro)
     try {
       // Este anunciante ja esta na carteira (veio do Maps)? Entao a evidencia do anuncio vai
       // para o lead que JA existe — e o telefone que faltava ao lead de anuncio ja esta la'.
       // Criar a segunda linha poria dois vendedores no mesmo negocio.
-      const existente = DESCOBERTA.escolherLeadExistente(avaliado, existentes, { nicho: termoNicho, cidade })
+      const existente = DESCOBERTA.escolherLeadExistente(avaliado, existentes, { nicho: termoNicho, cidade, pais: paisNormalizado })
       if (existente) {
         const fundido = await leadsDb.absorverAnuncioEmLeadExistente(existente.id, lead)
         if (fundido) { fundidos += 1; salvos.push({ ...fundido, fundido: true }) }
@@ -156,7 +160,7 @@ async function buscarAnunciantes({ nicho, termo = null, cidade, empresaId = null
     }
   }
 
-  logger.info({ operation: 'meta_ads', nicho: termoNicho, cidade: cidade || null,
+  logger.info({ operation: 'meta_ads', nicho: termoNicho, cidade: cidade || null, pais: paisNormalizado,
     registros: registros.length, salvos: salvos.length, fundidos, descartados },
   'busca de anuncios concluida')
 

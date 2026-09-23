@@ -1,5 +1,6 @@
 'use strict'
 const { origensDoFiltro } = require('./lead-origem')
+const { normalizarPais } = require('./paises')
 
 function normalizarTexto(valor, max = 160) {
   return String(valor == null ? '' : valor).trim().slice(0, max)
@@ -9,6 +10,7 @@ function adicionarFiltroMercado(where, params, query = {}, options = {}) {
   const alias = options.alias ? `${options.alias}.` : ''
   const mercado = normalizarTexto(query.mercado || query.nicho || query.categoria, 160)
   const cidade = normalizarTexto(query.cidade || query.local, 160)
+  const pais = normalizarTexto(query.pais || query.country, 8)
 
   if (mercado) {
     params.push(`%${mercado}%`)
@@ -19,6 +21,11 @@ function adicionarFiltroMercado(where, params, query = {}, options = {}) {
   if (cidade) {
     params.push(`%${cidade}%`)
     where.push(`${alias}cidade ILIKE $${params.length}`)
+  }
+
+  if (pais) {
+    params.push(normalizarPais(pais))
+    where.push(`UPPER(${alias}pais) = $${params.length}`)
   }
 }
 
@@ -106,7 +113,7 @@ async function listarOpcoesFiltrosMercado(pool, {
   const limitParam = params.length
   const whereSql = where.join(' AND ')
 
-  const [nichos, categorias, cidades] = await Promise.all([
+  const [nichos, categorias, cidades, paises] = await Promise.all([
     pool.query(
       `SELECT nicho AS valor, COUNT(*)::int AS total
          FROM prospectador.prospects
@@ -134,12 +141,22 @@ async function listarOpcoesFiltrosMercado(pool, {
         LIMIT $${limitParam}`,
       params
     ),
+    pool.query(
+      `SELECT COALESCE(NULLIF(TRIM(pais), ''), 'BR') AS valor, COUNT(*)::int AS total
+         FROM prospectador.prospects
+        WHERE ${whereSql}
+        GROUP BY COALESCE(NULLIF(TRIM(pais), ''), 'BR')
+        ORDER BY total DESC, valor ASC
+        LIMIT $${limitParam}`,
+      params
+    ),
   ])
 
   return {
     nichos: nichos.rows,
     categorias: categorias.rows,
     cidades: cidades.rows,
+    paises: paises.rows,
   }
 }
 

@@ -29,6 +29,7 @@ import { qualificacaoDoLead, resumoIcpOperacional, seloIcp, seloValidacaoLead } 
 import { leituraCadastro } from '@/lib/pontuacao-indicador'
 import { acessosDoLead, normalizarLink, telefoneWhatsapp, type AcessoRapido } from '@/lib/lead-acessos'
 import { secaoDoGatilho, type SecaoFicha } from '@/lib/ficha-lead'
+import { nomePais } from '@/lib/paises'
 
 type JsonApresProspect = JsonApresentacao & {
   empresa?: { horario_funcionamento?: boolean; fotos?: number }
@@ -41,6 +42,7 @@ type Prospect = {
   email: string | null
   nicho: string
   cidade: string
+  pais: string
   endereco: string | null
   rating: number | null
   avaliacoes: number | null
@@ -122,13 +124,13 @@ type Metricas = {
 // automáticos — ele aprende sozinho com o que você aprova e descarta.
 // Busca da Aquisição (Bright Data Maps é assíncrona — o painel acompanha o status).
 type Busca = {
-  id: string; nicho: string; cidade: string; origem: string
+  id: string; nicho: string; cidade: string; pais: string; origem: string
   status: 'pendente' | 'processando' | 'concluido' | 'falhou'
   total_prospects: number; novos_prospects: number; erro: string | null
   created_at: string; updated_at: string
 }
-type Mercado = { nicho: string; cidade: string; total: string; enviados: string; responderam: string }
-type Recente = { nome: string; telefone: string | null; nicho: string; cidade: string; score: number | null; updated_at: string }
+type Mercado = { nicho: string; cidade: string; pais: string; total: string; enviados: string; responderam: string }
+type Recente = { nome: string; telefone: string | null; nicho: string; cidade: string; pais: string; score: number | null; updated_at: string }
 type ResultadosResp = { por_mercado: Mercado[]; recentes: Recente[] }
 type Rank = { chave: string; mensagens_enviadas: number; respostas: number; taxa_resposta: number; reunioes: number }
 type Analytics = {
@@ -143,6 +145,7 @@ type FiltrosMercado = {
   nichos: OpcaoFiltroMercado[]
   categorias: OpcaoFiltroMercado[]
   cidades: OpcaoFiltroMercado[]
+  paises: OpcaoFiltroMercado[]
 }
 type EquipeDistribuicao = {
   id: string
@@ -258,7 +261,7 @@ const CHAVE_MODO = 'prospeccaoModo'
 // durações distintas — juntá-las faria preferência evaporar ou recorte de hoje voltar amanhã.
 const AQ_TELA_RECORTE = 'aquisicao'
 const AQ_RECORTE_PADRAO = {
-  filtro: '', buscaDados: '', mercado: '', cidadeFiltro: '', origem: '',
+  filtro: '', buscaDados: '', mercado: '', cidadeFiltro: '', paisFiltro: '', origem: '',
   ordemChave: 'prioridade', ordemDir: 'desc', pagina: 1, abaResultado: 'desempenho',
 }
 // TRÊS modos, cada um com um trabalho: ver o que veio · procurar mais · deixar rodando.
@@ -321,10 +324,11 @@ function quando(iso: string | null): string {
 // e ordenar só a página visível daria uma ordem falsa — "o menor cadastro" seria o menor
 // daqueles 25, não o da carteira. O clique no cabeçalho vira parâmetro da requisição.
 
-function chipsFiltrosAquisicao(mercado: string, cidadeFiltro: string, buscaDados: string, origem: string, view: ViewAquisicao): string[] {
+function chipsFiltrosAquisicao(mercado: string, cidadeFiltro: string, paisFiltro: string, buscaDados: string, origem: string, view: ViewAquisicao): string[] {
   const chips: string[] = []
   if (origem) chips.push(`Origem: ${rotuloFiltroOrigem(origem) || origem}`)
   if (mercado) chips.push(`Nicho: ${mercado}`)
+  if (paisFiltro) chips.push(`País: ${nomePais(paisFiltro)}`)
   if (cidadeFiltro) chips.push(`Cidade: ${cidadeFiltro}`)
   if (buscaDados.trim()) chips.push(`Busca: ${buscaDados.trim()}`)
   if (view.site !== 'todos') chips.push(view.site === 'com' ? 'Com site próprio' : 'Sem site próprio')
@@ -412,6 +416,7 @@ export default function ProspeccaoPainel({
   const [buscaDados, setBuscaDados] = useState('')
   const [mercado, setMercado] = useState('')
   const [cidadeFiltro, setCidadeFiltro] = useState('')
+  const [paisFiltro, setPaisFiltro] = useState('')
   const [filtrosMercado, setFiltrosMercado] = useState<FiltrosMercado | null>(null)
   const [agindo, setAgindo] = useState<string | null>(null)
   // As rotinas já carregadas pelo painel de rotinas, reaproveitadas pelo histórico de
@@ -495,6 +500,7 @@ export default function ProspeccaoPainel({
       setBuscaDados(r.buscaDados)
       setMercado(r.mercado)
       setCidadeFiltro(r.cidadeFiltro)
+      setPaisFiltro(r.paisFiltro)
       setOrigemFiltro(r.origem)
       setOrdem({ chave: r.ordemChave, dir: r.ordemDir === 'desc' ? 'desc' : 'asc' })
       setPagina(r.pagina > 0 ? r.pagina : 1)
@@ -505,10 +511,10 @@ export default function ProspeccaoPainel({
   useEffect(() => {
     if (!recortePronto) return
     gravarFiltros(AQ_TELA_RECORTE, empresaId, {
-      filtro, buscaDados, mercado, cidadeFiltro, origem: origemFiltro,
+      filtro, buscaDados, mercado, cidadeFiltro, paisFiltro, origem: origemFiltro,
       ordemChave: ordem.chave, ordemDir: ordem.dir, pagina, abaResultado,
     })
-  }, [recortePronto, empresaId, filtro, buscaDados, mercado, cidadeFiltro, origemFiltro, ordem, pagina, abaResultado])
+  }, [recortePronto, empresaId, filtro, buscaDados, mercado, cidadeFiltro, paisFiltro, origemFiltro, ordem, pagina, abaResultado])
 
   // Troca de modo: só apresentação. Nenhuma requisição sai daqui — `carregar`,
   // `carregarBuscas` e o painel de rotinas não dependem de `modo`.
@@ -550,6 +556,7 @@ export default function ProspeccaoPainel({
     if (buscaDados.trim()) p.set('busca', buscaDados.trim())
     if (mercado) p.set('mercado', mercado)
     if (cidadeFiltro) p.set('cidade', cidadeFiltro)
+    if (paisFiltro) p.set('pais', paisFiltro)
     if (view.site !== 'todos') p.set('site', view.site)
     if (view.social !== 'todos') p.set('social', view.social)
     if (view.email !== 'todos') p.set('email', view.email)
@@ -604,8 +611,8 @@ export default function ProspeccaoPainel({
   // Recarrega tudo: usado quando um lead muda de status ou uma coleta termina.
   function carregar() { carregarLista(); carregarResumo() }
 
-  useEffect(() => { carregarLista() }, [empresaId, recortePronto, filtro, buscaDados, mercado, cidadeFiltro, origemFiltro, view, pagina, ordem.chave, ordem.dir])
-  useEffect(() => { carregarResumo() }, [empresaId, recortePronto, buscaDados, mercado, cidadeFiltro, origemFiltro, view])
+  useEffect(() => { carregarLista() }, [empresaId, recortePronto, filtro, buscaDados, mercado, cidadeFiltro, paisFiltro, origemFiltro, view, pagina, ordem.chave, ordem.dir])
+  useEffect(() => { carregarResumo() }, [empresaId, recortePronto, buscaDados, mercado, cidadeFiltro, paisFiltro, origemFiltro, view])
   useEffect(() => {
     if (!empresaId || !recortePronto) return
     const p = new URLSearchParams()
@@ -628,8 +635,9 @@ export default function ProspeccaoPainel({
       const antes = emAndamentoRef.current
       const terminadas = lista.filter((b) => antes.has(b.id) && (b.status === 'concluido' || b.status === 'falhou'))
       for (const b of terminadas) {
-        if (b.status === 'concluido') fb.toast(`Busca concluída: ${b.total_prospects} leads (${b.nicho} em ${b.cidade}).`, 'success')
-        else fb.toast(`Busca falhou (${b.nicho} em ${b.cidade}): ${b.erro || 'erro'}.`, 'error')
+        const pais = b.pais && b.pais !== 'BR' ? ` · ${nomePais(b.pais)}` : ''
+        if (b.status === 'concluido') fb.toast(`Busca concluída: ${b.total_prospects} leads (${b.nicho} em ${b.cidade}${pais}).`, 'success')
+        else fb.toast(`Busca falhou (${b.nicho} em ${b.cidade}${pais}): ${b.erro || 'erro'}.`, 'error')
       }
       if (terminadas.length) carregar()
       emAndamentoRef.current = new Set(lista.filter((b) => b.status === 'pendente' || b.status === 'processando').map((b) => b.id))
@@ -887,7 +895,8 @@ export default function ProspeccaoPainel({
 
   const mercadoOpcoes = opcoesMercado(filtrosMercado)
   const cidadeOpcoes = filtrosMercado?.cidades || []
-  const chips = chipsFiltrosAquisicao(mercado, cidadeFiltro, buscaDados, origemFiltro, view)
+  const paisOpcoes = filtrosMercado?.paises || []
+  const chips = chipsFiltrosAquisicao(mercado, cidadeFiltro, paisFiltro, buscaDados, origemFiltro, view)
   const filtrosAtivos = chips.length
   const cols = view.cols
   const idsPagina = pg.itens.map((p) => p.id)
@@ -1011,14 +1020,22 @@ export default function ProspeccaoPainel({
               {mercadoOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
             </select>
           </div>
-          {!metaAds && <div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">País</label>
+            <select value={paisFiltro} onChange={(e) => comReinicioDePagina(() => setPaisFiltro(e.target.value))}
+              className="border rounded-lg px-3 py-2 text-sm min-w-[150px]">
+              <option value="">Todos</option>
+              {paisOpcoes.map((o) => <option key={o.valor} value={o.valor}>{nomePais(o.valor)} ({o.total})</option>)}
+            </select>
+          </div>
+          <div>
             <label className="block text-xs text-slate-500 mb-1">Cidade</label>
             <select value={cidadeFiltro} onChange={(e) => comReinicioDePagina(() => setCidadeFiltro(e.target.value))}
               className="border rounded-lg px-3 py-2 text-sm min-w-[150px]">
               <option value="">Todas</option>
               {cidadeOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
             </select>
-          </div>}
+          </div>
           <button
             type="button"
             onClick={() => setPersAberto(true)}
@@ -1047,8 +1064,8 @@ export default function ProspeccaoPainel({
               ))}
             </select>
           </div>
-          {(mercado || cidadeFiltro || buscaDados.trim() || filtrosAtivos > 0) && (
-            <button onClick={() => comReinicioDePagina(() => { setOrigemFiltro(''); setMercado(''); setCidadeFiltro(''); setBuscaDados(''); setView(AQ_VIEW_PADRAO) })}
+          {(mercado || cidadeFiltro || paisFiltro || buscaDados.trim() || filtrosAtivos > 0) && (
+            <button onClick={() => comReinicioDePagina(() => { setOrigemFiltro(''); setMercado(''); setCidadeFiltro(''); setPaisFiltro(''); setBuscaDados(''); setView(AQ_VIEW_PADRAO) })}
               className="border rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
               Limpar filtros
             </button>
@@ -1141,7 +1158,7 @@ export default function ProspeccaoPainel({
         <div key={b.id} className="flex items-center gap-3 rounded-xl border border-cyan-300 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
           <Spinner />
           <span>
-            <strong>Busca em andamento</strong> — {b.nicho} em {b.cidade}. Os leads aparecem em alguns minutos; a lista atualiza sozinha.
+            <strong>Busca em andamento</strong> — {b.nicho} em {b.cidade}{b.pais && b.pais !== 'BR' ? ` · ${nomePais(b.pais)}` : ''}. Os leads aparecem em alguns minutos; a lista atualiza sozinha.
           </span>
         </div>
       ))}
@@ -1247,8 +1264,9 @@ export default function ProspeccaoPainel({
                   <div className="max-w-[200px] leading-tight">
                     <span className="block truncate font-medium text-slate-700">{p.nicho || 'Sem termo'}</span>
                     <span className="block truncate text-slate-500">{p.categoria_perfil || p.categoria || p.cidade || 'Categoria não informada'}</span>
+                    {p.pais && p.pais !== 'BR' && <span className="block truncate text-ink-3">{nomePais(p.pais)}</span>}
                   </div>
-                ) : <NichoCidade nicho={p.nicho} cidade={p.cidade} />}
+                ) : <div><NichoCidade nicho={p.nicho} cidade={p.cidade} />{p.pais && p.pais !== 'BR' && <span className="block text-[11px] text-ink-3">{nomePais(p.pais)}</span>}</div>}
               </td>}
               {cols.status !== false && (
                 <td className="px-3 py-2">
@@ -1311,7 +1329,7 @@ export default function ProspeccaoPainel({
                       <tbody>
                         {porMercado.map((m, i) => (
                           <tr key={i} className="border-t">
-                            <td className="py-1.5 pr-4"><NichoCidade nicho={m.nicho} cidade={m.cidade} /></td>
+                            <td className="py-1.5 pr-4"><NichoCidade nicho={m.nicho} cidade={m.cidade} />{m.pais && m.pais !== 'BR' && <span className="block text-[11px] text-ink-3">{nomePais(m.pais)}</span>}</td>
                             <td className="py-1.5 pr-4 text-right">{m.total}</td>
                             <td className="py-1.5 pr-4 text-right">{m.enviados}</td>
                             <td className="py-1.5 text-right font-semibold text-orange-600">{m.responderam}</td>
@@ -1357,6 +1375,7 @@ export default function ProspeccaoPainel({
                       <span className="font-medium">{r.nome}</span>
                       <span className="text-slate-400" aria-hidden="true">·</span>
                       <NichoCidade nicho={r.nicho} cidade={r.cidade} className="text-slate-500" />
+                      {r.pais && r.pais !== 'BR' && <span className="text-xs text-ink-3">{nomePais(r.pais)}</span>}
                     </span>
                     <span className="font-mono text-xs text-slate-500">{r.telefone || '—'}</span>
                   </li>

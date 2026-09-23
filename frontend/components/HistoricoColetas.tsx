@@ -1,4 +1,5 @@
 'use client'
+import { nomePais } from '@/lib/paises'
 
 // Histórico de coletas (antiga "Atividade recente" das Rotinas de Aquisição).
 // É consulta secundária: vive no modo **Rotinas** da página de Aquisição, abaixo do painel
@@ -11,6 +12,7 @@ export type Atividade = {
   rotina_id: string | null
   nicho: string
   cidade: string
+  pais?: string | null
   origem: string
   status: string
   coletados: number
@@ -94,7 +96,7 @@ export default function HistoricoColetas({ atividade }: { atividade: Atividade[]
             return (
               <tr key={a.id} className="border-t">
                 <td className="py-1.5 pr-4 whitespace-nowrap text-xs text-slate-500">{quando(a.created_at)}</td>
-                <td className="py-1.5 pr-4">{a.nicho} · {a.cidade}</td>
+                <td className="py-1.5 pr-4">{a.nicho} · {a.cidade}{a.pais && a.pais !== 'BR' ? ` · ${nomePais(a.pais)}` : ''}</td>
                 <td className="py-1.5 pr-4 text-xs text-slate-500">{origemLabel(a)}</td>
                 <td className="py-1.5 pr-4">
                   <span className={`rounded-full px-2 py-0.5 text-xs ${s.cor}`}>{s.label}</span>

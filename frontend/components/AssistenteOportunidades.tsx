@@ -97,7 +97,7 @@ export default function AssistenteOportunidades({
 }: {
   empresaId: string
   // Mercado que o operador acabou de buscar. Vazio = toda a carteira.
-  mercado: { nicho: string; cidade: string; uf: string }
+  mercado: { nicho: string; cidade: string; pais: string; uf: string }
   // Meta de leads NOVOS aprovados — o mesmo número da Busca avulsa.
   meta: number
   onFechar: () => void
@@ -127,6 +127,7 @@ export default function AssistenteOportunidades({
         body: JSON.stringify({
           nicho: mercado.nicho.trim() || null,
           cidade: mercado.cidade.trim() || null,
+          pais: mercado.pais || 'BR',
           uf: mercado.uf.trim().toUpperCase() || null,
           meta,
         }),

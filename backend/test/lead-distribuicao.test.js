@@ -377,3 +377,130 @@ test('GUARDA: a expressao de telefone tem UM dono (src/telefone-br.js)', () => {
   assert.ok(!/CASE WHEN length\(regexp_replace/.test(SERVICO),
     'a normalizacao de telefone nao se copia, se importa')
 })
+
+// ─── TRANSFERENCIA ENTRE MEMBROS (2026-09-23) ───────────────────────────────────────────
+//
+// O gestor escolhe de quem sai, para quem vai e quantos. Decisoes do operador: o padrao e' so'
+// INTOCADO, e "incluir os em andamento" amplia o conjunto sem fazer os protegidos sairem primeiro.
+
+test('validarTransferencia: pedido valido devolve os campos normalizados', () => {
+  const v = D.validarTransferencia({ origemId: 'a', destinoId: 'b', quantidade: '7', incluirProtegidos: true })
+  assert.equal(v.ok, true)
+  assert.equal(v.quantidade, 7)
+  assert.equal(v.incluirProtegidos, true)
+  assert.equal(v.origemId, 'a')
+  assert.equal(v.destinoId, 'b')
+})
+
+test('validarTransferencia: recusa origem, destino ou quantidade ausentes, e a mesma pessoa', () => {
+  assert.equal(D.validarTransferencia({ destinoId: 'b', quantidade: 1 }).code, 'SEM_ORIGEM')
+  assert.equal(D.validarTransferencia({ origemId: 'a', quantidade: 1 }).code, 'SEM_DESTINO')
+  assert.equal(D.validarTransferencia({ origemId: 'a', destinoId: 'a', quantidade: 1 }).code, 'MESMA_PESSOA')
+  assert.equal(D.validarTransferencia({ origemId: 'a', destinoId: 'b', quantidade: 0 }).code, 'QUANTIDADE_INVALIDA')
+  assert.equal(D.validarTransferencia({ origemId: 'a', destinoId: 'b', quantidade: 'dez' }).code, 'QUANTIDADE_INVALIDA')
+  for (const r of [
+    D.validarTransferencia({ destinoId: 'b', quantidade: 1 }),
+    D.validarTransferencia({ origemId: 'a', destinoId: 'a', quantidade: 1 }),
+  ]) assert.ok(r.motivo && r.motivo.length > 10, 'recusa nunca fica muda')
+})
+
+test('validarTransferencia: acima do TETO e recusado, nunca truncado em silencio', () => {
+  const v = D.validarTransferencia({ origemId: 'a', destinoId: 'b', quantidade: D.TETO_MOVIMENTOS + 1 })
+  assert.equal(v.ok, false)
+  assert.equal(v.code, 'QUANTIDADE_ACIMA_DO_TETO')
+  assert.equal(D.validarTransferencia({ origemId: 'a', destinoId: 'b', quantidade: D.TETO_MOVIMENTOS }).ok, true)
+})
+
+test('validarTransferencia: SO o booleano true inclui os em andamento (a string cai no lado seguro)', () => {
+  // Boolean('false') e' true: aceitar texto moveria negociacao sem ninguem ter pedido.
+  for (const valor of ['true', 'false', 1, 'on', '', null, undefined, {}]) {
+    const v = D.validarTransferencia({ origemId: 'a', destinoId: 'b', quantidade: 1, incluirProtegidos: valor })
+    assert.equal(v.incluirProtegidos, false, `${JSON.stringify(valor)} nao pode incluir protegidos`)
+  }
+})
+
+test('sqlTransferivel SEM a caixa e IDENTICO ao predicado do rebalanceamento', () => {
+  // Se divergirem, a transferencia padrao moveria lead que o rebalanceamento protege.
+  assert.equal(D.sqlTransferivel('p', '$2'), D.sqlRedistribuivel('p', '$2'))
+  assert.equal(D.sqlTransferivel('p', '$2', { incluirProtegidos: false }), D.sqlRedistribuivel('p', '$2'))
+})
+
+test('sqlTransferivel COM a caixa: nicho por id + porta de qualificacao, sem exigir ausencia de trabalho', () => {
+  const sql = D.sqlTransferivel('p', '$2', { incluirProtegidos: true })
+  assert.match(sql, /p\.nicho_id = \$2::uuid/, 'continua preso ao nicho da equipe')
+  assert.ok(!/p\.nicho\b(?!_id)/.test(sql), 'nunca pelo texto livre do nicho')
+  assert.ok(sql.includes('qualificacao'), 'descartado e pendente continuam fora (porta da 071)')
+  // O que ele deixa de exigir e' justamente a ausencia dos sinais de trabalho.
+  assert.ok(!sql.includes('agenda_eventos'), 'com a caixa marcada, reuniao marcada deixa de proteger')
+})
+
+test('sqlOrdemTransferencia: os INTOCADOS saem primeiro, sempre', () => {
+  // Marcar a caixa amplia o conjunto; nao faz a negociacao em andamento ser a primeira a sair.
+  const ordem = D.sqlOrdemTransferencia('p', '$2')
+  assert.match(ordem, /^CASE WHEN/, 'o primeiro criterio da ordem e o intocado')
+  assert.ok(ordem.includes(D.sqlRedistribuivel('p', '$2')), 'intocado segundo a MESMA regra do rebalanceamento')
+  assert.match(ordem, /THEN 0 ELSE 1 END/)
+})
+
+test('o motivo da transferencia e de vocabulario fechado e diferente do da puxada', () => {
+  assert.equal(D.ORIGEM.TRANSFERENCIA_ENTRE_MEMBROS, 'transferencia_entre_membros')
+  assert.notEqual(D.ORIGEM.TRANSFERENCIA_ENTRE_MEMBROS, D.ORIGEM.PUXADA_MANUAL,
+    'puxar tira da FILA; transferir tira da MAO de alguem — o historico precisa distinguir')
+})
+
+test('GUARDA: a rota de transferencia exige LEAD_TRANSFERIR, depois do tenant', () => {
+  const linha = ROTA.split('\n').find((l) => l.includes("router.post('/:equipeId/transferencia'"))
+  assert.ok(linha, 'a rota precisa existir')
+  assert.ok(linha.includes('CAP.LEAD_TRANSFERIR'), 'tirar lead da mao de alguem e decisao sobre carteira')
+  assert.ok(linha.indexOf('requireEmpresaAccess') < linha.indexOf('requireCapacidade'),
+    'capacidade depois do tenant, senao cai para todo mundo')
+})
+
+test('GUARDA: origem E destino precisam ser membros DESTA equipe', () => {
+  const corpo = EQUIPES.slice(
+    EQUIPES.indexOf('async function transferirLeadsNaEquipe'),
+    EQUIPES.indexOf('module.exports')
+  )
+  assert.ok(corpo.length > 200, 'transferirLeadsNaEquipe precisa existir')
+  assert.match(corpo, /FORA_DA_EQUIPE/, 'id de fora nao vira porta lateral')
+  assert.match(corpo, /v\.origemId/)
+  assert.match(corpo, /v\.destinoId/)
+  assert.match(corpo, /EQUIPE_ENCERRADA/, 'equipe encerrada e historico, nao movimenta')
+  assert.match(corpo, /D\.validarTransferencia/, 'a validacao do pedido e a da regra pura, nao uma segunda')
+})
+
+test('GUARDA: o rebalanceamento AUTOMATICO continua movendo so intocado', () => {
+  // A caixa de "incluir em andamento" e' da transferencia MANUAL. Se o rebalanceamento passasse
+  // a usa-la, quem ENTRA numa equipe tiraria negociacao da mao dos colegas sem ninguem pedir.
+  const rebal = DADOS.slice(DADOS.indexOf('async function rebalancearEquipe'), DADOS.indexOf('async function puxarLeads'))
+  assert.ok(rebal.includes('moverEntreMembros'), 'o rebalanceamento ainda cede entre membros')
+  assert.ok(!rebal.includes('incluirProtegidos'), 'o rebalanceamento nunca inclui protegidos')
+})
+
+test('GUARDA: a transferencia grava historico por lead com TRANSFERIU e motivo fechado', () => {
+  const corpo = DADOS.slice(DADOS.indexOf('async function transferirLeads'), DADOS.indexOf('module.exports'))
+  assert.ok(corpo.includes('registrarMudancasEmLote'), 'historico pelo dono da tabela')
+  assert.ok(corpo.includes('ACOES.TRANSFERIU'), 'o lead JA tinha dono: e transferencia, nao atribuicao')
+  assert.ok(corpo.includes('D.ORIGEM.TRANSFERENCIA_ENTRE_MEMBROS'), 'motivo de vocabulario fechado')
+  assert.ok(corpo.includes('travarEquipe'), 'dois gestores simultaneos precisam ser serializados')
+  assert.ok(corpo.includes("'equipe_comercial_leads_transferidos'"), 'linha agregada na auditoria')
+})
+
+test('GUARDA: a visibilidade da base bruta sai como BOOLEANO, e as concessoes nao vazam', () => {
+  // membrosDaEquipe alimenta respostas de API; acrescentar permissoes ali vazaria as concessoes
+  // de cada pessoa em /equipes-comerciais/:id.
+  const membros = EQUIPES.slice(EQUIPES.indexOf('async function membrosDaEquipe'), EQUIPES.indexOf('async function listarEquipes'))
+  assert.ok(!membros.includes('permissoes'), 'membrosDaEquipe nao seleciona permissoes')
+  const carteira = EQUIPES.slice(EQUIPES.indexOf('async function carteiraDaEquipe'), EQUIPES.indexOf('async function quemVeBaseBruta'))
+  assert.ok(carteira.includes('ve_base_bruta'), 'a carteira devolve a visibilidade de cada pessoa')
+  assert.ok(!/permissoes\s*:/.test(carteira), 'a resposta da carteira nao carrega permissoes')
+  assert.ok(EQUIPES.includes('podeCapacidade('), 'decidido pela regra de capacidade, nunca por papel literal')
+})
+
+test('GUARDA: os pontos de atencao sao LEITURA e nao comparam qualificacao com literal', () => {
+  const corpo = DADOS.slice(DADOS.indexOf('async function pontosDeAtencaoDoNicho'), DADOS.indexOf('async function resumoProtegidos'))
+  assert.ok(corpo.length > 100, 'pontosDeAtencaoDoNicho precisa existir')
+  for (const verbo of ['INSERT', 'UPDATE', 'DELETE']) assert.ok(!corpo.includes(verbo), `abrir o painel nao pode ${verbo}`)
+  assert.ok(corpo.includes('Q.QUALIFICACAO.PENDENTE'), 'o valor vem do modulo dono, como parametro')
+  assert.ok(!/qualificacao\s*=\s*'/.test(corpo), 'nada de literal de qualificacao')
+})

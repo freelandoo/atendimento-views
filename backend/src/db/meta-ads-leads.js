@@ -12,6 +12,7 @@
 const { pool } = require('../db')
 const { qualificacaoInicial } = require('../services/lead-qualificacao')
 const enriquecimentoDb = require('./enriquecimento-etapas')
+const { normalizarPais } = require('../services/paises')
 
 /**
  * Grava (ou atualiza) um lead vindo de um anuncio aproveitavel — o formato que
@@ -25,26 +26,28 @@ const enriquecimentoDb = require('./enriquecimento-etapas')
 async function salvarLeadDeAnuncio(lead, contexto = {}) {
   if (!lead || !lead.external_ref) return null
   const empresaId = lead.empresa_id || contexto.empresaId || contexto.empresa_id || null
+  const pais = normalizarPais(lead.pais || contexto.pais || contexto.country)
 
   const { rows } = await pool.query(
     `INSERT INTO prospectador.prospects
-       (empresa_id, origem, external_ref, nome, nicho, cidade, tem_site, site,
+       (empresa_id, origem, external_ref, nome, nicho, cidade, pais, tem_site, site,
         link_original, classificacao_url, categoria_perfil, bio, status, raw_json,
         qualificacao, anuncio_meta_ativo, anuncio_meta_inicio_em, anuncio_meta_page_id,
         anuncio_meta_verificado_em,
         instagram_handle, instagram_origem, instagram_confianca, instagram_evidencia,
         instagram_verificado_em,
         anuncio_meta_total_ativos, anuncio_meta_permalink, anuncio_meta_pagina_url)
-     VALUES ($1,'meta_ads',$2,$3,$4,$5,false,$6,
-             $7,$8,$9,$10,'coletado',$11::jsonb,
-             $12,$13,$14,$15,
+     VALUES ($1,'meta_ads',$2,$3,$4,$5,$6,false,$7,
+             $8,$9,$10,$11,'coletado',$12::jsonb,
+             $13,$14,$15,$16,
              NOW(),
-             $16,$17,$18,$19::jsonb,
-             CASE WHEN $16::text IS NULL THEN NULL ELSE NOW() END,
-             $20,$21,$22)
+             $17,$18,$19,$20::jsonb,
+             CASE WHEN $17::text IS NULL THEN NULL ELSE NOW() END,
+             $21,$22,$23)
      ON CONFLICT (empresa_id, origem, external_ref) WHERE external_ref IS NOT NULL
      DO UPDATE SET
         nome = EXCLUDED.nome,
+        pais = EXCLUDED.pais,
         -- so' promove: recoleta sem link novo nao apaga classificacao ja conhecida (mesmo
         -- padrao de upsertProspectSocial em social-capture.js).
         classificacao_url = CASE
@@ -87,7 +90,7 @@ async function salvarLeadDeAnuncio(lead, contexto = {}) {
         updated_at = NOW()
      RETURNING id, (xmax = 0) AS inserido`,
     [
-      empresaId, lead.external_ref, lead.nome, lead.nicho, lead.cidade, lead.site,
+      empresaId, lead.external_ref, lead.nome, lead.nicho, lead.cidade, pais, lead.site,
       lead.link_original, lead.classificacao_url, lead.categoria_perfil, lead.bio,
       JSON.stringify(lead.raw_json || {}),
       qualificacaoInicial(),
@@ -117,10 +120,11 @@ async function salvarLeadDeAnuncio(lead, contexto = {}) {
  * entrega o conjunto onde vale a pena procurar. Exclui o proprio canal: dois anuncios da mesma
  * pagina ja sao deduplicados pela chave `(empresa, origem, external_ref)`.
  */
-async function candidatosParaFusao(empresaId, cidade, limite = 60) {
+async function candidatosParaFusao(empresaId, cidade, pais = 'BR', limite = 60) {
   if (!empresaId) return []
   const cid = String(cidade || '').trim()
   const prefixo = cid ? `${cid.split(/[,\-]/)[0].trim()}%` : null
+  const paisNormalizado = normalizarPais(pais)
   // SEM cidade a busca da aba Meta e' legitima, e antes ela desligava a dedup inteira — era
   // assim que o mesmo negocio virava duas linhas (uma do Maps, uma do anuncio). Nesse caso o
   // conjunto passa a ser quem TEM @ de Instagram, que e' a prova forte usada por `mesmoNegocio`
@@ -130,11 +134,12 @@ async function candidatosParaFusao(empresaId, cidade, limite = 60) {
        FROM prospectador.prospects
       WHERE empresa_id = $1::uuid
         AND origem <> 'meta_ads'
+        AND COALESCE(pais, 'BR') = $4
         AND ($2::text IS NULL OR cidade ILIKE $2)
         AND ($2::text IS NOT NULL OR NULLIF(BTRIM(instagram_handle), '') IS NOT NULL)
       ORDER BY updated_at DESC
       LIMIT $3`,
-    [empresaId, prefixo, Math.max(1, Math.min(200, limite))]
+    [empresaId, prefixo, Math.max(1, Math.min(200, limite)), paisNormalizado]
   )
   return rows
 }

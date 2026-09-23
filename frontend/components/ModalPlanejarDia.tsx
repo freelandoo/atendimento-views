@@ -2,10 +2,10 @@
 /**
  * PLANEJAR MEU DIA — a porta de entrada do Quadro do Dia.
  *
- * ⚠️ NÃO DESPEJA A CARTEIRA. A lista que aparece aqui é a MESMA que a Lista já carregou (na
- * ordem de trabalho que o servidor calculou) e as SUGESTÕES que o backend conseguiu provar:
- * follow-up meu vencido e compromisso meu na agenda de hoje. Nada é adicionado sozinho — a
- * pessoa marca e confirma.
+ * ⚠️ NÃO DESPEJA A CARTEIRA NO DIA. A lista que aparece aqui vem de uma leitura própria de
+ * planejamento (mesmo recorte de responsável/nicho, sem herdar filtros da Lista) e das
+ * SUGESTÕES que o backend conseguiu provar: follow-up meu vencido e compromisso meu na agenda
+ * de hoje. Nada é adicionado sozinho — a pessoa marca e confirma.
  *
  * Adicionar ao dia **não assume lead de ninguém, não transfere responsável e não dispara
  * abordagem**: é planejamento. A regra vive no backend (`services/plano-dia.js` + a rota);
@@ -47,12 +47,16 @@ export type SugestaoDia = {
 }
 
 export default function ModalPlanejarDia({
-  aberto, onFechar, candidatos, sugestoes, jaNoDia, ocupado, onAdicionar, rotuloDia,
+  aberto, onFechar, candidatos, carregandoCarteira, erroCarteira, onRecarregarCarteira,
+  sugestoes, jaNoDia, ocupado, onAdicionar, rotuloDia,
 }: {
   aberto: boolean
   onFechar: () => void
-  /** A carteira já carregada pela Lista, na ordem de trabalho do servidor. */
+  /** A carteira de planejamento, na ordem de trabalho do servidor. */
   candidatos: CandidatoDia[]
+  carregandoCarteira?: boolean
+  erroCarteira?: string
+  onRecarregarCarteira?: () => void
   sugestoes: SugestaoDia[]
   /** Ids que já estão no dia — aparecem marcados e bloqueados, nunca somem da lista. */
   jaNoDia: Set<string>
@@ -148,7 +152,7 @@ export default function ModalPlanejarDia({
         <div className="grid grid-cols-2 gap-1 rounded-lg border border-line bg-surface-2 p-1" role="tablist" aria-label="Origem dos leads para planejar">
           {[
             { chave: 'esperando' as const, rotulo: 'Para hoje', total: sugeridos.length },
-            { chave: 'carteira' as const, rotulo: 'Carteira', total: disponiveis.length },
+            { chave: 'carteira' as const, rotulo: 'Carteira', total: carregandoCarteira ? '...' : disponiveis.length },
           ].map((item) => (
             <button
               key={item.chave}
@@ -227,7 +231,7 @@ export default function ModalPlanejarDia({
                 Na ordem de trabalho. Busque por nome ou combine filtros de nicho e localização.
               </p>
             </div>
-            {filtrados.length > 1 && (
+            {filtrados.length > 1 && !carregandoCarteira && !erroCarteira && (
               <Botao variante="secundaria" tamanho="sm" onClick={marcarFiltrados}>
                 Marcar os {filtrados.length} da lista
               </Botao>
@@ -294,7 +298,20 @@ export default function ModalPlanejarDia({
             )}
           </div>
 
-          {filtrados.length === 0 ? (
+          {carregandoCarteira ? (
+            <p className="mt-3 rounded-lg border border-line bg-surface-2 px-3 py-4 text-center text-xs text-ink-3">
+              Carregando carteira de planejamento…
+            </p>
+          ) : erroCarteira ? (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-center text-xs text-amber-800">
+              <p>{erroCarteira}</p>
+              {onRecarregarCarteira && (
+                <button type="button" onClick={onRecarregarCarteira} className="mt-1 font-medium text-brand underline-offset-2 hover:underline">
+                  Tentar novamente
+                </button>
+              )}
+            </div>
+          ) : filtrados.length === 0 ? (
             <p className="mt-3 rounded-lg border border-line bg-surface-2 px-3 py-4 text-center text-xs text-ink-3">
               {busca.trim() || nicho
                 ? 'Nenhum lead da carteira carregada bate com esse filtro.'

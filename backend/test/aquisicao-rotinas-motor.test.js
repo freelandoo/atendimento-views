@@ -46,7 +46,7 @@ function montarAmbiente({ rotinas = [], falharTrigger = null, aoVerificarColeta 
     const texto = String(sql)
 
     if (/INSERT INTO prospectador\.busca_snapshots/i.test(texto)) {
-      const [empresaId, nicho, cidade, origem, , rotinaId, quantidade, chave] = params
+      const [empresaId, nicho, cidade, pais, origem, , rotinaId, quantidade, chave] = params
       if (empresaId && estado.snapshots.some((s) => s.empresa_id === empresaId && ['pendente', 'processando'].includes(s.status))) {
         throw erroUnico('busca_snapshots_uma_ativa_por_empresa_uk')
       }
@@ -54,7 +54,7 @@ function montarAmbiente({ rotinas = [], falharTrigger = null, aoVerificarColeta 
       if (chave) estado.chaves.add(chave)
       const id = `snap-${++estado.seq}`
       estado.snapshots.push({
-        id, empresa_id: empresaId, nicho, cidade, origem, status: 'pendente',
+        id, empresa_id: empresaId, nicho, cidade, pais, origem, status: 'pendente',
         snapshot_id: null, rotina_id: rotinaId, quantidade_solicitada: quantidade,
       })
       estado.eventos.push({ tipo: 'reserva_persistida', id })

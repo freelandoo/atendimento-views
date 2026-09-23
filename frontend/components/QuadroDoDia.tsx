@@ -64,11 +64,9 @@ const TOM_COLUNA: Record<string, string> = {
 }
 
 export default function QuadroDoDia({
-  empresaId, candidatos, onAbrirLead,
+  empresaId, onAbrirLead,
 }: {
   empresaId: string
-  /** A carteira já carregada pela Lista — o Quadro não faz uma segunda listagem. */
-  candidatos: CandidatoDia[]
   /** Abre a ficha do lead (a mesma da Lista), na seção pedida. */
   onAbrirLead: (prospectId: string, gatilho: string) => void
 }) {
@@ -85,6 +83,9 @@ export default function QuadroDoDia({
   const [resumoFaixa, setResumoFaixa] = useState<ResumoDiaFaixa[]>([])
   const [carregandoFaixa, setCarregandoFaixa] = useState(false)
   const [planejarAberto, setPlanejarAberto] = useState(false)
+  const [candidatos, setCandidatos] = useState<CandidatoDia[]>([])
+  const [carregandoCandidatos, setCarregandoCandidatos] = useState(false)
+  const [erroCandidatos, setErroCandidatos] = useState('')
   const [arrastando, setArrastando] = useState<string | null>(null)
   const [alvo, setAlvo] = useState<EtapaDia | null>(null)
   /** O card que o servidor recusou concluir sem evidência — vira o modal da nota. */
@@ -94,6 +95,7 @@ export default function QuadroDoDia({
   // (mesmo contrato de `ConversaPainel`).
   const pedidoRef = useRef(0)
   const pedidoResumoRef = useRef(0)
+  const pedidoCandidatosRef = useRef(0)
   const ignorarCliqueAposArrasteRef = useRef(false)
 
   const carregarResumo = useCallback(async (diaBase: string) => {
@@ -141,6 +143,27 @@ export default function QuadroDoDia({
   }, [base, carregarResumo])
 
   useEffect(() => { carregar() }, [carregar])
+
+  const carregarCandidatos = useCallback(async () => {
+    const token = ++pedidoCandidatosRef.current
+    setCarregandoCandidatos(true)
+    setErroCandidatos('')
+    try {
+      const r = await apiFetch<CandidatoDia[]>(`${base}/plano-dia/candidatos`)
+      if (token !== pedidoCandidatosRef.current) return
+      setCandidatos(r.data || [])
+    } catch (e) {
+      if (token !== pedidoCandidatosRef.current) return
+      setErroCandidatos(e instanceof Error ? e.message : 'Não foi possível carregar a carteira de planejamento.')
+    } finally {
+      if (token === pedidoCandidatosRef.current) setCarregandoCandidatos(false)
+    }
+  }, [base])
+
+  function abrirPlanejamento() {
+    setPlanejarAberto(true)
+    void carregarCandidatos()
+  }
 
   const colunas = useMemo(() => montarColunas(itens), [itens])
   const resumo = useMemo(() => resumoDoDia(itens), [itens])
@@ -279,7 +302,7 @@ export default function QuadroDoDia({
             >
               ›
             </Botao>
-            <Botao variante="primaria" onClick={() => setPlanejarAberto(true)}>Planejar meu dia</Botao>
+            <Botao variante="primaria" onClick={abrirPlanejamento}>Planejar meu dia</Botao>
           </div>
         </div>
 
@@ -506,6 +529,9 @@ export default function QuadroDoDia({
         aberto={planejarAberto}
         onFechar={() => setPlanejarAberto(false)}
         candidatos={candidatos}
+        carregandoCarteira={carregandoCandidatos}
+        erroCarteira={erroCandidatos}
+        onRecarregarCarteira={carregarCandidatos}
         sugestoes={sugestoes}
         jaNoDia={jaNoDia}
         ocupado={ocupado}

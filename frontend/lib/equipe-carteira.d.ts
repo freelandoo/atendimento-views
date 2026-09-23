@@ -26,6 +26,15 @@ export interface LinhaCarteira {
   com_follow_up: number
   /** Leads COM reunião futura — não é quantas reuniões a pessoa fez. */
   com_reuniao: number
+  /** Leads com conversa aberta — o que a transferência "incluindo em andamento" leva junto. */
+  com_conversa?: number
+  /** Leads ainda não aprovados na triagem (subconjunto de `leads`). */
+  legado?: number
+  /**
+   * Se esta pessoa ENXERGA lead `legado` no Banco de Leads. Resolvido pelo BACKEND, pela regra de
+   * capacidade — a tela nunca deduz isso do papel.
+   */
+  ve_base_bruta?: boolean
 }
 
 export interface ColunaCarteira {
@@ -48,12 +57,16 @@ export interface ResumoProtegidos {
   explicacao: string
 }
 
+export type TipoAcaoAviso = 'mover' | 'puxar' | 'banco_leads' | 'triagem'
+
 export interface AvisoCarteira {
   chave: string
   tom: TomCelula
   titulo: string
   descricao: string
   pessoas?: string[]
+  /** O gesto que resolve o aviso. A tela liga o tipo a um botão; nenhum deles escreve sozinho. */
+  acao?: { tipo: TipoAcaoAviso; rotulo: string }
 }
 
 export interface OpcaoDistribuicao {
@@ -136,3 +149,89 @@ export interface ResultadoDevolucao {
  * mesmo lead com reunião marcada ou conversa aberta volta. `null` quando ninguém foi removido.
  */
 export declare function resumoDaDevolucao(devolucao: ResultadoDevolucao[] | null | undefined): string | null
+
+// ─── Pontos de atenção e transferência (2026-09-23) ─────────────────────────────────────
+
+/** A resposta de `GET /equipes-comerciais/:id/carteira`, com os pontos de atenção. */
+export interface CarteiraDoNichoResposta {
+  equipe?: { nicho_nome?: string | null } | null
+  membros?: LinhaCarteira[] | null
+  disponiveis_para_puxar?: number
+  protegidos?: MotivoProtegido[] | null
+  /** Leads DESTE nicho aguardando triagem. */
+  aguardando_triagem?: number
+  /** Leads aprovados da EMPRESA sem nicho — número da empresa, não da equipe. */
+  sem_nicho?: number
+  /** Leads deste nicho na mão de quem não é da equipe. */
+  fora_da_equipe?: { leads: number; pessoas: number } | null
+}
+
+export declare const ACAO_AVISO: Readonly<{ MOVER: 'mover'; PUXAR: 'puxar'; BANCO_LEADS: 'banco_leads'; TRIAGEM: 'triagem' }>
+
+/** `null` quando ninguém tem lead que não enxerga. */
+export declare function avisoLeadsInvisiveis(membros: LinhaCarteira[] | null | undefined): AvisoCarteira | null
+export declare function avisoAguardandoTriagem(total: number | null | undefined, nicho?: string | null): AvisoCarteira | null
+export declare function avisoForaDaEquipe(
+  fora: { leads: number; pessoas: number } | null | undefined,
+  nicho?: string | null
+): AvisoCarteira | null
+export declare function avisoSemNicho(total: number | null | undefined): AvisoCarteira | null
+
+/** Todos os pontos de atenção, em baldes de gravidade (perigo, alerta, neutro). `[]` sem carteira. */
+export declare function pontosDeAtencao(carteira: CarteiraDoNichoResposta | null | undefined): AvisoCarteira[]
+
+/** Junta listas de avisos, tira nulos e repetições por `chave`, e agrupa por gravidade. */
+export declare function juntarAvisos(
+  ...listas: (ReadonlyArray<AvisoCarteira | { chave: string; tom?: string } | null | undefined> | AvisoCarteira | null | undefined)[]
+): AvisoCarteira[]
+
+export interface OpcaoPessoa { id: string; rotulo: string }
+export declare function origensDaTransferencia(membros: LinhaCarteira[] | null | undefined): OpcaoPessoa[]
+export declare function destinosDaTransferencia(membros: LinhaCarteira[] | null | undefined, origemId: string | null | undefined): OpcaoPessoa[]
+
+export interface PreviaTransferencia {
+  /** Quantos dá para mover com a escolha atual (intocados, ou todos com a caixa marcada). */
+  maximo: number
+  /** O que de fato sairia: `min(pedido, maximo)`. */
+  efetiva: number
+  intocados: number
+  emAndamento: number
+  /** Quantos dos que saem viriam dos em andamento (os intocados saem primeiro). */
+  dosEmAndamento: number
+  riscos: string[]
+  /** Frase pronta, vazia quando nada em andamento sai. */
+  aviso: string
+}
+
+export declare function previaTransferencia(dados: {
+  origem?: Partial<LinhaCarteira> | null
+  destinoNome?: string | null
+  quantidade?: number | string
+  incluirProtegidos?: boolean
+}): PreviaTransferencia
+
+/** Não é a validação de verdade — a do backend manda. Evita um POST que já se sabe que falharia. */
+export declare function validarTransferenciaTela(dados: {
+  origemId?: string | null
+  destinoId?: string | null
+  quantidade?: number | string
+  maximo?: number
+  incluirProtegidos?: boolean
+}): { pode: boolean; motivo: string }
+
+export interface ResultadoTransferencia {
+  movidos: number
+  solicitados?: number
+  incluir_protegidos?: boolean
+  origem_id?: string
+  destino_id?: string
+  com_reuniao?: number
+  com_conversa?: number
+  com_follow_up?: number
+}
+
+/** Usa o número REAL devolvido pelo banco; `movidos < solicitados` não é erro. */
+export declare function resumoDaTransferencia(
+  resultado: ResultadoTransferencia | null | undefined,
+  nomePorId?: Record<string, string>
+): { tom: TomCelula; texto: string }

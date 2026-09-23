@@ -21,6 +21,10 @@
 // espalhar o estado por duas células. O interruptor é o MESMO de `InterruptorAtivacao` — a
 // caixa com rótulo e balão pesaria por linha, então só o controle nu é reusado.
 //
+// ─── O QUE MUDOU (2026-09-23) ────────────────────────────────────────────────────────────
+// Quem teve o acesso revogado não aparece mais (`pessoasDoModal`), o aviso fixo do topo saiu e a
+// lista ganhou altura. A folha voltou a `lg` para a lista respirar.
+//
 // ─── O QUE ESTE COMPONENTE NÃO SABE ─────────────────────────────────────────────────────
 // Nenhuma regra. Situação, contagem, filtro, diff (quem entra/quem sai), texto do rodapé, texto
 // de confirmação e o corpo do PUT vêm de `lib/equipe-area.js` (puro e testado) — mesmo contrato
@@ -32,7 +36,6 @@ import Botao from '@/components/ui/Botao'
 import EstadoVazio from '@/components/ui/EstadoVazio'
 import { Interruptor } from '@/components/ui/InterruptorAtivacao'
 import {
-  AVISO_DEVOLUCAO_LEADS,
   FILTROS_MODAL,
   contagensDoModal,
   corpoDeParticipantes,
@@ -139,9 +142,8 @@ export default function ModalGerenciarMembros({
         aberto={aberto}
         titulo="Gerenciar membros da equipe"
         descricao="Ligue para adicionar, desligue para retirar. As alterações valem assim que você salvar."
-        // `md` e não `lg`: com o interruptor no lugar da tabela de quatro colunas, 4xl deixava a
-        // folha ocupando a tela inteira sem usar a largura para nada.
-        tamanho="md"
+        // `lg`: a lista é o trabalho deste modal, e em `md` ela ficava espremida (2026-09-23).
+        tamanho="lg"
         onFechar={fechar}
         rodape={
           <>
@@ -173,10 +175,9 @@ export default function ModalGerenciarMembros({
           </span>
         </div>
 
-        {/* ── A consequência de desmarcar, dita UMA vez no topo, em vez de só no clique. ──── */}
-        <p className="mt-3 rounded-lg border border-estado-warn/30 bg-estado-warn/10 px-3 py-2 text-xs text-ink-2">
-          <span className="font-medium text-ink">Desmarcar remove.</span> {AVISO_DEVOLUCAO_LEADS}
-        </p>
+        {/* O aviso fixo "Desmarcar remove" saiu (operador, 2026-09-23): a linha já diz "Sai ao
+            salvar — os leads dela voltam para a fila" e salvar com saída passa pela confirmação
+            nomeando quem sai. A consequência continua dita antes de acontecer. */}
 
         {/* ── Busca ─────────────────────────────────────────────────────────────────────── */}
         <label className="mt-4 block">
@@ -222,7 +223,7 @@ export default function ModalGerenciarMembros({
 
             A ALTURA É LIMITADA de propósito: sem isto a folha crescia até 90% da tela conforme
             o tamanho da equipe, e o mesmo modal tinha tamanhos diferentes em cada empresa. */}
-        <div className="mt-3 max-h-[min(24rem,45dvh)] overflow-y-auto overscroll-contain rounded-lg border border-line">
+        <div className="mt-3 max-h-[min(36rem,60dvh)] overflow-y-auto overscroll-contain rounded-lg border border-line">
           {visiveis.length === 0 ? (
             <EstadoVazio
               titulo={busca ? 'Ninguém com esse nome ou e-mail' : 'Nenhuma pessoa neste filtro'}

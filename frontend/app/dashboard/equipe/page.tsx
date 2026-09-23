@@ -36,6 +36,7 @@ import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import ModalGerenciarMembros from '@/components/ModalGerenciarMembros'
 import ModalEquipe, { type DadosEquipe, type Nicho } from '@/components/ModalEquipe'
 import ModalPuxarLeads, { type DadosPuxada } from '@/components/ModalPuxarLeads'
+import ModalMoverLeads, { type DadosTransferencia } from '@/components/ModalMoverLeads'
 import {
   ABAS,
   ATIVIDADE_HOJE_COLUNAS,
@@ -57,14 +58,17 @@ import {
   filtrarEquipes,
   filtrarPessoas,
   formatarDinheiro,
+  juntarAvisos,
   montarEquipes,
   montarPessoas,
   ordenarEquipe,
   ordenarPorAtividadeHoje,
   papeisPresentes,
   podeEncerrar,
+  pontosDeAtencao,
   resumoDaDevolucao,
   resumoDaPuxada,
+  resumoDaTransferencia,
   resumoDeMembros,
   resumoDoRebalanceamento,
   resumoDoRecorte,
@@ -80,6 +84,7 @@ import {
 } from '@/lib/equipe-area'
 import type {
   AlertaEquipe,
+  AvisoCarteira,
   CartaoResumo,
   EquipeArea,
   EquipeResumo,
@@ -92,6 +97,7 @@ import type {
   ResultadoDevolucao,
   ResultadoPuxada,
   ResultadoRebalanceamento,
+  ResultadoTransferencia,
 } from '@/lib/equipe-area'
 
 type RespostaEquipe = {
@@ -116,6 +122,10 @@ type RespostaCarteira = {
   livres: LinhaCarteira
   disponiveis_para_puxar: number
   protegidos: MotivoProtegido[]
+  // Pontos de atencao (2026-09-23). Contagens prontas do backend; a tela so' traduz.
+  aguardando_triagem?: number
+  sem_nicho?: number
+  fora_da_equipe?: { leads: number; pessoas: number } | null
 }
 
 const CHAVE_ABA = 'equipeArea.aba'
@@ -169,6 +179,8 @@ export default function EquipePage() {
   const [criando, setCriando] = useState(false)
   const [encerrando, setEncerrando] = useState<EquipeArea | null>(null)
   const [puxandoDe, setPuxandoDe] = useState<EquipeArea | null>(null)
+  // Mover leads ENTRE pessoas. `origem` vem preenchida quando o gestor clica na linha de alguem.
+  const [movendo, setMovendo] = useState<{ equipe: EquipeArea; origem: string | null } | null>(null)
 
   // A carteira do nicho é carregada SÓ para a equipe aberta: são contagens sobre a carteira
   // inteira do nicho, caras demais para virem junto da lista de equipes.
@@ -350,6 +362,22 @@ export default function EquipePage() {
     await carregarCarteira(alvo.id)
   }
 
+  async function confirmarTransferencia(d: DadosTransferencia) {
+    if (!movendo) return
+    const alvo = movendo.equipe
+    const nomePorId: Record<string, string> = {}
+    for (const m of carteira?.membros || []) nomePorId[String(m.usuario_id)] = m.nome || 'sem nome'
+    await fb.runTask(
+      () => apiFetch<ResultadoTransferencia>(`${base}/${alvo.id}/transferencia`, { method: 'POST', body: JSON.stringify(d) }),
+      // Sem mensagem fixa, pelo mesmo motivo da puxada: quem diz o que aconteceu e' o numero REAL,
+      // e ele pode ser menor que o pedido (alguem mexeu num lead entre a tela e o clique).
+      { sucesso: (r) => resumoDaTransferencia(r?.data, nomePorId).texto },
+    )
+    setMovendo(null)
+    await carregar()
+    await carregarCarteira(alvo.id)
+  }
+
   async function confirmarEncerramento() {
     if (!encerrando) return
     const alvo = encerrando
@@ -416,6 +444,7 @@ export default function EquipePage() {
               onMembros={setMembrosDe}
               onEncerrar={setEncerrando}
               onPuxar={setPuxandoDe}
+              onMover={(eq, origem) => setMovendo({ equipe: eq, origem: origem || null })}
               onRecarregarCarteira={() => void carregarCarteira(selecionada)}
               onVerAtividade={setAtividadeDe}
             />
@@ -492,6 +521,16 @@ export default function EquipePage() {
         onConfirmar={confirmarPuxada}
       />
 
+      <ModalMoverLeads
+        aberto={Boolean(movendo) && Boolean(carteira)}
+        nomeNicho={carteira?.equipe.nicho_nome || movendo?.equipe.nicho_nome || 'este nicho'}
+        membros={carteira?.membros || []}
+        origemInicial={movendo?.origem || null}
+        ocupado={fb.ocupado}
+        onFechar={() => setMovendo(null)}
+        onConfirmar={confirmarTransferencia}
+      />
+
       {encerrando && (
         <ModalConfirmar
           titulo="Encerrar equipe"
@@ -525,12 +564,34 @@ function CartaoResumoBloco({ cartao }: { cartao: CartaoResumo }) {
   )
 }
 
+/** Os gestos que um aviso pode oferecer. Ausente = o aviso não ganha botão (nunca um inerte). */
+type AcoesDoAviso = { mover?: () => void; puxar?: () => void }
+
+// Destinos de NAVEGAÇÃO dos avisos. Só abrem outra tela; nenhum escreve nada.
+const DESTINO_DO_AVISO: Record<string, string> = {
+  banco_leads: '/dashboard/banco-leads',
+  triagem: '/dashboard/aquisicao',
+}
+
 /** Um aviso. O tom é reforço; título e descrição dizem tudo em texto. */
-function Aviso({ alerta }: { alerta: AlertaEquipe }) {
+function Aviso({ alerta, acoes }: { alerta: AlertaEquipe | AvisoCarteira; acoes?: AcoesDoAviso }) {
+  const acao = 'acao' in alerta ? alerta.acao : undefined
+  const handler = acao?.tipo === 'mover' ? acoes?.mover : acao?.tipo === 'puxar' ? acoes?.puxar : undefined
+  const destino = acao ? DESTINO_DO_AVISO[acao.tipo] : undefined
   return (
     <div className={`rounded-lg border px-3 py-2.5 ${TOM_AVISO[alerta.tom] || TOM_AVISO.neutro}`}>
       <p className="text-sm font-medium text-ink">{alerta.titulo}</p>
       <p className="mt-0.5 text-xs text-ink-3">{alerta.descricao}</p>
+      {acao && handler && (
+        <button type="button" onClick={handler} className="mt-1.5 text-xs font-medium text-brand underline-offset-2 hover:underline">
+          {acao.rotulo}
+        </button>
+      )}
+      {acao && !handler && destino && (
+        <a href={destino} className="mt-1.5 inline-block text-xs font-medium text-brand underline-offset-2 hover:underline">
+          {acao.rotulo}
+        </a>
+      )}
     </div>
   )
 }
@@ -655,7 +716,7 @@ function VisaoGeral({
 
 function ListaEDetalhe({
   equipes, total, aberta, busca, prazoParado, carteira, carregandoCarteira, erroCarteira,
-  onBuscar, onSelecionar, onNova, onEditar, onMembros, onEncerrar, onPuxar,
+  onBuscar, onSelecionar, onNova, onEditar, onMembros, onEncerrar, onPuxar, onMover,
   onRecarregarCarteira, onVerAtividade,
 }: {
   equipes: EquipeArea[]
@@ -673,6 +734,7 @@ function ListaEDetalhe({
   onMembros: (e: EquipeArea) => void
   onEncerrar: (e: EquipeArea) => void
   onPuxar: (e: EquipeArea) => void
+  onMover: (e: EquipeArea, origem?: string | null) => void
   onRecarregarCarteira: () => void
   onVerAtividade: (p: PessoaArea) => void
 }) {
@@ -770,6 +832,7 @@ function ListaEDetalhe({
           onMembros={onMembros}
           onEncerrar={onEncerrar}
           onPuxar={onPuxar}
+          onMover={onMover}
           onRecarregarCarteira={onRecarregarCarteira}
           onVerAtividade={onVerAtividade}
         />
@@ -784,7 +847,7 @@ function ListaEDetalhe({
 
 function DetalheEquipe({
   equipe, prazoParado, carteira, carregandoCarteira, erroCarteira,
-  onEditar, onMembros, onEncerrar, onPuxar, onRecarregarCarteira, onVerAtividade,
+  onEditar, onMembros, onEncerrar, onPuxar, onMover, onRecarregarCarteira, onVerAtividade,
 }: {
   equipe: EquipeArea
   prazoParado: number
@@ -795,14 +858,25 @@ function DetalheEquipe({
   onMembros: (e: EquipeArea) => void
   onEncerrar: (e: EquipeArea) => void
   onPuxar: (e: EquipeArea) => void
+  onMover: (e: EquipeArea, origem?: string | null) => void
   onRecarregarCarteira: () => void
   onVerAtividade: (p: PessoaArea) => void
 }) {
   const estado = estadoDaEquipe(equipe)
   const fim = podeEncerrar(equipe)
-  const alertas = alertasDaEquipe(equipe, prazoParado)
+  // UM bloco de PONTOS DE ATENCAO, no topo: o que a carteira do nicho revela (lead que a pessoa
+  // nao enxerga, triagem pendente, lead fora da equipe, sem nicho, desequilibrio) junto dos
+  // alertas da equipe. Antes ficavam espalhados — parte no rodape da carteira, parte no fim da
+  // pagina — e o gestor so' os via depois de ja' ter distribuido.
+  const avisos = juntarAvisos(pontosDeAtencao(carteira), alertasDaEquipe(equipe, prazoParado))
   const ocultos = avisoMembrosOcultos(equipe)
   const membros = ordenarEquipe(equipe.membros)
+  const podeMover = Boolean(carteira) && (carteira?.membros || []).filter((m) => (m.leads || 0) > 0).length > 0
+    && (carteira?.membros || []).length >= 2
+  const acoesDoAviso: AcoesDoAviso = {
+    mover: equipe.status === 'ativa' && podeMover ? () => onMover(equipe, null) : undefined,
+    puxar: equipe.status === 'ativa' ? () => onPuxar(equipe) : undefined,
+  }
 
   return (
     <div className="space-y-4">
@@ -850,6 +924,19 @@ function DetalheEquipe({
                 >
                   Puxar mais leads
                 </Botao>
+                {/* Mover ENTRE pessoas. Desabilitado COM motivo quando nao ha a quem ou de quem mover. */}
+                <Botao
+                  tamanho="sm"
+                  onClick={() => onMover(equipe, null)}
+                  disabled={!podeMover}
+                  motivoDesabilitado={
+                    !carteira ? 'Carregando a carteira do nicho…'
+                      : (carteira.membros || []).length < 2 ? 'É preciso ter pelo menos duas pessoas na equipe.'
+                        : 'Ninguém da equipe tem leads deste nicho para ceder.'
+                  }
+                >
+                  Mover leads
+                </Botao>
                 <Botao tamanho="sm" onClick={() => onMembros(equipe)}>Gerenciar membros</Botao>
                 <Botao tamanho="sm" onClick={() => onEditar(equipe)}>Editar equipe</Botao>
               </>
@@ -870,6 +957,26 @@ function DetalheEquipe({
 
         {ocultos && <p className="mt-3 text-xs text-estado-warn">{ocultos}</p>}
       </Card>
+
+      {/* ── Pontos de atenção: NO TOPO, antes das métricas ─────────────────────────────
+          O que impede a distribuição de sair certa tem de ser visto ANTES de distribuir. Some
+          quando não há nada a fazer — não se ocupa espaço para dizer que está tudo bem. */}
+      {avisos.length > 0 && (
+        <section
+          aria-label="Pontos de atenção da distribuição"
+          className="rounded-lg border border-line bg-surface p-4 shadow-card"
+        >
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+            <h4 className="text-sm font-semibold text-ink">
+              {avisos.length === 1 ? '1 ponto de atenção' : `${avisos.length} pontos de atenção`}
+            </h4>
+            <p className="text-xs text-ink-3">Resolva antes de distribuir, para os leads chegarem a quem vai trabalhá-los.</p>
+          </div>
+          <div className="grid gap-2 lg:grid-cols-2">
+            {avisos.map((a) => <Aviso key={a.chave} alerta={a} acoes={acoesDoAviso} />)}
+          </div>
+        </section>
+      )}
 
       {/* ── Métricas da equipe ────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
@@ -894,6 +1001,7 @@ function DetalheEquipe({
         erro={erroCarteira}
         onRecarregar={onRecarregarCarteira}
         onPuxar={() => onPuxar(equipe)}
+        onMover={equipe.status === 'ativa' ? (origem) => onMover(equipe, origem) : undefined}
       />
 
       {/* ── Membros ───────────────────────────────────────────────────────────────────── */}
@@ -913,14 +1021,6 @@ function DetalheEquipe({
         )}
       </Card>
 
-      {/* ── Alertas da equipe ─────────────────────────────────────────────────────────── */}
-      {alertas.length > 0 && (
-        <Card titulo="Alertas da equipe" descricao="Pontos que pedem ação de quem coordena.">
-          <div className="grid gap-2 sm:grid-cols-2">
-            {alertas.map((a) => <Aviso key={a.chave} alerta={a} />)}
-          </div>
-        </Card>
-      )}
     </div>
   )
 }
@@ -934,7 +1034,7 @@ function DetalheEquipe({
 // A tela não decide nada: "intocado", "protegido" e as contagens vêm resolvidas do servidor
 // (`backend/src/services/lead-distribuicao.js`). Aqui só se traduz.
 function CarteiraDoNicho({
-  equipe, carteira, carregando, erro, onRecarregar, onPuxar,
+  equipe, carteira, carregando, erro, onRecarregar, onPuxar, onMover,
 }: {
   equipe: EquipeArea
   carteira: RespostaCarteira | null
@@ -942,11 +1042,14 @@ function CarteiraDoNicho({
   erro: string
   onRecarregar: () => void
   onPuxar: () => void
+  /** Ausente em equipe encerrada: ali nao se move nada. */
+  onMover?: (origem: string) => void
 }) {
   const membros = carteira?.membros || []
   const protegido = resumoProtegidos(carteira?.protegidos || [])
-  const desequilibrio = avisoDesequilibrio(membros)
-  const semLivres = carteira ? avisoSemDisponiveis(carteira.disponiveis_para_puxar, carteira.protegidos) : null
+  // Desequilibrio e "sem leads livres" sairam daqui: sao PONTOS DE ATENCAO e vivem no topo do
+  // detalhe da equipe, antes das metricas. Aqui ficaria duplicado.
+  const podeCeder = Boolean(onMover) && membros.length >= 2
   const nicho = carteira?.equipe.nicho_nome || equipe.nicho_nome || 'este nicho'
 
   return (
@@ -986,6 +1089,7 @@ function CarteiraDoNicho({
                       {c.rotulo}
                     </th>
                   ))}
+                  {podeCeder && <th scope="col" className="px-3 py-2"><span className="sr-only">Ações</span></th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -1000,6 +1104,21 @@ function CarteiraDoNicho({
                         </td>
                       )
                     })}
+                    {podeCeder && (
+                      <td className="px-3 py-2 text-right">
+                        {/* Só quem TEM lead do nicho pode ceder; quem não tem não ganha botão inerte. */}
+                        {(m.leads || 0) > 0 && onMover && (
+                          <button
+                            type="button"
+                            onClick={() => onMover(String(m.usuario_id))}
+                            className="text-xs text-brand underline-offset-2 hover:underline"
+                            aria-label={`Mover leads de ${m.nome || 'sem nome'}`}
+                          >
+                            Mover
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {/* A fila de LIVRES é linha própria: é o que a equipe ainda pode puxar, e sem ela
@@ -1013,6 +1132,7 @@ function CarteiraDoNicho({
                       {c.chave === 'parados' ? '—' : valorDaCarteira(carteira.livres, c)}
                     </td>
                   ))}
+                  {podeCeder && <td className="px-3 py-2" />}
                 </tr>
               </tbody>
             </table>
@@ -1028,8 +1148,6 @@ function CarteiraDoNicho({
                 </span>
               )}
             </p>
-            {desequilibrio && <Aviso alerta={desequilibrio} />}
-            {semLivres && <Aviso alerta={semLivres} />}
             {equipe.status === 'ativa' && carteira.disponiveis_para_puxar > 0 && (
               <Botao tamanho="sm" onClick={onPuxar}>Puxar mais leads</Botao>
             )}

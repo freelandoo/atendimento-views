@@ -21,6 +21,7 @@
 
 const D = require('../services/lead-distribuicao')
 const LP = require('../services/lead-parado')
+const Q = require('../services/lead-qualificacao')
 const { registrarMudancasEmLote, assertResponsavelDaEmpresa } = require('./lead-responsavel')
 const { ACOES } = require('../services/lead-responsavel')
 // So' para o PESO de desempenho do rebalanceamento automatico (D.pesoDesempenho) — nunca para
@@ -70,13 +71,18 @@ async function carteiraDaEquipe(exec, empresaId, nichoId, { prazoParado } = {}) 
             COUNT(*) FILTER (WHERE ${D.sqlRedistribuivel('p', '$2')})::int AS intocados,
             COUNT(*) FILTER (WHERE p.responsavel_id IS NOT NULL AND ${LP.sqlEstaParado('p', '$3')})::int AS parados,
             COUNT(*) FILTER (WHERE ${D.sqlFollowUpPorTelefone('p')})::int AS com_follow_up,
-            COUNT(*) FILTER (WHERE ${D.sqlReuniaoFutura('p')})::int AS com_reuniao
+            COUNT(*) FILTER (WHERE ${D.sqlReuniaoFutura('p')})::int AS com_reuniao,
+            -- As duas abaixo alimentam os PONTOS DE ATENCAO e a previa da transferencia. legado
+            -- e' o lead que so quem ve a base bruta enxerga (a armadilha da Pousada, 2026-09-22);
+            -- com_conversa e' o que a transferencia incluindo em andamento leva junto.
+            COUNT(*) FILTER (WHERE p.qualificacao = $4)::int AS legado,
+            COUNT(*) FILTER (WHERE ${D.sqlConversaAberta('p')})::int AS com_conversa
        FROM prospectador.prospects p
       WHERE p.empresa_id = $1
         AND p.nicho_id = $2::uuid
         AND p.qualificacao IN ('aprovado', 'legado')
       GROUP BY p.responsavel_id`,
-    [empresaId, nichoId, prazo]
+    [empresaId, nichoId, prazo, Q.QUALIFICACAO.LEGADO]
   )
   return rows.map((r) => ({
     responsavel_id: r.responsavel_id,
@@ -88,7 +94,38 @@ async function carteiraDaEquipe(exec, empresaId, nichoId, { prazoParado } = {}) 
     parados: r.parados,
     com_follow_up: r.com_follow_up,
     com_reuniao: r.com_reuniao,
+    legado: r.legado,
+    com_conversa: r.com_conversa,
   }))
+}
+
+/**
+ * Os PONTOS DE ATENCAO da carteira que a tabela por pessoa nao mostra — e que ja' custaram caro.
+ *
+ * `aguardando_triagem`: leads DESTE nicho em `pendente`. Nao podem ser distribuidos nem abordados
+ * ate alguem aprovar (a porta da migration 071); contados antes sob o rotulo generico
+ * "nao abordavel", que nao dizia ao gestor o que fazer.
+ *
+ * `sem_nicho`: leads ABORDAVEIS da empresa com `nicho_id` NULO. Nao pertencem a equipe nenhuma e
+ * por isso nao aparecem em lugar nenhum desta tela — foi a causa-raiz de "leads aprovados nao
+ * distribuem" (2026-09-21). E' um numero da EMPRESA, e a tela diz isso.
+ *
+ * Somente leitura. Os valores de qualificacao vao como PARAMETRO: comparar com literal fora de
+ * `services/lead-qualificacao.js` e' proibido (guarda em test/lead-qualificacao.test.js).
+ */
+async function pontosDeAtencaoDoNicho(exec, empresaId, nichoId) {
+  const { rows } = await exec.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE p.nicho_id = $2::uuid AND p.qualificacao = $3)::int AS aguardando_triagem,
+       COUNT(*) FILTER (WHERE p.nicho_id IS NULL AND ${Q.sqlAbordavel('p')})::int AS sem_nicho
+       FROM prospectador.prospects p
+      WHERE p.empresa_id = $1`,
+    [empresaId, nichoId, Q.QUALIFICACAO.PENDENTE]
+  )
+  return {
+    aguardando_triagem: rows[0]?.aguardando_triagem || 0,
+    sem_nicho: rows[0]?.sem_nicho || 0,
+  }
 }
 
 /**
@@ -222,16 +259,23 @@ async function atribuirLivres(client, { empresaId, nichoId, destinoId, limite, c
  * no plano de trabalho dela. `responsavel_desde` e' NOT NULL sempre que ha responsavel (CHECK da
  * migration 072), entao o `NULLS LAST` cobre so' dado fora do contrato.
  */
-async function moverEntreMembros(client, { empresaId, nichoId, origemId, destinoId, limite }) {
+async function moverEntreMembros(client, { empresaId, nichoId, origemId, destinoId, limite, incluirProtegidos = false }) {
   if (!(limite > 0) || String(origemId) === String(destinoId)) return []
+  // Sem `incluirProtegidos` (o rebalanceamento automatico), predicado e ordem sao os de sempre —
+  // ha' teste cobrando que o predicado continua IDENTICO a `sqlRedistribuivel`. Com ele (so' a
+  // transferencia manual), o conjunto AMPLIA e os intocados continuam saindo primeiro.
+  const universo = D.sqlTransferivel('p', '$2', { incluirProtegidos })
+  const ordem = incluirProtegidos
+    ? D.sqlOrdemTransferencia('p', '$2')
+    : 'p.responsavel_desde DESC NULLS LAST, p.created_at DESC'
   const { rows } = await client.query(
     `WITH alvo AS (
        SELECT p.id
          FROM prospectador.prospects p
         WHERE p.empresa_id = $1
           AND p.responsavel_id = $3::uuid
-          AND ${D.sqlRedistribuivel('p', '$2')}
-        ORDER BY p.responsavel_desde DESC NULLS LAST, p.created_at DESC
+          AND ${universo}
+        ORDER BY ${ordem}
         LIMIT $5
      )
      UPDATE prospectador.prospects t
@@ -426,13 +470,101 @@ async function puxarLeads(client, { empresaId, equipeId, nichoId, usuarioIds, qu
   }
 }
 
+/**
+ * Quantos dos leads MOVIDOS carregavam trabalho junto. Somente leitura, sobre ate' 500 ids.
+ *
+ * Existe porque a previa so' sabe quantos a pessoa TEM com reuniao/conversa; quais deles saem
+ * depende da ordem. O resultado precisa dizer o numero REAL que mudou de mao.
+ */
+async function sinaisDosMovidos(client, empresaId, ids) {
+  if (!ids.length) return { com_reuniao: 0, com_conversa: 0, com_follow_up: 0 }
+  const { rows } = await client.query(
+    `SELECT COUNT(*) FILTER (WHERE ${D.sqlReuniaoFutura('p')})::int AS com_reuniao,
+            COUNT(*) FILTER (WHERE ${D.sqlConversaAberta('p')})::int AS com_conversa,
+            COUNT(*) FILTER (WHERE ${D.sqlFollowUpPorTelefone('p')})::int AS com_follow_up
+       FROM prospectador.prospects p
+      WHERE p.empresa_id = $1 AND p.id = ANY($2::uuid[])`,
+    [empresaId, ids]
+  )
+  return {
+    com_reuniao: rows[0]?.com_reuniao || 0,
+    com_conversa: rows[0]?.com_conversa || 0,
+    com_follow_up: rows[0]?.com_follow_up || 0,
+  }
+}
+
+/**
+ * TRANSFERIR leads de UMA pessoa para OUTRA, dentro da mesma equipe (2026-09-23).
+ *
+ * Roda DENTRO da transacao aberta por `db/equipes-comerciais.js`, que ja' conferiu equipe ativa e
+ * que origem e destino sao membros dela. Aqui ficam as tres garantias que valem para toda escrita
+ * de dono deste modulo:
+ *   (a) lock da equipe — dois gestores transferindo juntos leriam o mesmo "antes";
+ *   (b) UPDATE CONDICIONADO ao cedente (`moverEntreMembros`) — o lead que alguem assumiu,
+ *       devolveu ou recebeu entre a tela e o clique simplesmente nao entra;
+ *   (c) historico por lead pelo DONO da tabela, com motivo de vocabulario FECHADO.
+ *
+ * `movidos < solicitados` nao e' erro: cobre "a pessoa tinha menos do que se pediu" e "alguem
+ * mexeu no meio". A tela usa o numero REAL.
+ */
+async function transferirLeads(client, {
+  empresaId, equipeId, nichoId, origemId, destinoId, quantidade, incluirProtegidos = false, autorId,
+} = {}) {
+  await travarEquipe(client, empresaId, equipeId)
+
+  const ids = await moverEntreMembros(client, {
+    empresaId, nichoId, origemId, destinoId, limite: quantidade, incluirProtegidos,
+  })
+
+  // So' vale a consulta de sinais quando podia haver protegido no lote: sem a caixa marcada, o
+  // predicado ja' garante que nenhum dos movidos tinha reuniao, conversa ou follow-up.
+  const sinais = incluirProtegidos
+    ? await sinaisDosMovidos(client, empresaId, ids)
+    : { com_reuniao: 0, com_conversa: 0, com_follow_up: 0 }
+
+  if (ids.length) {
+    await registrarMudancasEmLote(client, {
+      empresaId, prospectIds: ids, anterior: origemId, novo: destinoId,
+      usuarioId: autorId, acao: ACOES.TRANSFERIU, motivo: D.ORIGEM.TRANSFERENCIA_ENTRE_MEMBROS,
+    })
+    await auditarOperacao(client, {
+      empresaId, usuarioId: autorId, equipeId, acao: 'equipe_comercial_leads_transferidos',
+      // Sem PII: ids de pessoa sao chave, nao dado pessoal; nenhum nome, telefone ou lead.
+      contexto: {
+        nicho_id: nichoId,
+        origem_id: String(origemId),
+        destino_id: String(destinoId),
+        solicitados: quantidade,
+        total_movidos: ids.length,
+        incluir_protegidos: incluirProtegidos === true,
+        ...sinais,
+      },
+    })
+    logger.info(
+      { empresa_id: empresaId, equipe_id: equipeId, total_movidos: ids.length, incluir_protegidos: incluirProtegidos === true },
+      '[lead-distribuicao] leads transferidos entre membros'
+    )
+  }
+
+  return {
+    movidos: ids.length,
+    solicitados: quantidade,
+    incluir_protegidos: incluirProtegidos === true,
+    origem_id: String(origemId),
+    destino_id: String(destinoId),
+    ...sinais,
+  }
+}
+
 module.exports = {
   carteiraDaEquipe,
+  pontosDeAtencaoDoNicho,
   resumoProtegidos,
   livresRedistribuiveis,
   contagensParaPlano,
   pesosDeDesempenho,
   rebalancearEquipe,
   puxarLeads,
+  transferirLeads,
   assertResponsavelDaEmpresa,
 }
