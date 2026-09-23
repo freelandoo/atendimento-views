@@ -16,7 +16,9 @@ import FolhaModal from '@/components/ui/FolhaModal'
 import Botao from '@/components/ui/Botao'
 import { classesEntrada } from '@/lib/ui-primitivos'
 import { celulaOrigem } from '@/lib/lead-origem'
-import { seloOrigemEntrada, opcoesNicho, filtrarCarteira } from '@/lib/plano-dia'
+import {
+  seloOrigemEntrada, opcoesNicho, opcoesCidade, opcoesRegiao, filtrarCarteira,
+} from '@/lib/plano-dia'
 
 export type CandidatoDia = {
   id: string
@@ -26,6 +28,12 @@ export type CandidatoDia = {
   instagram_handle?: string | null
   cidade?: string | null
   nicho?: string | null
+  regiao?: string | null
+  regiao_comercial?: string | null
+  estado?: string | null
+  uf?: string | null
+  bairro?: string | null
+  endereco?: string | null
 }
 
 export type SugestaoDia = {
@@ -54,15 +62,20 @@ export default function ModalPlanejarDia({
 }) {
   const [busca, setBusca] = useState('')
   const [nicho, setNicho] = useState('')
+  const [cidade, setCidade] = useState('')
+  const [regiao, setRegiao] = useState('')
+  const [aba, setAba] = useState<'esperando' | 'carteira'>('esperando')
   const [marcados, setMarcados] = useState<Set<string>>(new Set())
 
   // O seletor conta só quem AINDA pode entrar no dia — contar quem já está lá prometeria
   // leads que a lista não vai mostrar.
   const disponiveis = useMemo(() => candidatos.filter((l) => !jaNoDia.has(l.id)), [candidatos, jaNoDia])
   const nichos = useMemo(() => opcoesNicho(disponiveis), [disponiveis])
+  const cidades = useMemo(() => opcoesCidade(disponiveis), [disponiveis])
+  const regioes = useMemo(() => opcoesRegiao(disponiveis), [disponiveis])
   const filtrados = useMemo(
-    () => filtrarCarteira(candidatos, { busca, nicho, jaNoDia }),
-    [candidatos, busca, nicho, jaNoDia]
+    () => filtrarCarteira(candidatos, { busca, nicho, cidade, regiao, jaNoDia }),
+    [candidatos, busca, nicho, cidade, regiao, jaNoDia]
   )
 
   // Nicho que esvaziou (todos foram para o dia) volta para "Todos": um <select> com valor sem
@@ -70,6 +83,12 @@ export default function ModalPlanejarDia({
   useEffect(() => {
     if (nicho && !nichos.some((o) => o.valor === nicho)) setNicho('')
   }, [nicho, nichos])
+  useEffect(() => {
+    if (cidade && !cidades.some((o) => o.valor === cidade)) setCidade('')
+  }, [cidade, cidades])
+  useEffect(() => {
+    if (regiao && !regioes.some((o) => o.valor === regiao)) setRegiao('')
+  }, [regiao, regioes])
 
   function marcarFiltrados() {
     setMarcados((prev) => {
@@ -83,6 +102,10 @@ export default function ModalPlanejarDia({
     () => sugestoes.filter((s) => !jaNoDia.has(s.prospect_id)),
     [sugestoes, jaNoDia]
   )
+
+  useEffect(() => {
+    if (aberto) setAba(sugeridos.length > 0 ? 'esperando' : 'carteira')
+  }, [aberto, sugeridos.length])
 
   function alternar(id: string) {
     setMarcados((prev) => {
@@ -121,81 +144,106 @@ export default function ModalPlanejarDia({
         </>
       }
     >
-      <div className="space-y-5">
-        {/* SUGESTÕES — só o que o backend conseguiu PROVAR (follow-up vencido meu, compromisso
-            meu na agenda de hoje). Lista vazia aqui é resposta, não falha: significa que a
-            escolha do dia é inteiramente sua. */}
-        {sugeridos.length > 0 && (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-1 rounded-lg border border-line bg-surface-2 p-1" role="tablist" aria-label="Origem dos leads para planejar">
+          {[
+            { chave: 'esperando' as const, rotulo: 'Para hoje', total: sugeridos.length },
+            { chave: 'carteira' as const, rotulo: 'Carteira', total: disponiveis.length },
+          ].map((item) => (
+            <button
+              key={item.chave}
+              type="button"
+              role="tab"
+              aria-selected={aba === item.chave}
+              onClick={() => setAba(item.chave)}
+              className={`rounded-md px-3 py-2 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${
+                aba === item.chave ? 'bg-surface text-brand shadow-card' : 'text-ink-3 hover:bg-surface-3 hover:text-ink'
+              }`}
+            >
+              {item.rotulo} <span className="text-xs font-normal">({item.total})</span>
+            </button>
+          ))}
+        </div>
+
+        {aba === 'esperando' ? (
           <section>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-ink">O que já está te esperando</h3>
-              <Botao
-                variante="secundaria"
-                tamanho="sm"
-                onClick={() => adicionar(sugeridos.map((s) => s.prospect_id), 'sugestao_vencidos')}
-                carregando={ocupado}
-              >
-                Adicionar os {sugeridos.length}
-              </Botao>
+              <div>
+                <h3 className="text-sm font-semibold text-ink">O que já está te esperando</h3>
+                <p className="mt-0.5 text-xs text-ink-3">
+                  Retornos vencidos e compromissos desta data — o motivo aparece em cada linha.
+                </p>
+              </div>
+              {sugeridos.length > 0 && (
+                <Botao
+                  variante="secundaria"
+                  tamanho="sm"
+                  onClick={() => adicionar(sugeridos.map((s) => s.prospect_id), 'sugestao_vencidos')}
+                  carregando={ocupado}
+                >
+                  Adicionar os {sugeridos.length}
+                </Botao>
+              )}
             </div>
-            <p className="mt-0.5 text-xs text-ink-3">
-              Retornos vencidos e compromissos desta data — o motivo aparece em cada linha.
-            </p>
-            <ul className="mt-2 space-y-1.5">
-              {sugeridos.map((s) => {
-                const selo = seloOrigemEntrada(s.origem_entrada)
-                return (
-                  <li key={s.prospect_id}>
-                    <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-sm hover:border-line-strong">
-                      <input
-                        type="checkbox"
-                        checked={marcados.has(s.prospect_id)}
-                        onChange={() => alternar(s.prospect_id)}
-                        className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
-                      />
-                      <span className="min-w-0">
-                        <span className="block truncate font-medium text-ink">{s.nome || 'Sem nome'}</span>
-                        {selo && (
-                          <span className="mt-0.5 inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800"
-                            title={selo.dica}>
-                            {selo.rotulo}
-                          </span>
-                        )}
-                      </span>
-                    </label>
-                  </li>
-                )
-              })}
-            </ul>
+            {sugeridos.length === 0 ? (
+              <p className="mt-3 rounded-lg border border-line bg-surface-2 px-3 py-4 text-center text-xs text-ink-3">
+                Nada pendente provado para esta data. Use a carteira para montar o plano.
+              </p>
+            ) : (
+              <ul className="mt-2 max-h-[42vh] space-y-1.5 overflow-y-auto pr-1">
+                {sugeridos.map((s) => {
+                  const selo = seloOrigemEntrada(s.origem_entrada)
+                  return (
+                    <li key={s.prospect_id}>
+                      <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-sm hover:border-line-strong">
+                        <input
+                          type="checkbox"
+                          checked={marcados.has(s.prospect_id)}
+                          onChange={() => alternar(s.prospect_id)}
+                          className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
+                        />
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium text-ink">{s.nome || 'Sem nome'}</span>
+                          {selo && (
+                            <span className="mt-0.5 inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800"
+                              title={selo.dica}>
+                              {selo.rotulo}
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
           </section>
-        )}
-
-        {/* A CARTEIRA — a mesma lista que está na aba Lista, na ordem de trabalho do servidor.
-            Teto de 60 na tela: escolher o dia é decidir sobre um punhado, não varrer a base. */}
-        <section>
+        ) : (
+          <section>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-ink">Da sua carteira</h3>
+            <div>
+              <h3 className="text-sm font-semibold text-ink">Da sua carteira</h3>
+              <p className="mt-0.5 text-xs text-ink-3">
+                Na ordem de trabalho. Busque por nome ou combine filtros de nicho e localização.
+              </p>
+            </div>
             {filtrados.length > 1 && (
               <Botao variante="secundaria" tamanho="sm" onClick={marcarFiltrados}>
                 Marcar os {filtrados.length} da lista
               </Botao>
             )}
           </div>
-          <p className="mt-0.5 text-xs text-ink-3">
-            Na ordem de trabalho. Separe por nicho ou busque um lead específico.
-          </p>
 
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <label htmlFor="planejar-busca" className="sr-only">Buscar lead pelo nome, telefone ou cidade</label>
             <input
               id="planejar-busca"
               type="search"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por nome, telefone ou cidade"
-              className={classesEntrada({ extra: 'sm:flex-1' })}
+              placeholder="Buscar por nome"
+              className={classesEntrada({ extra: 'sm:col-span-2 lg:col-span-1' })}
             />
-            {/* Com um nicho só (ou nenhum) o seletor não separa nada — não aparece. */}
             {nichos.length > 1 && (
               <>
                 <label htmlFor="planejar-nicho" className="sr-only">Filtrar por nicho</label>
@@ -203,10 +251,42 @@ export default function ModalPlanejarDia({
                   id="planejar-nicho"
                   value={nicho}
                   onChange={(e) => setNicho(e.target.value)}
-                  className={classesEntrada({ extra: 'sm:w-56' })}
+                  className={classesEntrada()}
                 >
                   <option value="">Todos os nichos ({disponiveis.length})</option>
                   {nichos.map((o) => (
+                    <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>
+                  ))}
+                </select>
+              </>
+            )}
+            {cidades.length > 1 && (
+              <>
+                <label htmlFor="planejar-cidade" className="sr-only">Filtrar por cidade</label>
+                <select
+                  id="planejar-cidade"
+                  value={cidade}
+                  onChange={(e) => setCidade(e.target.value)}
+                  className={classesEntrada()}
+                >
+                  <option value="">Todas as cidades ({disponiveis.length})</option>
+                  {cidades.map((o) => (
+                    <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>
+                  ))}
+                </select>
+              </>
+            )}
+            {regioes.length > 1 && (
+              <>
+                <label htmlFor="planejar-regiao" className="sr-only">Filtrar por região</label>
+                <select
+                  id="planejar-regiao"
+                  value={regiao}
+                  onChange={(e) => setRegiao(e.target.value)}
+                  className={classesEntrada()}
+                >
+                  <option value="">Todas as regiões ({disponiveis.length})</option>
+                  {regioes.map((o) => (
                     <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>
                   ))}
                 </select>
@@ -251,6 +331,7 @@ export default function ModalPlanejarDia({
             </ul>
           )}
         </section>
+        )}
       </div>
     </FolhaModal>
   )

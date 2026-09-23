@@ -87,13 +87,22 @@ export interface CandidatoCarteira {
   telefone?: string | null
   cidade?: string | null
   nicho?: string | null
+  regiao?: string | null
+  regiao_comercial?: string | null
+  estado?: string | null
+  uf?: string | null
+  bairro?: string | null
+  endereco?: string | null
+  instagram_handle?: string | null
 }
 
 /** Nichos presentes na carteira já carregada, com contagem — para o seletor de "Planejar meu dia". */
 export function opcoesNicho(candidatos: { nicho?: string | null }[] | null | undefined): { valor: string; total: number }[]
+export function opcoesCidade(candidatos: { cidade?: string | null }[] | null | undefined): { valor: string; total: number }[]
+export function opcoesRegiao(candidatos: CandidatoCarteira[] | null | undefined): { valor: string; total: number }[]
 
-/** Filtra a carteira já carregada por busca + nicho, excluindo quem já está no dia. */
+/** Filtra a carteira já carregada por busca + nicho/cidade/região, excluindo quem já está no dia. */
 export function filtrarCarteira<T extends CandidatoCarteira>(
   candidatos: T[] | null | undefined,
-  opcoes?: { busca?: string; nicho?: string; jaNoDia?: Set<string>; limite?: number },
+  opcoes?: { busca?: string; nicho?: string; cidade?: string; regiao?: string; jaNoDia?: Set<string>; limite?: number },
 ): T[]

@@ -25,7 +25,6 @@ import { apiFetch } from '@/lib/api'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import Botao from '@/components/ui/Botao'
 import FolhaModal from '@/components/ui/FolhaModal'
-import { classesEntrada } from '@/lib/ui-primitivos'
 import { celulaOrigem } from '@/lib/lead-origem'
 import {
   COLUNAS, montarColunas, aoMoverPara, seloConclusao, seloOrigemEntrada,
@@ -253,8 +252,7 @@ export default function QuadroDoDia({
             </h2>
             <p className="text-xs text-ink-3" aria-live="polite">{resumo.texto}</p>
           </div>
-
-          <div className="flex shrink-0 items-center gap-1" aria-label="Navegar entre dias">
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5">
             <Botao
               variante="neutra"
               tamanho="sm"
@@ -281,19 +279,8 @@ export default function QuadroDoDia({
             >
               ›
             </Botao>
+            <Botao variante="primaria" onClick={() => setPlanejarAberto(true)}>Planejar meu dia</Botao>
           </div>
-
-          <label htmlFor="quadro-dia" className="sr-only">Data do planejamento</label>
-          <input
-            id="quadro-dia"
-            type="date"
-            value={dia}
-            onChange={(e) => irParaDia(e.target.value)}
-            className={classesEntrada({ extra: 'h-9 w-auto' })}
-          />
-          <Botao variante="primaria" onClick={() => setPlanejarAberto(true)}>
-            {planoDeHoje ? 'Planejar meu dia' : 'Planejar este dia'}
-          </Botao>
         </div>
 
         {diasContexto.length > 0 && (
