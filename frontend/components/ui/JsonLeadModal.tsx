@@ -87,7 +87,7 @@ export function ThOrdenavel({ label, chave, ordem, onOrdenar, align = 'left', cl
   chave: string
   ordem: { chave: string; dir: 'asc' | 'desc' }
   onOrdenar: (chave: string) => void
-  align?: 'left' | 'right'
+  align?: 'left' | 'center' | 'right'
   /** Layout do chamador (coluna congelada, largura). Aditivo — nunca cor nem padding. */
   className?: string
 }) {

@@ -27,7 +27,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { classesFolha, classesFundoFolha } from '@/lib/ui-primitivos'
 import { abasDaFicha, classesAba, secaoInicial, type SecaoFicha } from '@/lib/ficha-lead'
 import { celulaOrigem } from '@/lib/lead-origem'
-import { IconClose } from '@/components/ui/icons'
+import { IconCamera, IconClose, IconGlobe, IconLink, IconMapPin, IconMessage } from '@/components/ui/icons'
 import Botao from '@/components/ui/Botao'
 import LeadDetalhesModal, { type LeadDetalhavel } from '@/components/LeadDetalhesModal'
 import ConversaHistoricoModal from '@/components/ConversaHistoricoModal'
@@ -45,6 +45,43 @@ export type ConversaDaFicha = {
   rodavel: boolean
   status: string
   acessos: AcessoRapido[]
+}
+
+function iconeDoAcesso(tipo: AcessoRapido['tipo']) {
+  if (tipo === 'whatsapp') return <IconMessage />
+  if (tipo === 'instagram') return <IconCamera />
+  if (tipo === 'maps') return <IconMapPin />
+  if (tipo === 'site') return <IconGlobe />
+  return <IconLink />
+}
+
+function classeDoAcesso(tipo: AcessoRapido['tipo']) {
+  if (tipo === 'whatsapp') return 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100'
+  if (tipo === 'instagram') return 'border-pink-200 bg-pink-50 text-pink-700 hover:border-pink-300 hover:bg-pink-100'
+  if (tipo === 'maps') return 'border-brand/20 bg-brand/5 text-brand hover:border-brand/40 hover:bg-brand/10'
+  return 'border-line bg-surface text-ink-2 hover:border-line-strong hover:bg-surface-3 hover:text-ink'
+}
+
+function AtalhosCabecalho({ acessos }: { acessos: AcessoRapido[] }) {
+  if (!acessos.length) return null
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5" aria-label="Acessos rápidos do lead">
+      {acessos.map((a) => (
+        <a
+          key={a.href}
+          href={a.href}
+          target="_blank"
+          rel="noreferrer"
+          title={a.dica}
+          aria-label={a.dica}
+          className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${classeDoAcesso(a.tipo)}`}
+        >
+          {iconeDoAcesso(a.tipo)}
+          <span className="sr-only">{a.rotulo}</span>
+        </a>
+      ))}
+    </div>
+  )
 }
 
 export default function FichaLead({
@@ -154,9 +191,12 @@ export default function FichaLead({
             dois conteúdos: era ele que aparecia duplicado quando eram dois modais. */}
         <div className="shrink-0 border-b border-line bg-surface px-4 py-3 sm:px-5">
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Ficha do lead</p>
-              <h2 className="mt-0.5 truncate text-lg font-semibold leading-tight text-ink">{lead.nome || '—'}</h2>
+              <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
+                <h2 className="min-w-0 flex-1 truncate text-lg font-semibold leading-tight text-ink">{lead.nome || '—'}</h2>
+                <AtalhosCabecalho acessos={conversa.acessos || []} />
+              </div>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 <span className={origem.classe} title={`${origem.rotulo} — ${origem.dica}`}>{origem.curto}</span>
                 {origem.detalhe && <span className="text-[11px] text-ink-3">{origem.detalhe}</span>}

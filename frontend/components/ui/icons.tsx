@@ -52,6 +52,21 @@ export const IconEnvelope = (p: P) => (
 export const IconSend = (p: P) => (
   <Svg {...p}><path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></Svg>
 )
+export const IconMessage = (p: P) => (
+  <Svg {...p}><path d="M21 12a8 8 0 0 1-8 8H7l-4 2 1.4-4.2A8 8 0 1 1 21 12z" /></Svg>
+)
+export const IconCamera = (p: P) => (
+  <Svg {...p}><rect x="4" y="5" width="16" height="16" rx="5" /><circle cx="12" cy="13" r="3.5" /><path d="M17.5 8.5h.01" /></Svg>
+)
+export const IconMapPin = (p: P) => (
+  <Svg {...p}><path d="M12 21s7-5.2 7-11a7 7 0 0 0-14 0c0 5.8 7 11 7 11z" /><circle cx="12" cy="10" r="2.5" /></Svg>
+)
+export const IconGlobe = (p: P) => (
+  <Svg {...p}><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a14 14 0 0 1 0 18" /><path d="M12 3a14 14 0 0 0 0 18" /></Svg>
+)
+export const IconLink = (p: P) => (
+  <Svg {...p}><path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" /><path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1" /></Svg>
+)
 export const IconClose = (p: P) => (
   <Svg {...p}><path d="M6 6l12 12M18 6L6 18" /></Svg>
 )

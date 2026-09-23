@@ -393,7 +393,7 @@ export default function ConversaHistoricoModal({
               ) : (
                 <span className="font-mono text-xs text-ink-3">{fmtNumero(numero)}</span>
               )}
-              {(acessos || []).map((a) => (
+              {variante === 'modal' && (acessos || []).map((a) => (
                 <a
                   key={a.href}
                   href={a.href}

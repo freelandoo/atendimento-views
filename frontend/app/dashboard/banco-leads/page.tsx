@@ -1157,7 +1157,9 @@ export default function BancoLeadsPage() {
   // Recorte de apresentação: pagina DEPOIS de filtrar/ordenar (conjunto completo já pronto).
   const pgLeads = useMemo(() => paginar(leadsOrdenados, pagina, POR_PAGINA_PADRAO), [leadsOrdenados, pagina])
   const chips = chipsDaView(view)
-  const filtrosAtivos = chips.length + (view.ordenacao !== 'padrao' ? 1 : 0)
+  const chipOrigem = origem ? `Origem: ${rotuloFiltroOrigem(origem) || origem}` : ''
+  const chipsLista = chipOrigem ? [chipOrigem, ...chips] : chips
+  const filtrosAtivos = chips.length + (origem ? 1 : 0) + (view.ordenacao !== 'padrao' ? 1 : 0)
   const mercadoOpcoes = useMemo(() => opcoesMercado(filtrosMercado), [filtrosMercado])
   const cidadeOpcoes = filtrosMercado?.cidades || []
 
@@ -1717,15 +1719,12 @@ export default function BancoLeadsPage() {
     autoAtivo: !!config.auto_ativo,
   }), [modoAtual.label, instanciaSel, podeEscolherInstancia, rotuloConexao, motivoBloqueioConexao, cooldownAtivo, cooldownS, config.modo, config.auto_ativo])
 
-  // Quantos recortes de CARTEIRA estao ligados. Não se confunde com `filtrosAtivos`, que conta
-  // os do "⚙ Personalizar" — são dois painéis diferentes e cada um diz o seu número.
-  // `origem` entra aqui: ela E' recorte de carteira (ver so' os leads de anuncio da Meta, so'
-  // os do Maps). Ficar de fora fazia o contador dizer "Filtros" enquanto a lista ja' estava
-  // recortada por fonte — e no celular o badge nem aparecia.
-  const filtrosDeCarteira = [origem, escopo, mercado, cidadeFiltro].filter(Boolean).length
+  // Quantos recortes de CARTEIRA estao ligados. Origem saiu daqui de proposito: ela agora vive
+  // no modal "Colunas", junto dos filtros de visualizacao da lista.
+  const filtrosDeCarteira = [escopo, mercado, cidadeFiltro].filter(Boolean).length
   // UM so' reset de carteira, usado pela barra do computador e pela folha do celular: duas
   // listas divergiriam e um dos dois botoes deixaria um filtro ligado em silencio.
-  const limparCarteira = () => { setOrigem(''); setMercado(''); setCidadeFiltro(''); setEscopo(''); setBusca('') }
+  const limparCarteira = () => { setMercado(''); setCidadeFiltro(''); setEscopo(''); setBusca('') }
 
   /**
    * Os campos de recorte da carteira. Renderizados em DOIS lugares — a barra do computador e a
@@ -1735,13 +1734,6 @@ export default function BancoLeadsPage() {
    */
   const camposFiltro = (p: string) => (
     <>
-      <div>
-        <label htmlFor={`${p}-origem`} className="mb-1 block text-xs text-ink-3">Origem</label>
-        <select id={`${p}-origem`} value={origem} onChange={(e) => setOrigem(e.target.value)}
-          className={classesEntrada({ extra: 'min-h-11 md:min-h-0 md:w-auto' })}>
-          {OPCOES_FILTRO_ORIGEM.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
-        </select>
-      </div>
       {/* Recorte por RESPONSÁVEL (CRM em equipe, Etapa 4).
           Quem não pode ver a carteira inteira não recebe a opção "Todos" — oferecer uma opção
           que o servidor rebaixa faria a tela mostrar menos do que prometeu. */}
@@ -2099,30 +2091,6 @@ export default function BancoLeadsPage() {
         </Botao>
       </div>
 
-      {/* COMPUTADOR — a barra inteira, como sempre foi. "Personalizar" saiu daqui e foi para a
-          barra da lista, junto de "Ordenar por": recorte da CARTEIRA e aparência da TABELA são
-          decisões diferentes, e ficavam no mesmo lugar. */}
-      <div className="hidden flex-wrap items-end gap-3 md:flex">
-        {camposFiltro('d')}
-        {(filtrosDeCarteira > 0 || busca.trim()) && (
-          <div>
-            <label className="mb-1 block text-xs text-ink-3">&nbsp;</label>
-            <Botao variante="neutra" onClick={limparCarteira}>
-              Limpar filtros
-            </Botao>
-          </div>
-        )}
-      </div>
-
-      {/* Filtros rápidos: atalho de 1 clique para os recortes mais usados do "Personalizar"
-          (mesmo padrão de pill com estado ativo da Aquisição/Central de Ligações). Não é um
-          filtro novo — só um atalho de UI para valores que `view` (client-side) já aceita;
-          um 2º clique no mesmo chip desliga o filtro. */}
-      {/* No celular eles vivem dentro da folha de filtros, junto do resto do recorte. */}
-      <div className="hidden flex-wrap gap-1.5 md:flex" role="group" aria-label="Filtros rápidos">
-        {chipsRapidos}
-      </div>
-
       {/* A folha de filtros do CELULAR. A ação primária ("Ver N leads") fica presa no rodapé,
           ao alcance do polegar — não no topo, onde o X dos modais centrados morava. */}
       <FolhaModal
@@ -2259,29 +2227,29 @@ export default function BancoLeadsPage() {
       {/* A LISTA — uma só, com a origem identificando cada linha. */}
       {carregando && !leads.length ? (
         <p className="text-sm text-slate-400 text-center py-8">Carregando…</p>
-      ) : !leads.length ? (
-        // Etapa 3: carteira vazia POR RECORTE DE EQUIPE nao pode parecer defeito nem falta de
-        // permissao. O texto vem do modulo puro, que distingue os tres motivos.
-        (() => {
-          const v = vazioDaCarteira(metaLista?.equipe || null, aba)
-          return (
-            <div className="text-center py-8">
-              <p className="text-sm text-ink-3">{v.titulo}</p>
-              {v.ajuda && <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">{v.ajuda}</p>}
-            </div>
-          )
-        })()
-      ) : totalFiltrado === 0 ? (
-        <p className="text-sm text-slate-400 text-center py-8">
-          Nenhum lead encontrado com esses filtros. Tente remover algum filtro ou{' '}
-          <button onClick={() => setView(VIEW_PADRAO)} className="text-brand hover:underline">restaurar a visualização padrão</button>.
-        </p>
       ) : (
-        <>
+        <section className="overflow-hidden rounded-lg border border-line bg-surface shadow-card">
+          {/* COMPUTADOR — recorte da carteira dentro da propria area da lista. Origem ficou no
+              modal "Colunas": ela e' uma preferencia de visualizacao/fonte, nao um atalho solto
+              na linha. */}
+          <div className="hidden border-b border-line bg-surface px-3 py-3 md:block">
+            <div className="flex flex-wrap items-end gap-3">
+              {camposFiltro('d')}
+              {(filtrosDeCarteira > 0 || busca.trim()) && (
+                <div>
+                  <label className="mb-1 block text-xs text-ink-3">&nbsp;</label>
+                  <Botao variante="neutra" onClick={limparCarteira}>
+                    Limpar filtros
+                  </Botao>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* A BARRA DA LISTA (computador) — o que está na tela, em que ordem, e como mudar as
               duas coisas. A ordenação global já existia dentro do "Personalizar"; aqui ela fica
               onde a pessoa olha a lista, sem abrir modal para trocar de ordem. */}
-          <div className="hidden flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border border-line bg-surface px-3 py-2 shadow-card md:flex">
+          <div className="hidden flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line bg-surface-2 px-3 py-2 md:flex">
             {/* ESQUERDA — o que esta na tela. Contagem, recorte da janela e filtros em vigor
                 na MESMA linha: sao tres frases sobre a mesma lista, e empilhadas viravam tres
                 tarjas coloridas na primeira dobra. */}
@@ -2306,7 +2274,7 @@ export default function BancoLeadsPage() {
                   ordem manual
                 </span>
               )}
-              {chips.map((ch) => (
+              {chipsLista.map((ch) => (
                 <span key={ch} className="rounded-full border border-line bg-surface-3 px-2 py-0.5 text-[11px] text-ink-2">{ch}</span>
               ))}
             </div>
@@ -2331,7 +2299,7 @@ export default function BancoLeadsPage() {
                   `title` diz para onde a lista volta, porque "restaurar" sozinho nao diz. */}
               {(ordemManual || filtrosAtivos > 0) && (
                 <Botao variante="neutra"
-                  onClick={() => { setOrdem({ chave: 'trabalho', dir: 'asc' }); setView(VIEW_PADRAO) }}
+                  onClick={() => { setOrdem({ chave: 'trabalho', dir: 'asc' }); setView(VIEW_PADRAO); setOrigem('') }}
                   title="Volta para a fila de trabalho (respondeu → pronto para enviar → não trabalhado → sem resposta → falta contato) e desfaz os filtros de visualização">
                   Restaurar padrão
                 </Botao>
@@ -2342,7 +2310,7 @@ export default function BancoLeadsPage() {
           {/* CELULAR — a fila em cartoes. A tabela nao encolhe bem: sao ate 16 colunas com
               `min-w-max` e nenhuma congelada, entao no telefone ela vira rolagem lateral sem
               fim e o nome do lead sai da tela. */}
-          <div className="space-y-3 md:hidden">
+          <div className="space-y-3 p-3 md:hidden">
             <ListaCartoesBanco leads={pgLeads.itens} {...propsCartao} />
           </div>
 
@@ -2362,8 +2330,6 @@ export default function BancoLeadsPage() {
             onLimparSelecao={limparSelecao}
             idsPagina={idsPaginaAtual()}
             onAbrirFicha={abrirFicha}
-            onFiltrarOrigem={setOrigem}
-            origemAtiva={origem}
             onSalvarEmail={salvarEmail}
             onSalvarTelefone={salvarTelefone}
             onAbrirDetalhes={(l) => abrirFicha(l, 'detalhes')}
@@ -2376,9 +2342,17 @@ export default function BancoLeadsPage() {
           </div>
 
           {mostrarPaginacao(pgLeads.total, pgLeads.porPagina) && (
-            <RodapePaginacaoBanco pg={pgLeads} onPagina={setPagina} />
+            <div className="border-t border-line px-3 py-2">
+              <RodapePaginacaoBanco pg={pgLeads} onPagina={setPagina} />
+            </div>
           )}
-        </>
+
+          {/* Filtros rápidos: atalhos para os recortes mais usados do modal "Colunas".
+              Ficam no rodape da lista para nao disputar espaco com o recorte de carteira. */}
+          <div className="hidden flex-wrap gap-1.5 border-t border-line bg-surface-2 px-3 py-2 md:flex" role="group" aria-label="Filtros rápidos">
+            {chipsRapidos}
+          </div>
+        </section>
       )}
       </>
       )}
@@ -2454,7 +2428,9 @@ export default function BancoLeadsPage() {
         <PersonalizarModal
           view={view}
           onPatch={patchView}
-          onReset={() => setView(VIEW_PADRAO)}
+          origem={origem}
+          onOrigemChange={setOrigem}
+          onReset={() => { setOrigem(''); setView(VIEW_PADRAO) }}
           onPreset={(patch, novaAba) => { setView({ ...VIEW_PADRAO, ...patch }); if (novaAba) setAba(novaAba); setPersAberto(false) }}
           onClose={() => setPersAberto(false)}
         />
@@ -2502,7 +2478,7 @@ export default function BancoLeadsPage() {
         <ExportarCsvModal
           aba={ABAS.find((a) => a.valor === aba)?.label || ''}
           totalFiltrado={totalFiltrado}
-          filtrosAtivos={filtrosDeCarteira > 0 || !!busca.trim()}
+          filtrosAtivos={!!origem || filtrosDeCarteira > 0 || !!busca.trim()}
           exportando={exportando}
           onExportar={exportar}
           onClose={() => setExportOpen(false)}
@@ -2858,7 +2834,7 @@ type TabelaProps = {
   onSelecionarPagina?: () => void
   onLimparSelecao?: () => void
   onAbrirFicha: (l: Lead, gatilho: string) => void
-  /** Recorta a lista pela fonte do lead. Escreve no MESMO estado do seletor da barra. */
+  /** Recorta a lista pela fonte do lead. Escreve no MESMO estado dos filtros de visualização. */
   onFiltrarOrigem?: (origem: string) => void
   /** A fonte em vigor, para o controle dizer que JA' esta filtrado (e poder desfazer). */
   origemAtiva?: string
@@ -3102,11 +3078,8 @@ function ResponsavelCelula({ l, usuarioId, podeAssumir, podeTransferir, onAssumi
   )
 }
 
-// ICP + cadastro na MESMA célula — mesmo padrão da Aquisição
-// (prospeccao/page.tsx). A célula é SEMPRE renderizada (fora do sistema de toggle "⚙
-// Personalizar"), porque "Detalhes" é a única porta para endereço, nota, avaliações,
-// horário, links e o JSON cru ("Ver dados completos"). O cadastro aparece como evidência
-// do ICP, sem virar uma segunda bolinha concorrente.
+// ICP enxuto na tabela. Cadastro/coleta continua existindo como evidencia do ICP, mas agora
+// mora no drawer "Detalhes" para nao criar duas leituras concorrentes na linha.
 function CadastroDetalhesCelula({ l, onAbrirDetalhes }: {
   l: Lead; onAbrirDetalhes: (l: Lead) => void
 }) {
@@ -3120,19 +3093,12 @@ function CadastroDetalhesCelula({ l, onAbrirDetalhes }: {
     .slice(0, 2).map((a: { rotulo: string }) => a.rotulo).join(' · ')
   const title = `${resumo.origem === 'previsao' ? 'Prévia automática' : 'ICP salvo'} — ${selo.rotulo}: ${selo.descricao}${selo.score != null ? ` (${selo.score}/13)` : ''}. Régua operacional: ${qualificacao.score_100}/100 — ${validacao.rotulo}. Cadastro/coleta: ${typeof l.score_cadastro === 'number' ? `${l.score_cadastro}/${maximo}` : 'sem score'} — ${cadastro.titulo}.${alertas ? ` Alertas: ${alertas}.` : ''}`
   return (
-    <td className="px-3 py-2">
-      <div className="flex items-center gap-2">
+    <td className="px-3 py-2 text-center">
+      <div className="flex min-w-[62px] flex-col items-center gap-1" title={title}>
         <BolinhaIcp l={l} />
-        <div className="min-w-[92px] leading-tight" title={title}>
-          <span className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${selo.classe}`}>
-            {selo.rotulo}{selo.score != null ? ` · ${selo.score}/13` : ''}
-          </span>
-          <span className="mt-0.5 block max-w-[150px] truncate text-[10px] text-ink-3">
-            {validacao.rotulo} · {qualificacao.score_100}/100
-          </span>
-        </div>
         <button onClick={() => onAbrirDetalhes(l)}
-          className="text-[11px] text-ink-3 underline-offset-2 hover:text-brand hover:underline"
+          className="text-[11px] font-medium text-ink-3 underline-offset-2 hover:text-brand hover:underline"
+          aria-label={`Abrir detalhes de ICP e cadastro de ${l.nome || 'lead'}`}
           title="ICP, cadastro como evidência, endereço, nota, avaliações, horário, links e dados completos do lead">
           Detalhes
         </button>
@@ -3442,40 +3408,21 @@ function CheckboxPagina({ idsPagina, selecionados, onSelecionarPagina, onLimparS
 }
 
 /**
- * A ORIGEM na linha. Texto + pilula neutra, nunca so' cor — e a pilula e' um BOTAO que abre os
- * detalhes do lead, onde as evidencias daquela fonte ficam.
+ * A ORIGEM na linha. Texto + pilula neutra, nunca so' cor. Ela abre as evidencias daquela fonte
+ * na ficha; o filtro por fonte vive no modal "Colunas".
  *
  * O rotulo vem de `lib/lead-origem.js`, por lista fechada. Antes a fonte nao era um dado da
  * linha: ela era o TITULO da tabela em que a linha tinha caido, e o "resto" (tudo que nao fosse
  * Google Places) caia sob o titulo "Instagram" — entao lead de anuncio da Meta era apresentado
  * ao operador como lead de Instagram.
  */
-/**
- * A coluna Origem faz DUAS coisas, e por isso tem dois controles — nao um so' com dois
- * significados. O selo abre as EVIDENCIAS daquela fonte na ficha (contrato de
- * `lib/ficha-lead.js`: gatilho `origem` → secao Fontes). O funil RECORTA a lista por aquela
- * fonte, que e' a pergunta "quero ver so' os leads de anuncio da Meta" — ate 2026-09-22 ela
- * so' tinha resposta no `<select>` la' em cima, longe de onde a pessoa esta olhando.
- *
- * O funil escreve no MESMO estado do seletor da barra (`onFiltrarOrigem` → `setOrigem`): nao
- * e' um segundo filtro, e' outro caminho para o mesmo. Duas fontes de recorte divergiriam.
- * Ele fica sempre VISIVEL, nunca so' em hover — atalho que so' quem descobre usa nao e' atalho.
- */
-function OrigemCelula({ l, onAbrirFicha, onFiltrarOrigem, origemAtiva }: {
+function OrigemCelula({ l, onAbrirFicha }: {
   l: Lead
   onAbrirFicha: (l: Lead, gatilho: string) => void
-  onFiltrarOrigem?: (origem: string) => void
-  origemAtiva?: string
 }) {
   const o = celulaOrigem(l)
-  const fonte = String(l.origem || '')
-  // O filtro so' e' oferecido quando o lead REALMENTE declara uma fonte: sem ela o clique
-  // recortaria por string vazia, que e' "todas" — um botao que promete recorte e nao recorta.
-  const podeFiltrar = Boolean(onFiltrarOrigem && fonte)
-  const jaFiltrado = podeFiltrar && origemAtiva === fonte
   return (
     <td className="px-3 py-2 align-top">
-      <div className="flex items-center gap-1">
       <button
         type="button"
         onClick={() => onAbrirFicha(l, 'origem')}
@@ -3484,23 +3431,6 @@ function OrigemCelula({ l, onAbrirFicha, onFiltrarOrigem, origemAtiva }: {
       >
         <span className="truncate">{o.curto}</span>
       </button>
-      {podeFiltrar && (
-        <button
-          type="button"
-          onClick={() => onFiltrarOrigem!(jaFiltrado ? '' : fonte)}
-          aria-pressed={jaFiltrado}
-          title={jaFiltrado
-            ? `A lista já está recortada em ${o.rotulo}. Clique para voltar a ver todas as origens.`
-            : `Ver só os leads de ${o.rotulo}`}
-          className={`shrink-0 rounded px-1 text-[11px] leading-none focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
-            jaFiltrado ? 'text-brand' : 'text-ink-3 hover:text-ink'
-          }`}
-        >
-          <span aria-hidden="true">⌕</span>
-          <span className="sr-only">{jaFiltrado ? `Remover o filtro de origem ${o.rotulo}` : `Filtrar por ${o.rotulo}`}</span>
-        </button>
-      )}
-      </div>
       {o.detalhe && (
         <p className="mt-0.5 max-w-[140px] truncate text-[11px] text-ink-3" title={o.detalhe}>{o.detalhe}</p>
       )}
@@ -3517,10 +3447,10 @@ function OrigemCelula({ l, onAbrirFicha, onFiltrarOrigem, origemAtiva }: {
  * "—" — e isso e' informacao, nao lacuna: lead de anuncio nao tem nota do Maps porque ele nao
  * veio do Maps. Quem escolhe o que fica visivel continua sendo o "Personalizar colunas".
  */
-function TabelaBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, idsPagina, onSelecionarPagina, onLimparSelecao, onAbrirFicha, onFiltrarOrigem, origemAtiva, onSalvarEmail, onSalvarTelefone, onAbrirDetalhes, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver }: TabelaProps) {
+function TabelaBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previsoesEnvio, selecionados, onToggleSel, idsPagina, onSelecionarPagina, onLimparSelecao, onAbrirFicha, onSalvarEmail, onSalvarTelefone, onAbrirDetalhes, usuarioId, podeAssumir, podeTransferir, onAssumir, onDevolver }: TabelaProps) {
   const n = total ?? leads.length
   return (
-    <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-card">
+    <div className="overflow-hidden bg-surface">
       <DataTableFrame>
         <table className="w-full min-w-max text-sm">
           <caption className="sr-only">{n} lead{n === 1 ? '' : 's'} na ordem de trabalho</caption>
@@ -3541,9 +3471,8 @@ function TabelaBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previ
                   agrupada por origem, que e' exatamente a separacao que esta tela deixou de
                   fazer. Quem quer ver uma fonte so' usa o FILTRO de origem. */}
               <th className="px-3 py-2 text-left font-medium text-ink-3">Origem</th>
-              {/* ICP + cadastro: qualidade comercial e evidência de coleta na mesma célula.
-                  Fica logo depois da identidade porque é o que decide se vale trabalhar. */}
-              <ThOrdenavel label="ICP + cadastro" chave="prioridade" ordem={ordem} onOrdenar={onOrdenar} />
+              {/* ICP fica enxuto; cadastro/evidencias entram em Detalhes. */}
+              <ThOrdenavel label="ICP" chave="prioridade" ordem={ordem} onOrdenar={onOrdenar} align="center" />
               {cols.entrou && <ThOrdenavel label="Entrou em" chave="entrou" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.username && <ThOrdenavel label="@username" chave="username" ordem={ordem} onOrdenar={onOrdenar} />}
               {cols.telefone && <ThOrdenavel label="Telefone" chave="telefone" ordem={ordem} onOrdenar={onOrdenar} />}
@@ -3572,7 +3501,7 @@ function TabelaBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previ
                       virou acesso rápido no topo do modal e continua em "Detalhes". */}
                   <NomeLeadCelula l={l} onAbrirFicha={onAbrirFicha} largura="max-w-[220px]"
                     className={`${CELULA_FIXA} ${fundoCelulaFixa(l)} ${mostrarRodar ? 'left-9' : 'left-0'}`} />
-                  <OrigemCelula l={l} onAbrirFicha={onAbrirFicha} onFiltrarOrigem={onFiltrarOrigem} origemAtiva={origemAtiva} />
+                  <OrigemCelula l={l} onAbrirFicha={onAbrirFicha} />
                   <CadastroDetalhesCelula l={l} onAbrirDetalhes={onAbrirDetalhes} />
                   {cols.entrou && <td className="px-3 py-2 whitespace-nowrap text-xs text-ink-3">{fmtDataHora(l.created_at)}</td>}
                   {cols.username && (
@@ -3657,8 +3586,10 @@ function SelFiltro({ label, value, onChange, opcoes }: { label: string; value: s
   )
 }
 
-function PersonalizarModal({ view, onPatch, onReset, onPreset, onClose }: {
+function PersonalizarModal({ view, origem, onOrigemChange, onPatch, onReset, onPreset, onClose }: {
   view: ViewConfig
+  origem: string
+  onOrigemChange: (origem: string) => void
   onPatch: (p: Partial<ViewConfig>) => void
   onReset: () => void
   onPreset: (patch: Partial<ViewConfig>, aba?: string) => void
@@ -3722,6 +3653,18 @@ function PersonalizarModal({ view, onPatch, onReset, onPreset, onClose }: {
               className="w-full md:w-2/3 border rounded-lg px-2 py-1.5 text-sm">
               {ORDENACOES.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
             </select>
+          </section>
+
+          <section>
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-3 mb-2">Origem dos leads</p>
+            <div className="max-w-xs">
+              <SelFiltro
+                label="Mostrar"
+                value={origem}
+                onChange={onOrigemChange}
+                opcoes={OPCOES_FILTRO_ORIGEM.map((o) => [o.valor, o.label] as [string, string])}
+              />
+            </div>
           </section>
 
           <section>

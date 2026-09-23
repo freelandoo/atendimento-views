@@ -17,6 +17,7 @@ const { rotuloLink } = require('./site-rotulos')
 
 /** Tipos possiveis de acesso — lista FECHADA. */
 const TIPO_ACESSO = Object.freeze({
+  WHATSAPP: 'whatsapp',
   INSTAGRAM: 'instagram',
   FACEBOOK: 'facebook',
   SITE: 'site',
@@ -64,6 +65,12 @@ function acesso(tipo, rotulo, href, dica) {
   return { tipo, rotulo, href, dica }
 }
 
+function telefoneWhatsapp(telefone) {
+  const digitos = String(telefone || '').replace(/\D/g, '')
+  if (digitos.length < 10) return null
+  return digitos
+}
+
 /**
  * Monta a lista FECHADA de acessos rapidos do lead, na ordem em que a tela deve exibi-los.
  * Sem link nenhum, devolve `[]` — a area simplesmente nao aparece (nao ha estado vazio a
@@ -80,6 +87,9 @@ function acessosDoLead(lead) {
     vistos.add(info.href)
     lista.push(acesso(tipo, rotulo, info.href, dica))
   }
+
+  const telefone = telefoneWhatsapp(l.telefone)
+  if (telefone) push(TIPO_ACESSO.WHATSAPP, 'WhatsApp', `https://wa.me/${telefone}`, 'Abrir conversa rápida no WhatsApp')
 
   const handle = String(l.instagram_handle || '').trim().replace(/^@/, '')
   if (handle) push(TIPO_ACESSO.INSTAGRAM, 'Instagram', `https://instagram.com/${handle}`, `Abrir o perfil @${handle} no Instagram`)
@@ -106,4 +116,4 @@ function acessosDoLead(lead) {
   return lista
 }
 
-module.exports = { TIPO_ACESSO, ROTULO_MARCA, normalizarLink, marcaDoLink, rotuloGenerico, acessosDoLead }
+module.exports = { TIPO_ACESSO, ROTULO_MARCA, normalizarLink, marcaDoLink, rotuloGenerico, telefoneWhatsapp, acessosDoLead }

@@ -7,10 +7,9 @@
  * coluna declara isso em texto (`lib/plano-dia.js` → `consequencia`), porque um quadro com
  * "Feito" ao lado de um CRM é lido como "fechei a venda" se ninguém disser o contrário.
  *
- * ⚠️ ARRASTAR É ATALHO, NUNCA O ÚNICO CAMINHO. Todo card tem "Mover para" — um `<select>` de
- * verdade, que funciona por teclado e por toque. O arrastar nativo do HTML não existe em
- * leitor de tela e é ruim em tela sensível; oferecer só ele deixaria parte da equipe sem o
- * quadro.
+ * ⚠️ ARRASTAR É ATALHO, NUNCA O ÚNICO CAMINHO. O card inteiro abre a ficha, e teclado move o
+ * foco do trabalho com Ctrl+←/→. O arrastar continua como gesto rápido do desktop, mas a tela
+ * não obriga a pessoa a usar um select visível para cada card.
  *
  * ⚠️ QUEM DECIDE SE O MOVIMENTO VALE É O SERVIDOR. A entrada em "Feito hoje" exige evidência:
  * o backend procura ação registrada hoje para o lead e, não achando, devolve 422 — e só então
@@ -82,6 +81,7 @@ export default function QuadroDoDia({
   // Token de requisição: trocar de dia rápido nunca pode pintar a tela com o dia anterior
   // (mesmo contrato de `ConversaPainel`).
   const pedidoRef = useRef(0)
+  const ignorarCliqueAposArrasteRef = useRef(false)
 
   const carregar = useCallback(async (diaPedido?: string) => {
     const token = ++pedidoRef.current
@@ -187,6 +187,12 @@ export default function QuadroDoDia({
     } finally { setOcupado(false) }
   }
 
+  function moverPorTeclado(item: CardDia, direcao: -1 | 1) {
+    const atual = COLUNAS.findIndex((c) => c.chave === item.etapa)
+    const destino = COLUNAS[atual + direcao]
+    if (destino) mover(item, destino.chave)
+  }
+
   return (
     <div className="space-y-3">
       {/* CABEÇALHO — a data, o resumo do dia e a porta de entrada. */}
@@ -248,7 +254,7 @@ export default function QuadroDoDia({
                 setArrastando(null)
               }}
               className={`flex min-h-[140px] flex-col rounded-lg border bg-surface-2 p-2 transition ${
-                alvo === col.chave ? 'border-brand bg-brand/5' : TOM_COLUNA[col.tom] || 'border-line'
+                alvo === col.chave ? 'scale-[1.01] border-brand bg-brand/5 shadow-card ring-2 ring-brand/20' : TOM_COLUNA[col.tom] || 'border-line'
               }`}
             >
               <header className="px-1 pb-2">
@@ -272,24 +278,55 @@ export default function QuadroDoDia({
                     <article
                       key={c.id}
                       draggable
-                      onDragStart={(e) => { e.dataTransfer.setData('text/plain', c.id); setArrastando(c.id) }}
-                      onDragEnd={() => { setArrastando(null); setAlvo(null) }}
-                      className={`rounded-lg border border-line bg-surface p-2.5 shadow-card transition ${
-                        arrastando === c.id ? 'opacity-50' : ''
+                      tabIndex={0}
+                      aria-label={`Abrir ficha de ${c.nome || 'lead sem nome'}. Arraste para mover no quadro do dia.`}
+                      title="Clique para abrir a ficha. Arraste para mover entre colunas."
+                      onClick={() => {
+                        if (ignorarCliqueAposArrasteRef.current) {
+                          ignorarCliqueAposArrasteRef.current = false
+                          return
+                        }
+                        onAbrirLead(c.prospect_id, 'nome')
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          onAbrirLead(c.prospect_id, 'nome')
+                        }
+                        if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowLeft') {
+                          e.preventDefault()
+                          moverPorTeclado(c, -1)
+                        }
+                        if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowRight') {
+                          e.preventDefault()
+                          moverPorTeclado(c, 1)
+                        }
+                      }}
+                      onDragStart={(e) => {
+                        ignorarCliqueAposArrasteRef.current = true
+                        e.dataTransfer.setData('text/plain', c.id)
+                        e.dataTransfer.effectAllowed = 'move'
+                        setArrastando(c.id)
+                      }}
+                      onDragEnd={() => {
+                        setArrastando(null)
+                        setAlvo(null)
+                        window.setTimeout(() => { ignorarCliqueAposArrasteRef.current = false }, 0)
+                      }}
+                      className={`group rounded-lg border border-line bg-surface p-2.5 shadow-card transition duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${
+                        arrastando === c.id
+                          ? 'scale-[0.98] rotate-1 cursor-grabbing border-brand/60 opacity-60 shadow-md ring-2 ring-brand/20'
+                          : 'cursor-grab hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md active:cursor-grabbing'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
+                        <p className="min-w-0 flex-1 truncate text-sm font-medium text-ink group-hover:text-brand">
+                          {c.nome || 'Sem nome'}
+                        </p>
                         <button
                           type="button"
-                          onClick={() => onAbrirLead(c.prospect_id, 'nome')}
-                          className="min-w-0 flex-1 text-left text-sm font-medium text-ink hover:text-brand hover:underline"
-                          title="Abrir a ficha deste lead"
-                        >
-                          <span className="block truncate">{c.nome || 'Sem nome'}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removerDoDia(c)}
+                          onClick={(e) => { e.stopPropagation(); removerDoDia(c) }}
+                          onKeyDown={(e) => e.stopPropagation()}
                           aria-label={`Tirar ${c.nome || 'este lead'} do dia`}
                           title="Tirar do dia — o lead continua na carteira, com o mesmo responsável"
                           className="shrink-0 rounded px-1 text-ink-3 hover:bg-surface-3 hover:text-ink-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
@@ -299,14 +336,12 @@ export default function QuadroDoDia({
                       </div>
 
                       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
-                        <button
-                          type="button"
-                          onClick={() => onAbrirLead(c.prospect_id, 'origem')}
-                          className={`${o.classe} hover:border-line-strong`}
+                        <span
+                          className={o.classe}
                           title={`${o.rotulo} — ${o.dica}`}
                         >
                           {o.curto}
-                        </button>
+                        </span>
                         {hora && (
                           <span className="rounded-md border border-brand/20 bg-brand/5 px-1.5 py-0.5 font-medium text-brand" title="Compromisso na agenda">
                             {hora}
@@ -336,24 +371,9 @@ export default function QuadroDoDia({
                         <p className="mt-1 text-[11px] italic leading-snug text-ink-3">“{c.conclusao_nota}”</p>
                       )}
 
-                      {/* A ALTERNATIVA ACESSÍVEL ao arrastar. Não é um extra: é o caminho que
-                          funciona por teclado e por toque. */}
-                      <label className="mt-2 block">
-                        <span className="sr-only">Mover {c.nome || 'este lead'} para outra coluna</span>
-                        <select
-                          value=""
-                          onChange={(e) => {
-                            const destino = e.target.value as EtapaDia
-                            if (destino) mover(c, destino)
-                          }}
-                          className="h-8 w-full rounded-lg border border-line bg-surface-2 px-2 text-[11px] text-ink-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                        >
-                          <option value="">Mover para…</option>
-                          {COLUNAS.filter((x) => x.chave !== c.etapa).map((x) => (
-                            <option key={x.chave} value={x.chave}>{x.titulo}</option>
-                          ))}
-                        </select>
-                      </label>
+                      <p className="sr-only">
+                        Use Enter para abrir. Use Control mais seta para esquerda ou direita para mover entre colunas.
+                      </p>
                     </article>
                   )
                 })}
@@ -362,7 +382,7 @@ export default function QuadroDoDia({
                   <p className="rounded-lg border border-dashed border-line px-2 py-4 text-center text-[11px] text-ink-3">
                     {col.chave === 'para_hoje'
                       ? 'Use “Planejar meu dia” para escolher os leads.'
-                      : 'Arraste um card para cá, ou use “Mover para”.'}
+                      : 'Arraste um card para cá.'}
                   </p>
                 )}
               </div>

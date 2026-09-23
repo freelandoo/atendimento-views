@@ -5,7 +5,7 @@ const assert = require('node:assert')
 const fs = require('node:fs')
 const path = require('node:path')
 
-const { TIPO_ACESSO, normalizarLink, marcaDoLink, rotuloGenerico, acessosDoLead } = require('./lead-acessos')
+const { TIPO_ACESSO, normalizarLink, marcaDoLink, rotuloGenerico, telefoneWhatsapp, acessosDoLead } = require('./lead-acessos')
 
 test('normalizarLink aceita URL sem esquema e derruba o que nao e navegavel', () => {
   assert.equal(normalizarLink('instagram.com/loja').host, 'instagram.com')
@@ -46,15 +46,28 @@ test('marca nao reconhecida cai no rotulo do que o backend disse que o link e', 
   assert.equal(rotuloGenerico(null), 'Link')
 })
 
-test('ordem e deduplicacao: rede social, site, maps — sem href repetido', () => {
+test('whatsapp nasce primeiro quando ha telefone navegavel', () => {
+  assert.equal(telefoneWhatsapp('+55 (11) 99999-0001'), '5511999990001')
+  assert.equal(telefoneWhatsapp('123'), null)
   const r = acessosDoLead({
+    telefone: '+55 (11) 99999-0001',
+    instagram_handle: '@loja',
+    maps_url: 'https://maps.google.com/?cid=1',
+  })
+  assert.deepEqual(r.map((a) => a.tipo), [TIPO_ACESSO.WHATSAPP, TIPO_ACESSO.INSTAGRAM, TIPO_ACESSO.MAPS])
+  assert.equal(r[0].href, 'https://wa.me/5511999990001')
+})
+
+test('ordem e deduplicacao: whatsapp, rede social, site, maps — sem href repetido', () => {
+  const r = acessosDoLead({
+    telefone: '5511999990001',
     instagram_handle: '@loja',
     link_original: 'https://instagram.com/loja', // mesmo destino do handle
     classificacao_url: 'rede_social',
     tem_site: true, site: 'https://loja.com.br',
     maps_url: 'https://maps.google.com/?cid=1',
   })
-  assert.deepEqual(r.map((a) => a.tipo), [TIPO_ACESSO.INSTAGRAM, TIPO_ACESSO.SITE, TIPO_ACESSO.MAPS])
+  assert.deepEqual(r.map((a) => a.tipo), [TIPO_ACESSO.WHATSAPP, TIPO_ACESSO.INSTAGRAM, TIPO_ACESSO.SITE, TIPO_ACESSO.MAPS])
 })
 
 test('lead sem link nenhum devolve lista vazia', () => {
@@ -67,7 +80,7 @@ test('lead sem link nenhum devolve lista vazia', () => {
 // secao "Classificacao canonica de site proprio" do AGENTS.md proibe.
 test('o modulo nao reimplementa a classificacao de site', () => {
   const fonte = fs.readFileSync(path.join(__dirname, 'lead-acessos.js'), 'utf8')
-  for (const proibido of ['linktr.ee', 'wixsite', 'ifood', 'mercadolivre', 'tripadvisor', 'wa.me']) {
+  for (const proibido of ['linktr.ee', 'wixsite', 'ifood', 'mercadolivre', 'tripadvisor']) {
     assert.equal(fonte.includes(proibido), false, `lead-acessos.js nao pode conhecer o dominio ${proibido}`)
   }
 })

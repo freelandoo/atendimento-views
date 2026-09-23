@@ -5092,3 +5092,42 @@ Arhur fresco 184 leads + 1 equipe · gabs098953 1 lead + 4 follow-ups · tutu_zz
 3 follow-ups · Rhyan 25 descartados de resíduo. **Releitura confirma `leads_presos = 0`.**
 Sobraram 20 descartados na mão do próprio PJ Codeworks (vínculo ATIVO) — não é resíduo de saída,
 são decisões dele, e não foram tocados.
+
+---
+
+## 2026-09-22 21:14 — Banco de Leads: origem em Colunas, filtros compactos e ICP simplificado
+
+Identifiquei que este pedido é uma tarefa/projeto de alteração. Consultei o workflow padrão do
+projeto e registrei o início da tarefa em `docs/ai-task-start-log.md`.
+
+**Pedido:** reorganizar a Lista de Leads do Banco de Leads sem mexer em backend/banco: filtro de
+origem dentro do modal de Colunas, filtros de carteira mais compactos dentro da moldura da lista,
+filtros rápidos no rodapé do bloco e coluna `ICP + cadastro` simplificada para `ICP` com
+`Detalhes` como porta para o drawer lateral.
+
+**Áreas prováveis:** `frontend/app/dashboard/banco-leads/page.tsx` e validações do front
+(`npx tsc --noEmit`, `node --test lib/*.test.js`).
+
+**Riscos a preservar:** origem é dado gravado pelo backend, não inferência da tela; `score_cadastro`
+continua sendo evidência/completude de cadastro, não probabilidade de venda; sem mudança em
+permissões, banco, disparo real ou API.
+
+---
+
+## 2026-09-22 21:14:21 -03:00 — Banco de Leads: Quadro do dia e ficha lateral
+
+**Pedido:** melhorar a experiência do Quadro do Dia e da ficha lateral do lead:
+card inteiro clicável para abrir a ficha, movimentação de arraste mais visível, remover o controle
+visível "Mover para" e levar atalhos rápidos (WhatsApp, Instagram, Maps, site/link) para o
+cabeçalho da ficha.
+
+**Entendimento inicial:** alteração de UX no frontend SaaS (`frontend/`), sem migration e sem
+mudança esperada de regra de negócio. Preservar a regra existente de que o movimento do quadro é
+planejamento do dia, validado pelo backend, e que a ficha só desenha vereditos/links já resolvidos.
+
+**Áreas prováveis:** `frontend/components/QuadroDoDia.tsx`,
+`frontend/components/FichaLead.tsx`, `frontend/components/ConversaHistoricoModal.tsx`,
+`frontend/lib/lead-acessos.js` e testes puros relacionados.
+
+**Validação prevista:** `cd frontend && npx tsc --noEmit` e `node --test lib/*.test.js`, além de
+checagem manual visual quando possível.

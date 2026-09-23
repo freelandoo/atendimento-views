@@ -1,4 +1,4 @@
-export type TipoAcesso = 'instagram' | 'facebook' | 'site' | 'maps' | 'link'
+export type TipoAcesso = 'whatsapp' | 'instagram' | 'facebook' | 'site' | 'maps' | 'link'
 
 export type AcessoRapido = {
   tipo: TipoAcesso
@@ -8,6 +8,7 @@ export type AcessoRapido = {
 }
 
 export type LeadComLinks = {
+  telefone?: string | null
   instagram_handle?: string | null
   site?: string | null
   tem_site?: boolean | null
@@ -23,4 +24,5 @@ export declare const ROTULO_MARCA: Record<string, string>
 export declare function normalizarLink(bruta: unknown): { href: string; host: string } | null
 export declare function marcaDoLink(bruta: unknown): TipoAcesso | null
 export declare function rotuloGenerico(classificacaoUrl: string | null | undefined): string
+export declare function telefoneWhatsapp(telefone: unknown): string | null
 export declare function acessosDoLead(lead: LeadComLinks | null | undefined): AcessoRapido[]
