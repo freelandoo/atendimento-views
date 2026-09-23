@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Variacoes plausiveis de um telefone BR. Modulo PURO: sem banco, sem HTTP, sem rede.
 //

@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Sinais publicos de atividade do Perfil da Empresa/Google Maps.
 //

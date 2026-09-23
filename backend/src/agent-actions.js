@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 /**
  * Executores de ações do agente — separação documentada das responsabilidades.

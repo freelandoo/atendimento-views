@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 // Bloqueia URLs claramente placeholder. NUNCA deixar a IA emitir.

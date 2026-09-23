@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Resultado da BUSCA automática legada da Aquisição — lógica PURA (sem I/O), testável.
 //

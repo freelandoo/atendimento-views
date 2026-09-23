@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Fonte ÚNICA dos enums do domínio de AGENDA. Objetivo: evitar drift entre os
 // `new Set([...])` do código e as `CHECK` do banco — o mesmo tipo de bug que aconteceu

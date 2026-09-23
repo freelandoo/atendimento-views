@@ -8,6 +8,14 @@ import { Spinner } from '@/components/feedback/FeedbackProvider'
 // todos os endpoints, agrega e gera um playbook em Markdown. O token é tratado
 // como segredo: nunca é salvo em localStorage nem logado no cliente.
 
+// ─── POR QUE ESTA TELA NAO USA `apiFetch` ────────────────────────────────────
+// Ela e' a unica do app que le um HEADER da resposta: no 429 da API da Freelandoo, o
+// `Retry-After` vira o "Tente novamente em Xs" mostrado ao operador. `apiFetch` devolve
+// so' o corpo JSON ja parseado (`{ok, data, meta}`) e lanca em `!ok` — os headers nao
+// chegam ao chamador. Migrar esta chamada sem antes expor os headers no `apiFetch`
+// custaria esse detalhe, que e' o unico que diz QUANDO tentar de novo.
+// Ver LEGACY_REVIEW.md / REFACTOR_REPORT.md: a alternativa (expor headers no `apiFetch`)
+// mexe em infraestrutura compartilhada por ~40 telas e e' decisao propria.
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
 const PREFIXO = 'flnd_data_'
 

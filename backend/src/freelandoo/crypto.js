@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 // Cifragem em repouso do token e do webhook_secret da conexão Freelandoo.

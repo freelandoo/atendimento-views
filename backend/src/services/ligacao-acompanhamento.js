@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Ligacao ATIVA vista por QUEM NAO ESTA NELA (modo Acompanhar). Modulo PURO: sem banco,
 // HTTP, IA ou rede.

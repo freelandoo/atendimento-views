@@ -1,5 +1,9 @@
 'use strict'
 
+// `describe`/`it` NAO sao globais no runner do Node (diferente de Jest): sem este require o
+// arquivo inteiro morria com `ReferenceError: describe is not defined` antes do primeiro teste.
+// Como ele nunca esteve na lista do `npm test`, isso passou despercebido desde que foi escrito.
+const { describe, it } = require('node:test')
 const assert = require('assert')
 const {
   criarPromptComAnaliseEstruturada,
@@ -154,7 +158,10 @@ describe('AI Structured Analysis (Atividade A)', () => {
 
       const resultado = validarSchemaAnaliseEstruturada(schema)
       assert.equal(resultado.valido, false, 'Schema deve ser inválido por palavra proibida')
-      assert(resultado.erros.some(e => e.includes('Victor')), 'Deve mencionar a palavra proibida')
+      // O erro ecoa a palavra COMO CONFIGURADA em `palavras_proibidas` ('victor'), nao como
+      // aparece no texto ('Victor'). A asserção compara sem diferenciar caixa: o que precisa
+      // valer e' que o motivo seja dito, nao a redação exata da mensagem.
+      assert(resultado.erros.some(e => /victor/i.test(e)), 'Deve mencionar a palavra proibida')
     })
 
     it('deve validar handoff sem motivo', () => {
@@ -192,7 +199,10 @@ describe('AI Structured Analysis (Atividade A)', () => {
 
       const resultado = validarSchemaAnaliseEstruturada(schema)
       assert.equal(resultado.valido, false, 'Schema deve ser inválido')
-      assert(resultado.erros.some(e => e.includes('motivo_handoff')), 'Deve mencionar motivo_handoff ausente')
+      // A mensagem do validador e' 'Handoff recomendado mas sem motivo' — nao cita o nome do
+      // campo. Basta que o erro seja sobre o handoff sem motivo.
+      assert(resultado.erros.some(e => /handoff/i.test(e) && /motivo/i.test(e)),
+        'Deve reportar handoff recomendado sem motivo')
     })
   })
 

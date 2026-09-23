@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Lead parado (Operacao Comercial, Etapa 3) — acesso a dados.
 // Regras PURAS em src/services/lead-parado.js; aqui so' ha LEITURA.

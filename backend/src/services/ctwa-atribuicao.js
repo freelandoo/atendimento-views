@@ -44,6 +44,7 @@
 // Reexportados abaixo por compatibilidade: quem já importava `ORIGEM_EMPRESA` deste
 // módulo continua funcionando, sem uma segunda definição para manter em sincronia.
 const { ORIGEM_EMPRESA, ORIGENS_EMPRESA, empresaComprovada } = require('./webhook-quarentena')
+const { somenteDigitos } = require('../telefone-br')
 
 // ─── Motivos de descarte / não-elegibilidade (auditáveis, sem PII) ────────────
 const MOTIVO = Object.freeze({
@@ -154,7 +155,7 @@ function mascararCtwaClid(valor) {
 
 /** Telefone só com dígitos. Chave de junção com a reunião; nunca é impresso em log. */
 function normalizarTelefone(valor) {
-  const d = String(valor == null ? '' : valor).replace(/\D/g, '')
+  const d = somenteDigitos(valor)
   return d || null
 }
 

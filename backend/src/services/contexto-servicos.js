@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 const STATUS_REVISAO = new Set(['ia_preencheu', 'revisado', 'precisa_revisao'])

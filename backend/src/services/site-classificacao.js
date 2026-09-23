@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // CLASSIFICADOR CANONICO DE URL — "isto e' um site proprio ou so um link?"
 //
@@ -279,6 +280,7 @@ function oportunidade({ tipo, verificacao, pontos, motivo, linkOriginal = null }
   }
 }
 
+/** @param {{cls: any, situacao: string, lead?: any}} args — `lead` e' a linha crua de prospects. */
 function oportunidadeSite({ cls, situacao, lead = {} }) {
   if (situacao === 'sem_site') {
     if (cls.classificacao === 'perfil_ou_diretorio') {

@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Contas da empresa — API multi-tenant. CRM em equipe, Etapa 2.
 // Ver docs/plano-execucao-crm-equipe.md §4.

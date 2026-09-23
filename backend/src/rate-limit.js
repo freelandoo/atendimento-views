@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 // Limiter em memória por IP. Janela deslizante simples. Suficiente para mitigar

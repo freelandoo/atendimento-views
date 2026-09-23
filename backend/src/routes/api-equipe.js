@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Painel da EQUIPE — CRM em equipe, Etapa 12.
 // Ver docs/plano-execucao-crm-equipe.md §6 (Etapa 12).

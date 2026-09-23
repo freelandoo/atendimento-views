@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Telefone do lead informado por uma PESSOA (o "+ telefone" da listagem do Banco de Leads).
 //
@@ -25,7 +26,14 @@ const MENSAGEM = Object.freeze({
   [MOTIVOS.EM_USO]: 'Este numero ja pertence a outro lead desta empresa.',
 })
 
-/** So' digitos. Vazio vira '' (pedido de LIMPAR), nunca null, para o chamador distinguir. */
+/**
+ * So' digitos. Vazio vira '' (pedido de LIMPAR), nunca null, para o chamador distinguir.
+ *
+ * Esta e a UNICA copia da regra de "so digitos" que sobrou fora de `src/telefone-br.js`, e e
+ * deliberada: a guarda de pureza em `test/lead-telefone.test.js` proibe QUALQUER import neste
+ * modulo — nao so' banco e rede. Trocar a linha por uma importacao do dono da regra quebra o
+ * build de proposito. Se um dia a definicao de "so digitos" mudar, mude nos dois lugares.
+ */
 function normalizarTelefoneLead(valor) {
   return String(valor == null ? '' : valor).replace(/\D/g, '').slice(0, 20)
 }

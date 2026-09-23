@@ -72,6 +72,7 @@ const prompts = require('./src/prompts')
 const { pool, initDB } = require('./src/db')
 const agent = require('./src/agent')
 const { seedAdminUser } = require('./src/auth')
+const { iniciarWorkers } = require('./src/workers')
 const {
   resolveEmpresaFromWebhook, requireAuth, requireRole, requireEmpresaAccess, requireCapacidade,
 } = require('./src/middleware/tenant')
@@ -178,7 +179,8 @@ app.use('/freelandoo/webhook', require('./src/routes/freelandoo-webhook'))
 // playbooks das instancias provisionadas.
 const freelandooProvision = require('./src/routes/freelandoo-provision')
 app.use('/freelandoo', freelandooProvision)
-freelandooProvision.iniciarRefreshDiarioDePlaybooks()
+// O refresh diario de playbooks NAO e' iniciado aqui: e' worker, e todo worker sobe junto dos
+// outros em `src/workers/`, depois do initDB. Ver o registro la.
 
 // Resolve a empresa pela evolution_instance em todos os webhooks. SEM FALLBACK: quando a
 // origem não é comprovada, `req.empresaId` fica nulo e o webhook vai para quarentena.
@@ -262,23 +264,9 @@ function iniciarServidor() {
       } catch (e) {
         logger.warn('loadOverlaysFromDb:', e.message)
       }
-      agent.iniciarJobWorker()
-      agent.iniciarSilenceWatcher()
-      try {
-        require('./src/services/social-capture').iniciarCaptureWorker()
-      } catch (e) {
-        logger.warn('iniciarCaptureWorker:', e.message)
-      }
-      try {
-        require('./src/services/lead-lock').iniciarLeadLockWorker(pool)
-      } catch (e) {
-        logger.warn('iniciarLeadLockWorker:', e.message)
-      }
-      try {
-        require('./src/services/banco-leads-auto').iniciarBancoLeadsAutoWorker(pool)
-      } catch (e) {
-        logger.warn('iniciarBancoLeadsAutoWorker:', e.message)
-      }
+      // Tudo que roda em segundo plano neste processo esta em `src/workers/` — inclusive a
+      // politica de qual falha derruba o boot e qual so' e' registrada.
+      iniciarWorkers({ agent, pool })
       const PORT = process.env.PORT || 3000
       app.listen(PORT, '0.0.0.0', () => {
         logger.info(`PJ Codeworks Agent rodando na porta ${PORT}`)

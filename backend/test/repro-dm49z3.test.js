@@ -10,8 +10,19 @@
  *
  * Verifica:
  *   1. botReGreeting detecta corretamente
- *   2. validador bloqueia
- *   3. fallback contextual substitui
+ *   2. o validador REGISTRA a deteccao
+ *   3. a deteccao nao se perde em silencio
+ *
+ * ─── POR QUE ISTO NAO BLOQUEIA MAIS ────────────────────────────────────────────
+ * Ate a fusao do core na base SaaS multiempresa (d31f8b6, 2026-06-17), erro de CONTEUDO
+ * barrava a mensagem e trocava por fallback. Depois dela, `ERROS_BLOQUEANTES_ACAO` passou a
+ * ter so' os 3 erros TECNICOS (`json_invalido`, `acao_invalida`, `sem_mensagem_publica`) — o
+ * conteudo ficou com o LLM, e todo guardrail de conteudo virou AVISO ("LLM no controle", em
+ * action-response-validator.js:19).
+ *
+ * Este teste foi reescrito para travar o que de fato precisa continuar valendo: o detector
+ * `botReGreeting` CONTINUA reconhecendo a regressao e ela CONTINUA sendo registrada. Se um dia
+ * a politica voltar a bloquear, e aqui que a mudanca aparece.
  */
 
 const test = require('node:test')
@@ -19,7 +30,7 @@ const assert = require('node:assert/strict')
 
 const { validarRespostaPorAcao } = require('../src/action-response-validator')
 
-test('dm49z3: bot "Oi! Sou da PJ Codeworks. Voce busca site, sistema..." e BLOQUEADO', () => {
+test('dm49z3: bot "Oi! Sou da PJ Codeworks. Voce busca site, sistema..." e DETECTADO como re-greeting', () => {
   const bolhaSingle = 'Oi! Sou da PJ Codeworks. Você busca site, sistema, automação ou presença no Google?'
 
   const historico = [
@@ -54,12 +65,14 @@ test('dm49z3: bot "Oi! Sou da PJ Codeworks. Voce busca site, sistema..." e BLOQU
     mensagemAtual: 'Instagram',
   })
 
-  console.log('[dm49z3] bloqueado:', v.bloqueado)
-  console.log('[dm49z3] erros:', v.erros.map((e) => e.erro))
-  console.log('[dm49z3] fallback:', v.resultado.mensagem_pro_lead)
+  const codigos = [...v.erros, ...(v.avisos || [])].map((e) => e.erro)
 
-  assert.equal(v.bloqueado, true, 'esperava bloqueio')
-  const codigos = v.erros.map((e) => e.erro)
   assert.ok(codigos.includes('regreeting_apos_apresentacao'),
     `esperava regreeting_apos_apresentacao, obtido: ${codigos.join(', ')}`)
+
+  // O re-greeting e' erro de CONTEUDO: hoje avisa, nao bloqueia. Travar a severidade junto da
+  // deteccao e' o que torna uma mudanca de politica visivel em vez de silenciosa.
+  assert.equal(v.bloqueado, false, 'guardrail de conteudo avisa, nao bloqueia (ver cabecalho)')
+  assert.ok((v.avisos || []).some((a) => a.erro === 'regreeting_apos_apresentacao'),
+    'a deteccao tem de chegar como aviso — se sumir, o detector parou de funcionar')
 })

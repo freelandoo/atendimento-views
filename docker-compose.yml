@@ -55,7 +55,9 @@ services:
       APP_TIMEZONE: "America/Sao_Paulo"
       EVOLUTION_URL: "http://evolution-api:8080"
       EVOLUTION_API_KEY: "${EVOLUTION_API_KEY}"
-      EVOLUTION_INSTANCE: "PJ"
+      # EVOLUTION_INSTANCE foi APOSENTADA (2026-08-11) e nenhum código a lê. Era o último
+      # fallback de envio — a mensagem saía por um nome global que podia ser de OUTRA empresa.
+      # Hoje a instância vem do vínculo provado. Ver backend/.env.example.
       # Operadores autorizados: comandos PAUSAR/RETOMAR/INSTRUÇÃO e menu de ações (sem alerta automático por áudio).
       # Formato: "número" ou "número:Nome" — múltiplos separados por vírgula:
       #   OPERATOR_WHATSAPP: "5511987309724:Victor,5511888888888:Joãozinho"
@@ -76,9 +78,8 @@ services:
       # Sem esses valores a feature é ignorada (o agente volta ao fluxo anterior).
       GOOGLE_CSE_KEY: "${GOOGLE_CSE_KEY:-}"
       GOOGLE_CSE_ID: "${GOOGLE_CSE_ID:-}"
-      # Google Places API (New) — usado no agente de prospecção.
-      # Adicione GOOGLE_PLACES_API_KEY=... no .env local.
-      GOOGLE_PLACES_API_KEY: "${GOOGLE_PLACES_API_KEY:-}"
+      # A busca de prospects NÃO usa mais o Google Places: migrou para o Bright Data Maps
+      # (BRIGHTDATA_DATASET_MAPS_DESCOBERTA). GOOGLE_PLACES_API_KEY não é lida por código algum.
 
 volumes:
   postgres_data:

@@ -4797,6 +4797,34 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
   da regra de responsável, remoção da distribuição por equipe ou mudança estrutural grande nos
   componentes.
 
+## 2026-09-21 — Reorganização arquitetural incremental (Fase 0: baseline)
+
+- **Pedido do operador:** executar a reorganização arquitetural do projeto usando
+  `ARCHITECTURE_AUDIT.md` (auditoria read-only concluída hoje) como base de decisão. Objetivo
+  declarado: **organizar progressivamente o sistema que já funciona**, nunca reescrever.
+  Princípio que governa tudo: **preservar comportamento antes de melhorar arquitetura**.
+- **Regime de trabalho exigido:** uma mudança arquitetural por vez; depois de cada etapa,
+  typecheck + testes + build + verificação de regressão, e só então avançar. Nada de
+  refatoração massiva. Na dúvida entre apagar e manter, **manter e registrar**.
+- **Esta entrada cobre a Fase 0 — BASELINE, que não altera arquitetura nenhuma:** medir e
+  registrar em `REFACTOR_BASELINE.md` o estado atual de instalação, typecheck, testes e build
+  dos dois lados, para que qualquer falha pré-existente não seja confundida depois com
+  regressão causada pela refatoração.
+- **Análise de impacto da Fase 0:** nenhuma. Só execução de comandos de leitura/validação
+  (`npm ls`, `npm test`, `tsc --noEmit`, `next build`) e criação de dois arquivos de
+  documentação na raiz. Nenhum arquivo de código é tocado.
+- **Comandos de validação deste repositório** (confirmados no `package.json`, não inventados):
+  backend `npm test`, `npm run typecheck`, `npm run smoke:preco`; frontend `npx tsc --noEmit`
+  e `node --test lib/*.test.js`. **Não existe `npm run lint` utilizável** (frontend abre prompt
+  interativo e trava; backend não tem o script) e **não existe build de backend** — as duas
+  ausências vão registradas no baseline como lacuna, não como falha.
+- **Estado do repositório no início:** branch `codex/aprovar-distribuir`, 5 commits à frente de
+  `master`, com 8 arquivos modificados não commitados (trabalho de agenda em andamento, alheio
+  a esta tarefa). Serão preservados; a decisão de commitar/stashar é do operador.
+- **Fora de escopo desta rodada:** qualquer movimentação de arquivo, remoção de código legado,
+  remoção de dependência, mudança de rota, de schema, de prompt de produção ou de
+  comportamento. Isso começa a partir da Fase 1, e só com o baseline registrado.
+
 ## 2026-09-21 — Aquisição: seleção de localidade e ações em massa
 
 - **Pedido do operador:** melhorar a tela de Aquisição para que cidade/estado sejam escolhidos

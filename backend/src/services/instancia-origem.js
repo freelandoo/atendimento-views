@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 // Origem AUTORIZADA do vínculo empresa↔instância — regras PURAS.

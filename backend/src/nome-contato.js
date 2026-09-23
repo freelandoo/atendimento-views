@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 // Pure helpers for contact name capture. Persistence stays in the caller, where

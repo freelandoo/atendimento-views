@@ -1,103 +1,171 @@
 # Project Map
 
-Mapa de pastas e responsabilidades. Consulte antes de qualquer alteração estrutural.
-Stack: **Node.js + Express (JavaScript)**, PostgreSQL (`pg`), integração Anthropic,
-dashboard estático e jobs de prospecção.
+Mapa de pastas e responsabilidades. **Consulte antes de qualquer alteração estrutural.**
 
-> **Layout físico (split 2026-06-19):** o backend vive em **`backend/`** e o frontend
-> Next.js em **`frontend/`** (antigo `apps/web/`). Os caminhos abaixo (`index.js`, `src/…`,
-> `prompts/…`, `sql/…`) são relativos a `backend/`. Deploy: Railway com Root Directory
-> `backend/`, Vercel com Root Directory `frontend`.
+> **Números medidos em 2026-09-21.** Este arquivo já esteve desatualizado a ponto de citar
+> arquivos que não existem (`index.monolith.js`, `railway.json`) e descrever `src/db/` como
+> tendo 2 arquivos quando tem 47. Se você mexer na estrutura, atualize aqui **no mesmo commit**.
+> A fonte viva e detalhada das decisões é o **`AGENTS.md`** (raiz); este mapa é o índice.
 
-## Raiz de `backend/`
-- `index.js` — bootstrap: valida env obrigatórias, registra rotas, inicia servidor.
-- `index.monolith.js` — versão monolítica histórica (gerada/consolidada via `tools/build-split.cjs`).
-- `package.json` — scripts: `start`, `test`, `typecheck`, `smoke:preco`.
-- `tsconfig.json` — usado por `npm run typecheck` (há poucos `.ts`, ex. `src/project-handoff-types.ts`).
-- `docker-compose.yml`, `dockerfile`, `railway.json` — deploy (produção em Railway).
-- `.env.example` — referência de variáveis de ambiente.
+## O fato que explica o repositório inteiro
 
-## `src/` — backend
-### Entrada HTTP / rotas
-- `routes.js` — agregador de rotas.
-- `webhook-handler.js`, `whatsapp-routes.js`, `ai-routes.js`, `ai-test-routes.js`.
-- `routes/api-follow-ups.js` — API autenticada multiempresa da Central de Follow-ups.
+O sistema roda **duas gerações de produto no mesmo processo Node**:
 
-### Conversa / funil / orquestração (regra de negócio)
-- `agent.js` — núcleo da conversa, funil e parsing das respostas LLM.
-- `agent-actions.js`, `agent-orchestrator.js`, `agent-validators.js`.
-- `next-action-orchestrator.js`, `goal-selector.js`, `core-funnel.js`.
-- `conversation-pipeline.js`, `conversation-stage-classifier.js`.
-- `intent-detector.js`, `confusion-handler.js`, `question-limiter.js`.
-- `follow-up.js`, `followup-auto.js`, `followup-execution.js`.
-- `services/followup-listing.js`, `followup-manual.js`, `followup-call-score.js` —
-  fila de atendimento humano, próxima ação determinística, prompt externo de preview, roteiro
-  de ligação e envio manual da Central de Follow-ups.
-- `operator-commands.js`, `operator-meeting-detector.js`, `meeting-invite.js`.
-- `lead-profile.js`, `lead-profile-canonical.js`, `learning.js`.
-- `message-buffer.js`, `message-limits.js`, `reply-delay.js`.
-- `services/contexto-empresa.js`, `contexto2-runtime.js`, `contexto-estagios.js`,
-  `contexto-servicos.js`, `knowledge-ingestion.js` — contexto multiempresa, playbook,
-  estagios, catalogo estruturado de servicos e leitura de fontes.
-- `services/conversa-feedback.js` - feedback humano sobre respostas do agente no historico,
-  auditoria por tenant e criacao supervisionada de sugestoes pendentes para o Playbook.
+| | **Geração 1 — legada** (viva, em uso, **cercada**) | **Geração 2 — atual** (o produto) |
+|---|---|---|
+| UI | `backend/public/*.html` — 15 páginas estáticas | `frontend/` — Next.js 14, 29 rotas |
+| API | `/dashboard/*` e `/api/operador/*` — **98 rotas** | `/api/empresas/:empresaId/*` — **300 rotas** |
+| Onde a rota mora | dentro de `src/agent.js`, `prospecting.js`, `agenda.js`, `whatsapp-routes.js`, `ai-routes.js`, `meta-routes.js`, `leads-quentes.js` | `src/routes/api-*.js` |
+| Autenticação | `src/dashboardAuth.js` — cookie httpOnly + CSRF | `src/auth.js` (JWT) + `src/middleware/tenant.js` — papel do vínculo + capacidades |
+| Escopo | single-tenant (PJ Codeworks) | multiempresa, empresa provada pela instância |
 
-### Serviços de prospecção
-- `prospecting.js` — endpoints/jobs de prospecção (entrada).
-- `services/prospecting-*.js` — fila diária, elegibilidade, agendamento, geração de
-  mensagem, worker de envio, relatórios e analytics.
+A geração 1 **não se apaga hoje** (o operador ainda a usa), mas **não pode crescer**:
+`backend/test/legado-cercado.test.js` congela os três números (98 rotas, 15 páginas, 7 módulos
+usando a auth legada) e falha se algum subir. Rota nova, tela nova e código novo nascem na
+geração 2 — sem exceção.
 
-### Acesso a dados
-- `db.js` — pool, init/migração via `sql/init.sql` (fallback inline).
-- `db-crud.js` — operações CRUD.
-- `db/followup-config.js`, `db/followup-ligacoes.js` — configuração por empresa,
-  registro de ligações e métricas da Central de Follow-ups.
+---
 
-### Integrações externas
-- `ai-provider.js`, `ai-response.js`, `ai-structured-analysis.js` — LLM (Anthropic).
-- `whatsapp.js` — envio/recebimento (Evolution API).
-- `agenda.js` — agendamento/eventos.
-- `media-processing.js` — mídia/áudio.
+## Layout físico
 
-### Validação, segurança e utilidades
-- `domainSchemas.js`, `action-response-validator.js`, `message-validator.js`,
-  `public-message-guard.js` — validação.
-- `dashboardAuth.js` — autenticação do dashboard / rotas admin.
-- `config.js`, `logger.js`, `guardrail-logger.js`, `handoff-alerts.js`.
-- `string-utils.js`, `date-utils.js`, `institutional-language.js` — helpers.
-- `pricing.js`, `preview-site.js`, `project-handoff-*.js` — proposta/precificação/handoff.
+- **`backend/`** — API Node/Express. Deploy Railway com Root Directory `backend/`.
+- **`frontend/`** — app Next.js (App Router). Deploy Vercel com Root Directory `frontend`.
+- **raiz** — governança (`AGENTS.md`, `CLAUDE.md`, `README.md`, `docs/`), `docker-compose.yml`
+  (ambiente local: Postgres + Redis + Evolution + backend) e os relatórios da reorganização
+  (`ARCHITECTURE_AUDIT.md`, `REFACTOR_BASELINE.md`, `LEGACY_REVIEW.md`).
 
-## `prompts/` — conhecimento do agente (LLM)
-- `system-core.md` + `system-*.md` (primeiro-contato, diagnóstico, proposta,
-  objeção, fechamento) — regras por etapa do funil.
-- `empresa.md` — conhecimento autorizado e links permitidos.
-- `agent-base.md`, `classificador-intencao.md`, `followup*.md`, `lead-coach.md`,
-  `tom-referencia.md`.
-> Alterações aqui afetam produção diretamente — justifique o impacto.
+Todos os caminhos abaixo são relativos a `backend/`, salvo onde dito.
 
-## `sql/` — schema e migrações
-- `init.sql` — schema base (carregado por `src/db.js`).
-- `migracao_analise_estruturada.sql`, `prospeccao_orquestracao.sql`.
-- Vários `*.sql` de backup/restore na raiz são utilitários históricos, não schema vivo.
+## `backend/` — raiz
 
-## `public/` — dashboard estático (UI)
-- HTML na raiz de `public/` (login, conversas, agenda, prospecção, analytics, etc.).
-- `public/dashboard/js/*` — comportamento do dashboard.
-- `public/dashboard/css/*` — estilos.
-> Apenas apresentação. **Nenhuma** lógica crítica ou segredo deve viver aqui.
+- `index.js` (368 linhas) — **só boot**: valida env obrigatórias, monta middlewares e ~35
+  routers, inicia os workers e sobe o servidor.
+- `package.json` — `start`, `test`, `typecheck`, `smoke:preco` + 12 comandos operacionais
+  (backfills, medições, reclassificações). **Não existe `build` nem `lint`.**
+- `tsconfig.json` — usado por `npm run typecheck` (o runtime é CommonJS; há 1 `.ts` de tipos).
+- `Dockerfile` — imagem de produção (Node 20).
+- `.env.example` — referência de variáveis. ⚠️ Descreve 39 das ~153 lidas pelo código; o
+  catálogo completo em prosa está no `AGENTS.md`.
 
-## `test/` — testes (`node --test`)
-- `core.test.js` — regras de negócio base.
-- Demais `*.test.js` cobrem prospecção, funil, follow-up, agendamento, intenção, etc.
-> Nem todos entram em `npm test`; ao tocar regra coberta, garanta que o teste roda.
+## `backend/src/` — 247 arquivos
 
-## `scripts/` e `tools/`
-- `scripts/*` — migrações pontuais, dumps de prompts, testes de integração manuais.
-- `tools/build-split.cjs` — gera/divide o monolito.
+### `routes/` (38) — camada HTTP da geração atual
+Rotas `/api/empresas/:empresaId/*`, finas: validam entrada, chamam `services/` ou `db/`,
+devolvem. Autorizam com `requireAuth` → `requireEmpresaAccess` → `requireCapacidade`.
+**Nunca** usam `dashboardAuth` (há guarda).
 
-## `whisper-service/` — serviço Python auxiliar (transcrição), deploy separado.
+### `services/` (97) — regra de negócio
+Majoritariamente **puros e testados** (sem banco, HTTP, IA ou rede): recebem dados e devolvem
+veredito. É onde vive o vocabulário do domínio. Maior arquivo: `contexto2-runtime.js` (1.042).
+
+### `db/` (47) — acesso a dados, um arquivo por domínio
+`comissao.js`, `missao.js`, `ligacoes.js`, `lead-icp.js`, `follow-ups.js`… Todo SQL do produto
+atual nasce aqui. (A regra antiga dizia "isolado em `db.js`/`db-crud.js`" — isso descreve só o
+caminho legado.)
+
+### `workers/` (1) — registro único do que roda em segundo plano
+Lista os 6 workers, com nome, descrição e política de falha na largada (`essencial: true`
+derruba o boot; `false` só registra). **Não contém lógica de worker** — cada `iniciar` mora no
+seu domínio.
+
+### `middleware/` (1) — `tenant.js`
+`requireAuth`, `requireEmpresaAccess`, `requireCapacidade`, `resolveEmpresaFromWebhook`.
+Resolve a empresa pela instância do WhatsApp, **sem fallback**: origem não comprovada vai para
+quarentena.
+
+### `freelandoo/` (4) — canal alternativo de atendimento (token, não QR)
+
+### Raiz de `src/` (65 arquivos) — o núcleo do agente + o legado
+É a pasta mais bagunçada do repositório, e a bagunça tem nome: ali convivem o motor de IA, os
+helpers genéricos e as 98 rotas da geração 1.
+
+- **Núcleo da conversa:** `agent.js` (**7.475 linhas** — funil, parsing do LLM, precificação,
+  37 endpoints e composition root do webhook), `core-funnel.js` (2.322),
+  `conversation-pipeline.js`, `next-action-orchestrator.js`, `goal-selector.js`,
+  `intent-detector.js`, `question-limiter.js`, `confusion-handler.js`.
+- **Webhook:** `webhook-handler.js` — recebe ~40 funções injetadas por `agent.js`.
+- **Validação em cadeia:** `action-response-validator.js` → `message-validator.js` →
+  `public-message-guard.js` → `message-limits.js` → `reply-delay.js`.
+  ⚠️ Desde 2026-06-17 **só 3 erros técnicos bloqueiam** (`json_invalido`, `acao_invalida`,
+  `sem_mensagem_publica`); todo guardrail de conteúdo virou **aviso** ("LLM no controle").
+- **Integrações:** `ai-provider.js` (Anthropic/OpenAI), `whatsapp.js` (Evolution),
+  `media-processing.js` (áudio via API da OpenAI), `agenda.js`, `segredos-crypto.js`.
+- **Legado single-tenant:** `prospecting.js` (4.913), `agenda.js` (2.010), `whatsapp-routes.js`,
+  `ai-routes.js`, `ai-test-routes.js`, `meta-routes.js`, `leads-quentes.js`, `dashboardAuth.js`,
+  registrados por `routes.js`.
+- **Compartilhados:** `telefone-br.js`, `string-utils.js`, `date-utils.js`, `logger.js`,
+  `domain-enums.js`, `domainSchemas.js`, `config.js`.
+
+## `backend/prompts/` (13) — conhecimento do agente
+`system-core.md` + `system-*.md` (primeiro-contato, diagnóstico, proposta, objeção, fechamento),
+`empresa.md` (conhecimento autorizado), `agent-base.md`, `classificador-intencao.md`,
+`followup*.md`, `lead-coach.md`, `tom-referencia.md`.
+> **Não existe `prompts/system.md`** — foi dividido nos `system-*.md`.
+> Alteração aqui afeta produção diretamente: justifique o impacto.
+
+## `backend/sql/` — schema
+Três mecanismos, todos aplicados no boot por `src/db.js`:
+1. `init.sql` (50 KB) — schema `vendas`;
+2. `prospeccao_orquestracao.sql` — prospecção diária;
+3. `migrations/` (**91**, `001`–`090`) — schema `app`, versionadas em `app.schema_migrations`
+   por `src/db/migrations.js`, **cada uma numa transação com client dedicado**.
+
+`migracao_analise_estruturada.sql` é histórico: nenhum código o carrega.
+
+## `backend/public/` (15 páginas) — dashboard estático **legado**
+HTML + `public/dashboard/{css,js,assets}` compartilhados. Servido por `express.static`.
+**Não é referência para tela nova** e está cercado: não ganha página.
+
+## `backend/test/` (169 arquivos, ~2.955 testes)
+`npm test` roda `test/*.test.js` **por glob** — não existe mais lista manual (era ela que
+mantinha 24 arquivos fora da suíte). Além dos testes de regra, há três guardas estruturais:
+
+| Arquivo | O que protege |
+|---|---|
+| `rotas-contrato.test.js` + `fixtures/rotas-publicas.json` | as **427 rotas montadas** (método + caminho completo) |
+| `legado-cercado.test.js` | a geração legada só encolhe |
+| `migrations-integridade.test.js` | numeração, ordem e transacionalidade das migrations |
+| `autorizacao-rotas.test.js` | toda rota com `requireCapacidade` exercitada contra os 4 papéis |
+
+⚠️ **Nunca rode `node --test` sem argumento**: o padrão de descoberta do Node captura
+`scripts/test-evolution-send.js`, que **envia mensagem real de WhatsApp**.
+
+## `backend/scripts/` (24)
+12 com entrada no `package.json` (backfills, medições, reclassificações — os de medição rodam
+em `BEGIN TRANSACTION READ ONLY`). Os outros 12 são operacionais manuais; 3 são candidatos a
+histórico (ver `LEGACY_REVIEW.md`).
+
+## `backend/whisper-service/` — Python (FastAPI + faster-whisper)
+⚠️ **Órfão**: nenhum código de `src/` o chama. A transcrição real usa a API hospedada da OpenAI
+(`media-processing.js`). Ver `LEGACY_REVIEW.md` §2.1.
+
+---
+
+## `frontend/` — Next.js 14 (App Router, TypeScript, Tailwind)
+
+- **`app/`** — 29 rotas. `login`/`signup` (tema neon) e `dashboard/*` (tema claro).
+- **`components/`** (47) — `ui/` é o design system (`Botao`, `Campo`, `ModalConfirmar`,
+  `BolinhaPontuacao`, `DataTableFrame`, `FolhaModal`); o resto são componentes de feature.
+- **`lib/`** (43 módulos + 42 testes) — **módulos PUROS** que só **traduzem o veredito** que a
+  API já resolveu. Cada um tem par `.d.ts` e `.test.js`. É o padrão mais forte do frontend:
+  regra de negócio aqui quebra em silêncio.
+- **`lib/api.ts`** — cliente HTTP único (`apiFetch`): token, timeout, erro tipado, origem de
+  sessão. Exceção documentada: `app/dashboard/playbook/page.tsx` usa `fetch` cru porque precisa
+  do header `Retry-After`.
+- Sem Redux/Zustand: só 2 Contexts de UI (`FeedbackProvider`, `MotionProvider`) e
+  `localStorage` para preferências de tela.
+- **Validação:** `npx tsc --noEmit` + `npm test` (`node --test lib/*.test.js`) + `npm run build`.
+  **Não há ESLint configurado** — `npm run lint` abre prompt interativo e trava.
+
+---
 
 ## `docs/` — documentação
-- `project-map.md` (este arquivo), `architecture-rules.md`,
-  `ai-implementation-checklist.md`, `change-impact-template.md`.
-- Auditorias, roadmaps e revisões técnicas datadas.
+
+- **`AGENTS.md` (raiz) é a fonte viva.** 3.352 linhas com as decisões, os defeitos corrigidos e
+  o porquê de cada regra. Quando este mapa e o `AGENTS.md` divergirem, o `AGENTS.md` vence.
+- `architecture-rules.md` — a lei técnica (leia junto deste arquivo).
+- `ai-workflow.md`, `ai-decision-log.md`, `ai-task-start-log.md`, `change-impact-template.md` —
+  processo de trabalho com agentes de IA.
+- `GUIA-VISUAL-PJ-CODEWORKS.md` + `ui-visual-standard.md` — padrão visual (obrigatório em
+  qualquer tarefa de tela).
+- `historico/` — documentos de iniciativas encerradas. Não descrevem o sistema atual.

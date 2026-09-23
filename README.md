@@ -1,74 +1,115 @@
-# PJ Codeworks — Agente de vendas (WhatsApp)
+# Atendimento Views
 
-Servidor Node.js (Express) que recebe webhooks da Evolution API, mantém conversas e perfis no PostgreSQL (schema `vendas`) e usa Claude para respostas comerciais. O dashboard estático (`dashboard.html`) consome `/dashboard/data` e ações administrativas.
+Plataforma de **atendimento e vendas por WhatsApp com agente de IA**, mais o CRM comercial em
+volta dele: aquisição de leads, banco de leads, conversas, follow-ups, central de ligações,
+agenda, comissão e equipes — tudo **multiempresa**.
 
-Para novas telas ou ajustes de UI, siga o guia visual em [`docs/GUIA-VISUAL-PJ-CODEWORKS.md`](docs/GUIA-VISUAL-PJ-CODEWORKS.md). A entrada do dashboard é a Central Operacional (`/visao-geral.html`), focada nas filas de ação do operador.
+O agente recebe mensagens pela Evolution API, mantém conversa e perfil no PostgreSQL, decide a
+próxima ação por um pipeline determinístico e usa Anthropic ou OpenAI para redigir a resposta.
 
-## Cursor + Claude (setup recomendado)
+## As duas partes
 
-- Leia primeiro [`AGENTS.md`](AGENTS.md) para contexto técnico e fluxo de execução.
-- Regras persistentes do agente ficam em `.cursor/rules/claude-max-performance.mdc`.
-- Para mudanças em lógica de negócio, rode `npm test` antes de concluir.
+| | O que é | Stack | Deploy |
+|---|---|---|---|
+| **`backend/`** | API, regra de negócio, agente de IA, workers, integrações, banco | Node 20 + Express 5 + PostgreSQL (`pg`) | Railway, Root Directory `backend/` |
+| **`frontend/`** | Interface do produto (operação comercial) | Next.js 14 (App Router) + React 18 + Tailwind | Vercel, Root Directory `frontend` |
 
-O prompt principal (`prompts/system.md`) é carregado junto com **`prompts/empresa.md`** (conhecimento autorizado, ICP híbrido, prova social e URLs permitidos). Catálogo estruturado em `knowledge/cases.json` (referência; o texto injetado no modelo vem de `empresa.md`). Respostas JSON podem incluir opcionalmente **`links_sugeridos`** (URLs validadas pelo servidor antes do envio) e **`mensagens_bolhas`** (array de strings curtas enviadas em sequência no WhatsApp com pequeno atraso). Se não houver bolhas, o servidor pode ainda dividir o texto por parágrafos (`\n\n`) em até quatro envios.
+O frontend fala com o backend por HTTP direto (`NEXT_PUBLIC_API_URL`), com JWT no header.
+Não há BFF nem proxy.
 
-## Prospecção via Google Places
+> ⚠️ **O backend serve duas gerações de produto ao mesmo tempo.** Além da API multiempresa
+> (`/api/empresas/:empresaId/*`) que o `frontend/` consome, ele ainda serve um **dashboard
+> estático legado** em `backend/public/` sobre rotas `/dashboard/*`, com outra autenticação.
+> Ele está vivo e em uso, mas **cercado**: não pode crescer. Código novo nasce sempre na
+> geração multiempresa. Ver `docs/project-map.md`.
 
-- Defina `GOOGLE_PLACES_API_KEY=...` no `.env` para habilitar a pesquisa em `/prospeccao.html`.
-- A chave fica apenas no servidor. O navegador chama `POST /dashboard/prospeccao/places-search`, e o servidor consulta o Google Places API (New).
-- A busca usa Text Search com `textQuery`, `maxResultCount`, `languageCode=pt-BR`, `regionCode=BR` e `X-Goog-FieldMask` restrito aos campos usados no painel.
-- O endpoint usa a autenticacao do dashboard (cookie httpOnly + CSRF).
+## Rodando localmente
 
-### Endpoints do prospectador ativo
+**1. Infraestrutura** (Postgres + Redis + Evolution API):
 
-- `GET /dashboard/prospeccao/prospects` — lista prospects persistidos com filtros (`status`, `nicho`, `cidade`, `busca`) e diagnóstico mais recente.
-- `POST /dashboard/prospeccao/diagnosticos/gerar` — gera diagnóstico unitário (`prospect_id`) ou em lote (`prospect_ids[]`), com fallback heurístico quando `ANTHROPIC_KEY` não estiver configurada.
-- `PATCH /dashboard/prospeccao/diagnosticos/:prospect_id` — salva `mensagem_editada`.
-- `POST /dashboard/prospeccao/prospects/lote/aprovar` e `POST /dashboard/prospeccao/prospects/lote/rejeitar` — transição de status em lote.
-- `POST /dashboard/prospeccao/disparos/enviar` — envia somente prospects aprovados, com idempotência por janela/hashing de mensagem e retry seguro.
-- `GET /dashboard/prospeccao/metricas` — retorna métricas operacionais (status, enviados, taxa de resposta).
-- Disparo automático: orquestrado pelo sistema diário (`GET /dashboard/prospeccao/fila-diaria`, `POST /dashboard/prospeccao/fila-diaria/simular`, `GET /dashboard/prospeccao/execucoes`, `GET /dashboard/prospeccao/relatorio-diario`). O fluxo antigo via `job_queue` (`/jobs/*`) foi removido em 2026-05-28.
-
-## Follow-up manual (dashboard)
-
-- **POST `/dashboard/followup`** — body JSON `{ "numero": "..." }` (telefone com DDI ou JID `...@s.whatsapp.net`). Opcional: `{ "instrucao": "..." }` para orientar o modelo (não é enviado literalmente ao lead).
-  - Se a **última mensagem do histórico for do cliente** (`user`), o servidor usa o **mesmo fluxo do webhook** (`prompts/system.md`, JSON de vendas, cálculo de preço/handoff quando aplicável) — equivalente a **Reenviar resposta**.
-  - Se a última mensagem for do **assistente** ou do **operador**, gera uma mensagem curta de reengajamento com `prompts/followup.md` e grava no histórico **sem alterar o estágio** do funil.
-- **Autorizacao:** pelo login do dashboard. Chamadas do navegador usam cookie httpOnly e `x-csrf-token`; `REPROCESS_SECRET` fica restrito a integracoes administrativas legadas e `/webhook`.
-
-## Automação de follow-up (implementação futura)
-
-_Não implementado no código atual; referência para evolução com jobs agendados._
-
-### Por que colunas extras depois
-
-O campo `historico` não guarda timestamp por mensagem e `atualizado_em` muda a cada gravação. Para **follow-ups automáticos** (24h / 72h / 7 dias) sem confundir “última mensagem do bot” com silêncio real após vários follow-ups, o desenho previsto é:
-
-| Conceito | Uso |
-|----------|-----|
-| `silencio_inicio_em` | Timestamp definido só na resposta **normal** do bot ao lead; **não** atualizar em follow-up automático. |
-| `followup_nivel` | Inteiro 0…3 conforme envios automáticos no ciclo (ex.: 24h → 1, 72h → 2, 7d → 3). |
-
-### API e agendamento externo
-
-- **`POST /cron/followups`** (futuro) — endpoint protegido por segredo (ex.: `CRON_SECRET` no header ou query), consulta conversas elegíveis, gera/envia mensagens e atualiza níveis/colunas conforme regras.
-- **GitHub Actions** — workflow com `schedule` executando `curl` (ou similar) contra a URL pública do servidor, usando secrets como `FOLLOWUP_CRON_URL` e `CRON_SECRET`.
-
-Fluxo conceitual:
-
-```mermaid
-flowchart LR
-  subgraph trigger [Futuro]
-    GHA[GitHub Actions cron]
-  end
-  subgraph api [Servidor]
-    EP[POST /cron/followups]
-    DB[(Postgres)]
-    EV[Evolution API]
-  end
-  GHA -->|HTTPS + secret| EP
-  EP --> DB
-  EP --> EV
+```bash
+docker compose up -d postgres redis evolution-api
 ```
 
-Detalhes adicionais podem ser documentados em `docs/` quando o cron for priorizado.
+O compose também define um serviço `webhook`, que sobe o **backend dentro do Docker**. Para
+desenvolver, prefira subir só a infraestrutura acima e rodar o backend no host (passo 2) —
+assim você edita e reinicia sem rebuild de imagem.
+
+O `docker-compose.override.yml` publica o Postgres em **5433** no host (a 5432 costuma estar
+ocupada pelo Postgres nativo).
+
+**2. Backend** — crie `backend/.env` a partir de `backend/.env.example`:
+
+```bash
+cd backend
+npm install
+npm start          # porta 3000
+```
+
+Obrigatórias no boot (sem elas o processo aborta, por `validarSecretsBoot` em `index.js`):
+
+| Variável | Para quê |
+|---|---|
+| `ANTHROPIC_KEY`/`ANTHROPIC_API_KEY` **ou** `OPENAI_KEY`/`OPENAI_API_KEY` | ao menos um provedor de IA |
+| `EVOLUTION_API_KEY` | integração com o WhatsApp |
+| `REPROCESS_SECRET` | mín. 8 caracteres — protege `/dashboard/*` e `/webhook` |
+| `DASHBOARD_ADMIN_EMAIL` e `DASHBOARD_ADMIN_PASSWORD` | primeiro admin (senha mín. 12) |
+| `JWT_SECRET` | obrigatória **em produção** — assina o login do SaaS |
+
+⚠️ **O boot aplica as 91 migrations** no banco apontado por `DATABASE_URL`. Confira para onde
+seu `.env` aponta antes de rodar `npm start`.
+
+**3. Frontend:**
+
+```bash
+cd frontend
+npm install
+npm run dev -- -p 3001     # SEMPRE 3001
+```
+
+⚠️ Rode **um** `next dev` por vez: duas instâncias compartilhando `.next` corrompem o build e a
+tela passa a "não fazer nada". Aponte `NEXT_PUBLIC_API_URL=http://localhost:3000` no
+`frontend/.env.local`.
+
+## Validação
+
+Não existe `build` nem `lint` no backend, e o frontend **não tem ESLint configurado**
+(`npm run lint` abre prompt interativo e trava). O portão real é:
+
+```bash
+# backend/
+npm run typecheck      # tsc --noEmit
+npm test               # ~2.955 testes — deve sair com exit 0, sem falha tolerada
+npm run smoke:preco    # smoke de precificação (não toca o banco)
+
+# frontend/
+npx tsc --noEmit
+npm test               # node --test lib/*.test.js
+npm run build
+```
+
+⚠️ **Nunca rode `node --test` sem argumento** no backend: o padrão de descoberta do Node captura
+`scripts/test-evolution-send.js`, que **envia mensagem real de WhatsApp**. O `npm test` usa o
+glob `test/*.test.js` justamente para não alcançá-lo.
+
+Além dos testes de regra, a suíte tem guardas estruturais que quebram o build de propósito:
+o **contrato das 427 rotas** montadas, a **cerca da geração legada**, a **integridade das
+migrations** e a **autorização por capacidade** rota a rota.
+
+**Tudo isso roda automaticamente** em todo push e pull request
+(`.github/workflows/ci.yml`) — sem nenhum segredo configurado, porque a suíte é hermética. Há
+ainda um job que carrega a aplicação no **Node 20**, o runtime do Docker, para incompatibilidade
+com produção aparecer no CI e não na subida do container.
+
+## Onde ler o quê
+
+| Documento | Para quê |
+|---|---|
+| **`AGENTS.md`** | **fonte viva.** Decisões, defeitos corrigidos e o porquê de cada regra. Quando algo divergir, ele vence |
+| `CLAUDE.md` | como agentes de IA devem trabalhar neste repositório |
+| `docs/project-map.md` | mapa de pastas e responsabilidades, com números medidos |
+| `docs/architecture-rules.md` | a lei técnica (o que pode e o que não pode) |
+| `docs/GUIA-VISUAL-PJ-CODEWORKS.md` | padrão visual — obrigatório em qualquer tarefa de tela |
+| `ARCHITECTURE_AUDIT.md` | auditoria arquitetural de 2026-09-21 |
+| `LEGACY_REVIEW.md` | o que parece morto e aguarda decisão — **não apague nada dali sem revisar** |
+| `docs/historico/` | iniciativas encerradas. Não descrevem o sistema atual |

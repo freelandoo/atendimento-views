@@ -11,6 +11,8 @@
 
 // Resultado interno da reunião. `cancelada` e `no_show` NÃO estão aqui porque não
 // são conversão: são resultado interno e nunca chegam à Meta (decisão de produto).
+const { somenteDigitos } = require('../telefone-br')
+
 const TIPOS_CONVERSAO = Object.freeze([
   'reuniao_agendada',
   'reuniao_realizada',
@@ -109,7 +111,7 @@ function montarEventId({ tipo, entidadeTipo, entidadeId }) {
 
 /** Telefone só com dígitos. Chave de junção com a atribuição; nunca de idempotência. */
 function normalizarTelefone(valor) {
-  const d = String(valor == null ? '' : valor).replace(/\D/g, '')
+  const d = somenteDigitos(valor)
   return d || null
 }
 

@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Perfil de Instagram do lead — QUEM e' o perfil, e com que FORCA isso foi provado.
 //

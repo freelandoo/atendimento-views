@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Auto-lock de leads rodados: quando a conversa morre (sem resposta há N dias) ou dá
 // sinal de rejeição (status 'rejeitado'), o lead fica bloqueado por LEAD_LOCK_DIAS dias

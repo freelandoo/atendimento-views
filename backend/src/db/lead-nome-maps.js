@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Nome do Google Maps de um contato — `prospectador.prospects.nome`, casado por TELEFONE.
 //

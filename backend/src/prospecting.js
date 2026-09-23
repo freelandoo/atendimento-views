@@ -23,7 +23,7 @@ const { sqlResolverNichoId } = require('./services/nicho-resolucao')
 // do backfill); `COALESCE` nunca sobrescreve um vinculo ja gravado a mao ou por outra aprovacao.
 const SQL_RESOLVER_NICHO_AO_APROVAR = `, nicho_id = COALESCE(nicho_id, ${sqlResolverNichoId({ empresaCol: 'empresa_id', nichoCol: 'nicho' })})`
 const { logger } = require('./logger')
-const { candidatosTelefoneBR } = require('./telefone-br')
+const { candidatosTelefoneBR, somenteDigitos } = require('./telefone-br')
 const { dashboardAutorizado: dashboardSessionAutorizado } = require('./dashboardAuth')
 const { instanciaVinculadaAoUsuario } = require('./whatsapp-routes')
 const {
@@ -201,9 +201,9 @@ function montarAgendaPainelAutoProspeccao(config, now = new Date()) {
   }
 }
 
-function normalizarTelefone(v) {
-  return String(v == null ? '' : v).replace(/\D/g, '')
-}
+// Alias local do dono da regra (`src/telefone-br.js`). Mantido porque dezenas de chamadas
+// dentro deste arquivo usam o nome antigo; o que nao existe mais e' uma SEGUNDA definicao.
+const normalizarTelefone = somenteDigitos
 
 function normalizarNumeroWhatsapp(numero) {
   let digits = normalizarTelefone(String(numero == null ? '' : numero).replace(/@s\.whatsapp\.net$/i, ''))

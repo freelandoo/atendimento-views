@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Agendamento das ROTINAS de Aquisição — lógica PURA (sem I/O), testável.
 //

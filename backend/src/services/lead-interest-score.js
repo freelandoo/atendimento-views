@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 const ESTAGIOS_INTERESSE_ALTO = new Set([

@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Score ICP do lead — Fase 1.
 //
@@ -95,7 +96,7 @@ function calcularSinaisAutomaticos(lead = {}) {
   const rating = numero(lead.rating)
   const perfilSocial = temPerfilSocialConfirmado(lead)
   const operacaoValidada = (avaliacoes != null && avaliacoes >= 5) || (rating != null && rating >= 4)
-  const siteOp = url.site_oportunidade || {}
+  const siteOp = /** @type {any} */ (url.site_oportunidade || {})
   // A lacuna digital continua lendo a presenca AMPLA, de proposito: a pergunta ali e' se ha'
   // algum sinal de vida digital contrastando com a falta de site, e para isso um rastro fraco
   // basta. Trocar as duas pela mesma funcao mudaria um segundo criterio sem ninguem ter pedido.

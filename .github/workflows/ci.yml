@@ -1,0 +1,102 @@
+name: CI
+
+# Portao automatico do repositorio. Ate 2026-09-21 nao existia nenhum: o `npm test` era
+# executado a mao, quando alguem lembrava, e nada impedia um deploy com teste quebrado.
+#
+# Este workflow roda EXATAMENTE os mesmos comandos documentados no README e no
+# docs/architecture-rules.md — se o portao local passa, este aqui passa. Nao ha comando
+# inventado e nao ha etapa que so' existe no CI.
+#
+# ⚠️ NENHUM SEGREDO E' NECESSARIO. A suite e' hermetica: foi verificada rodando com o `.env`
+# removido (2.957 testes, exit 0). Se um teste novo precisar de credencial, ele nao e' teste
+# de unidade — e' de integracao, e o lugar dele nao e' aqui.
+
+on:
+  push:
+  pull_request:
+
+# Push novo na mesma branch cancela a execucao anterior: o que importa e' o ultimo commit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend (typecheck + testes + smoke)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22: o `npm test` usa o glob `test/*.test.js` expandido pelo PROPRIO Node, que
+      # exige 22+. Producao roda em Node 20 e nao executa testes — a compatibilidade com o
+      # runtime de producao e' checada no job `backend-node-de-producao`.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Testes
+        run: npm test
+
+      - name: Smoke de precificacao
+        run: npm run smoke:preco
+
+  backend-node-de-producao:
+    name: backend carrega no Node 20 (runtime de producao)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      # O Dockerfile usa node:20-alpine. Este job existe para que uma incompatibilidade com o
+      # runtime de PRODUCAO apareca aqui, e nao na subida do container. O `smoke:preco` serve
+      # porque carrega o index.js inteiro (todas as rotas, services e o registro de workers) e
+      # sai antes de tocar o banco.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+      - name: Carrega a aplicacao inteira
+        run: npm run smoke:preco
+
+  frontend:
+    name: frontend (typecheck + testes + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Testes
+        run: npm test
+
+      # Sem lint: este projeto NAO tem ESLint configurado. O script `lint` existe mas abre
+      # prompt interativo e trava — nao o adicione aqui sem antes configurar o ESLint.
+      - name: Build
+        run: npm run build

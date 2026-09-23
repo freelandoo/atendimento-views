@@ -35,6 +35,8 @@
  * ("sem WhatsApp -> e-mail confirmado -> ligacao") vive em
  * services/contato-canal-disponibilidade.js, nao aqui.
  */
+const { somenteDigitos } = require('../telefone-br')
+
 const FOLLOWUP_CANAL = Object.freeze(['whatsapp', 'ligacao', 'email'])
 
 /**
@@ -108,7 +110,7 @@ function erroEntrada(message) {
  * WhatsApp (onde a chave e' o JID).
  */
 function normalizarTelefoneDigitos(valor) {
-  const digitos = String(valor == null ? '' : valor).replace(/\D/g, '')
+  const digitos = somenteDigitos(valor)
   if (digitos.length < 8 || digitos.length > 15) {
     throw erroEntrada('telefone invalido para follow-up (esperado de 8 a 15 digitos).')
   }

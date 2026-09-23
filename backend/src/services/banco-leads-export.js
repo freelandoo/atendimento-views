@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 // Catalogo de colunas do CSV do Banco de Leads — modulo PURO (sem banco, HTTP, IA ou rede).

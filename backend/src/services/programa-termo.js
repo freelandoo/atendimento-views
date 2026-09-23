@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Termo da Operacao Comercial — TEXTO VERSIONADO, no fonte.
 //

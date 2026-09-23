@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Aceite do termo da Operacao Comercial — acesso a dados. Etapa 1.
 // Regras PURAS em src/services/programa-aceite.js; texto do termo em programa-termo.js.

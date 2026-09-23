@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Roteiros humanos versionados (modulo Prospeccao & Inteligencia Comercial). API
 // multi-tenant, admin-only (mount em index.js aplica requireAuth + requireRole('admin')).

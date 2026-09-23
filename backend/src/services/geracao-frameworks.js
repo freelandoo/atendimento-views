@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Frameworks de venda / copy / neuromarketing aplicados na GERAÇÃO (fixos no código).
 // Decisão do usuário (2026-06-19): técnicas embutidas, persuasão agressiva (escassez/urgência

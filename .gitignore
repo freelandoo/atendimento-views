@@ -34,9 +34,6 @@ dump-*.sql
 fix-fk.sql
 parsed-tables.json
 
-# Artefato gerado do monolito (regenerável via tools/build-split.cjs)
-index.monolith.js
-
 # Scripts operacionais de restore/upload com credenciais — NUNCA versionar.
 # Use sempre DATABASE_URL do ambiente; nunca hardcode a senha em script.
 restore-db.js

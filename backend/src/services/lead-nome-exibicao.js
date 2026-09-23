@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 // Nome de EXIBICAO de um lead — dono unico da ordem de prioridade entre as fontes de nome.
 // Modulo PURO: sem banco, sem HTTP, sem IA, sem rede.
