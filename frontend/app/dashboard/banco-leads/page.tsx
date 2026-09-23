@@ -776,7 +776,7 @@ export default function BancoLeadsPage() {
   )
   const [enviandoConversa, setEnviandoConversa] = useState(false)
   const [gerandoConversa, setGerandoConversa] = useState(false)
-  // Personalizar visualização (colunas + filtros + ordenação; persistida no localStorage)
+  // Colunas e filtros da visualizacao (colunas + filtros + ordenação; persistida no localStorage)
   const [persAberto, setPersAberto] = useState(false)
   /** Folha de filtros do CELULAR. No computador os mesmos campos ficam na barra. */
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
@@ -2096,7 +2096,7 @@ export default function BancoLeadsPage() {
       <FolhaModal
         aberto={filtrosAbertos}
         titulo="Filtros"
-        descricao="Recorte da carteira. Colunas e presets continuam em “Personalizar”, no computador."
+        descricao="Recorte da carteira. Origem, colunas e presets continuam em “Colunas”, no computador."
         onFechar={() => setFiltrosAbertos(false)}
         tamanho="sm"
         rodape={
@@ -2307,6 +2307,30 @@ export default function BancoLeadsPage() {
             </div>
           </div>
 
+          {!leads.length ? (
+            // Etapa 3: carteira vazia POR RECORTE DE EQUIPE nao pode parecer defeito nem falta
+            // de permissao. O texto vem do modulo puro, que distingue os tres motivos.
+            (() => {
+              const v = vazioDaCarteira(metaLista?.equipe || null, aba)
+              return (
+                <div className="text-center py-8">
+                  <p className="text-sm text-ink-3">{v.titulo}</p>
+                  {v.ajuda && <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">{v.ajuda}</p>}
+                </div>
+              )
+            })()
+          ) : totalFiltrado === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-8">
+              Nenhum lead encontrado com esses filtros. Tente remover algum filtro ou{' '}
+              <button
+                onClick={() => { setOrigem(''); setView(VIEW_PADRAO) }}
+                className="text-brand hover:underline"
+              >
+                restaurar a visualização padrão
+              </button>.
+            </p>
+          ) : (
+          <>
           {/* CELULAR — a fila em cartoes. A tabela nao encolhe bem: sao ate 16 colunas com
               `min-w-max` e nenhuma congelada, entao no telefone ela vira rolagem lateral sem
               fim e o nome do lead sai da tela. */}
@@ -2345,6 +2369,8 @@ export default function BancoLeadsPage() {
             <div className="border-t border-line px-3 py-2">
               <RodapePaginacaoBanco pg={pgLeads} onPagina={setPagina} />
             </div>
+          )}
+          </>
           )}
 
           {/* Filtros rápidos: atalhos para os recortes mais usados do modal "Colunas".
@@ -2834,10 +2860,6 @@ type TabelaProps = {
   onSelecionarPagina?: () => void
   onLimparSelecao?: () => void
   onAbrirFicha: (l: Lead, gatilho: string) => void
-  /** Recorta a lista pela fonte do lead. Escreve no MESMO estado dos filtros de visualização. */
-  onFiltrarOrigem?: (origem: string) => void
-  /** A fonte em vigor, para o controle dizer que JA' esta filtrado (e poder desfazer). */
-  origemAtiva?: string
   onSalvarEmail: (id: string, email: string) => Promise<void>
   onSalvarTelefone: (id: string, telefone: string) => Promise<void>
   onAbrirDetalhes: (l: Lead) => void
@@ -3560,7 +3582,7 @@ function TabelaBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previ
   )
 }
 
-// ─── Modal Personalizar visualização (colunas + filtros + ordenação + presets) ──
+// ─── Modal Colunas e filtros (colunas + filtros + ordenação + presets) ──
 const PRESETS: { nome: string; dica: string; patch: Partial<ViewConfig>; aba?: string }[] = [
   { nome: 'Alta chance de venda', dica: 'Lead A, com telefone, sem disparo', patch: { icp: 'A', telefone: 'com', disparo: 'nao_disparado', ordenacao: 'icp_desc' } },
   { nome: 'Bom fit sem abordagem', dica: 'Lead A/B ainda não disparado', patch: { disparo: 'nao_disparado', ordenacao: 'icp_desc' }, aba: 'sem_contato' },
@@ -3630,7 +3652,7 @@ function PersonalizarModal({ view, origem, onOrigemChange, onPatch, onReset, onP
       className={`z-50 bg-surface rounded-lg shadow-2xl border flex flex-col max-h-[85vh] w-[640px] max-w-[95vw] ${pos ? '' : 'fixed left-1/2 top-12 -translate-x-1/2'}`}>
         <div onMouseDown={startDrag}
           className="flex items-center justify-between px-5 py-3 border-b cursor-move select-none bg-surface-2 rounded-t-2xl">
-          <h3 className="font-semibold text-lg">⠿ Personalizar visualização</h3>
+          <h3 className="font-semibold text-lg">⠿ Colunas e filtros</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none cursor-pointer" aria-label="Fechar">×</button>
         </div>
 

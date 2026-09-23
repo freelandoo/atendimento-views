@@ -327,6 +327,24 @@ Registre aqui toda divergência visual autorizada pelo usuário.
   navegador, e subir o backend local apontaria para o banco de PRODUÇÃO e ligaria os workers
   (coleta paga, disparo automático), o que os limites operacionais do pedido proíbem.
 
+### 2026-09-22 — Banco de Leads: origem em Colunas e ICP compacto
+
+- **Ajuste aprovado pelo operador:** o filtro de **Origem** deixa de ser acionável na célula da
+  tabela e passa a viver dentro do modal **Colunas e filtros**. A pílula da linha continua neutra
+  e informativa; clicar nela abre as evidências da fonte na ficha lateral, sem recortar a lista.
+- **A moldura da lista concentra o trabalho de varredura no desktop:** filtros de carteira
+  (carteira, busca, nicho/categoria e cidade), ordenação, Colunas e a tabela ficam no mesmo bloco.
+  Os atalhos rápidos (`Com WhatsApp`, `Sem site próprio`, `Com rede social`, `Sem rede social`,
+  `Falha no envio`) descem para o rodapé desse bloco.
+- **A coluna `ICP + cadastro` vira `ICP`:** a tabela mostra apenas a bolinha de ICP e o comando
+  `Detalhes`; cadastro/coleta, score, evidências e dados completos ficam no drawer lateral. Isso
+  preserva a distinção entre ICP comercial e completude de cadastro.
+- **Vazio continua operável:** a moldura da lista aparece mesmo quando o recorte não retorna
+  leads, para que o operador ainda consiga trocar filtros e abrir Colunas sem procurar controles
+  fora do bloco.
+- **Como validar:** `cd frontend && npx tsc --noEmit`, `node --test lib/*.test.js` e verificação
+  visual desktop/mobile da tela.
+
 ### 2026-09-22 — Ficha do lead: UMA superfície lateral, quatro seções (Etapa 2)
 
 - **Divergência aprovada (mesma decisão de 2026-09-22, opção 2):** a ficha do lead deixa de ser
