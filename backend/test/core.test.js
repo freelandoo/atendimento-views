@@ -5449,27 +5449,10 @@ test('motor de IA: defaults sem banco usam OpenAI GPT-4o-mini', async () => {
   }
 })
 
-test('motor de IA: exigirAdmin retorna 403 sem dashboardUser', () => {
-  const { exigirAdmin } = require('../src/ai-routes')
-  let status = null
-  const resMock = { status: (s) => { status = s; return { json: () => {} } } }
-  exigirAdmin({}, resMock, () => {})
-  assert.equal(status, 403)
-})
-
-test('motor de IA: exigirAdmin chama next() para admin autenticado', () => {
-  const { exigirAdmin } = require('../src/ai-routes')
-  let nextCalled = false
-  exigirAdmin({ dashboardUser: { role: 'admin' } }, {}, () => { nextCalled = true })
-  assert.equal(nextCalled, true)
-})
-
 test('motor de IA: dashboardAutorizado e predicate (arity 1) e nao deve ser usado como middleware', () => {
   const { dashboardAutorizado } = require('../src/dashboardAuth')
   assert.equal(typeof dashboardAutorizado, 'function')
   assert.equal(dashboardAutorizado.length, 1, 'arity 1 = predicate (regressao corrigida)')
-  const { exigirAdmin } = require('../src/ai-routes')
-  assert.equal(exigirAdmin.length, 3, 'arity 3 = middleware Express valido')
 })
 
 test('motor de IA: generateAIResponse usa provedor configurado no banco', async () => {

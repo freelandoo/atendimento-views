@@ -166,8 +166,6 @@
     "GET /dashboard/agenda/:id",
     "GET /dashboard/agenda/disponibilidade",
     "GET /dashboard/agenda/resumo",
-    "GET /dashboard/ai/logs",
-    "GET /dashboard/ai/presets",
     "GET /dashboard/ai/settings",
     "GET /dashboard/analises-etapas",
     "GET /dashboard/audio-pendentes",

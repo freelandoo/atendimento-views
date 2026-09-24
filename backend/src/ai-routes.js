@@ -1,5 +1,27 @@
 'use strict'
 
+// O QUE AINDA SOBREVIVE AQUI DA GERACAO LEGADA, e por que.
+//
+// Este arquivo tinha 5 rotas `/dashboard/ai/*`. Duas sairam em 2026-09-24:
+//   * `GET /dashboard/ai/presets` — duplicava `GET /api/llm`, que ja devolve os presets
+//     JUNTO da configuracao atual;
+//   * `GET /dashboard/ai/logs` — alem de ter substituto em `/api/llm/uso`, ela lia
+//     `vendas.ai_logs` SEM filtro de empresa: um tenant via o log de IA dos outros.
+//
+// As tres que ficam NAO tem equivalente na geracao multiempresa, e apaga-las seria perder
+// capacidade, nao limpar duplicata:
+//   * `GET`/`POST /dashboard/ai/settings` — a UNICA superficie (leitura e escrita) de
+//     `temperature`, `max_tokens` e `fallback_provider`/`fallback_model`/`fallback_enabled`.
+//     `GET /api/llm` devolve provider/model/chaves/gen_*, e `PUT /geracao` e `POST /activate`
+//     escrevem provider/model/chave — nenhum dos tres toca aqueles cinco campos.
+//   * `POST /dashboard/ai/test` — faz uma GERACAO de verdade ponta a ponta (com
+//     `disableFallback`, para provar o caminho principal). O `POST /api/llm/test` moderno e'
+//     outra coisa: valida uma credencial listando modelos, sem gerar nada.
+//
+// Fechar essa lacuna e' trabalho da API multiempresa, com decisao de produto junto: os cinco
+// campos sao GLOBAIS hoje, e a geracao atual e' por empresa. Nao e' efeito colateral de uma
+// remocao — por isso as tres continuam aqui, declaradas, em vez de sumirem caladas.
+
 const { pool } = require('./db')
 const { dashboardAutorizado } = require('./dashboardAuth')
 const { invalidateCache, validarProviderModel, AI_MODEL_PRESETS } = require('./ai-provider')
@@ -147,45 +169,6 @@ function registerAIRoutes(app) {
         mensagem: 'Configurações salvas com sucesso.',
         settings: normalizarSettings(result.rows[0]),
       })
-    } catch (e) {
-      res.status(500).json({ ok: false, erro: e.message })
-    }
-  })
-
-  // Lista presets de provedor/modelo + status atual (LLM ativo). Permite ao frontend
-  // exibir o LLM em uso sem duplicar a definicao dos modelos.
-  app.get('/dashboard/ai/presets', exigirAdmin, async (_req, res) => {
-    try {
-      const { rows } = await pool.query(
-        'SELECT * FROM vendas.ai_settings ORDER BY updated_at DESC LIMIT 1'
-      )
-      const ativo = rows[0] ? normalizarSettings(rows[0]) : defaultSettingsRow()
-      res.json({
-        ok: true,
-        presets: AI_MODEL_PRESETS,
-        ativo: {
-          provider: ativo.provider,
-          provider_label: (AI_MODEL_PRESETS[ativo.provider] || {}).label || ativo.provider,
-          model: ativo.model,
-          fallback_enabled: ativo.fallback_enabled,
-          fallback_provider: ativo.fallback_provider,
-          fallback_provider_label: (AI_MODEL_PRESETS[ativo.fallback_provider] || {}).label || ativo.fallback_provider,
-          fallback_model: ativo.fallback_model,
-        },
-      })
-    } catch (e) {
-      res.status(500).json({ ok: false, erro: e.message })
-    }
-  })
-
-  app.get('/dashboard/ai/logs', exigirAdmin, async (req, res) => {
-    try {
-      const limit = Math.min(Math.max(parseInt(req.query?.limit, 10) || 50, 1), 200)
-      const { rows } = await pool.query(
-        'SELECT id, provider, model, task, success, error_message, latency_ms, created_at FROM vendas.ai_logs ORDER BY created_at DESC LIMIT $1',
-        [limit]
-      )
-      res.json({ ok: true, logs: rows })
     } catch (e) {
       res.status(500).json({ ok: false, erro: e.message })
     }
