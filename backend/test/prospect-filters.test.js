@@ -101,6 +101,29 @@ test('prospect filters: opcoes de mercado respeitam carteira e porta de aprovado
   }
 })
 
+test('prospect filters: opcoes de mercado respeitam recorte por nicho da equipe', async () => {
+  const queries = []
+  const pool = {
+    async query(sql, params) {
+      queries.push({ sql, params })
+      return { rows: [] }
+    },
+  }
+
+  await listarOpcoesFiltrosMercado(pool, {
+    empresaId: 'empresa-1',
+    nichoEquipeId: '00000000-0000-4000-8000-000000000001',
+    limit: 5,
+  })
+
+  assert.equal(queries.length, 4)
+  for (const q of queries) {
+    assert.match(q.sql, /empresa_id = \$1/)
+    assert.match(q.sql, /nicho_id = \$2::uuid/)
+    assert.deepEqual(q.params, ['empresa-1', '00000000-0000-4000-8000-000000000001', 5])
+  }
+})
+
 // A origem e' normalizada num lugar so: a listagem (/prospects) e a contagem por status
 // (/metricas) precisam recortar o MESMO universo, senao o numero do filtro nao bate com a lista.
 // ⚠️ ESTES DOIS TESTES FORAM REESCRITOS EM 2026-09-22, e o que eles afirmavam antes era o

@@ -5691,3 +5691,13 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   lead para a equipe. O texto pesquisado fica auditavel; o recorte continua por ID/empresa.
 - **Cuidados:** nao trocar recorte por `ILIKE`, nao ampliar carteira da equipe, nao criar
   migration nova e nao sobrescrever `nicho_id` existente em recoleta.
+
+## 2026-09-24 — Pais no Banco de Leads
+
+- **Pedido:** adicionar selecao de pais no Banco de Leads para comercial e demais cargos, porque
+  a mesma equipe/nicho (ex.: energia solar) pode ter leads no Brasil e em outros paises.
+- **Areas previstas:** `frontend/app/dashboard/banco-leads/page.tsx`,
+  `backend/src/routes/api-banco-leads.js` e `backend/src/services/prospect-filters.js`.
+- **Cuidados:** pais e filtro de carteira, nao permissao nova; preservar o recorte por equipe,
+  porta de aprovados e responsavel no backend; exibir o pais na lista para nao misturar Brasil
+  com carteira internacional.

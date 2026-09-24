@@ -1,6 +1,7 @@
 'use strict'
 const { origensDoFiltro } = require('./lead-origem')
 const { normalizarPais } = require('./paises')
+const { sqlNichoDaEquipe } = require('./equipes-comerciais')
 
 function normalizarTexto(valor, max = 160) {
   return String(valor == null ? '' : valor).trim().slice(0, max)
@@ -73,6 +74,7 @@ async function listarOpcoesFiltrosMercado(pool, {
   escopoSql,
   escopoUsaUsuario = false,
   usuarioId = null,
+  nichoEquipeId = null,
   somenteAprovados = false,
   somenteSociais = false,
   limit = 80,
@@ -107,6 +109,11 @@ async function listarOpcoesFiltrosMercado(pool, {
 
   if (somenteAprovados) {
     where.push(`qualificacao = 'aprovado'`)
+  }
+
+  if (nichoEquipeId) {
+    params.push(nichoEquipeId)
+    where.push(sqlNichoDaEquipe({ placeholder: `$${params.length}` }))
   }
 
   params.push(Math.min(Math.max(parseInt(limit, 10) || 80, 1), 200))

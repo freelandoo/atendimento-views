@@ -25,6 +25,7 @@ import DataTableFrame from '@/components/ui/DataTableFrame'
 import TextoTruncado from '@/components/ui/TextoTruncado'
 import NichoCidade from '@/components/ui/NichoCidade'
 import { rotuloLink } from '@/lib/site-rotulos'
+import { nomePais } from '@/lib/paises'
 // A ORIGEM do lead chega pronta do backend (`prospects.origem`, vocabulario travado em
 // services/lead-origem.js). Este modulo so TRADUZ — a tela nao deduz procedencia.
 import { celulaOrigem, OPCOES_FILTRO_ORIGEM, rotuloFiltroOrigem } from '@/lib/lead-origem'
@@ -72,7 +73,7 @@ type Lead = {
   /** Faixa da fila de trabalho, decidida pelo BACKEND. A tela nao reclassifica. */
   faixa_trabalho?: string | null
   telefone: string | null; email: string | null; instagram_handle: string | null
-  nicho: string | null; cidade: string | null; site: string | null
+  nicho: string | null; cidade: string | null; pais: string | null; site: string | null
   seguidores: number | null; categoria_perfil: string | null
   endereco: string | null; rating: number | null; avaliacoes: number | null
   // `tem_site`/`site` chegam CANONICOS do backend (services/site-classificacao.js):
@@ -153,6 +154,7 @@ type FiltrosMercado = {
   nichos: OpcaoFiltroMercado[]
   categorias: OpcaoFiltroMercado[]
   cidades: OpcaoFiltroMercado[]
+  paises: OpcaoFiltroMercado[]
 }
 type StatusPayload = {
   reuniao?: { data: string; horario: string; duracao_minutos: number; observacoes?: string }
@@ -570,7 +572,7 @@ function valorColuna(l: Lead, chave: string): number | string {
     case 'telefone': return l.telefone || ''
     case 'email': return l.email || ''
     case 'endereco': return (l.endereco || '').toLowerCase()
-    case 'nicho': return `${l.nicho || l.categoria_perfil || ''} ${l.cidade || ''}`.toLowerCase()
+    case 'nicho': return `${l.nicho || l.categoria_perfil || ''} ${l.cidade || ''} ${l.pais || ''}`.toLowerCase()
     case 'seguidores': return l.seguidores ?? -1
     case 'aval': return l.avaliacoes ?? -1
     case 'nota': return l.rating ?? -1
@@ -689,7 +691,7 @@ const VIEW_PADRAO: ViewConfig = {
 // operador e continuam permanentes no localStorage, por decisão já documentada. Misturar os
 // dois faria a preferência evaporar em 30 min ou o recorte de hoje reaparecer amanhã.
 const TELA_RECORTE = 'banco-leads'
-const RECORTE_PADRAO = { aba: 'sem_contato', origem: '', mercado: '', cidadeFiltro: '', busca: '', escopo: '' }
+const RECORTE_PADRAO = { aba: 'sem_contato', origem: '', mercado: '', cidadeFiltro: '', paisFiltro: '', busca: '', escopo: '' }
 
 // Versão da view salva no localStorage. A v1 gravava TODAS as colunas ligadas (era o padrão
 // da época), então um merge simples com o novo padrão faria todo operador existente continuar
@@ -761,7 +763,7 @@ function passaFiltrosView(l: Lead, v: ViewConfig): boolean {
   }
   if (v.regiao.trim()) {
     const q = v.regiao.trim().toLowerCase()
-    if (!`${l.endereco || ''} ${l.cidade || ''}`.toLowerCase().includes(q)) return false
+    if (!`${l.endereco || ''} ${l.cidade || ''} ${l.pais || ''}`.toLowerCase().includes(q)) return false
   }
   const score = l.score_cadastro ?? null
   const sMin = numOuNull(v.scoreMin); const sMax = numOuNull(v.scoreMax)
@@ -835,6 +837,7 @@ export default function BancoLeadsPage() {
   const [origem, setOrigem] = useState('')
   const [mercado, setMercado] = useState('')
   const [cidadeFiltro, setCidadeFiltro] = useState('')
+  const [paisFiltro, setPaisFiltro] = useState('')
   const [filtrosMercado, setFiltrosMercado] = useState<FiltrosMercado | null>(null)
   const [busca, setBusca] = useState('')
   const [leads, setLeads] = useState<Lead[]>([])
@@ -1073,6 +1076,7 @@ export default function BancoLeadsPage() {
     if (origem) p.set('origem', origem)
     if (mercado) p.set('mercado', mercado)
     if (cidadeFiltro) p.set('cidade', cidadeFiltro)
+    if (paisFiltro) p.set('pais', paisFiltro)
     if (busca.trim()) p.set('busca', busca.trim())
     if (view.envio !== 'todos') p.set('envio', view.envio)
     return p.toString()
@@ -1106,6 +1110,7 @@ export default function BancoLeadsPage() {
       if (origem) p.set('origem', origem)
       if (mercado) p.set('mercado', mercado)
       if (cidadeFiltro) p.set('cidade', cidadeFiltro)
+      if (paisFiltro) p.set('pais', paisFiltro)
       if (busca.trim()) p.set('busca', busca.trim())
       if (view.envio !== 'todos') p.set('envio', view.envio)
       // Recorte por RESPONSÁVEL (Etapa 4). Quem decide o que este pedido pode ver é o backend:
@@ -1118,7 +1123,7 @@ export default function BancoLeadsPage() {
       setMetaLista(r.meta || null)
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao carregar leads.') }
     finally { setCarregando(false) }
-  }, [base, empresaId, recortePronto, aba, origem, mercado, cidadeFiltro, busca, escopo, view.envio])
+  }, [base, empresaId, recortePronto, aba, origem, mercado, cidadeFiltro, paisFiltro, busca, escopo, view.envio])
 
   const carregarFiltrosMercado = useCallback(async () => {
     if (!empresaId || !recortePronto) return
@@ -1225,11 +1230,11 @@ export default function BancoLeadsPage() {
   }, [])
   // Limpa a seleção ao trocar de aba/filtro/modo (os ids podem sair da lista, ou a seleção
   // deixa de fazer sentido fora do Manual — os checkboxes somem junto).
-  useEffect(() => { setSelecionados(new Set()) }, [aba, origem, mercado, cidadeFiltro, busca, config.modo])
+  useEffect(() => { setSelecionados(new Set()) }, [aba, origem, mercado, cidadeFiltro, paisFiltro, busca, config.modo])
   // Qualquer mudança no recorte volta a paginação para a 1ª página — senão o operador pode
   // cair numa página vazia depois de filtrar ou trocar de aba (mesmo padrão de Follow-ups e
   // Central de Ligações).
-  useEffect(() => { setPagina(1) }, [aba, origem, mercado, cidadeFiltro, busca, view])
+  useEffect(() => { setPagina(1) }, [aba, origem, mercado, cidadeFiltro, paisFiltro, busca, view])
   // Recorte de trabalho: hidrata UMA vez e só então libera a busca de leads. A hidratação
   // acontece em efeito (nunca no valor inicial do estado) porque este componente também
   // renderiza no servidor, onde não existe sessionStorage — semear ali faria o HTML do servidor
@@ -1243,6 +1248,7 @@ export default function BancoLeadsPage() {
       setOrigem(r.origem)
       setMercado(r.mercado)
       setCidadeFiltro(r.cidadeFiltro)
+      setPaisFiltro(r.paisFiltro)
       setBusca(r.busca)
       setEscopo(r.escopo)
     }
@@ -1250,8 +1256,8 @@ export default function BancoLeadsPage() {
   }, [empresaId])
   useEffect(() => {
     if (!recortePronto) return
-    gravarFiltros(TELA_RECORTE, empresaId, { aba, origem, mercado, cidadeFiltro, busca, escopo })
-  }, [recortePronto, empresaId, aba, origem, mercado, cidadeFiltro, busca, escopo])
+    gravarFiltros(TELA_RECORTE, empresaId, { aba, origem, mercado, cidadeFiltro, paisFiltro, busca, escopo })
+  }, [recortePronto, empresaId, aba, origem, mercado, cidadeFiltro, paisFiltro, busca, escopo])
 
   // Personalização: carrega do localStorage (1x) e persiste a cada mudança.
   useEffect(() => {
@@ -1339,10 +1345,16 @@ export default function BancoLeadsPage() {
   const pgLeads = useMemo(() => paginar(leadsOrdenados, pagina, POR_PAGINA_PADRAO), [leadsOrdenados, pagina])
   const chips = chipsDaView(view)
   const chipOrigem = origem ? `Origem: ${rotuloFiltroOrigem(origem) || origem}` : ''
-  const chipsLista = chipOrigem ? [chipOrigem, ...chips] : chips
+  const chipsCarteira = [
+    mercado ? `Nicho: ${mercado}` : '',
+    cidadeFiltro ? `Cidade: ${cidadeFiltro}` : '',
+    paisFiltro ? `País: ${nomePais(paisFiltro)}` : '',
+  ].filter(Boolean)
+  const chipsLista = [...(chipOrigem ? [chipOrigem] : []), ...chipsCarteira, ...chips]
   const filtrosAtivos = chips.length + (origem ? 1 : 0) + (view.ordenacao !== 'padrao' ? 1 : 0)
   const mercadoOpcoes = useMemo(() => opcoesMercado(filtrosMercado), [filtrosMercado])
   const cidadeOpcoes = filtrosMercado?.cidades || []
+  const paisOpcoes = filtrosMercado?.paises || []
 
   // Sem teto de 15 aqui: a seleção pode cobrir a página inteira ou todo o filtrado — o
   // envio pra API é que quebra em lotes de MAX_LOTE (ver gerarSelecionadosEmMassa).
@@ -1985,10 +1997,10 @@ export default function BancoLeadsPage() {
 
   // Quantos recortes de CARTEIRA estao ligados. Origem saiu daqui de proposito: ela agora vive
   // no modal "Colunas", junto dos filtros de visualizacao da lista.
-  const filtrosDeCarteira = [escopo, mercado, cidadeFiltro].filter(Boolean).length
+  const filtrosDeCarteira = [escopo, mercado, cidadeFiltro, paisFiltro].filter(Boolean).length
   // UM so' reset de carteira, usado pela barra do computador e pela folha do celular: duas
   // listas divergiriam e um dos dois botoes deixaria um filtro ligado em silencio.
-  const limparCarteira = () => { setMercado(''); setCidadeFiltro(''); setEscopo(''); setBusca('') }
+  const limparCarteira = () => { setMercado(''); setCidadeFiltro(''); setPaisFiltro(''); setEscopo(''); setBusca('') }
 
   /**
    * Os campos de recorte da carteira. Renderizados em DOIS lugares — a barra do computador e a
@@ -2036,10 +2048,18 @@ export default function BancoLeadsPage() {
           {cidadeOpcoes.map((o) => <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>)}
         </select>
       </div>
-      {(mercado || cidadeFiltro) && (
+      <div>
+        <label htmlFor={`${p}-pais`} className="mb-1 block text-xs text-ink-3">País</label>
+        <select id={`${p}-pais`} value={paisFiltro} onChange={(e) => setPaisFiltro(e.target.value)}
+          className={classesEntrada({ extra: 'min-h-11 md:min-h-0 md:w-auto md:min-w-[140px]' })}>
+          <option value="">Todos</option>
+          {paisOpcoes.map((o) => <option key={o.valor} value={o.valor}>{nomePais(o.valor)} ({o.total})</option>)}
+        </select>
+      </div>
+      {(mercado || cidadeFiltro || paisFiltro) && (
         <div>
           <label className="mb-1 hidden text-xs text-ink-3 md:block">&nbsp;</label>
-          <Botao variante="secundaria" onClick={() => { setMercado(''); setCidadeFiltro('') }} className="min-h-11 md:min-h-0">
+          <Botao variante="secundaria" onClick={() => { setMercado(''); setCidadeFiltro(''); setPaisFiltro('') }} className="min-h-11 md:min-h-0">
             Limpar mercado
           </Botao>
         </div>
@@ -3532,7 +3552,7 @@ function LeadCartao({ l, mostrarRodar, selecionados, onToggleSel, onAbrirFicha, 
           </span>
           <h3 className="mt-1 truncate text-[15px] font-bold leading-tight text-ink">{l.nome}</h3>
           <p className="mt-0.5 truncate text-xs text-ink-3">
-            {[l.nicho, l.cidade].filter(Boolean).join(' · ') || 'Mercado não informado'}
+            {[l.nicho, l.cidade, l.pais && l.pais !== 'BR' ? nomePais(l.pais) : ''].filter(Boolean).join(' · ') || 'Mercado não informado'}
           </p>
         </div>
         <button type="button" onClick={() => onAbrirDetalhes(l)}
@@ -3799,6 +3819,7 @@ function TabelaBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previ
                   {cols.nicho && (
                     <td className="px-3 py-2 text-xs">
                       <NichoCidade nicho={l.nicho || l.categoria_perfil} cidade={l.cidade} />
+                      {l.pais && l.pais !== 'BR' && <span className="block text-[11px] text-ink-3">{nomePais(l.pais)}</span>}
                     </td>
                   )}
                   {cols.seguidores && <td className="px-3 py-2 text-right text-xs font-semibold">{l.seguidores != null ? l.seguidores.toLocaleString('pt-BR') : '—'}</td>}

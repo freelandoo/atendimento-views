@@ -678,7 +678,7 @@ function montarEscopoOpcoes(query) {
 // so' traduz o veredito.
 const COLUNAS = `id, origem, status, qualificacao, qualificado_em,
   responsavel_id, responsavel_desde, nome, telefone, email, instagram_handle,
-  nicho, cidade, site, seguidores, categoria_perfil, created_at, updated_at,
+  nicho, cidade, pais, site, seguidores, categoria_perfil, created_at, updated_at,
   bloqueado_ate, bloqueio_motivo, endereco, rating, avaliacoes, tem_site,
   maps_url, link_bio, bio, tem_whatsapp, score, place_id,
   link_original, classificacao_url,
@@ -1750,6 +1750,7 @@ router.get('/filtros', requireAuth, requireEmpresaAccess, async (req, res) => {
       escopoSql: queryComEscopo.__escopoSql,
       escopoUsaUsuario: queryComEscopo.__escopoUsaUsuario,
       usuarioId: queryComEscopo.__usuarioId,
+      nichoEquipeId: queryComEscopo.__nichoEquipeId,
       somenteAprovados: queryComEscopo.__somenteAprovados,
     })
     return res.json({ ok: true, data })
