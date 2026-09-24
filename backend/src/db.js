@@ -4,6 +4,7 @@ const path = require('path')
 const { Pool } = require('pg')
 const { logger } = require('./logger')
 const { runMigrations } = require('./db/migrations')
+const { avaliarDestino, mensagemDeBloqueio } = require('./services/destino-migrations')
 const ROOT = path.join(__dirname, '..')
 const JOB_MAX_ATTEMPTS = Math.min(
   Math.max(parseInt(process.env.JOB_MAX_ATTEMPTS, 10) || 5, 1),
@@ -272,6 +273,13 @@ async function initProspeccaoOrquestracaoDB() {
 // ─── BANCO: INIT ──────────────────────────────────────────────────────────────
 
 async function initDB() {
+  // ⚠️ MESMA guarda de runMigrations, e ela precisa estar AQUI TAMBEM: `sql/init.sql` roda
+  // logo abaixo, ANTES das migrations, e ja e' DDL no banco de destino. Protegendo so' o
+  // runner, um `npm start` apontado para producao ainda executaria o init.sql la.
+  // Os dois pontos consultam o MESMO modulo puro — a regra continua tendo um dono so'.
+  const destino = avaliarDestino({ databaseUrl: process.env.DATABASE_URL, env: process.env })
+  if (!destino.permitido) throw new Error(mensagemDeBloqueio(destino))
+
   const sqlPath = path.join(ROOT, 'sql', 'init.sql')
   if (fs.existsSync(sqlPath)) {
     const sql = fs.readFileSync(sqlPath, 'utf8')

@@ -125,6 +125,7 @@ const fonteServico = fs.readFileSync(
 const fonteRunner = fs.readFileSync(
   path.join(__dirname, '..', 'src', 'db', 'migrations.js'), 'utf8'
 )
+const fonteDb = fs.readFileSync(path.join(__dirname, '..', 'src', 'db.js'), 'utf8')
 
 test('o modulo continua PURO: sem banco, sem rede, sem fs', () => {
   for (const proibido of ["require('pg')", 'require("pg")', 'axios', 'node:fs', "require('fs')", 'fetch(']) {
@@ -149,4 +150,38 @@ test('nao nasceu variavel de ambiente propria para furar a guarda', () => {
     assert.ok(!fonteServico.includes(inventada), `nao crie ${inventada}`)
     assert.ok(!fonteRunner.includes(inventada), `nao crie ${inventada}`)
   }
+})
+
+test('initDB tambem consulta a guarda, e ANTES do sql/init.sql', () => {
+  // `initDB` roda `sql/init.sql` ANTES das migrations, e aquilo ja e DDL no destino.
+  // Proteger so o runner deixaria um `npm start` apontado para producao executar o init.sql la.
+  const posGuarda = fonteDb.indexOf('avaliarDestino({ databaseUrl: process.env.DATABASE_URL')
+  const posInitSql = fonteDb.indexOf("path.join(ROOT, 'sql', 'init.sql')")
+  assert.ok(posGuarda > 0, 'initDB precisa consultar avaliarDestino')
+  assert.ok(posInitSql > 0)
+  assert.ok(posGuarda < posInitSql, 'a guarda tem de vir ANTES de ler/aplicar o sql/init.sql')
+})
+
+test('os dois pontos de enforcement usam o MESMO modulo — a regra tem um dono so', () => {
+  for (const fonte of [fonteRunner, fonteDb]) {
+    assert.ok(
+      fonte.includes("destino-migrations')") || fonte.includes('destino-migrations")'),
+      'os dois precisam importar o modulo puro, em vez de julgar por conta propria'
+    )
+  }
+  // e nenhum deles reimplementa o julgamento
+  for (const fonte of [fonteRunner, fonteDb]) {
+    assert.ok(!/railway\.internal|rlwy\.net|HOSTS_LOCAIS\s*=/.test(fonte),
+      'host de producao/local nao pode aparecer fora do modulo puro')
+  }
+})
+
+test('o smoke de schema nunca escolhe banco sozinho', () => {
+  const fonteSmoke = fs.readFileSync(
+    path.join(__dirname, '..', 'scripts', 'smoke-migrations.js'), 'utf8'
+  )
+  assert.ok(!/postgresql:\/\/[^'"\s]*@(?!localhost)/.test(fonteSmoke.replace(/Ex\.:.*/g, '')),
+    'nenhuma URL de banco embutida')
+  assert.match(fonteSmoke, /DATABASE_URL e obrigatoria/, 'precisa exigir DATABASE_URL explicita')
+  assert.match(fonteSmoke, /avaliarDestino/, 'precisa passar pela mesma guarda do boot')
 })

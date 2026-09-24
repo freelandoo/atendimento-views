@@ -161,8 +161,12 @@ incompatível.
 Ao criar arquivo novo, **nasça com o pragma**: arquivo novo costuma passar limpo, e o custo de
 adicionar depois é muito maior.
 
-O CI (`.github/workflows/ci.yml`) roda exatamente estes comandos em todo push e PR, mais um job
-que carrega a aplicação no Node 20 (o runtime do Docker). **Ele não tem segredo configurado, e
+O CI (`.github/workflows/ci.yml`) roda exatamente estes comandos em todo push e PR, mais dois
+jobs que a máquina local não tem como reproduzir sozinha: um carrega a aplicação no **Node 20**
+(o runtime do Docker) e outro levanta o **schema do zero** num Postgres limpo
+(`npm run smoke:migrations` — roda `initDB` DUAS vezes, porque o boot acontece a cada restart, e
+confere que toda migration ficou registrada). Sem ele, uma migration com SQL quebrado passava
+pela suíte inteira e só aparecia no boot do deploy, onde falha **interrompe o boot**. **Ele não tem segredo configurado, e
 isso é regra, não circunstância:** teste que precisa de credencial não é teste de unidade — é de
 integração, e não entra nessa suíte.
 

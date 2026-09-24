@@ -25,6 +25,7 @@
     "start": "node index.js",
     "test": "node --test \"test/*.test.js\"",
     "smoke:preco": "node index.js --smoke-precificacao",
+    "smoke:migrations": "node scripts/smoke-migrations.js",
     "typecheck": "tsc --noEmit",
     "reclassificar:sites": "node scripts/reclassificar-sites.js",
     "instagram:handles": "node scripts/extrair-instagram-handles.js",
