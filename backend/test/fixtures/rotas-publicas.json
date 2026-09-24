@@ -182,13 +182,9 @@
     "GET /dashboard/prompt-aprendizados",
     "GET /dashboard/prompts",
     "GET /dashboard/prompts/:chave",
-    "GET /dashboard/prospeccao/analytics",
     "GET /dashboard/prospeccao/bloqueios",
-    "GET /dashboard/prospeccao/configuracao",
     "GET /dashboard/prospeccao/execucoes",
     "GET /dashboard/prospeccao/fila-diaria",
-    "GET /dashboard/prospeccao/metricas",
-    "GET /dashboard/prospeccao/prospects",
     "GET /dashboard/prospeccao/relatorio-diario",
     "GET /dashboard/prospeccao/whatsapp/status",
     "GET /dashboard/stats/diario",
@@ -397,12 +393,7 @@
     "POST /dashboard/prospeccao/fila-diaria/:id/gerar-mensagem",
     "POST /dashboard/prospeccao/fila-diaria/simular",
     "POST /dashboard/prospeccao/fila-diaria/simular-places",
-    "POST /dashboard/prospeccao/places-search",
     "POST /dashboard/prospeccao/places-search-completo",
-    "POST /dashboard/prospeccao/prospects/:id/aprovar",
-    "POST /dashboard/prospeccao/prospects/:id/rejeitar",
-    "POST /dashboard/prospeccao/prospects/lote/aprovar",
-    "POST /dashboard/prospeccao/prospects/lote/rejeitar",
     "POST /dashboard/prospeccao/relatorio-diario/enviar",
     "POST /dashboard/prospeccao/relatorio-diario/gerar",
     "POST /dashboard/reprocessar",
@@ -441,7 +432,6 @@
     "PUT /api/empresas/:empresaId/whatsapp/contexto-padrao",
     "PUT /api/llm/geracao",
     "PUT /dashboard/operadores",
-    "PUT /dashboard/prompts/:chave",
-    "PUT /dashboard/prospeccao/configuracao"
+    "PUT /dashboard/prompts/:chave"
   ]
 }

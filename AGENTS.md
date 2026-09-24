@@ -3835,6 +3835,30 @@
   `components/ConversaHistoricoModal.tsx` e `app/dashboard/banco-leads/page.tsx`. Guarda em
   `test/isolamento-comercial.test.js`. **Nenhuma rota, capacidade ou env nova.**
 
+### ⚠️ `/dashboard/prospeccao/*` NÃO filtra empresa — 19 rotas legadas com vazamento entre tenants
+- **Medido em 2026-09-24, lendo o corpo das 29 rotas:** nenhuma delas passa `empresaId`. E
+  `montarFiltrosProspects` só acrescenta `empresa_id = $n` **quando o filtro é informado**
+  (`if (filtros.empresaId)`), então a consulta sai **sem recorte de tenant**. A rota moderna
+  irmã (`src/routes/api-prospeccao.js`) passa `empresaId: req.empresa.id` — é essa a diferença.
+- **10 saíram no mesmo dia**, as que tinham equivalente moderno escopado: `prospects`,
+  `metricas`, `analytics`, `configuracao` (GET+PUT), `prospects/:id/aprovar|rejeitar`,
+  `prospects/lote/aprovar|rejeitar` e `places-search` (equivalente: `POST /prospeccao/buscar`).
+- **19 CONTINUAM no ar com o buraco**, porque não têm equivalente e removê-las tira capacidade:
+  fila-diária (5), disparos (2), execuções (2), relatório diário (3), diagnósticos (2),
+  `bloqueios`, `whatsapp/status` e **`places-search-completo`** — esta última, como a
+  `places-search` que saiu, **dispara coleta PAGA na Bright Data sem tenant**.
+- **Elas só são alcançáveis com sessão do dashboard legado** (`POST /dashboard/auth/login`,
+  cookie + CSRF): `dashboardAutorizado` exige `req.dashboardUser`, e `x-reprocess-secret`
+  **não** o popula. Isso reduz a exposição, **não** a corrige.
+- ⚠️ **Antes de mexer em qualquer uma delas, decida entre as duas saídas** — aposentar (e perder
+  a capacidade) ou escopar por empresa (e então `dashboardAutorizado`, que não conhece empresa,
+  deixa de bastar). **Não acrescente rota nova neste grupo.**
+- **`/dashboard/agenda/*` é OUTRA COISA, apesar do nome:** as 16 legadas operam
+  **`vendas.agenda_eventos`** (a agenda do BOT; 27 referências em `src/agenda.js`, zero para
+  `app.`), e as modernas operam `app.agenda_eventos`. **Não são duplicatas** — são as duas
+  agendas que este guia declara não unificadas.
+- Registro completo, com a contagem e o critério de cada remoção: `REFACTOR_REPORT.md` §11.
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

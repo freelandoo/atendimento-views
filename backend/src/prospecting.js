@@ -4415,34 +4415,6 @@ function erroHttp(err) {
 }
 
 function registerProspectingRoutes(app) {
-  app.get('/dashboard/prospeccao/prospects', async (req, res) => {
-    if (!dashboardAutorizado(req)) {
-      return res.status(401).json({ erro: 'Nao autorizado' })
-    }
-
-    try {
-      const prospects = await listarProspects(req.query || {})
-      res.json({ prospects })
-    } catch (err) {
-      const e = erroHttp(err)
-      res.status(e.status).json({ erro: e.erro })
-    }
-  })
-
-  app.post('/dashboard/prospeccao/places-search', async (req, res) => {
-    if (!dashboardAutorizado(req)) {
-      return res.status(401).json({ erro: 'Nao autorizado' })
-    }
-
-    try {
-      const resultado = await pesquisarPlaces(req.body || {})
-      res.json(resultado)
-    } catch (err) {
-      const e = erroHttp(err)
-      res.status(e.status).json({ erro: e.erro })
-    }
-  })
-
   app.post('/dashboard/prospeccao/places-search-completo', async (req, res) => {
     if (!dashboardAutorizado(req)) {
       return res.status(401).json({ erro: 'Nao autorizado' })
@@ -4456,58 +4428,6 @@ function registerProspectingRoutes(app) {
         `prospeccao_completo:manual:${Date.now()}`
       )
       res.json({ prospects_encontrados: ids.length, job_id: job.id })
-    } catch (err) {
-      const e = erroHttp(err)
-      res.status(e.status).json({ erro: e.erro })
-    }
-  })
-
-  app.post('/dashboard/prospeccao/prospects/lote/aprovar', async (req, res) => {
-    if (!dashboardAutorizado(req)) return res.status(401).json({ erro: 'Nao autorizado' })
-    try {
-      const prospects = await atualizarStatusProspectsLote(req.body?.prospect_ids, 'aprovado')
-      await Promise.all(prospects.map((p) => registrarProspectEvent(p.id, 'aprovado', { origem: 'lote' })))
-      res.json({ prospects })
-    } catch (err) {
-      const e = erroHttp(err)
-      res.status(e.status).json({ erro: e.erro })
-    }
-  })
-
-  app.post('/dashboard/prospeccao/prospects/lote/rejeitar', async (req, res) => {
-    if (!dashboardAutorizado(req)) return res.status(401).json({ erro: 'Nao autorizado' })
-    try {
-      const prospects = await atualizarStatusProspectsLote(req.body?.prospect_ids, 'rejeitado')
-      await Promise.all(prospects.map((p) => registrarProspectEvent(p.id, 'rejeitado', { origem: 'lote' })))
-      res.json({ prospects })
-    } catch (err) {
-      const e = erroHttp(err)
-      res.status(e.status).json({ erro: e.erro })
-    }
-  })
-
-  app.post('/dashboard/prospeccao/prospects/:id/aprovar', async (req, res) => {
-    if (!dashboardAutorizado(req)) {
-      return res.status(401).json({ erro: 'Nao autorizado' })
-    }
-    try {
-      const prospect = await atualizarStatusProspect(req.params.id, 'aprovado')
-      await registrarProspectEvent(prospect.id, 'aprovado', { origem: 'painel' })
-      res.json({ prospect })
-    } catch (err) {
-      const e = erroHttp(err)
-      res.status(e.status).json({ erro: e.erro })
-    }
-  })
-
-  app.post('/dashboard/prospeccao/prospects/:id/rejeitar', async (req, res) => {
-    if (!dashboardAutorizado(req)) {
-      return res.status(401).json({ erro: 'Nao autorizado' })
-    }
-    try {
-      const prospect = await atualizarStatusProspect(req.params.id, 'rejeitado')
-      await registrarProspectEvent(prospect.id, 'rejeitado', { origem: 'painel' })
-      res.json({ prospect })
     } catch (err) {
       const e = erroHttp(err)
       res.status(e.status).json({ erro: e.erro })
@@ -4623,48 +4543,6 @@ function registerProspectingRoutes(app) {
     }
   })
 
-  app.get('/dashboard/prospeccao/configuracao', async (req, res) => {
-    if (!dashboardAutorizado(req)) return res.status(401).json({ erro: 'Nao autorizado' })
-    try {
-      const config = await obterConfiguracaoProspeccao(pool)
-      const limite = config?.limite_diario || config?.limit || 80
-      const planejamento_busca = await resolverPlanejamentoBuscaAuto({
-        limit: limite,
-        categoria: config?.categoria_padrao || config?.categoria || null,
-      })
-      res.json({
-        ok: true,
-        config,
-        agenda: montarAgendaPainelProspeccao(config),
-        planejamento_busca,
-      })
-    } catch (err) {
-      const e = erroHttp(err)
-      res.status(e.status).json({ erro: e.erro })
-    }
-  })
-
-  app.put('/dashboard/prospeccao/configuracao', async (req, res) => {
-    if (!dashboardAutorizado(req)) return res.status(401).json({ erro: 'Nao autorizado' })
-    try {
-      const config = await salvarConfiguracaoProspeccao(pool, req.body || {})
-      const limite = config?.limite_diario || config?.limit || 80
-      const planejamento_busca = await resolverPlanejamentoBuscaAuto({
-        limit: limite,
-        categoria: config?.categoria_padrao || config?.categoria || null,
-      })
-      res.json({
-        ok: true,
-        config,
-        agenda: montarAgendaPainelProspeccao(config),
-        planejamento_busca,
-      })
-    } catch (err) {
-      const e = erroHttp(err)
-      res.status(e.status).json({ erro: e.erro })
-    }
-  })
-
   app.post('/dashboard/prospeccao/fila-diaria/simular', async (req, res) => {
     if (!dashboardAutorizado(req)) return res.status(401).json({ erro: 'Nao autorizado' })
     try {
@@ -4753,17 +4631,6 @@ function registerProspectingRoutes(app) {
     }
   })
 
-  app.get('/dashboard/prospeccao/analytics', async (req, res) => {
-    if (!dashboardAutorizado(req)) return res.status(401).json({ erro: 'Nao autorizado' })
-    try {
-      const resultado = await obterDashboardEstrategicoProspeccao(pool, req.query || {})
-      res.json(resultado)
-    } catch (err) {
-      const e = erroHttp(err)
-      res.status(e.status).json({ erro: e.erro })
-    }
-  })
-
   app.post('/dashboard/prospeccao/fila-diaria/:id/gerar-mensagem', async (req, res) => {
     if (!dashboardAutorizado(req)) return res.status(401).json({ erro: 'Nao autorizado' })
     try {
@@ -4827,17 +4694,6 @@ function registerProspectingRoutes(app) {
         envio_real_habilitado: true,
         aguardando_worker: true,
       })
-    } catch (err) {
-      const e = erroHttp(err)
-      res.status(e.status).json({ erro: e.erro })
-    }
-  })
-
-  app.get('/dashboard/prospeccao/metricas', async (req, res) => {
-    if (!dashboardAutorizado(req)) return res.status(401).json({ erro: 'Nao autorizado' })
-    try {
-      const metricas = await obterMetricasProspeccao()
-      res.json({ metricas })
     } catch (err) {
       const e = erroHttp(err)
       res.status(e.status).json({ erro: e.erro })
