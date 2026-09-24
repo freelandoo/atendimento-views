@@ -1,0 +1,28 @@
+# O que NAO sobe no contexto de build.
+#
+# Sem este arquivo, o `docker build` empacota o diretorio INTEIRO e manda para o daemon —
+# incluindo `node_modules/` (centenas de MB, que o `npm ci` vai refazer de qualquer jeito),
+# `.git/` e o `.env` com segredos de producao. Nada disso chegava a entrar na imagem (o
+# Dockerfile copia caminhos explicitos), mas trafegava a cada deploy e deixava o build lento.
+#
+# ⚠️ Isto NAO substitui o cuidado do Dockerfile: quem decide o que entra na imagem continua
+# sendo o `COPY`, nunca a ausencia de uma linha aqui.
+
+node_modules/
+.git/
+.gitignore
+
+# Segredos. O `.env.example` tambem fica de fora: e' documentacao, nao vai para a imagem.
+.env
+.env.*
+
+# Nao sao usados em runtime (o teste roda no CI, nao no container).
+test/
+tsconfig.json
+*.md
+
+# Ruido local
+logs/
+*.log
+coverage/
+.DS_Store
