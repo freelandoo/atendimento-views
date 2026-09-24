@@ -4,6 +4,7 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const {
   montarEstrategiaAbordagem,
+  montarPromptContratoAbordagem,
   normalizarContratoAbordagem,
   renderMensagemAbordagemFallback,
   avisoSiteProntoPresente,
@@ -86,4 +87,21 @@ test('abordagem inicial: fallback tambem respeita o gancho obrigatorio', () => {
   assert.match(msg, /previa de site pronta/i)
   assert.match(msg, /Clinica Alfa/)
   assert.equal(msg.length <= 600, true)
+})
+
+test('abordagem inicial: prompt manda adaptar idioma pela localidade do lead', () => {
+  const estrategia = montarEstrategiaAbordagem({
+    nome: 'Austin Dental',
+    cidade: 'Austin',
+    endereco: 'Austin, TX, United States',
+  }, { nomeEmpresa: 'PJ Codeworks' })
+  const prompt = montarPromptContratoAbordagem({
+    estrategia,
+    dadosLead: { cidade: 'Austin', endereco: 'Austin, TX, United States', telefone: '+1 512 555 0100' },
+    nomeEmpresa: 'PJ Codeworks',
+  })
+
+  assert.match(prompt.userPrompt, /Estados Unidos/)
+  assert.match(prompt.userPrompt, /ingles/)
+  assert.match(prompt.userPrompt, /Portugal/)
 })

@@ -220,6 +220,7 @@ function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conheciment
     'Use no maximo 1 ou 2 sinais reais do lead; nao invente faturamento, campanhas, resultados, desconto ou urgencia falsa.',
     'Use raciocinio SPIN: situacao real -> problema/oportunidade -> ganho esperado -> uma pergunta final.',
     'Nao use BANT nesta primeira mensagem: nao pergunte budget, decisor ou prazo agora.',
+    'Detecte o idioma/variante pelos dados do lead (pais, endereco, cidade, telefone, perfil e textos coletados). Se o lead indicar Estados Unidos, escreva em ingles; se indicar Portugal, use portugues de Portugal; se nao houver sinal claro, use portugues do Brasil.',
     `Quando mencionar quem envia, use "${nomeEmpresa || estrategia.nome_empresa || 'nossa empresa'}".`,
     'Nao peca reuniao nesta mensagem; peca permissao ou faca uma pergunta de interesse.',
     'Maximo 500 caracteres na mensagem.',

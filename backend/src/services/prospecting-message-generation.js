@@ -122,6 +122,8 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
       nome: row.nome_lead || row.prospect_nome || null,
       categoria: row.categoria || row.prospect_nicho || null,
       cidade: row.cidade || row.prospect_cidade || null,
+      endereco: row.endereco || null,
+      telefone: row.telefone_normalizado || null,
       tem_site: row.tem_site,
       site: row.site || null,
       link_original: row.link_original || row.link_bio || null,
