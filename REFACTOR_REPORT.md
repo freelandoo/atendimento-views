@@ -156,7 +156,7 @@ Detalhe e evidência em **`LEGACY_REVIEW.md`**.
 | R3 | ~~`node --test` sem argumento executa um script que **envia WhatsApp real**~~ — **resolvido** em 2026-09-24 | renomeado para `scripts/enviar-teste-evolution.js`, fora do padrão de descoberta do Node. `test/scripts-seguros.test.js` falha se qualquer arquivo de `scripts/` voltar a casar com `test-*.js`, `*.test.js` ou `test.js` |
 | R4 | ~~Migrations aplicadas no boot, sem dry-run contra banco real~~ — **resolvido** em 2026-09-24 | job próprio no CI (`migrations em Postgres limpo`) roda `initDB` **duas vezes** contra um `postgres:15` vazio e confere que toda migration ficou registrada. Fechou também um buraco: `initDB` executa `sql/init.sql` **antes** das migrations, então a guarda de destino passou a valer ali também |
 | R5 | ~~`backend/.env` aponta `DATABASE_URL` para **produção**~~ — **mitigado** em 2026-09-24 | O `.env` continua apontando para lá (é a credencial de trabalho do operador), mas o boot deixou de ser perigoso: `services/destino-migrations.js` só aplica migrations em banco **local**, a menos que o processo **prove** ser produção (`NODE_ENV=production` **ou** qualquer `RAILWAY_*`). Verificado contra o `.env` real: o boot para e **zero** consultas chegam ao banco. Não há variável de ambiente para furar a guarda |
-| R6 | 82 endpoints ainda dentro de god files (`agent.js` 7.475 linhas) | decisão consciente (D1); cercados e cobertos pelo contrato de rotas |
+| R6 | 82 endpoints ainda dentro de god files (`agent.js` 7.475 linhas) | decisão consciente (D1); cercados e cobertos pelo contrato de rotas. Em 2026-09-24 a cerca baixou de 98 para **94** rotas legadas — ver §11 |
 | R7 | Paginação/filtros client-side com teto de 1.000 no Banco de Leads e Captação | não tocado — muda UX, exige sua autorização |
 | R8 | ~~Catálogo de modelos de IA defasado~~ — **atualizado** em 2026-09-24 | A geração 5 entrou na tabela de preços (`claude-fable-5-1`, `claude-opus-5-5`, `claude-opus-5`, `claude-sonnet-5`) e Opus 5 / Sonnet 5 passaram a ser escolhíveis. `gpt-3.5-turbo` saiu da lista **selecionável** mas **manteve o preço** — preço é contabilidade histórica, e remover a linha zeraria o custo já registrado. O `defaultModel` **não** mudou (trocá-lo mexeria no comportamento de toda empresa que nunca escolheu modelo). A tabela continua hardcoded: lê-la de uma API é projeto próprio |
 | R9 | ~~23 worktrees e ~40 branches poluindo busca e grep~~ — **tratado** em 2026-09-24 | O dano real era a BUSCA: cada worktree é uma cópia completa do código, então um grep devolvia o mesmo trecho ~20 vezes (em 2026-09-23 isso produziu falso positivo numa varredura de remoção). `.ignore` na raiz tira `.claude/worktrees/` e `.codex/worktrees/` do ripgrep/fd **sem apagar nada**. Além disso, 24 worktrees que estavam **limpas E com o trabalho já fundido no master** foram removidas (de 33 para 9). As que tinham alteração pendente ou commit não fundido **ficaram** |
@@ -194,4 +194,37 @@ Registrado porque o relatório perde valor se só contar acertos:
 3. **Smoke de migrations contra Postgres limpo** (R4).
 4. **Paginação de servidor** no Banco de Leads (R7) — a última fronteira frontend/backend real.
 5. **Atualizar o catálogo de modelos de IA** (R8).
-6. **Aposentar o dashboard legado**, tela a tela, baixando as catracas da cerca a cada uma.
+6. **Aposentar o dashboard legado** — a interface saiu, a âncora da agenda foi desacoplada e as
+   4 rotas que eram duplicata ou vazamento saíram. O que sobrou, e por que parou ali, está na
+   **seção 11**. O próximo passo real é auditar `/dashboard/prospeccao/*` e `/dashboard/agenda/*`
+   rota a rota contra a API multiempresa.
+
+## 11. O dashboard legado: onde a remoção parou, e por quê
+
+A **interface** estática saiu inteira (commit `248464a`, −20.421 linhas) e a **âncora da agenda**
+foi desacoplada (`b8c26fe`), que era o bloqueio declarado. Restava remover as rotas. Foram
+removidas as que eram **duplicata ou vazamento**, e o avanço parou num limite que vale explicar,
+porque ele não é falta de fôlego — é onde o próximo passo deixa de ser pequeno.
+
+**Saíram (4 rotas, 446 → 442):**
+
+| Rota | Por que saiu |
+|---|---|
+| `GET /dashboard/meta/anuncios` | única rota do arquivo; a leitura que ela servia (`obterResultadosAnunciosMeta`) fica em `services/meta-attribution.js`, escopada por empresa |
+| `GET /dashboard/leads-quentes` | `routes/api-leads-quentes.js` já reusa a mesma função. O módulo perdeu com ela os três `require` que só existiam para servi-la e virou leitura pura |
+| `GET /dashboard/ai/presets` | duplicata: `GET /api/llm` devolve os presets junto da configuração atual |
+| `GET /dashboard/ai/logs` | lia `vendas.ai_logs` **sem filtro de empresa** — um tenant via o log de IA dos outros. Substituto escopado em `/api/llm/uso` |
+
+**Ficaram 94, e cada grupo fica por um motivo diferente:**
+
+| Grupo | Nº | Por que não saiu |
+|---|---|---|
+| `/dashboard/auth/*` | 3 | ⚠️ **é a porta de todas as outras.** `dashboardAutorizado` exige `req.dashboardUser`, que só nasce de `POST /dashboard/auth/login` (cookie + CSRF). Removê-la derrubaria ~90 rotas de uma vez — é a remoção inteira disfarçada de passo pequeno, e sem o registro por rota que o contrato exige |
+| `/dashboard/ai/settings` (GET+POST) e `/dashboard/ai/test` | 3 | **capacidade sem equivalente.** São a única superfície de `temperature`, `max_tokens` e dos três campos de fallback; e o único teste que faz uma **geração** ponta a ponta. Fechar a lacuna é trabalho da API multiempresa, com decisão de produto junto (os cinco campos são globais; a geração atual é por empresa) |
+| `/dashboard/whatsapp/*` | 5 | o `AGENTS.md` **reserva explicitamente** para uma fase própria ("nada foi aposentado aqui"). `instanciaVinculadaAoUsuario` é reusada por `prospecting.js` e continua sendo o resolvedor do banner |
+| `/dashboard/prospeccao/*` e `/dashboard/agenda/*` | 45 | vivem dentro dos god files (R6) e precisam de auditoria **rota a rota** contra a API multiempresa. É o trabalho grande, e misturá-lo com este diff violaria a regra de não juntar refatoração grande com remoção |
+| resto (`prompts`, `stats`, `funil-diagnostico`, `export.csv`, …) | 38 | mesma auditoria pendente |
+
+O que torna o próximo passo seguro já está no lugar: `test/rotas-contrato.test.js` obriga toda
+mudança de superfície a aparecer no diff do fixture, e `TETO_ROTAS_LEGADAS` (98 → **94**) trava
+cada patamar conquistado. `CONSUMIDORES_DASHBOARD_AUTH` caiu de sete para **cinco** arquivos.
