@@ -134,18 +134,18 @@ readiciona em seis meses.
 
 ## 7. Itens que ainda precisam de revisão
 
-Detalhe e evidência em **`LEGACY_REVIEW.md`**.
+Detalhe e evidência em **`LEGACY_REVIEW.md`** (fila zerada em 2026-09-23).
+
+**Conferido no disco em 2026-09-24: seis das oito linhas anteriores já estavam feitas** —
+`whisper-service/`, `project-handoff-*` + a dependência `docx`, o ramo Playwright de
+`preview-site.js`, `src/ai-structured-analysis.js` e os 3 scripts históricos foram removidos; e
+`REUNIAO_BUFFER_MIN` deixou de ter dois defaults (`src/agenda.js:44` importa
+`REUNIAO_BUFFER_MINUTOS` de `services/agenda-slots.js`). Sobraram duas:
 
 | Item | Situação | Quem decide |
 |---|---|---|
-| `DEFAULT '<uuid da PJ>'` em 3 tabelas de captação | a migration 078 limpou 6 tabelas e deixou estas. ⚠️ Antes de remover: conferir se algum INSERT omite `empresa_id` — a coluna é `NOT NULL` | você |
-| `backend/whisper-service/` | microserviço completo e **desconectado**; transcrição real usa a API da OpenAI | você (custo × infra) |
-| `project-handoff-*` + dependência `docx` | sem consumidor de produção; só o teste o exercita | você (feature pausada?) |
-| Ramo Playwright em `preview-site.js` | nunca executa (pacote não declarado); todo preview sai em SVG | você (PNG × SVG) |
-| `src/ai-structured-analysis.js` | sem consumidor; o teste **nunca havia executado** | você |
-| 3 scripts históricos | `cleanup-prospeccao-legado`, `seed-campanha-nail-designer`, `init-whatsapp` | você |
-| `playbook/page.tsx` com `fetch` cru | **justificado**: é a única tela que lê header (`Retry-After`). Migrar exige expor headers no `apiFetch` (infra compartilhada por ~40 telas) | você |
-| `REUNIAO_BUFFER_MIN` com **dois defaults** | 30 em `src/agenda.js`, 120 em `services/agenda-slots.js`. Documentado, não alterado | você |
+| `DEFAULT '<uuid da PJ>'` em 3 tabelas de captação (`captacao_campanhas`, `captacao_snapshots`, `email_outreach`, migration `012`) | **pronto para sair.** A migration `078` limpou 6 tabelas e deixou estas. A conferência que faltava foi feita: os **5 INSERTs** dessas tabelas (1 em `social-capture.js` para campanhas, 3 para snapshots, e os de `email-outreach.js`) **informam `empresa_id` explicitamente**, então remover o DEFAULT não quebra caminho nenhum — só faz um INSERT futuro que esqueça a coluna falhar alto em vez de marcar como PJ em silêncio. Aditiva, sem mutação de dado | você (é `ALTER TABLE` em produção) |
+| `playbook/page.tsx` com `fetch` cru | **justificado, não é dívida**: é a única tela que lê header (`Retry-After`). Migrar exige expor headers no `apiFetch`, infra compartilhada por ~40 telas | você |
 
 ## 8. Riscos conhecidos
 
