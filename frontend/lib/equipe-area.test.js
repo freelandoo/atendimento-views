@@ -272,7 +272,7 @@ test('filtrarPessoas: busca, equipe, papel e status de acesso', () => {
   const pessoas = E.montarPessoas({
     linhas: [
       pessoa({ usuario_id: 'u1', nome: 'Ana', email: 'ana@x.com', papel: 'comercial' }),
-      pessoa({ usuario_id: 'u2', nome: 'Bia', email: 'bia@y.com', papel: 'admin' }),
+      pessoa({ usuario_id: 'u2', nome: 'Bia', email: 'bia@y.com', papel: 'owner' }),
       pessoa({ usuario_id: 'u3', nome: 'Caio', email: 'caio@z.com', papel: 'comercial', ativo: false }),
     ],
     elegiveis: [{ usuario_id: 'u1', equipe_atual: { id: 'e1' } }],
@@ -285,7 +285,7 @@ test('filtrarPessoas: busca, equipe, papel e status de acesso', () => {
   assert.deepEqual(ids({ busca: 'bia@' }), ['u2'], 'busca tambem por e-mail')
   assert.deepEqual(ids({ equipeId: 'e1' }), ['u1'])
   assert.deepEqual(ids({ equipeId: 'sem_equipe' }), ['u2'])
-  assert.deepEqual(ids({ papel: 'admin' }), ['u2'])
+  assert.deepEqual(ids({ papel: 'owner' }), ['u2'])
 })
 
 test('papeisPresentes lista so o que existe na empresa', () => {

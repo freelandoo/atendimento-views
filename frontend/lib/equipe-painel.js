@@ -43,9 +43,7 @@ const ATIVIDADE_HOJE_COLUNAS = Object.freeze([
 
 const PAPEL_ROTULO = {
   owner: 'Dono',
-  admin: 'Administrador',
   comercial: 'Comercial',
-  member: 'Membro',
 }
 
 /** Papel desconhecido aparece COMO ELE MESMO: um papel novo no servidor não pode sumir da tela. */

@@ -1,5 +1,5 @@
 'use strict'
-// Equipes Comerciais — APRESENTAÇÃO PURA da tela de gestão (dono/admin).
+// Equipes Comerciais — APRESENTAÇÃO PURA da tela de gestão da empresa.
 //
 // ─── REGRA DE OURO, a mesma de `lib/capacidades.js` e `lib/site-rotulos.js` ──────────────
 // Este módulo **só traduz**. Quem decide quem pode gerenciar equipe é o backend

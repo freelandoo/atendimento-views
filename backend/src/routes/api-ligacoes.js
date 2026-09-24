@@ -1,5 +1,5 @@
 'use strict'
-// Ligacoes (registro rico da Operacao da Ligacao) — API multi-tenant, admin-only.
+// Ligacoes (registro rico da Operacao da Ligacao) — API multi-tenant por capacidade.
 // requireEmpresaAccess por rota; o db (src/db/ligacoes.js) filtra empresa_id e valida
 // FKs same-tenant.
 const { Router } = require('express')

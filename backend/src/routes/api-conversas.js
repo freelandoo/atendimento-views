@@ -398,7 +398,7 @@ router.delete('/:numero', requireAuth, requireEmpresaAccess, alcancaConversa, as
 
 // DELETE /api/empresas/:empresaId/conversas/:numero/historico
 // Limpa o histórico de mensagens da conversa (mantém a linha — reset agente_pausado e estagio).
-// Apagar historico e DESTRUTIVO e IRREVERSIVEL: fora do alcance do comercial e do member.
+// Apagar historico e DESTRUTIVO e IRREVERSIVEL: fora do alcance do comercial.
 router.delete('/:numero/historico', requireAuth, requireEmpresaAccess, alcancaConversa, requireCapacidade(CAP.CONVERSA_APAGAR_HISTORICO), async (req, res) => {
   const { rows: [c] } = await pool.query(
     `UPDATE vendas.conversas

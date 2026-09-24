@@ -11,9 +11,7 @@ const C = require('./convite-membro')
 const opcoes = {
   papeis: [
     { papel: 'owner', convidavel: false, exige_equipe: false },
-    { papel: 'admin', convidavel: true, exige_equipe: false },
     { papel: 'comercial', convidavel: true, exige_equipe: true },
-    { papel: 'member', convidavel: true, exige_equipe: false },
   ],
 }
 
@@ -36,9 +34,9 @@ test('tempo restante: horas, minutos e vencido', () => {
 })
 
 test('papeis e equipe vem do veredito da API, nunca do nome do papel', () => {
-  assert.deepEqual(C.papeisDoConvite(opcoes), ['admin', 'comercial', 'member'])
+  assert.deepEqual(C.papeisDoConvite(opcoes), ['comercial'])
   assert.equal(C.papelExigeEquipe(opcoes, 'comercial'), true)
-  assert.equal(C.papelExigeEquipe(opcoes, 'member'), false)
+  assert.equal(C.papelExigeEquipe(opcoes, 'owner'), false)
   assert.equal(C.papelExigeEquipe(null, 'comercial'), false)
 })
 

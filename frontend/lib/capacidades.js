@@ -18,16 +18,12 @@
 
 const PAPEL_ROTULO = {
   owner: 'Dono',
-  admin: 'Administrador',
   comercial: 'Comercial',
-  member: 'Membro',
 }
 
 const PAPEL_DESCRICAO = {
-  owner: 'Acesso total. Responde pela empresa e não pode ser rebaixado nesta tela.',
-  admin: 'Acesso total à operação e às configurações da empresa.',
+  owner: 'Acesso total à empresa. Responde pela operação e não pode ser rebaixado nesta tela.',
   comercial: 'Trabalha os leads aprovados: liga, atende, agenda e registra. Não vê a base bruta nem a Aquisição.',
-  member: 'Acesso mínimo: atende conversas e usa a própria agenda.',
 }
 
 const CAPACIDADE_ROTULO = {

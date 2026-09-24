@@ -17,8 +17,8 @@
 //  2. **E-mail que já existe REUSA o usuário e só acrescenta o vínculo.** Nunca se altera senha,
 //     nome ou papel global de um usuário que já existe: ele pode servir outra empresa, e mexer nele
 //     a partir daqui seria escrever no tenant do vizinho. Se já houver vínculo, é 409.
-//  3. **`owner` é protegido:** não é desativado nem rebaixado por `admin`, e ninguém mexe no
-//     próprio vínculo (nem para desativar, nem para trocar de papel). Sem isso, um `admin`
+//  3. **`owner` é protegido:** não é desativado nem rebaixado por esta rota, e ninguém mexe no
+//     próprio vínculo (nem para desativar, nem para trocar de papel). Sem isso, um gestor
 //     desativaria o dono, ou alguém se trancaria fora da própria empresa.
 //  4. **Toda escrita vira linha em `app.auditoria_eventos`**, SEM senha e SEM hash.
 //

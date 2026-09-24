@@ -5,7 +5,7 @@
 // A Etapa 6 trocou o gate de 15 mounts: de `requireRole('admin')` (papel GLOBAL, que valia dentro
 // de QUALQUER empresa a que a pessoa pertencesse) para `requireCapacidade` sobre o papel do
 // VÍNCULO. Errar um mount abre ou fecha um módulo inteiro — por isso cada rota é exercitada
-// contra os quatro papéis, e o caso NEGATIVO é obrigatório.
+// contra os papéis de empresa, e o caso NEGATIVO é obrigatório.
 //
 // Nasceu como semente dentro de test/membros.test.js (Etapa 2) e virou arquivo próprio quando
 // deixou de falar só de membros.
@@ -56,68 +56,68 @@ const reqDe = (papel, { permissoes = null, papelPlataforma = 'user' } = {}) => (
 
 const ROTAS_POR_CAPACIDADE = [
   // Etapa 2
-  { mount: '/api/empresas/:empresaId/membros', capacidade: C.MEMBROS_GERENCIAR, papeisQuePassam: ['owner', 'admin'], noRouter: true },
+  { mount: '/api/empresas/:empresaId/membros', capacidade: C.MEMBROS_GERENCIAR, papeisQuePassam: ['owner'], noRouter: true },
 
   // Etapa 6 — gestão da COLETA: custa dinheiro (Bright Data) e decide a carteira.
-  { mount: '/api/empresas/:empresaId/prospeccao/rotinas', capacidade: C.AQUISICAO_GERENCIAR, papeisQuePassam: ['owner', 'admin'] },
-  { mount: '/api/empresas/:empresaId/prospeccao/curadoria', capacidade: C.LEAD_TRIAR, papeisQuePassam: ['owner', 'admin'] },
-  { mount: '/api/empresas/:empresaId/prospeccao/oportunidades', capacidade: C.AQUISICAO_GERENCIAR, papeisQuePassam: ['owner', 'admin'] },
-  { mount: '/api/empresas/:empresaId/captacao', capacidade: C.AQUISICAO_GERENCIAR, papeisQuePassam: ['owner', 'admin'] },
-  { mount: '/api/empresas/:empresaId/nichos', capacidade: C.ROTEIRO_GERENCIAR, papeisQuePassam: ['owner', 'admin'] },
+  { mount: '/api/empresas/:empresaId/prospeccao/rotinas', capacidade: C.AQUISICAO_GERENCIAR, papeisQuePassam: ['owner'] },
+  { mount: '/api/empresas/:empresaId/prospeccao/curadoria', capacidade: C.LEAD_TRIAR, papeisQuePassam: ['owner'] },
+  { mount: '/api/empresas/:empresaId/prospeccao/oportunidades', capacidade: C.AQUISICAO_GERENCIAR, papeisQuePassam: ['owner'] },
+  { mount: '/api/empresas/:empresaId/captacao', capacidade: C.AQUISICAO_GERENCIAR, papeisQuePassam: ['owner'] },
+  { mount: '/api/empresas/:empresaId/nichos', capacidade: C.ROTEIRO_GERENCIAR, papeisQuePassam: ['owner'] },
 
   // Etapa 7 — a Central de Mensagens autoriza POR ROTA, não no mount: ler/responder é de todos
-  // os papéis (inclusive `member`, por compatibilidade), e o que o ownership restringe é o
+  // os papéis de empresa, e o que o ownership restringe é o
   // RECORTE. Ver o teste "responder NUNCA é bloqueado" no fim deste arquivo.
-  { mount: '/api/empresas/:empresaId/conversas', capacidade: C.CONVERSA_ATENDER, papeisQuePassam: ['owner', 'admin', 'comercial', 'member'], noRouter: true },
+  { mount: '/api/empresas/:empresaId/conversas', capacidade: C.CONVERSA_ATENDER, papeisQuePassam: ['owner', 'comercial'], noRouter: true },
 
   // Etapa 8 — Instâncias: também POR ROTA. Conectar o PRÓPRIO número é do comercial
   // (INSTANCIA_GERENCIAR_PROPRIA); mexer nas instâncias da empresa e no contexto padrão é gestão.
   // O mount fica limpo porque a listagem é recortada por consulta, não por acesso ao módulo.
-  { mount: '/api/empresas/:empresaId/whatsapp', capacidade: C.INSTANCIA_GERENCIAR_PROPRIA, papeisQuePassam: ['owner', 'admin', 'comercial', 'member'], noRouter: true },
+  { mount: '/api/empresas/:empresaId/whatsapp', capacidade: C.INSTANCIA_GERENCIAR_PROPRIA, papeisQuePassam: ['owner', 'comercial'], noRouter: true },
 
   // Etapa 6 — o TRABALHO: é o que o comercial alcança.
-  { mount: '/api/empresas/:empresaId/banco-leads', capacidade: C.LEAD_VER_APROVADOS, papeisQuePassam: ['owner', 'admin', 'comercial'] },
-  { mount: '/api/empresas/:empresaId/follow-ups', capacidade: C.FOLLOWUP_OPERAR, papeisQuePassam: ['owner', 'admin', 'comercial'] },
-  { mount: '/api/empresas/:empresaId/roteiros', capacidade: C.ROTEIRO_LER, papeisQuePassam: ['owner', 'admin', 'comercial'] },
-  { mount: '/api/empresas/:empresaId/campanhas', capacidade: C.LIGACAO_OPERAR, papeisQuePassam: ['owner', 'admin', 'comercial'] },
-  { mount: '/api/empresas/:empresaId/ligacoes', capacidade: C.LIGACAO_OPERAR, papeisQuePassam: ['owner', 'admin', 'comercial'] },
+  { mount: '/api/empresas/:empresaId/banco-leads', capacidade: C.LEAD_VER_APROVADOS, papeisQuePassam: ['owner', 'comercial'] },
+  { mount: '/api/empresas/:empresaId/follow-ups', capacidade: C.FOLLOWUP_OPERAR, papeisQuePassam: ['owner', 'comercial'] },
+  { mount: '/api/empresas/:empresaId/roteiros', capacidade: C.ROTEIRO_LER, papeisQuePassam: ['owner', 'comercial'] },
+  { mount: '/api/empresas/:empresaId/campanhas', capacidade: C.LIGACAO_OPERAR, papeisQuePassam: ['owner', 'comercial'] },
+  { mount: '/api/empresas/:empresaId/ligacoes', capacidade: C.LIGACAO_OPERAR, papeisQuePassam: ['owner', 'comercial'] },
 
   // Etapa 11 — Agenda: POR ROTA. Usar a própria agenda é de todos; ver a da equipe e marcar
   // compromisso para outra pessoa é gestão (AGENDA_VER_EQUIPE), checado dentro da rota.
-  { mount: '/api/empresas/:empresaId/agenda', capacidade: C.AGENDA_OPERAR_PROPRIA, papeisQuePassam: ['owner', 'admin', 'comercial', 'member'], noRouter: true },
+  { mount: '/api/empresas/:empresaId/agenda', capacidade: C.AGENDA_OPERAR_PROPRIA, papeisQuePassam: ['owner', 'comercial'], noRouter: true },
 
   // Etapa 12 — painel da EQUIPE: quem gerencia as contas responde pela distribuição do trabalho.
-  { mount: '/api/empresas/:empresaId/equipe', capacidade: C.MEMBROS_GERENCIAR, papeisQuePassam: ['owner', 'admin'], noRouter: true },
+  { mount: '/api/empresas/:empresaId/equipe', capacidade: C.MEMBROS_GERENCIAR, papeisQuePassam: ['owner'], noRouter: true },
   // 2026-09-18 — cadastro de EQUIPES COMERCIAIS por nicho. Equipe e organizacao operacional,
   // nao papel; quem gerencia membros tambem gerencia a distribuicao por equipe.
-  { mount: '/api/empresas/:empresaId/equipes-comerciais', capacidade: C.MEMBROS_GERENCIAR, papeisQuePassam: ['owner', 'admin'], noRouter: true },
+  { mount: '/api/empresas/:empresaId/equipes-comerciais', capacidade: C.MEMBROS_GERENCIAR, papeisQuePassam: ['owner'], noRouter: true },
 
   // 2026-09-12 — CONHECIMENTO do atendimento. Os 4 routers de contexto estavam montados SEM
   // capacidade nenhuma: qualquer membro (inclusive o `comercial`) criava, editava e excluía
   // contexto, ativava versão e ingeria fonte. Contexto é o que o número da empresa DIZ ao
   // cliente — é decisão da administração.
-  { mount: '/api/empresas/:empresaId/contextos', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner', 'admin'] },
-  { mount: '/api/empresas/:empresaId/contextos/:contextoId', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner', 'admin'] },
-  { mount: '/api/empresas/:empresaId/contextos/:contextoId/fontes', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner', 'admin'] },
-  { mount: '/api/empresas/:empresaId/contextos/:contextoId/sugerir-contexto1', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner', 'admin'] },
+  { mount: '/api/empresas/:empresaId/contextos', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner'] },
+  { mount: '/api/empresas/:empresaId/contextos/:contextoId', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner'] },
+  { mount: '/api/empresas/:empresaId/contextos/:contextoId/fontes', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner'] },
+  { mount: '/api/empresas/:empresaId/contextos/:contextoId/sugerir-contexto1', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner'] },
 
   // Etapa 6 — credenciais, custo e leitura de gestão.
-  { mount: '/api/empresas/:empresaId/relatorios', capacidade: C.RELATORIOS_VER, papeisQuePassam: ['owner', 'admin'] },
-  { mount: '/api/empresas/:empresaId/integracoes/meta', capacidade: C.INTEGRACOES_GERENCIAR, papeisQuePassam: ['owner', 'admin'] },
-  { mount: '/api/empresas/:empresaId/playbook', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner', 'admin'] },
-  { mount: '/api/empresas/:empresaId/llm/uso', capacidade: C.INTEGRACOES_GERENCIAR, papeisQuePassam: ['owner', 'admin'] },
+  { mount: '/api/empresas/:empresaId/relatorios', capacidade: C.RELATORIOS_VER, papeisQuePassam: ['owner'] },
+  { mount: '/api/empresas/:empresaId/integracoes/meta', capacidade: C.INTEGRACOES_GERENCIAR, papeisQuePassam: ['owner'] },
+  { mount: '/api/empresas/:empresaId/playbook', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner'] },
+  { mount: '/api/empresas/:empresaId/llm/uso', capacidade: C.INTEGRACOES_GERENCIAR, papeisQuePassam: ['owner'] },
 
   // 2026-09-18 — COMISSAO. O mount libera a LEITURA (o comercial precisa conferir o proprio
   // dinheiro: programa de comissao que a pessoa nao consegue auditar e promessa sem prova), e
   // cada ESCRITA exige COMISSAO_GERENCIAR por rota — ver ESCRITAS_COM_CAPACIDADE_PROPRIA.
-  { mount: '/api/empresas/:empresaId/comissao', capacidade: C.COMISSAO_VER_PROPRIA, papeisQuePassam: ['owner', 'admin', 'comercial'] },
+  { mount: '/api/empresas/:empresaId/comissao', capacidade: C.COMISSAO_VER_PROPRIA, papeisQuePassam: ['owner', 'comercial'] },
 
   // 2026-09-18 — MISSAO (Operacao Comercial, Etapa 2). Mesma capacidade da comissao, de
   // proposito: missao com recompensa e' politica de REMUNERACAO, a mesma familia de decisao.
   // Uma capacidade nova sem uma decisao distinta por tras seria coluna de matriz que ninguem
   // valida. O mount libera a LEITURA; publicar e encerrar exigem COMISSAO_GERENCIAR por rota
   // (ver ESCRITAS_COM_CAPACIDADE_PROPRIA).
-  { mount: '/api/empresas/:empresaId/missoes', capacidade: C.COMISSAO_VER_PROPRIA, papeisQuePassam: ['owner', 'admin', 'comercial'], noRouter: true },
+  { mount: '/api/empresas/:empresaId/missoes', capacidade: C.COMISSAO_VER_PROPRIA, papeisQuePassam: ['owner', 'comercial'], noRouter: true },
 ]
 
 // Rotas de PLATAFORMA: continuam com `requireRole`, de propósito. Não são de uma empresa —
@@ -163,7 +163,7 @@ const ESCRITAS_COM_CAPACIDADE_PROPRIA = [
   { arquivo: 'api-equipes-comerciais.js', capacidade: 'LEAD_TRANSFERIR', minimo: 2 },
 ]
 
-// ─── Os quatro papéis, contra cada rota ──────────────────────────────────────────────────
+// ─── Os papéis da empresa, contra cada rota ───────────────────────────────────────────────
 
 test('cada rota autoriza EXATAMENTE os papeis declarados', () => {
   for (const { mount, capacidade, papeisQuePassam } of ROTAS_POR_CAPACIDADE) {

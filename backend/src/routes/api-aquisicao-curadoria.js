@@ -1,7 +1,7 @@
 'use strict'
 // Assistente de Oportunidades (por lead) — HTTP.
 // Montada sob /api/empresas/:empresaId/prospeccao/curadoria com requireAuth +
-// requireRole('admin') (index.js) e requireEmpresaAccess por rota.
+// capacidade de triagem de leads e requireEmpresaAccess por rota.
 //
 // Só faz HTTP: as regras de fila/aprendizado vivem em
 // services/aquisicao-curadoria-ranking.js, a orquestração em

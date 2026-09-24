@@ -1,7 +1,7 @@
 // @ts-check
 'use strict'
-// Campanhas comerciais — API multi-tenant, admin-only (mount em index.js aplica
-// requireAuth + requireRole('admin')). Cada rota reforca requireEmpresaAccess; o db
+// Campanhas comerciais — API multi-tenant (mount em index.js aplica requireAuth +
+// capacidade de operar ligação). Cada rota reforca requireEmpresaAccess; o db
 // (src/db/campanhas.js) filtra empresa_id e valida FKs same-tenant.
 const { Router } = require('express')
 const { pool } = require('../db')

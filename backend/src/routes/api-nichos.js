@@ -1,7 +1,7 @@
 // @ts-check
 'use strict'
-// Nichos (catalogo por empresa) — API multi-tenant, admin-only (mount em index.js aplica
-// requireAuth + requireRole('admin')). Cada rota reforca requireEmpresaAccess; o db filtra
+// Nichos (catalogo por empresa) — API multi-tenant (mount em index.js aplica
+// requireAuth + capacidade de gerenciar roteiros). Cada rota reforca requireEmpresaAccess; o db filtra
 // empresa_id. Regras de negocio ficam no db (src/db/nichos.js).
 const { Router } = require('express')
 const { pool } = require('../db')

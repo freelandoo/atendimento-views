@@ -27,13 +27,13 @@
 const PROGRAMA = Object.freeze({ OPERACAO_COMERCIAL: 'operacao_comercial' })
 const PROGRAMAS = Object.freeze([PROGRAMA.OPERACAO_COMERCIAL])
 
-// QUEM esta sujeito ao termo. Decisao do operador (2026-09-18): `comercial` e `member`.
+// QUEM esta sujeito ao termo. Decisao do operador (2026-09-24): so' `comercial`.
 //
-// `owner` e `admin` NAO sao sujeitos, e isso nao e' cortesia: o termo e' o contrato de quem
+// `owner` NAO e' sujeito, e isso nao e' cortesia: o termo e' o contrato de quem
 // TRABALHA no programa, e quem responde pela empresa e' a outra parte do acordo. Torna-los
 // sujeitos trancaria o dono fora do proprio produto no primeiro boot depois do deploy — e nao ha
 // ninguem acima dele para destravar.
-const PAPEIS_SUJEITOS = Object.freeze(['comercial', 'member'])
+const PAPEIS_SUJEITOS = Object.freeze(['comercial'])
 
 // `superadmin` e' o operador da PLATAFORMA e nao tem vinculo com a empresa (ver
 // acesso-capacidades.js). Nomeado aqui para ninguem escrever o literal no middleware.
@@ -44,7 +44,7 @@ const PAPEL_PLATAFORMA = 'superadmin'
 // distingue "nao e' sujeito" de "ja aceitou", e as duas situacoes pedem telas diferentes.
 const MOTIVOS = Object.freeze({
   PLATAFORMA: 'plataforma',                     // superadmin: nao e' sujeito do programa
-  NAO_SUJEITO: 'nao_sujeito',                   // owner/admin: o papel nao participa do programa
+  NAO_SUJEITO: 'nao_sujeito',                   // owner: o papel nao participa do programa
   ACEITE_VIGENTE: 'aceite_vigente',             // aceitou a versao que esta valendo
   ACEITE_AUSENTE: 'aceite_ausente',             // nunca aceitou — primeiro acesso
   ACEITE_DESATUALIZADO: 'aceite_desatualizado', // aceitou outra versao do termo

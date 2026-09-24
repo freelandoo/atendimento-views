@@ -25,17 +25,16 @@
 //  3. Capacidade desconhecida virar permissão. Exigência que este módulo não conhece NEGA —
 //     um enum novo escrito errado não pode abrir porta.
 //
-// ─── ESTADO NA ETAPA 1 (fundação) ────────────────────────────────────────────────────
-// Nada consome esta matriz ainda. `requireCapacidade` nasce sem chamador de propósito: a troca
-// dos mounts `requireRole('admin')` por capacidade é a Etapa 6, uma rota por commit, com teste
-// de permissão por rota. Ver docs/plano-execucao-crm-equipe.md.
+// ─── ESTADO ATUAL ───────────────────────────────────────────────────────────────────
+// As rotas de empresa usam `requireCapacidade` no mount e `requireEmpresaAccess` nas rotas.
+// `requireRole('admin')` fica restrito a rotas globais de plataforma.
 
 // ─── Papéis POR EMPRESA (app.usuarios_empresas.role) ─────────────────────────────────
-// Espelha a CHECK app_usuarios_empresas_role_chk (migration 070). A ordem é do mais para o
+// Espelha a CHECK app_usuarios_empresas_role_chk (migration 101). A ordem é do mais para o
 // menos privilegiado e é usada só para legibilidade — a autorização NUNCA é por comparação de
 // nível. Hierarquia numérica foi justamente o que impediu o papel comercial de existir: ele
-// precisa de MAIS que `member` (operar ligação) e MENOS que `admin` (não gastar coleta paga).
-const PAPEIS = Object.freeze(['owner', 'admin', 'comercial', 'member'])
+// precisa operar a carteira sem virar gestor da empresa.
+const PAPEIS = Object.freeze(['owner', 'comercial'])
 
 // `superadmin` NÃO é papel de empresa: é o operador da PLATAFORMA (app.usuarios.role) e passa em
 // tudo, em qualquer empresa. Fica aqui nomeado para ninguém escrever o literal nas rotas.
@@ -104,10 +103,8 @@ const CAPACIDADES = Object.freeze({
 const TODAS_CAPACIDADES = Object.freeze(Object.values(CAPACIDADES))
 
 // ─── A matriz. Ela É a regra inteira. ────────────────────────────────────────────────
-// `owner` e `admin` são IDÊNTICOS aqui de propósito: a diferença entre eles não é uma
-// capacidade, é uma regra dentro de "Contas da empresa" (um `admin` não desativa o `owner` nem
-// troca o dono). Criar uma capacidade `empresa_gerenciar` sem consumidor seria criar código
-// morto nascendo pronto.
+// `owner` é o único papel de gestão da empresa. `admin` deixa de existir como papel POR EMPRESA:
+// quando houver administração de plataforma, ela vive em `app.usuarios.role`.
 const COMERCIAL = Object.freeze([
   CAPACIDADES.LEAD_VER_APROVADOS,
   CAPACIDADES.LEAD_ASSUMIR,
@@ -122,30 +119,9 @@ const COMERCIAL = Object.freeze([
   CAPACIDADES.COMISSAO_VER_PROPRIA,
 ])
 
-// `member` é o papel LEGADO de compatibilidade (decisão C de docs/especificacao-crm-equipe.md):
-// hoje um `user` global alcança `/conversas`, `/agenda`, `/whatsapp` e `/contextos`, e vê TODAS
-// as conversas da empresa. Ele mantém isso — inclusive `CONVERSA_VER_TODAS`, que o `comercial`
-// NÃO tem. Não é incoerência: `comercial` é o papel novo, recortado por ownership; `member` é o
-// que já existia e não pode quebrar.
-//
-// ⚠️ MUDANÇA DE COMPORTAMENTO DECLARADA, a confirmar antes da Etapa 6 (ver plano, item Q1):
-// `member` PERDE duas ações que hoje alcança em `/conversas`: ligar/desligar a IA
-// (`CONVERSA_GERENCIAR_IA`) e apagar histórico (`CONVERSA_APAGAR_HISTORICO`). Manter a primeira
-// tornaria o toggle de IA — a capacidade sensível que motivou este trabalho — liberada por
-// padrão justamente para o papel menos privilegiado; a segunda é destrutiva e irreversível.
-// Nada disso vale nesta etapa: nenhuma rota consome a matriz ainda.
-const MEMBER = Object.freeze([
-  CAPACIDADES.CONVERSA_ATENDER,
-  CAPACIDADES.CONVERSA_VER_TODAS,
-  CAPACIDADES.AGENDA_OPERAR_PROPRIA,
-  CAPACIDADES.INSTANCIA_GERENCIAR_PROPRIA,
-])
-
 const MATRIZ = Object.freeze({
   owner: Object.freeze([...TODAS_CAPACIDADES]),
-  admin: Object.freeze([...TODAS_CAPACIDADES]),
   comercial: COMERCIAL,
-  member: MEMBER,
 })
 
 // Índice para consulta O(1). Construído a partir da MATRIZ — nunca escrito à mão duas vezes.

@@ -141,7 +141,7 @@ const {
 // services/followup-email.js, toca banco e rede — importa-lo daqui criaria ciclo).
 const { FOLLOWUP_EMAIL_STATUS } = require('./services/follow-up-modelo')
 
-// Papéis POR EMPRESA (CRM em equipe, migration 070). Fonte da CHECK
+// Papéis POR EMPRESA (CRM em equipe, migration 101). Fonte da CHECK
 // app_usuarios_empresas_role_chk. Mesmo padrão dos blocos acima: definidos com comentário no
 // módulo PURO src/services/acesso-capacidades.js — dono do vocabulário de acesso —, aqui apenas
 // REEXPORTADOS para o anti-drift ter um lugar só para olhar.

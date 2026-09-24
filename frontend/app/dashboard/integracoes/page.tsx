@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useSession, podePapel } from '@/lib/useSession'
+import { temCapacidade } from '@/lib/capacidades'
 import LeadSearchApiKeys from '@/components/LeadSearchApiKeys'
 import Card from '@/components/ui/Card'
 
@@ -46,14 +47,15 @@ const PROXIMAS: { nome: string; descricao: string; icone: Integracao['icone'] }[
 
 export default function IntegracoesPage() {
   const router = useRouter()
-  const { role, loading } = useSession()
+  const { role, capacidades, loading } = useSession()
   const superadmin = podePapel(role, 'superadmin')
+  const podeGerenciarIntegracoes = superadmin || temCapacidade(capacidades, 'integracoes_gerenciar')
 
   useEffect(() => {
-    if (!loading && !podePapel(role, 'admin')) router.replace('/dashboard')
-  }, [loading, role, router])
+    if (!loading && !podeGerenciarIntegracoes) router.replace('/dashboard')
+  }, [loading, podeGerenciarIntegracoes, router])
 
-  if (loading || !podePapel(role, 'admin')) {
+  if (loading || !podeGerenciarIntegracoes) {
     return <p className="text-sm text-ink-3">Carregando...</p>
   }
 

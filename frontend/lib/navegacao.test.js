@@ -20,19 +20,17 @@ const CAP_COMERCIAL = [
   'ligacao_operar', 'followup_ver_fila', 'followup_operar', 'roteiro_ler',
   'agenda_operar_propria', 'instancia_gerenciar_propria', 'comissao_ver_propria',
 ]
-const CAP_MEMBER = ['conversa_atender', 'conversa_ver_todas', 'agenda_operar_propria', 'instancia_gerenciar_propria']
-// owner/admin alcancam TUDO: a lista e a uniao de todas as capacidades usadas na arvore.
-const CAP_ADMIN = [
-  ...CAP_COMERCIAL, ...CAP_MEMBER,
+// owner alcanca TUDO: a lista e a uniao de todas as capacidades usadas na arvore.
+const CAP_OWNER = [
+  ...CAP_COMERCIAL,
   'aquisicao_gerenciar', 'lead_triar', 'lead_ver_brutos', 'lead_disparar_lote', 'lead_transferir',
   'conversa_gerenciar_ia', 'conversa_apagar_historico', 'ligacao_ver_todas', 'campanha_gerenciar',
   'followup_reatribuir', 'followup_config_empresa', 'roteiro_gerenciar', 'agenda_ver_equipe',
   'instancia_gerenciar_empresa', 'instancia_gerenciar_contexto', 'membros_gerenciar',
   'integracoes_gerenciar', 'relatorios_ver',
 ]
-const admin = { role: 'user', capacidades: CAP_ADMIN }
+const owner = { role: 'user', capacidades: CAP_OWNER }
 const comercial = { role: 'user', capacidades: CAP_COMERCIAL }
-const member = { role: 'user', capacidades: CAP_MEMBER }
 const superadmin = { role: 'superadmin', capacidades: [] }
 
 // ---------------------------------------------------------------- papéis
@@ -89,7 +87,7 @@ test('aliases acendem o mesmo item: prospeccao e captacao sao Aquisicao', () => 
 })
 
 test('a pagina filha de instancia acende Instancias', () => {
-  const ativo = resolverAtivo('/dashboard/instancias/abc-123/contexto', admin)
+  const ativo = resolverAtivo('/dashboard/instancias/abc-123/contexto', owner)
   assert.deepEqual(ativo, { href: '/dashboard/contextos', grupoId: 'configuracoes' })
 })
 
@@ -129,7 +127,7 @@ test('user comum ainda ve Operacao e Configuracoes (tem filho publico em cada)',
 })
 
 test('Contas so aparece para superadmin', () => {
-  assert.equal(hrefs(itensVisiveis(admin)).includes('/dashboard/contas'), false)
+  assert.equal(hrefs(itensVisiveis(owner)).includes('/dashboard/contas'), false)
   assert.equal(hrefs(itensVisiveis(superadmin)).includes('/dashboard/contas'), true)
 })
 
@@ -151,7 +149,7 @@ test('a area de Equipe e' + "'" + ' de gestao: comercial NAO ve o item', () => {
   // Equipe organiza CARTEIRA (que nicho se trabalha), nao acesso — mas quem MONTA a equipe e' o
   // dono. O item filtra pela MESMA capacidade do mount do backend (`MEMBROS_GERENCIAR`), senao o
   // menu ofereceria uma tela que responde 403.
-  assert.ok(hrefs(itensVisiveis(admin)).includes('/dashboard/equipe'))
+  assert.ok(hrefs(itensVisiveis(owner)).includes('/dashboard/equipe'))
   assert.ok(!hrefs(itensVisiveis(comercial)).includes('/dashboard/equipe'))
 })
 
@@ -166,21 +164,21 @@ test('Contas da empresa e Contas da PLATAFORMA sao telas distintas, com papeis d
   // `/dashboard/contas-empresa` (CRM em equipe, Etapa 2) lista quem trabalha NESTA empresa;
   // `/dashboard/contas` e' a lista global da plataforma. Fundir as duas daria a um admin de
   // empresa a lista de contas de TODAS as empresas — foi por isso que nasceram separadas.
-  assert.ok(hrefs(itensVisiveis(admin)).includes('/dashboard/contas-empresa'))
-  assert.ok(!hrefs(itensVisiveis(admin)).includes('/dashboard/contas'))
+  assert.ok(hrefs(itensVisiveis(owner)).includes('/dashboard/contas-empresa'))
+  assert.ok(!hrefs(itensVisiveis(owner)).includes('/dashboard/contas'))
   assert.ok(!hrefs(itensVisiveis(comercial)).includes('/dashboard/contas-empresa'))
 })
 
 // ---------------------------------------------------------------- ativo
 
 test('resolverAtivo devolve o item e o grupo dele', () => {
-  assert.deepEqual(resolverAtivo('/dashboard/uso', admin), { href: '/dashboard/uso', grupoId: 'configuracoes' })
-  assert.deepEqual(resolverAtivo('/dashboard/follow-ups', admin), { href: '/dashboard/follow-ups', grupoId: 'operacao' })
-  assert.deepEqual(resolverAtivo('/dashboard/conversas', admin), { href: '/dashboard/conversas', grupoId: null })
+  assert.deepEqual(resolverAtivo('/dashboard/uso', owner), { href: '/dashboard/uso', grupoId: 'configuracoes' })
+  assert.deepEqual(resolverAtivo('/dashboard/follow-ups', owner), { href: '/dashboard/follow-ups', grupoId: 'operacao' })
+  assert.deepEqual(resolverAtivo('/dashboard/conversas', owner), { href: '/dashboard/conversas', grupoId: null })
 })
 
 test('resolverAtivo nao acende item que o papel nem enxerga', () => {
-  assert.deepEqual(resolverAtivo('/dashboard/contas', admin), { href: null, grupoId: null })
+  assert.deepEqual(resolverAtivo('/dashboard/contas', owner), { href: null, grupoId: null })
   assert.deepEqual(resolverAtivo('/dashboard/contas', superadmin), { href: '/dashboard/contas', grupoId: 'configuracoes' })
 })
 
@@ -241,15 +239,6 @@ test('o COMERCIAL ve o trabalho e NAO ve a gestao', () => {
   }
 })
 
-test('o MEMBER ve menos que o comercial: nao opera fila nem liga', () => {
-  const vistos = hrefs(itensVisiveis(member))
-  assert.ok(vistos.includes('/dashboard/conversas'))
-  assert.ok(vistos.includes('/dashboard/agenda'))
-  assert.ok(!vistos.includes('/dashboard/central-ligacoes'))
-  assert.ok(!vistos.includes('/dashboard/banco-leads'))
-  assert.ok(!vistos.includes('/dashboard/follow-ups'))
-})
-
 test('sessao CARREGANDO (capacidades null) mostra so o que nao exige nada', () => {
   // Mostrar um item que vai responder 403 e' pior que mostra-lo um instante depois.
   const vistos = hrefs(itensVisiveis({ role: 'user', capacidades: null }))
@@ -270,7 +259,7 @@ test('superadmin enxerga TUDO mesmo sem lista de capacidades', () => {
 test('capacidade DESCONHECIDA esconde o item', () => {
   const arvore = [{ tipo: 'item', href: '/x', label: 'X', capacidade: 'capacidade_que_nao_existe' }]
   assert.equal(navegacaoVisivel(comercial, arvore).length, 0)
-  assert.equal(navegacaoVisivel(admin, arvore).length, 0)
+  assert.equal(navegacaoVisivel(owner, arvore).length, 0)
   // Mas o superadmin continua passando: ele nao e filtrado por capacidade.
   assert.equal(navegacaoVisivel(superadmin, arvore).length, 1)
 })

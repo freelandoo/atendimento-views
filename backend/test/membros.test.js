@@ -51,15 +51,11 @@ const reqDe = (papel, { permissoes = null, papelPlataforma = 'user', comEmpresa 
 
 test('requireCapacidade libera quem o papel alcanca e recusa quem nao alcanca', () => {
   const mw = requireCapacidade(C.MEMBROS_GERENCIAR)
-  for (const papel of ['owner', 'admin']) {
-    assert.equal(rodar(mw, reqDe(papel)).chamouNext, true, `${papel} deveria passar`)
-  }
-  for (const papel of ['comercial', 'member']) {
-    const r = rodar(mw, reqDe(papel))
-    assert.equal(r.chamouNext, false, `${papel} NAO deveria passar`)
-    assert.equal(r.statusCode, 403)
-    assert.equal(r.code, 'FORBIDDEN')
-  }
+  assert.equal(rodar(mw, reqDe('owner')).chamouNext, true, 'owner deveria passar')
+  const r = rodar(mw, reqDe('comercial'))
+  assert.equal(r.chamouNext, false, 'comercial NAO deveria passar')
+  assert.equal(r.statusCode, 403)
+  assert.equal(r.code, 'FORBIDDEN')
 })
 
 test('requireCapacidade libera por CONCESSAO aditiva', () => {
@@ -99,7 +95,7 @@ test('requireCapacidade sem usuario responde 401, nao 403', () => {
 test('requireCapacidade com VARIAS capacidades: qualquer uma basta', () => {
   const mw = requireCapacidade(C.MEMBROS_GERENCIAR, C.LIGACAO_OPERAR)
   assert.equal(rodar(mw, reqDe('comercial')).chamouNext, true, 'comercial tem LIGACAO_OPERAR')
-  assert.equal(rodar(mw, reqDe('member')).chamouNext, false, 'member nao tem nenhuma das duas')
+  assert.equal(rodar(mw, reqDe('gerente')).chamouNext, false, 'papel desconhecido nao tem nenhuma das duas')
 })
 
 test('requireCapacidade com capacidade desconhecida recusa (nao libera por engano)', () => {
@@ -135,7 +131,7 @@ test('sanearPermissoes recusa capacidade desconhecida e capacidade que o papel J
   // Conceder o que o papel ja inclui inflaria a coluna e faria a tela mostrar concessao onde nao
   // houve decisao.
   assert.throws(() => M.sanearPermissoes({ [C.LIGACAO_OPERAR]: true }, 'comercial'), /já está incluída/)
-  // owner/admin alcancam tudo: nao ha nada a conceder a eles.
+  // owner alcanca tudo: nao ha nada a conceder a ele.
   assert.throws(() => M.sanearPermissoes({ [C.LIGACAO_OPERAR]: true }, 'owner'), /já está incluída/)
 })
 
@@ -146,8 +142,8 @@ test('sanearPermissoes recusa payload que nao e objeto', () => {
 })
 
 test('sanearPermissoesExistentes descarta o que o papel NOVO passou a incluir, sem lancar', () => {
-  // Promover comercial -> admin torna a concessao redundante: ela deve sair, nao virar ruido.
-  const r = M.sanearPermissoesExistentes({ [C.CONVERSA_GERENCIAR_IA]: true }, 'admin')
+  // Promover comercial -> owner torna a concessao redundante: ela deve sair, nao virar ruido.
+  const r = M.sanearPermissoesExistentes({ [C.CONVERSA_GERENCIAR_IA]: true }, 'owner')
   assert.deepEqual(r, {})
   // Mantem a que continua fazendo sentido.
   assert.deepEqual(
@@ -240,7 +236,7 @@ test('GUARDA: o owner e o proprio vinculo estao protegidos', () => {
 test('GUARDA: db/membros.js nao compara papel com literal (quem decide e o modulo puro)', () => {
   // Os unicos literais legitimos de papel aqui sao a protecao do owner (comparacao de ESTADO
   // gravado, nao decisao de acesso) e o 'user' global do INSERT.
-  const ocorrencias = [...fonteMembrosDb.matchAll(/'(owner|admin|comercial|member)'/g)].map((m) => m[1])
+  const ocorrencias = [...fonteMembrosDb.matchAll(/'(owner|comercial)'/g)].map((m) => m[1])
   assert.deepEqual([...new Set(ocorrencias)], ['owner'],
     'so o owner pode ser comparado por literal (protecao); acesso se decide em acesso-capacidades.js')
 })
@@ -257,7 +253,7 @@ test('GUARDA: db/membros.js nao compara papel com literal (quem decide e o modul
 test('a rota de membros esta declarada na suite de autorizacao por rota', () => {
   const suite = fs.readFileSync(path.join(__dirname, 'autorizacao-rotas.test.js'), 'utf8')
   assert.ok(suite.includes('/api/empresas/:empresaId/membros'),
-    'o mount de membros saiu de ROTAS_POR_CAPACIDADE — ele precisa continuar exercitado contra os 4 papeis')
+    'o mount de membros saiu de ROTAS_POR_CAPACIDADE — ele precisa continuar exercitado contra os papeis de empresa')
 })
 
 // ─── DESATIVAR UM MEMBRO DEVOLVE O TRABALHO DELE (2026-09-22) ──────────────────────────────

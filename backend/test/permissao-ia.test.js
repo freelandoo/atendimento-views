@@ -41,20 +41,20 @@ const reqDe = (papel, permissoes = null) => ({
 
 // ─── A capacidade ────────────────────────────────────────────────────────────────────────
 
-test('CONVERSA_GERENCIAR_IA e bloqueada por padrao para comercial E member', () => {
+test('CONVERSA_GERENCIAR_IA e bloqueada por padrao para comercial', () => {
   const mw = requireCapacidade(C.CONVERSA_GERENCIAR_IA)
   assert.equal(rodar(mw, reqDe('comercial')).chamouNext, false)
-  assert.equal(rodar(mw, reqDe('member')).chamouNext, false)
   assert.equal(rodar(mw, reqDe('owner')).chamouNext, true)
-  assert.equal(rodar(mw, reqDe('admin')).chamouNext, true)
+  assert.equal(rodar(mw, reqDe('admin')).chamouNext, false, 'admin nao e papel de empresa')
+  assert.equal(rodar(mw, reqDe('member')).chamouNext, false, 'member nao e papel de empresa')
 })
 
-test('o admin LIBERA por concessao aditiva, sem trocar o papel', () => {
+test('o owner LIBERA por concessao aditiva, sem trocar o papel', () => {
   // E' o caso de uso que motivou o `permissoes JSONB` da Etapa 1.
   const mw = requireCapacidade(C.CONVERSA_GERENCIAR_IA)
   const req = reqDe('comercial', { [C.CONVERSA_GERENCIAR_IA]: true })
   assert.equal(rodar(mw, req).chamouNext, true)
-  // E a concessao libera SO' essa: nao promove o vendedor a admin.
+  // E a concessao libera SO' essa: nao promove o vendedor a owner.
   assert.equal(rodar(requireCapacidade(C.MEMBROS_GERENCIAR), req).chamouNext, false)
   assert.equal(rodar(requireCapacidade(C.AQUISICAO_GERENCIAR), req).chamouNext, false)
 })

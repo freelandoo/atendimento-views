@@ -7,7 +7,7 @@ const { resumoDoDia } = require('./plano-dia')
 //
 // ─── POR QUE ESTA TELA EXISTE ───────────────────────────────────────────────────────────
 // `/dashboard` chamava `/relatorios/resumo`, que exige `RELATORIOS_VER` — capacidade que o
-// `comercial` e o `member` NÃO têm. A primeira tela depois do login (e, desde o termo, depois do
+// `comercial` NÃO tem. A primeira tela depois do login (e, desde o termo, depois do
 // aceite) era um erro 403. Não era só "administrativa demais": estava quebrada para quem mais
 // usa o produto.
 //

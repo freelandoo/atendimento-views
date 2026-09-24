@@ -4,9 +4,9 @@
 // Configurações › Integrações › Meta Conversions — HTTP.
 //
 // Montada em /api/empresas/:empresaId/integracoes/meta com requireAuth +
-// requireRole('admin') (index.js) e requireEmpresaAccess em TODA rota. As duas
+// requireCapacidade(INTEGRACOES_GERENCIAR) (index.js) e requireEmpresaAccess em TODA rota. As duas
 // camadas são necessárias e nenhuma é decorativa:
-//   - requireRole('admin')     → só dono/admin (e superadmin) chegam aqui;
+//   - capacidade da empresa    → só owner (e superadmin) chega aqui;
 //   - requireEmpresaAccess     → e só na empresa a que estão vinculados.
 // A tela também esconde o item para não-admin, mas essa checagem é conveniência:
 // a autorização de verdade é esta, no backend.

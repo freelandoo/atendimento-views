@@ -47,7 +47,7 @@ async function requireAuth(req, res, next) {
 //   - `req.empresa`         — a empresa (inalterado).
 //   - `req.vinculoEmpresa`  — a linha de app.usuarios_empresas, ou null para superadmin (que não
 //                             precisa de vínculo). É a FONTE do papel efetivo.
-//   - `req.papelEmpresa`    — `owner | admin | comercial | member`, ou null.
+//   - `req.papelEmpresa`    — `owner | comercial`, ou null.
 //   - `req.capacidades`     — lista já resolvida (papel + concessões aditivas), para a rota
 //                             devolver ao front sem recalcular e sem o front conhecer a matriz.
 //

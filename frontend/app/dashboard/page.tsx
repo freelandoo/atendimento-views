@@ -3,7 +3,7 @@
 //
 // ─── O DEFEITO QUE ISTO CORRIGE ─────────────────────────────────────────────────────────
 // Esta rota chamava `/relatorios/resumo` para todo mundo. Aquela rota exige `RELATORIOS_VER`, que
-// nem `comercial` nem `member` têm — então a PRIMEIRA tela depois do login (e, desde o termo, logo
+// `comercial` não tem — então a PRIMEIRA tela depois do login (e, desde o termo, logo
 // depois do aceite) era uma mensagem de erro 403. Não era só "administrativa demais": estava
 // quebrada para quem mais usa o produto.
 //

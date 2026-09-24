@@ -1,5 +1,5 @@
 /** Papel POR EMPRESA (app.usuarios_empresas.role). Espelha PAPEIS de acesso-capacidades.js. */
-export type PapelEmpresa = 'owner' | 'admin' | 'comercial' | 'member'
+export type PapelEmpresa = 'owner' | 'comercial'
 
 /** Slug de capacidade. String livre de propósito: o vocabulário é do BACKEND, e uma capacidade
  *  nova no servidor não pode quebrar a compilação do front. */

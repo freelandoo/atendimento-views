@@ -27,7 +27,7 @@ const mig052 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '
 const mig062 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '062_follow_ups.sql'), 'utf8')
 const mig066 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '066_contato_canal_disponibilidade.sql'), 'utf8')
 const mig067 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '067_follow_up_canal_email.sql'), 'utf8')
-const mig070 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '070_papel_comercial.sql'), 'utf8')
+const mig101 = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '101_simplificar_papeis_empresa.sql'), 'utf8')
 
 // Extrai a lista de valores da primeira CHECK (... IN (...)) que segue o nome da constraint.
 function checkIn(sql, constraintName) {
@@ -156,13 +156,9 @@ test('DISPONIBILIDADE_* batem com as CHECK de app.contato_canal_disponibilidade 
   mesmoConjunto(DISPONIBILIDADE_ORIGEM, checkIn(mig066, 'contato_canal_disp_origem_chk'), 'disponibilidade.origem')
 })
 
-test('PAPEIS_EMPRESA bate com a CHECK app_usuarios_empresas_role_chk (migration 070)', () => {
-  mesmoConjunto(PAPEIS_EMPRESA, checkIn(mig070, 'app_usuarios_empresas_role_chk'), 'usuarios_empresas.role')
-  // A 070 só ALARGA a CHECK da migration 001: nenhum papel que já existia pode ter saído, senão
-  // um vínculo gravado antes passaria a violar a constraint no primeiro UPDATE da linha.
-  for (const papel of ['owner', 'admin', 'member']) {
-    assert.ok(PAPEIS_EMPRESA.includes(papel), `papel legado '${papel}' desapareceu do enum`)
-  }
+test('PAPEIS_EMPRESA bate com a CHECK app_usuarios_empresas_role_chk (migration 101)', () => {
+  mesmoConjunto(PAPEIS_EMPRESA, checkIn(mig101, 'app_usuarios_empresas_role_chk'), 'usuarios_empresas.role')
+  assert.deepEqual([...PAPEIS_EMPRESA], ['owner', 'comercial'])
 })
 
 test('FOLLOWUP_EMAIL_STATUS bate com a CHECK follow_up_emails_status_chk (migration 067)', () => {

@@ -11,9 +11,11 @@ const {
   CAPACIDADE_ROTULO, GRUPOS, grupoDaCapacidade, agruparConcessoes, resumoDoPapel, extrasDoMembro,
 } = require('./capacidades')
 
-test('rotuloPapel traduz os 4 papeis e devolve o slug quando nao conhece', () => {
+test('rotuloPapel traduz os papeis atuais e devolve o slug quando nao conhece', () => {
   assert.equal(rotuloPapel('owner'), 'Dono')
   assert.equal(rotuloPapel('comercial'), 'Comercial')
+  assert.equal(rotuloPapel('admin'), 'admin')
+  assert.equal(rotuloPapel('member'), 'member')
   assert.equal(rotuloPapel('papel_novo_do_servidor'), 'papel_novo_do_servidor')
   assert.equal(rotuloPapel(null), '—')
 })
@@ -106,7 +108,7 @@ test('ultimoAcesso nunca inventa data', () => {
 
 test('acoesDoMembro repete as duas proibicoes do backend COM motivo', () => {
   // Esconder o controle sem dizer por que faz o operador achar que a tela quebrou.
-  const proprio = acoesDoMembro({ usuario_id: 'u1', role: 'admin' }, 'u1')
+  const proprio = acoesDoMembro({ usuario_id: 'u1', role: 'comercial' }, 'u1')
   assert.equal(proprio.podeEditar, false)
   assert.ok(/próprio/.test(proprio.motivo))
 

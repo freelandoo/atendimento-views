@@ -77,19 +77,20 @@ test('CONVITE: vale 24h; usado e revogado vencem o relogio', () => {
 
 test('CONVITE: owner nunca e convidavel e o comercial exige equipe', () => {
   assert.ok(!AC.papeisConvidaveis().includes('owner'))
-  assert.deepEqual([...AC.papeisConvidaveis()].sort(), ['admin', 'comercial', 'member'])
+  assert.deepEqual([...AC.papeisConvidaveis()].sort(), ['comercial'])
   const eq = '11111111-1111-1111-1111-111111111111'
   assert.throws(() => CM.validarNovoConvite({ role: 'owner' }, regras))
+  assert.throws(() => CM.validarNovoConvite({ role: 'admin' }, regras))
+  assert.throws(() => CM.validarNovoConvite({ role: 'member' }, regras))
   assert.throws(() => CM.validarNovoConvite({ role: 'comercial' }, regras), (e) => e.code === 'EQUIPE_OBRIGATORIA')
   assert.deepEqual(CM.validarNovoConvite({ role: 'comercial', equipe_id: eq, rotulo: ' Ana ' }, regras),
     { role: 'comercial', equipeId: eq, rotulo: 'Ana' })
-  assert.deepEqual(CM.validarNovoConvite({ role: 'member' }, regras), { role: 'member', equipeId: null, rotulo: null })
-  assert.throws(() => CM.validarNovoConvite({ role: 'member', equipe_id: 'nao-uuid' }, regras))
+  assert.throws(() => CM.validarNovoConvite({ role: 'comercial', equipe_id: 'nao-uuid' }, regras))
 })
 
-test('ANTI-DRIFT: a CHECK de papel da migration 096 e o vocabulario convidavel sao o mesmo', () => {
-  const sql = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '096_convite_membro.sql'), 'utf8')
-  const m = sql.match(/membro_convites_role_chk CHECK \(role IN \(([^)]*)\)\)/)
+test('ANTI-DRIFT: a CHECK atual de papel de convite e o vocabulario convidavel sao o mesmo', () => {
+  const sql = fs.readFileSync(path.join(__dirname, '..', 'sql', 'migrations', '101_simplificar_papeis_empresa.sql'), 'utf8')
+  const m = sql.match(/membro_convites_role_chk[\s\S]*?CHECK \(role IN \(([^)]*)\)\)/)
   assert.ok(m, 'nao achei a CHECK de papel')
   const naCheck = m[1].split(',').map((x) => x.trim().replace(/'/g, '')).sort()
   assert.deepEqual(naCheck, [...AC.papeisConvidaveis()].sort())

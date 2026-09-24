@@ -1,7 +1,7 @@
 // @ts-check
 'use strict'
 // Roteiros humanos versionados (modulo Prospeccao & Inteligencia Comercial). API
-// multi-tenant, admin-only (mount em index.js aplica requireAuth + requireRole('admin')).
+// multi-tenant (mount em index.js aplica requireAuth + capacidade de ler roteiros).
 // Cada rota reforca requireEmpresaAccess; toda operacao passa req.empresa.id ao db,
 // que filtra empresa_id (isolamento). Regra de imutabilidade fica no db (src/db/roteiros.js).
 const { Router } = require('express')

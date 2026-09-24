@@ -2,8 +2,8 @@
 'use strict'
 // Rotinas de Aquisição — CRUD + acompanhamento.
 // Montada sob /api/empresas/:empresaId/prospeccao/rotinas com requireAuth +
-// requireRole('admin') (index.js) e requireEmpresaAccess por rota: a autorização de
-// administrador e o isolamento por empresa vivem no backend, nunca só na tela.
+// capacidade de gerenciar aquisição e requireEmpresaAccess por rota: a autorização
+// de gestão e o isolamento por empresa vivem no backend, nunca só na tela.
 // Este módulo só faz HTTP: regra de tempo em services/aquisicao-rotinas-scheduler.js,
 // SQL em db/aquisicao-rotinas.js.
 

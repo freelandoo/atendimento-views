@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useSession, podePapel } from '@/lib/useSession'
+import { temCapacidade } from '@/lib/capacidades'
 import {
   EVENTOS, AJUDA_CAMPO,
   estadoDaIntegracao, rotuloEstado, descricaoEstado, tomEstado,
@@ -24,8 +25,8 @@ import type {
 // da API — a tela mostra só os 4 últimos caracteres. Ele também não vai para o
 // localStorage nem para a URL.
 //
-// A proteção real é do backend (requireAuth + requireRole('admin') +
-// requireEmpresaAccess). O guard abaixo só evita mostrar a tela a quem não opera.
+// A proteção real é do backend (capacidade da empresa + requireEmpresaAccess). O guard abaixo só
+// evita mostrar a tela a quem não opera.
 
 type Resposta = { integracao: Integracao; resumo: ResumoStatus; mapeamento: Record<string, string> }
 type ResultadoTeste = { ok: boolean; mensagem?: string; eventos: { tipo: string; event_name: string; ok: boolean; mensagem: string | null }[] }
@@ -40,8 +41,9 @@ const FILTROS: { chave: StatusEvento | 'todos'; label: string }[] = [
 
 export default function MetaConversionsPage() {
   const router = useRouter()
-  const { role, loading: carregandoSessao } = useSession()
+  const { role, capacidades, loading: carregandoSessao } = useSession()
   const empresaId = useMemo(() => (typeof window !== 'undefined' ? getEmpresaId() : ''), [])
+  const podeGerenciarIntegracoes = podePapel(role, 'superadmin') || temCapacidade(capacidades, 'integracoes_gerenciar')
 
   const [dados, setDados] = useState<Resposta | null>(null)
   const [carregando, setCarregando] = useState(true)
@@ -71,8 +73,8 @@ export default function MetaConversionsPage() {
   const jaConfigurada = estado !== 'nao_configurada'
 
   useEffect(() => {
-    if (!carregandoSessao && !podePapel(role, 'admin')) router.replace('/dashboard')
-  }, [carregandoSessao, role, router])
+    if (!carregandoSessao && !podeGerenciarIntegracoes) router.replace('/dashboard')
+  }, [carregandoSessao, podeGerenciarIntegracoes, router])
 
   const carregar = useCallback(async () => {
     if (!empresaId) { setErro('Nenhuma empresa selecionada.'); setCarregando(false); return }
@@ -186,7 +188,7 @@ export default function MetaConversionsPage() {
     setDados((d) => (d ? { ...d, integracao: null } : d))
   }
 
-  if (carregandoSessao || !podePapel(role, 'admin')) {
+  if (carregandoSessao || !podeGerenciarIntegracoes) {
     return <p className="text-sm text-slate-500">Carregando…</p>
   }
 

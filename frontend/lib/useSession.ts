@@ -67,7 +67,7 @@ export function useSession(redirectOnFail = true) {
   return {
     usuario,
     role: usuario?.role,
-    // Papel POR EMPRESA (owner|admin|comercial|member) — o que autoriza desde a Etapa 1.
+    // Papel POR EMPRESA (owner|comercial) — o que autoriza desde a Etapa 1.
     papelEmpresa: empresa?.papel_empresa,
     // `null` enquanto carrega: distinto de `[]` (carregou e não tem nenhuma).
     capacidades: loading ? null : (empresa?.capacidades || []),

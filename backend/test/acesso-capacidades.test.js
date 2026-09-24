@@ -26,10 +26,10 @@ const vinculo = (papel, permissoes = null) => ({ papel, permissoes, papelPlatafo
 
 // ─── Vocabulário ─────────────────────────────────────────────────────────────────────
 
-test('PAPEIS tem exatamente os 4 papeis de empresa, e superadmin NAO e um deles', () => {
-  assert.deepEqual([...PAPEIS], ['owner', 'admin', 'comercial', 'member'])
+test('PAPEIS tem exatamente os 2 papeis de empresa, e superadmin NAO e um deles', () => {
+  assert.deepEqual([...PAPEIS], ['owner', 'comercial'])
   // superadmin e' papel de PLATAFORMA (app.usuarios.role). Se ele entrar aqui, alguem vai
-  // gravá-lo em app.usuarios_empresas.role e a CHECK da migration 070 recusa.
+  // gravá-lo em app.usuarios_empresas.role e a CHECK da migration 101 recusa.
   assert.ok(!PAPEIS.includes('superadmin'))
   assert.equal(A.PAPEL_PLATAFORMA, 'superadmin')
 })
@@ -45,14 +45,12 @@ test('a matriz cobre todos os papeis e so' + ' capacidades conhecidas', () => {
 
 // ─── O gating de HOJE, reproduzido ────────────────────────────────────────────────────
 
-test('owner e admin alcancam TODAS as capacidades (a diferenca entre eles nao e capacidade)', () => {
-  for (const papel of ['owner', 'admin']) {
-    for (const c of A.TODAS_CAPACIDADES) {
-      assert.ok(A.podeCapacidade(vinculo(papel), c), `${papel} deveria alcancar ${c}`)
-    }
+test('owner alcanca TODAS as capacidades de empresa', () => {
+  for (const c of A.TODAS_CAPACIDADES) {
+    assert.ok(A.podeCapacidade(vinculo('owner'), c), `owner deveria alcancar ${c}`)
   }
-  // Um admin nao desativar o owner e' regra de "Contas da empresa" (Etapa 2), nao capacidade.
-  assert.deepEqual(A.concedeveisPara('admin'), [])
+  // Owner ja tem tudo; nao ha capacidade extra para conceder.
+  assert.deepEqual(A.concedeveisPara('owner'), [])
 })
 
 test('comercial: alcanca o TRABALHO e nao alcanca a COLETA nem a administracao', () => {
@@ -88,22 +86,6 @@ test('comercial: alcanca o TRABALHO e nao alcanca a COLETA nem a administracao',
   ]) assert.ok(!A.podeCapacidade(v, c), `comercial NAO deveria alcancar ${c}`)
 })
 
-test('member mantem o acesso legado a Central de Mensagens (decisao C), inclusive ver todas', () => {
-  const v = vinculo('member')
-  assert.ok(A.podeCapacidade(v, C.CONVERSA_ATENDER))
-  assert.ok(A.podeCapacidade(v, C.CONVERSA_VER_TODAS))
-  assert.ok(A.podeCapacidade(v, C.AGENDA_OPERAR_PROPRIA))
-  assert.ok(A.podeCapacidade(v, C.INSTANCIA_GERENCIAR_PROPRIA))
-  // Mudanca de comportamento DECLARADA (plano, Q1): perde as duas acoes sensiveis que hoje
-  // alcanca em /conversas. Manter a primeira deixaria o toggle de IA liberado por padrao para o
-  // papel MENOS privilegiado; a segunda e' destrutiva e irreversivel.
-  assert.ok(!A.podeCapacidade(v, C.CONVERSA_GERENCIAR_IA))
-  assert.ok(!A.podeCapacidade(v, C.CONVERSA_APAGAR_HISTORICO))
-  // member nao e' vendedor: nao opera fila de ligacao nem assume lead.
-  assert.ok(!A.podeCapacidade(v, C.LIGACAO_OPERAR))
-  assert.ok(!A.podeCapacidade(v, C.LEAD_ASSUMIR))
-})
-
 // ─── Superadmin, ausência de vínculo, capacidade desconhecida ─────────────────────────
 
 test('superadmin passa em tudo mesmo SEM vinculo, e o motivo diz que foi por plataforma', () => {
@@ -125,7 +107,11 @@ test('sem vinculo NAO cai no papel global: papel null nega tudo', () => {
 
 test('papel desconhecido nega (enum novo escrito errado nao vira porta aberta)', () => {
   assert.ok(!A.podeCapacidade(vinculo('gerente'), C.CONVERSA_ATENDER))
+  assert.ok(!A.podeCapacidade(vinculo('admin'), C.CONVERSA_ATENDER))
+  assert.ok(!A.podeCapacidade(vinculo('member'), C.CONVERSA_ATENDER))
   assert.ok(!A.papelConhecido('gerente'))
+  assert.ok(!A.papelConhecido('admin'))
+  assert.ok(!A.papelConhecido('member'))
   assert.ok(!A.papelConhecido(null))
   assert.ok(!A.papelConhecido(42))
 })
@@ -160,9 +146,9 @@ test('concessao NUNCA NEGA o que o papel permite — a regra dura deste modulo',
   // "por que ele nao consegue?" deixaria de ser derivavel do papel. Negar = trocar o papel.
   const v = vinculo('comercial', { [C.LIGACAO_OPERAR]: false })
   assert.ok(A.podeCapacidade(v, C.LIGACAO_OPERAR))
-  const admin = vinculo('admin', { [C.AQUISICAO_GERENCIAR]: false, [C.MEMBROS_GERENCIAR]: false })
-  assert.ok(A.podeCapacidade(admin, C.AQUISICAO_GERENCIAR))
-  assert.ok(A.podeCapacidade(admin, C.MEMBROS_GERENCIAR))
+  const owner = vinculo('owner', { [C.AQUISICAO_GERENCIAR]: false, [C.MEMBROS_GERENCIAR]: false })
+  assert.ok(A.podeCapacidade(owner, C.AQUISICAO_GERENCIAR))
+  assert.ok(A.podeCapacidade(owner, C.MEMBROS_GERENCIAR))
 })
 
 test('so o booleano `true` concede — string, numero e objeto nao', () => {
@@ -228,7 +214,7 @@ test('NINGUEM em src/** compara papel de empresa com literal fora deste modulo',
   const padroes = [
     /papelEmpresa\s*===?\s*['"]/,
     /['"]comercial['"]\s*===?\s*/,
-    /papel\s*===?\s*['"](owner|admin|comercial|member)['"]/,
+    /papel\s*===?\s*['"](owner|comercial)['"]/,
   ]
   const ofensores = []
   for (const arquivo of todosOsFontes()) {
@@ -261,7 +247,7 @@ test('TODA rota autorizada por capacidade esta coberta pela suite de AUTORIZACAO
   //
   // O que esta no lugar dela e' mais forte e serve a Etapa 6 inteira: uma rota nao pode ser
   // autorizada por capacidade sem estar declarada na tabela ROTAS_POR_CAPACIDADE de
-  // test/membros.test.js, que exercita os 4 papeis contra ela. Sem isto, a matriz de
+  // test/membros.test.js, que exercita os papeis contra ela. Sem isto, a matriz de
   // docs/especificacao-crm-equipe.md §3 passaria a valer sem ninguem verificar rota por rota —
   // o risco alto declarado daquela etapa.
   //
@@ -295,7 +281,7 @@ test('TODA rota autorizada por capacidade esta coberta pela suite de AUTORIZACAO
     assert.ok(mount, `nao achei o mount de ${arquivo} no index.js`)
     assert.ok(suite.includes(mount),
       `o mount ${mount} (${arquivo}) nao esta em ROTAS_POR_CAPACIDADE de test/membros.test.js — ` +
-      'toda rota autorizada por capacidade precisa ser exercitada contra os 4 papeis')
+      'toda rota autorizada por capacidade precisa ser exercitada contra os papeis de empresa')
   }
 })
 

@@ -5579,3 +5579,34 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Validacao local:** backend `node --test test/lead-search.test.js test/lead-search-keys.test.js
   test/rotas-contrato.test.js`, backend `npm run typecheck`, frontend `node --test lib/*.test.js`,
   frontend `npx tsc --noEmit`, e `git diff --check` sem erro.
+
+## 2026-09-24 — Analise de cargos e acessos
+
+- **Pedido:** entender e organizar os cargos do aplicativo, avaliando a possibilidade de manter
+  por empresa apenas Dono/Owner e Comercial, deixando cargos globais de plataforma separados.
+- **Pesquisa no codigo:** `services/acesso-capacidades.js`, `middleware/tenant.js`,
+  `frontend/lib/navegacao.js`, `frontend/lib/capacidades.js`, rotas com `requireRole` e
+  `requireCapacidade`, e fluxo de membros/convites.
+- **Conclusao:** hoje existem duas escalas: global (`superadmin|admin|user`) e por empresa
+  (`owner|admin|comercial|member`). `owner` e `admin` de empresa sao equivalentes em capacidades,
+  enquanto `member` e legado e nao e sinonimo de `comercial`.
+- **Entregue:** `docs/modelo-cargos-acessos.md` com estado atual, paginas visiveis por perfil,
+  pontos de confusao e plano em fases para simplificar sem quebrar producao.
+- **Sem alteracao funcional:** nenhuma rota, migration, capacidade, tela ou banco foi alterado.
+
+## 2026-09-24 — Simplificacao de cargos por empresa
+
+- **Pedido:** implementar o modelo aprovado: plataforma separada (`superadmin|admin|user`) e
+  empresa com apenas `owner|comercial`; `pjcodeworks@gmail.com` deve poder acumular
+  `superadmin` global e `owner` da empresa PJ Codeworks.
+- **Decisao aplicada:** `admin` deixa de existir como papel por empresa e vira cargo global de
+  plataforma; `member` deixa de existir como papel por empresa. A migration `101` converte
+  `admin -> owner` e `member -> comercial` nos vinculos existentes.
+- **Convites:** convite novo passa a aceitar apenas `comercial`; `owner` continua fora de link
+  de convite para evitar que vazamento de link crie outro dono. Convites pendentes `admin/member`
+  sao convertidos para `comercial`.
+- **Guards:** telas de Integracoes/Meta passam a seguir a capacidade `integracoes_gerenciar`
+  da empresa, mantendo a criacao/rotacao de codigos externos da API de busca de leads exclusiva
+  para `superadmin`.
+- **Documento atualizado:** `docs/modelo-cargos-acessos.md` virou a definicao atual do modelo,
+  nao mais apenas uma proposta.

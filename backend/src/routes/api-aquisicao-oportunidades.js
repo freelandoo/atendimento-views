@@ -1,7 +1,7 @@
 'use strict'
 // Assistente de Oportunidades — HTTP.
 // Montada sob /api/empresas/:empresaId/prospeccao/oportunidades com requireAuth +
-// requireRole('admin') (index.js) e requireEmpresaAccess por rota.
+// capacidade de gerenciar aquisição e requireEmpresaAccess por rota.
 //
 // Só faz HTTP: as regras vivem em services/aquisicao-sinais.js, a orquestração em
 // services/aquisicao-assistente.js e o SQL em db/aquisicao-oportunidades.js.

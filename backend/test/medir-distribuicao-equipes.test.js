@@ -89,9 +89,9 @@ test('mascarar reduz o uuid ao prefixo e nomeia a ausencia', () => {
 
 const vinculo = (id, papel, extra = {}) => ({ usuario_id: id, papel, permissoes: {}, papel_plataforma: 'user', ...extra })
 
-test('POUSADA: legado com comercial vira INVISIVEL; com admin, nao', () => {
+test('POUSADA: legado com comercial vira INVISIVEL; com owner, nao', () => {
   const r = M.resumirEquipe({
-    membros: [vinculo('u1', 'comercial'), vinculo('u2', 'admin')],
+    membros: [vinculo('u1', 'comercial'), vinculo('u2', 'owner')],
     carteira: [
       { responsavel_id: 'u1', leads: 131, intocados: 131, legado: 131, sem_rastro: 0 },
       { responsavel_id: 'u2', leads: 10, intocados: 10, legado: 10, sem_rastro: 0 },

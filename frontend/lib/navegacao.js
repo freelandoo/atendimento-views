@@ -22,8 +22,8 @@
 //
 //   1. o papel global não é o que autoriza desde a Etapa 1 — quem autoriza é o papel do
 //      VÍNCULO com a empresa (`app.usuarios_empresas.role`);
-//   2. o papel `comercial` **não cabe numa escada**: ele precisa de MAIS que `member`
-//      (operar a Central de Ligações) e MENOS que `admin` (não gastar coleta paga). Qualquer
+//   2. o papel `comercial` **não cabe numa escada**: ele precisa operar a carteira sem virar
+//      gestor da empresa. Qualquer
 //      nível intermediário abriria uma coisa errada ou fecharia outra.
 //
 // Agora cada item declara `capacidade`, e o menu recebe a lista que o BACKEND já resolveu

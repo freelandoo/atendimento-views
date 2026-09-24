@@ -19,26 +19,22 @@ const migration = fonte('sql/migrations/084_programa_aceite.sql')
 
 // ─── A regra: quem entra e quem é barrado ────────────────────────────────────────────────
 
-test('o COMERCIAL e o MEMBER sao barrados enquanto nao aceitam', () => {
-  for (const papel of ['comercial', 'member']) {
-    const v = P.avaliarAcesso({ papel, aceite: null }, '1.0')
-    assert.equal(v.liberado, false, `${papel} sem aceite deveria ser barrado`)
-    assert.equal(v.motivo, P.MOTIVOS.ACEITE_AUSENTE)
-    assert.equal(v.versao_exigida, '1.0')
-    assert.ok(P.barra(v.motivo))
-  }
+test('o COMERCIAL e barrado enquanto nao aceita', () => {
+  const v = P.avaliarAcesso({ papel: 'comercial', aceite: null }, '1.0')
+  assert.equal(v.liberado, false, 'comercial sem aceite deveria ser barrado')
+  assert.equal(v.motivo, P.MOTIVOS.ACEITE_AUSENTE)
+  assert.equal(v.versao_exigida, '1.0')
+  assert.ok(P.barra(v.motivo))
 })
 
-test('OWNER e ADMIN nao sao sujeitos do programa — e isso nao e cortesia', () => {
+test('OWNER nao e sujeito do programa — e isso nao e cortesia', () => {
   // O termo é o contrato de quem TRABALHA no programa; quem responde pela empresa é a outra
   // parte do acordo. Torná-los sujeitos trancaria o dono fora do próprio produto no primeiro
   // boot depois do deploy, e não há ninguém acima dele para destravar.
-  for (const papel of ['owner', 'admin']) {
-    const v = P.avaliarAcesso({ papel, aceite: null }, '1.0')
-    assert.equal(v.liberado, true, `${papel} nao pode ser barrado pelo termo`)
-    assert.equal(v.motivo, P.MOTIVOS.NAO_SUJEITO)
-    assert.ok(!P.barra(v.motivo))
-  }
+  const v = P.avaliarAcesso({ papel: 'owner', aceite: null }, '1.0')
+  assert.equal(v.liberado, true, 'owner nao pode ser barrado pelo termo')
+  assert.equal(v.motivo, P.MOTIVOS.NAO_SUJEITO)
+  assert.ok(!P.barra(v.motivo))
 })
 
 test('o superadmin da PLATAFORMA passa sem vinculo e sem aceite', () => {
@@ -81,6 +77,8 @@ test('papel desconhecido NAO e barrado pelo termo — este modulo nao autoriza n
   const v = P.avaliarAcesso({ papel: 'papel_novo_do_servidor', aceite: null }, '1.0')
   assert.equal(v.liberado, true)
   assert.equal(v.motivo, P.MOTIVOS.NAO_SUJEITO)
+  assert.equal(P.avaliarAcesso({ papel: 'admin', aceite: null }, '1.0').liberado, true)
+  assert.equal(P.avaliarAcesso({ papel: 'member', aceite: null }, '1.0').liberado, true)
 })
 
 test('motivo novo nasce LIBERANDO — a lista de bloqueio e explicita', () => {
@@ -190,7 +188,7 @@ test('o gate vive em requireEmpresaAccess, que roda em TODO request com escopo d
     'o bloqueio precisa ter codigo PROPRIO: a tela distingue "sem permissao" de "falta aceitar"')
   assert.ok(src.includes('avaliarAcessoPrograma'), 'quem decide e o modulo puro')
   assert.ok(src.includes('req.aceitePrograma'), 'o veredito precisa ser publicado no request')
-  assert.ok(!/papel(Empresa)?\s*===\s*'(comercial|member)'/.test(src),
+  assert.ok(!/papel(Empresa)?\s*===\s*'(comercial|member|owner)'/.test(src),
     'o middleware nao pode comparar papel com literal — quem sabe quem e sujeito e o modulo puro')
 })
 

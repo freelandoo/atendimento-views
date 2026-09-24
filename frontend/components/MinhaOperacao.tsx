@@ -3,7 +3,7 @@
 //
 // ─── POR QUE ESTA TELA EXISTE ───────────────────────────────────────────────────────────
 // `/dashboard` chamava `/relatorios/resumo`, que exige `RELATORIOS_VER` — capacidade que o
-// `comercial` e o `member` NÃO têm. A primeira tela depois do login (e, desde o termo, depois do
+// `comercial` NÃO tem. A primeira tela depois do login (e, desde o termo, depois do
 // aceite) era um 403. Não foi só uma decisão de produto: era um defeito.
 //
 // ─── O QUE ELA É ────────────────────────────────────────────────────────────────────────
@@ -18,8 +18,8 @@
 // • **Não inventa número.** Sem missão, sem plano ou sem meta legível, a seção some — não vira
 //   caixa vazia nem barra em zero.
 //
-// Cada bloco carrega SOZINHO e falha sozinho: o `member` não alcança comissão nem leads, e uma
-// negativa ali não pode derrubar a agenda dele.
+// Cada bloco carrega SOZINHO e falha sozinho: uma negativa em uma área não pode derrubar a
+// agenda dele.
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { formatarDinheiro, resumoDoNivel, medalhaDaPosicao } from '@/lib/comissao'
