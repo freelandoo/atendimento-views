@@ -144,7 +144,7 @@ Detalhe e evidência em **`LEGACY_REVIEW.md`** (fila zerada em 2026-09-23).
 
 | Item | Situação | Quem decide |
 |---|---|---|
-| `DEFAULT '<uuid da PJ>'` em 3 tabelas de captação (`captacao_campanhas`, `captacao_snapshots`, `email_outreach`, migration `012`) | **pronto para sair.** A migration `078` limpou 6 tabelas e deixou estas. A conferência que faltava foi feita: os **5 INSERTs** dessas tabelas (1 em `social-capture.js` para campanhas, 3 para snapshots, e os de `email-outreach.js`) **informam `empresa_id` explicitamente**, então remover o DEFAULT não quebra caminho nenhum — só faz um INSERT futuro que esqueça a coluna falhar alto em vez de marcar como PJ em silêncio. Aditiva, sem mutação de dado | você (é `ALTER TABLE` em produção) |
+| `DEFAULT '<uuid da PJ>'` em 3 tabelas de captação (`captacao_campanhas`, `captacao_snapshots`, `email_outreach`, migration `012`) | **RESOLVIDO** pela migration `103_remover_default_pj_captacao.sql`. A conferência foi feita INSERT por INSERT: são **7** (1 em `social-capture.js:176` para campanhas, 3 em `:267/:456/:512` para snapshots, 3 em `email-outreach.js:81/:91/:99`) e **os sete informam `empresa_id` explicitamente** — por isso a migration veio sozinha, sem alteração de código junto (na `078`, dois INSERTs dependiam do default e tiveram de ser corrigidos no mesmo diff). Aditiva, idempotente, sem mutação de dado | — |
 | `playbook/page.tsx` com `fetch` cru | **justificado, não é dívida**: é a única tela que lê header (`Retry-After`). Migrar exige expor headers no `apiFetch`, infra compartilhada por ~40 telas | você |
 
 ## 8. Riscos conhecidos
