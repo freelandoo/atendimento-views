@@ -11,12 +11,19 @@ const PJ_EMPRESA_ID = '00000000-0000-0000-0000-000000000001'
 // Preços por 1M tokens (input/output) — fonte: catálogo oficial Anthropic/OpenAI.
 // IMPORTANTE: a partir do Opus 4.5 o tier Opus é $5/$25 (não o antigo $15/$75).
 // Sem o modelo aqui, computeCost() retorna null e o custo aparece como 0 no painel.
+// Geracao 5 acrescentada em 2026-09-24 (tabela oficial Anthropic). NADA foi removido daqui:
+// preco e' contabilidade HISTORICA — tirar uma linha faz o custo ja registrado daquele modelo
+// virar 0 no painel, reescrevendo o passado.
 const MODEL_PRICES = {
   'gpt-4o-mini':        { input: 0.150 / 1e6, output: 0.600 / 1e6 },
   'gpt-4o':             { input: 2.500 / 1e6, output: 10.000 / 1e6 },
   'gpt-4-turbo':        { input: 10.000 / 1e6, output: 30.000 / 1e6 },
   'gpt-3.5-turbo':      { input: 0.500 / 1e6, output: 1.500 / 1e6 },
+  'claude-fable-5-1':   { input: 10.000 / 1e6, output: 50.000 / 1e6 },
   'claude-fable-5':     { input: 10.000 / 1e6, output: 50.000 / 1e6 },
+  'claude-opus-5-5':    { input: 4.000 / 1e6, output: 20.000 / 1e6 },
+  'claude-opus-5':      { input: 5.000 / 1e6, output: 25.000 / 1e6 },
+  'claude-sonnet-5':    { input: 2.000 / 1e6, output: 10.000 / 1e6 },
   'claude-opus-4-8':    { input: 5.000 / 1e6, output: 25.000 / 1e6 },
   'claude-opus-4-7':    { input: 5.000 / 1e6, output: 25.000 / 1e6 },
   'claude-opus-4-6':    { input: 5.000 / 1e6, output: 25.000 / 1e6 },
@@ -61,7 +68,9 @@ const AI_MODEL_PRESETS = {
     defaultMaxTokens: 1200,
     modelPrefixes: ['claude-'],
     models: [
-      { value: 'claude-opus-4-7', label: 'Claude Opus 4.7 (mais capaz)' },
+      { value: 'claude-opus-5', label: 'Claude Opus 5 (mais capaz)' },
+      { value: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
+      { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
       { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (recomendado)' },
       { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (mais rápido)' },
       { value: 'claude-opus-4-5', label: 'Claude Opus 4.5' },
@@ -77,7 +86,6 @@ const AI_MODEL_PRESETS = {
       { value: 'gpt-4o', label: 'GPT-4o (mais capaz)' },
       { value: 'gpt-4o-mini', label: 'GPT-4o Mini (recomendado)' },
       { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-      { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo (econômico)' },
     ],
   },
 }
