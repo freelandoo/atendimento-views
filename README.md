@@ -19,7 +19,8 @@ Não há BFF nem proxy.
 
 > ⚠️ **O backend serve duas gerações de produto ao mesmo tempo.** Além da API multiempresa
 > (`/api/empresas/:empresaId/*`) que o `frontend/` consome, ele ainda serve um **dashboard
-> estático legado** em `backend/public/` sobre rotas `/dashboard/*`, com outra autenticação.
+> estático legado** — removido em 2026-09-24 — sobre rotas `/dashboard/*`, com outra
+> autenticação. **As 98 rotas continuam montadas**; só a interface saiu.
 > Ele está vivo e em uso, mas **cercado**: não pode crescer. Código novo nasce sempre na
 > geração multiempresa. Ver `docs/project-map.md`.
 

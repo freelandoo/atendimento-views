@@ -11,15 +11,19 @@ integrações (Anthropic/OpenAI, WhatsApp via Evolution, Bright Data, Meta, Free
 
 ## Regra 0 — Existem duas gerações, e a legada só encolhe
 
-O processo serve a geração **legada** (`/dashboard/*`, UI em `backend/public/`, auth por cookie
+O processo serve a geração **legada** (`/dashboard/*`, auth por cookie
 + CSRF em `dashboardAuth.js`) e a **atual** (`/api/empresas/:empresaId/*`, UI em `frontend/`,
 auth por JWT + capacidades). As duas estão vivas.
 
 **Código novo nasce na geração atual. Sempre.** Rota nova em `src/routes/`, tela nova em
 `frontend/`, autenticação por `requireAuth` → `requireEmpresaAccess` → `requireCapacidade`.
 
-Isto não é recomendação: `test/legado-cercado.test.js` congela 98 rotas legadas, 15 páginas em
-`public/` e 7 módulos usando `dashboardAuth`. Passar de qualquer um desses números quebra o
+A **interface** legada (`backend/public/`, 15 páginas) foi **removida em 2026-09-24**; as 98
+rotas e a autenticação por cookie continuam de pé — 65 delas vivem dentro de `agent.js` e
+`prospecting.js`, misturadas com regra de negócio, e sair de lá é a próxima etapa.
+
+Isto não é recomendação: `test/legado-cercado.test.js` congela 98 rotas legadas, **0** páginas
+estáticas e 7 módulos usando `dashboardAuth`. Passar de qualquer um desses números quebra o
 build. Quando algo legado for aposentado, **baixe o número no mesmo commit**.
 
 ## Regra 1 — Separação de responsabilidades

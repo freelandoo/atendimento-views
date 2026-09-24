@@ -66,7 +66,11 @@ app.use(express.json({ limit: '20mb' }))
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }))
 
-app.use(express.static(path.join(__dirname, 'public')))
+// O dashboard ESTATICO legado (backend/public/, 15 paginas) foi removido em 2026-09-24, por
+// decisao do operador: nenhuma daquelas telas estava em uso e nenhuma automacao externa
+// chamava /dashboard/*. As ROTAS /dashboard/* continuam montadas mais abaixo — sao a proxima
+// etapa, e 65 delas vivem dentro de agent.js e prospecting.js, misturadas com regra de
+// negocio. `/health` e rota propria (acima), entao nada de healthcheck dependia do static.
 
 const prompts = require('./src/prompts')
 const { pool, initDB } = require('./src/db')

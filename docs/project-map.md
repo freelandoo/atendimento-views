@@ -13,7 +13,7 @@ O sistema roda **duas gerações de produto no mesmo processo Node**:
 
 | | **Geração 1 — legada** (viva, em uso, **cercada**) | **Geração 2 — atual** (o produto) |
 |---|---|---|
-| UI | `backend/public/*.html` — 15 páginas estáticas | `frontend/` — Next.js 14, 29 rotas |
+| UI | **removida** em 2026-09-24 (eram 15 páginas estáticas) | `frontend/` — Next.js 14, 29 rotas |
 | API | `/dashboard/*` e `/api/operador/*` — **98 rotas** | `/api/empresas/:empresaId/*` — **300 rotas** |
 | Onde a rota mora | dentro de `src/agent.js`, `prospecting.js`, `agenda.js`, `whatsapp-routes.js`, `ai-routes.js`, `meta-routes.js`, `leads-quentes.js` | `src/routes/api-*.js` |
 | Autenticação | `src/dashboardAuth.js` — cookie httpOnly + CSRF | `src/auth.js` (JWT) + `src/middleware/tenant.js` — papel do vínculo + capacidades |
@@ -112,8 +112,10 @@ Três mecanismos, todos aplicados no boot por `src/db.js`:
 
 `migracao_analise_estruturada.sql` é histórico: nenhum código o carrega.
 
-## `backend/public/` (15 páginas) — dashboard estático **legado**
-HTML + `public/dashboard/{css,js,assets}` compartilhados. Servido por `express.static`.
+## `backend/public/` — **REMOVIDO em 2026-09-24**
+Eram 15 páginas HTML + `dashboard/{css,js,assets}`, servidas por `express.static`. Nenhuma
+estava em uso e nenhuma automação externa chamava `/dashboard/*` (confirmado com o operador).
+**As rotas `/dashboard/*` continuam montadas** — só a interface saiu.
 **Não é referência para tela nova** e está cercado: não ganha página.
 
 ## `backend/test/` (169 arquivos, ~2.955 testes)

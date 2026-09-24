@@ -17,7 +17,7 @@
 
 ## Durante a implementação
 - [ ] Não criei duplicação?
-- [ ] Não criei regra de negócio dentro do dashboard estático (`public/`)?
+- [ ] Não criei tela nova fora de `frontend/`? (o dashboard estático `public/` foi removido em 2026-09-24)
 - [ ] Não quebrei o padrão de arquitetura?
 - [ ] Não deixei código morto / import quebrado?
 - [ ] Não deixei logs com dados sensíveis?

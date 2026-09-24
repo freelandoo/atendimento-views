@@ -308,9 +308,22 @@ test('guarda: o status do painel legado resolve a instancia pelo VINCULO do usua
   )
 })
 
-test('guarda: o banner de desconexao nao carrega nome de instancia fixo no front', () => {
-  // `dados.instance || 'pj-dashboard-1'` nomeava no aviso uma instancia que podia nao ser a
-  // medida — acusar desconexao do numero errado e' pior que nao acusar.
-  const fonte = lerFonte('public', 'dashboard', 'js', 'prospeccao.js')
-  assert.doesNotMatch(fonte, /pj-dashboard-1/)
+test('guarda: nenhum nome de instancia fixo no codigo vivo', () => {
+  // O caso original era `dados.instance || 'pj-dashboard-1'` no banner do dashboard estatico:
+  // ele nomeava no aviso uma instancia que podia nao ser a medida — acusar desconexao do numero
+  // errado e' pior que nao acusar. Aquele arquivo saiu com o dashboard estatico em 2026-09-24,
+  // mas a REGRA e a mesma da Fase 2: nome de instancia nunca e' literal no codigo.
+  const raiz = path.join(__dirname, '..', 'src')
+  const pendentes = []
+  const andar = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name)
+      if (e.isDirectory()) andar(p)
+      else if (e.name.endsWith('.js') && /pj-dashboard-1/.test(fs.readFileSync(p, 'utf8'))) {
+        pendentes.push(path.relative(raiz, p))
+      }
+    }
+  }
+  andar(raiz)
+  assert.deepEqual(pendentes, [], 'nome de instancia fixo em: ' + pendentes.join(', '))
 })

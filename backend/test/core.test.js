@@ -458,14 +458,18 @@ test('envio WhatsApp aceita PENDING inicial e rejeita ERROR da Evolution', () =>
   )
 })
 
-test('servidor estatico serve apenas public e nao expoe arquivos sensiveis da raiz', async () => {
+test('o servidor NAO serve arquivo estatico nenhum — nem o dashboard legado, nem fonte', async () => {
+  // Ate 2026-09-24 havia um `express.static(public/)`, e este teste garantia que ele nao
+  // vazasse a raiz. Com o dashboard estatico removido, a propriedade certa e mais forte: NAO
+  // existe diretorio servido. Se alguem remontar um `express.static`, `dashboard.html` volta a
+  // responder 200 e este teste quebra.
   const server = app.listen(0)
   await new Promise((resolve) => server.once('listening', resolve))
   try {
     const { port } = server.address()
     const base = `http://127.0.0.1:${port}`
     const dashboard = await fetch(`${base}/dashboard.html`)
-    assert.equal(dashboard.status, 200)
+    assert.equal(dashboard.status, 404, 'o dashboard estatico legado nao deve voltar')
     const sensitive = await fetch(`${base}/index.js`)
     assert.equal(sensitive.status, 404)
     const prompt = await fetch(`${base}/prompts/system.md`)
@@ -4523,14 +4527,14 @@ test('prospeccao: normaliza numero limpo e JID como mesmo WhatsApp', () => {
   assert.equal(normalizarNumeroWhatsapp('11 99999-9999'), '5511999999999')
 })
 
-test('prospeccao: codigo tem lock de banco, logs com idempotency_key e trava de duplo clique', () => {
+test('prospeccao: codigo tem lock de banco e logs com idempotency_key', () => {
+  // A parte do FRONT desta guarda (bindDailyActions, trava de duplo clique) mirava
+  // `public/dashboard/js/prospeccao.js`, removido com o dashboard estatico em 2026-09-24. O
+  // que ela protegia de verdade — a serializacao no BANCO — nao dependia do front e continua.
   const backend = fs.readFileSync(path.join(__dirname, '../src/prospecting.js'), 'utf8')
-  const frontend = fs.readFileSync(path.join(__dirname, '../public/dashboard/js/prospeccao.js'), 'utf8')
   assert.match(backend, /FOR UPDATE SKIP LOCKED/)
   assert.match(backend, /operation:\s*'prospeccao_envio_inicial'/)
   assert.match(backend, /idempotency_key/)
-  assert.match(frontend, /bindDailyActions/)
-  assert.match(frontend, /fila-diaria\/.+\/agendar-envio/)
 })
 
 test('marcarProspectComoRespondeuPorNumero atualiza status quando houver enviado', async () => {

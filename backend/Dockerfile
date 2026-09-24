@@ -28,7 +28,6 @@ RUN npm ci --omit=dev
 COPY index.js ./
 COPY src/ ./src/
 COPY scripts/ ./scripts/
-COPY public/ ./public/
 COPY prompts/ ./prompts/
 COPY knowledge/ ./knowledge/
 COPY sql/ ./sql/

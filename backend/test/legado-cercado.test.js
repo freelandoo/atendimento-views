@@ -28,7 +28,7 @@ const { rotas: ROTAS } = require('./fixtures/rotas-publicas.json')
 
 // Estado congelado em 2026-09-21. Só desce.
 const TETO_ROTAS_LEGADAS = 98        // 97 em /dashboard/* + 1 em /api/operador/*
-const TETO_PAGINAS_LEGADAS = 15      // HTMLs na raiz de backend/public/
+const TETO_PAGINAS_LEGADAS = 0      // HTMLs na raiz de backend/public/
 
 // Os unicos modulos autorizados a falar com a autenticacao legada. A lista e' fechada: um
 // arquivo novo aqui significa codigo NOVO nascendo na geracao que esta sendo aposentada.
@@ -80,8 +80,13 @@ test('a geracao legada tem exatamente as rotas congeladas — e so pode encolher
   )
 })
 
-test('o dashboard estatico legado nao ganha pagina nova', () => {
-  const paginas = fs.readdirSync(path.join(RAIZ, 'public')).filter((f) => f.endsWith('.html'))
+test('o dashboard estatico legado nao volta a existir', () => {
+  // A pasta foi REMOVIDA em 2026-09-24. Ausencia conta como zero — e o teste continua valendo
+  // como catraca: se `public/` reaparecer com uma pagina, TETO_PAGINAS_LEGADAS = 0 quebra.
+  const dir = path.join(RAIZ, 'public')
+  const paginas = fs.existsSync(dir)
+    ? fs.readdirSync(dir).filter((f) => f.endsWith('.html'))
+    : []
   assert.ok(
     paginas.length <= TETO_PAGINAS_LEGADAS,
     `Pagina nova em backend/public/: ${paginas.length} contra o teto de ${TETO_PAGINAS_LEGADAS}.\n` +

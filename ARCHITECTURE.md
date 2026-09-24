@@ -26,7 +26,8 @@ Três características explicam quase todas as decisões do código:
    *instância* de WhatsApp que a recebeu. Sem prova, a mensagem vai para **quarentena** — não
    existe empresa padrão. O mesmo vale na saída: só sai mensagem por instância comprovada.
 2. **Duas gerações convivem.** A geração legada (`/dashboard/*`, UI estática em
-   `backend/public/`, auth por cookie+CSRF) está viva e **cercada**: não pode crescer. Tudo que
+   auth por cookie+CSRF) está viva e **cercada**: não pode crescer — a interface estática saiu
+   em 2026-09-24, as rotas ficaram. Tudo que
    é novo nasce na geração multiempresa (`/api/empresas/:empresaId/*`, UI em `frontend/`, auth
    por JWT + capacidades).
 3. **A regra de negócio é determinística; a IA redige.** Não há tool-calling. O que decide é
@@ -166,7 +167,6 @@ backend/
     *.js       (65)   núcleo do agente + integrações + o legado single-tenant
   prompts/     (13)   conhecimento do agente
   sql/                init.sql + migrations/ (91)
-  public/      (15)   dashboard legado (cercado)
   test/       (170)   node --test, ~2.957 testes
   scripts/     (24)   backfills, medições, operação
 

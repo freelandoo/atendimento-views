@@ -15,11 +15,12 @@
 ## Objetivo deste repositório
 - Backend Node.js (Express) para atendimento e vendas via WhatsApp.
 - Integra com PostgreSQL (`vendas` e `prospectador`) e Anthropic.
-- Possui dashboard estático para operação comercial e prospecção.
+- Possuía um dashboard estático para operação comercial e prospecção — **removido em
+  2026-09-24**; as rotas `/dashboard/*` continuam existindo.
 
 ## Estrutura física do repositório (split backend/frontend)
 - `backend/` — API Node/Express. Contém `index.js`, `src/`, `prompts/`, `knowledge/`,
-  `sql/`, `scripts/`, `test/`, `public/` (dashboard estático),
+  `sql/`, `scripts/`, `test/`,
   `package.json`, `Dockerfile`, `tsconfig.json`. **Todos os caminhos `src/…`, `prompts/…`,
   `sql/…` etc. citados neste guia são relativos a `backend/`.** Rode `npm test`/`npm start`
   de dentro de `backend/`.
@@ -55,8 +56,8 @@
 > `docs/ui-visual-standard.md`. **Leia o guia antes de escrever a primeira linha de `.tsx`.**
 
 - **Duas superfícies, padrões diferentes:** o produto é o app SaaS (`frontend/`, Next.js —
-  coluna lateral + conteúdo). O dashboard legado (`backend/public/dashboard/`) tem header com
-  navegação horizontal e **não é referência para tela nova**.
+  coluna lateral + conteúdo). O dashboard legado que existia em `backend/public/dashboard/` foi
+  **removido em 2026-09-24** — não há mais uma segunda superfície visual.
 - **Dois temas, fronteira fixa** (decisão do operador, 2026-09-18): **claro** em toda a área de
   trabalho (`app/dashboard/layout.tsx` força `[color-scheme:light]` no `<main>`); **neon** só em
   `login`, `signup` e na `Sidebar`. **Não leve neon para dentro do dashboard** e não clareie a
@@ -436,6 +437,11 @@
   comando, não por quem é dono do lead. O operador recebe "❌ Erro ao enviar apresentação" com
   o motivo. Lead que já tem conversa continua funcionando normalmente.
 - **Banner "WhatsApp desconectado" do dashboard legado — RELIGADO pelo vínculo do usuário.**
+  ⚠️ **O BANNER em si deixou de existir em 2026-09-24**, junto com o dashboard estático
+  (`public/`). O que este bloco descreve e que **continua valendo** é a regra de BACKEND:
+  `GET /dashboard/prospeccao/whatsapp/status` resolve a instância pelo vínculo do usuário
+  quando `?instancia=` não vem, e `instanciaVinculadaAoUsuario` (`whatsapp-routes.js`) é o dono
+  único desse resolvedor. O registro histórico fica porque explica POR QUE a rota é assim.
   Ele havia ficado mudo: `public/dashboard/js/prospeccao.js` e `js/sistema-alertas.js` chamam
   `GET /dashboard/prospeccao/whatsapp/status` **sem `?instancia=`**, e a resposta virou
   `{connected: null, state: 'nao_informada'}` — os dois só alertam com `connected === false`,
@@ -3872,7 +3878,7 @@ O agente não pode:
 - Alterar muitos arquivos sem plano declarado.
 - Criar endpoint sem validação de entrada.
 - Criar variável de ambiente sem documentar (`AGENTS.md` + `.env.example`).
-- Colocar lógica crítica apenas no frontend (dashboard estático).
+- Colocar lógica crítica apenas no frontend.
 - Deixar logs com dados sensíveis (chaves, tokens, telefone/PII em texto puro).
 - Fazer workaround sem registrar a dívida técnica.
 - Ignorar testes falhando ou erro de typecheck onde o `.ts`/`tsconfig` se aplica.
@@ -3886,7 +3892,7 @@ O agente não pode:
 - **Validação / schemas**: `src/domainSchemas.js`, `src/*-validator.js`.
 - **Helpers genéricos**: `src/string-utils.js`, `src/date-utils.js`.
 - **Conhecimento do agente (LLM)**: `prompts/*.md`, `knowledge/*.json`.
-- **UI**: dashboard estático em `public/` — apresentação apenas; nada de lógica crítica/segredo.
+- **UI**: `frontend/` (Next.js). O dashboard estático de `public/` foi removido em 2026-09-24.
 
 Evite módulos que misturam roteamento, regra de negócio, acesso a banco e
 integração externa no mesmo arquivo.
