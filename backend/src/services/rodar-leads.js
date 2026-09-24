@@ -63,7 +63,8 @@ async function resolverTabelaMessageUpdate(pool) {
 // (um SELECT que a esquece nao pode virar "pode abordar" — seria a porta aberta por omissao).
 const COLS_PROSPECT = `id, nome, telefone, status, qualificacao, nicho, cidade, bloqueado_ate, tem_whatsapp,
   origem, email, endereco, rating, avaliacoes, tem_site, site, maps_url,
-  link_bio, bio, categoria_perfil, seguidores, instagram_handle, raw_json`
+  place_id, link_original, link_bio, bio, categoria_perfil, seguidores, instagram_handle,
+  instagram_confianca, instagram_atividade, instagram_ultimo_post_em, raw_json`
 
 function delayAleatorio() {
   return DELAY_MIN_MS + Math.floor(Math.random() * (DELAY_MAX_MS - DELAY_MIN_MS + 1))
@@ -614,7 +615,7 @@ async function gerarPendentesSemi(pool, { empresaId, usuarioId = null, instancia
              AND d.evolution_instance = $3
              AND d.status IN ('gerando', 'aguardando_disparo', 'erro_ia', 'enviando', 'pendente_confirmacao', 'enviado')
         )
-      ORDER BY p.score DESC NULLS LAST, p.created_at ASC, p.id ASC
+      ORDER BY (p.qualificacao = 'aprovado') DESC, p.score DESC NULLS LAST, p.created_at ASC, p.id ASC
       LIMIT $4`,
     [empresaId, [...STATUS_RODAVEL], instancia.evolution_instance, max]
   )
@@ -664,7 +665,7 @@ async function dispararGerados(pool, { empresaId, instanciaId, prospectIds }, de
               WHERE d.empresa_id = $1 AND d.evolution_instance = $2
                 AND d.status = 'aguardando_disparo'`
   if (filtroIds.length) { params.push(filtroIds); sql += ` AND d.prospect_id = ANY($3::uuid[])` }
-  sql += ` ORDER BY d.criado_em ASC`
+  sql += ` ORDER BY (p.qualificacao = 'aprovado') DESC, d.criado_em ASC`
   const { rows } = await pool.query(sql, params)
 
   // Reavalia elegibilidade no momento do disparo (pode ter travado/mudado desde a geração).

@@ -2,8 +2,14 @@
 
 const aiProviderDefault = require('../ai-provider')
 const { nomeEmpresa, NOME_PADRAO } = require('../db/empresas')
+const {
+  montarEstrategiaAbordagem,
+  montarPromptContratoAbordagem,
+  normalizarContratoAbordagem,
+  renderMensagemAbordagemFallback,
+} = require('./abordagem-inicial-contrato')
 
-const PROMPT_VERSION = 'prospeccao_fila_mensagem_v1_2026_05'
+const PROMPT_VERSION = 'abordagem_inicial_json_v1_2026_09'
 const STATUS_COM_MENSAGEM_GERAVEL = new Set(['simulado', 'agendado'])
 
 function textoOuNull(valor, max = 4000) {
@@ -26,14 +32,7 @@ function extrairSinal(row = {}) {
 }
 
 function montarMensagemFallback(row = {}, nomeEmp = NOME_PADRAO) {
-  const nome = row.nome_lead || row.prospect_nome || 'sua empresa'
-  const categoria = row.categoria || row.prospect_nicho || 'seu segmento'
-  const cidade = row.cidade || row.prospect_cidade || 'sua cidade'
-  const sinal = extrairSinal(row)
-  return (
-    `Opa, tudo bem? Sou da ${nomeEmp}. Vi ${nome} no Google Maps em ${cidade} e notei ${sinal}. ` +
-    `A gente ajuda negocios de ${categoria} a ter uma presenca digital mais clara e receber contatos pelo WhatsApp. Posso te mandar uma analise rapida?`
-  ).slice(0, 600)
+  return renderMensagemAbordagemFallback(row, { nomeEmpresa: nomeEmp })
 }
 
 function limparMensagemGerada(texto) {
@@ -64,9 +63,19 @@ async function buscarItemFilaParaMensagem(pool, filaId) {
       p.rating,
       p.tem_site,
       p.site,
+      p.link_original,
+      p.link_bio,
+      p.bio,
+      p.categoria_perfil,
+      p.seguidores,
+      p.instagram_handle,
+      p.instagram_confianca,
+      p.instagram_atividade,
+      p.instagram_ultimo_post_em,
       p.maps_url,
       p.place_id,
       p.score,
+      p.qualificacao,
       p.raw_json,
       p.empresa_id,
       e.data_execucao,
@@ -104,38 +113,33 @@ function validarItemGeravel(row) {
 async function gerarMensagemProspeccaoIA(row, deps = {}) {
   const aiProvider = deps.aiProvider || aiProviderDefault
   const nomeEmp = await nomeEmpresa(row.empresa_id)
+  const estrategia = montarEstrategiaAbordagem(row, { nomeEmpresa: nomeEmp })
   const fallback = montarMensagemFallback(row, nomeEmp)
-  const categoria = row.categoria || row.prospect_nicho || 'negocio local'
-  const cidade = row.cidade || row.prospect_cidade || 'cidade informada'
-  const nome = row.nome_lead || row.prospect_nome || 'empresa'
-  const temSite = row.tem_site === true ? 'sim' : row.tem_site === false ? 'nao' : 'nao informado'
-  const sinal = extrairSinal(row)
-
-  const systemPrompt =
-    `Voce escreve mensagens frias de WhatsApp em nome da ${nomeEmp} para prospeccao local. ` +
-    'Tom humano, curto, consultivo e respeitoso. Retorne APENAS o texto da mensagem, sem JSON e sem markdown.'
-
-  const userPrompt =
-    `Crie UMA mensagem inicial de WhatsApp para este lead ja selecionado e agendado na fila.\n\n` +
-    `DADOS DO LEAD:\n` +
-    `- empresa: ${nome}\n` +
-    `- categoria/tag: ${categoria}\n` +
-    `- cidade: ${cidade}\n` +
-    `- tem site: ${temSite}\n` +
-    `- sinal real: ${sinal}\n` +
-    `- slot planejado de envio: ${row.slot_envio}\n\n` +
-    `REGRAS:\n` +
-    `1. Diga "Sou da ${nomeEmp}" na abertura.\n` +
-    `2. Use os dados reais acima; nao invente numeros, promessas, descontos ou resultados.\n` +
-    `3. Nao peca reuniao nesta primeira mensagem.\n` +
-    `4. Termine pedindo permissao para mandar uma analise rapida.\n` +
-    `5. Maximo 500 caracteres, texto corrido, sem bullets.`
+  const promptContrato = montarPromptContratoAbordagem({
+    estrategia,
+    dadosLead: {
+      prospect_id: row.prospect_id || null,
+      nome: row.nome_lead || row.prospect_nome || null,
+      categoria: row.categoria || row.prospect_nicho || null,
+      cidade: row.cidade || row.prospect_cidade || null,
+      tem_site: row.tem_site,
+      site: row.site || null,
+      link_original: row.link_original || row.link_bio || null,
+      instagram_handle: row.instagram_handle || null,
+      seguidores: row.seguidores || null,
+      rating: row.rating || null,
+      avaliacoes: row.avaliacoes || null,
+      slot_envio: row.slot_envio || null,
+      qualificacao: row.qualificacao || null,
+    },
+    nomeEmpresa: nomeEmp,
+  })
 
   try {
     const result = await aiProvider.generateAIResponse(
       {
-        systemPrompt,
-        userPrompt,
+        systemPrompt: promptContrato.systemPrompt,
+        userPrompt: promptContrato.userPrompt,
         task: 'prospeccao_fila_mensagem',
         temperature: 0.4,
         maxTokens: 220,
@@ -144,7 +148,8 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
       deps.pool || null,
       deps.logger || null
     )
-    const mensagem = limparMensagemGerada(result.text)
+    const contrato = normalizarContratoAbordagem(result.text, estrategia)
+    const mensagem = limparMensagemGerada(contrato?.mensagem || '')
     if (!mensagem || mensagem.length < 30) {
       if (deps.logger?.warn) {
         deps.logger.warn(
@@ -152,7 +157,15 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
           'IA retornou mensagem vazia/curta; usando fallback determinístico'
         )
       }
-      return { mensagem: fallback, provider: 'fallback', model: null, prompt_version: PROMPT_VERSION, fallback: true }
+      return {
+        mensagem: fallback,
+        provider: 'fallback',
+        model: null,
+        prompt_version: PROMPT_VERSION,
+        fallback: true,
+        estrategia,
+        contrato: null,
+      }
     }
     return {
       mensagem,
@@ -160,6 +173,8 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
       model: result.model || null,
       prompt_version: PROMPT_VERSION,
       fallback: result.fallback_used === true,
+      estrategia,
+      contrato,
     }
   } catch (err) {
     // Antes engolia em silencio (`catch (_)`), o operador via fallback chegando
@@ -170,7 +185,15 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
         'IA falhou em gerar mensagem de prospecção; usando fallback determinístico'
       )
     }
-    return { mensagem: fallback, provider: 'fallback', model: null, prompt_version: PROMPT_VERSION, fallback: true }
+    return {
+      mensagem: fallback,
+      provider: 'fallback',
+      model: null,
+      prompt_version: PROMPT_VERSION,
+      fallback: true,
+      estrategia,
+      contrato: null,
+    }
   }
 }
 
@@ -194,6 +217,8 @@ async function salvarMensagemGerada(pool, row, geracao) {
           provider: geracao.provider,
           model: geracao.model,
           fallback: geracao.fallback === true,
+          angulo: geracao.estrategia?.angulo || geracao.contrato?.angulo || null,
+          sinais_usados: geracao.contrato?.sinais_usados || geracao.estrategia?.sinais || [],
           gerada_em: new Date().toISOString(),
         },
       }),
@@ -223,10 +248,12 @@ async function registrarDecisaoMensagem(pool, row, geracao) {
         nome_lead: row.nome_lead || row.prospect_nome || null,
         categoria: row.categoria || row.prospect_nicho || null,
         cidade: row.cidade || row.prospect_cidade || null,
+        estrategia: geracao.estrategia || null,
       }),
       JSON.stringify({
         mensagem_gerada: geracao.mensagem,
         fallback: geracao.fallback === true,
+        contrato: geracao.contrato || null,
       }),
     ]
   )

@@ -169,7 +169,9 @@ function leadsMulti(qtd) {
 }
 function extrairNomeDoPrompt(userPrompt) {
   const m = /DADOS DO LEAD \(([^)]+)\)/.exec(String(userPrompt || ''))
-  return m ? m[1] : ''
+  if (m) return m[1]
+  const json = /"nome_lead":\s*"([^"]+)"/.exec(String(userPrompt || ''))
+  return json ? json[1] : ''
 }
 
 test('gerarMensagensSemi aborta o lote inteiro no pré-teste, sem marcar erro individual, quando a IA falha já na 1ª tentativa', async () => {
@@ -222,7 +224,14 @@ test('gerarMensagensSemi interrompe o lote após falhas consecutivas no meio (ci
   const generateAIResponse = async (input) => {
     const nome = extrairNomeDoPrompt(input.userPrompt)
     if (falhamNomes.has(nome)) throw new Error(`Falha simulada para ${nome}`)
-    return { text: `Oi, ${nome}! Notei uma oportunidade no seu cadastro.` }
+    return { text: JSON.stringify({
+      schema_version: 'abordagem_inicial_v1',
+      mensagem: `Oi, tudo bem? Sou da nossa empresa. Ja deixei uma previa de site pronta aqui no atendimento para ${nome}. Notei uma oportunidade no seu cadastro. Posso te mostrar?`,
+      angulo: 'presenca_digital',
+      sinais_usados: ['oportunidade no cadastro'],
+      pergunta_final: 'Posso te mostrar?',
+      confianca: 0.7,
+    }) }
   }
 
   const out = await gerarMensagensSemi(pool, {
@@ -288,19 +297,41 @@ test('gerarPendentesSemi propaga a falha sistêmica sem tentar o restante das le
   assert.strictEqual(out.falha_sistemica.nao_processados, 2)
 })
 
+test('gerarPendentesSemi prioriza leads aprovados antes dos demais abordaveis', async () => {
+  let sqlCandidatos = ''
+  const pool = makePool([
+    ['app.empresa_whatsapp_instances', () => ({ rows: [instanciaAtiva] })],
+    ['NOT EXISTS', (_params, sql) => {
+      sqlCandidatos = sql
+      return { rows: [] }
+    }],
+  ])
+  const out = await gerarPendentesSemi(pool, {
+    empresaId: 'e1', instanciaId: 'i1', limit: 10,
+  })
+
+  assert.deepEqual(out.gerados, [])
+  assert.match(sqlCandidatos, /ORDER BY \(p\.qualificacao = 'aprovado'\) DESC/)
+})
+
 // ─── Semi: dispararGerados ─────────────────────────────────────────────────────
 test('dispararGerados sem pendências devolve rodada=false', async () => {
+  let sqlPendencias = ''
   const pool = makePool([
     ['app.empresa_whatsapp_instances', () => ({ rows: [instanciaAtiva] })],
     ['app.banco_leads_config', () => ({ rows: [configSemi] })],
     // estadoThrottle
     ['FROM prospectador.lead_disparos\n      WHERE empresa_id', () => ({ rows: [{ hoje: 0, ultimo: null }] })],
     // busca dos rascunhos aguardando_disparo (JOIN) — nenhum
-    ["d.status = 'aguardando_disparo'", () => ({ rows: [] })],
+    ["d.status = 'aguardando_disparo'", (_params, sql) => {
+      sqlPendencias = sql
+      return { rows: [] }
+    }],
   ])
   const out = await dispararGerados(pool, { empresaId: 'e1', instanciaId: 'i1', prospectIds: [] }, conexaoOk)
   assert.strictEqual(out.rodada, false)
   assert.deepStrictEqual(out.aceitos, [])
+  assert.match(sqlPendencias, /ORDER BY \(p\.qualificacao = 'aprovado'\) DESC, d\.criado_em ASC/)
 })
 
 test('estadoEnvioInstancia devolve cooldown restante e cooldown_min', async () => {

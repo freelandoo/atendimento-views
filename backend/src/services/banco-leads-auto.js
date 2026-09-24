@@ -151,7 +151,7 @@ async function buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps = {}
                AND d.prospect_id = p.id
                AND d.status IN ('gerando', 'aguardando_disparo', 'enviando', 'pendente_confirmacao')
           )
-        ORDER BY p.score DESC NULLS LAST, p.created_at ASC, p.id ASC
+        ORDER BY (p.qualificacao = 'aprovado') DESC, p.score DESC NULLS LAST, p.created_at ASC, p.id ASC
         LIMIT $3 OFFSET $4`,
       [empresaId, statusList, limitePagina, offset]
     )

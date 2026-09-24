@@ -128,7 +128,14 @@ test('mensagem fila: gera IA somente para item simulado com slot e salva no item
     generateAIResponse: async (input) => {
       chamadas.push(input)
       return {
-        text: 'Opa, tudo bem? Sou da PJ Codeworks. Vi o Restaurante A no Google Maps em Salvador e preparei uma analise rapida sobre presenca digital para restaurantes. Posso te mandar?',
+        text: JSON.stringify({
+          schema_version: 'abordagem_inicial_v1',
+          mensagem: 'Opa, tudo bem? Sou da PJ Codeworks. Ja deixei uma previa de site pronta aqui no atendimento para Restaurante A. Vi a boa reputacao no Google em Salvador. Posso te mandar essa analise rapida?',
+          angulo: 'sem_site',
+          sinais_usados: ['boa reputacao no Google'],
+          pergunta_final: 'Posso te mandar essa analise rapida?',
+          confianca: 0.8,
+        }),
         provider: 'openai',
         model: 'gpt-4o',
         fallback_used: false,
@@ -141,6 +148,8 @@ test('mensagem fila: gera IA somente para item simulado com slot e salva no item
   assert.equal(r.ok, true)
   assert.equal(r.envio_real_habilitado, false)
   assert.equal(chamadas.length, 1)
+  assert.match(chamadas[0].systemPrompt, /contrato JSON/)
+  assert.match(chamadas[0].userPrompt, /ESTRATEGIA CALCULADA PELO APP/)
   assert.equal(pool.state.fila.mensagem_gerada, r.mensagem_gerada)
   assert.equal(pool.state.fila.mensagem_editada, null)
   assert.equal(pool.state.decisoes.length, 1)
@@ -148,7 +157,9 @@ test('mensagem fila: gera IA somente para item simulado com slot e salva no item
   assert.equal(pool.state.decisoes[0].fila_id, FILA_ID)
   assert.equal(pool.state.decisoes[0].provider, 'openai')
   assert.equal(pool.state.decisoes[0].input_json.slot_envio, '2026-05-25T08:00:00Z')
+  assert.equal(pool.state.decisoes[0].input_json.estrategia.angulo, 'sem_site')
   assert.match(pool.state.decisoes[0].output_json.mensagem_gerada, /PJ Codeworks/)
+  assert.equal(pool.state.decisoes[0].output_json.contrato.schema_version, 'abordagem_inicial_v1')
   assert.ok(pool.state.queries.some((q) => /SET mensagem_gerada/i.test(q.sql)))
   assert.equal(pool.state.queries.some((q) => /INSERT INTO vendas\.job_queue/i.test(q.sql)), false)
   assert.equal(pool.state.queries.some((q) => /send_attempts/i.test(q.sql)), false)

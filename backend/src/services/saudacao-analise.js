@@ -6,6 +6,11 @@
 // Desenho aprovado na spec docs/superpowers/specs/2026-07-03-saudacao-analise-e-estagios-design.md
 const { generateAIResponse } = require('../ai-provider')
 const { getContextoComEstagios, montarConhecimentoDoContexto } = require('./contexto-estagios')
+const {
+  montarEstrategiaAbordagem,
+  montarPromptContratoAbordagem,
+  normalizarContratoAbordagem,
+} = require('./abordagem-inicial-contrato')
 
 const TIMEOUT_MS = Math.max(5000, parseInt(process.env.SAUDACAO_IA_TIMEOUT_MS, 10) || 30000)
 // Nº de RETENTATIVAS extras quando a IA falha/retorna vazio (garante que a geração
@@ -13,19 +18,6 @@ const TIMEOUT_MS = Math.max(5000, parseInt(process.env.SAUDACAO_IA_TIMEOUT_MS, 1
 const RETRIES = Math.max(0, Math.min(parseInt(process.env.SAUDACAO_IA_RETRIES, 10) || 1, 3))
 // Pós-validação: acima disso conta como falha. A regra pede ≤400 chars; folga de 500.
 const MAX_CHARS = 500
-
-const SYSTEM_PROMPT = [
-  'Você é um consultor comercial escrevendo UMA mensagem de abertura de WhatsApp em português do Brasil.',
-  'Regras obrigatórias:',
-  '- Tom humano e leve, como uma pessoa real (nada de "prezado", nada robótico).',
-  '- Cumprimente pelo nome do lead.',
-  '- Mostre que analisou o negócio citando 1 dado REAL dos DADOS DO LEAD.',
-  '- Aponte 1 ou 2 lacunas do cadastro como oportunidade concreta de ganhar clientes.',
-  '- Ofereça a solução e termine com UMA única pergunta.',
-  '- Máximo 400 caracteres. NÃO invente dados que não estejam nos DADOS DO LEAD.',
-  '- Se houver INSTRUÇÕES EXTRAS DA EMPRESA, siga-as (tom, CTA, oferta).',
-  'Responda apenas com o texto final da mensagem — sem aspas, sem títulos, sem comentários.',
-].join('\n')
 
 // Remove o campo `.prompt` (instrução genérica embutida no json de apresentação) —
 // aqui o system prompt já cobre a tarefa; enviamos só os dados/lacunas do lead.
@@ -57,14 +49,19 @@ async function gerarSaudacaoAnalise({ pool, log, empresaId, contextoId, jsonApre
       } catch { conhecimento = '' }
     }
 
-    const partes = []
-    if (conhecimento && conhecimento.trim()) partes.push(`CONHECIMENTO DA EMPRESA\n${conhecimento.trim()}`)
-    if (instrucoes && String(instrucoes).trim()) partes.push(`INSTRUÇÕES EXTRAS DA EMPRESA\n${String(instrucoes).trim()}`)
-    partes.push(`DADOS DO LEAD${nomeLead ? ` (${nomeLead})` : ''}\n${JSON.stringify(dadosSemPrompt(jsonApresentacao), null, 2)}`)
+    const dadosLead = dadosSemPrompt(jsonApresentacao)
+    const estrategia = montarEstrategiaAbordagem(dadosLead, { nomeLead })
+    const promptContrato = montarPromptContratoAbordagem({
+      estrategia,
+      dadosLead,
+      conhecimento: conhecimento && conhecimento.trim() ? conhecimento.trim() : '',
+      instrucoes: instrucoes && String(instrucoes).trim() ? String(instrucoes).trim() : '',
+      nomeEmpresa: estrategia.nome_empresa,
+    })
 
     const input = {
-      systemPrompt: SYSTEM_PROMPT,
-      userPrompt: partes.join('\n\n'),
+      systemPrompt: promptContrato.systemPrompt,
+      userPrompt: promptContrato.userPrompt,
       task: 'saudacaoAnaliseLead',
       maxTokens: 350,
       timeoutMs: TIMEOUT_MS,
@@ -74,7 +71,8 @@ async function gerarSaudacaoAnalise({ pool, log, empresaId, contextoId, jsonApre
     for (let tentativa = 0; tentativa <= RETRIES; tentativa++) {
       try {
         const res = await gerar(input, pool, log)
-        const texto = String(res?.text || '').trim()
+        const contrato = normalizarContratoAbordagem(res?.text || '', estrategia)
+        const texto = String(contrato?.mensagem || '').trim()
         if (texto && texto.length <= MAX_CHARS) return texto
       } catch (e) {
         if (log && log.warn) log.warn({ err: e.message, tentativa }, '[saudacao-analise] tentativa falhou')
