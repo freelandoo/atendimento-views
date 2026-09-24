@@ -180,8 +180,6 @@
     "GET /dashboard/funil-diagnostico/config",
     "GET /dashboard/funil-diagnostico/historico",
     "GET /dashboard/lacunas-conhecimento",
-    "GET /dashboard/leads-quentes",
-    "GET /dashboard/meta/anuncios",
     "GET /dashboard/operadores",
     "GET /dashboard/prompt-aprendizados",
     "GET /dashboard/prompts",

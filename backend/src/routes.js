@@ -7,8 +7,6 @@ module.exports = function registerRoutes(app) {
   const { registerAgendaRoutes } = require('./agenda')
   const { registerAIRoutes } = require('./ai-routes')
   const { registerWhatsappRoutes } = require('./whatsapp-routes')
-  const { registerMetaRoutes } = require('./meta-routes')
-  const { registerLeadsQuentesRoutes } = require('./leads-quentes')
   const registerAITestRoutes = require('./ai-test-routes')
 
   registerHttpRoutes(app)
@@ -16,8 +14,6 @@ module.exports = function registerRoutes(app) {
   registerAgendaRoutes(app)
   registerAIRoutes(app)
   registerWhatsappRoutes(app)
-  registerMetaRoutes(app)
-  registerLeadsQuentesRoutes(app)
 
   // AI Test Routes (teste de IA sem efeitos colaterais)
   const deps = {

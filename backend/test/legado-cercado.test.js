@@ -27,7 +27,7 @@ const RAIZ = path.join(__dirname, '..')
 const { rotas: ROTAS } = require('./fixtures/rotas-publicas.json')
 
 // Estado congelado em 2026-09-21. Só desce.
-const TETO_ROTAS_LEGADAS = 98        // 97 em /dashboard/* + 1 em /api/operador/*
+const TETO_ROTAS_LEGADAS = 96        // 95 em /dashboard/* + 1 em /api/operador/*
 const TETO_PAGINAS_LEGADAS = 0      // HTMLs na raiz de backend/public/
 
 // Os unicos modulos autorizados a falar com a autenticacao legada. A lista e' fechada: um
@@ -36,8 +36,6 @@ const CONSUMIDORES_DASHBOARD_AUTH = [
   'index.js',
   'src/agent.js',
   'src/ai-routes.js',
-  'src/leads-quentes.js',
-  'src/meta-routes.js',
   'src/prospecting.js',
   'src/whatsapp-routes.js',
 ]

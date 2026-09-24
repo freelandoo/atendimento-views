@@ -10,9 +10,6 @@
 //   3) maior score;
 //   4) mais recente.
 
-const { dashboardAutorizado } = require('./dashboardAuth')
-const { pool } = require('./db')
-const { logger } = require('./logger')
 const { QUALIFIED_LEAD_MIN } = require('./services/meta-attribution')
 
 async function listarLeadsQuentesParaTrabalhar(poolRef, { limite = 150, diasAtivo = 45, empresaId = null } = {}) {
@@ -70,20 +67,4 @@ async function listarLeadsQuentesParaTrabalhar(poolRef, { limite = 150, diasAtiv
   }))
 }
 
-function registerLeadsQuentesRoutes(app) {
-  app.get('/dashboard/leads-quentes', async (req, res) => {
-    if (!dashboardAutorizado(req)) return res.status(401).json({ ok: false, erro: 'Nao autorizado' })
-    try {
-      const leads = await listarLeadsQuentesParaTrabalhar(pool, {
-        limite: req.query?.limite,
-        diasAtivo: req.query?.dias,
-      })
-      res.json({ ok: true, total: leads.length, leads })
-    } catch (err) {
-      logger.error('GET /dashboard/leads-quentes:', err.message)
-      res.status(500).json({ ok: false, erro: 'Falha ao carregar a carteira quente' })
-    }
-  })
-}
-
-module.exports = { listarLeadsQuentesParaTrabalhar, registerLeadsQuentesRoutes }
+module.exports = { listarLeadsQuentesParaTrabalhar }
