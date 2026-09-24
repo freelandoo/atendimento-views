@@ -26,6 +26,7 @@ test('o registro lista exatamente os workers que o processo roda', () => {
     'captacao-social',
     'lead-lock',
     'banco-leads-auto',
+    'lead-search',
     'freelandoo-playbook-refresh',
   ])
 })
@@ -122,6 +123,7 @@ test('index.js inicia workers SO pelo registro', () => {
     'iniciarCaptureWorker',
     'iniciarLeadLockWorker',
     'iniciarBancoLeadsAutoWorker',
+    'iniciarLeadSearchWorker',
     'iniciarRefreshDiarioDePlaybooks',
   ]) {
     assert.ok(!semComentarios.includes(proibido),

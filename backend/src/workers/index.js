@@ -55,6 +55,12 @@ const WORKERS = Object.freeze([
     iniciar: ({ pool }) => require('../services/banco-leads-auto').iniciarBancoLeadsAutoWorker(pool),
   },
   {
+    nome: 'lead-search',
+    essencial: false,
+    descricao: 'Processa jobs assincronos da API de busca de leads.',
+    iniciar: ({ pool }) => require('../services/lead-search-worker').iniciarLeadSearchWorker(pool),
+  },
+  {
     nome: 'freelandoo-playbook-refresh',
     essencial: false,
     // Primeiro tick 10 min apos a largada, depois a cada 24h — por isso sair da secao de rotas

@@ -160,6 +160,11 @@ async function snapshotParaPlacesComResumo(snapshotId, limite = MAX_LEADS_POR_BU
   }
 }
 
+async function snapshotRegistrosMaps(snapshotId) {
+  const registros = await snapshot(snapshotId, { format: 'json' })
+  return Array.isArray(registros) ? registros : []
+}
+
 async function snapshotParaPlaces(snapshotId, limite = MAX_LEADS_POR_BUSCA) {
   const { places } = await snapshotParaPlacesComResumo(snapshotId, limite)
   return places
@@ -175,5 +180,6 @@ module.exports = {
   adaptarRegistroParaPlace,
   adaptarRegistrosParaPlaces,
   snapshotParaPlacesComResumo,
+  snapshotRegistrosMaps,
   snapshotParaPlaces,
 }

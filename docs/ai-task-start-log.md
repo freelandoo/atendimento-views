@@ -6,6 +6,59 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-24 — API de busca de leads: códigos externos e rotas públicas
+
+- **Pedido do operador:** continuar a implementação depois da Fase 1 da API de busca/provisionamento
+  de leads.
+- **Escopo aplicado:** adicionar a camada de acesso externo por código/API key, mantendo a tela
+  interna de Aquisição com autenticação normal do dashboard.
+- **Decisões preservadas:**
+  - criação/listagem/revogação/rotação de códigos fica em rota de plataforma
+    `/api/admin/lead-search/*`, restrita a `superadmin`;
+  - API pública externa fica em `/api/lead-search/*`, sem login de dashboard e protegida por
+    `Authorization: Bearer <codigo>`;
+  - código em claro aparece somente na criação/rotação; banco, listagem e respostas futuras usam
+    apenas hash e hint;
+  - sem cota mensal nesta fase; limite mantido em até 100 leads por job e rate limit técnico por
+    código.
+- **Arquivos principais adicionados:** `backend/src/services/lead-search-keys.js`,
+  `backend/src/db/lead-search-keys.js`, `backend/src/routes/api-admin-lead-search.js`,
+  `backend/src/routes/api-lead-search-public.js`, `backend/test/lead-search-keys.test.js`.
+- **Schema:** a migration ainda não entregue `100_lead_search_jobs.sql` foi expandida para incluir
+  `app.lead_search_api_keys`, `api_key_id` em jobs e FK em `lead_search_usage_events`.
+- **Validação parcial no momento do registro:** testes de lead-search e keys, carregamento dos
+  módulos de rota e contrato de rotas HTTP passaram.
+
+## 2026-09-23 — Especificacao da API de provisao de dados cruzados
+
+- **Pedido do operador (voz):** documentar como deve funcionar uma API de provisao de dados do
+  Atendimento Views que tenha quatro entradas principais — Google Maps, Instagram, Facebook Page
+  e Meta Ads — mas cujo diferencial seja fazer essas informacoes conversarem entre si. Exemplo
+  citado: se o Maps ja trouxe Instagram declarado, o sistema pode puxar e enriquecer esse perfil;
+  se o Instagram foi encontrado por busca e nao estava no perfil do Google Maps, deve virar
+  candidato e exigir confirmacao humana antes de ser tratado como Instagram do negocio.
+- **Entendimento:** nesta rodada o entregavel e documentacao/especificacao tecnica, nao codigo. A
+  especificacao deve definir o dossie canonico, estados como confirmado/candidato/conflito/falha
+  de fornecedor, regras de cruzamento entre fontes e o papel da confirmacao humana.
+- **Areas impactadas pelo desenho futuro:** `src/routes/` (rotas novas da geracao atual),
+  `src/services/` (motor puro de cruzamento e conectores), `src/db/` (jobs/dossies se aprovado),
+  `prospectador.prospects`/Banco de Leads na fase de aplicacao, Bright Data, Apify, orcamento e
+  ledgers de consumo.
+- **Escopo desta rodada:** criar documento em `docs/` e registrar a Fase 0. Sem rotas, sem
+  migrations, sem services, sem chamada paga Bright Data/Apify e sem alteracao visual.
+- **Risco principal a proteger:** falha de fornecedor nao pode virar "nao encontrado"; candidato
+  fraco nao pode virar dado confirmado; decisao humana nao pode ser sobrescrita por coleta
+  automatica; a API publica nao deve ficar presa ao payload bruto dos fornecedores.
+- **Ajuste de escopo feito durante a conversa:** a API nao deve virar motor de score/ICP nem decidir
+  comercialmente se duas fontes pertencem ao mesmo negocio quando isso depender de interpretacao.
+  Ela pode, porem, sinalizar confiabilidade objetiva de dados quando houver batida clara de
+  telefone, site, identificador externo ou declaracao explicita. Categoria, nicho, cidade e nome
+  parecido ficam como dados de contexto para o aplicativo, nao como confirmacao suficiente.
+- **Ajuste de produto:** as APIs publicas de provisao sao para volume, nunca para investigar uma
+  pessoa/negocio unico como caso principal. O uso principal e buscar lotes por nicho, mercado,
+  cidade, termo, pais ou sementes; consultas um-a-um entram apenas como etapa interna de
+  enriquecimento/verificacao dos itens do lote.
+
 ## 2026-09-22 (2) — Canal da Meta: destino inútil, duplicação e evidências
 
 - **Pedido do operador (uso real da aba Meta):** (1) "abrir destino do anúncio" às vezes não leva
@@ -5351,6 +5404,53 @@ fora dele), regra pura no backend e tradução no front. Não cria, move nem con
 **Validação prevista:** `node --test test/lead-proxima-acao.test.js` (backend),
 `npx tsc --noEmit` + `node --test lib/lead-proxima-acao.test.js` (frontend), `git diff --check`.
 
+## 2026-09-23 — API de busca de leads: acesso por codigo e auditoria
+
+- **Pedido do operador (voz):** a API deve servir para busca de leads em volume e, antes de virar
+  produto pago, precisa funcionar com seguranca: codigo gerado no Atendimento Views, validade por
+  usuario/empresa, bloqueio de chamadas sem codigo e auditoria de uso sempre que alguem puxar
+  leads.
+- **Decisao de escopo:** compra, checkout e cobranca ficam fora da V1. O equivalente inicial de
+  "comprou, usou" sera administrado manualmente por codigo/API key com expiracao, escopos,
+  quotas e revogacao.
+- **Regra de seguranca:** chamadas externas da API publica devem validar codigo, status,
+  expiracao, escopo, quota e rate limit antes de criar job ou chamar Bright Data/Apify.
+- **Regra de armazenamento:** codigo em claro aparece uma unica vez na criacao; depois so hash e
+  hint. Nenhum log, auditoria ou resposta deve gravar o codigo em claro.
+- **Regra de auditoria:** toda tentativa deve gerar trilha auditavel, inclusive chave ausente,
+  expirada, revogada, sem escopo, quota excedida, erro de fornecedor e job concluido.
+- **Tela futura:** `Integracoes -> API`, com criar codigo, validade, escopos, limite de uso,
+  status, hint, ultima utilizacao, consumo, revogar e rotacionar.
+- **Verificacao de acesso existente:** o projeto ja usa matriz por empresa em
+  `services/acesso-capacidades.js`; `owner` e `admin` recebem todas as capacidades da empresa, e a
+  area de Integracoes e protegida por `integracoes_gerenciar` no menu e no mount da integracao
+  Meta. **Ajuste do operador:** a linha/API de geracao de codigos NAO deve seguir esse gate de
+  empresa; deve ser exclusiva do `superadmin` da plataforma. Portanto, os endpoints de gestao de
+  chaves devem ficar em rota administrativa de plataforma, por exemplo `/api/admin/lead-search/*`,
+  e exigir papel global `superadmin`.
+- **Ajuste sobre Aquisicao:** a tela interna de Aquisicao tambem deve poder consumir o mesmo motor
+  de busca de leads, mas sem usar codigo/API key externo. Ela entra por login do dashboard,
+  empresa atual e capacidade de aquisicao; a API devolve todos os dados/procedencias/estados, e a
+  logica do aplicativo decide tratamento, revisao humana e aplicacao no Banco de Leads.
+- **Ajuste de contrato de payload:** o formato recomendado passa a ser em camadas: envelope do job
+  (`job`, `request`, `usage`), lista de `dossiers`, bloco `canonical` estavel, bloco `source_data`
+  rico por fonte e `raw_refs` para payload bruto interno. O cliente externo recebe dado rico e
+  estavel; o bruto completo do fornecedor fica interno por padrao, para auditoria/reprocessamento.
+- **Decisao de job:** toda busca deve ser assincrona por padrao. A chamada inicial valida acesso,
+  cria `lead_search_job` e devolve `job_id`; workers processam fontes em segundo plano; status do
+  job fica separado do estado operacional de cada fonte. Estado parcial e valido: por exemplo,
+  Maps/Instagram podem concluir enquanto Meta Ads falha como `provider_failed`.
+- **Decisao de limites/quotas V1:** maximo de 100 leads por busca; sem limite especifico por fonte
+  por enquanto; sem cota mensal por codigo/API key externa nesta fase; `rate_limit` apenas como
+  protecao contra rajada tecnica, sugerido em ate 10 criacoes de job por minuto por codigo externo.
+  A Aquisicao interna tambem respeita 100 leads por busca.
+- **Decisao sobre bruto e logica:** payload bruto completo dos fornecedores deve ser armazenado no
+  banco do Atendimento Views, ligado ao job/fonte/item, para auditoria, debug, reprocessamento e
+  evolucao sem recoleta. A API nao vira motor de qualificacao: ela busca, normaliza e preserva
+  evidencia; o codigo do aplicativo qualifica, valida, prioriza, decide revisao humana e aplicacao
+  no Banco de Leads.
+- **Documento atualizado:** `docs/especificacao-api-provisao-dados.md`.
+
 ## 2026-09-23 — Ficha do lead: status "Proposta enviada", auditável
 
 **Pedido:** na ficha do lead, marcar que a proposta foi enviada, deixando registro auditável.
@@ -5434,3 +5534,48 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **2a rodada (mesmo dia):** cadastro na tela passa a ser SO por convite; "Gerar link" abre um
   painel lateral com nome, papel, equipe e liberacoes alem do papel; o convite carrega
   `permissoes` (migration 098). Formulario direto removido da tela; `POST /membros` fica na API.
+
+## 2026-09-23 — Fila do LEGACY_REVIEW zerada (registro POSTERIOR)
+
+- **Registro posterior, e isso é uma falha de processo declarada:** a Fase 0 manda registrar o
+  INÍCIO da tarefa aqui, e eu comecei sem registrar. Fica anotado como aconteceu.
+- **Pedido do operador:** "pode começar a resolver tranquilo", depois de eu explicar as pendências
+  abertas em `LEGACY_REVIEW.md`.
+- **O que foi feito, em dois commits:**
+  1. `e1b0fea` — migration `099` (remove o `DEFAULT '<PJ>'` de `empresa_id` nas 3 tabelas da
+     `012` que a `078` não alcançou) + `sql/migracao_analise_estruturada.sql` movido para
+     `sql/historico/` + README perdendo a contagem fixa de migrations.
+  2. `7560540` — remoção dos 4 dormentes decididos pelo operador (whisper-service,
+     project-handoff-* + dependência `docx`, ramo do Playwright, ai-structured-analysis + 3
+     scripts históricos).
+- **Análise de impacto que mudou o plano em dois pontos:**
+  - A varredura obrigatória da `099` mostrou que os 7 INSERTs nomeiam `empresa_id`, ou seja, o
+    DEFAULT **já era código morto** — a migration não muda nenhum INSERT de hoje.
+  - O campo `project_handoff` é parte VIVA do contrato com a LLM (`agent.js`, `core-funnel.js`,
+    `public-message-guard.js`). Só os construtores saíram; os 3 arquivos de produção não foram
+    tocados.
+- **Validação:** typecheck limpo, 3.152 testes (exit 0) e smoke ok, medidos em worktree isolada
+  do próprio commit, com `npm ci` limpo — obrigatório porque o diff remove uma dependência.
+- **Fora de escopo, e continua pendente:** a remoção do dashboard legado. Ver o bloqueio
+  descoberto em 2026-09-23: `dashboardAuth.js` é quem cria e semeia `vendas.dashboard_users`, e
+  `agenda.js` + `services/agenda-espelho.js` dependem de haver linha ativa ali.
+
+## 2026-09-24 — API de busca de leads e codigos externos
+
+- **Pedido:** transformar a especificacao de API de provisionamento/provisao em uma primeira
+  implementacao funcional de busca de leads em volume, com jobs assincronos, bruto persistido no
+  Atendimento Views, limite de 100 leads por busca e separacao clara entre motor de dados (API) e
+  motor de qualificacao (aplicativo).
+- **Backend implementado:** migration `100_lead_search_jobs.sql`; servicos e DB de
+  `lead-search`; worker assincrono; rota interna por empresa; API externa por `Authorization:
+  Bearer`; chaves com hash, hint, validade, revogacao, rotacao, escopos fechados e rate limit
+  tecnico; rota admin exclusiva de superadmin em `/api/admin/lead-search`.
+- **Frontend implementado:** secao "API de busca de leads" dentro de Integracoes, visivel so
+  para superadmin, com criacao de codigo por empresa, exibicao do segredo uma unica vez, copiar,
+  listagem, revogacao e rotacao. A tela de Aquisicao continua fora desta etapa e consumira o
+  motor internamente depois.
+- **Cuidados mantidos:** API nao qualifica lead, nao decide sinais comerciais e nao grava
+  diretamente no Banco de Leads; dados brutos ficam em tabelas proprias para auditoria/reuso.
+- **Validacao local:** backend `node --test test/lead-search.test.js test/lead-search-keys.test.js
+  test/rotas-contrato.test.js`, backend `npm run typecheck`, frontend `node --test lib/*.test.js`,
+  frontend `npx tsc --noEmit`, e `git diff --check` sem erro.

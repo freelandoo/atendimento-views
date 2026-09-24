@@ -93,10 +93,13 @@ app.use('/api/operador', dashboardAuth.requireDashboardAuth)
 
 // Rotas JWT SaaS multiempresa (Bearer token — consumidas pelo frontend Next.js)
 app.use('/api/auth', apiAuthRouter)
+// API publica de busca de leads: protegida por codigo/API key, sem login de dashboard.
+app.use('/api/lead-search', require('./src/routes/api-lead-search-public'))
 // Link de cadastro (migration 096) — PÚBLICO, sem login: quem protege é o token de uso único e
 // 24h, mais o limite por IP. O papel e a equipe vêm do convite, nunca do corpo. Gerar e revogar
 // convites vive em /api/empresas/:empresaId/membros/convites (MEMBROS_GERENCIAR).
 app.use('/api/convites', require('./src/routes/api-convites'))
+app.use('/api/admin/lead-search', require('./src/routes/api-admin-lead-search'))
 app.use('/api/admin', require('./src/routes/api-admin-usuarios').router)
 app.use('/api/empresas', require('./src/routes/api-empresas'))
 // Contas da empresa (CRM em equipe, Etapa 2). A autorização vive DENTRO do router
@@ -143,6 +146,7 @@ app.use('/api/empresas/:empresaId/prospeccao/curadoria', requireAuth, requireEmp
 // Sugestões de ROTINA (assistente por mercado): sem UI desde a curadoria por lead, mas
 // a rota segue montada — as sugestões já decididas continuam consultáveis.
 app.use('/api/empresas/:empresaId/prospeccao/oportunidades', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.AQUISICAO_GERENCIAR), require('./src/routes/api-aquisicao-oportunidades'))
+app.use('/api/empresas/:empresaId/lead-search', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.AQUISICAO_GERENCIAR), require('./src/routes/api-lead-search'))
 app.use('/api/empresas/:empresaId/prospeccao', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.AQUISICAO_GERENCIAR, CAP.LEAD_TRIAR), require('./src/routes/api-prospeccao'))
 app.use('/api/empresas/:empresaId/captacao', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.AQUISICAO_GERENCIAR), require('./src/routes/api-captacao'))
 app.use('/api/empresas/:empresaId/banco-leads', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_VER_APROVADOS), require('./src/routes/api-banco-leads'))

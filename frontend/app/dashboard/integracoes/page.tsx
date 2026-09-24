@@ -3,6 +3,8 @@ import { useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useSession, podePapel } from '@/lib/useSession'
+import LeadSearchApiKeys from '@/components/LeadSearchApiKeys'
+import Card from '@/components/ui/Card'
 
 // Configurações › Integrações — PONTO DE ENTRADA.
 //
@@ -45,20 +47,21 @@ const PROXIMAS: { nome: string; descricao: string; icone: Integracao['icone'] }[
 export default function IntegracoesPage() {
   const router = useRouter()
   const { role, loading } = useSession()
+  const superadmin = podePapel(role, 'superadmin')
 
   useEffect(() => {
     if (!loading && !podePapel(role, 'admin')) router.replace('/dashboard')
   }, [loading, role, router])
 
   if (loading || !podePapel(role, 'admin')) {
-    return <p className="text-sm text-slate-500">Carregando…</p>
+    return <p className="text-sm text-ink-3">Carregando...</p>
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Integrações</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-2xl font-bold text-ink">Integrações</h1>
+        <p className="mt-1 text-sm text-ink-3">
           Conecte o Atendimento Views às plataformas que você já usa. Cada integração é
           configurada por empresa e vale só para ela.
         </p>
@@ -66,23 +69,23 @@ export default function IntegracoesPage() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         {INTEGRACOES.map((it) => (
-          <article key={it.id} className="rounded-xl border bg-white p-5 shadow-sm">
+          <article key={it.id} className="rounded-lg border border-line bg-surface p-5 shadow-card">
             <div className="flex items-start gap-3">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-600">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-surface-3 text-ink-2">
                 <Icone nome={it.icone} />
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="font-semibold text-slate-900">{it.nome}</h2>
+                  <h2 className="font-semibold text-ink">{it.nome}</h2>
                   <Selo estado={it.estado} />
                 </div>
-                <p className="mt-1.5 text-sm text-slate-600">{it.descricao}</p>
+                <p className="mt-1.5 text-sm text-ink-2">{it.descricao}</p>
               </div>
             </div>
             {it.href ? (
               <Link
                 href={it.href}
-                className="mt-4 block rounded-lg bg-slate-900 px-4 py-2 text-center text-sm font-medium text-white hover:bg-slate-800"
+                className="mt-4 block rounded-lg bg-brand px-4 py-2 text-center text-sm font-medium text-white hover:bg-brand-dark"
               >
                 Configurar
               </Link>
@@ -91,7 +94,7 @@ export default function IntegracoesPage() {
                 type="button"
                 disabled
                 title="Disponível em breve"
-                className="mt-4 w-full cursor-not-allowed rounded-lg border bg-slate-50 px-4 py-2 text-sm font-medium text-slate-400"
+                className="mt-4 w-full cursor-not-allowed rounded-lg border border-line bg-surface-2 px-4 py-2 text-sm font-medium text-ink-3"
               >
                 Configurar
               </button>
@@ -100,34 +103,43 @@ export default function IntegracoesPage() {
         ))}
       </div>
 
-      <section className="rounded-xl border border-dashed bg-white/60 p-5">
-        <h2 className="text-sm font-semibold text-slate-700">Próximas integrações</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Elas entram aqui como novos cards — sem crescer o menu principal.
-        </p>
+      {superadmin && (
+        <section className="space-y-3" aria-label="API de busca de leads">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">API de busca de leads</h2>
+            <p className="mt-1 max-w-3xl text-sm text-ink-3">
+              Área de plataforma. Só superadmin cria, revoga e rotaciona códigos externos.
+              A tela de Aquisição consome o motor internamente sem precisar destes códigos.
+            </p>
+          </div>
+          <LeadSearchApiKeys />
+        </section>
+      )}
+
+      <Card titulo="Próximas integrações" descricao="Elas entram aqui como novos cards, sem crescer o menu principal.">
         <ul className="mt-4 grid gap-3 sm:grid-cols-2">
           {PROXIMAS.map((p) => (
-            <li key={p.nome} className="flex items-center gap-3 rounded-lg border bg-white px-3 py-2.5">
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-50 text-slate-400">
+            <li key={p.nome} className="flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2.5">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-surface-2 text-ink-3">
                 <Icone nome={p.icone} />
               </span>
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-slate-700">{p.nome}</p>
-                <p className="truncate text-xs text-slate-500">{p.descricao}</p>
+                <p className="truncate text-sm font-medium text-ink-2">{p.nome}</p>
+                <p className="truncate text-xs text-ink-3">{p.descricao}</p>
               </div>
             </li>
           ))}
         </ul>
-      </section>
+      </Card>
     </div>
   )
 }
 
 function Selo({ estado }: { estado: Estado }) {
   if (estado === 'disponivel') {
-    return <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Disponível</span>
+    return <span className="rounded-full bg-estado-ok/10 px-2 py-0.5 text-[11px] font-semibold text-estado-ok">Disponível</span>
   }
-  return <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Em breve</span>
+  return <span className="rounded-full bg-estado-warn/10 px-2 py-0.5 text-[11px] font-semibold text-estado-warn">Em breve</span>
 }
 
 function Icone({ nome }: { nome: Integracao['icone'] }) {
