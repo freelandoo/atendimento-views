@@ -3,7 +3,7 @@ const { test } = require('node:test')
 const assert = require('node:assert')
 const {
   dentroDaJanela, sortearIntervaloMinutos, executarBancoLeadsWorkerTick,
-  verificarBancoLeadsSemi, _autoEmpresa, _semiEmpresa,
+  verificarBancoLeadsSemi, _autoEmpresa, _semiEmpresa, ordenarPoolAutomatico, escolherInstanciaAutomatico,
 } = require('../src/services/banco-leads-auto')
 
 function makePool(handlers) {
@@ -77,6 +77,48 @@ test('_autoEmpresa: sem lead elegível não dispara', async () => {
   assert.equal(r.motivo, 'sem_lead')
 })
 
+test('ordenarPoolAutomatico prioriza instância mais descansada e disponível', () => {
+  const base = new Date('2026-01-01T12:00:00.000Z')
+  const pool = ordenarPoolAutomatico([
+    { id: 'i-recente', evolution_instance: 'inst-recente', disparos_hoje: 1, ultimo_disparo_em: new Date(base.getTime() - 5 * 60_000).toISOString() },
+    { id: 'i-antiga', evolution_instance: 'inst-antiga', disparos_hoje: 1, ultimo_disparo_em: new Date(base.getTime() - 60 * 60_000).toISOString() },
+    { id: 'i-sem-historico', evolution_instance: 'inst-nova', disparos_hoje: 0, ultimo_disparo_em: null },
+  ], base, 40)
+
+  assert.deepStrictEqual(pool.map((i) => i.id), ['i-sem-historico', 'i-antiga', 'i-recente'])
+  assert.equal(pool[2].cooldown_restante_s > 0, true)
+})
+
+test('escolherInstanciaAutomatico pula cooldown e teto diario por instancia', async () => {
+  const pool = {}
+  const escolhida = await escolherInstanciaAutomatico(pool, 'e1', now, { teto_diario: 2 }, {
+    listarPoolAutomaticoFn: async () => ordenarPoolAutomatico([
+      { id: 'i-teto', evolution_instance: 'inst-teto', disparos_hoje: 2, ultimo_disparo_em: null },
+      { id: 'i-cooldown', evolution_instance: 'inst-cooldown', disparos_hoje: 0, ultimo_disparo_em: new Date(now.getTime() - 5 * 60_000).toISOString() },
+      { id: 'i-livre', evolution_instance: 'inst-livre', disparos_hoje: 0, ultimo_disparo_em: new Date(now.getTime() - 60 * 60_000).toISOString() },
+    ], now, 2),
+  })
+
+  assert.equal(escolhida.motivo, 'ok')
+  assert.equal(escolhida.instancia.id, 'i-livre')
+  assert.equal(escolhida.total, 3)
+  assert.equal(escolhida.disponiveis, 1)
+})
+
+test('escolherInstanciaAutomatico reporta quando o pool inteiro esta em cooldown', async () => {
+  const r = await escolherInstanciaAutomatico({}, 'e1', now, { teto_diario: 40 }, {
+    listarPoolAutomaticoFn: async () => ordenarPoolAutomatico([
+      { id: 'i1', evolution_instance: 'inst-1', disparos_hoje: 1, ultimo_disparo_em: new Date(now.getTime() - 5 * 60_000).toISOString() },
+      { id: 'i2', evolution_instance: 'inst-2', disparos_hoje: 1, ultimo_disparo_em: new Date(now.getTime() - 10 * 60_000).toISOString() },
+    ], now, 40),
+  })
+
+  assert.equal(r.motivo, 'aguardando_cooldown_pool')
+  assert.equal(r.instancia, null)
+  assert.equal(r.total, 2)
+  assert.ok(r.menor_cooldown_s > 0)
+})
+
 test('_autoEmpresa: dispara 1 lead e agenda o próximo', async () => {
   let agendouProximo = false
   const pool = makePool([
@@ -101,6 +143,7 @@ test('_autoEmpresa: dispara 1 lead e agenda o próximo', async () => {
   assert.equal(r.lead_id, 'p1')
   assert.deepStrictEqual(chamou.prospectIds, ['p1'])
   assert.equal(chamou.instanciaId, 'i1')
+  assert.equal(r.instancias_pool, 1)
   assert.ok(agendouProximo)
 })
 
@@ -162,11 +205,10 @@ test('_autoEmpresa: avança quando o primeiro candidato falha na elegibilidade',
 test('_autoEmpresa: teto diário atingido não dispara', async () => {
   const pool = makePool([
     ['FROM app.banco_leads_config', () => ({ rows: [{ ...autoCfg, teto_diario: 5 }] })],
-    ['FROM app.empresa_whatsapp_instances', () => ({ rows: [{ id: 'i1', evolution_instance: 'inst' }] })],
-    ['FROM prospectador.lead_disparos', () => ({ rows: [{ hoje: 5 }] })],
+    ['FROM app.empresa_whatsapp_instances', () => ({ rows: [{ id: 'i1', evolution_instance: 'inst', disparos_hoje: 5, ultimo_disparo_em: null }] })],
   ])
   const r = await _autoEmpresa(pool, 'e1', now, {})
-  assert.equal(r.motivo, 'teto_diario')
+  assert.equal(r.motivo, 'teto_diario_pool')
 })
 
 test('_semiEmpresa: gera pendentes usando a instância configurada', async () => {

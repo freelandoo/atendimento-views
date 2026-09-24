@@ -11,6 +11,7 @@ const { logger } = require('../logger')
 const { obterConfigBancoLeads } = require('../db/banco-leads-config')
 const {
   rodarLeads, gerarPendentesSemi, reconciliarConfirmacoesPendentes, STATUS_RODAVEL, MAX_LOTE,
+  COOLDOWN_MIN,
 } = require('./rodar-leads')
 // A PORTA da operacao comercial (Etapa 3.4). Este worker e' o UNICO caminho do produto que
 // aborda um lead SEM humano nenhum no circuito — e era ele que aceitava `aguardando`. Medido em
@@ -127,6 +128,89 @@ async function instanciaConfiguradaOuRecente(pool, empresaId, instanciaId) {
     [empresaId]
   )
   return rows[0] || null
+}
+
+function cooldownRestanteInstancia(row, now) {
+  const ultimo = row?.ultimo_disparo_em ? new Date(row.ultimo_disparo_em) : null
+  if (!ultimo || Number.isNaN(ultimo.getTime()) || COOLDOWN_MIN <= 0) return 0
+  const faltaMs = COOLDOWN_MIN * 60_000 - (now.getTime() - ultimo.getTime())
+  return faltaMs > 0 ? Math.ceil(faltaMs / 1000) : 0
+}
+
+function ordenarPoolAutomatico(instancias, now, tetoDiario) {
+  const teto = Number(tetoDiario) > 0 ? Number(tetoDiario) : 0
+  return [...(instancias || [])]
+    .map((inst) => ({
+      ...inst,
+      disparos_hoje: Number(inst.disparos_hoje || 0),
+      cooldown_restante_s: cooldownRestanteInstancia(inst, now),
+    }))
+    .sort((a, b) => {
+      const aTeto = teto > 0 && a.disparos_hoje >= teto
+      const bTeto = teto > 0 && b.disparos_hoje >= teto
+      if (aTeto !== bTeto) return aTeto ? 1 : -1
+      if (a.cooldown_restante_s !== b.cooldown_restante_s) return a.cooldown_restante_s - b.cooldown_restante_s
+      const aUlt = a.ultimo_disparo_em ? new Date(a.ultimo_disparo_em).getTime() : 0
+      const bUlt = b.ultimo_disparo_em ? new Date(b.ultimo_disparo_em).getTime() : 0
+      if (aUlt !== bUlt) return aUlt - bUlt
+      return String(a.evolution_instance || '').localeCompare(String(b.evolution_instance || ''))
+    })
+}
+
+async function listarPoolAutomatico(pool, empresaId, now, cfg = {}) {
+  const { rows } = await pool.query(
+    `SELECT i.id, i.evolution_instance, i.nome,
+            COUNT(d.id) FILTER (
+              WHERE d.criado_em::date = NOW()::date
+                AND d.status IN ('enviando', 'pendente_confirmacao', 'enviado')
+            )::int AS disparos_hoje,
+            MAX(d.criado_em) FILTER (
+              WHERE d.status IN ('enviando', 'pendente_confirmacao', 'enviado')
+            ) AS ultimo_disparo_em
+       FROM app.empresa_whatsapp_instances i
+       LEFT JOIN prospectador.lead_disparos d
+         ON d.empresa_id = i.empresa_id
+        AND d.evolution_instance = i.evolution_instance
+      WHERE i.empresa_id = $1
+        AND i.ativo = true
+        AND COALESCE(i.config_json->>'canal', 'whatsapp') <> 'freelandoo'
+        AND NULLIF(BTRIM(COALESCE(i.config_json->>'saudacao', '')), '') IS NOT NULL
+      GROUP BY i.id, i.evolution_instance, i.nome
+      ORDER BY i.atualizado_em DESC, i.criado_em DESC`,
+    [empresaId]
+  )
+  return ordenarPoolAutomatico(rows, now, cfg.teto_diario)
+}
+
+async function escolherInstanciaAutomatico(pool, empresaId, now, cfg = {}, deps = {}) {
+  const listar = deps.listarPoolAutomaticoFn || listarPoolAutomatico
+  const poolInstancias = await listar(pool, empresaId, now, cfg)
+  if (!poolInstancias.length) {
+    return { instancia: null, motivo: 'sem_instancia_pronta', total: 0, disponiveis: 0, menor_cooldown_s: null }
+  }
+  const teto = Number(cfg.teto_diario) > 0 ? Number(cfg.teto_diario) : 0
+  const semTeto = poolInstancias.filter((inst) => teto <= 0 || inst.disparos_hoje < teto)
+  if (!semTeto.length) {
+    return { instancia: null, motivo: 'teto_diario_pool', total: poolInstancias.length, disponiveis: 0, menor_cooldown_s: null }
+  }
+  const disponiveis = semTeto.filter((inst) => inst.cooldown_restante_s <= 0)
+  if (!disponiveis.length) {
+    const menor = Math.min(...semTeto.map((inst) => inst.cooldown_restante_s).filter((n) => Number.isFinite(n)))
+    return {
+      instancia: null,
+      motivo: 'aguardando_cooldown_pool',
+      total: poolInstancias.length,
+      disponiveis: 0,
+      menor_cooldown_s: Number.isFinite(menor) ? menor : null,
+    }
+  }
+  return {
+    instancia: disponiveis[0],
+    motivo: 'ok',
+    total: poolInstancias.length,
+    disponiveis: disponiveis.length,
+    menor_cooldown_s: 0,
+  }
 }
 
 async function buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps = {}) {
@@ -268,20 +352,17 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
     return { empresa_id: empresaId, motivo: 'aguardando_intervalo' }
   }
 
-  // Instância dos disparos automáticos: a configurada (auto_instancia_id) se ativa,
-  // senão a ativa mais recente da empresa.
-  const instancia = await instanciaConfiguradaOuRecente(pool, empresaId, cfg.auto_instancia_id)
-  if (!instancia) return { empresa_id: empresaId, motivo: 'sem_instancia' }
-
-  // Teto diário por instância (conta os disparos de hoje).
-  const { rows: tetoRows } = await pool.query(
-    `SELECT COUNT(*) FILTER (WHERE criado_em::date = NOW()::date
-              AND status IN ('enviando', 'pendente_confirmacao', 'enviado'))::int AS hoje
-       FROM prospectador.lead_disparos WHERE empresa_id = $1 AND evolution_instance = $2`,
-    [empresaId, instancia.evolution_instance]
-  )
-  if ((cfg.teto_diario || 0) > 0 && (tetoRows[0]?.hoje || 0) >= cfg.teto_diario) {
-    return { empresa_id: empresaId, motivo: 'teto_diario' }
+  // Automático usa POOL da empresa: a cada ciclo escolhe a instância ativa, com saudação,
+  // abaixo do teto e mais descansada. O intervalo global continua limitando 1 lead por ciclo.
+  const escolhaInstancia = await escolherInstanciaAutomatico(pool, empresaId, now, cfg, deps)
+  const instancia = escolhaInstancia.instancia
+  if (!instancia) {
+    return {
+      empresa_id: empresaId,
+      motivo: escolhaInstancia.motivo,
+      instancias_pool: escolhaInstancia.total,
+      cooldown_restante_s: escolhaInstancia.menor_cooldown_s,
+    }
   }
 
   // Próximo lead elegível (rodável, com telefone, não travado, com WhatsApp != false).
@@ -309,7 +390,16 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
         [empresaId, proximo]
       )
       logger.info({ operation: 'banco_leads_auto', empresa_id: empresaId, lead_id: lead.id, proximo_em_min: proxMin }, '[banco-leads-auto] lead disparado')
-      return { empresa_id: empresaId, motivo: 'disparado', lead_id: lead.id, proximo_em_min: proxMin }
+      return {
+        empresa_id: empresaId,
+        motivo: 'disparado',
+        lead_id: lead.id,
+        instancia_id: instancia.id,
+        evolution_instance: instancia.evolution_instance,
+        instancias_pool: escolhaInstancia.total,
+        instancias_disponiveis: escolhaInstancia.disponiveis,
+        proximo_em_min: proxMin,
+      }
     }
     return { empresa_id: empresaId, motivo: 'nao_aceito' }
   } catch (e) {
@@ -429,6 +519,10 @@ module.exports = {
   liberarLiderancaWorker,
   _autoEmpresa,
   _semiEmpresa,
+  listarPoolAutomatico,
+  escolherInstanciaAutomatico,
+  ordenarPoolAutomatico,
+  cooldownRestanteInstancia,
   dentroDaJanela,
   sortearIntervaloMinutos,
   minutosDoDia,

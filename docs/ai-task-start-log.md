@@ -5701,3 +5701,17 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Cuidados:** pais e filtro de carteira, nao permissao nova; preservar o recorte por equipe,
   porta de aprovados e responsavel no backend; exibir o pais na lista para nao misturar Brasil
   com carteira internacional.
+
+## 2026-09-24 — Pool de instancias no automatico do Banco de Leads
+
+- **Pedido:** planejar e deixar funcionando uma fila de envio automatico distribuida por varias
+  instancias WhatsApp da mesma empresa, priorizando o perfil de dono nesta primeira entrega.
+- **Entendimento:** o sistema deve manter as conversas centralizadas, mas o automatico deve usar
+  um pool de numeros para aumentar o descanso real de cada instancia. O intervalo continua
+  operacional e auditavel; nao e um mecanismo para disparo ilimitado.
+- **Areas previstas:** `backend/src/services/banco-leads-auto.js`,
+  `backend/src/services/rodar-leads.js`, `backend/test/banco-leads-auto.test.js` e
+  `frontend/app/dashboard/banco-leads/page.tsx`.
+- **Cuidados:** sem migration nesta V1; reaproveitar `lead_disparos` como fonte de cooldown,
+  teto e auditoria por `evolution_instance`; filtrar instancias ativas com saudacao configurada;
+  nao liberar Automatico para perfil sem capacidade administrativa.

@@ -4581,3 +4581,26 @@ continua guardando o nicho que vai orientar a materializacao e a equipe. O trigg
 
 **Sem migration:** o ajuste usa colunas existentes (`nicho`, `nicho_id`, `decisao_json`) e apenas
 altera contrato de rota/UI para aceitar `termo` em Maps.
+
+## 2026-09-24 — Automatico do Banco de Leads usa pool de instancias da empresa
+
+**Contexto:** a empresa pode operar com varios numeros WhatsApp e precisa que o Automatico do
+Banco de Leads distribua os disparos sem concentrar a carga em uma unica instancia.
+
+**Decisao 1 — sem migration na V1.** O pool usa somente dados existentes: instancias ativas em
+`app.empresa_whatsapp_instances`, saudacao em `config_json`, e auditoria/cooldown/teto em
+`prospectador.lead_disparos.evolution_instance`.
+
+**Decisao 2 — o intervalo continua global, o descanso e por instancia.** A rotina ainda dispara
+no maximo 1 lead por ciclo (`auto_proximo_disparo_em` + janela/intervalo). Em cada ciclo ela
+escolhe a instancia ativa com saudacao configurada, abaixo do teto diario e com menor atividade
+recente. Com mais numeros, o mesmo intervalo global se espalha e aumenta o descanso real de cada
+numero.
+
+**Decisao 3 — perfil comercial nao ganha Automatico.** A primeira entrega fica no perfil com
+`LEAD_DISPARAR_LOTE`/dono. Comerciais continuam no alcance ja existente de instancias proprias
+para Semiautomatico/manual; aviso formal/termo de ciencia e modo analise ficam para etapa futura.
+
+**Limite consciente:** a V1 nao aumenta lote por quantidade de instancias e nao tenta contornar
+politicas de canal. O objetivo e controle operacional, auditoria, opt-out/compliance e reducao de
+concentracao de risco.

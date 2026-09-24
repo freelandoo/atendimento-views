@@ -146,3 +146,13 @@ falha; `registry.js` junta os modulos; `modules/*` lista os workers por area ope
 e rotas continuam com a logica de dominio, carregados de forma lazy dentro de `iniciar`. Worker
 novo deve declarar grupo, descricao, cadencia e risco, e nunca ser iniciado diretamente em
 `backend/index.js`.
+
+### 2026-09-24 - Pool de instancias no Automatico do Banco de Leads
+
+O Automatico do Banco de Leads distribui cada ciclo por um pool de instancias ativas da empresa,
+sem criar fila/tabela nova nesta V1. A fonte de auditoria e throttle continua sendo
+`prospectador.lead_disparos.evolution_instance`; o worker escolhe a instancia com saudacao
+configurada, abaixo do teto diario e com maior descanso. O intervalo/janela seguem globais por
+empresa (`app.banco_leads_config.auto_proximo_disparo_em`), entao a rotina permanece 1 lead por
+ciclo e o descanso por numero cresce conforme o pool aumenta. Automatico continua restrito a quem
+tem capacidade administrativa de disparo em lote.

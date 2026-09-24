@@ -1286,6 +1286,10 @@ export default function BancoLeadsPage() {
   }
 
   const instanciaSel = useMemo(() => instancias.find((i) => i.id === instanciaId) || null, [instancias, instanciaId])
+  const instanciasProntasAuto = useMemo(
+    () => instancias.filter((i) => String(i.config_json?.saudacao || '').trim()).length,
+    [instancias]
+  )
   // Saudação (mensagem-base) ainda não configurada na instância selecionada → destaca o
   // botão "Testar envio" (pisca) e mostra um aviso simples no topo, antes de bloquear no disparo.
   const saudacaoFaltando = !!instanciaSel && !String(instanciaSel.config_json?.saudacao || '').trim()
@@ -1314,6 +1318,14 @@ export default function BancoLeadsPage() {
     : statusConexao?.connected === false
       ? 'text-red-700'
       : 'text-amber-700'
+  const motivoBloqueioAutomatico = !instancias.length
+    ? 'Cadastre uma instância ativa antes de ligar o Automático.'
+    : instanciasProntasAuto <= 0
+      ? 'Configure a saudação em pelo menos uma instância ativa antes de ligar o Automático.'
+      : null
+  const avisoSaudacaoFaltando = config.modo === 'automatico'
+    ? instancias.length > 0 && instanciasProntasAuto <= 0
+    : saudacaoFaltando
   // Personalização (client-side, sobre os leads já carregados; fetch é único, ≤1000).
   const leadsCustom = useMemo(() => leads.filter((l) => passaFiltrosView(l, view)), [leads, view])
   const rodaveis = useMemo(() => leadsCustom.filter(isRodavel), [leadsCustom])
@@ -1466,15 +1478,14 @@ export default function BancoLeadsPage() {
       fb.toast('Rotina automática desligada.')
       return
     }
-    if (!instanciaId) { fb.toast('Escolha uma instância antes de ligar o Automático.', 'error'); return }
-    if (motivoBloqueioConexao) { fb.toast(motivoBloqueioConexao, 'error'); return }
+    if (motivoBloqueioAutomatico) { fb.toast(motivoBloqueioAutomatico, 'error'); return }
     const ok = window.confirm(
       '⚠️ Ligar o modo AUTOMÁTICO fará o sistema DISPARAR mensagens de WhatsApp sozinho — '
-      + 'na janela e no intervalo configurados, usando a instância selecionada.\n\n'
+      + 'na janela e no intervalo configurados, usando o pool de instâncias ativas da empresa.\n\n'
       + 'Confirma ligar a rotina automática?'
     )
     if (!ok) return
-    await salvarAutoConfig({ auto_ativo: true, auto_instancia_id: instanciaId })
+    await salvarAutoConfig({ auto_ativo: true, auto_instancia_id: instanciaId || null })
     fb.toast('Rotina automática ligada. A rotina começa no próximo tick.')
   }
 
@@ -1987,13 +1998,17 @@ export default function BancoLeadsPage() {
   // modulo puro — a tela so desenha (mesmo contrato de `lib/site-rotulos.js`).
   const faixaEnvio = useMemo(() => faixaDeEnvio({
     modoLabel: modoAtual.label,
-    instanciaLabel: instanciaSel ? (instanciaSel.nome || instanciaSel.evolution_instance) : '',
-    conexao: podeEscolherInstancia || instanciaSel ? rotuloConexao : '',
-    motivoBloqueio: motivoBloqueioConexao || '',
-    cooldown: cooldownAtivo ? fmtMMSS(cooldownS as number) : '',
+    instanciaLabel: config.modo === 'automatico'
+      ? `Pool: ${instancias.length} instância${instancias.length === 1 ? '' : 's'}`
+      : (instanciaSel ? (instanciaSel.nome || instanciaSel.evolution_instance) : ''),
+    conexao: config.modo === 'automatico'
+      ? `${instanciasProntasAuto}/${instancias.length} pronta${instanciasProntasAuto === 1 ? '' : 's'}`
+      : (podeEscolherInstancia || instanciaSel ? rotuloConexao : ''),
+    motivoBloqueio: config.modo === 'automatico' ? (motivoBloqueioAutomatico || '') : (motivoBloqueioConexao || ''),
+    cooldown: config.modo === 'automatico' ? '' : (cooldownAtivo ? fmtMMSS(cooldownS as number) : ''),
     automatico: config.modo === 'automatico',
     autoAtivo: !!config.auto_ativo,
-  }), [modoAtual.label, instanciaSel, podeEscolherInstancia, rotuloConexao, motivoBloqueioConexao, cooldownAtivo, cooldownS, config.modo, config.auto_ativo])
+  }), [modoAtual.label, config.modo, config.auto_ativo, instancias.length, instanciasProntasAuto, instanciaSel, podeEscolherInstancia, rotuloConexao, motivoBloqueioAutomatico, motivoBloqueioConexao, cooldownAtivo, cooldownS])
 
   // Quantos recortes de CARTEIRA estao ligados. Origem saiu daqui de proposito: ela agora vive
   // no modal "Colunas", junto dos filtros de visualizacao da lista.
@@ -2192,12 +2207,14 @@ export default function BancoLeadsPage() {
             onAlternar={() => setPainelEnvioAberto((v) => !v)}
             onTestar={() => setSaudacaoOpen(true)}
             podeTestar={!!instanciaId}
-            saudacaoFaltando={saudacaoFaltando}
+            saudacaoFaltando={avisoSaudacaoFaltando}
           />
-          {saudacaoFaltando && (
+          {avisoSaudacaoFaltando && (
             <div className="flex items-center gap-2 rounded-lg border border-estado-danger/30 bg-red-50 px-3 py-2 text-sm text-red-700">
               <IconAlert className="h-4 w-4 shrink-0" />
-              <span>Você precisa configurar a saudação primeiro — clique em <b>Testar envio</b>.</span>
+              <span>{config.modo === 'automatico'
+                ? 'Configure a saudação em pelo menos uma instância ativa antes de ligar o Automático.'
+                : <>Você precisa configurar a saudação primeiro — clique em <b>Testar envio</b>.</>}</span>
             </div>
           )}
           {painelEnvioAberto && (
@@ -2256,21 +2273,28 @@ export default function BancoLeadsPage() {
             <div className="mt-2 rounded-lg border bg-surface-2/60 p-3 space-y-2">
               {/* Status claro + botão Ligar/Desligar (com aviso ao ligar). */}
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className={`inline-flex items-center gap-2 text-sm font-bold ${config.auto_ativo ? (motivoBloqueioConexao ? 'text-red-700' : 'text-emerald-700') : 'text-ink-3'}`}>
-                  <span className={`h-2.5 w-2.5 rounded-full ${config.auto_ativo ? (motivoBloqueioConexao ? 'bg-red-500' : 'bg-emerald-500 animate-pulse') : 'bg-line-strong'}`}></span>
-                  {config.auto_ativo ? (motivoBloqueioConexao ? 'Aguardando conexão' : 'Rodando') : 'Parado'}
+                <span className={`inline-flex items-center gap-2 text-sm font-bold ${config.auto_ativo ? (motivoBloqueioAutomatico ? 'text-red-700' : 'text-emerald-700') : 'text-ink-3'}`}>
+                  <span className={`h-2.5 w-2.5 rounded-full ${config.auto_ativo ? (motivoBloqueioAutomatico ? 'bg-red-500' : 'bg-emerald-500 animate-pulse') : 'bg-line-strong'}`}></span>
+                  {config.auto_ativo ? (motivoBloqueioAutomatico ? 'Aguardando instância pronta' : 'Rodando no pool') : 'Parado'}
+                </span>
+                <span className="text-xs text-ink-3">
+                  {instanciasProntasAuto}/{instancias.length} instância{instancias.length === 1 ? '' : 's'} pronta{instanciasProntasAuto === 1 ? '' : 's'}
                 </span>
                 <div className="flex items-center gap-2">
                   {salvandoAuto && <span className="text-xs text-slate-400">salvando...</span>}
                   <button onClick={toggleAutoAtivo}
-                    disabled={salvandoAuto || !instanciaId || (!config.auto_ativo && !!motivoBloqueioConexao)}
-                    title={!config.auto_ativo && motivoBloqueioConexao ? motivoBloqueioConexao : undefined}
+                    disabled={salvandoAuto || (!config.auto_ativo && !!motivoBloqueioAutomatico)}
+                    title={!config.auto_ativo && motivoBloqueioAutomatico ? motivoBloqueioAutomatico : undefined}
                     className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold text-white disabled:opacity-50 ${config.auto_ativo ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
                     {salvandoAuto && <Spinner />}
                     {config.auto_ativo ? '■ Desligar' : '▶ Ligar'}
                   </button>
                 </div>
               </div>
+              <p className="text-xs leading-relaxed text-ink-3">
+                O Automático usa o pool de instâncias ativas com saudação configurada. A cada ciclo,
+                o sistema escolhe o número mais descansado, respeitando cooldown e teto diário por instância.
+              </p>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div>
                   <label className="block text-xs text-ink-3 mb-1">Início</label>
