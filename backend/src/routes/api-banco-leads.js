@@ -1507,13 +1507,13 @@ router.get('/config', requireAuth, requireEmpresaAccess, async (req, res) => {
 
 // PUT /config — atualiza a config do Banco de Leads (upsert parcial: só os campos
 // presentes no body mudam). Aceita: modo, gerar_ia, instrucoes_ia (Manual/Semi) +
-// auto_ativo, janela_inicio, janela_fim, intervalo_min, intervalo_max (Automático).
+// auto_ativo, janela_inicio, janela_fim, intervalo_min, intervalo_max e recorte (Automático).
 router.put('/config', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_DISPARAR_SEMI, CAP.LEAD_DISPARAR_LOTE), async (req, res) => {
   try {
     const b = req.body || {}
     const podeAutomatico = temCapacidadeReq(req, CAP.LEAD_DISPARAR_LOTE)
     if (!podeAutomatico) {
-      const camposAutomaticos = ['auto_ativo', 'janela_inicio', 'janela_fim', 'intervalo_min', 'intervalo_max', 'auto_proximo_disparo_em']
+      const camposAutomaticos = ['auto_ativo', 'janela_inicio', 'janela_fim', 'intervalo_min', 'intervalo_max', 'auto_proximo_disparo_em', 'auto_recorte_modo', 'auto_nicho']
       const tentouAutomatico = b.modo === 'automatico' || camposAutomaticos.some((campo) => b[campo] !== undefined)
       if (tentouAutomatico) {
         return res.status(403).json({
@@ -1524,7 +1524,8 @@ router.put('/config', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.L
     }
     const patch = {}
     for (const campo of ['modo', 'gerar_ia', 'instrucoes_ia', 'auto_ativo', 'auto_instancia_id',
-      'janela_inicio', 'janela_fim', 'intervalo_min', 'intervalo_max', 'auto_proximo_disparo_em']) {
+      'janela_inicio', 'janela_fim', 'intervalo_min', 'intervalo_max', 'auto_proximo_disparo_em',
+      'auto_recorte_modo', 'auto_nicho']) {
       if (b[campo] !== undefined) patch[campo] = b[campo]
     }
     const data = await salvarConfigBancoLeads(pool, req.empresa.id, patch)

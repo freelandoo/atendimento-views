@@ -7,7 +7,8 @@
 const MODOS = new Set(['manual', 'semi_automatico', 'automatico'])
 
 const CAMPOS = `empresa_id, modo, gerar_ia, instrucoes_ia, auto_ativo, auto_instancia_id,
-  janela_inicio, janela_fim, teto_diario, intervalo_min, intervalo_max, auto_proximo_disparo_em`
+  janela_inicio, janela_fim, teto_diario, intervalo_min, intervalo_max, auto_proximo_disparo_em,
+  auto_recorte_modo, auto_nicho`
 
 function defaultConfig(empresaId) {
   return {
@@ -23,6 +24,8 @@ function defaultConfig(empresaId) {
     intervalo_min: 15,
     intervalo_max: 30,
     auto_proximo_disparo_em: null,
+    auto_recorte_modo: 'geral',
+    auto_nicho: null,
   }
 }
 
@@ -81,11 +84,19 @@ async function salvarConfigBancoLeads(pool, empresaId, patch = {}) {
     patch.auto_proximo_disparo_em,
     atual.auto_proximo_disparo_em
   )
+  const autoNichoInformado = patch.auto_nicho === undefined
+    ? atual.auto_nicho
+    : (patch.auto_nicho == null || String(patch.auto_nicho).trim() === '' ? null : String(patch.auto_nicho).trim().slice(0, 180))
+  const autoRecorteModoDesejado = patch.auto_recorte_modo === undefined
+    ? atual.auto_recorte_modo
+    : String(patch.auto_recorte_modo || '').trim()
+  const autoRecorteModo = autoRecorteModoDesejado === 'nicho' && autoNichoInformado ? 'nicho' : 'geral'
+  const autoNicho = autoRecorteModo === 'nicho' ? autoNichoInformado : null
 
   const { rows } = await pool.query(
     `INSERT INTO app.banco_leads_config
-       (empresa_id, modo, gerar_ia, instrucoes_ia, auto_ativo, auto_instancia_id, janela_inicio, janela_fim, teto_diario, intervalo_min, intervalo_max, auto_proximo_disparo_em)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       (empresa_id, modo, gerar_ia, instrucoes_ia, auto_ativo, auto_instancia_id, janela_inicio, janela_fim, teto_diario, intervalo_min, intervalo_max, auto_proximo_disparo_em, auto_recorte_modo, auto_nicho)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      ON CONFLICT (empresa_id) DO UPDATE
        SET modo = EXCLUDED.modo,
            gerar_ia = EXCLUDED.gerar_ia,
@@ -98,9 +109,11 @@ async function salvarConfigBancoLeads(pool, empresaId, patch = {}) {
            intervalo_min = EXCLUDED.intervalo_min,
            intervalo_max = EXCLUDED.intervalo_max,
            auto_proximo_disparo_em = EXCLUDED.auto_proximo_disparo_em,
+           auto_recorte_modo = EXCLUDED.auto_recorte_modo,
+           auto_nicho = EXCLUDED.auto_nicho,
            atualizado_em = NOW()
      RETURNING ${CAMPOS}`,
-    [empresaId, modo, gerarIa, instrucoesIa, autoAtivo, autoInstanciaId, janelaInicio, janelaFim, TETO_FIXO, intervaloMin, intervaloMax, autoProximoDisparoEm]
+    [empresaId, modo, gerarIa, instrucoesIa, autoAtivo, autoInstanciaId, janelaInicio, janelaFim, TETO_FIXO, intervaloMin, intervaloMax, autoProximoDisparoEm, autoRecorteModo, autoNicho]
   )
   return rows[0]
 }

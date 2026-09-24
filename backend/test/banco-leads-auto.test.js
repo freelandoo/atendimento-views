@@ -8,9 +8,9 @@ const {
 
 function makePool(handlers) {
   return {
-    query: async (sql) => {
+    query: async (sql, params = []) => {
       for (const [needle, fn] of handlers) {
-        if (sql.includes(needle)) return fn(sql)
+        if (sql.includes(needle)) return fn(sql, params)
       }
       throw new Error('SQL não mapeado: ' + String(sql).slice(0, 70))
     },
@@ -102,6 +102,32 @@ test('_autoEmpresa: dispara 1 lead e agenda o próximo', async () => {
   assert.deepStrictEqual(chamou.prospectIds, ['p1'])
   assert.equal(chamou.instanciaId, 'i1')
   assert.ok(agendouProximo)
+})
+
+test('_autoEmpresa: aplica recorte por nicho quando configurado', async () => {
+  const pool = makePool([
+    ['FROM app.banco_leads_config', () => ({ rows: [{ ...autoCfg, auto_recorte_modo: 'nicho', auto_nicho: 'energia solar' }] })],
+    ['FROM app.empresa_whatsapp_instances', () => ({ rows: [{ id: 'i1', evolution_instance: 'inst' }] })],
+    ['FROM prospectador.prospects', (sql, params) => {
+      assert.match(sql, /p\.nicho/)
+      assert.match(sql, /categoria_perfil/)
+      assert.equal(params[4], 'energia solar')
+      return { rows: [{ id: 'p-solar', telefone: '5511999999999' }] }
+    }],
+    ['FROM prospectador.lead_disparos', () => ({ rows: [{ hoje: 0 }] })],
+    ['UPDATE app.banco_leads_config', () => ({ rows: [] })],
+  ])
+  let escolhido = null
+  const rodarLeadsFn = async (_pool, args) => {
+    escolhido = args.prospectIds[0]
+    return { rodada: true, aceitos: [{ id: escolhido }] }
+  }
+  const canProspectLeadFn = async () => ({ allowed: true })
+
+  const r = await _autoEmpresa(pool, 'e1', now, { rodarLeadsFn, canProspectLeadFn })
+
+  assert.equal(r.motivo, 'disparado')
+  assert.equal(escolhido, 'p-solar')
 })
 
 test('_autoEmpresa: avança quando o primeiro candidato falha na elegibilidade', async () => {

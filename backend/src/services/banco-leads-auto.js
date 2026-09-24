@@ -56,6 +56,13 @@ function somarMotivo(motivos, motivo) {
   motivos[chave] = (motivos[chave] || 0) + 1
 }
 
+function recorteAutomatico(cfg = {}) {
+  const nicho = String(cfg.auto_nicho || '').trim()
+  return cfg.auto_recorte_modo === 'nicho' && nicho
+    ? { modo: 'nicho', nicho }
+    : { modo: 'geral', nicho: null }
+}
+
 async function agendarProximoDisparo(pool, empresaId, now, cfg) {
   const proxMin = sortearIntervaloMinutos(cfg.intervalo_min, cfg.intervalo_max)
   const proximo = new Date(now.getTime() + proxMin * 60_000)
@@ -125,9 +132,11 @@ async function instanciaConfiguradaOuRecente(pool, empresaId, instanciaId) {
 async function buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps = {}) {
   const canProspectLeadFn = deps.canProspectLeadFn || canProspectLead
   const scanState = deps.scanState || autoScanOffsets
+  const recorte = recorteAutomatico(deps.autoRecorte)
+  const scanKey = recorte.modo === 'nicho' ? `${empresaId}:nicho:${recorte.nicho.toLowerCase()}` : `${empresaId}:geral`
   const pageSize = Math.min(Math.max(Number(deps.candidatePageSize) || CANDIDATE_PAGE_SIZE, 1), 100)
   const scanLimit = Math.min(Math.max(Number(deps.candidateScanLimit) || CANDIDATE_SCAN_LIMIT, pageSize), 2000)
-  const offsetInicial = Math.max(Number(scanState.get(empresaId)) || 0, 0)
+  const offsetInicial = Math.max(Number(scanState.get(scanKey)) || 0, 0)
   let offset = offsetInicial
   let analisados = 0
   let paginas = 0
@@ -137,10 +146,21 @@ async function buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps = {}
   while (analisados < scanLimit) {
     if (voltouAoInicio && offset >= offsetInicial) break
     const limitePagina = Math.min(pageSize, scanLimit - analisados)
+    const params = [empresaId, statusList, limitePagina, offset]
+    let filtroNicho = ''
+    if (recorte.modo === 'nicho') {
+      params.push(recorte.nicho)
+      const nichoParam = params.length
+      filtroNicho = `AND (
+            LOWER(BTRIM(COALESCE(p.nicho, ''))) = LOWER(BTRIM($${nichoParam}::text))
+            OR LOWER(BTRIM(COALESCE(p.categoria_perfil, ''))) = LOWER(BTRIM($${nichoParam}::text))
+          )`
+    }
     const { rows } = await pool.query(
       `SELECT p.id, p.telefone FROM prospectador.prospects p
         WHERE p.empresa_id = $1
           AND p.status = ANY($2)
+          ${filtroNicho}
           AND ${sqlAbordavel('p')}
           AND NULLIF(BTRIM(COALESCE(p.telefone, '')), '') IS NOT NULL
           AND (p.tem_whatsapp IS DISTINCT FROM false)
@@ -153,7 +173,7 @@ async function buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps = {}
           )
         ORDER BY (p.qualificacao = 'aprovado') DESC, p.score DESC NULLS LAST, p.created_at ASC, p.id ASC
         LIMIT $3 OFFSET $4`,
-      [empresaId, statusList, limitePagina, offset]
+      params
     )
     paginas++
 
@@ -163,7 +183,7 @@ async function buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps = {}
         voltouAoInicio = true
         continue
       }
-      scanState.delete(empresaId)
+      scanState.delete(scanKey)
       return { lead: null, analisados, paginas, motivos, esgotou: true, proximo_offset: 0 }
     }
 
@@ -195,12 +215,12 @@ async function buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps = {}
         voltouAoInicio = true
         continue
       }
-      scanState.delete(empresaId)
+      scanState.delete(scanKey)
       return { lead: null, analisados, paginas, motivos, esgotou: true, proximo_offset: 0 }
     }
   }
 
-  scanState.set(empresaId, offset)
+  scanState.set(scanKey, offset)
   return { lead: null, analisados, paginas, motivos, esgotou: false, proximo_offset: offset }
 }
 
@@ -271,7 +291,7 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
   // elegível — NÃO desiste só porque os primeiros por score são telefone fixo/inválido
   // (o que travava o disparo quando o topo do score era dominado por landlines).
   const statusList = [...STATUS_RODAVEL]
-  const scan = await buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps)
+  const scan = await buscarPrimeiroLeadElegivel(pool, empresaId, statusList, { ...deps, autoRecorte: cfg })
   const lead = scan.lead
   if (!lead) {
     return { empresa_id: empresaId, motivo: scan.esgotou ? 'sem_lead' : 'sem_lead_elegivel', analisados: scan.analisados }

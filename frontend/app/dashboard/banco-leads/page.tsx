@@ -144,6 +144,8 @@ type Config = {
   janela_inicio: string; janela_fim: string
   teto_diario: number; intervalo_min: number; intervalo_max: number
   auto_proximo_disparo_em?: string | null
+  auto_recorte_modo?: 'geral' | 'nicho'
+  auto_nicho?: string | null
 }
 type OpcaoFiltroMercado = { valor: string; total: number }
 type FiltrosMercado = {
@@ -838,7 +840,7 @@ export default function BancoLeadsPage() {
   const [config, setConfig] = useState<Config>({
     modo: 'manual', gerar_ia: true, instrucoes_ia: null,
     auto_ativo: false, auto_instancia_id: null, janela_inicio: '08:00', janela_fim: '18:00',
-    teto_diario: 40, intervalo_min: 15, intervalo_max: 30,
+    teto_diario: 40, intervalo_min: 15, intervalo_max: 30, auto_recorte_modo: 'geral', auto_nicho: null,
   })
   const [salvandoAuto, setSalvandoAuto] = useState(false)
   // Rodar leads
@@ -2270,6 +2272,58 @@ export default function BancoLeadsPage() {
                     className="w-full border rounded-lg px-2 py-1.5 text-sm bg-surface-3 text-ink-3"
                     title="Limite de segurança anti-ban. O volume real é limitado pelo intervalo × janela." />
                 </div>
+              </div>
+              <div className="grid gap-3 border-t border-line pt-3 md:grid-cols-[12rem_minmax(0,1fr)]">
+                <div>
+                  <label className="block text-xs text-ink-3 mb-1">Recorte</label>
+                  <select
+                    value={config.auto_recorte_modo === 'nicho' ? 'nicho' : 'geral'}
+                    disabled={salvandoAuto}
+                    onChange={(e) => {
+                      const modo = e.target.value === 'nicho' ? 'nicho' : 'geral'
+                      const nicho = config.auto_nicho || mercado || ''
+                      setConfig((c) => ({ ...c, auto_recorte_modo: modo, auto_nicho: modo === 'nicho' ? (c.auto_nicho || mercado || '') : null }))
+                      if (modo === 'geral' || nicho) {
+                        salvarAutoConfig({ auto_recorte_modo: modo, auto_nicho: modo === 'nicho' ? nicho : null })
+                      }
+                    }}
+                    className="w-full border rounded-lg px-2 py-1.5 text-sm bg-surface"
+                  >
+                    <option value="geral">Geral</option>
+                    <option value="nicho">Nicho específico</option>
+                  </select>
+                </div>
+                {config.auto_recorte_modo === 'nicho' && (
+                  <div>
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <label htmlFor="auto-nicho" className="block text-xs text-ink-3">Nicho</label>
+                      {mercado && (
+                        <button type="button"
+                          onClick={() => {
+                            setConfig((c) => ({ ...c, auto_nicho: mercado, auto_recorte_modo: 'nicho' }))
+                            salvarAutoConfig({ auto_recorte_modo: 'nicho', auto_nicho: mercado })
+                          }}
+                          className="text-xs font-medium text-brand hover:text-brand-dark">
+                          Usar filtro atual
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      id="auto-nicho"
+                      list="auto-nichos"
+                      value={config.auto_nicho || ''}
+                      disabled={salvandoAuto}
+                      maxLength={180}
+                      onChange={(e) => setConfig((c) => ({ ...c, auto_nicho: e.target.value }))}
+                      onBlur={(e) => salvarAutoConfig({ auto_recorte_modo: e.target.value.trim() ? 'nicho' : 'geral', auto_nicho: e.target.value })}
+                      placeholder="Ex.: energia solar"
+                      className="w-full border rounded-lg px-2 py-1.5 text-sm"
+                    />
+                    <datalist id="auto-nichos">
+                      {filtrosMercado?.nichos?.map((n) => <option key={n.valor} value={n.valor} />)}
+                    </datalist>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -4030,6 +4084,7 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
   const [form, setForm] = useState<ConfigAbordagemIa>(() => extrairConfigAbordagemIa(config.instrucoes_ia, config.gerar_ia))
   const [editandoId, setEditandoId] = useState<string | null>(null)
   const [rascunho, setRascunho] = useState<OfertaAbordagemIa>(() => novaOfertaAbordagem({ geral: false }))
+  const [pagina, setPagina] = useState<'padrao' | 'nichos' | 'nova'>('padrao')
   const instrucoes = montarInstrucoesAbordagemIa(form)
   const contador = instrucoes.length
   const ofertaGeral = form.ofertas.find((o) => o.geral) || novaOfertaAbordagem({ id: 'oferta-geral', geral: true, ativo: true })
@@ -4042,9 +4097,9 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
   useEffect(() => {
     const cfg = extrairConfigAbordagemIa(config.instrucoes_ia, config.gerar_ia)
     setForm(cfg)
-    const primeira = cfg.ofertas.find((o) => !o.geral)
-    setRascunho(primeira || novaOfertaAbordagem({ geral: false }))
-    setEditandoId(primeira?.id || null)
+    setRascunho(novaOfertaAbordagem({ geral: false }))
+    setEditandoId(null)
+    setPagina('padrao')
   }, [config.instrucoes_ia, config.gerar_ia])
 
   function atualizarOfertaGeral(patch: Partial<OfertaAbordagemIa>) {
@@ -4058,11 +4113,13 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
   function novaOferta() {
     setEditandoId(null)
     setRascunho(novaOfertaAbordagem({ geral: false, ativo: true, nicho: nichoAtual }))
+    setPagina('nova')
   }
 
   function editarOferta(oferta: OfertaAbordagemIa) {
     setEditandoId(oferta.id)
     setRascunho(novaOfertaAbordagem(oferta))
+    setPagina('nova')
   }
 
   function salvarOfertaLocal() {
@@ -4081,6 +4138,7 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
     })
     setEditandoId(oferta.id)
     setRascunho(oferta)
+    setPagina('nichos')
     fb.toast('Oferta atualizada na lista. Salve a abordagem para gravar.')
   }
 
@@ -4141,48 +4199,97 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
           Gerar primeira abordagem por IA
         </label>
 
-        <div className="space-y-3 rounded-lg border border-line bg-surface-2 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">Oferta padrão</p>
-            <span className="rounded-full border border-line bg-surface px-2 py-1 text-xs font-medium text-ink-3">Geral</span>
-          </div>
-          <div>
-            <label htmlFor="abordagem-oferta-geral" className="mb-1 block text-xs font-medium text-ink-3">Oferta</label>
-            <input
-              id="abordagem-oferta-geral"
-              value={ofertaGeral.nome}
-              maxLength={180}
-              onChange={(e) => atualizarOfertaGeral({ nome: e.target.value })}
-              placeholder="Ex.: site com CRM completo"
-              className={classesEntrada()}
-            />
-          </div>
-          <div>
-            <label htmlFor="abordagem-descricao-geral" className="mb-1 block text-xs font-medium text-ink-3">Descrição rápida</label>
-            <textarea
-              id="abordagem-descricao-geral"
-              value={ofertaGeral.descricao}
-              maxLength={700}
-              rows={3}
-              onChange={(e) => atualizarOfertaGeral({ descricao: e.target.value })}
-              placeholder="Ex.: criação de site profissional integrado a funil, CRM e WhatsApp para captar e acompanhar novos clientes."
-              className={classesEntrada()}
-            />
-          </div>
+        <div className="grid grid-cols-3 gap-1 rounded-lg border border-line bg-surface-2 p-1" role="tablist" aria-label="Páginas da abordagem IA">
+          {[
+            { id: 'padrao', label: 'Oferta padrão' },
+            { id: 'nichos', label: 'Seções por nicho' },
+            { id: 'nova', label: editandoId ? 'Editar seção' : 'Nova seção' },
+          ].map((item) => (
+            <button key={item.id} type="button"
+              role="tab"
+              aria-selected={pagina === item.id}
+              onClick={() => {
+                if (item.id === 'nova' && !editandoId) novaOferta()
+                else setPagina(item.id as 'padrao' | 'nichos' | 'nova')
+              }}
+              className={`rounded-md px-2 py-2 text-sm font-medium ${pagina === item.id ? 'bg-brand text-white' : 'text-ink-2 hover:bg-surface'}`}>
+              {item.label}
+            </button>
+          ))}
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.9fr)]">
+        {pagina === 'padrao' && (
+          <div className="space-y-4">
+            <div className="space-y-3 rounded-lg border border-line bg-surface-2 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">Oferta padrão</p>
+                <span className="rounded-full border border-line bg-surface px-2 py-1 text-xs font-medium text-ink-3">Geral</span>
+              </div>
+              <div>
+                <label htmlFor="abordagem-oferta-geral" className="mb-1 block text-xs font-medium text-ink-3">Oferta</label>
+                <input
+                  id="abordagem-oferta-geral"
+                  value={ofertaGeral.nome}
+                  maxLength={180}
+                  onChange={(e) => atualizarOfertaGeral({ nome: e.target.value })}
+                  placeholder="Ex.: site com CRM completo"
+                  className={classesEntrada()}
+                />
+              </div>
+              <div>
+                <label htmlFor="abordagem-descricao-geral" className="mb-1 block text-xs font-medium text-ink-3">Descrição rápida</label>
+                <textarea
+                  id="abordagem-descricao-geral"
+                  value={ofertaGeral.descricao}
+                  maxLength={700}
+                  rows={3}
+                  onChange={(e) => atualizarOfertaGeral({ descricao: e.target.value })}
+                  placeholder="Ex.: criação de site profissional integrado a funil, CRM e WhatsApp para captar e acompanhar novos clientes."
+                  className={classesEntrada()}
+                />
+              </div>
+            </div>
+
+            <label className="flex items-start gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink-2">
+              <input
+                type="checkbox"
+                checked={form.idiomaAutomatico}
+                onChange={(e) => setForm((f) => ({ ...f, idiomaAutomatico: e.target.checked }))}
+                className="mt-1"
+              />
+              <span>
+                <span className="block font-medium text-ink">Adaptar idioma pelo lead</span>
+                <span className="text-xs text-ink-3">Estados Unidos em inglês, Portugal em português de Portugal, e Brasil em português do Brasil.</span>
+              </span>
+            </label>
+
+            <div>
+              <label htmlFor="abordagem-complemento" className="mb-1 block text-xs font-medium text-ink-3">Instruções complementares</label>
+              <textarea
+                id="abordagem-complemento"
+                value={form.complemento}
+                maxLength={700}
+                rows={3}
+                onChange={(e) => setForm((f) => ({ ...f, complemento: e.target.value }))}
+                placeholder="Tom, restrições ou CTA específico para esta campanha."
+                className={classesEntrada()}
+              />
+            </div>
+          </div>
+        )}
+
+        {pagina === 'nichos' && (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">Exceções por nicho</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">Seções por nicho</p>
               <div className="flex gap-1.5">
-                <Botao variante="neutra" tamanho="sm" onClick={novaOferta}>Nova exceção</Botao>
+                <Botao variante="neutra" tamanho="sm" onClick={novaOferta}>Nova seção</Botao>
               </div>
             </div>
 
             {ofertasOrdenadas.length === 0 ? (
               <div className="rounded-lg border border-line bg-surface-2 px-3 py-4 text-sm text-ink-3">
-                Nenhuma exceção cadastrada.
+                Nenhuma seção por nicho cadastrada.
               </div>
             ) : (
               <div className="space-y-2">
@@ -4214,10 +4321,12 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
               </div>
             )}
           </div>
+        )}
 
+        {pagina === 'nova' && (
           <div className="space-y-3 rounded-lg border border-line bg-surface-2 p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">
-              {editandoId ? 'Editar exceção' : 'Nova exceção'}
+              {editandoId ? 'Editar seção' : 'Nova seção'}
             </p>
 
             <div>
@@ -4290,36 +4399,10 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
             </label>
 
             <Botao variante="primaria" onClick={salvarOfertaLocal} larguraTotal>
-              {editandoId ? 'Atualizar exceção' : 'Adicionar exceção'}
+              {editandoId ? 'Atualizar seção' : 'Adicionar seção'}
             </Botao>
           </div>
-        </div>
-
-        <label className="flex items-start gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink-2">
-          <input
-            type="checkbox"
-            checked={form.idiomaAutomatico}
-            onChange={(e) => setForm((f) => ({ ...f, idiomaAutomatico: e.target.checked }))}
-            className="mt-1"
-          />
-          <span>
-            <span className="block font-medium text-ink">Adaptar idioma pelo lead</span>
-            <span className="text-xs text-ink-3">Estados Unidos em inglês, Portugal em português de Portugal, e Brasil em português do Brasil.</span>
-          </span>
-        </label>
-
-        <div>
-          <label htmlFor="abordagem-complemento" className="mb-1 block text-xs font-medium text-ink-3">Instruções complementares</label>
-          <textarea
-            id="abordagem-complemento"
-            value={form.complemento}
-            maxLength={700}
-            rows={3}
-            onChange={(e) => setForm((f) => ({ ...f, complemento: e.target.value }))}
-            placeholder="Tom, restrições ou CTA específico para esta campanha."
-            className={classesEntrada()}
-          />
-        </div>
+        )}
 
         <div className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-xs text-ink-3">
           <span className="font-semibold text-ink-2">Resumo salvo:</span>{' '}
