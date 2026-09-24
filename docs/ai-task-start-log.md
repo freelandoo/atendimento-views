@@ -5608,5 +5608,8 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Guards:** telas de Integracoes/Meta passam a seguir a capacidade `integracoes_gerenciar`
   da empresa, mantendo a criacao/rotacao de codigos externos da API de busca de leads exclusiva
   para `superadmin`.
+- **Ajuste operacional:** migration `102_pjcodeworks_superadmin_owner.sql` garante
+  `pjcodeworks@gmail.com` como `superadmin` global e `owner` da empresa `pj-codeworks`, sem
+  afetar outros usuarios.
 - **Documento atualizado:** `docs/modelo-cargos-acessos.md` virou a definicao atual do modelo,
   nao mais apenas uma proposta.
