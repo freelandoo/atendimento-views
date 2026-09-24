@@ -68,6 +68,13 @@ Alteração de schema exige: explicação do impacto · migration em `sql/migrat
 
 - Migrations rodam **no boot**, em ordem alfabética (= numérica), **cada uma numa transação com
   client dedicado**. Falha interrompe o boot: nunca "segue em frente".
+- ⚠️ **O boot só aplica migrations em banco LOCAL, a menos que o processo PROVE ser produção**
+  (`services/destino-migrations.js`, puro). Prova = `NODE_ENV=production` **ou** qualquer
+  `RAILWAY_*`; basta uma, porque bloquear um deploy real seria pior que o defeito que a guarda
+  corrige. Fora disso o boot **para**, com o host (nunca a credencial) na mensagem. Existe
+  porque `backend/.env` aponta para o banco de **produção**: sem a guarda, um `npm start` na
+  máquina de quem desenvolve era um `ALTER TABLE` em produção. **Não há variável de ambiente
+  para furá-la** — aplicar de fora é declarar `NODE_ENV=production` naquela execução.
 - **Migration aplicada é história: não se reescreve.** Corrigir é criar a próxima.
 - ⚠️ **Nunca crie coluna `empresa_id` com `DEFAULT`.** Um DEFAULT autoriza em silêncio todo
   INSERT que esquecer a coluna — foi assim que todo lead de toda empresa nasceu marcado como
@@ -142,8 +149,9 @@ aparecer na suíte, verifique o nome: o glob é `test/*.test.js`.
 
 **O `typecheck` do backend é opt-in por arquivo.** `checkJs` fica `false` e cada arquivo entra
 na verificação com `// @ts-check` na **primeira linha** (antes do `'use strict'` — fora dali o
-TypeScript ignora o pragma em silêncio). Hoje são **79 de 252**, e `test/typecheck-cobertura.test.js`
-impede que esse número caia: apagar o pragma faz o erro sumir sem corrigir o defeito.
+TypeScript ignora o pragma em silêncio). O número exato vive em `PISO_ARQUIVOS_VERIFICADOS`
+(`test/typecheck-cobertura.test.js`) — repeti-lo aqui só cria uma segunda contagem para
+envelhecer. Aquela catraca impede que o número caia: apagar o pragma faz o erro sumir sem corrigir o defeito.
 
 `noImplicitAny` e `strictNullChecks` estão desligados **de propósito** — respondiam por 52% dos
 13.060 erros que `checkJs` global produziria, e "faltou anotação" não é defeito. O que se checa

@@ -4,8 +4,27 @@ const path = require('path')
 const { logger } = require('../logger')
 
 const MIGRATIONS_DIR = path.join(__dirname, '..', '..', 'sql', 'migrations')
+const { avaliarDestino, mensagemDeBloqueio } = require('../services/destino-migrations')
 
-async function runMigrations(pool) {
+/**
+ * @param {any} pool
+ * @param {{ databaseUrl?: string, env?: Record<string, any> }} [opts] injetaveis para teste;
+ *   sem eles, le o ambiente do processo.
+ */
+async function runMigrations(pool, opts = {}) {
+  // ⚠️ A GUARDA VEM ANTES DE QUALQUER ESCRITA, inclusive do CREATE SCHEMA abaixo — que ja e'
+  // DDL no banco de destino. Ver services/destino-migrations.js: o boot aplica todas as
+  // migrations em DATABASE_URL, e o .env de desenvolvimento aponta para producao.
+  const destino = avaliarDestino({
+    databaseUrl: 'databaseUrl' in opts ? opts.databaseUrl : process.env.DATABASE_URL,
+    env: opts.env || process.env,
+  })
+  if (!destino.permitido) {
+    // Erro, nao warn: falha de migration INTERROMPE o boot (Regra 4). Seguir em frente aqui
+    // seria subir a aplicacao contra um schema que ninguem sabe em que estado esta.
+    throw new Error(mensagemDeBloqueio(destino))
+  }
+
   // Garante schema app e tabela de controle antes de qualquer coisa
   await pool.query(`CREATE SCHEMA IF NOT EXISTS app`)
   await pool.query(`
