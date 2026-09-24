@@ -25,6 +25,9 @@ function fakePoolAnalytics() {
     horario: [
       { chave: '09:00', total_itens: 3, mensagens_enviadas: 3, falhas: 0, respostas: 2, diagnostico: 1, proposta: 1, reunioes: 1, fechados: 1 },
     ],
+    abordagem: [
+      { chave: 'Site para energia solar · site pronto', total_itens: 4, mensagens_enviadas: 4, falhas: 0, respostas: 3, diagnostico: 2, proposta: 1, reunioes: 1, fechados: 1 },
+    ],
   }
   return {
     calls,
@@ -34,6 +37,7 @@ function fakePoolAnalytics() {
       if (/GROUP BY CONCAT_WS/i.test(sql)) return { rows: rankingRows.cidade }
       if (/GROUP BY COALESCE\(e\.modo/i.test(sql)) return { rows: rankingRows.modo }
       if (/GROUP BY COALESCE\(to_char\(f\.slot_envio/i.test(sql)) return { rows: rankingRows.horario }
+      if (/GROUP BY\s+CASE[\s\S]+mensagem_ia,oferta_abordagem,nome/i.test(sql)) return { rows: rankingRows.abordagem }
       if (/COALESCE\(f\.slot_envio::date, f\.criado_em::date\) AS dia/i.test(sql)) {
         return { rows: [
           { dia: '2026-05-01', enviados: 3, respostas: 1, falhas: 0 },
@@ -128,12 +132,14 @@ test('dashboard estrategico retorna metricas, rankings e custo por oportunidade'
   assert.equal(r.melhores.categoria.chave, 'restaurante')
   assert.equal(r.melhores.cidade.chave, 'Salvador/BA')
   assert.equal(r.melhores.horario.chave, '09:00')
+  assert.equal(r.melhores.abordagem.chave, 'Site para energia solar · site pronto')
   assert.equal(r.rankings.categorias[0].taxa_resposta, 0.5)
+  assert.equal(r.rankings.abordagens[0].taxa_resposta, 0.75)
   // série diária para o gráfico de crescimento
   assert.equal(r.serie_diaria.length, 2)
   assert.deepEqual(r.serie_diaria[0], { dia: '2026-05-01', enviados: 3, respostas: 1, falhas: 0 })
   assert.equal(r.serie_diaria[1].respostas, 2)
-  assert.equal(pool.calls.length, 6)
+  assert.equal(pool.calls.length, 7)
 })
 
 test('dashboard estrategico deixa custo por oportunidade nulo sem custo total', async () => {

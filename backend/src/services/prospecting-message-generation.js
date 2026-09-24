@@ -116,7 +116,6 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
   const aiProvider = deps.aiProvider || aiProviderDefault
   const nomeEmp = await nomeEmpresa(row.empresa_id)
   const estrategia = montarEstrategiaAbordagem(row, { nomeEmpresa: nomeEmp })
-  const fallback = montarMensagemFallback(row, nomeEmp)
   const promptContrato = montarPromptContratoAbordagem({
     estrategia,
     dadosLead: {
@@ -139,6 +138,13 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
     nomeEmpresa: nomeEmp,
     instrucoes: row.banco_leads_instrucoes_ia || '',
   })
+  const fallback = renderMensagemAbordagemFallback(row, {
+    nomeEmpresa: nomeEmp,
+    estrategia,
+    ofertaAbordagem: promptContrato.oferta_abordagem || null,
+    identificacao: promptContrato.identificacao || null,
+    avisoSitePronto: promptContrato.aviso_site_pronto,
+  })
 
   try {
     const result = await aiProvider.generateAIResponse(
@@ -153,7 +159,9 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
       deps.pool || null,
       deps.logger || null
     )
-    const contrato = normalizarContratoAbordagem(result.text, estrategia)
+    const contrato = normalizarContratoAbordagem(result.text, estrategia, {
+      avisoSitePronto: promptContrato.aviso_site_pronto,
+    })
     const mensagem = limparMensagemGerada(contrato?.mensagem || '')
     if (!mensagem || mensagem.length < 30) {
       if (deps.logger?.warn) {
@@ -170,6 +178,8 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
         fallback: true,
         estrategia,
         oferta_abordagem: promptContrato.oferta_abordagem || null,
+        aviso_site_pronto: promptContrato.aviso_site_pronto,
+        identificacao: promptContrato.identificacao || null,
         contrato: null,
       }
     }
@@ -181,6 +191,8 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
       fallback: result.fallback_used === true,
       estrategia,
       oferta_abordagem: promptContrato.oferta_abordagem || null,
+      aviso_site_pronto: promptContrato.aviso_site_pronto,
+      identificacao: promptContrato.identificacao || null,
       contrato,
     }
   } catch (err) {
@@ -200,6 +212,8 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
       fallback: true,
       estrategia,
       oferta_abordagem: promptContrato.oferta_abordagem || null,
+      aviso_site_pronto: promptContrato.aviso_site_pronto,
+      identificacao: promptContrato.identificacao || null,
       contrato: null,
     }
   }
@@ -227,6 +241,8 @@ async function salvarMensagemGerada(pool, row, geracao) {
           fallback: geracao.fallback === true,
           angulo: geracao.estrategia?.angulo || geracao.contrato?.angulo || null,
           oferta_abordagem: geracao.oferta_abordagem || null,
+          site_pronto: geracao.aviso_site_pronto === true,
+          identificacao: geracao.identificacao || null,
           sinais_usados: geracao.contrato?.sinais_usados || geracao.estrategia?.sinais || [],
           gerada_em: new Date().toISOString(),
         },
@@ -258,6 +274,8 @@ async function registrarDecisaoMensagem(pool, row, geracao) {
         categoria: row.categoria || row.prospect_nicho || null,
         cidade: row.cidade || row.prospect_cidade || null,
         oferta_abordagem: geracao.oferta_abordagem || null,
+        site_pronto: geracao.aviso_site_pronto === true,
+        identificacao: geracao.identificacao || null,
         estrategia: geracao.estrategia || null,
       }),
       JSON.stringify({

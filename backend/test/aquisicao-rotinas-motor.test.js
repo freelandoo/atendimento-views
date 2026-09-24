@@ -265,6 +265,27 @@ test('cidade e UF compõem a localização enviada à coleta (fluxo manual)', as
   }
 })
 
+test('termo de busca internacional nao troca o nicho canonico da equipe', async () => {
+  const amb = montarAmbiente()
+  try {
+    const r = await pesquisarPlaces({
+      nicho: 'Energia Solar',
+      termo: 'solar energy installers',
+      cidade: 'New York',
+      pais: 'US',
+      empresaId: EMPRESA,
+    })
+
+    assert.equal(amb.estado.triggers[0].nicho, 'solar energy installers')
+    assert.equal(amb.estado.triggers[0].pais, 'US')
+    assert.equal(amb.estado.snapshots[0].nicho, 'Energia Solar')
+    assert.equal(amb.estado.snapshots[0].pais, 'US')
+    assert.equal(r.consulta, 'solar energy installers em New York')
+  } finally {
+    amb.restaurar()
+  }
+})
+
 test('sem UF, a busca ainda funciona com a cidade sozinha', async () => {
   const amb = montarAmbiente()
   try {

@@ -19,6 +19,7 @@ import QuadroDoDia from '@/components/QuadroDoDia'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import FolhaModal from '@/components/ui/FolhaModal'
 import Botao from '@/components/ui/Botao'
+import { Interruptor } from '@/components/ui/InterruptorAtivacao'
 import { classesEntrada } from '@/lib/ui-primitivos'
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import TextoTruncado from '@/components/ui/TextoTruncado'
@@ -198,6 +199,7 @@ type PrevisaoEnvio = {
 type ConfigAbordagemIa = {
   gerarIa: boolean
   idiomaAutomatico: boolean
+  identificacao: string
   complemento: string
   ofertas: OfertaAbordagemIa[]
 }
@@ -208,6 +210,7 @@ type OfertaAbordagemIa = {
   nicho: string
   ativo: boolean
   geral: boolean
+  sitePronto: boolean
 }
 // Progresso da preparação das mensagens (barra). A geração roda no worker de fundo.
 type GeracaoProgresso = { eligiveis: number; prontas: number; gerando: number; enviados: number; erros: number }
@@ -224,6 +227,7 @@ const ABORDAGEM_IA_LEGADO_FIM = '[/ABORDAGEM_IA]'
 const CONFIG_ABORDAGEM_PADRAO: ConfigAbordagemIa = {
   gerarIa: true,
   idiomaAutomatico: true,
+  identificacao: '',
   complemento: '',
   ofertas: [],
 }
@@ -240,6 +244,7 @@ function novaOfertaAbordagem(parcial: Partial<OfertaAbordagemIa> = {}): OfertaAb
     nicho: textoLimpo(parcial.nicho, 180),
     ativo: parcial.ativo !== false,
     geral: parcial.geral === true,
+    sitePronto: parcial.sitePronto !== false,
   }
 }
 
@@ -277,11 +282,15 @@ function extrairConfigAbordagemIa(instrucoes: string | null | undefined, gerarIa
   try {
     const parsed = JSON.parse(bloco)
     const ofertas = Array.isArray(parsed?.ofertas)
-      ? parsed.ofertas.map((o: Partial<OfertaAbordagemIa>) => novaOfertaAbordagem(o)).filter((o: OfertaAbordagemIa) => o.nome || o.descricao)
+      ? parsed.ofertas.map((o: Partial<OfertaAbordagemIa> & { site_pronto?: boolean }) => novaOfertaAbordagem({
+        ...o,
+        sitePronto: o.sitePronto ?? o.site_pronto,
+      })).filter((o: OfertaAbordagemIa) => o.nome || o.descricao)
       : []
     return {
       gerarIa,
       idiomaAutomatico: parsed?.idiomaAutomatico !== false,
+      identificacao: textoLimpo(parsed?.identificacao || parsed?.identificacaoRemetente || '', 220),
       complemento: textoLimpo(parsed?.complemento || complementoLegado, 900),
       ofertas,
     }
@@ -290,6 +299,7 @@ function extrairConfigAbordagemIa(instrucoes: string | null | undefined, gerarIa
     return {
       gerarIa,
       idiomaAutomatico: !/^Idioma automatico:\s*nao/im.test(bloco),
+      identificacao: '',
       complemento: complementoLegado,
       ofertas: oferta ? [oferta] : [],
     }
@@ -300,6 +310,7 @@ function montarInstrucoesAbordagemIa(form: ConfigAbordagemIa) {
   const payload = {
     version: 1,
     idiomaAutomatico: form.idiomaAutomatico !== false,
+    identificacao: textoLimpo(form.identificacao, 220),
     complemento: textoLimpo(form.complemento, 900),
     ofertas: form.ofertas
       .map((o) => novaOfertaAbordagem(o))
@@ -313,8 +324,11 @@ function resumoAbordagemIa(instrucoes: string | null | undefined) {
   const cfg = extrairConfigAbordagemIa(instrucoes, true)
   const ativas = cfg.ofertas.filter((o) => o.ativo)
   const geral = ativas.find((o) => o.geral)
-  if (ativas.length > 1) return `${ativas.length} ofertas ativas${geral ? ` · geral: ${geral.nome}` : ''}`
-  if (ativas[0]) return ativas[0].geral ? `${ativas[0].nome} · geral` : `${ativas[0].nome} · ${ativas[0].nicho || 'sem nicho'}`
+  const prontas = ativas.filter((o) => o.sitePronto).length
+  const sufixo = prontas ? `${prontas} com site pronto` : 'sem site pronto'
+  const ident = cfg.identificacao ? ` · ${cfg.identificacao}` : ''
+  if (ativas.length > 1) return `${ativas.length} ofertas ativas · ${sufixo}${geral ? ` · geral: ${geral.nome}` : ''}${ident}`
+  if (ativas[0]) return `${ativas[0].geral ? `${ativas[0].nome} · geral` : `${ativas[0].nome} · ${ativas[0].nicho || 'sem nicho'}`} · ${ativas[0].sitePronto ? 'site pronto' : 'diagnóstico'}${ident}`
   if (cfg.complemento) return 'Instrucoes personalizadas'
   return 'Sem oferta cadastrada'
 }
@@ -4237,6 +4251,18 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
                 />
               </div>
               <div>
+                <label htmlFor="abordagem-identificacao" className="mb-1 block text-xs font-medium text-ink-3">Como se identificar</label>
+                <input
+                  id="abordagem-identificacao"
+                  value={form.identificacao}
+                  maxLength={220}
+                  onChange={(e) => setForm((f) => ({ ...f, identificacao: e.target.value }))}
+                  placeholder="Ex.: Sou Victor, da PJ Codeworks"
+                  className={classesEntrada()}
+                />
+                <p className="mt-1 text-[11px] text-ink-3">Essa frase substitui o genérico “sou da nossa empresa” na primeira abordagem.</p>
+              </div>
+              <div>
                 <label htmlFor="abordagem-descricao-geral" className="mb-1 block text-xs font-medium text-ink-3">Descrição rápida</label>
                 <textarea
                   id="abordagem-descricao-geral"
@@ -4244,8 +4270,23 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
                   maxLength={700}
                   rows={3}
                   onChange={(e) => atualizarOfertaGeral({ descricao: e.target.value })}
-                  placeholder="Ex.: criação de site profissional integrado a funil, CRM e WhatsApp para captar e acompanhar novos clientes."
+                  placeholder="Ex.: estrutura com site, CRM, controle de leads, propostas e WhatsApp para captar, organizar e acompanhar novos clientes."
                   className={classesEntrada()}
+                />
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surface px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-ink">Chegar com site pronto</p>
+                  <p className="text-xs text-ink-3">
+                    {ofertaGeral.sitePronto
+                      ? 'A IA abre dizendo que ja existe uma previa/estrutura pronta.'
+                      : 'A IA aborda como diagnostico, sem prometer material pronto.'}
+                  </p>
+                </div>
+                <Interruptor
+                  ligado={ofertaGeral.sitePronto}
+                  onMudar={(novo) => atualizarOfertaGeral({ sitePronto: novo })}
+                  ariaLabel={`${ofertaGeral.sitePronto ? 'Desativar' : 'Ativar'} site pronto na oferta padrao`}
                 />
               </div>
             </div>
@@ -4302,6 +4343,8 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
                         <span className="block truncate text-sm font-semibold text-ink">{oferta.nome || 'Oferta sem nome'}</span>
                         <span className="mt-0.5 block text-xs text-ink-3">
                           {oferta.nicho || 'Sem nicho'} · {oferta.ativo ? 'Ativa' : 'Desativada'}
+                          {' · '}
+                          {oferta.sitePronto ? 'site pronto' : 'diagnostico'}
                         </span>
                       </button>
                       <div className="flex shrink-0 items-center gap-1">
@@ -4349,7 +4392,7 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
                 maxLength={700}
                 rows={4}
                 onChange={(e) => setRascunho((o) => ({ ...o, descricao: e.target.value }))}
-                placeholder="Ex.: criação de site profissional integrado a funil, CRM e WhatsApp para captar e acompanhar novos clientes."
+                placeholder="Ex.: estrutura com site, CRM, controle de leads, propostas e WhatsApp para captar, organizar e acompanhar novos clientes."
                 className={classesEntrada()}
               />
             </div>
@@ -4398,6 +4441,22 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
               Oferta ativa
             </label>
 
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surface px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-ink">Chegar com site pronto</p>
+                <p className="text-xs text-ink-3">
+                  {rascunho.sitePronto
+                    ? 'A IA fala que ja existe uma previa/estrutura pronta para esse nicho.'
+                    : 'A IA usa diagnostico/analise e nao promete site pronto.'}
+                </p>
+              </div>
+              <Interruptor
+                ligado={rascunho.sitePronto}
+                onMudar={(novo) => setRascunho((o) => ({ ...o, sitePronto: novo }))}
+                ariaLabel={`${rascunho.sitePronto ? 'Desativar' : 'Ativar'} site pronto nesta secao por nicho`}
+              />
+            </div>
+
             <Botao variante="primaria" onClick={salvarOfertaLocal} larguraTotal>
               {editandoId ? 'Atualizar seção' : 'Adicionar seção'}
             </Botao>
@@ -4406,7 +4465,7 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
 
         <div className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-xs text-ink-3">
           <span className="font-semibold text-ink-2">Resumo salvo:</span>{' '}
-          {ofertasAtivas.length} oferta(s) ativa(s) · {ofertaGeral.nome || 'sem oferta padrão'} · {form.idiomaAutomatico ? 'idioma automático' : 'pt-BR fixo'}
+          {ofertasAtivas.length} oferta(s) ativa(s) · {ofertasAtivas.filter((o) => o.sitePronto).length} com site pronto · {ofertaGeral.nome || 'sem oferta padrão'} · {form.identificacao || 'identificação padrão'} · {form.idiomaAutomatico ? 'idioma automático' : 'pt-BR fixo'}
           <span className={`ml-2 tabular-nums ${contador > 5600 ? 'text-estado-warn' : 'text-ink-3'}`}>{contador}/6000</span>
         </div>
       </div>

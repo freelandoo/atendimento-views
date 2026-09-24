@@ -5668,3 +5668,26 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Cuidados:** manter a regra no backend, deixar a variante usada persistida no historico da
   mensagem para auditoria, nao enviar WhatsApp real durante a validacao e nao criar migration sem
   confirmar impacto.
+
+## 2026-09-24 — Identificacao e valor operacional na abordagem IA
+
+- **Pedido:** corrigir a abordagem para nao sair como "nossa empresa", permitir configurar como
+  o remetente se identifica e fazer a IA reconhecer melhor ofertas com CRM, funil, leads e
+  propostas, sem reduzir tudo a presenca digital/site proprio.
+- **Areas previstas:** contrato JSON da abordagem, modal do Banco de Leads, geracao/auditoria da
+  mensagem e testes da primeira abordagem.
+- **Cuidados:** manter a configuracao no JSON existente, sem migration; preservar historico por
+  mensagem; validar que a oferta vira resultado operacional no prompt/fallback.
+
+## 2026-09-24 — Leads internacionais no recorte da equipe de Energia Solar
+
+- **Pedido:** investigar por que a equipe de energia solar nao consegue ver leads de outro pais,
+  incluindo a pessoa citada como Janis, e entregar com commit/push.
+- **Achado inicial:** o Banco de Leads recorta equipe por `prospects.nicho_id`, nao por texto; se
+  uma coleta internacional grava o termo observado em outro idioma ou com localizacao dentro de
+  `nicho`, o lead fica fora da equipe mesmo tendo `pais` correto.
+- **Direcao aplicada:** resolver `nicho_id` na materializacao do lead usando o nicho canonico do
+  contexto quando houver, e separar em Maps o `termo` pesquisado do `nicho` canonico que leva o
+  lead para a equipe. O texto pesquisado fica auditavel; o recorte continua por ID/empresa.
+- **Cuidados:** nao trocar recorte por `ILIKE`, nao ampliar carteira da equipe, nao criar
+  migration nova e nao sobrescrever `nicho_id` existente em recoleta.

@@ -78,6 +78,7 @@ function extrairJsonConfigAbordagem(instrucoes = '') {
 }
 
 function sanitizarOfertaAbordagem(oferta = {}) {
+  const sitePronto = oferta.sitePronto !== undefined ? oferta.sitePronto : oferta.site_pronto
   return {
     id: texto(oferta.id, 80),
     nome: texto(oferta.nome || oferta.oferta, 180),
@@ -85,6 +86,7 @@ function sanitizarOfertaAbordagem(oferta = {}) {
     nicho: texto(oferta.nicho, 180),
     ativo: oferta.ativo !== false,
     geral: oferta.geral === true,
+    site_pronto: sitePronto !== false,
   }
 }
 
@@ -110,13 +112,23 @@ function selecionarOfertaAbordagem(instrucoes = '', dadosLead = {}) {
   const geral = ativas.find((o) => o.geral)
   const oferta = especifica || geral || ativas[0] || null
   const complemento = texto(config.complemento, 900)
+  const identificacao = texto(config.identificacao || config.identificacaoRemetente, 220)
   const idiomaAutomatico = config.idiomaAutomatico !== false
   const linhas = []
+  if (identificacao) {
+    linhas.push('IDENTIFICACAO DO REMETENTE')
+    linhas.push(identificacao)
+  }
   if (oferta) {
     linhas.push('OFERTA SELECIONADA PELO APLICATIVO')
     linhas.push(`Nome: ${oferta.nome}`)
     if (oferta.descricao) linhas.push(`Descricao: ${oferta.descricao}`)
+    const resultado = resumirResultadoOferta(oferta)
+    if (resultado) linhas.push(`Resultado esperado: ${resultado}`)
     linhas.push(`Escopo: ${oferta.geral ? 'geral' : `nicho ${oferta.nicho || '(sem nicho)'}`}`)
+    linhas.push(oferta.site_pronto
+      ? 'Gancho: avisar que ja existe uma previa/estrutura de site pronta.'
+      : 'Gancho: nao dizer que ja existe site, previa ou estrutura pronta; abordar com diagnostico/analise.')
   }
   linhas.push(idiomaAutomatico
     ? 'Idioma: adaptar ao pais/idioma do lead quando houver sinal nos dados.'
@@ -128,8 +140,10 @@ function selecionarOfertaAbordagem(instrucoes = '', dadosLead = {}) {
   return {
     instrucoes: linhas.join('\n'),
     oferta,
+    identificacao,
     config: {
       idiomaAutomatico,
+      identificacao,
       complemento,
       ofertas,
     },
@@ -205,6 +219,31 @@ function fraseOportunidade(angulo) {
   return 'Vi alguns pontos de presenca digital que podem virar mais contatos.'
 }
 
+function resumirResultadoOferta(oferta = {}) {
+  const base = texto([oferta.nome, oferta.descricao].filter(Boolean).join(' '), 900)
+  const n = normalizarBusca(base)
+  if (!n) return ''
+  const partes = []
+  if (/\bcrm\b|controle de lead|leads?|funil|propost|orcament|whatsapp|follow/.test(n)) {
+    partes.push('controlar leads, acompanhar o funil e organizar propostas/retornos')
+  }
+  if (/site|pagina|landing|presenca|google|captar|captacao/.test(n)) {
+    partes.push('captar contatos qualificados e transformar visitas em conversas')
+  }
+  if (/agenda|reuniao|marcar|atendimento/.test(n)) {
+    partes.push('facilitar agendamentos e reduzir perda de oportunidades')
+  }
+  if (partes.length) return partes.join('; ')
+  return texto(oferta.descricao || oferta.nome, 220)
+}
+
+function fraseIdentificacao(valor, fallbackNomeEmpresa = 'nossa empresa') {
+  const id = texto(valor, 220)
+  if (id) return id.replace(/[.!?]+$/g, '')
+  const nome = texto(fallbackNomeEmpresa, 120) || 'nossa empresa'
+  return `Sou da ${nome}`
+}
+
 function montarEstrategiaAbordagem(entrada = {}, opts = {}) {
   const lead = normalizarLeadEntrada(entrada)
   const siteInfo = classificarLead(lead)
@@ -238,6 +277,7 @@ function avisoSiteProntoPresente(mensagem) {
 function renderMensagemAbordagemFallback(entrada = {}, opts = {}) {
   const estrategia = opts.estrategia || montarEstrategiaAbordagem(entrada, opts)
   const nomeEmp = estrategia.nome_empresa || opts.nomeEmpresa || 'nossa empresa'
+  const identificacao = fraseIdentificacao(opts.identificacao, nomeEmp)
   const nome = estrategia.nome_lead || 'seu negocio'
   const nicho = texto(entrada.nicho || entrada.prospect_nicho || entrada.categoria || '', 120)
   const cidade = texto(entrada.cidade || entrada.prospect_cidade || '', 120)
@@ -247,7 +287,13 @@ function renderMensagemAbordagemFallback(entrada = {}, opts = {}) {
   if (cidade) alvoPartes.push(`em ${cidade}`)
   if (nicho) alvoPartes.push(`no segmento de ${nicho}`)
   const alvo = alvoPartes.join(', ')
-  const msg = `Oi, tudo bem? Sou da ${nomeEmp}. Ja deixei uma previa de site pronta aqui no atendimento para ${alvo}. ${oportunidade} Notei ${sinal}. ${estrategia.pergunta_final}`
+  const resultado = resumirResultadoOferta(opts.ofertaAbordagem || {})
+  const fraseResultado = resultado
+    ? `A ideia e ${resultado}.`
+    : `${oportunidade} Notei ${sinal}.`
+  const msg = opts.avisoSitePronto === false
+    ? `Oi, tudo bem? ${identificacao}. Vi ${alvo}. ${fraseResultado} ${estrategia.pergunta_final}`
+    : `Oi, tudo bem? ${identificacao}. Ja deixei uma previa dessa estrutura pronta aqui no atendimento para ${alvo}. ${fraseResultado} ${estrategia.pergunta_final}`
   return msg.replace(/\s+/g, ' ').trim().slice(0, MAX_MENSAGEM_CHARS)
 }
 
@@ -266,13 +312,16 @@ function parseJsonPossivel(textoBruto) {
   return null
 }
 
-function normalizarContratoAbordagem(textoBruto, estrategia = {}) {
+function normalizarContratoAbordagem(textoBruto, estrategia = {}, opts = {}) {
   const obj = typeof textoBruto === 'object' && textoBruto !== null ? textoBruto : parseJsonPossivel(textoBruto)
   if (!obj || typeof obj !== 'object') return null
   if (obj.schema_version !== ABORDAGEM_SCHEMA_VERSION) return null
   const mensagem = texto(obj.mensagem, MAX_MENSAGEM_CHARS + 1).replace(/\s+/g, ' ').trim()
   if (!mensagem || mensagem.length < 30 || mensagem.length > MAX_MENSAGEM_CHARS) return null
-  if (!avisoSiteProntoPresente(mensagem)) return null
+  const temAvisoSitePronto = avisoSiteProntoPresente(mensagem)
+  const exigeSitePronto = opts.avisoSitePronto !== false
+  if (exigeSitePronto && !temAvisoSitePronto) return null
+  if (!exigeSitePronto && temAvisoSitePronto) return null
   const angulo = ANGULOS_ABORDAGEM.includes(obj.angulo) ? obj.angulo : (estrategia.angulo || 'presenca_digital')
   const sinaisUsados = Array.isArray(obj.sinais_usados)
     ? obj.sinais_usados.map((s) => texto(s, 160)).filter(Boolean).slice(0, 6)
@@ -284,12 +333,15 @@ function normalizarContratoAbordagem(textoBruto, estrategia = {}) {
     sinais_usados: sinaisUsados,
     pergunta_final: texto(obj.pergunta_final || estrategia.pergunta_final, 240),
     confianca: Math.max(0, Math.min(1, Number(obj.confianca) || 0)),
-    aviso_site_pronto: true,
+    aviso_site_pronto: temAvisoSitePronto,
   }
 }
 
 function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conhecimento = '', instrucoes = '', nomeEmpresa = '' }) {
   const abordagem = selecionarOfertaAbordagem(instrucoes, dadosLead)
+  const avisoSitePronto = abordagem.oferta ? abordagem.oferta.site_pronto !== false : true
+  const identificacao = fraseIdentificacao(abordagem.identificacao, nomeEmpresa || estrategia.nome_empresa || 'nossa empresa')
+  const resultadoOferta = resumirResultadoOferta(abordagem.oferta || {})
   const schema = {
     schema_version: ABORDAGEM_SCHEMA_VERSION,
     mensagem: 'texto final da primeira mensagem de WhatsApp, maximo 500 caracteres',
@@ -297,16 +349,22 @@ function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conheciment
     sinais_usados: ['sinais reais usados na mensagem'],
     pergunta_final: 'ultima pergunta da mensagem',
     confianca: 0.0,
+    aviso_site_pronto: avisoSitePronto,
   }
   const regras = [
     'Voce escreve a PRIMEIRA abordagem de WhatsApp em portugues do Brasil.',
     'Retorne APENAS JSON valido, sem markdown, sem texto fora do JSON.',
-    'A mensagem deve abrir avisando que ja existe uma previa/estrutura de site pronta aqui no atendimento.',
+    avisoSitePronto
+      ? 'A mensagem deve abrir avisando que ja existe uma previa/estrutura de site pronta aqui no atendimento.'
+      : 'Nao diga que existe site, previa, estrutura, analise ou material pronto/preparado/montado; aborde com diagnostico, observacao ou pergunta consultiva.',
     'Use no maximo 1 ou 2 sinais reais do lead; nao invente faturamento, campanhas, resultados, desconto ou urgencia falsa.',
     'Use raciocinio SPIN: situacao real -> problema/oportunidade -> ganho esperado -> uma pergunta final.',
+    resultadoOferta
+      ? `Ao falar da oferta, foque no resultado operacional: ${resultadoOferta}. Nao reduza tudo a "presenca digital" se a oferta envolver CRM, funil, leads, propostas ou WhatsApp.`
+      : 'Ao falar da oferta, traduza a descricao em resultado pratico para o negocio; nao reduza tudo a "presenca digital" quando houver CRM, funil, leads, propostas ou WhatsApp.',
     'Nao use BANT nesta primeira mensagem: nao pergunte budget, decisor ou prazo agora.',
     'Detecte o idioma/variante pelos dados do lead (pais, endereco, cidade, telefone, perfil e textos coletados). Se o lead indicar Estados Unidos, escreva em ingles; se indicar Portugal, use portugues de Portugal; se nao houver sinal claro, use portugues do Brasil.',
-    `Quando mencionar quem envia, use "${nomeEmpresa || estrategia.nome_empresa || 'nossa empresa'}".`,
+    `Quando se identificar, use exatamente: "${identificacao}".`,
     'Nao peca reuniao nesta mensagem; peca permissao ou faca uma pergunta de interesse.',
     'Maximo 500 caracteres na mensagem.',
   ]
@@ -325,6 +383,8 @@ function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conheciment
       'JSON DE SAIDA',
     ].filter(Boolean).join('\n\n'),
     oferta_abordagem: abordagem.oferta || null,
+    aviso_site_pronto: avisoSitePronto,
+    identificacao,
   }
 }
 

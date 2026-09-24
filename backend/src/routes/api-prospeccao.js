@@ -120,13 +120,14 @@ router.get('/metricas', requireAuth, requireEmpresaAccess, async (req, res) => {
 // Busca manual (uma execução avulsa). A UF entra junto com a cidade: sem ela a
 // geocodificação resolve o nome em qualquer estado ("Santana" existe em vários).
 router.post('/buscar', requireAuth, requireEmpresaAccess, async (req, res) => {
-  const { nicho, cidade, local, uf, estado, pais, country } = req.body || {}
+  const { nicho, termo, cidade, local, uf, estado, pais, country } = req.body || {}
   if (!nicho || !(cidade || local)) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe nicho e cidade.' } })
   }
   try {
     const resultado = await pesquisarPlaces({
       nicho,
+      termo: termo || null,
       cidade: cidade || local,
       uf: uf || estado || null,
       pais: pais || country || 'BR',

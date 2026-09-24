@@ -4520,3 +4520,64 @@ consome credito pago, usa IA ou altera leads.
 
 **Fora de escopo:** formalizar ticks internos do `agent.js`, monitoramento do pool em `db.js` ou
 rotinas sob demanda como workers. Esses candidatos ficam planejados no README da pasta.
+
+## 2026-09-24 — Variante auditavel da primeira abordagem: site pronto ou diagnostico
+
+**Decisão 1 — a variante vive no contrato JSON da abordagem, sem migration.** A escolha
+`sitePronto` passa a existir em cada oferta do modal de Abordagem IA (oferta geral e secoes por
+nicho), dentro de `app.banco_leads_config.instrucoes_ia`. O default continua `true` para preservar
+o comportamento anterior, que sempre obrigava a IA a abrir dizendo que havia uma previa/estrutura
+de site pronta.
+
+**Decisão 2 — o backend valida os dois caminhos.** Quando `sitePronto=true`, o contrato da IA deve
+conter o aviso de site/previa/estrutura pronta; quando `sitePronto=false`, a mensagem e rejeitada
+se prometer material pronto e cai para a abordagem consultiva/fallback. A tela so configura; a
+honestidade da mensagem fica no servico `abordagem-inicial-contrato`.
+
+**Decisão 3 — auditoria por mensagem, nao por lead.** A variante aplicada (`site_pronto`) e a
+`oferta_abordagem` selecionada sao gravadas em `prospeccao_fila_diaria.metadata_json.mensagem_ia`
+e no `input_json` de `prospeccao_decisoes_ia`. Isso permite comparar retorno por oferta/variante
+sem reescrever o historico do lead quando o operador muda a configuracao depois.
+
+**Impacto analitico:** `prospecting-performance-analytics` passa a rankear `abordagens`, agrupando
+oferta + variante (`site pronto` ou `diagnostico`). A tela de Aquisição exibe "Melhor abordagem"
+junto dos melhores nicho/cidade/horario.
+
+## 2026-09-24 — Identificacao do remetente e oferta como resultado operacional
+
+**Decisão 1 — identificacao editavel no mesmo contrato.** O JSON de `instrucoes_ia` passa a aceitar
+`identificacao`, configurada no modal de Abordagem IA. Ela substitui o fallback generico "sou da
+nossa empresa" no prompt e no fallback deterministico. O valor usado tambem fica registrado em
+`metadata_json.mensagem_ia.identificacao` e no `input_json` da decisao de IA.
+
+**Decisão 2 — descricao da oferta vira resultado, nao so tema.** O backend resume a oferta
+selecionada em resultado pratico: CRM/funil/leads/propostas/WhatsApp viram controle de leads,
+acompanhamento do funil e organizacao de propostas/retornos; site/captacao vira captura de
+contatos qualificados. Isso orienta a IA e o fallback a vender o ganho operacional da estrutura,
+sem reduzir uma oferta de CRM a "presenca digital".
+
+**Sem migration:** segue tudo em `app.banco_leads_config.instrucoes_ia` e no historico JSON da
+mensagem gerada.
+
+## 2026-09-24 — Aquisicao internacional com termo separado do nicho da equipe
+
+**Contexto:** a equipe de Energia Solar nao conseguia enxergar leads de outro pais quando a busca
+precisava usar termo local/idioma estrangeiro. O recorte da equipe e correto por
+`prospectador.prospects.nicho_id`; trocar isso por texto parecido reabriria o problema que o
+catalogo estruturado resolveu.
+
+**Decisao 1 — `nicho` continua sendo o canônico da carteira.** Em buscas Maps, `nicho` permanece
+o que o lead e e o que casa com `app.nichos`/equipe. O campo opcional `termo` agora e apenas o
+texto enviado para a Bright Data, como ja acontecia na Biblioteca de Anuncios da Meta.
+
+**Decisao 2 — lead novo ja tenta gravar `nicho_id`.** `salvarProspect` resolve `nicho_id` no
+INSERT usando o nicho canonico do contexto, preservando o texto observado em `prospects.nicho`.
+Na recoleta, `COALESCE(prospects.nicho_id, EXCLUDED.nicho_id)` impede mover lead entre equipes em
+silencio.
+
+**Decisao 3 — snapshot guarda o canônico; disparo pago usa o termo.** `busca_snapshots.nicho`
+continua guardando o nicho que vai orientar a materializacao e a equipe. O trigger do Maps recebe
+`termo || nicho`; quando diferentes, `decisao_json` registra `termo_busca` e `nicho_canonico`.
+
+**Sem migration:** o ajuste usa colunas existentes (`nicho`, `nicho_id`, `decisao_json`) e apenas
+altera contrato de rota/UI para aceitar `termo` em Maps.

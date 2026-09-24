@@ -122,13 +122,30 @@ async function ranking(pool, filtrosBase, dimensaoSql, label) {
   }))
 }
 
+function dimensaoAbordagemSql() {
+  return `
+    CASE
+      WHEN NULLIF(f.metadata_json #>> '{mensagem_ia,oferta_abordagem,nome}', '') IS NOT NULL
+        THEN CONCAT(
+          NULLIF(f.metadata_json #>> '{mensagem_ia,oferta_abordagem,nome}', ''),
+          CASE
+            WHEN f.metadata_json #>> '{mensagem_ia,site_pronto}' = 'true' THEN ' · site pronto'
+            ELSE ' · diagnostico'
+          END
+        )
+      WHEN f.metadata_json #>> '{mensagem_ia,site_pronto}' = 'true' THEN 'site pronto'
+      WHEN f.metadata_json ? 'mensagem_ia' THEN 'diagnostico'
+      ELSE 'sem_abordagem_auditada'
+    END`
+}
+
 async function obterDashboardEstrategicoProspeccao(pool, filtros = {}) {
   const filtrosBase = montarFiltrosWhere(filtros)
   const custoTotal = filtros.custo_total != null && filtros.custo_total !== ''
     ? Math.max(0, numero(filtros.custo_total, 0))
     : null
 
-  const [totaisResult, serieResult, categorias, cidades, modos, horarios] = await Promise.all([
+  const [totaisResult, serieResult, categorias, cidades, modos, horarios, abordagens] = await Promise.all([
     pool.query(
       `
       SELECT
@@ -161,6 +178,7 @@ async function obterDashboardEstrategicoProspeccao(pool, filtros = {}) {
     ranking(pool, filtrosBase, `CONCAT_WS('/', NULLIF(COALESCE(f.cidade, p.cidade, ''), ''), NULLIF(COALESCE(f.estado, ''), ''))`, 'cidade'),
     ranking(pool, filtrosBase, `COALESCE(e.modo, 'sem_modo')`, 'modo'),
     ranking(pool, filtrosBase, `COALESCE(to_char(f.slot_envio, 'HH24:00'), 'sem_horario')`, 'horario'),
+    ranking(pool, filtrosBase, dimensaoAbordagemSql(), 'abordagem'),
   ])
 
   const serieDiaria = (serieResult.rows || []).map((r) => ({
@@ -207,12 +225,14 @@ async function obterDashboardEstrategicoProspeccao(pool, filtros = {}) {
       cidades,
       modos,
       horarios,
+      abordagens,
     },
     melhores: {
       categoria: categorias[0] || null,
       cidade: cidades[0] || null,
       modo: modos[0] || null,
       horario: horarios[0] || null,
+      abordagem: abordagens[0] || null,
     },
   }
 }

@@ -22,6 +22,7 @@ const { sqlResolverNichoId } = require('./services/nicho-resolucao')
 // `classificarLote`), mesmo depois de triado. So' correspondencia EXATA (decisao D1, mesma regra
 // do backfill); `COALESCE` nunca sobrescreve um vinculo ja gravado a mao ou por outra aprovacao.
 const SQL_RESOLVER_NICHO_AO_APROVAR = `, nicho_id = COALESCE(nicho_id, ${sqlResolverNichoId({ empresaCol: 'empresa_id', nichoCol: 'nicho' })})`
+const SQL_RESOLVER_NICHO_AO_SALVAR = sqlResolverNichoId({ empresaCol: '$17::uuid', nichoCol: '$25' })
 const { logger } = require('./logger')
 const { candidatosTelefoneBR, somenteDigitos } = require('./telefone-br')
 const { dashboardAutorizado: dashboardSessionAutorizado } = require('./dashboardAuth')
@@ -1114,6 +1115,7 @@ function normalizarProspectParaPersistencia(prospect, contexto = {}) {
   const pIn = schema.value.prospect
   const ctx = schema.value.contexto
   const nicho = normalizarTexto(ctx.nicho || pIn.nicho, 160)
+  const nichoCanonico = normalizarTexto(ctx.nicho_canonico || ctx.nichoCanonico || ctx.nicho_catalogo || ctx.nichoCatalogo || nicho, 160)
   const cidade = normalizarTexto(ctx.cidade || ctx.local || pIn.cidade, 160)
   const pais = normalizarPais(ctx.pais || ctx.country || pIn.pais || pIn.country)
   const placeId = normalizarTexto(pIn.place_id, 240)
@@ -1139,6 +1141,7 @@ function normalizarProspectParaPersistencia(prospect, contexto = {}) {
     nome,
     telefone: normalizarTexto(pIn.telefone, 80) || null,
     nicho,
+    nicho_canonico: nichoCanonico || nicho,
     cidade,
     pais,
     endereco: normalizarTexto(pIn.endereco, 500) || null,
@@ -1172,14 +1175,15 @@ async function salvarProspect(prospect, contexto = {}) {
       site, maps_url, place_id, origem, score, motivo_score, raw_json, empresa_id,
       link_original, classificacao_url, qualificacao,
       instagram_handle, instagram_origem, instagram_confianca, instagram_evidencia,
-      instagram_verificado_em
+      instagram_verificado_em, nicho_id
     )
     VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9,
       $10, $11, $12, $13, $14, $15, $16::jsonb, $17,
       $18, $19, $20,
       $21, $22, $23, $24::jsonb,
-      CASE WHEN $21::text IS NULL THEN NULL ELSE NOW() END
+      CASE WHEN $21::text IS NULL THEN NULL ELSE NOW() END,
+      ${SQL_RESOLVER_NICHO_AO_SALVAR}
     )
     ON CONFLICT (empresa_id, place_id) DO UPDATE
     -- A coluna qualificacao NAO aparece neste SET, de proposito: recoleta NUNCA rebaixa nem
@@ -1198,6 +1202,10 @@ async function salvarProspect(prospect, contexto = {}) {
           ELSE COALESCE(EXCLUDED.telefone, prospectador.prospects.telefone)
         END,
         nicho = EXCLUDED.nicho,
+        -- O texto observado pode vir do termo de busca internacional; o vinculo da
+        -- equipe vem do nicho canonico do contexto, quando informado. COALESCE preserva
+        -- vinculo ja existente e evita a recoleta mover carteira em silencio.
+        nicho_id = COALESCE(prospectador.prospects.nicho_id, EXCLUDED.nicho_id),
         cidade = EXCLUDED.cidade,
         pais = EXCLUDED.pais,
         endereco = COALESCE(EXCLUDED.endereco, prospectador.prospects.endereco),
@@ -1283,6 +1291,7 @@ async function salvarProspect(prospect, contexto = {}) {
       p.instagram_origem,
       p.instagram_confianca,
       JSON.stringify(p.instagram_evidencia),
+      p.nicho_canonico,
     ]
   )
   return prospectPersistido(rows[0])
@@ -4044,14 +4053,16 @@ async function alterarOfertaProspect(id, payload = {}) {
 // Chave de idempotência de um disparo. Duas requisições iguais no mesmo minuto (duplo
 // clique, retry de rede, dois ticks concorrentes) colidem no índice único e a segunda
 // NÃO vira coleta paga.
-function chaveIdempotenciaBusca({ empresaId, rotinaId, nicho, local, pais, origem }, agora = new Date()) {
+function chaveIdempotenciaBusca({ empresaId, rotinaId, nicho, termo, local, pais, origem }, agora = new Date()) {
   const minuto = new Date(agora).toISOString().slice(0, 16) // YYYY-MM-DDTHH:mm
   if (rotinaId) return `rotina:${rotinaId}:${minuto}`
-  return `${origem}:${empresaId || 'sem-empresa'}:${normalizarPais(pais)}:${String(nicho).toLowerCase()}:${String(local).toLowerCase()}:${minuto}`
+  const termoBusca = String(termo || nicho).toLowerCase()
+  return `${origem}:${empresaId || 'sem-empresa'}:${normalizarPais(pais)}:${String(nicho).toLowerCase()}:${termoBusca}:${String(local).toLowerCase()}:${minuto}`
 }
 
 async function pesquisarPlaces({
   nicho,
+  termo = null,
   local,
   cidade = null,
   uf = null,
@@ -4064,6 +4075,7 @@ async function pesquisarPlaces({
   agora = new Date(),
 }) {
   const queryNicho = normalizarTexto(nicho)
+  const queryTermo = normalizarTexto(termo || queryNicho)
   const queryPais = normalizarPais(pais)
   // Cidade + UF compõem a localização usada na geocodificação e na coleta. O fluxo
   // manual mandava só a cidade — "Santana" sem UF geocodifica em qualquer estado.
@@ -4110,12 +4122,16 @@ async function pesquisarPlaces({
     throw err
   }
 
-  const textQuery = `${queryNicho} em ${queryLocal}`
+  const textQuery = `${queryTermo} em ${queryLocal}`
   const origemBusca = normalizarOrigemBusca(origem)
   const idempotencyKey = chaveIdempotenciaBusca(
-    { empresaId, rotinaId, nicho: queryNicho, local: queryLocal, pais: queryPais, origem: origemBusca },
+    { empresaId, rotinaId, nicho: queryNicho, termo: queryTermo, local: queryLocal, pais: queryPais, origem: origemBusca },
     agora
   )
+  const decisaoBusca = {
+    ...(decisao && typeof decisao === 'object' ? decisao : {}),
+    ...(queryTermo !== queryNicho ? { termo_busca: queryTermo, nicho_canonico: queryNicho } : {}),
+  }
 
   // PASSO 1 — RESERVAR ANTES DE PAGAR. A linha é gravada com status 'pendente' e sem
   // snapshot_id. Dois índices únicos parciais no banco fazem o trabalho pesado:
@@ -4133,7 +4149,7 @@ async function pesquisarPlaces({
        RETURNING id`,
       [
         empresaId, queryNicho, queryLocal, queryPais, origemBusca,
-        decisao ? JSON.stringify(decisao) : null,
+        Object.keys(decisaoBusca).length ? JSON.stringify(decisaoBusca) : null,
         rotinaId, alvo, idempotencyKey,
       ]
     )
@@ -4159,7 +4175,7 @@ async function pesquisarPlaces({
   let snapshotId
   try {
     ;({ snapshotId } = await placesBrightData.dispararBuscaMaps({
-      nicho: queryNicho,
+      nicho: queryTermo,
       cidade: queryLocal,
       pais: queryPais,
     }))
@@ -4345,7 +4361,7 @@ async function processarBuscasPlacesPendentes(limit = 5) {
       const novosProspects = await contarPlaceIdsNovos(snap.empresa_id, places)
       const prospects = places.map(mapearPlace)
       const salvos = await salvarProspects(prospects, {
-        nicho: snap.nicho, cidade: snap.cidade, pais: snap.pais, origem: snap.origem, empresaId: snap.empresa_id,
+        nicho: snap.nicho, nicho_canonico: snap.nicho, cidade: snap.cidade, pais: snap.pais, origem: snap.origem, empresaId: snap.empresa_id,
       })
       const coletados = places.length
       await pool.query(

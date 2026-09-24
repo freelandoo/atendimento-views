@@ -77,6 +77,28 @@ test('abordagem inicial: texto livre ou JSON sem aviso obrigatorio sao rejeitado
   }), estrategia), null)
 })
 
+test('abordagem inicial: oferta sem site pronto rejeita promessa de previa pronta', () => {
+  const estrategia = montarEstrategiaAbordagem({ nome: 'Padaria X', tem_site: false })
+  const contratoConsultivo = normalizarContratoAbordagem(JSON.stringify({
+    schema_version: 'abordagem_inicial_v1',
+    mensagem: 'Oi, tudo bem? Sou da PJ Codeworks. Vi a Padaria X no Google e notei uma oportunidade de melhorar os contatos pelo WhatsApp. Posso te mandar uma analise rapida?',
+    angulo: 'sem_site',
+    sinais_usados: ['Google'],
+    pergunta_final: 'Posso te mandar uma analise rapida?',
+    confianca: 0.7,
+  }), estrategia, { avisoSitePronto: false })
+
+  assert.equal(contratoConsultivo.aviso_site_pronto, false)
+  assert.equal(normalizarContratoAbordagem(JSON.stringify({
+    schema_version: 'abordagem_inicial_v1',
+    mensagem: 'Oi, tudo bem? Sou da PJ Codeworks. Ja deixei uma previa de site pronta aqui no atendimento para Padaria X. Posso te mandar?',
+    angulo: 'sem_site',
+    sinais_usados: ['Google'],
+    pergunta_final: 'Posso te mandar?',
+    confianca: 0.7,
+  }), estrategia, { avisoSitePronto: false }), null)
+})
+
 test('abordagem inicial: fallback tambem respeita o gancho obrigatorio', () => {
   const msg = renderMensagemAbordagemFallback({
     nome: 'Clinica Alfa',
@@ -85,7 +107,7 @@ test('abordagem inicial: fallback tambem respeita o gancho obrigatorio', () => {
   }, { nomeEmpresa: 'PJ Codeworks' })
 
   assert.match(msg, /Sou da PJ Codeworks/)
-  assert.match(msg, /previa de site pronta/i)
+  assert.match(msg, /previa dessa estrutura pronta/i)
   assert.match(msg, /Clinica Alfa/)
   assert.equal(msg.length <= 600, true)
 })
@@ -107,6 +129,38 @@ test('abordagem inicial: prompt manda adaptar idioma pela localidade do lead', (
   assert.match(prompt.userPrompt, /Portugal/)
 })
 
+test('abordagem inicial: identificacao configurada substitui nossa empresa', () => {
+  const instrucoes = [
+    '[ABORDAGEM_IA_CONFIG]',
+    JSON.stringify({
+      identificacao: 'Sou Victor, da PJ Codeworks',
+      ofertas: [
+        { id: 'geral', nome: 'CRM comercial', descricao: 'CRM com controle de leads e propostas', geral: true, ativo: true },
+      ],
+    }),
+    '[/ABORDAGEM_IA_CONFIG]',
+  ].join('\n')
+  const estrategia = montarEstrategiaAbordagem({ nome: 'Padaria X', tem_site: false }, { nomeEmpresa: 'PJ Codeworks' })
+  const prompt = montarPromptContratoAbordagem({
+    estrategia,
+    dadosLead: { nome: 'Padaria X', nicho: 'padaria' },
+    instrucoes,
+    nomeEmpresa: 'PJ Codeworks',
+  })
+  const msg = renderMensagemAbordagemFallback({ nome: 'Padaria X', tem_site: false }, {
+    estrategia,
+    nomeEmpresa: 'PJ Codeworks',
+    identificacao: prompt.identificacao,
+    ofertaAbordagem: prompt.oferta_abordagem,
+  })
+
+  assert.match(prompt.userPrompt, /use exatamente: "Sou Victor, da PJ Codeworks"/)
+  assert.match(prompt.userPrompt, /controlar leads, acompanhar o funil e organizar propostas/)
+  assert.match(msg, /Sou Victor, da PJ Codeworks/)
+  assert.doesNotMatch(msg, /nossa empresa/)
+  assert.match(msg, /controlar leads/)
+})
+
 test('abordagem inicial: oferta especifica do nicho vence a oferta geral', () => {
   const instrucoes = [
     '[ABORDAGEM_IA_CONFIG]',
@@ -114,7 +168,7 @@ test('abordagem inicial: oferta especifica do nicho vence a oferta geral', () =>
       idiomaAutomatico: true,
       ofertas: [
         { id: 'geral', nome: 'Site com CRM completo', descricao: 'Oferta geral', geral: true, ativo: true },
-        { id: 'solar', nome: 'Site para energia solar', descricao: 'Oferta solar', nicho: 'energia solar', geral: false, ativo: true },
+        { id: 'solar', nome: 'Site para energia solar', descricao: 'Oferta solar', nicho: 'energia solar', geral: false, ativo: true, sitePronto: false },
       ],
     }),
     '[/ABORDAGEM_IA_CONFIG]',
@@ -122,7 +176,10 @@ test('abordagem inicial: oferta especifica do nicho vence a oferta geral', () =>
 
   const out = selecionarOfertaAbordagem(instrucoes, { empresa: { nicho: 'Energia Solar' } })
   assert.equal(out.oferta.nome, 'Site para energia solar')
+  assert.equal(out.oferta.site_pronto, false)
   assert.match(out.instrucoes, /Oferta solar/)
+  assert.match(out.instrucoes, /Resultado esperado/)
+  assert.match(out.instrucoes, /nao dizer que ja existe site/)
 })
 
 test('abordagem inicial: oferta desativada nao participa da selecao', () => {

@@ -4075,9 +4075,72 @@ test('salvarProspect usa upsert por place_id e retorna registro persistido', asy
     assert.equal(chamadas[0].params[21], null)
     assert.equal(chamadas[0].params[22], null)
     assert.equal(chamadas[0].params[23], 'null')
+    // Parametro usado para resolver `nicho_id` no INSERT. Por padrao ele e' o proprio nicho.
+    assert.equal(chamadas[0].params[24], 'barbearias')
     assert.equal(salvo.id, '11111111-1111-1111-1111-111111111111')
     assert.equal(salvo.status, 'aguardando')
     assert.equal(salvo.tem_site, false)
+  } finally {
+    pool.query = originalQuery
+  }
+})
+
+test('salvarProspect resolve nicho_id pelo nicho canonico sem sobrescrever o termo observado', async () => {
+  const originalQuery = pool.query
+  let capturado = null
+  pool.query = async (sql, params) => {
+    capturado = { sql: String(sql), params }
+    return {
+      rows: [
+        {
+          id: '22222222-2222-2222-2222-222222222222',
+          nome: params[0],
+          telefone: params[1],
+          nicho: params[2],
+          cidade: params[3],
+          pais: params[4],
+          endereco: params[5],
+          avaliacoes: params[6],
+          rating: params[7],
+          tem_site: params[8],
+          site: params[9],
+          maps_url: params[10],
+          place_id: params[11],
+          origem: params[12],
+          status: 'aguardando',
+          score: params[13],
+          motivo_score: params[14],
+          created_at: '2026-09-24T10:00:00.000Z',
+          updated_at: '2026-09-24T10:00:00.000Z',
+        },
+      ],
+    }
+  }
+  try {
+    await salvarProspect(
+      {
+        place_id: 'places/solar-us',
+        nome: 'Solar NY',
+        raw_json: { id: 'places/solar-us' },
+      },
+      {
+        nicho: 'solar energy installers',
+        nicho_canonico: 'Energia Solar',
+        cidade: 'New York',
+        pais: 'US',
+        origem: 'manual',
+        empresaId: '33333333-3333-4333-8333-333333333333',
+      }
+    )
+
+    assert.match(capturado.sql, /nicho_id\s*\)/, 'INSERT precisa gravar nicho_id')
+    assert.match(capturado.sql, /nicho_id = COALESCE\(prospectador\.prospects\.nicho_id, EXCLUDED\.nicho_id\)/)
+    assert.equal(capturado.params[2], 'solar energy installers')
+    assert.equal(capturado.params[4], 'US')
+    assert.equal(capturado.params[16], '33333333-3333-4333-8333-333333333333')
+    assert.equal(capturado.params[24], 'Energia Solar')
+    assert.match(capturado.sql, /n\.empresa_id\s*=\s*\$17::uuid/)
+    assert.match(capturado.sql, /lower\(BTRIM\(\$25,/)
   } finally {
     pool.query = originalQuery
   }

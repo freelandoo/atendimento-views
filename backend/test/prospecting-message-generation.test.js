@@ -160,6 +160,8 @@ test('mensagem fila: gera IA somente para item simulado com slot e salva no item
   assert.equal(pool.state.decisoes[0].provider, 'openai')
   assert.equal(pool.state.decisoes[0].input_json.slot_envio, '2026-05-25T08:00:00Z')
   assert.equal(pool.state.decisoes[0].input_json.estrategia.angulo, 'sem_site')
+  assert.equal(pool.state.decisoes[0].input_json.site_pronto, true)
+  assert.equal(pool.state.fila.metadata_json.mensagem_ia.site_pronto, true)
   assert.match(pool.state.decisoes[0].output_json.mensagem_gerada, /PJ Codeworks/)
   assert.equal(pool.state.decisoes[0].output_json.contrato.schema_version, 'abordagem_inicial_v1')
   assert.ok(pool.state.queries.some((q) => /SET mensagem_gerada/i.test(q.sql)))
@@ -172,9 +174,10 @@ test('mensagem fila: usa oferta especifica do nicho quando existe no cadastro da
     '[ABORDAGEM_IA_CONFIG]',
     JSON.stringify({
       idiomaAutomatico: true,
+      identificacao: 'Sou Victor, da PJ Codeworks',
       ofertas: [
         { id: 'geral', nome: 'Site com CRM completo', descricao: 'Oferta geral para qualquer nicho', geral: true, ativo: true },
-        { id: 'solar', nome: 'Site para energia solar', descricao: 'Oferta solar com captacao de orcamentos', nicho: 'energia solar', ativo: true },
+        { id: 'solar', nome: 'Site para energia solar', descricao: 'Oferta solar com captacao de orcamentos', nicho: 'energia solar', ativo: true, sitePronto: false },
       ],
     }),
     '[/ABORDAGEM_IA_CONFIG]',
@@ -195,7 +198,7 @@ test('mensagem fila: usa oferta especifica do nicho quando existe no cadastro da
       return {
         text: JSON.stringify({
           schema_version: 'abordagem_inicial_v1',
-          mensagem: 'Opa, tudo bem? Sou da PJ Codeworks. Ja deixei uma previa de site pronta aqui no atendimento para Solar Boa Vista. Vi que voces atuam com energia solar. Hoje o site ja ajuda a captar orcamentos?',
+          mensagem: 'Opa, tudo bem? Sou da PJ Codeworks. Vi que voces atuam com energia solar e notei uma oportunidade de captar mais orcamentos pelo WhatsApp. Hoje o site ja ajuda nisso?',
           angulo: 'sem_site',
           sinais_usados: ['energia solar'],
           pergunta_final: 'Hoje o site ja ajuda a captar orcamentos?',
@@ -213,9 +216,14 @@ test('mensagem fila: usa oferta especifica do nicho quando existe no cadastro da
   assert.equal(chamadas.length, 1)
   assert.match(chamadas[0].userPrompt, /Site para energia solar/)
   assert.match(chamadas[0].userPrompt, /Oferta solar com captacao de orcamentos/)
+  assert.match(chamadas[0].userPrompt, /Sou Victor, da PJ Codeworks/)
   assert.doesNotMatch(chamadas[0].userPrompt, /Oferta geral para qualquer nicho/)
   assert.equal(pool.state.fila.metadata_json.mensagem_ia.oferta_abordagem.id, 'solar')
+  assert.equal(pool.state.fila.metadata_json.mensagem_ia.site_pronto, false)
+  assert.equal(pool.state.fila.metadata_json.mensagem_ia.identificacao, 'Sou Victor, da PJ Codeworks')
   assert.equal(pool.state.decisoes[0].input_json.oferta_abordagem.id, 'solar')
+  assert.equal(pool.state.decisoes[0].input_json.site_pronto, false)
+  assert.equal(pool.state.decisoes[0].input_json.identificacao, 'Sou Victor, da PJ Codeworks')
 })
 
 test('mensagem fila: bloqueia geracao para item aguardando agendamento', async () => {

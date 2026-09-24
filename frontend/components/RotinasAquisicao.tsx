@@ -284,6 +284,7 @@ export default function RotinasAquisicao({
       method: 'POST',
       body: JSON.stringify({
         nicho: destino.nicho.trim(),
+        termo: avulsa.termo.trim() || null,
         cidade: destino.cidade.trim(),
         pais: destino.pais || 'BR',
         uf: destino.uf.trim().toUpperCase() || null,
@@ -459,26 +460,24 @@ export default function RotinasAquisicao({
             <p className="mt-0.5 text-xs text-slate-500">
               {metaAds
                 ? 'O nicho é o que o lead é — é ele que leva o lead para a equipe certa. O termo é só o que se procura na Biblioteca de Anúncios. Cidade e estado não são obrigatórios nesta fonte.'
-                : 'Uma coleta única, agora, sem criar rotina.'}
+                : 'Uma coleta única, agora, sem criar rotina. O nicho define a equipe; o termo pode estar no idioma do país pesquisado.'}
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Campo label="Nicho">
               <input value={avulsa.nicho} placeholder="ex: energia solar"
-                title={metaAds
-                  ? 'O que o lead é. Use o mesmo nome do catálogo de nichos: é ele que define de qual equipe este lead será.'
-                  : undefined}
+                title="O que o lead é. Use o mesmo nome do catálogo de nichos: é ele que define de qual equipe este lead será."
                 onChange={(e) => setAvulsa({ ...avulsa, nicho: e.target.value })}
                 className="w-full rounded-lg border px-3 py-2 text-sm" />
             </Campo>
-            {metaAds && (
-              <Campo label="Termo do anúncio (opcional)">
-                <input value={avulsa.termo} placeholder="vazio = busca pelo nicho"
-                  title="O que procurar na Biblioteca de Anúncios. Serve para buscar mais amplo ou mais específico que o nicho, sem mudar de qual equipe o lead será."
-                  onChange={(e) => setAvulsa({ ...avulsa, termo: e.target.value })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm" />
-              </Campo>
-            )}
+            <Campo label={metaAds ? 'Termo do anúncio (opcional)' : 'Termo da busca (opcional)'}>
+              <input value={avulsa.termo} placeholder="vazio = busca pelo nicho"
+                title={metaAds
+                  ? 'O que procurar na Biblioteca de Anúncios. Serve para buscar mais amplo ou mais específico que o nicho, sem mudar de qual equipe o lead será.'
+                  : 'O que procurar no Maps. Use o idioma/local do país sem mudar o nicho que define a equipe.'}
+                onChange={(e) => setAvulsa({ ...avulsa, termo: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 text-sm" />
+            </Campo>
             <SeletorPaisLocalidade
               pais={avulsa.pais || 'BR'}
               cidade={avulsa.cidade}

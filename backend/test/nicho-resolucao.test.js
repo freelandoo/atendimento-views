@@ -56,7 +56,16 @@ test('sqlResolverNichoId: parametros customizados (coluna/placeholder) sao respe
   assert.match(sql, /lower\(BTRIM\(\$2,/)
 })
 
-// ─── Guardas de regressao: os TRES pontos de aprovacao reusam a mesma fonte ──────────────
+// ─── Guardas de regressao: salvamento/aprovacao reusam a mesma fonte ─────────────────────
+
+test('GUARDA: salvarProspect resolve nicho_id ao materializar lead novo sem fuzzy', () => {
+  const src = ler('src/prospecting.js')
+  const bloco = src.slice(src.indexOf('async function salvarProspect('), src.indexOf('async function salvarProspects'))
+  assert.match(src, /SQL_RESOLVER_NICHO_AO_SALVAR = sqlResolverNichoId/)
+  assert.match(bloco, /nicho_id\s*\)/, 'INSERT precisa incluir nicho_id')
+  assert.match(bloco, /nicho_id = COALESCE\(prospectador\.prospects\.nicho_id, EXCLUDED\.nicho_id\)/,
+    'recoleta nao pode mover lead entre equipes em silencio')
+})
 
 test('GUARDA: atualizarStatusProspect (aprovar 1 a 1) resolve nicho_id so ao APROVAR', () => {
   const src = ler('src/prospecting.js')

@@ -138,7 +138,7 @@ type Analytics = {
     mensagens_enviadas: number; respostas: number; taxa_resposta: number
     diagnostico: number; proposta: number; reunioes: number; fechados: number
   }
-  melhores: { categoria: Rank | null; cidade: Rank | null; horario: Rank | null }
+  melhores: { categoria: Rank | null; cidade: Rank | null; horario: Rank | null; abordagem?: Rank | null }
 }
 type OpcaoFiltroMercado = { valor: string; total: number }
 type FiltrosMercado = {
@@ -1350,10 +1350,11 @@ export default function ProspeccaoPainel({
                       <Mini title="Reuniões" value={analytics!.metricas.reunioes} />
                       <Mini title="Fechados" value={analytics!.metricas.fechados} />
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                       <Destaque title="Melhor nicho" rank={analytics!.melhores.categoria} />
                       <Destaque title="Melhor cidade" rank={analytics!.melhores.cidade} />
                       <Destaque title="Melhor horário" rank={analytics!.melhores.horario} />
+                      <Destaque title="Melhor abordagem" rank={analytics!.melhores.abordagem || null} />
                     </div>
                   </div>
                 )}
