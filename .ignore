@@ -1,0 +1,13 @@
+# Lido por ripgrep, fd e afins (NAO pelo git — quem ignora para o git e o .gitignore).
+#
+# POR QUE: as tarefas de agente criam git worktrees DENTRO do repositorio
+# (.claude/worktrees/, .codex/worktrees/). Cada uma e uma copia completa do codigo, entao uma
+# busca por qualquer simbolo devolve o mesmo trecho 20 vezes — uma da arvore real e 19 de
+# copias congeladas de tarefas antigas. Em 2026-09-23 isso produziu falso positivo numa
+# varredura de remocao de codigo: o simbolo "ja removido" continuava aparecendo, vindo de
+# worktrees.
+#
+# Isto NAO apaga nada: as worktrees continuam registradas (`git worktree list`) e utilizaveis.
+# So deixam de poluir busca de texto.
+.claude/worktrees/
+.codex/worktrees/

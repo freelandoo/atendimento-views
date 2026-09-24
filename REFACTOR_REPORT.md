@@ -159,7 +159,7 @@ Detalhe e evidência em **`LEGACY_REVIEW.md`**.
 | R6 | 82 endpoints ainda dentro de god files (`agent.js` 7.475 linhas) | decisão consciente (D1); cercados e cobertos pelo contrato de rotas |
 | R7 | Paginação/filtros client-side com teto de 1.000 no Banco de Leads e Captação | não tocado — muda UX, exige sua autorização |
 | R8 | Catálogo de modelos de IA defasado (`gpt-3.5-turbo`, sem a geração Claude 5) e tabela de preços hardcoded | não tocado |
-| R9 | 23 worktrees e ~40 branches poluindo busca e grep | não tocado |
+| R9 | ~~23 worktrees e ~40 branches poluindo busca e grep~~ — **tratado** em 2026-09-24 | O dano real era a BUSCA: cada worktree é uma cópia completa do código, então um grep devolvia o mesmo trecho ~20 vezes (em 2026-09-23 isso produziu falso positivo numa varredura de remoção). `.ignore` na raiz tira `.claude/worktrees/` e `.codex/worktrees/` do ripgrep/fd **sem apagar nada**. Além disso, 24 worktrees que estavam **limpas E com o trabalho já fundido no master** foram removidas (de 33 para 9). As que tinham alteração pendente ou commit não fundido **ficaram** |
 | R10 | ~~Dockerfile com `npm install`, sem `--omit=dev`, com `RUN npm install pg`~~ — **resolvido** em 2026-09-24 | `npm ci --omit=dev` (a imagem passa a reproduzir o lockfile que o CI testa), `RUN npm install pg` removido (instalava a versão mais nova por cima da travada, furando o lockfile no driver do banco) e `.dockerignore` novo (o contexto de build empacotava `node_modules/`, `.git/` e o `.env`). `ENV NODE_ENV=production` **não** foi declarado: nesta aplicação ela liga cookie Secure e SSL do banco |
 
 ## 9. O que eu errei nesta sessão
