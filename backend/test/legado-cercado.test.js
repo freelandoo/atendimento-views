@@ -101,8 +101,17 @@ test('o dashboard estatico legado nao volta a existir', () => {
 
 // ─── A autenticacao legada nao ganha consumidor novo ─────────────────────────────────────
 
+// Um arquivo pode EXPLICAR o legado em comentario sem USAR o legado — e explicar por que algo
+// nao depende mais dele e' justamente o que se quer que esteja escrito. Casar no texto cru
+// transformava cada explicacao num falso positivo (aconteceu em 2026-09-24, com
+// db/agenda-usuario-ancora.js). Inspeciona-se o CODIGO.
+const semComentarios = (txt) => txt
+  .split(String.fromCharCode(10))
+  .filter((l) => !l.trim().startsWith('//'))
+  .join(String.fromCharCode(10))
+
 test('so os modulos ja existentes falam com a autenticacao legada', () => {
-  const usam = FONTES.filter((f) => /require\(.*dashboardAuth.*\)|dashboardAuth\./.test(f.conteudo))
+  const usam = FONTES.filter((f) => /require\(.*dashboardAuth.*\)|dashboardAuth\./.test(semComentarios(f.conteudo)))
     .map((f) => f.rel)
     .sort()
 

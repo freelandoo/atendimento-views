@@ -2,6 +2,7 @@
 
 const crypto = require('crypto')
 const { pool } = require('./db')
+const { garantirAncoraDaAgenda } = require('./db/agenda-usuario-ancora')
 const { logger } = require('./logger')
 
 const COOKIE_NAME = 'pj_dashboard_session'
@@ -153,28 +154,12 @@ async function ensureDashboardAuthReady() {
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_dashboard_audit_user_criado ON vendas.dashboard_audit_log (user_id, criado_em DESC)`)
 
-  const { rows } = await pool.query(`SELECT COUNT(*)::int AS total FROM vendas.dashboard_users WHERE ativo = true`)
-  if (rows[0]?.total > 0) return
-
-  const email = String(process.env.DASHBOARD_ADMIN_EMAIL || '').trim().toLowerCase()
-  const password = String(process.env.DASHBOARD_ADMIN_PASSWORD || '')
-  if (!email || !password) {
-    throw new Error('DASHBOARD_ADMIN_EMAIL e DASHBOARD_ADMIN_PASSWORD sao obrigatorios para criar o primeiro admin')
-  }
-  if (password.length < 12) {
-    throw new Error('DASHBOARD_ADMIN_PASSWORD precisa ter ao menos 12 caracteres')
-  }
-  const passwordHash = await hashPassword(password)
-  await pool.query(
-    `INSERT INTO vendas.dashboard_users (email, nome, role, password_hash, ativo)
-     VALUES ($1, $2, 'admin', $3, true)
-     ON CONFLICT (email) DO UPDATE SET
-       password_hash = EXCLUDED.password_hash,
-       ativo = true,
-       role = 'admin',
-       atualizado_em = NOW()`,
-    [email, email, passwordHash]
-  )
+  // A SEMENTE da primeira linha nao mora mais aqui: ela e' a ancora de que a AGENDA do bot
+  // depende (`vendas.agenda_eventos.usuario_id` e' NOT NULL e aponta para esta tabela), e
+  // precisa sobreviver a aposentadoria do dashboard legado. Dono unico:
+  // `db/agenda-usuario-ancora.js`, chamado tambem pelo initDB. Idempotente — chamar duas vezes
+  // custa um COUNT e nao duplica linha.
+  await garantirAncoraDaAgenda(pool)
 }
 
 async function loadSession(req) {

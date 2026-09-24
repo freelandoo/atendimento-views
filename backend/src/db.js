@@ -5,6 +5,7 @@ const { Pool } = require('pg')
 const { logger } = require('./logger')
 const { runMigrations } = require('./db/migrations')
 const { avaliarDestino, mensagemDeBloqueio } = require('./services/destino-migrations')
+const { garantirAncoraDaAgenda } = require('./db/agenda-usuario-ancora')
 const ROOT = path.join(__dirname, '..')
 const JOB_MAX_ATTEMPTS = Math.min(
   Math.max(parseInt(process.env.JOB_MAX_ATTEMPTS, 10) || 5, 1),
@@ -885,6 +886,13 @@ async function initDB() {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_ai_logs_created ON vendas.ai_logs (created_at DESC)`
   )
+  // A linha ANCORA de vendas.dashboard_users: `vendas.agenda_eventos.usuario_id` e NOT NULL e
+  // aponta para ela, e tanto a agenda do bot quanto o espelho do bloqueio (migration 090) leem
+  // "o primeiro usuario ativo". O SCHEMA vem do init.sql acima; aqui garante-se a LINHA.
+  // Mora em db/agenda-usuario-ancora.js, e nao no dashboardAuth, para sobreviver a
+  // aposentadoria do dashboard legado.
+  await garantirAncoraDaAgenda(pool)
+
   await initProspectadorDB()
   await initProspeccaoOrquestracaoDB()
   // Migrações versionadas do schema `app` (multiempresa SaaS): empresas,
