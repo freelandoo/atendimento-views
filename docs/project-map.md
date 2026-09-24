@@ -128,7 +128,7 @@ mantinha 24 arquivos fora da suíte). Além dos testes de regra, há três guard
 | `autorizacao-rotas.test.js` | toda rota com `requireCapacidade` exercitada contra os 4 papéis |
 
 ⚠️ **Nunca rode `node --test` sem argumento**: o padrão de descoberta do Node captura
-`scripts/test-evolution-send.js`, que **envia mensagem real de WhatsApp**.
+`scripts/enviar-teste-evolution.js`, que **envia mensagem real de WhatsApp**.
 
 ## `backend/scripts/` (24)
 12 com entrada no `package.json` (backfills, medições, reclassificações — os de medição rodam

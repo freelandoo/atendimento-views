@@ -90,7 +90,8 @@ npm run build
 ```
 
 ⚠️ **Nunca rode `node --test` sem argumento** no backend: o padrão de descoberta do Node captura
-`scripts/test-evolution-send.js`, que **envia mensagem real de WhatsApp**. O `npm test` usa o
+`scripts/*.test.js` fosse descoberto por engano. O script que **envia mensagem real de WhatsApp**
+foi renomeado para `scripts/enviar-teste-evolution.js`, fora do padrao `test-*`. O `npm test` usa o
 glob `test/*.test.js` justamente para não alcançá-lo.
 
 Além dos testes de regra, a suíte tem guardas estruturais que quebram o build de propósito:

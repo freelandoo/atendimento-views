@@ -176,7 +176,7 @@ As seções acima continuam valendo como **registro histórico** do que foi medi
 
 **A partir daqui, `npm test` do backend DEVE sair com exit 0.** As 2 falhas de 429 não eram ambientais: eram bug de teste (ver commit `a023a68`). Nenhuma falha é mais tolerada.
 
-⚠️ **Nunca rode `node --test` sem argumento neste repositório.** O padrão de descoberta do Node inclui `test-*.js` e ele captura `scripts/test-evolution-send.js`, que **envia mensagem real de WhatsApp** pela Evolution API. O `npm test` usa o glob `test/*.test.js` justamente para não alcançá-lo.
+⚠️ **Nunca rode `node --test` sem argumento neste repositório.** O padrão de descoberta do Node inclui `test-*.js`. Em 2026-09-24 o script que **envia mensagem real de WhatsApp** foi renomeado para `scripts/enviar-teste-evolution.js`, fora desse padrão. O `npm test` usa o glob `test/*.test.js` justamente para não alcançá-lo.
 
 ⚠️ **O `npm test` depende do globbing do próprio Node** (o script passa o padrão entre aspas). Isso exige **Node ≥ 22** — que é o que a máquina de desenvolvimento usa. O `Dockerfile` (Node 20) **não roda testes**, então produção não é afetada.
 

@@ -468,8 +468,8 @@
   (instância inativa, de outra empresa ou de outro canal) e exige ação dele. As duas rotas de
   API também **declaram `empresaId`**, porque a conversa pode ser ÓRFÃ (`empresa_id IS NULL`,
   alcançável pela PJ) e a empresa da conversa sozinha não provaria nada.
-- **`scripts/test-evolution-send.js` exige a instância como ARGUMENTO** (`node
-  scripts/test-evolution-send.js <instancia>`): ele manda mensagem REAL e lia
+- **`scripts/enviar-teste-evolution.js` exige a instância como ARGUMENTO** (`node
+  scripts/enviar-teste-evolution.js <instancia>`): ele manda mensagem REAL e lia
   `process.env.EVOLUTION_INSTANCE || 'PJ'` — um default silencioso mandaria pelo número de
   outra empresa. Não virou variável de ambiente de propósito.
 - **Funções REMOVIDAS de `src/whatsapp.js`:** a constante `INSTANCE_NAME`, `getInstanceNameForUser`

@@ -269,7 +269,7 @@ npx tsc --noEmit && npm test && npm run build
 
 `npm test` do backend roda `test/*.test.js` por glob e **tem de sair com exit 0** — não há falha
 tolerada. ⚠️ **Nunca rode `node --test` sem argumento**: o padrão de descoberta do Node captura
-`scripts/test-evolution-send.js`, que envia mensagem real de WhatsApp.
+`scripts/enviar-teste-evolution.js`, que envia mensagem real de WhatsApp.
 
 Quatro guardas estruturais quebram o build de propósito:
 

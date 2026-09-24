@@ -71,11 +71,11 @@ tinha entrada em `npm scripts` e nenhum era citado por código. Os scripts opera
 (`run-migration.js`, `clonar-prod-para-local.sh`, `dump-prompts.js`, `push-overlay.js`,
 `test-evolution-send.js`, `agendar-reuniao.js`, `update-ai-model.js`) **continuam**.
 
-⚠️ **Continua valendo o aviso sobre `scripts/test-evolution-send.js`:** o nome casa com o padrão
-de descoberta de testes do Node, então `node --test` **sem argumento** o executa — e ele **envia
-mensagem real de WhatsApp**. O `npm test` usa o glob `test/*.test.js` justamente para não
-alcançá-lo. Renomeá-lo removeria a armadilha, mas mudaria um comando que pode estar anotado; não
-foi feito.
+✅ **A armadilha do `test-evolution-send.js` foi REMOVIDA em 2026-09-24.** O nome casava com o
+padrão de descoberta do Node, então `node --test` **sem argumento** o executava — e ele **envia
+mensagem real de WhatsApp**. Renomeado para **`scripts/enviar-teste-evolution.js`**, e
+`test/scripts-seguros.test.js` passou a falhar se qualquer arquivo de `scripts/` voltar a casar
+com `test-*.js`, `*.test.js` ou `test.js`. O `npm test` continua usando o glob `test/*.test.js`.
 
 ### 2.5 `backend/sql/migracao_analise_estruturada.sql` — ✅ RESOLVIDO (movido, 2026-09-23)
 

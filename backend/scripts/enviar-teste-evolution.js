@@ -4,7 +4,7 @@
  * Script de diagnóstico para testar diferentes formatos de payload
  * contra a API Evolution em produção, sem expor credenciais.
  *
- * Uso: EVOLUTION_TEST_NUMBER=5511987654321 node scripts/test-evolution-send.js <instancia>
+ * Uso: EVOLUTION_TEST_NUMBER=5511987654321 node scripts/enviar-teste-evolution.js <instancia>
  *
  * A instância é ARGUMENTO OBRIGATÓRIO, sem default. Ela era lida de
  * `process.env.EVOLUTION_INSTANCE || 'PJ'` — o mesmo fallback global que a Fase 2 removeu do
@@ -32,14 +32,14 @@ if (!EVOLUTION_KEY) {
 
 if (!INSTANCE_NAME || !/^[a-zA-Z0-9_-]+$/.test(INSTANCE_NAME)) {
   console.error('❌ Instância não informada (ou inválida).')
-  console.error('Uso: EVOLUTION_TEST_NUMBER=5511987654321 node scripts/test-evolution-send.js <instancia>')
+  console.error('Uso: EVOLUTION_TEST_NUMBER=5511987654321 node scripts/enviar-teste-evolution.js <instancia>')
   console.error('Informe o nome técnico da instância que você quer testar — não há default.')
   process.exit(1)
 }
 
 if (!TEST_NUMBER) {
   console.error('❌ EVOLUTION_TEST_NUMBER não configurada')
-  console.error('Uso: EVOLUTION_TEST_NUMBER=5511987654321 node scripts/test-evolution-send.js')
+  console.error('Uso: EVOLUTION_TEST_NUMBER=5511987654321 node scripts/enviar-teste-evolution.js')
   process.exit(1)
 }
 
