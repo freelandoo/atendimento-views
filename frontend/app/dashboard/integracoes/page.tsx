@@ -4,7 +4,6 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useSession, podePapel } from '@/lib/useSession'
 import { temCapacidade } from '@/lib/capacidades'
-import LeadSearchApiKeys from '@/components/LeadSearchApiKeys'
 import Card from '@/components/ui/Card'
 
 // Configurações › Integrações — PONTO DE ENTRADA.
@@ -23,8 +22,9 @@ type Integracao = {
   nome: string
   descricao: string
   estado: Estado
-  icone: 'meta' | 'crm' | 'agenda' | 'pagamentos' | 'anuncios'
+  icone: 'meta' | 'api' | 'crm' | 'agenda' | 'pagamentos' | 'anuncios'
   href?: string
+  somenteSuperadmin?: boolean
 }
 
 const INTEGRACOES: Integracao[] = [
@@ -35,6 +35,15 @@ const INTEGRACOES: Integracao[] = [
     estado: 'disponivel',
     icone: 'meta',
     href: '/dashboard/integracoes/meta',
+  },
+  {
+    id: 'lead-search-api',
+    nome: 'API de busca de leads',
+    descricao: 'Cria e administra códigos externos para a API pública de busca de leads em volume.',
+    estado: 'disponivel',
+    icone: 'api',
+    href: '/dashboard/integracoes/api-busca-leads',
+    somenteSuperadmin: true,
   },
 ]
 
@@ -59,6 +68,8 @@ export default function IntegracoesPage() {
     return <p className="text-sm text-ink-3">Carregando...</p>
   }
 
+  const integracoesVisiveis = INTEGRACOES.filter((it) => !it.somenteSuperadmin || superadmin)
+
   return (
     <div className="space-y-6">
       <div>
@@ -70,7 +81,7 @@ export default function IntegracoesPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {INTEGRACOES.map((it) => (
+        {integracoesVisiveis.map((it) => (
           <article key={it.id} className="rounded-lg border border-line bg-surface p-5 shadow-card">
             <div className="flex items-start gap-3">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-surface-3 text-ink-2">
@@ -105,19 +116,6 @@ export default function IntegracoesPage() {
         ))}
       </div>
 
-      {superadmin && (
-        <section className="space-y-3" aria-label="API de busca de leads">
-          <div>
-            <h2 className="text-sm font-semibold text-ink">API de busca de leads</h2>
-            <p className="mt-1 max-w-3xl text-sm text-ink-3">
-              Área de plataforma. Só superadmin cria, revoga e rotaciona códigos externos.
-              A tela de Aquisição consome o motor internamente sem precisar destes códigos.
-            </p>
-          </div>
-          <LeadSearchApiKeys />
-        </section>
-      )}
-
       <Card titulo="Próximas integrações" descricao="Elas entram aqui como novos cards, sem crescer o menu principal.">
         <ul className="mt-4 grid gap-3 sm:grid-cols-2">
           {PROXIMAS.map((p) => (
@@ -149,6 +147,12 @@ function Icone({ nome }: { nome: Integracao['icone'] }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="h-5 w-5">
       {nome === 'meta' && <path {...common} d="M3 15c0-4 2-8 4.5-8S11 12 12 12s2-5 4.5-5S21 11 21 15a3 3 0 0 1-5.5 1.7M8.5 16.7A3 3 0 0 1 3 15" />}
+      {nome === 'api' && (
+        <>
+          <path {...common} d="M4 7h16M4 12h16M4 17h10" />
+          <path {...common} d="M17 16l2 2 2-2M19 18v-5" />
+        </>
+      )}
       {nome === 'crm' && (
         <>
           <circle {...common} cx="9" cy="8" r="3" />

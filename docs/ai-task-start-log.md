@@ -5613,3 +5613,11 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   afetar outros usuarios.
 - **Documento atualizado:** `docs/modelo-cargos-acessos.md` virou a definicao atual do modelo,
   nao mais apenas uma proposta.
+
+## 2026-09-24 — Integracoes: API de busca de leads em pagina propria
+
+- **Pedido:** a API de busca de leads deve seguir o mesmo padrao visual da Meta Conversions:
+  card na tela de Integracoes e configuracao em pagina filha.
+- **Implementacao:** removida a configuracao inline da pagina principal e criado o caminho
+  `/dashboard/integracoes/api-busca-leads`, exclusivo para `superadmin`, reaproveitando o
+  componente administrativo de codigos ja existente.
