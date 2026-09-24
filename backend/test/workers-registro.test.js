@@ -5,6 +5,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const { WORKERS, iniciarWorkers } = require('../src/workers')
+const { WORKER_MODULES } = require('../src/workers/registry')
 
 const FONTE_INDEX = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8')
 
@@ -24,12 +25,31 @@ test('o registro lista exatamente os workers que o processo roda', () => {
     'job-worker',
     'silence-watcher',
     'captacao-social',
+    'lead-search',
     'lead-lock',
     'banco-leads-auto',
-    'lead-search',
     'whatsapp-verificacao',
     'freelandoo-playbook-refresh',
   ])
+})
+
+test('os workers ficam agrupados por modulo operacional', () => {
+  assert.deepEqual(WORKER_MODULES.map((m) => m.grupo), [
+    'atendimento',
+    'captacao',
+    'banco-leads',
+    'freelandoo',
+  ])
+
+  const grupos = Object.fromEntries(
+    WORKER_MODULES.map((m) => [m.grupo, m.workers.map((w) => w.nome)])
+  )
+  assert.deepEqual(grupos, {
+    atendimento: ['job-worker', 'silence-watcher'],
+    captacao: ['captacao-social', 'lead-search'],
+    'banco-leads': ['lead-lock', 'banco-leads-auto', 'whatsapp-verificacao'],
+    freelandoo: ['freelandoo-playbook-refresh'],
+  })
 })
 
 test('so o motor de atendimento e essencial', () => {
@@ -43,7 +63,10 @@ test('so o motor de atendimento e essencial', () => {
 test('todo worker declara nome, descricao e como iniciar', () => {
   for (const w of WORKERS) {
     assert.match(w.nome, /^[a-z0-9-]+$/, 'nome em kebab-case')
+    assert.match(w.grupo, /^[a-z0-9-]+$/, `${w.nome} sem grupo operacional`)
     assert.ok(w.descricao && w.descricao.length > 10, `${w.nome} sem descricao util`)
+    assert.ok(w.cadencia && w.cadencia.length > 3, `${w.nome} sem cadencia documentada`)
+    assert.ok(w.risco && w.risco.length > 3, `${w.nome} sem risco documentado`)
     assert.equal(typeof w.iniciar, 'function')
     assert.equal(typeof w.essencial, 'boolean')
   }
@@ -133,14 +156,41 @@ test('index.js inicia workers SO pelo registro', () => {
   }
 })
 
-test('o registro nao carrega os modulos de worker so por ser importado', () => {
+test('o registro nao carrega services de worker so por ser importado', () => {
   // O `require` de cada worker e' lazy dentro do `iniciar`. Se subisse para o topo do modulo,
   // importar o registro (num teste, num script) arrastaria rotas, pool e clientes HTTP junto.
-  const fonte = fs.readFileSync(path.join(__dirname, '..', 'src', 'workers', 'index.js'), 'utf8')
-  const requiresNoTopo = fonte
-    .split(/\r?\n/)
-    .filter((l) => /^const .*= require\(/.test(l))
-    .map((l) => l.match(/require\('([^']+)'\)/)?.[1])
-    .filter(Boolean)
-  assert.deepEqual(requiresNoTopo, ['../logger'], 'so o logger pode ser carregado no topo')
+  const arquivos = [
+    path.join(__dirname, '..', 'src', 'workers', 'index.js'),
+    path.join(__dirname, '..', 'src', 'workers', 'runtime.js'),
+    path.join(__dirname, '..', 'src', 'workers', 'registry.js'),
+    path.join(__dirname, '..', 'src', 'workers', 'modules', 'atendimento.js'),
+    path.join(__dirname, '..', 'src', 'workers', 'modules', 'banco-leads.js'),
+    path.join(__dirname, '..', 'src', 'workers', 'modules', 'captacao.js'),
+    path.join(__dirname, '..', 'src', 'workers', 'modules', 'freelandoo.js'),
+  ]
+
+  const permitidos = new Set([
+    './registry',
+    './runtime',
+    '../logger',
+    './modules/atendimento',
+    './modules/captacao',
+    './modules/banco-leads',
+    './modules/freelandoo',
+  ])
+
+  const proibidos = []
+  for (const arquivo of arquivos) {
+    const fonte = fs.readFileSync(arquivo, 'utf8')
+    const requiresNoTopo = fonte
+      .split(/\r?\n/)
+      .filter((l) => /^const .*= require\(/.test(l))
+      .map((l) => l.match(/require\('([^']+)'\)/)?.[1])
+      .filter(Boolean)
+    for (const req of requiresNoTopo) {
+      if (!permitidos.has(req)) proibidos.push(`${path.basename(arquivo)} -> ${req}`)
+    }
+  }
+
+  assert.deepEqual(proibidos, [], 'services/rotas de worker precisam ser lazy dentro de iniciar')
 })

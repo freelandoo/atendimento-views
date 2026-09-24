@@ -5645,3 +5645,26 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Cuidados:** nao enviar mensagem real nem consumir credito de coleta; nao mudar schema sem
   confirmacao; manter qualificacao operacional separada de score/ICP e manter envio dependente
   da porta `avaliarAbordagem`.
+
+## 2026-09-24 — Modularizacao do catalogo de workers
+
+- **Pedido:** organizar os workers do aplicativo por modulos/areas para facilitar leitura e
+  manutencao, deixando planejado onde outros processos de fundo podem ser formalizados depois.
+- **Escopo aprovado:** refatorar somente o registro/catalogo dos workers iniciados no boot, sem
+  alterar comportamento interno, banco, envs ou rotas.
+- **Areas previstas:** `backend/src/workers/*`, testes de registro de workers e documentacao de
+  arquitetura/decisoes.
+- **Cuidados:** preservar inicializacao centralizada via `iniciarWorkers`, manter `require` lazy
+  dos services, documentar grupo/cadencia/risco e continuar impedindo worker escondido no boot.
+
+## 2026-09-24 — Abordagem IA com oferta de site pronto auditavel
+
+- **Pedido:** melhorar o modal de abordagem do Banco de Leads para permitir marcar se a IA deve
+  chegar dizendo que ja existe um site pronto/oferta pronta, separado das secoes por nicho.
+- **Areas previstas:** `frontend/app/dashboard/banco-leads/page.tsx`,
+  `backend/src/services/abordagem-inicial-contrato.js`,
+  `backend/src/services/prospecting-message-generation.js`, rotas/configuracao do Banco de Leads,
+  e analiticos de performance da prospeccao.
+- **Cuidados:** manter a regra no backend, deixar a variante usada persistida no historico da
+  mensagem para auditoria, nao enviar WhatsApp real durante a validacao e nao criar migration sem
+  confirmar impacto.

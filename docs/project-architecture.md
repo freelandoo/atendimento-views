@@ -137,3 +137,12 @@ continua sendo a fonte de papel/capacidade; `app.equipes_comerciais` define o re
 por `nicho_id`, e `app.equipe_comercial_membros` guarda o historico de participantes. O recorte
 obrigatorio futuro deve consultar essa estrutura por ID e por `empresa_id`, nunca por nome de
 nicho nem por papel literal. A etapa atual nao aplica filtro nas telas operacionais.
+
+### 2026-09-24 - Workers catalogados por modulo
+
+Workers de fundo iniciados no boot ficam centralizados em `backend/src/workers`. A fachada
+`index.js` exporta `WORKERS` e `iniciarWorkers`; `runtime.js` guarda a politica de largada e
+falha; `registry.js` junta os modulos; `modules/*` lista os workers por area operacional. Services
+e rotas continuam com a logica de dominio, carregados de forma lazy dentro de `iniciar`. Worker
+novo deve declarar grupo, descricao, cadencia e risco, e nunca ser iniciado diretamente em
+`backend/index.js`.

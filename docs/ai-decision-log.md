@@ -4502,3 +4502,21 @@ passa a ordenar `aprovado` antes dos demais abordáveis.
 **Decisão 3 — SPIN antes de BANT.** A mensagem fria usa situação real, oportunidade/implicação leve
 e uma pergunta de ganho. Budget, autoridade e prazo ficam fora da primeira abordagem, porque nessa
 fase geram atrito e não ajudam a obter resposta inicial.
+
+## 2026-09-24 — Catalogo modular de workers
+
+**Decisão 1 — worker novo entra por modulo operacional.** O boot continua chamando apenas
+`iniciarWorkers`, mas o catalogo foi dividido em `workers/modules/*` por area do produto:
+`atendimento`, `captacao`, `banco-leads` e `freelandoo`. Isso torna visivel o que roda sozinho
+sem misturar logica de dominio no registro.
+
+**Decisão 2 — runtime separado do catalogo.** A politica de largada/falha fica em
+`workers/runtime.js`; o catalogo e a ordem de inicio ficam em `workers/registry.js`. Assim testes
+podem validar a lista sem carregar rotas, pool ou clientes HTTP.
+
+**Decisão 3 — metadados obrigatorios.** Cada worker declara `grupo`, `descricao`, `cadencia` e
+`risco`, alem de `essencial` e `iniciar`. O campo `risco` explicita se a rotina envia WhatsApp,
+consome credito pago, usa IA ou altera leads.
+
+**Fora de escopo:** formalizar ticks internos do `agent.js`, monitoramento do pool em `db.js` ou
+rotinas sob demanda como workers. Esses candidatos ficam planejados no README da pasta.
