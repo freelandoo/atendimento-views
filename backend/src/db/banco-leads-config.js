@@ -66,7 +66,7 @@ async function salvarConfigBancoLeads(pool, empresaId, patch = {}) {
     ? atual.instrucoes_ia
     : (patch.instrucoes_ia == null || String(patch.instrucoes_ia).trim() === ''
         ? null
-        : String(patch.instrucoes_ia).slice(0, 2000))
+        : String(patch.instrucoes_ia).slice(0, 6000))
   // Campos do modo Automático.
   const autoAtivo = typeof patch.auto_ativo === 'boolean' ? patch.auto_ativo : atual.auto_ativo
   const autoInstanciaId = patch.auto_instancia_id === undefined

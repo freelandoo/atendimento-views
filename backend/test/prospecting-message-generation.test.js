@@ -46,6 +46,8 @@ function criarPoolMensagemFake(opts = {}) {
       raw_json: {},
       data_execucao: '2026-05-25',
       modo_execucao: 'manual',
+      banco_leads_instrucoes_ia: opts.instrucoes_ia || null,
+      ...(opts.fila || {}),
     },
   }
 
@@ -163,6 +165,57 @@ test('mensagem fila: gera IA somente para item simulado com slot e salva no item
   assert.ok(pool.state.queries.some((q) => /SET mensagem_gerada/i.test(q.sql)))
   assert.equal(pool.state.queries.some((q) => /INSERT INTO vendas\.job_queue/i.test(q.sql)), false)
   assert.equal(pool.state.queries.some((q) => /send_attempts/i.test(q.sql)), false)
+})
+
+test('mensagem fila: usa oferta especifica do nicho quando existe no cadastro da abordagem', async () => {
+  const instrucoes = [
+    '[ABORDAGEM_IA_CONFIG]',
+    JSON.stringify({
+      idiomaAutomatico: true,
+      ofertas: [
+        { id: 'geral', nome: 'Site com CRM completo', descricao: 'Oferta geral para qualquer nicho', geral: true, ativo: true },
+        { id: 'solar', nome: 'Site para energia solar', descricao: 'Oferta solar com captacao de orcamentos', nicho: 'energia solar', ativo: true },
+      ],
+    }),
+    '[/ABORDAGEM_IA_CONFIG]',
+  ].join('\n')
+  const pool = criarPoolMensagemFake({
+    instrucoes_ia: instrucoes,
+    fila: {
+      categoria: null,
+      prospect_nicho: 'Energia Solar',
+      nome_lead: 'Solar Boa Vista',
+      prospect_nome: 'Solar Boa Vista',
+    },
+  })
+  const chamadas = []
+  const aiProvider = {
+    generateAIResponse: async (input) => {
+      chamadas.push(input)
+      return {
+        text: JSON.stringify({
+          schema_version: 'abordagem_inicial_v1',
+          mensagem: 'Opa, tudo bem? Sou da PJ Codeworks. Ja deixei uma previa de site pronta aqui no atendimento para Solar Boa Vista. Vi que voces atuam com energia solar. Hoje o site ja ajuda a captar orcamentos?',
+          angulo: 'sem_site',
+          sinais_usados: ['energia solar'],
+          pergunta_final: 'Hoje o site ja ajuda a captar orcamentos?',
+          confianca: 0.84,
+        }),
+        provider: 'openai',
+        model: 'gpt-4o',
+        fallback_used: false,
+      }
+    },
+  }
+
+  await gerarMensagemParaItemFila(pool, FILA_ID, { aiProvider })
+
+  assert.equal(chamadas.length, 1)
+  assert.match(chamadas[0].userPrompt, /Site para energia solar/)
+  assert.match(chamadas[0].userPrompt, /Oferta solar com captacao de orcamentos/)
+  assert.doesNotMatch(chamadas[0].userPrompt, /Oferta geral para qualquer nicho/)
+  assert.equal(pool.state.fila.metadata_json.mensagem_ia.oferta_abordagem.id, 'solar')
+  assert.equal(pool.state.decisoes[0].input_json.oferta_abordagem.id, 'solar')
 })
 
 test('mensagem fila: bloqueia geracao para item aguardando agendamento', async () => {

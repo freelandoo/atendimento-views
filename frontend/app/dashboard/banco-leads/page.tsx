@@ -195,11 +195,17 @@ type PrevisaoEnvio = {
 }
 type ConfigAbordagemIa = {
   gerarIa: boolean
-  oferta: string
-  descricao: string
-  nicho: string
   idiomaAutomatico: boolean
   complemento: string
+  ofertas: OfertaAbordagemIa[]
+}
+type OfertaAbordagemIa = {
+  id: string
+  nome: string
+  descricao: string
+  nicho: string
+  ativo: boolean
+  geral: boolean
 }
 // Progresso da preparação das mensagens (barra). A geração roda no worker de fundo.
 type GeracaoProgresso = { eligiveis: number; prontas: number; gerando: number; enviados: number; erros: number }
@@ -209,70 +215,106 @@ type ProgressoLoteManual = { total: number; processados: number; prontas: number
 
 const MAX_LOTE = 15
 const STATUS_RODAVEL = new Set(['coletado', 'contato_encontrado', 'aguardando', 'aprovado'])
-const ABORDAGEM_IA_INICIO = '[ABORDAGEM_IA]'
-const ABORDAGEM_IA_FIM = '[/ABORDAGEM_IA]'
+const ABORDAGEM_IA_INICIO = '[ABORDAGEM_IA_CONFIG]'
+const ABORDAGEM_IA_FIM = '[/ABORDAGEM_IA_CONFIG]'
+const ABORDAGEM_IA_LEGADO_INICIO = '[ABORDAGEM_IA]'
+const ABORDAGEM_IA_LEGADO_FIM = '[/ABORDAGEM_IA]'
 const CONFIG_ABORDAGEM_PADRAO: ConfigAbordagemIa = {
   gerarIa: true,
-  oferta: '',
-  descricao: '',
-  nicho: '',
   idiomaAutomatico: true,
   complemento: '',
+  ofertas: [],
 }
 
 function textoLimpo(v: unknown, max = 600) {
   return String(v == null ? '' : v).trim().slice(0, max)
 }
 
-function campoDoBloco(bloco: string, rotulo: string) {
-  const rx = new RegExp(`^${rotulo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:\\s*(.*)$`, 'im')
-  return textoLimpo(rx.exec(bloco)?.[1] || '')
+function novaOfertaAbordagem(parcial: Partial<OfertaAbordagemIa> = {}): OfertaAbordagemIa {
+  return {
+    id: parcial.id || `oferta-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    nome: textoLimpo(parcial.nome, 180),
+    descricao: textoLimpo(parcial.descricao, 700),
+    nicho: textoLimpo(parcial.nicho, 180),
+    ativo: parcial.ativo !== false,
+    geral: parcial.geral === true,
+  }
+}
+
+function ofertaLegadaDoBloco(bloco: string): OfertaAbordagemIa | null {
+  const campo = (rotulo: string) => {
+    const rx = new RegExp(`^${rotulo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:\\s*(.*)$`, 'im')
+    return textoLimpo(rx.exec(bloco)?.[1] || '')
+  }
+  const nome = campo('Oferta')
+  const descricao = campo('Descricao')
+  const nicho = campo('Nicho alvo')
+  if (!nome && !descricao && !nicho) return null
+  return novaOfertaAbordagem({ nome, descricao, nicho, geral: !nicho, ativo: true })
 }
 
 function extrairConfigAbordagemIa(instrucoes: string | null | undefined, gerarIa: boolean): ConfigAbordagemIa {
   const texto = String(instrucoes || '')
-  const ini = texto.indexOf(ABORDAGEM_IA_INICIO)
-  const fim = texto.indexOf(ABORDAGEM_IA_FIM)
+  let inicioTag = ABORDAGEM_IA_INICIO
+  let fimTag = ABORDAGEM_IA_FIM
+  let ini = texto.indexOf(inicioTag)
+  let fim = texto.indexOf(fimTag)
   if (ini < 0 || fim <= ini) {
-    return { ...CONFIG_ABORDAGEM_PADRAO, gerarIa, complemento: texto.trim() }
+    inicioTag = ABORDAGEM_IA_LEGADO_INICIO
+    fimTag = ABORDAGEM_IA_LEGADO_FIM
+    ini = texto.indexOf(inicioTag)
+    fim = texto.indexOf(fimTag)
   }
-  const bloco = texto.slice(ini + ABORDAGEM_IA_INICIO.length, fim)
+  if (ini < 0 || fim <= ini) {
+    return { ...CONFIG_ABORDAGEM_PADRAO, gerarIa, complemento: texto.trim(), ofertas: [] }
+  }
+  const bloco = texto.slice(ini + inicioTag.length, fim)
   const antes = texto.slice(0, ini).trim()
-  const depois = texto.slice(fim + ABORDAGEM_IA_FIM.length).trim()
-  const complemento = [antes, depois.replace(/^INSTRUCOES COMPLEMENTARES\s*/i, '').trim()].filter(Boolean).join('\n\n')
-  return {
-    gerarIa,
-    oferta: campoDoBloco(bloco, 'Oferta'),
-    descricao: campoDoBloco(bloco, 'Descricao'),
-    nicho: campoDoBloco(bloco, 'Nicho alvo'),
-    idiomaAutomatico: !/^Idioma automatico:\s*nao/im.test(bloco),
-    complemento,
+  const depois = texto.slice(fim + fimTag.length).trim()
+  const complementoLegado = [antes, depois.replace(/^INSTRUCOES COMPLEMENTARES\s*/i, '').trim()].filter(Boolean).join('\n\n')
+  try {
+    const parsed = JSON.parse(bloco)
+    const ofertas = Array.isArray(parsed?.ofertas)
+      ? parsed.ofertas.map((o: Partial<OfertaAbordagemIa>) => novaOfertaAbordagem(o)).filter((o: OfertaAbordagemIa) => o.nome || o.descricao)
+      : []
+    return {
+      gerarIa,
+      idiomaAutomatico: parsed?.idiomaAutomatico !== false,
+      complemento: textoLimpo(parsed?.complemento || complementoLegado, 900),
+      ofertas,
+    }
+  } catch {
+    const oferta = ofertaLegadaDoBloco(bloco)
+    return {
+      gerarIa,
+      idiomaAutomatico: !/^Idioma automatico:\s*nao/im.test(bloco),
+      complemento: complementoLegado,
+      ofertas: oferta ? [oferta] : [],
+    }
   }
 }
 
 function montarInstrucoesAbordagemIa(form: ConfigAbordagemIa) {
-  const linhas = [
-    ABORDAGEM_IA_INICIO,
-    `Oferta: ${textoLimpo(form.oferta, 180) || 'site profissional com tecnologia para gerar contatos'}`,
-    `Descricao: ${textoLimpo(form.descricao, 700) || 'Use a oferta como contexto comercial da primeira abordagem.'}`,
-    `Nicho alvo: ${textoLimpo(form.nicho, 180) || 'todos os nichos da carteira'}`,
-    `Idioma automatico: ${form.idiomaAutomatico ? 'sim' : 'nao'}`,
-    form.idiomaAutomatico
-      ? 'Regra de idioma: se os dados do lead indicarem outro pais ou idioma, escreva a primeira mensagem no idioma/variante desse lead.'
-      : 'Regra de idioma: manter portugues do Brasil, salvo instrucao manual abaixo.',
-    ABORDAGEM_IA_FIM,
-  ]
-  const complemento = textoLimpo(form.complemento, 700)
-  if (complemento) linhas.push('', 'INSTRUCOES COMPLEMENTARES', complemento)
-  return linhas.join('\n').slice(0, 2000)
+  const payload = {
+    version: 1,
+    idiomaAutomatico: form.idiomaAutomatico !== false,
+    complemento: textoLimpo(form.complemento, 900),
+    ofertas: form.ofertas
+      .map((o) => novaOfertaAbordagem(o))
+      .filter((o) => o.nome || o.descricao)
+      .slice(0, 12),
+  }
+  return [ABORDAGEM_IA_INICIO, JSON.stringify(payload), ABORDAGEM_IA_FIM].join('\n').slice(0, 6000)
 }
 
 function resumoAbordagemIa(instrucoes: string | null | undefined) {
   const cfg = extrairConfigAbordagemIa(instrucoes, true)
-  if (cfg.oferta && cfg.nicho) return `${cfg.oferta} · ${cfg.nicho}`
-  if (cfg.oferta) return cfg.oferta
+  const ativas = cfg.ofertas.filter((o) => o.ativo)
+  const geral = ativas.find((o) => o.geral)
+  if (ativas.length > 1) return `${ativas.length} ofertas ativas${geral ? ` · geral: ${geral.nome}` : ''}`
+  if (ativas[0]) return ativas[0].geral ? `${ativas[0].nome} · geral` : `${ativas[0].nome} · ${ativas[0].nicho || 'sem nicho'}`
   if (cfg.complemento) return 'Instrucoes personalizadas'
-  return 'Oferta padrao'
+  return 'Sem oferta cadastrada'
 }
 
 // Modos de disparo do Banco de Leads.
@@ -3986,12 +4028,73 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
   const fb = useFeedback()
   const [salvando, setSalvando] = useState(false)
   const [form, setForm] = useState<ConfigAbordagemIa>(() => extrairConfigAbordagemIa(config.instrucoes_ia, config.gerar_ia))
+  const [editandoId, setEditandoId] = useState<string | null>(null)
+  const [rascunho, setRascunho] = useState<OfertaAbordagemIa>(() => novaOfertaAbordagem({ geral: false }))
   const instrucoes = montarInstrucoesAbordagemIa(form)
   const contador = instrucoes.length
+  const ofertaGeral = form.ofertas.find((o) => o.geral) || novaOfertaAbordagem({ id: 'oferta-geral', geral: true, ativo: true })
+  const ofertasOrdenadas = form.ofertas
+    .filter((o) => !o.geral)
+    .sort((a, b) => Number(b.ativo) - Number(a.ativo) || a.nome.localeCompare(b.nome, 'pt-BR'))
+  const nichosSugeridos = nichos.slice(0, 10)
+  const ofertasAtivas = form.ofertas.filter((o) => o.ativo && (o.nome || o.descricao))
 
   useEffect(() => {
-    setForm(extrairConfigAbordagemIa(config.instrucoes_ia, config.gerar_ia))
+    const cfg = extrairConfigAbordagemIa(config.instrucoes_ia, config.gerar_ia)
+    setForm(cfg)
+    const primeira = cfg.ofertas.find((o) => !o.geral)
+    setRascunho(primeira || novaOfertaAbordagem({ geral: false }))
+    setEditandoId(primeira?.id || null)
   }, [config.instrucoes_ia, config.gerar_ia])
+
+  function atualizarOfertaGeral(patch: Partial<OfertaAbordagemIa>) {
+    setForm((atual) => {
+      const atualGeral = atual.ofertas.find((o) => o.geral) || novaOfertaAbordagem({ id: 'oferta-geral', geral: true, ativo: true })
+      const geral = novaOfertaAbordagem({ ...atualGeral, ...patch, geral: true, ativo: true, nicho: '' })
+      return { ...atual, ofertas: [geral, ...atual.ofertas.filter((o) => !o.geral)] }
+    })
+  }
+
+  function novaOferta() {
+    setEditandoId(null)
+    setRascunho(novaOfertaAbordagem({ geral: false, ativo: true, nicho: nichoAtual }))
+  }
+
+  function editarOferta(oferta: OfertaAbordagemIa) {
+    setEditandoId(oferta.id)
+    setRascunho(novaOfertaAbordagem(oferta))
+  }
+
+  function salvarOfertaLocal() {
+    const oferta = novaOfertaAbordagem({ ...rascunho, geral: false })
+    if (!oferta.nome.trim()) {
+      fb.toast('Informe o nome da oferta.', 'error')
+      return
+    }
+    if (!oferta.nicho.trim()) {
+      fb.toast('Escolha o nicho desta exceção.', 'error')
+      return
+    }
+    setForm((atual) => {
+      const semAtual = atual.ofertas.filter((o) => o.id !== (editandoId || oferta.id))
+      return { ...atual, ofertas: [...semAtual, oferta] }
+    })
+    setEditandoId(oferta.id)
+    setRascunho(oferta)
+    fb.toast('Oferta atualizada na lista. Salve a abordagem para gravar.')
+  }
+
+  function alternarOferta(id: string, ativo: boolean) {
+    setForm((atual) => ({
+      ...atual,
+      ofertas: atual.ofertas.map((o) => (o.id === id ? { ...o, ativo } : o)),
+    }))
+  }
+
+  function removerOferta(id: string) {
+    setForm((atual) => ({ ...atual, ofertas: atual.ofertas.filter((o) => o.id !== id) }))
+    if (editandoId === id) novaOferta()
+  }
 
   async function salvar() {
     setSalvando(true)
@@ -4020,7 +4123,11 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
       rodape={
         <>
           <Botao variante="neutra" onClick={onClose} disabled={salvando}>Cancelar</Botao>
-          <Botao variante="primaria" onClick={salvar} carregando={salvando}>Salvar abordagem</Botao>
+          <Botao variante="primaria" onClick={salvar} carregando={salvando}
+            disabled={contador > 6000}
+            motivoDesabilitado={contador > 6000 ? 'A configuração passou do limite de tamanho.' : undefined}>
+            Salvar abordagem
+          </Botao>
         </>
       }
     >
@@ -4034,56 +4141,158 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
           Gerar primeira abordagem por IA
         </label>
 
-        <div>
-          <label htmlFor="abordagem-oferta" className="mb-1 block text-xs font-medium text-ink-3">Oferta</label>
-          <input
-            id="abordagem-oferta"
-            value={form.oferta}
-            maxLength={180}
-            onChange={(e) => setForm((f) => ({ ...f, oferta: e.target.value }))}
-            placeholder="Ex.: site com CRM completo"
-            className={classesEntrada()}
-          />
+        <div className="space-y-3 rounded-lg border border-line bg-surface-2 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">Oferta padrão</p>
+            <span className="rounded-full border border-line bg-surface px-2 py-1 text-xs font-medium text-ink-3">Geral</span>
+          </div>
+          <div>
+            <label htmlFor="abordagem-oferta-geral" className="mb-1 block text-xs font-medium text-ink-3">Oferta</label>
+            <input
+              id="abordagem-oferta-geral"
+              value={ofertaGeral.nome}
+              maxLength={180}
+              onChange={(e) => atualizarOfertaGeral({ nome: e.target.value })}
+              placeholder="Ex.: site com CRM completo"
+              className={classesEntrada()}
+            />
+          </div>
+          <div>
+            <label htmlFor="abordagem-descricao-geral" className="mb-1 block text-xs font-medium text-ink-3">Descrição rápida</label>
+            <textarea
+              id="abordagem-descricao-geral"
+              value={ofertaGeral.descricao}
+              maxLength={700}
+              rows={3}
+              onChange={(e) => atualizarOfertaGeral({ descricao: e.target.value })}
+              placeholder="Ex.: criação de site profissional integrado a funil, CRM e WhatsApp para captar e acompanhar novos clientes."
+              className={classesEntrada()}
+            />
+          </div>
         </div>
 
-        <div>
-          <label htmlFor="abordagem-descricao" className="mb-1 block text-xs font-medium text-ink-3">Descrição rápida</label>
-          <textarea
-            id="abordagem-descricao"
-            value={form.descricao}
-            maxLength={700}
-            rows={4}
-            onChange={(e) => setForm((f) => ({ ...f, descricao: e.target.value }))}
-            placeholder="Ex.: criação de site profissional integrado a funil, CRM e WhatsApp para captar e acompanhar novos clientes."
-            className={classesEntrada()}
-          />
-        </div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.9fr)]">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">Exceções por nicho</p>
+              <div className="flex gap-1.5">
+                <Botao variante="neutra" tamanho="sm" onClick={novaOferta}>Nova exceção</Botao>
+              </div>
+            </div>
 
-        <div>
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <label htmlFor="abordagem-nicho" className="block text-xs font-medium text-ink-3">Nicho-alvo</label>
-            {nichoAtual && (
-              <button
-                type="button"
-                onClick={() => setForm((f) => ({ ...f, nicho: nichoAtual }))}
-                className="text-xs font-medium text-brand hover:text-brand-dark"
-              >
-                Usar filtro atual
-              </button>
+            {ofertasOrdenadas.length === 0 ? (
+              <div className="rounded-lg border border-line bg-surface-2 px-3 py-4 text-sm text-ink-3">
+                Nenhuma exceção cadastrada.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {ofertasOrdenadas.map((oferta) => (
+                  <div key={oferta.id}
+                    className={`rounded-lg border px-3 py-2 ${editandoId === oferta.id ? 'border-brand bg-brand/5' : 'border-line bg-surface'}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <button type="button" onClick={() => editarOferta(oferta)}
+                        className="min-w-0 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand">
+                        <span className="block truncate text-sm font-semibold text-ink">{oferta.nome || 'Oferta sem nome'}</span>
+                        <span className="mt-0.5 block text-xs text-ink-3">
+                          {oferta.nicho || 'Sem nicho'} · {oferta.ativo ? 'Ativa' : 'Desativada'}
+                        </span>
+                      </button>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button type="button" onClick={() => alternarOferta(oferta.id, !oferta.ativo)}
+                          className={`rounded-md px-2 py-1 text-xs font-medium ${oferta.ativo ? 'bg-surface text-estado-ok' : 'bg-surface-3 text-ink-3'}`}>
+                          {oferta.ativo ? 'Ativa' : 'Desativada'}
+                        </button>
+                        <button type="button" onClick={() => removerOferta(oferta.id)}
+                          className="rounded-md px-2 py-1 text-xs font-medium text-estado-danger hover:bg-surface-3">
+                          Remover
+                        </button>
+                      </div>
+                    </div>
+                    {oferta.descricao && <p className="mt-1 line-clamp-2 text-xs text-ink-2">{oferta.descricao}</p>}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-          <input
-            id="abordagem-nicho"
-            list="abordagem-nichos"
-            value={form.nicho}
-            maxLength={180}
-            onChange={(e) => setForm((f) => ({ ...f, nicho: e.target.value }))}
-            placeholder="Ex.: clínicas de estética"
-            className={classesEntrada()}
-          />
-          <datalist id="abordagem-nichos">
-            {nichos.map((n) => <option key={n.valor} value={n.valor} />)}
-          </datalist>
+
+          <div className="space-y-3 rounded-lg border border-line bg-surface-2 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">
+              {editandoId ? 'Editar exceção' : 'Nova exceção'}
+            </p>
+
+            <div>
+              <label htmlFor="abordagem-oferta" className="mb-1 block text-xs font-medium text-ink-3">Oferta</label>
+              <input
+                id="abordagem-oferta"
+                value={rascunho.nome}
+                maxLength={180}
+                onChange={(e) => setRascunho((o) => ({ ...o, nome: e.target.value }))}
+                placeholder="Ex.: site com CRM completo"
+                className={classesEntrada()}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="abordagem-descricao" className="mb-1 block text-xs font-medium text-ink-3">Descrição rápida</label>
+              <textarea
+                id="abordagem-descricao"
+                value={rascunho.descricao}
+                maxLength={700}
+                rows={4}
+                onChange={(e) => setRascunho((o) => ({ ...o, descricao: e.target.value }))}
+                placeholder="Ex.: criação de site profissional integrado a funil, CRM e WhatsApp para captar e acompanhar novos clientes."
+                className={classesEntrada()}
+              />
+            </div>
+
+            <div>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <label htmlFor="abordagem-nicho" className="block text-xs font-medium text-ink-3">Nicho</label>
+                {nichoAtual && (
+                  <button type="button" onClick={() => setRascunho((o) => ({ ...o, nicho: nichoAtual }))}
+                    className="text-xs font-medium text-brand hover:text-brand-dark">
+                    Usar filtro atual
+                  </button>
+                )}
+              </div>
+              <input
+                id="abordagem-nicho"
+                list="abordagem-nichos"
+                value={rascunho.nicho}
+                maxLength={180}
+                onChange={(e) => setRascunho((o) => ({ ...o, nicho: e.target.value }))}
+                placeholder="Ex.: clínicas de estética"
+                className={classesEntrada()}
+              />
+              <datalist id="abordagem-nichos">
+                {nichos.map((n) => <option key={n.valor} value={n.valor} />)}
+              </datalist>
+              {nichosSugeridos.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {nichosSugeridos.map((n) => (
+                    <button key={n.valor} type="button"
+                      onClick={() => setRascunho((o) => ({ ...o, nicho: n.valor }))}
+                      className="rounded-full border border-line bg-surface px-2 py-1 text-xs text-ink-2 hover:bg-surface-3">
+                      {n.valor}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <label className="flex items-center gap-2 text-sm font-medium text-ink-2">
+              <input
+                type="checkbox"
+                checked={rascunho.ativo}
+                onChange={(e) => setRascunho((o) => ({ ...o, ativo: e.target.checked }))}
+              />
+              Oferta ativa
+            </label>
+
+            <Botao variante="primaria" onClick={salvarOfertaLocal} larguraTotal>
+              {editandoId ? 'Atualizar exceção' : 'Adicionar exceção'}
+            </Botao>
+          </div>
         </div>
 
         <label className="flex items-start gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink-2">
@@ -4114,8 +4323,8 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
 
         <div className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-xs text-ink-3">
           <span className="font-semibold text-ink-2">Resumo salvo:</span>{' '}
-          {form.oferta || 'oferta padrão'} · {form.nicho || 'todos os nichos'} · {form.idiomaAutomatico ? 'idioma automático' : 'pt-BR fixo'}
-          <span className={`ml-2 tabular-nums ${contador > 1900 ? 'text-estado-warn' : 'text-ink-3'}`}>{contador}/2000</span>
+          {ofertasAtivas.length} oferta(s) ativa(s) · {ofertaGeral.nome || 'sem oferta padrão'} · {form.idiomaAutomatico ? 'idioma automático' : 'pt-BR fixo'}
+          <span className={`ml-2 tabular-nums ${contador > 5600 ? 'text-estado-warn' : 'text-ink-3'}`}>{contador}/6000</span>
         </div>
       </div>
     </FolhaModal>
@@ -4138,7 +4347,6 @@ function TestarEnvioModal({ empresaId, base, instancia, config, motivoTesteIndis
   const [salvando, setSalvando] = useState(false)
   const [texto, setTexto] = useState(instancia.config_json?.saudacao || '')
   const [gerarIa, setGerarIa] = useState(config.gerar_ia)
-  const [instrucoes, setInstrucoes] = useState(config.instrucoes_ia || '')
   const fb = useFeedback()
   const baseInst = `/api/empresas/${empresaId}/whatsapp/${instancia.id}`
 
@@ -4159,7 +4367,7 @@ function TestarEnvioModal({ empresaId, base, instancia, config, motivoTesteIndis
     try {
       await apiFetch(baseInst, { method: 'PATCH', body: JSON.stringify({ saudacao: texto }) })
       const r = await apiFetch<Config>(`${base}/config`, {
-        method: 'PUT', body: JSON.stringify({ gerar_ia: gerarIa, instrucoes_ia: instrucoes }),
+        method: 'PUT', body: JSON.stringify({ gerar_ia: gerarIa, instrucoes_ia: config.instrucoes_ia }),
       })
       onSavedTemplate(texto)
       onSavedConfig(r.data)
@@ -4211,12 +4419,9 @@ function TestarEnvioModal({ empresaId, base, instancia, config, motivoTesteIndis
             <input type="checkbox" checked={gerarIa} onChange={(e) => setGerarIa(e.target.checked)} />
             Gerar a mensagem por IA com análise do lead
           </label>
-          <div>
-            <label className="block text-xs text-ink-3 mb-1">Instruções extras para a IA (tom, oferta, CTA)</label>
-            <textarea value={instrucoes} onChange={(e) => setInstrucoes(e.target.value)} rows={3}
-              placeholder="Ex.: tom informal, oferta de site profissional, sempre convidar para uma conversa rápida."
-              className="w-full border rounded-lg px-3 py-2 text-sm" />
-          </div>
+          <p className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-xs text-ink-3">
+            Oferta e tratamento da primeira abordagem: <b className="text-ink-2">{resumoAbordagemIa(config.instrucoes_ia)}</b>. Use o botão <b>Abordagem IA</b> no topo da tela para editar a lista.
+          </p>
           <div>
             <label className="block text-xs text-ink-3 mb-1">Saudação de fallback (usada se a IA falhar ou estiver desligada)</label>
             <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={4}

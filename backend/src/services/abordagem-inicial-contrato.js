@@ -5,6 +5,8 @@ const { classificarLead } = require('./site-classificacao')
 
 const ABORDAGEM_SCHEMA_VERSION = 'abordagem_inicial_v1'
 const MAX_MENSAGEM_CHARS = 600
+const ABORDAGEM_IA_CONFIG_INICIO = '[ABORDAGEM_IA_CONFIG]'
+const ABORDAGEM_IA_CONFIG_FIM = '[/ABORDAGEM_IA_CONFIG]'
 const ANGULOS_ABORDAGEM = Object.freeze([
   'sem_site',
   'site_construtor',
@@ -17,6 +19,15 @@ const ANGULOS_ABORDAGEM = Object.freeze([
 function texto(valor, max = 500) {
   const out = String(valor == null ? '' : valor).trim()
   return out ? out.slice(0, max) : ''
+}
+
+function normalizarBusca(valor) {
+  return texto(valor, 180)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
 }
 
 function numero(valor) {
@@ -49,6 +60,79 @@ function normalizarLeadEntrada(entrada = {}) {
     fonte: texto(entrada.fonte || entrada.origem || '', 80),
     lacunas: Array.isArray(entrada.lacunas) ? entrada.lacunas.map((x) => texto(x, 80)).filter(Boolean) : [],
     pontuacao: entrada.pontuacao || null,
+  }
+}
+
+function extrairJsonConfigAbordagem(instrucoes = '') {
+  const bruto = String(instrucoes || '')
+  const ini = bruto.indexOf(ABORDAGEM_IA_CONFIG_INICIO)
+  const fim = bruto.indexOf(ABORDAGEM_IA_CONFIG_FIM)
+  if (ini < 0 || fim <= ini) return null
+  const json = bruto.slice(ini + ABORDAGEM_IA_CONFIG_INICIO.length, fim).trim()
+  try {
+    const parsed = JSON.parse(json)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function sanitizarOfertaAbordagem(oferta = {}) {
+  return {
+    id: texto(oferta.id, 80),
+    nome: texto(oferta.nome || oferta.oferta, 180),
+    descricao: texto(oferta.descricao, 700),
+    nicho: texto(oferta.nicho, 180),
+    ativo: oferta.ativo !== false,
+    geral: oferta.geral === true,
+  }
+}
+
+function ofertaCombinaComLead(oferta, lead) {
+  if (!oferta || oferta.geral || !oferta.nicho) return false
+  const alvo = normalizarBusca(oferta.nicho)
+  if (!alvo) return false
+  const campos = [lead.nicho, lead.prospect_nicho, lead.categoria, lead.categoria_perfil, lead.fonte]
+    .map(normalizarBusca)
+    .filter(Boolean)
+  return campos.some((campo) => campo === alvo || campo.includes(alvo) || alvo.includes(campo))
+}
+
+function selecionarOfertaAbordagem(instrucoes = '', dadosLead = {}) {
+  const config = extrairJsonConfigAbordagem(instrucoes)
+  if (!config) return { instrucoes: texto(instrucoes, 4000), oferta: null, config: null }
+  const lead = normalizarLeadEntrada(dadosLead)
+  const ofertas = Array.isArray(config.ofertas)
+    ? config.ofertas.map(sanitizarOfertaAbordagem).filter((o) => o.nome || o.descricao)
+    : []
+  const ativas = ofertas.filter((o) => o.ativo)
+  const especifica = ativas.find((o) => !o.geral && ofertaCombinaComLead(o, lead))
+  const geral = ativas.find((o) => o.geral)
+  const oferta = especifica || geral || ativas[0] || null
+  const complemento = texto(config.complemento, 900)
+  const idiomaAutomatico = config.idiomaAutomatico !== false
+  const linhas = []
+  if (oferta) {
+    linhas.push('OFERTA SELECIONADA PELO APLICATIVO')
+    linhas.push(`Nome: ${oferta.nome}`)
+    if (oferta.descricao) linhas.push(`Descricao: ${oferta.descricao}`)
+    linhas.push(`Escopo: ${oferta.geral ? 'geral' : `nicho ${oferta.nicho || '(sem nicho)'}`}`)
+  }
+  linhas.push(idiomaAutomatico
+    ? 'Idioma: adaptar ao pais/idioma do lead quando houver sinal nos dados.'
+    : 'Idioma: manter portugues do Brasil, salvo instrucao manual complementar.')
+  if (complemento) {
+    linhas.push('INSTRUCOES COMPLEMENTARES')
+    linhas.push(complemento)
+  }
+  return {
+    instrucoes: linhas.join('\n'),
+    oferta,
+    config: {
+      idiomaAutomatico,
+      complemento,
+      ofertas,
+    },
   }
 }
 
@@ -205,6 +289,7 @@ function normalizarContratoAbordagem(textoBruto, estrategia = {}) {
 }
 
 function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conhecimento = '', instrucoes = '', nomeEmpresa = '' }) {
+  const abordagem = selecionarOfertaAbordagem(instrucoes, dadosLead)
   const schema = {
     schema_version: ABORDAGEM_SCHEMA_VERSION,
     mensagem: 'texto final da primeira mensagem de WhatsApp, maximo 500 caracteres',
@@ -234,11 +319,12 @@ function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conheciment
     userPrompt: [
       `REGRAS\n${regras.map((r, i) => `${i + 1}. ${r}`).join('\n')}`,
       conhecimento ? `CONHECIMENTO DA EMPRESA\n${conhecimento}` : '',
-      instrucoes ? `INSTRUCOES EXTRAS DA EMPRESA\n${instrucoes}` : '',
+      abordagem.instrucoes ? `INSTRUCOES EXTRAS DA EMPRESA\n${abordagem.instrucoes}` : '',
       `ESTRATEGIA CALCULADA PELO APP\n${JSON.stringify(estrategia, null, 2)}`,
       `DADOS DO LEAD\n${JSON.stringify(dadosLead, null, 2)}`,
       'JSON DE SAIDA',
     ].filter(Boolean).join('\n\n'),
+    oferta_abordagem: abordagem.oferta || null,
   }
 }
 
@@ -251,4 +337,5 @@ module.exports = {
   normalizarContratoAbordagem,
   renderMensagemAbordagemFallback,
   avisoSiteProntoPresente,
+  selecionarOfertaAbordagem,
 }

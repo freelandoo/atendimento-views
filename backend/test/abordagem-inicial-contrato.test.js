@@ -8,6 +8,7 @@ const {
   normalizarContratoAbordagem,
   renderMensagemAbordagemFallback,
   avisoSiteProntoPresente,
+  selecionarOfertaAbordagem,
 } = require('../src/services/abordagem-inicial-contrato')
 
 test('abordagem inicial: prioriza angulo de site em construtor', () => {
@@ -104,4 +105,40 @@ test('abordagem inicial: prompt manda adaptar idioma pela localidade do lead', (
   assert.match(prompt.userPrompt, /Estados Unidos/)
   assert.match(prompt.userPrompt, /ingles/)
   assert.match(prompt.userPrompt, /Portugal/)
+})
+
+test('abordagem inicial: oferta especifica do nicho vence a oferta geral', () => {
+  const instrucoes = [
+    '[ABORDAGEM_IA_CONFIG]',
+    JSON.stringify({
+      idiomaAutomatico: true,
+      ofertas: [
+        { id: 'geral', nome: 'Site com CRM completo', descricao: 'Oferta geral', geral: true, ativo: true },
+        { id: 'solar', nome: 'Site para energia solar', descricao: 'Oferta solar', nicho: 'energia solar', geral: false, ativo: true },
+      ],
+    }),
+    '[/ABORDAGEM_IA_CONFIG]',
+  ].join('\n')
+
+  const out = selecionarOfertaAbordagem(instrucoes, { empresa: { nicho: 'Energia Solar' } })
+  assert.equal(out.oferta.nome, 'Site para energia solar')
+  assert.match(out.instrucoes, /Oferta solar/)
+})
+
+test('abordagem inicial: oferta desativada nao participa da selecao', () => {
+  const instrucoes = [
+    '[ABORDAGEM_IA_CONFIG]',
+    JSON.stringify({
+      idiomaAutomatico: true,
+      ofertas: [
+        { id: 'geral', nome: 'Site com CRM completo', descricao: 'Oferta geral', geral: true, ativo: true },
+        { id: 'solar', nome: 'Site para energia solar', descricao: 'Oferta solar', nicho: 'energia solar', ativo: false },
+      ],
+    }),
+    '[/ABORDAGEM_IA_CONFIG]',
+  ].join('\n')
+
+  const out = selecionarOfertaAbordagem(instrucoes, { nicho: 'Energia Solar' })
+  assert.equal(out.oferta.nome, 'Site com CRM completo')
+  assert.doesNotMatch(out.instrucoes, /Oferta solar/)
 })

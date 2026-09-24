@@ -78,11 +78,13 @@ async function buscarItemFilaParaMensagem(pool, filaId) {
       p.qualificacao,
       p.raw_json,
       p.empresa_id,
+      cfg.instrucoes_ia AS banco_leads_instrucoes_ia,
       e.data_execucao,
       e.modo AS modo_execucao
     FROM prospectador.prospeccao_fila_diaria f
     LEFT JOIN prospectador.prospects p ON p.id = f.prospect_id
     LEFT JOIN prospectador.prospeccao_execucoes_diarias e ON e.id = f.execucao_id
+    LEFT JOIN app.banco_leads_config cfg ON cfg.empresa_id = f.empresa_id
     WHERE f.id = $1::uuid
     LIMIT 1
     `,
@@ -135,6 +137,7 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
       qualificacao: row.qualificacao || null,
     },
     nomeEmpresa: nomeEmp,
+    instrucoes: row.banco_leads_instrucoes_ia || '',
   })
 
   try {
@@ -166,6 +169,7 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
         prompt_version: PROMPT_VERSION,
         fallback: true,
         estrategia,
+        oferta_abordagem: promptContrato.oferta_abordagem || null,
         contrato: null,
       }
     }
@@ -176,6 +180,7 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
       prompt_version: PROMPT_VERSION,
       fallback: result.fallback_used === true,
       estrategia,
+      oferta_abordagem: promptContrato.oferta_abordagem || null,
       contrato,
     }
   } catch (err) {
@@ -194,6 +199,7 @@ async function gerarMensagemProspeccaoIA(row, deps = {}) {
       prompt_version: PROMPT_VERSION,
       fallback: true,
       estrategia,
+      oferta_abordagem: promptContrato.oferta_abordagem || null,
       contrato: null,
     }
   }
@@ -220,6 +226,7 @@ async function salvarMensagemGerada(pool, row, geracao) {
           model: geracao.model,
           fallback: geracao.fallback === true,
           angulo: geracao.estrategia?.angulo || geracao.contrato?.angulo || null,
+          oferta_abordagem: geracao.oferta_abordagem || null,
           sinais_usados: geracao.contrato?.sinais_usados || geracao.estrategia?.sinais || [],
           gerada_em: new Date().toISOString(),
         },
@@ -250,6 +257,7 @@ async function registrarDecisaoMensagem(pool, row, geracao) {
         nome_lead: row.nome_lead || row.prospect_nome || null,
         categoria: row.categoria || row.prospect_nicho || null,
         cidade: row.cidade || row.prospect_cidade || null,
+        oferta_abordagem: geracao.oferta_abordagem || null,
         estrategia: geracao.estrategia || null,
       }),
       JSON.stringify({
