@@ -155,12 +155,12 @@ Detalhe e evidência em **`LEGACY_REVIEW.md`**.
 | R2 | `npm test` depende do globbing do Node ⇒ exige **Node ≥22** | o Dockerfile (Node 20) não roda testes; documentado no README |
 | R3 | `node --test` sem argumento executa `scripts/test-evolution-send.js`, que **envia WhatsApp real** | avisado em README, ARCHITECTURE e project-map. Renomear o script removeria a armadilha |
 | R4 | Migrations aplicadas no boot, sem dry-run contra banco real | agora atômicas + 12 guardas estruturais; **falta** smoke contra Postgres limpo |
-| R5 | `backend/.env` aponta `DATABASE_URL` para **produção** (`postgres.railway.internal`) | não resolve fora da Railway, mas é uma arma carregada no diretório de dev |
+| R5 | ~~`backend/.env` aponta `DATABASE_URL` para **produção**~~ — **mitigado** em 2026-09-24 | O `.env` continua apontando para lá (é a credencial de trabalho do operador), mas o boot deixou de ser perigoso: `services/destino-migrations.js` só aplica migrations em banco **local**, a menos que o processo **prove** ser produção (`NODE_ENV=production` **ou** qualquer `RAILWAY_*`). Verificado contra o `.env` real: o boot para e **zero** consultas chegam ao banco. Não há variável de ambiente para furar a guarda |
 | R6 | 82 endpoints ainda dentro de god files (`agent.js` 7.475 linhas) | decisão consciente (D1); cercados e cobertos pelo contrato de rotas |
 | R7 | Paginação/filtros client-side com teto de 1.000 no Banco de Leads e Captação | não tocado — muda UX, exige sua autorização |
 | R8 | Catálogo de modelos de IA defasado (`gpt-3.5-turbo`, sem a geração Claude 5) e tabela de preços hardcoded | não tocado |
 | R9 | 23 worktrees e ~40 branches poluindo busca e grep | não tocado |
-| R10 | Dockerfile com `npm install` (não `npm ci`), sem `--omit=dev`, com `RUN npm install pg` redundante | não tocado |
+| R10 | ~~Dockerfile com `npm install`, sem `--omit=dev`, com `RUN npm install pg`~~ — **resolvido** em 2026-09-24 | `npm ci --omit=dev` (a imagem passa a reproduzir o lockfile que o CI testa), `RUN npm install pg` removido (instalava a versão mais nova por cima da travada, furando o lockfile no driver do banco) e `.dockerignore` novo (o contexto de build empacotava `node_modules/`, `.git/` e o `.env`). `ENV NODE_ENV=production` **não** foi declarado: nesta aplicação ela liga cookie Secure e SSL do banco |
 
 ## 9. O que eu errei nesta sessão
 
