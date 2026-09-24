@@ -61,6 +61,12 @@ const WORKERS = Object.freeze([
     iniciar: ({ pool }) => require('../services/lead-search-worker').iniciarLeadSearchWorker(pool),
   },
   {
+    nome: 'whatsapp-verificacao',
+    essencial: false,
+    descricao: 'Verifica periodicamente se leads com telefone possuem conta WhatsApp, sem enviar mensagem.',
+    iniciar: ({ pool }) => require('../services/whatsapp-verificacao-worker').iniciarWhatsappVerificacaoWorker(pool),
+  },
+  {
     nome: 'freelandoo-playbook-refresh',
     essencial: false,
     // Primeiro tick 10 min apos a largada, depois a cada 24h — por isso sair da secao de rotas

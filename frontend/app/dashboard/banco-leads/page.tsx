@@ -481,7 +481,7 @@ type ViewConfig = {
   versao?: number
   cols: Record<string, boolean>
   site: Filtro3; social: Filtro3; email: Filtro3; telefone: Filtro3
-  envio: 'todos' | 'possivel' | 'impossivel'
+  envio: 'todos' | 'possivel' | 'impossivel' | 'nao_verificado'
   statusLead: string
   msgGerada: Filtro3
   icp: 'todos' | 'A' | 'B' | 'C' | 'sem_icp'
@@ -611,6 +611,7 @@ function passaFiltrosView(l: Lead, v: ViewConfig): boolean {
   if (v.telefone === 'sem' && temTel) return false
   if (v.envio === 'possivel' && l.tem_whatsapp !== true) return false
   if (v.envio === 'impossivel' && l.tem_whatsapp !== false) return false
+  if (v.envio === 'nao_verificado' && l.tem_whatsapp !== null) return false
   if (v.statusLead !== 'todos' && statusOperacionalDoLead(l).chave !== v.statusLead) return false
   if (v.msgGerada === 'com' && !l.mensagem_gerada) return false
   if (v.msgGerada === 'sem' && l.mensagem_gerada) return false
@@ -677,6 +678,7 @@ function chipsDaView(v: ViewConfig): string[] {
   if (v.telefone !== 'todos') c.push(v.telefone === 'com' ? 'Com telefone' : 'Sem telefone')
   if (v.envio === 'possivel') c.push('Envio possível')
   if (v.envio === 'impossivel') c.push('Sem WhatsApp')
+  if (v.envio === 'nao_verificado') c.push('WhatsApp não verificado')
   if (v.statusLead !== 'todos') c.push(`Status: ${STATUS_LEAD_VISUAL[v.statusLead]?.rotulo || v.statusLead}`)
   if (v.msgGerada !== 'todos') c.push(v.msgGerada === 'com' ? 'Com mensagem' : 'Sem mensagem')
   if (v.icp !== 'todos') c.push(v.icp === 'sem_icp' ? 'Sem ICP' : `Lead ${v.icp}`)
@@ -939,6 +941,7 @@ export default function BancoLeadsPage() {
     if (mercado) p.set('mercado', mercado)
     if (cidadeFiltro) p.set('cidade', cidadeFiltro)
     if (busca.trim()) p.set('busca', busca.trim())
+    if (view.envio !== 'todos') p.set('envio', view.envio)
     return p.toString()
   }
 
@@ -971,6 +974,7 @@ export default function BancoLeadsPage() {
       if (mercado) p.set('mercado', mercado)
       if (cidadeFiltro) p.set('cidade', cidadeFiltro)
       if (busca.trim()) p.set('busca', busca.trim())
+      if (view.envio !== 'todos') p.set('envio', view.envio)
       // Recorte por RESPONSÁVEL (Etapa 4). Quem decide o que este pedido pode ver é o backend:
       // pedir `todos` sem poder devolve "meus + livres", e o `meta.escopo` diz o que veio.
       if (escopo) p.set('escopo', escopo)
@@ -981,7 +985,7 @@ export default function BancoLeadsPage() {
       setMetaLista(r.meta || null)
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao carregar leads.') }
     finally { setCarregando(false) }
-  }, [base, empresaId, recortePronto, aba, origem, mercado, cidadeFiltro, busca, escopo])
+  }, [base, empresaId, recortePronto, aba, origem, mercado, cidadeFiltro, busca, escopo, view.envio])
 
   const carregarFiltrosMercado = useCallback(async () => {
     if (!empresaId || !recortePronto) return
@@ -1913,6 +1917,7 @@ export default function BancoLeadsPage() {
   /** Atalhos de 1 clique. Não são filtros novos: escrevem os mesmos valores de `view`. */
   const chipsRapidos = ([
     { chave: 'com_whatsapp', label: 'Com WhatsApp', ativo: view.envio === 'possivel', onClick: () => patchView({ envio: view.envio === 'possivel' ? 'todos' : 'possivel' }) },
+    { chave: 'whatsapp_pendente', label: 'Não verificados', ativo: view.envio === 'nao_verificado', onClick: () => patchView({ envio: view.envio === 'nao_verificado' ? 'todos' : 'nao_verificado' }) },
     { chave: 'sem_site', label: 'Sem site próprio', ativo: view.site === 'sem', onClick: () => patchView({ site: view.site === 'sem' ? 'todos' : 'sem' }) },
     { chave: 'com_social', label: 'Com rede social', ativo: view.social === 'com', onClick: () => patchView({ social: view.social === 'com' ? 'todos' : 'com' }) },
     { chave: 'sem_social', label: 'Sem rede social', ativo: view.social === 'sem', onClick: () => patchView({ social: view.social === 'sem' ? 'todos' : 'sem' }) },
@@ -3742,7 +3747,7 @@ function PersonalizarModal({ view, origem, onOrigemChange, onPatch, onReset, onP
               <SelFiltro label="Rede social" value={view.social} onChange={(v) => onPatch({ social: v as Filtro3 })} opcoes={[['todos', 'Todas'], ['com', 'Com rede social'], ['sem', 'Sem rede social']]} />
               <SelFiltro label="E-mail" value={view.email} onChange={(v) => onPatch({ email: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com e-mail'], ['sem', 'Sem e-mail']]} />
               <SelFiltro label="Telefone" value={view.telefone} onChange={(v) => onPatch({ telefone: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com telefone'], ['sem', 'Sem telefone']]} />
-              <SelFiltro label="Envio (WhatsApp)" value={view.envio} onChange={(v) => onPatch({ envio: v as ViewConfig['envio'] })} opcoes={[['todos', 'Todos'], ['possivel', 'Envio possível'], ['impossivel', 'Sem WhatsApp']]} />
+              <SelFiltro label="Envio (WhatsApp)" value={view.envio} onChange={(v) => onPatch({ envio: v as ViewConfig['envio'] })} opcoes={[['todos', 'Todos'], ['possivel', 'Com WhatsApp'], ['impossivel', 'Sem WhatsApp'], ['nao_verificado', 'Não verificado']]} />
               <SelFiltro label="Status do lead" value={view.statusLead} onChange={(v) => onPatch({ statusLead: v })} opcoes={FILTROS_STATUS_LEAD.map((o) => [o.valor, o.label] as [string, string])} />
               <SelFiltro label="Mensagem gerada" value={view.msgGerada} onChange={(v) => onPatch({ msgGerada: v as Filtro3 })} opcoes={[['todos', 'Todos'], ['com', 'Com mensagem'], ['sem', 'Sem mensagem']]} />
               <SelFiltro label="ICP geral" value={view.icp} onChange={(v) => onPatch({ icp: v as ViewConfig['icp'] })} opcoes={[['todos', 'Todos'], ['A', 'Lead A'], ['B', 'Lead B'], ['C', 'Lead C'], ['sem_icp', 'Sem ICP salvo']]} />

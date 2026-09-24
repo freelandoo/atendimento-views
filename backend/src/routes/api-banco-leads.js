@@ -274,6 +274,15 @@ function montarFiltro(empresaId, query) {
     const i = params.length
     where.push(`(nome ILIKE $${i} OR telefone ILIKE $${i} OR email ILIKE $${i} OR instagram_handle ILIKE $${i} OR nicho ILIKE $${i} OR categoria_perfil ILIKE $${i} OR cidade ILIKE $${i})`)
   }
+
+  const envio = String(query.envio || '').toLowerCase()
+  if (envio === 'possivel') {
+    where.push(`tem_whatsapp = true`)
+  } else if (envio === 'impossivel') {
+    where.push(`tem_whatsapp = false`)
+  } else if (envio === 'nao_verificado') {
+    where.push(`tem_whatsapp IS NULL`)
+  }
   return { where: where.join(' AND '), params }
 }
 

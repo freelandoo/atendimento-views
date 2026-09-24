@@ -5621,3 +5621,27 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Implementacao:** removida a configuracao inline da pagina principal e criado o caminho
   `/dashboard/integracoes/api-busca-leads`, exclusivo para `superadmin`, reaproveitando o
   componente administrativo de codigos ja existente.
+
+## 2026-09-24 — Verificacao automatica de WhatsApp dos leads
+
+- **Pedido:** remover a ideia de ficha/botao manual para verificar WhatsApp e fazer a verificacao
+  automaticamente para cada lead que entra, separando os que tem WhatsApp dos que nao tem, com
+  filtro proprio no aplicativo e uma fila que testa os numeros de tempo em tempo.
+- **Fase atual:** entendimento e desenho de arquitetura antes de migration/implementacao, porque a
+  solucao envolve integracao Evolution, fila recorrente, estado persistido e filtro de tela.
+- **Direcao inicial:** reaproveitar a checagem sem envio da Evolution (`/chat/whatsappNumbers`),
+  registrar resultado triestado por lead/telefone e processar em ritmo controlado para evitar
+  burst/riscos de conta.
+
+## 2026-09-24 — Primeira abordagem com contrato de IA e fila organizada
+
+- **Pedido:** reorganizar a primeira abordagem para separar a camada de inteligencia artificial
+  da camada do aplicativo, fazer a IA gerar um JSON contratual validavel, usar os sinais ja
+  existentes do lead na mensagem, manter fila/Semi/Automatico respeitando intervalo operacional
+  e priorizar leads aprovados antes dos demais.
+- **Areas previstas:** `services/rodar-leads.js`, `services/prospecting-message-generation.js`,
+  sinais de site/Instagram/qualificacao, testes de geracao/disparo e possivelmente documentacao
+  tecnica da decisao.
+- **Cuidados:** nao enviar mensagem real nem consumir credito de coleta; nao mudar schema sem
+  confirmacao; manter qualificacao operacional separada de score/ICP e manter envio dependente
+  da porta `avaliarAbordagem`.

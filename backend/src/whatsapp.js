@@ -358,7 +358,7 @@ async function verificarStatusInstanciaEvolution(instanceNameOverride = '') {
 // Consulta na Evolution quais números NÃO têm conta WhatsApp. Retorna um Set de dígitos
 // CONFIRMADOS como inexistentes (exists:false), ou null se a checagem falhar. Só rejeita
 // o que a Evolution afirma que não existe — nunca chuta (evita falso-negativo com o 9º dígito).
-async function numerosSemWhatsapp(numeros, instanceNameOverride = '') {
+async function verificarNumerosWhatsapp(numeros, instanceNameOverride = '') {
   let instanceName = ''
   try {
     instanceName = normalizarEvolutionInstanceName(instanceNameOverride)
@@ -366,7 +366,7 @@ async function numerosSemWhatsapp(numeros, instanceNameOverride = '') {
     instanceName = ''
   }
   const nums = [...new Set((numeros || []).map((n) => numeroEnvioWhatsapp(n)).filter(Boolean))]
-  if (!nums.length) return new Set()
+  if (!nums.length) return new Map()
   // Sem instancia nomeada a checagem NAO e feita: `null` ja significa "nao deu para checar"
   // no contrato desta funcao, e os chamadores tratam isso sem rejeitar numero nenhum.
   if (!instanceName) return null
@@ -378,15 +378,35 @@ async function numerosSemWhatsapp(numeros, instanceNameOverride = '') {
       { headers: { apikey: EVOLUTION_KEY }, timeout: 10000 }
     )
     if (!Array.isArray(data)) return null
-    const semZap = new Set()
+    const veredito = new Map()
     for (const item of data) {
-      if (item && item.exists === false) semZap.add(String(item.number || '').replace(/\D/g, ''))
+      if (!item || typeof item.exists !== 'boolean') continue
+      const numero = numeroEnvioWhatsapp(item.number || item.jid || '')
+      if (!numero) continue
+      veredito.set(numero, {
+        exists: item.exists,
+        jid: item.jid || null,
+        number: item.number || numero,
+        name: item.name || null,
+        lid: item.lid || null,
+      })
     }
-    return semZap
+    return veredito
   } catch (e) {
-    logger.warn({ err: serializeError(e), instance: instanceName }, 'numerosSemWhatsapp falhou')
+    logger.warn({ err: serializeError(e), instance: instanceName }, 'verificarNumerosWhatsapp falhou')
     return null
   }
+}
+
+// Compatibilidade: consumidores antigos so precisam dos confirmados como inexistentes.
+async function numerosSemWhatsapp(numeros, instanceNameOverride = '') {
+  const veredito = await verificarNumerosWhatsapp(numeros, instanceNameOverride)
+  if (veredito === null) return null
+  const semZap = new Set()
+  for (const [numero, item] of veredito.entries()) {
+    if (item?.exists === false) semZap.add(String(numero || '').replace(/\D/g, ''))
+  }
+  return semZap
 }
 
 function numeroEnvioWhatsapp(numero) {
@@ -602,6 +622,7 @@ module.exports = {
   classificarErroEvolution,
   verificarStatusInstanciaEvolution,
   numeroEnvioWhatsapp,
+  verificarNumerosWhatsapp,
   numerosSemWhatsapp,
   enviarMensagem,
   enviarPrintLocal,

@@ -4469,3 +4469,36 @@ este último registrado, não alterado.
 **Incidente de processo:** outra sessão commitou estas mudanças (`20d9345`, `ab0ef19`) e deu push
 antes da validação final. A validação foi refeita numa worktree isolada do `HEAD`: backend
 3154/3154, typecheck limpo, frontend 824/824.
+
+## 2026-09-24 — Verificação automática de WhatsApp sem envio
+
+**Decisão 1 — a fila é implícita, sem tabela nova.** Leads com telefone e `tem_whatsapp IS NULL`
+são a fila de verificação. `true` e `false` continuam sendo o veredito persistido sobre o número;
+erro técnico da Evolution não vira veredito e deixa o lead em `NULL` para tentar de novo.
+
+**Decisão 2 — a verificação usa `/chat/whatsappNumbers`, nunca envio.** O worker consulta a
+Evolution em lote pequeno e só atualiza quando recebe `exists:true/false`. Não envia mensagem,
+não abre `wa.me` e não usa foto de perfil como negativa, porque foto ausente pode ser privacidade.
+
+**Decisão 3 — instância não é inventada.** Se a empresa tem uma única instância ativa, ela é usada;
+se tem várias, só a `auto_instancia_id` configurada no Banco de Leads é usada. Sem isso, a checagem
+fica pendente, para não escolher um número arbitrário.
+
+**Impacto visual:** o Banco de Leads ganha o filtro `Não verificado` dentro de `Envio (WhatsApp)`
+e nos chips rápidos, reutilizando o padrão existente de filtros.
+
+## 2026-09-24 — Primeira abordagem por contrato JSON validado
+
+**Decisão 1 — IA escreve contrato, aplicativo executa regra.** A camada de IA da primeira
+abordagem agora deve devolver `abordagem_inicial_v1` em JSON. O app monta os sinais do lead,
+calcula o ângulo, valida a mensagem e só então salva/envia o texto. Fila, elegibilidade,
+cooldown de 15 minutos, teto diário e compliance continuam na camada do aplicativo.
+
+**Decisão 2 — os sinais são evidência, não probabilidade de venda.** Site, Instagram, avaliações,
+cidade, nicho e lacunas de cadastro entram como contexto para gerar interesse. A porta operacional
+continua usando `lead-qualificacao` (`sqlAbordavel`/`avaliarAbordagem`) e a prioridade de envio
+passa a ordenar `aprovado` antes dos demais abordáveis.
+
+**Decisão 3 — SPIN antes de BANT.** A mensagem fria usa situação real, oportunidade/implicação leve
+e uma pergunta de ganho. Budget, autoridade e prazo ficam fora da primeira abordagem, porque nessa
+fase geram atrito e não ajudam a obter resposta inicial.
