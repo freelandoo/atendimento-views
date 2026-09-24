@@ -100,6 +100,13 @@ jobs:
         env:
           # localhost: a guarda de services/destino-migrations.js libera banco LOCAL.
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/smoke
+          # Um boot REAL nunca chega aqui sem estas duas: index.js roda validarSecretsBoot()
+          # antes de initDB(), e elas sao obrigatorias la. E initDB semeia a ancora de
+          # vendas.dashboard_users, de que a agenda do bot depende (usuario_id e NOT NULL).
+          # Sem declara-las, o smoke estaria exercitando um estado que producao nao tem.
+          # Valores descartaveis: o banco do job e efemero e morre com ele.
+          DASHBOARD_ADMIN_EMAIL: smoke@ci.local
+          DASHBOARD_ADMIN_PASSWORD: senha-de-smoke-descartavel
 
   backend-node-de-producao:
     name: backend carrega no Node 20 (runtime de producao)
