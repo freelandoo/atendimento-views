@@ -722,6 +722,7 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
 }) {
   const registrado = !!item.followup_id
   const emAberto = registrado && item.followup_status === 'aguardando'
+  const vencido = emAberto && item.prazo_quando === 'atrasado'
   const descricao = descricaoPrioridade(item)
   // Recorte do "Por que agora" — regra pura, testada (`lib/followups-fila.js`).
   const motivoLinha = motivoDaLinha(item)
@@ -734,13 +735,26 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
   // dobrada aqui em vez de ficar como botão `bg-brand` à parte, para a linha ficar só
   // com o radial nos estados em que essa era a única ação visível.
   const acoesSecundarias: AcaoRadial[] = []
+  const acaoExecutar: AcaoRadial = {
+    id: 'executar',
+    rotulo: item.destino === 'central_ligacoes' ? 'Ligação' : item.canal === 'email' ? 'E-mail' : 'Conversa',
+    zona: 'baixo',
+    tom: 'navegacao',
+    descricao: item.destino === 'central_ligacoes'
+      ? 'Ir para a ligação — ação recomendada agora para este contato.'
+      : item.canal === 'email'
+        ? 'Escrever e-mail — ação recomendada agora para este contato.'
+        : 'Abrir conversa — ação recomendada agora para este contato.',
+    onSelecionar: () => onExecutar(item),
+  }
   if (emAberto && item.canal === 'email') {
     // E-mail tem botão primário próprio ("Escrever e-mail", fora do radial): repetir a mesma
     // ação aqui dentro daria dois caminhos para o mesmo clique na mesma linha.
     acoesSecundarias.push(
+      ...(vencido ? [acaoExecutar] : []),
       { id: 'concluir', rotulo: 'Concluir', zona: 'direita', tom: 'positivo', onSelecionar: () => onConcluir(item) },
       { id: 'reagendar', rotulo: 'Reagendar', zona: 'cima', onSelecionar: () => onReagendar(item) },
-      { id: 'cancelar', rotulo: 'Cancelar', zona: 'esquerda', tom: 'negativo', onSelecionar: () => onCancelarFollowUp(item) },
+      ...(vencido ? [] : [{ id: 'cancelar', rotulo: 'Cancelar', zona: 'esquerda', tom: 'negativo', onSelecionar: () => onCancelarFollowUp(item) } satisfies AcaoRadial]),
     )
   } else if (emAberto) {
     acoesSecundarias.push(
@@ -749,19 +763,10 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
       // vez de cair sem zona no painel de extras (era um quadrado só com esta ação).
       // Rótulo curto porque o espaço da bolinha é pequeno; a descrição carrega o texto
       // completo para o tooltip e o `aria-label`.
-      {
-        id: 'executar',
-        rotulo: item.destino === 'central_ligacoes' ? 'Ligação' : 'Conversa',
-        zona: 'baixo',
-        // Azul (navegação/abertura) — diferente de "Concluir" (verde, confirmação): abrir a
-        // conversa/ligação não conclui nada, só leva para outra tela.
-        tom: 'navegacao',
-        descricao: item.destino === 'central_ligacoes' ? 'Ir para a ligação — ação recomendada agora para este contato.' : 'Abrir conversa — ação recomendada agora para este contato.',
-        onSelecionar: () => onExecutar(item),
-      },
+      acaoExecutar,
       { id: 'concluir', rotulo: 'Concluir', zona: 'direita', tom: 'positivo', onSelecionar: () => onConcluir(item) },
       { id: 'reagendar', rotulo: 'Reagendar', zona: 'cima', onSelecionar: () => onReagendar(item) },
-      { id: 'cancelar', rotulo: 'Cancelar', zona: 'esquerda', tom: 'negativo', onSelecionar: () => onCancelarFollowUp(item) },
+      ...(vencido ? [] : [{ id: 'cancelar', rotulo: 'Cancelar', zona: 'esquerda', tom: 'negativo', onSelecionar: () => onCancelarFollowUp(item) } satisfies AcaoRadial]),
     )
   }
   if (item.acao === 'ligar') {
@@ -906,7 +911,7 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
               "Escrever" — é o trabalho em si, não uma ação secundária compactada. Enviar é o
               que executa e fecha o item; deixá-lo escondido num menu faria o operador
               procurar o botão que resolve a linha. */}
-          {emAberto && item.canal === 'email' && (
+          {emAberto && item.canal === 'email' && !vencido && (
             <button
               onClick={() => onExecutar(item)}
               className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white"
@@ -915,7 +920,20 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
               Escrever e-mail
             </button>
           )}
-          {acoesSecundarias.length > 0 && (
+          {vencido ? (
+            <MenuRadialAcoes
+              acoes={acoesSecundarias}
+              rotuloContexto={item.rotulo}
+              abrirNoHover
+              gatilhoAcao={{
+                id: 'cancelar_vencido',
+                rotulo: 'Cancelar',
+                tom: 'negativo',
+                descricao: 'Cancelar este follow-up vencido.',
+                onSelecionar: () => onCancelarFollowUp(item),
+              }}
+            />
+          ) : acoesSecundarias.length > 0 && (
             <MenuRadialAcoes acoes={acoesSecundarias} rotuloContexto={item.rotulo} />
           )}
         </div>

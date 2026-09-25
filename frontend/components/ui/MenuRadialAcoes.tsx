@@ -1,15 +1,13 @@
 'use client'
-// Menu radial de ações secundárias — compacta o excesso de botões que hoje quebra
-// linha (Follow-ups: até 5 botões simultâneos, `flex-wrap`). NUNCA substitui a coluna
-// Ações: a ação PRIMÁRIA de cada linha continua um botão comum, sempre visível, fora
-// deste componente. Este menu só absorve o que sobra.
+// Menu radial de ações — por padrão compacta botões secundários que quebrariam linha.
+// Quando a tela passa `gatilhoAcao`, o centro vira uma ação primária visível; o leque
+// continua guardando as ações alternativas.
 //
 // Origem: relatório "Padronização visual das listagens" (seção 6 — proposta do
 // radial). Duas decisões do próprio pedido resolveram os pontos em aberto do
 // relatório (D6 e o modo desktop):
-//   • acionamento por BOTÃO/ícone (⋯), clicável — nunca por hover ou por gesto de
-//     clicar-e-segurar. Funciona identicamente em mouse e toque, sem curva de
-//     aprendizado nem risco de toque acidental;
+//   • acionamento por BOTÃO/ícone (⋯), clicável. O hover/foco só entra quando a tela
+//     pede explicitamente, para casos em que o centro já é uma ação pronta;
 //   • como o gatilho já é um clique/toque explícito (não um "soltar em cima de uma
 //     zona"), o "centro = lista completa" do relatório não precisa ser uma segunda
 //     superfície: o próprio gatilho É o centro — clicar nele de novo (ou clicar fora,
@@ -47,14 +45,20 @@ const ALTURA_ESTIMADA_EXTRAS = 140
 export default function MenuRadialAcoes({
   acoes,
   rotuloContexto,
+  gatilhoAcao,
+  abrirNoHover = false,
 }: {
   acoes: AcaoRadial[]
   /** Nome do lead/linha, só para compor o `aria-label` do gatilho ("Mais ações — João"). */
   rotuloContexto?: string | null
+  /** Ação visível no centro. Usada quando a linha precisa deixar uma ação primária pronta. */
+  gatilhoAcao?: AcaoRadial | null
+  /** Abre o leque ao passar o mouse/focar o gatilho; clique no gatilho executa `gatilhoAcao`. */
+  abrirNoHover?: boolean
 }) {
-  if (!acoes || acoes.length === 0) return null
+  if ((!acoes || acoes.length === 0) && !gatilhoAcao) return null
 
-  if (acoes.length === 1) {
+  if (!gatilhoAcao && acoes.length === 1) {
     const a = acoes[0]
     return (
       <button
@@ -69,12 +73,22 @@ export default function MenuRadialAcoes({
     )
   }
 
-  return <GatilhoRadial acoes={acoes} rotuloContexto={rotuloContexto} />
+  return <GatilhoRadial acoes={acoes || []} rotuloContexto={rotuloContexto} gatilhoAcao={gatilhoAcao || null} abrirNoHover={abrirNoHover} />
 }
 
 type Centro = { cx: number; cy: number }
 
-function GatilhoRadial({ acoes, rotuloContexto }: { acoes: AcaoRadial[]; rotuloContexto?: string | null }) {
+function GatilhoRadial({
+  acoes,
+  rotuloContexto,
+  gatilhoAcao,
+  abrirNoHover,
+}: {
+  acoes: AcaoRadial[]
+  rotuloContexto?: string | null
+  gatilhoAcao?: AcaoRadial | null
+  abrirNoHover?: boolean
+}) {
   const botaoRef = useRef<HTMLButtonElement | null>(null)
   const painelRef = useRef<HTMLDivElement | null>(null)
   const [aberto, setAberto] = useState(false)
@@ -88,6 +102,15 @@ function GatilhoRadial({ acoes, rotuloContexto }: { acoes: AcaoRadial[]; rotuloC
     setCentro({ cx: r.left + r.width / 2, cy: r.top + r.height / 2 })
     setAberto(true)
   }, [])
+
+  const executarGatilho = useCallback(() => {
+    if (!gatilhoAcao) {
+      aberto ? fechar() : abrir()
+      return
+    }
+    fechar()
+    gatilhoAcao.onSelecionar()
+  }, [aberto, abrir, fechar, gatilhoAcao])
 
   // Fecha em Escape, clique fora e scroll/resize — a âncora se move e o painel ficaria
   // solto. Mesmo padrão de fechamento de `BolinhaPontuacao`/`ModalConfirmar`.
@@ -123,14 +146,20 @@ function GatilhoRadial({ acoes, rotuloContexto }: { acoes: AcaoRadial[]; rotuloC
       <button
         ref={botaoRef}
         type="button"
-        onClick={() => (aberto ? fechar() : abrir())}
+        onClick={executarGatilho}
+        onMouseEnter={abrirNoHover ? abrir : undefined}
+        onFocus={abrirNoHover ? abrir : undefined}
         aria-haspopup="menu"
         aria-expanded={aberto}
-        aria-label={rotuloMenu(rotuloContexto)}
-        title="Mais ações"
-        className={`flex h-8 w-8 items-center justify-center rounded-full border text-sm font-medium text-slate-500 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${aberto ? 'border-brand bg-brand/10 text-brand ring-2 ring-brand' : 'border-slate-200'}`}
+        aria-label={gatilhoAcao ? `${gatilhoAcao.rotulo} — ${rotuloMenu(rotuloContexto)}` : rotuloMenu(rotuloContexto)}
+        title={gatilhoAcao?.descricao || (gatilhoAcao ? gatilhoAcao.rotulo : 'Mais ações')}
+        disabled={gatilhoAcao?.desabilitado}
+        className={gatilhoAcao
+          ? `rounded-lg border px-2.5 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${classeTom(gatilhoAcao.tom)} ${aberto ? 'ring-2 ring-brand/50' : ''}`
+          : `flex h-8 w-8 items-center justify-center rounded-full border text-sm font-medium text-slate-500 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${aberto ? 'border-brand bg-brand/10 text-brand ring-2 ring-brand' : 'border-slate-200'}`
+        }
       >
-        ⋯
+        {gatilhoAcao ? gatilhoAcao.rotulo : '⋯'}
       </button>
       {aberto && centro && geometria && typeof document !== 'undefined' && createPortal(
         <div

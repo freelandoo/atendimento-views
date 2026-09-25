@@ -116,6 +116,8 @@ export interface ItemFila {
   observacao: string | null
   resultado_nota: string | null
   destino: DestinoFollowUp | null
+  /** Data usada para ordenar a fila: mais novo primeiro, sem depender de texto da tela. */
+  ordenacao_em: string | null
 
   // --- Disponibilidade de canal do CONTATO (migration 066). `null` = ninguém verificou, e é
   // também o que um item derivado carrega: o veredito acompanha o follow-up registrado.

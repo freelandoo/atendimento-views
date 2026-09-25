@@ -28,8 +28,9 @@ export interface FollowUpApi {
   conversa_numero: string | null
   observacao: string | null
   resultado_nota: string | null
+  criado_em: string | null
+  atualizado_em: string | null
   concluido_em: string | null
-  criado_em: string
   nome?: string | null
   cidade?: string | null
   /**

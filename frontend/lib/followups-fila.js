@@ -129,13 +129,17 @@ const RELEVANCIA_STATUS_IA = Object.freeze({ agendado: 3, falhou: 2, executado: 
 
 const PRAZO_ABERTO = Object.freeze(['agora', 'atrasado', 'hoje'])
 
-const PESO_SITUACAO = Object.freeze({ aberto: 0, aguardando: 1, falha: 2, concluido: 3, cancelado: 4 })
-const PESO_PRAZO = Object.freeze({ agora: 0, atrasado: 0, hoje: 1, futuro: 2, passado: 3 })
+const PESO_SITUACAO = Object.freeze({ aberto: 0, aguardando: 0, falha: 1, concluido: 2, cancelado: 3 })
 
 function dataValida(iso) {
   if (!iso) return null
   const d = new Date(iso)
   return Number.isNaN(d.valueOf()) ? null : d
+}
+
+function timestamp(iso) {
+  const d = dataValida(iso)
+  return d ? d.getTime() : 0
 }
 
 function mesmoDia(a, b) {
@@ -258,6 +262,7 @@ const CAMPOS_FOLLOWUP_VAZIOS = Object.freeze({
   observacao: null,
   resultado_nota: null,
   destino: null,
+  ordenacao_em: null,
   localizacao: null,
   // Disponibilidade de canal do contato (migration 066). `null` = ninguem verificou — e e'
   // tambem o que um item DERIVADO carrega, porque o veredito acompanha o follow-up
@@ -335,6 +340,7 @@ function montarFila(entrada = {}) {
       ...CAMPOS_FOLLOWUP_VAZIOS,
       ...base,
       id: `fu:${f.id}`,
+      ordenacao_em: base.criado_em || base.atualizado_em || base.prazo || null,
       numero,
       telefone_digitos: chave,
       nome,
@@ -382,6 +388,7 @@ function montarFila(entrada = {}) {
     itens.push({
       ...CAMPOS_FOLLOWUP_VAZIOS,
       id: `humano:${numero}`,
+      ordenacao_em: h.updated_at || h.atualizado_em || h.criado_em || null,
       numero,
       telefone_digitos: telefoneHumano,
       nome: nomeHumano,
@@ -430,6 +437,7 @@ function montarFila(entrada = {}) {
     itens.push({
       ...CAMPOS_FOLLOWUP_VAZIOS,
       id: `ia:${p.id}`,
+      ordenacao_em: p.detectado_em || p.agendado_para || p.executado_em || p.cancelado_em || null,
       numero,
       telefone_digitos: telefoneIa,
       nome: nomeIa,
@@ -474,12 +482,13 @@ function emAberto(item) {
 
 function ordenarFila(itens) {
   return [...itens].sort((a, b) => {
+    const data = timestamp(b.ordenacao_em || b.prazo || b.ia_data) - timestamp(a.ordenacao_em || a.prazo || a.ia_data)
+    if (data !== 0) return data
+    // Só depois da regra "mais novo primeiro" vem a separação operacional básica: em aberto
+    // antes de histórico. O pedido atual é explícito: a fila deve ficar sempre pelos follow-ups
+    // mais novos; status não pode empurrar um follow-up antigo para cima de um novo.
     const s = (PESO_SITUACAO[a.situacao] ?? 9) - (PESO_SITUACAO[b.situacao] ?? 9)
     if (s !== 0) return s
-    const p = (PESO_PRAZO[a.prazo_quando] ?? 2) - (PESO_PRAZO[b.prazo_quando] ?? 2)
-    if (p !== 0) return p
-    const score = (b.prioridade_score ?? -1) - (a.prioridade_score ?? -1)
-    if (score !== 0) return score
     // Desempate pelo rotulo VISIVEL (nome, ou telefone formatado): ordenar por um `nome`
     // que a tela nao mostra produziria uma ordem que o operador nao consegue explicar.
     return String(rotuloLead(a)).localeCompare(String(rotuloLead(b)), 'pt-BR')

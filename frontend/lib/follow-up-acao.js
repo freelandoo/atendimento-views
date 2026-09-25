@@ -474,6 +474,8 @@ function itemDeFollowUp(f, agora = new Date()) {
     conversa_numero: texto(f.conversa_numero) || null,
     observacao: texto(f.observacao) || null,
     resultado_nota: texto(f.resultado_nota) || null,
+    criado_em: f.criado_em || null,
+    atualizado_em: f.atualizado_em || null,
     situacao,
     prazo: f.agendado_para || null,
     prazo_quando: prazoQuando,
