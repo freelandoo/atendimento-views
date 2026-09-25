@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import {
   CANAL_OPCOES, PRIORIDADE_OPCOES, montarPayloadProximaAcao, sugerirProximaAcao, validarProximaAcao,
-  type FormProximaAcao, type PayloadProximaAcao,
+  paraInputLocal, type FormProximaAcao, type PayloadProximaAcao,
 } from '@/lib/follow-up-acao'
 import type { AcessoRapido } from '@/lib/lead-acessos'
 import { ContatoEditavel } from '@/components/ContatoEditavel'
@@ -40,6 +40,33 @@ type StatusEvento = {
   estado_novo?: string | null
   contexto?: Record<string, unknown> | null
   ocorrido_em: string
+}
+type PlanoFollowUpLead = {
+  versao: string
+  estagio: { chave: string; rotulo: string; sinal: string; ritmo: string[]; saida: string }
+  limites: {
+    followUps: { usados: number; teto: number; restante: number; atingido: boolean }
+    ligacoes: { usados: number; teto: number; restante: number; atingido: boolean }
+  }
+  recomendacao: {
+    acao: string
+    modelo: string
+    canal: string
+    proxima_acao: string
+    prioridade: 'alta' | 'media' | 'baixa'
+    agendado_para?: string | null
+    motivo: string
+    exige_justificativa?: boolean
+  }
+  opcoes: {
+    id: string
+    label: string
+    canal: string
+    proxima_acao: string
+    prioridade: 'alta' | 'media' | 'baixa'
+    agendado_para?: string | null
+  }[]
+  avisos: string[]
 }
 
 const STATUS_LEAD: Record<string, { label: string; detalhe: string; classe: string }> = {
@@ -91,6 +118,11 @@ function fmtDataHora(iso?: string | null): string {
   try {
     return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso))
   } catch { return iso }
+}
+
+function dataHoraParaInput(iso?: string | null): string {
+  if (!iso) return ''
+  try { return paraInputLocal(new Date(iso)) } catch { return '' }
 }
 
 
@@ -231,6 +263,8 @@ export default function ConversaHistoricoModal({
   const [historico, setHistorico] = useState<Mensagem[]>([])
   const [historicoStatus, setHistoricoStatus] = useState<StatusEvento[]>([])
   const [carregandoStatus, setCarregandoStatus] = useState(false)
+  const [planoFollowUp, setPlanoFollowUp] = useState<PlanoFollowUpLead | null>(null)
+  const [carregandoPlanoFollowUp, setCarregandoPlanoFollowUp] = useState(false)
   const [mudandoStatus, setMudandoStatus] = useState<string | null>(null)
   const [modalAcao, setModalAcao] = useState<null | 'reuniao' | 'ligacao' | 'follow_up' | 'descarte' | 'proposta'>(null)
   const [dataReuniao, setDataReuniao] = useState(hojeInput)
@@ -280,11 +314,41 @@ export default function ConversaHistoricoModal({
     carregarHistoricoStatus()
   }, [carregarHistoricoStatus])
 
+  const carregarPlanoFollowUp = useCallback(async () => {
+    if (!leadId) { setPlanoFollowUp(null); return }
+    setCarregandoPlanoFollowUp(true)
+    try {
+      const r = await apiFetch<PlanoFollowUpLead>(`/api/empresas/${empresaId}/banco-leads/leads/${leadId}/plano-follow-up`)
+      setPlanoFollowUp(r.data || null)
+    } catch {
+      setPlanoFollowUp(null)
+    } finally {
+      setCarregandoPlanoFollowUp(false)
+    }
+  }, [empresaId, leadId])
+
+  useEffect(() => {
+    carregarPlanoFollowUp()
+  }, [carregarPlanoFollowUp])
+
+  function aplicarSugestaoFollowUp(sugestao?: PlanoFollowUpLead['recomendacao'] | PlanoFollowUpLead['opcoes'][number]) {
+    const s = sugestao || planoFollowUp?.recomendacao
+    if (!s || s.canal === 'nenhuma') return
+    setProxAcaoManual({
+      canal: s.canal as FormProximaAcao['canal'],
+      proxima_acao: s.proxima_acao,
+      prioridade: s.prioridade || 'media',
+      agendado_para: dataHoraParaInput(s.agendado_para),
+      responsavel_id: '',
+    })
+    setErrosFollowUpManual({})
+  }
+
   async function alterarStatus(valor: string, payload?: StatusPayload) {
     if (!onAlterarStatus) return
     if (valor === 'reuniao_agendada' && !payload) { setModalAcao('reuniao'); return }
     if (valor === 'ligacao_realizada' && !payload) { setModalAcao('ligacao'); return }
-    if (valor === 'follow_up' && !payload) { setModalAcao('follow_up'); return }
+    if (valor === 'follow_up' && !payload) { aplicarSugestaoFollowUp(); setModalAcao('follow_up'); return }
     if (valor === 'descartado' && !payload) { setModalAcao('descarte'); return }
     if (valor === 'proposta_enviada' && !payload) { setModalAcao('proposta'); return }
     setMudandoStatus(valor)
@@ -316,6 +380,7 @@ export default function ConversaHistoricoModal({
         setObservacoesDescarte('')
       }
       await carregarHistoricoStatus()
+      await carregarPlanoFollowUp()
     } finally {
       setMudandoStatus(null)
     }
@@ -616,6 +681,45 @@ export default function ConversaHistoricoModal({
                     })}
                   </div>
                 </div>
+                <div className="mt-3 rounded-lg border border-line bg-surface p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Plano recomendado</div>
+                      {carregandoPlanoFollowUp ? (
+                        <p className="mt-1 text-xs text-ink-3">Calculando cadência…</p>
+                      ) : planoFollowUp ? (
+                        <>
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <span className="rounded-full border border-line bg-surface-2 px-2 py-0.5 text-xs font-semibold text-ink-2">
+                              {planoFollowUp.estagio.rotulo}
+                            </span>
+                            <span className="text-xs text-ink-3">
+                              Follow-ups {planoFollowUp.limites.followUps.usados}/{planoFollowUp.limites.followUps.teto}
+                              {' · '}
+                              Ligações {planoFollowUp.limites.ligacoes.usados}/{planoFollowUp.limites.ligacoes.teto}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs text-ink-2">{planoFollowUp.recomendacao.motivo}</p>
+                          {planoFollowUp.avisos.length > 0 && (
+                            <p className="mt-1 text-[11px] text-amber-700">{planoFollowUp.avisos[0]}</p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="mt-1 text-xs text-ink-3">Sem plano disponível para este lead.</p>
+                      )}
+                    </div>
+                    {planoFollowUp?.recomendacao.acao === 'follow_up' && (
+                      <button
+                        type="button"
+                        onClick={() => { aplicarSugestaoFollowUp(); setModalAcao('follow_up') }}
+                        disabled={!!mudandoStatus}
+                        className="shrink-0 rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-xs font-semibold text-ink-2 transition hover:bg-surface-3 disabled:cursor-default disabled:opacity-60"
+                      >
+                        Usar plano
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <div className="mt-3 border-t border-line pt-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Histórico de status</div>
                   {carregandoStatus ? (
@@ -708,6 +812,23 @@ export default function ConversaHistoricoModal({
             }
           >
             <div className="mt-3 space-y-2 rounded-xl border border-line bg-surface-2/70 p-3">
+              {planoFollowUp && planoFollowUp.opcoes.length > 0 && (
+                <div className="rounded-lg border border-line bg-surface p-2">
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-3">Opções rápidas</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {planoFollowUp.opcoes.map((o) => (
+                      <button
+                        key={o.id}
+                        type="button"
+                        onClick={() => aplicarSugestaoFollowUp(o)}
+                        className="rounded-lg border border-line bg-surface-2 px-2 py-1 text-[11px] font-semibold text-ink-2 transition hover:bg-surface-3"
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="inline-flex w-full rounded-lg border bg-surface p-0.5" role="group" aria-label="Canal do follow-up">
                 {CANAL_OPCOES.filter((o) => o.valor !== 'nenhuma').map((o) => (
                   <button key={o.valor} type="button" onClick={() => { setProxAcaoManual((f) => ({ ...f, canal: o.valor })); setErrosFollowUpManual({}) }} aria-pressed={proxAcaoManual.canal === o.valor}

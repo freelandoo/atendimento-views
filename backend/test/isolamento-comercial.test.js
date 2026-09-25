@@ -141,6 +141,30 @@ test('GUARDA: mudar status do lead respeita o mesmo recorte e grava historico', 
   assert.ok(bloco.includes('estado_anterior') && bloco.includes('estado_novo'), 'historico precisa registrar antes/depois')
 })
 
+test('GUARDA: plano de follow-up da ficha e calculado no backend pelo mesmo recorte', () => {
+  const src = rota('api-banco-leads.js')
+  assert.ok(src.includes("require('../services/follow-up-recomendacao')"),
+    'a cadencia da Proposta B precisa viver em service de backend')
+  assert.ok(src.includes("router.get('/leads/:id/plano-follow-up'"),
+    'faltou a rota de leitura do plano de follow-up da ficha')
+  const ini = src.indexOf("router.get('/leads/:id/plano-follow-up'")
+  const bloco = src.slice(ini, ini + 700)
+  assert.ok(bloco.includes('exigirLeadNoRecorte(req)'),
+    'o plano precisa respeitar o mesmo recorte da ficha/listagem')
+  assert.ok(bloco.includes('fatosCadenciaFollowUp'),
+    'a rota precisa derivar fatos existentes, nao aceitar contagens do front')
+  assert.ok(bloco.includes('montarPlanoFollowUpLead'),
+    'a rota precisa usar a regra pura da Proposta B')
+  const fatos = src.slice(src.indexOf('async function fatosCadenciaFollowUp'), src.indexOf('// GET /leads/:id/plano-follow-up'))
+  assert.ok(fatos.includes('lead_follow_up_criado'), 'tentativas de follow-up precisam vir da auditoria do lead')
+  assert.ok(fatos.includes('app.follow_ups') && fatos.includes("status = 'aguardando'"),
+    'a ficha precisa saber se ja existe follow-up aberto')
+  assert.ok(fatos.includes('app.ligacoes') && fatos.includes("resultado = 'numero_invalido'"),
+    'tentativas de ligacao e numero invalido precisam entrar no plano')
+  assert.ok(fatos.includes('lead_proposta_enviada') && fatos.includes('app.agenda_eventos'),
+    'proposta e reuniao precisam alterar o estagio recomendado')
+})
+
 // ─── 3. AS ROTAS POR ID REPETEM O RECORTE DA LISTAGEM ────────────────────────────────────
 
 test('GUARDA: TODA rota /:numero de conversas passa pelo alcance', () => {

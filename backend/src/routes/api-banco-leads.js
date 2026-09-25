@@ -66,6 +66,7 @@ const { criarEvento } = require('../services/agenda-multiempresa')
 const { criarFollowUp } = require('../db/follow-ups')
 const { salvarAvaliacaoIcp } = require('../db/lead-icp')
 const { proximaAcaoDoLead } = require('../db/lead-proxima-acao')
+const { montarPlanoFollowUpLead } = require('../services/follow-up-recomendacao')
 
 const router = Router({ mergeParams: true })
 
@@ -1389,6 +1390,102 @@ router.get('/leads/:id/proxima-acao', requireAuth, requireEmpresaAccess, async (
     const data = await proximaAcaoDoLead(pool, req.empresa.id, lead)
     return res.json({ ok: true, data })
   } catch (err) { return envelopeErro(res, err, 'LEAD_PROXIMA_ACAO_FAILED') }
+})
+
+async function fatosCadenciaFollowUp(empresaId, lead) {
+  const { rows } = await pool.query(
+    `SELECT
+       (SELECT COUNT(*)::int
+          FROM app.auditoria_eventos ae
+         WHERE ae.empresa_id = $1
+           AND ae.entidade_tipo = 'prospect'
+           AND ae.entidade_id = $2::uuid
+           AND ae.acao = 'lead_follow_up_criado') AS follow_ups_auditados,
+       (SELECT COUNT(*)::int
+          FROM app.follow_ups f
+         WHERE f.empresa_id = $1
+           AND f.prospect_id = $2::uuid) AS follow_ups_persistidos,
+       EXISTS (
+         SELECT 1 FROM app.follow_ups f
+          WHERE f.empresa_id = $1
+            AND f.prospect_id = $2::uuid
+            AND f.status = 'aguardando'
+       ) AS follow_up_aberto,
+       (SELECT COUNT(*)::int
+          FROM app.ligacoes l
+         WHERE l.empresa_id = $1
+           AND l.prospect_id = $2::uuid) AS ligacoes,
+       EXISTS (
+         SELECT 1 FROM app.ligacoes l
+          WHERE l.empresa_id = $1
+            AND l.prospect_id = $2::uuid
+            AND l.resultado = 'numero_invalido'
+       ) AS numero_invalido,
+       (SELECT COUNT(*)::int
+          FROM app.auditoria_eventos ae
+         WHERE ae.empresa_id = $1
+           AND ae.entidade_tipo = 'prospect'
+           AND ae.entidade_id = $2::uuid
+           AND ae.acao = 'lead_proposta_enviada') AS propostas,
+       (SELECT COUNT(*)::int
+          FROM app.auditoria_eventos ae
+         WHERE ae.empresa_id = $1
+           AND ae.entidade_tipo = 'prospect'
+           AND ae.entidade_id = $2::uuid
+           AND ae.acao = 'lead_reuniao_agendada') AS reunioes_marcadas,
+       (SELECT COUNT(*)::int
+          FROM app.agenda_eventos ag
+         WHERE ag.empresa_id = $1
+           AND ag.excluido_em IS NULL
+           AND ag.tipo = 'reuniao'
+           AND ag.status IN ('pendente', 'confirmado')
+           AND ag.data_inicio >= NOW()
+           AND (
+             ag.prospect_id = $2::uuid
+             OR (
+               NULLIF(regexp_replace(COALESCE($3, ''), '[^0-9]', '', 'g'), '') IS NOT NULL
+               AND regexp_replace(COALESCE(ag.lead_telefone, ''), '[^0-9]', '', 'g')
+                   = regexp_replace(COALESCE($3, ''), '[^0-9]', '', 'g')
+             )
+           )) AS reunioes_futuras,
+       (SELECT COUNT(*)::int
+          FROM app.agenda_eventos ag
+         WHERE ag.empresa_id = $1
+           AND ag.excluido_em IS NULL
+           AND ag.tipo = 'reuniao'
+           AND ag.status = 'concluido'
+           AND (
+             ag.prospect_id = $2::uuid
+             OR (
+               NULLIF(regexp_replace(COALESCE($3, ''), '[^0-9]', '', 'g'), '') IS NOT NULL
+               AND regexp_replace(COALESCE(ag.lead_telefone, ''), '[^0-9]', '', 'g')
+                   = regexp_replace(COALESCE($3, ''), '[^0-9]', '', 'g')
+             )
+           )) AS reunioes_realizadas`,
+    [empresaId, lead.id, lead.telefone || null]
+  )
+  const r = rows[0] || {}
+  return {
+    followUps: Math.max(Number(r.follow_ups_auditados) || 0, Number(r.follow_ups_persistidos) || 0),
+    followUpAberto: r.follow_up_aberto === true,
+    ligacoes: Number(r.ligacoes) || 0,
+    numeroInvalido: r.numero_invalido === true,
+    propostas: Number(r.propostas) || 0,
+    reunioesMarcadas: Number(r.reunioes_marcadas) || 0,
+    reunioesFuturas: Number(r.reunioes_futuras) || 0,
+    reunioesRealizadas: Number(r.reunioes_realizadas) || 0,
+  }
+}
+
+// GET /leads/:id/plano-follow-up — Proposta B: cadencia recomendada por sinal comercial.
+// Leitura apenas: nao cria tarefa, nao envia mensagem e nao chama IA.
+router.get('/leads/:id/plano-follow-up', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const lead = await exigirLeadNoRecorte(req)
+    const fatos = await fatosCadenciaFollowUp(req.empresa.id, lead)
+    const data = montarPlanoFollowUpLead({ lead, fatos })
+    return res.json({ ok: true, data: { ...data, fatos } })
+  } catch (err) { return envelopeErro(res, err, 'LEAD_PLANO_FOLLOW_UP_FAILED') }
 })
 
 router.get('/leads/:id/abordagem-manual', requireAuth, requireEmpresaAccess, async (req, res) => {
