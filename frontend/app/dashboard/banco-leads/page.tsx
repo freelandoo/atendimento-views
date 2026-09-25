@@ -58,6 +58,8 @@ import type { PayloadProximaAcao } from '@/lib/follow-up-acao'
 // O que já foi COMBINADO com o lead (follow-up, agenda, última ligação). A ordem e a situação do
 // prazo vêm do backend; o módulo só escreve.
 import { cartaoCompromisso, resumoUltimaLigacao, type ProximaAcaoLead } from '@/lib/lead-proxima-acao'
+// Cadência comercial recomendada pelo backend (Proposta B). A tela só traduz o plano recebido.
+import { resumoCadencia, type PlanoFollowUpLead } from '@/lib/lead-cadencia'
 
 // Banco de Leads — central de disparo com Modo Manual / Semiautomático / Automático.
 // UMA lista, com a ORIGEM como coluna e como filtro. Eram duas tabelas (Places x "o resto"),
@@ -954,16 +956,21 @@ export default function BancoLeadsPage() {
    * pela ficha, para o compromisso recém-criado aparecer sem reabrir.
    */
   const [proximaAcao, setProximaAcao] = useState<{ leadId: string; data: ProximaAcaoLead | null; erro: boolean } | null>(null)
+  const [cadenciaLead, setCadenciaLead] = useState<{ leadId: string; data: PlanoFollowUpLead | null; erro: boolean } | null>(null)
   const [versaoProximaAcao, setVersaoProximaAcao] = useState(0)
   const fichaLeadId = ficha?.leadId || null
   useEffect(() => {
-    if (!fichaLeadId) { setProximaAcao(null); return }
+    if (!fichaLeadId) { setProximaAcao(null); setCadenciaLead(null); return }
     let vivo = true
     // Troca de lead limpa na hora: a ficha nunca mostra o compromisso do lead anterior.
     setProximaAcao((cur) => (cur && cur.leadId === fichaLeadId ? cur : null))
+    setCadenciaLead((cur) => (cur && cur.leadId === fichaLeadId ? cur : null))
     apiFetch<ProximaAcaoLead>(`${base}/leads/${fichaLeadId}/proxima-acao`)
       .then((r) => { if (vivo) setProximaAcao({ leadId: fichaLeadId, data: r.data, erro: false }) })
       .catch(() => { if (vivo) setProximaAcao({ leadId: fichaLeadId, data: null, erro: true }) })
+    apiFetch<PlanoFollowUpLead>(`${base}/leads/${fichaLeadId}/plano-follow-up`)
+      .then((r) => { if (vivo) setCadenciaLead({ leadId: fichaLeadId, data: r.data, erro: false }) })
+      .catch(() => { if (vivo) setCadenciaLead({ leadId: fichaLeadId, data: null, erro: true }) })
     return () => { vivo = false }
   }, [fichaLeadId, versaoProximaAcao, base])
   const [enviandoConversa, setEnviandoConversa] = useState(false)
@@ -1915,6 +1922,12 @@ export default function BancoLeadsPage() {
     const cartoes = (pa?.data?.compromissos || []).map((c) => cartaoCompromisso(c, agora))
     const [principal, ...outros] = cartoes
     const ligacao = resumoUltimaLigacao(pa?.data?.ultima_ligacao || null, agora)
+    const cadencia = cadenciaLead && cadenciaLead.leadId === leadDaFicha.id ? cadenciaLead : null
+    const cadenciaResumo = cadencia?.data ? resumoCadencia(cadencia.data, agora) : null
+    const limitesCadencia = cadenciaResumo ? [
+      { rotulo: 'Follow-ups', item: cadenciaResumo.followUps },
+      { rotulo: 'Ligações', item: cadenciaResumo.ligacoes },
+    ] : []
     return (
       <div className="mb-3 rounded-lg border border-line bg-surface p-4 shadow-card">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Próxima ação</p>
@@ -1950,6 +1963,48 @@ export default function BancoLeadsPage() {
             ))}
           </ul>
         )}
+        <div className="mt-3 border-t border-line pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Cadência comercial</p>
+            {cadenciaResumo && (
+              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${cadenciaResumo.classeSinal}`}>
+                {cadenciaResumo.sinal}
+              </span>
+            )}
+          </div>
+          {cadenciaResumo ? (
+            <div className="mt-2 space-y-2 text-xs">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="font-semibold text-ink">{cadenciaResumo.titulo}</span>
+                {cadenciaResumo.ritmo && <span className="text-ink-3">Ritmo: {cadenciaResumo.ritmo}</span>}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {limitesCadencia.map(({ rotulo, item }) => (
+                  <div key={rotulo} className="rounded-md border border-line bg-surface-2 px-2.5 py-2">
+                    <p className={`font-semibold ${item.atingido ? 'text-amber-800' : 'text-ink'}`}>
+                      {rotulo}: {item.texto}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-ink-3">{item.detalhe}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="leading-relaxed text-ink-2">
+                <span className="font-semibold text-ink">Sugestão: </span>{cadenciaResumo.proxima}
+              </p>
+              {cadenciaResumo.aviso ? (
+                <p className="text-[11px] text-amber-800">{cadenciaResumo.aviso}</p>
+              ) : cadenciaResumo.motivo ? (
+                <p className="text-[11px] text-ink-3">{cadenciaResumo.motivo}</p>
+              ) : null}
+            </div>
+          ) : !cadencia ? (
+            <p className="mt-1 text-xs text-ink-3">Carregando cadência…</p>
+          ) : cadencia.erro ? (
+            <p className="mt-1 text-xs text-amber-800">Não foi possível carregar a cadência deste lead.</p>
+          ) : (
+            <p className="mt-1 text-xs text-ink-3">Sem cadência calculada para este lead.</p>
+          )}
+        </div>
         {faixa ? (
 
           <>
@@ -1993,7 +2048,7 @@ export default function BancoLeadsPage() {
       </div>
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leadDaFicha, usuario?.id, proximaAcao])
+  }, [leadDaFicha, usuario?.id, proximaAcao, cadenciaLead])
   // O ESCOPO REAL da selecao, em texto — inclusive o aviso de que ela alcanca so' a janela
   // carregada. A regra vive no modulo puro; a tela nao pode prometer alem do que o servidor
   // devolveu.
