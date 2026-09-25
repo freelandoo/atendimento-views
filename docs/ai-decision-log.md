@@ -4604,3 +4604,22 @@ para Semiautomatico/manual; aviso formal/termo de ciencia e modo analise ficam p
 **Limite consciente:** a V1 nao aumenta lote por quantidade de instancias e nao tenta contornar
 politicas de canal. O objetivo e controle operacional, auditoria, opt-out/compliance e reducao de
 concentracao de risco.
+
+## 2026-09-24 — Janela local por pais no Automatico do Banco de Leads
+
+**Decisao 1 — a janela e avaliada no lead, nao na empresa inteira.** O Automatico deixa de parar
+a empresa quando o horario do app esta fora da janela. Em cada tick, a fila percorre candidatos e
+so libera aquele cujo pais/cidade estejam dentro da janela configurada no horario local estimado.
+
+**Decisao 2 — resolucao conservadora sem migration.** `services/lead-timezone.js` resolve um
+timezone por pais usando dados ja existentes (`pais`, `cidade`, `endereco`). Paises com varios
+fusos usam cidade quando ha sinal conhecido; sem sinal suficiente, caem no fuso padrao do pais.
+Pais desconhecido nao envia e vira motivo auditavel.
+
+**Decisao 3 — auditoria no resultado do ciclo.** Quando dispara, o worker inclui `pais`,
+`timezone`, `hora_local`, `janela_inicio` e `janela_fim` no log estruturado e no resultado da
+rodada. Quando ha candidatos mas todos estao fechados, retorna `fora_janela_local` com contagem
+dos motivos.
+
+**Limite consciente:** a rotina continua em 1 lead por ciclo e nao aumenta volume por pool. A
+mudanca amplia a flexibilidade internacional sem criar envio fora do turno local do lead.

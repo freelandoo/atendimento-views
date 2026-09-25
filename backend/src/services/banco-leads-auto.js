@@ -1,10 +1,11 @@
 'use strict'
 const os = require('node:os')
 // Worker do modo AUTOMÁTICO do Banco de Leads (Fase 2). A cada tick, para cada empresa
-// com modo='automatico' e auto_ativo, se estiver DENTRO da janela horária e já passou o
-// instante do próximo disparo, pega UM lead elegível e dispara reusando rodarLeads (que
-// já faz elegibilidade, teto, cooldown, geração IA e marcação de tem_whatsapp). Depois
-// sorteia o próximo intervalo (intervalo_min..intervalo_max min) e agenda.
+// com modo='automatico' e auto_ativo, se já passou o instante do próximo disparo, pega
+// UM lead elegível cuja janela esteja aberta no horário local do país do lead e dispara
+// reusando rodarLeads (que já faz elegibilidade, teto, cooldown, geração IA e marcação
+// de tem_whatsapp). Depois sorteia o próximo intervalo (intervalo_min..intervalo_max min)
+// e agenda.
 //
 // Puro reuso: o worker NÃO reimplementa envio/throttle — só orquestra o "quando/quem".
 const { logger } = require('../logger')
@@ -20,6 +21,7 @@ const {
 const { sqlAbordavel } = require('./lead-qualificacao')
 const { canProspectLead } = require('./prospecting-eligibility')
 const { horaLocal } = require('./captacao-scheduler')
+const { avaliarJanelaLocalLead } = require('./lead-timezone')
 
 const WORKER_MS = Math.max(30000, parseInt(process.env.BANCO_LEADS_AUTO_WORKER_MS, 10) || 60000)
 const APP_TIMEZONE = process.env.APP_TIMEZONE || process.env.TZ || 'America/Sao_Paulo'
@@ -215,8 +217,11 @@ async function escolherInstanciaAutomatico(pool, empresaId, now, cfg = {}, deps 
 
 async function buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps = {}) {
   const canProspectLeadFn = deps.canProspectLeadFn || canProspectLead
+  const avaliarJanelaLocalLeadFn = deps.avaliarJanelaLocalLeadFn || avaliarJanelaLocalLead
   const scanState = deps.scanState || autoScanOffsets
   const recorte = recorteAutomatico(deps.autoRecorte)
+  const cfg = deps.autoRecorte || {}
+  const now = deps.now instanceof Date ? deps.now : new Date()
   const scanKey = recorte.modo === 'nicho' ? `${empresaId}:nicho:${recorte.nicho.toLowerCase()}` : `${empresaId}:geral`
   const pageSize = Math.min(Math.max(Number(deps.candidatePageSize) || CANDIDATE_PAGE_SIZE, 1), 100)
   const scanLimit = Math.min(Math.max(Number(deps.candidateScanLimit) || CANDIDATE_SCAN_LIMIT, pageSize), 2000)
@@ -241,7 +246,7 @@ async function buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps = {}
           )`
     }
     const { rows } = await pool.query(
-      `SELECT p.id, p.telefone FROM prospectador.prospects p
+      `SELECT p.id, p.telefone, p.pais, p.cidade, p.endereco FROM prospectador.prospects p
         WHERE p.empresa_id = $1
           AND p.status = ANY($2)
           ${filtroNicho}
@@ -274,6 +279,12 @@ async function buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps = {}
     for (let indice = 0; indice < rows.length && analisados < scanLimit; indice++) {
       const candidato = rows[indice]
       analisados++
+      const janelaLocal = avaliarJanelaLocalLeadFn(candidato, now, cfg.janela_inicio, cfg.janela_fim)
+      candidato.janela_local = janelaLocal
+      if (!janelaLocal.permitido) {
+        somarMotivo(motivos, janelaLocal.motivo)
+        continue
+      }
       const elegibilidade = await canProspectLeadFn(pool, candidato.telefone, {
         prospectId: candidato.id,
         empresaId,
@@ -347,7 +358,6 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
   const rodarLeadsFn = deps.rodarLeadsFn || rodarLeads
   const cfg = await obterConfigBancoLeads(pool, empresaId)
   if (cfg.modo !== 'automatico' || !cfg.auto_ativo) return { empresa_id: empresaId, motivo: 'inativo' }
-  if (!dentroDaJanela(now, cfg.janela_inicio, cfg.janela_fim)) return { empresa_id: empresaId, motivo: 'fora_janela' }
   if (cfg.auto_proximo_disparo_em && now < new Date(cfg.auto_proximo_disparo_em)) {
     return { empresa_id: empresaId, motivo: 'aguardando_intervalo' }
   }
@@ -372,10 +382,18 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
   // elegível — NÃO desiste só porque os primeiros por score são telefone fixo/inválido
   // (o que travava o disparo quando o topo do score era dominado por landlines).
   const statusList = [...STATUS_RODAVEL]
-  const scan = await buscarPrimeiroLeadElegivel(pool, empresaId, statusList, { ...deps, autoRecorte: cfg })
+  const scan = await buscarPrimeiroLeadElegivel(pool, empresaId, statusList, { ...deps, autoRecorte: cfg, now })
   const lead = scan.lead
   if (!lead) {
-    return { empresa_id: empresaId, motivo: scan.esgotou ? 'sem_lead' : 'sem_lead_elegivel', analisados: scan.analisados }
+    const motivos = scan.motivos || {}
+    const totalMotivos = Object.values(motivos).reduce((s, n) => s + (Number(n) || 0), 0)
+    const motivoJanela = totalMotivos > 0 && (Number(motivos.fora_janela_local || 0) + Number(motivos.sem_fuso_resolvido || 0) + Number(motivos.janela_invalida || 0)) === totalMotivos
+    return {
+      empresa_id: empresaId,
+      motivo: motivoJanela ? 'fora_janela_local' : (scan.esgotou ? 'sem_lead' : 'sem_lead_elegivel'),
+      analisados: scan.analisados,
+      motivos,
+    }
   }
 
   try {
@@ -389,11 +407,24 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
         `UPDATE app.banco_leads_config SET auto_proximo_disparo_em = $2, atualizado_em = NOW() WHERE empresa_id = $1`,
         [empresaId, proximo]
       )
-      logger.info({ operation: 'banco_leads_auto', empresa_id: empresaId, lead_id: lead.id, proximo_em_min: proxMin }, '[banco-leads-auto] lead disparado')
+      logger.info({
+        operation: 'banco_leads_auto',
+        empresa_id: empresaId,
+        lead_id: lead.id,
+        pais: lead.janela_local?.pais || null,
+        timezone: lead.janela_local?.timezone || null,
+        hora_local: lead.janela_local?.hora_local || null,
+        janela_inicio: cfg.janela_inicio,
+        janela_fim: cfg.janela_fim,
+        proximo_em_min: proxMin,
+      }, '[banco-leads-auto] lead disparado')
       return {
         empresa_id: empresaId,
         motivo: 'disparado',
         lead_id: lead.id,
+        pais: lead.janela_local?.pais || null,
+        timezone: lead.janela_local?.timezone || null,
+        hora_local: lead.janela_local?.hora_local || null,
         instancia_id: instancia.id,
         evolution_instance: instancia.evolution_instance,
         instancias_pool: escolhaInstancia.total,

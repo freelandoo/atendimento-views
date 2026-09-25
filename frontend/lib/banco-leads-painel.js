@@ -207,7 +207,7 @@ export function faixaDeEnvio({ modoLabel = '', instanciaLabel = '', conexao = ''
   let estado = 'liberado'
   let rotulo = 'Envio liberado'
   let detalhe = automatico
-    ? 'A rotina envia 1 lead por vez na janela configurada.'
+    ? 'A rotina envia 1 lead por vez, usando a janela no horário local do país do lead.'
     : 'Clique no telefone do lead para revisar e enviar.'
   if (bloqueio) {
     estado = 'bloqueado'

@@ -5,6 +5,7 @@ const {
   dentroDaJanela, sortearIntervaloMinutos, executarBancoLeadsWorkerTick,
   verificarBancoLeadsSemi, _autoEmpresa, _semiEmpresa, ordenarPoolAutomatico, escolherInstanciaAutomatico,
 } = require('../src/services/banco-leads-auto')
+const { timezoneDoLead, avaliarJanelaLocalLead } = require('../src/services/lead-timezone')
 
 function makePool(handlers) {
   return {
@@ -50,10 +51,17 @@ test('_autoEmpresa: modo não-automático é ignorado', async () => {
   assert.equal(r.motivo, 'inativo')
 })
 
-test('_autoEmpresa: fora da janela não dispara', async () => {
-  const pool = makePool([['FROM app.banco_leads_config', () => ({ rows: [autoCfg] })]])
-  const r = await _autoEmpresa(pool, 'e1', new Date(2026, 0, 1, 6, 0), {})
-  assert.equal(r.motivo, 'fora_janela')
+test('avaliarJanelaLocalLead usa o horario local do pais do lead', () => {
+  const instanteUtc = new Date('2026-01-01T10:00:00.000Z')
+
+  const brasil = avaliarJanelaLocalLead({ pais: 'BR', cidade: 'Sao Paulo' }, instanteUtc, '08:00', '18:00')
+  const portugal = avaliarJanelaLocalLead({ pais: 'PT', cidade: 'Lisboa' }, instanteUtc, '08:00', '18:00')
+
+  assert.equal(brasil.permitido, false)
+  assert.equal(brasil.motivo, 'fora_janela_local')
+  assert.equal(portugal.permitido, true)
+  assert.equal(portugal.timezone, 'Europe/Lisbon')
+  assert.equal(timezoneDoLead({ pais: 'BR', cidade: 'Manaus' }), 'America/Manaus')
 })
 
 test('_autoEmpresa: aguarda o intervalo quando próximo disparo é no futuro', async () => {
@@ -145,6 +153,60 @@ test('_autoEmpresa: dispara 1 lead e agenda o próximo', async () => {
   assert.equal(chamou.instanciaId, 'i1')
   assert.equal(r.instancias_pool, 1)
   assert.ok(agendouProximo)
+})
+
+test('_autoEmpresa: nao bloqueia a empresa quando Brasil fechou mas outro pais abriu', async () => {
+  let agendouProximo = false
+  const instanteUtc = new Date('2026-01-01T10:00:00.000Z') // 07:00 em SP, 10:00 em Lisboa
+  const pool = makePool([
+    ['FROM app.banco_leads_config', () => ({ rows: [autoCfg] })],
+    ['FROM app.empresa_whatsapp_instances', () => ({ rows: [{ id: 'i1', evolution_instance: 'inst' }] })],
+    ['FROM prospectador.prospects', () => ({ rows: [
+      { id: 'p-br', telefone: '5511999999999', pais: 'BR', cidade: 'Sao Paulo' },
+      { id: 'p-pt', telefone: '351911111111', pais: 'PT', cidade: 'Lisboa' },
+    ] })],
+    ['UPDATE app.banco_leads_config', () => { agendouProximo = true; return { rows: [] } }],
+  ])
+  const verificados = []
+  const canProspectLeadFn = async (_pool, _telefone, options) => {
+    verificados.push(options.prospectId)
+    return { allowed: true }
+  }
+  let escolhido = null
+  const rodarLeadsFn = async (_pool, args) => {
+    escolhido = args.prospectIds[0]
+    return { rodada: true, aceitos: [{ id: escolhido }] }
+  }
+
+  const r = await _autoEmpresa(pool, 'e1', instanteUtc, { rodarLeadsFn, canProspectLeadFn })
+
+  assert.equal(r.motivo, 'disparado')
+  assert.equal(escolhido, 'p-pt')
+  assert.deepStrictEqual(verificados, ['p-pt'])
+  assert.equal(r.pais, 'PT')
+  assert.equal(r.timezone, 'Europe/Lisbon')
+  assert.ok(agendouProximo)
+})
+
+test('_autoEmpresa: retorna fora_janela_local quando todos os candidatos estao fechados', async () => {
+  const instanteUtc = new Date('2026-01-01T03:00:00.000Z')
+  const pool = makePool([
+    ['FROM app.banco_leads_config', () => ({ rows: [autoCfg] })],
+    ['FROM app.empresa_whatsapp_instances', () => ({ rows: [{ id: 'i1', evolution_instance: 'inst' }] })],
+    ['FROM prospectador.prospects', () => ({ rows: [
+      { id: 'p-br', telefone: '5511999999999', pais: 'BR', cidade: 'Sao Paulo' },
+      { id: 'p-pt', telefone: '351911111111', pais: 'PT', cidade: 'Lisboa' },
+    ] })],
+  ])
+
+  const r = await _autoEmpresa(pool, 'e1', instanteUtc, {
+    canProspectLeadFn: async () => {
+      throw new Error('nao deve verificar compliance fora da janela local')
+    },
+  })
+
+  assert.equal(r.motivo, 'fora_janela_local')
+  assert.equal(r.motivos.fora_janela_local, 2)
 })
 
 test('_autoEmpresa: aplica recorte por nicho quando configurado', async () => {

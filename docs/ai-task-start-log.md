@@ -5715,3 +5715,16 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Cuidados:** sem migration nesta V1; reaproveitar `lead_disparos` como fonte de cooldown,
   teto e auditoria por `evolution_instance`; filtrar instancias ativas com saudacao configurada;
   nao liberar Automatico para perfil sem capacidade administrativa.
+
+## 2026-09-24 — Automatico sem instancia selecionada e janela local por pais
+
+- **Pedido:** incrementar o Banco de Leads para que o modo Automatico use uma ou todas as
+  instancias ativas da empresa sem exigir selecao manual, e para que a janela de envio seja
+  avaliada no horario local do pais do lead.
+- **Areas previstas:** `backend/src/services/banco-leads-auto.js`, possivel helper puro de
+  fuso/pais, `backend/test/banco-leads-auto.test.js`,
+  `frontend/app/dashboard/banco-leads/page.tsx`, `frontend/lib/banco-leads-painel.js` e
+  documentacao de arquitetura/decisoes.
+- **Cuidados:** manter manual/semi dependentes da instancia selecionada quando fizer sentido;
+  nao criar migration; nao aumentar volume por ciclo; registrar motivos auditaveis de bloqueio
+  por janela local; preservar filtros de pais/equipe e evitar qualquer linguagem de bypass.

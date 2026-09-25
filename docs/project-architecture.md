@@ -156,3 +156,12 @@ configurada, abaixo do teto diario e com maior descanso. O intervalo/janela segu
 empresa (`app.banco_leads_config.auto_proximo_disparo_em`), entao a rotina permanece 1 lead por
 ciclo e o descanso por numero cresce conforme o pool aumenta. Automatico continua restrito a quem
 tem capacidade administrativa de disparo em lote.
+
+### 2026-09-24 - Janela local por pais no Automatico do Banco de Leads
+
+A janela `janela_inicio`/`janela_fim` continua configurada por empresa, mas sua avaliacao no
+Automatico acontece por lead: `services/lead-timezone.js` resolve um fuso estimado pelo `pais`
+e, quando possivel, pela `cidade`/`endereco`. `banco-leads-auto` varre a fila ate encontrar um
+lead elegivel cuja hora local esteja dentro da janela. Se todos os candidatos estiverem fechados,
+o resultado operacional e `fora_janela_local`; se disparar, o log inclui pais, timezone e hora
+local usados na decisao. Sem migration e sem aumento de volume por ciclo.

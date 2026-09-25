@@ -873,6 +873,7 @@ export default function BancoLeadsPage() {
   const [gerandoLote, setGerandoLote] = useState(false)
   const [progressoLoteManual, setProgressoLoteManual] = useState<ProgressoLoteManual | null>(null)
   const [confirmarLoteGrande, setConfirmarLoteGrande] = useState(false)
+  const [confirmarAutomatico, setConfirmarAutomatico] = useState(false)
   const montadoRef = useRef(true)
   useEffect(() => () => { montadoRef.current = false }, [])
   const [geracaoProgresso, setGeracaoProgresso] = useState<GeracaoProgresso | null>(null)
@@ -1095,8 +1096,9 @@ export default function BancoLeadsPage() {
     try {
       const r = await apiFetch<Config>(`${base}/config`)
       setConfig(r.data)
-      // No Semi/Automático, a barra reflete a instância configurada (fonte única).
-      if ((r.data.modo === 'semi_automatico' || r.data.modo === 'automatico') && r.data.auto_instancia_id) {
+      // No Semi, a barra reflete a instância configurada (fonte única). No Automático,
+      // a referência é o pool da empresa, não uma instância escolhida.
+      if (r.data.modo === 'semi_automatico' && r.data.auto_instancia_id) {
         setInstanciaId(r.data.auto_instancia_id)
       }
     } catch { /* mantém default */ }
@@ -1410,9 +1412,6 @@ export default function BancoLeadsPage() {
     }
     // Trocar para Automático só SELECIONA o modo (fica parado); a rotina só liga no
     // botão "Ligar automático", que aí sim mostra o aviso.
-    if (modo === 'automatico' && !instanciaId) {
-      fb.toast('Escolha uma instância antes de usar o Automático.', 'error'); return
-    }
     if (modo === 'semi_automatico' && !instanciaId) {
       fb.toast('Escolha uma instância antes de ativar o Semiautomático.', 'error')
       return
@@ -1421,15 +1420,15 @@ export default function BancoLeadsPage() {
       ...c,
       modo,
       // Trocar para Automático NÃO liga a rotina — o usuário liga no botão (com aviso).
-      ...(modo === 'automatico' ? { auto_ativo: false, auto_instancia_id: instanciaId } : {}),
+      ...(modo === 'automatico' ? { auto_ativo: false, auto_instancia_id: null } : {}),
       ...(modo === 'semi_automatico' ? { auto_instancia_id: instanciaId } : {}),
     }))
     setSelecionados(new Set())
     try {
-      // Ao entrar no Automático, a instância dos disparos é a MESMA já selecionada na barra
-      // (sem pedir de novo). Sincroniza auto_instancia_id; a rotina começa DESLIGADA.
-      const body = modo === 'automatico' && instanciaId
-        ? { modo, auto_ativo: false, auto_instancia_id: instanciaId }
+      // Ao entrar no Automático, a instância deixa de ser referência manual: o worker usa o
+      // pool de instâncias ativas da empresa. A rotina começa DESLIGADA.
+      const body = modo === 'automatico'
+        ? { modo, auto_ativo: false, auto_instancia_id: null }
         : (modo === 'semi_automatico' && instanciaId ? { modo, auto_instancia_id: instanciaId } : { modo })
       const r = await apiFetch<Config>(`${base}/config`, { method: 'PUT', body: JSON.stringify(body) })
       setConfig(r.data)
@@ -1449,11 +1448,11 @@ export default function BancoLeadsPage() {
     }
   }
 
-  // Troca a instância da barra. No Semi/Automático, essa MESMA instância vira a
-  // referência salva (auto_instancia_id) — sem campo duplicado.
+  // Troca a instância da barra. No Semi, essa MESMA instância vira a referência salva.
+  // No Automático não há referência manual: o worker escolhe pelo pool da empresa.
   async function trocarInstancia(id: string) {
     setInstanciaId(id)
-    if (config.modo === 'automatico' || config.modo === 'semi_automatico') {
+    if (config.modo === 'semi_automatico') {
       try {
         const r = await apiFetch<Config>(`${base}/config`, { method: 'PUT', body: JSON.stringify({ auto_instancia_id: id || null }) })
         setConfig(r.data)
@@ -1479,13 +1478,12 @@ export default function BancoLeadsPage() {
       return
     }
     if (motivoBloqueioAutomatico) { fb.toast(motivoBloqueioAutomatico, 'error'); return }
-    const ok = window.confirm(
-      '⚠️ Ligar o modo AUTOMÁTICO fará o sistema DISPARAR mensagens de WhatsApp sozinho — '
-      + 'na janela e no intervalo configurados, usando o pool de instâncias ativas da empresa.\n\n'
-      + 'Confirma ligar a rotina automática?'
-    )
-    if (!ok) return
-    await salvarAutoConfig({ auto_ativo: true, auto_instancia_id: instanciaId || null })
+    setConfirmarAutomatico(true)
+  }
+
+  async function ligarAutomaticoConfirmado() {
+    setConfirmarAutomatico(false)
+    await salvarAutoConfig({ auto_ativo: true, auto_instancia_id: null })
     fb.toast('Rotina automática ligada. A rotina começa no próximo tick.')
   }
 
@@ -2233,7 +2231,20 @@ export default function BancoLeadsPage() {
                   ))}
                 </div>
               </div>
-              {podeEscolherInstancia && (
+              {podeEscolherInstancia && config.modo === 'automatico' && (
+                <div>
+                  <p className="mb-1 block text-xs text-ink-3">Pool automático</p>
+                  <div className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm">
+                    <p className="font-semibold text-ink">
+                      {instanciasProntasAuto}/{instancias.length} instância{instancias.length === 1 ? '' : 's'} pronta{instanciasProntasAuto === 1 ? '' : 's'}
+                    </p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-ink-3">
+                      Usa todas as instâncias ativas com saudação configurada, sem seleção manual.
+                    </p>
+                  </div>
+                </div>
+              )}
+              {podeEscolherInstancia && config.modo !== 'automatico' && (
                 <div>
                   <label className="block text-xs text-ink-3 mb-1">Instância</label>
                   <select value={instanciaId} onChange={(e) => trocarInstancia(e.target.value)}
@@ -2293,7 +2304,8 @@ export default function BancoLeadsPage() {
               </div>
               <p className="text-xs leading-relaxed text-ink-3">
                 O Automático usa o pool de instâncias ativas com saudação configurada. A cada ciclo,
-                o sistema escolhe o número mais descansado, respeitando cooldown e teto diário por instância.
+                o sistema escolhe o número mais descansado e só envia para leads cuja janela esteja
+                aberta no horário local do país.
               </p>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div>
@@ -2713,6 +2725,18 @@ export default function BancoLeadsPage() {
           ocupado={gerandoLote}
           onConfirmar={() => { setConfirmarLoteGrande(false); gerarSelecionadosEmMassa() }}
           onCancelar={() => setConfirmarLoteGrande(false)}
+        />
+      )}
+
+      {confirmarAutomatico && (
+        <ModalConfirmar
+          titulo="Ligar rotina automática"
+          corpo="O sistema vai disparar mensagens sozinho, um lead por ciclo, usando o pool de instâncias ativas da empresa."
+          aviso="A janela configurada será aplicada no horário local do país do lead. Manual e Semiautomático continuam usando a instância selecionada."
+          rotuloConfirmar="Ligar automático"
+          ocupado={salvandoAuto}
+          onConfirmar={ligarAutomaticoConfirmado}
+          onCancelar={() => setConfirmarAutomatico(false)}
         />
       )}
 

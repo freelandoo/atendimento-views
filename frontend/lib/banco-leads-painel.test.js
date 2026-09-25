@@ -220,6 +220,11 @@ test('automatico desligado nao e "liberado"', () => {
   assert.equal(faixaDeEnvio({ automatico: true, autoAtivo: true }).estado, 'liberado')
 })
 
+test('automatico informa que a janela usa o horario local do pais', () => {
+  const f = faixaDeEnvio({ automatico: true, autoAtivo: true })
+  assert.match(f.detalhe, /horário local do país/i)
+})
+
 test('o resumo recolhido descarta vazios e preserva a ordem', () => {
   assert.deepEqual(faixaDeEnvio({ modoLabel: 'Manual', instanciaLabel: '', conexao: 'Conectada' }).resumo,
     ['Manual', 'Conectada'])
