@@ -205,6 +205,7 @@ async function comEscopo(req) {
       // triada. Quem nao a tem ve apenas lead marcado/aprovado pelo operador.
       __somenteAprovados: !escopo.podeVerTodos,
       __nichoEquipeId: nicho ? nicho.nicho_id : null,
+      __nichoEquipeNome: nicho ? nicho.nicho_nome : null,
     },
     escopo,
     nicho,
@@ -266,7 +267,13 @@ function montarFiltro(empresaId, query) {
   // nao amplia o que a pessoa alcanca, so' estreita para a carteira que ela trabalha.
   if (query.__nichoEquipeId) {
     params.push(query.__nichoEquipeId)
-    where.push(sqlNichoDaEquipe({ placeholder: `$${params.length}` }))
+    const phId = `$${params.length}`
+    let phNome = null
+    if (query.__nichoEquipeNome) {
+      params.push(query.__nichoEquipeNome)
+      phNome = `$${params.length}`
+    }
+    where.push(sqlNichoDaEquipe({ placeholder: phId, nomePlaceholder: phNome }))
   }
 
   adicionarFiltroMercado(where, params, query)
@@ -299,7 +306,13 @@ function montarRecorteOperacao(empresaId, query) {
   if (query.__somenteAprovados) where.push(sqlAprovado(''))
   if (query.__nichoEquipeId) {
     params.push(query.__nichoEquipeId)
-    where.push(sqlNichoDaEquipe({ placeholder: `$${params.length}` }))
+    const phId = `$${params.length}`
+    let phNome = null
+    if (query.__nichoEquipeNome) {
+      params.push(query.__nichoEquipeNome)
+      phNome = `$${params.length}`
+    }
+    where.push(sqlNichoDaEquipe({ placeholder: phId, nomePlaceholder: phNome }))
   }
   return { where: where.join(' AND '), params }
 }
@@ -807,7 +820,13 @@ router.get('/meu-resumo', requireAuth, requireEmpresaAccess, async (req, res) =>
     let filtroNicho = ''
     if (nicho) {
       params.push(nicho.nicho_id)
-      filtroNicho = ` AND ${sqlNichoDaEquipe({ alias: 'p', placeholder: `$${params.length}` })}`
+      const phId = `$${params.length}`
+      let phNome = null
+      if (nicho.nicho_nome) {
+        params.push(nicho.nicho_nome)
+        phNome = `$${params.length}`
+      }
+      filtroNicho = ` AND ${sqlNichoDaEquipe({ alias: 'p', placeholder: phId, nomePlaceholder: phNome })}`
     }
     const { rows } = await pool.query(
       `SELECT
@@ -1921,6 +1940,7 @@ router.get('/filtros', requireAuth, requireEmpresaAccess, async (req, res) => {
       escopoUsaUsuario: queryComEscopo.__escopoUsaUsuario,
       usuarioId: queryComEscopo.__usuarioId,
       nichoEquipeId: queryComEscopo.__nichoEquipeId,
+      nichoEquipeNome: queryComEscopo.__nichoEquipeNome,
       somenteAprovados: queryComEscopo.__somenteAprovados,
     })
     return res.json({ ok: true, data })

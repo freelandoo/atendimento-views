@@ -75,6 +75,7 @@ async function listarOpcoesFiltrosMercado(pool, {
   escopoUsaUsuario = false,
   usuarioId = null,
   nichoEquipeId = null,
+  nichoEquipeNome = null,
   somenteAprovados = false,
   somenteSociais = false,
   limit = 80,
@@ -113,7 +114,13 @@ async function listarOpcoesFiltrosMercado(pool, {
 
   if (nichoEquipeId) {
     params.push(nichoEquipeId)
-    where.push(sqlNichoDaEquipe({ placeholder: `$${params.length}` }))
+    const phId = `$${params.length}`
+    let phNome = null
+    if (nichoEquipeNome) {
+      params.push(nichoEquipeNome)
+      phNome = `$${params.length}`
+    }
+    where.push(sqlNichoDaEquipe({ placeholder: phId, nomePlaceholder: phNome }))
   }
 
   params.push(Math.min(Math.max(parseInt(limit, 10) || 80, 1), 200))

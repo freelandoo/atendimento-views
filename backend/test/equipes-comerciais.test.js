@@ -113,14 +113,22 @@ test('package.json roda esta suite', () => {
 
 // ─── Etapa 3: o recorte por nicho ────────────────────────────────────────────────────────
 
-test('sqlNichoDaEquipe casa por nicho_id, nunca pelo texto do nicho', () => {
+test('sqlNichoDaEquipe casa por nicho_id por padrao', () => {
   // E' a decisao D1 inteira: "Energia Solar" e "energia solar residencial" sao o mesmo negocio
-  // para a pessoa e dois valores para o banco. Casar por nome tiraria leads do recorte EM
-  // SILENCIO — e o vendedor veria menos carteira do que tem, sem nada explicando por que.
+  // para a pessoa e dois valores para o banco. O caminho normal continua sendo o ID.
   const sql = E.sqlNichoDaEquipe({ placeholder: '$4' })
   assert.equal(sql, 'nicho_id = $4::uuid')
   assert.ok(!/\bnicho\s*=/.test(sql), 'nao pode comparar a coluna de TEXTO `nicho`')
   assert.ok(!/lower\(|ILIKE|LIKE/i.test(sql), 'nao pode casar por texto nem por aproximacao')
+})
+
+test('sqlNichoDaEquipe tem fallback exato por texto so quando falta nicho_id', () => {
+  const sql = E.sqlNichoDaEquipe({ alias: 'p', placeholder: '$4', nomePlaceholder: '$5' })
+  assert.match(sql, /p\.nicho_id = \$4::uuid/)
+  assert.match(sql, /p\.nicho_id IS NULL/)
+  assert.match(sql, /LOWER\(BTRIM\(COALESCE\(p\.nicho, ''\)\)\) = LOWER\(BTRIM\(\$5::text\)\)/)
+  assert.match(sql, /LOWER\(BTRIM\(COALESCE\(p\.categoria_perfil, ''\)\)\) = LOWER\(BTRIM\(\$5::text\)\)/)
+  assert.ok(!/ILIKE|LIKE/i.test(sql), 'fallback precisa ser exato, sem aproximacao')
 })
 
 test('sqlNichoDaEquipe aceita alias, como os modulos irmaos', () => {
@@ -161,6 +169,8 @@ test('GUARDA: o recorte por nicho e aplicado nos DOIS montadores do Banco de Lea
   const ocorrencias = (src.match(/sqlNichoDaEquipe\(/g) || []).length
   assert.ok(ocorrencias >= 3, `esperava o recorte em montarFiltro, montarRecorteOperacao e meu-resumo; achei ${ocorrencias}`)
   assert.ok(src.includes('__nichoEquipeId'), 'o recorte precisa viajar pela query, como __escopoSql')
+  assert.ok(src.includes('__nichoEquipeNome'), 'o fallback textual do nicho da equipe precisa viajar com o recorte')
+  assert.ok(src.includes('nomePlaceholder'), 'o Banco de Leads precisa usar o fallback controlado para leads sem nicho_id')
 })
 
 test('GUARDA: a equipe do usuario e resolvida no Banco de Leads, nao em requireEmpresaAccess', () => {

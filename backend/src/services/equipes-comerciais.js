@@ -67,22 +67,36 @@ function normalizarEncerramento(dados = {}) {
 /**
  * A expressao SQL do recorte por nicho.
  *
- * ⚠️ Casa por `nicho_id`, NUNCA pelo texto `prospects.nicho` — e' a decisao D1 (2026-09-18)
- * inteira: "Energia Solar" e "energia solar residencial" sao o mesmo negocio para a pessoa e
- * dois valores para o banco, e casar por nome tiraria leads do recorte EM SILENCIO.
+ * Preferencia continua sendo `nicho_id`: e' a decisao D1 (2026-09-18) e a unica forma perfeita
+ * de saber que "energia solar residencial" pertence ao nicho estruturado da equipe.
  *
- * `nicho_id IS NULL` fica de FORA do recorte de proposito. Lead ainda nao vinculado nao e' "de
- * todos os nichos": e' "ninguem vinculou ainda" (migration 087), e incluir esses leads na
- * carteira de toda equipe faria o recorte obrigatorio vazar justamente onde o dado e' fraco.
- * A contrapartida — eles ficarem invisiveis ate o backfill rodar — e' visivel no relatorio do
- * backfill e no estado vazio da tela, que diz quantos existem.
+ * Fallback controlado (2026-09-25): leads internacionais podem entrar aprovados com `pais <> BR`
+ * antes do backfill/catalogo gravar `nicho_id`. Se o lead ainda esta sem `nicho_id`, aceitamos
+ * match EXATO pelo nome do nicho da equipe em `nicho` ou `categoria_perfil`. Nao usamos ILIKE
+ * nem aproximacao: isso evita abrir carteira de outro nicho so porque o texto parece parecido.
+ *
+ * `nicho_id IS NULL` nao entra sozinho no recorte. Lead ainda nao vinculado nao e' "de todos os
+ * nichos": e' "ninguem vinculou ainda" (migration 087), e incluir esses leads na carteira de toda
+ * equipe faria o recorte obrigatorio vazar justamente onde o dado e' fraco. O fallback exige o
+ * nome da propria equipe e so vale para a linha sem `nicho_id`.
  *
  * @param {string} alias        prefixo da tabela (`''` ou `'p.'`), como nos modulos irmaos.
  * @param {string} placeholder  o `$n` que recebera o `nicho_id`.
+ * @param {string|null} nomePlaceholder o `$n` que recebera o `nicho_nome` da equipe.
  */
-function sqlNichoDaEquipe({ alias = '', placeholder = '$1' } = {}) {
+function sqlNichoDaEquipe({ alias = '', placeholder = '$1', nomePlaceholder = null } = {}) {
   const a = alias ? (alias.endsWith('.') ? alias : `${alias}.`) : ''
-  return `${a}nicho_id = ${placeholder}::uuid`
+  if (!nomePlaceholder) return `${a}nicho_id = ${placeholder}::uuid`
+  const nomeNormalizado = `LOWER(BTRIM(${nomePlaceholder}::text))`
+  const nichoTexto = `LOWER(BTRIM(COALESCE(${a}nicho, ''))) = ${nomeNormalizado}`
+  const categoriaTexto = `LOWER(BTRIM(COALESCE(${a}categoria_perfil, ''))) = ${nomeNormalizado}`
+  return [
+    '(',
+    `${a}nicho_id = ${placeholder}::uuid`,
+    ` OR (${a}nicho_id IS NULL AND ${nomePlaceholder}::text IS NOT NULL AND ${nichoTexto})`,
+    ` OR (${a}nicho_id IS NULL AND ${nomePlaceholder}::text IS NOT NULL AND ${categoriaTexto})`,
+    ')',
+  ].join('')
 }
 
 /**

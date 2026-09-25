@@ -113,6 +113,7 @@ test('prospect filters: opcoes de mercado respeitam recorte por nicho da equipe'
   await listarOpcoesFiltrosMercado(pool, {
     empresaId: 'empresa-1',
     nichoEquipeId: '00000000-0000-4000-8000-000000000001',
+    nichoEquipeNome: 'Energia Solar',
     limit: 5,
   })
 
@@ -120,7 +121,10 @@ test('prospect filters: opcoes de mercado respeitam recorte por nicho da equipe'
   for (const q of queries) {
     assert.match(q.sql, /empresa_id = \$1/)
     assert.match(q.sql, /nicho_id = \$2::uuid/)
-    assert.deepEqual(q.params, ['empresa-1', '00000000-0000-4000-8000-000000000001', 5])
+    assert.match(q.sql, /nicho_id IS NULL/)
+    assert.match(q.sql, /LOWER\(BTRIM\(COALESCE\(nicho, ''\)\)\) = LOWER\(BTRIM\(\$3::text\)\)/)
+    assert.match(q.sql, /LOWER\(BTRIM\(COALESCE\(categoria_perfil, ''\)\)\) = LOWER\(BTRIM\(\$3::text\)\)/)
+    assert.deepEqual(q.params, ['empresa-1', '00000000-0000-4000-8000-000000000001', 'Energia Solar', 5])
   }
 })
 
