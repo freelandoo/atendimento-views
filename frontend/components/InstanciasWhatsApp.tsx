@@ -134,12 +134,6 @@ export default function InstanciasWhatsApp({ empresaId }: {
     contexto_padrao_id: string | null
     contextos: { id: string; nome: string; instancias: number }[]
   } | null>(null)
-  const [salvandoPadrao, setSalvandoPadrao] = useState(false)
-  // Só quem gerencia as instâncias da empresa pode trocar o responsável (o PUT recusa os demais).
-  // A lista reusa a MESMA rota da agenda: uma segunda consulta de membros faria o mesmo colega
-  // aparecer num seletor e sumir do outro.
-  const [membros, setMembros] = useState<{ id: string; nome: string }[]>([])
-  const [salvandoResp, setSalvandoResp] = useState<string | null>(null)
   // Estado REAL de conexão por instância (open/close na Evolution). true/false/null(desconhecido).
   const [statusConexao, setStatusConexao] = useState<Record<string, StatusConexaoInstancia>>({})
   const [nomeInstance, setNomeInstance] = useState('')
@@ -195,51 +189,6 @@ export default function InstanciasWhatsApp({ empresaId }: {
       .then((r) => setCtxPadrao(r.data))
       .catch(() => setCtxPadrao(null))
   }, [empresaId])
-
-  useEffect(() => {
-    if (!empresaId || !podeVerTodas) { setMembros([]); return }
-    apiFetch<{ itens: { id: string; nome: string }[] }>(`/api/empresas/${empresaId}/agenda/responsaveis`)
-      .then((r) => setMembros(r.data.itens || []))
-      .catch(() => setMembros([]))
-  }, [empresaId, podeVerTodas])
-
-  /** `''` devolve a instância à EMPRESA (compartilhada) — não é "limpar um campo obrigatório". */
-  async function definirResponsavel(inst: WhatsAppInstance, usuarioId: string) {
-    if (!empresaId) return
-    setSalvandoResp(inst.id)
-    setErroForm('')
-    try {
-      await apiFetch(`/api/empresas/${empresaId}/whatsapp/${inst.id}/responsavel`, {
-        method: 'PUT', body: JSON.stringify({ usuario_id: usuarioId || null }),
-      })
-      const nome = membros.find((m) => m.id === usuarioId)?.nome || null
-      setInstancias((prev) => prev.map((x) => (
-        x.id === inst.id ? { ...x, usuario_id: usuarioId || null, responsavel_nome: usuarioId ? nome : null } : x
-      )))
-      setMsg(usuarioId
-        ? `Instância agora responde a ${nome || 'este membro'}. Isso NÃO muda por onde as mensagens saem.`
-        : 'Instância voltou a ser da empresa (compartilhada).')
-    } catch (err: unknown) {
-      setErroForm(err instanceof Error ? err.message : 'Não foi possível trocar o responsável.')
-    } finally { setSalvandoResp(null) }
-  }
-
-  async function definirContextoPadrao(contextoId: string) {
-    if (!empresaId) return
-    setSalvandoPadrao(true)
-    setErroForm('')
-    try {
-      await apiFetch(`/api/empresas/${empresaId}/whatsapp/contexto-padrao`, {
-        method: 'PUT', body: JSON.stringify({ contexto_id: contextoId || null }),
-      })
-      setCtxPadrao((c) => (c ? { ...c, contexto_padrao_id: contextoId || null } : c))
-      setMsg(contextoId
-        ? 'Contexto padrão definido. Ele será COPIADO para cada instância nova — as que já existem não mudam.'
-        : 'Contexto padrão removido. Instâncias novas voltam a nascer com contexto vazio.')
-    } catch (err: unknown) {
-      setErroForm(err instanceof Error ? err.message : 'Não foi possível definir o contexto padrão.')
-    } finally { setSalvandoPadrao(false) }
-  }
 
   useEffect(() => {
     if (!empresaId) return
@@ -570,6 +519,46 @@ export default function InstanciasWhatsApp({ empresaId }: {
     !impactoSubstituicao.bloqueia_substituicao &&
     !substituicao.loading &&
     !substituicao.transferindo
+  const contextoPadraoNome = useMemo(() => {
+    if (!ctxPadrao?.contexto_padrao_id) return null
+    return ctxPadrao.contextos.find((c) => c.id === ctxPadrao.contexto_padrao_id)?.nome || 'Contexto da empresa'
+  }, [ctxPadrao])
+  const gruposInstancias = useMemo(() => {
+    if (!podeVerTodas) {
+      return [{
+        chave: 'minhas',
+        titulo: 'Minhas instâncias',
+        descricao: 'Números que você acompanha, incluindo o número compartilhado da empresa quando existir.',
+        itens: instancias,
+      }]
+    }
+    return [
+      {
+        chave: 'primarias',
+        titulo: 'Instância principal do dono',
+        descricao: 'Número compartilhado da empresa, sem responsável individual selecionável.',
+        itens: instancias.filter((inst) => !inst.usuario_id),
+      },
+      {
+        chave: 'equipe',
+        titulo: 'Instâncias da equipe',
+        descricao: 'Números ligados a uma pessoa da equipe, com status de atividade e conexão.',
+        itens: instancias.filter((inst) => !!inst.usuario_id),
+      },
+    ].filter((grupo) => grupo.itens.length > 0)
+  }, [instancias, podeVerTodas])
+
+  function rotuloResponsavel(inst: WhatsAppInstance): string {
+    return inst.responsavel_nome || (inst.usuario_id ? 'Pessoa da equipe' : 'Dono / empresa')
+  }
+
+  function rotuloTipoInstancia(inst: WhatsAppInstance): string {
+    return inst.usuario_id ? 'Instância da equipe' : 'Instância principal'
+  }
+
+  function rotuloContexto(inst: WhatsAppInstance): string {
+    return inst.contexto_nome || (inst.e_contexto_padrao ? 'Contexto da empresa' : 'Ainda sem contexto')
+  }
 
   return (
     <div className="space-y-4">
@@ -604,34 +593,40 @@ export default function InstanciasWhatsApp({ empresaId }: {
       </form>
       {msg && <p className="text-sm text-brand">{msg}</p>}
       {erroForm && <p className="text-sm text-red-600">{erroForm}</p>}
-      {podeGerenciarContexto && ctxPadrao && ctxPadrao.contextos.length > 0 && (
+      {ctxPadrao && (
         <div className="rounded-2xl border border-white/10 bg-panel p-4">
-          <label htmlFor="ctx-padrao" className="block text-xs font-semibold uppercase tracking-wide text-mid">
+          <p className="text-xs font-semibold uppercase tracking-wide text-mid">
             Contexto padrão da empresa
-          </label>
-          <select
-            id="ctx-padrao"
-            value={ctxPadrao.contexto_padrao_id || ''}
-            disabled={salvandoPadrao}
-            onChange={(e) => definirContextoPadrao(e.target.value)}
-            className="mt-2 w-full max-w-md rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm disabled:opacity-50"
-          >
-            <option value="">Nenhum — instância nova nasce com contexto vazio</option>
-            {ctxPadrao.contextos.map((c) => (
-              <option key={c.id} value={c.id}>{c.nome} ({c.instancias} instância{c.instancias === 1 ? '' : 's'})</option>
-            ))}
-          </select>
-          {/* A frase que impede o mal-entendido mais caro desta tela. */}
-          <p className="mt-2 max-w-2xl text-[11px] leading-relaxed text-mid">
-            Ele é <b>copiado</b> quando uma instância nova é criada — nunca compartilhado. Editar o
-            contexto de um número <b>não</b> muda como os outros respondem, e as instâncias que já
-            existem continuam com o conhecimento que têm hoje.
           </p>
+          <p className="mt-1 text-sm font-semibold text-white">
+            {contextoPadraoNome || 'Ainda sem contexto padrão'}
+          </p>
+          <p className="mt-2 max-w-2xl text-[11px] leading-relaxed text-mid">
+            O contexto já vem definido pela empresa e é aplicado na criação da instância. Nesta tela ele fica
+            apenas informado; a edição do conhecimento continua no contexto de cada número.
+          </p>
+          {podeGerenciarContexto && contextoPadraoNome && (
+            <p className="mt-1 text-[11px] text-mid">
+              {ctxPadrao.contextos.length} contexto{ctxPadrao.contextos.length === 1 ? '' : 's'} disponível{ctxPadrao.contextos.length === 1 ? '' : 'is'} para gestão.
+            </p>
+          )}
         </div>
       )}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {instancias.map((i) => (
-          <div key={i.id} className="overflow-hidden rounded-2xl border border-white/10 bg-panel shadow-sm">
+      <div className="space-y-4">
+        {gruposInstancias.map((grupo) => (
+          <section key={grupo.chave} className="space-y-3">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-white">{grupo.titulo}</h3>
+                <p className="max-w-2xl text-xs text-mid">{grupo.descricao}</p>
+              </div>
+              <span className="w-fit rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-medium text-mid">
+                {grupo.itens.length} instância{grupo.itens.length === 1 ? '' : 's'}
+              </span>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {grupo.itens.map((i) => (
+                <div key={i.id} className="overflow-hidden rounded-2xl border border-white/10 bg-panel shadow-sm">
             {/* Cabeçalho preto com o nome da instância na fonte e cores da marca */}
             <div className="bg-black px-4 py-5 text-center">
               <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-neon-cyan/70">Instância</p>
@@ -658,25 +653,20 @@ export default function InstanciasWhatsApp({ empresaId }: {
 
             {/* Corpo do card: status + botões sobre o fundo do card */}
             <div className="space-y-3 p-4">
-              {/* Etapa 8: trocar o responsável é GESTÃO, e só aparece para quem pode.
-                  ⚠️ O responsável NÃO participa da resolução de instância de envio nem do
-                  webhook — por isso o rótulo diz o que ele faz, e o que ele não faz. */}
-              {podeVerTodas && membros.length > 0 && (
-                <div>
-                  <label htmlFor={`resp-${i.id}`} className="block text-[10px] uppercase tracking-wide text-mid">Responsável</label>
-                  <select
-                    id={`resp-${i.id}`}
-                    value={i.usuario_id || ''}
-                    disabled={salvandoResp === i.id}
-                    onChange={(e) => definirResponsavel(i, e.target.value)}
-                    title="Organiza quem responde por este número. Não muda por onde as mensagens saem."
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-black/20 px-2 py-1.5 text-xs disabled:opacity-50"
-                  >
-                    <option value="">Da empresa (compartilhada)</option>
-                    {membros.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
-                  </select>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wide text-white/35">Responsável</p>
+                  <p className="mt-1 truncate text-xs font-semibold text-white/85">{rotuloResponsavel(i)}</p>
+                  <p className="mt-0.5 text-[10px] text-white/40">{rotuloTipoInstancia(i)}</p>
                 </div>
-              )}
+                <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wide text-white/35">Contexto</p>
+                  <p className="mt-1 truncate text-xs font-semibold text-white/85">{rotuloContexto(i)}</p>
+                  <p className="mt-0.5 text-[10px] text-white/40">
+                    {i.contexto_nome ? 'Predefinido para este número' : 'Sem seleção nesta tela'}
+                  </p>
+                </div>
+              </div>
               {/* UM selo só, por prioridade: inativo → desconectado → conectado → (verificando). */}
               <div className="flex justify-center">
                 {!i.ativo ? (
@@ -812,6 +802,9 @@ export default function InstanciasWhatsApp({ empresaId }: {
               </div>
             </div>
           </div>
+        ))}
+            </div>
+          </section>
         ))}
         {instancias.length === 0 && (
           /* Estado vazio com CTA, não um aviso seco: para quem não gerencia as instâncias da

@@ -215,6 +215,9 @@ test('os candidatos do planejamento nao herdam filtros da Lista', () => {
   const bloco = fonteRota.slice(ini, fim)
   assert.ok(bloco.includes('montarFiltro'), 'candidatos precisam usar o mesmo recorte operacional')
   assert.ok(bloco.includes('sqlFaixaTrabalho'), 'candidatos precisam vir na ordem de trabalho')
+  assert.ok(bloco.includes(') ultimo ON TRUE'), 'ordem de trabalho precisa do alias ultimo')
+  assert.ok(bloco.includes(') rascunho ON TRUE'), 'ordem de trabalho precisa do alias rascunho')
+  assert.ok(bloco.includes(') agenda ON TRUE'), 'ordem de trabalho precisa do alias agenda')
   assert.ok(bloco.includes("query: { escopo: req.query?.escopo }"),
     'planejamento so deve preservar o recorte de responsavel, nao os filtros da Lista')
   assert.ok(!/req\.query\?\.(aba|origem|mercado|cidade|busca)/.test(bloco),

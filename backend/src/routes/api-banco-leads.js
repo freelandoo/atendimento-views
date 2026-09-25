@@ -905,6 +905,54 @@ router.get('/plano-dia/candidatos', requireAuth, requireEmpresaAccess, async (re
               nicho, cidade, pais, categoria_perfil, endereco, ${RESPONSAVEL_NOME_SELECT},
               ${sqlFaixaTrabalho()} AS faixa_trabalho_ordem
          FROM prospectador.prospects
+        LEFT JOIN LATERAL (
+          SELECT d.criado_em AS rodado_em,
+                 COALESCE(u.nome, u.email) AS rodado_por,
+                 d.status AS ultimo_status,
+                 d.erro AS ultimo_erro
+            FROM prospectador.lead_disparos d
+            LEFT JOIN app.usuarios u ON u.id = d.usuario_id
+           WHERE d.prospect_id = prospects.id
+           ORDER BY d.criado_em DESC
+           LIMIT 1
+        ) ultimo ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT d.mensagem AS mensagem_gerada, d.criado_em AS gerada_em
+            FROM prospectador.lead_disparos d
+           WHERE d.prospect_id = prospects.id
+             AND d.status = 'aguardando_disparo'
+           ORDER BY d.criado_em DESC
+           LIMIT 1
+        ) rascunho ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT MIN(di) AS proximo_agendamento FROM (
+            SELECT ae.data_inicio AS di
+              FROM app.agenda_eventos ae
+             WHERE ae.empresa_id = prospects.empresa_id
+               AND ae.excluido_em IS NULL
+               AND ae.status IN ('pendente', 'confirmado')
+               AND ae.data_inicio >= NOW()
+               AND NULLIF(regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g'), '') IS NOT NULL
+               AND regexp_replace(COALESCE(ae.lead_telefone, ''), '[^0-9]', '', 'g')
+                   = regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g')
+            UNION ALL
+            SELECT ve.data_inicio AS di
+              FROM vendas.agenda_eventos ve
+             WHERE ve.excluido_em IS NULL
+               AND ve.tipo = 'reuniao'
+               AND ve.status IN ('pendente', 'confirmado')
+               AND ve.data_inicio >= NOW()
+               AND NULLIF(${normFone('prospects.telefone')}, '') IS NOT NULL
+               AND (
+                 EXISTS (SELECT 1 FROM vendas.conversas vc
+                          WHERE vc.id = ve.conversa_id AND vc.empresa_id = prospects.empresa_id
+                            AND ${normFone('vc.numero')} = ${normFone('prospects.telefone')})
+                 OR EXISTS (SELECT 1 FROM vendas.lead_profiles vlp
+                             WHERE vlp.id = ve.lead_id AND vlp.empresa_id = prospects.empresa_id
+                               AND ${normFone('vlp.numero')} = ${normFone('prospects.telefone')})
+               )
+          ) u
+        ) agenda ON TRUE
         WHERE ${where}
         ORDER BY faixa_trabalho_ordem ASC, ${sqlDesempateTrabalho()}
         LIMIT $${params.length}`,
