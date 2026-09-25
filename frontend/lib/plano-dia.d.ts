@@ -87,6 +87,11 @@ export interface CandidatoCarteira {
   telefone?: string | null
   cidade?: string | null
   nicho?: string | null
+  categoria?: string | null
+  categoria_perfil?: string | null
+  classificacao_url?: string | null
+  pais?: string | null
+  country?: string | null
   regiao?: string | null
   regiao_comercial?: string | null
   estado?: string | null
@@ -100,9 +105,20 @@ export interface CandidatoCarteira {
 export function opcoesNicho(candidatos: { nicho?: string | null }[] | null | undefined): { valor: string; total: number }[]
 export function opcoesCidade(candidatos: { cidade?: string | null }[] | null | undefined): { valor: string; total: number }[]
 export function opcoesRegiao(candidatos: CandidatoCarteira[] | null | undefined): { valor: string; total: number }[]
+export function opcoesCategoria(candidatos: CandidatoCarteira[] | null | undefined): { valor: string; total: number }[]
+export function opcoesPais(candidatos: CandidatoCarteira[] | null | undefined): { valor: string; total: number }[]
 
-/** Filtra candidatos de planejamento por busca + nicho/cidade/região, excluindo quem já está no dia. */
+/** Filtra candidatos de planejamento por busca + nicho/categoria/país/cidade/região, excluindo quem já está no dia. */
 export function filtrarCarteira<T extends CandidatoCarteira>(
   candidatos: T[] | null | undefined,
-  opcoes?: { busca?: string; nicho?: string; cidade?: string; regiao?: string; jaNoDia?: Set<string>; limite?: number },
+  opcoes?: {
+    busca?: string
+    nicho?: string
+    categoria?: string
+    pais?: string
+    cidade?: string
+    regiao?: string
+    jaNoDia?: Set<string>
+    limite?: number
+  },
 ): T[]

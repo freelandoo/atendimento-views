@@ -237,11 +237,21 @@ function opcoesNicho(candidatos) {
   return opcoesCampoCarteira(candidatos, 'nicho')
 }
 
+function valorCategoria(c) {
+  return String(c?.categoria_perfil || c?.categoria || c?.classificacao_url || '').trim()
+}
+
+function valorPais(c) {
+  return String(c?.pais || c?.country || '').trim().toUpperCase()
+}
+
 function valorRegiao(c) {
   return String(c?.regiao || c?.regiao_comercial || c?.estado || c?.uf || c?.bairro || '').trim()
 }
 
 function valorCampoCarteira(c, campo) {
+  if (campo === 'categoria') return valorCategoria(c)
+  if (campo === 'pais') return valorPais(c)
   if (campo === 'regiao') return valorRegiao(c)
   return String(c?.[campo] || '').trim()
 }
@@ -265,28 +275,44 @@ function opcoesRegiao(candidatos) {
   return opcoesCampoCarteira(candidatos, 'regiao')
 }
 
+function opcoesCategoria(candidatos) {
+  return opcoesCampoCarteira(candidatos, 'categoria')
+}
+
+function opcoesPais(candidatos) {
+  return opcoesCampoCarteira(candidatos, 'pais')
+}
+
 /**
- * Filtra os candidatos de planejamento por busca (nome/telefone) e por nicho/cidade/região,
+ * Filtra os candidatos de planejamento por busca e por nicho/categoria/país/cidade/região,
  * excluindo quem já está no dia. `limite`, quando informado, recorta a lista exibida; sem ele
  * o planejamento mostra todo o recorte carregado, para o seletor de nicho/cidade não esconder
  * trabalho que já está disponível na carteira.
  */
-function filtrarCarteira(candidatos, { busca, nicho, cidade, regiao, jaNoDia, limite } = {}) {
+function filtrarCarteira(candidatos, { busca, nicho, categoria, pais, cidade, regiao, jaNoDia, limite } = {}) {
   const q = String(busca || '').trim().toLowerCase()
   const n = String(nicho || '').trim()
+  const cat = String(categoria || '').trim()
+  const ps = String(pais || '').trim().toUpperCase()
   const cid = String(cidade || '').trim()
   const reg = String(regiao || '').trim()
   const excluir = jaNoDia instanceof Set ? jaNoDia : new Set()
   const teto = Number.isFinite(limite) && limite > 0 ? limite : null
   const base = (Array.isArray(candidatos) ? candidatos : []).filter((l) => l && !excluir.has(l.id))
   const porNicho = n ? base.filter((l) => String(l.nicho || '').trim() === n) : base
-  const porCidade = cid ? porNicho.filter((l) => String(l.cidade || '').trim() === cid) : porNicho
+  const porCategoria = cat ? porNicho.filter((l) => valorCategoria(l) === cat) : porNicho
+  const porPais = ps ? porCategoria.filter((l) => valorPais(l) === ps) : porCategoria
+  const porCidade = cid ? porPais.filter((l) => String(l.cidade || '').trim() === cid) : porPais
   const porRegiao = reg ? porCidade.filter((l) => valorRegiao(l) === reg) : porCidade
   const porBusca = q
     ? porRegiao.filter((l) => (
       String(l.nome || '').toLowerCase().includes(q)
       || String(l.telefone || '').includes(q)
       || String(l.instagram_handle || '').toLowerCase().includes(q)
+      || String(l.nicho || '').toLowerCase().includes(q)
+      || valorCategoria(l).toLowerCase().includes(q)
+      || String(l.cidade || '').toLowerCase().includes(q)
+      || valorPais(l).toLowerCase().includes(q)
     ))
     : porRegiao
   return teto ? porBusca.slice(0, teto) : porBusca
@@ -296,5 +322,5 @@ module.exports = {
   COLUNAS, CHAVES, coluna, montarColunas, aoMoverPara,
   seloConclusao, seloOrigemEntrada, horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia,
   somarDias, diasDaSemana, rotuloDiaCurto, rotuloSemana, resumoDoPeriodo,
-  opcoesNicho, opcoesCidade, opcoesRegiao, filtrarCarteira,
+  opcoesNicho, opcoesCidade, opcoesRegiao, opcoesCategoria, opcoesPais, filtrarCarteira,
 }

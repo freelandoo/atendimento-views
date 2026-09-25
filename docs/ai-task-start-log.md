@@ -6,6 +6,14 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-25 — Carteira no Planejar meu dia com filtros de categoria/nicho/país
+
+- **Pedido do operador:** ajustar a carteira dentro do Quadro do Dia / Planejar meu dia para funcionar melhor como seleção da agenda do dia, com busca e separadores fáceis por categoria, nicho, país e localização.
+- **Workflow:** Fase 0 registrada antes da implementação; seguir `docs/ai-workflow.md`, `docs/ui-visual-standard.md` e `docs/project-architecture.md`.
+- **Áreas prováveis:** `frontend/components/ModalPlanejarDia.tsx`, `frontend/lib/plano-dia.js`, `frontend/lib/plano-dia.d.ts`, `frontend/lib/plano-dia.test.js`, `backend/src/routes/api-banco-leads.js`.
+- **Regras a preservar:** planejamento do dia é read-only sobre a carteira autorizada; não assume lead, não transfere `responsavel_id`, não envia abordagem e não amplia recorte por equipe/nicho. Backend continua fonte do recorte; frontend só filtra/apresenta dados já retornados.
+- **Validações previstas:** testes focados de `frontend/lib/plano-dia.test.js`, typecheck do frontend se viável, e `git diff --check`.
+
 ## 2026-09-24 — API de busca de leads: códigos externos e rotas públicas
 
 - **Pedido do operador:** continuar a implementação depois da Fase 1 da API de busca/provisionamento

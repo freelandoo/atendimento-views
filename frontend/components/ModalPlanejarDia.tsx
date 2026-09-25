@@ -16,8 +16,10 @@ import FolhaModal from '@/components/ui/FolhaModal'
 import Botao from '@/components/ui/Botao'
 import { classesEntrada } from '@/lib/ui-primitivos'
 import { celulaOrigem } from '@/lib/lead-origem'
+import { nomePais } from '@/lib/paises'
 import {
-  seloOrigemEntrada, opcoesNicho, opcoesCidade, opcoesRegiao, filtrarCarteira,
+  seloOrigemEntrada, opcoesNicho, opcoesCidade, opcoesRegiao, opcoesCategoria, opcoesPais,
+  filtrarCarteira,
 } from '@/lib/plano-dia'
 
 export type CandidatoDia = {
@@ -28,6 +30,11 @@ export type CandidatoDia = {
   instagram_handle?: string | null
   cidade?: string | null
   nicho?: string | null
+  categoria?: string | null
+  categoria_perfil?: string | null
+  classificacao_url?: string | null
+  pais?: string | null
+  country?: string | null
   regiao?: string | null
   regiao_comercial?: string | null
   estado?: string | null
@@ -66,6 +73,8 @@ export default function ModalPlanejarDia({
 }) {
   const [busca, setBusca] = useState('')
   const [nicho, setNicho] = useState('')
+  const [categoria, setCategoria] = useState('')
+  const [pais, setPais] = useState('')
   const [cidade, setCidade] = useState('')
   const [regiao, setRegiao] = useState('')
   const [aba, setAba] = useState<'esperando' | 'carteira'>('esperando')
@@ -75,18 +84,27 @@ export default function ModalPlanejarDia({
   // leads que a lista não vai mostrar.
   const disponiveis = useMemo(() => candidatos.filter((l) => !jaNoDia.has(l.id)), [candidatos, jaNoDia])
   const nichos = useMemo(() => opcoesNicho(disponiveis), [disponiveis])
+  const categorias = useMemo(() => opcoesCategoria(disponiveis), [disponiveis])
+  const paises = useMemo(() => opcoesPais(disponiveis), [disponiveis])
   const cidades = useMemo(() => opcoesCidade(disponiveis), [disponiveis])
   const regioes = useMemo(() => opcoesRegiao(disponiveis), [disponiveis])
   const filtrados = useMemo(
-    () => filtrarCarteira(candidatos, { busca, nicho, cidade, regiao, jaNoDia }),
-    [candidatos, busca, nicho, cidade, regiao, jaNoDia]
+    () => filtrarCarteira(candidatos, { busca, nicho, categoria, pais, cidade, regiao, jaNoDia }),
+    [candidatos, busca, nicho, categoria, pais, cidade, regiao, jaNoDia]
   )
+  const filtrosCarteira = [busca.trim(), nicho, categoria, pais, cidade, regiao].filter(Boolean).length
 
   // Nicho que esvaziou (todos foram para o dia) volta para "Todos": um <select> com valor sem
   // <option> correspondente exibe uma coisa e filtra outra.
   useEffect(() => {
     if (nicho && !nichos.some((o) => o.valor === nicho)) setNicho('')
   }, [nicho, nichos])
+  useEffect(() => {
+    if (categoria && !categorias.some((o) => o.valor === categoria)) setCategoria('')
+  }, [categoria, categorias])
+  useEffect(() => {
+    if (pais && !paises.some((o) => o.valor === pais)) setPais('')
+  }, [pais, paises])
   useEffect(() => {
     if (cidade && !cidades.some((o) => o.valor === cidade)) setCidade('')
   }, [cidade, cidades])
@@ -100,6 +118,15 @@ export default function ModalPlanejarDia({
       for (const l of filtrados) next.add(l.id)
       return next
     })
+  }
+
+  function limparFiltrosCarteira() {
+    setBusca('')
+    setNicho('')
+    setCategoria('')
+    setPais('')
+    setCidade('')
+    setRegiao('')
   }
 
   const sugeridos = useMemo(
@@ -228,24 +255,33 @@ export default function ModalPlanejarDia({
             <div>
               <h3 className="text-sm font-semibold text-ink">Da sua carteira</h3>
               <p className="mt-0.5 text-xs text-ink-3">
-                Na ordem de trabalho. Busque por nome ou combine filtros de nicho e localização.
+                Na ordem de trabalho. Busque ou combine nicho, categoria, país e localização.
               </p>
             </div>
-            {filtrados.length > 1 && !carregandoCarteira && !erroCarteira && (
-              <Botao variante="secundaria" tamanho="sm" onClick={marcarFiltrados}>
-                Marcar os {filtrados.length} da lista
-              </Botao>
+            {!carregandoCarteira && !erroCarteira && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {filtrosCarteira > 0 && (
+                  <Botao variante="neutra" tamanho="sm" onClick={limparFiltrosCarteira}>
+                    Limpar filtros
+                  </Botao>
+                )}
+                {filtrados.length > 1 && (
+                  <Botao variante="secundaria" tamanho="sm" onClick={marcarFiltrados}>
+                    Marcar os {filtrados.length} da lista
+                  </Botao>
+                )}
+              </div>
             )}
           </div>
 
-          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            <label htmlFor="planejar-busca" className="sr-only">Buscar lead pelo nome, telefone ou cidade</label>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <label htmlFor="planejar-busca" className="sr-only">Buscar lead por nome, telefone, nicho, categoria ou cidade</label>
             <input
               id="planejar-busca"
               type="search"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por nome"
+              placeholder="Buscar carteira"
               className={classesEntrada({ extra: 'sm:col-span-2 lg:col-span-1' })}
             />
             {nichos.length > 1 && (
@@ -260,6 +296,38 @@ export default function ModalPlanejarDia({
                   <option value="">Todos os nichos ({disponiveis.length})</option>
                   {nichos.map((o) => (
                     <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>
+                  ))}
+                </select>
+              </>
+            )}
+            {categorias.length > 1 && (
+              <>
+                <label htmlFor="planejar-categoria" className="sr-only">Filtrar por categoria</label>
+                <select
+                  id="planejar-categoria"
+                  value={categoria}
+                  onChange={(e) => setCategoria(e.target.value)}
+                  className={classesEntrada()}
+                >
+                  <option value="">Todas as categorias ({disponiveis.length})</option>
+                  {categorias.map((o) => (
+                    <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>
+                  ))}
+                </select>
+              </>
+            )}
+            {paises.length > 1 && (
+              <>
+                <label htmlFor="planejar-pais" className="sr-only">Filtrar por país</label>
+                <select
+                  id="planejar-pais"
+                  value={pais}
+                  onChange={(e) => setPais(e.target.value)}
+                  className={classesEntrada()}
+                >
+                  <option value="">Todos os países ({disponiveis.length})</option>
+                  {paises.map((o) => (
+                    <option key={o.valor} value={o.valor}>{nomePais(o.valor)} ({o.total})</option>
                   ))}
                 </select>
               </>
@@ -313,7 +381,7 @@ export default function ModalPlanejarDia({
             </div>
           ) : filtrados.length === 0 ? (
             <p className="mt-3 rounded-lg border border-line bg-surface-2 px-3 py-4 text-center text-xs text-ink-3">
-              {busca.trim() || nicho
+              {filtrosCarteira > 0
                 ? 'Nenhum lead da carteira carregada bate com esse filtro.'
                 : 'Todos os leads carregados já estão no plano deste dia.'}
             </p>
@@ -336,6 +404,14 @@ export default function ModalPlanejarDia({
                           <span className={o.classe} title={`${o.rotulo} — ${o.dica}`}>{o.curto}</span>
                           {l.nicho && (
                             <span className="truncate rounded-md bg-surface-3 px-1.5 py-0.5 text-ink-2">{l.nicho}</span>
+                          )}
+                          {(l.categoria_perfil || l.categoria || l.classificacao_url) && (
+                            <span className="truncate rounded-md bg-surface-3 px-1.5 py-0.5 text-ink-2">
+                              {l.categoria_perfil || l.categoria || l.classificacao_url}
+                            </span>
+                          )}
+                          {(l.pais || l.country) && (
+                            <span className="truncate">{nomePais(l.pais || l.country)}</span>
                           )}
                           {l.cidade && <span className="truncate">{l.cidade}</span>}
                           {!l.telefone && <span className="text-amber-700">sem telefone</span>}

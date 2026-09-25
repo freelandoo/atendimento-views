@@ -7,7 +7,7 @@ const {
   COLUNAS, CHAVES, montarColunas, aoMoverPara, seloConclusao, seloOrigemEntrada,
   horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia, somarDias, diasDaSemana,
   rotuloDiaCurto, rotuloSemana, resumoDoPeriodo, opcoesNicho, opcoesCidade, opcoesRegiao,
-  filtrarCarteira,
+  opcoesCategoria, opcoesPais, filtrarCarteira,
 } = require('./plano-dia')
 
 const fonte = fs.readFileSync(path.join(__dirname, 'plano-dia.js'), 'utf8')
@@ -190,20 +190,41 @@ test('opcoesCidade e opcoesRegiao usam so dados carregados da carteira', () => {
   ])
 })
 
+test('opcoesCategoria e opcoesPais agrupam a carteira carregada', () => {
+  const c = [
+    { categoria_perfil: 'Solar Energy Company', pais: 'br' },
+    { categoria: 'Solar Energy Company', pais: 'BR' },
+    { classificacao_url: 'Clínica', country: 'PT' },
+    { categoria_perfil: '  ', pais: '' },
+  ]
+  assert.deepEqual(opcoesCategoria(c), [
+    { valor: 'Solar Energy Company', total: 2 },
+    { valor: 'Clínica', total: 1 },
+  ])
+  assert.deepEqual(opcoesPais(c), [
+    { valor: 'BR', total: 2 },
+    { valor: 'PT', total: 1 },
+  ])
+})
+
 test('filtrarCarteira exclui quem ja esta no dia', () => {
   const r = filtrarCarteira([{ id: '1' }, { id: '2' }], { jaNoDia: new Set(['1']) })
   assert.deepEqual(r.map((c) => c.id), ['2'])
 })
 
-test('filtrarCarteira recorta por nicho e combina com a busca', () => {
+test('filtrarCarteira recorta por nicho, categoria, pais e combina com a busca', () => {
   const c = [
-    { id: '1', nome: 'Sol Forte', nicho: 'Energia Solar', cidade: 'Goiânia', regiao: 'Sul' },
-    { id: '2', nome: 'Sol Nascente', nicho: 'Estetica', cidade: 'Goiânia', bairro: 'Centro' },
-    { id: '3', nome: 'Luz Verde', nicho: 'Energia Solar', telefone: '5562999990000', cidade: 'Anápolis', uf: 'GO' },
+    { id: '1', nome: 'Sol Forte', nicho: 'Energia Solar', categoria_perfil: 'Solar Energy Company', pais: 'BR', cidade: 'Goiânia', regiao: 'Sul' },
+    { id: '2', nome: 'Sol Nascente', nicho: 'Estetica', categoria_perfil: 'Clinic', pais: 'BR', cidade: 'Goiânia', bairro: 'Centro' },
+    { id: '3', nome: 'Luz Verde', nicho: 'Energia Solar', categoria_perfil: 'Instalador', pais: 'PT', telefone: '5562999990000', cidade: 'Anápolis', uf: 'GO' },
   ]
   assert.deepEqual(filtrarCarteira(c, { nicho: 'Energia Solar' }).map((l) => l.id), ['1', '3'])
-  assert.deepEqual(filtrarCarteira(c, { nicho: 'Energia Solar', busca: 'sol' }).map((l) => l.id), ['1'])
+  assert.deepEqual(filtrarCarteira(c, { nicho: 'Energia Solar', busca: 'sol' }).map((l) => l.id), ['1', '3'])
+  assert.deepEqual(filtrarCarteira(c, { nicho: 'Energia Solar', busca: 'forte' }).map((l) => l.id), ['1'])
   assert.deepEqual(filtrarCarteira(c, { busca: '99999' }).map((l) => l.id), ['3'])
+  assert.deepEqual(filtrarCarteira(c, { busca: 'clinic' }).map((l) => l.id), ['2'])
+  assert.deepEqual(filtrarCarteira(c, { categoria: 'Solar Energy Company' }).map((l) => l.id), ['1'])
+  assert.deepEqual(filtrarCarteira(c, { nicho: 'Energia Solar', pais: 'PT' }).map((l) => l.id), ['3'])
   assert.deepEqual(filtrarCarteira(c, { cidade: 'Goiânia' }).map((l) => l.id), ['1', '2'])
   assert.deepEqual(filtrarCarteira(c, { cidade: 'Goiânia', regiao: 'Centro' }).map((l) => l.id), ['2'])
   assert.deepEqual(filtrarCarteira(c, { regiao: 'GO' }).map((l) => l.id), ['3'])
