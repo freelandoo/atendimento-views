@@ -226,10 +226,10 @@ test('gerarMensagensSemi interrompe o lote após falhas consecutivas no meio (ci
     if (falhamNomes.has(nome)) throw new Error(`Falha simulada para ${nome}`)
     return { text: JSON.stringify({
       schema_version: 'abordagem_inicial_v1',
-      mensagem: `Oi, tudo bem? Sou da nossa empresa. Ja deixei uma previa de site pronta aqui no atendimento para ${nome}. Notei uma oportunidade no seu cadastro. Posso te mostrar?`,
+      mensagem: `Oi, tudo bem? Vi ${nome} e notei uma oportunidade no seu cadastro. Posso te fazer uma pergunta rapida?`,
       angulo: 'presenca_digital',
       sinais_usados: ['oportunidade no cadastro'],
-      pergunta_final: 'Posso te mostrar?',
+      pergunta_final: 'Posso te fazer uma pergunta rapida?',
       confianca: 0.7,
     }) }
   }

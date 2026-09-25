@@ -71,7 +71,9 @@ async function gerarSaudacaoAnalise({ pool, log, empresaId, contextoId, jsonApre
     for (let tentativa = 0; tentativa <= RETRIES; tentativa++) {
       try {
         const res = await gerar(input, pool, log)
-        const contrato = normalizarContratoAbordagem(res?.text || '', estrategia)
+        const contrato = normalizarContratoAbordagem(res?.text || '', estrategia, {
+          avisoSitePronto: promptContrato.aviso_site_pronto,
+        })
         const texto = String(contrato?.mensagem || '').trim()
         if (texto && texto.length <= MAX_CHARS) return texto
       } catch (e) {

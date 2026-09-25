@@ -117,8 +117,8 @@ test('abordagem inicial: fallback tambem respeita o gancho obrigatorio', () => {
     site: 'https://clinica-alfa.wixsite.com/home',
   }, { nomeEmpresa: 'PJ Codeworks' })
 
-  assert.match(msg, /Sou da PJ Codeworks/)
-  assert.match(msg, /previa dessa estrutura pronta/i)
+  assert.doesNotMatch(msg, /Sou da|PJ Codeworks/)
+  assert.match(msg, /estrutura pronta/i)
   assert.match(msg, /Clinica Alfa/)
   assert.equal(msg.length <= 600, true)
 })
@@ -140,7 +140,7 @@ test('abordagem inicial: prompt manda adaptar idioma pela localidade do lead', (
   assert.match(prompt.userPrompt, /Portugal/)
 })
 
-test('abordagem inicial: identificacao configurada substitui nossa empresa', () => {
+test('abordagem inicial: identificacao configurada vira instrucao, nao prefixo programatico', () => {
   const instrucoes = [
     '[ABORDAGEM_IA_CONFIG]',
     JSON.stringify({
@@ -165,11 +165,29 @@ test('abordagem inicial: identificacao configurada substitui nossa empresa', () 
     ofertaAbordagem: prompt.oferta_abordagem,
   })
 
-  assert.match(prompt.userPrompt, /use exatamente: "Sou Victor, da PJ Codeworks"/)
+  assert.match(prompt.userPrompt, /Identificacao opcional configurada pelo operador: "Sou Victor, da PJ Codeworks"/)
+  assert.match(prompt.userPrompt, /nao encaixe mecanicamente no comeco/)
   assert.match(prompt.userPrompt, /controlar leads, acompanhar o funil e organizar propostas/)
-  assert.match(msg, /Sou Victor, da PJ Codeworks/)
+  assert.doesNotMatch(msg, /Sou Victor|PJ Codeworks|nossa empresa/)
   assert.doesNotMatch(msg, /nossa empresa/)
   assert.match(msg, /controlar leads/)
+})
+
+test('abordagem inicial: sem oferta configurada nao assume carro-chefe nem oferta pronta', () => {
+  const estrategia = montarEstrategiaAbordagem({ nome: 'Padaria X', tem_site: false }, { nomeEmpresa: 'PJ Codeworks' })
+  const prompt = montarPromptContratoAbordagem({
+    estrategia,
+    dadosLead: { nome: 'Padaria X', nicho: 'padaria' },
+    instrucoes: '',
+    nomeEmpresa: 'PJ Codeworks',
+  })
+
+  assert.equal(prompt.oferta_abordagem, null)
+  assert.equal(prompt.aviso_site_pronto, false)
+  assert.equal(prompt.identificacao, '')
+  assert.match(prompt.userPrompt, /Nenhuma oferta principal foi configurada/)
+  assert.match(prompt.userPrompt, /Nao comece se identificando por padrao/)
+  assert.match(prompt.userPrompt, /Nao diga que existe oferta/)
 })
 
 test('abordagem inicial: detector de pergunta final aceita somente pergunta direta no fim', () => {
@@ -196,8 +214,9 @@ test('abordagem inicial: oferta especifica do nicho vence a oferta geral', () =>
   assert.equal(out.oferta.nome, 'Site para energia solar')
   assert.equal(out.oferta.site_pronto, false)
   assert.match(out.instrucoes, /Oferta solar/)
+  assert.doesNotMatch(out.instrucoes, /Oferta geral/)
   assert.match(out.instrucoes, /Resultado esperado/)
-  assert.match(out.instrucoes, /nao dizer que ja existe site/)
+  assert.match(out.instrucoes, /nao dizer que ja existe oferta, site/)
 })
 
 test('abordagem inicial: oferta desativada nao participa da selecao', () => {

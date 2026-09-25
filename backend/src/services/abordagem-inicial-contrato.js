@@ -128,8 +128,11 @@ function selecionarOfertaAbordagem(instrucoes = '', dadosLead = {}) {
     if (resultado) linhas.push(`Resultado esperado: ${resultado}`)
     linhas.push(`Escopo: ${oferta.geral ? 'geral' : `nicho ${oferta.nicho || '(sem nicho)'}`}`)
     linhas.push(oferta.site_pronto
-      ? 'Gancho: avisar que ja existe uma previa/estrutura de site pronta.'
-      : 'Gancho: nao dizer que ja existe site, previa ou estrutura pronta; abordar com diagnostico/analise.')
+      ? 'Gancho: pode avisar que a oferta/estrutura selecionada ja esta pronta ou disponivel; nao trocar por site se a oferta nao for site.'
+      : 'Gancho: nao dizer que ja existe oferta, site, previa ou estrutura pronta; abordar com diagnostico/analise.')
+  } else {
+    linhas.push('OFERTA SELECIONADA PELO APLICATIVO')
+    linhas.push('Nenhuma oferta principal foi configurada; a IA nao deve assumir qual e o carro-chefe.')
   }
   linhas.push(idiomaAutomatico
     ? 'Idioma: adaptar ao pais/idioma do lead quando houver sinal nos dados.'
@@ -238,13 +241,6 @@ function resumirResultadoOferta(oferta = {}) {
   return texto(oferta.descricao || oferta.nome, 220)
 }
 
-function fraseIdentificacao(valor, fallbackNomeEmpresa = 'nossa empresa') {
-  const id = texto(valor, 220)
-  if (id) return id.replace(/[.!?]+$/g, '')
-  const nome = texto(fallbackNomeEmpresa, 120) || 'nossa empresa'
-  return `Sou da ${nome}`
-}
-
 function montarEstrategiaAbordagem(entrada = {}, opts = {}) {
   const lead = normalizarLeadEntrada(entrada)
   const siteInfo = classificarLead(lead)
@@ -272,7 +268,7 @@ function avisoSiteProntoPresente(mensagem) {
   const m = String(mensagem || '').toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-  return /\b(site|previa|estrutura|analise)\b/.test(m) && /\b(pront|preparad|separad|montad|deixei)\w*/.test(m)
+  return /\b(site|previa|estrutura|analise|oferta|solucao|sistema|crm|carro chefe)\b/.test(m) && /\b(pront|preparad|separad|montad|disponivel|deixei)\w*/.test(m)
 }
 
 function terminaComPergunta(mensagem) {
@@ -281,8 +277,6 @@ function terminaComPergunta(mensagem) {
 
 function renderMensagemAbordagemFallback(entrada = {}, opts = {}) {
   const estrategia = opts.estrategia || montarEstrategiaAbordagem(entrada, opts)
-  const nomeEmp = estrategia.nome_empresa || opts.nomeEmpresa || 'nossa empresa'
-  const identificacao = fraseIdentificacao(opts.identificacao, nomeEmp)
   const nome = estrategia.nome_lead || 'seu negocio'
   const nicho = texto(entrada.nicho || entrada.prospect_nicho || entrada.categoria || '', 120)
   const cidade = texto(entrada.cidade || entrada.prospect_cidade || '', 120)
@@ -297,8 +291,8 @@ function renderMensagemAbordagemFallback(entrada = {}, opts = {}) {
     ? `A ideia e ${resultado}.`
     : `${oportunidade} Notei ${sinal}.`
   const msg = opts.avisoSitePronto === false
-    ? `Oi, tudo bem? ${identificacao}. Vi ${alvo}. ${fraseResultado} ${estrategia.pergunta_final}`
-    : `Oi, tudo bem? ${identificacao}. Ja deixei uma previa dessa estrutura pronta aqui no atendimento para ${alvo}. ${fraseResultado} ${estrategia.pergunta_final}`
+    ? `Oi, tudo bem? Vi ${alvo}. ${fraseResultado} ${estrategia.pergunta_final}`
+    : `Oi, tudo bem? Tenho essa estrutura pronta aqui para ${alvo}. ${fraseResultado} ${estrategia.pergunta_final}`
   return msg.replace(/\s+/g, ' ').trim().slice(0, MAX_MENSAGEM_CHARS)
 }
 
@@ -350,8 +344,8 @@ function normalizarContratoAbordagem(textoBruto, estrategia = {}, opts = {}) {
 
 function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conhecimento = '', instrucoes = '', nomeEmpresa = '' }) {
   const abordagem = selecionarOfertaAbordagem(instrucoes, dadosLead)
-  const avisoSitePronto = abordagem.oferta ? abordagem.oferta.site_pronto !== false : true
-  const identificacao = fraseIdentificacao(abordagem.identificacao, nomeEmpresa || estrategia.nome_empresa || 'nossa empresa')
+  const avisoSitePronto = abordagem.oferta ? abordagem.oferta.site_pronto !== false : false
+  const identificacao = texto(abordagem.identificacao, 220)
   const resultadoOferta = resumirResultadoOferta(abordagem.oferta || {})
   const schema = {
     schema_version: ABORDAGEM_SCHEMA_VERSION,
@@ -366,9 +360,12 @@ function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conheciment
   const regras = [
     'Voce escreve a PRIMEIRA abordagem de WhatsApp em portugues do Brasil.',
     'Retorne APENAS JSON valido, sem markdown, sem texto fora do JSON.',
+    abordagem.oferta
+      ? `Oferta/carro-chefe selecionado pelo aplicativo: ${abordagem.oferta.nome || abordagem.oferta.descricao}. Use somente essa oferta; se ela for especifica de nicho, nao misture a oferta geral.`
+      : 'Nenhuma oferta principal foi configurada. Nao assuma o carro-chefe, nao diga que sabe a oferta e gere no maximo uma abordagem consultiva baseada nos sinais do lead.',
     avisoSitePronto
-      ? 'A mensagem deve abrir avisando que ja existe uma previa/estrutura de site pronta aqui no atendimento.'
-      : 'Nao diga que existe site, previa, estrutura, analise ou material pronto/preparado/montado; aborde com diagnostico, observacao ou pergunta consultiva.',
+      ? 'A mensagem pode avisar que a oferta/estrutura selecionada ja esta pronta ou disponivel. Nao diga "site pronto" se a oferta nao for site.'
+      : 'Nao diga que existe oferta, site, previa, estrutura, analise ou material pronto/preparado/montado/disponivel; aborde com diagnostico, observacao ou pergunta consultiva.',
     'Use no maximo 1 ou 2 sinais reais do lead; nao invente faturamento, campanhas, resultados, desconto ou urgencia falsa.',
     'Use raciocinio SPIN: situacao real -> problema/oportunidade -> ganho esperado -> uma pergunta final.',
     resultadoOferta
@@ -376,7 +373,9 @@ function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conheciment
       : 'Ao falar da oferta, traduza a descricao em resultado pratico para o negocio; nao reduza tudo a "presenca digital" quando houver CRM, funil, leads, propostas ou WhatsApp.',
     'Nao use BANT nesta primeira mensagem: nao pergunte budget, decisor ou prazo agora.',
     'Detecte o idioma/variante pelos dados do lead (pais, endereco, cidade, telefone, perfil e textos coletados). Se o lead indicar Estados Unidos, escreva em ingles; se indicar Portugal, use portugues de Portugal; se nao houver sinal claro, use portugues do Brasil.',
-    `Quando se identificar, use exatamente: "${identificacao}".`,
+    identificacao
+      ? `Identificacao opcional configurada pelo operador: "${identificacao}". Interprete como orientacao de tom/remetente; nao encaixe mecanicamente no comeco se o perfil do WhatsApp ja identifica o contato.`
+      : 'Nao comece se identificando por padrao; o perfil do contato ja deve carregar a identidade. Va direto ao contexto do lead e a pergunta de interesse.',
     'Nao peca reuniao nesta mensagem; peca permissao ou faca uma pergunta de interesse.',
     'A mensagem final deve terminar com uma pergunta direta de permissao/interesse. Ex.: "Posso te mandar?" ou "Faz sentido eu te mostrar?".',
     'Maximo 500 caracteres na mensagem.',

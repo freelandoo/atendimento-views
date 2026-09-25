@@ -4642,3 +4642,24 @@ esperadas. A resposta real do lead continua no contrato central da conversa:
 
 **Documentacao operacional:** ver `docs/banco-leads-automatico-politica.md` para a regra de 3
 numeros, prioridade dos melhores leads por recorte e pontos de medicao antes de escalar.
+
+## 2026-09-24 — Abordagem IA sem identificacao padrao e oferta como carro-chefe
+
+**Decisao 1 — sem identificacao programatica.** O aplicativo nao injeta mais "Sou da nossa
+empresa" nem uma identificacao padrao no inicio da primeira mensagem. Se o operador preencher
+"Como se identificar", esse texto vai para o prompt como orientacao de interpretacao da IA e fica
+auditado em JSON; o fallback deterministico tambem nao encaixa a frase no comeco.
+
+**Decisao 2 — oferta vazia e ausencia real de oferta.** Quando nao ha oferta cadastrada no modal
+de Abordagem IA, o backend passa `oferta_abordagem=null` e `site_pronto=false`; a IA recebe a
+instrucao de nao assumir qual e o carro-chefe. No modo Automatico com IA, a tela exige pelo menos
+uma oferta ativa antes de salvar a abordagem.
+
+**Decisao 3 — `sitePronto` virou compatibilidade tecnica.** O campo salvo continua com esse nome
+para evitar migration, mas a semantica operacional e "oferta/estrutura pronta". A IA so pode dizer
+"site pronto" quando a oferta selecionada for de site; para CRM/sistema/estrutura comercial, deve
+falar da oferta pronta/disponivel correspondente.
+
+**Decisao 4 — oferta especifica por nicho isola a oferta geral.** Quando uma oferta especifica
+casa com o nicho do lead, o prompt expõe somente aquela oferta como carro-chefe selecionado. A
+oferta geral nao entra como contexto de oferta para evitar mistura de proposta.

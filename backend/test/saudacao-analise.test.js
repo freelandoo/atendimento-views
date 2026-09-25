@@ -8,10 +8,10 @@ const poolNoop = { query: async () => { throw new Error('não deveria consultar 
 const json = { fonte: 'google_places', empresa: { nome: 'Padaria X' }, lacunas: ['site'] }
 const respostaJson = {
   schema_version: 'abordagem_inicial_v1',
-  mensagem: 'Oi, tudo bem? Sou da nossa empresa. Ja deixei uma previa de site pronta aqui no atendimento para Padaria X. Vi que voce nao tem site proprio confirmado. Hoje voce gostaria de trazer mais pedidos pelo WhatsApp?',
+  mensagem: 'Oi, tudo bem? Vi que a Padaria X nao tem site proprio confirmado e pode perder pedidos que chegam pelo WhatsApp. Posso te fazer uma pergunta rapida?',
   angulo: 'sem_site',
   sinais_usados: ['sem site proprio confirmado'],
-  pergunta_final: 'Hoje voce gostaria de trazer mais pedidos pelo WhatsApp?',
+  pergunta_final: 'Posso te fazer uma pergunta rapida?',
   confianca: 0.8,
 }
 

@@ -5750,3 +5750,15 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Cuidados:** `teto_diario` precisa limitar o POOL inteiro, nao cada numero; abordagem deve
   ser pergunta curta, sem promessa falsa; desinteresse deve ser capturado pelo contrato de
   conversa ja existente (`sinal_conversa`), sem duplicar regra sensivel no front.
+
+## 2026-09-24 — Abordagem IA sem identificacao padrao e oferta como carro-chefe
+
+- **Pedido:** remover identificacao programatica no inicio da primeira mensagem; a IA so deve usar
+  identificacao quando o operador escrever essa instrucao. A oferta principal e definida no modal
+  de Abordagem IA; se estiver vazia, a IA nao deve assumir qual e o carro-chefe.
+- **Areas previstas:** `backend/src/services/abordagem-inicial-contrato.js`, persistencia/auditoria
+  da mensagem de prospeccao, testes focados, textos do modal `frontend/app/dashboard/banco-leads/page.tsx`
+  e documentacao operacional.
+- **Cuidados:** manter o JSON existente sem migration; tratar `sitePronto` como legado de
+  "oferta/estrutura pronta" sem prometer especificamente site; oferta por nicho nao pode misturar
+  contexto da oferta geral; mudanca visual limitada a microcopy/labels do modal.

@@ -129,11 +129,11 @@ function dimensaoAbordagemSql() {
         THEN CONCAT(
           NULLIF(f.metadata_json #>> '{mensagem_ia,oferta_abordagem,nome}', ''),
           CASE
-            WHEN f.metadata_json #>> '{mensagem_ia,site_pronto}' = 'true' THEN ' · site pronto'
+            WHEN f.metadata_json #>> '{mensagem_ia,site_pronto}' = 'true' THEN ' · oferta pronta'
             ELSE ' · diagnostico'
           END
         )
-      WHEN f.metadata_json #>> '{mensagem_ia,site_pronto}' = 'true' THEN 'site pronto'
+      WHEN f.metadata_json #>> '{mensagem_ia,site_pronto}' = 'true' THEN 'oferta pronta'
       WHEN f.metadata_json ? 'mensagem_ia' THEN 'diagnostico'
       ELSE 'sem_abordagem_auditada'
     END`

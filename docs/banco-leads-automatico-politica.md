@@ -23,7 +23,7 @@ forcar venda logo na abertura.
 Formato esperado:
 
 ```text
-Oi, tudo bem? Sou Victor, da PJ Codeworks. Vi a Solar Alfa em Campinas e tenho uma estrutura para ajudar a controlar leads, propostas e retornos pelo WhatsApp. Posso te mostrar?
+Oi, tudo bem? Vi a Solar Alfa em Campinas e tenho uma estrutura para ajudar a controlar leads, propostas e retornos pelo WhatsApp. Posso te mostrar?
 ```
 
 Regras:
@@ -31,9 +31,16 @@ Regras:
 - Terminar com uma pergunta direta.
 - Usar no maximo 1 ou 2 sinais reais do lead.
 - Focar no resultado da oferta configurada.
+- Nao se identificar por padrao no inicio: o perfil do WhatsApp ja deve carregar a identidade.
+- Se o operador preencher "Como se identificar", isso entra como orientacao para a IA interpretar,
+  nao como texto que o aplicativo encaixa automaticamente no comeco.
+- Se nenhuma oferta estiver cadastrada, a IA nao deve assumir qual e o carro-chefe.
 - Se a oferta for CRM, falar de controle de leads, funil, propostas e retornos, nao apenas
   "presenca digital".
-- So dizer que existe site/previa/estrutura pronta quando a oferta selecionada permitir isso.
+- So dizer que existe oferta/estrutura pronta quando a oferta selecionada permitir isso; nao dizer
+  "site pronto" se a oferta nao for site.
+- Se houver oferta especifica por nicho, usar somente aquela oferta e nao misturar com a oferta
+  padrao/geral.
 - Nao inventar faturamento, urgencia, desconto, campanha ativa ou resultado garantido.
 
 ## Captura de interesse

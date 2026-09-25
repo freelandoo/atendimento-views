@@ -116,7 +116,7 @@ test('mensagem fila: fallback usa lead, cidade, categoria e nao envia nada', () 
     rating: 4.6,
     avaliacoes: 45,
   })
-  assert.match(msg, /Sou da nossa empresa/)
+  assert.doesNotMatch(msg, /Sou da|nossa empresa/)
   assert.match(msg, /Restaurante A/)
   assert.match(msg, /Salvador/)
   assert.match(msg, /restaurantes/)
@@ -124,7 +124,17 @@ test('mensagem fila: fallback usa lead, cidade, categoria e nao envia nada', () 
 })
 
 test('mensagem fila: gera IA somente para item simulado com slot e salva no item + decisao', async () => {
-  const pool = criarPoolMensagemFake()
+  const pool = criarPoolMensagemFake({
+    instrucoes_ia: [
+      '[ABORDAGEM_IA_CONFIG]',
+      JSON.stringify({
+        ofertas: [
+          { id: 'geral', nome: 'Site com CRM completo', descricao: 'Oferta geral para qualquer nicho', geral: true, ativo: true, sitePronto: true },
+        ],
+      }),
+      '[/ABORDAGEM_IA_CONFIG]',
+    ].join('\n'),
+  })
   const chamadas = []
   const aiProvider = {
     generateAIResponse: async (input) => {
@@ -171,6 +181,38 @@ test('mensagem fila: gera IA somente para item simulado com slot e salva no item
   assert.ok(pool.state.queries.some((q) => /SET mensagem_gerada/i.test(q.sql)))
   assert.equal(pool.state.queries.some((q) => /INSERT INTO vendas\.job_queue/i.test(q.sql)), false)
   assert.equal(pool.state.queries.some((q) => /send_attempts/i.test(q.sql)), false)
+})
+
+test('mensagem fila: sem oferta configurada nao assume site pronto nem identificacao', async () => {
+  const pool = criarPoolMensagemFake()
+  const chamadas = []
+  const aiProvider = {
+    generateAIResponse: async (input) => {
+      chamadas.push(input)
+      return {
+        text: JSON.stringify({
+          schema_version: 'abordagem_inicial_v1',
+          mensagem: 'Oi, tudo bem? Vi o Restaurante A em Salvador e notei oportunidade de organizar melhor os contatos que chegam pelo WhatsApp. Posso te fazer uma pergunta rapida?',
+          angulo: 'sem_site',
+          sinais_usados: ['Salvador'],
+          pergunta_final: 'Posso te fazer uma pergunta rapida?',
+          confianca: 0.72,
+        }),
+        provider: 'openai',
+        model: 'gpt-4o',
+        fallback_used: false,
+      }
+    },
+  }
+
+  await gerarMensagemParaItemFila(pool, FILA_ID, { aiProvider })
+
+  assert.match(chamadas[0].userPrompt, /Nenhuma oferta principal foi configurada/)
+  assert.match(chamadas[0].userPrompt, /Nao comece se identificando por padrao/)
+  assert.equal(pool.state.fila.metadata_json.mensagem_ia.site_pronto, false)
+  assert.equal(pool.state.fila.metadata_json.mensagem_ia.identificacao, null)
+  assert.equal(pool.state.decisoes[0].input_json.oferta_abordagem, null)
+  assert.equal(pool.state.decisoes[0].input_json.site_pronto, false)
 })
 
 test('mensagem fila: usa oferta especifica do nicho quando existe no cadastro da abordagem', async () => {
@@ -231,7 +273,17 @@ test('mensagem fila: usa oferta especifica do nicho quando existe no cadastro da
 })
 
 test('mensagem fila: rejeita abordagem sem pergunta final e registra fallback auditavel', async () => {
-  const pool = criarPoolMensagemFake()
+  const pool = criarPoolMensagemFake({
+    instrucoes_ia: [
+      '[ABORDAGEM_IA_CONFIG]',
+      JSON.stringify({
+        ofertas: [
+          { id: 'geral', nome: 'Site com CRM completo', descricao: 'Oferta geral para qualquer nicho', geral: true, ativo: true, sitePronto: true },
+        ],
+      }),
+      '[/ABORDAGEM_IA_CONFIG]',
+    ].join('\n'),
+  })
   const aiProvider = {
     generateAIResponse: async () => ({
       text: JSON.stringify({

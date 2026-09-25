@@ -1384,3 +1384,7 @@ existe e nao deve nascer.
   apenas para distribuição; primeira abordagem precisa terminar em pergunta de
   permissão/interesse; metadata/decisão de IA registram `objetivo_resposta`; recorte por nicho
   prioriza os melhores leads daquele nicho e recorte geral prioriza os melhores da carteira toda.
+- Regra adicional da Abordagem IA: não injetar identificação padrão; identificação configurada é
+  orientação de prompt, não prefixo programático. Oferta vazia significa ausência de carro-chefe;
+  o campo legado `sitePronto` representa "oferta/estrutura pronta" e não pode virar "site pronto"
+  quando a oferta selecionada for CRM/sistema/estrutura comercial.

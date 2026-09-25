@@ -26,7 +26,7 @@ function fakePoolAnalytics() {
       { chave: '09:00', total_itens: 3, mensagens_enviadas: 3, falhas: 0, respostas: 2, diagnostico: 1, proposta: 1, reunioes: 1, fechados: 1 },
     ],
     abordagem: [
-      { chave: 'Site para energia solar · site pronto', total_itens: 4, mensagens_enviadas: 4, falhas: 0, respostas: 3, diagnostico: 2, proposta: 1, reunioes: 1, fechados: 1 },
+      { chave: 'Site para energia solar · oferta pronta', total_itens: 4, mensagens_enviadas: 4, falhas: 0, respostas: 3, diagnostico: 2, proposta: 1, reunioes: 1, fechados: 1 },
     ],
   }
   return {
@@ -132,7 +132,7 @@ test('dashboard estrategico retorna metricas, rankings e custo por oportunidade'
   assert.equal(r.melhores.categoria.chave, 'restaurante')
   assert.equal(r.melhores.cidade.chave, 'Salvador/BA')
   assert.equal(r.melhores.horario.chave, '09:00')
-  assert.equal(r.melhores.abordagem.chave, 'Site para energia solar · site pronto')
+  assert.equal(r.melhores.abordagem.chave, 'Site para energia solar · oferta pronta')
   assert.equal(r.rankings.categorias[0].taxa_resposta, 0.5)
   assert.equal(r.rankings.abordagens[0].taxa_resposta, 0.75)
   // série diária para o gráfico de crescimento
