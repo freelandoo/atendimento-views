@@ -4,6 +4,7 @@ const assert = require('node:assert')
 const {
   dentroDaJanela, sortearIntervaloMinutos, executarBancoLeadsWorkerTick,
   verificarBancoLeadsSemi, _autoEmpresa, _semiEmpresa, ordenarPoolAutomatico, escolherInstanciaAutomatico,
+  totalDisparosPool, tetoPorInstanciaPool,
 } = require('../src/services/banco-leads-auto')
 const { timezoneDoLead, avaliarJanelaLocalLead } = require('../src/services/lead-timezone')
 
@@ -83,6 +84,8 @@ test('_autoEmpresa: sem lead elegível não dispara', async () => {
   ])
   const r = await _autoEmpresa(pool, 'e1', now, {})
   assert.equal(r.motivo, 'sem_lead')
+  assert.equal(r.instancias_pool, 1)
+  assert.equal(r.total_disparos_hoje, 0)
 })
 
 test('ordenarPoolAutomatico prioriza instância mais descansada e disponível', () => {
@@ -97,9 +100,9 @@ test('ordenarPoolAutomatico prioriza instância mais descansada e disponível', 
   assert.equal(pool[2].cooldown_restante_s > 0, true)
 })
 
-test('escolherInstanciaAutomatico pula cooldown e teto diario por instancia', async () => {
+test('escolherInstanciaAutomatico pula cooldown e teto derivado por instancia', async () => {
   const pool = {}
-  const escolhida = await escolherInstanciaAutomatico(pool, 'e1', now, { teto_diario: 2 }, {
+  const escolhida = await escolherInstanciaAutomatico(pool, 'e1', now, { teto_diario: 6 }, {
     listarPoolAutomaticoFn: async () => ordenarPoolAutomatico([
       { id: 'i-teto', evolution_instance: 'inst-teto', disparos_hoje: 2, ultimo_disparo_em: null },
       { id: 'i-cooldown', evolution_instance: 'inst-cooldown', disparos_hoje: 0, ultimo_disparo_em: new Date(now.getTime() - 5 * 60_000).toISOString() },
@@ -111,6 +114,22 @@ test('escolherInstanciaAutomatico pula cooldown e teto diario por instancia', as
   assert.equal(escolhida.instancia.id, 'i-livre')
   assert.equal(escolhida.total, 3)
   assert.equal(escolhida.disponiveis, 1)
+})
+
+test('escolherInstanciaAutomatico corta no teto diario do pool, nao por numero', async () => {
+  assert.equal(tetoPorInstanciaPool(40, 3), 14)
+  const r = await escolherInstanciaAutomatico({}, 'e1', now, { teto_diario: 40 }, {
+    listarPoolAutomaticoFn: async () => ordenarPoolAutomatico([
+      { id: 'i1', evolution_instance: 'inst-1', disparos_hoje: 14, ultimo_disparo_em: null },
+      { id: 'i2', evolution_instance: 'inst-2', disparos_hoje: 13, ultimo_disparo_em: null },
+      { id: 'i3', evolution_instance: 'inst-3', disparos_hoje: 13, ultimo_disparo_em: null },
+    ], now, 0),
+  })
+
+  assert.equal(totalDisparosPool([{ disparos_hoje: 14 }, { disparos_hoje: 13 }, { disparos_hoje: 13 }]), 40)
+  assert.equal(r.motivo, 'teto_diario_pool')
+  assert.equal(r.total_disparos_hoje, 40)
+  assert.equal(r.instancia, null)
 })
 
 test('escolherInstanciaAutomatico reporta quando o pool inteiro esta em cooldown', async () => {
@@ -152,6 +171,7 @@ test('_autoEmpresa: dispara 1 lead e agenda o próximo', async () => {
   assert.deepStrictEqual(chamou.prospectIds, ['p1'])
   assert.equal(chamou.instanciaId, 'i1')
   assert.equal(r.instancias_pool, 1)
+  assert.equal(r.total_disparos_hoje, 1)
   assert.ok(agendouProximo)
 })
 

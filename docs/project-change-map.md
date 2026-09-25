@@ -1372,3 +1372,15 @@ existe e nao deve nascer.
 - Diagnóstico: `scripts/medir-distribuicao-equipes.js` + npm `medir:distribuicao-equipes`.
 - Regras a preservar: padrão só intocado; rebalanceamento automático sem `incluirProtegidos`;
   origem e destino membros da equipe; `permissoes` nunca na resposta.
+
+## Automático do Banco de Leads: pool, teto e primeira pergunta (2026-09-24)
+
+- Backend: `services/banco-leads-auto.js`, `services/abordagem-inicial-contrato.js`,
+  `services/prospecting-message-generation.js`, `db/banco-leads-config.js`.
+- Testes: `test/banco-leads-auto.test.js`, `test/abordagem-inicial-contrato.test.js`,
+  `test/prospecting-message-generation.test.js`.
+- Documentação: `docs/banco-leads-automatico-politica.md`.
+- Regras a preservar: `teto_diario` limita o pool inteiro; o limite por instância é derivado
+  apenas para distribuição; primeira abordagem precisa terminar em pergunta de
+  permissão/interesse; metadata/decisão de IA registram `objetivo_resposta`; recorte por nicho
+  prioriza os melhores leads daquele nicho e recorte geral prioriza os melhores da carteira toda.

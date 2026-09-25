@@ -37,8 +37,10 @@ async function obterConfigBancoLeads(pool, empresaId) {
   return rows[0] || defaultConfig(empresaId)
 }
 
-// Teto diário é fixo em 40 (limite de segurança anti-ban — o volume real é limitado
-// pelo intervalo × janela). Intervalo em minutos, travado na faixa 15–30 pedida.
+// Teto diário operacional fixo em 40 primeiras abordagens por EMPRESA/pool. Ele reduz
+// volume e facilita auditoria, mas não promete evitar bloqueio: qualidade, consentimento,
+// opt-out e reação do lead continuam mandando.
+// Intervalo em minutos, travado na faixa 15–30 pedida.
 const TETO_FIXO = 40
 function normalizarHora(valor, padrao) {
   const m = String(valor || '').trim().match(/^(\d{1,2}):(\d{2})$/)

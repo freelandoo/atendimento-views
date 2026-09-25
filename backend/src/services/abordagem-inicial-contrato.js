@@ -5,6 +5,7 @@ const { classificarLead } = require('./site-classificacao')
 
 const ABORDAGEM_SCHEMA_VERSION = 'abordagem_inicial_v1'
 const MAX_MENSAGEM_CHARS = 600
+const OBJETIVO_RESPOSTA_ABORDAGEM = 'capturar_interesse'
 const ABORDAGEM_IA_CONFIG_INICIO = '[ABORDAGEM_IA_CONFIG]'
 const ABORDAGEM_IA_CONFIG_FIM = '[/ABORDAGEM_IA_CONFIG]'
 const ANGULOS_ABORDAGEM = Object.freeze([
@@ -274,6 +275,10 @@ function avisoSiteProntoPresente(mensagem) {
   return /\b(site|previa|estrutura|analise)\b/.test(m) && /\b(pront|preparad|separad|montad|deixei)\w*/.test(m)
 }
 
+function terminaComPergunta(mensagem) {
+  return /[?？]\s*$/.test(String(mensagem || '').trim())
+}
+
 function renderMensagemAbordagemFallback(entrada = {}, opts = {}) {
   const estrategia = opts.estrategia || montarEstrategiaAbordagem(entrada, opts)
   const nomeEmp = estrategia.nome_empresa || opts.nomeEmpresa || 'nossa empresa'
@@ -318,6 +323,7 @@ function normalizarContratoAbordagem(textoBruto, estrategia = {}, opts = {}) {
   if (obj.schema_version !== ABORDAGEM_SCHEMA_VERSION) return null
   const mensagem = texto(obj.mensagem, MAX_MENSAGEM_CHARS + 1).replace(/\s+/g, ' ').trim()
   if (!mensagem || mensagem.length < 30 || mensagem.length > MAX_MENSAGEM_CHARS) return null
+  if (!terminaComPergunta(mensagem)) return null
   const temAvisoSitePronto = avisoSiteProntoPresente(mensagem)
   const exigeSitePronto = opts.avisoSitePronto !== false
   if (exigeSitePronto && !temAvisoSitePronto) return null
@@ -334,6 +340,11 @@ function normalizarContratoAbordagem(textoBruto, estrategia = {}, opts = {}) {
     pergunta_final: texto(obj.pergunta_final || estrategia.pergunta_final, 240),
     confianca: Math.max(0, Math.min(1, Number(obj.confianca) || 0)),
     aviso_site_pronto: temAvisoSitePronto,
+    objetivo_resposta: OBJETIVO_RESPOSTA_ABORDAGEM,
+    respostas_esperadas: {
+      interesse: 'lead autoriza continuar ou demonstra curiosidade/interesse',
+      desinteresse: 'lead diz que nao quer, nao tem interesse ou pede para parar',
+    },
   }
 }
 
@@ -350,6 +361,7 @@ function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conheciment
     pergunta_final: 'ultima pergunta da mensagem',
     confianca: 0.0,
     aviso_site_pronto: avisoSitePronto,
+    objetivo_resposta: OBJETIVO_RESPOSTA_ABORDAGEM,
   }
   const regras = [
     'Voce escreve a PRIMEIRA abordagem de WhatsApp em portugues do Brasil.',
@@ -366,6 +378,7 @@ function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conheciment
     'Detecte o idioma/variante pelos dados do lead (pais, endereco, cidade, telefone, perfil e textos coletados). Se o lead indicar Estados Unidos, escreva em ingles; se indicar Portugal, use portugues de Portugal; se nao houver sinal claro, use portugues do Brasil.',
     `Quando se identificar, use exatamente: "${identificacao}".`,
     'Nao peca reuniao nesta mensagem; peca permissao ou faca uma pergunta de interesse.',
+    'A mensagem final deve terminar com uma pergunta direta de permissao/interesse. Ex.: "Posso te mandar?" ou "Faz sentido eu te mostrar?".',
     'Maximo 500 caracteres na mensagem.',
   ]
   return {
@@ -390,6 +403,7 @@ function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conheciment
 
 module.exports = {
   ABORDAGEM_SCHEMA_VERSION,
+  OBJETIVO_RESPOSTA_ABORDAGEM,
   ANGULOS_ABORDAGEM,
   MAX_MENSAGEM_CHARS,
   montarEstrategiaAbordagem,
@@ -397,5 +411,6 @@ module.exports = {
   normalizarContratoAbordagem,
   renderMensagemAbordagemFallback,
   avisoSiteProntoPresente,
+  terminaComPergunta,
   selecionarOfertaAbordagem,
 }

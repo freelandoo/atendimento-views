@@ -5739,3 +5739,14 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Cuidados:** padrao seguro deve ser nao atender contato externo por acidente; regra precisa
   ficar no backend; preservar conversas ja iniciadas/prospectadas; sem migration se couber em
   `config_json`; manter auditoria/log sem PII.
+
+## 2026-09-24 — Politica conservadora do automatico com tres numeros
+
+- **Pedido:** documentar e preparar a operacao automatica para 3 numeros fazendo cerca de
+  40 primeiras abordagens/dia no total, priorizando melhores leads por oferta/recorte e
+  usando uma primeira mensagem em formato de pergunta de permissao/interesse.
+- **Areas previstas:** worker `banco-leads-auto`, geracao de mensagem de prospeccao, contrato
+  JSON de abordagem inicial, documentacao operacional e testes de regressao.
+- **Cuidados:** `teto_diario` precisa limitar o POOL inteiro, nao cada numero; abordagem deve
+  ser pergunta curta, sem promessa falsa; desinteresse deve ser capturado pelo contrato de
+  conversa ja existente (`sinal_conversa`), sem duplicar regra sensivel no front.

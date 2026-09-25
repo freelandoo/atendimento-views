@@ -139,6 +139,16 @@ function cooldownRestanteInstancia(row, now) {
   return faltaMs > 0 ? Math.ceil(faltaMs / 1000) : 0
 }
 
+function totalDisparosPool(instancias = []) {
+  return (instancias || []).reduce((total, inst) => total + (Number(inst.disparos_hoje) || 0), 0)
+}
+
+function tetoPorInstanciaPool(tetoDiario, totalInstancias) {
+  const teto = Number(tetoDiario) > 0 ? Number(tetoDiario) : 0
+  const total = Math.max(1, Number(totalInstancias) || 1)
+  return teto > 0 ? Math.ceil(teto / total) : 0
+}
+
 function ordenarPoolAutomatico(instancias, now, tetoDiario) {
   const teto = Number(tetoDiario) > 0 ? Number(tetoDiario) : 0
   return [...(instancias || [])]
@@ -181,19 +191,25 @@ async function listarPoolAutomatico(pool, empresaId, now, cfg = {}) {
       ORDER BY i.atualizado_em DESC, i.criado_em DESC`,
     [empresaId]
   )
-  return ordenarPoolAutomatico(rows, now, cfg.teto_diario)
+  return ordenarPoolAutomatico(rows, now, 0)
 }
 
 async function escolherInstanciaAutomatico(pool, empresaId, now, cfg = {}, deps = {}) {
   const listar = deps.listarPoolAutomaticoFn || listarPoolAutomatico
-  const poolInstancias = await listar(pool, empresaId, now, cfg)
-  if (!poolInstancias.length) {
-    return { instancia: null, motivo: 'sem_instancia_pronta', total: 0, disponiveis: 0, menor_cooldown_s: null }
-  }
+  const poolInstanciasBruto = await listar(pool, empresaId, now, cfg)
   const teto = Number(cfg.teto_diario) > 0 ? Number(cfg.teto_diario) : 0
-  const semTeto = poolInstancias.filter((inst) => teto <= 0 || inst.disparos_hoje < teto)
+  const tetoPorInstancia = tetoPorInstanciaPool(teto, poolInstanciasBruto.length)
+  const poolInstancias = ordenarPoolAutomatico(poolInstanciasBruto, now, tetoPorInstancia)
+  if (!poolInstancias.length) {
+    return { instancia: null, motivo: 'sem_instancia_pronta', total: 0, disponiveis: 0, menor_cooldown_s: null, total_disparos_hoje: 0 }
+  }
+  const totalDisparosHoje = totalDisparosPool(poolInstancias)
+  if (teto > 0 && totalDisparosHoje >= teto) {
+    return { instancia: null, motivo: 'teto_diario_pool', total: poolInstancias.length, disponiveis: 0, menor_cooldown_s: null, total_disparos_hoje: totalDisparosHoje }
+  }
+  const semTeto = poolInstancias.filter((inst) => tetoPorInstancia <= 0 || inst.disparos_hoje < tetoPorInstancia)
   if (!semTeto.length) {
-    return { instancia: null, motivo: 'teto_diario_pool', total: poolInstancias.length, disponiveis: 0, menor_cooldown_s: null }
+    return { instancia: null, motivo: 'teto_diario_instancias', total: poolInstancias.length, disponiveis: 0, menor_cooldown_s: null, total_disparos_hoje: totalDisparosHoje }
   }
   const disponiveis = semTeto.filter((inst) => inst.cooldown_restante_s <= 0)
   if (!disponiveis.length) {
@@ -204,6 +220,7 @@ async function escolherInstanciaAutomatico(pool, empresaId, now, cfg = {}, deps 
       total: poolInstancias.length,
       disponiveis: 0,
       menor_cooldown_s: Number.isFinite(menor) ? menor : null,
+      total_disparos_hoje: totalDisparosHoje,
     }
   }
   return {
@@ -212,6 +229,7 @@ async function escolherInstanciaAutomatico(pool, empresaId, now, cfg = {}, deps 
     total: poolInstancias.length,
     disponiveis: disponiveis.length,
     menor_cooldown_s: 0,
+    total_disparos_hoje: totalDisparosHoje,
   }
 }
 
@@ -372,6 +390,7 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
       motivo: escolhaInstancia.motivo,
       instancias_pool: escolhaInstancia.total,
       cooldown_restante_s: escolhaInstancia.menor_cooldown_s,
+      total_disparos_hoje: escolhaInstancia.total_disparos_hoje,
     }
   }
 
@@ -393,6 +412,8 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
       motivo: motivoJanela ? 'fora_janela_local' : (scan.esgotou ? 'sem_lead' : 'sem_lead_elegivel'),
       analisados: scan.analisados,
       motivos,
+      instancias_pool: escolhaInstancia.total,
+      total_disparos_hoje: escolhaInstancia.total_disparos_hoje,
     }
   }
 
@@ -416,6 +437,7 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
         hora_local: lead.janela_local?.hora_local || null,
         janela_inicio: cfg.janela_inicio,
         janela_fim: cfg.janela_fim,
+        total_disparos_hoje: escolhaInstancia.total_disparos_hoje + 1,
         proximo_em_min: proxMin,
       }, '[banco-leads-auto] lead disparado')
       return {
@@ -429,10 +451,16 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
         evolution_instance: instancia.evolution_instance,
         instancias_pool: escolhaInstancia.total,
         instancias_disponiveis: escolhaInstancia.disponiveis,
+        total_disparos_hoje: escolhaInstancia.total_disparos_hoje + 1,
         proximo_em_min: proxMin,
       }
     }
-    return { empresa_id: empresaId, motivo: 'nao_aceito' }
+    return {
+      empresa_id: empresaId,
+      motivo: 'nao_aceito',
+      instancias_pool: escolhaInstancia.total,
+      total_disparos_hoje: escolhaInstancia.total_disparos_hoje,
+    }
   } catch (e) {
     // Erro persistente (sem saudação/instância caída/cooldown): recua o próximo disparo
     // pelo intervalo p/ não re-tentar a cada tick (evita loop apertado no log).
@@ -442,7 +470,13 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
       [empresaId, new Date(now.getTime() + proxMin * 60_000)]
     ).catch(() => {})
     logger.warn({ operation: 'banco_leads_auto', empresa_id: empresaId, err: e.message, recuo_min: proxMin }, '[banco-leads-auto] disparo pulado')
-    return { empresa_id: empresaId, motivo: 'erro', erro: e.message }
+    return {
+      empresa_id: empresaId,
+      motivo: 'erro',
+      erro: e.message,
+      instancias_pool: escolhaInstancia.total,
+      total_disparos_hoje: escolhaInstancia.total_disparos_hoje,
+    }
   }
 }
 
@@ -553,6 +587,8 @@ module.exports = {
   listarPoolAutomatico,
   escolherInstanciaAutomatico,
   ordenarPoolAutomatico,
+  totalDisparosPool,
+  tetoPorInstanciaPool,
   cooldownRestanteInstancia,
   dentroDaJanela,
   sortearIntervaloMinutos,

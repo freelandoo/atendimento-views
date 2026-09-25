@@ -243,6 +243,8 @@ async function salvarMensagemGerada(pool, row, geracao) {
           oferta_abordagem: geracao.oferta_abordagem || null,
           site_pronto: geracao.aviso_site_pronto === true,
           identificacao: geracao.identificacao || null,
+          objetivo_resposta: geracao.contrato?.objetivo_resposta || 'capturar_interesse',
+          respostas_esperadas: geracao.contrato?.respostas_esperadas || null,
           sinais_usados: geracao.contrato?.sinais_usados || geracao.estrategia?.sinais || [],
           gerada_em: new Date().toISOString(),
         },
@@ -281,6 +283,8 @@ async function registrarDecisaoMensagem(pool, row, geracao) {
       JSON.stringify({
         mensagem_gerada: geracao.mensagem,
         fallback: geracao.fallback === true,
+        objetivo_resposta: geracao.contrato?.objetivo_resposta || 'capturar_interesse',
+        respostas_esperadas: geracao.contrato?.respostas_esperadas || null,
         contrato: geracao.contrato || null,
       }),
     ]

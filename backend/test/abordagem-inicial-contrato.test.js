@@ -8,6 +8,7 @@ const {
   normalizarContratoAbordagem,
   renderMensagemAbordagemFallback,
   avisoSiteProntoPresente,
+  terminaComPergunta,
   selecionarOfertaAbordagem,
 } = require('../src/services/abordagem-inicial-contrato')
 
@@ -61,15 +62,25 @@ test('abordagem inicial: contrato JSON valido precisa trazer aviso de site pront
 
   assert.equal(contrato.mensagem.includes('previa de site pronta'), true)
   assert.equal(contrato.aviso_site_pronto, true)
+  assert.equal(contrato.objetivo_resposta, 'capturar_interesse')
+  assert.match(contrato.respostas_esperadas.desinteresse, /nao quer/)
   assert.equal(avisoSiteProntoPresente(contrato.mensagem), true)
 })
 
-test('abordagem inicial: texto livre ou JSON sem aviso obrigatorio sao rejeitados', () => {
+test('abordagem inicial: texto livre, sem aviso obrigatorio ou sem pergunta final sao rejeitados', () => {
   const estrategia = montarEstrategiaAbordagem({ nome: 'Padaria X', tem_site: false })
   assert.equal(normalizarContratoAbordagem('Oi, tudo bem?', estrategia), null)
   assert.equal(normalizarContratoAbordagem(JSON.stringify({
     schema_version: 'abordagem_inicial_v1',
     mensagem: 'Oi, tudo bem? Sou da PJ Codeworks. Vi a Padaria X no Google e queria te mandar uma analise rapida. Posso?',
+    angulo: 'sem_site',
+    sinais_usados: ['Google'],
+    pergunta_final: 'Posso?',
+    confianca: 0.5,
+  }), estrategia), null)
+  assert.equal(normalizarContratoAbordagem(JSON.stringify({
+    schema_version: 'abordagem_inicial_v1',
+    mensagem: 'Oi, tudo bem? Sou da PJ Codeworks. Ja deixei uma previa de site pronta aqui no atendimento para Padaria X. Vi uma oportunidade de receber mais contatos pelo WhatsApp.',
     angulo: 'sem_site',
     sinais_usados: ['Google'],
     pergunta_final: 'Posso?',
@@ -159,6 +170,13 @@ test('abordagem inicial: identificacao configurada substitui nossa empresa', () 
   assert.match(msg, /Sou Victor, da PJ Codeworks/)
   assert.doesNotMatch(msg, /nossa empresa/)
   assert.match(msg, /controlar leads/)
+})
+
+test('abordagem inicial: detector de pergunta final aceita somente pergunta direta no fim', () => {
+  assert.equal(terminaComPergunta('Posso te mandar?'), true)
+  assert.equal(terminaComPergunta('Can I send it?   '), true)
+  assert.equal(terminaComPergunta('Posso te mandar? Depois explico.'), false)
+  assert.equal(terminaComPergunta('Vou te mandar.'), false)
 })
 
 test('abordagem inicial: oferta especifica do nicho vence a oferta geral', () => {

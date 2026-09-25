@@ -162,7 +162,11 @@ test('mensagem fila: gera IA somente para item simulado com slot e salva no item
   assert.equal(pool.state.decisoes[0].input_json.estrategia.angulo, 'sem_site')
   assert.equal(pool.state.decisoes[0].input_json.site_pronto, true)
   assert.equal(pool.state.fila.metadata_json.mensagem_ia.site_pronto, true)
+  assert.equal(pool.state.fila.metadata_json.mensagem_ia.objetivo_resposta, 'capturar_interesse')
+  assert.match(pool.state.fila.metadata_json.mensagem_ia.respostas_esperadas.desinteresse, /nao quer/)
   assert.match(pool.state.decisoes[0].output_json.mensagem_gerada, /PJ Codeworks/)
+  assert.equal(pool.state.decisoes[0].output_json.objetivo_resposta, 'capturar_interesse')
+  assert.match(pool.state.decisoes[0].output_json.respostas_esperadas.interesse, /autoriza continuar/)
   assert.equal(pool.state.decisoes[0].output_json.contrato.schema_version, 'abordagem_inicial_v1')
   assert.ok(pool.state.queries.some((q) => /SET mensagem_gerada/i.test(q.sql)))
   assert.equal(pool.state.queries.some((q) => /INSERT INTO vendas\.job_queue/i.test(q.sql)), false)
@@ -224,6 +228,34 @@ test('mensagem fila: usa oferta especifica do nicho quando existe no cadastro da
   assert.equal(pool.state.decisoes[0].input_json.oferta_abordagem.id, 'solar')
   assert.equal(pool.state.decisoes[0].input_json.site_pronto, false)
   assert.equal(pool.state.decisoes[0].input_json.identificacao, 'Sou Victor, da PJ Codeworks')
+})
+
+test('mensagem fila: rejeita abordagem sem pergunta final e registra fallback auditavel', async () => {
+  const pool = criarPoolMensagemFake()
+  const aiProvider = {
+    generateAIResponse: async () => ({
+      text: JSON.stringify({
+        schema_version: 'abordagem_inicial_v1',
+        mensagem: 'Opa, tudo bem? Sou da PJ Codeworks. Ja deixei uma previa de site pronta aqui no atendimento para Restaurante A. Vi uma oportunidade de captar mais pedidos pelo WhatsApp.',
+        angulo: 'sem_site',
+        sinais_usados: ['sem site proprio'],
+        pergunta_final: 'Posso te mandar?',
+        confianca: 0.8,
+      }),
+      provider: 'openai',
+      model: 'gpt-4o',
+      fallback_used: false,
+    }),
+  }
+
+  const r = await gerarMensagemParaItemFila(pool, FILA_ID, { aiProvider })
+
+  assert.equal(r.fallback, true)
+  assert.equal(r.provider, 'fallback')
+  assert.match(r.mensagem_gerada, /\?$/)
+  assert.equal(pool.state.fila.metadata_json.mensagem_ia.objetivo_resposta, 'capturar_interesse')
+  assert.equal(pool.state.decisoes[0].output_json.contrato, null)
+  assert.equal(pool.state.decisoes[0].output_json.objetivo_resposta, 'capturar_interesse')
 })
 
 test('mensagem fila: bloqueia geracao para item aguardando agendamento', async () => {

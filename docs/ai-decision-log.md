@@ -4623,3 +4623,22 @@ dos motivos.
 
 **Limite consciente:** a rotina continua em 1 lead por ciclo e nao aumenta volume por pool. A
 mudanca amplia a flexibilidade internacional sem criar envio fora do turno local do lead.
+
+## 2026-09-24 — Teto do Automatico e contrato de interesse na primeira abordagem
+
+**Decisao 1 — teto diario e do POOL, nao de cada numero.** Com 3 numeros, o baseline operacional
+fica em cerca de 40 primeiras abordagens por dia no total da empresa. O limite por instancia e
+derivado (`ceil(teto_diario / total_instancias)`) apenas para evitar concentracao; o corte real do
+dia acontece quando a soma do pool bate `teto_diario`.
+
+**Decisao 2 — primeira mensagem pede permissao/interesse.** O contrato JSON da abordagem inicial
+rejeita mensagem que nao termine em pergunta direta. O objetivo nao e pedir reuniao na abertura,
+mas obter um primeiro sinal: autorizou continuar ou recusou.
+
+**Decisao 3 — geracao e captura ficam separadas.** A decisao de mensagem e o
+`metadata_json.mensagem_ia` registram `objetivo_resposta: "capturar_interesse"` e as respostas
+esperadas. A resposta real do lead continua no contrato central da conversa:
+`sinal_conversa="desinteresse"` encerra; interesse/permissao segue pelo funil normal.
+
+**Documentacao operacional:** ver `docs/banco-leads-automatico-politica.md` para a regra de 3
+numeros, prioridade dos melhores leads por recorte e pontos de medicao antes de escalar.
