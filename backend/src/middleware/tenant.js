@@ -178,6 +178,8 @@ const requireEmpresaAccessSemAceite = (req, res, next) => resolverEmpresaAccess(
 //                              identificador confiável da instância. O NOME sozinho não
 //                              serve como chave: pode ser renomeado/recriado e é texto
 //                              vindo do payload.
+//   - `req.whatsappInstanciaConfig` — config_json da instância provada. Regras de atendimento
+//                              por número (ex.: responder ou não contatos externos) nascem aqui.
 //   - `req.tenantPendencia`  — a pendência a registrar, ou null quando há dono provado.
 async function resolveEmpresaFromWebhook(req, _res, next) {
   const instanceName =
@@ -204,6 +206,7 @@ async function resolveEmpresaFromWebhook(req, _res, next) {
   req.evolutionInstance = resolucao.evolutionInstance
   req.empresaId = resolucao.empresaId
   req.whatsappInstanciaId = resolucao.instanciaId
+  req.whatsappInstanciaConfig = vinculo?.instanciaConfigJson || null
   req.empresaOrigem = resolucao.origem
   req.tenantPendencia = resolucao.pendencia
 

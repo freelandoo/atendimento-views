@@ -8,6 +8,7 @@ const { marcarOnboardingCompleto } = require('../db/usuarios')
 const { invalidarCacheEmpresa } = require('../services/contexto-empresa')
 const { enviarMensagem, verificarStatusInstanciaEvolution } = require('../whatsapp')
 const { renderSaudacao, saudacaoDaInstancia } = require('../services/rodar-leads')
+const { FLAG_ATENDE_CONTATOS_EXTERNOS } = require('../services/instancia-atendimento-escopo')
 const { CAPACIDADES: CAP, podeCapacidade } = require('../services/acesso-capacidades')
 const { requireCapacidade } = require('../middleware/tenant')
 const {
@@ -883,6 +884,11 @@ router.patch('/:instanceId', requireAuth, requireEmpresaAccess, alcancaInstancia
   if (typeof req.body?.usa_agenda === 'boolean') {
     sets.push(`config_json = COALESCE(config_json, '{}'::jsonb) || jsonb_build_object('usa_agenda', $${vals.push(req.body.usa_agenda)}::boolean)`)
   }
+  // Contatos externos? Default desligado: o agente responde prospectados; contatos que chamam
+  // direto só recebem IA quando o dono libera explicitamente nesta instância.
+  if (typeof req.body?.[FLAG_ATENDE_CONTATOS_EXTERNOS] === 'boolean') {
+    sets.push(`config_json = COALESCE(config_json, '{}'::jsonb) || jsonb_build_object('${FLAG_ATENDE_CONTATOS_EXTERNOS}', $${vals.push(req.body[FLAG_ATENDE_CONTATOS_EXTERNOS])}::boolean)`)
+  }
   if (!sets.length) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Nada para atualizar.' } })
   }
@@ -906,6 +912,14 @@ router.patch('/:instanceId', requireAuth, requireEmpresaAccess, alcancaInstancia
   if (contexto_id !== undefined) {
     invalidarCacheEmpresa(req.empresa.id)
     mensagensSvc.invalidarCacheAtivo(req.empresa.id)
+  }
+  if (typeof req.body?.[FLAG_ATENDE_CONTATOS_EXTERNOS] === 'boolean') {
+    await pool.query(
+      `INSERT INTO app.auditoria_eventos
+         (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_novo, contexto)
+       VALUES ($1, $2::uuid, 'whatsapp_instancia', $3::uuid, 'instancia_contatos_externos_alterado', $4, '{}'::jsonb)`,
+      [req.empresa.id, req.usuario?.id || null, inst.id, String(!!req.body[FLAG_ATENDE_CONTATOS_EXTERNOS])]
+    ).catch(() => {})
   }
   return res.json({ ok: true, data: inst })
 })

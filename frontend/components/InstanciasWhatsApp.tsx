@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { apiFetch } from '@/lib/api'
-import { IconCalendar } from '@/components/ui/icons'
+import { IconCalendar, IconMessage } from '@/components/ui/icons'
 import { useSession } from '@/lib/useSession'
 import { temCapacidade } from '@/lib/capacidades'
 
@@ -24,7 +24,7 @@ type WhatsAppInstance = {
   ativo: boolean
   contexto_id?: string | null
   contexto_nome?: string | null
-  config_json?: { usa_agenda?: boolean; saudacao?: string } | null
+  config_json?: { usa_agenda?: boolean; saudacao?: string; atende_contatos_externos?: boolean } | null
   aviso?: string | null
   /**
    * Etapa 9, decisão E: quem NÃO pode ligar a IA cria a instância INATIVA. Instância inativa não
@@ -320,6 +320,27 @@ export default function InstanciasWhatsApp({ empresaId }: {
       // reverte
       setInstancias((prev) => prev.map((x) => (x.id === inst.id ? { ...x, config_json: { ...(x.config_json || {}), usa_agenda: atual } } : x)))
       setErroForm(err instanceof Error ? err.message : 'Erro ao alterar a agenda da instância.')
+    }
+  }
+
+  async function toggleContatosExternos(inst: WhatsAppInstance) {
+    if (!empresaId) return
+    setErroForm('')
+    const atual = inst.config_json?.atende_contatos_externos === true // default desligado
+    const novo = !atual
+    setInstancias((prev) => prev.map((x) => (x.id === inst.id ? { ...x, config_json: { ...(x.config_json || {}), atende_contatos_externos: novo } } : x)))
+    try {
+      const r = await apiFetch<WhatsAppInstance>(`/api/empresas/${empresaId}/whatsapp/${inst.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ atende_contatos_externos: novo }),
+      })
+      setInstancias((prev) => prev.map((x) => (x.id === inst.id ? { ...x, config_json: r.data.config_json } : x)))
+      setMsg(novo
+        ? 'Contatos externos ativados nesta instância. A IA também responde quem chamar direto.'
+        : 'Contatos externos desativados nesta instância. A IA responde só leads prospectados.')
+    } catch (err: unknown) {
+      setInstancias((prev) => prev.map((x) => (x.id === inst.id ? { ...x, config_json: { ...(x.config_json || {}), atende_contatos_externos: atual } } : x)))
+      setErroForm(err instanceof Error ? err.message : 'Erro ao alterar o atendimento de contatos externos.')
     }
   }
 
@@ -764,6 +785,29 @@ export default function InstanciasWhatsApp({ empresaId }: {
                   className={`relative shrink-0 inline-flex h-6 w-11 items-center rounded-full transition ${i.config_json?.usa_agenda !== false ? 'bg-neon-cyan' : 'bg-white/20'}`}
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${i.config_json?.usa_agenda !== false ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+
+              {/* Escopo de atendimento: por padrão a IA só continua conversas de leads
+                  prospectados. O dono pode liberar contatos orgânicos por número. */}
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="inline-flex items-center gap-1 text-[11px] font-medium text-white/80"><IconMessage className="h-3.5 w-3.5" /> Contatos externos?</p>
+                  <p className="text-[10px] text-white/40 leading-tight">
+                    {i.config_json?.atende_contatos_externos === true
+                      ? 'Também responde quem chamar direto nesse WhatsApp.'
+                      : 'Responde só leads prospectados por esta operação.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={i.config_json?.atende_contatos_externos === true}
+                  onClick={() => toggleContatosExternos(i)}
+                  title="Liga/desliga resposta automática para contatos fora da prospecção nesta instância"
+                  className={`relative shrink-0 inline-flex h-6 w-11 items-center rounded-full transition ${i.config_json?.atende_contatos_externos === true ? 'bg-neon-cyan' : 'bg-white/20'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${i.config_json?.atende_contatos_externos === true ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
               </div>
             </div>

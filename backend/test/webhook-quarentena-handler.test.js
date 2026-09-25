@@ -110,8 +110,8 @@ function montar() {
     normalizarHistoricoMensagens: () => [],
     marcarProspectComoRespondeuPorNumero: async () => {},
     buscarContextoProspeccao: async () => null,
-    salvarConversa: async (numero, _h, _e, _s, _a, empresaId, inst) => {
-      chamadas.conversasSalvas.push({ numero, empresaId, inst })
+    salvarConversa: async (numero, _h, _e, _s, agentePausado, empresaId, inst) => {
+      chamadas.conversasSalvas.push({ numero, agentePausado, empresaId, inst })
     },
     atualizarPerfil: async (numero, patch) => { chamadas.perfisAtualizados.push({ numero, patch }) },
     capturarNomeContato: async () => {},
@@ -139,6 +139,7 @@ function reqDe({ instanceName = null, vinculo = null, erro = false } = {}) {
     empresaId: r.empresaId,
     empresaOrigem: r.origem,
     whatsappInstanciaId: r.instanciaId,
+    whatsappInstanciaConfig: vinculo?.instanciaConfigJson || null,
     evolutionInstance: r.evolutionInstance,
     tenantPendencia: r.pendencia,
   }
@@ -146,7 +147,11 @@ function reqDe({ instanceName = null, vinculo = null, erro = false } = {}) {
 
 const reqBom = () => reqDe({
   instanceName: 'inst-b',
-  vinculo: { empresa: { id: EMPRESA_B, nome: 'Empresa B' }, instanciaId: INSTANCIA_B },
+  vinculo: {
+    empresa: { id: EMPRESA_B, nome: 'Empresa B' },
+    instanciaId: INSTANCIA_B,
+    instanciaConfigJson: { atende_contatos_externos: true },
+  },
 })
 
 // ─── Instância válida continua operando ───────────────────────────────────────
@@ -162,6 +167,21 @@ test('instância mapeada processa normalmente e SÓ na empresa correta', async (
   assert.equal(chamadas.atribuicoes.length, 1, 'a atribuição CTWA continua sendo capturada')
   assert.equal(chamadas.atribuicoes[0].empresaId, EMPRESA_B)
   assert.equal(chamadas.quarentena.length, 0, 'nada de pendência para instância válida')
+})
+
+test('instância mapeada sem liberação de contato externo registra e não responde', async () => {
+  const { receber, chamadas } = montar()
+  await receber(mensagem(), reqDe({
+    instanceName: 'inst-b',
+    vinculo: { empresa: { id: EMPRESA_B, nome: 'Empresa B' }, instanciaId: INSTANCIA_B },
+  }))
+
+  assert.equal(chamadas.conversasSalvas.length, 1)
+  assert.equal(chamadas.conversasSalvas[0].empresaId, EMPRESA_B)
+  assert.equal(chamadas.conversasSalvas[0].agentePausado, true, 'contato externo nasce com agente pausado')
+  assert.equal(chamadas.jobsResposta.length, 0, 'contato externo sem opt-in não pode gerar resposta automática')
+  assert.equal(chamadas.atribuicoes.length, 1, 'a atribuição CTWA continua independente da resposta')
+  assert.equal(chamadas.followupsCancelados.length, 0, 'não deve tratar contato externo como resposta de follow-up')
 })
 
 // ─── Os três casos de quarentena ──────────────────────────────────────────────

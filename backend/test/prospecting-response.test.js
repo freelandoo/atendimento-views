@@ -218,7 +218,7 @@ test('resposta lead: webhook sempre deve gravar contexto de prospeccao no perfil
     'webhook deve usar o contexto de vendas montado pela prospeccao')
   assert.match(fonte, /produto_sugerido:\s*'site'/,
     'perfil transferido da prospeccao deve sinalizar site para o agente comercial')
-  const posSalvar = fonte.indexOf('await salvarConversa(numero, historico, estagio')
+  const posSalvar = fonte.indexOf('await salvarConversa(')
   const posPerfil = fonte.indexOf('await atualizarPerfil(numero, perfilProspeccaoPatch)')
   const posNome = fonte.indexOf('await capturarNomeContato(numero, { pushName: msg.pushName, texto: textoHistorico }')
   assert.ok(posSalvar >= 0 && posPerfil > posSalvar,

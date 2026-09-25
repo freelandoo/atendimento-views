@@ -32,13 +32,13 @@ async function findEmpresaBySlug(slug) {
  * cada instância é um negócio separado, e o NOME que vem no payload não serve como
  * chave — `app.empresa_whatsapp_instances.id` serve.
  *
- * @returns {Promise<{empresa: object, instanciaId: string}|null>} null quando a
+ * @returns {Promise<{empresa: object, instanciaId: string, instanciaConfigJson: object|null}|null>} null quando a
  *   instância não está mapeada ou está inativa — é o caso em que o chamador NÃO pode
  *   dizer que a empresa foi comprovada.
  */
 async function findEmpresaEInstanciaPorEvolution(instanceName) {
   const { rows } = await pool.query(
-    `SELECT e.*, ewi.id AS _instancia_id
+    `SELECT e.*, ewi.id AS _instancia_id, ewi.config_json AS _instancia_config_json
      FROM app.empresas e
      JOIN app.empresa_whatsapp_instances ewi ON ewi.empresa_id = e.id
      WHERE ewi.evolution_instance = $1 AND ewi.ativo = true AND e.ativo = true`,
@@ -46,8 +46,8 @@ async function findEmpresaEInstanciaPorEvolution(instanceName) {
   )
   const row = rows[0]
   if (!row) return null
-  const { _instancia_id: instanciaId, ...empresa } = row
-  return { empresa, instanciaId }
+  const { _instancia_id: instanciaId, _instancia_config_json: instanciaConfigJson = null, ...empresa } = row
+  return { empresa, instanciaId, instanciaConfigJson }
 }
 
 // Vínculo ATIVO do usuário com a empresa — a fonte do PAPEL EFETIVO (CRM em equipe, Etapa 1).

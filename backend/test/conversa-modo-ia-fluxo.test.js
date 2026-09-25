@@ -103,6 +103,7 @@ const requisicao = () => ({
   empresaId: EMPRESA,
   empresaOrigem: 'instancia',
   whatsappInstanciaId: 'i1',
+  whatsappInstanciaConfig: { atende_contatos_externos: true },
   evolutionInstance: 'inst-1',
   tenantPendencia: null,
 })

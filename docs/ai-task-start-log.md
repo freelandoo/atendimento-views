@@ -5728,3 +5728,14 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Cuidados:** manter manual/semi dependentes da instancia selecionada quando fizer sentido;
   nao criar migration; nao aumentar volume por ciclo; registrar motivos auditaveis de bloqueio
   por janela local; preservar filtros de pais/equipe e evitar qualquer linguagem de bypass.
+
+## 2026-09-24 — Escopo de atendimento por instancia WhatsApp
+
+- **Pedido:** separar, nas instancias WhatsApp, se o agente deve responder somente contatos que
+  vieram da prospeccao/Banco de Leads ou tambem contatos externos que mandarem mensagem direta.
+- **Areas previstas:** tela de instancias WhatsApp no `frontend/components`, rotas/API de
+  instancias em `backend/src/routes/api-whatsapp.js`, resolucao de webhook em
+  `backend/src/webhook-handler.js` ou services proximos, e testes de isolamento.
+- **Cuidados:** padrao seguro deve ser nao atender contato externo por acidente; regra precisa
+  ficar no backend; preservar conversas ja iniciadas/prospectadas; sem migration se couber em
+  `config_json`; manter auditoria/log sem PII.

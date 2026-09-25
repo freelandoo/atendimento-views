@@ -18,6 +18,7 @@ const {
   registrarPendencia: registrarPendenciaDefault,
 } = require('./db/webhook-quarentena')
 const { hashMensagemId, resumoPendencia } = require('./services/webhook-quarentena')
+const { avaliarEscopoAtendimentoInstancia } = require('./services/instancia-atendimento-escopo')
 const { pool: poolDefault } = require('./db')
 
 function registerWebhookRoute(app, deps = {}) {
@@ -303,6 +304,10 @@ function registerWebhookRoute(app, deps = {}) {
           webhookLog.warn({ err: serializeError ? serializeError(e) : String(e) }, 'buscarContextoProspeccao falhou')
           return null
         })
+        const escopoAtendimento = avaliarEscopoAtendimentoInstancia({
+          contextoProspeccao,
+          configJson: req.whatsappInstanciaConfig,
+        })
         if (contextoProspeccao?.prospect) {
           const p = contextoProspeccao.prospect
           const d = contextoProspeccao.diagnostico || {}
@@ -366,7 +371,15 @@ function registerWebhookRoute(app, deps = {}) {
         // Empresa COMPROVADA pela instância Evolution (resolveEmpresaFromWebhook). Não há
         // fallback: se o código chegou aqui, `barrarSemDonoComprovado` já deixou passar,
         // e `req.empresaId` é o dono real. Fixa o dono da conversa na criação.
-        await salvarConversa(numero, historico, estagio, conversa?.status || 'ativo', undefined, req.empresaId, req.evolutionInstance)
+        await salvarConversa(
+          numero,
+          historico,
+          estagio,
+          conversa?.status || 'ativo',
+          escopoAtendimento.podeResponder ? undefined : true,
+          req.empresaId,
+          req.evolutionInstance
+        )
         if (perfilProspeccaoPatch) {
           await atualizarPerfil(numero, perfilProspeccaoPatch)
         }
@@ -374,6 +387,13 @@ function registerWebhookRoute(app, deps = {}) {
           await capturarNomeContato(numero, { pushName: msg.pushName, texto: textoHistorico }, webhookLog).catch((err) =>
             webhookLog.warn({ err: serializeError(err) }, 'Falha ao capturar apelido do contato')
           )
+        }
+        if (!escopoAtendimento.podeResponder) {
+          webhookLog.info(
+            { escopo: escopoAtendimento.origem, instancia_id: req.whatsappInstanciaId || null },
+            'Contato fora da prospeccao registrado com agente pausado; resposta automatica bloqueada'
+          )
+          return
         }
         let respostaLembrete = null
         if (typeof registrarRespostaLembreteReuniao === 'function') {
