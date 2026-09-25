@@ -29,6 +29,7 @@ type ConversaDetail = { numero?: string; historico?: Mensagem[]; estagio?: strin
 type StatusPayload = {
   reuniao?: { data: string; horario: string; duracao_minutos: number; observacoes?: string }
   ligacao?: { resultado: string; duracao_minutos: number; observacoes?: string; follow_up?: PayloadProximaAcao | null }
+  follow_up?: PayloadProximaAcao | null
   descarte?: { motivo: string; observacoes?: string }
   proposta?: { forma_envio: string; valor?: number | null; observacoes?: string }
 }
@@ -65,6 +66,7 @@ const STATUS_ACOES: { valor: string; label: string }[] = [
   { valor: 'marcado', label: 'Marcado' },
   { valor: 'contatado', label: 'Contatado' },
   { valor: 'ligacao_realizada', label: 'Ligação feita' },
+  { valor: 'follow_up', label: 'Follow-up' },
   { valor: 'respondido', label: 'Respondido' },
   { valor: 'reuniao_agendada', label: 'Reunião' },
   { valor: 'proposta_enviada', label: 'Proposta' },
@@ -230,7 +232,7 @@ export default function ConversaHistoricoModal({
   const [historicoStatus, setHistoricoStatus] = useState<StatusEvento[]>([])
   const [carregandoStatus, setCarregandoStatus] = useState(false)
   const [mudandoStatus, setMudandoStatus] = useState<string | null>(null)
-  const [modalAcao, setModalAcao] = useState<null | 'reuniao' | 'ligacao' | 'descarte' | 'proposta'>(null)
+  const [modalAcao, setModalAcao] = useState<null | 'reuniao' | 'ligacao' | 'follow_up' | 'descarte' | 'proposta'>(null)
   const [dataReuniao, setDataReuniao] = useState(hojeInput)
   const [horarioReuniao, setHorarioReuniao] = useState(proximaHoraCheia)
   const [duracaoReuniao, setDuracaoReuniao] = useState(30)
@@ -239,7 +241,9 @@ export default function ConversaHistoricoModal({
   const [duracaoLigacao, setDuracaoLigacao] = useState(5)
   const [observacoesLigacao, setObservacoesLigacao] = useState('')
   const [proxAcaoLigacao, setProxAcaoLigacao] = useState<FormProximaAcao>(() => sugerirProximaAcao('atendeu'))
+  const [proxAcaoManual, setProxAcaoManual] = useState<FormProximaAcao>(() => sugerirProximaAcao('atendeu'))
   const [errosProxAcao, setErrosProxAcao] = useState<Record<string, string>>({})
+  const [errosFollowUpManual, setErrosFollowUpManual] = useState<Record<string, string>>({})
   const [motivoDescarte, setMotivoDescarte] = useState('')
   const [observacoesDescarte, setObservacoesDescarte] = useState('')
   const [formaProposta, setFormaProposta] = useState('whatsapp')
@@ -280,6 +284,7 @@ export default function ConversaHistoricoModal({
     if (!onAlterarStatus) return
     if (valor === 'reuniao_agendada' && !payload) { setModalAcao('reuniao'); return }
     if (valor === 'ligacao_realizada' && !payload) { setModalAcao('ligacao'); return }
+    if (valor === 'follow_up' && !payload) { setModalAcao('follow_up'); return }
     if (valor === 'descartado' && !payload) { setModalAcao('descarte'); return }
     if (valor === 'proposta_enviada' && !payload) { setModalAcao('proposta'); return }
     setMudandoStatus(valor)
@@ -294,6 +299,11 @@ export default function ConversaHistoricoModal({
         setObservacoesLigacao('')
         setProxAcaoLigacao(sugerirProximaAcao(resultadoLigacao))
         setErrosProxAcao({})
+      }
+      if (valor === 'follow_up') {
+        setModalAcao(null)
+        setProxAcaoManual(sugerirProximaAcao('atendeu'))
+        setErrosFollowUpManual({})
       }
       if (valor === 'proposta_enviada') {
         setModalAcao(null)
@@ -339,6 +349,17 @@ export default function ConversaHistoricoModal({
         follow_up: montarPayloadProximaAcao(proxAcaoLigacao),
       },
     })
+  }
+
+  async function salvarFollowUpManual() {
+    const validacao = validarProximaAcao(proxAcaoManual)
+    if (!validacao.ok) { setErrosFollowUpManual(validacao.erros); return }
+    const payload = montarPayloadProximaAcao(proxAcaoManual)
+    if (!payload) {
+      setErrosFollowUpManual({ canal: 'Escolha WhatsApp ou nova ligação para criar o follow-up.' })
+      return
+    }
+    await alterarStatus('follow_up', { follow_up: payload })
   }
 
   // Valor digitado no formato brasileiro ("1.500,00"). Vazio = sem valor (é opcional);
@@ -580,7 +601,7 @@ export default function ConversaHistoricoModal({
                   </div>
                   <div className="flex flex-wrap gap-1.5" aria-label="Alterar status do lead">
                     {acoesStatusVisiveis.map((a) => {
-                      const ativo = !['reuniao_agendada', 'ligacao_realizada', 'proposta_enviada'].includes(a.valor) && STATUS_POR_ACAO[a.valor] === status
+                      const ativo = !['reuniao_agendada', 'ligacao_realizada', 'follow_up', 'proposta_enviada'].includes(a.valor) && STATUS_POR_ACAO[a.valor] === status
                       return (
                         <button
                           key={a.valor}
@@ -668,6 +689,50 @@ export default function ConversaHistoricoModal({
             <label className="mt-2 block text-xs text-ink-2">Observações rápidas
               <textarea value={observacoesReuniao} onChange={(e) => setObservacoesReuniao(e.target.value)} rows={3} placeholder="Ex.: confirmar orçamento, falar com sócio, enviar proposta antes da reunião…" className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm" />
             </label>
+          </PainelAcaoConversa>
+        )}
+
+        {modalAcao === 'follow_up' && (
+          <PainelAcaoConversa
+            titulo="Agendar follow-up"
+            descricao="Cria uma próxima ação para este lead na Central de Follow-ups. Nada é enviado agora."
+            onFechar={() => setModalAcao(null)}
+            rodape={
+              <>
+                <Botao variante="neutra" tamanho="sm" onClick={() => setModalAcao(null)}>Cancelar</Botao>
+                <Botao variante="primaria" tamanho="sm" onClick={salvarFollowUpManual}
+                  carregando={mudandoStatus === 'follow_up'}>
+                  Salvar follow-up
+                </Botao>
+              </>
+            }
+          >
+            <div className="mt-3 space-y-2 rounded-xl border border-line bg-surface-2/70 p-3">
+              <div className="inline-flex w-full rounded-lg border bg-surface p-0.5" role="group" aria-label="Canal do follow-up">
+                {CANAL_OPCOES.filter((o) => o.valor !== 'nenhuma').map((o) => (
+                  <button key={o.valor} type="button" onClick={() => { setProxAcaoManual((f) => ({ ...f, canal: o.valor })); setErrosFollowUpManual({}) }} aria-pressed={proxAcaoManual.canal === o.valor}
+                    className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition ${proxAcaoManual.canal === o.valor ? 'bg-brand text-white' : 'text-ink-2 hover:bg-surface-2'}`}>
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              {errosFollowUpManual.canal && <p className="text-[11px] text-red-600">{errosFollowUpManual.canal}</p>}
+              <p className="text-[11px] text-ink-3">{CANAL_OPCOES.find((o) => o.valor === proxAcaoManual.canal)?.ajuda}</p>
+              <label className="block text-xs text-ink-2">O que fazer
+                <input value={proxAcaoManual.proxima_acao} onChange={(e) => { setProxAcaoManual((f) => ({ ...f, proxima_acao: e.target.value })); setErrosFollowUpManual({}) }} placeholder="Ex.: retomar sobre a proposta" className={`mt-1 w-full rounded-lg border px-2 py-1.5 text-sm ${errosFollowUpManual.proxima_acao ? 'border-red-400' : 'border-line'}`} />
+                {errosFollowUpManual.proxima_acao && <span className="mt-0.5 block text-[11px] text-red-600">{errosFollowUpManual.proxima_acao}</span>}
+              </label>
+              <label className="block text-xs text-ink-2">Quando
+                <input type="datetime-local" value={proxAcaoManual.agendado_para} onChange={(e) => { setProxAcaoManual((f) => ({ ...f, agendado_para: e.target.value })); setErrosFollowUpManual({}) }} className={`mt-1 w-full rounded-lg border px-2 py-1.5 text-sm ${errosFollowUpManual.agendado_para ? 'border-red-400' : 'border-line'}`} />
+                {errosFollowUpManual.agendado_para && <span className="mt-0.5 block text-[11px] text-red-600">{errosFollowUpManual.agendado_para}</span>}
+              </label>
+              <label className="block text-xs text-ink-2">Prioridade
+                <select value={proxAcaoManual.prioridade || 'media'} onChange={(e) => setProxAcaoManual((f) => ({ ...f, prioridade: e.target.value as FormProximaAcao['prioridade'] }))} className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm">
+                  {PRIORIDADE_OPCOES.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+                </select>
+              </label>
+              <p className="text-[11px] text-ink-3">O follow-up fica vinculado ao lead e aparece na próxima ação da ficha.</p>
+            </div>
           </PainelAcaoConversa>
         )}
 

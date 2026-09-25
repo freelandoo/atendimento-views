@@ -159,6 +159,7 @@ type FiltrosMercado = {
 type StatusPayload = {
   reuniao?: { data: string; horario: string; duracao_minutos: number; observacoes?: string }
   ligacao?: { resultado: string; duracao_minutos: number; observacoes?: string; follow_up?: PayloadProximaAcao | null }
+  follow_up?: PayloadProximaAcao | null
   descarte?: { motivo: string; observacoes?: string }
   proposta?: { forma_envio: string; valor?: number | null; observacoes?: string }
 }
@@ -390,6 +391,12 @@ const STATUS_LEAD_VISUAL: Record<string, { rotulo: string; detalhe: string; clas
     classe: 'border-sky-200 bg-sky-50 text-sky-700',
     ordem: 40,
   },
+  follow_up: {
+    rotulo: 'Follow-up',
+    detalhe: 'Há uma próxima ação combinada para este lead.',
+    classe: 'border-cyan-200 bg-cyan-50 text-cyan-700',
+    ordem: 45,
+  },
   respondido: {
     rotulo: 'Respondido',
     detalhe: 'Lead respondeu ou avançou na conversa.',
@@ -427,6 +434,7 @@ const FILTROS_STATUS_LEAD: { valor: string; label: string }[] = [
   { valor: 'marcado', label: 'Marcado' },
   { valor: 'contatado', label: 'Contatado' },
   { valor: 'ligacao_feita', label: 'Ligação feita' },
+  { valor: 'follow_up', label: 'Follow-up' },
   { valor: 'respondido', label: 'Respondido' },
   { valor: 'reuniao', label: 'Reunião marcada' },
   { valor: 'proposta', label: 'Proposta enviada' },
@@ -439,6 +447,7 @@ function statusOperacionalDoLead(l: Lead): { chave: string; rotulo: string; deta
   // Proposta é a última ação registrada: vem antes da reunião futura (a proposta costuma sair
   // depois da reunião, e a reunião marcada continua visível na coluna de agenda).
   else if (l.ultimo_status_acao === 'lead_proposta_enviada') chave = 'proposta'
+  else if (l.ultimo_status_acao === 'lead_follow_up_criado') chave = 'follow_up'
   else if (l.proximo_agendamento || l.ultimo_status_acao === 'lead_reuniao_agendada') chave = 'reuniao'
   else if (l.ultimo_status_acao === 'lead_ligacao_realizada') chave = 'ligacao_feita'
   else if (l.status === 'respondeu') chave = 'respondido'
@@ -450,6 +459,7 @@ function statusOperacionalDoLead(l: Lead): { chave: string; rotulo: string; deta
 function acaoOperacionalAuditavel(statusOperacional: string): string {
   switch (statusOperacional) {
     case 'ligacao_realizada': return 'lead_ligacao_realizada'
+    case 'follow_up': return 'lead_follow_up_criado'
     case 'reuniao_agendada': return 'lead_reuniao_agendada'
     case 'descartado': return 'lead_descartado'
     case 'proposta_enviada': return 'lead_proposta_enviada'
@@ -1722,6 +1732,7 @@ export default function BancoLeadsPage() {
       contatado: 'Lead marcado como contatado.',
       respondido: 'Lead marcado como respondido.',
       ligacao_realizada: 'Ligação registrada e lead marcado como contatado.',
+      follow_up: 'Follow-up agendado para este lead.',
       reuniao_agendada: 'Reunião agendada para este lead.',
       proposta_enviada: 'Proposta registrada no histórico do lead.',
       fechado: 'Lead marcado como fechado.',

@@ -96,6 +96,8 @@ const STATUS_OPERACIONAL = Object.freeze({
   ligação_realizada: { status: 'enviado', ligacao: true },
   ligacao: { status: 'enviado', ligacao: true },
   ligação: { status: 'enviado', ligacao: true },
+  follow_up: { followUp: true },
+  followup: { followUp: true },
   reuniao_agendada: { status: 'respondeu', agenda: true },
   reunião_agendada: { status: 'respondeu', agenda: true },
   // Proposta enviada: o lead está em NEGOCIAÇÃO, então o funil técnico é `respondeu` (não há
@@ -353,6 +355,16 @@ function normalizarPayloadLigacao(body = {}) {
   }
 }
 
+function normalizarPayloadFollowUp(body = {}) {
+  const r = body.follow_up && typeof body.follow_up === 'object' ? body.follow_up : body
+  if (!r || typeof r !== 'object') {
+    const e = new Error('Informe os dados do follow-up.')
+    e.statusCode = 400
+    throw e
+  }
+  return r
+}
+
 // Forma de envio: lista FECHADA — texto livre aqui viraria um campo que ninguém agrupa.
 const PROPOSTA_FORMAS = new Set(['whatsapp', 'email', 'presencial', 'reuniao', 'outro'])
 
@@ -430,7 +442,7 @@ async function autoAssumirLeadLivre(client, { empresaId, prospectId, usuarioId, 
 async function alterarStatusLeadOperacional(req, statusPedido) {
   const destino = normalizarStatusOperacional(statusPedido)
   if (!destino) {
-    const e = new Error('Status inválido. Use marcado, contatado, ligação realizada, respondido, reunião agendada, proposta enviada, fechado ou descartado.')
+    const e = new Error('Status inválido. Use marcado, contatado, ligação realizada, follow-up, respondido, reunião agendada, proposta enviada, fechado ou descartado.')
     e.statusCode = 400
     throw e
   }
@@ -464,6 +476,7 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
     const usuarioId = req.usuario?.id || null
     const reuniao = destino.agenda ? normalizarPayloadReuniao(req.body || {}) : null
     const ligacao = destino.ligacao ? normalizarPayloadLigacao(req.body || {}) : null
+    const followUpManual = destino.followUp ? normalizarPayloadFollowUp(req.body || {}) : null
     const descarte = destino.descarte ? normalizarPayloadDescarte(req.body || {}) : null
     const proposta = destino.proposta ? normalizarPayloadProposta(req.body || {}) : null
     const precisaQualificacao = destino.qualificacao && atual.qualificacao !== destino.qualificacao
@@ -479,7 +492,7 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
               updated_at = NOW()
         WHERE empresa_id = $1 AND id = $2::uuid
         RETURNING id, status, qualificacao, qualificado_em, qualificado_por, responsavel_id, responsavel_desde`,
-      [req.empresa.id, req.params.id, destino.status, destino.qualificacao || null, usuarioId]
+      [req.empresa.id, req.params.id, destino.status || atual.status, destino.qualificacao || null, usuarioId]
     )
 
     let eventoAgenda = null
@@ -518,6 +531,49 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
 
     let registroLigacao = null
     let followUp = null
+    async function criarFollowUpDoLead(payload, origem, extras = {}) {
+      const item = await criarFollowUp(client, req.empresa.id, {
+        ...payload,
+        origem,
+        telefone: atual.telefone,
+        prospect_id: req.params.id,
+        responsavel_id: payload.responsavel_id || rows[0].responsavel_id || usuarioId || null,
+        observacao: payload.observacao || extras.observacao || null,
+        ...extras,
+      }, { usuarioId })
+      await client.query(
+        `INSERT INTO app.auditoria_eventos
+           (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+         VALUES ($1, $2::uuid, 'follow_up', $3::uuid, 'follow_up_criado', NULL, 'aguardando', $4::jsonb)`,
+        [req.empresa.id, usuarioId, item.id, JSON.stringify({
+          origem,
+          canal: item.canal,
+          ligacao_id: extras.ligacao_id || null,
+          prospect_id: req.params.id,
+          substituiu_anterior: item.substituiu === true,
+        })]
+      )
+      await client.query(
+        `INSERT INTO app.auditoria_eventos
+           (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+         VALUES ($1, $2::uuid, 'prospect', $3::uuid, 'lead_follow_up_criado', $4, $5, $6::jsonb)`,
+        [req.empresa.id, usuarioId, req.params.id, atual.status, rows[0].status, JSON.stringify({
+          origem: origem === 'ligacao' ? 'banco_leads_ligacao' : 'banco_leads',
+          follow_up_id: item.id,
+          ligacao_id: extras.ligacao_id || null,
+          canal: item.canal,
+          proxima_acao: item.proxima_acao,
+          agendado_para: item.agendado_para,
+          responsavel_id: item.responsavel_id || null,
+        })]
+      )
+      return item
+    }
+
+    if (followUpManual) {
+      followUp = await criarFollowUpDoLead(followUpManual, 'manual')
+    }
+
     if (ligacao) {
       const { rows: ligacoes } = await client.query(
         `INSERT INTO app.ligacoes
@@ -529,41 +585,10 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
       registroLigacao = ligacoes[0] || null
 
       if (ligacao.followUp) {
-        followUp = await criarFollowUp(client, req.empresa.id, {
-          ...ligacao.followUp,
-          origem: 'ligacao',
-          telefone: atual.telefone,
+        followUp = await criarFollowUpDoLead(ligacao.followUp, 'ligacao', {
           ligacao_id: registroLigacao?.id || null,
-          prospect_id: req.params.id,
-          responsavel_id: ligacao.followUp.responsavel_id || rows[0].responsavel_id || usuarioId || null,
           observacao: ligacao.followUp.observacao || ligacao.observacoes || null,
-        }, { usuarioId })
-        await client.query(
-          `INSERT INTO app.auditoria_eventos
-             (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
-           VALUES ($1, $2::uuid, 'follow_up', $3::uuid, 'follow_up_criado', NULL, 'aguardando', $4::jsonb)`,
-          [req.empresa.id, usuarioId, followUp.id, JSON.stringify({
-            origem: 'ligacao',
-            canal: followUp.canal,
-            ligacao_id: registroLigacao?.id || null,
-            prospect_id: req.params.id,
-            substituiu_anterior: followUp.substituiu === true,
-          })]
-        )
-        await client.query(
-          `INSERT INTO app.auditoria_eventos
-             (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
-           VALUES ($1, $2::uuid, 'prospect', $3::uuid, 'lead_follow_up_criado', $4, $5, $6::jsonb)`,
-          [req.empresa.id, usuarioId, req.params.id, atual.status, rows[0].status, JSON.stringify({
-            origem: 'banco_leads_ligacao',
-            follow_up_id: followUp.id,
-            ligacao_id: registroLigacao?.id || null,
-            canal: followUp.canal,
-            proxima_acao: followUp.proxima_acao,
-            agendado_para: followUp.agendado_para,
-            responsavel_id: followUp.responsavel_id || null,
-          })]
-        )
+        })
       }
 
       await client.query(
