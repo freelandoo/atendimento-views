@@ -154,6 +154,7 @@ app.use('/api/empresas/:empresaId/lead-search', requireAuth, requireEmpresaAcces
 app.use('/api/empresas/:empresaId/prospeccao', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.AQUISICAO_GERENCIAR, CAP.LEAD_TRIAR), require('./src/routes/api-prospeccao'))
 app.use('/api/empresas/:empresaId/captacao', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.AQUISICAO_GERENCIAR), require('./src/routes/api-captacao'))
 app.use('/api/empresas/:empresaId/banco-leads', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_VER_APROVADOS), require('./src/routes/api-banco-leads'))
+app.use('/api/empresas/:empresaId/notificacoes', requireAuth, requireEmpresaAccess, require('./src/routes/api-notificacoes'))
 app.use('/api/empresas/:empresaId/follow-ups', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.FOLLOWUP_OPERAR), require('./src/routes/api-follow-ups'))
 app.use('/api/empresas/:empresaId/roteiros', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.ROTEIRO_LER), require('./src/routes/api-roteiros'))
 app.use('/api/empresas/:empresaId/nichos', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.ROTEIRO_GERENCIAR), require('./src/routes/api-nichos'))
