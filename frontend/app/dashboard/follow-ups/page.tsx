@@ -43,6 +43,11 @@ import TextoTruncado from '@/components/ui/TextoTruncado'
 import { IconSend, IconGear, IconAlert, IconClose, IconPlus } from '@/components/ui/icons'
 import InterruptorAtivacao from '@/components/ui/InterruptorAtivacao'
 import MenuRadialAcoes, { type AcaoRadial } from '@/components/ui/MenuRadialAcoes'
+import Botao from '@/components/ui/Botao'
+import Card from '@/components/ui/Card'
+import Carregando from '@/components/ui/Carregando'
+import DataTableFrame from '@/components/ui/DataTableFrame'
+import EstadoVazio from '@/components/ui/EstadoVazio'
 import {
   FILTROS_RAPIDOS,
   VIEW_PADRAO,
@@ -348,6 +353,12 @@ export default function FollowUpsPage() {
   const chips = useMemo(() => chipsAtivos(view, rotulosDeAcao, rotulosDeResponsavel), [view, rotulosDeAcao, rotulosDeResponsavel])
   const filtroRapidoAtual = useMemo(() => FILTROS_RAPIDOS.find((f) => f.valor === rapido) || FILTROS_RAPIDOS[0], [rapido])
   const temRecorteRapido = rapido !== 'todos'
+  const indicadoresFila = useMemo(() => ([
+    { chave: 'vencidos', rotulo: 'Vencidos', valor: contagens.vencidos || 0, detalhe: 'prazo passou', tom: 'perigo' },
+    { chave: 'hoje', rotulo: 'Hoje', valor: contagens.hoje || 0, detalhe: 'para tratar', tom: 'marca' },
+    { chave: 'ligacao', rotulo: 'Ligações', valor: contagens.ligacao || 0, detalhe: 'prontas', tom: 'info' },
+    { chave: 'falhas', rotulo: 'Falhas', valor: contagens.falhas || 0, detalhe: 'precisam revisão', tom: 'aviso' },
+  ] as Array<{ chave: FiltroRapido; rotulo: string; valor: number; detalhe: string; tom: 'perigo' | 'marca' | 'info' | 'aviso' }>), [contagens])
 
   // Capacidade de ligações do dia: destaca as primeiras N ligações da fila em aberto.
   // Calculada sobre a fila inteira (não sobre o filtro nem sobre a página), senão a marca
@@ -435,10 +446,11 @@ export default function FollowUpsPage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Follow-ups</h1>
-          <p className="text-sm text-slate-500">
-            Uma fila só, organizada pela próxima ação de cada conversa. A origem (humana ou automática) é filtro, não aba.
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">Central comercial</p>
+          <h1 className="text-2xl font-bold text-ink">Follow-ups</h1>
+          <p className="mt-1 max-w-3xl text-sm text-ink-2">
+            Fila única por prioridade operacional: atrasados e ações para hoje sobem primeiro, e o restante fica pronto para varrer por canal, responsável ou origem.
           </p>
         </div>
         {/* O que sobrou da área de Automação: a decisão diária de deixar o motor rodar ou
@@ -459,7 +471,7 @@ export default function FollowUpsPage() {
       </div>
 
       {pausado && (
-        <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           <IconAlert className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
             O follow-up automático está desativado: nada é agendado nem enviado pelo motor. As ações desta fila
@@ -469,90 +481,119 @@ export default function FollowUpsPage() {
       )}
 
       {avisoEquipe && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
           {avisoEquipe}
         </div>
       )}
 
       <div className="space-y-4">
-        {/* Cabeçalho da fila: o que é, quanto tem, como filtrar. Sem repetir contagem em cards. */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold">Fila de trabalho</h2>
-            <p className="mt-0.5 text-xs text-slate-500">{resumoFila(contagens)}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setManual({ numero: '', nome: '' })}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-brand px-3 py-1.5 text-sm font-medium text-brand hover:bg-blue-50"
-            >
-              <IconPlus className="h-4 w-4" /> Follow-up manual
-            </button>
-            <button onClick={carregar} className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50">Atualizar</button>
-          </div>
-        </div>
-
-        {/* Filtros rápidos com a contagem DENTRO do rótulo (padrão da Aquisição): o número
-            fica onde a decisão é tomada e entra no nome acessível do botão. */}
-        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrar a fila">
-          {FILTROS_RAPIDOS.map((f) => {
-            const ativo = rapido === f.valor
-            const tom = FILTRO_TOM[f.valor]
-            const baseClasse = ativo
-              ? (tom?.ativo || 'border-brand bg-brand text-white')
-              : (tom?.inativo || 'bg-white text-slate-600 hover:bg-slate-50')
-            const contadorClasse = ativo
-              ? 'bg-white/25 text-white'
-              : (tom?.contador || 'bg-slate-100 text-slate-600')
-            return (
-              <button
-                key={f.valor}
-                type="button"
-                title={f.descricao}
-                onClick={() => setRapido(f.valor)}
-                aria-pressed={ativo}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${baseClasse}`}
+        <Card
+          titulo="Fila de trabalho"
+          descricao={resumoFila(contagens)}
+          acoes={(
+            <>
+              <Botao
+                variante="secundaria"
+                tamanho="sm"
+                onClick={() => setManual({ numero: '', nome: '' })}
+                iconeInicio={<IconPlus className="h-4 w-4" />}
               >
-                {f.label}
-                <span className={`rounded-full px-1.5 text-[10px] font-semibold tabular-nums ${contadorClasse}`}>
-                  {contagens[f.valor]}
-                </span>
-              </button>
-            )
-          })}
-          {podeVerFilaEquipe && usuarioId && (
-            <button
-              type="button"
-              onClick={() => setView((v) => ({ ...v, responsavel: v.responsavel === usuarioId ? '' : usuarioId }))}
-              aria-pressed={view.responsavel === usuarioId}
-              title="Mostra só os follow-ups atribuídos a você. A fila continua sendo de todos."
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${view.responsavel === usuarioId ? 'border-brand bg-brand text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-            >
-              Meus
-            </button>
+                Follow-up manual
+              </Botao>
+              <Botao variante="neutra" tamanho="sm" onClick={carregar}>Atualizar</Botao>
+            </>
           )}
-          <button
-            ref={persBotaoRef}
-            type="button"
-            onClick={() => setPersAberto(true)}
-            aria-haspopup="dialog"
-            aria-expanded={persAberto}
-            className={`ml-auto inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${filtrosAtivos ? 'border-brand text-brand' : ''}`}
-          >
-            <IconGear className="h-4 w-4" /> Personalizar filtros
-            {filtrosAtivos > 0 && <span className="rounded-full bg-brand px-1.5 py-0.5 text-[10px] text-white">{filtrosAtivos}</span>}
-          </button>
-        </div>
+        >
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {indicadoresFila.map((m) => {
+              const ativo = rapido === m.chave
+              const tomClasse = m.tom === 'perigo'
+                ? 'border-red-200 bg-red-50 text-red-700'
+                : m.tom === 'aviso'
+                  ? 'border-amber-200 bg-amber-50 text-amber-800'
+                  : m.tom === 'info'
+                    ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                    : 'border-blue-200 bg-blue-50 text-blue-700'
+              return (
+                <button
+                  key={m.chave}
+                  type="button"
+                  onClick={() => setRapido(m.chave)}
+                  aria-pressed={ativo}
+                  className={`flex min-h-20 items-center justify-between rounded-lg border px-3 py-2 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${ativo ? 'border-brand bg-brand text-white' : tomClasse}`}
+                >
+                  <span>
+                    <span className="block text-xs font-medium">{m.rotulo}</span>
+                    <span className={`mt-0.5 block text-[11px] ${ativo ? 'text-white/80' : 'opacity-80'}`}>{m.detalhe}</span>
+                  </span>
+                  <span className="text-2xl font-semibold tabular-nums">{m.valor}</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Filtros rápidos com a contagem DENTRO do rótulo (padrão da Aquisição): o número
+              fica onde a decisão é tomada e entra no nome acessível do botão. */}
+          <div className="mt-4 flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrar a fila">
+            {FILTROS_RAPIDOS.map((f) => {
+              const ativo = rapido === f.valor
+              const tom = FILTRO_TOM[f.valor]
+              const baseClasse = ativo
+                ? (tom?.ativo || 'border-brand bg-brand text-white')
+                : (tom?.inativo || 'bg-surface text-ink-2 hover:bg-surface-3')
+              const contadorClasse = ativo
+                ? 'bg-white/25 text-white'
+                : (tom?.contador || 'bg-surface-3 text-ink-2')
+              return (
+                <button
+                  key={f.valor}
+                  type="button"
+                  title={f.descricao}
+                  onClick={() => setRapido(f.valor)}
+                  aria-pressed={ativo}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${baseClasse}`}
+                >
+                  {f.label}
+                  <span className={`rounded-full px-1.5 text-[10px] font-semibold tabular-nums ${contadorClasse}`}>
+                    {contagens[f.valor]}
+                  </span>
+                </button>
+              )
+            })}
+            {podeVerFilaEquipe && usuarioId && (
+              <button
+                type="button"
+                onClick={() => setView((v) => ({ ...v, responsavel: v.responsavel === usuarioId ? '' : usuarioId }))}
+                aria-pressed={view.responsavel === usuarioId}
+                title="Mostra só os follow-ups atribuídos a você. A fila continua sendo de todos."
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${view.responsavel === usuarioId ? 'border-brand bg-brand text-white' : 'bg-surface text-ink-2 hover:bg-surface-3'}`}
+              >
+                Meus
+              </button>
+            )}
+            <button
+              ref={persBotaoRef}
+              type="button"
+              onClick={() => setPersAberto(true)}
+              aria-haspopup="dialog"
+              aria-expanded={persAberto}
+              className={`ml-auto inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition hover:bg-surface-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${filtrosAtivos ? 'border-brand text-brand' : 'border-line text-ink-2'}`}
+            >
+              <IconGear className="h-4 w-4" /> Personalizar
+              {filtrosAtivos > 0 && <span className="rounded-full bg-brand px-1.5 py-0.5 text-[10px] text-white">{filtrosAtivos}</span>}
+            </button>
+          </div>
+        </Card>
 
         {(temRecorteRapido || chips.length > 0) && (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2 text-xs">
-            <span className="font-medium text-slate-600">{visiveis.length} item(ns) neste recorte</span>
+            <span className="font-medium text-ink-2">{visiveis.length} item(ns) neste recorte</span>
             {temRecorteRapido && (
               <span className="rounded-full border border-brand/30 bg-white px-2 py-0.5 font-medium text-brand">
                 {filtroRapidoAtual.label}
               </span>
             )}
-            {chips.map((ch) => <span key={ch} className="rounded-full border bg-slate-100 px-2 py-0.5 text-slate-600">{ch}</span>)}
+            {chips.map((ch) => <span key={ch} className="rounded-full border border-line bg-surface-3 px-2 py-0.5 text-ink-2">{ch}</span>)}
             {temRecorteRapido && chips.length === 0 ? (
               <button onClick={limparRapido} className="ml-auto text-brand hover:underline">Limpar recorte</button>
             ) : (
@@ -562,32 +603,33 @@ export default function FollowUpsPage() {
         )}
 
         {erro ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-sm text-red-700">
+          <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center text-sm text-red-700">
             <p>{erro}</p>
-            <button onClick={carregar} className="mt-3 rounded-lg border border-red-300 bg-white px-3 py-1.5 font-medium hover:bg-red-50">
-              Tentar de novo
-            </button>
+            <Botao onClick={carregar} variante="perigosa" tamanho="sm" className="mt-3">Tentar de novo</Botao>
           </div>
         ) : carregando ? (
-          <div className="flex justify-center py-16" role="status" aria-live="polite">
-            <Spinner /><span className="sr-only">Carregando a fila…</span>
-          </div>
+          <Carregando texto="Carregando a fila de follow-ups…" variante="bloco" />
         ) : fila.length === 0 ? (
-          <div className="rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">
-            Nenhum follow-up em andamento. Quando uma conversa esfriar ou o automático agendar um envio, o item aparece aqui.
-          </div>
+          <Card>
+            <EstadoVazio
+              titulo="Nenhum follow-up em andamento"
+              descricao="Quando uma conversa esfriar ou o automático agendar um envio, o item aparece aqui."
+            />
+          </Card>
         ) : visiveis.length === 0 ? (
-          <div className="rounded-2xl border bg-white p-10 text-center text-slate-500 shadow-sm">
-            Nenhum item neste recorte.{' '}
-            <button onClick={limparTudo} className="text-brand hover:underline">Limpar filtros</button>{' '}
-            para ver a fila inteira.
-          </div>
+          <Card>
+            <EstadoVazio
+              titulo="Nenhum item neste recorte"
+              descricao="Os filtros ativos esconderam a fila. Limpe o recorte para voltar ao trabalho aberto."
+              acao={<Botao variante="secundaria" tamanho="sm" onClick={limparTudo}>Limpar filtros</Botao>}
+            />
+          </Card>
         ) : (
-          <div className="rounded-2xl border bg-white shadow-sm">
-            <div className="overflow-x-auto">
+          <Card semPadding>
+            <DataTableFrame maxHeightClassName="max-h-[calc(100dvh-18rem)]">
               <table className="w-full min-w-[1040px] text-sm">
                 <caption className="sr-only">Fila de follow-ups, ordenada pela urgência da próxima ação</caption>
-                <thead className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                <thead className="border-b border-line bg-surface-2 text-left text-xs uppercase tracking-wide text-ink-3">
                   <tr>
                     <th scope="col" className="px-3 py-3"><span className="sr-only">Prioridade</span></th>
                     <th scope="col" className="px-4 py-3">Lead</th>
@@ -629,9 +671,9 @@ export default function FollowUpsPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </DataTableFrame>
             <RodapeFila pg={pg} onPagina={setPagina} />
-          </div>
+          </Card>
         )}
       </div>
 
@@ -778,6 +820,13 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
   const emAberto = registrado && item.followup_status === 'aguardando'
   const vencido = emAberto && item.prazo_quando === 'atrasado'
   const descricao = descricaoPrioridade(item)
+  const linhaClasse = vencido
+    ? 'border-l-4 border-l-red-500 bg-red-50/35'
+    : item.tem_falha
+      ? 'border-l-4 border-l-amber-500 bg-amber-50/35'
+      : naMeta
+        ? 'border-l-4 border-l-amber-300 bg-amber-50/25'
+        : 'border-l-4 border-l-transparent'
   // Recorte do "Por que agora" — regra pura, testada (`lib/followups-fila.js`).
   const motivoLinha = motivoDaLinha(item)
 
@@ -841,7 +890,7 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
   }
 
   return (
-    <tr className={naMeta ? 'bg-amber-50/40' : ''}>
+    <tr className={`${linhaClasse} transition-colors hover:bg-surface-2`}>
       <td className="px-3 py-3 align-top">
         {/* Prioridade: cor + nome acessível. Sem faixa calculada, a bolinha é vazada — a
             tela não inventa prioridade para item que nunca passou pelo call score. */}
@@ -849,7 +898,7 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
           role="img"
           aria-label={descricao}
           title={descricao}
-          className={`mt-1 block h-2.5 w-2.5 rounded-full ${item.prioridade ? PRIORIDADE_DOT[item.prioridade] : 'border border-slate-300 bg-white'}`}
+          className={`mt-1 block h-2.5 w-2.5 rounded-full ${item.prioridade ? PRIORIDADE_DOT[item.prioridade] : 'border border-line-strong bg-white'}`}
         />
       </td>
       <td className="px-4 py-3 align-top">
@@ -862,7 +911,7 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
             porta de entrada para o histórico. */}
         <button
           onClick={() => onAbrirHistorico(item.numero)}
-          className="rounded font-medium text-slate-800 hover:text-brand hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          className="rounded font-medium text-ink hover:text-brand hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
           title="Abrir a conversa deste lead"
         >
           {item.rotulo}
@@ -871,7 +920,7 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
             aqui era o mesmo texto duas vezes na mesma linha. `item.contexto` (negócio+cidade)
             continua existindo só para a busca da fila, não para esta linha. */}
         {item.localizacao && (
-          <div className="flex items-center gap-1 text-xs text-slate-400">
+          <div className="flex items-center gap-1 text-xs text-ink-3">
             <span aria-hidden="true">📍</span>
             {item.localizacao}
           </div>
@@ -879,19 +928,19 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
         {/* Telefone como linha extra só quando o rótulo é um nome — senão seria o mesmo
             dado duas vezes. */}
         {item.nome && (
-          <div className="text-xs tabular-nums text-slate-500">{formatarTelefone(item.telefone_digitos)}</div>
+          <div className="text-xs tabular-nums text-ink-3">{formatarTelefone(item.telefone_digitos)}</div>
         )}
       </td>
       <td className="px-4 py-3 align-top">
         {/* Canal: discreto, com ícone E rótulo em texto — cor/glifo nunca sozinhos.
             Item derivado não tem canal escolhido: a célula diz isso em vez de presumir um. */}
         {item.canal ? (
-          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700">
+          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-medium text-ink-2">
             <span aria-hidden="true">{iconeCanal(item.canal)}</span>
             {rotuloCanal(item.canal)}
           </span>
         ) : (
-          <span className="text-[11px] text-slate-400" title="Item sem canal escolhido: veio da recomendação ou do motor automático">—</span>
+          <span className="text-[11px] text-ink-3" title="Item sem canal escolhido: veio da recomendação ou do motor automático">—</span>
         )}
       </td>
       <td className="px-4 py-3 align-top">
@@ -900,12 +949,20 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
         </span>
         {naMeta && <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-600" title="Dentro da capacidade diária de ligações configurada para a empresa">na capacidade do dia</div>}
       </td>
-      <td className={`px-4 py-3 align-top text-slate-600 ${PRAZO_STYLE[item.prazo_quando || ''] || ''}`}>
-        {item.prazo_quando === 'atrasado' && <span className="mr-1" aria-hidden="true">⚠</span>}
-        {item.prazo_label || '—'}
-        {item.prazo_quando === 'atrasado' && <span className="sr-only"> (atrasado)</span>}
+      <td className={`px-4 py-3 align-top ${PRAZO_STYLE[item.prazo_quando || ''] || 'text-ink-2'}`}>
+        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
+          item.prazo_quando === 'atrasado'
+            ? 'border-red-200 bg-red-50 text-red-700'
+            : item.prazo_quando === 'hoje' || item.prazo_quando === 'agora'
+              ? 'border-amber-200 bg-amber-50 text-amber-800'
+              : 'border-line bg-surface-2 text-ink-2'
+        }`}>
+          {item.prazo_quando === 'atrasado' && <span aria-hidden="true">⚠</span>}
+          {item.prazo_label || '—'}
+          {item.prazo_quando === 'atrasado' && <span className="sr-only"> (atrasado)</span>}
+        </span>
       </td>
-      <td className="max-w-[16rem] px-4 py-3 align-top text-slate-600">
+      <td className="max-w-[16rem] px-4 py-3 align-top text-ink-2">
         {/* UMA linha, curta. A coluna renderizava `motivo` MAIS `orientacao` embaixo, em toda
             linha — numa fila de 25 itens isso vira um parágrafo por linha, e o operador para
             de varrer. O texto inteiro continua alcançável no tooltip (só aparece quando
@@ -916,25 +973,25 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
         ) : '—'}
         {/* A FALHA continua linha própria e visível: diagnóstico de envio não é contexto. */}
         {item.tem_falha && (
-          <div className="mt-1 text-xs text-red-500" title={item.falha_motivo || undefined}>
+          <div className="mt-1 text-xs text-red-600" title={item.falha_motivo || undefined}>
             Falha no envio automático{item.falha_motivo ? `: ${item.falha_motivo}` : ''}
           </div>
         )}
       </td>
       <td className="px-4 py-3 align-top">
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600"
+        <span className="rounded-full bg-surface-3 px-2 py-0.5 text-[11px] text-ink-2"
           title="De onde veio esta TAREFA (ligação, mensagem, automação ou manual) — não é a fonte de aquisição do lead.">
           {item.origem_label}
         </span>
         {registrado && (
-          <div className="mt-1 space-y-0.5 text-[11px] text-slate-400">
+          <div className="mt-1 space-y-0.5 text-[11px] text-ink-3">
             <div>{item.responsavel_nome ? `Responsável: ${item.responsavel_nome}` : 'Não atribuído'}</div>
             {item.campanha_nome && <div>{item.campanha_nome}</div>}
             <button onClick={() => onHistorico(item)} className="text-brand hover:underline">Histórico do contato</button>
           </div>
         )}
         {item.ia_status && (
-          <div className="mt-1 text-[11px] text-slate-400">
+          <div className="mt-1 text-[11px] text-ink-3">
             IA: {SITUACAO_LABEL[item.ia_status === 'falhou' ? 'falha' : item.ia_status === 'executado' ? 'concluido' : item.ia_status === 'cancelado' ? 'cancelado' : 'aguardando']}
             {item.ia_data_label ? ` · ${item.ia_data_label}` : ''}
           </div>
@@ -953,13 +1010,13 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
               Registrar/Copiar prompt/Escrever continuam botões comuns: são ações distintas de
               "abrir a conversa", não compactação do mesmo destino. */}
           {item.acao === 'ligar' && (
-            <button onClick={() => onRegistrar(item)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white">Registrar</button>
+            <Botao onClick={() => onRegistrar(item)} variante="primaria" tamanho="sm">Registrar</Botao>
           )}
           {item.acao === 'copiar_prompt_preview' && (
-            <button onClick={() => onCopiarPrompt(item)} className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white">Copiar prompt</button>
+            <Botao onClick={() => onCopiarPrompt(item)} variante="secundaria" tamanho="sm">Copiar prompt</Botao>
           )}
           {item.acao === 'mensagem_manual' && (
-            <button onClick={() => onManual(item)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white">Escrever</button>
+            <Botao onClick={() => onManual(item)} variante="primaria" tamanho="sm">Escrever</Botao>
           )}
           {/* E-mail: a ação PRIMÁRIA da linha fica fora do radial, como "Registrar" e
               "Escrever" — é o trabalho em si, não uma ação secundária compactada. Enviar é o
@@ -968,7 +1025,7 @@ function LinhaFila({ item, naMeta, onAbrirHistorico, onRoteiro, onRegistrar, onC
           {emAberto && item.canal === 'email' && !vencido && (
             <button
               onClick={() => onExecutar(item)}
-              className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white"
+              className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
               title="Abrir o compositor de e-mail deste follow-up"
             >
               Escrever e-mail
