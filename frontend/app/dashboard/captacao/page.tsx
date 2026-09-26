@@ -1,11 +1,14 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
+import { useSession, podePapel } from '@/lib/useSession'
 import { EmailEditavel } from '@/components/EmailEditavel'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import NeonProgress from '@/components/ui/NeonProgress'
 import JsonLeadModal, { ThOrdenavel, type JsonApresentacao } from '@/components/ui/JsonLeadModal'
 import DataTableFrame from '@/components/ui/DataTableFrame'
+import Botao from '@/components/ui/Botao'
+import Card from '@/components/ui/Card'
 import { IconEnvelope, IconPlay } from '@/components/ui/icons'
 import { BolinhaCadastro } from '@/components/LeadDetalhesModal'
 import { aplicarRecorte, gravarFiltros, lerFiltros } from '@/lib/filtros-sessao'
@@ -59,6 +62,20 @@ function valorColunaLead(l: Lead, chave: string): number | string {
 }
 type Orcamento = {
   teto_diario_global: number; consumido_hoje: number; restante_hoje: number; brightdata_configurado: boolean
+}
+type FiscalResumo = {
+  total_cruzamentos: number; encontrados: number; erros: number; creditos_total: number
+  creditos_hoje: number; cnpjs_em_cache: number; recentes: FiscalCruzamento[]
+}
+type FiscalCruzamento = {
+  id: string; empresa_nome?: string | null; nome_informado?: string | null; cnpj_digits?: string | null
+  status: string; fonte: string; confianca: number; custo_creditos: number; erro?: string | null
+  consultado_em: string; resultado?: { cnpj?: FiscalCnpj; matches?: FiscalCnpj[] } | null
+}
+type FiscalCnpj = {
+  cnpj_digits: string; razao_social?: string | null; nome_fantasia?: string | null
+  situacao_cadastral?: string | null; cnae_principal?: string | null; cnae_descricao?: string | null
+  municipio?: string | null; uf?: string | null; fonte?: string | null; atualizado_em?: string | null
 }
 type Funil = { abas: Record<string, number>; por_status: Record<string, number> }
 type Snapshot = {
@@ -122,6 +139,8 @@ function quando(iso: string | null): string {
 }
 
 export default function CaptacaoPage() {
+  const { role } = useSession(false)
+  const superadmin = podePapel(role, 'superadmin')
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
   const base = `/api/empresas/${empresaId}/captacao`
 
@@ -143,6 +162,7 @@ export default function CaptacaoPage() {
   const [carregando, setCarregando] = useState(false)
   const [progresso, setProgresso] = useState<number | null>(null)
   const [emailConfigurado, setEmailConfigurado] = useState(false)
+  const [fiscalAberto, setFiscalAberto] = useState(false)
   // Falso até o recorte guardado ser lido: sem isto a tela buscaria com o filtro padrão e logo
   // depois com o restaurado.
   const [recortePronto, setRecortePronto] = useState(false)
@@ -486,10 +506,21 @@ export default function CaptacaoPage() {
 
       {/* Orçamento */}
       {orcamento && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-4">
           <Mini title="Teto diário" value={orcamento.teto_diario_global} />
           <Mini title="Consumido hoje" value={orcamento.consumido_hoje} />
           <Mini title="Restante hoje" value={orcamento.restante_hoje} />
+          {superadmin && (
+            <button
+              type="button"
+              onClick={() => setFiscalAberto(true)}
+              className="rounded-lg border border-line bg-surface p-3 text-left shadow-card transition hover:border-brand/40 hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              <p className="text-[10px] uppercase tracking-wide text-ink-3">Créditos fiscais</p>
+              <p className="mt-0.5 text-xl font-bold text-ink">CNPJ</p>
+              <p className="mt-1 text-xs text-ink-3">Superadmin</p>
+            </button>
+          )}
         </div>
       )}
 
@@ -716,6 +747,9 @@ export default function CaptacaoPage() {
       {jsonAberto && (
         <JsonLeadModal titulo={`JSON de apresentação — ${jsonAberto.titulo}`} json={jsonAberto.json} onFechar={() => setJsonAberto(null)} />
       )}
+      {superadmin && (
+        <FiscalCreditosDrawer aberto={fiscalAberto} onFechar={() => setFiscalAberto(false)} empresaId={empresaId} />
+      )}
 
       {/* Coletas recentes */}
       {snapshots.length > 0 && (
@@ -742,10 +776,166 @@ export default function CaptacaoPage() {
 
 function Mini({ title, value }: { title: string; value: string | number }) {
   return (
-    <div className="bg-white rounded-xl shadow-sm border p-3">
-      <p className="text-[10px] text-slate-500 uppercase tracking-wide">{title}</p>
-      <p className="text-xl font-bold mt-0.5">{value}</p>
+    <div className="rounded-lg border border-line bg-surface p-3 shadow-card">
+      <p className="text-[10px] uppercase tracking-wide text-ink-3">{title}</p>
+      <p className="mt-0.5 text-xl font-bold text-ink">{value}</p>
     </div>
+  )
+}
+
+function FiscalCreditosDrawer({ aberto, onFechar, empresaId }: { aberto: boolean; onFechar: () => void; empresaId: string }) {
+  const [resumo, setResumo] = useState<FiscalResumo | null>(null)
+  const [itens, setItens] = useState<FiscalCruzamento[]>([])
+  const [form, setForm] = useState({ cnpj: '', nome: '', cidade: '', uf: '' })
+  const [carregando, setCarregando] = useState(false)
+  const [erro, setErro] = useState('')
+  const [msg, setMsg] = useState('')
+
+  const carregar = useCallback(async () => {
+    if (!aberto) return
+    setCarregando(true)
+    setErro('')
+    try {
+      const [r, l] = await Promise.all([
+        apiFetch<FiscalResumo>('/api/admin/fiscal/resumo'),
+        apiFetch<FiscalCruzamento[]>('/api/admin/fiscal/cruzamentos?limit=50'),
+      ])
+      setResumo(r.data)
+      setItens(l.data || [])
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao carregar cruzamentos fiscais.')
+    } finally {
+      setCarregando(false)
+    }
+  }, [aberto])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  async function cruzar() {
+    setCarregando(true)
+    setErro('')
+    setMsg('')
+    try {
+      const body = {
+        empresa_id: empresaId || null,
+        origem: 'credito_drawer',
+        cnpj: form.cnpj,
+        nome: form.nome,
+        cidade: form.cidade,
+        uf: form.uf,
+      }
+      await apiFetch('/api/admin/fiscal/cruzar', { method: 'POST', body: JSON.stringify(body), timeoutMs: 30000 })
+      setMsg('Cruzamento registrado.')
+      await carregar()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao cruzar dados fiscais.')
+      await carregar().catch(() => {})
+    } finally {
+      setCarregando(false)
+    }
+  }
+
+  if (!aberto) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-ink/30" role="dialog" aria-modal="true" aria-label="Créditos e cruzamentos fiscais">
+      <aside className="flex h-full w-full max-w-3xl flex-col overflow-y-auto bg-surface shadow-xl">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-line bg-surface px-5 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-ink">Créditos fiscais</h2>
+            <p className="mt-0.5 text-sm text-ink-3">Cruzamento CNPJ/empresa restrito a superadmin.</p>
+          </div>
+          <Botao variante="neutra" tamanho="sm" onClick={onFechar}>Fechar</Botao>
+        </div>
+
+        <div className="space-y-4 p-5">
+          {resumo && (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Mini title="Consultas hoje" value={resumo.creditos_hoje} />
+              <Mini title="Consultas totais" value={resumo.creditos_total} />
+              <Mini title="CNPJs em cache" value={resumo.cnpjs_em_cache} />
+            </div>
+          )}
+
+          <Card titulo="Novo cruzamento" descricao="CNPJ consulta a fonte configurada; nome cruza apenas contra o cache já conhecido.">
+            <div className="grid gap-3 md:grid-cols-4">
+              <input value={form.cnpj} onChange={(e) => setForm((p) => ({ ...p, cnpj: e.target.value }))}
+                placeholder="CNPJ" className="rounded-lg border border-line px-3 py-2 text-sm" />
+              <input value={form.nome} onChange={(e) => setForm((p) => ({ ...p, nome: e.target.value }))}
+                placeholder="Nome da empresa" className="rounded-lg border border-line px-3 py-2 text-sm md:col-span-2" />
+              <input value={form.uf} onChange={(e) => setForm((p) => ({ ...p, uf: e.target.value.toUpperCase().slice(0, 2) }))}
+                placeholder="UF" className="rounded-lg border border-line px-3 py-2 text-sm" />
+              <input value={form.cidade} onChange={(e) => setForm((p) => ({ ...p, cidade: e.target.value }))}
+                placeholder="Cidade" className="rounded-lg border border-line px-3 py-2 text-sm md:col-span-3" />
+              <Botao variante="primaria" carregando={carregando} onClick={cruzar}>Cruzar dados</Botao>
+            </div>
+            {erro && <p className="mt-3 text-sm text-estado-danger" role="alert">{erro}</p>}
+            {msg && <p className="mt-3 text-sm text-estado-ok">{msg}</p>}
+          </Card>
+
+          <Card titulo="Histórico" semPadding>
+            {itens.length === 0 ? (
+              <p className="p-5 text-sm text-ink-3">Nenhum cruzamento fiscal registrado ainda.</p>
+            ) : (
+              <DataTableFrame maxHeightClassName="max-h-[34rem]" ariaLabel="Rolagem horizontal do histórico fiscal">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead className="bg-surface-2 text-xs text-ink-3">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium">Empresa</th>
+                      <th className="px-3 py-2 text-left font-medium">CNPJ</th>
+                      <th className="px-3 py-2 text-left font-medium">Status</th>
+                      <th className="px-3 py-2 text-left font-medium">Fonte</th>
+                      <th className="px-3 py-2 text-right font-medium">Conf.</th>
+                      <th className="px-3 py-2 text-right font-medium">Créd.</th>
+                      <th className="px-3 py-2 text-left font-medium">Quando</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {itens.map((item) => {
+                      const cnpj = item.resultado?.cnpj || item.resultado?.matches?.[0]
+                      return (
+                        <tr key={item.id} className="border-t border-line align-top hover:bg-surface-2">
+                          <td className="px-3 py-2">
+                            <div className="font-medium text-ink">{cnpj?.razao_social || item.nome_informado || '—'}</div>
+                            <div className="text-xs text-ink-3">{item.empresa_nome || cnpj?.municipio || ''}{cnpj?.uf ? ` · ${cnpj.uf}` : ''}</div>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs">{formatarCnpj(item.cnpj_digits || cnpj?.cnpj_digits || '')}</td>
+                          <td className="px-3 py-2"><FiscalStatus status={item.status} erro={item.erro} /></td>
+                          <td className="px-3 py-2 text-xs text-ink-2">{item.fonte}</td>
+                          <td className="px-3 py-2 text-right font-medium">{item.confianca}%</td>
+                          <td className="px-3 py-2 text-right">{item.custo_creditos}</td>
+                          <td className="px-3 py-2 text-xs text-ink-3">{quando(item.consultado_em)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </DataTableFrame>
+            )}
+          </Card>
+        </div>
+      </aside>
+    </div>
+  )
+}
+
+function formatarCnpj(valor: string) {
+  const s = String(valor || '').replace(/\D/g, '')
+  return s.length === 14 ? `${s.slice(0, 2)}.${s.slice(2, 5)}.${s.slice(5, 8)}/${s.slice(8, 12)}-${s.slice(12)}` : '—'
+}
+
+function FiscalStatus({ status, erro }: { status: string; erro?: string | null }) {
+  const mapa: Record<string, string> = {
+    encontrado: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    possivel: 'border-amber-200 bg-amber-50 text-amber-700',
+    sem_resultado: 'border-line bg-surface-2 text-ink-3',
+    erro: 'border-red-200 bg-red-50 text-red-700',
+    fonte_indisponivel: 'border-amber-200 bg-amber-50 text-amber-700',
+  }
+  return (
+    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${mapa[status] || mapa.sem_resultado}`} title={erro || status}>
+      {status.replace(/_/g, ' ')}
+    </span>
   )
 }
 

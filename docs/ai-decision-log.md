@@ -4663,3 +4663,17 @@ falar da oferta pronta/disponivel correspondente.
 **Decisao 4 — oferta especifica por nicho isola a oferta geral.** Quando uma oferta especifica
 casa com o nicho do lead, o prompt expõe somente aquela oferta como carro-chefe selecionado. A
 oferta geral nao entra como contexto de oferta para evitar mistura de proposta.
+
+## 2026-09-26 — Cruzamento fiscal restrito a plataforma
+
+**Decisao 1 — rota global, nao rota de empresa.** Dados fiscais/cadastrais enriquecidos entram
+por `/api/admin/fiscal`, protegido por `requireRole('superadmin')`. Admin/owner de uma empresa
+nao recebe esse recurso por capacidade de tenant.
+
+**Decisao 2 — cache e historico separados.** O CNPJ normalizado fica em `app.fiscal_cnpj_cache`;
+cada tentativa de cruzamento fica em `app.fiscal_cruzamentos`, com fonte, confianca, custo e
+usuario que consultou. O dado original do lead/prospect nao e sobrescrito.
+
+**Decisao 3 — creditos fiscais nao sao creditos Bright Data.** A tela pode exibir ambos no mesmo
+drawer operacional, mas o ledger de consultas fiscais e separado para nao misturar custo,
+provedor, fonte e limite operacional.

@@ -1388,3 +1388,13 @@ existe e nao deve nascer.
   orientação de prompt, não prefixo programático. Oferta vazia significa ausência de carro-chefe;
   o campo legado `sitePronto` representa "oferta/estrutura pronta" e não pode virar "site pronto"
   quando a oferta selecionada for CRM/sistema/estrutura comercial.
+
+## Cruzamento fiscal CNPJ/SEFAZ para superadmin (2026-09-26)
+
+- Backend: rota global `api-admin-fiscal`, DB `fiscal-cnpj`, service `cnpj-provider`, migration
+  `106_fiscal_cruzamentos.sql`.
+- Front: painel/drawer de consultas fiscais dentro da tela de Captação, visivel somente para
+  `superadmin`; backend continua sendo a barreira real.
+- Regras a preservar: `app.fiscal_cnpj_cache` e `app.fiscal_cruzamentos` nao alteram o cadastro
+  do lead; CNPJ e normalizado para 14 digitos; consulta por nome so cruza contra cache local;
+  provedor externo e substituivel; credito fiscal nao entra no ledger Bright Data.

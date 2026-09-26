@@ -104,6 +104,7 @@ app.use('/api/lead-search', require('./src/routes/api-lead-search-public'))
 // convites vive em /api/empresas/:empresaId/membros/convites (MEMBROS_GERENCIAR).
 app.use('/api/convites', require('./src/routes/api-convites'))
 app.use('/api/admin/lead-search', require('./src/routes/api-admin-lead-search'))
+app.use('/api/admin/fiscal', require('./src/routes/api-admin-fiscal'))
 app.use('/api/admin', require('./src/routes/api-admin-usuarios').router)
 app.use('/api/empresas', require('./src/routes/api-empresas'))
 // Contas da empresa (CRM em equipe, Etapa 2). A autorização vive DENTRO do router

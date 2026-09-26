@@ -165,3 +165,11 @@ e, quando possivel, pela `cidade`/`endereco`. `banco-leads-auto` varre a fila at
 lead elegivel cuja hora local esteja dentro da janela. Se todos os candidatos estiverem fechados,
 o resultado operacional e `fora_janela_local`; se disparar, o log inclui pais, timezone e hora
 local usados na decisao. Sem migration e sem aumento de volume por ciclo.
+
+### 2026-09-26 - Cruzamento fiscal CNPJ/SEFAZ restrito a superadmin
+
+Consultas fiscais/cadastrais de empresa vivem como recurso de plataforma, nao de tenant:
+`/api/admin/fiscal` exige `requireRole('superadmin')`. `app.fiscal_cnpj_cache` guarda o snapshot
+normalizado por CNPJ e `app.fiscal_cruzamentos` guarda cada tentativa de cruzar CNPJ/nome com
+fonte, confianca e custo. O cache nao sobrescreve leads/prospects; telas operacionais apenas
+apresentam o historico para superadmin. Creditos fiscais ficam separados do ledger Bright Data.

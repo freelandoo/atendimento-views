@@ -5836,3 +5836,26 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Cuidados:** mudanca visual focada, sem migration; preservar fluxo oficial de proxima acao;
   nao mover regra sensivel do backend para a tela; manter padrao claro, tokens e componentes
   existentes.
+
+## 2026-09-26 — Cruzamento fiscal CNPJ/SEFAZ restrito a superadmin
+
+- **Pedido:** criar area para cruzar nomes/CNPJ de empresas com base fiscal/cadastral e deixar
+  as informacoes disponiveis apenas para superadmin, separadas no drawer/listagem de creditos.
+- **Areas previstas:** migration em `backend/sql/migrations`, novo acesso a dados em
+  `backend/src/db`, service de normalizacao/consulta CNPJ, rota global `backend/src/routes/api-admin-*`,
+  montagem em `backend/index.js`, painel superadmin no `frontend/app/dashboard/captacao/page.tsx`
+  e testes focados.
+- **Cuidados:** permissao no backend com `requireRole('superadmin')`, nunca so esconder UI;
+  separar creditos fiscais de creditos Bright Data; cache por CNPJ normalizado para nao repetir
+  consulta; sem misturar enriquecimento fiscal no cadastro original do lead; logs/respostas sem
+  segredo de provedor e sem dado fiscal sensivel alem do que o superadmin solicitou.
+
+## 2026-09-26 — Referencias criativas GSAP e Sketchfab para sites/design
+
+- **Pedido:** deixar Codex e Claude cientes de que GSAP e Sketchfab podem ser usados ou
+  solicitados em criacoes de sites, pecas e experiencias criativas que precisem de movimento,
+  3D ou referencias visuais mais ricas.
+- **Areas previstas:** `AGENTS.md`, na secao de padrao visual e fluxo criativo.
+- **Cuidados:** documentacao apenas; nao instalar dependencia nem usar asset externo sem
+  necessidade; pedir link/modelo/licenca ao operador quando o trabalho depender de material
+  3D especifico; preservar performance, mobile e acessibilidade.
