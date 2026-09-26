@@ -18,6 +18,8 @@ type Notificacao = {
   quando: string | null
   destino_url: string
   acao_label: string
+  estado?: 'arquivada' | 'apagada'
+  arquivada_em?: string | null
 }
 
 type Centro = {
@@ -27,8 +29,12 @@ type Centro = {
     criticas: number
     grupos: Record<string, number>
     rotulo: string
+    arquivadas?: number
+    modo?: 'ativas' | 'arquivadas'
   }
 }
+
+type Modo = 'ativas' | 'arquivadas'
 
 const PRIORIDADE_CLASSE: Record<Prioridade, string> = {
   critica: 'border-red-200 bg-red-50 text-red-700',
@@ -63,25 +69,49 @@ export default function CentralNotificacoes() {
   const [dados, setDados] = useState<Centro | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [modo, setModo] = useState<Modo>('ativas')
+  const [processando, setProcessando] = useState<string | null>(null)
+  const [badge, setBadge] = useState({ total: 0, criticas: 0 })
 
   const empresaId = useMemo(() => (typeof window !== 'undefined' ? getEmpresaId() : ''), [])
-  const total = dados?.resumo?.total || 0
-  const criticas = dados?.resumo?.criticas || 0
+  const arquivadas = dados?.resumo?.arquivadas || 0
   const itens = dados?.itens || []
 
   const carregar = useCallback(async () => {
     if (!empresaId) return
     setCarregando(true)
     try {
-      const r = await apiFetch<Centro>(`/api/empresas/${empresaId}/notificacoes`, { timeoutMs: 30000 })
+      const qs = modo === 'arquivadas' ? '?estado=arquivadas' : ''
+      const r = await apiFetch<Centro>(`/api/empresas/${empresaId}/notificacoes${qs}`, { timeoutMs: 30000 })
       setDados(r.data)
+      if (modo === 'ativas') {
+        setBadge({ total: r.data.resumo?.total || 0, criticas: r.data.resumo?.criticas || 0 })
+      }
       setErro(null)
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Nao foi possivel carregar as notificacoes.')
     } finally {
       setCarregando(false)
     }
-  }, [empresaId])
+  }, [empresaId, modo])
+
+  const acaoNotificacao = useCallback(async (item: Notificacao, acao: 'arquivar' | 'restaurar' | 'apagar') => {
+    if (!empresaId || processando) return
+    setProcessando(`${acao}:${item.id}`)
+    try {
+      const id = encodeURIComponent(item.id)
+      if (acao === 'apagar') {
+        await apiFetch(`/api/empresas/${empresaId}/notificacoes/${id}`, { method: 'DELETE' })
+      } else {
+        await apiFetch(`/api/empresas/${empresaId}/notificacoes/${id}/${acao}`, { method: 'POST' })
+      }
+      await carregar()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Nao foi possivel atualizar a notificacao.')
+    } finally {
+      setProcessando(null)
+    }
+  }, [carregar, empresaId, processando])
 
   useEffect(() => {
     carregar()
@@ -92,6 +122,10 @@ export default function CentralNotificacoes() {
   useEffect(() => {
     setAberto(false)
   }, [pathname])
+
+  useEffect(() => {
+    if (aberto) carregar()
+  }, [aberto, carregar])
 
   useEffect(() => {
     if (!aberto) return
@@ -114,16 +148,16 @@ export default function CentralNotificacoes() {
       <button
         type="button"
         onClick={() => setAberto((v) => !v)}
-        aria-label={total ? `Abrir notificacoes: ${dados?.resumo?.rotulo}` : 'Abrir notificacoes'}
+        aria-label={badge.total ? `Abrir notificacoes: ${badge.total} lembretes ativos` : 'Abrir notificacoes'}
         aria-expanded={aberto}
         className={`relative grid h-11 w-11 place-items-center rounded-full border bg-surface text-ink shadow-lg transition hover:-translate-y-0.5 hover:border-brand hover:text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
-          total ? 'animate-float-y border-brand/40' : 'border-line'
+          badge.total ? 'animate-float-y border-brand/40' : 'border-line'
         }`}
       >
         <BellIcon className="h-5 w-5" />
-        {total > 0 && (
-          <span className={`absolute -right-1 -top-1 min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] font-bold text-white ${criticas ? 'bg-estado-danger' : 'bg-brand'}`}>
-            {total > 99 ? '99+' : total}
+        {badge.total > 0 && (
+          <span className={`absolute -right-1 -top-1 min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] font-bold text-white ${badge.criticas ? 'bg-estado-danger' : 'bg-brand'}`}>
+            {badge.total > 99 ? '99+' : badge.total}
           </span>
         )}
       </button>
@@ -145,6 +179,25 @@ export default function CentralNotificacoes() {
             </button>
           </div>
 
+          <div className="flex gap-1 border-b border-line bg-surface px-2 py-2">
+            <button
+              type="button"
+              onClick={() => setModo('ativas')}
+              aria-pressed={modo === 'ativas'}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${modo === 'ativas' ? 'bg-brand text-white' : 'text-ink-2 hover:bg-surface-2'}`}
+            >
+              Ativas
+            </button>
+            <button
+              type="button"
+              onClick={() => setModo('arquivadas')}
+              aria-pressed={modo === 'arquivadas'}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${modo === 'arquivadas' ? 'bg-brand text-white' : 'text-ink-2 hover:bg-surface-2'}`}
+            >
+              Arquivadas{arquivadas ? ` ${arquivadas}` : ''}
+            </button>
+          </div>
+
           <div className="max-h-[70vh] overflow-y-auto p-2">
             {erro && (
               <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -157,16 +210,21 @@ export default function CentralNotificacoes() {
                 <div className="mx-auto grid h-10 w-10 place-items-center rounded-full border border-line bg-surface-2 text-ink-3">
                   <BellIcon className="h-5 w-5" />
                 </div>
-                <p className="mt-3 text-sm font-medium text-ink">Nada urgente agora</p>
-                <p className="mt-1 text-xs text-ink-3">Follow-ups, reuniões e ligações importantes aparecem aqui.</p>
+                <p className="mt-3 text-sm font-medium text-ink">
+                  {modo === 'arquivadas' ? 'Nada arquivado ainda' : 'Nada urgente agora'}
+                </p>
+                <p className="mt-1 text-xs text-ink-3">
+                  {modo === 'arquivadas'
+                    ? 'Notificações arquivadas ficam disponíveis aqui para consulta.'
+                    : 'Follow-ups, reuniões e ligações importantes aparecem aqui.'}
+                </p>
               </div>
             )}
 
             {!erro && itens.map((item) => (
-              <Link
+              <div
                 key={item.id}
-                href={item.destino_url}
-                className="group block rounded-lg border border-transparent px-3 py-3 transition hover:border-line hover:bg-surface-2"
+                className="rounded-lg border border-transparent px-3 py-3 transition hover:border-line hover:bg-surface-2"
               >
                 <div className="flex items-start gap-3">
                   <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${PONTO_CLASSE[item.prioridade]}`} />
@@ -179,12 +237,53 @@ export default function CentralNotificacoes() {
                     </div>
                     <p className="mt-1 text-sm font-semibold text-ink">{item.titulo}</p>
                     {item.descricao && <p className="mt-0.5 text-xs leading-5 text-ink-2">{item.descricao}</p>}
-                    <span className="mt-2 inline-flex text-xs font-semibold text-brand group-hover:text-brand-dark">
-                      {item.acao_label}
-                    </span>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Link href={item.destino_url} className="inline-flex text-xs font-semibold text-brand hover:text-brand-dark">
+                        {item.acao_label}
+                      </Link>
+                      {modo === 'ativas' ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => acaoNotificacao(item, 'arquivar')}
+                            disabled={!!processando}
+                            className="rounded-md px-2 py-1 text-xs font-medium text-ink-3 hover:bg-surface hover:text-ink disabled:opacity-50"
+                          >
+                            Arquivar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => acaoNotificacao(item, 'apagar')}
+                            disabled={!!processando}
+                            className="rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                          >
+                            Apagar
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => acaoNotificacao(item, 'restaurar')}
+                            disabled={!!processando}
+                            className="rounded-md px-2 py-1 text-xs font-medium text-brand hover:bg-blue-50 disabled:opacity-50"
+                          >
+                            Restaurar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => acaoNotificacao(item, 'apagar')}
+                            disabled={!!processando}
+                            className="rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                          >
+                            Apagar
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         </div>

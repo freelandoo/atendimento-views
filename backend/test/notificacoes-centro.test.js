@@ -27,3 +27,27 @@ test('central de notificacoes pluraliza lembrete ativo', () => {
   assert.equal(_internals.plural(1, 'lembrete ativo', 'lembretes ativos'), 'lembrete ativo')
   assert.equal(_internals.plural(2, 'lembrete ativo', 'lembretes ativos'), 'lembretes ativos')
 })
+
+test('central de notificacoes monta rotulo separado para arquivadas', () => {
+  const out = _internals.montarResposta([
+    { id: 'a', grupo: 'Follow-ups', prioridade: 'alta', total: 3 },
+  ], { modo: 'arquivadas', arquivadas: 1 })
+
+  assert.equal(out.resumo.rotulo, '1 notificacao arquivada')
+  assert.equal(out.resumo.total, 3)
+})
+
+test('snapshot de notificacao limita texto e exige id valido', () => {
+  const s = _internals.snapshot({
+    id: 'followups:hoje',
+    titulo: 'T'.repeat(300),
+    descricao: 'D'.repeat(700),
+    total: -5,
+  })
+
+  assert.equal(s.id, 'followups:hoje')
+  assert.equal(s.titulo.length, 220)
+  assert.equal(s.descricao.length, 500)
+  assert.equal(s.total, 0)
+  assert.throws(() => _internals.snapshot({ id: '' }), /notificacao_id invalido/)
+})

@@ -4,8 +4,10 @@ const { CAPACIDADES: CAP, podeCapacidade } = require('./acesso-capacidades')
 
 const TIMEZONE = 'America/Sao_Paulo'
 const LIMITE_ITENS = 8
+const LIMITE_ARQUIVADAS = 30
 
 const PESO_PRIORIDADE = Object.freeze({ critica: 0, alta: 1, media: 2, baixa: 3 })
+const ESTADOS_OCULTOS = new Set(['arquivada', 'apagada'])
 
 function vinculoReq(req = {}) {
   return {
@@ -31,6 +33,30 @@ function iso(d) {
   return d instanceof Date ? d.toISOString() : (d || null)
 }
 
+function usuarioId(req = {}) {
+  return req.usuario?.id || null
+}
+
+function usuarioIdObrigatorio(req = {}) {
+  const id = usuarioId(req)
+  if (!id) {
+    const err = new Error('Usuario autenticado e obrigatorio.')
+    err.statusCode = 401
+    throw err
+  }
+  return id
+}
+
+function validarNotificacaoId(id) {
+  const v = String(id || '').trim()
+  if (!v || v.length > 160 || /[\r\n\t]/.test(v)) {
+    const err = new Error('notificacao_id invalido.')
+    err.statusCode = 400
+    throw err
+  }
+  return v
+}
+
 function addItem(itens, item) {
   if (!item || !item.total) return
   itens.push({
@@ -45,6 +71,122 @@ function addItem(itens, item) {
     destino_url: item.destino_url,
     acao_label: item.acao_label || 'Abrir',
   })
+}
+
+function itemDeLinhaArquivada(row) {
+  return {
+    id: row.notificacao_id,
+    tipo: row.tipo || 'notificacao',
+    grupo: row.grupo || 'Notificacoes',
+    prioridade: row.prioridade || 'baixa',
+    titulo: row.titulo,
+    descricao: row.descricao || null,
+    total: numero(row.total),
+    quando: iso(row.quando || row.atualizado_em),
+    destino_url: row.destino_url || '#',
+    acao_label: row.acao_label || 'Abrir',
+    estado: row.estado,
+    arquivada_em: iso(row.atualizado_em),
+  }
+}
+
+function snapshot(item, fallbackId) {
+  const id = validarNotificacaoId(item?.id || item?.notificacao_id || fallbackId)
+  return {
+    id,
+    tipo: String(item?.tipo || 'notificacao').slice(0, 80),
+    grupo: String(item?.grupo || 'Notificacoes').slice(0, 80),
+    prioridade: item?.prioridade || 'baixa',
+    titulo: String(item?.titulo || 'Notificacao').slice(0, 220),
+    descricao: item?.descricao ? String(item.descricao).slice(0, 500) : null,
+    total: Math.max(0, numero(item?.total)),
+    quando: item?.quando || null,
+    destino_url: item?.destino_url || null,
+    acao_label: item?.acao_label || null,
+  }
+}
+
+async function coletarAtuais(pool, req) {
+  const partes = await Promise.all([
+    coletarFollowUps(pool, req),
+    coletarAgenda(pool, req),
+    coletarLigacoes(pool, req),
+    coletarInstancias(pool, req),
+  ])
+  return ordenarItens(partes.flat())
+}
+
+async function estadosPorId(pool, req, ids = []) {
+  const userId = usuarioId(req)
+  const limpos = [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))]
+  if (!userId || limpos.length === 0) return new Map()
+  const { rows } = await pool.query(
+    `SELECT notificacao_id, estado
+       FROM app.notificacao_centro_estado
+      WHERE empresa_id = $1
+        AND usuario_id = $2
+        AND notificacao_id = ANY($3::text[])`,
+    [req.empresa.id, userId, limpos]
+  )
+  return new Map(rows.map((r) => [r.notificacao_id, r.estado]))
+}
+
+async function contarArquivadas(pool, req) {
+  const userId = usuarioId(req)
+  if (!userId) return 0
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS total
+       FROM app.notificacao_centro_estado
+      WHERE empresa_id = $1
+        AND usuario_id = $2
+        AND estado = 'arquivada'`,
+    [req.empresa.id, userId]
+  )
+  return numero(rows[0]?.total)
+}
+
+async function listarArquivadas(pool, req) {
+  const userId = usuarioIdObrigatorio(req)
+  const { rows } = await pool.query(
+    `SELECT notificacao_id, estado, tipo, grupo, prioridade, titulo, descricao, total,
+            quando, destino_url, acao_label, atualizado_em,
+            COUNT(*) OVER()::int AS total_arquivadas
+       FROM app.notificacao_centro_estado
+      WHERE empresa_id = $1
+        AND usuario_id = $2
+        AND estado = 'arquivada'
+      ORDER BY atualizado_em DESC
+      LIMIT $3`,
+    [req.empresa.id, userId, LIMITE_ARQUIVADAS]
+  )
+  const itens = rows.map(itemDeLinhaArquivada)
+  return montarResposta(itens, { arquivadas: numero(rows[0]?.total_arquivadas), modo: 'arquivadas' })
+}
+
+function montarResposta(itens, extra = {}) {
+  const total = itens.reduce((s, item) => s + item.total, 0)
+  const criticas = itens.filter((item) => item.prioridade === 'critica').reduce((s, item) => s + item.total, 0)
+  const arquivadas = Number(extra.arquivadas) || 0
+  const rotulo = extra.modo === 'arquivadas'
+    ? (arquivadas === 1 ? '1 notificacao arquivada' : `${arquivadas} notificacoes arquivadas`)
+    : (total
+        ? `${total} ${plural(total, 'lembrete ativo', 'lembretes ativos')}`
+        : 'Sem lembretes ativos')
+  return {
+    itens,
+    resumo: {
+      total,
+      criticas,
+      grupos: Object.fromEntries(
+        Object.entries(itens.reduce((acc, item) => {
+          acc[item.grupo] = (acc[item.grupo] || 0) + item.total
+          return acc
+        }, {})).sort(([a], [b]) => a.localeCompare(b, 'pt-BR'))
+      ),
+      rotulo,
+      ...extra,
+    },
+  }
 }
 
 function filtroUsuarioFollowUp(req, params) {
@@ -121,7 +263,7 @@ async function coletarFollowUps(pool, req) {
     descricao: 'Resolva, reagende ou cancele os retornos vencidos.',
     total: vencidos,
     quando: r.vencido_mais_antigo,
-    destino_url: '/dashboard/follow-ups',
+    destino_url: '/dashboard/follow-ups?rapido=vencidos',
     acao_label: 'Abrir Follow-ups',
   })
   const ligacoes = numero(r.ligacoes_vencidas)
@@ -134,7 +276,7 @@ async function coletarFollowUps(pool, req) {
     descricao: 'Leads cujo próximo passo é ligação agora.',
     total: ligacoes,
     quando: r.proximo_hoje || r.vencido_mais_antigo || r.atualizado_em,
-    destino_url: '/dashboard/follow-ups',
+    destino_url: '/dashboard/follow-ups?rapido=ligacao',
     acao_label: 'Abrir fila',
   })
   const hoje = numero(r.hoje)
@@ -147,7 +289,7 @@ async function coletarFollowUps(pool, req) {
     descricao: 'Retornos ainda dentro do prazo de hoje.',
     total: hoje,
     quando: r.proximo_hoje,
-    destino_url: '/dashboard/follow-ups',
+    destino_url: '/dashboard/follow-ups?rapido=hoje',
     acao_label: 'Ver hoje',
   })
   return itens
@@ -295,39 +437,92 @@ function ordenarItens(itens) {
   })
 }
 
-async function listarNotificacoes(pool, req) {
-  const partes = await Promise.all([
-    coletarFollowUps(pool, req),
-    coletarAgenda(pool, req),
-    coletarLigacoes(pool, req),
-    coletarInstancias(pool, req),
-  ])
-  const itens = ordenarItens(partes.flat()).slice(0, LIMITE_ITENS)
-  const total = itens.reduce((s, item) => s + item.total, 0)
-  const criticas = itens.filter((item) => item.prioridade === 'critica').reduce((s, item) => s + item.total, 0)
-  return {
-    itens,
-    resumo: {
-      total,
-      criticas,
-      grupos: Object.fromEntries(
-        Object.entries(itens.reduce((acc, item) => {
-          acc[item.grupo] = (acc[item.grupo] || 0) + item.total
-          return acc
-        }, {})).sort(([a], [b]) => a.localeCompare(b, 'pt-BR'))
-      ),
-      rotulo: total
-        ? `${total} ${plural(total, 'lembrete ativo', 'lembretes ativos')}`
-        : 'Sem lembretes ativos',
-    },
+async function listarNotificacoes(pool, req, opts = {}) {
+  if (opts.estado === 'arquivadas') return listarArquivadas(pool, req)
+  const atuais = await coletarAtuais(pool, req)
+  const estados = await estadosPorId(pool, req, atuais.map((item) => item.id))
+  const itens = atuais
+    .filter((item) => !ESTADOS_OCULTOS.has(estados.get(item.id)))
+    .slice(0, LIMITE_ITENS)
+  return montarResposta(itens, {
+    arquivadas: await contarArquivadas(pool, req),
+    modo: 'ativas',
+  })
+}
+
+async function definirEstadoNotificacao(pool, req, notificacaoId, estado) {
+  if (!ESTADOS_OCULTOS.has(estado)) {
+    const err = new Error('estado invalido.')
+    err.statusCode = 400
+    throw err
   }
+  const id = validarNotificacaoId(notificacaoId)
+  const userId = usuarioIdObrigatorio(req)
+  const atuais = await coletarAtuais(pool, req)
+  const itemAtual = atuais.find((item) => item.id === id)
+  let item = itemAtual
+  if (!item) {
+    const { rows } = await pool.query(
+      `SELECT notificacao_id, estado, tipo, grupo, prioridade, titulo, descricao, total,
+              quando, destino_url, acao_label, atualizado_em
+         FROM app.notificacao_centro_estado
+        WHERE empresa_id = $1
+          AND usuario_id = $2
+          AND notificacao_id = $3`,
+      [req.empresa.id, userId, id]
+    )
+    item = rows[0] ? itemDeLinhaArquivada(rows[0]) : null
+  }
+  const s = snapshot(item, id)
+  const { rows } = await pool.query(
+    `INSERT INTO app.notificacao_centro_estado
+       (empresa_id, usuario_id, notificacao_id, estado, tipo, grupo, prioridade, titulo,
+        descricao, total, quando, destino_url, acao_label)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamptz, $12, $13)
+     ON CONFLICT (empresa_id, usuario_id, notificacao_id)
+     DO UPDATE SET estado = EXCLUDED.estado,
+                   tipo = EXCLUDED.tipo,
+                   grupo = EXCLUDED.grupo,
+                   prioridade = EXCLUDED.prioridade,
+                   titulo = EXCLUDED.titulo,
+                   descricao = EXCLUDED.descricao,
+                   total = EXCLUDED.total,
+                   quando = EXCLUDED.quando,
+                   destino_url = EXCLUDED.destino_url,
+                   acao_label = EXCLUDED.acao_label,
+                   atualizado_em = NOW()
+     RETURNING notificacao_id, estado, tipo, grupo, prioridade, titulo, descricao, total,
+               quando, destino_url, acao_label, atualizado_em`,
+    [
+      req.empresa.id, userId, s.id, estado, s.tipo, s.grupo, s.prioridade, s.titulo,
+      s.descricao, s.total, s.quando, s.destino_url, s.acao_label,
+    ]
+  )
+  return itemDeLinhaArquivada(rows[0])
+}
+
+async function restaurarNotificacao(pool, req, notificacaoId) {
+  const id = validarNotificacaoId(notificacaoId)
+  const userId = usuarioIdObrigatorio(req)
+  await pool.query(
+    `DELETE FROM app.notificacao_centro_estado
+      WHERE empresa_id = $1
+        AND usuario_id = $2
+        AND notificacao_id = $3`,
+    [req.empresa.id, userId, id]
+  )
+  return { id, restaurada: true }
 }
 
 module.exports = {
   listarNotificacoes,
+  definirEstadoNotificacao,
+  restaurarNotificacao,
   _internals: {
     addItem,
+    montarResposta,
     ordenarItens,
     plural,
+    snapshot,
   },
 }

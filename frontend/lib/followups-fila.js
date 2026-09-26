@@ -504,6 +504,7 @@ const FILTROS_RAPIDOS = Object.freeze([
   { valor: 'todos', label: 'Todos', descricao: 'Tudo em aberto: próxima ação registrada, ação humana recomendada ou envio automático agendado.' },
   { valor: 'aguardando', label: 'Aguardando', descricao: 'Compromisso com prazo futuro ou envio automático agendado — nada a fazer agora.' },
   { valor: 'hoje', label: 'Próxima ação hoje', descricao: 'Prazo vencido, agora ou ainda hoje.' },
+  { valor: 'vencidos', label: 'Vencidos', descricao: 'Follow-ups em aberto cujo prazo já passou.' },
   { valor: 'whatsapp', label: 'WhatsApp', descricao: 'Próxima ação executada na Central de Mensagens.' },
   { valor: 'ligacao', label: 'Ligação', descricao: 'Próxima ação executada na Central de Ligações.' },
   { valor: 'email', label: 'E-mail', descricao: 'Próxima ação executada aqui mesmo, pelo compositor de e-mail.' },
@@ -517,6 +518,7 @@ const PREDICADO_RAPIDO = Object.freeze({
   todos: (i) => emAberto(i),
   aguardando: (i) => i.situacao === SITUACOES.AGUARDANDO,
   hoje: (i) => emAberto(i) && PRAZO_ABERTO.includes(i.prazo_quando),
+  vencidos: (i) => emAberto(i) && i.prazo_quando === 'atrasado',
   // Canal so' existe onde alguem escolheu um: item derivado (recomendacao heuristica ou
   // agendamento do motor) NAO entra nestes dois filtros, em vez de receber canal presumido.
   whatsapp: (i) => emAberto(i) && i.canal === 'whatsapp',

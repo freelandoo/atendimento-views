@@ -2,7 +2,7 @@ export type SituacaoFila = 'aberto' | 'aguardando' | 'falha' | 'concluido' | 'ca
 export type PrioridadeFila = 'alta' | 'media' | 'baixa'
 export type PrazoQuando = 'agora' | 'atrasado' | 'hoje' | 'futuro' | 'passado'
 export type FiltroRapido =
-  | 'todos' | 'aguardando' | 'hoje'
+  | 'todos' | 'aguardando' | 'hoje' | 'vencidos'
   | 'whatsapp' | 'ligacao' | 'email'
   | 'humano' | 'ia' | 'falhas' | 'concluidos'
 

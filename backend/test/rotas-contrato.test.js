@@ -5,7 +5,7 @@ const path = require('node:path')
 
 // ─── CONTRATO DA SUPERFICIE HTTP ─────────────────────────────────────────────────────────
 //
-// Congela as 434 rotas MONTADAS do processo: metodo + caminho completo, ja com o prefixo de
+// Congela as 437 rotas MONTADAS do processo: metodo + caminho completo, ja com o prefixo de
 // montagem e com os parametros (`/api/empresas/:empresaId/...`).
 //
 // Por que agora: 82 dos endpoints nao vivem em `src/routes/` — estao dentro de `agent.js`

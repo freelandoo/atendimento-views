@@ -163,6 +163,8 @@ test('"Proxima acao hoje" cobre vencido, agora e ainda hoje — e ignora o futur
   })
   const hoje = aplicarFiltroRapido(itens, 'hoje').map((i) => i.numero).sort()
   assert.deepEqual(hoje, ['agora', 'atrasado', 'hoje'])
+  const vencidos = aplicarFiltroRapido(itens, 'vencidos').map((i) => i.numero)
+  assert.deepEqual(vencidos, ['atrasado'])
 })
 
 test('follow-up ja enviado no passado nao vira "atrasado"', () => {

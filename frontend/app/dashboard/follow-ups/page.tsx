@@ -31,6 +31,7 @@
 // `app.followup_config.modo` na empresa — clicar num filtro não pode escrever configuração.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
 import { useSession } from '@/lib/useSession'
@@ -155,6 +156,8 @@ const CHAVE_VIEW = 'followupsFila'
 
 export default function FollowUpsPage() {
   const fb = useFeedback()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const empresaId = getEmpresaId()
   const base = `/api/empresas/${empresaId}/follow-ups`
 
@@ -267,6 +270,16 @@ export default function FollowUpsPage() {
       if (p.view) setView({ ...VIEW_PADRAO, ...p.view })
     } catch { /* ignore */ }
   }, [])
+  useEffect(() => {
+    const filtroUrl = searchParams.get('rapido')
+    if (!filtroUrl) return
+    setRapido(filtroRapidoValido(filtroUrl))
+    setPagina(1)
+    const qs = new URLSearchParams(searchParams.toString())
+    qs.delete('rapido')
+    const resto = qs.toString()
+    router.replace(resto ? `/dashboard/follow-ups?${resto}` : '/dashboard/follow-ups', { scroll: false })
+  }, [router, searchParams])
   useEffect(() => {
     try { localStorage.setItem(CHAVE_VIEW, JSON.stringify({ rapido, view })) } catch { /* ignore */ }
   }, [rapido, view])
