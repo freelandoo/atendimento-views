@@ -17,7 +17,7 @@ import RotinasAquisicao, { type ModoAquisicao, type RotinasResp } from '@/compon
 import { celulaOrigem, OPCOES_FILTRO_ORIGEM, rotuloFiltroOrigem } from '@/lib/lead-origem'
 import HistoricoColetas from '@/components/HistoricoColetas'
 import Abas, { PainelAba, type Aba } from '@/components/ui/Abas'
-import { IconCheck, IconGear, IconTrash, IconUndo } from '@/components/ui/icons'
+import { IconCheck, IconGear, IconTrash, IconUndo, IconMapPin } from '@/components/ui/icons'
 import Botao from '@/components/ui/Botao'
 import Campo from '@/components/ui/Campo'
 import { resumoIntervalo, POR_PAGINA_PADRAO } from '@/lib/paginacao'
@@ -27,7 +27,7 @@ import {
 } from '@/lib/prospeccao-listagem'
 import { qualificacaoDoLead, resumoIcpOperacional, seloIcp, seloValidacaoLead } from '@/lib/lead-icp'
 import { leituraCadastro } from '@/lib/pontuacao-indicador'
-import { acessosDoLead, normalizarLink, telefoneWhatsapp, type AcessoRapido } from '@/lib/lead-acessos'
+import { acessosDoLead, mapaDoLead, normalizarLink, telefoneWhatsapp, type AcessoRapido } from '@/lib/lead-acessos'
 import { secaoDoGatilho, type SecaoFicha } from '@/lib/ficha-lead'
 import { nomePais } from '@/lib/paises'
 
@@ -1199,6 +1199,7 @@ export default function ProspeccaoPainel({
         <tbody>
           {pg.itens.map((p) => {
             const icpLinha = resumoIcpCadastroLinha(p)
+            const mapa = mapaDoLead(p)
             return (
             <tr key={p.id} className="border-t hover:bg-gray-50">
               <td className="px-3 py-2">
@@ -1212,12 +1213,27 @@ export default function ProspeccaoPainel({
               </td>
               {cols.entrou !== false && <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-500">{quando(p.created_at)}</td>}
               <td className="px-3 py-2 font-medium">
-                <TextoTruncado
-                  texto={p.nome}
-                  onClick={() => abrirFicha(p, 'nome')}
-                  dica="Abrir a ficha deste lead"
-                  className="max-w-[220px] text-brand hover:underline"
-                />
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <TextoTruncado
+                    texto={p.nome}
+                    onClick={() => abrirFicha(p, 'nome')}
+                    dica="Abrir a ficha deste lead"
+                    className="max-w-[220px] text-brand hover:underline"
+                  />
+                  {mapa && (
+                    <a
+                      href={mapa.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-line bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-ink-3 hover:border-brand/40 hover:text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                      title={mapa.dica}
+                      aria-label={`${mapa.dica} de ${p.nome || 'lead'}`}
+                    >
+                      <IconMapPin className="h-3 w-3" />
+                      Maps
+                    </a>
+                  )}
+                </div>
                 {metaAds && p.anuncio_meta_page_id && (
                   <span className="mt-0.5 block font-mono text-[10px] text-slate-400">page {p.anuncio_meta_page_id}</span>
                 )}

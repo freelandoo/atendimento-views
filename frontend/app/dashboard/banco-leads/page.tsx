@@ -29,7 +29,7 @@ import { nomePais } from '@/lib/paises'
 // A ORIGEM do lead chega pronta do backend (`prospects.origem`, vocabulario travado em
 // services/lead-origem.js). Este modulo so TRADUZ — a tela nao deduz procedencia.
 import { celulaOrigem, OPCOES_FILTRO_ORIGEM, rotuloFiltroOrigem } from '@/lib/lead-origem'
-import { acessosDoLead, telefoneWhatsapp, type AcessoRapido } from '@/lib/lead-acessos'
+import { acessosDoLead, mapaDoLead, telefoneWhatsapp, type AcessoRapido } from '@/lib/lead-acessos'
 import { ordemIcp, prioridadeComercialLead, qualificacaoDoLead, resumoIcpDoLead, resumoIcpOperacional, seloIcp, seloValidacaoLead } from '@/lib/lead-icp'
 import { leituraCadastro } from '@/lib/pontuacao-indicador'
 import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
@@ -53,7 +53,7 @@ import {
   cartoesDeFunil, leadPermaneceNaAbaBanco, itensMaisAcoes, validarExportacao, escopoDaSelecao, faixaDeEnvio,
   COLUNAS_CSV, COLUNAS_CSV_PADRAO, LIMPEZA,
 } from '@/lib/banco-leads-painel'
-import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconAlert, IconChevron, IconCheck } from '@/components/ui/icons'
+import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconAlert, IconChevron, IconCheck, IconMapPin } from '@/components/ui/icons'
 import type { PayloadProximaAcao } from '@/lib/follow-up-acao'
 // O que já foi COMBINADO com o lead (follow-up, agenda, última ligação). A ordem e a situação do
 // prazo vêm do backend; o módulo só escreve.
@@ -3570,19 +3570,57 @@ function NomeLeadCelula({ l, onAbrirFicha, largura = 'max-w-[220px]', className 
   /** Layout do chamador (coluna congelada). Aditivo. */
   className?: string
 }) {
+  const mapa = mapaDoLead(l)
   return (
     <td className={`px-3 py-2 font-medium ${className}`}>
       <div className="flex min-w-0 flex-col gap-1">
         {/* O NOME abre o RESUMO da ficha — a leitura que decide se vale trabalhar agora.
             A conversa continua a um clique: é a segunda aba, e o botão de ação da linha
             (Enviar / Responder / Revisar) abre direto nela. */}
-        <TextoTruncado
-          texto={l.nome}
-          onClick={() => onAbrirFicha(l, 'nome')}
-          dica="Abrir a ficha deste lead"
-          className={`${largura} text-brand hover:underline`}
-        />
+        <div className="flex min-w-0 items-center gap-1.5">
+          <TextoTruncado
+            texto={l.nome}
+            onClick={() => onAbrirFicha(l, 'nome')}
+            dica="Abrir a ficha deste lead"
+            className={`${largura} text-brand hover:underline`}
+          />
+          {mapa && (
+            <a
+              href={mapa.href}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-line bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-ink-3 hover:border-brand/40 hover:text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              title={mapa.dica}
+              aria-label={`${mapa.dica} de ${l.nome || 'lead'}`}
+            >
+              <IconMapPin className="h-3 w-3" />
+              Maps
+            </a>
+          )}
+        </div>
       </div>
+    </td>
+  )
+}
+
+function EnderecoCelula({ l }: { l: Lead }) {
+  const mapa = mapaDoLead(l)
+  return (
+    <td className="px-3 py-2 text-xs text-ink-2">
+      {mapa ? (
+        <a
+          href={mapa.href}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-2 py-1 font-medium text-ink-2 hover:border-brand/40 hover:text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          title={l.endereco || mapa.dica}
+        >
+          <IconMapPin className="h-3.5 w-3.5" />
+          Abrir mapa
+        </a>
+      ) : (
+        <span className="text-ink-3">—</span>
+      )}
     </td>
   )
 }
@@ -3937,7 +3975,7 @@ function TabelaBanco({ leads, total, ordem, onOrdenar, mostrarRodar, cols, previ
                     </td>
                   )}
                   {cols.seguidores && <td className="px-3 py-2 text-right text-xs font-semibold">{l.seguidores != null ? l.seguidores.toLocaleString('pt-BR') : '—'}</td>}
-                  {cols.endereco && <td className="px-3 py-2 text-xs text-ink-2 max-w-[180px] truncate" title={l.endereco || ''}>{l.endereco || '—'}</td>}
+                  {cols.endereco && <EnderecoCelula l={l} />}
                   {cols.aval && <td className="px-3 py-2 text-right text-xs">{l.avaliacoes ?? '—'}</td>}
                   {cols.nota && <td className="px-3 py-2 text-right text-xs">{l.rating != null ? Number(l.rating).toFixed(1) : '—'}</td>}
                   {/* Horário só existe na ficha do Maps. Em lead de outra fonte a resposta é

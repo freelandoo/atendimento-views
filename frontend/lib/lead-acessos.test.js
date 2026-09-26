@@ -5,7 +5,7 @@ const assert = require('node:assert')
 const fs = require('node:fs')
 const path = require('node:path')
 
-const { TIPO_ACESSO, normalizarLink, marcaDoLink, rotuloGenerico, telefoneWhatsapp, acessosDoLead } = require('./lead-acessos')
+const { TIPO_ACESSO, normalizarLink, marcaDoLink, rotuloGenerico, telefoneWhatsapp, mapaDoLead, acessosDoLead } = require('./lead-acessos')
 
 test('normalizarLink aceita URL sem esquema e derruba o que nao e navegavel', () => {
   assert.equal(normalizarLink('instagram.com/loja').host, 'instagram.com')
@@ -69,6 +69,18 @@ test('ordem e deduplicacao: whatsapp, rede social, site, maps — sem href repet
     maps_url: 'https://maps.google.com/?cid=1',
   })
   assert.deepEqual(r.map((a) => a.tipo), [TIPO_ACESSO.WHATSAPP, TIPO_ACESSO.INSTAGRAM, TIPO_ACESSO.SITE, TIPO_ACESSO.MAPS])
+})
+
+test('mapaDoLead usa ficha do Maps e cai para busca por endereco quando preciso', () => {
+  const direto = mapaDoLead({ maps_url: 'https://maps.google.com/?cid=1', endereco: 'Rua A' })
+  assert.equal(direto.href, 'https://maps.google.com/?cid=1')
+  assert.equal(direto.dica, 'Ver a ficha no Google Maps')
+
+  const busca = mapaDoLead({ nome: 'Padaria Azul', endereco: 'Rua A, 123', cidade: 'Santo Andre', pais: 'BR' })
+  assert.equal(busca.tipo, TIPO_ACESSO.MAPS)
+  assert.match(busca.href, /^https:\/\/www\.google\.com\/maps\/search\/\?api=1&query=/)
+  assert.match(decodeURIComponent(busca.href), /Rua A, 123, Padaria Azul, Santo Andre, BR/)
+  assert.equal(mapaDoLead({}), null)
 })
 
 test('lead sem link nenhum devolve lista vazia', () => {

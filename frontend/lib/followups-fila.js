@@ -130,6 +130,7 @@ const RELEVANCIA_STATUS_IA = Object.freeze({ agendado: 3, falhou: 2, executado: 
 const PRAZO_ABERTO = Object.freeze(['agora', 'atrasado', 'hoje'])
 
 const PESO_SITUACAO = Object.freeze({ aberto: 0, aguardando: 0, falha: 1, concluido: 2, cancelado: 3 })
+const PESO_PRAZO = Object.freeze({ atrasado: 0, agora: 0, hoje: 1, futuro: 2, passado: 4 })
 
 function dataValida(iso) {
   if (!iso) return null
@@ -482,17 +483,26 @@ function emAberto(item) {
 
 function ordenarFila(itens) {
   return [...itens].sort((a, b) => {
+    const atencao = pesoAtencao(a) - pesoAtencao(b)
+    if (atencao !== 0) return atencao
     const data = timestamp(b.ordenacao_em || b.prazo || b.ia_data) - timestamp(a.ordenacao_em || a.prazo || a.ia_data)
     if (data !== 0) return data
-    // Só depois da regra "mais novo primeiro" vem a separação operacional básica: em aberto
-    // antes de histórico. O pedido atual é explícito: a fila deve ficar sempre pelos follow-ups
-    // mais novos; status não pode empurrar um follow-up antigo para cima de um novo.
+    // Depois de prazo/atencao e recencia vem a separacao operacional basica: em aberto antes
+    // de historico. Isto so desempata itens equivalentes, sem esconder vencidos no meio da fila.
     const s = (PESO_SITUACAO[a.situacao] ?? 9) - (PESO_SITUACAO[b.situacao] ?? 9)
     if (s !== 0) return s
     // Desempate pelo rotulo VISIVEL (nome, ou telefone formatado): ordenar por um `nome`
     // que a tela nao mostra produziria uma ordem que o operador nao consegue explicar.
     return String(rotuloLead(a)).localeCompare(String(rotuloLead(b)), 'pt-BR')
   })
+}
+
+function pesoAtencao(item) {
+  if (!item) return 9
+  if (item.tem_falha === true || item.situacao === SITUACOES.FALHA) return 0
+  if (!emAberto(item)) return 5
+  if (Object.prototype.hasOwnProperty.call(PESO_PRAZO, item.prazo_quando)) return PESO_PRAZO[item.prazo_quando]
+  return 3
 }
 
 /**

@@ -8,8 +8,12 @@ export type AcessoRapido = {
 }
 
 export type LeadComLinks = {
+  nome?: string | null
   telefone?: string | null
   instagram_handle?: string | null
+  endereco?: string | null
+  cidade?: string | null
+  pais?: string | null
   site?: string | null
   tem_site?: boolean | null
   link_bio?: string | null
@@ -25,4 +29,5 @@ export declare function normalizarLink(bruta: unknown): { href: string; host: st
 export declare function marcaDoLink(bruta: unknown): TipoAcesso | null
 export declare function rotuloGenerico(classificacaoUrl: string | null | undefined): string
 export declare function telefoneWhatsapp(telefone: unknown): string | null
+export declare function mapaDoLead(lead: LeadComLinks | null | undefined): AcessoRapido | null
 export declare function acessosDoLead(lead: LeadComLinks | null | undefined): AcessoRapido[]

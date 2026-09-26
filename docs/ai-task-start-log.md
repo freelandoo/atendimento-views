@@ -6,6 +6,22 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-25 — Follow-up direto na ficha do lead
+
+- **Pedido do operador:** adicionar uma opção de Follow-up no status/ações da ficha do lead para agendar o retorno da conversa sem precisar registrar ligação antes.
+- **Workflow:** Fase 0 registrada antes da implementação; seguir `docs/ai-workflow.md`, `docs/ui-visual-standard.md` e `docs/project-architecture.md`.
+- **Áreas prováveis:** `frontend/components/ConversaHistoricoModal.tsx`, `frontend/app/dashboard/banco-leads/page.tsx`, `backend/src/routes/api-banco-leads.js` e testes de guarda do fluxo comercial.
+- **Regras a preservar:** usar a entidade oficial `app.follow_ups` e o vocabulário `follow-up-acao`; não criar agenda paralela nem automação de aviso geral nesta etapa.
+- **Validações previstas:** `cd backend && node --test test/isolamento-comercial.test.js`, `cd frontend && npx tsc --noEmit`, `cd frontend && node --test lib/*.test.js` e `git diff --check`.
+
+## 2026-09-25 — Instâncias WhatsApp com contexto/responsável predefinidos e grupos por dono/equipe
+
+- **Pedido do operador:** na tela de instâncias, parar de exigir seleção manual para contexto/responsável; mostrar o contexto da empresa e o responsável da instância como informação já resolvida, e separar instâncias primárias do dono/empresa das instâncias da equipe, com estado ativo/conectado fácil de ler.
+- **Workflow:** Fase 0 registrada antes da implementação; seguir `docs/ai-workflow.md`, `docs/ui-visual-standard.md` e `docs/project-architecture.md`.
+- **Áreas prováveis:** `frontend/components/InstanciasWhatsApp.tsx`; sem migration e sem alteração do resolvedor de envio/webhook.
+- **Regras a preservar:** `usuario_id NULL` continua sendo instância da empresa/compartilhada; instância de envio continua resolvida por empresa + instância provada, nunca por usuário; contexto padrão continua aplicado/copiadо na criação, sem fallback em tempo de resposta.
+- **Validações previstas:** `cd frontend && npx tsc --noEmit`, testes focados de instância no backend se necessário, e `git diff --check`.
+
 ## 2026-09-25 — Carteira no Planejar meu dia com filtros de categoria/nicho/país
 
 - **Pedido do operador:** ajustar a carteira dentro do Quadro do Dia / Planejar meu dia para funcionar melhor como seleção da agenda do dia, com busca e separadores fáceis por categoria, nicho, país e localização.
@@ -5770,3 +5786,53 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Cuidados:** manter o JSON existente sem migration; tratar `sitePronto` como legado de
   "oferta/estrutura pronta" sem prometer especificamente site; oferta por nicho nao pode misturar
   contexto da oferta geral; mudanca visual limitada a microcopy/labels do modal.
+
+## 2026-09-25 — Plano de arquitetura modular do Atendimento Views
+
+- **Pedido:** documentar e reanalisar, ainda sem implementar, como melhorar a arquitetura do
+  produto considerando separacao entre interface, codigo, APIs, endpoints, banco, workers e
+  integracoes.
+- **Areas previstas:** documentacao em `docs/propostas/`, `docs/project-map.md`,
+  `docs/architecture-rules.md`, `backend/index.js`, `backend/src/routes.js`,
+  `backend/src/routes/api-banco-leads.js`, modulos grandes em `backend/src/agent.js`,
+  `backend/src/prospecting.js`, `backend/src/agenda.js` e telas grandes do `frontend/`.
+- **Cuidados:** analise/documentacao apenas; nao alterar codigo, banco, endpoints nem UI;
+  preservar as mudancas locais existentes; separar recomendacao arquitetural de autorizacao
+  para implementacao; manter legado cercado e produto atual multiempresa como fronteiras fixas.
+
+## 2026-09-25 — Proposta B de cadencia comercial por sinal
+
+- **Pedido:** implementar a Proposta B para follow-ups e tentativas, com cadencia por sinal
+  comercial na ficha do lead.
+- **Entendimento:** o backend deve calcular estagio, teto, contagem e proxima acao sugerida a
+  partir de fatos ja existentes; a ficha deve apresentar e aproveitar essa recomendacao sem
+  enviar mensagem automaticamente.
+- **Areas previstas:** `backend/src/services/follow-up-recomendacao.js`,
+  `backend/src/routes/api-banco-leads.js`, testes focados em `backend/test/`,
+  `frontend/components/ConversaHistoricoModal.tsx` e possivel helper em `frontend/lib/`.
+- **Cuidados:** sem migration nesta entrega; sem chamada automatica ao lead; regras sensiveis
+  no backend; usar `app.follow_ups`, auditoria, ligacoes e agenda como fontes; preservar o
+  fluxo oficial de criacao de follow-up e o recorte/permissao do Banco de Leads.
+
+## 2026-09-25 — Comercial vendo leads fora do Brasil
+
+- **Pedido:** corrigir o aplicativo para que o cargo Comercial consiga ver leads fora do Brasil
+  dentro da carteira permitida.
+- **Entendimento:** a permissao nao deve abrir a base bruta; o ajuste deve preservar equipe,
+  responsavel e porta de aprovados, mas impedir que leads internacionais aprovados fiquem fora
+  apenas por ainda nao terem `nicho_id` estruturado.
+- **Areas previstas:** recorte por equipe/nicho em `backend/src/services/equipes-comerciais.js`,
+  filtros de mercado, Banco de Leads e testes de regressao.
+- **Cuidados:** sem migration; fallback por texto somente para lead sem `nicho_id`; nao liberar
+  lead de outro nicho/equipe; manter o recorte por empresa e capacidades no backend.
+
+## 2026-09-26 — Limpeza das listagens e endereco sob demanda
+
+- **Pedido:** melhorar as listagens/folhas para reduzir blocos gigantes de endereco/mapa/cache,
+  abrir endereco/browser sob demanda a partir do nome do cliente e ordenar itens por prazo,
+  colocando primeiro os que precisam de atencao.
+- **Areas previstas:** componentes/listagens do `frontend/` que exibem leads, follow-ups,
+  endereco, mapa e proxima acao; helpers puros de ordenacao se a regra ja existir no front.
+- **Cuidados:** mudanca visual focada, sem migration; preservar fluxo oficial de proxima acao;
+  nao mover regra sensivel do backend para a tela; manter padrao claro, tokens e componentes
+  existentes.

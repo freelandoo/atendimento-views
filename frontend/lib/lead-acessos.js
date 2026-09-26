@@ -73,6 +73,25 @@ function telefoneWhatsapp(telefone) {
 }
 
 /**
+ * Link de mapa do lead para listagens compactas.
+ *
+ * Preferencia: `maps_url`, que e' a ficha real do Google Maps. Quando a fonte so trouxe
+ * endereco, a tela ainda pode abrir uma BUSCA no Maps sem expor o endereco inteiro na linha.
+ */
+function mapaDoLead(lead) {
+  const l = lead || {}
+  const direto = normalizarLink(l.maps_url)
+  if (direto) return acesso(TIPO_ACESSO.MAPS, 'Maps', direto.href, 'Ver a ficha no Google Maps')
+
+  const partes = [l.endereco, l.nome, l.cidade, l.pais]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean)
+  if (!partes.length) return null
+  const href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(partes.join(', '))}`
+  return acesso(TIPO_ACESSO.MAPS, 'Maps', href, 'Buscar este endereco no Google Maps')
+}
+
+/**
  * Monta a lista FECHADA de acessos rapidos do lead, na ordem em que a tela deve exibi-los.
  * Sem link nenhum, devolve `[]` — a area simplesmente nao aparece (nao ha estado vazio a
  * desenhar num cabecalho).
@@ -112,9 +131,10 @@ function acessosDoLead(lead) {
   // como `tem_site: true` com `site` vazio, e ali nao ha site para abrir.
   if (l.tem_site && l.site) push(TIPO_ACESSO.SITE, 'Site', l.site, 'Abrir o site proprio do negocio')
 
-  if (l.maps_url) push(TIPO_ACESSO.MAPS, 'Maps', l.maps_url, 'Ver a ficha no Google Maps')
+  const mapa = mapaDoLead(l)
+  if (mapa && !vistos.has(mapa.href)) lista.push(mapa)
 
   return lista
 }
 
-module.exports = { TIPO_ACESSO, ROTULO_MARCA, normalizarLink, marcaDoLink, rotuloGenerico, telefoneWhatsapp, acessosDoLead }
+module.exports = { TIPO_ACESSO, ROTULO_MARCA, normalizarLink, marcaDoLink, rotuloGenerico, telefoneWhatsapp, mapaDoLead, acessosDoLead }

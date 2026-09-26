@@ -67,7 +67,7 @@ const auto = (extra = {}) => ({
 test('fila junta as duas fontes numa linha por conversa', () => {
   const itens = montarFila({ humanos: [humano()], automaticos: [auto()], agora: AGORA })
   assert.equal(itens.length, 2)
-  assert.deepEqual(itens.map((i) => i.origem_label), ['IA', 'Humano'])
+  assert.deepEqual(itens.map((i) => i.origem_label), ['Humano', 'IA'])
 })
 
 test('acao humana e a proxima acao da conversa; o automatico vira contexto da MESMA linha', () => {
@@ -191,7 +191,7 @@ test('falha de qualquer agendamento da conversa continua no filtro Falhas', () =
   assert.equal(aplicarFiltroRapido(itens, 'falhas').length, 1)
 })
 
-test('ordem da fila: follow-ups mais novos aparecem primeiro', () => {
+test('ordem da fila: itens que precisam de atencao aparecem antes; recencia desempata', () => {
   const itens = montarFila({
     humanos: [
       humano({ numero: 'humano-sem-data', temperatura: 'quente', score: 95, janela_quando: 'agora' }),
@@ -202,7 +202,7 @@ test('ordem da fila: follow-ups mais novos aparecem primeiro', () => {
     ],
     agora: AGORA,
   })
-  assert.deepEqual(itens.map((i) => i.numero), ['auto-novo', 'auto-antigo', 'humano-sem-data'])
+  assert.deepEqual(itens.map((i) => i.numero), ['humano-sem-data', 'auto-novo', 'auto-antigo'])
 })
 
 test('filtro avancado COMPOE com o rapido e nao o substitui', () => {
