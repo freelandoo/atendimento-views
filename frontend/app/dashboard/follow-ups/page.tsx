@@ -151,6 +151,28 @@ const PRAZO_STYLE: Record<string, string> = {
   agora: 'text-orange-600 font-medium',
   hoje: 'text-amber-600 font-medium',
 }
+const FILTRO_TOM: Partial<Record<FiltroRapido, { ativo: string; inativo: string; contador: string }>> = {
+  vencidos: {
+    ativo: 'border-red-600 bg-red-600 text-white',
+    inativo: 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100',
+    contador: 'bg-red-100 text-red-700',
+  },
+  falhas: {
+    ativo: 'border-amber-600 bg-amber-600 text-white',
+    inativo: 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100',
+    contador: 'bg-amber-100 text-amber-800',
+  },
+  hoje: {
+    ativo: 'border-brand bg-brand text-white',
+    inativo: 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100',
+    contador: 'bg-blue-100 text-blue-700',
+  },
+  ligacao: {
+    ativo: 'border-indigo-600 bg-indigo-600 text-white',
+    inativo: 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100',
+    contador: 'bg-indigo-100 text-indigo-700',
+  },
+}
 
 const CHAVE_VIEW = 'followupsFila'
 
@@ -324,6 +346,8 @@ export default function FollowUpsPage() {
     return mapa
   }, [responsaveis, fila])
   const chips = useMemo(() => chipsAtivos(view, rotulosDeAcao, rotulosDeResponsavel), [view, rotulosDeAcao, rotulosDeResponsavel])
+  const filtroRapidoAtual = useMemo(() => FILTROS_RAPIDOS.find((f) => f.valor === rapido) || FILTROS_RAPIDOS[0], [rapido])
+  const temRecorteRapido = rapido !== 'todos'
 
   // Capacidade de ligações do dia: destaca as primeiras N ligações da fila em aberto.
   // Calculada sobre a fila inteira (não sobre o filtro nem sobre a página), senão a marca
@@ -335,6 +359,7 @@ export default function FollowUpsPage() {
   }, [fila, meta])
 
   const limparTudo = useCallback(() => { setView(VIEW_PADRAO); setRapido('todos') }, [])
+  const limparRapido = useCallback(() => setRapido('todos'), [])
 
   const registrarResultado = useCallback(async (item: ItemFila, resultado: Resultado, notas: string, enviarFollowup: boolean) => {
     const out = await fb.runTask(async () => {
@@ -472,6 +497,13 @@ export default function FollowUpsPage() {
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrar a fila">
           {FILTROS_RAPIDOS.map((f) => {
             const ativo = rapido === f.valor
+            const tom = FILTRO_TOM[f.valor]
+            const baseClasse = ativo
+              ? (tom?.ativo || 'border-brand bg-brand text-white')
+              : (tom?.inativo || 'bg-white text-slate-600 hover:bg-slate-50')
+            const contadorClasse = ativo
+              ? 'bg-white/25 text-white'
+              : (tom?.contador || 'bg-slate-100 text-slate-600')
             return (
               <button
                 key={f.valor}
@@ -479,10 +511,10 @@ export default function FollowUpsPage() {
                 title={f.descricao}
                 onClick={() => setRapido(f.valor)}
                 aria-pressed={ativo}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${ativo ? 'border-brand bg-brand text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 ${baseClasse}`}
               >
                 {f.label}
-                <span className={`rounded-full px-1.5 text-[10px] font-semibold tabular-nums ${ativo ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                <span className={`rounded-full px-1.5 text-[10px] font-semibold tabular-nums ${contadorClasse}`}>
                   {contagens[f.valor]}
                 </span>
               </button>
@@ -512,11 +544,20 @@ export default function FollowUpsPage() {
           </button>
         </div>
 
-        {chips.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="font-medium text-slate-500">{visiveis.length} item(ns) neste recorte</span>
+        {(temRecorteRapido || chips.length > 0) && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2 text-xs">
+            <span className="font-medium text-slate-600">{visiveis.length} item(ns) neste recorte</span>
+            {temRecorteRapido && (
+              <span className="rounded-full border border-brand/30 bg-white px-2 py-0.5 font-medium text-brand">
+                {filtroRapidoAtual.label}
+              </span>
+            )}
             {chips.map((ch) => <span key={ch} className="rounded-full border bg-slate-100 px-2 py-0.5 text-slate-600">{ch}</span>)}
-            <button onClick={limparTudo} className="text-brand hover:underline">Limpar filtros</button>
+            {temRecorteRapido && chips.length === 0 ? (
+              <button onClick={limparRapido} className="ml-auto text-brand hover:underline">Limpar recorte</button>
+            ) : (
+              <button onClick={limparTudo} className="ml-auto text-brand hover:underline">Limpar filtros</button>
+            )}
           </div>
         )}
 
