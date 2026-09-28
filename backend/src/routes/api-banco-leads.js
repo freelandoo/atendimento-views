@@ -954,7 +954,8 @@ router.get('/plano-dia/candidatos', requireAuth, requireEmpresaAccess, async (re
     params.push(limite)
     const { rows } = await pool.query(
       `SELECT id, origem, responsavel_id, nome, telefone, instagram_handle,
-              nicho, cidade, pais, categoria_perfil, endereco, ${RESPONSAVEL_NOME_SELECT},
+              nicho, cidade, pais, categoria_perfil, endereco, icp_faixa, icp_score,
+              ${RESPONSAVEL_NOME_SELECT},
               ${sqlFaixaTrabalho()} AS faixa_trabalho_ordem
          FROM prospectador.prospects
         LEFT JOIN LATERAL (

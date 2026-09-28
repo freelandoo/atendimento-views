@@ -5872,3 +5872,13 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   escopos e credenciais aprovados; nao expor token de lead nem telefone em logs; preservar tenant,
   responsavel_id, capacidades e recorte do Banco de Leads; manter status oficial da agenda no
   backend (`nao_compareceu`, `pendente`, `concluido`) e nao apenas na UI.
+
+## 2026-09-28 — ICP visivel no Planejar meu dia
+
+- **Pedido:** mostrar ICP/pontuacao no modal `Planejar meu dia`, tanto em `Para hoje` quanto em
+  `Carteira`, para priorizar melhores leads sem baguncar a lista.
+- **Areas previstas:** `frontend/components/ModalPlanejarDia.tsx`, tipos de
+  `frontend/lib/plano-dia.*`, rota `backend/src/routes/api-banco-leads.js` e sugestoes em
+  `backend/src/db/plano-dia.js`.
+- **Cuidados:** planejamento read-only; nao alterar responsavel, dono, status ou envio; separar
+  ICP comercial de `score_cadastro`; usar a regua/helper de ICP existente e manter UI densa.

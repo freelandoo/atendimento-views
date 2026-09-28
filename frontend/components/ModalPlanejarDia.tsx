@@ -16,6 +16,7 @@ import FolhaModal from '@/components/ui/FolhaModal'
 import Botao from '@/components/ui/Botao'
 import { classesEntrada } from '@/lib/ui-primitivos'
 import { celulaOrigem } from '@/lib/lead-origem'
+import { ordemIcp, seloIcp } from '@/lib/lead-icp'
 import { nomePais } from '@/lib/paises'
 import {
   seloOrigemEntrada, opcoesNicho, opcoesCidade, opcoesRegiao, opcoesCategoria, opcoesPais,
@@ -41,6 +42,8 @@ export type CandidatoDia = {
   uf?: string | null
   bairro?: string | null
   endereco?: string | null
+  icp_faixa?: string | null
+  icp_score?: number | null
 }
 
 export type SugestaoDia = {
@@ -49,8 +52,30 @@ export type SugestaoDia = {
   telefone?: string | null
   origem?: string | null
   cidade?: string | null
+  icp_faixa?: string | null
+  icp_score?: number | null
   origem_entrada: string
   quando?: string | null
+}
+
+type LeadComIcp = {
+  icp_faixa?: string | null
+  icp_score?: number | null
+}
+
+function SeloIcpPlanejamento({ lead }: { lead: LeadComIcp }) {
+  const selo = seloIcp(lead.icp_faixa, lead.icp_score)
+  const rotulo = selo.chave === 'sem_icp' ? 'ICP pendente' : `ICP ${selo.chave}`
+  const detalhe = selo.score == null ? 'sem nota' : `${selo.score} pts`
+  return (
+    <span
+      className={`shrink-0 rounded-md border px-2 py-1 text-right text-[11px] leading-tight ${selo.classe}`}
+      title={`${selo.rotulo}: ${selo.descricao}`}
+    >
+      <span className="block font-semibold">{rotulo}</span>
+      <span className="block font-normal opacity-80">{detalhe}</span>
+    </span>
+  )
 }
 
 export default function ModalPlanejarDia({
@@ -91,6 +116,16 @@ export default function ModalPlanejarDia({
   const filtrados = useMemo(
     () => filtrarCarteira(candidatos, { busca, nicho, categoria, pais, cidade, regiao, jaNoDia }),
     [candidatos, busca, nicho, categoria, pais, cidade, regiao, jaNoDia]
+  )
+  const carteiraOrdenada = useMemo(
+    () => filtrados
+      .map((lead, indice) => ({ lead, indice }))
+      .sort((a, b) => {
+        const porIcp = ordemIcp(b.lead) - ordemIcp(a.lead)
+        return porIcp || a.indice - b.indice
+      })
+      .map((item) => item.lead),
+    [filtrados]
   )
   const filtrosCarteira = [busca.trim(), nicho, categoria, pais, cidade, regiao].filter(Boolean).length
 
@@ -233,15 +268,21 @@ export default function ModalPlanejarDia({
                           onChange={() => alternar(s.prospect_id)}
                           className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
                         />
-                        <span className="min-w-0">
+                        <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium text-ink">{s.nome || 'Sem nome'}</span>
-                          {selo && (
-                            <span className="mt-0.5 inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800"
-                              title={selo.dica}>
-                              {selo.rotulo}
-                            </span>
-                          )}
+                          <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-3">
+                            {selo && (
+                              <span
+                                className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 font-medium text-amber-800"
+                                title={selo.dica}
+                              >
+                                {selo.rotulo}
+                              </span>
+                            )}
+                            {s.cidade && <span className="truncate">{s.cidade}</span>}
+                          </span>
                         </span>
+                        <SeloIcpPlanejamento lead={s} />
                       </label>
                     </li>
                   )
@@ -255,7 +296,7 @@ export default function ModalPlanejarDia({
             <div>
               <h3 className="text-sm font-semibold text-ink">Da sua carteira</h3>
               <p className="mt-0.5 text-xs text-ink-3">
-                Na ordem de trabalho. Busque ou combine nicho, categoria, país e localização.
+                ICP mais forte primeiro. Busque ou combine nicho, categoria, país e localização.
               </p>
             </div>
             {!carregandoCarteira && !erroCarteira && (
@@ -387,7 +428,7 @@ export default function ModalPlanejarDia({
             </p>
           ) : (
             <ul className="mt-2 max-h-[40vh] space-y-1.5 overflow-y-auto pr-1">
-              {filtrados.map((l) => {
+              {carteiraOrdenada.map((l) => {
                 const o = celulaOrigem(l)
                 return (
                   <li key={l.id}>
@@ -417,6 +458,7 @@ export default function ModalPlanejarDia({
                           {!l.telefone && <span className="text-amber-700">sem telefone</span>}
                         </span>
                       </span>
+                      <SeloIcpPlanejamento lead={l} />
                     </label>
                   </li>
                 )

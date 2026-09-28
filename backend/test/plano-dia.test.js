@@ -224,6 +224,16 @@ test('os candidatos do planejamento nao herdam filtros da Lista', () => {
     'aba/busca/mercado/cidade da Lista nao podem esconder categorias no planejamento')
 })
 
+test('o planejamento devolve ICP para priorizar sem recalcular no front', () => {
+  const iniCandidatos = fonteRota.indexOf("router.get('/plano-dia/candidatos'")
+  const fimCandidatos = fonteRota.indexOf("router.get('/plano-dia'", iniCandidatos + 1)
+  const blocoCandidatos = fonteRota.slice(iniCandidatos, fimCandidatos)
+  assert.ok(/icp_faixa/.test(blocoCandidatos) && /icp_score/.test(blocoCandidatos),
+    'carteira do planejamento precisa carregar ICP salvo')
+  assert.ok(/p\.icp_faixa/.test(fonteDb) && /p\.icp_score/.test(fonteDb),
+    'sugestoes do planejamento tambem precisam carregar ICP salvo')
+})
+
 test('nenhuma capacidade nova foi criada para o Quadro', () => {
   const bloco = fonteRota.slice(fonteRota.indexOf('QUADRO DO DIA'), fonteRota.indexOf("router.get('/leads'"))
   assert.ok(!/requireCapacidade/.test(bloco),

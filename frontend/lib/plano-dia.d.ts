@@ -99,6 +99,8 @@ export interface CandidatoCarteira {
   bairro?: string | null
   endereco?: string | null
   instagram_handle?: string | null
+  icp_faixa?: string | null
+  icp_score?: number | null
 }
 
 /** Nichos presentes nos candidatos de planejamento, com contagem — para o seletor de "Planejar meu dia". */

@@ -266,6 +266,7 @@ async function sugestoesDoDia({ empresaId, usuarioId, dia }) {
   const extra = ''
   const { rows } = await pool.query(
     `SELECT DISTINCT ON (p.id) p.id AS prospect_id, p.nome, p.telefone, p.origem, p.cidade,
+            p.icp_faixa, p.icp_score,
             s.origem_entrada, s.quando
        FROM prospectador.prospects p
        JOIN LATERAL (
