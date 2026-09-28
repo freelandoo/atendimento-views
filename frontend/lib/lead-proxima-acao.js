@@ -95,6 +95,9 @@ function cartaoCompromisso(c, agora = new Date()) {
   if (c.origem === 'bot') detalhes.push('Marcada pelo atendimento automático')
   return {
     chave: `${c.tipo}:${c.id}`,
+    id: c.id,
+    origem: c.origem || '',
+    tipo_agenda: c.tipo_agenda || '',
     tipo: rotuloTipo(c),
     titulo: c.titulo || rotuloTipo(c),
     quando: quando || 'Sem data definida',

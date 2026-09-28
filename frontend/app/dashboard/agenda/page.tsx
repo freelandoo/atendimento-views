@@ -26,6 +26,7 @@ type Evento = {
 }
 type Resumo = { total: number; reunioes: number; pendentes: number; confirmados: number; concluidos: number }
 type AgendaResp = { eventos: Evento[]; resumo: Resumo; periodo: { inicio: string; fim: string } }
+type SalaReuniao = { host_url: string; lead_url: string }
 
 const TIPOS: { v: string; label: string }[] = [
   { v: 'reuniao', label: 'Reunião' },
@@ -235,6 +236,32 @@ export default function AgendaPage() {
     } catch { /* erro já exibido pelo feedback */ }
   }
 
+  async function garantirSala(ev: Evento): Promise<SalaReuniao> {
+    const r = await apiFetch<SalaReuniao>(`/api/empresas/${empresaId}/agenda/${ev.id}/sala`, { method: 'POST' })
+    return r.data
+  }
+
+  async function abrirSala(ev: Evento) {
+    if (!empresaId) return
+    try {
+      const sala = await garantirSala(ev)
+      window.open(sala.host_url, '_blank', 'noopener,noreferrer')
+    } catch (e) {
+      fb.toast(e instanceof Error ? e.message : 'Não foi possível abrir a reunião.', 'error')
+    }
+  }
+
+  async function copiarLinkLead(ev: Evento) {
+    if (!empresaId) return
+    try {
+      const sala = await garantirSala(ev)
+      await navigator.clipboard.writeText(`${window.location.origin}${sala.lead_url}`)
+      fb.toast('Link do lead copiado.', 'success')
+    } catch (e) {
+      fb.toast(e instanceof Error ? e.message : 'Não foi possível copiar o link.', 'error')
+    }
+  }
+
   const eventos = resp?.eventos || []
   const resumo = resp?.resumo
   const reuniaoNova = form.tipo === 'reuniao' && !form.id
@@ -322,6 +349,12 @@ export default function AgendaPage() {
               {ev.descricao && <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">{ev.descricao}</p>}
             </div>
             <div className="flex items-center gap-2 shrink-0 text-xs">
+              {ev.tipo === 'reuniao' && (
+                <>
+                  <button onClick={() => abrirSala(ev)} className="text-brand hover:underline">Entrar</button>
+                  <button onClick={() => copiarLinkLead(ev)} className="text-slate-600 hover:underline">Link lead</button>
+                </>
+              )}
               {ev.status === 'pendente' && <button onClick={() => mudarStatus(ev, 'confirmado')} className="text-emerald-600 hover:underline">Confirmar</button>}
               {['pendente', 'confirmado'].includes(ev.status) && <button onClick={() => mudarStatus(ev, 'concluido')} className="text-blue-600 hover:underline">Concluir</button>}
               {/* A venda so' e' oferecida na REUNIAO CONCLUIDA: e o unico momento em que ela e

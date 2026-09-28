@@ -184,6 +184,7 @@ app.use('/api/llm', requireAuth, requireRole('admin'), require('./src/routes/api
 app.use('/api/webhook-quarentena', requireAuth, requireRole('admin'), require('./src/routes/api-webhook-quarentena'))
 app.use('/api/prompts-catalogo', require('./src/routes/api-prompts-catalogo'))
 app.use('/api/empresas/:empresaId/llm/uso', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.INTEGRACOES_GERENCIAR), require('./src/routes/api-llm-uso'))
+app.use('/api/reunioes', require('./src/routes/api-reunioes-publicas'))
 
 // Webhook público da Freelandoo (valida HMAC internamente; sem auth JWT).
 app.use('/freelandoo/webhook', require('./src/routes/freelandoo-webhook'))

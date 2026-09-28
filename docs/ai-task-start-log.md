@@ -5859,3 +5859,16 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Cuidados:** documentacao apenas; nao instalar dependencia nem usar asset externo sem
   necessidade; pedir link/modelo/licenca ao operador quando o trabalho depender de material
   3D especifico; preservar performance, mobile e acessibilidade.
+
+## 2026-09-28 — Salas de reuniao no app com Jitsi e presenca
+
+- **Pedido:** criar reunioes a partir do aplicativo com link/sala acessivel pelo app, permissao
+  de host para o dono/responsavel, registro de entrada do host e do lead, e classificacao de
+  ausencia: lead nao entrou em ate 10 minutos, host nao entrou, ou sem presenca registrada.
+- **Areas previstas:** migration em `backend/sql/migrations`, novo acesso a dados/service de
+  sala e presenca, rotas da Agenda, fluxo de reuniao no Banco de Leads/ficha, tela de reuniao
+  no `frontend/`, componentes/links na Agenda e Banco de Leads, testes focados backend/frontend.
+- **Cuidados:** usar Jitsi como caminho gratuito; nao implementar Google Calendar/Meet sem OAuth,
+  escopos e credenciais aprovados; nao expor token de lead nem telefone em logs; preservar tenant,
+  responsavel_id, capacidades e recorte do Banco de Leads; manter status oficial da agenda no
+  backend (`nao_compareceu`, `pendente`, `concluido`) e nao apenas na UI.

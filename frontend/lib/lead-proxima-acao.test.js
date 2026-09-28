@@ -42,6 +42,14 @@ test('retorno na agenda é rotulado como tal; reunião do bot diz de onde veio',
     /automático/)
 })
 
+test('cartão preserva id e origem para ações da ficha', () => {
+  const c = cartaoCompromisso({ tipo: 'reuniao', tipo_agenda: 'reuniao', id: 'agenda-1', titulo: 'R',
+    quando: '2026-09-25T12:00:00Z', situacao: 'futuro', origem: 'agenda' }, AGORA)
+  assert.equal(c.id, 'agenda-1')
+  assert.equal(c.origem, 'agenda')
+  assert.equal(c.tipo_agenda, 'reuniao')
+})
+
 test('resumo da última ligação', () => {
   assert.equal(resumoUltimaLigacao(null), null)
   const r = resumoUltimaLigacao({ id: 'l', resultado: 'nao_atendeu', quando: '2026-09-22T13:00:00Z', usuario_nome: 'Ana', notas: 'tentar à tarde' }, AGORA)

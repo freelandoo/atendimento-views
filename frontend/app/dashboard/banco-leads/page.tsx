@@ -1903,6 +1903,9 @@ export default function BancoLeadsPage() {
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadDaFicha, envioBloqueado, motivoEnvioBloqueado])
+  const abrirReuniaoAgenda = useCallback((eventoId: string) => {
+    window.open(`/dashboard/reunioes/${eventoId}`, '_blank', 'noopener,noreferrer')
+  }, [])
 
   /**
    * O RESUMO da ficha: o que a tela sabe e a ficha não — faixa de trabalho, contato e dono.
@@ -1944,6 +1947,15 @@ export default function BancoLeadsPage() {
             <p className="mt-1 text-sm font-semibold text-ink">{principal.titulo}</p>
             {principal.observacao && <p className="mt-0.5 text-xs leading-relaxed text-ink-2">“{principal.observacao}”</p>}
             {principal.detalhe && <p className="mt-0.5 text-[11px] text-ink-3">{principal.detalhe}</p>}
+            {principal.tipo_agenda === 'reuniao' && principal.origem === 'agenda' && (
+              <button
+                type="button"
+                onClick={() => abrirReuniaoAgenda(principal.id)}
+                className="mt-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-ink-2 transition hover:bg-surface-2"
+              >
+                Entrar na reunião
+              </button>
+            )}
           </div>
         ) : !pa ? (
           <p className="mt-1 text-xs text-ink-3">Carregando follow-ups e reuniões…</p>
@@ -2048,7 +2060,7 @@ export default function BancoLeadsPage() {
       </div>
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leadDaFicha, usuario?.id, proximaAcao, cadenciaLead])
+  }, [abrirReuniaoAgenda, leadDaFicha, usuario?.id, proximaAcao, cadenciaLead])
   // O ESCOPO REAL da selecao, em texto — inclusive o aviso de que ela alcanca so' a janela
   // carregada. A regra vive no modulo puro; a tela nao pode prometer alem do que o servidor
   // devolveu.

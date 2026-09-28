@@ -32,6 +32,9 @@ export interface ProximaAcaoLead {
 
 export interface CartaoCompromisso {
   chave: string
+  id: string
+  origem: string
+  tipo_agenda: string
   tipo: string
   titulo: string
   quando: string

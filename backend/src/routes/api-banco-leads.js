@@ -63,6 +63,7 @@ const { sqlTelefoneNormalizado } = require('../telefone-br')
 const { logger } = require('../logger')
 const { listarAuditoria } = require('../db/auditoria')
 const { criarEvento } = require('../services/agenda-multiempresa')
+const REUNIOES = require('../db/reuniao-salas')
 const { criarFollowUp } = require('../db/follow-ups')
 const { salvarAvaliacaoIcp } = require('../db/lead-icp')
 const { proximaAcaoDoLead } = require('../db/lead-proxima-acao')
@@ -527,6 +528,12 @@ async function alterarStatusLeadOperacional(req, statusPedido) {
         lead_nome: atual.nome || null,
         metadata: { origem: 'banco_leads_status', lead_status_anterior: atual.status },
       })
+      const sala = await REUNIOES.garantirSala(client, {
+        empresaId: req.empresa.id,
+        agendaEventoId: eventoAgenda.id,
+        usuarioId,
+      })
+      eventoAgenda.sala_reuniao = REUNIOES.salaParaApi(sala)
       await client.query(
         `INSERT INTO app.auditoria_eventos
            (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)

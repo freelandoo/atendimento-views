@@ -20,6 +20,7 @@ const slots = require('../services/agenda-slots')
 const { ocupacaoDoBot } = require('../services/agenda-espelho')
 const { utcParaDataLocalEmTimezone } = require('../date-utils')
 const { logger } = require('../logger')
+const REUNIOES = require('../db/reuniao-salas')
 
 const router = Router({ mergeParams: true })
 
@@ -65,6 +66,29 @@ function tratarErro(res, err, fallbackCode, contexto) {
   })
 }
 
+function vinculoDoReq(req) {
+  return {
+    papel: req.papelEmpresa,
+    permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
+    papelPlataforma: req.usuario?.role,
+  }
+}
+
+function podeVerEquipe(req) {
+  return podeCapacidade(vinculoDoReq(req), CAP.AGENDA_VER_EQUIPE)
+}
+
+function podeAcessarSala(req, sala) {
+  const evento = sala?.evento
+  if (!evento) return false
+  if (podeVerEquipe(req)) return true
+  const usuarioId = req.usuario?.id ? String(req.usuario.id) : ''
+  return Boolean(usuarioId && (
+    String(evento.responsavel_id || '') === usuarioId ||
+    String(evento.criado_por || '') === usuarioId
+  ))
+}
+
 // GET /responsaveis — quem pode conduzir um compromisso. So' para quem ve a agenda da equipe:
 // para os demais o unico responsavel possivel e' a propria pessoa, e um seletor com os colegas
 // prometeria uma marcacao que o POST recusa com 403.
@@ -106,12 +130,8 @@ router.get('/disponibilidade', requireAuth, requireEmpresaAccess, async (req, re
     // Mesmo recorte de GET /: quem nao ve a equipe enxerga a propria agenda + os eventos da
     // EMPRESA (bloqueios e feriados, que valem para todos). Trocar um parametro de query nao
     // pode virar acesso a agenda alheia.
-    const podeVerEquipe = podeCapacidade({
-      papel: req.papelEmpresa,
-      permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
-      papelPlataforma: req.usuario?.role,
-    }, CAP.AGENDA_VER_EQUIPE)
-    const responsavelId = podeVerEquipe ? (req.query.responsavel_id || null) : (req.usuario?.id || null)
+    const acessoEquipe = podeVerEquipe(req)
+    const responsavelId = acessoEquipe ? (req.query.responsavel_id || null) : (req.usuario?.id || null)
 
     let fim = dataInicial
     for (let i = 1; i < dias; i += 1) fim = diaSeguinte(fim)
@@ -160,7 +180,7 @@ router.get('/disponibilidade', requireAuth, requireEmpresaAccess, async (req, re
       data: { dias: out, grade: { duracao_min: duracaoMin, total_por_dia: grade.length } },
       // A tela DECLARA o recorte: recortar em silencio faria o vendedor achar que a agenda
       // da equipe sumiu.
-      meta: { escopo: responsavelId ? 'responsavel' : 'equipe', pode_ver_equipe: podeVerEquipe },
+      meta: { escopo: responsavelId ? 'responsavel' : 'equipe', pode_ver_equipe: acessoEquipe },
     })
   } catch (err) {
     return tratarErro(res, err, 'AGENDA_DISPONIBILIDADE_FAILED', 'GET agenda/disponibilidade')
@@ -262,12 +282,9 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
     // `?responsavel_id=` so' e' respeitado por quem pode ver a equipe: e' o filtro "agenda do
     // vendedor X" do admin. Para os demais, o recorte e' sempre o proprio — trocar um parametro
     // de query nao pode virar acesso a agenda alheia.
-    const podeVerEquipe = podeCapacidade({
-      papel: req.papelEmpresa,
-      permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
-      papelPlataforma: req.usuario?.role,
-    }, CAP.AGENDA_VER_EQUIPE)
-    const responsavelId = podeVerEquipe
+    await REUNIOES.reconciliarSalasExpiradas(pool, req.empresa.id)
+    const acessoEquipe = podeVerEquipe(req)
+    const responsavelId = acessoEquipe
       ? (req.query.responsavel_id || null)
       : (req.usuario?.id || null)
 
@@ -284,10 +301,65 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
       data: out,
       // A tela precisa poder dizer "mostrando a sua agenda": recortar em silencio faria o
       // vendedor achar que a agenda da equipe sumiu.
-      meta: { escopo: responsavelId ? 'responsavel' : 'equipe', pode_ver_equipe: podeVerEquipe },
+      meta: { escopo: responsavelId ? 'responsavel' : 'equipe', pode_ver_equipe: acessoEquipe },
     })
   } catch (err) {
     return tratarErro(res, err, 'AGENDA_LIST_FAILED', 'GET agenda')
+  }
+})
+
+// POST /api/empresas/:empresaId/agenda/:id/sala
+router.post('/:id/sala', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const sala = await REUNIOES.garantirSala(pool, {
+      empresaId: req.empresa.id,
+      agendaEventoId: req.params.id,
+      usuarioId: req.usuario?.id || null,
+    })
+    if (!podeAcessarSala(req, sala)) {
+      return res.status(403).json({ ok: false, error: { code: 'FORBIDDEN', message: 'Sala indisponível para este usuário.' } })
+    }
+    return res.status(201).json({ ok: true, data: REUNIOES.salaParaApi(sala) })
+  } catch (err) {
+    return tratarErro(res, err, 'AGENDA_SALA_CREATE_FAILED', 'POST agenda/:id/sala')
+  }
+})
+
+// GET /api/empresas/:empresaId/agenda/:id/sala
+router.get('/:id/sala', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const sala = await REUNIOES.obterSalaPorEvento(pool, { empresaId: req.empresa.id, agendaEventoId: req.params.id })
+    if (!sala) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Sala não encontrada.' } })
+    if (!podeAcessarSala(req, sala)) {
+      return res.status(403).json({ ok: false, error: { code: 'FORBIDDEN', message: 'Sala indisponível para este usuário.' } })
+    }
+    return res.json({ ok: true, data: REUNIOES.salaParaApi(sala) })
+  } catch (err) {
+    return tratarErro(res, err, 'AGENDA_SALA_GET_FAILED', 'GET agenda/:id/sala')
+  }
+})
+
+// POST /api/empresas/:empresaId/agenda/:id/sala/presenca
+router.post('/:id/sala/presenca', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const sala = await REUNIOES.obterSalaPorEvento(pool, { empresaId: req.empresa.id, agendaEventoId: req.params.id })
+    if (!sala) return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Sala não encontrada.' } })
+    if (!podeAcessarSala(req, sala)) {
+      return res.status(403).json({ ok: false, error: { code: 'FORBIDDEN', message: 'Sala indisponível para este usuário.' } })
+    }
+    const corpo = req.body || {}
+    const atualizado = await REUNIOES.registrarPresenca(pool, {
+      empresaId: req.empresa.id,
+      agendaEventoId: req.params.id,
+      papel: 'host',
+      evento: corpo.evento || 'entrou',
+      usuarioId: req.usuario?.id || null,
+      participanteId: corpo.participante_id || corpo.participanteId || null,
+      displayName: corpo.display_name || corpo.displayName || req.usuario?.nome || null,
+    })
+    return res.json({ ok: true, data: REUNIOES.salaParaApi(atualizado) })
+  } catch (err) {
+    return tratarErro(res, err, 'AGENDA_SALA_PRESENCA_FAILED', 'POST agenda/:id/sala/presenca')
   }
 })
 
@@ -308,11 +380,7 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
     // `responsavel_id` no corpo = marcar PARA outra pessoa (o admin agenda para o vendedor, o SDR
     // para o closer). So' quem ve a agenda da equipe pode fazer isso — senao alguem marcaria
     // compromisso na agenda de um colega que nem consegue enxergar.
-    const podeMarcarParaOutro = podeCapacidade({
-      papel: req.papelEmpresa,
-      permissoes: req.vinculoEmpresa ? req.vinculoEmpresa.permissoes : null,
-      papelPlataforma: req.usuario?.role,
-    }, CAP.AGENDA_VER_EQUIPE)
+    const podeMarcarParaOutro = podeVerEquipe(req)
     const corpo = req.body || {}
     if (corpo.responsavel_id && !podeMarcarParaOutro && String(corpo.responsavel_id) !== String(req.usuario?.id)) {
       return res.status(403).json({
@@ -327,6 +395,14 @@ router.post('/', requireAuth, requireEmpresaAccess, async (req, res) => {
       prospectId: corpo.prospect_id || null,
       ...corpo,
     })
+    if (evento.tipo === 'reuniao') {
+      const sala = await REUNIOES.garantirSala(pool, {
+        empresaId: req.empresa.id,
+        agendaEventoId: evento.id,
+        usuarioId: req.usuario?.id || null,
+      })
+      evento.sala_reuniao = REUNIOES.salaParaApi(sala)
+    }
     return res.status(201).json({ ok: true, data: evento })
   } catch (err) {
     return tratarErro(res, err, 'AGENDA_CREATE_FAILED', 'POST agenda')
