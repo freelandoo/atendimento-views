@@ -20,7 +20,7 @@ import { ordemIcp, seloIcp } from '@/lib/lead-icp'
 import { nomePais } from '@/lib/paises'
 import {
   seloOrigemEntrada, opcoesNicho, opcoesCidade, opcoesRegiao, opcoesCategoria, opcoesPais,
-  gruposPlanejamento, motivoPlanejamento, filtrarCarteira,
+  gruposPlanejamento, motivoPlanejamento, sugestaoPlanoDoDia, filtrarCarteira,
 } from '@/lib/plano-dia'
 
 export type CandidatoDia = {
@@ -80,7 +80,7 @@ function SeloIcpPlanejamento({ lead }: { lead: LeadComIcp }) {
 
 export default function ModalPlanejarDia({
   aberto, onFechar, candidatos, carregandoCarteira, erroCarteira, onRecarregarCarteira,
-  sugestoes, jaNoDia, ocupado, onAdicionar, rotuloDia,
+  sugestoes, jaNoDia, ocupado, onAdicionar, rotuloDia, vagasSugeridas,
 }: {
   aberto: boolean
   onFechar: () => void
@@ -95,6 +95,7 @@ export default function ModalPlanejarDia({
   ocupado: boolean
   onAdicionar: (ids: string[], origem: string) => Promise<void>
   rotuloDia: string
+  vagasSugeridas?: number
 }) {
   const [busca, setBusca] = useState('')
   const [nicho, setNicho] = useState('')
@@ -115,6 +116,10 @@ export default function ModalPlanejarDia({
   const cidades = useMemo(() => opcoesCidade(disponiveis), [disponiveis])
   const regioes = useMemo(() => opcoesRegiao(disponiveis), [disponiveis])
   const gruposRapidos = useMemo(() => gruposPlanejamento(disponiveis), [disponiveis])
+  const sugeridos = useMemo(
+    () => sugestoes.filter((s) => !jaNoDia.has(s.prospect_id)),
+    [sugestoes, jaNoDia]
+  )
   const filtrados = useMemo(
     () => filtrarCarteira(candidatos, { busca, nicho, categoria, pais, cidade, regiao, grupo: grupoRapido, jaNoDia }),
     [candidatos, busca, nicho, categoria, pais, cidade, regiao, grupoRapido, jaNoDia]
@@ -128,6 +133,15 @@ export default function ModalPlanejarDia({
       })
       .map((item) => item.lead),
     [filtrados]
+  )
+  const sugestaoAutomatica = useMemo(
+    () => sugestaoPlanoDoDia({
+      sugeridos,
+      carteira: carteiraOrdenada,
+      jaNoDia,
+      limite: Math.max(0, Number(vagasSugeridas || 0)),
+    }),
+    [sugeridos, carteiraOrdenada, jaNoDia, vagasSugeridas]
   )
   const filtrosCarteira = [busca.trim(), nicho, categoria, pais, cidade, regiao, grupoRapido].filter(Boolean).length
 
@@ -170,11 +184,6 @@ export default function ModalPlanejarDia({
     setGrupoRapido('')
   }
 
-  const sugeridos = useMemo(
-    () => sugestoes.filter((s) => !jaNoDia.has(s.prospect_id)),
-    [sugestoes, jaNoDia]
-  )
-
   useEffect(() => {
     if (aberto) setAba(sugeridos.length > 0 ? 'esperando' : 'carteira')
   }, [aberto, sugeridos.length])
@@ -192,6 +201,11 @@ export default function ModalPlanejarDia({
     if (!ids.length) return
     await onAdicionar(ids, origem)
     setMarcados(new Set())
+  }
+
+  function marcarSugestaoAutomatica() {
+    if (!sugestaoAutomatica.ids.length) return
+    setMarcados(new Set(sugestaoAutomatica.ids))
   }
 
   return (
@@ -235,6 +249,26 @@ export default function ModalPlanejarDia({
               {item.rotulo} <span className="text-xs font-normal">({item.total})</span>
             </button>
           ))}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-ink">Sugestão do dia</p>
+            <p className="mt-0.5 text-xs text-ink-3">
+              {sugestaoAutomatica.total
+                ? `${sugestaoAutomatica.total} lead(s): ${sugestaoAutomatica.texto}. Revise antes de adicionar.`
+                : 'Sem vagas sugeridas agora. Você ainda pode escolher leads manualmente.'}
+            </p>
+          </div>
+          <Botao
+            variante="secundaria"
+            tamanho="sm"
+            onClick={marcarSugestaoAutomatica}
+            disabled={!sugestaoAutomatica.total}
+            motivoDesabilitado={!sugestaoAutomatica.total ? 'A capacidade sugerida já está preenchida ou não há candidatos neste recorte.' : ''}
+          >
+            Marcar sugestão
+          </Botao>
         </div>
 
         {aba === 'esperando' ? (

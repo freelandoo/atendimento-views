@@ -8,7 +8,7 @@ const {
   horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia, somarDias, diasDaSemana,
   rotuloDiaCurto, rotuloSemana, resumoDoPeriodo, opcoesNicho, opcoesCidade, opcoesRegiao,
   opcoesCategoria, opcoesPais, capacidadeDoDia, gruposPlanejamento, motivoPlanejamento,
-  filtrarCarteira,
+  sugestaoPlanoDoDia, filtrarCarteira,
 } = require('./plano-dia')
 
 const fonte = fs.readFileSync(path.join(__dirname, 'plano-dia.js'), 'utf8')
@@ -276,6 +276,34 @@ test('motivoPlanejamento prioriza motivo provado e depois sinais de decisao', ()
   assert.equal(motivoPlanejamento({ proximo_agendamento: '2026-09-28T18:00:00Z' }, () => '18:00').rotulo, 'Agenda 18:00')
   assert.equal(motivoPlanejamento({ icp_faixa: 'A', telefone: '5562' }).rotulo, 'ICP A')
   assert.equal(motivoPlanejamento({ telefone: '' }).rotulo, 'Completar cadastro')
+})
+
+test('sugestaoPlanoDoDia monta rascunho revisavel sem duplicar nem furar limite', () => {
+  const r = sugestaoPlanoDoDia({
+    limite: 4,
+    jaNoDia: new Set(['ja']),
+    sugeridos: [{ prospect_id: 's1' }, { prospect_id: 'ja' }],
+    carteira: [
+      { id: 'a1', telefone: '5562', icp_faixa: 'A' },
+      { id: 'a2', telefone: '', icp_faixa: 'A' },
+      { id: 'b1', telefone: '5561', icp_faixa: 'B' },
+      { id: 'x1', telefone: '', icp_faixa: null },
+    ],
+  })
+  assert.deepEqual(r.ids, ['s1', 'a1', 'a2', 'b1'])
+  assert.equal(r.total, 4)
+  assert.ok(r.texto.includes('já esperando'))
+  assert.ok(r.texto.includes('ICP A'))
+})
+
+test('sugestaoPlanoDoDia com limite zero nao marca nada automaticamente', () => {
+  const r = sugestaoPlanoDoDia({
+    limite: 0,
+    sugeridos: [{ prospect_id: 's1' }],
+    carteira: [{ id: 'a1', icp_faixa: 'A', telefone: '5562' }],
+  })
+  assert.deepEqual(r.ids, [])
+  assert.equal(r.total, 0)
 })
 
 test('filtrarCarteira preserva a ordem de trabalho e nao corta a carteira por padrao', () => {

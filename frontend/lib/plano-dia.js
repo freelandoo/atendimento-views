@@ -384,6 +384,33 @@ function motivoPlanejamento(item, formatar) {
   return { rotulo: 'Carteira', dica: 'Escolhido manualmente da sua carteira de planejamento.', classe: 'border-line bg-surface-3 text-ink-2' }
 }
 
+function sugestaoPlanoDoDia({ sugeridos, carteira, jaNoDia, limite } = {}) {
+  const teto = Math.max(0, Number.isFinite(limite) ? Math.floor(limite) : LIMITE_DIA_SUGERIDO)
+  const excluir = jaNoDia instanceof Set ? jaNoDia : new Set()
+  const ids = []
+  const origem = { esperando: 0, icpA: 0, comTelefone: 0, outros: 0 }
+  const vistos = new Set()
+  function add(id, tipo) {
+    const v = String(id || '').trim()
+    if (!v || vistos.has(v) || excluir.has(v) || ids.length >= teto) return
+    vistos.add(v)
+    ids.push(v)
+    origem[tipo] += 1
+  }
+  for (const s of Array.isArray(sugeridos) ? sugeridos : []) add(s?.prospect_id, 'esperando')
+  const lista = Array.isArray(carteira) ? carteira : []
+  for (const l of lista) if (icpChave(l) === 'A' && String(l?.telefone || '').trim()) add(l.id, 'icpA')
+  for (const l of lista) if (icpChave(l) === 'A') add(l.id, 'icpA')
+  for (const l of lista) if (String(l?.telefone || '').trim()) add(l.id, 'comTelefone')
+  for (const l of lista) add(l.id, 'outros')
+  const partes = []
+  if (origem.esperando) partes.push(`${origem.esperando} já esperando`)
+  if (origem.icpA) partes.push(`${origem.icpA} ICP A`)
+  if (origem.comTelefone) partes.push(`${origem.comTelefone} com telefone`)
+  if (origem.outros) partes.push(`${origem.outros} da carteira`)
+  return { ids, total: ids.length, partes, texto: partes.join(' · ') }
+}
+
 /**
  * Filtra os candidatos de planejamento por busca e por nicho/categoria/país/cidade/região,
  * excluindo quem já está no dia. `limite`, quando informado, recorta a lista exibida; sem ele
@@ -425,5 +452,5 @@ module.exports = {
   seloConclusao, seloOrigemEntrada, horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia,
   capacidadeDoDia, somarDias, diasDaSemana, rotuloDiaCurto, rotuloSemana, resumoDoPeriodo,
   opcoesNicho, opcoesCidade, opcoesRegiao, opcoesCategoria, opcoesPais,
-  gruposPlanejamento, motivoPlanejamento, filtrarCarteira,
+  gruposPlanejamento, motivoPlanejamento, sugestaoPlanoDoDia, filtrarCarteira,
 }

@@ -566,6 +566,7 @@ export default function QuadroDoDia({
         ocupado={ocupado}
         onAdicionar={adicionarAoDia}
         rotuloDia={rotuloDia(dia, hoje)}
+        vagasSugeridas={capacidade.vagas}
       />
 
       {/* A SAÍDA HONESTA do "Feito hoje": o servidor não achou ação registrada hoje, então

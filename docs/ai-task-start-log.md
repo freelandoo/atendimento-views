@@ -29,6 +29,13 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Validações previstas:** `cd frontend && node --test lib/plano-dia.test.js`, `npx tsc --noEmit`, verificação visual local se a autenticação/ambiente permitir, e `git diff --check`.
 - **Risco/limite:** manter o Quadro como planejamento pessoal; não assumir lead, não transferir responsável, não enviar mensagem e não criar funil paralelo.
 
+## 2026-09-28 — Sugestão automática revisável no Planejar meu dia
+
+- **Pedido do operador:** após commitar a primeira leva, seguir para o próximo incremento do planejamento diário.
+- **Áreas previstas:** `frontend/components/ModalPlanejarDia.tsx`, `frontend/components/QuadroDoDia.tsx`, `frontend/lib/plano-dia.js`, `frontend/lib/plano-dia.d.ts`, `frontend/lib/plano-dia.test.js`.
+- **Validações previstas:** `cd frontend && node --test lib/plano-dia.test.js`, `npx tsc --noEmit` e `git diff --check`.
+- **Risco/limite:** a sugestão só marca leads no modal; o operador ainda confirma no botão existente. Nada é adicionado automaticamente.
+
 ## 2026-09-25 — Carteira no Planejar meu dia com filtros de categoria/nicho/país
 
 - **Pedido do operador:** ajustar a carteira dentro do Quadro do Dia / Planejar meu dia para funcionar melhor como seleção da agenda do dia, com busca e separadores fáceis por categoria, nicho, país e localização.

@@ -138,6 +138,12 @@ export function motivoPlanejamento(
   item: (CandidatoCarteira & { origem_entrada?: string | null; proximo_agendamento?: string | null }) | null | undefined,
   formatar?: (iso: string) => string,
 ): { rotulo: string; dica: string; classe: string }
+export function sugestaoPlanoDoDia(opcoes?: {
+  sugeridos?: { prospect_id?: string | null }[] | null
+  carteira?: CandidatoCarteira[] | null
+  jaNoDia?: Set<string>
+  limite?: number
+}): { ids: string[]; total: number; partes: string[]; texto: string }
 
 /** Filtra candidatos de planejamento por busca + nicho/categoria/país/cidade/região, excluindo quem já está no dia. */
 export function filtrarCarteira<T extends CandidatoCarteira>(
