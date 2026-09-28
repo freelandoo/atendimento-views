@@ -22,6 +22,13 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Regras a preservar:** `usuario_id NULL` continua sendo instância da empresa/compartilhada; instância de envio continua resolvida por empresa + instância provada, nunca por usuário; contexto padrão continua aplicado/copiadо na criação, sem fallback em tempo de resposta.
 - **Validações previstas:** `cd frontend && npx tsc --noEmit`, testes focados de instância no backend se necessário, e `git diff --check`.
 
+## 2026-09-28 — Melhorias no Planejar meu dia e Quadro do Dia
+
+- **Pedido do operador:** aplicar as ideias priorizadas para melhorar o uso da página de planejamento diário com cards/leads, facilitando organização e decisão no Quadro do Dia.
+- **Áreas previstas:** `frontend/components/QuadroDoDia.tsx`, `frontend/components/ModalPlanejarDia.tsx`, `frontend/lib/plano-dia.js`, `frontend/lib/plano-dia.d.ts`, `frontend/lib/plano-dia.test.js`.
+- **Validações previstas:** `cd frontend && node --test lib/plano-dia.test.js`, `npx tsc --noEmit`, verificação visual local se a autenticação/ambiente permitir, e `git diff --check`.
+- **Risco/limite:** manter o Quadro como planejamento pessoal; não assumir lead, não transferir responsável, não enviar mensagem e não criar funil paralelo.
+
 ## 2026-09-25 — Carteira no Planejar meu dia com filtros de categoria/nicho/país
 
 - **Pedido do operador:** ajustar a carteira dentro do Quadro do Dia / Planejar meu dia para funcionar melhor como seleção da agenda do dia, com busca e separadores fáceis por categoria, nicho, país e localização.

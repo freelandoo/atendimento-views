@@ -7,7 +7,8 @@ const {
   COLUNAS, CHAVES, montarColunas, aoMoverPara, seloConclusao, seloOrigemEntrada,
   horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia, somarDias, diasDaSemana,
   rotuloDiaCurto, rotuloSemana, resumoDoPeriodo, opcoesNicho, opcoesCidade, opcoesRegiao,
-  opcoesCategoria, opcoesPais, filtrarCarteira,
+  opcoesCategoria, opcoesPais, capacidadeDoDia, gruposPlanejamento, motivoPlanejamento,
+  filtrarCarteira,
 } = require('./plano-dia')
 
 const fonte = fs.readFileSync(path.join(__dirname, 'plano-dia.js'), 'utf8')
@@ -106,6 +107,21 @@ test('o resumo conta CARDS do dia, nao carteira', () => {
 
 test('dia vazio tem frase propria, nao "0 de 0"', () => {
   assert.ok(/nenhum lead/i.test(resumoDoDia([]).texto))
+})
+
+test('capacidadeDoDia orienta foco sem bloquear o plano', () => {
+  const r = capacidadeDoDia([
+    { etapa: 'para_hoje' },
+    { etapa: 'em_trabalho' },
+    { etapa: 'em_trabalho' },
+    { etapa: 'feito' },
+  ], 4, 1)
+  assert.equal(r.abertos, 3)
+  assert.equal(r.feitos, 1)
+  assert.equal(r.vagas, 1)
+  assert.equal(r.passouLimiteDia, false)
+  assert.equal(r.passouLimiteTrabalho, true)
+  assert.match(r.alerta, /em trabalho/)
 })
 
 // ── Pendencias ───────────────────────────────────────────────────────────────
@@ -228,6 +244,38 @@ test('filtrarCarteira recorta por nicho, categoria, pais e combina com a busca',
   assert.deepEqual(filtrarCarteira(c, { cidade: 'Goiânia' }).map((l) => l.id), ['1', '2'])
   assert.deepEqual(filtrarCarteira(c, { cidade: 'Goiânia', regiao: 'Centro' }).map((l) => l.id), ['2'])
   assert.deepEqual(filtrarCarteira(c, { regiao: 'GO' }).map((l) => l.id), ['3'])
+})
+
+test('gruposPlanejamento cria atalhos de decisao sobre a carteira carregada', () => {
+  const c = [
+    { id: '1', telefone: '5562', icp_faixa: 'A' },
+    { id: '2', telefone: '', icp_faixa: 'B' },
+    { id: '3', telefone: null, icp_faixa: null },
+  ]
+  const grupos = gruposPlanejamento(c)
+  const porChave = Object.fromEntries(grupos.map((g) => [g.chave, g.total]))
+  assert.equal(porChave.icp_a, 1)
+  assert.equal(porChave.com_telefone, 1)
+  assert.equal(porChave.sem_telefone, 2)
+  assert.equal(porChave.icp_pendente, 1)
+})
+
+test('filtrarCarteira aceita grupo rapido sem mexer nos demais filtros', () => {
+  const c = [
+    { id: '1', nome: 'Sol Forte', telefone: '5562', icp_faixa: 'A', cidade: 'Goiânia' },
+    { id: '2', nome: 'Clínica Boa', telefone: '', icp_faixa: 'A', cidade: 'Goiânia' },
+    { id: '3', nome: 'Luz Verde', telefone: '5561', icp_faixa: 'B', cidade: 'Anápolis' },
+  ]
+  assert.deepEqual(filtrarCarteira(c, { grupo: 'icp_a' }).map((l) => l.id), ['1', '2'])
+  assert.deepEqual(filtrarCarteira(c, { grupo: 'com_telefone', cidade: 'Goiânia' }).map((l) => l.id), ['1'])
+  assert.deepEqual(filtrarCarteira(c, { grupo: 'sem_telefone' }).map((l) => l.id), ['2'])
+})
+
+test('motivoPlanejamento prioriza motivo provado e depois sinais de decisao', () => {
+  assert.equal(motivoPlanejamento({ origem_entrada: 'sugestao_vencidos' }).rotulo, 'Retorno vencido')
+  assert.equal(motivoPlanejamento({ proximo_agendamento: '2026-09-28T18:00:00Z' }, () => '18:00').rotulo, 'Agenda 18:00')
+  assert.equal(motivoPlanejamento({ icp_faixa: 'A', telefone: '5562' }).rotulo, 'ICP A')
+  assert.equal(motivoPlanejamento({ telefone: '' }).rotulo, 'Completar cadastro')
 })
 
 test('filtrarCarteira preserva a ordem de trabalho e nao corta a carteira por padrao', () => {

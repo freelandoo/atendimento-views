@@ -53,6 +53,25 @@ export function resumoDoDia(itens: { etapa?: string | null }[] | null | undefine
   porColuna: Record<string, number>
   texto: string
 }
+/** Capacidade sugerida do plano diário. Só orienta a tela; não bloqueia. */
+export function capacidadeDoDia(
+  itens: { etapa?: string | null }[] | null | undefined,
+  limiteDia?: number,
+  limiteEmTrabalho?: number,
+): {
+  limiteDia: number
+  limiteEmTrabalho: number
+  total: number
+  feitos: number
+  abertos: number
+  emTrabalho: number
+  vagas: number
+  passouLimiteDia: boolean
+  passouLimiteTrabalho: boolean
+  texto: string
+  alerta: string
+  classe: string
+}
 /** A prévia das pendências. Nunca move nada. */
 export function avisoPendentes(pendentes: unknown[] | null | undefined): { total: number; texto: string; acao: string } | null
 export function rotuloDia(dia: string | null | undefined, hoje: string | null | undefined): string
@@ -109,6 +128,16 @@ export function opcoesCidade(candidatos: { cidade?: string | null }[] | null | u
 export function opcoesRegiao(candidatos: CandidatoCarteira[] | null | undefined): { valor: string; total: number }[]
 export function opcoesCategoria(candidatos: CandidatoCarteira[] | null | undefined): { valor: string; total: number }[]
 export function opcoesPais(candidatos: CandidatoCarteira[] | null | undefined): { valor: string; total: number }[]
+export function gruposPlanejamento(candidatos: CandidatoCarteira[] | null | undefined): {
+  chave: 'icp_a' | 'com_telefone' | 'sem_telefone' | 'icp_pendente'
+  rotulo: string
+  dica: string
+  total: number
+}[]
+export function motivoPlanejamento(
+  item: (CandidatoCarteira & { origem_entrada?: string | null; proximo_agendamento?: string | null }) | null | undefined,
+  formatar?: (iso: string) => string,
+): { rotulo: string; dica: string; classe: string }
 
 /** Filtra candidatos de planejamento por busca + nicho/categoria/país/cidade/região, excluindo quem já está no dia. */
 export function filtrarCarteira<T extends CandidatoCarteira>(
@@ -120,6 +149,7 @@ export function filtrarCarteira<T extends CandidatoCarteira>(
     pais?: string
     cidade?: string
     regiao?: string
+    grupo?: string
     jaNoDia?: Set<string>
     limite?: number
   },

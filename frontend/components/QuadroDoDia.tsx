@@ -29,7 +29,7 @@ import { celulaOrigem } from '@/lib/lead-origem'
 import {
   COLUNAS, montarColunas, aoMoverPara, seloConclusao, seloOrigemEntrada,
   horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia, somarDias, diasDaSemana,
-  rotuloDiaCurto, rotuloSemana, resumoDoPeriodo,
+  rotuloDiaCurto, rotuloSemana, resumoDoPeriodo, capacidadeDoDia, motivoPlanejamento,
   type CardDia, type EtapaDia,
 } from '@/lib/plano-dia'
 import ModalPlanejarDia, { type CandidatoDia } from '@/components/ModalPlanejarDia'
@@ -167,6 +167,7 @@ export default function QuadroDoDia({
 
   const colunas = useMemo(() => montarColunas(itens), [itens])
   const resumo = useMemo(() => resumoDoDia(itens), [itens])
+  const capacidade = useMemo(() => capacidadeDoDia(itens), [itens])
   const aviso = useMemo(() => avisoPendentes(pendentes), [pendentes])
   const jaNoDia = useMemo(() => new Set(itens.map((i) => i.prospect_id)), [itens])
   const diasContexto = useMemo(() => diasDaSemana(dia || hoje), [dia, hoje])
@@ -274,6 +275,17 @@ export default function QuadroDoDia({
               Quadro do dia · <span className="text-brand">{rotuloDia(dia, hoje)}</span>
             </h2>
             <p className="text-xs text-ink-3" aria-live="polite">{resumo.texto}</p>
+          </div>
+          <div
+            className={`flex min-w-[210px] flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-2.5 py-1.5 text-xs ${capacidade.classe}`}
+            title="Capacidade sugerida: ajuda a limitar trabalho aberto, mas não bloqueia o plano."
+          >
+            <span className="font-semibold">Capacidade</span>
+            <span>{capacidade.texto}</span>
+            <span className="text-ink-3">
+              {capacidade.emTrabalho}/{capacidade.limiteEmTrabalho} em trabalho
+            </span>
+            {capacidade.alerta && <span className="basis-full text-estado-warn">{capacidade.alerta}</span>}
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-1.5">
             <Botao
@@ -408,6 +420,7 @@ export default function QuadroDoDia({
                   const selo = seloConclusao(c)
                   const entrada = seloOrigemEntrada(c.origem_entrada)
                   const hora = horarioDoCard(c, fmtHora)
+                  const motivo = motivoPlanejamento(c, fmtHora)
                   return (
                     <article
                       key={c.id}
@@ -486,6 +499,11 @@ export default function QuadroDoDia({
                             {entrada.rotulo}
                           </span>
                         )}
+                        {motivo && !entrada && !hora && (
+                          <span className={`rounded-md border px-1.5 py-0.5 font-medium ${motivo.classe}`} title={motivo.dica}>
+                            {motivo.rotulo}
+                          </span>
+                        )}
                         {!c.telefone && (
                           <span className="text-amber-700" title="Sem telefone: o trabalho aqui é completar o cadastro">
                             sem telefone
@@ -503,6 +521,17 @@ export default function QuadroDoDia({
                       )}
                       {selo && !selo.prova && c.conclusao_nota && (
                         <p className="mt-1 text-[11px] italic leading-snug text-ink-3">“{c.conclusao_nota}”</p>
+                      )}
+                      {c.etapa === 'aguardando_retorno' && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onAbrirLead(c.prospect_id, 'telefone') }}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="mt-2 rounded-md border border-line bg-surface-2 px-2 py-1 text-[11px] font-medium text-ink-2 hover:border-brand/40 hover:text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+                          title="Abre a ficha na área de conversa para registrar a próxima ação pelo fluxo oficial."
+                        >
+                          Registrar follow-up
+                        </button>
                       )}
 
                       <p className="sr-only">

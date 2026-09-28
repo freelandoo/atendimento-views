@@ -49,6 +49,8 @@ const COLUNAS = [
 const CHAVES = COLUNAS.map((c) => c.chave)
 const MS_DIA = 86400000
 const DIAS_CURTOS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab']
+const LIMITE_DIA_SUGERIDO = 8
+const LIMITE_EM_TRABALHO = 3
 
 function coluna(chave) {
   return COLUNAS.find((c) => c.chave === chave) || null
@@ -207,6 +209,44 @@ function resumoDoDia(itens) {
 }
 
 /**
+ * Capacidade sugerida do plano diário. É só leitura/UX: não bloqueia o operador e não altera
+ * regra de negócio. O objetivo é reduzir troca de contexto antes do dia virar uma lista infinita.
+ */
+function capacidadeDoDia(itens, limiteDia = LIMITE_DIA_SUGERIDO, limiteEmTrabalho = LIMITE_EM_TRABALHO) {
+  const resumo = resumoDoDia(itens)
+  const total = resumo.total
+  const feitos = Number(resumo.porColuna.feito || 0)
+  const abertos = Math.max(0, total - feitos)
+  const emTrabalho = Number(resumo.porColuna.em_trabalho || 0)
+  const vagas = Math.max(0, limiteDia - abertos)
+  const passouLimiteDia = abertos > limiteDia
+  const passouLimiteTrabalho = emTrabalho > limiteEmTrabalho
+  const classe = passouLimiteDia || passouLimiteTrabalho
+    ? 'border-estado-warn/40 bg-amber-50 text-amber-900'
+    : 'border-line bg-surface-2 text-ink-2'
+  const texto = passouLimiteDia
+    ? `${abertos} em aberto para ${limiteDia} vagas sugeridas`
+    : `${vagas} ${vagas === 1 ? 'vaga livre' : 'vagas livres'} no plano sugerido`
+  const alerta = passouLimiteTrabalho
+    ? `${emTrabalho} em trabalho ao mesmo tempo; tente fechar antes de puxar mais.`
+    : ''
+  return {
+    limiteDia,
+    limiteEmTrabalho,
+    total,
+    feitos,
+    abertos,
+    emTrabalho,
+    vagas,
+    passouLimiteDia,
+    passouLimiteTrabalho,
+    texto,
+    alerta,
+    classe,
+  }
+}
+
+/**
  * O aviso das pendências de dias anteriores. **Nunca move nada**: devolve o texto da prévia, e
  * o replanejamento continua sendo um clique do operador. Pendência não some à meia-noite.
  */
@@ -283,13 +323,74 @@ function opcoesPais(candidatos) {
   return opcoesCampoCarteira(candidatos, 'pais')
 }
 
+function icpChave(c) {
+  return String(c?.icp_faixa || '').trim().toUpperCase()
+}
+
+function grupoRapidoBate(c, grupo) {
+  if (!grupo) return true
+  if (grupo === 'icp_a') return icpChave(c) === 'A'
+  if (grupo === 'com_telefone') return !!String(c?.telefone || '').trim()
+  if (grupo === 'sem_telefone') return !String(c?.telefone || '').trim()
+  if (grupo === 'icp_pendente') return !icpChave(c)
+  return true
+}
+
+function gruposPlanejamento(candidatos) {
+  const lista = Array.isArray(candidatos) ? candidatos : []
+  const defs = [
+    {
+      chave: 'icp_a',
+      rotulo: 'ICP A',
+      dica: 'Leads com melhor encaixe comercial já calculado.',
+      selecionar: (c) => icpChave(c) === 'A',
+    },
+    {
+      chave: 'com_telefone',
+      rotulo: 'Com telefone',
+      dica: 'Leads prontos para contato ou validação rápida.',
+      selecionar: (c) => !!String(c?.telefone || '').trim(),
+    },
+    {
+      chave: 'sem_telefone',
+      rotulo: 'Completar cadastro',
+      dica: 'Leads sem telefone: o trabalho do dia é completar dado, não tentar contato.',
+      selecionar: (c) => !String(c?.telefone || '').trim(),
+    },
+    {
+      chave: 'icp_pendente',
+      rotulo: 'ICP pendente',
+      dica: 'Leads ainda sem faixa ICP para revisar antes de priorizar.',
+      selecionar: (c) => !icpChave(c),
+    },
+  ]
+  return defs
+    .map((g) => ({
+      chave: g.chave,
+      rotulo: g.rotulo,
+      dica: g.dica,
+      total: lista.filter(g.selecionar).length,
+    }))
+    .filter((g) => g.total > 0)
+}
+
+function motivoPlanejamento(item, formatar) {
+  const entrada = seloOrigemEntrada(item?.origem_entrada)
+  if (entrada) return { rotulo: entrada.rotulo, dica: entrada.dica, classe: 'border-amber-200 bg-amber-50 text-amber-800' }
+  const hora = horarioDoCard(item, formatar)
+  if (hora) return { rotulo: `Agenda ${hora}`, dica: 'Há compromisso marcado para este lead.', classe: 'border-brand/20 bg-brand/5 text-brand' }
+  if (icpChave(item) === 'A') return { rotulo: 'ICP A', dica: 'Bom encaixe comercial para priorizar no plano.', classe: 'border-emerald-200 bg-emerald-50 text-emerald-800' }
+  if (!String(item?.telefone || '').trim()) return { rotulo: 'Completar cadastro', dica: 'Sem telefone: primeiro passo é completar ou validar contato.', classe: 'border-amber-200 bg-amber-50 text-amber-800' }
+  return { rotulo: 'Carteira', dica: 'Escolhido manualmente da sua carteira de planejamento.', classe: 'border-line bg-surface-3 text-ink-2' }
+}
+
 /**
  * Filtra os candidatos de planejamento por busca e por nicho/categoria/país/cidade/região,
  * excluindo quem já está no dia. `limite`, quando informado, recorta a lista exibida; sem ele
  * o planejamento mostra todo o recorte carregado, para o seletor de nicho/cidade não esconder
  * trabalho que já está disponível na carteira.
  */
-function filtrarCarteira(candidatos, { busca, nicho, categoria, pais, cidade, regiao, jaNoDia, limite } = {}) {
+function filtrarCarteira(candidatos, { busca, nicho, categoria, pais, cidade, regiao, grupo, jaNoDia, limite } = {}) {
   const q = String(busca || '').trim().toLowerCase()
   const n = String(nicho || '').trim()
   const cat = String(categoria || '').trim()
@@ -304,8 +405,9 @@ function filtrarCarteira(candidatos, { busca, nicho, categoria, pais, cidade, re
   const porPais = ps ? porCategoria.filter((l) => valorPais(l) === ps) : porCategoria
   const porCidade = cid ? porPais.filter((l) => String(l.cidade || '').trim() === cid) : porPais
   const porRegiao = reg ? porCidade.filter((l) => valorRegiao(l) === reg) : porCidade
+  const porGrupo = grupo ? porRegiao.filter((l) => grupoRapidoBate(l, grupo)) : porRegiao
   const porBusca = q
-    ? porRegiao.filter((l) => (
+    ? porGrupo.filter((l) => (
       String(l.nome || '').toLowerCase().includes(q)
       || String(l.telefone || '').includes(q)
       || String(l.instagram_handle || '').toLowerCase().includes(q)
@@ -314,13 +416,14 @@ function filtrarCarteira(candidatos, { busca, nicho, categoria, pais, cidade, re
       || String(l.cidade || '').toLowerCase().includes(q)
       || valorPais(l).toLowerCase().includes(q)
     ))
-    : porRegiao
+    : porGrupo
   return teto ? porBusca.slice(0, teto) : porBusca
 }
 
 module.exports = {
   COLUNAS, CHAVES, coluna, montarColunas, aoMoverPara,
   seloConclusao, seloOrigemEntrada, horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia,
-  somarDias, diasDaSemana, rotuloDiaCurto, rotuloSemana, resumoDoPeriodo,
-  opcoesNicho, opcoesCidade, opcoesRegiao, opcoesCategoria, opcoesPais, filtrarCarteira,
+  capacidadeDoDia, somarDias, diasDaSemana, rotuloDiaCurto, rotuloSemana, resumoDoPeriodo,
+  opcoesNicho, opcoesCidade, opcoesRegiao, opcoesCategoria, opcoesPais,
+  gruposPlanejamento, motivoPlanejamento, filtrarCarteira,
 }

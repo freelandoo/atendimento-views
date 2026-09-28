@@ -20,7 +20,7 @@ import { ordemIcp, seloIcp } from '@/lib/lead-icp'
 import { nomePais } from '@/lib/paises'
 import {
   seloOrigemEntrada, opcoesNicho, opcoesCidade, opcoesRegiao, opcoesCategoria, opcoesPais,
-  filtrarCarteira,
+  gruposPlanejamento, motivoPlanejamento, filtrarCarteira,
 } from '@/lib/plano-dia'
 
 export type CandidatoDia = {
@@ -102,6 +102,7 @@ export default function ModalPlanejarDia({
   const [pais, setPais] = useState('')
   const [cidade, setCidade] = useState('')
   const [regiao, setRegiao] = useState('')
+  const [grupoRapido, setGrupoRapido] = useState('')
   const [aba, setAba] = useState<'esperando' | 'carteira'>('esperando')
   const [marcados, setMarcados] = useState<Set<string>>(new Set())
 
@@ -113,9 +114,10 @@ export default function ModalPlanejarDia({
   const paises = useMemo(() => opcoesPais(disponiveis), [disponiveis])
   const cidades = useMemo(() => opcoesCidade(disponiveis), [disponiveis])
   const regioes = useMemo(() => opcoesRegiao(disponiveis), [disponiveis])
+  const gruposRapidos = useMemo(() => gruposPlanejamento(disponiveis), [disponiveis])
   const filtrados = useMemo(
-    () => filtrarCarteira(candidatos, { busca, nicho, categoria, pais, cidade, regiao, jaNoDia }),
-    [candidatos, busca, nicho, categoria, pais, cidade, regiao, jaNoDia]
+    () => filtrarCarteira(candidatos, { busca, nicho, categoria, pais, cidade, regiao, grupo: grupoRapido, jaNoDia }),
+    [candidatos, busca, nicho, categoria, pais, cidade, regiao, grupoRapido, jaNoDia]
   )
   const carteiraOrdenada = useMemo(
     () => filtrados
@@ -127,7 +129,7 @@ export default function ModalPlanejarDia({
       .map((item) => item.lead),
     [filtrados]
   )
-  const filtrosCarteira = [busca.trim(), nicho, categoria, pais, cidade, regiao].filter(Boolean).length
+  const filtrosCarteira = [busca.trim(), nicho, categoria, pais, cidade, regiao, grupoRapido].filter(Boolean).length
 
   // Nicho que esvaziou (todos foram para o dia) volta para "Todos": um <select> com valor sem
   // <option> correspondente exibe uma coisa e filtra outra.
@@ -146,6 +148,9 @@ export default function ModalPlanejarDia({
   useEffect(() => {
     if (regiao && !regioes.some((o) => o.valor === regiao)) setRegiao('')
   }, [regiao, regioes])
+  useEffect(() => {
+    if (grupoRapido && !gruposRapidos.some((o) => o.chave === grupoRapido)) setGrupoRapido('')
+  }, [grupoRapido, gruposRapidos])
 
   function marcarFiltrados() {
     setMarcados((prev) => {
@@ -162,6 +167,7 @@ export default function ModalPlanejarDia({
     setPais('')
     setCidade('')
     setRegiao('')
+    setGrupoRapido('')
   }
 
   const sugeridos = useMemo(
@@ -407,6 +413,27 @@ export default function ModalPlanejarDia({
             )}
           </div>
 
+          {gruposRapidos.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-ink-3">Blocos rápidos</span>
+              {gruposRapidos.map((g) => (
+                <button
+                  key={g.chave}
+                  type="button"
+                  onClick={() => setGrupoRapido((atual) => (atual === g.chave ? '' : g.chave))}
+                  title={g.dica}
+                  className={`rounded-md border px-2 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${
+                    grupoRapido === g.chave
+                      ? 'border-brand bg-brand/10 text-brand'
+                      : 'border-line bg-surface text-ink-2 hover:border-brand/40 hover:bg-surface-3'
+                  }`}
+                >
+                  {g.rotulo} <span className="font-normal">({g.total})</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           {carregandoCarteira ? (
             <p className="mt-3 rounded-lg border border-line bg-surface-2 px-3 py-4 text-center text-xs text-ink-3">
               Carregando carteira de planejamento…
@@ -430,6 +457,7 @@ export default function ModalPlanejarDia({
             <ul className="mt-2 max-h-[40vh] space-y-1.5 overflow-y-auto pr-1">
               {carteiraOrdenada.map((l) => {
                 const o = celulaOrigem(l)
+                const motivo = motivoPlanejamento(l)
                 return (
                   <li key={l.id}>
                     <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-sm hover:border-line-strong">
@@ -442,6 +470,9 @@ export default function ModalPlanejarDia({
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-medium text-ink">{l.nome || 'Sem nome'}</span>
                         <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-3">
+                          <span className={`rounded-md border px-1.5 py-0.5 font-medium ${motivo.classe}`} title={motivo.dica}>
+                            {motivo.rotulo}
+                          </span>
                           <span className={o.classe} title={`${o.rotulo} — ${o.dica}`}>{o.curto}</span>
                           {l.nicho && (
                             <span className="truncate rounded-md bg-surface-3 px-1.5 py-0.5 text-ink-2">{l.nicho}</span>
@@ -455,7 +486,6 @@ export default function ModalPlanejarDia({
                             <span className="truncate">{nomePais(l.pais || l.country)}</span>
                           )}
                           {l.cidade && <span className="truncate">{l.cidade}</span>}
-                          {!l.telefone && <span className="text-amber-700">sem telefone</span>}
                         </span>
                       </span>
                       <SeloIcpPlanejamento lead={l} />
