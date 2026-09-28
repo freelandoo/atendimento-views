@@ -887,6 +887,8 @@ export default function BancoLeadsPage() {
   const [confirmarLoteGrande, setConfirmarLoteGrande] = useState(false)
   const [confirmarAutomatico, setConfirmarAutomatico] = useState(false)
   const montadoRef = useRef(true)
+  const leadCacheRef = useRef<Map<string, Lead>>(new Map())
+  const leadFetchRef = useRef<Map<string, Promise<Lead>>>(new Map())
   useEffect(() => () => { montadoRef.current = false }, [])
   const [geracaoProgresso, setGeracaoProgresso] = useState<GeracaoProgresso | null>(null)
   const [geracaoProgressoErro, setGeracaoProgressoErro] = useState(false)
@@ -1056,12 +1058,39 @@ export default function BancoLeadsPage() {
    */
   async function abrirLeadPorId(prospectId: string, gatilho: string) {
     const emMemoria = leads.find((l) => l.id === prospectId)
-    if (emMemoria) { abrirFicha(emMemoria, gatilho); return }
+    if (emMemoria) { abrirFicha(guardarLeadFicha(emMemoria), gatilho); return }
+    const emCache = leadCacheRef.current.get(prospectId)
+    if (emCache) { abrirFicha(emCache, gatilho); return }
     try {
-      const r = await apiFetch<Lead>(`${base}/leads/${prospectId}`)
-      abrirFicha(r.data, gatilho)
+      abrirFicha(await carregarLeadFicha(prospectId), gatilho)
     } catch (e) {
       fb.toast(e instanceof Error ? e.message : 'Não foi possível abrir este lead.', 'error')
+    }
+  }
+
+  function guardarLeadFicha(l: Lead) {
+    leadCacheRef.current.set(l.id, l)
+    return l
+  }
+
+  function mesclarLeadFicha(l: Lead) {
+    const atual = leadCacheRef.current.get(l.id)
+    const mesclado = atual ? { ...atual, ...l } : l
+    leadCacheRef.current.set(l.id, mesclado)
+    return mesclado
+  }
+
+  async function carregarLeadFicha(prospectId: string) {
+    const emCache = leadCacheRef.current.get(prospectId)
+    if (emCache) return emCache
+    const emAndamento = leadFetchRef.current.get(prospectId)
+    if (emAndamento) return emAndamento
+    const requisicao = apiFetch<Lead>(`${base}/leads/${prospectId}`).then((r) => guardarLeadFicha(r.data))
+    leadFetchRef.current.set(prospectId, requisicao)
+    try {
+      return await requisicao
+    } finally {
+      leadFetchRef.current.delete(prospectId)
     }
   }
 
@@ -1070,23 +1099,25 @@ export default function BancoLeadsPage() {
    * mapa). Substitui `abrirConversa` + `setDetalheAberto`: era o mesmo lead em dois modais.
    */
   function abrirFicha(l: Lead, gatilho: string) {
-    const whatsapp = telefoneWhatsapp(l.telefone)
+    const lead = guardarLeadFicha(l)
+    const whatsapp = telefoneWhatsapp(lead.telefone)
     setFicha({
       secao: secaoDoGatilho(gatilho),
-      numero: whatsapp ? `${whatsapp}@s.whatsapp.net` : '', titulo: l.nome || '', leadId: l.id,
-      mensagemGerada: l.mensagem_gerada, rodavel: isRodavel(l), status: l.status,
+      numero: whatsapp ? `${whatsapp}@s.whatsapp.net` : '', titulo: lead.nome || '', leadId: lead.id,
+      mensagemGerada: lead.mensagem_gerada, rodavel: isRodavel(lead), status: lead.status,
       // Acessos rápidos (rede social / site / ficha no Maps) — a regra é pura e vive em
       // lib/lead-acessos.js; aqui só se passa o veredito que o backend já mandou no lead.
-      acessos: acessosDoLead(l),
-      leadAberto: l,
+      acessos: acessosDoLead(lead),
+      leadAberto: lead,
     })
   }
 
   function aplicarLeadAtualizado(leadAtualizado: Lead) {
+    const leadMesclado = mesclarLeadFicha(leadAtualizado)
     setLeads((prev) => prev.map((l) => (l.id === leadAtualizado.id ? { ...l, ...leadAtualizado } : l)))
     // O lead da ficha sai de `leads` (ver `leadDaFicha`), então ele já acompanha esta
     // atualização. Aqui só o que a ficha guarda por conta própria: o status usado pelas ações.
-    setFicha((cur) => (cur && cur.leadId === leadAtualizado.id ? { ...cur, status: leadAtualizado.status } : cur))
+    setFicha((cur) => (cur && cur.leadId === leadAtualizado.id ? { ...cur, status: leadMesclado.status, leadAberto: leadMesclado } : cur))
   }
 
   function query() {
@@ -1136,7 +1167,9 @@ export default function BancoLeadsPage() {
       // pedir `todos` sem poder devolve "meus + livres", e o `meta.escopo` diz o que veio.
       if (escopo) p.set('escopo', escopo)
       const r = await apiFetch<Lead[], { escopo?: string; pode_ver_todos?: boolean; total?: number; total_carteira?: number; limite?: number; equipe?: EquipeRecorte | null }>(`${base}/leads?${p.toString()}`)
-      setLeads(r.data || [])
+      const recebidos = r.data || []
+      recebidos.forEach(guardarLeadFicha)
+      setLeads(recebidos)
       // `total_carteira` é o total REAL do recorte, contado no banco. A listagem devolve uma
       // janela; sem este número o operador acharia que a carteira tem o tamanho do que veio.
       setMetaLista(r.meta || null)
@@ -1605,7 +1638,11 @@ export default function BancoLeadsPage() {
     setGerandoConversa(true)
     try {
       const texto = await gerarUm(ficha.leadId)
-      if (texto) setFicha((cur) => cur ? { ...cur, mensagemGerada: texto } : cur)
+      if (texto) setFicha((cur) => {
+        if (!cur) return cur
+        const leadAberto = mesclarLeadFicha({ ...cur.leadAberto, mensagem_gerada: texto })
+        return { ...cur, mensagemGerada: texto, leadAberto }
+      })
     } finally {
       setGerandoConversa(false)
     }
@@ -1695,6 +1732,8 @@ export default function BancoLeadsPage() {
       ultimo_status_em: statusEm,
       proximo_agendamento: novo.agenda_evento?.data_inicio ?? l.proximo_agendamento,
     })
+    const leadCacheado = leadCacheRef.current.get(id)
+    if (leadCacheado) guardarLeadFicha(atualizarLeadNaLista(leadCacheado))
     setLeads((prev) => prev.flatMap((l) => {
       if (l.id !== id) return [l]
       const atualizado = atualizarLeadNaLista(l)
@@ -1708,7 +1747,7 @@ export default function BancoLeadsPage() {
     })
     setFicha((cur) => {
       if (!cur || cur.leadId !== id) return cur
-      const leadAberto = atualizarLeadNaLista(cur.leadAberto)
+      const leadAberto = mesclarLeadFicha(atualizarLeadNaLista(cur.leadAberto))
       if (!leadPermaneceNaAbaBanco(leadAberto, aba)) return null
       return { ...cur, status: novo.status, leadAberto }
     })
@@ -1785,7 +1824,11 @@ export default function BancoLeadsPage() {
 
   async function salvarEmail(id: string, email: string) {
     await apiFetch(`${base}/leads/${id}/email`, { method: 'PATCH', body: JSON.stringify({ email }) })
-    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, email: email || null } : l)))
+    const aplicarEmail = (l: Lead): Lead => ({ ...l, email: email || null })
+    const leadCacheado = leadCacheRef.current.get(id)
+    if (leadCacheado) guardarLeadFicha(aplicarEmail(leadCacheado))
+    setLeads((prev) => prev.map((l) => (l.id === id ? aplicarEmail(l) : l)))
+    setFicha((cur) => (cur && cur.leadId === id ? { ...cur, leadAberto: mesclarLeadFicha(aplicarEmail(cur.leadAberto)) } : cur))
     fb.toast(email ? 'E-mail salvo.' : 'E-mail removido.')
   }
 
@@ -1802,6 +1845,8 @@ export default function BancoLeadsPage() {
       status: r.data.status,
       tem_whatsapp: r.data.tem_whatsapp,
     })
+    const leadCacheado = leadCacheRef.current.get(id)
+    if (leadCacheado) guardarLeadFicha(aplicarTelefone(leadCacheado))
     setLeads((prev) => prev.map((l) => (l.id === id
       ? aplicarTelefone(l)
       : l)))
@@ -1811,7 +1856,7 @@ export default function BancoLeadsPage() {
     // número corrigido imediatamente.
     setFicha((c) => {
       if (!c || c.leadId !== id) return c
-      const leadAberto = aplicarTelefone(c.leadAberto)
+      const leadAberto = mesclarLeadFicha(aplicarTelefone(c.leadAberto))
       return {
         ...c,
         numero: r.data.numero_whatsapp || '',

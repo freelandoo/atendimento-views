@@ -6,6 +6,14 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-28 — Abertura mais rápida da ficha no Banco de Leads
+
+- **Pedido do operador:** investigar por que às vezes a ficha demora para abrir ao clicar em um card/lead e melhorar a percepção de velocidade sem mudar o fluxo comercial.
+- **Workflow:** Fase 0 registrada antes da implementação; seguir `docs/ai-workflow.md`, `docs/ui-visual-standard.md` e manter diff mínimo.
+- **Áreas previstas:** `frontend/app/dashboard/banco-leads/page.tsx`.
+- **Validações previstas:** `cd frontend && npx tsc --noEmit`, `cd frontend && node --test lib/*.test.js` e `git diff --check`.
+- **Risco/limite:** não montar ficha parcial com dados divergentes da Lista; manter a rota `/leads/:id` como fonte quando o lead ainda não estiver hidratado.
+
 ## 2026-09-25 — Follow-up direto na ficha do lead
 
 - **Pedido do operador:** adicionar uma opção de Follow-up no status/ações da ficha do lead para agendar o retorno da conversa sem precisar registrar ligação antes.
