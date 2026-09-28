@@ -4,7 +4,7 @@ export interface OpcaoFiltroOrigem {
 }
 
 export interface RotuloOrigem {
-  /** Grupo de apresentação: places | instagram | linkedin | meta_ads | desconhecida. */
+  /** Grupo de apresentação: places | inbound | instagram | linkedin | meta_ads | desconhecida. */
   chave: string
   rotulo: string
   curto: string

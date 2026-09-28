@@ -4232,32 +4232,49 @@ function PersonalizarModal({ view, origem, onOrigemChange, onPatch, onReset, onP
 
 // ─── Modal Adicionar cadastro — cria um lead manualmente no banco ──────────────
 const ORIGENS_CADASTRO: { valor: string; label: string }[] = [
-  { valor: 'manual', label: 'Manual' },
-  { valor: 'google', label: 'Google' },
-  { valor: 'instagram', label: 'Instagram' },
+  { valor: 'whatsapp', label: 'Inbound · WhatsApp' },
+  { valor: 'meta_form', label: 'Inbound · Formulário Meta' },
+  { valor: 'manual', label: 'Outbound · Manual' },
+  { valor: 'google', label: 'Outbound · Google Places' },
+  { valor: 'instagram', label: 'Outbound · Instagram' },
+  { valor: 'meta_ads', label: 'Outbound · Anúncio Meta' },
 ]
 function CadastroModal({ base, onClose, onSaved }: {
   base: string
   onClose: () => void
   onSaved: () => void
 }) {
-  const [origem, setOrigem] = useState('manual')
+  const [origem, setOrigem] = useState('whatsapp')
   const [nome, setNome] = useState('')
   const [whatsapp, setWhatsapp] = useState('')
+  const [email, setEmail] = useState('')
   const [instagram, setInstagram] = useState('')
+  const [nicho, setNicho] = useState('')
+  const [cidade, setCidade] = useState('')
+  const [observacao, setObservacao] = useState('')
   const [salvando, setSalvando] = useState(false)
   const fb = useFeedback()
 
   async function salvar() {
     if (!nome.trim()) { fb.toast('Informe o nome do lead.', 'error'); return }
     const tel = whatsapp.replace(/\D/g, '')
-    if (!tel && !instagram.trim()) { fb.toast('Informe WhatsApp ou Instagram.', 'error'); return }
+    if (origem === 'whatsapp' && !tel) { fb.toast('Lead inbound de WhatsApp precisa ter número.', 'error'); return }
+    if (!tel && !instagram.trim() && !email.trim()) { fb.toast('Informe WhatsApp, Instagram ou e-mail.', 'error'); return }
     if (tel && tel.length < 10) { fb.toast('WhatsApp inválido — informe DDD + número.', 'error'); return }
     setSalvando(true)
     try {
       await fb.runTask(() => apiFetch(`${base}/leads`, {
         method: 'POST',
-        body: JSON.stringify({ origem, nome: nome.trim(), whatsapp: tel, instagram: instagram.trim() }),
+        body: JSON.stringify({
+          origem,
+          nome: nome.trim(),
+          whatsapp: tel,
+          email: email.trim(),
+          instagram: instagram.trim(),
+          nicho: nicho.trim(),
+          cidade: cidade.trim(),
+          observacao: observacao.trim(),
+        }),
       }), { sucesso: 'Cadastro adicionado ao banco.' })
       onSaved()
     } catch { /* erro já exibido pelo feedback */ }
@@ -4266,19 +4283,19 @@ function CadastroModal({ base, onClose, onSaved }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="bg-surface rounded-lg shadow-xl max-w-md w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[90vh] w-full max-w-lg space-y-4 overflow-y-auto rounded-lg bg-surface p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div>
             <h3 className="font-semibold text-lg">Adicionar cadastro</h3>
-            <p className="text-xs text-ink-3 mt-0.5">Cria um lead manualmente no banco. Informe ao menos WhatsApp ou Instagram.</p>
+            <p className="text-xs text-ink-3 mt-0.5">Registra um lead inbound ou outbound. O que faltar fica pendente na ficha.</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-xl leading-none" aria-label="Fechar">×</button>
+          <button onClick={onClose} className="text-ink-3 hover:text-ink text-xl leading-none" aria-label="Fechar">×</button>
         </div>
 
-        <div>
+        <div className="mt-4">
           <label className="block text-xs text-ink-3 mb-1">Origem</label>
           <select value={origem} onChange={(e) => setOrigem(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm">
+            className="w-full rounded-lg border border-line px-3 py-2 text-sm">
             {ORIGENS_CADASTRO.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
           </select>
         </div>
@@ -4286,23 +4303,50 @@ function CadastroModal({ base, onClose, onSaved }: {
         <div>
           <label className="block text-xs text-ink-3 mb-1">Nome</label>
           <input value={nome} onChange={(e) => setNome(e.target.value)}
-            placeholder="Nome do lead ou empresa" className="w-full border rounded-lg px-3 py-2 text-sm" />
+            placeholder="Nome do lead ou empresa" className="w-full rounded-lg border border-line px-3 py-2 text-sm" />
         </div>
 
-        <div>
-          <label className="block text-xs text-ink-3 mb-1">WhatsApp</label>
-          <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)}
-            placeholder="ex: 5521999998888" className="w-full border rounded-lg px-3 py-2 text-sm" />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs text-ink-3 mb-1">WhatsApp</label>
+            <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)}
+              placeholder="ex: 5521999998888" className="w-full rounded-lg border border-line px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs text-ink-3 mb-1">E-mail</label>
+            <input value={email} onChange={(e) => setEmail(e.target.value)}
+              placeholder="lead@empresa.com" className="w-full rounded-lg border border-line px-3 py-2 text-sm" />
+          </div>
         </div>
 
         <div>
           <label className="block text-xs text-ink-3 mb-1">Instagram</label>
           <input value={instagram} onChange={(e) => setInstagram(e.target.value)}
-            placeholder="@usuario" className="w-full border rounded-lg px-3 py-2 text-sm" />
+            placeholder="@usuario" className="w-full rounded-lg border border-line px-3 py-2 text-sm" />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs text-ink-3 mb-1">Nicho</label>
+            <input value={nicho} onChange={(e) => setNicho(e.target.value)}
+              placeholder="ex: Clínica estética" className="w-full rounded-lg border border-line px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs text-ink-3 mb-1">Cidade</label>
+            <input value={cidade} onChange={(e) => setCidade(e.target.value)}
+              placeholder="ex: São Paulo" className="w-full rounded-lg border border-line px-3 py-2 text-sm" />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs text-ink-3 mb-1">Observação</label>
+          <textarea value={observacao} onChange={(e) => setObservacao(e.target.value)}
+            placeholder="Ex.: respondeu formulário pedindo orçamento; completar detalhes na conversa."
+            className="min-h-20 w-full resize-y rounded-lg border border-line px-3 py-2 text-sm" />
         </div>
 
         <div className="flex justify-end gap-2 border-t pt-3">
-          <button onClick={onClose} className="px-3 py-2 rounded-lg border text-sm">Cancelar</button>
+          <button onClick={onClose} className="px-3 py-2 rounded-lg border border-line text-sm">Cancelar</button>
           <button onClick={salvar} disabled={salvando}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-sm font-semibold hover:bg-brand-dark disabled:opacity-50">
             {salvando && <Spinner size={13} />}

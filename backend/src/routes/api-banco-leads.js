@@ -1595,17 +1595,23 @@ router.get('/carteira', requireAuth, requireEmpresaAccess, async (req, res) => {
   } catch (err) { return envelopeErro(res, err, 'CARTEIRA_FAILED') }
 })
 
-// POST /leads  { origem, nome, whatsapp, instagram } — cadastro manual de um lead.
-// A origem do formulário (manual/google/instagram) mapeia para a coluna `origem`:
-//   manual → 'manual' · google → 'automatico' (ambos aparecem como "Places")
-//   instagram → 'instagram'. Exige nome + ao menos um contato (whatsapp ou @).
-const ORIGEM_CADASTRO = { manual: 'manual', google: 'automatico', instagram: 'instagram' }
+// POST /leads — cadastro manual de um lead.
+// A origem do formulario e a PORTA declarada do lead, nao prova de conversa/historico.
+const ORIGEM_CADASTRO = {
+  manual: 'manual',
+  google: 'automatico',
+  instagram: 'instagram',
+  meta_ads: 'meta_ads',
+  whatsapp: 'whatsapp',
+  meta_form: 'meta_form',
+}
 router.post('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const b = req.body || {}
-    const origem = ORIGEM_CADASTRO[String(b.origem || '').toLowerCase()]
+    const origemFormulario = String(b.origem || '').toLowerCase()
+    const origem = ORIGEM_CADASTRO[origemFormulario]
     if (!origem) {
-      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Origem inválida (use manual, google ou instagram).' } })
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Origem inválida.' } })
     }
     const nome = String(b.nome || '').trim().slice(0, 200)
     if (!nome) {
@@ -1615,18 +1621,35 @@ router.post('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
     if (telefone && telefone.length < 10) {
       return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'WhatsApp inválido — informe DDD + número.' } })
     }
-    const instagram = String(b.instagram || '').trim().replace(/^@+/, '').toLowerCase().slice(0, 100)
-    if (!telefone && !instagram) {
-      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe ao menos WhatsApp ou Instagram.' } })
+    if (origem === 'whatsapp' && !telefone) {
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Lead inbound de WhatsApp precisa ter número.' } })
     }
-    // Com telefone o lead já é "rodável" (contato_encontrado); sem, fica só coletado.
+    const instagram = String(b.instagram || '').trim().replace(/^@+/, '').toLowerCase().slice(0, 100)
+    const email = String(b.email || '').trim().toLowerCase().slice(0, 180)
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'E-mail inválido.' } })
+    }
+    if (!telefone && !instagram && !email) {
+      return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe ao menos WhatsApp, Instagram ou e-mail.' } })
+    }
+    const nicho = String(b.nicho || '').trim().slice(0, 180)
+    const cidade = String(b.cidade || '').trim().slice(0, 120)
+    const pais = String(b.pais || 'BR').trim().toUpperCase().slice(0, 2) || 'BR'
+    const observacao = String(b.observacao || '').trim().slice(0, 800)
+    // Com telefone o lead já é trabalhável pelo WhatsApp; sem número, o cadastro fica pendente.
     const status = telefone ? 'contato_encontrado' : 'coletado'
+    const rawJson = {
+      fonte: 'cadastro_manual',
+      origem_formulario: origemFormulario,
+      direcao: (origem === 'whatsapp' || origem === 'meta_form') ? 'inbound' : 'outbound',
+      ...(observacao ? { observacao } : {}),
+    }
     const { rows } = await pool.query(
       `INSERT INTO prospectador.prospects
-         (empresa_id, origem, nome, telefone, instagram_handle, status, raw_json)
-       VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6, $7::jsonb)
+         (empresa_id, origem, nome, telefone, email, instagram_handle, nicho, cidade, pais, status, raw_json)
+       VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), $9, $10, $11::jsonb)
        RETURNING ${COLUNAS}`,
-      [req.empresa.id, origem, nome, telefone, instagram, status, JSON.stringify({ fonte: 'cadastro_manual' })]
+      [req.empresa.id, origem, nome, telefone, email, instagram, nicho, cidade, pais, status, JSON.stringify(rawJson)]
     )
     return res.status(201).json({ ok: true, data: { ...rows[0], rodado_em: null, rodado_por: null } })
   } catch (err) { return envelopeErro(res, err, 'LEAD_CREATE_FAILED') }

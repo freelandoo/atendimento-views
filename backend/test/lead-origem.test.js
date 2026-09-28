@@ -6,7 +6,7 @@ const assert = require('node:assert/strict')
 const { ORIGENS, GRUPOS, origensDoFiltro, grupoDaOrigem, usaReguaPlaces } = require('../src/services/lead-origem')
 
 const raiz = path.join(__dirname, '..')
-const mig091 = fs.readFileSync(path.join(raiz, 'sql', 'migrations', '091_leads_meta_ads.sql'), 'utf8')
+const mig108 = fs.readFileSync(path.join(raiz, 'sql', 'migrations', '108_origens_inbound_banco_leads.sql'), 'utf8')
 const fonteRota = fs.readFileSync(path.join(raiz, 'src', 'routes', 'api-banco-leads.js'), 'utf8')
 const fonteModulo = fs.readFileSync(path.join(raiz, 'src', 'services', 'lead-origem.js'), 'utf8')
 
@@ -14,9 +14,9 @@ const fonteModulo = fs.readFileSync(path.join(raiz, 'src', 'services', 'lead-ori
 // A CHECK e' a unica lista que o Postgres respeita. Se ela alargar e este modulo nao, a origem
 // nova entra no banco e desaparece de todo filtro — que e' exatamente o que aconteceu com
 // `meta_ads` entre a migration 091 e esta correcao.
-test('ORIGENS bate com a CHECK prospects_origem_chk (migration 091)', () => {
-  const m = mig091.match(/prospects_origem_chk[\s\S]*?\bIN\s*\(([^)]*)\)/)
-  assert.ok(m, 'nao achei a CHECK de origem na migration 091')
+test('ORIGENS bate com a CHECK prospects_origem_chk (migration 108)', () => {
+  const m = mig108.match(/prospects_origem_chk[\s\S]*?\bIN\s*\(([^)]*)\)/)
+  assert.ok(m, 'nao achei a CHECK de origem na migration 108')
   const noSql = m[1].split(',').map((s) => s.trim().replace(/^'|'$/g, '')).filter(Boolean)
   assert.deepEqual([...ORIGENS].sort(), noSql.sort(),
     'lead-origem.js divergiu da CHECK: origem nova precisa entrar nos DOIS lados, no mesmo diff')
@@ -47,6 +47,15 @@ test('meta_ads NAO e tratado como Instagram', () => {
   assert.ok(!GRUPOS.social.includes('meta_ads'), 'o alias legado "social" nao pode absorver a Meta')
 })
 
+test('whatsapp e formulario Meta sao inbound, separados da prospeccao outbound', () => {
+  assert.deepEqual(origensDoFiltro('inbound'), ['whatsapp', 'meta_form'])
+  assert.deepEqual(origensDoFiltro('outbound'), ['manual', 'automatico', 'instagram', 'linkedin', 'meta_ads'])
+  assert.equal(grupoDaOrigem('whatsapp'), 'inbound')
+  assert.equal(grupoDaOrigem('meta_form'), 'inbound')
+  assert.ok(!GRUPOS.outbound.includes('whatsapp'))
+  assert.ok(!GRUPOS.outbound.includes('meta_form'))
+})
+
 // ── Ausencia de filtro e' `null`, nunca lista vazia ───────────────────────────
 // Lista vazia viraria `origem = ANY('{}')`, que nao casa com lead nenhum: o operador digitaria
 // um valor errado e a carteira apareceria VAZIA em vez de inteira.
@@ -67,7 +76,7 @@ test('grupos e aliases continuam valendo (link salvo e filtro em sessao nao queb
 test('a regua de Places cobre manual e automatico, e mais ninguem', () => {
   assert.equal(usaReguaPlaces('manual'), true)
   assert.equal(usaReguaPlaces('automatico'), true)
-  for (const o of ['instagram', 'linkedin', 'meta_ads']) assert.equal(usaReguaPlaces(o), false)
+  for (const o of ['instagram', 'linkedin', 'meta_ads', 'whatsapp', 'meta_form']) assert.equal(usaReguaPlaces(o), false)
 })
 
 test('origem desconhecida nao vira Instagram nem Places', () => {

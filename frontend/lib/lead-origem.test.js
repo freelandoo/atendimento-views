@@ -16,6 +16,13 @@ test('lead de anuncio da Meta nao e rotulado como Instagram', () => {
   assert.ok(!/instagram/i.test(c.rotulo))
 })
 
+test('WhatsApp e formulario Meta aparecem como inbound', () => {
+  assert.equal(celulaOrigem({ origem: 'whatsapp' }).chave, 'inbound')
+  assert.equal(celulaOrigem({ origem: 'whatsapp' }).rotulo, 'WhatsApp inbound')
+  assert.equal(celulaOrigem({ origem: 'meta_form' }).chave, 'inbound')
+  assert.equal(celulaOrigem({ origem: 'meta_form' }).rotulo, 'Formulário Meta')
+})
+
 test('as duas origens do Places dividem o mesmo rotulo', () => {
   assert.equal(rotuloOrigem('manual').chave, 'places')
   assert.equal(rotuloOrigem('automatico').chave, 'places')
@@ -41,9 +48,9 @@ test('a 1a opcao do seletor e o padrao do servidor (sem filtro)', () => {
   assert.equal(OPCOES_FILTRO_ORIGEM[0].valor, '')
 })
 
-test('o seletor oferece as tres fontes reais e nao oferece LinkedIn', () => {
+test('o seletor oferece as fontes reais agrupadas e nao oferece LinkedIn', () => {
   const valores = OPCOES_FILTRO_ORIGEM.map((o) => o.valor)
-  assert.deepEqual(valores, ['', 'places', 'instagram', 'meta_ads'])
+  assert.deepEqual(valores, ['', 'inbound', 'outbound', 'whatsapp', 'meta_form', 'places', 'instagram', 'meta_ads'])
 })
 
 test('LinkedIn continua ROTULADO mesmo sem opcao no seletor', () => {
@@ -53,6 +60,9 @@ test('LinkedIn continua ROTULADO mesmo sem opcao no seletor', () => {
 test('o filtro em vigor sempre tem nome — inclusive o alias legado', () => {
   assert.equal(rotuloFiltroOrigem(''), null)
   assert.equal(rotuloFiltroOrigem('places'), 'Google Places')
+  assert.equal(rotuloFiltroOrigem('inbound'), 'Inbound')
+  assert.equal(rotuloFiltroOrigem('whatsapp'), 'WhatsApp')
+  assert.equal(rotuloFiltroOrigem('meta_form'), 'Formulário Meta')
   assert.equal(rotuloFiltroOrigem('meta_ads'), 'Anúncios Meta')
   assert.equal(rotuloFiltroOrigem('social'), 'Instagram e LinkedIn')
   assert.ok(rotuloFiltroOrigem('linkedin'))

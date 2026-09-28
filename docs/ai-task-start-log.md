@@ -6,6 +6,14 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-28 — Cadastro manual com origem inbound/outbound
+
+- **Pedido do operador:** permitir adicionar leads vindos de WhatsApp/Formulário Meta e deixar claro se o lead veio atrás da empresa (inbound) ou se foi prospectado (outbound).
+- **Workflow:** Fase 0 registrada antes da implementação; seguir `docs/ai-workflow.md`, `docs/ui-visual-standard.md` e `docs/project-architecture.md`.
+- **Áreas previstas:** `backend/src/services/lead-origem.js`, `backend/src/routes/api-banco-leads.js`, migration de origem, `frontend/lib/lead-origem.*`, `frontend/app/dashboard/banco-leads/page.tsx`.
+- **Validações previstas:** testes focados de origem no backend/frontend, `cd backend && npm run typecheck`, `cd frontend && npx tsc --noEmit`, `cd frontend && node --test lib/*.test.js` e `git diff --check`.
+- **Risco/limite:** origem é fonte declarada do lead, não prova de conversa; não criar conversa de WhatsApp manualmente nem inventar histórico.
+
 ## 2026-09-28 — Abertura mais rápida da ficha no Banco de Leads
 
 - **Pedido do operador:** investigar por que às vezes a ficha demora para abrir ao clicar em um card/lead e melhorar a percepção de velocidade sem mudar o fluxo comercial.

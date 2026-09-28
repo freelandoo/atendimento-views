@@ -25,21 +25,25 @@
  * contrato da rota antes de a tela oferecer as fontes separadas, e removê-lo quebraria link
  * salvo e filtro guardado em sessão.
  *
- * Anti-drift: test/lead-origem.test.js lê a CHECK da migration 091 e falha se esta lista
+ * Anti-drift: test/lead-origem.test.js lê a CHECK da migration 108 e falha se esta lista
  * divergir dela. Acrescentar origem nova exige os dois lados no MESMO diff.
  */
 
-// Ordem espelha a CHECK `prospects_origem_chk` (sql/migrations/091_leads_meta_ads.sql).
-const ORIGENS = Object.freeze(['manual', 'automatico', 'instagram', 'linkedin', 'meta_ads'])
+// Ordem espelha a CHECK `prospects_origem_chk` (sql/migrations/108_origens_inbound_banco_leads.sql).
+const ORIGENS = Object.freeze(['manual', 'automatico', 'instagram', 'linkedin', 'meta_ads', 'whatsapp', 'meta_form'])
 
 // O que um valor de filtro alcança. Chave = o que a tela/URL manda; valor = as origens reais.
 const GRUPOS = Object.freeze({
   places: Object.freeze(['manual', 'automatico']),
+  outbound: Object.freeze(['manual', 'automatico', 'instagram', 'linkedin', 'meta_ads']),
+  inbound: Object.freeze(['whatsapp', 'meta_form']),
   // Alias legado: era a única forma de pedir "não-Places" antes de a Meta existir.
   social: Object.freeze(['instagram', 'linkedin']),
   instagram: Object.freeze(['instagram']),
   linkedin: Object.freeze(['linkedin']),
   meta_ads: Object.freeze(['meta_ads']),
+  whatsapp: Object.freeze(['whatsapp']),
+  meta_form: Object.freeze(['meta_form']),
 })
 
 // As origens que pontuam pela régua do Google Places (0-100). O resto usa a de Instagram (0-60).
@@ -66,6 +70,7 @@ function grupoDaOrigem(origem) {
   if (v === 'instagram') return 'instagram'
   if (v === 'linkedin') return 'linkedin'
   if (v === 'meta_ads') return 'meta_ads'
+  if (v === 'whatsapp' || v === 'meta_form') return 'inbound'
   return 'desconhecida'
 }
 

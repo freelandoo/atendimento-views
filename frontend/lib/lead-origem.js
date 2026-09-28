@@ -31,6 +31,10 @@
  */
 const OPCOES_FILTRO_ORIGEM = [
   { valor: '', label: 'Todas as origens' },
+  { valor: 'inbound', label: 'Inbound' },
+  { valor: 'outbound', label: 'Outbound' },
+  { valor: 'whatsapp', label: 'WhatsApp' },
+  { valor: 'meta_form', label: 'Formulário Meta' },
   { valor: 'places', label: 'Google Places' },
   { valor: 'instagram', label: 'Instagram' },
   { valor: 'meta_ads', label: 'Anúncios Meta' },
@@ -44,6 +48,8 @@ const ROTULOS = {
   instagram: { chave: 'instagram', rotulo: 'Instagram', curto: 'Instagram', dica: 'Encontrado pela captação de perfis do Instagram.' },
   linkedin: { chave: 'linkedin', rotulo: 'LinkedIn', curto: 'LinkedIn', dica: 'Encontrado pela captação de perfis do LinkedIn.' },
   meta_ads: { chave: 'meta_ads', rotulo: 'Anúncios Meta', curto: 'Meta', dica: 'Estava anunciando na Biblioteca de Anúncios do Meta.' },
+  whatsapp: { chave: 'inbound', rotulo: 'WhatsApp inbound', curto: 'WhatsApp', dica: 'Lead que chegou por mensagem no WhatsApp e foi registrado manualmente.' },
+  meta_form: { chave: 'inbound', rotulo: 'Formulário Meta', curto: 'Form Meta', dica: 'Lead que chegou por formulário de campanha Meta.' },
 }
 
 /**
@@ -89,6 +95,8 @@ function rotuloFiltroOrigem(valor) {
   // Alias legado (`social`) e origem isolada que não está no seletor continuam chegando por
   // link salvo e por filtro guardado em sessão — e precisam ter nome.
   if (v === 'social') return 'Instagram e LinkedIn'
+  if (v === 'inbound') return 'Inbound'
+  if (v === 'outbound') return 'Outbound'
   return rotuloOrigem(v).rotulo
 }
 
