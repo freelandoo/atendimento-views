@@ -1677,12 +1677,12 @@ function slotsLivresDoDia(iso, candidatos, eventos, duracaoMinutos = 15) {
 
 // Antecedencia minima para uma reuniao no MESMO dia (minutos). Antes havia um
 // portao de 18:30 que escondia os horarios de hoje a tarde inteira — o bot
-// pulava para "amanha" mesmo com 19:30-21:15 livres hoje. Agora hoje e ofertado
+// pulava para "amanha" mesmo com slots livres hoje. Agora hoje e ofertado
 // sempre que houver slot com pelo menos esta antecedencia.
 const ANTECEDENCIA_MESMO_DIA_MIN = 60
 
-// Monta a lista de dias candidatos (hoje, se util e ainda houver slot com
-// antecedencia, + proximos dias uteis) ate atingir `quantidadeDias`.
+// Monta a lista de dias candidatos (hoje, se ainda houver slot com antecedencia,
+// + proximos dias) ate atingir `quantidadeDias`.
 // Compartilhado por buscarSlotsDisponiveis e buscarDisponibilidadeSemana.
 function montarDiasCandidatos(agora, quantidadeDias, incluirHoje = true) {
   const DIAS_PT = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']
@@ -1713,9 +1713,9 @@ function montarDiasCandidatos(agora, quantidadeDias, incluirHoje = true) {
 
 /**
  * Disponibilidade da semana: horarios livres POR DIA nos proximos `dias` dias
- * uteis, dentro da janela 19:30–21:15 (America/Sao_Paulo). A IA usa isso para
- * oferecer qualquer dia/horario com flexibilidade; o codigo valida a escolha
- * ao vivo antes de agendar (validarSlotReuniao).
+ * dentro da janela 07:00–00:00 (America/Sao_Paulo). A IA usa isso para oferecer
+ * qualquer dia/horario com flexibilidade; o codigo valida a escolha ao vivo
+ * antes de agendar (validarSlotReuniao).
  * @returns {Promise<{ janela:{inicio:string,fim:string}, dias: Array<{data:string,data_br:string,label:string,horarios:string[]}> }>}
  */
 async function buscarDisponibilidadeSemana({ dataInicial = new Date(), duracaoMinutos = 15, dias = 7, usuarioId = null, maxPorDia = 8 } = {}) {
@@ -1740,7 +1740,7 @@ async function buscarDisponibilidadeSemana({ dataInicial = new Date(), duracaoMi
 
 /**
  * Valida AO VIVO uma escolha de reuniao { data:'AAAA-MM-DD', horario:'HH:MM' }:
- * precisa ser um slot da janela padrao, em dia util, e estar livre na agenda.
+ * precisa ser um slot da janela padrao e estar livre na agenda.
  * Usado no booking antes de criar o evento (guardrail: a IA pode oferecer
  * qualquer dia, mas o codigo so agenda horario real e disponivel).
  */
@@ -1752,7 +1752,7 @@ async function validarSlotReuniao({ data, horario, duracaoMinutos = 15, usuarioI
   const [year, month, day] = d.split('-').map(Number)
   const wd = partesDataBrasil(utcParaDataLocalEmTimezone({ year, month, day, hour: 12, minute: 0 }, TIMEZONE)).weekday
   if (!diaAtendeReuniao(wd)) return false
-  // O horário precisa ser um slot válido DAQUELE dia (noite nos úteis, dia no sábado).
+  // O horário precisa ser um slot válido DAQUELE dia (07:00 ate virar o dia).
   if (!horariosPadraoParaWeekday(wd).includes(h)) return false
   const [hh, mm] = h.split(':').map(Number)
   const slotInicio = utcParaDataLocalEmTimezone({ year, month, day, hour: hh, minute: mm }, TIMEZONE)
@@ -1765,7 +1765,7 @@ async function validarSlotReuniao({ data, horario, duracaoMinutos = 15, usuarioI
 
 /**
  * Consulta a agenda e retorna os próximos slots livres para reunião de proposta.
- * Respeita a janela comercial (19:30–21:15) em dias úteis, timezone America/Sao_Paulo.
+ * Respeita a janela permitida (07:00–00:00), timezone America/Sao_Paulo.
  * Retorna objeto no mesmo formato de sugestaoReuniaoProposta:
  *   { data_sugerida, data_label, horarios_sugeridos }
  */

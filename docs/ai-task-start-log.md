@@ -5882,3 +5882,13 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   `backend/src/db/plano-dia.js`.
 - **Cuidados:** planejamento read-only; nao alterar responsavel, dono, status ou envio; separar
   ICP comercial de `score_cadastro`; usar a regua/helper de ICP existente e manter UI densa.
+
+## 2026-09-28 — Janela ampla para marcar reunioes
+
+- **Pedido:** permitir marcar reunioes em qualquer horario do dia, exceto de meia-noite ate
+  07:00, mantendo bloqueios/conflitos reais como restricao.
+- **Areas previstas:** grade de slots da tela em `backend/src/services/agenda-slots.js`,
+  seletor visual `frontend/components/SeletorSlots.tsx`, horarios padrao do bot/validacao em
+  `backend/src/date-utils.js` e comentarios/testes de agenda.
+- **Cuidados:** preservar bloqueios, folga entre reunioes e leitura das duas agendas; nao mexer
+  em envio/ownership; manter frontend como tradutor do veredito da API.

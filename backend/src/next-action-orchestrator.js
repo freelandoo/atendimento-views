@@ -158,7 +158,6 @@ function extrairHorario(texto) {
   if (!m) return null
   let hora = Math.max(0, Math.min(23, parseInt(m[1], 10)))
   const min = Math.max(0, Math.min(59, parseInt(m[2], 10)))
-  if (hora < 12 && hora + 12 >= 19 && hora + 12 <= 21) hora += 12
   return `${String(hora).padStart(2, '0')}:${String(min).padStart(2, '0')}`
 }
 

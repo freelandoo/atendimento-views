@@ -1,38 +1,28 @@
 // @ts-check
 'use strict'
 
-const REUNIAO_PROPOSTA_HORARIOS_PADRAO = [
-  '19:30',
-  '19:45',
-  '20:00',
-  '20:15',
-  '20:30',
-  '20:45',
-  '21:00',
-  '21:15',
-]
-
-// Sábado tem janela de DIA (08:00–21:00); grade de 30 min, último início 20:30 (a
-// reunião de 15 min termina dentro da janela). Dias úteis mantêm a janela da noite
-// (REUNIAO_PROPOSTA_HORARIOS_PADRAO). Domingo não atende.
-const REUNIAO_HORARIOS_SABADO = (() => {
+function gerarHorariosReuniaoPadrao() {
   const out = []
-  for (let min = 8 * 60; min <= 20 * 60 + 30; min += 30) {
+  for (let min = 7 * 60; min <= 23 * 60 + 45; min += 15) {
     out.push(`${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`)
   }
   return out
-})()
+}
+
+// Janela padrao de reuniao: qualquer dia, das 07:00 ate virar o dia. A madrugada
+// 00:00-06:59 e o unico veto fixo; o restante e decidido por bloqueios/conflitos reais.
+const REUNIAO_PROPOSTA_HORARIOS_PADRAO = gerarHorariosReuniaoPadrao()
+const REUNIAO_HORARIOS_SABADO = REUNIAO_PROPOSTA_HORARIOS_PADRAO.slice()
 
 // Horários-padrão de reunião conforme o dia da semana (0=domingo … 6=sábado).
 function horariosPadraoParaWeekday(weekday) {
-  if (weekday === 6) return REUNIAO_HORARIOS_SABADO.slice()
-  if (weekday >= 1 && weekday <= 5) return REUNIAO_PROPOSTA_HORARIOS_PADRAO.slice()
+  if (weekday >= 0 && weekday <= 6) return REUNIAO_PROPOSTA_HORARIOS_PADRAO.slice()
   return []
 }
 
-// A PJ atende reunião de segunda a sábado (domingo não).
+// Reunião pode ser marcada em qualquer dia; bloqueios explicitos fecham excecoes.
 function diaAtendeReuniao(weekday) {
-  return weekday >= 1 && weekday <= 6
+  return weekday >= 0 && weekday <= 6
 }
 
 const TIMEZONE = 'America/Sao_Paulo'
@@ -190,26 +180,19 @@ function isoDateBrasil(dataRef = new Date()) {
 }
 
 function proximoDiaUtilReuniao(dataRef = new Date()) {
-  let d = new Date(dataRef.getTime() + 24 * 60 * 60 * 1000)
-  for (let i = 0; i < 8; i++) {
-    const p = partesDataBrasil(d)
-    if (p.weekday >= 1 && p.weekday <= 5) return d
-    d = new Date(d.getTime() + 24 * 60 * 60 * 1000)
-  }
-  return d
+  return new Date(dataRef.getTime() + 24 * 60 * 60 * 1000)
 }
 
 function sugestaoReuniaoProposta(dataRef = new Date()) {
   const p = partesDataBrasil(dataRef)
   const minutos = p.hour * 60 + p.minute
-  const diaUtil = p.weekday >= 1 && p.weekday <= 5
-  const minMesmoDia = 18 * 60 + 30
   const slots = REUNIAO_PROPOSTA_HORARIOS_PADRAO.map((h) => {
     const [hh, mm] = h.split(':').map((x) => parseInt(x, 10))
     return { label: h, minutos: hh * 60 + mm }
   })
-  const candidatosHoje =
-    diaUtil && minutos >= minMesmoDia ? slots.filter((s) => s.minutos >= minutos + 15).map((s) => s.label) : []
+  const candidatosHoje = diaAtendeReuniao(p.weekday)
+    ? slots.filter((s) => s.minutos >= minutos + 15).map((s) => s.label)
+    : []
   if (candidatosHoje.length >= 2) {
     return {
       data_sugerida: isoDateBrasil(dataRef),
@@ -220,7 +203,7 @@ function sugestaoReuniaoProposta(dataRef = new Date()) {
   return {
     data_sugerida: isoDateBrasil(proximoDiaUtilReuniao(dataRef)),
     data_label: 'amanha',
-    horarios_sugeridos: ['19:30', '20:15'],
+    horarios_sugeridos: REUNIAO_PROPOSTA_HORARIOS_PADRAO.slice(0, 2),
   }
 }
 
@@ -228,18 +211,12 @@ function sugestaoReuniaoProposta(dataRef = new Date()) {
  * Extrai hora e minuto de um texto como "20:15", "20h15", "às 20:15", "pode ser 20h15".
  * Retorna { hora, min } ou null se não encontrar padrão válido.
  *
- * Correção PM: se o lead digitar "7:30" quando os horários oferecidos estão na janela
- * comercial (19–21h), converte automaticamente para o equivalente PM (7→19, 8→20, 9→21).
  */
 function parsearHorarioReuniao(texto) {
   const m = String(texto || '').match(/(\d{1,2})[h:](\d{2})/)
   if (!m) return null
   let hora = Math.min(Math.max(parseInt(m[1], 10), 0), 23)
   const min = Math.min(parseInt(m[2], 10), 59)
-  // Se hora é AM (< 12) e hora+12 cai na janela comercial (19–21h), converte para PM
-  if (hora < 12 && hora + 12 >= 19 && hora + 12 <= 21) {
-    hora += 12
-  }
   const out = { hora, min }
   Object.defineProperty(out, 'normalizado', {
     value: `${String(hora).padStart(2, '0')}:${String(min).padStart(2, '0')}`,

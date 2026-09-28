@@ -37,7 +37,7 @@ type Props = {
 
 export default function SeletorSlots({
   empresaId, dataInicial, dias = 5, duracaoMin = 30,
-  horaInicio = '08:00', horaFim = '18:00',
+  horaInicio = '07:00', horaFim = '24:00',
   valor = null, onEscolher, onCarregou, chaveAtualizacao = 0, compacto = false,
 }: Props) {
   const [lista, setLista] = useState<DiaDisponibilidade[]>([])

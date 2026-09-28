@@ -2417,12 +2417,12 @@ test('core funnel: horario nao oferecido nao registra confirmacao e oferece alte
   assert.equal(payload.acaoDecidida, 'convite_reuniao')
 })
 
-test('aceite fluxo: escolha 7:30 confirma 19:30, pede email e aciona handoff', async () => {
+test('aceite fluxo: escolha 7:30 confirma 07:30, pede email e aciona handoff', async () => {
   const handoffs = []
   const conversa = {
     numero: '5511999999999@s.whatsapp.net',
     historico: [
-      { role: 'assistant', content: 'Tenho hoje as 19:30 ou 20:15 disponiveis. Qual fica melhor?' },
+      { role: 'assistant', content: 'Tenho hoje as 07:30 ou 20:15 disponiveis. Qual fica melhor?' },
       { role: 'user', content: '7:30' },
     ],
     estagio: 'agendamento_pendente',
@@ -2435,7 +2435,7 @@ test('aceite fluxo: escolha 7:30 confirma 19:30, pede email e aciona handoff', a
     reuniao_proposta: {
       necessaria: true,
       data_sugerida: '2026-05-19',
-      horarios_sugeridos: ['19:30', '20:15'],
+      horarios_sugeridos: ['07:30', '20:15'],
     },
   }
   const { core, enviados, atualizacoes } = criarCoreFunnelAgendaTeste({
@@ -2451,17 +2451,17 @@ test('aceite fluxo: escolha 7:30 confirma 19:30, pede email e aciona handoff', a
   const msg = enviados.join('\n')
   const reuniao = atualizacoes.find((p) => p.reuniao_proposta?.horario_confirmado)?.reuniao_proposta
 
-  assert.match(msg, /19:30/)
+  assert.match(msg, /07:30/)
   assert.match(msg, /melhor e-mail/i)
-  assert.equal(reuniao.horario_confirmado, '19:30')
+  assert.equal(reuniao.horario_confirmado, '07:30')
   assert.equal(handoffs.includes('agendou_reuniao_proposta'), true)
 })
 
-test('core funnel: lead digita 7:30, confirma 19:30 e pede apenas email', async () => {
+test('core funnel: lead digita 7:30, confirma 07:30 e pede apenas email', async () => {
   const conversa = {
     numero: '5511999999999@s.whatsapp.net',
     historico: [
-      { role: 'assistant', content: 'Tenho hoje as 19:30 ou 20:15 disponiveis. Qual fica melhor?' },
+      { role: 'assistant', content: 'Tenho hoje as 07:30 ou 20:15 disponiveis. Qual fica melhor?' },
       { role: 'user', content: '7:30' },
     ],
     estagio: 'agendamento_pendente',
@@ -2474,7 +2474,7 @@ test('core funnel: lead digita 7:30, confirma 19:30 e pede apenas email', async 
     reuniao_proposta: {
       necessaria: true,
       data_sugerida: '2026-05-19',
-      horarios_sugeridos: ['19:30', '20:15'],
+      horarios_sugeridos: ['07:30', '20:15'],
     },
   }
   const { core, enviados, atualizacoes } = criarCoreFunnelAgendaTeste({
@@ -2488,12 +2488,12 @@ test('core funnel: lead digita 7:30, confirma 19:30 e pede apenas email', async 
   await core.gerarEEnviarRespostaWhatsapp(conversa.numero, conversa.historico)
   const msg = enviados.join('\n')
 
-  assert.match(msg, /marcada para 19\/05 .s 19:30/i)
+  assert.match(msg, /marcada para 19\/05 .s 07:30/i)
   assert.match(msg, /at. 15 minutos/i)
   assert.match(msg, /melhor e-mail/i)
   assert.doesNotMatch(msg, /CPF|CNPJ|endere.o|PIX/i)
   const reuniao = atualizacoes.find((p) => p.reuniao_proposta?.horario_confirmado)?.reuniao_proposta
-  assert.equal(reuniao.horario_confirmado, '19:30')
+  assert.equal(reuniao.horario_confirmado, '07:30')
   assert.equal(reuniao.duracao_maxima_minutos, 15)
   assert.ok(reuniao.data_inicio)
   assert.ok(reuniao.data_fim)
@@ -3117,7 +3117,7 @@ test('guardrail preserva assinatura simples via Stripe', async () => {
 test('sugestaoReuniaoProposta oferece mesmo dia quando ha dois horarios disponiveis', () => {
   const s = sugestaoReuniaoProposta(new Date('2026-05-08T22:00:00.000Z'))
   assert.equal(s.data_label, 'hoje')
-  assert.deepEqual(s.horarios_sugeridos, ['19:30', '19:45'])
+  assert.deepEqual(s.horarios_sugeridos, ['19:15', '19:30'])
 })
 
 // ─── temConflito ──────────────────────────────────────────────────────────────
@@ -3173,11 +3173,11 @@ test('sugestaoReuniaoProposta oferece mesmo dia quando ha dois horarios disponiv
         dataInicial: new Date('2026-05-11T22:00:00.000Z'),
         quantidade: 5,
       })
-      // 20:15 está ocupado e, com a folga de 2h, o RESTO da janela da noite (19:30–21:15) sai
-      // junto: pelo WhatsApp cabe no máximo uma reunião por dia útil. Consequência declarada e
-      // aceita pelo operador em 2026-09-22, ao unificar a folga com a da agenda da tela.
-      assert.notEqual(slots.data_sugerida, '2026-05-11', 'o dia da reunião deixa de ter vaga')
-      assert.ok(slots.horarios_sugeridos.includes('20:15'), 'o dia seguinte continua inteiro')
+      // 20:15 está ocupado e, com a folga de 2h, os horarios proximos saem. Como a janela agora
+      // vai ate virar o dia, o mesmo dia ainda pode ter vaga depois da folga.
+      assert.equal(slots.data_sugerida, '2026-05-11')
+      assert.ok(!slots.horarios_sugeridos.includes('20:15'), 'nao pode oferecer o horario bloqueado')
+      assert.ok(slots.horarios_sugeridos.includes('22:30'), 'depois da folga o dia volta a caber')
     } finally {
       pool.query = originalQuery
     }
@@ -5370,24 +5370,24 @@ test('textoPedePreco nao dispara em mensagens sem contexto de preco', () => {
   assert.equal(textoPedePreco('tenho interesse'), false)
 })
 
-// Regra: parsearHorarioReuniao — correção PM para "7:30" → 19:30
-test('parsearHorarioReuniao interpreta "7:30" como 19:30 (janela comercial PM)', () => {
+// Regra: parsearHorarioReuniao — "7:30" agora e literal, pois 07:30 e permitido.
+test('parsearHorarioReuniao interpreta "7:30" como 07:30', () => {
   const r = parsearHorarioReuniao('7:30')
-  assert.deepEqual(r, { hora: 19, min: 30 })
-  assert.equal(r.normalizado, '19:30')
+  assert.deepEqual(r, { hora: 7, min: 30 })
+  assert.equal(r.normalizado, '07:30')
 })
 
-test('parsearHorarioReuniao interpreta "8:00" como 20:00 (janela comercial PM)', () => {
+test('parsearHorarioReuniao interpreta "8:00" como 08:00', () => {
   const r = parsearHorarioReuniao('8:00')
-  assert.deepEqual(r, { hora: 20, min: 0 })
+  assert.deepEqual(r, { hora: 8, min: 0 })
 })
 
-test('parsearHorarioReuniao interpreta "9:15" como 21:15 (janela comercial PM)', () => {
+test('parsearHorarioReuniao interpreta "9:15" como 09:15', () => {
   const r = parsearHorarioReuniao('9:15')
-  assert.deepEqual(r, { hora: 21, min: 15 })
+  assert.deepEqual(r, { hora: 9, min: 15 })
 })
 
-test('parsearHorarioReuniao nao converte "10:00" (10+12=22 fora da janela 19-21)', () => {
+test('parsearHorarioReuniao nao converte "10:00"', () => {
   const r = parsearHorarioReuniao('10:00')
   assert.deepEqual(r, { hora: 10, min: 0 })
 })
@@ -5402,19 +5402,19 @@ test('parsearHorarioReuniao nao converte horario ja correto "20:15"', () => {
   assert.deepEqual(r, { hora: 20, min: 15 })
 })
 
-// Regra: cenário completo — lead diz "7:30" → deve ser agendado como 19:30
-test('cenário completo: lead diz "7:30" após oferta 19:30/20:15 → agenda 19:30–19:45', () => {
+// Regra: cenário completo — lead diz "7:30" → deve ser agendado como 07:30
+test('cenário completo: lead diz "7:30" → agenda 07:30–07:45', () => {
   const parsed = parsearHorarioReuniao('7:30')
   assert.ok(parsed, 'deve parsear 7:30')
-  assert.deepEqual(parsed, { hora: 19, min: 30 })
+  assert.deepEqual(parsed, { hora: 7, min: 30 })
 
   const dataInicio = dataInicioReuniao('2026-05-12', parsed.hora, parsed.min)
   const dataFim = calcularFimReuniao(dataInicio, 15)
 
-  // 19:30 BRT = 22:30 UTC (BRT = UTC-3)
-  assert.equal(dataInicio.toISOString(), '2026-05-12T22:30:00.000Z')
-  // 19:45 BRT = 22:45 UTC
-  assert.equal(dataFim.toISOString(), '2026-05-12T22:45:00.000Z')
+  // 07:30 BRT = 10:30 UTC (BRT = UTC-3)
+  assert.equal(dataInicio.toISOString(), '2026-05-12T10:30:00.000Z')
+  // 07:45 BRT = 10:45 UTC
+  assert.equal(dataFim.toISOString(), '2026-05-12T10:45:00.000Z')
   assert.equal((dataFim.getTime() - dataInicio.getTime()) / 60000, 15)
 })
 

@@ -3155,20 +3155,6 @@ function resultadoParseadoParaObjeto(parsed, estagio) {
   }
 }
 
-/**
- * Modelo às vezes usa chave errada; copia para mensagem_pro_lead se estiver vazio.
- */
-const REUNIAO_PROPOSTA_HORARIOS_PADRAO = [
-  '19:30',
-  '19:45',
-  '20:00',
-  '20:15',
-  '20:30',
-  '20:45',
-  '21:00',
-  '21:15',
-]
-
 // Schema estrito (OpenAI Structured Outputs) da resposta do agente. strict:true +
 // additionalProperties:false OBRIGAM o modelo a devolver todos os campos do contrato
 // (fim do "campo obrigatorio ausente"; handoff/etapa_proxima/reuniao_escolha sempre vem).
@@ -3364,8 +3350,8 @@ async function aplicarGuardrailReuniaoProposta(resultado, perfil = {}, dataRef =
       horarios_sugeridos: Array.isArray(sugestao?.horarios_sugeridos) ? sugestao.horarios_sugeridos : [],
       horario_confirmado: null,
       duracao_maxima_minutos: 15,
-      janela_permitida: 'segunda a sexta, 19:30 a 21:30',
-      ultimo_inicio_permitido: '21:15',
+      janela_permitida: 'todos os dias, 07:00 ate 00:00',
+      ultimo_inicio_permitido: '23:45',
     },
     eventos_conversa: {
       ...((resultado.atualizar_perfil && resultado.atualizar_perfil.eventos_conversa) || {}),

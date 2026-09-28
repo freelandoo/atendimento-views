@@ -27,6 +27,15 @@ test('gerarGrade produz os horarios da janela no passo pedido', () => {
   assert.deepEqual(g, ['08:00', '08:30', '09:00', '09:30'])
 })
 
+test('gerarGrade padrao bloqueia madrugada e cobre ate o fim do dia', () => {
+  const g = slots.gerarGrade()
+  assert.equal(g[0], '07:00')
+  assert.equal(g.at(-1), '23:30')
+  assert.ok(g.includes('17:30'), 'fim da tarde precisa continuar disponivel')
+  assert.ok(g.includes('22:00'), 'noite continua disponivel se nao houver bloqueio')
+  assert.ok(!g.includes('06:30'), 'madrugada antes de 07:00 nao entra')
+})
+
 test('gerarGrade nao oferece slot que estoura a janela', () => {
   // Um slot de 45 min comecando 09:30 terminaria 10:15 — fora da janela. Oferece-lo prometeria
   // um horario que a janela nao tem.

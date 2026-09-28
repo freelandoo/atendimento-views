@@ -11,13 +11,14 @@
 // achar que a agenda quebrou; um slot que diz "Feriado" resolve a duvida sem abrir nada.
 //
 // ─── POR QUE NAO REUSAR `buscarDisponibilidadeSemana` (src/agenda.js) ──────────────────
-// Aquela funcao responde a pergunta do BOT: ela le so' `vendas.agenda_eventos` e usa a janela fixa
-// de atendimento do funil (19:30–21:15 nos uteis). Aqui a janela e' da tela, mas a folga entre
-// reunioes continua sendo regra de agenda: o operador nao deve marcar uma reuniao colada na outra.
+// Aquela funcao responde a pergunta do BOT: ela le so' `vendas.agenda_eventos`. Aqui a janela e'
+// da tela, mas a folga entre reunioes continua sendo regra de agenda: o operador nao deve marcar
+// uma reuniao colada na outra.
 
-// Grade padrao da tela: horario comercial, passo de 30 min. Sao defaults, nao regra — a rota
-// aceita outros valores. O passo e' o mesmo da duracao para a grade nao ter buraco entre slots.
-const GRADE_PADRAO = Object.freeze({ horaInicio: '08:00', horaFim: '18:00', duracaoMin: 30 })
+// Grade padrao da tela para reunioes: o unico veto fixo e a madrugada (00:00-07:00). O restante
+// do dia aparece livre salvo bloqueios/conflitos reais. Sao defaults, nao regra — a rota aceita
+// outros valores. O passo e' o mesmo da duracao para a grade nao ter buraco entre slots.
+const GRADE_PADRAO = Object.freeze({ horaInicio: '07:00', horaFim: '24:00', duracaoMin: 30 })
 
 // Folga operacional entre reunioes. O padrao da agenda da tela e' 2h, conforme a rotina comercial
 // combinada; `REUNIAO_BUFFER_MIN=0` desliga em ambientes que precisem de agenda colada.
@@ -48,6 +49,7 @@ function minutosDeHora(hhmm) {
   if (!m) return null
   const h = Number(m[1])
   const min = Number(m[2])
+  if (h === 24 && min === 0) return 24 * 60
   if (h < 0 || h > 23 || min < 0 || min > 59) return null
   return h * 60 + min
 }
@@ -66,8 +68,8 @@ function gerarGrade({ horaInicio, horaFim, duracaoMin } = {}) {
   const passo = Number(duracaoMin) > 0 ? Math.floor(Number(duracaoMin)) : GRADE_PADRAO.duracaoMin
   if (ini == null || fim == null || fim <= ini) return []
   const out = []
-  // O slot precisa CABER inteiro na janela: um slot de 30 min comecando 17:45 terminaria depois
-  // das 18:00 e prometeria um horario que a janela nao tem.
+  // O slot precisa CABER inteiro na janela: um slot que termina depois de 00:00 cairia justamente
+  // na madrugada bloqueada.
   for (let t = ini; t + passo <= fim; t += passo) out.push(horaDeMinutos(t))
   return out
 }

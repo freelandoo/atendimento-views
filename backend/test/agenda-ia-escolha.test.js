@@ -18,9 +18,9 @@ test('normalizarReuniaoEscolha: aceita {data,horario} validos e normaliza o hora
     normalizarReuniaoEscolha({ data: '2026-06-05', horario: '19:30' }),
     { data: '2026-06-05', horario: '19:30' }
   )
-  // horario "7:30" da noite -> normaliza p/ 19:30 (mesma heuristica do parser)
+  // "7:30" agora e horario literal da manha: a janela de reuniao comeca as 07:00.
   const so = normalizarReuniaoEscolha({ horario: '7:30' })
-  assert.equal(so.horario, '19:30')
+  assert.equal(so.horario, '07:30')
   assert.equal(so.data, null)
 })
 
@@ -55,51 +55,48 @@ test('orquestrador NAO captura escolha em linguagem natural (deixa para a IA/JSO
   assert.notEqual(d.acao_decidida, 'confirmacao_reuniao')
 })
 
-test('validarSlotReuniao: rejeita horario fora da janela padrao (sem tocar no banco)', async () => {
-  assert.equal(await validarSlotReuniao({ data: '2026-06-05', horario: '22:00' }), false)
+test('validarSlotReuniao: rejeita madrugada fora da janela padrao (sem tocar no banco)', async () => {
+  assert.equal(await validarSlotReuniao({ data: '2026-06-05', horario: '06:45' }), false)
+  assert.equal(await validarSlotReuniao({ data: '2026-06-05', horario: '00:00' }), false)
   assert.equal(await validarSlotReuniao({ data: '2026-06-05', horario: '' }), false)
   assert.equal(await validarSlotReuniao({ data: 'amanha', horario: '19:30' }), false)
 })
 
-test('validarSlotReuniao: rejeita domingo e horario fora da grade do dia (sem tocar no banco)', async () => {
-  // 2026-06-06 = sabado (grade de DIA 08:00–20:30, passos de 30min), 2026-06-07 = domingo
-  assert.equal(await validarSlotReuniao({ data: '2026-06-07', horario: '20:00' }), false) // domingo nao atende
-  assert.equal(await validarSlotReuniao({ data: '2026-06-06', horario: '19:45' }), false) // sabado e grade de 30min (:45 nao existe)
-  assert.equal(await validarSlotReuniao({ data: '2026-06-06', horario: '21:00' }), false) // alem do ultimo inicio do sabado (20:30)
+test('validarSlotReuniao: rejeita horario fora da grade de 15 min (sem tocar no banco)', async () => {
+  assert.equal(await validarSlotReuniao({ data: '2026-06-06', horario: '07:10' }), false)
+  assert.equal(await validarSlotReuniao({ data: '2026-06-06', horario: '24:00' }), false)
 })
 
-test('horarios de reuniao: sabado tem janela de dia (08:00–20:30); domingo nao atende', () => {
+test('horarios de reuniao: todos os dias vao de 07:00 ate 23:45', () => {
   const { horariosPadraoParaWeekday, diaAtendeReuniao } = require('../src/date-utils')
   const sab = horariosPadraoParaWeekday(6)
-  assert.ok(sab.includes('08:00') && sab.includes('20:30'), 'sabado deve cobrir 08:00 ate 20:30')
-  assert.ok(!sab.includes('21:00'), 'ultimo inicio do sabado e 20:30')
-  assert.deepEqual(horariosPadraoParaWeekday(0), [], 'domingo nao tem horarios')
-  assert.ok(horariosPadraoParaWeekday(3).includes('19:30'), 'dia util mantem a noite')
+  assert.ok(sab.includes('07:00') && sab.includes('23:45'), 'sabado deve cobrir 07:00 ate 23:45')
+  assert.ok(!sab.includes('06:45'), 'madrugada antes de 07:00 nao entra')
+  assert.ok(horariosPadraoParaWeekday(0).includes('22:00'), 'domingo tambem aceita reuniao')
+  assert.ok(horariosPadraoParaWeekday(3).includes('17:30'), 'dia util nao para no fim da tarde')
   assert.equal(diaAtendeReuniao(6), true)
-  assert.equal(diaAtendeReuniao(0), false)
+  assert.equal(diaAtendeReuniao(0), true)
 })
 
-test('dias candidatos: sabado entra na semana com janela de dia', () => {
-  // 2026-06-10 = quarta; os proximos dias incluem o sabado 06-13 com horario de dia.
+test('dias candidatos: sabado entra na semana com a mesma janela ampla', () => {
+  // 2026-06-10 = quarta; os proximos dias incluem o sabado 06-13.
   const dias = montarDiasCandidatos(new Date('2026-06-10T15:00:00Z'), 7, true)
   const sab = dias.find((d) => d.label === 'sabado')
   assert.ok(sab, 'sabado deve estar entre os dias candidatos')
-  assert.ok(sab.candidatos.includes('08:00') && sab.candidatos.includes('14:00'))
+  assert.ok(sab.candidatos.includes('07:00') && sab.candidatos.includes('22:00'))
 })
 
-test('dias candidatos: dia util a tarde OFERECE HOJE (sem o antigo portao das 18:30)', () => {
-  // 2026-06-04T17:00Z = quinta 14:00 BRT — antes pulava para amanha; agora hoje
-  // entra com os horarios da noite (19:30+ estao a >60min).
+test('dias candidatos: dia util a tarde OFERECE HOJE com a janela ampla', () => {
+  // 2026-06-04T17:00Z = quinta 14:00 BRT — hoje ainda tem tarde e noite disponiveis.
   const dias = montarDiasCandidatos(new Date('2026-06-04T17:00:00Z'), 7, true)
   assert.equal(dias[0].label, 'hoje')
-  assert.ok(dias[0].candidatos.includes('19:30'))
-  assert.ok(dias[0].candidatos.includes('21:15'))
+  assert.ok(dias[0].candidatos.includes('15:00'))
+  assert.ok(dias[0].candidatos.includes('23:45'))
 })
 
-test('dias candidatos: tarde da noite sem antecedencia rola para o proximo dia util', () => {
-  // 2026-06-05T23:50Z = sexta 20:50 BRT — nao ha slot com 60min de antecedencia
-  // hoje (ultimo e 21:15), entao o primeiro candidato e o proximo dia util.
-  const dias = montarDiasCandidatos(new Date('2026-06-05T23:50:00Z'), 7, true)
+test('dias candidatos: perto da meia-noite sem antecedencia rola para amanha', () => {
+  // 2026-06-06T02:30Z = sexta 23:30 BRT — nao ha slot com 60min de antecedencia.
+  const dias = montarDiasCandidatos(new Date('2026-06-06T02:30:00Z'), 7, true)
   assert.notEqual(dias[0].label, 'hoje')
 })
 
@@ -108,8 +105,8 @@ const { utcParaDataLocalEmTimezone } = require('../src/date-utils')
 
 test('buffer entre reuniões: bloqueia slots a menos da folga de uma reunião', () => {
   // A folga passou a ser a MESMA da agenda da tela (services/agenda-slots.js). Com 2h, uma
-  // reunião marcada apaga o resto da janela da noite (19:30–21:15) — consequência declarada e
-  // aceita pelo operador em 2026-09-22: no máximo uma reunião por dia útil pelo WhatsApp.
+  // reunião marcada apaga os slots proximos dela, mas a janela ampla ainda pode ter horarios
+  // antes/depois da folga.
   assert.equal(REUNIAO_BUFFER_MINUTOS, 120)
   const di = utcParaDataLocalEmTimezone({ year: 2026, month: 6, day: 8, hour: 20, minute: 0 }, 'America/Sao_Paulo')
   const df = new Date(di.getTime() + 15 * 60 * 1000)
