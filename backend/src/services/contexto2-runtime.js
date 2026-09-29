@@ -999,12 +999,17 @@ Retorne APENAS JSON válido: {"mensagem":"..."}`
  */
 async function gerarFollowupComPlaybook({ pool, log, empresaId, leadPhone, historico, playbook, contextoTempo, aiProvider }) {
   const provider = aiProvider || require('../ai-provider')
+  const { montarBlocoHistoricoComercial } = require('./historico-comercial')
+  const blocoComercial = await montarBlocoHistoricoComercial(pool, empresaId, leadPhone)
   const userPrompt = `PLAYBOOK ATIVO:
 ${_truncatePlaybook(playbook?.json || playbook)}
 
 HISTÓRICO RECENTE:
 ${_formatHistorico(historico)}
-
+${blocoComercial ? `
+HISTÓRICO COMERCIAL (ligações e anotações do operador — use para calibrar o tom; NÃO copie ao lead):
+${blocoComercial}
+` : ''}
 CONTEXTO DE TEMPO (uso interno; não copie labels ao lead):
 ${JSON.stringify(contextoTempo || {}, null, 2)}
 

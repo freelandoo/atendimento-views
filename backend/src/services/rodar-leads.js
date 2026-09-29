@@ -204,7 +204,7 @@ async function mensagemFinalDoLead(pool, { prospect, template, gerarIa, instruco
     const jsonApresentacao = montarJsonApresentacaoDoProspect(prospect)
     const textoIa = await gerarSaudacaoAnalise({
       pool, log: logger, empresaId, contextoId, jsonApresentacao,
-      instrucoes, nomeLead: prospect.nome, _generate,
+      instrucoes, nomeLead: prospect.nome, telefone: prospect.telefone, _generate,
     })
     if (textoIa) return { texto: textoIa, gerada_por_ia: true, falha_ia: false }
   } catch (e) {

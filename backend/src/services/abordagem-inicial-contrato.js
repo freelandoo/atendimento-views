@@ -342,7 +342,7 @@ function normalizarContratoAbordagem(textoBruto, estrategia = {}, opts = {}) {
   }
 }
 
-function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conhecimento = '', instrucoes = '', nomeEmpresa = '' }) {
+function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conhecimento = '', instrucoes = '', nomeEmpresa = '', historicoComercial = '' }) {
   const abordagem = selecionarOfertaAbordagem(instrucoes, dadosLead)
   const avisoSitePronto = abordagem.oferta ? abordagem.oferta.site_pronto !== false : false
   const identificacao = texto(abordagem.identificacao, 220)
@@ -390,6 +390,7 @@ function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conheciment
       `REGRAS\n${regras.map((r, i) => `${i + 1}. ${r}`).join('\n')}`,
       conhecimento ? `CONHECIMENTO DA EMPRESA\n${conhecimento}` : '',
       abordagem.instrucoes ? `INSTRUCOES EXTRAS DA EMPRESA\n${abordagem.instrucoes}` : '',
+      historicoComercial ? `HISTORICO COMERCIAL DO LEAD (ligacoes e anotacoes ja feitas — se ja houve contato, ajuste o tom para retomada, nao aborde como primeiro contato; NAO copie ao lead)\n${historicoComercial}` : '',
       `ESTRATEGIA CALCULADA PELO APP\n${JSON.stringify(estrategia, null, 2)}`,
       `DADOS DO LEAD\n${JSON.stringify(dadosLead, null, 2)}`,
       'JSON DE SAIDA',

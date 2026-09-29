@@ -11,6 +11,7 @@ const {
   montarPromptContratoAbordagem,
   normalizarContratoAbordagem,
 } = require('./abordagem-inicial-contrato')
+const { montarBlocoHistoricoComercial } = require('./historico-comercial')
 
 const TIMEOUT_MS = Math.max(5000, parseInt(process.env.SAUDACAO_IA_TIMEOUT_MS, 10) || 30000)
 // Nº de RETENTATIVAS extras quando a IA falha/retorna vazio (garante que a geração
@@ -38,7 +39,7 @@ function dadosSemPrompt(jsonApresentacao) {
  * @param {string} [args.nomeLead]
  * @returns {Promise<string>} texto pronto ou '' em falha
  */
-async function gerarSaudacaoAnalise({ pool, log, empresaId, contextoId, jsonApresentacao, instrucoes, nomeLead, _generate }) {
+async function gerarSaudacaoAnalise({ pool, log, empresaId, contextoId, jsonApresentacao, instrucoes, nomeLead, telefone, _generate }) {
   const gerar = _generate || generateAIResponse
   try {
     let conhecimento = ''
@@ -49,6 +50,12 @@ async function gerarSaudacaoAnalise({ pool, log, empresaId, contextoId, jsonApre
       } catch { conhecimento = '' }
     }
 
+    // 1ª abordagem normalmente não tem histórico; quando o operador já ligou antes de
+    // mandar mensagem, retorna o bloco e a IA ajusta o tom para retomada. Nunca lança.
+    const historicoComercial = telefone
+      ? await montarBlocoHistoricoComercial(pool, empresaId, telefone)
+      : ''
+
     const dadosLead = dadosSemPrompt(jsonApresentacao)
     const estrategia = montarEstrategiaAbordagem(dadosLead, { nomeLead })
     const promptContrato = montarPromptContratoAbordagem({
@@ -57,6 +64,7 @@ async function gerarSaudacaoAnalise({ pool, log, empresaId, contextoId, jsonApre
       conhecimento: conhecimento && conhecimento.trim() ? conhecimento.trim() : '',
       instrucoes: instrucoes && String(instrucoes).trim() ? String(instrucoes).trim() : '',
       nomeEmpresa: estrategia.nome_empresa,
+      historicoComercial,
     })
 
     const input = {

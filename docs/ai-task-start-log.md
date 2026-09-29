@@ -6,6 +6,15 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-29 — Histórico comercial (ligações + observações) alimenta a geração de mensagem
+
+- **Pedido do operador:** ao gerar as mensagens da IA (follow-up e 1ª abordagem), aproveitar sinais comerciais reais do lead — quantas ligações já houve, duração/resultado e as observações do operador — e não só a qualificação cadastral/ICP. Ex.: "liguei 2x", "ligação durou 2min = mais interesse", "observação: cliente demonstrou interesse".
+- **Workflow:** Fase 0 registrada antes de alterar código; seguir `docs/ai-workflow.md`. Escopo confirmado com o operador: **follow-ups + 1ª abordagem**.
+- **Análise de impacto:** os sinais já existem em `historicoDoContato()` (`backend/src/db/follow-ups.js`) — ligações (`duracao_seg`, `resultado`, `motivo_perda`), observações de follow-up (`resultado_nota`) e follow-ups/e-mails/auto já enviados. Ponto único dos follow-ups: `gerarFollowupComPlaybook()` (`contexto2-runtime.js`), usado pelo motor automático (`followup-execution.js`) E pelo manual (`followup-manual.js`). 1ª abordagem: `saudacao-analise.js` → `abordagem-inicial-contrato.js`.
+- **Plano (diff mínimo):** 1 helper puro-ish `montarBlocoHistoricoComercial(pool, empresaId, telefoneDigitos)` que reduz `historicoDoContato` a um bloco de texto curto; injetado como mais uma seção no `userPrompt` de `gerarFollowupComPlaybook` e no contrato da 1ª abordagem (só quando houver histórico). Sem migration, sem env, sem rota nova, sem tabela nova. Read-only sobre dados já existentes.
+- **Risco/limite:** não inventar sinal que não está no banco; falha na leitura do histórico nunca derruba a geração (cai para o comportamento atual). Não mexer na regra de UI nem no contrato JSON de saída da abordagem.
+- **Validações previstas:** `cd backend && npm test` (foco em saudacao-analise / follow-ups), `cd backend && npm run typecheck` se tocar `.ts`, e `git diff --check`.
+
 ## 2026-09-28 — Cadastro manual com origem inbound/outbound
 
 - **Pedido do operador:** permitir adicionar leads vindos de WhatsApp/Formulário Meta e deixar claro se o lead veio atrás da empresa (inbound) ou se foi prospectado (outbound).
