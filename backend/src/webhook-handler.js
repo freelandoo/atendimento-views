@@ -10,6 +10,7 @@ const {
   avaliarAtribuicao,
   resumoDiagnostico,
   diagnosticoLigado,
+  localizarExternalAdReply,
 } = require('./services/ctwa-atribuicao')
 const {
   registrarAtribuicao: registrarAtribuicaoDefault,
@@ -307,7 +308,19 @@ function registerWebhookRoute(app, deps = {}) {
         const escopoAtendimento = avaliarEscopoAtendimentoInstancia({
           contextoProspeccao,
           configJson: req.whatsappInstanciaConfig,
+          conversaExiste: !!conversa,
+          veioDeAnuncio: localizarExternalAdReply(msg).encontrado,
         })
+        // Contato externo sem permissão: DESCARTA antes de gravar. Não vira conversa,
+        // não captura nome, não cria perfil — não aparece na Central de Mensagens. A
+        // atribuição de anúncio (CTWA), acima, já rodou e vive em tabela própria.
+        if (!escopoAtendimento.podeCapturar) {
+          webhookLog.info(
+            { escopo: escopoAtendimento.origem, instancia_id: req.whatsappInstanciaId || null },
+            'Contato externo bloqueado: mensagem nao capturada (instancia nao atende contatos externos)'
+          )
+          return
+        }
         if (contextoProspeccao?.prospect) {
           const p = contextoProspeccao.prospect
           const d = contextoProspeccao.diagnostico || {}
@@ -371,12 +384,13 @@ function registerWebhookRoute(app, deps = {}) {
         // Empresa COMPROVADA pela instância Evolution (resolveEmpresaFromWebhook). Não há
         // fallback: se o código chegou aqui, `barrarSemDonoComprovado` já deixou passar,
         // e `req.empresaId` é o dono real. Fixa o dono da conversa na criação.
+        // Passou o gate de captura acima ⇒ contato permitido; não força pausa aqui.
         await salvarConversa(
           numero,
           historico,
           estagio,
           conversa?.status || 'ativo',
-          escopoAtendimento.podeResponder ? undefined : true,
+          undefined,
           req.empresaId,
           req.evolutionInstance
         )
@@ -387,13 +401,6 @@ function registerWebhookRoute(app, deps = {}) {
           await capturarNomeContato(numero, { pushName: msg.pushName, texto: textoHistorico }, webhookLog).catch((err) =>
             webhookLog.warn({ err: serializeError(err) }, 'Falha ao capturar apelido do contato')
           )
-        }
-        if (!escopoAtendimento.podeResponder) {
-          webhookLog.info(
-            { escopo: escopoAtendimento.origem, instancia_id: req.whatsappInstanciaId || null },
-            'Contato fora da prospeccao registrado com agente pausado; resposta automatica bloqueada'
-          )
-          return
         }
         let respostaLembrete = null
         if (typeof registrarRespostaLembreteReuniao === 'function') {

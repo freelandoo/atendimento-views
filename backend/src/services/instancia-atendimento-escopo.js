@@ -11,14 +11,32 @@ function mensagemEhDeProspect(contextoProspeccao) {
   return !!contextoProspeccao?.prospect
 }
 
-function avaliarEscopoAtendimentoInstancia({ contextoProspeccao = null, configJson = null } = {}) {
+// Permissão para CAPTURAR e responder. Contato externo sem permissão é DESCARTADO no
+// webhook (nem grava conversa), não só pausado. As quatro permissões:
+//   - prospect (o número casa um prospect enviado/respondeu);
+//   - conversaExiste: a operação já iniciou (envio manual pelo app OU abordagem do
+//     prospectado — os dois criam a conversa no envio; cold inbound nunca cria);
+//   - veioDeAnuncio: clicou no anúncio (CTWA) — é lead, entra igual prospect;
+//   - atende_contatos_externos ligado na instância.
+function avaliarEscopoAtendimentoInstancia({
+  contextoProspeccao = null,
+  configJson = null,
+  conversaExiste = false,
+  veioDeAnuncio = false,
+} = {}) {
   if (mensagemEhDeProspect(contextoProspeccao)) {
-    return { podeResponder: true, origem: 'prospeccao' }
+    return { podeResponder: true, podeCapturar: true, origem: 'prospeccao' }
+  }
+  if (conversaExiste) {
+    return { podeResponder: true, podeCapturar: true, origem: 'conversa_iniciada' }
+  }
+  if (veioDeAnuncio) {
+    return { podeResponder: true, podeCapturar: true, origem: 'anuncio' }
   }
   if (atendeContatosExternos(configJson)) {
-    return { podeResponder: true, origem: 'contato_externo_liberado' }
+    return { podeResponder: true, podeCapturar: true, origem: 'contato_externo_liberado' }
   }
-  return { podeResponder: false, origem: 'contato_externo_bloqueado' }
+  return { podeResponder: false, podeCapturar: false, origem: 'contato_externo_bloqueado' }
 }
 
 module.exports = {

@@ -6079,3 +6079,25 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Cuidados:** a geração por SELEÇÃO explícita (`gerarMensagensSemi` via `/gerar`) NÃO é filtrada —
   o operador escolheu aqueles leads. Recorte só governa a seleção AUTOMÁTICA/em massa. Sem migration,
   sem env nova, sem mexer em envio/teto/cooldown. Mirror do filtro de nicho do Auto.
+
+## 2026-09-29 — Instância que não atende externos DESCARTA a mensagem (não só pausa)
+
+- **Pedido (operador):** com o toggle "Contatos externos?" DESLIGADO, mensagem de lead que chega
+  sem a operação ter iniciado não deve nem ser capturada — não aparece na Central de Mensagens,
+  não mistura com os contatos. Só entra com permissão: a operação iniciou (envio manual pelo app
+  ou abordagem do prospectado), o número é prospect, OU veio de anúncio (decisão do operador).
+- **Estado atual:** a flag `atende_contatos_externos` já existe (`services/instancia-atendimento-escopo.js`,
+  toggle em `frontend/components/InstanciasWhatsApp.tsx`). Hoje, desligado = a IA não responde, mas
+  a conversa AINDA é gravada (`webhook-handler.js:374 salvarConversa`) e aparece na Central com o
+  agente pausado. `avaliarEscopoAtendimentoInstancia` só reconhece prospect como permissão.
+- **Decisão:** permissão passa a ser prospect OU conversa já existente (cobre "mandei pelo app" e
+  "app abordou" — os dois criam a conversa no envio) OU veio de anúncio (CTWA). Sem nenhum →
+  DESCARTA (retorna 2xx antes de salvar; não grava conversa, nome nem perfil). Externo bloqueado
+  "some de vez" (sem área de pendência).
+- **Áreas previstas:** `backend/src/services/instancia-atendimento-escopo.js` (regra pura +
+  `podeCapturar`), `backend/src/webhook-handler.js` (gate antes de salvarConversa; reusa
+  `localizarExternalAdReply` de ctwa-atribuicao para o sinal de anúncio; conversa já é buscada
+  antes do gate), `backend/test/instancia-atendimento-escopo.test.js`.
+- **Cuidados:** caminho mais quente (webhook). CTWA roda ANTES do gate e vive em tabela própria —
+  não se perde atribuição. Dedupe/auto-reply/marcar prospect respondeu seguem antes do gate.
+  Conversas externas já gravadas continuam (não muta dado). Sem migration, env ou rota nova.

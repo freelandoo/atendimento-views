@@ -169,19 +169,19 @@ test('instância mapeada processa normalmente e SÓ na empresa correta', async (
   assert.equal(chamadas.quarentena.length, 0, 'nada de pendência para instância válida')
 })
 
-test('instância mapeada sem liberação de contato externo registra e não responde', async () => {
+test('instância mapeada sem liberação de contato externo DESCARTA a mensagem', async () => {
   const { receber, chamadas } = montar()
-  await receber(mensagem(), reqDe({
+  // comAnuncio=false: contato externo de verdade — sem prospect, sem conversa e sem anúncio.
+  await receber(mensagem('MSG-1', false), reqDe({
     instanceName: 'inst-b',
     vinculo: { empresa: { id: EMPRESA_B, nome: 'Empresa B' }, instanciaId: INSTANCIA_B },
   }))
 
-  assert.equal(chamadas.conversasSalvas.length, 1)
-  assert.equal(chamadas.conversasSalvas[0].empresaId, EMPRESA_B)
-  assert.equal(chamadas.conversasSalvas[0].agentePausado, true, 'contato externo nasce com agente pausado')
-  assert.equal(chamadas.jobsResposta.length, 0, 'contato externo sem opt-in não pode gerar resposta automática')
-  assert.equal(chamadas.atribuicoes.length, 1, 'a atribuição CTWA continua independente da resposta')
-  assert.equal(chamadas.followupsCancelados.length, 0, 'não deve tratar contato externo como resposta de follow-up')
+  // Some de vez: não vira conversa, perfil, resposta nem follow-up.
+  assert.equal(chamadas.conversasSalvas.length, 0, 'contato externo bloqueado não é gravado')
+  assert.equal(chamadas.perfisAtualizados.length, 0, 'não cria perfil de lead')
+  assert.equal(chamadas.jobsResposta.length, 0, 'não gera resposta automática')
+  assert.equal(chamadas.followupsCancelados.length, 0, 'não trata contato externo como resposta de follow-up')
 })
 
 // ─── Os três casos de quarentena ──────────────────────────────────────────────
