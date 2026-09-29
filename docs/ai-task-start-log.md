@@ -5935,3 +5935,13 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Cuidados:** sem migration nem regra nova; manter `LeadDetalhesModal` dono do ICP e
   `ConversaHistoricoModal` dono das acoes de conversa; preservar permissoes/capacidades e usar
   apenas os vereditos ja existentes do backend/front.
+
+## 2026-09-29 — Baixa de follow-up pela ficha do lead
+
+- **Pedido:** na linha de proxima acao da ficha, permitir marcar follow-up como feito,
+  reagendar ou cancelar sem sair da ficha, alem de abrir a conversa para executar a acao.
+- **Areas previstas:** `frontend/app/dashboard/banco-leads/page.tsx` e tipos/helpers ja usados
+  por `frontend/lib/lead-proxima-acao.*` e `frontend/lib/follow-up-acao.*`.
+- **Cuidados:** reutilizar as rotas oficiais da Central de Follow-ups
+  (`/follow-ups/itens/:id/status` e `/reagendar`); nao criar novo status nem endpoint; manter
+  permissao/alcance no backend e so traduzir o compromisso carregado em `/proxima-acao`.

@@ -54,10 +54,10 @@ import {
   COLUNAS_CSV, COLUNAS_CSV_PADRAO, LIMPEZA,
 } from '@/lib/banco-leads-painel'
 import { IconPlus, IconBroom, IconDownload, IconFlask, IconGear, IconLock, IconTrash, IconCalendar, IconAlert, IconChevron, IconCheck, IconMapPin } from '@/components/ui/icons'
-import type { PayloadProximaAcao } from '@/lib/follow-up-acao'
+import { deInputLocal, paraInputLocal, PRIORIDADE_OPCOES, type PayloadProximaAcao, type PrioridadeFollowUp } from '@/lib/follow-up-acao'
 // O que já foi COMBINADO com o lead (follow-up, agenda, última ligação). A ordem e a situação do
 // prazo vêm do backend; o módulo só escreve.
-import { cartaoCompromisso, resumoUltimaLigacao, type ProximaAcaoLead } from '@/lib/lead-proxima-acao'
+import { cartaoCompromisso, resumoUltimaLigacao, type CompromissoLead, type ProximaAcaoLead } from '@/lib/lead-proxima-acao'
 // Cadência comercial recomendada pelo backend (Proposta B). A tela só traduz o plano recebido.
 import { resumoCadencia, type PlanoFollowUpLead } from '@/lib/lead-cadencia'
 
@@ -843,6 +843,7 @@ export default function BancoLeadsPage() {
   // CRM em equipe: as capacidades chegam RESOLVIDAS pelo backend (/api/auth/me). A tela não
   // recalcula nada — quem decide é services/acesso-capacidades.js.
   const { usuario, capacidades } = useSession()
+  const fb = useFeedback()
   const base = `/api/empresas/${empresaId}/banco-leads`
 
   const [aba, setAba] = useState('sem_contato')
@@ -960,6 +961,7 @@ export default function BancoLeadsPage() {
   const [proximaAcao, setProximaAcao] = useState<{ leadId: string; data: ProximaAcaoLead | null; erro: boolean } | null>(null)
   const [cadenciaLead, setCadenciaLead] = useState<{ leadId: string; data: PlanoFollowUpLead | null; erro: boolean } | null>(null)
   const [versaoProximaAcao, setVersaoProximaAcao] = useState(0)
+  const [followUpReagendando, setFollowUpReagendando] = useState<CompromissoLead | null>(null)
   const fichaLeadId = ficha?.leadId || null
   useEffect(() => {
     if (!fichaLeadId) { setProximaAcao(null); setCadenciaLead(null); return }
@@ -975,6 +977,26 @@ export default function BancoLeadsPage() {
       .catch(() => { if (vivo) setCadenciaLead({ leadId: fichaLeadId, data: null, erro: true }) })
     return () => { vivo = false }
   }, [fichaLeadId, versaoProximaAcao, base])
+  const recarregarProximaAcao = useCallback(() => setVersaoProximaAcao((v) => v + 1), [])
+  const mudarStatusFollowUpFicha = useCallback(async (followUpId: string, status: 'concluido' | 'cancelado') => {
+    await fb.runTask(async () => {
+      await apiFetch(`/api/empresas/${empresaId}/follow-ups/itens/${followUpId}/status`, {
+        method: 'POST',
+        body: JSON.stringify({ status }),
+      })
+      recarregarProximaAcao()
+    }, { sucesso: status === 'concluido' ? 'Follow-up marcado como feito.' : 'Follow-up cancelado.' })
+  }, [empresaId, fb, recarregarProximaAcao])
+  const reagendarFollowUpFicha = useCallback(async (followUp: CompromissoLead, patch: Record<string, unknown>) => {
+    await fb.runTask(async () => {
+      await apiFetch(`/api/empresas/${empresaId}/follow-ups/itens/${followUp.id}/reagendar`, {
+        method: 'POST',
+        body: JSON.stringify(patch),
+      })
+      setFollowUpReagendando(null)
+      recarregarProximaAcao()
+    }, { sucesso: 'Follow-up reagendado.' })
+  }, [empresaId, fb, recarregarProximaAcao])
   const [enviandoConversa, setEnviandoConversa] = useState(false)
   const [gerandoConversa, setGerandoConversa] = useState(false)
   // Colunas e filtros da visualizacao (colunas + filtros + ordenação; persistida no localStorage)
@@ -1015,7 +1037,6 @@ export default function BancoLeadsPage() {
   }, [])
   const [view, setView] = useState<ViewConfig>(VIEW_PADRAO)
   const patchView = useCallback((p: Partial<ViewConfig>) => setView((v) => ({ ...v, ...p })), [])
-  const fb = useFeedback()
   // Paginação client-side da lista, sobre o conjunto já carregado e já filtrado — mesmo módulo
   // puro (`lib/paginacao.js`) usado por Follow-ups e Central de Ligações. UMA página, porque a
   // ordem de trabalho é uma só: duas paginações independentes deixavam metade da fila numa
@@ -1963,8 +1984,10 @@ export default function BancoLeadsPage() {
     const dono = donoDoLead(leadDaFicha, usuario?.id)
     const agora = new Date()
     const pa = proximaAcao && proximaAcao.leadId === leadDaFicha.id ? proximaAcao : null
-    const cartoes = (pa?.data?.compromissos || []).map((c) => cartaoCompromisso(c, agora))
-    const [principal, ...outros] = cartoes
+    const cartoes = (pa?.data?.compromissos || []).map((raw) => ({ raw, card: cartaoCompromisso(raw, agora) }))
+    const [principalItem, ...outros] = cartoes
+    const principal = principalItem?.card || null
+    const principalRaw = principalItem?.raw || null
     const ligacao = resumoUltimaLigacao(pa?.data?.ultima_ligacao || null, agora)
     const cadencia = cadenciaLead && cadenciaLead.leadId === leadDaFicha.id ? cadenciaLead : null
     const cadenciaResumo = cadencia?.data ? resumoCadencia(cadencia.data, agora) : null
@@ -1994,13 +2017,40 @@ export default function BancoLeadsPage() {
               </button>
             )}
             {!(principal.tipo_agenda === 'reuniao' && principal.origem === 'agenda') && (
-              <button
-                type="button"
-                onClick={() => setFicha((c) => (c ? { ...c, secao: 'conversa' } : c))}
-                className="mt-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-ink-2 transition hover:bg-surface-2"
-              >
-                Abrir conversa
-              </button>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setFicha((c) => (c ? { ...c, secao: 'conversa' } : c))}
+                  className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-ink-2 transition hover:bg-surface-2"
+                >
+                  Abrir conversa
+                </button>
+                {principalRaw?.tipo === 'follow_up' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => mudarStatusFollowUpFicha(principalRaw.id, 'concluido')}
+                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                    >
+                      Marcar feito
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFollowUpReagendando(principalRaw)}
+                      className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-ink-2 transition hover:bg-surface-2"
+                    >
+                      Reagendar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => mudarStatusFollowUpFicha(principalRaw.id, 'cancelado')}
+                      className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-ink-2 transition hover:bg-surface-2"
+                    >
+                      Cancelar
+                    </button>
+                  </>
+                )}
+              </div>
             )}
           </div>
         ) : !pa ? (
@@ -2021,7 +2071,7 @@ export default function BancoLeadsPage() {
         )}
         {outros.length > 0 && (
           <ul className="mt-2 grid gap-1 text-xs">
-            {outros.map((c) => (
+            {outros.map(({ card: c }) => (
               <li key={c.chave} className="flex flex-wrap items-baseline gap-x-1.5 text-ink-2">
                 {c.selo && <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${c.classe}`}>{c.selo}</span>}
                 <span className="text-ink-3">{c.tipo} · {c.quando}:</span>
@@ -2905,6 +2955,14 @@ export default function BancoLeadsPage() {
         />
       )}
 
+      {followUpReagendando && (
+        <ModalReagendarFollowUpFicha
+          item={followUpReagendando}
+          onFechar={() => setFollowUpReagendando(null)}
+          onConfirmar={(patch) => reagendarFollowUpFicha(followUpReagendando, patch)}
+        />
+      )}
+
       {persAberto && (
         <PersonalizarModal
           view={view}
@@ -3368,6 +3426,66 @@ function RodapePaginacaoBanco({ pg, total, onPagina }: { pg: PaginaLista<Lead>; 
         <span className="text-xs text-ink-3">
           Total: <b className="tabular-nums text-ink-2">{total}</b> lead{total === 1 ? '' : 's'}
         </span>
+      </div>
+    </div>
+  )
+}
+
+function ModalReagendarFollowUpFicha({ item, onFechar, onConfirmar }: {
+  item: CompromissoLead
+  onFechar: () => void
+  onConfirmar: (patch: Record<string, unknown>) => Promise<void>
+}) {
+  const [quando, setQuando] = useState(() => paraInputLocal(item.quando))
+  const [acao, setAcao] = useState(item.titulo || '')
+  const [prioridade, setPrioridade] = useState<PrioridadeFollowUp | ''>((item.prioridade as PrioridadeFollowUp | null) || 'media')
+  const [erro, setErro] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  async function confirmar() {
+    const iso = deInputLocal(quando)
+    if (!acao.trim()) { setErro('Descreva o que precisa ser feito.'); return }
+    if (!iso) { setErro('Informe a nova data e hora.'); return }
+    setErro('')
+    setSalvando(true)
+    try {
+      await onConfirmar({
+        proxima_acao: acao.trim(),
+        agendado_para: iso,
+        prioridade: prioridade || 'media',
+      })
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-ink/45 px-4 py-6" onClick={onFechar}>
+      <div role="dialog" aria-modal="true" aria-label="Reagendar follow-up"
+        className="w-full max-w-md rounded-lg bg-surface p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3">
+          <h3 className="text-sm font-semibold text-ink">Reagendar follow-up</h3>
+          <p className="mt-1 text-xs text-ink-3">Move o mesmo item, mantendo origem e histórico.</p>
+        </div>
+        <label className="block text-xs text-ink-2">O que fazer
+          <input value={acao} onChange={(e) => { setAcao(e.target.value); setErro('') }}
+            className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm" />
+        </label>
+        <label className="mt-2 block text-xs text-ink-2">Quando
+          <input type="datetime-local" value={quando} onChange={(e) => { setQuando(e.target.value); setErro('') }}
+            className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm" />
+        </label>
+        <label className="mt-2 block text-xs text-ink-2">Prioridade
+          <select value={prioridade || 'media'} onChange={(e) => setPrioridade(e.target.value as PrioridadeFollowUp)}
+            className="mt-1 w-full rounded-lg border border-line px-2 py-1.5 text-sm">
+            {PRIORIDADE_OPCOES.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+          </select>
+        </label>
+        {erro && <p className="mt-2 text-xs text-red-600" role="alert">{erro}</p>}
+        <div className="mt-4 flex justify-end gap-2">
+          <Botao variante="neutra" tamanho="sm" onClick={onFechar} disabled={salvando}>Cancelar</Botao>
+          <Botao variante="primaria" tamanho="sm" onClick={confirmar} carregando={salvando}>Reagendar</Botao>
+        </div>
       </div>
     </div>
   )
