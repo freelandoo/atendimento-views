@@ -184,6 +184,10 @@ type RodarResumo = {
   total_dia?: number
   envios?: { prospect_id: string; disparo_id: string; status: string; erro: string | null }[] | null
 }
+function contarCriteriosIcpMarcados(lead: Lead | null | undefined): number {
+  const criterios = lead?.icp_resumo_json?.criterios
+  return Array.isArray(criterios) ? criterios.filter((c) => c.marcado === true).length : 0
+}
 type FalhaSistemicaGeracao = {
   motivo: string
   mensagem: string
@@ -224,6 +228,7 @@ type GeracaoProgresso = { eligiveis: number; prontas: number; gerando: number; e
 type ProgressoLoteManual = { total: number; processados: number; prontas: number; erros: number; pulados: number }
 
 const MAX_LOTE = 15
+const MIN_CRITERIOS_ICP_GERACAO_DIRETA = 4
 const STATUS_RODAVEL = new Set(['coletado', 'contato_encontrado', 'aguardando', 'aprovado'])
 const ABORDAGEM_IA_INICIO = '[ABORDAGEM_IA_CONFIG]'
 const ABORDAGEM_IA_FIM = '[/ABORDAGEM_IA_CONFIG]'
@@ -887,6 +892,7 @@ export default function BancoLeadsPage() {
   const [progressoLoteManual, setProgressoLoteManual] = useState<ProgressoLoteManual | null>(null)
   const [confirmarLoteGrande, setConfirmarLoteGrande] = useState(false)
   const [confirmarAutomatico, setConfirmarAutomatico] = useState(false)
+  const [confirmarGeracaoIcpBaixo, setConfirmarGeracaoIcpBaixo] = useState<{ nome: string; criterios: number } | null>(null)
   const montadoRef = useRef(true)
   const leadCacheRef = useRef<Map<string, Lead>>(new Map())
   const leadFetchRef = useRef<Map<string, Promise<Lead>>>(new Map())
@@ -1656,10 +1662,17 @@ export default function BancoLeadsPage() {
     return null
   }
 
-  async function gerarMensagemConversa() {
+  async function gerarMensagemConversa(opts: { ignorarIcpBaixo?: boolean } = {}) {
     if (!ficha || !instanciaId) return
     if (!ficha.rodavel) { fb.toast('Este lead nao esta elegivel para gerar mensagem.', 'info'); return }
-    if (config.modo === 'automatico') { fb.toast('No Automatico, a geracao acontece pela rotina configurada.', 'info'); return }
+    const criteriosIcp = contarCriteriosIcpMarcados(leadDaFicha)
+    if (!opts.ignorarIcpBaixo && criteriosIcp < MIN_CRITERIOS_ICP_GERACAO_DIRETA) {
+      setConfirmarGeracaoIcpBaixo({
+        nome: leadDaFicha?.nome || ficha.titulo || 'este lead',
+        criterios: criteriosIcp,
+      })
+      return
+    }
     setGerandoConversa(true)
     try {
       const texto = await gerarUm(ficha.leadId)
@@ -2915,6 +2928,21 @@ export default function BancoLeadsPage() {
           ocupado={salvandoAuto}
           onConfirmar={ligarAutomaticoConfirmado}
           onCancelar={() => setConfirmarAutomatico(false)}
+        />
+      )}
+
+      {confirmarGeracaoIcpBaixo && (
+        <ModalConfirmar
+          titulo="Gerar com pouca qualificação?"
+          corpo={`${confirmarGeracaoIcpBaixo.nome} tem ${confirmarGeracaoIcpBaixo.criterios} critério(s) ICP marcado(s). Com pouca qualificação, a IA pode gerar uma primeira abordagem mais genérica.`}
+          aviso={`A geração direta é liberada com ${MIN_CRITERIOS_ICP_GERACAO_DIRETA} ou mais critérios marcados.`}
+          rotuloConfirmar="Gerar mesmo assim"
+          ocupado={gerandoConversa}
+          onConfirmar={() => {
+            setConfirmarGeracaoIcpBaixo(null)
+            gerarMensagemConversa({ ignorarIcpBaixo: true })
+          }}
+          onCancelar={() => setConfirmarGeracaoIcpBaixo(null)}
         />
       )}
 

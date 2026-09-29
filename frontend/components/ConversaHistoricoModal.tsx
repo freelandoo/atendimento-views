@@ -9,7 +9,7 @@ import type { AcessoRapido } from '@/lib/lead-acessos'
 import { ContatoEditavel } from '@/components/ContatoEditavel'
 import { classesFolha, classesFundoFolha } from '@/lib/ui-primitivos'
 import Botao from '@/components/ui/Botao'
-import { IconClose } from '@/components/ui/icons'
+import { IconClose, IconSparkle } from '@/components/ui/icons'
 import SeletorSlots from '@/components/SeletorSlots'
 
 // Modal enxuto do Banco de Leads. Reusa o MESMO endpoint da página de Conversas
@@ -641,9 +641,23 @@ export default function ConversaHistoricoModal({
                 outro canal (rede social ou site, acima) e registrar o resultado no status abaixo.
               </div>
             ) : motivoEnvioIndisponivel ? (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-                {motivoEnvioIndisponivel}{' '}
-                <a href="/dashboard/contextos" className="font-semibold underline underline-offset-2">Ir para Instância</a>
+              <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                <p className="min-w-0 flex-1">
+                  {motivoEnvioIndisponivel}{' '}
+                  <a href="/dashboard/contextos" className="font-semibold underline underline-offset-2">Ir para Instância</a>
+                </p>
+                {onGerar && (
+                  <button
+                    type="button"
+                    onClick={onGerar}
+                    disabled={!podeAcionarGeracao}
+                    title={podeAcionarGeracao ? 'Gerar mensagem por IA' : 'A mensagem por IA não pode ser gerada agora.'}
+                    aria-label="Gerar mensagem por IA"
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-surface text-red-700 shadow-sm transition hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <IconSparkle className={gerando ? 'h-4 w-4 animate-pulse' : 'h-4 w-4'} />
+                  </button>
+                )}
               </div>
             ) : !mensagemGerada && podeEnviar ? (
               <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm text-ink-2">
