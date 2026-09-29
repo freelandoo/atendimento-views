@@ -89,6 +89,13 @@ export type ConversaResumo = {
   score_interesse_mensagens_lead?: number | null
   evolution_instance?: string | null
   /**
+   * Nome AMIGAVEL da instancia que atende esta conversa (`app.empresa_whatsapp_instances.nome`,
+   * join em `api-conversas.js`), ex.: "PJ", "Victor 3". Com 3 instancias no pull, e' isto que
+   * diz por qual numero a conversa e' respondida. `null` quando a instancia nao tem nome ou a
+   * conversa ainda nao tem instancia gravada — cai para `evolution_instance`.
+   */
+  instancia_nome?: string | null
+  /**
    * CRM em equipe, Etapa 7: a conversa tem DONO. `null` e' a fila de NAO ATRIBUIDAS — estado de
    * primeira classe, nao pendencia. O nome chega junto (join em `api-conversas.js`) porque
    * avisar "esta com outra pessoa" sem dizer quem nao resolve o problema real.
@@ -644,7 +651,7 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
         // Mesmo teto do shell (`lib/ui-primitivos.js`): `rem` para o tamanho confortavel e
         // `vw`/`dvh` para garantir que SEMPRE sobre moldura — o painel ocupava 92vh e a largura
         // quase inteira, e a pessoa perdia a nocao de que a lista continua atras.
-        className="bg-white rounded-2xl shadow-xl w-full max-w-[min(60rem,84vw)] max-h-[min(48rem,84dvh)] flex flex-col overflow-hidden"
+        className="bg-white rounded-2xl shadow-xl w-full max-w-[min(72rem,94vw)] max-h-[min(56rem,92dvh)] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-6 py-2.5 border-b flex justify-between items-start gap-3">
@@ -677,11 +684,6 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                         </span>
                       )}
                       <TempBadge t={aberta.temperatura_lead} />
-                      {aberta.evolution_instance && (
-                        <span className="inline-flex items-center rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-xs text-blue-700">
-                          WhatsApp: <strong className="ml-1">{aberta.evolution_instance}</strong>
-                        </span>
-                      )}
                     </div>
                   </div>
                   {/* "Modo desta conversa" dividindo espaco com Prioridade comercial, no mesmo
@@ -724,58 +726,67 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                 </div>
               </div>
             )}
+            {/* Agente ativo em cima, Atendente logo ABAIXO (pedido do operador): os dois falam de
+                "quem/o que responde", entao ficam empilhados no mesmo bloco. Com 3 instancias no
+                pull, o Atendente carrega SEMPRE a instancia — e' ela que diz por qual numero a
+                conversa e' respondida. */}
             {aberta && (
-              <div className="flex shrink-0 items-center gap-2 self-center rounded-lg border border-slate-200 bg-white px-3 py-2">
-                <span className="text-xs text-slate-400">
-                  {alterandoPausa ? 'Atualizando…' : aberta.agente_pausado ? 'Agente pausado' : 'Agente ativo'}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => alterarPausaAgente(!aberta.agente_pausado)}
-                  disabled={alterandoPausa || !podeGerenciarIa}
-                  title={bloqueioIa || (aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente')}
-                  aria-label={`${aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente'}${bloqueioIa ? `. Indisponível: ${bloqueioIa}` : ''}`}
-                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-300 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {alterandoPausa ? (
-                    <Spinner size={12} />
-                  ) : aberta.agente_pausado ? (
-                    <IconPlay className="h-3.5 w-3.5" />
-                  ) : (
-                    <IconPause className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              </div>
-            )}
-            {/* Atendente desta conversa (Etapa 7). "Sem atendente" e' a FILA — o trabalho que
-                precisa ser puxado —, entao ela aparece em destaque, e nao como um traco apagado. */}
-            {aberta && (
-              <div className="flex shrink-0 flex-col gap-1 self-center rounded-lg border border-slate-200 bg-white px-3 py-2">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Atendente</span>
-                <div className="flex items-center gap-2">
-                  <span className={
-                    atendente.estado === 'nao_atribuida' ? 'rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700'
-                      : atendente.meu ? 'rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700'
-                        : 'text-xs text-slate-600'
-                  }>{atendente.rotulo}</span>
-                  {acoesDono.assumir && (
-                    <button type="button" onClick={assumirConversa} disabled={alterandoResponsavel}
-                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">
-                      {alterandoResponsavel ? 'Assumindo…' : 'Assumir'}
-                    </button>
-                  )}
-                  {acoesDono.devolver && (
-                    <button type="button" onClick={devolverConversa} disabled={alterandoResponsavel}
-                      title="Volta para a fila de conversas sem atendente"
-                      className="rounded-lg border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 transition hover:bg-slate-50 disabled:opacity-50">
-                      {alterandoResponsavel ? 'Devolvendo…' : 'Devolver'}
-                    </button>
+              <div className="flex shrink-0 flex-col gap-2 self-center">
+                <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <span className="text-xs text-slate-400">
+                    {alterandoPausa ? 'Atualizando…' : aberta.agente_pausado ? 'Agente pausado' : 'Agente ativo'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => alterarPausaAgente(!aberta.agente_pausado)}
+                    disabled={alterandoPausa || !podeGerenciarIa}
+                    title={bloqueioIa || (aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente')}
+                    aria-label={`${aberta.agente_pausado ? 'Retomar agente' : 'Pausar agente'}${bloqueioIa ? `. Indisponível: ${bloqueioIa}` : ''}`}
+                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-300 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {alterandoPausa ? (
+                      <Spinner size={12} />
+                    ) : aberta.agente_pausado ? (
+                      <IconPlay className="h-3.5 w-3.5" />
+                    ) : (
+                      <IconPause className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
+                {/* Atendente desta conversa (Etapa 7). "Sem atendente" e' a FILA — o trabalho que
+                    precisa ser puxado —, entao ela aparece em destaque, e nao como um traco apagado. */}
+                <div className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Atendente</span>
+                  <div className="flex items-center gap-2">
+                    <span className={
+                      atendente.estado === 'nao_atribuida' ? 'rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700'
+                        : atendente.meu ? 'rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700'
+                          : 'text-xs text-slate-600'
+                    }>{atendente.rotulo}</span>
+                    {acoesDono.assumir && (
+                      <button type="button" onClick={assumirConversa} disabled={alterandoResponsavel}
+                        className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">
+                        {alterandoResponsavel ? 'Assumindo…' : 'Assumir'}
+                      </button>
+                    )}
+                    {acoesDono.devolver && (
+                      <button type="button" onClick={devolverConversa} disabled={alterandoResponsavel}
+                        title="Volta para a fila de conversas sem atendente"
+                        className="rounded-lg border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 transition hover:bg-slate-50 disabled:opacity-50">
+                        {alterandoResponsavel ? 'Devolvendo…' : 'Devolver'}
+                      </button>
+                    )}
+                  </div>
+                  {/* Instancia SEMPRE visivel: e' por ela que a resposta sai (regra unica da Fase 2 —
+                      responder sai pela instancia gravada na conversa, nunca por outra). */}
+                  <span className="inline-flex w-fit items-center rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
+                    Instância:&nbsp;<strong>{aberta.instancia_nome || aberta.evolution_instance || 'não definida'}</strong>
+                  </span>
+                  {/* Botao sumido sem explicacao e' o que faz o operador achar que a tela quebrou. */}
+                  {!acoesDono.assumir && !acoesDono.devolver && acoesDono.motivoSemAssumir && (
+                    <span className="max-w-[180px] text-[10px] leading-snug text-slate-400">{acoesDono.motivoSemAssumir}</span>
                   )}
                 </div>
-                {/* Botao sumido sem explicacao e' o que faz o operador achar que a tela quebrou. */}
-                {!acoesDono.assumir && !acoesDono.devolver && acoesDono.motivoSemAssumir && (
-                  <span className="max-w-[180px] text-[10px] leading-snug text-slate-400">{acoesDono.motivoSemAssumir}</span>
-                )}
               </div>
             )}
             {contextoOrigem && contextoOrigem.linhas.length > 0 && (

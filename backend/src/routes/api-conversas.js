@@ -221,10 +221,13 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
       `SELECT c.*, lp.negocio, lp.cidade, lp.temperatura_lead, lp.score_dor, lp.score_lead,
               lp.dor_principal, lp.ja_aparece_google, lp.precisa_sistema,
               lp.produto_sugerido, lp.intencao_principal, lp.insights_lead,
-              lp.reuniao_proposta, ur.nome AS responsavel_nome
+              lp.reuniao_proposta, ur.nome AS responsavel_nome,
+              ewi.nome AS instancia_nome
        FROM vendas.conversas c
        ${LEAD_PROFILE_JOIN}
        LEFT JOIN app.usuarios ur ON ur.id = c.responsavel_id
+       LEFT JOIN app.empresa_whatsapp_instances ewi
+              ON ewi.evolution_instance = c.evolution_instance AND ewi.empresa_id = $1
        WHERE ${where}
        ORDER BY c.atualizado_em DESC
        LIMIT $${limitParam} OFFSET $${offsetParam}`,
@@ -353,10 +356,12 @@ async function anexarModoIa(conversa, empresaId) {
 router.get('/:numero', requireAuth, requireEmpresaAccess, alcancaConversa, async (req, res) => {
   const { rows: [conversa] } = await pool.query(
     `SELECT c.*, lp.*, c.numero AS numero, c.empresa_id AS empresa_id, c.atualizado_em AS atualizado_em,
-            ur.nome AS responsavel_nome
+            ur.nome AS responsavel_nome, ewi.nome AS instancia_nome
      FROM vendas.conversas c
      ${LEAD_PROFILE_JOIN}
      LEFT JOIN app.usuarios ur ON ur.id = c.responsavel_id
+     LEFT JOIN app.empresa_whatsapp_instances ewi
+            ON ewi.evolution_instance = c.evolution_instance AND ewi.empresa_id = $1
      WHERE ${conversaEmpresaScope('c')} AND c.numero = $3`,
     [req.empresa.id, PJ_EMPRESA_ID, req.params.numero]
   )

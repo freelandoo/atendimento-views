@@ -405,12 +405,20 @@ export default function ConversasPage() {
               <td className="px-4 py-3 text-xs">
                 {(() => {
                   const dono = atendenteDaConversa(c, usuarioId)
+                  // Instancia SEMPRE visivel: com 3 numeros no pull, e' ela que diz por qual a
+                  // conversa e' respondida (a resposta sai pela instancia gravada na conversa).
+                  const inst = c.instancia_nome || c.evolution_instance || ''
                   return (
-                    <span className={
-                      dono.estado === 'nao_atribuida' ? 'rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700'
-                        : dono.meu ? 'rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700'
-                          : 'text-slate-600'
-                    }>{dono.rotulo}</span>
+                    <div className="flex flex-col items-start gap-0.5">
+                      <span className={
+                        dono.estado === 'nao_atribuida' ? 'rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700'
+                          : dono.meu ? 'rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700'
+                            : 'text-slate-600'
+                      }>{dono.rotulo}</span>
+                      <span className="text-[11px] text-blue-700">
+                        Instância: <strong>{inst || 'não definida'}</strong>
+                      </span>
+                    </div>
                   )
                 })()}
               </td>

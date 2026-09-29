@@ -6,6 +6,34 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-29 — Central de Mensagens preparada para 3 instâncias (layout + instância visível)
+
+- **Pedido do operador:** com 3 instâncias no pull, cada conversa deve deixar claro por QUAL
+  instância ela é atendida; responder tem de sair pela instância da própria conversa (nunca a 1
+  responder pela 3). Visual do painel de conversa: recolher "Orientar resposta" e dar mais espaço
+  às mensagens; reorganizar o cabeçalho (Atendente abaixo de "Agente ativo"; abas
+  Conversa/Interesses/Histórico à esquerda, junto de Prioridade comercial); aumentar o modal. Na
+  coluna/campo **Atendente**, quando não houver pessoa atribuída, mostrar o nome da instância
+  (ex.: PJ, Victor 3).
+- **Workflow:** Fase 0 registrada antes de implementar; skill `padrao-visual` antes de tocar
+  `.tsx`; QA visual (Playwright) ao final. Diff mínimo.
+- **Estado atual confirmado na análise:** o ENVIO já sai pela instância da conversa —
+  `enviarMensagemManualOperador` (`services/conversa-manual.js`) resolve por
+  `resolverInstanciaEnvio(numero, { empresaId })`, que usa `vendas.conversas.evolution_instance`
+  (regra única da Fase 2, sem fallback). Ou seja, "responder pela instância certa" **já funciona**;
+  falta só tornar VISÍVEL e trazer o nome amigável (`app.empresa_whatsapp_instances.nome`).
+- **Áreas previstas:** backend `src/routes/api-conversas.js` (LEFT JOIN aditivo para expor
+  `instancia_nome` na listagem e no detalhe — sem tocar envio, schema ou permissões); frontend
+  `frontend/components/ConversaPainel.tsx` (layout duas colunas + modal maior + instância no
+  Atendente), `frontend/app/dashboard/conversas/page.tsx` (coluna Atendente com instância),
+  e o lib de apresentação `frontend/lib/conversa-operacao.js` se o rótulo do atendente precisar
+  traduzir a instância.
+- **Regras a preservar:** NÃO tocar o caminho de envio nem `resolverInstanciaEnvio` (Fase 2);
+  ownership só AVISA, nunca bloqueia o compositor (`avaliarResponder`/`avisoDeAtendimento`);
+  a tela só traduz veredito do backend; cor nunca é o único sinal.
+- **Validações previstas:** `cd frontend && npx tsc --noEmit` + `node --test lib/*.test.js`;
+  `cd backend && npm test`; QA visual no painel de conversa.
+
 ## 2026-09-29 — Quadro do Dia falha ao carregar por coluna ausente na auditoria
 
 - **Pedido do operador:** corrigir o erro `column ae.criado_em does not exist` exibido no Quadro do Dia / Banco de Leads.
