@@ -192,6 +192,49 @@ function rotuloEventoStatus(e: StatusEvento): string {
   return e.acao
 }
 
+export function HistoricoStatusLead({ empresaId, leadId }: { empresaId: string; leadId?: string | null }) {
+  const [historicoStatus, setHistoricoStatus] = useState<StatusEvento[]>([])
+  const [carregandoStatus, setCarregandoStatus] = useState(false)
+
+  useEffect(() => {
+    let vivo = true
+    if (!leadId) { setHistoricoStatus([]); return }
+    setCarregandoStatus(true)
+    apiFetch<StatusEvento[]>(`/api/empresas/${empresaId}/banco-leads/leads/${leadId}/status-historico`)
+      .then((r) => { if (vivo) setHistoricoStatus(r.data || []) })
+      .catch(() => { if (vivo) setHistoricoStatus([]) })
+      .finally(() => { if (vivo) setCarregandoStatus(false) })
+    return () => { vivo = false }
+  }, [empresaId, leadId])
+
+  return (
+    <section className="rounded-lg border border-line bg-surface shadow-card">
+      <div className="border-b border-line px-4 py-3">
+        <h3 className="text-sm font-semibold text-ink">Histórico do lead</h3>
+        <p className="mt-0.5 text-xs text-ink-3">Status, ligações, reuniões, follow-ups, propostas e descartes registrados.</p>
+      </div>
+      <div className="px-4 py-3">
+        {carregandoStatus ? (
+          <p className="text-xs text-ink-3">Carregando histórico...</p>
+        ) : historicoStatus.length ? (
+          <ol className="space-y-2">
+            {historicoStatus.map((e) => (
+              <li key={e.id} className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold text-ink">{rotuloEventoStatus(e)}</span>
+                  <span className="text-ink-3">{fmtDataHora(e.ocorrido_em)}</span>
+                </div>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="text-xs text-ink-3">Nenhuma troca registrada ainda.</p>
+        )}
+      </div>
+    </section>
+  )
+}
+
 /**
  * Casca compartilhada dos 3 sub-modais de ação (reunião/ligação/descarte). Ela fica presa ao
  * viewport, não ao miolo rolável do modal de conversa; quando era `absolute` dentro do painel,
@@ -261,10 +304,7 @@ export default function ConversaHistoricoModal({
 }) {
   const [carregando, setCarregando] = useState(true)
   const [historico, setHistorico] = useState<Mensagem[]>([])
-  const [historicoStatus, setHistoricoStatus] = useState<StatusEvento[]>([])
-  const [carregandoStatus, setCarregandoStatus] = useState(false)
   const [planoFollowUp, setPlanoFollowUp] = useState<PlanoFollowUpLead | null>(null)
-  const [carregandoPlanoFollowUp, setCarregandoPlanoFollowUp] = useState(false)
   const [mudandoStatus, setMudandoStatus] = useState<string | null>(null)
   const [modalAcao, setModalAcao] = useState<null | 'reuniao' | 'ligacao' | 'follow_up' | 'descarte' | 'proposta'>(null)
   const [dataReuniao, setDataReuniao] = useState(hojeInput)
@@ -297,33 +337,13 @@ export default function ConversaHistoricoModal({
     return () => { vivo = false }
   }, [empresaId, numero])
 
-  const carregarHistoricoStatus = useCallback(async () => {
-    if (!leadId) { setHistoricoStatus([]); return }
-    setCarregandoStatus(true)
-    try {
-      const r = await apiFetch<StatusEvento[]>(`/api/empresas/${empresaId}/banco-leads/leads/${leadId}/status-historico`)
-      setHistoricoStatus(r.data || [])
-    } catch {
-      setHistoricoStatus([])
-    } finally {
-      setCarregandoStatus(false)
-    }
-  }, [empresaId, leadId])
-
-  useEffect(() => {
-    carregarHistoricoStatus()
-  }, [carregarHistoricoStatus])
-
   const carregarPlanoFollowUp = useCallback(async () => {
     if (!leadId) { setPlanoFollowUp(null); return }
-    setCarregandoPlanoFollowUp(true)
     try {
       const r = await apiFetch<PlanoFollowUpLead>(`/api/empresas/${empresaId}/banco-leads/leads/${leadId}/plano-follow-up`)
       setPlanoFollowUp(r.data || null)
     } catch {
       setPlanoFollowUp(null)
-    } finally {
-      setCarregandoPlanoFollowUp(false)
     }
   }, [empresaId, leadId])
 
@@ -379,7 +399,6 @@ export default function ConversaHistoricoModal({
         setMotivoDescarte('')
         setObservacoesDescarte('')
       }
-      await carregarHistoricoStatus()
       await carregarPlanoFollowUp()
     } finally {
       setMudandoStatus(null)
@@ -680,62 +699,6 @@ export default function ConversaHistoricoModal({
                       )
                     })}
                   </div>
-                </div>
-                <div className="mt-3 rounded-lg border border-line bg-surface p-3">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Plano recomendado</div>
-                      {carregandoPlanoFollowUp ? (
-                        <p className="mt-1 text-xs text-ink-3">Calculando cadência…</p>
-                      ) : planoFollowUp ? (
-                        <>
-                          <div className="mt-1 flex flex-wrap items-center gap-2">
-                            <span className="rounded-full border border-line bg-surface-2 px-2 py-0.5 text-xs font-semibold text-ink-2">
-                              {planoFollowUp.estagio.rotulo}
-                            </span>
-                            <span className="text-xs text-ink-3">
-                              Follow-ups {planoFollowUp.limites.followUps.usados}/{planoFollowUp.limites.followUps.teto}
-                              {' · '}
-                              Ligações {planoFollowUp.limites.ligacoes.usados}/{planoFollowUp.limites.ligacoes.teto}
-                            </span>
-                          </div>
-                          <p className="mt-1 text-xs text-ink-2">{planoFollowUp.recomendacao.motivo}</p>
-                          {planoFollowUp.avisos.length > 0 && (
-                            <p className="mt-1 text-[11px] text-amber-700">{planoFollowUp.avisos[0]}</p>
-                          )}
-                        </>
-                      ) : (
-                        <p className="mt-1 text-xs text-ink-3">Sem plano disponível para este lead.</p>
-                      )}
-                    </div>
-                    {planoFollowUp?.recomendacao.acao === 'follow_up' && (
-                      <button
-                        type="button"
-                        onClick={() => { aplicarSugestaoFollowUp(); setModalAcao('follow_up') }}
-                        disabled={!!mudandoStatus}
-                        className="shrink-0 rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-xs font-semibold text-ink-2 transition hover:bg-surface-3 disabled:cursor-default disabled:opacity-60"
-                      >
-                        Usar plano
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-3 border-t border-line pt-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Histórico de status</div>
-                  {carregandoStatus ? (
-                    <p className="mt-1 text-xs text-ink-3">Carregando histórico…</p>
-                  ) : historicoStatus.length ? (
-                    <ul className="mt-2 space-y-1.5">
-                      {historicoStatus.slice(0, 5).map((e) => (
-                        <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-surface px-2 py-1.5 text-xs text-ink-2">
-                          <span className="font-medium text-ink-2">{rotuloEventoStatus(e)}</span>
-                          <span className="text-ink-3">{fmtDataHora(e.ocorrido_em)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="mt-1 text-xs text-ink-3">Nenhuma troca registrada ainda.</p>
-                  )}
                 </div>
               </div>
             )}

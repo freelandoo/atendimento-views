@@ -5922,3 +5922,16 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   `backend/src/date-utils.js` e comentarios/testes de agenda.
 - **Cuidados:** preservar bloqueios, folga entre reunioes e leitura das duas agendas; nao mexer
   em envio/ownership; manter frontend como tradutor do veredito da API.
+
+## 2026-09-29 — Ficha do lead mais enxuta
+
+- **Pedido:** reorganizar a ficha do lead para reduzir duplicidade e deixar Resumo, Conversa,
+  Qualificacao, Fontes e Historico mais claros; incluir botao na proxima acao, tirar ruido de
+  cadencia/plano recomendado e compactar detalhes de qualificacao/Instagram.
+- **Areas previstas:** `frontend/components/FichaLead.tsx`,
+  `frontend/components/LeadDetalhesModal.tsx`,
+  `frontend/components/ConversaHistoricoModal.tsx`,
+  `frontend/app/dashboard/banco-leads/page.tsx` e helpers/testes de `frontend/lib/ficha-lead.*`.
+- **Cuidados:** sem migration nem regra nova; manter `LeadDetalhesModal` dono do ICP e
+  `ConversaHistoricoModal` dono das acoes de conversa; preservar permissoes/capacidades e usar
+  apenas os vereditos ja existentes do backend/front.

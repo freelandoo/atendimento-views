@@ -8,8 +8,8 @@ const { SECOES, abasDaFicha, secaoDoGatilho, normalizarSecao, secaoInicial, clas
 const fonte = fs.readFileSync(path.join(__dirname, 'ficha-lead.js'), 'utf8')
 const codigo = fonte.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 
-test('as quatro secoes existem na ordem do trabalho', () => {
-  assert.deepEqual(SECOES, ['resumo', 'conversa', 'qualificacao', 'fontes'])
+test('as secoes existem na ordem do trabalho', () => {
+  assert.deepEqual(SECOES, ['resumo', 'conversa', 'qualificacao', 'fontes', 'historico'])
 })
 
 // ── Gatilhos da listagem ──────────────────────────────────────────────────────
@@ -34,7 +34,7 @@ test('normalizarSecao recusa valor invalido sem quebrar', () => {
 // ── Aba indisponivel: visivel, desabilitada, COM motivo ───────────────────────
 test('sem telefone a aba Conversa some? NAO — fica desabilitada com o motivo', () => {
   const abas = abasDaFicha({ temTelefone: false })
-  assert.equal(abas.length, 4, 'a ficha nao pode ter numero de abas variavel entre leads')
+  assert.equal(abas.length, 5, 'a ficha nao pode ter numero de abas variavel entre leads')
   const conversa = abas.find((a) => a.chave === 'conversa')
   assert.equal(conversa.disponivel, false)
   assert.ok(conversa.motivo.length > 0, 'aba desabilitada sem motivo em texto e so opacidade')

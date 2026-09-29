@@ -1,6 +1,6 @@
 'use client'
 /**
- * FICHA DO LEAD — uma superfície, quatro seções.
+ * FICHA DO LEAD — uma superfície, seções de trabalho.
  *
  * O QUE ELA RESOLVE. Eram DOIS modais para o MESMO lead, abertos por gatilhos diferentes da
  * mesma linha: `ConversaHistoricoModal` (conversa, status, registro de reunião/ligação) e
@@ -30,7 +30,7 @@ import { celulaOrigem } from '@/lib/lead-origem'
 import { IconCamera, IconClose, IconGlobe, IconLink, IconMapPin, IconMessage } from '@/components/ui/icons'
 import Botao from '@/components/ui/Botao'
 import LeadDetalhesModal, { type LeadDetalhavel } from '@/components/LeadDetalhesModal'
-import ConversaHistoricoModal from '@/components/ConversaHistoricoModal'
+import ConversaHistoricoModal, { HistoricoStatusLead } from '@/components/ConversaHistoricoModal'
 import type { AcessoRapido } from '@/lib/lead-acessos'
 import type { AcaoPrincipalLead } from '@/lib/banco-leads-acao'
 
@@ -292,12 +292,16 @@ export default function FichaLead({
             />
           </div>
 
-          <div className={secao === 'conversa' ? 'hidden' : 'min-h-0 flex-1 overflow-y-auto overscroll-contain bg-surface-2 px-4 py-3 sm:px-5'}>
+          <div className={secao === 'historico' ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain bg-surface-2 px-4 py-3 sm:px-5' : 'hidden'}>
+            <HistoricoStatusLead empresaId={empresaId} leadId={conversa.leadId} />
+          </div>
+
+          <div className={secao === 'conversa' || secao === 'historico' ? 'hidden' : 'min-h-0 flex-1 overflow-y-auto overscroll-contain bg-surface-2 px-4 py-3 sm:px-5'}>
             {/* O que a tela sabe e este componente não: responsável, carteira, próxima ação. */}
             {secao === 'resumo' && resumoExtra}
             <LeadDetalhesModal
               variante="embutido"
-              secao={secao === 'conversa' ? 'resumo' : secao}
+              secao={secao === 'conversa' || secao === 'historico' ? 'resumo' : secao}
               lead={lead}
               empresaId={empresaId}
               onFechar={fechar}

@@ -1,4 +1,4 @@
-export type SecaoFicha = 'resumo' | 'conversa' | 'qualificacao' | 'fontes'
+export type SecaoFicha = 'resumo' | 'conversa' | 'qualificacao' | 'fontes' | 'historico'
 
 export interface AbaFichaLead {
   chave: SecaoFicha

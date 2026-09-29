@@ -289,6 +289,12 @@ function BlocoInstagram({ lead, empresaId, onLeadAtualizado, pedidoRegistro = 0 
   const origem = rotuloOrigem(lead)
   const aviso = avisoAtividade(lead)
   const atividade = estadoAtividade(lead)
+  const detalhesAtividade = [
+    atividade.chave && atividade.chave !== 'nao_verificado' ? atividade.rotulo : '',
+    atividade.ultimo_post_em ? `último post em ${new Date(atividade.ultimo_post_em).toLocaleDateString('pt-BR')}` : '',
+    atividade.ressalva || '',
+    aviso || '',
+  ].filter(Boolean).join(' · ')
 
   // Sem `empresaId` o modal está aberto por uma tela que não sabe a empresa (Aquisição): o
   // estado continua VISÍVEL e só as ações somem. Esconder o bloco inteiro faria a informação
@@ -335,6 +341,11 @@ function BlocoInstagram({ lead, empresaId, onLeadAtualizado, pedidoRegistro = 0 
             </a>
           )}
           {origem && <span className="text-ink-3">· {origem}</span>}
+          {detalhesAtividade && (
+            <span className="rounded-full border border-line bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-3" title={detalhesAtividade}>
+              detalhes
+            </span>
+          )}
         </div>
 
         {/* O palpite precisa ser auditável por quem vai decidir: o que bateu e o que não bateu. */}
@@ -348,24 +359,6 @@ function BlocoInstagram({ lead, empresaId, onLeadAtualizado, pedidoRegistro = 0 
             ))}
           </ul>
         )}
-
-        {/* ATIVIDADE — complementar, e sempre rotulada em texto. A cor é reforço: o mesmo
-            "Postou nos últimos 30 dias" fica neutro quando o perfil é apenas CANDIDATO, porque
-            ali a medida é verdade sobre um perfil que talvez nem seja deste negócio. */}
-        {atividade.chave && atividade.chave !== 'nao_verificado' && (
-          <p className={`text-[11px] ${atividade.tom === 'ok' ? 'text-emerald-700'
-            : atividade.tom === 'atencao' ? 'text-amber-700' : 'text-ink-3'}`}>
-            {atividade.rotulo}
-            {atividade.ultimo_post_em && (
-              <span className="text-ink-3">
-                {' '}· último post em {new Date(atividade.ultimo_post_em).toLocaleDateString('pt-BR')}
-              </span>
-            )}
-            {atividade.ressalva && <span className="text-amber-700"> · {atividade.ressalva}</span>}
-          </p>
-        )}
-
-        {aviso && <p className="text-[11px] text-ink-3">{aviso}</p>}
 
         {editando ? (
           <div className="flex flex-wrap items-center gap-1">
@@ -451,6 +444,27 @@ function SecaoModal({ titulo, subtitulo, acao, children }: {
   )
 }
 
+function SecaoRecolhivel({ titulo, subtitulo, children }: {
+  titulo: string
+  subtitulo?: string
+  children: React.ReactNode
+}) {
+  return (
+    <details className="rounded-lg border border-line bg-surface">
+      <summary className="cursor-pointer list-none px-4 py-3 marker:hidden">
+        <span className="flex items-start justify-between gap-3">
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-ink">{titulo}</span>
+            {subtitulo && <span className="mt-0.5 block text-xs text-ink-3">{subtitulo}</span>}
+          </span>
+          <span className="text-xs font-semibold text-ink-3">Abrir</span>
+        </span>
+      </summary>
+      <div className="border-t border-line px-4 py-3">{children}</div>
+    </details>
+  )
+}
+
 function ListaQualificacao({ titulo, itens, tom = 'neutro' }: {
   titulo: string
   itens: QualificacaoItem[]
@@ -488,7 +502,7 @@ function BlocoSiteQualificacao({ lead, itens }: { lead: LeadDetalhavel; itens: Q
   const link = siteOp.link_original || lead.site || lead.link_original || lead.link_bio || ''
   const itensSite = itens.filter((i) => /site|link/.test(String(i.chave || ''))).slice(0, 4)
   return (
-    <SecaoModal titulo="Site / presença digital" subtitulo="Evidência separada para qualificação e priorização.">
+    <SecaoRecolhivel titulo="Presença digital" subtitulo={siteOp.rotulo || 'Site e links do lead'}>
       <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
         <div className="rounded-lg border border-line bg-surface-2 px-3 py-2">
           <p className="text-sm font-semibold text-ink">{siteOp.rotulo || 'Site não identificado'}</p>
@@ -526,18 +540,17 @@ function BlocoSiteQualificacao({ lead, itens }: { lead: LeadDetalhavel; itens: Q
           ))}
         </ul>
       )}
-    </SecaoModal>
+    </SecaoRecolhivel>
   )
 }
 
-function ResumoIcpCompacto({ selo, score, maximo, validacao, qualificacao, cadastro, contatos, marcados, total }: {
+function ResumoIcpCompacto({ selo, score, maximo, validacao, qualificacao, cadastro, marcados, total }: {
   selo: ReturnType<typeof seloIcp>
   score: number | null
   maximo: number
   validacao: ReturnType<typeof seloValidacaoLead>
   qualificacao: QualificacaoResumo
   cadastro: string
-  contatos: string[]
   marcados: number
   total: number
 }) {
@@ -546,7 +559,7 @@ function ResumoIcpCompacto({ selo, score, maximo, validacao, qualificacao, cadas
     <div className="rounded-lg border border-line bg-surface px-4 py-3 shadow-card">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">CP/ICP do lead</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">ICP do lead</p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${selo.classe}`} title={selo.descricao}>
               {selo.rotulo}{score != null ? ` · ${score}/${maximo}` : ''}
@@ -554,11 +567,6 @@ function ResumoIcpCompacto({ selo, score, maximo, validacao, qualificacao, cadas
             <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${validacao.classe}`} title={validacao.descricao}>
               {validacao.rotulo} · {qualificacao.score_100}/100
             </span>
-            {contatos.length > 0 && (
-              <span className="rounded-full border border-line bg-surface-2 px-2.5 py-1 text-xs font-medium text-ink-2">
-                {contatos.join(' + ')}
-              </span>
-            )}
           </div>
         </div>
         <div className="w-full min-w-[220px] lg:max-w-xs">
@@ -655,6 +663,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
   const criteriosMarcados = icpEditado.criterios.filter((c) => respostasIcp[c.id]).length
   const sinaisDetectados = Object.entries(sinaisAuto).filter(([, sinal]) => sinal?.sugerido)
   const sinaisNaoDetectados = Object.entries(sinaisAuto).filter(([, sinal]) => !sinal?.sugerido).length
+  const linkOriginalEhInstagram = /instagram/i.test(`${lead.classificacao_url || ''} ${lead.link_original || ''}`)
   const autosaveTexto = autosaveIcp === 'pendente'
     ? 'Alterações pendentes'
     : autosaveIcp === 'salvando'
@@ -804,7 +813,6 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
               validacao={seloValidacao}
               qualificacao={qualificacao}
               cadastro={typeof lead.score_cadastro === 'number' ? `Cadastro/coleta ${lead.score_cadastro}/${maximo} · ${leituraCad.titulo}` : 'Cadastro/coleta sem score'}
-              contatos={contatos}
               marcados={criteriosMarcados}
               total={icpEditado.criterios.length}
             />}
@@ -839,7 +847,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
             <div className={variante === 'modal' ? 'mt-4 grid gap-3' : 'grid gap-3'}>
               {ver('qualificacao') && (podeEditarIcp ? (
                 <SecaoModal
-                titulo="Marcação CP/ICP"
+                titulo="ICP do lead"
                 subtitulo="Marque somente o que foi validado; sinais automáticos aparecem como apoio."
                 acao={(
                   <span
@@ -986,7 +994,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                         {lead.tem_site && lead.site && (
                           <a href={lead.site} target="_blank" rel="noreferrer" className="text-brand hover:underline">site próprio ↗</a>
                         )}
-                        {!lead.site && lead.link_original && (
+                        {!lead.site && lead.link_original && !linkOriginalEhInstagram && (
                           <a href={lead.link_original} target="_blank" rel="noreferrer" className="text-ink-3 hover:underline"
                             title={lead.tem_site ? `Link a verificar: ${lead.link_original}` : tituloLinkNaoSite(lead.classificacao_url, lead.link_original)}>
                             {rotuloLink(lead.classificacao_url) || 'link'} ↗
@@ -998,14 +1006,14 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                         {lead.maps_url && (
                           <a href={lead.maps_url} target="_blank" rel="noreferrer" className="text-ink-3 hover:underline">ficha no Maps ↗</a>
                         )}
-                        {!lead.site && !lead.link_original && !lead.link_bio && !lead.maps_url && <span className="text-ink-3">Nenhum link</span>}
+                        {!lead.site && (!lead.link_original || linkOriginalEhInstagram) && !lead.link_bio && !lead.maps_url && <span className="text-ink-3">Nenhum link adicional</span>}
                       </div>
                     </Linha>
                     {lead.bio && <Linha rotulo="Bio"><span className="text-xs leading-relaxed text-ink-2">{lead.bio}</span></Linha>}
                   </dl>
                 </SecaoModal>}
 
-                {ver('qualificacao') && <SecaoModal titulo="Sinais automáticos" subtitulo="Apoio detectado pelo cadastro, sem substituir a validação humana.">
+                {ver('qualificacao') && <SecaoRecolhivel titulo="Sinais automáticos" subtitulo="Apoio detectado pelo cadastro, sem substituir a validação humana.">
                   <div className="grid gap-2">
                     {sinaisDetectados.map(([id, sinal]) => {
                       const criterio = CRITERIOS_ICP_TENKA.find((c) => c.id === id)
@@ -1035,10 +1043,10 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                       <p className="text-[11px] text-ink-3">{sinaisNaoDetectados} sinal(is) sem detecção automática.</p>
                     )}
                   </div>
-                </SecaoModal>}
+                </SecaoRecolhivel>}
 
                 {ver('qualificacao') && (alertasQualificacao.length > 0 || sinaisQualificacao.length > 0 || criterios.length > 0) && (
-                  <SecaoModal titulo="Evidências e alertas" subtitulo="Pontuação de cadastro e régua operacional.">
+                  <SecaoRecolhivel titulo="Evidências e alertas" subtitulo="Pontuação de cadastro e régua operacional.">
                     <div className="space-y-4">
                       <ListaQualificacao titulo="Penalidades / revisão" itens={alertasQualificacao.slice(0, 5)} tom="alerta" />
                       <ListaQualificacao titulo="Sinais positivos" itens={sinaisQualificacao.slice(0, 5)} tom="positivo" />
@@ -1057,7 +1065,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                         </div>
                       )}
                     </div>
-                  </SecaoModal>
+                  </SecaoRecolhivel>
                 )}
               </div>
             </div>

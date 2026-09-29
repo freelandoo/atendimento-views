@@ -1,11 +1,11 @@
 'use strict'
-// FICHA DO LEAD — vocabulário de APRESENTAÇÃO das quatro seções. Módulo PURO.
+// FICHA DO LEAD — vocabulário de APRESENTAÇÃO das seções. Módulo PURO.
 //
 // O QUE ELE RESOLVE. Eram DOIS modais para o mesmo lead: `ConversaHistoricoModal` (conversa,
 // status, ações) e `LeadDetalhesModal` (ICP, cadastro, evidências), abertos por gatilhos
 // diferentes da mesma linha, cada um com o seu resumo do lead no topo. Quem estava na conversa
 // e precisava do ICP fechava um e abria o outro — e perdia o que estava lendo. A ficha é UMA
-// superfície com quatro seções; os dois componentes continuam existindo e viraram o conteúdo
+// superfície com seções; os dois componentes continuam existindo e viraram o conteúdo
 // de duas delas (nada foi reimplementado).
 //
 // O QUE ELE NÃO FAZ: não decide permissão, não sabe o que é um lead, não busca nada. Recebe
@@ -14,8 +14,8 @@
 //
 // Sem React, sem rede, sem DOM: testável com `node --test`.
 
-/** As seções, na ordem em que aparecem. A ordem é a do trabalho: decidir → falar → qualificar → conferir. */
-const SECOES = ['resumo', 'conversa', 'qualificacao', 'fontes']
+/** As seções, na ordem em que aparecem. A ordem é a do trabalho: decidir → falar → qualificar → conferir → auditar. */
+const SECOES = ['resumo', 'conversa', 'qualificacao', 'fontes', 'historico']
 
 const ROTULOS = {
   resumo: {
@@ -33,6 +33,10 @@ const ROTULOS = {
   fontes: {
     rotulo: 'Fontes',
     dica: 'De onde o lead veio e que evidências aquela fonte trouxe.',
+  },
+  historico: {
+    rotulo: 'Histórico',
+    dica: 'Linha do tempo de ligação, reunião, follow-up, proposta, descarte e outras mudanças do lead.',
   },
 }
 
