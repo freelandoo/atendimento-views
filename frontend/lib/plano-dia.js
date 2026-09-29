@@ -228,17 +228,21 @@ function resumoFollowUpCard(item, agora = new Date()) {
   if (!item || !item.follow_up_id) return null
   const quando = quandoCurto(item.follow_up_agendado_para, agora)
   const data = dataValida(item.follow_up_agendado_para)
-  const vencido = !!data && data.getTime() < agora.getTime()
-  const rotulo = quando
-    ? `${vencido ? 'Follow-up vencido' : 'Próx. follow-up'}: ${quando}`
-    : 'Follow-up aberto'
+  const atrasado = !!data && data < new Date(agora.getFullYear(), agora.getMonth(), agora.getDate())
+  const vencido = !!data && !atrasado && data.getTime() < agora.getTime()
+  const futuro = !!data && data.getTime() >= agora.getTime()
+  const rotulo = quando ? `Follow-up: ${quando}` : 'Follow-up'
   return {
     rotulo,
     vencido,
-    dica: quando ? 'Próxima ação registrada para este lead.' : 'Há follow-up aberto para este lead.',
-    classe: vencido
-      ? 'border-amber-200 bg-amber-50 text-amber-800'
-      : 'border-brand/20 bg-brand/5 text-brand',
+    atrasado,
+    futuro,
+    dica: quando ? 'Abrir follow-up registrado para este lead.' : 'Há follow-up aberto para este lead.',
+    classe: atrasado
+      ? 'text-estado-danger'
+      : vencido
+        ? 'text-amber-700'
+        : 'text-brand',
   }
 }
 

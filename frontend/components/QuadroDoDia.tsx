@@ -657,9 +657,15 @@ export default function QuadroDoDia({
                       {c.objetivo && <p className="mt-1.5 text-xs leading-snug text-ink-2">{c.objetivo}</p>}
 
                       {followUpResumo && (
-                        <p className={`mt-1.5 inline-flex rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${followUpResumo.classe}`} title={followUpResumo.dica}>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onAbrirLead(c.prospect_id, 'telefone') }}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className={`mt-1.5 text-left text-[11px] font-semibold underline underline-offset-2 hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${followUpResumo.classe}`}
+                          title={followUpResumo.dica}
+                        >
                           {followUpResumo.rotulo}
-                        </p>
+                        </button>
                       )}
 
                       {/* Autodeclaração NUNCA aparece como evidência — o rótulo diz qual é qual. */}
@@ -671,19 +677,15 @@ export default function QuadroDoDia({
                       {selo && !selo.prova && c.conclusao_nota && (
                         <p className="mt-1 text-[11px] italic leading-snug text-ink-3">“{c.conclusao_nota}”</p>
                       )}
-                      {c.etapa === 'aguardando_retorno' && (
+                      {c.etapa === 'aguardando_retorno' && !temFollowUp && (
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); onAbrirLead(c.prospect_id, 'telefone') }}
                           onKeyDown={(e) => e.stopPropagation()}
-                          className={temFollowUp
-                            ? 'mt-2 text-[11px] font-medium text-brand underline underline-offset-2 hover:text-brand-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'
-                            : 'mt-2 rounded-md border border-line bg-surface-2 px-2 py-1 text-[11px] font-medium text-ink-2 hover:border-brand/40 hover:text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'}
-                          title={temFollowUp
-                            ? 'Abre a ficha para ver e operar o follow-up registrado.'
-                            : 'Abre a ficha na área de conversa para registrar a próxima ação pelo fluxo oficial.'}
+                          className="mt-2 rounded-md border border-line bg-surface-2 px-2 py-1 text-[11px] font-medium text-ink-2 hover:border-brand/40 hover:text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+                          title="Abre a ficha na área de conversa para registrar a próxima ação pelo fluxo oficial."
                         >
-                          {temFollowUp ? 'Ver retorno' : 'Registrar follow-up'}
+                          Registrar follow-up
                         </button>
                       )}
 

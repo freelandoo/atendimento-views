@@ -108,13 +108,18 @@ test('sem agendamento nao se inventa horario', () => {
 test('resumoFollowUpCard mostra proximo retorno sem depender de contagem', () => {
   const agora = new Date('2026-09-29T12:00:00-03:00')
   assert.equal(resumoFollowUpCard({}, agora), null)
-  assert.equal(resumoFollowUpCard({ follow_up_id: 'fu1' }, agora).rotulo, 'Follow-up aberto')
+  assert.equal(resumoFollowUpCard({ follow_up_id: 'fu1' }, agora).rotulo, 'Follow-up')
   const futuro = resumoFollowUpCard({ follow_up_id: 'fu1', follow_up_agendado_para: '2026-09-30T09:00:00-03:00' }, agora)
-  assert.match(futuro.rotulo, /Próx\. follow-up: amanhã 09:00/)
+  assert.match(futuro.rotulo, /Follow-up: amanhã 09:00/)
   assert.equal(futuro.vencido, false)
-  const vencido = resumoFollowUpCard({ follow_up_id: 'fu2', follow_up_agendado_para: '2026-09-28T10:00:00-03:00' }, agora)
-  assert.match(vencido.rotulo, /Follow-up vencido/)
+  assert.match(futuro.classe, /text-brand/)
+  const vencido = resumoFollowUpCard({ follow_up_id: 'fu2', follow_up_agendado_para: '2026-09-29T10:00:00-03:00' }, agora)
+  assert.match(vencido.rotulo, /Follow-up: hoje 10:00/)
   assert.equal(vencido.vencido, true)
+  assert.match(vencido.classe, /amber/)
+  const atrasado = resumoFollowUpCard({ follow_up_id: 'fu3', follow_up_agendado_para: '2026-09-28T10:00:00-03:00' }, agora)
+  assert.equal(atrasado.atrasado, true)
+  assert.match(atrasado.classe, /estado-danger/)
 })
 
 test('o resumo conta CARDS do dia, nao carteira', () => {
