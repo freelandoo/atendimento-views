@@ -990,14 +990,17 @@ export default function BancoLeadsPage() {
   }, [empresaId, fb, recarregarProximaAcao])
   const reagendarFollowUpFicha = useCallback(async (followUp: CompromissoLead, patch: Record<string, unknown>) => {
     await fb.runTask(async () => {
-      await apiFetch(`/api/empresas/${empresaId}/follow-ups/itens/${followUp.id}/reagendar`, {
+      const r = await apiFetch<{ id: string }>(`/api/empresas/${empresaId}/follow-ups/itens/${followUp.id}/reagendar`, {
         method: 'POST',
         body: JSON.stringify(patch),
       })
+      if (fichaLeadId) {
+        setAtualizacaoQuadro((cur) => ({ seq: (cur?.seq || 0) + 1, leadId: fichaLeadId, followUpId: r.data.id || followUp.id }))
+      }
       setFollowUpReagendando(null)
       recarregarProximaAcao()
     }, { sucesso: 'Follow-up reagendado.' })
-  }, [empresaId, fb, recarregarProximaAcao])
+  }, [empresaId, fb, fichaLeadId, recarregarProximaAcao])
   const [enviandoConversa, setEnviandoConversa] = useState(false)
   const [gerandoConversa, setGerandoConversa] = useState(false)
   // Colunas e filtros da visualizacao (colunas + filtros + ordenação; persistida no localStorage)
