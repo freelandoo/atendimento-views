@@ -5957,3 +5957,11 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Cuidados:** Quadro continua planejamento pessoal: nao escreve status, responsavel, envio
   ou funil; a ficha segue sendo dona do descarte/follow-up, e o Quadro apenas reflete o
   resultado localmente e na leitura do card.
+
+## 2026-09-29 — Instagram unico nos atalhos da ficha
+
+- **Pedido:** remover duplicidade de icones de Instagram no topo da ficha do lead.
+- **Areas previstas:** `frontend/lib/lead-acessos.js` e teste correspondente em
+  `frontend/lib/lead-acessos.test.js`.
+- **Cuidados:** corrigir na fonte unica dos acessos rapidos, sem esconder via CSS; continuar
+  sem classificar site no frontend e sem mexer na origem do lead.

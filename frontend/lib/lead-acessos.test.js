@@ -71,6 +71,16 @@ test('ordem e deduplicacao: whatsapp, rede social, site, maps — sem href repet
   assert.deepEqual(r.map((a) => a.tipo), [TIPO_ACESSO.WHATSAPP, TIPO_ACESSO.INSTAGRAM, TIPO_ACESSO.SITE, TIPO_ACESSO.MAPS])
 })
 
+test('Instagram aparece uma vez mesmo vindo do handle e de links crus', () => {
+  const r = acessosDoLead({
+    instagram_handle: '@loja',
+    link_original: 'https://www.instagram.com/loja/',
+    classificacao_url: 'rede_social',
+    link_bio: 'instagram.com/loja?igsh=abc',
+  })
+  assert.deepEqual(r.map((a) => a.tipo), [TIPO_ACESSO.INSTAGRAM])
+})
+
 test('mapaDoLead usa ficha do Maps e cai para busca por endereco quando preciso', () => {
   const direto = mapaDoLead({ maps_url: 'https://maps.google.com/?cid=1', endereco: 'Rua A' })
   assert.equal(direto.href, 'https://maps.google.com/?cid=1')

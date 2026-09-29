@@ -65,6 +65,12 @@ function acesso(tipo, rotulo, href, dica) {
   return { tipo, rotulo, href, dica }
 }
 
+function chaveDoAcesso(tipo, info) {
+  if (!info) return ''
+  if (tipo === TIPO_ACESSO.INSTAGRAM || tipo === TIPO_ACESSO.FACEBOOK) return tipo
+  return info.href
+}
+
 function telefoneWhatsapp(telefone) {
   let digitos = String(telefone || '').replace(/\D/g, '')
   if (digitos.length < 10) return null
@@ -103,8 +109,9 @@ function acessosDoLead(lead) {
 
   const push = (tipo, rotulo, bruta, dica) => {
     const info = normalizarLink(bruta)
-    if (!info || vistos.has(info.href)) return
-    vistos.add(info.href)
+    const chave = chaveDoAcesso(tipo, info)
+    if (!info || vistos.has(chave)) return
+    vistos.add(chave)
     lista.push(acesso(tipo, rotulo, info.href, dica))
   }
 
