@@ -102,6 +102,14 @@
   }
 }
 
+/* Chacoalhada curta para dizer "essa ação não vale aqui" (ex.: tentar enviar no modo
+   Automático, onde quem envia é a rotina). Feedback no lugar do clique, sem toast. */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
 /* Entrada de toasts/modais de feedback. */
 .feedback-pop {
   animation: feedback-pop 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;

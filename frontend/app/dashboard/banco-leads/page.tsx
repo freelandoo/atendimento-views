@@ -1959,8 +1959,9 @@ export default function BancoLeadsPage() {
   // Enviar fica liberado em Manual e Semi: se não houver mensagem gerada, o backend gera na hora.
   const podeEnviarConversa = !!ficha && !!instanciaId && ficha.rodavel
     && config.modo !== 'automatico' && !motivoBloqueioConexao
+  // Gerar não é enviar: no Automático a rotina controla o ENVIO, mas a mensagem pode ser
+  // gerada/revisada normalmente (basta a instância). Só o envio fica com a rotina.
   const podeGerarConversa = !!ficha && !!instanciaId && ficha.rodavel
-    && config.modo !== 'automatico'
 
   // Por que o disparo esta indisponivel AGORA — a mesma pergunta que o cronometro ja responde
   // no topo, dita tambem no botao de cada lead. No celular o topo sai da tela assim que a
@@ -2976,6 +2977,7 @@ export default function BancoLeadsPage() {
           motivoEnvioIndisponivel={config.modo === 'automatico'
             ? 'No modo Automático, o envio é controlado pela rotina configurada.'
             : motivoBloqueioConexao}
+          envioControladoPelaRotina={config.modo === 'automatico'}
           cooldownS={cooldownS}
           enviando={enviandoConversa}
           gerando={gerandoConversa}

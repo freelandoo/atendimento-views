@@ -271,7 +271,7 @@ function PainelAcaoConversa({ titulo, descricao, onFechar, rodape, children }: {
 }
 
 export default function ConversaHistoricoModal({
-  empresaId, leadId, numero, titulo, status, acessos, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel, cooldownS, enviando, gerando, podeTriarLead = true, onEnviar, onGerar, onAlterarStatus, onSalvarTelefone, onClose, variante = 'modal',
+  empresaId, leadId, numero, titulo, status, acessos, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel, envioControladoPelaRotina, cooldownS, enviando, gerando, podeTriarLead = true, onEnviar, onGerar, onAlterarStatus, onSalvarTelefone, onClose, variante = 'modal',
 }: {
   /** JID do contato. Vem VAZIO quando o lead ainda não tem telefone — nesse caso o modal
       abre assim mesmo (o lead tem links, status e histórico), declarando a pendência em vez
@@ -282,6 +282,9 @@ export default function ConversaHistoricoModal({
   acessos?: AcessoRapido[]
   mensagemGerada?: string | null; podeEnviar?: boolean; podeGerar?: boolean
   motivoEnvioIndisponivel?: string | null
+  /** Modo Automático: gerar continua liberado (gerar não é enviar); o botão Enviar não envia,
+      só sacode o aviso de "envio controlado pela rotina". */
+  envioControladoPelaRotina?: boolean
   cooldownS?: number | null; enviando?: boolean; gerando?: boolean
   podeTriarLead?: boolean
   onEnviar?: () => void; onGerar?: () => void
@@ -304,6 +307,8 @@ export default function ConversaHistoricoModal({
 }) {
   const [carregando, setCarregando] = useState(true)
   const [historico, setHistorico] = useState<Mensagem[]>([])
+  // Contador que reinicia a animação de "chacoalhada" do aviso a cada clique em Enviar no Automático.
+  const [sacudir, setSacudir] = useState(0)
   const [planoFollowUp, setPlanoFollowUp] = useState<PlanoFollowUpLead | null>(null)
   const [mudandoStatus, setMudandoStatus] = useState<string | null>(null)
   const [modalAcao, setModalAcao] = useState<null | 'reuniao' | 'ligacao' | 'follow_up' | 'descarte' | 'proposta'>(null)
@@ -640,6 +645,35 @@ export default function ConversaHistoricoModal({
                 Sem telefone cadastrado, este lead não recebe mensagem. Dá para trabalhar por
                 outro canal (rede social ou site, acima) e registrar o resultado no status abaixo.
               </div>
+            ) : envioControladoPelaRotina ? (
+              /* Automático: gerar/revisar continua liberado; quem envia é a rotina. O botão
+                 Enviar não dispara — só sacode este aviso para explicar o bloqueio no lugar
+                 do clique. `key={sacudir}` remonta o aviso a cada clique para replay da animação. */
+              <>
+                <div
+                  key={sacudir}
+                  className={`rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 ${sacudir ? 'animate-[shake_0.4s_ease-in-out]' : ''}`}
+                >
+                  {motivoEnvioIndisponivel || 'No modo Automático, o envio é controlado pela rotina configurada.'}
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs text-ink-3">
+                    {mensagemGerada ? 'Mensagem pronta — o envio sai pela rotina.' : 'Gere a mensagem para revisar; a rotina envia.'}
+                  </span>
+                  <div className="inline-flex flex-wrap items-center gap-2">
+                    {onGerar && (
+                      <Botao variante="secundaria" onClick={onGerar} disabled={!podeAcionarGeracao} carregando={gerando}>
+                        {mensagemGerada ? 'Gerar de novo' : 'Gerar com IA'}
+                      </Botao>
+                    )}
+                    {onEnviar && mensagemGerada && (
+                      <Botao variante="primaria" onClick={() => setSacudir((n) => n + 1)}>
+                        Enviar mensagem
+                      </Botao>
+                    )}
+                  </div>
+                </div>
+              </>
             ) : motivoEnvioIndisponivel ? (
               <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
                 <p className="min-w-0 flex-1">

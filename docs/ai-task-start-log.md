@@ -5984,3 +5984,18 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   `frontend/components/ModalPlanejarDia.tsx` e `frontend/lib/plano-dia.*`.
 - **Cuidados:** filtro deve usar a origem gravada pelo backend, sem deduzir por campos como
   Instagram ou link; planejamento continua somente leitura da carteira e nao assume lead.
+
+## 2026-09-29 — Gerar/enviar separados no modo Automático (ficha do lead)
+
+- **Pedido:** no Banco de Leads, com o modo de disparo em Automático ("enviar controlado pela
+  rotina"), a GERAÇÃO de mensagem por IA deve continuar disponível (basta a instância existir) —
+  gerar não é enviar. Botão de gerar SEPARADO do de enviar. Depois de gerada, a conversa segue
+  vazia ("nenhuma conversa ainda com este contato" = não enviada) e o botão vira "Enviar"; ao
+  clicar em Enviar no Automático, nada é enviado — a mensagem "enviar controlado pela rotina"
+  treme para explicar o bloqueio.
+- **Áreas previstas:** `frontend/app/dashboard/banco-leads/page.tsx` (libera `podeGerarConversa`
+  no Automático + passa flag de "envio controlado pela rotina"), `frontend/components/FichaLead.tsx`
+  (repassa a flag), `frontend/components/ConversaHistoricoModal.tsx` (rodapé do Automático:
+  gerar habilitado, botão Enviar que sacode o aviso) e `frontend/app/globals.css` (keyframe shake).
+- **Cuidados:** só apresentação/estado — nada de rota, backend, envio ou schema. Manter Manual/Semi
+  e o bloqueio por conexão inalterados. Geração no Automático usa a instância ativa já resolvida.
