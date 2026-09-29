@@ -107,6 +107,13 @@ jobs:
           # Valores descartaveis: o banco do job e efemero e morre com ele.
           DASHBOARD_ADMIN_EMAIL: smoke@ci.local
           DASHBOARD_ADMIN_PASSWORD: senha-de-smoke-descartavel
+      - name: Filtros de servidor do Banco de Leads (handlers reais sobre carteira semeada)
+        # Roda DEPOIS do schema, no MESMO banco efemero: os testes de unidade conferem o SQL como
+        # texto, e o que quebra filtro de servidor (alias de LATERAL, numeracao de parametro,
+        # contagem que nao fecha com a listagem) so' aparece num banco de verdade.
+        run: npm run smoke:banco-leads-filtros
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/smoke
 
   backend-node-de-producao:
     name: backend carrega no Node 20 (runtime de producao)

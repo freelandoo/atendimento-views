@@ -5965,3 +5965,44 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   `frontend/lib/lead-acessos.test.js`.
 - **Cuidados:** corrigir na fonte unica dos acessos rapidos, sem esconder via CSS; continuar
   sem classificar site no frontend e sem mexer na origem do lead.
+## 2026-09-24 — R7: paginacao de SERVIDOR no Banco de Leads (Fase 0)
+
+- **Pedido:** resolver o R7 do `REFACTOR_REPORT.md` — a listagem devolve uma janela de 300 e a
+  tela pagina DENTRO dela, com ~15 filtros e a ordenacao rodando no cliente. Com carteira de
+  milhares, o resto e' inalcancavel e o filtro mente sobre o universo.
+- **Precedente que ja existe no repo:** a Aquisicao resolveu o mesmo problema
+  (`GET /prospeccao/prospects` com `limit`/`offset`/`ordenar`/`direcao`, mapa FECHADO
+  `ORDEM_SQL_PROSPECTS` e `idsPorOrdemCalculada` para as ordens que dependem de valor calculado
+  na leitura). **Este trabalho segue aquele padrao, nao inventa outro.**
+- **O que ja esta pronto no backend:** `montarFiltro` e' o construtor UNICO de WHERE (serve
+  listagem, contagem e export), a ordem de trabalho ja e' SQL (`sqlFaixaTrabalho`), e o
+  `COUNT(*)` real ja volta em `meta.total_carteira`. Falta `offset` e faltam os filtros.
+- **Auditoria dos 15 filtros client-side** (`passaFiltrosView`, page.tsx:597):
+  - **13 sao teste de COLUNA e vao direto para SQL:** site (`tem_site`), e-mail, telefone,
+    envio (`tem_whatsapp`), icp (`icp_faixa`), regiao (`endereco`/`cidade`), nota (`rating`),
+    avaliacoes, data de entrada (`created_at`), msgGerada e disparo (EXISTS sobre
+    `lead_disparos`), agendamento (mesmo EXISTS de `AGENDA_FUTURA_EXISTS`) e **social** —
+    `temRedeSocialLead` parece regra mas le so' `classificacao_url`, `instagram_handle` e
+    `origem`.
+  - **1 e' REGRA e esta' no lugar errado:** `statusOperacionalDoLead` (page.tsx:302) e' uma
+    cascata de precedencia sobre `status`, `ultimo_status_acao` e `proximo_agendamento` — e vive
+    no FRONT, contra a regra do `AGENTS.md` de que a tela so' traduz o veredito. Traduzi-la para
+    SQL criaria uma segunda copia. **Ela vai para um modulo PURO do backend** que emite a
+    expressao SQL, no padrao de `lead-fila-trabalho.js`; o front passa a traduzir.
+  - **1 depende de valor CALCULADO NA LEITURA:** `score_cadastro` (filtro por faixa e ordenacao
+    por "pontos"/"prioridade"). E' o caso que a Aquisicao resolve com `idsPorOrdemCalculada`.
+- **Plano em 3 fases, cada uma verde antes da seguinte:**
+  - **A (backend, ADITIVA, tela nao muda):** modulo puro do status operacional, os 14 filtros em
+    `montarFiltro`, `offset` em `GET /leads`, testes. Risco de UX: zero — quem nao manda os
+    parametros novos recebe exatamente o que recebia.
+  - **B (front):** a tela passa a mandar filtro/ordem/pagina para o servidor e `passaFiltrosView`
+    perde os ramos migrados.
+  - **C:** o que depende de `score_cadastro`, pelo padrao da Aquisicao, com a mesma divida
+    linear declarada.
+- **Arquivos previstos:** `src/services/lead-status-operacional.js` (novo, puro),
+  `src/routes/api-banco-leads.js`, `test/lead-status-operacional.test.js` (novo);
+  na Fase B, `frontend/app/dashboard/banco-leads/page.tsx` e `frontend/lib/*`.
+- ⚠️ **Conflito declarado:** outra sessao esta' editando `api-banco-leads.js` e
+  `banco-leads/page.tsx` agora. Por isso este trabalho corre em worktree isolada
+  (`.claude/worktrees/r7`, branch `r7-paginacao-servidor`) a partir do `master`, e nao na arvore
+  principal — commitar la varreria o indice da outra sessao.

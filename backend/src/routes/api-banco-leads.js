@@ -26,6 +26,11 @@ const {
   montarJsonApresentacaoInstagram,
 } = require('../services/lead-score-cadastro')
 const { classificarLead } = require('../services/site-classificacao')
+const {
+  sqlStatusOperacional,
+  sqlFiltroStatusOperacional,
+  statusPorOrdem,
+} = require('../services/lead-status-operacional')
 const { avaliarQualificacaoLead } = require('../services/lead-qualificacao-score')
 // Catalogo FECHADO das colunas do CSV. O parametro `colunas` manda chaves; o campo SQL sai
 // daqui, nunca da requisicao.
@@ -220,6 +225,233 @@ function envelopeErro(res, err, code) {
 }
 
 // Monta WHERE + params comuns à listagem e ao export (mesmos filtros).
+
+// FONTE da listagem de leads: `prospectador.prospects` + os quatro LATERAL de que a fila
+// depende (ultimo disparo, rascunho do Semi, proximo agendamento e ultima acao registrada).
+//
+// ⚠️ Existe como FUNCAO, e nao inline na consulta, porque a CONTAGEM precisa da mesma fonte
+// quando o filtro olha um valor que so os LATERAL produzem (status operacional, agendamento).
+// Duas copias deste bloco divergiriam no primeiro ajuste e a tela passaria a mostrar um total
+// que nao corresponde ao que ela lista. Quando nenhum filtro derivado esta em uso, a contagem
+// NAO chama esta funcao — paga-se o LATERAL so quando ele e necessario.
+/** @param {string} [filtroInstMsg] filtro opcional de instancia no rascunho do Semi */
+function sqlFonteLeads(filtroInstMsg = '') {
+  return `  FROM prospectador.prospects
+  LEFT JOIN LATERAL (
+    SELECT d.criado_em AS rodado_em,
+           COALESCE(u.nome, u.email) AS rodado_por,
+           d.status AS ultimo_status,
+           d.erro AS ultimo_erro
+      FROM prospectador.lead_disparos d
+      LEFT JOIN app.usuarios u ON u.id = d.usuario_id
+     WHERE d.prospect_id = prospects.id
+     ORDER BY d.criado_em DESC
+     LIMIT 1
+  ) ultimo ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT d.mensagem AS mensagem_gerada, d.criado_em AS gerada_em
+      FROM prospectador.lead_disparos d
+     WHERE d.prospect_id = prospects.id
+       AND d.status = 'aguardando_disparo'${filtroInstMsg}
+     ORDER BY d.criado_em DESC
+     LIMIT 1
+  ) rascunho ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT MIN(di) AS proximo_agendamento FROM (
+      SELECT ae.data_inicio AS di
+        FROM app.agenda_eventos ae
+       WHERE ae.empresa_id = prospects.empresa_id
+         AND ae.excluido_em IS NULL
+         AND ae.status IN ('pendente', 'confirmado')
+         AND ae.data_inicio >= NOW()
+         AND NULLIF(regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g'), '') IS NOT NULL
+         AND regexp_replace(COALESCE(ae.lead_telefone, ''), '[^0-9]', '', 'g')
+             = regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g')
+      UNION ALL
+      SELECT ve.data_inicio AS di
+        FROM vendas.agenda_eventos ve
+       WHERE ve.excluido_em IS NULL
+         AND ve.tipo = 'reuniao'
+         AND ve.status IN ('pendente', 'confirmado')
+         AND ve.data_inicio >= NOW()
+         AND NULLIF(${normFone('prospects.telefone')}, '') IS NOT NULL
+         AND (
+           EXISTS (SELECT 1 FROM vendas.conversas vc
+                    WHERE vc.id = ve.conversa_id AND vc.empresa_id = prospects.empresa_id
+                      AND ${normFone('vc.numero')} = ${normFone('prospects.telefone')})
+           OR EXISTS (SELECT 1 FROM vendas.lead_profiles vlp
+                       WHERE vlp.id = ve.lead_id AND vlp.empresa_id = prospects.empresa_id
+                         AND ${normFone('vlp.numero')} = ${normFone('prospects.telefone')})
+         )
+    ) u
+  ) agenda ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT ae.acao AS ultimo_status_acao,
+           ae.estado_novo AS ultimo_status_estado,
+           ae.ocorrido_em AS ultimo_status_em
+      FROM app.auditoria_eventos ae
+     WHERE ae.empresa_id = prospects.empresa_id
+       AND ae.entidade_tipo = 'prospect'
+       AND ae.entidade_id = prospects.id
+       AND ae.acao IN (${ACOES_STATUS_LEAD_SQL})
+     ORDER BY ae.ocorrido_em DESC,
+       CASE ae.acao
+         WHEN 'lead_reuniao_agendada' THEN 0
+         WHEN 'lead_ligacao_realizada' THEN 1
+         WHEN 'lead_descartado' THEN 2
+         WHEN 'lead_proposta_enviada' THEN 2
+         WHEN 'abordagem_manual_declarada' THEN 3
+         WHEN 'lead_status_alterado' THEN 4
+         ELSE 9
+       END,
+       ae.id DESC
+     LIMIT 1
+  ) status_op ON TRUE`
+}
+
+
+// ─── Filtros de "Personalizar" no SERVIDOR (R7) ─────────────────────────────────────────────
+//
+// Ate 2026-09-24 estes ~15 filtros rodavam NO CLIENTE, sobre a janela de 300 leads que a
+// listagem devolvia (passaFiltrosView, em banco-leads/page.tsx). Com carteira de milhares isso
+// mente duas vezes: o recorte so enxerga a janela, e o total que a tela mostra e o total da
+// janela — nao o da carteira. Aqui eles viram SQL e passam a valer sobre a carteira inteira.
+//
+// Tres deles leem valor que so os LATERAL produzem (status_lead, agendamento e msg_gerada). Por isso
+// a funcao devolve precisaLaterais: a CONTAGEM so paga o custo do LATERAL quando um desses esta
+// em uso. Os demais sao EXISTS autonomos de proposito — um filtro comum nao pode encarecer a
+// contagem da carteira inteira.
+//
+// Sem valor, ou com valor fora da lista, o filtro simplesmente NAO ENTRA — nunca uma clausula
+// que nao casa com nada, que esvaziaria a carteira em vez de ser ignorada (mesma disciplina de
+// origensDoFiltro, em services/lead-origem.js).
+
+/** Predicado "tem / nao tem" sobre uma coluna de texto. */
+function sqlTemTexto(coluna, valor) {
+  const v = String(valor || '').toLowerCase()
+  const cheio = `NULLIF(BTRIM(COALESCE(${coluna}, '')), '') IS NOT NULL`
+  if (v === 'com') return cheio
+  if (v === 'sem') return `NOT (${cheio})`
+  return null
+}
+
+/** Rede social do lead: e teste de COLUNA, nao regra — as tres fontes que a tela ja olhava. */
+const SQL_TEM_REDE_SOCIAL =
+  `(classificacao_url = 'rede_social'`
+  + ` OR NULLIF(BTRIM(COALESCE(instagram_handle, '')), '') IS NOT NULL`
+  + ` OR origem IN ('instagram', 'linkedin'))`
+
+/** Ja houve disparo registrado (cobre o automatico E a abordagem manual pelo wa.me). */
+const SQL_JA_DISPARADO =
+  `(EXISTS (SELECT 1 FROM prospectador.lead_disparos d WHERE d.prospect_id = prospects.id)`
+  + ` OR prospects.status IN ('enviado', 'respondeu'))`
+
+function adicionarFiltrosPersonalizados(where, params, query) {
+  let precisaLaterais = false
+  const txt = (k) => String(query[k] || '').trim()
+  const num = (k) => {
+    const n = Number(String(query[k] ?? '').replace(',', '.'))
+    return Number.isFinite(n) ? n : null
+  }
+  const push = (sql) => { if (sql) where.push(sql) }
+
+  const site = txt('site').toLowerCase()
+  // tem_site e o veredito canonico do backend (services/site-classificacao.js). NULL conta como
+  // "sem": a tela ja lia !!l.tem_site, e mudar isso aqui moveria lead de aba sem ninguem pedir.
+  if (site === 'com') push('prospects.tem_site = true')
+  else if (site === 'sem') push('prospects.tem_site IS NOT TRUE')
+
+  const social = txt('social').toLowerCase()
+  if (social === 'com') push(SQL_TEM_REDE_SOCIAL)
+  else if (social === 'sem') push(`NOT ${SQL_TEM_REDE_SOCIAL}`)
+
+  push(sqlTemTexto('prospects.email', txt('com_email')))
+  push(sqlTemTexto('prospects.telefone', txt('com_telefone')))
+
+  // tem_whatsapp tem TRES estados e o terceiro nao e "nao": NULL = ninguem verificou.
+  const envio = txt('envio').toLowerCase()
+  if (envio === 'possivel') push('prospects.tem_whatsapp = true')
+  else if (envio === 'impossivel') push('prospects.tem_whatsapp = false')
+  else if (envio === 'nao_verificado') push('prospects.tem_whatsapp IS NULL')
+
+  // A faixa que a TELA exibe e' `icp_faixa || icp_resumo_json.faixa`, normalizada: A/B/C ou,
+  // qualquer outra coisa (inclusive 'fora' e vazio), `sem_icp` — `normalizarFaixaIcp` em
+  // frontend/lib/lead-icp.js. O filtro precisa usar a MESMA regua, senao filtra por uma faixa e
+  // a bolinha da linha mostra outra.
+  const faixaIcp = `UPPER(BTRIM(COALESCE(NULLIF(prospects.icp_faixa, ''), prospects.icp_resumo_json->>'faixa', '')))`
+  const icp = txt('icp')
+  if (['A', 'B', 'C'].includes(icp.toUpperCase())) {
+    params.push(icp.toUpperCase())
+    push(`${faixaIcp} = $${params.length}`)
+  } else if (icp === 'sem_icp') {
+    push(`${faixaIcp} NOT IN ('A', 'B', 'C')`)
+  }
+
+  const regiao = txt('regiao')
+  if (regiao) {
+    params.push(`%${regiao}%`)
+    push(`(COALESCE(prospects.endereco, '') || ' ' || COALESCE(prospects.cidade, '') || ' ' || COALESCE(prospects.pais, '')) ILIKE $${params.length}`)
+  }
+
+  for (const [chave, coluna, op] of [
+    ['nota_min', 'prospects.rating', '>='], ['nota_max', 'prospects.rating', '<='],
+    ['aval_min', 'prospects.avaliacoes', '>='], ['aval_max', 'prospects.avaliacoes', '<='],
+  ]) {
+    const v = num(chave)
+    if (v === null) continue
+    params.push(v)
+    // Lead SEM o dado nao passa num filtro de faixa — a tela ja fazia isso (null reprova).
+    push(`(${coluna} IS NOT NULL AND ${coluna} ${op} $${params.length})`)
+  }
+
+  if (txt('data_de')) {
+    params.push(txt('data_de'))
+    push(`prospects.created_at >= $${params.length}::date`)
+  }
+  if (txt('data_ate')) {
+    params.push(txt('data_ate'))
+    push(`prospects.created_at < ($${params.length}::date + INTERVAL '1 day')`)
+  }
+
+  // Rascunho do Semi: le o MESMO LATERAL `rascunho` da listagem, que ja' carrega o filtro de
+  // instancia (so' conta o rascunho que SERA' disparado pela instancia escolhida). Um EXISTS
+  // proprio ignoraria a instancia e diria "tem mensagem" para um rascunho de outro numero.
+  const msg = txt('msg_gerada').toLowerCase()
+  if (msg === 'com' || msg === 'sem') {
+    push(`rascunho.mensagem_gerada IS ${msg === 'com' ? 'NOT ' : ''}NULL`)
+    precisaLaterais = true
+  }
+
+  const disparo = txt('disparo').toLowerCase()
+  if (disparo === 'disparado') push(SQL_JA_DISPARADO)
+  else if (disparo === 'nao_disparado') push(`NOT ${SQL_JA_DISPARADO}`)
+  else if (disparo === 'falha') {
+    // O ULTIMO disparo falhou — nao "algum ja falhou": a tela le ultimo_status, e um lead que
+    // falhou uma vez e depois saiu continuaria marcado como falha para sempre.
+    push(`(SELECT d.status FROM prospectador.lead_disparos d
+       WHERE d.prospect_id = prospects.id ORDER BY d.criado_em DESC LIMIT 1) = 'falhou'`)
+  }
+
+  const statusLead = txt('status_lead')
+  if (statusLead && statusLead !== 'todos') {
+    const sql = sqlFiltroStatusOperacional(statusLead)
+    if (sql) { push(sql); precisaLaterais = true }
+  }
+
+  const ag = txt('agendamento').toLowerCase()
+  if (['com', 'sem', 'hoje', '7dias'].includes(ag)) {
+    precisaLaterais = true
+    if (ag === 'com') push('agenda.proximo_agendamento IS NOT NULL')
+    else if (ag === 'sem') push('agenda.proximo_agendamento IS NULL')
+    else if (ag === 'hoje') push(`(agenda.proximo_agendamento IS NOT NULL
+       AND agenda.proximo_agendamento < (NOW()::date + INTERVAL '1 day'))`)
+    else push(`(agenda.proximo_agendamento IS NOT NULL
+       AND agenda.proximo_agendamento <= NOW() + INTERVAL '7 days')`)
+  }
+
+  return precisaLaterais
+}
+
 function montarFiltro(empresaId, query) {
   const params = [empresaId]
   const where = [`empresa_id = $1`]
@@ -285,16 +517,10 @@ function montarFiltro(empresaId, query) {
     const i = params.length
     where.push(`(nome ILIKE $${i} OR telefone ILIKE $${i} OR email ILIKE $${i} OR instagram_handle ILIKE $${i} OR nicho ILIKE $${i} OR categoria_perfil ILIKE $${i} OR cidade ILIKE $${i})`)
   }
-
-  const envio = String(query.envio || '').toLowerCase()
-  if (envio === 'possivel') {
-    where.push(`tem_whatsapp = true`)
-  } else if (envio === 'impossivel') {
-    where.push(`tem_whatsapp = false`)
-  } else if (envio === 'nao_verificado') {
-    where.push(`tem_whatsapp IS NULL`)
-  }
-  return { where: where.join(' AND '), params }
+  // Filtros de "Personalizar" (R7). Vem por ultimo: os recortes de permissao acima ja
+  // limitaram o universo, e um filtro de tela nunca pode ampliar o alcance.
+  const precisaLaterais = adicionarFiltrosPersonalizados(where, params, query)
+  return { where: where.join(' AND '), params, precisaLaterais }
 }
 
 function montarRecorteOperacao(empresaId, query) {
@@ -1158,7 +1384,7 @@ router.post('/plano-dia/replanejar', requireAuth, requireEmpresaAccess, async (r
 router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const { query: queryComEscopo, escopo, nicho } = await comEscopo(req)
-    const { where, params } = montarFiltro(req.empresa.id, queryComEscopo)
+    const { where, params, precisaLaterais } = montarFiltro(req.empresa.id, queryComEscopo)
     // Cópia dos parâmetros do WHERE, ANTES de `params` crescer com o filtro de instância (que
     // vive só no LATERAL) e com o limite. A contagem usa exatamente os que o WHERE referencia —
     // mandar parâmetro a mais é erro de bind no Postgres, não um extra ignorado.
@@ -1188,101 +1414,47 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
       }
     }
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 300, 1), 1000)
+    // PAGINACAO DE SERVIDOR (R7). Ate 2026-09-24 a tela paginava DENTRO da janela de 300 que
+    // esta rota devolvia — com carteira maior, o resto era inalcancavel. `offset` nao tem teto
+    // proprio de proposito: quem manda o numero e a pagina que a tela esta mostrando, e o
+    // recorte ja foi limitado pelo WHERE.
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0)
     // Total REAL do recorte, contado no banco ANTES do teto. A listagem devolve uma janela
     // (`limit`) e a tela pagina dentro dela; sem este número o operador não tem como saber que
     // existe carteira além do que está vendo — e o teto viraria um recorte invisível.
-    // O COUNT não precisa dos LATERAL: nenhum deles entra no WHERE.
+    // Quando um filtro derivado esta em uso (status operacional, agendamento), a contagem
+    // precisa da MESMA fonte da listagem — senao contaria um universo diferente do que a tela
+    // lista, e o rodape mentiria. Sem esses filtros, nao se paga o custo do LATERAL.
+    const fonteContagem = precisaLaterais ? sqlFonteLeads(filtroInstMsg) : 'FROM prospectador.prospects'
     const { rows: contagem } = await pool.query(
-      `SELECT COUNT(*)::int AS total FROM prospectador.prospects WHERE ${where}`,
-      paramsFiltro
+      `SELECT COUNT(*)::int AS total ${fonteContagem} WHERE ${where}`,
+      precisaLaterais ? params.slice(0, paramsFiltro.length + (filtroInstMsg ? 1 : 0)) : paramsFiltro
     )
     params.push(limit)
+    params.push(offset)
     const { rows } = await pool.query(
       `SELECT ${COLUNAS}, ${RESPONSAVEL_NOME_SELECT}, ${COLUNA_ENRIQUECIMENTO}, raw_json,
           ultimo.rodado_em, ultimo.rodado_por, ultimo.ultimo_status, ultimo.ultimo_erro,
           rascunho.mensagem_gerada, rascunho.gerada_em,
           agenda.proximo_agendamento,
           status_op.ultimo_status_acao, status_op.ultimo_status_estado, status_op.ultimo_status_em,
-          ${sqlFaixaTrabalho()} AS faixa_trabalho_ordem
-        FROM prospectador.prospects
-        LEFT JOIN LATERAL (
-          SELECT d.criado_em AS rodado_em,
-                 COALESCE(u.nome, u.email) AS rodado_por,
-                 d.status AS ultimo_status,
-                 d.erro AS ultimo_erro
-            FROM prospectador.lead_disparos d
-            LEFT JOIN app.usuarios u ON u.id = d.usuario_id
-           WHERE d.prospect_id = prospects.id
-           ORDER BY d.criado_em DESC
-           LIMIT 1
-        ) ultimo ON TRUE
-        LEFT JOIN LATERAL (
-          SELECT d.mensagem AS mensagem_gerada, d.criado_em AS gerada_em
-            FROM prospectador.lead_disparos d
-           WHERE d.prospect_id = prospects.id
-             AND d.status = 'aguardando_disparo'${filtroInstMsg}
-           ORDER BY d.criado_em DESC
-           LIMIT 1
-        ) rascunho ON TRUE
-        LEFT JOIN LATERAL (
-          SELECT MIN(di) AS proximo_agendamento FROM (
-            SELECT ae.data_inicio AS di
-              FROM app.agenda_eventos ae
-             WHERE ae.empresa_id = prospects.empresa_id
-               AND ae.excluido_em IS NULL
-               AND ae.status IN ('pendente', 'confirmado')
-               AND ae.data_inicio >= NOW()
-               AND NULLIF(regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g'), '') IS NOT NULL
-               AND regexp_replace(COALESCE(ae.lead_telefone, ''), '[^0-9]', '', 'g')
-                   = regexp_replace(COALESCE(prospects.telefone, ''), '[^0-9]', '', 'g')
-            UNION ALL
-            SELECT ve.data_inicio AS di
-              FROM vendas.agenda_eventos ve
-             WHERE ve.excluido_em IS NULL
-               AND ve.tipo = 'reuniao'
-               AND ve.status IN ('pendente', 'confirmado')
-               AND ve.data_inicio >= NOW()
-               AND NULLIF(${normFone('prospects.telefone')}, '') IS NOT NULL
-               AND (
-                 EXISTS (SELECT 1 FROM vendas.conversas vc
-                          WHERE vc.id = ve.conversa_id AND vc.empresa_id = prospects.empresa_id
-                            AND ${normFone('vc.numero')} = ${normFone('prospects.telefone')})
-                 OR EXISTS (SELECT 1 FROM vendas.lead_profiles vlp
-                             WHERE vlp.id = ve.lead_id AND vlp.empresa_id = prospects.empresa_id
-                               AND ${normFone('vlp.numero')} = ${normFone('prospects.telefone')})
-               )
-          ) u
-        ) agenda ON TRUE
-        LEFT JOIN LATERAL (
-          SELECT ae.acao AS ultimo_status_acao,
-                 ae.estado_novo AS ultimo_status_estado,
-                 ae.ocorrido_em AS ultimo_status_em
-            FROM app.auditoria_eventos ae
-           WHERE ae.empresa_id = prospects.empresa_id
-             AND ae.entidade_tipo = 'prospect'
-             AND ae.entidade_id = prospects.id
-             AND ae.acao IN (${ACOES_STATUS_LEAD_SQL})
-           ORDER BY ae.ocorrido_em DESC,
-             CASE ae.acao
-               WHEN 'lead_reuniao_agendada' THEN 0
-               WHEN 'lead_ligacao_realizada' THEN 1
-               WHEN 'lead_descartado' THEN 2
-               WHEN 'lead_proposta_enviada' THEN 2
-               WHEN 'abordagem_manual_declarada' THEN 3
-               WHEN 'lead_status_alterado' THEN 4
-               ELSE 9
-             END,
-             ae.id DESC
-           LIMIT 1
-        ) status_op ON TRUE
-        WHERE ${where} ORDER BY ${ordemLeads} LIMIT $${params.length}`,
+          ${sqlFaixaTrabalho()} AS faixa_trabalho_ordem,
+          ${sqlStatusOperacional()} AS status_operacional_ordem
+        ${sqlFonteLeads(filtroInstMsg)}
+        WHERE ${where} ORDER BY ${ordemLeads} LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params
     )
     // A faixa foi decidida pelo SQL (uma vez). Aqui ela só vira nome — a tela traduz o nome em
     // frase (frontend/lib/lead-fila-trabalho.js) e NÃO reclassifica nada.
     const data = rows.map((row) => {
-      const { faixa_trabalho_ordem: ordem, ...resto } = row
-      return { ...anexarScoreCadastro(resto), faixa_trabalho: faixaPorOrdem(ordem) }
+      const { faixa_trabalho_ordem: ordem, status_operacional_ordem: ordemStatus, ...resto } = row
+      return {
+        ...anexarScoreCadastro(resto),
+        faixa_trabalho: faixaPorOrdem(ordem),
+        // Veredito do SERVIDOR (services/lead-status-operacional.js). A tela passa a traduzir,
+        // em vez de reclassificar — o mesmo contrato de `lib/site-rotulos.js`.
+        status_operacional: statusPorOrdem(ordemStatus),
+      }
     })
     // `escopo` no meta: a tela precisa poder dizer "mostrando apenas os seus" quando o pedido de
     // ver tudo foi rebaixado. Recortar em silencio faria o vendedor achar que a carteira encolheu.
@@ -1293,6 +1465,7 @@ router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
         total: data.length,
         total_carteira: contagem[0] ? contagem[0].total : data.length,
         limite: limit,
+        offset,
         escopo: escopo.efetivo,
         pode_ver_todos: escopo.podeVerTodos,
         // A EQUIPE e o NICHO que recortaram esta lista, ou `null` para quem nao esta em equipe.
@@ -2433,12 +2606,15 @@ function csvCampo(v) {
 // quais colunas entram, nunca quais leads.
 router.get('/export.csv', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_VER_BRUTOS), async (req, res) => {
   try {
-    const { where, params } = montarFiltro(req.empresa.id, req.query)
+    const { where, params, precisaLaterais } = montarFiltro(req.empresa.id, req.query)
+    // O export usa o MESMO `montarFiltro` da listagem — e por isso herda os filtros de
+    // "Personalizar". Dois deles leem valor que so os LATERAL produzem; sem esta fonte
+    // condicional, exportar com filtro de status ou de agendamento quebraria a consulta.
     // Os campos saem do catalogo fechado (`services/banco-leads-export.js`), nunca da query.
     const colunas = selecionarColunasExport(req.query.colunas)
     const { rows } = await pool.query(
       `SELECT ${camposSqlExport(colunas).join(', ')}
-         FROM prospectador.prospects
+         ${precisaLaterais ? sqlFonteLeads() : 'FROM prospectador.prospects'}
         WHERE ${where} ORDER BY updated_at DESC LIMIT 5000`,
       params
     )
