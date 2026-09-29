@@ -843,6 +843,73 @@ function chipsDaView(v: ViewConfig): string[] {
   return c.filter(Boolean)
 }
 
+// Recorte da carteira (Geral / Nicho específico). Usado no modo Automático E na geração em massa
+// do Semi — o mesmo veredito de config (auto_recorte_modo/auto_nicho), aplicado pelo backend.
+// Só UM é renderizado por vez (o `modo` é exclusivo), então os ids do datalist não colidem.
+function RecorteConfig({ config, setConfig, salvando, salvar, mercado, nichos }: {
+  config: Config
+  setConfig: React.Dispatch<React.SetStateAction<Config>>
+  salvando: boolean
+  salvar: (patch: Partial<Config>) => void
+  mercado: string
+  nichos?: OpcaoFiltroMercado[]
+}) {
+  return (
+    <div className="grid gap-3 md:grid-cols-[12rem_minmax(0,1fr)]">
+      <div>
+        <label className="block text-xs text-ink-3 mb-1">Recorte</label>
+        <select
+          value={config.auto_recorte_modo === 'nicho' ? 'nicho' : 'geral'}
+          disabled={salvando}
+          onChange={(e) => {
+            const modo = e.target.value === 'nicho' ? 'nicho' : 'geral'
+            const nicho = config.auto_nicho || mercado || ''
+            setConfig((c) => ({ ...c, auto_recorte_modo: modo, auto_nicho: modo === 'nicho' ? (c.auto_nicho || mercado || '') : null }))
+            if (modo === 'geral' || nicho) {
+              salvar({ auto_recorte_modo: modo, auto_nicho: modo === 'nicho' ? nicho : null })
+            }
+          }}
+          className="w-full border rounded-lg px-2 py-1.5 text-sm bg-surface"
+        >
+          <option value="geral">Geral</option>
+          <option value="nicho">Nicho específico</option>
+        </select>
+      </div>
+      {config.auto_recorte_modo === 'nicho' && (
+        <div>
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <label htmlFor="recorte-nicho" className="block text-xs text-ink-3">Nicho</label>
+            {mercado && (
+              <button type="button"
+                onClick={() => {
+                  setConfig((c) => ({ ...c, auto_nicho: mercado, auto_recorte_modo: 'nicho' }))
+                  salvar({ auto_recorte_modo: 'nicho', auto_nicho: mercado })
+                }}
+                className="text-xs font-medium text-brand hover:text-brand-dark">
+                Usar filtro atual
+              </button>
+            )}
+          </div>
+          <input
+            id="recorte-nicho"
+            list="recorte-nichos"
+            value={config.auto_nicho || ''}
+            disabled={salvando}
+            maxLength={180}
+            onChange={(e) => setConfig((c) => ({ ...c, auto_nicho: e.target.value }))}
+            onBlur={(e) => salvar({ auto_recorte_modo: e.target.value.trim() ? 'nicho' : 'geral', auto_nicho: e.target.value })}
+            placeholder="Ex.: energia solar"
+            className="w-full border rounded-lg px-2 py-1.5 text-sm"
+          />
+          <datalist id="recorte-nichos">
+            {nichos?.map((n) => <option key={n.valor} value={n.valor} />)}
+          </datalist>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function BancoLeadsPage() {
   const empresaId = typeof window !== 'undefined' ? getEmpresaId() : ''
   // CRM em equipe: as capacidades chegam RESOLVIDAS pelo backend (/api/auth/me). A tela não
@@ -2534,58 +2601,25 @@ export default function BancoLeadsPage() {
                     title="Limite de segurança anti-ban. O volume real é limitado pelo intervalo × janela." />
                 </div>
               </div>
-              <div className="grid gap-3 border-t border-line pt-3 md:grid-cols-[12rem_minmax(0,1fr)]">
-                <div>
-                  <label className="block text-xs text-ink-3 mb-1">Recorte</label>
-                  <select
-                    value={config.auto_recorte_modo === 'nicho' ? 'nicho' : 'geral'}
-                    disabled={salvandoAuto}
-                    onChange={(e) => {
-                      const modo = e.target.value === 'nicho' ? 'nicho' : 'geral'
-                      const nicho = config.auto_nicho || mercado || ''
-                      setConfig((c) => ({ ...c, auto_recorte_modo: modo, auto_nicho: modo === 'nicho' ? (c.auto_nicho || mercado || '') : null }))
-                      if (modo === 'geral' || nicho) {
-                        salvarAutoConfig({ auto_recorte_modo: modo, auto_nicho: modo === 'nicho' ? nicho : null })
-                      }
-                    }}
-                    className="w-full border rounded-lg px-2 py-1.5 text-sm bg-surface"
-                  >
-                    <option value="geral">Geral</option>
-                    <option value="nicho">Nicho específico</option>
-                  </select>
-                </div>
-                {config.auto_recorte_modo === 'nicho' && (
-                  <div>
-                    <div className="mb-1 flex items-center justify-between gap-2">
-                      <label htmlFor="auto-nicho" className="block text-xs text-ink-3">Nicho</label>
-                      {mercado && (
-                        <button type="button"
-                          onClick={() => {
-                            setConfig((c) => ({ ...c, auto_nicho: mercado, auto_recorte_modo: 'nicho' }))
-                            salvarAutoConfig({ auto_recorte_modo: 'nicho', auto_nicho: mercado })
-                          }}
-                          className="text-xs font-medium text-brand hover:text-brand-dark">
-                          Usar filtro atual
-                        </button>
-                      )}
-                    </div>
-                    <input
-                      id="auto-nicho"
-                      list="auto-nichos"
-                      value={config.auto_nicho || ''}
-                      disabled={salvandoAuto}
-                      maxLength={180}
-                      onChange={(e) => setConfig((c) => ({ ...c, auto_nicho: e.target.value }))}
-                      onBlur={(e) => salvarAutoConfig({ auto_recorte_modo: e.target.value.trim() ? 'nicho' : 'geral', auto_nicho: e.target.value })}
-                      placeholder="Ex.: energia solar"
-                      className="w-full border rounded-lg px-2 py-1.5 text-sm"
-                    />
-                    <datalist id="auto-nichos">
-                      {filtrosMercado?.nichos?.map((n) => <option key={n.valor} value={n.valor} />)}
-                    </datalist>
-                  </div>
-                )}
+              <div className="border-t border-line pt-3">
+                <RecorteConfig config={config} setConfig={setConfig} salvando={salvandoAuto}
+                  salvar={salvarAutoConfig} mercado={mercado} nichos={filtrosMercado?.nichos} />
               </div>
+            </div>
+          )}
+
+          {/* Recorte da geração em massa do Semi: o worker prepara mensagens em segundo plano só
+              para este recorte. "Geral" cobre a carteira abordável inteira. Reusa a MESMA config
+              (auto_recorte_modo/auto_nicho) do Automático — o modo é exclusivo. */}
+          {podeDispararSemi && config.modo === 'semi_automatico' && (
+            <div className="mt-2 rounded-lg border bg-surface-2/60 p-3 space-y-2">
+              <p className="text-xs leading-relaxed text-ink-3">
+                A geração automática prepara as mensagens em segundo plano. Escolha o recorte da
+                carteira: <b>Geral</b> prepara para todos os leads abordáveis; <b>Nicho específico</b>{' '}
+                prepara só para o recorte escolhido.
+              </p>
+              <RecorteConfig config={config} setConfig={setConfig} salvando={salvandoAuto}
+                salvar={salvarAutoConfig} mercado={mercado} nichos={filtrosMercado?.nichos} />
             </div>
           )}
           </div>
@@ -2975,9 +3009,11 @@ export default function BancoLeadsPage() {
           podeEnviar={podeEnviarConversa}
           podeGerar={podeGerarConversa}
           motivoEnvioIndisponivel={config.modo === 'automatico'
-            ? 'No modo Automático, o envio é controlado pela rotina configurada.'
+            // Gerar continua liberado (podeGerarConversa não exclui o Automático); só o ENVIO
+            // fica indisponível. Se a instância também estiver caída, esse é o bloqueio mais
+            // acionável — e a mensagem gerada pode ser copiada e enviada manualmente.
+            ? (motivoBloqueioConexao || 'No modo Automático, o envio é controlado pela rotina configurada.')
             : motivoBloqueioConexao}
-          envioControladoPelaRotina={config.modo === 'automatico'}
           cooldownS={cooldownS}
           enviando={enviandoConversa}
           gerando={gerandoConversa}

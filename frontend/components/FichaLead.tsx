@@ -89,7 +89,6 @@ export default function FichaLead({
   onLeadAtualizado, podeEditarIcp = true, instanciaDesconectada = false,
   acaoPrincipal, onAcaoPrincipal,
   podeTriarLead = true, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel,
-  envioControladoPelaRotina,
   cooldownS, enviando, gerando, onEnviar, onGerar, onAlterarStatus, onSalvarTelefone,
   resumoExtra,
 }: {
@@ -110,8 +109,6 @@ export default function FichaLead({
   podeEnviar?: boolean
   podeGerar?: boolean
   motivoEnvioIndisponivel?: string | null
-  /** No modo Automático o ENVIO é da rotina: o modal libera gerar e sacode o aviso ao tentar enviar. */
-  envioControladoPelaRotina?: boolean
   cooldownS?: number | null
   enviando?: boolean
   gerando?: boolean
@@ -283,7 +280,6 @@ export default function FichaLead({
               podeEnviar={podeEnviar}
               podeGerar={podeGerar}
               motivoEnvioIndisponivel={motivoEnvioIndisponivel}
-              envioControladoPelaRotina={envioControladoPelaRotina}
               cooldownS={cooldownS}
               enviando={enviando}
               gerando={gerando}
