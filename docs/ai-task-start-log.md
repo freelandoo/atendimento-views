@@ -5965,3 +5965,13 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   `frontend/lib/lead-acessos.test.js`.
 - **Cuidados:** corrigir na fonte unica dos acessos rapidos, sem esconder via CSS; continuar
   sem classificar site no frontend e sem mexer na origem do lead.
+
+## 2026-09-29 — Filtros de origem no Quadro do Dia
+
+- **Pedido:** compactar a mensagem de capacidade do Quadro do Dia e adicionar filtros rapidos,
+  principalmente por origem (`Formulário Meta`, `Anúncios Meta`, `Google Places`, etc.), tambem
+  dentro de `Planejar meu dia`.
+- **Areas previstas:** `frontend/components/QuadroDoDia.tsx`,
+  `frontend/components/ModalPlanejarDia.tsx` e `frontend/lib/plano-dia.*`.
+- **Cuidados:** filtro deve usar a origem gravada pelo backend, sem deduzir por campos como
+  Instagram ou link; planejamento continua somente leitura da carteira e nao assume lead.

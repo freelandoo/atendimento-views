@@ -8,7 +8,7 @@ const {
   horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia, somarDias, diasDaSemana,
   rotuloDiaCurto, rotuloSemana, resumoDoPeriodo, opcoesNicho, opcoesCidade, opcoesRegiao,
   opcoesCategoria, opcoesPais, capacidadeDoDia, gruposPlanejamento, motivoPlanejamento,
-  sugestaoPlanoDoDia, filtrarCarteira,
+  origemBateFiltro, sugestaoPlanoDoDia, filtrarCarteira,
 } = require('./plano-dia')
 
 const fonte = fs.readFileSync(path.join(__dirname, 'plano-dia.js'), 'utf8')
@@ -223,6 +223,18 @@ test('opcoesCategoria e opcoesPais agrupam a carteira carregada', () => {
   ])
 })
 
+test('origemBateFiltro respeita origem exata e grupos inbound/outbound', () => {
+  assert.equal(origemBateFiltro({ origem: 'meta_form' }, 'meta_form'), true)
+  assert.equal(origemBateFiltro({ origem: 'meta_form' }, 'inbound'), true)
+  assert.equal(origemBateFiltro({ origem: 'whatsapp' }, 'inbound'), true)
+  assert.equal(origemBateFiltro({ origem: 'meta_ads' }, 'outbound'), true)
+  assert.equal(origemBateFiltro({ origem: 'automatico' }, 'places'), true)
+  assert.equal(origemBateFiltro({ origem: 'manual' }, 'places'), true)
+  assert.equal(origemBateFiltro({ origem: 'meta_ads' }, 'places'), false)
+  assert.equal(origemBateFiltro({ origem: 'meta_form' }, 'outbound'), false)
+  assert.equal(origemBateFiltro({ origem: 'nova_origem' }, ''), true)
+})
+
 test('filtrarCarteira exclui quem ja esta no dia', () => {
   const r = filtrarCarteira([{ id: '1' }, { id: '2' }], { jaNoDia: new Set(['1']) })
   assert.deepEqual(r.map((c) => c.id), ['2'])
@@ -244,6 +256,19 @@ test('filtrarCarteira recorta por nicho, categoria, pais e combina com a busca',
   assert.deepEqual(filtrarCarteira(c, { cidade: 'Goiânia' }).map((l) => l.id), ['1', '2'])
   assert.deepEqual(filtrarCarteira(c, { cidade: 'Goiânia', regiao: 'Centro' }).map((l) => l.id), ['2'])
   assert.deepEqual(filtrarCarteira(c, { regiao: 'GO' }).map((l) => l.id), ['3'])
+})
+
+test('filtrarCarteira recorta por origem sem deduzir por campos laterais', () => {
+  const c = [
+    { id: '1', nome: 'Form recebido', origem: 'meta_form', instagram_handle: '@temperfil' },
+    { id: '2', nome: 'Anunciante', origem: 'meta_ads' },
+    { id: '3', nome: 'Mapa', origem: 'automatico' },
+    { id: '4', nome: 'Sem origem', instagram_handle: '@nao_deduzir' },
+  ]
+  assert.deepEqual(filtrarCarteira(c, { origem: 'meta_form' }).map((l) => l.id), ['1'])
+  assert.deepEqual(filtrarCarteira(c, { origem: 'meta_ads' }).map((l) => l.id), ['2'])
+  assert.deepEqual(filtrarCarteira(c, { origem: 'inbound' }).map((l) => l.id), ['1'])
+  assert.deepEqual(filtrarCarteira(c, { origem: 'outbound' }).map((l) => l.id), ['2', '3'])
 })
 
 test('gruposPlanejamento cria atalhos de decisao sobre a carteira carregada', () => {

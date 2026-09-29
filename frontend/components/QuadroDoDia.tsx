@@ -25,11 +25,12 @@ import { apiFetch } from '@/lib/api'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import Botao from '@/components/ui/Botao'
 import FolhaModal from '@/components/ui/FolhaModal'
-import { celulaOrigem } from '@/lib/lead-origem'
+import { IconGear } from '@/components/ui/icons'
+import { celulaOrigem, OPCOES_FILTRO_ORIGEM, rotuloFiltroOrigem } from '@/lib/lead-origem'
 import {
   COLUNAS, montarColunas, aoMoverPara, seloConclusao, seloOrigemEntrada,
   horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia, somarDias, diasDaSemana,
-  rotuloDiaCurto, rotuloSemana, resumoDoPeriodo, capacidadeDoDia, motivoPlanejamento,
+  rotuloDiaCurto, rotuloSemana, resumoDoPeriodo, capacidadeDoDia, motivoPlanejamento, origemBateFiltro,
   type CardDia, type EtapaDia,
 } from '@/lib/plano-dia'
 import ModalPlanejarDia, { type CandidatoDia } from '@/components/ModalPlanejarDia'
@@ -89,6 +90,8 @@ export default function QuadroDoDia({
   const [erroCandidatos, setErroCandidatos] = useState('')
   const [arrastando, setArrastando] = useState<string | null>(null)
   const [alvo, setAlvo] = useState<EtapaDia | null>(null)
+  const [origemFiltro, setOrigemFiltro] = useState('')
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false)
   /** O card que o servidor recusou concluir sem evidência — vira o modal da nota. */
   const [pedirNota, setPedirNota] = useState<{ item: CardDia; motivo: string } | null>(null)
   const [nota, setNota] = useState('')
@@ -177,8 +180,12 @@ export default function QuadroDoDia({
     void carregarCandidatos()
   }
 
-  const colunas = useMemo(() => montarColunas(itens), [itens])
-  const resumo = useMemo(() => resumoDoDia(itens), [itens])
+  const itensVisiveis = useMemo(
+    () => itens.filter((item) => origemBateFiltro(item, origemFiltro)),
+    [itens, origemFiltro]
+  )
+  const colunas = useMemo(() => montarColunas(itensVisiveis), [itensVisiveis])
+  const resumo = useMemo(() => resumoDoDia(itensVisiveis), [itensVisiveis])
   const capacidade = useMemo(() => capacidadeDoDia(itens), [itens])
   const aviso = useMemo(() => avisoPendentes(pendentes), [pendentes])
   const jaNoDia = useMemo(() => new Set(itens.map((i) => i.prospect_id)), [itens])
@@ -187,6 +194,9 @@ export default function QuadroDoDia({
   const diaAnterior = useMemo(() => somarDias(dia || hoje, -1), [dia, hoje])
   const diaSeguinte = useMemo(() => somarDias(dia || hoje, 1), [dia, hoje])
   const planoDeHoje = !!dia && dia === hoje
+  const rotuloOrigemAtiva = rotuloFiltroOrigem(origemFiltro)
+  const filtroAtivo = Boolean(origemFiltro)
+  const mostrarFiltros = filtrosAbertos || filtroAtivo
 
   function irParaDia(proximoDia: string) {
     if (!proximoDia) return
@@ -289,17 +299,30 @@ export default function QuadroDoDia({
             <p className="text-xs text-ink-3" aria-live="polite">{resumo.texto}</p>
           </div>
           <div
-            className={`flex min-w-[210px] flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-2.5 py-1.5 text-xs ${capacidade.classe}`}
-            title="Capacidade sugerida: ajuda a limitar trabalho aberto, mas não bloqueia o plano."
+            className={`flex min-w-[190px] flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border px-2.5 py-1.5 text-xs ${capacidade.classe}`}
+            title={`Capacidade sugerida: ${capacidade.texto}. ${capacidade.emTrabalho}/${capacidade.limiteEmTrabalho} em trabalho. Ajuda a limitar trabalho aberto, mas não bloqueia o plano.`}
           >
-            <span className="font-semibold">Capacidade</span>
-            <span>{capacidade.texto}</span>
-            <span className="text-ink-3">
-              {capacidade.emTrabalho}/{capacidade.limiteEmTrabalho} em trabalho
-            </span>
-            {capacidade.alerta && <span className="basis-full text-estado-warn">{capacidade.alerta}</span>}
+            <span className="font-semibold">Cap.</span>
+            <span>{capacidade.abertos}/{capacidade.limiteDia} abertos</span>
+            <span className="text-ink-3">{capacidade.vagas} vagas</span>
+            {capacidade.alerta && <span className="basis-full text-estado-warn">Feche antes de puxar mais.</span>}
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setFiltrosAbertos((v) => !v)}
+              aria-expanded={mostrarFiltros}
+              aria-label="Filtrar quadro do dia"
+              title={rotuloOrigemAtiva ? `Filtro ativo: ${rotuloOrigemAtiva}` : 'Filtrar quadro do dia'}
+              className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${
+                filtroAtivo
+                  ? 'border-brand bg-brand/10 text-brand'
+                  : 'border-line bg-surface text-ink-2 hover:border-brand/40 hover:bg-surface-3'
+              }`}
+            >
+              <IconGear />
+              {filtroAtivo && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-brand" />}
+            </button>
             <Botao
               variante="neutra"
               tamanho="sm"
@@ -329,6 +352,38 @@ export default function QuadroDoDia({
             <Botao variante="primaria" onClick={abrirPlanejamento}>Planejar meu dia</Botao>
           </div>
         </div>
+
+        {mostrarFiltros && (
+          <div className="flex w-full flex-wrap items-center gap-2 border-t border-line pt-2">
+            <label htmlFor="quadro-origem" className="text-[11px] font-medium uppercase tracking-wide text-ink-3">
+              Origem
+            </label>
+            <select
+              id="quadro-origem"
+              value={origemFiltro}
+              onChange={(e) => setOrigemFiltro(e.target.value)}
+              className="h-8 min-w-[190px] rounded-md border border-line bg-surface px-2 text-xs text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/10"
+            >
+              {OPCOES_FILTRO_ORIGEM.map((o) => (
+                <option key={o.valor || 'todas'} value={o.valor}>{o.label}</option>
+              ))}
+            </select>
+            {filtroAtivo && (
+              <>
+                <span className="rounded-md bg-surface-3 px-2 py-1 text-xs text-ink-2">
+                  {itensVisiveis.length} de {itens.length} card(s)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { setOrigemFiltro(''); setFiltrosAbertos(false) }}
+                  className="text-xs font-medium text-brand hover:text-brand-dark hover:underline"
+                >
+                  Limpar
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         {diasContexto.length > 0 && (
           <div className="w-full border-t border-line pt-2">
@@ -560,7 +615,9 @@ export default function QuadroDoDia({
 
                 {col.cards.length === 0 && (
                   <p className="rounded-lg border border-dashed border-line px-2 py-4 text-center text-[11px] text-ink-3">
-                    {col.chave === 'para_hoje'
+                    {filtroAtivo
+                      ? 'Nenhum card com este filtro nesta coluna.'
+                      : col.chave === 'para_hoje'
                       ? 'Use “Planejar meu dia” para escolher os leads.'
                       : 'Arraste um card para cá.'}
                   </p>

@@ -120,6 +120,7 @@ export interface CandidatoCarteira {
   bairro?: string | null
   endereco?: string | null
   instagram_handle?: string | null
+  origem?: string | null
   icp_faixa?: string | null
   icp_score?: number | null
 }
@@ -130,6 +131,7 @@ export function opcoesCidade(candidatos: { cidade?: string | null }[] | null | u
 export function opcoesRegiao(candidatos: CandidatoCarteira[] | null | undefined): { valor: string; total: number }[]
 export function opcoesCategoria(candidatos: CandidatoCarteira[] | null | undefined): { valor: string; total: number }[]
 export function opcoesPais(candidatos: CandidatoCarteira[] | null | undefined): { valor: string; total: number }[]
+export function origemBateFiltro(candidato: { origem?: string | null } | null | undefined, filtro?: string | null): boolean
 export function gruposPlanejamento(candidatos: CandidatoCarteira[] | null | undefined): {
   chave: 'icp_a' | 'com_telefone' | 'sem_telefone' | 'icp_pendente'
   rotulo: string
@@ -157,6 +159,7 @@ export function filtrarCarteira<T extends CandidatoCarteira>(
     pais?: string
     cidade?: string
     regiao?: string
+    origem?: string
     grupo?: string
     jaNoDia?: Set<string>
     limite?: number

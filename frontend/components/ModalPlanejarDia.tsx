@@ -14,13 +14,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import FolhaModal from '@/components/ui/FolhaModal'
 import Botao from '@/components/ui/Botao'
+import { IconGear } from '@/components/ui/icons'
 import { classesEntrada } from '@/lib/ui-primitivos'
-import { celulaOrigem } from '@/lib/lead-origem'
+import { celulaOrigem, OPCOES_FILTRO_ORIGEM, rotuloFiltroOrigem } from '@/lib/lead-origem'
 import { ordemIcp, seloIcp } from '@/lib/lead-icp'
 import { nomePais } from '@/lib/paises'
 import {
   seloOrigemEntrada, opcoesNicho, opcoesCidade, opcoesRegiao, opcoesCategoria, opcoesPais,
-  gruposPlanejamento, motivoPlanejamento, sugestaoPlanoDoDia, filtrarCarteira,
+  gruposPlanejamento, motivoPlanejamento, origemBateFiltro, sugestaoPlanoDoDia, filtrarCarteira,
 } from '@/lib/plano-dia'
 
 export type CandidatoDia = {
@@ -103,7 +104,9 @@ export default function ModalPlanejarDia({
   const [pais, setPais] = useState('')
   const [cidade, setCidade] = useState('')
   const [regiao, setRegiao] = useState('')
+  const [origemFiltro, setOrigemFiltro] = useState('')
   const [grupoRapido, setGrupoRapido] = useState('')
+  const [filtrosAbertosCarteira, setFiltrosAbertosCarteira] = useState(false)
   const [aba, setAba] = useState<'esperando' | 'carteira'>('esperando')
   const [marcados, setMarcados] = useState<Set<string>>(new Set())
 
@@ -117,12 +120,12 @@ export default function ModalPlanejarDia({
   const regioes = useMemo(() => opcoesRegiao(disponiveis), [disponiveis])
   const gruposRapidos = useMemo(() => gruposPlanejamento(disponiveis), [disponiveis])
   const sugeridos = useMemo(
-    () => sugestoes.filter((s) => !jaNoDia.has(s.prospect_id)),
-    [sugestoes, jaNoDia]
+    () => sugestoes.filter((s) => !jaNoDia.has(s.prospect_id) && origemBateFiltro(s, origemFiltro)),
+    [sugestoes, jaNoDia, origemFiltro]
   )
   const filtrados = useMemo(
-    () => filtrarCarteira(candidatos, { busca, nicho, categoria, pais, cidade, regiao, grupo: grupoRapido, jaNoDia }),
-    [candidatos, busca, nicho, categoria, pais, cidade, regiao, grupoRapido, jaNoDia]
+    () => filtrarCarteira(candidatos, { busca, nicho, categoria, pais, cidade, regiao, origem: origemFiltro, grupo: grupoRapido, jaNoDia }),
+    [candidatos, busca, nicho, categoria, pais, cidade, regiao, origemFiltro, grupoRapido, jaNoDia]
   )
   const carteiraOrdenada = useMemo(
     () => filtrados
@@ -143,7 +146,9 @@ export default function ModalPlanejarDia({
     }),
     [sugeridos, carteiraOrdenada, jaNoDia, vagasSugeridas]
   )
-  const filtrosCarteira = [busca.trim(), nicho, categoria, pais, cidade, regiao, grupoRapido].filter(Boolean).length
+  const filtrosCarteira = [busca.trim(), nicho, categoria, pais, cidade, regiao, origemFiltro, grupoRapido].filter(Boolean).length
+  const rotuloOrigemAtiva = rotuloFiltroOrigem(origemFiltro)
+  const mostrarFiltrosCarteira = filtrosAbertosCarteira || filtrosCarteira > 0
 
   // Nicho que esvaziou (todos foram para o dia) volta para "Todos": um <select> com valor sem
   // <option> correspondente exibe uma coisa e filtra outra.
@@ -181,6 +186,7 @@ export default function ModalPlanejarDia({
     setPais('')
     setCidade('')
     setRegiao('')
+    setOrigemFiltro('')
     setGrupoRapido('')
   }
 
@@ -336,11 +342,30 @@ export default function ModalPlanejarDia({
             <div>
               <h3 className="text-sm font-semibold text-ink">Da sua carteira</h3>
               <p className="mt-0.5 text-xs text-ink-3">
-                ICP mais forte primeiro. Busque ou combine nicho, categoria, país e localização.
+                ICP mais forte primeiro. Abra os filtros para recortar por origem, nicho e local.
               </p>
             </div>
             {!carregandoCarteira && !erroCarteira && (
               <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setFiltrosAbertosCarteira((v) => !v)}
+                  aria-expanded={mostrarFiltrosCarteira}
+                  aria-label="Abrir filtros do planejamento"
+                  title={rotuloOrigemAtiva ? `Filtros ativos: ${rotuloOrigemAtiva}` : 'Filtros do planejamento'}
+                  className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${
+                    filtrosCarteira > 0
+                      ? 'border-brand bg-brand/10 text-brand'
+                      : 'border-line bg-surface text-ink-2 hover:border-brand/40 hover:bg-surface-3'
+                  }`}
+                >
+                  <IconGear />
+                  {filtrosCarteira > 0 && (
+                    <span className="absolute -right-1 -top-1 rounded-full bg-brand px-1 text-[10px] font-semibold leading-4 text-white">
+                      {filtrosCarteira}
+                    </span>
+                  )}
+                </button>
                 {filtrosCarteira > 0 && (
                   <Botao variante="neutra" tamanho="sm" onClick={limparFiltrosCarteira}>
                     Limpar filtros
@@ -355,116 +380,131 @@ export default function ModalPlanejarDia({
             )}
           </div>
 
-          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-            <label htmlFor="planejar-busca" className="sr-only">Buscar lead por nome, telefone, nicho, categoria ou cidade</label>
-            <input
-              id="planejar-busca"
-              type="search"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar carteira"
-              className={classesEntrada({ extra: 'sm:col-span-2 lg:col-span-1' })}
-            />
-            {nichos.length > 1 && (
-              <>
-                <label htmlFor="planejar-nicho" className="sr-only">Filtrar por nicho</label>
+          {mostrarFiltrosCarteira && (
+            <div className="mt-2 rounded-lg border border-line bg-surface-2 p-2">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+                <label htmlFor="planejar-busca" className="sr-only">Buscar lead por nome, telefone, nicho, categoria ou cidade</label>
+                <input
+                  id="planejar-busca"
+                  type="search"
+                  value={busca}
+                  onChange={(e) => setBusca(e.target.value)}
+                  placeholder="Buscar carteira"
+                  className={classesEntrada({ extra: 'sm:col-span-2 lg:col-span-1' })}
+                />
+                <label htmlFor="planejar-origem" className="sr-only">Filtrar por origem</label>
                 <select
-                  id="planejar-nicho"
-                  value={nicho}
-                  onChange={(e) => setNicho(e.target.value)}
+                  id="planejar-origem"
+                  value={origemFiltro}
+                  onChange={(e) => setOrigemFiltro(e.target.value)}
                   className={classesEntrada()}
                 >
-                  <option value="">Todos os nichos ({disponiveis.length})</option>
-                  {nichos.map((o) => (
-                    <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>
+                  {OPCOES_FILTRO_ORIGEM.map((o) => (
+                    <option key={o.valor || 'todas'} value={o.valor}>{o.label}</option>
                   ))}
                 </select>
-              </>
-            )}
-            {categorias.length > 1 && (
-              <>
-                <label htmlFor="planejar-categoria" className="sr-only">Filtrar por categoria</label>
-                <select
-                  id="planejar-categoria"
-                  value={categoria}
-                  onChange={(e) => setCategoria(e.target.value)}
-                  className={classesEntrada()}
-                >
-                  <option value="">Todas as categorias ({disponiveis.length})</option>
-                  {categorias.map((o) => (
-                    <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>
-                  ))}
-                </select>
-              </>
-            )}
-            {paises.length > 1 && (
-              <>
-                <label htmlFor="planejar-pais" className="sr-only">Filtrar por país</label>
-                <select
-                  id="planejar-pais"
-                  value={pais}
-                  onChange={(e) => setPais(e.target.value)}
-                  className={classesEntrada()}
-                >
-                  <option value="">Todos os países ({disponiveis.length})</option>
-                  {paises.map((o) => (
-                    <option key={o.valor} value={o.valor}>{nomePais(o.valor)} ({o.total})</option>
-                  ))}
-                </select>
-              </>
-            )}
-            {cidades.length > 1 && (
-              <>
-                <label htmlFor="planejar-cidade" className="sr-only">Filtrar por cidade</label>
-                <select
-                  id="planejar-cidade"
-                  value={cidade}
-                  onChange={(e) => setCidade(e.target.value)}
-                  className={classesEntrada()}
-                >
-                  <option value="">Todas as cidades ({disponiveis.length})</option>
-                  {cidades.map((o) => (
-                    <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>
-                  ))}
-                </select>
-              </>
-            )}
-            {regioes.length > 1 && (
-              <>
-                <label htmlFor="planejar-regiao" className="sr-only">Filtrar por região</label>
-                <select
-                  id="planejar-regiao"
-                  value={regiao}
-                  onChange={(e) => setRegiao(e.target.value)}
-                  className={classesEntrada()}
-                >
-                  <option value="">Todas as regiões ({disponiveis.length})</option>
-                  {regioes.map((o) => (
-                    <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>
-                  ))}
-                </select>
-              </>
-            )}
-          </div>
+                {nichos.length > 1 && (
+                  <>
+                    <label htmlFor="planejar-nicho" className="sr-only">Filtrar por nicho</label>
+                    <select
+                      id="planejar-nicho"
+                      value={nicho}
+                      onChange={(e) => setNicho(e.target.value)}
+                      className={classesEntrada()}
+                    >
+                      <option value="">Todos os nichos ({disponiveis.length})</option>
+                      {nichos.map((o) => (
+                        <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>
+                      ))}
+                    </select>
+                  </>
+                )}
+                {categorias.length > 1 && (
+                  <>
+                    <label htmlFor="planejar-categoria" className="sr-only">Filtrar por categoria</label>
+                    <select
+                      id="planejar-categoria"
+                      value={categoria}
+                      onChange={(e) => setCategoria(e.target.value)}
+                      className={classesEntrada()}
+                    >
+                      <option value="">Todas as categorias ({disponiveis.length})</option>
+                      {categorias.map((o) => (
+                        <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>
+                      ))}
+                    </select>
+                  </>
+                )}
+                {paises.length > 1 && (
+                  <>
+                    <label htmlFor="planejar-pais" className="sr-only">Filtrar por país</label>
+                    <select
+                      id="planejar-pais"
+                      value={pais}
+                      onChange={(e) => setPais(e.target.value)}
+                      className={classesEntrada()}
+                    >
+                      <option value="">Todos os países ({disponiveis.length})</option>
+                      {paises.map((o) => (
+                        <option key={o.valor} value={o.valor}>{nomePais(o.valor)} ({o.total})</option>
+                      ))}
+                    </select>
+                  </>
+                )}
+                {cidades.length > 1 && (
+                  <>
+                    <label htmlFor="planejar-cidade" className="sr-only">Filtrar por cidade</label>
+                    <select
+                      id="planejar-cidade"
+                      value={cidade}
+                      onChange={(e) => setCidade(e.target.value)}
+                      className={classesEntrada()}
+                    >
+                      <option value="">Todas as cidades ({disponiveis.length})</option>
+                      {cidades.map((o) => (
+                        <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>
+                      ))}
+                    </select>
+                  </>
+                )}
+                {regioes.length > 1 && (
+                  <>
+                    <label htmlFor="planejar-regiao" className="sr-only">Filtrar por região</label>
+                    <select
+                      id="planejar-regiao"
+                      value={regiao}
+                      onChange={(e) => setRegiao(e.target.value)}
+                      className={classesEntrada()}
+                    >
+                      <option value="">Todas as regiões ({disponiveis.length})</option>
+                      {regioes.map((o) => (
+                        <option key={o.valor} value={o.valor}>{o.valor} ({o.total})</option>
+                      ))}
+                    </select>
+                  </>
+                )}
+              </div>
 
-          {gruposRapidos.length > 0 && (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-ink-3">Blocos rápidos</span>
-              {gruposRapidos.map((g) => (
-                <button
-                  key={g.chave}
-                  type="button"
-                  onClick={() => setGrupoRapido((atual) => (atual === g.chave ? '' : g.chave))}
-                  title={g.dica}
-                  className={`rounded-md border px-2 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${
-                    grupoRapido === g.chave
-                      ? 'border-brand bg-brand/10 text-brand'
-                      : 'border-line bg-surface text-ink-2 hover:border-brand/40 hover:bg-surface-3'
-                  }`}
-                >
-                  {g.rotulo} <span className="font-normal">({g.total})</span>
-                </button>
-              ))}
+              {gruposRapidos.length > 0 && (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-medium uppercase tracking-wide text-ink-3">Blocos rápidos</span>
+                  {gruposRapidos.map((g) => (
+                    <button
+                      key={g.chave}
+                      type="button"
+                      onClick={() => setGrupoRapido((atual) => (atual === g.chave ? '' : g.chave))}
+                      title={g.dica}
+                      className={`rounded-md border px-2 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 ${
+                        grupoRapido === g.chave
+                          ? 'border-brand bg-brand/10 text-brand'
+                          : 'border-line bg-surface text-ink-2 hover:border-brand/40 hover:bg-surface-3'
+                      }`}
+                    >
+                      {g.rotulo} <span className="font-normal">({g.total})</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

@@ -51,6 +51,8 @@ const MS_DIA = 86400000
 const DIAS_CURTOS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab']
 const LIMITE_DIA_SUGERIDO = 8
 const LIMITE_EM_TRABALHO = 3
+const ORIGENS_INBOUND = new Set(['whatsapp', 'meta_form'])
+const ORIGENS_OUTBOUND = new Set(['manual', 'automatico', 'instagram', 'linkedin', 'meta_ads'])
 
 function coluna(chave) {
   return COLUNAS.find((c) => c.chave === chave) || null
@@ -323,6 +325,16 @@ function opcoesPais(candidatos) {
   return opcoesCampoCarteira(candidatos, 'pais')
 }
 
+function origemBateFiltro(c, filtro) {
+  const f = String(filtro || '').trim().toLowerCase()
+  if (!f) return true
+  const origem = String(c?.origem || '').trim().toLowerCase()
+  if (f === 'inbound') return ORIGENS_INBOUND.has(origem)
+  if (f === 'outbound') return ORIGENS_OUTBOUND.has(origem)
+  if (f === 'places') return origem === 'manual' || origem === 'automatico'
+  return origem === f
+}
+
 function icpChave(c) {
   return String(c?.icp_faixa || '').trim().toUpperCase()
 }
@@ -417,17 +429,19 @@ function sugestaoPlanoDoDia({ sugeridos, carteira, jaNoDia, limite } = {}) {
  * o planejamento mostra todo o recorte carregado, para o seletor de nicho/cidade não esconder
  * trabalho que já está disponível na carteira.
  */
-function filtrarCarteira(candidatos, { busca, nicho, categoria, pais, cidade, regiao, grupo, jaNoDia, limite } = {}) {
+function filtrarCarteira(candidatos, { busca, nicho, categoria, pais, cidade, regiao, grupo, origem, jaNoDia, limite } = {}) {
   const q = String(busca || '').trim().toLowerCase()
   const n = String(nicho || '').trim()
   const cat = String(categoria || '').trim()
   const ps = String(pais || '').trim().toUpperCase()
   const cid = String(cidade || '').trim()
   const reg = String(regiao || '').trim()
+  const org = String(origem || '').trim()
   const excluir = jaNoDia instanceof Set ? jaNoDia : new Set()
   const teto = Number.isFinite(limite) && limite > 0 ? limite : null
   const base = (Array.isArray(candidatos) ? candidatos : []).filter((l) => l && !excluir.has(l.id))
-  const porNicho = n ? base.filter((l) => String(l.nicho || '').trim() === n) : base
+  const porOrigem = org ? base.filter((l) => origemBateFiltro(l, org)) : base
+  const porNicho = n ? porOrigem.filter((l) => String(l.nicho || '').trim() === n) : porOrigem
   const porCategoria = cat ? porNicho.filter((l) => valorCategoria(l) === cat) : porNicho
   const porPais = ps ? porCategoria.filter((l) => valorPais(l) === ps) : porCategoria
   const porCidade = cid ? porPais.filter((l) => String(l.cidade || '').trim() === cid) : porPais
@@ -452,5 +466,5 @@ module.exports = {
   seloConclusao, seloOrigemEntrada, horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia,
   capacidadeDoDia, somarDias, diasDaSemana, rotuloDiaCurto, rotuloSemana, resumoDoPeriodo,
   opcoesNicho, opcoesCidade, opcoesRegiao, opcoesCategoria, opcoesPais,
-  gruposPlanejamento, motivoPlanejamento, sugestaoPlanoDoDia, filtrarCarteira,
+  origemBateFiltro, gruposPlanejamento, motivoPlanejamento, sugestaoPlanoDoDia, filtrarCarteira,
 }
