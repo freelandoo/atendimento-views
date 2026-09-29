@@ -18,6 +18,8 @@ export interface CardDia {
   conclusao_tipo: string | null
   conclusao_nota: string | null
   concluido_em: string | null
+  follow_up_id?: string | null
+  follow_up_agendado_para?: string | null
   prospect_id: string
   nome: string | null
   telefone: string | null

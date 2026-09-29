@@ -64,11 +64,12 @@ const TOM_COLUNA: Record<string, string> = {
 }
 
 export default function QuadroDoDia({
-  empresaId, onAbrirLead,
+  empresaId, onAbrirLead, atualizacaoLead,
 }: {
   empresaId: string
   /** Abre a ficha do lead (a mesma da Lista), na seção pedida. */
   onAbrirLead: (prospectId: string, gatilho: string) => void
+  atualizacaoLead?: { seq: number; leadId: string; remover?: boolean; followUpId?: string | null } | null
 }) {
   const fb = useFeedback()
   const base = `/api/empresas/${empresaId}/banco-leads`
@@ -143,6 +144,17 @@ export default function QuadroDoDia({
   }, [base, carregarResumo])
 
   useEffect(() => { carregar() }, [carregar])
+
+  useEffect(() => {
+    if (!atualizacaoLead?.leadId) return
+    setItens((prev) => prev.flatMap((item) => {
+      if (item.prospect_id !== atualizacaoLead.leadId) return [item]
+      if (atualizacaoLead.remover) return []
+      if (atualizacaoLead.followUpId) return [{ ...item, follow_up_id: atualizacaoLead.followUpId }]
+      return [item]
+    }))
+    if (dia) void carregarResumo(dia)
+  }, [atualizacaoLead, dia, carregarResumo])
 
   const carregarCandidatos = useCallback(async () => {
     const token = ++pedidoCandidatosRef.current
@@ -421,6 +433,7 @@ export default function QuadroDoDia({
                   const entrada = seloOrigemEntrada(c.origem_entrada)
                   const hora = horarioDoCard(c, fmtHora)
                   const motivo = motivoPlanejamento(c, fmtHora)
+                  const temFollowUp = Boolean(c.follow_up_id)
                   return (
                     <article
                       key={c.id}
@@ -527,10 +540,14 @@ export default function QuadroDoDia({
                           type="button"
                           onClick={(e) => { e.stopPropagation(); onAbrirLead(c.prospect_id, 'telefone') }}
                           onKeyDown={(e) => e.stopPropagation()}
-                          className="mt-2 rounded-md border border-line bg-surface-2 px-2 py-1 text-[11px] font-medium text-ink-2 hover:border-brand/40 hover:text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
-                          title="Abre a ficha na área de conversa para registrar a próxima ação pelo fluxo oficial."
+                          className={temFollowUp
+                            ? 'mt-2 text-[11px] font-medium text-brand underline underline-offset-2 hover:text-brand-dark focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'
+                            : 'mt-2 rounded-md border border-line bg-surface-2 px-2 py-1 text-[11px] font-medium text-ink-2 hover:border-brand/40 hover:text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'}
+                          title={temFollowUp
+                            ? 'Abre a ficha para ver e operar o follow-up registrado.'
+                            : 'Abre a ficha na área de conversa para registrar a próxima ação pelo fluxo oficial.'}
                         >
-                          Registrar follow-up
+                          {temFollowUp ? 'Ver follow-up' : 'Registrar follow-up'}
                         </button>
                       )}
 

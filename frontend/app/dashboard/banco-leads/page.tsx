@@ -962,6 +962,7 @@ export default function BancoLeadsPage() {
   const [cadenciaLead, setCadenciaLead] = useState<{ leadId: string; data: PlanoFollowUpLead | null; erro: boolean } | null>(null)
   const [versaoProximaAcao, setVersaoProximaAcao] = useState(0)
   const [followUpReagendando, setFollowUpReagendando] = useState<CompromissoLead | null>(null)
+  const [atualizacaoQuadro, setAtualizacaoQuadro] = useState<{ seq: number; leadId: string; remover?: boolean; followUpId?: string | null } | null>(null)
   const fichaLeadId = ficha?.leadId || null
   useEffect(() => {
     if (!fichaLeadId) { setProximaAcao(null); setCadenciaLead(null); return }
@@ -1772,6 +1773,11 @@ export default function BancoLeadsPage() {
       if (!leadPermaneceNaAbaBanco(leadAberto, aba)) return null
       return { ...cur, status: novo.status, leadAberto }
     })
+    if (statusOperacional === 'descartado') {
+      setAtualizacaoQuadro((cur) => ({ seq: (cur?.seq || 0) + 1, leadId: id, remover: true }))
+    } else if (novo.follow_up?.id) {
+      setAtualizacaoQuadro((cur) => ({ seq: (cur?.seq || 0) + 1, leadId: id, followUpId: novo.follow_up?.id }))
+    }
     // Ligação, reunião ou follow-up registrados agora precisam aparecer na "Próxima ação".
     setVersaoProximaAcao((v) => v + 1)
     carregarResumo()
@@ -2884,6 +2890,7 @@ export default function BancoLeadsPage() {
         <QuadroDoDia
           empresaId={empresaId}
           onAbrirLead={abrirLeadPorId}
+          atualizacaoLead={atualizacaoQuadro}
         />
       )}
 

@@ -5945,3 +5945,15 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Cuidados:** reutilizar as rotas oficiais da Central de Follow-ups
   (`/follow-ups/itens/:id/status` e `/reagendar`); nao criar novo status nem endpoint; manter
   permissao/alcance no backend e so traduzir o compromisso carregado em `/proxima-acao`.
+
+## 2026-09-29 — Quadro do dia reage ao descarte e follow-up registrado
+
+- **Pedido:** ao descartar um lead pela ficha, tirar o card do Quadro do Dia; no card de
+  "Aguardando retorno", mostrar "Registrar follow-up" so quando ainda nao houver follow-up
+  registrado, e trocar para "Ver follow-up" quando ja houver.
+- **Areas previstas:** `frontend/components/QuadroDoDia.tsx`,
+  `frontend/app/dashboard/banco-leads/page.tsx`, `frontend/lib/plano-dia.d.ts` e leitura
+  read-only de `backend/src/db/plano-dia.js`.
+- **Cuidados:** Quadro continua planejamento pessoal: nao escreve status, responsavel, envio
+  ou funil; a ficha segue sendo dona do descarte/follow-up, e o Quadro apenas reflete o
+  resultado localmente e na leitura do card.

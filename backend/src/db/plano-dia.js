@@ -20,7 +20,7 @@ const { sqlTelefoneNormalizado } = require('../telefone-br')
 
 // O que o card mostra. Lista FECHADA — o quadro não é uma segunda listagem do Banco de Leads.
 const COLS_CARD = `
-  i.id, i.dia, i.etapa, i.ordem, i.objetivo, i.origem_entrada, i.follow_up_id,
+  i.id, i.dia, i.etapa, i.ordem, i.objetivo, i.origem_entrada,
   i.conclusao_tipo, i.conclusao_nota, i.concluido_em, i.criado_em,
   p.id AS prospect_id, p.nome, p.telefone, p.origem, p.instagram_handle,
   p.cidade, p.nicho, p.status, p.icp_faixa, p.icp_score, p.bloqueado_ate`
@@ -35,9 +35,21 @@ const COLS_CARD = `
  */
 async function quadroDoDia(empresaId, usuarioId, dia) {
   const { rows } = await pool.query(
-    `SELECT ${COLS_CARD}, agenda.proximo_agendamento
+    `SELECT ${COLS_CARD},
+            COALESCE(i.follow_up_id, followup.follow_up_id) AS follow_up_id,
+            followup.follow_up_agendado_para,
+            agenda.proximo_agendamento
        FROM app.plano_dia_itens i
        JOIN prospectador.prospects p ON p.id = i.prospect_id AND p.empresa_id = i.empresa_id
+       LEFT JOIN LATERAL (
+         SELECT fu.id AS follow_up_id, fu.agendado_para AS follow_up_agendado_para
+           FROM app.follow_ups fu
+          WHERE fu.empresa_id = i.empresa_id
+            AND fu.prospect_id = i.prospect_id
+            AND fu.status = 'aguardando'
+          ORDER BY fu.agendado_para ASC NULLS LAST, fu.criado_em DESC
+          LIMIT 1
+       ) followup ON TRUE
        LEFT JOIN LATERAL (
          SELECT MIN(ae.data_inicio) AS proximo_agendamento
            FROM app.agenda_eventos ae
