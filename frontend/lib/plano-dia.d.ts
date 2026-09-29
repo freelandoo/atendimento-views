@@ -17,6 +17,7 @@ export interface CardDia {
   origem_entrada: string
   conclusao_tipo: string | null
   conclusao_nota: string | null
+  conclusao_acao?: string | null
   concluido_em: string | null
   follow_up_id?: string | null
   follow_up_agendado_para?: string | null
@@ -49,6 +50,10 @@ export function aoMoverPara(chave: string): {
 export function seloConclusao(item: CardDia | null | undefined): { rotulo: string; dica: string; prova: boolean; classe: string } | null
 export function seloOrigemEntrada(origem: string | null | undefined): { rotulo: string; dica: string } | null
 export function horarioDoCard(item: CardDia | null | undefined, formatar?: (iso: string) => string): string
+export function resumoFollowUpCard(
+  item: CardDia | null | undefined,
+  agora?: Date,
+): { rotulo: string; vencido: boolean; dica: string; classe: string } | null
 /** Só lê `etapa` — por isso aceita qualquer objeto que a tenha (a home passa o payload cru). */
 export function resumoDoDia(itens: { etapa?: string | null }[] | null | undefined): {
   total: number
@@ -75,7 +80,14 @@ export function capacidadeDoDia(
   classe: string
 }
 /** A prévia das pendências. Nunca move nada. */
-export function avisoPendentes(pendentes: unknown[] | null | undefined): { total: number; texto: string; acao: string } | null
+export function avisoPendentes(pendentes: unknown[] | null | undefined): {
+  total: number
+  texto: string
+  acaoContinuar: string
+  acaoTrazerTudo: string
+  dicaContinuar: string
+  dicaTrazerTudo: string
+} | null
 export function rotuloDia(dia: string | null | undefined, hoje: string | null | undefined): string
 export function somarDias(dia: string | null | undefined, quantidade: number): string
 export function diasDaSemana(dia: string | null | undefined): string[]

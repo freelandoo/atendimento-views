@@ -33,6 +33,13 @@ test('ORIGENS_ENTRADA bate com plano_dia_origem_chk', () => {
   assert.deepEqual([...PD.ORIGENS_ENTRADA].sort(), (checkIn(mig, 'plano_dia_origem_chk') || []).sort())
 })
 
+test('modos de replanejamento sao lista fechada e toleram legado vazio', () => {
+  assert.equal(PD.modoReplanejamentoValido('continuar_hoje'), 'continuar_hoje')
+  assert.equal(PD.modoReplanejamentoValido('trazer_tudo'), 'trazer_tudo')
+  assert.equal(PD.modoReplanejamentoValido('automatico'), null)
+  assert.equal(PD.modoReplanejamentoValido(null), null)
+})
+
 test('CONCLUSOES bate com plano_dia_conclusao_tipo_chk', () => {
   assert.deepEqual([...PD.CONCLUSOES].sort(), (checkIn(mig, 'plano_dia_conclusao_tipo_chk') || []).sort())
 })
@@ -115,6 +122,13 @@ test('so o que ficou EM ABERTO e replanejavel — "feito" fica no dia em que aco
   assert.equal(PD.replanejavel({ etapa: 'aguardando_retorno' }), true)
   assert.equal(PD.replanejavel({ etapa: 'feito' }), false)
   assert.equal(PD.replanejavel({ etapa: 'inexistente' }), false)
+})
+
+test('replanejamento oferece continuar preservando coluna ou reiniciar em Para hoje', () => {
+  assert.ok(/CASE WHEN \$4::boolean THEN etapa ELSE 'para_hoje' END/.test(fonteDb),
+    'replanejar precisa ter os dois modos: preservar coluna ou jogar em Para hoje')
+  assert.ok(/modoReplanejamentoValido/.test(fonteRota),
+    'rota precisa validar modo de replanejamento por lista fechada')
 })
 
 test('a ordem nova entra no fim da coluna, esparsa', () => {

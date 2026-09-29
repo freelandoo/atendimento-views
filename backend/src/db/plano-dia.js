@@ -35,9 +35,10 @@ const COLS_CARD = `
  */
 async function quadroDoDia(empresaId, usuarioId, dia) {
   const { rows } = await pool.query(
-    `SELECT ${COLS_CARD},
+     `SELECT ${COLS_CARD},
             COALESCE(i.follow_up_id, followup.follow_up_id) AS follow_up_id,
             followup.follow_up_agendado_para,
+            acao.conclusao_acao,
             agenda.proximo_agendamento
        FROM app.plano_dia_itens i
        JOIN prospectador.prospects p ON p.id = i.prospect_id AND p.empresa_id = i.empresa_id
@@ -50,6 +51,32 @@ async function quadroDoDia(empresaId, usuarioId, dia) {
           ORDER BY fu.agendado_para ASC NULLS LAST, fu.criado_em DESC
           LIMIT 1
        ) followup ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT ae.acao AS conclusao_acao
+           FROM app.auditoria_eventos ae
+          WHERE ae.empresa_id = i.empresa_id
+            AND ae.entidade_tipo = 'prospect'
+            AND ae.entidade_id = i.prospect_id
+            AND ae.criado_em::date = i.dia
+            AND ae.acao IN (
+              'lead_reuniao_agendada',
+              'lead_ligacao_realizada',
+              'lead_follow_up_criado',
+              'lead_proposta_enviada',
+              'abordagem_manual_declarada',
+              'lead_status_alterado'
+            )
+          ORDER BY CASE ae.acao
+                     WHEN 'lead_reuniao_agendada' THEN 0
+                     WHEN 'lead_ligacao_realizada' THEN 1
+                     WHEN 'lead_follow_up_criado' THEN 2
+                     WHEN 'lead_proposta_enviada' THEN 3
+                     WHEN 'abordagem_manual_declarada' THEN 4
+                     ELSE 5
+                   END,
+                   ae.criado_em DESC
+          LIMIT 1
+       ) acao ON TRUE
        LEFT JOIN LATERAL (
          SELECT MIN(ae.data_inicio) AS proximo_agendamento
            FROM app.agenda_eventos ae
@@ -227,20 +254,24 @@ async function pendentesAnteriores({ empresaId, usuarioId, dia }) {
  * a pessoa escreveu hoje. Tudo numa transação: pendência não pode sumir do dia velho sem
  * aparecer no novo.
  */
-async function replanejarPendentes({ empresaId, usuarioId, de, para }) {
+async function replanejarPendentes({ empresaId, usuarioId, de, para, modo = 'trazer_tudo' }) {
+  const continuarHoje = modo === 'continuar_hoje'
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
     const { rows: movidos } = await client.query(
       `WITH pendentes AS (
-         SELECT id, prospect_id, objetivo, origem_entrada, ordem
+         SELECT id, prospect_id, objetivo, origem_entrada, etapa, ordem
            FROM app.plano_dia_itens
           WHERE empresa_id = $1 AND usuario_id = $2 AND dia < $3::date AND etapa <> 'feito'
           ORDER BY dia, ordem
           LIMIT 200
        ), inseridos AS (
-         INSERT INTO app.plano_dia_itens (empresa_id, usuario_id, dia, prospect_id, origem_entrada, objetivo, ordem)
-         SELECT $1, $2, $3::date, prospect_id, origem_entrada, objetivo, ordem FROM pendentes
+         INSERT INTO app.plano_dia_itens (empresa_id, usuario_id, dia, prospect_id, origem_entrada, objetivo, etapa, ordem)
+         SELECT $1, $2, $3::date, prospect_id, origem_entrada, objetivo,
+                CASE WHEN $4::boolean THEN etapa ELSE 'para_hoje' END,
+                ordem
+           FROM pendentes
          ON CONFLICT (empresa_id, usuario_id, dia, prospect_id) DO NOTHING
          RETURNING prospect_id
        )
@@ -248,10 +279,10 @@ async function replanejarPendentes({ empresaId, usuarioId, de, para }) {
         USING pendentes
         WHERE d.id = pendentes.id
        RETURNING d.prospect_id`,
-      [empresaId, usuarioId, para]
+      [empresaId, usuarioId, para, continuarHoje]
     )
     await client.query('COMMIT')
-    return { movidos: movidos.length }
+    return { movidos: movidos.length, modo }
   } catch (err) {
     await client.query('ROLLBACK')
     throw err

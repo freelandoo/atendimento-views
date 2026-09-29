@@ -170,7 +170,16 @@ function aoMoverPara(chave) {
 function seloConclusao(item) {
   const tipo = item && item.conclusao_tipo
   if (tipo === 'atividade_registrada') {
-    return { rotulo: 'Ação registrada', dica: 'O sistema encontrou ligação, reunião ou abordagem registrada hoje.', prova: true, classe: 'border-emerald-200 bg-emerald-50 text-emerald-800' }
+    const acao = String(item.conclusao_acao || '').trim()
+    const rotulos = {
+      lead_reuniao_agendada: 'Reunião',
+      lead_ligacao_realizada: 'Ligação',
+      lead_follow_up_criado: 'Follow-up',
+      lead_proposta_enviada: 'Proposta',
+      abordagem_manual_declarada: 'Mensagem',
+    }
+    const rotulo = rotulos[acao] || 'Ação registrada'
+    return { rotulo, dica: `O sistema encontrou ${rotulo.toLowerCase()} registrada hoje.`, prova: true, classe: 'border-emerald-200 bg-emerald-50 text-emerald-800' }
   }
   if (tipo === 'autodeclarada') {
     return { rotulo: 'Autodeclarado', dica: 'Sem registro automático: o que consta é o que você escreveu.', prova: false, classe: 'border-amber-200 bg-amber-50 text-amber-800' }
@@ -190,6 +199,47 @@ function horarioDoCard(item, formatar) {
   const quando = item && item.proximo_agendamento
   if (!quando) return ''
   return typeof formatar === 'function' ? formatar(quando) : String(quando)
+}
+
+function dataValida(iso) {
+  const d = iso ? new Date(iso) : null
+  return d && !Number.isNaN(d.getTime()) ? d : null
+}
+
+function mesmoDia(a, b) {
+  return a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate()
+}
+
+function quandoCurto(iso, agora = new Date()) {
+  const d = dataValida(iso)
+  if (!d) return ''
+  const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  const amanha = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() + 1)
+  const ontem = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() - 1)
+  if (mesmoDia(d, agora)) return `hoje ${hora}`
+  if (mesmoDia(d, amanha)) return `amanhã ${hora}`
+  if (mesmoDia(d, ontem)) return `ontem ${hora}`
+  return `${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${hora}`
+}
+
+function resumoFollowUpCard(item, agora = new Date()) {
+  if (!item || !item.follow_up_id) return null
+  const quando = quandoCurto(item.follow_up_agendado_para, agora)
+  const data = dataValida(item.follow_up_agendado_para)
+  const vencido = !!data && data.getTime() < agora.getTime()
+  const rotulo = quando
+    ? `${vencido ? 'Follow-up vencido' : 'Próx. follow-up'}: ${quando}`
+    : 'Follow-up aberto'
+  return {
+    rotulo,
+    vencido,
+    dica: quando ? 'Próxima ação registrada para este lead.' : 'Há follow-up aberto para este lead.',
+    classe: vencido
+      ? 'border-amber-200 bg-amber-50 text-amber-800'
+      : 'border-brand/20 bg-brand/5 text-brand',
+  }
 }
 
 /** O resumo do dia. Conta CARDS, nunca mistura com contagem de carteira ou de funil. */
@@ -258,7 +308,10 @@ function avisoPendentes(pendentes) {
   return {
     total: n,
     texto: `${n} ${n === 1 ? 'lead ficou' : 'leads ficaram'} em aberto em dias anteriores.`,
-    acao: n === 1 ? 'Trazer para hoje' : `Trazer os ${n} para hoje`,
+    acaoContinuar: 'Continuar hoje',
+    acaoTrazerTudo: n === 1 ? 'Trazer para hoje' : `Trazer os ${n}`,
+    dicaContinuar: 'Traz os cards abertos preservando Para hoje, Em trabalho e Aguardando retorno.',
+    dicaTrazerTudo: 'Traz todos os cards abertos para Para hoje, como uma lista nova.',
   }
 }
 
@@ -463,7 +516,7 @@ function filtrarCarteira(candidatos, { busca, nicho, categoria, pais, cidade, re
 
 module.exports = {
   COLUNAS, CHAVES, coluna, montarColunas, aoMoverPara,
-  seloConclusao, seloOrigemEntrada, horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia,
+  seloConclusao, seloOrigemEntrada, horarioDoCard, resumoFollowUpCard, resumoDoDia, avisoPendentes, rotuloDia,
   capacidadeDoDia, somarDias, diasDaSemana, rotuloDiaCurto, rotuloSemana, resumoDoPeriodo,
   opcoesNicho, opcoesCidade, opcoesRegiao, opcoesCategoria, opcoesPais,
   origemBateFiltro, gruposPlanejamento, motivoPlanejamento, sugestaoPlanoDoDia, filtrarCarteira,

@@ -8,7 +8,7 @@ const {
   horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia, somarDias, diasDaSemana,
   rotuloDiaCurto, rotuloSemana, resumoDoPeriodo, opcoesNicho, opcoesCidade, opcoesRegiao,
   opcoesCategoria, opcoesPais, capacidadeDoDia, gruposPlanejamento, motivoPlanejamento,
-  origemBateFiltro, sugestaoPlanoDoDia, filtrarCarteira,
+  origemBateFiltro, sugestaoPlanoDoDia, filtrarCarteira, resumoFollowUpCard,
 } = require('./plano-dia')
 
 const fonte = fs.readFileSync(path.join(__dirname, 'plano-dia.js'), 'utf8')
@@ -85,6 +85,13 @@ test('o selo distingue evidencia de autodeclaracao, em TEXTO', () => {
   assert.equal(seloConclusao(null), null)
 })
 
+test('seloConclusao resume o tipo de acao registrada quando o backend manda a origem', () => {
+  assert.equal(seloConclusao({ conclusao_tipo: 'atividade_registrada', conclusao_acao: 'lead_reuniao_agendada' }).rotulo, 'Reunião')
+  assert.equal(seloConclusao({ conclusao_tipo: 'atividade_registrada', conclusao_acao: 'lead_ligacao_realizada' }).rotulo, 'Ligação')
+  assert.equal(seloConclusao({ conclusao_tipo: 'atividade_registrada', conclusao_acao: 'lead_follow_up_criado' }).rotulo, 'Follow-up')
+  assert.equal(seloConclusao({ conclusao_tipo: 'atividade_registrada', conclusao_acao: 'lead_proposta_enviada' }).rotulo, 'Proposta')
+})
+
 test('escolha manual NAO vira selo — ela e o caso normal', () => {
   assert.equal(seloOrigemEntrada('escolha_manual'), null)
   assert.ok(seloOrigemEntrada('sugestao_vencidos'))
@@ -96,6 +103,18 @@ test('sem agendamento nao se inventa horario', () => {
   assert.equal(horarioDoCard({}, () => '10:00'), '')
   assert.equal(horarioDoCard(null), '')
   assert.equal(horarioDoCard({ proximo_agendamento: 'x' }, () => '10:00'), '10:00')
+})
+
+test('resumoFollowUpCard mostra proximo retorno sem depender de contagem', () => {
+  const agora = new Date('2026-09-29T12:00:00-03:00')
+  assert.equal(resumoFollowUpCard({}, agora), null)
+  assert.equal(resumoFollowUpCard({ follow_up_id: 'fu1' }, agora).rotulo, 'Follow-up aberto')
+  const futuro = resumoFollowUpCard({ follow_up_id: 'fu1', follow_up_agendado_para: '2026-09-30T09:00:00-03:00' }, agora)
+  assert.match(futuro.rotulo, /Próx\. follow-up: amanhã 09:00/)
+  assert.equal(futuro.vencido, false)
+  const vencido = resumoFollowUpCard({ follow_up_id: 'fu2', follow_up_agendado_para: '2026-09-28T10:00:00-03:00' }, agora)
+  assert.match(vencido.rotulo, /Follow-up vencido/)
+  assert.equal(vencido.vencido, true)
 })
 
 test('o resumo conta CARDS do dia, nao carteira', () => {
@@ -130,7 +149,10 @@ test('sem pendencia nao ha aviso; com pendencia o texto e a acao sao explicitos'
   assert.equal(avisoPendentes(null), null)
   const a = avisoPendentes([{}, {}])
   assert.equal(a.total, 2)
-  assert.ok(a.acao.includes('2'))
+  assert.equal(a.acaoContinuar, 'Continuar hoje')
+  assert.ok(a.acaoTrazerTudo.includes('2'))
+  assert.match(a.dicaContinuar, /preservando/i)
+  assert.match(a.dicaTrazerTudo, /Para hoje/i)
 })
 
 test('rotuloDia diz "Hoje" so quando e hoje', () => {

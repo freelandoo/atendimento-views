@@ -1147,11 +1147,13 @@ router.delete('/plano-dia/:itemId', requireAuth, requireEmpresaAccess, async (re
  */
 router.post('/plano-dia/replanejar', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
-    const dia = diaDoPedido((req.body || {}).dia)
+    const b = req.body || {}
+    const dia = diaDoPedido(b.dia)
+    const modo = PLANO.PD.modoReplanejamentoValido(b.modo) || 'trazer_tudo'
     const r = await PLANO.replanejarPendentes({
-      empresaId: req.empresa.id, usuarioId: req.usuario.id, para: dia,
+      empresaId: req.empresa.id, usuarioId: req.usuario.id, para: dia, modo,
     })
-    return res.json({ ok: true, data: r, meta: { dia } })
+    return res.json({ ok: true, data: r, meta: { dia, modo } })
   } catch (err) { return envelopeErro(res, err, 'PLANO_DIA_REPLAN_FAILED') }
 })
 

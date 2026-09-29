@@ -25,11 +25,12 @@ import { apiFetch } from '@/lib/api'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import Botao from '@/components/ui/Botao'
 import FolhaModal from '@/components/ui/FolhaModal'
+import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import { IconGear } from '@/components/ui/icons'
 import { celulaOrigem, OPCOES_FILTRO_ORIGEM, rotuloFiltroOrigem } from '@/lib/lead-origem'
 import {
   COLUNAS, montarColunas, aoMoverPara, seloConclusao, seloOrigemEntrada,
-  horarioDoCard, resumoDoDia, avisoPendentes, rotuloDia, somarDias, diasDaSemana,
+  horarioDoCard, resumoFollowUpCard, resumoDoDia, avisoPendentes, rotuloDia, somarDias, diasDaSemana,
   rotuloDiaCurto, rotuloSemana, resumoDoPeriodo, capacidadeDoDia, motivoPlanejamento, origemBateFiltro,
   type CardDia, type EtapaDia,
 } from '@/lib/plano-dia'
@@ -92,6 +93,7 @@ export default function QuadroDoDia({
   const [alvo, setAlvo] = useState<EtapaDia | null>(null)
   const [origemFiltro, setOrigemFiltro] = useState('')
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
+  const [confirmarReplanejamento, setConfirmarReplanejamento] = useState<null | 'continuar_hoje' | 'trazer_tudo'>(null)
   /** O card que o servidor recusou concluir sem evidência — vira o modal da nota. */
   const [pedirNota, setPedirNota] = useState<{ item: CardDia; motivo: string } | null>(null)
   const [nota, setNota] = useState('')
@@ -101,6 +103,8 @@ export default function QuadroDoDia({
   const pedidoResumoRef = useRef(0)
   const pedidoCandidatosRef = useRef(0)
   const ignorarCliqueAposArrasteRef = useRef(false)
+  const itensRef = useRef<CardDia[]>([])
+  const atualizacaoAplicadaRef = useRef(0)
 
   const carregarResumo = useCallback(async (diaBase: string) => {
     const dias = diasDaSemana(diaBase)
@@ -148,16 +152,34 @@ export default function QuadroDoDia({
 
   useEffect(() => { carregar() }, [carregar])
 
+  useEffect(() => { itensRef.current = itens }, [itens])
+
   useEffect(() => {
     if (!atualizacaoLead?.leadId) return
+    if (atualizacaoAplicadaRef.current === atualizacaoLead.seq) return
+    atualizacaoAplicadaRef.current = atualizacaoLead.seq
+    const idsParaMover = atualizacaoLead.followUpId
+      ? itensRef.current.filter((item) => item.prospect_id === atualizacaoLead.leadId).map((item) => item.id)
+      : []
     setItens((prev) => prev.flatMap((item) => {
       if (item.prospect_id !== atualizacaoLead.leadId) return [item]
       if (atualizacaoLead.remover) return []
-      if (atualizacaoLead.followUpId) return [{ ...item, follow_up_id: atualizacaoLead.followUpId }]
+      if (atualizacaoLead.followUpId) return [{ ...item, etapa: 'aguardando_retorno', follow_up_id: atualizacaoLead.followUpId }]
       return [item]
     }))
+    if (atualizacaoLead.followUpId && idsParaMover.length) {
+      void Promise.all(idsParaMover.map((itemId) => apiFetch<CardDia>(`${base}/plano-dia/${itemId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ etapa: 'aguardando_retorno', follow_up_id: atualizacaoLead.followUpId }),
+      })))
+        .then(() => carregar(dia))
+        .catch((e) => {
+          fb.toast(e instanceof Error ? e.message : 'Não foi possível mover o card para retorno.', 'error')
+          carregar(dia)
+        })
+    }
     if (dia) void carregarResumo(dia)
-  }, [atualizacaoLead, dia, carregarResumo])
+  }, [atualizacaoLead, base, carregar, dia, carregarResumo, fb])
 
   const carregarCandidatos = useCallback(async () => {
     const token = ++pedidoCandidatosRef.current
@@ -268,12 +290,13 @@ export default function QuadroDoDia({
     }
   }
 
-  async function replanejar() {
+  async function replanejar(modo: 'continuar_hoje' | 'trazer_tudo') {
     setOcupado(true)
     try {
       const r = await apiFetch<{ movidos: number }>(`${base}/plano-dia/replanejar`, {
-        method: 'POST', body: JSON.stringify({ dia }),
+        method: 'POST', body: JSON.stringify({ dia, modo }),
       })
+      setConfirmarReplanejamento(null)
       fb.toast(`${r.data.movidos} pendência(s) trazida(s) para ${rotuloDia(dia, hoje).toLowerCase()}.`, 'success')
       await carregar(dia)
     } catch (e) {
@@ -433,9 +456,26 @@ export default function QuadroDoDia({
       {aviso && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           <span>{aviso.texto} Elas continuam no dia em que foram planejadas até você trazer.</span>
-          <Botao variante="secundaria" tamanho="sm" onClick={replanejar} carregando={ocupado} className="ml-auto">
-            {aviso.acao}
-          </Botao>
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            <Botao
+              variante="secundaria"
+              tamanho="sm"
+              onClick={() => setConfirmarReplanejamento('continuar_hoje')}
+              carregando={ocupado && confirmarReplanejamento === 'continuar_hoje'}
+              title={aviso.dicaContinuar}
+            >
+              {aviso.acaoContinuar}
+            </Botao>
+            <Botao
+              variante="neutra"
+              tamanho="sm"
+              onClick={() => setConfirmarReplanejamento('trazer_tudo')}
+              carregando={ocupado && confirmarReplanejamento === 'trazer_tudo'}
+              title={aviso.dicaTrazerTudo}
+            >
+              {aviso.acaoTrazerTudo}
+            </Botao>
+          </div>
         </div>
       )}
 
@@ -489,6 +529,7 @@ export default function QuadroDoDia({
                   const hora = horarioDoCard(c, fmtHora)
                   const motivo = motivoPlanejamento(c, fmtHora)
                   const temFollowUp = Boolean(c.follow_up_id)
+                  const followUpResumo = resumoFollowUpCard(c)
                   return (
                     <article
                       key={c.id}
@@ -581,6 +622,12 @@ export default function QuadroDoDia({
 
                       {c.objetivo && <p className="mt-1.5 text-xs leading-snug text-ink-2">{c.objetivo}</p>}
 
+                      {followUpResumo && (
+                        <p className={`mt-1.5 inline-flex rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${followUpResumo.classe}`} title={followUpResumo.dica}>
+                          {followUpResumo.rotulo}
+                        </p>
+                      )}
+
                       {/* Autodeclaração NUNCA aparece como evidência — o rótulo diz qual é qual. */}
                       {selo && (
                         <p className={`mt-1.5 inline-flex rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${selo.classe}`} title={selo.dica}>
@@ -602,7 +649,7 @@ export default function QuadroDoDia({
                             ? 'Abre a ficha para ver e operar o follow-up registrado.'
                             : 'Abre a ficha na área de conversa para registrar a próxima ação pelo fluxo oficial.'}
                         >
-                          {temFollowUp ? 'Ver follow-up' : 'Registrar follow-up'}
+                          {temFollowUp ? 'Ver retorno' : 'Registrar follow-up'}
                         </button>
                       )}
 
@@ -642,6 +689,22 @@ export default function QuadroDoDia({
         rotuloDia={rotuloDia(dia, hoje)}
         vagasSugeridas={capacidade.vagas}
       />
+
+      {confirmarReplanejamento && aviso && (
+        <ModalConfirmar
+          titulo={confirmarReplanejamento === 'continuar_hoje' ? 'Continuar hoje?' : 'Trazer tudo para hoje?'}
+          corpo={confirmarReplanejamento === 'continuar_hoje'
+            ? `${aviso.total} card(s) aberto(s) de dias anteriores serão trazidos para hoje mantendo a coluna em que estavam.`
+            : `${aviso.total} card(s) aberto(s) de dias anteriores serão trazidos para hoje dentro de Para hoje.`}
+          aviso={confirmarReplanejamento === 'continuar_hoje'
+            ? 'Em trabalho continua em trabalho; Aguardando retorno continua aguardando retorno; Feito hoje não é movido.'
+            : 'Use quando quiser recomeçar a lista do dia. O histórico feito continua no dia original e nenhum lead é assumido ou abordado.'}
+          rotuloConfirmar={confirmarReplanejamento === 'continuar_hoje' ? 'Continuar hoje' : 'Trazer tudo'}
+          ocupado={ocupado}
+          onConfirmar={() => replanejar(confirmarReplanejamento)}
+          onCancelar={() => setConfirmarReplanejamento(null)}
+        />
+      )}
 
       {/* A SAÍDA HONESTA do "Feito hoje": o servidor não achou ação registrada hoje, então
           pergunta o que foi feito — e grava como AUTODECLARADO, dito em texto no card. */}

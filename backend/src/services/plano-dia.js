@@ -28,6 +28,7 @@ const ORIGENS_ENTRADA = Object.freeze(['escolha_manual', 'sugestao_vencidos', 's
 const CONCLUSOES = Object.freeze(['atividade_registrada', 'autodeclarada'])
 
 const ETAPA_PADRAO = 'para_hoje'
+const MODOS_REPLANEJAMENTO = Object.freeze(['trazer_tudo', 'continuar_hoje'])
 const TIMEZONE = () => process.env.APP_TIMEZONE || process.env.TZ || 'America/Sao_Paulo'
 
 /** O dia operacional de agora, em APP_TIMEZONE. `en-CA` devolve YYYY-MM-DD. */
@@ -60,6 +61,11 @@ function etapaValida(valor) {
 function origemValida(valor) {
   const v = String(valor || '').trim().toLowerCase()
   return ORIGENS_ENTRADA.includes(v) ? v : null
+}
+
+function modoReplanejamentoValido(valor) {
+  const v = String(valor || '').trim().toLowerCase()
+  return MODOS_REPLANEJAMENTO.includes(v) ? v : null
 }
 
 /**
@@ -139,10 +145,12 @@ module.exports = {
   ORIGENS_ENTRADA,
   CONCLUSOES,
   ETAPA_PADRAO,
+  MODOS_REPLANEJAMENTO,
   diaOperacional,
   diaValido,
   etapaValida,
   origemValida,
+  modoReplanejamentoValido,
   validarMovimento,
   validarConclusao,
   forcaDaConclusao,
