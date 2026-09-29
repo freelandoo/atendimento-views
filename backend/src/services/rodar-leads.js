@@ -593,17 +593,32 @@ async function gerarMensagensSemi(pool, { empresaId, usuarioId, instanciaId, pro
   return { gerados, pulados, falha_sistemica: null }
 }
 
-async function gerarPendentesSemi(pool, { empresaId, usuarioId = null, instanciaId, limit = 100 }, deps = {}) {
+async function gerarPendentesSemi(pool, { empresaId, usuarioId = null, instanciaId, limit = 100, recorteModo = null, autoNicho = null }, deps = {}) {
   const instancia = await carregarInstancia(pool, empresaId, instanciaId)
   if (!instancia) { const e = new Error('Instância não encontrada.'); e.statusCode = 404; throw e }
   if (!instancia.ativo) { const e = new Error('Instância está desativada. Ative o número antes de gerar.'); e.statusCode = 409; throw e }
 
   const max = Math.min(Math.max(parseInt(limit, 10) || MAX_LOTE, 1), 1000)
+  // Recorte da carteira (mesma regra do modo Automático): 'nicho' com nicho definido filtra por
+  // nicho/categoria; qualquer outro caso é 'geral' (carteira inteira). O recorte é passado pelo
+  // chamador — o worker vem do cfg, a rota manual busca o config antes de chamar.
+  const nicho = recorteModo === 'nicho' ? String(autoNicho || '').trim() : ''
+  const params = [empresaId, [...STATUS_RODAVEL], instancia.evolution_instance, max]
+  let filtroNicho = ''
+  if (nicho) {
+    params.push(nicho)
+    const n = params.length
+    filtroNicho = `AND (
+          LOWER(BTRIM(COALESCE(p.nicho, ''))) = LOWER(BTRIM($${n}::text))
+          OR LOWER(BTRIM(COALESCE(p.categoria_perfil, ''))) = LOWER(BTRIM($${n}::text))
+        )`
+  }
   const { rows } = await pool.query(
     `SELECT p.id
        FROM prospectador.prospects p
       WHERE p.empresa_id = $1
         AND p.status = ANY($2)
+        ${filtroNicho}
         AND ${sqlAbordavel('p')}
         AND NULLIF(BTRIM(COALESCE(p.telefone, '')), '') IS NOT NULL
         AND (p.tem_whatsapp IS DISTINCT FROM false)
@@ -617,7 +632,7 @@ async function gerarPendentesSemi(pool, { empresaId, usuarioId = null, instancia
         )
       ORDER BY (p.qualificacao = 'aprovado') DESC, p.score DESC NULLS LAST, p.created_at ASC, p.id ASC
       LIMIT $4`,
-    [empresaId, [...STATUS_RODAVEL], instancia.evolution_instance, max]
+    params
   )
   const ids = rows.map((r) => r.id).filter(Boolean)
   if (!ids.length) return { gerados: [], pulados: [], candidatos: 0, falha_sistemica: null }

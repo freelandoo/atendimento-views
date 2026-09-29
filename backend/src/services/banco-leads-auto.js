@@ -364,6 +364,10 @@ async function _semiEmpresa(pool, empresaId, deps = {}) {
     usuarioId: null,
     instanciaId: instancia.id,
     limit: MAX_LOTE,
+    // Mesmo recorte (geral/nicho) do modo Automático: a empresa está em um único `modo` por
+    // vez, então as colunas auto_* servem aos dois sem conflito.
+    recorteModo: cfg.auto_recorte_modo,
+    autoNicho: cfg.auto_nicho,
   })
   const gerados = Array.isArray(res.gerados) ? res.gerados.length : 0
   if (gerados > 0) {

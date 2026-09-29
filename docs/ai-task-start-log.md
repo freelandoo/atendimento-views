@@ -5999,3 +5999,24 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   gerar habilitado, botão Enviar que sacode o aviso) e `frontend/app/globals.css` (keyframe shake).
 - **Cuidados:** só apresentação/estado — nada de rota, backend, envio ou schema. Manter Manual/Semi
   e o bloqueio por conexão inalterados. Geração no Automático usa a instância ativa já resolvida.
+
+## 2026-09-29 — Recorte (geral/nicho) na geração em massa do Semi
+
+- **Pedido:** o modo Automático já filtra a carteira por recorte (geral/nicho); o operador quer o
+  MESMO recorte na geração em massa do Semiautomático — escolher um recorte e a IA prepara as
+  mensagens só para ele; deixando "geral", gera para a carteira inteira como hoje.
+- **Estado atual:** a config `app.banco_leads_config` já tem `auto_recorte_modo`/`auto_nicho` (sem
+  migration nova). O Auto (`banco-leads-auto.js#buscarPrimeiroLeadElegivel`) já aplica o filtro de
+  nicho; a geração em massa do Semi (`rodar-leads.js#gerarPendentesSemi`, usada pelo worker
+  `_semiEmpresa` e pela rota `/gerar-pendentes`) ignora o recorte.
+- **Decisão:** reusar as MESMAS colunas `auto_recorte_modo`/`auto_nicho` (a empresa está em um único
+  `modo` por vez, então não há conflito Semi×Auto e não precisa de coluna nova). O recorte é PASSADO
+  pelo chamador para `gerarPendentesSemi` (sem fetch de config extra dentro dela; testes seguem sem
+  matcher novo).
+- **Áreas previstas:** `backend/src/services/rodar-leads.js` (`gerarPendentesSemi` recebe/aplica
+  recorte), `backend/src/services/banco-leads-auto.js` (`_semiEmpresa` passa o recorte do cfg),
+  `backend/src/routes/api-banco-leads.js` (rota `/gerar-pendentes` passa o recorte do config),
+  `frontend/app/dashboard/banco-leads/page.tsx` (mostrar o bloco "Recorte" também no Semi).
+- **Cuidados:** a geração por SELEÇÃO explícita (`gerarMensagensSemi` via `/gerar`) NÃO é filtrada —
+  o operador escolheu aqueles leads. Recorte só governa a seleção AUTOMÁTICA/em massa. Sem migration,
+  sem env nova, sem mexer em envio/teto/cooldown. Mirror do filtro de nicho do Auto.

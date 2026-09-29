@@ -314,6 +314,36 @@ test('gerarPendentesSemi prioriza leads aprovados antes dos demais abordaveis', 
   assert.match(sqlCandidatos, /ORDER BY \(p\.qualificacao = 'aprovado'\) DESC/)
 })
 
+test('gerarPendentesSemi aplica recorte por nicho quando informado', async () => {
+  let sqlCandidatos = ''
+  let paramsCandidatos = []
+  const pool = makePool([
+    ['app.empresa_whatsapp_instances', () => ({ rows: [instanciaAtiva] })],
+    ['NOT EXISTS', (params, sql) => {
+      sqlCandidatos = sql
+      paramsCandidatos = params
+      return { rows: [] }
+    }],
+  ])
+  const out = await gerarPendentesSemi(pool, {
+    empresaId: 'e1', instanciaId: 'i1', limit: 10, recorteModo: 'nicho', autoNicho: 'energia solar',
+  })
+
+  assert.deepEqual(out.gerados, [])
+  assert.match(sqlCandidatos, /LOWER\(BTRIM\(COALESCE\(p\.nicho/)
+  assert.ok(paramsCandidatos.includes('energia solar'))
+})
+
+test('gerarPendentesSemi sem recorte (geral) não filtra por nicho', async () => {
+  let sqlCandidatos = ''
+  const pool = makePool([
+    ['app.empresa_whatsapp_instances', () => ({ rows: [instanciaAtiva] })],
+    ['NOT EXISTS', (_params, sql) => { sqlCandidatos = sql; return { rows: [] } }],
+  ])
+  await gerarPendentesSemi(pool, { empresaId: 'e1', instanciaId: 'i1', limit: 10 })
+  assert.doesNotMatch(sqlCandidatos, /COALESCE\(p\.nicho/)
+})
+
 // ─── Semi: dispararGerados ─────────────────────────────────────────────────────
 test('dispararGerados sem pendências devolve rodada=false', async () => {
   let sqlPendencias = ''

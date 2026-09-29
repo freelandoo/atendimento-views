@@ -1866,11 +1866,14 @@ router.post('/gerar-pendentes', requireAuth, requireEmpresaAccess, requireCapaci
       return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Escolha uma instância.' } })
     }
     if (!(await assertInstanciaPermitida(req, res, instancia_id))) return
+    const cfg = await obterConfigBancoLeads(pool, req.empresa.id)
     const data = await gerarPendentesSemi(pool, {
       empresaId: req.empresa.id,
       usuarioId: req.usuario?.id || null,
       instanciaId: instancia_id,
       limit: limit || 1000,
+      recorteModo: cfg.auto_recorte_modo,
+      autoNicho: cfg.auto_nicho,
     })
     return res.json({ ok: true, data })
   } catch (err) {
