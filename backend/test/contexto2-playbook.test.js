@@ -460,3 +460,56 @@ test('gerarContexto2Playbook injeta catalogo estruturado no playbook validado', 
   assert.equal(r.json.catalogo_servicos_snapshot.total, 3)
   assert.match(r.json.informacoes_empresa, /SERVICOS ESTRUTURADOS/)
 })
+
+// --- Follow-up em uma chamada: raciocínio (analise) antes da mensagem -------------
+function providerCapturando(textOut) {
+  const capturado = {}
+  return {
+    capturado,
+    async generateAIResponse(input) {
+      capturado.input = input
+      return { text: typeof textOut === 'function' ? textOut() : textOut, provider: 'mock', model: 'mock' }
+    },
+  }
+}
+
+test('gerarFollowupComPlaybook: prompt pede análise antes da mensagem (JSON)', async () => {
+  const { gerarFollowupComPlaybook } = require('../src/services/contexto2-runtime')
+  const ai = providerCapturando(JSON.stringify({
+    analise: { motivo: 'ia falar com o sócio', objetivo: 'saber a decisão', tom: 'consultivo', cta: 'conseguiu falar?', estrategia: '1ª: retomar contexto' },
+    mensagem: 'Oi! Você tinha comentado que ia alinhar com seu sócio. Conseguiu conversar?',
+  }))
+  const texto = await gerarFollowupComPlaybook({
+    pool: null, log: console, empresaId: 'e', leadPhone: '5511999990000',
+    historico: [{ role: 'user', content: 'depois te falo' }], playbook: { json: {} },
+    contextoTempo: {}, aiProvider: ai,
+  })
+  assert.match(texto, /sócio/i)
+  // Só a mensagem vai ao lead — a análise não vaza no texto enviado.
+  assert.doesNotMatch(texto, /objetivo|estrategia/i)
+  // O prompt força o raciocínio antes de redigir.
+  assert.match(ai.capturado.input.systemPrompt, /analise/i)
+  assert.match(ai.capturado.input.systemPrompt, /"analise"/)
+})
+
+test('gerarFollowupComPlaybook: fallback quando não vem JSON estruturado', async () => {
+  const { gerarFollowupComPlaybook } = require('../src/services/contexto2-runtime')
+  const ai = providerCapturando('Oi, tudo bem? Ficou alguma dúvida sobre a proposta?')
+  const texto = await gerarFollowupComPlaybook({
+    pool: null, log: console, empresaId: 'e', leadPhone: '5511999990000',
+    historico: [], playbook: { json: {} }, contextoTempo: {}, aiProvider: ai,
+  })
+  assert.match(texto, /proposta/i)
+})
+
+test('gerarFollowupComPlaybook: lança se a IA não retornar texto', async () => {
+  const { gerarFollowupComPlaybook } = require('../src/services/contexto2-runtime')
+  const ai = providerCapturando('   ')
+  await assert.rejects(
+    gerarFollowupComPlaybook({
+      pool: null, log: console, empresaId: 'e', leadPhone: '5511999990000',
+      historico: [], playbook: { json: {} }, contextoTempo: {}, aiProvider: ai,
+    }),
+    /vazio/i
+  )
+})

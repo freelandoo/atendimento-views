@@ -6,6 +6,29 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-29 — Follow-up da IA: raciocínio antes da mensagem (uma chamada)
+
+- **Pedido do operador:** o follow-up não pode ser "joga os dados e pede o texto". Antes de
+  escrever, a IA analisa o contexto (motivo, objetivo, tom, CTA, estratégia) e só então redige,
+  variando a abordagem conforme o nº de tentativas e sem repetir mensagens anteriores. Evitar
+  genéricos ("conseguiu ver?"). Decisão: **uma única chamada de LLM** (raciocínio + mensagem em
+  JSON, análise antes do texto) — sem 2ª chamada, por custo/latência no caminho quente.
+- **Análise:** os 3 pontos de entrada (motor automático `followup-execution.js`, preview manual
+  `followup-manual.js`) convergem em `gerarFollowupComPlaybook` (`services/contexto2-runtime.js`).
+  Mudança concentrada nesse gerador → cobre auto + manual de uma vez. Caminho da PJ
+  (`chamarClaudeFollowup`) **fica intacto** (fora de escopo).
+- **Diff mínimo (1 arquivo):** reescrever `FOLLOWUP_PLAYBOOK_SYSTEM` para saída JSON
+  `{"analise":{...},"mensagem":"..."}` (análise primeiro força o modelo a condicionar a mensagem
+  nela), com escada de estratégia por tentativa e regra anti-repetição; ajustar
+  `gerarFollowupComPlaybook` para ler `analise` (log/auditoria) e enviar só `mensagem`, mantendo
+  o fallback atual. Sinais já disponíveis no prompt (histórico + bloco comercial + contextoTempo);
+  a contagem de tentativas o modelo deriva das próprias mensagens visíveis no contexto — sem query
+  nova, sem coluna nova. Prompt de produção alterado com justificativa (este registro).
+- **Validação:** `npm test` + teste novo cobrindo (a) prompt contém a instrução de análise/JSON,
+  (b) só `mensagem` é enviada quando vem `{analise, mensagem}`, (c) fallback preservado.
+
+---
+
 ## 2026-09-29 — Central de Mensagens preparada para 3 instâncias (layout + instância visível)
 
 - **Pedido do operador:** com 3 instâncias no pull, cada conversa deve deixar claro por QUAL

@@ -987,10 +987,22 @@ const FOLLOWUP_PLAYBOOK_SYSTEM = `Você é o agente comercial da empresa no What
 
 Use o playbook (Contexto 2) da empresa: tom de voz, serviços, links e regras.
 
-REGRA OBRIGATÓRIA DE FORMATO: é um cutuque CURTO — no máximo 1 bolha, 1-2 frases curtas. NÃO resuma a conversa nem repita o que o lead já disse. Foque em UM ponto: uma pergunta leve OU um próximo passo concreto. Tom humano, leve, sem pressão.
-Não invente preço, link ou dados que não estejam no playbook.
+ANTES de escrever, RACIOCINE sobre o contexto e preencha o campo "analise". Só depois redija a "mensagem" a partir dessa análise. A ordem importa: a mensagem deve refletir o que você concluiu na análise.
 
-Retorne APENAS JSON válido: {"mensagem":"..."}`
+Na "analise", identifique a partir do histórico, do HISTÓRICO COMERCIAL (ligações/anotações) e do contexto de tempo:
+- motivo: por que estamos falando AGORA — o gancho concreto (ex.: "cliente disse que ia falar com o sócio", "proposta enviada sem resposta", "objeção de preço", "silêncio total").
+- objetivo: o próximo passo comercial (ex.: descobrir a decisão, remover uma objeção, marcar reunião).
+- tom: consultivo/direto/leve, conforme o histórico.
+- cta: a pergunta ou passo simples e fácil de responder que vai na mensagem.
+- estrategia: escolha pelo nº de tentativas anteriores suas que você vê no histórico/anotações — 1ª: retomar o contexto específico; 2ª: agregar valor ou tratar a objeção; 3ª: abordagem mais direta; 4ª+: última tentativa leve, sem pressão.
+
+REGRAS DA MENSAGEM:
+- Cutuque CURTO: no máximo 1 bolha, 1-2 frases. NÃO resuma a conversa nem repita o que o lead já disse.
+- Seja ESPECÍFICO: se houver um compromisso ou fato anterior (ex.: "ia alinhar com o sócio", "após o pagamento"), retome-o. PROIBIDO genérico tipo "Oi, conseguiu ver?" ou "Alguma novidade?".
+- NÃO repita a abordagem/abertura de mensagens suas anteriores no histórico — mude o ângulo a cada tentativa.
+- Não invente preço, link ou dados que não estejam no playbook. Não copie ao lead labels internas nem o conteúdo das anotações.
+
+Retorne APENAS JSON válido: {"analise":{"motivo":"...","objetivo":"...","tom":"...","cta":"...","estrategia":"..."},"mensagem":"..."}`
 
 /**
  * Gera o texto de um follow-up de reengajamento usando o playbook da empresa
@@ -1030,6 +1042,10 @@ Escreva o follow-up curto seguindo as regras.`
   let texto = typeof p.mensagem === 'string' ? p.mensagem.trim() : ''
   if (!texto) texto = String(result?.text || '').trim()
   if (!texto) throw new Error('Follow-up via playbook retornou vazio')
+  // A análise fica só no log (auditoria do raciocínio) — ao lead vai apenas a mensagem.
+  if (p.analise && log && log.info) {
+    log.info({ empresaId, leadPhone, analise: p.analise }, '[followup] raciocínio')
+  }
   return texto
 }
 
