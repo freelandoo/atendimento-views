@@ -57,7 +57,7 @@ async function quadroDoDia(empresaId, usuarioId, dia) {
           WHERE ae.empresa_id = i.empresa_id
             AND ae.entidade_tipo = 'prospect'
             AND ae.entidade_id = i.prospect_id
-            AND ae.criado_em::date = i.dia
+            AND ae.ocorrido_em::date = i.dia
             AND ae.acao IN (
               'lead_reuniao_agendada',
               'lead_ligacao_realizada',
@@ -74,7 +74,7 @@ async function quadroDoDia(empresaId, usuarioId, dia) {
                      WHEN 'abordagem_manual_declarada' THEN 4
                      ELSE 5
                    END,
-                   ae.criado_em DESC
+                   ae.ocorrido_em DESC
           LIMIT 1
        ) acao ON TRUE
        LEFT JOIN LATERAL (

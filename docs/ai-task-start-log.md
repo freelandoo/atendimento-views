@@ -6,6 +6,14 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-29 — Quadro do Dia falha ao carregar por coluna ausente na auditoria
+
+- **Pedido do operador:** corrigir o erro `column ae.criado_em does not exist` exibido no Quadro do Dia / Banco de Leads.
+- **Workflow:** Fase 0 registrada antes da implementação; seguir `docs/ai-workflow.md`, `docs/project-architecture.md` e manter diff mínimo.
+- **Áreas previstas:** consulta do quadro em `backend/src/db/plano-dia.js` e teste de regressão correspondente.
+- **Regras a preservar:** o planejamento do dia continua pessoal e read-only sobre a carteira autorizada; não assumir lead, transferir responsável, enviar mensagem ou alterar o funil.
+- **Validações previstas:** teste focado do plano do dia, `cd backend && npm run typecheck`, `cd backend && npm test` e `git diff --check`.
+
 ## 2026-09-29 — Histórico comercial (ligações + observações) alimenta a geração de mensagem
 
 - **Pedido do operador:** ao gerar as mensagens da IA (follow-up e 1ª abordagem), aproveitar sinais comerciais reais do lead — quantas ligações já houve, duração/resultado e as observações do operador — e não só a qualificação cadastral/ICP. Ex.: "liguei 2x", "ligação durou 2min = mais interesse", "observação: cliente demonstrou interesse".

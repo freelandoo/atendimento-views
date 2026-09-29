@@ -248,6 +248,16 @@ test('o planejamento devolve ICP para priorizar sem recalcular no front', () => 
     'sugestoes do planejamento tambem precisam carregar ICP salvo')
 })
 
+test('o Quadro usa a data real da auditoria ao resumir a atividade do lead', () => {
+  const ini = fonteDb.indexOf('FROM app.auditoria_eventos ae')
+  const fim = fonteDb.indexOf(') acao ON TRUE', ini)
+  const bloco = fonteDb.slice(ini, fim)
+  assert.ok(/ae\.ocorrido_em::date = i\.dia/.test(bloco),
+    'a atividade do dia deve usar ocorrido_em, coluna da auditoria')
+  assert.ok(!/ae\.criado_em/.test(bloco),
+    'auditoria_eventos nao tem criado_em; a leitura do Quadro nao pode quebrar')
+})
+
 test('nenhuma capacidade nova foi criada para o Quadro', () => {
   const bloco = fonteRota.slice(fonteRota.indexOf('QUADRO DO DIA'), fonteRota.indexOf("router.get('/leads'"))
   assert.ok(!/requireCapacidade/.test(bloco),
