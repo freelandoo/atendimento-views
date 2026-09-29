@@ -2100,22 +2100,17 @@ export default function BancoLeadsPage() {
           </div>
           {cadenciaResumo ? (
             <div className="mt-2 space-y-2 text-xs">
-              <p className="font-semibold text-ink" title={cadenciaResumo.ritmo ? `Ritmo técnico: ${cadenciaResumo.ritmo}` : undefined}>{cadenciaResumo.titulo}</p>
+              <div>
+                <p className="font-semibold text-ink" title={cadenciaResumo.ritmo ? `Ritmo técnico: ${cadenciaResumo.ritmo}` : undefined}>{cadenciaResumo.titulo}</p>
+                <p className="mt-0.5 text-[11px] text-ink-3">{cadenciaResumo.uso}</p>
+              </div>
               <p className="leading-relaxed text-ink-2">
                 <span className="font-semibold text-ink">Sugestão: </span>{cadenciaResumo.proxima}
               </p>
               {cadenciaResumo.aviso ? (
                 <p className="text-[11px] text-amber-800">{cadenciaResumo.aviso}</p>
-              ) : cadenciaResumo.motivo ? (
-                <p className="text-[11px] text-ink-3">{cadenciaResumo.motivo}</p>
               ) : null}
-              <details className="text-[11px] text-ink-3">
-                <summary className="cursor-pointer font-medium text-ink-2">Ver limites da cadência</summary>
-                <div className="mt-1 grid gap-1 sm:grid-cols-2">
-                  <span>Follow-ups: {cadenciaResumo.followUps.texto} · {cadenciaResumo.followUps.detalhe}</span>
-                  <span>Ligações: {cadenciaResumo.ligacoes.texto} · {cadenciaResumo.ligacoes.detalhe}</span>
-                </div>
-              </details>
+              <p className="text-[11px] text-ink-3">{cadenciaResumo.detalheLimites}</p>
             </div>
           ) : !cadencia ? (
             <p className="mt-1 text-xs text-ink-3">Carregando cadência…</p>
@@ -2135,7 +2130,7 @@ export default function BancoLeadsPage() {
           </>
         ) : (
           /* Faixa desconhecida não vira rótulo inventado — o mesmo contrato de `seloFaixa`. */
-          !principal && <p className="mt-2 text-sm text-ink-3">A fila de trabalho ainda não classificou este lead.</p>
+          !principal && <p className="mt-2 text-xs text-ink-3">Fila de trabalho sem faixa disponível nesta ficha.</p>
         )}
         <dl className="mt-3 grid gap-1.5 border-t border-line pt-3 text-xs">
           <div className="flex gap-2">

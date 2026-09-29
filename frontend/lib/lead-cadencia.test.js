@@ -35,8 +35,22 @@ test('resumoCadencia traduz estagio, limites e proxima tentativa', () => {
   assert.equal(r.followUps.texto, '2/5 follow-ups')
   assert.equal(r.followUps.detalhe, '3 restantes')
   assert.equal(r.ligacoes.texto, '1/3 ligações')
+  assert.equal(r.uso, '2/5 follow-ups usados · 1/3 ligações feitas')
+  assert.equal(r.detalheLimites, '3 restantes em follow-ups · 2 restantes em ligações')
   assert.equal(r.proxima, 'Confirmar recebimento da proposta · por whatsapp · Amanhã, 09:00')
   assert.equal(r.ritmo, 'D0 · D1 · D3 · D7 · D14')
+})
+
+test('resumoCadencia nao duplica frio no titulo quando o sinal ja aparece no selo', () => {
+  const r = resumoCadencia(plano({
+    estagio: {
+      rotulo: 'Sem contato / contatado frio',
+      sinal: 'frio',
+      ritmo: ['D0', 'D2', 'D5'],
+    },
+  }), AGORA)
+  assert.equal(r.titulo, 'Sem contato')
+  assert.equal(r.sinal, 'Frio')
 })
 
 test('resumoCadencia mostra aviso e limite atingido sem recalcular regra', () => {

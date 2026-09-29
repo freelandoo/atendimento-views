@@ -31,6 +31,14 @@ function limite(l, singular, plural) {
   }
 }
 
+function tituloSemSinalDuplicado(rotulo) {
+  return String(rotulo || 'Cadência comercial').replace(/\s*\/\s*contatado frio$/i, '')
+}
+
+function textoUso(limite, verbo) {
+  return String(limite.texto || '').startsWith('Sem ') ? limite.texto : `${limite.texto} ${verbo}`
+}
+
 function resumoCadencia(plano, agora = new Date()) {
   if (!plano || !plano.estagio) return null
   const sinal = SINAL[plano.estagio.sinal] || SINAL.frio
@@ -45,12 +53,14 @@ function resumoCadencia(plano, agora = new Date()) {
     : [acao || 'Próxima tentativa', canal && canal !== 'nenhuma' ? `por ${canal}` : '', quando].filter(Boolean).join(' · ')
   const avisos = Array.isArray(plano.avisos) ? plano.avisos.filter(Boolean) : []
   return {
-    titulo: plano.estagio.rotulo || 'Cadência comercial',
+    titulo: tituloSemSinalDuplicado(plano.estagio.rotulo),
     sinal: sinal.rotulo,
     classeSinal: sinal.classe,
     ritmo: Array.isArray(plano.estagio.ritmo) && plano.estagio.ritmo.length ? plano.estagio.ritmo.join(' · ') : '',
     followUps,
     ligacoes,
+    uso: `${textoUso(followUps, 'usados')} · ${textoUso(ligacoes, 'feitas')}`,
+    detalheLimites: `${followUps.detalhe} em follow-ups · ${ligacoes.detalhe} em ligações`,
     proxima,
     motivo: recomendacao.motivo || '',
     aviso: avisos[0] || '',

@@ -39,6 +39,8 @@ export interface ResumoCadencia {
   ritmo: string
   followUps: { texto: string; detalhe: string; atingido: boolean }
   ligacoes: { texto: string; detalhe: string; atingido: boolean }
+  uso: string
+  detalheLimites: string
   proxima: string
   motivo: string
   aviso: string
