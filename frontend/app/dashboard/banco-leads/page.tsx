@@ -2966,21 +2966,6 @@ export default function BancoLeadsPage() {
         />
       )}
 
-      {confirmarGeracaoIcpBaixo && (
-        <ModalConfirmar
-          titulo="Gerar com pouca qualificação?"
-          corpo={`${confirmarGeracaoIcpBaixo.nome} tem ${confirmarGeracaoIcpBaixo.criterios} critério(s) ICP marcado(s). Com pouca qualificação, a IA pode gerar uma primeira abordagem mais genérica.`}
-          aviso={`A geração direta é liberada com ${MIN_CRITERIOS_ICP_GERACAO_DIRETA} ou mais critérios marcados.`}
-          rotuloConfirmar="Gerar mesmo assim"
-          ocupado={gerandoConversa}
-          onConfirmar={() => {
-            setConfirmarGeracaoIcpBaixo(null)
-            gerarMensagemConversa({ ignorarIcpBaixo: true })
-          }}
-          onCancelar={() => setConfirmarGeracaoIcpBaixo(null)}
-        />
-      )}
-
       {/* A FICHA DO LEAD — uma superfície, seções de trabalho. Eram dois modais para o mesmo lead
           (conversa e detalhes/ICP), cada um com o seu resumo no topo e cada um custando a
           posição na lista ao ser trocado pelo outro. Ver o cabeçalho de `FichaLead.tsx`. */}
@@ -3023,6 +3008,23 @@ export default function BancoLeadsPage() {
           onAlterarStatus={alterarStatusConversa}
           onSalvarTelefone={(telefone) => salvarTelefone(ficha.leadId, telefone)}
           resumoExtra={resumoDaFicha}
+        />
+      )}
+
+      {/* Renderizado DEPOIS da ficha de propósito: ambos são z-50, então a ordem no DOM
+          decide quem fica na frente. Antes ele nascia atrás da ficha e não dava para clicar. */}
+      {confirmarGeracaoIcpBaixo && (
+        <ModalConfirmar
+          titulo="Gerar com pouca qualificação?"
+          corpo={`${confirmarGeracaoIcpBaixo.nome} tem ${confirmarGeracaoIcpBaixo.criterios} critério(s) ICP marcado(s). Com pouca qualificação, a IA pode gerar uma primeira abordagem mais genérica.`}
+          aviso={`A geração direta é liberada com ${MIN_CRITERIOS_ICP_GERACAO_DIRETA} ou mais critérios marcados.`}
+          rotuloConfirmar="Gerar mesmo assim"
+          ocupado={gerandoConversa}
+          onConfirmar={() => {
+            setConfirmarGeracaoIcpBaixo(null)
+            gerarMensagemConversa({ ignorarIcpBaixo: true })
+          }}
+          onCancelar={() => setConfirmarGeracaoIcpBaixo(null)}
         />
       )}
 

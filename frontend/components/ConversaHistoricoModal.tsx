@@ -644,10 +644,10 @@ export default function ConversaHistoricoModal({
                 </div>
               </div>
             )}
-            {/* O aviso aparece SEMPRE que o envio esta bloqueado — inclusive com a mensagem ja
-                gerada, caso em que antes ele sumia e sobrava so um botao desabilitado sem
-                explicacao. Enquanto ele estiver de pe, Gerar/Enviar nao sao oferecidos: o
-                proximo passo e' resolver a conexao, e botao inerte so convida ao clique. */}
+            {/* O aviso de ENVIO aparece SEMPRE que o envio esta bloqueado — inclusive com a
+                mensagem ja gerada. Ele fica sozinho: Gerar por IA independe da conexao e sai
+                neutro no bloco de acoes abaixo; so o botao de ENVIAR e' retido enquanto bloqueado
+                (botao inerte so convida ao clique). */}
             {telefonePendente ? (
               /* A conexão da instância não é o bloqueio aqui: falta o canal. Mostrar o aviso
                  de instância mandaria o operador reconectar um número que não resolveria nada. */
@@ -656,41 +656,32 @@ export default function ConversaHistoricoModal({
                 outro canal (rede social ou site, acima) e registrar o resultado no status abaixo.
               </div>
             ) : motivoEnvioIndisponivel ? (
-              <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-                <p className="min-w-0 flex-1">
-                  {motivoEnvioIndisponivel}{' '}
-                  <a href="/dashboard/contextos" className="font-semibold underline underline-offset-2">Ir para Instância</a>
-                </p>
-                {onGerar && (
-                  <button
-                    type="button"
-                    onClick={onGerar}
-                    disabled={!podeAcionarGeracao}
-                    title={podeAcionarGeracao ? 'Gerar mensagem por IA' : 'A mensagem por IA não pode ser gerada agora.'}
-                    aria-label="Gerar mensagem por IA"
-                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-surface text-red-700 shadow-sm transition hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <IconSparkle className={gerando ? 'h-4 w-4 animate-pulse' : 'h-4 w-4'} />
-                  </button>
-                )}
+              /* Aviso de ENVIO, sozinho. Gerar por IA independe da conexão e sai no bloco de
+                 ações abaixo, neutro — juntar os dois fazia a geração parecer bloqueada. */
+              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                {motivoEnvioIndisponivel}{' '}
+                <a href="/dashboard/contextos" className="font-semibold underline underline-offset-2">Ir para Instância</a>
               </div>
             ) : !mensagemGerada && podeEnviar ? (
               <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm text-ink-2">
                 A saudação será gerada e enviada agora para este lead.
               </div>
             ) : null}
-            {!telefonePendente && !motivoEnvioIndisponivel && (onGerar || onEnviar) && (
+            {!telefonePendente && (onGerar || onEnviar) && (
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className={`text-xs ${cooldownAtivo ? 'text-amber-700' : podeEnviar ? 'text-emerald-700' : podeGerar ? 'text-ink-2' : 'text-ink-3'}`}>
                   {cooldownAtivo ? `Cooldown ativo: ${fmtMMSS(cooldownS || 0)}` : podeEnviar ? 'Envio liberado' : podeGerar ? 'A mensagem pode ser gerada, mas o envio está indisponível' : 'Envio indisponível para este lead'}
                 </span>
                 <div className="inline-flex flex-wrap items-center gap-2">
-                  {onGerar && mensagemGerada && (
+                  {/* Sem poder enviar num clique, a geração aparece sozinha (neutra). Com a
+                      conexão OK e sem mensagem, o fluxo de um clique "Gerar e enviar" continua. */}
+                  {onGerar && (mensagemGerada || !podeEnviar) && (
                     <Botao variante="secundaria" onClick={onGerar} disabled={!podeAcionarGeracao} carregando={gerando}>
-                      Gerar de novo
+                      <IconSparkle className={gerando ? 'mr-1.5 h-4 w-4 animate-pulse' : 'mr-1.5 h-4 w-4'} />
+                      {mensagemGerada ? 'Gerar de novo' : 'Gerar mensagem com IA'}
                     </Botao>
                   )}
-                  {onEnviar && (
+                  {onEnviar && podeEnviar && (
                     <Botao variante="primaria" onClick={onEnviar} disabled={!podeAcionarEnvio} carregando={enviando}>
                       {textoBotao}
                     </Botao>
