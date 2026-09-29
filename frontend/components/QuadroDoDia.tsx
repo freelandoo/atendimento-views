@@ -52,6 +52,18 @@ type ResumoDiaFaixa = {
   aguardando_retorno: number
 }
 
+type DesfazerReplanejamentoItem = {
+  id: string
+  novo_id?: string | null
+  dia: string
+  prospect_id: string
+  origem_entrada: string
+  objetivo?: string | null
+  follow_up_id?: string | null
+  etapa: EtapaDia
+  ordem: number
+}
+
 function fmtHora(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
@@ -293,14 +305,36 @@ export default function QuadroDoDia({
   async function replanejar(modo: 'continuar_hoje' | 'trazer_tudo') {
     setOcupado(true)
     try {
-      const r = await apiFetch<{ movidos: number }>(`${base}/plano-dia/replanejar`, {
+      const r = await apiFetch<{ movidos: number; desfazer?: DesfazerReplanejamentoItem[] }>(`${base}/plano-dia/replanejar`, {
         method: 'POST', body: JSON.stringify({ dia, modo }),
       })
       setConfirmarReplanejamento(null)
-      fb.toast(`${r.data.movidos} pendência(s) trazida(s) para ${rotuloDia(dia, hoje).toLowerCase()}.`, 'success')
+      const desfazer = r.data.desfazer || []
+      fb.toast(
+        `${r.data.movidos} pendência(s) trazida(s) para ${rotuloDia(dia, hoje).toLowerCase()}.`,
+        'success',
+        desfazer.length
+          ? { duracaoMs: 2000, acao: { label: 'Desfazer', onClick: () => desfazerReplanejamento(desfazer) } }
+          : { duracaoMs: 2000 }
+      )
       await carregar(dia)
     } catch (e) {
       fb.toast(e instanceof Error ? e.message : 'Não foi possível replanejar.', 'error')
+    } finally { setOcupado(false) }
+  }
+
+  async function desfazerReplanejamento(itens: DesfazerReplanejamentoItem[]) {
+    if (!itens.length) return
+    setOcupado(true)
+    try {
+      const r = await apiFetch<{ restaurados: number }>(`${base}/plano-dia/replanejar/desfazer`, {
+        method: 'POST',
+        body: JSON.stringify({ itens }),
+      })
+      fb.toast(`${r.data.restaurados} pendência(s) voltaram para o dia anterior.`, 'info')
+      await carregar(dia)
+    } catch (e) {
+      fb.toast(e instanceof Error ? e.message : 'Não foi possível desfazer.', 'error')
     } finally { setOcupado(false) }
   }
 

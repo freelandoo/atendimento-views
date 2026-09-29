@@ -261,28 +261,95 @@ async function replanejarPendentes({ empresaId, usuarioId, de, para, modo = 'tra
     await client.query('BEGIN')
     const { rows: movidos } = await client.query(
       `WITH pendentes AS (
-         SELECT id, prospect_id, objetivo, origem_entrada, etapa, ordem
+         SELECT id, dia, prospect_id, objetivo, origem_entrada, etapa, ordem, follow_up_id
            FROM app.plano_dia_itens
           WHERE empresa_id = $1 AND usuario_id = $2 AND dia < $3::date AND etapa <> 'feito'
           ORDER BY dia, ordem
           LIMIT 200
        ), inseridos AS (
-         INSERT INTO app.plano_dia_itens (empresa_id, usuario_id, dia, prospect_id, origem_entrada, objetivo, etapa, ordem)
+         INSERT INTO app.plano_dia_itens (empresa_id, usuario_id, dia, prospect_id, origem_entrada, objetivo, follow_up_id, etapa, ordem)
          SELECT $1, $2, $3::date, prospect_id, origem_entrada, objetivo,
+                follow_up_id,
                 CASE WHEN $4::boolean THEN etapa ELSE 'para_hoje' END,
                 ordem
            FROM pendentes
          ON CONFLICT (empresa_id, usuario_id, dia, prospect_id) DO NOTHING
-         RETURNING prospect_id
+         RETURNING id AS novo_id, prospect_id
+       ), apagados AS (
+         DELETE FROM app.plano_dia_itens d
+          USING pendentes
+          WHERE d.id = pendentes.id
+          RETURNING d.id, d.dia, d.prospect_id, d.origem_entrada, d.objetivo, d.follow_up_id, d.etapa, d.ordem
        )
-       DELETE FROM app.plano_dia_itens d
-        USING pendentes
-        WHERE d.id = pendentes.id
-       RETURNING d.prospect_id`,
+       SELECT a.*, i.novo_id
+         FROM apagados a
+         LEFT JOIN inseridos i ON i.prospect_id = a.prospect_id`,
       [empresaId, usuarioId, para, continuarHoje]
     )
     await client.query('COMMIT')
-    return { movidos: movidos.length, modo }
+    return { movidos: movidos.length, modo, desfazer: movidos }
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+async function desfazerReplanejamento({ empresaId, usuarioId, itens }) {
+  const lista = (Array.isArray(itens) ? itens : []).map((item) => ({
+    id: String(item?.id || '').trim(),
+    novo_id: item?.novo_id ? String(item.novo_id).trim() : null,
+    dia: String(item?.dia || '').slice(0, 10),
+    prospect_id: String(item?.prospect_id || '').trim(),
+    origem_entrada: PD.origemValida(item?.origem_entrada) || 'escolha_manual',
+    objetivo: item?.objetivo == null ? null : String(item.objetivo),
+    follow_up_id: item?.follow_up_id ? String(item.follow_up_id).trim() : null,
+    etapa: PD.etapaValida(item?.etapa) || 'para_hoje',
+    ordem: Number.isFinite(Number(item?.ordem)) ? Math.trunc(Number(item.ordem)) : 10,
+  })).filter((item) => item.id && item.prospect_id && PD.diaValido(item.dia))
+  if (!lista.length) return { restaurados: 0 }
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const { rows } = await client.query(
+      `WITH entrada AS (
+         SELECT *
+           FROM jsonb_to_recordset($3::jsonb) AS x(
+             id uuid,
+             novo_id uuid,
+             dia date,
+             prospect_id uuid,
+             origem_entrada text,
+             objetivo text,
+             follow_up_id uuid,
+             etapa text,
+             ordem int
+           )
+       ), removidos AS (
+         DELETE FROM app.plano_dia_itens d
+          USING entrada e
+         WHERE e.novo_id IS NOT NULL
+            AND d.empresa_id = $1
+            AND d.usuario_id = $2
+            AND d.id = e.novo_id
+         RETURNING d.id
+       )
+       INSERT INTO app.plano_dia_itens (
+         id, empresa_id, usuario_id, dia, prospect_id, origem_entrada, objetivo, follow_up_id, etapa, ordem
+       )
+       SELECT e.id, $1, $2, e.dia, e.prospect_id, e.origem_entrada, e.objetivo,
+              e.follow_up_id, e.etapa, e.ordem
+         FROM entrada e
+         JOIN prospectador.prospects p ON p.id = e.prospect_id AND p.empresa_id = $1
+        WHERE e.etapa <> 'feito'
+       ON CONFLICT (empresa_id, usuario_id, dia, prospect_id) DO NOTHING
+       RETURNING id`,
+      [empresaId, usuarioId, JSON.stringify(lista)]
+    )
+    await client.query('COMMIT')
+    return { restaurados: rows.length }
   } catch (err) {
     await client.query('ROLLBACK')
     throw err
@@ -351,5 +418,6 @@ module.exports = {
   temAtividadeNoDia,
   pendentesAnteriores,
   replanejarPendentes,
+  desfazerReplanejamento,
   sugestoesDoDia,
 }

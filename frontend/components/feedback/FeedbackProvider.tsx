@@ -9,8 +9,10 @@ import NeonProgress from '@/components/ui/NeonProgress'
 // Uso: const fb = useFeedback(); fb.runTask(() => apiFetch(...), { pesada, sucesso, detalhe }).
 
 type Tone = 'success' | 'error' | 'info'
-type Toast = { id: number; msg: string; tone: Tone }
+type ToastAction = { label: string; onClick: () => void | Promise<void> }
+type Toast = { id: number; msg: string; tone: Tone; acao?: ToastAction }
 type Modal = { titulo: string; detalhe?: string }
+type ToastOpts = { acao?: ToastAction; duracaoMs?: number }
 
 type Resolver<T> = string | ((r: T) => string)
 
@@ -27,7 +29,7 @@ type RunOpts<T> = {
 
 type FeedbackCtx = {
   /** Toast avulso. */
-  toast: (msg: string, tone?: Tone) => void
+  toast: (msg: string, tone?: Tone, opts?: ToastOpts) => void
   /** Modal de sucesso avulso. */
   sucessoModal: (titulo: string, detalhe?: string) => void
   /** Executa uma promise mostrando barra + feedback de sucesso/erro. */
@@ -59,10 +61,11 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
     setToasts((ts) => ts.filter((t) => t.id !== id))
   }, [])
 
-  const toast = useCallback((msg: string, tone: Tone = 'success') => {
+  const toast = useCallback((msg: string, tone: Tone = 'success', opts: ToastOpts = {}) => {
     const id = ++seq.current
-    setToasts((ts) => [...ts, { id, msg, tone }])
-    setTimeout(() => removeToast(id), tone === 'error' ? 5000 : 3000)
+    setToasts((ts) => [...ts, { id, msg, tone, acao: opts.acao }])
+    const duracao = opts.duracaoMs ?? (tone === 'error' ? 5000 : 3000)
+    if (duracao > 0) setTimeout(() => removeToast(id), duracao)
   }, [removeToast])
 
   const sucessoModal = useCallback((titulo: string, detalhe?: string) => {
@@ -117,6 +120,19 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
               {t.tone === 'error' ? <IconeX /> : t.tone === 'info' ? <IconeInfo /> : <IconeCheck />}
             </span>
             <span className="min-w-0 break-words">{t.msg}</span>
+            {t.acao && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  removeToast(t.id)
+                  void t.acao?.onClick()
+                }}
+                className="ml-auto shrink-0 rounded-md border border-current/20 px-2 py-0.5 text-xs font-semibold hover:bg-white/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current/30"
+              >
+                {t.acao.label}
+              </button>
+            )}
           </div>
         ))}
       </div>

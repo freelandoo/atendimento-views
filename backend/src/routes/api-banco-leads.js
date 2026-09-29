@@ -1157,6 +1157,17 @@ router.post('/plano-dia/replanejar', requireAuth, requireEmpresaAccess, async (r
   } catch (err) { return envelopeErro(res, err, 'PLANO_DIA_REPLAN_FAILED') }
 })
 
+/** POST /plano-dia/replanejar/desfazer  { itens[] } — desfaz o replanejamento recém-feito. */
+router.post('/plano-dia/replanejar/desfazer', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const itens = Array.isArray((req.body || {}).itens) ? req.body.itens : []
+    const r = await PLANO.desfazerReplanejamento({
+      empresaId: req.empresa.id, usuarioId: req.usuario.id, itens,
+    })
+    return res.json({ ok: true, data: r })
+  } catch (err) { return envelopeErro(res, err, 'PLANO_DIA_REPLAN_UNDO_FAILED') }
+})
+
 router.get('/leads', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const { query: queryComEscopo, escopo, nicho } = await comEscopo(req)

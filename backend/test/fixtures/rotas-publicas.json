@@ -259,6 +259,7 @@
     "POST /api/empresas/:empresaId/banco-leads/limpar",
     "POST /api/empresas/:empresaId/banco-leads/plano-dia",
     "POST /api/empresas/:empresaId/banco-leads/plano-dia/replanejar",
+    "POST /api/empresas/:empresaId/banco-leads/plano-dia/replanejar/desfazer",
     "POST /api/empresas/:empresaId/banco-leads/rodar",
     "POST /api/empresas/:empresaId/campanhas",
     "POST /api/empresas/:empresaId/campanhas/:id/leads",
