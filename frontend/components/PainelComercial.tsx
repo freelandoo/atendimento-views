@@ -4,17 +4,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import Abas from '@/components/ui/Abas'
-import { rotuloCanal, idadeEquipe, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
-import type { DiaSerie, LinhaCanal, Razoes } from '@/lib/painel-comercial'
+import { rotuloCanal, idadeEquipe, ordenarFunil, janelaPreset, janelaAnterior, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
+import type { DiaSerie, LinhaCanal, LinhaFunil, Razoes } from '@/lib/painel-comercial'
 
+type Totais = { mensagens: number; ligacoes: number; ligacoes_atendidas: number; conversou: number; reunioes: number; reunioes_humano: number; reunioes_bot: number }
 type Payload = {
   serie: DiaSerie[]
-  totais: { mensagens: number; ligacoes: number; ligacoes_atendidas: number; conversou: number; reunioes: number; reunioes_humano: number; reunioes_bot: number }
+  totais: Totais
   razoes: Razoes
   por_canal: LinhaCanal[]
+  funil: { estagio: string; n: number }[]
   bot_atribuivel: boolean
 }
 type Nicho = { id: string; nome: string }
+const PAISES = [{ v: 'BR', l: 'Brasil' }, { v: 'PT', l: 'Portugal' }, { v: 'US', l: 'EUA' }, { v: '', l: 'Todos os países' }]
 type Membro = { usuario_id: string; nome: string; ativo?: boolean }
 type Equipe = { id: string; nome: string; nicho_id: string; nicho_nome?: string; criado_em?: string; status?: string }
 
@@ -28,11 +31,16 @@ const ABAS = [
 
 export default function PainelComercial() {
   const [aba, setAba] = useState('geral')
-  const [periodo, setPeriodo] = useState('7d')
+  const [preset, setPreset] = useState('7d') // '7d' | '30d' | 'custom'
+  const [deCustom, setDeCustom] = useState(() => janelaPreset('7d').de)
+  const [ateCustom, setAteCustom] = useState(() => janelaPreset('7d').ate)
+  const [comparar, setComparar] = useState(false)
+  const [totaisAnt, setTotaisAnt] = useState<Totais | null>(null)
   const [nichoId, setNichoId] = useState('')
   const [equipeId, setEquipeId] = useState('')
   const [canal, setCanal] = useState('')
   const [cidade, setCidade] = useState('')
+  const [pais, setPais] = useState('BR') // padrão Brasil (decisão do operador)
   const [pessoa, setPessoa] = useState('')
   const [nichos, setNichos] = useState<Nicho[]>([])
   const [equipes, setEquipes] = useState<Equipe[]>([])
@@ -65,35 +73,48 @@ export default function PainelComercial() {
   const equipeSel = equipes.find((e) => e.id === equipeId)
   const nichoEfetivo = aba === 'geral' ? nichoId : aba === 'equipe' ? (equipeSel?.nicho_id || '') : ''
   const pessoaEfetiva = aba === 'pessoa' ? pessoa : ''
+  // Janela sempre em datas (uniformiza preset e custom, e deixa a comparação exata).
+  const janela = preset === 'custom' ? { de: deCustom, ate: ateCustom } : janelaPreset(preset)
 
   useEffect(() => {
     if (!empresaId) { setErro('Nenhuma empresa selecionada.'); setCarregando(false); return }
-    const qs = new URLSearchParams({ periodo })
-    if (nichoEfetivo) qs.set('nicho_id', nichoEfetivo)
-    if (canal) qs.set('canal', canal)
-    if (cidade.trim()) qs.set('cidade', cidade.trim())
-    if (pessoaEfetiva) qs.set('pessoa', pessoaEfetiva)
+    const dims = new URLSearchParams()
+    if (nichoEfetivo) dims.set('nicho_id', nichoEfetivo)
+    if (canal) dims.set('canal', canal)
+    if (cidade.trim()) dims.set('cidade', cidade.trim())
+    if (pais) dims.set('pais', pais)
+    if (pessoaEfetiva) dims.set('pessoa', pessoaEfetiva)
+    const url = (de: string, ate: string) => {
+      const qs = new URLSearchParams(dims)
+      qs.set('de', de); qs.set('ate', ate)
+      return `/api/empresas/${empresaId}/painel-comercial?${qs.toString()}`
+    }
     let vivo = true
     setCarregando(true)
     const t = setTimeout(() => {
-      apiFetch<Payload, { periodo?: { rotulo?: string } }>(`/api/empresas/${empresaId}/painel-comercial?${qs.toString()}`)
-        .then((r) => {
+      const principal = apiFetch<Payload, { periodo?: { rotulo?: string } }>(url(janela.de, janela.ate))
+      const ant = janelaAnterior(janela.de, janela.ate)
+      const anterior = comparar ? apiFetch<Payload>(url(ant.de, ant.ate)) : Promise.resolve(null)
+      Promise.all([principal, anterior])
+        .then(([r, rAnt]) => {
           if (!vivo) return
           setDados(r.data)
           setRotuloPeriodo(r.meta?.periodo?.rotulo || '')
+          setTotaisAnt(rAnt ? rAnt.data.totais : null)
           setErro('')
         })
         .catch((e) => { if (vivo) setErro(e.message) })
         .finally(() => { if (vivo) setCarregando(false) })
-    }, 300) // debounce: cidade é digitada
+    }, 300) // debounce: cidade/datas digitadas
     return () => { vivo = false; clearTimeout(t) }
-  }, [empresaId, periodo, canal, cidade, nichoEfetivo, pessoaEfetiva])
+  }, [empresaId, preset, deCustom, ateCustom, comparar, canal, cidade, pais, nichoEfetivo, pessoaEfetiva])
 
   const maxContato = useMemo(() => maxSerie(dados?.serie, ['mensagens', 'ligacoes']), [dados])
   const maxReuniao = useMemo(() => maxSerie(dados?.serie, ['reunioes_humano', 'reunioes_bot']), [dados])
 
   const t = dados?.totais
-  const filtroDimensao = Boolean(nichoEfetivo || canal || cidade.trim() || pessoaEfetiva)
+  const filtroDimensao = Boolean(nichoEfetivo || canal || cidade.trim() || pais || pessoaEfetiva)
+  const delta = (n: number, chave: keyof Totais) => (comparar && totaisAnt ? n - (totaisAnt[chave] || 0) : undefined)
 
   return (
     <section className="space-y-5">
@@ -105,10 +126,25 @@ export default function PainelComercial() {
       <Abas abas={ABAS} ativa={aba} onMudar={setAba} idBase="painel-comercial" ariaLabel="Recorte do painel comercial" />
 
       <div role="tabpanel" id={`painel-comercial-painel-${aba}`} aria-labelledby={`painel-comercial-aba-${aba}`} className="space-y-5">
-      {/* Filtros: comuns + o da aba ativa */}
-      <div className="flex flex-wrap gap-2">
-        <select value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
+      {/* Filtros: período + dimensões comuns + o da aba ativa */}
+      <div className="flex flex-wrap items-center gap-2">
+        <select value={preset} onChange={(e) => setPreset(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
           {PERIODOS.map((p) => <option key={p.v} value={p.v}>{p.l}</option>)}
+          <option value="custom">Período personalizado…</option>
+        </select>
+        {preset === 'custom' && (
+          <>
+            <input type="date" value={deCustom} max={ateCustom} onChange={(e) => setDeCustom(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm bg-white" />
+            <span className="text-xs text-slate-400">até</span>
+            <input type="date" value={ateCustom} min={deCustom} onChange={(e) => setAteCustom(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm bg-white" />
+          </>
+        )}
+        <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
+          <input type="checkbox" checked={comparar} onChange={(e) => setComparar(e.target.checked)} />
+          Comparar com período anterior
+        </label>
+        <select value={pais} onChange={(e) => setPais(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
+          {PAISES.map((p) => <option key={p.v || 'todos'} value={p.v}>{p.l}</option>)}
         </select>
         <select value={canal} onChange={(e) => setCanal(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
           <option value="">Todos os canais</option>
@@ -168,10 +204,10 @@ export default function PainelComercial() {
 
           {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Tile titulo="Mensagens enviadas" valor={fmt(t.mensagens)} />
-            <Tile titulo="Responderam" valor={fmt(t.conversou)} />
-            <Tile titulo="Ligações (atendidas)" valor={`${fmt(t.ligacoes)} (${fmt(t.ligacoes_atendidas)})`} />
-            <Tile titulo="Reuniões" valor={fmt(t.reunioes)} />
+            <Tile titulo="Mensagens enviadas" valor={fmt(t.mensagens)} delta={delta(t.mensagens, 'mensagens')} />
+            <Tile titulo="Responderam" valor={fmt(t.conversou)} delta={delta(t.conversou, 'conversou')} />
+            <Tile titulo="Ligações (atendidas)" valor={`${fmt(t.ligacoes)} (${fmt(t.ligacoes_atendidas)})`} delta={delta(t.ligacoes, 'ligacoes')} />
+            <Tile titulo="Reuniões" valor={fmt(t.reunioes)} delta={delta(t.reunioes, 'reunioes')} />
             <Tile titulo="Reuniões: humano / bot" valor={`${fmt(t.reunioes_humano)} / ${fmt(t.reunioes_bot)}`} small />
           </div>
 
@@ -197,6 +233,30 @@ export default function PainelComercial() {
                 <Legenda />
               </div>
             )}
+          </div>
+
+          {/* Funil: onde os leads estão parados agora */}
+          <div className="bg-white rounded-2xl shadow-sm border p-5">
+            <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Onde os leads estão parados</h3>
+            <p className="text-xs text-slate-400 mb-3">Situação atual dos atendimentos ativos, por estágio (não depende do período).</p>
+            {(() => {
+              const funil = ordenarFunil(dados.funil)
+              const totalFunil = funil.reduce((s, l) => s + l.n, 0)
+              if (totalFunil === 0) return <p className="text-slate-400 text-sm">Nenhum atendimento ativo neste recorte.</p>
+              return (
+                <div className="space-y-2">
+                  {funil.map((l) => (
+                    <div key={l.estagio} className="text-xs">
+                      <div className="flex justify-between text-slate-600 mb-1">
+                        <span>{l.rotulo}</span>
+                        <span className="font-semibold">{fmt(l.n)}</span>
+                      </div>
+                      <Barra pct={l.pct} cor="bg-violet-400" />
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
           </div>
 
           {/* Por canal */}
@@ -236,7 +296,7 @@ export default function PainelComercial() {
           <div className="text-xs text-slate-400 space-y-1">
             <p>“Contato” conta mensagem <b>enviada</b> + ligação <b>atendida</b>. “Responderam” = leads que responderam no WhatsApp, contado <b>a partir de agora</b> (conversas anteriores não entram).</p>
             {filtroDimensao && !dados.bot_atribuivel && (
-              <p>Reunião pelo bot não é atribuível a nicho/cidade/canal/pessoa — fica fora quando há esse filtro.</p>
+              <p>Reunião pelo bot não tem nicho/cidade/canal/país/pessoa — fica fora com esses filtros (inclusive o país padrão). Escolha “Todos os países” para incluí-la.</p>
             )}
             <p>Conversão por <b>tipo de abordagem</b> (mockup, texto, imagem): aguardando captura.</p>
           </div>
@@ -248,11 +308,17 @@ export default function PainelComercial() {
   )
 }
 
-function Tile({ titulo, valor, small }: { titulo: string; valor: string; small?: boolean }) {
+function Tile({ titulo, valor, small, delta }: { titulo: string; valor: string; small?: boolean; delta?: number }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border p-5">
       <p className="text-xs text-slate-500 uppercase tracking-wide">{titulo}</p>
       <p className={`${small ? 'text-xl' : 'text-3xl'} font-bold mt-1 text-slate-900`}>{valor}</p>
+      {delta !== undefined && (
+        // Seta + número são o sinal; cor só reforça. Δ vs. período anterior.
+        <p className={`text-xs mt-1 ${delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-rose-600' : 'text-slate-400'}`}>
+          {delta > 0 ? '▲' : delta < 0 ? '▼' : '='} {fmt(Math.abs(delta))} vs. anterior
+        </p>
+      )}
     </div>
   )
 }

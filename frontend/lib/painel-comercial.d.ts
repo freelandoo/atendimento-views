@@ -25,9 +25,14 @@ export interface LinhaCanal {
   por_100_contatos: number | null
   taxa_resposta: number | null
 }
+export interface LinhaFunil { estagio: string; rotulo: string; n: number; pct: number }
 export const ROTULO_CANAL: Record<string, string>
+export const ESTAGIO_ROTULO: Record<string, string>
 export function rotuloCanal(c: string | null | undefined): string
 export function idadeEquipe(criadoEm: string | number | Date | null | undefined, agora?: Date): string
+export function ordenarFunil(rows: Array<{ estagio: string; n: number | string }> | null | undefined): LinhaFunil[]
+export function janelaPreset(preset: string, hoje?: Date): { de: string; ate: string }
+export function janelaAnterior(de: string, ate: string): { de: string; ate: string }
 export function fmt(n: number | string | null | undefined): string
 export function fmtTaxa(v: number | null | undefined): string
 export function fraseRazao(razoes: Partial<Razoes> | null | undefined): string

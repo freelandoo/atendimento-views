@@ -6,6 +6,26 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-29 — Painel comercial: país, funil "onde param", range custom e comparação
+
+- **Pedido do operador:** período mais configurável (range custom + comparar semana vs semana);
+  filtro de **país com padrão Brasil**; um **funil de "onde os leads estão parando"** (estágio);
+  sugerir outros gráficos. A/B por abordagem segue pendente.
+- **País (default BR):** `prospects.pais` (mig 097, `^[A-Z]{2}$`). Filtro em `condLead` e — de
+  propósito — em `botAtribuivel`: reunião do bot não tem país, então some com o país padrão (a tela
+  avisa e oferece "Todos os países"). Default aplicado só na TELA; backend neutro.
+- **Funil:** `porEstagio` (SNAPSHOT dos atendimentos `status='ativo'` por `conversas.estagio`, mesmos
+  filtros de dimensão + pessoa; **sem data** — é foto de "onde estão", não fluxo). Ordenação/rótulos
+  na lib pura (`ordenarFunil`, mesmos 5 estágios da Visão Geral; desconhecido ao fim).
+- **Período/comparação:** tudo em datas YMD (uniformiza preset e custom). `janelaPreset` +
+  `janelaAnterior` (puras, testadas). Comparar = 2ª chamada à janela imediatamente anterior; Δ nos
+  tiles (seta+número, cor só reforça). Range custom via `<input type="date">` (nativo, sem lib).
+- **Fora de escopo (proposto, não construído):** ver o resumo ao operador — área empilhada, funil
+  com % de queda entre etapas, coorte por semana.
+- **Validação:** backend `npm test` 3275/3275; frontend `tsc` 0 + lib 8/8.
+
+---
+
 ## 2026-09-29 — "Conversou" derivado do WEBHOOK (painel comercial G12)
 
 - **Pedido do operador:** medir "conversou" (lead respondeu) derivando do webhook. A/B por

@@ -25,9 +25,10 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
       nichoId: q.nicho_id || null,
       cidade: q.cidade || null,
       canal: q.canal || null,
+      pais: q.pais || null,
       pessoa: q.pessoa || null,
     }
-    const dados = await PC.coletar(pool, filtros)
+    const [dados, funil] = await Promise.all([PC.coletar(pool, filtros), PC.porEstagio(pool, filtros)])
     const serie = S.montarSerie(dados)
     const totais = S.totalizar(serie)
     const razoes = S.calcularRazoes(totais)
@@ -39,10 +40,10 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
     })
     return res.json({
       ok: true,
-      data: { serie, totais, razoes, por_canal: porCanal, bot_atribuivel: dados.bot_atribuivel },
+      data: { serie, totais, razoes, por_canal: porCanal, funil, bot_atribuivel: dados.bot_atribuivel },
       meta: {
         periodo: { de: periodo.de, ate: periodo.ate, rotulo: periodo.rotulo },
-        filtros: { nicho_id: filtros.nichoId, cidade: filtros.cidade, canal: filtros.canal, pessoa: filtros.pessoa },
+        filtros: { nicho_id: filtros.nichoId, cidade: filtros.cidade, canal: filtros.canal, pais: filtros.pais, pessoa: filtros.pessoa },
         // Fase 1: "contato" = mensagem enviada + ligação atendida; "conversou" (lead respondeu) é Fase 2.
         base_contato: 'enviado',
       },

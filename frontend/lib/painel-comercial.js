@@ -17,6 +17,24 @@ const ROTULO_CANAL = {
 
 const DIA_MS = 24 * 60 * 60 * 1000
 
+function ymd(d) {
+  return new Date(d).toISOString().slice(0, 10)
+}
+
+/** Janela de um preset ('7d'|'30d') como datas YMD inclusivas terminando hoje. */
+function janelaPreset(preset, hoje = new Date()) {
+  const dias = preset === '30d' ? 30 : 7
+  return { de: ymd(new Date(hoje.getTime() - (dias - 1) * DIA_MS)), ate: ymd(hoje) }
+}
+
+/** Janela IMEDIATAMENTE anterior, mesmo tamanho, para comparação. */
+function janelaAnterior(de, ate) {
+  const d0 = new Date(`${de}T00:00:00.000Z`)
+  const d1 = new Date(`${ate}T00:00:00.000Z`)
+  const len = Math.round((d1.getTime() - d0.getTime()) / DIA_MS) + 1 // dias inclusivos
+  return { de: ymd(new Date(d0.getTime() - len * DIA_MS)), ate: ymd(new Date(d0.getTime() - DIA_MS)) }
+}
+
 function rotuloCanal(c) {
   return ROTULO_CANAL[c] || c || 'Sem origem'
 }
@@ -64,4 +82,26 @@ function larguraPct(valor, max) {
   return Math.round((Number(valor || 0) / max) * 100)
 }
 
-module.exports = { ROTULO_CANAL, rotuloCanal, idadeEquipe, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct }
+// Funil "onde os leads param". Ordem/rótulos = os mesmos estágios da Visão Geral.
+const ESTAGIO_ROTULO = {
+  primeiro_contato: 'Primeiro contato',
+  diagnostico: 'Diagnóstico',
+  proposta: 'Proposta',
+  objecao: 'Objeção',
+  fechamento: 'Fechamento',
+}
+const ESTAGIO_ORDEM = ['primeiro_contato', 'diagnostico', 'proposta', 'objecao', 'fechamento']
+
+/** Ordena o funil pelos estágios canônicos (com 0 quando vazio) + estágios desconhecidos ao fim. */
+function ordenarFunil(rows) {
+  const mapa = new Map((rows || []).map((r) => [r.estagio, Number(r.n) || 0]))
+  const conhecidos = ESTAGIO_ORDEM.map((e) => ({ estagio: e, rotulo: ESTAGIO_ROTULO[e], n: mapa.get(e) || 0 }))
+  const extras = [...mapa.keys()]
+    .filter((e) => !ESTAGIO_ORDEM.includes(e))
+    .map((e) => ({ estagio: e, rotulo: e, n: mapa.get(e) || 0 }))
+  const todos = [...conhecidos, ...extras]
+  const max = todos.reduce((m, l) => Math.max(m, l.n), 0)
+  return todos.map((l) => ({ ...l, pct: larguraPct(l.n, max) }))
+}
+
+module.exports = { ROTULO_CANAL, rotuloCanal, idadeEquipe, ESTAGIO_ROTULO, ordenarFunil, janelaPreset, janelaAnterior, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct }
