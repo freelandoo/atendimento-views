@@ -103,6 +103,7 @@ const ROTAS_POR_CAPACIDADE = [
 
   // Etapa 6 — credenciais, custo e leitura de gestão.
   { mount: '/api/empresas/:empresaId/relatorios', capacidade: C.RELATORIOS_VER, papeisQuePassam: ['owner'] },
+  { mount: '/api/empresas/:empresaId/painel-comercial', capacidade: C.RELATORIOS_VER, papeisQuePassam: ['owner'] },
   { mount: '/api/empresas/:empresaId/integracoes/meta', capacidade: C.INTEGRACOES_GERENCIAR, papeisQuePassam: ['owner'] },
   { mount: '/api/empresas/:empresaId/playbook', capacidade: C.INSTANCIA_GERENCIAR_CONTEXTO, papeisQuePassam: ['owner'] },
   { mount: '/api/empresas/:empresaId/llm/uso', capacidade: C.INTEGRACOES_GERENCIAR, papeisQuePassam: ['owner'] },

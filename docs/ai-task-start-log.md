@@ -6,6 +6,29 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-29 — Dashboard comercial na Visão Geral (Fase 1)
+
+- **Pedido do operador:** painel na Visão Geral p/ acompanhar resultado por período/nicho/cidade/
+  canal/pessoa — séries de mensagens×ligações×reuniões, razões "a cada 100 contatos → N reuniões",
+  conversão por canal, reunião humana × bot. Plano completo e decisões em
+  `docs/propostas/2026-09-29-dashboard-inteligente-visao-geral.md`.
+- **Escopo Fase 1 (aprovado):** 1 endpoint agregador + tela, SEM dependência de chart (tiles +
+  barras CSS). "Contato" = mensagem **enviada** (`lead_disparos.criado_em`); "conversou" fica
+  Fase 2 (confirmei: `vendas.conversas` não tem carimbo de 1ª resposta). A/B por abordagem (G11)
+  fica **prescrito, não ligado** (operador: preparar, não receber ainda). Mockup/envio: prescrito.
+- **Fontes verificadas:** reuso de `app.vw_ligacoes_analiticas` (mig. 051, feita p/ este painel);
+  `prospectador.lead_disparos` (status='enviado'); `app.agenda_eventos` (tipo='reuniao',
+  excluido_em IS NULL, status<>'cancelado', responsavel_id/prospect_id); `vendas.agenda_eventos`
+  (bot, casa empresa por `vendas.conversas.empresa_id` = metadata->>'lead_numero'); dimensões
+  nicho_id/cidade/origem via `prospectador.prospects` por prospect_id. resultado='atendeu'=falou.
+- **Arquivos:** back `src/services/painel-comercial.js` (puro), `src/db/painel-comercial.js`,
+  `src/routes/api-painel-comercial.js` (`RELATORIOS_VER`), mount em `index.js`,
+  `test/painel-comercial.test.js`. Front `frontend/lib/painel-comercial.{js,d.ts,test.js}` +
+  `components/PainelComercial.tsx` na Visão Geral.
+- **Validação:** `npm test` (back) + `tsc --noEmit`/`node --test lib/*.test.js` (front).
+
+---
+
 ## 2026-09-29 — Follow-up da IA: raciocínio antes da mensagem (uma chamada)
 
 - **Pedido do operador:** o follow-up não pode ser "joga os dados e pede o texto". Antes de

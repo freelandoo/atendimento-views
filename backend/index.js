@@ -176,6 +176,7 @@ app.use('/api/empresas/:empresaId/missoes', require('./src/routes/api-missoes'))
 // membro comum nem por admin de outra empresa.
 app.use('/api/empresas/:empresaId/integracoes/meta', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.INTEGRACOES_GERENCIAR), require('./src/routes/api-integracoes-meta'))
 app.use('/api/empresas/:empresaId/relatorios', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.RELATORIOS_VER), require('./src/routes/api-relatorios'))
+app.use('/api/empresas/:empresaId/painel-comercial', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.RELATORIOS_VER), require('./src/routes/api-painel-comercial'))
 app.use('/api/empresas/:empresaId/agente-pj', require('./src/routes/api-agente-pj'))
 app.use('/api/llm', requireAuth, requireRole('admin'), require('./src/routes/api-llm'))
 // Pendências de instância (webhooks sem dono comprovado). GLOBAL de propósito: a pendência

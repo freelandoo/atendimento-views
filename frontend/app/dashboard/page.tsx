@@ -20,6 +20,7 @@ import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useSession } from '@/lib/useSession'
 import { visaoDoPainel } from '@/lib/minha-operacao'
 import MinhaOperacao from '@/components/MinhaOperacao'
+import PainelComercial from '@/components/PainelComercial'
 
 type Resumo = {
   conversas: { ativas: string; fechadas: string; arquivadas: string; total: string }
@@ -126,6 +127,8 @@ function VisaoGeralAdministrativa() {
         <Card title="Chamadas IA (30d)" value={dados.llm_30d?.chamadas ?? '0'} small />
         <Card title="Tokens IA (30d)" value={tokens.toLocaleString('pt-BR')} small />
       </section>
+
+      <PainelComercial />
     </div>
   )
 }
