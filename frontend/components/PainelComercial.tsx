@@ -5,11 +5,19 @@ import { useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import dynamic from 'next/dynamic'
 import Abas from '@/components/ui/Abas'
+import Sparkline from '@/components/ui/Sparkline'
 // Recharts mede o DOM: carrega só no cliente (evita SSR/hidratação e mantém o bundle inicial leve).
 const GraficoSerie = dynamic(() => import('@/components/ui/GraficoSerie'), {
   ssr: false,
   loading: () => <div className="h-72 flex items-center justify-center text-ink-3 text-sm">Carregando gráfico…</div>,
 })
+const GraficoRosca = dynamic(() => import('@/components/ui/GraficoRosca'), { ssr: false })
+
+// Paleta categórica dos canais (legível no tema claro). Consultar dataviz se ampliar.
+const CANAL_COR: Record<string, string> = {
+  google_places: '#2563eb', instagram: '#db2777', meta_ads: '#7c3aed', linkedin: '#0369a1', desconhecido: '#94a3b8',
+}
+const COR_SPARK = { mensagens: '#38bdf8', conversou: '#f59e0b', ligacoes: '#6366f1', reunioes: '#10b981', faturamento: '#7c3aed' }
 import { rotuloCanal, idadeEquipe, funilComQueda, histogramaHoras, destaquesRanking, janelaPreset, janelaAnterior, formatarDelta, fmt, fmtTaxa, fraseRazao, larguraPct } from '@/lib/painel-comercial'
 import type { DiaSerie, LinhaCanal, Razoes, DeltaInfo, NivelFunilConversao } from '@/lib/painel-comercial'
 
@@ -289,19 +297,20 @@ export default function PainelComercial() {
             </div>
           </div>
 
-          {/* KPIs */}
+          {/* KPIs — cada tile traz uma sparkline da própria métrica ao longo do período */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Tile titulo="Mensagens enviadas" valor={fmt(t.mensagens)} delta={dInfo('mensagens')} />
-            <Tile titulo="Responderam" valor={fmt(t.conversou)} delta={dInfo('conversou')} />
+            <Tile titulo="Mensagens enviadas" valor={fmt(t.mensagens)} delta={dInfo('mensagens')} spark={dados.serie.map((d) => d.mensagens)} sparkCor={COR_SPARK.mensagens} />
+            <Tile titulo="Responderam" valor={fmt(t.conversou)} delta={dInfo('conversou')} spark={dados.serie.map((d) => d.conversou)} sparkCor={COR_SPARK.conversou} />
             <Tile
               titulo="Ligações"
               valor={fmt(t.ligacoes)}
               sub={`${fmt(t.ligacoes_atendidas)} atendidas · ${fmtTaxa(t.ligacoes > 0 ? Number(((t.ligacoes_atendidas / t.ligacoes) * 100).toFixed(0)) : null)}%`}
               delta={dInfo('ligacoes')}
+              spark={dados.serie.map((d) => d.ligacoes)} sparkCor={COR_SPARK.ligacoes}
             />
-            <Tile titulo="Reuniões" valor={fmt(t.reunioes)} delta={dInfo('reunioes')} />
+            <Tile titulo="Reuniões" valor={fmt(t.reunioes)} delta={dInfo('reunioes')} spark={dados.serie.map((d) => d.reunioes_humano + d.reunioes_bot)} sparkCor={COR_SPARK.reunioes} />
             <Tile titulo="Reuniões: humano / bot" valor={`${fmt(t.reunioes_humano)} / ${fmt(t.reunioes_bot)}`} small />
-            <Tile titulo="Faturamento fechado" valor={brl(t.faturamento)} sub={`${fmt(t.vendas)} venda(s) no período`} delta={dInfo('vendas')} />
+            <Tile titulo="Faturamento fechado" valor={brl(t.faturamento)} sub={`${fmt(t.vendas)} venda(s) no período`} delta={dInfo('vendas')} spark={dados.serie.map((d) => d.faturamento)} sparkCor={COR_SPARK.faturamento} />
           </div>
 
           {/* Funil de conversão do período: contato → responderam → reunião → venda */}
@@ -375,6 +384,17 @@ export default function PainelComercial() {
           {/* Por canal */}
           <div className="bg-white rounded-2xl shadow-sm border p-5">
             <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide mb-3">Por canal de origem</h3>
+            {(() => {
+              const rosca = dados.por_canal
+                .filter((c) => c.reunioes > 0)
+                .map((c) => ({ nome: rotuloCanal(c.canal), valor: c.reunioes, cor: CANAL_COR[c.canal] || CANAL_COR.desconhecido }))
+              return rosca.length > 0 ? (
+                <div className="mb-4">
+                  <p className="text-xs text-slate-400 mb-2">Reuniões por canal — participação de cada origem no resultado.</p>
+                  <GraficoRosca dados={rosca} rotuloTotal="reuniões" />
+                </div>
+              ) : null
+            })()}
             {dados.por_canal.length === 0 ? (
               <p className="text-slate-400 text-sm">Sem dados por canal.</p>
             ) : (
@@ -485,12 +505,13 @@ export default function PainelComercial() {
   )
 }
 
-function Tile({ titulo, valor, small, delta, sub }: { titulo: string; valor: string; small?: boolean; delta?: DeltaInfo; sub?: string }) {
+function Tile({ titulo, valor, small, delta, sub, spark, sparkCor }: { titulo: string; valor: string; small?: boolean; delta?: DeltaInfo; sub?: string; spark?: number[]; sparkCor?: string }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border p-5">
       <p className="text-xs text-slate-500 uppercase tracking-wide">{titulo}</p>
       <p className={`${small ? 'text-xl' : 'text-3xl'} font-bold mt-1 text-slate-900`}>{valor}</p>
       {sub && <p className="text-xs text-slate-500 mt-0.5">{sub}</p>}
+      {spark && spark.length > 1 && <Sparkline valores={spark} cor={sparkCor} />}
       {delta && (
         // Seta + número (quantidade E %) são o sinal; cor só reforça. Δ vs. período anterior.
         <p className={`text-xs mt-1 ${delta.abs > 0 ? 'text-emerald-600' : delta.abs < 0 ? 'text-rose-600' : 'text-slate-400'}`}>
