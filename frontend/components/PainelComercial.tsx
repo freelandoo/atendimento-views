@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import Abas from '@/components/ui/Abas'
-import { rotuloCanal, idadeEquipe, funilComQueda, janelaPreset, janelaAnterior, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
+import { rotuloCanal, idadeEquipe, funilComQueda, janelaPreset, janelaAnterior, melhorHora, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
 import type { DiaSerie, LinhaCanal, Razoes, DeltaInfo } from '@/lib/painel-comercial'
 
 const dataBr = (ymd: string) => ymd.split('-').reverse().join('/') // 2026-09-23 → 23/09/2026
@@ -16,6 +16,8 @@ type Payload = {
   razoes: Razoes
   por_canal: LinhaCanal[]
   funil: { estagio: string; n: number }[]
+  followup_tentativa: { tentativa: number; enviados: number; responderam: number }[]
+  followup_hora: { hora: number; enviados: number; responderam: number }[]
   bot_atribuivel: boolean
 }
 type Nicho = { id: string; nome: string }
@@ -24,7 +26,7 @@ type Membro = { usuario_id: string; nome: string; ativo?: boolean }
 type Equipe = { id: string; nome: string; nicho_id: string; nicho_nome?: string; criado_em?: string; status?: string }
 
 const CANAIS = ['google_places', 'instagram', 'meta_ads', 'linkedin']
-const PERIODOS = [{ v: '7d', l: 'Últimos 7 dias' }, { v: '30d', l: 'Últimos 30 dias' }]
+const PERIODOS = [{ v: '1d', l: 'Hoje' }, { v: '7d', l: 'Últimos 7 dias' }, { v: '14d', l: 'Últimos 14 dias' }, { v: '30d', l: 'Últimos 30 dias' }]
 const ABAS = [
   { id: 'geral', titulo: 'Visão geral' },
   { id: 'equipe', titulo: 'Por equipe' },
@@ -331,9 +333,67 @@ export default function PainelComercial() {
             )}
           </div>
 
+          {/* Follow-ups — por tentativa: até onde vale insistir */}
+          <div className="bg-white rounded-2xl shadow-sm border p-5">
+            <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Follow-ups — por tentativa</h3>
+            <p className="text-xs text-slate-400 mb-3">Quantos follow-ups saíram em cada tentativa e quantos tiveram resposta — mostra até onde vale insistir.</p>
+            {dados.followup_tentativa.length === 0 ? (
+              <p className="text-slate-400 text-sm">Sem follow-ups no período.</p>
+            ) : (
+              <div className="space-y-2">
+                {dados.followup_tentativa.map((r) => {
+                  const taxa = r.enviados > 0 ? Math.round((r.responderam / r.enviados) * 100) : 0
+                  return (
+                    <div key={r.tentativa} className="text-xs">
+                      <div className="flex justify-between text-slate-600 mb-1">
+                        <span>{r.tentativa >= 5 ? '5º follow-up ou mais' : `${r.tentativa}º follow-up`}</span>
+                        <span>{fmt(r.enviados)} enviados · {fmt(r.responderam)} responderam · <b className="text-slate-800">{taxa}%</b></span>
+                      </div>
+                      <Barra pct={taxa} cor="bg-amber-400" />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Follow-ups — resposta por horário: onde converte mais */}
+          <div className="bg-white rounded-2xl shadow-sm border p-5">
+            <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Follow-ups — resposta por horário</h3>
+            {(() => {
+              const horas = dados.followup_hora
+              const best = melhorHora(horas)
+              if (horas.length === 0) return <p className="text-slate-400 text-sm mt-2">Sem follow-ups no período.</p>
+              return (
+                <>
+                  <p className="text-xs text-slate-400 mb-3">
+                    Taxa de resposta por hora do envio.{' '}
+                    {best ? <>Melhor horário: <b className="text-slate-700">{best.hora}h</b> ({Math.round(best.taxa * 100)}%).</> : 'Ainda sem amostra suficiente para eleger um horário.'}
+                  </p>
+                  <div className="space-y-1">
+                    {horas.map((r) => {
+                      const taxa = r.enviados > 0 ? Math.round((r.responderam / r.enviados) * 100) : 0
+                      const ehMelhor = best && r.hora === best.hora
+                      return (
+                        <div key={r.hora} className={`text-xs rounded px-1 ${ehMelhor ? 'bg-emerald-50' : ''}`}>
+                          <div className="flex justify-between text-slate-600 mb-1">
+                            <span>{String(r.hora).padStart(2, '0')}h {ehMelhor ? '⭐' : ''}</span>
+                            <span>{fmt(r.enviados)} env · <b className="text-slate-800">{taxa}%</b></span>
+                          </div>
+                          <Barra pct={taxa} cor={ehMelhor ? 'bg-emerald-500' : 'bg-sky-400'} />
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+
           {/* Ressalvas honestas */}
           <div className="text-xs text-slate-400 space-y-1">
             <p>“Contato” conta mensagem <b>enviada</b> + ligação <b>atendida</b>. “Responderam” = leads que responderam no WhatsApp, contado <b>a partir de agora</b> (conversas anteriores não entram).</p>
+            <p>Follow-ups por tentativa/horário vêm dos envios automáticos registrados (<b>reengajamento e fluxo do funil</b>); a “tentativa” é a ordem real do envio para aquele lead.</p>
             {filtroDimensao && !dados.bot_atribuivel && (
               <p>Reunião pelo bot não tem nicho/cidade/canal/país/pessoa — fica fora com esses filtros (inclusive o país padrão). Escolha “Todos os países” para incluí-la.</p>
             )}

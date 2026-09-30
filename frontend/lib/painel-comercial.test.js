@@ -80,10 +80,23 @@ test('funilComQueda: vazio → etapas zeradas, sem queda inventada', () => {
 
 test('janelaPreset / janelaAnterior: datas inclusivas e janela anterior de mesmo tamanho', () => {
   const hoje = new Date('2026-09-29T12:00:00Z')
+  assert.deepEqual(P.janelaPreset('1d', hoje), { de: '2026-09-29', ate: '2026-09-29' }) // hoje
   assert.deepEqual(P.janelaPreset('7d', hoje), { de: '2026-09-23', ate: '2026-09-29' }) // 7 dias inclusivos
+  assert.deepEqual(P.janelaPreset('14d', hoje), { de: '2026-09-16', ate: '2026-09-29' })
   assert.deepEqual(P.janelaPreset('30d', hoje), { de: '2026-08-31', ate: '2026-09-29' })
   // anterior a 23–29 (7 dias) = 16–22
   assert.deepEqual(P.janelaAnterior('2026-09-23', '2026-09-29'), { de: '2026-09-16', ate: '2026-09-22' })
+})
+
+test('melhorHora: maior taxa entre as com amostra mínima; ignora amostra pequena', () => {
+  const rows = [
+    { hora: 9, enviados: 100, responderam: 40 }, // 40%
+    { hora: 14, enviados: 3, responderam: 3 }, // 100% mas amostra < 5 → ignorada
+    { hora: 19, enviados: 50, responderam: 30 }, // 60%
+  ]
+  assert.deepEqual(P.melhorHora(rows), { hora: 19, taxa: 0.6 })
+  assert.equal(P.melhorHora([{ hora: 8, enviados: 2, responderam: 2 }]), null) // nada com amostra
+  assert.equal(P.melhorHora([]), null)
 })
 
 test('formatarDelta: quantidade e %; anterior 0 → novo, pct null', () => {

@@ -41,7 +41,11 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
     })
     return res.json({
       ok: true,
-      data: { serie, totais, razoes, por_canal: porCanal, funil, bot_atribuivel: dados.bot_atribuivel },
+      data: {
+        serie, totais, razoes, por_canal: porCanal, funil,
+        followup_tentativa: dados.followupTentativa, followup_hora: dados.followupHora,
+        bot_atribuivel: dados.bot_atribuivel,
+      },
       meta: {
         periodo: { de: periodo.de, ate: periodo.ate, rotulo: periodo.rotulo },
         filtros: { nicho_id: filtros.nichoId, cidade: filtros.cidade, canal: filtros.canal, pais: filtros.pais, estado: filtros.estado, pessoa: filtros.pessoa },

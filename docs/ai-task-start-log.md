@@ -6,6 +6,22 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-29 — Painel: presets Hoje/14d + analytics de follow-up (tentativa e horário)
+
+- **Pedido do operador:** presets rápidos "Hoje" e "14 dias"; dashboard de "onde os follow-ups
+  param" (por tentativa) e "horários de maior conversão".
+- **Presets:** `janelaPreset` generalizado (1d/7d/14d/30d); opções na tela.
+- **Follow-up por tentativa:** `followupPorTentativa` (db) — `ROW_NUMBER()` sobre TODOS os envios do
+  lead dá a ordem REAL da tentativa; o período é aplicado depois. 5 = "5+". enviados × responderam ×
+  taxa por tentativa → mostra até onde vale insistir. Fonte: `vendas.followup_envios`.
+- **Horário:** `followupPorHora` (db) — taxa de resposta por hora do envio (fuso local);
+  `melhorHora` (lib pura, amostra mínima 5) elege e destaca o melhor horário.
+- Ambos period-bounded + filtros (empresa pela conversa, dims por prospect, pessoa = dono da conversa).
+- **Validação:** backend `npm test` 3275/3275; frontend `tsc` 0 + lib 12/12.
+- **Pendente nesta rodada:** inbound × outbound (próximo commit — precisa do sinal honesto).
+
+---
+
 ## 2026-09-29 — Painel comercial: estado (uf) no lead + comparação mais clara
 
 - **Pedido do operador:** (1) seletor de ESTADO nos gráficos; (2) ao comparar períodos, mostrar

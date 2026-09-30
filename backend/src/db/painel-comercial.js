@@ -132,6 +132,58 @@ async function porEstagio(pool, filtros) {
   return rows
 }
 
+// Follow-up POR TENTATIVA: onde os follow-ups param e em qual tentativa a resposta aparece.
+// A ordem da tentativa é o ROW_NUMBER sobre TODOS os envios do lead (não recortado por período —
+// senão o 3º follow-up viraria "1º" quando os dois antes ficam fora da janela); o período é
+// aplicado DEPOIS, no envio. 5 = "5+". Empresa vem da conversa; dims por prospect; pessoa = dono.
+async function followupPorTentativa(pool, filtros) {
+  const params = [filtros.empresaId, filtros.de, filtros.ate]
+  let pessoa = ''
+  if (filtros.pessoa) { params.push(filtros.pessoa); pessoa = ` AND c.responsavel_id = $${params.length}` }
+  const lead = condLead('p', filtros, params)
+  const { rows } = await pool.query(
+    `WITH env AS (
+       SELECT fe.criado_em, fe.resposta_lead_em,
+              ROW_NUMBER() OVER (PARTITION BY fe.numero ORDER BY fe.criado_em) AS tentativa
+         FROM vendas.followup_envios fe
+         JOIN vendas.conversas c ON c.numero = fe.numero
+         LEFT JOIN prospectador.prospects p
+           ON ${TELN('p.telefone')} = ${TELN('c.numero')} AND p.empresa_id = c.empresa_id
+        WHERE c.empresa_id = $1 AND fe.envio_ok = true${pessoa}${lead}
+     )
+     SELECT LEAST(tentativa, 5)::int AS tentativa,
+            COUNT(*)::int AS enviados,
+            COUNT(*) FILTER (WHERE resposta_lead_em IS NOT NULL)::int AS responderam
+       FROM env
+      WHERE criado_em >= $2 AND criado_em < $3
+      GROUP BY 1 ORDER BY 1`,
+    params
+  )
+  return rows
+}
+
+// Resposta por HORÁRIO do envio (0-23, fuso local). "Que horas convertem mais."
+async function followupPorHora(pool, filtros) {
+  const params = [filtros.empresaId, filtros.de, filtros.ate]
+  let pessoa = ''
+  if (filtros.pessoa) { params.push(filtros.pessoa); pessoa = ` AND c.responsavel_id = $${params.length}` }
+  const lead = condLead('p', filtros, params)
+  const { rows } = await pool.query(
+    `SELECT EXTRACT(HOUR FROM fe.criado_em AT TIME ZONE '${TZ}')::int AS hora,
+            COUNT(*)::int AS enviados,
+            COUNT(*) FILTER (WHERE fe.resposta_lead_em IS NOT NULL)::int AS responderam
+       FROM vendas.followup_envios fe
+       JOIN vendas.conversas c ON c.numero = fe.numero
+       LEFT JOIN prospectador.prospects p
+         ON ${TELN('p.telefone')} = ${TELN('c.numero')} AND p.empresa_id = c.empresa_id
+      WHERE c.empresa_id = $1 AND fe.envio_ok = true
+        AND fe.criado_em >= $2 AND fe.criado_em < $3${pessoa}${lead}
+      GROUP BY 1 ORDER BY 1`,
+    params
+  )
+  return rows
+}
+
 // Reunião do bot: dado SEPARADO (decisão do operador). Empresa resolvida por
 // vendas.conversas.empresa_id = metadata->>'lead_numero' (a mesma ligação de meta-dispatch).
 // Sem canal/pessoa/prospect — por isso só entra quando não há filtro que exija atribuição.
@@ -151,14 +203,16 @@ async function serieReunioesBot(pool, filtros) {
 /** Roda as fontes em paralelo. reunioesBot só quando atribuível (senão fica []). */
 async function coletar(pool, filtros) {
   const usaBot = botAtribuivel(filtros)
-  const [mensagens, ligacoes, reunioesHumano, conversou, reunioesBot] = await Promise.all([
+  const [mensagens, ligacoes, reunioesHumano, conversou, followupTentativa, followupHora, reunioesBot] = await Promise.all([
     serieMensagens(pool, filtros),
     serieLigacoes(pool, filtros),
     serieReunioesHumano(pool, filtros),
     serieConversou(pool, filtros),
+    followupPorTentativa(pool, filtros),
+    followupPorHora(pool, filtros),
     usaBot ? serieReunioesBot(pool, filtros) : Promise.resolve([]),
   ])
-  return { mensagens, ligacoes, reunioesHumano, conversou, reunioesBot, bot_atribuivel: usaBot }
+  return { mensagens, ligacoes, reunioesHumano, conversou, followupTentativa, followupHora, reunioesBot, bot_atribuivel: usaBot }
 }
 
 // Cidades distintas dos leads da empresa — alimenta o SELETOR de cidade do painel (o operador

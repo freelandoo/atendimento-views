@@ -21,10 +21,24 @@ function ymd(d) {
   return new Date(d).toISOString().slice(0, 10)
 }
 
-/** Janela de um preset ('7d'|'30d') como datas YMD inclusivas terminando hoje. */
+const PRESET_DIAS = { '1d': 1, '7d': 7, '14d': 14, '30d': 30 }
+
+/** Janela de um preset ('1d'|'7d'|'14d'|'30d') como datas YMD inclusivas terminando hoje. */
 function janelaPreset(preset, hoje = new Date()) {
-  const dias = preset === '30d' ? 30 : 7
+  const dias = PRESET_DIAS[preset] || 7
   return { de: ymd(new Date(hoje.getTime() - (dias - 1) * DIA_MS)), ate: ymd(hoje) }
+}
+
+/** Hora (0-23) com maior taxa de resposta, entre as com amostra mínima. null se nenhuma qualifica. */
+function melhorHora(rows, minEnviados = 5) {
+  let melhor = null
+  for (const r of rows || []) {
+    const env = Number(r.enviados) || 0
+    if (env < minEnviados) continue
+    const taxa = (Number(r.responderam) || 0) / env
+    if (!melhor || taxa > melhor.taxa) melhor = { hora: Number(r.hora), taxa }
+  }
+  return melhor
 }
 
 /** Janela IMEDIATAMENTE anterior, mesmo tamanho, para comparação. */
@@ -145,4 +159,4 @@ function funilComQueda(rows) {
   return { etapas, outros }
 }
 
-module.exports = { ROTULO_CANAL, rotuloCanal, idadeEquipe, ESTAGIO_ROTULO, ordenarFunil, funilComQueda, janelaPreset, janelaAnterior, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct }
+module.exports = { ROTULO_CANAL, rotuloCanal, idadeEquipe, ESTAGIO_ROTULO, ordenarFunil, funilComQueda, janelaPreset, janelaAnterior, melhorHora, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct }
