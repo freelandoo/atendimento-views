@@ -15,7 +15,6 @@ const { limitarBolhasPorEtapa } = require('./message-limits')
 const { decidirProximaAcao, separarEcoDaUltimaPergunta } = require('./next-action-orchestrator')
 const { canonicalizarPerfilLead } = require('./lead-profile-canonical')
 const { validarRespostaPorAcao } = require('./action-response-validator')
-const { buildTurnContext } = require('./turn-context-reader')
 const { telefoneCanonicoBR, sqlTelefoneNormalizado } = require('./telefone-br')
 const { avaliarEnvio, resumoBloqueio, CAPACIDADES } = require('./services/conversa-modo-ia')
 
@@ -602,13 +601,6 @@ function createCoreFunnel(deps = {}) {
 
   function montarContextoAcaoParaLLM({ decisao, perfil, etapaAtual, historico, horariosDisponiveis = [], slots = null, disponibilidade = null, observacaoAgenda = null }) {
     const canonico = canonicalizarPerfilLead(perfil, etapaAtual)
-    const ultimaUser = [...normalizarHistoricoMensagens(historico)].reverse().find((m) => m?.role === 'user')
-    const turnContext = buildTurnContext({
-      historico,
-      perfil,
-      estagio: etapaAtual,
-      mensagemAtual: ultimaUser ? String(ultimaUser.content || '').trim() : '',
-    })
     return {
       acao_decidida: decisao.acao_decidida,
       etapa_atual: etapaAtual,
@@ -629,14 +621,6 @@ function createCoreFunnel(deps = {}) {
       links_autorizados: [],
       acoes_proibidas: decisao.acoes_proibidas || [],
       ultima_pergunta: decisao.ultima_pergunta || '',
-      turn_context: {
-        turn_state: turnContext.turn_state,
-        ultima_pergunta_bot: turnContext.ultima_pergunta_bot,
-        resposta_contextual: turnContext.resposta_contextual,
-        fact_memory: turnContext.fact_memory,
-        action_policy: turnContext.action_policy,
-      },
-      turn_context_prompt: turnContext.prompt_block,
       instrucao_da_acao: instrucaoAcaoParaLLM(decisao.acao_decidida),
       resumo_historico: montarResumoHistorico(historico),
     }

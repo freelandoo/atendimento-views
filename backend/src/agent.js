@@ -2780,10 +2780,7 @@ function montarSystemPromptDinamico(estagio, perfil, aprendizado, flags = {}, hi
   const perfilJson = JSON.stringify(perfilJsonParaPromptSemDuplicarMemoria(perfil), null, 2)
   const etapaCtx = ce && ce.estagios && typeof ce.estagios[estagio] === 'string' ? ce.estagios[estagio].trim() : ''
   const blocoEtapa = etapaCtx ? _blocoEtapaComTexto(estagio, etapaCtx) : _blocoEtapaAtual(estagio)
-  const blocoTurnContext = flags.turnContextBlock
-    ? `\n\n${flags.turnContextBlock}`
-    : ''
-  const blocodinamico = `\n\n---\n\nCONTEXTO DINAMICO (obedeca as regras acima):\n\n--- HORARIO E REDIRECIONAMENTO AO VICTOR ---\n${ctxHorario}\n\nETAPA ATUAL: ${estagio}${blocoEtapa}\n${blocoMemoria}${blocoColetados}${blocoContextoInterno}${blocoContinuidade}${blocoProspeccao}\nPERFIL DO LEAD:\n${perfilJson}\n${aprendizado ? `\nAPRENDIZADO DAS ULTIMAS VENDAS FECHADAS:\n${aprendizado}\n` : ''}${blocoCorrecoes}${blocoFlags}${blocoTurnContext}`
+  const blocodinamico = `\n\n---\n\nCONTEXTO DINAMICO (obedeca as regras acima):\n\n--- HORARIO E REDIRECIONAMENTO AO VICTOR ---\n${ctxHorario}\n\nETAPA ATUAL: ${estagio}${blocoEtapa}\n${blocoMemoria}${blocoColetados}${blocoContextoInterno}${blocoContinuidade}${blocoProspeccao}\nPERFIL DO LEAD:\n${perfilJson}\n${aprendizado ? `\nAPRENDIZADO DAS ULTIMAS VENDAS FECHADAS:\n${aprendizado}\n` : ''}${blocoCorrecoes}${blocoFlags}`
   return [
     { type: 'text', text: blocoEstatico, cache_control: { type: 'ephemeral' } },
     { type: 'text', text: blocodinamico },
@@ -2976,10 +2973,8 @@ function montarSystemPromptAcaoDeterministica(nextActionContext) {
       links_autorizados: ctx.links_autorizados,
       acoes_proibidas: ctx.acoes_proibidas,
       ultima_pergunta: ctx.ultima_pergunta,
-      turn_context: ctx.turn_context || null,
       resumo_historico: ctx.resumo_historico,
     }, null, 2),
-    ctx.turn_context_prompt ? `\n${ctx.turn_context_prompt}` : '',
     '--- FIM CONTEXTO DINAMICO ---',
   ].join('\n')
   return [
@@ -3636,21 +3631,9 @@ async function chamarClaude(historico, estagio, perfil, visaoUltimaMensagem = nu
   // buildConversationContext): injetava um bloco com vocabulario new_lead/
   // qualification/diagnosis no prompt a cada turno, divergente do vocabulario PT
   // do funil — risco de empurrar a IA para um estagio errado (drift PT<->EN).
-  // O turn-context-reader (PT, abaixo) ja cobre o contexto de turno.
-
-  try {
-    const { buildTurnContext } = require('./turn-context-reader')
-    const msgs = normalizarHistoricoMensagens(historico)
-    const ultimaUser = [...msgs].reverse().find((m) => m?.role === 'user')
-    const textoUltima = ultimaUser ? textoDeContent(ultimaUser.content).trim() : ''
-    const turnContext = buildTurnContext({
-      historico: msgs,
-      perfil,
-      estagio,
-      mensagemAtual: textoUltima,
-    })
-    flags.turnContextBlock = turnContext.prompt_block
-  } catch (_) { /* turn context e guia de prompt; nao bloqueia o fluxo */ }
+  // O turn-context-reader (regex) foi REMOVIDO na Fase 4: era so aviso de prompt e
+  // duplicava o que o orquestrador ja injeta (perfil + dados_faltantes + acoes_proibidas
+  // + ultima_pergunta). Interesse/desinteresse e slots vem da IA + orquestrador.
 
   const systemPrompt = opcoes?.nextActionContext
     ? montarSystemPromptAcaoDeterministica(opcoes.nextActionContext)
