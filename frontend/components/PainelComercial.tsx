@@ -4,8 +4,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import Abas from '@/components/ui/Abas'
-import { rotuloCanal, idadeEquipe, funilComQueda, janelaPreset, janelaAnterior, melhorHora, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
-import type { DiaSerie, LinhaCanal, Razoes, DeltaInfo } from '@/lib/painel-comercial'
+import { rotuloCanal, idadeEquipe, funilComQueda, agruparPorDirecao, janelaPreset, janelaAnterior, melhorHora, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
+import type { DiaSerie, LinhaCanal, Razoes, DeltaInfo, BlocoDirecao } from '@/lib/painel-comercial'
 
 const dataBr = (ymd: string) => ymd.split('-').reverse().join('/') // 2026-09-23 → 23/09/2026
 
@@ -333,6 +333,27 @@ export default function PainelComercial() {
             )}
           </div>
 
+          {/* Inbound × Outbound: o que dá mais resultado */}
+          {(() => {
+            const dir = agruparPorDirecao(dados.por_canal)
+            const temInd = dir.indefinido.mensagens + dir.indefinido.reunioes > 0
+            return (
+              <div className="bg-white rounded-2xl shadow-sm border p-5">
+                <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Inbound × Outbound</h3>
+                <p className="text-xs text-slate-400 mb-3">Inbound = o lead veio até você (WhatsApp, formulário Meta). Outbound = você foi atrás (Maps, Instagram, anúncios).</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <CardDirecao titulo="Outbound" d={dir.outbound} />
+                  <CardDirecao titulo="Inbound" d={dir.inbound} />
+                </div>
+                {temInd && (
+                  <p className="text-[11px] text-slate-400 mt-2">
+                    + {fmt(dir.indefinido.reunioes)} reuniões · {fmt(dir.indefinido.mensagens)} mensagens sem origem identificada (evento sem lead casado).
+                  </p>
+                )}
+              </div>
+            )
+          })()}
+
           {/* Follow-ups — por tentativa: até onde vale insistir */}
           <div className="bg-white rounded-2xl shadow-sm border p-5">
             <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Follow-ups — por tentativa</h3>
@@ -420,6 +441,19 @@ function Tile({ titulo, valor, small, delta }: { titulo: string; valor: string; 
           {' '}vs. anterior
         </p>
       )}
+    </div>
+  )
+}
+
+function CardDirecao({ titulo, d }: { titulo: string; d: BlocoDirecao }) {
+  return (
+    <div className="rounded-xl border p-4">
+      <p className="text-xs text-slate-500 uppercase tracking-wide">{titulo}</p>
+      <p className="text-2xl font-bold mt-1 text-slate-900">{fmt(d.reunioes)} <span className="text-sm font-normal text-slate-500">reuniões</span></p>
+      <div className="text-xs text-slate-500 mt-2 space-y-0.5">
+        <p>{fmt(d.mensagens)} mensagens · {fmt(d.conversou)} responderam</p>
+        <p>Taxa de resposta: <b className="text-slate-700">{fmtTaxa(d.taxa_resposta)}</b>% · Conv./100: <b className="text-slate-700">{fmtTaxa(d.por_100_contatos)}</b></p>
+      </div>
     </div>
   )
 }

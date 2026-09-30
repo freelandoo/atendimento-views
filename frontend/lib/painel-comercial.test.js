@@ -108,6 +108,23 @@ test('formatarDelta: quantidade e %; anterior 0 → novo, pct null', () => {
   assert.equal(semBase.novo, true)
 })
 
+test('direcaoDaOrigem / agruparPorDirecao: inbound × outbound × indefinido', () => {
+  assert.equal(P.direcaoDaOrigem('whatsapp'), 'inbound')
+  assert.equal(P.direcaoDaOrigem('meta_ads'), 'outbound')
+  assert.equal(P.direcaoDaOrigem('desconhecido'), 'indefinido')
+  const g = P.agruparPorDirecao([
+    { canal: 'meta_ads', mensagens: 40, ligacoes: 0, ligacoes_atendidas: 0, conversou: 8, reunioes: 4 },
+    { canal: 'instagram', mensagens: 10, ligacoes: 0, ligacoes_atendidas: 0, conversou: 1, reunioes: 1 },
+    { canal: 'whatsapp', mensagens: 20, ligacoes: 0, ligacoes_atendidas: 0, conversou: 10, reunioes: 3 },
+  ])
+  assert.equal(g.outbound.mensagens, 50) // meta_ads + instagram
+  assert.equal(g.outbound.reunioes, 5)
+  assert.equal(g.inbound.mensagens, 20)
+  assert.equal(g.inbound.taxa_resposta, 50) // 10/20
+  assert.equal(g.outbound.taxa_resposta, 18) // 9/50
+  assert.equal(g.indefinido.mensagens, 0)
+})
+
 test('maxSerie / larguraPct: escala e divisão por zero → 0', () => {
   const serie = [{ mensagens: 3, ligacoes: 10 }, { mensagens: 8, ligacoes: 2 }]
   assert.equal(P.maxSerie(serie, ['mensagens', 'ligacoes']), 10)

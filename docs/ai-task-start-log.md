@@ -6,6 +6,19 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-29 — Painel: Inbound × Outbound (sem query nova)
+
+- **Pedido do operador:** identificar nos gráficos o que dá mais resultado — inbound ou outbound.
+- **Sinal honesto já existia:** `lead-origem` (migration 108) classifica a origem do lead —
+  inbound = `whatsapp`/`meta_form` (veio até nós), outbound = `manual`/`automatico`/`instagram`/
+  `linkedin`/`meta_ads` (fomos atrás). **Não inventei derivação.**
+- **Sem backend novo:** `agruparPorDirecao` (lib pura) rola o `por_canal` que o painel já recebe em
+  inbound × outbound (mensagens, responderam, reuniões, taxa de resposta, conv./100). Origem sem
+  prospect casado → `indefinido`, mostrado só se houver. Seção nova na tela com dois cards.
+- **Validação:** frontend `tsc` 0 + lib 13/13. Nenhum arquivo de backend alterado.
+
+---
+
 ## 2026-09-29 — Painel: presets Hoje/14d + analytics de follow-up (tentativa e horário)
 
 - **Pedido do operador:** presets rápidos "Hoje" e "14 dias"; dashboard de "onde os follow-ups
