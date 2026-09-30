@@ -40,21 +40,23 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
       agrupar ? PC.rankingPorDimensao(pool, filtros, COL_AGRUPAR[agrupar]) : Promise.resolve(null),
     ])
     const ranking = rankBruto
-      ? S.montarPorCanal({ mensagens: rankBruto.mensagens, reunioes: rankBruto.reunioes, conversou: rankBruto.conversou }).slice(0, 20)
+      ? S.montarPorCanal({ mensagens: rankBruto.mensagens, reunioes: rankBruto.reunioes, conversou: rankBruto.conversou, vendas: rankBruto.vendas }).slice(0, 20)
       : null
     const serie = S.montarSerie(dados)
     const totais = S.totalizar(serie)
     const razoes = S.calcularRazoes(totais)
+    const funilConversao = S.montarFunilConversao(totais)
     const porCanal = S.montarPorCanal({
       mensagens: dados.mensagens,
       ligacoes: dados.ligacoes,
       reunioes: dados.reunioesHumano, // bot não tem canal — fica fora do recorte por canal
       conversou: dados.conversou,
+      vendas: dados.vendas,
     })
     return res.json({
       ok: true,
       data: {
-        serie, totais, razoes, por_canal: porCanal, funil,
+        serie, totais, razoes, por_canal: porCanal, funil, funil_conversao: funilConversao,
         followup_tentativa: dados.followupTentativa, respostas_hora: dados.respostasHora,
         ranking, agrupar,
         bot_atribuivel: dados.bot_atribuivel,

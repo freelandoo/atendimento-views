@@ -14,6 +14,8 @@ export interface DiaSerie {
   conversou: number
   reunioes_humano: number
   reunioes_bot: number
+  vendas: number
+  faturamento: number
 }
 export interface LinhaCanal {
   canal: string
@@ -22,10 +24,13 @@ export interface LinhaCanal {
   ligacoes_atendidas: number
   conversou: number
   reunioes: number
+  vendas: number
+  faturamento: number
   por_100_contatos: number | null
   taxa_resposta: number | null
 }
 export interface LinhaFunil { estagio: string; rotulo: string; n: number; pct: number }
+export interface NivelFunilConversao { chave: string; rotulo: string; n: number; larguraPct: number; quedaPct: number | null }
 export const ROTULO_CANAL: Record<string, string>
 export const ESTAGIO_ROTULO: Record<string, string>
 export function rotuloCanal(c: string | null | undefined): string

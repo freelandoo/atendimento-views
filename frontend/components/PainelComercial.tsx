@@ -5,17 +5,19 @@ import { useEffect, useMemo, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import Abas from '@/components/ui/Abas'
 import { rotuloCanal, idadeEquipe, funilComQueda, histogramaHoras, destaquesRanking, janelaPreset, janelaAnterior, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
-import type { DiaSerie, LinhaCanal, Razoes, DeltaInfo } from '@/lib/painel-comercial'
+import type { DiaSerie, LinhaCanal, Razoes, DeltaInfo, NivelFunilConversao } from '@/lib/painel-comercial'
 
 const dataBr = (ymd: string) => ymd.split('-').reverse().join('/') // 2026-09-23 → 23/09/2026
+const brl = (n: number | null | undefined) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 
-type Totais = { mensagens: number; ligacoes: number; ligacoes_atendidas: number; conversou: number; reunioes: number; reunioes_humano: number; reunioes_bot: number }
+type Totais = { mensagens: number; ligacoes: number; ligacoes_atendidas: number; conversou: number; reunioes: number; reunioes_humano: number; reunioes_bot: number; vendas: number; faturamento: number }
 type Payload = {
   serie: DiaSerie[]
   totais: Totais
   razoes: Razoes
   por_canal: LinhaCanal[]
   funil: { estagio: string; n: number }[]
+  funil_conversao: NivelFunilConversao[]
   followup_tentativa: { tentativa: number; enviados: number; responderam: number }[]
   respostas_hora: { hora: number; respostas: number }[]
   ranking: LinhaCanal[] | null
@@ -259,7 +261,7 @@ export default function PainelComercial() {
                       <div key={r.canal} className="text-xs">
                         <div className="flex justify-between text-slate-600 mb-1 gap-2">
                           <span className="truncate">{r.canal}</span>
-                          <span className="whitespace-nowrap"><b className="text-slate-800">{fmt(r.reunioes)}</b> reun · {fmt(r.mensagens)} msg · {fmtTaxa(r.por_100_contatos)}/100</span>
+                          <span className="whitespace-nowrap"><b className="text-slate-800">{fmt(r.reunioes)}</b> reun · {fmt(r.vendas)} vend · {brl(r.faturamento)} · {fmtTaxa(r.por_100_contatos)}/100</span>
                         </div>
                         <Barra pct={larguraPct(r.reunioes, maxR)} cor="bg-violet-500" />
                       </div>
@@ -296,6 +298,35 @@ export default function PainelComercial() {
             />
             <Tile titulo="Reuniões" valor={fmt(t.reunioes)} delta={dInfo('reunioes')} />
             <Tile titulo="Reuniões: humano / bot" valor={`${fmt(t.reunioes_humano)} / ${fmt(t.reunioes_bot)}`} small />
+            <Tile titulo="Faturamento fechado" valor={brl(t.faturamento)} sub={`${fmt(t.vendas)} venda(s) no período`} delta={dInfo('vendas')} />
+          </div>
+
+          {/* Funil de conversão do período: contato → responderam → reunião → venda */}
+          <div className="bg-white rounded-2xl shadow-sm border p-5">
+            <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Do contato à venda</h3>
+            <p className="text-xs text-slate-400 mb-3">
+              Quanto avança em cada etapa no período. A barra é proporcional aos <b>contatos</b>; a queda é quem <b>não passou</b> para a etapa seguinte.
+            </p>
+            {(dados.funil_conversao?.[0]?.n || 0) === 0 ? (
+              <p className="text-slate-400 text-sm">Sem contatos no período.</p>
+            ) : (
+              <div className="space-y-1">
+                {dados.funil_conversao.map((nv) => (
+                  <div key={nv.chave}>
+                    {nv.quedaPct !== null && nv.quedaPct > 0 && (
+                      <p className="text-[11px] text-rose-500 pl-1 mb-1">↓ {fmtTaxa(nv.quedaPct)}% não passaram</p>
+                    )}
+                    <div className="text-xs">
+                      <div className="flex justify-between text-slate-600 mb-1">
+                        <span>{nv.rotulo}</span>
+                        <span><b className="text-slate-800">{fmt(nv.n)}</b>{nv.chave === 'vendas' ? ` · ${brl(t.faturamento)}` : ''}</span>
+                      </div>
+                      <Barra pct={nv.larguraPct} cor={nv.chave === 'vendas' ? 'bg-emerald-500' : 'bg-violet-400'} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Série no tempo */}
@@ -370,6 +401,8 @@ export default function PainelComercial() {
                     <th className="pb-2 text-right">Resp.</th>
                     <th className="pb-2 text-right">Ligações</th>
                     <th className="pb-2 text-right">Reuniões</th>
+                    <th className="pb-2 text-right">Vendas</th>
+                    <th className="pb-2 text-right">Faturamento</th>
                     <th className="pb-2 text-right">Conv./100</th>
                   </tr>
                 </thead>
@@ -381,6 +414,8 @@ export default function PainelComercial() {
                       <td className="py-1.5 text-right">{fmt(c.conversou)}</td>
                       <td className="py-1.5 text-right">{fmt(c.ligacoes)}</td>
                       <td className="py-1.5 text-right">{fmt(c.reunioes)}</td>
+                      <td className="py-1.5 text-right">{fmt(c.vendas)}</td>
+                      <td className="py-1.5 text-right">{brl(c.faturamento)}</td>
                       <td className="py-1.5 text-right font-semibold">{fmtTaxa(c.por_100_contatos)}</td>
                     </tr>
                   ))}
@@ -450,6 +485,7 @@ export default function PainelComercial() {
           <div className="text-xs text-slate-400 space-y-1">
             <p>“Contato” conta mensagem <b>enviada</b> + ligação <b>atendida</b>. “Responderam” = leads que responderam no WhatsApp, contado <b>a partir de agora</b> (conversas anteriores não entram).</p>
             <p>“Reuniões” conta pela data em que foram <b>marcadas</b> (não pela data em que acontecem), e são atribuídas ao nicho/cidade do lead pelo telefone.</p>
+            <p>“Faturamento fechado” e “Vendas” contam por data de <b>fechamento</b> (não de recebimento) e excluem canceladas; a atribuição por canal/nicho usa o lead vinculado à venda. A visão de <b>pago/competência</b> fica no painel de Comissão.</p>
             <p>“Follow-ups por tentativa” vem dos envios automáticos registrados (reengajamento e fluxo do funil); a “tentativa” é a ordem real do envio. “Respostas por horário” usa a 1ª resposta de qualquer conversa (a partir de 2026-09-29).</p>
             {filtroDimensao && !dados.bot_atribuivel && (
               <p>Reunião pelo bot não tem nicho/cidade/canal/país/pessoa — fica fora com esses filtros (inclusive o país padrão). Escolha “Todos os países” para incluí-la.</p>

@@ -41,11 +41,11 @@ function resolverPeriodo({ periodo, de, ate, agora = new Date() } = {}) {
  * Dia sem dado em uma fonte entra com 0; dias totalmente vazios ficam ausentes (v1 não preenche
  * spine — evita bug de fuso e o gráfico lê a tendência mesmo assim).
  */
-function montarSerie({ mensagens = [], ligacoes = [], reunioesHumano = [], reunioesBot = [], conversou = [] } = {}) {
+function montarSerie({ mensagens = [], ligacoes = [], reunioesHumano = [], reunioesBot = [], conversou = [], vendas = [] } = {}) {
   const mapa = new Map()
   const linha = (dia) => {
     if (!mapa.has(dia)) {
-      mapa.set(dia, { dia, mensagens: 0, ligacoes: 0, ligacoes_atendidas: 0, conversou: 0, reunioes_humano: 0, reunioes_bot: 0 })
+      mapa.set(dia, { dia, mensagens: 0, ligacoes: 0, ligacoes_atendidas: 0, conversou: 0, reunioes_humano: 0, reunioes_bot: 0, vendas: 0, faturamento: 0 })
     }
     return mapa.get(dia)
   }
@@ -59,12 +59,17 @@ function montarSerie({ mensagens = [], ligacoes = [], reunioesHumano = [], reuni
   for (const r of conversou) linha(isoDia(r.dia)).conversou += Number(r.n) || 0
   for (const r of reunioesHumano) linha(isoDia(r.dia)).reunioes_humano += Number(r.n) || 0
   for (const r of reunioesBot) linha(isoDia(r.dia)).reunioes_bot += Number(r.n) || 0
+  for (const r of vendas) {
+    const l = linha(isoDia(r.dia))
+    l.vendas += Number(r.n) || 0
+    l.faturamento += Number(r.valor) || 0
+  }
   return [...mapa.values()].sort((a, b) => (a.dia < b.dia ? -1 : a.dia > b.dia ? 1 : 0))
 }
 
 /** Soma a série em totais. reuniões = humano + bot. */
 function totalizar(serie) {
-  const t = { mensagens: 0, ligacoes: 0, ligacoes_atendidas: 0, conversou: 0, reunioes_humano: 0, reunioes_bot: 0 }
+  const t = { mensagens: 0, ligacoes: 0, ligacoes_atendidas: 0, conversou: 0, reunioes_humano: 0, reunioes_bot: 0, vendas: 0, faturamento: 0 }
   for (const l of serie) {
     t.mensagens += l.mensagens
     t.ligacoes += l.ligacoes
@@ -72,9 +77,34 @@ function totalizar(serie) {
     t.conversou += l.conversou || 0
     t.reunioes_humano += l.reunioes_humano
     t.reunioes_bot += l.reunioes_bot
+    t.vendas += l.vendas || 0
+    t.faturamento += l.faturamento || 0
   }
   t.reunioes = t.reunioes_humano + t.reunioes_bot
   return t
+}
+
+/**
+ * Funil de conversão do período: contatos → responderam → reuniões → vendas. Cada nível traz a
+ * largura proporcional ao topo e a queda vs. o nível anterior (onde o funil vaza). Denominador
+ * sempre presente; topo zero → larguras 0 (nunca inventa proporção).
+ */
+function montarFunilConversao(totais = {}) {
+  const contatos = (totais.mensagens || 0) + (totais.ligacoes_atendidas || 0)
+  const niveis = [
+    { chave: 'contatos', rotulo: 'Contatos', n: contatos },
+    { chave: 'responderam', rotulo: 'Responderam', n: totais.conversou || 0 },
+    { chave: 'reunioes', rotulo: 'Reuniões', n: totais.reunioes || 0 },
+    { chave: 'vendas', rotulo: 'Vendas', n: totais.vendas || 0 },
+  ]
+  const base = niveis[0].n
+  let anterior = null
+  return niveis.map((nv) => {
+    const larguraPct = base > 0 ? Number(((nv.n / base) * 100).toFixed(1)) : 0
+    const quedaPct = anterior !== null && anterior > 0 ? Number((((anterior - nv.n) / anterior) * 100).toFixed(1)) : null
+    anterior = nv.n
+    return { ...nv, larguraPct, quedaPct }
+  })
 }
 
 /**
@@ -102,11 +132,11 @@ function calcularRazoes(totais) {
  * vêm só das atribuíveis (agenda humana com prospect); bot não tem canal → fica de fora aqui.
  * @returns array [{ canal, mensagens, ligacoes, reunioes, por_100_contatos }]
  */
-function montarPorCanal({ mensagens = [], ligacoes = [], reunioes = [], conversou = [] } = {}) {
+function montarPorCanal({ mensagens = [], ligacoes = [], reunioes = [], conversou = [], vendas = [] } = {}) {
   const mapa = new Map()
   const linha = (canal) => {
     const k = canal || 'desconhecido'
-    if (!mapa.has(k)) mapa.set(k, { canal: k, mensagens: 0, ligacoes: 0, ligacoes_atendidas: 0, conversou: 0, reunioes: 0 })
+    if (!mapa.has(k)) mapa.set(k, { canal: k, mensagens: 0, ligacoes: 0, ligacoes_atendidas: 0, conversou: 0, reunioes: 0, vendas: 0, faturamento: 0 })
     return mapa.get(k)
   }
   // += porque as linhas chegam por (dia, canal): várias por canal ao longo dos dias.
@@ -118,6 +148,11 @@ function montarPorCanal({ mensagens = [], ligacoes = [], reunioes = [], converso
   }
   for (const r of conversou) linha(r.canal).conversou += Number(r.n) || 0
   for (const r of reunioes) linha(r.canal).reunioes += Number(r.n) || 0
+  for (const r of vendas) {
+    const l = linha(r.canal)
+    l.vendas += Number(r.n) || 0
+    l.faturamento += Number(r.valor) || 0
+  }
   return [...mapa.values()]
     .map((l) => {
       const contatos = l.mensagens + l.ligacoes_atendidas
@@ -130,4 +165,4 @@ function montarPorCanal({ mensagens = [], ligacoes = [], reunioes = [], converso
     .sort((a, b) => b.reunioes - a.reunioes || (b.mensagens + b.ligacoes) - (a.mensagens + a.ligacoes))
 }
 
-module.exports = { resolverPeriodo, montarSerie, totalizar, calcularRazoes, montarPorCanal }
+module.exports = { resolverPeriodo, montarSerie, totalizar, calcularRazoes, montarPorCanal, montarFunilConversao }

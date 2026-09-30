@@ -6,6 +6,20 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-30 — Painel comercial: VENDAS/faturamento + funil até a venda
+
+- **Pedido do operador:** mapear dado→gráfico e preencher lacunas do painel. Escolhida a mais
+  valiosa: trazer `app.vendas` (mig. 083) para o painel — destrava faturamento fechado + funil
+  contato→responderam→reunião→venda.
+- **Fonte:** `app.vendas` (status <> 'cancelada'), série/atribuição por `fechada_em`, canal/nicho/
+  cidade por `LEFT JOIN prospects ON p.id = v.prospect_id` (mesmo padrão honesto do resto: venda
+  sem prospect cai em "desconhecido" e sai sob filtro de dimensão), pessoa por `v.originador_id`.
+  Lente "pago/competência" continua sendo do painel de Comissão — aqui é "fechado".
+- **Aditivo:** sem migration, sem dep de chart (barras CSS), rota já gateada `RELATORIOS_VER`.
+- Segue workflow padrão (análise → arquivos declarados → diff mínimo → `npm test`/`tsc`).
+
+---
+
 ## 2026-09-29 — Reunião conta por data de MARCAÇÃO (criado_em), não de ocorrência
 
 - **Decisão do operador:** reunião é conversão quando é MARCADA — contar por `criado_em`, não por

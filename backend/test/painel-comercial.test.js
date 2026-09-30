@@ -41,8 +41,8 @@ test('montarSerie: une por dia e ACUMULA linhas por (dia, canal)', () => {
     reunioesBot: [{ dia: '2026-09-02', n: 2 }],
   })
   assert.equal(serie.length, 2)
-  assert.deepEqual(serie[0], { dia: '2026-09-01', mensagens: 0, ligacoes: 4, ligacoes_atendidas: 1, conversou: 0, reunioes_humano: 0, reunioes_bot: 0 })
-  assert.deepEqual(serie[1], { dia: '2026-09-02', mensagens: 5, ligacoes: 0, ligacoes_atendidas: 0, conversou: 3, reunioes_humano: 1, reunioes_bot: 2 })
+  assert.deepEqual(serie[0], { dia: '2026-09-01', mensagens: 0, ligacoes: 4, ligacoes_atendidas: 1, conversou: 0, reunioes_humano: 0, reunioes_bot: 0, vendas: 0, faturamento: 0 })
+  assert.deepEqual(serie[1], { dia: '2026-09-02', mensagens: 5, ligacoes: 0, ligacoes_atendidas: 0, conversou: 3, reunioes_humano: 1, reunioes_bot: 2, vendas: 0, faturamento: 0 })
 })
 
 test('totalizar: reuniões = humano + bot; conversou somado', () => {
@@ -92,4 +92,38 @@ test('montarPorCanal: soma por canal, calcula taxa e ordena por reuniões', () =
 test('montarPorCanal: origem ausente vira "desconhecido"', () => {
   const linhas = S.montarPorCanal({ ligacoes: [{ canal: null, n: 1, atendidas: 0 }] })
   assert.equal(linhas[0].canal, 'desconhecido')
+})
+
+test('vendas: entram na série, nos totais e no por-canal (contagem + faturamento)', () => {
+  const serie = S.montarSerie({
+    mensagens: [{ dia: '2026-09-02', canal: 'instagram', n: 5 }],
+    vendas: [
+      { dia: '2026-09-02', canal: 'instagram', n: 1, valor: 3000 },
+      { dia: '2026-09-02', canal: 'meta_ads', n: 1, valor: 2000 }, // mesmo dia, outro canal → soma
+    ],
+  })
+  assert.equal(serie[0].vendas, 2)
+  assert.equal(serie[0].faturamento, 5000)
+  const t = S.totalizar(serie)
+  assert.equal(t.vendas, 2)
+  assert.equal(t.faturamento, 5000)
+  const canais = S.montarPorCanal({ vendas: [{ canal: 'instagram', n: 1, valor: 3000 }] })
+  assert.equal(canais[0].vendas, 1)
+  assert.equal(canais[0].faturamento, 3000)
+})
+
+test('montarFunilConversao: níveis decrescentes com queda e largura proporcional ao topo', () => {
+  const f = S.montarFunilConversao({ mensagens: 80, ligacoes_atendidas: 20, conversou: 40, reunioes: 10, vendas: 3 })
+  assert.deepEqual(f.map((n) => n.n), [100, 40, 10, 3]) // contatos, responderam, reuniões, vendas
+  assert.equal(f[0].quedaPct, null) // topo não tem queda
+  assert.equal(f[0].larguraPct, 100)
+  assert.equal(f[1].quedaPct, 60) // (100-40)/100
+  assert.equal(f[3].larguraPct, 3) // 3/100
+})
+
+test('montarFunilConversao: topo zero → larguras 0, sem inventar proporção', () => {
+  const f = S.montarFunilConversao({ mensagens: 0, ligacoes_atendidas: 0, conversou: 0, reunioes: 0, vendas: 0 })
+  assert.equal(f[0].n, 0)
+  assert.equal(f[0].larguraPct, 0)
+  assert.equal(f[3].larguraPct, 0)
 })

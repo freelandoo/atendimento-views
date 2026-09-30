@@ -134,6 +134,31 @@ async function serieConversou(pool, filtros) {
   return rows
 }
 
+// Vendas FECHADAS no período (por `fechada_em`), agrupadas por (dia, canal), com contagem e
+// soma de valor. Atribuição de dimensão por prospect (LEFT JOIN, mesma regra honesta das outras
+// séries: venda sem prospect → 'desconhecido' e sai sob filtro de dimensão); pessoa por
+// `originador_id` (o SDR que ORIGINOU o lead — mig. 083, congelado na linha). Exclui cancelada.
+// Lente de "pago/competência" NÃO é aqui — é do painel de Comissão; aqui é "quanto fechou".
+async function serieVendas(pool, filtros) {
+  const params = [filtros.empresaId, filtros.de, filtros.ate]
+  let pessoa = ''
+  if (filtros.pessoa) { params.push(filtros.pessoa); pessoa = ` AND v.originador_id = $${params.length}` }
+  const lead = condLead('p', filtros, params)
+  const { rows } = await pool.query(
+    `SELECT date_trunc('day', v.fechada_em AT TIME ZONE '${TZ}')::date AS dia,
+            COALESCE(p.origem, 'desconhecido') AS canal,
+            COUNT(*)::int AS n,
+            COALESCE(SUM(v.valor), 0)::float AS valor
+       FROM app.vendas v
+       LEFT JOIN prospectador.prospects p ON p.id = v.prospect_id
+      WHERE v.empresa_id = $1 AND v.status <> 'cancelada'
+        AND v.fechada_em >= $2 AND v.fechada_em < $3${pessoa}${lead}
+      GROUP BY 1, 2`,
+    params
+  )
+  return rows
+}
+
 // Funil "onde os leads param": SNAPSHOT (não por período) dos atendimentos ATIVOS por estágio.
 // "Onde estão parados agora" = onde o estágio deles ficou. Respeita os mesmos filtros de dimensão
 // (nicho/cidade/canal/país por prospect) e pessoa (responsavel_id da conversa). Sem data: é foto do
@@ -221,7 +246,7 @@ async function rankingPorDimensao(pool, filtros, dimExpr) {
     const { rows } = await pool.query(sql.replace('%PESSOA%', pessoa).replace('%LEAD%', lead).replace('%CHAVE%', chave), params)
     return rows
   }
-  const [mensagens, reunioes, conversou] = await Promise.all([
+  const [mensagens, reunioes, conversou, vendas] = await Promise.all([
     roda(
       `SELECT %CHAVE% AS canal, COUNT(*)::int AS n
          FROM prospectador.lead_disparos d
@@ -241,8 +266,14 @@ async function rankingPorDimensao(pool, filtros, dimExpr) {
          LEFT JOIN prospectador.prospects p ON ${TELN('p.telefone')} = ${TELN('c.numero')} AND p.empresa_id = c.empresa_id
         WHERE c.empresa_id = $1 AND c.primeira_resposta_em >= $2 AND c.primeira_resposta_em < $3%PESSOA%%LEAD%
         GROUP BY 1`, 'c.responsavel_id'),
+    roda(
+      `SELECT %CHAVE% AS canal, COUNT(*)::int AS n, COALESCE(SUM(v.valor), 0)::float AS valor
+         FROM app.vendas v
+         LEFT JOIN prospectador.prospects p ON p.id = v.prospect_id
+        WHERE v.empresa_id = $1 AND v.status <> 'cancelada' AND v.fechada_em >= $2 AND v.fechada_em < $3%PESSOA%%LEAD%
+        GROUP BY 1`, 'v.originador_id'),
   ])
-  return { mensagens, reunioes, conversou }
+  return { mensagens, reunioes, conversou, vendas }
 }
 
 // Reunião do bot: dado SEPARADO (decisão do operador). Empresa resolvida por
@@ -264,16 +295,17 @@ async function serieReunioesBot(pool, filtros) {
 /** Roda as fontes em paralelo. reunioesBot só quando atribuível (senão fica []). */
 async function coletar(pool, filtros) {
   const usaBot = botAtribuivel(filtros)
-  const [mensagens, ligacoes, reunioesHumano, conversou, followupTentativa, respostasHora, reunioesBot] = await Promise.all([
+  const [mensagens, ligacoes, reunioesHumano, conversou, vendas, followupTentativa, respostasHora, reunioesBot] = await Promise.all([
     serieMensagens(pool, filtros),
     serieLigacoes(pool, filtros),
     serieReunioesHumano(pool, filtros),
     serieConversou(pool, filtros),
+    serieVendas(pool, filtros),
     followupPorTentativa(pool, filtros),
     respostasPorHora(pool, filtros),
     usaBot ? serieReunioesBot(pool, filtros) : Promise.resolve([]),
   ])
-  return { mensagens, ligacoes, reunioesHumano, conversou, followupTentativa, respostasHora, reunioesBot, bot_atribuivel: usaBot }
+  return { mensagens, ligacoes, reunioesHumano, conversou, vendas, followupTentativa, respostasHora, reunioesBot, bot_atribuivel: usaBot }
 }
 
 // Cidades distintas dos leads da empresa — alimenta o SELETOR de cidade do painel (o operador
@@ -304,4 +336,4 @@ async function estadosDaEmpresa(pool, empresaId) {
   return rows.map((r) => r.uf)
 }
 
-module.exports = { coletar, porEstagio, rankingPorDimensao, cidadesDaEmpresa, estadosDaEmpresa, botAtribuivel }
+module.exports = { coletar, porEstagio, rankingPorDimensao, cidadesDaEmpresa, estadosDaEmpresa, botAtribuivel, serieVendas }
