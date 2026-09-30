@@ -41,32 +41,74 @@ function semanaDe(dia) {
   return { inicio, fim: somarDias(inicio, 6) }
 }
 
+const inteiroPositivo = (v) => {
+  const n = Math.trunc(Number(v))
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
 /**
  * Normaliza a config vinda de fora. `null` quando não há meta utilizável — a tela então mostra
  * "Definir meta" e nenhuma barra (o mesmo contrato do `proximidade` sem alvo).
+ *
+ * `modo='separado'`: exige alvo de ligação E de mensagem (> 0); `alvo_semanal` é a SOMA (o total
+ * de contatos, mantido para a CHECK > 0 da migration 111 seguir valendo). `modo='geral'` (default):
+ * um alvo só, e os alvos por canal ficam nulos.
  */
 function normalizarConfig(entrada) {
-  const alvo = Math.trunc(Number(entrada && entrada.alvo_semanal))
-  if (!Number.isFinite(alvo) || alvo <= 0) return null
   const dias = [...new Set(
     (Array.isArray(entrada && entrada.dias_semana) ? entrada.dias_semana : [])
       .map((n) => Math.trunc(Number(n)))
       .filter((n) => n >= 1 && n <= 7)
   )].sort((a, b) => a - b)
   if (!dias.length) return null
-  return { alvo_semanal: alvo, dias_semana: dias }
+
+  if (entrada && entrada.modo === 'separado') {
+    const lig = inteiroPositivo(entrada.alvo_ligacoes)
+    const msg = inteiroPositivo(entrada.alvo_mensagens)
+    if (!lig || !msg) return null
+    return { modo: 'separado', alvo_semanal: lig + msg, alvo_ligacoes: lig, alvo_mensagens: msg, dias_semana: dias }
+  }
+
+  const alvo = inteiroPositivo(entrada && entrada.alvo_semanal)
+  if (!alvo) return null
+  return { modo: 'geral', alvo_semanal: alvo, alvo_ligacoes: null, alvo_mensagens: null, dias_semana: dias }
 }
 
 /**
- * Alvo do dia = meta semanal dividida pelos dias atendidos, se `dia` for um deles; senão 0.
+ * Alvo do dia para um alvo SEMANAL de canal = semanal / dias atendidos, se `dia` for um deles.
  * ponytail: divisão arredondada (Math.round), então a soma dos alvos diários pode não bater
  * exatamente o semanal — de propósito: o alvo/dia é um guia, e a barra da SEMANA usa o total
  * real contra o alvo semanal, então nada mente. Refinar a distribuição do resto se incomodar.
  */
-function alvoDoDia(config, dia) {
-  if (!config) return 0
+function alvoDiaDe(alvoSemanal, config, dia) {
+  if (!config || !alvoSemanal) return 0
   if (!config.dias_semana.includes(diaIso(dia))) return 0
-  return Math.max(1, Math.round(config.alvo_semanal / config.dias_semana.length))
+  return Math.max(1, Math.round(alvoSemanal / config.dias_semana.length))
+}
+
+/** Alvo do dia do total de contatos (compat: usa `alvo_semanal`). */
+function alvoDoDia(config, dia) {
+  return alvoDiaDe(config ? config.alvo_semanal : 0, config, dia)
+}
+
+/**
+ * As barras de um período, já no formato que a tela desenha: `[{ chave, prog }]`.
+ * `escopo`: 'dia' divide o alvo semanal pelos dias; 'semana' usa o alvo semanal cheio.
+ * `feitos`: `{ ligacoes, mensagens }` já contados no período (eventos reais).
+ * Geral ⇒ uma barra 'contatos' (ligação + mensagem); Separado ⇒ 'ligacoes' e 'mensagens'.
+ */
+function medidasDoPeriodo(config, feitos, escopo, dia) {
+  if (!config) return []
+  const lig = Math.max(0, Math.trunc(Number(feitos && feitos.ligacoes) || 0))
+  const msg = Math.max(0, Math.trunc(Number(feitos && feitos.mensagens) || 0))
+  const alvoCanal = (semanal) => (escopo === 'dia' ? alvoDiaDe(semanal, config, dia) : semanal)
+  if (config.modo === 'separado') {
+    return [
+      { chave: 'ligacoes', prog: progresso(lig, alvoCanal(config.alvo_ligacoes)) },
+      { chave: 'mensagens', prog: progresso(msg, alvoCanal(config.alvo_mensagens)) },
+    ]
+  }
+  return [{ chave: 'contatos', prog: progresso(lig + msg, alvoCanal(config.alvo_semanal)) }]
 }
 
 /**
@@ -91,6 +133,8 @@ module.exports = {
   diaIso,
   semanaDe,
   normalizarConfig,
+  alvoDiaDe,
   alvoDoDia,
+  medidasDoPeriodo,
   progresso,
 }

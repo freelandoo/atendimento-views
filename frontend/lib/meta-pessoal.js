@@ -19,10 +19,20 @@ const DIAS = Object.freeze([
 
 const DIAS_UTEIS_PADRAO = Object.freeze([1, 2, 3, 4, 5])
 
+// Rótulo de cada barra. `contatos` = modo geral (mensagem + ligação juntas); no separado,
+// uma barra por canal. A tela só traduz — a chave vem pronta da API.
+const ROTULO_CANAL = Object.freeze({
+  contatos: 'Contatos',
+  ligacoes: 'Ligações',
+  mensagens: 'Mensagens',
+})
+
+const rotuloCanal = (chave) => ROTULO_CANAL[chave] || chave
+
 /** Rótulo curto dos dias atendidos, na ordem da semana: "Seg, Ter, Qua, Qui, Sex". */
 function rotuloDias(dias) {
   const set = new Set((dias || []).map(Number))
   return DIAS.filter((d) => set.has(d.iso)).map((d) => d.curto).join(', ') || '—'
 }
 
-module.exports = { proximidade, DIAS, DIAS_UTEIS_PADRAO, rotuloDias }
+module.exports = { proximidade, DIAS, DIAS_UTEIS_PADRAO, rotuloDias, ROTULO_CANAL, rotuloCanal }

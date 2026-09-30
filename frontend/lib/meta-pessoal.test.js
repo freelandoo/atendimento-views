@@ -15,6 +15,13 @@ test('rotuloDias lista os dias na ordem da semana', () => {
   assert.equal(M.rotuloDias(null), '—')
 })
 
+test('rotuloCanal traduz as chaves e ecoa o desconhecido', () => {
+  assert.equal(M.rotuloCanal('contatos'), 'Contatos')
+  assert.equal(M.rotuloCanal('ligacoes'), 'Ligações')
+  assert.equal(M.rotuloCanal('mensagens'), 'Mensagens')
+  assert.equal(M.rotuloCanal('outro'), 'outro')
+})
+
 test('proximidade é a mesma de minha-operacao (reexport, não cópia)', () => {
   assert.equal(M.proximidade, require('./minha-operacao').proximidade)
   // sem alvo ⇒ não desenha barra

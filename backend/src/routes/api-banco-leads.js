@@ -856,38 +856,30 @@ router.get('/meu-resumo', requireAuth, requireEmpresaAccess, async (req, res) =>
 
 // ─── META PESSOAL (migration 111) ────────────────────────────────────────────────────────
 //
-// A meta de atendimentos do PRÓPRIO comercial, no topo do Banco de Leads. O progresso é contado
-// sobre os cards em "feito" do Quadro do Dia (reuso de PLANO.resumoPeriodo) — não há contagem
-// nova. Pessoal: escopado por empresa + `req.usuario.id`, sem `usuario_id` na query, como
-// `/meu-resumo`. Sem capacidade nova (o mount já exige LEAD_VER_APROVADOS).
-
-/** Soma dos cards concluídos no intervalo, e o total de hoje, a partir do resumo do Quadro. */
-async function feitosDaMeta(empresaId, usuarioId, hoje, semana) {
-  const linhas = await PLANO.resumoPeriodo({
-    empresaId, usuarioId, inicio: semana.inicio, fim: semana.fim,
-  })
-  const feitoSemana = linhas.reduce((s, r) => s + (Number(r.feitos) || 0), 0)
-  const linhaHoje = linhas.find((r) => r.dia === hoje)
-  return { feitoDia: linhaHoje ? Number(linhaHoje.feitos) || 0 : 0, feitoSemana }
-}
+// A meta de CONTATOS do PRÓPRIO comercial, no topo do Banco de Leads. O progresso é contado sobre
+// eventos reais (ligações encerradas + disparos enviados, via METADB.contarContatos) — não sobre
+// cards do Quadro. Pessoal: escopado por empresa + `req.usuario.id`, sem `usuario_id` na query,
+// como `/meu-resumo`. Sem capacidade nova (o mount já exige LEAD_VER_APROVADOS).
 
 /**
- * GET /meta?dia= — a config da meta + o progresso do dia e da semana. READ-ONLY e PESSOAL.
- * Sem meta definida, `config` é null e o progresso vem com alvo null (a tela não desenha barra).
+ * GET /meta?dia= — a config da meta + as barras do dia e da semana. READ-ONLY e PESSOAL.
+ * Sem meta definida, `config` é null e as barras vêm vazias (a tela não desenha nada).
+ * Cada período é uma lista `[{ chave, prog }]`: uma barra no modo geral, duas no separado.
  */
 router.get('/meta', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const dia = PLANO.PD.diaValido(req.query.dia) || MP.diaOperacional()
     const semana = MP.semanaDe(dia)
     const config = MP.normalizarConfig(await METADB.obterMeta(req.empresa.id, req.usuario.id))
-    const { feitoDia, feitoSemana } = await feitosDaMeta(req.empresa.id, req.usuario.id, dia, semana)
+    const cont = await METADB.contarContatos(req.empresa.id, req.usuario.id, semana.inicio, semana.fim)
+    const feitoDia = cont.porDia[dia] || { ligacoes: 0, mensagens: 0 }
     return res.json({
       ok: true,
       data: {
         config,
         progresso: {
-          dia: MP.progresso(feitoDia, config ? MP.alvoDoDia(config, dia) : null),
-          semana: MP.progresso(feitoSemana, config ? config.alvo_semanal : null),
+          dia: MP.medidasDoPeriodo(config, feitoDia, 'dia', dia),
+          semana: MP.medidasDoPeriodo(config, cont.semana, 'semana', dia),
         },
       },
       meta: { dia, hoje: MP.diaOperacional(), semana },
@@ -895,14 +887,14 @@ router.get('/meta', requireAuth, requireEmpresaAccess, async (req, res) => {
   } catch (err) { return envelopeErro(res, err, 'META_PESSOAL_FAILED') }
 })
 
-/** PUT /meta { alvo_semanal, dias_semana[] } — define a PRÓPRIA meta. */
+/** PUT /meta { modo, alvo_semanal | alvo_ligacoes+alvo_mensagens, dias_semana[] } — define a PRÓPRIA meta. */
 router.put('/meta', requireAuth, requireEmpresaAccess, async (req, res) => {
   try {
     const config = MP.normalizarConfig(req.body || {})
     if (!config) {
       return res.status(400).json({
         ok: false, code: 'META_INVALIDA',
-        error: 'Informe uma meta semanal maior que zero e ao menos um dia de atendimento.',
+        error: 'Informe metas maiores que zero e ao menos um dia de atendimento.',
       })
     }
     const salvo = await METADB.salvarMeta(req.empresa.id, req.usuario.id, config)
