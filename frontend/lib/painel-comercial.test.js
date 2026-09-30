@@ -109,6 +109,21 @@ test('formatarDelta: quantidade e %; anterior 0 → novo, pct null', () => {
   assert.equal(semBase.novo, true)
 })
 
+test('destaquesRanking: líderes distintos e amostra mínima nas taxas', () => {
+  const ranking = [
+    { canal: 'Energia Solar', mensagens: 100, ligacoes_atendidas: 0, conversou: 30, reunioes: 5, por_100_contatos: 5, taxa_resposta: 30 },
+    { canal: 'Climatização', mensagens: 20, ligacoes_atendidas: 0, conversou: 12, reunioes: 3, por_100_contatos: 15, taxa_resposta: 60 },
+    { canal: 'Nicho Fraco', mensagens: 1, ligacoes_atendidas: 0, conversou: 1, reunioes: 1, por_100_contatos: 100, taxa_resposta: 100 }, // amostra 1 → não lidera taxa
+  ]
+  const d = P.destaquesRanking(ranking)
+  assert.equal(d.maisReunioes.canal, 'Energia Solar') // 5 reuniões
+  assert.equal(d.maiorConversao.canal, 'Climatização') // 15/100 (fraco tem amostra < 3)
+  assert.equal(d.maiorResposta.canal, 'Climatização') // 60% (fraco ignorado)
+  const vazio = P.destaquesRanking([])
+  assert.equal(vazio.maisReunioes, null)
+  assert.equal(vazio.maiorConversao, null)
+})
+
 test('maxSerie / larguraPct: escala e divisão por zero → 0', () => {
   const serie = [{ mensagens: 3, ligacoes: 10 }, { mensagens: 8, ligacoes: 2 }]
   assert.equal(P.maxSerie(serie, ['mensagens', 'ligacoes']), 10)

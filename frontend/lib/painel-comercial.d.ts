@@ -33,6 +33,7 @@ export function idadeEquipe(criadoEm: string | number | Date | null | undefined,
 export function ordenarFunil(rows: Array<{ estagio: string; n: number | string }> | null | undefined): LinhaFunil[]
 export interface EtapaFunil { estagio: string; rotulo: string; n: number; acumulado: number; larguraPct: number; quedaPct: number | null }
 export function funilComQueda(rows: Array<{ estagio: string; n: number | string }> | null | undefined): { etapas: EtapaFunil[]; outros: number }
+export function destaquesRanking(ranking: LinhaCanal[] | null | undefined, minAmostra?: number): { maisReunioes: LinhaCanal | null; maiorConversao: LinhaCanal | null; maiorResposta: LinhaCanal | null }
 export interface HoraBarra { hora: number; valor: number; pct: number }
 export function histogramaHoras(rows: Array<{ hora: number | string; [k: string]: number | string }> | null | undefined, chave?: string): { horas: HoraBarra[]; pico: { hora: number; valor: number } | null }
 export function janelaPreset(preset: string, hoje?: Date): { de: string; ate: string }

@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import Abas from '@/components/ui/Abas'
-import { rotuloCanal, idadeEquipe, funilComQueda, histogramaHoras, janelaPreset, janelaAnterior, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
+import { rotuloCanal, idadeEquipe, funilComQueda, histogramaHoras, destaquesRanking, janelaPreset, janelaAnterior, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
 import type { DiaSerie, LinhaCanal, Razoes, DeltaInfo } from '@/lib/painel-comercial'
 
 const dataBr = (ymd: string) => ymd.split('-').reverse().join('/') // 2026-09-23 → 23/09/2026
@@ -239,6 +239,16 @@ export default function PainelComercial() {
                 {aba === 'cidade' ? 'Cidades que mais convertem' : 'Nichos que mais convertem'}
               </h3>
               <p className="text-xs text-slate-400 mb-3">Ordenado por reuniões (barra proporcional ao 1º). Abaixo, o total do período.</p>
+              {dados.ranking.length > 0 && (() => {
+                const d = destaquesRanking(dados.ranking!)
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                    <DestaqueCard rotulo="Mais reuniões" nome={d.maisReunioes?.canal} valor={d.maisReunioes ? `${fmt(d.maisReunioes.reunioes)} reuniões` : null} />
+                    <DestaqueCard rotulo="Maior conversão" nome={d.maiorConversao?.canal} valor={d.maiorConversao ? `${fmtTaxa(d.maiorConversao.por_100_contatos)} por 100 contatos` : null} />
+                    <DestaqueCard rotulo="Maior taxa de resposta" nome={d.maiorResposta?.canal} valor={d.maiorResposta ? `${fmtTaxa(d.maiorResposta.taxa_resposta)}% responderam` : null} />
+                  </div>
+                )
+              })()}
               {dados.ranking.length === 0 ? (
                 <p className="text-slate-400 text-sm">Sem dados neste recorte.</p>
               ) : (() => {
@@ -467,6 +477,22 @@ function Tile({ titulo, valor, small, delta, sub }: { titulo: string; valor: str
           {delta.novo ? ' (novo)' : delta.pct !== null ? ` (${delta.pct > 0 ? '+' : ''}${delta.pct}%)` : ''}
           {' '}vs. anterior
         </p>
+      )}
+    </div>
+  )
+}
+
+function DestaqueCard({ rotulo, nome, valor }: { rotulo: string; nome?: string; valor: string | null }) {
+  return (
+    <div className="rounded-xl border p-3 bg-slate-50">
+      <p className="text-[11px] text-slate-500 uppercase tracking-wide">{rotulo}</p>
+      {valor ? (
+        <>
+          <p className="text-sm font-bold text-slate-900 mt-0.5 truncate">{nome}</p>
+          <p className="text-xs text-slate-600">{valor}</p>
+        </>
+      ) : (
+        <p className="text-sm text-slate-400 mt-0.5">— sem amostra</p>
       )}
     </div>
   )

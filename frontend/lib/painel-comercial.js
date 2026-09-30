@@ -108,6 +108,32 @@ function formatarDelta(atual, anterior) {
   }
 }
 
+/**
+ * Destaques do ranking (cidade/nicho): quem lidera em cada leitura, que são DIFERENTES entre si —
+ * mais reuniões (volume) ≠ maior conversão (taxa) ≠ maior taxa de resposta. As taxas exigem
+ * amostra mínima para um nicho com 1 contato e 1 reunião não virar "100% de conversão".
+ * @returns {{ maisReunioes: object|null, maiorConversao: object|null, maiorResposta: object|null }}
+ */
+function destaquesRanking(ranking, minAmostra = 3) {
+  const rows = ranking || []
+  const contatos = (r) => (Number(r.mensagens) || 0) + (Number(r.ligacoes_atendidas) || 0)
+  const liderPor = (valor, elegivel) => {
+    let melhor = null
+    for (const r of rows) {
+      if (!elegivel(r)) continue
+      const v = valor(r)
+      if (v == null || Number.isNaN(v)) continue
+      if (!melhor || v > valor(melhor)) melhor = r
+    }
+    return melhor
+  }
+  return {
+    maisReunioes: liderPor((r) => Number(r.reunioes) || 0, (r) => Number(r.reunioes) > 0),
+    maiorConversao: liderPor((r) => Number(r.por_100_contatos), (r) => r.por_100_contatos != null && contatos(r) >= minAmostra),
+    maiorResposta: liderPor((r) => Number(r.taxa_resposta), (r) => r.taxa_resposta != null && (Number(r.mensagens) || 0) >= minAmostra),
+  }
+}
+
 /** Largura da barra em %; divisão por zero → 0 (nunca NaN). */
 function larguraPct(valor, max) {
   if (!max || max <= 0) return 0
@@ -161,4 +187,4 @@ function funilComQueda(rows) {
   return { etapas, outros }
 }
 
-module.exports = { ROTULO_CANAL, rotuloCanal, idadeEquipe, ESTAGIO_ROTULO, ordenarFunil, funilComQueda, histogramaHoras, janelaPreset, janelaAnterior, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct }
+module.exports = { ROTULO_CANAL, rotuloCanal, idadeEquipe, ESTAGIO_ROTULO, ordenarFunil, funilComQueda, histogramaHoras, destaquesRanking, janelaPreset, janelaAnterior, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct }
