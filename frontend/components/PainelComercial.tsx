@@ -14,6 +14,7 @@ type Payload = {
   bot_atribuivel: boolean
 }
 type Nicho = { id: string; nome: string }
+type Membro = { usuario_id: string; nome: string; ativo?: boolean }
 
 const CANAIS = ['google_places', 'instagram', 'meta_ads', 'linkedin']
 const PERIODOS = [{ v: '7d', l: 'Últimos 7 dias' }, { v: '30d', l: 'Últimos 30 dias' }]
@@ -23,7 +24,9 @@ export default function PainelComercial() {
   const [nichoId, setNichoId] = useState('')
   const [canal, setCanal] = useState('')
   const [cidade, setCidade] = useState('')
+  const [pessoa, setPessoa] = useState('')
   const [nichos, setNichos] = useState<Nicho[]>([])
+  const [membros, setMembros] = useState<Membro[]>([])
   const [dados, setDados] = useState<Payload | null>(null)
   const [rotuloPeriodo, setRotuloPeriodo] = useState('')
   const [erro, setErro] = useState('')
@@ -36,6 +39,9 @@ export default function PainelComercial() {
     apiFetch<Nicho[]>(`/api/empresas/${empresaId}/nichos`)
       .then((r) => setNichos((r.data || []).filter((n) => n && n.id)))
       .catch(() => setNichos([])) // filtro é opcional; sem lista, o painel roda sem nicho
+    apiFetch<Membro[]>(`/api/empresas/${empresaId}/membros`)
+      .then((r) => setMembros((r.data || []).filter((m) => m && m.usuario_id && m.ativo !== false)))
+      .catch(() => setMembros([])) // idem: sem lista, some o seletor de pessoa
   }, [empresaId])
 
   useEffect(() => {
@@ -44,6 +50,7 @@ export default function PainelComercial() {
     if (nichoId) qs.set('nicho_id', nichoId)
     if (canal) qs.set('canal', canal)
     if (cidade.trim()) qs.set('cidade', cidade.trim())
+    if (pessoa) qs.set('pessoa', pessoa)
     let vivo = true
     setCarregando(true)
     const t = setTimeout(() => {
@@ -58,13 +65,13 @@ export default function PainelComercial() {
         .finally(() => { if (vivo) setCarregando(false) })
     }, 300) // debounce: cidade é digitada
     return () => { vivo = false; clearTimeout(t) }
-  }, [empresaId, periodo, nichoId, canal, cidade])
+  }, [empresaId, periodo, nichoId, canal, cidade, pessoa])
 
   const maxContato = useMemo(() => maxSerie(dados?.serie, ['mensagens', 'ligacoes']), [dados])
   const maxReuniao = useMemo(() => maxSerie(dados?.serie, ['reunioes_humano', 'reunioes_bot']), [dados])
 
   const t = dados?.totais
-  const filtroDimensao = Boolean(nichoId || canal || cidade.trim())
+  const filtroDimensao = Boolean(nichoId || canal || cidade.trim() || pessoa)
 
   return (
     <section className="space-y-5">
@@ -87,6 +94,12 @@ export default function PainelComercial() {
           {CANAIS.map((c) => <option key={c} value={c}>{rotuloCanal(c)}</option>)}
         </select>
         <input value={cidade} onChange={(e) => setCidade(e.target.value)} placeholder="Cidade" className="border rounded-lg px-3 py-1.5 text-sm bg-white" />
+        {membros.length > 0 && (
+          <select value={pessoa} onChange={(e) => setPessoa(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
+            <option value="">Toda a equipe</option>
+            {membros.map((m) => <option key={m.usuario_id} value={m.usuario_id}>{m.nome}</option>)}
+          </select>
+        )}
       </div>
 
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
