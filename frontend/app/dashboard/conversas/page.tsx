@@ -24,6 +24,7 @@ import ConversaPainel, {
   type ConversaResumo,
 } from '@/components/ConversaPainel'
 import FichaLead, { type SecaoFicha } from '@/components/FichaLead'
+import CompositorOperador from '@/components/CompositorOperador'
 import { type LeadDetalhavel } from '@/components/LeadDetalhesModal'
 import { acessosDoLead } from '@/lib/lead-acessos'
 import { cartaoCompromisso, resumoUltimaLigacao, type ProximaAcaoLead } from '@/lib/lead-proxima-acao'
@@ -910,6 +911,13 @@ export default function ConversasPage() {
               empresaId={empresaId}
               leadId={ficha.lead.id}
               onIrConversa={() => setFicha((f) => (f ? { ...f, secao: 'conversa' } : f))}
+            />
+          }
+          compositorOperador={
+            <CompositorOperador
+              empresaId={empresaId}
+              numero={ficha.numero}
+              onEnviado={() => carregar()}
             />
           }
         />

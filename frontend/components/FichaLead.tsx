@@ -90,7 +90,7 @@ export default function FichaLead({
   acaoPrincipal, onAcaoPrincipal,
   podeTriarLead = true, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel,
   cooldownS, enviando, gerando, onEnviar, onGerar, onAlterarStatus, onSalvarTelefone,
-  resumoExtra, interessesConversa,
+  resumoExtra, interessesConversa, compositorOperador,
 }: {
   lead: LeadDetalhavel & { telefone?: string | null; origem?: string | null; instagram_handle?: string | null }
   conversa: ConversaDaFicha
@@ -120,6 +120,9 @@ export default function FichaLead({
   resumoExtra?: React.ReactNode
   /** Sinais de interesse da CONVERSA, repassados à seção "Interesses" da Qualificação. */
   interessesConversa?: { titulo?: string; delta?: number }[]
+  /** Compositor do operador (mensagem + orientar) na seção Conversa. A Central passa; o Banco de
+   *  Leads não — o atendimento completo é da Central, não desta ficha (ver ConversaHistoricoModal). */
+  compositorOperador?: React.ReactNode
 }) {
   const painelRef = useRef<HTMLDivElement>(null)
   const gatilhoRef = useRef<Element | null>(null)
@@ -292,6 +295,7 @@ export default function FichaLead({
               onSalvarTelefone={onSalvarTelefone}
               onClose={fechar}
             />
+            {compositorOperador && <div className="shrink-0">{compositorOperador}</div>}
           </div>
 
           <div className={secao === 'historico' ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain bg-surface-2 px-4 py-3 sm:px-5' : 'hidden'}>

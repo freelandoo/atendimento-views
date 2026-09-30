@@ -30,7 +30,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
-import { IconPause, IconPlay, IconSend, IconStar, IconThumbDown, IconThumbUp } from '@/components/ui/icons'
+import { IconPause, IconPlay, IconThumbDown, IconThumbUp } from '@/components/ui/icons'
+import CompositorOperador from '@/components/CompositorOperador'
 import { identidadeConversa } from '@/lib/lead-identidade'
 import BolinhaPontuacao from '@/components/ui/BolinhaPontuacao'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
@@ -108,7 +109,7 @@ export type ConversaResumo = {
 
 type Mensagem = { role?: string; content?: string; text?: string; timestamp?: string }
 
-type ConversaDetail = ConversaResumo & {
+export type ConversaDetail = ConversaResumo & {
   historico?: Mensagem[]
   agente_pausado?: boolean
   /**
@@ -135,7 +136,7 @@ type ConversaDetail = ConversaResumo & {
   ultima_falha_resposta_em?: string | null
 }
 
-type OrientacaoResposta = {
+export type OrientacaoResposta = {
   explicacao: string
   resposta: string
   confianca?: 'alta' | 'media' | 'baixa' | string
@@ -295,13 +296,8 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
   const [apagando, setApagando] = useState(false)
   const [confirmarApagar, setConfirmarApagar] = useState(false)
   const [reenviando, setReenviando] = useState(false)
-  const [mensagemManual, setMensagemManual] = useState('')
-  const [enviandoManual, setEnviandoManual] = useState(false)
   const [alterandoPausa, setAlterandoPausa] = useState(false)
   const [alterandoModo, setAlterandoModo] = useState(false)
-  const [composerAberto, setComposerAberto] = useState(false)
-  const [orientandoResposta, setOrientandoResposta] = useState(false)
-  const [orientacaoResposta, setOrientacaoResposta] = useState<OrientacaoResposta | null>(null)
   const [abaModal, setAbaModal] = useState<'chat' | 'interesses' | 'historico'>('chat')
   const [feedbacksMensagem, setFeedbacksMensagem] = useState<Record<number, FeedbackState>>({})
   const [feedbackNegativo, setFeedbackNegativo] = useState<{ index: number; observacao: string; tags: string[] } | null>(null)
@@ -326,9 +322,6 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
     setErro(null)
     setNaoEncontrada(false)
     setCarregando(true)
-    setMensagemManual('')
-    setOrientacaoResposta(null)
-    setComposerAberto(false)
     setAbaModal(abaInicial || 'chat')
     setFeedbacksMensagem({})
     setFeedbackNegativo(null)
@@ -443,54 +436,6 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
       onAtualizou?.()
     } catch { /* erro ja exibido pelo feedback */ }
     finally { setAlterandoResponsavel(false) }
-  }
-
-  async function enviarMensagemOperador() {
-    if (!aberta || !empresaId) return
-    const texto = mensagemManual.trim()
-    if (!texto) {
-      fb.toast('Escreva a mensagem antes de enviar.', 'error')
-      return
-    }
-    setEnviandoManual(true)
-    try {
-      const r = await fb.runTask(
-        () => apiFetch<ConversaDetail>(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(aberta.numero)}/mensagem`, {
-          method: 'POST',
-          body: JSON.stringify({ texto, assumir: true }),
-        }),
-        { sucesso: 'Mensagem enviada e conversa assumida.' }
-      )
-      setAberta((p) => p ? {
-        ...p,
-        ...r.data,
-        historico: r.data.historico || p.historico,
-        agente_pausado: true,
-      } : p)
-      setMensagemManual('')
-      setOrientacaoResposta(null)
-      setComposerAberto(false)
-      avisar()
-    } catch { /* erro ja exibido pelo feedback */ }
-    finally { setEnviandoManual(false) }
-  }
-
-  async function orientarResposta() {
-    if (!aberta || !empresaId) return
-    setOrientandoResposta(true)
-    setComposerAberto(true)
-    try {
-      const r = await fb.runTask(
-        () => apiFetch<OrientacaoResposta>(`/api/empresas/${empresaId}/conversas/${encodeURIComponent(aberta.numero)}/orientador-resposta`, {
-          method: 'POST',
-          body: JSON.stringify({ rascunho: mensagemManual.trim() }),
-        }),
-        { sucesso: 'Resposta orientada.' }
-      )
-      setOrientacaoResposta(r.data)
-      setMensagemManual(r.data.resposta || '')
-    } catch { /* erro ja exibido pelo feedback */ }
-    finally { setOrientandoResposta(false) }
   }
 
   async function alterarPausaAgente(pausado: boolean) {
@@ -1057,78 +1002,16 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                   )}
                 </div>
 
-                <div className={`border-t bg-white px-6 transition-all duration-200 ${composerAberto ? 'py-4' : 'py-2'}`}>
-                  {avisoModo && (
-                    <div className="mb-2 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                      <span className="font-semibold">{avisoModo.titulo}.</span> {avisoModo.texto}
-                    </div>
-                  )}
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setComposerAberto((v) => !v)}
-                      className="flex min-w-[180px] flex-1 items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:bg-slate-100"
-                      aria-expanded={composerAberto}
-                    >
-                      <span>Mensagem do operador</span>
-                      <span className="text-slate-400">{composerAberto ? 'Recolher' : 'Escrever'}</span>
-                    </button>
-                    {/* A conversa e' de outra pessoa: AVISO, nunca impedimento. Avisar resolve o
-                        problema real (dois atendentes sem saber um do outro) sem criar o problema
-                        pior (cliente sem resposta). */}
-                    {avisoDono.avisar && (
-                      <p className="w-full rounded-lg bg-amber-50 px-3 py-1.5 text-[11px] leading-snug text-amber-800">
-                        {avisoDono.texto}
-                      </p>
-                    )}
-                    <button
-                      type="button"
-                      onClick={orientarResposta}
-                      disabled={orientandoResposta}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <IconStar className="h-3.5 w-3.5" />
-                      {orientandoResposta ? 'Orientando...' : 'Orientar resposta'}
-                    </button>
-                  </div>
-                  <div className={`grid transition-all duration-200 ${composerAberto ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-                    <div className="min-h-0 overflow-hidden">
-                      {orientacaoResposta && (
-                        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-amber-700">Por que essa resposta</div>
-                          <p className="leading-relaxed">{orientacaoResposta.explicacao}</p>
-                          {orientacaoResposta.alertas && orientacaoResposta.alertas.length > 0 && (
-                            <div className="mt-2 text-xs text-amber-800">
-                              {orientacaoResposta.alertas.join(' ')}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      <div className="relative">
-                        <textarea
-                          id="mensagem-operador"
-                          value={mensagemManual}
-                          onFocus={() => setComposerAberto(true)}
-                          onChange={(e) => setMensagemManual(e.target.value)}
-                          maxLength={4096}
-                          rows={3}
-                          placeholder="Escreva uma mensagem para enviar pelo WhatsApp..."
-                          className="w-full resize-none rounded-xl border border-slate-300 px-4 py-3 pr-14 text-sm leading-relaxed outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
-                        />
-                        <button
-                          type="button"
-                          onClick={enviarMensagemOperador}
-                          disabled={enviandoManual || !mensagemManual.trim()}
-                          title="Enviar mensagem"
-                          aria-label="Enviar mensagem"
-                          className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-600 text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <IconSend className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <CompositorOperador
+                  empresaId={empresaId}
+                  numero={aberta.numero}
+                  avisoModo={avisoModo}
+                  avisoDono={avisoDono}
+                  onEnviado={(data) => {
+                    setAberta((p) => p ? { ...p, ...data, historico: data.historico || p.historico, agente_pausado: true } : p)
+                    avisar()
+                  }}
+                />
               </>
             )}
           </>
