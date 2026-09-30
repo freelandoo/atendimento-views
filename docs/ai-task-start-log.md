@@ -6,6 +6,20 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-29 — Painel: abas Por cidade / Por nicho (ranking "quem converte mais")
+
+- **Pedido do operador:** abas de ranking por cidade e por nicho — qual converte mais — em barras
+  horizontais, além do resto do painel.
+- **Backend:** `rankingPorDimensao` agrupa mensagens/reuniões/conversou pela dimensão (cidade|nicho)
+  do prospect; a coluna vem de lista FECHADA no route (`?agrupar=`), nunca do usuário. Reusa
+  `montarPorCanal` (já ordena por reuniões) e corta em 20. Roda só quando a aba pede.
+- **Front:** duas abas novas; nelas, seção de ranking no topo (barras por reuniões + msg + conv/100)
+  e o corpo padrão abaixo (série/funil/etc.) para ver "que dia converteu mais". Sem filtro de
+  dimensão única nessas abas.
+- **Validação:** backend `npm test` 3275/3275; frontend `tsc` 0 + lib 12/12.
+
+---
+
 ## 2026-09-29 — Painel: direção vira FILTRO + respostas por hora (histograma 24h)
 
 - **Pedido do operador:** inbound/outbound como FILTRO no topo (Todos/Inbound/Outbound), não seção

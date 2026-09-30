@@ -18,6 +18,8 @@ type Payload = {
   funil: { estagio: string; n: number }[]
   followup_tentativa: { tentativa: number; enviados: number; responderam: number }[]
   respostas_hora: { hora: number; respostas: number }[]
+  ranking: LinhaCanal[] | null
+  agrupar: string | null
   bot_atribuivel: boolean
 }
 type Nicho = { id: string; nome: string }
@@ -31,6 +33,8 @@ const ABAS = [
   { id: 'geral', titulo: 'Visão geral' },
   { id: 'equipe', titulo: 'Por equipe' },
   { id: 'pessoa', titulo: 'Por pessoa' },
+  { id: 'cidade', titulo: 'Por cidade' },
+  { id: 'nicho', titulo: 'Por nicho' },
 ]
 
 export default function PainelComercial() {
@@ -84,6 +88,7 @@ export default function PainelComercial() {
   const equipeSel = equipes.find((e) => e.id === equipeId)
   const nichoEfetivo = aba === 'geral' ? nichoId : aba === 'equipe' ? (equipeSel?.nicho_id || '') : ''
   const pessoaEfetiva = aba === 'pessoa' ? pessoa : ''
+  const agrupar = aba === 'cidade' ? 'cidade' : aba === 'nicho' ? 'nicho' : '' // abas de ranking
   // Janela sempre em datas (uniformiza preset e custom, e deixa a comparação exata).
   const janela = preset === 'custom' ? { de: deCustom, ate: ateCustom } : janelaPreset(preset)
 
@@ -97,6 +102,7 @@ export default function PainelComercial() {
     if (direcao) dims.set('direcao', direcao)
     if (pais) dims.set('pais', pais)
     if (pessoaEfetiva) dims.set('pessoa', pessoaEfetiva)
+    if (agrupar) dims.set('agrupar', agrupar)
     const url = (de: string, ate: string) => {
       const qs = new URLSearchParams(dims)
       qs.set('de', de); qs.set('ate', ate)
@@ -120,7 +126,7 @@ export default function PainelComercial() {
         .finally(() => { if (vivo) setCarregando(false) })
     }, 300) // debounce: cidade/datas digitadas
     return () => { vivo = false; clearTimeout(t) }
-  }, [empresaId, preset, deCustom, ateCustom, comparar, canal, direcao, cidade, estado, pais, nichoEfetivo, pessoaEfetiva])
+  }, [empresaId, preset, deCustom, ateCustom, comparar, canal, direcao, cidade, estado, pais, nichoEfetivo, pessoaEfetiva, agrupar])
 
   const maxContato = useMemo(() => maxSerie(dados?.serie, ['mensagens', 'ligacoes']), [dados])
   const maxReuniao = useMemo(() => maxSerie(dados?.serie, ['reunioes_humano', 'reunioes_bot']), [dados])
@@ -226,6 +232,34 @@ export default function PainelComercial() {
 
       {dados && t && (
         <>
+          {/* Ranking por cidade/nicho — "quem converte mais" (abas de ranking) */}
+          {dados.ranking && (
+            <div className="bg-white rounded-2xl shadow-sm border p-5">
+              <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">
+                {aba === 'cidade' ? 'Cidades que mais convertem' : 'Nichos que mais convertem'}
+              </h3>
+              <p className="text-xs text-slate-400 mb-3">Ordenado por reuniões (barra proporcional ao 1º). Abaixo, o total do período.</p>
+              {dados.ranking.length === 0 ? (
+                <p className="text-slate-400 text-sm">Sem dados neste recorte.</p>
+              ) : (() => {
+                const maxR = Math.max(1, ...dados.ranking!.map((r) => r.reunioes))
+                return (
+                  <div className="space-y-2">
+                    {dados.ranking!.map((r) => (
+                      <div key={r.canal} className="text-xs">
+                        <div className="flex justify-between text-slate-600 mb-1 gap-2">
+                          <span className="truncate">{r.canal}</span>
+                          <span className="whitespace-nowrap"><b className="text-slate-800">{fmt(r.reunioes)}</b> reun · {fmt(r.mensagens)} msg · {fmtTaxa(r.por_100_contatos)}/100</span>
+                        </div>
+                        <Barra pct={larguraPct(r.reunioes, maxR)} cor="bg-violet-500" />
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+          )}
+
           {/* Razão de topo, sempre com denominador */}
           <div className="bg-white rounded-2xl shadow-sm border p-5">
             <p className="text-xs text-slate-500 uppercase tracking-wide">Conversão de contatos em reuniões</p>

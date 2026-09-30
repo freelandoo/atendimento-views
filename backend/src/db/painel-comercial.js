@@ -190,6 +190,45 @@ async function respostasPorHora(pool, filtros) {
   return rows
 }
 
+// RANKING por dimensão (cidade ou nicho): "qual cidade/nicho converte mais". Reusa a MESMA
+// estrutura das séries, mas agrupando pela dimensão do prospect em vez de por dia. Devolve 3
+// contagens (mensagens/reuniões/conversou) chaveadas por `canal`=valor da dimensão — o route as
+// funde com `montarPorCanal` (que já ordena por reuniões). `dimExpr` é escolhido de uma lista
+// FECHADA no route (nunca entrada do usuário). Só roda quando a aba de ranking pede.
+async function rankingPorDimensao(pool, filtros, dimExpr) {
+  const chave = `COALESCE(NULLIF(BTRIM(${dimExpr}), ''), '—')`
+  const roda = async (sql, pessoaCol) => {
+    const params = [filtros.empresaId, filtros.de, filtros.ate]
+    let pessoa = ''
+    if (filtros.pessoa) { params.push(filtros.pessoa); pessoa = ` AND ${pessoaCol} = $${params.length}` }
+    const lead = condLead('p', filtros, params)
+    const { rows } = await pool.query(sql.replace('%PESSOA%', pessoa).replace('%LEAD%', lead).replace('%CHAVE%', chave), params)
+    return rows
+  }
+  const [mensagens, reunioes, conversou] = await Promise.all([
+    roda(
+      `SELECT %CHAVE% AS canal, COUNT(*)::int AS n
+         FROM prospectador.lead_disparos d
+         JOIN prospectador.prospects p ON p.id = d.prospect_id
+        WHERE d.empresa_id = $1 AND d.status = 'enviado' AND d.criado_em >= $2 AND d.criado_em < $3%PESSOA%%LEAD%
+        GROUP BY 1`, 'd.usuario_id'),
+    roda(
+      `SELECT %CHAVE% AS canal, COUNT(*)::int AS n
+         FROM app.agenda_eventos a
+         LEFT JOIN prospectador.prospects p ON p.id = a.prospect_id
+        WHERE a.empresa_id = $1 AND a.tipo = 'reuniao' AND a.excluido_em IS NULL AND a.status <> 'cancelado'
+          AND a.data_inicio >= $2 AND a.data_inicio < $3%PESSOA%%LEAD%
+        GROUP BY 1`, 'a.responsavel_id'),
+    roda(
+      `SELECT %CHAVE% AS canal, COUNT(*)::int AS n
+         FROM vendas.conversas c
+         LEFT JOIN prospectador.prospects p ON ${TELN('p.telefone')} = ${TELN('c.numero')} AND p.empresa_id = c.empresa_id
+        WHERE c.empresa_id = $1 AND c.primeira_resposta_em >= $2 AND c.primeira_resposta_em < $3%PESSOA%%LEAD%
+        GROUP BY 1`, 'c.responsavel_id'),
+  ])
+  return { mensagens, reunioes, conversou }
+}
+
 // Reunião do bot: dado SEPARADO (decisão do operador). Empresa resolvida por
 // vendas.conversas.empresa_id = metadata->>'lead_numero' (a mesma ligação de meta-dispatch).
 // Sem canal/pessoa/prospect — por isso só entra quando não há filtro que exija atribuição.
@@ -249,4 +288,4 @@ async function estadosDaEmpresa(pool, empresaId) {
   return rows.map((r) => r.uf)
 }
 
-module.exports = { coletar, porEstagio, cidadesDaEmpresa, estadosDaEmpresa, botAtribuivel }
+module.exports = { coletar, porEstagio, rankingPorDimensao, cidadesDaEmpresa, estadosDaEmpresa, botAtribuivel }

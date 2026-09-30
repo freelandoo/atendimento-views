@@ -30,7 +30,18 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
       direcao: (q.direcao === 'inbound' || q.direcao === 'outbound') ? q.direcao : null,
       pessoa: q.pessoa || null,
     }
-    const [dados, funil] = await Promise.all([PC.coletar(pool, filtros), PC.porEstagio(pool, filtros)])
+    // Ranking por cidade/nicho só quando a aba pede (agrupar). Coluna de lista FECHADA — nunca
+    // vem do usuário direto (injeção). Reusa montarPorCanal (ordena por reuniões) e corta em 20.
+    const COL_AGRUPAR = { cidade: 'p.cidade', nicho: 'p.nicho' }
+    const agrupar = COL_AGRUPAR[q.agrupar] ? q.agrupar : null
+    const [dados, funil, rankBruto] = await Promise.all([
+      PC.coletar(pool, filtros),
+      PC.porEstagio(pool, filtros),
+      agrupar ? PC.rankingPorDimensao(pool, filtros, COL_AGRUPAR[agrupar]) : Promise.resolve(null),
+    ])
+    const ranking = rankBruto
+      ? S.montarPorCanal({ mensagens: rankBruto.mensagens, reunioes: rankBruto.reunioes, conversou: rankBruto.conversou }).slice(0, 20)
+      : null
     const serie = S.montarSerie(dados)
     const totais = S.totalizar(serie)
     const razoes = S.calcularRazoes(totais)
@@ -45,6 +56,7 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
       data: {
         serie, totais, razoes, por_canal: porCanal, funil,
         followup_tentativa: dados.followupTentativa, respostas_hora: dados.respostasHora,
+        ranking, agrupar,
         bot_atribuivel: dados.bot_atribuivel,
       },
       meta: {
