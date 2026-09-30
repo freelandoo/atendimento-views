@@ -26,6 +26,7 @@ import ConversaPainel, {
 import FichaLead, { type SecaoFicha } from '@/components/FichaLead'
 import { type LeadDetalhavel } from '@/components/LeadDetalhesModal'
 import { acessosDoLead } from '@/lib/lead-acessos'
+import { cartaoCompromisso, resumoUltimaLigacao, type ProximaAcaoLead } from '@/lib/lead-proxima-acao'
 import { identidadeConversa, nomeColunaLead } from '@/lib/lead-identidade'
 import {
   opcoesEscopoConversa, avisoDeRecorte, atendenteDaConversa,
@@ -139,6 +140,80 @@ function dentroPeriodo(c: Conversa, f: Filtros): boolean {
   if (f.de && d < new Date(f.de + 'T00:00:00')) return false
   if (f.ate && d > new Date(f.ate + 'T23:59:59')) return false
   return true
+}
+
+// Bloco "Próxima ação" do Resumo da ficha (paridade com o Banco de Leads). Read-only e COMPACTO:
+// reusa o mesmo endpoint e a mesma tradução pura (`cartaoCompromisso`/`resumoUltimaLigacao`). A
+// CRIAÇÃO de follow-up/reunião acontece na aba Conversa; aqui só se MOSTRA o que já foi combinado.
+function ResumoProximaAcao({ empresaId, leadId, onIrConversa }: {
+  empresaId: string; leadId: string; onIrConversa: () => void
+}) {
+  const [pa, setPa] = useState<ProximaAcaoLead | null>(null)
+  const [estado, setEstado] = useState<'carregando' | 'ok' | 'erro'>('carregando')
+  useEffect(() => {
+    let vivo = true
+    setEstado('carregando')
+    apiFetch<ProximaAcaoLead>(`/api/empresas/${empresaId}/banco-leads/leads/${leadId}/proxima-acao`)
+      .then((r) => { if (vivo) { setPa(r.data); setEstado('ok') } })
+      .catch(() => { if (vivo) setEstado('erro') })
+    return () => { vivo = false }
+  }, [empresaId, leadId])
+
+  const agora = new Date()
+  const cartoes = (pa?.compromissos || []).map((raw) => cartaoCompromisso(raw, agora))
+  const [principal, ...outros] = cartoes
+  const ligacao = resumoUltimaLigacao(pa?.ultima_ligacao || null, agora)
+
+  return (
+    <div className="mb-3 rounded-lg border border-line bg-surface p-4 shadow-card">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Próxima ação</p>
+      {estado === 'carregando' ? (
+        <p className="mt-1 text-xs text-ink-3">Carregando follow-ups e reuniões…</p>
+      ) : estado === 'erro' ? (
+        <p className="mt-1 text-xs text-amber-800">Não foi possível carregar follow-ups e reuniões deste lead.</p>
+      ) : principal ? (
+        <div className={`mt-2 rounded-md border px-3 py-2.5 ${principal.classe}`}>
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-medium">
+            {principal.selo && <span className="rounded-full bg-surface px-2 py-0.5 font-semibold">{principal.selo}</span>}
+            <span>{principal.tipo}</span><span aria-hidden>·</span><span>{principal.quando}</span>
+          </p>
+          <p className="mt-1 text-sm font-semibold text-ink">{principal.titulo}</p>
+          {principal.observacao && <p className="mt-0.5 text-xs leading-relaxed text-ink-2">“{principal.observacao}”</p>}
+          {principal.detalhe && <p className="mt-0.5 text-[11px] text-ink-3">{principal.detalhe}</p>}
+          <button type="button" onClick={onIrConversa}
+            className="mt-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-ink-2 transition hover:bg-surface-2">
+            Abrir conversa
+          </button>
+        </div>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <p className="text-xs text-ink-3">Nenhum follow-up, retorno ou reunião combinado com este lead.</p>
+          <button type="button" onClick={onIrConversa}
+            className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-ink-2 transition hover:bg-surface-2">
+            Criar follow-up
+          </button>
+        </div>
+      )}
+      {outros.length > 0 && (
+        <ul className="mt-2 grid gap-1 text-xs">
+          {outros.map((c) => (
+            <li key={c.chave} className="flex flex-wrap items-baseline gap-x-1.5 text-ink-2">
+              {c.selo && <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${c.classe}`}>{c.selo}</span>}
+              <span className="text-ink-3">{c.tipo} · {c.quando}:</span>
+              <span className="font-medium text-ink">{c.titulo}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {ligacao && (
+        <div className="mt-3 border-t border-line pt-3 text-xs">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">Última ligação</p>
+          <p className="mt-1 text-ink-2">{ligacao.texto}</p>
+          {ligacao.notas && <p className="mt-0.5 text-[11px] text-ink-3">“{ligacao.notas}”</p>}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function ConversasPage() {
@@ -296,7 +371,7 @@ export default function ConversasPage() {
         status: lead.status || '',
         numero: c.numero,
         titulo: nomeColunaLead(c) || identidadeConversa(c).titulo,
-        secao: 'qualificacao',
+        secao: 'resumo',
         criterios: c.score_interesse_criterios || [],
       })
     } catch {
@@ -793,6 +868,13 @@ export default function ConversasPage() {
           onSalvarTelefone={salvarTelefoneFicha}
           onLeadAtualizado={(lead) => setFicha((f) => (f ? { ...f, lead: lead as LeadDetalhavel } : f))}
           interessesConversa={ficha.criterios}
+          resumoExtra={
+            <ResumoProximaAcao
+              empresaId={empresaId}
+              leadId={ficha.lead.id}
+              onIrConversa={() => setFicha((f) => (f ? { ...f, secao: 'conversa' } : f))}
+            />
+          }
         />
       )}
     </div>
