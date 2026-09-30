@@ -47,7 +47,7 @@ function botAtribuivel(filtros) {
 // casar com mais de um prospect; ORDER BY prefere o vínculo explícito. Expõe as colunas que
 // `condLead`/agrupamento usam, sob o alias externo `p`.
 const JOIN_PROSPECT_AGENDA = `LEFT JOIN LATERAL (
-    SELECT pp.origem, pp.nicho_id, pp.cidade, pp.uf, pp.nicho
+    SELECT pp.origem, pp.nicho_id, pp.cidade, pp.uf, pp.pais, pp.nicho
       FROM prospectador.prospects pp
      WHERE pp.empresa_id = a.empresa_id
        AND (pp.id = a.prospect_id OR (a.prospect_id IS NULL AND ${TELN('pp.telefone')} = ${TELN('a.lead_telefone')}))
