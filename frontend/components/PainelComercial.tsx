@@ -278,7 +278,12 @@ export default function PainelComercial() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Tile titulo="Mensagens enviadas" valor={fmt(t.mensagens)} delta={dInfo('mensagens')} />
             <Tile titulo="Responderam" valor={fmt(t.conversou)} delta={dInfo('conversou')} />
-            <Tile titulo="Ligações (atendidas)" valor={`${fmt(t.ligacoes)} (${fmt(t.ligacoes_atendidas)})`} delta={dInfo('ligacoes')} />
+            <Tile
+              titulo="Ligações"
+              valor={fmt(t.ligacoes)}
+              sub={`${fmt(t.ligacoes_atendidas)} atendidas · ${fmtTaxa(t.ligacoes > 0 ? Number(((t.ligacoes_atendidas / t.ligacoes) * 100).toFixed(0)) : null)}%`}
+              delta={dInfo('ligacoes')}
+            />
             <Tile titulo="Reuniões" valor={fmt(t.reunioes)} delta={dInfo('reunioes')} />
             <Tile titulo="Reuniões: humano / bot" valor={`${fmt(t.reunioes_humano)} / ${fmt(t.reunioes_bot)}`} small />
           </div>
@@ -449,11 +454,12 @@ export default function PainelComercial() {
   )
 }
 
-function Tile({ titulo, valor, small, delta }: { titulo: string; valor: string; small?: boolean; delta?: DeltaInfo }) {
+function Tile({ titulo, valor, small, delta, sub }: { titulo: string; valor: string; small?: boolean; delta?: DeltaInfo; sub?: string }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border p-5">
       <p className="text-xs text-slate-500 uppercase tracking-wide">{titulo}</p>
       <p className={`${small ? 'text-xl' : 'text-3xl'} font-bold mt-1 text-slate-900`}>{valor}</p>
+      {sub && <p className="text-xs text-slate-500 mt-0.5">{sub}</p>}
       {delta && (
         // Seta + número (quantidade E %) são o sinal; cor só reforça. Δ vs. período anterior.
         <p className={`text-xs mt-1 ${delta.abs > 0 ? 'text-emerald-600' : delta.abs < 0 ? 'text-rose-600' : 'text-slate-400'}`}>
