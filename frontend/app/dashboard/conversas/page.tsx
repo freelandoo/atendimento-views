@@ -304,6 +304,31 @@ export default function ConversasPage() {
     }
   }
 
+  // Registro de status na ficha (contato, ligação, reunião, proposta, descarte). Mesmo endpoint
+  // do Banco de Leads (`PATCH /leads/:id/status`); aqui só se atualiza a ficha aberta — não há
+  // lista de leads para reconciliar. É o que habilita o registro dentro do drawer da Central.
+  async function alterarStatusFicha(statusOperacional: string, payload?: Record<string, unknown>) {
+    if (!ficha || !empresaId) return
+    const r = await fb.runTask(
+      () => apiFetch<{ status: string }>(
+        `/api/empresas/${empresaId}/banco-leads/leads/${ficha.lead.id}/status`,
+        { method: 'PATCH', body: JSON.stringify({ status: statusOperacional, ...(payload || {}) }) }
+      ),
+      { sucesso: 'Registro atualizado.' }
+    )
+    setFicha((f) => (f ? { ...f, status: r.data.status } : f))
+  }
+
+  async function salvarTelefoneFicha(telefone: string) {
+    if (!ficha || !empresaId) return
+    const r = await apiFetch<{ telefone: string | null; status: string }>(
+      `/api/empresas/${empresaId}/banco-leads/leads/${ficha.lead.id}/telefone`,
+      { method: 'PATCH', body: JSON.stringify({ telefone }) }
+    )
+    setFicha((f) => (f ? { ...f, status: r.data.status, lead: { ...f.lead, telefone: r.data.telefone } } : f))
+    fb.toast(telefone ? 'Telefone salvo.' : 'Telefone removido.')
+  }
+
   async function removerConversa(c: Conversa) {
     if (!empresaId) return
     const identidade = identidadeConversa(c)
@@ -759,8 +784,14 @@ export default function ConversasPage() {
           onTrocarSecao={(s) => setFicha((f) => (f ? { ...f, secao: s } : f))}
           onFechar={() => setFicha(null)}
           empresaId={empresaId}
-          podeEditarIcp={false}
-          podeTriarLead={false}
+          // Mesma ficha do Banco de Leads: registrar status/ligação/reunião/proposta, qualificar
+          // (ICP) e corrigir telefone — tudo persiste pelos mesmos endpoints. Qualificação só é
+          // editável para quem tem a capacidade de triar (senão o autosave tomaria 403).
+          podeEditarIcp={temCapacidade(capacidades, 'lead_triar')}
+          podeTriarLead={temCapacidade(capacidades, 'lead_triar')}
+          onAlterarStatus={alterarStatusFicha}
+          onSalvarTelefone={salvarTelefoneFicha}
+          onLeadAtualizado={(lead) => setFicha((f) => (f ? { ...f, lead: lead as LeadDetalhavel } : f))}
           interessesConversa={ficha.criterios}
         />
       )}
