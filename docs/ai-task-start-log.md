@@ -6,6 +6,19 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-29 — Reunião conta por data de MARCAÇÃO (criado_em), não de ocorrência
+
+- **Decisão do operador:** reunião é conversão quando é MARCADA — contar por `criado_em`, não por
+  `data_inicio`. Resolve o caso "reunião futura não aparece em janela passada".
+- Trocado `data_inicio`→`criado_em` (bucket e range) em `serieReunioesHumano`, `serieReunioesBot`
+  e no ranking. A série passa a plotar reuniões no dia em que foram marcadas; o tile/total conta as
+  marcadas no período. Ressalva escrita na tela.
+- **Pendente (pedido do operador, para DEPOIS):** aba dedicada "Reuniões" — taxa de comparecimento
+  (show), reuniões marcadas por pessoa, etc. Não iniciada.
+- **Validação:** backend `npm test` 3275/3275; frontend `tsc` 0.
+
+---
+
 ## 2026-09-29 — Correção: reunião não casava com nicho/cidade (energia solar aparecia com 0)
 
 - **Sintoma (operador):** havia reuniões marcadas para energia solar, mas "Por nicho" mostrava 0.

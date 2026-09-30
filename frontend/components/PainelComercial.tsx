@@ -434,6 +434,7 @@ export default function PainelComercial() {
           {/* Ressalvas honestas */}
           <div className="text-xs text-slate-400 space-y-1">
             <p>“Contato” conta mensagem <b>enviada</b> + ligação <b>atendida</b>. “Responderam” = leads que responderam no WhatsApp, contado <b>a partir de agora</b> (conversas anteriores não entram).</p>
+            <p>“Reuniões” conta pela data em que foram <b>marcadas</b> (não pela data em que acontecem), e são atribuídas ao nicho/cidade do lead pelo telefone.</p>
             <p>“Follow-ups por tentativa” vem dos envios automáticos registrados (reengajamento e fluxo do funil); a “tentativa” é a ordem real do envio. “Respostas por horário” usa a 1ª resposta de qualquer conversa (a partir de 2026-09-29).</p>
             {filtroDimensao && !dados.bot_atribuivel && (
               <p>Reunião pelo bot não tem nicho/cidade/canal/país/pessoa — fica fora com esses filtros (inclusive o país padrão). Escolha “Todos os países” para incluí-la.</p>

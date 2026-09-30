@@ -98,13 +98,13 @@ async function serieReunioesHumano(pool, filtros) {
   if (filtros.pessoa) { params.push(filtros.pessoa); pessoa = ` AND a.responsavel_id = $${params.length}` }
   const lead = condLead('p', filtros, params)
   const { rows } = await pool.query(
-    `SELECT date_trunc('day', a.data_inicio AT TIME ZONE '${TZ}')::date AS dia,
+    `SELECT date_trunc('day', a.criado_em AT TIME ZONE '${TZ}')::date AS dia,
             COALESCE(p.origem, 'desconhecido') AS canal, COUNT(*)::int AS n
        FROM app.agenda_eventos a
        ${JOIN_PROSPECT_AGENDA}
       WHERE a.empresa_id = $1 AND a.tipo = 'reuniao' AND a.excluido_em IS NULL
         AND a.status <> 'cancelado'
-        AND a.data_inicio >= $2 AND a.data_inicio < $3${pessoa}${lead}
+        AND a.criado_em >= $2 AND a.criado_em < $3${pessoa}${lead}
       GROUP BY 1, 2`,
     params
   )
@@ -233,7 +233,7 @@ async function rankingPorDimensao(pool, filtros, dimExpr) {
          FROM app.agenda_eventos a
          ${JOIN_PROSPECT_AGENDA}
         WHERE a.empresa_id = $1 AND a.tipo = 'reuniao' AND a.excluido_em IS NULL AND a.status <> 'cancelado'
-          AND a.data_inicio >= $2 AND a.data_inicio < $3%PESSOA%%LEAD%
+          AND a.criado_em >= $2 AND a.criado_em < $3%PESSOA%%LEAD%
         GROUP BY 1`, 'a.responsavel_id'),
     roda(
       `SELECT %CHAVE% AS canal, COUNT(*)::int AS n
@@ -250,11 +250,11 @@ async function rankingPorDimensao(pool, filtros, dimExpr) {
 // Sem canal/pessoa/prospect — por isso só entra quando não há filtro que exija atribuição.
 async function serieReunioesBot(pool, filtros) {
   const { rows } = await pool.query(
-    `SELECT date_trunc('day', a.data_inicio AT TIME ZONE '${TZ}')::date AS dia, COUNT(*)::int AS n
+    `SELECT date_trunc('day', a.criado_em AT TIME ZONE '${TZ}')::date AS dia, COUNT(*)::int AS n
        FROM vendas.agenda_eventos a
        JOIN vendas.conversas c ON c.numero = a.metadata->>'lead_numero'
       WHERE c.empresa_id = $1 AND a.tipo = 'reuniao'
-        AND a.data_inicio >= $2 AND a.data_inicio < $3
+        AND a.criado_em >= $2 AND a.criado_em < $3
       GROUP BY 1`,
     [filtros.empresaId, filtros.de, filtros.ate]
   )
