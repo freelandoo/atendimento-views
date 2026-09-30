@@ -23,6 +23,7 @@ export interface LinhaCanal {
 }
 export const ROTULO_CANAL: Record<string, string>
 export function rotuloCanal(c: string | null | undefined): string
+export function idadeEquipe(criadoEm: string | number | Date | null | undefined, agora?: Date): string
 export function fmt(n: number | string | null | undefined): string
 export function fmtTaxa(v: number | null | undefined): string
 export function fraseRazao(razoes: Partial<Razoes> | null | undefined): string

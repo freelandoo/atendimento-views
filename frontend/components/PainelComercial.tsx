@@ -3,7 +3,8 @@
 // Sem lib de gráfico: tiles + barras CSS. Ver docs/propostas/2026-09-29-*.md.
 import { useEffect, useMemo, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
-import { rotuloCanal, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
+import Abas from '@/components/ui/Abas'
+import { rotuloCanal, idadeEquipe, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
 import type { DiaSerie, LinhaCanal, Razoes } from '@/lib/painel-comercial'
 
 type Payload = {
@@ -15,17 +16,26 @@ type Payload = {
 }
 type Nicho = { id: string; nome: string }
 type Membro = { usuario_id: string; nome: string; ativo?: boolean }
+type Equipe = { id: string; nome: string; nicho_id: string; nicho_nome?: string; criado_em?: string; status?: string }
 
 const CANAIS = ['google_places', 'instagram', 'meta_ads', 'linkedin']
 const PERIODOS = [{ v: '7d', l: 'Últimos 7 dias' }, { v: '30d', l: 'Últimos 30 dias' }]
+const ABAS = [
+  { id: 'geral', titulo: 'Visão geral' },
+  { id: 'equipe', titulo: 'Por equipe' },
+  { id: 'pessoa', titulo: 'Por pessoa' },
+]
 
 export default function PainelComercial() {
+  const [aba, setAba] = useState('geral')
   const [periodo, setPeriodo] = useState('7d')
   const [nichoId, setNichoId] = useState('')
+  const [equipeId, setEquipeId] = useState('')
   const [canal, setCanal] = useState('')
   const [cidade, setCidade] = useState('')
   const [pessoa, setPessoa] = useState('')
   const [nichos, setNichos] = useState<Nicho[]>([])
+  const [equipes, setEquipes] = useState<Equipe[]>([])
   const [membros, setMembros] = useState<Membro[]>([])
   const [dados, setDados] = useState<Payload | null>(null)
   const [rotuloPeriodo, setRotuloPeriodo] = useState('')
@@ -33,6 +43,10 @@ export default function PainelComercial() {
   const [carregando, setCarregando] = useState(true)
 
   const empresaId = getEmpresaId()
+
+  // Aba persiste por sessão — trocar de aba é só apresentação (não dispara nada além do refetch).
+  useEffect(() => { try { const s = sessionStorage.getItem('painelComercialAba'); if (s) setAba(s) } catch {} }, [])
+  useEffect(() => { try { sessionStorage.setItem('painelComercialAba', aba) } catch {} }, [aba])
 
   useEffect(() => {
     if (!empresaId) return
@@ -42,15 +56,23 @@ export default function PainelComercial() {
     apiFetch<Membro[]>(`/api/empresas/${empresaId}/membros`)
       .then((r) => setMembros((r.data || []).filter((m) => m && m.usuario_id && m.ativo !== false)))
       .catch(() => setMembros([])) // idem: sem lista, some o seletor de pessoa
+    apiFetch<Equipe[]>(`/api/empresas/${empresaId}/equipes-comerciais`)
+      .then((r) => setEquipes((r.data || []).filter((e) => e && e.id && e.nicho_id)))
+      .catch(() => setEquipes([]))
   }, [empresaId])
+
+  // Cada aba controla UMA dimensão; as demais não vazam para a consulta.
+  const equipeSel = equipes.find((e) => e.id === equipeId)
+  const nichoEfetivo = aba === 'geral' ? nichoId : aba === 'equipe' ? (equipeSel?.nicho_id || '') : ''
+  const pessoaEfetiva = aba === 'pessoa' ? pessoa : ''
 
   useEffect(() => {
     if (!empresaId) { setErro('Nenhuma empresa selecionada.'); setCarregando(false); return }
     const qs = new URLSearchParams({ periodo })
-    if (nichoId) qs.set('nicho_id', nichoId)
+    if (nichoEfetivo) qs.set('nicho_id', nichoEfetivo)
     if (canal) qs.set('canal', canal)
     if (cidade.trim()) qs.set('cidade', cidade.trim())
-    if (pessoa) qs.set('pessoa', pessoa)
+    if (pessoaEfetiva) qs.set('pessoa', pessoaEfetiva)
     let vivo = true
     setCarregando(true)
     const t = setTimeout(() => {
@@ -65,13 +87,13 @@ export default function PainelComercial() {
         .finally(() => { if (vivo) setCarregando(false) })
     }, 300) // debounce: cidade é digitada
     return () => { vivo = false; clearTimeout(t) }
-  }, [empresaId, periodo, nichoId, canal, cidade, pessoa])
+  }, [empresaId, periodo, canal, cidade, nichoEfetivo, pessoaEfetiva])
 
   const maxContato = useMemo(() => maxSerie(dados?.serie, ['mensagens', 'ligacoes']), [dados])
   const maxReuniao = useMemo(() => maxSerie(dados?.serie, ['reunioes_humano', 'reunioes_bot']), [dados])
 
   const t = dados?.totais
-  const filtroDimensao = Boolean(nichoId || canal || cidade.trim() || pessoa)
+  const filtroDimensao = Boolean(nichoEfetivo || canal || cidade.trim() || pessoaEfetiva)
 
   return (
     <section className="space-y-5">
@@ -80,27 +102,50 @@ export default function PainelComercial() {
         <span className="text-xs text-slate-500">{rotuloPeriodo}</span>
       </div>
 
-      {/* Filtros */}
+      <Abas abas={ABAS} ativa={aba} onMudar={setAba} idBase="painel-comercial" ariaLabel="Recorte do painel comercial" />
+
+      <div role="tabpanel" id={`painel-comercial-painel-${aba}`} aria-labelledby={`painel-comercial-aba-${aba}`} className="space-y-5">
+      {/* Filtros: comuns + o da aba ativa */}
       <div className="flex flex-wrap gap-2">
         <select value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
           {PERIODOS.map((p) => <option key={p.v} value={p.v}>{p.l}</option>)}
-        </select>
-        <select value={nichoId} onChange={(e) => setNichoId(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
-          <option value="">Todos os nichos</option>
-          {nichos.map((n) => <option key={n.id} value={n.id}>{n.nome}</option>)}
         </select>
         <select value={canal} onChange={(e) => setCanal(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
           <option value="">Todos os canais</option>
           {CANAIS.map((c) => <option key={c} value={c}>{rotuloCanal(c)}</option>)}
         </select>
         <input value={cidade} onChange={(e) => setCidade(e.target.value)} placeholder="Cidade" className="border rounded-lg px-3 py-1.5 text-sm bg-white" />
-        {membros.length > 0 && (
+        {aba === 'geral' && (
+          <select value={nichoId} onChange={(e) => setNichoId(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
+            <option value="">Todos os nichos</option>
+            {nichos.map((n) => <option key={n.id} value={n.id}>{n.nome}</option>)}
+          </select>
+        )}
+        {aba === 'equipe' && (
+          <select value={equipeId} onChange={(e) => setEquipeId(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
+            <option value="">Selecione uma equipe</option>
+            {equipes.map((e) => <option key={e.id} value={e.id}>{e.nome}{e.status && e.status !== 'ativa' ? ' (encerrada)' : ''}</option>)}
+          </select>
+        )}
+        {aba === 'pessoa' && (
           <select value={pessoa} onChange={(e) => setPessoa(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
-            <option value="">Toda a equipe</option>
+            <option value="">Selecione uma pessoa</option>
             {membros.map((m) => <option key={m.usuario_id} value={m.usuario_id}>{m.nome}</option>)}
           </select>
         )}
       </div>
+
+      {/* Contexto da aba */}
+      {aba === 'equipe' && equipeSel && (
+        <p className="text-xs text-slate-500">
+          Equipe <b className="text-slate-700">{equipeSel.nome}</b>
+          {equipeSel.nicho_nome ? <> · nicho {equipeSel.nicho_nome}</> : null}
+          {equipeSel.criado_em ? <> · existe {idadeEquipe(equipeSel.criado_em)} (desde {new Date(equipeSel.criado_em).toLocaleDateString('pt-BR')})</> : null}
+          {' '}· mostra os resultados do nicho desta equipe.
+        </p>
+      )}
+      {aba === 'equipe' && !equipeSel && <p className="text-xs text-slate-400">Selecione uma equipe para ver o desempenho dela.</p>}
+      {aba === 'pessoa' && !pessoa && <p className="text-xs text-slate-400">Selecione uma pessoa para ver o desempenho dela ao longo do tempo.</p>}
 
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
       {!erro && !dados && <p className="text-slate-500 text-sm">Carregando…</p>}
@@ -193,6 +238,7 @@ export default function PainelComercial() {
         </>
       )}
       {carregando && dados && <p className="text-slate-400 text-xs">Atualizando…</p>}
+      </div>
     </section>
   )
 }

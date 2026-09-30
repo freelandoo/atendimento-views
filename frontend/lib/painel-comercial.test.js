@@ -22,6 +22,17 @@ test('fraseRazao: com denominador; sem contatos tem texto próprio', () => {
   assert.equal(P.fraseRazao(null), 'Sem contatos no período')
 })
 
+test('idadeEquipe: hoje, dias, meses, anos; inválida/futura → ""', () => {
+  const agora = new Date('2026-09-29T12:00:00Z')
+  assert.equal(P.idadeEquipe('2026-09-29T08:00:00Z', agora), 'criada hoje')
+  assert.equal(P.idadeEquipe('2026-09-24T12:00:00Z', agora), 'há 5 dias')
+  assert.equal(P.idadeEquipe('2026-07-01T12:00:00Z', agora), 'há 3 meses') // 90 dias
+  assert.equal(P.idadeEquipe('2025-01-01T12:00:00Z', agora), 'há 1 ano')
+  assert.equal(P.idadeEquipe('2027-01-01T12:00:00Z', agora), '') // futura
+  assert.equal(P.idadeEquipe(null, agora), '')
+  assert.equal(P.idadeEquipe('lixo', agora), '')
+})
+
 test('maxSerie / larguraPct: escala e divisão por zero → 0', () => {
   const serie = [{ mensagens: 3, ligacoes: 10 }, { mensagens: 8, ligacoes: 2 }]
   assert.equal(P.maxSerie(serie, ['mensagens', 'ligacoes']), 10)

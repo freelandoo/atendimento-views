@@ -15,8 +15,24 @@ const ROTULO_CANAL = {
   desconhecido: 'Sem origem',
 }
 
+const DIA_MS = 24 * 60 * 60 * 1000
+
 function rotuloCanal(c) {
   return ROTULO_CANAL[c] || c || 'Sem origem'
+}
+
+/** Há quanto tempo a equipe existe, em texto ("há 3 meses"). Data inválida/futura → ''. */
+function idadeEquipe(criadoEm, agora = new Date()) {
+  if (!criadoEm) return ''
+  const criado = new Date(criadoEm)
+  if (isNaN(criado.getTime())) return ''
+  const dias = Math.floor((agora.getTime() - criado.getTime()) / DIA_MS)
+  if (dias < 0) return ''
+  if (dias < 1) return 'criada hoje'
+  if (dias < 30) return `há ${dias} ${dias === 1 ? 'dia' : 'dias'}`
+  if (dias < 365) { const m = Math.floor(dias / 30); return `há ${m} ${m === 1 ? 'mês' : 'meses'}` }
+  const a = Math.floor(dias / 365)
+  return `há ${a} ${a === 1 ? 'ano' : 'anos'}`
 }
 
 function fmt(n) {
@@ -48,4 +64,4 @@ function larguraPct(valor, max) {
   return Math.round((Number(valor || 0) / max) * 100)
 }
 
-module.exports = { ROTULO_CANAL, rotuloCanal, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct }
+module.exports = { ROTULO_CANAL, rotuloCanal, idadeEquipe, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct }
