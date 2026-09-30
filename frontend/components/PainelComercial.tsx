@@ -1,10 +1,16 @@
 'use client'
 // Painel comercial da Visão Geral (Fase 1). Lê TUDO de /painel-comercial; nenhuma regra aqui.
 // Sem lib de gráfico: tiles + barras CSS. Ver docs/propostas/2026-09-29-*.md.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
+import dynamic from 'next/dynamic'
 import Abas from '@/components/ui/Abas'
-import { rotuloCanal, idadeEquipe, funilComQueda, histogramaHoras, destaquesRanking, janelaPreset, janelaAnterior, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
+// Recharts mede o DOM: carrega só no cliente (evita SSR/hidratação e mantém o bundle inicial leve).
+const GraficoSerie = dynamic(() => import('@/components/ui/GraficoSerie'), {
+  ssr: false,
+  loading: () => <div className="h-72 flex items-center justify-center text-ink-3 text-sm">Carregando gráfico…</div>,
+})
+import { rotuloCanal, idadeEquipe, funilComQueda, histogramaHoras, destaquesRanking, janelaPreset, janelaAnterior, formatarDelta, fmt, fmtTaxa, fraseRazao, larguraPct } from '@/lib/painel-comercial'
 import type { DiaSerie, LinhaCanal, Razoes, DeltaInfo, NivelFunilConversao } from '@/lib/painel-comercial'
 
 const dataBr = (ymd: string) => ymd.split('-').reverse().join('/') // 2026-09-23 → 23/09/2026
@@ -129,9 +135,6 @@ export default function PainelComercial() {
     }, 300) // debounce: cidade/datas digitadas
     return () => { vivo = false; clearTimeout(t) }
   }, [empresaId, preset, deCustom, ateCustom, comparar, canal, direcao, cidade, estado, pais, nichoEfetivo, pessoaEfetiva, agrupar])
-
-  const maxContato = useMemo(() => maxSerie(dados?.serie, ['mensagens', 'ligacoes']), [dados])
-  const maxReuniao = useMemo(() => maxSerie(dados?.serie, ['reunioes_humano', 'reunioes_bot']), [dados])
 
   const t = dados?.totais
   const filtroDimensao = Boolean(nichoEfetivo || canal || direcao || cidade.trim() || estado || pais || pessoaEfetiva)
@@ -329,28 +332,10 @@ export default function PainelComercial() {
             )}
           </div>
 
-          {/* Série no tempo */}
+          {/* Série no tempo — gráfico de linhas (Recharts), duplo eixo (volume × reuniões) */}
           <div className="bg-white rounded-2xl shadow-sm border p-5">
             <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide mb-3">Ao longo do período</h3>
-            {dados.serie.length === 0 ? (
-              <p className="text-slate-400 text-sm">Sem atividade no período.</p>
-            ) : (
-              <div className="space-y-3">
-                {dados.serie.map((d) => (
-                  <div key={d.dia} className="text-xs">
-                    <div className="flex justify-between text-slate-500 mb-1">
-                      <span>{d.dia.slice(5)}</span>
-                      <span>{fmt(d.mensagens)} msg · {fmt(d.conversou)} resp · {fmt(d.ligacoes)} lig · {fmt(d.reunioes_humano + d.reunioes_bot)} reun</span>
-                    </div>
-                    <Barra pct={larguraPct(d.mensagens, maxContato)} cor="bg-sky-400" />
-                    <Barra pct={larguraPct(d.conversou, maxContato)} cor="bg-amber-400" />
-                    <Barra pct={larguraPct(d.ligacoes, maxContato)} cor="bg-indigo-400" />
-                    <Barra pct={larguraPct(d.reunioes_humano + d.reunioes_bot, maxReuniao)} cor="bg-emerald-500" />
-                  </div>
-                ))}
-                <Legenda />
-              </div>
-            )}
+            <GraficoSerie serie={dados.serie} />
           </div>
 
           {/* Funil: onde os leads estão parados + queda entre etapas */}
@@ -538,17 +523,6 @@ function Barra({ pct, cor }: { pct: number; cor: string }) {
   return (
     <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden mb-1">
       <div className={`h-full ${cor}`} style={{ width: `${pct}%` }} />
-    </div>
-  )
-}
-
-function Legenda() {
-  return (
-    <div className="flex gap-4 text-xs text-slate-500 pt-1">
-      <span className="flex items-center gap-1"><i className="w-3 h-1.5 rounded-full bg-sky-400 inline-block" /> Mensagens</span>
-      <span className="flex items-center gap-1"><i className="w-3 h-1.5 rounded-full bg-amber-400 inline-block" /> Respostas</span>
-      <span className="flex items-center gap-1"><i className="w-3 h-1.5 rounded-full bg-indigo-400 inline-block" /> Ligações</span>
-      <span className="flex items-center gap-1"><i className="w-3 h-1.5 rounded-full bg-emerald-500 inline-block" /> Reuniões</span>
     </div>
   )
 }
