@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import Abas from '@/components/ui/Abas'
-import { rotuloCanal, idadeEquipe, ordenarFunil, janelaPreset, janelaAnterior, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
+import { rotuloCanal, idadeEquipe, funilComQueda, janelaPreset, janelaAnterior, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
 import type { DiaSerie, LinhaCanal, LinhaFunil, Razoes } from '@/lib/painel-comercial'
 
 type Totais = { mensagens: number; ligacoes: number; ligacoes_atendidas: number; conversou: number; reunioes: number; reunioes_humano: number; reunioes_bot: number }
@@ -45,6 +45,7 @@ export default function PainelComercial() {
   const [nichos, setNichos] = useState<Nicho[]>([])
   const [equipes, setEquipes] = useState<Equipe[]>([])
   const [membros, setMembros] = useState<Membro[]>([])
+  const [cidades, setCidades] = useState<string[]>([])
   const [dados, setDados] = useState<Payload | null>(null)
   const [rotuloPeriodo, setRotuloPeriodo] = useState('')
   const [erro, setErro] = useState('')
@@ -67,6 +68,9 @@ export default function PainelComercial() {
     apiFetch<Equipe[]>(`/api/empresas/${empresaId}/equipes-comerciais`)
       .then((r) => setEquipes((r.data || []).filter((e) => e && e.id && e.nicho_id)))
       .catch(() => setEquipes([]))
+    apiFetch<{ cidades: string[] }>(`/api/empresas/${empresaId}/painel-comercial/locais`)
+      .then((r) => setCidades(r.data?.cidades || []))
+      .catch(() => setCidades([])) // sem lista → cai no seletor vazio "Todas as cidades"
   }, [empresaId])
 
   // Cada aba controla UMA dimensão; as demais não vazam para a consulta.
@@ -150,7 +154,10 @@ export default function PainelComercial() {
           <option value="">Todos os canais</option>
           {CANAIS.map((c) => <option key={c} value={c}>{rotuloCanal(c)}</option>)}
         </select>
-        <input value={cidade} onChange={(e) => setCidade(e.target.value)} placeholder="Cidade" className="border rounded-lg px-3 py-1.5 text-sm bg-white" />
+        <select value={cidade} onChange={(e) => setCidade(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
+          <option value="">Todas as cidades</option>
+          {cidades.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
         {aba === 'geral' && (
           <select value={nichoId} onChange={(e) => setNichoId(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
             <option value="">Todos os nichos</option>
@@ -235,25 +242,35 @@ export default function PainelComercial() {
             )}
           </div>
 
-          {/* Funil: onde os leads estão parados agora */}
+          {/* Funil: onde os leads estão parados + queda entre etapas */}
           <div className="bg-white rounded-2xl shadow-sm border p-5">
             <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Onde os leads estão parados</h3>
-            <p className="text-xs text-slate-400 mb-3">Situação atual dos atendimentos ativos, por estágio (não depende do período).</p>
+            <p className="text-xs text-slate-400 mb-3">
+              Atendimentos ativos, por estágio (não depende do período). A barra mostra quantos <b>chegaram</b>
+              {' '}a cada etapa (ou além); a queda é quem <b>não avançou</b> dali.
+            </p>
             {(() => {
-              const funil = ordenarFunil(dados.funil)
-              const totalFunil = funil.reduce((s, l) => s + l.n, 0)
-              if (totalFunil === 0) return <p className="text-slate-400 text-sm">Nenhum atendimento ativo neste recorte.</p>
+              const { etapas, outros } = funilComQueda(dados.funil)
+              if ((etapas[0]?.acumulado || 0) === 0 && outros === 0) {
+                return <p className="text-slate-400 text-sm">Nenhum atendimento ativo neste recorte.</p>
+              }
               return (
-                <div className="space-y-2">
-                  {funil.map((l) => (
-                    <div key={l.estagio} className="text-xs">
-                      <div className="flex justify-between text-slate-600 mb-1">
-                        <span>{l.rotulo}</span>
-                        <span className="font-semibold">{fmt(l.n)}</span>
+                <div className="space-y-1">
+                  {etapas.map((et) => (
+                    <div key={et.estagio}>
+                      {et.quedaPct !== null && et.quedaPct > 0 && (
+                        <p className="text-[11px] text-rose-500 pl-1 mb-1">↓ {et.quedaPct}% não avançaram</p>
+                      )}
+                      <div className="text-xs">
+                        <div className="flex justify-between text-slate-600 mb-1">
+                          <span>{et.rotulo}</span>
+                          <span><b className="text-slate-800">{fmt(et.acumulado)}</b> chegaram{et.n ? ` · ${fmt(et.n)} parados aqui` : ''}</span>
+                        </div>
+                        <Barra pct={et.larguraPct} cor="bg-violet-400" />
                       </div>
-                      <Barra pct={l.pct} cor="bg-violet-400" />
                     </div>
                   ))}
+                  {outros > 0 && <p className="text-[11px] text-slate-400 pt-1">+ {fmt(outros)} em outros estágios (fora do funil padrão)</p>}
                 </div>
               )
             })()}

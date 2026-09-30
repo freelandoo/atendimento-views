@@ -6,6 +6,25 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-29 — Painel comercial: funil com QUEDA entre etapas + cidade como SELEÇÃO
+
+- **Pedido do operador:** funil mostrando onde os leads "caem" entre etapas; e a seleção de cidade
+  deixar de ser texto livre — virar **seletor** — mais um **seletor de estado**.
+- **Funil com queda:** `funilComQueda` (lib pura) sobre a MESMA contagem por estágio já retornada —
+  `acumulado` = leads neste estágio OU além (um lead em "proposta" passou por contato/diagnóstico),
+  o que dá forma de funil e uma **queda honesta** por etapa. **Sem backend novo.** Estágio fora da
+  ordem canônica vira `outros` (não entra no pipeline).
+- **Cidade → SELECT:** rota nova `GET /painel-comercial/locais` (cidades distintas de
+  `prospects.cidade`, read-only) alimenta um `<select>` no lugar do input.
+- ⚠️ **Estado NÃO foi entregue, e é honesto:** `prospectador.prospects` tem `cidade` mas **não tem
+  `uf`/estado** — estado é atributo da COLETA (rotina/curadoria), não do lead. Um seletor de estado
+  filtraria nada. Caminho: adicionar `uf` a prospects e populá-lo na coleta (captura, só pra frente),
+  como foi o "conversou". Reportado ao operador; não fabriquei filtro vazio.
+- **Validação:** backend `npm test` 3275/3275 (frozen surface + fixture atualizados); frontend
+  `tsc` 0 + lib 10/10.
+
+---
+
 ## 2026-09-29 — Painel comercial: país, funil "onde param", range custom e comparação
 
 - **Pedido do operador:** período mais configurável (range custom + comparar semana vs semana);

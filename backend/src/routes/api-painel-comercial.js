@@ -54,4 +54,15 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   }
 })
 
+// GET /locais — cidades distintas p/ o seletor de cidade (read-only, sem chamada paga).
+router.get('/locais', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const cidades = await PC.cidadesDaEmpresa(pool, req.empresa.id)
+    return res.json({ ok: true, data: { cidades } })
+  } catch (err) {
+    logger.error({ err: err?.message }, '[api-painel-comercial] locais falhou')
+    return res.status(500).json({ ok: false, error: { code: 'PAINEL_LOCAIS_FAILED', message: 'Não foi possível carregar as cidades.' } })
+  }
+})
+
 module.exports = router

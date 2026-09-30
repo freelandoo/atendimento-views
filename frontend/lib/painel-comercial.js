@@ -104,4 +104,29 @@ function ordenarFunil(rows) {
   return todos.map((l) => ({ ...l, pct: larguraPct(l.n, max) }))
 }
 
-module.exports = { ROTULO_CANAL, rotuloCanal, idadeEquipe, ESTAGIO_ROTULO, ordenarFunil, janelaPreset, janelaAnterior, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct }
+/**
+ * Funil com QUEDA entre etapas, honesto para um SNAPSHOT: `acumulado` = leads neste estágio OU
+ * além (um lead em "proposta" já passou por contato e diagnóstico). Isso dá a forma decrescente de
+ * funil e uma queda real ("de quem chegou ao diagnóstico, X% não avançou"). Assume a ordem canônica
+ * dos 5 estágios; estágios fora dela não entram no pipeline (viram `outros`).
+ * @returns {{ etapas: Array<{estagio,rotulo,n,acumulado,larguraPct,quedaPct}>, outros: number }}
+ */
+function funilComQueda(rows) {
+  const mapa = new Map((rows || []).map((r) => [r.estagio, Number(r.n) || 0]))
+  const counts = ESTAGIO_ORDEM.map((e) => mapa.get(e) || 0)
+  const acumulado = counts.map((_, i) => counts.slice(i).reduce((s, x) => s + x, 0))
+  const base = acumulado[0] || 0
+  const etapas = ESTAGIO_ORDEM.map((e, i) => ({
+    estagio: e,
+    rotulo: ESTAGIO_ROTULO[e],
+    n: counts[i], // parados EXATAMENTE aqui
+    acumulado: acumulado[i], // chegaram até aqui (ou além)
+    larguraPct: larguraPct(acumulado[i], base),
+    quedaPct: i > 0 && acumulado[i - 1] > 0 ? Math.round((1 - acumulado[i] / acumulado[i - 1]) * 100) : null,
+  }))
+  let outros = 0
+  for (const [k, v] of mapa) if (!ESTAGIO_ORDEM.includes(k)) outros += v
+  return { etapas, outros }
+}
+
+module.exports = { ROTULO_CANAL, rotuloCanal, idadeEquipe, ESTAGIO_ROTULO, ordenarFunil, funilComQueda, janelaPreset, janelaAnterior, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct }

@@ -160,4 +160,19 @@ async function coletar(pool, filtros) {
   return { mensagens, ligacoes, reunioesHumano, conversou, reunioesBot, bot_atribuivel: usaBot }
 }
 
-module.exports = { coletar, porEstagio, botAtribuivel }
+// Cidades distintas dos leads da empresa — alimenta o SELETOR de cidade do painel (o operador
+// pediu seleção, não texto livre). prospects tem `cidade` (NOT NULL) mas NÃO tem UF/estado, então
+// estado não é filtrável por aqui — é atributo da coleta (rotina), não do lead.
+async function cidadesDaEmpresa(pool, empresaId) {
+  const { rows } = await pool.query(
+    `SELECT DISTINCT BTRIM(cidade) AS cidade
+       FROM prospectador.prospects
+      WHERE empresa_id = $1 AND cidade IS NOT NULL AND BTRIM(cidade) <> ''
+      ORDER BY 1
+      LIMIT 500`,
+    [empresaId]
+  )
+  return rows.map((r) => r.cidade)
+}
+
+module.exports = { coletar, porEstagio, cidadesDaEmpresa, botAtribuivel }

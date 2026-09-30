@@ -53,6 +53,31 @@ test('ordenarFunil: vazio → 5 etapas em zero', () => {
   assert.ok(f.every((l) => l.n === 0 && l.pct === 0))
 })
 
+test('funilComQueda: acumulado (etapa ou além), largura e queda entre etapas', () => {
+  const { etapas, outros } = P.funilComQueda([
+    { estagio: 'primeiro_contato', n: 10 },
+    { estagio: 'diagnostico', n: 5 },
+    { estagio: 'proposta', n: 3 },
+    { estagio: 'fechamento', n: 2 },
+    { estagio: 'zumbi', n: 7 },
+  ])
+  assert.deepEqual(etapas.map((e) => e.acumulado), [20, 10, 5, 2, 2]) // soma de i até o fim
+  assert.deepEqual(etapas.map((e) => e.larguraPct), [100, 50, 25, 10, 10])
+  assert.equal(etapas[0].quedaPct, null) // primeira etapa não tem queda
+  assert.equal(etapas[1].quedaPct, 50) // 1 - 10/20
+  assert.equal(etapas[3].quedaPct, 60) // objeção: 1 - 2/5
+  assert.equal(etapas[1].n, 5) // parados exatamente no diagnóstico
+  assert.equal(outros, 7) // estágio fora do pipeline não entra no funil
+})
+
+test('funilComQueda: vazio → etapas zeradas, sem queda inventada', () => {
+  const { etapas, outros } = P.funilComQueda([])
+  assert.equal(etapas.length, 5)
+  assert.ok(etapas.every((e) => e.acumulado === 0 && e.larguraPct === 0))
+  assert.ok(etapas.every((e, i) => (i === 0 ? e.quedaPct === null : e.quedaPct === null)))
+  assert.equal(outros, 0)
+})
+
 test('janelaPreset / janelaAnterior: datas inclusivas e janela anterior de mesmo tamanho', () => {
   const hoje = new Date('2026-09-29T12:00:00Z')
   assert.deepEqual(P.janelaPreset('7d', hoje), { de: '2026-09-23', ate: '2026-09-29' }) // 7 dias inclusivos

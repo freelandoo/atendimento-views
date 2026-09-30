@@ -31,6 +31,8 @@ export const ESTAGIO_ROTULO: Record<string, string>
 export function rotuloCanal(c: string | null | undefined): string
 export function idadeEquipe(criadoEm: string | number | Date | null | undefined, agora?: Date): string
 export function ordenarFunil(rows: Array<{ estagio: string; n: number | string }> | null | undefined): LinhaFunil[]
+export interface EtapaFunil { estagio: string; rotulo: string; n: number; acumulado: number; larguraPct: number; quedaPct: number | null }
+export function funilComQueda(rows: Array<{ estagio: string; n: number | string }> | null | undefined): { etapas: EtapaFunil[]; outros: number }
 export function janelaPreset(preset: string, hoje?: Date): { de: string; ate: string }
 export function janelaAnterior(de: string, ate: string): { de: string; ate: string }
 export function fmt(n: number | string | null | undefined): string
