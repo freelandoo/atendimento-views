@@ -6,6 +6,23 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-29 — Painel comercial: estado (uf) no lead + comparação mais clara
+
+- **Pedido do operador:** (1) seletor de ESTADO nos gráficos; (2) ao comparar períodos, mostrar
+  QUAIS duas janelas estão sendo comparadas e o Δ em **quantidade E %**.
+- **Estado (uf):** migration `110_prospects_uf.sql` (aditiva, nullable, CHECK `^[A-Z]{2}$`, SEM
+  backfill — só pra frente, como o "conversou"). Captura em `normalizarProspectParaPersistencia`:
+  `ctx.uf/estado` da coleta vence; senão `ufDeEndereco(endereco)` extrai do endereço do Google
+  ("Cidade - UF, CEP"). INSERT ganhou o param $26 + `uf = COALESCE(EXCLUDED.uf, …)` no conflito
+  (recoleta sem UF não apaga). Painel: filtro `estado` em condLead + botAtribuivel; `/locais`
+  passou a devolver `estados`; seletor de estado na tela. ⚠️ Lead antigo e lead sem endereço do
+  Maps (meta_ads/instagram) ficam sem UF até recoleta — declarado.
+- **Comparação:** legenda explícita ("Comparando DD/MM–DD/MM com DD/MM–DD/MM"); Δ nos tiles agora
+  em quantidade **e %** (`formatarDelta`, pura/testada; anterior 0 → "novo", sem dividir por zero).
+- **Validação:** backend `npm test` 3275/3275; frontend `tsc` 0 + lib 11/11.
+
+---
+
 ## 2026-09-29 — Painel comercial: funil com QUEDA entre etapas + cidade como SELEÇÃO
 
 - **Pedido do operador:** funil mostrando onde os leads "caem" entre etapas; e a seleção de cidade

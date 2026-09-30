@@ -35,6 +35,8 @@ export interface EtapaFunil { estagio: string; rotulo: string; n: number; acumul
 export function funilComQueda(rows: Array<{ estagio: string; n: number | string }> | null | undefined): { etapas: EtapaFunil[]; outros: number }
 export function janelaPreset(preset: string, hoje?: Date): { de: string; ate: string }
 export function janelaAnterior(de: string, ate: string): { de: string; ate: string }
+export interface DeltaInfo { abs: number; pct: number | null; seta: string; novo: boolean }
+export function formatarDelta(atual: number | null | undefined, anterior: number | null | undefined): DeltaInfo
 export function fmt(n: number | string | null | undefined): string
 export function fmtTaxa(v: number | null | undefined): string
 export function fraseRazao(razoes: Partial<Razoes> | null | undefined): string

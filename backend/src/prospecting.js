@@ -1110,6 +1110,21 @@ function diagnosticoPersistido(row) {
   return normalizarDiagnosticoPersistido(row)
 }
 
+// UF de 2 letras, validada; qualquer outra coisa → null.
+function normalizarUf(v) {
+  if (!v || typeof v !== 'string') return null
+  const s = v.trim().toUpperCase()
+  return /^[A-Z]{2}$/.test(s) ? s : null
+}
+
+// Estado a partir do endereço do Google ("R. X, 123 - Centro, Goiânia - GO, 74000-000, Brasil").
+// O "- UF," seguido de vírgula é bem específico do estado no formato BR; fora dele, null (uf é nullable).
+function ufDeEndereco(endereco) {
+  if (!endereco || typeof endereco !== 'string') return null
+  const m = endereco.match(/-\s*([A-Za-z]{2})\s*,/)
+  return m ? normalizarUf(m[1]) : null
+}
+
 function normalizarProspectParaPersistencia(prospect, contexto = {}) {
   const schema = validarProspectInput(prospect, contexto)
   const pIn = schema.value.prospect
@@ -1144,6 +1159,8 @@ function normalizarProspectParaPersistencia(prospect, contexto = {}) {
     nicho_canonico: nichoCanonico || nicho,
     cidade,
     pais,
+    // Estado: contexto explícito da coleta (rotina/IA) vence; senão, extraído do endereço do place.
+    uf: normalizarUf(ctx.uf || ctx.estado) || ufDeEndereco(pIn.endereco),
     endereco: normalizarTexto(pIn.endereco, 500) || null,
     avaliacoes: pIn.reviews == null ? null : parseInt(pIn.reviews, 10),
     rating: pIn.rating == null ? null : Number(pIn.rating),
@@ -1175,7 +1192,7 @@ async function salvarProspect(prospect, contexto = {}) {
       site, maps_url, place_id, origem, score, motivo_score, raw_json, empresa_id,
       link_original, classificacao_url, qualificacao,
       instagram_handle, instagram_origem, instagram_confianca, instagram_evidencia,
-      instagram_verificado_em, nicho_id
+      instagram_verificado_em, nicho_id, uf
     )
     VALUES (
       $1, $2, $3, $4, $5, $6, $7, $8, $9,
@@ -1183,7 +1200,7 @@ async function salvarProspect(prospect, contexto = {}) {
       $18, $19, $20,
       $21, $22, $23, $24::jsonb,
       CASE WHEN $21::text IS NULL THEN NULL ELSE NOW() END,
-      ${SQL_RESOLVER_NICHO_AO_SALVAR}
+      ${SQL_RESOLVER_NICHO_AO_SALVAR}, $26
     )
     ON CONFLICT (empresa_id, place_id) DO UPDATE
     -- A coluna qualificacao NAO aparece neste SET, de proposito: recoleta NUNCA rebaixa nem
@@ -1208,6 +1225,8 @@ async function salvarProspect(prospect, contexto = {}) {
         nicho_id = COALESCE(prospectador.prospects.nicho_id, EXCLUDED.nicho_id),
         cidade = EXCLUDED.cidade,
         pais = EXCLUDED.pais,
+        -- COALESCE: recoleta que não trouxe UF legível não apaga o estado já conhecido.
+        uf = COALESCE(EXCLUDED.uf, prospectador.prospects.uf),
         endereco = COALESCE(EXCLUDED.endereco, prospectador.prospects.endereco),
         avaliacoes = COALESCE(EXCLUDED.avaliacoes, prospectador.prospects.avaliacoes),
         rating = COALESCE(EXCLUDED.rating, prospectador.prospects.rating),
@@ -1292,6 +1311,7 @@ async function salvarProspect(prospect, contexto = {}) {
       p.instagram_confianca,
       JSON.stringify(p.instagram_evidencia),
       p.nicho_canonico,
+      p.uf,
     ]
   )
   return prospectPersistido(rows[0])

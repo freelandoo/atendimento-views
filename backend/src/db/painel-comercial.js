@@ -21,6 +21,7 @@ function condLead(p, filtros, params) {
   if (filtros.cidade) { params.push(filtros.cidade); sql += ` AND ${p}.cidade ILIKE $${params.length}` }
   if (filtros.canal) { params.push(filtros.canal); sql += ` AND ${p}.origem = $${params.length}` }
   if (filtros.pais) { params.push(filtros.pais); sql += ` AND ${p}.pais = $${params.length}` }
+  if (filtros.estado) { params.push(filtros.estado); sql += ` AND ${p}.uf = $${params.length}` }
   return sql
 }
 
@@ -28,7 +29,7 @@ function condLead(p, filtros, params) {
 // vinculado, logo não tem nicho/cidade/canal/PAÍS, nem pessoa). País entra aqui de propósito: com
 // o padrão BR, a reunião do bot — cujo país não dá para provar — fica de fora, e a tela avisa.
 function botAtribuivel(filtros) {
-  return !filtros.nichoId && !filtros.cidade && !filtros.canal && !filtros.pais && !filtros.pessoa
+  return !filtros.nichoId && !filtros.cidade && !filtros.canal && !filtros.pais && !filtros.estado && !filtros.pessoa
 }
 
 async function serieMensagens(pool, filtros) {
@@ -175,4 +176,17 @@ async function cidadesDaEmpresa(pool, empresaId) {
   return rows.map((r) => r.cidade)
 }
 
-module.exports = { coletar, porEstagio, cidadesDaEmpresa, botAtribuivel }
+// Estados (UF) distintos dos leads — alimenta o SELETOR de estado (só existe a partir da mig 110;
+// leads antigos têm uf NULL e não aparecem até recoleta).
+async function estadosDaEmpresa(pool, empresaId) {
+  const { rows } = await pool.query(
+    `SELECT DISTINCT uf
+       FROM prospectador.prospects
+      WHERE empresa_id = $1 AND uf IS NOT NULL
+      ORDER BY 1`,
+    [empresaId]
+  )
+  return rows.map((r) => r.uf)
+}
+
+module.exports = { coletar, porEstagio, cidadesDaEmpresa, estadosDaEmpresa, botAtribuivel }

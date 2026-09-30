@@ -86,6 +86,15 @@ test('janelaPreset / janelaAnterior: datas inclusivas e janela anterior de mesmo
   assert.deepEqual(P.janelaAnterior('2026-09-23', '2026-09-29'), { de: '2026-09-16', ate: '2026-09-22' })
 })
 
+test('formatarDelta: quantidade e %; anterior 0 → novo, pct null', () => {
+  assert.deepEqual(P.formatarDelta(120, 100), { abs: 20, pct: 20, seta: '▲', novo: false })
+  assert.deepEqual(P.formatarDelta(80, 100), { abs: -20, pct: -20, seta: '▼', novo: false })
+  assert.deepEqual(P.formatarDelta(100, 100), { abs: 0, pct: 0, seta: '=', novo: false })
+  const semBase = P.formatarDelta(5, 0)
+  assert.equal(semBase.pct, null) // não divide por zero
+  assert.equal(semBase.novo, true)
+})
+
 test('maxSerie / larguraPct: escala e divisão por zero → 0', () => {
   const serie = [{ mensagens: 3, ligacoes: 10 }, { mensagens: 8, ligacoes: 2 }]
   assert.equal(P.maxSerie(serie, ['mensagens', 'ligacoes']), 10)

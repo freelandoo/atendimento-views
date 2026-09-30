@@ -4,8 +4,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import Abas from '@/components/ui/Abas'
-import { rotuloCanal, idadeEquipe, funilComQueda, janelaPreset, janelaAnterior, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
-import type { DiaSerie, LinhaCanal, LinhaFunil, Razoes } from '@/lib/painel-comercial'
+import { rotuloCanal, idadeEquipe, funilComQueda, janelaPreset, janelaAnterior, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
+import type { DiaSerie, LinhaCanal, Razoes, DeltaInfo } from '@/lib/painel-comercial'
+
+const dataBr = (ymd: string) => ymd.split('-').reverse().join('/') // 2026-09-23 → 23/09/2026
 
 type Totais = { mensagens: number; ligacoes: number; ligacoes_atendidas: number; conversou: number; reunioes: number; reunioes_humano: number; reunioes_bot: number }
 type Payload = {
@@ -40,12 +42,14 @@ export default function PainelComercial() {
   const [equipeId, setEquipeId] = useState('')
   const [canal, setCanal] = useState('')
   const [cidade, setCidade] = useState('')
+  const [estado, setEstado] = useState('')
   const [pais, setPais] = useState('BR') // padrão Brasil (decisão do operador)
   const [pessoa, setPessoa] = useState('')
   const [nichos, setNichos] = useState<Nicho[]>([])
   const [equipes, setEquipes] = useState<Equipe[]>([])
   const [membros, setMembros] = useState<Membro[]>([])
   const [cidades, setCidades] = useState<string[]>([])
+  const [estados, setEstados] = useState<string[]>([])
   const [dados, setDados] = useState<Payload | null>(null)
   const [rotuloPeriodo, setRotuloPeriodo] = useState('')
   const [erro, setErro] = useState('')
@@ -68,9 +72,9 @@ export default function PainelComercial() {
     apiFetch<Equipe[]>(`/api/empresas/${empresaId}/equipes-comerciais`)
       .then((r) => setEquipes((r.data || []).filter((e) => e && e.id && e.nicho_id)))
       .catch(() => setEquipes([]))
-    apiFetch<{ cidades: string[] }>(`/api/empresas/${empresaId}/painel-comercial/locais`)
-      .then((r) => setCidades(r.data?.cidades || []))
-      .catch(() => setCidades([])) // sem lista → cai no seletor vazio "Todas as cidades"
+    apiFetch<{ cidades: string[]; estados: string[] }>(`/api/empresas/${empresaId}/painel-comercial/locais`)
+      .then((r) => { setCidades(r.data?.cidades || []); setEstados(r.data?.estados || []) })
+      .catch(() => { setCidades([]); setEstados([]) }) // sem lista → seletores caem em "Todas/os"
   }, [empresaId])
 
   // Cada aba controla UMA dimensão; as demais não vazam para a consulta.
@@ -86,6 +90,7 @@ export default function PainelComercial() {
     if (nichoEfetivo) dims.set('nicho_id', nichoEfetivo)
     if (canal) dims.set('canal', canal)
     if (cidade.trim()) dims.set('cidade', cidade.trim())
+    if (estado) dims.set('estado', estado)
     if (pais) dims.set('pais', pais)
     if (pessoaEfetiva) dims.set('pessoa', pessoaEfetiva)
     const url = (de: string, ate: string) => {
@@ -111,14 +116,16 @@ export default function PainelComercial() {
         .finally(() => { if (vivo) setCarregando(false) })
     }, 300) // debounce: cidade/datas digitadas
     return () => { vivo = false; clearTimeout(t) }
-  }, [empresaId, preset, deCustom, ateCustom, comparar, canal, cidade, pais, nichoEfetivo, pessoaEfetiva])
+  }, [empresaId, preset, deCustom, ateCustom, comparar, canal, cidade, estado, pais, nichoEfetivo, pessoaEfetiva])
 
   const maxContato = useMemo(() => maxSerie(dados?.serie, ['mensagens', 'ligacoes']), [dados])
   const maxReuniao = useMemo(() => maxSerie(dados?.serie, ['reunioes_humano', 'reunioes_bot']), [dados])
 
   const t = dados?.totais
-  const filtroDimensao = Boolean(nichoEfetivo || canal || cidade.trim() || pais || pessoaEfetiva)
-  const delta = (n: number, chave: keyof Totais) => (comparar && totaisAnt ? n - (totaisAnt[chave] || 0) : undefined)
+  const filtroDimensao = Boolean(nichoEfetivo || canal || cidade.trim() || estado || pais || pessoaEfetiva)
+  const dInfo = (chave: keyof Totais): DeltaInfo | undefined =>
+    comparar && totaisAnt && t ? formatarDelta(t[chave], totaisAnt[chave]) : undefined
+  const janelaAnt = comparar ? janelaAnterior(janela.de, janela.ate) : null
 
   return (
     <section className="space-y-5">
@@ -150,6 +157,12 @@ export default function PainelComercial() {
         <select value={pais} onChange={(e) => setPais(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
           {PAISES.map((p) => <option key={p.v || 'todos'} value={p.v}>{p.l}</option>)}
         </select>
+        {estados.length > 0 && (
+          <select value={estado} onChange={(e) => setEstado(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
+            <option value="">Todos os estados</option>
+            {estados.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
+          </select>
+        )}
         <select value={canal} onChange={(e) => setCanal(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
           <option value="">Todos os canais</option>
           {CANAIS.map((c) => <option key={c} value={c}>{rotuloCanal(c)}</option>)}
@@ -177,6 +190,15 @@ export default function PainelComercial() {
           </select>
         )}
       </div>
+
+      {/* Períodos comparados — deixa explícito quais duas janelas estão lado a lado */}
+      {comparar && janelaAnt && (
+        <p className="text-xs text-slate-500 bg-slate-50 border rounded-lg px-3 py-2">
+          Comparando <b className="text-slate-700">{dataBr(janela.de)} – {dataBr(janela.ate)}</b>
+          {' '}com <b className="text-slate-700">{dataBr(janelaAnt.de)} – {dataBr(janelaAnt.ate)}</b>.
+          Os Δ abaixo são deste período <b>vs.</b> o anterior, em quantidade e %.
+        </p>
+      )}
 
       {/* Contexto da aba */}
       {aba === 'equipe' && equipeSel && (
@@ -211,10 +233,10 @@ export default function PainelComercial() {
 
           {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Tile titulo="Mensagens enviadas" valor={fmt(t.mensagens)} delta={delta(t.mensagens, 'mensagens')} />
-            <Tile titulo="Responderam" valor={fmt(t.conversou)} delta={delta(t.conversou, 'conversou')} />
-            <Tile titulo="Ligações (atendidas)" valor={`${fmt(t.ligacoes)} (${fmt(t.ligacoes_atendidas)})`} delta={delta(t.ligacoes, 'ligacoes')} />
-            <Tile titulo="Reuniões" valor={fmt(t.reunioes)} delta={delta(t.reunioes, 'reunioes')} />
+            <Tile titulo="Mensagens enviadas" valor={fmt(t.mensagens)} delta={dInfo('mensagens')} />
+            <Tile titulo="Responderam" valor={fmt(t.conversou)} delta={dInfo('conversou')} />
+            <Tile titulo="Ligações (atendidas)" valor={`${fmt(t.ligacoes)} (${fmt(t.ligacoes_atendidas)})`} delta={dInfo('ligacoes')} />
+            <Tile titulo="Reuniões" valor={fmt(t.reunioes)} delta={dInfo('reunioes')} />
             <Tile titulo="Reuniões: humano / bot" valor={`${fmt(t.reunioes_humano)} / ${fmt(t.reunioes_bot)}`} small />
           </div>
 
@@ -325,15 +347,17 @@ export default function PainelComercial() {
   )
 }
 
-function Tile({ titulo, valor, small, delta }: { titulo: string; valor: string; small?: boolean; delta?: number }) {
+function Tile({ titulo, valor, small, delta }: { titulo: string; valor: string; small?: boolean; delta?: DeltaInfo }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border p-5">
       <p className="text-xs text-slate-500 uppercase tracking-wide">{titulo}</p>
       <p className={`${small ? 'text-xl' : 'text-3xl'} font-bold mt-1 text-slate-900`}>{valor}</p>
-      {delta !== undefined && (
-        // Seta + número são o sinal; cor só reforça. Δ vs. período anterior.
-        <p className={`text-xs mt-1 ${delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-rose-600' : 'text-slate-400'}`}>
-          {delta > 0 ? '▲' : delta < 0 ? '▼' : '='} {fmt(Math.abs(delta))} vs. anterior
+      {delta && (
+        // Seta + número (quantidade E %) são o sinal; cor só reforça. Δ vs. período anterior.
+        <p className={`text-xs mt-1 ${delta.abs > 0 ? 'text-emerald-600' : delta.abs < 0 ? 'text-rose-600' : 'text-slate-400'}`}>
+          {delta.seta} {fmt(Math.abs(delta.abs))}
+          {delta.novo ? ' (novo)' : delta.pct !== null ? ` (${delta.pct > 0 ? '+' : ''}${delta.pct}%)` : ''}
+          {' '}vs. anterior
         </p>
       )}
     </div>

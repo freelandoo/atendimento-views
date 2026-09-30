@@ -76,6 +76,22 @@ function maxSerie(serie, chaves) {
   return m
 }
 
+/**
+ * Δ entre período atual e anterior, em quantidade E percentual. `pct` é null quando o anterior é
+ * 0 (não dá para dividir); nesse caso `novo=true` sinaliza "sem base para comparar".
+ */
+function formatarDelta(atual, anterior) {
+  const a = Number(atual) || 0
+  const b = Number(anterior) || 0
+  const abs = a - b
+  return {
+    abs,
+    pct: b > 0 ? Math.round((abs / b) * 100) : null,
+    seta: abs > 0 ? '▲' : abs < 0 ? '▼' : '=',
+    novo: b === 0 && a > 0,
+  }
+}
+
 /** Largura da barra em %; divisão por zero → 0 (nunca NaN). */
 function larguraPct(valor, max) {
   if (!max || max <= 0) return 0
@@ -129,4 +145,4 @@ function funilComQueda(rows) {
   return { etapas, outros }
 }
 
-module.exports = { ROTULO_CANAL, rotuloCanal, idadeEquipe, ESTAGIO_ROTULO, ordenarFunil, funilComQueda, janelaPreset, janelaAnterior, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct }
+module.exports = { ROTULO_CANAL, rotuloCanal, idadeEquipe, ESTAGIO_ROTULO, ordenarFunil, funilComQueda, janelaPreset, janelaAnterior, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct }
