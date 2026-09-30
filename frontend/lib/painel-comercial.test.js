@@ -88,15 +88,16 @@ test('janelaPreset / janelaAnterior: datas inclusivas e janela anterior de mesmo
   assert.deepEqual(P.janelaAnterior('2026-09-23', '2026-09-29'), { de: '2026-09-16', ate: '2026-09-22' })
 })
 
-test('melhorHora: maior taxa entre as com amostra mínima; ignora amostra pequena', () => {
-  const rows = [
-    { hora: 9, enviados: 100, responderam: 40 }, // 40%
-    { hora: 14, enviados: 3, responderam: 3 }, // 100% mas amostra < 5 → ignorada
-    { hora: 19, enviados: 50, responderam: 30 }, // 60%
-  ]
-  assert.deepEqual(P.melhorHora(rows), { hora: 19, taxa: 0.6 })
-  assert.equal(P.melhorHora([{ hora: 8, enviados: 2, responderam: 2 }]), null) // nada com amostra
-  assert.equal(P.melhorHora([]), null)
+test('histogramaHoras: preenche 24h, calcula pct pelo maior e acha o pico', () => {
+  const { horas, pico } = P.histogramaHoras([{ hora: 9, respostas: 5 }, { hora: 19, respostas: 20 }])
+  assert.equal(horas.length, 24)
+  assert.equal(horas[0].valor, 0) // hora sem dado entra zerada
+  assert.equal(horas[9].valor, 5)
+  assert.equal(horas[9].pct, 25) // 5/20
+  assert.equal(horas[19].pct, 100)
+  assert.deepEqual(pico, { hora: 19, valor: 20 })
+  assert.equal(P.histogramaHoras([]).pico, null) // tudo zero → sem pico
+  assert.equal(P.histogramaHoras([]).horas.length, 24)
 })
 
 test('formatarDelta: quantidade e %; anterior 0 → novo, pct null', () => {
@@ -106,23 +107,6 @@ test('formatarDelta: quantidade e %; anterior 0 → novo, pct null', () => {
   const semBase = P.formatarDelta(5, 0)
   assert.equal(semBase.pct, null) // não divide por zero
   assert.equal(semBase.novo, true)
-})
-
-test('direcaoDaOrigem / agruparPorDirecao: inbound × outbound × indefinido', () => {
-  assert.equal(P.direcaoDaOrigem('whatsapp'), 'inbound')
-  assert.equal(P.direcaoDaOrigem('meta_ads'), 'outbound')
-  assert.equal(P.direcaoDaOrigem('desconhecido'), 'indefinido')
-  const g = P.agruparPorDirecao([
-    { canal: 'meta_ads', mensagens: 40, ligacoes: 0, ligacoes_atendidas: 0, conversou: 8, reunioes: 4 },
-    { canal: 'instagram', mensagens: 10, ligacoes: 0, ligacoes_atendidas: 0, conversou: 1, reunioes: 1 },
-    { canal: 'whatsapp', mensagens: 20, ligacoes: 0, ligacoes_atendidas: 0, conversou: 10, reunioes: 3 },
-  ])
-  assert.equal(g.outbound.mensagens, 50) // meta_ads + instagram
-  assert.equal(g.outbound.reunioes, 5)
-  assert.equal(g.inbound.mensagens, 20)
-  assert.equal(g.inbound.taxa_resposta, 50) // 10/20
-  assert.equal(g.outbound.taxa_resposta, 18) // 9/50
-  assert.equal(g.indefinido.mensagens, 0)
 })
 
 test('maxSerie / larguraPct: escala e divisão por zero → 0', () => {

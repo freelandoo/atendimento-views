@@ -29,16 +29,18 @@ function janelaPreset(preset, hoje = new Date()) {
   return { de: ymd(new Date(hoje.getTime() - (dias - 1) * DIA_MS)), ate: ymd(hoje) }
 }
 
-/** Hora (0-23) com maior taxa de resposta, entre as com amostra mínima. null se nenhuma qualifica. */
-function melhorHora(rows, minEnviados = 5) {
-  let melhor = null
-  for (const r of rows || []) {
-    const env = Number(r.enviados) || 0
-    if (env < minEnviados) continue
-    const taxa = (Number(r.responderam) || 0) / env
-    if (!melhor || taxa > melhor.taxa) melhor = { hora: Number(r.hora), taxa }
-  }
-  return melhor
+/**
+ * Histograma de 24 horas (0-23) a partir de linhas `{hora, <chave>}`, preenchendo as horas sem
+ * dado com 0 — para o gráfico ler como um DIA inteiro e o pico ficar visível. `pct` é relativo ao
+ * maior valor; `pico` é a hora de maior valor (null se tudo zero).
+ */
+function histogramaHoras(rows, chave = 'respostas') {
+  const mapa = new Map((rows || []).map((r) => [Number(r.hora), Number(r[chave]) || 0]))
+  const horas = Array.from({ length: 24 }, (_, h) => ({ hora: h, valor: mapa.get(h) || 0 }))
+  const max = horas.reduce((m, x) => Math.max(m, x.valor), 0)
+  let pico = null
+  for (const x of horas) if (x.valor > 0 && (!pico || x.valor > pico.valor)) pico = { hora: x.hora, valor: x.valor }
+  return { horas: horas.map((x) => ({ ...x, pct: larguraPct(x.valor, max) })), pico }
 }
 
 /** Janela IMEDIATAMENTE anterior, mesmo tamanho, para comparação. */
@@ -106,42 +108,6 @@ function formatarDelta(atual, anterior) {
   }
 }
 
-// Direção do lead pela ORIGEM (migration 108): inbound = veio até nós; outbound = fomos atrás.
-// Espelha GRUPOS.inbound/outbound de lead-origem; origem sem prospect casado (desconhecido) fica
-// "indefinido" — nem inbound nem outbound, e a tela só o mostra se houver.
-const DIRECAO_INBOUND = new Set(['whatsapp', 'meta_form'])
-const DIRECAO_OUTBOUND = new Set(['manual', 'automatico', 'instagram', 'linkedin', 'meta_ads'])
-function direcaoDaOrigem(origem) {
-  const v = String(origem || '').trim().toLowerCase()
-  if (DIRECAO_INBOUND.has(v)) return 'inbound'
-  if (DIRECAO_OUTBOUND.has(v)) return 'outbound'
-  return 'indefinido'
-}
-
-/** Rola o `por_canal` (por origem) em inbound × outbound, com taxa de resposta e conv./100. */
-function agruparPorDirecao(porCanal) {
-  const base = () => ({ mensagens: 0, ligacoes: 0, ligacoes_atendidas: 0, conversou: 0, reunioes: 0 })
-  const acc = { inbound: base(), outbound: base(), indefinido: base() }
-  for (const c of porCanal || []) {
-    const d = acc[direcaoDaOrigem(c.canal)]
-    d.mensagens += Number(c.mensagens) || 0
-    d.ligacoes += Number(c.ligacoes) || 0
-    d.ligacoes_atendidas += Number(c.ligacoes_atendidas) || 0
-    d.conversou += Number(c.conversou) || 0
-    d.reunioes += Number(c.reunioes) || 0
-  }
-  const finalizar = (x) => {
-    const contatos = x.mensagens + x.ligacoes_atendidas
-    return {
-      ...x,
-      contatos,
-      por_100_contatos: contatos > 0 ? Number(((x.reunioes / contatos) * 100).toFixed(1)) : null,
-      taxa_resposta: x.mensagens > 0 ? Number(((x.conversou / x.mensagens) * 100).toFixed(1)) : null,
-    }
-  }
-  return { inbound: finalizar(acc.inbound), outbound: finalizar(acc.outbound), indefinido: finalizar(acc.indefinido) }
-}
-
 /** Largura da barra em %; divisão por zero → 0 (nunca NaN). */
 function larguraPct(valor, max) {
   if (!max || max <= 0) return 0
@@ -195,4 +161,4 @@ function funilComQueda(rows) {
   return { etapas, outros }
 }
 
-module.exports = { ROTULO_CANAL, rotuloCanal, idadeEquipe, ESTAGIO_ROTULO, ordenarFunil, funilComQueda, direcaoDaOrigem, agruparPorDirecao, janelaPreset, janelaAnterior, melhorHora, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct }
+module.exports = { ROTULO_CANAL, rotuloCanal, idadeEquipe, ESTAGIO_ROTULO, ordenarFunil, funilComQueda, histogramaHoras, janelaPreset, janelaAnterior, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct }

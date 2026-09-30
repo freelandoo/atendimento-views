@@ -6,6 +6,22 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-29 — Painel: direção vira FILTRO + respostas por hora (histograma 24h)
+
+- **Pedido do operador:** inbound/outbound como FILTRO no topo (Todos/Inbound/Outbound), não seção
+  de cards; e o gráfico de horário deve contar resposta de QUALQUER conversa (não só follow-up),
+  como histograma de 24h com o pico visível.
+- **Direção = filtro:** `condLead` mapeia `direcao`→conjunto de origens via `GRUPOS` de lead-origem
+  (fonte única; sem derivação nova); `botAtribuivel` inclui direção. Removida a seção de cards e o
+  `agruparPorDirecao`/`direcaoDaOrigem`/`melhorHora` (dead após a mudança).
+- **Respostas por hora:** `respostasPorHora` usa `vendas.conversas.primeira_resposta_em` (mig 109 —
+  cobre qualquer conversa, não só follow-up), agrupado por hora local. Front: `histogramaHoras`
+  (lib pura) preenche as 24h e acha o pico; render em 24 colunas lado a lado com o pico destacado.
+  Só conta pra frente (carimbo da 109). "Follow-ups por tentativa" permanece.
+- **Validação:** backend `npm test` 3275/3275; frontend `tsc` 0 + lib 12/12.
+
+---
+
 ## 2026-09-29 — Painel: Inbound × Outbound (sem query nova)
 
 - **Pedido do operador:** identificar nos gráficos o que dá mais resultado — inbound ou outbound.

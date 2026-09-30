@@ -11,6 +11,7 @@
 // dimensão, é corretamente excluído (o LEFT JOIN + WHERE p.x vira INNER).
 
 const { sqlTelefoneNormalizado: TELN } = require('../telefone-br')
+const { GRUPOS } = require('../services/lead-origem')
 
 const TZ = 'America/Sao_Paulo'
 
@@ -22,6 +23,12 @@ function condLead(p, filtros, params) {
   if (filtros.canal) { params.push(filtros.canal); sql += ` AND ${p}.origem = $${params.length}` }
   if (filtros.pais) { params.push(filtros.pais); sql += ` AND ${p}.pais = $${params.length}` }
   if (filtros.estado) { params.push(filtros.estado); sql += ` AND ${p}.uf = $${params.length}` }
+  // Direção = conjunto de origens (inbound: veio até nós; outbound: fomos atrás). GRUPOS de
+  // lead-origem é a fonte única — nada de derivar inbound/outbound por conta própria aqui.
+  if (filtros.direcao && GRUPOS[filtros.direcao]) {
+    params.push(GRUPOS[filtros.direcao])
+    sql += ` AND ${p}.origem = ANY($${params.length})`
+  }
   return sql
 }
 
@@ -29,7 +36,7 @@ function condLead(p, filtros, params) {
 // vinculado, logo não tem nicho/cidade/canal/PAÍS, nem pessoa). País entra aqui de propósito: com
 // o padrão BR, a reunião do bot — cujo país não dá para provar — fica de fora, e a tela avisa.
 function botAtribuivel(filtros) {
-  return !filtros.nichoId && !filtros.cidade && !filtros.canal && !filtros.pais && !filtros.estado && !filtros.pessoa
+  return !filtros.nichoId && !filtros.cidade && !filtros.canal && !filtros.pais && !filtros.estado && !filtros.direcao && !filtros.pessoa
 }
 
 async function serieMensagens(pool, filtros) {
@@ -162,22 +169,21 @@ async function followupPorTentativa(pool, filtros) {
   return rows
 }
 
-// Resposta por HORÁRIO do envio (0-23, fuso local). "Que horas convertem mais."
-async function followupPorHora(pool, filtros) {
+// Respostas por HORA DO DIA (0-23, fuso local): quando o lead responde, de QUALQUER conversa
+// (não só follow-up) — usa vendas.conversas.primeira_resposta_em (migration 109). "Que horas dão
+// mais resposta." Só conta pra frente (leads que responderam antes da 109 têm o carimbo nulo).
+async function respostasPorHora(pool, filtros) {
   const params = [filtros.empresaId, filtros.de, filtros.ate]
   let pessoa = ''
   if (filtros.pessoa) { params.push(filtros.pessoa); pessoa = ` AND c.responsavel_id = $${params.length}` }
   const lead = condLead('p', filtros, params)
   const { rows } = await pool.query(
-    `SELECT EXTRACT(HOUR FROM fe.criado_em AT TIME ZONE '${TZ}')::int AS hora,
-            COUNT(*)::int AS enviados,
-            COUNT(*) FILTER (WHERE fe.resposta_lead_em IS NOT NULL)::int AS responderam
-       FROM vendas.followup_envios fe
-       JOIN vendas.conversas c ON c.numero = fe.numero
+    `SELECT EXTRACT(HOUR FROM c.primeira_resposta_em AT TIME ZONE '${TZ}')::int AS hora,
+            COUNT(*)::int AS respostas
+       FROM vendas.conversas c
        LEFT JOIN prospectador.prospects p
          ON ${TELN('p.telefone')} = ${TELN('c.numero')} AND p.empresa_id = c.empresa_id
-      WHERE c.empresa_id = $1 AND fe.envio_ok = true
-        AND fe.criado_em >= $2 AND fe.criado_em < $3${pessoa}${lead}
+      WHERE c.empresa_id = $1 AND c.primeira_resposta_em >= $2 AND c.primeira_resposta_em < $3${pessoa}${lead}
       GROUP BY 1 ORDER BY 1`,
     params
   )
@@ -203,16 +209,16 @@ async function serieReunioesBot(pool, filtros) {
 /** Roda as fontes em paralelo. reunioesBot só quando atribuível (senão fica []). */
 async function coletar(pool, filtros) {
   const usaBot = botAtribuivel(filtros)
-  const [mensagens, ligacoes, reunioesHumano, conversou, followupTentativa, followupHora, reunioesBot] = await Promise.all([
+  const [mensagens, ligacoes, reunioesHumano, conversou, followupTentativa, respostasHora, reunioesBot] = await Promise.all([
     serieMensagens(pool, filtros),
     serieLigacoes(pool, filtros),
     serieReunioesHumano(pool, filtros),
     serieConversou(pool, filtros),
     followupPorTentativa(pool, filtros),
-    followupPorHora(pool, filtros),
+    respostasPorHora(pool, filtros),
     usaBot ? serieReunioesBot(pool, filtros) : Promise.resolve([]),
   ])
-  return { mensagens, ligacoes, reunioesHumano, conversou, followupTentativa, followupHora, reunioesBot, bot_atribuivel: usaBot }
+  return { mensagens, ligacoes, reunioesHumano, conversou, followupTentativa, respostasHora, reunioesBot, bot_atribuivel: usaBot }
 }
 
 // Cidades distintas dos leads da empresa — alimenta o SELETOR de cidade do painel (o operador

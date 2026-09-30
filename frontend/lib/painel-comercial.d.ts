@@ -33,12 +33,10 @@ export function idadeEquipe(criadoEm: string | number | Date | null | undefined,
 export function ordenarFunil(rows: Array<{ estagio: string; n: number | string }> | null | undefined): LinhaFunil[]
 export interface EtapaFunil { estagio: string; rotulo: string; n: number; acumulado: number; larguraPct: number; quedaPct: number | null }
 export function funilComQueda(rows: Array<{ estagio: string; n: number | string }> | null | undefined): { etapas: EtapaFunil[]; outros: number }
-export function direcaoDaOrigem(origem: string | null | undefined): 'inbound' | 'outbound' | 'indefinido'
-export interface BlocoDirecao { mensagens: number; ligacoes: number; ligacoes_atendidas: number; conversou: number; reunioes: number; contatos: number; por_100_contatos: number | null; taxa_resposta: number | null }
-export function agruparPorDirecao(porCanal: LinhaCanal[] | null | undefined): { inbound: BlocoDirecao; outbound: BlocoDirecao; indefinido: BlocoDirecao }
+export interface HoraBarra { hora: number; valor: number; pct: number }
+export function histogramaHoras(rows: Array<{ hora: number | string; [k: string]: number | string }> | null | undefined, chave?: string): { horas: HoraBarra[]; pico: { hora: number; valor: number } | null }
 export function janelaPreset(preset: string, hoje?: Date): { de: string; ate: string }
 export function janelaAnterior(de: string, ate: string): { de: string; ate: string }
-export function melhorHora(rows: Array<{ hora: number | string; enviados: number | string; responderam: number | string }> | null | undefined, minEnviados?: number): { hora: number; taxa: number } | null
 export interface DeltaInfo { abs: number; pct: number | null; seta: string; novo: boolean }
 export function formatarDelta(atual: number | null | undefined, anterior: number | null | undefined): DeltaInfo
 export function fmt(n: number | string | null | undefined): string

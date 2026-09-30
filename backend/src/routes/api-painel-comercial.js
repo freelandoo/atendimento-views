@@ -27,6 +27,7 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
       canal: q.canal || null,
       pais: q.pais || null,
       estado: q.estado || null,
+      direcao: (q.direcao === 'inbound' || q.direcao === 'outbound') ? q.direcao : null,
       pessoa: q.pessoa || null,
     }
     const [dados, funil] = await Promise.all([PC.coletar(pool, filtros), PC.porEstagio(pool, filtros)])
@@ -43,12 +44,12 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
       ok: true,
       data: {
         serie, totais, razoes, por_canal: porCanal, funil,
-        followup_tentativa: dados.followupTentativa, followup_hora: dados.followupHora,
+        followup_tentativa: dados.followupTentativa, respostas_hora: dados.respostasHora,
         bot_atribuivel: dados.bot_atribuivel,
       },
       meta: {
         periodo: { de: periodo.de, ate: periodo.ate, rotulo: periodo.rotulo },
-        filtros: { nicho_id: filtros.nichoId, cidade: filtros.cidade, canal: filtros.canal, pais: filtros.pais, estado: filtros.estado, pessoa: filtros.pessoa },
+        filtros: { nicho_id: filtros.nichoId, cidade: filtros.cidade, canal: filtros.canal, pais: filtros.pais, estado: filtros.estado, direcao: filtros.direcao, pessoa: filtros.pessoa },
         // Fase 1: "contato" = mensagem enviada + ligação atendida; "conversou" (lead respondeu) é Fase 2.
         base_contato: 'enviado',
       },

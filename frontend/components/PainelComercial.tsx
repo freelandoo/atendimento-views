@@ -4,8 +4,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import Abas from '@/components/ui/Abas'
-import { rotuloCanal, idadeEquipe, funilComQueda, agruparPorDirecao, janelaPreset, janelaAnterior, melhorHora, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
-import type { DiaSerie, LinhaCanal, Razoes, DeltaInfo, BlocoDirecao } from '@/lib/painel-comercial'
+import { rotuloCanal, idadeEquipe, funilComQueda, histogramaHoras, janelaPreset, janelaAnterior, formatarDelta, fmt, fmtTaxa, fraseRazao, maxSerie, larguraPct } from '@/lib/painel-comercial'
+import type { DiaSerie, LinhaCanal, Razoes, DeltaInfo } from '@/lib/painel-comercial'
 
 const dataBr = (ymd: string) => ymd.split('-').reverse().join('/') // 2026-09-23 → 23/09/2026
 
@@ -17,7 +17,7 @@ type Payload = {
   por_canal: LinhaCanal[]
   funil: { estagio: string; n: number }[]
   followup_tentativa: { tentativa: number; enviados: number; responderam: number }[]
-  followup_hora: { hora: number; enviados: number; responderam: number }[]
+  respostas_hora: { hora: number; respostas: number }[]
   bot_atribuivel: boolean
 }
 type Nicho = { id: string; nome: string }
@@ -43,6 +43,7 @@ export default function PainelComercial() {
   const [nichoId, setNichoId] = useState('')
   const [equipeId, setEquipeId] = useState('')
   const [canal, setCanal] = useState('')
+  const [direcao, setDirecao] = useState('') // '' | 'inbound' | 'outbound'
   const [cidade, setCidade] = useState('')
   const [estado, setEstado] = useState('')
   const [pais, setPais] = useState('BR') // padrão Brasil (decisão do operador)
@@ -93,6 +94,7 @@ export default function PainelComercial() {
     if (canal) dims.set('canal', canal)
     if (cidade.trim()) dims.set('cidade', cidade.trim())
     if (estado) dims.set('estado', estado)
+    if (direcao) dims.set('direcao', direcao)
     if (pais) dims.set('pais', pais)
     if (pessoaEfetiva) dims.set('pessoa', pessoaEfetiva)
     const url = (de: string, ate: string) => {
@@ -118,13 +120,13 @@ export default function PainelComercial() {
         .finally(() => { if (vivo) setCarregando(false) })
     }, 300) // debounce: cidade/datas digitadas
     return () => { vivo = false; clearTimeout(t) }
-  }, [empresaId, preset, deCustom, ateCustom, comparar, canal, cidade, estado, pais, nichoEfetivo, pessoaEfetiva])
+  }, [empresaId, preset, deCustom, ateCustom, comparar, canal, direcao, cidade, estado, pais, nichoEfetivo, pessoaEfetiva])
 
   const maxContato = useMemo(() => maxSerie(dados?.serie, ['mensagens', 'ligacoes']), [dados])
   const maxReuniao = useMemo(() => maxSerie(dados?.serie, ['reunioes_humano', 'reunioes_bot']), [dados])
 
   const t = dados?.totais
-  const filtroDimensao = Boolean(nichoEfetivo || canal || cidade.trim() || estado || pais || pessoaEfetiva)
+  const filtroDimensao = Boolean(nichoEfetivo || canal || direcao || cidade.trim() || estado || pais || pessoaEfetiva)
   const dInfo = (chave: keyof Totais): DeltaInfo | undefined =>
     comparar && totaisAnt && t ? formatarDelta(t[chave], totaisAnt[chave]) : undefined
   const janelaAnt = comparar ? janelaAnterior(janela.de, janela.ate) : null
@@ -165,6 +167,11 @@ export default function PainelComercial() {
             {estados.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
           </select>
         )}
+        <select value={direcao} onChange={(e) => setDirecao(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
+          <option value="">Inbound + Outbound</option>
+          <option value="inbound">Só inbound (vieram)</option>
+          <option value="outbound">Só outbound (fomos atrás)</option>
+        </select>
         <select value={canal} onChange={(e) => setCanal(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm bg-white">
           <option value="">Todos os canais</option>
           {CANAIS.map((c) => <option key={c} value={c}>{rotuloCanal(c)}</option>)}
@@ -333,27 +340,6 @@ export default function PainelComercial() {
             )}
           </div>
 
-          {/* Inbound × Outbound: o que dá mais resultado */}
-          {(() => {
-            const dir = agruparPorDirecao(dados.por_canal)
-            const temInd = dir.indefinido.mensagens + dir.indefinido.reunioes > 0
-            return (
-              <div className="bg-white rounded-2xl shadow-sm border p-5">
-                <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Inbound × Outbound</h3>
-                <p className="text-xs text-slate-400 mb-3">Inbound = o lead veio até você (WhatsApp, formulário Meta). Outbound = você foi atrás (Maps, Instagram, anúncios).</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <CardDirecao titulo="Outbound" d={dir.outbound} />
-                  <CardDirecao titulo="Inbound" d={dir.inbound} />
-                </div>
-                {temInd && (
-                  <p className="text-[11px] text-slate-400 mt-2">
-                    + {fmt(dir.indefinido.reunioes)} reuniões · {fmt(dir.indefinido.mensagens)} mensagens sem origem identificada (evento sem lead casado).
-                  </p>
-                )}
-              </div>
-            )
-          })()}
-
           {/* Follow-ups — por tentativa: até onde vale insistir */}
           <div className="bg-white rounded-2xl shadow-sm border p-5">
             <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Follow-ups — por tentativa</h3>
@@ -378,33 +364,33 @@ export default function PainelComercial() {
             )}
           </div>
 
-          {/* Follow-ups — resposta por horário: onde converte mais */}
+          {/* Respostas por hora do dia: quando o lead responde (24h lado a lado, pico destacado) */}
           <div className="bg-white rounded-2xl shadow-sm border p-5">
-            <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Follow-ups — resposta por horário</h3>
+            <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Respostas por horário</h3>
             {(() => {
-              const horas = dados.followup_hora
-              const best = melhorHora(horas)
-              if (horas.length === 0) return <p className="text-slate-400 text-sm mt-2">Sem follow-ups no período.</p>
+              const { horas, pico } = histogramaHoras(dados.respostas_hora, 'respostas')
+              const total = horas.reduce((s, h) => s + h.valor, 0)
+              if (total === 0) return <p className="text-slate-400 text-sm mt-2">Sem respostas no período. (Conta a partir de 2026-09-29.)</p>
               return (
                 <>
                   <p className="text-xs text-slate-400 mb-3">
-                    Taxa de resposta por hora do envio.{' '}
-                    {best ? <>Melhor horário: <b className="text-slate-700">{best.hora}h</b> ({Math.round(best.taxa * 100)}%).</> : 'Ainda sem amostra suficiente para eleger um horário.'}
+                    Quando o lead responde, em qualquer conversa.{' '}
+                    {pico ? <>Pico às <b className="text-slate-700">{String(pico.hora).padStart(2, '0')}h</b> ({fmt(pico.valor)} respostas).</> : null}
                   </p>
-                  <div className="space-y-1">
-                    {horas.map((r) => {
-                      const taxa = r.enviados > 0 ? Math.round((r.responderam / r.enviados) * 100) : 0
-                      const ehMelhor = best && r.hora === best.hora
+                  {/* 24 colunas lado a lado — a forma do dia; a coluna do pico fica destacada */}
+                  <div className="flex items-end gap-[2px] h-28">
+                    {horas.map((h) => {
+                      const ehPico = pico && h.hora === pico.hora
                       return (
-                        <div key={r.hora} className={`text-xs rounded px-1 ${ehMelhor ? 'bg-emerald-50' : ''}`}>
-                          <div className="flex justify-between text-slate-600 mb-1">
-                            <span>{String(r.hora).padStart(2, '0')}h {ehMelhor ? '⭐' : ''}</span>
-                            <span>{fmt(r.enviados)} env · <b className="text-slate-800">{taxa}%</b></span>
-                          </div>
-                          <Barra pct={taxa} cor={ehMelhor ? 'bg-emerald-500' : 'bg-sky-400'} />
+                        <div key={h.hora} className="flex-1 flex flex-col items-center justify-end h-full" title={`${String(h.hora).padStart(2, '0')}h · ${fmt(h.valor)} respostas`}>
+                          <div className={`w-full rounded-t ${ehPico ? 'bg-emerald-500' : 'bg-sky-400'}`} style={{ height: `${Math.max(h.pct, h.valor > 0 ? 4 : 0)}%` }} />
                         </div>
                       )
                     })}
+                  </div>
+                  {/* Régua de horas: 0h, 6h, 12h, 18h, 23h */}
+                  <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                    <span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span>
                   </div>
                 </>
               )
@@ -414,7 +400,7 @@ export default function PainelComercial() {
           {/* Ressalvas honestas */}
           <div className="text-xs text-slate-400 space-y-1">
             <p>“Contato” conta mensagem <b>enviada</b> + ligação <b>atendida</b>. “Responderam” = leads que responderam no WhatsApp, contado <b>a partir de agora</b> (conversas anteriores não entram).</p>
-            <p>Follow-ups por tentativa/horário vêm dos envios automáticos registrados (<b>reengajamento e fluxo do funil</b>); a “tentativa” é a ordem real do envio para aquele lead.</p>
+            <p>“Follow-ups por tentativa” vem dos envios automáticos registrados (reengajamento e fluxo do funil); a “tentativa” é a ordem real do envio. “Respostas por horário” usa a 1ª resposta de qualquer conversa (a partir de 2026-09-29).</p>
             {filtroDimensao && !dados.bot_atribuivel && (
               <p>Reunião pelo bot não tem nicho/cidade/canal/país/pessoa — fica fora com esses filtros (inclusive o país padrão). Escolha “Todos os países” para incluí-la.</p>
             )}
@@ -441,19 +427,6 @@ function Tile({ titulo, valor, small, delta }: { titulo: string; valor: string; 
           {' '}vs. anterior
         </p>
       )}
-    </div>
-  )
-}
-
-function CardDirecao({ titulo, d }: { titulo: string; d: BlocoDirecao }) {
-  return (
-    <div className="rounded-xl border p-4">
-      <p className="text-xs text-slate-500 uppercase tracking-wide">{titulo}</p>
-      <p className="text-2xl font-bold mt-1 text-slate-900">{fmt(d.reunioes)} <span className="text-sm font-normal text-slate-500">reuniões</span></p>
-      <div className="text-xs text-slate-500 mt-2 space-y-0.5">
-        <p>{fmt(d.mensagens)} mensagens · {fmt(d.conversou)} responderam</p>
-        <p>Taxa de resposta: <b className="text-slate-700">{fmtTaxa(d.taxa_resposta)}</b>% · Conv./100: <b className="text-slate-700">{fmtTaxa(d.por_100_contatos)}</b></p>
-      </div>
     </div>
   )
 }
