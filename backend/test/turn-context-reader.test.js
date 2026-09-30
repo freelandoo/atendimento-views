@@ -106,3 +106,20 @@ test('Resposta fora da pergunta pendente orienta explicar e reformular sem reuni
   assert.ok(ctx.action_policy.acoes_bloqueadas.includes('oferecer_reuniao'))
   assert.ok(ctx.action_policy.acoes_bloqueadas.includes('ignorar_pergunta_pendente'))
 })
+
+test('Fase 3: "sim" apos pergunta de interesse NAO fabrica interesse=site (regex removido)', () => {
+  const ctx = buildTurnContext({
+    historico: [
+      { role: 'assistant', content: 'Voce procura site, sistema ou automacao?' },
+      { role: 'user', content: 'sim' },
+    ],
+    perfil: { negocio: 'padaria', cidade: 'SP', necessidade: 'site' },
+    estagio: 'diagnostico',
+  })
+
+  // O fato de interesse deixou de existir no reader (quem classifica interesse e a IA).
+  assert.notEqual(ctx.resposta_contextual.tipo, 'interesse')
+  assert.equal(ctx.fact_memory.interesse, undefined)
+  assert.ok(!ctx.action_policy.acoes_bloqueadas.includes('perguntar_interesse'))
+  assert.ok(!/Interesse:/.test(ctx.prompt_block))
+})

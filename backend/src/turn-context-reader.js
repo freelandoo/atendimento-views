@@ -66,10 +66,6 @@ function textoAceita(texto = '') {
   return /\b(sim|claro|pode ser|pode|ok|blz|beleza|fechado|quero|vamos|bora|manda|aceito|perfeito)\b/i.test(String(texto || ''))
 }
 
-function textoRecusa(texto = '') {
-  return /\b(nao quero|não quero|sem interesse|nao tenho interesse|não tenho interesse|deixa|deixar|agora nao|agora não|pare|cancela)\b/i.test(String(texto || ''))
-}
-
 function interpretarRespostaCurta({ texto, categoriasUltimaPergunta = [] } = {}) {
   const s = norm(texto)
   const out = {
@@ -101,10 +97,6 @@ function interpretarRespostaCurta({ texto, categoriasUltimaPergunta = [] } = {})
     return { respondeu: true, tipo: 'cidade_regiao', valor: String(texto || '').trim(), descricao: 'lead respondeu cidade ou regiao' }
   }
 
-  if (categoriasUltimaPergunta.includes('interesse') && textoAceita(texto)) {
-    return { respondeu: true, tipo: 'interesse', valor: 'site', descricao: 'lead respondeu positivamente ao interesse em solucao/site' }
-  }
-
   return out
 }
 
@@ -120,7 +112,6 @@ function construirFactMemory(perfilCanonico = {}, respostaCurta = {}) {
   const temSiteResposta = respostaCurta.tipo === 'tem_site' ? respostaCurta.valor : null
   const origemResposta = respostaCurta.tipo === 'origem_clientes' ? respostaCurta.valor : null
   const cidadeResposta = respostaCurta.tipo === 'cidade_regiao' ? respostaCurta.valor : null
-  const interesseResposta = respostaCurta.tipo === 'interesse' ? respostaCurta.valor : null
 
   return {
     negocio: fatoStatus(perfilCanonico.negocio),
@@ -128,7 +119,6 @@ function construirFactMemory(perfilCanonico = {}, respostaCurta = {}) {
     tem_site: fatoStatus(perfilCanonico.tem_site != null ? perfilCanonico.tem_site : temSiteResposta),
     objetivo: fatoStatus(perfilCanonico.objetivo_site),
     origem_clientes: fatoStatus(perfilCanonico.origem_clientes || origemResposta),
-    interesse: fatoStatus(perfilCanonico.necessidade || interesseResposta),
     preco_perguntado: { definido: false, valor: null },
     reuniao_oferecida: fatoStatus(
       Boolean(
@@ -143,7 +133,7 @@ function construirFactMemory(perfilCanonico = {}, respostaCurta = {}) {
 }
 
 function primeiroFatoPendente(factMemory = {}) {
-  const ordem = ['negocio', 'cidade_regiao', 'interesse', 'tem_site', 'objetivo', 'origem_clientes']
+  const ordem = ['negocio', 'cidade_regiao', 'tem_site', 'objetivo', 'origem_clientes']
   return ordem.find((k) => !factMemory[k]?.definido) || null
 }
 
@@ -154,7 +144,6 @@ function perguntasBloqueadasPorFatos(factMemory = {}) {
   if (factMemory.tem_site?.definido) bloqueadas.push('perguntar_tem_site')
   if (factMemory.objetivo?.definido) bloqueadas.push('perguntar_objetivo_site')
   if (factMemory.origem_clientes?.definido) bloqueadas.push('perguntar_origem_clientes')
-  if (factMemory.interesse?.definido) bloqueadas.push('perguntar_interesse')
   return bloqueadas
 }
 
@@ -164,7 +153,6 @@ function estadoDoTurno({ historico, mensagemAtual, ultimaPergunta, categoriasUlt
   if (last?.role === 'assistant' && ultimaPergunta) return 'aguardando_resposta_do_lead'
   if (textoPedePreco(mensagemAtual)) return 'lead_pediu_preco'
   if (textoConfuso(mensagemAtual)) return 'lead_confuso'
-  if (textoRecusa(mensagemAtual)) return 'lead_recusou'
   if (respostaCurta.tipo === 'aceite_reuniao') return 'lead_aceitou_reuniao'
   if (textoCurto(mensagemAtual) && respostaCurta.respondeu) return 'lead_resposta_curta_contextual'
   if (respostaCurta.respondeu) return 'lead_respondeu_pergunta'
@@ -224,7 +212,6 @@ function montarPromptBlock({ turnState, ultimaPergunta, mensagemAtual, respostaC
     linhaFato('Tem site', factMemory.tem_site),
     linhaFato('Objetivo', factMemory.objetivo),
     linhaFato('Origem dos clientes', factMemory.origem_clientes),
-    linhaFato('Interesse', factMemory.interesse),
     linhaFato('Preco perguntado', factMemory.preco_perguntado),
     linhaFato('Reuniao oferecida', factMemory.reuniao_oferecida),
     linhaFato('Horario escolhido', factMemory.horario_escolhido),
