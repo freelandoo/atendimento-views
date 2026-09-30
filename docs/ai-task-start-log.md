@@ -6,6 +6,27 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-30 — Central de Mensagens: ordem recente-primeiro + filtros + nome clicável (drawer)
+
+- **Pedido do operador:** (1) por padrão listar as conversas mais RECENTES primeiro (hoje o front
+  reordena por score de interesse, `page.tsx:222`); (2) painel de filtros como o "⚙ Personalizar"
+  do Banco de Leads — temperatura, interesse, tem-WhatsApp, nicho, período (hoje/14d/entre datas),
+  etapa do funil (inclui "diagnóstico"), status, atendente, instância; (3) chips de ordenação
+  rápida (mais quentes, mais recentes, maior interesse, antigo↔novo); (4) NOME do lead clicável
+  abrindo o MESMO drawer (`FichaLead`) do Banco de Leads.
+- **Decisões do operador (perguntadas):** telefone-fixo = "tem WhatsApp vs não"; diagnóstico =
+  etapa do funil; nicho entra AGORA (join por telefone, padrão `lead-nome-maps.js`).
+- **Achados da análise de impacto:** quase tudo é client-side (campos já vêm na linha). Precisam de
+  backend: `nicho` e `tem_whatsapp` (mora em `prospectador.prospects`, casado por telefone — join
+  novo na listagem `api-conversas.js`). O `FichaLead` é acoplado ao mundo prospect
+  (`LeadDetalhavel` + ICP + `GET /banco-leads/leads/:id`, gate `LEAD_VER_APROVADOS`); conversa sem
+  prospect ou operador sem a capacidade → fallback declarado para `ConversaPainel`.
+- **Escopo controlado:** sem migration (o join reusa o índice funcional `idx_prospects_empresa_
+  telefone_digitos`, mig. 065). Segue workflow padrão: arquivos declarados → aguardando confirmação
+  → diff mínimo → `npm test`/`tsc`.
+
+---
+
 ## 2026-09-30 — Painel comercial: VENDAS/faturamento + funil até a venda
 
 - **Pedido do operador:** mapear dado→gráfico e preencher lacunas do painel. Escolhida a mais

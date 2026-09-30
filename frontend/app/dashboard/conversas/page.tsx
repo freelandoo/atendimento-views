@@ -15,7 +15,7 @@ import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import DataTableFrame from '@/components/ui/DataTableFrame'
 import TextoTruncado from '@/components/ui/TextoTruncado'
-import { IconTrash } from '@/components/ui/icons'
+import { IconTrash, IconGear } from '@/components/ui/icons'
 import ConversaPainel, {
   InteresseBadge,
   TempBadge,
@@ -44,6 +44,11 @@ import type { ModoIa } from '@/lib/conversa-modo-ia'
 type Conversa = ConversaResumo & {
   responsavel_id?: string | null
   responsavel_desde?: string | null
+  responsavel_nome?: string | null
+  // Casados por telefone com o prospect (quando existe): filtros por nicho/tem-WhatsApp.
+  nicho?: string | null
+  tem_whatsapp?: boolean | null
+  prospect_id?: string | null
 }
 
 function fmtData(s?: string): string {
@@ -86,6 +91,58 @@ function esfriando(c: Conversa): boolean {
   return teveCalor && esfriou
 }
 
+// Ordenacao rapida (os "filtros rapidos" que o operador clica). Tudo client-side sobre a janela
+// carregada — mesmo padrao do "Personalizar" do Banco de Leads.
+type Ordem = 'recentes' | 'quentes' | 'interesse' | 'antigos'
+const ORDENS: { valor: Ordem; label: string }[] = [
+  { valor: 'recentes', label: 'Mais recentes' },
+  { valor: 'quentes', label: '🔥 Mais quentes' },
+  { valor: 'interesse', label: 'Maior interesse' },
+  { valor: 'antigos', label: 'Mais antigos' },
+]
+
+type Filtros = {
+  interesseMin: '' | 'alto' | 'medio'
+  whatsapp: '' | 'sim' | 'nao'
+  nicho: string
+  status: string
+  estagio: string
+  instancia: string
+  atendente: string // '' | 'nao_atribuida' | <nome do responsavel>
+  periodo: '' | 'hoje' | '14d' | 'custom'
+  de: string
+  ate: string
+}
+const FILTROS_VAZIOS: Filtros = {
+  interesseMin: '', whatsapp: '', nicho: '', status: '', estagio: '',
+  instancia: '', atendente: '', periodo: '', de: '', ate: '',
+}
+const CAMPO_SEL = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand'
+const RANK_INTERESSE: Record<string, number> = { alto: 3, medio: 2, baixo: 1 }
+const RANK_TEMP: Record<Faixa, number> = { quente: 0, morno: 1, frio: 2 }
+
+function instanciaDe(c: Conversa): string { return c.instancia_nome || c.evolution_instance || '' }
+
+function contarFiltros(f: Filtros): number {
+  const chaves: (keyof Filtros)[] = ['interesseMin', 'whatsapp', 'nicho', 'status', 'estagio', 'instancia', 'atendente', 'periodo']
+  return chaves.reduce((n, k) => (f[k] ? n + 1 : n), 0)
+}
+
+function mesmaData(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+function dentroPeriodo(c: Conversa, f: Filtros): boolean {
+  if (!f.periodo) return true
+  if (!c.atualizado_em) return false
+  const d = new Date(c.atualizado_em)
+  const agora = new Date()
+  if (f.periodo === 'hoje') return mesmaData(d, agora)
+  if (f.periodo === '14d') return d.getTime() >= agora.getTime() - 14 * 864e5
+  if (f.de && d < new Date(f.de + 'T00:00:00')) return false
+  if (f.ate && d > new Date(f.ate + 'T23:59:59')) return false
+  return true
+}
+
 export default function ConversasPage() {
   const [lista, setLista] = useState<Conversa[]>([])
   const [erro, setErro] = useState('')
@@ -96,6 +153,10 @@ export default function ConversasPage() {
   // abre em 'chat'; o botão "Detalhes" ao lado do interesse abre já em 'interesses'.
   const [abaAberta, setAbaAberta] = useState<'chat' | 'interesses'>('chat')
   const [filtro, setFiltro] = useState<'todos' | Faixa | 'esfriando'>('todos')
+  // Ordenacao rapida + painel "Personalizar" (client-side, persistidos por tela).
+  const [ordem, setOrdem] = useState<Ordem>('recentes')
+  const [mostrarFiltros, setMostrarFiltros] = useState(false)
+  const [filtros, setFiltros] = useState<Filtros>(FILTROS_VAZIOS)
   const [buscaNumero, setBuscaNumero] = useState('')
   const [carregandoLista, setCarregandoLista] = useState(true)
   // Padrao GLOBAL da IA (app.empresas.config.modo_ia_padrao). `null` = ainda carregando:
@@ -126,7 +187,9 @@ export default function ConversasPage() {
     if (!empresaId) return
     const requisicao = ++requisicaoLista.current
     const numero = numeroBuscado.replace(/\D/g, '').slice(0, 20)
-    const params = new URLSearchParams({ limit: '100' })
+    // ponytail: filtros/ordenacao rodam sobre esta janela (os 200 mais recentes). Carteira maior
+    // => paginacao de servidor, projeto proprio (mesma divida declarada do Banco de Leads).
+    const params = new URLSearchParams({ limit: '200' })
     if (numero) params.set('numero', numero)
     if (escopo) params.set('escopo', escopo)
 
@@ -155,6 +218,21 @@ export default function ConversasPage() {
     const timer = window.setTimeout(() => carregar(buscaNumero), 300)
     return () => window.clearTimeout(timer)
   }, [empresaId, buscaNumero, escopo])
+
+  // Preferencia de TELA (ordem + filtros), como `bancoLeadsView` no Banco de Leads. Trabalho do
+  // operador; sobrevive ao reload. try/catch: private window / storage bloqueado nao pode quebrar.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('conversasView')
+      if (!raw) return
+      const v = JSON.parse(raw)
+      if (v?.ordem) setOrdem(v.ordem)
+      if (v?.filtros) setFiltros({ ...FILTROS_VAZIOS, ...v.filtros })
+    } catch { /* sem preferencia salva; segue no padrao */ }
+  }, [])
+  useEffect(() => {
+    try { localStorage.setItem('conversasView', JSON.stringify({ ordem, filtros })) } catch { /* ignore */ }
+  }, [ordem, filtros])
 
   // O padrao global e' carregado uma vez, fora do ciclo da busca: ele nao depende de filtro
   // nem de texto digitado. Falha aqui NAO vira erro na tela — a lista de conversas continua
@@ -216,10 +294,48 @@ export default function ConversasPage() {
     frio: enriquecidas.filter((x) => x.faixa === 'frio').length,
     esfriando: enriquecidas.filter((x) => x.alerta).length,
   }
+  // Opcoes dos selects derivadas da propria janela carregada (auto-atualizam; sem lista fixa).
+  const distinct = (get: (c: Conversa) => string | null | undefined) =>
+    Array.from(new Set(lista.map(get).filter((v): v is string => !!v))).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  const opcoes = {
+    nicho: distinct((c) => c.nicho),
+    status: distinct((c) => c.status),
+    estagio: distinct((c) => c.estagio),
+    instancia: distinct((c) => instanciaDe(c)),
+    atendente: distinct((c) => c.responsavel_nome),
+  }
+
+  function passaFiltros(c: Conversa): boolean {
+    const f = filtros
+    if (f.interesseMin && (RANK_INTERESSE[c.score_interesse_faixa || ''] ?? 0) < RANK_INTERESSE[f.interesseMin]) return false
+    if (f.whatsapp === 'sim' && c.tem_whatsapp !== true) return false
+    if (f.whatsapp === 'nao' && c.tem_whatsapp !== false) return false
+    if (f.nicho && (c.nicho || '') !== f.nicho) return false
+    if (f.status && (c.status || '') !== f.status) return false
+    if (f.estagio && (c.estagio || '') !== f.estagio) return false
+    if (f.instancia && instanciaDe(c) !== f.instancia) return false
+    if (f.atendente === 'nao_atribuida' && c.responsavel_id) return false
+    if (f.atendente && f.atendente !== 'nao_atribuida' && (c.responsavel_nome || '') !== f.atendente) return false
+    if (!dentroPeriodo(c, f)) return false
+    return true
+  }
+
+  const porTempo = (a: Conversa, b: Conversa) =>
+    new Date(b.atualizado_em || 0).getTime() - new Date(a.atualizado_em || 0).getTime()
+  const porInteresse = (a: Conversa, b: Conversa) =>
+    (scoreValue(b.score_interesse) ?? -1) - (scoreValue(a.score_interesse) ?? -1)
+  function ordenar(a: { c: Conversa }, b: { c: Conversa }): number {
+    if (ordem === 'antigos') return -porTempo(a.c, b.c)
+    if (ordem === 'interesse') return porInteresse(a.c, b.c)
+    if (ordem === 'quentes') return (RANK_TEMP[classificar(a.c)] - RANK_TEMP[classificar(b.c)]) || porInteresse(a.c, b.c)
+    return porTempo(a.c, b.c) // recentes (padrao)
+  }
+
+  const nFiltros = contarFiltros(filtros)
   const visiveis = enriquecidas
     .filter((x) => (filtro === 'todos' ? true : filtro === 'esfriando' ? x.alerta : x.faixa === filtro))
-    // Mais quente primeiro: maior score de interesse no topo.
-    .sort((a, b) => (scoreValue(b.c.score_interesse) ?? -1) - (scoreValue(a.c.score_interesse) ?? -1))
+    .filter((x) => passaFiltros(x.c))
+    .sort(ordenar)
 
   const FILTROS: { valor: 'todos' | Faixa | 'esfriando'; label: string; n: number }[] = [
     { valor: 'todos', label: 'Todos', n: cont.todos },
@@ -344,6 +460,120 @@ export default function ConversasPage() {
           })}
         </div>
 
+        {/* Ordenacao rapida (os "filtros rapidos" que o operador clica) + acesso ao painel. */}
+        <div className="flex flex-wrap items-center gap-2 border-b bg-white px-4 py-3">
+          <span className="text-xs font-medium text-slate-500">Ordenar:</span>
+          {ORDENS.map((o) => {
+            const ativo = ordem === o.valor
+            return (
+              <button key={o.valor} onClick={() => setOrdem(o.valor)}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                  ativo ? 'border-brand bg-brand text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                }`}>
+                {o.label}
+              </button>
+            )
+          })}
+          <div className="ml-auto flex items-center gap-2">
+            {nFiltros > 0 && (
+              <button onClick={() => setFiltros(FILTROS_VAZIOS)}
+                className="text-xs text-slate-500 underline-offset-2 hover:text-brand hover:underline">
+                Limpar filtros
+              </button>
+            )}
+            <button onClick={() => setMostrarFiltros((v) => !v)}
+              aria-expanded={mostrarFiltros}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                mostrarFiltros || nFiltros > 0 ? 'border-brand bg-brand/5 text-brand' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100'
+              }`}>
+              <IconGear className="h-4 w-4" /> Personalizar{nFiltros > 0 ? ` (${nFiltros})` : ''}
+            </button>
+          </div>
+        </div>
+
+        {mostrarFiltros && (
+          <div className="grid grid-cols-1 gap-3 border-b bg-slate-50/60 px-4 py-4 sm:grid-cols-2 lg:grid-cols-3">
+            <label className="block text-xs">
+              <span className="mb-1 block font-medium text-slate-500">Interesse (mínimo)</span>
+              <select value={filtros.interesseMin}
+                onChange={(e) => setFiltros((f) => ({ ...f, interesseMin: e.target.value as Filtros['interesseMin'] }))}
+                className={CAMPO_SEL}>
+                <option value="">Qualquer</option>
+                <option value="medio">Médio ou alto</option>
+                <option value="alto">Só alto</option>
+              </select>
+            </label>
+
+            <label className="block text-xs">
+              <span className="mb-1 block font-medium text-slate-500">WhatsApp</span>
+              <select value={filtros.whatsapp}
+                onChange={(e) => setFiltros((f) => ({ ...f, whatsapp: e.target.value as Filtros['whatsapp'] }))}
+                className={CAMPO_SEL}>
+                <option value="">Qualquer</option>
+                <option value="sim">Tem WhatsApp</option>
+                <option value="nao">Sem WhatsApp</option>
+              </select>
+            </label>
+
+            {([
+              { key: 'nicho', label: 'Nicho', ops: opcoes.nicho, vazio: 'Todos' },
+              { key: 'status', label: 'Status', ops: opcoes.status, vazio: 'Todos' },
+              { key: 'estagio', label: 'Etapa do funil', ops: opcoes.estagio, vazio: 'Todas' },
+              { key: 'instancia', label: 'Instância', ops: opcoes.instancia, vazio: 'Todas' },
+            ] as const).map(({ key, label, ops, vazio }) => (
+              <label key={key} className="block text-xs">
+                <span className="mb-1 block font-medium text-slate-500">{label}</span>
+                <select value={filtros[key]}
+                  onChange={(e) => setFiltros((f) => ({ ...f, [key]: e.target.value }))}
+                  className={CAMPO_SEL}>
+                  <option value="">{vazio}</option>
+                  {ops.map((o) => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </label>
+            ))}
+
+            <label className="block text-xs">
+              <span className="mb-1 block font-medium text-slate-500">Atendente</span>
+              <select value={filtros.atendente}
+                onChange={(e) => setFiltros((f) => ({ ...f, atendente: e.target.value }))}
+                className={CAMPO_SEL}>
+                <option value="">Todos</option>
+                <option value="nao_atribuida">Não atribuída</option>
+                {opcoes.atendente.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </label>
+
+            <label className="block text-xs">
+              <span className="mb-1 block font-medium text-slate-500">Período (atualização)</span>
+              <select value={filtros.periodo}
+                onChange={(e) => setFiltros((f) => ({ ...f, periodo: e.target.value as Filtros['periodo'] }))}
+                className={CAMPO_SEL}>
+                <option value="">Qualquer</option>
+                <option value="hoje">Hoje</option>
+                <option value="14d">Últimos 14 dias</option>
+                <option value="custom">Entre datas…</option>
+              </select>
+            </label>
+
+            {filtros.periodo === 'custom' && (
+              <div className="flex items-end gap-2 text-xs sm:col-span-2 lg:col-span-1">
+                <label className="block flex-1">
+                  <span className="mb-1 block font-medium text-slate-500">De</span>
+                  <input type="date" value={filtros.de}
+                    onChange={(e) => setFiltros((f) => ({ ...f, de: e.target.value }))}
+                    className={CAMPO_SEL} />
+                </label>
+                <label className="block flex-1">
+                  <span className="mb-1 block font-medium text-slate-500">Até</span>
+                  <input type="date" value={filtros.ate}
+                    onChange={(e) => setFiltros((f) => ({ ...f, ate: e.target.value }))}
+                    className={CAMPO_SEL} />
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+
         <DataTableFrame
           className="rounded-b-2xl"
           ariaLabel="Rolagem horizontal da tabela de conversas"
@@ -373,9 +603,22 @@ export default function ConversasPage() {
             const identidade = identidadeConversa(c)
             const nomeLead = nomeColunaLead(c)
             return (
-            <tr key={c.numero} className={`hover:bg-slate-50/70 ${alerta ? 'bg-red-50/60' : ''}`}>
+            <tr key={c.numero} className={`hover:bg-slate-50/70 ${alerta ? 'bg-red-50/60' : ''} ${numeroAberto === c.numero ? 'ring-1 ring-inset ring-brand/40' : ''}`}>
               <td className="px-4 py-3 font-medium text-slate-800">
-                <TextoTruncado texto={nomeLead} className="max-w-[220px]" vazio="" />
+                {/* Nome clicavel abre a ficha da conversa (ConversaPainel) — mesma porta do botao
+                    "Historico", que serve qualquer contato, com prospect ou nao. Sem nome, a
+                    coluna fica vazia (o botao "Historico" em Acoes continua abrindo). */}
+                {nomeLead ? (
+                  <button
+                    onClick={() => { setAbaAberta('chat'); setNumeroAberto(c.numero) }}
+                    className="block max-w-[220px] truncate text-left text-brand underline decoration-dotted decoration-brand/40 underline-offset-2 hover:decoration-solid"
+                    title="Abrir a ficha da conversa"
+                  >
+                    {nomeLead}
+                  </button>
+                ) : (
+                  <TextoTruncado texto={nomeLead} className="max-w-[220px]" vazio="" />
+                )}
               </td>
               <td className="whitespace-nowrap px-4 py-3 text-xs tabular-nums text-slate-600">{identidade.telefone || '—'}</td>
               <td className="px-4 py-3">

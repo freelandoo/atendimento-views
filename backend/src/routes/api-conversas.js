@@ -16,7 +16,7 @@ const { registrarFeedbackConversa } = require('../services/conversa-feedback')
 const { modoIaPadraoEmpresa } = require('../db/empresas')
 const { modoEfetivo } = require('../services/conversa-modo-ia')
 const { anexarNomeExibicao } = require('../services/lead-nome-exibicao')
-const { buscarNomesMapsPorTelefone } = require('../db/lead-nome-maps')
+const { buscarNomesMapsPorTelefone, buscarDadosProspectPorTelefone } = require('../db/lead-nome-maps')
 const { historicoPorTelefone } = require('../db/lead-responsavel')
 // Ownership da CONVERSA (CRM em equipe, Etapa 7). A regra e' pura; o recorte depende da
 // capacidade, avaliada pelo modulo puro de acesso.
@@ -168,6 +168,38 @@ async function anexarNomesExibicao(conversas, empresaId) {
   return lista.map((c) => anexarNomeExibicao(c, nomesMaps.get(c && c.numero) || null))
 }
 
+/**
+ * Como `anexarNomesExibicao`, mas tambem anexa `nicho`, `tem_whatsapp` e `prospect_id` do prospect
+ * casado por telefone (Central de Mensagens: filtros por nicho/tem-WhatsApp e nome clicavel). Uma
+ * consulta por pagina, mesmo indice. Conversa sem prospect vem com os tres campos NULOS — a tela os
+ * trata como "nao informado", nunca como "nao tem".
+ *
+ * Falha ao consultar o prospect NAO derruba a listagem: cai para o nome do WhatsApp (prioridade 1)
+ * e os tres campos ficam nulos, exatamente como um contato que nunca foi coletado.
+ */
+async function anexarProspectExibicao(conversas, empresaId) {
+  const lista = Array.isArray(conversas) ? conversas : []
+  if (lista.length === 0) return lista
+  let dados = new Map()
+  try {
+    dados = await buscarDadosProspectPorTelefone(pool, {
+      empresaId,
+      numeros: lista.map((c) => c && c.numero).filter(Boolean),
+    })
+  } catch (err) {
+    logger.warn({ err: err?.message }, '[api-conversas] dados do prospect indisponiveis; seguindo sem nicho/whatsapp')
+  }
+  return lista.map((c) => {
+    const d = dados.get(c && c.numero) || null
+    return {
+      ...anexarNomeExibicao(c, d ? d.nome : null),
+      nicho: d ? d.nicho : null,
+      tem_whatsapp: d ? d.tem_whatsapp : null,
+      prospect_id: d ? d.prospect_id : null,
+    }
+  })
+}
+
 function erroConversas(res, err, code = 'CONVERSAS_FAILED') {
   const status = err?.statusCode || 500
   const errorCode = err?.code || code
@@ -185,7 +217,7 @@ function erroConversas(res, err, code = 'CONVERSAS_FAILED') {
 // GET /api/empresas/:empresaId/conversas?page=1&limit=50&status=ativo&numero=5511
 router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1)
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50))
+  const limit = Math.min(300, Math.max(1, parseInt(req.query.limit, 10) || 50))
   const offset = (page - 1) * limit
   const { status, estagio } = req.query
   const numero = String(req.query.numero || '').replace(/\D/g, '').slice(0, 20)
@@ -241,7 +273,7 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
 
   return res.json({
     ok: true,
-    data: await anexarNomesExibicao(rows.map(anexarScoreInteresse), req.empresa.id),
+    data: await anexarProspectExibicao(rows.map(anexarScoreInteresse), req.empresa.id),
     meta: {
       total: parseInt(cnt.total, 10),
       page,
