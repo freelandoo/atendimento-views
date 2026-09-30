@@ -400,6 +400,9 @@ export default function ConversasPage() {
       { sucesso: 'Registro atualizado.' }
     )
     setFicha((f) => (f ? { ...f, status: r.data.status } : f))
+    // Reflete o novo status do LEAD na linha da lista — a re-ordenação é imediata (o descartado
+    // desce para o fim sem esperar um reload). `r.data.status` é o status do prospect.
+    setLista((prev) => prev.map((x) => (x.numero === ficha.numero ? { ...x, lead_status: r.data.status } : x)))
   }
 
   async function salvarTelefoneFicha(telefone: string) {
@@ -466,9 +469,23 @@ export default function ConversasPage() {
     return porTempo(a.c, b.c) // recentes (padrao)
   }
 
+  // Busca por NOME ou NÚMERO, client-side sobre a janela carregada. (O número tambem vai ao
+  // servidor em `carregar`, entao um telefone fora da janela ainda e' encontrado; o nome so' casa
+  // dentro da janela — mesma fronteira dos filtros.)
+  function correspondeBusca(c: Conversa): boolean {
+    const q = buscaNumero.trim().toLowerCase()
+    if (!q) return true
+    if (nomeColunaLead(c).toLowerCase().includes(q)) return true
+    const dig = q.replace(/\D/g, '')
+    if (!dig) return false
+    return (identidadeConversa(c).telefone || '').replace(/\D/g, '').includes(dig)
+      || (c.numero || '').replace(/\D/g, '').includes(dig)
+  }
+
   const nFiltros = contarFiltros(filtros)
   const visiveis = enriquecidas
     .filter((x) => (filtro === 'esfriando' ? x.alerta : true))
+    .filter((x) => correspondeBusca(x.c))
     .filter((x) => passaFiltros(x.c))
     // Descartado SEMPRE por último, qualquer que seja a ordenação escolhida.
     .sort((a, b) => (Number(descartadoDe(a.c)) - Number(descartadoDe(b.c))) || ordenar(a, b))
@@ -521,55 +538,18 @@ export default function ConversasPage() {
       )}
 
       <section className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-        <div className="flex flex-wrap items-end justify-between gap-3 border-b px-4 py-4">
-          {podeVerTodas && (
-            <div>
-              <label htmlFor="escopo-conversas" className="mb-1 block text-xs font-medium text-slate-500">Atendente</label>
-              <select id="escopo-conversas" value={escopo} onChange={(e) => setEscopo(e.target.value)}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand">
-                {opcoesEscopoConversa(podeVerTodas).map((o) => (
-                  <option key={o.valor || 'padrao'} value={o.valor}>{o.rotulo}</option>
-                ))}
-              </select>
-              {/* O servidor rebaixou o pedido? Recortar em silêncio faria o atendente achar que a
-                  Central esvaziou. */}
-              {avisoDeRecorte(escopo, escopoEfetivo) && (
-                <p className="mt-1 max-w-[220px] text-[10px] leading-snug text-amber-700">
-                  {avisoDeRecorte(escopo, escopoEfetivo)}
-                </p>
-              )}
-            </div>
-          )}
-
-          <div className="min-w-[240px] flex-1 sm:max-w-xl">
-            <label htmlFor="busca-numero" className="mb-1 block text-xs font-medium text-slate-500">Pesquisar número</label>
-            <div className="relative">
-              <input
-                id="busca-numero"
-                type="search"
-                inputMode="tel"
-                value={buscaNumero}
-                onChange={(e) => setBuscaNumero(e.target.value)}
-                placeholder="Ex.: (11) 99999-9999"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 pr-16 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
-              />
-              {buscaNumero && (
-                <button
-                  type="button"
-                  onClick={() => setBuscaNumero('')}
-                  className="absolute inset-y-0 right-0 px-3 text-xs font-medium text-slate-500 hover:text-brand"
-                >
-                  Limpar
-                </button>
-              )}
-            </div>
-          </div>
-          <p className="pb-2 text-xs text-slate-500" aria-live="polite">
+        {/* Linha fina: contagem + aviso de recorte do atendente. */}
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b px-4 py-2 text-xs text-slate-500">
+          <span aria-live="polite">
             {carregandoLista ? 'Buscando conversas…' : `${visiveis.length} conversa${visiveis.length === 1 ? '' : 's'} encontrada${visiveis.length === 1 ? '' : 's'}`}
-          </p>
+          </span>
+          {podeVerTodas && avisoDeRecorte(escopo, escopoEfetivo) && (
+            <span className="text-amber-700">{avisoDeRecorte(escopo, escopoEfetivo)}</span>
+          )}
         </div>
 
-        {/* Filtros rapidos: ordenacao + o atalho "Esfriando". O resto dos filtros vive no modal. */}
+        {/* Uma barra só: ordenação + atalho "Esfriando" + busca (nome/número) + Atendente +
+            Personalizar. O resto dos filtros vive no modal. */}
         <div className="flex flex-wrap items-center gap-2 border-b bg-white px-4 py-3">
           <span className="text-xs font-medium text-slate-500">Ordenar:</span>
           {ORDENS.map((o) => {
@@ -592,7 +572,36 @@ export default function ConversasPage() {
               ⚠️ Esfriando <span className={filtro === 'esfriando' ? 'opacity-80' : 'text-red-400'}>({totalEsfriando})</span>
             </button>
           )}
-          <div className="ml-auto flex items-center gap-2">
+
+          {/* Busca (nome OU número) — preenche o espaço entre "Esfriando" e "Atendente". */}
+          <div className="relative min-w-[180px] flex-1">
+            <input
+              id="busca-conversas"
+              type="search"
+              value={buscaNumero}
+              onChange={(e) => setBuscaNumero(e.target.value)}
+              placeholder="Pesquisar nome ou número"
+              aria-label="Pesquisar por nome ou número"
+              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 pr-14 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-blue-100"
+            />
+            {buscaNumero && (
+              <button type="button" onClick={() => setBuscaNumero('')}
+                className="absolute inset-y-0 right-0 px-2.5 text-xs font-medium text-slate-500 hover:text-brand">
+                Limpar
+              </button>
+            )}
+          </div>
+
+          {podeVerTodas && (
+            <select aria-label="Atendente" value={escopo} onChange={(e) => setEscopo(e.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none transition focus:border-brand">
+              {opcoesEscopoConversa(podeVerTodas).map((o) => (
+                <option key={o.valor || 'padrao'} value={o.valor}>{o.rotulo}</option>
+              ))}
+            </select>
+          )}
+
+          <div className="flex items-center gap-2">
             {nFiltros > 0 && (
               <button onClick={() => setFiltros(FILTROS_VAZIOS)}
                 className="text-xs text-slate-500 underline-offset-2 hover:text-brand hover:underline">
