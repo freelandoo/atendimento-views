@@ -6,6 +6,25 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-29 — Correção: reunião não casava com nicho/cidade (energia solar aparecia com 0)
+
+- **Sintoma (operador):** havia reuniões marcadas para energia solar, mas "Por nicho" mostrava 0.
+- **Causa raiz:** reunião era atribuída a nicho/cidade/canal por `agenda_eventos.prospect_id`, que
+  é nullable e **nunca teve backfill** (migration 076); na criação (`agenda-multiempresa.js`)
+  `prospect_id = corpo.prospect_id || null` — quase sempre nulo. Só `lead_telefone` é gravado. Com
+  `prospect_id` nulo, o `LEFT JOIN` caía em "—" e, sob filtro de nicho, a reunião era EXCLUÍDA.
+- **Correção:** `JOIN_PROSPECT_AGENDA` (LATERAL) resolve o prospect por vínculo explícito **OU por
+  telefone** (`TELN(lead_telefone)=TELN(prospects.telefone)`, mesma empresa; LIMIT 1 prefere o
+  vínculo). Aplicado em `serieReunioesHumano` (por_canal) e no ranking. Afeta a atribuição por
+  canal/nicho/cidade e as views filtradas; o TOTAL de reuniões não muda.
+- **Ponta-solta AINDA em aberto (decisão do operador):** reuniões são contadas por `data_inicio`
+  (quando ACONTECEM). Reunião marcada para data FUTURA fica fora de uma janela passada (ex.: "últimos
+  7 dias"). Se o certo é "marcadas NO período", trocar para `criado_em` — mas isso muda a semântica
+  da série inteira. Não alterei; perguntei.
+- **Validação:** backend `npm test` 3275/3275.
+
+---
+
 ## 2026-09-29 — Painel: abas Por cidade / Por nicho (ranking "quem converte mais")
 
 - **Pedido do operador:** abas de ranking por cidade e por nicho — qual converte mais — em barras

@@ -39,6 +39,22 @@ function botAtribuivel(filtros) {
   return !filtros.nichoId && !filtros.cidade && !filtros.canal && !filtros.pais && !filtros.estado && !filtros.direcao && !filtros.pessoa
 }
 
+// Resolve o prospect de um evento de `app.agenda_eventos` (alias `a`) por vínculo explícito OU por
+// TELEFONE. Necessário porque `agenda_eventos.prospect_id` é nullable e NUNCA teve backfill
+// (migration 076) — a maioria das reuniões só carrega `lead_telefone`. Sem isso, a reunião não
+// casava com o nicho/cidade/origem do lead e, sob filtro de dimensão, era EXCLUÍDA (energia solar
+// aparecia com 0 mesmo tendo reunião). LATERAL + LIMIT 1 evita contar a reunião 2× se o telefone
+// casar com mais de um prospect; ORDER BY prefere o vínculo explícito. Expõe as colunas que
+// `condLead`/agrupamento usam, sob o alias externo `p`.
+const JOIN_PROSPECT_AGENDA = `LEFT JOIN LATERAL (
+    SELECT pp.origem, pp.nicho_id, pp.cidade, pp.uf, pp.nicho
+      FROM prospectador.prospects pp
+     WHERE pp.empresa_id = a.empresa_id
+       AND (pp.id = a.prospect_id OR (a.prospect_id IS NULL AND ${TELN('pp.telefone')} = ${TELN('a.lead_telefone')}))
+     ORDER BY (pp.id = a.prospect_id) DESC
+     LIMIT 1
+  ) p ON true`
+
 async function serieMensagens(pool, filtros) {
   const params = [filtros.empresaId, filtros.de, filtros.ate]
   let pessoa = ''
@@ -85,7 +101,7 @@ async function serieReunioesHumano(pool, filtros) {
     `SELECT date_trunc('day', a.data_inicio AT TIME ZONE '${TZ}')::date AS dia,
             COALESCE(p.origem, 'desconhecido') AS canal, COUNT(*)::int AS n
        FROM app.agenda_eventos a
-       LEFT JOIN prospectador.prospects p ON p.id = a.prospect_id
+       ${JOIN_PROSPECT_AGENDA}
       WHERE a.empresa_id = $1 AND a.tipo = 'reuniao' AND a.excluido_em IS NULL
         AND a.status <> 'cancelado'
         AND a.data_inicio >= $2 AND a.data_inicio < $3${pessoa}${lead}
@@ -215,7 +231,7 @@ async function rankingPorDimensao(pool, filtros, dimExpr) {
     roda(
       `SELECT %CHAVE% AS canal, COUNT(*)::int AS n
          FROM app.agenda_eventos a
-         LEFT JOIN prospectador.prospects p ON p.id = a.prospect_id
+         ${JOIN_PROSPECT_AGENDA}
         WHERE a.empresa_id = $1 AND a.tipo = 'reuniao' AND a.excluido_em IS NULL AND a.status <> 'cancelado'
           AND a.data_inicio >= $2 AND a.data_inicio < $3%PESSOA%%LEAD%
         GROUP BY 1`, 'a.responsavel_id'),
