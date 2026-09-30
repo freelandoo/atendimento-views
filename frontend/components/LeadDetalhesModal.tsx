@@ -586,12 +586,16 @@ function ResumoIcpCompacto({ selo, score, maximo, validacao, qualificacao, cadas
 
 export type SecaoFicha = 'tudo' | 'resumo' | 'qualificacao' | 'fontes'
 
-export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectada = false, empresaId, onLeadAtualizado, podeEditarIcp = true, variante = 'modal', secao = 'tudo' }: {
+export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectada = false, empresaId, onLeadAtualizado, podeEditarIcp = true, variante = 'modal', secao = 'tudo', interessesConversa = [] }: {
   lead: LeadDetalhavel
   onFechar: () => void
   empresaId?: string
   onLeadAtualizado?: (lead: LeadDetalhavel) => void
   podeEditarIcp?: boolean
+  /** Sinais de interesse capturados na CONVERSA (score_interesse_criterios). Opcional: a
+   *  Aquisição/Banco de Leads não os passam; a Central de Mensagens sim, para a seção "Interesses"
+   *  aparecer na qualificação. Vazio => a seção não é renderizada. */
+  interessesConversa?: { titulo?: string; delta?: number }[]
   /** A instância de envio selecionada na tela está desconectada — só muda o AVISO ao lado do
       botão Copiar (a mensagem, quando existe, sempre pode ser copiada). */
   instanciaDesconectada?: boolean
@@ -1064,6 +1068,30 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
                           </ul>
                         </div>
                       )}
+                    </div>
+                  </SecaoRecolhivel>
+                )}
+
+                {ver('qualificacao') && interessesConversa.length > 0 && (
+                  <SecaoRecolhivel titulo="Interesses" subtitulo="Sinais capturados na conversa do WhatsApp.">
+                    <div className="grid gap-2">
+                      {interessesConversa.map((it, i) => {
+                        const delta = typeof it.delta === 'number' ? it.delta : 0
+                        const positivo = delta > 0
+                        const negativo = delta < 0
+                        return (
+                          <div key={i} className={`rounded-lg border px-3 py-2 text-xs ${
+                            positivo ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                              : negativo ? 'border-red-200 bg-red-50 text-red-800'
+                                : 'border-line bg-surface-2 text-ink-3'
+                          }`}>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="min-w-0 flex-1 font-medium">{it.titulo || 'Sinal'}</span>
+                              {delta !== 0 && <span className="shrink-0 tabular-nums">{positivo ? `+${delta}` : delta}</span>}
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
                   </SecaoRecolhivel>
                 )}

@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import DataTableFrame from '@/components/ui/DataTableFrame'
+import FolhaModal from '@/components/ui/FolhaModal'
 import TextoTruncado from '@/components/ui/TextoTruncado'
 import { IconTrash, IconGear } from '@/components/ui/icons'
 import ConversaPainel, {
@@ -22,6 +23,9 @@ import ConversaPainel, {
   scoreValue,
   type ConversaResumo,
 } from '@/components/ConversaPainel'
+import FichaLead, { type SecaoFicha } from '@/components/FichaLead'
+import { type LeadDetalhavel } from '@/components/LeadDetalhesModal'
+import { acessosDoLead } from '@/lib/lead-acessos'
 import { identidadeConversa, nomeColunaLead } from '@/lib/lead-identidade'
 import {
   opcoesEscopoConversa, avisoDeRecorte, atendenteDaConversa,
@@ -57,12 +61,6 @@ function fmtData(s?: string): string {
 }
 
 type Faixa = 'quente' | 'morno' | 'frio'
-
-const FILTRO_META: Record<Faixa, { label: string; chip: string }> = {
-  quente: { label: '🔥 Quentes', chip: 'border-orange-500 bg-orange-50 text-orange-700' },
-  morno: { label: '🌤️ Mornos', chip: 'border-amber-500 bg-amber-50 text-amber-700' },
-  frio: { label: '❄️ Frios', chip: 'border-sky-400 bg-sky-50 text-sky-700' },
-}
 
 // Classifica a conversa em quente/morno/frio combinando a temperatura comercial do
 // perfil com o score de interesse (fallback quando a temperatura ainda não foi definida).
@@ -152,7 +150,17 @@ export default function ConversasPage() {
   // Aba com que o painel abre — deep-link aditivo (dado pronto, sem rota nova): "Histórico"
   // abre em 'chat'; o botão "Detalhes" ao lado do interesse abre já em 'interesses'.
   const [abaAberta, setAbaAberta] = useState<'chat' | 'interesses'>('chat')
-  const [filtro, setFiltro] = useState<'todos' | Faixa | 'esfriando'>('todos')
+  // Ficha do lead — o MESMO drawer do Banco de Leads (FichaLead). So' abre quando a conversa tem
+  // um prospect por tras; sem prospect (Meta/organico/nao coletado) cai no ConversaPainel, que
+  // serve qualquer contato. O FichaLead e' inteiro chaveado pelo id do prospect e nao renderiza
+  // sem ele.
+  const [ficha, setFicha] = useState<{
+    lead: LeadDetalhavel; status: string; numero: string; titulo: string
+    secao: SecaoFicha; criterios: { titulo?: string; delta?: number }[]
+  } | null>(null)
+  // "Esfriando" e' o unico filtro rapido que sobrou na barra (junto dos de ordenacao); os de
+  // temperatura sairam. O banner de alerta e o chip usam este mesmo estado.
+  const [filtro, setFiltro] = useState<'todos' | 'esfriando'>('todos')
   // Ordenacao rapida + painel "Personalizar" (client-side, persistidos por tela).
   const [ordem, setOrdem] = useState<Ordem>('recentes')
   const [mostrarFiltros, setMostrarFiltros] = useState(false)
@@ -273,6 +281,29 @@ export default function ConversasPage() {
     }
   }
 
+  // Clique no NOME: abre a ficha do lead (drawer do Banco de Leads) quando ha' prospect; senao,
+  // o painel de conversa. Falha ao buscar o lead (comercial sem LEAD_VER_APROVADOS, ou lead fora
+  // do recorte) tambem cai no painel — sempre aparece um drawer.
+  async function abrirDetalheDoLead(c: Conversa) {
+    if (!c.prospect_id || !empresaId) { setAbaAberta('chat'); setNumeroAberto(c.numero); return }
+    try {
+      const r = await apiFetch<LeadDetalhavel & { status?: string }>(
+        `/api/empresas/${empresaId}/banco-leads/leads/${c.prospect_id}`
+      )
+      const lead = r.data
+      setFicha({
+        lead,
+        status: lead.status || '',
+        numero: c.numero,
+        titulo: nomeColunaLead(c) || identidadeConversa(c).titulo,
+        secao: 'qualificacao',
+        criterios: c.score_interesse_criterios || [],
+      })
+    } catch {
+      setAbaAberta('chat'); setNumeroAberto(c.numero)
+    }
+  }
+
   async function removerConversa(c: Conversa) {
     if (!empresaId) return
     const identidade = identidadeConversa(c)
@@ -285,15 +316,9 @@ export default function ConversasPage() {
     } catch { /* erro já exibido pelo feedback */ }
   }
 
-  // Classifica cada conversa (faixa quente/morno/frio) e marca as que estão esfriando.
-  const enriquecidas = lista.map((c) => ({ c, faixa: classificar(c), alerta: esfriando(c) }))
-  const cont = {
-    todos: enriquecidas.length,
-    quente: enriquecidas.filter((x) => x.faixa === 'quente').length,
-    morno: enriquecidas.filter((x) => x.faixa === 'morno').length,
-    frio: enriquecidas.filter((x) => x.faixa === 'frio').length,
-    esfriando: enriquecidas.filter((x) => x.alerta).length,
-  }
+  // Marca as conversas que estão esfriando (o unico filtro rapido de temperatura que sobrou).
+  const enriquecidas = lista.map((c) => ({ c, alerta: esfriando(c) }))
+  const totalEsfriando = enriquecidas.filter((x) => x.alerta).length
   // Opcoes dos selects derivadas da propria janela carregada (auto-atualizam; sem lista fixa).
   const distinct = (get: (c: Conversa) => string | null | undefined) =>
     Array.from(new Set(lista.map(get).filter((v): v is string => !!v))).sort((a, b) => a.localeCompare(b, 'pt-BR'))
@@ -333,17 +358,10 @@ export default function ConversasPage() {
 
   const nFiltros = contarFiltros(filtros)
   const visiveis = enriquecidas
-    .filter((x) => (filtro === 'todos' ? true : filtro === 'esfriando' ? x.alerta : x.faixa === filtro))
+    .filter((x) => (filtro === 'esfriando' ? x.alerta : true))
     .filter((x) => passaFiltros(x.c))
     .sort(ordenar)
 
-  const FILTROS: { valor: 'todos' | Faixa | 'esfriando'; label: string; n: number }[] = [
-    { valor: 'todos', label: 'Todos', n: cont.todos },
-    { valor: 'quente', label: FILTRO_META.quente.label, n: cont.quente },
-    { valor: 'morno', label: FILTRO_META.morno.label, n: cont.morno },
-    { valor: 'frio', label: FILTRO_META.frio.label, n: cont.frio },
-    { valor: 'esfriando', label: '⚠️ Esfriando', n: cont.esfriando },
-  ]
 
   return (
     <div className="space-y-6">
@@ -378,14 +396,14 @@ export default function ConversasPage() {
       </div>
       {erro && <p className="text-red-600 text-sm">{erro}</p>}
 
-      {cont.esfriando > 0 && (
+      {totalEsfriando > 0 && (
         <button
           onClick={() => setFiltro('esfriando')}
           className="flex w-full items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-left transition hover:bg-red-100"
         >
           <span className="text-xl">⚠️</span>
           <span className="text-sm text-red-800">
-            <strong>{cont.esfriando} lead{cont.esfriando > 1 ? 's' : ''} esfriando</strong> — mostrou interesse mas começou a
+            <strong>{totalEsfriando} lead{totalEsfriando > 1 ? 's' : ''} esfriando</strong> — mostrou interesse mas começou a
             perder calor (silêncio, adiamento ou recusa). Clique para ver e intervir.
           </span>
         </button>
@@ -440,27 +458,7 @@ export default function ConversasPage() {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-1.5 border-b bg-slate-50/60 px-4 py-3">
-          {FILTROS.map((f) => {
-            const ativo = filtro === f.valor
-            const isAlerta = f.valor === 'esfriando'
-            return (
-              <button
-                key={f.valor}
-                onClick={() => setFiltro(f.valor)}
-                className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                  ativo
-                    ? isAlerta ? 'border-red-600 bg-red-600 text-white' : 'border-brand bg-brand text-white'
-                    : isAlerta ? 'border-red-200 bg-white text-red-600 hover:bg-red-50' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                {f.label} <span className={ativo ? 'opacity-80' : 'text-slate-400'}>({f.n})</span>
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Ordenacao rapida (os "filtros rapidos" que o operador clica) + acesso ao painel. */}
+        {/* Filtros rapidos: ordenacao + o atalho "Esfriando". O resto dos filtros vive no modal. */}
         <div className="flex flex-wrap items-center gap-2 border-b bg-white px-4 py-3">
           <span className="text-xs font-medium text-slate-500">Ordenar:</span>
           {ORDENS.map((o) => {
@@ -474,6 +472,15 @@ export default function ConversasPage() {
               </button>
             )
           })}
+          {totalEsfriando > 0 && (
+            <button
+              onClick={() => setFiltro((v) => (v === 'esfriando' ? 'todos' : 'esfriando'))}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                filtro === 'esfriando' ? 'border-red-600 bg-red-600 text-white' : 'border-red-200 bg-white text-red-600 hover:bg-red-50'
+              }`}>
+              ⚠️ Esfriando <span className={filtro === 'esfriando' ? 'opacity-80' : 'text-red-400'}>({totalEsfriando})</span>
+            </button>
+          )}
           <div className="ml-auto flex items-center gap-2">
             {nFiltros > 0 && (
               <button onClick={() => setFiltros(FILTROS_VAZIOS)}
@@ -491,8 +498,26 @@ export default function ConversasPage() {
           </div>
         </div>
 
-        {mostrarFiltros && (
-          <div className="grid grid-cols-1 gap-3 border-b bg-slate-50/60 px-4 py-4 sm:grid-cols-2 lg:grid-cols-3">
+        <FolhaModal
+          aberto={mostrarFiltros}
+          titulo="Personalizar filtros"
+          descricao="Refina a lista. Os filtros valem sobre as conversas já carregadas."
+          onFechar={() => setMostrarFiltros(false)}
+          tamanho="lg"
+          rodape={
+            <div className="flex items-center justify-between gap-2">
+              <button onClick={() => setFiltros(FILTROS_VAZIOS)} disabled={nFiltros === 0}
+                className="text-sm text-slate-500 underline-offset-2 hover:text-brand hover:underline disabled:cursor-default disabled:text-slate-300 disabled:no-underline">
+                Limpar tudo
+              </button>
+              <button onClick={() => setMostrarFiltros(false)}
+                className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90">
+                Concluir
+              </button>
+            </div>
+          }
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block text-xs">
               <span className="mb-1 block font-medium text-slate-500">Interesse (mínimo)</span>
               <select value={filtros.interesseMin}
@@ -572,7 +597,7 @@ export default function ConversasPage() {
               </div>
             )}
           </div>
-        )}
+        </FolhaModal>
 
         <DataTableFrame
           className="rounded-b-2xl"
@@ -603,16 +628,16 @@ export default function ConversasPage() {
             const identidade = identidadeConversa(c)
             const nomeLead = nomeColunaLead(c)
             return (
-            <tr key={c.numero} className={`hover:bg-slate-50/70 ${alerta ? 'bg-red-50/60' : ''} ${numeroAberto === c.numero ? 'ring-1 ring-inset ring-brand/40' : ''}`}>
+            <tr key={c.numero} className={`hover:bg-slate-50/70 ${alerta ? 'bg-red-50/60' : ''} ${(numeroAberto === c.numero || ficha?.numero === c.numero) ? 'ring-1 ring-inset ring-brand/40' : ''}`}>
               <td className="px-4 py-3 font-medium text-slate-800">
                 {/* Nome clicavel abre a ficha da conversa (ConversaPainel) — mesma porta do botao
                     "Historico", que serve qualquer contato, com prospect ou nao. Sem nome, a
                     coluna fica vazia (o botao "Historico" em Acoes continua abrindo). */}
                 {nomeLead ? (
                   <button
-                    onClick={() => { setAbaAberta('chat'); setNumeroAberto(c.numero) }}
+                    onClick={() => abrirDetalheDoLead(c)}
                     className="block max-w-[220px] truncate text-left text-brand underline decoration-dotted decoration-brand/40 underline-offset-2 hover:decoration-solid"
-                    title="Abrir a ficha da conversa"
+                    title="Abrir a ficha do lead"
                   >
                     {nomeLead}
                   </button>
@@ -713,6 +738,30 @@ export default function ConversasPage() {
           onFechar={() => setNumeroAberto(null)}
           onAtualizou={() => carregar()}
           abaInicial={abaAberta}
+        />
+      )}
+
+      {/* Ficha do lead (drawer do Banco de Leads). Somente-leitura aqui: quem tria/edita ICP e'
+          o Banco de Leads. Interesses vem dos sinais da conversa. */}
+      {ficha && (
+        <FichaLead
+          lead={ficha.lead}
+          conversa={{
+            numero: ficha.numero,
+            titulo: ficha.titulo,
+            leadId: ficha.lead.id,
+            mensagemGerada: null,
+            rodavel: false,
+            status: ficha.status,
+            acessos: acessosDoLead(ficha.lead),
+          }}
+          secao={ficha.secao}
+          onTrocarSecao={(s) => setFicha((f) => (f ? { ...f, secao: s } : f))}
+          onFechar={() => setFicha(null)}
+          empresaId={empresaId}
+          podeEditarIcp={false}
+          podeTriarLead={false}
+          interessesConversa={ficha.criterios}
         />
       )}
     </div>

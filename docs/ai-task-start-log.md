@@ -24,6 +24,17 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 - **Escopo controlado:** sem migration (o join reusa o índice funcional `idx_prospects_empresa_
   telefone_digitos`, mig. 065). Segue workflow padrão: arquivos declarados → aguardando confirmação
   → diff mínimo → `npm test`/`tsc`.
+- **Continuação (2026-09-30, 2):** (a) removida a linha de chips de temperatura; "Esfriando" virou
+  chip junto dos de ordenação; "Personalizar" virou modal (`FolhaModal`). (b) Nome na Central passa
+  a abrir o **`FichaLead`** (o drawer do Banco de Leads) quando a conversa tem prospect; **fallback
+  para `ConversaPainel`** quando não há prospect (Meta/orgânico) ou o operador não tem
+  `LEAD_VER_APROVADOS` — o `FichaLead` é inteiro chaveado pelo id do prospect e não renderiza sem
+  ele. Aberto em modo **somente-leitura** (`podeEditarIcp`/`podeTriarLead` false; triagem/edição
+  continua no Banco de Leads). (c) Nova seção **"Interesses"** na Qualificação do `LeadDetalhesModal`
+  (prop opcional `interessesConversa`, alimentada pelos `score_interesse_criterios` da conversa).
+- **Adiado (falta fonte de dados):** linha do tempo de TRANSIÇÕES de estágio no histórico do lead.
+  Hoje só o estágio ATUAL é gravado (`salvarConversa`); não há log timestampado de transições. É
+  feature de backend (registrar cada transição) + superfície — escopo próprio, não iniciado.
 
 ---
 

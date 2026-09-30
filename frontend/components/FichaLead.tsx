@@ -90,7 +90,7 @@ export default function FichaLead({
   acaoPrincipal, onAcaoPrincipal,
   podeTriarLead = true, mensagemGerada, podeEnviar, podeGerar, motivoEnvioIndisponivel,
   cooldownS, enviando, gerando, onEnviar, onGerar, onAlterarStatus, onSalvarTelefone,
-  resumoExtra,
+  resumoExtra, interessesConversa,
 }: {
   lead: LeadDetalhavel & { telefone?: string | null; origem?: string | null; instagram_handle?: string | null }
   conversa: ConversaDaFicha
@@ -118,6 +118,8 @@ export default function FichaLead({
   onSalvarTelefone?: (telefone: string) => Promise<void>
   /** Bloco livre do Resumo (responsável, carteira) — a tela sabe o que pode mostrar, este não. */
   resumoExtra?: React.ReactNode
+  /** Sinais de interesse da CONVERSA, repassados à seção "Interesses" da Qualificação. */
+  interessesConversa?: { titulo?: string; delta?: number }[]
 }) {
   const painelRef = useRef<HTMLDivElement>(null)
   const gatilhoRef = useRef<Element | null>(null)
@@ -308,6 +310,7 @@ export default function FichaLead({
               onLeadAtualizado={onLeadAtualizado}
               podeEditarIcp={podeEditarIcp}
               instanciaDesconectada={instanciaDesconectada}
+              interessesConversa={interessesConversa}
             />
           </div>
         </div>
