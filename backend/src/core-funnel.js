@@ -16,6 +16,7 @@ const { decidirProximaAcao, separarEcoDaUltimaPergunta } = require('./next-actio
 const { canonicalizarPerfilLead } = require('./lead-profile-canonical')
 const { validarRespostaPorAcao } = require('./action-response-validator')
 const { buildTurnContext } = require('./turn-context-reader')
+const { telefoneCanonicoBR, sqlTelefoneNormalizado } = require('./telefone-br')
 const { avaliarEnvio, resumoBloqueio, CAPACIDADES } = require('./services/conversa-modo-ia')
 
 // Estágios em que o protocolo de abertura determinístico pode rodar (início do
@@ -2164,12 +2165,54 @@ function createCoreFunnel(deps = {}) {
       //    propósito p/ NÃO cair no auto-cancel do fallback (a IA já decidiu que é adiamento).
       try {
         if (resultado.sinal_conversa === 'desinteresse') {
+          const falaLead = String(textoUltimaMensagem || '').replace(/\s+/g, ' ').trim().slice(0, 400)
+          const motivoArquivo = (falaLead ? `desinteresse: ${falaLead}` : 'desinteresse').slice(0, 500)
           await pool.query(
             `UPDATE vendas.conversas
-             SET arquivado = true, motivo_arquivamento = 'desinteresse', arquivado_em = NOW()
+             SET arquivado = true, motivo_arquivamento = $2, arquivado_em = NOW()
              WHERE numero = $1 AND COALESCE(arquivado, false) = false`,
-            [numero]
+            [numero, motivoArquivo]
           )
+          // Descarta o PROSPECT casado por telefone com o MESMO efeito do descarte manual
+          // do Banco de Leads (status='rejeitado' + qualificacao='descartado' + auditoria com
+          // o motivo = a fala do lead). IA-decide / codigo-executa; reusa o mecanismo existente,
+          // nao inventa outro. Lead que nao casa (nao e' prospect) so' arquiva a conversa.
+          // Best-effort: falha aqui NAO derruba o turno.
+          if (empresaIdConversa) {
+            try {
+              const tel = telefoneCanonicoBR(numero)
+              if (tel) {
+                const desc = await pool.query(
+                  `WITH alvo AS (
+                     SELECT id, status FROM prospectador.prospects
+                      WHERE empresa_id = $1
+                        AND ${sqlTelefoneNormalizado('telefone')} = $2
+                        AND status NOT IN ('rejeitado', 'fechado')
+                   ),
+                   upd AS (
+                     UPDATE prospectador.prospects p
+                        SET status = 'rejeitado', qualificacao = 'descartado',
+                            qualificado_em = CASE WHEN p.qualificacao IS DISTINCT FROM 'descartado' THEN NOW() ELSE p.qualificado_em END,
+                            updated_at = NOW()
+                       FROM alvo WHERE p.id = alvo.id
+                     RETURNING p.id, alvo.status AS antigo
+                   )
+                   SELECT id, antigo FROM upd`,
+                  [empresaIdConversa, tel]
+                )
+                for (const p of desc.rows) {
+                  await pool.query(
+                    `INSERT INTO app.auditoria_eventos
+                       (empresa_id, usuario_id, entidade_tipo, entidade_id, acao, estado_anterior, estado_novo, contexto)
+                     VALUES ($1, NULL, 'prospect', $2::uuid, 'lead_descartado', $3, 'rejeitado', $4::jsonb)`,
+                    [empresaIdConversa, p.id, p.antigo || null, JSON.stringify({ origem: 'desinteresse_ia', motivo: falaLead || 'desinteresse' })]
+                  )
+                }
+              }
+            } catch (eDesc) {
+              logger.warn('descarte de prospect por desinteresse falhou:', eDesc.message)
+            }
+          }
         } else if (
           resultado.sinal_conversa === 'adiamento' &&
           respostaEnviadaAoLead && !precisaHandoff && !resultado.agendar_followup_auto

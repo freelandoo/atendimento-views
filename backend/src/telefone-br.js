@@ -53,4 +53,16 @@ function sqlTelefoneNormalizado(col) {
   return `(CASE WHEN length(${digitos}) >= 12 AND left(${digitos}, 2) = '55' THEN substr(${digitos}, 3) ELSE ${digitos} END)`
 }
 
-module.exports = { somenteDigitos, candidatosTelefoneBR, sqlTelefoneNormalizado }
+/**
+ * Forma canonica de um telefone para comparar em JS com o resultado de
+ * `sqlTelefoneNormalizado` no banco. MESMA regra: so digitos, e dropa o DDI '55'
+ * quando ha 12+ digitos. Mantida junto da versao SQL de proposito — duas copias
+ * divergiriam e o match conversa<->prospect passaria a falhar em silencio.
+ */
+function telefoneCanonicoBR(numero) {
+  const d = somenteDigitos(String(numero == null ? '' : numero).replace(/@s\.whatsapp\.net$/i, ''))
+  if (!d) return ''
+  return (d.length >= 12 && d.slice(0, 2) === '55') ? d.slice(2) : d
+}
+
+module.exports = { somenteDigitos, candidatosTelefoneBR, sqlTelefoneNormalizado, telefoneCanonicoBR }
