@@ -45,6 +45,7 @@ function registerWebhookRoute(app, deps = {}) {
     textoEhAutoReplyWhatsApp,
     atualizarPerfil,
     salvarConversa,
+    marcarPrimeiraResposta,
     cancelarFollowupsAutoPendentes,
     textoPedePreco,
     registrarEventoComercial,
@@ -394,6 +395,13 @@ function registerWebhookRoute(app, deps = {}) {
           req.empresaId,
           req.evolutionInstance
         )
+        // "Conversou": carimba a 1a resposta do lead (dono ja' comprovado acima). Idempotente e
+        // nunca derruba o webhook. Metrica do painel comercial — so conta pra frente.
+        if (typeof marcarPrimeiraResposta === 'function') {
+          await marcarPrimeiraResposta(numero).catch((err) =>
+            webhookLog.warn({ err: serializeError(err) }, 'Falha ao marcar primeira resposta do lead')
+          )
+        }
         if (perfilProspeccaoPatch) {
           await atualizarPerfil(numero, perfilProspeccaoPatch)
         }

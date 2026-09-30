@@ -35,6 +35,7 @@ router.get('/', requireAuth, requireEmpresaAccess, async (req, res) => {
       mensagens: dados.mensagens,
       ligacoes: dados.ligacoes,
       reunioes: dados.reunioesHumano, // bot não tem canal — fica fora do recorte por canal
+      conversou: dados.conversou,
     })
     return res.json({
       ok: true,

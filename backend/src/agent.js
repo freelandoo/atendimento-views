@@ -157,6 +157,7 @@ const dbCrud = createDbCrud({ pool, logger, serializeError })
 const {
   buscarConversa,
   salvarConversa,
+  marcarPrimeiraResposta,
   registrarFalhaResposta,
   registrarChamadaAnthropic,
   limparFalhaResposta,
@@ -5914,6 +5915,7 @@ registerWebhookRoute(app, {
   textoEhAutoReplyWhatsApp,
   atualizarPerfil,
   salvarConversa,
+  marcarPrimeiraResposta,
   cancelarFollowupsAutoPendentes,
   textoPedePreco,
   registrarEventoComercial,

@@ -139,6 +139,22 @@ function createDbCrud({ pool, logger, serializeError }) {
   // empresa, as respostas continuam saindo pelo número ORIGINAL — a conversa é uma só
   // (`vendas.conversas.numero` é UNIQUE GLOBAL) e trocar o remetente no meio confundiria o
   // cliente. Mudar o vínculo passa a ser ato explícito, não efeito colateral de uma mensagem.
+  // Carimbo da PRIMEIRA resposta do lead (metrica "conversou" do painel comercial). Idempotente:
+  // so a 1a vez grava (WHERE ... IS NULL). NAO toca atualizado_em — este write nao e' mensagem
+  // nova. Nunca lanca: e' chamado no caminho do webhook e uma falha aqui nao pode derrubar o
+  // atendimento (a metrica pode perder um ponto; o atendimento, nao).
+  async function marcarPrimeiraResposta(numero) {
+    try {
+      await pool.query(
+        `UPDATE vendas.conversas SET primeira_resposta_em = NOW()
+          WHERE numero = $1 AND primeira_resposta_em IS NULL`,
+        [numero]
+      )
+    } catch (err) {
+      logger?.warn?.({ err: serializeError(err) }, 'Falha ao marcar primeira resposta do lead')
+    }
+  }
+
   async function salvarConversa(numero, historico, estagio, status = 'ativo', agentePausado = undefined, empresaId = null, evolutionInstance = null) {
     const estagioNorm = normalizarEstagio(estagio, 'diagnostico')
     const arr = Array.isArray(historico) ? historico : []
@@ -642,6 +658,7 @@ function createDbCrud({ pool, logger, serializeError }) {
   return {
     buscarConversa,
     salvarConversa,
+    marcarPrimeiraResposta,
     registrarFalhaResposta,
     registrarChamadaAnthropic,
     limparFalhaResposta,

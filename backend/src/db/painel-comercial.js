@@ -10,6 +10,8 @@
 // prospect vinculado NÃO é atribuível a canal — cai em 'desconhecido' e, se houver filtro de
 // dimensão, é corretamente excluído (o LEFT JOIN + WHERE p.x vira INNER).
 
+const { sqlTelefoneNormalizado: TELN } = require('../telefone-br')
+
 const TZ = 'America/Sao_Paulo'
 
 /** Condições de dimensão do lead no alias `p`. Empurra params e devolve o trecho SQL. */
@@ -82,6 +84,29 @@ async function serieReunioesHumano(pool, filtros) {
   return rows
 }
 
+// "Conversou": conversas cuja PRIMEIRA resposta do lead (migration 109) caiu no período. Dimensões
+// (nicho/cidade/canal) vêm de prospects por telefone normalizado — mesmo normalizador de banco-leads
+// e follow-ups (nunca uma 2ª régua). Pessoa = responsavel_id da conversa (migration 074).
+// ponytail: o join por telefone normalizado não é indexado → hashjoin conversas×prospects; ok no
+// volume do painel. Se pesar, materializar telefone_digitos na conversa.
+async function serieConversou(pool, filtros) {
+  const params = [filtros.empresaId, filtros.de, filtros.ate]
+  let pessoa = ''
+  if (filtros.pessoa) { params.push(filtros.pessoa); pessoa = ` AND c.responsavel_id = $${params.length}` }
+  const lead = condLead('p', filtros, params)
+  const { rows } = await pool.query(
+    `SELECT date_trunc('day', c.primeira_resposta_em AT TIME ZONE '${TZ}')::date AS dia,
+            COALESCE(p.origem, 'desconhecido') AS canal, COUNT(*)::int AS n
+       FROM vendas.conversas c
+       LEFT JOIN prospectador.prospects p
+         ON ${TELN('p.telefone')} = ${TELN('c.numero')} AND p.empresa_id = c.empresa_id
+      WHERE c.empresa_id = $1 AND c.primeira_resposta_em >= $2 AND c.primeira_resposta_em < $3${pessoa}${lead}
+      GROUP BY 1, 2`,
+    params
+  )
+  return rows
+}
+
 // Reunião do bot: dado SEPARADO (decisão do operador). Empresa resolvida por
 // vendas.conversas.empresa_id = metadata->>'lead_numero' (a mesma ligação de meta-dispatch).
 // Sem canal/pessoa/prospect — por isso só entra quando não há filtro que exija atribuição.
@@ -101,13 +126,14 @@ async function serieReunioesBot(pool, filtros) {
 /** Roda as fontes em paralelo. reunioesBot só quando atribuível (senão fica []). */
 async function coletar(pool, filtros) {
   const usaBot = botAtribuivel(filtros)
-  const [mensagens, ligacoes, reunioesHumano, reunioesBot] = await Promise.all([
+  const [mensagens, ligacoes, reunioesHumano, conversou, reunioesBot] = await Promise.all([
     serieMensagens(pool, filtros),
     serieLigacoes(pool, filtros),
     serieReunioesHumano(pool, filtros),
+    serieConversou(pool, filtros),
     usaBot ? serieReunioesBot(pool, filtros) : Promise.resolve([]),
   ])
-  return { mensagens, ligacoes, reunioesHumano, reunioesBot, bot_atribuivel: usaBot }
+  return { mensagens, ligacoes, reunioesHumano, conversou, reunioesBot, bot_atribuivel: usaBot }
 }
 
 module.exports = { coletar, botAtribuivel }

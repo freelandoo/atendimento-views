@@ -36,32 +36,36 @@ test('montarSerie: une por dia e ACUMULA linhas por (dia, canal)', () => {
       { dia: '2026-09-02', canal: 'meta_ads', n: 2 }, // mesmo dia, outro canal → soma
     ],
     ligacoes: [{ dia: '2026-09-01', canal: 'google_places', n: 4, atendidas: 1 }],
+    conversou: [{ dia: '2026-09-02', canal: 'instagram', n: 3 }],
     reunioesHumano: [{ dia: '2026-09-02', canal: 'instagram', n: 1 }],
     reunioesBot: [{ dia: '2026-09-02', n: 2 }],
   })
   assert.equal(serie.length, 2)
-  assert.deepEqual(serie[0], { dia: '2026-09-01', mensagens: 0, ligacoes: 4, ligacoes_atendidas: 1, reunioes_humano: 0, reunioes_bot: 0 })
-  assert.deepEqual(serie[1], { dia: '2026-09-02', mensagens: 5, ligacoes: 0, ligacoes_atendidas: 0, reunioes_humano: 1, reunioes_bot: 2 })
+  assert.deepEqual(serie[0], { dia: '2026-09-01', mensagens: 0, ligacoes: 4, ligacoes_atendidas: 1, conversou: 0, reunioes_humano: 0, reunioes_bot: 0 })
+  assert.deepEqual(serie[1], { dia: '2026-09-02', mensagens: 5, ligacoes: 0, ligacoes_atendidas: 0, conversou: 3, reunioes_humano: 1, reunioes_bot: 2 })
 })
 
-test('totalizar: reuniões = humano + bot', () => {
+test('totalizar: reuniões = humano + bot; conversou somado', () => {
   const t = S.totalizar([
-    { mensagens: 5, ligacoes: 4, ligacoes_atendidas: 1, reunioes_humano: 1, reunioes_bot: 2 },
-    { mensagens: 1, ligacoes: 0, ligacoes_atendidas: 0, reunioes_humano: 0, reunioes_bot: 0 },
+    { mensagens: 5, ligacoes: 4, ligacoes_atendidas: 1, conversou: 2, reunioes_humano: 1, reunioes_bot: 2 },
+    { mensagens: 1, ligacoes: 0, ligacoes_atendidas: 0, conversou: 0, reunioes_humano: 0, reunioes_bot: 0 },
   ])
   assert.equal(t.mensagens, 6)
   assert.equal(t.ligacoes_atendidas, 1)
+  assert.equal(t.conversou, 2)
   assert.equal(t.reunioes, 3)
 })
 
-test('calcularRazoes: com denominador; divisão por zero → null (nunca 0)', () => {
-  const r = S.calcularRazoes({ mensagens: 50, ligacoes_atendidas: 50, reunioes: 7, reunioes_humano: 7, reunioes_bot: 0 })
+test('calcularRazoes: com denominador; taxa de resposta; div/0 → null', () => {
+  const r = S.calcularRazoes({ mensagens: 50, ligacoes_atendidas: 50, conversou: 20, reunioes: 7, reunioes_humano: 7, reunioes_bot: 0 })
   assert.equal(r.contatos, 100)
   assert.equal(r.por_100_contatos, 7) // 7/100*100
   assert.equal(r.por_ligacao, 14) // 7/50*100
-  const vazio = S.calcularRazoes({ mensagens: 0, ligacoes_atendidas: 0, reunioes: 0 })
+  assert.equal(r.taxa_resposta, 40) // 20/50*100 (respostas / mensagens)
+  const vazio = S.calcularRazoes({ mensagens: 0, ligacoes_atendidas: 0, conversou: 0, reunioes: 0 })
   assert.equal(vazio.por_100_contatos, null)
   assert.equal(vazio.por_mensagem, null)
+  assert.equal(vazio.taxa_resposta, null)
 })
 
 test('montarPorCanal: soma por canal, calcula taxa e ordena por reuniões', () => {
@@ -75,11 +79,14 @@ test('montarPorCanal: soma por canal, calcula taxa e ordena por reuniões', () =
       { canal: 'meta_ads', n: 3 },
       { canal: 'instagram', n: 2 },
     ],
+    conversou: [{ canal: 'instagram', n: 20 }],
   })
   assert.equal(linhas[0].canal, 'meta_ads') // mais reuniões primeiro
   assert.equal(linhas[0].por_100_contatos, 30) // 3 / 10 contatos * 100
   const ig = linhas.find((l) => l.canal === 'instagram')
   assert.equal(ig.por_100_contatos, 4) // 2 / (40+10) * 100
+  assert.equal(ig.taxa_resposta, 50) // 20 respostas / 40 mensagens * 100
+  assert.equal(linhas[0].taxa_resposta, 0) // meta_ads: 0 respostas / 10 mensagens = 0 (tem denominador)
 })
 
 test('montarPorCanal: origem ausente vira "desconhecido"', () => {

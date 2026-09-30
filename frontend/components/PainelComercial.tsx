@@ -9,7 +9,7 @@ import type { DiaSerie, LinhaCanal, Razoes } from '@/lib/painel-comercial'
 
 type Payload = {
   serie: DiaSerie[]
-  totais: { mensagens: number; ligacoes: number; ligacoes_atendidas: number; reunioes: number; reunioes_humano: number; reunioes_bot: number }
+  totais: { mensagens: number; ligacoes: number; ligacoes_atendidas: number; conversou: number; reunioes: number; reunioes_humano: number; reunioes_bot: number }
   razoes: Razoes
   por_canal: LinhaCanal[]
   bot_atribuivel: boolean
@@ -159,15 +159,17 @@ export default function PainelComercial() {
               {dados.razoes.por_100_contatos == null ? '—' : `${fmtTaxa(dados.razoes.por_100_contatos)} por 100`}
             </p>
             <p className="text-sm text-slate-600 mt-1">{fraseRazao(dados.razoes)}</p>
-            <div className="flex gap-6 mt-3 text-xs text-slate-500">
+            <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-xs text-slate-500">
               <span>Por ligação atendida: <b className="text-slate-700">{fmtTaxa(dados.razoes.por_ligacao)}</b>/100</span>
               <span>Por mensagem: <b className="text-slate-700">{fmtTaxa(dados.razoes.por_mensagem)}</b>/100</span>
+              <span>Responderam: <b className="text-slate-700">{fmtTaxa(dados.razoes.taxa_resposta)}</b>% das mensagens</span>
             </div>
           </div>
 
           {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Tile titulo="Mensagens enviadas" valor={fmt(t.mensagens)} />
+            <Tile titulo="Responderam" valor={fmt(t.conversou)} />
             <Tile titulo="Ligações (atendidas)" valor={`${fmt(t.ligacoes)} (${fmt(t.ligacoes_atendidas)})`} />
             <Tile titulo="Reuniões" valor={fmt(t.reunioes)} />
             <Tile titulo="Reuniões: humano / bot" valor={`${fmt(t.reunioes_humano)} / ${fmt(t.reunioes_bot)}`} small />
@@ -184,9 +186,10 @@ export default function PainelComercial() {
                   <div key={d.dia} className="text-xs">
                     <div className="flex justify-between text-slate-500 mb-1">
                       <span>{d.dia.slice(5)}</span>
-                      <span>{fmt(d.mensagens)} msg · {fmt(d.ligacoes)} lig · {fmt(d.reunioes_humano + d.reunioes_bot)} reun</span>
+                      <span>{fmt(d.mensagens)} msg · {fmt(d.conversou)} resp · {fmt(d.ligacoes)} lig · {fmt(d.reunioes_humano + d.reunioes_bot)} reun</span>
                     </div>
                     <Barra pct={larguraPct(d.mensagens, maxContato)} cor="bg-sky-400" />
+                    <Barra pct={larguraPct(d.conversou, maxContato)} cor="bg-amber-400" />
                     <Barra pct={larguraPct(d.ligacoes, maxContato)} cor="bg-indigo-400" />
                     <Barra pct={larguraPct(d.reunioes_humano + d.reunioes_bot, maxReuniao)} cor="bg-emerald-500" />
                   </div>
@@ -207,6 +210,7 @@ export default function PainelComercial() {
                   <tr className="text-left text-xs text-slate-500 uppercase">
                     <th className="pb-2">Canal</th>
                     <th className="pb-2 text-right">Mensagens</th>
+                    <th className="pb-2 text-right">Resp.</th>
                     <th className="pb-2 text-right">Ligações</th>
                     <th className="pb-2 text-right">Reuniões</th>
                     <th className="pb-2 text-right">Conv./100</th>
@@ -217,6 +221,7 @@ export default function PainelComercial() {
                     <tr key={c.canal} className="border-t">
                       <td className="py-1.5 text-slate-700">{rotuloCanal(c.canal)}</td>
                       <td className="py-1.5 text-right">{fmt(c.mensagens)}</td>
+                      <td className="py-1.5 text-right">{fmt(c.conversou)}</td>
                       <td className="py-1.5 text-right">{fmt(c.ligacoes)}</td>
                       <td className="py-1.5 text-right">{fmt(c.reunioes)}</td>
                       <td className="py-1.5 text-right font-semibold">{fmtTaxa(c.por_100_contatos)}</td>
@@ -229,7 +234,7 @@ export default function PainelComercial() {
 
           {/* Ressalvas honestas */}
           <div className="text-xs text-slate-400 space-y-1">
-            <p>“Contato” conta mensagem <b>enviada</b> + ligação <b>atendida</b>. “Conversou” (lead respondeu) chega numa próxima fase.</p>
+            <p>“Contato” conta mensagem <b>enviada</b> + ligação <b>atendida</b>. “Responderam” = leads que responderam no WhatsApp, contado <b>a partir de agora</b> (conversas anteriores não entram).</p>
             {filtroDimensao && !dados.bot_atribuivel && (
               <p>Reunião pelo bot não é atribuível a nicho/cidade/canal/pessoa — fica fora quando há esse filtro.</p>
             )}
@@ -264,6 +269,7 @@ function Legenda() {
   return (
     <div className="flex gap-4 text-xs text-slate-500 pt-1">
       <span className="flex items-center gap-1"><i className="w-3 h-1.5 rounded-full bg-sky-400 inline-block" /> Mensagens</span>
+      <span className="flex items-center gap-1"><i className="w-3 h-1.5 rounded-full bg-amber-400 inline-block" /> Respostas</span>
       <span className="flex items-center gap-1"><i className="w-3 h-1.5 rounded-full bg-indigo-400 inline-block" /> Ligações</span>
       <span className="flex items-center gap-1"><i className="w-3 h-1.5 rounded-full bg-emerald-500 inline-block" /> Reuniões</span>
     </div>

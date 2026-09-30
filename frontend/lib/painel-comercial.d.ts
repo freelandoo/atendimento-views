@@ -4,12 +4,14 @@ export interface Razoes {
   por_100_contatos: number | null
   por_ligacao: number | null
   por_mensagem: number | null
+  taxa_resposta: number | null
 }
 export interface DiaSerie {
   dia: string
   mensagens: number
   ligacoes: number
   ligacoes_atendidas: number
+  conversou: number
   reunioes_humano: number
   reunioes_bot: number
 }
@@ -18,8 +20,10 @@ export interface LinhaCanal {
   mensagens: number
   ligacoes: number
   ligacoes_atendidas: number
+  conversou: number
   reunioes: number
   por_100_contatos: number | null
+  taxa_resposta: number | null
 }
 export const ROTULO_CANAL: Record<string, string>
 export function rotuloCanal(c: string | null | undefined): string

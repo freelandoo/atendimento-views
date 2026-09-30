@@ -41,11 +41,11 @@ function resolverPeriodo({ periodo, de, ate, agora = new Date() } = {}) {
  * Dia sem dado em uma fonte entra com 0; dias totalmente vazios ficam ausentes (v1 não preenche
  * spine — evita bug de fuso e o gráfico lê a tendência mesmo assim).
  */
-function montarSerie({ mensagens = [], ligacoes = [], reunioesHumano = [], reunioesBot = [] } = {}) {
+function montarSerie({ mensagens = [], ligacoes = [], reunioesHumano = [], reunioesBot = [], conversou = [] } = {}) {
   const mapa = new Map()
   const linha = (dia) => {
     if (!mapa.has(dia)) {
-      mapa.set(dia, { dia, mensagens: 0, ligacoes: 0, ligacoes_atendidas: 0, reunioes_humano: 0, reunioes_bot: 0 })
+      mapa.set(dia, { dia, mensagens: 0, ligacoes: 0, ligacoes_atendidas: 0, conversou: 0, reunioes_humano: 0, reunioes_bot: 0 })
     }
     return mapa.get(dia)
   }
@@ -56,6 +56,7 @@ function montarSerie({ mensagens = [], ligacoes = [], reunioesHumano = [], reuni
     l.ligacoes += Number(r.n) || 0
     l.ligacoes_atendidas += Number(r.atendidas) || 0
   }
+  for (const r of conversou) linha(isoDia(r.dia)).conversou += Number(r.n) || 0
   for (const r of reunioesHumano) linha(isoDia(r.dia)).reunioes_humano += Number(r.n) || 0
   for (const r of reunioesBot) linha(isoDia(r.dia)).reunioes_bot += Number(r.n) || 0
   return [...mapa.values()].sort((a, b) => (a.dia < b.dia ? -1 : a.dia > b.dia ? 1 : 0))
@@ -63,11 +64,12 @@ function montarSerie({ mensagens = [], ligacoes = [], reunioesHumano = [], reuni
 
 /** Soma a série em totais. reuniões = humano + bot. */
 function totalizar(serie) {
-  const t = { mensagens: 0, ligacoes: 0, ligacoes_atendidas: 0, reunioes_humano: 0, reunioes_bot: 0 }
+  const t = { mensagens: 0, ligacoes: 0, ligacoes_atendidas: 0, conversou: 0, reunioes_humano: 0, reunioes_bot: 0 }
   for (const l of serie) {
     t.mensagens += l.mensagens
     t.ligacoes += l.ligacoes
     t.ligacoes_atendidas += l.ligacoes_atendidas
+    t.conversou += l.conversou || 0
     t.reunioes_humano += l.reunioes_humano
     t.reunioes_bot += l.reunioes_bot
   }
@@ -89,6 +91,9 @@ function calcularRazoes(totais) {
     // finas, por canal de contato
     por_ligacao: totais.ligacoes_atendidas > 0 ? Number(((reunioes / totais.ligacoes_atendidas) * 100).toFixed(1)) : null,
     por_mensagem: totais.mensagens > 0 ? Number(((reunioes / totais.mensagens) * 100).toFixed(1)) : null,
+    // taxa de resposta: dos leads a quem MANDAMOS mensagem, quantos responderam (só conta pra
+    // frente — vendas.conversas.primeira_resposta_em é gravado no webhook a partir da migration 109).
+    taxa_resposta: totais.mensagens > 0 ? Number((((totais.conversou || 0) / totais.mensagens) * 100).toFixed(1)) : null,
   }
 }
 
@@ -97,11 +102,11 @@ function calcularRazoes(totais) {
  * vêm só das atribuíveis (agenda humana com prospect); bot não tem canal → fica de fora aqui.
  * @returns array [{ canal, mensagens, ligacoes, reunioes, por_100_contatos }]
  */
-function montarPorCanal({ mensagens = [], ligacoes = [], reunioes = [] } = {}) {
+function montarPorCanal({ mensagens = [], ligacoes = [], reunioes = [], conversou = [] } = {}) {
   const mapa = new Map()
   const linha = (canal) => {
     const k = canal || 'desconhecido'
-    if (!mapa.has(k)) mapa.set(k, { canal: k, mensagens: 0, ligacoes: 0, ligacoes_atendidas: 0, reunioes: 0 })
+    if (!mapa.has(k)) mapa.set(k, { canal: k, mensagens: 0, ligacoes: 0, ligacoes_atendidas: 0, conversou: 0, reunioes: 0 })
     return mapa.get(k)
   }
   // += porque as linhas chegam por (dia, canal): várias por canal ao longo dos dias.
@@ -111,11 +116,16 @@ function montarPorCanal({ mensagens = [], ligacoes = [], reunioes = [] } = {}) {
     l.ligacoes += Number(r.n) || 0
     l.ligacoes_atendidas += Number(r.atendidas) || 0
   }
+  for (const r of conversou) linha(r.canal).conversou += Number(r.n) || 0
   for (const r of reunioes) linha(r.canal).reunioes += Number(r.n) || 0
   return [...mapa.values()]
     .map((l) => {
       const contatos = l.mensagens + l.ligacoes_atendidas
-      return { ...l, por_100_contatos: contatos > 0 ? Number(((l.reunioes / contatos) * 100).toFixed(1)) : null }
+      return {
+        ...l,
+        por_100_contatos: contatos > 0 ? Number(((l.reunioes / contatos) * 100).toFixed(1)) : null,
+        taxa_resposta: l.mensagens > 0 ? Number(((l.conversou / l.mensagens) * 100).toFixed(1)) : null,
+      }
     })
     .sort((a, b) => b.reunioes - a.reunioes || (b.mensagens + b.ligacoes) - (a.mensagens + a.ligacoes))
 }

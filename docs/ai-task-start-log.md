@@ -6,6 +6,28 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-29 — "Conversou" derivado do WEBHOOK (painel comercial G12)
+
+- **Pedido do operador:** medir "conversou" (lead respondeu) derivando do webhook. A/B por
+  abordagem segue sem captura (pendente).
+- **Caminho quente:** captura no ponto ÚNICO onde o webhook persiste a mensagem inbound do lead
+  (`webhook-handler.js`, logo após `salvarConversa`, dono já comprovado por `barrarSemDonoComprovado`).
+  Nova fn `marcarPrimeiraResposta(numero)` em `db-crud.js` (idempotente: `WHERE primeira_resposta_em
+  IS NULL`; NÃO toca `atualizado_em`; nunca lança). Injetada por deps (agent.js → webhook-handler),
+  guardada por `typeof === 'function'`. Auto-reply do WhatsApp Business conta como resposta (caveat
+  menor aceito — evita ramo extra no caminho quente).
+- **Schema:** migration `109_conversa_primeira_resposta.sql` — coluna nullable, **sem default, sem
+  backfill** (inventar quando respondeu no passado seria mentira; só conta pra frente) + índice
+  parcial `(empresa_id, primeira_resposta_em)`.
+- **Painel:** `db/painel-comercial.js` `serieConversou` (join conversa↔prospect por
+  `sqlTelefoneNormalizado`, reuso; pessoa = `conversas.responsavel_id`, mig 074). Serviço puro ganhou
+  `conversou` em série/totais/por-canal + `taxa_resposta` (conversou/mensagens). Tela: tile
+  "Responderam", taxa no card, barra âmbar na série, coluna "Resp." por canal, ressalva "conta a
+  partir de agora".
+- **Validação:** backend `npm test` 3275/3275; frontend `tsc` 0 + lib 5/5.
+
+---
+
 ## 2026-09-29 — Dashboard comercial na Visão Geral (Fase 1)
 
 - **Pedido do operador:** painel na Visão Geral p/ acompanhar resultado por período/nicho/cidade/
