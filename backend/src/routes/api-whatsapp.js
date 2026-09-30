@@ -843,6 +843,18 @@ router.patch('/:instanceId', requireAuth, requireEmpresaAccess, alcancaInstancia
       },
     })
   }
+  // Definir a instância PRINCIPAL da empresa é decisão de quem gerencia as instâncias da
+  // empresa — é o número que o envio avulso da ficha usa por padrão —, não do dono de um
+  // número só. Mesmo padrão condicional do `ativo`/`contexto_id`.
+  if (typeof req.body?.principal === 'boolean' && !capacidade(req, CAP.INSTANCIA_GERENCIAR_EMPRESA)) {
+    return res.status(403).json({
+      ok: false,
+      error: {
+        code: 'FORBIDDEN',
+        message: 'Você não pode definir a instância principal da empresa. Peça a um administrador.',
+      },
+    })
+  }
   const { contexto_id, nome } = req.body || {}
   // TROCAR O CONTEXTO DE UM NUMERO E' MEXER NO QUE ELE DIZ AO CLIENTE — e' gestao do conhecimento
   // da empresa, nao configuracao do proprio numero. Mesmo padrao condicional do `ativo` acima:
@@ -888,6 +900,18 @@ router.patch('/:instanceId', requireAuth, requireEmpresaAccess, alcancaInstancia
   // direto só recebem IA quando o dono libera explicitamente nesta instância.
   if (typeof req.body?.[FLAG_ATENDE_CONTATOS_EXTERNOS] === 'boolean') {
     sets.push(`config_json = COALESCE(config_json, '{}'::jsonb) || jsonb_build_object('${FLAG_ATENDE_CONTATOS_EXTERNOS}', $${vals.push(req.body[FLAG_ATENDE_CONTATOS_EXTERNOS])}::boolean)`)
+  }
+  // Instância PRINCIPAL (padrão do envio avulso da ficha). O índice único parcial garante no
+  // banco no máximo uma por empresa; marcar uma limpa a anterior ANTES do UPDATE desta.
+  if (req.body?.principal === true) {
+    await pool.query(
+      `UPDATE app.empresa_whatsapp_instances SET principal = false, atualizado_em = NOW()
+         WHERE empresa_id = $1 AND principal = true AND id <> $2`,
+      [req.empresa.id, req.params.instanceId]
+    )
+    sets.push(`principal = true`)
+  } else if (req.body?.principal === false) {
+    sets.push(`principal = false`)
   }
   if (!sets.length) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Nada para atualizar.' } })

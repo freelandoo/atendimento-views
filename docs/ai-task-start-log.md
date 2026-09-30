@@ -6,6 +6,26 @@ de analisar profundamente ou alterar cÃ³digo (Fase 0 do workflow padrÃ£o â�
 
 ---
 
+## 2026-09-30 — Envio avulso pela ficha no modo Automático + instância PRINCIPAL
+
+- **Pedido do operador:** mesmo com a empresa em modo Automático (envio controlado pela rotina),
+  poder GERAR mensagem com IA na ficha do lead, ver a mensagem na conversa e ENVIAR — um envio
+  avulso, separado da rotina. Quando houver mais de uma instância, usar a "instância principal".
+- **Achado da análise:** o fluxo gerar+enviar avulso JÁ existe na ficha (`ConversaHistoricoModal`
+  via `FichaLead`); no Automático ele é bloqueado só no FRONT (banco-leads/page.tsx L1765, L2030,
+  L3004). Backend (`/rodar`, `/disparar-gerados`) não bloqueia por modo — só por capacidade. Não
+  existe conceito de "instância principal" no schema.
+- **Decisão do operador (perguntada):** criar flag REAL de instância principal (migration + coluna
+  + UI na tela de Instâncias). Fallback quando ninguém marcou: 1ª instância ativa.
+- **Escopo:** migration 112 (coluna `principal` + índice único parcial por empresa), PATCH
+  `/whatsapp/:id` aceita `principal` (gate `INSTANCIA_GERENCIAR_EMPRESA`, limpa a anterior),
+  selo/botão em `InstanciasWhatsApp.tsx`, e soltar o bloqueio do Automático no `banco-leads/page.tsx`
+  preferindo a principal. Não toca `resolverInstanciaEnvio`, webhook nem worker (Fase 2 intacta):
+  a principal só PRÉ-PREENCHE a escolha humana de instância, que o backend continua validando.
+- Validação: `npm test` (backend) + `tsc --noEmit` no frontend.
+
+---
+
 ## 2026-09-30 — Central de Mensagens: ordem recente-primeiro + filtros + nome clicável (drawer)
 
 - **Pedido do operador:** (1) por padrão listar as conversas mais RECENTES primeiro (hoje o front
@@ -6359,3 +6379,23 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   `components/MetaPessoal.tsx`, faixa no topo de `banco-leads/page.tsx`.
 - **Cuidados:** meta pessoal (não placar) — compatível com as regras anti-placar. Sem env nova,
   sem capacidade nova, sem item de menu novo, sem mexer em envio/coleta/funil.
+
+## 2026-09-30 — Meta pessoal por CANAL: contatos reais (mensagem + ligação)
+
+- **Pedido (operador):** na meta pessoal, poder medir também LIGAÇÃO. Dois modos: **Geral**
+  (um alvo só, ex.: 200 contatos/semana = mensagem + ligação juntas) e **Separado** (alvo de
+  ligação + alvo de mensagem por semana). Dividir por dia como já faz; mostrar Hoje e Esta
+  semana, no Separado em duas colunas (mensagens/ligações).
+- **Decisões (operador):** (1) SUBSTITUIR a base — a meta deixa de contar cards "Feito" do
+  Quadro do Dia e passa a contar CONTATOS REAIS. (2) Mensagem = disparo ao lead
+  (`prospectador.lead_disparos status='enviado'`, cobre saudação Evolution + wa.me manual
+  declarado); ligação = `app.ligacoes status='encerrada'`. Ambos escopados empresa+usuário,
+  por `criado_em::date` (sessão PG já em APP_TIMEZONE).
+- **Áreas:** migration `113_meta_pessoal_canais.sql` (aditiva: `modo`, `alvo_ligacoes`,
+  `alvo_mensagens` em `app.meta_pessoal`; linhas antigas ficam `modo='geral'`),
+  `services/meta-pessoal.js` (normalizarConfig por modo, `medidasDoPeriodo`),
+  `db/meta-pessoal.js` (obter/salvar novos campos + `contarContatos`), rota `GET/PUT
+  /banco-leads/meta`, `frontend/lib/meta-pessoal.js` (rótulo de canal) e
+  `components/MetaPessoal.tsx` (modal com modo + barras por canal). Testes dos dois lados.
+- **Cuidados:** progresso deixa de reusar `plano-dia.resumoPeriodo` (passa a `contarContatos`).
+  Contagem read-only, por usuário, sem placar. Sem env/capacidade/rota nova.

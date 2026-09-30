@@ -48,6 +48,13 @@ type WhatsAppInstance = {
   responsavel_nome?: string | null
   /** A instância usa o contexto que a empresa definiu como padrão. */
   e_contexto_padrao?: boolean | null
+  /**
+   * Instância PRINCIPAL da empresa (migration 112). É o número que o envio avulso da ficha do
+   * lead usa por padrão — inclusive no modo Automático, onde o seletor de instância fica oculto.
+   * No máximo uma por empresa (índice único parcial). NÃO participa da resolução de instância de
+   * envio nem do webhook: ali é decisão humana pré-preenchida, não fallback.
+   */
+  principal?: boolean
 }
 type StatusConexaoInstancia = {
   id: string | null
@@ -290,6 +297,23 @@ export default function InstanciasWhatsApp({ empresaId }: {
     } catch (err: unknown) {
       setInstancias((prev) => prev.map((x) => (x.id === inst.id ? { ...x, config_json: { ...(x.config_json || {}), atende_contatos_externos: atual } } : x)))
       setErroForm(err instanceof Error ? err.message : 'Erro ao alterar o atendimento de contatos externos.')
+    }
+  }
+
+  // Marca esta instância como a PRINCIPAL da empresa. Exclusiva: o backend limpa a anterior
+  // (índice único parcial), então refletimos isso no estado — só uma fica com o selo.
+  async function definirPrincipal(inst: WhatsAppInstance) {
+    if (!empresaId || inst.principal) return
+    setErroForm('')
+    try {
+      await apiFetch<WhatsAppInstance>(`/api/empresas/${empresaId}/whatsapp/${inst.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ principal: true }),
+      })
+      setInstancias((prev) => prev.map((x) => ({ ...x, principal: x.id === inst.id })))
+      setMsg('Instância principal definida — o envio avulso da ficha usa este número por padrão.')
+    } catch (err: unknown) {
+      setErroForm(err instanceof Error ? err.message : 'Erro ao definir a instância principal.')
     }
   }
 
@@ -754,6 +778,22 @@ export default function InstanciasWhatsApp({ empresaId }: {
                   Remover
                 </button>
               </div>
+
+              {/* Instância PRINCIPAL: número usado por padrão no envio avulso da ficha do lead
+                  (inclusive no modo Automático, onde não há seletor de instância). Exclusiva por
+                  empresa. Só quem gerencia as instâncias da empresa decide — o dono de um número
+                  só não repontaria o padrão do avulso de todo mundo. */}
+              {podeVerTodas && (
+                <button
+                  type="button"
+                  onClick={() => definirPrincipal(i)}
+                  disabled={i.principal}
+                  title="Usada por padrão no envio avulso da ficha do lead (inclusive no modo Automático)."
+                  className={`w-full flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${i.principal ? 'cursor-default border-neon-cyan/40 bg-neon-cyan/10 text-neon-cyan' : 'border-white/15 text-white/70 hover:bg-white/5'}`}
+                >
+                  {i.principal ? '★ Instância principal' : 'Definir como principal'}
+                </button>
+              )}
 
               {/* Usa agenda? é regra DESTA instância (default ligado). Impacta a geração
                   de contexto e o runtime: desligado, o agente nunca oferece reunião. */}

@@ -135,6 +135,8 @@ type Resumo = { abas: Record<string, number>; por_status: Record<string, number>
 type Instancia = {
   id: string; evolution_instance: string; nome?: string | null
   ativo: boolean; config_json?: { saudacao?: string } | null
+  // Instância principal da empresa (migration 112): padrão do envio avulso da ficha.
+  principal?: boolean
 }
 type StatusConexaoInstancia = {
   id: string | null; evolution_instance: string; connected: boolean | null; state: string
@@ -1294,7 +1296,8 @@ export default function BancoLeadsPage() {
       const r = await apiFetch<Instancia[]>(`/api/empresas/${empresaId}/whatsapp`)
       const ativas = (r.data || []).filter((i) => i.ativo)
       setInstancias(ativas)
-      setInstanciaId((cur) => cur || (ativas[0]?.id ?? ''))
+      // Preferir a PRINCIPAL (padrão do envio avulso); sem nenhuma marcada, cai na 1ª ativa.
+      setInstanciaId((cur) => cur || (ativas.find((i) => i.principal)?.id ?? ativas[0]?.id ?? ''))
     } catch { /* silencioso */ }
   }, [empresaId])
 
@@ -1762,7 +1765,9 @@ export default function BancoLeadsPage() {
   async function enviarLeadConversa() {
     if (!ficha || !instanciaId) return
     if (!ficha.rodavel) { fb.toast('Este lead nao esta elegivel para envio.', 'info'); return }
-    if (config.modo === 'automatico') { fb.toast('No Automatico, os envios saem pela rotina configurada.', 'info'); return }
+    // No Automático o envio avulso É permitido: é um disparo separado da rotina, pela instância
+    // principal (instanciaId já cai nela). Não entra no rodízio do worker; só compartilha o
+    // cooldown/teto anti-ban da instância.
     if (motivoBloqueioConexao) { fb.toast(motivoBloqueioConexao, 'error'); return }
     if (bloquearPorCooldown()) return
     const { leadId, mensagemGerada } = ficha
@@ -2028,7 +2033,7 @@ export default function BancoLeadsPage() {
     : (modosDisponiveis[0]?.valor || 'manual')
   // Enviar fica liberado em Manual e Semi: se não houver mensagem gerada, o backend gera na hora.
   const podeEnviarConversa = !!ficha && !!instanciaId && ficha.rodavel
-    && config.modo !== 'automatico' && !motivoBloqueioConexao
+    && !motivoBloqueioConexao
   // Gerar não é enviar: no Automático a rotina controla o ENVIO, mas a mensagem pode ser
   // gerada/revisada normalmente (basta a instância). Só o envio fica com a rotina.
   const podeGerarConversa = !!ficha && !!instanciaId && ficha.rodavel
@@ -2036,10 +2041,8 @@ export default function BancoLeadsPage() {
   // Por que o disparo esta indisponivel AGORA — a mesma pergunta que o cronometro ja responde
   // no topo, dita tambem no botao de cada lead. No celular o topo sai da tela assim que a
   // fila rola, e um botao apagado sem motivo faz o operador clicar de novo achando que falhou.
-  const motivoEnvioBloqueado = config.modo === 'automatico'
-    ? 'No modo Automático o envio é controlado pela rotina configurada.'
-    : motivoBloqueioConexao
-      || (cooldownAtivo ? `Próximo envio em ${fmtMMSS(cooldownS as number)}` : '')
+  const motivoEnvioBloqueado = motivoBloqueioConexao
+    || (cooldownAtivo ? `Próximo envio em ${fmtMMSS(cooldownS as number)}` : '')
   const envioBloqueado = Boolean(motivoEnvioBloqueado)
 
   /**
@@ -3001,12 +3004,9 @@ export default function BancoLeadsPage() {
           mensagemGerada={ficha.mensagemGerada}
           podeEnviar={podeEnviarConversa}
           podeGerar={podeGerarConversa}
-          motivoEnvioIndisponivel={config.modo === 'automatico'
-            // Gerar continua liberado (podeGerarConversa não exclui o Automático); só o ENVIO
-            // fica indisponível. Se a instância também estiver caída, esse é o bloqueio mais
-            // acionável — e a mensagem gerada pode ser copiada e enviada manualmente.
-            ? (motivoBloqueioConexao || 'No modo Automático, o envio é controlado pela rotina configurada.')
-            : motivoBloqueioConexao}
+          // O envio avulso vale em qualquer modo (inclusive Automático), pela instância
+          // principal. O único bloqueio real é a conexão da instância.
+          motivoEnvioIndisponivel={motivoBloqueioConexao}
           cooldownS={cooldownS}
           enviando={enviandoConversa}
           gerando={gerandoConversa}
