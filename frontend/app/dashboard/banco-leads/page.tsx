@@ -16,6 +16,7 @@ import { secaoDoGatilho, type SecaoFicha } from '@/lib/ficha-lead'
 // item novo no menu lateral. Ele guarda o planejamento no servidor (migration 095); a escolha
 // de novos cards tem leitura própria para não herdar filtros ou janela da Lista.
 import QuadroDoDia from '@/components/QuadroDoDia'
+import MetaPessoal from '@/components/MetaPessoal'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import FolhaModal from '@/components/ui/FolhaModal'
 import Botao from '@/components/ui/Botao'
@@ -1097,6 +1098,8 @@ export default function BancoLeadsPage() {
    * + `?vista=`, para um F5 não jogar a pessoa de volta na vista que ela não estava usando.
    */
   const [vista, setVista] = useState<'lista' | 'quadro'>('lista')
+  // Bump para a faixa de META recontar os "feito" quando um card é concluído no Quadro.
+  const [metaSeq, setMetaSeq] = useState(0)
   useEffect(() => {
     const daUrl = new URLSearchParams(window.location.search).get('vista')
     const salvo = (() => { try { return sessionStorage.getItem('bancoLeadsVista') } catch { return null } })()
@@ -2433,6 +2436,10 @@ export default function BancoLeadsPage() {
         ))}
       </div>
 
+      {/* META PESSOAL — visível nas duas vistas (o alvo vale o dia todo). Progresso = cards
+          concluídos em "Feito" no Quadro do Dia. */}
+      {empresaId && <MetaPessoal empresaId={empresaId} atualizacao={metaSeq} />}
+
       {vista === 'lista' && (
       <>
       {/* O FUNIL — seletor de aba, agora em UMA linha. Eram cinco cartoes de ~110px de altura
@@ -2937,6 +2944,7 @@ export default function BancoLeadsPage() {
           empresaId={empresaId}
           onAbrirLead={abrirLeadPorId}
           atualizacaoLead={atualizacaoQuadro}
+          onMudou={() => setMetaSeq((s) => s + 1)}
         />
       )}
 

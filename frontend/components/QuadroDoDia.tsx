@@ -78,12 +78,14 @@ const TOM_COLUNA: Record<string, string> = {
 }
 
 export default function QuadroDoDia({
-  empresaId, onAbrirLead, atualizacaoLead,
+  empresaId, onAbrirLead, atualizacaoLead, onMudou,
 }: {
   empresaId: string
   /** Abre a ficha do lead (a mesma da Lista), na seção pedida. */
   onAbrirLead: (prospectId: string, gatilho: string) => void
   atualizacaoLead?: { seq: number; leadId: string; remover?: boolean; followUpId?: string | null } | null
+  /** Avisa que um card mudou de coluna — a faixa de meta reconta os "feito". */
+  onMudou?: () => void
 }) {
   const fb = useFeedback()
   const base = `/api/empresas/${empresaId}/banco-leads`
@@ -254,6 +256,7 @@ export default function QuadroDoDia({
       })
       setItens((prev) => prev.map((i) => (i.id === item.id ? { ...i, ...r.data } : i)))
       if (dia) void carregarResumo(dia)
+      onMudou?.()
       setPedirNota(null)
       setNota('')
     } catch (e) {

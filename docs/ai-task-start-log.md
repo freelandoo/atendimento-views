@@ -6307,3 +6307,23 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Cuidados:** caminho mais quente (webhook). CTWA roda ANTES do gate e vive em tabela própria —
   não se perde atribuição. Dedupe/auto-reply/marcar prospect respondeu seguem antes do gate.
   Conversas externas já gravadas continuam (não muta dado). Sem migration, env ou rota nova.
+
+## 2026-09-30 — Meta pessoal (dia/semana) no topo do Banco de Leads
+
+- **Pedido (operador):** meta pessoal de atendimentos — botão "Definir meta" que recebe a meta
+  SEMANAL, o operador marca os dias que atende (5 ou 6), o sistema divide por dia. Faixa no topo
+  do Banco de Leads mostra meta do dia e da semana enchendo conforme atende. Progresso = cards
+  movidos para "Feito" no Quadro do Dia. Meta PESSOAL (cada um a sua, só ele vê). Escopo maior
+  (agregado por região/equipe, faixa em outras telas) fica para depois.
+- **Reuso:** Quadro do Dia (migration 095, `plano_dia_itens.etapa='feito'`) já é a fonte do
+  progresso — `db/plano-dia.resumoPeriodo` conta feitos por dia; NÃO há SQL de contagem novo.
+  A barra de proximidade (`frontend/lib/minha-operacao.proximidade`, marcos 50/75/90/100) é
+  reusada para desenhar. A única coisa nova que persiste é a config da meta.
+- **Áreas:** migration `111_meta_pessoal.sql` (tabela `app.meta_pessoal`, empresa+usuário únicos,
+  aditiva), `services/meta-pessoal.js` (PURO: divisão dia, semana ISO, progresso),
+  `db/meta-pessoal.js`, rotas `GET/PUT /banco-leads/meta` (pessoais por `req.usuario.id`, sem
+  param de usuário — mesma disciplina de `/meu-resumo`; mount já exige `LEAD_VER_APROVADOS`),
+  `test/meta-pessoal.test.js`. Front: `frontend/lib/meta-pessoal.js` (+ `.d.ts`/`.test.js`),
+  `components/MetaPessoal.tsx`, faixa no topo de `banco-leads/page.tsx`.
+- **Cuidados:** meta pessoal (não placar) — compatível com as regras anti-placar. Sem env nova,
+  sem capacidade nova, sem item de menu novo, sem mexer em envio/coleta/funil.

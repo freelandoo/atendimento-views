@@ -44,6 +44,8 @@ const LP = require('../services/lead-parado')
 const { sqlAprovado } = require('../services/lead-qualificacao')
 const { origensDoFiltro, usaReguaPlaces } = require('../services/lead-origem')
 const PLANO = require('../db/plano-dia')
+const MP = require('../services/meta-pessoal')
+const METADB = require('../db/meta-pessoal')
 // A ORDEM DE TRABALHO (a fila do vendedor). O modulo e' PURO e devolve as expressoes SQL: a
 // classificacao acontece UMA vez, dentro da consulta, e o numero vira rotulo por faixaPorOrdem.
 const { sqlFaixaTrabalho, sqlDesempateTrabalho, faixaPorOrdem } = require('../services/lead-fila-trabalho')
@@ -850,6 +852,62 @@ router.get('/meu-resumo', requireAuth, requireEmpresaAccess, async (req, res) =>
     // achar que perdeu carteira.
     return res.json({ ok: true, data: r, meta: { parado_dias: prazo, equipe: nicho } })
   } catch (err) { return envelopeErro(res, err, 'LEADS_RESUMO_FAILED') }
+})
+
+// ─── META PESSOAL (migration 111) ────────────────────────────────────────────────────────
+//
+// A meta de atendimentos do PRÓPRIO comercial, no topo do Banco de Leads. O progresso é contado
+// sobre os cards em "feito" do Quadro do Dia (reuso de PLANO.resumoPeriodo) — não há contagem
+// nova. Pessoal: escopado por empresa + `req.usuario.id`, sem `usuario_id` na query, como
+// `/meu-resumo`. Sem capacidade nova (o mount já exige LEAD_VER_APROVADOS).
+
+/** Soma dos cards concluídos no intervalo, e o total de hoje, a partir do resumo do Quadro. */
+async function feitosDaMeta(empresaId, usuarioId, hoje, semana) {
+  const linhas = await PLANO.resumoPeriodo({
+    empresaId, usuarioId, inicio: semana.inicio, fim: semana.fim,
+  })
+  const feitoSemana = linhas.reduce((s, r) => s + (Number(r.feitos) || 0), 0)
+  const linhaHoje = linhas.find((r) => r.dia === hoje)
+  return { feitoDia: linhaHoje ? Number(linhaHoje.feitos) || 0 : 0, feitoSemana }
+}
+
+/**
+ * GET /meta?dia= — a config da meta + o progresso do dia e da semana. READ-ONLY e PESSOAL.
+ * Sem meta definida, `config` é null e o progresso vem com alvo null (a tela não desenha barra).
+ */
+router.get('/meta', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const dia = PLANO.PD.diaValido(req.query.dia) || MP.diaOperacional()
+    const semana = MP.semanaDe(dia)
+    const config = MP.normalizarConfig(await METADB.obterMeta(req.empresa.id, req.usuario.id))
+    const { feitoDia, feitoSemana } = await feitosDaMeta(req.empresa.id, req.usuario.id, dia, semana)
+    return res.json({
+      ok: true,
+      data: {
+        config,
+        progresso: {
+          dia: MP.progresso(feitoDia, config ? MP.alvoDoDia(config, dia) : null),
+          semana: MP.progresso(feitoSemana, config ? config.alvo_semanal : null),
+        },
+      },
+      meta: { dia, hoje: MP.diaOperacional(), semana },
+    })
+  } catch (err) { return envelopeErro(res, err, 'META_PESSOAL_FAILED') }
+})
+
+/** PUT /meta { alvo_semanal, dias_semana[] } — define a PRÓPRIA meta. */
+router.put('/meta', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const config = MP.normalizarConfig(req.body || {})
+    if (!config) {
+      return res.status(400).json({
+        ok: false, code: 'META_INVALIDA',
+        error: 'Informe uma meta semanal maior que zero e ao menos um dia de atendimento.',
+      })
+    }
+    const salvo = await METADB.salvarMeta(req.empresa.id, req.usuario.id, config)
+    return res.json({ ok: true, data: MP.normalizarConfig(salvo) })
+  } catch (err) { return envelopeErro(res, err, 'META_PESSOAL_SAVE_FAILED') }
 })
 
 // ─── QUADRO DO DIA (migration 095) ────────────────────────────────────────────────────────

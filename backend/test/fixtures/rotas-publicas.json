@@ -52,6 +52,8 @@
     "GET /api/empresas/:empresaId/banco-leads/leads/:id/proxima-acao",
     "GET /api/empresas/:empresaId/banco-leads/leads/:id/responsavel-historico",
     "GET /api/empresas/:empresaId/banco-leads/leads/:id/status-historico",
+    "GET /api/empresas/:empresaId/banco-leads/meta",
+    "PUT /api/empresas/:empresaId/banco-leads/meta",
     "GET /api/empresas/:empresaId/banco-leads/meu-resumo",
     "GET /api/empresas/:empresaId/banco-leads/meus-disparos",
     "GET /api/empresas/:empresaId/banco-leads/plano-dia",
