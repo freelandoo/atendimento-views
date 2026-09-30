@@ -196,6 +196,8 @@ async function anexarProspectExibicao(conversas, empresaId) {
       nicho: d ? d.nicho : null,
       tem_whatsapp: d ? d.tem_whatsapp : null,
       prospect_id: d ? d.prospect_id : null,
+      // status do LEAD (prospect): usado pela Central para marcar/ordenar/filtrar "descartado".
+      lead_status: d ? d.status : null,
     }
   })
 }

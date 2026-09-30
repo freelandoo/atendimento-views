@@ -54,6 +54,13 @@ type Conversa = ConversaResumo & {
   nicho?: string | null
   tem_whatsapp?: boolean | null
   prospect_id?: string | null
+  lead_status?: string | null
+}
+
+// "Descartado" = status do LEAD (prospect), mesmo critério da aba "Descartados" do Banco de Leads.
+const DESCARTADO_STATUS = ['rejeitado', 'nao_contatar']
+function descartadoDe(c: Conversa): boolean {
+  return DESCARTADO_STATUS.includes(c.lead_status || '')
 }
 
 function fmtData(s?: string): string {
@@ -108,13 +115,14 @@ type Filtros = {
   estagio: string
   instancia: string
   atendente: string // '' | 'nao_atribuida' | <nome do responsavel>
+  descartado: '' | 'so' | 'ocultar'
   periodo: '' | 'hoje' | '14d' | 'custom'
   de: string
   ate: string
 }
 const FILTROS_VAZIOS: Filtros = {
   interesseMin: '', whatsapp: '', nicho: '', status: '', estagio: '',
-  instancia: '', atendente: '', periodo: '', de: '', ate: '',
+  instancia: '', atendente: '', descartado: '', periodo: '', de: '', ate: '',
 }
 const CAMPO_SEL = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand'
 const RANK_INTERESSE: Record<string, number> = { alto: 3, medio: 2, baixo: 1 }
@@ -123,7 +131,7 @@ const RANK_TEMP: Record<Faixa, number> = { quente: 0, morno: 1, frio: 2 }
 function instanciaDe(c: Conversa): string { return c.instancia_nome || c.evolution_instance || '' }
 
 function contarFiltros(f: Filtros): number {
-  const chaves: (keyof Filtros)[] = ['interesseMin', 'whatsapp', 'nicho', 'status', 'estagio', 'instancia', 'atendente', 'periodo']
+  const chaves: (keyof Filtros)[] = ['interesseMin', 'whatsapp', 'nicho', 'status', 'estagio', 'instancia', 'atendente', 'descartado', 'periodo']
   return chaves.reduce((n, k) => (f[k] ? n + 1 : n), 0)
 }
 
@@ -441,6 +449,8 @@ export default function ConversasPage() {
     if (f.instancia && instanciaDe(c) !== f.instancia) return false
     if (f.atendente === 'nao_atribuida' && c.responsavel_id) return false
     if (f.atendente && f.atendente !== 'nao_atribuida' && (c.responsavel_nome || '') !== f.atendente) return false
+    if (f.descartado === 'so' && !descartadoDe(c)) return false
+    if (f.descartado === 'ocultar' && descartadoDe(c)) return false
     if (!dentroPeriodo(c, f)) return false
     return true
   }
@@ -460,7 +470,8 @@ export default function ConversasPage() {
   const visiveis = enriquecidas
     .filter((x) => (filtro === 'esfriando' ? x.alerta : true))
     .filter((x) => passaFiltros(x.c))
-    .sort(ordenar)
+    // Descartado SEMPRE por último, qualquer que seja a ordenação escolhida.
+    .sort((a, b) => (Number(descartadoDe(a.c)) - Number(descartadoDe(b.c))) || ordenar(a, b))
 
 
   return (
@@ -669,6 +680,17 @@ export default function ConversasPage() {
             </label>
 
             <label className="block text-xs">
+              <span className="mb-1 block font-medium text-slate-500">Descartados</span>
+              <select value={filtros.descartado}
+                onChange={(e) => setFiltros((f) => ({ ...f, descartado: e.target.value as Filtros['descartado'] }))}
+                className={CAMPO_SEL}>
+                <option value="">Todos (descartado por último)</option>
+                <option value="so">Só descartados</option>
+                <option value="ocultar">Ocultar descartados</option>
+              </select>
+            </label>
+
+            <label className="block text-xs">
               <span className="mb-1 block font-medium text-slate-500">Período (atualização)</span>
               <select value={filtros.periodo}
                 onChange={(e) => setFiltros((f) => ({ ...f, periodo: e.target.value as Filtros['periodo'] }))}
@@ -766,9 +788,15 @@ export default function ConversasPage() {
               </td>
               <td className="px-4 py-3">{c.estagio}</td>
               <td className="px-4 py-3">
-                <span className={`px-2 py-0.5 rounded-full text-xs ${c.status === 'ativo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                  {c.status}
-                </span>
+                {descartadoDe(c) ? (
+                  <span title="Lead descartado" className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">
+                    Descartado
+                  </span>
+                ) : (
+                  <span className={`px-2 py-0.5 rounded-full text-xs ${c.status === 'ativo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                    {c.status}
+                  </span>
+                )}
               </td>
               <td className="px-4 py-3 text-xs">
                 {(() => {

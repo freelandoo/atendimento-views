@@ -34,7 +34,7 @@ const { candidatosTelefoneBR } = require('../telefone-br')
  *
  * @param {import('pg').Pool} pool
  * @param {{ empresaId: string, numeros: string[] }} params
- * @returns {Promise<Map<string, {prospect_id: string|null, nome: string|null, nicho: string|null, tem_whatsapp: boolean|null}>>}
+ * @returns {Promise<Map<string, {prospect_id: string|null, nome: string|null, nicho: string|null, tem_whatsapp: boolean|null, status: string|null}>>}
  */
 async function buscarDadosProspectPorTelefone(pool, { empresaId, numeros }) {
   const resultado = new Map()
@@ -54,7 +54,7 @@ async function buscarDadosProspectPorTelefone(pool, { empresaId, numeros }) {
 
   const { rows } = await pool.query(
     `SELECT regexp_replace(COALESCE(p.telefone, ''), '\\D', '', 'g') AS telefone_digitos,
-            p.id AS prospect_id, p.nome, p.nicho, p.tem_whatsapp,
+            p.id AS prospect_id, p.nome, p.nicho, p.tem_whatsapp, p.status,
             p.updated_at
        FROM prospectador.prospects p
       WHERE p.empresa_id = $1
@@ -72,6 +72,7 @@ async function buscarDadosProspectPorTelefone(pool, { empresaId, numeros }) {
       nome: row.nome,
       nicho: row.nicho,
       tem_whatsapp: row.tem_whatsapp,
+      status: row.status,
     })
   }
 
