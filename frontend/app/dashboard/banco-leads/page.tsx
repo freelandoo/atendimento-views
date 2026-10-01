@@ -1868,6 +1868,10 @@ export default function BancoLeadsPage() {
       setAtualizacaoQuadro((cur) => ({ seq: (cur?.seq || 0) + 1, leadId: id, remover: true }))
     } else if (novo.follow_up?.id) {
       setAtualizacaoQuadro((cur) => ({ seq: (cur?.seq || 0) + 1, leadId: id, followUpId: novo.follow_up?.id }))
+    } else {
+      // Reunião, ligação, proposta etc.: o card fica, mas o quadro precisa reler o lead para
+      // mostrar o novo agendamento/estado — antes só descarte e follow-up avisavam o quadro.
+      setAtualizacaoQuadro((cur) => ({ seq: (cur?.seq || 0) + 1, leadId: id }))
     }
     // Ligação, reunião ou follow-up registrados agora precisam aparecer na "Próxima ação".
     setVersaoProximaAcao((v) => v + 1)

@@ -396,6 +396,7 @@ async function sugestoesDoDia({ empresaId, usuarioId, dia }) {
             AND ${sqlTelefoneNormalizado('ae.lead_telefone')} = ${sqlTelefoneNormalizado('p.telefone')}
        ) s ON TRUE
       WHERE p.empresa_id = $1${extra}
+        AND p.qualificacao <> 'descartado'
         AND NOT EXISTS (
           SELECT 1 FROM app.plano_dia_itens i
            WHERE i.empresa_id = $1 AND i.usuario_id = $2 AND i.dia = $3::date AND i.prospect_id = p.id

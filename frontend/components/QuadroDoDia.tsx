@@ -172,17 +172,27 @@ export default function QuadroDoDia({
     if (!atualizacaoLead?.leadId) return
     if (atualizacaoAplicadaRef.current === atualizacaoLead.seq) return
     atualizacaoAplicadaRef.current = atualizacaoLead.seq
-    const idsParaMover = atualizacaoLead.followUpId
-      ? itensRef.current.filter((item) => item.prospect_id === atualizacaoLead.leadId).map((item) => item.id)
-      : []
+    const idsDoLead = itensRef.current
+      .filter((item) => item.prospect_id === atualizacaoLead.leadId)
+      .map((item) => item.id)
+    // Otimista: o descarte some o card na hora; o follow-up o manda para "aguardando".
     setItens((prev) => prev.flatMap((item) => {
       if (item.prospect_id !== atualizacaoLead.leadId) return [item]
       if (atualizacaoLead.remover) return []
       if (atualizacaoLead.followUpId) return [{ ...item, etapa: 'aguardando_retorno', follow_up_id: atualizacaoLead.followUpId }]
       return [item]
     }))
-    if (atualizacaoLead.followUpId && idsParaMover.length) {
-      void Promise.all(idsParaMover.map((itemId) => apiFetch<CardDia>(`${base}/plano-dia/${itemId}`, {
+    // A mudança PRECISA ser persistida, senão o card volta no próximo carregamento. O descarte
+    // antes só sumia da tela (bug: as linhas de plano_dia_itens ficavam, e reapareciam ao recarregar).
+    if (atualizacaoLead.remover && idsDoLead.length) {
+      void Promise.all(idsDoLead.map((itemId) => apiFetch(`${base}/plano-dia/${itemId}`, { method: 'DELETE' })))
+        .then(() => carregar(dia))
+        .catch((e) => {
+          fb.toast(e instanceof Error ? e.message : 'Não foi possível tirar o lead descartado do dia.', 'error')
+          carregar(dia)
+        })
+    } else if (atualizacaoLead.followUpId && idsDoLead.length) {
+      void Promise.all(idsDoLead.map((itemId) => apiFetch<CardDia>(`${base}/plano-dia/${itemId}`, {
         method: 'PATCH',
         body: JSON.stringify({ etapa: 'aguardando_retorno', follow_up_id: atualizacaoLead.followUpId }),
       })))
@@ -191,9 +201,12 @@ export default function QuadroDoDia({
           fb.toast(e instanceof Error ? e.message : 'Não foi possível mover o card para retorno.', 'error')
           carregar(dia)
         })
+    } else if (idsDoLead.length) {
+      // Reunião, ligação, proposta: o card não muda de coluna, mas o quadro relê as informações
+      // do lead (agendamento, status) para a tela não ficar com dado velho depois da ação.
+      void carregar(dia)
     }
-    if (dia) void carregarResumo(dia)
-  }, [atualizacaoLead, base, carregar, dia, carregarResumo, fb])
+  }, [atualizacaoLead, base, carregar, dia, fb])
 
   const carregarCandidatos = useCallback(async () => {
     const token = ++pedidoCandidatosRef.current
