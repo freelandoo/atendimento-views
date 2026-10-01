@@ -73,7 +73,8 @@ async function buscarVinculoUsuarioEmpresa(usuario_id, empresa_id) {
   const { rows } = await pool.query(
     `SELECT ue.id, ue.usuario_id, ue.empresa_id, ue.role, ue.permissoes, ue.ativo,
             ue.criado_em, ue.criado_por,
-            a.termo_versao AS aceite_versao, a.aceito_em AS aceite_em
+            a.termo_versao AS aceite_versao, a.aceito_em AS aceite_em,
+            ep.plano AS plano_nome, ep.status AS plano_status, ep.trial_fim AS plano_trial_fim
        FROM app.usuarios_empresas ue
        LEFT JOIN LATERAL (
          SELECT pa.termo_versao, pa.aceito_em
@@ -84,6 +85,9 @@ async function buscarVinculoUsuarioEmpresa(usuario_id, empresa_id) {
           ORDER BY pa.aceito_em DESC
           LIMIT 1
        ) a ON true
+       -- Plano da empresa (migration 114) no MESMO SELECT — I/O zero, como o aceite. 1:1 por
+       -- empresa_id, então LEFT JOIN simples. Ausência de linha = NULL (gate trata como liberado).
+       LEFT JOIN app.empresa_plano ep ON ep.empresa_id = ue.empresa_id
       WHERE ue.usuario_id = $1 AND ue.empresa_id = $2 AND ue.ativo = true
       LIMIT 1`,
     [usuario_id, empresa_id, PROGRAMA.OPERACAO_COMERCIAL]

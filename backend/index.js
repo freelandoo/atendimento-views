@@ -119,6 +119,10 @@ app.use('/api/empresas/:empresaId/membros', require('./src/routes/api-membros'))
 // ler o próprio termo e declarar o próprio aceite são atos da pessoa sobre ela mesma.
 // Guarda de regressão em test/programa-aceite.test.js falha se um segundo mount usar a variante.
 app.use('/api/empresas/:empresaId/programa', require('./src/routes/api-programa'))
+// PLANO / assinatura (conversão do trial → pago via ASAAS). A autorização vive DENTRO do router
+// (requireAuth + requireEmpresaAccessSemPlano): o owner com plano INATIVO precisa alcançar a tela
+// de pagamento (mesma ideia do SemAceite). A capacidade (MEMBROS_GERENCIAR p/ assinar) é por rota.
+app.use('/api/empresas/:empresaId/plano', require('./src/routes/api-plano'))
 // Painel da EQUIPE (CRM em equipe, Etapa 12): leitura AGREGADA de quem esta com o que. A
 // autorizacao vive dentro do router (MEMBROS_GERENCIAR — quem gerencia contas responde pela
 // distribuicao do trabalho). Nao tem SQL proprio: reusa as contagens de cada modulo.
@@ -189,6 +193,11 @@ app.use('/api/reunioes', require('./src/routes/api-reunioes-publicas'))
 
 // Webhook público da Freelandoo (valida HMAC internamente; sem auth JWT).
 app.use('/freelandoo/webhook', require('./src/routes/freelandoo-webhook'))
+
+// Webhook público da ASAAS (cobrança recorrente). Valida o header `asaas-access-token`
+// internamente; sem auth JWT. NÃO precisa de raw body (token no header, não HMAC), por isso
+// depois do express.json. Idempotente; reflete o pagamento em app.empresa_plano.
+app.use('/asaas/webhook', require('./src/routes/asaas-webhook'))
 
 // Provisionamento do produto "Atendimento IA" (Freelandoo -> bot; segredo
 // compartilhado no header x-provision-secret). Inclui o refresh diario dos

@@ -119,6 +119,12 @@ const ROTAS_POR_CAPACIDADE = [
   // valida. O mount libera a LEITURA; publicar e encerrar exigem COMISSAO_GERENCIAR por rota
   // (ver ESCRITAS_COM_CAPACIDADE_PROPRIA).
   { mount: '/api/empresas/:empresaId/missoes', capacidade: C.COMISSAO_VER_PROPRIA, papeisQuePassam: ['owner', 'comercial'], noRouter: true },
+
+  // 2026-10-01 — PLANO / assinatura (Fase 1 planos SaaS). O mount usa requireEmpresaAccessSemPlano
+  // (o owner INATIVO precisa alcançar a tela de pagamento); a capacidade vive POR ROTA: GET de
+  // status é de qualquer membro, POST /assinar exige MEMBROS_GERENCIAR (pagar pela empresa é ato de
+  // quem administra a conta — mesmo proxy de "Contas da empresa").
+  { mount: '/api/empresas/:empresaId/plano', capacidade: C.MEMBROS_GERENCIAR, papeisQuePassam: ['owner'], noRouter: true },
 ]
 
 // Rotas de PLATAFORMA: continuam com `requireRole`, de propósito. Não são de uma empresa —

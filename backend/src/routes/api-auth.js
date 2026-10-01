@@ -6,6 +6,7 @@ const { requireAuth } = require('../middleware/tenant')
 const { capacidadesDoVinculo } = require('../services/acesso-capacidades')
 const { avaliarAcesso: avaliarAcessoPrograma } = require('../services/programa-aceite')
 const { VERSAO: TERMO_VERSAO } = require('../services/programa-termo')
+const { avaliarAcesso: avaliarAcessoPlano } = require('../services/plano-definicao')
 const { validarSignup } = require('../auth-validation')
 const { signupLimiter, loginLimiter } = require('../rate-limit')
 
@@ -89,7 +90,7 @@ router.get('/me', requireAuth, async (req, res) => {
     ok: true,
     data: {
       usuario: { id: req.usuario.id, email: req.usuario.email, nome: req.usuario.nome, role: req.usuario.role },
-      empresas: empresas.map(({ permissoes, aceite_versao, aceite_em, ...empresa }) => ({
+      empresas: empresas.map(({ permissoes, aceite_versao, aceite_em, plano_nome, plano_status, plano_trial_fim, ...empresa }) => ({
         ...empresa,
         papel_empresa: empresa.role_usuario,
         capacidades: capacidadesDoVinculo({
@@ -97,6 +98,13 @@ router.get('/me', requireAuth, async (req, res) => {
           permissoes,
           papelPlataforma: req.usuario.role,
         }),
+        // PLANO / assinatura (Fase 1). Campo ADITIVO. A tela recebe o veredito pronto (liberado/
+        // somenteLeitura/motivo) + nome/status/trial, e o AuthGuard decide o redirect — a tela
+        // não reimplementa a regra. null = empresa sem linha de plano (grandfather/fail-open).
+        plano: plano_status
+          ? { nome: plano_nome, status: plano_status, trial_fim: plano_trial_fim,
+              ...avaliarAcessoPlano({ status: plano_status, trialFim: plano_trial_fim }) }
+          : null,
         // OPERAÇÃO COMERCIAL, Etapa 1. Campo ADITIVO: nenhum consumidor anterior muda.
         // Quem compara a versão gravada com a vigente é o módulo PURO — a tela recebe o
         // veredito pronto, exatamente como recebe `capacidades`, e nunca a versão crua para

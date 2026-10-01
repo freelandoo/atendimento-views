@@ -10,6 +10,7 @@ const {
 const { registrarUltimoAcesso } = require('../db/membros')
 const { avaliarAcesso: avaliarAcessoPrograma, barra: aceiteBarra } = require('../services/programa-aceite')
 const { VERSAO: TERMO_VERSAO } = require('../services/programa-termo')
+const { avaliarAcesso: avaliarAcessoPlano, barra: planoBarra } = require('../services/plano-definicao')
 
 // Extrai Bearer token do header Authorization
 function extractToken(req) {
@@ -71,7 +72,7 @@ async function requireAuth(req, res, next) {
 //
 // Quem decide é o módulo PURO `services/programa-aceite.js`; aqui só se traduz o veredito em
 // HTTP. Custo de I/O: ZERO — o aceite vem no mesmo SELECT do vínculo (db/empresas.js).
-async function resolverEmpresaAccess(req, res, next, { exigirAceite } = {}) {
+async function resolverEmpresaAccess(req, res, next, { exigirAceite, exigirPlano = true } = {}) {
   const empresaId = req.params.empresaId || req.body?.empresa_id || req.query?.empresa_id
   if (!empresaId) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'empresa_id ausente.' } })
@@ -113,6 +114,39 @@ async function resolverEmpresaAccess(req, res, next, { exigirAceite } = {}) {
   // autenticada numa escrita. `superadmin` sem vínculo não tem onde registrar — e não se
   // inventa um.
   if (vinculo) void registrarUltimoAcesso(vinculo.id)
+
+  // ─── PLANO / ASSINATURA ───────────────────────────────────────────────────────────────
+  // Estado de pagamento é a fonte da verdade do acesso (proposta §4.1). Lido no MESMO SELECT do
+  // vínculo (db/empresas.js) — I/O zero, como o aceite. Quem decide é o módulo PURO
+  // `plano-definicao.js`; aqui só se traduz em HTTP.
+  //
+  // FAIL-OPEN em linha AUSENTE, de propósito: empresa sem linha de app.empresa_plano = liberada.
+  // Isso remove o risco de trancar conta por um caminho de criação de empresa que não provisione
+  // plano (o grandfather da 114 cobre as existentes; o signup provisiona trial). Só BARRA quando
+  // EXISTE linha com status que bloqueia (cancelado/expirado/trial vencido). superadmin não tem
+  // vínculo → passa sempre (gate de plataforma, como no aceite).
+  const temPlano = Boolean(vinculo && vinculo.plano_status)
+  req.plano = temPlano
+    ? { nome: vinculo.plano_nome, status: vinculo.plano_status, trial_fim: vinculo.plano_trial_fim }
+    : null
+  if (temPlano) {
+    const vp = avaliarAcessoPlano({ status: vinculo.plano_status, trialFim: vinculo.plano_trial_fim })
+    req.planoAcesso = vp
+    // `exigirPlano=false` (router de plano/billing) deixa o owner INATIVO alcançar a tela de
+    // pagamento — mesma ideia do `SemAceite`. `req.plano`/`req.planoAcesso` continuam publicados.
+    if (exigirPlano && planoBarra(vp.motivo)) {
+      // 403 PRÓPRIO (`PLANO_INATIVO`), nunca o genérico: a tela precisa distinguir "sem permissão"
+      // de "assinatura inativa" (que se resolve pagando). Log sem PII — motivo é vocabulário fechado.
+      logger.warn({ motivo: vp.motivo, empresa_id: empresa.id }, '[plano] acesso barrado: assinatura inativa')
+      return res.status(403).json({
+        ok: false,
+        error: { code: 'PLANO_INATIVO', message: 'A assinatura desta empresa está inativa.' },
+        data: { motivo: vp.motivo },
+      })
+    }
+  } else {
+    req.planoAcesso = null
+  }
 
   // ─── ACEITE DO TERMO DA OPERAÇÃO COMERCIAL ────────────────────────────────────────────
   // `req.aceitePrograma` é publicado SEMPRE, inclusive para quem não é sujeito do programa e
@@ -156,6 +190,10 @@ const requireEmpresaAccess = (req, res, next) => resolverEmpresaAccess(req, res,
 // `requireAuth` e vínculo ativo com a empresa: quem não é da empresa não vê nem o termo dela.
 // PROIBIDO um segundo uso (guarda de regressão em test/programa-aceite.test.js).
 const requireEmpresaAccessSemAceite = (req, res, next) => resolverEmpresaAccess(req, res, next, { exigirAceite: false })
+
+// Exceção para o router de PLANO/pagamento: não barra por plano inativo (o owner precisa poder
+// pagar mesmo bloqueado). Continua exigindo auth, vínculo e aceite. Usado SÓ por routes/api-plano.js.
+const requireEmpresaAccessSemPlano = (req, res, next) => resolverEmpresaAccess(req, res, next, { exigirAceite: true, exigirPlano: false })
 
 // Resolve a empresa a partir da evolution_instance no corpo do webhook.
 //
@@ -272,6 +310,7 @@ module.exports = {
   requireAuth,
   requireEmpresaAccess,
   requireEmpresaAccessSemAceite,
+  requireEmpresaAccessSemPlano,
   resolveEmpresaFromWebhook,
   requireRole,
   requireCapacidade,

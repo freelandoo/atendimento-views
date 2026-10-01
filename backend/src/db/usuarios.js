@@ -38,7 +38,8 @@ async function updateUltimoLogin(id) {
 async function listEmpresasDoUsuario(usuario_id) {
   const { rows } = await pool.query(
     `SELECT e.*, ue.role AS role_usuario, ue.permissoes, ue.id AS vinculo_id,
-            a.termo_versao AS aceite_versao, a.aceito_em AS aceite_em
+            a.termo_versao AS aceite_versao, a.aceito_em AS aceite_em,
+            ep.plano AS plano_nome, ep.status AS plano_status, ep.trial_fim AS plano_trial_fim
      FROM app.empresas e
      JOIN app.usuarios_empresas ue ON ue.empresa_id = e.id
      LEFT JOIN LATERAL (
@@ -50,6 +51,7 @@ async function listEmpresasDoUsuario(usuario_id) {
         ORDER BY pa.aceito_em DESC
         LIMIT 1
      ) a ON true
+     LEFT JOIN app.empresa_plano ep ON ep.empresa_id = ue.empresa_id
      WHERE ue.usuario_id = $1 AND ue.ativo = true AND e.ativo = true
      ORDER BY e.nome`,
     [usuario_id, PROGRAMA.OPERACAO_COMERCIAL]
@@ -94,6 +96,15 @@ async function signupUsuario({ email, nome, password_hash }) {
       `INSERT INTO app.usuarios_empresas (usuario_id, empresa_id, role)
        VALUES ($1, $2, 'owner')`,
       [usuario.id, empresa.id]
+    )
+    // Provisiona o TRIAL na MESMA transação: empresa nova nasce em trial de 7 dias no plano
+    // Mínimo (sem IA). Sem esta linha, o gate de plano (fail-open em linha ausente) deixaria a
+    // conta com acesso total e sem prazo. `origem='signup'` distingue de 'grandfather' (114).
+    await client.query(
+      `INSERT INTO app.empresa_plano (empresa_id, plano, status, trial_fim, origem)
+       VALUES ($1, 'minimo', 'trial', now() + interval '7 days', 'signup')
+       ON CONFLICT (empresa_id) DO NOTHING`,
+      [empresa.id]
     )
     await client.query('COMMIT')
     return { usuario, empresa }

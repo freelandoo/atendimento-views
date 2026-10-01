@@ -173,6 +173,10 @@ function createCoreFunnel(deps = {}) {
     getContextoAtivoComEstagios,
     // Pause global do agente por empresa (config.agente_pausado). Opcional.
     empresaAgentePausada,
+    // Plano da empresa permite IA automática? (Fase 1 planos SaaS). Opcional: ausente = libera
+    // (grandfather). Minimo/trial = false → o turno inteiro é PULADO (economiza LLM), diferente
+    // do modo Análise (que roda e descarta). Só vale para a resposta conversacional.
+    iaAutoPermitidaEmpresa,
     // Modo padrao da IA por empresa (config.modo_ia_padrao). Opcional: ausente, toda
     // conversa em `herdar` cai no padrao de fabrica (`conversa`) — comportamento historico.
     // NAO se confunde com o pause acima: um e' permissao de responder, o outro e' pausa
@@ -1131,6 +1135,24 @@ function createCoreFunnel(deps = {}) {
       if (pausado) {
         logger.info({ empresa_id: empresaIdConversa, numero }, 'Agente da empresa pausado — sem resposta automática')
         return { skipped: true, reason: 'empresa_agente_pausado' }
+      }
+    }
+
+    // ── Plano sem IA automática (Mínimo/trial) ────────────────────────────────
+    // Guard-IRMÃO do pause, e de propósito ANTES de qualquer análise: PULA o turno inteiro, sem
+    // rodar LLM — é o que faz o plano Mínimo/trial realmente ECONOMIZAR IA (diferente do modo
+    // Análise, que roda e descarta). Só vale para a resposta CONVERSACIONAL: follow-up tem gate
+    // próprio (plano `followup_auto`) no followup-auto.js. Fail-open: erro de leitura não bloqueia.
+    if (
+      capacidadeTurno === CAPACIDADES.RESPOSTA_CONVERSACIONAL &&
+      empresaIdConversa &&
+      typeof iaAutoPermitidaEmpresa === 'function'
+    ) {
+      let permitida = true
+      try { permitida = await iaAutoPermitidaEmpresa(empresaIdConversa) } catch (_) { permitida = true }
+      if (!permitida) {
+        logger.info({ empresa_id: empresaIdConversa, numero }, 'Plano sem IA automática — turno pulado (sem LLM)')
+        return { skipped: true, reason: 'plano_sem_ia_auto' }
       }
     }
 

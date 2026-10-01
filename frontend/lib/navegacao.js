@@ -93,6 +93,7 @@ const NAV = [
       // Contas da EMPRESA (Etapa 2). Desde a Etapa 6.3 o item filtra pela MESMA capacidade que
       // o backend exige na rota — os dois passaram a falar a mesma língua.
       { tipo: 'item', href: '/dashboard/contas-empresa', label: 'Contas da empresa', icon: 'accounts', capacidade: 'membros_gerenciar' },
+      { tipo: 'item', href: '/dashboard/plano', label: 'Assinatura', icon: 'usage', capacidade: 'membros_gerenciar' },
       // ⚠️ "Equipes comerciais" NAO e' mais um item aqui (2026-09-19). Ela e as Equipes eram
       // partes do MESMO fluxo — montar a equipe e olhar o resultado — separadas em duas paginas,
       // com a MESMA capacidade. Foram unificadas em `/dashboard/equipe` (aba "Equipes"), que ja

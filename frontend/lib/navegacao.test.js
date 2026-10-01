@@ -140,7 +140,7 @@ test('nenhuma rota foi renomeada nesta reorganizacao', () => {
     '/dashboard/contextos',
     '/dashboard/conversas', '/dashboard/equipe',
     '/dashboard/follow-ups', '/dashboard/integracoes',
-    '/dashboard/llm', '/dashboard/perfil', '/dashboard/playbook', '/dashboard/prompts',
+    '/dashboard/llm', '/dashboard/perfil', '/dashboard/plano', '/dashboard/playbook', '/dashboard/prompts',
     '/dashboard/relatorios', '/dashboard/roteiros', '/dashboard/uso',
   ])
 })

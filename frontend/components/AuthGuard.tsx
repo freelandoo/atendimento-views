@@ -20,10 +20,13 @@ import { useRouter, usePathname } from 'next/navigation'
 import { apiFetch, getEmpresaId, ApiError } from '@/lib/api'
 import { precisaAceitar } from '@/lib/programa-aceite'
 import type { ProgramaAceiteVeredito } from '@/lib/programa-aceite'
+import { precisaAssinar } from '@/lib/plano'
+import type { PlanoVeredito } from '@/lib/plano'
 
 const ROTA_ACEITE = '/dashboard/aceite'
+const ROTA_PLANO = '/dashboard/plano'
 
-type EmpresaDaSessao = { id: string; programa_aceite?: ProgramaAceiteVeredito }
+type EmpresaDaSessao = { id: string; programa_aceite?: ProgramaAceiteVeredito; plano?: PlanoVeredito | null }
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -41,6 +44,12 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         // A própria tela do termo não redireciona para ela mesma — seria um laço.
         const atual = getEmpresaId()
         const empresa = (r.data?.empresas || []).find((e) => e.id === atual)
+        // PLANO primeiro: assinatura inativa barra a empresa inteira (pagamento é o gate externo).
+        // Quem não pode pagar (comercial) ainda é mandado pra tela, que mostra "fale com o responsável".
+        if (pathname !== ROTA_PLANO && precisaAssinar(empresa?.plano)) {
+          router.replace(ROTA_PLANO)
+          return
+        }
         if (pathname !== ROTA_ACEITE && precisaAceitar(empresa?.programa_aceite)) {
           router.replace(ROTA_ACEITE)
           return

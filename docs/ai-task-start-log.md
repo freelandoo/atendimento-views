@@ -6442,3 +6442,166 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   `lead-fila-trabalho`, `lead-origem` = 103/103.
 - **Pendências:** sem verificação visual do modal; não commitado/não deployado. A LATERAL de
   3 COUNTs/lead é O(n) sobre até 5000 (marcado `ponytail:`); materializar se pesar.
+
+## 2026-10-01 — Landing page pública (Fase 1 dos planos SaaS/ASAAS)
+- **Workflow padrão seguido** (Fase 0 → análise → skill `padrao-visual` → diff mínimo → validação).
+- **Pedido do operador ("FAÇA"):** construir a landing page, 1º passo da Fase 1 da proposta
+  `docs/propostas/2026-10-01-planos-landing-e-cobranca-asaas.md`.
+- **Análise de impacto:** `frontend/app/page.tsx` hoje é só `redirect('/login')`. A landing o
+  SUBSTITUI como porta de entrada pública (visitante). Usuário logado continua indo p/ /dashboard
+  via fluxo de login/AuthGuard. **Aditivo, sem tocar backend, schema, auth, segredos nem rotas.**
+- **Padrão visual:** landing é porta de entrada pública → tema NEON (como login/signup):
+  `.glass`, `.bg-grid`, tokens `neon-*`, `shadow-glow-*`, `font-display`. Server component (sem
+  JS de cliente). Botões neon crus (como login), não o primitivo `Botao` (que é tema claro).
+- **Conteúdo (§5 da proposta):** hero c/ selo Beta, problema→virada, 2 diferenciais (fila
+  anti-ban multi-chip, cruzamento de dados), como funciona, 3 planos (R$79/R$149,90/R$600+ em
+  breve, nomes placeholder), resultado (sem métrica inventada), CTA 7 dias sem cartão, rodapé.
+- **Arquivos:** só `frontend/app/page.tsx`. CTAs → /signup e /login (já existem).
+- **Validação:** `cd frontend && npx tsc --noEmit`.
+- **Pendências:** nomes comerciais definitivos (copy), verificação visual (Playwright), e o
+  backend de plano/pagamento (passos 2-7 da Fase 1). Não commitado/não deployado.
+
+## 2026-10-01 — Camada de plano: FUNDAÇÃO (passo 2 da Fase 1, sem gate)
+- **Workflow:** Fase 0 → análise → diff aditivo → validação. **Parou antes do gate** (auth).
+- **Análise:** `app.empresas.plano` já existe (migration 001, free/starter/pro/enterprise) mas
+  NUNCA foi ligada a nada — não é a assinatura. O gate de plano é idêntico ao do aceite: o
+  `buscarVinculoUsuarioEmpresa` (db/empresas.js) traz o aceite por `LEFT JOIN LATERAL` com I/O
+  zero, e `requireEmpresaAccess` (middleware/tenant.js) publica/barra via módulo puro
+  (`programa-aceite.js`). Plano seguirá o MESMO caminho.
+- **Construído (aditivo, ZERO mudança de comportamento — nada lê isto ainda):**
+  - `sql/migrations/114_empresa_plano.sql` — tabela `app.empresa_plano` (plano/status/trial_fim/
+    asaas ids/origem), CHECKs fechados, `origem` NOT NULL sem DEFAULT (padrão 061). **Grandfather:**
+    empresas existentes → `legado`/`ativo`/`grandfather` (acesso total; ON CONFLICT DO NOTHING).
+  - `src/services/plano-definicao.js` — PURO: PLANOS/STATUS/MOTIVOS, mapa plano→recursos
+    (minimo sem IA; basico com IA; pro com cruzamento; legado total), `avaliarAcesso(status)`
+    (cancelado/expirado barram; atrasado=somente leitura; trial vencido=barra), `barra()`.
+  - `test/plano-definicao.test.js` — 10/10, inclui anti-drift contra os CHECK da 114.
+- **Validação:** `node --test test/plano-definicao.test.js` = 10/10. Só arquivos novos; nenhum
+  existente tocado → suíte geral inalterada.
+- **NÃO feito (precisa de confirmação — toca auth):** wiring no `buscarVinculoUsuarioEmpresa`
+  (LATERAL do plano) + `requireEmpresaAccess` (publica `req.plano` + barra `PLANO_INATIVO`), e o
+  enforcement dos gates de recurso (IA/captação/cruzamento). Migration aplica no próximo boot.
+- **Pendências:** não commitado/não deployado; números de cota (leads_dia) provisórios (D11/D13).
+
+## 2026-10-01 — Camada de plano: PROVISÃO (trial) + GATE (passo 2/3 da Fase 1)
+- **Workflow:** Fase 0 → análise → diff mínimo → validação. Operador autorizou ("SIGA").
+- **Decisão de segurança:** gate **FAIL-OPEN em linha ausente** — empresa sem linha de
+  `app.empresa_plano` = liberada. Só BARRA quando existe linha com status cancelado/expirado/
+  trial-vencido. Remove o risco de trancar conta por caminho de criação que não provisione plano.
+- **Mudanças (3 arquivos existentes + nada novo):**
+  - `src/db/usuarios.js` `signupUsuario` — na MESMA transação, cria `empresa_plano`
+    (`minimo`/`trial`/`+7d`/`origem=signup`). ON CONFLICT DO NOTHING.
+  - `src/db/empresas.js` `buscarVinculoUsuarioEmpresa` — `LEFT JOIN app.empresa_plano` (1:1),
+    traz `plano_nome/plano_status/plano_trial_fim` no MESMO SELECT (I/O zero, como o aceite).
+  - `src/middleware/tenant.js` `resolverEmpresaAccess` — publica `req.plano`/`req.planoAcesso`
+    via `plano-definicao.avaliarAcesso`; barra **403 `PLANO_INATIVO`** em motivo bloqueante.
+    superadmin (sem vínculo) passa sempre.
+- **Validação:** `plano-definicao+programa-aceite+membros+acesso-capacidades` = **93/93**.
+  `typecheck`: meus arquivos **limpos**; 6 erros pré-existentes em `painel-comercial.js`
+  (commit cf0916e, não relacionado).
+- **⚠️ DEPENDÊNCIA DE ORDEM antes de deploy real:** o gate barra trial vencido. Os trials criados
+  agora expiram em 7 dias → `PLANO_INATIVO` **sem caminho de pagar ainda**. Então **só liberar pra
+  usuário real junto com o passo ASAAS/billing + uma rota de escape** (padrão `SemAceite`) pra o
+  owner pagar mesmo bloqueado. Até lá, grandfather=ativo e trials novos passam (dormente).
+- **NÃO feito (próximos):** webhook ASAAS + provisão de conversão; CPF/telefone/1-por-CPF; pool
+  do trial; enforcement por recurso (IA/captação/cruzamento lendo `req.plano`). Não commitado.
+
+## 2026-10-01 — Webhook ASAAS INBOUND (passo billing da Fase 1)
+- **Workflow:** Fase 0 → análise → diff mínimo → validação. Operador autorizou ("SEGUE").
+- **Correção vs. a proposta:** ASAAS valida origem por TOKEN no header `asaas-access-token` (que
+  nós definimos), NÃO por HMAC do corpo → **não precisa de raw body** (mais simples que o
+  Freelandoo). Montado depois do `express.json`.
+- **Construído:**
+  - `sql/migrations/115_asaas_webhook_events.sql` — ledger de idempotência (chave =
+    `evento:payment_id`), aditivo.
+  - `src/services/asaas-eventos.js` — PURO: `statusDoEvento` (confirmed/received→ativo;
+    overdue/refund→atrasado; deleted→cancelado; resto→null), `validarToken` (tempo ~constante,
+    config vazio nunca valida), `chaveEvento`, `referenciasAsaas`. Anti-drift com plano STATUS.
+  - `src/db/empresa-plano.js` — `processarEventoAsaas` ATÔMICO (dedup + UPDATE numa transação:
+    falha → nada gravado → ASAAS reenvia) + `obterPlano`.
+  - `src/routes/asaas-webhook.js` — valida token (401), ignora evento sem status (200), idempotente,
+    casa empresa por asaas_subscription_id/customer_id, 2xx rápido, log sem PII.
+  - mount público `/asaas/webhook` em `index.js` (depois do express.json).
+  - `.env.example`: `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN`, `ASAAS_BASE_URL` documentadas.
+- **Validação:** `node --test test/asaas-eventos.test.js` = 6/6. Rota+db carregam. Typecheck:
+  meus arquivos limpos (os 6 erros seguem só em painel-comercial.js, cf0916e).
+- **Gap declarado:** o webhook só CASA empresa quando o OUTBOUND (criar assinatura ASAAS e gravar
+  asaas_subscription_id/customer_id) existir. Hoje ele recebe e faz no-op seguro (ack, sem match).
+  Próximo passo pareado: rota de conversão (assinar → cria customer+subscription → grava ids →
+  URL de checkout) + CPF no cadastro + rota de escape (`requireEmpresaAccessSemPlano`).
+- Não commitado/não deployado.
+
+## 2026-10-01 — ASAAS OUTBOUND: conversão + escape + status (fecha o loop de billing)
+- **Workflow:** Fase 0 → análise → diff mínimo → validação. Operador autorizou ("SEGUE").
+- **Escopo:** CPF coletado na CONVERSÃO (não no signup), enviado à ASAAS e NÃO persistido (PII) →
+  sem migration nova e sem mexer no signup/frontend. CPF-no-cadastro + 1-por-CPF fica p/ passo próprio.
+- **Construído:**
+  - `src/services/plano-definicao.js` — `PRECOS` (R$79/149,90/600), `PLANOS_ASSINAVEIS`
+    (minimo/basico; pro=em construção), `precoDoPlano`, `planoAssinavel`.
+  - `src/services/asaas-client.js` — `criarCustomer`, `criarAssinatura` (billingType UNDEFINED,
+    MONTHLY, 1ª cobrança amanhã), `urlCheckoutDaAssinatura`. Auth header `access_token`; AsaasError.
+  - `src/db/empresa-plano.js` — `vincularAsaas` (grava asaas ids + plano; NÃO muda status — isso é
+    do webhook no pagamento).
+  - `src/middleware/tenant.js` — flag `exigirPlano` + variante `requireEmpresaAccessSemPlano`
+    (owner inativo alcança a tela de pagamento; mesma ideia do SemAceite).
+  - `src/routes/api-plano.js` — `GET /` (status + preços, read-only, qualquer membro) +
+    `POST /assinar` (MEMBROS_GERENCIAR; cria customer+subscription, grava ids, devolve checkout_url).
+    Gate dentro do router (requireAuth + SemPlano), mount bare em `index.js`.
+  - `test/autorizacao-rotas.test.js` — entrada da rota em ROTAS_POR_CAPACIDADE (noRouter).
+- **Validação:** plano-definicao+asaas-eventos+autorizacao-rotas+acesso-capacidades+membros =
+  **84/84**. Typecheck: meus arquivos **limpos** (6 erros seguem só em painel-comercial.js).
+- **⚠️ FALTA verificação AO VIVO (sandbox):** não consigo chamar a ASAAS daqui (chave só no
+  Railway). Os campos da resposta (`subscription.id`, `payments[].invoiceUrl`) seguem a doc e
+  precisam de UMA ida ao sandbox pra confirmar antes de ligar em produção.
+- **Próximos:** CPF no cadastro + 1-por-CPF; FRONTEND (tela "escolha um plano" + checkout + CPF);
+  pool do trial; enforcement por recurso (IA/captação/cruzamento lendo req.plano). Não commitado.
+
+## 2026-10-01 — FRONTEND do billing: tela de Assinatura + gate de plano no app
+- **Workflow:** Fase 0 → análise → skill padrao-visual → diff → validação. Operador: "SIGA/CONTINUE".
+- **Backend (aditivo):** `/api/auth/me` passou a trazer, por empresa, o veredito `plano`
+  (`db/usuarios.js` listEmpresasDoUsuario ganhou LEFT JOIN empresa_plano; `routes/api-auth.js`
+  mapeia via `plano-definicao.avaliarAcesso`). É o que o AuthGuard lê pra redirecionar.
+- **Frontend:**
+  - `lib/plano.js` (+ `.d.ts`/`.test.js`) — PURO: `precisaAssinar`, `somenteLeitura`,
+    `diasRestantesTrial`, `rotuloStatus`, `formatarPreco`. Só traduz o veredito.
+  - `components/AuthGuard.tsx` — redireciona p/ `/dashboard/plano` quando `precisaAssinar` (ANTES
+    do aceite; pagamento é o gate externo). Conveniência; quem barra é a API (403 PLANO_INATIVO).
+  - `lib/navegacao.js` — item "Assinatura" (/dashboard/plano, capacidade membros_gerenciar).
+  - `app/dashboard/plano/page.tsx` — tema CLARO/tokens: estado do plano (trial/dias/ativo/inativo/
+    atrasado), cards dos planos assináveis (Essencial/Profissional, preços reais) e form de CPF →
+    POST /plano/assinar → redirect pro checkout da ASAAS. Nomes = placeholder (copy depois).
+- **Validação:** front `tsc --noEmit` = 0 erros; `node --test lib/plano.test.js lib/navegacao.test.js`
+  = 35/35. Backend: tsc meus arquivos limpos (6 erros seguem só em painel-comercial.js); suítes-chave
+  84/84; **rotas-contrato + legado-cercado 9/9** (fixture rotas-publicas.json + navegacao.test
+  atualizados com as 3 rotas novas).
+- **Pendências:** verificação AO VIVO do checkout ASAAS (sandbox); verificação VISUAL da tela
+  (precisa de sessão logada em conta trial/inativa); CPF-no-cadastro + 1-por-CPF; pool do trial;
+  enforcement por recurso (IA/captação/cruzamento lendo req.plano). Não commitado/não deployado.
+
+## 2026-10-01 — Enforcement por recurso: IA automática e follow-up automático por plano
+- **Workflow:** Fase 0 → análise CUIDADOSA do caminho mais quente → diff mínimo → validação.
+  Operador: "SIGA". Nada editado antes de ler os pontos de gate.
+- **Decisão de arquitetura (importante):** o gate de IA fica na ENTRADA (core-funnel, junto do
+  pause guard), ANTES de qualquer LLM — PULA o turno inteiro p/ Mínimo/trial (economiza IA de
+  verdade), diferente do modo Análise (que roda e descarta). Um único guard cobre legado + playbook
+  (o playbook é despachado DENTRO da mesma função, depois do guard). NÃO toquei os enviadores.
+- **Construído:**
+  - `src/db/empresa-plano.js` — helper cacheado `_recursosDaEmpresa` (TTL 30s, FAIL-OPEN) +
+    `iaAutoPermitida` / `followupAutoPermitido`. Sem linha = grandfather (libera). Com linha:
+    liberado (não cancelado/expirado/trial-vencido) E plano permite o recurso. Cache invalidado
+    no webhook (`processarEventoAsaas`) e na conversão (`vincularAsaas`).
+  - `src/core-funnel.js` — guard irmão do pause (early return `plano_sem_ia_auto`), só p/
+    `capacidadeTurno === RESPOSTA_CONVERSACIONAL` (follow-up tem gate próprio). Dep opcional
+    `iaAutoPermitidaEmpresa` (ausente = libera).
+  - `src/agent.js` — importa `iaAutoPermitida` e injeta no core-funnel.
+  - `src/followup-auto.js` — guard em `agendarFollowupAutoParaConversa` (plano sem follow-up
+    automático → não agenda). É gate de PLANO, não de modo_ia (a guarda que lê o fonte continua
+    verde — reescrevi o comentário p/ não conter o literal `modo_ia`).
+  - `test/typecheck-cobertura.test.js` — piso subiu 88 → 90 (os 2 módulos novos com `// @ts-check`).
+- **Validação:** `npm test` = **3304/3304** (a única falha era a catraca de cobertura, já
+  ajustada). Typecheck: meus arquivos limpos (6 erros seguem só em painel-comercial.js).
+- **Cobertura:** `capacidadeTurno` garante que só a resposta conversacional é barrada; follow-up
+  explícito (decisão do agente no turno) já é coberto porque o turno é pulado antes.
+- **NÃO feito (próximos):** enforcement de captação/cruzamento (Aquisição/enriquecimento lendo o
+  plano) + pool do trial + rate limit por plano; CPF-no-cadastro + 1-por-CPF; verificação AO VIVO.
+  Não commitado/não deployado.

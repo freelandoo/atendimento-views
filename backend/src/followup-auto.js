@@ -1,5 +1,9 @@
 'use strict'
 
+// Gate de PLANO (Fase 1 planos SaaS): pergunta se o plano contratado INCLUI follow-up automático
+// (Mínimo/trial = não). É controle de assinatura, independente da preferência da conversa.
+const { followupAutoPermitido } = require('./db/empresa-plano')
+
 const {
   CLAUDE_TIMEOUT_MS,
   FOLLOWUP_INSTRUCAO_MAX_CHARS,
@@ -457,6 +461,11 @@ function createFollowupAuto(deps = {}) {
 
   async function agendarFollowupAutoParaConversa(row) {
     const numero = row.numero
+
+    // Plano sem follow-up automático (Mínimo/trial) → não agenda. Fail-open (helper tolera erro).
+    if (row.empresa_id && !(await followupAutoPermitido(row.empresa_id))) {
+      return null
+    }
 
     const totalExistente = parseInt(row.total_auto, 10) || 0
     if (row.temperatura_lead === 'frio' && totalExistente >= 2) {
