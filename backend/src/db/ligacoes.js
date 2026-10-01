@@ -12,6 +12,7 @@ const { LIGACAO_RESULTADO, MOTIVO_PERDA, ROTEIRO_ETAPA_TIPO, OPORTUNIDADE_STATUS
 const { assertMesmaEmpresa } = require('./campanhas')
 const ligacaoEtapas = require('./ligacao-etapas')
 const { criarFollowUp } = require('./follow-ups')
+const { sqlTelefoneNormalizado, telefoneCanonicoBR } = require('../telefone-br')
 
 const RES = new Set(LIGACAO_RESULTADO)
 const MOT = new Set(MOTIVO_PERDA)
@@ -352,6 +353,49 @@ async function marcarChamadaEncerrada(pool, empresaId, id, { origemSessao } = {}
 // Encerra a ligacao (idempotente). Fecha a sessao, calcula duracao no servidor a partir do
 // FIM DA CHAMADA (nao do momento do save), deriva as etapas de interesse/perda dos sinais
 // ativos e atualiza o status da oportunidade — tudo atomico.
+// Resumo CURTO da ligacao para a IA "confirmar" o que foi falado no proximo follow-up.
+// PURO/testavel. So vira contexto quando ha INTEL de verdade (observacao, objecao ou motivo
+// de perda) — resultado sozinho ("nao_atendeu") nao e' contexto util e so poluiria o prompt.
+function montarResumoLigacaoParaIa({ resultado, objecaoPrincipal, motivoPerda, notas } = {}) {
+  const obj = objecaoPrincipal != null ? String(objecaoPrincipal).trim() : ''
+  const nts = notas != null ? String(notas).trim() : ''
+  if (!nts && !obj && !motivoPerda) return ''
+  const partes = []
+  if (resultado) partes.push(`Resultado: ${resultado}.`)
+  if (obj) partes.push(`Objecao principal: ${obj}.`)
+  if (motivoPerda) partes.push(`Motivo de perda: ${motivoPerda}.`)
+  if (nts) partes.push(`Observacoes do operador: ${nts}`)
+  return `Ligacao registrada. ${partes.join(' ')}`.slice(0, 2000)
+}
+
+// Ponte ligacao -> conversa: grava o resumo em vendas.lead_contextos (tipo 'ligacao'), o MESMO
+// canal que a IA ja le no follow-up (buscarLeadContextos) e na resposta do funil. Best-effort e
+// FORA da transacao do encerramento: perder o contexto num erro e' aceitavel; derrubar o
+// encerramento por causa dele nao. NAO toca conversas.atualizado_em de proposito — isso
+// reiniciaria o relogio do silence watcher e adiaria o proprio follow-up que queremos enriquecer.
+async function registrarResumoLigacaoNoContextoDoLead(pool, empresaId, ligacao, p) {
+  const conteudo = montarResumoLigacaoParaIa({
+    resultado: ligacao.resultado,
+    objecaoPrincipal: p.objecaoPrincipal,
+    motivoPerda: p.motivoPerda,
+    notas: p.notas != null ? p.notas : ligacao.notas,
+  })
+  if (!conteudo) return
+  const tel = telefoneCanonicoBR(ligacao.telefone)
+  if (!tel) return
+  const { rows } = await pool.query(
+    `SELECT numero FROM vendas.conversas
+      WHERE empresa_id = $1 AND ${sqlTelefoneNormalizado('numero')} = $2
+      ORDER BY atualizado_em DESC LIMIT 1`,
+    [empresaId, tel])
+  const numero = rows[0]?.numero
+  if (!numero) return // lead so' de ligacao (sem conversa): nao ha follow-up a alimentar
+  await pool.query(
+    `INSERT INTO vendas.lead_contextos (numero, tipo, conteudo, origem, metadata)
+     VALUES ($1, 'ligacao', $2, 'ligacao_resumo', $3::jsonb)`,
+    [numero, conteudo, JSON.stringify({ ligacao_id: ligacao.id, resultado: ligacao.resultado || null })])
+}
+
 async function encerrarLigacao(pool, empresaId, id, p = {}) {
   const atual = await obterLigacao(pool, empresaId, id)
   if (atual.status === 'encerrada') return { ...atual, ja_encerrada: true } // idempotente
@@ -360,7 +404,7 @@ async function encerrarLigacao(pool, empresaId, id, p = {}) {
   }
   validarRegistro(p)
 
-  return withTx(pool, async (client) => {
+  const resultadoFinal = await withTx(pool, async (client) => {
     // Fonte unica de interesse/resistencia: os sinais ATIVOS, em ordem cronologica.
     const { rows: sinais } = await client.query(
       `SELECT tipo, etapa_tipo FROM app.ligacao_sinais
@@ -440,6 +484,12 @@ async function encerrarLigacao(pool, empresaId, id, p = {}) {
     }
     return { ...comEstado(ligacao), etapa_final: etapaFinal ? etapaFinal.tipo_etapa : null, follow_up: followUp }
   })
+  // Side-effect best-effort, fora da transacao: alimenta a IA do follow-up com o que foi falado.
+  // So quando ESTE request encerrou de fato (ja_encerrada = corrida: o vencedor ja gravou).
+  if (!resultadoFinal.ja_encerrada) {
+    await registrarResumoLigacaoNoContextoDoLead(pool, empresaId, resultadoFinal, p).catch(() => {})
+  }
+  return resultadoFinal
 }
 
 // Telefone do lead quando a propria ligacao nao guardou um (ligacoes antigas, ou iniciadas
@@ -548,7 +598,7 @@ async function contagemPorUsuario(pool, empresaId, { campanhaId } = {}) {
 }
 
 module.exports = {
-  validarRegistro, derivarEtapasDeSinais, transicaoValida, STATUS_ANALITICO,
+  validarRegistro, derivarEtapasDeSinais, transicaoValida, STATUS_ANALITICO, montarResumoLigacaoParaIa,
   estadoSessao, chamadaAberta,
   listarLigacoes, contagemPorUsuario, obterLigacao, obterLigacaoAtiva, listarLigacoesAtivasDaCampanha, obterSessao,
   iniciarLigacao, marcarChamadaEncerrada, encerrarLigacao, descartarLigacao, atualizarNotas,

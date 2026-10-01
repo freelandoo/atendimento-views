@@ -2,7 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 
 const {
-  validarRegistro, derivarEtapasDeSinais, transicaoValida,
+  validarRegistro, derivarEtapasDeSinais, transicaoValida, montarResumoLigacaoParaIa,
   encerrarLigacao, descartarLigacao, obterLigacao, atualizarNotas, marcarChamadaEncerrada,
 } = require('../src/db/ligacoes')
 
@@ -18,6 +18,21 @@ function fakePool(rows = []) {
 test('validarRegistro: resultado obrigatorio/valido', () => {
   assert.throws(() => validarRegistro({}), /resultado invalido/)
   assert.throws(() => validarRegistro({ resultado: 'xxx' }), /resultado invalido/)
+})
+
+test('montarResumoLigacaoParaIa: so vira contexto quando ha intel real', () => {
+  // resultado sozinho nao basta
+  assert.equal(montarResumoLigacaoParaIa({ resultado: 'nao_atendeu' }), '')
+  assert.equal(montarResumoLigacaoParaIa({}), '')
+  // observacao do operador vira contexto, com o resultado como prefixo
+  const r = montarResumoLigacaoParaIa({ resultado: 'atendeu', notas: 'cliente achou caro, pediu parcelar' })
+  assert.match(r, /^Ligacao registrada\./)
+  assert.match(r, /Resultado: atendeu/)
+  assert.match(r, /cliente achou caro/)
+  // objecao ou motivo de perda tambem disparam, e o texto e' limitado
+  assert.notEqual(montarResumoLigacaoParaIa({ objecaoPrincipal: 'sem orcamento' }), '')
+  assert.notEqual(montarResumoLigacaoParaIa({ motivoPerda: 'preco' }), '')
+  assert.ok(montarResumoLigacaoParaIa({ notas: 'x'.repeat(5000) }).length <= 2000)
 })
 
 test('validarRegistro: motivo_perda invalido', () => {

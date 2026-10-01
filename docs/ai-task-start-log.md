@@ -6399,3 +6399,26 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   `components/MetaPessoal.tsx` (modal com modo + barras por canal). Testes dos dois lados.
 - **Cuidados:** progresso deixa de reusar `plano-dia.resumoPeriodo` (passa a `contarContatos`).
   Contagem read-only, por usuário, sem placar. Sem env/capacidade/rota nova.
+
+## 2026-09-30 — Follow-up automático mais inteligente (3 lacunas reais)
+
+- **Pedido (operador):** o follow-up automático começou a rodar; melhorar 3 pontos que faltam
+  (o resto — janela comercial, cadência, registro, motivo, instância de envio, limites, SPIN —
+  JÁ existe e roda). Escopo escolhido: os três.
+- **Diff #1 (feito):** a OBSERVAÇÃO da ligação alimenta o follow-up. `encerrarLigacao`
+  (`db/ligacoes.js`) passou a gravar o resumo (notas/objeção/motivo + resultado) em
+  `vendas.lead_contextos` tipo `ligacao` — o MESMO canal que a IA já lê no follow-up
+  (`buscarLeadContextos`→`chamarClaudeFollowup`) e no funil. Best-effort, FORA da tx (não
+  derruba o encerramento), NÃO toca `conversas.atualizado_em` (reiniciaria o silence watcher),
+  só grava quando há intel real e quando existe conversa para o telefone (match por
+  `sqlTelefoneNormalizado` + empresa). Pure `montarResumoLigacaoParaIa` testado.
+- **Diff #2 (feito):** anti-disparo-em-massa. `followup-auto.js` espaça por EMPRESA
+  (`FOLLOWUP_AUTO_SPACING_MIN`, default 20min + jitter) — antes vários leads colavam no abrir da
+  janela. Pura `calcularSlotEspacado` testada; `c.empresa_id` adicionado à SELECT do watcher.
+- **Diff #3 (feito):** mira a janela comercial em que o lead engaja
+  (`FOLLOWUP_AUTO_PREF_HORARIO`, default on). Fonte: horas dos eventos lead-driven
+  (`vendas.eventos_comerciais`: `respondeu_followup`/`pediu_preco`) — única com timestamp real
+  (historico não tem ts por mensagem). Nunca antecipa a cadência nem sai da janela; sem sinal,
+  inalterado. Pura `horaPreferidaParaLead` testada. **Sinal esparso declarado.**
+- **Validação:** `npm test` 3287/3287. 2 envs novas no `.env.example`.
+- **Cuidados:** caminho mais quente do funil; 3 diffs isolados; não commitado/não deployado.

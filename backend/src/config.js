@@ -117,6 +117,17 @@ const FOLLOWUP_AUTO_BUSINESS_END_HOUR = Math.min(
   ),
   24
 )
+// Espacamento MINIMO (minutos) entre follow-ups automaticos da MESMA empresa, para nao
+// disparar em bloco quando varios leads silenciam juntos e caem no abrir da janela comercial.
+// 0 desliga. Aplicado so ao follow-up do silence watcher (nao ao agendamento explicito da IA).
+const FOLLOWUP_AUTO_SPACING_MIN = Math.min(
+  Math.max(parseInt(process.env.FOLLOWUP_AUTO_SPACING_MIN, 10) || 20, 0),
+  240
+)
+// Mira o follow-up na JANELA comercial em que o lead costuma engajar (horas dos eventos
+// lead-driven em vendas.eventos_comerciais). Sinal esparso: sem eventos, comportamento inalterado.
+// 'off' desliga. Nunca agenda ANTES do alvo da cadencia nem fora das janelas comerciais.
+const FOLLOWUP_AUTO_PREF_HORARIO = String(process.env.FOLLOWUP_AUTO_PREF_HORARIO || 'on').toLowerCase() !== 'off'
 const FOLLOWUP_AUTO_DELAY_HORAS = {
   1: Math.max(0.05, parseFloat(process.env.FOLLOWUP_AUTO_DELAY_SEQ1_H) || 2),
   2: Math.max(0.05, parseFloat(process.env.FOLLOWUP_AUTO_DELAY_SEQ2_H) || 24),
@@ -166,5 +177,7 @@ module.exports = {
   FOLLOWUP_AUTO_BUSINESS_START_HOUR,
   FOLLOWUP_AUTO_BUSINESS_END_HOUR,
   FOLLOWUP_AUTO_DELAY_HORAS,
+  FOLLOWUP_AUTO_SPACING_MIN,
+  FOLLOWUP_AUTO_PREF_HORARIO,
   prospectingIntelligenceEnabled,
 }

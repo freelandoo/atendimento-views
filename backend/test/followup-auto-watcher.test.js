@@ -19,7 +19,38 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { createFollowupAuto } = require('../src/followup-auto')
+const { createFollowupAuto, calcularSlotEspacado, horaPreferidaParaLead } = require('../src/followup-auto')
+
+const JANELAS = [
+  { start: [8, 30], end: [10, 30] },
+  { start: [11, 40], end: [13, 15] },
+  { start: [14, 30], end: [17, 0] },
+  { start: [18, 30], end: [20, 0] },
+]
+
+test('horaPreferidaParaLead: mira a janela em que o lead engaja, sem antecipar a cadencia', () => {
+  // sem sinal => mantem (null)
+  assert.equal(horaPreferidaParaLead(9, [], JANELAS), null)
+  // lead ativo de noite, alvo de manha => puxa para a janela da noite (inicio 18:30)
+  assert.equal(horaPreferidaParaLead(9, [19, 19, 20], JANELAS), 18.5)
+  // lead ativo na janela do alvo => nao antecipa: devolve o proprio alvo
+  assert.equal(horaPreferidaParaLead(9, [9], JANELAS), 9)
+  // nenhuma janela a frente contem o horario do lead => mantem (null)
+  assert.equal(horaPreferidaParaLead(19.5, [9], JANELAS), null)
+})
+
+test('calcularSlotEspacado: espaca por empresa sem atrasar quem ja esta folgado', () => {
+  const base = new Date('2026-09-30T13:00:00Z')
+  // sem ultimo agendado ou spacing desligado => nao mexe (mesma referencia)
+  assert.equal(calcularSlotEspacado(base, null, 20), base)
+  assert.equal(calcularSlotEspacado(base, new Date('2026-09-30T12:00:00Z'), 0), base)
+  // base ja' depois de ultimo+spacing => nao mexe
+  assert.equal(calcularSlotEspacado(base, new Date('2026-09-30T12:30:00Z'), 20), base)
+  // base colide com o ultimo => empurra para ultimo + spacing (+ jitter)
+  const empurrado = calcularSlotEspacado(base, new Date('2026-09-30T13:00:00Z'), 20, 0)
+  assert.equal(empurrado.toISOString(), '2026-09-30T13:20:00.000Z')
+  assert.notEqual(empurrado, base)
+})
 
 function silentLogger() {
   return {
@@ -55,8 +86,12 @@ function criarPoolMock({ leaderAcquired = true, encerramentoRows = 0, elegiveis 
         }
 
         // Etapa 2: SELECT de elegiveis (deve buscar direto de vendas.conversas)
-        if (/^SELECT c\.numero, c\.historico, c\.estagio, c\.status, c\.atualizado_em, p\.negocio/i.test(norm)) {
+        if (/^SELECT c\.numero, c\.historico, c\.estagio, c\.status, c\.atualizado_em, c\.empresa_id, p\.negocio/i.test(norm)) {
           return { rows: elegiveis }
+        }
+        // Espacamento por empresa (MAX agendado_para da empresa) — Diff anti-massa
+        if (/SELECT MAX\(fa\.agendado_para\) AS ult/i.test(norm)) {
+          return { rows: [{ ult: null }] }
         }
 
         // resumoEventosComerciaisFollowup
@@ -121,7 +156,7 @@ function localizarQueries(captura) {
       captura.queries.map((q) => q.sql).join('\n')
     ),
     rodouSelectElegiveis: captura.queries.some((q) =>
-      /^SELECT c\.numero, c\.historico, c\.estagio, c\.status, c\.atualizado_em, p\.negocio/i.test(q.sql)
+      /^SELECT c\.numero, c\.historico, c\.estagio, c\.status, c\.atualizado_em, c\.empresa_id, p\.negocio/i.test(q.sql)
     ),
     selectVemDeConversas: captura.queries.some((q) =>
       /SELECT c\.numero.*FROM vendas\.conversas c LEFT JOIN vendas\.lead_profiles/i.test(q.sql)

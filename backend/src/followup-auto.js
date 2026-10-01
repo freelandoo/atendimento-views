@@ -11,8 +11,39 @@ const {
   FOLLOWUP_AUTO_ENCERRAMENTO_EXTRA,
   FOLLOWUP_AUTO_BUSINESS_TZ,
   FOLLOWUP_AUTO_DELAY_HORAS,
+  FOLLOWUP_AUTO_SPACING_MIN,
+  FOLLOWUP_AUTO_PREF_HORARIO,
 } = require('./config')
 const { cancelarFollowupsAutoPendentes: cancelarFollowupsAutoPendentesBase } = require('./services/followup-auto-cancel')
+
+// PURA/testavel: dado o horario pretendido e o ultimo follow-up ja agendado da mesma empresa,
+// devolve o horario respeitando o espacamento minimo. Sem bump, devolve a MESMA referencia
+// (o chamador usa isso para decidir se precisa re-encaixar na janela comercial).
+function calcularSlotEspacado(agendadoPara, ultimoAgendado, spacingMin, jitterMs = 0) {
+  if (!(spacingMin > 0) || !ultimoAgendado) return agendadoPara
+  const minProximo = ultimoAgendado.getTime() + spacingMin * 60000 + Math.max(0, jitterMs)
+  return agendadoPara.getTime() >= minProximo ? agendadoPara : new Date(minProximo)
+}
+
+// PURA/testavel. Dado o alvo (hora local decimal) e as horas-do-dia em que o lead engajou,
+// devolve a hora local em que agendar: a janela comercial com MAIS engajamento do lead que
+// ainda cabe no dia (fim > alvo), nunca ANTES do alvo da cadencia. Sem sinal => null (mantem).
+// janelas: [{ start:[h,m], end:[h,m] }]
+function horaPreferidaParaLead(alvoHoraLocal, horasEngajamento, janelas) {
+  const horas = (Array.isArray(horasEngajamento) ? horasEngajamento : []).filter((h) => Number.isFinite(h))
+  if (!horas.length) return null
+  let melhor = null
+  let melhorN = 0
+  for (const j of janelas) {
+    const ini = j.start[0] + j.start[1] / 60
+    const fim = j.end[0] + j.end[1] / 60
+    if (fim <= alvoHoraLocal) continue // janela ja' passou no dia
+    const n = horas.filter((h) => h >= ini && h < fim).length
+    if (n > melhorN) { melhorN = n; melhor = ini }
+  }
+  if (melhor == null) return null
+  return Math.max(alvoHoraLocal, melhor)
+}
 
 const FOLLOWUP_JANELAS_OTIMIZADAS = [
   { start: [8, 30], end: [10, 30] },
@@ -364,6 +395,66 @@ function createFollowupAuto(deps = {}) {
     }
   }
 
+  // Espacamento por EMPRESA (nao por instancia: a instancia so e' resolvida na execucao).
+  // Empurra o horario para depois do ultimo follow-up ja agendado da empresa + spacing + jitter,
+  // e re-encaixa na janela comercial. Single-leader (watcher_locks) + loop sequencial garantem
+  // que cada insert e' visto pelo proximo — sem advisory lock.
+  async function aplicarEspacamentoPorEmpresa(empresaId, agendadoPara) {
+    if (!(FOLLOWUP_AUTO_SPACING_MIN > 0) || !empresaId) return agendadoPara
+    const { rows } = await pool.query(
+      `SELECT MAX(fa.agendado_para) AS ult
+         FROM vendas.followup_auto_agendamentos fa
+         JOIN vendas.conversas c ON c.numero = fa.numero
+        WHERE c.empresa_id = $1 AND fa.status = 'agendado' AND fa.agendado_para > NOW()`,
+      [empresaId]
+    )
+    const ult = rows[0]?.ult ? new Date(rows[0].ult) : null
+    if (!ult) return agendadoPara
+    const jitterMs = Math.floor(Math.random() * FOLLOWUP_AUTO_SPACING_MIN * 0.5) * 60000
+    const alvo = calcularSlotEspacado(agendadoPara, ult, FOLLOWUP_AUTO_SPACING_MIN, jitterMs)
+    return alvo === agendadoPara ? agendadoPara : ajustarParaJanelaComercialFollowup(alvo)
+  }
+
+  // Horas-do-dia (fuso comercial) em que o lead JA engajou — fonte: eventos lead-driven.
+  // Nao usa o historico (mensagens sem timestamp individual). Esparso de proposito: honesto.
+  async function horasEngajamentoDoLead(numero) {
+    try {
+      const { rows } = await pool.query(
+        `SELECT EXTRACT(HOUR FROM (criado_em AT TIME ZONE $2))::int AS h
+           FROM vendas.eventos_comerciais
+          WHERE numero = $1 AND tipo IN ('respondeu_followup', 'pediu_preco')
+          ORDER BY criado_em DESC LIMIT 50`,
+        [numero, FOLLOWUP_AUTO_BUSINESS_TZ]
+      )
+      return rows.map((r) => Number(r.h)).filter(Number.isFinite)
+    } catch (e) {
+      logger.warn(`Nao foi possivel ler horas de engajamento do lead para follow-up: ${e.message}`)
+      return []
+    }
+  }
+
+  // Reaponta o agendamento para a janela comercial preferida do lead (mesmo dia, nunca antes do
+  // alvo da cadencia). Sem sinal ou sem ganho, devolve o alvo inalterado.
+  async function aplicarJanelaPreferidaDoLead(numero, agendadoPara) {
+    if (!FOLLOWUP_AUTO_PREF_HORARIO) return agendadoPara
+    let partes
+    try {
+      partes = partesDataEmTimezone(agendadoPara, FOLLOWUP_AUTO_BUSINESS_TZ)
+    } catch {
+      return agendadoPara
+    }
+    const alvoHoraLocal = partes.hour + partes.minute / 60
+    const horas = await horasEngajamentoDoLead(numero)
+    const pref = horaPreferidaParaLead(alvoHoraLocal, horas, FOLLOWUP_JANELAS_OTIMIZADAS)
+    if (pref == null || Math.abs(pref - alvoHoraLocal) < 0.01) return agendadoPara
+    const h = Math.floor(pref)
+    const m = Math.round((pref - h) * 60)
+    return utcParaDataLocalEmTimezone(
+      { year: partes.year, month: partes.month, day: partes.day, hour: h, minute: m, second: 0 },
+      FOLLOWUP_AUTO_BUSINESS_TZ
+    )
+  }
+
   async function agendarFollowupAutoParaConversa(row) {
     const numero = row.numero
 
@@ -415,9 +506,11 @@ function createFollowupAuto(deps = {}) {
       silencioMin,
       ultimaMensagemIa: row.ultima_mensagem_ia,
     })
-    const agendadoPara = ajustarParaJanelaComercialFollowup(
+    const agendadoParaJanela = ajustarParaJanelaComercialFollowup(
       new Date(Date.now() + analise.horas * 60 * 60 * 1000)
     )
+    const agendadoParaPref = await aplicarJanelaPreferidaDoLead(numero, agendadoParaJanela)
+    const agendadoPara = await aplicarEspacamentoPorEmpresa(row.empresa_id, agendadoParaPref)
     const horasAjustadas = Math.max(0, (agendadoPara.getTime() - Date.now()) / 3600000)
     const motivoAjustado =
       Math.abs(horasAjustadas - analise.horas) > 0.01
@@ -595,6 +688,7 @@ function createFollowupAuto(deps = {}) {
                c.estagio,
                c.status,
                c.atualizado_em,
+               c.empresa_id,
                p.negocio,
                p.cidade,
                p.temperatura_lead,
@@ -848,4 +942,4 @@ function createFollowupAuto(deps = {}) {
   }
 }
 
-module.exports = { createFollowupAuto }
+module.exports = { createFollowupAuto, calcularSlotEspacado, horaPreferidaParaLead }
