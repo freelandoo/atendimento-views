@@ -6422,3 +6422,23 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   inalterado. Pura `horaPreferidaParaLead` testada. **Sinal esparso declarado.**
 - **Validação:** `npm test` 3287/3287. 2 envs novas no `.env.example`.
 - **Cuidados:** caminho mais quente do funil; 3 diffs isolados; não commitado/não deployado.
+
+## 2026-10-01 — Filtros do "Planejar meu dia" (Quadro do Dia / Banco de Leads)
+- **Workflow padrão seguido** (Fase 0 → análise → diff mínimo → validação).
+- **Pedido do operador:** melhorar os filtros do modal "Planejar meu dia": não mostrar
+  descartado, não mostrar quem já está no dia, priorizar ICP/nota no topo, e um aviso simples
+  de quantas ações cada lead já recebeu; legado também pode aparecer.
+- **Decisões do operador (via pergunta):** (1) legado PODE aparecer no planejamento (só este
+  modal); (2) ordenação ICP/nota primeiro, atenção como desempate; (3) aviso = só contar o que
+  foi feito, sem meta inventada.
+- **Já funcionava:** descartado por status, "já no dia" (jaNoDia), ICP no topo.
+- **Mudança (diff mínimo, sem migration/env/rota/capacidade):**
+  `routes/api-banco-leads.js` `GET /plano-dia/candidatos` — exclui `tem_whatsapp=false` +
+  `sqlNaoDescartado`, troca `sqlAprovado`→`sqlAbordavel` (legado) para recortados, e traz
+  `rating` + contagem de ações (LATERAL). `frontend/lib/plano-dia.js` ganhou `totalAcoes`,
+  `notaLead`, `resumoAcoes`; o modal ordena ICP→nota→ações e exibe o selo de ações.
+- **Validação:** front `node --test lib/plano-dia.test.js` 40/40 + `tsc --noEmit` limpo;
+  backend `plano-dia`, `isolamento-comercial`, `autorizacao-rotas`, `banco-leads-export`,
+  `lead-fila-trabalho`, `lead-origem` = 103/103.
+- **Pendências:** sem verificação visual do modal; não commitado/não deployado. A LATERAL de
+  3 COUNTs/lead é O(n) sobre até 5000 (marcado `ponytail:`); materializar se pesar.

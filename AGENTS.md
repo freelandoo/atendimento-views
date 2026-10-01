@@ -3643,6 +3643,28 @@
   follow-up automático ou agenda.
 - **Nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhum item de menu novo.**
 
+#### Filtros do "Planejar meu dia" — carteira de planejamento (2026-10-01, sem migration)
+- **A carteira do modal NÃO é a porta da operação.** `GET /plano-dia/candidatos` passou a:
+  (a) excluir TODO descartado — o ramo de funil já tirava `rejeitado`/`nao_contatar` por status,
+  mas o **descartado por `tem_whatsapp = false`** e o `qualificacao = 'descartado'` escapavam;
+  agora `tem_whatsapp IS DISTINCT FROM false` + `sqlNaoDescartado('')` fecham os dois.
+  (b) ⚠️ **mostrar LEGADO, não só aprovado** (decisão do operador, 2026-10-01): planejar é
+  organizar o próprio trabalho, não abordar. Para quem é recortado a rota troca `sqlAprovado` por
+  `sqlAbordavel('')` (aprovado+legado) — **só nesta rota**. A porta ESTRITA (`sqlAprovado`) do
+  recorte comercial da listagem, da Central de Ligações e dos disparos **não mudou**.
+- **Ordenação ICP/nota → atenção** (decisão do operador): `carteiraOrdenada` no modal ordena por
+  ICP, depois `rating` (nota; ausência vira -1, nunca 0), depois **total de ações** como desempate.
+- **Aviso de atenção = só o que foi registrado** (`resumoAcoes` em `lib/plano-dia.js`): conta
+  follow-ups + ligações + envios (as 3 fontes de `lead-parado.js`) e exibe "3 ações: 2 follow-ups,
+  1 ligação". **Sem meta inventada** — não diz "falta N para qualificar". As contagens vêm de uma
+  LATERAL na rota (3 COUNTs/lead, teto 5000; `ponytail:` marca o upgrade para coluna mantida).
+- A guarda de regressão do front (`o modulo nao decide se o movimento vale`) passou a proibir
+  `.ligacoes` (a TABELA), não o bare `ligacoes`: a tela agora EXIBE a contagem `n_ligacoes` que o
+  servidor computou, e exibir contagem não é verificar evidência.
+- Código: `routes/api-banco-leads.js` (`GET /plano-dia/candidatos`), `frontend/lib/plano-dia.js`
+  (`totalAcoes`, `notaLead`, `resumoAcoes`), `frontend/components/ModalPlanejarDia.tsx`. Testes:
+  `frontend/lib/plano-dia.test.js`. **Nenhuma migration, env, rota ou capacidade nova.**
+
 ### AQUISIÇÃO — UMA área, três trabalhos: Resultados · Buscas · Rotinas (sem migration)
 - **Regra de produto, em uma frase:** a Aquisição deixou de ter uma tela por FONTE. A fonte vira
   **filtro** e **coluna** na lista de Resultados; o **formulário** de cada fonte continua

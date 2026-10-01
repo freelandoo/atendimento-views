@@ -9,6 +9,7 @@ const {
   rotuloDiaCurto, rotuloSemana, resumoDoPeriodo, opcoesNicho, opcoesCidade, opcoesRegiao,
   opcoesCategoria, opcoesPais, capacidadeDoDia, gruposPlanejamento, motivoPlanejamento,
   origemBateFiltro, sugestaoPlanoDoDia, filtrarCarteira, resumoFollowUpCard,
+  totalAcoes, notaLead, resumoAcoes,
 } = require('./plano-dia')
 
 const fonte = fs.readFileSync(path.join(__dirname, 'plano-dia.js'), 'utf8')
@@ -366,9 +367,29 @@ test('filtrarCarteira preserva a ordem de trabalho e nao corta a carteira por pa
   assert.equal(filtrarCarteira(c, { limite: 5 }).length, 5)
 })
 
+// ── Atencao ja dada ao lead (desempate + aviso) ──────────────────────────────
+test('resumoAcoes conta so o registrado e volta null sem acao', () => {
+  assert.equal(resumoAcoes({ n_followups: 0, n_ligacoes: 0, n_disparos: 0 }), null)
+  assert.equal(resumoAcoes({}), null)
+  const r = resumoAcoes({ n_followups: 2, n_ligacoes: 1, n_disparos: 0 })
+  assert.equal(r.total, 3)
+  assert.equal(r.rotulo, '3 ações')
+  assert.equal(r.detalhe, '2 follow-ups, 1 ligação')
+  assert.equal(resumoAcoes({ n_followups: 1 }).rotulo, '1 ação')
+})
+
+test('notaLead usa rating e ausencia vira -1 (nunca 0)', () => {
+  assert.equal(notaLead({ rating: 4.5 }), 4.5)
+  assert.equal(notaLead({ rating: 0 }), 0)
+  assert.equal(notaLead({}), -1)
+  assert.equal(totalAcoes({ n_followups: 2, n_ligacoes: 3 }), 5)
+})
+
 // ── Guardas de regressao ─────────────────────────────────────────────────────
 test('o modulo nao decide se o movimento vale — quem verifica e o servidor', () => {
-  for (const proibido of ['temAtividade', 'lead_disparos', 'ligacoes', 'auditoria']) {
+  // `.ligacoes` (referencia a TABELA), nao o bare "ligacoes": a tela agora EXIBE a contagem
+  // `n_ligacoes` que o servidor computou — exibir contagem nao e verificar evidencia.
+  for (const proibido of ['temAtividade', 'lead_disparos', '.ligacoes', 'auditoria']) {
     assert.ok(!codigo.includes(proibido),
       `plano-dia.js (front) passou a verificar evidencia: "${proibido}" — isso e regra de negocio`)
   }

@@ -135,7 +135,18 @@ export interface CandidatoCarteira {
   origem?: string | null
   icp_faixa?: string | null
   icp_score?: number | null
+  rating?: number | null
+  n_followups?: number | null
+  n_ligacoes?: number | null
+  n_disparos?: number | null
 }
+
+/** Total de ações já dadas ao lead (follow-ups + ligações + envios). */
+export function totalAcoes(candidato: CandidatoCarteira | null | undefined): number
+/** Nota (rating) para desempate; ausência vira -1. */
+export function notaLead(candidato: CandidatoCarteira | null | undefined): number
+/** Resumo da atenção já dada — só conta o que foi registrado. null quando não houve ação. */
+export function resumoAcoes(candidato: CandidatoCarteira | null | undefined): { total: number; rotulo: string; detalhe: string } | null
 
 /** Nichos presentes nos candidatos de planejamento, com contagem — para o seletor de "Planejar meu dia". */
 export function opcoesNicho(candidatos: { nicho?: string | null }[] | null | undefined): { valor: string; total: number }[]

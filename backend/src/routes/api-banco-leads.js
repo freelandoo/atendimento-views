@@ -41,7 +41,7 @@ const { equipeAtivaDoUsuario } = require('../db/equipes-comerciais')
 const LP = require('../services/lead-parado')
 // A PORTA (Etapa 3). Aqui ela recorta a LEITURA do Comercial: quem nao pode ver a base bruta
 // ve apenas lead APROVADO/MARCADO por alguem. Lead neutro fica fora da operacao comercial.
-const { sqlAprovado } = require('../services/lead-qualificacao')
+const { sqlAprovado, sqlAbordavel, sqlNaoDescartado } = require('../services/lead-qualificacao')
 const { origensDoFiltro, usaReguaPlaces } = require('../services/lead-origem')
 const PLANO = require('../db/plano-dia')
 const MP = require('../services/meta-pessoal')
@@ -994,17 +994,25 @@ router.get('/plano-dia/candidatos', requireAuth, requireEmpresaAccess, async (re
     // página carregada atrás do modal.
     const reqPlanejamento = { ...req, query: { escopo: req.query?.escopo } }
     const { query: queryComEscopo, escopo, nicho } = await comEscopo(reqPlanejamento)
+    // Planejar é organizar o próprio trabalho, não abordar: inclui lead `legado` (ainda não
+    // triado), não só `aprovado` (decisão do operador, 2026-10-01). Para quem é recortado troca a
+    // porta estrita (`sqlAprovado`) por `sqlAbordavel` (aprovado+legado). E tira o descartado que o
+    // modal não deve mostrar: por qualificação e o "sem WhatsApp" que o ramo de funil deixa passar.
+    const comercial = queryComEscopo.__somenteAprovados
+    queryComEscopo.__somenteAprovados = false
     const { where, params } = montarFiltro(req.empresa.id, queryComEscopo)
+    const whereBase = `${where} AND tem_whatsapp IS DISTINCT FROM false AND ${sqlNaoDescartado('')}${comercial ? ` AND ${sqlAbordavel('')}` : ''}`
     const paramsFiltro = [...params]
     const limite = Math.min(Math.max(parseInt(req.query.limit, 10) || 5000, 1), 5000)
     const { rows: contagem } = await pool.query(
-      `SELECT COUNT(*)::int AS total FROM prospectador.prospects WHERE ${where}`,
+      `SELECT COUNT(*)::int AS total FROM prospectador.prospects WHERE ${whereBase}`,
       paramsFiltro
     )
     params.push(limite)
     const { rows } = await pool.query(
       `SELECT id, origem, responsavel_id, nome, telefone, instagram_handle,
-              nicho, cidade, pais, categoria_perfil, endereco, icp_faixa, icp_score,
+              nicho, cidade, pais, categoria_perfil, endereco, icp_faixa, icp_score, rating,
+              acoes.n_followups, acoes.n_ligacoes, acoes.n_disparos,
               ${RESPONSAVEL_NOME_SELECT},
               ${sqlFaixaTrabalho()} AS faixa_trabalho_ordem
          FROM prospectador.prospects
@@ -1056,7 +1064,17 @@ router.get('/plano-dia/candidatos', requireAuth, requireEmpresaAccess, async (re
                )
           ) u
         ) agenda ON TRUE
-        WHERE ${where}
+        LEFT JOIN LATERAL (
+          -- Atenção já dada ao lead, para desempate e aviso (follow-ups, ligações, envios) — as
+          -- mesmas 3 fontes de services/lead-parado.js.
+          -- ponytail: 3 COUNTs por lead sobre até 5000 linhas, em modal sob demanda (não hot path);
+          -- se pesar, materializar numa coluna mantida na escrita.
+          SELECT
+            (SELECT COUNT(*) FROM app.follow_ups fu WHERE fu.prospect_id = prospects.id)::int AS n_followups,
+            (SELECT COUNT(*) FROM app.ligacoes lg WHERE lg.prospect_id = prospects.id)::int AS n_ligacoes,
+            (SELECT COUNT(*) FROM prospectador.lead_disparos ld WHERE ld.prospect_id = prospects.id)::int AS n_disparos
+        ) acoes ON TRUE
+        WHERE ${whereBase}
         ORDER BY faixa_trabalho_ordem ASC, ${sqlDesempateTrabalho()}
         LIMIT $${params.length}`,
       params

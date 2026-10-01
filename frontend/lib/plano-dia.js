@@ -443,6 +443,35 @@ function gruposPlanejamento(candidatos) {
     .filter((g) => g.total > 0)
 }
 
+/** Total de ações já dadas ao lead (follow-ups + ligações + envios). */
+function totalAcoes(c) {
+  return Number(c?.n_followups || 0) + Number(c?.n_ligacoes || 0) + Number(c?.n_disparos || 0)
+}
+
+/** Nota (rating) para desempate. Ausência vira -1, nunca 0 — zero seria nota real. */
+function notaLead(c) {
+  const n = Number(c?.rating)
+  return Number.isFinite(n) ? n : -1
+}
+
+/**
+ * Resumo da ATENÇÃO já dada ao lead. Só conta o que o sistema REGISTROU (follow-ups, ligações,
+ * envios) — sem meta inventada: diz o que foi feito, não "quanto falta". Sem ação nenhuma volta
+ * null, para a linha não exibir um selo vazio.
+ */
+function resumoAcoes(c) {
+  const fu = Number(c?.n_followups || 0)
+  const lig = Number(c?.n_ligacoes || 0)
+  const disp = Number(c?.n_disparos || 0)
+  const total = fu + lig + disp
+  if (!total) return null
+  const partes = []
+  if (fu) partes.push(`${fu} follow-up${fu > 1 ? 's' : ''}`)
+  if (lig) partes.push(`${lig} ligaç${lig > 1 ? 'ões' : 'ão'}`)
+  if (disp) partes.push(`${disp} envio${disp > 1 ? 's' : ''}`)
+  return { total, rotulo: `${total} ${total > 1 ? 'ações' : 'ação'}`, detalhe: partes.join(', ') }
+}
+
 function motivoPlanejamento(item, formatar) {
   const entrada = seloOrigemEntrada(item?.origem_entrada)
   if (entrada) return { rotulo: entrada.rotulo, dica: entrada.dica, classe: 'border-amber-200 bg-amber-50 text-amber-800' }
@@ -524,4 +553,5 @@ module.exports = {
   capacidadeDoDia, somarDias, diasDaSemana, rotuloDiaCurto, rotuloSemana, resumoDoPeriodo,
   opcoesNicho, opcoesCidade, opcoesRegiao, opcoesCategoria, opcoesPais,
   origemBateFiltro, gruposPlanejamento, motivoPlanejamento, sugestaoPlanoDoDia, filtrarCarteira,
+  totalAcoes, notaLead, resumoAcoes,
 }

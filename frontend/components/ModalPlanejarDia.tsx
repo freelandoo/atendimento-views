@@ -22,6 +22,7 @@ import { nomePais } from '@/lib/paises'
 import {
   seloOrigemEntrada, opcoesNicho, opcoesCidade, opcoesRegiao, opcoesCategoria, opcoesPais,
   gruposPlanejamento, motivoPlanejamento, origemBateFiltro, sugestaoPlanoDoDia, filtrarCarteira,
+  totalAcoes, notaLead, resumoAcoes,
 } from '@/lib/plano-dia'
 
 export type CandidatoDia = {
@@ -45,6 +46,10 @@ export type CandidatoDia = {
   endereco?: string | null
   icp_faixa?: string | null
   icp_score?: number | null
+  rating?: number | null
+  n_followups?: number | null
+  n_ligacoes?: number | null
+  n_disparos?: number | null
 }
 
 export type SugestaoDia = {
@@ -130,9 +135,14 @@ export default function ModalPlanejarDia({
   const carteiraOrdenada = useMemo(
     () => filtrados
       .map((lead, indice) => ({ lead, indice }))
+      // ICP/nota primeiro (decisão do operador, 2026-10-01); entre parecidos, o mais trabalhado sobe.
       .sort((a, b) => {
         const porIcp = ordemIcp(b.lead) - ordemIcp(a.lead)
-        return porIcp || a.indice - b.indice
+        if (porIcp) return porIcp
+        const porNota = notaLead(b.lead) - notaLead(a.lead)
+        if (porNota) return porNota
+        const porAcoes = totalAcoes(b.lead) - totalAcoes(a.lead)
+        return porAcoes || a.indice - b.indice
       })
       .map((item) => item.lead),
     [filtrados]
@@ -532,6 +542,7 @@ export default function ModalPlanejarDia({
               {carteiraOrdenada.map((l) => {
                 const o = celulaOrigem(l)
                 const motivo = motivoPlanejamento(l)
+                const acoes = resumoAcoes(l)
                 return (
                   <li key={l.id}>
                     <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-sm hover:border-line-strong">
@@ -547,6 +558,14 @@ export default function ModalPlanejarDia({
                           <span className={`rounded-md border px-1.5 py-0.5 font-medium ${motivo.classe}`} title={motivo.dica}>
                             {motivo.rotulo}
                           </span>
+                          {acoes && (
+                            <span
+                              className="rounded-md border border-line bg-surface-3 px-1.5 py-0.5 font-medium text-ink-2"
+                              title={`Atenção já dada: ${acoes.detalhe}`}
+                            >
+                              {acoes.rotulo}
+                            </span>
+                          )}
                           <span className={o.classe} title={`${o.rotulo} — ${o.dica}`}>{o.curto}</span>
                           {l.nicho && (
                             <span className="truncate rounded-md bg-surface-3 px-1.5 py-0.5 text-ink-2">{l.nicho}</span>
