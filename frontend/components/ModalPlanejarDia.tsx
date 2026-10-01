@@ -11,7 +11,7 @@
  * abordagem**: é planejamento. A regra vive no backend (`services/plano-dia.js` + a rota);
  * aqui só se escolhe.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import FolhaModal from '@/components/ui/FolhaModal'
 import Botao from '@/components/ui/Botao'
 import { IconGear } from '@/components/ui/icons'
@@ -200,8 +200,15 @@ export default function ModalPlanejarDia({
     setGrupoRapido('')
   }
 
+  // A aba padrão é escolhida UMA vez por abertura. Reavaliar a cada mudança de `sugeridos.length`
+  // bouncava o operador de volta para "Para hoje" quando ele mexia no filtro de origem (que altera
+  // `sugeridos`) — a seção da carteira, com o painel de filtros, desmontava no clique.
+  const abaDefinidaRef = useRef(false)
   useEffect(() => {
-    if (aberto) setAba(sugeridos.length > 0 ? 'esperando' : 'carteira')
+    if (!aberto) { abaDefinidaRef.current = false; return }
+    if (abaDefinidaRef.current) return
+    abaDefinidaRef.current = true
+    setAba(sugeridos.length > 0 ? 'esperando' : 'carteira')
   }, [aberto, sugeridos.length])
 
   function alternar(id: string) {
