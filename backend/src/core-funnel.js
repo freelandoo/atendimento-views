@@ -80,6 +80,7 @@ function mesclarInsightsLead(atual, novo) {
   setStr('prazo')
   setStr('orcamento_mencionado')
   setStr('observacao_curta')
+  setStr('dor_quantificada')
   setEnum('urgencia', ['baixa', 'media', 'alta'])
   setEnum('eh_decisor', ['sim', 'nao', 'desconhecido'])
   mergeArr('concorrentes_mencionados')

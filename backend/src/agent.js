@@ -3247,6 +3247,7 @@ const AGENT_RESPONSE_SCHEMA = {
       required: [
         'score', 'origem_clientes', 'urgencia', 'prazo', 'orcamento_mencionado',
         'eh_decisor', 'concorrentes_mencionados', 'sinais_compra', 'objecoes', 'observacao_curta',
+        'dor_quantificada',
       ],
       properties: {
         score: { type: ['integer', 'null'] },
@@ -3259,6 +3260,7 @@ const AGENT_RESPONSE_SCHEMA = {
         sinais_compra: { type: ['array', 'null'], items: { type: 'string' } },
         objecoes: { type: ['array', 'null'], items: { type: 'string' } },
         observacao_curta: { type: ['string', 'null'] },
+        dor_quantificada: { type: ['string', 'null'] },
       },
     },
   },

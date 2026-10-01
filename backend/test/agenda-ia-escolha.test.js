@@ -129,9 +129,11 @@ test('mesclarInsightsLead: acumula arrays (dedup), nao apaga escalar com null, e
     orcamento_mencionado: 'ate 1000', eh_decisor: 'sim',
     concorrentes_mencionados: ['A', 'B'], sinais_compra: ['quer comecar'],
     objecoes: ['preco', 'prazo'], observacao_curta: 'pintor querendo site',
+    dor_quantificada: 'perde ~2 vendas/mes',
   }
   const patch = mesclarInsightsLead(atual, novo)
   assert.equal(patch.score_lead, 72)
+  assert.equal(patch.insights_lead.dor_quantificada, 'perde ~2 vendas/mes')
   assert.equal(patch.insights_lead.origem_clientes, 'indicacao') // novo null nao apaga
   assert.equal(patch.insights_lead.urgencia, 'alta')
   assert.equal(patch.insights_lead.eh_decisor, 'sim')
