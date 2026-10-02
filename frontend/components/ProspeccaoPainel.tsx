@@ -396,6 +396,7 @@ export default function ProspeccaoPainel({
   embutida = false,
   conteudoBuscas,
   conteudoRotinas,
+  poolTrial = false,
 }: {
   fonteBusca?: FonteBuscaAquisicao
   embutida?: boolean
@@ -404,6 +405,10 @@ export default function ProspeccaoPainel({
   conteudoBuscas?: React.ReactNode
   /** Idem, no modo Rotinas (campanhas do Instagram). */
   conteudoRotinas?: React.ReactNode
+  /** TRIAL: a busca roda sobre o pool (slot em conteudoBuscas). Força RotinasAquisicao a não
+      renderizar o formulário de busca/coleta paga (mesmo efeito que a fonte Instagram já usa),
+      deixando só o slot do pool. A lista de Resultados e as abas continuam iguais. */
+  poolTrial?: boolean
 } = {}) {
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [metricas, setMetricas] = useState<Metricas | null>(null)
@@ -951,7 +956,7 @@ export default function ProspeccaoPainel({
            slots. Passar `resultados` faz este componente não renderizar card nenhum — e ele
            continua MONTADO, preservando o formulário de Places/Meta e o acompanhamento da
            coleta em andamento, que é global (uma por empresa). */
-        modo={fonteBusca === 'instagram' ? 'resultados' : modo}
+        modo={fonteBusca === 'instagram' || poolTrial ? 'resultados' : modo}
         fonteBusca={fonteBusca === 'instagram' ? 'places' : fonteBusca}
         onColetaIniciada={carregarBuscas}
         onDados={setDadosRotinas}

@@ -6730,3 +6730,15 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Validação:** `npm test` **3315/3315**; frontend `tsc` 0; `node --test lib/*` 67/67.
 - **Confirmado:** Essencial conecta instância (minimo não é bloqueado; só trial). Rotinas/Captação
   seguem a partir do Mínimo.
+
+## 2026-10-01 — Aquisição no trial: MESMA tela, só a busca vira seletor (correção do pedido)
+- **Pedido:** eu tinha trocado a tela inteira; manter a tela como era (abas/lista), só o formulário
+  de busca vira seletor (mercados do pool); aviso mais leve (sem "nossa base de leads").
+- **Mudança (frontend):**
+  - `ProspeccaoPainel` ganhou prop `poolTrial`: força `RotinasAquisicao` a `modo='resultados'`
+    (mesmo efeito da fonte Instagram) → o formulário de coleta paga some; sobra o slot.
+  - `app/dashboard/aquisicao/page.tsx` (trial): renderiza o ProspeccaoPainel REAL com `poolTrial`,
+    `conteudoBuscas={<PoolTrialPainel/>}` (seletor do pool) e `conteudoRotinas` = aviso de plano.
+    Mesmas abas e a mesma lista de Resultados (os leads puxados aparecem lá).
+  - `PoolTrialPainel`: aviso suavizado ("Você está no teste", sem dizer "nossa base").
+- **Validação:** frontend `tsc` 0. Sem mudança de backend.

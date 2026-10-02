@@ -22,6 +22,7 @@
  * que o backend não executa.
  */
 import { useState } from 'react'
+import Link from 'next/link'
 import ProspeccaoPainel from '@/components/ProspeccaoPainel'
 import CaptacaoPage from '../captacao/page'
 import PoolTrialPainel from '@/components/PoolTrialPainel'
@@ -92,15 +93,31 @@ export default function AquisicaoPage() {
   // (ou store ainda não conhecido), segue a tela real.
   const { plano } = getPlanoAtual(getEmpresaId())
   if (plano?.status === 'trial') {
+    // Mesma tela de sempre (abas Resultados/Busca/Rotinas, lista de leads). Só o formulário de
+    // busca vira o seletor do pool (`poolTrial` esconde o form de coleta paga); Rotinas fica avisada.
     return (
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold">Aquisição</h1>
           <p className="mt-1 text-sm text-ink-3">
-            Encontre leads para trabalhar agora. No teste, a busca é na nossa base.
+            Encontre leads para trabalhar agora. Tudo cai no Banco de Leads.
           </p>
         </div>
-        <PoolTrialPainel />
+        <ProspeccaoPainel
+          fonteBusca="places"
+          embutida
+          poolTrial
+          conteudoBuscas={<PoolTrialPainel />}
+          conteudoRotinas={
+            <div className="rounded-lg border border-line bg-surface p-5 shadow-card">
+              <p className="text-sm font-semibold text-ink">Coleta contínua</p>
+              <p className="mt-1 text-sm text-ink-2">
+                Deixar o sistema coletando leads sozinho, no automático, faz parte dos planos pagos.
+              </p>
+              <Link href="/dashboard/plano" className="mt-2 inline-block text-sm font-semibold text-brand hover:underline">Ver planos →</Link>
+            </div>
+          }
+        />
       </div>
     )
   }

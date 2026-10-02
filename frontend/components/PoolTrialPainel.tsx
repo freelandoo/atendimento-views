@@ -70,13 +70,12 @@ export default function PoolTrialPainel() {
 
   return (
     <div className="space-y-4">
-      {/* Explicação do trial + upgrade */}
+      {/* Aviso leve do teste + upgrade (sem detalhar de onde vêm os leads). */}
       <div className="rounded-lg border border-brand/20 bg-brand/5 p-4">
-        <p className="text-sm font-semibold text-ink">Você está no teste — buscando na nossa base de leads</p>
+        <p className="text-sm font-semibold text-ink">Você está no teste</p>
         <p className="mt-1 text-sm text-ink-2">
-          No teste, você escolhe um mercado que já temos e trabalha leads reais na hora.
-          Ao assinar, a busca passa a ser de verdade em <strong>qualquer nicho e lugar</strong> —
-          Google, Instagram e Anúncios da Meta.
+          Escolha um mercado e trabalhe leads reais na hora. Ao assinar, a busca fica livre —
+          <strong> qualquer nicho e lugar</strong> (Google, Instagram e Anúncios da Meta).
         </p>
         <Link href="/dashboard/plano" className="mt-2 inline-block text-sm font-semibold text-brand hover:underline">
           Ver planos →
