@@ -10,7 +10,7 @@ const {
 const { registrarUltimoAcesso } = require('../db/membros')
 const { avaliarAcesso: avaliarAcessoPrograma, barra: aceiteBarra } = require('../services/programa-aceite')
 const { VERSAO: TERMO_VERSAO } = require('../services/programa-termo')
-const { avaliarAcesso: avaliarAcessoPlano, barra: planoBarra, moduloBloqueadoPorPlano } = require('../services/plano-definicao')
+const { avaliarAcesso: avaliarAcessoPlano, barra: planoBarra, moduloBloqueadoPorPlano, nivelDoPlano, NIVEL: NIVEL_PLANO } = require('../services/plano-definicao')
 
 // Extrai Bearer token do header Authorization
 function extractToken(req) {
@@ -211,6 +211,23 @@ const requireEmpresaAccessSemAceite = (req, res, next) => resolverEmpresaAccess(
 // pagar mesmo bloqueado). Continua exigindo auth, vínculo e aceite. Usado SÓ por routes/api-plano.js.
 const requireEmpresaAccessSemPlano = (req, res, next) => resolverEmpresaAccess(req, res, next, { exigirAceite: true, exigirPlano: false })
 
+// Exige um nível MÍNIMO de plano numa rota específica — ex.: a busca PAGA (Bright Data/Apify) é
+// minimo+, então o trial não dispara coleta paga nem via API crua (a busca do trial é o pool). Deve
+// rodar DEPOIS de requireEmpresaAccess (que publica req.plano). FAIL-OPEN em grandfather.
+const requireNivelPlano = (nivelNome) => {
+  const necessario = NIVEL_PLANO[nivelNome]
+  return (req, res, next) => {
+    if (necessario == null) return next()
+    if (nivelDoPlano(req.plano) < necessario) {
+      return res.status(403).json({
+        ok: false,
+        error: { code: 'PLANO_INSUFICIENTE', message: 'Este recurso faz parte de um plano superior.' },
+      })
+    }
+    next()
+  }
+}
+
 // Resolve a empresa a partir da evolution_instance no corpo do webhook.
 //
 // NÃO EXISTE MAIS FALLBACK PARA A PJ. Antes, os três casos em que a origem não podia ser
@@ -327,6 +344,7 @@ module.exports = {
   requireEmpresaAccess,
   requireEmpresaAccessSemAceite,
   requireEmpresaAccessSemPlano,
+  requireNivelPlano,
   resolveEmpresaFromWebhook,
   requireRole,
   requireCapacidade,

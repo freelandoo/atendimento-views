@@ -1,7 +1,7 @@
 'use strict'
 const { Router } = require('express')
 const { pool } = require('../db')
-const { requireAuth, requireEmpresaAccess, requireCapacidade } = require('../middleware/tenant')
+const { requireAuth, requireEmpresaAccess, requireCapacidade, requireNivelPlano } = require('../middleware/tenant')
 const { CAPACIDADES: CAP } = require('../services/acesso-capacidades')
 const {
   listarProspects,
@@ -119,7 +119,7 @@ router.get('/metricas', requireAuth, requireEmpresaAccess, async (req, res) => {
 // POST /api/empresas/:empresaId/prospeccao/buscar  { nicho, cidade, uf, pais }
 // Busca manual (uma execução avulsa). A UF entra junto com a cidade: sem ela a
 // geocodificação resolve o nome em qualquer estado ("Santana" existe em vários).
-router.post('/buscar', requireAuth, requireEmpresaAccess, async (req, res) => {
+router.post('/buscar', requireAuth, requireEmpresaAccess, requireNivelPlano('minimo'), async (req, res) => {
   const { nicho, termo, cidade, local, uf, estado, pais, country } = req.body || {}
   if (!nicho || !(cidade || local)) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe nicho e cidade.' } })
@@ -147,7 +147,7 @@ router.post('/buscar', requireAuth, requireEmpresaAccess, async (req, res) => {
 // POST /api/empresas/:empresaId/prospeccao/meta-ads/buscar  { nicho, cidade?, uf?, pais?, quantidade? }
 // Busca síncrona e PAGA no Apify (Biblioteca de Anúncios). Fica separada de `/buscar` porque
 // Places é assíncrono e materializa depois; Meta Ads já devolve quantos leads foram salvos.
-router.post('/meta-ads/buscar', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.AQUISICAO_GERENCIAR), async (req, res) => {
+router.post('/meta-ads/buscar', requireAuth, requireEmpresaAccess, requireNivelPlano('minimo'), requireCapacidade(CAP.AQUISICAO_GERENCIAR), async (req, res) => {
   const { nicho, termo, cidade, uf, estado, pais, country, quantidade, limite } = req.body || {}
   if (!nicho) {
     return res.status(400).json({ ok: false, error: { code: 'BAD_REQUEST', message: 'Informe nicho para buscar anúncios.' } })

@@ -6690,3 +6690,22 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Pendências (próximo lote, grande):** Aquisição no TRIAL — buscas pré-definidas do pool
   (consumir /pool-trial) + Rotinas bloqueadas + limite de quantidade por busca ("puxa na hora").
   Relatórios assumido como Pro (confirmar). Nada verificado ao vivo.
+
+## 2026-10-01 — Aquisição no TRIAL (pool UI) + anti-burla da busca paga
+- **Workflow:** Fase 0 → diff → validação. "ataca": Aquisição do trial = pool; busca paga não roda
+  no trial (nem via API); Rotinas/Captação bloqueadas no trial.
+- **Backend (anti-burla de CUSTO):**
+  - `middleware/tenant.js` — `requireNivelPlano(nivel)` (per-rota; roda depois do requireEmpresaAccess;
+    403 PLANO_INSUFICIENTE; fail-open grandfather).
+  - `plano-definicao.js` MODULO_NIVEL — `captacao=minimo` (segmento). Rotinas e /buscar ficam de fora
+    (segmento 'prospeccao' precisa abrir pro GET de resultados) → gateadas por rota/mount.
+  - `api-prospeccao.js` — `requireNivelPlano('minimo')` em POST /buscar e POST /meta-ads/buscar.
+  - `index.js` — `requireNivelPlano('minimo')` no mount de /prospeccao/rotinas.
+- **Frontend (experiência do trial):**
+  - `components/PoolTrialPainel.tsx` — escolhe mercado (nicho+cidade que já temos), vê leads reais,
+    puxa até o teto do dia; banner explica que pagar libera busca de verdade em qualquer nicho/lugar.
+  - `app/dashboard/aquisicao/page.tsx` — trial → PoolTrialPainel; fora do trial, tela real.
+- **Validação:** `npm test` = **3315/3315**; typecheck backend/frontend limpos; 48/48 nas suítes de
+  autorização/plano.
+- **Assunção:** Rotinas/Captação liberadas a partir do Mínimo (trial bloqueado) — confirmar se
+  deviam ser Básico. Nada verificado ao vivo.

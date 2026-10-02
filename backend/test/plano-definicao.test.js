@@ -98,7 +98,9 @@ test('moduloBloqueadoPorPlano: Pro trava abaixo de Pro; segmento fora do mapa nu
   assert.equal(P.moduloBloqueadoPorPlano(basico, 'ligacoes'), true)
   assert.equal(P.moduloBloqueadoPorPlano({ status: 'ativo', nome: 'pro' }, 'equipe'), false)
   assert.equal(P.moduloBloqueadoPorPlano(trial, 'whatsapp'), true) // minimo-level
+  assert.equal(P.moduloBloqueadoPorPlano(trial, 'captacao'), true) // coleta paga: trial usa o pool
   assert.equal(P.moduloBloqueadoPorPlano({ status: 'ativo', nome: 'minimo' }, 'whatsapp'), false)
+  assert.equal(P.moduloBloqueadoPorPlano({ status: 'ativo', nome: 'minimo' }, 'captacao'), false)
   assert.equal(P.moduloBloqueadoPorPlano(basico, 'banco-leads'), false) // fora do mapa
   assert.equal(P.moduloBloqueadoPorPlano(null, 'equipe'), false) // grandfather fail-open
 })

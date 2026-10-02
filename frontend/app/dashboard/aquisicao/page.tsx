@@ -24,6 +24,9 @@
 import { useState } from 'react'
 import ProspeccaoPainel from '@/components/ProspeccaoPainel'
 import CaptacaoPage from '../captacao/page'
+import PoolTrialPainel from '@/components/PoolTrialPainel'
+import { getPlanoAtual } from '@/lib/plano'
+import { getEmpresaId } from '@/lib/api'
 
 type Fonte = 'places' | 'instagram' | 'meta_ads'
 
@@ -83,6 +86,24 @@ export default function AquisicaoPage() {
   // A fonte do FORMULÁRIO. Ela não recorta a lista de Resultados — quem faz isso é o filtro de
   // origem, dentro do painel. São dois eixos, e confundi-los foi o que criou as três telas.
   const [fonte, setFonte] = useState<Fonte>('places')
+
+  // No TRIAL, a Aquisição é a busca no POOL (base já coletada), não a coleta paga. O backend também
+  // barra a busca paga pro trial — isto é a experiência; a autoridade é o servidor. Fora do trial
+  // (ou store ainda não conhecido), segue a tela real.
+  const { plano } = getPlanoAtual(getEmpresaId())
+  if (plano?.status === 'trial') {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold">Aquisição</h1>
+          <p className="mt-1 text-sm text-ink-3">
+            Encontre leads para trabalhar agora. No teste, a busca é na nossa base.
+          </p>
+        </div>
+        <PoolTrialPainel />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

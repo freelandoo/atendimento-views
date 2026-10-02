@@ -78,7 +78,7 @@ const agent = require('./src/agent')
 const { seedAdminUser } = require('./src/auth')
 const { iniciarWorkers } = require('./src/workers')
 const {
-  resolveEmpresaFromWebhook, requireAuth, requireRole, requireEmpresaAccess, requireCapacidade,
+  resolveEmpresaFromWebhook, requireAuth, requireRole, requireEmpresaAccess, requireCapacidade, requireNivelPlano,
 } = require('./src/middleware/tenant')
 // CRM em equipe, Etapa 6: os mounts da OPERACAO trocaram `requireRole('admin')` (papel GLOBAL, que
 // valia dentro de qualquer empresa) por CAPACIDADE sobre o papel do VINCULO. `requireRole`
@@ -153,7 +153,7 @@ app.use('/api/empresas/:empresaId/conversas', require('./src/routes/api-conversa
 app.use('/api/empresas/:empresaId/leads-quentes', require('./src/routes/api-leads-quentes'))
 // Aquisição / banco de leads / relatórios / LLM são admin-only (gating de backend SaaS)
 // Rotinas de Aquisição: montadas ANTES da rota mais genérica de prospecção.
-app.use('/api/empresas/:empresaId/prospeccao/rotinas', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.AQUISICAO_GERENCIAR), require('./src/routes/api-aquisicao-rotinas'))
+app.use('/api/empresas/:empresaId/prospeccao/rotinas', requireAuth, requireEmpresaAccess, requireNivelPlano('minimo'), requireCapacidade(CAP.AQUISICAO_GERENCIAR), require('./src/routes/api-aquisicao-rotinas'))
 // Assistente de Oportunidades por LEAD (curadoria da Busca avulsa).
 app.use('/api/empresas/:empresaId/prospeccao/curadoria', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.LEAD_TRIAR), require('./src/routes/api-aquisicao-curadoria'))
 // Sugestões de ROTINA (assistente por mercado): sem UI desde a curadoria por lead, mas
