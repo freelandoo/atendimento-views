@@ -172,9 +172,17 @@ test('Contas da empresa e Contas da PLATAFORMA sao telas distintas, com papeis d
 // ---------------------------------------------------------------- ativo
 
 test('resolverAtivo devolve o item e o grupo dele', () => {
-  assert.deepEqual(resolverAtivo('/dashboard/uso', owner), { href: '/dashboard/uso', grupoId: 'configuracoes' })
+  assert.deepEqual(resolverAtivo('/dashboard/integracoes', owner), { href: '/dashboard/integracoes', grupoId: 'configuracoes' })
   assert.deepEqual(resolverAtivo('/dashboard/follow-ups', owner), { href: '/dashboard/follow-ups', grupoId: 'operacao' })
   assert.deepEqual(resolverAtivo('/dashboard/conversas', owner), { href: '/dashboard/conversas', grupoId: null })
+})
+
+test('ferramentas de operador (uso/prompts/modelo/playbook) são plataforma-only', () => {
+  // Decisão do operador 2026-10-01: o cliente (owner) não vê; a plataforma (superadmin) vê.
+  for (const rota of ['/dashboard/uso', '/dashboard/prompts', '/dashboard/llm', '/dashboard/playbook']) {
+    assert.deepEqual(resolverAtivo(rota, owner), { href: null, grupoId: null }, `${rota}: owner NÃO deve ver`)
+    assert.equal(resolverAtivo(rota, superadmin).href, rota, `${rota}: superadmin deve ver`)
+  }
 })
 
 test('resolverAtivo nao acende item que o papel nem enxerga', () => {
@@ -273,8 +281,14 @@ test('a arvore nao usa mais minRole, exceto em /dashboard/contas (plataforma)', 
     }
   }
   visitar(NAV)
-  assert.deepEqual(comMinRole, ['/dashboard/contas'],
-    'so a tela de PLATAFORMA pode continuar decidida por papel global')
+  // Só telas de PLATAFORMA (operador do app) podem ser decididas por papel global. Além de
+  // /dashboard/contas, as ferramentas de operador (uso/prompts/modelo/playbook) entraram nessa
+  // classe em 2026-10-01 — o cliente não as vê. Isto NÃO é minRole em feature de cliente.
+  assert.deepEqual(
+    comMinRole.sort(),
+    ['/dashboard/contas', '/dashboard/llm', '/dashboard/playbook', '/dashboard/prompts', '/dashboard/uso'].sort(),
+    'minRole só em telas de plataforma'
+  )
 })
 
 test('todo item de gestao declara capacidade — nenhum ficou publico por engano', () => {

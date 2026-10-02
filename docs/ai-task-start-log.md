@@ -6646,3 +6646,24 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Validação:** `npm test` = **3313/3313**; backend typecheck meus arquivos limpos; frontend
   `tsc` 0 erros. Catraca de cobertura 91→92 (novo `// @ts-check`).
 - **Pendência:** não verificado ao vivo; migration 116 aplica no próximo deploy (pushar pra ativar).
+
+## 2026-10-01 — Matriz de acesso por plano: menu (ocultar operador) + páginas bloqueadas
+- **Workflow:** Fase 0 → matriz registrada (§12 da proposta) → diff → validação. "continue" =
+  implementar com as recomendações das células ambíguas (Mínimo conecta instância → Central de
+  Mensagens/Instâncias usáveis no Mínimo; trial 🔒; Roteiros→Pro). Config num lugar só — fácil virar.
+- **Construído (SÓ frontend):**
+  - `lib/plano-modulos.js` (+ `.d.ts`/`.test.js`) — PURO: mapa rota→{liberaEm,titulo,faz},
+    `nivelDoPlano` (trial<minimo<basico<pro; sem linha=pro grandfather; nome desconhecido=fail-open),
+    `moduloDaRota`, `bloqueado`, `planoQueLibera`.
+  - `components/PaginaBloqueada.tsx` — overlay explicativo + CTA "Ver planos" (tema claro, tokens).
+  - `components/BloqueioPlano.tsx` — guard central no layout: rota bloqueável → busca o plano (/me)
+    → mostra PaginaBloqueada; rota usável p/ todos renderiza na hora (sem fetch). FAIL-OPEN.
+  - `app/dashboard/layout.tsx` — embrulha `{children}` com `BloqueioPlano`.
+  - `lib/navegacao.js` — Uso/Prompts/Modelo IA/Playbook viram `minRole:'superadmin'` (operador da
+    plataforma; cliente não vê). Integrações e Assinatura seguem p/ todos.
+- **Validação:** frontend `tsc --noEmit` = 0 erros; `node --test lib/*.test.js` (plano-modulos +
+  navegacao + plano) = 41/41 (guarda de minRole atualizada: plataforma inclui as 4 ferramentas).
+- **Assunções/pendências:** Mínimo usa instância/mensagens (confirmar); **gate de plano no BACKEND
+  das rotas Pro** NÃO feito (UI bloqueia; API ainda alcançável por quem tem a capacidade — dívida
+  declarada); aviso inline de IA/auto em Follow-ups (motor já bloqueia) não adicionado; tela da
+  busca do trial (consumir /pool-trial) ainda não existe. Nada verificado ao vivo.

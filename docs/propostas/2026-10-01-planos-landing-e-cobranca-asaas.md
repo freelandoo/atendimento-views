@@ -842,3 +842,62 @@ bloqueio), enquanto você fecha **credenciais ASAAS + D2/D11/D14**. Com isso res
 - **D4** (trial com ou sem cartão) — define o fluxo do provisionamento.
 - **D14** (modelo de IA barato no Básico) — trava a margem.
 - **D11** (R$/crédito) — pra cota/rate saírem de número real.
+
+---
+
+## 12. Matriz de ACESSO por plano (menu + páginas bloqueadas) — spec do operador 2026-10-01
+
+Três comportamentos por item de menu: **oculto** (nem aparece), **bloqueado** (aparece,
+mas a página mostra estado travado + explicação + CTA de upgrade) e **usável**.
+
+### 12.1. Ocultos para TODO cliente (ferramentas de operador/plataforma)
+Só superadmin/plataforma vê. Cliente (owner) **não vê** no menu, em nenhum plano:
+- **Uso e custos**, **Prompts e saudações**, **Modelo e IA**, **Playbook**.
+
+> ⚠️ Isso muda o modelo atual: hoje o owner VÊ esses itens (capacidade
+> `integracoes_gerenciar`). Passam a ser **plataforma-only**.
+
+### 12.2. Matriz do menu do cliente
+`✅ usável` · `🔒 bloqueado+explica` · `— oculto`
+
+| Item | Trial | Mínimo (R$79) | Básico (R$149,90) | Pro (R$600) |
+|---|:--:|:--:|:--:|:--:|
+| Minha Operação / Visão Geral | ✅ | ✅ | ✅ | ✅ |
+| Banco de Leads | ✅ | ✅ | ✅ | ✅ |
+| Aquisição | ✅ **pool, sem busca real** | ✅ busca real | ✅ | ✅ |
+| Follow-ups | ✅ **sem IA/auto** | ✅ sem IA/auto | ✅ com auto | ✅ |
+| Agenda | ✅ | ✅ | ✅ | ✅ |
+| Assinatura | ✅ | ✅ | ✅ | ✅ |
+| Integrações (Meta) | ✅ | ✅ | ✅ | ✅ |
+| Central de Mensagens | 🔒 | **?** | ✅ | ✅ |
+| Instâncias | 🔒 | **?** | ✅ | ✅ |
+| Central de Ligações | 🔒 | 🔒 | 🔒 | ✅ |
+| Roteiros | 🔒 | 🔒 | 🔒 | ✅ |
+| Equipe | 🔒 | 🔒 | 🔒 | ✅ |
+| Comissão | 🔒 | 🔒 | 🔒 | ✅ |
+| Contas da empresa | 🔒 "plano R$600" | 🔒 | 🔒 | ✅ |
+
+### 12.3. Regras finas
+- **Follow-ups:** a tela é usável, mas **follow-up automático e qualquer coisa de IA** ficam
+  travados abaixo do Básico; ao tentar ligar → aviso "disponível no plano de R$149,90, assine".
+  (O motor já BLOQUEIA isso; aqui é o aviso na tela.)
+- **Aquisição no trial:** mostra resultados e deixa "buscar", mas a busca **roda sobre o pool**
+  (base já coletada), **não** dispara Bright Data. Busca real = plano pago.
+- **Bloqueado = explica:** cada página 🔒 mostra o que ela faz, o que dá pra fazer, e qual plano
+  libera (ex.: Central de Ligações/Equipe/Comissão/Contas → Pro R$600).
+
+### 12.4. ⚠️ Células a CONFIRMAR (ambíguas)
+- **Mínimo — Central de Mensagens e Instâncias:** o Mínimo é "CRM manual". Ele **conecta WhatsApp**
+  (instância) pra atender manual (receber/responder sem IA) — então Central de Mensagens + Instâncias
+  **usáveis** no Mínimo? OU o Mínimo também é só `wa.me` manual (sem instância), deixando as duas
+  **bloqueadas** até o Básico? (Recomendo: Mínimo **conecta instância** e atende manual → usáveis.)
+- **Instâncias no trial:** fica 🔒 (não conecta no teste) — confirma?
+- **Roteiros:** liguei a Pro (vai junto da Central de Ligações). Confirma, ou Roteiros entra antes?
+
+### 12.5. Implementação proposta (quando a matriz fechar)
+- `plano-definicao.js` ganha um mapa **MÓDULOS**: por plano, cada módulo = `usavel|bloqueado|oculto`
+  + `plano_que_libera` (pro CTA). Fonte única; nada de `if plano===` espalhado.
+- `frontend/lib/navegacao.js`: filtra **ocultos** e marca **bloqueados** (lê o plano do `/me`).
+- Um componente **`PaginaBloqueada`** (overlay + explicação + botão "Assinar") que embrulha a tela
+  quando o módulo não é liberado pelo plano. Backend continua a autoridade (as rotas já barram).
+- Itens de operador (Uso/Prompts/Modelo/Playbook) → `plataforma-only` na navegação.

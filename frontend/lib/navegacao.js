@@ -85,10 +85,13 @@ const NAV = [
     icon: 'settings',
     itens: [
       { tipo: 'item', href: '/dashboard/contextos', label: 'Instâncias', icon: 'company', aliases: ['/dashboard/instancias', '/dashboard/empresa'] },
-      { tipo: 'item', href: '/dashboard/playbook', label: 'Playbook', icon: 'playbook', capacidade: 'instancia_gerenciar_contexto' },
-      { tipo: 'item', href: '/dashboard/llm', label: 'Modelo e IA', icon: 'model', capacidade: 'integracoes_gerenciar' },
-      { tipo: 'item', href: '/dashboard/prompts', label: 'Prompts e Saudações', icon: 'prompts', capacidade: 'integracoes_gerenciar' },
-      { tipo: 'item', href: '/dashboard/uso', label: 'Uso e custos', icon: 'usage', capacidade: 'integracoes_gerenciar' },
+      // Ferramentas de OPERADOR da plataforma — o cliente não precisa vê-las (decisão do operador,
+      // 2026-10-01). `minRole: 'superadmin'` esconde do owner/comercial (que não são plataforma) e
+      // mantém para nós. Antes eram `integracoes_gerenciar`, que o owner tem — e por isso apareciam.
+      { tipo: 'item', href: '/dashboard/playbook', label: 'Playbook', icon: 'playbook', minRole: 'superadmin' },
+      { tipo: 'item', href: '/dashboard/llm', label: 'Modelo e IA', icon: 'model', minRole: 'superadmin' },
+      { tipo: 'item', href: '/dashboard/prompts', label: 'Prompts e Saudações', icon: 'prompts', minRole: 'superadmin' },
+      { tipo: 'item', href: '/dashboard/uso', label: 'Uso e custos', icon: 'usage', minRole: 'superadmin' },
       { tipo: 'item', href: '/dashboard/integracoes', label: 'Integrações', icon: 'integracoes', capacidade: 'integracoes_gerenciar' },
       // Contas da EMPRESA (Etapa 2). Desde a Etapa 6.3 o item filtra pela MESMA capacidade que
       // o backend exige na rota — os dois passaram a falar a mesma língua.
