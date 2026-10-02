@@ -6605,3 +6605,28 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **NÃO feito (próximos):** enforcement de captação/cruzamento (Aquisição/enriquecimento lendo o
   plano) + pool do trial + rate limit por plano; CPF-no-cadastro + 1-por-CPF; verificação AO VIVO.
   Não commitado/não deployado.
+
+## 2026-10-01 — Pool do TRIAL: "busca" sobre a base já coletada (custo zero)
+- **Workflow:** Fase 0 → análise → diff → validação. Operador: "ataca o pool".
+- **O que é:** a busca do trial não chama Bright Data — roda sobre `prospectador.prospects` (leads
+  SEM DONO + descartados), filtrada por nicho/cidade que já temos; a pessoa "puxa" até 10/dia pro
+  banco dela. Proposta §4.4.
+- **⚠️ D21 (isolamento) levado a sério:** o pool CRUZA o tenant DE PROPÓSITO — é a única leitura do
+  produto que ignora empresa_id. Vive num read DEDICADO (`sqlElegivel` exige `responsavel_id IS
+  NULL`), nunca afrouxando as queries por empresa. Guardas de regressão: `sqlElegivel` não cita
+  `empresa_id` e cita `responsavel_id IS NULL`; `db/pool-trial.listarPool` não filtra empresa.
+- **Construído:**
+  - `src/services/pool-trial.js` (PURO, `// @ts-check`) — `poolHabilitado` (só trial), teto diário
+    (10), `podePuxar`/`restantesHoje`, e o predicado de elegibilidade (expressão SQL única).
+  - `src/db/pool-trial.js` — `mercadosDoPool` (DISTINCT nicho/cidade elegível), `listarPool`
+    (cross-tenant), `puxadasHoje` (teto via `auditoria_eventos`, SEM migration), `puxarDoPool`
+    (cópia atômica INSERT...SELECT das colunas públicas p/ a empresa do trial; dono=trial,
+    qualificacao 'aprovado', status 'aguardando'; audita `pool_trial_lead_puxado`).
+  - `src/routes/api-pool-trial.js` — GET /mercados, GET /leads, POST /puxar; trial-only (403
+    POOL_INDISPONIVEL p/ não-trial), teto diário (429). Gate auth+vínculo dentro do router.
+  - mount bare em `index.js`; `test/typecheck-cobertura` piso 90→91; `rotas-publicas.json` +3.
+- **Validação:** `npm test` = **3308/3308**. Typecheck: meus arquivos limpos (6 erros seguem só em
+  painel-comercial.js).
+- **NÃO testado/feito:** SQL só validado por leitura (sem DB local) — precisa de verificação ao
+  vivo; FRONTEND da busca do trial (tela que consome /pool-trial) ainda não existe; rate limit por
+  plano e enforcement de captação/cruzamento (Mínimo pago) seguem pendentes.

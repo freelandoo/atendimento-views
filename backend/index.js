@@ -123,6 +123,10 @@ app.use('/api/empresas/:empresaId/programa', require('./src/routes/api-programa'
 // (requireAuth + requireEmpresaAccessSemPlano): o owner com plano INATIVO precisa alcançar a tela
 // de pagamento (mesma ideia do SemAceite). A capacidade (MEMBROS_GERENCIAR p/ assinar) é por rota.
 app.use('/api/empresas/:empresaId/plano', require('./src/routes/api-plano'))
+// POOL do trial: a "busca" do trial roda sobre a base já coletada (leads sem dono), custo zero.
+// Gate (requireAuth + requireEmpresaAccess + trial-only) DENTRO do router. Cross-tenant por
+// desenho (D21) — só leitura de leads sem dono; ver services/pool-trial.js.
+app.use('/api/empresas/:empresaId/pool-trial', require('./src/routes/api-pool-trial'))
 // Painel da EQUIPE (CRM em equipe, Etapa 12): leitura AGREGADA de quem esta com o que. A
 // autorizacao vive dentro do router (MEMBROS_GERENCIAR — quem gerencia contas responde pela
 // distribuicao do trabalho). Nao tem SQL proprio: reusa as contagens de cada modulo.
