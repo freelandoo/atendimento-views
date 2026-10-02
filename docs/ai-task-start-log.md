@@ -6709,3 +6709,24 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   autorização/plano.
 - **Assunção:** Rotinas/Captação liberadas a partir do Mínimo (trial bloqueado) — confirmar se
   deviam ser Básico. Nada verificado ao vivo.
+
+## 2026-10-01 — Ajustes dos planos: nomes centralizados, Empresarial "em breve", preço no modal
+- **Pedido do operador:** o modal dizia "plano Pro" mas Pro não existe — é o **Empresarial (R$600,
+  EM CONSTRUÇÃO)**. Centralizar nomes/preços pra renomear num lugar só; mostrar o valor nos modais;
+  Integrações a partir do Essencial; Essencial conecta instância (já ok); melhorar a tela de
+  Assinatura; e a Visão Geral tem que funcionar no trial.
+- **Mudanças:**
+  - `lib/plano-modulos.js` — **`PLANO_INFO`** (fonte única: nome/preço/`em_construcao`): Essencial
+    R$79, Profissional R$149,90, **Empresarial R$600 em_construcao=true**. `NOME_COMERCIAL` derivado.
+    + Integrações vira módulo bloqueável (minimo).
+  - `components/PaginaBloqueada.tsx` — mostra **nome + preço/mês** do plano que libera e, se em
+    construção, badge **"em breve"** sem CTA de compra (não dá pra assinar Empresarial ainda).
+  - `plano-definicao.js` (backend) — `integracoes` = minimo (trial bloqueado, Essencial+ libera).
+  - `lib/minha-operacao.js` — **BUG corrigido:** `visaoDoPainel(capacidades, plano)` — a Visão Geral
+    administrativa só aparece se o plano libera Relatórios (Básico+); trial/Mínimo caem na Minha
+    Operação (antes o owner trial tomava 403 em /relatorios na 1ª tela). `app/dashboard/page.tsx` passa
+    o plano.
+  - `app/dashboard/plano/page.tsx` — mais premium: lista de benefícios por plano; nomes centralizados.
+- **Validação:** `npm test` **3315/3315**; frontend `tsc` 0; `node --test lib/*` 67/67.
+- **Confirmado:** Essencial conecta instância (minimo não é bloqueado; só trial). Rotinas/Captação
+  seguem a partir do Mínimo.

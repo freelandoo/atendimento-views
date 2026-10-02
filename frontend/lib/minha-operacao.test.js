@@ -19,6 +19,16 @@ test('quem tem relatorios_ver ve a administrativa; quem NAO tem ve Minha Operaca
   assert.equal(O.visaoDoPainel([]), 'minha_operacao')
 })
 
+test('o PLANO decide junto: owner com relatorios mas sem Relatorios no plano cai na Minha Operacao', () => {
+  const caps = ['relatorios_ver', 'lead_ver_aprovados']
+  // Trial/Mínimo não libera Relatórios (Básico+) → Minha Operação, senão tomaria 403 em /relatorios.
+  assert.equal(O.visaoDoPainel(caps, { status: 'trial', nome: 'minimo' }), 'minha_operacao')
+  assert.equal(O.visaoDoPainel(caps, { status: 'ativo', nome: 'minimo' }), 'minha_operacao')
+  // Básico+ e grandfather (plano null) liberam → administrativa.
+  assert.equal(O.visaoDoPainel(caps, { status: 'ativo', nome: 'basico' }), 'administrativa')
+  assert.equal(O.visaoDoPainel(caps, null), 'administrativa')
+})
+
 test('sessao ainda carregando NAO escolhe tela', () => {
   // Escolher no escuro faria a pessoa ver a visão errada por um instante a cada carregamento.
   assert.equal(O.visaoDoPainel(null), null)

@@ -19,6 +19,20 @@ const MODULOS = {
   '/dashboard/comissao': { liberaEm: 'pro', titulo: 'Comissão', faz: 'Acompanhe comissões, metas e o ranking do time.' },
   '/dashboard/contas-empresa': { liberaEm: 'pro', titulo: 'Contas da empresa', faz: 'Adicione e gerencie os usuários da sua empresa.' },
   '/dashboard/relatorios': { liberaEm: 'basico', titulo: 'Relatórios', faz: 'Acompanhe o desempenho da operação: funil, conversões e resultados por período.' },
+  '/dashboard/integracoes': { liberaEm: 'minimo', titulo: 'Integrações', faz: 'Envie seus resultados para a Meta (conversões de anúncios).' },
+}
+
+// ÚNICA fonte dos metadados comerciais do plano (nome, preço/mês em R$, se está em construção).
+// Mudar nome/preço = mudar AQUI. `pro` = o plano de R$600 de EQUIPE, ainda EM CONSTRUÇÃO (não
+// vendável) — por isso `em_construcao`. 'legado' não é vendável (grandfather interno).
+const PLANO_INFO = {
+  minimo: { nome: 'Essencial', preco: 79, em_construcao: false },
+  basico: { nome: 'Profissional', preco: 149.9, em_construcao: false },
+  pro: { nome: 'Empresarial', preco: 600, em_construcao: true },
+}
+
+function infoDoPlano(chave) {
+  return PLANO_INFO[chave] || null
 }
 
 // O que cada plano ENTREGA — listado na tela bloqueada pra ficar claro (e premium) o que a pessoa
@@ -45,7 +59,8 @@ const BENEFICIOS = {
   ],
 }
 
-const NOME_COMERCIAL = { minimo: 'Essencial', basico: 'Profissional', pro: 'Pro' }
+// Nomes derivados do PLANO_INFO (fonte única). Mantido por compatibilidade de quem já importa.
+const NOME_COMERCIAL = { minimo: PLANO_INFO.minimo.nome, basico: PLANO_INFO.basico.nome, pro: PLANO_INFO.pro.nome }
 
 // Benefícios do plano que libera o módulo (para o CTA da PaginaBloqueada).
 function beneficiosDoPlano(liberaEm) {
@@ -80,4 +95,4 @@ function bloqueado(plano, modulo) {
   return nivelDoPlano(plano) < NIVEL[modulo.liberaEm]
 }
 
-module.exports = { NIVEL, MODULOS, BENEFICIOS, NOME_COMERCIAL, nivelDoPlano, moduloDaRota, planoQueLibera, beneficiosDoPlano, bloqueado }
+module.exports = { NIVEL, MODULOS, BENEFICIOS, NOME_COMERCIAL, PLANO_INFO, infoDoPlano, nivelDoPlano, moduloDaRota, planoQueLibera, beneficiosDoPlano, bloqueado }

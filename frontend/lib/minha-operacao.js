@@ -234,9 +234,15 @@ function minhaPosicao(ranking, usuarioId) {
  * `capacidades` `null` (sessão ainda carregando) devolve `null`: não se escolhe tela no escuro,
  * senão a pessoa vê a visão errada por um instante a cada carregamento.
  */
-function visaoDoPainel(capacidades) {
+// A Visão Geral administrativa chama /relatorios — que hoje é módulo do plano Básico+. Então ela só
+// vale se a pessoa TEM a capacidade E o plano libera Relatórios; senão cai na Minha Operação (que
+// funciona no trial/Mínimo, degradando os blocos que o plano não cobre). Sem isto, um owner em
+// trial via admin e tomava 403 em /relatorios na primeira tela depois do login.
+const { nivelDoPlano, NIVEL } = require('./plano-modulos')
+function visaoDoPainel(capacidades, plano) {
   if (!Array.isArray(capacidades)) return null
-  return capacidades.includes('relatorios_ver') ? 'administrativa' : 'minha_operacao'
+  const temRelatorios = capacidades.includes('relatorios_ver') && nivelDoPlano(plano) >= NIVEL.basico
+  return temRelatorios ? 'administrativa' : 'minha_operacao'
 }
 
 module.exports = {

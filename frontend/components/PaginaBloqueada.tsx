@@ -1,13 +1,18 @@
 'use client'
-// Tela mostrada quando o plano da empresa não libera o módulo. Explica o que a tela faz, LISTA o
-// que o plano entrega (para ficar claro e premium) e leva pra Assinatura. Tema claro, tokens.
+// Tela mostrada quando o plano da empresa não libera o módulo. Explica o que a tela faz, mostra o
+// NOME e o VALOR do plano que libera + o que ele entrega, e leva pra Assinatura. Se o plano estiver
+// EM CONSTRUÇÃO (ex.: Empresarial), mostra "em breve" sem CTA de compra. Tema claro, tokens.
 import Link from 'next/link'
-import { planoQueLibera, beneficiosDoPlano } from '@/lib/plano-modulos'
+import { infoDoPlano, beneficiosDoPlano } from '@/lib/plano-modulos'
 import type { ModuloBloqueavel } from '@/lib/plano-modulos'
+import { formatarPreco } from '@/lib/plano'
 
 export default function PaginaBloqueada({ modulo }: { modulo: ModuloBloqueavel }) {
-  const plano = planoQueLibera(modulo)
+  const info = infoDoPlano(modulo.liberaEm)
   const beneficios = beneficiosDoPlano(modulo.liberaEm)
+  const nome = info?.nome || 'pago'
+  const emBreve = Boolean(info?.em_construcao)
+
   return (
     <div className="mx-auto max-w-lg">
       <div className="rounded-lg border border-line bg-surface p-8 shadow-card">
@@ -21,7 +26,9 @@ export default function PaginaBloqueada({ modulo }: { modulo: ModuloBloqueavel }
 
         <div className="mt-6 rounded-lg border border-brand/20 bg-brand/5 p-5">
           <p className="text-sm font-semibold text-ink">
-            Disponível no plano <span className="text-brand">{plano}</span>
+            {emBreve ? 'Chega no plano' : 'Disponível no plano'} <span className="text-brand">{nome}</span>
+            {info ? <span className="font-normal text-ink-2"> · {formatarPreco(info.preco)}/mês</span> : null}
+            {emBreve ? <span className="ml-2 rounded-full bg-estado-warn/15 px-2 py-0.5 text-xs font-medium text-estado-warn">em breve</span> : null}
           </p>
           <ul className="mt-3 space-y-2">
             {beneficios.map((b) => (
@@ -35,14 +42,18 @@ export default function PaginaBloqueada({ modulo }: { modulo: ModuloBloqueavel }
           </ul>
         </div>
 
-        <div className="mt-6">
-          <Link
-            href="/dashboard/plano"
-            className="inline-block rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-dark"
-          >
-            Ver planos e assinar →
-          </Link>
-        </div>
+        {emBreve ? (
+          <p className="mt-6 text-sm text-ink-3">Esse plano está em construção — em breve você poderá assiná-lo aqui.</p>
+        ) : (
+          <div className="mt-6">
+            <Link
+              href="/dashboard/plano"
+              className="inline-block rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-dark"
+            >
+              Ver planos e assinar →
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   )

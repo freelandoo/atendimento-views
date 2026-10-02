@@ -8,9 +8,12 @@ import Botao from '@/components/ui/Botao'
 import Campo from '@/components/ui/Campo'
 import { rotuloStatus, diasRestantesTrial, formatarPreco, precisaAssinar, somenteLeitura } from '@/lib/plano'
 import type { PlanoVeredito } from '@/lib/plano'
+import { beneficiosDoPlano, NOME_COMERCIAL } from '@/lib/plano-modulos'
 
 // Nomes comerciais (placeholder, iguais aos da landing). Decidir com copy depois.
-const NOMES: Record<string, string> = { minimo: 'Essencial', basico: 'Profissional', pro: 'Equipe' }
+// Nomes centralizados em lib/plano-modulos (PLANO_INFO) — mudar lá reflete aqui. `legado` é a conta
+// grandfather (acesso completo), que não é um plano à venda.
+const NOMES: Record<string, string> = { ...NOME_COMERCIAL, legado: 'Completo' }
 const RESUMO: Record<string, string> = {
   minimo: 'O app para organizar e trabalhar seus leads na mão.',
   basico: 'IA respondendo e follow-up automático — o dia a dia de quem vende.',
@@ -143,11 +146,21 @@ export default function PlanoPage() {
                 <span className="text-sm text-ink-3">/mês</span>
               </div>
               <p className="mt-2 text-sm text-ink-2">{RESUMO[p]}</p>
+              <ul className="mt-4 space-y-2">
+                {beneficiosDoPlano(p).map((b) => (
+                  <li key={b} className="flex gap-2 text-sm text-ink-2">
+                    <svg viewBox="0 0 20 20" className="mt-0.5 h-4 w-4 shrink-0 text-brand" aria-hidden="true">
+                      <path fill="currentColor" d="M8.2 13.3 4.9 10l-1.2 1.2 4.5 4.5 9-9-1.2-1.2z" />
+                    </svg>
+                    <span>{b}</span>
+                  </li>
+                ))}
+              </ul>
               <Botao
                 variante={ativo ? 'primaria' : 'secundaria'}
                 onClick={() => { setSelecionado(p); setErroForm('') }}
                 larguraTotal
-                className="mt-4"
+                className="mt-5"
               >
                 {ativo ? 'Plano escolhido' : 'Escolher'}
               </Botao>

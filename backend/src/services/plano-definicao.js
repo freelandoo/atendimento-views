@@ -63,6 +63,7 @@ const NIVEL = Object.freeze({ trial: 0, minimo: 1, basico: 2, pro: 3 })
 const MODULO_NIVEL = Object.freeze({
   whatsapp: NIVEL.minimo, // conectar/gerir instâncias — trial não conecta
   captacao: NIVEL.minimo, // coleta paga (Instagram) — trial usa o pool, não a Bright Data
+  integracoes: NIVEL.minimo, // enviar resultados pra Meta — a partir do Essencial
   // Rotinas (/prospeccao/rotinas) e a busca paga (/prospeccao/buscar) NÃO entram aqui: o segmento
   // seria 'prospeccao', que precisa ficar aberto (GET prospects do trial). São gateadas no mount /
   // por rota com requireNivelPlano('minimo').

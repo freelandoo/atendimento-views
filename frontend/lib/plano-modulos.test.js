@@ -31,6 +31,6 @@ test('FAIL-OPEN: sem plano (grandfather) e nome desconhecido não bloqueiam', ()
 })
 
 test('planoQueLibera: rótulo do CTA', () => {
-  assert.equal(M.planoQueLibera(M.moduloDaRota('/dashboard/equipe')), 'Pro')
+  assert.equal(M.planoQueLibera(M.moduloDaRota('/dashboard/equipe')), 'Empresarial')
   assert.equal(M.planoQueLibera(M.moduloDaRota('/dashboard/conversas')), 'Essencial')
 })

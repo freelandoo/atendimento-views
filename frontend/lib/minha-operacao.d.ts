@@ -71,7 +71,8 @@ export function minhaPosicao(
  * `null` enquanto a sessão carrega: não se escolhe tela no escuro.
  */
 export function visaoDoPainel(
-  capacidades: string[] | null | undefined
+  capacidades: string[] | null | undefined,
+  plano?: import('./plano').PlanoVeredito | null
 ): 'administrativa' | 'minha_operacao' | null
 
 /** As três fontes cruas da fila, como a API as devolve. */

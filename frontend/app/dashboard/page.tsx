@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useSession } from '@/lib/useSession'
 import { visaoDoPainel } from '@/lib/minha-operacao'
+import { getPlanoAtual } from '@/lib/plano'
 import MinhaOperacao from '@/components/MinhaOperacao'
 import PainelComercial from '@/components/PainelComercial'
 
@@ -42,7 +43,10 @@ export default function DashboardPage() {
   // `redirectOnFail = false`: quem cuida de sessão inválida é o AuthGuard do layout. Um segundo
   // redirecionador aqui competiria com ele.
   const { capacidades, usuario, loading } = useSession(false)
-  const visao = visaoDoPainel(capacidades)
+  // O plano decide junto: Visão Geral administrativa precisa de Relatórios (Básico+). No trial/
+  // Mínimo cai na Minha Operação. Plano vem do store que o AuthGuard preencheu.
+  const { plano } = getPlanoAtual(getEmpresaId())
+  const visao = visaoDoPainel(capacidades, plano)
 
   if (loading || visao === null) {
     return <p className="text-sm text-slate-500">Carregando…</p>
