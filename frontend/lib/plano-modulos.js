@@ -18,7 +18,7 @@ const MODULOS = {
   '/dashboard/equipe': { liberaEm: 'pro', titulo: 'Equipe', faz: 'Monte o time comercial, distribua a carteira e acompanhe a carga.' },
   '/dashboard/comissao': { liberaEm: 'pro', titulo: 'Comissão', faz: 'Acompanhe comissões, metas e o ranking do time.' },
   '/dashboard/contas-empresa': { liberaEm: 'pro', titulo: 'Contas da empresa', faz: 'Adicione e gerencie os usuários da sua empresa.' },
-  '/dashboard/relatorios': { liberaEm: 'pro', titulo: 'Relatórios', faz: 'Acompanhe o desempenho da operação: funil, conversões e resultados por período.' },
+  '/dashboard/relatorios': { liberaEm: 'basico', titulo: 'Relatórios', faz: 'Acompanhe o desempenho da operação: funil, conversões e resultados por período.' },
 }
 
 // O que cada plano ENTREGA — listado na tela bloqueada pra ficar claro (e premium) o que a pessoa

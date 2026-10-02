@@ -71,8 +71,8 @@ const MODULO_NIVEL = Object.freeze({
   comissao: NIVEL.pro,
   missoes: NIVEL.pro,
   membros: NIVEL.pro, // Contas da empresa
-  relatorios: NIVEL.pro,
-  'painel-comercial': NIVEL.pro,
+  relatorios: NIVEL.basico, // Relatórios = Básico (decisão do operador, 2026-10-01)
+  'painel-comercial': NIVEL.basico, // backend dos relatórios — acompanha
 })
 
 // Nível efetivo do plano. null (sem linha/grandfather) e nome desconhecido = Pro (FAIL-OPEN: nunca
