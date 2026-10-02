@@ -66,15 +66,15 @@ async function existsEmail(email) {
 
 // Cria usuário (role 'user') + empresa própria + vínculo owner, numa transação.
 // Retorna { usuario, empresa }.
-async function signupUsuario({ email, nome, password_hash }) {
+async function signupUsuario({ email, nome, password_hash, cpf = null, telefone = null }) {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
     const { rows: [usuario] } = await client.query(
-      `INSERT INTO app.usuarios (email, nome, password_hash, role)
-       VALUES ($1, $2, $3, 'user')
+      `INSERT INTO app.usuarios (email, nome, password_hash, role, cpf, telefone)
+       VALUES ($1, $2, $3, 'user', $4, $5)
        RETURNING id, email, nome, role`,
-      [email, nome, password_hash]
+      [email, nome, password_hash, cpf, telefone]
     )
     let empresa = null
     for (let i = 0; i < 5 && !empresa; i++) {

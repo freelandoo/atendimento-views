@@ -22,7 +22,7 @@ const SRC = path.join(__dirname, '..', 'src')
 
 // Estado congelado em 2026-09-24: 85 arquivos de src/ verificados.
 // 2026-09-29: +3 (painel-comercial service/db/route, todos com @ts-check) → 88.
-const PISO_ARQUIVOS_VERIFICADOS = 91
+const PISO_ARQUIVOS_VERIFICADOS = 92
 
 function arquivosJs(dir, acc = []) {
   for (const entrada of fs.readdirSync(dir, { withFileTypes: true })) {

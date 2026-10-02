@@ -6630,3 +6630,19 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **NÃO testado/feito:** SQL só validado por leitura (sem DB local) — precisa de verificação ao
   vivo; FRONTEND da busca do trial (tela que consome /pool-trial) ainda não existe; rate limit por
   plano e enforcement de captação/cruzamento (Mínimo pago) seguem pendentes.
+
+## 2026-10-01 — Cadastro público: CPF + telefone + 1 conta por CPF (anti-abuso do trial)
+- **Workflow:** Fase 0 → análise → diff → validação. Pedido do operador: signup com nome, CPF,
+  telefone, e-mail (validado) e senha forte; conta linkada ao CPF.
+- **Construído:**
+  - `src/cpf.js` (PURO, `// @ts-check`) — `normalizarCpf` + `cpfValido` (mod-11; recusa todos-iguais).
+  - migration `116_usuario_cpf_telefone.sql` — ADD `cpf`/`telefone` (nullable) em `app.usuarios` +
+    índice único PARCIAL `usuarios_cpf_uk` (1 conta por CPF; contas antigas NULL não colidem).
+  - `src/auth-validation.js` — `validarSignup` passou a exigir CPF (válido) + telefone (10-13
+    dígitos) e usa a MESMA régua de senha do cadastro de membro (`problemaDaSenha`: 8+, letra, número).
+  - `src/db/usuarios.js` `signupUsuario` grava cpf/telefone; `src/routes/api-auth.js` repassa e
+    mapeia o conflito de CPF → 409 `CPF_EXISTS` (distinto de `EMAIL_EXISTS`).
+  - `frontend/app/signup/page.tsx` — campos CPF + telefone + indicador de senha forte ao vivo.
+- **Validação:** `npm test` = **3313/3313**; backend typecheck meus arquivos limpos; frontend
+  `tsc` 0 erros. Catraca de cobertura 91→92 (novo `// @ts-check`).
+- **Pendência:** não verificado ao vivo; migration 116 aplica no próximo deploy (pushar pra ativar).

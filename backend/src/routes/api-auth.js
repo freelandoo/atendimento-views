@@ -24,6 +24,7 @@ router.post('/signup', signupLimiter, async (req, res) => {
     const password_hash = await hashPassword(v.data.password)
     const { usuario, empresa } = await signupUsuario({
       email: v.data.email, nome: v.data.nome, password_hash,
+      cpf: v.data.cpf, telefone: v.data.telefone,
     })
     const token = signJwt({ sub: usuario.id, role: usuario.role })
     return res.status(201).json({
@@ -36,6 +37,10 @@ router.post('/signup', signupLimiter, async (req, res) => {
     })
   } catch (err) {
     if (err.code === '23505') {
+      // 1 conta por CPF (migration 116) — distingue do e-mail já usado (anti-abuso do trial).
+      if (err.constraint === 'usuarios_cpf_uk' || /cpf/i.test(err.detail || '')) {
+        return res.status(409).json({ ok: false, error: { code: 'CPF_EXISTS', message: 'Este CPF já tem uma conta.' } })
+      }
       return res.status(409).json({ ok: false, error: { code: 'EMAIL_EXISTS', message: 'Email já cadastrado.' } })
     }
     return res.status(500).json({ ok: false, error: { code: 'INTERNAL', message: 'Falha ao criar conta.' } })
