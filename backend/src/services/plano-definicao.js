@@ -52,6 +52,45 @@ const MOTIVOS = Object.freeze({
 
 const _MOTIVOS_QUE_BARRAM = new Set([MOTIVOS.CANCELADO, MOTIVOS.EXPIRADO, MOTIVOS.TRIAL_EXPIRADO, MOTIVOS.STATUS_DESCONHECIDO])
 
+// ── Níveis e gate de MÓDULO por plano (anti-burla no backend) ─────────────────────────
+// Trial < Mínimo < Básico < Pro. legado = Pro (grandfather). O gate vive no requireEmpresaAccess
+// (middleware/tenant.js), que já tem req.plano — assim nenhuma rota de módulo Pro é alcançável por
+// quem não paga, nem via API crua (a UI é só a experiência; a autoridade é aqui).
+const NIVEL = Object.freeze({ trial: 0, minimo: 1, basico: 2, pro: 3 })
+
+// Segmento da API (1º trecho depois de /api/empresas/:id/) → nível MÍNIMO que o libera.
+// Só os módulos realmente travados entram. Os demais segmentos não são barrados por plano.
+const MODULO_NIVEL = Object.freeze({
+  whatsapp: NIVEL.minimo, // conectar/gerir instâncias — trial não conecta
+  'central-ligacoes': NIVEL.pro,
+  ligacoes: NIVEL.pro,
+  campanhas: NIVEL.pro,
+  roteiros: NIVEL.pro,
+  equipe: NIVEL.pro,
+  'equipes-comerciais': NIVEL.pro,
+  comissao: NIVEL.pro,
+  missoes: NIVEL.pro,
+  membros: NIVEL.pro, // Contas da empresa
+  relatorios: NIVEL.pro,
+  'painel-comercial': NIVEL.pro,
+})
+
+// Nível efetivo do plano. null (sem linha/grandfather) e nome desconhecido = Pro (FAIL-OPEN: nunca
+// trancar quem paga por ausência de dado). Trial é sempre o nível mais baixo.
+function nivelDoPlano(plano) {
+  if (!plano) return NIVEL.pro
+  if (plano.status === 'trial') return NIVEL.trial
+  const n = { minimo: NIVEL.minimo, basico: NIVEL.basico, pro: NIVEL.pro, legado: NIVEL.pro }[plano.nome]
+  return n == null ? NIVEL.pro : n
+}
+
+// Este plano fica BLOQUEADO neste segmento de API? Segmento fora do mapa nunca bloqueia.
+function moduloBloqueadoPorPlano(plano, segmento) {
+  const necessario = MODULO_NIVEL[segmento]
+  if (necessario == null) return false
+  return nivelDoPlano(plano) < necessario
+}
+
 function planoValido(plano) {
   return typeof plano === 'string' && PLANOS.includes(plano)
 }
@@ -110,6 +149,10 @@ module.exports = {
   PRECOS,
   PLANOS_ASSINAVEIS,
   MOTIVOS,
+  NIVEL,
+  MODULO_NIVEL,
+  nivelDoPlano,
+  moduloBloqueadoPorPlano,
   planoValido,
   statusValido,
   recursosDoPlano,

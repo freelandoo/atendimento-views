@@ -6667,3 +6667,26 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   das rotas Pro** NÃO feito (UI bloqueia; API ainda alcançável por quem tem a capacidade — dívida
   declarada); aviso inline de IA/auto em Follow-ups (motor já bloqueia) não adicionado; tela da
   busca do trial (consumir /pool-trial) ainda não existe. Nada verificado ao vivo.
+
+## 2026-10-01 — Anti-burla (gate de plano no BACKEND) + UX das telas bloqueadas
+- **Workflow:** Fase 0 → diff → validação. Pedido: "garante que o usuário não burla"; telas
+  bloqueadas sem "Carregando", com descrição premium do que o plano entrega; + Relatórios.
+- **Anti-burla (backend, a parte crítica):**
+  - `plano-definicao.js` — `NIVEL` (trial<minimo<basico<pro), `nivelDoPlano` (null/desconhecido=pro
+    fail-open), `MODULO_NIVEL` (segmento da API → nível mínimo: whatsapp=minimo; central-ligacoes/
+    ligacoes/campanhas/roteiros/equipe/equipes-comerciais/comissao/missoes/membros/relatorios/
+    painel-comercial=pro), `moduloBloqueadoPorPlano`.
+  - `middleware/tenant.js` — gate num PONTO ÚNICO dentro do `requireEmpresaAccess` (onde req.plano
+    já existe): módulo acima do plano → **403 PLANO_INSUFICIENTE**, nem via API crua. `exigirPlano`
+    off (router de pagamento) não barra. FAIL-OPEN em grandfather.
+- **UX das telas bloqueadas (frontend):**
+  - `lib/plano.js` — store `setPlanoAtual/getPlanoAtual` (o AuthGuard preenche no /me que já faz).
+  - `components/BloqueioPlano.tsx` — lê o store SINCRONAMENTE: **sem "Carregando"**; fail-open.
+  - `components/PaginaBloqueada.tsx` — premium: título + o que a tela faz + **lista do que o plano
+    entrega** (Essencial/Profissional/Pro) + CTA "Ver planos".
+  - `lib/plano-modulos.js` — + Relatórios (Pro), `BENEFICIOS` por plano, `beneficiosDoPlano`.
+- **Validação:** `npm test` = **3315/3315**; backend typecheck meus arquivos limpos; frontend `tsc`
+  0 erros; `node --test lib/*` 41/41.
+- **Pendências (próximo lote, grande):** Aquisição no TRIAL — buscas pré-definidas do pool
+  (consumir /pool-trial) + Rotinas bloqueadas + limite de quantidade por busca ("puxa na hora").
+  Relatórios assumido como Pro (confirmar). Nada verificado ao vivo.

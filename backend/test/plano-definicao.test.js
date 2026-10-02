@@ -81,6 +81,28 @@ test('precos e assinaveis: minimo/basico assinaveis; pro/legado nao', () => {
   assert.equal(P.planoAssinavel('legado'), false) // interno
 })
 
+test('nivelDoPlano: trial<minimo<basico<pro; null e desconhecido = pro (fail-open)', () => {
+  assert.equal(P.nivelDoPlano({ status: 'trial', nome: 'minimo' }), P.NIVEL.trial)
+  assert.equal(P.nivelDoPlano({ status: 'ativo', nome: 'minimo' }), P.NIVEL.minimo)
+  assert.equal(P.nivelDoPlano({ status: 'ativo', nome: 'basico' }), P.NIVEL.basico)
+  assert.equal(P.nivelDoPlano({ status: 'ativo', nome: 'pro' }), P.NIVEL.pro)
+  assert.equal(P.nivelDoPlano({ status: 'ativo', nome: 'legado' }), P.NIVEL.pro)
+  assert.equal(P.nivelDoPlano(null), P.NIVEL.pro) // grandfather
+  assert.equal(P.nivelDoPlano({ status: 'ativo', nome: 'zorp' }), P.NIVEL.pro) // fail-open
+})
+
+test('moduloBloqueadoPorPlano: Pro trava abaixo de Pro; segmento fora do mapa nunca trava', () => {
+  const basico = { status: 'ativo', nome: 'basico' }
+  const trial = { status: 'trial', nome: 'minimo' }
+  assert.equal(P.moduloBloqueadoPorPlano(basico, 'equipe'), true) // Pro
+  assert.equal(P.moduloBloqueadoPorPlano(basico, 'ligacoes'), true)
+  assert.equal(P.moduloBloqueadoPorPlano({ status: 'ativo', nome: 'pro' }, 'equipe'), false)
+  assert.equal(P.moduloBloqueadoPorPlano(trial, 'whatsapp'), true) // minimo-level
+  assert.equal(P.moduloBloqueadoPorPlano({ status: 'ativo', nome: 'minimo' }, 'whatsapp'), false)
+  assert.equal(P.moduloBloqueadoPorPlano(basico, 'banco-leads'), false) // fora do mapa
+  assert.equal(P.moduloBloqueadoPorPlano(null, 'equipe'), false) // grandfather fail-open
+})
+
 // Anti-drift: as listas do modulo precisam casar com os CHECKs da migration 114. Se alguem
 // alargar um lado sem o outro, este teste quebra (mesma disciplina de domain-enums.test.js).
 test('anti-drift: PLANOS/STATUS batem com os CHECK da migration 114', () => {

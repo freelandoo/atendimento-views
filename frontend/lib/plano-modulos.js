@@ -18,6 +18,38 @@ const MODULOS = {
   '/dashboard/equipe': { liberaEm: 'pro', titulo: 'Equipe', faz: 'Monte o time comercial, distribua a carteira e acompanhe a carga.' },
   '/dashboard/comissao': { liberaEm: 'pro', titulo: 'Comissão', faz: 'Acompanhe comissões, metas e o ranking do time.' },
   '/dashboard/contas-empresa': { liberaEm: 'pro', titulo: 'Contas da empresa', faz: 'Adicione e gerencie os usuários da sua empresa.' },
+  '/dashboard/relatorios': { liberaEm: 'pro', titulo: 'Relatórios', faz: 'Acompanhe o desempenho da operação: funil, conversões e resultados por período.' },
+}
+
+// O que cada plano ENTREGA — listado na tela bloqueada pra ficar claro (e premium) o que a pessoa
+// ganha ao assinar. Nomes comerciais placeholder (Essencial/Profissional/Pro).
+const BENEFICIOS = {
+  minimo: [
+    'Atendimento no WhatsApp pelo painel',
+    'Banco de Leads e Quadro do Dia',
+    'Agenda e follow-up manual',
+  ],
+  basico: [
+    'Tudo do Essencial',
+    'IA respondendo no WhatsApp sozinha',
+    'Follow-up automático',
+    'Busca de leads em qualquer nicho e lugar (Google, Instagram, Meta)',
+    'Vários chips com fila anti-ban',
+  ],
+  pro: [
+    'Tudo do Profissional',
+    'Central de Ligações',
+    'CRM de equipe: metas, comissão e distribuição',
+    'Dados completos do lead (cruzamento)',
+    'Relatórios e vários usuários',
+  ],
+}
+
+const NOME_COMERCIAL = { minimo: 'Essencial', basico: 'Profissional', pro: 'Pro' }
+
+// Benefícios do plano que libera o módulo (para o CTA da PaginaBloqueada).
+function beneficiosDoPlano(liberaEm) {
+  return BENEFICIOS[liberaEm] || []
 }
 
 // Nível efetivo a partir do veredito do plano. Trial é o mais baixo; sem linha = grandfather (Pro).
@@ -36,13 +68,10 @@ function moduloDaRota(pathname) {
   return chave ? { chave, ...MODULOS[chave] } : null
 }
 
-// Rótulo do plano que libera o módulo (para o CTA).
+// Rótulo comercial do plano que libera o módulo (para o CTA).
 function planoQueLibera(modulo) {
   if (!modulo) return null
-  if (modulo.liberaEm === 'pro') return 'Pro'
-  if (modulo.liberaEm === 'basico') return 'Profissional'
-  if (modulo.liberaEm === 'minimo') return 'Essencial'
-  return 'pago'
+  return NOME_COMERCIAL[modulo.liberaEm] || 'pago'
 }
 
 // Este plano fica BLOQUEADO neste módulo?
@@ -51,4 +80,4 @@ function bloqueado(plano, modulo) {
   return nivelDoPlano(plano) < NIVEL[modulo.liberaEm]
 }
 
-module.exports = { NIVEL, MODULOS, nivelDoPlano, moduloDaRota, planoQueLibera, bloqueado }
+module.exports = { NIVEL, MODULOS, BENEFICIOS, NOME_COMERCIAL, nivelDoPlano, moduloDaRota, planoQueLibera, beneficiosDoPlano, bloqueado }

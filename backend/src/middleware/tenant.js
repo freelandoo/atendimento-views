@@ -10,7 +10,7 @@ const {
 const { registrarUltimoAcesso } = require('../db/membros')
 const { avaliarAcesso: avaliarAcessoPrograma, barra: aceiteBarra } = require('../services/programa-aceite')
 const { VERSAO: TERMO_VERSAO } = require('../services/programa-termo')
-const { avaliarAcesso: avaliarAcessoPlano, barra: planoBarra } = require('../services/plano-definicao')
+const { avaliarAcesso: avaliarAcessoPlano, barra: planoBarra, moduloBloqueadoPorPlano } = require('../services/plano-definicao')
 
 // Extrai Bearer token do header Authorization
 function extractToken(req) {
@@ -146,6 +146,22 @@ async function resolverEmpresaAccess(req, res, next, { exigirAceite, exigirPlano
     }
   } else {
     req.planoAcesso = null
+  }
+
+  // ─── MÓDULO LIBERADO PELO PLANO (anti-burla) ──────────────────────────────────────────
+  // A UI esconde/bloqueia; AQUI é a autoridade: um módulo Pro (ou de nível acima do plano) não é
+  // alcançável nem via API crua. Ponto único — o segmento vem da própria URL. FAIL-OPEN em plano
+  // ausente (grandfather) via nivelDoPlano. `exigirPlano=false` (router de pagamento) não barra.
+  if (exigirPlano) {
+    const seg = (String(req.originalUrl || '').match(/\/api\/empresas\/[^/]+\/([^/?]+)/) || [])[1]
+    if (seg && moduloBloqueadoPorPlano(req.plano, seg)) {
+      logger.warn({ modulo: seg, empresa_id: empresa.id }, '[plano] módulo bloqueado pelo plano contratado')
+      return res.status(403).json({
+        ok: false,
+        error: { code: 'PLANO_INSUFICIENTE', message: 'Este recurso faz parte de um plano superior.' },
+        data: { modulo: seg },
+      })
+    }
   }
 
   // ─── ACEITE DO TERMO DA OPERAÇÃO COMERCIAL ────────────────────────────────────────────

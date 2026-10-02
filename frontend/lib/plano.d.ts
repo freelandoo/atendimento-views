@@ -16,3 +16,5 @@ export declare function somenteLeitura(plano?: PlanoVeredito | null): boolean
 export declare function diasRestantesTrial(plano?: PlanoVeredito | null): number | null
 export declare function rotuloStatus(plano?: PlanoVeredito | null): string
 export declare function formatarPreco(reais?: number | null): string
+export declare function setPlanoAtual(empresaId: string | null, plano?: PlanoVeredito | null): void
+export declare function getPlanoAtual(empresaId: string): { conhecido: boolean; plano: PlanoVeredito | null }

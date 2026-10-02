@@ -39,4 +39,20 @@ function formatarPreco(reais) {
   return Number(reais).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-module.exports = { ROTULO_STATUS, precisaAssinar, somenteLeitura, diasRestantesTrial, rotuloStatus, formatarPreco }
+// Store leve do plano da empresa atual, preenchido pelo AuthGuard (que já busca /me antes de
+// renderizar o dashboard). Deixa o BloqueioPlano decidir SINCRONAMENTE — sem um segundo /me e sem
+// "Carregando". Volta `conhecido:false` quando ainda não foi setado ou é de outra empresa (aí quem
+// lê faz fail-open; o backend continua a autoridade).
+let _atual = { empresaId: null, plano: null, conhecido: false }
+function setPlanoAtual(empresaId, plano) {
+  _atual = { empresaId: empresaId || null, plano: plano || null, conhecido: true }
+}
+function getPlanoAtual(empresaId) {
+  if (!_atual.conhecido || _atual.empresaId !== empresaId) return { conhecido: false, plano: null }
+  return { conhecido: true, plano: _atual.plano }
+}
+
+module.exports = {
+  ROTULO_STATUS, precisaAssinar, somenteLeitura, diasRestantesTrial, rotuloStatus, formatarPreco,
+  setPlanoAtual, getPlanoAtual,
+}

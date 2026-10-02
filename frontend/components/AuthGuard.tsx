@@ -20,7 +20,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import { apiFetch, getEmpresaId, ApiError } from '@/lib/api'
 import { precisaAceitar } from '@/lib/programa-aceite'
 import type { ProgramaAceiteVeredito } from '@/lib/programa-aceite'
-import { precisaAssinar } from '@/lib/plano'
+import { precisaAssinar, setPlanoAtual } from '@/lib/plano'
 import type { PlanoVeredito } from '@/lib/plano'
 
 const ROTA_ACEITE = '/dashboard/aceite'
@@ -44,6 +44,8 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         // A própria tela do termo não redireciona para ela mesma — seria um laço.
         const atual = getEmpresaId()
         const empresa = (r.data?.empresas || []).find((e) => e.id === atual)
+        // Publica o plano no store pra o BloqueioPlano decidir sem outro /me (sem "Carregando").
+        setPlanoAtual(atual, empresa?.plano)
         // PLANO primeiro: assinatura inativa barra a empresa inteira (pagamento é o gate externo).
         // Quem não pode pagar (comercial) ainda é mandado pra tela, que mostra "fale com o responsável".
         if (pathname !== ROTA_PLANO && precisaAssinar(empresa?.plano)) {
