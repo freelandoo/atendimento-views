@@ -14,6 +14,11 @@ function makePool(handlers) {
       for (const [needle, fn] of handlers) {
         if (sql.includes(needle)) return fn(sql, params)
       }
+      // Leitura de CONTINUIDADE (instancia ja vinculada ao lead). Default "nenhum vinculo":
+      // e o caso da maioria dos testes, e quem precisa de vinculo declara o handler proprio
+      // (que vence este, porque a lista do teste e percorrida antes). O mapeador segue
+      // estrito para todo o resto — SQL novo nao passa despercebido.
+      if (sql.includes('BTRIM(evolution_instance) AS evolution_instance')) return { rows: [] }
       throw new Error('SQL não mapeado: ' + String(sql).slice(0, 70))
     },
   }

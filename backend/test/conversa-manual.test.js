@@ -80,7 +80,16 @@ test('mensagem manual envia pela instancia da conversa, registra operator e paus
   assert.deepEqual(envios[0], {
     numero: NUMERO,
     texto: 'Vamos retomar por aqui?',
-    opts: { instanceName: 'inst-main' },
+    // Autoria DECLARADA (ledger 117): quem escreveu e quem mandou enviar é a MESMA pessoa aqui,
+    // e as duas colunas existem porque nos disparos automáticos elas divergem.
+    opts: {
+      instanceName: 'inst-main',
+      empresaId: EMPRESA_ID,
+      autoria: 'pessoa',
+      autorUsuarioId: 'user-1',
+      acionadorUsuarioId: 'user-1',
+      tipoMensagem: 'manual_operador',
+    },
   })
   assert.equal(out.enviado, true)
   assert.equal(out.assumido, true)

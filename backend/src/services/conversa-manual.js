@@ -98,7 +98,14 @@ async function enviarMensagemManualOperador({
 
   let respostaEnvio = null
   try {
-    respostaEnvio = await _enviarMensagem(numeroValidado, msg, { instanceName })
+    respostaEnvio = await _enviarMensagem(numeroValidado, msg, {
+      instanceName,
+      empresaId,
+      autoria: 'pessoa',
+      autorUsuarioId: operadorId || null,
+      acionadorUsuarioId: operadorId || null,
+      tipoMensagem: 'manual_operador',
+    })
   } catch (err) {
     const wrapped = erroOperacao(err?.message || 'Falha ao enviar WhatsApp.', 502, 'WHATSAPP_SEND_FAILED')
     wrapped.cause = err

@@ -155,6 +155,28 @@ function createDbCrud({ pool, logger, serializeError }) {
     }
   }
 
+  /**
+   * Avisa quando a mensagem chegou por uma instancia DIFERENTE da gravada na conversa.
+   *
+   * O vinculo NAO e trocado (D-8, acima) — e' justamente por isso que o conflito precisa de
+   * sinal: sem ele, "o lead escreveu para o numero B e continua sendo respondido pelo A" era
+   * invisivel, e a unica pista aparecia depois, no log de envio. So LOG, sem PII do conteudo e
+   * com o telefone reduzido; e nunca lanca (esta no caminho do webhook).
+   */
+  function avisarConflitoDeInstancia(numero, instanciaRecebida, resultado) {
+    try {
+      const gravada = String(resultado?.rows?.[0]?.instancia_vinculada || '').trim()
+      const recebida = String(instanciaRecebida || '').trim()
+      if (!gravada || !recebida || gravada === recebida) return
+      logger?.warn?.({
+        operation: 'conversa_instancia_conflito',
+        numero: String(numero || '').slice(-4),
+        instancia_vinculada: gravada,
+        instancia_recebida: recebida,
+      }, 'Mensagem recebida por instancia diferente da vinculada; vinculo preservado')
+    } catch (_) { /* contabilidade de log nunca derruba o atendimento */ }
+  }
+
   async function salvarConversa(numero, historico, estagio, status = 'ativo', agentePausado = undefined, empresaId = null, evolutionInstance = null) {
     const estagioNorm = normalizarEstagio(estagio, 'diagnostico')
     const arr = Array.isArray(historico) ? historico : []
@@ -180,9 +202,10 @@ function createDbCrud({ pool, logger, serializeError }) {
             empresa_id = COALESCE(vendas.conversas.empresa_id, EXCLUDED.empresa_id),
             evolution_instance = COALESCE(NULLIF(BTRIM(vendas.conversas.evolution_instance), ''), EXCLUDED.evolution_instance),
             atualizado_em = NOW()
+        RETURNING evolution_instance AS instancia_vinculada
         `,
         [numero, jsonText, estagioNorm, status, empresaId, PJ, instance]
-      )
+      ).then((r) => avisarConflitoDeInstancia(numero, instance, r))
     } else {
       await pool.query(
         `
@@ -196,9 +219,10 @@ function createDbCrud({ pool, logger, serializeError }) {
             empresa_id = COALESCE(vendas.conversas.empresa_id, EXCLUDED.empresa_id),
             evolution_instance = COALESCE(NULLIF(BTRIM(vendas.conversas.evolution_instance), ''), EXCLUDED.evolution_instance),
             atualizado_em = NOW()
+        RETURNING evolution_instance AS instancia_vinculada
         `,
         [numero, jsonText, estagioNorm, status, agentePausado, empresaId, PJ, instance]
-      )
+      ).then((r) => avisarConflitoDeInstancia(numero, instance, r))
     }
   }
 

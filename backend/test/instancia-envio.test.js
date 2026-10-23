@@ -218,7 +218,10 @@ test('guarda: os 4 envios da §2.4 deixaram de chamar sem contexto de instancia'
   // Nao basta a regra central bloquear: os chamadores precisam DECLARAR o que sabem, senao
   // a instancia nunca e conferida contra a empresa certa.
   const followup = lerFonte('src', 'followup-execution.js')
-  assert.match(followup, /enviarMensagem\(numero, textoFollowup, \{ empresaId/)
+  // O envio ganhou a declaracao de AUTORIA (ledger 117) e virou multilinha; o que a guarda
+  // cobra continua sendo o MESMO: o chamador declara a empresa, senao a instancia nunca e
+  // conferida contra o tenant certo.
+  assert.match(followup, /enviarMensagem\(numero, textoFollowup, \{[\s\S]{0,200}?empresaId/)
 
   const agenda = lerFonte('src', 'agenda.js')
   assert.doesNotMatch(

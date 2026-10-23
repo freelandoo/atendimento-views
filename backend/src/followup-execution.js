@@ -389,7 +389,11 @@ function createFollowupExecution(deps = {}) {
       // conversa (regra única em `whatsapp.js`); o `empresaId` é declarado para que ela seja
       // conferida contra a empresa do lead. Sem vínculo provado, o envio falha e o
       // `registrarFollowupEnvio` do catch grava a falha — nunca sai pelo número errado.
-      await enviarMensagem(numero, textoFollowup, { empresaId: empresaIdFollow || undefined })
+      await enviarMensagem(numero, textoFollowup, {
+        empresaId: empresaIdFollow || undefined,
+        autoria: 'ia',
+        tipoMensagem: 'followup_auto',
+      })
   
       let historicoNovo = [...historicoBruto, { role: 'assistant', content: textoFollowup }]
       if (historicoNovo.length > 40) historicoNovo = historicoNovo.slice(-40)

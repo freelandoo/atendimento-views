@@ -379,7 +379,7 @@ function createHandoffAlerts(deps = {}) {
     try {
       for (const op of operadores) {
         try {
-          await enviarMensagem(op.jid, t, { instanceName })
+          await enviarMensagem(op.jid, t, { instanceName, tipoMensagem: 'alerta_operador' })
           enviados++
         } catch (e) {
           erros.push(`${op.jid}: ${e.message}`)

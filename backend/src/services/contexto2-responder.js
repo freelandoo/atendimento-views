@@ -192,7 +192,7 @@ function createContexto2Responder(deps = {}) {
       return { skipped: true, reason: veredito.motivo, analise_registrada: true }
     }
 
-    const whatsappOpts = evolutionInstance ? { instanceName: evolutionInstance } : {}
+    const whatsappOpts = { autoria: 'ia', tipoMensagem: 'resposta_ia', ...(evolutionInstance ? { instanceName: evolutionInstance } : {}) }
     await enviarMensagem(numero, texto, whatsappOpts)
     const historicoNovo = [...historico, { role: 'assistant', content: texto }]
     // Mantém o estágio atual; em handoff, pausa a conversa para um humano assumir.

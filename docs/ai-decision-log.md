@@ -4677,3 +4677,63 @@ usuario que consultou. O dado original do lead/prospect nao e sobrescrito.
 **Decisao 3 — creditos fiscais nao sao creditos Bright Data.** A tela pode exibir ambos no mesmo
 drawer operacional, mas o ledger de consultas fiscais e separado para nao misturar custo,
 provedor, fonte e limite operacional.
+
+## 2026-10-22 — Instâncias, pool do Automático, continuidade do lead e autoria das mensagens
+
+**Decisão 1 — continuidade do lead é uma PORTA no disparo, não uma preferência de ordenação.**
+O pedido era "preserve a instância do lead". A implementação possível mais barata seria ordenar o
+pool colocando a instância vinculada primeiro. Recusada: ordenar não impede nada — bastaria a
+instância vinculada estar em cooldown para o lead sair por outro número. `tentativas` é a fila
+FILTRADA (`fila.filter(i => i.evolution_instance === vinculada)`), então lead vinculado tem
+exatamente UMA candidata e o fallback do rodízio não tem caminho até ele. Se ela não pode enviar,
+o lead é pulado com motivo e a varredura segue para o próximo.
+
+**Decisão 2 — o pool tenta a próxima instância; o que define "próxima" é uma lista FECHADA de
+erros.** Avançar em qualquer erro faria o ciclo repetir a mesma falha N vezes (IA fora do ar vale
+igual em todos os números) e, pior, poderia reservar o mesmo lead em duas instâncias. `erroDaInstancia`
+aceita só `instance_disconnected`, `INSTANCIA_NAO_COMPROVADA`/`instanciaBloqueada` e `429` —
+estados DAQUELE número. Erro de lead ou de sistema encerra o ciclo, como antes.
+
+**Decisão 3 — "instância principal" NÃO virou terceiro passo em `nomeParaEnvio`.** A migration 112
+já existia (coluna + índice único parcial) e o cabeçalho dela já tinha decidido o desenho: a
+principal **pré-preenche** o envio disparado por uma pessoa e não participa da resolução de
+instância de envio nem do webhook. Como o pré-preenchimento chega ao enviador como `instanceName`
+explícito, ele já é um caminho PROVADO (`ORIGENS_NOME.EXPLICITA`) — o invariante "não existe
+terceiro passo" da Fase 2 fica intacto e a guarda de regressão não foi tocada. Nada a implementar:
+writer, pré-preenchimento e UI já estavam prontos. **Correção registrada:** o diagnóstico inicial
+desta tarefa afirmou que a coluna não tinha leitor; estava errado (grep truncado).
+
+**Decisão 4 — o ledger de mensagens é SÓ DE SAÍDA, e `direcao` nasce com CHECK de um único valor.**
+Escolha do operador. O valor de vocabulário nasce junto do executor (lição de
+`follow_ups_canal_chk`, migration 067): criar `'recebida'` sem o leitor de entrada produziria uma
+coluna que ninguém preenche e um indicador que ninguém consegue explicar. Alargar a CHECK e
+implementar a entrada têm de ser o mesmo diff.
+
+**Decisão 5 — a escrita do ledger vive no CHOKEPOINT, não em cada enviador.** `enviarMensagem` é o
+ponto por onde todo envio de texto passa. Instrumentar os enviadores um a um deixaria o próximo
+enviador fora da contagem por esquecimento — e foi exatamente assim que a resposta conversacional
+da IA ficou sem registro durável. Custo aceito: o ledger também registra alerta ao operador, que
+fica FORA dos totais de atendimento por `tipo`, com número próprio na tela.
+
+**Decisão 6 — autoria é declarada, nunca deduzida; `desconhecida` é um estado de primeira classe.**
+Duas colunas (`autoria` = quem escreveu, `acionador_usuario_id` = quem mandou enviar) porque num
+disparo automático acionado por uma pessoa elas divergem, e o pedido exige não contar o mesmo
+evento duas vezes. Quem não declara entra como `desconhecida`. Em particular, a saudação por
+TEMPLATE é `desconhecida`: alguém a escreveu em algum momento, sem registro de quem, e atribuí-la a
+quem clicou afirmaria uma autoria falsa. No `dispararGerados` a autoria também é `desconhecida` —
+`lead_disparos` não registra se o rascunho veio da IA ou do template, e deduzir pelo `gerar_ia`
+ATUAL afirmaria algo sobre um texto escrito no passado. Limitação declarada, resolvível com uma
+coluna em `lead_disparos`, em diff próprio.
+
+**Decisão 7 — o painel do Automático deixou de derivar o estado no cliente.** A tela calculava
+"Rodando no pool" / "Aguardando instância pronta" a partir das instâncias carregadas e podia
+discordar do ciclo real. O interruptor passou a falar só da CONFIGURAÇÃO ("Rotina ligada/parada") e
+o estado do ciclo vem do servidor, na MESMA ordem de avaliação do worker. A contagem de leads usa
+`whereCandidatosAutomatico`, o mesmo `WHERE` da varredura — e é rotulada "candidatos", não
+"elegíveis", porque janela do país, opt-out e continuidade só se decidem lead a lead.
+
+**Decisão 8 — o conflito de instância na ENTRADA passou a ter sinal, sem mudar o vínculo.**
+Preservar o vínculo (D-8) está certo; preservar sem registro não. `salvarConversa` agora loga
+`conversa_instancia_conflito` quando a mensagem chega por número diferente do gravado. Nenhuma
+troca de vínculo foi introduzida — transferência de vínculo continua não existindo, e segue
+precisando de regra própria antes de ser implementada.

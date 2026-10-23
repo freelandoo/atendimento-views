@@ -6742,3 +6742,28 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
     Mesmas abas e a mesma lista de Resultados (os leads puxados aparecem lá).
   - `PoolTrialPainel`: aviso suavizado ("Você está no teste", sem dizer "nossa base").
 - **Validação:** frontend `tsc` 0. Sem mudança de backend.
+
+## 2026-10-22 — Auditoria: instâncias WhatsApp, pool automático, fila do Banco de Leads, Central de Mensagens e indicadores
+- **Pedido do operador:** auditar, corrigir e completar (1) continuidade de atendimento do lead pelo
+  número correto, (2) instância principal da empresa como padrão de ação avulsa, (3) pool/rodízio do
+  automático do Banco de Leads com intervalo ENTRE CICLOS, (4) filtro de nicho da meta automática
+  chegando à seleção real do lead, (5) Central de Mensagens exibindo a instância vinculada,
+  (6) indicadores separando IA × pessoa × autoria desconhecida. Exigiu diagnóstico com evidências
+  antes de implementar, sem considerar regra atendida por existir botão/campo/teste isolado.
+- **Fase 0:** registro aqui; estado do git conferido (branch `master`, limpo exceto `AGENTS.md`,
+  `docs/propostas/2026-09-30-um-cerebro-ia-comercial.md`, `.playwright-mcp/`, `artifacts/` e
+  `docs/propostas/2026-09-25-...md` — alterações de OUTRA tarefa, a preservar).
+- **Fase 1 em diante:** registro das evidências e decisões no corpo desta tarefa.
+
+## 2026-10-22 (2) — Integração Contexto × Playbook × Abordagem de IA por nicho
+- **Pedido do operador:** auditar o fluxo real (configuração → geração → seleção → envio →
+  resposta → continuação → follow-up) e implementar uma ORIENTAÇÃO COMERCIAL EFETIVA por nicho,
+  composta do contexto/conhecimento autorizado + etapa do playbook + oferta do nicho, com
+  precedência explícita, seleção determinística, registro auditável e continuidade depois que o
+  lead responde. Exigiu distinguir defeito comprovado × risco × comportamento correto × lacuna
+  de produto, e proibiu considerar funcionalidade comprovada por existir campo/tela/teste.
+- **Fase 0:** registro aqui. Git: branch `master`; árvore com alterações de OUTRA tarefa
+  (instâncias/pool/autoria — `117_mensagem_envios.sql`, `mensagem-autoria.js`, `whatsapp.js`,
+  `core-funnel.js`, `ConversaPainel.tsx`, etc.) — **a preservar, fora deste escopo**.
+- **Fase 1 (auditoria) — evidências:** registradas no corpo desta entrada e em
+  `docs/ai-decision-log.md`.

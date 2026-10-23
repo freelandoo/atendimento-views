@@ -17,6 +17,7 @@ import { secaoDoGatilho, type SecaoFicha } from '@/lib/ficha-lead'
 // de novos cards tem leitura própria para não herdar filtros ou janela da Lista.
 import QuadroDoDia from '@/components/QuadroDoDia'
 import MetaPessoal from '@/components/MetaPessoal'
+import EstadoAutomatico from '@/components/EstadoAutomatico'
 import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import FolhaModal from '@/components/ui/FolhaModal'
 import Botao from '@/components/ui/Botao'
@@ -2556,12 +2557,9 @@ export default function BancoLeadsPage() {
             <div className="mt-2 rounded-lg border bg-surface-2/60 p-3 space-y-2">
               {/* Status claro + botão Ligar/Desligar (com aviso ao ligar). */}
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className={`inline-flex items-center gap-2 text-sm font-bold ${config.auto_ativo ? (motivoBloqueioAutomatico ? 'text-red-700' : 'text-emerald-700') : 'text-ink-3'}`}>
-                  <span className={`h-2.5 w-2.5 rounded-full ${config.auto_ativo ? (motivoBloqueioAutomatico ? 'bg-red-500' : 'bg-emerald-500 animate-pulse') : 'bg-line-strong'}`}></span>
-                  {config.auto_ativo ? (motivoBloqueioAutomatico ? 'Aguardando instância pronta' : 'Rodando no pool') : 'Parado'}
-                </span>
-                <span className="text-xs text-ink-3">
-                  {instanciasProntasAuto}/{instancias.length} instância{instancias.length === 1 ? '' : 's'} pronta{instanciasProntasAuto === 1 ? '' : 's'}
+                <span className={`inline-flex items-center gap-2 text-sm font-bold ${config.auto_ativo ? 'text-estado-ok' : 'text-ink-3'}`}>
+                  <span className={`h-2.5 w-2.5 rounded-full ${config.auto_ativo ? 'bg-estado-ok' : 'bg-line-strong'}`}></span>
+                  {config.auto_ativo ? 'Rotina ligada' : 'Rotina parada'}
                 </span>
                 <div className="flex items-center gap-2">
                   {salvandoAuto && <span className="text-xs text-slate-400">salvando...</span>}
@@ -2577,8 +2575,10 @@ export default function BancoLeadsPage() {
               <p className="text-xs leading-relaxed text-ink-3">
                 O Automático usa o pool de instâncias ativas com saudação configurada. A cada ciclo,
                 o sistema escolhe o número mais descansado e só envia para leads cuja janela esteja
-                aberta no horário local do país.
+                aberta no horário local do país. Lead que já fala com um dos seus números continua
+                sendo atendido por aquele número — nunca por outro.
               </p>
+              <EstadoAutomatico empresaId={empresaId} />
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <div>
                   <label className="block text-xs text-ink-3 mb-1">Início</label>

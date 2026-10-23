@@ -821,9 +821,15 @@ export default function ConversasPage() {
                           : dono.meu ? 'rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700'
                             : 'text-slate-600'
                       }>{dono.rotulo}</span>
-                      <span className="text-[11px] text-blue-700">
-                        Instância: <strong>{inst || 'não definida'}</strong>
-                      </span>
+                      {inst ? (
+                        <span className="text-[11px] text-blue-700">
+                          Instância: <strong>{inst}</strong>
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-ink-3" title="Sem instância comprovada nesta conversa">
+                          Instância não identificada
+                        </span>
+                      )}
                     </div>
                   )
                 })()}

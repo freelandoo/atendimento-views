@@ -3882,6 +3882,115 @@
   agendas que este guia declara não unificadas.
 - Registro completo, com a contagem e o critério de cada remoção: `REFACTOR_REPORT.md` §11.
 
+### CONTINUIDADE do lead vence o rodízio do pool (sem migration)
+- **Regra de negócio, em uma frase:** lead que já fala com um número da empresa só é abordado
+  **por aquele número**. Se ele não puder enviar agora, o lead é **PULADO com motivo** — nunca
+  atendido por outro número.
+- **Defeito corrigido:** o único guarda era `canProspectLead` → `conversa_ativa`, que cobre apenas
+  `status IN ('ativo','em_atendimento','aberto','pausado')`. Conversa com outro status voltava a
+  ser elegível, o pool escolhia outra instância e a mensagem saía do número B **com a conversa
+  gravada em A** — e o histórico continuava dizendo A, porque a escrita de `evolution_instance`
+  preserva o vínculo (D-8). O cliente via dois números; o painel, um. **Nada comparava a
+  instância escolhida com a vinculada.**
+- **Fonte ÚNICA da leitura: `instanciasVinculadasDosLeads` (`services/rodar-leads.js`)**, usada por
+  `separarElegiveis` (Manual **e** Automático), `gerarMensagensSemi`, `dispararGerados` e pela
+  varredura do worker. O JID vem de `jidConversaDoEnvio` — a MESMA função que cria a linha da
+  conversa; duas normalizações de telefone fariam o vínculo deixar de ser encontrado em silêncio.
+  **Uma consulta por lote, nunca N+1.**
+- **Isolamento:** conversa de OUTRA empresa não é lida; conversa **órfã** (`empresa_id IS NULL`) é,
+  porque a instância gravada nela É a prova do vínculo (mesma regra de `validarInstanciaParaEnvio`).
+- **Motivos novos, lista fechada:** `instancia_vinculada_outra` (Manual/Semi: o lead é pulado; no
+  `dispararGerados` o rascunho é marcado como falho, para o caso **aparecer** no painel em vez de
+  ser pulado em silêncio a cada rodada) e `instancia_vinculada_indisponivel` (worker: a instância
+  do lead não está no rodízio agora).
+- **`separarElegiveis` sem instância declarada NÃO julga continuidade**, de propósito: quem não
+  nomeia instância é julgado pelo enviador (regra única da Fase 2). O contrato antigo segue válido.
+
+### POOL do Automático — uma instância fora do ar não custa o ciclo (sem migration)
+- **Defeito corrigido:** `escolherInstanciaAutomatico` devolvia UMA instância e não checava
+  conexão; `rodarLeads` lançava `instance_disconnected`; `_autoEmpresa` capturava, **recuava o
+  intervalo e não tentava a próxima do pool**. Com 3 números e 1 caído, **1/3 dos ciclos virava
+  nada** — o pool rendia como um pool menor, sem ninguém saber.
+- A escolha passa a devolver a **`fila`** inteira, na ordem do rodízio, e o ciclo tenta a seguinte
+  quando a atual recusa. **Só recusa DA INSTÂNCIA avança** (`erroDaInstancia`, lista fechada:
+  `instance_disconnected`, `INSTANCIA_NAO_COMPROVADA`/`instanciaBloqueada`, `429` de cooldown/teto).
+  Qualquer outro erro — IA fora do ar, lead inelegível, banco — valeria igual em todas: repetir ali
+  seria repetir a mesma falha N vezes e arriscar reservar o mesmo lead em dois números.
+- **Lead VINCULADO tem exatamente UMA candidata** (a instância dele): `tentativas` é a fila
+  filtrada, então não existe caminho em que o fallback do rodízio troque o número do lead.
+- O rodízio em si **não mudou**: ordem por teto → cooldown → `ultimo_disparo_em ASC` → nome. O
+  intervalo continua sendo **entre ciclos** (1 lead por ciclo), então o tempo até a MESMA instância
+  voltar à vez cresce com o tamanho do pool. Testado com 2, 3 e 4 instâncias a 20 min.
+
+### ESTADO REAL do Automático — `GET .../banco-leads/auto/estado` (sem migration)
+- **Defeito corrigido:** os estados do ciclo (`aguardando_intervalo`, `sem_instancia_pronta`,
+  `aguardando_cooldown_pool`, `teto_diario_pool`, `teto_diario_instancias`, `sem_lead_elegivel`)
+  existiam **só no log do worker** — para saber por que nada saía, era preciso abrir o log do
+  servidor. E o painel derivava um status próprio das instâncias carregadas, podendo **discordar do
+  ciclo real**.
+- **SOMENTE LEITURA**: não escolhe lead, não reserva disparo, não chama a Evolution e não mexe em
+  `auto_proximo_disparo_em`. Abrir o painel não pode mudar o que o painel mostra.
+- **A ORDEM dos estados espelha a do worker** de propósito (modo → pausado → intervalo → pool →
+  sem lead → pronto): um painel que decidisse em outra ordem mostraria um motivo diferente do que
+  de fato segura o ciclo.
+- **Fonte ÚNICA do recorte: `whereCandidatosAutomatico`** — a varredura que ESCOLHE o lead e a
+  contagem que a TELA mostra usam o mesmo `WHERE`. Duas cópias fariam o painel prometer uma fila
+  que o worker não enxerga.
+- **"Candidatos", nunca "elegíveis":** janela local do país, compliance/opt-out e continuidade da
+  instância só se decidem lead a lead, no ciclo. A tela declara isso em texto.
+- `listarInstanciasDiagnostico` lista **todas** as instâncias e diz **por que** cada uma está fora
+  do rodízio (`desativada`, `sem_saudacao`, `aguardando_cooldown`, `teto_da_instancia`,
+  `fora_do_pool`). Ela **não decide** quem entra: a autoridade continua sendo
+  `listarPoolAutomatico`; aqui só se explica a ausência. Front: `lib/banco-leads-auto-estado.js`
+  (+ `.d.ts`/`.test.js`, só TRADUZ) e `components/EstadoAutomatico.tsx`.
+
+### Ledger de SAÍDA das mensagens — autoria IA × pessoa × desconhecida (migration 117)
+- **Defeito corrigido:** "IA: 20 / Victor: 50" **não era computável**. Não há tabela de mensagens, e
+  `vendas.conversas.historico` é JSONB **truncado em 40 itens** (`conversa-manual.js`,
+  `followup-manual.js`) — contar dali mente com o tempo, e pior nas conversas mais longas. As
+  fontes cobriam pedaços (`lead_disparos` = 1ª abordagem, `followup_envios` = follow-up,
+  `vendas.ai_logs` = CHAMADAS de LLM, que não são mensagens). **A resposta conversacional da IA não
+  tinha registro durável em lugar nenhum.**
+- **`app.mensagem_envios` é append-only e significa UMA coisa:** o provedor **aceitou** um envio.
+  **Não** é entrega, **não** é leitura e **não** é tentativa — tentativa que falhou não vira linha,
+  porque afirmar envio não comprovado é o que o indicador existe para não fazer.
+- **SÓ SAÍDA** (decisão do operador, 2026-10-22): `direcao` tem CHECK fechada em `'enviada'`.
+  Alargar para receber e implementar o leitor de entrada têm de ser o **MESMO diff** (mesma
+  disciplina de `follow_ups_canal_chk`). Mensagem recebida continua medida pelas fontes atuais.
+- **A escrita vive no CHOKEPOINT** (`whatsapp.js#enviarMensagem`), não em cada enviador: é o que
+  impede um enviador novo de escapar da contagem. `registrarEnvio` **nunca lança** — contabilidade
+  quebrada não pode derrubar mensagem que já saiu para o cliente.
+- **Autoria é DECLARADA por quem envia, nunca deduzida.** `autoria` = quem ESCREVEU;
+  `acionador_usuario_id` = quem MANDOU enviar. São colunas separadas porque num disparo automático
+  iniciado por uma pessoa elas divergem — e o mesmo evento não pode contar duas vezes. Quem não
+  declara entra como **`desconhecida`**, nunca atribuído a alguém para o total fechar. CHECK no
+  banco impede autor humano em linha de autoria `ia`.
+- **Declarado hoje:** `resposta_ia` (core-funnel, contexto2-responder), `followup_auto`,
+  `manual_operador` (com `autor_usuario_id`), `saudacao` (autoria `ia` quando a IA gerou de fato;
+  `desconhecida` quando saiu o template, que ninguém assina) e `alerta_operador`.
+- **`alerta_operador` fica FORA dos totais de atendimento** (é aviso ao operador, não mensagem ao
+  lead), mas aparece em número próprio — somá-los inflaria "mensagens enviadas" com conversa
+  interna; esconder faria o total parecer menor sem motivo.
+- **Limitação declarada:** o rascunho do Semi não registra se veio da IA ou do template
+  (`lead_disparos` não tem essa coluna), então `dispararGerados` grava autoria `desconhecida`.
+  Deduzir pelo `gerar_ia` ATUAL afirmaria algo sobre um texto escrito no passado. Resolver exige
+  uma coluna em `lead_disparos`, em diff próprio.
+- **NÃO guarda o texto da mensagem** (o conteúdo já vive no histórico; duplicá-lo criaria segunda
+  cópia de PII). **Nada é retroagido:** o indicador conta a partir do deploy, e a tela diz isso.
+- **`leads_contatados` é DISTINCT por telefone** — várias mensagens para o mesmo contato não viram
+  vários leads. Cada número vem com a definição do que conta (`DEFINICOES`).
+- Código: `services/mensagem-autoria.js` (PURO, vocabulário + definições), `db/mensagem-envios.js`,
+  escrita em `whatsapp.js`, rota `GET /api/empresas/:empresaId/relatorios/mensagens`. Front:
+  `components/IndicadoresMensagens.tsx`. Testes: `test/mensagem-envios.test.js` (anti-drift contra
+  os CHECKs da 117). **Nenhuma variável de ambiente nova.**
+
+### Conflito de instância na ENTRADA deixou de ser silencioso (sem migration)
+- O vínculo continua **preservado** (D-8): resposta que chega por um número diferente do gravado
+  **não troca** a instância da conversa. O que mudou é que o conflito agora é **registrado**
+  (`conversa_instancia_conflito`, em `db-crud.js#salvarConversa`) — antes, "o lead escreveu para o
+  número B e segue sendo respondido pelo A" era invisível, e a única pista aparecia depois, no log
+  de envio. Só log, sem conteúdo de mensagem e com o telefone reduzido; nunca lança.
+
 > O catálogo **completo** (flags, tuning de IA, follow-up automático, jobs, prospecção)
 > vive em `.env.example`, que é a fonte de verdade. Mantenha os dois em sincronia.
 > Variável de ambiente nova só pode ser criada se for documentada aqui (ou no `.env.example`) — nunca silenciosamente.

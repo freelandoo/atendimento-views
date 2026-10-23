@@ -568,3 +568,52 @@ test('enviarLoteEmBackground revalida compliance imediatamente antes da Evolutio
   assert.equal(out[0].status, 'falhou')
   assert.equal(erroGravado, 'compliance:opt_out')
 })
+
+// ─── CONTINUIDADE DO LEAD (instancia ja vinculada a conversa) ─────────────────────────
+// Regra: lead que ja fala com um numero da empresa nao e abordado por outro. Antes desta
+// guarda, o pool do Automatico (e o seletor do Manual) podiam mandar a proxima mensagem por
+// um numero diferente — e o historico continuava apontando para o antigo, porque a escrita de
+// `evolution_instance` preserva o vinculo (D-8). O cliente via dois numeros; o painel, um.
+const VINCULO_SQL = 'BTRIM(evolution_instance) AS evolution_instance'
+
+test('separarElegiveis pula lead vinculado a OUTRA instancia da empresa', async () => {
+  const pool = makePool([
+    ['ANY($2::uuid[])', () => ({ rows: [prospectRodavel] })],
+    [VINCULO_SQL, () => ({ rows: [{ numero: '5511999998888@s.whatsapp.net', evolution_instance: 'outra-inst' }] })],
+  ])
+  const out = await separarElegiveis(pool, 'e1', ['p1'], 'inst')
+  assert.equal(out.elegiveis.length, 0)
+  assert.equal(out.pulados[0].motivo, 'instancia_vinculada_outra')
+  assert.equal(out.pulados[0].instancia, 'outra-inst')
+})
+
+test('separarElegiveis aceita o lead quando o vinculo E a instancia escolhida', async () => {
+  const pool = makePool([
+    ['ANY($2::uuid[])', () => ({ rows: [prospectRodavel] })],
+    [VINCULO_SQL, () => ({ rows: [{ numero: '5511999998888@s.whatsapp.net', evolution_instance: 'inst' }] })],
+  ])
+  const out = await separarElegiveis(pool, 'e1', ['p1'], 'inst')
+  assert.equal(out.elegiveis.length, 1)
+  assert.equal(out.pulados.length, 0)
+})
+
+test('separarElegiveis sem instancia declarada nao julga continuidade (contrato antigo)', async () => {
+  const pool = makePool([
+    ['ANY($2::uuid[])', () => ({ rows: [prospectRodavel] })],
+    [VINCULO_SQL, () => ({ rows: [{ numero: '5511999998888@s.whatsapp.net', evolution_instance: 'outra-inst' }] })],
+  ])
+  const out = await separarElegiveis(pool, 'e1', ['p1'])
+  assert.equal(out.elegiveis.length, 1, 'quem nao nomeia instancia e julgado pelo enviador')
+})
+
+test('separarElegiveis le o vinculo em UMA consulta escopada na empresa', async () => {
+  let chamadas = 0
+  let paramsVinculo = null
+  const pool = makePool([
+    ['ANY($2::uuid[])', () => ({ rows: [prospectRodavel, { ...prospectRodavel, id: 'p2' }] })],
+    [VINCULO_SQL, (params) => { chamadas++; paramsVinculo = params; return { rows: [] } }],
+  ])
+  await separarElegiveis(pool, 'e1', ['p1', 'p2'], 'inst')
+  assert.equal(chamadas, 1, 'nunca N+1')
+  assert.equal(paramsVinculo[1], 'e1')
+})

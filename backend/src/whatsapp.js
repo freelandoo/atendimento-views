@@ -422,6 +422,33 @@ function numeroEnvioWhatsapp(numero) {
   return digitos
 }
 
+/**
+ * Grava o envio aceito pelo provedor no ledger de saida. Isolado em funcao propria para o
+ * caminho de envio seguir legivel, e com `require` tardio pelo mesmo motivo das outras leituras
+ * deste arquivo (evita ciclo de import com a camada de dados).
+ */
+async function registrarEnvioNoLedger(respostaEvolution, numero, veredito, opts = {}) {
+  try {
+    const { pool } = require('./db')
+    const { registrarEnvio } = require('./db/mensagem-envios')
+    const { jidConversaDoEnvio } = require('./services/historico-envio')
+    const key = respostaEvolution?.key || respostaEvolution?.message?.key || respostaEvolution?.data?.key || null
+    await registrarEnvio(pool, {
+      empresaId: veredito?.empresaId || opts.empresaId || null,
+      evolutionInstance: veredito?.instanceName || null,
+      numero,
+      conversaNumero: jidConversaDoEnvio(respostaEvolution, numero),
+      autoria: opts.autoria || null,
+      autorUsuarioId: opts.autorUsuarioId || null,
+      acionadorUsuarioId: opts.acionadorUsuarioId || null,
+      tipo: opts.tipoMensagem || null,
+      evolutionMessageId: typeof key?.id === 'string' ? key.id : null,
+    })
+  } catch (err) {
+    logger.warn({ err: err.message }, '[whatsapp] ledger de envio falhou (envio nao afetado)')
+  }
+}
+
 async function enviarMensagem(numero, texto, opts = {}) {
   // Rede de segurança FINAL: qualquer {{empresa}} ou "PJ Codeworks" legado que tenha
   // escapado dos boundaries (alertas de operador, footer, prospecção, agenda) é
@@ -440,7 +467,8 @@ async function enviarMensagem(numero, texto, opts = {}) {
     text: t         // ← Campo text (requerido pela API Evolution)
   }
 
-  const instanceName = await instanceNameParaEnvio(numero, opts)
+  const vereditoInstancia = await resolverInstanciaEnvio(numero, opts)
+  const instanceName = vereditoInstancia.instanceName
 
   try {
     if (String(process.env.EVOLUTION_ASSERT_CONNECTED || 'on').toLowerCase() !== 'off') {
@@ -471,6 +499,13 @@ async function enviarMensagem(numero, texto, opts = {}) {
       },
       'Evolution sendText ok'
     )
+    // LEDGER DE SAIDA (migration 117). Este e' o CHOKEPOINT: todo envio de texto passa por aqui,
+    // entao registrar neste ponto e' o que impede um enviador novo de escapar da contagem — era
+    // justamente isso que faltava para separar "IA" de "pessoa" nos indicadores.
+    // A autoria e' DECLARADA pelo chamador (`opts.autoria` / `opts.tipoMensagem`); quem nao
+    // declara entra como `desconhecida`, nunca atribuida a alguem. `registrarEnvio` nunca lanca:
+    // contabilidade quebrada nao pode derrubar uma mensagem que ja saiu para o cliente.
+    await registrarEnvioNoLedger(r.data, numero, vereditoInstancia, opts)
     return r.data
   } catch (e) {
     const classificacao = e.evolutionClassificacao || classificarErroEvolution(e)

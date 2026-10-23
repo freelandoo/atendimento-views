@@ -13,6 +13,7 @@ const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess, requireCapacidade } = require('../middleware/tenant')
 const { atualizarEmailProspect } = require('../prospecting')
 const { rodarLeads, gerarMensagensSemi, gerarPendentesSemi, dispararGerados, estadoEnvioInstancia, STATUS_RODAVEL } = require('../services/rodar-leads')
+const { estadoAutomatico } = require('../services/banco-leads-auto')
 const { obterConfigBancoLeads, salvarConfigBancoLeads } = require('../db/banco-leads-config')
 const {
   adicionarFiltroMercado,
@@ -1834,6 +1835,23 @@ router.put('/config', requireAuth, requireEmpresaAccess, requireCapacidade(CAP.L
   } catch (err) { return envelopeErro(res, err, 'CONFIG_UPDATE_FAILED') }
 })
 
+// GET /auto/estado — ESTADO REAL do modo Automático, para o operador não precisar ler log.
+// Diz em que ponto o ciclo está (pausado / aguardando intervalo / sem instância pronta /
+// cooldown / teto / sem lead / pronto), qual recorte de nicho está valendo, quantos leads ele
+// alcança e, por instância, se ela está no rodízio — e por que não, quando não está.
+//
+// SOMENTE LEITURA: não escolhe lead, não reserva disparo, não chama a Evolution e não mexe no
+// próximo disparo. Abrir o painel não pode mudar o que o painel mostra.
+router.get('/auto/estado', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const data = await estadoAutomatico(pool, req.empresa.id, new Date())
+    return res.json({ ok: true, data })
+  } catch (err) {
+    const status = err.statusCode || 500
+    return res.status(status).json({ ok: false, error: { code: 'AUTO_ESTADO_FAILED', message: err.message } })
+  }
+})
+
 // GET /cooldown?instancia_id=… — estado do cooldown/teto da instância (para o cronômetro
 // do modo Semi). Só leitura; reusa o MESMO throttle do disparo (sem regra duplicada).
 router.get('/cooldown', requireAuth, requireEmpresaAccess, async (req, res) => {
@@ -1964,6 +1982,7 @@ router.post('/disparar-gerados', requireAuth, requireEmpresaAccess, requireCapac
       empresaId: req.empresa.id,
       instanciaId: instancia_id,
       prospectIds: Array.isArray(prospect_ids) ? prospect_ids : [],
+      usuarioId: req.usuario?.id || null,
     })
     return res.json({ ok: true, data })
   } catch (err) {

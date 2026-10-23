@@ -55,8 +55,10 @@ test('responderContexto2: envia a mensagem do playbook e persiste a conversa', a
   assert.strictEqual(calls.enviarMensagem.length, 1)
   assert.strictEqual(calls.enviarMensagem[0][0], '5511999990000')
   assert.match(calls.enviarMensagem[0][1], /Freelandoo/)
-  // envia pela instância da conversa
-  assert.deepStrictEqual(calls.enviarMensagem[0][2], { instanceName: 'freelandoo' })
+  // envia pela instância da conversa, declarando que o texto é da IA (ledger 117)
+  assert.deepStrictEqual(calls.enviarMensagem[0][2], {
+    autoria: 'ia', tipoMensagem: 'resposta_ia', instanceName: 'freelandoo',
+  })
   // persiste o histórico com a resposta do assistente
   assert.strictEqual(calls.salvarConversa.length, 1)
   const histSalvo = calls.salvarConversa[0][1]

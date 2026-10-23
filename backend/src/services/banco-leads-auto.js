@@ -12,7 +12,7 @@ const { logger } = require('../logger')
 const { obterConfigBancoLeads } = require('../db/banco-leads-config')
 const {
   rodarLeads, gerarPendentesSemi, reconciliarConfirmacoesPendentes, STATUS_RODAVEL, MAX_LOTE,
-  COOLDOWN_MIN,
+  COOLDOWN_MIN, instanciasVinculadasDosLeads, vinculoDoTelefone,
 } = require('./rodar-leads')
 // A PORTA da operacao comercial (Etapa 3.4). Este worker e' o UNICO caminho do produto que
 // aborda um lead SEM humano nenhum no circuito — e era ele que aceitava `aguardando`. Medido em
@@ -64,6 +64,21 @@ function recorteAutomatico(cfg = {}) {
   return cfg.auto_recorte_modo === 'nicho' && nicho
     ? { modo: 'nicho', nicho }
     : { modo: 'geral', nicho: null }
+}
+
+/**
+ * O erro recusa ESTA instancia (vale tentar a proxima do rodizio) ou o ciclo inteiro?
+ *
+ * Lista FECHADA: desconexao na Evolution, instancia nao comprovada (inativa/outra empresa/outro
+ * canal) e 429 de cooldown/teto sao estados DAQUELE numero. Qualquer outro erro — falha de IA,
+ * lead inelegivel, banco fora — valeria igual em todas as instancias: tentar de novo ali seria
+ * repetir a mesma falha N vezes e, pior, poderia reservar o mesmo lead em dois numeros.
+ */
+function erroDaInstancia(err) {
+  if (!err) return false
+  if (err.code === 'instance_disconnected') return true
+  if (err.code === 'INSTANCIA_NAO_COMPROVADA' || err.instanciaBloqueada === true) return true
+  return err.statusCode === 429
 }
 
 async function agendarProximoDisparo(pool, empresaId, now, cfg) {
@@ -225,6 +240,10 @@ async function escolherInstanciaAutomatico(pool, empresaId, now, cfg = {}, deps 
   }
   return {
     instancia: disponiveis[0],
+    // A FILA inteira, na ordem do rodizio. Quem consome tenta a seguinte quando a primeira
+    // recusa por motivo DA INSTANCIA (desconectada, inativa, cooldown/teto) — perder o ciclo
+    // por causa de um numero fora do ar deixava o pool com a vazao de um pool menor.
+    fila: disponiveis,
     motivo: 'ok',
     total: poolInstancias.length,
     disponiveis: disponiveis.length,
@@ -233,9 +252,63 @@ async function escolherInstanciaAutomatico(pool, empresaId, now, cfg = {}, deps 
   }
 }
 
+/**
+ * O WHERE que define CANDIDATO do Automatico — fonte UNICA.
+ *
+ * A varredura que ESCOLHE o lead e a contagem que a TELA mostra precisam do mesmo recorte: duas
+ * copias fariam o painel prometer uma fila que o worker nao enxerga (ou o contrario). Espera
+ * `$1 = empresa_id` e `$2 = lista de status`; o parametro do nicho e' acrescentado ao array
+ * recebido, para servir aos dois chamadores sem fixar numeracao.
+ *
+ * NAO inclui o que so se decide lead a lead — janela local do pais, compliance/opt-out e
+ * continuidade da instancia. Quem le a contagem tem de saber que ela e' o universo ANTES
+ * desses tres filtros, e a tela diz isso em texto.
+ */
+function whereCandidatosAutomatico(recorte, params) {
+  let filtroNicho = ''
+  if (recorte.modo === 'nicho') {
+    params.push(recorte.nicho)
+    const nichoParam = params.length
+    filtroNicho = `AND (
+            LOWER(BTRIM(COALESCE(p.nicho, ''))) = LOWER(BTRIM($${nichoParam}::text))
+            OR LOWER(BTRIM(COALESCE(p.categoria_perfil, ''))) = LOWER(BTRIM($${nichoParam}::text))
+          )`
+  }
+  return `p.empresa_id = $1
+          AND p.status = ANY($2)
+          ${filtroNicho}
+          AND ${sqlAbordavel('p')}
+          AND NULLIF(BTRIM(COALESCE(p.telefone, '')), '') IS NOT NULL
+          AND (p.tem_whatsapp IS DISTINCT FROM false)
+          AND (p.bloqueado_ate IS NULL OR p.bloqueado_ate <= NOW())
+          AND NOT EXISTS (
+            SELECT 1 FROM prospectador.lead_disparos d
+             WHERE d.empresa_id = p.empresa_id
+               AND d.prospect_id = p.id
+               AND d.status IN ('gerando', 'aguardando_disparo', 'enviando', 'pendente_confirmacao')
+          )`
+}
+
+/** Quantos leads o recorte atual alcanca. SOMENTE LEITURA — nao reserva e nao dispara nada. */
+async function contarCandidatosAutomatico(pool, empresaId, cfg = {}) {
+  const params = [empresaId, [...STATUS_RODAVEL]]
+  const where = whereCandidatosAutomatico(recorteAutomatico(cfg), params)
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS total FROM prospectador.prospects p WHERE ${where}`,
+    params
+  )
+  return Number(rows[0]?.total || 0)
+}
+
 async function buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps = {}) {
   const canProspectLeadFn = deps.canProspectLeadFn || canProspectLead
   const avaliarJanelaLocalLeadFn = deps.avaliarJanelaLocalLeadFn || avaliarJanelaLocalLead
+  const vinculosFn = deps.instanciasVinculadasFn || instanciasVinculadasDosLeads
+  // Lista FECHADA de instancias aptas a enviar neste ciclo. Ausente = chamador que nao escolhe
+  // instancia (teste direto); ai a continuidade nao e julgada aqui — quem julga e' o enviador.
+  const instanciasAceitas = Array.isArray(deps.instanciasDisponiveis)
+    ? new Set(deps.instanciasDisponiveis.filter(Boolean).map(String))
+    : null
   const scanState = deps.scanState || autoScanOffsets
   const recorte = recorteAutomatico(deps.autoRecorte)
   const cfg = deps.autoRecorte || {}
@@ -254,35 +327,19 @@ async function buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps = {}
     if (voltouAoInicio && offset >= offsetInicial) break
     const limitePagina = Math.min(pageSize, scanLimit - analisados)
     const params = [empresaId, statusList, limitePagina, offset]
-    let filtroNicho = ''
-    if (recorte.modo === 'nicho') {
-      params.push(recorte.nicho)
-      const nichoParam = params.length
-      filtroNicho = `AND (
-            LOWER(BTRIM(COALESCE(p.nicho, ''))) = LOWER(BTRIM($${nichoParam}::text))
-            OR LOWER(BTRIM(COALESCE(p.categoria_perfil, ''))) = LOWER(BTRIM($${nichoParam}::text))
-          )`
-    }
+    const whereCandidatos = whereCandidatosAutomatico(recorte, params)
     const { rows } = await pool.query(
       `SELECT p.id, p.telefone, p.pais, p.cidade, p.endereco FROM prospectador.prospects p
-        WHERE p.empresa_id = $1
-          AND p.status = ANY($2)
-          ${filtroNicho}
-          AND ${sqlAbordavel('p')}
-          AND NULLIF(BTRIM(COALESCE(p.telefone, '')), '') IS NOT NULL
-          AND (p.tem_whatsapp IS DISTINCT FROM false)
-          AND (p.bloqueado_ate IS NULL OR p.bloqueado_ate <= NOW())
-          AND NOT EXISTS (
-            SELECT 1 FROM prospectador.lead_disparos d
-             WHERE d.empresa_id = p.empresa_id
-               AND d.prospect_id = p.id
-               AND d.status IN ('gerando', 'aguardando_disparo', 'enviando', 'pendente_confirmacao')
-          )
+        WHERE ${whereCandidatos}
         ORDER BY (p.qualificacao = 'aprovado') DESC, p.score DESC NULLS LAST, p.created_at ASC, p.id ASC
         LIMIT $3 OFFSET $4`,
       params
     )
     paginas++
+    // Vinculo provado de cada candidato desta pagina, em UMA consulta (nunca N+1).
+    const vinculos = instanciasAceitas
+      ? await vinculosFn(pool, empresaId, rows.map((r) => r.telefone))
+      : null
 
     if (!rows.length) {
       if (offsetInicial > 0 && !voltouAoInicio) {
@@ -302,6 +359,17 @@ async function buscarPrimeiroLeadElegivel(pool, empresaId, statusList, deps = {}
       if (!janelaLocal.permitido) {
         somarMotivo(motivos, janelaLocal.motivo)
         continue
+      }
+      // CONTINUIDADE vence o rodizio. Se o lead ja fala com um numero desta empresa, ele so
+      // pode ser atendido por aquele numero; se aquele numero nao esta apto agora, o lead e
+      // PULADO e a varredura segue. Trocar o numero seria quebrar o atendimento que existe.
+      if (instanciasAceitas) {
+        const vinculada = vinculoDoTelefone(vinculos, candidato.telefone)
+        if (vinculada && !instanciasAceitas.has(vinculada)) {
+          somarMotivo(motivos, 'instancia_vinculada_indisponivel')
+          continue
+        }
+        candidato.instancia_vinculada = vinculada || null
       }
       const elegibilidade = await canProspectLeadFn(pool, candidato.telefone, {
         prospectId: candidato.id,
@@ -405,7 +473,15 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
   // elegível — NÃO desiste só porque os primeiros por score são telefone fixo/inválido
   // (o que travava o disparo quando o topo do score era dominado por landlines).
   const statusList = [...STATUS_RODAVEL]
-  const scan = await buscarPrimeiroLeadElegivel(pool, empresaId, statusList, { ...deps, autoRecorte: cfg, now })
+  const fila = Array.isArray(escolhaInstancia.fila) && escolhaInstancia.fila.length
+    ? escolhaInstancia.fila
+    : [instancia]
+  const scan = await buscarPrimeiroLeadElegivel(pool, empresaId, statusList, {
+    ...deps,
+    autoRecorte: cfg,
+    now,
+    instanciasDisponiveis: fila.map((i) => i.evolution_instance),
+  })
   const lead = scan.lead
   if (!lead) {
     const motivos = scan.motivos || {}
@@ -421,10 +497,45 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
     }
   }
 
+  // Ordem de tentativa. Lead VINCULADO tem exatamente UMA candidata — a instancia dele; se
+  // ela nao estiver na fila, o lead nem chega aqui (a varredura o pulou). Lead novo percorre o
+  // rodizio: motivo DA INSTANCIA passa para a seguinte, motivo DO LEAD encerra o ciclo.
+  const tentativas = lead.instancia_vinculada
+    ? fila.filter((i) => i.evolution_instance === lead.instancia_vinculada)
+    : fila
+  if (!tentativas.length) {
+    return {
+      empresa_id: empresaId,
+      motivo: 'instancia_vinculada_indisponivel',
+      lead_id: lead.id,
+      instancia_vinculada: lead.instancia_vinculada,
+      instancias_pool: escolhaInstancia.total,
+      total_disparos_hoje: escolhaInstancia.total_disparos_hoje,
+    }
+  }
+
+  let instanciaUsada = tentativas[0]
+  const recusasDeInstancia = []
   try {
-    const res = await rodarLeadsFn(pool, {
-      empresaId, usuarioId: null, instanciaId: instancia.id, prospectIds: [lead.id],
-    })
+    let res = null
+    for (const candidata of tentativas) {
+      instanciaUsada = candidata
+      try {
+        res = await rodarLeadsFn(pool, {
+          empresaId, usuarioId: null, instanciaId: candidata.id, prospectIds: [lead.id],
+        })
+        break
+      } catch (err) {
+        if (!erroDaInstancia(err) || candidata === tentativas[tentativas.length - 1]) throw err
+        recusasDeInstancia.push({ instancia: candidata.evolution_instance, erro: err.message })
+        logger.warn({
+          operation: 'banco_leads_auto',
+          empresa_id: empresaId,
+          instancia: candidata.evolution_instance,
+          err: err.message,
+        }, '[banco-leads-auto] instancia recusou o ciclo; tentando a proxima do pool')
+      }
+    }
     if (res && res.rodada && res.aceitos && res.aceitos.length) {
       const proxMin = sortearIntervaloMinutos(cfg.intervalo_min, cfg.intervalo_max)
       const proximo = new Date(now.getTime() + proxMin * 60_000)
@@ -451,8 +562,10 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
         pais: lead.janela_local?.pais || null,
         timezone: lead.janela_local?.timezone || null,
         hora_local: lead.janela_local?.hora_local || null,
-        instancia_id: instancia.id,
-        evolution_instance: instancia.evolution_instance,
+        instancia_id: instanciaUsada.id,
+        evolution_instance: instanciaUsada.evolution_instance,
+        continuidade: Boolean(lead.instancia_vinculada),
+        instancias_recusaram: recusasDeInstancia.length ? recusasDeInstancia : undefined,
         instancias_pool: escolhaInstancia.total,
         instancias_disponiveis: escolhaInstancia.disponiveis,
         total_disparos_hoje: escolhaInstancia.total_disparos_hoje + 1,
@@ -481,6 +594,127 @@ async function _autoEmpresa(pool, empresaId, now, deps = {}) {
       instancias_pool: escolhaInstancia.total,
       total_disparos_hoje: escolhaInstancia.total_disparos_hoje,
     }
+  }
+}
+
+/**
+ * Diagnostico das instancias WhatsApp da empresa — TODAS, nao so as do rodizio.
+ *
+ * O painel precisa dizer por que um numero NAO esta no pool ("desativado", "sem saudacao"), e
+ * um numero que simplesmente nao aparece na lista e' indistinguivel de um numero que nao existe.
+ * Esta leitura NAO decide quem entra no rodizio: a autoridade continua sendo
+ * `listarPoolAutomatico`; aqui so se explica a ausencia.
+ */
+async function listarInstanciasDiagnostico(pool, empresaId) {
+  const { rows } = await pool.query(
+    `SELECT i.id, i.evolution_instance, i.nome, i.ativo, i.principal,
+            NULLIF(BTRIM(COALESCE(i.config_json->>'saudacao', '')), '') IS NOT NULL AS tem_saudacao,
+            COALESCE(i.config_json->>'canal', 'whatsapp') AS canal,
+            COUNT(d.id) FILTER (
+              WHERE d.criado_em::date = NOW()::date
+                AND d.status IN ('enviando', 'pendente_confirmacao', 'enviado')
+            )::int AS disparos_hoje,
+            MAX(d.criado_em) FILTER (
+              WHERE d.status IN ('enviando', 'pendente_confirmacao', 'enviado')
+            ) AS ultimo_disparo_em
+       FROM app.empresa_whatsapp_instances i
+       LEFT JOIN prospectador.lead_disparos d
+         ON d.empresa_id = i.empresa_id
+        AND d.evolution_instance = i.evolution_instance
+      WHERE i.empresa_id = $1
+        AND COALESCE(i.config_json->>'canal', 'whatsapp') <> 'freelandoo'
+      GROUP BY i.id, i.evolution_instance, i.nome, i.ativo, i.principal, i.config_json
+      ORDER BY i.principal DESC, i.criado_em ASC`,
+    [empresaId]
+  )
+  return rows
+}
+
+/** Por que este numero esta fora do rodizio. Lista FECHADA, sem texto livre. */
+function motivoForaDoRodizio(inst) {
+  if (inst.ativo !== true) return 'desativada'
+  if (inst.tem_saudacao !== true) return 'sem_saudacao'
+  return 'fora_do_pool'
+}
+
+/**
+ * ESTADO REAL do modo Automatico de uma empresa — SOMENTE LEITURA.
+ *
+ * Nao escolhe lead, nao reserva disparo, nao chama a Evolution e nao mexe em
+ * `auto_proximo_disparo_em`: abrir o painel nao pode mudar o que o painel mostra. A ORDEM dos
+ * estados espelha a do worker (`_autoEmpresa`) de proposito — um painel que decidisse em outra
+ * ordem mostraria um motivo diferente do que de fato segura o ciclo.
+ */
+async function estadoAutomatico(pool, empresaId, now = new Date(), deps = {}) {
+  const cfg = await obterConfigBancoLeads(pool, empresaId)
+  const recorte = recorteAutomatico(cfg)
+  const escolha = await escolherInstanciaAutomatico(pool, empresaId, now, cfg, deps)
+  const candidatos = await (deps.contarCandidatosFn || contarCandidatosAutomatico)(pool, empresaId, cfg)
+  const todas = await (deps.listarInstanciasDiagnosticoFn || listarInstanciasDiagnostico)(pool, empresaId)
+
+  const noRodizio = new Set((escolha.fila || []).map((i) => String(i.evolution_instance)))
+  const tetoPorInstancia = tetoPorInstanciaPool(cfg.teto_diario, escolha.total || 0)
+  const instancias = todas.map((inst) => {
+    const cooldown = cooldownRestanteInstancia(inst, now)
+    const apta = noRodizio.has(String(inst.evolution_instance))
+    let motivo = null
+    if (!apta) {
+      if (inst.ativo === true && inst.tem_saudacao === true && cooldown > 0) motivo = 'aguardando_cooldown'
+      else if (inst.ativo === true && inst.tem_saudacao === true && tetoPorInstancia > 0
+        && Number(inst.disparos_hoje || 0) >= tetoPorInstancia) motivo = 'teto_da_instancia'
+      else motivo = motivoForaDoRodizio(inst)
+    }
+    return {
+      id: inst.id,
+      nome: inst.nome || inst.evolution_instance,
+      evolution_instance: inst.evolution_instance,
+      principal: inst.principal === true,
+      ativo: inst.ativo === true,
+      tem_saudacao: inst.tem_saudacao === true,
+      disparos_hoje: Number(inst.disparos_hoje || 0),
+      ultimo_disparo_em: inst.ultimo_disparo_em || null,
+      cooldown_restante_s: cooldown,
+      teto_instancia: tetoPorInstancia > 0 ? tetoPorInstancia : null,
+      no_rodizio: apta,
+      motivo_fora: motivo,
+    }
+  })
+
+  const proximo = cfg.auto_proximo_disparo_em ? new Date(cfg.auto_proximo_disparo_em) : null
+  const proximoValido = proximo && !Number.isNaN(proximo.getTime()) ? proximo : null
+  const aguardandoIntervalo = Boolean(proximoValido && now < proximoValido)
+
+  let estado
+  if (cfg.modo !== 'automatico') estado = 'modo_manual'
+  else if (!cfg.auto_ativo) estado = 'pausado'
+  else if (aguardandoIntervalo) estado = 'aguardando_intervalo'
+  else if (escolha.motivo !== 'ok') estado = escolha.motivo
+  else if (candidatos <= 0) estado = 'sem_lead_elegivel'
+  else estado = 'pronto'
+
+  return {
+    modo: cfg.modo,
+    auto_ativo: cfg.auto_ativo === true,
+    estado,
+    janela_inicio: cfg.janela_inicio,
+    janela_fim: cfg.janela_fim,
+    intervalo_min: cfg.intervalo_min,
+    intervalo_max: cfg.intervalo_max,
+    teto_diario: cfg.teto_diario,
+    timezone: APP_TIMEZONE,
+    proximo_disparo_em: proximoValido ? proximoValido.toISOString() : null,
+    segundos_para_proximo: aguardandoIntervalo
+      ? Math.ceil((proximoValido.getTime() - now.getTime()) / 1000)
+      : 0,
+    recorte: { modo: recorte.modo, nicho: recorte.nicho },
+    // "Candidatos", nunca "elegiveis": janela local, compliance e continuidade da instancia so
+    // se decidem lead a lead, na hora. A tela declara isso.
+    leads_candidatos: candidatos,
+    total_disparos_hoje: escolha.total_disparos_hoje || 0,
+    instancias_no_rodizio: escolha.total || 0,
+    instancias_disponiveis: escolha.disponiveis || 0,
+    menor_cooldown_s: escolha.menor_cooldown_s,
+    instancias,
   }
 }
 
@@ -594,6 +828,11 @@ module.exports = {
   totalDisparosPool,
   tetoPorInstanciaPool,
   cooldownRestanteInstancia,
+  contarCandidatosAutomatico,
+  whereCandidatosAutomatico,
+  estadoAutomatico,
+  listarInstanciasDiagnostico,
+  erroDaInstancia,
   dentroDaJanela,
   sortearIntervaloMinutos,
   minutosDoDia,

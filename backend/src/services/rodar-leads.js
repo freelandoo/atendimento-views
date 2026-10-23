@@ -15,7 +15,7 @@ const { enviarMensagem, numerosSemWhatsapp, verificarStatusInstanciaEvolution, n
 // Normaliza o telefone para o MESMO formato do envio/checagem (com código do país 55),
 // para casar com o Set devolvido por numerosSemWhatsapp.
 function soDigitos(t) { return numeroEnvioWhatsapp(t) }
-const { registrarEnvioNoHistorico } = require('./historico-envio')
+const { registrarEnvioNoHistorico, jidConversaDoEnvio } = require('./historico-envio')
 const { obterConfigBancoLeads } = require('../db/banco-leads-config')
 const { gerarSaudacaoAnalise } = require('./saudacao-analise')
 const { montarJsonApresentacaoPlaces, montarJsonApresentacaoInstagram } = require('./lead-score-cadastro')
@@ -252,7 +252,48 @@ async function estadoEnvioInstancia(pool, { empresaId, instanciaId }) {
 }
 
 // Carrega os prospects dos ids e separa elegíveis de pulados (bloqueado/status/sem telefone).
-async function separarElegiveis(pool, empresaId, ids) {
+/**
+ * CONTINUIDADE DO LEAD — qual instancia JA fala com cada telefone, dentro desta empresa.
+ *
+ * O vinculo provado vive em `vendas.conversas.evolution_instance` (preservado pelo D-8). Esta
+ * leitura existe porque quem ESCOLHE a instancia do disparo (o pool do Automatico, o seletor do
+ * Manual) nao conhece a conversa: sem ela, o lead que ja falou com o numero A recebe a proxima
+ * mensagem do numero B — e o historico continua dizendo A, porque a escrita preserva o vinculo.
+ *
+ * Conversa de OUTRA empresa nao e lida (isolamento). Conversa ORFA (`empresa_id IS NULL`) e,
+ * porque a instancia gravada nela E a prova do vinculo — a mesma regra de
+ * `validarInstanciaParaEnvio`.
+ *
+ * O JID vem de `jidConversaDoEnvio`, a MESMA funcao que cria a linha da conversa: duas
+ * normalizacoes de telefone divergiriam e o vinculo deixaria de ser encontrado em silencio.
+ */
+async function instanciasVinculadasDosLeads(pool, empresaId, telefones = []) {
+  const porJid = new Map()
+  const jids = []
+  for (const t of telefones || []) {
+    const jid = jidConversaDoEnvio(null, t)
+    if (jid && !jids.includes(jid)) jids.push(jid)
+  }
+  if (!jids.length) return porJid
+  const { rows } = await pool.query(
+    `SELECT numero, BTRIM(evolution_instance) AS evolution_instance
+       FROM vendas.conversas
+      WHERE numero = ANY($1::text[])
+        AND NULLIF(BTRIM(COALESCE(evolution_instance, '')), '') IS NOT NULL
+        AND (empresa_id = $2::uuid OR empresa_id IS NULL)`,
+    [jids, empresaId]
+  )
+  for (const r of rows) porJid.set(r.numero, r.evolution_instance)
+  return porJid
+}
+
+/** A instancia vinculada a ESTE telefone, ou '' quando o lead ainda nao tem conversa. */
+function vinculoDoTelefone(porJid, telefone) {
+  const jid = jidConversaDoEnvio(null, telefone)
+  return jid ? (porJid.get(jid) || '') : ''
+}
+
+async function separarElegiveis(pool, empresaId, ids, instanceName = null) {
   const { rows: prospects } = await pool.query(
     `SELECT ${COLS_PROSPECT}
        FROM prospectador.prospects
@@ -260,6 +301,7 @@ async function separarElegiveis(pool, empresaId, ids) {
     [empresaId, ids]
   )
   const porId = new Map(prospects.map((p) => [p.id, p]))
+  const vinculos = await instanciasVinculadasDosLeads(pool, empresaId, prospects.map((p) => p.telefone))
   const pulados = []
   const elegiveis = []
   const agora = Date.now()
@@ -273,6 +315,14 @@ async function separarElegiveis(pool, empresaId, ids) {
     if (!porta.permitido) { pulados.push({ id, motivo: 'nao_qualificado', detalhe: rotuloMotivo(porta.motivo) }); continue }
     if (!String(p.telefone || '').trim()) { pulados.push({ id, motivo: 'sem_telefone' }); continue }
     if (p.tem_whatsapp === false) { pulados.push({ id, motivo: 'sem_whatsapp' }); continue }
+    // CONTINUIDADE: este lead ja fala com outro numero desta empresa. Pular e' o unico desfecho
+    // honesto — enviar por este numero quebraria o atendimento que ja existe e deixaria o
+    // historico apontando para a instancia antiga (D-8). Nunca se troca o numero em silencio.
+    const vinculada = vinculoDoTelefone(vinculos, p.telefone)
+    if (instanceName && vinculada && vinculada !== instanceName) {
+      pulados.push({ id, motivo: 'instancia_vinculada_outra', instancia: vinculada })
+      continue
+    }
     const compliance = await canProspectLead(pool, p.telefone, {
       prospectId: p.id,
       empresaId,
@@ -374,7 +424,7 @@ async function rodarLeads(pool, { empresaId, usuarioId, instanciaId, prospectIds
 
   const config = await obterConfigBancoLeads(pool, empresaId)
   const tetoDiario = Number(config.teto_diario) > 0 ? Number(config.teto_diario) : TETO_DIARIO
-  const { elegiveis, pulados } = await separarElegiveis(pool, empresaId, ids)
+  const { elegiveis, pulados } = await separarElegiveis(pool, empresaId, ids, instancia.evolution_instance)
   if (!elegiveis.length) return { rodada: false, aceitos: [], pulados, teto_restante: null, total_dia: null }
 
   const reserva = await reservarDisparosManuais(pool, {
@@ -402,6 +452,7 @@ async function rodarLeads(pool, { empresaId, usuarioId, instanciaId, prospectIds
     empresaId,
     evolutionInstance: instancia.evolution_instance,
     itens,
+    usuarioId: usuarioId || null,
     gerar: { ativo: !!config.gerar_ia, instrucoes: config.instrucoes_ia, contextoId: instancia.contexto_id },
   }
   enviarLoteEmBackground(pool, envioArgs).catch((err) => logger.error({ err: err.message }, '[rodar-leads] background falhou'))
@@ -539,7 +590,7 @@ async function gerarMensagensSemi(pool, { empresaId, usuarioId, instanciaId, pro
   if (!saudacao) { const e = new Error('Configure a saudação (fallback) desta instância antes de gerar (botão "Testar envio").'); e.statusCode = 409; throw e }
 
   const config = await obterConfigBancoLeads(pool, empresaId)
-  const { elegiveis, pulados } = await separarElegiveis(pool, empresaId, ids)
+  const { elegiveis, pulados } = await separarElegiveis(pool, empresaId, ids, instancia.evolution_instance)
   if (!elegiveis.length) return { gerados: [], pulados, falha_sistemica: null }
 
   const gerarIa = !!config.gerar_ia
@@ -662,7 +713,7 @@ async function gerarPendentesSemi(pool, { empresaId, usuarioId = null, instancia
  * respeitando cooldown/teto anti-ban. Sem re-gerar: envia o texto salvo. Se prospectIds
  * vier vazio, dispara todos os rascunhos pendentes da instância.
  */
-async function dispararGerados(pool, { empresaId, instanciaId, prospectIds }, deps = {}) {
+async function dispararGerados(pool, { empresaId, instanciaId, prospectIds, usuarioId = null }, deps = {}) {
   const instancia = await carregarInstancia(pool, empresaId, instanciaId)
   if (!instancia) { const e = new Error('Instância não encontrada.'); e.statusCode = 404; throw e }
   if (!instancia.ativo) { const e = new Error('Instância está desativada. Ative o número antes de disparar.'); e.statusCode = 409; throw e }
@@ -684,6 +735,7 @@ async function dispararGerados(pool, { empresaId, instanciaId, prospectIds }, de
   const { rows } = await pool.query(sql, params)
 
   // Reavalia elegibilidade no momento do disparo (pode ter travado/mudado desde a geração).
+  const vinculos = await instanciasVinculadasDosLeads(pool, empresaId, rows.map((r) => r.telefone))
   const agora = Date.now()
   const pulados = []
   const candidatos = []
@@ -698,6 +750,15 @@ async function dispararGerados(pool, { empresaId, instanciaId, prospectIds }, de
     if (r.tem_whatsapp === false) {
       await marcarDisparoFalhou(pool, r.disparo_id, 'sem_whatsapp', r.prospect_id, true)
       pulados.push({ id: r.prospect_id, motivo: 'sem_whatsapp' })
+      continue
+    }
+    // CONTINUIDADE: o rascunho foi gerado para ESTA instancia, mas o lead pode ter passado a
+    // falar com outro numero desde entao. Marcar o disparo como falho (em vez de so pular) e' o
+    // que faz o caso aparecer no painel — pular em silencio o repetiria a cada rodada.
+    const vinculada = vinculoDoTelefone(vinculos, r.telefone)
+    if (vinculada && vinculada !== instancia.evolution_instance) {
+      await marcarDisparoFalhou(pool, r.disparo_id, `instancia_vinculada_outra:${vinculada}`)
+      pulados.push({ id: r.prospect_id, motivo: 'instancia_vinculada_outra', instancia: vinculada })
       continue
     }
     const compliance = await canProspectLead(pool, r.telefone, {
@@ -782,6 +843,12 @@ async function dispararGerados(pool, { empresaId, instanciaId, prospectIds }, de
     evolutionInstance: instancia.evolution_instance,
     itens: aceitos,
     gerar: { ativo: false },
+    // Quem clicou "Disparar" e' o ACIONADOR. A AUTORIA do texto fica 'desconhecida' de
+    // proposito: o rascunho do Semi foi gerado antes, e `lead_disparos` nao registra se veio da
+    // IA ou do template. Deduzir pelo `gerar_ia` ATUAL afirmaria algo sobre um texto escrito no
+    // passado — o tipo de inferencia silenciosa que este repositorio recusa. Limitacao
+    // declarada; resolver exige uma coluna em `lead_disparos`, em diff proprio.
+    usuarioId: usuarioId || null,
   }
   enviarLoteEmBackground(pool, envioArgs).catch((err) => logger.error({ err: err.message }, '[rodar-leads] disparar-gerados background falhou'))
 
@@ -879,7 +946,7 @@ async function reconciliarConfirmacoesPendentes(pool, limit = 100) {
 
 // Envia um lote em background com jitter. Cada item: { prospect, disparoId, mensagem }.
 // Quando gerar.ativo, regenera a mensagem por IA antes de enviar.
-async function enviarLoteEmBackground(pool, { empresaId, evolutionInstance, itens, gerar }) {
+async function enviarLoteEmBackground(pool, { empresaId, evolutionInstance, itens, gerar, usuarioId = null }) {
   const resultados = []
   for (let i = 0; i < itens.length; i++) {
     const { prospect: p, disparoId } = itens[i]
@@ -916,7 +983,13 @@ async function enviarLoteEmBackground(pool, { empresaId, evolutionInstance, iten
       if (!complianceFinal.allowed) {
         throw new Error(`compliance:${complianceFinal.reason || 'bloqueado'}`)
       }
-      const respostaEnvio = await enviarMensagem(p.telefone, mensagem, { instanceName: evolutionInstance })
+      const respostaEnvio = await enviarMensagem(p.telefone, mensagem, {
+        instanceName: evolutionInstance,
+        empresaId,
+        autoria: geradaPorIa ? 'ia' : 'desconhecida',
+        acionadorUsuarioId: usuarioId || null,
+        tipoMensagem: 'saudacao',
+      })
       const { keyId } = chaveMensagemEvolution(respostaEnvio)
       if (keyId) {
         await pool.query(
@@ -992,6 +1065,8 @@ module.exports = {
   saudacaoDaInstancia,
   separarElegiveis,
   exigirInstanciaConectada,
+  instanciasVinculadasDosLeads,
+  vinculoDoTelefone,
   STATUS_RODAVEL,
   MAX_LOTE,
   COOLDOWN_MIN,

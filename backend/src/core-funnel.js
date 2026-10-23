@@ -1042,7 +1042,7 @@ function createCoreFunnel(deps = {}) {
     }
 
     const evolutionInstance = conversaUsada?.evolution_instance || null
-    const whatsappOpts = evolutionInstance ? { instanceName: evolutionInstance } : {}
+    const whatsappOpts = { autoria: 'ia', tipoMensagem: 'resposta_ia', ...(evolutionInstance ? { instanceName: evolutionInstance } : {}) }
     await enviarMensagem(numero, texto, whatsappOpts)
     const historicoNovo = [...historico, { role: 'assistant', content: texto }]
     // Mantém o estágio atual (a progressão do playbook vive em lead_insights;
@@ -1121,7 +1121,7 @@ function createCoreFunnel(deps = {}) {
 
     const empresaIdConversa = conversaUsada?.empresa_id || null
     const evolutionInstanceConversa = conversaUsada?.evolution_instance || null
-    const whatsappOpts = evolutionInstanceConversa ? { instanceName: evolutionInstanceConversa } : {}
+    const whatsappOpts = { autoria: 'ia', tipoMensagem: 'resposta_ia', ...(evolutionInstanceConversa ? { instanceName: evolutionInstanceConversa } : {}) }
 
     // ── Pause global do agente por empresa (config.agente_pausado) ────────────
     // Vale para PJ e para qualquer empresa: se a empresa está pausada, o agente

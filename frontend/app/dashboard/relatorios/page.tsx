@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { apiFetch, getEmpresaId } from '@/lib/api'
 import { useFeedback, Spinner } from '@/components/feedback/FeedbackProvider'
+import IndicadoresMensagens from '@/components/IndicadoresMensagens'
 
 type Resumo = {
   conversas: { ativas: string; fechadas: string; arquivadas: string; total: string }
@@ -98,6 +99,9 @@ export default function RelatoriosPage() {
           <Card title="Taxa de resposta" value={`${taxaResposta}%`} accent="text-emerald-600" />
         </div>
       </Secao>
+
+      {/* MENSAGENS — autoria IA x pessoa. Bloco independente: carrega e falha sozinho. */}
+      <IndicadoresMensagens />
 
       {/* LEADS */}
       <Secao titulo="Leads" tipo="leads">

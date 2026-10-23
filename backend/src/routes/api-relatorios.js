@@ -4,6 +4,8 @@ const { Router } = require('express')
 const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess } = require('../middleware/tenant')
 const { gerarRelatorioIA, coletarDadosRelatorio } = require('../services/relatorio')
+const { resumoEnvios } = require('../db/mensagem-envios')
+const { DEFINICOES } = require('../services/mensagem-autoria')
 const { logger } = require('../logger')
 
 const router = Router({ mergeParams: true })
@@ -27,6 +29,30 @@ router.post('/ia', requireAuth, requireEmpresaAccess, async (req, res) => {
     log: logger,
   })
   return res.json({ ok: true, data: result })
+})
+
+// GET /api/empresas/:empresaId/relatorios/mensagens?de=&ate=&instancia=
+// Mensagens ENVIADAS no período, separando IA × pessoa × autoria desconhecida.
+//
+// Cada número vem com a definição do que ele conta (`definicoes`), porque "mensagem",
+// "lead contatado" e "lead que respondeu" medem coisas diferentes e o pedido do operador exige
+// que a tela diga qual é qual. O que esta rota NÃO afirma: entrega, leitura, e nada sobre o
+// histórico anterior ao ledger (migration 117) — aquele período não tem autoria registrada e
+// não é retroagido.
+router.get('/mensagens', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const data = await resumoEnvios(pool, req.empresa.id, {
+      de: req.query.de || null,
+      ate: req.query.ate || null,
+      instancia: req.query.instancia || null,
+    })
+    return res.json({ ok: true, data: { ...data, definicoes: DEFINICOES } })
+  } catch (erro) {
+    const err = /** @type {any} */ (erro)
+    const status = err.statusCode || 500
+    logger.error('[api-relatorios] MENSAGENS_FAILED: ' + err.message)
+    return res.status(status).json({ ok: false, error: { code: 'MENSAGENS_FAILED', message: err.message } })
+  }
 })
 
 module.exports = router

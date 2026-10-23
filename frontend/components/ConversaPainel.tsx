@@ -724,9 +724,17 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
                   </div>
                   {/* Instancia SEMPRE visivel: e' por ela que a resposta sai (regra unica da Fase 2 —
                       responder sai pela instancia gravada na conversa, nunca por outra). */}
-                  <span className="inline-flex w-fit items-center rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
-                    Instância:&nbsp;<strong>{aberta.instancia_nome || aberta.evolution_instance || 'não definida'}</strong>
-                  </span>
+                  {aberta.instancia_nome || aberta.evolution_instance ? (
+                    <span className="inline-flex w-fit items-center rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
+                      Instância:&nbsp;<strong>{aberta.instancia_nome || aberta.evolution_instance}</strong>
+                    </span>
+                  ) : (
+                    <span
+                      title="Esta conversa não tem instância WhatsApp comprovada. Enquanto não tiver, o envio por aqui é bloqueado — nenhum outro número assume o contato."
+                      className="inline-flex w-fit items-center rounded-md border border-line bg-surface-2 px-2 py-0.5 text-[11px] text-ink-2">
+                      Instância não identificada
+                    </span>
+                  )}
                   {/* Botao sumido sem explicacao e' o que faz o operador achar que a tela quebrou. */}
                   {!acoesDono.assumir && !acoesDono.devolver && acoesDono.motivoSemAssumir && (
                     <span className="max-w-[180px] text-[10px] leading-snug text-slate-400">{acoesDono.motivoSemAssumir}</span>
