@@ -13,6 +13,7 @@ const { pool } = require('../db')
 const { requireAuth, requireEmpresaAccess, requireCapacidade } = require('../middleware/tenant')
 const { atualizarEmailProspect } = require('../prospecting')
 const { rodarLeads, gerarMensagensSemi, gerarPendentesSemi, dispararGerados, estadoEnvioInstancia, STATUS_RODAVEL } = require('../services/rodar-leads')
+const { selecionarOfertaAbordagem } = require('../services/abordagem-inicial-contrato')
 const { estadoAutomatico } = require('../services/banco-leads-auto')
 const { obterConfigBancoLeads, salvarConfigBancoLeads } = require('../db/banco-leads-config')
 const {
@@ -1805,6 +1806,38 @@ router.get('/config', requireAuth, requireEmpresaAccess, async (req, res) => {
     const data = await obterConfigBancoLeads(pool, req.empresa.id)
     return res.json({ ok: true, data })
   } catch (err) { return envelopeErro(res, err, 'CONFIG_FAILED') }
+})
+
+// GET /abordagem/previa?nicho=... — QUAL orientação comercial sairia para um lead deste nicho.
+//
+// SOMENTE LEITURA: não grava, não dispara nada e NÃO CHAMA IA (abrir a prévia não pode custar
+// chamada paga). Ela existe porque a regra de precedência (específica > geral > nenhuma) vive no
+// BACKEND, em `selecionarOfertaAbordagem`: reimplementá-la na tela criaria uma segunda régua que
+// divergiria da que realmente escolhe a oferta no disparo. A tela só TRADUZ o veredito.
+router.get('/abordagem/previa', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const config = await obterConfigBancoLeads(pool, req.empresa.id)
+    const nicho = String(req.query.nicho || '').trim().slice(0, 180)
+    const sel = selecionarOfertaAbordagem(config.instrucoes_ia || '', { nicho })
+    return res.json({
+      ok: true,
+      data: {
+        nicho,
+        gerar_ia: !!config.gerar_ia,
+        motivo: sel.motivo,
+        oferta: sel.oferta
+          ? {
+            id: sel.oferta.id,
+            nome: sel.oferta.nome,
+            descricao: sel.oferta.descricao,
+            nicho: sel.oferta.nicho,
+            geral: sel.oferta.geral,
+            site_pronto: sel.oferta.site_pronto,
+          }
+          : null,
+      },
+    })
+  } catch (err) { return envelopeErro(res, err, 'ABORDAGEM_PREVIA_FAILED') }
 })
 
 // PUT /config — atualiza a config do Banco de Leads (upsert parcial: só os campos

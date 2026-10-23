@@ -3858,6 +3858,87 @@
   `components/ConversaHistoricoModal.tsx` e `app/dashboard/banco-leads/page.tsx`. Guarda em
   `test/isolamento-comercial.test.js`. **Nenhuma rota, capacidade ou env nova.**
 
+### ORIENTAÇÃO COMERCIAL POR NICHO — Contexto × Playbook × Abordagem de IA (migration 118)
+- **Regra de negócio, em uma frase:** cada abordagem leva **UMA** oferta, escolhida pelo nicho do
+  lead, e a conversa **continua nela** — inclusive depois que o lead responde e nos follow-ups.
+- **Onde a "Abordagem de IA" vive:** não é tabela. É um bloco JSON
+  `[ABORDAGEM_IA_CONFIG]…[/ABORDAGEM_IA_CONFIG]` dentro de `app.banco_leads_config.instrucoes_ia`,
+  editado no modal "Abordagem IA" do Banco de Leads. Dono da regra:
+  `src/services/abordagem-inicial-contrato.js` (PURO — sem banco, HTTP, IA ou rede).
+- ⚠️ **PRECEDÊNCIA, e ela tem exatamente estes degraus:**
+  1. segurança/isolamento por empresa e instância (nada aqui afrouxa isso);
+  2. fatos do **conhecimento autorizado** do contexto (`montarConhecimentoDoContexto`);
+  3. **oferta específica ATIVA do nicho do lead**;
+  4. **oferta geral ATIVA**, só quando não houver específica correspondente;
+  5. tom/condução da **etapa `primeiro_contato`** do playbook e demais regras gerais — elas nunca
+     substituem a oferta do degrau 3/4.
+  **NÃO existe um sexto degrau.** Até 2026-10-22 `selecionarOfertaAbordagem` terminava em
+  `especifica || geral || ativas[0]`: sem oferta do nicho e sem geral, o lead recebia a
+  **primeira oferta ativa da lista — a de outro nicho** — e a IA conduzia a conversa inteira nela.
+  Sem correspondência a abordagem é **consultiva, sem carro-chefe**. Guarda de regressão lê o fonte.
+- **A correspondência de nicho é DETERMINÍSTICA e tem direção:** igualdade vence; "o nicho do LEAD
+  contém o da OFERTA como frase inteira" vale ("energia solar" casa "energia solar fotovoltaica");
+  o inverso **não** vale (oferta "energia solar residencial" não captura o lead "energia solar").
+  Empate: nicho mais longo (mais específico), depois nome — mexer na ordem da lista na tela **não**
+  troca a oferta usada. `fonte`/`origem` (places | instagram | meta_ads) **ficam de fora**: é a
+  procedência da coleta, não o ramo do negócio — compará-la fazia uma oferta chamada "instagram"
+  capturar todo lead vindo do Instagram.
+- **"Material pronto" exige DECLARAÇÃO.** `renderMensagemAbordagemFallback` afirmava "Tenho essa
+  estrutura pronta aqui" por **default** (`avisoSitePronto !== false`): quem chamava sem opção —
+  `montarMensagemFallback`, o caminho da fila diária — prometia material que ninguém configurou.
+  Hoje só `=== true` libera a frase.
+- **A etapa `primeiro_contato` do playbook passou a chegar na 1ª mensagem.** Antes só o bloco de
+  FATOS entrava; a lógica de abordagem escrita pelo operador não era usada por ninguém naquele
+  caminho. Ela entra como **condução/tom** — onde falar de carro-chefe, quem manda é a oferta.
+- **A `pergunta_final` da estratégia é SUGESTÃO quando há oferta.** `montarEstrategiaAbordagem`
+  calcula ângulo e pergunta pela **presença digital** do lead, sem conhecer a oferta; com uma
+  oferta de CRM/operação a pergunta sairia do assunto. O prompt manda adaptá-la ao resultado da
+  oferta e proíbe terminar falando de site quando a oferta não é site.
+- **CONTINUIDADE — `app.lead_insights` com `tipo = 'abordagem_origem'`** (migration `118`,
+  **aditiva: só um índice único parcial**, nenhuma tabela nova, nenhum dado mutado). A linha é um
+  **SNAPSHOT datado** (oferta copiada inteira + motivo + nicho do lead + `contexto_id` +
+  `etapa_playbook`), não referência à configuração viva: editar ou apagar a oferta na tela depois
+  **não** reescreve o passado nem troca o assunto de uma conversa em andamento. Mesma disciplina
+  de `vendas.comissao_percentual` (083) e da missão publicada (085).
+- **Ausência de linha = ORIGEM DESCONHECIDA**, estado de primeira classe: conversa anterior ao
+  deploy, abordagem por **template** (`gerar_ia` off — nenhuma oferta foi selecionada) ou
+  `wa.me` manual. O bloco injetado fica **vazio** — **não se inventa atribuição retroativa**.
+  **Não há backfill e não deve haver.**
+- **Quando se grava:** Manual/Automático gravam **depois do envio CONFIRMADO**
+  (`finalizarDisparoEnviado`) — gravar antes faria o atendimento continuar numa oferta que o lead
+  nunca recebeu; o Semi grava na **confirmação da geração**, porque o texto fica congelado em
+  `aguardando_disparo` e sai como está. `registrarAbordagemOrigem` **nunca lança**.
+- **Quem LÊ, e são quatro caminhos:** `core-funnel.js` lê **uma vez por turno** e entrega aos
+  **dois motores de resposta** — o legado com estágios (via `_flags_extras.abordagemOrigem` →
+  `ORIGEM_DA_CONVERSA` em `montarSystemPromptDinamico`) e o playbook
+  (`responderContexto2` → `processarMensagemComPlaybook` → bundle **e** caminho de duas chamadas).
+  O follow-up lê **uma vez por execução** em `followup-execution.js` e serve os **dois** caminhos
+  (`gerarFollowupComPlaybook` e o `chamarClaudeFollowup` legado).
+- **PROIBIDO** comparar `motivo` com literal fora de `MOTIVO_OFERTA`, e **proibido** reimplementar
+  a precedência no front — `frontend/lib/abordagem-previa.js` **só TRADUZ** (guarda de regressão
+  falha se ele varrer lista, ler `ativo` ou comparar nichos).
+- **Prévia na tela:** `GET /api/empresas/:empresaId/banco-leads/abordagem/previa?nicho=` —
+  **somente leitura**, não grava, não dispara e **não chama IA** (abrir a prévia não pode custar
+  chamada paga). Roda a MESMA `selecionarOfertaAbordagem` sobre a config **já salva**, então a
+  tela nunca promete uma oferta que o disparo não usaria.
+- **Lacuna declarada (NÃO corrigida aqui):** `app.empresa_contextos.estagios_json` alimenta o
+  motor **legado** (`getContextoAtivoComEstagios` → `montarSystemPromptDinamico`) e, agora, a 1ª
+  abordagem; o motor do **playbook** (`contexto2-runtime`) continua lendo só
+  `app.empresa_contexto_versoes.conteudo_json`. Nas empresas que respondem pelo playbook, editar um
+  estágio **não muda a resposta**. Unificar as duas fontes muda o prompt de toda resposta em
+  produção — é projeto próprio, com verificação ao vivo.
+- Código: `src/services/abordagem-inicial-contrato.js` (PURO; `MOTIVO_OFERTA`,
+  `selecionarOfertaAbordagem`, `snapshotOrientacaoAbordagem`, `blocoOrientacaoOrigem`),
+  `src/services/saudacao-analise.js` (`gerarAbordagemAnalise`; `gerarSaudacaoAnalise` virou
+  invólucro do contrato antigo), `src/db/abordagem-origem.js`, `src/services/rodar-leads.js`,
+  `src/services/contexto2-runtime.js`, `src/services/contexto2-responder.js`, `src/core-funnel.js`,
+  `src/agent.js`, `src/followup-execution.js`, `src/routes/api-banco-leads.js`. Front:
+  `frontend/lib/abordagem-previa.{js,d.ts,test.js}` + o modal "Abordagem IA" em
+  `app/dashboard/banco-leads/page.tsx`. Testes: `test/abordagem-orientacao.test.js` (29, com 7
+  guardas que leem o fonte), `frontend/lib/abordagem-previa.test.js` (7).
+- **Nenhuma variável de ambiente nova, nenhuma capacidade nova, nenhuma tabela nova, nenhum item
+  de menu novo.**
+
 ### ⚠️ `/dashboard/prospeccao/*` NÃO filtra empresa — 19 rotas legadas com vazamento entre tenants
 - **Medido em 2026-09-24, lendo o corpo das 29 rotas:** nenhuma delas passa `empresaId`. E
   `montarFiltrosProspects` só acrescenta `empresa_id = $n` **quando o filtro é informado**

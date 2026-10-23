@@ -78,6 +78,8 @@ function createContexto2Responder(deps = {}) {
     historico,
     estagioLive,
     capacidade = CAPACIDADES.RESPOSTA_CONVERSACIONAL,
+    // Oferta que originou esta conversa (snapshot). Lido UMA vez por turno pelo chamador.
+    abordagemOrigem = null,
     // Modo padrao da Central, JA resolvido pelo chamador (core-funnel) — uma leitura por
     // turno. Ausente = padrao de fabrica; a precedencia e' do modulo puro, nao daqui.
     modoGlobal = null,
@@ -101,6 +103,7 @@ function createContexto2Responder(deps = {}) {
         mensagem,
         historico,
         evolutionInstance,
+        abordagemOrigem,
       })
     } catch (e) {
       logger.error({ err: e.message, empresa_id: empresaId, numero }, 'Playbook multiempresa falhou — sem resposta automática neste turno')

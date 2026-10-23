@@ -6767,3 +6767,10 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   `core-funnel.js`, `ConversaPainel.tsx`, etc.) — **a preservar, fora deste escopo**.
 - **Fase 1 (auditoria) — evidências:** registradas no corpo desta entrada e em
   `docs/ai-decision-log.md`.
+- **Fase 9-10 (2026-10-23):** implementado e validado. `npm test` **3392/3392**; frontend
+  `npx tsc --noEmit` limpo e `node --test lib/*.test.js` **899/899**. `npm run typecheck` do backend
+  acusa 5 erros **pré-existentes** em `painel-comercial.js`/`api-painel-comercial.js` (commit
+  `cf0916e`, arquivos não tocados nesta tarefa). Decisões em `docs/ai-decision-log.md`
+  (2026-10-22/23). **Não validado ao vivo:** sem banco local do projeto (a `DATABASE_URL` aponta
+  para `postgres.railway.internal`, inalcançável fora do Railway), então não houve passe de
+  Playwright no modal nem teste de ponta a ponta em produção.

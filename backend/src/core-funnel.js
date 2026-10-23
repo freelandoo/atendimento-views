@@ -17,6 +17,7 @@ const { canonicalizarPerfilLead } = require('./lead-profile-canonical')
 const { validarRespostaPorAcao } = require('./action-response-validator')
 const { telefoneCanonicoBR, sqlTelefoneNormalizado } = require('./telefone-br')
 const { avaliarEnvio, resumoBloqueio, CAPACIDADES } = require('./services/conversa-modo-ia')
+const { obterAbordagemOrigem } = require('./db/abordagem-origem')
 
 // Estágios em que o protocolo de abertura determinístico pode rodar (início do
 // funil). Fora deles a conversa já avançou e a abertura não se aplica.
@@ -960,7 +961,7 @@ function createCoreFunnel(deps = {}) {
    * fluxo legado). Atende empresas novas/simples; handoff pausa a conversa.
    * @returns {Promise<{ ok: true, via: 'playbook' }|{ skipped: true, reason: string }>}
    */
-  async function responderComPlaybookEmpresa({ numero, empresaId, conversaUsada, historico, estagioLive }) {
+  async function responderComPlaybookEmpresa({ numero, empresaId, conversaUsada, historico, estagioLive, abordagemOrigem = null }) {
     const ultima = historico[historico.length - 1]
     const mensagem = typeof ultima?.content === 'string' ? ultima.content : String(ultima?.content || '')
     const status = conversaUsada?.status || 'ativo'
@@ -975,6 +976,7 @@ function createCoreFunnel(deps = {}) {
         leadPhone: numero,
         mensagem,
         historico,
+        abordagemOrigem,
       })
     } catch (e) {
       logger.error({ err: e.message, empresa_id: empresaId, numero }, 'Playbook multiempresa falhou — sem resposta automática neste turno')
@@ -1202,6 +1204,15 @@ function createCoreFunnel(deps = {}) {
       }
     }
 
+    // ── Orientação que ORIGINOU esta conversa (oferta da 1ª abordagem) ────────
+    // Uma leitura por turno, compartilhada pelos DOIS motores de resposta (estágios e
+    // playbook) e pelo follow-up. `null` = origem desconhecida (conversa anterior ao
+    // registro, abordagem por template ou wa.me manual) — não se inventa atribuição.
+    let abordagemOrigemTurno = null
+    if (empresaIdConversa) {
+      abordagemOrigemTurno = await obterAbordagemOrigem(pool, empresaIdConversa, numero).catch(() => null)
+    }
+
     // ── Modelo unificado: contexto ATIVO com estágios próprios ────────────────
     // Se a empresa tem um contexto ativo COM estágios salvos, o agente roda pelo
     // MESMO fluxo legado (agenda, follow-up, etc.), porém com Núcleo + estágio +
@@ -1243,6 +1254,7 @@ function createCoreFunnel(deps = {}) {
           conversaUsada,
           historico,
           estagioLive,
+          abordagemOrigem: abordagemOrigemTurno,
           // A capacidade viaja junto: o gate de entrega do playbook e' o mesmo deste motor,
           // e follow-up executado por aqui nao pode ser barrado pelo toggle da conversa.
           capacidade: capacidadeTurno,
@@ -1258,9 +1270,16 @@ function createCoreFunnel(deps = {}) {
       ctxEstagiosTurno
         ? chamarClaude(h, e, p, v, {
           ...opc,
-          _flags_extras: { ...(opc && opc._flags_extras ? opc._flags_extras : {}), contextoEstagios: ctxEstagiosTurno },
+          _flags_extras: {
+            ...(opc && opc._flags_extras ? opc._flags_extras : {}),
+            contextoEstagios: ctxEstagiosTurno,
+            abordagemOrigem: abordagemOrigemTurno,
+          },
         })
-        : chamarClaude(h, e, p, v, opc)
+        : chamarClaude(h, e, p, v, {
+          ...opc,
+          _flags_extras: { ...(opc && opc._flags_extras ? opc._flags_extras : {}), abordagemOrigem: abordagemOrigemTurno },
+        })
 
     let perfil = await buscarPerfil(numero)
     if (!perfil.numero) perfil = { ...perfil, numero }

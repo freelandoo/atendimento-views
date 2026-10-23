@@ -2707,6 +2707,14 @@ function montarSystemPromptDinamico(estagio, perfil, aprendizado, flags = {}, hi
       `- NOME_DO_LEAD: ${apelidoLead}. Use o primeiro nome de forma natural para acolher/saudar quando fizer sentido; nao repita o nome em toda mensagem.`
     )
   }
+  // ORIENTACAO QUE ORIGINOU A CONVERSA — a oferta apresentada na 1a abordagem. Sem isto o motor
+  // legado reabre o assunto pelo carro-chefe do contexto, que pode ser outro (ou de outro nicho).
+  // Ausencia = origem desconhecida: nao se inventa atribuicao retroativa, simplesmente nao
+  // entra linha nenhuma no prompt.
+  const blocoOrigemAbordagem = require('./services/abordagem-inicial-contrato').blocoOrientacaoOrigem(flags.abordagemOrigem)
+  if (blocoOrigemAbordagem) {
+    linhasFlags.push(`- ORIGEM_DA_CONVERSA: ${blocoOrigemAbordagem.replace(/\n/g, ' ')}`)
+  }
   const pedidosPreco = Number(flags.pedidosPreco) || 0
   const temPrecoCalculado = !!flags.temPrecoCalculado
   if (pedidosPreco >= 2 && !temPrecoCalculado) {

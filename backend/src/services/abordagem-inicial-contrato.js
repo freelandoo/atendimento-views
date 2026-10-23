@@ -91,27 +91,102 @@ function sanitizarOfertaAbordagem(oferta = {}) {
   }
 }
 
-function ofertaCombinaComLead(oferta, lead) {
-  if (!oferta || oferta.geral || !oferta.nicho) return false
-  const alvo = normalizarBusca(oferta.nicho)
-  if (!alvo) return false
-  const campos = [lead.nicho, lead.prospect_nicho, lead.categoria, lead.categoria_perfil, lead.fonte]
+// Motivos da selecao — vocabulario FECHADO. A tela so TRADUZ; ninguem compara com literal fora daqui.
+const MOTIVO_OFERTA = Object.freeze({
+  ESPECIFICA: 'oferta_especifica_do_nicho',
+  GERAL: 'oferta_geral',
+  SEM_CONFIG: 'sem_configuracao_de_abordagem',
+  SEM_ATIVA: 'nenhuma_oferta_ativa',
+  // O caso que o defeito de 2026-10-22 produzia em silencio: ha oferta ativa, mas nenhuma
+  // corresponde ao nicho do lead e nao existe oferta geral. Nao se escolhe oferta de outro nicho.
+  SEM_CORRESPONDENCIA: 'sem_oferta_para_o_nicho',
+})
+
+// Os campos do LEAD que descrevem o NICHO. `fonte`/`origem` ficam FORA de proposito: aquilo e'
+// a procedencia da coleta (places | instagram | meta_ads), nao o ramo do negocio — compara-la
+// com o nicho da oferta faz uma oferta chamada "instagram" capturar todo lead vindo do Instagram.
+function nichosDoLead(lead) {
+  return [lead.nicho, lead.prospect_nicho, lead.categoria, lead.categoria_perfil]
     .map(normalizarBusca)
     .filter(Boolean)
-  return campos.some((campo) => campo === alvo || campo.includes(alvo) || alvo.includes(campo))
+}
+
+/**
+ * Forca da correspondencia entre o nicho da OFERTA e o do LEAD. 2 = igual, 1 = o nicho do lead
+ * CONTEM o da oferta como frase inteira ("energia solar" casa "energia solar fotovoltaica"),
+ * 0 = nao casa.
+ *
+ * A direcao importa e so uma delas e' valida: a oferta pode ser mais GENERICA que o lead, nunca
+ * mais ESPECIFICA. O codigo anterior testava os dois sentidos (`alvo.includes(campo)`), entao uma
+ * oferta de "energia solar residencial" capturava o lead "solar" — o oposto do que o operador
+ * configurou. A comparacao e' por FRASE INTEIRA (limite de palavra): sem isso "sol" casaria
+ * "solar" e "odonto" casaria "odontologia" por acidente de substring.
+ */
+function grauCorrespondenciaNicho(oferta, lead) {
+  if (!oferta || oferta.geral || !oferta.nicho) return 0
+  const alvo = normalizarBusca(oferta.nicho)
+  if (!alvo) return 0
+  let grau = 0
+  for (const campo of nichosDoLead(lead)) {
+    if (campo === alvo) return 2
+    if (campo === `${alvo}` || campo.startsWith(`${alvo} `) || campo.endsWith(` ${alvo}`) || campo.includes(` ${alvo} `)) {
+      grau = Math.max(grau, 1)
+    }
+  }
+  return grau
+}
+
+function ofertaCombinaComLead(oferta, lead) {
+  return grauCorrespondenciaNicho(oferta, lead) > 0
+}
+
+/**
+ * Desempate DETERMINISTICO entre ofertas especificas que casam com o mesmo lead:
+ * 1) maior forca de correspondencia (igual vence contem);
+ * 2) nicho mais ESPECIFICO (texto mais longo) — "energia solar fotovoltaica" vence "energia solar";
+ * 3) nome em ordem alfabetica, para a escolha nao depender da ordem do array.
+ * Sem isso, mexer na lista na tela trocava a oferta usada sem ninguem decidir nada.
+ */
+function compararEspecificas(a, b, lead) {
+  const ga = grauCorrespondenciaNicho(a, lead)
+  const gb = grauCorrespondenciaNicho(b, lead)
+  if (ga !== gb) return gb - ga
+  const na = normalizarBusca(a.nicho).length
+  const nb = normalizarBusca(b.nicho).length
+  if (na !== nb) return nb - na
+  return String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR')
 }
 
 function selecionarOfertaAbordagem(instrucoes = '', dadosLead = {}) {
   const config = extrairJsonConfigAbordagem(instrucoes)
-  if (!config) return { instrucoes: texto(instrucoes, 4000), oferta: null, config: null }
+  if (!config) {
+    return {
+      instrucoes: texto(instrucoes, 4000),
+      oferta: null,
+      config: null,
+      motivo: MOTIVO_OFERTA.SEM_CONFIG,
+      nicho_lead: texto(normalizarLeadEntrada(dadosLead).nicho, 180),
+    }
+  }
   const lead = normalizarLeadEntrada(dadosLead)
   const ofertas = Array.isArray(config.ofertas)
     ? config.ofertas.map(sanitizarOfertaAbordagem).filter((o) => o.nome || o.descricao)
     : []
   const ativas = ofertas.filter((o) => o.ativo)
-  const especifica = ativas.find((o) => !o.geral && ofertaCombinaComLead(o, lead))
-  const geral = ativas.find((o) => o.geral)
-  const oferta = especifica || geral || ativas[0] || null
+  const especificas = ativas
+    .filter((o) => !o.geral && ofertaCombinaComLead(o, lead))
+    .sort((a, b) => compararEspecificas(a, b, lead))
+  const especifica = especificas[0] || null
+  const geral = ativas.find((o) => o.geral) || null
+  // PRECEDENCIA: especifica do nicho > geral > NENHUMA.
+  // ⚠️ NAO existe quarto degrau. Ate 2026-10-22 havia `|| ativas[0]`, que entregava ao lead a
+  // PRIMEIRA oferta ativa da lista — a oferta de OUTRO nicho — quando nao havia nem especifica
+  // nem geral. O lead de energia solar recebia a oferta de padaria e a IA conduzia a conversa
+  // inteira em cima dela. Sem oferta correspondente, a abordagem e' CONSULTIVA (sem carro-chefe).
+  const oferta = especifica || geral || null
+  const motivo = especifica
+    ? MOTIVO_OFERTA.ESPECIFICA
+    : (geral ? MOTIVO_OFERTA.GERAL : (ativas.length ? MOTIVO_OFERTA.SEM_CORRESPONDENCIA : MOTIVO_OFERTA.SEM_ATIVA))
   const complemento = texto(config.complemento, 900)
   const identificacao = texto(config.identificacao || config.identificacaoRemetente, 220)
   const idiomaAutomatico = config.idiomaAutomatico !== false
@@ -132,7 +207,10 @@ function selecionarOfertaAbordagem(instrucoes = '', dadosLead = {}) {
       : 'Gancho: nao dizer que ja existe oferta, site, previa ou estrutura pronta; abordar com diagnostico/analise.')
   } else {
     linhas.push('OFERTA SELECIONADA PELO APLICATIVO')
-    linhas.push('Nenhuma oferta principal foi configurada; a IA nao deve assumir qual e o carro-chefe.')
+    linhas.push(motivo === MOTIVO_OFERTA.SEM_CORRESPONDENCIA
+      ? 'Nenhuma oferta corresponde ao nicho deste lead e nao ha oferta geral ativa. '
+        + 'PROIBIDO usar a oferta configurada para outro nicho: aborde de forma consultiva, sem carro-chefe.'
+      : 'Nenhuma oferta principal foi configurada; a IA nao deve assumir qual e o carro-chefe.')
   }
   linhas.push(idiomaAutomatico
     ? 'Idioma: adaptar ao pais/idioma do lead quando houver sinal nos dados.'
@@ -145,6 +223,8 @@ function selecionarOfertaAbordagem(instrucoes = '', dadosLead = {}) {
     instrucoes: linhas.join('\n'),
     oferta,
     identificacao,
+    motivo,
+    nicho_lead: texto(lead.nicho, 180),
     config: {
       idiomaAutomatico,
       identificacao,
@@ -290,9 +370,14 @@ function renderMensagemAbordagemFallback(entrada = {}, opts = {}) {
   const fraseResultado = resultado
     ? `A ideia e ${resultado}.`
     : `${oportunidade} Notei ${sinal}.`
-  const msg = opts.avisoSitePronto === false
-    ? `Oi, tudo bem? Vi ${alvo}. ${fraseResultado} ${estrategia.pergunta_final}`
-    : `Oi, tudo bem? Tenho essa estrutura pronta aqui para ${alvo}. ${fraseResultado} ${estrategia.pergunta_final}`
+  // ⚠️ "Estrutura pronta" so sai quando ALGUEM DECLAROU que ela existe (`avisoSitePronto === true`,
+  // que vem de `oferta.site_pronto` da oferta SELECIONADA). Ate 2026-10-22 o default era o
+  // contrario (`!== false`): quem chamava sem opcao nenhuma — `montarMensagemFallback`, o caminho
+  // da fila diaria — afirmava ao lead que havia material pronto sem nada configurado. Afirmar
+  // material pronto que nao existe e' inventar fato, que e' justamente o que a regra proibe.
+  const msg = opts.avisoSitePronto === true
+    ? `Oi, tudo bem? Tenho essa estrutura pronta aqui para ${alvo}. ${fraseResultado} ${estrategia.pergunta_final}`
+    : `Oi, tudo bem? Vi ${alvo}. ${fraseResultado} ${estrategia.pergunta_final}`
   return msg.replace(/\s+/g, ' ').trim().slice(0, MAX_MENSAGEM_CHARS)
 }
 
@@ -342,8 +427,11 @@ function normalizarContratoAbordagem(textoBruto, estrategia = {}, opts = {}) {
   }
 }
 
-function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conhecimento = '', instrucoes = '', nomeEmpresa = '', historicoComercial = '' }) {
+function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conhecimento = '', instrucoes = '', nomeEmpresa = '', historicoComercial = '', orientacaoEtapa = '' }) {
   const abordagem = selecionarOfertaAbordagem(instrucoes, dadosLead)
+  // A etapa do playbook entra como CONDUCAO, nunca como fonte de oferta: ela foi escrita para a
+  // empresa inteira e, se a oferta do nicho vencer, e' ela que vale (precedencia 3 > 5).
+  const etapa = texto(orientacaoEtapa, 2500)
   const avisoSitePronto = abordagem.oferta ? abordagem.oferta.site_pronto !== false : false
   const identificacao = texto(abordagem.identificacao, 220)
   const resultadoOferta = resumirResultadoOferta(abordagem.oferta || {})
@@ -371,6 +459,12 @@ function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conheciment
     resultadoOferta
       ? `Ao falar da oferta, foque no resultado operacional: ${resultadoOferta}. Nao reduza tudo a "presenca digital" se a oferta envolver CRM, funil, leads, propostas ou WhatsApp.`
       : 'Ao falar da oferta, traduza a descricao em resultado pratico para o negocio; nao reduza tudo a "presenca digital" quando houver CRM, funil, leads, propostas ou WhatsApp.',
+    // A estrategia (angulo, sinais, pergunta_final) e' calculada pela PRESENCA DIGITAL do lead —
+    // ela nao conhece a oferta. Com uma oferta de CRM/operacao, a pergunta sugerida ("transformar
+    // essa presenca em mais pedidos") sai do assunto. Ela continua servindo de base de TOM.
+    abordagem.oferta
+      ? 'A "pergunta_final" da ESTRATEGIA foi calculada pela presenca digital do lead e e apenas uma SUGESTAO de tom: adapte-a ao resultado da oferta selecionada. Se a oferta nao for site/presenca, nao termine perguntando sobre site ou presenca digital.'
+      : 'Use a "pergunta_final" da ESTRATEGIA como base: sem oferta configurada, a conversa e consultiva sobre os sinais reais do lead.',
     'Nao use BANT nesta primeira mensagem: nao pergunte budget, decisor ou prazo agora.',
     'Detecte o idioma/variante pelos dados do lead (pais, endereco, cidade, telefone, perfil e textos coletados). Se o lead indicar Estados Unidos, escreva em ingles; se indicar Portugal, use portugues de Portugal; se nao houver sinal claro, use portugues do Brasil.',
     identificacao
@@ -381,6 +475,8 @@ function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conheciment
     'Maximo 500 caracteres na mensagem.',
   ]
   return {
+    motivo_oferta: abordagem.motivo,
+    nicho_lead: abordagem.nicho_lead || '',
     systemPrompt: [
       'Voce e a camada de inteligencia artificial de uma prospeccao comercial.',
       'Sua unica saida e um contrato JSON que o aplicativo vai validar antes de enviar.',
@@ -389,6 +485,7 @@ function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conheciment
     userPrompt: [
       `REGRAS\n${regras.map((r, i) => `${i + 1}. ${r}`).join('\n')}`,
       conhecimento ? `CONHECIMENTO DA EMPRESA\n${conhecimento}` : '',
+      etapa ? `ORIENTACAO DA ETAPA "PRIMEIRO CONTATO" (playbook da empresa — conduz o TOM e a CONDUCAO; onde ela falar de oferta/carro-chefe, quem manda e' a OFERTA SELECIONADA acima)\n${etapa}` : '',
       abordagem.instrucoes ? `INSTRUCOES EXTRAS DA EMPRESA\n${abordagem.instrucoes}` : '',
       historicoComercial ? `HISTORICO COMERCIAL DO LEAD (ligacoes e anotacoes ja feitas — se ja houve contato, ajuste o tom para retomada, nao aborde como primeiro contato; NAO copie ao lead)\n${historicoComercial}` : '',
       `ESTRATEGIA CALCULADA PELO APP\n${JSON.stringify(estrategia, null, 2)}`,
@@ -401,8 +498,72 @@ function montarPromptContratoAbordagem({ estrategia, dadosLead = {}, conheciment
   }
 }
 
+// ─── ORIENTACAO QUE ORIGINOU A CONVERSA (continuidade) ───────────────────────
+// A pergunta aqui NAO e' "qual a oferta certa agora?" (isso e' `selecionarOfertaAbordagem`, e so
+// vale na 1a abordagem) e sim "com que oferta esta conversa COMECOU?". Sao perguntas diferentes:
+// a primeira muda quando o operador edita a configuracao; a segunda e' um FATO datado e nao pode
+// mudar depois — trocar a oferta no meio de uma negociacao troca o assunto com o cliente.
+const ORIENTACAO_SCHEMA_VERSION = 'abordagem_origem_v1'
+
+/**
+ * Congela o que foi usado numa abordagem. Snapshot, nao referencia: a oferta e' copiada inteira
+ * para que editar/apagar a configuracao depois nao reescreva o passado (mesma disciplina de
+ * `vendas.comissao_percentual` e de `missao` publicada).
+ */
+function snapshotOrientacaoAbordagem(abordagem = {}, extras = {}) {
+  const oferta = abordagem.oferta || abordagem.oferta_abordagem || null
+  return {
+    schema_version: ORIENTACAO_SCHEMA_VERSION,
+    motivo: texto(abordagem.motivo || extras.motivo || MOTIVO_OFERTA.SEM_CONFIG, 60),
+    nicho_lead: texto(abordagem.nicho_lead || extras.nichoLead, 180),
+    oferta: oferta
+      ? {
+        id: texto(oferta.id, 80),
+        nome: texto(oferta.nome, 180),
+        descricao: texto(oferta.descricao, 700),
+        nicho: texto(oferta.nicho, 180),
+        geral: oferta.geral === true,
+        site_pronto: oferta.site_pronto === true,
+      }
+      : null,
+    // Versoes/fontes usadas na composicao — e' o que torna a orientacao AUDITAVEL depois.
+    contexto_id: texto(extras.contextoId, 80) || null,
+    playbook_versao_id: texto(extras.playbookVersaoId, 80) || null,
+    etapa_playbook: extras.temEtapa ? 'primeiro_contato' : null,
+    origem_envio: texto(extras.origemEnvio, 40) || null,
+    registrado_em: new Date().toISOString(),
+  }
+}
+
+/**
+ * Bloco injetado nos turnos SEGUINTES (resposta do lead e follow-up). Diz o que ja foi
+ * apresentado e PROIBE a troca de oferta. Sem oferta registrada devolve '' — nao se inventa
+ * atribuicao retroativa para conversa que comecou antes disto existir.
+ */
+function blocoOrientacaoOrigem(origem) {
+  const o = origem && typeof origem === 'object' ? origem : null
+  if (!o || !o.oferta || !o.oferta.nome) return ''
+  const linhas = [
+    `Oferta apresentada na primeira abordagem: ${o.oferta.nome}`,
+  ]
+  if (o.oferta.descricao) linhas.push(`Descricao: ${o.oferta.descricao}`)
+  linhas.push(o.oferta.geral
+    ? 'Escopo: oferta geral da empresa.'
+    : `Escopo: oferta especifica do nicho "${o.oferta.nicho || o.nicho_lead || 'nao informado'}".`)
+  if (!o.oferta.site_pronto) {
+    linhas.push('Esta oferta NAO foi apresentada como material/estrutura pronta: nao afirme que existe algo pronto.')
+  }
+  linhas.push('Continue a conversa NESTA oferta. Nao troque para a oferta geral nem para a oferta de outro nicho,'
+    + ' e nao reinicie a abordagem. Se o lead pedir outra coisa, atenda o pedido dele sem reapresentar outro carro-chefe.')
+  return linhas.join('\n')
+}
+
 module.exports = {
   ABORDAGEM_SCHEMA_VERSION,
+  ORIENTACAO_SCHEMA_VERSION,
+  MOTIVO_OFERTA,
+  snapshotOrientacaoAbordagem,
+  blocoOrientacaoOrigem,
   OBJETIVO_RESPOSTA_ABORDAGEM,
   ANGULOS_ABORDAGEM,
   MAX_MENSAGEM_CHARS,

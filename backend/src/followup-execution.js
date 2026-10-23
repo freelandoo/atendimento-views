@@ -5,6 +5,8 @@ const {
   FOLLOWUP_SNIPPET_MAX_CHARS,
   LEAD_CONTEXTO_PROMPT_LIMIT,
 } = require('./config')
+const { obterAbordagemOrigem } = require('./db/abordagem-origem')
+const { blocoOrientacaoOrigem } = require('./services/abordagem-inicial-contrato')
 const { CAPACIDADES } = require('./services/conversa-modo-ia')
 
 const FOLLOWUP_HORAS_CONTINUACAO = 6
@@ -205,13 +207,19 @@ function createFollowupExecution(deps = {}) {
         ? opcoes.contextoTempo
         : null
     const blocoContextoTempo = textoBlocoContextoTempoFollowup(ctxTempo)
+    // Oferta que originou a conversa — o follow-up REABRE o assunto e, sem isto, reabre pelo
+    // carro-chefe do prompt-base, que pode ser outro. Vazio quando a origem e desconhecida.
+    const textoOrigem = blocoOrientacaoOrigem(opcoes && opcoes.abordagemOrigem)
+    const blocoOrigemFollow = textoOrigem
+      ? `\n\n---\nORIENTACAO COMERCIAL QUE ORIGINOU ESTA CONVERSA (precedencia sobre o carro-chefe generico):\n${textoOrigem}\n`
+      : ''
     const blocoPrecificacao = textoBlocoPrecificacaoFollowup(perfil)
     const contextosInternosFollowup = perfil?.numero ? await buscarLeadContextos(perfil.numero, LEAD_CONTEXTO_PROMPT_LIMIT) : []
     const blocoContextoInternoFollowup = montarBlocoContextoInterno(contextosInternosFollowup)
     const aprendFollow = await buscarAprendizadosAtivos('followup')
     const blocoAprendFollow = montarBlocoCorrecoesAprendizados(aprendFollow)
   
-    const userContent = `HISTÓRICO DA CONVERSA:\n${historicoTexto}\n\n---\nESTÁGIO ATUAL NO FUNIL: ${estagio}\n\nPERFIL DO LEAD (JSON):\n${JSON.stringify(perfilResumidoParaFollowup(perfil), null, 2)}${blocoPrecificacao}${blocoDirecionamento}${blocoContextoTempo}\nGere a mensagem de follow-up conforme as instruções do sistema. Responda APENAS com um JSON válido: {"mensagem":"..."}`
+    const userContent = `HISTÓRICO DA CONVERSA:\n${historicoTexto}\n\n---\nESTÁGIO ATUAL NO FUNIL: ${estagio}\n\nPERFIL DO LEAD (JSON):\n${JSON.stringify(perfilResumidoParaFollowup(perfil), null, 2)}${blocoOrigemFollow}${blocoPrecificacao}${blocoDirecionamento}${blocoContextoTempo}\nGere a mensagem de follow-up conforme as instruções do sistema. Responda APENAS com um JSON válido: {"mensagem":"..."}`
   
     const userContentFinal = userContent.replace(
       `${blocoPrecificacao}${blocoDirecionamento}`,
@@ -365,7 +373,11 @@ function createFollowupExecution(deps = {}) {
       const perfil = await buscarPerfil(numero)
       if (!perfil.numero) perfil.numero = numero
       const contextoTempo = contextoTempoFollowup(conversa.atualizado_em, historicoBruto)
-      const opcoesFollow = { contextoTempo, ...(instrTrim ? { instrucao: instrTrim } : {}) }
+      // Lida UMA vez por execução e usada pelos DOIS caminhos de follow-up (playbook e legado).
+      const origemFollow = conversa.empresa_id
+        ? await obterAbordagemOrigem(pool, conversa.empresa_id, numero).catch(() => null)
+        : null
+      const opcoesFollow = { contextoTempo, abordagemOrigem: origemFollow, ...(instrTrim ? { instrucao: instrTrim } : {}) }
 
       // Bifurcação multiempresa: empresa com Contexto 2 ativo gera o follow-up com
       // o PRÓPRIO playbook (não com os prompts da PJ). PJ usa chamarClaudeFollowup.
@@ -376,9 +388,12 @@ function createFollowupExecution(deps = {}) {
         playbookFollow = await getContextoAtivoEmpresa(pool, empresaIdFollow).catch(() => null)
       }
       if (playbookFollow) {
+        // A oferta que originou a conversa viaja junto: o follow-up REABRE o assunto, e sem ela
+        // ele reabre pelo carro-chefe do playbook — que pode ser outro, ou de outro nicho.
         textoFollowup = await gerarFollowupComPlaybook({
           pool, log: logger, empresaId: empresaIdFollow, leadPhone: numero,
           historico: historicoBruto, playbook: playbookFollow, contextoTempo,
+          abordagemOrigem: origemFollow,
         })
       } else {
         textoFollowup = await chamarClaudeFollowup(historicoBruto, estagio, perfil, opcoesFollow)

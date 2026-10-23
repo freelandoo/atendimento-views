@@ -5,11 +5,12 @@
 // persiste nada. NUNCA lança: em qualquer falha retorna '' e o caller cai no template.
 // Desenho aprovado na spec docs/superpowers/specs/2026-07-03-saudacao-analise-e-estagios-design.md
 const { generateAIResponse } = require('../ai-provider')
-const { getContextoComEstagios, montarConhecimentoDoContexto } = require('./contexto-estagios')
+const { getContextoComEstagios, montarConhecimentoDoContexto, normalizarEstagios } = require('./contexto-estagios')
 const {
   montarEstrategiaAbordagem,
   montarPromptContratoAbordagem,
   normalizarContratoAbordagem,
+  snapshotOrientacaoAbordagem,
 } = require('./abordagem-inicial-contrato')
 const { montarBlocoHistoricoComercial } = require('./historico-comercial')
 
@@ -39,14 +40,21 @@ function dadosSemPrompt(jsonApresentacao) {
  * @param {string} [args.nomeLead]
  * @returns {Promise<string>} texto pronto ou '' em falha
  */
-async function gerarSaudacaoAnalise({ pool, log, empresaId, contextoId, jsonApresentacao, instrucoes, nomeLead, telefone, _generate }) {
+async function gerarAbordagemAnalise({ pool, log, empresaId, contextoId, jsonApresentacao, instrucoes, nomeLead, telefone, _generate }) {
   const gerar = _generate || generateAIResponse
+  const vazio = { texto: '', orientacao: null }
   try {
     let conhecimento = ''
+    // Etapa "primeiro contato" do playbook da empresa: a LOGICA de abordagem que o operador
+    // configurou. Ate 2026-10-22 so o bloco de FATOS entrava aqui, entao a etapa que ele
+    // escreveu para a 1a mensagem nao chegava a ela. A oferta do nicho continua vencendo a
+    // etapa quando as duas falarem de carro-chefe (precedencia declarada em AGENTS.md).
+    let orientacaoEtapa = ''
     if (contextoId) {
       try {
         const ctx = await getContextoComEstagios(pool, empresaId, contextoId)
         conhecimento = montarConhecimentoDoContexto(ctx)
+        orientacaoEtapa = String(normalizarEstagios(ctx && ctx.estagios_json).primeiro_contato || '').trim()
       } catch { conhecimento = '' }
     }
 
@@ -65,7 +73,12 @@ async function gerarSaudacaoAnalise({ pool, log, empresaId, contextoId, jsonApre
       instrucoes: instrucoes && String(instrucoes).trim() ? String(instrucoes).trim() : '',
       nomeEmpresa: estrategia.nome_empresa,
       historicoComercial,
+      orientacaoEtapa,
     })
+    const orientacao = snapshotOrientacaoAbordagem(
+      { oferta: promptContrato.oferta_abordagem, motivo: promptContrato.motivo_oferta, nicho_lead: promptContrato.nicho_lead },
+      { contextoId: contextoId || null, temEtapa: !!orientacaoEtapa, origemEnvio: 'banco_leads' }
+    )
 
     const input = {
       systemPrompt: promptContrato.systemPrompt,
@@ -83,16 +96,23 @@ async function gerarSaudacaoAnalise({ pool, log, empresaId, contextoId, jsonApre
           avisoSitePronto: promptContrato.aviso_site_pronto,
         })
         const texto = String(contrato?.mensagem || '').trim()
-        if (texto && texto.length <= MAX_CHARS) return texto
+        if (texto && texto.length <= MAX_CHARS) return { texto, orientacao }
       } catch (e) {
         if (log && log.warn) log.warn({ err: e.message, tentativa }, '[saudacao-analise] tentativa falhou')
       }
     }
-    return ''
+    return vazio
   } catch (e) {
     if (log && log.warn) log.warn({ err: e.message }, '[saudacao-analise] falha geral')
-    return ''
+    return vazio
   }
 }
 
-module.exports = { gerarSaudacaoAnalise }
+// Contrato ANTIGO (so o texto). Mantido porque e' o que os chamadores/testes existentes esperam;
+// quem precisa saber QUAL oferta foi usada chama `gerarAbordagemAnalise`.
+async function gerarSaudacaoAnalise(args) {
+  const { texto } = await gerarAbordagemAnalise(args)
+  return texto
+}
+
+module.exports = { gerarSaudacaoAnalise, gerarAbordagemAnalise }

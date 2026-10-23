@@ -39,6 +39,7 @@
     "GET /api/empresas/:empresaId/agente",
     "GET /api/empresas/:empresaId/agente-pj/prompts",
     "GET /api/empresas/:empresaId/agente-pj/prompts/:chave",
+    "GET /api/empresas/:empresaId/banco-leads/abordagem/previa",
     "GET /api/empresas/:empresaId/banco-leads/carteira",
     "GET /api/empresas/:empresaId/banco-leads/config",
     "GET /api/empresas/:empresaId/banco-leads/auto/estado",

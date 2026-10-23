@@ -34,6 +34,7 @@ import { celulaOrigem, OPCOES_FILTRO_ORIGEM, rotuloFiltroOrigem } from '@/lib/le
 import { acessosDoLead, mapaDoLead, telefoneWhatsapp, type AcessoRapido } from '@/lib/lead-acessos'
 import { ordemIcp, prioridadeComercialLead, qualificacaoDoLead, resumoIcpDoLead, resumoIcpOperacional, seloIcp, seloValidacaoLead } from '@/lib/lead-icp'
 import { leituraCadastro } from '@/lib/pontuacao-indicador'
+import { leituraPrevia, classeTom, type PreviaAbordagem } from '@/lib/abordagem-previa'
 import { paginar, resumoIntervalo, mostrarPaginacao, POR_PAGINA_PADRAO, type PaginaLista } from '@/lib/paginacao'
 import { aplicarRecorte, gravarFiltros, lerFiltros } from '@/lib/filtros-sessao'
 // A ORDEM DE TRABALHO chega pronta do backend (services/lead-fila-trabalho.js): a lista ja vem
@@ -4576,6 +4577,12 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
   const [editandoId, setEditandoId] = useState<string | null>(null)
   const [rascunho, setRascunho] = useState<OfertaAbordagemIa>(() => novaOfertaAbordagem({ geral: false }))
   const [pagina, setPagina] = useState<'padrao' | 'nichos' | 'nova'>('padrao')
+  // Prévia: QUAL oferta sairia para um nicho. O veredito vem do BACKEND (mesma função que
+  // escolhe a oferta no disparo); a tela só traduz. Read-only, não grava e não chama IA.
+  const [nichoPrevia, setNichoPrevia] = useState(nichoAtual || '')
+  const [previa, setPrevia] = useState<PreviaAbordagem | null>(null)
+  const [previaCarregando, setPreviaCarregando] = useState(false)
+  const [previaErro, setPreviaErro] = useState('')
   const instrucoes = montarInstrucoesAbordagemIa(form)
   const contador = instrucoes.length
   const ofertaGeral = form.ofertas.find((o) => o.geral) || novaOfertaAbordagem({ id: 'oferta-geral', geral: true, ativo: true })
@@ -4593,6 +4600,20 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
     setEditandoId(null)
     setPagina('padrao')
   }, [config.instrucoes_ia, config.gerar_ia])
+
+  async function verPrevia() {
+    setPreviaCarregando(true)
+    setPreviaErro('')
+    try {
+      const r = await apiFetch<PreviaAbordagem>(`${base}/abordagem/previa?nicho=${encodeURIComponent(nichoPrevia.trim())}`)
+      setPrevia(r.data)
+    } catch (e) {
+      setPrevia(null)
+      setPreviaErro(e instanceof Error ? e.message : 'Não foi possível consultar a prévia.')
+    } finally {
+      setPreviaCarregando(false)
+    }
+  }
 
   function atualizarOfertaGeral(patch: Partial<OfertaAbordagemIa>) {
     setForm((atual) => {
@@ -4810,6 +4831,49 @@ function AbordagemIaModal({ base, config, nichos, nichoAtual, onClose, onSavedCo
               <div className="flex gap-1.5">
                 <Botao variante="neutra" tamanho="sm" onClick={novaOferta}>Nova seção</Botao>
               </div>
+            </div>
+
+            {/* A regra de precedência escrita, porque ela decide o que o lead recebe. */}
+            <p className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-xs text-ink-3">
+              Para cada lead vale <strong className="font-semibold text-ink-2">uma</strong> oferta: a seção do nicho dele,
+              se houver; senão, a oferta padrão. Sem nenhuma das duas, a IA aborda de forma consultiva —
+              ela <strong className="font-semibold text-ink-2">nunca</strong> usa a oferta de outro nicho.
+            </p>
+
+            <div className="space-y-2 rounded-lg border border-line bg-surface px-3 py-2">
+              <label htmlFor="abordagem-previa-nicho" className="block text-xs font-medium text-ink-3">
+                Testar: qual oferta sai para um nicho
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  id="abordagem-previa-nicho"
+                  list="abordagem-previa-nichos"
+                  value={nichoPrevia}
+                  maxLength={180}
+                  onChange={(e) => { setNichoPrevia(e.target.value); setPrevia(null) }}
+                  placeholder="Ex.: energia solar"
+                  className={`${classesEntrada()} min-w-0 flex-1`}
+                />
+                <datalist id="abordagem-previa-nichos">
+                  {nichosSugeridos.map((n) => <option key={n.valor} value={n.valor} />)}
+                </datalist>
+                <Botao variante="neutra" tamanho="sm" onClick={verPrevia} carregando={previaCarregando}>Ver prévia</Botao>
+              </div>
+              <p className="text-[11px] text-ink-3">
+                Usa a configuração <strong className="font-semibold text-ink-2">já salva</strong>. Só consulta: não envia
+                mensagem e não gasta IA.
+              </p>
+              {previaErro && <p className="text-xs text-estado-danger">{previaErro}</p>}
+              {previa && (() => {
+                const r = leituraPrevia(previa)
+                return (
+                  <div className={`rounded-md border px-3 py-2 text-xs ${classeTom(r.tom)}`}>
+                    <p className="font-semibold">{r.titulo}</p>
+                    {r.oferta && <p className="mt-0.5 text-ink-2">Oferta: {r.oferta}</p>}
+                    <p className="mt-0.5 text-ink-3">{r.detalhe}</p>
+                  </div>
+                )
+              })()}
             </div>
 
             {ofertasOrdenadas.length === 0 ? (

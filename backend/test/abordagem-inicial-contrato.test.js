@@ -110,7 +110,10 @@ test('abordagem inicial: oferta sem site pronto rejeita promessa de previa pront
   }), estrategia, { avisoSitePronto: false }), null)
 })
 
-test('abordagem inicial: fallback tambem respeita o gancho obrigatorio', () => {
+// REESCRITO em 2026-10-22: a versao anterior exigia /estrutura pronta/ no fallback SEM opcao
+// nenhuma, ou seja, afirmava o defeito — sem oferta configurada o app dizia ao lead que havia
+// material pronto. "Pronto" agora exige declaracao explicita (`avisoSitePronto: true`).
+test('abordagem inicial: fallback sem declaracao NAO afirma material pronto', () => {
   const msg = renderMensagemAbordagemFallback({
     nome: 'Clinica Alfa',
     cidade: 'Santos',
@@ -118,9 +121,18 @@ test('abordagem inicial: fallback tambem respeita o gancho obrigatorio', () => {
   }, { nomeEmpresa: 'PJ Codeworks' })
 
   assert.doesNotMatch(msg, /Sou da|PJ Codeworks/)
-  assert.match(msg, /estrutura pronta/i)
+  assert.doesNotMatch(msg, /pront|preparad|montad|disponivel|deixei/i)
   assert.match(msg, /Clinica Alfa/)
   assert.equal(msg.length <= 600, true)
+})
+
+test('abordagem inicial: fallback afirma material pronto SO quando declarado', () => {
+  const msg = renderMensagemAbordagemFallback({
+    nome: 'Clinica Alfa',
+    cidade: 'Santos',
+  }, { nomeEmpresa: 'PJ Codeworks', avisoSitePronto: true })
+
+  assert.match(msg, /estrutura pronta/i)
 })
 
 test('abordagem inicial: prompt manda adaptar idioma pela localidade do lead', () => {

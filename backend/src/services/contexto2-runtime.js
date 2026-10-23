@@ -4,6 +4,7 @@ const { parsearRespostaJsonClaude } = require('../string-utils')
 const { buscarContexto2Ativo, registrarSugestaoAprendizadoContexto } = require('./contexto-empresa')
 const { instanciaUsaAgenda } = require('../db/whatsapp-instances')
 const { slugify } = require('./contexto-servicos')
+const { blocoOrientacaoOrigem } = require('./abordagem-inicial-contrato')
 
 // Override duro quando a instância NÃO usa agenda (config_json.usa_agenda=false).
 // Anexado ao REPLY_SYSTEM para sobrepor qualquer regra de reunião do playbook.
@@ -429,13 +430,14 @@ sugestao_aprendizado pode ser null OU objeto:
 { "tipo": "objecao_nova|pergunta_frequente|resposta_que_funcionou|outro",
   "evidencia": "", "sugestao_markdown": "", "confianca": "baixa|media|alta" }`
 
-async function decidirRespostaComPlaybook({ pool, log, playbook, historico, mensagem, leadInsights, extracao, apelido, empresaId, conversaId, leadPhone, aiProvider, usaAgenda = true }) {
+async function decidirRespostaComPlaybook({ pool, log, playbook, historico, mensagem, leadInsights, extracao, apelido, empresaId, conversaId, leadPhone, aiProvider, usaAgenda = true, abordagemOrigem = null }) {
+  const blocoOrigem = blocoOrientacaoOrigem(abordagemOrigem)
   const provider = aiProvider || require('../ai-provider')
   // Gate de agenda por instância: se desligada, força reuniao_status neutro e
   // anexa o override que proíbe qualquer oferta de reunião.
   const extracaoView = usaAgenda ? extracao : { ...(extracao || {}), reuniao_status: 'nao_oferecida' }
   const systemPrompt = usaAgenda ? REPLY_SYSTEM : REPLY_SYSTEM + REPLY_SEM_AGENDA
-  const userPrompt = `${apelido ? `NOME DO LEAD (trate pelo primeiro nome, com naturalidade; nao repita o nome em toda mensagem): ${apelido}\n\n` : ''}PLAYBOOK ATIVO:
+  const userPrompt = `${apelido ? `NOME DO LEAD (trate pelo primeiro nome, com naturalidade; nao repita o nome em toda mensagem): ${apelido}\n\n` : ''}${blocoOrigem ? `ORIENTACAO COMERCIAL QUE ORIGINOU ESTA CONVERSA (precedencia sobre o carro-chefe generico do playbook):\n${blocoOrigem}\n\n` : ''}PLAYBOOK ATIVO:
 ${_truncatePlaybook(playbook?.json || playbook)}
 
 CATALOGO DE SERVICOS CANONICO (quando recomendar/oferecer, retorne servico_*_slug com um destes slugs):
@@ -840,12 +842,13 @@ Mantenha "intencao" (singular) preenchido com intencao_principal para compatibil
 REGRA DE URL — PROIBIDO INVENTAR LINK.
 Nunca emita example.com, localhost, teste.com, site.com, yoursite.com, dominio.com, sample.com, fake.com ou qualquer URL placeholder. Use APENAS URLs presentes em playbook.links_uteis_estruturados, playbook.cadastro_e_onboarding.link_cadastro, playbook.resumo_empresa.site ou nos dados do lead. Se não houver URL real, NÃO inclua link na resposta.`
 
-async function extrairEDecidirBundle({ pool, log, playbook, historico, mensagem, leadInsights, apelido, empresaId, conversaId, leadPhone, aiProvider, usaAgenda = true }) {
+async function extrairEDecidirBundle({ pool, log, playbook, historico, mensagem, leadInsights, apelido, empresaId, conversaId, leadPhone, aiProvider, usaAgenda = true, abordagemOrigem = null }) {
   const provider = aiProvider || require('../ai-provider')
+  const blocoOrigem = blocoOrientacaoOrigem(abordagemOrigem)
   // Gate de agenda (também no caminho bundle, que é o default): se desligada, anexa
   // o override que proíbe oferecer reunião.
   const systemPrompt = usaAgenda ? BUNDLE_SYSTEM : BUNDLE_SYSTEM + REPLY_SEM_AGENDA
-  const userPrompt = `${apelido ? `NOME DO LEAD (trate pelo primeiro nome, com naturalidade; nao repita o nome em toda mensagem): ${apelido}\n\n` : ''}PLAYBOOK ATIVO:
+  const userPrompt = `${apelido ? `NOME DO LEAD (trate pelo primeiro nome, com naturalidade; nao repita o nome em toda mensagem): ${apelido}\n\n` : ''}${blocoOrigem ? `ORIENTACAO COMERCIAL QUE ORIGINOU ESTA CONVERSA (precedencia sobre o carro-chefe generico do playbook):\n${blocoOrigem}\n\n` : ''}PLAYBOOK ATIVO:
 ${_truncatePlaybook(playbook?.json || playbook)}
 
 CATALOGO DE SERVICOS CANONICO (use estes slugs em servicos_interesse_slugs e servico_*_slug):
@@ -928,7 +931,7 @@ function _extrairLinkPrincipalDoPlaybook(pb) {
  *
  * Variável de ambiente CONTEXT_PLAYBOOK_BUNDLE=false força duas chamadas (debug).
  */
-async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, leadPhone, mensagem, historico, evolutionInstance, aiProvider }) {
+async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, leadPhone, mensagem, historico, evolutionInstance, aiProvider, abordagemOrigem = null }) {
   const playbook = await carregarPlaybookAtivo(pool, empresaId, evolutionInstance)
   if (!playbook) return null
 
@@ -952,7 +955,7 @@ async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, 
   if (usarBundle) {
     const b = await extrairEDecidirBundle({
       pool, log, playbook, historico, mensagem, leadInsights, apelido,
-      empresaId, conversaId, leadPhone, aiProvider, usaAgenda,
+      empresaId, conversaId, leadPhone, aiProvider, usaAgenda, abordagemOrigem,
     })
     extracao = b.extracao
     decisao = b.decisao
@@ -963,7 +966,7 @@ async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, 
     })
     decisao = await decidirRespostaComPlaybook({
       pool, log, playbook, historico, mensagem, leadInsights, extracao, apelido,
-      empresaId, conversaId, leadPhone, aiProvider, usaAgenda,
+      empresaId, conversaId, leadPhone, aiProvider, usaAgenda, abordagemOrigem,
     })
   }
 
@@ -1009,11 +1012,14 @@ Retorne APENAS JSON válido: {"analise":{"motivo":"...","objetivo":"...","tom":"
  * (não os prompts da PJ). Usado quando a conversa pertence a uma empresa com
  * Contexto 2 ativo. Retorna a string da mensagem (lança se vier vazia).
  */
-async function gerarFollowupComPlaybook({ pool, log, empresaId, leadPhone, historico, playbook, contextoTempo, aiProvider }) {
+async function gerarFollowupComPlaybook({ pool, log, empresaId, leadPhone, historico, playbook, contextoTempo, aiProvider, abordagemOrigem = null }) {
   const provider = aiProvider || require('../ai-provider')
   const { montarBlocoHistoricoComercial } = require('./historico-comercial')
   const blocoComercial = await montarBlocoHistoricoComercial(pool, empresaId, leadPhone)
-  const userPrompt = `PLAYBOOK ATIVO:
+  // O follow-up reabre a conversa: sem isto ele reabre pelo carro-chefe do playbook, que pode
+  // nao ser a oferta que o lead viu.
+  const blocoOrigem = blocoOrientacaoOrigem(abordagemOrigem)
+  const userPrompt = `${blocoOrigem ? `ORIENTACAO COMERCIAL QUE ORIGINOU ESTA CONVERSA (precedencia sobre o carro-chefe generico do playbook):\n${blocoOrigem}\n\n` : ''}PLAYBOOK ATIVO:
 ${_truncatePlaybook(playbook?.json || playbook)}
 
 HISTÓRICO RECENTE:

@@ -16,8 +16,9 @@ const { enviarMensagem, numerosSemWhatsapp, verificarStatusInstanciaEvolution, n
 // para casar com o Set devolvido por numerosSemWhatsapp.
 function soDigitos(t) { return numeroEnvioWhatsapp(t) }
 const { registrarEnvioNoHistorico, jidConversaDoEnvio } = require('./historico-envio')
+const { registrarAbordagemOrigem } = require('../db/abordagem-origem')
 const { obterConfigBancoLeads } = require('../db/banco-leads-config')
-const { gerarSaudacaoAnalise } = require('./saudacao-analise')
+const { gerarAbordagemAnalise } = require('./saudacao-analise')
 const { montarJsonApresentacaoPlaces, montarJsonApresentacaoInstagram } = require('./lead-score-cadastro')
 const { canProspectLead } = require('./prospecting-eligibility')
 const { logger } = require('../logger')
@@ -198,19 +199,21 @@ function montarJsonApresentacaoDoProspect(prospect) {
 //    envia template silenciosamente.
 async function mensagemFinalDoLead(pool, { prospect, template, gerarIa, instrucoes, contextoId, empresaId, _generate }) {
   if (!gerarIa) {
-    return { texto: renderSaudacao(template, prospect), gerada_por_ia: false, falha_ia: false }
+    // Template: nenhuma oferta foi SELECIONADA, então não há orientação a registrar. A origem
+    // da conversa fica desconhecida, que é a verdade (ninguém escolheu oferta nenhuma).
+    return { texto: renderSaudacao(template, prospect), gerada_por_ia: false, falha_ia: false, orientacao: null }
   }
   try {
     const jsonApresentacao = montarJsonApresentacaoDoProspect(prospect)
-    const textoIa = await gerarSaudacaoAnalise({
+    const { texto: textoIa, orientacao } = await gerarAbordagemAnalise({
       pool, log: logger, empresaId, contextoId, jsonApresentacao,
       instrucoes, nomeLead: prospect.nome, telefone: prospect.telefone, _generate,
     })
-    if (textoIa) return { texto: textoIa, gerada_por_ia: true, falha_ia: false }
+    if (textoIa) return { texto: textoIa, gerada_por_ia: true, falha_ia: false, orientacao: orientacao || null }
   } catch (e) {
     logger.warn({ prospect: prospect.id, err: e.message }, '[rodar-leads] geração IA falhou')
   }
-  return { texto: '', gerada_por_ia: false, falha_ia: true }
+  return { texto: '', gerada_por_ia: false, falha_ia: true, orientacao: null }
 }
 
 // Quanto falta do cooldown (em segundos) e quantos disparos já saíram hoje na instância.
@@ -511,12 +514,23 @@ async function tentarGerarUmLead(pool, { prospect, instancia, saudacao, config, 
     empresaId, usuarioId, evolutionInstance: instancia.evolution_instance, prospectId: prospect.id,
   })
   if (!disparoId) return { prospect, ocupado: true }
-  const { texto, gerada_por_ia, falha_ia } = await mensagemFinalDoLead(pool, {
+  const { texto, gerada_por_ia, falha_ia, orientacao } = await mensagemFinalDoLead(pool, {
     prospect, template: saudacao, gerarIa: !!config.gerar_ia,
     instrucoes: config.instrucoes_ia, contextoId: instancia.contexto_id, empresaId,
     _generate: deps && deps.generateAIResponse,
   })
-  return { prospect, disparoId, texto, gerada_por_ia, falha_ia }
+  return { prospect, disparoId, texto, gerada_por_ia, falha_ia, orientacao }
+}
+
+/**
+ * Registra a oferta usada como ORIGEM da conversa deste contato. Best-effort e sem transação:
+ * é registro de contexto, não parte do envio — uma falha aqui não pode derrubar um disparo.
+ */
+async function registrarOrigemDoLead(pool, { empresaId, prospect, orientacao }) {
+  if (!orientacao || !orientacao.oferta) return
+  const numero = jidConversaDoEnvio(null, prospect && prospect.telefone)
+  if (!numero) return
+  await registrarAbordagemOrigem(pool, { empresaId, numero, orientacao, log: logger })
 }
 
 async function confirmarSucessoGeracao(pool, disparoId, texto) {
@@ -610,6 +624,8 @@ async function gerarMensagensSemi(pool, { empresaId, usuarioId, instanciaId, pro
       return { gerados, pulados, falha_sistemica: falhaSistemica }
     } else {
       await confirmarSucessoGeracao(pool, r.disparoId, r.texto)
+    await registrarOrigemDoLead(pool, { empresaId, prospect: r.prospect, orientacao: r.orientacao })
+      await registrarOrigemDoLead(pool, { empresaId, prospect: r.prospect, orientacao: r.orientacao })
       gerados.push({ prospect_id: primeiro.id, nome: primeiro.nome, disparo_id: r.disparoId, mensagem: r.texto, gerada_por_ia: r.gerada_por_ia })
     }
     restantes = resto
@@ -952,6 +968,7 @@ async function enviarLoteEmBackground(pool, { empresaId, evolutionInstance, iten
     const { prospect: p, disparoId } = itens[i]
     let mensagem = itens[i].mensagem
     let geradaPorIa = false
+    let orientacao = null
     try {
       if (gerar && gerar.ativo) {
         const r = await mensagemFinalDoLead(pool, {
@@ -966,6 +983,7 @@ async function enviarLoteEmBackground(pool, { empresaId, evolutionInstance, iten
           if (i < itens.length - 1) await sleep(delayAleatorio())
           continue
         }
+        orientacao = r.orientacao || null
         if (r.gerada_por_ia && r.texto && r.texto !== mensagem) {
           mensagem = r.texto
           geradaPorIa = true
@@ -1016,6 +1034,9 @@ async function enviarLoteEmBackground(pool, { empresaId, evolutionInstance, iten
         continue
       }
       await finalizarDisparoEnviado(pool, { disparoId, prospectId: p.id })
+      // A oferta só vira ORIGEM da conversa depois do envio CONFIRMADO: gravar antes faria o
+      // atendimento continuar numa oferta que o lead nunca recebeu.
+      await registrarOrigemDoLead(pool, { empresaId, prospect: p, orientacao })
       // Espelha a saudação no histórico da conversa (painel Conversas). Best-effort.
       await registrarEnvioNoHistorico(pool, {
         respostaEnvio,

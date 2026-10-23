@@ -4737,3 +4737,46 @@ Preservar o vínculo (D-8) está certo; preservar sem registro não. `salvarConv
 `conversa_instancia_conflito` quando a mensagem chega por número diferente do gravado. Nenhuma
 troca de vínculo foi introduzida — transferência de vínculo continua não existindo, e segue
 precisando de regra própria antes de ser implementada.
+
+## 2026-10-22/23 — Orientação comercial por nicho (Contexto × Playbook × Abordagem de IA)
+
+**D1 — Sem oferta do nicho e sem oferta geral, NÃO se escolhe oferta nenhuma.**
+`selecionarOfertaAbordagem` terminava em `especifica || geral || ativas[0]`. O 3º degrau entregava
+a primeira oferta ativa da lista — a de **outro nicho**. Alternativas: (a) manter como "melhor que
+nada"; (b) cair na consultiva. Escolhida (b): abordar um integrador solar com a oferta de padaria
+não é "melhor que nada", é um erro que chega ao cliente. Custo aceito: campanha com oferta só de
+um nicho passa a abordar os demais sem carro-chefe (a tela declara isso na prévia).
+
+**D2 — A correspondência de nicho tem direção, e a procedência da coleta não é nicho.**
+O código testava os dois sentidos de `includes`, então uma oferta mais específica capturava o lead
+genérico; e comparava `lead.fonte` (places/instagram/meta_ads). Mantida só a direção "o nicho do
+LEAD contém o da OFERTA", por frase inteira, com desempate determinístico (mais específica → nome).
+**Não** se adotou correspondência exata pura (a regra D1 de `nicho-resolucao.js`): ali o alvo é o
+catálogo `app.nichos`; aqui o nicho da oferta é texto livre digitado pelo operador, e exigir
+igualdade faria "energia solar" perder "energia solar fotovoltaica" — que é o caso real.
+
+**D3 — Continuidade por SNAPSHOT em `app.lead_insights`, não por tabela nova nem por referência.**
+A oferta é copiada inteira e congelada. Referência à configuração viva trocaria o assunto de uma
+conversa em andamento quando o operador editasse a oferta. Tabela nova duplicaria a identidade
+(empresa + número) que o runtime do playbook já lê a cada turno e custaria um JOIN no caminho mais
+quente. Migration 118 acrescenta só o índice único parcial.
+
+**D4 — Sem backfill.** Conversa anterior ao deploy fica com origem desconhecida e o bloco não é
+injetado. Atribuir oferta retroativa seria o sistema afirmar o que não viu.
+
+**D5 — O momento da gravação é diferente por modo, de propósito.** Manual/Auto: depois do envio
+CONFIRMADO. Semi: na confirmação da geração (o texto é congelado e sai como está). Gravar na
+geração no Manual faria uma conversa iniciada à mão depois de um envio falho carregar uma oferta
+que o lead nunca viu.
+
+**D6 — "Material pronto" exige declaração explícita.** O default do fallback era afirmar que havia
+estrutura pronta. Invertido. Teste que afirmava o comportamento antigo foi REESCRITO (registrado no
+próprio arquivo), mesmo precedente de `test/prospect-filters.test.js`.
+
+**D7 — A etapa `primeiro_contato` entra na 1ª abordagem; a divergência dos dois motores de resposta
+NÃO foi resolvida.** `estagios_json` alimenta o motor legado e agora a 1ª mensagem, mas o motor do
+playbook segue lendo só `empresa_contexto_versoes.conteudo_json`. Unificar muda o prompt de toda
+resposta em produção — projeto próprio, com verificação ao vivo. Fica declarado em AGENTS.md.
+
+**D8 — A prévia da tela é uma ROTA, não uma reimplementação no front.** O front só traduz; a régua
+que a tela mostra é literalmente a que o disparo executa.
