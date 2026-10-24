@@ -6810,3 +6810,19 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Validação:** `npm test` **3396/3396** (4 testes novos, incluindo guarda de regressão da causa
   raiz). Harness E2E reconfirmado: caso 2 (state=close) continua bloqueando, caso 3b passa.
   **Nenhuma migration, env, rota ou capacidade nova.**
+- **Correção da própria correção (mesma data, após revisão de segurança):** a liberação da causa
+  raiz 2 estava LARGA DEMAIS. Há **três** procedências de `pendente_confirmacao` sem
+  `evolution_message_id`, e a coluna `erro` as distingue: (A)
+  `confirmacao_pendente:worker_interrompido`, escrita pelo próprio reconciliador a partir de um
+  `'enviando'` parado — o round-trip nunca fechou, nada foi aceito pelo provedor, nada entrou no
+  ledger; (B) `confirmacao_pendente:sem_message_id` e (C) `checagem_indisponivel`, em que
+  `enviarMensagem` **já retornou com sucesso** (2xx, sem `success:false`, sem `status:ERROR`, e o
+  envio virou linha em `app.mensagem_envios`) — o cliente recebeu, só a confirmação se perdeu.
+  O primeiro diff mandava as três para `falhou`, devolvendo B e C à fila: **mensagem duplicada
+  para quem já havia sido abordado**, exatamente o que o pedido proibia. O "risco declarado e
+  aceito" do commit `1defad6` estava errado — ele tratou como indistinguível algo que o dado
+  separa. Agora só **A** volta para a fila (lista branca pelo `erro`, nunca por exclusão) e B/C
+  são resolvidos como **enviados** pelo mesmo `finalizarDisparoEnviado` da confirmação normal,
+  o que tira a linha do limbo sem mentir: é a mesma definição que o ledger da 117 usa ("o
+  provedor aceitou um envio"). `erro` desconhecido ou nulo cai no lado de B/C — **não se duplica
+  por dúvida**. `npm test` **3397/3397**, com guarda anti-duplicidade.

@@ -944,31 +944,59 @@ async function reconciliarConfirmacoesPendentes(pool, limit = 100) {
         SET status = 'pendente_confirmacao', erro = 'confirmacao_pendente:worker_interrompido'
       WHERE status = 'enviando' AND criado_em < NOW() - INTERVAL '5 minutes'`
   )
-  // SEM ID DE MENSAGEM NAO HA O QUE CONFIRMAR. A consulta abaixo exige
-  // `evolution_message_id IS NOT NULL` (e precisa exigir: e' a chave do LATERAL no
-  // message_update). Entao a linha que chegou a 'enviando' e morreu antes de obter a chave
-  // — processo reiniciado no meio do lote, redeploy, OOM — virava 'pendente_confirmacao'
-  // eterna: nunca mais era seleccionada por ninguem, e `whereCandidatosAutomatico`
-  // (banco-leads-auto.js) exclui 'pendente_confirmacao' do recorte, entao aquele lead saia
-  // da fila do Automatico PARA SEMPRE, em silencio.
-  // Resolver como 'falhou' devolve o lead a fila. A janela de 60 min e' folgada de proposito:
-  // o id vem da RESPOSTA do envio, entao sem ele o round-trip nao fechou.
-  // RISCO DECLARADO E ACEITO: a Evolution pode ter entregue a mensagem e a resposta ter sido
-  // perdida (timeout), e ai o lead pode ser abordado de novo. E' exatamente o mesmo risco que
-  // o caminho de timeout do envio ja assume hoje (`marcarDisparoFalhou` no catch de
-  // `enviarLoteEmBackground`) — preferir o lead perdido para sempre seria pior. O `erro`
-  // distingue este caso de uma falha do provedor, para ser auditavel.
-  const { rowCount: semConfirmacao } = await pool.query(
+  // SEM ID DE MENSAGEM NAO HA O QUE CONFIRMAR — e sao TRES procedencias, nao uma.
+  // A consulta de confirmacao abaixo exige `evolution_message_id IS NOT NULL` (e precisa
+  // exigir: e' a chave do LATERAL no message_update), entao toda linha sem id ficava
+  // 'pendente_confirmacao' ETERNA — e `whereCandidatosAutomatico` (banco-leads-auto.js)
+  // exclui esse status do recorte, tirando o lead da fila do Automatico PARA SEMPRE.
+  // O que distingue as procedencias e' a coluna `erro`, e a diferenca decide se o lead pode
+  // ser reabordado:
+  //   A) 'confirmacao_pendente:worker_interrompido' — escrito pelo UPDATE logo acima, a partir
+  //      de um 'enviando' parado. O round-trip NUNCA fechou (o id vem da RESPOSTA do envio),
+  //      nada foi aceito pelo provedor e nada entrou no ledger. Volta para a fila.
+  //   B) 'confirmacao_pendente:sem_message_id' e C) 'checagem_indisponivel' — nestes dois
+  //      `enviarMensagem` JA RETORNOU COM SUCESSO: a Evolution aceitou a mensagem (2xx, sem
+  //      `success:false`, sem `status:ERROR`) e o envio ate virou linha em
+  //      `app.mensagem_envios`. O cliente recebeu. So a CONFIRMACAO se perdeu.
+  // Por isso B e C **nunca** voltam para a fila: reabordar manda mensagem duplicada para quem
+  // ja foi abordado. Eles sao resolvidos como ENVIADO, que e' a verdade disponivel e a mesma
+  // definicao que o ledger da migration 117 usa ("o provedor aceitou um envio"), e isso tira a
+  // linha do limbo sem mentir sobre o que aconteceu.
+  // A direcao do desempate e' deliberada: so a procedencia A, nomeada explicitamente, autoriza
+  // reabordagem. `erro` desconhecido ou nulo cai no lado de B/C — nunca se duplica por duvida.
+  const { rowCount: liberados } = await pool.query(
     `UPDATE prospectador.lead_disparos
         SET status = 'falhou', erro = 'sem_confirmacao:sem_id_mensagem'
       WHERE status = 'pendente_confirmacao'
         AND evolution_message_id IS NULL
+        AND erro = 'confirmacao_pendente:worker_interrompido'
         AND criado_em < NOW() - INTERVAL '60 minutes'`
   )
-  if (semConfirmacao > 0) {
+  if (liberados > 0) {
     logger.warn(
-      { operation: 'reconciliar_confirmacoes', liberados: semConfirmacao },
-      '[rodar-leads] disparos sem id de mensagem liberados; leads voltam para a fila'
+      { operation: 'reconciliar_confirmacoes', liberados },
+      '[rodar-leads] disparos interrompidos antes do envio liberados; leads voltam para a fila'
+    )
+  }
+  const { rows: aceitosSemConfirmacao } = await pool.query(
+    `SELECT id AS disparo_id, prospect_id
+       FROM prospectador.lead_disparos
+      WHERE status = 'pendente_confirmacao'
+        AND evolution_message_id IS NULL
+        AND erro IS DISTINCT FROM 'confirmacao_pendente:worker_interrompido'
+        AND criado_em < NOW() - INTERVAL '60 minutes'
+      ORDER BY criado_em ASC
+      LIMIT $1`,
+    [max]
+  )
+  for (const row of aceitosSemConfirmacao) {
+    // Mesmo caminho da confirmacao normal: avanca o funil do lead, porque ele FOI abordado.
+    await finalizarDisparoEnviado(pool, { disparoId: row.disparo_id, prospectId: row.prospect_id })
+  }
+  if (aceitosSemConfirmacao.length > 0) {
+    logger.warn(
+      { operation: 'reconciliar_confirmacoes', aceitos_sem_confirmacao: aceitosSemConfirmacao.length },
+      '[rodar-leads] envios aceitos pelo provedor sem confirmacao: resolvidos como enviados (nao reabordar)'
     )
   }
   const { rows } = await pool.query(

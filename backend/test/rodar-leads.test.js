@@ -556,7 +556,8 @@ test('reconciliarConfirmacoesPendentes so avanca o funil com confirmacao termina
   let disparoEnviado = false
   const pool = makePool([
     ["status = 'enviando' AND criado_em", () => ({ rows: [] })],
-    ['evolution_message_id IS NULL', () => ({ rows: [], rowCount: 0 })],
+    ["erro = 'sem_confirmacao:sem_id_mensagem'", () => ({ rows: [], rowCount: 0 })],
+    ['erro IS DISTINCT FROM', () => ({ rows: [] })],
     ['LEFT JOIN LATERAL', () => ({ rows: [{
       disparo_id: 'd1', prospect_id: 'p1', evolution_message_id: 'msg-4',
       evolution_status: 'DELIVERY_ACK',
@@ -570,35 +571,72 @@ test('reconciliarConfirmacoesPendentes so avanca o funil com confirmacao termina
   assert.equal(disparoEnviado, true)
 })
 
-// Sem id de mensagem nao existe o que confirmar: a consulta de confirmacao exige
-// `evolution_message_id IS NOT NULL`, entao a linha ficava 'pendente_confirmacao' ETERNA e o
-// lead saia do recorte do Automatico (`whereCandidatosAutomatico`) para sempre, em silencio.
-test('reconciliarConfirmacoesPendentes libera disparo sem id de mensagem', async () => {
-  let liberados = null
+// Sem id de mensagem nao existe o que confirmar (a consulta de confirmacao exige id NAO nulo),
+// entao a linha ficava 'pendente_confirmacao' ETERNA e o lead saia do recorte do Automatico
+// (`whereCandidatosAutomatico`) para sempre. Mas sao TRES procedencias e so UMA pode voltar
+// para a fila: a que foi interrompida ANTES de o envio fechar o round-trip.
+test('reconciliarConfirmacoesPendentes so libera o disparo interrompido antes do envio', async () => {
+  let liberou = 0
   const pool = makePool([
     ["status = 'enviando' AND criado_em", () => ({ rows: [], rowCount: 0 })],
-    ['evolution_message_id IS NULL', (_params, sql) => {
-      assert.ok(sql.includes("SET status = 'falhou'"))
-      assert.ok(sql.includes("erro = 'sem_confirmacao:sem_id_mensagem'"))
-      assert.ok(sql.includes('60 minutes'), 'janela folgada: o id vem da resposta do envio')
-      liberados = 2
-      return { rows: [], rowCount: 2 }
+    ["erro = 'sem_confirmacao:sem_id_mensagem'", (_params, sql) => {
+      assert.ok(
+        sql.includes("erro = 'confirmacao_pendente:worker_interrompido'"),
+        'so a procedencia interrompida-antes-do-envio pode voltar para a fila'
+      )
+      assert.ok(sql.includes('evolution_message_id IS NULL'))
+      assert.ok(sql.includes('60 minutes'))
+      liberou = 3
+      return { rows: [], rowCount: 3 }
     }],
+    ['erro IS DISTINCT FROM', () => ({ rows: [] })],
     ['LEFT JOIN LATERAL', () => ({ rows: [] })],
   ])
   const out = await reconciliarConfirmacoesPendentes(pool)
-  assert.equal(liberados, 2)
+  assert.equal(liberou, 3)
   assert.equal(out.verificados, 0)
 })
 
-// A linha que AINDA pode ser confirmada (tem id) nao e' liberada por este caminho — seria
-// desistir de um envio que o provedor ainda vai confirmar.
+// GUARDA ANTI-DUPLICIDADE: em 'confirmacao_pendente:sem_message_id' e 'checagem_indisponivel' o
+// `enviarMensagem` JA retornou com sucesso — a Evolution aceitou e o cliente recebeu; so a
+// confirmacao se perdeu. Reabordar manda mensagem duplicada. Eles sao resolvidos como ENVIADO.
+test('reconciliarConfirmacoesPendentes nao reabordar envio aceito sem confirmacao', async () => {
+  let marcouFalhou = false
+  let avancouFunil = 0
+  let marcouEnviado = 0
+  const pool = makePool([
+    ["status = 'enviando' AND criado_em", () => ({ rows: [], rowCount: 0 })],
+    ["erro = 'sem_confirmacao:sem_id_mensagem'", () => ({ rows: [], rowCount: 0 })],
+    ['erro IS DISTINCT FROM', (_params, sql) => {
+      assert.ok(sql.trim().startsWith('SELECT'), 'procedencia aceita-sem-confirmacao nao e UPDATE de falha')
+      return { rows: [
+        { disparo_id: 'd1', prospect_id: 'p1' },
+        { disparo_id: 'd2', prospect_id: 'p2' },
+      ] }
+    }],
+    ['UPDATE prospectador.prospects', () => { avancouFunil++; return { rows: [] } }],
+    ["SET status = 'enviado'", () => { marcouEnviado++; return { rows: [] } }],
+    ["SET status = 'falhou'", () => { marcouFalhou = true; return { rows: [], rowCount: 1 } }],
+    ['LEFT JOIN LATERAL', () => ({ rows: [] })],
+  ])
+  await reconciliarConfirmacoesPendentes(pool)
+  assert.equal(marcouEnviado, 2, 'resolvidos como enviados')
+  assert.equal(avancouFunil, 2, 'o lead FOI abordado: o funil avanca')
+  assert.equal(marcouFalhou, false, 'nunca volta para a fila — seria mensagem duplicada')
+})
+
+// A linha que AINDA pode ser confirmada (tem id) nao e' tocada por nenhum dos dois caminhos —
+// seria desistir de um envio que o provedor ainda vai confirmar.
 test('reconciliarConfirmacoesPendentes nao libera quem tem id de mensagem', async () => {
   const pool = makePool([
     ["status = 'enviando' AND criado_em", () => ({ rows: [], rowCount: 0 })],
-    ['evolution_message_id IS NULL', (_params, sql) => {
+    ["erro = 'sem_confirmacao:sem_id_mensagem'", (_params, sql) => {
       assert.ok(sql.includes('evolution_message_id IS NULL'), 'o recorte exige id NULO')
       return { rows: [], rowCount: 0 }
+    }],
+    ['erro IS DISTINCT FROM', (_params, sql) => {
+      assert.ok(sql.includes('evolution_message_id IS NULL'), 'o recorte exige id NULO')
+      return { rows: [] }
     }],
     ['LEFT JOIN LATERAL', () => ({ rows: [{
       disparo_id: 'd9', prospect_id: 'p9', evolution_message_id: 'msg-9', evolution_status: null,
