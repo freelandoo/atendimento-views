@@ -9,7 +9,7 @@ function stubLogger() {
 
 // Monta o responder com deps mockadas e captura efeitos colaterais.
 function montar(overrides = {}) {
-  const calls = { enviarMensagem: [], salvarConversa: [], atualizarPerfil: [], alertarHandoff: [], limparFalhaResposta: [] }
+  const calls = { enviarMensagem: [], salvarConversa: [], atualizarPerfil: [], alertarHandoff: [], limparFalhaResposta: [], cancelarFollowups: [], definirModoAnalise: [] }
   const deps = {
     pool: {},
     logger: stubLogger(),
@@ -22,6 +22,8 @@ function montar(overrides = {}) {
     enviarMensagem: async (...a) => { calls.enviarMensagem.push(a) },
     buscarSlotsDisponiveis: async () => null,
     validarSlotReuniao: async () => false,
+    cancelarFollowupsDoLead: async (...a) => { calls.cancelarFollowups.push(a) },
+    definirModoAnalise: async (...a) => { calls.definirModoAnalise.push(a) },
     ...overrides,
   }
   const { responderContexto2 } = createContexto2Responder(deps)
@@ -80,6 +82,58 @@ test('responderContexto2: handoff pausa a conversa (5º arg = true)', async () =
   })
   await responderContexto2({ numero: '5511999990000', empresaId: 'e1', conversaUsada: conversaBase, historico: historicoBase, estagioLive: 'diagnostico' })
   assert.strictEqual(calls.salvarConversa[0][4], true)
+})
+
+test('responderContexto2: qualificação BANT concluída avisa o operador e não envia nova mensagem ao lead', async () => {
+  const { responderContexto2, calls } = montar({
+    processarMensagemComPlaybook: async () => ({
+      extracao: {
+        qualificacao_bant: {
+          status: 'pronto_para_assuncao',
+          necessidade: { status: 'confirmada', evidencia: 'Quer CRM para não perder oportunidades.' },
+          timing: { status: 'curto_prazo', evidencia: 'Quer resolver nas próximas semanas.' },
+          autoridade: { status: 'decisor', evidencia: 'É o dono.' },
+          budget: { status: 'aberto_a_avaliar', evidencia: 'Tem verba se fizer sentido.', precisa_esclarecer: false },
+        },
+      },
+      decisao: { mensagem_pro_lead: 'Mensagem que não deve ser enviada.', precisa_handoff: true },
+    }),
+    buscarPerfil: async () => ({ apelido: 'Ana' }),
+  })
+  const r = await responderContexto2({ numero: '5511999990000', empresaId: 'e1', conversaUsada: conversaBase, historico: historicoBase, estagioLive: 'diagnostico' })
+  assert.deepStrictEqual(r, { ok: true, via: 'playbook', handoff: true, mensagem_suprimida: true })
+  assert.strictEqual(calls.enviarMensagem.length, 0)
+  assert.strictEqual(calls.alertarHandoff.length, 1)
+  assert.strictEqual(calls.alertarHandoff[0][3], 'qualificacao_bant_concluida')
+  assert.deepStrictEqual(calls.cancelarFollowups[0], ['e1', '5511999990000', 'qualificacao_bant_concluida'])
+  assert.deepStrictEqual(calls.definirModoAnalise[0], ['e1', '5511999990000'])
+  assert.strictEqual(calls.salvarConversa[0][4], undefined)
+  assert.strictEqual(calls.salvarConversa[0][3], 'aguardando_handoff')
+  assert.strictEqual(calls.salvarConversa[0][1].length, historicoBase.length)
+})
+
+test('responderContexto2: em modo Análise após BANT, atualiza sem repetir alerta, agenda ou mensagem', async () => {
+  const { responderContexto2, calls } = montar({
+    processarMensagemComPlaybook: async () => ({
+      extracao: {
+        reuniao_status: 'deve_oferecer',
+        qualificacao_bant: { status: 'pronto_para_assuncao' },
+      },
+      decisao: { mensagem_pro_lead: 'Mensagem apenas para análise.' },
+    }),
+    buscarSlotsDisponiveis: async () => {
+      throw new Error('agenda não deveria ser consultada')
+    },
+  })
+  const r = await responderContexto2({
+    numero: '5511999990000', empresaId: 'e1',
+    conversaUsada: { ...conversaBase, modo_ia: 'analise' },
+    historico: historicoBase, estagioLive: 'diagnostico',
+  })
+  assert.deepStrictEqual(r, { skipped: true, reason: 'modo_analise', analise_registrada: true })
+  assert.strictEqual(calls.enviarMensagem.length, 0)
+  assert.strictEqual(calls.alertarHandoff.length, 0)
+  assert.strictEqual(calls.definirModoAnalise.length, 0)
 })
 
 test('responderContexto2: oferta de reunião quando reuniao_status=deve_oferecer e há slots', async () => {

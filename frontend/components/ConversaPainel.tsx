@@ -38,6 +38,7 @@ import ModalConfirmar from '@/components/ui/ModalConfirmar'
 import TextoTruncado from '@/components/ui/TextoTruncado'
 import { VARIANTES, O_QUE_MEDE, fatoresDeInteresse } from '@/lib/pontuacao-indicador'
 import AlternadorModoIa from '@/components/ui/AlternadorModoIa'
+import QualificacaoBant, { type QualificacaoBantDados } from '@/components/QualificacaoBant'
 import {
   avisoDoCompositor,
   descreverPreferencia,
@@ -111,6 +112,8 @@ type Mensagem = { role?: string; content?: string; text?: string; timestamp?: st
 
 export type ConversaDetail = ConversaResumo & {
   historico?: Mensagem[]
+  /** Veredito BANT calculado no runtime do playbook e entregue pela API; a tela só exibe. */
+  qualificacao_bant?: QualificacaoBantDados
   agente_pausado?: boolean
   /**
    * Politica de resposta da conversa, TODA calculada no backend e entregue pelo
@@ -897,6 +900,7 @@ export default function ConversaPainel({ empresaId, numero, onFechar, onAtualizo
             {abaModal === 'chat' && (
               <>
                 <div className="flex-1 overflow-y-auto bg-gray-50 px-7 py-6 space-y-4">
+                  <QualificacaoBant qualificacao={aberta.qualificacao_bant} />
                   {!aberta.historico || aberta.historico.length === 0 ? (
                     <p className="text-sm text-center text-gray-400 py-8">Sem mensagens no histórico.</p>
                   ) : (

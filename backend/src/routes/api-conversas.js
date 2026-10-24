@@ -125,6 +125,19 @@ const LEAD_PROFILE_JOIN = `
           LIMIT 1
        ) lp ON true`
 
+// O runtime do playbook persiste os sinais BANT no insight do MESMO tenant e numero da
+// conversa. A leitura e' por chave exata (nao por telefone aproximado), pois esta rota ja
+// esta dentro de uma conversa comprovadamente pertencente a empresa.
+const QUALIFICACAO_BANT_JOIN = `
+       LEFT JOIN LATERAL (
+         SELECT li.dados_extraidos -> 'qualificacao_bant' AS qualificacao_bant
+           FROM app.lead_insights li
+          WHERE li.empresa_id = c.empresa_id
+            AND li.numero = c.numero
+            AND li.tipo = 'playbook_runtime'
+          LIMIT 1
+       ) q_bant ON true`
+
 function anexarScoreInteresse(conversa) {
   const interesse = calcularScoreInteresseLead(conversa, {
     historico: conversa?.historico,
@@ -389,10 +402,11 @@ async function anexarModoIa(conversa, empresaId) {
 // GET /api/empresas/:empresaId/conversas/:numero
 router.get('/:numero', requireAuth, requireEmpresaAccess, alcancaConversa, async (req, res) => {
   const { rows: [conversa] } = await pool.query(
-    `SELECT c.*, lp.*, c.numero AS numero, c.empresa_id AS empresa_id, c.atualizado_em AS atualizado_em,
+    `SELECT c.*, lp.*, q_bant.qualificacao_bant, c.numero AS numero, c.empresa_id AS empresa_id, c.atualizado_em AS atualizado_em,
             ur.nome AS responsavel_nome, ewi.nome AS instancia_nome
      FROM vendas.conversas c
      ${LEAD_PROFILE_JOIN}
+     ${QUALIFICACAO_BANT_JOIN}
      LEFT JOIN app.usuarios ur ON ur.id = c.responsavel_id
      LEFT JOIN app.empresa_whatsapp_instances ewi
             ON ewi.evolution_instance = c.evolution_instance AND ewi.empresa_id = $1

@@ -3,6 +3,7 @@
 const { parsearRespostaJsonClaude } = require('../string-utils')
 const { buscarContexto2Ativo, registrarSugestaoAprendizadoContexto } = require('./contexto-empresa')
 const { instanciaUsaAgenda } = require('../db/whatsapp-instances')
+const { normalizarQualificacaoBant, mesclarQualificacaoBant } = require('./qualificacao-bant')
 const { slugify } = require('./contexto-servicos')
 const { blocoOrientacaoOrigem } = require('./abordagem-inicial-contrato')
 
@@ -153,6 +154,12 @@ Regras:
 - Sugira UMA próxima melhor pergunta.
 - Não gere resposta final para o lead nesta etapa.
 
+QUALIFICAÇÃO BANT ADAPTATIVA:
+- Leia a mensagem inteira antes de decidir o que falta. Ela pode responder necessidade, timing, autoridade e orçamento de uma vez.
+- A condução preferida é Necessidade → Timing → Autoridade → Budget, mas NUNCA repita uma dimensão que já ficou clara no histórico ou nos dados já conhecidos.
+- Se o lead disser que não tem dinheiro, marque budget e diga se ainda precisa esclarecer o motivo: falta de caixa agora, falta de prioridade, falta de urgência ou aprovação de outra pessoa. Não trate isso como resposta de necessidade.
+- Só registre fato que o lead declarou. O campo evidencia deve resumir o sinal em poucas palavras, sem inventar.
+
 Retorne APENAS JSON válido neste schema:
 {
   "intencao": "orcamento | reuniao | duvida | objecao | diagnostico | fechamento | vaga | outro",
@@ -170,6 +177,12 @@ Retorne APENAS JSON válido neste schema:
   "score": 0,
   "orcamento_status": "nao_solicitado | solicitado_sem_escopo | pronto_para_faixa | precisa_reuniao | enviado",
   "reuniao_status": "nao_oferecida | deve_oferecer | oferecida | aceita | recusada",
+  "qualificacao_bant": {
+    "necessidade": { "status": "desconhecida|confirmada|sem_necessidade", "evidencia": "" },
+    "timing": { "status": "desconhecido|agora|curto_prazo|futuro|sem_prioridade", "evidencia": "" },
+    "autoridade": { "status": "desconhecida|decisor|influenciador|precisa_aprovacao|nao_decisor", "evidencia": "" },
+    "budget": { "status": "desconhecido|aberto_a_avaliar|faixa_compativel|sem_caixa_agora|sem_prioridade|sem_urgencia|precisa_aprovacao|nao_tem_orcamento", "evidencia": "", "precisa_esclarecer": false }
+  },
   "proxima_melhor_acao": "",
   "proxima_pergunta_sugerida": "",
   "precisa_handoff": false,
@@ -236,6 +249,7 @@ function _normalizeExtracao(p) {
     score: typeof e.score === 'number' ? e.score : 0,
     orcamento_status: typeof e.orcamento_status === 'string' ? e.orcamento_status : 'nao_solicitado',
     reuniao_status: typeof e.reuniao_status === 'string' ? e.reuniao_status : 'nao_oferecida',
+    qualificacao_bant: normalizarQualificacaoBant(e.qualificacao_bant),
     proxima_melhor_acao: typeof e.proxima_melhor_acao === 'string' ? e.proxima_melhor_acao : '',
     proxima_pergunta_sugerida: typeof e.proxima_pergunta_sugerida === 'string' ? e.proxima_pergunta_sugerida : '',
     precisa_handoff: !!e.precisa_handoff,
@@ -287,6 +301,15 @@ function _mergeSeguro(prev, novo) {
     out[k] = v
   }
   return out
+}
+
+function consolidarQualificacaoBant(extracao, leadInsights) {
+  if (!extracao || typeof extracao !== 'object') return null
+  const anterior = leadInsights?.dados_extraidos?.qualificacao_bant
+  const qualificacao = mesclarQualificacaoBant(anterior, extracao.qualificacao_bant)
+  extracao.qualificacao_bant = qualificacao
+  extracao.dados_extraidos = _mergeSeguro(extracao.dados_extraidos, { qualificacao_bant: qualificacao })
+  return qualificacao
 }
 
 async function atualizarLeadInsights({ pool, empresaId, conversaId, leadPhone, extracao }) {
@@ -409,6 +432,8 @@ Regras:
 - Se for complexo, conduza para reunião.
 - Se lead está quente, proponha próximo passo claro.
 - Se faltar dado, peça O próximo dado mais importante (consulte campos_faltantes).
+- Quando qualificacao_bant estiver em em_qualificacao, faça no máximo UMA pergunta sobre proxima_dimensao; não volte a perguntar uma dimensão em campos_confirmados. Responda primeiro às perguntas diretas do lead.
+- Se o budget vier como falta de caixa, sem prioridade, sem urgência ou aprovação, esclareça somente esse motivo antes de avançar. Não repita "qual é seu orçamento?".
 - Não invente preço, prazo, desconto ou garantia.
 - Se houver risco/pedido fora do contexto, acione handoff.
 
@@ -800,6 +825,12 @@ Regras gerais:
 - Se houver risco/pedido fora do contexto: precisa_handoff = true.
 - sugestao_aprendizado só quando padrão claro (objeção nova, pergunta frequente, resposta que funcionou).
 
+QUALIFICAÇÃO BANT ADAPTATIVA:
+- Extraia os quatro eixos em cada resposta: necessidade, timing, autoridade e budget. A preferência de condução é N → T → A → B, mas a mensagem pode preencher vários eixos de uma vez.
+- Não trate BANT como formulário: responda primeiro a pergunta direta do lead e faça só a próxima pergunta que ainda falta.
+- Se houver sinal de falta de dinheiro, preencha budget; se a causa ainda não estiver clara, marque precisa_esclarecer como true para diferenciar caixa, prioridade, urgência ou aprovação. Nunca pergunte novamente um eixo já confirmado.
+- Ao completar os quatro eixos de maneira favorável, não anuncie o handoff ao lead. Marque os dados corretamente; o runtime fará o encaminhamento interno.
+
 Retorne APENAS JSON neste schema:
 {
   "extracao": {
@@ -818,6 +849,12 @@ Retorne APENAS JSON neste schema:
     "score": 0,
     "orcamento_status": "nao_solicitado|solicitado_sem_escopo|pronto_para_faixa|precisa_reuniao|enviado",
     "reuniao_status": "nao_oferecida|deve_oferecer|oferecida|aceita|recusada",
+    "qualificacao_bant": {
+      "necessidade": { "status": "desconhecida|confirmada|sem_necessidade", "evidencia": "" },
+      "timing": { "status": "desconhecido|agora|curto_prazo|futuro|sem_prioridade", "evidencia": "" },
+      "autoridade": { "status": "desconhecida|decisor|influenciador|precisa_aprovacao|nao_decisor", "evidencia": "" },
+      "budget": { "status": "desconhecido|aberto_a_avaliar|faixa_compativel|sem_caixa_agora|sem_prioridade|sem_urgencia|precisa_aprovacao|nao_tem_orcamento", "evidencia": "", "precisa_esclarecer": false }
+    },
     "proxima_melhor_acao": "",
     "proxima_pergunta_sugerida": "",
     "precisa_handoff": false,
@@ -964,10 +1001,20 @@ async function processarMensagemComPlaybook({ pool, log, empresaId, conversaId, 
       pool, log, playbook, historico, mensagem, leadInsights,
       empresaId, conversaId, leadPhone, aiProvider, usaAgenda,
     })
+    consolidarQualificacaoBant(extracao, leadInsights)
     decisao = await decidirRespostaComPlaybook({
       pool, log, playbook, historico, mensagem, leadInsights, extracao, apelido,
       empresaId, conversaId, leadPhone, aiProvider, usaAgenda, abordagemOrigem,
     })
+  }
+
+  const qualificacaoBant = consolidarQualificacaoBant(extracao, leadInsights)
+  // Handoff determinístico: o modelo pode propor uma mensagem normal, mas a
+  // entrega é suprimida pelo responder quando a qualificação está completa.
+  // Assim o lead não recebe um aviso artificial de que será transferido.
+  if (qualificacaoBant?.status === 'pronto_para_assuncao') {
+    decisao.precisa_handoff = true
+    decisao.motivo_handoff = 'qualificacao_bant_concluida'
   }
 
   await atualizarLeadInsights({ pool, empresaId, conversaId, leadPhone, extracao })

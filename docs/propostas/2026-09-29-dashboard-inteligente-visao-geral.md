@@ -215,3 +215,62 @@ assunto** — o dashboard não depende disso.
 - **Período padrão da Visão mínima:** assumo **semana corrente** (o resto vem por filtro).
 - **"Conversou" (G12)** fica Fase 2; a fonte (derivar do `historico` × carimbo novo no webhook)
   se decide lá.
+
+## Apêndice — pendência aprovada para evolução da primeira abordagem (2026-10-24)
+
+> Status: **registrado para avaliação futura; não implementar agora.** Esta pendência não autoriza
+> migration, alteração de envio, mudança no contexto de IA, nova tela ou publicação.
+
+### Decisão de produto
+
+Por enquanto, o escopo da IA por nicho continua restrito à **primeira abordagem**. Antes de expandir
+o contexto para a conversa inteira, o operador quer medir o que acontece depois do primeiro envio:
+se o lead responde, onde a conversa para e qual configuração de nicho/oferta estava ativa.
+
+### O que já existe e deve ser reaproveitado
+
+- A área **Aquisição → Acompanhar resultados** é leitura, não execução: mostra volume por
+  nicho/cidade, envios, respostas recentes e sinais de diagnóstico, proposta, reunião e fechado.
+- A fila da prospecção já registra a geração auditada em `metadata_json.mensagem_ia` e em
+  `prospectador.prospeccao_decisoes_ia`, incluindo oferta, estratégia, sinais usados, objetivo de
+  resposta, modelo e versão do prompt.
+- Quando o lead responde pelo fluxo reconhecido, a fila recebe `status='respondido'` e o instante
+  da resposta; a conversa também recebe o marco de primeira resposta para leituras comerciais.
+
+### Leitura que falta no painel atual
+
+Sem criar outro dashboard, evoluir **Acompanhar resultados** para responder, por período, nicho,
+oferta e versão de contexto:
+
+1. quantas primeiras abordagens foram enviadas;
+2. quantas tiveram primeira resposta e qual a taxa, sempre com numerador e denominador;
+3. quanto tempo decorreu entre o envio confirmado e a primeira resposta;
+4. quantas ficaram sem resposta após uma janela configurável de observação — sem chamar de
+   "perdidas" automaticamente;
+5. quantas avançaram de resposta para diagnóstico, proposta, reunião e venda;
+6. em qual transição o funil mais cai, preservando a diferença entre falta de resposta e conversa
+   que não avançou;
+7. quais oferta e versão de contexto geraram os números, sem reconstituir configuração retroativa.
+
+### Regras para uma implementação futura
+
+- **Um envio confirmado, uma atribuição.** A primeira resposta deve apontar para a abordagem que
+  realmente saiu, não para a configuração atualmente editada no nicho.
+- **Snapshot, nunca inferência retroativa.** Oferta, contexto e versão exibidos são os que foram
+  usados naquele envio. Linhas antigas sem esse registro devem aparecer como origem desconhecida,
+  não ser classificadas por suposição.
+- **Eventos distintos.** "Enviado", "respondeu", "avançou de etapa" e "venda" não são sinônimos;
+  cada taxa precisa declarar de quais eventos é calculada.
+- **Não usar silêncio como recusa.** Sem resposta é uma observação até que exista uma regra
+  comercial explícita para encerrar ou seguir em follow-up.
+- **Leitura somente.** O dashboard não cria follow-up, não altera funil, não envia mensagem e não
+  muda a configuração da abordagem.
+- **Isolamento e privacidade.** Dados permanecem por empresa; o painel agrega métricas e só abre
+  a conversa/ficha quando o operador já tiver permissão para isso.
+
+### Critério para retomar
+
+Retomar quando houver volume real suficiente de primeiras abordagens confirmadas para comparar
+períodos/nichos sem tirar conclusões de uma amostra pequena. Antes de qualquer implementação,
+confirmar a definição da janela de observação, os filtros prioritários e a política de retenção da
+versão do contexto.

@@ -6826,3 +6826,33 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
   o que tira a linha do limbo sem mentir: é a mesma definição que o ledger da 117 usa ("o
   provedor aceitou um envio"). `erro` desconhecido ou nulo cai no lado de B/C — **não se duplica
   por dúvida**. `npm test` **3397/3397**, com guarda anti-duplicidade.
+
+## 2026-10-24 — Pendência de análise da primeira abordagem por nicho
+- **Pedido do operador:** registrar, sem implementar, a evolução futura da leitura de resultados
+  da primeira abordagem gerada por IA: resposta, tempo até resposta, avanço no funil e atribuição
+  ao snapshot de nicho/oferta/contexto usado no envio.
+- **Fase 0/1:** workflow e estado do repositório conferidos. A árvore já tinha alterações de outras
+  tarefas (`AGENTS.md`, propostas, `.playwright-mcp/` e `artifacts/`), que foram preservadas.
+- **Escopo executado:** documentação em
+  `docs/propostas/2026-09-29-dashboard-inteligente-visao-geral.md`; nenhum código, banco, rota,
+  tela, envio ou configuração foi alterado.
+- **Decisão registrada:** reutilizar futuramente a seção existente **Aquisição → Acompanhar
+  resultados**, em vez de criar um dashboard paralelo; o painel continua somente leitura.
+
+## 2026-10-24 — Qualificação BANT adaptativa após a prospecção
+- **Pedido do operador:** organizar e iniciar o desenho do fluxo de qualificação depois da primeira
+  abordagem: BANT adaptativo, follow-ups por mensagem, tarefa de ligação humana e handoff interno
+  silencioso ao concluir a qualificação.
+- **Fase 1–6:** escopo, superfície afetada, arquitetura atual e dados já disponíveis foram
+  revisados. O desenho reaproveita o runtime de conversa e os mecanismos existentes de follow-up.
+- **Implementação base:** `services/qualificacao-bant.js` consolida os quatro eixos por mensagem;
+  `contexto2-runtime.js` persiste o snapshot dentro de `lead_insights`; ao completar a qualificação,
+  `contexto2-responder.js` cancela follow-ups escopados à empresa, marca a conversa como
+  aguardando handoff, coloca-a em modo Análise e dispara o handoff interno sem mensagem ao lead.
+  Não houve migration, rota ou tela.
+- **Validação focal:** 29/29 testes de playbook, responder e BANT passaram. A cadência explícita
+  dos dois follow-ups automáticos continua pendente; não há ligação automática no escopo.
+- **Complemento de leitura:** a Central recebe `qualificacao_bant` na leitura da conversa; o Banco
+  busca o snapshot sob demanda pelo lead, sempre com `empresa_id`. A nova UI traduz o veredito
+  sem calcular qualificação no cliente. Foi documentada a separação BANT x ICP e a procedência
+  futura de dores (declaração do lead, observação pública ou hipótese de nicho).

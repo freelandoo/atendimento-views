@@ -155,6 +155,7 @@
     "GET /api/empresas/:empresaId/prospeccao/metricas",
     "GET /api/empresas/:empresaId/prospeccao/oportunidades",
     "GET /api/empresas/:empresaId/prospeccao/prospects",
+    "GET /api/empresas/:empresaId/prospeccao/prospects/:id/qualificacao-bant",
     "GET /api/empresas/:empresaId/prospeccao/resultados",
     "GET /api/empresas/:empresaId/prospeccao/rotinas",
     "GET /api/empresas/:empresaId/painel-comercial",

@@ -20,6 +20,7 @@ const {
 const { obterDashboardEstrategicoProspeccao } = require('../services/prospecting-performance-analytics')
 const { listarOpcoesFiltrosMercado } = require('../services/prospect-filters')
 const { buscarAnunciantes } = require('../services/meta-ads-worker')
+const { candidatosTelefoneBR } = require('../telefone-br')
 const DIST_AQ = require('../db/prospeccao-distribuicao')
 const { logger } = require('../logger')
 
@@ -65,6 +66,43 @@ router.get('/prospects', requireAuth, requireEmpresaAccess, async (req, res) => 
   } catch (err) {
     logger.error('GET prospeccao/prospects:', err.message)
     return res.status(500).json({ ok: false, error: { code: 'PROSPECTS_FAILED', message: err.message } })
+  }
+})
+
+// GET /api/empresas/:empresaId/prospeccao/prospects/:id/qualificacao-bant
+// Leitura sob demanda, aberta apenas na ficha do lead. Assim a lista da carteira nao ganha uma
+// consulta de conversa por linha. O numero do prospect e' expandido pelas mesmas variacoes BR
+// usadas no restante do projeto, e o insight continua sempre restrito ao tenant da requisicao.
+router.get('/prospects/:id/qualificacao-bant', requireAuth, requireEmpresaAccess, async (req, res) => {
+  try {
+    const { rows: [prospect] } = await pool.query(
+      `SELECT telefone FROM prospectador.prospects
+        WHERE id = $1::uuid AND empresa_id = $2
+        LIMIT 1`,
+      [req.params.id, req.empresa.id]
+    )
+    if (!prospect) {
+      return res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Lead não encontrado.' } })
+    }
+
+    const candidatos = candidatosTelefoneBR(prospect.telefone)
+    const numeros = [...new Set(candidatos.flatMap((numero) => [numero, `${numero}@s.whatsapp.net`]))]
+    if (!numeros.length) return res.json({ ok: true, data: null })
+
+    const { rows: [insight] } = await pool.query(
+      `SELECT dados_extraidos -> 'qualificacao_bant' AS qualificacao_bant
+         FROM app.lead_insights
+        WHERE empresa_id = $1
+          AND tipo = 'playbook_runtime'
+          AND numero = ANY($2::text[])
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+      [req.empresa.id, numeros]
+    )
+    return res.json({ ok: true, data: insight?.qualificacao_bant || null })
+  } catch (err) {
+    logger.error('GET prospeccao/prospects/:id/qualificacao-bant:', err.message)
+    return res.status(500).json({ ok: false, error: { code: 'BANT_FAILED', message: 'Não foi possível carregar os sinais BANT.' } })
   }
 })
 

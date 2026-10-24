@@ -26,6 +26,7 @@ import {
 import { useFeedback } from '@/components/feedback/FeedbackProvider'
 import Botao from '@/components/ui/Botao'
 import { IconClose } from '@/components/ui/icons'
+import QualificacaoBant, { type QualificacaoBantDados } from '@/components/QualificacaoBant'
 import {
   VARIANTES, O_QUE_MEDE, NOTA_COMPLETUDE, fatoresDeCadastro, leituraCadastro,
 } from '@/lib/pontuacao-indicador'
@@ -616,6 +617,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
   secao?: SecaoFicha
 }) {
   const [jsonAberto, setJsonAberto] = useState(false)
+  const [qualificacaoBant, setQualificacaoBant] = useState<QualificacaoBantDados>(null)
   const [respostasIcp, setRespostasIcp] = useState<Record<string, boolean>>({})
   const [observacaoIcp, setObservacaoIcp] = useState('')
   const [autosaveIcp, setAutosaveIcp] = useState<EstadoAutosaveIcp>('idle')
@@ -707,6 +709,22 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
     // isso, porque a sobrescrita não vem da resposta atrasada: vem do pai.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lead.id])
+
+  // BANT e' dado de conversa, enquanto este componente tambem atende o Banco de Leads. A
+  // consulta acontece uma vez ao abrir a ficha, por id do lead e empresa, sem engrossar a lista.
+  useEffect(() => {
+    let ativo = true
+    if (!empresaId || !lead.id) {
+      setQualificacaoBant(null)
+      return () => { ativo = false }
+    }
+    setQualificacaoBant(null)
+    apiFetch<QualificacaoBantDados>(`/api/empresas/${empresaId}/prospeccao/prospects/${lead.id}/qualificacao-bant`)
+      .then((r) => { if (ativo) setQualificacaoBant(r.data || null) })
+      // BANT e' apoio de leitura: falhar ao carregá-lo nao pode impedir o operador de usar a ficha.
+      .catch(() => { if (ativo) setQualificacaoBant(null) })
+    return () => { ativo = false }
+  }, [empresaId, lead.id])
 
   function alterarRespostaIcp(id: string, marcado: boolean) {
     if (!podeEditarIcp) return
@@ -849,6 +867,7 @@ export default function LeadDetalhesModal({ lead, onFechar, instanciaDesconectad
             )}
 
             <div className={variante === 'modal' ? 'mt-4 grid gap-3' : 'grid gap-3'}>
+              {ver('qualificacao') && <QualificacaoBant qualificacao={qualificacaoBant} compacto={variante === 'embutido'} />}
               {ver('qualificacao') && (podeEditarIcp ? (
                 <SecaoModal
                 titulo="ICP do lead"

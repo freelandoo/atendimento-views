@@ -9,6 +9,7 @@
 // Os helpers de agenda abaixo são puros e foram trazidos inline do core-funnel.
 
 const { avaliarEnvio, resumoBloqueio, CAPACIDADES } = require('./conversa-modo-ia')
+const { resumoQualificacaoBant } = require('./qualificacao-bant')
 
 const MENSAGEM_AGENDA_INDISPONIVEL =
   'Nao consegui consultar a agenda agora. Vou pedir para a equipe da {{empresa}} verificar os proximos horarios e te chamar por aqui.'
@@ -64,7 +65,18 @@ function createContexto2Responder(deps = {}) {
     enviarMensagem,
     buscarSlotsDisponiveis,
     validarSlotReuniao,
+    cancelarFollowupsDoLead,
+    definirModoAnalise,
   } = deps
+
+  const cancelarPendenciasDeFollowup = typeof cancelarFollowupsDoLead === 'function'
+    ? cancelarFollowupsDoLead
+    : (empresaId, numero, motivo) => require('./followup-listing').cancelarPorLead(pool, empresaId, numero, motivo)
+  const colocarConversaEmAnalise = typeof definirModoAnalise === 'function'
+    ? definirModoAnalise
+    : (empresaId, numero) => require('./conversa-manual').alterarModoIaConversa({
+      pool, empresaId, numero, modo: 'analise', usuarioId: null, log: logger,
+    })
 
   /**
    * Resposta para empresas com Contexto 2 (playbook) ATIVO. Cada empresa responde
@@ -114,6 +126,11 @@ function createContexto2Responder(deps = {}) {
     const decisao = res?.decisao || {}
     let texto = typeof decisao.mensagem_pro_lead === 'string' ? decisao.mensagem_pro_lead.trim() : ''
     const precisaHandoff = !!decisao.precisa_handoff
+    const vereditoDeEnvio = avaliarEnvio({ preferencia: conversaUsada?.modo_ia, modoGlobal, capacidade })
+    // Só a exceção explícita da conversa representa um handoff BANT já executado.
+    // O modo global Análise continua sendo uma configuração geral, não prova de
+    // que este lead já recebeu o aviso de assunção.
+    const conversaJaEmAnaliseBant = vereditoDeEnvio.origem === 'excecao' && !vereditoDeEnvio.permitido
     const patchPerfilDecisao = decisao.atualizar_perfil && typeof decisao.atualizar_perfil === 'object' && !Array.isArray(decisao.atualizar_perfil)
       ? decisao.atualizar_perfil
       : {}
@@ -123,9 +140,43 @@ function createContexto2Responder(deps = {}) {
       })
     }
 
+    // A qualificação completa é um handoff silencioso: a última mensagem do
+    // lead já respondeu o que faltava, então não há uma nova fala automática.
+    // A conversa passa para modo Análise (e não para agente_pausado): mensagens
+    // posteriores continuam atualizando os insights, mas não recebem resposta.
+    const qualificacaoBant = extracao?.qualificacao_bant
+    if (qualificacaoBant?.status === 'pronto_para_assuncao' && !conversaJaEmAnaliseBant) {
+      const perfilHandoff = await buscarPerfil(numero).catch(() => ({}))
+      const resumo = resumoQualificacaoBant(qualificacaoBant) || 'Qualificação BANT concluída.'
+      await cancelarPendenciasDeFollowup(empresaId, numero, 'qualificacao_bant_concluida').catch((e) => {
+        logger.warn({ err: e.message, empresa_id: empresaId, numero }, 'Playbook: cancelamento de follow-ups BANT falhou')
+      })
+      await colocarConversaEmAnalise(empresaId, numero).catch((e) => {
+        logger.warn({ err: e.message, empresa_id: empresaId, numero }, 'Playbook: modo Análise BANT falhou')
+      })
+      await alertarHandoff(
+        numero,
+        perfilHandoff,
+        null,
+        'qualificacao_bant_concluida',
+        resumo,
+        { resultado: { atualizar_perfil: patchPerfilDecisao } }
+      ).catch((e) => logger.warn({ err: e.message, empresa_id: empresaId, numero }, 'Playbook: alerta de qualificação BANT falhou'))
+      await salvarConversa(numero, historico, estagioLive, 'aguardando_handoff', undefined, empresaId, evolutionInstance)
+      await limparFalhaResposta(numero).catch(() => {})
+      logger.info(
+        { empresa_id: empresaId, numero, handoff: true, via: 'playbook', motivo: 'qualificacao_bant_concluida' },
+        'Qualificação BANT concluída; conversa em análise para assunção humana'
+      )
+      return { ok: true, via: 'playbook', handoff: true, mensagem_suprimida: true }
+    }
+
     // ── Agenda (reunião) — reusa os helpers/booking da infra ───────────────────
+    // Depois do handoff BANT, modo Análise é estritamente observacional: nem
+    // mensagem, nem oferta/confirmação de agenda pode sair desse caminho.
+    const somenteAnaliseBant = qualificacaoBant?.status === 'pronto_para_assuncao' && conversaJaEmAnaliseBant
     let reuniaoConfirmada = false
-    try {
+    if (!somenteAnaliseBant) try {
       const perfilPb = await buscarPerfil(numero).catch(() => ({}))
       const reuniaoProp = perfilPb?.reuniao_proposta && typeof perfilPb.reuniao_proposta === 'object' ? perfilPb.reuniao_proposta : {}
       const temOfertaPendente = Array.isArray(reuniaoProp.horarios_sugeridos) && reuniaoProp.horarios_sugeridos.length > 0 && !!reuniaoProp.data_sugerida
@@ -186,7 +237,7 @@ function createContexto2Responder(deps = {}) {
     // Nao persistimos nada aqui de proposito: a mensagem que nao foi entregue NAO entra no
     // historico como `assistant` — o painel mostraria ao operador um balao do agente que o
     // cliente nunca recebeu, e o proximo turno raciocinaria sobre uma fala que nao existiu.
-    const veredito = avaliarEnvio({ preferencia: conversaUsada?.modo_ia, modoGlobal, capacidade })
+    const veredito = vereditoDeEnvio
     if (!veredito.permitido) {
       logger.info(
         resumoBloqueio({ empresaId, numero, modo: veredito.modo, origem: veredito.origem, capacidade }),

@@ -4780,3 +4780,43 @@ resposta em produção — projeto próprio, com verificação ao vivo. Fica dec
 
 **D8 — A prévia da tela é uma ROTA, não uma reimplementação no front.** O front só traduz; a régua
 que a tela mostra é literalmente a que o disparo executa.
+
+**D9 — A análise futura da primeira abordagem amplia o painel existente, mas não muda o fluxo
+agora.** O operador decidiu manter a IA por nicho limitada à primeira abordagem nesta etapa e
+registrar a medição futura como pendência. Quando retomada, ela evolui **Aquisição → Acompanhar
+resultados**, que é somente leitura, em vez de criar um dashboard separado. A análise deve atribuir
+resultado ao snapshot realmente enviado (oferta/contexto/versão), distinguir enviado, resposta,
+avanço e venda, e nunca tratar silêncio como recusa automática. Nenhuma migration, envio,
+configuração ou tela foi autorizada nesta decisão.
+
+## 2026-10-24 — Qualificação BANT adaptativa na prospecção
+
+**D1 — BANT é extração por mensagem, não questionário linear.** Necessidade, timing, autoridade e
+budget são extraídos juntos sempre que o lead responde; a ordem N→T→A→B só prioriza a próxima
+lacuna. Uma informação já dita não pode ser perguntada de novo.
+
+**D2 — Ligação é tarefa humana.** Depois de até dois follow-ups automáticos por mensagem, o
+sistema cria pendência para a pessoa ligar; não inicia chamada nem comunica essa passagem ao lead.
+
+**D3 — Qualificação encerra a resposta automática de forma silenciosa.** Ao haver contexto BANT
+suficiente, o backend cancela follow-ups pendentes escopados à empresa, envia o handoff interno e
+troca a conversa para modo **Análise**, em vez de `agente_pausado`: assim as mensagens futuras
+continuam atualizando o resumo, mas não recebem resposta, agenda ou alerta repetido. Recusa,
+opt-out e desinteresse explícito não entram como lead qualificado.
+
+**D4 — BANT é um sinal de conversa e ICP é perfil de negócio; a tela os mostra separados.** O
+bloco BANT entrou na Central de Mensagens e em Qualificação no Banco de Leads, antes do ICP. A
+API devolve o snapshot persistido pelo runtime; o front apenas traduz o veredito. Para preservar a
+carteira, a leitura do Banco é sob demanda por lead, com candidatos de telefone e recorte de
+empresa, não um join por linha da listagem.
+
+**D5 — Vermelho exige negativo explícito; desconhecido não é descarte.** Verde é confirmado,
+amarelo é pendente/precisa esclarecer, vermelho é necessidade inexistente, sem prioridade ou sem
+orçamento declarados. "Sem caixa agora", aprovação pendente e ausência de resposta ficam
+amarelos. Não foi implementada mudança automática de status, descarte ou exclusão: falta o
+operador fechar os motivos e o efeito operacional de cada um.
+
+**D6 — Dor de nicho é hipótese até o lead confirmar.** A evolução deve distinguir
+`declarada_pelo_lead`, `observada_no_negocio` e `hipotese_de_nicho`. Só a primeira confirma BANT;
+a observação pública é contexto e a hipótese serve para formular pergunta. Pesquisa web automática
+permanece fora do escopo até haver fonte, data, URL, versão e autorização explícitas.

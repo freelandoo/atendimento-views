@@ -93,6 +93,7 @@ function createHandoffAlerts(deps = {}) {
   // Rótulo humano do motivo do handoff (cabeçalho do ping compacto).
   const MOTIVO_LABEL = {
     agendou_reuniao_proposta: 'Reunião agendada',
+    qualificacao_bant_concluida: 'Lead qualificado para assumir',
     aceitou_proposta: 'Proposta aceita',
     lead_pediu_humano: 'Lead pediu humano',
     conversa_longa_sem_avanco: 'Conversa longa sem avanço',
