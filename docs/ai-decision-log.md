@@ -4820,3 +4820,23 @@ operador fechar os motivos e o efeito operacional de cada um.
 `declarada_pelo_lead`, `observada_no_negocio` e `hipotese_de_nicho`. Só a primeira confirma BANT;
 a observação pública é contexto e a hipótese serve para formular pergunta. Pesquisa web automática
 permanece fora do escopo até haver fonte, data, URL, versão e autorização explícitas.
+
+## 2026-10-24 — Worker do Banco de Leads em modo degradado seguro
+
+**D1 — A ausência comprovada de `MessageUpdate` degrada confirmação, não o disparo.** O Railway
+mostrou que `reconciliarConfirmacoesPendentes` falhava antes da avaliação da fila quando ambos os
+schemas esperados estavam ausentes. `evolution_message_update_missing` é um erro fechado e
+conhecido: a confirmação fica indisponível, mas linhas pendentes continuam fora da fila e o
+Automatico pode avaliar somente novos candidatos. Erro de banco, SQL ou regra diferente continua
+interrompendo o tick; não há `catch` genérico.
+
+**D2 — Na dúvida sobre entrega, não reabordar.** Nenhum `lead_disparos` pendente é promovido a
+falho, enviado ou elegível por causa da indisponibilidade. O caminho existente de idempotência e
+reserva permanece fonte de verdade; restaurar a auditoria da Evolution exige provar a fonte real
+dos eventos, não criar uma tabela vazia.
+
+**D3 — Logs recorrentes são resumidos e há sinal de recuperação.** A primeira falha, cada 15ª
+ocorrência e a recuperação registram evento estruturado, código, componente, impacto, worker e
+contador. O estado em memória do worker expõe início, última execução, sucesso, falha, contagem e
+saúde da reconciliação no diagnóstico já existente do Automatico. Não há segredo ou PII nesses
+campos.

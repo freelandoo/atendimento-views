@@ -30,8 +30,133 @@ const LOCK_KEY = 'banco-leads-worker'
 const CANDIDATE_PAGE_SIZE = 50
 const CANDIDATE_SCAN_LIMIT = 500
 const GERACAO_TRAVADA_MINUTOS = 10
+const RESUMIR_RECONCILIACAO_A_CADA_FALHAS = 15
 const autoScanOffsets = new Map()
 let workerTickRodando = false
+const saudeWorker = {
+  estado: 'nao_iniciado',
+  iniciado_em: null,
+  ultima_execucao_em: null,
+  ultima_execucao_bem_sucedida_em: null,
+  ultima_falha_em: null,
+  falhas_consecutivas: 0,
+  reconciliacao: {
+    estado: 'desconhecido',
+    codigo_erro: null,
+    primeira_falha_em: null,
+    ultima_falha_em: null,
+    falhas_consecutivas: 0,
+  },
+}
+
+function isoAgora(now = new Date()) {
+  return now.toISOString()
+}
+
+function erroMessageUpdateIndisponivel(err) {
+  return err?.code === 'evolution_message_update_missing'
+}
+
+function registrarFalhaReconciliacao(err, now = new Date()) {
+  const instante = isoAgora(now)
+  const codigo = String(err?.code || 'evolution_reconciliation_failed')
+  const anterior = saudeWorker.reconciliacao
+  const mesmaFalha = anterior.estado === 'indisponivel' && anterior.codigo_erro === codigo
+  const falhas = mesmaFalha ? anterior.falhas_consecutivas + 1 : 1
+  saudeWorker.reconciliacao = {
+    estado: 'indisponivel',
+    codigo_erro: codigo,
+    primeira_falha_em: mesmaFalha ? anterior.primeira_falha_em : instante,
+    ultima_falha_em: instante,
+    falhas_consecutivas: falhas,
+  }
+  saudeWorker.estado = 'degradado'
+
+  // O primeiro erro e resumos periódicos continuam visíveis sem transformar um problema
+  // conhecido a cada minuto em uma enxurrada de logs idênticos.
+  if (falhas === 1 || falhas % RESUMIR_RECONCILIACAO_A_CADA_FALHAS === 0) {
+    logger.error({
+      component: 'evolution-reconciliation',
+      event: 'reconciliation_failed',
+      error_code: codigo,
+      retryable: false,
+      impact: 'message_confirmation_unavailable',
+      worker_id: REPLICA_ID,
+      consecutive_failures: falhas,
+      first_failure_at: saudeWorker.reconciliacao.primeira_falha_em,
+      err,
+    }, '[banco-leads-auto] reconciliação Evolution indisponível; automático segue em modo degradado')
+  }
+  return { ...saudeWorker.reconciliacao }
+}
+
+function registrarSucessoReconciliacao(now = new Date()) {
+  const anterior = saudeWorker.reconciliacao
+  if (anterior.estado === 'indisponivel') {
+    logger.info({
+      component: 'evolution-reconciliation',
+      event: 'reconciliation_recovered',
+      worker_id: REPLICA_ID,
+      previous_error_code: anterior.codigo_erro,
+      previous_consecutive_failures: anterior.falhas_consecutivas,
+      recovered_at: isoAgora(now),
+    }, '[banco-leads-auto] reconciliação Evolution recuperada')
+  }
+  saudeWorker.reconciliacao = {
+    estado: 'saudavel',
+    codigo_erro: null,
+    primeira_falha_em: null,
+    ultima_falha_em: null,
+    falhas_consecutivas: 0,
+  }
+}
+
+function registrarFalhaWorker(err, now = new Date()) {
+  saudeWorker.estado = 'falhando'
+  saudeWorker.ultima_falha_em = isoAgora(now)
+  saudeWorker.falhas_consecutivas += 1
+  if (saudeWorker.falhas_consecutivas === 1
+    || saudeWorker.falhas_consecutivas % RESUMIR_RECONCILIACAO_A_CADA_FALHAS === 0) {
+    logger.error({
+      component: 'banco-leads-auto-worker',
+      event: 'worker_tick_failed',
+      error_code: String(err?.code || 'worker_tick_failed'),
+      retryable: true,
+      impact: 'automatic_dispatch_interrupted',
+      worker_id: REPLICA_ID,
+      consecutive_failures: saudeWorker.falhas_consecutivas,
+      err,
+    }, '[banco-leads-auto] tick interrompido antes de concluir')
+  }
+}
+
+function registrarSucessoWorker(now = new Date(), degradado = false) {
+  if (saudeWorker.falhas_consecutivas > 0) {
+    logger.info({
+      component: 'banco-leads-auto-worker',
+      event: 'worker_tick_recovered',
+      worker_id: REPLICA_ID,
+      previous_consecutive_failures: saudeWorker.falhas_consecutivas,
+      recovered_at: isoAgora(now),
+      mode: degradado ? 'degradado' : 'saudavel',
+    }, '[banco-leads-auto] execução do tick recuperada')
+  }
+  saudeWorker.estado = degradado ? 'degradado' : 'saudavel'
+  saudeWorker.ultima_execucao_bem_sucedida_em = isoAgora(now)
+  saudeWorker.falhas_consecutivas = 0
+}
+
+function obterSaudeBancoLeadsWorker() {
+  return {
+    estado: saudeWorker.estado,
+    iniciado_em: saudeWorker.iniciado_em,
+    ultima_execucao_em: saudeWorker.ultima_execucao_em,
+    ultima_execucao_bem_sucedida_em: saudeWorker.ultima_execucao_bem_sucedida_em,
+    ultima_falha_em: saudeWorker.ultima_falha_em,
+    falhas_consecutivas: saudeWorker.falhas_consecutivas,
+    reconciliacao: { ...saudeWorker.reconciliacao },
+  }
+}
 
 function minutosDoDia(hhmm) {
   const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})$/)
@@ -715,6 +840,7 @@ async function estadoAutomatico(pool, empresaId, now = new Date(), deps = {}) {
     instancias_disponiveis: escolha.disponiveis || 0,
     menor_cooldown_s: escolha.menor_cooldown_s,
     instancias,
+    saude_worker: obterSaudeBancoLeadsWorker(),
   }
 }
 
@@ -767,6 +893,7 @@ async function verificarBancoLeadsSemi(pool, deps = {}) {
 async function executarBancoLeadsWorkerTick(pool, now = new Date(), deps = {}) {
   if (workerTickRodando) return { ok: true, motivo: 'tick_em_andamento' }
   workerTickRodando = true
+  saudeWorker.ultima_execucao_em = isoAgora(now)
   const replicaId = deps.replicaId || REPLICA_ID
   const adquirir = deps.adquirirLiderancaFn || adquirirLiderancaWorker
   const renovar = deps.renovarLiderancaFn || renovarLiderancaWorker
@@ -785,12 +912,40 @@ async function executarBancoLeadsWorkerTick(pool, now = new Date(), deps = {}) {
     }, 30000)
     if (heartbeat.unref) heartbeat.unref()
 
-    const confirmacoes = await reconciliar(pool)
+    let confirmacoes
+    let reconciliacaoDegradada = false
+    try {
+      confirmacoes = await reconciliar(pool)
+      registrarSucessoReconciliacao(now)
+    } catch (err) {
+      // Esta indisponibilidade impede apenas a auditoria da confirmação. Os disparos que já
+      // chegaram à Evolution continuam pendentes e nunca voltam à fila por essa via; por isso é
+      // seguro avaliar NOVOS candidatos sem duplicar os existentes. Erros diferentes seguem
+      // interrompendo o tick: banco, SQL ou regra de negócio não podem ser escondidos aqui.
+      if (!erroMessageUpdateIndisponivel(err)) throw err
+      reconciliacaoDegradada = true
+      const saude = registrarFalhaReconciliacao(err, now)
+      confirmacoes = {
+        estado: 'indisponivel',
+        motivo: 'evolution_message_update_missing',
+        falhas_consecutivas: saude.falhas_consecutivas,
+      }
+    }
     const [semi, automatico] = await Promise.all([
       verificarSemi(pool, deps),
       verificarAuto(pool, now, deps),
     ])
-    return { ok: true, motivo: 'executado', confirmacoes, semi, automatico }
+    registrarSucessoWorker(now, reconciliacaoDegradada)
+    return {
+      ok: true,
+      motivo: reconciliacaoDegradada ? 'executado_degradado' : 'executado',
+      confirmacoes,
+      semi,
+      automatico,
+    }
+  } catch (err) {
+    registrarFalhaWorker(err, now)
+    throw err
   } finally {
     if (heartbeat) clearInterval(heartbeat)
     if (lider) {
@@ -802,6 +957,8 @@ async function executarBancoLeadsWorkerTick(pool, now = new Date(), deps = {}) {
 }
 
 function iniciarBancoLeadsAutoWorker(pool) {
+  saudeWorker.estado = 'iniciado'
+  saudeWorker.iniciado_em = isoAgora()
   logger.info({ intervalo_ms: WORKER_MS, replica_id: REPLICA_ID }, '[banco-leads-auto] worker iniciado')
   const tick = () => {
     executarBancoLeadsWorkerTick(pool, new Date()).catch((e) =>
@@ -833,6 +990,8 @@ module.exports = {
   estadoAutomatico,
   listarInstanciasDiagnostico,
   erroDaInstancia,
+  erroMessageUpdateIndisponivel,
+  obterSaudeBancoLeadsWorker,
   dentroDaJanela,
   sortearIntervaloMinutos,
   minutosDoDia,

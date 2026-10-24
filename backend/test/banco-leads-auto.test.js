@@ -356,3 +356,50 @@ test('executarBancoLeadsWorkerTick impede reentrancia no mesmo processo', async 
   assert.equal(final.motivo, 'executado')
   assert.equal(liberacoes, 1)
 })
+
+test('MessageUpdate ausente degrada só a confirmação e mantém a fila automática segura', async () => {
+  let automaticoExecutado = 0
+  let semiExecutado = 0
+  const indisponivel = new Error('Tabela MessageUpdate da Evolution não encontrada')
+  indisponivel.code = 'evolution_message_update_missing'
+
+  const resultado = await executarBancoLeadsWorkerTick({}, now, {
+    replicaId: 'replica-message-update-ausente',
+    adquirirLiderancaFn: async () => true,
+    renovarLiderancaFn: async () => true,
+    liberarLiderancaFn: async () => {},
+    reconciliarFn: async () => { throw indisponivel },
+    verificarSemiFn: async () => { semiExecutado++; return { ok: true } },
+    verificarAutoFn: async () => { automaticoExecutado++; return { ok: true, resultados: [] } },
+  })
+
+  assert.equal(resultado.motivo, 'executado_degradado')
+  assert.deepEqual(resultado.confirmacoes, {
+    estado: 'indisponivel',
+    motivo: 'evolution_message_update_missing',
+    falhas_consecutivas: resultado.confirmacoes.falhas_consecutivas,
+  })
+  assert.equal(resultado.confirmacoes.falhas_consecutivas >= 1, true)
+  assert.equal(semiExecutado, 1)
+  assert.equal(automaticoExecutado, 1)
+})
+
+test('erro desconhecido da reconciliação continua interrompendo o tick', async () => {
+  let automaticoExecutado = false
+  const falhaBanco = new Error('connection reset')
+  falhaBanco.code = 'ECONNRESET'
+
+  await assert.rejects(
+    () => executarBancoLeadsWorkerTick({}, now, {
+      replicaId: 'replica-falha-real',
+      adquirirLiderancaFn: async () => true,
+      renovarLiderancaFn: async () => true,
+      liberarLiderancaFn: async () => {},
+      reconciliarFn: async () => { throw falhaBanco },
+      verificarSemiFn: async () => ({ ok: true }),
+      verificarAutoFn: async () => { automaticoExecutado = true; return { ok: true } },
+    }),
+    (err) => err.code === 'ECONNRESET'
+  )
+  assert.equal(automaticoExecutado, false)
+})

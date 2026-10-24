@@ -6876,3 +6876,21 @@ capacidade nova, não cria venda nem comissão (proposta não é pagamento).
 - **Ajuste posterior do operador:** no desktop, a faixa passa a reservar explicitamente 60% para
   sinais comerciais, 30% para prioridade/fit e 10% para atendente e pausa/retomada. Em telas
   menores, os blocos continuam empilhados para não truncar informação operacional.
+
+## 2026-10-24 — Recuperação segura do worker automático e observabilidade
+- **Pedido do operador:** corrigir o bloqueio do envio automático causado pela ausência de
+  `MessageUpdate`, registrar falhas recorrentes de forma estruturada e auditar os workers contra
+  repetição, sobreposição e custo desnecessário. Produção não será alterada, implantada nem usada
+  para disparar mensagens nesta tarefa.
+- **Evidência inicial:** no Railway, `banco-leads-auto` iniciou com os demais workers, mas cada
+  tick de 60 segundos falhou antes de avaliar a fila com `evolution_message_update_missing`.
+  A chamada de reconciliação precede o Automatico e encerrava todo o tick.
+- **Escopo e regras preservadas:** backend em `services/banco-leads-auto.js` e seus testes; a
+  confirmação indisponível permanece pendente e não libera reabordagem. Teto, janela, cooldown,
+  elegibilidade, idempotência e rodízio não serão modificados. Sem migration, dependência, rota,
+  segredo ou mudança de configuração.
+- **Implementação e validação:** o erro fechado passa a operar em modo degradado com logs
+  estruturados, resumo por recorrência, recuperação e estado exposto no diagnóstico já existente.
+  `npm test` passou 3.407/3.407 e `npm run smoke:preco` passou. `npm run typecheck` continua
+  bloqueado por cinco erros preexistentes em `api-painel-comercial`/`painel-comercial`, fora do
+  diff. Nenhum deploy foi autorizado ou realizado.

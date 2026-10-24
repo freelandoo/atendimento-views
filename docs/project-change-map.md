@@ -1389,6 +1389,20 @@ existe e nao deve nascer.
   o campo legado `sitePronto` representa "oferta/estrutura pronta" e não pode virar "site pronto"
   quando a oferta selecionada for CRM/sistema/estrutura comercial.
 
+## Automático do Banco de Leads: reconciliação degradada e saúde do worker (2026-10-24)
+
+- Backend: `services/banco-leads-auto.js`, `test/banco-leads-auto.test.js`.
+- Regras preservadas: `lead_disparos` pendente não volta à fila por confirmação desconhecida;
+  reserva, idempotência, teto global, cooldown por instância, janela e rodízio não mudam. Somente
+  `evolution_message_update_missing` permite continuar o ciclo; qualquer outra falha de
+  reconciliação continua bloqueante.
+- Observabilidade: a rota de estado do Automático passa a devolver `saude_worker`; os logs Pino
+  informam falha inicial, resumo a cada 15 ocorrências e recuperação, sem credenciais ou PII.
+- Auditoria: job-worker, silence-watcher, busca de leads, verificação WhatsApp e Banco de Leads
+  possuem proteção local e/ou distribuída contra sobreposição. A captação social não tem guarda
+  local de tick nem claim distribuído dos snapshots; é pendência separada por envolver crédito
+  Bright Data e exigir teste dedicado antes de alteração.
+
 ## Cruzamento fiscal CNPJ/SEFAZ para superadmin (2026-09-26)
 
 - Backend: rota global `api-admin-fiscal`, DB `fiscal-cnpj`, service `cnpj-provider`, migration
