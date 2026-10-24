@@ -2,8 +2,15 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
 const { createMediaProcessing } = require('../src/media-processing')
 const { enfileirarTranscricaoAudio } = require('../src/db/audio-transcricao')
+
+const migration119 = fs.readFileSync(
+  path.join(__dirname, '..', 'sql', 'migrations', '119_audio_transcricao_resiliente.sql'),
+  'utf8'
+)
 
 function criarMedia(registrar = async () => ({ id: 42 })) {
   return createMediaProcessing({
@@ -58,6 +65,15 @@ test('mimetype e extensão preservam OGG/Opus aceito pela transcrição oficial'
   assert.equal(media.mimeAudioNormalizado('audio/opus; codecs=opus'), 'audio/ogg')
   assert.equal(media.extensaoAudio('audio/ogg'), 'ogg')
   assert.equal(media.extensaoAudio('audio/mpeg', 'gravacao.mp3'), 'mp3')
+})
+
+test('migration 119 troca a CHECK antes de converter processed em completed', () => {
+  const removerCheck = migration119.indexOf('DROP CONSTRAINT IF EXISTS audio_processamentos_status_chk')
+  const atualizarLegado = migration119.indexOf("SET status = 'completed'")
+  const criarCheck = migration119.indexOf('ADD CONSTRAINT audio_processamentos_status_chk')
+  assert.ok(removerCheck >= 0 && atualizarLegado >= 0 && criarCheck >= 0)
+  assert.ok(removerCheck < atualizarLegado, 'a CHECK antiga precisa sair antes do UPDATE legado')
+  assert.ok(atualizarLegado < criarCheck, 'a CHECK nova só pode entrar depois da conversão')
 })
 
 test('reprocessamento reutiliza a fila idempotente e nunca recoloca áudio concluído', async () => {

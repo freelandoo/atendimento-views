@@ -9,12 +9,14 @@ ALTER TABLE vendas.audio_processamentos
   ADD COLUMN IF NOT EXISTS tentativa_em TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS proxima_tentativa_em TIMESTAMPTZ;
 
+ALTER TABLE vendas.audio_processamentos
+  DROP CONSTRAINT IF EXISTS audio_processamentos_status_chk;
+
+-- A CHECK antiga ainda aceita apenas `processed`; primeiro liberamos a transição
+-- e só depois normalizamos as linhas legadas, dentro da mesma transação da migration.
 UPDATE vendas.audio_processamentos
    SET status = 'completed'
  WHERE status = 'processed';
-
-ALTER TABLE vendas.audio_processamentos
-  DROP CONSTRAINT IF EXISTS audio_processamentos_status_chk;
 
 ALTER TABLE vendas.audio_processamentos
   ADD CONSTRAINT audio_processamentos_status_chk
